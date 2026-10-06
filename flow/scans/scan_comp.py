@@ -24,7 +24,7 @@ from flow.adc import AdcParams
 from flow.adc.sim import AdcTbParams
 from flow.analysis import calc
 from flow.analysis.io import read_measurement, write_measurement
-from flow.analysis.types import CompDaq, CompExtWave, MeasCompExt, MeasInfo
+from flow.analysis.types import MeasComp, MeasInfo, Wave
 from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.scans.fastrx import (
     convert_fastrx_words_to_comp,
@@ -72,7 +72,7 @@ def _comp_point_stem(params: AdcScanParams) -> str:
         rail_label = f"_pcpl{float(params.requested_dac_rail_percent):06.2f}pct"
     return (
         (
-            f"{params.board_id}_adc{params.observed_adc:02d}_{params.campaign}_"
+            f"{params.board_id:02d}_adc{params.observed_adc:02d}_{params.campaign}_"
             f"{params.sampling_mode}_mode{params.tb.dac_mode}_diff{params.tb.dac_diffcaps}_"
             f"settle{float(params.settling_time_s) * 1e9:06.2f}ns_{params.sweep_stage}{rail_label}_"
             f"vcm{float(params.tb.vin_cm.dc) * 1e3:07.2f}mv_"
@@ -102,7 +102,7 @@ def _build_comp_params(
 ) -> AdcScanParams:
     """Compose one complete physical comparator point without hardware I/O."""
 
-    board_id = "00"
+    board_id = 0
     board_map = load_board_map()
     flavor = board_map["boards"][board_id]["adc_channels"][adc_index]
     cap_weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
@@ -249,7 +249,7 @@ def build_sampling_noise_variants(
     from flow.scans.scan_cdac import _convert_dac_rail_percent_to_codes
 
     board_map = load_board_map()
-    board = board_map["boards"]["00"]
+    board = board_map["boards"][0]
     vin_diff_values_v = _fixed_grid_values(minimum_v, maximum_v, step_v)
     variants = []
     for adc_index in adc_indices:
@@ -424,7 +424,7 @@ def scan(
     drift_checkpoint_curves: set[tuple[Any, ...]] = set()
     for path in sorted(run_dir.glob("*.h5")):
         measurement = read_measurement(path)
-        if not isinstance(measurement, MeasCompExt):
+        if not isinstance(measurement, MeasComp):
             raise TypeError(f"comparator run directory contains {type(measurement).__name__}: {path}")
         stem = _comp_point_stem(measurement.param)
         if stem in existing_paths:
@@ -446,12 +446,7 @@ def scan(
     from basil.dut import Dut
 
     map_dir = Path(__file__).resolve().parent
-    scope_tracks = {
-        f"{name}_v": channel
-        for name, channel in (
-            scope_channels("vin_diff", "seq_comp", "comp_out") if capture_scope_per_curve else {}
-        ).items()
-    }
+    scope_tracks = scope_channels("vin_diff", "seq_comp", "comp_out") if capture_scope_per_curve else {}
     daq_dut = Dut(str(map_dir / "map_fpga.yaml"))
     awg_dut = Dut(str(map_dir / "map_awg.yaml"))
     vin_cm_dut = Dut(str(map_dir / "map_supply.yaml"))
@@ -543,16 +538,16 @@ def scan(
             for signal_name, channel in scope_tracks.items():
                 scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
                 scope.set_coupling("DC", channel=channel)
-                scope.set_vertical_scale(0.01 if signal_name == "vin_diff_v" else 0.2, channel=channel)
+                scope.set_vertical_scale(0.01 if signal_name == "vin_diff" else 0.2, channel=channel)
                 scope.set_vertical_position(0.0, channel=channel)
                 scope.set_vertical_offset(0.0, channel=channel)
-                scope.set_bandwidth(200.0e6 if signal_name == "vin_diff_v" else 2.0e9, channel=channel)
+                scope.set_bandwidth(200.0e6 if signal_name == "vin_diff" else 2.0e9, channel=channel)
             scope.set_trigger_type("EDGE")
-            scope.set_trigger_source(channel=scope_tracks["seq_comp_v"])
+            scope.set_trigger_source(channel=scope_tracks["seq_comp"])
             scope.set_trigger_edge_slope("RISE")
             # The differential sequencer probe is centered around zero and swings
             # to roughly +/-0.6 V; trigger at its zero crossing.
-            scope.set_trigger_level(0.0, channel=scope_tracks["seq_comp_v"])
+            scope.set_trigger_level(0.0, channel=scope_tracks["seq_comp"])
             scope.set_trigger_mode("NORMAL")
 
         daq["gpio0"]["RST_B"] = 0
@@ -764,9 +759,7 @@ def scan(
                 assert acquisition_count_before is not None
                 scope_started = monotonic()
                 wait_for_scope_capture(scope, acquisition_count_before, timeout_s=scope_timeout_s)
-                scope_waveforms = scope.get_waveforms(
-                    {channel: name.removesuffix("_v") for name, channel in scope_tracks.items()}
-                )
+                scope_waveforms = scope.get_waveforms({channel: name for name, channel in scope_tracks.items()})
                 missing_channels = sorted(set(scope_tracks.values()).difference(scope_waveforms))
                 if missing_channels:
                     raise RuntimeError(f"scope did not return channels {missing_channels}")
@@ -781,17 +774,13 @@ def scan(
             trial_index = np.arange(params.conversions, dtype=np.int64)
             wave = None
             if scope_waveforms is not None:
-                reference = scope_waveforms[scope_tracks["vin_diff_v"]]
+                reference = scope_waveforms[scope_tracks["vin_diff"]]
                 scope_time_s = reference.x_scale.offset + np.arange(len(reference.data)) * reference.x_scale.slope
                 wave_signals = {
                     name: np.asarray(scope_waveforms[channel].data, dtype=np.float64)[None, :]
                     for name, channel in scope_tracks.items()
                 }
-                wave = CompExtWave(
-                    trial_index=np.asarray([0], dtype=np.int64),
-                    time_s=scope_time_s,
-                    **wave_signals,
-                )
+                wave = Wave(record_index=np.asarray([0], dtype=np.int64), time_s=scope_time_s, v=wave_signals)
             readbacks: dict[str, str | int | float | bool] = {
                 "si570_frequency_hz": si570_frequency_hz,
                 "pll_divider_n": pll_divider_n,
@@ -825,24 +814,23 @@ def scan(
                     readbacks[f"{field}_{quantity}"] = value
 
             h5_path = run_dir / f"{next_file_index:05d}_{point_stem}.h5"
-            measurement = MeasCompExt(
+            measurement = MeasComp(
+                group=scan_params.board_id,
+                index=scan_params.observed_adc,
+                dut=scan_params.tb.dut.comp,
                 info=MeasInfo(
-                    schema_version=2,
-                    measurement_type="MeasCompExt",
                     backend="physical",
                     timestamp_utc=datetime.now().astimezone(),
                     instruments=instrument_identities,
                     readbacks=readbacks,
                 ),
                 param=scan_params,
-                daq=CompDaq(
-                    trial_index=trial_index,
-                    vin_diff_v=np.full(params.conversions, vin_diff_v),
-                    vin_cm_v=np.full(params.conversions, vin_cm_v),
-                    decision=decisions,
-                    fastrx_word=fastrx_words,
-                    fastrx_frame=frames,
-                ),
+                trial_index=trial_index,
+                vin_diff_v=np.full(params.conversions, vin_diff_v),
+                vin_cm_v=np.full(params.conversions, vin_cm_v),
+                decision=decisions,
+                fastrx_word=fastrx_words,
+                fastrx_frame=frames,
                 wave=wave,
             )
             write_measurement(h5_path, measurement)

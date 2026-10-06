@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -18,20 +17,19 @@ import flow.analysis.plots as analysis_plots
 from flow.adc.sequences import symbol160_init4_samp20_comp11111100_logic11000011
 from flow.analysis.adc import (
     analyze_adc_cdac_settling,
+    analyze_adc_code_density_nonlinearity,
     analyze_adc_code_distribution,
     analyze_adc_comp_out_edge_eye,
+    analyze_adc_comparator_edge_eye,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
-    analyze_adc_dynamic_sweep,
-    analyze_adc_noise_sweep,
-    analyze_adc_nonlinearity,
-    analyze_adc_power_sweep,
+    analyze_adc_noise,
+    analyze_adc_power,
     analyze_adc_power_waveform,
     analyze_adc_ramp,
     analyze_adc_transfer,
 )
-from flow.analysis.cdac import _expected_cdac_effective_fraction
-from flow.analysis.comp import analyze_comp_offset_noise
+from flow.analysis.comp import analyze_comp_common_mode, analyze_comp_offset_noise
 from flow.analysis.plots import (
     CURVE_COLORS,
     DENSITY_COLOR_MAP,
@@ -76,19 +74,17 @@ from flow.analysis.plots import (
     plot_waveforms,
     style_adc_code_dispersion_lsb,
     style_grid,
+    style_measurement_text,
 )
 from flow.analysis.test_adc import adc_cdac_settling_measurement, adc_measurement, adc_ramp_measurement
 from flow.analysis.test_comp import comparator_measurement
-from flow.analysis.test_types import all_measurements
+from flow.analysis.test_types import cdac_physical
 from flow.analysis.types import (
-    AnalysisAdcNoiseComparison,
     AnalysisCdacCapMismatch,
-    CompDaq,
-    MeasAdcExt,
-    MeasAdcInt,
-    MeasCompExt,
+    MeasAdc,
+    MeasComp,
+    Wave,
 )
-from flow.analysis.waveform import analyze_measurement_waveforms
 from flow.scans.scan_cdac import _build_cdac_params
 from flow.scans.scan_comp import _build_comp_params
 
@@ -118,13 +114,25 @@ def test_adc_comp_out_edge_eye_uses_paired_basil_captures(tmp_path: Path) -> Non
                 for channel, values in ((3, comp_v), (2, out_v))
             }
         )
-    analysis = analyze_adc_comp_out_edge_eye(
-        captures,
-        comp_channel=3,
-        comp_out_channel=2,
-        sequence=sequence,
-        symbol_rate_bps=rate,
-    )
+    base = adc_measurement([2048], observed_adc=1)
+    params = replace(base.param, tb=replace(base.param.tb, symbol_rate=rate, **sequence.as_tb_fields()))
+    measurements = [
+        replace(
+            base,
+            param=params,
+            wave=Wave(
+                record_index=np.asarray([0]),
+                time_s=time_s,
+                v={
+                    "seq_comp": np.asarray(capture[3].data)[None, :],
+                    "seq_logic": np.zeros((1, len(time_s))),
+                    "comp_out": np.asarray(capture[2].data)[None, :],
+                },
+            ),
+        )
+        for capture in captures
+    ]
+    analysis = analyze_adc_comp_out_edge_eye(measurements)
     paths = plot_adc_comp_out_edge_eye(analysis, output_path=tmp_path / "comparator")
     bounds = analysis.delay_bounds_s
     assert bounds[0] == pytest.approx(5.5e-9, abs=0.1e-9)
@@ -247,25 +255,20 @@ def test_adc_comparator_edge_eye_uses_every_conversion_and_absolute_xc(tmp_path,
     from flow.analysis.test_adc import adc_timing_measurement
 
     measurement = adc_timing_measurement()
+    assert measurement.wave is not None
     wave = measurement.wave
+    assert wave is not None
     repeated = replace(
         measurement,
         param=replace(measurement.param, conversions=2),
-        daq=replace(
-            measurement.daq,
-            conversion_index=np.arange(2),
-            bout=np.repeat(measurement.daq.bout, 2, axis=0),
-            dout_raw=np.repeat(measurement.daq.dout_raw, 2),
-            dout=np.repeat(measurement.daq.dout, 2),
-            vin_diff_v=np.repeat(measurement.daq.vin_diff_v, 2),
-            fastrx_word=(
-                np.repeat(measurement.daq.fastrx_word, 2) if measurement.daq.fastrx_word is not None else None
-            ),
-        ),
+        conversion_index=np.arange(2),
+        bout=np.repeat(measurement.bout, 2, axis=0),
+        dout_raw=np.repeat(measurement.dout_raw, 2),
+        dout=np.repeat(measurement.dout, 2),
+        vin_diff_v=np.repeat(measurement.vin_diff_v, 2),
+        fastrx_word=np.repeat(measurement.fastrx_word, 2) if measurement.fastrx_word is not None else None,
         wave=replace(
-            wave,
-            conversion_index=np.arange(2),
-            voltage={name: np.repeat(values, 2, axis=0) for name, values in wave.voltage.items()},
+            wave, record_index=np.arange(2), v={name: np.repeat(values, 2, axis=0) for name, values in wave.v.items()}
         ),
     )
     figures = []
@@ -276,7 +279,7 @@ def test_adc_comparator_edge_eye_uses_every_conversion_and_absolute_xc(tmp_path,
         return save_figure(fig, output_path, **kwargs)
 
     monkeypatch.setattr(analysis_plots, "save_figure", capture)
-    paths = plot_adc_comparator_edge_eye(repeated, output_path=tmp_path / "pex_eye")
+    paths = plot_adc_comparator_edge_eye(analyze_adc_comparator_edge_eye(repeated), output_path=tmp_path / "pex_eye")
     assert all(path.exists() for path in paths)
     assert [len(collection.get_segments()) for collection in figures[0].axes[0].collections] == [2] * 3
     assert [len(collection.get_segments()) for collection in figures[1].axes[0].collections] == [34] * 3
@@ -298,6 +301,9 @@ def test_adc_comparator_response_uses_per_decision_sample_fractions(tmp_path, mo
     captured = []
     monkeypatch.setattr(analysis_plots, "save_figure", lambda fig, path, **_kwargs: captured.append(fig) or (path,))
     analysis = AnalysisAdcComparatorResponse(
+        group=None,
+        index=None,
+        dut=None,
         conversion_index=np.arange(40),
         decision_index=np.zeros(40, dtype=int),
         internal_response_s=np.r_[values, np.full(36, np.nan)],
@@ -457,17 +463,19 @@ def test_code_dispersion_text_distinguishes_single_bin_and_small_spread() -> Non
 
 def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -> None:
     msmt = adc_measurement([1, 2, 3], internal=True)
+    assert msmt.wave is not None
     paths = plot_waveforms(
-        analyze_measurement_waveforms(
-            msmt,
-            signal_names=("vin_p", "dac_botplate_p[0]"),
-        ),
+        msmt.wave,
+        signals={"vin_p": "vin_p", "dac_botplate_p[0]": "dac_botplate_p[0]", "i(vdd_a)": "VDD_A current"},
+        title="ADC waveforms",
+        setup_lines=style_measurement_text(msmt),
         output_path=tmp_path / "wave",
     )
     assert_plot_formats(paths)
     svg = read_svg(paths)
     assert "vin_p" in svg
     assert "dac_botplate_p[0]" in svg
+    assert "VDD_A current (A)" in svg
     assert "Time (" in svg
     assert "Source: SPICE" in svg
     assert "Conversion: 1.6 MSPS" in svg
@@ -537,32 +545,36 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
         group = []
         for vin_diff_v, ones in ((-1e-3, 100), (0.0, 50), (1e-3, 0)):
             base = comparator_measurement()
+            params = _build_comp_params(
+                adc_index=0,
+                campaign="comp_common_mode",
+                sampling_mode="track",
+                sweep_stage="fixed",
+                vin_cm_v=vin_cm_v,
+                vin_diff_v=vin_diff_v,
+                conversions=100,
+            )
             group.append(
-                MeasCompExt(
-                    info=replace(base.info, measurement_type="MeasCompExt", backend="physical"),
-                    param=_build_comp_params(
-                        adc_index=0,
-                        campaign="comp_common_mode",
-                        sampling_mode="track",
-                        sweep_stage="fixed",
-                        vin_cm_v=vin_cm_v,
-                        vin_diff_v=vin_diff_v,
-                        conversions=100,
-                    ),
-                    daq=CompDaq(
-                        trial_index=np.arange(100),
-                        vin_diff_v=np.full(100, vin_diff_v),
-                        vin_cm_v=np.full(100, vin_cm_v),
-                        decision=np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8))),
-                    ),
+                MeasComp(
+                    group=params.board_id,
+                    index=params.observed_adc,
+                    dut=params.tb.dut.comp,
+                    info=replace(base.info, backend="physical"),
+                    param=params,
+                    trial_index=np.arange(100),
+                    vin_diff_v=np.full(100, vin_diff_v),
+                    vin_cm_v=np.full(100, vin_cm_v),
+                    decision=np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8))),
                     wave=None,
                 )
             )
         comparator_groups.append(group)
         comparator_analyses.append(analyze_comp_offset_noise(group))
+    comparator_measurements = [measurement for group in comparator_groups for measurement in group]
     comparator_paths = plot_comp_common_mode_campaign(
-        comparator_groups,
+        comparator_measurements,
         comparator_analyses,
+        analyze_comp_common_mode(comparator_measurements, offsets=comparator_analyses),
         output_path=tmp_path / "comp_campaign",
     )
     assert comparator_paths[0].is_file()
@@ -578,10 +590,13 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
         conversions=1,
         sweep_stage="fixed",
     )
-    cdac_measurement = replace(all_measurements()[4], param=params)
+    cdac_measurement = replace(
+        cdac_physical(), group=params.board_id, index=params.observed_adc, dut=params.tb.dut.cdac, param=params
+    )
     cdac_analysis = AnalysisCdacCapMismatch(
-        adc_index=0,
-        expected_effective_fraction=np.full(16, 0.015),
+        group=0,
+        index=0,
+        dut=cdac_measurement.dut,
         main_fraction=np.full((2, 16), 0.02),
         diff_fraction=np.full((2, 16), 0.005),
         effective_fraction=np.full((2, 16), 0.015),
@@ -610,7 +625,7 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
             sweep_stage="fixed",
         )
         comparison_groups.append([replace(cdac_measurement, param=adc_params)])
-        comparison_analyses.append(replace(cdac_analysis, adc_index=adc_index))
+        comparison_analyses.append(replace(cdac_analysis, index=adc_index))
     comparison_paths = plot_cdac_cap_mismatch_comparison(
         comparison_groups,
         comparison_analyses,
@@ -646,25 +661,27 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
             (center_v + 1.0e-3, 100),
         ):
             base = comparator_measurement()
+            params = _build_comp_params(
+                adc_index=0,
+                campaign=campaign,
+                sampling_mode=mode,
+                sweep_stage="fixed",
+                vin_cm_v=vin_cm_v,
+                vin_diff_v=vin_diff_v,
+                conversions=100,
+                requested_dac_rail_percent=coupling_percent,
+            )
             measurements.append(
-                MeasCompExt(
-                    info=replace(base.info, measurement_type="MeasCompExt", backend="physical"),
-                    param=_build_comp_params(
-                        adc_index=0,
-                        campaign=campaign,
-                        sampling_mode=mode,
-                        sweep_stage="fixed",
-                        vin_cm_v=vin_cm_v,
-                        vin_diff_v=vin_diff_v,
-                        conversions=100,
-                        requested_dac_rail_percent=coupling_percent,
-                    ),
-                    daq=CompDaq(
-                        trial_index=np.arange(100),
-                        vin_diff_v=np.full(100, vin_diff_v),
-                        vin_cm_v=np.full(100, vin_cm_v),
-                        decision=np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8))),
-                    ),
+                MeasComp(
+                    group=params.board_id,
+                    index=params.observed_adc,
+                    dut=params.tb.dut.comp,
+                    info=replace(base.info, backend="physical"),
+                    param=params,
+                    trial_index=np.arange(100),
+                    vin_diff_v=np.full(100, vin_diff_v),
+                    vin_cm_v=np.full(100, vin_cm_v),
+                    decision=np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8))),
                     wave=None,
                 )
             )
@@ -673,9 +690,12 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
     common_groups = [
         group("comp_common_mode", "track", vin_cm_v, center_v=10.0e-3) for vin_cm_v in (0.6, 0.7, 0.8, 1.0)
     ]
+    common_measurements = [measurement for values in common_groups for measurement in values]
+    common_offsets = [analyze_comp_offset_noise(values) for values in common_groups]
     plot_comp_common_mode_campaign(
-        common_groups,
-        [analyze_comp_offset_noise(values) for values in common_groups],
+        common_measurements,
+        common_offsets,
+        analyze_comp_common_mode(common_measurements, offsets=common_offsets),
         output_path=Path("unused_common"),
     )
     common_figure = figures[-1]
@@ -689,18 +709,22 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
     assert [
         line.get_label() for line in common_figure.axes[0].get_lines() if line.get_label().startswith("Vin_cm")
     ] == [
+        "Vin_cm = 0.6 V",
         "Vin_cm = 0.7 V",
         "Vin_cm = 0.8 V",
         "Vin_cm = 1 V",
     ]
-    assert common_figure.axes[1].get_xticks() == pytest.approx((0.7, 0.8, 1.0))
-    assert common_figure.axes[1].get_xlim() == pytest.approx((0.65, 1.05))
+    # Plotters never drop data: the 0.6 V common mode below the old crop stays visible.
+    assert common_figure.axes[1].get_xticks() == pytest.approx((0.6, 0.7, 0.8, 1.0))
+    assert common_figure.axes[1].get_xlim() == pytest.approx((0.55, 1.05))
     assert common_figure.axes[1].get_xlabel() == "Common-mode input (V)"
     assert common_figure.axes[1].get_ylabel() == "Input error (mV)"
     common_fit_lines = [line for line in common_figure.axes[0].get_lines() if line.get_label().startswith("Vin_cm")]
-    assert len(common_figure.axes[0].collections) == 3
+    assert len(common_figure.axes[0].collections) == 4
     assert all(len(line.get_xdata()) == 1_001 for line in common_fit_lines)
-    expected_common_mode_colors = [SPECTRUM_COLOR_MAP((vin_cm_v - 0.7) / (1.2 - 0.7)) for vin_cm_v in (0.7, 0.8, 1.0)]
+    expected_common_mode_colors = [
+        SPECTRUM_COLOR_MAP((vin_cm_v - 0.6) / (1.0 - 0.6)) for vin_cm_v in (0.6, 0.7, 0.8, 1.0)
+    ]
     for line, expected_color in zip(common_fit_lines, expected_common_mode_colors, strict=True):
         np.testing.assert_allclose(mcolors.to_rgba(line.get_color()), expected_color)
     for violin, expected_color in zip(
@@ -774,24 +798,34 @@ def test_cdac_pex_expectation_includes_recorded_topplate_parasitic() -> None:
         conversions=1,
         sweep_stage="fixed",
     )
-    base = replace(all_measurements()[4], param=params)
+    base = replace(
+        cdac_physical(), group=params.board_id, index=params.observed_adc, dut=params.tb.dut.cdac, param=params
+    )
     measurement = replace(
         base,
         info=replace(base.info, readbacks={"cdac_topplate_parasitic_weight": 100.0}),
     )
     weights = np.asarray(params.tb.dut.cdac.weights, dtype=np.float64)
     expected = weights / (np.sum(65.0 * np.ceil(weights / 64.0)) + 100.0)
-    np.testing.assert_allclose(
-        _expected_cdac_effective_fraction([measurement]),
-        expected,
-    )
+    np.testing.assert_allclose(measurement.expected_effective_fraction, expected)
 
+    # Measurements of one ADC that disagree on the expectation cannot share one plot.
     inconsistent = replace(
         measurement,
         info=replace(measurement.info, readbacks={"cdac_topplate_parasitic_weight": 200.0}),
     )
+    analysis = AnalysisCdacCapMismatch(
+        group=None,
+        index=None,
+        dut=measurement.dut,
+        main_fraction=np.zeros((2, 16)),
+        diff_fraction=np.zeros((2, 16)),
+        effective_fraction=np.zeros((2, 16)),
+        effective_fraction_by_direction=np.zeros((2, 16, 2)),
+        direction_bias=np.zeros((2, 16, 2)),
+    )
     with pytest.raises(ValueError, match="inconsistent"):
-        _expected_cdac_effective_fraction([measurement, inconsistent])
+        plot_cdac_cap_mismatch([measurement, inconsistent], analysis, output_path=Path("unused"))
 
 
 def test_adc_transfer_noise_and_linearity_plots(tmp_path: Path) -> None:
@@ -813,7 +847,7 @@ def test_adc_transfer_noise_and_linearity_plots(tmp_path: Path) -> None:
         ),
         plot_adc_static_nonlinearity(
             msmt,
-            analyze_adc_nonlinearity(msmt, method="code_density", code_range=(1, 14)),
+            analyze_adc_code_density_nonlinearity(msmt),
             output_path=tmp_path / "nonlin",
         ),
     )
@@ -824,25 +858,19 @@ def test_adc_transfer_noise_and_linearity_plots(tmp_path: Path) -> None:
 def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
     """Keep ramp plotters independent of measurements and CDAC fitting."""
 
-    analysis = analyze_adc_ramp(adc_ramp_measurement())
-    nominal = analysis.curves[0]
-    analysis = replace(
-        analysis,
-        curves=(
-            nominal,
-            replace(
-                nominal,
-                decoding="calibration1",
-                label="CDAC S-curve weights",
-                transfer_mean_dout=nominal.transfer_mean_dout + 1.0,
-            ),
-        ),
+    nominal = analyze_adc_ramp(adc_ramp_measurement())
+    calibrated = replace(
+        nominal,
+        decoding="calibration1",
+        label="CDAC S-curve weights",
+        transfer_mean_dout=nominal.transfer_mean_dout + 1.0,
     )
+    ramps = (nominal, calibrated)
     outputs = (
-        plot_adc_ramp_transfer(analysis, output_path=tmp_path / "ramp_transfer"),
-        plot_adc_ramp_histogram(analysis, output_path=tmp_path / "ramp_histogram"),
-        plot_adc_ramp_weights(analysis, output_path=tmp_path / "ramp_weights"),
-        plot_adc_ramp_nonlinearity(analysis, output_path=tmp_path / "ramp_nonlinearity"),
+        plot_adc_ramp_transfer(ramps, output_path=tmp_path / "ramp_transfer"),
+        plot_adc_ramp_histogram(ramps, output_path=tmp_path / "ramp_histogram"),
+        plot_adc_ramp_weights(nominal, calibrated, output_path=tmp_path / "ramp_weights"),
+        plot_adc_ramp_nonlinearity(ramps, output_path=tmp_path / "ramp_nonlinearity"),
     )
     for paths in outputs:
         assert_plot_formats(paths)
@@ -874,7 +902,7 @@ def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:
             )
         )
     dynamic = analyze_adc_dynamic(measurements[0])
-    sweep = analyze_adc_dynamic_sweep(measurements)
+    sweep = [analyze_adc_dynamic(measurement) for measurement in measurements]
     assert_plot_formats(
         plot_adc_dynamic(
             measurements[0],
@@ -890,7 +918,7 @@ def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:
         )
     )
 
-    decisions = analyze_adc_decision_paths(measurements[0], selection="single")
+    decisions = analyze_adc_decision_paths(measurements[0])
     paths = plot_adc_decision_paths(
         measurements[0],
         decisions,
@@ -901,7 +929,7 @@ def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:
     assert "ADC decision paths" in decision_svg
     assert GRID_MAJOR_COLOR.lower() not in decision_svg.lower()
 
-    all_decisions = analyze_adc_decision_paths(measurements[0], selection="all")
+    all_decisions = decisions
     density_paths = plot_adc_decision_path_density(
         measurements[0],
         all_decisions,
@@ -932,7 +960,7 @@ def test_decision_path_density_holds_each_discrete_estimate(
     """Do not invent linearly interpolated SAR estimates between decisions."""
 
     msmt = adc_measurement([100, 101, 102])
-    analysis = analyze_adc_decision_paths(msmt, selection="all")
+    analysis = analyze_adc_decision_paths(msmt)
     original_histogram2d = np.histogram2d
     sampled_estimates = []
     rendered_polygons = []
@@ -1014,7 +1042,7 @@ def test_decision_path_density_marks_unresolved_code_dispersion(
     """Report an all-one-code capture as unresolved rather than noiseless."""
 
     measurement = adc_measurement([2_048] * 10)
-    analysis = analyze_adc_decision_paths(measurement, selection="all")
+    analysis = analyze_adc_decision_paths(measurement)
     captured = {}
 
     def save(fig, output_path):
@@ -1058,16 +1086,11 @@ def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
             )
         )
 
-    noise = analyze_adc_noise_sweep(measurements)
+    # Results from different ADCs share one plotter instead of a comparison type.
     dynamic_paths = plot_adc_noise_sweep(
         measurements,
-        AnalysisAdcNoiseComparison(
-            active_conversion_rate_hz=noise.active_conversion_rate_hz,
-            input_lsb_v=noise.input_lsb_v,
-            input_referred_noise_rms_v=noise.input_referred_noise_rms_v,
-            noise_valid=noise.noise_valid,
-            series_label=("ADC00", "ADC01"),
-        ),
+        [analyze_adc_noise(measurement) for measurement in measurements],
+        series_labels=("ADC00", "ADC01"),
         output_path=tmp_path / "dynamic_rate",
     )
     assert_plot_formats(dynamic_paths)
@@ -1081,7 +1104,7 @@ def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
     power_outputs = [
         plot_adc_power_sweep(
             (measurement,),
-            analyze_adc_power_sweep((measurement,)),
+            [analyze_adc_power(measurement)],
             output_path=tmp_path / f"power_adc{measurement.param.observed_adc:02d}",
         )
         for measurement in measurements
@@ -1120,9 +1143,10 @@ def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> No
         internal=True,
         waveform_sample_count=201,
     )
-    assert isinstance(measurement, MeasAdcInt)
+    assert measurement.wave is not None
+    assert isinstance(measurement, MeasAdc)
     time_s = measurement.wave.time_s
-    seq_init_v = np.zeros_like(measurement.wave.voltage["seq_init"])
+    seq_init_v = np.zeros_like(measurement.wave.v["seq_init"])
     seq_init_v[0, (time_s >= 25.0e-9) & (time_s <= 50.0e-9)] = 1.2
     seq_samp_v = np.zeros_like(seq_init_v)
     seq_samp_v[0, (time_s >= 75.0e-9) & (time_s <= 100.0e-9)] = 1.2
@@ -1144,9 +1168,9 @@ def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> No
         measurement,
         wave=replace(
             measurement.wave,
-            current=currents,
-            voltage={
-                **measurement.wave.voltage,
+            i=currents,
+            v={
+                **measurement.wave.v,
                 "seq_init": seq_init_v,
                 "seq_samp": seq_samp_v,
                 "seq_comp": seq_comp_v,
@@ -1154,7 +1178,8 @@ def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> No
             },
         ),
     )
-    analysis = analyze_adc_power_sweep((measurement,))
+    assert measurement.wave is not None
+    analysis = [analyze_adc_power(measurement)]
 
     rate_paths = plot_adc_power_sweep(
         (measurement,),
@@ -1162,7 +1187,7 @@ def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> No
         output_path=tmp_path / "spice_ideal_power_vs_conversion_rate",
     )
     waveform_paths = plot_adc_power_waveform(
-        analyze_adc_power_waveform(measurement),
+        analyze_adc_power_waveform(measurement, power=analysis[0]),
         output_path=tmp_path / "spice_ideal_10msps_supply_power",
     )
 
@@ -1195,7 +1220,7 @@ def test_noise_sweep_plot_uses_stable_timing_colors(tmp_path: Path) -> None:
     ]
     paths = plot_adc_noise_sweep(
         measurements,
-        analyze_adc_noise_sweep(measurements),
+        [analyze_adc_noise(measurement) for measurement in measurements],
         output_path=tmp_path / "noise_sweep",
     )
     assert_plot_formats(paths)
@@ -1224,7 +1249,7 @@ def test_noise_distribution_sweep_uses_one_count_scale(tmp_path: Path) -> None:
     ]
     paths = plot_adc_noise_distribution_sweep(
         measurements,
-        analyze_adc_noise_sweep(measurements),
+        [analyze_adc_noise(measurement) for measurement in measurements],
         output_path=tmp_path / "noise_distributions",
     )
 
@@ -1250,30 +1275,28 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
 ) -> None:
     measurement_groups = tuple(
         tuple(
-            cast(
-                MeasAdcExt,
-                adc_measurement(
-                    (
-                        [code_center + adc_index] * 5
-                        if adc_index == 0 and rate_hz == 10.0e6
-                        else [
-                            code_center - 2 + adc_index,
-                            code_center - 1 + adc_index,
-                            code_center + adc_index,
-                            code_center + adc_index,
-                            code_center + 1 + adc_index,
-                        ]
-                    ),
-                    sample_rate_hz=rate_hz / 1.6,
-                    observed_adc=adc_index,
-                    logic_phase_delay_symbols=2,
+            adc_measurement(
+                (
+                    [code_center + adc_index] * 5
+                    if adc_index == 0 and rate_hz == 10.0e6
+                    else [
+                        code_center - 2 + adc_index,
+                        code_center - 1 + adc_index,
+                        code_center + adc_index,
+                        code_center + adc_index,
+                        code_center + 1 + adc_index,
+                    ]
                 ),
+                sample_rate_hz=rate_hz / 1.6,
+                observed_adc=adc_index,
+                logic_phase_delay_symbols=2,
             )
             for rate_hz in (2.0e6, 6.0e6, 10.0e6)
         )
         for adc_index in range(16)
     )
-    analyses = tuple(analyze_adc_noise_sweep(measurements) for measurements in measurement_groups)
+    measurements = [measurement for group in measurement_groups for measurement in group]
+    analyses = [analyze_adc_noise(measurement) for measurement in measurements]
     captured = {}
 
     def save(fig, output_path):
@@ -1283,7 +1306,7 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
 
     monkeypatch.setattr(analysis_plots, "save_figure", save)
     paths = plot_adc_noise_distribution_grid(
-        measurement_groups,
+        measurements,
         analyses,
         output_path=tmp_path / "noise_distribution_grid",
     )
@@ -1310,16 +1333,20 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
     assert all(any(line.get_linestyle() == ":" for line in ax.lines) for ax in axes)
     assert all(not ax.texts for ax in axes)
     assert all(len(ax.artists) == 1 for ax in axes)
-    for adc_index, (ax, analysis) in enumerate(zip(axes, analyses, strict=True)):
-        order = np.argsort(analysis.active_conversion_rate_hz)
-        means = analysis.mean_dout[order]
-        standard_deviations = analysis.std_dout[order]
+    for adc_index, ax in enumerate(axes):
+        group = sorted(
+            (analysis for analysis in analyses if analysis.index == adc_index),
+            key=lambda analysis: analysis.active_conversion_rate_hz,
+        )
+        means = np.asarray([analysis.mean_dout for analysis in group])
+        standard_deviations = np.asarray([analysis.std_dout for analysis in group])
+        counts = np.asarray([analysis.count for analysis in group])
         summary_box = ax.artists[0]
         summary_texts = tuple(text_area.get_children()[0] for text_area in summary_box.get_child().get_children())
         dispersion_range_text = (
             "σ:"
-            f"{'<1.0' if np.count_nonzero(analysis.count[order][0]) == 1 else f'{standard_deviations[0]:.1f}'}→"
-            f"{'<1.0' if np.count_nonzero(analysis.count[order][-1]) == 1 else f'{standard_deviations[-1]:.1f}'} LSB"
+            f"{'<1.0' if np.count_nonzero(counts[0]) == 1 else f'{standard_deviations[0]:.1f}'}→"
+            f"{'<1.0' if np.count_nonzero(counts[-1]) == 1 else f'{standard_deviations[-1]:.1f}'} LSB"
         )
         assert tuple(text.get_text() for text in summary_texts) == (
             f"ADC:{adc_index:02d}",
@@ -1353,7 +1380,7 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
     system_info = legend_children[1].get_children()[0]
     system_info_text = system_info.get_text()
     assert "ADCs: 00-15" in system_info_text
-    assert "Board: test_board" in system_info_text
+    assert "Board: 07" in system_info_text
     assert "CDAC init: h'5555" in system_info_text
     assert "N: 5" in system_info_text
     assert legend_box.pad == mpl.rcParamsDefault["legend.borderpad"]
@@ -1362,12 +1389,17 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
     mean_line = axes[1].lines[-1]
     lower_deviation_line = axes[1].lines[-3]
     upper_deviation_line = axes[1].lines[-2]
-    analysis = analyses[1]
-    np.testing.assert_allclose(mean_line.get_ydata(), analysis.mean_dout)
-    np.testing.assert_allclose(lower_deviation_line.get_ydata(), analysis.mean_dout - analysis.std_dout)
-    np.testing.assert_allclose(upper_deviation_line.get_ydata(), analysis.mean_dout + analysis.std_dout)
-    assert np.all(mean_line.get_xdata() < analysis.active_conversion_rate_hz / 1e6)
-    assert np.all(lower_deviation_line.get_xdata() < analysis.active_conversion_rate_hz / 1e6)
+    adc01 = sorted(
+        (analysis for analysis in analyses if analysis.index == 1), key=lambda a: a.active_conversion_rate_hz
+    )
+    adc01_mean = np.asarray([analysis.mean_dout for analysis in adc01])
+    adc01_std = np.asarray([analysis.std_dout for analysis in adc01])
+    adc01_rate_msps = np.asarray([analysis.active_conversion_rate_hz for analysis in adc01]) / 1e6
+    np.testing.assert_allclose(mean_line.get_ydata(), adc01_mean)
+    np.testing.assert_allclose(lower_deviation_line.get_ydata(), adc01_mean - adc01_std)
+    np.testing.assert_allclose(upper_deviation_line.get_ydata(), adc01_mean + adc01_std)
+    assert np.all(mean_line.get_xdata() < adc01_rate_msps)
+    assert np.all(lower_deviation_line.get_xdata() < adc01_rate_msps)
     assert mean_line.get_marker() == lower_deviation_line.get_marker() == upper_deviation_line.get_marker() == "None"
     assert (
         mean_line.get_linestyle() == lower_deviation_line.get_linestyle() == upper_deviation_line.get_linestyle() == ":"
@@ -1399,7 +1431,7 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
 
 def test_rate_distributions_keep_rare_distant_codes_and_actual_rates(tmp_path, monkeypatch):
     measurements = [adc_measurement([100] * 1000 + [1000], sample_rate_hz=1e6)]
-    analysis = analyze_adc_noise_sweep(measurements)
+    analysis = [analyze_adc_noise(measurement) for measurement in measurements]
     figures = []
     monkeypatch.setattr(analysis_plots, "save_figure", lambda fig, output_path: figures.append(fig) or ())
     plot_adc_noise_distribution_sweep(measurements, analysis, rate_axis="sampling", output_path=tmp_path / "codes")
@@ -1413,7 +1445,7 @@ def test_rate_distributions_keep_rare_distant_codes_and_actual_rates(tmp_path, m
 
 def test_noise_rate_plot_keeps_distinct_sequence_labels_and_large_spreads(tmp_path, monkeypatch):
     measurements = [adc_measurement([0, 100], sample_rate_hz=1e6), adc_measurement([100, 101], sample_rate_hz=2e6)]
-    analysis = analyze_adc_noise_sweep(measurements)
+    analysis = [analyze_adc_noise(measurement) for measurement in measurements]
     figures = []
     monkeypatch.setattr(analysis_plots, "save_figure", lambda fig, output_path: figures.append(fig) or ())
     plot_adc_noise_sweep(
@@ -1430,14 +1462,3 @@ def test_noise_rate_plot_keeps_distinct_sequence_labels_and_large_spreads(tmp_pa
     period_axis = next(axis for axis in figures[0].axes if axis.get_xlabel() == "Repetition interval (ns)")
     assert period_axis.get_xticklabels()[0].get_text() == "1e+03"
     plt.close(figures[0])
-
-
-def test_eye_segments_preserve_origin_identity_and_window_bounds() -> None:
-    axis = np.arange(0.0, 8.5, 0.5)
-    signal = 2 * axis
-    segments = analysis_plots._eye_segments(signal, axis, 2.0, 1.0, count=3, window=(0.0, 1.0))
-    assert [index for index, _ in segments] == [0, 1, 2]
-    np.testing.assert_allclose(segments[0][1], np.column_stack((np.arange(0.0, 1.25, 0.25), [2, 3, 4, 5, 6])))
-    np.testing.assert_allclose(segments[1][1][:, 0], segments[0][1][:, 0])
-    assert [index for index, _ in analysis_plots._eye_segments(signal, axis, 2.0, [1.0, 7.0], complete=True)] == [0]
-    assert analysis_plots._eye_segments(signal, axis, 2.0, [7.0], window=(0.0, 1.0), complete=True) == ()

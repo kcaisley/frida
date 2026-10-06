@@ -46,7 +46,7 @@ def adc_sample_rate_static() -> Path:
         params
         for sequence in sequences
         for params in build_adc_variants(
-            board_id="00",
+            board_id=0,
             adc_indices=(0, 1, 2, 3),
             active_conversion_rates_hz=tuple(
                 rate * 0.25e6 * 160 / sequence.conversion_symbols for rate in range(2, 41)
@@ -107,7 +107,7 @@ def adc_sequence_static(
     Select all ADCs and a single sequence for a grid, or the complete catalogue
     for a full timing campaign. Inputs and 1.2-V rails must be supplied manually.
     """
-    board_id = "00"
+    board_id = 0
     if sequences is None:
         # TODO: Restore all 29 continuous recipes after the INIT-LOGIC check.
         names = (
@@ -199,7 +199,7 @@ def adc_activity_noise() -> Path:
         dataclasses.replace(params, active_adc_mask=(1,) * 16) if all_active else params
         for all_active in (False, True)
         for params in build_adc_variants(
-            board_id="00",
+            board_id=0,
             adc_indices=adc_indices,
             active_conversion_rates_hz=(2.0e6, 6.0e6, 10.0e6),
             sequences=(symbol256_init8_samp16_comp11110000_logic11000011,),
@@ -242,7 +242,7 @@ def adc_activity_noise() -> Path:
 def adc_transfer_curve() -> Path:
     """Capture the settled static transfer of ADC00."""
 
-    board_id = "00"
+    board_id = 0
     adc_indices = (0,)
     # adc_indices = tuple(range(16))  # Extend the long sweep after checking these ADCs.
     active_conversion_rates_hz = (10.0e6,)
@@ -297,7 +297,7 @@ def adc_transfer_curve() -> Path:
 def adc_ramp_code_density() -> Path:
     """Capture ADC00--ADC03 full-scale sawtooth code density."""
 
-    board_id = "00"
+    board_id = 0
     adc_indices = (0, 1, 2, 3)
     # adc_indices = tuple(range(16))  # Extend the long sweep after checking these ADCs.
     active_conversion_rates_hz = (1.0e6,)

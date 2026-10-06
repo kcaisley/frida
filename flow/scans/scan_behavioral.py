@@ -20,8 +20,9 @@ import numpy as np
 
 from flow.adc.behavioral import SAR_ADC
 from flow.adc.sim import AdcTbParams
+from flow.adc.subckt import AdcNets
 from flow.analysis.io import write_measurement
-from flow.analysis.types import AdcDaq, AdcExtWave, MeasAdcExt, MeasInfo
+from flow.analysis.types import MeasAdc, MeasInfo, Wave
 from flow.caparray import get_caparray_weights
 from flow.scans.params import AdcScanParams
 from flow.scans.scan_adc import (
@@ -36,7 +37,7 @@ def build_adc_interface_wave(
     *,
     conversion_index: int = 0,
     samples_per_symbol: int = 4,
-) -> AdcExtWave:
+) -> Wave:
     """Build one dense behavioral ADC-interface waveform from test parameters."""
 
     if samples_per_symbol <= 0:
@@ -85,13 +86,15 @@ def build_adc_interface_wave(
     else:
         vin_diff_v = np.zeros_like(time_s)
     logic_high_v = float(params.vdd_d.dc)
-    return AdcExtWave(
-        conversion_index=np.asarray([conversion_index], dtype=np.int64),
+    return Wave(
+        record_index=np.asarray([conversion_index], dtype=np.int64),
         time_s=time_s,
-        vin_diff_v=vin_diff_v[None, :],
-        seq_comp_v=(logic_high_v * seq_comp)[None, :],
-        seq_logic_v=(logic_high_v * seq_logic)[None, :],
-        comp_out_v=(logic_high_v * np.repeat(comp_out_symbols, samples_per_symbol))[None, :],
+        v={
+            "vin_diff": vin_diff_v[None, :],
+            AdcNets.seq_comp.name: (logic_high_v * seq_comp)[None, :],
+            AdcNets.seq_logic.name: (logic_high_v * seq_logic)[None, :],
+            AdcNets.comp_out.name: (logic_high_v * np.repeat(comp_out_symbols, samples_per_symbol))[None, :],
+        },
     )
 
 
@@ -230,23 +233,22 @@ def main() -> None:
         dout_values[conversion_index] = dout
         print(f"conversion {conversion_index:02d}: Bout={bout} Dout_raw={dout_raw} Dout={dout}")
 
-    measurement = MeasAdcExt(
+    measurement = MeasAdc(
+        group=PARAMS.board_id,
+        index=PARAMS.observed_adc,
+        dut=PARAMS.tb.dut,
         info=MeasInfo(
-            schema_version=1,
-            measurement_type="MeasAdcExt",
             backend="behavioral",
             timestamp_utc=datetime.now().astimezone(),
             instruments={"model": f"{SAR_ADC.__module__}.{SAR_ADC.__name__}"},
             readbacks={"input_attenuation": attenuation},
         ),
         param=PARAMS,
-        daq=AdcDaq(
-            conversion_index=np.arange(PARAMS.tb.conversions),
-            bout=bout_values,
-            dout_raw=dout_raw_values,
-            dout=dout_values,
-            vin_diff_v=np.full(PARAMS.tb.conversions, vin_diff_v),
-        ),
+        conversion_index=np.arange(PARAMS.tb.conversions),
+        bout=bout_values,
+        dout_raw=dout_raw_values,
+        dout=dout_values,
+        vin_diff_v=np.full(PARAMS.tb.conversions, vin_diff_v),
         wave=build_adc_interface_wave(PARAMS.tb, bout_values[0]),
     )
     h5_path = SCAN_OUTDIR / f"adc_{ADC_INDEX:02d}.h5"

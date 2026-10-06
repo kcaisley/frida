@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import replace
-from typing import cast
+from typing import Literal
 
 import numpy as np
 from scipy.stats import norm
@@ -13,31 +12,54 @@ from scipy.stats import t as student_t
 
 from flow.analysis import calc
 from flow.analysis.types import (
-    AnalysisCompCandidateSweep,
+    AnalysisCompCandidate,
+    AnalysisCompCommonMode,
     AnalysisCompOffsetNoise,
     AnalysisCompPower,
     AnalysisCompTiming,
-    CompFitValidity,
-    CompSizeProfile,
-    MeasCdacExt,
-    MeasCompExt,
-    MeasCompInt,
+    MeasCdac,
+    MeasComp,
+    check_identity,
+    measurement_identity,
 )
+from flow.comp.sim import CompTbParams
 from flow.comp.subckt import CompNets
 
 
 def analyze_comp_offset_noise(
-    measurements: Sequence[MeasCompExt | MeasCompInt | MeasCdacExt],
+    measurements: Sequence[MeasComp | MeasCdac],
 ) -> AnalysisCompOffsetNoise:
-    """Fit comparator offset and input noise from binary decision sweeps."""
+    """Pool decision sweeps at one input common mode and fit offset and input noise.
 
-    if not measurements:
-        raise ValueError("comparator offset/noise analysis requires measurements")
+    The same S-curve fit locates a CDAC switching curve's transition, so CDAC
+    curves are accepted too; their common mode comes from the testbench when
+    the DAQ did not record it.
+    """
+
+    identity = measurement_identity(measurements)
+    # Compare common modes at 1 µV resolution, finer than any programmed step.
+    common_modes = np.unique(
+        np.round(
+            np.concatenate(
+                [
+                    np.full(len(measurement.decision), float(measurement.tb.vin_cm.dc))
+                    if isinstance(measurement, MeasCdac) and measurement.vin_cm_v is None
+                    else np.asarray(measurement.vin_cm_v)
+                    for measurement in measurements
+                ]
+            ),
+            decimals=6,
+        )
+    )
+    if len(common_modes) != 1:
+        raise ValueError("comparator offset/noise analysis requires measurements at one input common mode")
+
+    # Round inputs to 1 pV so repeated programmed values pool exactly.
     vin_diff_v = np.round(
-        np.concatenate([measurement.daq.vin_diff_v for measurement in measurements]),
+        np.concatenate([measurement.vin_diff_v for measurement in measurements]),
         decimals=12,
     )
-    decisions = np.concatenate([measurement.daq.decision for measurement in measurements])
+    decisions = np.concatenate([measurement.decision for measurement in measurements])
     unique_input, inverse = np.unique(vin_diff_v, return_inverse=True)
     if len(unique_input) < 3:
         raise ValueError("comparator offset/noise analysis requires at least three inputs")
@@ -49,11 +71,11 @@ def analyze_comp_offset_noise(
     )
     probability = decision_count / count
     trend = float(np.dot(unique_input - calc.average(unique_input), probability - calc.average(probability)))
-    decision_polarity = 1 if trend >= 0.0 else -1
+    decision_polarity: Literal[-1, 1] = 1 if trend >= 0.0 else -1
 
     # Adjacent-point reversals are tested across the complete curve. Use
-    # Bonferroni-adjusted Wilson bounds so a long 100 µV grid does not acquire
-    # an almost-certain false failure from repeated 95% pairwise tests.
+    # Bonferroni-adjusted 95% Wilson bounds so a long 100 µV grid does not
+    # acquire an almost-certain false failure from repeated pairwise tests.
     comparison_count = max(len(unique_input) - 1, 1)
     z_monotonic = float(norm.ppf(1.0 - 0.05 / (2.0 * comparison_count)))
     denominator = 1.0 + z_monotonic**2 / count
@@ -78,8 +100,8 @@ def analyze_comp_offset_noise(
     for measurement in measurements:
         batch_count = int(measurement.info.readbacks.get("capture_batch_count", 1))
         batch_trials = int(measurement.info.readbacks.get("capture_batch_trials", 0))
-        point_inputs = np.round(measurement.daq.vin_diff_v, decimals=12)
-        point_decisions = np.asarray(measurement.daq.decision)
+        point_inputs = np.round(measurement.vin_diff_v, decimals=12)
+        point_decisions = np.asarray(measurement.decision)
         if (
             batch_count < 2
             or batch_trials < 1
@@ -122,11 +144,13 @@ def analyze_comp_offset_noise(
     )
     fitted_probability = np.maximum.accumulate(oriented_probability)
 
-    # Measure the first rising contact; endpoint-only contacts remain unbracketed.
+    # Measure the first rising contact of the 16%, 50%, and 84% points: the
+    # Gaussian mean and +-1 sigma. Endpoint-only contacts remain unbracketed.
     p16 = calc.cross(fitted_probability, unique_input, 0.158655, occurrence=1)
     p50 = calc.cross(fitted_probability, unique_input, 0.5, occurrence=1)
     p84 = calc.cross(fitted_probability, unique_input, 0.841345, occurrence=1)
     noise_sigma_v = abs(p84 - p16) / 2.0 if math.isfinite(p16) and math.isfinite(p84) else math.nan
+    validity: Literal["valid", "unbracketed", "non_monotonic"]
     if significant_reversal:
         validity = "non_monotonic"
         p50 = math.nan
@@ -136,6 +160,10 @@ def analyze_comp_offset_noise(
     else:
         validity = "unbracketed"
     return AnalysisCompOffsetNoise(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        vin_cm_v=float(common_modes[0]),
         vin_diff_v=unique_input,
         decision_probability=probability,
         trial_count=count,
@@ -146,116 +174,109 @@ def analyze_comp_offset_noise(
     )
 
 
-def classify_comp_common_mode_validity(
-    measurement_groups: Sequence[Sequence[MeasCompExt | MeasCompInt]],
-    analyses: Sequence[AnalysisCompOffsetNoise],
-) -> tuple[AnalysisCompOffsetNoise, ...]:
-    """Contextually distinguish stuck comparator outputs from unbracketed curves."""
-
-    if len(measurement_groups) != len(analyses) or not measurement_groups:
-        raise ValueError("common-mode classification requires aligned non-empty groups and analyses")
-    common_modes = []
-    for group in measurement_groups:
-        if not group:
-            raise ValueError("common-mode classification groups must not be empty")
-        values = {float(value) for measurement in group for value in measurement.daq.vin_cm_v}
-        if len(values) != 1:
-            raise ValueError("each common-mode classification group must contain one Vin_cm")
-        common_modes.append(next(iter(values)))
-    if len(common_modes) != len(set(common_modes)):
-        raise ValueError("common-mode classification groups must have unique Vin_cm values")
-
-    classified = list(analyses)
-    common_mode_array = np.asarray(common_modes)
-    valid_analyses = np.asarray(
-        [candidate.validity == "valid" for candidate in analyses],
-        dtype=np.bool_,
-    )
-    for index, analysis in enumerate(analyses):
-        if analysis.validity != "unbracketed":
-            continue
-        probability = analysis.decision_probability
-        stuck_label = None
-        if np.all(probability <= 0.10):
-            stuck_label = "stuck-low"
-        elif np.all(probability >= 0.90):
-            stuck_label = "stuck-high"
-        if stuck_label is None:
-            continue
-
-        lower_candidates = np.flatnonzero((common_mode_array < common_modes[index]) & valid_analyses)
-        upper_candidates = np.flatnonzero((common_mode_array > common_modes[index]) & valid_analyses)
-        neighbor_indices = []
-        if lower_candidates.size:
-            neighbor_indices.append(int(calc.xmax(common_mode_array[lower_candidates], lower_candidates)))
-        if upper_candidates.size:
-            neighbor_indices.append(int(calc.xmin(common_mode_array[upper_candidates], upper_candidates)))
-        captured_minimum_v = float(calc.ymin(analysis.vin_diff_v))
-        captured_maximum_v = float(calc.ymax(analysis.vin_diff_v))
-        expected_transition_was_exercised = any(
-            captured_minimum_v <= analyses[neighbor].offset_v <= captured_maximum_v for neighbor in neighbor_indices
-        )
-        if expected_transition_was_exercised:
-            classified[index] = replace(analysis, validity=stuck_label)
-    return tuple(classified)
-
-
-def analyze_comp_timing(
-    measurements: Sequence[MeasCompInt],
+def analyze_comp_common_mode(
+    measurements: Sequence[MeasComp],
     *,
-    clock_threshold_v: float | None = None,
-    decision_threshold_v: float | None = None,
-    settling_tolerance: float = 0.01,
-    unresolved_threshold_v: float = 0.1,
-) -> AnalysisCompTiming:
+    offsets: Sequence[AnalysisCompOffsetNoise],
+) -> AnalysisCompCommonMode:
+    """Classify each common mode, distinguishing stuck outputs from unbracketed curves.
+
+    ``offsets`` holds one fit per common mode in ``measurements``. An
+    unbracketed curve is relabeled stuck only when it is pinned and the
+    offset of the nearest valid common mode on either side lies inside its
+    swept input range, so the transition should have been observed.
+    """
+
+    identity = measurement_identity(measurements)
+    check_identity(offsets, identity, name="comparator offset")
+    measured_modes = {
+        round(float(value), 6) for measurement in measurements for value in np.unique(measurement.vin_cm_v)
+    }
+    ordered = sorted(offsets, key=lambda result: result.vin_cm_v)
+    common_modes = np.asarray([result.vin_cm_v for result in ordered])
+    if len(set(common_modes.tolist())) != len(ordered) or {round(value, 6) for value in common_modes} != measured_modes:
+        raise ValueError("comparator offsets must contain exactly one fit per measured common mode")
+
+    valid = np.asarray([result.validity == "valid" for result in ordered], dtype=np.bool_)
+    validity: list[Literal["valid", "unbracketed", "non_monotonic", "stuck-low", "stuck-high"]] = []
+    for position, result in enumerate(ordered):
+        label: Literal["valid", "unbracketed", "non_monotonic", "stuck-low", "stuck-high"] = result.validity
+        # A curve that never leaves 10% or 90% probability is pinned; the
+        # 0.1/0.9 levels sit well outside the noise of a bracketed S-curve.
+        probability = result.decision_probability
+        pinned = "stuck-low" if np.all(probability <= 0.10) else "stuck-high" if np.all(probability >= 0.90) else None
+        if result.validity == "unbracketed" and pinned is not None:
+            lower = np.flatnonzero((common_modes < result.vin_cm_v) & valid)
+            upper = np.flatnonzero((common_modes > result.vin_cm_v) & valid)
+            neighbors = [int(lower[-1])] if len(lower) else []
+            neighbors += [int(upper[0])] if len(upper) else []
+            minimum_v = float(calc.ymin(result.vin_diff_v))
+            maximum_v = float(calc.ymax(result.vin_diff_v))
+            if any(minimum_v <= ordered[neighbor].offset_v <= maximum_v for neighbor in neighbors):
+                label = pinned
+        validity.append(label)
+    return AnalysisCompCommonMode(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        vin_cm_v=common_modes,
+        offset_v=np.asarray([result.offset_v for result in ordered]),
+        noise_sigma_v=np.asarray([result.noise_sigma_v for result in ordered]),
+        validity=tuple(validity),
+    )
+
+
+def analyze_comp_timing(measurements: Sequence[MeasComp]) -> AnalysisCompTiming:
     """Measure clock-to-decision delay, settling, and unresolved trials."""
 
-    if not measurements:
-        raise ValueError("comparator timing analysis requires measurements")
+    identity = measurement_identity(measurements)
     source_indices = []
     trial_indices = []
     delays = []
     settling = []
     unresolved = []
     for source_index, measurement in enumerate(measurements):
-        for record, trial_index in enumerate(measurement.wave.trial_index):
-            clock = measurement.wave.voltage[CompNets.clk.name][record]
+        wave = measurement.wave
+        if wave is None:
+            raise ValueError("comparator timing requires waveform records")
+        for record, trial_index in enumerate(wave.record_index):
+            clock = wave.v[CompNets.clk.name][record]
             # Settling is a property of the dynamic comparator core. The held
             # output latch can retain the previous decision throughout reset,
             # so using vout_p-vout_n would often look resolved before the clock.
-            output_difference = (
-                measurement.wave.voltage[CompNets.latch_p.name][record]
-                - measurement.wave.voltage[CompNets.latch_n.name][record]
-            )
-            clock_threshold = (
-                float((calc.ymin(clock) + calc.ymax(clock)) / 2.0) if clock_threshold_v is None else clock_threshold_v
-            )
+            output_difference = wave.v[CompNets.latch_p.name][record] - wave.v[CompNets.latch_n.name][record]
+            # Time both signals at the midpoint of their own swing.
+            clock_threshold = float((calc.ymin(clock) + calc.ymax(clock)) / 2.0)
             response = np.abs(output_difference)
-            response_threshold = (
-                float(calc.ymax(response) / 2.0) if decision_threshold_v is None else decision_threshold_v
-            )
+            response_threshold = float(calc.ymax(response) / 2.0)
             trigger_s, _response_s, delay_s = calc.delay(
                 clock,
                 response,
-                measurement.wave.time_s,
+                wave.time_s,
                 clock_threshold,
                 response_threshold,
             )
             source_indices.append(source_index)
             trial_indices.append(trial_index)
             delays.append(delay_s)
-            is_unresolved = abs(output_difference[-1]) < unresolved_threshold_v
+            # A latch still within 0.1 V of balance at the end of the record
+            # has not resolved.
+            is_unresolved = abs(output_difference[-1]) < 0.1
             if math.isfinite(trigger_s) and not is_unresolved:
                 evaluation_v, evaluation_s = calc.clip(
-                    output_difference, measurement.wave.time_s, trigger_s, float(measurement.wave.time_s[-1])
+                    output_difference, wave.time_s, trigger_s, float(wave.time_s[-1])
                 )
-                settled_at_s = calc.settlingTime(evaluation_v, evaluation_s, percent_of_step=100.0 * settling_tolerance)
+                # Settled within 1% of the final latch step.
+                settled_at_s = calc.settlingTime(evaluation_v, evaluation_s, percent_of_step=1.0)
                 settling_s = settled_at_s - trigger_s if math.isfinite(settled_at_s) else math.nan
             else:
                 settling_s = math.nan
             settling.append(settling_s)
             unresolved.append(is_unresolved)
     return AnalysisCompTiming(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
         source_index=np.asarray(source_indices, dtype=np.int64),
         trial_index=np.asarray(trial_indices, dtype=np.int64),
         clock_to_decision_s=np.asarray(delays, dtype=np.float64),
@@ -264,32 +285,28 @@ def analyze_comp_timing(
     )
 
 
-def _supply_voltage_v(measurement: MeasCompInt) -> float:
-    for name in ("vdd_v", "supply_v"):
-        if name in measurement.info.readbacks:
-            return float(measurement.info.readbacks[name])
-    if hasattr(measurement.param, "vdd"):
-        return float(measurement.param.vdd)
-    return float(measurement.param.vdd_a.dc)
-
-
-def analyze_comp_power(measurements: Sequence[MeasCompInt]) -> AnalysisCompPower:
+def analyze_comp_power(measurements: Sequence[MeasComp]) -> AnalysisCompPower:
     """Time-weight comparator power within each record and average records equally."""
 
-    if not measurements:
-        raise ValueError("comparator power analysis requires measurements")
+    identity = measurement_identity(measurements)
     supply_v = []
     average_power_w = []
     energy_per_decision_j = []
     for measurement in measurements:
-        voltage = _supply_voltage_v(measurement)
+        readbacks = measurement.info.readbacks
+        if "vdd_v" in readbacks or "supply_v" in readbacks:
+            voltage = float(readbacks["vdd_v"] if "vdd_v" in readbacks else readbacks["supply_v"])
+        elif isinstance(measurement.tb, CompTbParams):
+            voltage = float(measurement.tb.vdd)
+        else:
+            voltage = float(measurement.tb.vdd_a.dc)
         stored_power = measurement.info.readbacks.get("vdd_active_average_power_w")
         if stored_power is None:
+            wave = measurement.wave
+            if wave is None:
+                raise ValueError("comparator power without a stored average requires waveform records")
             power = calc.average(
-                [
-                    calc.average(np.abs(current * voltage), measurement.wave.time_s)
-                    for current in measurement.wave.current[CompNets.vdd.name]
-                ]
+                [calc.average(np.abs(current * voltage), wave.time_s) for current in wave.i[CompNets.vdd.name]]
             )
         else:
             power = float(stored_power)
@@ -304,6 +321,9 @@ def analyze_comp_power(measurements: Sequence[MeasCompInt]) -> AnalysisCompPower
         average_power_w.append(power)
         energy_per_decision_j.append(energy)
     return AnalysisCompPower(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
         source_index=np.arange(len(measurements), dtype=np.int64),
         supply_v=np.asarray(supply_v),
         average_power_w=np.asarray(average_power_w),
@@ -311,100 +331,68 @@ def analyze_comp_power(measurements: Sequence[MeasCompInt]) -> AnalysisCompPower
     )
 
 
-def analyze_comp_candidate_sweep(measurements: Sequence[MeasCompInt]) -> AnalysisCompCandidateSweep:
-    """Reuse the typed comparator analyses and align one row per candidate."""
+def analyze_comp_candidate(
+    measurement: MeasComp,
+    *,
+    offset: AnalysisCompOffsetNoise,
+    timing: AnalysisCompTiming,
+    power: AnalysisCompPower,
+) -> AnalysisCompCandidate:
+    """Summarize one generated comparator candidate from its earlier results.
 
-    if not measurements:
-        raise ValueError("comparator candidate analysis requires measurements")
+    Candidate geometry comes from the measurement's readbacks; noise, timing,
+    and power come from the matching per-candidate analyses.
+    """
 
-    rows = []
-    seen_candidates = set()
-    for measurement in measurements:
-        readbacks = measurement.info.readbacks
-        required = {
-            "candidate_id",
-            "candidate_label",
-            "topology_index",
-            "size_profile",
-            "total_width_units",
-            "device_width_signature",
-            "total_active_area_units",
-            "total_active_area_um2",
-            "device_geometry_signature",
-        }
-        missing = sorted(required.difference(readbacks))
-        if missing:
-            raise ValueError(f"comparator candidate measurement is missing readbacks {missing}")
-        candidate_id = str(readbacks["candidate_id"])
-        if candidate_id in seen_candidates:
-            raise ValueError(f"duplicate comparator candidate {candidate_id!r}")
-        seen_candidates.add(candidate_id)
-
-        noise = analyze_comp_offset_noise([measurement])
-        timing = analyze_comp_timing([measurement])
-        power = analyze_comp_power([measurement])
-        finite_delay = timing.clock_to_decision_s[np.isfinite(timing.clock_to_decision_s)]
-        finite_settling = timing.settling_s[np.isfinite(timing.settling_s)]
-        unresolved_fraction = calc.average(timing.unresolved)
-        maximum_delay_s = float(calc.ymax(finite_delay)) if len(finite_delay) else math.nan
-        if np.any(timing.unresolved):
-            maximum_settling_s = float(getattr(measurement.param, "evaluation_time_s", math.nan))
-        else:
-            maximum_settling_s = float(calc.ymax(finite_settling)) if len(finite_settling) else math.nan
-        geometry_signature = str(readbacks["device_geometry_signature"])
-        rows.append(
-            {
-                "candidate_id": candidate_id,
-                "candidate_label": str(readbacks["candidate_label"]),
-                "size_profile": str(readbacks["size_profile"]),
-                "validity": noise.validity,
-                "topology_index": int(readbacks["topology_index"]),
-                "total_width_units": int(readbacks["total_width_units"]),
-                "total_active_area_units": int(readbacks["total_active_area_units"]),
-                "total_active_area_um2": float(readbacks["total_active_area_um2"]),
-                "device_count": 0 if not geometry_signature else len(geometry_signature.split(",")),
-                "geometry_signature": geometry_signature,
-                "offset_v": noise.offset_v,
-                "noise_sigma_v": noise.noise_sigma_v,
-                "average_power_w": float(power.average_power_w[0]),
-                "energy_per_decision_j": float(power.energy_per_decision_j[0]),
-                "maximum_clock_to_decision_s": maximum_delay_s,
-                "maximum_settling_s": maximum_settling_s,
-                "unresolved_fraction": unresolved_fraction,
-            }
-        )
-
-    # Summed MOS W*L is the primary axis. The exact generator insertion-order
-    # geometry signature and candidate ID make ties stable and reproducible.
-    rows.sort(
-        key=lambda row: (
-            row["total_active_area_units"],
-            row["geometry_signature"],
-            row["candidate_id"],
-        )
-    )
-
-    def float_array(name: str) -> np.ndarray:
-        return np.asarray([row[name] for row in rows], dtype=np.float64)
-
-    def int_array(name: str) -> np.ndarray:
-        return np.asarray([row[name] for row in rows], dtype=np.int64)
-
-    return AnalysisCompCandidateSweep(
-        candidate_id=tuple(str(row["candidate_id"]) for row in rows),
-        candidate_label=tuple(str(row["candidate_label"]) for row in rows),
-        size_profile=tuple(cast(CompSizeProfile, str(row["size_profile"])) for row in rows),
-        validity=tuple(cast(CompFitValidity, str(row["validity"])) for row in rows),
-        topology_index=int_array("topology_index"),
-        total_width_units=int_array("total_width_units"),
-        total_active_area_units=int_array("total_active_area_units"),
-        total_active_area_um2=float_array("total_active_area_um2"),
-        device_count=int_array("device_count"),
-        offset_v=float_array("offset_v"),
-        noise_sigma_v=float_array("noise_sigma_v"),
-        average_power_w=float_array("average_power_w"),
-        energy_per_decision_j=float_array("energy_per_decision_j"),
-        maximum_clock_to_decision_s=float_array("maximum_clock_to_decision_s"),
-        maximum_settling_s=float_array("maximum_settling_s"),
-        unresolved_fraction=float_array("unresolved_fraction"),
+    identity = measurement.identity
+    for name, result in (("offset", offset), ("timing", timing), ("power", power)):
+        check_identity(result, identity, name=name)
+    readbacks = measurement.info.readbacks
+    required = {
+        "candidate_id",
+        "candidate_label",
+        "topology_index",
+        "size_profile",
+        "total_width_units",
+        "device_width_signature",
+        "total_active_area_units",
+        "total_active_area_um2",
+        "device_geometry_signature",
+    }
+    if missing := sorted(required.difference(readbacks)):
+        raise ValueError(f"comparator candidate measurement is missing readbacks {missing}")
+    if len(power.average_power_w) != 1:
+        raise ValueError("comparator candidate requires a power analysis of exactly this measurement")
+    finite_delay = timing.clock_to_decision_s[np.isfinite(timing.clock_to_decision_s)]
+    finite_settling = timing.settling_s[np.isfinite(timing.settling_s)]
+    if np.any(timing.unresolved):
+        # An unresolved trial settles no sooner than the end of evaluation.
+        maximum_settling_s = float(getattr(measurement.param, "evaluation_time_s", math.nan))
+    else:
+        maximum_settling_s = float(calc.ymax(finite_settling)) if len(finite_settling) else math.nan
+    geometry_signature = str(readbacks["device_geometry_signature"])
+    size_profile = str(readbacks["size_profile"])
+    if size_profile not in ("half", "double", "fabricated"):
+        raise ValueError(f"unknown comparator candidate size profile {size_profile!r}")
+    return AnalysisCompCandidate(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        candidate_id=str(readbacks["candidate_id"]),
+        candidate_label=str(readbacks["candidate_label"]),
+        size_profile=size_profile,
+        validity=offset.validity,
+        topology_index=int(readbacks["topology_index"]),
+        total_width_units=int(readbacks["total_width_units"]),
+        total_active_area_units=int(readbacks["total_active_area_units"]),
+        total_active_area_um2=float(readbacks["total_active_area_um2"]),
+        device_count=0 if not geometry_signature else len(geometry_signature.split(",")),
+        geometry_signature=geometry_signature,
+        offset_v=offset.offset_v,
+        noise_sigma_v=offset.noise_sigma_v,
+        average_power_w=float(power.average_power_w[0]),
+        energy_per_decision_j=float(power.energy_per_decision_j[0]),
+        maximum_clock_to_decision_s=float(calc.ymax(finite_delay)) if len(finite_delay) else math.nan,
+        maximum_settling_s=maximum_settling_s,
+        unresolved_fraction=calc.average(timing.unresolved),
     )

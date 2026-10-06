@@ -40,7 +40,11 @@ def analyze_diffamp_noise(
         segment_length=segment_length,
     )
     density = np.sqrt(np.maximum(power_spectral_density_v2_per_hz, 0.0))
+    # The diff-amp is test equipment, not a design under test.
     return AnalysisDiffampNoise(
+        group=None,
+        index=None,
+        dut=None,
         mean_v=mean_v,
         centered_v=centered_v,
         sample_rate_hz=sample_rate_hz,

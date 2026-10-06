@@ -25,7 +25,7 @@ from flow.adc import AdcParams
 from flow.adc.sim import AdcTbParams
 from flow.analysis import calc
 from flow.analysis.io import read_measurement, write_measurement
-from flow.analysis.types import CdacExtDaq, CdacExtWave, MeasCdacExt, MeasInfo
+from flow.analysis.types import MeasCdac, MeasInfo, Wave
 from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.scans.fastrx import (
     convert_fastrx_words_to_comp,
@@ -362,7 +362,7 @@ def _cdac_point_stem(params: AdcScanParams) -> str:
     assert isinstance(params.tb.vin_diff, h.Vdc.Params)
     return (
         (
-            f"{params.board_id}_adc{params.observed_adc:02d}_cdac_ab_"
+            f"{params.board_id:02d}_adc{params.observed_adc:02d}_cdac_ab_"
             f"{params.cdac_side}_c{params.cdac_element}_{params.cdac_direction}_"
             f"mode{params.tb.dac_mode}_diff{params.tb.dac_diffcaps}_"
             f"settle{float(params.settling_time_s) * 1e9:06.2f}ns_{params.sweep_stage}_"
@@ -375,7 +375,7 @@ def _cdac_point_stem(params: AdcScanParams) -> str:
 
 
 def _validate_cdac_resume_curves(
-    existing_curves: Mapping[tuple[Any, ...], Sequence[MeasCdacExt]],
+    existing_curves: Mapping[tuple[Any, ...], Sequence[MeasCdac]],
 ) -> None:
     """Allow reuse only after one uninterrupted acquisition marked the curve complete."""
 
@@ -420,7 +420,7 @@ def _build_cdac_params(
 ) -> AdcScanParams:
     """Compose one complete physical A-to-B CDAC point."""
 
-    board_id = "00"
+    board_id = 0
     board_map = load_board_map()
     flavor = board_map["boards"][board_id]["adc_channels"][adc_index]
     cap_weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
@@ -533,7 +533,7 @@ def _expected_transition_v(
         conversions=1,
         sweep_stage="fixed",
     )
-    board = load_board_map()["boards"]["00"]
+    board = load_board_map()["boards"][0]
     center_calibrations = board.get("cdac_sweep_center_calibration", {})
     center_calibration = center_calibrations.get(adc_index, center_calibrations.get(str(adc_index)))
     center_scale = 1.0
@@ -559,7 +559,7 @@ def build_capacitor_variants(
     """Build adaptive seeds for all or selected ADC00–ADC03 A-to-B curves."""
 
     selected_curves = None if selected_curves is None else set(selected_curves)
-    board = load_board_map()["boards"]["00"]
+    board = load_board_map()["boards"][0]
     calibrations = board.get("comparator_calibration", {})
     variants = []
     for adc_index in adc_indices:
@@ -739,12 +739,12 @@ def scan(
     existing_paths: dict[str, Path] = {}
     coarse_observations: dict[tuple[Any, ...], dict[float, tuple[int, int]]] = {}
     fine_observations: dict[tuple[Any, ...], dict[float, tuple[int, int]]] = {}
-    existing_curves: dict[tuple[Any, ...], list[MeasCdacExt]] = {}
+    existing_curves: dict[tuple[Any, ...], list[MeasCdac]] = {}
     scope_captured_curves: set[tuple[Any, ...]] = set()
     drift_checkpoint_curves: set[tuple[Any, ...]] = set()
     for path in sorted(run_dir.glob("*.h5")):
         measurement = read_measurement(path)
-        if not isinstance(measurement, MeasCdacExt):
+        if not isinstance(measurement, MeasCdac):
             raise TypeError(f"CDAC run directory contains {type(measurement).__name__}: {path}")
         stem = _cdac_point_stem(measurement.param)
         if stem in existing_paths:
@@ -762,8 +762,8 @@ def scan(
                 coarse_observations if measurement.param.sweep_stage == "coarse" else fine_observations
             )
             observations_by_stage.setdefault(key, {})[voltage] = (
-                int(np.sum(measurement.daq.decision)),
-                len(measurement.daq.decision),
+                int(np.sum(measurement.decision)),
+                len(measurement.decision),
             )
 
     _validate_cdac_resume_curves(existing_curves)
@@ -782,12 +782,7 @@ def scan(
     from basil.dut import Dut
 
     map_dir = Path(__file__).resolve().parent
-    scope_tracks = {
-        f"{name}_v": channel
-        for name, channel in (
-            scope_channels("vin_diff", "seq_comp", "seq_logic", "comp_out") if capture_scope_per_curve else {}
-        ).items()
-    }
+    scope_tracks = scope_channels("vin_diff", "seq_comp", "seq_logic", "comp_out") if capture_scope_per_curve else {}
     daq_dut = Dut(str(map_dir / "map_fpga.yaml"))
     awg_dut = Dut(str(map_dir / "map_awg.yaml"))
     vin_cm_dut = Dut(str(map_dir / "map_supply.yaml"))
@@ -879,16 +874,16 @@ def scan(
             for signal_name, channel in scope_tracks.items():
                 scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
                 scope.set_coupling("DC", channel=channel)
-                scope.set_vertical_scale(0.1 if signal_name == "vin_diff_v" else 0.2, channel=channel)
+                scope.set_vertical_scale(0.1 if signal_name == "vin_diff" else 0.2, channel=channel)
                 scope.set_vertical_position(0.0, channel=channel)
                 scope.set_vertical_offset(0.0, channel=channel)
-                scope.set_bandwidth(200.0e6 if signal_name == "vin_diff_v" else 2.0e9, channel=channel)
+                scope.set_bandwidth(200.0e6 if signal_name == "vin_diff" else 2.0e9, channel=channel)
             scope.set_trigger_type("EDGE")
-            scope.set_trigger_source(channel=scope_tracks["seq_comp_v"])
+            scope.set_trigger_source(channel=scope_tracks["seq_comp"])
             scope.set_trigger_edge_slope("RISE")
             # The differential sequencer probe is centered around zero and swings
             # to roughly +/-0.6 V; trigger at its zero crossing.
-            scope.set_trigger_level(0.0, channel=scope_tracks["seq_comp_v"])
+            scope.set_trigger_level(0.0, channel=scope_tracks["seq_comp"])
             scope.set_trigger_mode("NORMAL")
 
         daq["gpio0"]["RST_B"] = 0
@@ -1138,9 +1133,7 @@ def scan(
                 assert acquisition_count_before is not None
                 scope_started = monotonic()
                 wait_for_scope_capture(scope, acquisition_count_before, timeout_s=scope_timeout_s)
-                scope_waveforms = scope.get_waveforms(
-                    {channel: name.removesuffix("_v") for name, channel in scope_tracks.items()}
-                )
+                scope_waveforms = scope.get_waveforms({channel: name for name, channel in scope_tracks.items()})
                 missing_channels = sorted(set(scope_tracks.values()).difference(scope_waveforms))
                 if missing_channels:
                     raise RuntimeError(f"scope did not return channels {missing_channels}")
@@ -1198,17 +1191,13 @@ def scan(
             trial_index = np.arange(params.conversions, dtype=np.int64)
             wave = None
             if scope_waveforms is not None:
-                reference = scope_waveforms[scope_tracks["vin_diff_v"]]
+                reference = scope_waveforms[scope_tracks["vin_diff"]]
                 scope_time_s = reference.x_scale.offset + np.arange(len(reference.data)) * reference.x_scale.slope
                 wave_signals = {
                     name: np.asarray(scope_waveforms[channel].data, dtype=np.float64)[None, :]
                     for name, channel in scope_tracks.items()
                 }
-                wave = CdacExtWave(
-                    trial_index=np.asarray([0], dtype=np.int64),
-                    time_s=scope_time_s,
-                    **wave_signals,
-                )
+                wave = Wave(record_index=np.asarray([0], dtype=np.int64), time_s=scope_time_s, v=wave_signals)
             readbacks: dict[str, str | int | float | bool] = {
                 "si570_frequency_hz": si570_frequency_hz,
                 "pll_divider_n": pll_divider_n,
@@ -1261,28 +1250,27 @@ def scan(
             before_n = np.tile(np.asarray(params.dac_astate_n, dtype=np.uint8), (params.conversions, 1))
             after_p = np.tile(np.asarray(params.dac_bstate_p, dtype=np.uint8), (params.conversions, 1))
             after_n = np.tile(np.asarray(params.dac_bstate_n, dtype=np.uint8), (params.conversions, 1))
-            measurement = MeasCdacExt(
+            measurement = MeasCdac(
+                group=scan_params.board_id,
+                index=scan_params.observed_adc,
+                dut=scan_params.tb.dut.cdac,
                 info=MeasInfo(
-                    schema_version=2,
-                    measurement_type="MeasCdacExt",
                     backend="physical",
                     timestamp_utc=datetime.now().astimezone(),
                     instruments=instrument_identities,
                     readbacks=readbacks,
                 ),
                 param=scan_params,
-                daq=CdacExtDaq(
-                    trial_index=trial_index,
-                    dac_state_p=after_p,
-                    dac_state_n=after_n,
-                    vin_diff_v=np.full(params.conversions, vin_diff_v),
-                    decision=decisions,
-                    dac_state_before_p=before_p,
-                    dac_state_before_n=before_n,
-                    vin_cm_v=np.full(params.conversions, vin_cm_v),
-                    fastrx_word=fastrx_words,
-                    fastrx_frame=frames,
-                ),
+                trial_index=trial_index,
+                dac_state_p=after_p,
+                dac_state_n=after_n,
+                vin_diff_v=np.full(params.conversions, vin_diff_v),
+                decision=decisions,
+                dac_state_before_p=before_p,
+                dac_state_before_n=before_n,
+                vin_cm_v=np.full(params.conversions, vin_cm_v),
+                fastrx_word=fastrx_words,
+                fastrx_frame=frames,
                 wave=wave,
             )
             write_measurement(h5_path, measurement)

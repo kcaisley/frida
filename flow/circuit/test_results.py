@@ -10,7 +10,7 @@ from vlsirtools.spice.sim_data import TranResult
 from flow.adc.sim import AdcTbParams
 from flow.adc.subckt import AdcNets
 from flow.analysis.io import read_measurement, write_measurement
-from flow.analysis.types import CompIntWave, MeasAdcInt, MeasCompInt
+from flow.analysis.types import MeasAdc, MeasComp
 from flow.circuit.ports import waveform_net_names
 from flow.circuit.results import convert_raw_adc_to_measurement, convert_raw_comp_to_measurement
 from flow.comp import CompParams
@@ -99,8 +99,9 @@ def test_adc_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     write_measurement(h5_path, expected)
     raw_path.unlink()  # Newly written measurements must not need the original raw file.
     measurement = read_measurement(h5_path)
+    assert measurement.wave is not None
 
-    assert isinstance(measurement, MeasAdcInt)
+    assert isinstance(measurement, MeasAdc)
     assert measurement.info.backend == "spice"
     assert measurement.info.readbacks["raw_format"] == "spectre_nutbin"
     assert measurement.info.readbacks["raw_max_timestep_s"] == pytest.approx(time_step_s)
@@ -113,21 +114,21 @@ def test_adc_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     assert measurement.info.readbacks["supply_power_available"] is True
     assert measurement.info.readbacks["supply_current_convention"] == "positive_current_draw"
     assert measurement.info.readbacks["vdd_d_active_average_power_w"] == pytest.approx(48.0e-6)
-    assert len(measurement.daq.conversion_index) == 2
-    assert all("".join(str(bit) for bit in row) == expected_bout for row in measurement.daq.bout)
-    np.testing.assert_array_equal(measurement.daq.bout[0, -2:], [0, 1])
-    assert measurement.daq.dout_raw[0] > 0
-    assert measurement.daq.dout[0] > 0
-    assert measurement.daq.vin_diff_v[0] == pytest.approx(0.050)
-    np.testing.assert_array_equal(measurement.wave.conversion_index, [0, 1])
-    assert measurement.wave.voltage["comp_out"].shape == (2, len(measurement.wave.time_s))
+    assert len(measurement.conversion_index) == 2
+    assert all("".join(str(bit) for bit in row) == expected_bout for row in measurement.bout)
+    np.testing.assert_array_equal(measurement.bout[0, -2:], [0, 1])
+    assert measurement.dout_raw[0] > 0
+    assert measurement.dout[0] > 0
+    assert measurement.vin_diff_v[0] == pytest.approx(0.050)
+    np.testing.assert_array_equal(measurement.wave.record_index, [0, 1])
+    assert measurement.wave.v["comp_out"].shape == (2, len(measurement.wave.time_s))
     np.testing.assert_allclose(np.diff(measurement.wave.time_s), 50e-12)
-    assert measurement.wave.voltage["seq_init"][0, 0] == pytest.approx(0.0)
-    np.testing.assert_allclose(measurement.wave.current["vdd_a"], 2.0e-6)
-    np.testing.assert_allclose(measurement.wave.current["vdd_d"], 40.0e-6)
-    np.testing.assert_allclose(measurement.wave.current["vdd_dac"], 20.0e-6)
-    np.testing.assert_allclose(measurement.wave.voltage["comp.latch_p"], 0.875)
-    assert measurement.wave.voltage["comp.latch_p"].shape == measurement.wave.voltage["comp_out"].shape
+    assert measurement.wave.v["seq_init"][0, 0] == pytest.approx(0.0)
+    np.testing.assert_allclose(measurement.wave.i["vdd_a"], 2.0e-6)
+    np.testing.assert_allclose(measurement.wave.i["vdd_d"], 40.0e-6)
+    np.testing.assert_allclose(measurement.wave.i["vdd_dac"], 20.0e-6)
+    np.testing.assert_allclose(measurement.wave.v["comp.latch_p"], 0.875)
+    assert measurement.wave.v["comp.latch_p"].shape == measurement.wave.v["comp_out"].shape
 
 
 @pytest.mark.parametrize("before_v,after_v,expected_bit", [(0.3, 1.2, 1), (0.0, 0.9, 0)])
@@ -161,8 +162,8 @@ def test_adc_capture_uses_logic_threshold_not_early_fraction_or_later_sample(
         raw_path=raw_path,
         signal_names={name: "time" if name == "time" else name for name in values},
     )
-    assert result.daq.bout[0, 0] == expected_bit
-    np.testing.assert_array_equal(result.daq.bout[0, 1:], np.zeros(16, dtype=np.uint8))
+    assert result.bout[0, 0] == expected_bit
+    np.testing.assert_array_equal(result.bout[0, 1:], np.zeros(16, dtype=np.uint8))
 
 
 def test_adc_logic_capture_includes_last_conversion_tail(tmp_path: Path) -> None:
@@ -193,10 +194,11 @@ def test_adc_logic_capture_includes_last_conversion_tail(tmp_path: Path) -> None
         raw_path=tmp_path / "original.raw",
         signal_names={name: "time" if name == "time" else name for name in values},
     )
+    assert result.wave is not None
     assert result.param.conversions == 2
-    np.testing.assert_array_equal(result.daq.bout[:, :16], np.zeros((2, 16)))
-    np.testing.assert_array_equal(result.daq.bout[:, 16], [0, 0])
-    np.testing.assert_array_equal(result.wave.conversion_index, [0, 1])
+    np.testing.assert_array_equal(result.bout[:, :16], np.zeros((2, 16)))
+    np.testing.assert_array_equal(result.bout[:, 16], [0, 0])
+    np.testing.assert_array_equal(result.wave.record_index, [0, 1])
     assert result.info.readbacks["final_decision_time_reference"] == "next_init_seq_logic_rising_threshold"
     (tmp_path / "truncated.raw").touch()
     # Next COMP is unnecessary for production decode once next INIT LOGIC is saved.
@@ -206,7 +208,7 @@ def test_adc_logic_capture_includes_last_conversion_tail(tmp_path: Path) -> None
         raw_path=tmp_path / "truncated.raw",
         signal_names={name: "time" if name == "time" else name for name in values},
     )
-    np.testing.assert_array_equal(truncated.daq.bout, result.daq.bout)
+    np.testing.assert_array_equal(truncated.bout, result.bout)
 
 
 def test_adc_continuous_records_require_next_init_logic(tmp_path: Path) -> None:
@@ -240,12 +242,13 @@ def test_adc_continuous_records_require_next_init_logic(tmp_path: Path) -> None:
         raw_path=raw_path,
         signal_names={name: "time" if name == "time" else name for name in values},
     )
+    assert measurement.wave is not None
     assert measurement.param.conversions == 1
-    np.testing.assert_array_equal(measurement.daq.bout[:, :16], np.zeros((1, 16)))
-    np.testing.assert_array_equal(measurement.daq.bout[:, 16], [0])
-    np.testing.assert_array_equal(measurement.wave.conversion_index, [0])
+    np.testing.assert_array_equal(measurement.bout[:, :16], np.zeros((1, 16)))
+    np.testing.assert_array_equal(measurement.bout[:, 16], [0])
+    np.testing.assert_array_equal(measurement.wave.record_index, [0])
     assert measurement.info.readbacks["unavailable_logic_conversions_json"] == "[1]"
-    assert measurement.wave.voltage["comp_out"].shape == (1, len(measurement.wave.time_s))
+    assert measurement.wave.v["comp_out"].shape == (1, len(measurement.wave.time_s))
     assert measurement.wave.time_s[-1] > 100e-9
 
 
@@ -315,18 +318,19 @@ def test_comp_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     )
     write_measurement(h5_path, expected)
     measurement = read_measurement(h5_path)
+    assert measurement.wave is not None
 
-    assert isinstance(measurement, MeasCompInt)
-    assert isinstance(measurement.wave, CompIntWave)
+    assert isinstance(measurement, MeasComp)
+    assert measurement.wave is not None
     assert measurement.param == params
     assert measurement.info.readbacks["raw_format"] == "spectre_nutbin"
     assert measurement.info.readbacks["vdd_active_average_power_w"] == pytest.approx(12e-6)
     assert measurement.info.readbacks["energy_per_decision_j"] == pytest.approx(480e-15)
-    np.testing.assert_allclose(measurement.daq.vin_diff_v, [-100e-6, -100e-6, 0.0, 0.0, 100e-6, 100e-6])
-    np.testing.assert_array_equal(measurement.daq.decision, decisions)
-    np.testing.assert_array_equal(measurement.wave.trial_index, np.arange(6))
-    assert measurement.wave.voltage["clk"].shape == (6, 80)
-    np.testing.assert_allclose(measurement.wave.current["vdd"], 10e-6)
+    np.testing.assert_allclose(measurement.vin_diff_v, [-100e-6, -100e-6, 0.0, 0.0, 100e-6, 100e-6])
+    np.testing.assert_array_equal(measurement.decision, decisions)
+    np.testing.assert_array_equal(measurement.wave.record_index, np.arange(6))
+    assert measurement.wave.v["clk"].shape == (6, 80)
+    np.testing.assert_allclose(measurement.wave.i["vdd"], 10e-6)
 
 
 def _adc_names(view):

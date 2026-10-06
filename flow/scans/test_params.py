@@ -46,7 +46,7 @@ def test_analog_input_preserves_hdl21_source_type() -> None:
 
 def test_build_variants_covers_adc00_seven_offset_noise_rates() -> None:
     variants = build_adc_variants(
-        board_id="00",
+        board_id=0,
         adc_indices=(0,),
         active_conversion_rates_hz=tuple(rate * 0.25e6 for rate in range(2, 41)),
         sequences=timing_sequences,
@@ -58,7 +58,7 @@ def test_build_variants_covers_adc00_seven_offset_noise_rates() -> None:
     assert len(variants) == 7 * 39
     assert {item.observed_adc for item in variants} == {0}
     assert {float(item.tb.symbol_rate) for item in variants} == {rate * 40e6 for rate in range(2, 41)}
-    assert all(item.board_id == "00" for item in variants)
+    assert all(item.board_id == 0 for item in variants)
     assert {item.active_adc_mask for item in variants} == {
         (0,) * 15 + (1,),
     }
@@ -76,7 +76,7 @@ def test_build_adc_variants_covers_adc00_through_adc03_ramp() -> None:
     """Describe one repeated full-scale ramp capture for each selected ADC."""
 
     variants = build_adc_variants(
-        board_id="00",
+        board_id=0,
         adc_indices=(0, 1, 2, 3),
         active_conversion_rates_hz=(1.0e6,),
         sequences=(symbol256_init8_samp16_comp11110000_logic00001111,),
@@ -88,7 +88,7 @@ def test_build_adc_variants_covers_adc00_through_adc03_ramp() -> None:
 
     assert len(variants) == 4
     assert {item.observed_adc for item in variants} == set(range(4))
-    assert all(item.board_id == "00" for item in variants)
+    assert all(item.board_id == 0 for item in variants)
     assert all(item.campaign == "adc_ramp" for item in variants)
     assert all(item.tb.conversions == 4_000_000 for item in variants)
     assert all(float(item.tb.symbol_rate) == 160e6 for item in variants)
@@ -120,7 +120,7 @@ def test_convert_conversion_rate_to_baud_uses_conversion_duration() -> None:
 
 
 def test_validation_rejects_invalid_configuration_relationships() -> None:
-    incomplete_measurement = AdcScanParams(tb=AdcTbParams(view="frida1"), board_id="00")
+    incomplete_measurement = AdcScanParams(tb=AdcTbParams(view="frida1"), board_id=0)
     invalid_bus = AdcScanParams(tb=AdcTbParams(view="frida1", dac_astate_p=(0,) * 15 + (2,)))
     unequal_patterns = AdcScanParams(tb=AdcTbParams(view="frida1", seq_logic_pattern="01"))
 
@@ -139,7 +139,7 @@ def test_variants_use_selected_sequence_to_set_conversion_rate():
     )
 
     variants = build_adc_variants(
-        board_id="00",
+        board_id=0,
         adc_indices=(0,),
         active_conversion_rates_hz=(10e6,),
         sequences=(

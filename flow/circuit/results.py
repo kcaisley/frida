@@ -15,18 +15,14 @@ from vlsirtools.spice.sim_data import TranResult
 from flow.adc.sim import AdcTbParams
 from flow.adc.subckt import AdcNets
 from flow.analysis import calc
-from flow.analysis.adc import _adc_decision_times
 from flow.analysis.io import interpolate_wave_records
 from flow.analysis.types import (
-    AdcDaq,
-    AdcIntWave,
-    CompDaq,
-    CompIntWave,
-    MeasAdcInt,
+    MeasAdc,
     MeasCapArray,
-    MeasCompInt,
+    MeasComp,
     MeasInfo,
-    MeasSampInt,
+    MeasSamp,
+    Wave,
 )
 from flow.caparray import get_caparray_weights
 from flow.caparray.subckt import CapArrayParams
@@ -92,6 +88,57 @@ def _conversion_inputs(result: TranResult, names: Mapping[str, str], interval: f
     return canonical.data["time"], voltage, current
 
 
+def _adc_decision_times(
+    time: np.ndarray,
+    init: np.ndarray,
+    comp: np.ndarray,
+    logic: np.ndarray,
+    conversions: int,
+    threshold: float,
+    *,
+    decisions: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Pair each COMP rise with its unique LOGIC rise, per conversion.
+
+    Conversions start at INIT rises and contain exactly ``decisions`` COMP
+    rises. The final decision's LOGIC observation belongs to the next INIT,
+    before its B0; NaN marks a final observation that was not saved. A partial
+    next cycle supplies observation edges but is never counted as a requested
+    conversion.
+    """
+    final = decisions - 1
+    init = calc.cross(init, time, threshold, edge="rising", initial_high=True)
+    comp = calc.cross(comp, time, threshold, edge="rising", initial_high=True)
+    logic = calc.cross(logic, time, threshold, edge="rising", initial_high=True)
+    if len(init) < conversions:
+        raise ValueError("raw data lacks the requested INIT edges")
+    starts = init[:conversions]
+    comp_times = np.empty((conversions, decisions))
+    logic_times = np.full_like(comp_times, np.nan)
+    for conversion, start in enumerate(starts):
+        stop = init[conversion + 1] if conversion + 1 < len(init) else time[-1]
+        indices = np.flatnonzero((comp >= start) & (comp < stop))
+        if len(indices) != decisions:
+            raise ValueError(
+                f"conversion {conversion} contains {len(indices)} COMP rising edges; expected exactly {decisions}"
+            )
+        for decision, index in enumerate(indices):
+            next_comp = comp[index + 1] if index + 1 < len(comp) else np.nan
+            following = logic[(logic > comp[index]) & (logic < next_comp if np.isfinite(next_comp) else True)]
+            when = following[0] if len(following) == 1 else np.nan
+            if decision < final and (len(following) != 1 or not np.isfinite(next_comp)):
+                raise ValueError(f"conversion {conversion}, B{decision}: missing unique LOGIC update")
+            if (
+                decision == final
+                and np.isfinite(when)
+                and not stop <= when < (next_comp if np.isfinite(next_comp) else np.inf)
+            ):
+                raise ValueError("final-decision LOGIC observation must be in the next INIT before its B0")
+            comp_times[conversion, decision] = comp[index]
+            logic_times[conversion, decision] = when
+    return starts, comp_times, logic_times
+
+
 def _validate_adc_conversion(logic_times: np.ndarray) -> np.ndarray:
     """Require at least one complete ADC record, including the next-cycle B16 observation.
 
@@ -119,7 +166,7 @@ def convert_raw_adc_to_measurement(
     params: AdcTbParams,
     raw_path: Path,
     signal_names: Mapping[str, str],
-) -> MeasAdcInt:
+) -> MeasAdc:
     """Map a VLSIR transient to canonical ADC records and decode LOGIC observations once."""
 
     supply_rails = tuple(net.name for net in AdcNets.signals.values() if net.usage == h.Usage.POWER)
@@ -128,13 +175,14 @@ def convert_raw_adc_to_measurement(
     )
     code_weights = np.asarray([2 * weight for weight in get_caparray_weights(params.dut.cdac)] + [1], dtype=np.int64)
     threshold_v = float(params.vdd_d.dc) / 2
-    starts, comp_times, logic_times, _ = _adc_decision_times(
+    starts, comp_times, logic_times = _adc_decision_times(
         times_s,
         signals[AdcNets.seq_init.name],
         signals[AdcNets.seq_comp.name],
         signals[AdcNets.seq_logic.name],
         params.conversions,
         threshold_v,
+        decisions=len(code_weights),
     )
     valid = _validate_adc_conversion(logic_times)
     unavailable_conversions = np.flatnonzero(~valid).tolist()
@@ -211,10 +259,11 @@ def convert_raw_adc_to_measurement(
         readbacks[f"{rail}_active_average_current_a"] = average_current_a
         readbacks[f"{rail}_active_average_power_w"] = voltage_v * average_current_a
 
-    return MeasAdcInt(
+    return MeasAdc(
+        group=params.mc_seed,
+        index=params.mc_index,
+        dut=params.dut,
         info=MeasInfo(
-            schema_version=1,
-            measurement_type="MeasAdcInt",
             backend="spice",
             timestamp_utc=datetime.fromtimestamp(
                 Path(raw_path).stat().st_mtime,
@@ -224,18 +273,16 @@ def convert_raw_adc_to_measurement(
             readbacks=readbacks,
         ),
         param=params,
-        daq=AdcDaq(
-            conversion_index=np.asarray(retained_conversions, dtype=np.int64),
-            bout=bout,
-            dout_raw=dout_raw,
-            dout=dout,
-            vin_diff_v=vin_diff_v,
-        ),
-        wave=AdcIntWave(
-            conversion_index=waveform_conversion_indices,
+        conversion_index=np.asarray(retained_conversions, dtype=np.int64),
+        bout=bout,
+        dout_raw=dout_raw,
+        dout=dout,
+        vin_diff_v=vin_diff_v,
+        wave=Wave(
+            record_index=waveform_conversion_indices,
             time_s=relative_time_s,
-            voltage=waveform_records,
-            current=current_records,
+            v=waveform_records,
+            i=current_records,
         ),
     )
 
@@ -246,8 +293,8 @@ def convert_raw_comp_to_measurement(
     params: CompTbParams,
     raw_path: Path,
     signal_names: Mapping[str, str],
-) -> MeasCompInt:
-    """Decode one Spectre comparator campaign result into ``MeasCompInt``.
+) -> MeasComp:
+    """Decode one Spectre comparator campaign result into ``MeasComp``.
 
     All decisions at every input point are retained in ``daq``. Dense
     waveforms retain every trial at the three points nearest 50% probability
@@ -341,27 +388,26 @@ def convert_raw_comp_to_measurement(
         "energy_per_decision_j": average_power_w * cycle_s,
     }
 
-    return MeasCompInt(
+    return MeasComp(
+        group=params.mc_seed,
+        index=params.mc_index,
+        dut=params.comp,
         info=MeasInfo(
-            schema_version=1,
-            measurement_type="MeasCompInt",
             backend="spice",
             timestamp_utc=datetime.fromtimestamp(Path(raw_path).stat().st_mtime, tz=UTC),
             instruments={"simulator": "Spectre"},
             readbacks=readbacks,
         ),
         param=params,
-        daq=CompDaq(
-            trial_index=np.arange(expected_trial_count, dtype=np.int64),
-            vin_diff_v=np.asarray(nominal_vdiff, dtype=np.float64),
-            vin_cm_v=np.asarray(nominal_vcm, dtype=np.float64),
-            decision=decisions,
-        ),
-        wave=CompIntWave(
-            trial_index=waveform_trial_indices,
+        trial_index=np.arange(expected_trial_count, dtype=np.int64),
+        vin_diff_v=np.asarray(nominal_vdiff, dtype=np.float64),
+        vin_cm_v=np.asarray(nominal_vcm, dtype=np.float64),
+        decision=decisions,
+        wave=Wave(
+            record_index=waveform_trial_indices,
             time_s=relative_time_s,
-            voltage=waveform_records,
-            current=current_records,
+            v=waveform_records,
+            i=current_records,
         ),
     )
 
@@ -372,9 +418,9 @@ def convert_raw_samp_to_measurement(
     params: SampTbParams,
     raw_path: Path,
     signal_names: Mapping[str, str],
-) -> MeasSampInt:
+) -> MeasSamp:
     """Reserved sampler transient adapter; signal_names maps SPICE names to aliases."""
-    raise NotImplementedError("sampler transient conversion to MeasSampInt is not implemented")
+    raise NotImplementedError("sampler transient conversion to MeasSamp is not implemented")
 
 
 def convert_netlist_caparray_to_measurement(
@@ -390,6 +436,6 @@ def convert_netlist_caparray_to_measurement(
     aliases. An empty mapping selects no identifiers from that category.
     The future contract will pair design capacitances with extracted values
     and support per-capacitor Monte Carlo samples and their variation. Its
-    measurement type must describe capacitance data, not MeasCdacInt waveforms.
+    measurement type must describe capacitance data, not MeasCdac waveforms.
     """
     raise NotImplementedError("caparray nominal/extracted capacitance and Monte Carlo conversion is not implemented")

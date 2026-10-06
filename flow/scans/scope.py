@@ -13,7 +13,7 @@ from basil.HL.tektronix_oscilloscope import response_value
 from yaml import safe_load
 
 from flow.analysis import calc
-from flow.analysis.types import AdcExtWave
+from flow.analysis.types import Wave
 
 DEFAULT_CAPTURE_TIMEOUT_S = 2.0
 
@@ -37,6 +37,34 @@ def scope_channels(*required: str, optional: tuple[str, ...] = ()) -> dict[str, 
         raise ValueError(f"scope signals not connected in {SCOPE_MAP_PATH}: {', '.join(sorted(missing))}")
     selected = set(required + optional) if required or optional else set(connections)
     return {name: channel for name, channel in connections.items() if name in selected}
+
+
+def scope_wave(waveforms: Any, track_names: Mapping[int, str]) -> Wave:
+    """Normalize one aligned Basil oscilloscope acquisition into a one-record wave.
+
+    ``track_names`` maps each scope channel to the net or signal name it probes.
+    """
+
+    channels = tuple(track_names)
+    if not channels:
+        raise ValueError("at least one scope track is required")
+    missing_channels = sorted(set(channels).difference(waveforms))
+    if missing_channels:
+        raise ValueError(f"scope did not return waveforms for channels {missing_channels}")
+    reference_scale = waveforms[channels[0]].x_scale
+    sample_counts = {channel: len(waveforms[channel].data) for channel in channels}
+    if len(set(sample_counts.values())) != 1:
+        raise ValueError(f"scope channels have different sample counts: {sample_counts}")
+    if any(waveforms[channel].x_scale != reference_scale for channel in channels):
+        raise ValueError("scope channels do not share one horizontal scale")
+    sample_count = next(iter(sample_counts.values()))
+    return Wave(
+        record_index=np.zeros(1, dtype=np.int64),
+        time_s=reference_scale.offset + np.arange(sample_count) * reference_scale.slope,
+        v={
+            track_names[channel]: np.asarray(waveforms[channel].data, dtype=np.float64)[None, :] for channel in channels
+        },
+    )
 
 
 def write_scope_csv(
@@ -139,13 +167,13 @@ def wait_for_scope_armed(scope: Any, timeout_s: float = DEFAULT_CAPTURE_TIMEOUT_
 
 
 def crop_adc_scope_conversion(
-    wave: AdcExtWave,
+    wave: Wave,
     *,
     skip_conversions: int,
     conversion_period_s: float,
     symbol_period_s: float,
     reference_signal: Literal["seq_comp", "seq_init"] = "seq_comp",
-) -> AdcExtWave:
+) -> Wave:
     """Select a complete ADC conversion after sequencer startup.
 
     COMP-referenced captures keep one symbol before B0. INIT-triggered captures
@@ -157,18 +185,15 @@ def crop_adc_scope_conversion(
 
     import numpy as np
 
-    if len(wave.conversion_index) != 1 or skip_conversions < 0:
+    if len(wave.record_index) != 1 or skip_conversions < 0:
         raise ValueError("scope cropping requires one record and a nonnegative skip count")
     if reference_signal not in {"seq_comp", "seq_init"}:
         raise ValueError(f"unsupported scope crop reference {reference_signal!r}")
     if reference_signal == "seq_init" and skip_conversions:
         raise ValueError("INIT-triggered scope cropping starts at the triggered conversion")
-    if reference_signal == "seq_init":
-        if wave.seq_init_v is None:
-            raise ValueError("scope INIT waveform is required for INIT-referenced cropping")
-        reference = wave.seq_init_v[0]
-    else:
-        reference = wave.seq_comp_v[0]
+    if reference_signal not in wave.v:
+        raise ValueError(f"scope {reference_signal} waveform is required for this cropping reference")
+    reference = wave.v[reference_signal][0]
     low, high = np.percentile(reference, (1, 99))
     if high - low < 0.1:
         raise ValueError(f"scope {reference_signal} waveform has no valid logic swing")
@@ -192,11 +217,8 @@ def crop_adc_scope_conversion(
     return replace(
         wave,
         time_s=wave.time_s[selected] - origin,
-        vin_diff_v=wave.vin_diff_v[:, selected] if wave.vin_diff_v is not None else None,
-        seq_init_v=wave.seq_init_v[:, selected] if wave.seq_init_v is not None else None,
-        seq_comp_v=wave.seq_comp_v[:, selected],
-        seq_logic_v=wave.seq_logic_v[:, selected],
-        comp_out_v=wave.comp_out_v[:, selected],
+        v={name: trace[:, selected] for name, trace in wave.v.items()},
+        i={name: trace[:, selected] for name, trace in wave.i.items()},
     )
 
 
@@ -204,12 +226,12 @@ def scope_records_to_adc_wave(
     records: Sequence[Mapping[int, Any]],
     conversion_index: Sequence[int],
     channels: Mapping[str, int],
-) -> AdcExtWave:
-    """Convert aligned triggered scope records into an external ADC wave section."""
+) -> Wave:
+    """Convert aligned triggered scope records into ADC net voltages keyed by net name."""
 
-    required = {"seq_comp_v", "seq_logic_v", "comp_out_v"}
-    if not required <= set(channels) or set(channels) - required - {"vin_diff_v", "seq_init_v"}:
-        raise ValueError(f"scope channels must include {sorted(required)}, with optional vin_diff_v and seq_init_v")
+    required = {"seq_comp", "seq_logic", "comp_out"}
+    if not required <= set(channels) or set(channels) - required - {"vin_diff", "seq_init"}:
+        raise ValueError(f"scope channels must include {sorted(required)}, with optional vin_diff and seq_init")
     if len(set(channels.values())) != len(channels):
         raise ValueError("scope channels must be unique")
     if len(records) != len(conversion_index):
@@ -234,8 +256,8 @@ def scope_records_to_adc_wave(
             signals[name].append(values)
     if time_s is None:
         raise ValueError("at least one scope record is required")
-    return AdcExtWave(
-        conversion_index=np.asarray(conversion_index),
+    return Wave(
+        record_index=np.asarray(conversion_index),
         time_s=time_s,
-        **{name: np.stack(values) for name, values in signals.items()},
+        v={name: np.stack(values) for name, values in signals.items()},
     )

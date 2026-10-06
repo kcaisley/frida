@@ -29,7 +29,9 @@ class AdcScanParams:
         dtype=FastRxCapture | None, desc="Combined comparator delay and FastRX SEN start word", default=None
     )
     temperature_c = h.Param(dtype=h.Scalar, desc="Test temperature in degrees Celsius", default=25.0)
-    board_id = h.Param(dtype=str | None, desc="Physical board identifier", default=None)
+    board_id = h.Param(
+        dtype=int | None, desc="Physical board number (each chip is wire-bonded to one board)", default=None
+    )
     observed_adc = h.Param(dtype=int | None, desc="ADC routed to comparator output", default=None)
     active_adc_mask = h.Param(
         dtype=tuple[int, ...] | None, desc="ADC enable mask from ADC15 through ADC0", default=None
@@ -107,8 +109,8 @@ def validate_params(params: AdcScanParams) -> None:
         if not all(value is not None for value in selection):
             raise ValueError("board_id, observed_adc, and active_adc_mask must be set together")
         assert params.board_id is not None and params.observed_adc is not None and params.active_adc_mask is not None
-        if not params.board_id.strip() or not 0 <= params.observed_adc < 16:
-            raise ValueError("board_id must be non-empty and observed_adc must be in 0..15")
+        if params.board_id < 0 or not 0 <= params.observed_adc < 16:
+            raise ValueError("board_id must be non-negative and observed_adc must be in 0..15")
         if len(params.active_adc_mask) != 16 or any(bit not in (0, 1) for bit in params.active_adc_mask):
             raise ValueError("active_adc_mask must contain exactly sixteen binary values")
         if params.active_adc_mask[15 - params.observed_adc] != 1:
@@ -170,7 +172,7 @@ def convert_conversion_rate_to_baud(params: _AdcTbParams, conversion_rate_hz: fl
 
 def build_adc_variants(
     *,
-    board_id: str,
+    board_id: int,
     adc_indices: Sequence[int],
     active_conversion_rates_hz: Sequence[float],
     sequences: Sequence[AdcSequence],

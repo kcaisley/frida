@@ -17,7 +17,7 @@ adc_flavors:
     cdac_topplate_parasitic_weight: 583.9422430420866
 
 boards:
-  "00":
+  0:
     # SPI / comparator-mux index to physical CDAC flavor.
     adc_channels:
       0: radix17

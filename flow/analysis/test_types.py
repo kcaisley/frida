@@ -1,8 +1,8 @@
-"""Tests for typed measurement sections and uniform HDF5 persistence."""
+"""Tests for the typed measurement base classes and their uniform HDF5 persistence."""
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import MISSING, dataclass, fields, replace
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
@@ -17,30 +17,19 @@ import flow.analysis.io as analysis_io
 from flow.adc.sim import AdcTbParams
 from flow.analysis.io import interpolate_wave_records, read_measurement, write_measurement
 from flow.analysis.types import (
-    AdcDaq,
-    AdcExtWave,
-    AdcIntWave,
-    Backend,
-    CdacExtDaq,
-    CdacExtWave,
-    CdacIntDaq,
-    CdacIntWave,
-    CompDaq,
-    CompExtWave,
-    CompIntWave,
+    Analysis,
+    AnalysisAdcTransfer,
+    Identity,
+    Meas,
     MeasAdc,
-    MeasAdcExt,
-    MeasAdcInt,
-    MeasCdacExt,
-    MeasCdacInt,
-    MeasCompExt,
-    MeasCompInt,
+    MeasCdac,
+    MeasComp,
     MeasInfo,
-    MeasSampInt,
-    SampDaq,
-    SampIntWave,
+    MeasSamp,
+    Wave,
+    check_identity,
+    measurement_identity,
 )
-from flow.caparray.sim import CapArrayTbParams
 from flow.comp.sim import CompTbParams
 from flow.samp.sim import SampTbParams
 from flow.scans.params import AdcScanParams
@@ -52,271 +41,238 @@ class PersistenceMode(Enum):
     NOMINAL = "nominal"
 
 
-def adc_measurement() -> MeasAdcExt:
-    """Return one small, fully populated external ADC measurement."""
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MeasExample(Meas):
+    """A measurement type that exists only in this test module."""
 
-    time_s = np.linspace(0.0, 10e-9, 8)
-    return MeasAdcExt(
-        info=MeasInfo(
-            schema_version=1,
-            measurement_type="MeasAdcExt",
-            backend="physical",
-            timestamp_utc=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
-            instruments={"scope": "MSO54", "fpga": "BDAQ53"},
-            readbacks={"vdd_a_v": 1.199, "locked": True},
-        ),
-        param=AdcScanParams(
-            tb=AdcTbParams(conversions=2),
-            board_id="00",
-            observed_adc=0,
-            active_adc_mask=(0,) * 15 + (1,),
-        ),
-        daq=AdcDaq(
-            conversion_index=np.array([0, 1]),
-            bout=np.array([[0, 1] * 8 + [0], [1, 0] * 8 + [1]]),
-            dout_raw=np.array([123, 456]),
-            dout=np.array([120, 450]),
-            vin_diff_v=np.array([0.01, 0.02]),
-            fastrx_word=np.array([0x10000001, 0x10020002]),
-        ),
-        wave=AdcExtWave(
-            conversion_index=np.array([1]),
-            time_s=time_s,
-            vin_diff_v=np.sin(2 * np.pi * time_s / time_s[-1])[None, :],
-            seq_comp_v=np.tile([0.0, 0.0, 1.2, 1.2], 2)[None, :],
-            seq_logic_v=np.tile([0.0, 1.2], 4)[None, :],
-            comp_out_v=np.tile([0.0, 0.0, 1.2, 1.2], 2)[None, :],
-        ),
+    trial_index: np.ndarray
+    reading_v: np.ndarray
+
+
+def info(backend="spice") -> MeasInfo:
+    return MeasInfo(backend=backend, timestamp_utc=datetime(2026, 7, 29, 12, 0, tzinfo=UTC), readbacks={"note": "x"})
+
+
+def wave(names: tuple[str, ...], currents: tuple[str, ...] = (), records: int = 1) -> Wave:
+    traces = np.arange(records * 8, dtype=np.float64).reshape(records, 8)
+    return Wave(
+        record_index=np.arange(records),
+        time_s=np.arange(8, dtype=np.float64) * 1e-9,
+        v={name: traces + offset for offset, name in enumerate(names)},
+        i={name: traces * 1e-6 for name in currents},
     )
 
 
-def info(measurement_type: str, backend: Backend = "spice") -> MeasInfo:
-    return MeasInfo(
-        schema_version=1,
-        measurement_type=measurement_type,
-        backend=backend,
-        timestamp_utc=datetime(2026, 7, 29, 12, 0, tzinfo=UTC),
+def physical_scan_params() -> AdcScanParams:
+    return AdcScanParams(
+        tb=AdcTbParams(conversions=2),
+        board_id=4,
+        observed_adc=9,
+        active_adc_mask=tuple(int(index == 9) for index in reversed(range(16))),
     )
 
 
-def dense_signals(names: tuple[str, ...]) -> dict[str, np.ndarray]:
-    return {name: np.arange(8, dtype=float).reshape(1, 8) for name in names}
-
-
-def all_measurements():
-    """Return one minimal instance of every supported measurement type."""
-
-    adc_daq = AdcDaq(
-        conversion_index=np.asarray([0], dtype=np.int64),
-        bout=np.zeros((1, 17), dtype=np.uint8),
-        dout_raw=np.asarray([0], dtype=np.int64),
-        dout=np.asarray([0], dtype=np.int64),
-        vin_diff_v=np.asarray([0.0], dtype=np.float64),
+def adc_physical() -> MeasAdc:
+    params = physical_scan_params()
+    return MeasAdc(
+        group=params.board_id,
+        index=params.observed_adc,
+        dut=params.tb.dut,
+        info=info("physical"),
+        param=params,
+        conversion_index=np.arange(2),
+        bout=np.zeros((2, 17), dtype=np.uint8),
+        dout_raw=np.asarray([10, 20]),
+        dout=np.asarray([11, 21]),
+        vin_diff_v=np.asarray([0.0, 1e-3]),
+        fastrx_word=np.asarray([1, 2], dtype=np.uint32),
+        wave=wave(("vin_diff", "seq_comp", "seq_logic", "comp_out")),
     )
-    comp_daq = CompDaq(
-        trial_index=np.asarray([0], dtype=np.int64),
-        vin_diff_v=np.asarray([0.0], dtype=np.float64),
-        vin_cm_v=np.asarray([0.6], dtype=np.float64),
+
+
+def adc_spice() -> MeasAdc:
+    params = AdcTbParams(conversions=1, mc_seed=11, mc_index=2)
+    return MeasAdc(
+        group=params.mc_seed,
+        index=params.mc_index,
+        dut=params.dut,
+        info=info(),
+        param=params,
+        conversion_index=np.arange(1),
+        bout=np.ones((1, 17), dtype=np.uint8),
+        dout_raw=np.asarray([5]),
+        dout=np.asarray([5]),
+        vin_diff_v=np.asarray([0.0]),
+        wave=wave(("vin_p", "vin_n", "dac_state_p[0]", "comp.latch_p"), ("vdd_a", "vdd_d")),
+    )
+
+
+def comp_physical() -> MeasComp:
+    params = physical_scan_params()
+    return MeasComp(
+        group=params.board_id,
+        index=params.observed_adc,
+        dut=params.tb.dut.comp,
+        info=info("physical"),
+        param=params,
+        trial_index=np.arange(2),
+        vin_diff_v=np.asarray([0.0, 1e-3]),
+        vin_cm_v=np.asarray([0.8, 0.8]),
+        decision=np.asarray([0, 1], dtype=np.uint8),
+        fastrx_word=np.asarray([1, 2], dtype=np.uint32),
+        fastrx_frame=np.asarray([0, 1], dtype=np.uint32),
+    )
+
+
+def comp_spice() -> MeasComp:
+    params = CompTbParams()
+    return MeasComp(
+        group=None,
+        index=None,
+        dut=params.comp,
+        info=info(),
+        param=params,
+        trial_index=np.arange(1),
+        vin_diff_v=np.asarray([0.0]),
+        vin_cm_v=np.asarray([0.6]),
         decision=np.asarray([1], dtype=np.uint8),
-    )
-    comp_ext_daq = CompDaq(
-        trial_index=np.asarray([0], dtype=np.int64),
-        vin_diff_v=np.asarray([0.0], dtype=np.float64),
-        vin_cm_v=np.asarray([0.6], dtype=np.float64),
-        decision=np.asarray([1], dtype=np.uint8),
-        fastrx_word=np.asarray([0x10000001], dtype=np.uint32),
-        fastrx_frame=np.asarray([0], dtype=np.uint32),
-    )
-    dac_states = np.zeros((1, 16), dtype=np.uint8)
-    return (
-        MeasAdcInt(
-            info=info("MeasAdcInt"),
-            param=AdcTbParams(conversions=1),
-            daq=adc_daq,
-            wave=AdcIntWave(
-                conversion_index=np.asarray([0], dtype=np.int64),
-                time_s=np.arange(8, dtype=float),
-                voltage={
-                    name.removesuffix("_v"): value
-                    for name, value in dense_signals(
-                        ("vin_p_v", "vin_n_v", "seq_init_v", "seq_comp_v", "seq_logic_v", "comp_out_v")
-                    ).items()
-                },
-            ),
-        ),
-        MeasCompExt(
-            info=info("MeasCompExt", "physical"),
-            param=AdcScanParams(tb=AdcTbParams(conversions=1)),
-            daq=comp_ext_daq,
-            wave=CompExtWave(
-                trial_index=np.asarray([0], dtype=np.int64),
-                time_s=np.arange(8, dtype=float),
-                **dense_signals(("vin_diff_v", "seq_comp_v", "comp_out_v")),
-            ),
-        ),
-        MeasCompInt(
-            info=info("MeasCompInt"),
-            param=CompTbParams(),
-            daq=comp_daq,
-            wave=CompIntWave(
-                trial_index=np.asarray([0], dtype=np.int64),
-                time_s=np.arange(8, dtype=float),
-                voltage=dense_signals(("inp", "inn", "clk", "outp", "outn", "latch_p", "latch_n")),
-                current=dense_signals(("vdd",)),
-            ),
-        ),
-        MeasSampInt(
-            info=info("MeasSampInt"),
-            param=SampTbParams(),
-            daq=SampDaq(trial_index=np.asarray([0], dtype=np.int64)),
-            wave=SampIntWave(
-                trial_index=np.asarray([0], dtype=np.int64),
-                time_s=np.arange(8, dtype=float),
-                **dense_signals(("vin_v", "sampled_v", "clk_v", "clk_b_v", "vdd_i")),
-            ),
-        ),
-        MeasCdacExt(
-            info=info("MeasCdacExt", "physical"),
-            param=AdcScanParams(tb=AdcTbParams(conversions=1)),
-            daq=CdacExtDaq(
-                trial_index=np.asarray([0], dtype=np.int64),
-                dac_state_p=dac_states,
-                dac_state_n=dac_states,
-                vin_diff_v=np.asarray([0.0], dtype=np.float64),
-                decision=np.asarray([1], dtype=np.uint8),
-                dac_state_before_p=dac_states,
-                dac_state_before_n=dac_states,
-                vin_cm_v=np.asarray([0.8], dtype=np.float64),
-                fastrx_word=np.asarray([0x10000001], dtype=np.uint32),
-                fastrx_frame=np.asarray([0], dtype=np.uint32),
-            ),
-            wave=CdacExtWave(
-                trial_index=np.asarray([0], dtype=np.int64),
-                time_s=np.arange(8, dtype=float),
-                **dense_signals(("vin_diff_v", "seq_comp_v", "comp_out_v", "seq_logic_v")),
-            ),
-        ),
-        MeasCdacInt(
-            info=info("MeasCdacInt"),
-            param=CapArrayTbParams(),
-            daq=CdacIntDaq(
-                trial_index=np.asarray([0], dtype=np.int64),
-                dac_state_p=dac_states,
-                dac_state_n=dac_states,
-            ),
-            wave=CdacIntWave(
-                trial_index=np.asarray([0], dtype=np.int64),
-                time_s=np.arange(8, dtype=float),
-                **dense_signals(("vdac_p_v", "vdac_n_v", "update_v", "vdd_i")),
-            ),
-        ),
+        wave=wave(("inp", "inn", "clk", "latch_p", "latch_n"), ("vdd",)),
     )
 
 
-def assert_sections_equal(expected, actual) -> None:
-    for data_field in expected.__dataclass_fields__:
-        expected_value = getattr(expected, data_field)
-        actual_value = getattr(actual, data_field)
-        if expected_value is None:
-            assert actual_value is None
-        elif isinstance(expected_value, dict):
-            assert actual_value.keys() == expected_value.keys()
-            for name, values in expected_value.items():
-                np.testing.assert_array_equal(actual_value[name], values)
-        else:
-            assert actual_value.dtype == expected_value.dtype
-            np.testing.assert_array_equal(actual_value, expected_value)
+def cdac_physical() -> MeasCdac:
+    params = physical_scan_params()
+    states = np.zeros((2, 16), dtype=np.uint8)
+    return MeasCdac(
+        group=params.board_id,
+        index=params.observed_adc,
+        dut=params.tb.dut.cdac,
+        info=info("physical"),
+        param=params,
+        trial_index=np.arange(2),
+        dac_state_p=states,
+        dac_state_n=states,
+        vin_diff_v=np.asarray([0.0, 1e-3]),
+        decision=np.asarray([0, 1], dtype=np.uint8),
+        dac_state_before_p=states,
+        dac_state_before_n=states,
+        vin_cm_v=np.asarray([0.8, 0.8]),
+    )
 
 
-def test_adc_internal_wave_uses_canonical_signal_collections() -> None:
-    wave = all_measurements()[0].wave
-    assert set(AdcIntWave.__dataclass_fields__) == {"conversion_index", "time_s", "voltage", "current"}
-    assert {"vin_p", "vin_n", "seq_comp", "seq_logic", "comp_out"} <= wave.voltage.keys()
+def samp_spice() -> MeasSamp:
+    params = SampTbParams()
+    return MeasSamp(
+        group=None,
+        index=None,
+        dut=params.samp,
+        info=info(),
+        param=params,
+        trial_index=np.arange(1),
+        wave=wave(("din", "dout", "clk", "clk_b"), ("vdd",)),
+    )
 
 
-@pytest.mark.parametrize("input_probed", (True, False))
-def test_adc_measurement_round_trip_uses_native_hdf5_groups(tmp_path: Path, input_probed: bool) -> None:
-    """Round-trip exact array dtypes, values, parameters, and run information."""
+def example() -> MeasExample:
+    params = CompTbParams()
+    return MeasExample(
+        group=None,
+        index=None,
+        dut=params.comp,
+        info=info(),
+        param=params,
+        trial_index=np.arange(3),
+        reading_v=np.asarray([0.1, 0.2, 0.3]),
+    )
 
-    original = adc_measurement()
-    if not input_probed:
-        assert original.wave is not None
-        original = replace(original, wave=replace(original.wave, vin_diff_v=None))
-    path = write_measurement(tmp_path / "adc.h5", original)
-    with h5py.File(path, "r") as stored:
-        assert set(stored) == {"info", "param", "daq", "wave"}
-        assert "metadata_json" not in stored
-        assert stored["daq/bout"].dtype == np.uint8
-        assert stored["daq/bout"].shape == (2, 17)
-        assert stored["wave/comp_out_v"].chunks == (1, 8)
+
+MEASUREMENTS = (adc_physical, adc_spice, comp_physical, comp_spice, cdac_physical, samp_spice, example)
+
+
+def assert_same_measurement(loaded: Meas, original: Meas) -> None:
+    assert type(loaded) is type(original)
+    assert loaded.identity == original.identity
+    assert loaded.param == original.param
+    assert replace(loaded.info, source_path=None) == original.info
+    for data_field in fields(original):
+        value = getattr(original, data_field.name)
+        if isinstance(value, np.ndarray):
+            stored = getattr(loaded, data_field.name)
+            assert stored.dtype == value.dtype
+            np.testing.assert_array_equal(stored, value)
+    if original.wave is None:
+        assert loaded.wave is None
+    else:
+        assert loaded.wave is not None
+        np.testing.assert_array_equal(loaded.wave.time_s, original.wave.time_s)
+        np.testing.assert_array_equal(loaded.wave.record_index, original.wave.record_index)
+        for name in ("v", "i"):
+            stored, expected = getattr(loaded.wave, name), getattr(original.wave, name)
+            assert stored.keys() == expected.keys()
+            for key in expected:
+                np.testing.assert_array_equal(stored[key], expected[key])
+
+
+@pytest.mark.parametrize("build", MEASUREMENTS, ids=lambda build: build.__name__)
+def test_every_measurement_type_round_trips(tmp_path: Path, build) -> None:
+    original = build()
+    path = write_measurement(tmp_path / "measurement.h5", original)
 
     loaded = read_measurement(path)
-    assert isinstance(loaded, MeasAdcExt)
+
+    assert_same_measurement(loaded, original)
     assert loaded.info.source_path == path
-    assert loaded.info.backend == original.info.backend
-    assert loaded.info.instruments == original.info.instruments
-    assert loaded.info.readbacks == original.info.readbacks
-    assert loaded.param == original.param
-    for field in ("conversion_index", "bout", "dout_raw", "dout", "vin_diff_v", "fastrx_word"):
-        expected = getattr(original.daq, field)
-        actual = getattr(loaded.daq, field)
-        assert actual.dtype == expected.dtype
-        np.testing.assert_array_equal(actual, expected)
-    for field in ("conversion_index", "time_s", "vin_diff_v", "seq_comp_v", "seq_logic_v", "comp_out_v"):
-        expected = getattr(original.wave, field)
-        actual = getattr(loaded.wave, field)
-        if expected is None:
-            assert actual is None
-            continue
-        assert actual.dtype == expected.dtype
-        np.testing.assert_array_equal(actual, expected)
+    with h5py.File(path, "r") as stored:
+        assert stored.attrs["_content"] == "measurement"
+        assert stored["measurement"].attrs["_type"] == f"{type(original).__module__}:{type(original).__qualname__}"
 
 
-def test_typed_pwl_parameter_round_trip(tmp_path: Path) -> None:
-    """Persist typed PWL points as part of the shared ADC parameters."""
+def test_a_new_measurement_class_needs_no_registration(tmp_path: Path) -> None:
+    """The reader rebuilds any importable Meas subclass from its stored type name."""
 
-    original = adc_measurement()
-    original = replace(
-        original,
-        param=replace(
-            original.param,
-            tb=replace(
-                original.param.tb,
-                vin_diff=h.Vpwl.Params(wave=h.Pwl.ramp(start=-0.1, stop=0.1, duration=1e-6)),
-            ),
-        ),
-    )
-
-    loaded = read_measurement(write_measurement(tmp_path / "pwl.h5", original))
-
-    assert loaded.param == original.param
-    assert isinstance(loaded.param.tb.vin_diff.wave, h.Pwl)
+    loaded = read_measurement(write_measurement(tmp_path / "example.h5", example()))
+    assert isinstance(loaded, MeasExample)
 
 
-def test_linear_sweep_parameter_round_trip(tmp_path: Path) -> None:
-    """Persist a conversion-synchronous ADC input sweep without materializing its PWL."""
+def test_every_measurement_carries_the_base_fields() -> None:
+    base = [data_field.name for data_field in fields(Meas)]
+    assert base == ["group", "index", "dut", "info", "param", "wave"]
+    assert [data_field.name for data_field in fields(Meas) if data_field.default is not MISSING] == ["wave"]
+    for build in MEASUREMENTS:
+        assert [data_field.name for data_field in fields(type(build()))][: len(base)] == base
 
-    original = adc_measurement()
-    original = replace(
-        original,
-        param=replace(
-            original.param,
-            tb=replace(
-                original.param.tb,
-                vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
-            ),
-        ),
-    )
 
-    loaded = read_measurement(write_measurement(tmp_path / "linear_sweep.h5", original))
+def test_measurement_readback_arrays_must_share_one_row_per_record() -> None:
+    with pytest.raises(ValueError, match="readback arrays are not aligned"):
+        replace(comp_physical(), decision=np.asarray([1], dtype=np.uint8))
 
-    assert loaded.param == original.param
-    assert isinstance(loaded.param.tb.vin_diff, hs.LinearSweep)
+
+def test_wave_rejects_misaligned_traces_and_a_nonincreasing_axis() -> None:
+    valid = wave(("comp_out",), records=2)
+    with pytest.raises(ValueError, match="must have shape"):
+        replace(valid, v={"comp_out": valid.v["comp_out"][:1]})
+    with pytest.raises(ValueError, match="strictly increasing"):
+        replace(valid, time_s=valid.time_s[::-1])
+
+
+def test_measurement_without_waveform_round_trips(tmp_path: Path) -> None:
+    original = replace(adc_physical(), wave=None)
+    assert_same_measurement(read_measurement(write_measurement(tmp_path / "plain.h5", original)), original)
+
+
+def test_typed_pwl_and_linear_sweep_parameters_round_trip(tmp_path: Path) -> None:
+    original = adc_physical()
+    for source in (
+        h.Vpwl.Params(wave=h.Pwl.ramp(start=-0.1, stop=0.1, duration=1e-6)),
+        hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
+    ):
+        measurement = replace(original, param=replace(original.param, tb=replace(original.param.tb, vin_diff=source)))
+        loaded = read_measurement(write_measurement(tmp_path / "source.h5", measurement))
+        assert loaded.param == measurement.param
+        assert type(loaded.param.tb.vin_diff) is type(source)
 
 
 def test_native_enum_round_trip(tmp_path: Path) -> None:
-    """Persist and restore enum identity from its qualified type metadata."""
-
     path = tmp_path / "enum.h5"
     with h5py.File(path, "w") as stored:
         analysis_io._write_native(stored, "mode", PersistenceMode.NOMINAL)
@@ -325,8 +281,6 @@ def test_native_enum_round_trip(tmp_path: Path) -> None:
 
 
 def test_native_enum_reader_rejects_non_enum_type(tmp_path: Path) -> None:
-    """Reject corrupt enum metadata that resolves to an ordinary class."""
-
     path = tmp_path / "invalid_enum.h5"
     with h5py.File(path, "w") as stored:
         dataset = stored.create_dataset("mode", data="NOMINAL")
@@ -337,233 +291,85 @@ def test_native_enum_reader_rejects_non_enum_type(tmp_path: Path) -> None:
 
 
 def test_parameter_reader_applies_defaults_added_after_capture(tmp_path: Path) -> None:
-    """Keep older HDF5 results readable when parameter classes gain fields."""
+    """Keep files readable when parameter classes gain fields with defaults."""
 
-    path = write_measurement(tmp_path / "legacy.h5", adc_measurement())
+    path = write_measurement(tmp_path / "older.h5", adc_physical())
     with h5py.File(path, "a") as stored:
-        cdac = stored["param/tb/dut/cdac"]
-        cdac.attrs["_type"] = "flow.cdac.subckt:CdacParams"
-        for field in ("redun_strat", "split_strat", "cap_type"):
-            dataset = cdac[field]
-            dataset.attrs["_type"] = dataset.attrs["_type"].replace("flow.caparray", "flow.cdac")
-        del cdac["driver_p_w"]
-        del cdac["driver_n_w"]
-        del cdac["driver_strengths"]
+        for cdac in (stored["measurement/param/tb/dut/cdac"], stored["measurement/dut/cdac"]):
+            for name in ("driver_p_w", "driver_n_w", "driver_strengths"):
+                del cdac[name]
 
     loaded = read_measurement(path)
-    assert isinstance(loaded, MeasAdcExt)
-    assert loaded.param.tb.dut.cdac.driver_p_w == 9
-    assert loaded.param.tb.dut.cdac.driver_n_w == 7
-    assert loaded.param.tb.dut.cdac.driver_strengths is None
+    assert loaded.dut.cdac.driver_p_w == 9
+    assert loaded.dut.cdac.driver_n_w == 7
+    assert loaded.dut.cdac.driver_strengths is None
 
 
-@pytest.mark.parametrize("measurement", all_measurements(), ids=lambda value: type(value).__name__)
-def test_every_measurement_type_round_trips(tmp_path: Path, measurement) -> None:
-    """Use the same writer and reader for every supported measurement class."""
-
-    path = write_measurement(tmp_path / f"{type(measurement).__name__}.h5", measurement)
-    loaded = read_measurement(path)
-
-    assert type(loaded) is type(measurement)
-    if isinstance(loaded, (MeasAdcExt, MeasAdcInt)):
-        adc: MeasAdc = loaded
-        assert adc is loaded
-    assert loaded.param == measurement.param
-    assert loaded.info.measurement_type == measurement.info.measurement_type
-    assert_sections_equal(measurement.daq, loaded.daq)
-    assert_sections_equal(measurement.wave, loaded.wave)
-
-
-@pytest.mark.parametrize("measurement_index", (1, 4), ids=("comparator", "cdac"))
-def test_external_decision_measurement_without_scope_waveform_round_trips(
-    tmp_path: Path,
-    measurement_index: int,
-) -> None:
-    original = replace(all_measurements()[measurement_index], wave=None)
-
-    loaded = read_measurement(write_measurement(tmp_path / f"no_wave_{measurement_index}.h5", original))
-
-    assert type(loaded) is type(original)
-    assert loaded.wave is None
-    assert_sections_equal(original.daq, loaded.daq)
-
-
-def test_external_adc_measurement_without_scope_waveform_round_trips(tmp_path: Path) -> None:
-    original = replace(adc_measurement(), wave=None)
-    path = write_measurement(tmp_path / "no_wave_adc.h5", original)
-
-    with h5py.File(path, "r") as stored:
-        assert set(stored) == {"info", "param", "daq", "wave"}
-        assert stored["wave"].attrs["_kind"] == "none"
-    loaded = read_measurement(path)
-
-    assert isinstance(loaded, MeasAdcExt)
-    assert loaded.wave is None
-    assert_sections_equal(original.daq, loaded.daq)
-
-
-@pytest.mark.parametrize("measurement_index", (2, 5), ids=("MeasCompInt-AdcTbParams", "MeasCdacInt-AdcTbParams"))
-def test_whole_adc_internal_measurement_parameter_pairings_round_trip(
-    tmp_path: Path,
-    measurement_index: int,
-) -> None:
-    """Keep whole-chip and PEX results on their native AdcTbParams stack."""
-
-    original = replace(
-        all_measurements()[measurement_index],
-        param=AdcTbParams(conversions=1),
-    )
-    loaded = read_measurement(write_measurement(tmp_path / f"pairing_{measurement_index}.h5", original))
-
-    assert type(loaded) is type(original)
-    assert type(loaded.param) is AdcTbParams
-    assert loaded.param == original.param
-
-
-def test_schema_v1_external_cdac_without_switching_fields_remains_readable(tmp_path: Path) -> None:
-    """Treat legacy P/N state arrays as the after-update state."""
-
-    current = all_measurements()[4]
-    legacy = replace(
-        current,
-        daq=CdacExtDaq(
-            trial_index=current.daq.trial_index,
-            dac_state_p=current.daq.dac_state_p,
-            dac_state_n=current.daq.dac_state_n,
-            vin_diff_v=current.daq.vin_diff_v,
-            decision=current.daq.decision,
-        ),
-    )
-    loaded = read_measurement(write_measurement(tmp_path / "legacy_cdac.h5", legacy))
-
-    assert isinstance(loaded, MeasCdacExt)
-    assert loaded.daq.dac_state_before_p is None
-    assert loaded.daq.dac_state_before_n is None
-    assert loaded.daq.vin_cm_v is None
-    assert loaded.daq.fastrx_word is None
-
-
-def test_schema_v2_physical_measurements_require_transport_and_switching_fields() -> None:
-    """Require the new acquisition evidence without invalidating schema-v1 files."""
-
-    comp = all_measurements()[1]
-    with pytest.raises(ValueError, match="schema-v2 physical MeasCompExt"):
-        replace(
-            comp,
-            info=replace(comp.info, schema_version=2),
-            daq=replace(comp.daq, fastrx_word=None, fastrx_frame=None),
-        )
-
-    cdac = all_measurements()[4]
-    with pytest.raises(ValueError, match="schema-v2 physical MeasCdacExt"):
-        replace(
-            cdac,
-            info=replace(cdac.info, schema_version=2),
-            daq=CdacExtDaq(
-                trial_index=cdac.daq.trial_index,
-                dac_state_p=cdac.daq.dac_state_p,
-                dac_state_n=cdac.daq.dac_state_n,
-                vin_diff_v=cdac.daq.vin_diff_v,
-                decision=cdac.daq.decision,
-            ),
-        )
-
-
-def test_reader_rejects_missing_required_dataset(tmp_path: Path) -> None:
-    """Reject a structurally incomplete measurement before constructing it."""
-
-    path = write_measurement(tmp_path / "incomplete.h5", adc_measurement())
+def test_reader_rejects_a_missing_required_field(tmp_path: Path) -> None:
+    path = write_measurement(tmp_path / "incomplete.h5", adc_physical())
     with h5py.File(path, "a") as stored:
-        del stored["wave/comp_out_v"]
+        del stored["measurement/bout"]
 
-    with pytest.raises(ValueError, match="missing required datasets.*comp_out_v"):
+    with pytest.raises(ValueError, match="missing required parameter fields.*bout"):
         read_measurement(path)
 
 
-def test_failed_measurement_write_preserves_existing_file(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+def test_failed_measurement_write_preserves_existing_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Publish HDF5 atomically so readers never observe a partial replacement."""
 
-    path = write_measurement(tmp_path / "measurement.h5", adc_measurement())
+    path = write_measurement(tmp_path / "measurement.h5", adc_physical())
     original = path.read_bytes()
 
-    def fail_section(*args, **kwargs) -> None:
+    def fail(*args, **kwargs) -> None:
         raise RuntimeError("injected persistence failure")
 
-    monkeypatch.setattr(analysis_io, "_write_section", fail_section)
+    monkeypatch.setattr(analysis_io, "_write_native", fail)
     with pytest.raises(RuntimeError, match="injected persistence failure"):
-        write_measurement(path, adc_measurement())
+        write_measurement(path, adc_physical())
 
     assert path.read_bytes() == original
     assert not path.with_name(f".{path.name}.tmp").exists()
 
 
-def test_adc_sections_reject_invalid_bits_shapes_and_wave_mapping() -> None:
-    """Reject malformed ADC decisions and wave records before persistence."""
-
-    measurement = adc_measurement()
-    assert isinstance(measurement, MeasAdcExt)
-    assert measurement.wave is not None
-    with pytest.raises(ValueError, match=r"shape \(N, 17\)"):
-        AdcDaq(
-            conversion_index=np.asarray([0], dtype=np.int64),
-            bout=np.zeros((1, 16), dtype=np.uint8),
-            dout_raw=np.asarray([0], dtype=np.int64),
-            dout=np.asarray([0], dtype=np.int64),
-            vin_diff_v=np.asarray([0.0], dtype=np.float64),
-        )
-    invalid_bits = np.zeros((1, 17), dtype=int)
-    invalid_bits[0, 4] = 2
-    with pytest.raises(ValueError, match="zero or one"):
-        AdcDaq(
-            conversion_index=np.asarray([0], dtype=np.int64),
-            bout=invalid_bits,
-            dout_raw=np.asarray([0], dtype=np.int64),
-            dout=np.asarray([0], dtype=np.int64),
-            vin_diff_v=np.asarray([0.0], dtype=np.float64),
-        )
-    with pytest.raises(ValueError, match="absent from DAQ"):
-        MeasAdcExt(
-            info=measurement.info,
-            param=measurement.param,
-            daq=measurement.daq,
-            wave=AdcExtWave(
-                conversion_index=np.asarray([99], dtype=np.int64),
-                time_s=measurement.wave.time_s,
-                vin_diff_v=measurement.wave.vin_diff_v,
-                seq_comp_v=measurement.wave.seq_comp_v,
-                seq_logic_v=measurement.wave.seq_logic_v,
-                comp_out_v=measurement.wave.comp_out_v,
-            ),
-        )
-
-
 def test_adaptive_simulation_waveforms_interpolate_to_dense_records() -> None:
-    """Slice adaptive simulation output into dense equal-length wave records."""
-
     time_s = np.array([0.0, 0.4, 1.0, 1.6, 2.0])
     relative_time, records = interpolate_wave_records(
-        time_s,
-        {"signal_v": 2.0 * time_s},
-        [(0.0, 1.0), (1.0, 2.0)],
-        sample_interval_s=0.5,
+        time_s, {"signal": 2.0 * time_s}, [(0.0, 1.0), (1.0, 2.0)], sample_interval_s=0.5
     )
 
     np.testing.assert_allclose(relative_time, [0.0, 0.5])
-    np.testing.assert_allclose(records["signal_v"], [[0.0, 1.0], [2.0, 3.0]])
+    np.testing.assert_allclose(records["signal"], [[0.0, 1.0], [2.0, 3.0]])
 
 
-@pytest.mark.parametrize(
-    ("old_name", "new_name"),
-    [
-        ("subckt:CdacParams", "subckt:CapArrayConfig"),
-        ("subckt:CdacArrayParams", "subckt:CapArrayParams"),
-        ("laygen:CdacLayoutParams", "laygen:CapArrayLayoutParams"),
-        ("sim:CdacTbParams", "sim:CapArrayTbParams"),
-        ("subckt:RedunStrat", "subckt:RedunStrat"),
-    ],
-)
-def test_legacy_caparray_parameter_types_resolve(old_name: str, new_name: str) -> None:
-    assert analysis_io._resolve_type(f"flow.cdac.{old_name}") is analysis_io._resolve_type(f"flow.caparray.{new_name}")
+def test_analysis_base_holds_only_identity_fields_without_defaults() -> None:
+    assert [data_field.name for data_field in fields(Analysis)] == ["group", "index", "dut"]
+    assert all(
+        data_field.default is MISSING and data_field.default_factory is MISSING for data_field in fields(Analysis)
+    )
+
+
+def test_monte_carlo_parameters_default_to_nominal() -> None:
+    assert (AdcTbParams().mc_seed, AdcTbParams().mc_index) == (None, None)
+    assert (CompTbParams().mc_seed, CompTbParams().mc_index) == (None, None)
+
+
+def test_identity_helpers_reject_mixed_inputs_and_mismatched_priors() -> None:
+    nominal = adc_spice()
+    other = replace(nominal, group=1, index=0)
+    assert measurement_identity([nominal, nominal]) == Identity(11, 2, nominal.dut)
+    with pytest.raises(ValueError, match="share one group, index, and DUT"):
+        measurement_identity([nominal, other])
+    result = AnalysisAdcTransfer(
+        group=1,
+        index=0,
+        dut=nominal.dut,
+        vin_diff_v=np.asarray([0.0]),
+        mean_dout=np.asarray([0.0]),
+        std_dout=np.asarray([0.0]),
+        sample_count=np.asarray([1]),
+    )
+    check_identity(result, other.identity, name="prior")
+    with pytest.raises(ValueError, match="group 1/11"):
+        check_identity(result, nominal.identity, name="prior")
+    with pytest.raises(ValueError, match="DUT params different"):
+        check_identity(result, Identity(1, 0, replace(nominal.dut, adc_bits=10)), name="prior")

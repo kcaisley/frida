@@ -26,41 +26,42 @@ from matplotlib.patches import Patch
 from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator, NullLocator, StrMethodFormatter
 from scipy.special import ndtr
 
+from flow.adc.sequences import AdcSequence
 from flow.analysis import calc
 from flow.analysis.types import (
+    Analysis,
     AnalysisAdcCalibration,
     AnalysisAdcCdacSettling,
+    AnalysisAdcCodeDensityNonlinearity,
     AnalysisAdcCodeDistribution,
+    AnalysisAdcComparatorEdgeEye,
     AnalysisAdcComparatorResponse,
     AnalysisAdcCompOutEdgeEye,
     AnalysisAdcDecisionPaths,
     AnalysisAdcDynamic,
-    AnalysisAdcDynamicSweep,
-    AnalysisAdcNoiseComparison,
-    AnalysisAdcNoiseSweep,
-    AnalysisAdcNonlinearity,
-    AnalysisAdcPowerSweep,
+    AnalysisAdcEndpointNonlinearity,
+    AnalysisAdcNoise,
+    AnalysisAdcOperatingConditions,
+    AnalysisAdcPower,
     AnalysisAdcPowerWaveform,
     AnalysisAdcRamp,
     AnalysisAdcSamplingNoise,
     AnalysisAdcScopeBits,
     AnalysisAdcTransfer,
     AnalysisCdacCapMismatch,
-    AnalysisCompCandidateSweep,
+    AnalysisCompCandidate,
+    AnalysisCompCommonMode,
     AnalysisCompOffsetNoise,
     AnalysisCompPower,
     AnalysisCompTiming,
     AnalysisDiffampNoise,
-    AnalysisWaveform,
+    Meas,
     MeasAdc,
-    MeasAdcExt,
-    MeasAdcInt,
-    MeasCdacExt,
-    MeasCompExt,
-    MeasCompInt,
-    Measurement,
+    MeasCdac,
+    MeasComp,
+    Wave,
 )
-from flow.analysis.waveform import analyze_scope_waveforms, style_measurement_text
+from flow.scans.scope import scope_wave
 
 PLOT_PNGS = False
 PLOT_SVGS = False
@@ -192,16 +193,6 @@ def style_grid(ax: plt.Axes) -> None:
     )
 
 
-def style_frequency_text(value: float) -> str:
-    """Format one frequency with a compact SI prefix."""
-
-    # rcParams does not format domain values embedded in labels and legends.
-    for scale, suffix in ((1e9, "GHz"), (1e6, "MHz"), (1e3, "kHz")):
-        if abs(value) >= scale:
-            return f"{value / scale:g} {suffix}"
-    return f"{value:g} Hz"
-
-
 def style_adc_code_dispersion_lsb(value: float, *, single_code: bool) -> str:
     """Format unresolved single-code dispersion as a one-LSB upper bound."""
 
@@ -252,7 +243,13 @@ def style_info_box(
     ax.add_artist(box)
 
 
-def style_measurement_group_text(msmt_list: Sequence[Measurement]) -> tuple[str, ...]:
+def style_instance_text(analysis: Analysis) -> tuple[str, ...]:
+    """Name the ADC channel or Monte Carlo iteration a result belongs to."""
+
+    return () if analysis.index is None else (f"ADC: {analysis.index:02d}",)
+
+
+def style_measurement_group_text(msmt_list: Sequence[Meas]) -> tuple[str, ...]:
     """Return only setup lines shared by every measurement in a group."""
 
     # rcParams cannot derive display text from typed measurement metadata.
@@ -357,130 +354,92 @@ def plot_adc_redundancy(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_waveforms(
-    analysis: AnalysisWaveform,
+    wave: Wave,
     *,
     output_path: Path,
+    title: str,
+    signals: Mapping[str, str] | None = None,
+    record: int = 0,
+    time_origin_s: float = 0.0,
+    setup_lines: Sequence[str] = (),
 ) -> tuple[Path, ...]:
-    """Plot one completed typed waveform analysis."""
+    """Plot selected node voltages and supply currents of one waveform record.
 
-    scale, unit = style_time_units(analysis.time_s)
-    fig, axes = plt.subplots(
-        len(analysis.signal_names),
-        1,
-        sharex=True,
-    )
+    ``signals`` maps a voltage name, or ``i(<supply>)`` for a supply current,
+    to its axis label; by default every voltage is plotted under its own name.
+    Time is shown relative to ``time_origin_s``.
+    """
+
+    selected = signals if signals is not None else {name: name for name in wave.v}
+    if not 1 <= len(selected) <= 4:
+        raise ValueError("waveform plots show one to four signals")
+    traces = [
+        (wave.i[name[2:-1]], "A") if name.startswith("i(") and name.endswith(")") else (wave.v[name], "V")
+        for name in selected
+    ]
+    time_s = wave.time_s - time_origin_s
+    scale, unit = style_time_units(time_s)
+    fig, axes = plt.subplots(len(selected), 1, sharex=True)
     axes = np.atleast_1d(axes)
-    for ax, name, signal_unit, values in zip(
-        axes,
-        analysis.signal_names,
-        analysis.signal_units,
-        analysis.signal_values,
-        strict=True,
-    ):
-        ax.plot(analysis.time_s * scale, values)
-        suffix = f" ({signal_unit})" if signal_unit else ""
-        ax.set_ylabel(f"{name}{suffix}")
+    for ax, label, (values, signal_unit) in zip(axes, selected.values(), traces, strict=True):
+        ax.plot(time_s * scale, values[record])
+        ax.set_ylabel(f"{label} ({signal_unit})")
         style_grid(ax)
     axes[-1].set_xlabel(f"Time ({unit})")
-    style_info_box(axes[0], analysis.setup_lines)
-    fig.suptitle(analysis.title)
+    style_info_box(axes[0], tuple(setup_lines))
+    fig.suptitle(title)
     return save_figure(fig, output_path)
 
 
-def _eye_segments(
-    signal: Sequence[float] | np.ndarray,
-    axis: Sequence[float] | np.ndarray,
-    period: float,
-    origins: float | Sequence[float] | np.ndarray,
-    *,
-    window: tuple[float, float] = (-0.2, 1.2),
-    count: int | None = None,
-    complete: bool = False,
-    include_stop: bool = True,
-) -> tuple[tuple[int, np.ndarray], ...]:
-    """Return indexed phase/value windows around explicit edge origins."""
-    signal = np.asarray(signal, dtype=np.float64)
-    axis = np.asarray(axis, dtype=np.float64)
-    if signal.ndim != 1 or axis.ndim != 1 or len(signal) != len(axis):
-        raise ValueError("eye signal and axis must be aligned one-dimensional arrays")
-    if not len(axis):
-        raise ValueError("eye segments require at least one sample")
-    if not math.isfinite(period) or period <= 0:
-        raise ValueError("period must be finite and positive")
-    if not all(math.isfinite(bound) for bound in window) or window[0] >= window[1]:
-        raise ValueError("window bounds must be finite and ordered")
-    starts = np.asarray(origins, dtype=np.float64)
-    if starts.ndim == 0:
-        if count is not None and count < 1:
-            raise ValueError("count must be positive")
-        starts = float(starts) + np.arange(1 if count is None else count) * period
-    elif starts.ndim != 1 or count is not None:
-        raise ValueError("array origins must be one-dimensional and cannot use count")
-    if not np.all(np.isfinite(starts)):
-        raise ValueError("origins must be finite")
-    segments = []
-    for index, origin in enumerate(starts):
-        first, last = origin + window[0] * period, origin + window[1] * period
-        if complete and (first < axis[0] or last > axis[-1]):
-            continue
-        selected = (axis >= first) & ((axis <= last) if include_stop else (axis < last))
-        if np.any(selected):
-            segments.append((index, np.column_stack(((axis[selected] - origin) / period, signal[selected]))))
-    return tuple(segments)
+def style_measurement_text(msmt: Meas) -> tuple[str, ...]:
+    """Format concise plot context persisted with one measurement."""
+
+    tb = msmt.tb
+    lines: tuple[str, ...] = ()
+    adc_index = getattr(msmt.param, "observed_adc", None)
+    if adc_index is not None:
+        lines += (f"ADC: {adc_index:02d}",)
+    elif msmt.info.backend != "physical" and isinstance(msmt, MeasAdc):
+        lines += (f"Source: {msmt.info.backend.upper()}",)
+    board_id = getattr(msmt.param, "board_id", None)
+    if board_id is not None:
+        lines += (f"Board: {board_id:02d}",)
+    for field_name, label in (("vin_cm", "Vcm"), ("vin_diff", "Vdiff")):
+        dc_v = getattr(getattr(tb, field_name, None), "dc", None)
+        if dc_v is not None:
+            lines += (f"{label}: {float(dc_v) * 1e3:g} mV",)
+    sequence = AdcSequence.from_tb_params(tb)
+    if isinstance(msmt, MeasAdc):
+        lines += (f"Conversion: {float(tb.symbol_rate) / sequence.conversion_symbols / 1e6:g} MSPS",)
+    lines += (f"Repetition: {len(sequence.init) / float(tb.symbol_rate) * 1e9:g} ns",)
+    init_p = int("".join(str(int(bit)) for bit in tb.dac_astate_p), 2)
+    init_n = int("".join(str(int(bit)) for bit in tb.dac_astate_n), 2)
+    if init_p == init_n:
+        lines += (f"CDAC init: h'{init_p:04X}",)
+    else:
+        lines += (f"CDAC init: P h'{init_p:04X}, N h'{init_n:04X}",)
+    return lines
 
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_comparator_edge_eye(
-    measurement: MeasAdcInt,
+    analysis: AnalysisAdcComparatorEdgeEye,
     *,
     output_path: Path,
     context: str | None = None,
 ) -> tuple[Path, ...]:
     """Overlay every saved conversion and every COMP-aligned decision window."""
 
-    wave = measurement.wave
-    required = {"seq_init", "clk_comp", "comp.latch_p", "comp.latch_n", "comp_out_p"}
-    if missing := required - wave.voltage.keys():
-        raise ValueError(f"ADC edge eye requires saved canonical nets: {sorted(missing)}")
-    time = wave.time_s
-    threshold = float(measurement.param.vdd_d.dc) / 2
     signal_names = ("Comparator clock", "SR-latch P", "XC-latch |P−N|")
-    full_segments: list[list[np.ndarray]] = [[] for _ in signal_names]
-    decision_segments: list[list[np.ndarray]] = [[] for _ in signal_names]
-    relative_edges = []
-    periods = []
-
-    for record in range(len(wave.conversion_index)):
-        signals = {name: wave.voltage[name][record] for name in required}
-        init_edges = calc.cross(signals["seq_init"], time, threshold, edge="rising", initial_high=True)
-        if not len(init_edges):
-            raise ValueError(f"conversion {record} has no INIT rise")
-        stop = init_edges[1] if len(init_edges) > 1 else time[-1]
-        clock_edges = calc.cross(signals["clk_comp"], time, threshold, edge="rising")
-        clock_edges = clock_edges[(clock_edges >= init_edges[0]) & (clock_edges < stop)]
-        if len(clock_edges) != 17:
-            raise ValueError(f"conversion {record} has {len(clock_edges)} COMP rises; expected 17")
-        period = np.median(np.diff(clock_edges))
-        periods.append(period)
-        relative_edges.append(clock_edges - clock_edges[0])
-        traces = (
-            signals["clk_comp"],
-            signals["comp_out_p"],
-            np.abs(signals["comp.latch_p"] - signals["comp.latch_n"]),
-        )
-        selected = (time >= clock_edges[0] - 0.2 * period) & (time <= clock_edges[-1] + period)
-        full_time_ns = (time[selected] - clock_edges[0]) * 1e9
-        for segments, values in zip(full_segments, traces, strict=True):
-            segments.append(np.column_stack((full_time_ns, values[selected])))
-        for segments, values in zip(decision_segments, traces, strict=True):
-            segments.extend(
-                np.column_stack((fold[:, 0] * period * 1e9, fold[:, 1]))
-                for _, fold in _eye_segments(values, time, period, clock_edges, window=(-0.1, 1.1))
-            )
-
-    period_ns = np.median(periods) * 1e9
-    edge_ns = np.median(relative_edges, axis=0) * 1e9
-    supply = max(float(measurement.param.vdd_a.dc), float(measurement.param.vdd_d.dc))
+    period_ns = analysis.decision_period_s * 1e9
+    edge_ns = analysis.decision_edge_s * 1e9
+    decisions = len(edge_ns)
+    records = analysis.aligned_v.shape[1]
+    full_time_ns = analysis.aligned_time_s * 1e9
+    eye_time_ns = analysis.eye_phase * period_ns
+    full_segments = [[np.column_stack((full_time_ns, row)) for row in rows] for rows in analysis.aligned_v]
+    decision_segments = [[np.column_stack((eye_time_ns, row)) for row in rows] for rows in analysis.eye_v]
+    supply = analysis.supply_v
     output_path = Path(output_path)
     paths = []
     for suffix, segments_by_signal in (("timing", full_segments), ("decision_eye", decision_segments)):
@@ -492,14 +451,14 @@ def plot_adc_comparator_edge_eye(
             )
         if suffix == "timing":
             decision_axis = ax.secondary_xaxis("top")
-            decision_axis.set_xticks(edge_ns, labels=[f"B{decision}" for decision in range(17)])
+            decision_axis.set_xticks(edge_ns, labels=[f"B{decision}" for decision in range(decisions)])
             ax.set_xlim(-0.2 * period_ns, edge_ns[-1] + period_ns)
             ax.set_xlabel("Time from B0 comparator clock rise (ns)")
-            title = f"PEX comparator waveforms: {len(wave.conversion_index)} conversions overlaid"
+            title = f"PEX comparator waveforms: {records} conversions overlaid"
         else:
             ax.set_xlim(-0.1 * period_ns, 1.1 * period_ns)
             ax.set_xlabel("Time from each comparator clock rise (ns)")
-            title = f"PEX comparator decision eye: {len(wave.conversion_index)} conversions × 17 decisions"
+            title = f"PEX comparator decision eye: {records} conversions × {decisions} decisions"
         ax.set_title(f"{title}\n{context}" if context else title)
         ax.set_ylim(-0.1 * supply, 1.1 * supply)
         ax.set_ylabel("Voltage (V); XC trace is |P−N|")
@@ -595,33 +554,20 @@ def plot_adc_comp_out_edge_eye(
     """Render external comparator timing from a completed scope analysis."""
 
     decision_period_s = analysis.decision_period_s
-    delays_by_decision = [analysis.delays_s[:, decision] for decision in range(17)]
-    decision_segments: list[list[np.ndarray]] = [[], []]
-    timing_segments: list[list[np.ndarray]] = [[], []]
-    voltage_low = np.inf
-    voltage_high = -np.inf
-
-    for wave, clock_edges in zip(analysis.waveforms, analysis.clock_edges_s, strict=True):
-        time_s = wave.time_s
-        comp_v, comp_out_v = wave.signal_values
-        voltage_low = min(voltage_low, float(comp_v.min()), float(comp_out_v.min()))
-        voltage_high = max(voltage_high, float(comp_v.max()), float(comp_out_v.max()))
-        selected = (time_s >= clock_edges[0] - 0.2 * decision_period_s) & (
-            time_s <= clock_edges[-1] + decision_period_s
-        )
-        relative_ns = (time_s[selected] - clock_edges[0]) * 1e9
-        timing_segments[0].append(np.column_stack((relative_ns, comp_v[selected])))
-        timing_segments[1].append(np.column_stack((relative_ns, comp_out_v[selected])))
-        for segments, values in zip(decision_segments, (comp_v, comp_out_v), strict=True):
-            segments.extend(
-                np.column_stack((fold[:, 0] * decision_period_s * 1e9, fold[:, 1]))
-                for _, fold in _eye_segments(
-                    values, time_s, decision_period_s, clock_edges, window=(-0.2, 1.0), include_stop=False
-                )
-            )
+    decisions = analysis.decision_count
+    delays_by_decision = [analysis.delays_s[:, decision] for decision in range(decisions)]
+    period_ns = decision_period_s * 1e9
+    traces = (analysis.aligned_comp_v, analysis.aligned_comp_out_v)
+    timing_segments = [[np.column_stack((analysis.aligned_time_s * 1e9, row)) for row in rows] for rows in traces]
+    decision_segments = [
+        [np.column_stack((analysis.eye_phase * period_ns, row)) for row in rows]
+        for rows in (analysis.eye_comp_v, analysis.eye_comp_out_v)
+    ]
+    voltage_low = float(min(np.nanmin(rows) for rows in traces))
+    voltage_high = float(max(np.nanmax(rows) for rows in traces))
+    captures = len(analysis.clock_edges_s)
 
     output_path = Path(output_path)
-    period_ns = decision_period_s * 1e9
     voltage_margin = 0.05 * (voltage_high - voltage_low)
     overlay_alpha = 0.35
     metadata = {"Subject": context.replace("\n", "; "), "Keywords": "Oscilloscope measurement"} if context else None
@@ -635,7 +581,7 @@ def plot_adc_comp_out_edge_eye(
     eye_ax.set_ylim(voltage_low - voltage_margin, voltage_high + voltage_margin)
     eye_ax.set_xlabel("Time from each scope COMP rise (ns)")
     eye_ax.set_ylabel("Voltage at scope (V)")
-    eye_title = f"Measured comparator decision eye: {len(analysis.waveforms)} captures × 17 decisions"
+    eye_title = f"Measured comparator decision eye: {captures} captures × {decisions} decisions"
     eye_ax.set_title(f"{eye_title}\n{context}" if context else eye_title)
     style_grid(eye_ax)
     eye_fig.legend(handles=eye_handles, loc="outside lower center", ncol=len(eye_handles))
@@ -653,14 +599,14 @@ def plot_adc_comp_out_edge_eye(
         )
     decision_axis = timing_ax.secondary_xaxis("top")
     decision_axis.set_xticks(
-        np.arange(17) * period_ns,
-        labels=[f"B{decision}" for decision in range(17)],
+        np.arange(decisions) * period_ns,
+        labels=[f"B{decision}" for decision in range(decisions)],
     )
-    timing_ax.set_xlim(-0.2 * period_ns, 17 * period_ns)
+    timing_ax.set_xlim(-0.2 * period_ns, decisions * period_ns)
     timing_ax.set_ylim(voltage_low - voltage_margin, voltage_high + voltage_margin)
     timing_ax.set_xlabel("Time from B0 scope COMP rise (ns)")
     timing_ax.set_ylabel("Voltage at scope (V)")
-    timing_title = f"Measured comparator waveforms: {len(analysis.waveforms)} captures overlaid"
+    timing_title = f"Measured comparator waveforms: {captures} captures overlaid"
     timing_ax.set_title(f"{timing_title}\n{context}" if context else timing_title)
     style_grid(timing_ax)
     timing_fig.legend(handles=timing_handles, loc="outside lower center", ncol=len(timing_handles))
@@ -702,8 +648,8 @@ def plot_adc_comp_out_edge_eye(
     bars = response_ax.barh(positions, widths, height=bin_height, left=left_edges, alpha=0.68, label="Scope COMP_OUT")
     if bars.patches:
         response_ax.plot(median_x, median_y, linestyle="none", marker="_", color=bars.patches[0].get_facecolor())
-    response_ax.set_xlim(-0.7, 16.7)
-    response_ax.set_xticks(range(17))
+    response_ax.set_xlim(-0.7, decisions - 0.3)
+    response_ax.set_xticks(range(decisions))
     response_ax.set_xlabel("ADC decision step (bar width: fraction of transitions per bin)")
     response_title = f"ADC COMP_OUT response at {analysis.conversion_rate_hz / 1e6:g} MSPS (50% swing, measured)"
     response_ax.set_title(f"{response_title}\n{context}" if context else response_title)
@@ -754,9 +700,9 @@ def plot_serdes_output_word_grid(
             unit_interval_s = 1.0 / (rate_mbd * 1e6)
             segments = []
             for capture_index, capture in enumerate(captures):
-                wave = analyze_scope_waveforms(capture, {output_channel: "SERDES output"})
+                wave = scope_wave(capture, {output_channel: "SERDES output"})
                 time_s = wave.time_s
-                voltage_v = wave.signal_values[0]
+                voltage_v = wave.v["SERDES output"][0]
                 low_v, high_v = np.percentile(voltage_v, (5, 95))
                 if high_v - low_v < 0.05:
                     raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 capture {capture_index} has no swing")
@@ -766,10 +712,15 @@ def plot_serdes_output_word_grid(
                 origin_s = calc.xmin(np.abs(rises), rises)
                 # Skip the trigger word after idle and the final idle word.
                 word_origins = origin_s + 8 * np.arange(1, 30) * unit_interval_s
+                # Keep complete words only, in symbol positions from each word origin.
                 segments.extend(
-                    segment
-                    for _, segment in _eye_segments(
-                        voltage_v, time_s, unit_interval_s, word_origins, window=(-0.2, 8.2), complete=True
+                    np.column_stack(((time_s[selected] - origin) / unit_interval_s, voltage_v[selected]))
+                    for origin in word_origins
+                    if time_s[0] <= origin - 0.2 * unit_interval_s
+                    and origin + 8.2 * unit_interval_s <= time_s[-1]
+                    and np.any(
+                        selected := (time_s >= origin - 0.2 * unit_interval_s)
+                        & (time_s <= origin + 8.2 * unit_interval_s)
                     )
                 )
             if not segments:
@@ -831,9 +782,9 @@ def plot_serdes_symbol_eye_grid(
         eyes = []
         folded_symbols = 0
         for capture_index, capture in enumerate(captures):
-            wave = analyze_scope_waveforms(capture, {marker_channel: "INIT marker", output_channel: "SERDES output"})
+            wave = scope_wave(capture, {marker_channel: "INIT marker", output_channel: "SERDES output"})
             time_s = wave.time_s
-            marker_v, output_v = wave.signal_values
+            marker_v, output_v = wave.v["INIT marker"][0], wave.v["SERDES output"][0]
             marker_low, marker_high = np.percentile(marker_v, (0.1, 99.9))
             output_low, output_high = np.percentile(output_v, (5, 95))
             if marker_high - marker_low < 0.05 or output_high - output_low < 0.05:
@@ -956,7 +907,7 @@ def plot_diffamp_noise(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_fastrx_scope_comparison(
-    msmt: MeasAdcExt,
+    msmt: MeasAdc,
     analysis: AnalysisAdcScopeBits,
     *,
     output_path: Path,
@@ -990,9 +941,9 @@ def plot_adc_fastrx_scope_comparison(
         gridspec_kw={"height_ratios": (1.0, 1.0, 1.35, 1.25)},
     )
     waveform_rows = (
-        ("COMP", wave.seq_comp_v[0]),
-        ("LOGIC", wave.seq_logic_v[0]),
-        ("COMP_OUT", wave.comp_out_v[0]),
+        ("COMP", wave.v["seq_comp"][0]),
+        ("LOGIC", wave.v["seq_logic"][0]),
+        ("COMP_OUT", wave.v["comp_out"][0]),
     )
     for ax, (label, values), color in zip(axes[:3], waveform_rows, CURVE_COLORS, strict=False):
         ax.plot(scaled_time, values, color=color)
@@ -1066,8 +1017,8 @@ def plot_adc_transfer(
     """Plot individual ADC conversions and the mean static transfer."""
 
     fig, ax = plt.subplots()
-    inputs = np.concatenate([msmt.daq.vin_diff_v for msmt in msmt_list])
-    dout = np.concatenate([msmt.daq.dout for msmt in msmt_list])
+    inputs = np.concatenate([msmt.vin_diff_v for msmt in msmt_list])
+    dout = np.concatenate([msmt.dout for msmt in msmt_list])
     ax.scatter(inputs * 1e3, dout, label="Conversions")
     ax.errorbar(
         analysis.vin_diff_v * 1e3,
@@ -1088,14 +1039,15 @@ def plot_adc_transfer(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_ramp_transfer(
-    analysis: AnalysisAdcRamp,
+    analyses: Sequence[AnalysisAdcRamp],
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Plot the phase-reconstructed ramp transfer for every decoded curve."""
+    """Plot the phase-reconstructed ramp transfer of every decoding of one capture."""
 
+    analysis = analyses[0]
     fig, ax = plt.subplots()
-    for curve in analysis.curves:
+    for curve in analyses:
         ax.plot(
             curve.transfer_vin_diff_v * 1e3,
             curve.transfer_mean_dout,
@@ -1109,7 +1061,7 @@ def plot_adc_ramp_transfer(
     style_info_box(
         ax,
         (
-            f"ADC: {analysis.adc_index:02d}",
+            *style_instance_text(analysis),
             f"Sample rate: {analysis.sample_rate_hz / 1e6:.6g} MS/s",
             f"Ramp: {analysis.ramp_frequency_hz:.6g} Hz",
         ),
@@ -1120,19 +1072,20 @@ def plot_adc_ramp_transfer(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_ramp_histogram(
-    analysis: AnalysisAdcRamp,
+    analyses: Sequence[AnalysisAdcRamp],
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Plot overlaid code-density histograms from completed ramp analyses."""
+    """Plot overlaid code-density histograms of every decoding of one capture."""
 
+    analysis = analyses[0]
     fig, ax = plt.subplots()
     number_bins = 128
-    first_code = int(analysis.curves[0].code[0]) + 1
-    last_code = int(analysis.curves[0].code[-1])
+    first_code = int(analysis.code[0]) + 1
+    last_code = int(analysis.code[-1])
     bin_edges = np.linspace(first_code, last_code, number_bins + 1, dtype=np.int64)
     bin_edges = np.unique(bin_edges)
-    for curve, color in zip(analysis.curves, CURVE_COLORS, strict=False):
+    for curve, color in zip(analyses, CURVE_COLORS, strict=False):
         average_count = np.asarray([calc.average(curve.count[lower:upper]) for lower, upper in pairwise(bin_edges)])
         ax.stairs(
             average_count,
@@ -1150,7 +1103,7 @@ def plot_adc_ramp_histogram(
     style_info_box(
         ax,
         (
-            f"ADC: {analysis.adc_index:02d}",
+            *style_instance_text(analysis),
             f"Ramp: {analysis.ramp_frequency_hz:.6g} Hz",
         ),
         location="lower right",
@@ -1160,17 +1113,18 @@ def plot_adc_ramp_histogram(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_ramp_weights(
-    analysis: AnalysisAdcRamp,
+    nominal: AnalysisAdcRamp,
+    measured: AnalysisAdcRamp,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
     """Compare nominal and direction-matched physical decision weights."""
 
-    nominal, measured = analysis.curves[:2]
+    analysis = nominal
     code_max = len(nominal.code) - 1
     nominal_weights = nominal.weights * code_max / np.sum(nominal.weights)
     measured_weights = measured.weights * code_max / np.sum(measured.weights)
-    stages = np.arange(16)
+    stages = np.arange(len(nominal_weights) - 1)
     relative_error_percent = 100.0 * (measured_weights[:-1] / nominal_weights[:-1] - 1.0)
 
     fig, axes = plt.subplots(
@@ -1198,7 +1152,7 @@ def plot_adc_ramp_weights(
     axes[1].set_xticklabels([f"C{stage}" for stage in stages])
     for ax in axes:
         style_grid(ax)
-    style_info_box(axes[1], (f"ADC: {analysis.adc_index:02d}",), location="lower right")
+    style_info_box(axes[1], style_instance_text(analysis), location="lower right")
     fig.suptitle("Ideal and extracted ADC decision weights")
     return save_figure(fig, output_path)
 
@@ -1213,8 +1167,8 @@ def plot_adc_calibration_weights(
 
     nominal = analysis_list[0].nominal_weights
 
-    decision = np.arange(17)
-    labels = [f"B{stage}\nC{stage}" for stage in range(16)] + ["B16\nterminal"]
+    decision = np.arange(len(nominal))
+    labels = [f"B{stage}\nC{stage}" for stage in range(len(nominal) - 1)] + [f"B{len(nominal) - 1}\nterminal"]
     fig, axes = plt.subplots(
         2,
         1,
@@ -1258,7 +1212,7 @@ def plot_adc_calibration_weights(
     axes[0].legend(ncols=2)
     for ax in axes:
         style_grid(ax)
-    style_info_box(axes[1], (f"ADC: {analysis_list[0].adc_index:02d}",))
+    style_info_box(axes[1], style_instance_text(analysis_list[0]))
     fig.suptitle("ADC digital calibration weights")
     return save_figure(fig, output_path)
 
@@ -1266,7 +1220,7 @@ def plot_adc_calibration_weights(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_static_nonlinearity(
     msmt: MeasAdc,
-    analysis: AnalysisAdcNonlinearity,
+    analysis: AnalysisAdcEndpointNonlinearity | AnalysisAdcCodeDensityNonlinearity,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -1283,20 +1237,22 @@ def plot_adc_static_nonlinearity(
     for ax in axes:
         style_grid(ax)
     style_info_box(axes[0], style_measurement_text(msmt))
-    fig.suptitle(f"ADC {analysis.method.replace('_', '-')} nonlinearity")
+    method = "endpoint" if isinstance(analysis, AnalysisAdcEndpointNonlinearity) else "code-density"
+    fig.suptitle(f"ADC {method} nonlinearity")
     return save_figure(fig, output_path)
 
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_ramp_nonlinearity(
-    analysis: AnalysisAdcRamp,
+    analyses: Sequence[AnalysisAdcRamp],
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Plot overlaid ramp DNL and INL for every completed decoding."""
+    """Plot overlaid ramp DNL and INL of every decoding of one capture."""
 
+    analysis = analyses[0]
     fig, axes = plt.subplots(2, 1, sharex=True)
-    for curve in analysis.curves:
+    for curve in analyses:
         axes[0].plot(curve.linearity_code, curve.dnl, label=curve.label)
         axes[1].plot(curve.linearity_code, curve.inl, label=curve.label)
     axes[0].axhline(0.0, color=SPINE_COLOR)
@@ -1309,7 +1265,7 @@ def plot_adc_ramp_nonlinearity(
     axes[0].legend()
     style_info_box(
         axes[1],
-        (f"ADC: {analysis.adc_index:02d}", f"Ramp: {analysis.ramp_frequency_hz:.6g} Hz"),
+        (*style_instance_text(analysis), f"Ramp: {analysis.ramp_frequency_hz:.6g} Hz"),
     )
     fig.suptitle("ADC ramp nonlinearity")
     return save_figure(fig, output_path)
@@ -1394,80 +1350,71 @@ def plot_adc_code_distribution(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_noise_sweep(
     msmt_list: Sequence[MeasAdc],
-    analysis: AnalysisAdcNoiseSweep | AnalysisAdcNoiseComparison,
+    analyses: Sequence[AnalysisAdcNoise],
     *,
     output_path: Path,
     rate_axis: Literal["active", "sampling"] = "active",
     series_labels: Sequence[str] = (),
 ) -> tuple[Path, ...]:
-    """Plot noise, equivalent full-scale SNR, and ENOB on one rate panel."""
+    """Plot noise, equivalent full-scale SNR, and ENOB on one rate panel.
 
+    Each result is one point. Points are grouped into series by
+    ``series_labels`` when given, otherwise by COMP-to-LOGIC timing.
+    """
+
+    if not analyses:
+        raise ValueError("noise sweep requires at least one result")
+    input_lsb_v = analyses[0].input_lsb_v
+    if any(not np.isclose(analysis.input_lsb_v, input_lsb_v, rtol=1e-12, atol=0.0) for analysis in analyses):
+        raise ValueError("noise sweep results must share one nominal input LSB")
     # The SNR and ENOB axes use a full-scale sine whose peak-to-peak
     # range is the ADC input range represented by all output codes.
-    first = msmt_list[0]
-    params = first.param.tb if isinstance(first, MeasAdcExt) else first.param
-    adc_bits = params.dut.adc_bits
-    full_scale_rms_lsb = ((1 << adc_bits) - 1) / (2.0 * np.sqrt(2.0))
-    noise_rms_v = np.asarray(analysis.input_referred_noise_rms_v)
-    noise_rms_lsb = noise_rms_v / analysis.input_lsb_v
+    full_scale_rms_lsb = analyses[0].code_max / (2.0 * np.sqrt(2.0))
+    noise_rms_lsb = np.asarray([analysis.input_referred_noise_rms_v for analysis in analyses]) / input_lsb_v
+    noise_valid = np.asarray([analysis.noise_valid for analysis in analyses])
+    rates = np.asarray(
+        [
+            analysis.sample_rate_hz if rate_axis == "sampling" else analysis.active_conversion_rate_hz
+            for analysis in analyses
+        ]
+    )
+    comparator_time_percent = np.asarray([analysis.comparator_time_percent for analysis in analyses])
 
     fig, ax = plt.subplots(layout="none")
-    if rate_axis == "sampling":
-        if not isinstance(analysis, AnalysisAdcNoiseSweep):
-            raise ValueError("repetition-rate axis requires AnalysisAdcNoiseSweep")
-        rates = analysis.sample_rate_hz
-    else:
-        rates = analysis.active_conversion_rate_hz
     conversion_rate_msps = rates / 1e6
     if series_labels:
         if len(series_labels) != len(rates):
             raise ValueError("sequence labels must align with noise points")
         labels = tuple(dict.fromkeys(series_labels))
         selections = tuple(np.asarray(series_labels) == label for label in labels)
-        colors = tuple(CURVE_COLORS[index % len(CURVE_COLORS)] for index in range(len(labels)))
-    elif isinstance(analysis, AnalysisAdcNoiseSweep):
-        timing_values = np.unique(analysis.comparator_time_percent)
-        labels = tuple(f"{value:g}%" for value in timing_values)
-        selections = tuple(analysis.comparator_time_percent == value for value in timing_values)
-        colors = tuple(CURVE_COLORS[index % len(CURVE_COLORS)] for index in range(len(labels)))
     else:
-        labels = tuple(dict.fromkeys(analysis.series_label))
-        label_values = np.asarray(analysis.series_label)
-        selections = tuple(label_values == label for label in labels)
-        colors = tuple(CURVE_COLORS[index % len(CURVE_COLORS)] for index in range(len(labels)))
+        timing_values = np.unique(comparator_time_percent)
+        labels = tuple(f"{value:g}%" for value in timing_values)
+        selections = tuple(comparator_time_percent == value for value in timing_values)
+    colors = tuple(CURVE_COLORS[index % len(CURVE_COLORS)] for index in range(len(labels)))
 
     for label, selected, color in zip(labels, selections, colors, strict=True):
-        selected = selected & analysis.noise_valid
+        # A constant code has no finite noise estimate; it has no point to draw.
+        selected = selected & noise_valid
         if not np.any(selected):
             continue
         order = np.argsort(conversion_rate_msps[selected])
-        selected_rate = conversion_rate_msps[selected][order]
-        selected_noise_lsb = noise_rms_lsb[selected][order]
-        if label == "Input stimulus noise":
-            ax.hlines(
-                calc.average(selected_noise_lsb),
-                float(selected_rate[0]),
-                float(selected_rate[-1]),
-                color=color,
-                linestyle=":",
-                label=label,
-            )
-        else:
-            ax.plot(
-                selected_rate,
-                selected_noise_lsb,
-                marker="o",
-                color=color,
-                label=label,
-            )
+        ax.plot(
+            conversion_rate_msps[selected][order],
+            noise_rms_lsb[selected][order],
+            marker="o",
+            color=color,
+            label=label,
+        )
     ax.set_xlabel("Repetition rate (MHz)" if rate_axis == "sampling" else "Conversion rate (MSPS)")
     ax.set_ylabel("Input-referred noise (LSB RMS)")
     ax.invert_yaxis()
-    visible_noise = noise_rms_lsb[analysis.noise_valid]
+    visible_noise = noise_rms_lsb[noise_valid]
     ax.set_ylim(max(9.0, float(calc.ymax(visible_noise)) * 1.05) if len(visible_noise) else 9.0, 0.0)
-    ax.set_xticks(np.arange(0.0, 11.0, 1.0))
-    ax.set_xlim(0.0, 10.25)
-    ax.set_xticks(np.arange(0.0, 10.251, 0.25), minor=True)
+    rate_limit_msps = max(10.25, float(calc.ymax(conversion_rate_msps)) + 0.25)
+    ax.set_xticks(np.arange(0.0, np.floor(rate_limit_msps) + 1.0, 1.0))
+    ax.set_xlim(0.0, rate_limit_msps)
+    ax.set_xticks(np.arange(0.0, rate_limit_msps + 0.001, 0.25), minor=True)
     ax.set_title(
         "ADC noise performance vs repetition rate"
         if rate_axis == "sampling"
@@ -1477,23 +1424,17 @@ def plot_adc_noise_sweep(
     style_grid(ax)
     if ax.get_legend_handles_labels()[0]:
         ax.legend(
-            ncols=4 if isinstance(analysis, AnalysisAdcNoiseSweep) else 1,
+            ncols=4,
             loc="lower center",
             bbox_to_anchor=(0.5, 1.06),
             fontsize=8,
-            title=(
-                "Sequence"
-                if series_labels
-                else "COMP→LOGIC interval\n(as % of decision cycle)"
-                if isinstance(analysis, AnalysisAdcNoiseSweep)
-                else None
-            ),
+            title="Sequence" if series_labels else "COMP→LOGIC interval\n(as % of decision cycle)",
         )
     noise_mv_axis = ax.secondary_yaxis(
         "left",
         functions=(
-            lambda noise_lsb: np.asarray(noise_lsb) * analysis.input_lsb_v * 1e3,
-            lambda noise_mv: np.asarray(noise_mv) / (analysis.input_lsb_v * 1e3),
+            lambda noise_lsb: np.asarray(noise_lsb) * input_lsb_v * 1e3,
+            lambda noise_mv: np.asarray(noise_mv) / (input_lsb_v * 1e3),
         ),
     )
     noise_mv_axis.spines["left"].set_position(("outward", 58))
@@ -1551,7 +1492,7 @@ def plot_adc_noise_sweep(
     decision_time_axis.spines["bottom"].set_position(("outward", 38))
     decision_time_axis.spines["top"].set_visible(False)
     decision_time_axis.set_xlabel("Repetition interval (ns)" if rate_axis == "sampling" else "Conversion interval (ns)")
-    labeled_rates_msps = np.arange(1.0, 11.0)
+    labeled_rates_msps = np.arange(1.0, np.floor(rate_limit_msps) + 1.0)
     decision_cycle_ns = 1000.0 / labeled_rates_msps
     decision_time_axis.set_xticks(labeled_rates_msps)
     decision_time_axis.set_xticklabels(tuple(f"{interval:.3g}" for interval in decision_cycle_ns))
@@ -1569,19 +1510,25 @@ def plot_adc_noise_sweep(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_noise_distribution_sweep(
     msmt_list: Sequence[MeasAdc],
-    analysis: AnalysisAdcNoiseSweep,
+    analyses: Sequence[AnalysisAdcNoise],
     *,
     output_path: Path,
     rate_axis: Literal["active", "sampling"] = "active",
 ) -> tuple[Path, ...]:
     """Plot left-facing output-code histograms along the conversion-rate axis."""
 
-    code = analysis.code
-    count = analysis.count
-    rates = analysis.sample_rate_hz if rate_axis == "sampling" else analysis.active_conversion_rate_hz
+    code = analyses[0].code
+    if any(not np.array_equal(analysis.code, code) for analysis in analyses):
+        raise ValueError("noise distributions must share one output-code range")
+    rates = np.asarray(
+        [
+            analysis.sample_rate_hz if rate_axis == "sampling" else analysis.active_conversion_rate_hz
+            for analysis in analyses
+        ]
+    )
     order = np.argsort(rates)
     rates_msps = rates[order] / 1e6
-    counts = count[order]
+    counts = np.asarray([analysis.count for analysis in analyses])[order]
     populated = np.flatnonzero(np.any(counts > 0, axis=0))
     first_code = max(0, int(populated[0]) - 2)
     last_code = min(len(code) - 1, int(populated[-1]) + 2)
@@ -1607,8 +1554,8 @@ def plot_adc_noise_distribution_sweep(
             edgecolor=NORD_BLUE,
             linewidth=0.45,
         )
-    mean = analysis.mean_dout[order]
-    std = analysis.std_dout[order]
+    mean = np.asarray([analysis.mean_dout for analysis in analyses])[order]
+    std = np.asarray([analysis.std_dout for analysis in analyses])[order]
     ax.plot(rates_msps, mean, color=CURVE_COLORS[1], marker="o", label="Mean")
     ax.plot(
         rates_msps,
@@ -1620,9 +1567,10 @@ def plot_adc_noise_distribution_sweep(
     ax.plot(rates_msps, mean + std, color=CURVE_COLORS[2], linestyle="--")
     ax.set_xlabel("Repetition rate (MHz)" if rate_axis == "sampling" else "Conversion rate (MSPS)")
     ax.set_ylabel("ADC output code (LSB)")
-    ax.set_xticks(np.arange(0.0, 11.0, 1.0))
-    ax.set_xticks(np.arange(0.0, 10.251, 0.25), minor=True)
-    ax.set_xlim(0.0, 10.25)
+    rate_limit_msps = max(10.25, float(calc.ymax(rates_msps)) + 0.25)
+    ax.set_xticks(np.arange(0.0, np.floor(rate_limit_msps) + 1.0, 1.0))
+    ax.set_xticks(np.arange(0.0, rate_limit_msps + 0.001, 0.25), minor=True)
+    ax.set_xlim(0.0, rate_limit_msps)
     ax.set_ylim(float(codes[0]) - 0.5, float(codes[-1]) + 0.5)
     ax.set_title("ADC fixed-input output-code distributions")
     style_grid(ax)
@@ -1632,95 +1580,42 @@ def plot_adc_noise_distribution_sweep(
 
 
 @mpl.rc_context(PLOT_STYLE)
-def plot_adc_sequence_static_overview(
-    baud_rates_mbd: Sequence[int],
-    mean_code_lsb: np.ndarray,
-    sigma_code_lsb: np.ndarray,
-    code_span_lsb: np.ndarray,
-    modal_code_fraction: np.ndarray,
-    *,
-    catalogue_indices: Sequence[int] | None = None,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare all catalogue sequences by spread and rate-dependent code shift."""
-
-    if any(values.shape != mean_code_lsb.shape for values in (sigma_code_lsb, code_span_lsb, modal_code_fraction)):
-        raise ValueError("sequence overview metric arrays must have the same shape")
-    if mean_code_lsb.ndim != 2 or mean_code_lsb.shape[1] != len(baud_rates_mbd):
-        raise ValueError("sequence overview must have one column per baud rate")
-    sequence_index = np.arange(1, len(mean_code_lsb) + 1)
-    if catalogue_indices is not None and len(catalogue_indices) != len(sequence_index):
-        raise ValueError("catalogue indices must align with sequence overview rows")
-    code_shift_lsb = mean_code_lsb - mean_code_lsb[:, :1]
-
-    fig, axes = plt.subplots(4, 1, sharex=True, figsize=(11.0, 10.0))
-    for baud_index, baud_mbd in enumerate(baud_rates_mbd):
-        for ax, values in zip(
-            axes,
-            (
-                sigma_code_lsb[:, baud_index],
-                code_shift_lsb[:, baud_index],
-                code_span_lsb[:, baud_index],
-                modal_code_fraction[:, baud_index],
-            ),
-            strict=True,
-        ):
-            ax.plot(sequence_index, values, linestyle="none", marker="o", label=f"{baud_mbd} MBd")
-
-    axes[0].set_yscale("log")
-    axes[0].set_ylabel("Code σ (LSB)")
-    axes[0].legend(ncols=len(baud_rates_mbd))
-    axes[1].set_yscale("symlog", linthresh=1.0)
-    axes[1].set_ylabel("Mean shift from 320 MBd (LSB)")
-    axes[2].set_yscale("log")
-    axes[2].set_ylabel("Full code span (LSB)")
-    axes[3].set_ylabel("Most common code fraction")
-    axes[3].set_ylim(0.0, 1.02)
-    axes[3].set_xlabel("Catalogue sequence index (flow/adc/sequences.py)")
-    axes[3].set_xlim(0.5, len(sequence_index) + 0.5)
-    if catalogue_indices is None:
-        axes[3].xaxis.set_major_locator(MultipleLocator(5))
-        axes[3].xaxis.set_minor_locator(MultipleLocator(1))
-    else:
-        axes[3].set_xticks(sequence_index, labels=[str(index) for index in catalogue_indices])
-    for ax in axes:
-        style_grid(ax)
-    fig.suptitle(
-        "ADC03 continuous sequence comparison · 10,000 conversions per setting"
-        if catalogue_indices is not None
-        else "ADC03 fixed-input sequence comparison · 10,000 conversions per setting"
-    )
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
 def plot_adc_sequence_enob(
-    baud_rates_mbd: Sequence[int],
-    enob_bits: np.ndarray,
-    mean_shift_lsb: np.ndarray,
-    reliable: np.ndarray,
+    conditions: AnalysisAdcOperatingConditions,
     *,
+    sequences: Sequence[AdcSequence],
     adc_label: str,
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Show fixed-input noise-equivalent ENOB and code shifts across recipes."""
+    """Show fixed-input noise-equivalent ENOB and code shifts across catalogue recipes."""
 
-    if enob_bits.ndim != 2 or enob_bits.shape[1] != len(baud_rates_mbd):
-        raise ValueError("sequence ENOB needs one column per baud rate")
-    if mean_shift_lsb.shape != enob_bits.shape or reliable.shape != enob_bits.shape:
-        raise ValueError("sequence ENOB, code shift, and reliability arrays must align")
-
-    sequence_index = np.arange(1, len(enob_bits) + 1)
+    symbol_rates_hz = tuple(sorted({float(rate) for rate in conditions.symbol_rate_hz}))
+    # Arrange the rows as (sequence, rate) grids; every row must have a place.
+    rate_index = {rate: index for index, rate in enumerate(symbol_rates_hz)}
+    shape = (len(sequences), len(symbol_rates_hz))
+    enob_bits = np.full(shape, np.nan)
+    mean_shift_lsb = np.full(shape, np.nan)
+    reliable = np.zeros(shape, dtype=bool)
+    for row, (sequence, rate) in enumerate(zip(conditions.sequence, conditions.symbol_rate_hz, strict=True)):
+        if sequence not in sequences or float(rate) not in rate_index:
+            raise ValueError("operating-condition row has no place in the plotted sequence catalogue")
+        key = (sequences.index(sequence), rate_index[float(rate)])
+        enob_bits[key] = conditions.enob_bits[row]
+        mean_shift_lsb[key] = conditions.mean_shift_dout[row]
+        reliable[key] = conditions.plausible[row]
+    sequence_index = np.arange(1, len(sequences) + 1)
     fig, axes = plt.subplots(2, 1, sharex=True, figsize=(12.0, 7.0))
     finite_enob = enob_bits[np.isfinite(enob_bits)]
     constant_marker_y = max(12.0, float(calc.ymax(finite_enob)) + 0.5) if len(finite_enob) else 12.0
-    for rate_index, baud_mbd in enumerate(baud_rates_mbd):
+    for rate_index, symbol_rate_hz in enumerate(symbol_rates_hz):
+        baud_mbd = symbol_rate_hz / 1e6
+        nominal_msps = symbol_rate_hz / len(sequences[0].init) / 1e6
         good = reliable[:, rate_index] & np.isfinite(enob_bits[:, rate_index])
         (line,) = axes[0].plot(
             sequence_index,
             np.where(good, enob_bits[:, rate_index], np.nan),
             marker="o",
-            label=f"{baud_mbd} MBd ({baud_mbd / 160:g} MSPS nominal)",
+            label=f"{baud_mbd:g} MBd ({nominal_msps:g} MSPS nominal)",
         )
         suspect = ~good
         axes[0].plot(
@@ -1734,51 +1629,64 @@ def plot_adc_sequence_enob(
             linestyle="none",
             color=line.get_color(),
         )
-        axes[1].plot(sequence_index, mean_shift_lsb[:, rate_index], marker="o", label=f"{baud_mbd} MBd")
+        axes[1].plot(sequence_index, mean_shift_lsb[:, rate_index], marker="o", label=f"{baud_mbd:g} MBd")
     axes[0].set_ylabel("Noise-equivalent ENOB (bit)")
     axes[0].legend(ncols=3)
+    axes[1].axhspan(-conditions.shift_limit_dout, conditions.shift_limit_dout, color=SPINE_COLOR, alpha=0.15)
     axes[1].set_yscale("symlog", linthresh=1.0)
-    axes[1].set_ylabel("Mean code − 2 MSPS reference (LSB)")
+    axes[1].set_ylabel(f"Mean code − {symbol_rates_hz[0] / 1e6:g} MBd reference (LSB)")
     axes[1].set_xlabel("Catalogue sequence index (flow/adc/sequences.py)")
     axes[1].set_xlim(0.5, len(sequence_index) + 0.5)
     axes[1].xaxis.set_major_locator(MultipleLocator(5))
     axes[1].xaxis.set_minor_locator(MultipleLocator(1))
     for ax in axes:
         style_grid(ax)
-    fig.suptitle(f"{adc_label} · fixed 50 mV input · × suspect (top ×: constant code)")
+    fig.suptitle(f"{adc_label} · fixed input · × suspect (top ×: constant code)")
     return save_figure(fig, output_path)
 
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_sequence_chip_overview(
-    baud_rates_mbd: Sequence[int],
-    enob_bits: np.ndarray,
-    plausible: np.ndarray,
+    conditions: Sequence[AnalysisAdcOperatingConditions],
     *,
+    sequences: Sequence[AdcSequence],
     title: str,
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Compare the median noise-equivalent ENOB and valid ADC count by recipe."""
+    """Compare the median noise-equivalent ENOB and plausible ADC count by recipe."""
 
-    if enob_bits.ndim != 3 or enob_bits.shape[0] != 16 or enob_bits.shape[2] != len(baud_rates_mbd):
-        raise ValueError("chip sequence overview requires 16 ADCs and one column per baud rate")
-    if plausible.shape != enob_bits.shape:
-        raise ValueError("chip ENOB and plausibility arrays must align")
-
-    sequence_index = np.arange(1, enob_bits.shape[1] + 1)
+    if not conditions or len({result.index for result in conditions}) != len(conditions):
+        raise ValueError("chip sequence overview requires one result per ADC")
+    symbol_rates_hz = tuple(sorted({float(rate) for result in conditions for rate in result.symbol_rate_hz}))
+    # Arrange every ADC's rows as (ADC, sequence, rate) grids; every row must have a place.
+    rate_index = {rate: index for index, rate in enumerate(symbol_rates_hz)}
+    shape = (len(conditions), len(sequences), len(symbol_rates_hz))
+    enob_bits = np.full(shape, np.nan)
+    plausible = np.zeros(shape, dtype=bool)
+    for adc_position, result in enumerate(conditions):
+        for row, (sequence, rate) in enumerate(zip(result.sequence, result.symbol_rate_hz, strict=True)):
+            if sequence not in sequences or float(rate) not in rate_index:
+                raise ValueError("operating-condition row has no place in the plotted sequence catalogue")
+            key = (adc_position, sequences.index(sequence), rate_index[float(rate)])
+            enob_bits[key] = result.enob_bits[row]
+            plausible[key] = result.plausible[row]
+    adc_count = len(conditions)
+    # A median is shown only where at least three quarters of the ADCs are plausible.
+    minimum_plausible = math.ceil(0.75 * adc_count)
+    sequence_index = np.arange(1, len(sequences) + 1)
     fig, axes = plt.subplots(2, 1, sharex=True, figsize=(12.0, 7.0))
-    for rate_index, baud_mbd in enumerate(baud_rates_mbd):
-        medians = np.full(enob_bits.shape[1], np.nan)
-        for index in range(enob_bits.shape[1]):
+    for rate_index, symbol_rate_hz in enumerate(symbol_rates_hz):
+        medians = np.full(len(sequences), np.nan)
+        for index in range(len(sequences)):
             selected = enob_bits[plausible[:, index, rate_index], index, rate_index]
-            if len(selected) >= 12:
+            if len(selected) >= minimum_plausible:
                 medians[index] = np.median(selected)
-        axes[0].plot(sequence_index, medians, marker="o", label=f"{baud_mbd} MBd")
+        axes[0].plot(sequence_index, medians, marker="o", label=f"{symbol_rate_hz / 1e6:g} MBd")
         axes[1].plot(sequence_index, np.sum(plausible[:, :, rate_index], axis=0), marker="o")
-    axes[0].set_ylabel("Median ENOB with ≥12 plausible ADCs (bit)")
+    axes[0].set_ylabel(f"Median ENOB with ≥{minimum_plausible} plausible ADCs (bit)")
     axes[0].legend(ncols=3)
-    axes[1].set_ylabel("Plausible ADCs of 16")
-    axes[1].set_ylim(-0.5, 16.5)
+    axes[1].set_ylabel(f"Plausible ADCs of {adc_count}")
+    axes[1].set_ylim(-0.5, adc_count + 0.5)
     axes[1].set_xlabel("Catalogue sequence index (flow/adc/sequences.py)")
     axes[1].set_xlim(0.5, len(sequence_index) + 0.5)
     axes[1].xaxis.set_major_locator(MultipleLocator(5))
@@ -1791,72 +1699,72 @@ def plot_adc_sequence_chip_overview(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_noise_distribution_grid(
-    msmt_groups: Sequence[Sequence[MeasAdcExt]],
-    analyses: Sequence[AnalysisAdcNoiseSweep],
+    msmt_list: Sequence[MeasAdc],
+    analyses: Sequence[AnalysisAdcNoise],
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Plot three rate-indexed code densities for each ADC in a 4-by-4 grid."""
+    """Plot rate-indexed code densities for every ADC channel in one grid."""
 
-    if len(msmt_groups) != 16 or len(analyses) != 16:
-        raise ValueError("ADC noise-distribution grid requires 16 measurement groups and analyses")
-    groups_by_adc = {}
-    for measurements, analysis in zip(msmt_groups, analyses, strict=True):
-        adc_indices = {measurement.param.observed_adc for measurement in measurements}
-        if len(adc_indices) != 1:
-            raise ValueError("each ADC noise-distribution group must contain one observed ADC")
-        adc_index = adc_indices.pop()
-        if adc_index is None or adc_index in groups_by_adc:
-            raise ValueError("ADC noise-distribution groups require unique observed ADC indices")
-        if len(analysis.active_conversion_rate_hz) != 3:
-            raise ValueError("each ADC noise-distribution grid analysis requires three conversion rates")
-        groups_by_adc[adc_index] = analysis
-    if set(groups_by_adc) != set(range(16)):
-        raise ValueError("ADC noise-distribution grid requires ADC00 through ADC15")
+    groups_by_adc: dict[int, list[AnalysisAdcNoise]] = {}
+    for analysis in analyses:
+        if analysis.index is None:
+            raise ValueError("ADC noise-distribution grid requires results of observed ADC channels")
+        groups_by_adc.setdefault(analysis.index, []).append(analysis)
+    if not groups_by_adc:
+        raise ValueError("ADC noise-distribution grid requires at least one result")
+    adc_indices = sorted(groups_by_adc)
 
-    means = np.concatenate(tuple(analysis.mean_dout for analysis in analyses))
-    y_span_lsb = 90.0
-    y_center_lsb = 5.0 * np.round((float(calc.ymin(means)) + float(calc.ymax(means))) / 10.0)
+    means = np.asarray([analysis.mean_dout for analysis in analyses])
+    populated_codes = np.concatenate([analysis.code[analysis.count > 0] for analysis in analyses])
+    # Center a span of at least 90 codes on the data, widened to show every populated code.
+    y_span_lsb = max(90.0, float(calc.ymax(populated_codes) - calc.ymin(populated_codes)) + 10.0)
+    y_center_lsb = 5.0 * np.round((float(calc.ymin(populated_codes)) + float(calc.ymax(populated_codes))) / 10.0)
     y_limits = (y_center_lsb - y_span_lsb / 2.0, y_center_lsb + y_span_lsb / 2.0)
-    all_measurements = tuple(measurement for group in msmt_groups for measurement in group)
-    shared_setup_lines = style_measurement_group_text(all_measurements)
+    shared_setup_lines = style_measurement_group_text(msmt_list)
     cdac_setup_lines = tuple(line for line in shared_setup_lines if line.startswith("CDAC init: "))
     shared_setup_lines = tuple(
         line for line in shared_setup_lines if not line.startswith(("ADC: ", "ADCs: ", "CDAC init: "))
     )
-    campaign_sample_counts = np.unique(np.concatenate(tuple(analysis.sample_count for analysis in analyses)))
+    campaign_sample_counts = np.unique([analysis.sample_count for analysis in analyses])
     if len(campaign_sample_counts) == 1:
         sample_count_text = f"{int(campaign_sample_counts[0]):.3g}"
     else:
         sample_count_text = f"{int(calc.ymin(campaign_sample_counts)):.3g}-{int(calc.ymax(campaign_sample_counts)):.3g}"
     system_info_lines = (
-        f"ADCs: {min(groups_by_adc):02d}-{max(groups_by_adc):02d}",
+        f"ADCs: {adc_indices[0]:02d}-{adc_indices[-1]:02d}",
         *shared_setup_lines,
         *cdac_setup_lines,
         f"N: {sample_count_text}",
     )
     system_info_text = "\n".join(system_info_lines)
-    maximum_sample_count = max(int(calc.ymax(analysis.sample_count)) for analysis in analyses)
+    maximum_sample_count = max(analysis.sample_count for analysis in analyses)
     density_norm = LogNorm(vmin=1, vmax=max(2, maximum_sample_count))
+    maximum_rate_msps = max(analysis.active_conversion_rate_hz for analysis in analyses) / 1e6
     maximum_width_msps = 2.0
 
+    columns = math.ceil(math.sqrt(len(adc_indices)))
+    rows = math.ceil(len(adc_indices) / columns)
     fig, axes = plt.subplots(
-        4,
-        4,
+        rows,
+        columns,
         sharex=True,
         sharey=True,
         layout="none",
+        squeeze=False,
     )
     fig.subplots_adjust(left=0.075, right=0.79, bottom=0.105, top=0.94, wspace=0.05, hspace=0.05)
     fig.suptitle("Code density vs sampling rate for fixed input", y=0.985)
-    for adc_index, ax in enumerate(axes.flat):
-        analysis = groups_by_adc[adc_index]
-        order = np.argsort(analysis.active_conversion_rate_hz)
-        rates_msps = analysis.active_conversion_rate_hz[order] / 1e6
-        counts = analysis.count[order]
-        means = analysis.mean_dout[order]
-        standard_deviations = analysis.std_dout[order]
-        sample_counts = analysis.sample_count[order]
+    for ax in axes.flat[len(adc_indices) :]:
+        ax.set_visible(False)
+    for adc_index, ax in zip(adc_indices, axes.flat, strict=False):
+        group = sorted(groups_by_adc[adc_index], key=lambda analysis: analysis.active_conversion_rate_hz)
+        rates_msps = np.asarray([analysis.active_conversion_rate_hz for analysis in group]) / 1e6
+        counts = np.asarray([analysis.count for analysis in group])
+        means = np.asarray([analysis.mean_dout for analysis in group])
+        standard_deviations = np.asarray([analysis.std_dout for analysis in group])
+        sample_counts = np.asarray([analysis.sample_count for analysis in group])
+        code = group[0].code
         mean_curve_x = []
         standard_deviation_curve_x = []
         for rate_msps, histogram, sample_count, mean, standard_deviation in zip(
@@ -1872,7 +1780,7 @@ def plot_adc_noise_distribution_grid(
             peak_fraction_per_lsb = float(calc.ymax(fractions))
             widths = maximum_width_msps * fractions / peak_fraction_per_lsb
             ax.barh(
-                analysis.code[populated],
+                code[populated],
                 widths,
                 left=rate_msps - widths,
                 height=1.0,
@@ -1949,9 +1857,10 @@ def plot_adc_noise_distribution_grid(
             line_colors=(TEXT_COLOR, NORD_ORANGE, NORD_GREEN),
         )
         ax.set_facecolor(NORD_LIGHT_BLUE)
-        ax.set_xlim(-0.25, 10.5)
+        ax.set_xlim(-0.25, max(10.5, maximum_rate_msps + 0.5))
         ax.set_ylim(*y_limits)
-        ax.set_xticks((2.0, 6.0, 10.0))
+        if maximum_rate_msps <= 10.5:
+            ax.set_xticks((2.0, 6.0, 10.0))
         ax.yaxis.set_major_locator(MultipleLocator(25.0))
 
     colorbar_ax = fig.add_axes((0.84, 0.10, 0.02, 0.45))
@@ -2045,30 +1954,35 @@ def plot_adc_dynamic(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_dynamic_sweep(
     msmt_list: Sequence[MeasAdc],
-    analysis: AnalysisAdcDynamicSweep,
+    analyses: Sequence[AnalysisAdcDynamic],
     *,
     output_path: Path,
     x_axis: Literal["input_frequency", "sample_rate"] = "input_frequency",
 ) -> tuple[Path, ...]:
     """Plot ENOB and SNDR versus input frequency for each conversion rate."""
 
+    sample_rate_hz = np.asarray([analysis.sample_rate_hz for analysis in analyses])
+    input_frequency_hz = np.asarray([analysis.input_frequency_hz for analysis in analyses])
+    enob_bits = np.asarray([analysis.spectral_enob_bits for analysis in analyses])
+    sndr_db = np.asarray([analysis.spectral_sndr_db for analysis in analyses])
     fig, axes = plt.subplots(2, 1, sharex=True)
     if x_axis == "sample_rate":
-        order = np.argsort(analysis.sample_rate_hz)
-        axes[0].plot(
-            analysis.sample_rate_hz[order] / 1e6, analysis.spectral_enob_bits[order], marker="o", label="Spectral"
-        )
-        axes[1].plot(
-            analysis.sample_rate_hz[order] / 1e6, analysis.spectral_sndr_db[order], marker="o", label="Spectral"
-        )
+        order = np.argsort(sample_rate_hz)
+        axes[0].plot(sample_rate_hz[order] / 1e6, enob_bits[order], marker="o", label="Spectral")
+        axes[1].plot(sample_rate_hz[order] / 1e6, sndr_db[order], marker="o", label="Spectral")
     else:
-        for sample_rate_hz in np.unique(analysis.sample_rate_hz):
-            selected = analysis.sample_rate_hz == sample_rate_hz
-            order = np.argsort(analysis.input_frequency_hz[selected])
-            frequency = analysis.input_frequency_hz[selected][order]
-            label = style_frequency_text(sample_rate_hz)
-            axes[0].semilogx(frequency, analysis.spectral_enob_bits[selected][order], marker="o", label=label)
-            axes[1].semilogx(frequency, analysis.spectral_sndr_db[selected][order], marker="o", label=label)
+        for rate_hz in np.unique(sample_rate_hz):
+            selected = sample_rate_hz == rate_hz
+            order = np.argsort(input_frequency_hz[selected])
+            frequency = input_frequency_hz[selected][order]
+            # The largest SI prefix that keeps the rate at or above one, e.g. "10 MHz".
+            label = next(
+                f"{rate_hz / scale:g} {suffix}"
+                for scale, suffix in ((1e9, "GHz"), (1e6, "MHz"), (1e3, "kHz"), (1.0, "Hz"))
+                if abs(rate_hz) >= scale or scale == 1.0
+            )
+            axes[0].semilogx(frequency, enob_bits[selected][order], marker="o", label=label)
+            axes[1].semilogx(frequency, sndr_db[selected][order], marker="o", label=label)
     axes[0].set_ylabel("ENOB (bit)")
     axes[1].set_ylabel("SNDR (dB)")
     axes[1].set_xlabel("Repetition rate (MHz)" if x_axis == "sample_rate" else "Input frequency (Hz)")
@@ -2083,14 +1997,19 @@ def plot_adc_dynamic_sweep(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_power_sweep(
     msmt_list: Sequence[MeasAdc],
-    analysis: AnalysisAdcPowerSweep,
+    analyses: Sequence[AnalysisAdcPower],
     *,
     output_path: Path,
     rate_axis: Literal["active", "sampling"] = "active",
 ) -> tuple[Path, ...]:
     """Plot one source's static and dynamic rail power versus rate."""
 
-    rates = analysis.sample_rate_hz if rate_axis == "sampling" else analysis.active_conversion_rate_hz
+    rates = np.asarray(
+        [
+            analysis.sample_rate_hz if rate_axis == "sampling" else analysis.active_conversion_rate_hz
+            for analysis in analyses
+        ]
+    )
     order = np.argsort(rates)
     rate_msps = rates[order] / 1e6
     component_labels = (
@@ -2102,14 +2021,14 @@ def plot_adc_power_sweep(
         "Analog dynamic",
     )
     component_power_uw = tuple(
-        values[order] * 1e6
-        for values in (
-            analysis.vdd_d_static_power_w,
-            analysis.vdd_dac_static_power_w,
-            analysis.vdd_a_static_power_w,
-            analysis.vdd_d_dynamic_power_w,
-            analysis.vdd_dac_dynamic_power_w,
-            analysis.vdd_a_dynamic_power_w,
+        np.asarray([getattr(analysis, name) for analysis in analyses])[order] * 1e6
+        for name in (
+            "vdd_d_static_power_w",
+            "vdd_dac_static_power_w",
+            "vdd_a_static_power_w",
+            "vdd_d_dynamic_power_w",
+            "vdd_dac_dynamic_power_w",
+            "vdd_a_dynamic_power_w",
         )
     )
     analog_color, digital_color, dac_color = CURVE_COLORS[:3]
@@ -2133,7 +2052,7 @@ def plot_adc_power_sweep(
         collection.set_linewidth(0.7)
         if index >= 3:
             collection.set_hatch("///")
-    total_power_uw = analysis.total_power_w[order] * 1e6
+    total_power_uw = np.asarray([analysis.total_power_w for analysis in analyses])[order] * 1e6
     ax.plot(rate_msps, total_power_uw, color=TEXT_COLOR)
     ax.set_ylabel("Supply power (µW)")
     ax.set_xlabel("Repetition rate (MHz)" if rate_axis == "sampling" else "Conversion rate (MSPS)")
@@ -2151,7 +2070,7 @@ def plot_adc_power_sweep(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_cdac_settling(
-    msmt: MeasAdcInt,
+    msmt: MeasAdc,
     analysis: AnalysisAdcCdacSettling,
     *,
     output_path: Path,
@@ -2318,10 +2237,10 @@ def plot_adc_power_waveform(
     timing_ax.set_xticks(np.linspace(0.0, display_duration_scaled, 6))
     style_grid(timing_ax)
 
-    setup_lines = [f"Source: {analysis.backend.upper()}"]
-    if analysis.adc_index >= 0:
-        setup_lines.append(f"ADC: {analysis.adc_index:02d}")
-    setup_lines.append(f"Conversion: {analysis.active_conversion_rate_hz / 1e6:g} MSPS")
+    setup_lines = [
+        *style_instance_text(analysis),
+        f"Conversion: {analysis.active_conversion_rate_hz / 1e6:g} MSPS",
+    ]
     style_info_box(axes[0], setup_lines)
     fig.suptitle("ADC instantaneous supply power")
     return save_figure(fig, output_path)
@@ -2333,22 +2252,39 @@ def plot_adc_decision_paths(
     analysis: AnalysisAdcDecisionPaths,
     *,
     output_path: Path,
+    selection: Literal["single", "same_dout", "all"] = "single",
+    row_index: int = 0,
+    selected_dout: int | None = None,
 ) -> tuple[Path, ...]:
-    """Plot running SAR estimates for selected conversions."""
+    """Plot running SAR estimates for one conversion, one final code, or all of them.
 
+    ``same_dout`` defaults to the most common final code.
+    """
+
+    if selection == "single":
+        if not 0 <= row_index < len(analysis.final_dout):
+            raise IndexError("decision-path row_index is outside the acquisition")
+        rows = np.asarray([row_index])
+    elif selection == "same_dout":
+        if selected_dout is None:
+            codes, counts = np.unique(analysis.final_dout, return_counts=True)
+            selected_dout = int(codes[np.argmax(counts)])
+        rows = np.flatnonzero(analysis.final_dout == selected_dout)
+    else:
+        rows = np.arange(len(analysis.final_dout))
     fig, ax = plt.subplots()
     cycles = np.arange(analysis.estimate_dout.shape[1])
-    for row, estimate in enumerate(analysis.estimate_dout):
+    for position, row in enumerate(rows):
         ax.plot(
             cycles,
-            estimate,
+            analysis.estimate_dout[row],
             color=CURVE_COLORS[0],
-            label="Running estimate" if row == 0 else None,
+            label="Running estimate" if position == 0 else None,
         )
         ax.axhline(
             analysis.final_dout[row],
             color=CURVE_COLORS[1],
-            label="Final output" if row == 0 else None,
+            label="Final output" if position == 0 else None,
         )
     ax.set_xlabel("Decision cycle")
     ax.set_xticks(cycles)
@@ -2369,7 +2305,7 @@ def plot_adc_decision_path_density(
 ) -> tuple[Path, ...]:
     """Plot how frequently conversions follow each running SAR trajectory."""
 
-    params = msmt.param.tb if isinstance(msmt, MeasAdcExt) else msmt.param
+    params = msmt.tb
     paths = analysis.estimate_dout
     cycles = np.arange(analysis.estimate_dout.shape[1], dtype=np.float64)
     substeps_per_decision = 8
@@ -2564,7 +2500,7 @@ def plot_adc_decision_path_density(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_comp_offset_noise(
-    msmt_list: Sequence[MeasCompExt | MeasCompInt],
+    msmt_list: Sequence[MeasComp],
     analysis: AnalysisCompOffsetNoise,
     *,
     output_path: Path,
@@ -2599,15 +2535,17 @@ def plot_comp_offset_noise(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_comp_sampling_campaign(
-    msmt_list2d: Sequence[Sequence[MeasCompExt | MeasCompInt]],
+    msmt_list2d: Sequence[Sequence[MeasComp]],
     analysis_list: Sequence[AnalysisCompOffsetNoise],
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
     """Plot one ADC's matched track/ hold curves over VDAC coupling."""
 
-    input_error_minimum_mv = 0.0
-    input_error_maximum_mv = 25.0
+    # Show 0-25 mV by default, widened so that every swept input stays visible.
+    swept_mv = np.concatenate([analysis.vin_diff_v for analysis in analysis_list]) * 1e3
+    input_error_minimum_mv = min(0.0, float(calc.ymin(swept_mv)))
+    input_error_maximum_mv = max(25.0, float(calc.ymax(swept_mv)))
     grouped_results = {
         (float(group[0].param.requested_dac_rail_percent), group[0].param.sampling_mode): (
             group,
@@ -2717,32 +2655,30 @@ def plot_comp_sampling_campaign(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_comp_common_mode_campaign(
-    msmt_list2d: Sequence[Sequence[MeasCompExt | MeasCompInt]],
-    analysis_list: Sequence[AnalysisCompOffsetNoise],
+    msmt_list: Sequence[MeasComp],
+    offsets: Sequence[AnalysisCompOffsetNoise],
+    common_mode: AnalysisCompCommonMode,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Plot one ADC's comparator response over common-mode input."""
+    """Plot one ADC's comparator response over every measured common-mode input."""
 
-    common_mode_minimum_v = 0.7
-    common_mode_maximum_v = 1.2
-    input_error_minimum_mv = 0.0
-    input_error_maximum_mv = 25.0
-    selected_results = [
-        (group, analysis)
-        for group, analysis in zip(msmt_list2d, analysis_list, strict=True)
-        if common_mode_minimum_v <= float(group[0].param.tb.vin_cm.dc) <= common_mode_maximum_v
-    ]
-    selected_results.sort(key=lambda result: float(result[0][0].param.tb.vin_cm.dc))
+    ordered = sorted(offsets, key=lambda analysis: analysis.vin_cm_v)
+    if not np.allclose([analysis.vin_cm_v for analysis in ordered], common_mode.vin_cm_v):
+        raise ValueError("comparator offsets must align with the common-mode result")
+    common_modes_v = [analysis.vin_cm_v for analysis in ordered]
+    swept_mv = np.concatenate([analysis.vin_diff_v for analysis in ordered]) * 1e3
+    # Show 0-25 mV by default, widened so that every swept input stays visible.
+    input_error_minimum_mv = min(0.0, float(calc.ymin(swept_mv)))
+    input_error_maximum_mv = max(25.0, float(calc.ymax(swept_mv)))
+    common_mode_span_v = max(common_modes_v) - min(common_modes_v)
     fig, (curve_ax, violin_ax) = plt.subplots(1, 2)
-    common_modes_v = []
-    for group, analysis in selected_results:
-        common_mode_v = float(group[0].param.tb.vin_cm.dc)
+    for analysis, validity in zip(ordered, common_mode.validity, strict=True):
+        common_mode_v = analysis.vin_cm_v
         threshold_mv = analysis.offset_v * 1e3
         noise_mv = analysis.noise_sigma_v * 1e3
-        gradient_position = (common_mode_v - common_mode_minimum_v) / (common_mode_maximum_v - common_mode_minimum_v)
-        color = SPECTRUM_COLOR_MAP(float(np.clip(gradient_position, 0.0, 1.0)))
-        common_modes_v.append(common_mode_v)
+        gradient_position = (common_mode_v - min(common_modes_v)) / common_mode_span_v if common_mode_span_v else 0.0
+        color = SPECTRUM_COLOR_MAP(float(gradient_position))
 
         curve_ax.scatter(
             analysis.vin_diff_v * 1e3,
@@ -2752,9 +2688,7 @@ def plot_comp_common_mode_campaign(
             zorder=2,
         )
 
-        valid_fit = (
-            analysis.validity == "valid" and np.isfinite(threshold_mv) and np.isfinite(noise_mv) and noise_mv > 0.0
-        )
+        valid_fit = validity == "valid" and np.isfinite(threshold_mv) and np.isfinite(noise_mv) and noise_mv > 0.0
         if valid_fit:
             fit_input_v = np.linspace(
                 float(calc.ymin(analysis.vin_diff_v)),
@@ -2792,7 +2726,7 @@ def plot_comp_common_mode_campaign(
                 analysis.vin_diff_v * 1e3,
                 analysis.decision_probability,
                 color=color,
-                label=f"Vin_cm = {common_mode_v:.3g} V (fit invalid)",
+                label=f"Vin_cm = {common_mode_v:.3g} V ({validity})",
                 zorder=3,
             )
 
@@ -2816,17 +2750,14 @@ def plot_comp_common_mode_campaign(
 
     for ax in (curve_ax, violin_ax):
         style_grid(ax)
-    style_info_box(
-        curve_ax,
-        style_measurement_group_text(tuple(msmt for group in msmt_list2d for msmt in group)),
-    )
+    style_info_box(curve_ax, style_measurement_group_text(msmt_list))
     fig.suptitle("Comparator threshold and input-referred noise versus common mode")
     return save_figure(fig, output_path)
 
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_cdac_cap_mismatch(
-    msmt_list: Sequence[MeasCdacExt],
+    msmt_list: Sequence[MeasCdac],
     analysis: AnalysisCdacCapMismatch,
     *,
     output_path: Path,
@@ -2834,7 +2765,9 @@ def plot_cdac_cap_mismatch(
     """Plot one ADC's normalized A-to-B main/diff weights and diagnostics."""
 
     stages = np.arange(analysis.effective_fraction.shape[1])
-    expected_effective = analysis.expected_effective_fraction
+    expected_effective = msmt_list[0].expected_effective_fraction
+    if any(not np.array_equal(msmt.expected_effective_fraction, expected_effective) for msmt in msmt_list):
+        raise ValueError("CDAC measurements contain inconsistent ideal/PEX expectations")
     fig, axes_grid = plt.subplots(2, 3, sharex=True)
     axes = axes_grid.ravel()
     for side, label, color in ((0, "P", CURVE_COLORS[0]), (1, "N", CURVE_COLORS[1])):
@@ -2900,8 +2833,8 @@ def plot_cdac_cap_mismatch(
         "Differential-capacitor separation",
     )
     ylabels = ("C/Ctotal", "Residual", "P−N", "C/Ctotal", "Half-difference", "Separation")
-    tick_positions = (0, 3, 6, 9, 12, 15)
-    tick_labels = ("C0", "C3", "C6", "C9", "C12", "C15")
+    tick_positions = stages[::3]
+    tick_labels = tuple(f"C{stage}" for stage in tick_positions)
     for ax, title, ylabel in zip(axes, panel_titles, ylabels, strict=True):
         ax.set_title(title)
         ax.set_ylabel(ylabel)
@@ -2916,23 +2849,23 @@ def plot_cdac_cap_mismatch(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_cdac_cap_mismatch_comparison(
-    msmt_list2d: Sequence[Sequence[MeasCdacExt]],
+    msmt_list2d: Sequence[Sequence[MeasCdac]],
     analysis_list: Sequence[AnalysisCdacCapMismatch],
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Compare normalized A-to-B CDAC extraction across ADC00–ADC03."""
+    """Compare normalized A-to-B CDAC extraction across ADC channels."""
 
     fig, axes_grid = plt.subplots(2, 2, sharex=True)
     axes = axes_grid.ravel()
-    aligned = sorted(zip(msmt_list2d, analysis_list, strict=True), key=lambda item: item[1].adc_index)
+    aligned = sorted(zip(msmt_list2d, analysis_list, strict=True), key=lambda item: item[1].index or 0)
     stages = np.arange(analysis_list[0].effective_fraction.shape[1])
     for group, analysis in aligned:
-        expected = analysis.expected_effective_fraction
+        expected = group[0].expected_effective_fraction
         effective_mean = (analysis.effective_fraction[0] + analysis.effective_fraction[1]) / 2.0
         diffcap_separation_mean = analysis.diff_fraction[0] + analysis.diff_fraction[1]
-        label = f"ADC{analysis.adc_index:02d}"
-        color = CURVE_COLORS[analysis.adc_index]
+        label = f"ADC{analysis.index:02d}" if analysis.index is not None else "Nominal"
+        color = CURVE_COLORS[(analysis.index or 0) % len(CURVE_COLORS)]
         axes[0].plot(stages, effective_mean, "o-", color=color, label=label)
         axes[1].plot(stages, effective_mean - expected, "o-", color=color, label=label)
         axes[2].plot(
@@ -2951,8 +2884,8 @@ def plot_cdac_cap_mismatch_comparison(
         "Mean P/N diffcap separation",
     )
     ylabels = ("Fraction", "Residual", "Asymmetry", "Separation")
-    tick_positions = (0, 3, 6, 9, 12, 15)
-    tick_labels = ("C0", "C3", "C6", "C9", "C12", "C15")
+    tick_positions = stages[::3]
+    tick_labels = tuple(f"C{stage}" for stage in tick_positions)
     for ax, title, ylabel in zip(axes, panel_titles, ylabels, strict=True):
         ax.axhline(0.0, color=SPINE_COLOR)
         ax.set_title(title)
@@ -2972,7 +2905,7 @@ def plot_cdac_cap_mismatch_comparison(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_comp_timing(
-    msmt_list: Sequence[MeasCompInt],
+    msmt_list: Sequence[MeasComp],
     analysis: AnalysisCompTiming,
     *,
     output_path: Path,
@@ -2997,7 +2930,7 @@ def plot_comp_timing(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_comp_power(
-    msmt_list: Sequence[MeasCompInt],
+    msmt_list: Sequence[MeasComp],
     analysis: AnalysisCompPower,
     *,
     output_path: Path,
@@ -3017,14 +2950,23 @@ def plot_comp_power(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_comp_candidate_sweep(
-    msmt_list: Sequence[MeasCompInt],
-    analysis: AnalysisCompCandidateSweep,
+    msmt_list: Sequence[MeasComp],
+    candidates: Sequence[AnalysisCompCandidate],
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
     """Plot candidate noise, power, and settling on one area-ordered axis."""
 
-    candidate_count = len(analysis.candidate_id)
+    # Order candidates by summed MOS W*L; geometry and ID break ties reproducibly.
+    ordered = sorted(
+        candidates,
+        key=lambda candidate: (candidate.total_active_area_units, candidate.geometry_signature, candidate.candidate_id),
+    )
+    analysis = {
+        name: np.asarray([getattr(candidate, name) for candidate in ordered])
+        for name in ("size_profile", "total_active_area_um2", "noise_sigma_v", "average_power_w", "maximum_settling_s")
+    }
+    candidate_count = len(candidates)
     position = np.arange(candidate_count)
     colors = {
         "half": CURVE_COLORS[0],
@@ -3033,13 +2975,13 @@ def plot_comp_candidate_sweep(
     }
     fig, axes = plt.subplots(3, 1, sharex=True)
     metrics = (
-        (analysis.noise_sigma_v * 1e3, "Noise σ (mV)", "linear"),
-        (analysis.average_power_w * 1e6, "Power (µW)", "log"),
-        (analysis.maximum_settling_s * 1e9, "Settling (ns)", "linear"),
+        (analysis["noise_sigma_v"] * 1e3, "Noise σ (mV)", "linear"),
+        (analysis["average_power_w"] * 1e6, "Power (µW)", "log"),
+        (analysis["maximum_settling_s"] * 1e9, "Settling (ns)", "linear"),
     )
     for ax, (values, ylabel, scale) in zip(axes, metrics, strict=True):
         for profile in ("half", "double", "fabricated"):
-            selected = np.asarray(analysis.size_profile) == profile
+            selected = analysis["size_profile"] == profile
             if not np.any(selected):
                 continue
             ax.scatter(
@@ -3056,7 +2998,7 @@ def plot_comp_candidate_sweep(
         ax.set_yscale(scale)
         style_grid(ax)
 
-    baseline = np.flatnonzero(np.asarray(analysis.size_profile) == "fabricated")
+    baseline = np.flatnonzero(analysis["size_profile"] == "fabricated")
     for ax in axes:
         ax.axvline(baseline[0], color=CURVE_COLORS[2], linestyle="--")
     axes[0].legend(ncols=3)
@@ -3064,7 +3006,9 @@ def plot_comp_candidate_sweep(
     tick_count = min(12, candidate_count)
     tick_positions = np.unique(np.rint(np.linspace(0, candidate_count - 1, tick_count)).astype(int))
     axes[-1].set_xticks(tick_positions)
-    axes[-1].set_xticklabels(tuple(f"{index}\n{analysis.total_active_area_um2[index]:.2f}" for index in tick_positions))
+    axes[-1].set_xticklabels(
+        tuple(f"{index}\n{analysis['total_active_area_um2'][index]:.2f}" for index in tick_positions)
+    )
     axes[-1].set_xlabel("Area-ordered candidate index\n(total instantiated MOS Σ(W×L) in µm²)")
     axes[-1].set_xlim(-2, candidate_count + 1)
     style_info_box(axes[2], style_measurement_group_text(msmt_list), location="lower right")
@@ -3074,16 +3018,32 @@ def plot_comp_candidate_sweep(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_comp_noise_power_tradeoff(
-    analysis: AnalysisCompCandidateSweep,
+    candidates: Sequence[AnalysisCompCandidate],
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Plot valid, resolved candidate noise against power, colored by settling."""
+    """Plot candidate noise against power, colored by settling.
 
-    noise_mv = analysis.noise_sigma_v * 1e3
-    power_uw = analysis.average_power_w * 1e6
-    settling_ns = analysis.maximum_settling_s * 1e9
-    valid_scurve = np.asarray(analysis.validity) == "valid"
+    Candidates with unresolved trials or an invalid S-curve fit have no
+    meaningful settling color; those with finite noise and power are shown
+    as gray crosses.
+    """
+
+    analysis = {
+        name: np.asarray([getattr(candidate, name) for candidate in candidates])
+        for name in (
+            "size_profile",
+            "validity",
+            "noise_sigma_v",
+            "average_power_w",
+            "maximum_settling_s",
+            "unresolved_fraction",
+        )
+    }
+    noise_mv = analysis["noise_sigma_v"] * 1e3
+    power_uw = analysis["average_power_w"] * 1e6
+    settling_ns = analysis["maximum_settling_s"] * 1e9
+    valid_scurve = analysis["validity"] == "valid"
     finite_positive = (
         np.isfinite(noise_mv)
         & np.isfinite(power_uw)
@@ -3092,15 +3052,16 @@ def plot_comp_noise_power_tradeoff(
         & (power_uw > 0.0)
         & (settling_ns > 0.0)
     )
-    resolved = analysis.unresolved_fraction == 0.0
+    resolved = analysis["unresolved_fraction"] == 0.0
     selected = valid_scurve & finite_positive & resolved
+    other = ~selected & np.isfinite(noise_mv) & np.isfinite(power_uw) & (power_uw > 0.0)
     selected_settling_ns = settling_ns[selected]
     color_min = float(calc.ymin(selected_settling_ns))
     color_max = float(calc.ymax(selected_settling_ns))
     if np.isclose(color_min, color_max):
         color_max = color_min + 1.0
     color_norm = Normalize(vmin=color_min, vmax=color_max)
-    profiles = np.asarray(analysis.size_profile)
+    profiles = analysis["size_profile"]
 
     fig, ax = plt.subplots()
     mappable = ScalarMappable(norm=color_norm, cmap=SPECTRUM_COLOR_MAP)
@@ -3122,6 +3083,15 @@ def plot_comp_noise_power_tradeoff(
             linewidths=0.35,
             label=label,
             zorder=2,
+        )
+    if np.any(other):
+        ax.scatter(
+            noise_mv[other],
+            power_uw[other],
+            marker="x",
+            color=SPINE_COLOR,
+            label="Unresolved trials or invalid S-curve",
+            zorder=1,
         )
     baseline = np.flatnonzero(profiles == "fabricated")
     baseline_index = int(baseline[0])

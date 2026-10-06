@@ -53,7 +53,6 @@ from flow.adc.sequences import SEQUENCES, AdcSequence
 from flow.adc.sim import AdcTbParams
 from flow.analysis import calc
 from flow.analysis.plots import plot_serdes_output_word_grid, plot_serdes_symbol_eye_grid, plot_waveforms
-from flow.analysis.waveform import analyze_scope_waveforms
 from flow.scans.plldrp import (
     calculate_pll_frequency,
     select_pll_configuration,
@@ -62,6 +61,7 @@ from flow.scans.plldrp import (
 from flow.scans.scope import (
     response_value,
     scope_channels,
+    scope_wave,
     wait_for_scope_armed,
     wait_for_scope_capture,
     write_scope_csv,
@@ -393,7 +393,8 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
                     )
 
                     plot_paths = plot_waveforms(
-                        analyze_scope_waveforms(waveforms, SCOPE_TRACKS),
+                        scope_wave(waveforms, SCOPE_TRACKS),
+                        title="Oscilloscope waveforms",
                         output_path=csv_path.with_suffix(""),
                     )
                     for plot_path in plot_paths:
@@ -567,15 +568,15 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
         assert seq.is_ready, "finite sequencer run did not finish"
         waveforms = scope.get_waveforms(tracks)
         write_scope_csv(run_dir / "waveforms.csv", waveforms, tracks)
-        analysis = replace(analyze_scope_waveforms(waveforms, tracks), title=name)
-        for artifact in plot_waveforms(analysis, output_path=run_dir / "waveforms"):
+        wave = scope_wave(waveforms, tracks)
+        for artifact in plot_waveforms(wave, title=name, output_path=run_dir / "waveforms"):
             print(f"Saved {name}: {artifact}")
 
         # Audit the second conversion selected by the A-then-B INIT trigger.
         # The end of the long recipe's idle pause lies outside the pretrigger window.
         # Zero volts is the differential crossing; no per-channel deskew is fitted.
-        time_s = analysis.time_s
-        init_edges = calc.cross(analysis.signal_values[list(tracks).index(init_channel)], time_s, 0.0, edge="rising")
+        time_s = wave.time_s
+        init_edges = calc.cross(wave.v[tracks[init_channel]][0], time_s, 0.0, edge="rising")
         assert len(init_edges), "capture must include the triggering INIT rising edge"
         origin_s = float(init_edges[np.argmin(np.abs(init_edges))])
         period_s = len(sequence.init) / symbol_rate_bps
@@ -584,7 +585,10 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
         for view, start_s, stop_s in (("sequence", -3.4e-9, 116.6e-9), ("pulse_detail", 40e-9, 55e-9)):
             selected = (relative_time_s >= start_s) & (relative_time_s <= stop_s)
             plot_waveforms(
-                replace(analysis, time_s=relative_time_s[selected], signal_values=analysis.signal_values[:, selected]),
+                replace(
+                    wave, time_s=relative_time_s[selected], v={key: trace[:, selected] for key, trace in wave.v.items()}
+                ),
+                title=name,
                 output_path=run_dir / view,
             )
         init_index = sequence.init.index("1")
@@ -592,7 +596,7 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
         observations: dict[str, dict[str, object]] = {}
         for index, (channel, track) in enumerate(tracks.items()):
             row = np.array([int(bit) for bit in getattr(sequence, track.lower())])
-            signal = analysis.signal_values[index]
+            signal = wave.v[track][0]
             observations[track] = {"min_v": float(signal.min()), "max_v": float(signal.max())}
             for rising in (True, False):
                 edge = "rising" if rising else "falling"

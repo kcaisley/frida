@@ -20,8 +20,7 @@ from flow.adc.sequences import (
 )
 from flow.adc.sim import AdcTbParams
 from flow.analysis.plots import plot_waveforms
-from flow.analysis.types import AdcExtWave
-from flow.analysis.waveform import analyze_scope_waveforms
+from flow.analysis.types import Wave
 from flow.scans import fastrx, scan_adc, scan_adc_noctl, scope, seqgen
 from flow.scans.params import AdcScanParams, build_adc_variants, load_board_map
 from flow.scans.scope import crop_adc_scope_conversion, write_scope_csv
@@ -96,7 +95,7 @@ def test_analytical_fastrx_capture_uses_unrotated_comp_edges() -> None:
 def spi_params(**overrides) -> AdcScanParams:
     """Return physical parameters with independently recognizable SPI fields."""
     scan_config = {
-        "board_id": "00",
+        "board_id": 0,
         "observed_adc": 3,
         "active_adc_mask": tuple(int(index in (3, 9)) for index in reversed(range(16))),
     }
@@ -156,7 +155,8 @@ def test_write_scope_csv_persists_raw_aligned_acquisition(tmp_path) -> None:
         "0.0,0.3,1.0,30,100",
     ]
     assert plot_waveforms(
-        analyze_scope_waveforms(waveforms, {1: "input", 3: "logic"}),
+        scope.scope_wave(waveforms, {1: "input", 3: "logic"}),
+        title="Oscilloscope waveforms",
         output_path=tmp_path / "scope" / "capture",
     ) == (tmp_path / "scope" / "capture.pdf",)
 
@@ -224,13 +224,15 @@ def test_scope_crop_associates_first_retained_conversion() -> None:
         for bit in range(17):
             edge = (period * 160 + 10 + bit * 8) * 1e-9
             comp[(time >= edge) & (time < edge + 2e-9)] = 1.2
-    wave = AdcExtWave(
-        conversion_index=np.array([0]),
+    wave = Wave(
+        record_index=np.array([0]),
         time_s=time,
-        seq_comp_v=comp[None, :],
-        seq_logic_v=comp[None, :],
-        comp_out_v=(time >= 160e-9)[None, :].astype(float),
-        seq_init_v=(time >= 160e-9)[None, :].astype(float),
+        v={
+            "seq_comp": comp[None, :],
+            "seq_logic": comp[None, :],
+            "comp_out": (time >= 160e-9)[None, :].astype(float),
+            "seq_init": (time >= 160e-9)[None, :].astype(float),
+        },
     )
     cropped = crop_adc_scope_conversion(
         wave,
@@ -238,15 +240,14 @@ def test_scope_crop_associates_first_retained_conversion() -> None:
         conversion_period_s=160e-9,
         symbol_period_s=1e-9,
     )
-    assert cropped.conversion_index.tolist() == [0]
-    assert cropped.vin_diff_v is None
-    assert np.all(cropped.comp_out_v == 1)
-    assert cropped.seq_init_v is not None
-    assert cropped.seq_init_v.shape == cropped.seq_comp_v.shape
-    assert np.all(cropped.seq_init_v == 1)
+    assert cropped.record_index.tolist() == [0]
+    assert "vin_diff" not in cropped.v
+    assert np.all(cropped.v["comp_out"] == 1)
+    assert cropped.v["seq_init"].shape == cropped.v["seq_comp"].shape
+    assert np.all(cropped.v["seq_init"] == 1)
     assert 0 <= cropped.time_s[0] < 0.25e-9
     assert cropped.time_s[-1] < 160e-9
-    assert np.count_nonzero(np.diff((cropped.seq_comp_v[0] > 0.6).astype(int)) == 1) == 17
+    assert np.count_nonzero(np.diff((cropped.v["seq_comp"][0] > 0.6).astype(int)) == 1) == 17
     with pytest.raises(ValueError, match="lacks the complete"):
         crop_adc_scope_conversion(wave, skip_conversions=3, conversion_period_s=160e-9, symbol_period_s=1e-9)
 
@@ -258,13 +259,10 @@ def test_scope_crop_preserves_init_triggered_conversion() -> None:
     for bit in range(17):
         edge = (12 + bit * 8) * 1e-9
         comp[(time >= edge) & (time < edge + 2e-9)] = 1.0
-    wave = AdcExtWave(
-        conversion_index=np.array([1]),
+    wave = Wave(
+        record_index=np.array([1]),
         time_s=time,
-        seq_init_v=init[None, :],
-        seq_comp_v=comp[None, :],
-        seq_logic_v=comp[None, :],
-        comp_out_v=comp[None, :],
+        v={"seq_init": init[None, :], "seq_comp": comp[None, :], "seq_logic": comp[None, :], "comp_out": comp[None, :]},
     )
     cropped = crop_adc_scope_conversion(
         wave,
@@ -273,12 +271,11 @@ def test_scope_crop_preserves_init_triggered_conversion() -> None:
         symbol_period_s=1e-9,
         reference_signal="seq_init",
     )
-    assert cropped.conversion_index.tolist() == [1]
+    assert cropped.record_index.tolist() == [1]
     assert 0 <= cropped.time_s[0] < 0.25e-9
     assert 175e-9 < cropped.time_s[-1] < 176e-9
-    assert cropped.seq_init_v is not None
-    assert cropped.seq_init_v[0, 0] == 0.0
-    assert np.count_nonzero(np.diff((cropped.seq_comp_v[0] > 0.5).astype(int)) == 1) == 17
+    assert cropped.v["seq_init"][0, 0] == 0.0
+    assert np.count_nonzero(np.diff((cropped.v["seq_comp"][0] > 0.5).astype(int)) == 1) == 17
 
 
 def test_convert_vdiff_input_to_awg_supply_applies_empirical_calibration() -> None:
@@ -481,7 +478,7 @@ def test_adc_preflight_rejects_input_beyond_headroom_before_hardware(
     tmp_path,
 ) -> None:
     base = build_adc_variants(
-        board_id="00",
+        board_id=0,
         adc_indices=(0,),
         active_conversion_rates_hz=(1.0e6,),
         sequences=(symbol256_init8_samp16_comp11110000_logic00001111,),
@@ -515,7 +512,7 @@ def test_adc_preflight_rejects_supply_and_fixed_io_before_hardware(
     message: str,
 ) -> None:
     base = build_adc_variants(
-        board_id="00",
+        board_id=0,
         adc_indices=(0,),
         active_conversion_rates_hz=(1.0e6,),
         sequences=(symbol256_init8_samp16_comp11110000_logic00001111,),
@@ -555,7 +552,7 @@ def test_adc_noctl_abort_opens_only_the_fpga_map(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(basil.dut, "Dut", DummyDut)
     params = build_adc_variants(
-        board_id="00",
+        board_id=0,
         adc_indices=(0,),
         active_conversion_rates_hz=(2.0e6,),
         sequences=(symbol256_init8_samp16_comp11110000_logic11000011,),
@@ -660,7 +657,7 @@ def test_fastrx_settings_require_exact_characterization():
 
 
 def test_fastrx_timing_profiles_cover_every_catalogue_sequence() -> None:
-    profiles = load_board_map()["boards"]["00"]["fastrx_capture_settings"]
+    profiles = load_board_map()["boards"][0]["fastrx_capture_settings"]
     for _name, sequence in SEQUENCES:
         for baud in (320e6, 960e6, 1600e6):
             params = AdcScanParams(tb=AdcTbParams(symbol_rate=baud, **sequence.as_tb_fields()))

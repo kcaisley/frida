@@ -3,105 +3,119 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
 from flow.analysis import calc
-from flow.analysis.comp import analyze_comp_offset_noise
-from flow.analysis.types import AnalysisCdacCapMismatch, MeasCdacExt, Measurement
+from flow.analysis.types import (
+    AnalysisCdacCapMismatch,
+    AnalysisCdacTransition,
+    AnalysisCompOffsetNoise,
+    Identity,
+    MeasCdac,
+    check_identity,
+    measurement_identity,
+)
 from flow.caparray import get_caparray_weights
-from flow.scans.params import load_board_map
 
 
-def _expected_cdac_effective_fraction(measurements: Sequence[MeasCdacExt]) -> np.ndarray:
-    """Return flavor-aware normalized main-minus-diff PEX expectations."""
+def analyze_cdac_transition(
+    measurements: Sequence[MeasCdac],
+    *,
+    offset: AnalysisCompOffsetNoise,
+) -> AnalysisCdacTransition:
+    """Place one element's switching-curve fit at its CDAC side, element, direction, and mode.
 
-    if not measurements:
-        raise ValueError("CDAC expectation requires measurements")
-    scan_params = measurements[0].param
-    params = scan_params.tb
-    weights = np.asarray(params.dut.cdac.weights, dtype=np.float64)
-    total_weights = 65.0 * np.ceil(weights / 64.0)
-    recorded_parasitics = {
-        float(measurement.info.readbacks["cdac_topplate_parasitic_weight"])
-        for measurement in measurements
-        if "cdac_topplate_parasitic_weight" in measurement.info.readbacks
-    }
-    if len(recorded_parasitics) > 1:
-        raise ValueError("CDAC measurements contain inconsistent top-plate parasitic expectations")
-    if recorded_parasitics:
-        topplate_parasitic_weight = next(iter(recorded_parasitics))
-    else:
-        board_id = scan_params.board_id
-        adc_index = scan_params.observed_adc
-        if board_id is None or adc_index is None:
-            topplate_parasitic_weight = 0.0
-        else:
-            board_map = load_board_map()
-            board = board_map["boards"][board_id]
-            flavor = board["adc_channels"][adc_index]
-            topplate_parasitic_weight = float(
-                board_map["adc_flavors"][flavor].get("cdac_topplate_parasitic_weight", 0.0)
-            )
-    if not np.isfinite(topplate_parasitic_weight) or topplate_parasitic_weight < 0.0:
-        raise ValueError("CDAC top-plate parasitic expectation must be finite and non-negative")
-    return weights / (np.sum(total_weights) + topplate_parasitic_weight)
+    ``offset`` is the S-curve fit of exactly these measurements, made by
+    ``analyze_comp_offset_noise``; its 50% point is the transition. The runner
+    chooses which sweep stage (for example only the fine points) forms the curve.
+    """
+
+    identity = measurement_identity(measurements)
+    check_identity(offset, identity, name="switching-curve fit")
+    keys = set()
+    for measurement in measurements:
+        params = measurement.param
+        if params.campaign != "cdac_ab":
+            raise ValueError("A-to-B CDAC analysis requires campaign='cdac_ab'")
+        keys.add((params.cdac_side, params.cdac_element, params.cdac_direction, int(params.tb.dac_diffcaps)))
+    if len(keys) != 1:
+        raise ValueError("CDAC transition requires measurements of exactly one switching curve")
+    side, element, direction, diffcaps = next(iter(keys))
+    if side not in ("p", "n") or element is None or direction not in ("1to0", "0to1"):
+        raise ValueError("CDAC measurement is missing a valid side, element, or direction")
+    fitted_inputs = np.unique(np.round(np.concatenate([m.vin_diff_v for m in measurements]), decimals=12))
+    if not np.array_equal(fitted_inputs, offset.vin_diff_v):
+        raise ValueError("switching-curve fit was not made from these measurements")
+    valid = offset.validity != "non_monotonic" and math.isfinite(offset.offset_v)
+    return AnalysisCdacTransition(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        side="p" if side == "p" else "n",
+        element=element,
+        direction="1to0" if direction == "1to0" else "0to1",
+        diffcaps=diffcaps,
+        vin_diff_v=offset.vin_diff_v,
+        decision_probability=offset.decision_probability,
+        trial_count=offset.trial_count,
+        transition_v=offset.offset_v if valid else math.nan,
+        valid=valid,
+    )
 
 
 def analyze_cdac_cap_mismatch(
-    measurements: Sequence[MeasCdacExt],
+    measurements: Sequence[MeasCdac],
     *,
-    comparator_offset_v: float,
+    transitions: Sequence[AnalysisCdacTransition],
+    comparator: AnalysisCompOffsetNoise,
 ) -> AnalysisCdacCapMismatch:
-    """Fit every P50 and decompose main/diff normalized capacitance in one ADC."""
+    """Decompose main/diff normalized capacitance of one ADC from its switching curves.
 
-    if not measurements:
-        raise ValueError("A-to-B CDAC analysis requires measurements")
-    if any(measurement.param.campaign != "cdac_ab" for measurement in measurements):
-        raise ValueError("A-to-B CDAC analysis requires campaign='cdac_ab'")
-    adc_indices = {measurement.param.observed_adc for measurement in measurements}
-    if len(adc_indices) != 1 or None in adc_indices:
-        raise ValueError("A-to-B CDAC analysis operates on one explicitly selected ADC")
-    adc_index = next(index for index in adc_indices if index is not None)
-    if not math.isfinite(comparator_offset_v):
-        raise ValueError("comparator_offset_v must be finite")
-    element_counts = {len(get_caparray_weights(measurement.param.tb.dut.cdac)) for measurement in measurements}
-    if len(element_counts) != 1:
-        raise ValueError("A-to-B CDAC analysis requires one CDAC configuration")
-    element_count = next(iter(element_counts))
+    ``transitions`` holds one fit per measured curve. The comparator offset is
+    the reference point of every step: an element's normalized movement is
+    ``(offset - transition) / VDD_DAC``.
+    """
 
-    grouped: dict[tuple[int, int, int, int], list[MeasCdacExt]] = {}
-    for measurement in measurements:
-        params = measurement.param
-        if params.cdac_element is None or params.cdac_side is None or params.cdac_direction is None:
-            raise ValueError("CDAC measurement is missing its side, element, or direction")
-        if not 0 <= params.cdac_element < element_count:
-            raise ValueError("CDAC measurement element is outside the configured CDAC")
-        key = (
-            params.cdac_element,
-            0 if params.cdac_side == "p" else 1,
-            0 if params.cdac_direction == "1to0" else 1,
-            params.tb.dac_diffcaps,
+    identity = measurement_identity(measurements)
+    check_identity(transitions, identity, name="CDAC transition")
+    first = measurements[0]
+    check_identity(
+        comparator,
+        Identity(identity.group, identity.index, first.param.tb.dut.comp),
+        name="comparator offset",
+    )
+    if comparator.validity != "valid":
+        raise ValueError("CDAC analysis requires a valid comparator offset")
+    element_count = len(get_caparray_weights(first.param.tb.dut.cdac))
+    measured_curves = {
+        (
+            measurement.param.cdac_side,
+            measurement.param.cdac_element,
+            measurement.param.cdac_direction,
+            int(measurement.param.tb.dac_diffcaps),
         )
-        grouped.setdefault(key, []).append(measurement)
+        for measurement in measurements
+    }
+    by_curve = {(t.side, t.element, t.direction, t.diffcaps): t for t in transitions}
+    if len(by_curve) != len(transitions) or set(by_curve) != measured_curves:
+        raise ValueError("CDAC transitions must contain exactly one fit per measured switching curve")
+    vdd_dac_v = {float(measurement.tb.vdd_dac.dc) for measurement in measurements}
+    if len(vdd_dac_v) != 1:
+        raise ValueError("CDAC measurements must share one VDD_DAC")
+    reference_v = next(iter(vdd_dac_v))
 
-    curve_keys = sorted(grouped)
     per_mode_direction = np.full((2, element_count, 2, 2), np.nan, dtype=np.float64)
-    for element, side, direction, diffcaps in curve_keys:
-        curve_measurements = grouped[(element, side, direction, diffcaps)]
-        fine_measurements = [
-            measurement for measurement in curve_measurements if measurement.param.sweep_stage == "fine"
-        ]
-        fit = analyze_comp_offset_noise(fine_measurements or curve_measurements)
-        transition_v = fit.offset_v
-        valid = fit.validity != "non_monotonic" and math.isfinite(transition_v)
-        params = curve_measurements[0].param
-        signed_step = (comparator_offset_v - transition_v) / float(params.tb.vdd_dac.dc) if valid else math.nan
-        side_sign = 1.0 if params.cdac_side == "p" else -1.0
-        direction_sign = 1.0 if params.cdac_direction == "0to1" else -1.0
-        oriented_step = side_sign * direction_sign * signed_step
-        per_mode_direction[side, element, diffcaps, direction] = oriented_step
+    for (side, element, direction, diffcaps), transition in by_curve.items():
+        if not 0 <= element < element_count:
+            raise ValueError("CDAC measurement element is outside the configured CDAC")
+        signed_step = (comparator.offset_v - transition.transition_v) / reference_v if transition.valid else math.nan
+        side_sign = 1.0 if side == "p" else -1.0
+        direction_sign = 1.0 if direction == "0to1" else -1.0
+        per_mode_direction[0 if side == "p" else 1, element, diffcaps, 0 if direction == "1to0" else 1] = (
+            side_sign * direction_sign * signed_step
+        )
 
     main_fraction = np.full((2, element_count), np.nan, dtype=np.float64)
     diff_fraction = np.full((2, element_count), np.nan, dtype=np.float64)
@@ -131,136 +145,12 @@ def analyze_cdac_cap_mismatch(
                 diff_fraction[side, element] = (w_plus - w_minus) / 2.0
 
     return AnalysisCdacCapMismatch(
-        adc_index=adc_index,
-        expected_effective_fraction=_expected_cdac_effective_fraction(measurements),
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
         main_fraction=main_fraction,
         diff_fraction=diff_fraction,
         effective_fraction=effective_fraction,
         effective_fraction_by_direction=effective_fraction_by_direction,
         direction_bias=direction_bias,
     )
-
-
-def analyze_cdac_cap_mismatch_campaign(
-    measurement_runs: Sequence[Sequence[Measurement]],
-    *,
-    adc_indices: Sequence[int],
-    board_id: str,
-    comparator_offset_v_by_adc: Mapping[int, float],
-) -> tuple[
-    tuple[tuple[MeasCdacExt, ...], ...],
-    tuple[AnalysisCdacCapMismatch, ...],
-]:
-    """Reduce selectively reacquired runs and analyze one complete ADC campaign.
-
-    Each later run atomically replaces every point belonging to the same ADC,
-    side, element, direction, and diffcaps curve. Physical points from distinct
-    acquisition sessions are never combined into one fitted curve.
-    """
-
-    selected_adc_indices = tuple(adc_indices)
-    if not selected_adc_indices or len(set(selected_adc_indices)) != len(selected_adc_indices):
-        raise ValueError("CDAC campaign requires unique ADC indices")
-    if not board_id:
-        raise ValueError("CDAC campaign requires an explicit board_id")
-
-    selected_curve_measurements: dict[tuple[int, str, int, str, int], list[MeasCdacExt]] = {}
-    for measurement_run in measurement_runs:
-        grouped_in_run: dict[tuple[int, str, int, str, int], list[MeasCdacExt]] = {}
-        for measurement in measurement_run:
-            if not isinstance(measurement, MeasCdacExt):
-                raise TypeError(f"CDAC campaign contains {type(measurement).__name__}, expected MeasCdacExt")
-            if measurement.param.campaign != "cdac_ab":
-                raise ValueError("CDAC campaign contains a point outside campaign='cdac_ab'")
-            if int(measurement.info.readbacks.get("fastrx_lost_count", 0)) or int(
-                measurement.info.readbacks.get("spi_mismatches", 0)
-            ):
-                raise ValueError("CDAC campaign contains a corrupt physical capture")
-            params = measurement.param
-            if (
-                params.observed_adc is None
-                or params.cdac_side is None
-                or params.cdac_element is None
-                or params.cdac_direction is None
-            ):
-                raise ValueError("CDAC measurement is missing its ADC, side, element, or direction")
-            if params.observed_adc not in selected_adc_indices:
-                raise ValueError(f"CDAC campaign contains unexpected ADC{params.observed_adc:02d}")
-            curve_key = (
-                params.observed_adc,
-                params.cdac_side,
-                params.cdac_element,
-                params.cdac_direction,
-                params.tb.dac_diffcaps,
-            )
-            grouped_in_run.setdefault(curve_key, []).append(measurement)
-
-        for key, curve_measurements in grouped_in_run.items():
-            physical_measurements = [
-                measurement for measurement in curve_measurements if measurement.info.backend == "physical"
-            ]
-            if physical_measurements:
-                session_ids = {
-                    measurement.info.readbacks.get("acquisition_session_id") for measurement in physical_measurements
-                }
-                completed = [
-                    measurement
-                    for measurement in physical_measurements
-                    if measurement.info.readbacks.get("curve_complete") is True
-                ]
-                latest_timestamp = max(measurement.info.timestamp_utc for measurement in physical_measurements)
-                if (
-                    len(physical_measurements) != len(curve_measurements)
-                    or None in session_ids
-                    or len(session_ids) != 1
-                    or len(completed) != 1
-                    or completed[0].info.timestamp_utc != latest_timestamp
-                ):
-                    raise ValueError(f"CDAC campaign contains an incomplete or mixed-session curve {key}")
-
-        selected_curve_measurements.update(grouped_in_run)
-
-    measurements = tuple(
-        measurement
-        for curve_key in sorted(selected_curve_measurements)
-        for measurement in selected_curve_measurements[curve_key]
-    )
-    if {measurement.param.observed_adc for measurement in measurements} != set(selected_adc_indices):
-        raise ValueError("CDAC campaign does not contain exactly the requested ADCs")
-
-    expected_curves = {
-        (side, element, direction, diffcaps)
-        for side in ("p", "n")
-        for element in range(16)
-        for direction in ("1to0", "0to1")
-        for diffcaps in (0, 1)
-    }
-    groups = []
-    analyses = []
-    for adc_index in selected_adc_indices:
-        adc_measurements = tuple(
-            measurement for measurement in measurements if measurement.param.observed_adc == adc_index
-        )
-        observed_curves = {
-            (
-                measurement.param.cdac_side,
-                measurement.param.cdac_element,
-                measurement.param.cdac_direction,
-                measurement.param.tb.dac_diffcaps,
-            )
-            for measurement in adc_measurements
-        }
-        if observed_curves != expected_curves:
-            raise ValueError(f"ADC{adc_index:02d} A-to-B CDAC campaign is incomplete")
-        if {measurement.param.board_id for measurement in adc_measurements} != {board_id}:
-            raise ValueError(f"ADC{adc_index:02d} CDAC measurements do not match board {board_id}")
-        if adc_index not in comparator_offset_v_by_adc:
-            raise ValueError(f"ADC{adc_index:02d} has no accepted comparator calibration")
-        groups.append(adc_measurements)
-        analyses.append(
-            analyze_cdac_cap_mismatch(
-                adc_measurements,
-                comparator_offset_v=float(comparator_offset_v_by_adc[adc_index]),
-            )
-        )
-    return tuple(groups), tuple(analyses)

@@ -3,822 +3,359 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
-from numpy.typing import NDArray
 
 from flow.analysis import calc
 
 if TYPE_CHECKING:
+    from flow.adc.sequences import AdcSequence
     from flow.adc.sim import AdcTbParams
+    from flow.adc.subckt import AdcParams
     from flow.caparray.sim import CapArrayTbParams
-    from flow.caparray.subckt import CapArrayParams
+    from flow.caparray.subckt import CapArrayConfig, CapArrayParams
     from flow.comp.sim import CompTbParams
+    from flow.comp.subckt import CompParams
     from flow.samp.sim import SampTbParams
+    from flow.samp.subckt import SampParams
     from flow.scans.params import AdcScanParams
 
-type Backend = Literal["physical", "behavioral", "spice"]
-type InfoValue = str | int | float | bool
-type AdcNonlinearityMethod = Literal["endpoint", "code_density"]
-type AdcCalibrationMethod = Literal["calibration1", "calibration2", "calibration3"]
-type AdcDecoding = Literal["uncalibrated_dout", "calibration1", "calibration2", "calibration3"]
-type AdcDecisionSelection = Literal["single", "same_dout", "all"]
-type CompFitValidity = Literal["valid", "unbracketed", "non_monotonic", "stuck-low", "stuck-high"]
-type CompSizeProfile = Literal["half", "double", "fabricated"]
-type FloatArray = NDArray[np.float64]
-type IntArray = NDArray[np.int64]
-type Uint8Array = NDArray[np.uint8]
-type Uint32Array = NDArray[np.uint32]
-type BoolArray = NDArray[np.bool_]
+
+@dataclass(frozen=True, slots=True)
+class Identity:
+    """Instance and design identity shared by measurements and their results.
+
+    ``group`` is the physical board number or a Monte Carlo seed. ``index`` is
+    the observed ADC channel or a Monte Carlo iteration. Nominal simulations
+    use ``None`` for both. ``dut`` holds the design parameters analyzed.
+    """
+
+    group: int | None
+    index: int | None
+    dut: AdcParams | CompParams | CapArrayConfig | SampParams | None
 
 
-def _array_1d(values, dtype, name: str, *, finite: bool = False) -> np.ndarray:
-    """Return one canonical one-dimensional array."""
+@dataclass(frozen=True, slots=True)
+class Analysis:
+    """Base of every typed analysis result: identity only, no behavior.
 
-    array = np.ascontiguousarray(values, dtype=dtype)
-    if array.ndim != 1:
-        raise ValueError(f"{name} must be one-dimensional, got shape {array.shape}")
-    if finite and not np.all(np.isfinite(array)):
-        raise ValueError(f"{name} contains non-finite values")
-    return array
+    ``dut`` is ``None`` only for instrument characterizations that involve no
+    design under test, such as a raw oscilloscope capture or the diff-amp.
+    """
 
+    group: int | None
+    index: int | None
+    dut: AdcParams | CompParams | CapArrayConfig | SampParams | None
 
-def _array_2d(values, dtype, name: str, *, finite: bool = False) -> np.ndarray:
-    """Return one canonical two-dimensional array."""
-
-    array = np.ascontiguousarray(values, dtype=dtype)
-    if array.ndim != 2:
-        raise ValueError(f"{name} must be two-dimensional, got shape {array.shape}")
-    if finite and not np.all(np.isfinite(array)):
-        raise ValueError(f"{name} contains non-finite values")
-    return array
+    @property
+    def identity(self) -> Identity:
+        return Identity(self.group, self.index, self.dut)
 
 
-def _aligned_length(fields: dict[str, np.ndarray]) -> int:
-    """Validate aligned leading dimensions and return their common length."""
+def measurement_identity(measurements: Sequence[Meas]) -> Identity:
+    """Return the one identity shared by every input measurement, or raise."""
 
-    lengths = {name: len(value) for name, value in fields.items()}
-    if len(set(lengths.values())) != 1:
-        raise ValueError(f"DAQ fields are not aligned: {lengths}")
-    return next(iter(lengths.values()), 0)
-
-
-def _normalize_wave(
-    conversion_index,
-    time_s,
-    signals: dict[str, np.ndarray],
-) -> tuple[IntArray, FloatArray, dict[str, FloatArray]]:
-    """Normalize one dense waveform record collection."""
-
-    indices = _array_1d(conversion_index, np.int64, "wave.conversion_index")
-    times = _array_1d(time_s, np.float64, "wave.time_s", finite=True)
-    if len(indices) == 0:
-        raise ValueError("wave must contain at least one record")
-    if len(times) < 2 or np.any(np.diff(times) <= 0):
-        raise ValueError("wave.time_s must contain at least two strictly increasing samples")
-
-    normalized = {}
-    expected_shape = (len(indices), len(times))
-    for name, values in signals.items():
-        signal = _array_2d(values, np.float64, f"wave.{name}", finite=True)
-        if signal.shape != expected_shape:
-            raise ValueError(f"wave.{name} has shape {signal.shape}, expected {expected_shape}")
-        normalized[name] = signal
-    return indices, times, normalized
+    if not measurements:
+        raise ValueError("analysis requires at least one measurement")
+    identities = [measurement.identity for measurement in measurements]
+    first = identities[0]
+    if any(identity != first for identity in identities[1:]):
+        raise ValueError("analysis inputs must share one group, index, and DUT parameter set")
+    return first
 
 
-def _validate_measurement(info: MeasInfo, expected_type: str, daq_indices: IntArray, wave_indices: IntArray) -> None:
-    """Validate one measurement's type and waveform-to-DAQ mapping."""
+def check_identity(prior: Analysis | Sequence[Analysis], identity: Identity, *, name: str) -> None:
+    """Raise unless every prior result has the consumer's group, index, and DUT params."""
 
-    if info.measurement_type != expected_type:
-        raise ValueError(f"{expected_type} requires info.measurement_type={expected_type!r}")
-    missing = wave_indices[~np.isin(wave_indices, daq_indices)]
-    if len(missing):
-        raise ValueError(f"wave references conversion/trial indices absent from DAQ: {np.unique(missing).tolist()}")
+    for result in (prior,) if isinstance(prior, Analysis) else prior:
+        if result.identity != identity:
+            raise ValueError(
+                f"{name} ({type(result).__name__}) does not match the analyzed instance: "
+                f"group {result.group}/{identity.group}, index {result.index}/{identity.index}, "
+                f"DUT params {'equal' if result.dut == identity.dut else 'different'}"
+            )
+
+
+# =============================================================================
+# Typed measurements
+# =============================================================================
+#
+# Every measurement derives from :class:`Meas`, which fixes the fields all of
+# them carry. A subclass adds only its per-record readback arrays. The HDF5
+# reader finds a subclass by its stored type name, so a new measurement class
+# needs no registration.
 
 
 @dataclass(frozen=True, slots=True)
 class MeasInfo:
-    """Small run information shared by every measurement type."""
+    """Run information shared by every measurement."""
 
-    schema_version: int
-    measurement_type: str
-    backend: Backend
+    backend: Literal["physical", "behavioral", "spice"]
     timestamp_utc: datetime
     instruments: dict[str, str] = field(default_factory=dict)
-    readbacks: dict[str, InfoValue] = field(default_factory=dict)
+    readbacks: dict[str, str | int | float | bool] = field(default_factory=dict)
     source_path: Path | None = None
 
-    def __post_init__(self) -> None:
-        if self.schema_version not in (1, 2):
-            raise ValueError(f"unsupported measurement schema version {self.schema_version}")
-        if not self.measurement_type:
-            raise ValueError("measurement_type must not be empty")
-        if self.backend not in ("physical", "behavioral", "spice"):
-            raise ValueError(f"unsupported backend {self.backend!r}")
-        if self.timestamp_utc.tzinfo is None:
-            raise ValueError("timestamp_utc must be timezone-aware")
-        if any(
-            not isinstance(name, str) or not isinstance(identity, str) for name, identity in self.instruments.items()
-        ):
-            raise ValueError("info.instruments must map strings to strings")
-        if any(
-            not isinstance(name, str) or not isinstance(value, (str, int, float, bool))
-            for name, value in self.readbacks.items()
-        ):
-            raise ValueError("info.readbacks must contain only scalar strings, numbers, and booleans")
-        object.__setattr__(self, "instruments", dict(self.instruments))
-        object.__setattr__(self, "readbacks", dict(self.readbacks))
-        if self.source_path is not None:
-            object.__setattr__(self, "source_path", Path(self.source_path))
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Wave:
+    """Records of node voltages and supply currents, read like Cadence's ``v()`` and ``i()``.
 
-@dataclass(frozen=True, slots=True)
-class AdcDaq:
-    """ADC conversion readback shared by external and internal measurements.
-
-    ``bout[:, 0:17]`` is B0..B16 in chronological order. B0..B15 decide
-    C0..C15; B16 is the extra terminal comparison and switches no capacitor.
-    ``dout`` is the normalized 12-bit D0..D11 code, calculated from all 17
-    decisions rather than from a BOUT slice.
+    Keys are canonical net names from the circuit's net bundle, such as
+    ``comp_out`` or ``comp.latch_p``, whether the source was a simulator or an
+    oscilloscope. ``vin_diff`` is the one derived name: a differential probe
+    observes no single net. Supply currents use the supply name and are
+    positive for current drawn from the source. Every trace has one row per
+    record, the measurement row given by ``record_index``, and one column per
+    sample of ``time_s``.
     """
 
-    conversion_index: IntArray
-    bout: Uint8Array
-    dout_raw: IntArray
-    dout: IntArray
-    vin_diff_v: FloatArray
-    fastrx_word: Uint32Array | None = None
+    record_index: np.ndarray
+    time_s: np.ndarray
+    v: dict[str, np.ndarray]
+    i: dict[str, np.ndarray] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        conversion_index = _array_1d(self.conversion_index, np.int64, "daq.conversion_index")
-        bout = _array_2d(self.bout, np.uint8, "daq.bout")
-        dout_raw = _array_1d(self.dout_raw, np.int64, "daq.dout_raw")
-        dout = _array_1d(self.dout, np.int64, "daq.dout")
-        vin_diff_v = _array_1d(self.vin_diff_v, np.float64, "daq.vin_diff_v", finite=True)
-        if bout.shape[1:] != (17,):
-            raise ValueError(f"daq.bout must have shape (N, 17), got {bout.shape}")
-        if np.any((bout != 0) & (bout != 1)):
-            raise ValueError("daq.bout values must be zero or one")
-        fields = {
-            "conversion_index": conversion_index,
-            "bout": bout,
-            "dout_raw": dout_raw,
-            "dout": dout,
-            "vin_diff_v": vin_diff_v,
+        shape = (len(self.record_index), len(self.time_s))
+        if len(self.time_s) < 2 or np.any(np.diff(self.time_s) <= 0):
+            raise ValueError("wave.time_s must contain at least two strictly increasing samples")
+        if wrong := {name: trace.shape for name, trace in (*self.v.items(), *self.i.items()) if trace.shape != shape}:
+            raise ValueError(f"wave traces must have shape {shape}: {wrong}")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Meas:
+    """Base of every measurement: identity, run information, parameters, and waveforms.
+
+    ``group``, ``index``, and ``dut`` match :class:`Analysis`, so results copy
+    them across. ``param`` holds the complete scan or testbench parameters
+    that produced the data. A subclass adds its readback arrays as fields;
+    they share one row per conversion or trial, which is checked here.
+    """
+
+    group: int | None
+    index: int | None
+    dut: AdcParams | CompParams | CapArrayConfig | SampParams | CapArrayParams
+    info: MeasInfo
+    param: Any
+    wave: Wave | None = None
+
+    def __post_init__(self) -> None:
+        rows = {
+            data_field.name: len(value)
+            for data_field in fields(self)
+            if isinstance(value := getattr(self, data_field.name), np.ndarray)
         }
-        fastrx_word = None
-        if self.fastrx_word is not None:
-            fastrx_word = _array_1d(self.fastrx_word, np.uint32, "daq.fastrx_word")
-            fields["fastrx_word"] = fastrx_word
-        if _aligned_length(fields) == 0:
-            raise ValueError("ADC DAQ must contain at least one conversion")
-        object.__setattr__(self, "conversion_index", conversion_index)
-        object.__setattr__(self, "bout", bout)
-        object.__setattr__(self, "dout_raw", dout_raw)
-        object.__setattr__(self, "dout", dout)
-        object.__setattr__(self, "vin_diff_v", vin_diff_v)
-        object.__setattr__(self, "fastrx_word", fastrx_word)
-
-
-@dataclass(frozen=True, slots=True)
-class AdcExtWave:
-    """Externally observable ADC waveforms; input voltage may be unprobed."""
-
-    conversion_index: IntArray
-    time_s: FloatArray
-    seq_comp_v: FloatArray
-    seq_logic_v: FloatArray
-    comp_out_v: FloatArray
-    vin_diff_v: FloatArray | None = None
-    seq_init_v: FloatArray | None = None
-
-    def __post_init__(self) -> None:
-        indices, times, signals = _normalize_wave(
-            self.conversion_index,
-            self.time_s,
-            {
-                **({"vin_diff_v": self.vin_diff_v} if self.vin_diff_v is not None else {}),
-                **({"seq_init_v": self.seq_init_v} if self.seq_init_v is not None else {}),
-                "seq_comp_v": self.seq_comp_v,
-                "seq_logic_v": self.seq_logic_v,
-                "comp_out_v": self.comp_out_v,
-            },
-        )
-        object.__setattr__(self, "conversion_index", indices)
-        object.__setattr__(self, "time_s", times)
-        for name, values in signals.items():
-            object.__setattr__(self, name, values)
-
-
-@dataclass(frozen=True, slots=True)
-class AdcIntWave:
-    """Dense records keyed by canonical net names; voltage in V, current draw in A."""
-
-    conversion_index: IntArray
-    time_s: FloatArray
-    voltage: dict[str, FloatArray]
-    current: dict[str, FloatArray] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        from flow.adc.subckt import AdcNets
-        from flow.circuit.ports import waveform_net_names
-        from flow.comp.subckt import CompNets
-
-        allowed = waveform_net_names(AdcNets)
-        allowed.update({f"comp.{name}" for name in waveform_net_names(CompNets)})
-        if unknown := (self.voltage.keys() | self.current.keys()) - allowed:
-            raise ValueError(f"Unknown canonical waveform nets: {sorted(unknown)}")
-        indices, time, voltage = _normalize_wave(self.conversion_index, self.time_s, self.voltage)
-        _, _, current = _normalize_wave(indices, time, self.current)
-        object.__setattr__(self, "conversion_index", indices)
-        object.__setattr__(self, "time_s", time)
-        object.__setattr__(self, "voltage", voltage)
-        object.__setattr__(self, "current", current)
+        if len(set(rows.values())) > 1:
+            raise ValueError(f"{type(self).__name__} readback arrays are not aligned: {rows}")
 
     @property
-    def vin_diff_v(self) -> FloatArray:
-        from flow.adc.subckt import AdcNets
+    def identity(self) -> Identity:
+        return Identity(self.group, self.index, self.dut)
 
-        return self.voltage[AdcNets.vin_p.name] - self.voltage[AdcNets.vin_n.name]
+    @property
+    def tb(self) -> Any:
+        """Return the testbench parameters, nested inside scan parameters for a physical capture."""
 
-
-@dataclass(frozen=True, slots=True)
-class MeasAdcExt:
-    """ADC measurement through its external stimulus and digital readout."""
-
-    info: MeasInfo
-    param: AdcScanParams
-    daq: AdcDaq
-    wave: AdcExtWave | None
-
-    def __post_init__(self) -> None:
-        if self.param.tb.conversions != len(self.daq.conversion_index):
-            raise ValueError(
-                f"param.tb.conversions={self.param.tb.conversions} does not match "
-                f"{len(self.daq.conversion_index)} ADC rows"
-            )
-        wave_indices = np.asarray([], dtype=np.int64) if self.wave is None else self.wave.conversion_index
-        _validate_measurement(self.info, type(self).__name__, self.daq.conversion_index, wave_indices)
+        return getattr(self.param, "tb", self.param)
 
 
-@dataclass(frozen=True, slots=True)
-class MeasAdcInt:
-    """ADC measurement with internal simulation waveforms."""
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MeasAdc(Meas):
+    """ADC conversions: one row per conversion.
 
-    info: MeasInfo
-    param: AdcTbParams
-    daq: AdcDaq
-    wave: AdcIntWave
-
-    def __post_init__(self) -> None:
-        if self.daq.fastrx_word is not None:
-            raise ValueError("MeasAdcInt must not invent FastRX words")
-        if self.param.conversions != len(self.daq.conversion_index):
-            raise ValueError(
-                f"param.conversions={self.param.conversions} does not match {len(self.daq.conversion_index)} ADC rows"
-            )
-        _validate_measurement(self.info, type(self).__name__, self.daq.conversion_index, self.wave.conversion_index)
-
-
-type MeasAdc = MeasAdcExt | MeasAdcInt
-
-
-@dataclass(frozen=True, slots=True)
-class CompDaq:
-    """Comparator trial conditions and binary decisions."""
-
-    trial_index: IntArray
-    vin_diff_v: FloatArray
-    vin_cm_v: FloatArray
-    decision: Uint8Array
-    fastrx_word: Uint32Array | None = None
-    fastrx_frame: Uint32Array | None = None
-
-    def __post_init__(self) -> None:
-        trial_index = _array_1d(self.trial_index, np.int64, "daq.trial_index")
-        vin_diff_v = _array_1d(self.vin_diff_v, np.float64, "daq.vin_diff_v", finite=True)
-        vin_cm_v = _array_1d(self.vin_cm_v, np.float64, "daq.vin_cm_v", finite=True)
-        decision = _array_1d(self.decision, np.uint8, "daq.decision")
-        if np.any((decision != 0) & (decision != 1)):
-            raise ValueError("daq.decision values must be zero or one")
-        fields = {
-            "trial_index": trial_index,
-            "vin_diff_v": vin_diff_v,
-            "vin_cm_v": vin_cm_v,
-            "decision": decision,
-        }
-        fastrx_word = None
-        fastrx_frame = None
-        if self.fastrx_word is not None:
-            fastrx_word = _array_1d(self.fastrx_word, np.uint32, "daq.fastrx_word")
-            fields["fastrx_word"] = fastrx_word
-        if self.fastrx_frame is not None:
-            fastrx_frame = _array_1d(self.fastrx_frame, np.uint32, "daq.fastrx_frame")
-            fields["fastrx_frame"] = fastrx_frame
-        if (fastrx_word is None) != (fastrx_frame is None):
-            raise ValueError("daq.fastrx_word and daq.fastrx_frame must be provided together")
-        if _aligned_length(fields) == 0:
-            raise ValueError("comparator DAQ must contain at least one trial")
-        object.__setattr__(self, "trial_index", trial_index)
-        object.__setattr__(self, "vin_diff_v", vin_diff_v)
-        object.__setattr__(self, "vin_cm_v", vin_cm_v)
-        object.__setattr__(self, "decision", decision)
-        object.__setattr__(self, "fastrx_word", fastrx_word)
-        object.__setattr__(self, "fastrx_frame", fastrx_frame)
-
-
-@dataclass(frozen=True, slots=True)
-class CompExtWave:
-    """Externally observable comparator waveforms."""
-
-    trial_index: IntArray
-    time_s: FloatArray
-    vin_diff_v: FloatArray
-    seq_comp_v: FloatArray
-    comp_out_v: FloatArray
-
-    def __post_init__(self) -> None:
-        indices, times, signals = _normalize_wave(
-            self.trial_index,
-            self.time_s,
-            {
-                "vin_diff_v": self.vin_diff_v,
-                "seq_comp_v": self.seq_comp_v,
-                "comp_out_v": self.comp_out_v,
-            },
-        )
-        object.__setattr__(self, "trial_index", indices)
-        object.__setattr__(self, "time_s", times)
-        for name, values in signals.items():
-            object.__setattr__(self, name, values)
-
-
-@dataclass(frozen=True, slots=True)
-class CompIntWave:
-    """Dense records keyed by canonical net names; voltage in V, current draw in A."""
-
-    trial_index: IntArray
-    time_s: FloatArray
-    voltage: dict[str, FloatArray]
-    current: dict[str, FloatArray] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        from flow.circuit.ports import waveform_net_names
-        from flow.comp.subckt import CompNets
-
-        allowed = waveform_net_names(CompNets)
-        if unknown := (self.voltage.keys() | self.current.keys()) - allowed:
-            raise ValueError(f"Unknown canonical waveform nets: {sorted(unknown)}")
-        indices, time, voltage = _normalize_wave(self.trial_index, self.time_s, self.voltage)
-        _, _, current = _normalize_wave(indices, time, self.current)
-        object.__setattr__(self, "trial_index", indices)
-        object.__setattr__(self, "time_s", time)
-        object.__setattr__(self, "voltage", voltage)
-        object.__setattr__(self, "current", current)
-
-
-@dataclass(frozen=True, slots=True)
-class MeasCompExt:
-    """Comparator measurement through external stimulus and decisions."""
-
-    info: MeasInfo
-    param: AdcScanParams
-    daq: CompDaq
-    wave: CompExtWave | None
-
-    def __post_init__(self) -> None:
-        from flow.scans.params import AdcScanParams
-
-        if not isinstance(self.param, AdcScanParams):
-            raise TypeError("MeasCompExt requires AdcScanParams")
-        if self.info.backend == "physical" and self.info.schema_version >= 2 and self.daq.fastrx_word is None:
-            raise ValueError("schema-v2 physical MeasCompExt requires FastRX words and frames")
-        wave_indices = np.asarray([], dtype=np.int64) if self.wave is None else self.wave.trial_index
-        _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, wave_indices)
-
-
-@dataclass(frozen=True, slots=True)
-class MeasCompInt:
-    """Comparator measurement with internal simulation waveforms."""
-
-    info: MeasInfo
-    param: CompTbParams | AdcTbParams
-    daq: CompDaq
-    wave: CompIntWave
-
-    def __post_init__(self) -> None:
-        from flow.adc.sim import AdcTbParams
-        from flow.comp.sim import CompTbParams
-
-        if not isinstance(self.param, (CompTbParams, AdcTbParams)):
-            raise TypeError("MeasCompInt requires CompTbParams or AdcTbParams")
-        if self.daq.fastrx_word is not None:
-            raise ValueError("MeasCompInt must not invent FastRX words")
-        _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, self.wave.trial_index)
-
-
-@dataclass(frozen=True, slots=True)
-class SampDaq:
-    """Sampler trial identifiers."""
-
-    trial_index: IntArray
-
-    def __post_init__(self) -> None:
-        trial_index = _array_1d(self.trial_index, np.int64, "daq.trial_index")
-        if len(trial_index) == 0:
-            raise ValueError("sampler DAQ must contain at least one trial")
-        object.__setattr__(self, "trial_index", trial_index)
-
-
-@dataclass(frozen=True, slots=True)
-class SampIntWave:
-    """Internally observable sampler waveforms."""
-
-    trial_index: IntArray
-    time_s: FloatArray
-    vin_v: FloatArray
-    sampled_v: FloatArray
-    clk_v: FloatArray
-    clk_b_v: FloatArray
-    vdd_i: FloatArray
-
-    def __post_init__(self) -> None:
-        signal_names = tuple(
-            field_name for field_name in self.__dataclass_fields__ if field_name not in {"trial_index", "time_s"}
-        )
-        indices, times, signals = _normalize_wave(
-            self.trial_index,
-            self.time_s,
-            {name: getattr(self, name) for name in signal_names},
-        )
-        object.__setattr__(self, "trial_index", indices)
-        object.__setattr__(self, "time_s", times)
-        for name, values in signals.items():
-            object.__setattr__(self, name, values)
-
-
-@dataclass(frozen=True, slots=True)
-class MeasSampInt:
-    """Sampler measurement with internal simulation waveforms."""
-
-    info: MeasInfo
-    param: SampTbParams
-    daq: SampDaq
-    wave: SampIntWave
-
-    def __post_init__(self) -> None:
-        _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, self.wave.trial_index)
-
-
-@dataclass(frozen=True, slots=True)
-class CdacExtDaq:
-    """External CDAC trial conditions and comparator decisions.
-
-    Every 16-column DAC-state array is ordered C0 through C15.
+    ``bout`` holds one column per decision in chronological order: each
+    switched capacitor C0..C(n-1) has one decision, and a final terminal
+    comparison switches no capacitor. ``dout`` is the normalized output code,
+    calculated from all decisions rather than from a BOUT slice.
     """
 
-    trial_index: IntArray
-    dac_state_p: Uint8Array
-    dac_state_n: Uint8Array
-    vin_diff_v: FloatArray
-    decision: Uint8Array
-    dac_state_before_p: Uint8Array | None = None
-    dac_state_before_n: Uint8Array | None = None
-    vin_cm_v: FloatArray | None = None
-    fastrx_word: Uint32Array | None = None
-    fastrx_frame: Uint32Array | None = None
+    dut: AdcParams
+    param: AdcScanParams | AdcTbParams
+    conversion_index: np.ndarray
+    bout: np.ndarray
+    dout_raw: np.ndarray
+    dout: np.ndarray
+    vin_diff_v: np.ndarray
+    fastrx_word: np.ndarray | None = None
 
-    def __post_init__(self) -> None:
-        trial_index = _array_1d(self.trial_index, np.int64, "daq.trial_index")
-        dac_state_p = _array_2d(self.dac_state_p, np.uint8, "daq.dac_state_p")
-        dac_state_n = _array_2d(self.dac_state_n, np.uint8, "daq.dac_state_n")
-        vin_diff_v = _array_1d(self.vin_diff_v, np.float64, "daq.vin_diff_v", finite=True)
-        decision = _array_1d(self.decision, np.uint8, "daq.decision")
-        for name, state in (("dac_state_p", dac_state_p), ("dac_state_n", dac_state_n)):
-            if state.shape[1:] != (16,) or np.any((state != 0) & (state != 1)):
-                raise ValueError(f"daq.{name} must have shape (N, 16) and contain only zero or one")
-        if np.any((decision != 0) & (decision != 1)):
-            raise ValueError("daq.decision values must be zero or one")
-        fields = {
-            "trial_index": trial_index,
-            "dac_state_p": dac_state_p,
-            "dac_state_n": dac_state_n,
-            "vin_diff_v": vin_diff_v,
-            "decision": decision,
-        }
-        optional_arrays = {}
-        for name, values, dtype, finite in (
-            ("dac_state_before_p", self.dac_state_before_p, np.uint8, False),
-            ("dac_state_before_n", self.dac_state_before_n, np.uint8, False),
-            ("vin_cm_v", self.vin_cm_v, np.float64, True),
-            ("fastrx_word", self.fastrx_word, np.uint32, False),
-            ("fastrx_frame", self.fastrx_frame, np.uint32, False),
-        ):
-            if values is not None:
-                array = (
-                    _array_2d(values, dtype, f"daq.{name}")
-                    if name.startswith("dac_state")
-                    else _array_1d(
-                        values,
-                        dtype,
-                        f"daq.{name}",
-                        finite=finite,
-                    )
-                )
-                optional_arrays[name] = array
-                fields[name] = array
-        if (self.dac_state_before_p is None) != (self.dac_state_before_n is None):
-            raise ValueError("both before-update CDAC states must be provided together")
-        if (self.fastrx_word is None) != (self.fastrx_frame is None):
-            raise ValueError("daq.fastrx_word and daq.fastrx_frame must be provided together")
-        for name in ("dac_state_before_p", "dac_state_before_n"):
-            state = optional_arrays.get(name)
-            if state is not None and (state.shape[1:] != (16,) or np.any((state != 0) & (state != 1))):
-                raise ValueError(f"daq.{name} must have shape (N, 16) and contain only zero or one")
-        if _aligned_length(fields) == 0:
-            raise ValueError("external CDAC DAQ must contain at least one trial")
-        object.__setattr__(self, "trial_index", trial_index)
-        object.__setattr__(self, "dac_state_p", dac_state_p)
-        object.__setattr__(self, "dac_state_n", dac_state_n)
-        object.__setattr__(self, "vin_diff_v", vin_diff_v)
-        object.__setattr__(self, "decision", decision)
-        for name in ("dac_state_before_p", "dac_state_before_n", "vin_cm_v", "fastrx_word", "fastrx_frame"):
-            object.__setattr__(self, name, optional_arrays.get(name))
+    @property
+    def sample_rate_hz(self) -> float:
+        """Return the true sampling rate including sequencer idle padding."""
 
+        return float(self.tb.symbol_rate) / len(self.tb.seq_init_pattern)
 
-@dataclass(frozen=True, slots=True)
-class CdacIntDaq:
-    """Internal CDAC trial identifiers and C0-first input states."""
+    @property
+    def active_conversion_rate_hz(self) -> float:
+        """Return the nominal conversion rate excluding idle padding."""
 
-    trial_index: IntArray
-    dac_state_p: Uint8Array
-    dac_state_n: Uint8Array
-    dac_state_before_p: Uint8Array | None = None
-    dac_state_before_n: Uint8Array | None = None
-    vin_diff_v: FloatArray | None = None
-    vin_cm_v: FloatArray | None = None
-    decision: Uint8Array | None = None
+        from flow.adc.sequences import AdcSequence
 
-    def __post_init__(self) -> None:
-        trial_index = _array_1d(self.trial_index, np.int64, "daq.trial_index")
-        dac_state_p = _array_2d(self.dac_state_p, np.uint8, "daq.dac_state_p")
-        dac_state_n = _array_2d(self.dac_state_n, np.uint8, "daq.dac_state_n")
-        for name, state in (("dac_state_p", dac_state_p), ("dac_state_n", dac_state_n)):
-            if state.shape[1:] != (16,) or np.any((state != 0) & (state != 1)):
-                raise ValueError(f"daq.{name} must have shape (N, 16) and contain only zero or one")
-        fields = {"trial_index": trial_index, "dac_state_p": dac_state_p, "dac_state_n": dac_state_n}
-        optional_arrays = {}
-        for name, values, dtype, finite in (
-            ("dac_state_before_p", self.dac_state_before_p, np.uint8, False),
-            ("dac_state_before_n", self.dac_state_before_n, np.uint8, False),
-            ("vin_diff_v", self.vin_diff_v, np.float64, True),
-            ("vin_cm_v", self.vin_cm_v, np.float64, True),
-            ("decision", self.decision, np.uint8, False),
-        ):
-            if values is not None:
-                array = (
-                    _array_2d(values, dtype, f"daq.{name}")
-                    if name.startswith("dac_state")
-                    else _array_1d(
-                        values,
-                        dtype,
-                        f"daq.{name}",
-                        finite=finite,
-                    )
-                )
-                optional_arrays[name] = array
-                fields[name] = array
-        if (self.dac_state_before_p is None) != (self.dac_state_before_n is None):
-            raise ValueError("both before-update CDAC states must be provided together")
-        for name in ("dac_state_before_p", "dac_state_before_n"):
-            state = optional_arrays.get(name)
-            if state is not None and (state.shape[1:] != (16,) or np.any((state != 0) & (state != 1))):
-                raise ValueError(f"daq.{name} must have shape (N, 16) and contain only zero or one")
-        decision = optional_arrays.get("decision")
-        if decision is not None and np.any((decision != 0) & (decision != 1)):
-            raise ValueError("daq.decision values must be zero or one")
-        if _aligned_length(fields) == 0:
-            raise ValueError("internal CDAC DAQ must contain at least one trial")
-        object.__setattr__(self, "trial_index", trial_index)
-        object.__setattr__(self, "dac_state_p", dac_state_p)
-        object.__setattr__(self, "dac_state_n", dac_state_n)
-        for name in ("dac_state_before_p", "dac_state_before_n", "vin_diff_v", "vin_cm_v", "decision"):
-            object.__setattr__(self, name, optional_arrays.get(name))
+        return float(self.tb.symbol_rate) / AdcSequence.from_tb_params(self.tb).conversion_symbols
+
+    @property
+    def logic_phase_delay_symbols(self) -> float:
+        """Return the COMP-to-LOGIC delay relative to mid-decision, in symbols."""
+
+        from flow.adc.sequences import AdcSequence
+
+        interval, delay = AdcSequence.from_tb_params(self.tb).logic_timing
+        return delay - interval / 2
+
+    @property
+    def comparator_time_percent(self) -> float:
+        """Return the COMP-to-LOGIC delay as a percentage of the decision interval."""
+
+        from flow.adc.sequences import AdcSequence
+
+        interval, delay = AdcSequence.from_tb_params(self.tb).logic_timing
+        return 100.0 * delay / interval
+
+    @property
+    def nominal_bout_weights(self) -> np.ndarray:
+        """Return the design raw-code weight of each chronological decision.
+
+        Every switched capacitor contributes twice its unit weight (both CDAC
+        sides move), and the terminal comparison adds one unit; the decision
+        count is therefore the capacitor count plus one.
+        """
+
+        from flow.caparray import get_caparray_weights
+
+        return np.asarray([2 * weight for weight in get_caparray_weights(self.dut.cdac)] + [1], dtype=np.int64)
+
+    @property
+    def code_max(self) -> int:
+        """Return the largest normalized output code."""
+
+        return (1 << self.dut.adc_bits) - 1
+
+    @property
+    def symbols_per_decision(self) -> int:
+        """Return the symbol spacing of the INIT-relative COMP rises, one per decision."""
+
+        from flow.adc.sequences import AdcSequence
+
+        comp = np.fromiter((bit == "1" for bit in AdcSequence.from_tb_params(self.tb).relative_to_init().comp), bool)
+        spacing = np.diff(np.flatnonzero(comp & ~np.roll(comp, 1)))
+        decisions = len(self.nominal_bout_weights)
+        if len(spacing) != decisions - 1 or np.any(spacing != spacing[0]):
+            raise ValueError(f"sequence must contain {decisions} equally spaced COMP rising edges")
+        return int(spacing[0])
 
 
-@dataclass(frozen=True, slots=True)
-class CdacExtWave:
-    """Externally observable CDAC comparator-path waveforms."""
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MeasComp(Meas):
+    """Comparator trials: one row per trial with its input and binary decision."""
 
-    trial_index: IntArray
-    time_s: FloatArray
-    vin_diff_v: FloatArray
-    seq_comp_v: FloatArray
-    comp_out_v: FloatArray
-    seq_logic_v: FloatArray | None = None
-
-    def __post_init__(self) -> None:
-        wave_signals = {
-            "vin_diff_v": self.vin_diff_v,
-            "seq_comp_v": self.seq_comp_v,
-            "comp_out_v": self.comp_out_v,
-        }
-        if self.seq_logic_v is not None:
-            wave_signals["seq_logic_v"] = self.seq_logic_v
-        indices, times, signals = _normalize_wave(
-            self.trial_index,
-            self.time_s,
-            wave_signals,
-        )
-        object.__setattr__(self, "trial_index", indices)
-        object.__setattr__(self, "time_s", times)
-        for name, values in signals.items():
-            object.__setattr__(self, name, values)
-        object.__setattr__(self, "seq_logic_v", signals.get("seq_logic_v"))
+    dut: CompParams
+    param: AdcScanParams | AdcTbParams | CompTbParams
+    trial_index: np.ndarray
+    vin_diff_v: np.ndarray
+    vin_cm_v: np.ndarray
+    decision: np.ndarray
+    fastrx_word: np.ndarray | None = None
+    fastrx_frame: np.ndarray | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class CdacIntWave:
-    """Internally observable CDAC waveforms."""
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MeasCdac(Meas):
+    """CDAC trials inferred through the comparator: one row per trial.
 
-    trial_index: IntArray
-    time_s: FloatArray
-    vdac_p_v: FloatArray
-    vdac_n_v: FloatArray
-    update_v: FloatArray
-    vdd_i: FloatArray
+    Every DAC-state array has one column per capacitor, C0 first.
+    """
 
-    def __post_init__(self) -> None:
-        signal_names = tuple(
-            field_name for field_name in self.__dataclass_fields__ if field_name not in {"trial_index", "time_s"}
-        )
-        indices, times, signals = _normalize_wave(
-            self.trial_index,
-            self.time_s,
-            {name: getattr(self, name) for name in signal_names},
-        )
-        object.__setattr__(self, "trial_index", indices)
-        object.__setattr__(self, "time_s", times)
-        for name, values in signals.items():
-            object.__setattr__(self, name, values)
+    dut: CapArrayConfig
+    param: AdcScanParams | AdcTbParams | CapArrayTbParams
+    trial_index: np.ndarray
+    dac_state_p: np.ndarray
+    dac_state_n: np.ndarray
+    vin_diff_v: np.ndarray
+    decision: np.ndarray
+    dac_state_before_p: np.ndarray | None = None
+    dac_state_before_n: np.ndarray | None = None
+    vin_cm_v: np.ndarray | None = None
+    fastrx_word: np.ndarray | None = None
+    fastrx_frame: np.ndarray | None = None
 
+    @property
+    def expected_effective_fraction(self) -> np.ndarray:
+        """Return the flavor-aware normalized main-minus-diff PEX expectation, for display.
 
-@dataclass(frozen=True, slots=True)
-class MeasCdacExt:
-    """CDAC measurement inferred through the external comparator path."""
+        This is the design reference drawn beside a measured result, not part
+        of an analysis. New captures record the extracted top-plate parasitic
+        weight. Older ones take it from the board inventory's flavor table,
+        the design record of the fabricated CDAC flavor on that channel.
+        """
 
-    info: MeasInfo
-    param: AdcScanParams
-    daq: CdacExtDaq
-    wave: CdacExtWave | None
+        weights = np.asarray(self.dut.weights, dtype=np.float64)
+        total_weights = 65.0 * np.ceil(weights / 64.0)
+        if "cdac_topplate_parasitic_weight" in self.info.readbacks:
+            topplate_parasitic_weight = float(self.info.readbacks["cdac_topplate_parasitic_weight"])
+        elif self.info.backend != "physical" or self.group is None or self.index is None:
+            topplate_parasitic_weight = 0.0
+        else:
+            from flow.scans.params import load_board_map
 
-    def __post_init__(self) -> None:
-        from flow.scans.params import AdcScanParams
-
-        if not isinstance(self.param, AdcScanParams):
-            raise TypeError("MeasCdacExt requires AdcScanParams")
-        if (
-            self.info.backend == "physical"
-            and self.info.schema_version >= 2
-            and (self.daq.dac_state_before_p is None or self.daq.vin_cm_v is None or self.daq.fastrx_word is None)
-        ):
-            raise ValueError("schema-v2 physical MeasCdacExt requires before states, Vin_cm, and FastRX words/ frames")
-        wave_indices = np.asarray([], dtype=np.int64) if self.wave is None else self.wave.trial_index
-        _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, wave_indices)
-
-
-@dataclass(frozen=True, slots=True)
-class MeasCdacInt:
-    """CDAC measurement with internal simulation waveforms."""
-
-    info: MeasInfo
-    param: CapArrayTbParams | AdcTbParams
-    daq: CdacIntDaq
-    wave: CdacIntWave
-
-    def __post_init__(self) -> None:
-        from flow.adc.sim import AdcTbParams
-        from flow.caparray.sim import CapArrayTbParams
-
-        if not isinstance(self.param, (CapArrayTbParams, AdcTbParams)):
-            raise TypeError("MeasCdacInt requires CapArrayTbParams or AdcTbParams")
-        _validate_measurement(self.info, type(self).__name__, self.daq.trial_index, self.wave.trial_index)
+            board_map = load_board_map()
+            flavor = board_map["boards"][self.group]["adc_channels"][self.index]
+            topplate_parasitic_weight = float(
+                board_map["adc_flavors"][flavor].get("cdac_topplate_parasitic_weight", 0.0)
+            )
+        if not np.isfinite(topplate_parasitic_weight) or topplate_parasitic_weight < 0.0:
+            raise ValueError("CDAC top-plate parasitic expectation must be finite and non-negative")
+        return weights / (np.sum(total_weights) + topplate_parasitic_weight)
 
 
-@dataclass(frozen=True, slots=True)
-class MeasCapArray:
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MeasSamp(Meas):
+    """Sampler trials: one row per trial; the observations are all in ``wave``."""
+
+    dut: SampParams
+    param: SampTbParams
+    trial_index: np.ndarray
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MeasCapArray(Meas):
     """Reserved capacitance-extraction result; its data payload is not defined yet.
 
-    This prototype is not registered for measurement HDF5 I/O. The converter
-    remains unimplemented until nominal/extracted and Monte Carlo capacitance
-    fields are specified.
+    The converter remains unimplemented until nominal/extracted and Monte
+    Carlo capacitance fields are specified.
     """
 
-    info: MeasInfo
+    dut: CapArrayParams
     param: CapArrayParams
-
-
-type Measurement = MeasAdc | MeasCompExt | MeasCompInt | MeasSampInt | MeasCdacExt | MeasCdacInt
 
 
 # =============================================================================
 # Typed analysis results
 # =============================================================================
+#
+# Every result derives from :class:`Analysis` and belongs to exactly one
+# instance (``group``, ``index``) and DUT parameter set. Results never contain
+# other results; comparisons across instances pass several results to one
+# plotter.
+
 
 # Shared waveform and instrument analyses
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisWaveform:
-    """One selected, aligned waveform record ready for rendering."""
-
-    title: str
-    time_s: FloatArray
-    signal_names: tuple[str, ...]
-    signal_units: tuple[str, ...]
-    signal_values: FloatArray
-    setup_lines: tuple[str, ...] = ()
-
-    time_origin_s: float = 0.0
-
-    def __post_init__(self) -> None:
-        if not np.isfinite(self.time_origin_s):
-            raise ValueError("waveform time origin must be finite")
-        time_s = _array_1d(self.time_s, np.float64, "time_s", finite=True)
-        signal_values = _array_2d(self.signal_values, np.float64, "signal_values", finite=True)
-        if not self.title.strip():
-            raise ValueError("waveform analysis title must not be empty")
-        if len(time_s) < 2 or np.any(np.diff(time_s) <= 0.0):
-            raise ValueError("waveform time_s must contain at least two increasing samples")
-        if not 1 <= len(self.signal_names) <= 4:
-            raise ValueError("waveform analysis requires one to four signals")
-        if any(not name.strip() for name in self.signal_names) or len(set(self.signal_names)) != len(self.signal_names):
-            raise ValueError("waveform signal names must be nonempty and unique")
-        expected_shape = (len(self.signal_names), len(time_s))
-        if signal_values.shape != expected_shape:
-            raise ValueError(f"waveform signal_values has shape {signal_values.shape}, expected {expected_shape}")
-        if len(self.signal_units) != len(self.signal_names) or any(
-            not isinstance(unit, str) for unit in self.signal_units
-        ):
-            raise ValueError("waveform signal units must align with signal names")
-        if any(not isinstance(line, str) or not line.strip() for line in self.setup_lines):
-            raise ValueError("waveform setup lines must be nonempty strings")
-        object.__setattr__(self, "time_s", time_s)
-        object.__setattr__(self, "signal_values", signal_values)
-        object.__setattr__(self, "signal_names", tuple(self.signal_names))
-        object.__setattr__(self, "signal_units", tuple(self.signal_units))
-        object.__setattr__(self, "setup_lines", tuple(self.setup_lines))
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisDiffampNoise:
+class AnalysisDiffampNoise(Analysis):
     """Gaussian and spectral characterization of one quiet waveform."""
 
     mean_v: float
-    centered_v: FloatArray
+    centered_v: np.ndarray
     sample_rate_hz: float
     measurement_bandwidth_hz: float
-    spectrum_frequency_hz: FloatArray
-    spectrum_amplitude_density_v_per_sqrt_hz: FloatArray
-
-    def __post_init__(self) -> None:
-        centered_v = _array_1d(self.centered_v, np.float64, "centered_v", finite=True)
-        frequency_hz = _array_1d(self.spectrum_frequency_hz, np.float64, "spectrum_frequency_hz", finite=True)
-        density = _array_1d(
-            self.spectrum_amplitude_density_v_per_sqrt_hz,
-            np.float64,
-            "spectrum_amplitude_density_v_per_sqrt_hz",
-            finite=True,
-        )
-        if len(centered_v) < 256:
-            raise ValueError("diff-amp noise analysis requires at least 256 samples")
-        if len(frequency_hz) != len(density) or len(frequency_hz) < 2:
-            raise ValueError("diff-amp spectrum frequency and density must be aligned")
-        if np.any(np.diff(frequency_hz) <= 0.0) or frequency_hz[0] < 0.0 or np.any(density < 0.0):
-            raise ValueError("diff-amp spectrum must have increasing frequencies and nonnegative density")
-        scalars = (
-            self.mean_v,
-            self.sample_rate_hz,
-            self.measurement_bandwidth_hz,
-        )
-        if not all(math.isfinite(value) for value in scalars):
-            raise ValueError("diff-amp noise scalar results must be finite")
-        if (
-            calc.rms(centered_v) <= 0.0
-            or self.sample_rate_hz <= 0.0
-            or self.measurement_bandwidth_hz <= 0.0
-            or self.measurement_bandwidth_hz > self.sample_rate_hz / 2.0
-            or frequency_hz[-1] > self.sample_rate_hz / 2.0
-        ):
-            raise ValueError("diff-amp noise scale, sample rate, and bandwidth must be positive")
-        object.__setattr__(self, "centered_v", centered_v)
-        object.__setattr__(self, "spectrum_frequency_hz", frequency_hz)
-        object.__setattr__(self, "spectrum_amplitude_density_v_per_sqrt_hz", density)
+    spectrum_frequency_hz: np.ndarray
+    spectrum_amplitude_density_v_per_sqrt_hz: np.ndarray
 
     @property
     def noise_rms_v(self) -> float:
@@ -837,45 +374,19 @@ class AnalysisDiffampNoise:
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcScopeBits:
-    """One 17-decision scope decode aligned with its corresponding FastRX word."""
+class AnalysisAdcScopeBits(Analysis):
+    """One scope-decoded conversion aligned with its corresponding FastRX word."""
 
-    scope_bits: BoolArray
-    fastrx_bits: BoolArray
+    scope_bits: np.ndarray
+    fastrx_bits: np.ndarray
     comp_threshold_v: float
     comp_out_threshold_v: float
-    comp_edge_times_s: FloatArray
-    sample_times_s: FloatArray
-    sample_values_v: FloatArray
-
-    def __post_init__(self) -> None:
-        scope_bits = _array_1d(self.scope_bits, np.bool_, "scope_bits")
-        fastrx_bits = _array_1d(self.fastrx_bits, np.bool_, "fastrx_bits")
-        edge_times = _array_1d(self.comp_edge_times_s, np.float64, "comp_edge_times_s", finite=True)
-        sample_times = _array_1d(self.sample_times_s, np.float64, "sample_times_s", finite=True)
-        sample_values = _array_1d(self.sample_values_v, np.float64, "sample_values_v", finite=True)
-        expected_shape = (17,)
-        if any(
-            values.shape != expected_shape
-            for values in (scope_bits, fastrx_bits, edge_times, sample_times, sample_values)
-        ):
-            raise ValueError("scope/FastRX analysis requires exactly 17 aligned decisions")
-        if (
-            np.any(np.diff(edge_times) <= 0.0)
-            or np.any(np.diff(sample_times) <= 0.0)
-            or np.any(sample_times <= edge_times)
-        ):
-            raise ValueError("scope decision edges and samples must increase and remain ordered")
-        if not all(math.isfinite(value) for value in (self.comp_threshold_v, self.comp_out_threshold_v)):
-            raise ValueError("scope decision thresholds must be finite")
-        object.__setattr__(self, "scope_bits", scope_bits)
-        object.__setattr__(self, "fastrx_bits", fastrx_bits)
-        object.__setattr__(self, "comp_edge_times_s", edge_times)
-        object.__setattr__(self, "sample_times_s", sample_times)
-        object.__setattr__(self, "sample_values_v", sample_values)
+    comp_edge_times_s: np.ndarray
+    sample_times_s: np.ndarray
+    sample_values_v: np.ndarray
 
     @property
-    def mismatch_mask(self) -> BoolArray:
+    def mismatch_mask(self) -> np.ndarray:
         """Return one flag for each disagreement between both decoders."""
 
         return self.scope_bits != self.fastrx_bits
@@ -900,251 +411,133 @@ class AnalysisAdcScopeBits:
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcTransfer:
+class AnalysisAdcTransfer(Analysis):
     """Mean static transfer and dispersion at each differential input."""
 
-    vin_diff_v: FloatArray
-    mean_dout: FloatArray
-    std_dout: FloatArray
-    sample_count: IntArray
-
-    def __post_init__(self) -> None:
-        values = {
-            "vin_diff_v": _array_1d(self.vin_diff_v, np.float64, "vin_diff_v", finite=True),
-            "mean_dout": _array_1d(self.mean_dout, np.float64, "mean_dout", finite=True),
-            "std_dout": _array_1d(self.std_dout, np.float64, "std_dout", finite=True),
-            "sample_count": _array_1d(self.sample_count, np.int64, "sample_count"),
-        }
-        if _aligned_length(values) == 0:
-            raise ValueError("ADC transfer analysis requires at least one input point")
-        if np.any(np.diff(values["vin_diff_v"]) <= 0.0):
-            raise ValueError("ADC transfer inputs must be strictly increasing")
-        if np.any(values["std_dout"] < 0.0) or np.any(values["sample_count"] <= 0):
-            raise ValueError("ADC transfer deviations and sample counts are outside their valid ranges")
-        for name, value in values.items():
-            object.__setattr__(self, name, value)
+    vin_diff_v: np.ndarray
+    mean_dout: np.ndarray
+    std_dout: np.ndarray
+    sample_count: np.ndarray
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcNonlinearity:
-    """Endpoint or code-density ADC nonlinearity."""
+class AnalysisAdcEndpointNonlinearity(Analysis):
+    """Endpoint INL and DNL from code transitions of a stepped static input."""
 
-    method: AdcNonlinearityMethod
-    code: IntArray
-    dnl: FloatArray
-    inl: FloatArray
-    count: IntArray | None
-    transition_vin_diff_v: FloatArray | None
-    ideal_count: float | None
-    endpoint_lsb_v: float | None
+    code: np.ndarray
+    dnl: np.ndarray
+    inl: np.ndarray
+    transition_vin_diff_v: np.ndarray
+    endpoint_lsb_v: float
     missing_codes: int
-
-    def __post_init__(self) -> None:
-        if self.method not in ("endpoint", "code_density"):
-            raise ValueError(f"unknown ADC nonlinearity method {self.method!r}")
-        values = {
-            "code": _array_1d(self.code, np.int64, "code"),
-            "dnl": _array_1d(self.dnl, np.float64, "dnl", finite=True),
-            "inl": _array_1d(self.inl, np.float64, "inl", finite=True),
-        }
-        if _aligned_length(values) == 0:
-            raise ValueError("ADC nonlinearity analysis requires at least one code")
-        if values["code"][0] < 0 or np.any(np.diff(values["code"]) <= 0):
-            raise ValueError("ADC nonlinearity codes must be nonnegative and strictly increasing")
-        count = None if self.count is None else _array_1d(self.count, np.int64, "count")
-        transition = (
-            None
-            if self.transition_vin_diff_v is None
-            else _array_1d(self.transition_vin_diff_v, np.float64, "transition_vin_diff_v", finite=True)
-        )
-        if count is not None and (len(count) != len(values["code"]) or np.any(count < 0)):
-            raise ValueError("ADC nonlinearity counts must align with codes and be nonnegative")
-        if transition is not None and (len(transition) != len(values["code"]) or np.any(np.diff(transition) <= 0.0)):
-            raise ValueError("ADC endpoint transitions must align with codes and increase")
-        if self.method == "endpoint" and (
-            transition is None
-            or count is not None
-            or self.ideal_count is not None
-            or self.endpoint_lsb_v is None
-            or not math.isfinite(self.endpoint_lsb_v)
-            or self.endpoint_lsb_v <= 0.0
-        ):
-            raise ValueError("endpoint nonlinearity requires transitions and a positive endpoint LSB")
-        if self.method == "code_density" and (
-            count is None
-            or transition is not None
-            or self.endpoint_lsb_v is not None
-            or self.ideal_count is None
-            or not math.isfinite(self.ideal_count)
-            or self.ideal_count <= 0.0
-        ):
-            raise ValueError("code-density nonlinearity requires counts and a positive ideal count")
-        if self.missing_codes < 0:
-            raise ValueError("ADC nonlinearity metrics are outside their valid ranges")
-        if self.method == "code_density" and count is not None:
-            if self.missing_codes != np.count_nonzero(count == 0):
-                raise ValueError("ADC code-density missing-code total does not match its histogram")
-        elif self.missing_codes > len(values["code"]) + 2:
-            raise ValueError("ADC endpoint missing-code total exceeds its analyzed range")
-        for name, value in values.items():
-            object.__setattr__(self, name, value)
-        object.__setattr__(self, "count", count)
-        object.__setattr__(self, "transition_vin_diff_v", transition)
 
     @property
     def maximum_abs_dnl(self) -> float:
-        """Return the largest absolute differential nonlinearity."""
-
         return float(np.max(np.abs(self.dnl)))
 
     @property
     def maximum_abs_inl(self) -> float:
-        """Return the largest absolute integral nonlinearity."""
-
         return float(np.max(np.abs(self.inl)))
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcCalibration:
-    """Common output of each 17-decision digital calibration method.
+class AnalysisAdcCodeDensityNonlinearity(Analysis):
+    """Code-density INL and DNL from a uniformly distributed input.
 
-    Coefficients are chronological B0..B16: B0..B15 correspond to C0..C15
-    and B16 is terminal. All three analyses normalize these coefficients to the
+    ``retained_sample_count`` records how many conversions remained after the
+    ramp-wrap exclusion supplied by an :class:`AnalysisAdcRamp`, if any. The
+    end codes are excluded from ``code`` because a finite ramp clips into them.
+    """
+
+    code: np.ndarray
+    dnl: np.ndarray
+    inl: np.ndarray
+    count: np.ndarray
+    ideal_count: float
+    retained_sample_count: int
+    sample_count: int
+
+    @property
+    def missing_codes(self) -> int:
+        return int(np.count_nonzero(self.count == 0))
+
+    @property
+    def maximum_abs_dnl(self) -> float:
+        return float(np.max(np.abs(self.dnl)))
+
+    @property
+    def maximum_abs_inl(self) -> float:
+        return float(np.max(np.abs(self.inl)))
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisAdcCalibration(Analysis):
+    """Common output of each per-decision digital calibration method.
+
+    Coefficients are chronological B0..B(n-1): one per switched capacitor plus
+    the terminal decision. All methods normalize these coefficients to the
     inclusive ADC output range, so a corrected fractional code is simply
     ``BOUT @ calibrated_weights``. ``measured_weight_mask`` distinguishes
     directly measured or fitted coefficients from nominally preserved ones.
-    In calibration 1 the terminal half-step is inferred, and in calibration 3
-    the unresolved noise-limited tail keeps its nominal ratios.
     """
 
-    adc_index: int
-    method: AdcCalibrationMethod
+    method: Literal["calibration1", "calibration2", "calibration3"]
     label: str
     code_max: int
-    nominal_weights: FloatArray
-    calibrated_weights: FloatArray
-    measured_weight_mask: BoolArray
+    nominal_weights: np.ndarray
+    calibrated_weights: np.ndarray
+    measured_weight_mask: np.ndarray
     training_sample_count: int
     validation_sample_count: int
     output_gain: float
     output_offset_lsb: float
 
-    def __post_init__(self) -> None:
-        if not -1 <= self.adc_index < 16:
-            raise ValueError("ADC calibration index must be -1 or in 0..15")
-        if self.method not in ("calibration1", "calibration2", "calibration3"):
-            raise ValueError(f"unknown ADC calibration method {self.method!r}")
-        if not self.label.strip():
-            raise ValueError("ADC calibration label must not be empty")
-        if not isinstance(self.code_max, int) or self.code_max <= 0:
-            raise ValueError("ADC calibration code_max must be a positive integer")
-        nominal = _array_1d(self.nominal_weights, np.float64, "nominal_weights", finite=True)
-        calibrated = _array_1d(self.calibrated_weights, np.float64, "calibrated_weights", finite=True)
-        measured = _array_1d(
-            self.measured_weight_mask,
-            np.bool_,
-            "measured_weight_mask",
-        )
-        expected_shape = (17,)
-        if nominal.shape != expected_shape or calibrated.shape != expected_shape or measured.shape != expected_shape:
-            raise ValueError("ADC calibration requires exactly 17 aligned BOUT weights")
-        if np.any(nominal <= 0.0) or np.any(calibrated <= 0.0):
-            raise ValueError("ADC calibration weights must be positive")
-        tolerance = max(1.0e-10, self.code_max * 1.0e-12)
-        if not np.isclose(np.sum(nominal), self.code_max, rtol=0.0, atol=tolerance):
-            raise ValueError("nominal ADC calibration weights must sum to code_max")
-        if not np.isclose(np.sum(calibrated), self.code_max, rtol=0.0, atol=tolerance):
-            raise ValueError("calibrated ADC calibration weights must sum to code_max")
-        if self.training_sample_count < 0 or self.validation_sample_count < 0:
-            raise ValueError("ADC calibration sample counts must be nonnegative")
-        if not math.isfinite(self.output_gain) or self.output_gain <= 0.0:
-            raise ValueError("ADC calibration output_gain must be finite and positive")
-        if not math.isfinite(self.output_offset_lsb):
-            raise ValueError("ADC calibration output_offset_lsb must be finite")
-        object.__setattr__(self, "nominal_weights", nominal)
-        object.__setattr__(self, "calibrated_weights", calibrated)
-        object.__setattr__(self, "measured_weight_mask", measured)
+    def decode_bout(self, bout: np.ndarray, *, rounded: bool = True) -> np.ndarray:
+        """Decode stored BOUT decisions with the calibrated weights, clipped to the code range.
+
+        The stored DAQ codes are never replaced; calibrated codes exist only
+        in the analysis that requests them.
+        """
+
+        decisions = np.asarray(bout)
+        if decisions.ndim != 2 or decisions.shape[1] != len(self.calibrated_weights):
+            raise ValueError("calibrated ADC decoding requires one BOUT column per calibrated weight")
+        if np.any((decisions != 0) & (decisions != 1)):
+            raise ValueError("calibrated ADC decoding requires binary BOUT values")
+        fractional = np.clip(decisions.astype(np.float64) @ self.calibrated_weights, 0.0, float(self.code_max))
+        return fractional if not rounded else np.rint(fractional).astype(np.int64)
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcRampCurve:
-    """Per-decoding results derived from one shared ramp capture.
+class AnalysisAdcRamp(Analysis):
+    """One DOUT decoding of a repeated ramp capture, reconstructed against the ramp phase.
 
-    One instance represents nominal DOUT or one calibrated interpretation of
-    the stored BOUT decisions. Capture timing and inferred input phase live on
-    the containing :class:`AnalysisAdcRamp` and are not repeated here.
+    The ramp period in conversions comes from the PWL source and the sample
+    rate; only the wrap phase is fitted, from the stored nominal DOUT, so every
+    decoding of the same capture shares it. ``retained`` is the single
+    definition of which conversions are far enough from a wrap to be used;
+    calibrations and code-density nonlinearity reuse it. ``decoding`` is the
+    nominal DOUT or the calibration whose weights decoded the stored BOUT.
     """
 
-    decoding: AdcDecoding
+    decoding: Literal["uncalibrated_dout", "calibration1", "calibration2", "calibration3"]
     label: str
-    weights: FloatArray
-    transfer_vin_diff_v: FloatArray
-    transfer_mean_dout: FloatArray
-    transfer_sample_count: IntArray
-    code: IntArray
-    count: IntArray
-    linearity_code: IntArray
-    dnl: FloatArray
-    inl: FloatArray
+    weights: np.ndarray
+    sample_rate_hz: float
+    period_conversions: float
+    first_wrap_conversion: float
+    retained: np.ndarray
+    vin_diff_min_v: float
+    vin_diff_max_v: float
+    transfer_vin_diff_v: np.ndarray
+    transfer_mean_dout: np.ndarray
+    transfer_sample_count: np.ndarray
+    code: np.ndarray
+    count: np.ndarray
+    linearity_code: np.ndarray
+    dnl: np.ndarray
+    inl: np.ndarray
     ideal_count: float
-
-    def __post_init__(self) -> None:
-        if self.decoding not in ("uncalibrated_dout", "calibration1", "calibration2", "calibration3"):
-            raise ValueError(f"unknown ADC ramp decoding {self.decoding!r}")
-        if not self.label.strip():
-            raise ValueError("ADC ramp curve label must not be empty")
-        weights = _array_1d(self.weights, np.float64, "weights", finite=True)
-        transfer = {
-            "transfer_vin_diff_v": _array_1d(
-                self.transfer_vin_diff_v,
-                np.float64,
-                "transfer_vin_diff_v",
-                finite=True,
-            ),
-            "transfer_mean_dout": _array_1d(
-                self.transfer_mean_dout,
-                np.float64,
-                "transfer_mean_dout",
-                finite=True,
-            ),
-            "transfer_sample_count": _array_1d(
-                self.transfer_sample_count,
-                np.int64,
-                "transfer_sample_count",
-            ),
-        }
-        density = {
-            "linearity_code": _array_1d(self.linearity_code, np.int64, "linearity_code"),
-            "dnl": _array_1d(self.dnl, np.float64, "dnl", finite=True),
-            "inl": _array_1d(self.inl, np.float64, "inl", finite=True),
-        }
-        code = _array_1d(self.code, np.int64, "code")
-        count = _array_1d(self.count, np.int64, "count")
-        if len(weights) != 17 or np.any(weights <= 0.0):
-            raise ValueError("ADC ramp curves require 17 positive decision weights")
-        if _aligned_length(transfer) == 0 or np.any(transfer["transfer_sample_count"] <= 0):
-            raise ValueError("ADC ramp transfer requires populated aligned bins")
-        if np.any(np.diff(transfer["transfer_vin_diff_v"]) <= 0.0):
-            raise ValueError("ADC ramp transfer inputs must be strictly increasing")
-        if _aligned_length({"code": code, "count": count}) == 0 or np.any(count < 0):
-            raise ValueError("ADC ramp histogram requires nonnegative aligned counts")
-        if _aligned_length(density) == 0:
-            raise ValueError("ADC ramp linearity requires at least one code")
-        if (
-            code[0] < 0
-            or density["linearity_code"][0] < 0
-            or np.any(np.diff(code) <= 0)
-            or np.any(np.diff(density["linearity_code"]) <= 0)
-            or not np.all(np.isin(density["linearity_code"], code))
-        ):
-            raise ValueError("ADC ramp histogram and linearity codes must be nonnegative, increasing, and aligned")
-        if not math.isfinite(self.ideal_count) or self.ideal_count <= 0.0:
-            raise ValueError("ADC ramp curve metrics are outside their valid ranges")
-        object.__setattr__(self, "weights", weights)
-        object.__setattr__(self, "code", code)
-        object.__setattr__(self, "count", count)
-        for name, value in {**transfer, **density}.items():
-            object.__setattr__(self, name, value)
 
     @property
     def maximum_abs_dnl(self) -> float:
@@ -1172,118 +565,95 @@ class AnalysisAdcRampCurve:
         differences = np.diff(self.transfer_mean_dout)
         return max(0.0, float(-np.min(differences))) if len(differences) else 0.0
 
+    @property
+    def sample_count(self) -> int:
+        return len(self.retained)
 
-@dataclass(frozen=True, slots=True)
-class AnalysisAdcRamp:
-    """Shared ramp reconstruction containing one curve per DOUT decoding."""
-
-    adc_index: int
-    sample_count: int
-    retained_sample_count: int
-    sample_rate_hz: float
-    ramp_frequency_hz: float
-    ramp_phase_cycles: float
-    reset_conversion_index: IntArray
-    vin_diff_min_v: float
-    vin_diff_max_v: float
-    curves: tuple[AnalysisAdcRampCurve, ...]
-
-    def __post_init__(self) -> None:
-        reset_indices = _array_1d(self.reset_conversion_index, np.int64, "reset_conversion_index")
-        curves = tuple(self.curves)
-        if not -1 <= self.adc_index < 16:
-            raise ValueError("ADC ramp index must be -1 or in 0..15")
-        if self.sample_count <= 0 or self.retained_sample_count <= 0 or self.retained_sample_count > self.sample_count:
-            raise ValueError("ADC ramp sample counts are inconsistent")
-        if (
-            not math.isfinite(self.sample_rate_hz)
-            or self.sample_rate_hz <= 0.0
-            or not math.isfinite(self.ramp_frequency_hz)
-            or self.ramp_frequency_hz <= 0.0
-            or not math.isfinite(self.ramp_phase_cycles)
-            or not 0.0 <= self.ramp_phase_cycles < 1.0
-            or not math.isfinite(self.vin_diff_min_v)
-            or not math.isfinite(self.vin_diff_max_v)
-            or self.vin_diff_min_v >= self.vin_diff_max_v
-        ):
-            raise ValueError("ADC ramp timing and input range are invalid")
-        if (
-            len(reset_indices) == 0
-            or reset_indices[0] < 0
-            or reset_indices[-1] >= self.sample_count
-            or np.any(np.diff(reset_indices) <= 0)
-        ):
-            raise ValueError("ADC ramp reset indices must be in-range, nonempty, and increasing")
-        if not curves or len({curve.decoding for curve in curves}) != len(curves):
-            raise ValueError("ADC ramp requires uniquely decoded curves")
-        if any(
-            np.sum(curve.count) != self.retained_sample_count
-            or np.sum(curve.transfer_sample_count) != self.retained_sample_count
-            for curve in curves
-        ):
-            raise ValueError("ADC ramp curve sample totals must match the retained capture")
-        object.__setattr__(self, "reset_conversion_index", reset_indices)
-        object.__setattr__(self, "curves", curves)
+    @property
+    def retained_sample_count(self) -> int:
+        return int(np.count_nonzero(self.retained))
 
     @property
     def reset_excluded_sample_count(self) -> int:
-        """Return the number of samples removed around ramp reset events."""
+        """Return the number of samples removed around ramp wraps."""
 
         return self.sample_count - self.retained_sample_count
 
-
-@dataclass(frozen=True, slots=True)
-class AnalysisAdcCodeDistribution:
-    """Code statistics and histograms for one or more static input points."""
-
-    vin_diff_v: FloatArray
-    code: IntArray
-    count: IntArray
-
-    def __post_init__(self) -> None:
-        vin_diff_v = _array_1d(self.vin_diff_v, np.float64, "vin_diff_v", finite=True)
-        code = _array_1d(self.code, np.int64, "code")
-        count = _array_2d(self.count, np.int64, "count")
-        point_count = len(vin_diff_v)
-        if point_count == 0 or len(code) == 0:
-            raise ValueError("ADC code distribution requires input points and output codes")
-        if count.shape != (point_count, len(code)):
-            raise ValueError("ADC code distribution counts must align with input points and codes")
-        if np.any(np.diff(vin_diff_v) <= 0.0) or code[0] < 0 or np.any(np.diff(code) <= 0):
-            raise ValueError("ADC code-distribution inputs and codes must increase")
-        if np.any(np.sum(count, axis=1) <= 0) or np.any(count < 0):
-            raise ValueError("ADC code-distribution histogram counts must be nonnegative and populated")
-        object.__setattr__(self, "vin_diff_v", vin_diff_v)
-        object.__setattr__(self, "code", code)
-        object.__setattr__(self, "count", count)
+    @property
+    def ramp_frequency_hz(self) -> float:
+        return self.sample_rate_hz / self.period_conversions
 
     @property
-    def sample_count(self) -> IntArray:
+    def ramp_phase_cycles(self) -> float:
+        return float(np.mod(-self.first_wrap_conversion / self.period_conversions, 1.0))
+
+    @property
+    def conversion_phase(self) -> np.ndarray:
+        """Return each conversion's position within its ramp period, in [0, 1)."""
+
+        sample = np.arange(self.sample_count, dtype=np.float64)
+        return np.mod((sample - self.first_wrap_conversion) / self.period_conversions, 1.0)
+
+    @property
+    def cycle_index(self) -> np.ndarray:
+        """Return each conversion's ramp cycle; -1 precedes the first wrap."""
+
+        sample = np.arange(self.sample_count, dtype=np.float64)
+        return np.floor((sample - self.first_wrap_conversion) / self.period_conversions).astype(np.int64)
+
+    @property
+    def complete_cycle(self) -> np.ndarray:
+        """Return conversions that lie in a ramp cycle captured from wrap to wrap."""
+
+        cycles = self.cycle_index
+        last_complete = int(np.floor((self.sample_count - self.first_wrap_conversion) / self.period_conversions)) - 1
+        return (cycles >= 0) & (cycles <= last_complete)
+
+    @property
+    def reset_conversion_index(self) -> np.ndarray:
+        """Return the first conversion after each wrap inside the capture."""
+
+        wraps = self.first_wrap_conversion + self.period_conversions * np.arange(
+            math.ceil((self.sample_count - self.first_wrap_conversion) / self.period_conversions)
+        )
+        return np.ceil(wraps).astype(np.int64)
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisAdcCodeDistribution(Analysis):
+    """Code statistics and histograms for one or more static input points."""
+
+    vin_diff_v: np.ndarray
+    code: np.ndarray
+    count: np.ndarray
+
+    @property
+    def sample_count(self) -> np.ndarray:
         """Return the sample count at each input point."""
 
         return np.sum(self.count, axis=1, dtype=np.int64)
 
     @property
-    def mean_dout(self) -> FloatArray:
+    def mean_dout(self) -> np.ndarray:
         """Return the histogram-weighted mean output code."""
 
         return np.sum(self.count * self.code, axis=1) / self.sample_count
 
     @property
-    def std_dout(self) -> FloatArray:
+    def std_dout(self) -> np.ndarray:
         """Return the histogram-weighted output-code standard deviation."""
 
         deviation = self.code - self.mean_dout[:, None]
         return np.sqrt(np.sum(self.count * deviation**2, axis=1) / self.sample_count)
 
     @property
-    def minimum_dout(self) -> IntArray:
+    def minimum_dout(self) -> np.ndarray:
         """Return the lowest populated output code at each input point."""
 
         return self.code[np.argmax(self.count > 0, axis=1)]
 
     @property
-    def maximum_dout(self) -> IntArray:
+    def maximum_dout(self) -> np.ndarray:
         """Return the highest populated output code at each input point."""
 
         reverse_index = np.argmax(self.count[:, ::-1] > 0, axis=1)
@@ -1291,168 +661,119 @@ class AnalysisAdcCodeDistribution:
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcNoiseSweep:
-    """Fixed-input output variation across conversion timing settings."""
+class AnalysisAdcNoise(Analysis):
+    """Fixed-input output variation of one capture, with its timing coordinates.
 
-    sample_rate_hz: FloatArray
-    active_conversion_rate_hz: FloatArray
-    logic_phase_delay_symbols: FloatArray
-    comparator_time_percent: FloatArray
+    ``code`` spans every output code of the ADC, so its length fixes the
+    resolution. ``readout_valid`` is the judgment that the digital readout is
+    trustworthy: simulations always are; a physical capture needs a valid
+    scope/FastRX comparison with no bit mismatches and no lost frames.
+    """
+
+    sequence: AdcSequence
+    symbol_rate_hz: float
+    sample_rate_hz: float
+    active_conversion_rate_hz: float
+    logic_phase_delay_symbols: float
+    comparator_time_percent: float
     input_lsb_v: float
-    pretrigger_vin_diff_mean_v: FloatArray
-    pretrigger_vin_diff_noise_rms_v: FloatArray
-    bit_mismatches: IntArray
-    noise_valid: BoolArray
-    code: IntArray
-    count: IntArray
-
-    def __post_init__(self) -> None:
-        float_fields = {
-            name: _array_1d(getattr(self, name), np.float64, name)
-            for name in (
-                "sample_rate_hz",
-                "active_conversion_rate_hz",
-                "logic_phase_delay_symbols",
-                "comparator_time_percent",
-                "pretrigger_vin_diff_mean_v",
-                "pretrigger_vin_diff_noise_rms_v",
-            )
-        }
-        bit_mismatches = _array_1d(self.bit_mismatches, np.int64, "bit_mismatches")
-        noise_valid = _array_1d(self.noise_valid, np.bool_, "noise_valid")
-        point_count = _aligned_length({**float_fields, "bit_mismatches": bit_mismatches, "noise_valid": noise_valid})
-        if point_count == 0:
-            raise ValueError("ADC noise sweep requires at least one point")
-        if not math.isfinite(self.input_lsb_v) or self.input_lsb_v <= 0.0:
-            raise ValueError("ADC noise sweep input_lsb_v must be finite and positive")
-        if (
-            not np.all(np.isfinite(float_fields["sample_rate_hz"]))
-            or np.any(float_fields["sample_rate_hz"] <= 0.0)
-            or not np.all(np.isfinite(float_fields["active_conversion_rate_hz"]))
-            or np.any(float_fields["active_conversion_rate_hz"] <= 0.0)
-            or not np.all(np.isfinite(float_fields["logic_phase_delay_symbols"]))
-            or not np.all(np.isfinite(float_fields["comparator_time_percent"]))
-            or any(np.any(np.isinf(values)) for values in float_fields.values())
-            or np.any(
-                float_fields["pretrigger_vin_diff_noise_rms_v"][
-                    np.isfinite(float_fields["pretrigger_vin_diff_noise_rms_v"])
-                ]
-                < 0.0
-            )
-            or np.any(bit_mismatches < 0)
-        ):
-            raise ValueError("ADC noise sweep values are outside their valid ranges")
-        code = _array_1d(self.code, np.int64, "code")
-        count = _array_2d(self.count, np.int64, "count")
-        if (
-            not len(code)
-            or code[0] < 0
-            or np.any(np.diff(code) <= 0)
-            or count.shape != (point_count, len(code))
-            or np.any(count < 0)
-            or np.any(np.sum(count, axis=1) <= 0)
-        ):
-            raise ValueError("ADC noise sweep histograms must be populated and align with increasing codes")
-        sample_counts = np.sum(count, axis=1, dtype=np.int64)
-        mean_dout = np.sum(count * code, axis=1) / sample_counts
-        deviation = code - mean_dout[:, None]
-        std_dout = np.sqrt(np.sum(count * deviation**2, axis=1) / sample_counts)
-        noise = np.where(std_dout > 0.0, std_dout * self.input_lsb_v, np.nan)
-        if np.any(~np.isfinite(noise[noise_valid]) | (noise[noise_valid] <= 0.0)):
-            raise ValueError("valid ADC noise points require finite positive input-referred noise")
-        for name, values in float_fields.items():
-            object.__setattr__(self, name, values)
-        object.__setattr__(self, "bit_mismatches", bit_mismatches)
-        object.__setattr__(self, "code", code)
-        object.__setattr__(self, "count", count)
-        object.__setattr__(self, "noise_valid", noise_valid)
+    pretrigger_vin_diff_mean_v: float
+    pretrigger_vin_diff_noise_rms_v: float
+    bit_mismatches: int
+    readout_valid: bool
+    code: np.ndarray
+    count: np.ndarray
 
     @property
-    def sample_count(self) -> IntArray:
-        """Return the number of captured codes at each timing point."""
-
-        return np.sum(self.count, axis=1, dtype=np.int64)
+    def code_max(self) -> int:
+        return len(self.code) - 1
 
     @property
-    def mean_dout(self) -> FloatArray:
-        """Return the histogram-weighted mean output code."""
-
-        return np.sum(self.count * self.code, axis=1) / self.sample_count
+    def sample_count(self) -> int:
+        return int(np.sum(self.count))
 
     @property
-    def std_dout(self) -> FloatArray:
-        """Return the histogram-weighted output-code standard deviation."""
-
-        deviation = self.code - self.mean_dout[:, None]
-        return np.sqrt(np.sum(self.count * deviation**2, axis=1) / self.sample_count)
+    def mean_dout(self) -> float:
+        return float(np.sum(self.count * self.code) / self.sample_count)
 
     @property
-    def minimum_dout(self) -> IntArray:
-        """Return the lowest populated output code at each timing point."""
-
-        return self.code[np.argmax(self.count > 0, axis=1)]
+    def std_dout(self) -> float:
+        return float(np.sqrt(np.sum(self.count * (self.code - self.mean_dout) ** 2) / self.sample_count))
 
     @property
-    def maximum_dout(self) -> IntArray:
-        """Return the highest populated output code at each timing point."""
-
-        reverse_index = np.argmax(self.count[:, ::-1] > 0, axis=1)
-        return self.code[len(self.code) - 1 - reverse_index]
+    def minimum_dout(self) -> int:
+        return int(self.code[np.argmax(self.count > 0)])
 
     @property
-    def input_referred_noise_rms_v(self) -> FloatArray:
+    def maximum_dout(self) -> int:
+        return int(self.code[len(self.code) - 1 - np.argmax(self.count[::-1] > 0)])
+
+    @property
+    def modal_fraction(self) -> float:
+        return float(np.max(self.count) / self.sample_count)
+
+    @property
+    def distinct_code_count(self) -> int:
+        return int(np.count_nonzero(self.count))
+
+    @property
+    def noise_valid(self) -> bool:
+        """A constant code only bounds the noise below the code-variance resolution."""
+
+        return self.std_dout > 0.0
+
+    @property
+    def input_referred_noise_rms_v(self) -> float:
         """Return code dispersion converted through the nominal input LSB."""
 
-        noise = self.std_dout * self.input_lsb_v
-        return np.where(self.std_dout > 0.0, noise, np.nan)
+        return self.std_dout * self.input_lsb_v if self.noise_valid else math.nan
+
+    @property
+    def enob_bits(self) -> float:
+        """Return the noise-equivalent resolution for a full-scale sine."""
+
+        if not self.noise_valid:
+            return math.nan
+        full_scale_rms_lsb = self.code_max / (2.0 * math.sqrt(2.0))
+        return (20.0 * math.log10(full_scale_rms_lsb / self.std_dout) - 1.76) / 6.02
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcNoiseComparison:
-    """Named input-referred-noise series collected on one rate axis."""
+class AnalysisAdcOperatingConditions(Analysis):
+    """Plausibility of one ADC's fixed-input captures over sequence and rate.
 
-    active_conversion_rate_hz: FloatArray
-    input_lsb_v: float
-    input_referred_noise_rms_v: FloatArray
-    noise_valid: BoolArray
-    series_label: tuple[str, ...]
+    Each capture is one row. ``reference_mean_dout`` is the median mean code
+    over every sequence at the lowest symbol rate. A row is plausible when its
+    code is not constant, its mean stays within the shift limit of that
+    reference, its readout is valid, and its noise-equivalent ENOB is finite.
+    """
 
-    def __post_init__(self) -> None:
-        rates = _array_1d(
-            self.active_conversion_rate_hz,
-            np.float64,
-            "active_conversion_rate_hz",
-            finite=True,
-        )
-        noise = _array_1d(self.input_referred_noise_rms_v, np.float64, "input_referred_noise_rms_v")
-        valid = _array_1d(self.noise_valid, np.bool_, "noise_valid")
-        labels = tuple(self.series_label)
-        point_count = _aligned_length(
-            {
-                "active_conversion_rate_hz": rates,
-                "input_referred_noise_rms_v": noise,
-                "noise_valid": valid,
-            }
-        )
-        if point_count == 0 or len(labels) != point_count or any(not label.strip() for label in labels):
-            raise ValueError("ADC noise comparison points and nonempty series labels must align")
-        if np.any(rates <= 0.0) or np.any(np.isinf(noise)):
-            raise ValueError("ADC noise comparison rates must be positive and noise must not be infinite")
-        if np.any(~np.isfinite(noise[valid]) | (noise[valid] <= 0.0)):
-            raise ValueError("valid ADC noise comparison points require finite positive noise")
-        if not math.isfinite(self.input_lsb_v) or self.input_lsb_v <= 0.0:
-            raise ValueError("ADC noise comparison input_lsb_v must be finite and positive")
-        object.__setattr__(self, "active_conversion_rate_hz", rates)
-        object.__setattr__(self, "input_referred_noise_rms_v", noise)
-        object.__setattr__(self, "noise_valid", valid)
-        object.__setattr__(self, "series_label", labels)
+    sequence: tuple[AdcSequence, ...]
+    symbol_rate_hz: np.ndarray
+    enob_bits: np.ndarray
+    mean_shift_dout: np.ndarray
+    reference_mean_dout: float
+    shift_limit_dout: float
+    constant: np.ndarray
+    shifted: np.ndarray
+    readout_valid: np.ndarray
+
+    @property
+    def plausible(self) -> np.ndarray:
+        return ~self.constant & ~self.shifted & self.readout_valid & np.isfinite(self.enob_bits)
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcDynamic:
-    """Sine-fit, residual, spectrum, and dynamic ADC figures of merit."""
+class AnalysisAdcDynamic(Analysis):
+    """Sine-fit, residual, spectrum, and dynamic ADC figures of merit.
+
+    The residual tail limit is a multiple of the fitted residual RMS, and the
+    expected tail count is the matching two-sided Gaussian tail probability.
+    """
 
     sample_rate_hz: float
+    active_conversion_rate_hz: float
+    logic_phase_delay_symbols: float
     input_frequency_hz: float
     fitted_frequency_hz: float
     adc_bits: int
@@ -1468,80 +789,12 @@ class AnalysisAdcDynamic:
     spectral_enob_bits: float
     residual_tail_limit_dout: float
     expected_residual_tail_count: float
-    time_s: FloatArray
-    measured_dout: FloatArray
-    fitted_dout: FloatArray
-    residual_dout: FloatArray
-    spectrum_frequency_hz: FloatArray
-    spectrum_dbfs: FloatArray
-
-    def __post_init__(self) -> None:
-        waveform = {
-            "time_s": _array_1d(self.time_s, np.float64, "time_s", finite=True),
-            "measured_dout": _array_1d(self.measured_dout, np.float64, "measured_dout", finite=True),
-            "fitted_dout": _array_1d(self.fitted_dout, np.float64, "fitted_dout", finite=True),
-            "residual_dout": _array_1d(self.residual_dout, np.float64, "residual_dout", finite=True),
-        }
-        spectrum = {
-            "spectrum_frequency_hz": _array_1d(
-                self.spectrum_frequency_hz,
-                np.float64,
-                "spectrum_frequency_hz",
-                finite=True,
-            ),
-            "spectrum_dbfs": _array_1d(self.spectrum_dbfs, np.float64, "spectrum_dbfs"),
-        }
-        if _aligned_length(waveform) < 2:
-            raise ValueError("ADC dynamic waveform requires at least two aligned samples")
-        if _aligned_length(spectrum) == 0:
-            raise ValueError("ADC dynamic spectrum requires at least one bin")
-        if np.any(np.diff(waveform["time_s"]) <= 0.0) or np.any(np.diff(spectrum["spectrum_frequency_hz"]) <= 0.0):
-            raise ValueError("ADC dynamic time and frequency axes must increase")
-        if np.any(np.isnan(spectrum["spectrum_dbfs"])) or np.any(np.isposinf(spectrum["spectrum_dbfs"])):
-            raise ValueError("ADC dynamic spectrum contains invalid values")
-        if (
-            spectrum["spectrum_frequency_hz"][0] < 0.0
-            or spectrum["spectrum_frequency_hz"][-1] > self.sample_rate_hz / 2.0
-        ):
-            raise ValueError("ADC dynamic spectrum must remain within the Nyquist interval")
-        positive_scalars = (
-            self.sample_rate_hz,
-            self.input_frequency_hz,
-            self.fitted_frequency_hz,
-            self.residual_tail_limit_dout,
-        )
-        finite_scalars = (
-            self.offset_dout,
-            self.amplitude_dout,
-            self.phase_rad,
-            self.input_referred_noise_rms_v,
-            self.input_referred_residual_rms_v,
-            self.spectral_sndr_db,
-            self.spectral_snr_db,
-            self.spectral_thd_db,
-            self.spectral_sfdr_db,
-            self.spectral_enob_bits,
-            self.expected_residual_tail_count,
-        )
-        if self.adc_bits <= 0 or any(not math.isfinite(value) or value <= 0.0 for value in positive_scalars):
-            raise ValueError("ADC dynamic rates, scales, and bit depth must be positive")
-        if any(not math.isfinite(value) for value in finite_scalars):
-            raise ValueError("ADC dynamic metrics must be finite")
-        if (
-            self.amplitude_dout < 0.0
-            or self.input_referred_noise_rms_v < 0.0
-            or self.input_referred_residual_rms_v < 0.0
-            or self.expected_residual_tail_count < 0.0
-        ):
-            raise ValueError("ADC dynamic magnitudes and counts must be nonnegative")
-        if (
-            not np.allclose(waveform["fitted_dout"] + waveform["residual_dout"], waveform["measured_dout"])
-            or not np.isclose(np.median(np.diff(waveform["time_s"])) * self.sample_rate_hz, 1.0)
-            or not -math.pi <= self.phase_rad <= math.pi
-        ):
-            raise ValueError("ADC dynamic waveform, sample rate, fit, and phase are inconsistent")
-        for name, value in {**waveform, **spectrum}.items():
-            object.__setattr__(self, name, value)
+    time_s: np.ndarray
+    measured_dout: np.ndarray
+    fitted_dout: np.ndarray
+    residual_dout: np.ndarray
+    spectrum_frequency_hz: np.ndarray
+    spectrum_dbfs: np.ndarray
 
     @property
     def sample_count(self) -> int:
@@ -1588,13 +841,13 @@ class AnalysisAdcDynamic:
 
     @property
     def negative_residual_tail_count(self) -> int:
-        """Return residuals below the configured negative tail limit."""
+        """Return residuals below the negative tail limit."""
 
         return int(np.count_nonzero(self.residual_dout < -self.residual_tail_limit_dout))
 
     @property
     def positive_residual_tail_count(self) -> int:
-        """Return residuals above the configured positive tail limit."""
+        """Return residuals above the positive tail limit."""
 
         return int(np.count_nonzero(self.residual_dout > self.residual_tail_limit_dout))
 
@@ -1606,179 +859,47 @@ class AnalysisAdcDynamic:
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcDynamicSweep:
-    """Dynamic ADC figures of merit across input and conversion rates."""
+class AnalysisAdcPower(Analysis):
+    """Static-baseline and incremental supply power of one capture."""
 
-    input_frequency_hz: FloatArray
-    sample_rate_hz: FloatArray
-    active_conversion_rate_hz: FloatArray
-    adc_index: IntArray
-    logic_phase_delay_symbols: FloatArray
-    input_referred_noise_rms_v: FloatArray
-    input_referred_residual_rms_v: FloatArray
-    spectral_enob_bits: FloatArray
-    spectral_sndr_db: FloatArray
-    spectral_snr_db: FloatArray
-    spectral_thd_db: FloatArray
-    spectral_sfdr_db: FloatArray
-    residual_tail_limit_dout: float
-    expected_residual_tail_count: FloatArray
-    negative_residual_tail_count: IntArray
-    positive_residual_tail_count: IntArray
-    maximum_abs_residual_dout: FloatArray
-
-    def __post_init__(self) -> None:
-        float_fields = {
-            name: _array_1d(getattr(self, name), np.float64, name, finite=True)
-            for name in (
-                "input_frequency_hz",
-                "sample_rate_hz",
-                "active_conversion_rate_hz",
-                "logic_phase_delay_symbols",
-                "input_referred_noise_rms_v",
-                "input_referred_residual_rms_v",
-                "spectral_enob_bits",
-                "spectral_sndr_db",
-                "spectral_snr_db",
-                "spectral_thd_db",
-                "spectral_sfdr_db",
-                "expected_residual_tail_count",
-                "maximum_abs_residual_dout",
-            )
-        }
-        int_fields = {
-            name: _array_1d(getattr(self, name), np.int64, name)
-            for name in ("adc_index", "negative_residual_tail_count", "positive_residual_tail_count")
-        }
-        if _aligned_length({**float_fields, **int_fields}) == 0:
-            raise ValueError("ADC dynamic sweep requires at least one point")
-        if (
-            np.any(float_fields["input_frequency_hz"] <= 0.0)
-            or np.any(float_fields["sample_rate_hz"] <= 0.0)
-            or np.any(float_fields["active_conversion_rate_hz"] <= 0.0)
-            or np.any(float_fields["input_referred_noise_rms_v"] < 0.0)
-            or np.any(float_fields["input_referred_residual_rms_v"] < 0.0)
-            or np.any(float_fields["expected_residual_tail_count"] < 0.0)
-            or np.any(float_fields["maximum_abs_residual_dout"] < 0.0)
-            or np.any((int_fields["adc_index"] < -1) | (int_fields["adc_index"] >= 16))
-            or np.any(int_fields["negative_residual_tail_count"] < 0)
-            or np.any(int_fields["positive_residual_tail_count"] < 0)
-            or not math.isfinite(self.residual_tail_limit_dout)
-            or self.residual_tail_limit_dout <= 0.0
-        ):
-            raise ValueError("ADC dynamic sweep values are outside their valid ranges")
-        for name, value in {**float_fields, **int_fields}.items():
-            object.__setattr__(self, name, value)
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisAdcPowerSweep:
-    """Static-baseline and incremental ADC supply power across conversion rates."""
-
-    sample_rate_hz: FloatArray
-    active_conversion_rate_hz: FloatArray
-    adc_index: IntArray
-    vdd_a_static_power_w: FloatArray
-    vdd_d_static_power_w: FloatArray
-    vdd_dac_static_power_w: FloatArray
-    vdd_a_dynamic_power_w: FloatArray
-    vdd_d_dynamic_power_w: FloatArray
-    vdd_dac_dynamic_power_w: FloatArray
-
-    def __post_init__(self) -> None:
-        float_fields = {
-            name: _array_1d(getattr(self, name), np.float64, name, finite=True)
-            for name in (
-                "sample_rate_hz",
-                "active_conversion_rate_hz",
-                "vdd_a_static_power_w",
-                "vdd_d_static_power_w",
-                "vdd_dac_static_power_w",
-                "vdd_a_dynamic_power_w",
-                "vdd_d_dynamic_power_w",
-                "vdd_dac_dynamic_power_w",
-            )
-        }
-        adc_index = _array_1d(self.adc_index, np.int64, "adc_index")
-        if _aligned_length({**float_fields, "adc_index": adc_index}) == 0:
-            raise ValueError("ADC power sweep requires at least one point")
-        if (
-            np.any(float_fields["sample_rate_hz"] <= 0.0)
-            or np.any(float_fields["active_conversion_rate_hz"] <= 0.0)
-            or any(np.any(values < 0.0) for name, values in float_fields.items() if not name.endswith("rate_hz"))
-            or np.any((adc_index < -1) | (adc_index >= 16))
-        ):
-            raise ValueError("ADC power sweep rates, powers, and indices are outside their valid ranges")
-        for name, value in float_fields.items():
-            object.__setattr__(self, name, value)
-        object.__setattr__(self, "adc_index", adc_index)
+    sample_rate_hz: float
+    active_conversion_rate_hz: float
+    vdd_a_static_power_w: float
+    vdd_d_static_power_w: float
+    vdd_dac_static_power_w: float
+    vdd_a_dynamic_power_w: float
+    vdd_d_dynamic_power_w: float
+    vdd_dac_dynamic_power_w: float
 
     @property
-    def total_static_power_w(self) -> FloatArray:
+    def total_static_power_w(self) -> float:
         """Return total idle power across all three supply rails."""
 
         return self.vdd_a_static_power_w + self.vdd_d_static_power_w + self.vdd_dac_static_power_w
 
     @property
-    def total_dynamic_power_w(self) -> FloatArray:
+    def total_dynamic_power_w(self) -> float:
         """Return incremental conversion power across all three rails."""
 
         return self.vdd_a_dynamic_power_w + self.vdd_d_dynamic_power_w + self.vdd_dac_dynamic_power_w
 
     @property
-    def total_power_w(self) -> FloatArray:
+    def total_power_w(self) -> float:
         """Return complete active power across all three supply rails."""
 
         return self.total_static_power_w + self.total_dynamic_power_w
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcPowerWaveform:
+class AnalysisAdcPowerWaveform(Analysis):
     """One aligned simulated conversion with rail power and timing context."""
 
-    backend: Backend
-    adc_index: int
     active_conversion_rate_hz: float
-    time_s: FloatArray
-    rail_power_w: FloatArray
-    static_power_w: FloatArray
-    active_power_w: FloatArray
-    timing_high: BoolArray
-
-    def __post_init__(self) -> None:
-        time_s = _array_1d(self.time_s, np.float64, "time_s", finite=True)
-        rail_power_w = _array_2d(self.rail_power_w, np.float64, "rail_power_w", finite=True)
-        static_power_w = _array_1d(self.static_power_w, np.float64, "static_power_w", finite=True)
-        active_power_w = _array_1d(self.active_power_w, np.float64, "active_power_w", finite=True)
-        timing_high = _array_2d(self.timing_high, np.bool_, "timing_high")
-        if rail_power_w.shape != (3, len(time_s)):
-            raise ValueError("ADC power waveform requires three rail traces aligned with time")
-        if static_power_w.shape != (3,) or active_power_w.shape != (3,):
-            raise ValueError("ADC power waveform requires three static and active rail averages")
-        if timing_high.shape != (4, len(time_s)):
-            raise ValueError("ADC power waveform requires four timing traces aligned with time")
-        if len(time_s) < 2 or np.any(np.diff(time_s) <= 0.0):
-            raise ValueError("ADC power waveform time must contain at least two increasing samples")
-        if self.backend not in ("physical", "behavioral", "spice"):
-            raise ValueError(f"unsupported ADC power waveform backend {self.backend!r}")
-        if (
-            not -1 <= self.adc_index < 16
-            or not math.isfinite(self.active_conversion_rate_hz)
-            or self.active_conversion_rate_hz <= 0.0
-        ):
-            raise ValueError("ADC power waveform rate must be positive")
-        if (
-            np.any(static_power_w < 0.0)
-            or np.any(active_power_w < static_power_w)
-            or time_s[0] > 0.0
-            or time_s[-1] < self.active_duration_s
-        ):
-            raise ValueError("ADC power waveform averages and displayed interval are inconsistent")
-        object.__setattr__(self, "time_s", time_s)
-        object.__setattr__(self, "rail_power_w", rail_power_w)
-        object.__setattr__(self, "static_power_w", static_power_w)
-        object.__setattr__(self, "active_power_w", active_power_w)
-        object.__setattr__(self, "timing_high", timing_high)
+    time_s: np.ndarray
+    rail_power_w: np.ndarray
+    static_power_w: np.ndarray
+    active_power_w: np.ndarray
+    timing_high: np.ndarray
 
     @property
     def active_duration_s(self) -> float:
@@ -1787,50 +908,36 @@ class AnalysisAdcPowerWaveform:
         return 1.0 / self.active_conversion_rate_hz
 
     @property
-    def analog_power_w(self) -> FloatArray:
-        """Return instantaneous analog-rail power."""
-
+    def analog_power_w(self) -> np.ndarray:
         return self.rail_power_w[0]
 
     @property
-    def digital_power_w(self) -> FloatArray:
-        """Return instantaneous digital-rail power."""
-
+    def digital_power_w(self) -> np.ndarray:
         return self.rail_power_w[1]
 
     @property
-    def dac_power_w(self) -> FloatArray:
-        """Return instantaneous DAC-rail power."""
-
+    def dac_power_w(self) -> np.ndarray:
         return self.rail_power_w[2]
 
     @property
-    def init_high(self) -> BoolArray:
-        """Return the aligned sequencer INIT state."""
-
+    def init_high(self) -> np.ndarray:
         return self.timing_high[0]
 
     @property
-    def samp_high(self) -> BoolArray:
-        """Return the aligned sequencer SAMP state."""
-
+    def samp_high(self) -> np.ndarray:
         return self.timing_high[1]
 
     @property
-    def comp_high(self) -> BoolArray:
-        """Return the aligned sequencer COMP state."""
-
+    def comp_high(self) -> np.ndarray:
         return self.timing_high[2]
 
     @property
-    def logic_high(self) -> BoolArray:
-        """Return the aligned sequencer LOGIC state."""
-
+    def logic_high(self) -> np.ndarray:
         return self.timing_high[3]
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcSamplingNoise:
+class AnalysisAdcSamplingNoise(Analysis):
     """One P/N voltage observation per conversion at a recorded time or window.
 
     Equal window bounds denote an interpolated instantaneous observation.
@@ -1838,30 +945,15 @@ class AnalysisAdcSamplingNoise:
     comparator activity; this is not source-isolated kT/C or final code noise.
     """
 
-    conversion_index: IntArray
-    window_start_s: FloatArray
-    window_stop_s: FloatArray
-    held_p_v: FloatArray
-    held_n_v: FloatArray
-    input_diff_v: FloatArray
-
-    def __post_init__(self) -> None:
-        arrays = {
-            name: _array_1d(getattr(self, name), np.float64, name, finite=True)
-            for name in ("window_start_s", "window_stop_s", "held_p_v", "held_n_v", "input_diff_v")
-        }
-        indices = _array_1d(self.conversion_index, np.int64, "conversion_index")
-        count = _aligned_length({"conversion_index": indices, **arrays})
-        if count < 2 or len(np.unique(indices)) != count or np.any(indices < 0):
-            raise ValueError("sampling noise requires at least two distinct conversions")
-        if np.any(arrays["window_start_s"] > arrays["window_stop_s"]):
-            raise ValueError("sampling noise windows must have nonnegative duration")
-        for name, array in arrays.items():
-            object.__setattr__(self, name, array)
-        object.__setattr__(self, "conversion_index", indices)
+    conversion_index: np.ndarray
+    window_start_s: np.ndarray
+    window_stop_s: np.ndarray
+    held_p_v: np.ndarray
+    held_n_v: np.ndarray
+    input_diff_v: np.ndarray
 
     @property
-    def held_diff_v(self) -> FloatArray:
+    def held_diff_v(self) -> np.ndarray:
         return self.held_p_v - self.held_n_v
 
     @property
@@ -1870,400 +962,45 @@ class AnalysisAdcSamplingNoise:
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcCdacSettling:
+class AnalysisAdcCdacSettling(Analysis):
     """Aligned representative C0-first SAR stages and CDAC settling."""
 
     active_conversion_rate_hz: float
-    stage_index: IntArray
-    cycle_index: IntArray
-    conversion_index: IntArray
-    time_s: FloatArray
-    clk_comp_v: FloatArray
-    comp_out_p_v: FloatArray
-    comp_out_n_v: FloatArray
-    seq_logic_v: FloatArray
-    dac_state_p_v: FloatArray
-    dac_state_n_v: FloatArray
-    dac_botplate_p_v: FloatArray
-    dac_botplate_n_v: FloatArray
-    vdac_p_settling_error_v: FloatArray
-    vdac_n_settling_error_v: FloatArray
-    static_vdac_p_v: FloatArray
-    static_vdac_n_v: FloatArray
-    vdac_p_settling_s: FloatArray
-    vdac_n_settling_s: FloatArray
-    comp_latch_p_v: FloatArray | None = None
-    comp_latch_n_v: FloatArray | None = None
-
-    def __post_init__(self) -> None:
-        stage_index = _array_1d(self.stage_index, np.int64, "stage_index")
-        cycle_index = _array_1d(self.cycle_index, np.int64, "cycle_index")
-        conversion_index = _array_1d(self.conversion_index, np.int64, "conversion_index")
-        time_s = _array_1d(self.time_s, np.float64, "time_s", finite=True)
-        waveforms = {
-            name: _array_2d(getattr(self, name), np.float64, name, finite=True)
-            for name in (
-                "clk_comp_v",
-                "comp_out_p_v",
-                "comp_out_n_v",
-                "seq_logic_v",
-                "dac_state_p_v",
-                "dac_state_n_v",
-                "dac_botplate_p_v",
-                "dac_botplate_n_v",
-                "vdac_p_settling_error_v",
-                "vdac_n_settling_error_v",
-            )
-        }
-        static_vdac_p_v = _array_1d(self.static_vdac_p_v, np.float64, "static_vdac_p_v", finite=True)
-        static_vdac_n_v = _array_1d(self.static_vdac_n_v, np.float64, "static_vdac_n_v", finite=True)
-        vdac_p_settling_s = _array_1d(self.vdac_p_settling_s, np.float64, "vdac_p_settling_s")
-        vdac_n_settling_s = _array_1d(self.vdac_n_settling_s, np.float64, "vdac_n_settling_s")
-        trace_count = _aligned_length(
-            {
-                "stage_index": stage_index,
-                "cycle_index": cycle_index,
-                "conversion_index": conversion_index,
-                "static_vdac_p_v": static_vdac_p_v,
-                "static_vdac_n_v": static_vdac_n_v,
-                "vdac_p_settling_s": vdac_p_settling_s,
-                "vdac_n_settling_s": vdac_n_settling_s,
-                **waveforms,
-            }
-        )
-        expected_shape = (trace_count, len(time_s))
-        for name in ("comp_latch_p_v", "comp_latch_n_v"):
-            if (values := getattr(self, name)) is not None:
-                values = _array_2d(values, np.float64, name, finite=True)
-                if values.shape != expected_shape:
-                    raise ValueError(f"{name} must align with ADC CDAC settling waveforms")
-                object.__setattr__(self, name, values)
-        if trace_count == 0 or len(time_s) < 2 or any(values.shape != expected_shape for values in waveforms.values()):
-            raise ValueError("ADC CDAC settling waveforms must be populated and aligned")
-        if (
-            not math.isfinite(self.active_conversion_rate_hz)
-            or self.active_conversion_rate_hz <= 0.0
-            or np.any(np.diff(time_s) <= 0.0)
-            or time_s[0] >= 0.0
-            or time_s[-1] <= 0.0
-            or not np.any(time_s == 0.0)
-            or set(zip(stage_index, cycle_index, strict=True)) != {(0, 0), (7, 7), (15, 15)}
-            or np.any(conversion_index < 0)
-            or np.any((vdac_p_settling_s < 0) | np.isinf(vdac_p_settling_s))
-            or np.any((vdac_n_settling_s < 0) | np.isinf(vdac_n_settling_s))
-        ):
-            raise ValueError("ADC CDAC settling metadata is outside its valid range")
-        object.__setattr__(self, "stage_index", stage_index)
-        object.__setattr__(self, "cycle_index", cycle_index)
-        object.__setattr__(self, "conversion_index", conversion_index)
-        object.__setattr__(self, "time_s", time_s)
-        for name, values in waveforms.items():
-            object.__setattr__(self, name, values)
-        object.__setattr__(self, "static_vdac_p_v", static_vdac_p_v)
-        object.__setattr__(self, "static_vdac_n_v", static_vdac_n_v)
-        object.__setattr__(self, "vdac_p_settling_s", vdac_p_settling_s)
-        object.__setattr__(self, "vdac_n_settling_s", vdac_n_settling_s)
+    stage_index: np.ndarray
+    cycle_index: np.ndarray
+    conversion_index: np.ndarray
+    time_s: np.ndarray
+    clk_comp_v: np.ndarray
+    comp_out_p_v: np.ndarray
+    comp_out_n_v: np.ndarray
+    seq_logic_v: np.ndarray
+    dac_state_p_v: np.ndarray
+    dac_state_n_v: np.ndarray
+    dac_botplate_p_v: np.ndarray
+    dac_botplate_n_v: np.ndarray
+    vdac_p_settling_error_v: np.ndarray
+    vdac_n_settling_error_v: np.ndarray
+    static_vdac_p_v: np.ndarray
+    static_vdac_n_v: np.ndarray
+    vdac_p_settling_s: np.ndarray
+    vdac_n_settling_s: np.ndarray
+    comp_latch_p_v: np.ndarray | None = None
+    comp_latch_n_v: np.ndarray | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcDecisionPaths:
-    """Running SAR estimates reconstructed from selected decision records."""
+class AnalysisAdcDecisionPaths(Analysis):
+    """Running SAR estimates reconstructed from every captured decision record."""
 
-    selection: AdcDecisionSelection
-    conversion_index: IntArray
-    final_dout: IntArray
-    bout: Uint8Array
-    weights: FloatArray
-    estimate_dout: FloatArray
-
-    def __post_init__(self) -> None:
-        if self.selection not in ("single", "same_dout", "all"):
-            raise ValueError(f"unknown decision-path selection {self.selection!r}")
-        conversion_index = _array_1d(self.conversion_index, np.int64, "conversion_index")
-        final_dout = _array_1d(self.final_dout, np.int64, "final_dout")
-        bout = _array_2d(self.bout, np.uint8, "bout")
-        weights = _array_1d(self.weights, np.float64, "weights", finite=True)
-        estimate_dout = _array_2d(self.estimate_dout, np.float64, "estimate_dout", finite=True)
-        if _aligned_length({"conversion_index": conversion_index, "final_dout": final_dout, "bout": bout}) == 0:
-            raise ValueError("ADC decision paths require at least one conversion")
-        if (
-            len(weights) != 17
-            or bout.shape[1] != len(weights)
-            or np.any(weights <= 0.0)
-            or np.any((bout != 0) & (bout != 1))
-        ):
-            raise ValueError("ADC decision paths require 17 positive weights and aligned binary decisions")
-        if estimate_dout.shape != (len(conversion_index), len(weights) + 1):
-            raise ValueError("ADC running estimates must align with conversions and decisions")
-        if np.any(conversion_index < 0) or np.any(np.diff(conversion_index) <= 0) or np.any(final_dout < 0):
-            raise ValueError("ADC decision-path indices and final codes must be nonnegative and ordered")
-        object.__setattr__(self, "conversion_index", conversion_index)
-        object.__setattr__(self, "final_dout", final_dout)
-        object.__setattr__(self, "bout", bout)
-        object.__setattr__(self, "weights", weights)
-        object.__setattr__(self, "estimate_dout", estimate_dout)
-
-
-# Comparator analyses
+    conversion_index: np.ndarray
+    final_dout: np.ndarray
+    bout: np.ndarray
+    weights: np.ndarray
+    estimate_dout: np.ndarray
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisCompOffsetNoise:
-    """Comparator decision probability, offset, and input-referred noise."""
-
-    vin_diff_v: FloatArray
-    decision_probability: FloatArray
-    trial_count: IntArray
-    offset_v: float
-    noise_sigma_v: float
-    decision_polarity: Literal[-1, 1] = 1
-    validity: CompFitValidity = "valid"
-
-    def __post_init__(self) -> None:
-        vin_diff_v = _array_1d(self.vin_diff_v, np.float64, "vin_diff_v", finite=True)
-        probability = _array_1d(self.decision_probability, np.float64, "decision_probability", finite=True)
-        trial_count = _array_1d(self.trial_count, np.int64, "trial_count")
-        if (
-            _aligned_length({"vin_diff_v": vin_diff_v, "decision_probability": probability, "trial_count": trial_count})
-            == 0
-        ):
-            raise ValueError("comparator offset/noise analysis requires at least one input point")
-        if np.any(np.diff(vin_diff_v) <= 0.0):
-            raise ValueError("comparator differential inputs must be strictly increasing")
-        if np.any((probability < 0.0) | (probability > 1.0)) or np.any(trial_count <= 0):
-            raise ValueError("comparator probabilities and trial counts are outside their valid ranges")
-        if self.decision_polarity not in (-1, 1):
-            raise ValueError("comparator decision polarity must be -1 or 1")
-        if self.validity not in ("valid", "unbracketed", "non_monotonic", "stuck-low", "stuck-high"):
-            raise ValueError(f"unknown comparator fit validity {self.validity!r}")
-        if self.validity == "valid" and (
-            not math.isfinite(self.offset_v) or not math.isfinite(self.noise_sigma_v) or self.noise_sigma_v <= 0.0
-        ):
-            raise ValueError("a valid comparator fit requires finite offset and positive noise")
-        if self.validity != "valid" and (math.isinf(self.offset_v) or math.isinf(self.noise_sigma_v)):
-            raise ValueError("invalid comparator fits may use NaN but not infinite results")
-        if math.isfinite(self.noise_sigma_v) and self.noise_sigma_v <= 0.0:
-            raise ValueError("finite comparator noise must be positive")
-        object.__setattr__(self, "vin_diff_v", vin_diff_v)
-        object.__setattr__(self, "decision_probability", probability)
-        object.__setattr__(self, "trial_count", trial_count)
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisCompTiming:
-    """Comparator timing and metastability results across measurements."""
-
-    source_index: IntArray
-    trial_index: IntArray
-    clock_to_decision_s: FloatArray
-    settling_s: FloatArray
-    unresolved: BoolArray
-
-    def __post_init__(self) -> None:
-        values = {
-            "source_index": _array_1d(self.source_index, np.int64, "source_index"),
-            "trial_index": _array_1d(self.trial_index, np.int64, "trial_index"),
-            "clock_to_decision_s": _array_1d(self.clock_to_decision_s, np.float64, "clock_to_decision_s"),
-            "settling_s": _array_1d(self.settling_s, np.float64, "settling_s"),
-            "unresolved": _array_1d(self.unresolved, np.bool_, "unresolved"),
-        }
-        if _aligned_length(values) == 0:
-            raise ValueError("comparator timing analysis requires at least one trial")
-        timing_values = (values["clock_to_decision_s"], values["settling_s"])
-        if (
-            np.any(values["source_index"] < 0)
-            or np.any(values["trial_index"] < 0)
-            or any(np.any(np.isinf(result)) for result in timing_values)
-            or any(np.any(result[np.isfinite(result)] < 0.0) for result in timing_values)
-        ):
-            raise ValueError("comparator timing indices and finite durations must be nonnegative")
-        for name, value in values.items():
-            object.__setattr__(self, name, value)
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisCompPower:
-    """Comparator average consumed power per measurement."""
-
-    source_index: IntArray
-    supply_v: FloatArray
-    average_power_w: FloatArray
-    energy_per_decision_j: FloatArray
-
-    def __post_init__(self) -> None:
-        values = {
-            "source_index": _array_1d(self.source_index, np.int64, "source_index"),
-            "supply_v": _array_1d(self.supply_v, np.float64, "supply_v", finite=True),
-            "average_power_w": _array_1d(self.average_power_w, np.float64, "average_power_w", finite=True),
-            "energy_per_decision_j": _array_1d(
-                self.energy_per_decision_j,
-                np.float64,
-                "energy_per_decision_j",
-            ),
-        }
-        if _aligned_length(values) == 0:
-            raise ValueError("comparator power analysis requires at least one measurement")
-        energy = values["energy_per_decision_j"]
-        if (
-            np.any(values["source_index"] < 0)
-            or np.any(values["supply_v"] <= 0.0)
-            or np.any(values["average_power_w"] < 0.0)
-            or np.any(np.isinf(energy))
-            or np.any(energy[np.isfinite(energy)] < 0.0)
-        ):
-            raise ValueError("comparator power indices, supplies, powers, and finite energies are invalid")
-        for name, value in values.items():
-            object.__setattr__(self, name, value)
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisCompCandidateSweep:
-    """Aligned candidate-level noise, power, and settling metrics."""
-
-    candidate_id: tuple[str, ...]
-    candidate_label: tuple[str, ...]
-    size_profile: tuple[CompSizeProfile, ...]
-    validity: tuple[CompFitValidity, ...]
-    topology_index: IntArray
-    total_width_units: IntArray
-    total_active_area_units: IntArray
-    total_active_area_um2: FloatArray
-    device_count: IntArray
-    offset_v: FloatArray
-    noise_sigma_v: FloatArray
-    average_power_w: FloatArray
-    energy_per_decision_j: FloatArray
-    maximum_clock_to_decision_s: FloatArray
-    maximum_settling_s: FloatArray
-    unresolved_fraction: FloatArray
-
-    def __post_init__(self) -> None:
-        integer_fields = {
-            name: _array_1d(getattr(self, name), np.int64, name)
-            for name in (
-                "topology_index",
-                "total_width_units",
-                "total_active_area_units",
-                "device_count",
-            )
-        }
-        float_fields = {
-            name: _array_1d(getattr(self, name), np.float64, name)
-            for name in (
-                "total_active_area_um2",
-                "offset_v",
-                "noise_sigma_v",
-                "average_power_w",
-                "energy_per_decision_j",
-                "maximum_clock_to_decision_s",
-                "maximum_settling_s",
-                "unresolved_fraction",
-            )
-        }
-        candidate_count = _aligned_length({**integer_fields, **float_fields})
-        text_fields = {
-            name: tuple(getattr(self, name)) for name in ("candidate_id", "candidate_label", "size_profile", "validity")
-        }
-        if not candidate_count or any(len(values) != candidate_count for values in text_fields.values()):
-            raise ValueError("comparator candidate fields must be nonempty and aligned")
-        if (
-            any(not isinstance(value, str) or not value.strip() for values in text_fields.values() for value in values)
-            or len(set(text_fields["candidate_id"])) != candidate_count
-        ):
-            raise ValueError("comparator candidate text fields must be nonempty and IDs must be unique")
-        if any(profile not in ("half", "double", "fabricated") for profile in text_fields["size_profile"]):
-            raise ValueError("comparator candidate size profile is unknown")
-        validities = {"valid", "unbracketed", "non_monotonic", "stuck-low", "stuck-high"}
-        if any(validity not in validities for validity in text_fields["validity"]):
-            raise ValueError("comparator candidate fit validity is unknown")
-        if np.any(np.diff(integer_fields["total_active_area_units"]) < 0):
-            raise ValueError("comparator candidates must be ordered by active transistor area")
-        if (
-            np.any(integer_fields["topology_index"] < 0)
-            or np.any(integer_fields["total_width_units"] <= 0)
-            or np.any(integer_fields["total_active_area_units"] <= 0)
-            or np.any(integer_fields["device_count"] <= 0)
-            or not np.all(np.isfinite(float_fields["total_active_area_um2"]))
-            or np.any(float_fields["total_active_area_um2"] <= 0.0)
-        ):
-            raise ValueError("comparator candidate area and device counts must be positive")
-        nullable_nonnegative = (
-            "noise_sigma_v",
-            "average_power_w",
-            "energy_per_decision_j",
-            "maximum_clock_to_decision_s",
-            "maximum_settling_s",
-        )
-        if any(np.any(np.isinf(values)) for values in float_fields.values()) or any(
-            np.any(float_fields[name][np.isfinite(float_fields[name])] < 0.0) for name in nullable_nonnegative
-        ):
-            raise ValueError("comparator candidate metrics may use NaN but finite magnitudes must be nonnegative")
-        unresolved = float_fields["unresolved_fraction"]
-        if not np.all(np.isfinite(unresolved)) or np.any((unresolved < 0.0) | (unresolved > 1.0)):
-            raise ValueError("comparator unresolved fractions must be finite probabilities")
-        for name, values in {**integer_fields, **float_fields, **text_fields}.items():
-            object.__setattr__(self, name, values)
-
-
-# CDAC analyses
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisCdacCapMismatch:
-    """Normalized main, difference, and effective capacitance results."""
-
-    adc_index: int
-    expected_effective_fraction: FloatArray
-    main_fraction: FloatArray
-    diff_fraction: FloatArray
-    effective_fraction: FloatArray
-    effective_fraction_by_direction: FloatArray
-    direction_bias: FloatArray
-
-    def __post_init__(self) -> None:
-        expected = _array_1d(
-            self.expected_effective_fraction,
-            np.float64,
-            "expected_effective_fraction",
-            finite=True,
-        )
-        matrices = {
-            name: _array_2d(getattr(self, name), np.float64, name)
-            for name in ("main_fraction", "diff_fraction", "effective_fraction")
-        }
-        element_count = len(expected)
-        if not element_count or any(values.shape != (2, element_count) for values in matrices.values()):
-            raise ValueError("CDAC mismatch matrices must contain two sides and all expected elements")
-        effective_by_direction = np.ascontiguousarray(self.effective_fraction_by_direction, dtype=np.float64)
-        direction_bias = np.ascontiguousarray(self.direction_bias, dtype=np.float64)
-        if effective_by_direction.shape != (2, element_count, 2) or direction_bias.shape != (2, element_count, 2):
-            raise ValueError("CDAC direction results must contain two directions per side and element")
-        if not 0 <= self.adc_index < 16:
-            raise ValueError("CDAC mismatch ADC index must be in 0..15")
-        if np.any(expected <= 0.0):
-            raise ValueError("expected CDAC effective fractions must be positive")
-        floating_results = (
-            *matrices.values(),
-            effective_by_direction,
-            direction_bias,
-        )
-        if any(np.any(np.isinf(values)) for values in floating_results):
-            raise ValueError("CDAC mismatch results may use NaN but not infinity")
-        object.__setattr__(self, "expected_effective_fraction", expected)
-        for name, values in matrices.items():
-            object.__setattr__(self, name, values)
-        object.__setattr__(self, "effective_fraction_by_direction", effective_by_direction)
-        object.__setattr__(self, "direction_bias", direction_bias)
-
-
-MEASUREMENT_TYPES = {
-    cls.__name__: cls
-    for cls in (MeasAdcExt, MeasAdcInt, MeasCompExt, MeasCompInt, MeasSampInt, MeasCdacExt, MeasCdacInt)
-}
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisAdcComparatorResponse:
+class AnalysisAdcComparatorResponse(Analysis):
     """Per-decision rail-valid response times relative to COMP rising edges.
 
     NaN marks a response that did not settle in the observed window. An SR
@@ -2273,64 +1010,66 @@ class AnalysisAdcComparatorResponse:
     across the midpoint before COMP reset.
     """
 
-    conversion_index: IntArray
-    decision_index: IntArray
-    internal_response_s: FloatArray
-    sr_response_s: FloatArray
-    sr_held: BoolArray
+    conversion_index: np.ndarray
+    decision_index: np.ndarray
+    internal_response_s: np.ndarray
+    sr_response_s: np.ndarray
+    sr_held: np.ndarray
     sample_interval_s: float
     conversion_rate_hz: float
 
-    def __post_init__(self) -> None:
-        arrays = {}
-        for name in ("conversion_index", "decision_index", "internal_response_s", "sr_response_s", "sr_held"):
-            dtype = np.bool_ if name == "sr_held" else (np.int64 if name.endswith("index") else np.float64)
-            arrays[name] = _array_1d(getattr(self, name), dtype, name)
-            object.__setattr__(self, name, arrays[name])
-        if not _aligned_length(arrays) or np.any((self.decision_index < 0) | (self.decision_index > 16)):
-            raise ValueError("ADC comparator response requires decisions B0..B16")
-        if not math.isfinite(self.sample_interval_s) or self.sample_interval_s <= 0:
-            raise ValueError("sample_interval_s must be finite and positive")
-        if not math.isfinite(self.conversion_rate_hz) or self.conversion_rate_hz <= 0:
-            raise ValueError("conversion_rate_hz must be finite and positive")
+
+@dataclass(frozen=True, slots=True)
+class AnalysisAdcComparatorEdgeEye(Analysis):
+    """Simulated comparator traces aligned per conversion and folded per decision.
+
+    The first axis of ``aligned_v`` and ``eye_v`` is the trace: comparator
+    clock, positive SR-latch output, and XC-latch ``|P-N|``. ``aligned_v``
+    rows are conversions on ``aligned_time_s``, relative to B0's COMP rise;
+    ``eye_v`` rows are every conversion's decisions in order on ``eye_phase``,
+    in decision periods. ``decision_edge_s`` is each decision's median COMP
+    rise after B0. NaN lies outside a record.
+    """
+
+    decision_period_s: float
+    decision_edge_s: np.ndarray
+    supply_v: float
+    aligned_time_s: np.ndarray
+    aligned_v: np.ndarray
+    eye_phase: np.ndarray
+    eye_v: np.ndarray
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcCompOutEdgeEye:
-    """Scope waveforms and measured COMP-to-COMP_OUT timing for one sequence."""
+class AnalysisAdcCompOutEdgeEye(Analysis):
+    """Scope waveforms and measured COMP-to-COMP_OUT timing for one sequence.
 
-    waveforms: tuple[AnalysisWaveform, ...]
-    clock_edges_s: FloatArray
-    delays_s: FloatArray
-    jitter_s: FloatArray
-    unchanged: IntArray
-    multiple: IntArray
-    unsettled: IntArray
+    Rows of ``clock_edges_s``, ``delays_s``, and ``jitter_s`` are captures;
+    columns are the decisions of one conversion. ``aligned_*`` rows are
+    captures on ``aligned_time_s``, relative to each capture's B0 COMP rise.
+    ``eye_*`` rows are every capture's decisions in order, folded on
+    ``eye_phase``, in decision periods from each COMP rise. NaN lies outside
+    a capture.
+    """
+
+    aligned_time_s: np.ndarray
+    aligned_comp_v: np.ndarray
+    aligned_comp_out_v: np.ndarray
+    eye_phase: np.ndarray
+    eye_comp_v: np.ndarray
+    eye_comp_out_v: np.ndarray
+    clock_edges_s: np.ndarray
+    delays_s: np.ndarray
+    jitter_s: np.ndarray
+    unchanged: np.ndarray
+    multiple: np.ndarray
+    unsettled: np.ndarray
     decision_period_s: float
     conversion_rate_hz: float
 
-    def __post_init__(self) -> None:
-        if not self.waveforms:
-            raise ValueError("comparator eye requires scope waveforms")
-        shape = (len(self.waveforms), 17)
-        for name in ("clock_edges_s", "delays_s", "jitter_s"):
-            values = _array_2d(getattr(self, name), np.float64, name)
-            if values.shape != shape:
-                raise ValueError(f"{name} has shape {values.shape}, expected {shape}")
-            object.__setattr__(self, name, values)
-        if not np.all(np.isfinite(self.clock_edges_s)) or not np.all(np.isfinite(self.jitter_s)):
-            raise ValueError("comparator clock edges and jitter must be finite")
-        if not np.any(np.isfinite(self.delays_s)):
-            raise ValueError("no comparator output transitions were observed")
-        for name in ("unchanged", "multiple", "unsettled"):
-            values = _array_1d(getattr(self, name), np.int64, name)
-            if values.shape != (17,) or np.any(values < 0):
-                raise ValueError(f"{name} must contain 17 nonnegative counts")
-            object.__setattr__(self, name, values)
-        if not math.isfinite(self.decision_period_s) or self.decision_period_s <= 0:
-            raise ValueError("decision_period_s must be finite and positive")
-        if not math.isfinite(self.conversion_rate_hz) or self.conversion_rate_hz <= 0:
-            raise ValueError("conversion_rate_hz must be finite and positive")
+    @property
+    def decision_count(self) -> int:
+        return self.clock_edges_s.shape[1]
 
     @property
     def delay_bounds_s(self) -> tuple[float, float]:
@@ -2339,102 +1078,191 @@ class AnalysisAdcCompOutEdgeEye:
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisAdcTimingClosure:
+class AnalysisAdcTimingClosure(Analysis):
     """One row per saved decision, with times relative to its waveform record.
 
     NaN means a required observation was missing or never became stable.
-    B16 has no CDAC update: its CDAC times are NaN and that check is inapplicable.
-    CDAC settling is relative to the observed end of the update window, not a
-    separately measured DC solution. Setup requirements and tolerances are explicit.
+    The final decision has no CDAC update: its CDAC times are NaN and that
+    check is inapplicable. CDAC settling is relative to the observed end of
+    the update window, not a separately measured DC solution. The setup
+    requirements and tolerances used are recorded with the result.
     """
 
-    conversion_index: IntArray
-    decision_index: IntArray
-    comp_rise_s: FloatArray
-    comp_reset_s: FloatArray
-    logic_rise_s: FloatArray
-    next_comp_s: FloatArray
-    internal_final_diff_v: FloatArray
-    internal_stable_s: FloatArray
-    sr_stable_s: FloatArray
-    sr_matches_at_logic: BoolArray
-    cdac_stable_s: FloatArray
+    conversion_index: np.ndarray
+    decision_index: np.ndarray
+    comp_rise_s: np.ndarray
+    comp_reset_s: np.ndarray
+    logic_rise_s: np.ndarray
+    next_comp_s: np.ndarray
+    internal_final_diff_v: np.ndarray
+    internal_stable_s: np.ndarray
+    sr_stable_s: np.ndarray
+    sr_matches_at_logic: np.ndarray
+    cdac_stable_s: np.ndarray
+    capacitor_count: int
     required_logic_setup_s: float
     required_cdac_setup_s: float
     internal_differential_v: float
     cdac_tolerance_v: float
     sample_interval_s: float
 
-    def __post_init__(self) -> None:
-        arrays = {}
-        for name in (
-            "conversion_index",
-            "decision_index",
-            "comp_rise_s",
-            "comp_reset_s",
-            "logic_rise_s",
-            "next_comp_s",
-            "internal_final_diff_v",
-            "internal_stable_s",
-            "sr_stable_s",
-            "sr_matches_at_logic",
-            "cdac_stable_s",
-        ):
-            dtype = (
-                np.int64
-                if name in {"conversion_index", "decision_index"}
-                else (np.bool_ if name == "sr_matches_at_logic" else np.float64)
-            )
-            arrays[name] = _array_1d(getattr(self, name), dtype, name)
-            object.__setattr__(self, name, arrays[name])
-        if (
-            not _aligned_length(arrays)
-            or np.any(self.conversion_index < 0)
-            or np.any((self.decision_index < 0) | (self.decision_index > 16))
-        ):
-            raise ValueError("ADC timing rows require valid conversion and decision indices")
-        for name in (
-            "required_logic_setup_s",
-            "required_cdac_setup_s",
-            "internal_differential_v",
-            "cdac_tolerance_v",
-            "sample_interval_s",
-        ):
-            if not math.isfinite(getattr(self, name)) or getattr(self, name) <= 0:
-                raise ValueError(f"{name} must be finite and positive")
-
     @property
-    def internal_resolution_s(self) -> FloatArray:
+    def internal_resolution_s(self) -> np.ndarray:
         return self.internal_stable_s - self.comp_rise_s
 
     @property
-    def sr_response_s(self) -> FloatArray:
+    def sr_response_s(self) -> np.ndarray:
         return self.sr_stable_s - self.comp_rise_s
 
     @property
-    def logic_to_cdac_s(self) -> FloatArray:
+    def logic_to_cdac_s(self) -> np.ndarray:
         return self.cdac_stable_s - self.logic_rise_s
 
     @property
-    def logic_setup_s(self) -> FloatArray:
+    def logic_setup_s(self) -> np.ndarray:
         return self.logic_rise_s - np.maximum(self.internal_stable_s, self.sr_stable_s)
 
     @property
-    def cdac_setup_s(self) -> FloatArray:
+    def cdac_setup_s(self) -> np.ndarray:
         return self.next_comp_s - self.cdac_stable_s
 
     @property
-    def logic_ready(self) -> BoolArray:
+    def logic_ready(self) -> np.ndarray:
         return self.sr_matches_at_logic & (self.logic_setup_s >= self.required_logic_setup_s)
 
     @property
-    def cdac_applicable(self) -> BoolArray:
-        return self.decision_index < 16
+    def cdac_applicable(self) -> np.ndarray:
+        return self.decision_index < self.capacitor_count
 
     @property
-    def cdac_ready(self) -> BoolArray:
+    def cdac_ready(self) -> np.ndarray:
         return self.cdac_applicable & (self.cdac_setup_s >= self.required_cdac_setup_s)
 
     @property
-    def passed(self) -> BoolArray:
+    def passed(self) -> np.ndarray:
         return self.logic_ready & (~self.cdac_applicable | self.cdac_ready)
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisAdcTimingSummary(Analysis):
+    """Setup and comparator-reset margins of one PEX case's timing closure."""
+
+    sequence: AdcSequence
+    symbol_rate_hz: float
+    decisions: int
+    cdac_decisions: int
+    reset_edges_observed: int
+    ordinary_reset_gaps_observed: int
+    minimum_reset_gap_s: float
+    resolved_before_reset: int
+    sr_matches_at_logic: int
+    logic_ready: int
+    cdac_ready: int
+    timing_passed: int
+    minimum_logic_setup_s: float
+    minimum_cdac_setup_s: float
+
+
+# Comparator analyses
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisCompOffsetNoise(Analysis):
+    """Comparator decision probability, offset, and input-referred noise at one common mode."""
+
+    vin_cm_v: float
+    vin_diff_v: np.ndarray
+    decision_probability: np.ndarray
+    trial_count: np.ndarray
+    offset_v: float
+    noise_sigma_v: float
+    decision_polarity: Literal[-1, 1]
+    validity: Literal["valid", "unbracketed", "non_monotonic"]
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisCompCommonMode(Analysis):
+    """Comparator offset, noise, and validity across input common modes.
+
+    ``stuck-low`` and ``stuck-high`` mark a curve pinned below 0.1 or above 0.9
+    probability whose expected transition, given by a valid neighboring common
+    mode's offset, lies inside its swept input range.
+    """
+
+    vin_cm_v: np.ndarray
+    offset_v: np.ndarray
+    noise_sigma_v: np.ndarray
+    validity: tuple[Literal["valid", "unbracketed", "non_monotonic", "stuck-low", "stuck-high"], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisCompTiming(Analysis):
+    """Comparator timing and metastability results across measurements."""
+
+    source_index: np.ndarray
+    trial_index: np.ndarray
+    clock_to_decision_s: np.ndarray
+    settling_s: np.ndarray
+    unresolved: np.ndarray
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisCompPower(Analysis):
+    """Comparator average consumed power per measurement."""
+
+    source_index: np.ndarray
+    supply_v: np.ndarray
+    average_power_w: np.ndarray
+    energy_per_decision_j: np.ndarray
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisCompCandidate(Analysis):
+    """Noise, power, and settling summary of one generated comparator candidate."""
+
+    candidate_id: str
+    candidate_label: str
+    size_profile: Literal["half", "double", "fabricated"]
+    validity: Literal["valid", "unbracketed", "non_monotonic"]
+    topology_index: int
+    total_width_units: int
+    total_active_area_units: int
+    total_active_area_um2: float
+    device_count: int
+    geometry_signature: str
+    offset_v: float
+    noise_sigma_v: float
+    average_power_w: float
+    energy_per_decision_j: float
+    maximum_clock_to_decision_s: float
+    maximum_settling_s: float
+    unresolved_fraction: float
+
+
+# CDAC analyses
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisCdacTransition(Analysis):
+    """Comparator decision transition of one CDAC element switching curve."""
+
+    side: Literal["p", "n"]
+    element: int
+    direction: Literal["1to0", "0to1"]
+    diffcaps: int
+    vin_diff_v: np.ndarray
+    decision_probability: np.ndarray
+    trial_count: np.ndarray
+    transition_v: float
+    valid: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisCdacCapMismatch(Analysis):
+    """Normalized main, difference, and effective capacitance of every CDAC element."""
+
+    main_fraction: np.ndarray
+    diff_fraction: np.ndarray
+    effective_fraction: np.ndarray
+    effective_fraction_by_direction: np.ndarray
+    direction_bias: np.ndarray

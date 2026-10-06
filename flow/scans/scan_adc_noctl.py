@@ -15,9 +15,9 @@ import numpy as np
 from bitarray import bitarray
 
 from flow.adc.sequences import AdcSequence
-from flow.analysis.adc import analyze_scope_wave_to_bits
+from flow.analysis.adc import analyze_adc_scope_bits
 from flow.analysis.io import write_measurement
-from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
+from flow.analysis.types import MeasAdc, MeasInfo
 from flow.caparray import get_caparray_weights
 from flow.scans.fastrx import (
     convert_fastrx_words_to_adc,
@@ -127,7 +127,6 @@ def scan(
 
         if position != "abort":
             channels = scope_channels("seq_init", "seq_comp", "seq_logic", "comp_out")
-            tracks = {f"{name}_v": channel for name, channel in channels.items()}
             scope_dut = Dut(str(map_path.with_name("map_scope.yaml")))
             scope_dut.init()
             scope = scope_dut["scope"]
@@ -288,7 +287,7 @@ def scan(
                 scope_waveforms = scope.get_waveforms({channel: name for name, channel in channels.items()})
                 scope_conversion_index = int(scope_trigger_signal == "seq_init")
                 scope_wave = crop_adc_scope_conversion(
-                    scope_records_to_adc_wave([scope_waveforms], [scope_conversion_index], tracks),
+                    scope_records_to_adc_wave([scope_waveforms], [scope_conversion_index], channels),
                     skip_conversions=startup_conversions,
                     conversion_period_s=conversion_period_s,
                     symbol_period_s=1 / symbol_rate_bps,
@@ -335,10 +334,11 @@ def scan(
                 stem = f"{variant_index:04d}_capture"
                 h5_path = run_dir / f"{stem}.h5"
                 hostname = socket.gethostname()
-                measurement = MeasAdcExt(
+                measurement = MeasAdc(
+                    group=scan_params.board_id,
+                    index=scan_params.observed_adc,
+                    dut=scan_params.tb.dut,
                     info=MeasInfo(
-                        schema_version=1,
-                        measurement_type="MeasAdcExt",
                         backend="physical",
                         timestamp_utc=datetime.now().astimezone(),
                         instruments={"controller": hostname, "scope": str(scope.get_name()).strip()},
@@ -379,18 +379,16 @@ def scan(
                         },
                     ),
                     param=scan_params,
-                    daq=AdcDaq(
-                        conversion_index=conversion_index_values,
-                        bout=bout_values,
-                        dout_raw=dout_raw_values,
-                        dout=dout_values,
-                        vin_diff_v=vin_diff_values_v,
-                        fastrx_word=fastrx_words,
-                    ),
+                    conversion_index=conversion_index_values,
+                    bout=bout_values,
+                    dout_raw=dout_raw_values,
+                    dout=dout_values,
+                    vin_diff_v=vin_diff_values_v,
+                    fastrx_word=fastrx_words,
                     wave=scope_wave,
                 )
                 try:
-                    comparison = analyze_scope_wave_to_bits(measurement)
+                    comparison = analyze_adc_scope_bits(measurement)
                     scope_readbacks = {
                         "scope_fastrx_comparison_valid": True,
                         "scope_fastrx_bit_mismatches": comparison.mismatch_count,

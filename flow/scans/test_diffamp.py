@@ -36,9 +36,8 @@ from basil.HL.tektronix_oscilloscope import response_value
 
 from flow.analysis import calc
 from flow.analysis.plots import plot_waveforms
-from flow.analysis.waveform import analyze_scope_waveforms
 from flow.scans.scan_adc import convert_vdiff_input_to_awg_supply
-from flow.scans.scope import scope_channels, wait_for_scope_armed, write_scope_csv
+from flow.scans.scope import scope_channels, scope_wave, wait_for_scope_armed, write_scope_csv
 
 MAP_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "build" / "test_diffamp"
@@ -531,7 +530,8 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
             measured_residual_rms_v = calc.rms(samples - fitted_samples)
 
             plot_paths = plot_waveforms(
-                analyze_scope_waveforms(waveforms, SCOPE_TRACKS),
+                scope_wave(waveforms, SCOPE_TRACKS),
+                title="Oscilloscope waveforms",
                 output_path=csv_path.with_suffix(""),
             )
             for plot_path in plot_paths:

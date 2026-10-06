@@ -19,7 +19,7 @@ from pyvisa.errors import VisaIOError
 from flow.adc.sequences import AdcSequence
 from flow.analysis import calc
 from flow.analysis.io import write_measurement
-from flow.analysis.types import AdcDaq, MeasAdcExt, MeasInfo
+from flow.analysis.types import MeasAdc, MeasInfo
 from flow.caparray import get_caparray_weights
 from flow.scans.fastrx import (
     convert_fastrx_words_to_adc,
@@ -52,7 +52,7 @@ def convert_vdiff_input_to_awg_supply(
     """
 
     if calibration is None:
-        calibration = load_board_map()["boards"]["00"]["input_calibration"]
+        calibration = load_board_map()["boards"][0]["input_calibration"]
 
     amplitude_v = abs(vin_diff)
     small_signal_limit_v = calibration.get("small_signal_maximum_abs_vdiff_v")
@@ -333,22 +333,22 @@ def scan(
     FASTRX_TRAILING_DRAIN_S = 0.01
     MAX_RAW_FASTRX_WORDS = 20
     channels = scope_channels("seq_comp", "seq_logic", "comp_out", optional=("vin_diff",))
-    SCOPE_TRACKS = {f"{name}_v": channel for name, channel in channels.items()}
+    SCOPE_TRACKS = channels
     SCOPE_TRIGGER_CHANNEL = channels["seq_logic"]
     SCOPE_RECORD_LENGTH = 10_000
     SCOPE_BANDWIDTH_HZ = {
-        "vin_diff_v": 200.0e6,
-        "seq_comp_v": 2.0e9,
-        "seq_logic_v": 2.0e9,
-        "comp_out_v": 2.0e9,
+        "vin_diff": 200.0e6,
+        "seq_comp": 2.0e9,
+        "seq_logic": 2.0e9,
+        "comp_out": 2.0e9,
     }
     SCOPE_VERTICAL_SCALE_V = {
         # Use 50 mV/div so the 50 and 100 mV DC campaigns remain comfortably
         # inside the differential input's zero-offset acquisition range.
-        "vin_diff_v": 0.05,
-        "seq_comp_v": 0.2,
-        "seq_logic_v": 0.2,
-        "comp_out_v": 0.2,
+        "vin_diff": 0.05,
+        "seq_comp": 0.2,
+        "seq_logic": 0.2,
+        "comp_out": 0.2,
     }
     SCOPE_CAPTURE_TIMEOUT_S = 5.0
 
@@ -708,18 +708,18 @@ def scan(
                         )
 
                 scope_vin_diff_vertical_scale_v_per_div = max(
-                    SCOPE_VERTICAL_SCALE_V["vin_diff_v"],
+                    SCOPE_VERTICAL_SCALE_V["vin_diff"],
                     (vin_diff_max_v - vin_diff_min_v) / 6.0,
                 )
                 scope_vin_diff_vertical_offset_v = (vin_diff_min_v + vin_diff_max_v) / 2.0
-                if "vin_diff_v" in SCOPE_TRACKS:
+                if "vin_diff" in SCOPE_TRACKS:
                     scope.set_vertical_scale(
                         scope_vin_diff_vertical_scale_v_per_div,
-                        channel=SCOPE_TRACKS["vin_diff_v"],
+                        channel=SCOPE_TRACKS["vin_diff"],
                     )
                     scope.set_vertical_offset(
                         scope_vin_diff_vertical_offset_v,
-                        channel=SCOPE_TRACKS["vin_diff_v"],
+                        channel=SCOPE_TRACKS["vin_diff"],
                     )
 
                 programmed_vin_cm_supply_v = float(vin_cm_supply.get_set_voltage())
@@ -1043,9 +1043,7 @@ def scan(
                     acquisition_count_before,
                     timeout_s=SCOPE_CAPTURE_TIMEOUT_S,
                 )
-                scope_waveforms = scope.get_waveforms(
-                    {channel: name.removesuffix("_v") for name, channel in SCOPE_TRACKS.items()}
-                )
+                scope_waveforms = scope.get_waveforms({channel: name for name, channel in SCOPE_TRACKS.items()})
                 missing_scope_channels = sorted(set(SCOPE_TRACKS.values()).difference(scope_waveforms))
                 if missing_scope_channels:
                     raise RuntimeError(f"scope did not return channels {missing_scope_channels}")
@@ -1133,7 +1131,7 @@ def scan(
                     "spi_mismatches": spi_mismatches,
                     "fastrx_lost_count": fastrx_lost_count,
                     "active_power_current_nplc": SMU_CURRENT_NPLC,
-                    "scope_vin_diff_bandwidth_hz": SCOPE_BANDWIDTH_HZ["vin_diff_v"],
+                    "scope_vin_diff_bandwidth_hz": SCOPE_BANDWIDTH_HZ["vin_diff"],
                     "scope_vin_diff_vertical_scale_v_per_div": scope_vin_diff_vertical_scale_v_per_div,
                     "scope_vin_diff_vertical_offset_v": scope_vin_diff_vertical_offset_v,
                     "scope_record_length_requested": SCOPE_RECORD_LENGTH,
@@ -1155,24 +1153,23 @@ def scan(
                     )
                 readbacks["scope_startup_conversions_skipped"] = int(startup_conversions)
 
-                measurement = MeasAdcExt(
+                measurement = MeasAdc(
+                    group=scan_params.board_id,
+                    index=scan_params.observed_adc,
+                    dut=scan_params.tb.dut,
                     info=MeasInfo(
-                        schema_version=1,
-                        measurement_type="MeasAdcExt",
                         backend="physical",
                         timestamp_utc=datetime.now().astimezone(),
                         instruments=instrument_identities,
                         readbacks=readbacks,
                     ),
                     param=scan_params,
-                    daq=AdcDaq(
-                        conversion_index=conversion_index_values,
-                        bout=bout_values,
-                        dout_raw=dout_raw_values,
-                        dout=dout_values,
-                        vin_diff_v=vin_diff_values_v,
-                        fastrx_word=fastrx_words,
-                    ),
+                    conversion_index=conversion_index_values,
+                    bout=bout_values,
+                    dout_raw=dout_raw_values,
+                    dout=dout_values,
+                    vin_diff_v=vin_diff_values_v,
+                    fastrx_word=fastrx_words,
                     wave=scope_wave,
                 )
                 write_measurement(h5_path, measurement)

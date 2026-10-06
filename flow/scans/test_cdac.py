@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from flow.adc.sim import AdcTbParams
-from flow.analysis.types import CdacExtDaq, CdacExtWave, InfoValue, MeasCdacExt, MeasInfo
+from flow.analysis.types import MeasCdac, MeasInfo, Wave
 from flow.scans.fastrx import FastRxCapture, select_fastrx_capture_settings
 from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.scan_cdac import (
@@ -39,7 +39,7 @@ RADIX20 = (768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)
 def build_cdac_test_variants() -> list[AdcScanParams]:
     """Build one calibrated C0 transition point per characterized ADC."""
 
-    calibrations = load_board_map()["boards"]["00"]["comparator_calibration"]
+    calibrations = load_board_map()["boards"][0]["comparator_calibration"]
     return [
         _build_cdac_params(
             adc_index=adc_index,
@@ -147,36 +147,29 @@ def _resume_measurement(
     *,
     session_id: str | None,
     curve_complete: bool,
-) -> MeasCdacExt:
+) -> MeasCdac:
     tb = params.tb
     trials = tb.conversions
     after_p = np.tile(tb.dac_bstate_p, (trials, 1))
     after_n = np.tile(tb.dac_bstate_n, (trials, 1))
-    readbacks: dict[str, InfoValue] = {"curve_complete": curve_complete}
+    readbacks: dict[str, str | int | float | bool] = {"curve_complete": curve_complete}
     if session_id is not None:
         readbacks["acquisition_session_id"] = session_id
-    return MeasCdacExt(
-        info=MeasInfo(
-            schema_version=1,
-            measurement_type="MeasCdacExt",
-            backend="physical",
-            timestamp_utc=timestamp,
-            readbacks=readbacks,
-        ),
+    return MeasCdac(
+        group=params.board_id,
+        index=params.observed_adc,
+        dut=params.tb.dut.cdac,
+        info=MeasInfo(backend="physical", timestamp_utc=timestamp, readbacks=readbacks),
         param=params,
-        daq=CdacExtDaq(
-            trial_index=np.arange(trials),
-            dac_state_p=after_p,
-            dac_state_n=after_n,
-            vin_diff_v=np.full(trials, float(tb.vin_diff.dc)),
-            decision=np.zeros(trials, dtype=np.uint8),
-        ),
-        wave=CdacExtWave(
-            trial_index=np.asarray([0], dtype=np.int64),
+        trial_index=np.arange(trials),
+        dac_state_p=after_p,
+        dac_state_n=after_n,
+        vin_diff_v=np.full(trials, float(tb.vin_diff.dc)),
+        decision=np.zeros(trials, dtype=np.uint8),
+        wave=Wave(
+            record_index=np.asarray([0], dtype=np.int64),
             time_s=np.asarray([0.0, 1e-9]),
-            vin_diff_v=np.zeros((1, 2)),
-            seq_comp_v=np.zeros((1, 2)),
-            comp_out_v=np.zeros((1, 2)),
+            v={"vin_diff": np.zeros((1, 2)), "seq_comp": np.zeros((1, 2)), "comp_out": np.zeros((1, 2))},
         ),
     )
 
@@ -365,9 +358,7 @@ def test_cdac_expected_transition_uses_accepted_c0_scale(
         conversions=8,
         sweep_stage="fixed",
     )
-    scale = load_board_map()["boards"]["00"]["cdac_sweep_center_calibration"][adc_index]["scale_by_diffcaps"][
-        dac_diffcaps
-    ]
+    scale = load_board_map()["boards"][0]["cdac_sweep_center_calibration"][adc_index]["scale_by_diffcaps"][dac_diffcaps]
     accepted_scaled_weights = {
         0: (641.9997915881323, 621.1102678208147),
         2: (828.1190540265467, 799.9696164433147),
@@ -406,7 +397,7 @@ def test_cdac_step_prediction_includes_flavor_topplate_parasitics(
         sweep_stage="fixed",
     )
     board_map = load_board_map()
-    flavor = board_map["boards"]["00"]["adc_channels"][adc_index]
+    flavor = board_map["boards"][0]["adc_channels"][adc_index]
     flavor_config = board_map["adc_flavors"][flavor]
     weights = flavor_config["cdac_weights"]
     total_weights = [65 * np.ceil(weight / 64) for weight in weights]
@@ -422,7 +413,7 @@ def test_cdac_step_prediction_includes_flavor_topplate_parasitics(
 
 def test_cdac_test_plate_predictions_are_safe_and_adc00_through_adc03() -> None:
     variants = build_cdac_test_variants()
-    calibrations = load_board_map()["boards"]["00"]["comparator_calibration"]
+    calibrations = load_board_map()["boards"][0]["comparator_calibration"]
 
     assert [params.observed_adc for params in variants] == [0, 1, 2, 3]
     for params in variants:
