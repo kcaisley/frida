@@ -33,7 +33,7 @@ from flow.scans.params import AdcScanParams
 
 ANALYSIS_DIR = Path(__file__).resolve().parent
 CONTRACT_MODULES = ("adc", "comp", "cdac", "calibration1", "calibration2", "calibration3")
-PURE_MODULES = (*CONTRACT_MODULES, "diffamp", "calc")
+PURE_MODULES = (*CONTRACT_MODULES, "calc")
 # Names that annotations in flow.analysis.types refer to only under TYPE_CHECKING.
 TYPE_NAMESPACE = {
     "AdcSequence": AdcSequence,
@@ -221,6 +221,9 @@ def _persistable(annotation) -> bool:
         return all(_persistable(member) for member in typing.get_args(annotation))
     if origin is tuple:
         return all(_persistable(arg) for arg in typing.get_args(annotation) if arg is not Ellipsis)
+    if origin is dict:
+        key, value = typing.get_args(annotation)
+        return key is str and _persistable(value)
     if isinstance(annotation, type) and dataclasses.is_dataclass(annotation):
         return True
     return isinstance(annotation, type) and hasattr(annotation, "__dataclass_fields__")

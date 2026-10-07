@@ -54,7 +54,7 @@ from flow.analysis.types import (
     AnalysisCompOffsetNoise,
     AnalysisCompPower,
     AnalysisCompTiming,
-    AnalysisDiffampNoise,
+    AnalysisScope,
     Meas,
     MeasAdc,
     MeasCdac,
@@ -367,12 +367,13 @@ def plot_waveforms(
 
     ``signals`` maps a voltage name, or ``i(<supply>)`` for a supply current,
     to its axis label; by default every voltage is plotted under its own name.
-    Time is shown relative to ``time_origin_s``.
+    Each signal gets its own stacked axis. Time is shown relative to
+    ``time_origin_s``.
     """
 
     selected = signals if signals is not None else {name: name for name in wave.v}
-    if not 1 <= len(selected) <= 4:
-        raise ValueError("waveform plots show one to four signals")
+    if not selected:
+        raise ValueError("waveform plots show at least one signal")
     traces = [
         (wave.i[name[2:-1]], "A") if name.startswith("i(") and name.endswith(")") else (wave.v[name], "V")
         for name in selected
@@ -851,57 +852,86 @@ def plot_serdes_symbol_eye_grid(
 
 
 @mpl.rc_context(PLOT_STYLE)
-def plot_diffamp_noise(
-    analysis: AnalysisDiffampNoise,
+def plot_spectrum(
+    scopes: Sequence[AnalysisScope],
     *,
     output_path: Path,
+    title: str,
+    signals: Mapping[str, str] | None = None,
 ) -> tuple[Path, ...]:
-    """Plot differential-amplifier noise distribution and spectrum."""
+    """Overlay the amplitude spectral densities of selected traces of one or more scope captures.
 
-    centered_mv = analysis.centered_v * 1e3
-    noise_rms_mv = analysis.noise_rms_v * 1e3
-    gaussian_x_mv = np.linspace(-5.0 * noise_rms_mv, 5.0 * noise_rms_mv, 1001)
-    gaussian_density_per_mv = np.exp(-0.5 * (gaussian_x_mv / noise_rms_mv) ** 2) / (noise_rms_mv * np.sqrt(2.0 * np.pi))
-    fig, (histogram_ax, spectrum_ax) = plt.subplots(2, 1)
-    histogram_ax.hist(
-        centered_mv,
-        bins=120,
-        density=True,
-        color=NORD_BLUE,
-        edgecolor=PLOT_FACE_COLOR,
-        linewidth=0.35,
-        label="Measured samples",
-    )
-    histogram_ax.plot(
-        gaussian_x_mv,
-        gaussian_density_per_mv,
-        color=CURVE_COLORS[1],
-        linestyle=":",
-        label=(f"Gaussian fit (raw µ = {analysis.mean_v * 1e3:.3f} mV subtracted; σ = {noise_rms_mv:.3f} mV)"),
-    )
-    histogram_ax.set_xlabel("Differential output noise about its mean (mV)")
-    histogram_ax.set_ylabel("Density (mV⁻¹)")
-    histogram_ax.legend()
+    ``signals`` maps a trace name to its legend label; by default every trace
+    of every capture is drawn. Each legend entry names its capture and gives
+    the trace's time-domain AC RMS; dotted lines mark the capture bandwidths.
+    """
 
-    positive = analysis.spectrum_frequency_hz > 0.0
-    spectrum_ax.loglog(
-        analysis.spectrum_frequency_hz[positive],
-        analysis.spectrum_amplitude_density_v_per_sqrt_hz[positive] * 1e6,
-        color=NORD_BLUE,
-        label=f"Measured spectrum (integrated RMS = {analysis.integrated_fft_noise_rms_v * 1e3:.3f} mV)",
-    )
-    spectrum_ax.axvline(
-        analysis.measurement_bandwidth_hz,
-        color=CURVE_COLORS[1],
-        linestyle=":",
-        label=f"Measurement bandwidth = {analysis.measurement_bandwidth_hz / 1e6:g} MHz",
-    )
-    spectrum_ax.set_xlabel("Frequency (Hz)")
-    spectrum_ax.set_ylabel("ASD (µV/√Hz)")
-    spectrum_ax.legend()
-    for ax in (histogram_ax, spectrum_ax):
-        style_grid(ax)
-    fig.suptitle("Differential-amplifier output noise")
+    if not scopes:
+        raise ValueError("spectrum plots show at least one scope capture")
+    fig, ax = plt.subplots()
+    for scope in scopes:
+        selected = signals if signals is not None else {name: name for name in scope.spectrum_v_per_sqrt_hz}
+        positive = scope.spectrum_frequency_hz > 0.0
+        for name, label in selected.items():
+            ax.loglog(
+                scope.spectrum_frequency_hz[positive],
+                scope.spectrum_v_per_sqrt_hz[name][positive] * 1e9,
+                label=f"{scope.name}: {label} ({scope.ac_rms_v[name] * 1e6:.1f} µV RMS)",
+            )
+    for bandwidth_hz in sorted({scope.bandwidth_hz for scope in scopes}):
+        ax.axvline(bandwidth_hz, color=SPINE_COLOR, linestyle=":", label=f"{bandwidth_hz / 1e6:g} MHz bandwidth")
+    ax.set_xlabel("Frequency (Hz)")
+    ax.set_ylabel("ASD (nV/√Hz)")
+    ax.legend()
+    style_grid(ax)
+    style_info_box(ax, tuple(dict.fromkeys(line for scope in scopes for line in scope.setup)))
+    fig.suptitle(title)
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_histogram(
+    scope: AnalysisScope,
+    *,
+    output_path: Path,
+    title: str,
+    signals: Mapping[str, str] | None = None,
+) -> tuple[Path, ...]:
+    """Plot the sample distributions of selected scope traces about their means.
+
+    ``signals`` maps a trace name to its legend label; by default every trace
+    is drawn. Each histogram is overlaid with a Gaussian of the trace's AC RMS.
+    """
+
+    selected = signals if signals is not None else {name: name for name in scope.wave.v}
+    if not selected:
+        raise ValueError("histogram plots show at least one signal")
+    fig, ax = plt.subplots()
+    for name, label in selected.items():
+        centered_uv = (scope.wave.v[name][0] - scope.mean_v[name]) * 1e6
+        sigma_uv = scope.ac_rms_v[name] * 1e6
+        x_uv = np.linspace(centered_uv.min(), centered_uv.max(), 1001)
+        # The Gaussian takes the next cycle color; its histogram reuses it.
+        (gaussian,) = ax.plot(
+            x_uv,
+            np.exp(-0.5 * (x_uv / sigma_uv) ** 2) / (sigma_uv * np.sqrt(2.0 * np.pi)),
+            linestyle=":",
+            label=f"{label} Gaussian",
+        )
+        ax.hist(
+            centered_uv,
+            bins=120,
+            density=True,
+            histtype="step",
+            color=gaussian.get_color(),
+            label=f"{label} (σ = {sigma_uv:.1f} µV)",
+        )
+    ax.set_xlabel("Deviation from mean (µV)")
+    ax.set_ylabel("Density (µV⁻¹)")
+    ax.legend(loc="upper left")
+    style_grid(ax)
+    style_info_box(ax, scope.setup)
+    fig.suptitle(title)
     return save_figure(fig, output_path)
 
 

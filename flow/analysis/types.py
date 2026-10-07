@@ -347,27 +347,39 @@ class MeasCapArray(Meas):
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisDiffampNoise(Analysis):
-    """Gaussian and spectral characterization of one quiet waveform."""
+class AnalysisScope(Analysis):
+    """One oscilloscope capture with its traces, spectra, and per-trace statistics.
 
-    mean_v: float
-    centered_v: np.ndarray
-    sample_rate_hz: float
-    measurement_bandwidth_hz: float
+    Trace names are the probed signal names plus any math traces such as
+    ``vin_p_adc-vin_n_adc``. Every mapping is keyed like ``wave.v``, whose one
+    record holds the physical and math traces. ``spectrum_v_per_sqrt_hz`` is
+    the one-sided amplitude density about each trace's mean; ``setup`` holds
+    the information-box lines describing the instrument configuration.
+    """
+
+    name: str
+    wave: Wave
+    bandwidth_hz: float
     spectrum_frequency_hz: np.ndarray
-    spectrum_amplitude_density_v_per_sqrt_hz: np.ndarray
+    spectrum_v_per_sqrt_hz: dict[str, np.ndarray]
+    mean_v: dict[str, float]
+    ac_rms_v: dict[str, float]
+    setup: tuple[str, ...]
 
     @property
-    def noise_rms_v(self) -> float:
-        """Return the time-domain RMS of the centered samples."""
+    def sample_rate_hz(self) -> float:
+        """Return the uniform sample rate of the captured record."""
 
-        return calc.rms(self.centered_v)
+        return 1.0 / float(self.wave.time_s[1] - self.wave.time_s[0])
 
     @property
-    def integrated_fft_noise_rms_v(self) -> float:
-        """Return the RMS obtained by integrating the spectral density."""
+    def spectrum_rms_v(self) -> dict[str, float]:
+        """Return each trace's RMS obtained by integrating its spectral density."""
 
-        return calc.rmsNoise(self.spectrum_amplitude_density_v_per_sqrt_hz, self.spectrum_frequency_hz)
+        return {
+            name: calc.rmsNoise(density, self.spectrum_frequency_hz)
+            for name, density in self.spectrum_v_per_sqrt_hz.items()
+        }
 
 
 # ADC analyses

@@ -138,7 +138,8 @@ def _read_native(node: h5py.Group | h5py.Dataset):
     if isinstance(node, h5py.Dataset):
         value = node[()]
         if isinstance(value, np.ndarray) and value.dtype.kind in {"S", "O"}:
-            value = value.astype(str)
+            # Strings are stored as UTF-8; numpy's bytes-to-str cast assumes ASCII.
+            value = node.asstr()[()].astype(str) if h5py.check_string_dtype(node.dtype) else value.astype(str)
         elif isinstance(value, bytes):
             value = value.decode()
         elif isinstance(value, np.generic):

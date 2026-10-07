@@ -92,7 +92,10 @@ flowchart TB
 
     subgraph raw[Other plotting inputs without a Meas type]
         direction LR
-        raw_noise["Differential amplifier voltage samples"] --> noise_analysis["analyze_diffamp_noise"] --> noise_analysis_out["AnalysisDiffampNoise"] --> diffamp_plot["plot_diffamp_noise"]
+        raw_scope_noise["Aligned Basil scope waveforms"] --> scope_analysis["scans.scope.scope_analysis"] --> scope_analysis_out["AnalysisScope"]
+        scope_analysis_out --> spectrum_plot["plot_spectrum (list)"]
+        scope_analysis_out --> histogram_plot["plot_histogram"]
+        scope_analysis_out --> scope_wave_plot["plot_waveforms (AnalysisScope.wave)"]
         raw_scope["Aligned Basil scope waveforms"] --> scope_wave["scans.scope.scope_wave"] --> scope_wave_out["Wave"] --> raw_wave_plot["plot_waveforms"]
         margins["SAR correction margins"] --> redundancy_plot["plot_adc_redundancy"]
         serdes_words["Raw serializer word captures"] --> serdes_word_plot["plot_serdes_output_word_grid"]
@@ -102,7 +105,7 @@ flowchart TB
     shared_adc ~~~ adc_external ~~~ adc_internal ~~~ comparator ~~~ calibration ~~~ waveform ~~~ raw
 ```
 
-Arrows show inputs, analyses, and plotters; plotters return artifact paths. One measurement type per circuit block serves both simulations and physical captures. "(+ x)" marks a keyword-only prior result. Sweeps are lists of per-capture results passed to one plotter; there are no sweep or comparison container types. Many plotters also take the originating `Meas*` measurements for their information boxes. Hardware or simulator producers write typed HDF5 before measurement analyses; the last section documents the separate raw-array and scope-capture plotting paths.
+Arrows show inputs, analyses, and plotters; plotters return artifact paths. One measurement type per circuit block serves both simulations and physical captures. "(+ x)" marks a keyword-only prior result. Sweeps are lists of per-capture results passed to one plotter; there are no sweep or comparison container types. Many plotters also take the originating `Meas*` measurements for their information boxes. Hardware or simulator producers write typed HDF5 before measurement analyses; the last section documents the separate raw-array and scope-capture plotting paths. A scope capture that is already the quantity of interest, such as a noise or supply check, skips the `Meas` stage: `scans.scope.scope_analysis` builds an `AnalysisScope` directly, holding the traces (including math differences), their spectra, means, and AC RMS values, which `write_analysis` stores like any other result.
 
 ## Analysis contract
 
