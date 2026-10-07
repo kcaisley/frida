@@ -87,13 +87,27 @@
 \chapter{Design of a compact SAR ADC}
 
 \section{Study of a sampling switch}
+
+A sampling switch is a circuit element which allows a continously varying input voltage to be intermittently sampled and held constantly.
+During the ``track'' phase, a switch, typically constructed from MOS channels, is allowed to conduct, and
+The size of the capacitance alone determines the average expected sampling error from thermal nosie, since increasing the series resistance of the switch generates thermal noise but also limits noise bandwidth.
+This building block is found in nearly all ADC architectures.
+There are three other non-idealities which one must worry about:
+First, the RC time constant of the switch and sampling capacitor though also set a bandwidth limit on the switch, causing distortion with increasing input signal speeds.
+Second, since the Rds_on of the transistor is determined by it's gate source voltage, the input signal level affects the effective RD, causing a the sampling error affect to also be signal amplitude dependent.
+And thirdly the parasitic capacitance of the switch itself can cause charge injection
+
+The proper design of sampling switches is heavily predicated on how fast the switch needs operate.
+
 \subsection{On-resistance and acquisition bandwidth}
 \subsubsection{Device size and input-voltage dependence}
 \subsubsection{Simple switch versus bootstrapped switch}
 \subsection{Sampling noise}
-\subsubsection{Thermal-noise and capacitance limits}
-\subsubsection{Extracted held-level noise and comparator contributions}
+Thermal-noise and capacitance limits
+Extracted held-level noise and comparator contributions
 \subsection{Dynamic sampling error}
+
+\fig
 \subsubsection{Settling error versus sampling-window duration}
 \subsubsection{Input bandwidth and effective-resolution limits}
 
