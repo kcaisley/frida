@@ -37,7 +37,7 @@ from flow.scans.scan_adc import (
     convert_params_to_spi_fmt,
     convert_vdiff_input_to_awg_supply,
 )
-from flow.scans.scope import scope_channels, wait_for_scope_armed, wait_for_scope_capture
+from flow.scans.scope import ScopeConns, wait_for_scope_armed, wait_for_scope_capture
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
 
@@ -446,7 +446,8 @@ def scan(
     from basil.dut import Dut
 
     map_dir = Path(__file__).resolve().parent
-    scope_tracks = scope_channels("vin_diff", "seq_comp", "comp_out") if capture_scope_per_curve else {}
+    # Standard MSO54 hookup subset: TDP3500 input on CH1, COMP on CH2, comparator output on CH4.
+    scope_conns = ScopeConns(ch1="vin_diff", ch2="seq_comp", ch4="comp_out")
     daq_dut = Dut(str(map_dir / "map_fpga.yaml"))
     awg_dut = Dut(str(map_dir / "map_awg.yaml"))
     vin_cm_dut = Dut(str(map_dir / "map_supply.yaml"))
@@ -535,7 +536,7 @@ def scan(
             scope.set_acquire_stop_after("SEQUENCE")
             scope.set_horizontal_record_length(10_000)
             scope._intf.write("HORizontal:POSition 20")
-            for signal_name, channel in scope_tracks.items():
+            for signal_name, channel in scope_conns.channels.items():
                 scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
                 scope.set_coupling("DC", channel=channel)
                 scope.set_vertical_scale(0.01 if signal_name == "vin_diff" else 0.2, channel=channel)
@@ -543,11 +544,11 @@ def scan(
                 scope.set_vertical_offset(0.0, channel=channel)
                 scope.set_bandwidth(200.0e6 if signal_name == "vin_diff" else 2.0e9, channel=channel)
             scope.set_trigger_type("EDGE")
-            scope.set_trigger_source(channel=scope_tracks["seq_comp"])
+            scope.set_trigger_source(channel=scope_conns.channels["seq_comp"])
             scope.set_trigger_edge_slope("RISE")
             # The differential sequencer probe is centered around zero and swings
             # to roughly +/-0.6 V; trigger at its zero crossing.
-            scope.set_trigger_level(0.0, channel=scope_tracks["seq_comp"])
+            scope.set_trigger_level(0.0, channel=scope_conns.channels["seq_comp"])
             scope.set_trigger_mode("NORMAL")
 
         daq["gpio0"]["RST_B"] = 0
@@ -759,8 +760,8 @@ def scan(
                 assert acquisition_count_before is not None
                 scope_started = monotonic()
                 wait_for_scope_capture(scope, acquisition_count_before, timeout_s=scope_timeout_s)
-                scope_waveforms = scope.get_waveforms({channel: name for name, channel in scope_tracks.items()})
-                missing_channels = sorted(set(scope_tracks.values()).difference(scope_waveforms))
+                scope_waveforms = scope.get_waveforms({channel: name for name, channel in scope_conns.channels.items()})
+                missing_channels = sorted(set(scope_conns.channels.values()).difference(scope_waveforms))
                 if missing_channels:
                     raise RuntimeError(f"scope did not return channels {missing_channels}")
                 scope_elapsed_s = monotonic() - scope_started
@@ -774,11 +775,11 @@ def scan(
             trial_index = np.arange(params.conversions, dtype=np.int64)
             wave = None
             if scope_waveforms is not None:
-                reference = scope_waveforms[scope_tracks["vin_diff"]]
+                reference = scope_waveforms[scope_conns.channels["vin_diff"]]
                 scope_time_s = reference.x_scale.offset + np.arange(len(reference.data)) * reference.x_scale.slope
                 wave_signals = {
                     name: np.asarray(scope_waveforms[channel].data, dtype=np.float64)[None, :]
-                    for name, channel in scope_tracks.items()
+                    for name, channel in scope_conns.channels.items()
                 }
                 wave = Wave(record_index=np.asarray([0], dtype=np.int64), time_s=scope_time_s, v=wave_signals)
             readbacks: dict[str, str | int | float | bool] = {

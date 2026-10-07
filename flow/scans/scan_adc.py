@@ -5,7 +5,8 @@ from __future__ import annotations
 import itertools
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from time import monotonic, sleep
@@ -19,7 +20,7 @@ from pyvisa.errors import VisaIOError
 from flow.adc.sequences import AdcSequence
 from flow.analysis import calc
 from flow.analysis.io import write_measurement
-from flow.analysis.types import MeasAdc, MeasInfo
+from flow.analysis.types import MeasAdc, MeasInfo, Wave
 from flow.caparray import get_caparray_weights
 from flow.scans.fastrx import (
     convert_fastrx_words_to_adc,
@@ -29,9 +30,7 @@ from flow.scans.fastrx import (
 from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scope import (
-    crop_adc_scope_conversion,
-    scope_channels,
-    scope_records_to_adc_wave,
+    ScopeConns,
     wait_for_scope_armed,
     wait_for_scope_capture,
 )
@@ -316,6 +315,98 @@ def parse_pwl_wave(wave: str | h.Pwl) -> tuple[tuple[float, float], ...]:
     return points
 
 
+def crop_adc_scope_conversion(
+    wave: Wave,
+    *,
+    skip_conversions: int,
+    conversion_period_s: float,
+    symbol_period_s: float,
+    reference_signal: Literal["seq_comp", "seq_init"] = "seq_comp",
+) -> Wave:
+    """Select a complete ADC conversion after sequencer startup.
+
+    COMP-referenced captures keep one symbol before B0. INIT-triggered captures
+    keep the CH1 trigger edge and a short tail beyond the next INIT, allowing
+    the final external COMP_OUT decision to settle. The caller associates the
+    selected record with its DAQ conversion index.
+    """
+    if len(wave.record_index) != 1 or skip_conversions < 0:
+        raise ValueError("scope cropping requires one record and a nonnegative skip count")
+    if reference_signal not in {"seq_comp", "seq_init"}:
+        raise ValueError(f"unsupported scope crop reference {reference_signal!r}")
+    if reference_signal == "seq_init" and skip_conversions:
+        raise ValueError("INIT-triggered scope cropping starts at the triggered conversion")
+    if reference_signal not in wave.v:
+        raise ValueError(f"scope {reference_signal} waveform is required for this cropping reference")
+    reference = wave.v[reference_signal][0]
+    low, high = np.percentile(reference, (1, 99))
+    if high - low < 0.1:
+        raise ValueError(f"scope {reference_signal} waveform has no valid logic swing")
+    edges = calc.cross(reference, wave.time_s, (low + high) / 2, edge="rising")
+    if reference_signal == "seq_init":
+        trigger_edges = edges[np.abs(edges) < conversion_period_s / 4]
+        if len(trigger_edges) != 1:
+            raise ValueError("scope record lacks one INIT edge at the CH1 trigger")
+        origin = trigger_edges[0] - symbol_period_s / 2
+        # The final external COMP_OUT decision can settle after the next
+        # INIT, so retain two decision intervals beyond the 160-symbol row.
+        stop = origin + conversion_period_s + 16 * symbol_period_s
+    else:
+        if len(edges) < 17 * (skip_conversions + 1):
+            raise ValueError("scope record lacks the complete retained ADC conversion after startup")
+        origin = edges[17 * skip_conversions] - symbol_period_s
+        stop = origin + conversion_period_s
+    if origin < wave.time_s[0] or stop > wave.time_s[-1]:
+        raise ValueError("scope record does not cover the retained ADC conversion window")
+    selected = (wave.time_s >= origin) & (wave.time_s < stop)
+    return replace(
+        wave,
+        time_s=wave.time_s[selected] - origin,
+        v={name: trace[:, selected] for name, trace in wave.v.items()},
+        i={name: trace[:, selected] for name, trace in wave.i.items()},
+    )
+
+
+def scope_records_to_adc_wave(
+    records: Sequence[Mapping[int, Any]],
+    conversion_index: Sequence[int],
+    scope_conns: ScopeConns,
+) -> Wave:
+    """Convert aligned triggered scope records into ADC net voltages keyed by net name."""
+
+    scope_channels = scope_conns.channels
+    required = {"seq_comp", "seq_logic", "comp_out"}
+    if not required <= set(scope_channels) or set(scope_channels) - required - {"vin_diff", "seq_init"}:
+        raise ValueError(f"scope channels must include {sorted(required)}, with optional vin_diff and seq_init")
+    if len(records) != len(conversion_index):
+        raise ValueError("scope record count must match waveform conversion indices")
+
+    time_s = None
+    signals = {name: [] for name in scope_channels}
+    for record_number, record in enumerate(records):
+        missing_channels = sorted(set(scope_channels.values()).difference(record))
+        if missing_channels:
+            raise ValueError(f"scope record {record_number} is missing channels {missing_channels}")
+        reference = record[next(iter(scope_channels.values()))]
+        record_time = reference.x_scale.offset + np.arange(len(reference.data)) * reference.x_scale.slope
+        if time_s is None:
+            time_s = record_time
+        elif not np.array_equal(record_time, time_s):
+            raise ValueError(f"scope record {record_number} has a different time axis")
+        for name, channel in scope_channels.items():
+            values = np.asarray(record[channel].data, dtype=np.float64)
+            if len(values) != len(record_time):
+                raise ValueError(f"scope record {record_number} channel {channel} is not aligned")
+            signals[name].append(values)
+    if time_s is None:
+        raise ValueError("at least one scope record is required")
+    return Wave(
+        record_index=np.asarray(conversion_index),
+        time_s=time_s,
+        v={name: np.stack(values) for name, values in signals.items()},
+    )
+
+
 def scan(
     params: AdcScanParams,
     *,
@@ -332,9 +423,8 @@ def scan(
     FASTRX_CAPTURE_TIMEOUT_S = 5.0
     FASTRX_TRAILING_DRAIN_S = 0.01
     MAX_RAW_FASTRX_WORDS = 20
-    channels = scope_channels("seq_comp", "seq_logic", "comp_out", optional=("vin_diff",))
-    SCOPE_TRACKS = channels
-    SCOPE_TRIGGER_CHANNEL = channels["seq_logic"]
+    # Standard MSO54 hookup: TDP3500 across the ADC input on CH1, clocks and comparator output on CH2-4.
+    scope_conns = ScopeConns(ch1="vin_diff", ch2="seq_comp", ch3="seq_logic", ch4="comp_out")
     SCOPE_RECORD_LENGTH = 10_000
     SCOPE_BANDWIDTH_HZ = {
         "vin_diff": 200.0e6,
@@ -516,7 +606,7 @@ def scan(
             scope.set_acquire_mode("SAMPLE")
             scope.set_acquire_stop_after("SEQUENCE")
             scope.set_horizontal_record_length(SCOPE_RECORD_LENGTH)
-            for signal_name, channel in SCOPE_TRACKS.items():
+            for signal_name, channel in scope_conns.channels.items():
                 scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
                 scope.set_coupling("DC", channel=channel)
                 scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V[signal_name], channel=channel)
@@ -525,9 +615,9 @@ def scan(
                 scope.set_bandwidth(SCOPE_BANDWIDTH_HZ[signal_name], channel=channel)
             scope._intf.write("TRIGger:B:STATE OFF")
             scope.set_trigger_type("EDGE")
-            scope.set_trigger_source(channel=SCOPE_TRIGGER_CHANNEL)
+            scope.set_trigger_source(channel=scope_conns.channels["seq_logic"])
             scope.set_trigger_edge_slope("RISE")
-            scope.set_trigger_level(0.0, channel=SCOPE_TRIGGER_CHANNEL)
+            scope.set_trigger_level(0.0, channel=scope_conns.channels["seq_logic"])
             scope.set_trigger_mode("NORMAL")
 
         if position != "abort":
@@ -712,14 +802,14 @@ def scan(
                     (vin_diff_max_v - vin_diff_min_v) / 6.0,
                 )
                 scope_vin_diff_vertical_offset_v = (vin_diff_min_v + vin_diff_max_v) / 2.0
-                if "vin_diff" in SCOPE_TRACKS:
+                if "vin_diff" in scope_conns.channels:
                     scope.set_vertical_scale(
                         scope_vin_diff_vertical_scale_v_per_div,
-                        channel=SCOPE_TRACKS["vin_diff"],
+                        channel=scope_conns.channels["vin_diff"],
                     )
                     scope.set_vertical_offset(
                         scope_vin_diff_vertical_offset_v,
-                        channel=SCOPE_TRACKS["vin_diff"],
+                        channel=scope_conns.channels["vin_diff"],
                     )
 
                 programmed_vin_cm_supply_v = float(vin_cm_supply.get_set_voltage())
@@ -1043,8 +1133,8 @@ def scan(
                     acquisition_count_before,
                     timeout_s=SCOPE_CAPTURE_TIMEOUT_S,
                 )
-                scope_waveforms = scope.get_waveforms({channel: name for name, channel in SCOPE_TRACKS.items()})
-                missing_scope_channels = sorted(set(SCOPE_TRACKS.values()).difference(scope_waveforms))
+                scope_waveforms = scope.get_waveforms({channel: name for name, channel in scope_conns.channels.items()})
+                missing_scope_channels = sorted(set(scope_conns.channels.values()).difference(scope_waveforms))
                 if missing_scope_channels:
                     raise RuntimeError(f"scope did not return channels {missing_scope_channels}")
 
@@ -1143,7 +1233,7 @@ def scan(
                     if isinstance(value, (str, int, float, bool)):
                         readbacks[f"stimulus_{name}"] = value
 
-                scope_wave = scope_records_to_adc_wave([scope_waveforms], [0], SCOPE_TRACKS)
+                scope_wave = scope_records_to_adc_wave([scope_waveforms], [0], scope_conns)
                 if startup_conversions:
                     scope_wave = crop_adc_scope_conversion(
                         scope_wave,

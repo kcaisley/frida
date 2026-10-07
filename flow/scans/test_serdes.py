@@ -19,8 +19,8 @@ The three Keithley 2400s power VDD_A, VDD_D, and VDD_DAC during the test.
 Their outputs are disabled and reset to 0 V when the test exits.
 Scope captures are saved under ``build/test_serdes/<timestamp>``.
 
-For manually supplied hardware with all four sequencer clocks connected as
-declared in map_scope.yaml, capture the named ADC recipes instead:
+For manually supplied hardware with the four sequencer clocks on CH1--CH4
+(INIT, SAMP, COMP, LOGIC), capture the named ADC recipes instead:
 
     uv run pytest -q -s -m hw flow/scans/test_serdes.py::test_adc_sequence_waveforms
 
@@ -52,6 +52,7 @@ from yaml import safe_load
 from flow.adc.sequences import SEQUENCES, AdcSequence
 from flow.adc.sim import AdcTbParams
 from flow.analysis import calc
+from flow.analysis.io import write_analysis
 from flow.analysis.plots import plot_serdes_output_word_grid, plot_serdes_symbol_eye_grid, plot_waveforms
 from flow.scans.plldrp import (
     calculate_pll_frequency,
@@ -59,12 +60,12 @@ from flow.scans.plldrp import (
     set_pll_divider,
 )
 from flow.scans.scope import (
+    ScopeConns,
     response_value,
-    scope_channels,
+    scope_analysis,
     scope_wave,
     wait_for_scope_armed,
     wait_for_scope_capture,
-    write_scope_csv,
 )
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
@@ -139,10 +140,10 @@ SEQ_PATTERNS = {
 # fmt: on
 
 
-def validate_capture(waveforms, symbol_rate_bps: float, tracks: dict[int, str]) -> tuple[float, float]:
+def validate_capture(waveforms, symbol_rate_bps: float, scope_conns: ScopeConns) -> tuple[float, float]:
     """Check crossing counts and return measured COMP interval and symbol rate."""
     crossing_times: dict[str, tuple[float, ...]] = {}
-    for channel, track in tracks.items():
+    for track, channel in scope_conns.channels.items():
         waveform = waveforms[channel]
         signal = np.asarray(waveform.data, dtype=np.float64)
         time_s = waveform.x_scale.offset + np.arange(len(signal)) * waveform.x_scale.slope
@@ -183,12 +184,9 @@ def validate_capture(waveforms, symbol_rate_bps: float, tracks: dict[int, str]) 
 
 
 @pytest.mark.hw
-@pytest.mark.scope_signals("seq_comp", "seq_logic")
 def test_serdes_rates(linux_gpib_interface: None) -> None:
     """Hardware: qualify sequencer serialization across all supported rates."""
-    channels = scope_channels("seq_comp", "seq_logic")
-    SCOPE_TRACKS = {channel: name for name, channel in channels.items()}
-    TRIGGER_SCOPE_CHANNEL = channels["seq_logic"]
+    scope_conns = ScopeConns(ch2="seq_comp", ch3="seq_logic")  # standard MSO54 hookup
 
     from gpib_ctypes import make_default_gpib
 
@@ -284,16 +282,16 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
             original_trigger_type = response_value(scope.get_trigger_type())
             original_trigger_source = response_value(scope.get_triggr_source())
             original_trigger_slope = response_value(scope.get_trigger_edge_slope())
-            original_trigger_level = response_value(scope.get_trigger_level(channel=TRIGGER_SCOPE_CHANNEL))
+            original_trigger_level = response_value(scope.get_trigger_level(channel=scope_conns.channels["seq_logic"]))
             original_channel_display = {
                 channel: response_value(scope._intf.query(f"DISplay:GLObal:CH{channel}:STATE?"))
-                for channel in SCOPE_TRACKS
+                for channel in scope_conns.channels.values()
             }
 
             try:
                 scope.set_acquire_state("STOP")
                 scope.set_acquire_stop_after("SEQUENCE")
-                for channel in SCOPE_TRACKS:
+                for channel in scope_conns.channels.values():
                     scope.set_vertical_scale(
                         SCOPE_VERTICAL_SCALE_V,
                         channel=channel,
@@ -301,14 +299,14 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
                     scope.set_vertical_position(0.0, channel=channel)
                     scope.set_vertical_offset(0.0, channel=channel)
                     scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=channel)
-                for channel in SCOPE_TRACKS:
+                for channel in scope_conns.channels.values():
                     scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
                 scope.set_trigger_type("EDGE")
-                scope.set_trigger_source(channel=TRIGGER_SCOPE_CHANNEL)
+                scope.set_trigger_source(channel=scope_conns.channels["seq_logic"])
                 scope.set_trigger_edge_slope("RISE")
                 scope.set_trigger_level(
                     0.0,
-                    channel=TRIGGER_SCOPE_CHANNEL,
+                    channel=scope_conns.channels["seq_logic"],
                 )
                 scope.set_trigger_mode("NORMAL")
 
@@ -365,8 +363,8 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
                         daq["seq0"].start()
                         wait_for_scope_capture(scope, acquisition_count_before)
                         time.sleep(SCOPE_CAPTURE_SETTLE_TIME_S)
-                        waveforms = scope.get_waveforms(SCOPE_TRACKS)
-                        missing_channels = sorted(set(SCOPE_TRACKS).difference(waveforms))
+                        waveforms = scope.get_waveforms(tuple(scope_conns.channels.values()))
+                        missing_channels = sorted(set(scope_conns.channels.values()).difference(waveforms))
                         if not missing_channels:
                             break
                         print(
@@ -383,19 +381,21 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
                         f"serdes_{target_symbol_rate_bps / 1e6:g}mbd_"
                         f"fin{si570_frequency_hz / 1e6:g}mhz_n{divider_n:02d}"
                     )
-                    csv_path = run_dir / f"{stem}.csv"
-                    write_scope_csv(csv_path, waveforms, SCOPE_TRACKS)
+                    capture_path = write_analysis(
+                        run_dir / f"{stem}.h5",
+                        scope_analysis(waveforms, scope_conns, name=stem, bandwidth_hz=SCOPE_BANDWIDTH_HZ),
+                    )
 
                     measured_interval_s, measured_symbol_rate_bps = validate_capture(
                         waveforms,
                         symbol_rate_bps,
-                        SCOPE_TRACKS,
+                        scope_conns,
                     )
 
                     plot_paths = plot_waveforms(
-                        scope_wave(waveforms, SCOPE_TRACKS),
+                        scope_wave(waveforms, scope_conns),
                         title="Oscilloscope waveforms",
-                        output_path=csv_path.with_suffix(""),
+                        output_path=capture_path.with_suffix(""),
                     )
                     for plot_path in plot_paths:
                         print(f"Saved scope waveform plot: {plot_path}")
@@ -420,12 +420,12 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
                 scope.set_trigger_edge_slope(original_trigger_slope)
                 scope.set_trigger_level(
                     original_trigger_level,
-                    channel=TRIGGER_SCOPE_CHANNEL,
+                    channel=scope_conns.channels["seq_logic"],
                 )
                 # Leave every analog channel in the standard high-bandwidth,
                 # zero-offset state instead of restoring stale per-channel
                 # offsets from an earlier measurement.
-                for channel in SCOPE_TRACKS:
+                for channel in scope_conns.channels.values():
                     scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V, channel=channel)
                     scope.set_vertical_position(0.0, channel=channel)
                     scope.set_vertical_offset(0.0, channel=channel)
@@ -455,7 +455,6 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
 
 
 @pytest.mark.hw
-@pytest.mark.scope_signals("seq_init", "seq_samp", "seq_comp", "seq_logic")
 @pytest.mark.parametrize(
     "name,sequence",
     comparison_sequences + duty_sequences,
@@ -464,14 +463,14 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
 def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
     """Capture PCB differential INIT/SAMP/COMP/LOGIC; supplies stay manual.
 
-    Requires all four clocks in map_scope.yaml; otherwise pytest skips it.
+    Requires the clock hookup: INIT/SAMP/COMP/LOGIC on CH1-4.
     The serializer-rate test requires COMP/LOGIC and powers SMUs.
     """
     from basil.dut import Dut
 
-    channels = scope_channels("seq_init", "seq_samp", "seq_comp", "seq_logic")
-    tracks = {channel: name.removeprefix("seq_").upper() for name, channel in channels.items()}
-    init_channel = channels["seq_init"]
+    # Clock hookup: differential probes on the PCB INIT/SAMP/COMP/LOGIC clocks.
+    scope_conns = ScopeConns(ch1="seq_init", ch2="seq_samp", ch3="seq_comp", ch4="seq_logic")
+    init_channel = scope_conns.channels["seq_init"]
     symbol_rate_bps = 1.6e9
     edge_tolerance_s = 0.25e-9
     run_dir = OUTPUT_DIR / time.strftime("%Y%m%d_%H%M%S") / name
@@ -519,7 +518,7 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
         scope._intf.write("DISplay:WAVEView1:ZOOM:ZOOM1:STATe ON")
         zoom_scale_s = float(response_value(scope._intf.query("DISplay:WAVEView1:ZOOM:ZOOM1:HORizontal:WINSCale?")))
         assert zoom_scale_s == pytest.approx(12e-9), "scope must display a 120 ns window"
-        for channel in tracks:
+        for channel in scope_conns.channels.values():
             scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
             scope.set_vertical_scale(0.2, channel=channel)
             scope.set_vertical_position(0.0, channel=channel)
@@ -566,9 +565,12 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
         seq.start()
         wait_for_scope_capture(scope, before)
         assert seq.is_ready, "finite sequencer run did not finish"
-        waveforms = scope.get_waveforms(tracks)
-        write_scope_csv(run_dir / "waveforms.csv", waveforms, tracks)
-        wave = scope_wave(waveforms, tracks)
+        waveforms = scope.get_waveforms(tuple(scope_conns.channels.values()))
+        write_analysis(
+            run_dir / "waveforms.h5",
+            scope_analysis(waveforms, scope_conns, name=name, bandwidth_hz=SCOPE_BANDWIDTH_HZ),
+        )
+        wave = scope_wave(waveforms, scope_conns)
         for artifact in plot_waveforms(wave, title=name, output_path=run_dir / "waveforms"):
             print(f"Saved {name}: {artifact}")
 
@@ -576,7 +578,7 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
         # The end of the long recipe's idle pause lies outside the pretrigger window.
         # Zero volts is the differential crossing; no per-channel deskew is fitted.
         time_s = wave.time_s
-        init_edges = calc.cross(wave.v[tracks[init_channel]][0], time_s, 0.0, edge="rising")
+        init_edges = calc.cross(wave.v["seq_init"][0], time_s, 0.0, edge="rising")
         assert len(init_edges), "capture must include the triggering INIT rising edge"
         origin_s = float(init_edges[np.argmin(np.abs(init_edges))])
         period_s = len(sequence.init) / symbol_rate_bps
@@ -594,8 +596,8 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
         init_index = sequence.init.index("1")
         errors = []
         observations: dict[str, dict[str, object]] = {}
-        for index, (channel, track) in enumerate(tracks.items()):
-            row = np.array([int(bit) for bit in getattr(sequence, track.lower())])
+        for index, (track, channel) in enumerate(scope_conns.channels.items()):
+            row = np.array([int(bit) for bit in getattr(sequence, track.removeprefix("seq_"))])
             signal = wave.v[track][0]
             observations[track] = {"min_v": float(signal.min()), "max_v": float(signal.max())}
             for rising in (True, False):
@@ -626,8 +628,10 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
                     "case": name,
                     "scope": str(scope.get_name()).strip(),
                     "symbol_rate_bps": symbol_rate_bps,
-                    "channels": tracks,
-                    "patterns": {track: getattr(sequence, track.lower()) for track in tracks.values()},
+                    "channels": scope_conns,
+                    "patterns": {
+                        track: getattr(sequence, track.removeprefix("seq_")) for track in scope_conns.channels
+                    },
                     "sample_interval_s": float(time_s[1] - time_s[0]),
                     "record_length": record_length,
                     "record_span_s": record_length / sample_rate_hz,
@@ -670,7 +674,6 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
 
 @pytest.mark.hw
 @pytest.mark.slow
-@pytest.mark.scope_signals("seq_comp")
 def test_serdes_output_words() -> None:
     """Capture eight-symbol output words with one through seven high symbols."""
 
@@ -679,7 +682,8 @@ def test_serdes_output_words() -> None:
     symbol_rates_bps = (320e6, 960e6, 1600e6)
     high_counts = range(1, 8)
     captures_per_case = 32
-    comp_channel = scope_channels("seq_comp")["seq_comp"]
+    scope_conns = ScopeConns(ch3="seq_comp")  # clock hookup: COMP on CH3
+    comp_channel = scope_conns.channels["seq_comp"]
     resume_dir = os.environ.get("FRIDA_SERDES_OUTPUT_WORDS_RUN_DIR")
     run_dir = Path(resume_dir) if resume_dir else OUTPUT_DIR / time.strftime("%Y%m%d_%H%M%S") / "output_words"
     run_dir.mkdir(parents=True, exist_ok=bool(resume_dir))
@@ -729,8 +733,8 @@ def test_serdes_output_words() -> None:
             for high_symbols in high_counts:
                 case_dir = run_dir / f"{symbol_rate_bps / 1e6:g}mbd_{high_symbols}of8"
                 case_dir.mkdir(exist_ok=bool(resume_dir))
-                existing = sorted(case_dir.glob("capture_*.csv"))
-                if [path.name for path in existing] != [f"capture_{index:03d}.csv" for index in range(len(existing))]:
+                existing = sorted(case_dir.glob("capture_*.h5"))
+                if [path.name for path in existing] != [f"capture_{index:03d}.h5" for index in range(len(existing))]:
                     raise ValueError(f"{case_dir} has a noncontiguous capture prefix")
                 if len(existing) > captures_per_case:
                     raise ValueError(f"{case_dir} has too many captures")
@@ -767,7 +771,15 @@ def test_serdes_output_words() -> None:
                     if comp_channel not in captured:
                         raise RuntimeError(f"scope omitted COMP channel {comp_channel}")
                     captures.append(captured)
-                    write_scope_csv(case_dir / f"capture_{capture_index:03d}.csv", captured, {comp_channel: "seq_comp"})
+                    write_analysis(
+                        case_dir / f"capture_{capture_index:03d}.h5",
+                        scope_analysis(
+                            captured,
+                            scope_conns,
+                            name=case_dir.name,
+                            bandwidth_hz=SCOPE_BANDWIDTH_HZ,
+                        ),
+                    )
                 captures_by_case[(int(symbol_rate_bps / 1e6), high_symbols)] = captures
         if not resume_dir:
             for path in plot_serdes_output_word_grid(
@@ -800,7 +812,6 @@ def test_serdes_output_words() -> None:
 
 @pytest.mark.hw
 @pytest.mark.slow
-@pytest.mark.scope_signals("seq_init", "seq_comp")
 def test_serdes_symbol_eye() -> None:
     """Fold all nonconstant eight-bit contexts into a single-symbol eye."""
 
@@ -812,9 +823,8 @@ def test_serdes_symbol_eye() -> None:
     assert not words & {"00000000", "11111111"}
     symbol_rates_bps = (320e6, 960e6, 1600e6)
     captures_per_rate = 64
-    channels = scope_channels("seq_init", "seq_comp")
-    marker_channel, output_channel = channels["seq_init"], channels["seq_comp"]
-    tracks = {marker_channel: "seq_init", output_channel: "seq_comp"}
+    scope_conns = ScopeConns(ch1="seq_init", ch3="seq_comp")  # clock hookup
+    marker_channel, output_channel = scope_conns.channels["seq_init"], scope_conns.channels["seq_comp"]
     run_dir = OUTPUT_DIR / time.strftime("%Y%m%d_%H%M%S") / "symbol_eye"
     run_dir.mkdir(parents=True, exist_ok=False)
     config = safe_load(MAP_PATH.read_text())
@@ -838,7 +848,7 @@ def test_serdes_symbol_eye() -> None:
         scope._intf.write("HORizontal:MODe:SAMPLERate 6.25E9")
         scope.set_horizontal_record_length(10_000)
         scope._intf.write("HORizontal:POSition 10")
-        for channel in tracks:
+        for channel in scope_conns.channels.values():
             scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
             scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V, channel=channel)
             scope.set_vertical_position(0.0, channel=channel)
@@ -889,11 +899,16 @@ def test_serdes_symbol_eye() -> None:
                 seq.start()
                 wait_for_scope_capture(scope, before, timeout_s=5.0)
                 assert seq.is_ready, "finite sequencer run did not finish"
-                captured = scope.get_waveforms(tracks)
-                if set(captured) != set(tracks):
-                    raise RuntimeError(f"scope returned channels {sorted(captured)}, expected {sorted(tracks)}")
+                captured = scope.get_waveforms(tuple(scope_conns.channels.values()))
+                if set(captured) != set(scope_conns.channels.values()):
+                    raise RuntimeError(
+                        f"scope returned channels {sorted(captured)}, expected {sorted(scope_conns.channels.values())}"
+                    )
                 captures.append(captured)
-                write_scope_csv(case_dir / f"capture_{capture_index:03d}.csv", captured, tracks)
+                write_analysis(
+                    case_dir / f"capture_{capture_index:03d}.h5",
+                    scope_analysis(captured, scope_conns, name=case_dir.name, bandwidth_hz=SCOPE_BANDWIDTH_HZ),
+                )
             captures_by_rate[int(symbol_rate_bps / 1e6)] = captures
         for path in plot_serdes_symbol_eye_grid(
             captures_by_rate,

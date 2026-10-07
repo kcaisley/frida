@@ -26,11 +26,14 @@ from flow.scans.fastrx import (
 )
 from flow.scans.params import AdcScanParams, load_board_map, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
-from flow.scans.scan_adc import convert_dac_caps_to_adc_weights, convert_params_to_spi_fmt
-from flow.scans.scope import (
+from flow.scans.scan_adc import (
+    convert_dac_caps_to_adc_weights,
+    convert_params_to_spi_fmt,
     crop_adc_scope_conversion,
-    scope_channels,
     scope_records_to_adc_wave,
+)
+from flow.scans.scope import (
+    ScopeConns,
     wait_for_scope_armed,
     wait_for_scope_capture,
 )
@@ -126,7 +129,8 @@ def scan(
         daq = daq_dut
 
         if position != "abort":
-            channels = scope_channels("seq_init", "seq_comp", "seq_logic", "comp_out")
+            # Manual-input hookup: INIT marker on CH1, comparator output and clocks on CH2-4.
+            scope_conns = ScopeConns(ch1="seq_init", ch2="comp_out", ch3="seq_comp", ch4="seq_logic")
             scope_dut = Dut(str(map_path.with_name("map_scope.yaml")))
             scope_dut.init()
             scope = scope_dut["scope"]
@@ -134,7 +138,7 @@ def scan(
             scope.set_acquire_mode("SAMPLE")
             scope.set_acquire_stop_after("SEQUENCE")
             scope.set_horizontal_record_length(10_000)
-            for channel in channels.values():
+            for channel in scope_conns.channels.values():
                 scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
                 scope.set_coupling("DC", channel=channel)
                 scope.set_vertical_scale(0.2, channel=channel)
@@ -145,17 +149,17 @@ def scan(
             # arm on COMP and trigger on the next INIT to avoid idle INIT chatter.
             scope._intf.write("TRIGger:B:STATE OFF")
             scope.set_trigger_type("EDGE")
-            scope.set_trigger_source(channel=channels["seq_comp"])
+            scope.set_trigger_source(channel=scope_conns.channels["seq_comp"])
             scope.set_trigger_edge_slope("RISE")
-            scope.set_trigger_level(0.0, channel=channels["seq_comp"])
+            scope.set_trigger_level(0.0, channel=scope_conns.channels["seq_comp"])
             scope.set_trigger_mode("NORMAL")
             if scope_trigger_signal == "seq_init":
                 scope._intf.write("TRIGger:B:BY EVENTS")
                 scope._intf.write("TRIGger:B:EVENTS:COUNt 1")
-                scope._intf.write(f"TRIGger:B:EDGE:SOUrce CH{channels['seq_init']}")
+                scope._intf.write(f"TRIGger:B:EDGE:SOUrce CH{scope_conns.channels['seq_init']}")
                 scope._intf.write("TRIGger:B:EDGE:SLOpe RISE")
                 scope._intf.write("TRIGger:B:EDGE:COUPling DC")
-                scope._intf.write(f"TRIGger:B:LEVel:CH{channels['seq_init']} 0")
+                scope._intf.write(f"TRIGger:B:LEVel:CH{scope_conns.channels['seq_init']} 0")
                 scope._intf.write("TRIGger:B:STATE ON")
             variant_index = len(tuple(run_dir.glob("*.h5")))
             try:
@@ -284,10 +288,10 @@ def scan(
                 if len(raw_data) < expected_frames:
                     raise RuntimeError(f"expected at least {expected_frames} FastRX words, received {len(raw_data)}")
                 wait_for_scope_capture(scope, acquisition_count_before, timeout_s=5.0)
-                scope_waveforms = scope.get_waveforms({channel: name for name, channel in channels.items()})
+                scope_waveforms = scope.get_waveforms({channel: name for name, channel in scope_conns.channels.items()})
                 scope_conversion_index = int(scope_trigger_signal == "seq_init")
                 scope_wave = crop_adc_scope_conversion(
-                    scope_records_to_adc_wave([scope_waveforms], [scope_conversion_index], channels),
+                    scope_records_to_adc_wave([scope_waveforms], [scope_conversion_index], scope_conns),
                     skip_conversions=startup_conversions,
                     conversion_period_s=conversion_period_s,
                     symbol_period_s=1 / symbol_rate_bps,

@@ -5,8 +5,8 @@ default run tests 80--1600 MBd in 40 MBd steps and LOGIC phase offsets -3..+3.
 For each point an exact characterized profile selects RX_SEN and combined IDELAY,
 FastRX records repeated conversions, and the scope records:
 
-COMP, LOGIC, and COMP_OUT on their configured map_scope.yaml channels, plus
-the differential ADC input when connected.
+the TDP3500 differential ADC input on CH1, and COMP, LOGIC, and COMP_OUT on
+CH2--CH4 (the standard hookup declared in the test).
 
 The first 17 scope decisions are compared bit-for-bit with the first FastRX
 word. Every scope waveform, ADC conversion record, and noise histogram is
@@ -87,10 +87,10 @@ from flow.scans.scan_adc import (
     convert_dac_caps_to_adc_weights,
     convert_params_to_spi_fmt,
     convert_vdiff_input_to_awg_supply,
+    scope_records_to_adc_wave,
 )
 from flow.scans.scope import (
-    scope_channels,
-    scope_records_to_adc_wave,
+    ScopeConns,
     wait_for_scope_armed,
     wait_for_scope_capture,
 )
@@ -146,7 +146,6 @@ FASTRX_TRAILING_DRAIN_S = 0.01
         ),
     ),
 )
-@pytest.mark.scope_signals("seq_comp", "seq_logic", "comp_out")
 def test_physical_fastrx_matches_scope(
     symbol_rates_bps: tuple[float, ...],
     logic_offsets: tuple[int, ...],
@@ -158,9 +157,8 @@ def test_physical_fastrx_matches_scope(
     timing_sequences = tuple(
         sequence for name, sequence in SEQUENCES if name.startswith("symbol256_init8_samp16_comp11110000_")
     )
-    channels = scope_channels("seq_comp", "seq_logic", "comp_out", optional=("vin_diff",))
-    SCOPE_TRACKS = {channel: name for name, channel in channels.items()}
-    SCOPE_TRIGGER_CHANNEL = channels["seq_logic"]
+    # Standard MSO54 hookup: TDP3500 input on CH1, COMP, LOGIC, and comparator output on CH2-4.
+    scope_conns = ScopeConns(ch1="vin_diff", ch2="seq_comp", ch3="seq_logic", ch4="comp_out")
     board_map = load_board_map()
     board = board_map["boards"][BOARD_ID]
     capture_profiles = board["fastrx_capture_settings"]
@@ -352,17 +350,17 @@ def test_physical_fastrx_matches_scope(
             "trigger_type": response_value(scope.get_trigger_type()),
             "trigger_source": response_value(scope.get_triggr_source()),
             "trigger_slope": response_value(scope.get_trigger_edge_slope()),
-            "trigger_level": response_value(scope.get_trigger_level(channel=SCOPE_TRIGGER_CHANNEL)),
+            "trigger_level": response_value(scope.get_trigger_level(channel=scope_conns.channels["seq_logic"])),
             "display": {
                 channel: response_value(scope._intf.query(f"DISplay:GLObal:CH{channel}:STATE?"))
-                for channel in SCOPE_TRACKS
+                for channel in scope_conns.channels.values()
             },
         }
         scope.set_acquire_state("STOP")
         scope.set_acquire_mode("SAMPLE")
         scope.set_acquire_stop_after("SEQUENCE")
         scope.set_horizontal_record_length(SCOPE_RECORD_LENGTH)
-        for channel in SCOPE_TRACKS:
+        for channel in scope_conns.channels.values():
             scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
             scope.set_coupling("DC", channel=channel)
             scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V, channel=channel)
@@ -370,9 +368,9 @@ def test_physical_fastrx_matches_scope(
             scope.set_vertical_offset(0.0, channel=channel)
             scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=channel)
         scope.set_trigger_type("EDGE")
-        scope.set_trigger_source(channel=SCOPE_TRIGGER_CHANNEL)
+        scope.set_trigger_source(channel=scope_conns.channels["seq_logic"])
         scope.set_trigger_edge_slope("RISE")
-        scope.set_trigger_level(0.0, channel=SCOPE_TRIGGER_CHANNEL)
+        scope.set_trigger_level(0.0, channel=scope_conns.channels["seq_logic"])
         scope.set_trigger_mode("NORMAL")
 
         cap_weights = get_caparray_weights(base_params.tb.dut.cdac)
@@ -494,8 +492,8 @@ def test_physical_fastrx_matches_scope(
                 raise RuntimeError("FastRX reported lost words")
 
             sleep(SCOPE_DOWNLOAD_SETTLE_S)
-            waveforms = scope.get_waveforms(SCOPE_TRACKS)
-            missing_channels = sorted(set(SCOPE_TRACKS).difference(waveforms))
+            waveforms = scope.get_waveforms(tuple(scope_conns.channels.values()))
+            missing_channels = sorted(set(scope_conns.channels.values()).difference(waveforms))
             if missing_channels:
                 raise RuntimeError(f"scope did not return channels {missing_channels}")
 
@@ -540,11 +538,7 @@ def test_physical_fastrx_matches_scope(
                 dout=dout_values,
                 vin_diff_v=np.full(conversions, VIN_DIFF_V),
                 fastrx_word=fastrx_words,
-                wave=scope_records_to_adc_wave(
-                    [waveforms],
-                    [0],
-                    {f"{name}_v": channel for name, channel in channels.items()},
-                ),
+                wave=scope_records_to_adc_wave([waveforms], [0], scope_conns),
             )
             scope_analysis = analyze_adc_scope_bits(measurement)
             measurement = dataclasses.replace(
@@ -658,9 +652,9 @@ def test_physical_fastrx_matches_scope(
                 scope.set_trigger_edge_slope(scope_state["trigger_slope"])
                 scope.set_trigger_level(
                     scope_state["trigger_level"],
-                    channel=SCOPE_TRIGGER_CHANNEL,
+                    channel=scope_conns.channels["seq_logic"],
                 )
-                for channel in SCOPE_TRACKS:
+                for channel in scope_conns.channels.values():
                     scope.set_vertical_scale(SCOPE_VERTICAL_SCALE_V, channel=channel)
                     scope.set_vertical_position(0.0, channel=channel)
                     scope.set_vertical_offset(0.0, channel=channel)
@@ -685,7 +679,6 @@ INTERNAL_CAPTURE_TIMEOUT_S = 2.0
     (symbol256_init8_samp16_comp11110000_logic11000011, symbol160_init4_samp20_comp11110000_logic00001111),
     ids=("ordinary", "wrapped"),
 )
-@pytest.mark.scope_signals("seq_comp", "seq_logic", "comp_out")
 def test_adc_scan_boundary_capture(sequence: AdcSequence, symbol_rate: float, linux_gpib_interface: None) -> None:
     """Exercise both production scans and compare instrumented ADC data with scope."""
     params = build_adc_variants(
@@ -896,7 +889,6 @@ def test_fastrx_captures_exact_internal_17_bit_pattern(sequence: AdcSequence, bo
 
 @pytest.mark.hw
 @pytest.mark.slow
-@pytest.mark.scope_signals("seq_comp", "seq_logic", "comp_out")
 def test_adc_comp_out_edge_eye(linux_gpib_interface: None) -> None:
     """Measure repeated 2 MSPS comparator edge timing with fixed manual input.
 

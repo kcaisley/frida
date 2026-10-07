@@ -1,137 +1,128 @@
-"""Reusable oscilloscope acquisition and SCPI synchronization helpers."""
+"""Reusable oscilloscope acquisition and SCPI synchronization helpers.
+
+Basil captures ──scope_wave()──► Wave                      (plain captures: serdes, diffamp checks)
+               └─scope_analysis() = scope_wave() + math traces + spectra + RMS ──► AnalysisScope
+"""
 
 from __future__ import annotations
 
-import csv
 import time
 from collections.abc import Mapping, Sequence
-from pathlib import Path
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from basil.HL.tektronix_oscilloscope import response_value
-from yaml import safe_load
 
 from flow.analysis import calc
-from flow.analysis.types import Wave
-
-DEFAULT_CAPTURE_TIMEOUT_S = 2.0
-
-SCOPE_MAP_PATH = Path(__file__).with_name("map_scope.yaml")
+from flow.analysis.types import AnalysisScope, Wave
 
 
-def scope_channels(*required: str, optional: tuple[str, ...] = ()) -> dict[str, int]:
-    """Read the actual probe hookup, requiring signals before any hardware I/O."""
-    connections = safe_load(SCOPE_MAP_PATH.read_text())["connections"]
-    known = {"seq_init", "seq_samp", "seq_comp", "seq_logic", "comp_out", "vin_diff"}
-    if not isinstance(connections, dict) or set(connections) - known:
-        raise ValueError(f"invalid scope signal names in {SCOPE_MAP_PATH}")
-    if any(type(channel) is not int or channel not in range(1, 5) for channel in connections.values()):
-        raise ValueError(f"scope channels must be integers 1..4 in {SCOPE_MAP_PATH}")
-    if len(set(connections.values())) != len(connections):
-        raise ValueError(f"scope channels must be unique in {SCOPE_MAP_PATH}")
-    if set(required + optional) - known:
-        raise ValueError("unknown requested scope signal")
-    missing = set(required) - connections.keys()
-    if missing:
-        raise ValueError(f"scope signals not connected in {SCOPE_MAP_PATH}: {', '.join(sorted(missing))}")
-    selected = set(required + optional) if required or optional else set(connections)
-    return {name: channel for name, channel in connections.items() if name in selected}
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ScopeConns:
+    """Oscilloscope probe hookup: the lowercase signal name on each channel, or ``None``.
 
-
-def scope_wave(waveforms: Any, track_names: Mapping[int, str]) -> Wave:
-    """Normalize one aligned Basil oscilloscope acquisition into a one-record wave.
-
-    ``track_names`` maps each scope channel to the net or signal name it probes.
+    The four channels are fixed; what is connected to them changes, so each
+    scan declares one of these next to its Basil calls, for example
+    ``ScopeConns(ch1="vin_diff", ch2="seq_comp", ch3="seq_logic", ch4="comp_out")``.
     """
 
-    channels = tuple(track_names)
-    if not channels:
-        raise ValueError("at least one scope track is required")
-    missing_channels = sorted(set(channels).difference(waveforms))
+    ch1: str | None = None
+    ch2: str | None = None
+    ch3: str | None = None
+    ch4: str | None = None
+
+    def __post_init__(self) -> None:
+        names = [name for name in (self.ch1, self.ch2, self.ch3, self.ch4) if name is not None]
+        if not names:
+            raise ValueError("a scope hookup connects at least one channel")
+        if len(set(names)) != len(names) or any(name != name.lower() for name in names):
+            raise ValueError(f"scope signal names must be unique and lowercase: {names}")
+
+    @property
+    def channels(self) -> dict[str, int]:
+        """Return ``{signal: channel}`` for every connected channel, in channel order."""
+
+        return {
+            name: channel
+            for channel, name in enumerate((self.ch1, self.ch2, self.ch3, self.ch4), start=1)
+            if name is not None
+        }
+
+
+def scope_wave(waveforms: Any, scope_conns: ScopeConns) -> Wave:
+    """Normalize one aligned Basil oscilloscope acquisition into a one-record wave keyed by signal name."""
+
+    channels = scope_conns.channels
+    missing_channels = sorted(set(channels.values()).difference(waveforms))
     if missing_channels:
         raise ValueError(f"scope did not return waveforms for channels {missing_channels}")
-    reference_scale = waveforms[channels[0]].x_scale
-    sample_counts = {channel: len(waveforms[channel].data) for channel in channels}
+    first = waveforms[next(iter(channels.values()))]
+    sample_counts = {channel: len(waveforms[channel].data) for channel in channels.values()}
     if len(set(sample_counts.values())) != 1:
         raise ValueError(f"scope channels have different sample counts: {sample_counts}")
-    if any(waveforms[channel].x_scale != reference_scale for channel in channels):
+    if any(waveforms[channel].x_scale != first.x_scale for channel in channels.values()):
         raise ValueError("scope channels do not share one horizontal scale")
-    sample_count = next(iter(sample_counts.values()))
     return Wave(
         record_index=np.zeros(1, dtype=np.int64),
-        time_s=reference_scale.offset + np.arange(sample_count) * reference_scale.slope,
-        v={
-            track_names[channel]: np.asarray(waveforms[channel].data, dtype=np.float64)[None, :] for channel in channels
-        },
+        time_s=first.x_scale.offset + np.arange(len(first.data)) * first.x_scale.slope,
+        v={name: np.asarray(waveforms[channel].data, dtype=np.float64)[None, :] for name, channel in channels.items()},
     )
 
 
-def write_scope_csv(
-    csv_path: Path,
+def scope_analysis(
     waveforms: Any,
-    track_names: dict[int, str],
-) -> Path:
-    """Persist one raw, aligned oscilloscope acquisition as CSV."""
+    scope_conns: ScopeConns,
+    *,
+    name: str,
+    bandwidth_hz: float,
+    setup: Sequence[str] = (),
+    math: Mapping[str, tuple[str, str]] | None = None,
+) -> AnalysisScope:
+    """Build one scope result: the aligned traces, math differences, spectra, and statistics.
 
-    channels = tuple(track_names)
-    if not channels:
-        raise ValueError("at least one scope track is required")
-    if len(set(track_names.values())) != len(track_names):
-        raise ValueError(f"scope track names must be unique, got {tuple(track_names.values())}")
+    ``math`` maps a derived trace name to the ``(p, n)`` trace names whose
+    difference ``p - n`` it holds, such as ``{"vin_diff": ("vin_p", "vin_n")}``.
+    """
 
-    missing_channels = sorted(set(channels).difference(waveforms))
-    if missing_channels:
-        raise ValueError(f"scope did not return waveforms for channels {missing_channels}")
-
-    reference_x_scale = waveforms[channels[0]].x_scale
-    if reference_x_scale.unit.lower() not in {"s", "sec", "seconds"}:
-        raise ValueError(f"expected scope time axis in seconds, got {reference_x_scale.unit!r}")
-
-    sample_counts: dict[int, int] = {}
-    for channel in channels:
-        waveform = waveforms[channel]
-        if waveform.x_scale != reference_x_scale:
-            raise ValueError(
-                f"scope channel {channel} has horizontal scale {waveform.x_scale}, expected {reference_x_scale}"
-            )
-        if len(waveform.data) != len(waveform.raw_data):
-            raise ValueError(
-                f"scope channel {channel} has {len(waveform.data)} voltage samples "
-                f"but {len(waveform.raw_data)} raw samples"
-            )
-        sample_counts[channel] = len(waveform.raw_data)
-
-    if len(set(sample_counts.values())) != 1:
-        raise ValueError(f"scope channels have different sample counts: {sample_counts}")
-
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    with csv_path.open("w", newline="") as output:
-        writer = csv.writer(output)
-        writer.writerow(
-            [
-                "time_s",
-                *(f"{track_names[channel]}_v" for channel in channels),
-                *(f"{track_names[channel]}_raw" for channel in channels),
-            ]
+    wave = scope_wave(waveforms, scope_conns)
+    traces = dict(wave.v)
+    for derived, (positive, negative) in (math or {}).items():
+        traces[derived] = traces[positive] - traces[negative]
+    wave = Wave(record_index=wave.record_index, time_s=wave.time_s, v=traces)
+    sample_rate_hz = 1.0 / float(wave.time_s[1] - wave.time_s[0])
+    mean_v = {trace: calc.average(values[0]) for trace, values in traces.items()}
+    spectra = {}
+    frequency_hz = np.empty(0)
+    for trace, values in traces.items():
+        centered = values[0] - mean_v[trace]
+        # Three half-overlapping Hann segments: some averaging, while keeping
+        # the resolution (2 / record length) fine enough to separate mains lines.
+        frequency_hz, density_v2_per_hz = calc.psd(
+            centered, sample_rate=sample_rate_hz, window="hann", segment_length=len(centered) // 2
         )
-        for index in range(next(iter(sample_counts.values()))):
-            writer.writerow(
-                [
-                    reference_x_scale.offset + index * reference_x_scale.slope,
-                    *(waveforms[channel].data[index] for channel in channels),
-                    *(waveforms[channel].raw_data[index] for channel in channels),
-                ]
-            )
-
-    print(f"Saved scope waveform CSV: {csv_path}")
-    return csv_path
+        spectra[trace] = np.sqrt(np.maximum(density_v2_per_hz, 0.0))
+    return AnalysisScope(
+        group=None,
+        index=None,
+        dut=None,
+        name=name,
+        wave=wave,
+        bandwidth_hz=bandwidth_hz,
+        spectrum_frequency_hz=frequency_hz,
+        spectrum_v_per_sqrt_hz=spectra,
+        mean_v=mean_v,
+        ac_rms_v={trace: calc.stddev(values[0]) for trace, values in traces.items()},
+        setup=tuple(setup),
+    )
 
 
 def wait_for_scope_capture(
     scope: Any,
     acquisition_count_before: int,
-    timeout_s: float = DEFAULT_CAPTURE_TIMEOUT_S,
+    # Covers the millisecond-scale records used here plus SCPI polling; slow
+    # sequencer runs pass a longer timeout.
+    timeout_s: float = 2.0,
 ) -> None:
     """Wait for a new single-sequence acquisition to complete and stop."""
     deadline = time.monotonic() + timeout_s
@@ -148,7 +139,11 @@ def wait_for_scope_capture(
         time.sleep(0.01)
 
 
-def wait_for_scope_armed(scope: Any, timeout_s: float = DEFAULT_CAPTURE_TIMEOUT_S) -> int:
+def wait_for_scope_armed(
+    scope: Any,
+    # Arming after ACQuire:STATE RUN normally takes milliseconds; 2 s allows for SCPI latency.
+    timeout_s: float = 2.0,
+) -> int:
     """Wait for a fresh acquisition to reset and arm; return its count."""
     deadline = time.monotonic() + timeout_s
     while True:
@@ -164,100 +159,3 @@ def wait_for_scope_armed(scope: Any, timeout_s: float = DEFAULT_CAPTURE_TIMEOUT_
                 f"acquisition_count={acquisition_count})"
             )
         time.sleep(0.01)
-
-
-def crop_adc_scope_conversion(
-    wave: Wave,
-    *,
-    skip_conversions: int,
-    conversion_period_s: float,
-    symbol_period_s: float,
-    reference_signal: Literal["seq_comp", "seq_init"] = "seq_comp",
-) -> Wave:
-    """Select a complete ADC conversion after sequencer startup.
-
-    COMP-referenced captures keep one symbol before B0. INIT-triggered captures
-    keep the CH1 trigger edge and a short tail beyond the next INIT, allowing
-    the final external COMP_OUT decision to settle. The caller associates the
-    selected record with its DAQ conversion index.
-    """
-    from dataclasses import replace
-
-    import numpy as np
-
-    if len(wave.record_index) != 1 or skip_conversions < 0:
-        raise ValueError("scope cropping requires one record and a nonnegative skip count")
-    if reference_signal not in {"seq_comp", "seq_init"}:
-        raise ValueError(f"unsupported scope crop reference {reference_signal!r}")
-    if reference_signal == "seq_init" and skip_conversions:
-        raise ValueError("INIT-triggered scope cropping starts at the triggered conversion")
-    if reference_signal not in wave.v:
-        raise ValueError(f"scope {reference_signal} waveform is required for this cropping reference")
-    reference = wave.v[reference_signal][0]
-    low, high = np.percentile(reference, (1, 99))
-    if high - low < 0.1:
-        raise ValueError(f"scope {reference_signal} waveform has no valid logic swing")
-    edges = calc.cross(reference, wave.time_s, (low + high) / 2, edge="rising")
-    if reference_signal == "seq_init":
-        trigger_edges = edges[np.abs(edges) < conversion_period_s / 4]
-        if len(trigger_edges) != 1:
-            raise ValueError("scope record lacks one INIT edge at the CH1 trigger")
-        origin = trigger_edges[0] - symbol_period_s / 2
-        # The final external COMP_OUT decision can settle after the next
-        # INIT, so retain two decision intervals beyond the 160-symbol row.
-        stop = origin + conversion_period_s + 16 * symbol_period_s
-    else:
-        if len(edges) < 17 * (skip_conversions + 1):
-            raise ValueError("scope record lacks the complete retained ADC conversion after startup")
-        origin = edges[17 * skip_conversions] - symbol_period_s
-        stop = origin + conversion_period_s
-    if origin < wave.time_s[0] or stop > wave.time_s[-1]:
-        raise ValueError("scope record does not cover the retained ADC conversion window")
-    selected = (wave.time_s >= origin) & (wave.time_s < stop)
-    return replace(
-        wave,
-        time_s=wave.time_s[selected] - origin,
-        v={name: trace[:, selected] for name, trace in wave.v.items()},
-        i={name: trace[:, selected] for name, trace in wave.i.items()},
-    )
-
-
-def scope_records_to_adc_wave(
-    records: Sequence[Mapping[int, Any]],
-    conversion_index: Sequence[int],
-    channels: Mapping[str, int],
-) -> Wave:
-    """Convert aligned triggered scope records into ADC net voltages keyed by net name."""
-
-    required = {"seq_comp", "seq_logic", "comp_out"}
-    if not required <= set(channels) or set(channels) - required - {"vin_diff", "seq_init"}:
-        raise ValueError(f"scope channels must include {sorted(required)}, with optional vin_diff and seq_init")
-    if len(set(channels.values())) != len(channels):
-        raise ValueError("scope channels must be unique")
-    if len(records) != len(conversion_index):
-        raise ValueError("scope record count must match waveform conversion indices")
-
-    time_s = None
-    signals = {name: [] for name in channels}
-    for record_number, record in enumerate(records):
-        missing_channels = sorted(set(channels.values()).difference(record))
-        if missing_channels:
-            raise ValueError(f"scope record {record_number} is missing channels {missing_channels}")
-        reference = record[next(iter(channels.values()))]
-        record_time = reference.x_scale.offset + np.arange(len(reference.data)) * reference.x_scale.slope
-        if time_s is None:
-            time_s = record_time
-        elif not np.array_equal(record_time, time_s):
-            raise ValueError(f"scope record {record_number} has a different time axis")
-        for name, channel in channels.items():
-            values = np.asarray(record[channel].data, dtype=np.float64)
-            if len(values) != len(record_time):
-                raise ValueError(f"scope record {record_number} channel {channel} is not aligned")
-            signals[name].append(values)
-    if time_s is None:
-        raise ValueError("at least one scope record is required")
-    return Wave(
-        record_index=np.asarray(conversion_index),
-        time_s=time_s,
-        v={name: np.stack(values) for name, values in signals.items()},
-    )

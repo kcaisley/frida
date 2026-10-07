@@ -196,7 +196,7 @@ uv run python -m flow.analysis.runner adc_calibration_study
 
 All three analyses return the same typed 17-weight result. The runner writes a shared weight comparison, transfer, code-density, and INL/DNL plots plus metrics and normalized-weight CSV files below one fresh `build/analysis/adc/` directory. Every weight vector sums to 4095; rounding to a 12-bit integer is deferred until the final backend output.
 
-The `connections` table in `flow/scans/map_scope.yaml` records the actual oscilloscope hookup. Update it whenever probes move and omit unconnected signals. Scans derive acquisition and trigger channels from this table; hardware tests declare required signals with `@pytest.mark.scope_signals(...)` and skip before hardware initialization when a required probe is absent. The four-clock test requires INIT, SAMP, COMP, and LOGIC. ADC scope captures can omit `vin_diff`; its measurement waveform then remains absent.
+`flow/scans/map_scope.yaml` only says how to reach the oscilloscope (Basil transfer layer and driver). Each scan or test declares its own probe hookup as a literal `{signal: channel}` mapping next to its Basil calls; edit that mapping when probes move. The standard ADC hookup is `vin_diff` (TDP3500) on CH1, COMP on CH2, LOGIC on CH3, and COMP_OUT on CH4. `scan_adc_noctl` uses INIT on CH1, COMP_OUT on CH2, COMP on CH3, and LOGIC on CH4. The serializer clock, output-word, and symbol-eye tests use differential probes on the PCB clocks: INIT, SAMP, COMP, and LOGIC on CH1--CH4.
 
 Run one explicitly named physical campaign through the shared scan runner:
 

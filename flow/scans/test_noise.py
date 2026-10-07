@@ -2,8 +2,7 @@
 
 The Agilent 33250A applies the calibrated DC level required for zero
 differential THS4541 output, the E3634A sets the output common mode to 0.7 V,
-and the TDP3500 probe measures ``Vin_p - Vin_n`` on the channel recorded in
-map_scope.yaml. The scope uses its minimum accepted 20 MHz
+and the TDP3500 probe on CH1 measures ``Vin_p - Vin_n``. The scope uses its minimum accepted 20 MHz
 bandwidth and minimum accepted 2.5 mV/div scale for the final capture. The
 MSO54 may quantize the requested 100 ksample record to a longer supported
 length; the accepted value is preserved in the summary.
@@ -25,6 +24,7 @@ import json
 import math
 from pathlib import Path
 from time import sleep, strftime
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -32,10 +32,11 @@ from basil.HL.tektronix_oscilloscope import response_value
 from PIL import Image
 
 import flow.analysis.plots as analysis_plots
-from flow.analysis.diffamp import analyze_diffamp_noise
-from flow.analysis.plots import plot_diffamp_noise
+from flow.analysis.io import read_analysis, write_analysis
+from flow.analysis.plots import plot_histogram, plot_spectrum, plot_waveforms
+from flow.analysis.types import AnalysisScope
 from flow.scans.scan_adc import convert_vdiff_input_to_awg_supply
-from flow.scans.scope import scope_channels, wait_for_scope_armed, write_scope_csv
+from flow.scans.scope import ScopeConns, scope_analysis, wait_for_scope_armed
 
 MAP_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "build" / "test_noise"
@@ -63,12 +64,11 @@ SCOPE_ARM_TIMEOUT_S = 5.0
 
 
 @pytest.mark.hw
-@pytest.mark.scope_signals("vin_diff")
 def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
     """Configure the bench, acquire one quiet waveform, and save its analysis."""
 
-    SCOPE_CHANNEL = scope_channels("vin_diff")["vin_diff"]
-    SCOPE_TRACKS = {SCOPE_CHANNEL: "vin_diff"}
+    scope_conns = ScopeConns(ch1="vin_diff")  # TDP3500 across the differential input
+    vin_diff_channel = scope_conns.channels["vin_diff"]
 
     if not 0.0 < ASIC_SUPPLY_V <= 1.2:
         raise ValueError("ASIC supply voltage must remain in 0..1.2 V")
@@ -156,14 +156,14 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
         awg_id = str(awg.get_name()).strip()
         supply_id = str(supply.get_name()).strip()
         scope_id = str(scope.get_name()).strip()
-        probe_type = str(scope._intf.query(f"CH{SCOPE_CHANNEL}:PROBE:ID:TYPE?")).strip().strip('"')
-        probe_resistance_ohm = float(response_value(scope._intf.query(f"CH{SCOPE_CHANNEL}:PROBE:RESISTANCE?")))
-        probe_gain = float(response_value(scope._intf.query(f"CH{SCOPE_CHANNEL}:PROBE:GAIN?")))
+        probe_type = str(scope._intf.query(f"CH{vin_diff_channel}:PROBE:ID:TYPE?")).strip().strip('"')
+        probe_resistance_ohm = float(response_value(scope._intf.query(f"CH{vin_diff_channel}:PROBE:RESISTANCE?")))
+        probe_gain = float(response_value(scope._intf.query(f"CH{vin_diff_channel}:PROBE:GAIN?")))
         print(f"AWG: {awg_id}")
         print(f"VIN_CM supply: {supply_id}")
         print(f"Scope: {scope_id}")
         print(
-            f"Scope CH{SCOPE_CHANNEL}: probe={probe_type}, input_resistance={probe_resistance_ohm:g} ohm, gain={probe_gain:g}"
+            f"Scope CH{vin_diff_channel}: probe={probe_type}, input_resistance={probe_resistance_ohm:g} ohm, gain={probe_gain:g}"
         )
         if probe_type.upper() != "TDP3500" or probe_resistance_ohm < 10.0e3:
             raise RuntimeError(
@@ -181,14 +181,14 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
             "trigger_type": response_value(scope.get_trigger_type()),
             "trigger_source": response_value(scope.get_triggr_source()),
             "trigger_slope": response_value(scope.get_trigger_edge_slope()),
-            "trigger_level": response_value(scope.get_trigger_level(channel=SCOPE_CHANNEL)),
-            "coupling": response_value(scope.get_coupling(channel=SCOPE_CHANNEL)),
-            "impedance": response_value(scope.get_impedance(channel=SCOPE_CHANNEL)),
-            "vertical_scale": response_value(scope.get_vertical_scale(channel=SCOPE_CHANNEL)),
-            "vertical_position": response_value(scope.get_vertical_position(channel=SCOPE_CHANNEL)),
-            "vertical_offset": response_value(scope.get_vertical_offset(channel=SCOPE_CHANNEL)),
-            "bandwidth": response_value(scope.get_bandwidth(channel=SCOPE_CHANNEL)),
-            "display": response_value(scope._intf.query(f"DISplay:GLObal:CH{SCOPE_CHANNEL}:STATE?")),
+            "trigger_level": response_value(scope.get_trigger_level(channel=vin_diff_channel)),
+            "coupling": response_value(scope.get_coupling(channel=vin_diff_channel)),
+            "impedance": response_value(scope.get_impedance(channel=vin_diff_channel)),
+            "vertical_scale": response_value(scope.get_vertical_scale(channel=vin_diff_channel)),
+            "vertical_position": response_value(scope.get_vertical_position(channel=vin_diff_channel)),
+            "vertical_offset": response_value(scope.get_vertical_offset(channel=vin_diff_channel)),
+            "bandwidth": response_value(scope.get_bandwidth(channel=vin_diff_channel)),
+            "display": response_value(scope._intf.query(f"DISplay:GLObal:CH{vin_diff_channel}:STATE?")),
         }
 
         scope.set_acquire_state("STOP")
@@ -197,18 +197,18 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
         scope.set_horizontal_scale(SCOPE_HORIZONTAL_SCALE_S)
         scope.set_horizontal_record_length(SCOPE_RECORD_LENGTH)
         scope._intf.write("HORizontal:POSition 50")
-        scope._intf.write(f"DISplay:GLObal:CH{SCOPE_CHANNEL}:STATE ON")
-        scope.set_coupling("DC", channel=SCOPE_CHANNEL)
-        scope.set_vertical_position(0.0, channel=SCOPE_CHANNEL)
-        scope.set_vertical_offset(0.0, channel=SCOPE_CHANNEL)
-        scope.set_vertical_scale(SCOPE_COARSE_VERTICAL_SCALE_V, channel=SCOPE_CHANNEL)
-        scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=SCOPE_CHANNEL)
+        scope._intf.write(f"DISplay:GLObal:CH{vin_diff_channel}:STATE ON")
+        scope.set_coupling("DC", channel=vin_diff_channel)
+        scope.set_vertical_position(0.0, channel=vin_diff_channel)
+        scope.set_vertical_offset(0.0, channel=vin_diff_channel)
+        scope.set_vertical_scale(SCOPE_COARSE_VERTICAL_SCALE_V, channel=vin_diff_channel)
+        scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=vin_diff_channel)
         scope.set_trigger_type("EDGE")
-        scope.set_trigger_source(channel=SCOPE_CHANNEL)
+        scope.set_trigger_source(channel=vin_diff_channel)
         scope.set_trigger_edge_slope("RISE")
-        scope.set_trigger_level(1.5, channel=SCOPE_CHANNEL)
+        scope.set_trigger_level(1.5, channel=vin_diff_channel)
         scope.set_trigger_mode("NORMAL")
-        accepted_bandwidth_hz = float(response_value(scope.get_bandwidth(channel=SCOPE_CHANNEL)))
+        accepted_bandwidth_hz = float(response_value(scope.get_bandwidth(channel=vin_diff_channel)))
         accepted_record_length = int(float(response_value(scope.get_horizontal_record_length())))
         if accepted_bandwidth_hz != SCOPE_BANDWIDTH_HZ:
             raise RuntimeError(f"scope accepted {accepted_bandwidth_hz:g} Hz instead of {SCOPE_BANDWIDTH_HZ:g} Hz")
@@ -243,19 +243,19 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
         scope.force_trigger()
         sleep(SCOPE_ACQUISITION_SETTLE_S)
         scope.set_acquire_state("STOP")
-        coarse_waveforms = scope.get_waveforms((SCOPE_CHANNEL,))
-        if SCOPE_CHANNEL not in coarse_waveforms:
+        coarse_waveforms = scope.get_waveforms((vin_diff_channel,))
+        if vin_diff_channel not in coarse_waveforms:
             raise RuntimeError("scope did not return the coarse differential-input channel waveform")
-        coarse_samples_v = np.asarray(coarse_waveforms[SCOPE_CHANNEL].data, dtype=np.float64)
+        coarse_samples_v = np.asarray(coarse_waveforms[vin_diff_channel].data, dtype=np.float64)
         coarse_mean_v = float(np.mean(coarse_samples_v))
         print(
-            f"Coarse CH{SCOPE_CHANNEL}: mean={coarse_mean_v * 1e3:.3f} mV, RMS={np.std(coarse_samples_v) * 1e3:.3f} mV"
+            f"Coarse CH{vin_diff_channel}: mean={coarse_mean_v * 1e3:.3f} mV, RMS={np.std(coarse_samples_v) * 1e3:.3f} mV"
         )
 
-        scope.set_vertical_offset(coarse_mean_v, channel=SCOPE_CHANNEL)
-        scope.set_vertical_scale(SCOPE_FINE_VERTICAL_SCALE_V, channel=SCOPE_CHANNEL)
-        scope.set_trigger_level(1.5, channel=SCOPE_CHANNEL)
-        accepted_vertical_scale_v = float(response_value(scope.get_vertical_scale(channel=SCOPE_CHANNEL)))
+        scope.set_vertical_offset(coarse_mean_v, channel=vin_diff_channel)
+        scope.set_vertical_scale(SCOPE_FINE_VERTICAL_SCALE_V, channel=vin_diff_channel)
+        scope.set_trigger_level(1.5, channel=vin_diff_channel)
+        accepted_vertical_scale_v = float(response_value(scope.get_vertical_scale(channel=vin_diff_channel)))
         if accepted_vertical_scale_v != SCOPE_FINE_VERTICAL_SCALE_V:
             raise RuntimeError(
                 f"scope accepted {accepted_vertical_scale_v:g} V/div instead of {SCOPE_FINE_VERTICAL_SCALE_V:g} V/div"
@@ -270,10 +270,10 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
             scope.force_trigger()
             sleep(SCOPE_ACQUISITION_SETTLE_S)
             scope.set_acquire_state("STOP")
-            waveforms = scope.get_waveforms((SCOPE_CHANNEL,))
-            if SCOPE_CHANNEL not in waveforms:
+            waveforms = scope.get_waveforms((vin_diff_channel,))
+            if vin_diff_channel not in waveforms:
                 raise RuntimeError("scope did not return the fine differential-output waveform")
-            waveform = waveforms[SCOPE_CHANNEL]
+            waveform = waveforms[vin_diff_channel]
             samples_v = np.asarray(waveform.data, dtype=np.float64)
             if len(samples_v) != accepted_record_length:
                 raise RuntimeError(
@@ -281,22 +281,28 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
                     f"expected its accepted record length {accepted_record_length}"
                 )
 
-            analysis = analyze_diffamp_noise(
-                samples_v,
-                sample_interval_s=float(waveform.x_scale.slope),
-                measurement_bandwidth_hz=accepted_bandwidth_hz,
+            analysis = scope_analysis(
+                waveforms,
+                scope_conns,
+                name="THS4541 quiet output",
+                bandwidth_hz=accepted_bandwidth_hz,
+                setup=(
+                    f"CH{vin_diff_channel} {probe_type}, {accepted_vertical_scale_v * 1e3:g} mV/div",
+                    f"{accepted_bandwidth_hz / 1e6:g} MHz bandwidth, {accepted_record_length} samples",
+                ),
             )
+            mean_v = analysis.mean_v["vin_diff"]
             print(
                 f"DC-null iteration {dc_null_iteration}: "
                 f"AWG={awg_dc_set_v * 1e3:.6f} mV, "
-                f"differential mean={analysis.mean_v * 1e3:.6f} mV"
+                f"differential mean={mean_v * 1e3:.6f} mV"
             )
-            if abs(analysis.mean_v - TARGET_VDIFF_DC_V) <= DC_NULL_TOLERANCE_V:
+            if abs(mean_v - TARGET_VDIFF_DC_V) <= DC_NULL_TOLERANCE_V:
                 break
             if dc_null_iteration == MAX_DC_NULL_ITERATIONS:
                 break
 
-            commanded_vdiff_dc_v += TARGET_VDIFF_DC_V - analysis.mean_v
+            commanded_vdiff_dc_v += TARGET_VDIFF_DC_V - mean_v
             awg_dc_set_v, adjusted_supply_v = convert_vdiff_input_to_awg_supply(
                 commanded_vdiff_dc_v,
                 TARGET_VIN_CM_V,
@@ -310,16 +316,18 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
             awg_offset_read_v = float(str(awg.get_voltage_offset()).strip().split(",")[0])
             if abs(awg_offset_read_v - awg_dc_set_v) > 0.5e-3:
                 raise RuntimeError(f"AWG DC readback is {awg_offset_read_v:g} V, expected {awg_dc_set_v:g} V")
-            scope.set_vertical_offset(TARGET_VDIFF_DC_V, channel=SCOPE_CHANNEL)
-            scope.set_trigger_level(1.5, channel=SCOPE_CHANNEL)
+            scope.set_vertical_offset(TARGET_VDIFF_DC_V, channel=vin_diff_channel)
+            scope.set_trigger_level(1.5, channel=vin_diff_channel)
             awg.set_enable(1)
             sleep(SETTLE_TIME_S)
 
-        clipped = float(np.max(np.abs(samples_v - analysis.mean_v))) >= 4.5 * accepted_vertical_scale_v
-        waveform_path = write_scope_csv(run_dir / "waveform.csv", waveforms, SCOPE_TRACKS)
-        plot_paths = plot_diffamp_noise(
-            analysis,
-            output_path=run_dir / "noise_gaussian_fft",
+        clipped = float(np.max(np.abs(samples_v - mean_v))) >= 4.5 * accepted_vertical_scale_v
+        analysis_path = write_analysis(run_dir / "scope.h5", analysis)
+        plot_paths = (
+            *plot_histogram(
+                analysis, title="THS4541 quiet-output distribution", output_path=run_dir / "noise_histogram"
+            ),
+            *plot_spectrum([analysis], title="THS4541 quiet-output spectrum", output_path=run_dir / "noise_spectrum"),
         )
         summary = {
             "timestamp": run_timestamp,
@@ -345,29 +353,28 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
             "scope_sample_count": len(samples_v),
             "scope_sample_rate_hz": analysis.sample_rate_hz,
             "scope_capture_clipped": clipped,
-            "measured_vdiff_mean_v": analysis.mean_v,
-            "measured_noise_rms_v": analysis.noise_rms_v,
-            "fft_integrated_noise_rms_v": analysis.integrated_fft_noise_rms_v,
-            "waveform_csv": str(waveform_path),
+            "measured_vdiff_mean_v": mean_v,
+            "measured_noise_rms_v": analysis.ac_rms_v["vin_diff"],
+            "fft_integrated_noise_rms_v": analysis.spectrum_rms_v["vin_diff"],
+            "scope_analysis_h5": str(analysis_path),
             "plots": [str(path) for path in plot_paths],
         }
         summary_path = run_dir / "summary.json"
         summary_path.write_text(json.dumps(summary, indent=2) + "\n")
         print(f"Saved summary: {summary_path}")
         print(
-            f"Fine differential output: mean={analysis.mean_v * 1e3:.6f} mV, "
-            f"time RMS={analysis.noise_rms_v * 1e3:.6f} mV, "
-            f"FFT-integrated RMS={analysis.integrated_fft_noise_rms_v * 1e3:.6f} mV"
+            f"Fine differential output: mean={mean_v * 1e3:.6f} mV, "
+            f"time RMS={analysis.ac_rms_v['vin_diff'] * 1e3:.6f} mV, "
+            f"FFT-integrated RMS={analysis.spectrum_rms_v['vin_diff'] * 1e3:.6f} mV"
         )
         print(f"Artifacts: {run_dir}")
         if clipped:
             raise RuntimeError(
                 "fine differential-input channel waveform approaches the scope range limit; artifacts were retained"
             )
-        if abs(analysis.mean_v - TARGET_VDIFF_DC_V) > DC_NULL_TOLERANCE_V:
+        if abs(mean_v - TARGET_VDIFF_DC_V) > DC_NULL_TOLERANCE_V:
             raise RuntimeError(
-                f"differential-output mean {analysis.mean_v:g} V remains outside "
-                f"the {DC_NULL_TOLERANCE_V:g} V DC-null tolerance"
+                f"differential-output mean {mean_v:g} V remains outside the {DC_NULL_TOLERANCE_V:g} V DC-null tolerance"
             )
     finally:
         if awg is not None:
@@ -400,14 +407,14 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
                 scope.set_trigger_type(scope_state["trigger_type"])
                 scope._intf.write(f"TRIGger:A:EDGe:SOUrce {scope_state['trigger_source']}")
                 scope.set_trigger_edge_slope(scope_state["trigger_slope"])
-                scope.set_trigger_level(scope_state["trigger_level"], channel=SCOPE_CHANNEL)
-                scope.set_coupling(scope_state["coupling"], channel=SCOPE_CHANNEL)
-                scope.set_impedance(scope_state["impedance"], channel=SCOPE_CHANNEL)
-                scope.set_vertical_scale(scope_state["vertical_scale"], channel=SCOPE_CHANNEL)
-                scope.set_vertical_position(scope_state["vertical_position"], channel=SCOPE_CHANNEL)
-                scope.set_vertical_offset(scope_state["vertical_offset"], channel=SCOPE_CHANNEL)
-                scope.set_bandwidth(scope_state["bandwidth"], channel=SCOPE_CHANNEL)
-                scope._intf.write(f"DISplay:GLObal:CH{SCOPE_CHANNEL}:STATE {scope_state['display']}")
+                scope.set_trigger_level(scope_state["trigger_level"], channel=vin_diff_channel)
+                scope.set_coupling(scope_state["coupling"], channel=vin_diff_channel)
+                scope.set_impedance(scope_state["impedance"], channel=vin_diff_channel)
+                scope.set_vertical_scale(scope_state["vertical_scale"], channel=vin_diff_channel)
+                scope.set_vertical_position(scope_state["vertical_position"], channel=vin_diff_channel)
+                scope.set_vertical_offset(scope_state["vertical_offset"], channel=vin_diff_channel)
+                scope.set_bandwidth(scope_state["bandwidth"], channel=vin_diff_channel)
+                scope._intf.write(f"DISplay:GLObal:CH{vin_diff_channel}:STATE {scope_state['display']}")
                 scope.set_acquire_stop_after(scope_state["acquire_stop_after"])
                 scope.set_acquire_state(scope_state["acquire_state"])
             except Exception as error:  # noqa: BLE001 - best-effort state restoration
@@ -416,42 +423,63 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
             dut.close()
 
 
-def test_diffamp_noise_analysis_recovers_gaussian_rms_and_tone() -> None:
+def test_scope_analysis_recovers_gaussian_rms_tone_and_math_trace(tmp_path: Path) -> None:
     rng = np.random.default_rng(7)
     sample_rate_hz = 100.0e6
     sample_count = 100_000
     time_s = np.arange(sample_count) / sample_rate_hz
     noise_rms_v = 0.5e-3
     tone_frequency_hz = 2.0e6
-    samples_v = (
+    p_v = (
         12.0e-3 + rng.normal(0.0, noise_rms_v, sample_count) + 0.2e-3 * np.sin(2.0 * np.pi * tone_frequency_hz * time_s)
     )
+    n_v = rng.normal(0.0, noise_rms_v, sample_count)
+    x_scale = SimpleNamespace(offset=0.0, slope=1.0 / sample_rate_hz)
+    waveforms = {1: SimpleNamespace(data=p_v, x_scale=x_scale), 2: SimpleNamespace(data=n_v, x_scale=x_scale)}
 
-    analysis = analyze_diffamp_noise(
-        samples_v,
-        sample_interval_s=1.0 / sample_rate_hz,
-        measurement_bandwidth_hz=SCOPE_BANDWIDTH_HZ,
+    analysis = scope_analysis(
+        waveforms,
+        ScopeConns(ch1="vin_p", ch2="vin_n"),
+        name="synthetic",
+        bandwidth_hz=SCOPE_BANDWIDTH_HZ,
+        setup=("1 MΩ AC, 1 mV/div",),
+        math={"vin_diff": ("vin_p", "vin_n")},
     )
 
-    assert analysis.mean_v == pytest.approx(12.0e-3, abs=10e-6)
-    assert analysis.noise_rms_v == pytest.approx(np.sqrt(noise_rms_v**2 + (0.2e-3) ** 2 / 2.0), rel=0.02)
-    assert analysis.integrated_fft_noise_rms_v == pytest.approx(analysis.noise_rms_v, rel=0.03)
+    assert set(analysis.wave.v) == {"vin_p", "vin_n", "vin_diff"}
+    assert analysis.mean_v["vin_p"] == pytest.approx(12.0e-3, abs=10e-6)
+    assert analysis.ac_rms_v["vin_p"] == pytest.approx(np.sqrt(noise_rms_v**2 + (0.2e-3) ** 2 / 2.0), rel=0.02)
+    assert analysis.ac_rms_v["vin_diff"] == pytest.approx(np.sqrt(2.0 * noise_rms_v**2 + (0.2e-3) ** 2 / 2.0), rel=0.02)
+    for name, rms_v in analysis.spectrum_rms_v.items():
+        assert rms_v == pytest.approx(analysis.ac_rms_v[name], rel=0.03)
+    assert analysis.sample_rate_hz == pytest.approx(sample_rate_hz)
+
+    restored = read_analysis(write_analysis(tmp_path / "scope.h5", analysis))
+    assert isinstance(restored, AnalysisScope)
+    assert restored.setup == analysis.setup
+    assert restored.ac_rms_v == pytest.approx(analysis.ac_rms_v)
+    np.testing.assert_array_equal(restored.wave.v["vin_diff"], analysis.wave.v["vin_diff"])
 
 
-def test_diffamp_noise_plot_is_exact_16_by_9(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scope_noise_plots_are_exact_16_by_9(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
     rng = np.random.default_rng(8)
-    samples_v = rng.normal(10.0e-3, 0.5e-3, 10_000)
-    analysis = analyze_diffamp_noise(
-        samples_v,
-        sample_interval_s=10.0e-9,
-        measurement_bandwidth_hz=SCOPE_BANDWIDTH_HZ,
+    x_scale = SimpleNamespace(offset=0.0, slope=10.0e-9)
+    waveforms = {
+        channel: SimpleNamespace(data=rng.normal(10.0e-3, 0.5e-3, 10_000), x_scale=x_scale) for channel in (1, 2)
+    }
+    analysis = scope_analysis(
+        waveforms,
+        ScopeConns(ch1="vin_p", ch2="vin_n"),
+        name="synthetic",
+        bandwidth_hz=SCOPE_BANDWIDTH_HZ,
+        math={"vin_diff": ("vin_p", "vin_n")},
     )
 
-    paths = plot_diffamp_noise(
-        analysis,
-        output_path=tmp_path / "noise",
-    )
-
-    assert tuple(path.suffix for path in paths) == (".png", ".pdf")
-    assert Image.open(paths[0]).size == (4800, 2700)
+    for paths in (
+        plot_histogram(analysis, title="Distribution", output_path=tmp_path / "histogram"),
+        plot_spectrum([analysis, analysis], title="Spectrum", output_path=tmp_path / "spectrum"),
+        plot_waveforms(analysis.wave, title="Traces", output_path=tmp_path / "traces"),
+    ):
+        assert tuple(path.suffix for path in paths) == (".png", ".pdf")
+        assert Image.open(paths[0]).size == (4800, 2700)

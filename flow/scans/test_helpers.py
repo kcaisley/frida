@@ -23,7 +23,8 @@ from flow.analysis.plots import plot_waveforms
 from flow.analysis.types import Wave
 from flow.scans import fastrx, scan_adc, scan_adc_noctl, scope, seqgen
 from flow.scans.params import AdcScanParams, build_adc_variants, load_board_map
-from flow.scans.scope import crop_adc_scope_conversion, write_scope_csv
+from flow.scans.scan_adc import crop_adc_scope_conversion
+from flow.scans.scope import ScopeConns
 from flow.scans.test_diffamp import OUTPUT_DIR as DIFFAMP_OUTPUT_DIR
 from flow.scans.test_diffamp import calculate_refitted_input_calibration
 from flow.scans.test_fastrx import OUTPUT_DIR as FASTRX_OUTPUT_DIR
@@ -129,8 +130,8 @@ def unpack_spi_payload(payload: bytes) -> bitarray:
     return transmitted[:180][::-1]
 
 
-def test_write_scope_csv_persists_raw_aligned_acquisition(tmp_path) -> None:
-    """Raw acquisition writer preserves time, voltage, and instrument codes."""
+def test_scope_wave_plots_raw_aligned_acquisition(tmp_path) -> None:
+    """Aligned Basil captures convert to one named Wave that plot_waveforms draws."""
 
     x_scale = SimpleNamespace(offset=-1.0e-9, slope=0.5e-9, unit="s")
     waveforms = {
@@ -145,17 +146,11 @@ def test_write_scope_csv_persists_raw_aligned_acquisition(tmp_path) -> None:
             raw_data=np.asarray([100, 0, 100]),
         ),
     }
-    path = tmp_path / "scope" / "capture.csv"
-
-    assert write_scope_csv(path, waveforms, {1: "input", 3: "logic"}) == path
-    assert path.read_text().splitlines() == [
-        "time_s,input_v,logic_v,input_raw,logic_raw",
-        "-1e-09,0.1,1.0,10,100",
-        "-5e-10,0.2,0.0,20,0",
-        "0.0,0.3,1.0,30,100",
-    ]
+    wave = scope.scope_wave(waveforms, ScopeConns(ch1="input", ch3="logic"))
+    np.testing.assert_allclose(wave.time_s, [-1.0e-9, -0.5e-9, 0.0])
+    np.testing.assert_allclose(wave.v["logic"][0], [1.0, 0.0, 1.0])
     assert plot_waveforms(
-        scope.scope_wave(waveforms, {1: "input", 3: "logic"}),
+        scope.scope_wave(waveforms, ScopeConns(ch1="input", ch3="logic")),
         title="Oscilloscope waveforms",
         output_path=tmp_path / "scope" / "capture",
     ) == (tmp_path / "scope" / "capture.pdf",)
@@ -591,51 +586,6 @@ def test_parse_pwl_wave_accepts_spice_suffixes_and_rejects_time_reversal() -> No
     assert [voltage_v for _, voltage_v in typed] == pytest.approx([-0.1, 0.1])
     with pytest.raises(ValueError, match="increase strictly"):
         scan_adc.parse_pwl_wave("1u 0 0 1")
-
-
-@pytest.mark.parametrize("connections", ({"seq_logic": 1, "seq_comp": 4}, {"seq_comp": 2, "seq_logic": 3}))
-def test_scope_connections_follow_yaml(tmp_path, monkeypatch, connections):
-    from yaml import safe_dump
-
-    path = tmp_path / "scope.yaml"
-    path.write_text(safe_dump({"connections": connections}))
-    monkeypatch.setattr(scope, "SCOPE_MAP_PATH", path)
-    assert scope.scope_channels("seq_comp", optional=("vin_diff",)) == {"seq_comp": connections["seq_comp"]}
-    assert scope.scope_channels() == connections
-    with pytest.raises(ValueError, match="not connected.*vin_diff"):
-        scope.scope_channels("vin_diff")
-
-
-@pytest.mark.parametrize(
-    "connections",
-    (
-        {"seq_comp": 1, "seq_logic": 1},
-        {"seq_comp": 0},
-        {"seq_comp": True},
-        {"seq_typo": 1},
-    ),
-)
-def test_invalid_scope_connections_fail(tmp_path, monkeypatch, connections):
-    from yaml import safe_dump
-
-    path = tmp_path / "scope.yaml"
-    path.write_text(safe_dump({"connections": connections}))
-    monkeypatch.setattr(scope, "SCOPE_MAP_PATH", path)
-    with pytest.raises(ValueError):
-        scope.scope_channels()
-
-
-def test_scope_requirements_skip_missing_signals(tmp_path, monkeypatch):
-    from flow.scans.conftest import pytest_runtest_setup
-
-    path = tmp_path / "scope.yaml"
-    path.write_text("connections: {seq_comp: 4}\n")
-    monkeypatch.setattr(scope, "SCOPE_MAP_PATH", path)
-    item = SimpleNamespace(iter_markers=lambda _: [SimpleNamespace(args=("seq_comp", "seq_samp"))])
-    with pytest.raises(pytest.skip.Exception, match="seq_samp"):
-        pytest_runtest_setup(item)
-    item = SimpleNamespace(iter_markers=lambda _: [SimpleNamespace(args=("seq_comp",))])
-    pytest_runtest_setup(item)
 
 
 def test_fastrx_settings_require_exact_characterization():

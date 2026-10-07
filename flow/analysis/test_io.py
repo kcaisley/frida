@@ -13,8 +13,9 @@ import pytest
 
 from flow.adc.sim import AdcTbParams
 from flow.analysis.io import _read_native, write_measurement
+from flow.scans.scan_adc import scope_records_to_adc_wave
 from flow.scans.scan_behavioral import build_adc_interface_wave
-from flow.scans.scope import scope_records_to_adc_wave
+from flow.scans.scope import ScopeConns
 
 
 @pytest.mark.parametrize("spawn_worker", (False, True), ids=("cli", "spawned-cli"))
@@ -101,12 +102,7 @@ def test_scope_records_build_dense_adc_external_wave(with_input: bool) -> None:
     wave = scope_records_to_adc_wave(
         records,
         [3, 9],
-        {
-            **({"vin_diff": 1} if with_input else {"seq_init": 1}),
-            "seq_comp": 2,
-            "seq_logic": 3,
-            "comp_out": 4,
-        },
+        ScopeConns(ch1="vin_diff" if with_input else "seq_init", ch2="seq_comp", ch3="seq_logic", ch4="comp_out"),
     )
 
     np.testing.assert_array_equal(wave.record_index, [3, 9])

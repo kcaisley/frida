@@ -1,8 +1,8 @@
 """Check calibrated AWG and VIN_CM control through the THS4541 input path.
 
 The Agilent 33250A applies a 1 MHz sine to the single-ended THS4541 input,
-the E3634A sets its output common mode, and the probe configured as vin_diff
-in map_scope.yaml measures ``Vin_p - Vin_n``. Safe points qualify every 0.1--1.1 V
+the E3634A sets its output common mode, and the TDP3500 on CH1 measures
+``Vin_p - Vin_n``. Safe points qualify every 0.1--1.1 V
 comparator common mode, the guarded 1.18 V near-rail point, the requested
 0.7--1.2 V 50 mVpp campaign envelope, and the existing larger amplitudes. Differential
 amplitude must agree within 2% in the small-signal regime and 0.5% at
@@ -35,9 +35,10 @@ import pytest
 from basil.HL.tektronix_oscilloscope import response_value
 
 from flow.analysis import calc
+from flow.analysis.io import write_analysis
 from flow.analysis.plots import plot_waveforms
 from flow.scans.scan_adc import convert_vdiff_input_to_awg_supply
-from flow.scans.scope import scope_channels, scope_wave, wait_for_scope_armed, write_scope_csv
+from flow.scans.scope import ScopeConns, scope_analysis, scope_wave, wait_for_scope_armed
 
 MAP_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "build" / "test_diffamp"
@@ -145,11 +146,10 @@ def calculate_refitted_input_calibration(
 
 
 @pytest.mark.hw
-@pytest.mark.scope_signals("vin_diff")
 def test_diffamp_calibration(linux_gpib_interface: None) -> None:
     """Hardware: qualify the calibrated differential-amplifier stimulus path."""
-    SCOPE_CHANNEL = scope_channels("vin_diff")["vin_diff"]
-    SCOPE_TRACKS = {SCOPE_CHANNEL: "vin_diff"}
+    scope_conns = ScopeConns(ch1="vin_diff")  # TDP3500 across the differential input
+    vin_diff_channel = scope_conns.channels["vin_diff"]
 
     if not 0.0 < ASIC_SUPPLY_V <= 1.2:
         raise ValueError("ASIC supply voltage must remain in 0..1.2 V")
@@ -267,15 +267,15 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
         print(f"VIN_CM supply: {str(supply.get_name()).strip()}")
         print(f"Scope: {str(scope.get_name()).strip()}")
 
-        probe_type = str(scope._intf.query(f"CH{SCOPE_CHANNEL}:PROBE:ID:TYPE?")).strip().strip('"')
-        probe_resistance_ohm = float(response_value(scope._intf.query(f"CH{SCOPE_CHANNEL}:PROBE:RESISTANCE?")))
-        probe_gain = float(response_value(scope._intf.query(f"CH{SCOPE_CHANNEL}:PROBE:GAIN?")))
+        probe_type = str(scope._intf.query(f"CH{vin_diff_channel}:PROBE:ID:TYPE?")).strip().strip('"')
+        probe_resistance_ohm = float(response_value(scope._intf.query(f"CH{vin_diff_channel}:PROBE:RESISTANCE?")))
+        probe_gain = float(response_value(scope._intf.query(f"CH{vin_diff_channel}:PROBE:GAIN?")))
         print(
-            f"Scope CH{SCOPE_CHANNEL}: probe={probe_type}, "
+            f"Scope CH{vin_diff_channel}: probe={probe_type}, "
             f"input_resistance={probe_resistance_ohm:g} ohm, gain={probe_gain:g}"
         )
         if probe_type.upper() != "TDP3500":
-            raise RuntimeError(f"scope CH{SCOPE_CHANNEL} has {probe_type!r}; connect the TDP3500 differential probe")
+            raise RuntimeError(f"scope CH{vin_diff_channel} has {probe_type!r}; connect the TDP3500 differential probe")
         if probe_resistance_ohm < 10.0e3:
             raise RuntimeError(f"unexpected TDP3500 input resistance {probe_resistance_ohm:g} ohm")
 
@@ -293,14 +293,14 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
             "trigger_type": response_value(scope.get_trigger_type()),
             "trigger_source": response_value(scope.get_triggr_source()),
             "trigger_slope": response_value(scope.get_trigger_edge_slope()),
-            "trigger_level": response_value(scope.get_trigger_level(channel=SCOPE_CHANNEL)),
-            "coupling": response_value(scope.get_coupling(channel=SCOPE_CHANNEL)),
-            "impedance": response_value(scope.get_impedance(channel=SCOPE_CHANNEL)),
-            "vertical_scale": response_value(scope.get_vertical_scale(channel=SCOPE_CHANNEL)),
-            "vertical_position": response_value(scope.get_vertical_position(channel=SCOPE_CHANNEL)),
-            "vertical_offset": response_value(scope.get_vertical_offset(channel=SCOPE_CHANNEL)),
-            "bandwidth": response_value(scope.get_bandwidth(channel=SCOPE_CHANNEL)),
-            "display": response_value(scope._intf.query(f"DISplay:GLObal:CH{SCOPE_CHANNEL}:STATE?")),
+            "trigger_level": response_value(scope.get_trigger_level(channel=vin_diff_channel)),
+            "coupling": response_value(scope.get_coupling(channel=vin_diff_channel)),
+            "impedance": response_value(scope.get_impedance(channel=vin_diff_channel)),
+            "vertical_scale": response_value(scope.get_vertical_scale(channel=vin_diff_channel)),
+            "vertical_position": response_value(scope.get_vertical_position(channel=vin_diff_channel)),
+            "vertical_offset": response_value(scope.get_vertical_offset(channel=vin_diff_channel)),
+            "bandwidth": response_value(scope.get_bandwidth(channel=vin_diff_channel)),
+            "display": response_value(scope._intf.query(f"DISplay:GLObal:CH{vin_diff_channel}:STATE?")),
         }
 
         scope.set_acquire_state("STOP")
@@ -309,13 +309,13 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
         scope.set_horizontal_scale(SCOPE_HORIZONTAL_SCALE_S)
         scope.set_horizontal_record_length(SCOPE_RECORD_LENGTH)
         scope._intf.write("HORizontal:POSition 50")
-        scope._intf.write(f"DISplay:GLObal:CH{SCOPE_CHANNEL}:STATE ON")
-        scope.set_coupling("DC", channel=SCOPE_CHANNEL)
-        scope.set_vertical_position(0, channel=SCOPE_CHANNEL)
-        scope.set_vertical_offset(0.0, channel=SCOPE_CHANNEL)
-        scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=SCOPE_CHANNEL)
+        scope._intf.write(f"DISplay:GLObal:CH{vin_diff_channel}:STATE ON")
+        scope.set_coupling("DC", channel=vin_diff_channel)
+        scope.set_vertical_position(0, channel=vin_diff_channel)
+        scope.set_vertical_offset(0.0, channel=vin_diff_channel)
+        scope.set_bandwidth(SCOPE_BANDWIDTH_HZ, channel=vin_diff_channel)
         scope.set_trigger_type("EDGE")
-        scope.set_trigger_source(channel=SCOPE_CHANNEL)
+        scope.set_trigger_source(channel=vin_diff_channel)
         scope.set_trigger_edge_slope("RISE")
         scope.set_trigger_mode("NORMAL")
 
@@ -410,12 +410,12 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
             # is one of the effects this loopback is intended to reveal.
             scope.set_vertical_scale(
                 SCOPE_COARSE_VERTICAL_SCALE_V,
-                channel=SCOPE_CHANNEL,
+                channel=vin_diff_channel,
             )
-            scope.set_vertical_offset(0.0, channel=SCOPE_CHANNEL)
+            scope.set_vertical_offset(0.0, channel=vin_diff_channel)
             scope.set_trigger_level(
                 1.5,
-                channel=SCOPE_CHANNEL,
+                channel=vin_diff_channel,
             )
             scope.set_acquire_state("STOP")
             scope._intf.write("ACQuire:NUMACq:RESET")
@@ -428,35 +428,37 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
             sleep(SCOPE_ACQUISITION_SETTLE_S)
             scope.set_acquire_state("STOP")
 
-            coarse_waveforms = scope.get_waveforms((SCOPE_CHANNEL,))
+            coarse_waveforms = scope.get_waveforms((vin_diff_channel,))
             awg.set_enable(0)
-            if SCOPE_CHANNEL not in coarse_waveforms:
-                raise RuntimeError(f"scope did not return coarse CH{SCOPE_CHANNEL}")
-            coarse_waveform = coarse_waveforms[SCOPE_CHANNEL]
+            if vin_diff_channel not in coarse_waveforms:
+                raise RuntimeError(f"scope did not return coarse CH{vin_diff_channel}")
+            coarse_waveform = coarse_waveforms[vin_diff_channel]
             coarse_samples = np.asarray(coarse_waveform.data, dtype=float)
             if coarse_samples.size == 0:
-                raise RuntimeError(f"scope returned an empty coarse CH{SCOPE_CHANNEL} waveform")
+                raise RuntimeError(f"scope returned an empty coarse CH{vin_diff_channel} waveform")
             coarse_low_v, coarse_high_v = np.percentile(coarse_samples, (0.5, 99.5))
             coarse_offset_v = float((coarse_low_v + coarse_high_v) / 2.0)
             coarse_vpp = float(coarse_high_v - coarse_low_v)
             print(f"  coarse scope: offset={coarse_offset_v:.6f} V, Vpp={coarse_vpp:.6f} V")
             if coarse_vpp == 0.0:
-                coarse_name = f"coarse_vdiff{round(1e3 * vdiff_peak_v):04d}mvpeak_vcm{round(1e3 * vin_cm_v):04d}mv.csv"
-                coarse_path = run_dir / coarse_name
-                write_scope_csv(coarse_path, coarse_waveforms, SCOPE_TRACKS)
-                raise AssertionError(f"coarse CH{SCOPE_CHANNEL} capture is flat; saved {coarse_path}")
+                coarse_name = f"coarse_vdiff{round(1e3 * vdiff_peak_v):04d}mvpeak_vcm{round(1e3 * vin_cm_v):04d}mv"
+                coarse_path = write_analysis(
+                    run_dir / f"{coarse_name}.h5",
+                    scope_analysis(coarse_waveforms, scope_conns, name=coarse_name, bandwidth_hz=SCOPE_BANDWIDTH_HZ),
+                )
+                raise AssertionError(f"coarse CH{vin_diff_channel} capture is flat; saved {coarse_path}")
 
             # Center a second acquisition on the measured offset and use about
             # eight divisions for the requested Vpp. This preserves resolution
             # for the 0.5% amplitude assertion without assuming zero offset.
-            scope.set_vertical_offset(coarse_offset_v, channel=SCOPE_CHANNEL)
+            scope.set_vertical_offset(coarse_offset_v, channel=vin_diff_channel)
             scope.set_vertical_scale(
                 max(target_vdiff_vpp, coarse_vpp) / 6.0,
-                channel=SCOPE_CHANNEL,
+                channel=vin_diff_channel,
             )
             scope.set_trigger_level(
                 coarse_offset_v,
-                channel=SCOPE_CHANNEL,
+                channel=vin_diff_channel,
             )
             scope.set_acquire_state("STOP")
             scope._intf.write("ACQuire:NUMACq:RESET")
@@ -469,33 +471,35 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
             sleep(SCOPE_ACQUISITION_SETTLE_S)
             scope.set_acquire_state("STOP")
 
-            waveforms = scope.get_waveforms((SCOPE_CHANNEL,))
+            waveforms = scope.get_waveforms((vin_diff_channel,))
             awg.set_enable(0)
-            if SCOPE_CHANNEL not in waveforms:
-                raise RuntimeError(f"scope did not return fine CH{SCOPE_CHANNEL}")
+            if vin_diff_channel not in waveforms:
+                raise RuntimeError(f"scope did not return fine CH{vin_diff_channel}")
 
             point_name = f"vdiff{round(1e3 * vdiff_peak_v):04d}mvpeak_vcm{round(1e3 * vin_cm_v):04d}mv"
-            waveform = waveforms[SCOPE_CHANNEL]
+            waveform = waveforms[vin_diff_channel]
             samples = np.asarray(waveform.data, dtype=np.float64)
             if samples.size == 0:
-                raise RuntimeError(f"scope returned an empty CH{SCOPE_CHANNEL} waveform")
+                raise RuntimeError(f"scope returned an empty CH{vin_diff_channel} waveform")
             times = waveform.x_scale.offset + np.arange(len(samples)) * waveform.x_scale.slope
             low_v, high_v = np.percentile(samples, (0.5, 99.5))
             crossing_level_v = float((low_v + high_v) / 2.0)
 
-            csv_path = run_dir / f"{point_name}.csv"
             # Save the raw capture before analysis so a failed assertion still
             # leaves the exact waveform available for diagnosis.
-            write_scope_csv(csv_path, waveforms, SCOPE_TRACKS)
-            print(f"  saved {samples.size} samples spanning {times[-1] - times[0]:.9g} s: {csv_path}")
+            capture_path = write_analysis(
+                run_dir / f"{point_name}.h5",
+                scope_analysis(waveforms, scope_conns, name=point_name, bandwidth_hz=SCOPE_BANDWIDTH_HZ),
+            )
+            print(f"  saved {samples.size} samples spanning {times[-1] - times[0]:.9g} s: {capture_path}")
             endpoint_fraction = max(
                 float(np.mean(samples == np.min(samples))),
                 float(np.mean(samples == np.max(samples))),
             )
             if endpoint_fraction > 0.01:
                 raise AssertionError(
-                    f"scope CH{SCOPE_CHANNEL} fine capture is clipped "
-                    f"({endpoint_fraction:.1%} of samples at one endpoint); saved {csv_path}"
+                    f"scope CH{vin_diff_channel} fine capture is clipped "
+                    f"({endpoint_fraction:.1%} of samples at one endpoint); saved {capture_path}"
                 )
 
             crossings = calc.cross(samples, times, crossing_level_v, edge="rising")
@@ -505,7 +509,7 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
                 if not accepted or crossing - accepted[-1] >= 0.75 / AWG_FREQUENCY_HZ:
                     accepted.append(float(crossing))
             if len(accepted) < 3:
-                raise AssertionError(f"scope CH{SCOPE_CHANNEL} has fewer than three rising crossings")
+                raise AssertionError(f"scope CH{vin_diff_channel} has fewer than three rising crossings")
             measured_frequency_hz = 1.0 / float(np.median(np.diff(accepted)))
 
             # Fit the DC term and fundamental sine independently. Percentile
@@ -530,9 +534,9 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
             measured_residual_rms_v = calc.rms(samples - fitted_samples)
 
             plot_paths = plot_waveforms(
-                scope_wave(waveforms, SCOPE_TRACKS),
+                scope_wave(waveforms, scope_conns),
                 title="Oscilloscope waveforms",
-                output_path=csv_path.with_suffix(""),
+                output_path=capture_path.with_suffix(""),
             )
             for plot_path in plot_paths:
                 print(f"  saved waveform plot: {plot_path}")
@@ -580,7 +584,7 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
                     ),
                     "vin_cm_within_tolerance": abs(vin_cm_measured_v / vin_cm_v - 1.0) <= RELATIVE_TOLERANCE,
                     "vdiff_offset_within_tolerance": abs(measured_vdiff_offset_v) <= VDIFF_OFFSET_ABSOLUTE_TOLERANCE_V,
-                    "scope_csv": str(csv_path),
+                    "scope_h5": str(capture_path),
                 }
             )
             summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -682,30 +686,30 @@ def test_diffamp_calibration(linux_gpib_interface: None) -> None:
                 scope.set_trigger_edge_slope(scope_state["trigger_slope"])
                 scope.set_trigger_level(
                     scope_state["trigger_level"],
-                    channel=SCOPE_CHANNEL,
+                    channel=vin_diff_channel,
                 )
-                scope.set_coupling(scope_state["coupling"], channel=SCOPE_CHANNEL)
+                scope.set_coupling(scope_state["coupling"], channel=vin_diff_channel)
                 scope.set_impedance(
                     scope_state["impedance"],
-                    channel=SCOPE_CHANNEL,
+                    channel=vin_diff_channel,
                 )
                 scope.set_vertical_scale(
                     scope_state["vertical_scale"],
-                    channel=SCOPE_CHANNEL,
+                    channel=vin_diff_channel,
                 )
                 scope.set_vertical_position(
                     scope_state["vertical_position"],
-                    channel=SCOPE_CHANNEL,
+                    channel=vin_diff_channel,
                 )
                 scope.set_vertical_offset(
                     scope_state["vertical_offset"],
-                    channel=SCOPE_CHANNEL,
+                    channel=vin_diff_channel,
                 )
                 scope.set_bandwidth(
                     scope_state["bandwidth"],
-                    channel=SCOPE_CHANNEL,
+                    channel=vin_diff_channel,
                 )
-                scope._intf.write(f"DISplay:GLObal:CH{SCOPE_CHANNEL}:STATE {scope_state['display']}")
+                scope._intf.write(f"DISplay:GLObal:CH{vin_diff_channel}:STATE {scope_state['display']}")
                 scope.set_acquire_stop_after(scope_state["acquire_stop_after"])
                 scope.set_acquire_state(scope_state["acquire_state"])
             except Exception as error:  # noqa: BLE001 - best-effort state restoration

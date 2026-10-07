@@ -61,7 +61,7 @@ from flow.analysis.types import (
     MeasComp,
     Wave,
 )
-from flow.scans.scope import scope_wave
+from flow.scans.scope import ScopeConns, scope_wave
 
 PLOT_PNGS = False
 PLOT_SVGS = False
@@ -701,9 +701,9 @@ def plot_serdes_output_word_grid(
             unit_interval_s = 1.0 / (rate_mbd * 1e6)
             segments = []
             for capture_index, capture in enumerate(captures):
-                wave = scope_wave(capture, {output_channel: "SERDES output"})
+                wave = scope_wave(capture, ScopeConns(**{f"ch{output_channel}": "seq_comp"}))
                 time_s = wave.time_s
-                voltage_v = wave.v["SERDES output"][0]
+                voltage_v = wave.v["seq_comp"][0]
                 low_v, high_v = np.percentile(voltage_v, (5, 95))
                 if high_v - low_v < 0.05:
                     raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 capture {capture_index} has no swing")
@@ -783,9 +783,11 @@ def plot_serdes_symbol_eye_grid(
         eyes = []
         folded_symbols = 0
         for capture_index, capture in enumerate(captures):
-            wave = scope_wave(capture, {marker_channel: "INIT marker", output_channel: "SERDES output"})
+            wave = scope_wave(
+                capture, ScopeConns(**{f"ch{marker_channel}": "seq_init", f"ch{output_channel}": "seq_comp"})
+            )
             time_s = wave.time_s
-            marker_v, output_v = wave.v["INIT marker"][0], wave.v["SERDES output"][0]
+            marker_v, output_v = wave.v["seq_init"][0], wave.v["seq_comp"][0]
             marker_low, marker_high = np.percentile(marker_v, (0.1, 99.9))
             output_low, output_high = np.percentile(output_v, (5, 95))
             if marker_high - marker_low < 0.05 or output_high - output_low < 0.05:
