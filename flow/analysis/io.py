@@ -108,6 +108,9 @@ def _write_native(parent: h5py.Group, name: str, value, *, finite: bool = True) 
         group = parent.create_group(name)
         group.attrs["_kind"] = "mapping"
         for key, item in value.items():
+            # HDF5 would split a "/" in a key into nested groups.
+            if "/" in str(key):
+                raise ValueError(f"cannot persist mapping key {key!r}: HDF5 names cannot contain '/'")
             _write_native(group, str(key), item, finite=finite)
         return
     if isinstance(value, (tuple, list)):
