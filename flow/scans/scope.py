@@ -1,13 +1,13 @@
 """Reusable oscilloscope acquisition and SCPI synchronization helpers.
 
 Basil captures ──scope_wave()──► Wave                      (plain captures: serdes, diffamp checks)
-               └─scope_analysis() = scope_wave() + math traces + spectra + RMS ──► AnalysisScope
+               └─scope_analysis() = scope_wave() + differential/common-mode traces + spectra + RMS ──► AnalysisScope
 """
 
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -76,19 +76,22 @@ def scope_analysis(
     *,
     name: str,
     bandwidth_hz: float,
-    setup: Sequence[str] = (),
-    math: Mapping[str, tuple[str, str]] | None = None,
+    differential: Mapping[str, tuple[str, str]] | None = None,
+    common_mode: Mapping[str, tuple[str, str]] | None = None,
 ) -> AnalysisScope:
-    """Build one scope result: the aligned traces, math differences, spectra, and statistics.
+    """Build one scope result: the aligned traces, derived traces, spectra, and statistics.
 
-    ``math`` maps a derived trace name to the ``(p, n)`` trace names whose
-    difference ``p - n`` it holds, such as ``{"vin_diff": ("vin_p", "vin_n")}``.
+    ``differential`` maps a derived trace name to the ``(p, n)`` trace names
+    whose difference ``p - n`` it holds, such as ``{"vin_diff": ("vin_p",
+    "vin_n")}``; ``common_mode`` likewise holds their average ``(p + n) / 2``.
     """
 
     wave = scope_wave(waveforms, scope_conns)
     traces = dict(wave.v)
-    for derived, (positive, negative) in (math or {}).items():
+    for derived, (positive, negative) in (differential or {}).items():
         traces[derived] = traces[positive] - traces[negative]
+    for derived, (positive, negative) in (common_mode or {}).items():
+        traces[derived] = (traces[positive] + traces[negative]) / 2.0
     wave = Wave(record_index=wave.record_index, time_s=wave.time_s, v=traces)
     sample_rate_hz = 1.0 / float(wave.time_s[1] - wave.time_s[0])
     mean_v = {trace: calc.average(values[0]) for trace, values in traces.items()}
@@ -113,7 +116,6 @@ def scope_analysis(
         spectrum_v_per_sqrt_hz=spectra,
         mean_v=mean_v,
         ac_rms_v={trace: calc.stddev(values[0]) for trace, values in traces.items()},
-        setup=tuple(setup),
     )
 
 

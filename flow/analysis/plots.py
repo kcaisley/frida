@@ -384,7 +384,8 @@ def plot_waveforms(
     axes = np.atleast_1d(axes)
     for ax, label, (values, signal_unit) in zip(axes, selected.values(), traces, strict=True):
         ax.plot(time_s * scale, values[record])
-        ax.set_ylabel(f"{label} ({signal_unit})")
+        # Horizontal labels stay readable for long net names and expressions.
+        ax.set_ylabel(f"{label} ({signal_unit})", rotation=0, ha="right", va="center")
         style_grid(ax)
     axes[-1].set_xlabel(f"Time ({unit})")
     style_info_box(axes[0], tuple(setup_lines))
@@ -864,29 +865,60 @@ def plot_spectrum(
     """Overlay the amplitude spectral densities of selected traces of one or more scope captures.
 
     ``signals`` maps a trace name to its legend label; by default every trace
-    of every capture is drawn. Each legend entry names its capture and gives
-    the trace's time-domain AC RMS; dotted lines mark the capture bandwidths.
+    of the first capture is drawn for every capture. Traces are grouped by
+    signal, then capture. Each legend entry gives the capture's sample rate,
+    sample count, and bandwidth, its name, the trace label when several traces
+    are drawn, and the trace's time-domain AC RMS. In the color of each
+    capture's first trace, a labeled dotted line marks its -3 dB acquisition
+    bandwidth and a labeled dashed line its Nyquist frequency.
     """
 
     if not scopes:
         raise ValueError("spectrum plots show at least one scope capture")
+    selected = signals if signals is not None else {name: name for name in scopes[0].spectrum_v_per_sqrt_hz}
     fig, ax = plt.subplots()
-    for scope in scopes:
-        selected = signals if signals is not None else {name: name for name in scope.spectrum_v_per_sqrt_hz}
-        positive = scope.spectrum_frequency_hz > 0.0
-        for name, label in selected.items():
-            ax.loglog(
+    # Group traces by signal, then capture, so each signal's captures sit
+    # together in the legend; each capture's markers take its first color.
+    capture_colors = {}
+    for name, label in selected.items():
+        for index, scope in enumerate(scopes):
+            positive = scope.spectrum_frequency_hz > 0.0
+            capture = (
+                f"{scope.sample_rate_hz / 1e6:g} MS/s, {len(scope.wave.time_s) / 1e6:g} Msamples, "
+                f"{scope.bandwidth_hz / 1e6:g} MHz BW, {scope.name}"
+            )
+            (line,) = ax.loglog(
                 scope.spectrum_frequency_hz[positive],
                 scope.spectrum_v_per_sqrt_hz[name][positive] * 1e9,
-                label=f"{scope.name}: {label} ({scope.ac_rms_v[name] * 1e6:.1f} µV RMS)",
+                label=(
+                    f"{capture} ({scope.ac_rms_v[name] * 1e6:.1f} µV RMS)"
+                    if len(selected) == 1
+                    else f"{capture}, {label} ({scope.ac_rms_v[name] * 1e6:.1f} µV RMS)"
+                ),
             )
-    for bandwidth_hz in sorted({scope.bandwidth_hz for scope in scopes}):
-        ax.axvline(bandwidth_hz, color=SPINE_COLOR, linestyle=":", label=f"{bandwidth_hz / 1e6:g} MHz bandwidth")
+            capture_colors.setdefault(index, line.get_color())
+    # Dotted at the -3 dB acquisition bandwidth, dashed at the Nyquist frequency.
+    for index, scope in enumerate(scopes):
+        for frequency_hz, linestyle, marker_label, side in (
+            (scope.bandwidth_hz, ":", r"$f_\mathrm{BW}$", "right"),
+            (scope.sample_rate_hz / 2.0, "--", r"$f_\mathrm{N}$", "left"),
+        ):
+            ax.axvline(frequency_hz, color=capture_colors[index], linestyle=linestyle)
+            ax.text(
+                frequency_hz,
+                0.98,
+                marker_label,
+                transform=ax.get_xaxis_transform(),
+                rotation=90,
+                ha=side,
+                va="top",
+                fontsize=mpl.rcParams["legend.fontsize"],
+                bbox={"boxstyle": "round,pad=0.2", "facecolor": LEGEND_FACE_COLOR, "edgecolor": capture_colors[index]},
+            )
     ax.set_xlabel("Frequency (Hz)")
-    ax.set_ylabel("ASD (nV/√Hz)")
+    ax.set_ylabel("Amplitude spectral density (nV/√Hz)")
     ax.legend()
     style_grid(ax)
-    style_info_box(ax, tuple(dict.fromkeys(line for scope in scopes for line in scope.setup)))
     fig.suptitle(title)
     return save_figure(fig, output_path)
 
@@ -932,7 +964,6 @@ def plot_histogram(
     ax.set_ylabel("Density (µV⁻¹)")
     ax.legend(loc="upper left")
     style_grid(ax)
-    style_info_box(ax, scope.setup)
     fig.suptitle(title)
     return save_figure(fig, output_path)
 

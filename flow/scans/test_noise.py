@@ -20,11 +20,13 @@ settings are restored.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 from pathlib import Path
 from time import sleep, strftime
 from types import SimpleNamespace
+from typing import cast
 
 import numpy as np
 import pytest
@@ -284,12 +286,8 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
             analysis = scope_analysis(
                 waveforms,
                 scope_conns,
-                name="THS4541 quiet output",
+                name=(f"{probe_type}, {accepted_vertical_scale_v * 1e3:g} mV/div"),
                 bandwidth_hz=accepted_bandwidth_hz,
-                setup=(
-                    f"CH{vin_diff_channel} {probe_type}, {accepted_vertical_scale_v * 1e3:g} mV/div",
-                    f"{accepted_bandwidth_hz / 1e6:g} MHz bandwidth, {accepted_record_length} samples",
-                ),
             )
             mean_v = analysis.mean_v["vin_diff"]
             print(
@@ -423,7 +421,208 @@ def test_diffamp_noise_loopback(linux_gpib_interface: None) -> None:
             dut.close()
 
 
-def test_scope_analysis_recovers_gaussian_rms_tone_and_math_trace(tmp_path: Path) -> None:
+@pytest.mark.hw
+@pytest.mark.parametrize(
+    ("scope_conns", "volts_per_div", "title"),
+    (
+        # Each probe's signal and ground clipped together at a board ground pin.
+        pytest.param(ScopeConns(ch1="ch1_short", ch2="ch2_short"), 1.0e-3, "Measurement floor", id="step0_floor"),
+        # Same floor with the passive hook probes at 1X, tips clipped to their ground leads.
+        pytest.param(
+            ScopeConns(ch1="ch1_short", ch2="ch2_short"),
+            1.0e-3,
+            "Measurement floor, passive probes (1X)",
+            id="step0_floor_probes",
+        ),
+        # 1.2 V supply at the perfboard divider input: VDD and VSS against board ground.
+        # 5 mV/div: the supply carries spikes beyond 10 mV that clip at 1-2 mV/div.
+        pytest.param(ScopeConns(ch1="vdd_div", ch2="vss_div"), 5.0e-3, "Divider supply", id="step1_supply_div"),
+        # VOCM node of the THS4541 (amp mode, 1k + 1k divider).
+        pytest.param(ScopeConns(ch1="vocm"), 1.0e-3, "Amplifier common-mode reference", id="step2_vocm"),
+        # Perfboard divider outputs V+ and V-.
+        pytest.param(ScopeConns(ch1="vin_p_div", ch2="vin_n_div"), 1.0e-3, "Divider outputs", id="step3_divider_out"),
+        # AWG output at the board's single-ended input.
+        pytest.param(ScopeConns(ch1="vin_p_ext"), 1.0e-3, "AWG output", id="step4_awg_out"),
+        # THS4541 outputs, amplifier side of R25/R26.
+        pytest.param(ScopeConns(ch1="vout_p_amp", ch2="vout_n_amp"), 1.0e-3, "Amplifier outputs", id="step5_amp_out"),
+        # ADC input pins across C6 with the amplifier driving them.
+        pytest.param(
+            ScopeConns(ch1="vin_p", ch2="vin_n"), 1.0e-3, "ADC inputs, amplifier driven", id="step6_adc_pins_amp"
+        ),
+        # ADC input pins across the 1 uF with the perfboard divider driving them.
+        pytest.param(
+            ScopeConns(ch1="vin_p", ch2="vin_n"), 1.0e-3, "ADC inputs, divider driven", id="step7_adc_pins_bypass"
+        ),
+    ),
+)
+def test_input_chain_noise(
+    request: pytest.FixtureRequest,
+    scope_conns: ScopeConns,
+    volts_per_div: float,
+    title: str,
+) -> None:
+    """Capture one probe position of the ADC input-chain noise study.
+
+    Coax probes into CH1 (and CH2), 1 MOhm AC coupling, the step's V/div,
+    20 MHz limit, and High Res. A slow 100 ms record at 12.5 MS/s resolves mains
+    lines and the ADC's filtered band; a fast 1 ms record at 1.25 GS/s covers
+    the 20 MHz band. Two channels add their difference and common-mode average
+    as derived traces, plotted separately from the single-ended traces. Each
+    record is saved as an AnalysisScope with spectra, histograms, traces, and
+    a scope screenshot under ``build/test_noise/<timestamp>/<step>``. Select
+    one step, for example::
+
+        uv run pytest -q -s -m hw flow/scans/test_noise.py -k step0_floor
+
+    The scope is left in the fast configuration for live inspection.
+    """
+    import pyvisa
+    from basil.dut import Dut
+    from pyvisa.resources import MessageBasedResource
+
+    step = request.node.callspec.id
+    channels = scope_conns.channels
+    differential, common_mode = {}, {}
+    if len(channels) == 2:
+        p_name, n_name = channels
+        differential = {f"{p_name}-{n_name}": (p_name, n_name)}
+        common_mode = {f"cm({p_name}, {n_name})": (p_name, n_name)}
+    run_dir = OUTPUT_DIR / strftime("%Y%m%d_%H%M%S") / step
+    run_dir.mkdir(parents=True)
+
+    scope_dut = Dut(str(MAP_DIR / "map_scope.yaml"))
+    scope_dut.init()
+    # Basil holds the raw socket; screenshot transfer needs VXI-11, which ends binary reads.
+    vxi = cast(
+        MessageBasedResource,
+        pyvisa.ResourceManager("@py").open_resource("TCPIP0::192.168.10.60::inst0::INSTR", timeout=20000),
+    )
+    try:
+        scope = scope_dut["scope"]
+        scope.set_acquire_state("STOP")
+        for channel in range(1, 5):
+            scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE {'ON' if channel in channels.values() else 'OFF'}")
+        for channel in channels.values():
+            scope.set_impedance("1E6", channel=channel)
+            scope.set_coupling("AC", channel=channel)
+            scope.set_vertical_scale(volts_per_div, channel=channel)
+            scope.set_bandwidth(20.0e6, channel=channel)
+            scope.set_vertical_offset(0.0, channel=channel)
+            scope.set_vertical_position(0.0, channel=channel)
+        sources = [f"CH{channel}" for channel in channels.values()]
+        if differential:
+            if "MATH1" not in scope._intf.query("MATH:LIST?"):
+                scope._intf.write('MATH:ADDNew "MATH1"')
+            scope._intf.write('MATH:MATH1:DEFine "CH{}-CH{}"'.format(*channels.values()))
+            scope._intf.write("DISplay:GLObal:MATH1:STATE ON")
+            sources.insert(0, "MATH1")
+        # MEASUrement:DELETEALL is ignored by this firmware; delete each measurement.
+        for name in scope._intf.query("MEASUrement:LIST?").strip().split(","):
+            if name.startswith("MEAS"):
+                scope._intf.write(f'MEASUrement:DELete "{name}"')
+        for index, source in enumerate(sources, start=1):
+            scope._intf.write("MEASUrement:ADDMEAS ACRMS")
+            scope._intf.write(f"MEASUrement:MEAS{index}:SOUrce1 {source}")
+        scope.set_acquire_mode("HIRes")
+        scope.set_acquire_stop_after("RUNSTop")
+        scope.set_trigger_mode("AUTO")
+        scope._intf.write("HORizontal:MODE MANual")
+
+        captures = {}
+        for capture, sample_rate_hz, settle_s, spectrum_span_hz in (
+            ("slow", 12.5e6, 20.0, 5.0e3),
+            ("fast", 1.25e9, 12.0, 20.0e6),
+        ):
+            for channel in channels.values():
+                scope._intf.write(f"CH{channel}:SV:STATE ON")
+                scope._intf.write(f"CH{channel}:SV:CENTERFrequency {spectrum_span_hz / 2}")
+            scope._intf.write(f"SV:SPAN {spectrum_span_hz}")
+            scope._intf.write("SV:RBWMode AUTOMATIC")
+            scope._intf.write(f"HORizontal:MODE:SAMPLERate {sample_rate_hz}")
+            scope.set_horizontal_record_length(1_250_000)
+            scope.set_acquire_state("RUN")
+            sleep(2.0)
+            scope._intf.write("CLEAR")
+            sleep(settle_s)
+            scope_acrms_v = {
+                source: float(scope._intf.query(f"MEASUrement:MEAS{index}:RESUlts:ALLAcqs:MEAN?"))
+                for index, source in enumerate(sources, start=1)
+            }
+            vxi.write('SAVE:IMAGe "C:/m2cz/noise.png"')
+            vxi.query("*OPC?")
+            vxi.write('FILESystem:READFile "C:/m2cz/noise.png"')
+            (run_dir / f"scope_{capture}.png").write_bytes(vxi.read_raw())
+            # The front end as the scope accepted it; High Res at 12.5 MS/s
+            # reports its narrower actual bandwidth (about 5 MHz).
+            first_channel = next(iter(channels.values()))
+            bandwidth_hz = float(response_value(scope._intf.query(f"CH{first_channel}:BANdwidth:ACTual?")))
+            termination_ohm = float(response_value(scope.get_impedance(channel=first_channel)))
+            coupling = str(response_value(scope.get_coupling(channel=first_channel)))
+            accepted_volts_per_div = float(response_value(scope.get_vertical_scale(channel=first_channel)))
+            waveforms = scope.get_waveforms(tuple(channels.values()))
+            analysis = scope_analysis(
+                waveforms,
+                scope_conns,
+                name=(
+                    f"{termination_ohm / 1e6:g} MΩ {coupling}"
+                    if termination_ohm >= 1e3
+                    else f"{termination_ohm:g} Ω {coupling}"
+                )
+                + f", {accepted_volts_per_div * 1e3:g} mV/div",
+                bandwidth_hz=bandwidth_hz,
+                differential=differential,
+                common_mode=common_mode,
+            )
+            write_analysis(run_dir / f"{capture}.h5", analysis)
+            plot_histogram(
+                analysis,
+                title=f"Noise distribution, {capture} capture – {title}",
+                output_path=run_dir / f"histogram_{capture}",
+            )
+            plot_waveforms(
+                analysis.wave,
+                title=f"Traces, {capture} capture – {title}",
+                output_path=run_dir / f"traces_{capture}",
+            )
+            captures[capture] = (analysis, scope_acrms_v)
+
+        scopes = [captures["slow"][0], captures["fast"][0]]
+        plot_spectrum(
+            scopes,
+            title=f"Single-ended noise spectral density – {title}",
+            signals={name: name for name in channels},
+            output_path=run_dir / "spectrum_single",
+        )
+        # Two channels: the difference the ADC converts and the common mode it rejects.
+        if differential:
+            plot_spectrum(
+                scopes,
+                title=f"Differential noise spectral density – {title}",
+                signals={name: name for name in differential},
+                output_path=run_dir / "spectrum_diff",
+            )
+            plot_spectrum(
+                scopes,
+                title=f"Common-mode noise spectral density – {title}",
+                signals={name: name for name in common_mode},
+                output_path=run_dir / "spectrum_common",
+            )
+    finally:
+        vxi.close()
+        scope_dut.close()
+
+    print(f"{step} -> {run_dir}")
+    for capture, (analysis, scope_acrms_v) in captures.items():
+        print(f"  {capture}: " + ", ".join(f"{name} {rms_v * 1e6:.1f} uV" for name, rms_v in analysis.ac_rms_v.items()))
+        for name, channel in channels.items():
+            # The screen spans five divisions either side of the centered trace.
+            peak_v = float(np.max(np.abs(analysis.wave.v[name][0] - analysis.mean_v[name])))
+            assert peak_v < 4.5 * volts_per_div, f"{capture} {name} approaches the screen range ({peak_v * 1e3:.2f} mV)"
+            # One record against the scope's average over many; bursty rails differ by a few percent.
+            assert analysis.ac_rms_v[name] == pytest.approx(scope_acrms_v[f"CH{channel}"], rel=0.1)
+
+
+def test_scope_analysis_recovers_gaussian_rms_tone_and_derived_traces(tmp_path: Path) -> None:
     rng = np.random.default_rng(7)
     sample_rate_hz = 100.0e6
     sample_count = 100_000
@@ -440,13 +639,17 @@ def test_scope_analysis_recovers_gaussian_rms_tone_and_math_trace(tmp_path: Path
     analysis = scope_analysis(
         waveforms,
         ScopeConns(ch1="vin_p", ch2="vin_n"),
-        name="synthetic",
+        name="synthetic, 1 MΩ AC, 1 mV/div",
         bandwidth_hz=SCOPE_BANDWIDTH_HZ,
-        setup=("1 MΩ AC, 1 mV/div",),
-        math={"vin_diff": ("vin_p", "vin_n")},
+        differential={"vin_diff": ("vin_p", "vin_n")},
+        common_mode={"vin_cm": ("vin_p", "vin_n")},
     )
 
-    assert set(analysis.wave.v) == {"vin_p", "vin_n", "vin_diff"}
+    assert set(analysis.wave.v) == {"vin_p", "vin_n", "vin_diff", "vin_cm"}
+    assert analysis.mean_v["vin_cm"] == pytest.approx(6.0e-3, abs=10e-6)
+    assert analysis.ac_rms_v["vin_cm"] == pytest.approx(
+        np.sqrt(2.0 * noise_rms_v**2 + (0.2e-3) ** 2 / 2.0) / 2.0, rel=0.02
+    )
     assert analysis.mean_v["vin_p"] == pytest.approx(12.0e-3, abs=10e-6)
     assert analysis.ac_rms_v["vin_p"] == pytest.approx(np.sqrt(noise_rms_v**2 + (0.2e-3) ** 2 / 2.0), rel=0.02)
     assert analysis.ac_rms_v["vin_diff"] == pytest.approx(np.sqrt(2.0 * noise_rms_v**2 + (0.2e-3) ** 2 / 2.0), rel=0.02)
@@ -455,8 +658,10 @@ def test_scope_analysis_recovers_gaussian_rms_tone_and_math_trace(tmp_path: Path
     assert analysis.sample_rate_hz == pytest.approx(sample_rate_hz)
 
     restored = read_analysis(write_analysis(tmp_path / "scope.h5", analysis))
+    with pytest.raises(ValueError, match="cannot contain '/'"):
+        write_analysis(tmp_path / "slash.h5", dataclasses.replace(analysis, ac_rms_v={"(p+n)/2": 1.0}))
     assert isinstance(restored, AnalysisScope)
-    assert restored.setup == analysis.setup
+    assert restored.name == analysis.name
     assert restored.ac_rms_v == pytest.approx(analysis.ac_rms_v)
     np.testing.assert_array_equal(restored.wave.v["vin_diff"], analysis.wave.v["vin_diff"])
 
@@ -473,7 +678,7 @@ def test_scope_noise_plots_are_exact_16_by_9(tmp_path: Path, monkeypatch: pytest
         ScopeConns(ch1="vin_p", ch2="vin_n"),
         name="synthetic",
         bandwidth_hz=SCOPE_BANDWIDTH_HZ,
-        math={"vin_diff": ("vin_p", "vin_n")},
+        differential={"vin_diff": ("vin_p", "vin_n")},
     )
 
     for paths in (

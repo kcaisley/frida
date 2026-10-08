@@ -353,8 +353,9 @@ class AnalysisScope(Analysis):
     Trace names are the probed signal names plus any math traces such as
     ``vin_p_adc-vin_n_adc``. Every mapping is keyed like ``wave.v``, whose one
     record holds the physical and math traces. ``spectrum_v_per_sqrt_hz`` is
-    the one-sided amplitude density about each trace's mean; ``setup`` holds
-    the information-box lines describing the instrument configuration.
+    the one-sided amplitude density about each trace's mean.
+    ``bandwidth_hz`` is the -3 dB acquisition bandwidth: the bandwidth-limit
+    filter, or a narrower acquisition-mode filter such as High Res.
     """
 
     name: str
@@ -364,7 +365,6 @@ class AnalysisScope(Analysis):
     spectrum_v_per_sqrt_hz: dict[str, np.ndarray]
     mean_v: dict[str, float]
     ac_rms_v: dict[str, float]
-    setup: tuple[str, ...]
 
     @property
     def sample_rate_hz(self) -> float:
