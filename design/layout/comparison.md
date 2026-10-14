@@ -2,7 +2,7 @@
 
 This evaluation covers the first-generation prototypes (`gen_comp.py`, `tsmc65_post.py`, the
 1.5 um laygo rows), since removed. The current flows place row cells of the standard-cell row
-height in all three tools: see [`pdk/tsmc65/layout`](../../pdk/tsmc65/layout/README.md).
+height in all three tools: see `pdk/tsmc65/layout/README.md` in the private PDK submodule.
 
 Goal: build the FRIDA-1 comparator (StrongARM latch + NOR SR latch + buffers, 32
 transistors, gate lengths 60/300/360/780/1020 nm) in each tool's native format, then

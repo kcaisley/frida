@@ -2,7 +2,7 @@
 
 Circuit-specific inputs of the comparator layout flows, besides the generator itself. The flows themselves are circuit-agnostic:
 the tool drivers are in `flow/layout/{cic,laygo,align}`, the row cells they all draw in `flow/layout/stems`,
-and each PDK's values in `pdk/<tech>/layout` (e.g. [`pdk/tsmc65/layout`](../../pdk/tsmc65/layout/README.md)).
+and each PDK's values in `pdk/<tech>/layout` (e.g. `pdk/tsmc65/layout/README.md`, in the private PDK submodule).
 Everything they produce goes to `build/layout/`.
 
 - `comp_frida1.json`, `comp_c040.json` — hand-written floorplans: rows top first, each left to
