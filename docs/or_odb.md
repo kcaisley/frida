@@ -31,8 +31,6 @@ The Python API exposes more of the C++ surface than TCL does. TCL wraps a fixed 
 - **Geometric computation** — mirroring guide coordinates for symmetric routing requires arithmetic that is cumbersome in TCL and natural in Python.
 - **Integration with the rest of FRIDA** — constraint objects, PDK lookups, and output path handling are all Python. Keeping the layout script in Python means no context switch.
 
-See [docs/or_analog.md](or_analog.md) for a detailed comparison of Python vs TCL coverage and a summary of what OpenROAD does and does not support natively for analog flows.
-
 ---
 
 ## Symmetric routing workaround
@@ -137,6 +135,5 @@ d.evalTclString(f"write_def {script_dir}/{cell}_placed_routed.def")
 
 ## Further reading
 
-- [docs/or_analog.md](or_analog.md) — placement status options, routing guide API, symmetric routing workaround detail, Python vs TCL feature comparison table
 - `pdk/tsmc65/docs/openroad.md` (private PDK submodule) — full TCL command reference for OpenROAD
 - OpenROAD ODB unit tests: `src/odb/test/unitTestsPython/` in the OpenROAD source tree — the most complete examples of the `odb` Python API
