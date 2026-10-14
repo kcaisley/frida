@@ -236,6 +236,26 @@ class MeasAdc(Meas):
         return (1 << self.dut.adc_bits) - 1
 
     @property
+    def input_lsb_v(self) -> float:
+        """Return the differential input voltage of one output code.
+
+        A behavioral capture carries its CDAC and top-plate load, so its full
+        scale is ``2 VREF C_eff / C_tot`` over ``2**adc_bits`` codes. Other
+        captures keep the nominal ``VDD_DAC / code_max`` of the noise analysis.
+        """
+
+        tb = self.tb
+        cdac = getattr(self.param, "cdac", None)
+        if cdac is None:
+            return float(tb.vdd_dac.dc) / self.code_max
+        from flow.adc.behavioral import calc_side_capacitances
+
+        main_f, diff_f = calc_side_capacitances(cdac, tb, "p")
+        effective_f = np.sum(main_f) + (-1 if tb.dac_diffcaps else 1) * np.sum(diff_f)
+        total_f = np.sum(main_f) + np.sum(diff_f) + cdac.parasitic_f
+        return float(2 * float(tb.vdd_dac.dc) * effective_f / total_f / (1 << self.dut.adc_bits))
+
+    @property
     def symbols_per_decision(self) -> int:
         """Return the symbol spacing of the INIT-relative COMP rises, one per decision."""
 
@@ -453,6 +473,25 @@ class AnalysisAdcEndpointNonlinearity(Analysis):
 
 
 @dataclass(frozen=True, slots=True)
+class AnalysisAdcCodeSpectrum(Analysis):
+    """One-sided Welch power spectral density of a capture's output codes.
+
+    Codes are mean-removed and in LSB; ``input_lsb_v`` refers them to the
+    differential input. ``white_floor_lsb2_per_hz`` is the
+    median density, a robust white-noise level beside narrow tones; the total
+    RMS integrates the whole density.
+    """
+
+    decoding: Literal["uncalibrated_dout", "extracted", "calibration1", "calibration2", "calibration3"]
+    sample_rate_hz: float
+    input_lsb_v: float
+    frequency_hz: np.ndarray
+    psd_lsb2_per_hz: np.ndarray
+    white_floor_lsb2_per_hz: float
+    total_rms_lsb: float
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisAdcCodeDensityNonlinearity(Analysis):
     """Code-density INL and DNL from a uniformly distributed input.
 
@@ -493,7 +532,7 @@ class AnalysisAdcCalibration(Analysis):
     directly measured or fitted coefficients from nominally preserved ones.
     """
 
-    method: Literal["calibration1", "calibration2", "calibration3"]
+    method: Literal["extracted", "calibration1", "calibration2", "calibration3"]
     label: str
     code_max: int
     nominal_weights: np.ndarray
@@ -532,7 +571,7 @@ class AnalysisAdcRamp(Analysis):
     nominal DOUT or the calibration whose weights decoded the stored BOUT.
     """
 
-    decoding: Literal["uncalibrated_dout", "calibration1", "calibration2", "calibration3"]
+    decoding: Literal["uncalibrated_dout", "extracted", "calibration1", "calibration2", "calibration3"]
     label: str
     weights: np.ndarray
     sample_rate_hz: float

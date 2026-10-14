@@ -38,6 +38,7 @@ from flow.analysis.adc import (
     analyze_adc_cdac_settling,
     analyze_adc_code_density_nonlinearity,
     analyze_adc_code_distribution,
+    analyze_adc_code_spectrum,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
     analyze_adc_noise,
@@ -59,11 +60,13 @@ from flow.analysis.comp import (
     analyze_comp_power,
     analyze_comp_timing,
 )
-from flow.analysis.io import read_measurement, read_measurement_param, write_analysis
+from flow.analysis.io import read_extracted_calibration, read_measurement, read_measurement_param, write_analysis
 from flow.analysis.plots import (
     plot_adc_calibration_weights,
     plot_adc_cdac_settling,
     plot_adc_code_distribution,
+    plot_adc_code_spectrum,
+    plot_adc_conversion_energy,
     plot_adc_decision_path_density,
     plot_adc_dynamic,
     plot_adc_dynamic_sweep,
@@ -82,6 +85,7 @@ from flow.analysis.plots import (
     plot_comp_candidate_sweep,
     plot_comp_common_mode_campaign,
     plot_comp_noise_power_tradeoff,
+    plot_comp_offset_noise,
     plot_comp_sampling_campaign,
     plot_waveforms,
     style_measurement_text,
@@ -171,6 +175,285 @@ def adc_ramp_nonlinearity_study(output_dir: Path) -> tuple[Path, ...]:
             )
         )
     return tuple(artifacts)
+
+
+def adc_behavioral_nonlinearity_study(output_dir: Path) -> tuple[Path, ...]:
+    """Plot code density and INL/DNL of the behavioral FRIDA-2 three-layer sawtooth.
+
+    The inputs are the held-out behavioral MeasAdc ramp captures from
+    ``flow.scans.scan_behavioral``: 1,000,000 conversions each at 10 MS/s over
+    eight full-scale sawtooth periods, switching the reviewed three-layer PEX
+    capacitances. Seed 0 has no random capacitor mismatch; seeds 1--4 are
+    Monte Carlo draws with Harpe (0.10 %·sqrt(fF)) and Tripathi
+    (0.85 %·sqrt(fF)) unit mismatch. Each INL/DNL and code-density plot shows
+    the capture decoded with the ideal design weights and with the
+    PEX-extracted weights, the best estimate before mismatch.
+    """
+    read_dir = BASE_PATH / "build/scan_behavioral/20261010_114121_frida2_ramp_code_density"
+    artifacts = []
+    for path in sorted(read_dir.glob("seed[0-9][0-9]_ac[0-9][0-9][0-9]_check.h5")):
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasAdc):
+            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
+        extracted = read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
+        ramps = (analyze_adc_ramp(measurement), analyze_adc_ramp(measurement, calibration=extracted))
+        stem = f"frida2_3layer_behavioral_{path.stem}"
+        artifacts.extend(
+            plot_adc_ramp_histogram(ramps, output_path=output_dir / f"{stem}_code_density", msmt=measurement)
+        )
+        artifacts.extend(
+            plot_adc_ramp_nonlinearity(ramps, output_path=output_dir / f"{stem}_inl_dnl", msmt=measurement)
+        )
+    return tuple(artifacts)
+
+
+def adc_behavioral_energy_study(output_dir: Path) -> tuple[Path, ...]:
+    """Plot behavioral FRIDA-2 three-layer energy per conversion versus DC input.
+
+    Inputs are 129 behavioral MeasAdc DC captures across the full scale, 2,000
+    conversions each, with the PEX capacitances and the default alternating
+    A-state. The model computes VDD_DAC; the comparator and logic rails use
+    PEX-measured energy per conversion, so they are flat in input.
+    """
+    read_dir = BASE_PATH / "build/scan_behavioral/20261010_232352_frida2_energy_vs_input"
+    measurements = []
+    for path in sorted(read_dir.glob("[0-9][0-9][0-9]_vin*.h5")):
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasAdc):
+            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
+        measurements.append(measurement)
+    return plot_adc_conversion_energy(
+        measurements,
+        [analyze_adc_power(measurement) for measurement in measurements],
+        output_path=output_dir / "frida2_3layer_behavioral_energy_vs_input",
+    )
+
+
+def adc_behavioral_sample_rate_study(output_dir: Path) -> tuple[Path, ...]:
+    """Plot behavioral FRIDA-2 three-layer power and spectral ENOB versus rate.
+
+    Inputs are nine behavioral MeasAdc sine captures (-0.5 dBFS, 8,192
+    conversions) with the 160-symbol recipe at 0.2-6.4 GBd, i.e. 1.25-40 MS/s.
+    VDD_DAC charge is computed; comparator, logic, and driver energies and
+    leakage are fitted to the FRIDA-2 three-layer PEX transient. Each rail's
+    static and dynamic power are drawn as one band. ENOB uses the PEX-extracted weights and
+    is limited by the assumed 0.2-ns CDAC settling time constant at high rates.
+    """
+    read_dir = BASE_PATH / "build/scan_behavioral/20261010_232349_frida2_sample_rate"
+    measurements = []
+    for path in sorted(read_dir.glob("[0-9][0-9][0-9][0-9]mbd.h5")):
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasAdc):
+            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
+        measurements.append(measurement)
+    return (
+        *plot_adc_power_sweep(
+            measurements,
+            [analyze_adc_power(measurement) for measurement in measurements],
+            output_path=output_dir / "frida2_3layer_behavioral_power_vs_rate",
+            rate_axis="sampling",
+            merge_static=True,
+        ),
+        *plot_adc_dynamic_sweep(
+            measurements,
+            [
+                analyze_adc_dynamic(
+                    measurement,
+                    calibration=read_extracted_calibration(
+                        Path(str(measurement.info.readbacks["cap_table"])), measurement
+                    ),
+                )
+                for measurement in measurements
+            ],
+            output_path=output_dir / "frida2_3layer_behavioral_enob_vs_rate",
+            x_axis="sample_rate",
+        ),
+    )
+
+
+def adc_behavioral_trajectory_study(output_dir: Path) -> tuple[Path, ...]:
+    """Show redundant SAR decision paths recovering from a random first decision.
+
+    The input is one behavioral MeasAdc: 2,000 conversions at 10 MS/s of a 0-V
+    input, on the C0 threshold, with every noise source. B0 goes either way,
+    and the later redundant stages bring both branches to the same codes.
+    """
+    path = BASE_PATH / "build/scan_behavioral/20261010_114637_frida2_trajectory/trajectory_0mv.h5"
+    measurement = read_measurement(path)
+    if not isinstance(measurement, MeasAdc):
+        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
+    paths = analyze_adc_decision_paths(measurement)
+    return plot_adc_decision_path_density(
+        measurement, paths, output_path=output_dir / "frida2_3layer_behavioral_trajectory_density"
+    )
+
+
+def adc_behavioral_calibration_study(output_dir: Path) -> tuple[Path, ...]:
+    """Calibrate behavioral FRIDA-2 three-layer captures from a known ramp and check on fresh data.
+
+    Each capacitor draw has a training and a held-out ramp capture (eight
+    periods, 1,000,000 conversions, same capacitors, independent noise).
+    Calibration 1 learns BOUT weights from the same draw's behavioral CDAC
+    A-to-B switching curves, and calibrations 2 and 3 from the training
+    capture alone; the held-out capture is then decoded with the nominal design
+    weights, the PEX-extracted weights, and all three learned weight sets.
+    """
+    read_dir = BASE_PATH / "build/scan_behavioral/20261010_114121_frida2_ramp_code_density"
+    cdac_dir = BASE_PATH / "build/scan_behavioral/20261010_114043_frida2_cdac_ab"
+    artifacts = []
+    for train_path in sorted(read_dir.glob("seed[0-9][0-9]_ac[0-9][0-9][0-9]_train.h5")):
+        check_path = train_path.with_name(train_path.name.replace("_train", "_check"))
+        train, check = read_measurement(train_path), read_measurement(check_path)
+        if not isinstance(train, MeasAdc) or not isinstance(check, MeasAdc):
+            raise TypeError(f"{train_path} and {check_path} must both contain MeasAdc")
+        train_ramp = analyze_adc_ramp(train)
+        # Calibration 1 learns from the same draw's CDAC A-to-B switching curves.
+        draw_dir = cdac_dir / train_path.stem.removesuffix("_train")
+        comparator = read_measurement(draw_dir / "comparator.h5")
+        curves = [read_measurement(path) for path in sorted(draw_dir.glob("cdac_*.h5"))]
+        if not isinstance(comparator, MeasComp) or not all(isinstance(curve, MeasCdac) for curve in curves):
+            raise TypeError(f"{draw_dir} must hold one MeasComp and MeasCdac switching curves")
+        transitions = [analyze_cdac_transition([curve], offset=analyze_comp_offset_noise([curve])) for curve in curves]
+        cap_mismatch = analyze_cdac_cap_mismatch(
+            curves, transitions=transitions, comparator=analyze_comp_offset_noise([comparator])
+        )
+        learned = (
+            analyze_adc_calibration1(curves, cap_mismatch=cap_mismatch),
+            analyze_adc_calibration2(train, ramp=train_ramp),
+            analyze_adc_calibration3(train, ramp=train_ramp),
+        )
+        extracted = read_extracted_calibration(Path(str(check.info.readbacks["cap_table"])), check)
+        ramps = [analyze_adc_ramp(check)] + [
+            analyze_adc_ramp(check, calibration=calibration) for calibration in (extracted, *learned)
+        ]
+        stem = f"frida2_3layer_behavioral_{train_path.stem.removesuffix('_train')}"
+        artifacts.extend(
+            plot_adc_calibration_weights((extracted, *learned), output_path=output_dir / f"{stem}_weights")
+        )
+        artifacts.extend(
+            plot_adc_ramp_nonlinearity(
+                ramps, output_path=output_dir / f"{stem}_calibrated_inl_dnl", msmt=check, stacked=True
+            )
+        )
+        artifacts.extend(
+            plot_adc_ramp_histogram(ramps, output_path=output_dir / f"{stem}_calibrated_code_density", msmt=check)
+        )
+    return tuple(artifacts)
+
+
+def adc_behavioral_architecture_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare held-out ramp linearity of redundant and binary, unit-length and unit-element arrays.
+
+    Inputs are the behavioral architecture-variant captures: for each array
+    and capacitor draw a training and a held-out eight-period ramp. The
+    held-out ramp is decoded with the nominal design weights and with
+    calibrations 2 and 3 learned from the training ramp alone.
+    """
+    read_dir = BASE_PATH / "build/scan_behavioral/20261010_115333_architecture_variants"
+    artifacts = []
+    for variant_dir in sorted(path for path in read_dir.iterdir() if path.is_dir()):
+        for train_path in sorted(variant_dir.glob("seed[0-9][0-9]_ac[0-9][0-9][0-9]_train.h5")):
+            check_path = train_path.with_name(train_path.name.replace("_train", "_check"))
+            train, check = read_measurement(train_path), read_measurement(check_path)
+            if not isinstance(train, MeasAdc) or not isinstance(check, MeasAdc):
+                raise TypeError(f"{train_path} and {check_path} must both contain MeasAdc")
+            train_ramp = analyze_adc_ramp(train)
+            learned = (
+                analyze_adc_calibration2(train, ramp=train_ramp),
+                analyze_adc_calibration3(train, ramp=train_ramp),
+            )
+            ramps = [analyze_adc_ramp(check)] + [
+                analyze_adc_ramp(check, calibration=calibration) for calibration in learned
+            ]
+            stem = f"{variant_dir.name}_{train_path.stem.removesuffix('_train')}"
+            artifacts.extend(plot_adc_ramp_nonlinearity(ramps, output_path=output_dir / f"{stem}_inl_dnl", msmt=check))
+            artifacts.extend(plot_adc_calibration_weights(learned, output_path=output_dir / f"{stem}_weights"))
+    return tuple(artifacts)
+
+
+def adc_behavioral_noise_spectrum_study(output_dir: Path) -> tuple[Path, ...]:
+    """Overlay the output-code noise spectral density of each behavioral noise source.
+
+    Inputs are three behavioral MeasAdc fixed-input captures (50 mV, 10 MS/s,
+    100,000 conversions): the sampling switch's kT/C alone, the comparator
+    alone, and the total ADC with both.
+    Codes are decoded with the PEX-extracted weights.
+    """
+    read_dir = BASE_PATH / "build/scan_behavioral/20261010_114609_frida2_noise_sources"
+    labels = {
+        "sampling": "Sampling switch (kT/C)",
+        "comparator": "Comparator",
+        "baseline": "Total ADC",
+    }
+    spectra = []
+    for name in labels:
+        path = read_dir / f"noise_{name}.h5"
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasAdc):
+            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
+        calibration = read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
+        spectra.append(analyze_adc_code_spectrum(measurement, calibration=calibration))
+    return plot_adc_code_spectrum(
+        spectra,
+        series_labels=tuple(labels.values()),
+        output_path=output_dir / "frida2_3layer_behavioral_noise_spectrum",
+    )
+
+
+def adc_behavioral_input_frequency_study(output_dir: Path) -> tuple[Path, ...]:
+    """Plot spectral ENOB and SNDR versus input frequency at 2, 6, and 10 MS/s.
+
+    Inputs are 27 behavioral MeasAdc sine captures (-0.5 dBFS, nine input
+    frequencies up to Nyquist per rate, 8,192 conversions) with every noise
+    source, the input-dependent sampler, and the PEX-extracted decoding. The
+    10-MS/s captures nearest DC and Nyquist also get their own spectra.
+    """
+    read_dir = BASE_PATH / "build/scan_behavioral/20261010_114623_frida2_input_frequency"
+    measurements, dynamics = [], []
+    for path in sorted(read_dir.glob("[0-9][0-9][0-9][0-9]mbd_[0-9][0-9][0-9][0-9]cycles.h5")):
+        measurement = read_measurement(path)
+        if not isinstance(measurement, MeasAdc):
+            raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
+        calibration = read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
+        measurements.append(measurement)
+        dynamics.append(analyze_adc_dynamic(measurement, calibration=calibration))
+    artifacts = list(
+        plot_adc_dynamic_sweep(
+            measurements,
+            dynamics,
+            output_path=output_dir / "frida2_3layer_behavioral_enob_vs_input_frequency",
+            x_axis="input_frequency",
+        )
+    )
+    at_10_msps = [index for index, dynamic in enumerate(dynamics) if round(dynamic.sample_rate_hz) == 10_000_000]
+    for label, index in (("low", at_10_msps[0]), ("nyquist", at_10_msps[-1])):
+        artifacts.extend(
+            plot_adc_dynamic(
+                measurements[index],
+                dynamics[index],
+                output_path=output_dir / f"frida2_3layer_behavioral_10msps_{label}_spectrum",
+            )
+        )
+    return tuple(artifacts)
+
+
+def comp_behavioral_offset_noise_study(output_dir: Path) -> tuple[Path, ...]:
+    """Fit offset and noise of the behavioral comparator block simulated alone.
+
+    The input is one behavioral MeasComp from ``flow.scans.scan_behavioral``:
+    61 differential inputs within +/-1.5 mV at 0.7 V common mode, 400
+    decisions each. It uses the same S-curve analysis as physical comparator
+    sweeps.
+    """
+    path = BASE_PATH / "build/scan_behavioral/20261010_073028_frida2_comparator/comparator.h5"
+    measurement = read_measurement(path)
+    if not isinstance(measurement, MeasComp):
+        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasComp")
+    return plot_comp_offset_noise(
+        [measurement],
+        analyze_comp_offset_noise([measurement]),
+        output_path=output_dir / "frida2_behavioral_comparator_offset_noise",
+    )
 
 
 def adc_calibration_study(output_dir: Path) -> tuple[Path, ...]:
@@ -858,10 +1141,19 @@ def main() -> None:
         for target in (
             adc_transfer_curve_study,
             adc_ramp_nonlinearity_study,
+            adc_behavioral_nonlinearity_study,
+            adc_behavioral_energy_study,
+            adc_behavioral_sample_rate_study,
+            adc_behavioral_calibration_study,
+            adc_behavioral_trajectory_study,
+            adc_behavioral_architecture_study,
+            adc_behavioral_noise_spectrum_study,
+            adc_behavioral_input_frequency_study,
             adc_calibration_study,
             adc_sequence_study,
             adc_sample_rate_study,
             adc_power_study,
+            comp_behavioral_offset_noise_study,
             comp_system_common_mode_study,
             comp_system_sampling_noise_study,
             comp_candidate_sweep_study,

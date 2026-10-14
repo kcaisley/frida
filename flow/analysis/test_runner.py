@@ -74,6 +74,15 @@ def test_runner_exposes_only_named_orchestration_entry_points() -> None:
         "comp_system_sampling_noise_study",
         "comp_candidate_sweep_study",
         "cdac_system_cap_mismatch_study",
+        "adc_behavioral_nonlinearity_study",
+        "adc_behavioral_energy_study",
+        "adc_behavioral_sample_rate_study",
+        "adc_behavioral_trajectory_study",
+        "adc_behavioral_calibration_study",
+        "adc_behavioral_architecture_study",
+        "adc_behavioral_noise_spectrum_study",
+        "adc_behavioral_input_frequency_study",
+        "comp_behavioral_offset_noise_study",
     }
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name in targets:

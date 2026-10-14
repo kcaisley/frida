@@ -576,7 +576,7 @@ def test_ramp_analysis_derives_period_and_fits_phase_without_detecting_jumps() -
     assert analysis.period_conversions == pytest.approx(4_096, rel=1e-6)
     assert analysis.ramp_frequency_hz == pytest.approx(analysis.sample_rate_hz / 4_096, rel=1e-6)
     assert analysis.decoding == "uncalibrated_dout"
-    assert analysis.label == "Uncalibrated DOUT"
+    assert analysis.label == "Ideal weights"
     assert analysis.retained_sample_count == analysis.sample_count - analysis.reset_excluded_sample_count
     assert analysis.count.sum() == analysis.retained_sample_count
     # Bins whose only conversions sit beside a wrap stay empty; all others are populated.
@@ -1356,3 +1356,17 @@ def test_dynamic_sine_fit_recovers_signal_with_frequency_error() -> None:
     assert result.residual_rms_dout == pytest.approx(1 / np.sqrt(12), rel=0.1)
     np.testing.assert_allclose(result.time_s, time_s)
     np.testing.assert_allclose(result.fitted_dout + result.residual_dout, samples)
+
+
+def test_code_spectrum_integrates_to_the_code_noise_rms() -> None:
+    from flow.analysis.adc import analyze_adc_code_spectrum
+
+    rng = np.random.default_rng(0)
+    codes = np.rint(2000.3 + rng.normal(0.0, 2.0, 65536)).astype(np.int64)
+    spectrum = analyze_adc_code_spectrum(adc_measurement(codes))
+
+    assert spectrum.decoding == "uncalibrated_dout"
+    # Welch with a Hann window integrates to the sample variance within a few percent.
+    assert spectrum.total_rms_lsb == pytest.approx(np.std(codes), rel=0.03)
+    # White noise: the median density sits near variance / (fs / 2).
+    assert spectrum.white_floor_lsb2_per_hz == pytest.approx(np.var(codes) / (spectrum.sample_rate_hz / 2), rel=0.15)

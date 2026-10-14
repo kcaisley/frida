@@ -34,6 +34,7 @@ from flow.analysis.types import (
     AnalysisAdcCdacSettling,
     AnalysisAdcCodeDensityNonlinearity,
     AnalysisAdcCodeDistribution,
+    AnalysisAdcCodeSpectrum,
     AnalysisAdcComparatorEdgeEye,
     AnalysisAdcComparatorResponse,
     AnalysisAdcCompOutEdgeEye,
@@ -401,8 +402,19 @@ def style_measurement_text(msmt: Meas) -> tuple[str, ...]:
     adc_index = getattr(msmt.param, "observed_adc", None)
     if adc_index is not None:
         lines += (f"ADC: {adc_index:02d}",)
-    elif msmt.info.backend != "physical" and isinstance(msmt, MeasAdc):
-        lines += (f"Source: {msmt.info.backend.upper()}",)
+    elif msmt.info.backend != "physical" and isinstance(msmt, (MeasAdc, MeasComp)):
+        lines += ("Source: Sim" if msmt.info.backend == "behavioral" else f"Source: {msmt.info.backend.upper()}",)
+    mismatch = msmt.info.readbacks.get("unit_mismatch") if msmt.info.readbacks else None
+    if msmt.info.backend == "behavioral" and mismatch is not None:
+        # Pelgrom coefficients from Tripathi (JSSC 2014) and Harpe's unit-length DAC.
+        source = {0.0085: " (Tripathi)", 0.0010: " (Harpe)"}.get(round(float(mismatch), 6), "")
+        lines += (
+            f"Pelgrom mismatch: A = {float(mismatch) * 100:g} %·√fF{source}"
+            if mismatch
+            else "Capacitor mismatch: none",
+        )
+        if mismatch and msmt.group is not None:
+            lines += (f"Mismatch draw: {msmt.group}",)
     board_id = getattr(msmt.param, "board_id", None)
     if board_id is not None:
         lines += (f"Board: {board_id:02d}",)
@@ -410,6 +422,9 @@ def style_measurement_text(msmt: Meas) -> tuple[str, ...]:
         dc_v = getattr(getattr(tb, field_name, None), "dc", None)
         if dc_v is not None:
             lines += (f"{label}: {float(dc_v) * 1e3:g} mV",)
+    # A standalone block testbench has no SAR sequence or CDAC state.
+    if not hasattr(tb, "seq_init_pattern"):
+        return lines
     sequence = AdcSequence.from_tb_params(tb)
     if isinstance(msmt, MeasAdc):
         lines += (f"Conversion: {float(tb.symbol_rate) / sequence.conversion_symbols / 1e6:g} MSPS",)
@@ -1138,8 +1153,12 @@ def plot_adc_ramp_histogram(
     analyses: Sequence[AnalysisAdcRamp],
     *,
     output_path: Path,
+    msmt: MeasAdc | None = None,
 ) -> tuple[Path, ...]:
-    """Plot overlaid code-density histograms of every decoding of one capture."""
+    """Plot overlaid code-density histograms of every decoding of one capture.
+
+    ``msmt``, when given, replaces the channel line with its setup context.
+    """
 
     analysis = analyses[0]
     fig, ax = plt.subplots()
@@ -1148,29 +1167,80 @@ def plot_adc_ramp_histogram(
     last_code = int(analysis.code[-1])
     bin_edges = np.linspace(first_code, last_code, number_bins + 1, dtype=np.int64)
     bin_edges = np.unique(bin_edges)
+    # Center the ideal flat density; widen the fixed +/-25 % band symmetrically
+    # when any bin deviates further, so no bin is clipped.
+    half_range = 0.25
     for curve, color in zip(analyses, CURVE_COLORS, strict=False):
         average_count = np.asarray([calc.average(curve.count[lower:upper]) for lower, upper in pairwise(bin_edges)])
+        relative_width = average_count / curve.ideal_count
+        half_range = max(half_range, 1.1 * float(np.max(np.abs(relative_width - 1.0))))
         ax.stairs(
-            average_count,
+            relative_width,
             bin_edges,
-            baseline=0.0,
+            baseline=None,
             fill=False,
             color=color,
             label=curve.label,
         )
+    ax.axhline(1.0, color=SPINE_COLOR)
+    ax.set_ylim(1.0 - half_range, 1.0 + half_range)
     ax.set_xlabel("Output code")
-    ax.set_ylabel("Mean samples per code in bin")
+    ax.set_ylabel("Relative code width (count / ideal)")
     ax.set_title("ADC ramp code density")
     style_grid(ax)
-    ax.legend(ncols=2)
+    ax.legend(ncols=2, loc="upper right")
     style_info_box(
         ax,
         (
-            *style_instance_text(analysis),
+            *(style_instance_text(analysis) if msmt is None else style_measurement_text(msmt)),
             f"Ramp: {analysis.ramp_frequency_hz:.6g} Hz",
         ),
         location="lower right",
     )
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_code_spectrum(
+    analyses: Sequence[AnalysisAdcCodeSpectrum],
+    *,
+    series_labels: Sequence[str],
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Overlay input-referred output-code noise densities, each labeled with its total RMS.
+
+    The density axis turns logarithmic only when the series' white floors are
+    more than a decade apart. LSB size and decoding go in the info box when every series
+    shares them, and in each legend entry otherwise.
+    """
+
+    shared = len({(analysis.input_lsb_v, analysis.decoding) for analysis in analyses}) == 1
+    fig, ax = plt.subplots()
+    for analysis, label in zip(analyses, series_labels, strict=True):
+        detail = "" if shared else f", {analysis.input_lsb_v * 1e6:.0f}-µV LSB, {analysis.decoding}"
+        ax.plot(
+            analysis.frequency_hz[1:] / 1e6,
+            np.sqrt(analysis.psd_lsb2_per_hz[1:]) * analysis.input_lsb_v * 1e9,
+            label=(
+                f"{label}: {analysis.total_rms_lsb * analysis.input_lsb_v * 1e6:.0f} µV RMS"
+                f" ({analysis.total_rms_lsb:.2f} LSB{detail})"
+            ),
+        )
+    floors_nv = [np.sqrt(analysis.white_floor_lsb2_per_hz) * analysis.input_lsb_v * 1e9 for analysis in analyses]
+    if max(floors_nv) > 10 * min(floors_nv):
+        ax.set_yscale("log")
+    else:
+        # Headroom above the noisiest trace keeps the legend clear of the data.
+        ax.set_ylim(0.0, 1.6 * max(floors_nv))
+    ax.set_xlabel("Frequency (MHz)")
+    ax.set_ylabel("Input-referred noise density (nV/√Hz)")
+    ax.set_title("ADC output-code noise spectral density")
+    style_grid(ax)
+    ax.legend(loc="upper left")
+    info = (f"Sample rate: {analyses[0].sample_rate_hz / 1e6:g} MS/s",)
+    if shared:
+        info += (f"LSB: {analyses[0].input_lsb_v * 1e6:.0f} µV", f"Decoding: {analyses[0].decoding}")
+    style_info_box(ax, info, location="lower right")
     return save_figure(fig, output_path)
 
 
@@ -1310,26 +1380,72 @@ def plot_adc_ramp_nonlinearity(
     analyses: Sequence[AnalysisAdcRamp],
     *,
     output_path: Path,
+    msmt: MeasAdc | None = None,
+    stacked: bool = False,
 ) -> tuple[Path, ...]:
-    """Plot overlaid ramp DNL and INL of every decoding of one capture."""
+    """Plot ramp DNL and INL of every decoding of one capture.
+
+    Decodings overlay in one DNL and one INL panel, or with ``stacked`` get
+    one row each (DNL left, INL right, shared axes) labeled with their peak
+    errors, so several calibrations stay comparable. ``msmt``, when given,
+    replaces the channel line with its setup context.
+    """
 
     analysis = analyses[0]
-    fig, axes = plt.subplots(2, 1, sharex=True)
-    for curve in analyses:
-        axes[0].plot(curve.linearity_code, curve.dnl, label=curve.label)
-        axes[1].plot(curve.linearity_code, curve.inl, label=curve.label)
-    axes[0].axhline(0.0, color=SPINE_COLOR)
-    axes[0].set_ylabel("DNL (LSB)")
-    axes[1].axhline(0.0, color=SPINE_COLOR)
-    axes[1].set_ylabel("INL (LSB)")
-    axes[1].set_xlabel("Output code")
-    for ax in axes:
-        style_grid(ax)
-    axes[0].legend()
-    style_info_box(
-        axes[1],
-        (*style_instance_text(analysis), f"Ramp: {analysis.ramp_frequency_hz:.6g} Hz"),
-    )
+    if stacked:
+        fig, grid = plt.subplots(
+            len(analyses), 2, sharex=True, sharey="col", squeeze=False, figsize=(12.0, 1.7 * len(analyses) + 1.6)
+        )
+        for row, (curve, color) in enumerate(zip(analyses, CURVE_COLORS, strict=False)):
+            dnl_ax, inl_ax = grid[row]
+            dnl_ax.plot(curve.linearity_code, curve.dnl, color=color, linewidth=0.6)
+            inl_ax.plot(curve.linearity_code, curve.inl, color=color, linewidth=0.8)
+            for ax in (dnl_ax, inl_ax):
+                ax.axhline(0.0, color=SPINE_COLOR)
+                style_grid(ax)
+            inl_ax.text(
+                0.99,
+                0.92,
+                f"{curve.label}: |INL| ≤ {curve.maximum_abs_inl:.2f}, |DNL| ≤ {curve.maximum_abs_dnl:.2f} LSB",
+                transform=inl_ax.transAxes,
+                ha="right",
+                va="top",
+                fontsize=INFO_BOX_FONT_SIZE,
+                bbox={"facecolor": "white", "edgecolor": SPINE_COLOR, "alpha": 0.85, "boxstyle": "round,pad=0.25"},
+            )
+            dnl_ax.set_ylabel("LSB")
+        grid[0, 0].set_title("DNL")
+        grid[0, 1].set_title("INL")
+        grid[-1, 0].set_xlabel("Output code")
+        grid[-1, 1].set_xlabel("Output code")
+        caption_ax = info_ax = None
+    else:
+        fig, axes = plt.subplots(2, 1, sharex=True)
+        for curve in analyses:
+            axes[0].plot(curve.linearity_code, curve.dnl, label=curve.label)
+            axes[1].plot(curve.linearity_code, curve.inl, label=curve.label)
+        axes[0].axhline(0.0, color=SPINE_COLOR)
+        axes[0].set_ylabel("DNL (LSB)")
+        axes[1].axhline(0.0, color=SPINE_COLOR)
+        axes[1].set_ylabel("INL (LSB)")
+        axes[1].set_xlabel("Output code")
+        for ax in axes:
+            style_grid(ax)
+        axes[0].legend(loc="upper right")
+        caption_ax, info_ax = axes
+    ramp_line = f"Ramp: {analysis.ramp_frequency_hz:.6g} Hz"
+    setup = (*(style_instance_text(analysis) if msmt is None else style_measurement_text(msmt)), ramp_line)
+    if info_ax is not None and msmt is None:
+        style_info_box(info_ax, setup)
+    else:
+        # The full setup is too tall for a box over the traces; a two-line
+        # caption under the title, or below the stacked grid, keeps panels free.
+        half = (len(setup) + 1) // 2
+        caption = "\n".join(("  ·  ".join(setup[:half]), "  ·  ".join(setup[half:])))
+        if caption_ax is not None:
+            caption_ax.set_title(caption, fontsize=INFO_BOX_FONT_SIZE)
+        else:
+            fig.supxlabel(caption, fontsize=INFO_BOX_FONT_SIZE)
     fig.suptitle("ADC ramp nonlinearity")
     return save_figure(fig, output_path)
 
@@ -2064,8 +2180,9 @@ def plot_adc_power_sweep(
     *,
     output_path: Path,
     rate_axis: Literal["active", "sampling"] = "active",
+    merge_static: bool = False,
 ) -> tuple[Path, ...]:
-    """Plot one source's static and dynamic rail power versus rate."""
+    """Plot one source's rail power versus rate, split into static and dynamic unless ``merge_static``."""
 
     rates = np.asarray(
         [
@@ -2075,34 +2192,26 @@ def plot_adc_power_sweep(
     )
     order = np.argsort(rates)
     rate_msps = rates[order] / 1e6
-    component_labels = (
-        "Digital static",
-        "DAC static",
-        "Analog static",
-        "Digital dynamic",
-        "DAC dynamic",
-        "Analog dynamic",
-    )
-    component_power_uw = tuple(
-        np.asarray([getattr(analysis, name) for analysis in analyses])[order] * 1e6
-        for name in (
-            "vdd_d_static_power_w",
-            "vdd_dac_static_power_w",
-            "vdd_a_static_power_w",
-            "vdd_d_dynamic_power_w",
-            "vdd_dac_dynamic_power_w",
-            "vdd_a_dynamic_power_w",
-        )
-    )
     analog_color, digital_color, dac_color = CURVE_COLORS[:3]
-    component_colors = (
-        digital_color,
-        dac_color,
-        analog_color,
-        digital_color,
-        dac_color,
-        analog_color,
-    )
+    rails = (("Digital", "vdd_d", digital_color), ("DAC", "vdd_dac", dac_color), ("Analog", "vdd_a", analog_color))
+
+    rail_power_uw = {
+        (rail, part): np.asarray([getattr(analysis, f"{rail}_{part}_power_w") for analysis in analyses])[order] * 1e6
+        for _label, rail, _color in rails
+        for part in ("static", "dynamic")
+    }
+    if merge_static:
+        component_labels = tuple(label for label, _rail, _color in rails)
+        component_power_uw = tuple(
+            rail_power_uw[rail, "static"] + rail_power_uw[rail, "dynamic"] for _label, rail, _color in rails
+        )
+        component_colors = tuple(color for _label, _rail, color in rails)
+    else:
+        component_labels = tuple(f"{label} {part}" for part in ("static", "dynamic") for label, _rail, _color in rails)
+        component_power_uw = tuple(
+            rail_power_uw[rail, part] for part in ("static", "dynamic") for _label, rail, _color in rails
+        )
+        component_colors = 2 * tuple(color for _label, _rail, color in rails)
     fig, ax = plt.subplots()
     collections = ax.stackplot(
         rate_msps,
@@ -2113,21 +2222,69 @@ def plot_adc_power_sweep(
     for index, (collection, color) in enumerate(zip(collections, component_colors, strict=True)):
         collection.set_edgecolor(color)
         collection.set_linewidth(0.7)
-        if index >= 3:
+        if not merge_static and index >= 3:
+            # Hatches take the edge color, so a lighter fill keeps them visible.
+            collection.set_facecolor(mpl.colors.to_rgba(color, 0.35))
             collection.set_hatch("///")
     total_power_uw = np.asarray([analysis.total_power_w for analysis in analyses])[order] * 1e6
     ax.plot(rate_msps, total_power_uw, color=TEXT_COLOR)
     ax.set_ylabel("Supply power (µW)")
     ax.set_xlabel("Repetition rate (MHz)" if rate_axis == "sampling" else "Conversion rate (MSPS)")
     ax.set_xlim(0.0, float(calc.ymax(rate_msps)) + 0.25)
-    if calc.ymax(rate_msps) >= 1.0:
+    # Unit ticks suit the physical sweeps up to 10 MHz; wider sweeps keep the
+    # default locator.
+    if 1.0 <= calc.ymax(rate_msps) <= 10.0:
         ax.set_xticks(np.arange(1.0, np.floor(calc.ymax(rate_msps)) + 1.0))
-    ax.set_xticks(np.arange(0.0, float(calc.ymax(rate_msps)) + 0.251, 0.25), minor=True)
+        ax.set_xticks(np.arange(0.0, float(calc.ymax(rate_msps)) + 0.251, 0.25), minor=True)
+    elif calc.ymax(rate_msps) < 1.0:
+        ax.set_xticks(np.arange(0.0, float(calc.ymax(rate_msps)) + 0.251, 0.25), minor=True)
     ax.set_ylim(0.0, max(float(calc.ymax(total_power_uw)) * 1.25, 1.0))
     style_grid(ax)
     ax.legend()
     style_info_box(ax, style_measurement_group_text(msmt_list), location="lower right")
-    ax.set_title("ADC static and dynamic supply power")
+    ax.set_title("ADC supply power" if merge_static else "ADC static and dynamic supply power")
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_conversion_energy(
+    msmt_list: Sequence[MeasAdc],
+    analyses: Sequence[AnalysisAdcPower],
+    *,
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Plot each rail's average energy per conversion versus a DC differential input.
+
+    Every capture holds one DC input. A rail's energy is its dynamic power over
+    one active conversion window plus its static power over one repetition.
+    """
+
+    vin_diff_v = np.asarray([calc.average(msmt.vin_diff_v) for msmt in msmt_list])
+    order = np.argsort(vin_diff_v)
+    # One panel per rail, each on its own scale, so a small input dependence
+    # stays visible beside a much larger constant rail.
+    fig, axes = plt.subplots(3, 1, sharex=True)
+    total_pj = np.zeros(len(analyses))
+    rails = (("Analog", "vdd_a"), ("Digital", "vdd_d"), ("DAC", "vdd_dac"))
+    for ax, color, (label, rail) in zip(axes, CURVE_COLORS, rails, strict=False):
+        energy_pj = (
+            np.asarray(
+                [
+                    getattr(analysis, f"{rail}_dynamic_power_w") / analysis.active_conversion_rate_hz
+                    + getattr(analysis, f"{rail}_static_power_w") / analysis.sample_rate_hz
+                    for analysis in analyses
+                ]
+            )[order]
+            * 1e12
+        )
+        total_pj += energy_pj
+        ax.plot(vin_diff_v[order], energy_pj, marker="o", color=color, label=label)
+        ax.set_ylabel(f"{label} (pJ)")
+        style_grid(ax)
+        ax.legend(loc="upper right")
+    axes[-1].set_xlabel("Differential input (V)")
+    style_info_box(axes[-1], style_measurement_group_text(msmt_list), location="lower right")
+    fig.suptitle(f"ADC average energy per conversion (total {calc.average(total_pj):.1f} pJ)")
     return save_figure(fig, output_path)
 
 

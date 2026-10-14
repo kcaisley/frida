@@ -879,11 +879,11 @@ def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
             assert "Ideal" in svg
             assert "Direction-matched measured" in svg
         else:
-            assert "Uncalibrated DOUT" in svg
+            assert "Ideal weights" in svg
             assert "CDAC S-curve weights" in svg
         assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
     histogram_svg = read_svg(outputs[1])
-    assert "Mean samples per code in bin" in histogram_svg
+    assert "Relative code width (count / ideal)" in histogram_svg
     assert "missing codes" not in histogram_svg
 
 

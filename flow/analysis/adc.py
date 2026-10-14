@@ -24,6 +24,7 @@ from flow.analysis.types import (
     AnalysisAdcCdacSettling,
     AnalysisAdcCodeDensityNonlinearity,
     AnalysisAdcCodeDistribution,
+    AnalysisAdcCodeSpectrum,
     AnalysisAdcComparatorEdgeEye,
     AnalysisAdcComparatorResponse,
     AnalysisAdcCompOutEdgeEye,
@@ -242,13 +243,23 @@ def analyze_adc_scope_bits(measurement: MeasAdc) -> AnalysisAdcScopeBits:
 # =============================================================================
 
 
-def analyze_adc_dynamic(measurement: MeasAdc) -> AnalysisAdcDynamic:
-    """Fit one sine acquisition and calculate time- and frequency-domain metrics."""
+def analyze_adc_dynamic(
+    measurement: MeasAdc, *, calibration: AnalysisAdcCalibration | None = None
+) -> AnalysisAdcDynamic:
+    """Fit one sine acquisition and calculate time- and frequency-domain metrics.
+
+    A calibration decodes the stored BOUT decisions to rounded codes in place
+    of the stored nominal DOUT.
+    """
 
     source = measurement.tb.vin_diff
     if not isinstance(source, h.Vsin.Params) or source.freq is None or source.vamp is None:
         raise ValueError("ADC dynamic analysis requires a sine vin_diff source with freq and vamp set")
-    measured_dout = np.asarray(measurement.dout, dtype=np.float64)
+    if calibration is not None:
+        check_identity(calibration, measurement.identity, name="calibration")
+    measured_dout = np.asarray(
+        measurement.dout if calibration is None else calibration.decode_bout(measurement.bout), dtype=np.float64
+    )
     sample_count = len(measured_dout)
     sample_rate_hz = measurement.sample_rate_hz
     input_frequency_hz = float(source.freq)
@@ -447,6 +458,42 @@ def analyze_adc_endpoint_nonlinearity(
     )
 
 
+def analyze_adc_code_spectrum(
+    measurement: MeasAdc,
+    *,
+    calibration: AnalysisAdcCalibration | None = None,
+) -> AnalysisAdcCodeSpectrum:
+    """Return the Welch noise spectral density of a fixed-input capture's output codes.
+
+    A calibration decodes the stored BOUT decisions to fractional codes in
+    place of the stored nominal DOUT.
+    """
+
+    if calibration is not None:
+        check_identity(calibration, measurement.identity, name="calibration")
+    codes = np.asarray(
+        measurement.dout if calibration is None else calibration.decode_bout(measurement.bout, rounded=False),
+        dtype=np.float64,
+    )
+    sample_rate_hz = measurement.sample_rate_hz
+    # 8,192-sample Welch segments: 1.2-kHz bins at 10 MS/s with enough
+    # averages in a 100,000-conversion capture to smooth a white floor.
+    frequency_hz, psd = calc.psd(codes - calc.average(codes), sample_rate=sample_rate_hz, segment_length=8192)
+    identity = measurement.identity
+    return AnalysisAdcCodeSpectrum(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        decoding="uncalibrated_dout" if calibration is None else calibration.method,
+        sample_rate_hz=sample_rate_hz,
+        input_lsb_v=measurement.input_lsb_v,
+        frequency_hz=frequency_hz,
+        psd_lsb2_per_hz=psd,
+        white_floor_lsb2_per_hz=float(np.median(psd[1:])),
+        total_rms_lsb=float(np.sqrt(np.sum(psd) * (frequency_hz[1] - frequency_hz[0]))),
+    )
+
+
 def analyze_adc_code_density_nonlinearity(
     measurement: MeasAdc,
     *,
@@ -635,7 +682,7 @@ def analyze_adc_ramp(
         index=identity.index,
         dut=identity.dut,
         decoding="uncalibrated_dout" if calibration is None else calibration.method,
-        label="Uncalibrated DOUT" if calibration is None else calibration.label,
+        label="Ideal weights" if calibration is None else calibration.label,
         weights=nominal_weights if calibration is None else calibration.calibrated_weights,
         sample_rate_hz=sample_rate_hz,
         period_conversions=period_conversions,
