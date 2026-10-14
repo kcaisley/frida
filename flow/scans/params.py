@@ -189,10 +189,9 @@ def build_adc_variants(
     if not active_conversion_rates_hz or not sequences:
         raise ValueError("conversion rates and sequences must not be empty")
     board_map = load_board_map()
-    board = board_map["boards"][board_id]
     variants = []
     for adc_index in adc_indices:
-        flavor = board["adc_channels"][adc_index]
+        flavor = board_map["adc_channels"][adc_index]
         dut = AdcParams(
             adc_bits=12,
             cdac=CapArrayConfig(

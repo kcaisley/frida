@@ -1,0 +1,56 @@
+% Probe points of the 8-9 Oct 2026 interferer hunt on the FRIDA65A chip-card schematic,
+% for docs/slides/2026_10_09_interferer_hunt.tex. \input this file in the deck preamble.
+%
+% frida65A_schematic.pdf is the KiCad export of design/pcb/frida65A.kicad_sch
+% (A3, 420 x 297 mm). Regenerate it from the repository root after schematic edits:
+%
+%   flatpak run --filesystem=/local/frida --command=kicad-cli org.kicad.KiCad \
+%     sch export pdf -o docs/images/interferer_hunt/frida65A_schematic.pdf design/pcb/frida65A.kicad_sch
+%
+% and re-check the arrow targets below, which are sheet millimetres from the
+% top-left corner. \schematicprobes{j11} draws the whole sheet with one arrow
+% pointing at probe location j11; \schematicprobes[j12]{} instead boxes J12,
+% where a test changed a connection without probing. Nothing else is drawn.
+\makeatletter
+% \schematic@arrow[length]{key}{target x}{target y}{tail angle}: an arrow from
+% length mm away (65 by default) at the given angle (degrees, y up on the page)
+% to the target point.
+\newcommand{\schematic@arrow}[5][65]{%
+  \edef\schematic@test{\noexpand\in@{,#2,}{\schematic@highlight}}\schematic@test
+  \ifin@
+    \draw[schematicarrow] ($(#3,#4) + (#5:#1mm)$) -- (#3,#4);
+  \fi
+}
+% \schematic@box{key}{x0}{y0}{x1}{y1}: a dashed box around a part whose
+% connection a test changed, for tests that probe nothing.
+\newcommand{\schematic@box}[5]{%
+  \edef\schematic@test{\noexpand\in@{,#1,}{\schematic@changed}}\schematic@test
+  \ifin@
+    \draw[schematicbox] (#2,#3) rectangle (#4,#5);
+  \fi
+}
+\newcommand{\schematicprobes}[2][]{%
+  \def\schematic@changed{,#1,}%
+  \def\schematic@highlight{,#2,}%
+  \begin{tikzpicture}[
+    x=1mm, y=-1mm,
+    schematicarrow/.style={draw=NordRed, line width=3.5mm, -{Triangle[length=14mm, width=14mm]}, shorten >=1.5mm},
+    schematicbox/.style={draw=NordOrange, line width=1.8mm, dash pattern=on 6mm off 4mm, rounded corners=3mm},
+  ]
+    \node[inner sep=0pt, anchor=north west] at (0,0)
+      {\includegraphics[width=420mm]{../images/interferer_hunt/frida65A_schematic.pdf}};
+    % Probe locations: key, target point on the sheet, direction the arrow comes from.
+    \schematic@arrow[45]{j11}{370.5}{34.5}{45}% J11 TP AMP pins 2/4: VIN_P/VIN_N, ADC side
+    \schematic@arrow{j10}{352}{86}{120}% J10 VIN CFG pins 3/5: THS4541 outputs
+    \schematic@arrow{j13}{104}{168}{60}% J13 POWER: all chip rails on VDD
+    \schematic@arrow{j12}{63}{171}{120}% J12 MiniFit pins 1/3: amplifier +5 V / -1 V
+    \schematic@arrow{r10}{132}{60}{60}% R10: COMP clock pair termination
+    \schematic@arrow{j14}{161}{245}{150}% J14 RJ45 pin 8: VDD_BDAQ
+    \schematic@arrow{j1}{38}{124}{-30}% J1 DisplayPort shield, GND Earth
+    \schematic@arrow{u3}{327}{178}{150}% U3 ASIC: the output codes
+    \schematic@arrow{loop}{345}{165}{60}% sniffer loop above the ASIC
+    % Changed connections: key, box corners on the sheet.
+    \schematic@box{j12}{46}{158}{80}{192}% J12 MiniFit: amplifier supply leads
+  \end{tikzpicture}%
+}
+\makeatother

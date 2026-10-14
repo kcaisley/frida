@@ -68,6 +68,7 @@ def test_runner_exposes_only_named_orchestration_entry_points() -> None:
         "adc_ramp_nonlinearity_study",
         "adc_calibration_study",
         "adc_sequence_study",
+        "adc_interferer_study",
         "adc_sample_rate_study",
         "adc_power_study",
         "comp_system_common_mode_study",

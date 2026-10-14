@@ -18,9 +18,11 @@ from flow.analysis.adc import (
     analyze_adc_cdac_settling,
     analyze_adc_code_density_nonlinearity,
     analyze_adc_code_distribution,
+    analyze_adc_code_spectrum,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
     analyze_adc_endpoint_nonlinearity,
+    analyze_adc_interferer,
     analyze_adc_noise,
     analyze_adc_operating_conditions,
     analyze_adc_power,
@@ -1042,6 +1044,80 @@ def test_noise_sweep_accepts_measurement_without_scope_waveform() -> None:
     assert noise.std_dout == pytest.approx(np.std([100, 101, 100]))
     assert math.isnan(noise.pretrigger_vin_diff_mean_v)
     assert math.isnan(noise.pretrigger_vin_diff_noise_rms_v)
+
+
+def tone_codes(sample_rate_hz: float, *, tone_hz: float, count: int = 32_768, seed: int = 1) -> np.ndarray:
+    """Codes of a 3-LSB tone on 1-LSB white noise, rounded like a converter."""
+
+    time_s = np.arange(count) / sample_rate_hz
+    noise = np.random.default_rng(seed).normal(0.0, 1.0, count)
+    return np.rint(2_000.0 + 3.0 * np.sin(2.0 * np.pi * tone_hz * time_s) + noise)
+
+
+def test_code_spectrum_splits_a_tone_from_the_white_floor() -> None:
+    spectrum = analyze_adc_code_spectrum(adc_measurement(tone_codes(1.0e6, tone_hz=123.4e3), sample_rate_hz=1.0e6))
+
+    assert spectrum.spectrum_valid
+    # Input-referred through the nominal 1.2-V / 4095-code LSB.
+    assert spectrum.input_lsb_v == pytest.approx(1.2 / 4095)
+    np.testing.assert_allclose(spectrum.asd_v_per_sqrt_hz, spectrum.asd_lsb_per_sqrt_hz * 1.2 / 4095)
+    assert spectrum.peak_frequency_hz == pytest.approx(123.4e3, abs=2 * spectrum.bin_hz)
+    # The smoothed test widens a strong line by half its 21-bin window.
+    assert np.all(np.abs(spectrum.frequency_hz[spectrum.line_mask] - 123.4e3) < 12 * spectrum.bin_hz)
+    # The tone carries 3/sqrt(2) LSB; noise plus rounding sqrt(1 + 1/12) LSB.
+    assert spectrum.narrowband_rms_lsb == pytest.approx(3.0 / math.sqrt(2.0), rel=0.05)
+    assert spectrum.broadband_rms_lsb == pytest.approx(math.sqrt(1.0 + 1.0 / 12.0), rel=0.05)
+    assert spectrum.total_rms_lsb**2 == pytest.approx(spectrum.narrowband_rms_lsb**2 + spectrum.broadband_rms_lsb**2)
+    assert np.std(spectrum.narrowband_dout) == pytest.approx(3.0 / math.sqrt(2.0), rel=0.05)
+
+
+def test_code_spectrum_of_white_noise_finds_no_lines() -> None:
+    codes = np.rint(2_000.0 + np.random.default_rng(2).normal(0.0, 1.0, 32_768))
+    spectrum = analyze_adc_code_spectrum(adc_measurement(codes))
+
+    assert not np.any(spectrum.line_mask)
+    assert spectrum.narrowband_rms_lsb == 0.0
+    assert spectrum.broadband_rms_lsb == pytest.approx(np.std(codes), rel=0.02)
+
+
+def test_code_spectrum_of_a_constant_code_has_no_floor() -> None:
+    spectrum = analyze_adc_code_spectrum(adc_measurement(np.full(1_024, 2_000)))
+
+    assert not spectrum.spectrum_valid
+    assert spectrum.total_rms_lsb == 0.0
+    assert not np.any(spectrum.line_mask)
+    assert math.isnan(spectrum.peak_to_floor)
+
+
+def test_interferer_unfolds_aliases_at_three_rates_and_skips_stuck_captures() -> None:
+    measurements = [
+        adc_measurement(tone_codes(rate, tone_hz=8.15e6, count=16_384, seed=index), sample_rate_hz=rate, observed_adc=3)
+        for index, rate in enumerate((2.0e6, 6.0e6, 10.0e6))
+    ]
+    stuck = adc_measurement(np.full(16_384, 2_000), sample_rate_hz=2.0e6, logic_phase_delay_symbols=1, observed_adc=3)
+    measurements.append(stuck)
+    spectra = [analyze_adc_code_spectrum(measurement) for measurement in measurements]
+
+    interferer = analyze_adc_interferer(measurements, spectra=spectra)
+
+    np.testing.assert_allclose(interferer.sample_rate_hz, [2.0e6, 6.0e6, 10.0e6])
+    # 2, 6, and 10 MSPS fold 8.15 MHz to 150 kHz, 2.15 MHz, and 1.85 MHz.
+    np.testing.assert_allclose(interferer.observed_peak_hz, [150e3, 2.15e6, 1.85e6], atol=2e3)
+    assert interferer.frequency_hz == pytest.approx(8.15e6, abs=2e3)
+    # The rates repeat every 30 MHz and mirror about 15 MHz.
+    assert interferer.candidate_frequency_hz[-1] == pytest.approx(15e6, abs=1e3)
+    assert interferer.excluded_capture_count == 1
+    np.testing.assert_allclose(interferer.folded_frequency_hz[:, 0], 0.0)
+
+
+def test_interferer_rejects_spectra_from_other_captures() -> None:
+    measurement = adc_measurement(tone_codes(2.0e6, tone_hz=8.15e6, count=4_096), sample_rate_hz=2.0e6)
+    other = analyze_adc_code_spectrum(
+        adc_measurement(tone_codes(6.0e6, tone_hz=8.15e6, count=4_096), sample_rate_hz=6.0e6)
+    )
+
+    with pytest.raises(ValueError, match="one to one"):
+        analyze_adc_interferer([measurement], spectra=[other])
 
 
 def test_physical_noise_readout_requires_valid_scope_and_fastrx_readbacks() -> None:

@@ -27,6 +27,7 @@ from pathlib import Path
 
 import hdl21 as h
 import matplotlib as mpl
+import numpy as np
 
 from flow.adc.sequences import (
     SEQUENCES,
@@ -38,8 +39,10 @@ from flow.analysis.adc import (
     analyze_adc_cdac_settling,
     analyze_adc_code_density_nonlinearity,
     analyze_adc_code_distribution,
+    analyze_adc_code_spectrum,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
+    analyze_adc_interferer,
     analyze_adc_noise,
     analyze_adc_operating_conditions,
     analyze_adc_power,
@@ -64,9 +67,12 @@ from flow.analysis.plots import (
     plot_adc_calibration_weights,
     plot_adc_cdac_settling,
     plot_adc_code_distribution,
+    plot_adc_code_noise,
+    plot_adc_code_spectrum,
     plot_adc_decision_path_density,
     plot_adc_dynamic,
     plot_adc_dynamic_sweep,
+    plot_adc_interferer,
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
     plot_adc_power_sweep,
@@ -317,7 +323,7 @@ def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
     output_dir.mkdir(parents=True, exist_ok=True)
     artifacts: list[Path] = []
     conditions = []
-    board = load_board_map()["boards"][0]
+    board_map = load_board_map()
     for adc_index, adc_paths in sorted(paths_by_adc.items()):
         measurements = []
         for path in adc_paths:
@@ -331,13 +337,13 @@ def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
         del measurements
         conditions.append(result)
         artifacts.append(write_analysis(output_dir / f"adc{adc_index:02d}_operating_conditions.h5", result))
-        layers = board["adc_layers"]
+        layers = board_map["adc_layers"]
         artifacts.extend(
             plot_adc_sequence_enob(
                 result,
                 sequences=catalogue,
                 adc_label=(
-                    f"ADC{adc_index:02d} · {board['adc_channels'][adc_index]}"
+                    f"ADC{adc_index:02d} · {board_map['adc_channels'][adc_index]}"
                     + (f" · {layers[adc_index]} layer" if adc_index in layers else "")
                 ),
                 output_path=output_dir / f"adc{adc_index:02d}_sequence_enob",
@@ -454,6 +460,91 @@ def adc_sequence_study(output_dir: Path) -> tuple[Path, ...]:
                 )
             )
             del measurements, noise
+    return tuple(artifacts)
+
+
+def adc_interferer_study(output_dir: Path) -> tuple[Path, ...]:
+    """Locate the 6-8 MHz interferer in the output-code spectra and its amplifier-supply A/B test.
+
+    Labels follow the interferer-hunt deck: test #4 is the 8 Oct scope re-run,
+    tests #12--#15 the 9 Oct runs A/B/C/D. They share one fixed 50-mV
+    input on ADC00--03, seven 160-symbol sequences at 2/6/10 MSPS, and 100,000
+    conversions per capture. A and D have the THS4541 supplies unplugged or
+    turned down and lack the interferer; B and C have them on, with the
+    amplifier enabled and disabled. Every capture gets a code spectrum; each
+    run's ADCs get an alias search over their 4of8 captures at three rates.
+    Without the interferer, that search settles on slow drift near DC. The figures overlay
+    the four ADCs per run for the 4of8 recipe and the runs for ADC00, and split
+    ADC00's slowest 4of8 capture into lines and broadband noise per run.
+    """
+    runs = {
+        "Test #4": "20261008_204141_adc_sequence_static",
+        "Test #12: amp supplies unplugged": "20261009_105940_adc_sequence_static",
+        "Test #13: amp supplies on, enabled": "20261009_110638_adc_sequence_static",
+        "Test #14: amp supplies on, disabled": "20261009_110933_adc_sequence_static",
+        "Test #15: amp supplies turned down": "20261009_153529_adc_sequence_static",
+    }
+    shown = dict(SEQUENCES)["symbol160_init4_samp20_comp11110000_logic10000111"]
+    output_dir.mkdir(parents=True, exist_ok=True)
+    artifacts: list[Path] = []
+    comparison = []
+    for run, folder in runs.items():
+        stem = folder.removesuffix("_adc_sequence_static")
+        measurements_by_adc: dict[int, list[MeasAdc]] = {}
+        for path in sorted((BASE_PATH / "build/scan_adc" / folder).glob("[0-9][0-9][0-9][0-9]_capture.h5")):
+            measurement = read_measurement(path)
+            if not isinstance(measurement, MeasAdc):
+                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
+            measurements_by_adc.setdefault(measurement.param.observed_adc, []).append(measurement)
+        shown_spectra = []
+        interferers = []
+        for adc_index, measurements in sorted(measurements_by_adc.items()):
+            spectra = [analyze_adc_code_spectrum(measurement) for measurement in measurements]
+            # Search one recipe, whose three rates were captured minutes apart: over
+            # all recipes, the drifting interferer smears and a fixed 7.143-MHz line
+            # (2856 kHz at 10 MSPS) wins instead.
+            selected = [index for index, spectrum in enumerate(spectra) if spectrum.sequence == shown]
+            interferer = analyze_adc_interferer(
+                [measurements[index] for index in selected], spectra=[spectra[index] for index in selected]
+            )
+            interferers.append(interferer)
+            artifacts.append(write_analysis(output_dir / f"{stem}_adc{adc_index:02d}_interferer.h5", interferer))
+            shown_spectra.extend(spectrum for spectrum in spectra if spectrum.sequence == shown)
+            if adc_index == 0:
+                # The variance split of ADC00 at the slowest rate, codes and spectrum together.
+                candidates = [pair for pair in zip(measurements, spectra, strict=True) if pair[1].sequence == shown]
+                measurement, spectrum = candidates[int(np.argmin([pair[1].sample_rate_hz for pair in candidates]))]
+                artifacts.extend(
+                    plot_adc_code_noise(
+                        measurement,
+                        spectrum,
+                        title=f"ADC00 code noise, {spectrum.sample_rate_hz / 1e6:g} MSPS, 4of8 recipe · {run}",
+                        output_path=output_dir / f"{stem}_adc00_code_noise",
+                    )
+                )
+        comparison.extend((run, spectrum) for spectrum in shown_spectra if spectrum.index == 0)
+        artifacts.extend(
+            plot_adc_code_spectrum(
+                shown_spectra,
+                title=f"Output-code spectra, 4of8 recipe · {run}",
+                output_path=output_dir / f"{stem}_code_spectra",
+            )
+        )
+        artifacts.extend(
+            plot_adc_interferer(
+                interferers,
+                title=f"Interferer frequency from its aliases · {run}",
+                output_path=output_dir / f"{stem}_interferer",
+            )
+        )
+    artifacts.extend(
+        plot_adc_code_spectrum(
+            [spectrum for _run, spectrum in comparison],
+            labels=[run.split(":")[0] for run, _spectrum in comparison],
+            title="ADC00 output-code spectra, 4of8 recipe · amplifier-supply A/B",
+            output_path=output_dir / "amp_supply_code_spectra",
+        )
+    )
     return tuple(artifacts)
 
 
@@ -860,6 +951,7 @@ def main() -> None:
             adc_ramp_nonlinearity_study,
             adc_calibration_study,
             adc_sequence_study,
+            adc_interferer_study,
             adc_sample_rate_study,
             adc_power_study,
             comp_system_common_mode_study,

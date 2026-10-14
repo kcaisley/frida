@@ -34,12 +34,14 @@ from flow.analysis.types import (
     AnalysisAdcCdacSettling,
     AnalysisAdcCodeDensityNonlinearity,
     AnalysisAdcCodeDistribution,
+    AnalysisAdcCodeSpectrum,
     AnalysisAdcComparatorEdgeEye,
     AnalysisAdcComparatorResponse,
     AnalysisAdcCompOutEdgeEye,
     AnalysisAdcDecisionPaths,
     AnalysisAdcDynamic,
     AnalysisAdcEndpointNonlinearity,
+    AnalysisAdcInterferer,
     AnalysisAdcNoise,
     AnalysisAdcOperatingConditions,
     AnalysisAdcPower,
@@ -87,6 +89,12 @@ NORD_YELLOW = "#EBCB8B"
 NORD_TEAL = "#8FBCBB"
 NORD_LIGHT_BLUE = "#81A1C1"
 NORD_DARK = "#4C566A"
+# Every amplitude-spectral-density plot shares this range in nV/√Hz, so probe
+# and input-referred ADC code spectra read on one scale.
+SPECTRAL_DENSITY_LIMITS_NV = (1.0, 1.0e5)
+# The per-decade RMS panels below them share this range in µV.
+DECADE_RMS_LIMITS_UV = (0.1, 1.0e4)
+
 CURVE_COLORS = (
     NORD_BLUE,
     NORD_ORANGE,
@@ -867,19 +875,22 @@ def plot_spectrum(
     ``signals`` maps a trace name to its legend label; by default every trace
     of the first capture is drawn for every capture. Traces are grouped by
     signal, then capture. Each legend entry gives the capture's sample rate,
-    sample count, and bandwidth, its name, the trace label when several traces
-    are drawn, and the trace's time-domain AC RMS. In the color of each
+    sample count, and bandwidth, its name, and the trace label when several
+    traces are drawn. In the color of each
     capture's first trace, a labeled dotted line marks its -3 dB acquisition
-    bandwidth and a labeled dashed line its Nyquist frequency.
+    bandwidth and a labeled dashed line its Nyquist frequency. A lower panel
+    steps each trace's integrated RMS across every decade up to that bandwidth,
+    with an inset of each trace's total over that band.
     """
 
     if not scopes:
         raise ValueError("spectrum plots show at least one scope capture")
     selected = signals if signals is not None else {name: name for name in scopes[0].spectrum_v_per_sqrt_hz}
-    fig, ax = plt.subplots()
+    fig, (ax, ax_decade) = plt.subplots(2, 1, sharex=True, height_ratios=(3.0, 1.0))
     # Group traces by signal, then capture, so each signal's captures sit
     # together in the legend; each capture's markers take its first color.
     capture_colors = {}
+    decade_rows = []
     for name, label in selected.items():
         for index, scope in enumerate(scopes):
             positive = scope.spectrum_frequency_hz > 0.0
@@ -890,13 +901,10 @@ def plot_spectrum(
             (line,) = ax.loglog(
                 scope.spectrum_frequency_hz[positive],
                 scope.spectrum_v_per_sqrt_hz[name][positive] * 1e9,
-                label=(
-                    f"{capture} ({scope.ac_rms_v[name] * 1e6:.1f} µV RMS)"
-                    if len(selected) == 1
-                    else f"{capture}, {label} ({scope.ac_rms_v[name] * 1e6:.1f} µV RMS)"
-                ),
+                label=capture if len(selected) == 1 else f"{capture}, {label}",
             )
             capture_colors.setdefault(index, line.get_color())
+            decade_rows.append((line.get_color(), scope, name))
     # Dotted at the -3 dB acquisition bandwidth, dashed at the Nyquist frequency.
     for index, scope in enumerate(scopes):
         for frequency_hz, linestyle, marker_label, side in (
@@ -915,8 +923,30 @@ def plot_spectrum(
                 fontsize=mpl.rcParams["legend.fontsize"],
                 bbox={"boxstyle": "round,pad=0.2", "facecolor": LEGEND_FACE_COLOR, "edgecolor": capture_colors[index]},
             )
-    ax.set_xlabel("Frequency (Hz)")
+    # Below: each trace's RMS in every decade up to the acquisition bandwidth,
+    # drawn as a step across the band in the trace's color.
+    for color, scope, name in decade_rows:
+        ax_decade.stairs(scope.decade_rms_v[name] * 1e6, scope.decade_edges_hz, color=color, baseline=None)
+    # Log steps keep small decades visible next to a dominant one; plain labels.
+    ax_decade.set_yscale("log")
+    ax_decade.yaxis.set_major_formatter(StrMethodFormatter("{x:g}"))
+    ax_decade.yaxis.set_minor_formatter(StrMethodFormatter(""))
+    ax_decade.set_ylim(*DECADE_RMS_LIMITS_UV)
+    ax_decade.set_ylabel("Integrated RMS noise\n(µV/decade)")
+    # Inset: each trace's total from its lowest bin to the acquisition bandwidth.
+    style_info_box(
+        ax_decade,
+        (
+            "In-band total",
+            *(f"{scope.band_rms_v[name] * 1e6:.1f} µV RMS" for _color, scope, name in decade_rows),
+        ),
+        location="lower right",
+        line_colors=(mpl.rcParams["text.color"], *(color for color, _scope, _name in decade_rows)),
+    )
+    ax_decade.set_xlabel("Frequency (Hz)")
+    style_grid(ax_decade)
     ax.set_ylabel("Amplitude spectral density (nV/√Hz)")
+    ax.set_ylim(*SPECTRAL_DENSITY_LIMITS_NV)
     ax.legend()
     style_grid(ax)
     fig.suptitle(title)
@@ -1976,6 +2006,176 @@ def plot_adc_noise_distribution_grid(
     fig.add_artist(legend_box)
     fig.supxlabel("Conversion rate (MSPS)")
     fig.supylabel("Output code (LSB)", x=0.01)
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_code_spectrum(
+    spectra: Sequence[AnalysisAdcCodeSpectrum],
+    *,
+    output_path: Path,
+    title: str,
+    labels: Sequence[str] | None = None,
+) -> tuple[Path, ...]:
+    """Overlay output-code noise spectra, one panel per conversion rate.
+
+    Spectra are referred to the ADC input in nV/√Hz through the nominal LSB.
+    ``labels`` names each spectrum in the legend, by default its ADC channel.
+    Each legend entry splits the code variance into its narrowband lines and
+    its broadband floor: total = narrowband ⊕ broadband. A stuck capture has
+    no floor and draws no visible line on the logarithmic axis.
+    """
+
+    if not spectra:
+        raise ValueError("code-spectrum plots show at least one spectrum")
+    names = labels if labels is not None else [f"ADC{spectrum.index:02d}" for spectrum in spectra]
+    if len(names) != len(spectra):
+        raise ValueError("code-spectrum labels must name every spectrum")
+    rates = sorted({spectrum.sample_rate_hz for spectrum in spectra})
+    fig, axes = plt.subplots(len(rates), 1, squeeze=False)
+    for ax, rate in zip(axes[:, 0], rates, strict=True):
+        for name, spectrum in zip(names, spectra, strict=True):
+            if spectrum.sample_rate_hz != rate:
+                continue
+            ax.semilogy(
+                spectrum.frequency_hz / 1e6,
+                spectrum.asd_v_per_sqrt_hz * 1e9,
+                label=(
+                    f"{name}: {spectrum.total_rms_lsb:.2f} = {spectrum.narrowband_rms_lsb:.2f} ⊕ "
+                    f"{spectrum.broadband_rms_lsb:.2f} LSB"
+                    if spectrum.spectrum_valid
+                    else f"{name}: constant code"
+                ),
+            )
+        ax.set_xlim(0.0, rate / 2e6)
+        ax.set_ylim(*SPECTRAL_DENSITY_LIMITS_NV)
+        ax.set_ylabel("Input ASD (nV/√Hz)")
+        ax.legend(title=f"{rate / 1e6:g} MSPS: total = narrowband ⊕ broadband", loc="best")
+        style_grid(ax)
+    axes[-1, 0].set_xlabel("Frequency, 0 to Nyquist (MHz)")
+    fig.suptitle(title)
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_code_noise(
+    msmt: MeasAdc,
+    spectrum: AnalysisAdcCodeSpectrum,
+    *,
+    output_path: Path,
+    title: str,
+) -> tuple[Path, ...]:
+    """Split one fixed-input capture's code noise into interference lines and a broadband floor.
+
+    The panels show the first 200 conversions with the narrowband part alone,
+    the code spectrum with its floor and shaded line bins, and the RMS noise
+    integrated from DC, against the floor's straight-line build-up.
+    """
+
+    shown = min(len(msmt.dout), 200)
+    time_us = np.arange(shown) / spectrum.sample_rate_hz * 1e6
+    frequency_mhz = spectrum.frequency_hz / 1e6
+    floor_asd = math.sqrt(spectrum.white_floor_lsb2_per_hz)
+    nv_per_lsb = spectrum.input_lsb_v * 1e9
+    fig, (ax_time, ax_asd, ax_cumulative) = plt.subplots(3, 1)
+    ax_time.step(
+        time_us,
+        msmt.dout[:shown] - spectrum.mean_dout,
+        where="mid",
+        label=f"Code − mean ({spectrum.total_rms_lsb:.2f} LSB RMS)",
+    )
+    ax_time.plot(
+        time_us,
+        spectrum.narrowband_dout[:shown],
+        label=f"Lines only ({spectrum.narrowband_rms_lsb:.2f} LSB RMS)",
+    )
+    ax_time.set_xlabel("Time (µs)")
+    ax_time.set_ylabel("Code (LSB)")
+    ax_time.legend(loc="upper right")
+    ax_asd.semilogy(frequency_mhz, spectrum.asd_v_per_sqrt_hz * 1e9, label="Code spectrum, input-referred")
+    ax_asd.axhline(
+        floor_asd * nv_per_lsb, linestyle="--", color=mpl.rcParams["axes.edgecolor"], label="White floor (median)"
+    )
+    ax_asd.fill_between(
+        frequency_mhz,
+        floor_asd * nv_per_lsb,
+        spectrum.asd_v_per_sqrt_hz * 1e9,
+        where=spectrum.line_mask,
+        label=f"Lines above floor ({spectrum.narrowband_rms_lsb:.2f} LSB RMS)",
+    )
+    ax_asd.set_xlim(0.0, spectrum.sample_rate_hz / 2e6)
+    ax_asd.set_ylim(*SPECTRAL_DENSITY_LIMITS_NV)
+    ax_asd.set_xlabel("Frequency (MHz)")
+    ax_asd.set_ylabel("Input ASD (nV/√Hz)")
+    ax_asd.legend(loc="upper right")
+    ax_cumulative.plot(frequency_mhz, spectrum.cumulative_rms_lsb, label="Measured, DC to f")
+    ax_cumulative.plot(
+        frequency_mhz,
+        floor_asd * np.sqrt(spectrum.frequency_hz),
+        linestyle="--",
+        label="White floor alone",
+    )
+    ax_cumulative.set_xlim(0.0, spectrum.sample_rate_hz / 2e6)
+    ax_cumulative.set_ylim(0.0, None)
+    ax_cumulative.set_xlabel("Frequency (MHz)")
+    ax_cumulative.set_ylabel("Cumulative (LSB RMS)")
+    ax_cumulative.legend(
+        loc="lower right",
+        title=(
+            f"{spectrum.total_rms_lsb:.2f}² = {spectrum.narrowband_rms_lsb:.2f}² + "
+            f"{spectrum.broadband_rms_lsb:.2f}² (lines + broadband)"
+        ),
+    )
+    for ax in (ax_time, ax_asd, ax_cumulative):
+        style_grid(ax)
+    style_info_box(ax_cumulative, style_measurement_text(msmt), location="upper left")
+    fig.suptitle(title)
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_adc_interferer(
+    interferers: Sequence[AnalysisAdcInterferer],
+    *,
+    output_path: Path,
+    title: str,
+) -> tuple[Path, ...]:
+    """Show how each rate folds candidate frequencies, and which candidate fits every rate.
+
+    The upper panel draws the first result's fold for each rate with its
+    observed line (dotted); the lower panel draws every result's score.
+    """
+
+    if not interferers:
+        raise ValueError("interferer plots show at least one result")
+    fig, (ax_fold, ax_score) = plt.subplots(2, 1, sharex=True)
+    first = interferers[0]
+    candidate_mhz = first.candidate_frequency_hz / 1e6
+    for rate, folded, observed in zip(
+        first.sample_rate_hz, first.folded_frequency_hz, first.observed_peak_hz, strict=True
+    ):
+        (line,) = ax_fold.plot(candidate_mhz, folded / 1e6, label=f"{rate / 1e6:g} MSPS")
+        ax_fold.axhline(
+            observed / 1e6,
+            linestyle=":",
+            color=line.get_color(),
+            label=f"seen at {observed / 1e3:.0f} kHz",
+        )
+    ax_fold.axvline(first.frequency_hz / 1e6, linestyle="--", color=mpl.rcParams["axes.edgecolor"])
+    ax_fold.set_ylabel("Apparent frequency (MHz)")
+    ax_fold.legend(loc="upper right", ncols=2)
+    for interferer in interferers:
+        ax_score.plot(
+            interferer.candidate_frequency_hz / 1e6,
+            interferer.score_db,
+            label=f"ADC{interferer.index:02d}: {interferer.frequency_hz / 1e6:.3f} MHz",
+        )
+    ax_score.set_xlabel("Candidate true frequency (MHz)")
+    ax_score.set_ylabel("Lines above floor,\nsummed over rates (dB)")
+    ax_score.legend(loc="upper right")
+    for ax in (ax_fold, ax_score):
+        style_grid(ax)
+    fig.suptitle(title)
     return save_figure(fig, output_path)
 
 

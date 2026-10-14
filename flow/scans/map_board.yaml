@@ -1,9 +1,10 @@
 # Physical FRIDA board inventory and empirical scan calibration.
 #
 # Unlike the Basil map_*.yaml files, this file does not describe a transport
-# or register interface. It maps the board_id stored in AdcTbParams to the
-# silicon variants, fixed board conditions, measured external-stimulus
-# calibration, and comparator timing model needed by the physical scan backend.
+# or register interface. It lists the chip's ADC channel variants, then maps
+# the board_id stored in AdcTbParams to fixed board conditions, measured
+# external-stimulus calibration, and comparator timing model needed by the
+# physical scan backend.
 
 adc_flavors:
   radix17:
@@ -16,32 +17,48 @@ adc_flavors:
     # Extracted from adc_2layer_radix20 PEX on 2026-06-08.
     cdac_topplate_parasitic_weight: 583.9422430420866
 
+# SPI / comparator-mux index to physical CDAC flavor; fixed by the chip layout, so
+# the same on every board.
+adc_channels:
+  0: radix17
+  1: radix20
+  2: radix17
+  3: radix20
+  4: radix17
+  5: radix20
+  6: radix17
+  7: radix20
+  8: radix17
+  9: radix20
+  10: radix17
+  11: radix20
+  12: radix17
+  13: radix20
+  14: radix17
+  15: radix20
+
+# Layer counts repeat every four channels: one layer for ADC 4k and 4k+1,
+# two layers for 4k+2 and 4k+3, each pair at radix 17 then 20.
+adc_layers:
+  0: 1
+  1: 1
+  2: 2
+  3: 2
+  4: 1
+  5: 1
+  6: 2
+  7: 2
+  8: 1
+  9: 1
+  10: 2
+  11: 2
+  12: 1
+  13: 1
+  14: 2
+  15: 2
+
 boards:
   0:
-    # SPI / comparator-mux index to physical CDAC flavor.
-    adc_channels:
-      0: radix17
-      1: radix20
-      2: radix17
-      3: radix20
-      4: radix17
-      5: radix20
-      6: radix17
-      7: radix20
-      8: radix17
-      9: radix20
-      10: radix17
-      11: radix20
-      12: radix17
-      13: radix20
-      14: radix17
-      15: radix20
-
-    # Layer counts confirmed for the two ADCs with detailed timing plots.
-    adc_layers:
-      1: 1
-      3: 2
-
     # VDD_IO is not connected to one of the three programmable Keithley rails.
     fixed_vdd_io_v: 1.2
 
