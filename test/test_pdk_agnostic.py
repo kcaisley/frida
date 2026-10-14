@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SKIP = ("libs/", "build/", "design/spice/", "design/hdl/", "flow/test_pdk_agnostic.py")
+SKIP = ("libs/", "build/", "design/spice/", "design/hdl/", "test/test_pdk_agnostic.py")
 PDKS = re.compile(r"pdk/[^/]+/")  # the submodules (pdk/README.md and pdk/test_*.py are the superproject's)
 LAYOUT = (".gds", ".gds.gz", ".oas", ".oasis")
 # a foundry design-rule ID: layer, check, number (PO.S.2, VIA1.R.4, M2.A.2, NW.EN.1, DRM.R.1, M7.DN.1)

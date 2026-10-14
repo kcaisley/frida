@@ -8,19 +8,14 @@ at the top or bottom edge as the floorplan's ``escape`` says. The result goes in
 file as ``addRectangles`` / ``addPortRectangles``, turned back into the transposed frame cicpy
 draws in.
 
-    uv run python flow/layout/cic/route.py tsmc65 build/layout/cic/tsmc65/comp_frida1 design/layout/comp_frida1.json
+Run bound to a PDK (flow/layout/pdkproc.py); flow/layout/cic/build.py calls it.
 """
 
 from __future__ import annotations
 
 import json
-import sys
 from collections import defaultdict
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[3]
-if __name__ == "__main__":  # the PDK's layout directory (tech, paths) first, then the stems engine
-    sys.path[:0] = [str(ROOT / "pdk" / sys.argv[1] / "layout"), str(ROOT / "flow/layout/stems")]
 
 import netcells
 import rowcell
@@ -31,7 +26,9 @@ H = rowcell.H
 A = 10
 
 
-def main(pdk: str, out: Path, floorplan: Path) -> None:
+def route(pdk: str, out: Path, floorplan: Path, netlist: Path | None = None) -> None:
+    """Add the routes to gen.py's object file in ``out``; ``netlist`` as gen.py's."""
+
     name = out.name
     obj_path = out / f"{name}.json"
     obj = json.loads(obj_path.read_text())
@@ -41,7 +38,7 @@ def main(pdk: str, out: Path, floorplan: Path) -> None:
     nrows = len(columns)
     Ht = nrows * H
     fp = json.loads(floorplan.read_text())
-    insts = {i.name: i for i in netcells.parse(netcells.floorplan_netlist(floorplan, pdk)[1])[2]}
+    insts = {i.name: i for i in netcells.parse(netcells.floorplan_netlist(floorplan, pdk, netlist)[1])[2]}
     up = {p: True for p in fp["escape"]["up"]} | {p: False for p in fp["escape"]["down"]}
 
     def back(x0, y0, x1, y1):  # final -> transposed
@@ -116,7 +113,7 @@ def main(pdk: str, out: Path, floorplan: Path) -> None:
             print(f"retry: {err}"[:160])
             order = [failed] + [n for n in order if n != failed]
     else:
-        raise SystemExit("no net order routes")
+        raise RuntimeError(f"{name}: no net order routes")
 
     rects = [(layer, box) for layer, *box in router.rects] + extra
     as_cic = lambda b: [b[0] * A, b[1] * A, (b[2] - b[0]) * A, (b[3] - b[1]) * A]
@@ -127,7 +124,3 @@ def main(pdk: str, out: Path, floorplan: Path) -> None:
     cell["afterRoute"]["addPortRectangles"] = add_ports
     obj_path.write_text(json.dumps(obj, indent=1) + "\n")
     print(f"{name}: routed {sum(1 for n in pins if len(pins[n]) > 1)} nets, {len(add)} shapes, {len(add_ports)} ports")
-
-
-if __name__ == "__main__":
-    main(sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3]))

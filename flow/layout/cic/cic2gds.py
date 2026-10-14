@@ -7,14 +7,13 @@ Coordinates are in angstrom; GDS is written with a 1 nm database unit.
 Top-cell ports become text labels on the layer named by the tech file's
 ``pin`` entry (the PDK's pin-text layer of that metal), which the LVS deck attaches to metal.
 
-    uv run python flow/layout/cic/cic2gds.py DESIGN.cic TECH.tech out.gds [TOP]
+flow/layout/cic/build.py calls ``convert``.
 """
 
 from __future__ import annotations
 
 import json
 import re
-import sys
 from pathlib import Path
 
 import klayout.db as kdb
@@ -108,7 +107,3 @@ def convert(cic_path: str, tech_path: str, gds_path: str, top: str | None = None
                     )
 
     layout.write(gds_path)
-
-
-if __name__ == "__main__":
-    convert(*sys.argv[1:4], *(sys.argv[4:5] or [None]))

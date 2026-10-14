@@ -11,30 +11,25 @@ cells from the GDS written here.
 Grids: placement one row tall (laygo flips odd rows, MX), x on the PDK's XPITCH; routing M2
 on every PITCH track of a row pair (rail lines included), M3 on XPITCH.
 
-    uv run python flow/layout/laygo/rowtemplates.py tsmc65 design/layout/comp_frida1.json build/layout/laygo/tsmc65/comp_frida1
-
 Also writes the design script <design>.py from design_template.py (rows, pins, nets, escapes, tech values);
-LAYGO_FIRST (comma-separated nets) routes those nets first (build.sh: the nets that failed).
+``first`` (nets) routes those nets first (laygo/build.py: the nets that failed). Run bound to a PDK
+(flow/layout/pdkproc.py); flow/layout/laygo/build.py calls it.
 """
 
 from __future__ import annotations
 
 import json
-import os
-import sys
+from collections.abc import Sequence
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[3]
-if __name__ == "__main__":  # the PDK's layout directory (tech, paths) first, then the stems engine
-    sys.path[:0] = [str(ROOT / "pdk" / sys.argv[1] / "layout"), str(ROOT / "flow/layout/stems")]
 
 import klayout.db as kdb
 import netcells
 import rowcell
 import tech
 import yaml
-from server import SERVER_PDK, server_names
 from tech import BAR_END, M2_MIN_LEN, M2_SPACE, M2W, M3W, PITCH, V1, V2, XPITCH
+
+from flow.layout.laygo.server import SERVER_PDK, server_names
 
 HERE = Path(__file__).resolve().parent
 M3_PITCH = getattr(tech, "M3_PITCH", XPITCH)  # M3 routing tracks: the cell grid unless the PDK routes finer
@@ -100,11 +95,14 @@ def pins(cell: rowcell.Cell) -> dict:
     return out
 
 
-def build(pdk: str, floorplan: Path, out_dir: Path) -> None:
+def build(pdk: str, floorplan: Path, out_dir: Path, netlist: Path | None = None, first: Sequence[str] = ()) -> None:
+    """Write the templates GDS, the laygo YAML and the design script into ``out_dir``.
+    ``netlist``: the design's netlist (default: the floorplan's); ``first``: nets to route first."""
+
     out_dir.mkdir(parents=True, exist_ok=True)
     lib = f"{pdk}_microtemplates_dense"
     fp = json.loads(floorplan.read_text())
-    name, src = netcells.floorplan_netlist(floorplan, pdk)
+    name, src = netcells.floorplan_netlist(floorplan, pdk, netlist)
     _, _, insts = netcells.parse(src)
     layout = kdb.Layout()
     layout.dbu = 0.001
@@ -173,8 +171,8 @@ def build(pdk: str, floorplan: Path, out_dir: Path) -> None:
         + sorted(signals - std_nets - set(up))
         + [p for p in up if p in signals and p not in std_nets]
     )
-    first = [n for n in os.environ.get("LAYGO_FIRST", "").split(",") if n in nets]  # nets that failed before: first
-    nets = first + [n for n in nets if n not in first]
+    early = [n for n in first if n in nets]  # nets that failed before: first
+    nets = early + [n for n in nets if n not in early]
     escapes = [(p, p in up) for p in ports]
     tech_values = {
         "H": rowcell.H,
@@ -204,7 +202,3 @@ def build(pdk: str, floorplan: Path, out_dir: Path) -> None:
     )
     (out_dir / f"{name}.py").write_text(script)
     print(f"{name}: {len(insts)} instance templates, {FILL_MAX // XPITCH} fillers, design script {name}.py")
-
-
-if __name__ == "__main__":
-    build(sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3]))

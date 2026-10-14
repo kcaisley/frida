@@ -99,8 +99,29 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
   and tool, DRC clean and LVS correct.
 - [x] Floorplans: the decision inverters swapped so no nets cross in the standard-cell row.
 
+## Comparator layout runner
+
+- [x] `flow/comp/layout.py`: 30 per-PDK targets (frida1 and c040, from the hand-written floorplan
+  or from ALIGN's placement, and mos_inv), five `*_all_pdks` targets and `all_comp_layouts`.
+  `flow/layout` is a library (no command lines or shell scripts); each step that reads a PDK runs
+  in a process bound to it (`pdkproc.py`). The hand-written floorplans' 54 layouts are identical
+  to the shell scripts' (per-layer XOR and labels, 2026-10-14), with the same DRC and LVS results.
+- [x] Signoff providers `pdk/<pdk>/signoff.py` (gdscheck, then Calibre; Assura for LF150 LVS, the
+  open KLayout decks for ihp130) and `row_signoff`. A checker that stops early now fails instead
+  of passing (ihp130 DRC without its deck) or reporting a mismatch (LVS without a report).
+- [x] Floorplans from ALIGN's placement (`floorplan.py`); `groups` with ALIGN's primitives in every
+  floorplan, checked by `netcells.check_groups`.
+- [ ] The tools use `groups`: cIcCreator and laygo keep a group's devices side by side, and
+  `align/make_design.py` turns the groups into ALIGN constraints for floorplanned runs (this
+  changes the ALIGN layouts, so it waited for the identical-layout check).
+- [x] Floorplans from ALIGN's placement packed toward a square (`pack_rows`): ALIGN's single-axis
+  placement alone gives a tall stack, mostly one primitive per row.
+- [ ] frida1's cross-coupled PMOS pair as one row cell (ALIGN's CCP primitive): `rowcell.mos_row`
+  finds no tracks for the cross-coupling in tsmc28 and tower180, so ALIGN cannot place frida1 there.
+- [ ] lf150 LVS on asiclab003: Assura needs `libicui18n.so.50` (package `libicu50`, as on juno).
+
 ## Next
 
-- [x] gdscheck decks for tsmc28, tower180 and ihp130; `check.sh` runs the precheck first.
+- [x] gdscheck decks for tsmc28, tower180 and ihp130; every signoff provider runs the precheck first.
 - [x] Bring up lf150.
 - [x] Bring up tpsc65.

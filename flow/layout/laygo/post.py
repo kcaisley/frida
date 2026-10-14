@@ -6,22 +6,18 @@ the PDK's, moves labels onto the PDK's pin-text layers and replaces every templa
 with the PDK cell of the same name from ``<design>_templates.gds`` (written by
 rowtemplates.py). The row cells carry complete rails, wells and implants.
 
-    uv run python flow/layout/laygo/post.py tsmc65 raw.gds templates.gds out.gds
+Run bound to a PDK (flow/layout/pdkproc.py); flow/layout/laygo/build.py calls it.
 """
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[3]
-if __name__ == "__main__":  # the PDK's layout directory (tech) first
-    sys.path.insert(0, str(ROOT / "pdk" / sys.argv[1] / "layout"))
 
 import klayout.db as kdb
 import tech as _tech
-from server import server_layers
 from tech import LAYERS, M2W, PIN_TEXT, V1, V2
+
+from flow.layout.laygo.server import server_layers
 
 SERVER = {ld[0]: m for m, ld in server_layers().items()}  # the server's metal layer numbers -> our metal names
 
@@ -138,7 +134,3 @@ def join_cuts(layout: kdb.Layout, top: kdb.Cell) -> None:
     top.shapes(li).clear()
     for b in kept:
         top.shapes(li).insert(b)
-
-
-if __name__ == "__main__":
-    post(*sys.argv[2:5])

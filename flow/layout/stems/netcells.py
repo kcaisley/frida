@@ -200,14 +200,43 @@ def per_finger(src: str) -> str:
     return "\n".join(out) + "\n"
 
 
-def floorplan_netlist(floorplan: str | Path, pdk: str) -> tuple[str, str]:
-    """A floorplan's design name (its file name) and its netlist for ``pdk`` (the floorplan's
-    ``netlist`` path with ``{pdk}`` filled in), with its ``split`` applied."""
+def floorplan_netlist(floorplan: str | Path, pdk: str, netlist: str | Path | None = None) -> tuple[str, str]:
+    """A floorplan's design name (its file name) and its netlist for ``pdk``, with its ``split``
+    applied. The netlist is ``netlist`` where given (a runner's own), else the floorplan's
+    ``netlist`` path with ``{pdk}`` filled in."""
 
     floorplan = Path(floorplan)
     fp = json.loads(floorplan.read_text())
-    path = floorplan.parent / fp["netlist"].format(pdk=pdk)
-    return floorplan.stem, split(path.read_text(), fp.get("split", {}))
+    path = Path(netlist) if netlist else floorplan.parent / fp["netlist"].format(pdk=pdk)
+    src = path.read_text()
+    check_groups(fp, {f[0] for f in map(str.split, src.splitlines()) if f and f[0][0] in "MmXx"})
+    return floorplan.stem, split(src, fp.get("split", {}))
+
+
+def check_groups(fp: dict, devices: set[str]) -> None:
+    """Check a floorplan's ``groups`` (ALIGN's primitives, ``<kind>_<n>`` -> devices): every
+    device is in the netlist (``devices``: its instance names) and in one group only, and a
+    group's devices sit in one row or, split, each part in one row. No ``groups``: valid."""
+
+    parts = fp.get("split", {})
+    row_of = {cell: k for k, row in enumerate(fp["rows"]) for cell in row}
+    owner: dict[str, str] = {}
+    for group, members in fp.get("groups", {}).items():
+        for dev in members:
+            if dev not in devices:
+                raise ValueError(f"group {group}: {dev} is not in the netlist")
+            if dev in owner:
+                raise ValueError(f"{dev} is in groups {owner[dev]} and {group}")
+            owner[dev] = group
+        n = {parts.get(dev, 1) for dev in members}
+        if len(n) != 1:
+            raise ValueError(f"group {group}: its devices are split into different numbers of parts")
+        n = n.pop()
+        for k in range(n):
+            cells = [dev if n == 1 else f"{dev}_{chr(ord('a') + k)}" for dev in members]
+            rows = {row_of.get(cell) for cell in cells}
+            if None in rows or len(rows) != 1:
+                raise ValueError(f"group {group}: {', '.join(cells)} are not placed in one row")
 
 
 def parse(src: str | Path) -> tuple[str, list[str], list[Inst]]:
@@ -335,6 +364,12 @@ def filler(w: int) -> rowcell.Cell:
 
 def cell_of(inst: Inst, grid: int = XPITCH) -> rowcell.Cell:
     return mos_cell(inst, grid) if inst.kind == "mos" else std_abstract(inst)
+
+
+def widths(src: str | Path) -> dict[str, int]:
+    """Each instance's row cell width (nm): what cIcCreator and laygo place for it."""
+
+    return {inst.name: cell_of(inst).width for inst in parse(src)[2]}
 
 
 STD_DROP_LAYERS = getattr(_tech, "STD_DROP_LAYERS", set())  # (layer, datatype) of the library cells not placed

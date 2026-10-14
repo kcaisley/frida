@@ -6,23 +6,16 @@ row cell, or a standard cell with its library cell and fillers) in the same turn
 of the top cell brings it upright. Then the top cell is flattened and shapes are merged and
 snapped to the grid; the cells' tap bands and well bands already overhang the block's outline.
 
-    uv run python flow/layout/cic/post.py tsmc65 raw.gds cells.gds out.gds TOP
+Run bound to a PDK (flow/layout/pdkproc.py); flow/layout/cic/build.py calls it.
 """
 
 from __future__ import annotations
-
-import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[3]
-if __name__ == "__main__":  # the PDK's layout directory (tech, paths) first, then the stems engine
-    sys.path[:0] = [str(ROOT / "pdk" / sys.argv[1] / "layout"), str(ROOT / "flow/layout/stems")]
 
 import klayout.db as kdb
 from tech import MFG_GRID
 
 
-def main(src: str, cells: str, dst: str, top_name: str) -> None:
+def post(src: str, cells: str, dst: str, top_name: str) -> None:
     layout = kdb.Layout()
     layout.read(src)
     for cell in layout.each_cell():
@@ -45,7 +38,3 @@ def main(src: str, cells: str, dst: str, top_name: str) -> None:
         for t in texts:
             shapes.insert(t)
     layout.write(dst)
-
-
-if __name__ == "__main__":
-    main(*sys.argv[2:6])

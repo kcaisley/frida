@@ -4,16 +4,13 @@ cicpy only places abstracts here (gen.py), so the file names the layers (GDS num
 text layers for the port labels) and gives rules in gamma units (MFG_GRID) that are the
 PDK's widths and spaces.
 
-    uv run python flow/layout/cic/make_tech.py ihp130 build/layout/cic/ihp130/ihp130.tech
+Run bound to a PDK (flow/layout/pdkproc.py); flow/layout/cic/build.py calls it.
 """
 
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[3]
 
 # cicpy layer name, tech name, material, previous, next, colour
 STACK = [
@@ -37,8 +34,7 @@ MARKERS = [
 
 
 def build(pdk: str, out: Path) -> Path:
-    sys.path.insert(0, str(ROOT / "pdk" / pdk / "layout"))
-    import tech as t
+    import tech as t  # the PDK this process is bound to (flow/layout/pdkproc.py)
 
     g = t.MFG_GRID
     gamma = lambda nm: -(-nm // g)
@@ -93,7 +89,3 @@ def build(pdk: str, out: Path) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(tech, indent=1) + "\n")
     return out
-
-
-if __name__ == "__main__":
-    print(build(sys.argv[1], Path(sys.argv[2])))

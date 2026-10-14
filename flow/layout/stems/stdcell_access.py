@@ -28,7 +28,8 @@ Writes ``paths.ACCESS_JSON`` (under ``build/``):
 order], "access": {pin: {"cuts": [[x, y], ...], "patch": [x0,y0,x1,y1] or null, "bar": [x0,y0,x1,y1],
 "pad": [x0,y0,x1,y1] or null}}, "iso": {"padded", "offset", "access"}}}
 
-    uv run python flow/layout/stems/stdcell_access.py pdk/tsmc65/layout
+Run bound to a PDK (flow/layout/pdkproc.py); ``pdkproc.access_points`` calls ``write_access``
+when a build needs the file and it is missing.
 """
 
 from __future__ import annotations
@@ -38,9 +39,6 @@ import json
 import re
 import sys
 from pathlib import Path
-
-if __name__ == "__main__":  # the PDK's layout directory (tech.py, paths.py) goes on the path first
-    sys.path.insert(0, str(Path(sys.argv[1]).resolve()))
 
 import klayout.db as kdb
 import tech as _tech
@@ -425,7 +423,10 @@ def _bar(xs: list[int], y: int, width: int):
     return [lo, y - M2_HW, hi, y + M2_HW], pad
 
 
-def main() -> None:
+def write_access(pdk: str) -> Path:
+    """Write the access points of ``pdk``'s standard cells (this process is bound to it) to
+    ``paths.ACCESS_JSON`` and return that path."""
+
     gds = kdb.Layout()
     gds.read(str(STD_GDS))
     lef = STD_LEF.read_text()
@@ -451,7 +452,5 @@ def main() -> None:
     out.write_text(json.dumps(data, indent=1) + "\n")
     for cell, d in data.items():
         print(cell, d["width"], d["padded"], {p: (a["cuts"], a["patch"] is not None) for p, a in d["access"].items()})
-
-
-if __name__ == "__main__":
-    main()
+    print(f"{pdk}: wrote {out}")
+    return out

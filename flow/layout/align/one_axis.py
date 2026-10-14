@@ -9,27 +9,32 @@ and writes a design for the second pass with these as the constraints and ALIGN'
 constraint generation off. The symmetric nets are left out: ALIGN derives block symmetry
 from user-given nets, and those groups would overlap the merged one.
 
-    python flow/layout/align/one_axis.py DESIGN_DIR PASS1_DIR OUT_DIR
+flow/layout/align/run.py calls ``one_axis`` between its two passes.
 """
+
+from __future__ import annotations
 
 import json
 import shutil
-import sys
 from pathlib import Path
 
-design, pass1, out = (Path(a) for a in sys.argv[1:4])
-name = design.name
-user = json.loads((design / f"{name}.const.json").read_text())
-found = json.loads((pass1 / "1_topology" / f"{name}.const.json").read_text())
 
-groups = [c for c in found if c["constraint"] == "GroupBlocks"]
-symm = [c for c in found if c["constraint"] == "SymmetricBlocks"]
-merged = [p for c in symm for p in c["pairs"]]
-const = [{"constraint": "ConfigureCompiler", "auto_constraint": False, "propagate": False}, *user, *groups]
-if merged:
-    const.append({"constraint": "SymmetricBlocks", "direction": "V", "pairs": merged})
+def one_axis(design_dir: Path, pass1_dir: Path, out_dir: Path) -> Path:
+    """Write the second-pass design for ``design_dir`` into ``out_dir`` and return it."""
 
-out.mkdir(parents=True, exist_ok=True)
-shutil.copy(design / f"{name}.sp", out / f"{name}.sp")
-(out / f"{name}.const.json").write_text(json.dumps(const, indent=1) + "\n")
-print(f"{out}: {len(symm)} symmetry groups -> 1 axis ({len(merged)} entries), {len(groups)} groups")
+    name = design_dir.name
+    user = json.loads((design_dir / f"{name}.const.json").read_text())
+    found = json.loads((pass1_dir / "1_topology" / f"{name}.const.json").read_text())
+
+    groups = [c for c in found if c["constraint"] == "GroupBlocks"]
+    symm = [c for c in found if c["constraint"] == "SymmetricBlocks"]
+    merged = [p for c in symm for p in c["pairs"]]
+    const = [{"constraint": "ConfigureCompiler", "auto_constraint": False, "propagate": False}, *user, *groups]
+    if merged:
+        const.append({"constraint": "SymmetricBlocks", "direction": "V", "pairs": merged})
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy(design_dir / f"{name}.sp", out_dir / f"{name}.sp")
+    (out_dir / f"{name}.const.json").write_text(json.dumps(const, indent=1) + "\n")
+    print(f"{out_dir}: {len(symm)} symmetry groups -> 1 axis ({len(merged)} entries), {len(groups)} groups")
+    return out_dir

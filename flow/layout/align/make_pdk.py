@@ -1,7 +1,7 @@
 """An ALIGN PDK directory for a PDK's row cells: generic generators plus the PDK's numbers.
 
-Copies flow/layout/align/pdk (the generators: rowcell MOS primitives, standard cells, ALIGN's
-mock capacitor/resistor generators) and writes, from the PDK's ``tech``:
+Copies flow/layout/align/pdk (the generators: rowcell MOS primitives and standard cells; the
+capacitor and resistor generators ALIGN asks for raise) and writes, from the PDK's ``tech``:
 
 * layers.json: layers_base.json (PDK-neutral placeholders) with the GDS layers, routing pitches
   (M2 tracks PITCH, M1/M3 XPITCH), widths, cuts and spacings replaced, and the metals and cuts
@@ -12,14 +12,14 @@ mock capacitor/resistor generators) and writes, from the PDK's ``tech``:
   ALIGN's spare layers (Rvt, Hvt, Pb) carry the PDK's own row-cell markers (its PO_MARK,
   GATE_MARK, VT_MARKS, RAIL_MARKS and PO_DUMMY_LAYER).
 
-    uv run python flow/layout/align/make_pdk.py ihp130 build/layout/align/ihp130/pdk
+Run bound to a PDK (flow/layout/pdkproc.py); flow/layout/align/build.py and
+flow/layout/floorplan.py call ``build``.
 """
 
 from __future__ import annotations
 
 import json
 import shutil
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -28,8 +28,7 @@ HERE = Path(__file__).resolve().parent
 
 def build(pdk: str, out: Path) -> Path:
     layout_dir = ROOT / "pdk" / pdk / "layout"
-    sys.path.insert(0, str(layout_dir))
-    import tech as t
+    import tech as t  # the PDK this process is bound to
 
     # overwrite in place (parallel builds of one PDK may run this at once)
     shutil.copytree(HERE / "pdk", out, ignore=shutil.ignore_patterns("__pycache__"), dirs_exist_ok=True)
@@ -116,7 +115,3 @@ def build(pdk: str, out: Path) -> Path:
         json.dumps({"layout": str(layout_dir), "stems": str(ROOT / "flow/layout/stems"), "extra": extra}) + "\n"
     )
     return out
-
-
-if __name__ == "__main__":
-    print(build(sys.argv[1], Path(sys.argv[2])))

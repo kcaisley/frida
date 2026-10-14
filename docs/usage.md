@@ -52,6 +52,20 @@ For FRIDA-1, the run-local layout copy adds only PDK-local non-mask MOM recognit
 
 The FRIDA-2 targets regenerate their CDAC GDS and ideal per-chunk MOM source network from the target's `CapArrayConfig` and PDK rules, then perform strict block substitution in `build/frida-2-template.gds`. The assembler requires identical database units, boundaries, pin names, pin positions, and pin shapes. It never edits, moves, or reroutes layout; any required template adjustment is made manually in KLayout. The M5-M7 caparray itself contains no M3 and uses M4 as a partitioned shared layer: 100 nm plate routes occupy the two edge corridors while the shield remains beneath the central capacitor body.
 
+## Layout targets
+
+Comparator layouts in standard-cell rows use the same named-target interface. Omitting the target prints the 36 choices:
+
+```bash
+uv run python -m flow.comp.layout
+uv run python -m flow.comp.layout comp_frida1_manual_tsmc65
+uv run python -m flow.comp.layout comp_c040_auto_all_pdks
+```
+
+A per-PDK target (`comp_frida1_manual_<pdk>`, `comp_c040_manual_<pdk>`, `comp_frida1_auto_<pdk>`, `comp_c040_auto_<pdk>` or `mos_inv_<pdk>`, for tsmc65, tsmc28, ihp130, tower180, lf150 and tpsc65) writes its netlists, lays the design out with cIcCreator, laygo and ALIGN, and runs DRC and LVS on each layout. A `manual` target places the rows as `design/layout/comp_*.json` says; an `auto` target first runs ALIGN up to placement and converts the placement into a floorplan of the same format, its rows packed toward a square block. Each `*_all_pdks` target runs one case in all six PDKs, and `all_comp_layouts` runs all five. Results go to `build/layout/comp/<target>/<timestamp>/`: `<tool>/` with the GDS and its `signoff/`, `netlist/`, `floorplan/` (auto), and `summary.json` with the GDS, cell size, DRC violation count and LVS result per PDK and tool. A failing PDK or tool does not stop the others: the target lists them in `failures.json` and fails at the end.
+
+The tools come from the environment: `CICPY` (cicpy 0.3, which has `compile`; default `cicpy` on the `PATH`), `LAYGO_CLIENT` (the hosted laygo server's client, default `~/Documents/libs/laygo3-client/laygo3.py`; it needs internet), `ALIGN_HOME` (an ALIGN install with its own Python, default `/local/kcaisley/layout-eval/ALIGN-public` on juno and asiclab003) and `IHP_OPEN_PDK` (a full IHP-Open-PDK checkout for ihp130's KLayout decks). Each PDK's signoff provider, `pdk/<pdk>/signoff.py`, runs the gdscheck precheck and then Calibre (Assura for LF150 LVS, the KLayout decks for ihp130).
+
 ## Circuit simulation targets
 
 ADC, comparator, sampler, and CDAC simulations use the same named-target interface. Omitting the target prints the choices without generating or running anything:

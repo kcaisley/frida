@@ -14,19 +14,14 @@ orientation), netlist: the one it names for the PDK, split as it says. Every row
 to one length with fillers (one XPITCH each) and ends in edge cells, which drop the rails to
 the supply trunks.
 
-    uv run python flow/layout/cic/gen.py tsmc65 design/layout/comp_frida1.json build/layout/cic/tsmc65
+Run bound to a PDK (flow/layout/pdkproc.py); flow/layout/cic/build.py calls it.
 """
 
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[3]
-if __name__ == "__main__":  # the PDK's layout directory (tech, paths) first, then the stems engine
-    sys.path[:0] = [str(ROOT / "pdk" / sys.argv[1] / "layout"), str(ROOT / "flow/layout/stems")]
 
 import klayout.db as kdb
 import netcells
@@ -90,9 +85,12 @@ def placeholder(name: str, cell: rowcell.Cell, nodes: list[str], ports: dict[str
     }
 
 
-def generate(pdk: str, floorplan: Path, out_root: Path) -> Path:
+def generate(pdk: str, floorplan: Path, out_root: Path, netlist: Path | None = None) -> Path:
+    """Write ``out_root/<name>/``: the object file, placeholder library, netlist, placement and
+    real cells. ``netlist``: the design's netlist (default: the floorplan's)."""
+
     fp = json.loads(floorplan.read_text())
-    name, src = netcells.floorplan_netlist(floorplan, pdk)
+    name, src = netcells.floorplan_netlist(floorplan, pdk, netlist)
     _, ports, insts = netcells.parse(src)
     by_name = {i.name: i for i in insts}
     out = out_root / name
@@ -198,7 +196,3 @@ def generate(pdk: str, floorplan: Path, out_root: Path) -> Path:
     path.write_text(json.dumps(obj, indent=1) + "\n")
     print(f"{name}: {len(columns)} rows of {target} nm, {sum(len(c) for c in columns)} cells")
     return path
-
-
-if __name__ == "__main__":
-    generate(sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3]))

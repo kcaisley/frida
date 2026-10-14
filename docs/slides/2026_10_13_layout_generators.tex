@@ -307,7 +307,7 @@
       {\small Its symmetry groups merged onto one axis, then placed and routed automatically; DRC clean, LVS correct.}
     \end{column}
   \end{columns}
-  \slidesource{\texttt{flow/layout/align/build.sh tsmc65 <floorplan> --free}}
+  \slidesource{\texttt{flow/layout/align/build.py}, no floorplan (TSMC65)}
 \end{frame}
 
 \begin{frame}{Cross-PDK compilation: relative sizes, one floorplan}
@@ -315,7 +315,7 @@
   \CROSSPDK
   \par\smallskip
   {\small Example double tail, to scale (cIcCreator). Sizes in each PDK's unit width and minimum length, so one floorplan fits all six; all 54 layouts DRC clean, LVS correct.}
-  \slidesource{TSMC 65/28, IHP 130, Tower 180, LFoundry 150, TPSCo 65; Calibre (IHP: KLayout)}
+  \slidesource{\texttt{comp\_c040\_manual\_all\_pdks}; TSMC 65/28, IHP 130, Tower 180, LFoundry 150, TPSCo 65; Calibre (IHP: KLayout)}
 \end{frame}
 
 \newcommand{\pdkgallery}[2]{%
@@ -326,7 +326,7 @@
   \par\medskip
   {\small Example double tail}\par
   \includegraphics[width=\linewidth,height=0.34\textheight,keepaspectratio]{\lay/comp_c040_#1_tools.png}
-  \slidesource{One floorplan per design, relative sizes; DRC clean and LVS correct}
+  \slidesource{\texttt{comp\_frida1\_manual\_all\_pdks}, \texttt{comp\_c040\_manual\_all\_pdks}; one floorplan per design, relative sizes}
 \end{frame}}
 
 \pdkgallery{tsmc65}{TSMC 65}
@@ -352,7 +352,7 @@
       }
     \end{column}
   \end{columns}
-  \slidesource{\texttt{POST\_ARGS='--fill decap --ring'}; \texttt{flow/layout/align/post.py}}
+  \slidesource{decap fill and guard ring (\texttt{PostOptions}); \texttt{flow/layout/align/post.py}}
 \end{frame}
 
 \begin{frame}{Summary}

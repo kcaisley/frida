@@ -1,15 +1,16 @@
 """Render the layout images of the layout-generator deck (docs/slides/2026_10_13_layout_generators.tex).
 
-Run from the repository root after the layouts are built (cic and laygo locally, ALIGN and the
-non-TSMC65 PDKs on juno, copied back into build/layout):
+Run from the repository root after the comparator layout targets have run (flow/comp/layout.py,
+on a host with ALIGN and Calibre; the runs it reads are pinned below):
 
     uv run python docs/images/layout_generators/render.py
 
 The layout renders show PDK layouts (and library cells), so they are build outputs, written to
 build/docs/layout_generators/ and never committed; the deck reads them from there. The schematics
-(no layout) are written here. Inputs are the flows' own outputs under build/layout; the ALIGN automatic-placement and
-guard-ring variants come from build/layout/deck (flow/layout/align/build.sh ... --free, with
-POST_ARGS="--fill decap --ring" for the ring). Each library cell shown alone is copied into a
+(no layout) are written here. Inputs are the runner's outputs under build/layout/comp; the ALIGN
+automatic-placement and guard-ring variants come from build/layout/deck (flow/layout/align/build.py
+``build`` without a floorplan, and with ``post=PostOptions(fill="decap", ring=True)`` for the
+ring). Each library cell shown alone is copied into a
 GDS of its own first, so gds2image renders it as a top cell. The schematics are
 flow/util/netlist2image.py's SVGs of the TSMC65 transistor netlists, converted with rsvg-convert.
 """
@@ -25,7 +26,13 @@ from flow.util.gds2image import render_png
 
 ROOT = Path(__file__).resolve().parents[3]
 OUT = Path(__file__).resolve().parent  # the schematics
-BUILD = ROOT / "build/layout"
+RUNS = ROOT / "build/layout/comp"
+# the runs this deck shows: python -m flow.comp.layout <target>, one directory per PDK in each
+RUN = {
+    "comp_frida1": RUNS / "comp_frida1_manual_all_pdks/20261014_221027",
+    "comp_c040": RUNS / "comp_c040_manual_all_pdks/20261014_221027",
+    "mos_inv": RUNS / "mos_inv_all_pdks/20261014_221027",
+}
 CELLS = ROOT / "build/docs/layout_generators"  # the renders and the cells they show
 PDKS = ("tsmc65", "ihp130", "tower180", "tsmc28", "lf150", "tpsc65")
 
@@ -45,13 +52,13 @@ def cell_gds(lib: Path, name: str) -> Path:
 
 def tools(design: str, pdk: str = "tsmc65", prefix: str = "") -> list[tuple[Path, str]]:
     return [
-        (BUILD / f"cic/{pdk}/{design}/{design}.gds", f"{prefix}cIcCreator"),
-        (BUILD / f"laygo/{pdk}/{design}.gds", f"{prefix}laygo"),
-        (BUILD / f"align/{pdk}/{design}/{design}.gds", f"{prefix}ALIGN"),
+        (RUN[design] / f"{pdk}/cic/{design}/{design}.gds", f"{prefix}cIcCreator"),
+        (RUN[design] / f"{pdk}/laygo/{design}.gds", f"{prefix}laygo"),
+        (RUN[design] / f"{pdk}/align/{design}/{design}.gds", f"{prefix}ALIGN"),
     ]
 
 
-lib = BUILD / "cic/tsmc65/comp_frida1/comp_frida1_cells.gds"
+lib = RUN["comp_frida1"] / "tsmc65/cic/comp_frida1/comp_frida1_cells.gds"
 render_png(
     [
         (cell_gds(lib, "Mdiff_p"), "NMOS 4.38/0.3"),
@@ -91,7 +98,7 @@ for design in ("comp_frida1", "comp_c040"):  # the floorplanned layouts: one row
         )
 for pdk in PDKS:  # one image each, in its own palette, untitled: the slide scales them by their widths
     render_png(
-        [(BUILD / f"cic/{pdk}/comp_c040/comp_c040.gds", None)],
+        [(RUN["comp_c040"] / f"{pdk}/cic/comp_c040/comp_c040.gds", None)],
         CELLS / f"cross_pdk_{pdk}.png",
         tech=pdk,
         metals="solid",
@@ -99,7 +106,7 @@ for pdk in PDKS:  # one image each, in its own palette, untitled: the slide scal
     )
 for design in ("comp_frida1", "comp_c040"):
     svg = CELLS / f"schematic_{design}.svg"
-    netlist = ROOT / f"build/layout/netlists/tsmc65/{design}_transistors.sp"
+    netlist = RUN[design] / f"tsmc65/netlist/{design}_transistors.sp"
     subprocess.run(["uv", "run", "python", "-m", "flow.util.netlist2image", str(netlist), str(svg)], check=True)
     subprocess.run(["rsvg-convert", "-f", "pdf", str(svg), "-o", str(OUT / f"schematic_{design}.pdf")], check=True)
 render_png(

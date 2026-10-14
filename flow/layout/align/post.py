@@ -13,14 +13,14 @@
 * Labels: ALIGN's pin labels (metal/252) move to the PDK's pin-text layers; pin shapes,
   blockages and abstract layers (datatypes 251/253, layer 255 unless the PDK draws on it, and the PnR's whole-block
   boundary marker 235/5) are removed; shapes are merged and snapped to the manufacturing grid.
-* Options (additive, for any block, in a PDK with logic cells and a guard ring): ``--fill decap``
+* Options (additive, for any block, in a PDK with logic cells and a guard ring): ``fill="decap"``
   puts decap cells (logiccell.decap) in the row gaps wide enough, and writes their devices to
-  ``out.gds.extra.sp`` for the LVS source (flow/layout/lvs_extra.py); ``--ring`` wraps the block in
-  the PDK's guard ring (its ringcell.py), the ring's N-well on ``--ring-net``, the substrate
-  ring on ``--sub-net`` (a port of its own).
+  ``out.gds.extra.sp`` for the LVS source (``flow.layout.signoff.add_post_devices``); ``ring``
+  wraps the block in the PDK's guard ring (its ringcell.py), the ring's N-well on ``ring_net``,
+  the substrate ring on ``sub_net`` (a port of its own).
 
-    uv run python flow/layout/align/post.py tsmc65 in.gds out.gds [STDCELL_GDS] [--fill plain|decap]
-        [--ring] [--ring-net vdd] [--sub-net vsub]
+Run bound to a PDK (flow/layout/pdkproc.py), with ``STEMS_STD_DENSE`` set as for the ALIGN run;
+flow/layout/align/build.py calls ``post``.
 """
 
 from __future__ import annotations
@@ -28,14 +28,9 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
 from pathlib import Path
 
 import klayout.db as kdb
-
-ROOT = Path(__file__).resolve().parents[3]
-if __name__ == "__main__":  # the PDK's layout directory (tech, paths) first, then the stems engine
-    sys.path[:0] = [str(ROOT / "pdk" / sys.argv[1] / "layout"), str(ROOT / "flow/layout/stems")]
 import netcells
 import rowcell
 from netcells import drop_labels
@@ -278,15 +273,18 @@ def close_wells(layout: kdb.Layout, top: kdb.Cell) -> None:
     top.shapes(li).insert(nw)
 
 
-def main(
-    src: str,
-    dst: str,
-    lib: str = LIB,
+def post(
+    src: str | Path,
+    dst: str | Path,
+    *,
     fill: str = "plain",
     ring: bool = False,
     ring_net: str = "vdd",
     sub_net: str = "vsub",
-) -> None:
+) -> Path:
+    """Finish ALIGN's GDS ``src`` into ``dst`` (and ``<dst>.extra.sp``); returns ``dst``."""
+
+    src, dst, lib = str(src), str(dst), LIB
     layout = kdb.Layout()
     layout.read(src)
     top = layout.top_cell()
@@ -356,19 +354,4 @@ def main(
         f"{n_std} standard cells, {n_fill} row gaps filled ({len(devices) // 2} decap fingers), "
         f"{n_straps} supply straps, {n_ties} row-end ties{ring_info}"
     )
-
-
-if __name__ == "__main__":
-    import argparse
-
-    ap = argparse.ArgumentParser()
-    ap.add_argument("pdk")
-    ap.add_argument("src")
-    ap.add_argument("dst")
-    ap.add_argument("lib", nargs="?", default=LIB)
-    ap.add_argument("--fill", choices=("plain", "decap"), default="plain")
-    ap.add_argument("--ring", action="store_true")
-    ap.add_argument("--ring-net", default="vdd")
-    ap.add_argument("--sub-net", default="vsub")
-    a = ap.parse_args()
-    main(a.src, a.dst, a.lib, a.fill, a.ring, a.ring_net, a.sub_net)
+    return Path(dst)
