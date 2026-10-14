@@ -29,3 +29,9 @@
 [submodule "libs/ADC-survey"]
 	path = libs/ADC-survey
 	url = https://github.com/bmurmann/ADC-survey.git
+[submodule "pdk/lf150"]
+	path = pdk/lf150
+	url = git@github.com:kcaisley/lf150.git
+[submodule "pdk/tpsc65"]
+	path = pdk/tpsc65
+	url = git@github.com:kcaisley/tower65.git
