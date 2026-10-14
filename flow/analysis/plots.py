@@ -53,6 +53,7 @@ from flow.analysis.types import (
     AnalysisCdacCapMismatch,
     AnalysisCompCandidate,
     AnalysisCompCommonMode,
+    AnalysisCompDelay,
     AnalysisCompOffsetNoise,
     AnalysisCompPower,
     AnalysisCompTiming,
@@ -3338,9 +3339,13 @@ def plot_comp_candidate_sweep(
     msmt_list: Sequence[MeasComp],
     candidates: Sequence[AnalysisCompCandidate],
     *,
+    highlights: Mapping[str, str] | None = None,
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Plot candidate noise, power, and settling on one area-ordered axis."""
+    """Plot candidate noise, power, and settling on one area-ordered axis.
+
+    ``highlights`` marks candidates by ID with a labeled line.
+    """
 
     # Order candidates by summed MOS W*L; geometry and ID break ties reproducibly.
     ordered = sorted(
@@ -3386,7 +3391,12 @@ def plot_comp_candidate_sweep(
     baseline = np.flatnonzero(analysis["size_profile"] == "fabricated")
     for ax in axes:
         ax.axvline(baseline[0], color=CURVE_COLORS[2], linestyle="--")
-    axes[0].legend(ncols=3)
+    ordered_ids = [candidate.candidate_id for candidate in ordered]
+    for candidate_id, label in (highlights or {}).items():
+        index = ordered_ids.index(candidate_id)
+        for ax in axes:
+            ax.axvline(index, color=NORD_RED, linestyle="--", label=label)
+    axes[0].legend(ncols=4 if highlights else 3)
 
     tick_count = min(12, candidate_count)
     tick_positions = np.unique(np.rint(np.linspace(0, candidate_count - 1, tick_count)).astype(int))
@@ -3405,13 +3415,14 @@ def plot_comp_candidate_sweep(
 def plot_comp_noise_power_tradeoff(
     candidates: Sequence[AnalysisCompCandidate],
     *,
+    highlights: Mapping[str, str] | None = None,
     output_path: Path,
 ) -> tuple[Path, ...]:
     """Plot candidate noise against power, colored by settling.
 
     Candidates with unresolved trials or an invalid S-curve fit have no
     meaningful settling color; those with finite noise and power are shown
-    as gray crosses.
+    as gray crosses. ``highlights`` rings and labels candidates by ID.
     """
 
     analysis = {
@@ -3496,6 +3507,19 @@ def plot_comp_noise_power_tradeoff(
         xytext=(8, 7),
         textcoords="offset points",
     )
+    candidate_ids = [candidate.candidate_id for candidate in candidates]
+    for candidate_id, label in (highlights or {}).items():
+        index = candidate_ids.index(candidate_id)
+        ax.scatter(
+            noise_mv[index],
+            power_uw[index],
+            s=160,
+            facecolors="none",
+            edgecolors=NORD_RED,
+            linewidths=1.5,
+            zorder=6,
+        )
+        ax.annotate(label, (noise_mv[index], power_uw[index]), xytext=(10, -14), textcoords="offset points")
 
     colorbar = fig.colorbar(mappable, ax=ax, pad=0.02)
     colorbar.set_label("Worst settling time (ns)")
@@ -3507,3 +3531,76 @@ def plot_comp_noise_power_tradeoff(
     ax.legend()
     fig.suptitle("Comparator noise–power trade-off")
     return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_comp_topology_study(
+    delays: Sequence[AnalysisCompDelay],
+    common_modes: Sequence[AnalysisCompCommonMode],
+    *,
+    labels: Sequence[str],
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Compare comparator topologies: delay versus input, and noise and delay versus common mode."""
+
+    if not delays or not len(delays) == len(common_modes) == len(labels):
+        raise ValueError("topology study requires one delay, common-mode result, and label per topology")
+    columns = min(3, len(delays))
+    rows = (len(delays) + columns - 1) // columns
+
+    delay_fig, delay_axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
+    if rows > 2:
+        delay_fig.set_size_inches(9.6, 2.7 * rows)
+    for index, (delay, label) in enumerate(zip(delays, labels, strict=True)):
+        ax = delay_axes.flat[index]
+        for row, vin_cm_v in enumerate(delay.vin_cm_v):
+            ax.plot(
+                delay.vin_diff_v * 1e3,
+                delay.delay_s[row] * 1e12,
+                "o-",
+                color=SPECTRUM_COLOR_MAP(row / max(len(delay.vin_cm_v) - 1, 1)),
+                label=f"{vin_cm_v * 1e3:g} mV",
+            )
+        ax.set_xscale("log")
+        ax.set_title(label)
+        style_grid(ax)
+    for ax in delay_axes.flat[len(delays) :]:
+        ax.set_visible(False)
+    delay_axes.flat[0].legend(title="Common mode")
+    delay_fig.supxlabel("Differential input (mV)")
+    delay_fig.supylabel("Clock-to-decision delay (ps)")
+    delay_fig.suptitle("Comparator delay versus input")
+    delay_paths = save_figure(delay_fig, output_path.with_name(output_path.name + "_delay_vs_input"))
+
+    # Only valid S-curve fits are drawn; every panel shares one noise and one delay scale.
+    noise_mv = [
+        np.where(np.asarray(item.validity) == "valid", item.noise_sigma_v * 1e3, np.nan) for item in common_modes
+    ]
+    noise_limit_mv = 1.1 * max(calc.ymax(values[np.isfinite(values)]) for values in noise_mv)
+    smallest_input_ps = [item.delay_s[:, 0] * 1e12 for item in delays]
+    delay_limit_ps = 1.1 * max(calc.ymax(values[np.isfinite(values)]) for values in smallest_input_ps)
+    noise_fig, noise_axes = plt.subplots(rows, columns, sharex=True, squeeze=False)
+    if rows > 2:
+        noise_fig.set_size_inches(9.6, 2.7 * rows)
+    for index, (delay, common_mode, noise, delay_ps, label) in enumerate(
+        zip(delays, common_modes, noise_mv, smallest_input_ps, labels, strict=True)
+    ):
+        ax = noise_axes.flat[index]
+        ax.plot(common_mode.vin_cm_v * 1e3, noise, "o-", color=NORD_BLUE)
+        ax.set_ylim(0.0, noise_limit_mv)
+        ax.tick_params(axis="y", colors=NORD_BLUE)
+        delay_ax = ax.twinx()
+        delay_ax.plot(delay.vin_cm_v * 1e3, delay_ps, "s-", color=NORD_RED)
+        delay_ax.set_ylim(0.0, delay_limit_ps)
+        delay_ax.tick_params(axis="y", colors=NORD_RED)
+        if index % columns == columns - 1 or index == len(delays) - 1:
+            delay_ax.set_ylabel(f"Delay at {delay.vin_diff_v[0] * 1e3:g} mV (ps)", color=NORD_RED)
+        ax.set_title(label)
+        style_grid(ax)
+    for ax in noise_axes.flat[len(delays) :]:
+        ax.set_visible(False)
+    noise_fig.supxlabel("Common mode (mV)")
+    noise_fig.supylabel("Input-referred noise σ (mV)", color=NORD_BLUE)
+    noise_fig.suptitle("Comparator noise and delay versus common mode")
+    noise_paths = save_figure(noise_fig, output_path.with_name(output_path.name + "_noise_delay_vs_cm"))
+    return (*delay_paths, *noise_paths)

@@ -20,15 +20,15 @@ def mock_pdk(monkeypatch, tmp_path):
     library.write_text(
         "* mock upstream library\n"
         ".SUBCKT UNUSED A Z\nR1 A Z 1\n.ENDS UNUSED\n"
-        ".SUBCKT CKXOR2D2LVT A1 A2 Z VDD VSS\n"
-        "M1 Z A1 VSS VSS nch_lvt w=2u l=60n\n.ENDS CKXOR2D2LVT\n"
-        ".SUBCKT CKXOR2D4LVT A1 A2 Z VDD VSS\n"
-        "M1 Z A1 VSS VSS nch_lvt w=4u l=60n\n.ENDS CKXOR2D4LVT\n"
+        ".SUBCKT XOR2_D2 A1 A2 Z VDD VSS\n"
+        "M1 Z A1 VSS VSS nmos w=2u l=60n\n.ENDS XOR2_D2\n"
+        ".SUBCKT XOR2_D4 A1 A2 Z VDD VSS\n"
+        "M1 Z A1 VSS VSS nmos w=4u l=60n\n.ENDS XOR2_D4\n"
     )
     compiled_bands = []
     cells = {
         drive: h.ExternalModule(
-            name=f"CKXOR2D{drive}LVT",
+            name=f"XOR2_D{drive}",
             port_list=[h.Inout(name=name) for name in ("A1", "A2", "Z", "VDD", "VSS")],
             paramtype=h.HasNoParams,
         )
@@ -52,18 +52,20 @@ def mock_pdk(monkeypatch, tmp_path):
 
     compiler = ModuleType("pdk.tsmc65")
     monkeypatch.setattr(compiler, "compile", lambda module: MockCompiler().walk(module), raising=False)
-    site = ModuleType("pdk.tsmc65.site")
+    site = ModuleType("pdk.tsmc65.hdl21.site")
     monkeypatch.setattr(
         site, "install", SimpleNamespace(include_stdcell=lambda: SimpleNamespace(path=library)), raising=False
     )
-    provider = ModuleType("pdk.tsmc65.signoff")
+    provider = ModuleType("pdk.tsmc65.calibre.signoff")
 
     @dataclass(frozen=True)
     class SignoffOptions:
         drc_unselect_checks: tuple[str, ...] = ()
 
     monkeypatch.setattr(provider, "SignoffOptions", SignoffOptions, raising=False)
-    for module in (compiler, site, provider):
+    stdcells = ModuleType("pdk.tsmc65.hdl21.stdcells")
+    monkeypatch.setattr(stdcells, "XOR_CELLS", ("XOR2_D2", "XOR2_D4"), raising=False)
+    for module in (compiler, site, provider, stdcells):
         monkeypatch.setitem(sys.modules, module.__name__, module)
     return SimpleNamespace(library=library, bands=compiled_bands, options=SignoffOptions)
 
@@ -76,9 +78,9 @@ def source_gds(tmp_path):
     ring = layout.create_cell("guard_ring")
     leaf = layout.create_cell("ring_contact")
     unrelated = layout.create_cell("unrelated")
-    dnw = layout.layer(1, 0)
-    metal = layout.layer(31, 0)
-    text = layout.layer(31, 5)
+    dnw = layout.layer(200, 0)
+    metal = layout.layer(201, 0)
+    text = layout.layer(201, 5)
     top.shapes(dnw).insert(db.Box(-250, 0, 30500, 6900))
     ring.shapes(metal).insert(db.Box(0, 0, 50, 6000))
     leaf.shapes(metal).insert(db.Box(0, 0, 20, 20))
@@ -188,7 +190,7 @@ def test_source_scalar_ports_mapping_bands_and_unmodified_models(tmp_path, mock_
         c, d = _subcircuit_span(source, name)
         assert source[c:d] == upstream[a:b]
     assert "UNUSED" not in source
-    assert "nch_lvt" in source and "nch_lvt_mac" not in source
+    assert "nmos" in source and "nmos_mac" not in source
     assert ".include" not in source.lower()
     assert metadata["upstream_library"]["sha256"] == target._sha256(mock_pdk.library)
     for name, digest in metadata["files"].items():

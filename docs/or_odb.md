@@ -138,5 +138,5 @@ d.evalTclString(f"write_def {script_dir}/{cell}_placed_routed.def")
 ## Further reading
 
 - [docs/or_analog.md](or_analog.md) — placement status options, routing guide API, symmetric routing workaround detail, Python vs TCL feature comparison table
-- [docs/openroad.md](openroad.md) — full TCL command reference for OpenROAD
+- `pdk/tsmc65/docs/openroad.md` (private PDK submodule) — full TCL command reference for OpenROAD
 - OpenROAD ODB unit tests: `src/odb/test/unitTestsPython/` in the OpenROAD source tree — the most complete examples of the `odb` Python API

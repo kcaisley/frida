@@ -1,10 +1,10 @@
 {
-  "creator": "Yosys 0.63 (git sha1 70a11c6bf, g++ 11.5.0 -fPIC -O3)",
+  "creator": "Yosys 0.63 (git sha1 70a11c6bf, g++ 13.3.0-6ubuntu2~24.04.1 -fPIC -O3)",
   "modules": {
     "gnd": {
       "attributes": {
         "blackbox": "00000000000000000000000000000001",
-        "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:21.16-24.10"
+        "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:21.16-24.10"
       },
       "ports": {
         "A": {
@@ -22,7 +22,7 @@
             2
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:22.11-22.12"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:22.11-22.12"
           }
         }
       }
@@ -30,7 +30,7 @@
     "mos_n": {
       "attributes": {
         "blackbox": "00000000000000000000000000000001",
-        "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:9.16-14.10"
+        "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:9.16-14.10"
       },
       "ports": {
         "G": {
@@ -60,7 +60,7 @@
             3
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:11.12-11.13"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:11.12-11.13"
           }
         },
         "G": {
@@ -69,7 +69,7 @@
             2
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:10.12-10.13"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:10.12-10.13"
           }
         },
         "S": {
@@ -78,7 +78,7 @@
             4
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:12.12-12.13"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:12.12-12.13"
           }
         }
       }
@@ -86,7 +86,7 @@
     "mos_p": {
       "attributes": {
         "blackbox": "00000000000000000000000000000001",
-        "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:2.1-7.10"
+        "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:2.1-7.10"
       },
       "ports": {
         "G": {
@@ -116,7 +116,7 @@
             4
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:5.12-5.13"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:5.12-5.13"
           }
         },
         "G": {
@@ -125,7 +125,7 @@
             2
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:3.12-3.13"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:3.12-3.13"
           }
         },
         "S": {
@@ -134,7 +134,7 @@
             3
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:4.12-4.13"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:4.12-4.13"
           }
         }
       }
@@ -142,7 +142,7 @@
     "preamp_netlistsvg": {
       "attributes": {
         "top": "00000000000000000000000000000001",
-        "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:26.1-65.10"
+        "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:26.1-65.10"
       },
       "ports": {
         "inn": {
@@ -183,7 +183,7 @@
           "parameters": {},
           "attributes": {
             "module_not_derived": "00000000000000000000000000000001",
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:50.11-54.6"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:50.11-54.6"
           },
           "port_directions": {
             "D": "input",
@@ -208,7 +208,7 @@
           "parameters": {},
           "attributes": {
             "module_not_derived": "00000000000000000000000000000001",
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:55.11-59.6"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:55.11-59.6"
           },
           "port_directions": {
             "D": "input",
@@ -233,7 +233,7 @@
           "parameters": {},
           "attributes": {
             "module_not_derived": "00000000000000000000000000000001",
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:60.11-64.6"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:60.11-64.6"
           },
           "port_directions": {
             "D": "input",
@@ -258,7 +258,7 @@
           "parameters": {},
           "attributes": {
             "module_not_derived": "00000000000000000000000000000001",
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:40.11-44.6"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:40.11-44.6"
           },
           "port_directions": {
             "D": "output",
@@ -283,7 +283,7 @@
           "parameters": {},
           "attributes": {
             "module_not_derived": "00000000000000000000000000000001",
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:45.11-49.6"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:45.11-49.6"
           },
           "port_directions": {
             "D": "output",
@@ -308,7 +308,7 @@
           "parameters": {},
           "attributes": {
             "module_not_derived": "00000000000000000000000000000001",
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:37.9-37.22"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:37.9-37.22"
           },
           "port_directions": {
             "A": "output"
@@ -325,7 +325,7 @@
           "parameters": {},
           "attributes": {
             "module_not_derived": "00000000000000000000000000000001",
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:38.9-38.22"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:38.9-38.22"
           },
           "port_directions": {
             "A": "input"
@@ -344,7 +344,7 @@
             4
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:29.12-29.15"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:29.12-29.15"
           }
         },
         "inn": {
@@ -353,7 +353,7 @@
             2
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:27.12-27.15"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:27.12-27.15"
           }
         },
         "inp": {
@@ -362,7 +362,7 @@
             3
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:28.12-28.15"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:28.12-28.15"
           }
         },
         "nsrc": {
@@ -371,7 +371,7 @@
             7
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:35.10-35.14"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:35.10-35.14"
           }
         },
         "vdd": {
@@ -380,7 +380,7 @@
             9
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:33.10-33.13"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:33.10-33.13"
           }
         },
         "vss": {
@@ -389,7 +389,7 @@
             8
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:34.10-34.13"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:34.10-34.13"
           }
         },
         "xn": {
@@ -398,7 +398,7 @@
             6
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:31.12-31.14"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:31.12-31.14"
           }
         },
         "xp": {
@@ -407,7 +407,7 @@
             5
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:30.12-30.14"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:30.12-30.14"
           }
         }
       }
@@ -415,7 +415,7 @@
     "vcc": {
       "attributes": {
         "blackbox": "00000000000000000000000000000001",
-        "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:16.16-19.10"
+        "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:16.16-19.10"
       },
       "ports": {
         "A": {
@@ -433,7 +433,7 @@
             2
           ],
           "attributes": {
-            "src": "/local/frida/docs/images/netlistsvg/preamp_netlistsvg.v:17.12-17.13"
+            "src": "/home/kcaisley/Documents/frida/docs/images/netlistsvg/preamp_netlistsvg.v:17.12-17.13"
           }
         }
       }

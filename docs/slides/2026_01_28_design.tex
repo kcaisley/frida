@@ -162,7 +162,7 @@
         \item Total area: 893.88 $\mu$m$^2$
         \item Sequential elements: 49\% of area
         \item 48 flip-flops (DFQD1, EDFD2)
-        \item 5 clock gates (CKLNQD1LVT)
+        \item 5 clock gates
       \end{itemize}
     \end{column}
     \begin{column}{0.5\textwidth}
@@ -180,11 +180,11 @@ Total            350   893.88
       \vspace{0.5em}
       \textbf{Key Cell Types}
       \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
-EDFD2LVT (edge DFF)     32   334.08
-DFQD1LVT (DFF)          16   109.44
-NR2D0LVT (NOR2)         93   133.92
-BUFFD0LVT (buffer)      69    99.36
-CKLNQD1LVT (clkgate)     5    32.40
+edge DFF                32
+DFF                     16
+NOR2                    93
+buffer                  69
+clock gate               5
       \end{lstlisting}
     \end{column}
   \end{columns}
@@ -435,7 +435,7 @@ set_clock_uncertainty 0.05 [all_clocks]
       \small
       \textbf{CTS Results:}
       \begin{itemize}
-        \item 31 BUFFD2LVT cells across 4 clock paths
+        \item 31 clock buffers across 4 clock paths
         \item Domains unsynchronized within ADC (relies on upstream sequencer)
         \item Clock power: 41\% of total
         \item Setup skew: 0.07 ns
@@ -1356,17 +1356,17 @@ Mb_latch_out- out+ latch+ vss vss n18lvt W=220n L=180n
       \begin{lstlisting}[basicstyle=\ttfamily\fontsize{3.5}{4.5}\selectfont]
 .subckt comp in+ in- out+ out- clk clkb vdd vss
 
-M_preamp_diff+ out- in+ tail vss nch_lvt W=480n L=60n
-M_preamp_diff- out+ in- tail vss nch_lvt W=480n L=60n
-M_preamp_tail tail clk vss vss nch_lvt W=240n L=120n
-M_preamp_rst+ out- clk vdd vdd pch_lvt W=240n L=60n
-M_preamp_rst- out+ clk vdd vdd pch_lvt W=240n L=60n
-Ma_latch+ out- out+ vdd vdd pch_lvt W=120n L=60n
-Ma_latch- out+ out- vdd vdd pch_lvt W=120n L=60n
-Mb_latch+ out- out+ vss vss nch_lvt W=120n L=60n
-Mb_latch- out+ out- vss vss nch_lvt W=120n L=60n
-M_latch_int_rst+ out- clkb vdd vdd pch_lvt W=120n L=60n
-M_latch_int_rst- out+ clkb vdd vdd pch_lvt W=120n L=60n
+M_preamp_diff+ out- in+ tail vss nmos W=480n L=60n
+M_preamp_diff- out+ in- tail vss nmos W=480n L=60n
+M_preamp_tail tail clk vss vss nmos W=240n L=120n
+M_preamp_rst+ out- clk vdd vdd pmos W=240n L=60n
+M_preamp_rst- out+ clk vdd vdd pmos W=240n L=60n
+Ma_latch+ out- out+ vdd vdd pmos W=120n L=60n
+Ma_latch- out+ out- vdd vdd pmos W=120n L=60n
+Mb_latch+ out- out+ vss vss nmos W=120n L=60n
+Mb_latch- out+ out- vss vss nmos W=120n L=60n
+M_latch_int_rst+ out- clkb vdd vdd pmos W=120n L=60n
+M_latch_int_rst- out+ clkb vdd vdd pmos W=120n L=60n
 
 .ends comp
       \end{lstlisting}
@@ -1379,8 +1379,8 @@ module comp (in+, in-, out+, out-, clk, clkb, vdd, vss);
     input clk, clkb;
     inout vdd, vss;
     wire tail;
-    nch_lvt M_preamp_diff+ (.d(out-), .g(in+), .s(tail));
-    nch_lvt M_preamp_diff- (.d(out+), .g(in-), .s(tail));
+    nmos M_preamp_diff+ (.d(out-), .g(in+), .s(tail));
+    nmos M_preamp_diff- (.d(out+), .g(in-), .s(tail));
     // ... (structural Verilog for LVS)
 endmodule
       \end{lstlisting}

@@ -43,7 +43,7 @@ def _generate_source(run_dir: Path) -> dict[str, Any]:
     from .subckt import CapDriver, CapDriverParams
 
     tsmc65 = import_module("pdk.tsmc65")
-    site = import_module("pdk.tsmc65.site")
+    site = import_module("pdk.tsmc65.hdl21.site")
     driver = CapDriver(CapDriverParams(n_stages=16))
     driver.name = "generated_driver"
     strengths = [instance.of.params.drive_band for instance in driver.instances.values()]
@@ -70,7 +70,7 @@ def _generate_source(run_dir: Path) -> dict[str, Any]:
         raise RuntimeError("HDL21 netlisting changed the layout's scalar port names or order")
     library_path = Path(site.install.include_stdcell().path).resolve()
     library = library_path.read_text(encoding="utf-8")
-    cells = ("CKXOR2D2LVT", "CKXOR2D4LVT")
+    cells = import_module("pdk.tsmc65.hdl21.stdcells").XOR_CELLS  # the library cells the driver uses
     selected = []
     for name in cells:
         start, end = _subcircuit_span(library, name)
@@ -137,7 +137,7 @@ def frida1(run_dir: Path, *, source_gds: Path | None = None) -> Path:
     summary = {"status": "failed", "errors": [], "drc": {"status": "not_run"}, "lvs": {"status": "not_run"}}
     try:
         manifest["source"] = _generate_source(run_dir)
-        options = import_module("pdk.tsmc65.signoff").SignoffOptions()
+        options = import_module("pdk.tsmc65.calibre.signoff").SignoffOptions()
         params = signoff.SignoffParams(
             technology="tsmc65",
             gds_path=gds,

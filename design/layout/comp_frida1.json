@@ -1,0 +1,56 @@
+{
+ "_comment": "FRIDA-1 comparator in standard-cell rows, top row first, each row left to right and mirrored about the centre. Netlist (per PDK): written by flow.comp.subckt (frida1, standard-cell output stage); the cross-coupled PMOS is split into halves for a cross-quad over two rows.",
+ "netlist": "../../build/layout/netlists/{pdk}/comp_frida1_stdcells.sp",
+ "split": {
+  "Mcross_init_p": 2,
+  "Mcross_init_n": 2
+ },
+ "escape": {
+  "up": [
+   "inp",
+   "inn"
+  ],
+  "down": [
+   "clk",
+   "clkb",
+   "outp",
+   "outn"
+  ]
+ },
+ "rows": [
+  [
+   "Mdiff_p",
+   "Mtail",
+   "Mdiff_n"
+  ],
+  [
+   "Mcross_on_p",
+   "Mcross_on_n"
+  ],
+  [
+   "Mcross_init_p_a",
+   "Mcross_init_n_a"
+  ],
+  [
+   "Mcross_init_n_b",
+   "Mcross_init_p_b"
+  ],
+  [
+   "Mrst_p",
+   "Minner_init_p",
+   "Mtail_reset",
+   "Minner_init_n",
+   "Mrst_n"
+  ],
+  [
+   "Xbuf2_outp",
+   "Xbuf1_outp",
+   "Xsr_p",
+   "Xdecision_n",
+   "Xdecision_p",
+   "Xsr_n",
+   "Xbuf1_outn",
+   "Xbuf2_outn"
+  ]
+ ]
+}

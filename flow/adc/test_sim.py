@@ -395,7 +395,7 @@ def captured_executor(monkeypatch):
     from flow.analysis import io
     from flow.circuit import results
     from pdk import tsmc65
-    from pdk.tsmc65 import site
+    from pdk.tsmc65.hdl21 import site
 
     captured = {}
     monkeypatch.setattr(h.pdk, "set_default", lambda *_: None)

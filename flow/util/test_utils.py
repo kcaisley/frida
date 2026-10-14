@@ -13,8 +13,8 @@ SIMPLE_CDL = textwrap.dedent("""\
 
     .SUBCKT myamp inp inn outp outn vdd vss
     *.PININFO inp:I inn:I outp:O outn:O vdd:B vss:B
-    MM0 outn inp vdd vdd pch_lvt l=60n w=1u m=1
-    MM1 outp inn vdd vdd pch_lvt l=60n w=1u m=1
+    MM0 outn inp vdd vdd pmos l=60n w=1u m=1
+    MM1 outp inn vdd vdd pmos l=60n w=1u m=1
     .ENDS myamp
 """)
 
@@ -33,18 +33,18 @@ CDL_WITH_CAPACITOR = textwrap.dedent("""\
 
 CDL_WITH_DNW = textwrap.dedent("""\
     .SUBCKT driver a z vdd vss
-    Xx0 a z vdd vss CKXOR2D2LVT_dnw
-    Xx1 a z vdd vss CKXOR2D4LVT_dnw
+    Xx0 a z vdd vss XOR2_D2_dnw
+    Xx1 a z vdd vss XOR2_D4_dnw
     .ENDS driver
 """)
 
 CDL_WITH_FILLERS = textwrap.dedent("""\
     .SUBCKT digital clk out vdd vss
 
-    Xlogic clk out vdd vss BUFFD2LVT
-    XFILLER_0_1 vdd vss DCAPLVT
-    XFILLER_0_2 vdd vss DCAP8LVT
-    XFILLER_0_3 vdd vss FILL1LVT
+    Xlogic clk out vdd vss buf_test
+    XFILLER_0_1 vdd vss decap_test1
+    XFILLER_0_2 vdd vss decap_test8
+    XFILLER_0_3 vdd vss FILL_X1
 
     .ENDS digital
 """)
@@ -121,8 +121,8 @@ def test_cdl_to_sp_replaces_dnw_cells(tmp_path):
     cdl_to_sp(tmp_path / "in.cdl", tmp_path / "out.sp")
     text = (tmp_path / "out.sp").read_text()
     assert "_dnw" not in text
-    assert "CKXOR2D2LVT" in text
-    assert "CKXOR2D4LVT" in text
+    assert "XOR2_D2" in text
+    assert "XOR2_D4" in text
 
 
 def test_cdl_to_sp_preserves_subckt_structure(tmp_path):
@@ -142,7 +142,7 @@ def test_clean_cdl_removes_fillers(tmp_path):
     clean_cdl(tmp_path / "in.cdl", tmp_path / "out.sp")
     text = (tmp_path / "out.sp").read_text()
     assert "XFILLER" not in text
-    assert "BUFFD2LVT" in text
+    assert "buf_test" in text
 
 
 def test_clean_cdl_cleans_hierarchy_separators(tmp_path):

@@ -66,6 +66,8 @@ flowchart TB
         offset_out --> common_mode
         comp_int["MeasComp with internal nets"]
         comp_int --> timing["analyze_comp_timing"] --> timing_out["AnalysisCompTiming"]
+        comp_int --> delay["analyze_comp_delay (+ timing)"] --> delay_out["AnalysisCompDelay"]
+        timing_out --> delay
         comp_int --> comp_power["analyze_comp_power"] --> comp_power_out["AnalysisCompPower"]
         comp_int --> candidate["analyze_comp_candidate (+ offset, timing, power)"] --> candidate_out["AnalysisCompCandidate"]
         cdac_ext["MeasCdac (one curve)"] --> transition["analyze_cdac_transition"] --> transition_out["AnalysisCdacTransition"]
@@ -75,6 +77,8 @@ flowchart TB
         offset_out --> offset_plots["plot_comp_offset_noise / plot_comp_sampling_campaign"]
         common_mode_out --> common_mode_plot["plot_comp_common_mode_campaign"]
         timing_out --> timing_plot["plot_comp_timing"]
+        delay_out --> topology_plot["plot_comp_topology_study (lists, + common modes)"]
+        common_mode_out --> topology_plot
         comp_power_out --> comp_power_plot["plot_comp_power"]
         candidate_out --> candidates_plot["plot_comp_candidate_sweep / plot_comp_noise_power_tradeoff (lists)"]
         mismatch_out --> mismatch_plot["plot_cdac_cap_mismatch / plot_cdac_cap_mismatch_comparison (list)"]

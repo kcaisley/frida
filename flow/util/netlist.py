@@ -208,11 +208,9 @@ def oa_to_cdl(lib: str, cell: str, outdir: Path, cdslib: Path | None = None) -> 
 
 # CDL → SP  (syntax conversion for ngspice compatibility)
 
-# Deep-nwell cell variants → standard library equivalents
-_DNW_REPLACEMENTS = {
-    "CKXOR2D4LVT_dnw": "CKXOR2D4LVT",
-    "CKXOR2D2LVT_dnw": "CKXOR2D2LVT",
-}
+# Deep-nwell cell variants (a library cell's name + "_dnw", instantiated: the line's last token)
+# -> the standard library cell
+_DNW_VARIANT = re.compile(r"(\S+)_dnw[ \t]*$", re.MULTILINE)
 
 
 def cdl_to_sp(inpath: Path, outpath: Path) -> Path:
@@ -237,8 +235,7 @@ def cdl_to_sp(inpath: Path, outpath: Path) -> Path:
 
     text = "\n".join(lines)
 
-    for old, new in _DNW_REPLACEMENTS.items():
-        text = text.replace(old, new)
+    text = _DNW_VARIANT.sub(r"\1", text)
 
     outpath.parent.mkdir(parents=True, exist_ok=True)
     outpath.write_text(text)
@@ -299,8 +296,7 @@ def clean_cdl(inpath: Path, outpath: Path, verilog: Path | None = None, module: 
     text = "\n".join(processed)
     text = re.sub(r"__+", "_", text)
 
-    for old, new in _DNW_REPLACEMENTS.items():
-        text = text.replace(old, new)
+    text = _DNW_VARIANT.sub(r"\1", text)
 
     # Optionally reorder ports to match Verilog
     if verilog and module:

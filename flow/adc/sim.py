@@ -393,7 +393,7 @@ def _run_adc_sim(
         raise ValueError(f"Invalid ADC testbench params: {params}")
 
     from pdk import tsmc65
-    from pdk.tsmc65 import site
+    from pdk.tsmc65.hdl21 import site
 
     # Fixed budgets paired with the target pools: four x six or three x eight.
     spectre_threads = 6 if params.view == "frida1" else 8
@@ -418,7 +418,7 @@ def _run_adc_sim(
     if pex_netlist is not None:
         if not pex_netlist.is_file() or not pex_netlist.stat().st_size:
             raise FileNotFoundError(pex_netlist)
-        from pdk.tsmc65.ringfmom import validate_extracted_netlist
+        from pdk.tsmc65.calibre.ringfmom import validate_extracted_netlist
 
         validate_extracted_netlist(pex_netlist.read_text())
         if params.pex_cell == "adc_12b_17step":
@@ -688,7 +688,7 @@ def frida1_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
 
     from flow.analysis.io import write_measurement
     from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
-    from pdk.tsmc65 import site
+    from pdk.tsmc65.hdl21 import site
 
     with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
         futures = []
@@ -744,7 +744,7 @@ def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
 
     from flow.analysis.io import write_measurement
     from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
-    from pdk.tsmc65 import site
+    from pdk.tsmc65.hdl21 import site
 
     params = AdcTbParams(
         view="frida1",
@@ -775,7 +775,7 @@ def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
 
     from flow.analysis.io import write_measurement
     from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
-    from pdk.tsmc65 import site
+    from pdk.tsmc65.hdl21 import site
 
     noise_rms_v = 1e-3
     with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:

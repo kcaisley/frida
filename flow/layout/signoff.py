@@ -40,10 +40,10 @@ class SignoffResult:
 def _provider(technology: str) -> Any:
     if not technology or not technology.replace("_", "").isalnum():
         raise ValueError(f"invalid technology name {technology!r}")
-    provider = import_module(f"pdk.{technology}.signoff")
+    provider = import_module(f"pdk.{technology}.calibre.signoff")
     for function in ("run_drc", "run_lvs", "run_pex"):
         if not callable(getattr(provider, function, None)):
-            raise TypeError(f"pdk.{technology}.signoff does not implement {function}()")
+            raise TypeError(f"pdk.{technology}.calibre.signoff does not implement {function}()")
     return provider
 
 

@@ -58,6 +58,7 @@ from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_transitio
 from flow.analysis.comp import (
     analyze_comp_candidate,
     analyze_comp_common_mode,
+    analyze_comp_delay,
     analyze_comp_offset_noise,
     analyze_comp_power,
     analyze_comp_timing,
@@ -91,6 +92,7 @@ from flow.analysis.plots import (
     plot_comp_noise_power_tradeoff,
     plot_comp_offset_noise,
     plot_comp_sampling_campaign,
+    plot_comp_topology_study,
     plot_waveforms,
     style_measurement_text,
 )
@@ -1099,7 +1101,9 @@ def comp_system_sampling_noise_study(output_dir: Path) -> tuple[Path, ...]:
 def comp_candidate_sweep_study(output_dir: Path) -> tuple[Path, ...]:
     """Analyze the complete generated-comparator noise/power/timing campaign."""
 
-    meas_read_dir = BASE_PATH / "build/comp/frida65_candidate_scurve_power/candidates"
+    # the August campaign with its waveforms renamed to today's CompNets (clock, comp_p/comp_n,
+    # vin_*, vout_* -> clk, latch_p/latch_n, inp/inn, outp/outn); nothing else changed
+    meas_read_dir = BASE_PATH / "build/comp/frida65_candidate_scurve_power_netnames/candidates"
     measurements = []
     candidates = []
     for path in sorted(meas_read_dir.glob("*/result.h5")):
@@ -1121,12 +1125,50 @@ def comp_candidate_sweep_study(output_dir: Path) -> tuple[Path, ...]:
         *plot_comp_candidate_sweep(
             measurements,
             candidates,
+            highlights={"c040_half_b6b25f4b": "Example double tail"},
             output_path=output_dir / "comp_candidate_noise_power_settling",
         ),
         *plot_comp_noise_power_tradeoff(
             candidates,
+            highlights={"c040_half_b6b25f4b": "Example double tail"},
             output_path=output_dir / "comp_candidate_noise_power_tradeoff",
         ),
+    )
+
+
+def comp_topology_study(output_dir: Path) -> tuple[Path, ...]:
+    """Analyze and plot delay and noise of the six simulated comparator topologies."""
+
+    meas_read_dir = BASE_PATH / "build/sim/comp/hdl21_comp_topology_study/20261013_103009"
+    topologies = (
+        ("double_tail_self_timed", "Double tail self-timed"),
+        ("double_tail", "Double tail"),
+        ("double_tail_modified_self_timed", "Double tail modified self-timed"),
+        ("double_tail_modified", "Double tail modified"),
+        ("triple_tail", "Triple tail"),
+        ("strongarm", "StrongARM"),
+    )
+    delays = []
+    common_modes = []
+    for name, _label in topologies:
+        measurements = []
+        for path in (
+            meas_read_dir / "delay" / name / "result.h5",
+            *sorted(meas_read_dir.glob(f"noise/{name}_cm*/result.h5")),
+        ):
+            measurement = read_measurement(path)
+            if not isinstance(measurement, MeasComp):
+                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasComp")
+            measurements.append(measurement)
+        delay_measurements, scurves = measurements[:1], measurements[1:]
+        delays.append(analyze_comp_delay(delay_measurements, timing=analyze_comp_timing(delay_measurements)))
+        offsets = [analyze_comp_offset_noise([scurve]) for scurve in scurves]
+        common_modes.append(analyze_comp_common_mode(scurves, offsets=offsets))
+    return plot_comp_topology_study(
+        delays,
+        common_modes,
+        labels=[label for _name, label in topologies],
+        output_path=output_dir / "comp_topology_study",
     )
 
 
@@ -1253,6 +1295,7 @@ def main() -> None:
             comp_system_common_mode_study,
             comp_system_sampling_noise_study,
             comp_candidate_sweep_study,
+            comp_topology_study,
             cdac_system_cap_mismatch_study,
         )
     }

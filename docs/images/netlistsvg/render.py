@@ -1,4 +1,4 @@
-"""Regenerate six diagrams from Verilog using the custom netlistsvg skins.
+"""Regenerate the six documentation diagrams from Verilog (flow/util/hdl2image.py).
 
 From the repository root:
     python3 docs/images/netlistsvg/render.py
@@ -8,17 +8,17 @@ From the repository root:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import subprocess
+import sys
 from pathlib import Path
-
-from postprocess import postprocess
-from prepare_digital_json import orient_inout_ports
-from verilog_schematic import verilog_to_analog_svg
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
+sys.path.insert(0, str(ROOT))  # run with plain python3 from the repository root
+
+from flow.util.hdl2image import ANALOG_SKIN, tcl_to_digital_svg, verilog_to_analog_svg
+
 DIAGRAMS = ("preamp", "adc_digital", "adc_top", "daq_core", "frida_core_1adc", "spi_diagram")
 ENV = os.environ.copy()
 ENV["FONTCONFIG_FILE"] = str(HERE / "fonts.conf")
@@ -33,18 +33,9 @@ def render(name: str) -> None:
     svg = HERE / (stem + ".svg")
     netlist = svg.with_suffix(".json")
     if name == "preamp":
-        verilog_to_analog_svg(HERE / "preamp_netlistsvg.v", svg, "preamp_netlistsvg", HERE / "circuitikz_analog.svg")
+        verilog_to_analog_svg(HERE / "preamp_netlistsvg.v", svg, "preamp_netlistsvg", ANALOG_SKIN)
     else:
-        run("yosys", "-Q", "-q", "-c", str(HERE / (name + ".tcl")))
-        # netlistsvg needs input/output directions and readable parameterized cell names.
-        data = orient_inout_ports(json.loads(netlist.read_text()))
-        for module in data["modules"].values():
-            for cell in module.get("cells", {}).values():
-                if cell["type"].startswith("$paramod") and "\\" in cell["type"]:
-                    cell["type"] = cell["type"].split("\\")[-1]
-        netlist.write_text(json.dumps(data, indent=2) + "\n")
-        run("npx", "--yes", "netlistsvg@1.0.2", str(netlist), "--skin", str(HERE / "style.svg"), "-o", str(svg))
-        postprocess(svg, netlist)
+        tcl_to_digital_svg(HERE / (name + ".tcl"), netlist, svg)
     pdf = svg.with_suffix(".pdf")
     run("rsvg-convert", "-f", "pdf", "-o", str(pdf), str(svg))
     run("pdftocairo", "-png", "-singlefile", "-r", "160", str(pdf), str(svg.with_suffix("")))
