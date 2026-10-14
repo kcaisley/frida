@@ -1,5 +1,5 @@
 {
-  "creator": "Yosys 0.63 (git sha1 70a11c6bf, g++ 11.5.0 -fPIC -O3)",
+  "creator": "Yosys 0.63 (git sha1 70a11c6bf, g++ 13.3.0-6ubuntu2~24.04.1 -fPIC -O3)",
   "modules": {
     "daq_core": {
       "attributes": {

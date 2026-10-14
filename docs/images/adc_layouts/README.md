@@ -15,4 +15,4 @@ Regenerate all four from the FRIDA repository root:
 klayout -b -r docs/images/adc_layouts/render.py
 ```
 
-This document uses a catalogue palette and transparent, per-layer compositing of a selected archived cell. The shared `flow/layout/image.py` renderer uses the PDK `.lyp` presentation for layout-review collateral and renders an opaque view. Keep this document-specific compositing here so regenerating these illustrations does not change the established layout-review images. Subprocess calls remain visible in the render procedure; the geometry helpers are pure calculations.
+This document uses a catalogue palette and transparent, per-layer compositing of a selected archived cell. The shared `flow/util/gds2image.py` renderer uses the PDK `.lyp` presentation for layout-review collateral and renders an opaque view. Keep this document-specific compositing here so regenerating these illustrations does not change the established layout-review images. Subprocess calls remain visible in the render procedure; the geometry helpers are pure calculations.

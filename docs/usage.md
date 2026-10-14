@@ -5,7 +5,6 @@ ADC capacitor stages, comparator decisions, and output codes follow the [project
 FRIDA commands run through the Python module that owns the operation:
 
 ```text
-python -m flow.<block>.primitive
 python -m flow.<block>.sim
 python -m flow.util.netlist
 python -m flow.scans.<scan>
@@ -20,15 +19,7 @@ uv run python -m flow.comp.sim
 
 Digital lint, simulation, synthesis, and implementation use their stock tools directly.
 
-## Layout primitives
-
-The MOSFET primitive generator is a directly executable module:
-
-```bash
-uv run python -m flow.mosfet.primitive \
-  [-t <tech>] [-m <mode>] [-v] [-o <dir>]
-
-```
+## Layouts
 
 Capacitor layouts are generated only as arrays; the standalone unit-capacitor layout exporter has been removed. The process-independent capacitor-array block is `flow.caparray` (formerly `flow.cdac`). `CapArrayConfig` holds electrical sizing; `CapArray(CapArrayParams(...))` generates the passive main/diff network, and `CapArrayLayout(CapArrayLayoutParams(...))` generates its layout. The separate `flow.capdriver.CapDriver` generates generic standard-cell XOR drivers and requires PDK compilation. `DrivenCapArray(CapArrayConfig(...))` retains the simplified integrated simulation wrapper, with inversion tied low. Existing `cdac` parameter fields and CDAC measurement names remain unchanged; the HDF5 reader migrates saved parameter type names from the old module.
 
@@ -60,17 +51,6 @@ A target always generates and runs the complete signoff sequence. The DRC stage 
 For FRIDA-1, the run-local layout copy adds only PDK-local non-mask MOM recognition shapes; the archived source and GDS are never modified. The normal LVS source contains the intended per-layer capacitor network. Thus the old one-layer layout must report `CORRECT`, while the known disconnected upper layer in an old two-layer layout must report the expected connectivity warning. The separate conductive PEX source omits the electrically empty CDAC wrappers so xACT extracts the fabricated connectivity.
 
 The FRIDA-2 targets regenerate their CDAC GDS and ideal per-chunk MOM source network from the target's `CapArrayConfig` and PDK rules, then perform strict block substitution in `build/frida-2-template.gds`. The assembler requires identical database units, boundaries, pin names, pin positions, and pin shapes. It never edits, moves, or reroutes layout; any required template adjustment is made manually in KLayout. The M5-M7 caparray itself contains no M3 and uses M4 as a partitioned shared layer: 100 nm plate routes occupy the two edge corridors while the shield remains beneath the central capacitor body.
-
-| Option | Values | Default |
-|---|---|---|
-| `-t, --tech` | `ihp130`, `tsmc65`, `tsmc28`, `tower180` | `ihp130` |
-| `-m, --mode` | `min`, `max` | `min` |
-| `-v, --visual` | render the generated GDS | off |
-| `-o, --out` | output directory | `build` |
-
-```bash
-uv run python -m flow.mosfet.primitive -t ihp130 -m max -v
-```
 
 ## Circuit simulation targets
 
@@ -166,7 +146,7 @@ The simulator is a system dependency, not a Python package. For Ubuntu:
 sudo apt install iverilog
 ```
 
-Verible, Verilator, Yosys, and OpenROAD can likewise be run directly for linting, synthesis, and physical implementation. The OpenROAD configuration is under `design/`; see [`openroad.md`](openroad.md) for project-specific notes.
+Verible, Verilator, Yosys, and OpenROAD can likewise be run directly for linting, synthesis, and physical implementation. Each PDK's OpenROAD setup is in `pdk/<pdk>/openroad/`; the TSMC65 flow notes are in the private `pdk/tsmc65/docs/openroad.md`.
 
 ## ADC scans
 

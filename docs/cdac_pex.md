@@ -42,7 +42,7 @@ The `frida1_sequence` and `frida2_sequence` family runners launch independent fl
 
 ## Shared HDL21 source (2026-09-05)
 
-`flow.caparray.subckt.CapArray` now generates both the ideal and LVS capacitor arrays. Both views have the same physical chunk/layer instances and the same ordered 34-port interface: topplate, shield, main C0..C15, diff C0..C15. The handwritten CDAC and ADC LVS circuit builders have been removed. Only the leaf view changes: `flow.caparray.unit.MomCap` contains an ideal capacitor with an unused shield terminal; `pdk.tsmc65.signoff.mom_lvs_device` supplies the three-terminal recognition model for Calibre.
+`flow.caparray.subckt.CapArray` now generates both the ideal and LVS capacitor arrays. Both views have the same physical chunk/layer instances and the same ordered 34-port interface: topplate, shield, main C0..C15, diff C0..C15. The handwritten CDAC and ADC LVS circuit builders have been removed. Only the leaf view changes: `flow.caparray.unit.MomCap` contains an ideal capacitor with an unused shield terminal; `pdk.tsmc65.calibre.signoff.mom_lvs_device` supplies the three-terminal recognition model for Calibre.
 
 `CapArrayConfig.unit_cap` retains its meaning as the complete stack's logical unit capacitance. Its ideal value is divided equally over the selected layers, preserving the requested main/diff/effective totals. This is an ideal model convention, not a claim of equal physical layer contributions. LVS checks connectivity; the current recognition deck does not compare numerical capacitance. PEX remains the source of actual capacitance and shunt loading.
 
@@ -58,7 +58,7 @@ M4 landings are 0.100 x 0.520 um on 0.400 um unit pitch. Multiunit groups use fu
 
 The three-layer profile uses M4 for both routing and the lower shield, with M5-M7 active. Its shield spans Y=3.22..49.70. Sixteen 0.100 um horizontal bridges extend to X=18.40 as VSS abutment tabs. Their pitch is 3.00 um within each half and 4.38 um between the central pair. The existing 0.380 um bent M6 topplate output is preserved. There is no M3, M8 or M9 geometry.
 
-All three standalone profiles pass `gdscheck`, Calibre DRC with the existing block-level exclusions (`PO.DN.2`, `DRM.R.1`, `MOM.R.1`), raw LVS `CORRECT`, and the XRC-aware LVS used for xACT extraction. Fresh capacitances per array side are:
+All three standalone profiles pass `gdscheck`, Calibre DRC with the existing block-level exclusions (`BLOCK_WAIVERS` in `pdk.tsmc65.calibre.signoff`), raw LVS `CORRECT`, and the XRC-aware LVS used for xACT extraction. Fresh capacitances per array side are:
 
 | Active stack | Main (fF) | Diff (fF) | Main + diff (fF) | Effective (fF) | Top-shield (fF) |
 |---|---:|---:|---:|---:|---:|
