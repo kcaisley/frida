@@ -46,8 +46,16 @@ def scan(
     run_dir: Path,
     position: Literal["first", "middle", "last", "only", "abort"],
     scope_trigger_signal: Literal["seq_comp", "seq_init"] = "seq_comp",
+    capture_scope: bool = True,
+    amp_enable: bool = True,
 ) -> Path:
-    """Acquire one fixed-input point and compare a retained conversion to scope."""
+    """Acquire one fixed-input point and compare a retained conversion to scope.
+
+    With ``capture_scope=False`` the scope is not opened: the measurement is
+    saved without a waveform and without the scope/FastRX bit comparison.
+    ``amp_enable=False`` keeps the THS4541 input amplifier powered down
+    during the capture, for inputs that bypass it.
+    """
 
     SI570_SETTLE_S = 0.02
     FASTRX_CAPTURE_TIMEOUT_S = 5.0
@@ -129,38 +137,39 @@ def scan(
         daq = daq_dut
 
         if position != "abort":
-            # Manual-input hookup: INIT marker on CH1, comparator output and clocks on CH2-4.
-            scope_conns = ScopeConns(ch1="seq_init", ch2="comp_out", ch3="seq_comp", ch4="seq_logic")
-            scope_dut = Dut(str(map_path.with_name("map_scope.yaml")))
-            scope_dut.init()
-            scope = scope_dut["scope"]
-            scope.set_acquire_state("STOP")
-            scope.set_acquire_mode("SAMPLE")
-            scope.set_acquire_stop_after("SEQUENCE")
-            scope.set_horizontal_record_length(10_000)
-            for channel in scope_conns.channels.values():
-                scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
-                scope.set_coupling("DC", channel=channel)
-                scope.set_vertical_scale(0.2, channel=channel)
-                scope.set_vertical_position(0.0, channel=channel)
-                scope.set_vertical_offset(0.0, channel=channel)
-                scope.set_bandwidth(2.0e9, channel=channel)
-            # COMP is quiet in the idle RAM word. For CH1 timing captures,
-            # arm on COMP and trigger on the next INIT to avoid idle INIT chatter.
-            scope._intf.write("TRIGger:B:STATE OFF")
-            scope.set_trigger_type("EDGE")
-            scope.set_trigger_source(channel=scope_conns.channels["seq_comp"])
-            scope.set_trigger_edge_slope("RISE")
-            scope.set_trigger_level(0.0, channel=scope_conns.channels["seq_comp"])
-            scope.set_trigger_mode("NORMAL")
-            if scope_trigger_signal == "seq_init":
-                scope._intf.write("TRIGger:B:BY EVENTS")
-                scope._intf.write("TRIGger:B:EVENTS:COUNt 1")
-                scope._intf.write(f"TRIGger:B:EDGE:SOUrce CH{scope_conns.channels['seq_init']}")
-                scope._intf.write("TRIGger:B:EDGE:SLOpe RISE")
-                scope._intf.write("TRIGger:B:EDGE:COUPling DC")
-                scope._intf.write(f"TRIGger:B:LEVel:CH{scope_conns.channels['seq_init']} 0")
-                scope._intf.write("TRIGger:B:STATE ON")
+            if capture_scope:
+                # Manual-input hookup: INIT marker on CH1, comparator output and clocks on CH2-4.
+                scope_conns = ScopeConns(ch1="seq_init", ch2="comp_out", ch3="seq_comp", ch4="seq_logic")
+                scope_dut = Dut(str(map_path.with_name("map_scope.yaml")))
+                scope_dut.init()
+                scope = scope_dut["scope"]
+                scope.set_acquire_state("STOP")
+                scope.set_acquire_mode("SAMPLE")
+                scope.set_acquire_stop_after("SEQUENCE")
+                scope.set_horizontal_record_length(10_000)
+                for channel in scope_conns.channels.values():
+                    scope._intf.write(f"DISplay:GLObal:CH{channel}:STATE ON")
+                    scope.set_coupling("DC", channel=channel)
+                    scope.set_vertical_scale(0.2, channel=channel)
+                    scope.set_vertical_position(0.0, channel=channel)
+                    scope.set_vertical_offset(0.0, channel=channel)
+                    scope.set_bandwidth(2.0e9, channel=channel)
+                # COMP is quiet in the idle RAM word. For CH1 timing captures,
+                # arm on COMP and trigger on the next INIT to avoid idle INIT chatter.
+                scope._intf.write("TRIGger:B:STATE OFF")
+                scope.set_trigger_type("EDGE")
+                scope.set_trigger_source(channel=scope_conns.channels["seq_comp"])
+                scope.set_trigger_edge_slope("RISE")
+                scope.set_trigger_level(0.0, channel=scope_conns.channels["seq_comp"])
+                scope.set_trigger_mode("NORMAL")
+                if scope_trigger_signal == "seq_init":
+                    scope._intf.write("TRIGger:B:BY EVENTS")
+                    scope._intf.write("TRIGger:B:EVENTS:COUNt 1")
+                    scope._intf.write(f"TRIGger:B:EDGE:SOUrce CH{scope_conns.channels['seq_init']}")
+                    scope._intf.write("TRIGger:B:EDGE:SLOpe RISE")
+                    scope._intf.write("TRIGger:B:EDGE:COUPling DC")
+                    scope._intf.write(f"TRIGger:B:LEVel:CH{scope_conns.channels['seq_init']} 0")
+                    scope._intf.write("TRIGger:B:STATE ON")
             variant_index = len(tuple(run_dir.glob("*.h5")))
             try:
                 print(
@@ -171,7 +180,7 @@ def scan(
                 # Put every GPIO0 debug path in a known physical-capture state
                 # before releasing the chip reset.
                 daq["gpio0"]["RST_B"] = 0
-                daq["gpio0"]["AMP_EN"] = 1
+                daq["gpio0"]["AMP_EN"] = int(amp_enable)
                 daq["gpio0"]["RX_LOOPBACK"] = 0
                 daq["gpio0"]["SPI_LOOPBACK"] = 0
                 daq["gpio0"]["DBG_FIFO"] = 0
@@ -260,10 +269,12 @@ def scan(
 
                 # Arm before FPGA start; include startup and crop to DAQ conversion zero.
                 conversion_period_s = len(params.seq_init_pattern) / symbol_rate_bps
-                scope.set_horizontal_scale(3 * conversion_period_s / 8.0)
-                scope._intf.write("HORizontal:POSition 10")
-                scope.set_acquire_state("RUN")
-                acquisition_count_before = wait_for_scope_armed(scope, timeout_s=5.0)
+                acquisition_count_before = 0
+                if scope is not None:
+                    scope.set_horizontal_scale(3 * conversion_period_s / 8.0)
+                    scope._intf.write("HORizontal:POSition 10")
+                    scope.set_acquire_state("RUN")
+                    acquisition_count_before = wait_for_scope_armed(scope, timeout_s=5.0)
 
                 deadline = monotonic() + capture_timeout_s
                 daq["fastrx0"].set_en(True)
@@ -287,16 +298,20 @@ def scan(
                 raw_data = daq["fifo0"].get_data()
                 if len(raw_data) < expected_frames:
                     raise RuntimeError(f"expected at least {expected_frames} FastRX words, received {len(raw_data)}")
-                wait_for_scope_capture(scope, acquisition_count_before, timeout_s=5.0)
-                scope_waveforms = scope.get_waveforms({channel: name for name, channel in scope_conns.channels.items()})
                 scope_conversion_index = int(scope_trigger_signal == "seq_init")
-                scope_wave = crop_adc_scope_conversion(
-                    scope_records_to_adc_wave([scope_waveforms], [scope_conversion_index], scope_conns),
-                    skip_conversions=startup_conversions,
-                    conversion_period_s=conversion_period_s,
-                    symbol_period_s=1 / symbol_rate_bps,
-                    reference_signal=scope_trigger_signal,
-                )
+                scope_wave = None
+                if scope is not None:
+                    wait_for_scope_capture(scope, acquisition_count_before, timeout_s=5.0)
+                    scope_waveforms = scope.get_waveforms(
+                        {channel: name for name, channel in scope_conns.channels.items()}
+                    )
+                    scope_wave = crop_adc_scope_conversion(
+                        scope_records_to_adc_wave([scope_waveforms], [scope_conversion_index], scope_conns),
+                        skip_conversions=startup_conversions,
+                        conversion_period_s=conversion_period_s,
+                        symbol_period_s=1 / symbol_rate_bps,
+                        reference_signal=scope_trigger_signal,
+                    )
                 fastrx_lost_count = int(daq["fastrx0"].get_lost_count())
                 if fastrx_lost_count:
                     raise RuntimeError(f"FastRX lost {fastrx_lost_count} words during the continuous acquisition")
@@ -345,7 +360,8 @@ def scan(
                     info=MeasInfo(
                         backend="physical",
                         timestamp_utc=datetime.now().astimezone(),
-                        instruments={"controller": hostname, "scope": str(scope.get_name()).strip()},
+                        instruments={"controller": hostname}
+                        | ({"scope": str(scope.get_name()).strip()} if scope is not None else {}),
                         readbacks={
                             "actual_sample_rate_hz": symbol_rate_bps / len(params.seq_init_pattern),
                             "repetition_rate_hz": symbol_rate_bps / len(params.seq_init_pattern),
@@ -371,16 +387,22 @@ def scan(
                             "fastrx_lost_count": fastrx_lost_count,
                             "controller_hostname": hostname,
                             "peripheral_control": "manual",
-                            "scope_waveform_captured": True,
-                            "scope_startup_conversions_skipped": scope_conversion_index,
-                            "scope_comp_out_delay_s": board["scope_comp_out_delay_s"],
-                            "scope_trigger_signal": scope_trigger_signal,
-                            "scope_trigger_edge": "rise",
-                            "scope_record_length_requested": 10_000,
+                            "scope_waveform_captured": capture_scope,
                             "stimulus_kind": "dc",
                             "stimulus_vin_diff_v": float(params.vin_diff.dc),
                             "stimulus_control": "manual",
-                        },
+                        }
+                        | (
+                            {
+                                "scope_startup_conversions_skipped": scope_conversion_index,
+                                "scope_comp_out_delay_s": board["scope_comp_out_delay_s"],
+                                "scope_trigger_signal": scope_trigger_signal,
+                                "scope_trigger_edge": "rise",
+                                "scope_record_length_requested": 10_000,
+                            }
+                            if capture_scope
+                            else {}
+                        ),
                     ),
                     param=scan_params,
                     conversion_index=conversion_index_values,
@@ -391,25 +413,30 @@ def scan(
                     fastrx_word=fastrx_words,
                     wave=scope_wave,
                 )
-                try:
-                    comparison = analyze_adc_scope_bits(measurement)
-                    scope_readbacks = {
-                        "scope_fastrx_comparison_valid": True,
-                        "scope_fastrx_bit_mismatches": comparison.mismatch_count,
-                    }
-                except ValueError as error:
-                    # Preserve failed/stuck timing cases rather than silently treating
-                    # an undecodable scope record as a zero-mismatch comparison.
-                    scope_readbacks = {
-                        "scope_fastrx_comparison_valid": False,
-                        "scope_fastrx_comparison_error": str(error),
-                    }
+                scope_readbacks = {}
+                if capture_scope:
+                    try:
+                        comparison = analyze_adc_scope_bits(measurement)
+                        scope_readbacks = {
+                            "scope_fastrx_comparison_valid": True,
+                            "scope_fastrx_bit_mismatches": comparison.mismatch_count,
+                        }
+                    except ValueError as error:
+                        # Preserve failed/stuck timing cases rather than silently treating
+                        # an undecodable scope record as a zero-mismatch comparison.
+                        scope_readbacks = {
+                            "scope_fastrx_comparison_valid": False,
+                            "scope_fastrx_comparison_error": str(error),
+                        }
                 measurement = replace(
                     measurement,
                     info=replace(measurement.info, readbacks=measurement.info.readbacks | scope_readbacks),
                 )
                 write_measurement(h5_path, measurement)
-                print(f"Saved {params.conversions} conversions and one scope record to {h5_path}")
+                print(
+                    f"Saved {params.conversions} conversions"
+                    f"{' and one scope record' if capture_scope else ''} to {h5_path}"
+                )
             except Exception:
                 print(f"Variant {variant_index + 1} failed; shutting down the FPGA")
                 raise

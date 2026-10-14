@@ -6,6 +6,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field, fields
 from datetime import datetime
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -303,7 +304,7 @@ class MeasCdac(Meas):
             from flow.scans.params import load_board_map
 
             board_map = load_board_map()
-            flavor = board_map["boards"][self.group]["adc_channels"][self.index]
+            flavor = board_map["adc_channels"][self.index]
             topplate_parasitic_weight = float(
                 board_map["adc_flavors"][flavor].get("cdac_topplate_parasitic_weight", 0.0)
             )
@@ -380,6 +381,50 @@ class AnalysisScope(Analysis):
             name: calc.rmsNoise(density, self.spectrum_frequency_hz)
             for name, density in self.spectrum_v_per_sqrt_hz.items()
         }
+
+    @property
+    def decade_edges_hz(self) -> np.ndarray:
+        """Return the band edges of the decade split, from the first bin to the acquisition bandwidth.
+
+        Inner edges are powers of ten; the outer edges are the lowest
+        nonzero frequency and the bandwidth, so the end bands may be partial.
+        """
+
+        lowest_hz = float(self.spectrum_frequency_hz[1])
+        highest_hz = min(self.bandwidth_hz, float(self.spectrum_frequency_hz[-1]))
+        inner = 10.0 ** np.arange(np.floor(np.log10(lowest_hz)) + 1.0, np.ceil(np.log10(highest_hz)))
+        return np.concatenate(([lowest_hz], inner[(inner > lowest_hz) & (inner < highest_hz)], [highest_hz]))
+
+    @property
+    def decade_rms_v(self) -> dict[str, np.ndarray]:
+        """Return each trace's RMS within every band of ``decade_edges_hz``.
+
+        The bands add in quadrature to the RMS over the acquisition bandwidth.
+        """
+
+        edges = self.decade_edges_hz
+        frequency = self.spectrum_frequency_hz
+        return {
+            name: np.asarray(
+                [
+                    calc.rmsNoise(
+                        np.interp(band, frequency, density),
+                        band,
+                    )
+                    for band in (
+                        np.concatenate(([low], frequency[(frequency > low) & (frequency < high)], [high]))
+                        for low, high in pairwise(edges)
+                    )
+                ]
+            )
+            for name, density in self.spectrum_v_per_sqrt_hz.items()
+        }
+
+    @property
+    def band_rms_v(self) -> dict[str, float]:
+        """Return each trace's total RMS from its lowest bin to the acquisition bandwidth."""
+
+        return {name: float(np.sqrt(np.sum(np.square(rms_v)))) for name, rms_v in self.decade_rms_v.items()}
 
 
 # ADC analyses
@@ -748,6 +793,116 @@ class AnalysisAdcNoise(Analysis):
             return math.nan
         full_scale_rms_lsb = self.code_max / (2.0 * math.sqrt(2.0))
         return (20.0 * math.log10(full_scale_rms_lsb / self.std_dout) - 1.76) / 6.02
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisAdcCodeSpectrum(Analysis):
+    """Noise spectrum of one fixed-input capture's output codes, sampled at the conversion rate.
+
+    ``psd_lsb2_per_hz`` is the one-sided Welch density of the codes about
+    ``mean_dout``. ``white_floor_lsb2_per_hz`` is its median above DC, a robust
+    estimate of the broadband level that narrow interference lines do not
+    move. ``line_mask`` marks the bins that stand clearly above that floor.
+    The variance splits into the narrowband excess above the floor in those
+    bins and the broadband remainder: total² = narrowband² + broadband².
+    ``narrowband_dout`` is the capture's code sequence with only the line
+    frequencies kept, the interference as it appears in the codes.
+    ``input_lsb_v`` refers the spectrum to the ADC input, so it compares
+    directly with probe spectra in V/√Hz.
+    """
+
+    sequence: AdcSequence
+    symbol_rate_hz: float
+    sample_rate_hz: float
+    input_lsb_v: float
+    mean_dout: float
+    frequency_hz: np.ndarray
+    psd_lsb2_per_hz: np.ndarray
+    white_floor_lsb2_per_hz: float
+    line_mask: np.ndarray
+    narrowband_dout: np.ndarray
+
+    @property
+    def asd_lsb_per_sqrt_hz(self) -> np.ndarray:
+        return np.sqrt(self.psd_lsb2_per_hz)
+
+    @property
+    def asd_v_per_sqrt_hz(self) -> np.ndarray:
+        """Return the code spectrum referred to the ADC input through the nominal LSB."""
+
+        return self.asd_lsb_per_sqrt_hz * self.input_lsb_v
+
+    @property
+    def spectrum_valid(self) -> bool:
+        """A stuck capture repeats one code and has no measurable floor."""
+
+        return self.white_floor_lsb2_per_hz > 0.0
+
+    @property
+    def bin_hz(self) -> float:
+        return float(self.frequency_hz[1] - self.frequency_hz[0])
+
+    @property
+    def cumulative_rms_lsb(self) -> np.ndarray:
+        """Return the RMS code noise integrated from DC up to each frequency."""
+
+        return np.sqrt(np.cumsum(self.psd_lsb2_per_hz) * self.bin_hz)
+
+    @property
+    def total_rms_lsb(self) -> float:
+        return float(self.cumulative_rms_lsb[-1])
+
+    @property
+    def narrowband_rms_lsb(self) -> float:
+        excess = np.clip(self.psd_lsb2_per_hz - self.white_floor_lsb2_per_hz, 0.0, None)
+        return math.sqrt(float(np.sum(excess[self.line_mask])) * self.bin_hz)
+
+    @property
+    def broadband_rms_lsb(self) -> float:
+        return math.sqrt(max(self.total_rms_lsb**2 - self.narrowband_rms_lsb**2, 0.0))
+
+    @property
+    def peak_frequency_hz(self) -> float:
+        """Return the frequency of the strongest bin above DC."""
+
+        return float(self.frequency_hz[1:][np.argmax(self.psd_lsb2_per_hz[1:])])
+
+    @property
+    def peak_to_floor(self) -> float:
+        if not self.spectrum_valid:
+            return math.nan
+        return float(np.max(self.psd_lsb2_per_hz[1:]) / self.white_floor_lsb2_per_hz)
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisAdcInterferer(Analysis):
+    """True frequency of one periodic interferer seen in one ADC's codes at several rates.
+
+    Each conversion rate folds the interferer to a different apparent
+    frequency. ``score_db`` rates every candidate true frequency by how far the
+    code spectra stand above their floors at that candidate's aliases: per
+    rate, the mean over its captures; then summed over rates. Candidates span
+    zero to half the rates' common period in frequency, beyond which the
+    aliases repeat or mirror. ``observed_peak_hz`` is the median strongest
+    line per rate. Stuck captures without a floor are excluded and counted.
+    """
+
+    sample_rate_hz: np.ndarray
+    observed_peak_hz: np.ndarray
+    candidate_frequency_hz: np.ndarray
+    score_db: np.ndarray
+    excluded_capture_count: int
+
+    @property
+    def frequency_hz(self) -> float:
+        return float(self.candidate_frequency_hz[np.argmax(self.score_db)])
+
+    @property
+    def folded_frequency_hz(self) -> np.ndarray:
+        """Return the apparent frequency of every candidate at every rate (rate × candidate)."""
+
+        rate = self.sample_rate_hz[:, None]
+        return np.abs((self.candidate_frequency_hz[None, :] + rate / 2.0) % rate - rate / 2.0)
 
 
 @dataclass(frozen=True, slots=True)

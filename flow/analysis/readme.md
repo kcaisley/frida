@@ -15,6 +15,9 @@ flowchart TB
         ramp_out --> density
         adc --> distribution["analyze_adc_code_distribution"] --> distribution_out["AnalysisAdcCodeDistribution"]
         adc --> noise["analyze_adc_noise"] --> noise_out["AnalysisAdcNoise"]
+        adc --> code_spectrum["analyze_adc_code_spectrum"] --> code_spectrum_out["AnalysisAdcCodeSpectrum"]
+        adc --> interferer["analyze_adc_interferer (+ code spectra)"] --> interferer_out["AnalysisAdcInterferer"]
+        code_spectrum_out --> interferer
         adc --> conditions["analyze_adc_operating_conditions (+ noise)"] --> conditions_out["AnalysisAdcOperatingConditions"]
         noise_out --> conditions
         adc --> paths["analyze_adc_decision_paths"] --> paths_out["AnalysisAdcDecisionPaths"]
@@ -26,6 +29,8 @@ flowchart TB
         ramp_out --> ramp_plots["plot_adc_ramp_transfer / _histogram / _weights / _nonlinearity"]
         distribution_out --> distribution_plot["plot_adc_code_distribution"]
         noise_out --> noise_plots["plot_adc_noise_sweep / _distribution_sweep / _distribution_grid (lists)"]
+        code_spectrum_out --> code_spectrum_plots["plot_adc_code_noise / plot_adc_code_spectrum (list)"]
+        interferer_out --> interferer_plot["plot_adc_interferer (list)"]
         conditions_out --> sequence_plots["plot_adc_sequence_enob / plot_adc_sequence_chip_overview (list)"]
         paths_out --> paths_plots["plot_adc_decision_paths / plot_adc_decision_path_density"]
         power_out --> power_plot["plot_adc_power_sweep (list)"]
@@ -169,12 +174,13 @@ All analysis runners end in `_study` and have exactly `(output_dir: Path) -> tup
 | `adc_ramp_nonlinearity_study` | ADC00--03 uniform sawtooth, code-density INL/DNL without absolute voltage reconstruction. |
 | `adc_calibration_study` | ADC00 ramp and CDAC A-state threshold acquisitions; all three calibration methods. |
 | `adc_sequence_study` | Corrected 160-symbol sweep: 29 continuous recipes × 16 ADCs × 2/6/10 MSPS, with per-ADC and chip PDFs. Includes seven PEX flavors × seven matching recipes at 1600 MBd. Per-ADC and per-flavor operating-condition results and per-case timing summaries are saved as analysis HDF5 files. |
+| `adc_interferer_study` | 8 Oct re-run and 9 Oct amplifier-supply A/B/C/D runs (ADC00--03, seven recipes, 2/6/10 MSPS): code spectra, lines-versus-broadband split of ADC00, and per-ADC alias search over the 4of8 captures. |
 | `adc_sample_rate_study` | ADC00/01 DC and sine sweeps plus ADC00's 800-mV control; only the historical INIT8/SAMP16 control pattern is selected, at 0.3125--6.25 actual MSPS. |
 | `adc_power_study` | Instrumented ADC00/01 fixed-input rate sweeps and ADC00 reference points, with three supply readbacks. |
 
 Consolidated acquisition directories can contain both DC and sine measurements. The sample-rate study selects DC and sine by their typed stimulus for the respective panels; the power study selects instrumented DC. A reviewed mixed rate directory can therefore be pinned in both rate-study input selections. No saved campaign is renamed or automatically selected.
 
-Internal comparator/SAR/CDAC plots and seven clock plots require a simulated `MeasAdc` and its saved internal nets. The physical sequence sweep uses the stored codes and readout checks of the physical `MeasAdc` captures. Outputs are flat. Physical captures and PEX cases go through the same per-capture noise analysis and the same operating-condition analysis. The operating-condition analysis matches each capture to its noise result by sequence and symbol rate; its reference code is the median mean code over every sequence at the lowest symbol rate, and a capture is shifted when its mean leaves that reference by more than five times the median code noise there (at least four codes). The PEX subset covers seven of the 29 physical recipes at 1600 MBd. Saved patterns and decoded samples remain unchanged. Fixed-input ENOB is explicitly noise-equivalent; spectral ENOB is shown separately. Low spread alone does not establish correct conversion or a working sequence.
+Internal comparator/SAR/CDAC plots and seven clock plots require a simulated `MeasAdc` and its saved internal nets. The physical sequence sweep uses the stored codes and readout checks of the physical `MeasAdc` captures. Outputs are flat. Physical captures and PEX cases go through the same per-capture noise analysis and the same operating-condition analysis. The operating-condition analysis matches each capture to its noise result by sequence and symbol rate; its reference code is the median mean code over every sequence at the lowest symbol rate, and a capture is shifted when its mean leaves that reference by more than five times the median code noise there (at least four codes). The PEX subset covers seven of the 29 physical recipes at 1600 MBd. Saved patterns and decoded samples remain unchanged. Fixed-input ENOB is explicitly noise-equivalent; spectral ENOB is shown separately. A fixed-input capture's codes are also a waveform sampled at the conversion rate: `analyze_adc_code_spectrum` splits their variance into lines above the median white floor and the broadband remainder, and keeps the line-only code sequence; `analyze_adc_interferer` unfolds one interferer's aliases at several rates to its true frequency. Search one recipe whose rates were captured close in time: a drifting interferer smears across a long campaign, and a fixed line then wins. Low spread alone does not establish correct conversion or a working sequence.
 
 Reusable plotting functions need not all appear in these selected studies. `plot_adc_dynamic` is retained for individual spectral checks in the rate study. `plot_adc_noise_distribution_grid` requires an all-ADC comparison dataset; `plot_adc_sampling_noise` is a separate internal held-voltage noise study; `plot_adc_power_waveform` requires simulated rail-current traces. `plot_adc_decision_paths` is the line alternative to the retained trajectory density, and selects one conversion, one final code, or all of them for display. `plot_adc_ramp_weights` is the older alternative to the common calibration-weight comparison. Measurement-versus-simulation and cross-channel comparisons pass several results to the same plotter. Their functions and tests remain; removing unused imports is not a reason to delete them.
 

@@ -19,10 +19,12 @@ from flow.analysis.adc import (
     analyze_adc_cdac_settling,
     analyze_adc_code_density_nonlinearity,
     analyze_adc_code_distribution,
+    analyze_adc_code_spectrum,
     analyze_adc_comp_out_edge_eye,
     analyze_adc_comparator_edge_eye,
     analyze_adc_decision_paths,
     analyze_adc_dynamic,
+    analyze_adc_interferer,
     analyze_adc_noise,
     analyze_adc_power,
     analyze_adc_power_waveform,
@@ -47,6 +49,8 @@ from flow.analysis.plots import (
     TEXT_COLOR,
     plot_adc_cdac_settling,
     plot_adc_code_distribution,
+    plot_adc_code_noise,
+    plot_adc_code_spectrum,
     plot_adc_comp_out_edge_eye,
     plot_adc_comparator_edge_eye,
     plot_adc_comparator_response,
@@ -54,6 +58,7 @@ from flow.analysis.plots import (
     plot_adc_decision_paths,
     plot_adc_dynamic,
     plot_adc_dynamic_sweep,
+    plot_adc_interferer,
     plot_adc_noise_distribution_grid,
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
@@ -76,7 +81,7 @@ from flow.analysis.plots import (
     style_grid,
     style_measurement_text,
 )
-from flow.analysis.test_adc import adc_cdac_settling_measurement, adc_measurement, adc_ramp_measurement
+from flow.analysis.test_adc import adc_cdac_settling_measurement, adc_measurement, adc_ramp_measurement, tone_codes
 from flow.analysis.test_comp import comparator_measurement
 from flow.analysis.test_types import cdac_physical
 from flow.analysis.types import (
@@ -885,6 +890,24 @@ def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
     histogram_svg = read_svg(outputs[1])
     assert "Mean samples per code in bin" in histogram_svg
     assert "missing codes" not in histogram_svg
+
+
+def test_code_noise_spectrum_and_interferer_plots(tmp_path: Path) -> None:
+    measurements = [
+        adc_measurement(tone_codes(rate, tone_hz=8.15e6, count=16_384, seed=index), sample_rate_hz=rate, observed_adc=2)
+        for index, rate in enumerate((2.0e6, 6.0e6, 10.0e6))
+    ]
+    stuck = adc_measurement(np.full(16_384, 2_000), sample_rate_hz=2.0e6, logic_phase_delay_symbols=1, observed_adc=2)
+    spectra = [analyze_adc_code_spectrum(measurement) for measurement in (*measurements, stuck)]
+
+    assert_plot_formats(
+        plot_adc_code_noise(measurements[0], spectra[0], title="Code noise", output_path=tmp_path / "code_noise")
+    )
+    assert_plot_formats(plot_adc_code_spectrum(spectra, title="Code spectra", output_path=tmp_path / "code_spectra"))
+    with pytest.raises(ValueError, match="name every spectrum"):
+        plot_adc_code_spectrum(spectra, labels=["one"], title="Code spectra", output_path=tmp_path / "bad")
+    interferer = analyze_adc_interferer([*measurements, stuck], spectra=spectra)
+    assert_plot_formats(plot_adc_interferer([interferer], title="Interferer", output_path=tmp_path / "interferer"))
 
 
 def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:

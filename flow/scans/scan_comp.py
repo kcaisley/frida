@@ -104,7 +104,7 @@ def _build_comp_params(
 
     board_id = 0
     board_map = load_board_map()
-    flavor = board_map["boards"][board_id]["adc_channels"][adc_index]
+    flavor = board_map["adc_channels"][adc_index]
     cap_weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
     dut = AdcParams(
         adc_bits=12,
@@ -249,11 +249,10 @@ def build_sampling_noise_variants(
     from flow.scans.scan_cdac import _convert_dac_rail_percent_to_codes
 
     board_map = load_board_map()
-    board = board_map["boards"][0]
     vin_diff_values_v = _fixed_grid_values(minimum_v, maximum_v, step_v)
     variants = []
     for adc_index in adc_indices:
-        flavor = board["adc_channels"][adc_index]
+        flavor = board_map["adc_channels"][adc_index]
         weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
         for coupling_percent_p in coupling_percentages:
             state_p = tuple(int(bit) for bit in _convert_dac_rail_percent_to_codes(coupling_percent_p, weights)[0])
