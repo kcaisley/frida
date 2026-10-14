@@ -247,7 +247,7 @@ def analyze_adc_calibration3(measurement: MeasAdc, *, ramp: AnalysisAdcRamp) -> 
         index=identity.index,
         dut=identity.dut,
         method="calibration3",
-        label="Slow-ramp threshold weights",
+        label="Cal. 3: Hsu (2013) slow-ramp thresholds",
         code_max=code_max,
         nominal_weights=nominal_weight,
         calibrated_weights=calibrated_weight,

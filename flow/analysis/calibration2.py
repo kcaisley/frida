@@ -124,7 +124,7 @@ def analyze_adc_calibration2(measurement: MeasAdc, *, ramp: AnalysisAdcRamp) -> 
         index=identity.index,
         dut=identity.dut,
         method="calibration2",
-        label="Known-ramp fitted weights",
+        label="Cal. 2: least-squares fit to a known ramp",
         code_max=code_max,
         nominal_weights=nominal_weight,
         calibrated_weights=normalized_weights,

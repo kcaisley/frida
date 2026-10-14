@@ -578,7 +578,7 @@ def test_ramp_analysis_derives_period_and_fits_phase_without_detecting_jumps() -
     assert analysis.period_conversions == pytest.approx(4_096, rel=1e-6)
     assert analysis.ramp_frequency_hz == pytest.approx(analysis.sample_rate_hz / 4_096, rel=1e-6)
     assert analysis.decoding == "uncalibrated_dout"
-    assert analysis.label == "Uncalibrated DOUT"
+    assert analysis.label == "Ideal weights"
     assert analysis.retained_sample_count == analysis.sample_count - analysis.reset_excluded_sample_count
     assert analysis.count.sum() == analysis.retained_sample_count
     # Bins whose only conversions sit beside a wrap stay empty; all others are populated.
@@ -1432,3 +1432,52 @@ def test_dynamic_sine_fit_recovers_signal_with_frequency_error() -> None:
     assert result.residual_rms_dout == pytest.approx(1 / np.sqrt(12), rel=0.1)
     np.testing.assert_allclose(result.time_s, time_s)
     np.testing.assert_allclose(result.fitted_dout + result.residual_dout, samples)
+
+
+def test_code_spectrum_decodes_bout_with_a_calibration() -> None:
+    """A calibration replaces the stored DOUT with its decoded BOUT and names the decoding."""
+
+    measurement = adc_ramp_measurement()
+    nominal = analyze_adc_ramp(measurement).weights.astype(np.float64)
+    nominal *= 4095.0 / np.sum(nominal)
+    calibrated = nominal.copy()
+    calibrated[:2] *= (1.02, 0.97)
+    calibrated *= 4095.0 / np.sum(calibrated)
+    calibration = AnalysisAdcCalibration(
+        group=7,
+        index=0,
+        dut=measurement.dut,
+        method="calibration1",
+        label="Synthetic calibrated BOUT",
+        code_max=4095,
+        nominal_weights=nominal,
+        calibrated_weights=calibrated,
+        measured_weight_mask=np.ones(17, dtype=np.bool_),
+        training_sample_count=100,
+        validation_sample_count=0,
+        output_gain=1.0,
+        output_offset_lsb=0.0,
+    )
+
+    plain = analyze_adc_code_spectrum(measurement)
+    decoded = analyze_adc_code_spectrum(measurement, calibration=calibration)
+
+    assert plain.decoding == "uncalibrated_dout"
+    assert decoded.decoding == "calibration1"
+    codes = calibration.decode_bout(measurement.bout, rounded=False)
+    assert decoded.mean_dout == pytest.approx(float(np.mean(codes)))
+    assert decoded.mean_dout != pytest.approx(plain.mean_dout)
+
+
+def test_code_spectrum_integrates_to_the_code_noise_rms() -> None:
+    from flow.analysis.adc import analyze_adc_code_spectrum
+
+    rng = np.random.default_rng(0)
+    codes = np.rint(2000.3 + rng.normal(0.0, 2.0, 65536)).astype(np.int64)
+    spectrum = analyze_adc_code_spectrum(adc_measurement(codes))
+
+    assert spectrum.decoding == "uncalibrated_dout"
+    # Welch with a Hann window integrates to the sample variance within a few percent.
+    assert spectrum.total_rms_lsb == pytest.approx(np.std(codes), rel=0.03)
+    # White noise: the median density sits near variance / (fs / 2).
+    assert spectrum.white_floor_lsb2_per_hz == pytest.approx(np.var(codes) / (spectrum.sample_rate_hz / 2), rel=0.15)

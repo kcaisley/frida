@@ -1,1077 +1,445 @@
-import matplotlib
-import matplotlib as mpl
+"""Behavioral FRIDA SAR ADC built from four blocks driven by HDL21 parameters.
+
+``samp``, ``comp``, ``salogic`` and ``cdac`` model the sampler, the
+comparator, the SAR logic, and the capacitor array with its drivers. Each
+takes its own behavioral parameters and can run alone; ``convert_behavioral``
+wires them into the ADC loop of ``AdcTbParams``. Stage and decision counts
+come from the CDAC configuration, and every time from the programmed SEQ rows
+and symbol rate, so resolution and speed are free parameters.
+
+The SAR logic is a stage counter and a branch select: INIT loads the A state,
+then each LOGIC edge writes the counted stage, ``1 - B`` on the P side and
+``B`` on the N side (``dac_mode=1``), or reloads the B state (``dac_mode=0``).
+Diff bottom plates follow ``state XOR dac_diffcaps``. Logic, comparator, and
+driver energies are fixed amounts pinned to these actions. The CDAC charge is
+computed: every top plate is one floating node loaded by its main and diff
+capacitors and a parasitic capacitance, and the plates at VDD_DAC after an
+edge draw ``C * (dV_bottom - dV_top)`` from it.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import hdl21 as h
 import numpy as np
 
-matplotlib.use("Agg")  # Use non-interactive backend
-import os
-from pathlib import Path
+from flow.adc.sequences import AdcSequence
+from flow.adc.sim import AdcTbParams
+from flow.caparray.subckt import CapArrayConfig, CapArrayParams, get_caparray_weights
+from flow.comp.subckt import CompParams, MosType, Stages
+from flow.samp.subckt import SampParams, SwitchType
 
-import matplotlib.pyplot as plt
+# Rough 65-nm LVT device constants for the estimates drawn from HDL21 sizing.
+W_MIN_UM = 0.12
+L_MIN_UM = 0.06
+NMOS_K_A_PER_V2 = 300e-6
+PMOS_K_A_PER_V2 = 100e-6
+JUNCTION_F_PER_UM = 0.8e-15
+COX_F_PER_UM2 = 14e-15
+BOLTZMANN_J_PER_K = 1.380649e-23
 
-from flow.analysis import calc
-from flow.analysis.plots import NORD_RED, PLOT_STYLE, PNG_DPI, plot_adc_redundancy, style_grid
+
+@h.paramclass
+class SampBehavioralParams:
+    """Top-plate sampler physics beyond its HDL21 ``SampParams``.
+
+    Its on-resistance follows the triode conductances of the two devices,
+    ``n * (V_gate - v - V_tn) + p * (v - V_tp)``, and peaks near mid-supply.
+    None conductances come from the ``SampParams`` sizing; zero for both makes
+    the switch ideal.
+    """
+
+    noise_v = h.Param(dtype=float, desc="RMS differential noise of each held sample", default=0.0)
+    n_conductance_s_per_v = h.Param(
+        dtype=float | None, desc="NMOS triode conductance per volt of overdrive; None derives it", default=None
+    )
+    p_conductance_s_per_v = h.Param(
+        dtype=float | None, desc="PMOS triode conductance per volt of overdrive; None derives it", default=None
+    )
+    n_threshold_v = h.Param(dtype=float, desc="NMOS threshold voltage", default=0.35)
+    p_threshold_v = h.Param(dtype=float, desc="PMOS threshold magnitude", default=0.35)
+    jitter_s = h.Param(dtype=float, desc="RMS aperture jitter, common to both sides", default=0.0)
 
 
-class CDAC:
-    def __init__(self, params, parent):
-        self.parent = parent
-        # dictionary with parameters
-        self.params = params["CDAC"].copy()
-        self.capacitor_array_p = np.zeros(self.params["array_size"])
-        self.capacitor_array_n = np.zeros(self.params["array_size"])
-        self.weights_array = np.zeros(self.params["array_size"])
-        self.weights_sum = 0
+@h.paramclass
+class CompBehavioralParams:
+    """Comparator physics beyond its HDL21 ``CompParams``; energy is pinned per decision."""
 
-        self.capacitance_sum_p = 0
-        self.capacitance_sum_n = 0
+    noise_v = h.Param(
+        dtype=float | None,
+        desc="Input-referred RMS noise per decision; None estimates it from the CompParams sizing",
+        default=0.0,
+    )
+    offset_v = h.Param(dtype=float, desc="Input-referred offset", default=0.0)
+    decision_energy_j = h.Param(dtype=float, desc="Supply energy per decision", default=0.0)
+    static_power_w = h.Param(dtype=float, desc="Static supply power", default=0.0)
 
-        self.settling_time_error = 0
 
-        self.output_voltage_p = 0
-        self.output_voltage_n = 0
-        self.register_p = 0
-        self.register_n = 0
-        self.consumed_charge = 0
+@h.paramclass
+class CdacBehavioralParams:
+    """Capacitor array per side and its drivers; None capacitances are ideal."""
 
-    def update_parameters(self):  # FIXME: how is this even called at the beginning?
-        self.build_capacitor_array()
-        if self.params["settling_time"] > 0:
-            self.settling_time_error = np.exp(  # Decaying exponential model (percent decay)
-                -1
-                / (
-                    self.params["settling_time"]  # This is tau; the time constant
-                    * self.parent.params["sampling_frequency"]
-                    * (self.params["array_size"] + 1)  # This divides the sampling frequency to find the settling error
-                )
-            )
+    main_p_f = h.Param(dtype=tuple[float, ...] | None, desc="C0-first P main capacitances", default=None)
+    diff_p_f = h.Param(dtype=tuple[float, ...] | None, desc="C0-first P diff capacitances", default=None)
+    main_n_f = h.Param(dtype=tuple[float, ...] | None, desc="C0-first N main capacitances", default=None)
+    diff_n_f = h.Param(dtype=tuple[float, ...] | None, desc="C0-first N diff capacitances", default=None)
+    parasitic_f = h.Param(dtype=float, desc="Top-plate capacitance to ground per side", default=0.0)
+    settling_tau_s = h.Param(dtype=float, desc="Single-pole top-plate settling time constant; 0 is ideal", default=0.0)
+    driver_energy_j = h.Param(dtype=float, desc="Driver energy per bottom-plate transition", default=0.0)
+    driver_static_w = h.Param(dtype=float, desc="Static power per bottom-plate driver", default=0.0)
+    reference_noise_v = h.Param(
+        dtype=float, desc="RMS VDD_DAC noise at each decision, coupled by the plates held at it", default=0.0
+    )
+
+
+@h.paramclass
+class SalogicBehavioralParams:
+    """SAR stage counter and branch select; energy is pinned per action and register."""
+
+    clock_energy_j = h.Param(dtype=float, desc="Energy per register per LOGIC edge", default=0.0)
+    write_energy_j = h.Param(dtype=float, desc="Energy per state-register value change", default=0.0)
+    register_static_w = h.Param(dtype=float, desc="Static power per register with its logic", default=0.0)
+
+
+@h.paramclass
+class AdcBehavioralParams:
+    """One HDL21 testbench configuration plus the block physics it does not describe."""
+
+    tb = h.Param(dtype=AdcTbParams, desc="ADC stimulus and digital configuration", default=AdcTbParams())
+    samp = h.Param(dtype=SampBehavioralParams, desc="Sampler", default=SampBehavioralParams())
+    comp = h.Param(dtype=CompBehavioralParams, desc="Comparator", default=CompBehavioralParams())
+    cdac = h.Param(dtype=CdacBehavioralParams, desc="Capacitor array and drivers", default=CdacBehavioralParams())
+    salogic = h.Param(dtype=SalogicBehavioralParams, desc="SAR logic", default=SalogicBehavioralParams())
+    seed = h.Param(dtype=int, desc="Noise random seed", default=0)
+
+
+@dataclass(frozen=True, slots=True)
+class BehavioralConversions:
+    """Decisions, per-conversion energy by rail, and static power by rail."""
+
+    bout: np.ndarray
+    energy_j: dict[str, np.ndarray]
+    static_power_w: dict[str, float]
+
+
+def calc_redundancy_margins(weights) -> np.ndarray:
+    """Return each SAR stage's correction margin as a percentage.
+
+    Weights are in conversion order; the final stage has no later correction.
+    """
+    values = np.asarray(weights, dtype=float)
+    if values.ndim != 1 or len(values) < 2 or not np.all(np.isfinite(values)) or np.any(values <= 0):
+        raise ValueError("expected at least two finite, positive SAR weights in conversion order")
+    remaining = np.cumsum(values[::-1])[::-1]
+    return (remaining[1:] - values[:-1]) / remaining[:-1] * 100
+
+
+def calc_ideal_capacitances(cdac: CapArrayConfig) -> tuple[np.ndarray, np.ndarray]:
+    """Return the ideal C0-first main and diff capacitances that ``CapArray`` generates.
+
+    Each weight is split into coarse chunks; a chunk adds
+    ``unit * (coarse +/- chunk) / 2 + tail`` to the main and diff plates.
+    """
+    array = CapArrayParams(cdac=cdac)
+    unit_f = float(cdac.unit_cap)
+    tail_f = unit_f / 2 if array.tail_cap is None else float(array.tail_cap)
+    main_f, diff_f = [], []
+    for weight in get_caparray_weights(cdac):
+        chunks = [array.coarse_weight] * (weight // array.coarse_weight)
+        if weight % array.coarse_weight:
+            chunks.append(weight % array.coarse_weight)
+        main_f.append(sum(unit_f * (array.coarse_weight + chunk) / 2 + tail_f for chunk in chunks))
+        diff_f.append(sum(unit_f * (array.coarse_weight - chunk) / 2 + tail_f for chunk in chunks))
+    return np.asarray(main_f), np.asarray(diff_f)
+
+
+def calc_capacitor_mismatch(capacitance_f: np.ndarray, *, unit_mismatch: float, rng: np.random.Generator) -> np.ndarray:
+    """Draw Pelgrom mismatch: sigma_C = unit_mismatch * sqrt(C * 1 fF) for every capacitor."""
+
+    capacitance_f = np.asarray(capacitance_f, dtype=np.float64)
+    return capacitance_f + rng.normal(0.0, unit_mismatch * np.sqrt(capacitance_f * 1e-15))
+
+
+def calc_sequence_times(tb: AdcTbParams, decisions: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return COMP and post-INIT LOGIC rising times relative to the INIT rise."""
+
+    sequence = AdcSequence.from_tb_params(tb).relative_to_init()
+    symbol_s = 1.0 / float(tb.symbol_rate)
+
+    def rising(row: str) -> np.ndarray:
+        bits = np.asarray([int(bit) for bit in row])
+        return np.flatnonzero((bits == 1) & (np.roll(bits, 1) == 0)) * symbol_s
+
+    comp_s = rising(sequence.comp)
+    logic_s = rising(sequence.logic)
+    logic_s = logic_s[logic_s > symbol_s * sequence.init.count("1")]
+    if len(comp_s) != decisions or len(logic_s) < decisions - 1:
+        raise ValueError(f"sequence must contain {decisions} COMP and {decisions - 1} LOGIC rises after INIT")
+    return comp_s, logic_s[: decisions - 1]
+
+
+def calc_switch_conductances(hw: SampParams, params: SampBehavioralParams) -> tuple[float, float]:
+    """Return the NMOS and PMOS triode conductances per volt of overdrive.
+
+    Unset values are ``k' * W / L`` of the ``SampParams`` devices; a switch
+    type without a device contributes zero. ``mos_vth`` is not used: the
+    thresholds are behavioral parameters.
+    """
+
+    aspect = hw.mos_w * W_MIN_UM / (hw.mos_l * L_MIN_UM)
+    n_s = NMOS_K_A_PER_V2 * aspect if hw.switch_type in (SwitchType.NMOS, SwitchType.TGATE) else 0.0
+    p_s = PMOS_K_A_PER_V2 * aspect if hw.switch_type in (SwitchType.PMOS, SwitchType.TGATE) else 0.0
+    return (
+        n_s if params.n_conductance_s_per_v is None else params.n_conductance_s_per_v,
+        p_s if params.p_conductance_s_per_v is None else params.p_conductance_s_per_v,
+    )
+
+
+def calc_switch_resistance(
+    hw: SampParams, params: SampBehavioralParams, vin_v: np.ndarray, gate_v: float
+) -> np.ndarray:
+    """Return the sampler on-resistance at each input voltage; zero for an ideal switch."""
+
+    n_s, p_s = calc_switch_conductances(hw, params)
+    if n_s == 0 and p_s == 0:
+        return np.zeros_like(vin_v)
+    conductance = n_s * np.maximum(gate_v - vin_v - params.n_threshold_v, 0.0)
+    conductance += p_s * np.maximum(vin_v - params.p_threshold_v, 0.0)
+    return 1.0 / np.maximum(conductance, 1e-12)
+
+
+def calc_strongarm_noise(
+    hw: CompParams, vin_cm_v: float, *, vth_v: float = 0.3, gamma: float = 1.0, temperature_k: float = 300.0
+) -> float:
+    """Estimate the StrongARM input-referred RMS noise, Razavi (SSC Magazine 2015) eq. (15).
+
+    ``sigma^2 = r * (4 k T gamma / C_PQ + r * k T / (2 C_PQ))`` with
+    ``r = (V_GS - V_TH) / V_TH``. ``C_PQ`` is the diffusion of the input-pair
+    drain, latch-NMOS source, and reset device at each P/Q node plus the
+    latch NMOS gate. Only ``diffpair_w``, ``latch_on_w``, ``latch_on_l`` and
+    ``rst_w`` enter; the other sizes, the tail, the SR latch, and the Vth
+    flavors are not used. Against the SPICE comparator candidate sweep the
+    estimate runs a median 4.4 times high, so it ranks sizings loosely
+    rather than predicting noise.
+    """
+
+    if hw.comp_stages != Stages.SINGLE or hw.preamp_diff_xtors != MosType.NMOS:
+        raise ValueError("the StrongARM noise estimate needs a single-stage NMOS-input comparator")
+    diff_w = hw.diffpair_w * W_MIN_UM
+    latch_w, latch_l = hw.latch_on_w * W_MIN_UM, hw.latch_on_l * L_MIN_UM
+    c_pq = JUNCTION_F_PER_UM * (diff_w + latch_w + hw.rst_w * W_MIN_UM) + 2 / 3 * latch_w * latch_l * COX_F_PER_UM2
+    ratio = (vin_cm_v - vth_v) / vth_v
+    kt = BOLTZMANN_J_PER_K * temperature_k
+    return float(np.sqrt(ratio * (4 * kt * gamma / c_pq + ratio * kt / (2 * c_pq))))
+
+
+def samp(
+    hw: SampParams,
+    params: SampBehavioralParams,
+    vin: dict[str, np.ndarray],
+    slope: dict[str, np.ndarray],
+    *,
+    load_f: dict[str, float],
+    gate_v: float,
+    rng: np.random.Generator,
+) -> dict[str, np.ndarray]:
+    """Hold each side's input through its input-dependent RC, with half the noise power per side.
+
+    A first-order track lags a moving input by its time constant, so the held
+    value is ``v - R(v) * C * dv/dt``; aperture jitter shifts both sides'
+    sampling instant by one common random time. The hold window is long
+    against the time constant, so the previous sample's residue is not modeled.
+    """
+
+    count = len(vin["p"])
+    jitter_s = rng.normal(0.0, params.jitter_s, count) if params.jitter_s else 0.0
+    held = {}
+    for side in ("p", "n"):
+        tau_s = calc_switch_resistance(hw, params, vin[side], gate_v) * load_f[side]
+        noise = rng.normal(0.0, params.noise_v / np.sqrt(2.0), count) if params.noise_v else 0.0
+        held[side] = vin[side] + (jitter_s - tau_s) * slope[side] + noise
+    return held
+
+
+def comp(
+    hw: CompParams,
+    params: CompBehavioralParams,
+    vin_diff_v: np.ndarray,
+    rng: np.random.Generator,
+    *,
+    vin_cm_v: float,
+) -> np.ndarray:
+    """Return 1 where the noisy differential input exceeds the offset.
+
+    Unset noise comes from ``calc_strongarm_noise`` of ``hw`` at ``vin_cm_v``;
+    otherwise ``hw`` and ``vin_cm_v`` are not used.
+    """
+
+    noise_v = calc_strongarm_noise(hw, vin_cm_v) if params.noise_v is None else params.noise_v
+    noise = rng.normal(0.0, noise_v, len(vin_diff_v)) if noise_v else 0.0
+    return (vin_diff_v + noise - params.offset_v > 0).astype(np.int64)
+
+
+def salogic(tb: AdcTbParams, state: dict[str, np.ndarray], stage: int, decided: np.ndarray):
+    """Write the counted stage from the decision, or reload the B state; return the new state."""
+
+    after = {}
+    for side, target in (("p", 1 - decided), ("n", decided)):
+        after[side] = state[side].copy()
+        if tb.dac_mode:
+            after[side][:, stage] = target
         else:
-            self.settling_time_error = 0
-        self.lsb_size = (self.params["positive_reference_voltage"] - self.params["negative_reference_voltage"]) / (
-            self.weights_sum
-        )
-        self.common_mode_voltage = (
-            self.params["positive_reference_voltage"] - self.params["negative_reference_voltage"]
-        ) / 2
-
-    def reset(self, reset_value, do_calculate_energy=False):
-        raise NotImplementedError
-
-    def sample(self, input_p, input_n):
-        raise NotImplementedError
-
-    def update(self, register_p, register_n, do_calculate_energy=False):
-        raise NotImplementedError
-
-    def build_capacitor_array(self):
-        raise NotImplementedError
-
-    @mpl.rc_context(PLOT_STYLE)
-    def calculate_nonlinearity(
-        self, do_plot=False, values_per_bin=10
-    ):  # FIXME: there is also an ADC top nonlinearity function?
-        reg_data = np.arange(0, 2 ** (self.params["array_size"]), 1)
-        dac_data = np.zeros(len(reg_data))
-
-        print(f"DAC array size {self.params['array_size']:d}")
-        print(f"lsb size {self.lsb_size:e}")
-
-        for reg in reg_data:
-            self.reset(0)
-            self.sample(0, 0)
-            out_p, out_n = self.update(reg, 0)
-            dac_data[reg] = out_p - out_n
-
-        dnl_data = calc.deriv(dac_data, reg_data) / self.lsb_size - 1.0
-        dac_dnl_std = calc.stddev(dnl_data)
-        inl_data = calc.inl(dnl_data, endpoint_correct=False)
-        dac_inl_std = calc.stddev(inl_data)
-
-        if do_plot:
-            figure, plot = plt.subplots(3, 1, sharex=True)
-            figure.suptitle("DAC Nonlinearity")
-            plot[0].step(reg_data, dac_data, where="pre", label="DAC transfer function")
-            # plot[0].set_xticks(range(reg_data[0], reg_data[len(reg_data)-1]+1,  self.params['array_size']//4))
-            plot[0].set_ylabel("Output voltage [V]")
-            style_grid(plot[0])
-            plot[1].step(reg_data[:-1], dnl_data, where="post", label=f"DNL = {dac_dnl_std:.3f}")
-            if dac_dnl_std < 0.0001:
-                plot[1].set_ylim(-1, 1)
-            plot[1].set_ylabel("DNL [LSB]")
-            plot[1].legend(loc="upper right")
-            style_grid(plot[1])
-            plot[2].step(reg_data[:-1], inl_data, where="post", label=f"INL = {dac_inl_std:.3f}")
-            if dac_inl_std < 0.0001:
-                plot[2].set_ylim(-1, 1)
-            plot[2].set_ylabel("INL [LSB]")
-            plot[2].legend(loc="upper right")
-            plot[2].set_xlabel("Digital code")
-            style_grid(plot[2])
-
-        return dac_dnl_std, dac_inl_std
-
-
-class CDAC_BSS(CDAC):
-    def __init__(self, params, parent):
-        super().__init__(params, parent)
-        self.update_parameters()
-
-    def build_capacitor_array(self):
-        """
-        # The capacitor array can be constructed in three different ways:
-        # 1. Use individual weights from the parameter file and 'array_size' as defined in the parameter file.
-        # 2. Use binary weights (radix = 2) to construct the capacitor array and 'array_size' = resolution-1
-        # 3. Use non binary weight (radix > 2) to construct the capacitor array and 'array_size' will be resized to the dynamic range of the nominal binary weighted capacitors
-        """
-        if self.params["use_individual_weights"]:
-            # use individual weights from the parameter file, but only supports integers
-            array_index_offset = len(self.params["individual_weights"]) - self.params["array_size"]
-            self.weights_array = np.array(
-                self.params["individual_weights"][array_index_offset : array_index_offset + self.params["array_size"]]
-            )
-            self.capacitor_array_p = self.weights_array * self.params["unit_capacitance"]
-            self.capacitor_array_n = self.weights_array * self.params["unit_capacitance"]
-
-        else:  # construct array according to given radix and desired resolution
-            if self.params[
-                "array_N_M_expansion"  # FIXME: I've deleted this option
-            ]:  # If you want array size to be computed, instead of manually supplied
-                self.params["array_size"] = self.parent.params["resolution"] - 1  # for binary weighted capacitors
-                if self.params["radix"] != 2:
-                    # resize non-binary capacitor array size to match the dynamic range of a binary weighted capacitor array
-                    self.params["array_size"] = int(
-                        np.ceil(self.params["array_size"] / np.log2(self.params["radix"]))
-                    )  # match *at least* the resolution of the radix 2 design
-
-            # resize arrays
-            self.capacitor_array_p = np.zeros(self.params["array_size"])
-            self.capacitor_array_n = np.zeros(self.params["array_size"])
-            self.weights_array = np.zeros(self.params["array_size"])
-
-            # build capacitor array from given radix
-            for stage in range(self.params["array_size"]):
-                exponent = self.params["array_size"] - stage - 1
-                self.capacitor_array_p[stage] = self.params["radix"] ** exponent * self.params["unit_capacitance"]
-                self.capacitor_array_n[stage] = self.params["radix"] ** exponent * self.params["unit_capacitance"]
-            self.weights_array = self.capacitor_array_p / self.params["unit_capacitance"]
-
-        self.weights_sum = np.sum(self.weights_array)
-
-        # add systematic errors
-        if self.params["capacitor_mismatch_error"] > 0:
-            for i in range(
-                self.params["array_size"]
-            ):  # error in percent/100   scaled with  sqrt(capacitance/unit capacitance)
-                self.capacitor_array_p[i] += (
-                    self.params["unit_capacitance"]
-                    * np.random.normal(0, self.params["capacitor_mismatch_error"] / 100)
-                    / np.sqrt(self.capacitor_array_p[i] / self.params["unit_capacitance"])
-                )
-                self.capacitor_array_n[i] += (
-                    self.params["unit_capacitance"]
-                    * np.random.normal(0, self.params["capacitor_mismatch_error"] / 100)
-                    / np.sqrt(self.capacitor_array_n[i] / self.params["unit_capacitance"])
-                )
-
-        self.capacitance_sum_p = sum(self.capacitor_array_p) + self.params["parasitic_capacitance"]
-        self.capacitance_sum_n = sum(self.capacitor_array_n) + self.params["parasitic_capacitance"]
-
-        np.set_printoptions(precision=2)
-        # Remove scattered prints - these are now in structured output
-
-    def reset(self, reset_value, do_calculate_energy=False):
-        register_p = reset_value  # 2**(self.params['array_size']-1)-1
-        register_n = reset_value  # 2**(self.params['array_size']-1)-1
-        self.update(register_p, register_n, do_calculate_energy=do_calculate_energy)
-        # print('reset charge %e' % self.dac.consumed_charge)
-
-    def sample(self, input_p, input_n):
-        # top plate sampling: DAC output voltage = input voltage
-        self.output_voltage_p = input_p
-        self.output_voltage_n = input_n
-
-    def update(self, register_p, register_n, do_calculate_energy=False):
-        """
-        Modeling note, which applies to all blocks:
-        Class attributes are state internal to the block
-        Input argument variables are changing values which are driven by other blocks
-        Output return values model outputs which are driver to other blocks
-        """
-        delta_output_voltage_p = 0
-        delta_output_voltage_n = 0
-        self.consumed_charge = 0
-        delta_backplane_voltage = self.params["positive_reference_voltage"] - self.params["negative_reference_voltage"]
-
-        # calculate the contributions of the toggled capacitors to the output voltage change
-        # Note that in real hardware, this would all happen simultaneously
-        for stage in range(self.params["array_size"]):
-            current_capacitor_p = self.capacitor_array_p[stage]
-            current_capacitor_n = self.capacitor_array_n[stage]
-            # The integer is only a packed storage format. Its high-to-low
-            # bit positions encode canonical registers C0 through C15.
-            packed_bit = self.params["array_size"] - stage - 1
-
-            # A rising state for this stage increases its bottom-plate voltage.
-            if (register_p & (1 << packed_bit)) > (self.register_p & (1 << packed_bit)):
-                delta_output_voltage_p += current_capacitor_p / self.capacitance_sum_p * delta_backplane_voltage
-            # vice-versa, decrease the output, Note how there is no case for the same value as this would maintain voltage.
-            elif (register_p & (1 << packed_bit)) < (self.register_p & (1 << packed_bit)):
-                delta_output_voltage_p -= current_capacitor_p / self.capacitance_sum_p * delta_backplane_voltage
-
-            if (register_n & (1 << packed_bit)) > (self.register_n & (1 << packed_bit)):
-                delta_output_voltage_n += current_capacitor_n / self.capacitance_sum_n * delta_backplane_voltage
-            elif (register_n & (1 << packed_bit)) < (self.register_n & (1 << packed_bit)):
-                delta_output_voltage_n -= current_capacitor_n / self.capacitance_sum_n * delta_backplane_voltage
-
-        if do_calculate_energy:
-            # calculate the consumed charge =
-            # delta_output_voltage * total capacitance connected to VREF (for negative delta_output_voltage) and
-            # delta_output_voltage * total capacitance connected to GND  (for positive delta_output_voltage)
-
-            # TODO: This can/should be simplified into just two cases, not two if-else
-            # NOTE: Even though only one register bit has been updated, is it correct that we need to examine all caps?
-            for stage in range(self.params["array_size"]):
-                current_capacitor_p = self.capacitor_array_p[stage]
-                current_capacitor_n = self.capacitor_array_n[stage]
-                packed_bit = self.params["array_size"] - stage - 1
-                if delta_output_voltage_p > 0:
-                    if (register_p & (1 << packed_bit)) == 0:
-                        self.consumed_charge += current_capacitor_p * delta_output_voltage_p
-                else:
-                    if (register_p & (1 << packed_bit)) != 0:
-                        self.consumed_charge -= current_capacitor_p * delta_output_voltage_p
-
-                if delta_output_voltage_n > 0:
-                    if (register_n & (1 << packed_bit)) == 0:
-                        self.consumed_charge += current_capacitor_n * delta_output_voltage_n
-                else:
-                    if (register_n & (1 << packed_bit)) != 0:
-                        self.consumed_charge -= current_capacitor_n * delta_output_voltage_n
-
-        # ideal CDAC output voltage for reference
-        self.output_voltage_p += delta_output_voltage_p
-        self.output_voltage_n += delta_output_voltage_n
-
-        # update register
-        self.register_p = register_p
-        self.register_n = register_n
-
-        # add reference voltage noise, attenuated by the ratio of capacitance connected to VREF to total capacitance, correlated for n and p side
-        # calculate total capacitance connected to VREF for each side
-        capacitance_at_vref_p = 0
-        capacitance_at_vref_n = 0
-        for stage in range(self.params["array_size"]):
-            packed_bit = self.params["array_size"] - stage - 1
-            if (self.register_p & (1 << packed_bit)) != 0:
-                capacitance_at_vref_p += self.capacitor_array_p[stage]
-            if (self.register_n & (1 << packed_bit)) != 0:
-                capacitance_at_vref_n += self.capacitor_array_n[stage]
-
-        voltage_noise_sample = np.random.normal(0, self.params["reference_voltage_noise"])
-        noise_p = voltage_noise_sample * capacitance_at_vref_p / self.capacitance_sum_p
-        noise_n = voltage_noise_sample * capacitance_at_vref_n / self.capacitance_sum_n
-
-        # calculate how much of the voltage step is resolved, as a voltage with same sign
-        settling_error_p = delta_output_voltage_p * self.settling_time_error
-        settling_error_n = delta_output_voltage_n * self.settling_time_error
-
-        # add noise and subtract the unresolved voltage step
-        return (self.output_voltage_p + noise_p - settling_error_p), (
-            self.output_voltage_n + noise_n - settling_error_n
-        )
-
-
-class COMPARATOR:
-    def __init__(self, params):
-        # dictionary with parameters
-        self.params = params["COMP"].copy()
-
-    def compare(self, input_voltage_p, input_voltage_n):
-        common_mode_offset_voltage = (
-            (input_voltage_p + input_voltage_n) / 2 * self.params["common_mode_dependent_offset_gain"]
-        )
-        noise_voltage = np.random.normal(0, self.params["threshold_voltage_noise"])
-        return (
-            input_voltage_p
-            > input_voltage_n + self.params["offset_voltage"] + common_mode_offset_voltage + noise_voltage
-        )
-
-
-class SAR_ADC:
-    def __init__(self, params):
-        # dictionary with parameters
-        self.params = params["ADC"].copy()  # need .copy() to make sure modifiying one won't also change the other
-        self.sampling_frequency = self.params["sampling_frequency"]
-        self.dac = CDAC_BSS(params, self)
-        self.cycles = self.dac.params["array_size"] + 1
-        self.clock_period = 1 / (self.sampling_frequency * self.cycles)
-        self.redundancy = (
-            self.cycles - self.params["resolution"]
-        )  # FIXME: remove, not a useful metric. Won't break code.
-        self.diff_input_voltage_range = (
-            2
-            * (  # FIXME: depends on parasitics... also CDAC update seems to have the same code?
-                self.dac.params["positive_reference_voltage"] - self.dac.params["negative_reference_voltage"]
-            )
-        )
-        self.lsb_size = (
-            self.diff_input_voltage_range / 2 ** self.params["resolution"]
-        )  # FIXME: this isn't true for non-binary??
-        self.comparator = COMPARATOR(params)
-        self.input_voltage_p = 0
-        self.input_voltage_n = 0
-        self.comp_result = []
-        self.conversion_energy = 0
-        self.midscale = 2 ** (self.params["resolution"] - 1)  # FIXME: this isn't true for non-binary, right?
-
-        # performance metrics
-        self.dnl = 0
-        self.inl = 0
-        self.enob = 0
-        self.average_conversion_energy = 0
-        self.fom = 0
-
-    def update_parameters(self):  # FIXME: I think this is never called?
-        self.dac.update_parameters()  # FIXME: This is also called in CDAC_BSS subclass?
-        self.cycles = self.dac.params["array_size"] + 1
-        self.clock_period = 1 / (self.sampling_frequency * self.cycles)
-        self.redundancy = self.cycles - self.params["resolution"]
-        self.diff_input_voltage_range = 2 * (
-            self.dac.params["positive_reference_voltage"] - self.dac.params["negative_reference_voltage"]
-        )
-        self.lsb_size = self.diff_input_voltage_range / self.dac.weights_sum
-        self.midscale = 2 ** (self.params["resolution"] - 1)
-        self.dnl = 0
-        self.inl = 0
-        self.enob = 0
-        self.average_conversion_energy = 0
-
-    def print_parameter_list(self):
-        # b = "\033[1m"
-        # n = "\033[0m"
-        parameters = ""
-        parameters += "Design parameters\n"
-        parameters += f" Resolution   {self.params['resolution']}\n"
-        parameters += f" Sample freq. {self.sampling_frequency / 1.0e6:.0f} Msps\n"
-        parameters += f" LSB size     {self.lsb_size / 1.0e-3:.3f} mV\n"
-        parameters += f" Redundancy   {self.redundancy}\n"
-        if not self.dac.params["use_individual_weights"]:
-            parameters += f" DAC radix    {self.dac.params['radix']:.1f}\n"
-        parameters += f" DAC capacitor array size  {self.dac.params['array_size']}\n"
-        parameters += f" DAC unit capacitance      {self.dac.params['unit_capacitance'] / 1e-15:.1f} fF\n"
-        parameters += f" DAC parasitic capacitance {self.dac.params['parasitic_capacitance'] / 1e-15:.1f} fF\n"
-        parameters += f" DAC total capacitance     {self.dac.capacitance_sum_p / 1e-12:.2f} pF\n"
-        # TBD
-        # if self.dac.use_systematic_errors:
-        #   parameters += f" DAC systematic error {self.dac.settling_time_error:.2e}\n"
-        parameters += f" DAC settling error        {self.dac.settling_time_error:.2e}\n"
-        parameters += f" Comparator noise          {self.comparator.params['threshold_voltage_noise']:.2e}\n"
-        parameters += f" Comparator offset         {self.params['comparator.offset_voltage']:.2e}\n"
-        parameters += f" Reference noise           {self.dac.params['reference_voltage_noise']:.2e}\n"
-        parameters += "Performance\n"
-        parameters += f" DNL   {self.dnl:.2f}\n"
-        parameters += f" INL   {self.inl:.2f}\n"
-        parameters += f" ENOB  {self.enob:.2f}\n"
-        parameters += f" FOM   {self.average_conversion_energy / self.params['resolution'] / 1e-12:.2e} pJ\n"
-        return parameters
-
-    # This function calculates the output value (i.e. 're-analog') from the array of comp outputs
-    def calculate_result(self, comp_result, do_normalize_result=True):
-        """
-        Like the other functions starting with calculate_*, this function is non-physical
-        in the sense that it just analyzes the data produced by the physical ADC hardware modeled by the other code.
-
-        ``comp_result`` is B0..B16. B0..B15 carry the C0..C15
-        capacitor weights and B16 is the terminal unit-weight decision.
-        """
-
-        # initialize result
-        result = 0
-
-        # accumulate weights to calculate the result
-        for i in range(self.cycles - 1):
-            if self.params["use_calibration"]:
-                # Use real capacitor values available after (perfect) calibration
-                # In the real world, we would try to find these values but it would be an impefect process
-                result += (2 * comp_result[i] - 1) * self.dac.capacitor_array_p[i] / self.dac.params["unit_capacitance"]
-            else:
-                # use ideal weights, ignoring the mismatch error of the real capacitors
-                result += (2 * comp_result[i] - 1) * self.dac.weights_array[i]
-
-            # DEBUGGING ONLY: note this print statement is too slow in a loop:
-            # print('comp_result ', comp_result[i], ' weight ', self.dac.weights_array[i], ' result ', result)
-
-        # add final comparison result
-        result += comp_result[self.cycles - 1]
-
-        # # alternative calculation (binary weighted capacitors only)
-        # result += comp_result[0] * 2 * self.dac.weights_array[0]
-        # result -= 2 * self.dac.weights_array[0] - 1
-        # for i in range(1, self.cycles):
-        #   # use ideal weights, ignoring the mismatch error of the real capacitors
-        #   result += comp_result[i] * self.dac.weights_array[i-1]
-        #   #print('comp_result ', comp_result[i], ' weight ', self.dac.weights_array[i-1], ' result ', result)
-
-        if do_normalize_result:
-            # correct for scaling factor with sub-binary weighted capacitors or multiple redundant conversions
-            result *= (2 ** (self.params["resolution"] - 1) - 1) / (self.dac.weights_sum)  # ???
-            result = int(np.round(result))
-        return result
-
-    @mpl.rc_context(PLOT_STYLE)
-    def calculate_nonlinearity(self, do_plot=False, values_per_bin=10):
-        """
-        This function current has issues:
-        - The max and min code aren't accounting for the case of non-binary
-        - The number of codes...
-        """
-        # values_per_bin is now passed as parameter
-        lower_excluded_bins = 4  # lower bound for DNL/INL calculation in LSB
-        upper_excluded_bins = 4  # upper bound for DNL/INL calculation in LSB distance from full scale
-
-        # helper variables
-        min_code = -(
-            2 ** (self.params["resolution"] - 1)
-        )  # FIXME: I thought this was wrong for binary, but now I realized it's right as long as it's re-analog codes
-        max_code = (
-            2 ** (self.params["resolution"] - 1) - 1  # FIXME: see above
-        )
-        num_codes = 2 ** self.params["resolution"]  # FIXME: see above
-        lower_index_boundary = lower_excluded_bins
-        upper_index_boundary = num_codes - upper_excluded_bins
-
-        # data structures for DNL/INL calculation
-        adc_data = np.empty(num_codes * values_per_bin)
-
-        # values are uniformly distributed within bin uniformly
-        input_voltage_data = np.arange(
-            -self.diff_input_voltage_range / 2,
-            self.diff_input_voltage_range / 2,
-            self.lsb_size / values_per_bin,
-        )
-
-        # do the conversions, assuming input codes have uniform density
-        for i in range(len(input_voltage_data)):
-            adc_data[i] = self.sample_and_convert(input_voltage_data[i] / 2.0, -input_voltage_data[i] / 2.0)
-
-        # ADC data array - results now in structured output
-
-        # calculate code density histogram
-        code_density_hist, bin_edges = np.histogram(adc_data, bins=num_codes, range=(min_code, max_code))
-        code_density_hist = code_density_hist[lower_index_boundary:upper_index_boundary]
-        bin_edges = bin_edges[lower_index_boundary:upper_index_boundary]
-        average_bin_count = calc.average(code_density_hist)
-
-        # calculate differential nonlinearity, difference between expected ideal counts in a bit and 'measured' (ideally would be zero)
-        dnl_data = calc.dnl(code_density_hist, ideal_count=average_bin_count)
-        dnl_data[:lower_index_boundary] = 0
-        dnl_data[upper_index_boundary:] = 0
-        dnl_sigma = calc.stddev(dnl_data)
-
-        # calculate integral(i.e. cumsum) nonlinearity
-        inl_data = calc.inl(dnl_data, endpoint_correct=False)
-        inl_sigma = calc.stddev(inl_data)
-        self.dnl = dnl_sigma
-        self.inl = inl_sigma
-        # DNL/INL results now reported in structured output
-
-        if do_plot:
-            x_ticks = range(min_code, max_code + 10, 2 ** (self.params["resolution"] - 3))
-            plot_title = "ADC Nonlinearity"
-            figure, plot = plt.subplots(4, 1, sharex=True)
-            figure.set_size_inches(9.6, 10.8)
-            # figure.tight_layout()
-            # figure.suptitle(plot_title)
-            plot[0].title.set_text("ADC Transfer Function")
-            plot[0].step(adc_data, input_voltage_data, where="pre")
-            plot[0].set_xticks(x_ticks)
-            plot[0].set_ylabel("Input voltage [V]")
-            style_grid(plot[0])
-            plot[1].title.set_text("Code Density")
-
-            plot[1].step(
-                bin_edges,
-                code_density_hist,
-                where="pre",
-                label=f"Ideal bin count = {values_per_bin:d}",
-            )
-            plot[1].set_xticks(x_ticks)
-            plot[1].set_ylabel("Counts per ADC code")
-            plot[1].legend(loc="upper right")
-            style_grid(plot[1])
-            plot[2].title.set_text("Differential Nonlinearity")
-
-            plot[2].step(bin_edges, dnl_data, where="post", label=f"DNL sigma = {dnl_sigma:.3f}")
-            plot[2].set_ylim(-2, 2)
-            plot[2].set_ylabel("DNL [LSB]")
-            plot[2].legend(loc="upper right")
-            style_grid(plot[2])
-            plot[3].title.set_text("Integral Nonlinearity")
-            plot[3].step(bin_edges, inl_data, where="post", label=f"INL sigma = {inl_sigma:.3f}")
-            plot[3].set_ylim(-2, 2)
-            plot[3].set_ylabel("INL [LSB]")
-            plot[3].legend(loc="upper right")
-            plot[3].set_xlabel("ADC code")
-            style_grid(plot[3])
-
-            return figure, plot
-
-    @mpl.rc_context(PLOT_STYLE)
-    def calculate_enob(self, do_plot=False, num_samples=1000):
-        # return (snr - 1.76)/6.02
-        frequency = 10e3
-        amplitude = 0.55
-        offset = 0
-        # num_samples is now passed as parameter
-        adc_gain = (
-            self.diff_input_voltage_range / 2 / 2 ** self.params["resolution"]
-        )  # FIXME: shouldn't this depend on parasitics. Does this really just depend on Cunit?
-        adc_offset = 0
-
-        # For 100 ns sampling times, this gives 1 ms of capture.
-        time_array = np.arange(0, num_samples / self.sampling_frequency, 1 / self.sampling_frequency)
-        input_voltage_array = np.empty(len(time_array))
-        adc_data_array = np.empty(len(time_array))
-
-        # sample sine wave
-        for i in range(len(time_array)):  # Q: So one cycle of the sine wave?
-            input_voltage = offset + amplitude * np.sin(2 * np.pi * frequency * time_array[i])
-            input_voltage_array[i] = input_voltage
-            adc_data_array[i] = self.sample_and_convert(input_voltage, -input_voltage)
-
-        # calculate residuals which represent the noise (in LSB)
-        # Q: Assumes an ideal binary ADCs, so just ideal quantization noise.
-        residual_array = input_voltage_array / adc_gain + adc_offset - adc_data_array
-        # noise floor RMS
-        noise_std = calc.stddev(residual_array)
-        noise_percent = noise_std / 2 ** self.params["resolution"] * 100
-        # ENOB (ideal resolution minus noise gives effective resolution)
-        self.enob = self.params["resolution"] - np.log10(noise_std * np.sqrt(12))  # log10 is Decibels,
-        # ENOB result now reported in structured output
-
-        if do_plot:
-            plot_title = "ENOB Calculation"
-            figure, ax = plt.subplots(2, 1, sharex=True)
-            figure.suptitle(plot_title)
-            # Disabled to fit in the redundancy chart on the dashboard view
-            # plot adc data
-            # ax[0].plot(time_array, input_voltage_array, label="Input voltage")
-            # ax[0].legend(loc="upper right")
-            ax[0].stairs(
-                adc_data_array[: len(time_array) - 1],
-                time_array,
-                baseline=False,
-                label="ADC code",
-            )
-            ax[0].legend(loc="upper right")
-            style_grid(ax[0])
-            ax[1].plot(
-                time_array,
-                residual_array,
-                label=f"Residuals [LSB]\n Noise std = {noise_std:.3f}\n ENOB = {self.enob:.2f}",
-            )
-            ax[1].legend(loc="upper right")
-            style_grid(ax[1])
-            ax[1].set_ylim(-6, 6)
-            return figure, ax
-
-    @mpl.rc_context(PLOT_STYLE)
-    def calculate_conversion_energy(self, do_plot=False, samples_per_bin=1):
-        # samples_per_bin is now passed as parameter
-        common_mode_input_voltage = 0.0
-        input_voltage_data = np.arange(
-            -self.diff_input_voltage_range / 2,
-            self.diff_input_voltage_range / 2,
-            self.lsb_size / samples_per_bin,
-        )
-        conversion_energy_array = np.empty(len(input_voltage_data))
-        adc_data = np.empty(2 ** self.params["resolution"] * samples_per_bin)
-        conversion_energy_average = 0
-
-        for i in range(len(input_voltage_data)):
-            adc_data[i] = self.sample_and_convert(
-                input_voltage_data[i] / 2 + common_mode_input_voltage,
-                -input_voltage_data[i] / 2 + common_mode_input_voltage,
-                do_calculate_energy=True,
-            )
-            # This is the core of the algorithm. At every input voltage, it records the energy used
-            # Inside sample_and_convert: reset() is run one, and update()
-            conversion_energy_array[i] = self.conversion_energy
-        conversion_energy_average = calc.average(conversion_energy_array)
-
-        self.fom = conversion_energy_average / self.params["resolution"]
-        self.average_conversion_energy = conversion_energy_average
-        # Conversion energy and FOM results now reported in structured output
-
-        if do_plot:
-            figure, ax = plt.subplots(2, 1, sharex=True)
-            # figure.subplots_adjust(bottom=0.5)
-            y_ticks = range(
-                -(2 ** (self.params["resolution"] - 1)),
-                2 ** (self.params["resolution"] - 1) + 1,
-                2 ** (self.params["resolution"] - 3),
-            )
-            # figure.tight_layout()
-            # figure.suptitle('ADC Transfer Function')
-            ax[0].title.set_text("ADC Transfer Function")
-            ax[0].step(input_voltage_data, adc_data)
-            ax[0].set_ylabel("ADC code")
-            ax[0].set_yticks(y_ticks)
-            style_grid(ax[0])
-            # plot[0].legend()
-            ax[1].title.set_text("Conversion energy")
-            ax[1].step(
-                input_voltage_data,
-                conversion_energy_array * 1e12,
-                label="Conversion energy\n average = %.3f pJ" % (conversion_energy_average * 1e12),
-            )
-            ax[1].set_ylabel("Energy [pJ]")
-            ax[1].set_xlabel("Diff. input voltage [V]")
-            style_grid(ax[1])
-            ax[1].legend(loc="upper right")
-            return figure, ax
-
-    @staticmethod
-    def calculate_redundancy(weights):
-        """Return each SAR stage's correction margin as a percentage.
-
-        Weights are in conversion order; the final stage has no later correction.
-        """
-        values = np.asarray(weights, dtype=float)
-        if values.ndim != 1 or len(values) < 2 or not np.all(np.isfinite(values)) or np.any(values <= 0):
-            raise ValueError("expected at least two finite, positive SAR weights in conversion order")
-        remaining = np.cumsum(values[::-1])[::-1]
-        return (remaining[1:] - values[:-1]) / remaining[:-1] * 100
-
-    def ideal_conversion(
-        self, input_voltage_p, input_voltage_n
-    ):  # FIXME: This isn't implemented for non-binary! It's coloring the chart RED!
-        # NOTE: tHI
-        # ideal conversion
-        ideal_adc_code = int(np.round((input_voltage_p - input_voltage_n) / self.lsb_size - 0.5))
-        # invert MSB: this CDAC switching scheme uses MSB = 1 to indicate positive input voltage
-        ideal_adc_code ^= 2 ** (self.params["resolution"] - 1)
-
-        return ideal_adc_code
-
-    @mpl.rc_context(PLOT_STYLE)
-    def plot_transfer_function(self):
-        samples_per_bin = 10  # Default value, can be overridden in function call
-        common_mode_input_voltage = 0.6
-        input_voltage_data = np.arange(
-            -self.diff_input_voltage_range / 2,
-            self.diff_input_voltage_range / 2,
-            self.lsb_size / samples_per_bin,
-        )
-        input_voltage_data_lsb = np.empty(len(input_voltage_data))
-        adc_data = np.empty(2 ** self.params["resolution"] * samples_per_bin)
-        for i in range(len(input_voltage_data)):
-            adc_data[i] = self.sample_and_convert(
-                input_voltage_data[i] / 2 + common_mode_input_voltage,
-                -input_voltage_data[i] / 2 + common_mode_input_voltage,
-            )
-            # adc_data[i] = self.ideal_conversion(input_voltage_data[i]/2, -input_voltage_data[i]/2)
-            # input_voltage_data_lsb[i] = self.ideal_conversion(input_voltage_data[i]/2, -input_voltage_data[i]/2)
-
-        input_voltage_data_lsb = input_voltage_data / self.lsb_size + 0.5
-
-        figure, ax = plt.subplots(2, 1, sharex=True)
-        # y_ticks = range(0, 2**self.params['resolution']+10, 2**(self.params['resolution']-2))
-        # y_ticks = range(-2**(self.params['resolution']-1), 2**(self.params['resolution']-1)+1, 2**(self.params['resolution']-2))
-        figure.suptitle("ADC Transfer Function")
-        ax[0].step(input_voltage_data, adc_data, label="ADC transfer function")
-        ax[0].plot(
-            input_voltage_data,
-            input_voltage_data_lsb,
-            "--",
-            color=NORD_RED,
-            label="Ideal transfer function",
-        )
-        ax[0].set_ylabel("ADC code")
-        # plot[0].set_yticks(y_ticks)
-        style_grid(ax[0])
-        ax[0].legend(loc="upper right")
-        ax[1].set_xlabel("Diff. input voltage [V]")
-        ax[1].step(input_voltage_data, adc_data - input_voltage_data_lsb, label="Residuals")
-        ax[1].set_ylabel("Error [LSB]")
-        style_grid(ax[1])
-        ax[1].legend(loc="upper right")
-
-    def compile_results(
-        self,
-        builddir=None,
-        testcase="default",
-        values_per_bin=10,
-        num_samples=1000,
-        samples_per_bin=1,
-    ):
-        # Create results directory if not specified
-        if builddir is None:
-            # TODO: Change the default to build/adc_behavioral/<short-datetime>.
-            builddir = os.path.join(os.getcwd(), "results")
-
-        # Ensure builddir exists
-        os.makedirs(builddir, exist_ok=True)
-
-        # Ensure builddir ends with /
-        if not builddir.endswith("/"):
-            builddir += "/"
-
-        # Create unified output function
-        markdown_lines = []
-
-        def output_both(text, markdown_only=False):
-            """Output text to both STDOUT and markdown report"""
-            if not markdown_only:
-                print(text)
-            markdown_lines.append(text)
-
-        # Helper function to format aligned tables for terminal
-        def format_table_row(col1, col2, col3, col1_width=35, col2_width=15, col3_width=8):
-            """Format a table row with proper spacing for terminal alignment"""
-            return f"| {col1:<{col1_width}} | {col2:<{col2_width}} | {col3:<{col3_width}} |"
-
-        # Header information (markdown-only for report, plain for terminal)
-        output_both("# SAR ADC Analysis Report: " + testcase, markdown_only=True)
-        output_both("", markdown_only=True)
-        output_both("## System Configuration", markdown_only=True)
-        output_both("", markdown_only=True)
-        output_both("| Parameter | Value | Unit |", markdown_only=True)
-        output_both("|-----------|--------|------|", markdown_only=True)
-        output_both("Simulation Type: Behavioral Model Only", markdown_only=True)
-        output_both("", markdown_only=True)
-
-        # Terminal header
-        print(f"SAR ADC Analysis Report: {testcase}")
-        print("=" * 60)
-        print()
-
-        # System parameters with aligned formatting
-        print("System Configuration:")
-        print("-" * 60)
-        print(format_table_row("Parameter", "Value", "Unit"))
-        print(format_table_row("-" * 35, "-" * 15, "-" * 8))
-
-        # Collect all parameters including the scattered ones
-        params_data = [
-            ("Simulation Type", "Behavioral Model Only", ""),
-            ("Resolution", self.params["resolution"], "bits"),
-            ("Sample frequency", f"{self.sampling_frequency / 1.0e6:.3f}", "Msps"),
-            ("LSB size", f"{self.lsb_size / 1.0e-3:.3f}", "mV"),
-            ("Cycles", self.dac.params["array_size"] + 1, ""),
-            ("DAC array size", self.dac.params["array_size"], "bits"),
-            (
-                "DAC unit capacitance",
-                f"{self.dac.params['unit_capacitance'] / 1e-15:.3f}",
-                "fF",
-            ),
-            (
-                "DAC parasitic capacitance",
-                f"{self.dac.params['parasitic_capacitance'] / 1e-15:.3f}",
-                "fF",
-            ),
-            (
-                "DAC total capacitance",
-                f"{self.dac.capacitance_sum_p / 1e-12:.3f}",
-                "pF",
-            ),
-            ("DAC weights array", str(self.dac.weights_array), ""),
-            ("DAC weights sum", self.dac.weights_sum, ""),
-            ("DAC settling error", f"{self.dac.settling_time_error / 100:.2f}", "%"),
-            ("DAC switching strategy", self.dac.params["switching_strat"], ""),
-            (
-                "Comparator noise",
-                f"{self.comparator.params['threshold_voltage_noise'] * 1000:.3f}",
-                "mV",
-            ),
-            (
-                "Comparator offset",
-                f"{self.comparator.params['offset_voltage'] * 1000:.3f}",
-                "mV",
-            ),
-            (
-                "Reference positive voltage",
-                f"{self.dac.params['positive_reference_voltage']:.1f}",
-                "V",
-            ),
-            (
-                "Reference negative voltage",
-                f"{self.dac.params['negative_reference_voltage']:.1f}",
-                "V",
-            ),
-            (
-                "Reference voltage noise",
-                f"{self.dac.params['reference_voltage_noise'] * 1000:.3f}",
-                "mV",
-            ),
-        ]
-
-        # Output parameters with aligned formatting for terminal and markdown table for report
-        output_both("## System Parameters", markdown_only=True)
-        output_both("", markdown_only=True)
-        output_both("| Parameter | Value | Unit |", markdown_only=True)
-        output_both("|-----------|--------|------|", markdown_only=True)
-
-        for param, value, unit in params_data:
-            # Terminal with aligned formatting
-            print(format_table_row(param, str(value), unit))
-            # Markdown for report
-            output_both(f"| {param} | {value} | {unit} |", markdown_only=True)
-
-        print()
-        output_both("", markdown_only=True)
-
-        # Analysis execution header
-        print("Analysis Execution:")
-        print("-" * 60)
-        output_both("## Analysis Execution", markdown_only=True)
-        output_both("", markdown_only=True)
-
-        # Run analyses and collect results
-        figure, _ = self.calculate_nonlinearity(do_plot=True, values_per_bin=values_per_bin)
-        plot_path = f"{builddir}{testcase}_nonlinearity.png"
-        figure.savefig(plot_path, dpi=PNG_DPI)
-        plt.close(figure)
-
-        figure, _ = self.calculate_conversion_energy(do_plot=True, samples_per_bin=samples_per_bin)
-        plot_path2 = f"{builddir}{testcase}_energy.png"
-        figure.savefig(plot_path2, dpi=PNG_DPI)
-        plt.close(figure)
-
-        figure, _ = self.calculate_enob(do_plot=True, num_samples=num_samples)
-        plot_path3 = f"{builddir}{testcase}_enob.png"
-        figure.savefig(plot_path3, dpi=PNG_DPI)
-        plt.close(figure)
-
-        self.redundancy = self.calculate_redundancy(self.dac.weights_array).tolist()
-        (plot_path4,) = plot_adc_redundancy(self.redundancy, output_path=Path(builddir) / f"{testcase}_redundancy")
-
-        # Calculate average redundancy for scalar summary
-        avg_redundancy = (
-            sum([x for x in self.redundancy if x > 0]) / len([x for x in self.redundancy if x > 0])
-            if any(x > 0 for x in self.redundancy)
-            else 0
-        )
-
-        # Performance results with aligned formatting
-        print()
-        print("Analysis Results:")
-        print("-" * 60)
-        print(format_table_row("Parameter", "Value", "Unit"))
-        print(format_table_row("-" * 35, "-" * 15, "-" * 8))
-
-        results_data = [
-            ("DNL", f"{self.dnl:.3f}", "LSB"),
-            ("INL", f"{self.inl:.3f}", "LSB"),
-            ("ENOB", f"{self.enob:.2f}", "bits"),
-            ("Conversion Energy", f"{self.average_conversion_energy * 1e12:.3f}", "pJ"),
-            (
-                "FOM (energy/conversion)",
-                f"{self.average_conversion_energy / self.params['resolution'] / 1e-12:.2f}",
-                "pJ",
-            ),
-            ("Average Error Tolerance", f"{avg_redundancy:.1f}", "%"),
-        ]
-
-        # Terminal output
-        for param, value, unit in results_data:
-            print(format_table_row(param, value, unit))
-
-        # Plot generation summary for terminal
-        print()
-        print("Generated Plots:")
-        print("-" * 60)
-        print(f"Nonlinearity analysis: {plot_path}")
-        print(f"Energy analysis: {plot_path2}")
-        print(f"ENOB analysis: {plot_path3}")
-        print(f"Redundancy analysis: {plot_path4}")
-        print()
-
-        # Markdown-only sections for report
-        output_both(f"Generated nonlinearity plot: {plot_path}", markdown_only=True)
-        output_both(f"Generated energy analysis plot: {plot_path2}", markdown_only=True)
-        output_both(f"Generated ENOB analysis plot: {plot_path3}", markdown_only=True)
-        output_both(f"Generated redundancy analysis plot: {plot_path4}", markdown_only=True)
-        output_both("", markdown_only=True)
-
-        output_both("## Performance Results", markdown_only=True)
-        output_both("", markdown_only=True)
-        output_both("| Parameter | Value | Unit |", markdown_only=True)
-        output_both("|-----------|--------|------|", markdown_only=True)
-
-        for param, value, unit in results_data:
-            output_both(f"| {param} | {value} | {unit} |", markdown_only=True)
-
-        output_both("", markdown_only=True)
-
-        # Analysis plots section for markdown
-        output_both("## Analysis Plots", markdown_only=True)
-        output_both("", markdown_only=True)
-        output_both("### Nonlinearity Analysis", markdown_only=True)
-        output_both(f"![Nonlinearity Analysis]({testcase}_nonlinearity.png)", markdown_only=True)
-        output_both("", markdown_only=True)
-        output_both("### Energy Analysis", markdown_only=True)
-        output_both(f"![Energy Analysis]({testcase}_energy.png)", markdown_only=True)
-        output_both("", markdown_only=True)
-        output_both("### ENOB Analysis", markdown_only=True)
-        output_both(f"![ENOB Analysis]({testcase}_enob.png)", markdown_only=True)
-        output_both("", markdown_only=True)
-        output_both("### Redundancy Analysis", markdown_only=True)
-        output_both(f"[Redundancy Analysis]({plot_path4.name})", markdown_only=True)
-        output_both("", markdown_only=True)
-        output_both("---", markdown_only=True)
-        output_both("*Generated by SAR ADC Behavioral Model*", markdown_only=True)
-
-        # Write markdown file
-        markdown_file = f"{builddir}{testcase}_report.md"
-        with open(markdown_file, "w") as f:
-            f.write("\n".join(markdown_lines))
-
-        output_both(f"Report saved to: {markdown_file}")
-        return markdown_file
-
-    def sample_and_convert(
-        self,
-        input_voltage_p,
-        input_voltage_n,
-        do_calculate_energy=False,
-        do_plot=False,
-        do_normalize_result=True,
-    ):
-        """
-        Perform a sample and conversion using switching of differential CDAC.
-        Currently supports BSS and monotonic strategies. Assumes that:
-            1. The CDAC is front side sampling, and back side switching
-            2. The backside switches can only choose between two potentials
-            3. There is one cap per switch, and vice versa.
-        """
-
-        # init arrays with DAC output voltages and comparator results
-        dac_out_p = np.empty(self.dac.params["array_size"] + 1, dtype="float64")
-        dac_out_n = np.empty(self.dac.params["array_size"] + 1, dtype="float64")
-        self.comp_result = []
-        self.conversion_energy = 0
-        total_consumed_charge = 0
-        # for annotation
-        ideal_comp_result = []
-
-        # init DAC register
-        # NOTE: This essentially sets the switching strategy, but only covers cases where:
-        #   - The CDAC is front side sampling, and back side switching
-        #   - The backside switches can only choose between two potentials
-        #   - There is one cap per switch, and
-
-        allowed_switching_strats = {
-            "monotonic",
-            "bss",
-        }  # FIXME: janky data validation. Do it better
-
-        if self.dac.params["switching_strat"] == "monotonic":
-            reset_value = 2 ** self.dac.params["array_size"] - 1  # all 1's, so monotonic switching
-
-        elif self.dac.params["switching_strat"] == "bss":
-            reset_value = (
-                2 ** (self.dac.params["array_size"] - 1) - 1
-            )  # mid-scale, so BSS bidirectional single side switching
-
-        else:
-            raise ValueError(f"switching_strat wasn't one of the allowed values: {allowed_switching_strats}")
-
-        del allowed_switching_strats  # python doesn't need cleanup, but do it anyways?
-
-        # reset_value = 0  # all 0's
-        # reset_value = 0xff
-        self.dac.reset(reset_value=reset_value, do_calculate_energy=do_calculate_energy)
-        # total_consumed_charge += self.dac.consumed_charge
-
-        # get initial DAC register setting
-        temp_register_p = self.dac.register_p
-        temp_register_n = self.dac.register_n
-
-        # sample input voltage and append voltages to array
-        self.dac.sample(input_voltage_p, input_voltage_n)
-
-        # store first DAC output voltage set for plotting
-        dac_out_p[0] = self.dac.output_voltage_p
-        dac_out_n[0] = self.dac.output_voltage_n
-
-        # B0 is the initial comparison used to update the largest stage C0.
-        self.comp_result.append(
-            1 if self.comparator.compare(self.dac.output_voltage_p, self.dac.output_voltage_n) else 0
-        )
-
-        for stage in range(self.dac.params["array_size"]):  # C0-first SAR loop
-            packed_bit = self.dac.params["array_size"] - stage - 1
-            # update DAC register depending on the previous conversion
-            if reset_value & 1 << packed_bit == 0:  # switch direction follows this stage's reset state
-                if self.comp_result[stage] == 1:
-                    temp_register_n += 1 << packed_bit
-                else:
-                    temp_register_p += 1 << packed_bit
-
-            else:  # all other bits
-                if self.comp_result[stage] == 1:
-                    temp_register_p -= 1 << packed_bit
-                else:
-                    temp_register_n -= 1 << packed_bit
-
-            # update DAC output voltage by one bit and append to array, return values include noise and settling error
-            temp_dac_output_p, temp_dac_output_n = self.dac.update(
-                temp_register_p,
-                temp_register_n,
-                do_calculate_energy=do_calculate_energy,
-            )
-            # consumed charge is added up here. Note that only one cap position is examined per iteration of this loop (non-physical)
-            total_consumed_charge += self.dac.consumed_charge
-            dac_out_p[stage + 1] = temp_dac_output_p
-            dac_out_n[stage + 1] = temp_dac_output_n
-            # print('  conversion %2d, reg_p %s, reg_n %s, dac_out_p %f, dac_out_n %f' % (i+1, format(self.dac.register_p, '#014b'), format(self.dac.register_n, '#014b'), self.dac.output_voltage_p, self.dac.output_voltage_n))
-
-            # compare
-            if self.comparator.compare(temp_dac_output_p, temp_dac_output_n):  # comparator output = 1
-                self.comp_result.append(1)
-            else:  # comparator output = 0
-                self.comp_result.append(0)
-
-        # calculate result
-        result = self.calculate_result(self.comp_result, do_normalize_result)
-
-        # TODO: Check the expression below (which is essentially C*V*V)
-        self.conversion_energy = total_consumed_charge * (
-            self.dac.params["positive_reference_voltage"] - self.dac.params["negative_reference_voltage"]
-        )
-
-        # print('conversion energy %e [pJ]' % (self.conversion_energy * 1e12))
-
-        if do_plot:
-            # calculate error free conversion for annotation
-            ideal_adc_code = self.ideal_conversion(input_voltage_p, input_voltage_n)
-            # convert ideal code to array with comparison results
-            for i in range(self.cycles):
-                ideal_comp_result.append(1 if ideal_adc_code & (1 << (self.cycles - i - 1)) else 0)
-            # use calculate_result() to get the ideal result from the ideal comparison results
-            ideal_result = self.calculate_result(
-                ideal_comp_result
-            )  # FIXME: Based on binary only model. Also this variable isn't used?'
-
-            with mpl.rc_context(PLOT_STYLE):
-                figure, plot = plt.subplots(1, 1)
-                # "Diff input voltage [%.3f, %.3f] \nADC code = %s \nIdeal code = %s "
-                # % (input_voltage_p, input_voltage_n, result, ideal_result)
-                legend_title = f"Diff input voltage [{input_voltage_p:.3f}, {input_voltage_n:.3f}] \nADC code = {result:.2f}"  # FIXME: Disable ideal result being added, as it's based on binary only model.
-                figure.suptitle("SAR Conversion")
-                plot.stairs(dac_out_p, range(self.cycles + 1), baseline=False, label="p-side")
-                plot.stairs(dac_out_n, range(self.cycles + 1), baseline=False, label="n-side")
-                plot.set_ylabel("DAC Output Voltage [V]")
-                plot.set_ylim(-1.5, 1.5)
-                plot.set_xticks(range(0, self.cycles + 1, 1))
-                plot.set_xlabel("Conversion Cycle")
-                plot.legend(title=legend_title)
-                style_grid(plot)
-                for i in range(self.cycles):
-                    color = (
-                        # "red" if self.comp_result[i] != ideal_comp_result[i] else "black"
-                        "black"  # FIXME: The ideal comp result is based on binary-only code. FIX this!
-                    )
-                    plot.annotate(self.comp_result[i], xy=(i + 0.5, 0), ha="center", color=color)
-
-        return result
+            after[side][:] = np.asarray(getattr(tb, f"dac_bstate_{side}"), dtype=np.int64)
+    return after
+
+
+def cdac(
+    params: CdacBehavioralParams, tb: AdcTbParams, side: str, before: np.ndarray, after: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return one side's floating top-plate step, VDD_DAC charge, and bottom-plate transitions."""
+
+    main_f, diff_f = calc_side_capacitances(params, tb, side)
+    vref_v = float(tb.vdd_dac.dc)
+    diffcaps = int(tb.dac_diffcaps)
+    total_f = np.sum(main_f) + np.sum(diff_f) + params.parasitic_f
+    main_step = vref_v * (after - before)
+    diff_after = after ^ diffcaps
+    diff_step = vref_v * (diff_after - (before ^ diffcaps))
+    top_step = (main_step @ main_f + diff_step @ diff_f) / total_f
+    charge = (after * (main_step - top_step[:, None])) @ main_f + (
+        diff_after * (diff_step - top_step[:, None])
+    ) @ diff_f
+    transitions = 2 * np.sum(after != before, axis=1)
+    return top_step, charge, transitions
+
+
+def calc_side_capacitances(params: CdacBehavioralParams, tb: AdcTbParams, side: str) -> tuple[np.ndarray, np.ndarray]:
+    """Return one side's main and diff capacitances, ideal where not given."""
+
+    ideal_main_f, ideal_diff_f = calc_ideal_capacitances(tb.dut.cdac)
+    main = getattr(params, f"main_{side}_f")
+    diff = getattr(params, f"diff_{side}_f")
+    return (
+        ideal_main_f if main is None else np.asarray(main),
+        ideal_diff_f if diff is None else np.asarray(diff),
+    )
+
+
+def convert_behavioral(
+    params: AdcBehavioralParams, vin_diff_v: np.ndarray, vin_diff_slope_v_per_s: np.ndarray | None = None
+) -> BehavioralConversions:
+    """Convert one differential input per conversion, in order, through the four blocks.
+
+    ``vin_diff_slope_v_per_s`` is the input slope at each sampling instant;
+    the sampler's tracking lag needs it, and it defaults to a static input.
+    """
+
+    tb = params.tb
+    vin_diff_v = np.asarray(vin_diff_v, dtype=np.float64)
+    conversions = len(vin_diff_v)
+    stages = len(get_caparray_weights(tb.dut.cdac))
+    comp_s, logic_s = calc_sequence_times(tb, stages + 1)
+    initial = {side: np.asarray(getattr(tb, f"dac_astate_{side}"), dtype=np.int64) for side in ("p", "n")}
+    if any(len(value) != stages for value in initial.values()):
+        raise ValueError(f"A states must hold one value per capacitor ({stages})")
+    rng = np.random.default_rng(params.seed)
+    vin_cm_v = float(tb.vin_cm.dc)
+    slope = np.zeros(conversions) if vin_diff_slope_v_per_s is None else np.asarray(vin_diff_slope_v_per_s)
+    load_f = {}
+    for side in ("p", "n"):
+        main_f, diff_f = calc_side_capacitances(params.cdac, tb, side)
+        load_f[side] = float(np.sum(main_f) + np.sum(diff_f)) + params.cdac.parasitic_f
+    top = samp(
+        tb.dut.samp,
+        params.samp,
+        {"p": vin_cm_v + vin_diff_v / 2, "n": vin_cm_v - vin_diff_v / 2},
+        {"p": slope / 2, "n": -slope / 2},
+        load_f=load_f,
+        gate_v=float(tb.vdd_d.dc),
+        rng=rng,
+    )
+    sampled = {side: top[side].copy() for side in ("p", "n")}
+    state = {side: np.broadcast_to(initial[side], (conversions, stages)).copy() for side in ("p", "n")}
+    dac_charge = np.zeros(conversions)
+    transitions = np.zeros(conversions)
+    writes = np.zeros(conversions)
+    steps: list[tuple[float, np.ndarray]] = []
+    bout = np.empty((conversions, stages + 1), dtype=np.uint8)
+    for decision in range(stages + 1):
+        # Unsettled remainders of earlier updates decay with one time constant.
+        seen = top["p"] - top["n"]
+        if params.cdac.reference_noise_v:
+            # One VDD_DAC noise sample reaches each top plate through the
+            # fraction of its load whose bottom plates sit at the reference.
+            vref_noise = rng.normal(0.0, params.cdac.reference_noise_v, conversions)
+            for side, sign in (("p", 1.0), ("n", -1.0)):
+                main_f, diff_f = calc_side_capacitances(params.cdac, tb, side)
+                at_vref_f = state[side] @ main_f + (state[side] ^ int(tb.dac_diffcaps)) @ diff_f
+                seen = seen + sign * vref_noise * at_vref_f / load_f[side]
+        if params.cdac.settling_tau_s > 0:
+            for update_s, step in steps:
+                seen = seen - step * np.exp(-(comp_s[decision] - update_s) / params.cdac.settling_tau_s)
+        decided = comp(tb.dut.comp, params.comp, seen, rng, vin_cm_v=vin_cm_v)
+        bout[:, decision] = decided
+        if decision == stages:
+            break
+        after = salogic(tb, state, decision, decided)
+        differential_step = np.zeros(conversions)
+        for side in ("p", "n"):
+            top_step, charge, toggled = cdac(params.cdac, tb, side, state[side], after[side])
+            top[side] = top[side] + top_step
+            dac_charge += charge
+            transitions += toggled
+            writes += np.sum(after[side] != state[side], axis=1)
+            differential_step += top_step if side == "p" else -top_step
+        state = after
+        steps.append((logic_s[decision], differential_step))
+
+    # INIT reloads the A state with floating top plates, then SAMP forces them
+    # to the new input; both edges start from the previous conversion's end.
+    for side in ("p", "n"):
+        previous_state = np.roll(state[side], 1, axis=0)
+        init_state = np.broadcast_to(initial[side], (conversions, stages))
+        top_step, charge, toggled = cdac(params.cdac, tb, side, previous_state, init_state)
+        main_f, diff_f = calc_side_capacitances(params.cdac, tb, side)
+        at_vref_f = init_state @ main_f + (init_state ^ int(tb.dac_diffcaps)) @ diff_f
+        dac_charge += charge - at_vref_f * (sampled[side] - (np.roll(top[side], 1) + top_step))
+        transitions += toggled
+        writes += np.sum(init_state != previous_state, axis=1)
+
+    # Two registers per stage hold the P and N states and one the one-hot
+    # stage counter, whose bits each rise and fall once per conversion. Every
+    # LOGIC edge, including the INIT load, clocks all registers.
+    registers = 3 * stages
+    logic_edges = stages + 1
+    writes += 2 * stages
+    return BehavioralConversions(
+        bout=bout,
+        energy_j={
+            "vdd_a": np.full(conversions, params.comp.decision_energy_j * (stages + 1)),
+            "vdd_d": registers * logic_edges * params.salogic.clock_energy_j + writes * params.salogic.write_energy_j,
+            "vdd_dac": float(tb.vdd_dac.dc) * dac_charge + transitions * params.cdac.driver_energy_j,
+        },
+        static_power_w={
+            "vdd_a": params.comp.static_power_w,
+            "vdd_d": registers * params.salogic.register_static_w,
+            "vdd_dac": 4 * stages * params.cdac.driver_static_w,
+        },
+    )
+
+
+def build_continuous_sequence(stages: int) -> AdcSequence:
+    """Return the continuous recipe for ``stages`` capacitors: INIT 4, SAMP 20, one 8-symbol word per decision.
+
+    COMP is high for the first four symbols of each word, LOGIC for the last
+    four, and one LOGIC pulse inside INIT loads the A state. For 16 stages it
+    equals ``symbol160_init4_samp20_comp11110000_logic00001111``.
+    """
+
+    symbols = 24 + 8 * (stages + 1)
+    init = "1" * 4 + "0" * (symbols - 4)
+    samp = "0" * 4 + "1" * 20 + "0" * (symbols - 24)
+    comp = "0" * 24 + "11110000" * (stages + 1)
+    logic = "0011110000000000000000000000" + "11110000" * stages + "0000"
+    return AdcSequence(init=init, samp=samp, comp=comp, logic=logic[:symbols])

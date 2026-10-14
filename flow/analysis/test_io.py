@@ -235,3 +235,30 @@ def test_analysis_reader_rejects_measurement_files(tmp_path: Path) -> None:
     path = write_measurement(tmp_path / "measurement.h5", adc_spice())
     with pytest.raises(ValueError, match="not an analysis"):
         read_analysis(path)
+
+
+def test_extracted_calibration_reads_pex_effective_weights(tmp_path: Path) -> None:
+    from flow.analysis.io import read_extracted_calibration
+    from flow.analysis.test_adc import adc_measurement
+
+    measurement = adc_measurement([0, 1, 2], readbacks={})
+    nominal = measurement.nominal_bout_weights.astype(float)
+    effective_ff = nominal[:-1] / 2 * 0.4
+    effective_ff[3] *= 1.02
+    table = tmp_path / "capacitance_table.csv"
+    table.write_text(
+        "stage,main_ff,diff_ff,effective_ff\n"
+        + "".join(f"{stage},{value + 1},1,{value}\n" for stage, value in enumerate(effective_ff))
+    )
+
+    calibration = read_extracted_calibration(table, measurement)
+
+    assert calibration.method == "extracted"
+    assert calibration.identity == measurement.identity
+    assert np.sum(calibration.calibrated_weights) == pytest.approx(measurement.code_max)
+    ratio = calibration.calibrated_weights / (nominal * measurement.code_max / np.sum(nominal))
+    # Only stage 3 departs from the nominal capacitor ratios, by its 2 % excess;
+    # the terminal decision follows the projected scale instead.
+    assert ratio[3] / ratio[0] == pytest.approx(1.02)
+    np.testing.assert_allclose(np.delete(ratio[:-1], 3), ratio[0])
+    assert calibration.measured_weight_mask.tolist() == [True] * 16 + [False]

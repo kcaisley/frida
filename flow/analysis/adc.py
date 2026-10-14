@@ -244,13 +244,23 @@ def analyze_adc_scope_bits(measurement: MeasAdc) -> AnalysisAdcScopeBits:
 # =============================================================================
 
 
-def analyze_adc_dynamic(measurement: MeasAdc) -> AnalysisAdcDynamic:
-    """Fit one sine acquisition and calculate time- and frequency-domain metrics."""
+def analyze_adc_dynamic(
+    measurement: MeasAdc, *, calibration: AnalysisAdcCalibration | None = None
+) -> AnalysisAdcDynamic:
+    """Fit one sine acquisition and calculate time- and frequency-domain metrics.
+
+    A calibration decodes the stored BOUT decisions to rounded codes in place
+    of the stored nominal DOUT.
+    """
 
     source = measurement.tb.vin_diff
     if not isinstance(source, h.Vsin.Params) or source.freq is None or source.vamp is None:
         raise ValueError("ADC dynamic analysis requires a sine vin_diff source with freq and vamp set")
-    measured_dout = np.asarray(measurement.dout, dtype=np.float64)
+    if calibration is not None:
+        check_identity(calibration, measurement.identity, name="calibration")
+    measured_dout = np.asarray(
+        measurement.dout if calibration is None else calibration.decode_bout(measurement.bout), dtype=np.float64
+    )
     sample_count = len(measured_dout)
     sample_rate_hz = measurement.sample_rate_hz
     input_frequency_hz = float(source.freq)
@@ -637,7 +647,7 @@ def analyze_adc_ramp(
         index=identity.index,
         dut=identity.dut,
         decoding="uncalibrated_dout" if calibration is None else calibration.method,
-        label="Uncalibrated DOUT" if calibration is None else calibration.label,
+        label="Ideal weights" if calibration is None else calibration.label,
         weights=nominal_weights if calibration is None else calibration.calibrated_weights,
         sample_rate_hz=sample_rate_hz,
         period_conversions=period_conversions,
@@ -741,15 +751,26 @@ def analyze_adc_noise(measurement: MeasAdc) -> AnalysisAdcNoise:
     )
 
 
-def analyze_adc_code_spectrum(measurement: MeasAdc) -> AnalysisAdcCodeSpectrum:
+def analyze_adc_code_spectrum(
+    measurement: MeasAdc,
+    *,
+    calibration: AnalysisAdcCalibration | None = None,
+) -> AnalysisAdcCodeSpectrum:
     """Treat one fixed-input capture's output codes as a waveform sampled at the conversion rate.
 
     The Welch density of the mean-free codes separates periodic interference,
     which appears as lines (aliased into the first Nyquist zone), from the
-    broadband floor of comparator, input, and quantization noise.
+    broadband floor of comparator, input, and quantization noise. A
+    calibration decodes the stored BOUT decisions to fractional codes in place
+    of the stored DOUT.
     """
 
-    codes = measurement.dout.astype(np.float64)
+    if calibration is not None:
+        check_identity(calibration, measurement.identity, name="calibration")
+    codes = np.asarray(
+        measurement.dout if calibration is None else calibration.decode_bout(measurement.bout, rounded=False),
+        dtype=np.float64,
+    )
     if len(codes) < 4:
         raise ValueError("a code spectrum needs at least four conversions")
     mean_dout = calc.average(codes)
@@ -785,8 +806,9 @@ def analyze_adc_code_spectrum(measurement: MeasAdc) -> AnalysisAdcCodeSpectrum:
         dut=identity.dut,
         sequence=AdcSequence.from_tb_params(measurement.tb),
         symbol_rate_hz=float(measurement.tb.symbol_rate),
+        decoding="uncalibrated_dout" if calibration is None else calibration.method,
         sample_rate_hz=measurement.sample_rate_hz,
-        input_lsb_v=float(measurement.tb.vdd_dac.dc) / measurement.code_max,
+        input_lsb_v=measurement.input_lsb_v,
         mean_dout=mean_dout,
         frequency_hz=frequency_hz,
         psd_lsb2_per_hz=psd,
