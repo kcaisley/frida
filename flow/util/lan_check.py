@@ -4,7 +4,7 @@ Verifies that the host network interface is configured and that
 all devices on the DAQ LAN (FPGA, oscilloscope) are reachable.
 
 Usage (from repo root):
-    uv run python flow/util/network.py
+    uv run python flow/util/lan_check.py
 
 Network layout (192.168.10.0/24 on enp3s0):
     .1   — host (asiclab003)

@@ -93,7 +93,7 @@ known-first-party = ["flow", "pdk"]
 
 [tool.pytest.ini_options]
 testpaths = ["flow", "pdk", "test"]
-python_files = ["test_*.py", "test.py", "serialize.py", "layout.py"]
+python_files = ["test_*.py", "test.py", "layout.py"]
 addopts = "-m 'not hw and not site_pdk and not spectre'"
 markers = [
     "spectre: opt-in short Spectre diagnostics using actual simulation targets",

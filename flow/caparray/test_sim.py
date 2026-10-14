@@ -52,7 +52,7 @@ def test_runner_uses_passive_array_without_standard_cells(monkeypatch, tmp_path,
         ),
     )
     monkeypatch.setitem(sys.modules, "pdk.tsmc65", SimpleNamespace(site=site, pdk_logic=object()))
-    monkeypatch.setitem(sys.modules, "pdk.tsmc65.site", site)
+    monkeypatch.setitem(sys.modules, "pdk.tsmc65.hdl21", SimpleNamespace(site=site))
     monkeypatch.setattr(h.pdk, "set_default", lambda *_: None)
     monkeypatch.setattr(h.pdk, "compile", lambda *_: None)
     captured = {}

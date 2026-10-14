@@ -2,14 +2,12 @@
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import hdl21 as h
 import pytest
 from hdl21.prefix import f
 from klayout import db
-
-from flow.layout.dsl import GenericLayers
-from flow.layout.tech import EndOfLineRule, NewRuleDeck, ParallelSpacingRule, ViaEnclosureRule
 
 from .laygen import (
     CapArrayLayout,
@@ -31,55 +29,33 @@ from .subckt import (
 )
 
 
-def _rules(*, pitch: int = 200, eol_threshold: int = 120) -> NewRuleDeck:
-    rules = NewRuleDeck(manufacturing_grid=5)
-    for metal_number in range(3, 8):
-        metal = getattr(rules, f"M{metal_number}")
-        metal.width = 100
-        metal.pitch = pitch
-        setattr(metal.spacing, f"M{metal_number}", 100)
-        metal.area = 52_000
-        metal.enclosed_area = 200_000
-        metal.max_density = 0.90
-        metal.parallel_spacing.append(ParallelSpacingRule(spacing=120, min_width=200, min_parallel_run_length=380))
-        metal.end_of_line.append(EndOfLineRule(spacing=120, max_edge_length=eol_threshold, extension=35))
-    for via_number in range(3, 7):
-        via = getattr(rules, f"VIA{via_number}")
-        via.width = 100
-        via.cut_width = 100
-        via.cut_height = 100
-        setattr(via.spacing, f"VIA{via_number}", 100)
-        via.via_enclosure = ViaEnclosureRule(opposite=40, minimum=0, all_sides=30)
-    return rules
-
-
-class _SyntheticPdkLayout:
-    DBU = 0.0005
-    PDK_NAME = "synthetic"
-
-    @staticmethod
-    def rule_deck() -> NewRuleDeck:
-        return _rules()
-
-    @staticmethod
-    def layer_map() -> dict[db.LayerInfo, db.LayerInfo]:
-        generic = GenericLayers()
-        mapping = {
-            generic.MOM_RECOG: db.LayerInfo(155, 100, "MOM_RECOG"),
-            generic.MOM_RECOG_SHIELD: db.LayerInfo(155, 104, "MOM_RECOG_SHIELD"),
-            generic.MOM_RECOG_M5: db.LayerInfo(155, 105, "MOM_RECOG_M5"),
-            generic.MOM_RECOG_M6: db.LayerInfo(155, 106, "MOM_RECOG_M6"),
-            generic.MOM_RECOG_M7: db.LayerInfo(155, 107, "MOM_RECOG_M7"),
-            generic.MOM_RECOG_INNER: db.LayerInfo(155, 120, "MOM_RECOG_INNER"),
-            generic.PR_BOUNDARY: db.LayerInfo(189, 0, "PR_BOUNDARY"),
-        }
-        for metal_number in range(3, 8):
-            layer_number = 5 + 2 * metal_number
-            mapping[getattr(generic, f"M{metal_number}")] = db.LayerInfo(layer_number, 0, f"METAL{metal_number}")
-            mapping[getattr(generic, f"PIN{metal_number}")] = db.LayerInfo(layer_number, 1, f"M{metal_number}.PIN")
-        for via_number in range(3, 7):
-            mapping[getattr(generic, f"VIA{via_number}")] = db.LayerInfo(6 + 2 * via_number, 0, f"VIA{via_number}")
-        return mapping
+def _rules(*, pitch: int = 200, eol_threshold: int = 120) -> SimpleNamespace:
+    """A synthetic PDK ``tech`` module: metal and via rules on M3-M7."""
+    metal = {
+        "width": 100,
+        "space": 100,
+        "pitch": pitch,
+        "area": 52_000,
+        "enclosed_area": 200_000,
+        "max_density": 0.90,
+        "parallel_space": ((120, 200, 380),),
+        "end_of_line": ((120, eol_threshold, 35),),
+    }
+    via = {"cut": 100, "space": 100, "enclosure": (40, 0, 30)}
+    rules = {**{f"M{n}": dict(metal) for n in range(3, 8)}, **{f"V{n}": dict(via) for n in range(3, 7)}}
+    layers = {
+        "MOM_RECOG": (250, 100),
+        "MOM_RECOG_SHIELD": (250, 104),
+        "MOM_RECOG_M5": (250, 105),
+        "MOM_RECOG_M6": (250, 106),
+        "MOM_RECOG_M7": (250, 107),
+        "MOM_RECOG_INNER": (250, 120),
+        "BND": (189, 0),
+        **{f"M{n}": (5 + 2 * n, 0) for n in range(3, 8)},
+        **{f"M{n}.PIN": (5 + 2 * n, 1) for n in range(3, 8)},
+        **{f"V{n}": (6 + 2 * n, 0) for n in range(3, 7)},
+    }
+    return SimpleNamespace(DBU=0.0005, MFG_GRID=5, RULES=rules, LAYERS=layers)
 
 
 def _params(
@@ -101,7 +77,7 @@ def _params(
 
 
 def _generate(monkeypatch: pytest.MonkeyPatch, params: CapArrayLayoutParams) -> db.Layout:
-    monkeypatch.setattr("flow.caparray.laygen.import_module", lambda _name: _SyntheticPdkLayout)
+    monkeypatch.setattr("flow.caparray.laygen.import_module", lambda _name: _rules())
     return CapArrayLayout(params)
 
 
@@ -178,7 +154,7 @@ def test_simulation_and_lvs_share_the_same_hdl21_graph(active_layers: tuple[int,
     import re
 
     from flow.util.netlist import subcircuit_ports
-    from pdk.tsmc65.signoff import mom_lvs_device
+    from pdk.tsmc65.calibre.signoff import mom_lvs_device
 
     params = CapArrayParams(cdac=CapArrayConfig(unit_cap=0.8 * f), active_layers=active_layers)
     ideal = CapArray(params)
@@ -239,7 +215,7 @@ def test_simulation_and_lvs_share_the_same_hdl21_graph(active_layers: tuple[int,
 
 
 def test_cdac_array_rejects_incompatible_device_views() -> None:
-    from pdk.tsmc65.signoff import mom_lvs_device
+    from pdk.tsmc65.calibre.signoff import mom_lvs_device
 
     params = CapArrayParams(active_layers=(6, 7))
     assert not is_valid_caparray_params(replace(params, active_layers=(7, 6)))
@@ -259,10 +235,10 @@ def test_geometry_is_derived_from_rules() -> None:
     scaled = _calc_unit_geometry(params, _rules(pitch=240, eol_threshold=90))
     assert (scaled.end_gap, scaled.weight_step, scaled.tail_length) == (100, 480, 520)
     larger_area = _rules()
-    larger_area.M4.area = 64_000
+    larger_area.RULES["M4"]["area"] = 64_000
     assert _calc_unit_geometry(params, larger_area).tail_length == 640
     conditional = _rules()
-    conditional.M6.parallel_spacing[0] = ParallelSpacingRule(spacing=140, min_width=90, min_parallel_run_length=380)
+    conditional.RULES["M6"]["parallel_space"] = ((140, 90, 380),)
     assert _calc_unit_geometry(params, conditional).gap == 140
 
 
@@ -333,7 +309,7 @@ def test_every_shield_tab_reaches_the_shield(
     route = db.Region(top.begin_shapes_rec(route_index)).merged()
     shield = db.Region(top.begin_shapes_rec(layout.layer(5 + 2 * shield_layer, 0))).merged()
     shield_body = db.Region(max(shield.each(), key=lambda polygon: polygon.area()))
-    shield_tag = db.Region(top.begin_shapes_rec(layout.layer(155, 104)))
+    shield_tag = db.Region(top.begin_shapes_rec(layout.layer(250, 104)))
     assert not shield_tag.is_empty()
     assert ((shield_tag & shield) - shield_body).is_empty(), "LVS shield tag touches a signal landing"
     topplate_point = next(
@@ -363,7 +339,7 @@ def test_every_shield_tab_reaches_the_shield(
 
 
 def test_manifest_tracks_dynamic_array(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("flow.caparray.laygen.import_module", lambda _name: _SyntheticPdkLayout)
+    monkeypatch.setattr("flow.caparray.laygen.import_module", lambda _name: _rules())
     manifest = _layout_manifest(_params((129, 64, 1)))
     assert manifest["physical_chunk_count"] == 5
     assert manifest["edge_dummy_count"] == 2

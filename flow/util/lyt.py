@@ -16,7 +16,7 @@ def list_layers(lyt_path: Path) -> dict[str, tuple[int, int]]:
     Returns
     -------
     dict[str, tuple[int, int]]
-        e.g. ``{"M1": (19, 0), "VIA1": (51, 0), ...}``
+        e.g. ``{"M1": (layer, datatype), "VIA1": (layer, datatype), ...}``
     """
     from klayout import db
 

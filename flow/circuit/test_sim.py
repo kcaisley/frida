@@ -57,7 +57,7 @@ def capture_sim(monkeypatch):
     fake_tsmc65 = SimpleNamespace(site=site, pdk_logic=object())
     monkeypatch.setattr(pdk, "tsmc65", fake_tsmc65, raising=False)
     monkeypatch.setitem(sys.modules, "pdk.tsmc65", fake_tsmc65)
-    monkeypatch.setitem(sys.modules, "pdk.tsmc65.site", site)
+    monkeypatch.setitem(sys.modules, "pdk.tsmc65.hdl21", SimpleNamespace(site=site))
     monkeypatch.setattr(h.pdk, "set_default", lambda *_: None)
     monkeypatch.setattr(h.pdk, "compile", lambda *_: None)
     captured = {}
@@ -236,7 +236,7 @@ def test_missing_installation_skips_but_missing_collateral_fails(monkeypatch, tm
     monkeypatch.setattr(test_spectre.shutil, "which", lambda _: "/mock/spectre")
     monkeypatch.setattr(test_spectre.importlib.util, "find_spec", lambda _: SimpleNamespace(origin="site.py"))
     site = SimpleNamespace(install=SimpleNamespace(pdk_path=tmp_path / "missing"), MODEL_FILES=(tmp_path / "model",))
-    monkeypatch.setitem(sys.modules, "pdk.tsmc65", SimpleNamespace(site=site))
+    monkeypatch.setitem(sys.modules, "pdk.tsmc65.hdl21", SimpleNamespace(site=site))
     with pytest.raises(pytest.skip.Exception, match="installation is unavailable"):
         inspect.unwrap(test_spectre.spectre_installation)()
     site.install.pdk_path = tmp_path

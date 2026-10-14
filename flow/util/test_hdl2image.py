@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from docs.images.netlistsvg.verilog_schematic import verilog_to_analog_svg
+from flow.util.hdl2image import ANALOG_SKIN, verilog_to_analog_svg
 
 
 def test_verilog_to_analog_svg(tmp_path: Path) -> None:
@@ -15,11 +15,11 @@ def test_verilog_to_analog_svg(tmp_path: Path) -> None:
     verilog = tmp_path / "inverter.v"
     verilog.write_text(
         """
-(* blackbox *) module nch_lvt(input d, input g, input s, input b); endmodule
-(* blackbox *) module pch_lvt(input d, input g, input s, input b); endmodule
+(* blackbox *) module nfet(input d, input g, input s, input b); endmodule
+(* blackbox *) module pfet(input d, input g, input s, input b); endmodule
 module inverter(input vin, input vdd, input vss, output vout);
-  pch_lvt MP (.d(vout), .g(vin), .s(vdd), .b(vdd));
-  nch_lvt MN (.d(vout), .g(vin), .s(vss), .b(vss));
+  pfet MP (.d(vout), .g(vin), .s(vdd), .b(vdd));
+  nfet MN (.d(vout), .g(vin), .s(vss), .b(vss));
 endmodule
 """
     )
@@ -41,7 +41,7 @@ def test_custom_skin_places_single_gate_inputs_straight(tmp_path: Path) -> None:
     """The preamp's sole gate inputs should be direct."""
     root = Path(__file__).resolve().parents[2]
     verilog = root / "docs/images/netlistsvg/preamp_netlistsvg.v"
-    skin = root / "docs/images/netlistsvg/circuitikz_analog.svg"
+    skin = ANALOG_SKIN
     json_path, svg_path = verilog_to_analog_svg(verilog, tmp_path / "preamp.svg", "preamp_netlistsvg", skin)
     module = json.loads(json_path.read_text())["modules"]["preamp_netlistsvg"]
     svg_ns = "http://www.w3.org/2000/svg"

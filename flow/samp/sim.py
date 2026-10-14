@@ -102,7 +102,7 @@ def frida1_transient(run_dir: Path, *, check: bool = False) -> Path:
     """Run five periods of the fabricated-size sampler transient."""
 
     from pdk import tsmc65
-    from pdk.tsmc65 import site
+    from pdk.tsmc65.hdl21 import site
 
     run_dir.mkdir(parents=True, exist_ok=True)
     params = SampTbParams()
