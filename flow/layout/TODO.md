@@ -115,7 +115,15 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
   `align/make_design.py` turns the groups into ALIGN constraints for floorplanned runs (this
   changes the ALIGN layouts, so it waited for the identical-layout check).
 - [x] Floorplans from ALIGN's placement packed toward a square (`pack_rows`): ALIGN's single-axis
-  placement alone gives a tall stack, mostly one primitive per row.
+  placement alone gives a tall stack, mostly one primitive per row. Packed, the blocks are smaller
+  than the hand-written ones (row fill 0.64 to 0.85 against 0.40 to 0.65; frida1 in tsmc65 12.7 x
+  11.1 um against 15.3 x 11.1). DRC clean and LVS correct in all three tools: frida1 in tsmc65 and
+  tpsc65, c040 in tsmc65; cIcCreator and laygo also c040 in tsmc28, ihp130 and tpsc65 (2026-10-15).
+- [ ] Packing merges NMOS and PMOS rows into one row; c040 in tower180 (cIcCreator, laygo) and ihp130
+  (ALIGN) then break well spacing rules. Merge rows of one polarity only.
+- [ ] Routing on packed floorplans: one M2 rule each in frida1 ihp130 (cIcCreator) and lf150 (laygo,
+  both designs); ALIGN's routes on c040 in tsmc28 (19 violations, LVS incorrect) and ihp130 (LVS
+  incorrect), one gate-marker rule in c040 tpsc65.
 - [ ] frida1's cross-coupled PMOS pair as one row cell (ALIGN's CCP primitive): `rowcell.mos_row`
   finds no tracks for the cross-coupling in tsmc28 and tower180, so ALIGN cannot place frida1 there.
 - [ ] lf150 LVS on asiclab003: Assura needs `libicui18n.so.50` (package `libicu50`, as on juno).
