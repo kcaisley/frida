@@ -1,8 +1,9 @@
 """Software-only structural tests for the comparator subcircuit generator."""
 
+import pytest
 from hdl21.primitives import MosType
 
-from .subckt import Bias, Comp, CompParams, Stages, State
+from .subckt import Bias, Comp, CompParams, Stages, State, _fingers
 
 
 def test_comp():
@@ -63,8 +64,120 @@ def test_comp_output_srlatch_handles_both_reset_polarities() -> None:
     assert nor.Mbuf2_outp_p.conns["d"] is nor.outp
     assert nor.Mbuf2_outn_p.conns["d"] is nor.outn
 
+    # latch_p rising pulls decision_n low, which must set sr_p (outp high for inp > inn)
     nand = Comp(CompParams(preamp_diff_xtors=MosType.PMOS))
     assert nand.Msr_p_p_decision.conns["d"] is nand.sr_p
     assert nand.Msr_p_n_decision.conns["s"] is nand.sr_p_stack
-    assert nand.Msr_p_n_decision.conns["g"] is nand.decision_p
-    assert nand.Msr_n_n_decision.conns["g"] is nand.decision_n
+    assert nand.Msr_p_p_decision.conns["g"] is nand.decision_n
+    assert nand.Msr_p_n_decision.conns["g"] is nand.decision_n
+    assert nand.Msr_n_n_decision.conns["g"] is nand.decision_p
+
+
+def test_signaled_latch_devices_take_the_opposite_input_drain() -> None:
+    """All four signaled pairs are driven alike, so none of them works against another."""
+
+    Comp.Cache.reset()
+    m = Comp(
+        CompParams(
+            comp_stages=Stages.DOUBLE,
+            latch_inner_on_xtors=State.SIGNAL,
+            latch_outer_on_xtors=State.SIGNAL,
+            latch_inner_init_xtors=State.SIGNAL,
+            latch_outer_init_xtors=State.SIGNAL,
+        )
+    )
+    for device in ("Minner_on", "Mouter_on", "Minner_init", "Mouter_init"):
+        assert getattr(m, f"{device}_p").conns["g"] is m.input_p_drain
+        assert getattr(m, f"{device}_n").conns["g"] is m.input_n_drain
+
+
+def test_double_tail_shares_one_clocked_tail() -> None:
+    """The double tail's second stage: one clocked tail under both cross-coupled halves."""
+
+    Comp.Cache.reset()
+    params = CompParams(
+        comp_stages=Stages.DOUBLE,
+        latch_inner_init_xtors=State.SIGNAL,
+        latch_outer_on_xtors=State.CLOCK,
+        latch_tail_shared=True,
+    )
+    m = Comp(params)
+    assert m.Mcross_on_p.conns["s"] is m.outer and m.Mcross_on_n.conns["s"] is m.outer
+    assert m.Mouter_on.conns["g"] is m.clkb and m.Mouter_on.conns["s"] is m.vdd
+    assert float(m.Mouter_on.of.params.w) == _fingers(2 * params.latch_on_w, "analog")[0]
+    assert not hasattr(m, "Mouter_on_p") and not hasattr(m, "outerp")
+    with pytest.raises(ValueError):
+        Comp(
+            CompParams(
+                comp_stages=Stages.DOUBLE,
+                latch_inner_init_xtors=State.SIGNAL,
+                latch_outer_on_xtors=State.SIGNAL,
+                latch_tail_shared=True,
+            )
+        )
+
+
+def test_triple_tail_stages() -> None:
+    """Cascoded preamp, PMOS-latch second stage on midp/midn, clocked-tail third stage."""
+
+    Comp.Cache.reset()
+    m = Comp(CompParams(comp_stages=Stages.TRIPLE))
+    assert m.Mdiff_p.conns["d"] is m.cas_p and m.Mcas_p.conns["d"] is m.input_p_drain
+    assert m.Mcas_p.conns["g"] is m.vdd
+    assert m.Mtail2.conns["g"] is m.clkb and m.Mmid_cross_p.conns["s"] is m.tail2
+    assert m.Mmid_in_p.conns["d"] is m.midp and m.Mmid_in_p.conns["g"] is m.input_p_drain
+    assert m.Mtail3.conns["g"] is m.clk and m.Mcross_on_p.conns["s"] is m.tail3
+    assert m.Minner_init_p.conns["g"] is m.midn and m.Minner_init_n.conns["g"] is m.midp
+    # stage three's precharge outdrives its tail until stage two releases it
+    params = CompParams()
+    assert float(m.Minner_init_p.of.params.w) == _fingers(4 * params.rst_w, "analog")[0]
+    assert float(m.Mtail3.of.params.w) == _fingers(params.latch_on_w, "analog")[0]
+    # the third stage precharges high like a StrongARM: NOR output latch
+    assert m.Msr_p_p_decision.conns["d"] is m.sr_p_stack
+    with pytest.raises(ValueError):
+        Comp(CompParams(comp_stages=Stages.TRIPLE, latch_inner_init_xtors=State.SIGNAL))
+
+
+def test_devices_fit_the_pdk_rows_in_whole_units(tmp_path) -> None:
+    """With TSMC65 active, analog devices take an even finger count within the row limit and
+    the output stage's gates one count per NMOS/PMOS pair within the logic limits; every
+    width written is a whole number of 120 nm units."""
+
+    pdk = pytest.importorskip("pdk.tsmc65.hdl21.pdk_logic")
+    from .subckt import FRIDA1, write_netlist
+
+    limits = pdk.MOS_FINGER_UNITS
+    netlist = write_netlist(FRIDA1, tmp_path / "comp.sp", pdk).read_text()
+    devices = {}
+    for line in netlist.splitlines():
+        f = line.split()
+        if f[0].startswith("M"):
+            p = dict(kv.split("=") for kv in f[6:])
+            w, nf = int(p["w"].removesuffix("n")), int(p["nf"])
+            assert w % (120 * nf) == 0, line
+            devices[f[0]] = (f[5][0], w // 120 // nf, nf, f[2])
+    for name, (pol, units, nf, _gate) in devices.items():
+        if name.startswith(("Mdecision", "Msr", "Mbuf")):
+            assert units <= limits["logic_n" if pol == "n" else "logic_p"], name
+        else:
+            assert nf % 2 == 0 and units <= limits["analog"], name
+    for gate in {g for name, (_, _, _, g) in devices.items() if name.startswith("Mbuf")}:
+        counts = {nf for name, (_, _, nf, g) in devices.items() if g == gate and name.startswith("Mbuf")}
+        assert len(counts) == 1, gate
+
+
+def test_standard_cell_output_stage(tmp_path) -> None:
+    """The output stage as generic logic cells, written as the PDK's library cells by its compile."""
+
+    pdk = pytest.importorskip("pdk.tsmc65.hdl21.pdk_logic")
+    cells = pytest.importorskip("pdk.tsmc65.hdl21.stdcells")._LOGIC  # (generic cell, drive) -> library cell
+    from .subckt import FRIDA1, OutputStage, write_netlist
+
+    params = CompParams(**{**FRIDA1.__dict__, "output_stage": OutputStage.STDCELLS})
+    lines = {
+        line.split()[0]: line.split() for line in write_netlist(params, tmp_path / "c.sp", pdk).read_text().splitlines()
+    }
+    assert lines["Xdecision_p"][1:] == ["latch_n", "decision_p", "vdd", "vss", cells["inverter", 1].name]
+    assert lines["Xsr_p"][1:] == ["decision_n", "sr_n", "sr_p", "vdd", "vss", cells["nor2", 2].name]
+    assert lines["Xbuf2_outn"][-1] == cells["inverter", 8].name
+    assert not any(name.startswith(("Mdecision", "Msr", "Mbuf")) for name in lines)

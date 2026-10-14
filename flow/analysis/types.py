@@ -1219,6 +1219,20 @@ class AnalysisCompTiming(Analysis):
 
 
 @dataclass(frozen=True, slots=True)
+class AnalysisCompDelay(Analysis):
+    """Comparator clock-to-decision delay over common mode and differential input.
+
+    ``delay_s`` has one row per common mode and one column per differential
+    input: the median delay of that point's resolved trials, NaN where none
+    resolved.
+    """
+
+    vin_cm_v: np.ndarray
+    vin_diff_v: np.ndarray
+    delay_s: np.ndarray
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisCompPower(Analysis):
     """Comparator average consumed power per measurement."""
 
