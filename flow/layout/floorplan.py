@@ -2,7 +2,8 @@
 hand-written one.
 
 ``align_floorplan`` runs ALIGN on the netlist up to placement, free (ALIGN groups the devices
-into its primitives and places them by its symmetry, on one axis: align/run.py), and
+into its primitives and places them by its symmetry, on one axis: align/run.py; with its own
+symmetry groups where no placement on one axis fits), and
 ``placement_to_floorplan`` turns the placement into a floorplan in the format of
 design/layout/*.json: rows top first, each left to right, ``split`` for a primitive folded over
 several rows, ``groups`` with ALIGN's primitives, ``escape`` and ``netlist`` as given, and
@@ -84,13 +85,13 @@ def placement_to_floorplan(
             # each device's share of the row: its own cell's width over its rows, else ALIGN's
             share = {cell: widths[cell] // n if widths and cell in widths else w // len(cells) for cell in cells}
             placed[y // row_height + k] += [(x, j, cell + part, share[cell]) for j, cell in enumerate(cells)]
-    rows = []  # top first: (cells, width, standard cells)
+    rows = []  # top first: (cells with their widths, standard cells)
     for k in sorted(placed, reverse=True):
         entries = sorted(placed[k])
         for std in (False, True):
             part = [(cell, w) for _, _, cell, w in entries if (cell[0] not in "Mm") == std]
             if part:
-                rows.append(([cell for cell, _ in part], sum(w for _, w in part), std))
+                rows.append((part, std))
     out = []
     device = lambda cell: cell[:-2] if cell[-2:-1] == "_" and cell[:-2] in split else None  # its split device
     for cells in pack_rows(rows, row_height):  # a split device whose parts share a row is whole again
@@ -124,41 +125,73 @@ def placement_to_floorplan(
     }
 
 
-def pack_rows(rows: list[tuple[list[str], int, bool]], row_height: int) -> list[list[str]]:
-    """ALIGN's rows (top first: cells, width in nm, whether standard cells) merged into fewer, wider
-    ones toward a square block. Rows merge with the following rows of their own kind (transistors
-    or standard cells, which the row cells keep apart), each added around the ones merged so far,
-    its left half on the left and its right half on the right, so a row mirrored about the centre
-    line ALIGN placed it on stays mirrored. A merged row takes the place of its first row. Of the
-    row widths tried, the one whose block (widest row by rows) has ALIGN's aspect ratio (2/3 to
-    3/2) in the least area, else the squarest."""
+def pack_rows(rows: list[tuple[list[tuple[str, int]], bool]], row_height: int) -> list[list[str]]:
+    """ALIGN's rows (top first: their cells with widths in nm, and whether they are standard cells)
+    merged into fewer, wider ones toward a square block. Rows merge with the following rows of their
+    own kind (transistors or standard cells, which the row cells keep apart), each added around the
+    ones merged so far, its left half on the left and its right half on the right, so a row mirrored
+    about the centre line ALIGN placed it on stays mirrored; a merged row takes the place of its
+    first row. A row of standard cells wider than the block is split into rows of about equal width,
+    as many as it needs. An odd number of rows becomes even where a row of standard cells can be
+    split in two: both block edges are then VSS rails, as in the hand-written floorplans (a VDD rail
+    at a block edge leaves its implant and well overhangs bare). Of the row widths tried, an even
+    number of rows first, then the least area within ALIGN's aspect ratio (2/3 to 3/2), else the
+    squarest."""
+
+    def split(cells: list[tuple[str, int]], std: bool, limit: int) -> list[list[tuple[str, int]]]:
+        total = sum(w for _, w in cells)
+        if not std or total <= limit:
+            return [cells]
+        n = -(-total // limit)
+        parts: list[list[tuple[str, int]]] = [[] for _ in range(n)]
+        done = 0
+        for cell, w in cells:  # each cell to the part its middle falls in, in order
+            parts[min(n - 1, int((done + w / 2) * n / total))].append((cell, w))
+            done += w
+        return [part for part in parts if part]
 
     def merge(limit: int) -> list[tuple[int, list[str], int]]:
         merged: list[tuple[int, list[str], int]] = []  # (first row, cells, width)
         filling: dict[bool, int] = {}  # per kind: the merged row being filled
-        for i, (cells, width, std) in enumerate(rows):
-            m = filling.get(std)
-            if m is not None and merged[m][2] + width <= limit:
-                first, inner, total = merged[m]
-                h = len(cells) // 2
-                merged[m] = (first, cells[:h] + inner + cells[h:], total + width)
-            else:
-                filling[std] = len(merged)
-                merged.append((i, list(cells), width))
-        return sorted(merged)
+        for i, (row, std) in enumerate(rows):
+            for part in split(row, std, limit):
+                cells, width = [c for c, _ in part], sum(w for _, w in part)
+                m = filling.get(std)
+                if m is not None and merged[m][2] + width <= limit:
+                    first, inner, total = merged[m]
+                    h = len(cells) // 2
+                    merged[m] = (first, cells[:h] + inner + cells[h:], total + width)
+                else:
+                    filling[std] = len(merged)
+                    merged.append((i, cells, width))
+        std_rows = [m for m in merged if rows[m[0]][1] and len(m[1]) > 1]
+        if len(merged) % 2 and std_rows:  # an even number of rows: the fullest row of standard cells in two
+            i, cells, _ = max(std_rows, key=lambda m: len(m[1]))
+            k = merged.index(next(m for m in merged if m[0] == i and m[1] == cells))
+            half = len(cells) // 2
+            share = dict(c for row, _ in rows for c in row)
+            merged[k : k + 1] = [
+                (i, cells[:half], sum(share[c] for c in cells[:half])),
+                (i, cells[half:], sum(share[c] for c in cells[half:])),
+            ]
+        return sorted(merged, key=lambda m: m[0])
 
     def cost(merged: list[tuple[int, list[str], int]]) -> tuple:
         width, height = max(w for _, _, w in merged), len(merged) * row_height
         skew = abs(log(width / height))
-        return (0, width * height, skew) if skew <= log(1.5) else (1, skew, width * height)
+        fit = (0, width * height, skew) if skew <= log(1.5) else (1, skew, width * height)
+        return (len(merged) % 2, *fit)
 
+    widths = [sum(w for _, w in row) for row, _ in rows]
     limits = {
-        sum(w for _, w, std in rows[i:j] if std == kind)
+        sum(w for w, (_, std) in zip(widths[i:j], rows[i:j], strict=True) if std == kind)
         for kind in (False, True)
         for i in range(len(rows))
         for j in range(i + 1, len(rows) + 1)
     }
-    widest = max(w for _, w, _ in rows)
+    limits |= {-(-w // k) for w, (row, std) in zip(widths, rows, strict=True) if std for k in range(1, len(row) + 1)}
+    # no narrower than a row of transistors or a single standard cell
+    widest = max(w if not std else max(c for _, c in row) for w, (row, std) in zip(widths, rows, strict=True))
     best = min((merge(limit) for limit in sorted(limits) if limit >= widest), key=cost)
     return [cells for _, cells, _ in best]
 
@@ -170,7 +203,11 @@ def align_floorplan(netlist: Path, pdk: str, out_dir: Path, *, name: str, escape
     access_points(pdk)
     pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, out_dir / "pdk")
     design = in_pdk(pdk, "flow.layout.align.make_design", "make_design", pdk, netlist, out_dir / "input", name=name)
-    work = run_align(design, pdk_dir, out_dir / "align", flow_stop="3_pnr:place", one_axis=True)
+    try:
+        work = run_align(design, pdk_dir, out_dir / "align", flow_stop="3_pnr:place", one_axis=True)
+    except RuntimeError as error:  # many self-symmetric blocks on one axis: no placement fits the outline
+        print(f"{name}: no placement on one symmetry axis ({str(error)[:80]}...); ALIGN's own symmetry groups")
+        work = run_align(design, pdk_dir, out_dir / "align", flow_stop="3_pnr:place", one_axis=False)
     _top, _leaves, alternatives, _metrics = json.loads((work / "3_pnr" / "__placer_dump__.json").read_text())
     placement = alternatives[0][1]  # ALIGN's best
     (out_dir / f"{name}_placement.json").write_text(json.dumps(placement, indent=1) + "\n")
