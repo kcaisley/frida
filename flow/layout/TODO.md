@@ -176,6 +176,11 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
   cross-coupled NMOS pair in tsmc65 became one 10.4 um row per device, so ALIGN's placement is 20.4
   x 14.4 um at density 0.34 and the floorplan from it 22.5 x 7.5 um (12.7 x 11.1 with the earlier
   square-ish fold rule). Decide: ALIGN's defaults, or a per-primitive aspect limit on the variants.
+- [ ] ALIGN on its own (its placement with its own symmetry groups, its routing, no floorplan; 2026-10-15,
+  c040): tsmc65 DRC clean and LVS correct, 10.4 x 12.6 um (on the floorplan from its placement 10.4
+  x 10.8); tsmc28 LVS correct but 32 dummy-poly markers, gaps of free placement that its gridded
+  poly does not allow. Merging the symmetry groups onto one axis (one_axis.py) changed nothing for
+  c040 in tsmc65. Decide whether ALIGN's column runs on its own (dropping the floorplan step for it).
 - [ ] With the ported generator: ALIGN's route leaves decision_p open in `comp_c040_auto_tsmc65` (one
   run of two; the other was correct, cIcCreator failing to route that floorplan), and ALIGN's row
   ends in `comp_frida1_auto_tsmc28` break implant and VT spacing at the block's left edge (5).
