@@ -205,9 +205,12 @@ def align_floorplan(netlist: Path, pdk: str, out_dir: Path, *, name: str, escape
     design = in_pdk(pdk, "flow.layout.align.make_design", "make_design", pdk, netlist, out_dir / "input", name=name)
     try:
         work = run_align(design, pdk_dir, out_dir / "align", flow_stop="3_pnr:place", one_axis=True)
-    except RuntimeError as error:  # many self-symmetric blocks on one axis: no placement fits the outline
-        print(f"{name}: no placement on one symmetry axis ({str(error)[:80]}...); ALIGN's own symmetry groups")
-        work = run_align(design, pdk_dir, out_dir / "align", flow_stop="3_pnr:place", one_axis=False)
+    except RuntimeError as error:  # many self-symmetric blocks on one axis: no placement in a square outline
+        print(f"{name}: no placement on one symmetry axis in a square outline ({str(error)[:80]}...); any outline")
+        const = design / f"{name}.const.json"  # pack_rows squares the rows whatever ALIGN's outline
+        kept = [c for c in json.loads(const.read_text()) if c["constraint"] != "AspectRatio"]
+        const.write_text(json.dumps(kept, indent=1) + "\n")
+        work = run_align(design, pdk_dir, out_dir / "align", flow_stop="3_pnr:place", one_axis=True)
     _top, _leaves, alternatives, _metrics = json.loads((work / "3_pnr" / "__placer_dump__.json").read_text())
     placement = alternatives[0][1]  # ALIGN's best
     (out_dir / f"{name}_placement.json").write_text(json.dumps(placement, indent=1) + "\n")
