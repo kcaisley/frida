@@ -162,6 +162,9 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
   ALIGN's own open count is no guide (it counts the unrouted supplies). cIcCreator and laygo are
   correct on the same floorplan. In `comp_c040_gates_tsmc65` (six rows) ALIGN's M1 leaves one corner
   closer than the M1 space; cIcCreator and laygo are clean there too.
+- [ ] ALIGN's CMC_S_PMOS_B pair cell in tpsc65 (`comp_c040_auto_tpsc65`, c040's `Minner_on` pair): the
+  PDK's dummy-poly check flags its gates' poly beside the row edge (already on 2026-10-14); cIcCreator
+  and laygo are clean on the same floorplan.
 - [ ] lf150 LVS on asiclab003: Assura needs `libicui18n.so.50` (package `libicu50`, as on juno).
 
 ## Next
