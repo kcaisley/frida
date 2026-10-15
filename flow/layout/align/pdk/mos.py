@@ -169,8 +169,6 @@ class MOSGenerator(RowCanvas):
     def _build(self, pol, x_cells, y_cells, pattern, connections):
         devs = sorted({d for conn in connections.values() for d, _ in conn})  # the mock's order: M1, M2, ...
         nets = {dev: {pin: n for n, conn in connections.items() for d, pin in conn if d == dev} for dev in devs}
-        if any(nets[dev]["B"] in ("SN", "SP") for dev in devs):  # a logic gate (user_template.sp)
-            return self._logic(devs, nets, connections)
         nm = lambda v: int(round(float(v) * 1e9 / 5)) * 5
         devices, bulk = [], set()
         for dev in devs:
@@ -213,30 +211,3 @@ class MOSGenerator(RowCanvas):
                 cell = rowcell.mos_rows(name, pol, devices, 1, grid=X_GRID, **rails)
         self.draw(cell.rects)
         self.bbox = transformation.Rect(0, 0, cell.width, _rows(cell) * rowcell.H)
-
-    def _logic(self, devs, nets, connections):
-        """INV, NAND2, NOR2: NMOS (bulk SN) and PMOS (bulk SP) in one row, logiccell.py."""
-        import logiccell  # a PDK with logic cells (its tech has their values)
-
-        nm = lambda v: int(round(float(v) * 1e9 / 5)) * 5
-        rows = []
-        for dev in devs:
-            par = self.primitive_parameters[dev]
-            inst = f"{dev}_X0_Y0"
-            self.subinsts[inst].parameters.update(par)
-            n = nets[dev]
-            rows.append(
-                logiccell.LDev(
-                    inst,
-                    "n" if n["B"] == "SN" else "p",
-                    nm(par["L"]),
-                    nm(par["W"]),
-                    int(par.get("NF", 1)) * int(par.get("M", 1)),
-                    n["D"],
-                    n["G"],
-                    n["S"],
-                )
-            )
-        cell = logiccell.logic("_".join(devs), rows, grid=X_GRID, vss="SN", vdd="SP", ports=set(connections))
-        self.draw(cell.rects)
-        self.bbox = transformation.Rect(0, 0, cell.width, rowcell.H)

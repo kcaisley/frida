@@ -21,17 +21,15 @@ from flow.layout.pdkproc import access_points, in_pdk, pdk_value
 
 @dataclass(frozen=True)
 class PostOptions:
-    """post.py's additions (a PDK with logic cells and a guard ring): decap cells in the row
-    gaps (``fill="decap"``), a guard ring with its N-well on ``ring_net`` and the substrate ring
-    on ``sub_net``."""
+    """post.py's addition (a PDK with a guard ring): a guard ring with its N-well on ``ring_net``
+    and the substrate ring on ``sub_net``."""
 
-    fill: str = "plain"
     ring: bool = False
     ring_net: str = "vdd"
     sub_net: str = "vsub"
 
 
-PLAIN = PostOptions()  # the comparator layouts: plain fill, no ring
+PLAIN = PostOptions()  # the comparator layouts: no ring
 
 
 def _align_gds(work: Path, name: str) -> Path:

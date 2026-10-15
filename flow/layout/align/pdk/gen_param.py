@@ -1,9 +1,8 @@
 # ruff: noqa  -- ALIGN style: ALIGN imports this module from the PDK directory by name
 """ALIGN's ``gen_param`` for the row-cell PDK: ALIGN's own, its Bulk65nm mock PDK's (loaded from the
-ALIGN install), sizes every primitive and lists its arrays (``x_cells`` x ``y_cells``), with three
-additions: a standard cell is one fixed primitive (stdcell.py, through ALIGN's guard-ring path); a
-logic gate (INV, NAND2, NOR2, drawn by logiccell.py) is one array, its NMOS and PMOS sized
-independently; and where a floorplan fixes the rows (``STEMS_STD_DENSE``) a primitive is one row."""
+ALIGN install), sizes every primitive and lists its arrays (``x_cells`` x ``y_cells``), with two
+additions: a standard cell is one fixed primitive (stdcell.py, through ALIGN's guard-ring path),
+and where a floorplan fixes the rows (``STEMS_STD_DENSE``) a primitive is one row."""
 
 import importlib.util
 import os
@@ -17,7 +16,6 @@ _SPEC = importlib.util.spec_from_file_location(
 )
 _ALIGN = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_ALIGN)
-LOGIC = ("INV", "NAND2", "NOR2")  # user_template.sp gates drawn by logiccell.py
 
 
 def gen_param(subckt, primitives, pdk_dir):
@@ -31,18 +29,6 @@ def gen_param(subckt, primitives, pdk_dir):
             "y_cells": 1,
             "abstract_template_name": name,
             "concrete_template_name": name,
-        }
-        return True
-    if name.upper().startswith(LOGIC):  # ALIGN's sizing wants one width for all devices
-        concrete = f"{name}_X1_Y1"
-        primitives[concrete] = {
-            "primitive": generator,
-            "value": 1,
-            "x_cells": 1,
-            "y_cells": 1,
-            "parameters": {e.name: e.parameters for e in subckt.elements},
-            "abstract_template_name": name,
-            "concrete_template_name": concrete,
         }
         return True
     before = set(primitives)

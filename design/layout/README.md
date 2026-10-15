@@ -43,26 +43,23 @@ same polarity and channel length, and internal nets that touch nothing else. Of 
 that match one group, the closest in width wins; larger cells first. The group becomes an instance
 of the cell, named after its transistors (`Mbuf1_outp_n`, `Mbuf1_outp_p` -> `Xbuf1_outp`). The
 length check keeps analog devices that happen to form a gate (the 780 nm tail and its reset, an
-inverter in shape) as transistors. `expand` does the reverse: a library cell's transistors at the
-library's sizes, with the row cells' models, so a netlist that asks for, say, a 1x NAND2 can be
-drawn from the row cells, or as ALIGN's own logic gate.
+inverter in shape) as transistors. Logic is always the PDK's library cells: the row cells draw
+no logic gates of their own (they took 1.3 to 8 times a library cell's area).
 
 | Targets | Netlist | Logic |
 | --- | --- | --- |
 | `comp_*_manual_<pdk>` | the generator's standard-cell netlist | library cells, as the floorplan names them |
 | `comp_*_auto_<pdk>` | the generator's transistor netlist, `recognize`d | library cells |
-| `comp_*_gates_<pdk>` | the standard-cell netlist, `expand`ed | row-cell transistors (ALIGN's logic gates where the PDK has logic cells) |
 
 **ALIGN's primitives.** On a netlist without a floorplan, ALIGN matches devices to its primitive
-library (its `basic_template.sp`, plus `flow/layout/align/pdk/user_template.sp`): groups such as
-`DP_NMOS`, `CMC_PMOS`, `CCP_*` or `CMB_*`, single devices (`NMOS_S`, `PMOS_4T`, ...), and the logic
-gates `INV`, `NAND2` and `NOR2`. ALIGN chooses each group's array (units per row, rows) and pattern:
+library (its own `basic_template.sp` and `user_template.sp`): groups such as `DP_NMOS`, `CMC_PMOS`,
+`CCP_*` or `CMB_*`, and single devices (`NMOS_S`, `PMOS_4T`, ...); its logic templates (`INV`,
+`INV_B`, `stage2_inv`) are off (`DoNotUseLib`). ALIGN chooses each group's array (units per row, rows) and pattern:
 common centroid, interdigitated, ratio, or a Generator constraint's `exact_patterns`.
 `align/pdk/mos.py` assigns the units' devices as ALIGN's own mock generator does and draws them
 with the row-cell engine (`rowcell.mos_grid`). Two gate nets whose gates interleave need a second
 gate track (`GATE_SPARE` in the PDK's `tech.py`, set in tsmc28); elsewhere such a pair is drawn side
-by side. The logic gates are drawn by `stems/logiccell.py` (a PDK without logic cells keeps them
-single devices through ALIGN's `DoNotUseLib`). Library cells stay leaves (`align/pdk/stdcell.py`). ALIGN's grouping,
+by side. Library cells stay leaves (`align/pdk/stdcell.py`). ALIGN's grouping,
 `1_topology`'s `GroupBlocks`, becomes the floorplan's `groups`; with a floorplan, ALIGN keeps every
 device a primitive of its own.
 
