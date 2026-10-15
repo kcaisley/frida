@@ -131,6 +131,7 @@ jobs:
           flow/layout/test_floorplan.py
           flow/layout/test_pdkproc.py
           flow/layout/test_signoff.py
+          flow/layout/test_stdcells.py
           test/test_pdk_agnostic.py
           flow/samp/test_subckt.py
           flow/comp/test_sim.py

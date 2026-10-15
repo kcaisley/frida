@@ -30,3 +30,37 @@ simulation: every device fingered to the row cells and sized in whole unit width
 size sweep's topology 40 at the half profile (`40_half`). Signoff (`flow/layout/signoff.py`
 `row_signoff`) runs the PDK's provider, `pdk/<pdk>/signoff.py`: the gdscheck precheck, then
 Calibre DRC and LVS (Assura for LF150 LVS, the IHP open KLayout decks for ihp130).
+
+## How a netlist is recognized
+
+Two layers of recognition turn a netlist into what the tools place.
+
+**Standard cells** (`flow/layout/stdcells.py`). `recognize` finds groups of transistors that form one
+of the PDK's library cells (`tech.STD_CELLS`, read from the library SPICE): the same connections
+(drain and source either way, parallel fingers and parallel copies of a series stack merged), the
+same polarity and channel length, and internal nets that touch nothing else. Of the drive strengths
+that match one group, the closest in width wins; larger cells first. The group becomes an instance
+of the cell, named after its transistors (`Mbuf1_outp_n`, `Mbuf1_outp_p` -> `Xbuf1_outp`). The
+length check keeps analog devices that happen to form a gate (the 780 nm tail and its reset, an
+inverter in shape) as transistors. `expand` does the reverse: a library cell's transistors at the
+library's sizes, with the row cells' models, so a netlist that asks for, say, a 1x NAND2 can be
+drawn from the row cells, or as ALIGN's own logic gate.
+
+| Targets | Netlist | Logic |
+| --- | --- | --- |
+| `comp_*_manual_<pdk>` | the generator's standard-cell netlist | library cells, as the floorplan names them |
+| `comp_*_auto_<pdk>` | the generator's transistor netlist, `recognize`d | library cells |
+| `comp_*_gates_<pdk>` | the standard-cell netlist, `expand`ed | row-cell transistors (ALIGN's logic gates where the PDK has logic cells) |
+
+**ALIGN's primitives.** On a netlist without a floorplan, ALIGN matches devices to its primitive
+library (its `basic_template.sp`, plus `flow/layout/align/pdk/user_template.sp`): pairs such as
+`DP_NMOS`, `CMC_PMOS` and `CCP_*` (drawn by `align/pdk/mos.py` as one `rowcell.mos_row`, A left of
+B), single devices (`NMOS_S`, `PMOS_4T`, ...), and the logic gates `INV`, `NAND2` and `NOR2`
+(drawn by `stems/logiccell.py`; a PDK without logic cells keeps them single devices through
+ALIGN's `DoNotUseLib`). Library cells stay leaves (`align/pdk/stdcell.py`). ALIGN's grouping,
+`1_topology`'s `GroupBlocks`, becomes the floorplan's `groups`; with a floorplan, ALIGN keeps every
+device a primitive of its own.
+
+A floorplan from ALIGN's placement keeps transistors and standard cells in rows of their own, as
+many standard-cell rows as their width needs, and an even number of rows, so both block edges are
+VSS rails.

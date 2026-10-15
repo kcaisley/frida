@@ -119,11 +119,31 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
   than the hand-written ones (row fill 0.64 to 0.85 against 0.40 to 0.65; frida1 in tsmc65 12.7 x
   11.1 um against 15.3 x 11.1). DRC clean and LVS correct in all three tools: frida1 in tsmc65 and
   tpsc65, c040 in tsmc65; cIcCreator and laygo also c040 in tsmc28, ihp130 and tpsc65 (2026-10-15).
-- [ ] Packing merges NMOS and PMOS rows into one row; c040 in tower180 (cIcCreator, laygo) and ihp130
-  (ALIGN) then break well spacing rules. Merge rows of one polarity only.
-- [ ] Routing on packed floorplans: one M2 rule each in frida1 ihp130 (cIcCreator) and lf150 (laygo,
-  both designs); ALIGN's routes on c040 in tsmc28 (19 violations, LVS incorrect) and ihp130 (LVS
-  incorrect), one gate-marker rule in c040 tpsc65.
+- [x] Well and implant rules at a block's top edge (tower180, tpsc65, ihp130): a block of an odd number
+  of rows ends on a VDD rail, whose implant and well overhangs no row above covers. `pack_rows` makes
+  the number of rows even (both edges VSS rails, as the hand-written floorplans). NMOS and PMOS row
+  cells abut cleanly in a row (checked in tower180, ihp130, tsmc28, lf150).
+- [x] Cross-coupled pairs (ALIGN's CCP) in PDKs with three S/D tracks (tsmc28, tower180): a pair whose
+  sources are no rail took every track; the crossings now take any M2 track of the cell without a bar
+  whose VIA2 keep the via space from the jumpers' ends (beside the rails, past the gate track). The
+  tsmc28 pairs on a rail had their crossings a track from the drains (VIA2 spacing); fixed too.
+- [x] Standard cells recognized in transistor netlists, and expanded back (`stdcells.py`): the `auto`
+  targets start from the transistor netlist, the `gates` targets draw the library cells as transistors.
+- [x] Row routers (cIcCreator's `rowroute`, laygo's script): an M2 piece keeps the M2 space to a
+  separate piece of its own net too, and laygo's branches to pins on the next, half-pitch pin track
+  (tower180: a pin bar stretched to a trunk ran within 200 nm of the same net's pin on the next track).
+- [x] ALIGN's fold variants of a MOS primitive are tried with its own nets (a cross-coupled pair's
+  jumpers), and a pair too narrow for its jumpers' M3 columns is drawn wider.
+- [x] Floorplans from ALIGN's placement fall back to ALIGN's own symmetry groups where no placement on
+  one axis fits (the gates targets in a PDK without logic cells: many small self-symmetric pairs).
+- [ ] Pairs of short gates (tsmc28: 30 nm) whose gates differ break the gridded-poly rules as one
+  cell (a shared strip with the gates apart, or a diffusion break); only ALIGN's free layouts draw
+  them (the runner's targets place each device as its own cell). Draw them as two device cells.
+- [ ] ALIGN's routes on some floorplans from its placement leave nets open (tower180 frida1, tsmc28
+  and ihp130 c040): its own open count is no guide (it counts the unrouted supplies).
+- [ ] laygo on c040's floorplan from ALIGN's placement in tsmc65 (`comp_c040_auto_tsmc65`): the clkb port
+  lands on another net (LVS: the port's net holds other nets' devices); cIcCreator and ALIGN are
+  correct on the same floorplan. Check the escape in `design_template.py`.
 - [ ] frida1's cross-coupled PMOS pair as one row cell (ALIGN's CCP primitive): `rowcell.mos_row`
   finds no tracks for the cross-coupling in tsmc28 and tower180, so ALIGN cannot place frida1 there.
 - [ ] lf150 LVS on asiclab003: Assura needs `libicui18n.so.50` (package `libicu50`, as on juno).
