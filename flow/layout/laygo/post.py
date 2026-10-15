@@ -30,7 +30,9 @@ def post(raw: str, templates: str, out: str) -> None:
     tlib.read(templates)
     template_names = {c.name for c in tlib.each_cell()}
 
-    # 0. design pins: the server writes their labels on 0/0; attach each to the metal under it
+    # 0. design pins: the server writes their labels on 0/0. Every port of design_template.py sits on
+    # M3 (an escape stub or a supply trunk), its label at the centre of the pin rectangle, where
+    # another net's M2 bar may be centred too (comp_c040 in tsmc65: clkb on latch_p): attach it to M3
     label_layer = layout.find_layer(0, 0)
     labels = []
     if label_layer is not None:
@@ -39,23 +41,14 @@ def post(raw: str, templates: str, out: str) -> None:
                 if shape.is_text():
                     labels.append((cell, shape.text))
             cell.shapes(label_layer).clear()
+    m3 = next(n for n, m in SERVER.items() if m == "M3")
     for cell, text in labels:
-        # a pin's label sits at the centre of its pin rectangle: prefer the metal holding a shape
-        # centred there (another metal may cross the same point), else the first metal under it
         p = text.trans.disp
-        probe = kdb.Box(p.x - 1, p.y - 1, p.x + 1, p.y + 1)
-        layers = [(m, li) for m in (10, 30, 50, 8, 67) if (li := layout.find_layer(m, 0)) is not None]
-        centred = [
-            m
-            for m, li in layers
-            for sh in cell.shapes(li).each()
-            if not sh.is_text() and sh.bbox().center().distance(p) <= 5
-        ]
-        under = [
-            m for m, li in layers if not kdb.Region(cell.begin_shapes_rec(li)).interacting(kdb.Region(probe)).is_empty()
-        ]
-        if centred or under:
-            cell.shapes(layout.layer((centred or under)[0], 0)).insert(text)
+        probe = kdb.Region(kdb.Box(p.x - 1, p.y - 1, p.x + 1, p.y + 1))
+        li = layout.find_layer(m3, 0)
+        if li is None or kdb.Region(cell.begin_shapes_rec(li)).interacting(probe).is_empty():
+            raise ValueError(f"the label {text.string} in {cell.name} is on no M3 (design_template.py's ports)")
+        cell.shapes(li).insert(text)
 
     # 1. routing and labels: server layers -> temporary layers -> the PDK's (avoids number clashes)
     moves = []
