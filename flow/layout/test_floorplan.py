@@ -104,6 +104,29 @@ def test_a_wide_row_of_standard_cells_takes_several_rows() -> None:
     assert rows == [["Ma", "Mb"], ["X0", "X1"], ["X2", "X3"], ["X4", "X5", "X6", "X7"]]
 
 
+def test_centred_standard_cells_go_where_their_nets_are_shortest() -> None:
+    """A comparator's output stage as ALIGN places it: the latch gates mirrored, the four output
+    inverters self-symmetric on the axis, one per row; nested, they would all end on the right."""
+
+    nets = {
+        "Xsr_n": frozenset({"sr_p", "decision_p", "sr_n"}),
+        "Xsr_p": frozenset({"sr_n", "decision_n", "sr_p"}),
+        "Xdec_p": frozenset({"latch_n", "decision_p"}),
+        "Xdec_n": frozenset({"latch_p", "decision_n"}),
+        "Xbuf1_n": frozenset({"sr_n", "outn_b"}),
+        "Xbuf2_n": frozenset({"outn_b", "outn"}),
+        "Xbuf1_p": frozenset({"sr_p", "outp_b"}),
+        "Xbuf2_p": frozenset({"outp_b", "outp"}),
+    }
+    std = [["Xdec_p", "Xdec_n"], ["Xsr_n", "Xsr_p"], ["Xbuf1_n"], ["Xbuf2_n"], ["Xbuf1_p"], ["Xbuf2_p"]]
+    rows = [(_cells(["Ma", "Mb"], 8000), False), *((_cells(row, 1000), True) for row in std)]
+    assert pack_rows(rows, H)[1] == ["Xsr_n", "Xdec_p", "Xdec_n", "Xsr_p", "Xbuf1_n", "Xbuf2_n", "Xbuf1_p", "Xbuf2_p"]
+    assert pack_rows(rows, H, nets)[1] == [
+        *("Xbuf2_n", "Xbuf1_n", "Xsr_n", "Xdec_p"),
+        *("Xdec_n", "Xsr_p", "Xbuf1_p", "Xbuf2_p"),
+    ]
+
+
 # ---- groups: checked by the row-cell engine (stems/netcells.py), in a process bound to a PDK
 
 PDK = next((p.parts[-3] for p in sorted(ROOT.glob("pdk/*/layout/tech.py"))), None)

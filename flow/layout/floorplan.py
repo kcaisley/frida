@@ -25,7 +25,11 @@ ALIGN's single-axis placement stacks the primitives along the centre line, mostl
 with its outline padded to the AspectRatio constraint: copied as they are, the rows make a tall
 block with much filler. ``pack_rows`` merges them toward a square by the row cells' own widths
 (``netcells.widths``), each row nested around the ones above it so the rows stay mirrored about
-the centre line; a folded device whose parts land in one row is whole again.
+the centre line; a folded device whose parts land in one row is whole again. The cells ALIGN
+centres on the line (the middle one of a row of odd count, self-symmetric) have no mirror
+partner, and nesting puts each to the right of the rows merged before it: in a row of standard
+cells they are placed anew among the others for the shortest nets (ALIGN stacks a comparator's
+output inverters on the line, one per row, and nested they all end up on one side).
 """
 
 from __future__ import annotations
@@ -33,7 +37,8 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from collections.abc import Iterable
-from math import log
+from itertools import combinations, permutations
+from math import comb, factorial, log
 from pathlib import Path
 
 from flow.layout.align.run import run_align
@@ -49,6 +54,7 @@ def placement_to_floorplan(
     escape: dict,
     netlist: str,
     widths: dict[str, int] | None = None,
+    nets: dict[str, frozenset[str]] | None = None,
 ) -> dict:
     """The floorplan of ALIGN's ``placement`` (``VerilogJsonTop``: the top module's instances and
     their ``transformation``, each leaf's ``bbox``, in nm).
@@ -56,7 +62,8 @@ def placement_to_floorplan(
     ``groups``: ALIGN instance -> (primitive kind, its devices in ALIGN's order), from
     ``1_topology``; an instance outside it is a standard cell. ``devices``: the netlist's instance
     names, whose spelling the floorplan takes (ALIGN upper-cases them). ``widths``: the row cells'
-    widths (netcells.widths) the rows are packed by, else ALIGN's (its standard cells are wider)."""
+    widths (netcells.widths) the rows are packed by, else ALIGN's (its standard cells are wider).
+    ``nets``: each instance's nets, by which ``pack_rows`` places the centred standard cells."""
 
     name_of = {device.upper(): device for device in devices}
     size = {leaf["concrete_name"]: leaf["bbox"] for leaf in placement["leaves"]}
@@ -94,7 +101,7 @@ def placement_to_floorplan(
                 rows.append((part, std))
     out = []
     device = lambda cell: cell[:-2] if cell[-2:-1] == "_" and cell[:-2] in split else None  # its split device
-    for cells in pack_rows(rows, row_height):  # a split device whose parts share a row is whole again
+    for cells in pack_rows(rows, row_height, nets):  # a split device whose parts share a row is whole again
         parts = [device(c) for c in cells]
         whole = {d for d in parts if d and parts.count(d) == split[d]}
         seen: set[str] = set()
@@ -125,7 +132,9 @@ def placement_to_floorplan(
     }
 
 
-def pack_rows(rows: list[tuple[list[tuple[str, int]], bool]], row_height: int) -> list[list[str]]:
+def pack_rows(
+    rows: list[tuple[list[tuple[str, int]], bool]], row_height: int, nets: dict[str, frozenset[str]] | None = None
+) -> list[list[str]]:
     """ALIGN's rows (top first: their cells with widths in nm, and whether they are standard cells)
     merged into fewer, wider ones toward a square block. Rows merge with the following rows of their
     own kind (transistors or standard cells, which the row cells keep apart), each added around the
@@ -136,7 +145,33 @@ def pack_rows(rows: list[tuple[list[tuple[str, int]], bool]], row_height: int) -
     split in two: both block edges are then VSS rails, as in the hand-written floorplans (a VDD rail
     at a block edge leaves its implant and well overhangs bare). Of the row widths tried, an even
     number of rows first, then the least area within ALIGN's aspect ratio (2/3 to 3/2), else the
-    squarest."""
+    squarest. ``nets`` (each cell's nets): in a merged row of standard cells, the centred ones (the
+    middle cell of a row of odd count) go anew among the others, which keep their order, where the
+    summed span of the nets in the row is least (the row as merged unless strictly shorter), before
+    a row is split for an even count."""
+
+    centred = {row[len(row) // 2][0] for row, std in rows if std and len(row) % 2}
+
+    def span(cells: list[str]) -> int:
+        at: dict[str, list[int]] = defaultdict(list)
+        for k, cell in enumerate(cells):
+            for net in (nets or {}).get(cell, ()):
+                at[net].append(k)
+        return sum(max(ks) - min(ks) for ks in at.values())
+
+    def untangle(cells: list[str]) -> list[str]:
+        free = [c for c in cells if c in centred]
+        fixed = [c for c in cells if c not in centred]
+        if not nets or not free or comb(len(cells), len(free)) * factorial(len(free)) > 20_000:
+            return cells
+        best, least = cells, span(cells)
+        for slots in combinations(range(len(cells)), len(free)):
+            for order in permutations(free):
+                placed, rest = dict(zip(slots, order, strict=True)), iter(fixed)
+                row = [placed[k] if k in placed else next(rest) for k in range(len(cells))]
+                if (cost := span(row)) < least:
+                    best, least = row, cost
+        return best
 
     def split(cells: list[tuple[str, int]], std: bool, limit: int) -> list[list[tuple[str, int]]]:
         total = sum(w for _, w in cells)
@@ -164,6 +199,7 @@ def pack_rows(rows: list[tuple[list[tuple[str, int]], bool]], row_height: int) -
                 else:
                     filling[std] = len(merged)
                     merged.append((i, cells, width))
+        merged = [(i, untangle(cells) if rows[i][1] else cells, width) for i, cells, width in merged]
         std_rows = [m for m in merged if rows[m[0]][1] and len(m[1]) > 1]
         if len(merged) % 2 and std_rows:  # an even number of rows: the fullest row of standard cells in two
             i, cells, _ = max(std_rows, key=lambda m: len(m[1]))
@@ -218,7 +254,10 @@ def align_floorplan(netlist: Path, pdk: str, out_dir: Path, *, name: str, escape
     groups = {
         c["instance_name"]: (c["template_name"], c["instances"]) for c in found if c["constraint"] == "GroupBlocks"
     }
-    devices = [f[0] for f in map(str.split, netlist.read_text().splitlines()) if f and f[0][0] in "MmXx"]
+    instances = [f for f in map(str.split, netlist.read_text().splitlines()) if f and f[0][0] in "MmXx"]
+    devices = [f[0] for f in instances]
+    # a transistor's d g s b, a standard cell's nets before its cell name
+    nets = {f[0]: frozenset(f[1:5] if f[0][0] in "Mm" else [t for t in f[1:-1] if "=" not in t]) for f in instances}
     floorplan = placement_to_floorplan(
         placement,
         groups,
@@ -227,6 +266,7 @@ def align_floorplan(netlist: Path, pdk: str, out_dir: Path, *, name: str, escape
         escape=escape,
         netlist=str(netlist.resolve()),
         widths=in_pdk(pdk, "netcells", "widths", netlist),
+        nets=nets,
     )
     path = out_dir / f"{name}.json"
     path.write_text(json.dumps(floorplan, indent=1) + "\n")
