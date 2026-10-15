@@ -109,9 +109,11 @@ class Router:
         self._book2(net, x0, y0, x1, y1)
 
     def free_box2(self, net, x0, y0, x1, y1) -> bool:
-        """No other net's M2 (cells or routes) within the M2 space of the box (exact geometry)."""
+        """No M2 (cells or routes) within the M2 space of the box (exact geometry) but the net's own
+        shapes it touches, which it joins: a separate piece of the net keeps the space too (a pin of
+        it on the next, half-pitch pin track, say)."""
         for n, a, b, c, d in self.exact2:
-            if n == net and n:
+            if n == net and n and a <= x1 and x0 <= c and b <= y1 and y0 <= d:
                 continue
             if a - SP < x1 and x0 < c + SP and b - SP < y1 and y0 < d + SP:
                 return False

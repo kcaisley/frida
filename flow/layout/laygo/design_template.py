@@ -117,10 +117,16 @@ drawn = {}  # net -> M3 trunks actually drawn: (track, y0, y1)
 
 
 def branch_ok(m, members):  # route_net's M2 from each pin to a trunk past its end, and the via pad,
-    for lo, hi, y, _ in members:  # keep the M2 space to other nets' pins on the pin's track
-        a, b = min(lo, m * P3 - END), max(hi, m * P3 + END)
-        if any(a - SP < x1 and x0 < b + SP for x0, x1, n in pinbars.get(y, []) if n != current[0]):
-            return False
+    for lo, hi, y, _ in members:  # keep the M2 space to other nets' pins on the pin's track, and to any
+        a, b = min(lo, m * P3 - END), max(hi, m * P3 + END)  # pin on a track closer than a bar and a space
+        for yy, bars in pinbars.items():  # (half-pitch pin tracks), the net's own unless it touches them
+            if abs(yy - y) >= 2 * HW2 + SP:
+                continue
+            for x0, x1, n in bars:
+                near = a - SP < x1 and x0 < b + SP
+                joined = n == current[0] and a <= x1 and x0 <= b and abs(yy - y) <= 2 * HW2
+                if near and (n != current[0] or (yy != y and not joined)):
+                    return False
     return True
 
 
