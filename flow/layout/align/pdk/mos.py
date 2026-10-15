@@ -204,10 +204,13 @@ class MOSGenerator(RowCanvas):
         name = devs[0] if len(devs) == 1 else "_".join(devs)
         try:
             cell = rowcell.mos_grid(name, pol, devices, rows, grid=X_GRID, **rails)
-        except AssertionError as error:  # the pattern does not fit a row (tracks): side by side in each row
+        except AssertionError as error:  # the pattern does not fit (tracks, columns): side by side
             logger.warning(f"{name}: {error}; its devices side by side instead")
             folds = len(rows) if all(v.nf % len(rows) == 0 for v in devices) else 1
-            cell = rowcell.mos_rows(name, pol, devices, folds, grid=X_GRID, **rails)
+            try:
+                cell = rowcell.mos_rows(name, pol, devices, folds, grid=X_GRID, **rails)
+            except AssertionError:  # nor folded over the rows ALIGN asked for: one row
+                cell = rowcell.mos_rows(name, pol, devices, 1, grid=X_GRID, **rails)
         self.draw(cell.rects)
         self.bbox = transformation.Rect(0, 0, cell.width, _rows(cell) * rowcell.H)
 

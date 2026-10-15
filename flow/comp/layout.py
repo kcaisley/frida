@@ -83,24 +83,37 @@ def _finish(run_dir: Path, summary: dict[str, dict[str, Any]], failures: dict[st
 
 
 def _run(run_dir: Path, pdk: str, name: str, netlist: Path, floorplan: Path | None) -> Path:
-    """One design in one PDK: the floorplan (from ALIGN's placement when none is given), the three
-    tools into ``run_dir/<tool>/``, each signed off in ``run_dir/<tool>/signoff/``."""
+    """One design in one PDK, the three tools into ``run_dir/<tool>/``, each signed off in
+    ``run_dir/<tool>/signoff/``. Without a floorplan, ALIGN runs on its own first (it derives its
+    constraints, places and routes) and its placement becomes the floorplan of cIcCreator and laygo
+    (``run_dir/floorplan/``); with one, all three tools place as it says."""
 
     summary: dict[str, dict[str, Any]] = {}
     failures: dict[str, str] = {}
+    tools = list(BUILD)
     if floorplan is None:
-        try:
-            floorplan = align_floorplan(netlist, pdk, run_dir / "floorplan", name=name, escape=ESCAPE)
-        except Exception as error:  # noqa: BLE001 - every tool needs the floorplan
-            return _finish(run_dir, summary, {f"{pdk}/floorplan": repr(error)})
-    for tool, build in BUILD.items():
+        tools = ["align", *(t for t in tools if t != "align")]
+    for tool in tools:
         out = run_dir / tool
         entry: dict[str, Any] = {}
         summary[f"{pdk}/{tool}"] = entry
+        if floorplan is None and tool != "align":
+            try:
+                floorplan = align_floorplan(
+                    run_dir / "align" / name, netlist, pdk, run_dir / "floorplan", name=name, escape=ESCAPE
+                )
+            except Exception as error:  # noqa: BLE001 - ALIGN's placement is the others' floorplan
+                failures[f"{pdk}/floorplan"] = repr(error)
+                del summary[f"{pdk}/{tool}"]
+                break
         try:
-            gds = build(pdk, floorplan, netlist, out)
+            if tool == "align":
+                gds = align_build(pdk, floorplan, netlist, out, name=name)
+            else:
+                assert floorplan is not None  # given, or from ALIGN's placement above
+                gds = BUILD[tool](pdk, floorplan, netlist, out)
             entry.update(gds=str(gds), cell_um=_cell_um(gds))
-            check = row_signoff(pdk, gds, netlist, floorplan, out / "signoff")
+            check = row_signoff(pdk, gds, netlist, floorplan, out / "signoff")  # ALIGN on its own: no floorplan yet
             entry.update(drc_violations=check.drc_violations, lvs_correct=check.lvs_correct)
             if check.drc_violations or not check.lvs_correct:
                 failures[f"{pdk}/{tool}"] = f"DRC {check.drc_violations} violations, LVS correct {check.lvs_correct}"

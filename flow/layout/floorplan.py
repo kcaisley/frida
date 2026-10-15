@@ -1,9 +1,8 @@
 """A floorplan from ALIGN's placement, so cIcCreator and laygo can lay out a circuit without a
 hand-written one.
 
-``align_floorplan`` runs ALIGN on the netlist up to placement, free (ALIGN groups the devices
-into its primitives and places them by its symmetry, on one axis: align/run.py; with its own
-symmetry groups where no placement on one axis fits), and
+``align_floorplan`` reads the placement of a run of ALIGN on its own (align/build.py: ALIGN
+groups the devices into its primitives, derives their symmetry and places and routes them), and
 ``placement_to_floorplan`` turns the placement into a floorplan in the format of
 design/layout/*.json: rows top first, each left to right, ``split`` for a primitive folded over
 several rows, ``groups`` with ALIGN's primitives, ``escape`` and ``netlist`` as given, and
@@ -21,9 +20,9 @@ tall (the array ALIGN chose, align/pdk/mos.py) becomes ``split[device] = r``, it
 in a row of standard cells (netcells' dense frame), so where ALIGN mixes them into a row of
 transistors they move to a row of their own just below it, in the same order.
 
-ALIGN's single-axis placement stacks the primitives along the centre line, mostly one per row,
-with its outline padded to the AspectRatio constraint: copied as they are, the rows make a tall
-block with much filler. ``pack_rows`` merges them toward a square by the row cells' own widths
+ALIGN's placement can stack primitives along a symmetry line, one per row, with its outline
+padded to the AspectRatio constraint: copied as they are, the rows make a tall block with much
+filler. ``pack_rows`` merges them toward a square by the row cells' own widths
 (``netcells.widths``), each row nested around the ones above it so the rows stay mirrored about
 the centre line; a folded device whose parts land in one row is whole again. The cells ALIGN
 centres on the line (the middle one of a row of odd count, self-symmetric) have no mirror
@@ -41,8 +40,7 @@ from itertools import combinations, permutations
 from math import comb, factorial, log
 from pathlib import Path
 
-from flow.layout.align.run import run_align
-from flow.layout.pdkproc import access_points, in_pdk, pdk_value
+from flow.layout.pdkproc import in_pdk, pdk_value
 
 
 def placement_to_floorplan(
@@ -268,21 +266,12 @@ def pack_rows(
     return [cells for _, cells, _ in packed]
 
 
-def align_floorplan(netlist: Path, pdk: str, out_dir: Path, *, name: str, escape: dict) -> Path:
-    """Run ALIGN up to placement on ``netlist`` in ``pdk`` and write ``out_dir/<name>.json``,
-    a floorplan as design/layout/*.json, with ALIGN's raw placement beside it."""
+def align_floorplan(work: Path, netlist: Path, pdk: str, out_dir: Path, *, name: str, escape: dict) -> Path:
+    """The floorplan of the placement in ALIGN's work directory ``work`` (a run of ALIGN on its own
+    on ``netlist``, align/build.py): ``out_dir/<name>.json`` as design/layout/*.json, with ALIGN's
+    raw placement beside it."""
 
-    access_points(pdk)
-    pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, out_dir / "pdk")
-    design = in_pdk(pdk, "flow.layout.align.make_design", "make_design", pdk, netlist, out_dir / "input", name=name)
-    try:
-        work = run_align(design, pdk_dir, out_dir / "align", flow_stop="3_pnr:place", one_axis=True)
-    except RuntimeError as error:  # many self-symmetric blocks on one axis: no placement in a square outline
-        print(f"{name}: no placement on one symmetry axis in a square outline ({str(error)[:80]}...); any outline")
-        const = design / f"{name}.const.json"  # pack_rows squares the rows whatever ALIGN's outline
-        kept = [c for c in json.loads(const.read_text()) if c["constraint"] != "AspectRatio"]
-        const.write_text(json.dumps(kept, indent=1) + "\n")
-        work = run_align(design, pdk_dir, out_dir / "align", flow_stop="3_pnr:place", one_axis=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     _top, _leaves, alternatives, _metrics = json.loads((work / "3_pnr" / "__placer_dump__.json").read_text())
     placement = alternatives[0][1]  # ALIGN's best
     (out_dir / f"{name}_placement.json").write_text(json.dumps(placement, indent=1) + "\n")

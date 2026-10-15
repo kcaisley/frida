@@ -11,11 +11,8 @@ generators in the PDK directory (align/pdk) then draw standard cells for rows of
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
-
-from flow.layout.align.one_axis import one_axis as single_axis
 
 ALIGN_HOME = Path(os.environ.get("ALIGN_HOME", "/local/kcaisley/layout-eval/ALIGN-public"))
 
@@ -55,15 +52,12 @@ def run_align(
     *,
     router: str | None = None,
     flow_stop: str | None = None,
-    one_axis: bool = False,
 ) -> Path:
     """Run ALIGN on ``design_dir`` (``<name>.sp``, ``<name>.const.json``) with ``pdk_dir`` in
     ``work``; returns ``work``.
 
     ``router``: ALIGN's ``--router`` (None: ALIGN's default). ``flow_stop``: ALIGN's
-    ``--flow_stop`` (e.g. ``"3_pnr:place"``). ``one_axis``: for a design without a Floorplan
-    constraint, first run ALIGN to its primitives (``work/pass1``) and merge its symmetry groups
-    onto one axis (one_axis.py, ``work/design/<name>``) for the second pass.
+    ``--flow_stop`` (e.g. ``"3_pnr:place"``).
     """
 
     design_dir, pdk_dir, work = design_dir.resolve(), pdk_dir.resolve(), work.resolve()
@@ -77,11 +71,6 @@ def run_align(
     env.pop("STEMS_STD_DENSE", None)
     if floorplanned:
         env["STEMS_STD_DENSE"] = "1"  # standard cells in rows of their own
-    if one_axis and not floorplanned:
-        pass1 = work / "pass1"
-        shutil.rmtree(pass1, ignore_errors=True)
-        _schematic2layout(design_dir, pdk_dir, pass1, ["--flow_stop", "2_primitives"], env)
-        design_dir = single_axis(design_dir, pass1, work / "design" / name)
     args = [*(["--router", router] if router else []), *(["--flow_stop", flow_stop] if flow_stop else [])]
     _schematic2layout(design_dir, pdk_dir, work, args, env)
     return work

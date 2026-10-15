@@ -205,17 +205,21 @@ def add_post_devices(pdk: str, source: Path, extra: Path, top: str) -> None:
     source.write_text("\n".join(out) + "\n")
 
 
-def row_signoff(pdk: str, gds: Path, netlist: Path, floorplan: Path, run_dir: Path) -> RowSignoff:
+def row_signoff(pdk: str, gds: Path, netlist: Path, floorplan: Path | None, run_dir: Path) -> RowSignoff:
     """DRC and LVS (no PEX) of a row layout, both run whatever the other finds.
 
-    The LVS source is the netlist the build used (``netlist`` with the floorplan's ``split``), with
+    The LVS source is the netlist the build used (``netlist`` with the floorplan's ``split``; as it
+    is without a floorplan, ALIGN on its own), with
     the library cells' subcircuits (``pdk/<pdk>/netlist/lvs_source.py``) and the devices a post step
     added (``<gds>.extra.sp``). Source top: the netlist's last subcircuit; layout top: the GDS's
     largest top cell. Writes ``row_signoff.json``; raises only when a checker fails to run.
     """
 
     run_dir.mkdir(parents=True, exist_ok=True)
-    name, used = in_pdk(pdk, "netcells", "floorplan_netlist", floorplan, pdk, netlist)
+    if floorplan is None:
+        name, used = Path(gds).stem, Path(netlist).read_text()
+    else:
+        name, used = in_pdk(pdk, "netcells", "floorplan_netlist", floorplan, pdk, netlist)
     built = run_dir / f"{name}.sp"
     built.write_text(used)
     source = run_dir / "source.cdl"

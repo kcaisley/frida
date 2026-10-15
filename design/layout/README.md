@@ -10,7 +10,8 @@ Everything they produce goes to `build/layout/comp/<target>/<timestamp>/`.
   runner passes its own), the devices split into equal parts for a cross-quad (`split`), the edge
   each port leaves at (`escape`), and ALIGN's primitive of each device (`groups`, ALIGN's library
   names: `DP_NMOS_B_0`, `CCP_PMOS_0`, ...). The design takes the floorplan's name. A floorplan
-  from ALIGN's placement says `"symmetric": false` (its rows are not mirrored).
+  from ALIGN's placement (for cIcCreator and laygo; ALIGN itself places on its own there) says
+  `"symmetric": false` (its rows are not mirrored).
 - `mos_inv.json`, `pdk/<pdk>/layout/netlists/mos_inv.sp` — the single-device test: one NMOS and one PMOS
   row cell (an inverter), each in a row of its own, hand-written per PDK.
 - `comparison.md` — notes from evaluating cIcCreator, laygo and ALIGN.

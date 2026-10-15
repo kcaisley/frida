@@ -162,33 +162,25 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
 - [x] A row of transistors too wide for any packing in ALIGN's aspect ratio splits into nested rings of
   its mirror pairs, each mirrored (`pack_rows`): the gates targets put a logic gate's transistors in
   one row (`comp_c040_gates_tsmc65`: 21.5 x 7.5 um in four rows before, six rows now).
-- [ ] ALIGN's router leaves nets open on some floorplans from its placement: in
-  `comp_frida1_auto_tower180` the nets between the output buffers (outp_b, outn_b), whose four
-  inverters ALIGN stacks self-symmetric on the axis (its global router: no feasible path). Swapping
-  the buffers into a mirrored order does not help, and the hanan router finds no pins in tower180.
-  ALIGN's own open count is no guide (it counts the unrouted supplies). cIcCreator and laygo are
-  correct on the same floorplan. In `comp_c040_gates_tsmc65` (six rows) ALIGN's M1 leaves one corner
-  closer than the M1 space; cIcCreator and laygo are clean there too.
-- [ ] ALIGN's CMC_S_PMOS_B pair cell in tpsc65 (`comp_c040_auto_tpsc65`, c040's `Minner_on` pair): the
-  PDK's dummy-poly check flags its gates' poly beside the row edge (already on 2026-10-14); cIcCreator
-  and laygo are clean on the same floorplan.
-- [ ] ALIGN's own variants (since the port) can pick a long one-row array for a big group: frida1's
-  cross-coupled NMOS pair in tsmc65 became one 10.4 um row per device, so ALIGN's placement is 20.4
-  x 14.4 um at density 0.34 and the floorplan from it 22.5 x 7.5 um (12.7 x 11.1 with the earlier
-  square-ish fold rule). Decide: ALIGN's defaults, or a per-primitive aspect limit on the variants.
-- [ ] ALIGN on its own (its placement with its own symmetry groups, its routing, no floorplan; 2026-10-15,
-  c040): tsmc65 DRC clean and LVS correct, 10.4 x 12.6 um (on the floorplan from its placement 10.4
-  x 10.8); tsmc28 LVS correct but 32 dummy-poly markers, gaps of free placement that its gridded
-  poly does not allow. Merging the symmetry groups onto one axis (one_axis.py) changed nothing for
-  c040 in tsmc65. Decide whether ALIGN's column runs on its own (dropping the floorplan step for it).
-- [ ] With the ported generator: ALIGN's route leaves decision_p open in `comp_c040_auto_tsmc65` (one
-  run of two; the other was correct, cIcCreator failing to route that floorplan), and ALIGN's row
-  ends in `comp_frida1_auto_tsmc28` break implant and VT spacing at the block's left edge (5).
+- [x] ALIGN runs on its own in the `auto` and `gates` targets (2026-10-16): one run that derives its
+  constraints (primitives, symmetry), places and routes; its placement is the floorplan of
+  cIcCreator and laygo. The floorplanned second ALIGN run and the merge of ALIGN's symmetry groups
+  onto one axis (one_axis.py) are gone. Results: frida1 in tsmc65 clean in all three tools (ALIGN
+  10.9 x 13.0 um, cIcCreator and laygo 13.5 x 11.1, was 22.5 x 7.5 with the floorplanned run's
+  arrays), c040 in tsmc65 clean (ALIGN 10.9 x 13.0, 12.5 x 11.1), frida1 in tower180 clean in all
+  three (ALIGN's open buffer nets on the floorplan are gone), c040 in tsmc28 cIcCreator and laygo
+  clean. A generator fallback draws a group side by side in one row where ALIGN's array does not fit.
+- [ ] ALIGN on its own in tsmc28: free placement leaves gaps whose dummy-poly spacing the gridded
+  poly rule (second poly line past a 30 nm gate) forbids (`comp_c040_auto_tsmc28` and
+  `comp_frida1_auto_tsmc28`: 32 each, LVS correct; cIcCreator and laygo clean).
+  Place on the cells' abutment grid, or fill such gaps with poly on the gate pitch.
+- [ ] Not yet run with ALIGN on its own: the other auto targets (ihp130, lf150, tpsc65)
+  and all gates targets. Earlier ALIGN-only findings on floorplans from its placement (tpsc65's
+  CMC_S_PMOS_B dummy poly, lf150 frida1's clk-tail short, c040 gates in tsmc65 one M1 corner) need
+  checking again.
 - [x] lf150 LVS on asiclab003: Assura (its `gdsIIToVdb`) needs `libicui18n.so.50`, package `libicu50`
   (installed 2026-10-15). The manual and auto floorplans of both comparators are LVS correct in all
   three tools, except ALIGN's frida1 from its placement below.
-- [ ] ALIGN's `comp_frida1_auto_lf150` shorts clk to tail (LVS: one net fewer); cIcCreator and laygo are
-  correct on the same floorplan.
 
 ## Next
 

@@ -2,13 +2,16 @@
 design directory (make_design.py), ALIGN (run.py), then post.py for signoff.
 
 With a floorplan, ALIGN places the rows as it says (its Floorplan constraint); without one,
-ALIGN places freely, its symmetry groups merged onto one axis. The router is the PDK's
+ALIGN derives every constraint itself (its primitives, symmetry) and places and routes on its
+own, in an outline of ALIGN's aspect ratio (2/3 to 3/2), else any where none fits (many
+self-symmetric blocks). The router is the PDK's
 ``ALIGN_ROUTER`` (pdk/<pdk>/layout/tech.py), and ALIGN's default where that one fails (hanan
 on a very small design).
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -41,12 +44,21 @@ def _align_gds(work: Path, name: str) -> Path:
     return found[0]
 
 
-def build(pdk: str, floorplan: Path | None, netlist: Path, out_dir: Path, *, post: PostOptions = PLAIN) -> Path:
-    """Lay out ``netlist`` in ``pdk`` with ALIGN, placed as ``floorplan`` says (None: free);
-    returns the GDS ``out_dir/<name>/<name>.gds`` (``<name>``: the floorplan's, else the netlist's)."""
+def build(
+    pdk: str,
+    floorplan: Path | None,
+    netlist: Path,
+    out_dir: Path,
+    *,
+    name: str | None = None,
+    post: PostOptions = PLAIN,
+) -> Path:
+    """Lay out ``netlist`` in ``pdk`` with ALIGN, placed as ``floorplan`` says (None: by ALIGN);
+    returns the GDS ``out_dir/<name>/<name>.gds`` (``<name>``: given, else the floorplan's, else the
+    netlist's). ALIGN's work directory, ``out_dir/<name>``, keeps its placement and constraints."""
 
     access_points(pdk)
-    name = floorplan.stem if floorplan else netlist.stem
+    name = name or (floorplan.stem if floorplan else netlist.stem)
     # ALIGN imports the PDK directory as a package named after it: the generated one is called pdk
     pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, out_dir / "pdk")
     design = in_pdk(
@@ -63,7 +75,7 @@ def build(pdk: str, floorplan: Path | None, netlist: Path, out_dir: Path, *, pos
     dense = {"STEMS_STD_DENSE": "1"} if floorplan else {}  # post.py as the generators drew the cells
 
     def attempt(router: str | None) -> Path:
-        run_align(design, pdk_dir, work, router=router, one_axis=floorplan is None)
+        run_align(design, pdk_dir, work, router=router)
         return in_pdk(
             pdk,
             "flow.layout.align.post",
@@ -75,13 +87,20 @@ def build(pdk: str, floorplan: Path | None, netlist: Path, out_dir: Path, *, pos
         )
 
     router = pdk_value(pdk, "tech", "ALIGN_ROUTER")
+    const = design / f"{name}.const.json"
     try:
         out = attempt(router or None)
     except Exception as error:
-        if not router:
+        kept = [c for c in json.loads(const.read_text()) if c["constraint"] != "AspectRatio"]
+        if floorplan is None and len(kept) < len(json.loads(const.read_text())):
+            print(f"{name}: no placement in ALIGN's square outline ({str(error)[:80]}...); any outline")
+            const.write_text(json.dumps(kept, indent=1) + "\n")
+            out = attempt(router or None)
+        elif router:
+            print(f"{name}: ALIGN with --router {router} failed ({error}); again with ALIGN's default router")
+            out = attempt(None)
+        else:
             raise
-        print(f"{name}: ALIGN with --router {router} failed ({error}); again with ALIGN's default router")
-        out = attempt(None)
     gds = out.rename(work / f"{name}.gds")
     Path(f"{out}.extra.sp").rename(f"{gds}.extra.sp")  # the devices post.py added, for the LVS source
     print(f"wrote {gds}")
