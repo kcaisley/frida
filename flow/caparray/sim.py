@@ -70,7 +70,7 @@ def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
     """Run the complete fabricated-size CDAC code ramp."""
 
     from pdk import tsmc65
-    from pdk.tsmc65 import site
+    from pdk.tsmc65.hdl21 import site
 
     run_dir.mkdir(parents=True, exist_ok=True)
     params = CapArrayTbParams()

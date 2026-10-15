@@ -11,6 +11,8 @@ import hdl21 as h
 import hdl21.sim as hs
 import pytest
 
+import pdk
+
 from . import sim
 
 
@@ -51,8 +53,12 @@ def test_runner_uses_passive_array_without_standard_cells(monkeypatch, tmp_path,
             include_stdcell=lambda: hs.Include(path=Path("/cells/driver.spi")),
         ),
     )
-    monkeypatch.setitem(sys.modules, "pdk.tsmc65", SimpleNamespace(site=site, pdk_logic=object()))
-    monkeypatch.setitem(sys.modules, "pdk.tsmc65.site", site)
+    stub_pdk = SimpleNamespace(site=site, pdk_logic=object())
+    monkeypatch.setitem(sys.modules, "pdk.tsmc65", stub_pdk)
+    monkeypatch.setitem(sys.modules, "pdk.tsmc65.hdl21", SimpleNamespace(site=site))
+    # Without the private submodule an earlier test may already have bound an empty
+    # pdk.tsmc65 namespace to the pdk package, which `from pdk import tsmc65` prefers.
+    monkeypatch.setattr(pdk, "tsmc65", stub_pdk, raising=False)
     monkeypatch.setattr(h.pdk, "set_default", lambda *_: None)
     monkeypatch.setattr(h.pdk, "compile", lambda *_: None)
     captured = {}

@@ -1,0 +1,28 @@
+{
+ "_comment": "One NMOS and one PMOS row cell (an inverter), each in a row of its own: the single-device test of the stems cells in every PDK and tool. Netlists (per PDK): hand-written, pdk/<pdk>/layout/netlists/mos_inv.sp (in each PDK's submodule). Groups: ALIGN's primitives (its library's names), as ALIGN's 1_topology groups the netlist without a floorplan.",
+ "netlist": "../../pdk/{pdk}/layout/netlists/mos_inv.sp",
+ "escape": {
+  "up": [
+   "in"
+  ],
+  "down": [
+   "out"
+  ]
+ },
+ "groups": {
+  "NMOS_S_0": [
+   "Mn"
+  ],
+  "PMOS_S_0": [
+   "Mp"
+  ]
+ },
+ "rows": [
+  [
+   "Mp"
+  ],
+  [
+   "Mn"
+  ]
+ ]
+}

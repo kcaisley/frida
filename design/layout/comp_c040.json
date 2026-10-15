@@ -1,0 +1,98 @@
+{
+ "_comment": "Sweep candidate c040 (two-stage, NMOS switched input, half size) in standard-cell rows, top row first, each row mirrored about the centre: input pair and tail, preamp resets, the PMOS latch stack (outer-on, cross, inner-on), the NMOS latch (cross-coupled pair split cross-quad over two rows), standard-cell output stage. Netlist (per PDK): written by flow.comp.subckt (c040, standard-cell output stage); the cross-coupled PMOS is split into halves for a cross-quad over two rows. Groups: ALIGN's primitives (its library's names), as ALIGN's 1_topology groups the netlist without a floorplan.",
+ "netlist": "../../build/layout/netlists/{pdk}/comp_c040_stdcells.sp",
+ "split": {
+  "Mcross_init_p": 2,
+  "Mcross_init_n": 2
+ },
+ "escape": {
+  "up": [
+   "inp",
+   "inn"
+  ],
+  "down": [
+   "clk",
+   "clkb",
+   "outp",
+   "outn"
+  ]
+ },
+ "groups": {
+  "CCP_NMOS_0": [
+   "Mcross_init_n",
+   "Mcross_init_p"
+  ],
+  "CMC_PMOS_0": [
+   "Mouter_on_n",
+   "Mouter_on_p"
+  ],
+  "CMC_PMOS_1": [
+   "Mrst_n",
+   "Mrst_p"
+  ],
+  "CMC_S_PMOS_B_0": [
+   "Minner_on_n",
+   "Minner_on_p"
+  ],
+  "DP_NMOS_0": [
+   "Minner_init_n",
+   "Minner_init_p"
+  ],
+  "DP_NMOS_B_0": [
+   "Mdiff_n",
+   "Mdiff_p"
+  ],
+  "NMOS_S_0": [
+   "Mtail"
+  ],
+  "PMOS_4T_0": [
+   "Mcross_on_n"
+  ],
+  "PMOS_4T_1": [
+   "Mcross_on_p"
+  ],
+  "PMOS_S_0": [
+   "Mtail_reset"
+  ]
+ },
+ "rows": [
+  [
+   "Mdiff_p",
+   "Mtail",
+   "Mdiff_n"
+  ],
+  [
+   "Mrst_p",
+   "Mtail_reset",
+   "Mrst_n"
+  ],
+  [
+   "Mouter_on_p",
+   "Mcross_on_p",
+   "Minner_on_p",
+   "Minner_on_n",
+   "Mcross_on_n",
+   "Mouter_on_n"
+  ],
+  [
+   "Minner_init_p",
+   "Mcross_init_p_a",
+   "Mcross_init_n_a",
+   "Minner_init_n"
+  ],
+  [
+   "Mcross_init_n_b",
+   "Mcross_init_p_b"
+  ],
+  [
+   "Xbuf2_outp",
+   "Xbuf1_outp",
+   "Xsr_p",
+   "Xdecision_n",
+   "Xdecision_p",
+   "Xsr_n",
+   "Xbuf1_outn",
+   "Xbuf2_outn"
+  ]
+ ]
+}

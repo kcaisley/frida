@@ -60,7 +60,7 @@ def test_custom_bands_and_generic_netlist():
 
 @pytest.mark.parametrize("technology", ["tsmc65", "tsmc28", "tower180"])
 def test_compiled_driver_preserves_invert_and_state_pin_paths(technology):
-    compiler = pytest.importorskip(f"pdk.{technology}.pdk_logic")
+    compiler = pytest.importorskip(f"pdk.{technology}.hdl21.pdk_logic")
     module = CapDriver(CapDriverParams(n_stages=6))
     compiler.compile(module)
     for stage in range(6):
@@ -80,7 +80,8 @@ def test_compiled_driver_preserves_invert_and_state_pin_paths(technology):
 
 def test_public_driver_api_isolates_pdk_compilation():
     compilers = [
-        pytest.importorskip(f"pdk.{technology}.pdk_logic") for technology in ("tsmc65", "tower180", "tsmc28", "tsmc65")
+        pytest.importorskip(f"pdk.{technology}.hdl21.pdk_logic")
+        for technology in ("tsmc65", "tower180", "tsmc28", "tsmc65")
     ]
     params = CapDriverParams(n_stages=3, strengths=(1, 2, 4))
     previous = []

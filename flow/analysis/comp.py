@@ -14,6 +14,7 @@ from flow.analysis import calc
 from flow.analysis.types import (
     AnalysisCompCandidate,
     AnalysisCompCommonMode,
+    AnalysisCompDelay,
     AnalysisCompOffsetNoise,
     AnalysisCompPower,
     AnalysisCompTiming,
@@ -282,6 +283,46 @@ def analyze_comp_timing(measurements: Sequence[MeasComp]) -> AnalysisCompTiming:
         clock_to_decision_s=np.asarray(delays, dtype=np.float64),
         settling_s=np.asarray(settling, dtype=np.float64),
         unresolved=np.asarray(unresolved, dtype=np.bool_),
+    )
+
+
+def analyze_comp_delay(
+    measurements: Sequence[MeasComp],
+    *,
+    timing: AnalysisCompTiming,
+) -> AnalysisCompDelay:
+    """Median clock-to-decision delay of the resolved trials at every swept input point."""
+
+    identity = measurement_identity(measurements)
+    check_identity(timing, identity, name="comparator timing")
+    vin_cm_v = np.unique(np.concatenate([measurement.vin_cm_v for measurement in measurements]))
+    vin_diff_v = np.unique(np.concatenate([measurement.vin_diff_v for measurement in measurements]))
+    # each timed record's input point, from its measurement and row
+    record_cm_v = np.asarray(
+        [
+            measurements[source].vin_cm_v[row]
+            for source, row in zip(timing.source_index, timing.trial_index, strict=True)
+        ]
+    )
+    record_diff_v = np.asarray(
+        [
+            measurements[source].vin_diff_v[row]
+            for source, row in zip(timing.source_index, timing.trial_index, strict=True)
+        ]
+    )
+    delay_s = np.full((len(vin_cm_v), len(vin_diff_v)), np.nan)
+    for row, cm_v in enumerate(vin_cm_v):
+        for column, diff_v in enumerate(vin_diff_v):
+            selected = np.isclose(record_cm_v, cm_v) & np.isclose(record_diff_v, diff_v) & ~timing.unresolved
+            if np.any(selected):
+                delay_s[row, column] = float(np.median(timing.clock_to_decision_s[selected]))
+    return AnalysisCompDelay(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        vin_cm_v=vin_cm_v,
+        vin_diff_v=vin_diff_v,
+        delay_s=delay_s,
     )
 
 

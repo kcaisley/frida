@@ -154,7 +154,9 @@ def test_adc_target_aborts_powered_hardware_after_interrupted_middle_point(monke
 def test_adc_noctl_target_aborts_fpga_after_interrupted_middle_point(monkeypatch) -> None:
     calls = []
 
-    def scan_noctl(params, *, run_dir: Path, position: str) -> Path:
+    def scan_noctl(
+        params, *, run_dir: Path, position: str, capture_scope: bool = True, amp_enable: bool = True
+    ) -> Path:
         calls.append((params, position))
         if position == "middle" and sum(call_position == "middle" for _params, call_position in calls) == 1:
             raise RuntimeError("interrupted")
@@ -175,7 +177,9 @@ def test_adc_sequence_static_resumes_contiguous_capture_prefix(tmp_path: Path, m
         (tmp_path / f"{index:04d}_capture.h5").touch()
     calls = []
 
-    def scan_noctl(params, *, run_dir: Path, position: str) -> Path:
+    def scan_noctl(
+        params, *, run_dir: Path, position: str, capture_scope: bool = True, amp_enable: bool = True
+    ) -> Path:
         calls.append((params, run_dir, position))
         return run_dir
 
@@ -368,3 +372,21 @@ def test_rate_static_requires_sequence_selection_before_hardware(monkeypatch):
     with pytest.raises(ValueError, match="TODO select"):
         runner.adc_sample_rate_static()
     assert not calls
+
+
+def test_adc_sequence_static_passes_scope_and_amplifier_choices(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+
+    def scan_noctl(
+        params, *, run_dir: Path, position: str, capture_scope: bool = True, amp_enable: bool = True
+    ) -> Path:
+        calls.append((capture_scope, amp_enable))
+        return run_dir
+
+    monkeypatch.setattr(runner.scan_adc_noctl, "scan", scan_noctl)
+    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+    runner.adc_sequence_static(capture_scope=False, amp_enable=False)
+    assert calls
+    assert set(calls) == {(False, False)}

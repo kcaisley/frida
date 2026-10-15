@@ -90,7 +90,7 @@ def analyze_adc_calibration1(
         index=identity.index,
         dut=tb.dut,
         method="calibration1",
-        label="CDAC S-curve hybrid weights",
+        label="Cal. 1: CDAC S-curve capacitor measurement",
         code_max=code_max,
         nominal_weights=nominal_weight,
         calibrated_weights=calibrated_weight,

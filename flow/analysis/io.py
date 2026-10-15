@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import dataclasses
 import importlib
 import math
@@ -18,7 +19,7 @@ import numpy as np
 from hdl21.prefix import Prefix, Prefixed
 
 from flow.analysis import calc
-from flow.analysis.types import Analysis, Meas
+from flow.analysis.types import Analysis, AnalysisAdcCalibration, Meas, MeasAdc
 
 
 def _dataclass_fields(value) -> tuple[Any, ...]:
@@ -268,6 +269,46 @@ def read_analysis(path: Path) -> Analysis:
     if not isinstance(analysis, Analysis):
         raise TypeError(f"{path} contains {type(analysis).__name__}, not an Analysis result")
     return analysis
+
+
+def read_extracted_calibration(path: Path, measurement: MeasAdc) -> AnalysisAdcCalibration:
+    """Read a PEX per-stage capacitance table as BOUT weights for ``measurement``.
+
+    The extracted effective (main - diff) capacitances are the best estimate
+    of the CDAC weights before random mismatch. Each switched capacitor
+    contributes twice its effective value; the terminal decision keeps its
+    nominal unit weight at the volts-per-design-unit scale projected from the
+    extracted capacitances, as in calibration 1. The weights are normalized to
+    the inclusive output range and carry the measurement's identity.
+    """
+
+    with Path(path).open(newline="") as table:
+        effective_ff = np.asarray([float(row["effective_ff"]) for row in csv.DictReader(table)], dtype=np.float64)
+    nominal_bout_weight = measurement.nominal_bout_weights.astype(np.float64)
+    nominal_cap_weight = nominal_bout_weight[:-1]
+    if effective_ff.shape != nominal_cap_weight.shape:
+        raise ValueError(f"{path} has {len(effective_ff)} stages, expected {len(nominal_cap_weight)}")
+    extracted_cap_weight = 2.0 * effective_ff
+    scale = float(np.dot(nominal_cap_weight, extracted_cap_weight) / np.dot(nominal_cap_weight, nominal_cap_weight))
+    code_max = measurement.code_max
+    calibrated_weight = np.append(extracted_cap_weight, nominal_bout_weight[-1] * scale)
+    calibrated_weight *= code_max / np.sum(calibrated_weight)
+    identity = measurement.identity
+    return AnalysisAdcCalibration(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        method="extracted",
+        label="PEX-extracted weights",
+        code_max=code_max,
+        nominal_weights=nominal_bout_weight * code_max / np.sum(nominal_bout_weight),
+        calibrated_weights=calibrated_weight,
+        measured_weight_mask=np.append(np.ones(len(effective_ff), dtype=bool), False),
+        training_sample_count=0,
+        validation_sample_count=0,
+        output_gain=1.0,
+        output_offset_lsb=0.0,
+    )
 
 
 def interpolate_wave_records(

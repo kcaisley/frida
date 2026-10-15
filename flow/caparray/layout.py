@@ -11,8 +11,8 @@ import hdl21 as h
 from klayout import db
 
 from flow.layout.signoff import SignoffParams, run_signoff
-from pdk.tsmc65.ringfmom import LIBRARY, ringfmom_array_params
-from pdk.tsmc65.signoff import SignoffOptions
+from pdk.tsmc65.calibre.ringfmom import LIBRARY, ringfmom_array_params
+from pdk.tsmc65.calibre.signoff import BLOCK_WAIVERS, SignoffOptions
 
 from .laygen import (
     CapArrayLayout,
@@ -58,7 +58,7 @@ def _run_caparray(run_dir: Path, params: CapArrayLayoutParams) -> Path:
             source_top=params.top_cell,
             output_stem=params.top_cell,
             pdk_options=SignoffOptions(
-                drc_unselect_checks=("PO.DN.2", "DRM.R.1", "MOM.R.1"),
+                drc_unselect_checks=BLOCK_WAIVERS,
                 ringfmom=True,
                 pex_engine="xact3d",
                 recognize_mom_during_pex=True,

@@ -162,7 +162,7 @@ def test_physical_fastrx_matches_scope(
     board_map = load_board_map()
     board = board_map["boards"][BOARD_ID]
     capture_profiles = board["fastrx_capture_settings"]
-    flavor_name = board["adc_channels"][ADC_INDEX]
+    flavor_name = board_map["adc_channels"][ADC_INDEX]
     cap_weights = tuple(board_map["adc_flavors"][flavor_name]["cdac_weights"])
     dut_params = AdcParams(
         adc_bits=12,

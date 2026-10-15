@@ -98,6 +98,8 @@ def adc_sequence_static(
     sequences: tuple[AdcSequence, ...] | None = None,
     conversions: int = 100_000,
     run_dir: Path | None = None,
+    capture_scope: bool = True,
+    amp_enable: bool = True,
 ) -> Path:
     """Capture named sequences with manual 50-mV input and 700-mV common mode.
 
@@ -106,6 +108,8 @@ def adc_sequence_static(
     long recipes retain their 256-symbol idle interval.
     Select all ADCs and a single sequence for a grid, or the complete catalogue
     for a full timing campaign. Inputs and 1.2-V rails must be supplied manually.
+    ``capture_scope=False`` acquires FastRX data only, without scope records.
+    ``amp_enable=False`` keeps the unused input amplifier powered down.
     """
     board_id = 0
     if sequences is None:
@@ -177,12 +181,16 @@ def adc_sequence_static(
             current = params
             if position in {"first", "middle"}:
                 active = True
-            scan_adc_noctl.scan(params, run_dir=run_dir, position=position)
+            scan_adc_noctl.scan(
+                params, run_dir=run_dir, position=position, capture_scope=capture_scope, amp_enable=amp_enable
+            )
             if position in {"last", "only"}:
                 active = False
     finally:
         if active:
-            scan_adc_noctl.scan(current, run_dir=run_dir, position="abort")
+            scan_adc_noctl.scan(
+                current, run_dir=run_dir, position="abort", capture_scope=capture_scope, amp_enable=amp_enable
+            )
     # Select this completed directory explicitly in analysis.runner before analysis.
     return run_dir
 

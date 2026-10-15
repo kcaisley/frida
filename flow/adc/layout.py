@@ -19,8 +19,14 @@ from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams, get_c
 from flow.layout.gdsdiff import gds_diff
 from flow.layout.signoff import SignoffParams, run_signoff
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
-from pdk.tsmc65.ringfmom import LIBRARY, ringfmom_array_params
-from pdk.tsmc65.signoff import SignoffOptions, add_mom_recognition, mom_lvs_device
+from pdk.tsmc65.calibre.ringfmom import LIBRARY, ringfmom_array_params
+from pdk.tsmc65.calibre.signoff import (
+    BLOCK_WAIVERS,
+    UPPER_DENSITY_WAIVERS,
+    SignoffOptions,
+    add_mom_recognition,
+    mom_lvs_device,
+)
 
 from .laygen import AdcLayout, AdcLayoutParams, is_valid_adc_layout_params
 
@@ -147,7 +153,7 @@ def _run_frida1(
             else (),
             pdk_options=SignoffOptions(
                 gdscheck_suite="adc",
-                drc_unselect_checks=("PO.DN.2", "M7.DN.1", "M8.DN.1", "M9.DN.2", "DRM.R.1", "MOM.R.1"),
+                drc_unselect_checks=BLOCK_WAIVERS + UPPER_DENSITY_WAIVERS,
                 mom_shield_layer=5,
                 mom_active_layers=active_layers,
             ),
@@ -214,7 +220,7 @@ def _run_frida2(run_dir: Path, *, target_name: str, params: CapArrayLayoutParams
             pex_source_path=pex_source,
             pdk_options=SignoffOptions(
                 gdscheck_suite="adc",
-                drc_unselect_checks=("PO.DN.2", "M7.DN.1", "M8.DN.1", "M9.DN.2", "DRM.R.1", "MOM.R.1"),
+                drc_unselect_checks=BLOCK_WAIVERS + UPPER_DENSITY_WAIVERS,
                 ringfmom=True,
                 pex_engine="xact3d",
             ),

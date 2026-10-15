@@ -397,7 +397,7 @@ def test_cdac_step_prediction_includes_flavor_topplate_parasitics(
         sweep_stage="fixed",
     )
     board_map = load_board_map()
-    flavor = board_map["boards"][0]["adc_channels"][adc_index]
+    flavor = board_map["adc_channels"][adc_index]
     flavor_config = board_map["adc_flavors"][flavor]
     weights = flavor_config["cdac_weights"]
     total_weights = [65 * np.ceil(weight / 64) for weight in weights]

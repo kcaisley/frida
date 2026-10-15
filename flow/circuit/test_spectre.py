@@ -25,7 +25,7 @@ def spectre_installation():
     spec = importlib.util.find_spec("pdk.tsmc65")
     if spec is None or spec.origin is None:
         pytest.skip("TSMC65 PDK Python package is not installed")
-    from pdk.tsmc65 import site
+    from pdk.tsmc65.hdl21 import site
 
     if not site.install.pdk_path.is_dir():
         pytest.skip(f"TSMC65 PDK installation is unavailable: {site.install.pdk_path}")

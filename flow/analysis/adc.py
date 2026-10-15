@@ -24,12 +24,14 @@ from flow.analysis.types import (
     AnalysisAdcCdacSettling,
     AnalysisAdcCodeDensityNonlinearity,
     AnalysisAdcCodeDistribution,
+    AnalysisAdcCodeSpectrum,
     AnalysisAdcComparatorEdgeEye,
     AnalysisAdcComparatorResponse,
     AnalysisAdcCompOutEdgeEye,
     AnalysisAdcDecisionPaths,
     AnalysisAdcDynamic,
     AnalysisAdcEndpointNonlinearity,
+    AnalysisAdcInterferer,
     AnalysisAdcNoise,
     AnalysisAdcOperatingConditions,
     AnalysisAdcPower,
@@ -242,13 +244,23 @@ def analyze_adc_scope_bits(measurement: MeasAdc) -> AnalysisAdcScopeBits:
 # =============================================================================
 
 
-def analyze_adc_dynamic(measurement: MeasAdc) -> AnalysisAdcDynamic:
-    """Fit one sine acquisition and calculate time- and frequency-domain metrics."""
+def analyze_adc_dynamic(
+    measurement: MeasAdc, *, calibration: AnalysisAdcCalibration | None = None
+) -> AnalysisAdcDynamic:
+    """Fit one sine acquisition and calculate time- and frequency-domain metrics.
+
+    A calibration decodes the stored BOUT decisions to rounded codes in place
+    of the stored nominal DOUT.
+    """
 
     source = measurement.tb.vin_diff
     if not isinstance(source, h.Vsin.Params) or source.freq is None or source.vamp is None:
         raise ValueError("ADC dynamic analysis requires a sine vin_diff source with freq and vamp set")
-    measured_dout = np.asarray(measurement.dout, dtype=np.float64)
+    if calibration is not None:
+        check_identity(calibration, measurement.identity, name="calibration")
+    measured_dout = np.asarray(
+        measurement.dout if calibration is None else calibration.decode_bout(measurement.bout), dtype=np.float64
+    )
     sample_count = len(measured_dout)
     sample_rate_hz = measurement.sample_rate_hz
     input_frequency_hz = float(source.freq)
@@ -635,7 +647,7 @@ def analyze_adc_ramp(
         index=identity.index,
         dut=identity.dut,
         decoding="uncalibrated_dout" if calibration is None else calibration.method,
-        label="Uncalibrated DOUT" if calibration is None else calibration.label,
+        label="Ideal weights" if calibration is None else calibration.label,
         weights=nominal_weights if calibration is None else calibration.calibrated_weights,
         sample_rate_hz=sample_rate_hz,
         period_conversions=period_conversions,
@@ -736,6 +748,131 @@ def analyze_adc_noise(measurement: MeasAdc) -> AnalysisAdcNoise:
         readout_valid=bool(readout_valid),
         code=np.arange(number_codes, dtype=np.int64),
         count=np.bincount(dout, minlength=number_codes),
+    )
+
+
+def analyze_adc_code_spectrum(
+    measurement: MeasAdc,
+    *,
+    calibration: AnalysisAdcCalibration | None = None,
+) -> AnalysisAdcCodeSpectrum:
+    """Treat one fixed-input capture's output codes as a waveform sampled at the conversion rate.
+
+    The Welch density of the mean-free codes separates periodic interference,
+    which appears as lines (aliased into the first Nyquist zone), from the
+    broadband floor of comparator, input, and quantization noise. A
+    calibration decodes the stored BOUT decisions to fractional codes in place
+    of the stored DOUT.
+    """
+
+    if calibration is not None:
+        check_identity(calibration, measurement.identity, name="calibration")
+    codes = np.asarray(
+        measurement.dout if calibration is None else calibration.decode_bout(measurement.bout, rounded=False),
+        dtype=np.float64,
+    )
+    if len(codes) < 4:
+        raise ValueError("a code spectrum needs at least four conversions")
+    mean_dout = calc.average(codes)
+    centered = codes - mean_dout
+    # 8192-conversion Hann segments: 244-Hz bins at 2 MSPS, enough to resolve a
+    # line that wanders by a few kHz, with tens of averages per 100,000 codes.
+    segment = min(len(codes), 8192)
+    frequency_hz, psd = calc.psd(centered, sample_rate=measurement.sample_rate_hz, segment_length=segment)
+    # The median ignores the few bins that interference lines occupy.
+    floor = float(np.median(psd[1:]))
+    # A white floor averaged over K half-overlapping segments scatters by about
+    # 1/sqrt(K); ten times that above the floor is a line, not a fluctuation.
+    # A wandering line spreads into a low hump, so the density smoothed over
+    # 21 bins, which scatters sqrt(21) times less, is tested the same way.
+    averages = max(1, 2 * len(codes) // segment - 1)
+    smoothed = np.convolve(psd, np.ones(21) / 21.0, mode="same")
+    line_mask = (
+        (
+            (psd > floor * (1.0 + 10.0 / math.sqrt(averages)))
+            | (smoothed > floor * (1.0 + 10.0 / math.sqrt(21.0 * averages)))
+        )
+        & (frequency_hz > 0.0)
+        & (floor > 0.0)
+    )
+    # Keep only the line frequencies of the whole record for its narrowband part.
+    record_hz = np.fft.rfftfreq(len(codes), 1.0 / measurement.sample_rate_hz)
+    keep = line_mask[np.clip(np.rint(record_hz / frequency_hz[1]).astype(np.int64), 0, len(psd) - 1)]
+    narrowband = np.fft.irfft(np.where(keep, np.fft.rfft(centered), 0.0), len(codes))
+    identity = measurement.identity
+    return AnalysisAdcCodeSpectrum(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        sequence=AdcSequence.from_tb_params(measurement.tb),
+        symbol_rate_hz=float(measurement.tb.symbol_rate),
+        decoding="uncalibrated_dout" if calibration is None else calibration.method,
+        sample_rate_hz=measurement.sample_rate_hz,
+        input_lsb_v=measurement.input_lsb_v,
+        mean_dout=mean_dout,
+        frequency_hz=frequency_hz,
+        psd_lsb2_per_hz=psd,
+        white_floor_lsb2_per_hz=floor,
+        line_mask=line_mask,
+        narrowband_dout=narrowband,
+    )
+
+
+def analyze_adc_interferer(
+    measurements: Sequence[MeasAdc],
+    *,
+    spectra: Sequence[AnalysisAdcCodeSpectrum],
+) -> AnalysisAdcInterferer:
+    """Unfold one interferer's aliases at several conversion rates to its true frequency.
+
+    Every candidate frequency is folded into each rate's first Nyquist zone
+    and scored by the code spectra there, relative to their floors. Two rates
+    or more are needed for the aliases to single out a candidate.
+    """
+
+    identity = measurement_identity(measurements)
+    check_identity(spectra, identity, name="spectra")
+    if sorted((m.sample_rate_hz, repr(AdcSequence.from_tb_params(m.tb))) for m in measurements) != sorted(
+        (s.sample_rate_hz, repr(s.sequence)) for s in spectra
+    ):
+        raise ValueError("spectra must match the measurements' sequences and rates one to one")
+    valid = [spectrum for spectrum in spectra if spectrum.spectrum_valid]
+    if not valid:
+        raise ValueError("interferer search needs at least one capture with a noise floor")
+    rates = np.unique([spectrum.sample_rate_hz for spectrum in valid])
+    # Aliases at all rates repeat with the rates' common period and mirror about
+    # its half; when the rates share no short period, search ten times the
+    # highest rate. The step matches the finest spectral bin.
+    common_hz = math.lcm(*(round(rate) for rate in rates))
+    span_hz = min(common_hz / 2.0, 10.0 * float(rates[-1]))
+    step_hz = min(float(spectrum.frequency_hz[1]) for spectrum in valid)
+    candidate_hz = np.arange(0.0, span_hz + step_hz, step_hz)
+    score_db = np.zeros_like(candidate_hz)
+    observed_hz = []
+    for rate in rates:
+        at_rate = [spectrum for spectrum in valid if spectrum.sample_rate_hz == rate]
+        folded_hz = np.abs((candidate_hz + rate / 2.0) % rate - rate / 2.0)
+        score_db += np.mean(
+            [
+                10.0
+                * np.log10(
+                    np.maximum(np.interp(folded_hz, spectrum.frequency_hz, spectrum.psd_lsb2_per_hz), 1e-30)
+                    / spectrum.white_floor_lsb2_per_hz
+                )
+                for spectrum in at_rate
+            ],
+            axis=0,
+        )
+        observed_hz.append(float(np.median([spectrum.peak_frequency_hz for spectrum in at_rate])))
+    return AnalysisAdcInterferer(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        sample_rate_hz=rates,
+        observed_peak_hz=np.asarray(observed_hz),
+        candidate_frequency_hz=candidate_hz,
+        score_db=score_db,
+        excluded_capture_count=len(spectra) - len(valid),
     )
 
 

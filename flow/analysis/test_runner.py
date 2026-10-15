@@ -68,12 +68,23 @@ def test_runner_exposes_only_named_orchestration_entry_points() -> None:
         "adc_ramp_nonlinearity_study",
         "adc_calibration_study",
         "adc_sequence_study",
+        "adc_interferer_study",
         "adc_sample_rate_study",
         "adc_power_study",
         "comp_system_common_mode_study",
         "comp_system_sampling_noise_study",
         "comp_candidate_sweep_study",
+        "comp_topology_study",
         "cdac_system_cap_mismatch_study",
+        "adc_behavioral_nonlinearity_study",
+        "adc_behavioral_energy_study",
+        "adc_behavioral_sample_rate_study",
+        "adc_behavioral_trajectory_study",
+        "adc_behavioral_calibration_study",
+        "adc_behavioral_architecture_study",
+        "adc_behavioral_noise_spectrum_study",
+        "adc_behavioral_input_frequency_study",
+        "comp_behavioral_offset_noise_study",
     }
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name in targets:
@@ -595,7 +606,7 @@ def test_comp_candidate_sweep_delegates_validity_to_typed_analysis(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    path = tmp_path / "build/comp/frida65_candidate_scurve_power/candidates/fixture/result.h5"
+    path = tmp_path / "build/comp/frida65_candidate_scurve_power_netnames/candidates/fixture/result.h5"
     path.parent.mkdir(parents=True)
     path.touch()
     measurement = SimpleNamespace(info=SimpleNamespace(readbacks={"candidate_id": "fixture"}))
@@ -612,8 +623,10 @@ def test_comp_candidate_sweep_delegates_validity_to_typed_analysis(
     monkeypatch.setattr(runner, "analyze_comp_timing", lambda values: ("timing", tuple(values)))
     monkeypatch.setattr(runner, "analyze_comp_power", lambda values: ("power", tuple(values)))
     monkeypatch.setattr(runner, "analyze_comp_candidate", candidate)
-    monkeypatch.setattr(runner, "plot_comp_candidate_sweep", lambda *_args, output_path: (output_path,))
-    monkeypatch.setattr(runner, "plot_comp_noise_power_tradeoff", lambda *_args, output_path: (output_path,))
+    monkeypatch.setattr(runner, "plot_comp_candidate_sweep", lambda *_args, highlights, output_path: (output_path,))
+    monkeypatch.setattr(
+        runner, "plot_comp_noise_power_tradeoff", lambda *_args, highlights, output_path: (output_path,)
+    )
 
     artifacts = runner.comp_candidate_sweep_study(tmp_path / "output")
 

@@ -29,8 +29,8 @@ Point netlistsvg to the [digital skin](images/netlistsvg/style.svg) and the JSON
 npx --yes netlistsvg@1.0.2 path/to/netlist.json --skin path/to/style.svg -o path/to/diagram.svg
 ```
 
-The [SVG helper](images/netlistsvg/postprocess.py) reads JSON for bus widths, then adds width marks and 0/1 tie bars to the SVG.
+netlistsvg drops bus widths and constant values; [`flow/util/hdl2image.py`](../flow/util/hdl2image.py) runs netlistsvg and then adds width marks and 0/1 tie bars from the JSON.
 
 ```bash
-python3 path/to/postprocess.py path/to/diagram.svg path/to/netlist.json
+uv run python -m flow.util.hdl2image path/to/write_json.tcl -o path/to/diagram.svg --json path/to/netlist.json
 ```

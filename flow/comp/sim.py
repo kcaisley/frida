@@ -18,7 +18,19 @@ from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 from flow.analysis.io import write_measurement
 from flow.circuit.ports import testbench_from_ports
 
-from .subckt import Bias, Comp, CompNets, CompParams, Stages, State, is_valid_comp_params
+from .subckt import (
+    FRIDA1,
+    LENGTHS,
+    SIZE_PROFILES,
+    Bias,
+    Comp,
+    CompNets,
+    CompParams,
+    Stages,
+    State,
+    is_valid_comp_params,
+)
+from .subckt import topologies as sweep_topologies
 
 
 def comp_signal_names() -> dict[str, str]:
@@ -167,8 +179,12 @@ def _run_comp_sim(
     topology_index: int,
     size_profile: str,
     check: bool = False,
+    noise: bool = True,
 ) -> tuple[Path, CompTbParams, dict[str, str | int | float | bool]]:
     """Execute one configured comparator case, not an entire campaign.
+
+    ``noise`` enables Spectre transient noise outside check runs; a noise-free
+    run with a fine ``waveform_sample_interval_s`` serves delay measurement.
 
     Targets define experiments: topology, sizing, stimuli, and case concurrency.
     This executor owns compilation, the shared Spectre recipe, short diagnostic
@@ -176,7 +192,7 @@ def _run_comp_sim(
     process and uses one Spectre thread; no compiled HDL21 graph crosses workers.
     """
     from pdk import tsmc65
-    from pdk.tsmc65 import site
+    from pdk.tsmc65.hdl21 import site
 
     run_dir.mkdir(parents=True, exist_ok=True)
     if not is_valid_comp_params(params.comp):
@@ -218,9 +234,10 @@ def _run_comp_sim(
             "maxstep": params.waveform_sample_interval_s,
             "strobeoutput": "strobeonly",
         }
-        if not check:
+        transient_noise = noise and not check
+        if transient_noise:
             tran_options.update(noisefmin=1.0 / tstop_s, noisefmax="25G", noiseseed=1)
-        attrs.append(hs.Tran(tstop=tstop_s, name="tran", noise=not check, options=tran_options))
+        attrs.append(hs.Tran(tstop=tstop_s, name="tran", noise=transient_noise, options=tran_options))
         simulation = hs.Sim(tb=tb, attrs=attrs)
         started = time.perf_counter()
         simulation.run(
@@ -257,10 +274,10 @@ def _run_comp_sim(
             "total_active_area_um2": sum(w * l for _, w, l in geometry) * 0.12 * 0.06,
             "device_width_signature": ",".join(f"{name}:{w}" for name, w, _ in geometry),
             "device_geometry_signature": ",".join(f"{name}:{w}:{l}" for name, w, l in geometry),
-            "transient_noise": not check,
-            "transient_noise_seed": 1,
-            "transient_noise_max_hz": 25e9,
+            "transient_noise": transient_noise,
         }
+        if transient_noise:
+            readbacks.update(transient_noise_seed=1, transient_noise_max_hz=25e9)
     finally:
         CompTb.Cache.reset()
         Comp.Cache.reset()
@@ -418,80 +435,14 @@ def hdl21_comp_perf_vs_size(run_dir: Path, *, check: bool = False) -> Path:
         )
         cases = [(name, name, 0, "diagnostic", comp) for name, comp in cases]
     else:
-        topologies = []
-        for diff_type in (MosType.NMOS, MosType.PMOS):
-            for bias in Bias:
-                for stages in Stages:
-                    for inner_on in State:
-                        for outer_on in State:
-                            for inner_init in (State.CLOCK, State.SIGNAL):
-                                for outer_init in (State.OMIT, State.CLOCK, State.SIGNAL):
-                                    topology = {
-                                        "comp_stages": stages,
-                                        "preamp_diff_xtors": diff_type,
-                                        "preamp_bias": bias,
-                                        "latch_inner_on_xtors": inner_on,
-                                        "latch_outer_on_xtors": outer_on,
-                                        "latch_inner_init_xtors": inner_init,
-                                        "latch_outer_init_xtors": outer_init,
-                                    }
-                                    probe = CompParams(
-                                        diffpair_w=37,
-                                        tail_w=5,
-                                        rst_w=8,
-                                        latch_on_w=25,
-                                        latch_init_w=33,
-                                        srlatch_n_w=4,
-                                        srlatch_p_w=8,
-                                        diffpair_l=5,
-                                        tail_l=13,
-                                        rst_l=1,
-                                        latch_on_l=6,
-                                        latch_init_l=17,
-                                        **topology,
-                                    )
-                                    if is_valid_comp_params(probe):
-                                        topologies.append(topology)
+        topologies = sweep_topologies()
         if len(topologies) != 148:
             raise RuntimeError(f"expected 148 valid comparator topologies, got {len(topologies)}")
 
         cases = []
         for topology_index, topology in enumerate(topologies):
-            for size_profile, widths in (
-                (
-                    "half",
-                    {
-                        "diffpair_w": 19,
-                        "tail_w": 3,
-                        "rst_w": 4,
-                        "latch_on_w": 13,
-                        "latch_init_w": 17,
-                        "srlatch_n_w": 2,
-                        "srlatch_p_w": 4,
-                    },
-                ),
-                (
-                    "double",
-                    {
-                        "diffpair_w": 74,
-                        "tail_w": 10,
-                        "rst_w": 16,
-                        "latch_on_w": 50,
-                        "latch_init_w": 66,
-                        "srlatch_n_w": 8,
-                        "srlatch_p_w": 16,
-                    },
-                ),
-            ):
-                comp = CompParams(
-                    **topology,
-                    **widths,
-                    diffpair_l=5,
-                    tail_l=13,
-                    rst_l=1,
-                    latch_on_l=6,
-                    latch_init_l=17,
-                )
+            for size_profile, widths in SIZE_PROFILES.items():
+                comp = CompParams(**topology, **widths, **LENGTHS)
                 digest = hashlib.sha256(repr(comp).encode()).hexdigest()[:8]
                 candidate_id = f"c{topology_index:03d}_{size_profile}_{digest}"
                 topology_label = "-".join(
@@ -514,20 +465,7 @@ def hdl21_comp_perf_vs_size(run_dir: Path, *, check: bool = False) -> Path:
                         comp,
                     )
                 )
-        baseline = CompParams(
-            diffpair_w=37,
-            tail_w=5,
-            rst_w=8,
-            latch_on_w=25,
-            latch_init_w=33,
-            srlatch_n_w=4,
-            srlatch_p_w=8,
-            diffpair_l=5,
-            tail_l=13,
-            rst_l=1,
-            latch_on_l=6,
-            latch_init_l=17,
-        )
+        baseline = FRIDA1
         baseline_topology = {
             "comp_stages": baseline.comp_stages,
             "preamp_diff_xtors": baseline.preamp_diff_xtors,
@@ -592,6 +530,142 @@ def hdl21_comp_perf_vs_size(run_dir: Path, *, check: bool = False) -> Path:
     return run_dir
 
 
+# The six comparator topologies of the topology study (StrongARM, triple tail,
+# double tail, and the self-timed and modified double tails), NMOS input with a
+# switched tail, at one shared sizing with short channels.
+TOPOLOGY_STUDY = {
+    "strongarm": {"comp_stages": Stages.SINGLE},
+    "triple_tail": {"comp_stages": Stages.TRIPLE},
+    "double_tail": {
+        "comp_stages": Stages.DOUBLE,
+        "latch_inner_init_xtors": State.SIGNAL,
+        "latch_outer_on_xtors": State.CLOCK,
+        "latch_tail_shared": True,
+    },
+    "double_tail_self_timed": {
+        "comp_stages": Stages.DOUBLE,
+        "latch_inner_init_xtors": State.SIGNAL,
+        "latch_outer_on_xtors": State.SIGNAL,
+        "latch_outer_init_xtors": State.SIGNAL,
+    },
+    "double_tail_modified": {
+        "comp_stages": Stages.DOUBLE,
+        "latch_inner_on_xtors": State.SIGNAL,
+        "latch_inner_init_xtors": State.CLOCK,
+    },
+    "double_tail_modified_self_timed": {
+        "comp_stages": Stages.DOUBLE,
+        "latch_inner_on_xtors": State.SIGNAL,
+        "latch_inner_init_xtors": State.SIGNAL,
+    },
+}
+TOPOLOGY_STUDY_SIZES = {
+    "diffpair_w": 32,
+    "diffpair_l": 2,
+    "tail_w": 16,
+    "tail_l": 2,
+    "rst_w": 8,
+    "rst_l": 1,
+    "latch_on_w": 8,
+    "latch_on_l": 1,
+    "latch_init_w": 8,
+    "latch_init_l": 1,
+    "srlatch_n_w": 4,
+    "srlatch_p_w": 8,
+}
+TOPOLOGY_STUDY_VDD_V = 1.2  # TSMC65 core supply
+TOPOLOGY_STUDY_VCM_V = (0.45, 0.55, 0.65, 0.75)
+TOPOLOGY_STUDY_VDM_V = (0.2e-3, 0.3e-3, 0.5e-3, 0.7e-3, 1e-3, 1.5e-3, 2.5e-3, 4e-3, 6e-3, 10e-3)
+
+
+def hdl21_comp_topology_study(run_dir: Path, *, check: bool = False) -> Path:
+    """Delay and input-referred noise of the six study topologies versus input.
+
+    ``delay/<topology>``: noise-free decisions at every common mode and every
+    positive differential input (three conversions each, 2 ps waveform spacing)
+    for the clock-to-decision delay. ``noise/<topology>_cm<mV>``: a transient-noise
+    S-curve per common mode for the input-referred noise. Mismatch is not
+    simulated, so the offset is systematic only.
+    """
+
+    from dataclasses import replace
+
+    from flow.circuit.results import convert_raw_comp_to_measurement, read_raw_transient
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    timing = {
+        "vdd": TOPOLOGY_STUDY_VDD_V,
+        "reset_time_s": 1e-9,
+        "evaluation_time_s": 2e-9,
+        "transition_time_s": 20e-12,
+    }
+    jobs = []
+    for index, (name, topology) in enumerate(TOPOLOGY_STUDY.items()):
+        comp = CompParams(**topology, **TOPOLOGY_STUDY_SIZES)
+        if check:
+            params = CompTbParams(
+                comp=comp, vin_cm_values_v=(0.55,), vin_diff_values_v=(1e-3,), conversions=1, **timing
+            )
+            jobs.append((run_dir / name, params, name, index, False))
+            continue
+        delay = CompTbParams(
+            comp=comp,
+            vin_cm_values_v=TOPOLOGY_STUDY_VCM_V,
+            vin_diff_values_v=TOPOLOGY_STUDY_VDM_V,
+            conversions=3,
+            waveform_sample_interval_s=2e-12,
+            **timing,
+        )
+        jobs.append((run_dir / "delay" / name, delay, name, index, False))
+        for vcm in TOPOLOGY_STUDY_VCM_V:
+            scurve = CompTbParams(
+                comp=comp,
+                vin_cm_values_v=(vcm,),
+                vin_diff_values_v=tuple(step * 100e-6 for step in range(-30, 31)),
+                conversions=100,
+                **timing,
+            )
+            jobs.append((run_dir / "noise" / f"{name}_cm{round(vcm * 1e3):03d}", scurve, name, index, True))
+    failures: dict[str, str] = {}
+    with ProcessPoolExecutor(max_workers=24, mp_context=get_context("spawn")) as executor:
+        futures = {
+            executor.submit(
+                _run_comp_sim,
+                case_dir,
+                params,
+                candidate_id=case_dir.name,
+                candidate_label=name.replace("_", " "),
+                topology_index=index,
+                size_profile="topology_study",
+                check=check,
+                noise=noise,
+            ): str(case_dir.relative_to(run_dir))
+            for case_dir, params, name, index, noise in jobs
+        }
+        for future in as_completed(futures):
+            try:
+                raw_path, params, readbacks = future.result()
+                if not check:
+                    measurement = convert_raw_comp_to_measurement(
+                        read_raw_transient(raw_path),
+                        params=params,
+                        raw_path=raw_path,
+                        signal_names=comp_signal_names(),
+                    )
+                    measurement = replace(
+                        measurement,
+                        info=replace(measurement.info, readbacks={**measurement.info.readbacks, **readbacks}),
+                    )
+                    write_measurement(raw_path.parent / "result.h5", measurement)
+            except Exception as error:  # noqa: BLE001 - report every independent case failure
+                failures[futures[future]] = repr(error)
+    if failures:
+        failure_path = run_dir / "failures.json"
+        failure_path.write_text(json.dumps(failures, indent=2) + "\n")
+        raise RuntimeError(f"{len(failures)} topology study cases failed; see {failure_path}")
+    return run_dir
+
+
 def frida1_fixed_input_noise(run_dir: Path, *, check: bool = False) -> Path:
     """Run the FRIDA-1 comparator S-curve, or one noise-free diagnostic decision."""
 
@@ -647,6 +721,7 @@ def main() -> None:
         target.__name__: target
         for target in (
             hdl21_comp_perf_vs_size,
+            hdl21_comp_topology_study,
             frida1_fixed_input_noise,
         )
     }

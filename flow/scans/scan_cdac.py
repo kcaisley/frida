@@ -273,8 +273,7 @@ def _predict_cdac_step_v(params: AdcScanParams) -> float:
     topplate_parasitic_weight = 0.0
     if params.board_id is not None and params.observed_adc is not None:
         board_map = load_board_map()
-        board = board_map["boards"][params.board_id]
-        flavor = board["adc_channels"][params.observed_adc]
+        flavor = board_map["adc_channels"][params.observed_adc]
         topplate_parasitic_weight = float(board_map["adc_flavors"][flavor].get("cdac_topplate_parasitic_weight", 0.0))
     return float(params.tb.vdd_dac.dc) * switched_weight / (sum(total_weights) + topplate_parasitic_weight)
 
@@ -422,7 +421,7 @@ def _build_cdac_params(
 
     board_id = 0
     board_map = load_board_map()
-    flavor = board_map["boards"][board_id]["adc_channels"][adc_index]
+    flavor = board_map["adc_channels"][adc_index]
     cap_weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
     dut = AdcParams(
         adc_bits=12,
@@ -1227,7 +1226,7 @@ def scan(
                 "awg_readback_checked": awg_readback_checked,
                 "predicted_cdac_step_v": _predict_cdac_step_v(params),
                 "cdac_topplate_parasitic_weight": float(
-                    board_map["adc_flavors"][board["adc_channels"][scan_params.observed_adc]].get(
+                    board_map["adc_flavors"][board_map["adc_channels"][scan_params.observed_adc]].get(
                         "cdac_topplate_parasitic_weight",
                         0.0,
                     )

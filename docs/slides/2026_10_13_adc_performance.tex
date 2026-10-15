@@ -1,0 +1,185 @@
+% Build after collecting the figures into build/for-paper/
+% (python3 build/sim_paper_figures/collect_for_paper.py from the repository root):
+%   (cd docs/slides && latexmk -pdf -interaction=nonstopmode -halt-on-error \
+%      -outdir=../../build/for-paper 2026_10_13_adc_performance.tex)
+\input{style.tex}
+\slideprogressnavigation
+
+\newcommand{\figpath}{../../build/for-paper}
+\newcommand{\plotfig}[2][0.80]{%
+  \centering
+  \includegraphics[width=0.98\linewidth,height=#1\textheight,keepaspectratio]{\figpath/#2.pdf}%
+}
+
+\title{ADC performance plots}
+\subtitle{Behavioral simulations of the FRIDA-2 three-layer SAR ADC}
+\date{13 October 2026}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Simulation setup}
+  \centering
+  {\small
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    Array & FRIDA-2 three-layer, radix 1.7: 16 capacitors, 17 decisions, 12-bit output \\
+    Capacitances & PEX table, with Pelgrom mismatch $\sigma_C = A\sqrt{C\cdot\mathrm{fF}}$ \\
+    Mismatch & Pelgrom model; coefficient $A = 0.85\,\%$ (Tripathi) or $0.10\,\%$ (Harpe) \\
+    Noise & kT/C (1210\,fF), comparator 130\,\textmu V, 2\,ps aperture jitter (assumed) \\
+    Settling & single pole, $\tau = 0.2$\,ns (assumed) \\
+    Energy & logic, drivers and comparator fitted to the SPICE PEX transient \\
+    Decodings & ideal design weights, PEX-extracted weights, calibrations 1--3 \\
+    \bottomrule
+  \end{tabular}
+  }
+  \slidesource{\texttt{flow/adc/behavioral.py}; \texttt{flow/scans/scan\_behavioral.py}}
+\end{frame}
+
+\section[Linearity]{Static linearity}
+
+\begin{frame}{INL and DNL: Pelgrom mismatch, Tripathi coefficient}
+  \plotfig[0.74]{01_inl_dnl_tripathi}
+  \par\smallskip
+  {\small $A = 0.85\,\%\sqrt{\mathrm{fF}}$. Ideal weights: peak $|$INL$|$ 5.5\,LSB, systematic. PEX-extracted weights: 1.4\,LSB, the random mismatch.}
+  \slidesource{Behavioral held-out ramp, 10\,MS/s, draw 1; $A$ from Tripathi \& Murmann (2014)}
+\end{frame}
+
+\begin{frame}{INL and DNL: Pelgrom mismatch, Harpe coefficient}
+  \plotfig[0.74]{01_inl_dnl_harpe}
+  \par\smallskip
+  {\small $A = 0.10\,\%\sqrt{\mathrm{fF}}$. The ideal-weight sawtooth is systematic, from the PEX capacitor ratios; PEX-extracted weights remove it.}
+  \slidesource{Behavioral held-out ramp, 10\,MS/s, draw 1; $A$ estimated from Harpe's unit-length DAC (2018)}
+\end{frame}
+
+\begin{frame}{Code density: Pelgrom mismatch, two coefficients}
+  \begin{columns}[T]
+    \begin{column}{0.49\linewidth}
+      \centering
+      {\small $A = 0.85\,\%\sqrt{\mathrm{fF}}$ (Tripathi)}\par
+      \includegraphics[width=\linewidth]{\figpath/01_code_density_tripathi.pdf}
+    \end{column}
+    \begin{column}{0.49\linewidth}
+      \centering
+      {\small $A = 0.10\,\%\sqrt{\mathrm{fF}}$ (Harpe)}\par
+      \includegraphics[width=\linewidth]{\figpath/01_code_density_harpe.pdf}
+    \end{column}
+  \end{columns}
+  \par\medskip
+  \centering
+  {\small Code count over the ideal count, averaged in 128 bins.}
+  \slidesource{Behavioral held-out ramps, mismatch draw 1}
+\end{frame}
+
+\section[Speed]{Redundancy, speed and power}
+
+\begin{frame}{Redundancy recovers a random first decision}
+  \plotfig{02_trajectory_density}
+  \slidesource{Behavioral, 2{,}000 conversions of a 0\,V input at 10\,MS/s, all noise sources}
+\end{frame}
+
+\begin{frame}{ENOB versus sample rate}
+  \plotfig{03_enob_vs_rate}
+  \par\smallskip
+  {\small The high-rate roll-off follows the assumed 0.2\,ns CDAC settling.}
+  \slidesource{Behavioral sine at $-0.5$\,dBFS, 8{,}192 conversions per point, PEX-extracted decoding}
+\end{frame}
+
+\begin{frame}{Supply power versus sample rate}
+  \plotfig{04_power_vs_rate}
+  \par\smallskip
+  {\small About 27\,pJ per conversion; SAR logic dominates. Static power is about 2.3\,\textmu W.}
+  \slidesource{Behavioral model, energies fitted to the FRIDA-2 three-layer SPICE PEX transient}
+\end{frame}
+
+\begin{frame}{Energy per conversion versus input}
+  \plotfig{05_energy_vs_input}
+  \slidesource{Behavioral, 129 DC inputs at 10\,MS/s}
+\end{frame}
+
+\section[Noise]{Noise and dynamic performance}
+
+\begin{frame}{Input-referred noise spectral density}
+  \plotfig{06_noise_spectrum}
+  \par\smallskip
+  {\small Total 175\,\textmu V RMS (0.47\,LSB): comparator 142\,\textmu V, sampling switch 62\,\textmu V.}
+  \slidesource{Behavioral, 50\,mV DC input, 100{,}000 conversions at 10\,MS/s}
+\end{frame}
+
+\begin{frame}{ENOB versus input frequency}
+  \plotfig{07_enob_vs_input_frequency}
+  \slidesource{Behavioral sine at $-0.5$\,dBFS, nine input frequencies up to Nyquist at 2, 6 and 10\,MS/s}
+\end{frame}
+
+\begin{frame}{Output spectra at 10\,MS/s}
+  \begin{columns}[T]
+    \begin{column}{0.49\linewidth}
+      \centering
+      {\small Input near DC}\par
+      \includegraphics[width=\linewidth]{\figpath/07_spectrum_10msps_low.pdf}
+    \end{column}
+    \begin{column}{0.49\linewidth}
+      \centering
+      {\small Input near Nyquist}\par
+      \includegraphics[width=\linewidth]{\figpath/07_spectrum_10msps_nyquist.pdf}
+    \end{column}
+  \end{columns}
+  \slidesource{Behavioral sine at $-0.5$\,dBFS, 8{,}192 conversions, PEX-extracted decoding}
+\end{frame}
+
+\section[Calibration]{Calibration}
+
+\begin{frame}{Three calibration methods and their sources}
+  \centering
+  {\small
+  \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.20\linewidth}>{\raggedright\arraybackslash}p{0.42\linewidth}>{\raggedright\arraybackslash}p{0.30\linewidth}@{}}
+    \toprule
+    Method & What it measures & Source \\
+    \midrule
+    Cal.\ 1: CDAC S-curves & Each capacitor's top-plate step, from comparator S-curves with one capacitor switched A$\to$B & FRIDA CDAC characterization scan (our own method) \\
+    Cal.\ 2: least-squares fit & All weights at once, regressing BOUT on the ideal code of a known ramp (ridge, $w \geq 0$) & Generic foreground calibration with a known input \\
+    Cal.\ 3: slow-ramp thresholds & Each decision's 50\,\% threshold after an all-0 and an all-1 prefix; their spacing is the weight & A.\ Hsu, MIT PhD dissertation 2013, Algorithm~I (Sec.~4.2) \\
+    \bottomrule
+  \end{tabular}
+  }
+  \par\medskip
+  {\small All three are digital foreground calibrations: they learn BOUT weights once and leave the analog ADC unchanged.}
+  \slidesource{\texttt{flow/analysis/calibration1.py}, \texttt{calibration2.py}, \texttt{calibration3.py}}
+\end{frame}
+
+\begin{frame}{Comparing the calibration methods}
+  \begin{columns}[c]
+    \begin{column}{0.55\linewidth}
+      \centering
+      \includegraphics[width=\linewidth,height=0.84\textheight,keepaspectratio]{\figpath/08_calibrations_inl_dnl.pdf}
+    \end{column}
+    \begin{column}{0.40\linewidth}
+      {\footnotesize
+      \begin{tabular}{@{}lrr@{}}
+        \toprule
+        Decoding & $|$INL$|$ & $|$DNL$|$ \\
+        \midrule
+        Ideal weights & 5.53 & 1.00 \\
+        PEX-extracted & 1.37 & 0.96 \\
+        Cal.\ 1, CDAC S-curves & 0.83 & 1.00 \\
+        Cal.\ 2, least squares & 1.52 & 1.05 \\
+        Cal.\ 3, Hsu thresholds & 1.06 & 0.79 \\
+        \bottomrule
+      \end{tabular}
+      \par\medskip
+      Peak errors in LSB on the held-out ramp. Calibrations 2 and 3 learn from a separate training ramp.
+      }
+    \end{column}
+  \end{columns}
+  \slidesource{Behavioral, Pelgrom $A = 0.85\,\%$ (Tripathi), draw 1}
+\end{frame}
+
+\begin{frame}{Learned weights}
+  \plotfig{08_calibration_weights}
+  \slidesource{Behavioral, Pelgrom $A = 0.85\,\%$ (Tripathi), draw 1}
+\end{frame}
+
+\end{document}

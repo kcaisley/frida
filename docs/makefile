@@ -55,7 +55,7 @@ NETLISTSVG_PDFS := $(addprefix $(NETLISTSVG_DIR)/,$(addsuffix .pdf,$(NETLISTSVG_
 NETLISTSVG_FROM_V_JSON := $(NETLISTSVG_PDFS:.pdf=.json)
 NETLISTSVG_V := $(NETLISTSVG_DIR)/preamp_netlistsvg.v $(wildcard ../design/hdl/*.v) ../design/fpga/daq_core.v
 NETLISTSVG_INPUT_JSON :=
-NETLISTSVG_HELPERS := $(wildcard $(NETLISTSVG_DIR)/*.py $(NETLISTSVG_DIR)/*.tcl) $(NETLISTSVG_DIR)/style.svg $(NETLISTSVG_DIR)/circuitikz_analog.svg $(NETLISTSVG_DIR)/fonts.conf
+NETLISTSVG_HELPERS := $(wildcard $(NETLISTSVG_DIR)/*.py $(NETLISTSVG_DIR)/*.tcl) ../flow/util/hdl2image.py $(NETLISTSVG_DIR)/style.svg $(NETLISTSVG_DIR)/circuitikz_analog.svg $(NETLISTSVG_DIR)/fonts.conf
 
 DOC_IMAGE_BUILD_DIR := ../build/docs/images
 DEBUG_PREVIEW = $(patsubst $(IMAGES_DIR)/%,$(DOC_IMAGE_BUILD_DIR)/previews/%,$(@:.pdf=.png))

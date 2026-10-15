@@ -11,8 +11,8 @@ def _layout(*, top: str, block: str, pin_x: int = 50, boundary_right: int = 100)
     layout.dbu = 0.001
     parent = layout.create_cell(top)
     child = layout.create_cell(block)
-    pin = layout.layer(db.LayerInfo(134, 0))
-    boundary = layout.layer(db.LayerInfo(108, 0))
+    pin = layout.layer(db.LayerInfo(201, 0))
+    boundary = layout.layer(db.LayerInfo(200, 0))
     child.shapes(pin).insert(db.Box(pin_x - 5, 0, pin_x + 5, 10))
     child.shapes(pin).insert(db.Text("cap_topplate", db.Trans(pin_x, 5)))
     child.shapes(boundary).insert(db.Box(0, 0, boundary_right, 100))
@@ -25,8 +25,8 @@ def _replacement(*, pin_x: int = 50, boundary_right: int = 100) -> db.Layout:
     layout = db.Layout()
     layout.dbu = 0.001
     cell = layout.create_cell("replacement")
-    pin = layout.layer(db.LayerInfo(134, 0))
-    boundary = layout.layer(db.LayerInfo(108, 0))
+    pin = layout.layer(db.LayerInfo(201, 0))
+    boundary = layout.layer(db.LayerInfo(200, 0))
     cell.shapes(pin).insert(db.Box(pin_x - 5, 0, pin_x + 5, 10))
     cell.shapes(pin).insert(db.Text("cap_topplate", db.Trans(pin_x, 5)))
     cell.shapes(boundary).insert(db.Box(0, 0, boundary_right, 100))
@@ -73,8 +73,8 @@ def test_adc_layout_rejects_boundary_changes() -> None:
 def test_adc_layout_allows_annotation_locations_layers_and_duplicates() -> None:
     replacement = _replacement(pin_x=55)
     cell = replacement.top_cell()
-    old_pin = replacement.layer(134, 0)
-    new_pin = replacement.layer(136, 0)
+    old_pin = replacement.layer(201, 0)
+    new_pin = replacement.layer(202, 0)
     cell.shapes(new_pin).insert(cell.shapes(old_pin))
     cell.shapes(old_pin).clear()
     cell.shapes(new_pin).insert(db.Text("cap_topplate", db.Trans(60, 5)))
@@ -89,7 +89,7 @@ def test_adc_layout_allows_annotation_locations_layers_and_duplicates() -> None:
 def test_adc_layout_rejects_changed_terminal_names() -> None:
     replacement = _replacement()
     cell = replacement.top_cell()
-    cell.shapes(replacement.layer(134, 0)).insert(db.Text("wrong_net", db.Trans(50, 5)))
+    cell.shapes(replacement.layer(201, 0)).insert(db.Text("wrong_net", db.Trans(50, 5)))
     with pytest.raises(ValueError, match="pin-and-boundary compatible"):
         AdcLayout(
             AdcLayoutParams("adc"),

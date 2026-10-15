@@ -6,11 +6,11 @@
 | Netlist tests | ✓ | [test_subckt.py](test_subckt.py) | Default topology and output-latch wiring. |
 | Testbench generator | ✓ | [sim.py](sim.py) | Common-mode/differential-input sweeps and repeated decisions. |
 | Simulation runners | ✓ | [sim.py](sim.py) | Size/topology campaign and FRIDA-1-sized noise target. |
-| Layout generator | ✗ | - | No generated comparator layout in this block. |
-| Layout tests | ✗ | - | No block layout tests. |
-| Layout runner | ✗ | - | Not implemented. |
-| DRC runner | ✗ | - | No standalone comparator runner. |
-| LVS runner | ✗ | - | No standalone comparator runner. |
-| PEX runner | ✗ | - | No standalone comparator runner. |
+| Layout generator | ✓ | [floorplan.py](../layout/floorplan.py) | Standard-cell rows with cIcCreator, laygo and ALIGN (`flow/layout`), from a hand-written floorplan or ALIGN's placement. |
+| Layout tests | ✓ | [test_layout.py](test_layout.py) | Target registry and per-tool failure collection; the floorplan conversion in `flow/layout`. |
+| Layout runner | ✓ | [layout.py](layout.py) | 42 per-PDK targets (frida1 and c040: manual, auto, gates; mos_inv), seven all-PDK targets, `all_comp_layouts`. |
+| DRC runner | ✓ | [layout.py](layout.py) | gdscheck and the PDK's DRC for every layout (`row_signoff`). |
+| LVS runner | ✓ | [layout.py](layout.py) | The PDK's LVS for every layout against the netlist the build placed. |
+| PEX runner | ✗ | - | No comparator extraction. |
 
-TODO: investigate settling, metastability, kickback, and offset; develop the planned transistor-placement/layout flow. See [project TODO](../../docs/todo.md#comp).
+TODO: investigate settling, metastability, kickback, and offset; the tools placing by the floorplans' ALIGN groups. See [project TODO](../../docs/todo.md#comp).

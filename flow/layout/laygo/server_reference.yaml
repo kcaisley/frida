@@ -1,0 +1,46 @@
+# The hosted laygo server's export settings (from its ihp130 technology), copied into every design's YAML.
+export:
+  bag:
+    reset_library: false
+    scale: 1000
+    tech_library: emul028
+  bokeh:
+    colormap:
+      Activ: lightpink
+      Con: cyan
+      GatPoly: blue
+      Metal1: lightblue
+      Metal2: gold
+      Metal3: green
+      Metal4: purple
+      NWell: lightgrey
+      Text: grey
+      Via1: dimgrey
+      Via2: darkgrey
+      Via3: cyan
+      Via4: cyan
+      nS: cyan
+      pSD: cyan
+      prBoundary: black
+    order:
+    - prBoundary
+    - Text
+    - NWell
+    - Activ
+    - GatPoly
+    - nS
+    - pSD
+    - Metal1
+    - Metal2
+    - Metal3
+    - Metal4
+    show: true
+    via_size: 100
+  gdspy:
+    layermap: ./laygo2_tech/gdspy_ihp130.layermap
+    template_gds: ./laygo2_tech/gdspy_ihp130_microtemplates_dense.gds
+  target: bokeh
+export_template:
+  export_internal_shapes: false
+  export_mask: true
+  export_prelvs_info: false

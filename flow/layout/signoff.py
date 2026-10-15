@@ -1,4 +1,11 @@
-"""Technology-dispatched layout DRC, LVS, and PEX orchestration."""
+"""Technology-dispatched layout DRC, LVS, and PEX orchestration.
+
+Each PDK provides ``pdk/<pdk>/signoff.py`` with keyword functions ``run_drc`` (gdscheck where
+installed, then the PDK's DRC; writes ``<run_dir>/drc_violations.json`` and raises unless clean),
+``run_lvs`` (whether LVS is correct, and its report) and, where the PDK has extraction,
+``run_pex``. The provider picks the checker it has (Calibre, Assura or KLayout). ``row_signoff``
+checks a standard-cell row layout (flow/layout) with DRC and LVS.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +15,10 @@ from dataclasses import asdict, dataclass, is_dataclass
 from importlib import import_module
 from pathlib import Path
 from typing import Any, Literal
+
+from klayout import db
+
+from flow.layout.pdkproc import in_pdk, pdk_value
 
 
 @dataclass(frozen=True)
@@ -41,7 +52,7 @@ def _provider(technology: str) -> Any:
     if not technology or not technology.replace("_", "").isalnum():
         raise ValueError(f"invalid technology name {technology!r}")
     provider = import_module(f"pdk.{technology}.signoff")
-    for function in ("run_drc", "run_lvs", "run_pex"):
+    for function in ("run_drc", "run_lvs"):
         if not callable(getattr(provider, function, None)):
             raise TypeError(f"pdk.{technology}.signoff does not implement {function}()")
     return provider
@@ -89,7 +100,10 @@ def run_pex(params: SignoffParams, run_dir: Path) -> Path:
     """Dispatch PEX using its explicit conductive source view."""
 
     _validate(params, run_dir)
-    return _provider(params.technology).run_pex(
+    provider = _provider(params.technology)
+    if not callable(getattr(provider, "run_pex", None)):
+        raise TypeError(f"pdk.{params.technology}.signoff has no extraction (run_pex)")
+    return provider.run_pex(
         run_dir=run_dir,
         gds_path=params.gds_path,
         source_path=params.pex_source_path or params.lvs_source_path,
@@ -142,5 +156,106 @@ def run_signoff(params: SignoffParams, run_dir: Path) -> SignoffResult:
         )
         + "\n",
         encoding="utf-8",
+    )
+    return result
+
+
+@dataclass(frozen=True)
+class RowSignoff:
+    """DRC and LVS of a row layout: the rule counts (``drc_violations.json``) and the LVS report."""
+
+    drc_report: Path
+    drc_violations: int
+    lvs_report: Path
+    lvs_correct: bool
+
+
+def add_post_devices(pdk: str, source: Path, extra: Path, top: str) -> None:
+    """Merge what a post step added to a layout (``<gds>.extra.sp``, written by align/post.py:
+    devices, ``*.PORTS``, ``*.DNW``) into the LVS ``source`` in place: the devices go into the
+    subcircuit ``top``, the ports onto its .subckt line, and with ``*.DNW`` (a deep N-well under
+    the block) every NMOS model becomes the variant the PDK's LVS deck extracts over a deep N-well
+    (``tech.DNW_MODELS``)."""
+
+    text = extra.read_text().splitlines()
+    add = [line for line in text if line.strip() and not line.startswith("*")]
+    ports = [port for line in text if line.upper().startswith("*.PORTS") for port in line.split()[1:]]
+    dnw = any(line.upper().startswith("*.DNW") for line in text)
+    out, inside = [], False
+    for line in source.read_text().splitlines():
+        f = line.split()
+        if f and f[0].lower() == ".subckt" and f[1].lower() == top.lower():
+            inside = True
+            line = " ".join([line, *ports])
+        elif inside and f and f[0].lower() == ".ends":
+            out += add
+            inside = False
+        out.append(line)
+    if dnw:
+        models = {k.lower(): v for k, v in pdk_value(pdk, "tech", "DNW_MODELS", {}).items()}
+        out = [
+            " ".join(
+                models.get(t.lower(), t) if i > 0 and line.split()[0][0] in "Mm" else t
+                for i, t in enumerate(line.split())
+            )
+            if line.split()
+            else line
+            for line in out
+        ]
+    source.write_text("\n".join(out) + "\n")
+
+
+def row_signoff(pdk: str, gds: Path, netlist: Path, floorplan: Path | None, run_dir: Path) -> RowSignoff:
+    """DRC and LVS (no PEX) of a row layout, both run whatever the other finds.
+
+    The LVS source is the netlist the build used (``netlist`` with the floorplan's ``split``; as it
+    is without a floorplan, ALIGN on its own), with
+    the library cells' subcircuits (``pdk/<pdk>/netlist/lvs_source.py``) and the devices a post step
+    added (``<gds>.extra.sp``). Source top: the netlist's last subcircuit; layout top: the GDS's
+    largest top cell. Writes ``row_signoff.json``; raises only when a checker fails to run.
+    """
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    if floorplan is None:
+        name, used = Path(gds).stem, Path(netlist).read_text()
+    else:
+        name, used = in_pdk(pdk, "netcells", "floorplan_netlist", floorplan, pdk, netlist)
+    built = run_dir / f"{name}.sp"
+    built.write_text(used)
+    source = run_dir / "source.cdl"
+    in_pdk(pdk, f"pdk.{pdk}.netlist.lvs_source", "lvs_source", built, source)
+    source_top = [f[1] for f in map(str.split, used.splitlines()) if f and f[0].lower() == ".subckt"][-1]
+    extra = Path(f"{gds}.extra.sp")
+    if extra.exists():
+        add_post_devices(pdk, source, extra, source_top)
+    layout = db.Layout()
+    layout.read(str(gds))
+    layout_top = max(layout.top_cells(), key=lambda cell: cell.bbox().area()).name
+    params = SignoffParams(
+        technology=pdk,
+        gds_path=gds,
+        layout_top=layout_top,
+        lvs_source_path=source,
+        source_top=source_top,
+        output_stem=name,
+        pdk_options=getattr(_provider(pdk), "BLOCK_OPTIONS", None),
+    )
+    drc_report = run_dir / "drc_violations.json"
+    try:
+        run_drc(params, run_dir)
+    except RuntimeError:
+        if not drc_report.exists():  # the checker did not run to the end
+            raise
+    lvs_correct, lvs_report = run_lvs(params, run_dir)
+    result = RowSignoff(
+        drc_report, sum(json.loads(drc_report.read_text())["violations"].values()), lvs_report, lvs_correct
+    )
+    (run_dir / "row_signoff.json").write_text(
+        json.dumps(
+            {"gds": str(gds), "layout_top": layout_top, "source_top": source_top, **asdict(result)},
+            indent=2,
+            default=str,
+        )
+        + "\n"
     )
     return result

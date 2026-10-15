@@ -1,8 +1,9 @@
 """Process-independent physical generator for the FRIDA unit-length CDAC.
 
 Electrical weights come from :mod:`flow.caparray.subckt`. Physical dimensions
-come from the selected PDK rule deck; this module contains only dimensionless
-topology choices.
+come from the selected PDK's metal and via rules (``pdk.<tech>.layout.tech``: ``RULES``,
+``MFG_GRID``), and it draws on the PDK's layers (``LAYERS``); this module contains only
+dimensionless topology choices.
 
 TODO: The laygen file is currently a mess. I'm happy with the API where we
 pass a CapArrayConfig object to a CapArrayLayout generator, but the internal organization
@@ -16,9 +17,6 @@ from importlib import import_module
 from typing import Any
 
 from klayout import db
-
-from flow.layout.dsl import GenericLayers, load_generic_layers
-from flow.layout.tech import NewRuleDeck, remap_layers
 
 from .subckt import (
     ArrayPlates,
@@ -127,46 +125,45 @@ def _snap_up(value: int, grid: int) -> int:
     return ((value + grid - 1) // grid) * grid
 
 
-def _required_rule(value: int | None, description: str) -> int:
+Layers = dict[str, db.LayerInfo]
+
+
+def _required_rule(value: Any, description: str) -> Any:
     if value is None:
-        raise ValueError(f"PDK rule deck is missing {description}")
+        raise ValueError(f"PDK rules are missing {description}")
     return value
 
 
-def _calc_unit_geometry(params: CapArrayLayoutParams, rules: NewRuleDeck) -> _UnitGeometry:
+def _rules(tech: Any, layer: str) -> dict[str, Any]:
+    """One layer's entry in the PDK's ``RULES`` (an empty one where the PDK lists none)."""
+    return tech.RULES.get(layer, {})
+
+
+def _calc_unit_geometry(params: CapArrayLayoutParams, tech: Any) -> _UnitGeometry:
     """Derive the complete unit geometry from PDK rules and track counts."""
 
-    grid = _required_rule(rules.manufacturing_grid, "manufacturing grid")
-    metal_rules = [getattr(rules, f"M{layer}") for layer in params.active_layers]
-    stack_metal_rules = [
-        getattr(rules, f"M{layer}") for layer in range(params.route_layer, params.active_layers[-1] + 1)
-    ]
-    track_pitch = max(_required_rule(rule.pitch, "active-metal pitch") for rule in metal_rules)
-    min_width = max(_required_rule(rule.width, "active-metal minimum width") for rule in metal_rules)
+    grid = _required_rule(getattr(tech, "MFG_GRID", None), "manufacturing grid")
+    metal_rules = [_rules(tech, f"M{layer}") for layer in params.active_layers]
+    stack_metal_rules = [_rules(tech, f"M{layer}") for layer in range(params.route_layer, params.active_layers[-1] + 1)]
+    track_pitch = max(_required_rule(rule.get("pitch"), "active-metal pitch") for rule in metal_rules)
+    min_width = max(_required_rule(rule.get("width"), "active-metal minimum width") for rule in metal_rules)
     # Widths used about a centre line must be an even number of grids so that
     # both edges remain on the manufacturing grid.
     centered_grid = 2 * grid
     finger_width = _snap_up(min_width, centered_grid)
     weight_step = _snap_up(2 * track_pitch, grid)
 
-    via_rules = [getattr(rules, f"VIA{layer}") for layer in range(params.route_layer, params.active_layers[-1])]
-    via_cut = max(
-        _required_rule(rule.cut_width if rule.cut_width is not None else rule.width, "via cut width")
-        for rule in via_rules
-    )
-    via_spacing = max(
-        _required_rule(getattr(rule.spacing, f"VIA{layer}", None), "via cut spacing")
-        for layer, rule in zip(range(params.route_layer, params.active_layers[-1]), via_rules, strict=True)
-    )
+    via_rules = [_rules(tech, f"V{layer}") for layer in range(params.route_layer, params.active_layers[-1])]
+    via_cut = max(_required_rule(rule.get("cut"), "via cut width") for rule in via_rules)
+    via_spacing = max(_required_rule(rule.get("space"), "via cut spacing") for rule in via_rules)
     via_pitch = _snap_up(via_cut + via_spacing, centered_grid)
-    enclosure_rules = [rule.via_enclosure for rule in via_rules]
-    if any(rule is None for rule in enclosure_rules):
-        raise ValueError("PDK rule deck is missing a via-enclosure alternative")
-    opposite = max(rule.opposite for rule in enclosure_rules if rule is not None)
-    minimum = max(rule.minimum for rule in enclosure_rules if rule is not None)
+    # enclosure: (on two opposite sides, on the other two, on all four)
+    enclosure_rules = [_required_rule(rule.get("enclosure"), "a via-enclosure alternative") for rule in via_rules]
+    opposite = max(rule[0] for rule in enclosure_rules)
+    minimum = max(rule[1] for rule in enclosure_rules)
     via_landing = _snap_up(via_pitch + via_cut + 2 * opposite, centered_grid)
     landing_short = _snap_up(max(finger_width, via_cut + 2 * minimum), centered_grid)
-    min_metal_area = max(_required_rule(rule.area, "stack-metal minimum area") for rule in stack_metal_rules)
+    min_metal_area = max(_required_rule(rule.get("area"), "stack-metal minimum area") for rule in stack_metal_rules)
     area_limited_length = (min_metal_area + landing_short - 1) // landing_short
     landing_long = _snap_up(max(via_landing, area_limited_length), centered_grid)
     # The shortest finger accommodates the complete two-cut access landing.
@@ -175,14 +172,12 @@ def _calc_unit_geometry(params: CapArrayLayoutParams, rules: NewRuleDeck) -> _Un
     longest_parallel_run = nominal_length + params.family.coarse_weight * weight_step
 
     layer_gaps: list[int] = []
-    for layer, rule in zip(params.active_layers, metal_rules, strict=True):
-        spacing = _required_rule(
-            getattr(rule.spacing, f"M{layer}", None),
-            "active-metal spacing",
-        )
-        for conditional in rule.parallel_spacing:
-            if finger_width > conditional.min_width and longest_parallel_run > conditional.min_parallel_run_length:
-                spacing = max(spacing, conditional.spacing)
+    for rule in metal_rules:
+        spacing = _required_rule(rule.get("space"), "active-metal spacing")
+        # (space, above width, above parallel run length)
+        for conditional, min_width_, min_run in rule.get("parallel_space", ()):
+            if finger_width > min_width_ and longest_parallel_run > min_run:
+                spacing = max(spacing, conditional)
         layer_gaps.append(spacing)
     gap = _snap_up(
         max(layer_gaps),
@@ -195,11 +190,11 @@ def _calc_unit_geometry(params: CapArrayLayoutParams, rules: NewRuleDeck) -> _Un
         max(
             [
                 gap,
-                *(
-                    rule.spacing
+                *(  # (space, below edge length, extension)
+                    space
                     for metal in metal_rules
-                    for rule in metal.end_of_line
-                    if finger_width < rule.max_edge_length
+                    for space, max_edge, _extension in metal.get("end_of_line", ())
+                    if finger_width < max_edge
                 ),
             ]
         ),
@@ -212,13 +207,10 @@ def _calc_unit_geometry(params: CapArrayLayoutParams, rules: NewRuleDeck) -> _Un
     outer_width = inner_width + 2 * ring_width
     outer_height = inner_height + 2 * ring_width
     unit_pitch = outer_width - ring_width
-    shield_spacing = _required_rule(
-        getattr(getattr(rules, f"M{params.shield_layer}").spacing, f"M{params.shield_layer}", None),
-        "shield-metal spacing",
-    )
-    shield_rules = getattr(rules, f"M{params.shield_layer}")
+    shield_rules = _rules(tech, f"M{params.shield_layer}")
+    shield_spacing = _required_rule(shield_rules.get("space"), "shield-metal spacing")
     shield_cutout_width = landing_short + 2 * shield_spacing
-    enclosed_area = _required_rule(shield_rules.enclosed_area, "shield minimum enclosed area")
+    enclosed_area = _required_rule(shield_rules.get("enclosed_area"), "shield minimum enclosed area")
     bridge_pitch = params.family.shield_bridge_tracks * track_pitch
     hole_height = _snap_up((enclosed_area + gap - 1) // gap, grid)
     if bridge_pitch - ring_width < hole_height:
@@ -239,7 +231,7 @@ def _calc_unit_geometry(params: CapArrayLayoutParams, rules: NewRuleDeck) -> _Un
         )
     )
     mesh_density = 1.0 - (2 * gap / outer_width) * (1 - ring_width / bridge_pitch)
-    max_density = shield_rules.max_density
+    max_density = shield_rules.get("max_density")
     if max_density is not None and mesh_density > max_density:
         raise ValueError("rule-derived shield mesh does not satisfy the maximum-density rule")
 
@@ -276,16 +268,21 @@ def _um(value_nm: float) -> float:
     return float(value_nm) / 1000.0
 
 
-def _metal(generic: GenericLayers, number: int) -> db.LayerInfo:
-    return getattr(generic, f"M{number}")
+def _layers(tech: Any) -> Layers:
+    """The PDK's drawn layers by name (``tech.LAYERS``)."""
+    return {name: db.LayerInfo(*ld) for name, ld in tech.LAYERS.items() if ld is not None}
 
 
-def _pin(generic: GenericLayers, number: int) -> db.LayerInfo:
-    return getattr(generic, f"PIN{number}")
+def _metal(layers: Layers, number: int) -> db.LayerInfo:
+    return layers[f"M{number}"]
 
 
-def _via(generic: GenericLayers, lower_metal: int) -> db.LayerInfo:
-    return getattr(generic, f"VIA{lower_metal}")
+def _pin(layers: Layers, number: int) -> db.LayerInfo:
+    return layers[f"M{number}.PIN"]
+
+
+def _via(layers: Layers, lower_metal: int) -> db.LayerInfo:
+    return layers[f"V{lower_metal}"]
 
 
 def _insert_box(cell: db.Cell, layer: db.LayerInfo, x0: float, y0: float, x1: float, y1: float) -> None:
@@ -373,7 +370,7 @@ def _insert_shield(
 
 def _insert_recognition_marker(
     cell: db.Cell,
-    generic: GenericLayers,
+    layers: Layers,
     geometry: _UnitGeometry,
     y0: float,
     y1: float,
@@ -407,16 +404,16 @@ def _insert_recognition_marker(
         db.DBox(left0, leg0, left1, leg1),
         db.DBox(right0, leg0, right1, leg1),
     ):
-        cell.shapes(generic.MOM_RECOG).insert(box)
+        cell.shapes(layers["MOM_RECOG"]).insert(box)
     inner_x = ring + _um(geometry.gap)
-    cell.shapes(generic.MOM_RECOG_INNER).insert(
+    cell.shapes(layers["MOM_RECOG_INNER"]).insert(
         db.DBox(inner_x - inset, y0 - inset, inner_x + _um(geometry.finger_width) + inset, y1 + inset)
     )
 
 
 def _build_unit_cell(
     layout: db.Layout,
-    generic: GenericLayers,
+    layers: Layers,
     params: CapArrayLayoutParams,
     geometry: _UnitGeometry,
     weight: int,
@@ -441,7 +438,7 @@ def _build_unit_cell(
     top_y1 = height - ring - end_gap
 
     for metal_number in params.active_layers:
-        layer = _metal(generic, metal_number)
+        layer = _metal(layers, metal_number)
         _insert_ring(cell, layer, width, height, ring)
         _insert_box(cell, layer, x0, inner_y0, x0 + finger, bottom_y1)
         _insert_box(cell, layer, x0, top_y0, x0 + finger, top_y1)
@@ -449,10 +446,10 @@ def _build_unit_cell(
     # Edge dummies have intentionally floating inner plates and no source
     # devices. Active-layer selection comes from real metal, not per-layer tags.
     if weight:
-        _insert_recognition_marker(cell, generic, geometry, inner_y0, bottom_y1, side="main")
-        _insert_recognition_marker(cell, generic, geometry, top_y0, top_y1, side="diff")
+        _insert_recognition_marker(cell, layers, geometry, inner_y0, bottom_y1, side="main")
+        _insert_recognition_marker(cell, layers, geometry, top_y0, top_y1, side="diff")
         inset = _um(geometry.grid)
-        cell.shapes(generic.MOM_RECOG_SHIELD).insert(
+        cell.shapes(layers["MOM_RECOG_SHIELD"]).insert(
             db.DBox(
                 inset,
                 _um(geometry.shield_bridge_ys[0]) + inset,
@@ -463,7 +460,7 @@ def _build_unit_cell(
 
     _insert_shield(
         cell,
-        _metal(generic, params.shield_layer),
+        _metal(layers, params.shield_layer),
         geometry,
         shared_routing=params.route_layer == params.shield_layer,
     )
@@ -471,23 +468,23 @@ def _build_unit_cell(
     extension = _um(geometry.landing_long - geometry.via_landing) / 2
     for access_y, landing_y in ((bottom_access, bottom_access + extension), (top_access, top_access - extension)):
         for metal_number in range(params.route_layer, params.active_layers[0]):
-            _landing_box(cell, _metal(generic, metal_number), access_x, landing_y, geometry)
+            _landing_box(cell, _metal(layers, metal_number), access_x, landing_y, geometry)
         for lower_metal in range(params.route_layer, params.active_layers[-1]):
-            _via_box(cell, _via(generic, lower_metal), access_x, access_y, geometry)
+            _via_box(cell, _via(layers, lower_metal), access_x, access_y, geometry)
 
     return cell
 
 
 def _build_unit_library(
     layout: db.Layout,
-    generic: GenericLayers,
+    layers: Layers,
     params: CapArrayLayoutParams,
     geometry: _UnitGeometry,
 ) -> dict[int, db.Cell]:
     """Build every legal positive unit weight through ``coarse_weight``."""
 
     return {
-        weight: _build_unit_cell(layout, generic, params, geometry, weight)
+        weight: _build_unit_cell(layout, layers, params, geometry, weight)
         for weight in range(1, params.family.coarse_weight + 1)
     }
 
@@ -507,14 +504,14 @@ def _ordered_groups(weights: list[int], chunks: list[list[int]]) -> list[tuple[i
 
 def _add_route_pins(
     top: db.Cell,
-    generic: GenericLayers,
+    layers: Layers,
     params: CapArrayLayoutParams,
     geometry: _UnitGeometry,
     placed_groups: list[tuple[int, int, int, int]],
 ) -> None:
     ports = array_ports(params.cdac.n_dac + params.cdac.n_extra)
-    route = _metal(generic, params.route_layer)
-    pin = _pin(generic, params.route_layer)
+    route = _metal(layers, params.route_layer)
+    pin = _pin(layers, params.route_layer)
     x_local, bottom_y, top_y = _access_centers(geometry)
     pitch = _um(geometry.unit_pitch)
     height = _um(geometry.landing_long)
@@ -543,7 +540,7 @@ def _add_route_pins(
 
 def _add_topplate_access(
     top: db.Cell,
-    generic: GenericLayers,
+    layers: Layers,
     params: CapArrayLayoutParams,
     geometry: _UnitGeometry,
     array_right: float,
@@ -559,22 +556,22 @@ def _add_topplate_access(
     bar_bottom = _um(geometry.outer_height) - ring
 
     for metal_number in range(params.route_layer, params.active_layers[-1] + 1):
-        layer = _metal(generic, metal_number)
+        layer = _metal(layers, metal_number)
         if metal_number in params.active_layers:
             _insert_box(top, layer, 0, bar_bottom, stack_left, bar_bottom + pad)
             _insert_box(top, layer, stack_left, y - pad / 2, stack_left + pad, bar_bottom + pad)
         _insert_box(top, layer, stack_left, y - pad / 2, stack_left + pad, y + pad / 2)
     for lower_metal in range(params.route_layer, params.active_layers[-1]):
-        _via_box(top, _via(generic, lower_metal), stack_x, y, geometry, columns=2)
+        _via_box(top, _via(layers, lower_metal), stack_x, y, geometry, columns=2)
 
-    pin = _pin(generic, params.route_layer)
+    pin = _pin(layers, params.route_layer)
     top.shapes(pin).insert(db.DText(ArrayPlates.cap_topplate.name, db.DTrans(stack_x, y)))
     _insert_box(top, pin, stack_x - ring / 2, y - ring / 2, stack_x + ring / 2, y + ring / 2)
 
 
 def _add_shield_taps(
     top: db.Cell,
-    generic: GenericLayers,
+    layers: Layers,
     params: CapArrayLayoutParams,
     geometry: _UnitGeometry,
     array_right: float,
@@ -582,16 +579,16 @@ def _add_shield_taps(
 ) -> None:
     """Connect the lower shield to route metal through repeated right taps."""
 
-    route = _metal(generic, params.route_layer)
-    pin = _pin(generic, params.route_layer)
+    route = _metal(layers, params.route_layer)
+    pin = _pin(layers, params.route_layer)
     ring = _um(geometry.ring_width)
     tap_x = array_right - ring / 2
     ys = [_um(y) + ring / 2 for y in geometry.shield_bridge_ys]
     for index, y in enumerate(ys):
         for metal_number in range(params.route_layer, params.shield_layer):
-            _landing_box(top, _metal(generic, metal_number), tap_x, y, geometry, horizontal=True)
+            _landing_box(top, _metal(layers, metal_number), tap_x, y, geometry, horizontal=True)
         for lower_metal in range(params.route_layer, params.shield_layer):
-            _via_box(top, _via(generic, lower_metal), tap_x, y, geometry, rows=1)
+            _via_box(top, _via(layers, lower_metal), tap_x, y, geometry, rows=1)
         start_x = array_right if params.route_layer == params.shield_layer else tap_x
         _insert_box(top, route, start_x, y - ring / 2, output_right, y + ring / 2)
         if index == len(ys) // 2:
@@ -604,20 +601,19 @@ def CapArrayLayout(params: CapArrayLayoutParams) -> db.Layout:
 
     if not is_valid_caparray_layout_params(params):
         raise ValueError(f"Invalid CDAC layout params: {params}")
-    pdk_layout = import_module(f"pdk.{params.technology}.layout")
-    rules = pdk_layout.rule_deck()
-    geometry = _calc_unit_geometry(params, rules)
+    tech = import_module(f"pdk.{params.technology}.layout.tech")
+    geometry = _calc_unit_geometry(params, tech)
     weights = get_caparray_weights(params.cdac)
     partitioned = _calc_weight_partitions(weights, params.family.coarse_weight)
     ordered = _ordered_groups(weights, partitioned)
 
     layout = db.Layout()
-    layout.dbu = pdk_layout.DBU
-    generic = load_generic_layers(layout)
+    layout.dbu = tech.DBU
+    layers = _layers(tech)
     top = layout.create_cell(params.top_cell)
-    unit_library = _build_unit_library(layout, generic, params, geometry)
+    unit_library = _build_unit_library(layout, layers, params, geometry)
     if params.family.edge_dummy_units:
-        unit_library[0] = _build_unit_cell(layout, generic, params, geometry, 0)
+        unit_library[0] = _build_unit_cell(layout, layers, params, geometry, 0)
 
     position = 0
     for _ in range(params.family.edge_dummy_units):
@@ -640,21 +636,20 @@ def CapArrayLayout(params: CapArrayLayoutParams) -> db.Layout:
         top.insert(db.DCellInstArray(unit_library[0].cell_index(), db.DTrans(_um(position * geometry.unit_pitch), 0)))
         position += 1
 
-    _add_route_pins(top, generic, params, geometry, placed_groups)
+    _add_route_pins(top, layers, params, geometry, placed_groups)
     array_right = _um((position - 1) * geometry.unit_pitch + geometry.outer_width)
     output_right = array_right + _um(geometry.side_extension)
-    _add_topplate_access(top, generic, params, geometry, array_right)
-    _add_shield_taps(top, generic, params, geometry, array_right, output_right)
+    _add_topplate_access(top, layers, params, geometry, array_right)
+    _add_shield_taps(top, layers, params, geometry, array_right, output_right)
     _insert_box(
         top,
-        generic.PR_BOUNDARY,
+        layers["BND"],
         0,
         0,
         output_right,
         _um(geometry.outer_height - geometry.ring_width + geometry.via_landing),
     )
 
-    remap_layers(layout, pdk_layout.layer_map())
     return layout
 
 
@@ -663,10 +658,10 @@ def _layout_manifest(params: CapArrayLayoutParams) -> dict[str, Any]:
 
     if not is_valid_caparray_layout_params(params):
         raise ValueError(f"Invalid CDAC layout params: {params}")
-    pdk_layout = import_module(f"pdk.{params.technology}.layout")
+    tech = import_module(f"pdk.{params.technology}.layout.tech")
     weights = get_caparray_weights(params.cdac)
     chunks = _calc_weight_partitions(weights, params.family.coarse_weight)
-    geometry = _calc_unit_geometry(params, pdk_layout.rule_deck())
+    geometry = _calc_unit_geometry(params, tech)
     return {
         "technology": params.technology,
         "top_cell": params.top_cell,
