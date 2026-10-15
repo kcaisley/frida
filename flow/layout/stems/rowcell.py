@@ -296,16 +296,26 @@ def mos_row(
     A pair is drawn mirrored about its middle, A's fingers reversed against B's: A and B share
     the middle strip when their sources are one net (same L and W), else a diffusion break
     separates them. Gates of one net share a bar; differing gates at a shared strip are pushed
-    apart (GATE_GAP). A gate net that is also a drain or source net of the cell (cross-coupled,
-    diode) is joined to that net's track by an M3 jumper with two VIA2, so every net is one
-    connected piece inside the cell. A pair too narrow for its jumpers' M3 columns is drawn
-    ``grid`` wider (``extra``) until they fit.
+    apart (GATE_GAP), except where the dummy poly lines stand on the gates' pitch (gridded poly):
+    there a gate keeps one space to the lines either side, so differing gates take a diffusion
+    break under the dummy lines instead, every line on the pitch. A gate net that is also a drain
+    or source net of the cell (cross-coupled, diode) is joined to that net's track by an M3 jumper
+    with two VIA2, so every net is one connected piece inside the cell. A pair too narrow for its
+    jumpers' M3 columns is drawn ``grid`` wider (``extra``) until they fit.
     """
     assert 1 <= len(devs) <= 2, f"{name}: one or two devices per row cell"
     for v in devs:
         assert v.w <= W_MAX, f"{name}: finger width {v.w} > {W_MAX}"
     pair = len(devs) == 2
-    shared = pair and devs[0].s == devs[1].s and (devs[0].l, devs[0].w) == (devs[1].l, devs[1].w)
+    l0 = devs[0].l
+    on_pitch = (
+        pair
+        and PO_DUMMY is not None
+        and devs[1].l == l0
+        and all((sp, w) == (_cpp(l0) - l0, l0) for sp, w in PO_DUMMY[_long(l0)])
+    )
+    shared = pair and devs[0].s == devs[1].s and (l0, devs[0].w) == (devs[1].l, devs[1].w)
+    shared = shared and not (on_pitch and devs[0].g != devs[1].g)
     split = shared and devs[0].g != devs[1].g
     widen = _up(max(0, GATE_GAP - _cpp(devs[0].l)), 10) // 2 if split else 0
 
@@ -323,6 +333,8 @@ def mos_row(
         if k == 1:
             if shared:
                 x = strips[-1][0]
+            elif on_pitch:  # a diffusion break under the dummy lines, the next gate a pitch past the last
+                x = strips[-1][0] + len(PO_DUMMY[_long(l0)]) * _cpp(l0)
             elif PO_DUMMY:  # a diffusion break with one dummy poly line, the first of either device's
                 (sa, wa), (sb, wb) = PO_DUMMY[_long(devs[0].l)][0], PO_DUMMY[_long(v.l)][0]
                 x = strips[-1][0] + _gate_off(devs[0].l) + 2 * max(sa, sb) + max(wa, wb) + _gate_off(v.l)
