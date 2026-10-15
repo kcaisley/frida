@@ -114,6 +114,7 @@ VT_MARKS = getattr(_tech, "VT_MARKS", {})
 RAIL_MARKS = getattr(_tech, "RAIL_MARKS", ())
 PO_DUMMY_LAYER = getattr(_tech, "PO_DUMMY_LAYER", "PO")
 VT = {pol: (vt, *VT_MARKS.get(pol, ())) for pol, vt in (("n", "VTN"), ("p", "VTP"))}
+VIA_SPACE = getattr(_tech, "VIA_SPACE", 0)  # via to via where it exceeds what the M2 track pitch leaves
 
 GLAYERS = LAYERS
 M1_HW, M2_HW, M3_HW = M1W // 2, M2W // 2, M3W // 2  # half widths: M1 strips and pads, M2 and M3 bars
@@ -281,7 +282,14 @@ def mos(
 
 
 def mos_row(
-    name: str, pol: str, devs: list[Dev], grid: int = XPITCH, vss: str = "vss", vdd: str = "vdd", m2_rails: bool = False
+    name: str,
+    pol: str,
+    devs: list[Dev],
+    grid: int = XPITCH,
+    vss: str = "vss",
+    vdd: str = "vdd",
+    m2_rails: bool = False,
+    extra: int = 0,
 ) -> Cell:
     """One transistor, or a pair of one type (ALIGN's DP, CMC, CCP ... primitives) in one row.
 
@@ -290,7 +298,8 @@ def mos_row(
     separates them. Gates of one net share a bar; differing gates at a shared strip are pushed
     apart (GATE_GAP). A gate net that is also a drain or source net of the cell (cross-coupled,
     diode) is joined to that net's track by an M3 jumper with two VIA2, so every net is one
-    connected piece inside the cell.
+    connected piece inside the cell. A pair too narrow for its jumpers' M3 columns is drawn
+    ``grid`` wider (``extra``) until they fit.
     """
     assert 1 <= len(devs) <= 2, f"{name}: one or two devices per row cell"
     for v in devs:
@@ -419,7 +428,7 @@ def mos_row(
         max(b[1] for b in m1bars.values()) + M1_EDGE,
         *(d[1] + PO_EDGE for d in dummies),
     )
-    width = _up(hi - lo, grid)
+    width = _up(hi - lo, grid) + extra
     sh = on_grid((width - (hi - lo)) // 2) - lo
     c = Cell(name, width)
     rails(c, width, pol, vss, vdd, m2_rails)
@@ -487,7 +496,7 @@ def mos_row(
     m3s, crossings = [], []
     na, nb = (devs[0].d, devs[1].d) if pair else (None, None)
     if pair and devs[0].g == nb and devs[1].g == na and na != nb and na in tracks and nb in tracks:
-        free = [t for t in SD_TRACKS[pol] if t not in tracks.values()]
+        free = _crossing_tracks(pol, set(tracks.values()), {tracks[na], tracks[nb]}, gt)
         assert len(free) >= 2, f"{name}: no tracks for the cross-coupling"
         (dlo, dhi), (glo, ghi) = sdx[nb], gx2[nb]  # B's drain bar (right), A's gate bar (left)
         # extend bars only outwards, away from their mirror images; stay M3_EDGE inside the cell
@@ -497,7 +506,9 @@ def mos_row(
             ((max(0, m - dhi) + max(0, glo - k), m, k) for m in xd_c for k in xg_c if abs(m - (width - k)) >= XPITCH),
             default=None,
         )
-        assert best, f"{name}: no M3 tracks for the cross-coupling"
+        if best is None:  # too narrow: one column wider, centred
+            assert extra < 8 * grid, f"{name}: no M3 tracks for the cross-coupling"
+            return mos_row(name, pol, devs, grid, vss, vdd, m2_rails, extra + grid)
         _, xd, xg = best
         for net, d_, g_, tc in ((nb, xd, xg, free[0]), (na, width - xd, width - xg, free[1])):
             sdx[net] = [min(sdx[net][0], d_), max(sdx[net][1], d_)]
@@ -585,6 +596,22 @@ def mos_row(
     for net, y, xa, xb in crossings:
         c.add("M2", xa - BAR_END, y - M2_HW, xb + BAR_END, y + M2_HW, net)
     return c
+
+
+def _crossing_tracks(pol: str, used: set[int], drains: set[int], gt: int) -> list[int]:
+    """The M2 tracks a cross-coupled pair's two crossings may take: the free S/D tracks where both
+    keep each jumper's VIA2 apart (VIA_SPACE) from its other end, on the drain or the gate track;
+    else every M2 track of the cell without a bar that does, past the gate track and beside the
+    rails too (a PDK with three S/D tracks, whose pair of non-rail sources and drains takes two),
+    the shortest jumpers first."""
+
+    clear = lambda t: all(abs(t - y) >= V2 + VIA_SPACE for y in (*drains, gt))
+    free = [t for t in SD_TRACKS[pol] if t not in used]
+    if len(free) >= 2 and all(clear(t) for t in free[:2]):
+        return free[:2]
+    pitch = _tech.PITCH
+    spare = [t for t in range(pitch, H, pitch) if t not in used and t != gt and clear(t)]
+    return sorted(spare, key=lambda t: (sum(abs(t - d) for d in drains) / len(drains) + abs(t - gt), t))
 
 
 def mos_rows(

@@ -54,18 +54,28 @@ def check_legal(x, y, legal_sizes):
     return False
 
 
-def fold_rows(block_name, mvalues):
+def fold_rows(block_name, mvalues, elements=()):
     """Row counts a MOS primitive may take: one while its row is at most 1.5 times as wide as tall,
     else the even splits of its fingers from two rows up to the deepest that brings the folded
     block within 1.5 either way (the closest one if none does), so the placer chooses each
-    block's shape. One row with a floorplan, whose rows are fixed, and for logic gates."""
+    block's shape. One row with a floorplan, whose rows are fixed, and for logic gates. Each
+    fold is drawn once to see that it can be: with the primitive's own nets (``elements``), so a
+    cross-coupled pair's jumpers take their columns as in the real cell."""
     if os.environ.get("STEMS_STD_DENSE") or block_name.upper().startswith(LOGIC):
         return (1,)
     from pdk.mos import rowcell  # the stems engine, on the path through mos.py
+    import tech  # the PDK's values, on the path through mos.py
 
     nm = lambda v: int(round(float(v) * 1e9 / 5)) * 5
+    pins = {e.name: e.pins for e in elements}
+    pol = "p" if any(e.model.lower() == tech.MODELS["p"].lower() for e in elements) else "n"
+    rail = next((p["B"] for p in pins.values() if "B" in p), "s")
+    net = lambda name, pin, i: pins[name][pin] if name in pins and pin in pins[name] else f"{pin.lower()}{i}"
     devs = [
-        rowcell.Dev(name, nm(v["L"]), nm(v["W"]), int(v.get("NF", 1)) * int(v.get("M", 1)), f"d{i}", f"g{i}", "s")
+        rowcell.Dev(
+            name, nm(v["L"]), nm(v["W"]), int(v.get("NF", 1)) * int(v.get("M", 1)),
+            net(name, "D", i), net(name, "G", i), net(name, "S", i) if name in pins else "s",
+        )
         for i, (name, v) in enumerate(mvalues.items())
     ]
     nf = 0
@@ -74,7 +84,7 @@ def fold_rows(block_name, mvalues):
     aspect = {}
     for r in (r for r in range(1, nf + 1) if nf % r == 0):
         try:  # a fold too narrow for its straps (rowcell.mos_rows) is no variant
-            aspect[r] = rowcell.mos_rows(block_name, "n", devs, r).width / (r * rowcell.H)
+            aspect[r] = rowcell.mos_rows(block_name, pol, devs, r, vss=rail, vdd=rail).width / (r * rowcell.H)
         except AssertionError:
             continue
     if aspect[1] <= 1.5:
@@ -317,5 +327,6 @@ def gen_param(subckt, primitives, pdk_dir):
             primitives[block_name]["abstract_template_name"] = block_name
             primitives[block_name]["concrete_template_name"] = block_name
         else:
-            add_primitive(primitives, block_name, block_args, generator_constraint, fold_rows(block_name, mvalues))
+            rows = fold_rows(block_name, mvalues, subckt.elements)
+            add_primitive(primitives, block_name, block_args, generator_constraint, rows)
     return True
