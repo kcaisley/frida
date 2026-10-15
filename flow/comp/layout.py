@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Callable
 from datetime import datetime
 from importlib import import_module
 from pathlib import Path
@@ -40,7 +41,7 @@ from .subckt import FRIDA1, LENGTHS, SIZE_PROFILES, CompParams, OutputStage, top
 ROOT = Path(__file__).resolve().parents[2]
 FLOORPLANS = ROOT / "design" / "layout"
 PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
-BUILD = {"cic": cic_build, "laygo": laygo_build, "align": align_build}
+BUILD: dict[str, Callable[..., Path]] = {"cic": cic_build, "laygo": laygo_build, "align": align_build}
 
 # the example double tail ("c040"): the size sweep's topology 40 at the half profile, as
 # `python -m flow.comp.subckt 40_half ...` builds it
@@ -107,8 +108,8 @@ def _run(run_dir: Path, pdk: str, name: str, netlist: Path, floorplan: Path | No
                 del summary[f"{pdk}/{tool}"]
                 break
         try:
-            if tool == "align":
-                gds = align_build(pdk, floorplan, netlist, out, name=name)
+            if tool == "align":  # named as the design, also without a floorplan
+                gds = BUILD[tool](pdk, floorplan, netlist, out, name=name)
             else:
                 assert floorplan is not None  # given, or from ALIGN's placement above
                 gds = BUILD[tool](pdk, floorplan, netlist, out)

@@ -62,7 +62,7 @@ def test_one_failing_tool_does_not_stop_the_others(tmp_path: Path, monkeypatch) 
     builds = {
         "cic": lambda pdk, fp, netlist, out: _gds(out / "cic.gds"),
         "laygo": broken,
-        "align": lambda pdk, fp, netlist, out: _gds(out / "align.gds"),
+        "align": lambda pdk, fp, netlist, out, name=None: _gds(out / "align.gds"),
     }
     monkeypatch.setattr(layout, "BUILD", builds)
 
