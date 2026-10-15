@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import klayout.db as kdb
+import netcells
 import tech as _tech
 from tech import LAYERS, M2W, PIN_TEXT, V1, V2
 
@@ -85,6 +86,7 @@ def post(raw: str, templates: str, out: str) -> None:
     for cell in [c for c in layout.top_cells() if c.cell_index() != top.cell_index()]:
         layout.prune_cell(cell.cell_index(), -1)
     layout.flatten(top.cell_index(), -1, True)
+    netcells.close_wells(layout, kdb, top)
     merge_cuts(layout, top, LAYERS["V1"])
     if getattr(_tech, "VIA_SPACE", None):
         join_cuts(layout, top)

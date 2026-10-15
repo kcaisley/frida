@@ -9,7 +9,7 @@
 * Rows: ALIGN places cells on the rows but not always abutted. In every gap inside the block
   the rails, taps, tap implant bands and the N-tap well band are drawn as in a row cell
   (rowcell.rails without the device parts), so supplies run through every row; then narrow
-  well gaps are closed (NW_SPACE).
+  well gaps are closed (netcells.close_wells).
 * Labels: ALIGN's pin labels (metal/252) move to the PDK's pin-text layers; pin shapes,
   blockages and abstract layers (datatypes 251/253, layer 255 unless the PDK draws on it, and the PnR's whole-block
   boundary marker 235/5) are removed; shapes are merged and snapped to the manufacturing grid.
@@ -44,7 +44,6 @@ from tech import (
     M3W,
     MFG_GRID,
     MODELS,
-    NW_SPACE,
     PIN_TEXT,
     STD_CELLS,
     STD_FILL,
@@ -56,7 +55,6 @@ from tech import (
 
 GRID = MFG_GRID
 BND = LAYERS["BND"]
-NW = LAYERS["NW"]
 STD = re.compile(rf"^({'|'.join(re.escape(c) for c in STD_CELLS if c != STD_FILL)})(_\d+)*$", re.IGNORECASE)
 LIB_NAME = {c.upper(): c for c in STD_CELLS}  # ALIGN upper-cases cell names: back to the library's
 LIB = str(STD_GDS)
@@ -264,15 +262,6 @@ def supply_straps(layout: kdb.Layout, top: kdb.Cell) -> int:
     return placed
 
 
-def close_wells(layout: kdb.Layout, top: kdb.Cell) -> None:
-    li = layout.layer(*NW)
-    nw = kdb.Region(top.shapes(li))
-    half = NW_SPACE // 2
-    nw = nw.sized(half).sized(-half).merged()
-    top.shapes(li).clear()
-    top.shapes(li).insert(nw)
-
-
 def post(
     src: str | Path,
     dst: str | Path,
@@ -337,7 +326,7 @@ def post(
             or (info.layer, info.datatype) == (235, 5)
         ):
             layout.clear_layer(li)
-    close_wells(layout, top)
+    netcells.close_wells(layout, kdb, top)
     for c in list(layout.top_cells()):  # an unused helper (the filler copy when no row needed fill)
         if c.cell_index() != top.cell_index():
             layout.prune_cell(c.cell_index(), -1)

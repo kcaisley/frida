@@ -413,6 +413,17 @@ def _lib_cell(layout, kdb, std_lib, name):
     return lib_cell
 
 
+def close_wells(layout, kdb, top) -> None:
+    """Close the N-well gaps and notches of a flat ``top`` no wider than the well space (NW_SPACE):
+    a row padded by a filler narrower than it leaves a notch between a PMOS cell's well and the
+    row end's (a library profile, EDGE_TIE)."""
+    li = layout.layer(*_tech.LAYERS["NW"])
+    half = _tech.NW_SPACE // 2
+    nw = kdb.Region(top.shapes(li)).sized(half).sized(-half).merged()
+    top.shapes(li).clear()
+    top.shapes(li).insert(nw)
+
+
 def draw(layout, kdb, cell: rowcell.Cell, inst: Inst | None = None, std_lib=None):
     """Draw a cell into a klayout Layout; standard cells and std fillers get the library cells inside."""
     kc = rowcell.to_klayout(cell, layout, kdb)
