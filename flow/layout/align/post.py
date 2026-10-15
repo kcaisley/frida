@@ -140,7 +140,18 @@ def fill_rows(
                 continue
             if k in std_rows:
                 x = g.left
-                for name, w in netcells.fillers(g.width()):
+                try:
+                    fillers = netcells.fillers(g.width())
+                except ValueError:  # narrower than the library's fillers (ALIGN places on a finer grid)
+                    pad = netcells.std_fill(g.width())  # the standard cells' profile, as at a row end
+                    rowcell.std_pad(pad, 0, g.width(), "left")
+                    t = kdb.Trans(x, y0) if k % 2 == 0 else kdb.Trans(kdb.Trans.M0, x, y0 + rowcell.H)
+                    for r in pad.rects:
+                        if r.layer != "BND" and r.kind != "stub" and rowcell.GLAYERS.get(r.layer):
+                            b = kdb.Box(r.x0, r.y0, r.x1, r.y1).transformed(t)
+                            top.shapes(layout.layer(*rowcell.GLAYERS[r.layer])).insert(b)
+                    fillers = []
+                for name, w in fillers:
                     t = kdb.Trans(x, y0) if k % 2 == 0 else kdb.Trans(kdb.Trans.M0, x, y0 + rowcell.H)
                     top.insert(kdb.CellInstArray(fills[name].cell_index(), t))
                     x += w
