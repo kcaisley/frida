@@ -76,7 +76,7 @@ def make_design(pdk: str, netlist: Path, out_dir: Path, *, floorplan: Path | Non
     if free:
         const = [
             *supplies,
-            # a roughly square block: the placer chooses each folded primitive's shape (gen_param.fold_rows)
+            # a roughly square block: the placer chooses each primitive's array (gen_param.py, ALIGN's variants)
             {"constraint": "AspectRatio", "ratio_low": 1 / 1.5, "ratio_high": 1.5},
         ]
     else:

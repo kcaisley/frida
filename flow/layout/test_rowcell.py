@@ -75,3 +75,49 @@ def poly_spaces(pol: str, devs: list[DevSpec]) -> list[int]:
 def test_a_pair_of_short_gates_keeps_its_poly_on_one_pitch(pol: str, devs: list[DevSpec]) -> None:
     spaces = in_pdk("tsmc28", "flow.layout.test_rowcell", "poly_spaces", pol, devs)
     assert len(spaces) > 2 and len(set(spaces)) == 1
+
+
+def pattern_cell(rows: list[list[tuple[int, int]]], devs: list[DevSpec], pol: str = "n") -> tuple[dict, int]:
+    """Run bound to a PDK: an array of ``devs`` in ``rows`` of runs (device index, fingers); each gate
+    net's M2 track, and how many signal nets are not one connected piece."""
+
+    import rowcell
+
+    cell = rowcell.mos_grid("P", pol, [rowcell.Dev(*d) for d in devs], [[rowcell.Run(*r) for r in row] for row in rows])
+    order = {"M1": 0, "V1": 1, "M2": 2, "V2": 3, "M3": 4}
+    by: dict[str, list] = {}
+    for r in cell.rects:
+        if r.net and r.layer in order and r.net not in ("vss", "vdd"):
+            by.setdefault(r.net, []).append(r)
+    split = 0
+    for rs in by.values():
+        parent = list(range(len(rs)))
+
+        def find(i: int, parent: list[int] = parent) -> int:
+            while parent[i] != i:
+                i = parent[i]
+            return i
+
+        for i, a in enumerate(rs):
+            for j, b in enumerate(rs[:i]):
+                near = abs(order[a.layer] - order[b.layer]) <= 1
+                if near and a.x0 <= b.x1 and b.x0 <= a.x1 and a.y0 <= b.y1 and b.y0 <= a.y1:
+                    parent[find(i)] = find(j)
+        split += len({find(i) for i in range(len(rs))}) > 1
+    gates = {r.net: (r.y0 + r.y1) // 2 for r in cell.rects if r.layer == "M2" and r.net in {d[5] for d in devs}}
+    return gates, split
+
+
+@needs_tsmc28
+def test_interdigitated_gates_take_their_own_tracks_and_every_net_is_one_piece() -> None:
+    dp = [("A", 30, 280, 4, "da", "ga", "s"), ("B", 30, 280, 4, "db", "gb", "s")]
+    gates, split = in_pdk("tsmc28", "flow.layout.test_rowcell", "pattern_cell", [[(0, 2), (1, 2), (0, 2), (1, 2)]], dp)
+    assert len(set(gates.values())) == 2 and split == 0
+
+
+@needs_tsmc28
+def test_a_common_centroid_array_over_two_rows_is_connected() -> None:
+    ccp = [("A", 30, 280, 2, "x", "y", "vss"), ("B", 30, 280, 2, "y", "x", "vss")]
+    rows = [[(0, 1), (1, 2), (0, 1)], [(1, 1), (0, 2), (1, 1)]]
+    _, split = in_pdk("tsmc28", "flow.layout.test_rowcell", "pattern_cell", rows, ccp)
+    assert split == 0

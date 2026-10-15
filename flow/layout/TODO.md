@@ -132,8 +132,15 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
 - [x] Row routers (cIcCreator's `rowroute`, laygo's script): an M2 piece keeps the M2 space to a
   separate piece of its own net too, and laygo's branches to pins on the next, half-pitch pin track
   (tower180: a pin bar stretched to a trunk ran within 200 nm of the same net's pin on the next track).
-- [x] ALIGN's fold variants of a MOS primitive are tried with its own nets (a cross-coupled pair's
-  jumpers), and a pair too narrow for its jumpers' M3 columns is drawn wider.
+- [x] ALIGN's MOS primitives as ALIGN chooses them (`align/pdk/mos.py`, 2026-10-15): the array
+  (`x_cells`, `y_cells`, ALIGN's own variants in `gen_param.py`) and the pattern (common centroid,
+  interdigitated, ratio, non common centroid, `exact_patterns`), each unit's device as ALIGN's mock
+  generator assigns it, drawn by the row-cell engine (`rowcell.mos_array`: any finger order of one
+  or more devices of a type; `mos_grid`: rows of them). The existing cells are drawn identically
+  (checked for every device and pair of the comparators in all six PDKs). Gates of two nets that
+  interleave need a second gate track (`GATE_SPARE`): tsmc28 has one (its patterns DRC clean); the
+  other PDKs draw such a pair side by side, as before, while groups with one gate net (CMC, SCM,
+  CMB) take ALIGN's patterns everywhere.
 - [x] Floorplans from ALIGN's placement fall back to a placement on one axis in any outline (without
   the AspectRatio constraint; `pack_rows` squares the rows anyway) where none fits the square one
   (frida1's gates in tsmc28: 15 self-symmetric blocks). ALIGN's own symmetry groups failed there too.
@@ -165,6 +172,13 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
 - [ ] ALIGN's CMC_S_PMOS_B pair cell in tpsc65 (`comp_c040_auto_tpsc65`, c040's `Minner_on` pair): the
   PDK's dummy-poly check flags its gates' poly beside the row edge (already on 2026-10-14); cIcCreator
   and laygo are clean on the same floorplan.
+- [ ] ALIGN's own variants (since the port) can pick a long one-row array for a big group: frida1's
+  cross-coupled NMOS pair in tsmc65 became one 10.4 um row per device, so ALIGN's placement is 20.4
+  x 14.4 um at density 0.34 and the floorplan from it 22.5 x 7.5 um (12.7 x 11.1 with the earlier
+  square-ish fold rule). Decide: ALIGN's defaults, or a per-primitive aspect limit on the variants.
+- [ ] With the ported generator: ALIGN's route leaves decision_p open in `comp_c040_auto_tsmc65` (one
+  run of two; the other was correct, cIcCreator failing to route that floorplan), and ALIGN's row
+  ends in `comp_frida1_auto_tsmc28` break implant and VT spacing at the block's left edge (5).
 - [x] lf150 LVS on asiclab003: Assura (its `gdsIIToVdb`) needs `libicui18n.so.50`, package `libicu50`
   (installed 2026-10-15). The manual and auto floorplans of both comparators are LVS correct in all
   three tools, except ALIGN's frida1 from its placement below.

@@ -14,9 +14,9 @@ Placement unit: 1 nm, the GDS database unit. Checked on comp_frida1 in tsmc65: e
 ``transformation`` in ALIGN's ``3_pnr/__placer_dump__.json`` is where the same run's GDS places
 it (``sX = -1`` mirrors about ``oX``, KLayout's m90 there), and a row is the row cells' ``H`` tall.
 
-Each ALIGN instance is a primitive (one device, or a pair such as DP, CMC or CCP: device A left
-of B, swapped where ALIGN mirrors the primitive) or a standard cell. A primitive ``r`` rows tall
-(align/pdk/gen_param.py ``fold_rows``) becomes ``split[device] = r``, its parts ``<device>_a``
+Each ALIGN instance is a primitive (one device, or a group such as DP, CMC or CCP, in ALIGN's
+order, reversed where ALIGN mirrors the primitive) or a standard cell. A primitive ``r`` rows
+tall (the array ALIGN chose, align/pdk/mos.py) becomes ``split[device] = r``, its parts ``<device>_a``
 (top row), ``_b``, ... in its rows at the same place. The row-cell flows draw a standard cell only
 in a row of standard cells (netcells' dense frame), so where ALIGN mixes them into a row of
 transistors they move to a row of their own just below it, in the same order.

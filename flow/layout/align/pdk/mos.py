@@ -17,6 +17,7 @@ Its grid DRC does not apply to these off-grid cells (Calibre signs off), so it i
 """
 
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -30,6 +31,8 @@ _STEMS = json.loads((Path(__file__).resolve().parent / "stems.json").read_text()
 sys.path[:0] = [_STEMS["layout"], _STEMS["stems"]]  # the PDK's tech and paths, then the engine
 import rowcell
 from tech import XPITCH
+
+logger = logging.getLogger(__name__)
 
 LAYERS = {
     "OD": "Active",
@@ -113,48 +116,100 @@ class RowCanvas(DefaultCanvas):
             )
 
 
+def _rows(cell) -> int:
+    """The rows a stems cell spans (its boundary)."""
+    return max(r.y1 for r in cell.rects if r.layer == "BND") // rowcell.H
+
+
 class MOSGenerator(RowCanvas):
+    """ALIGN's MOS primitive generator (the interface of its mock PDKs' ``MOSGenerator``). ALIGN
+    chooses the array, ``x_cells`` units per row and ``y_cells`` rows, and the pattern (single
+    device, common centroid, interdigitated, ratio, non common centroid, or the Generator
+    constraint's ``exact_patterns``); each unit takes its device as the mock generator's
+    ``_addMOSArray`` does. The units' fingers are drawn as stems row cells (``rowcell.mos_grid``),
+    one row cell per array row, neighbouring units of a device merged into one run."""
+
     def __init__(self, pdk, height, fin, gate, gateDummy, shared_diff, stack, bodyswitch, **kwargs):
         self.primitive_parameters = kwargs.get("primitive_parameters") or {}
         self.primitive_constraints = kwargs.get("primitive_constraints", [])
         super().__init__(pdk)
+        self.exact_patterns = None
+        for const in self.primitive_constraints:
+            if const.constraint == "Generator" and (const.parameters or {}).get("exact_patterns"):
+                self.exact_patterns = const.parameters["exact_patterns"][0]
 
     def addNMOSArray(self, x_cells, y_cells, pattern, vt_type, connections, **parameters):
-        self._build("n", connections, y_cells)
+        self._build("n", x_cells, y_cells, pattern, connections)
 
     def addPMOSArray(self, x_cells, y_cells, pattern, vt_type, connections, **parameters):
-        self._build("p", connections, y_cells)
+        self._build("p", x_cells, y_cells, pattern, connections)
 
-    def _build(self, pol, connections, rows=1):
-        devs = [k for k in self.primitive_parameters if k != "model"]  # ALIGN's order: M1, M2
+    def _units(self, names, x_cells, y_cells, pattern):
+        """The device of each unit, row by row: the mock generator's patterns."""
+        size = lambda n: int(self.primitive_parameters[n].get("NF", 1)) * int(self.primitive_parameters[n].get("M", 1))
+        if len(names) == 2 and size(names[0]) != size(names[1]):  # a ratio: the mock's current mirror
+            pattern = 3
+            small = min(size(n) for n in names)
+            x_left, x_right = x_cells // 2 - small // 2, x_cells // 2 + small // 2
+        elif pattern == 3:  # devices of one size but other parameters (W, L): side by side
+            pattern = 4
+        if len(names) > 2 and not self.exact_patterns:  # beyond the mock's patterns: each device in turn
+            return [[n for n in names for _ in range(max(1, x_cells // len(names)))] for _ in range(y_cells)]
+        pick = {
+            0: lambda x, y: names[0],
+            1: lambda x, y: names[((x // 2) % 2 + x % 2 + (y % 2)) % 2],  # A B B A / B A A B
+            2: lambda x, y: names[((x % 2) + (y % 2)) % 2],  # A B A B / B A B A
+            3: lambda x, y: names[0 if x_left <= x < x_right else 1],  # B B A A B B
+            4: lambda x, y: names[0 if x < x_cells // 2 else 1],  # A A B B
+        }
+        if self.exact_patterns:
+            return [[names[ord(c.upper()) - ord("A")] for c in row] for row in self.exact_patterns]
+        return [[pick[pattern](x, y) for x in range(x_cells)] for y in range(y_cells)]
+
+    def _build(self, pol, x_cells, y_cells, pattern, connections):
+        devs = sorted({d for conn in connections.values() for d, _ in conn})  # the mock's order: M1, M2, ...
         nets = {dev: {pin: n for n, conn in connections.items() for d, pin in conn if d == dev} for dev in devs}
         if any(nets[dev]["B"] in ("SN", "SP") for dev in devs):  # a logic gate (user_template.sp)
             return self._logic(devs, nets, connections)
-        assert len(devs) in (1, 2), f"one device or a pair per row primitive, got {devs}"
         nm = lambda v: int(round(float(v) * 1e9 / 5)) * 5
         devices, bulk = [], set()
         for dev in devs:
             par = self.primitive_parameters[dev]
-            net = {pin: n for n, conn in connections.items() for d, pin in conn if d == dev}
             inst = f"{dev}_X0_Y0"
             self.subinsts[inst].parameters.update(par)
             nf = int(par.get("NF", 1)) * int(par.get("M", 1))
-            devices.append(rowcell.Dev(inst, nm(par["L"]), nm(par["W"]), nf, net["D"], net["G"], net["S"]))
-            bulk.add(net["B"])
+            n = nets[dev]
+            devices.append(rowcell.Dev(inst, nm(par["L"]), nm(par["W"]), nf, n["D"], n["G"], n["S"]))
+            bulk.add(n["B"])
         assert len(bulk) == 1, f"{devs}: the bulk is the cell's rail, got {bulk}"
         b = bulk.pop()
-        # folded over the rows ALIGN chose among gen_param.fold_rows' variants (one: mos_row)
-        cell = rowcell.mos_rows(
-            devs[0] if len(devs) == 1 else "_".join(devs),
-            pol,
-            devices,
-            rows,
-            grid=X_GRID,
-            vss=b if pol == "n" else None,
-            vdd=b if pol == "p" else None,
-        )
+        rails = dict(vss=b if pol == "n" else None, vdd=b if pol == "p" else None)
+        units = self._units(devs, x_cells, y_cells, pattern)
+        # each device's fingers shared out over its units in order; units left without one are dropped
+        count = {d: sum(row.count(d) for row in units) for d in devs}
+        given = {d: 0 for d in devs}
+        rows = []
+        for row in units:
+            runs = []
+            for d in row:
+                k, v = devs.index(d), devices[devs.index(d)]
+                nf = v.nf // count[d] + (1 if given[d] < v.nf % count[d] else 0)
+                given[d] += 1
+                if nf and runs and runs[-1].dev == k:
+                    runs[-1] = rowcell.Run(k, runs[-1].nf + nf)
+                elif nf:
+                    runs.append(rowcell.Run(k, nf))
+            if runs:
+                rows.append(runs)
+        name = devs[0] if len(devs) == 1 else "_".join(devs)
+        try:
+            cell = rowcell.mos_grid(name, pol, devices, rows, grid=X_GRID, **rails)
+        except AssertionError as error:  # the pattern does not fit a row (tracks): side by side in each row
+            logger.warning(f"{name}: {error}; its devices side by side instead")
+            folds = len(rows) if all(v.nf % len(rows) == 0 for v in devices) else 1
+            cell = rowcell.mos_rows(name, pol, devices, folds, grid=X_GRID, **rails)
         self.draw(cell.rects)
-        self.bbox = transformation.Rect(0, 0, cell.width, rows * rowcell.H)
+        self.bbox = transformation.Rect(0, 0, cell.width, _rows(cell) * rowcell.H)
 
     def _logic(self, devs, nets, connections):
         """INV, NAND2, NOR2: NMOS (bulk SN) and PMOS (bulk SP) in one row, logiccell.py."""
