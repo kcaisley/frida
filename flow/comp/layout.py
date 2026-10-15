@@ -3,8 +3,10 @@
 A target names one case and one PDK and lays it out with all three tools (cIcCreator, laygo,
 ALIGN), each checked with DRC and LVS; a ``*_all_pdks`` target runs one case in all six PDKs.
 Cases: the FRIDA-1 comparator and the size sweep's example double tail (c040), each from its
-hand-written floorplan (``design/layout``, "manual") or from ALIGN's placement ("auto"), and
-``mos_inv`` (one NMOS and one PMOS row cell). Every (pdk, tool) runs whatever the others do;
+hand-written floorplan (``design/layout``, "manual"), from ALIGN's placement of the transistor
+netlist with its library cells recognized ("auto"), or from ALIGN's placement of the
+standard-cell netlist with every library cell drawn as transistors ("gates"); and ``mos_inv``
+(one NMOS and one PMOS row cell). Every (pdk, tool) runs whatever the others do;
 the target raises at the end when any failed (``failures.json``).
 
 Tools: ``CICPY`` (cicpy 0.3, with ``compile``), ``LAYGO_CLIENT`` (the hosted laygo server's
