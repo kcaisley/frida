@@ -134,18 +134,34 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
   (tower180: a pin bar stretched to a trunk ran within 200 nm of the same net's pin on the next track).
 - [x] ALIGN's fold variants of a MOS primitive are tried with its own nets (a cross-coupled pair's
   jumpers), and a pair too narrow for its jumpers' M3 columns is drawn wider.
-- [x] Floorplans from ALIGN's placement fall back to ALIGN's own symmetry groups where no placement on
-  one axis fits (the gates targets in a PDK without logic cells: many small self-symmetric pairs).
-- [ ] Pairs of short gates (tsmc28: 30 nm) whose gates differ break the gridded-poly rules as one
-  cell (a shared strip with the gates apart, or a diffusion break); only ALIGN's free layouts draw
-  them (the runner's targets place each device as its own cell). Draw them as two device cells.
-- [ ] ALIGN's routes on some floorplans from its placement leave nets open (tower180 frida1, tsmc28
-  and ihp130 c040): its own open count is no guide (it counts the unrouted supplies).
-- [ ] laygo on c040's floorplan from ALIGN's placement in tsmc65 (`comp_c040_auto_tsmc65`): the clkb port
-  lands on another net (LVS: the port's net holds other nets' devices); cIcCreator and ALIGN are
-  correct on the same floorplan. Check the escape in `design_template.py`.
-- [ ] frida1's cross-coupled PMOS pair as one row cell (ALIGN's CCP primitive): `rowcell.mos_row`
-  finds no tracks for the cross-coupling in tsmc28 and tower180, so ALIGN cannot place frida1 there.
+- [x] Floorplans from ALIGN's placement fall back to a placement on one axis in any outline (without
+  the AspectRatio constraint; `pack_rows` squares the rows anyway) where none fits the square one
+  (frida1's gates in tsmc28: 15 self-symmetric blocks). ALIGN's own symmetry groups failed there too.
+- [x] Pairs of differing short gates where the dummy poly stands on the gates' pitch (tsmc28: 30 nm)
+  take a diffusion break under the dummy lines, every line on the pitch. A shared strip with the
+  gates pushed apart gave each gate two spaces to its neighbours and met the gates' M2 bars end to
+  end; a break with one dummy line crowded the lines (ALIGN's DP_NMOS of c040's `Minner_init`
+  pair, `comp_c040_auto_tsmc28`).
+- [x] laygo's port labels attach to M3 (`laygo/post.py`), where every port of the template sits: in
+  `comp_c040_auto_tsmc65` the clkb label sat where latch_p's M2 bar was centred too, and named it.
+- [x] N-well notches narrower than the well space close in all three tools' post steps
+  (`netcells.close_wells`, ALIGN's already did): a row padded by a filler narrower than the space left
+  a notch between a PMOS cell's well and the row end's library profile (`comp_c040_auto_tower180`).
+- [x] The standard cells ALIGN centres on its axis (self-symmetric, one per row: a comparator's output
+  inverters) go where their nets are shortest in the merged row (`pack_rows`): nested, they all went
+  to one side, and in `comp_c040_auto_lf150` cIcCreator and laygo found no route.
+- [x] A gap in ALIGN's row of standard cells narrower than the library's fillers (tsmc28: one site;
+  ALIGN places on a finer grid than the cells') takes the standard cells' profile (`align/post.py`).
+- [x] A row of transistors too wide for any packing in ALIGN's aspect ratio splits into nested rings of
+  its mirror pairs, each mirrored (`pack_rows`): the gates targets put a logic gate's transistors in
+  one row (`comp_c040_gates_tsmc65`: 21.5 x 7.5 um in four rows before, six rows now).
+- [ ] ALIGN's router leaves nets open on some floorplans from its placement: in
+  `comp_frida1_auto_tower180` the nets between the output buffers (outp_b, outn_b), whose four
+  inverters ALIGN stacks self-symmetric on the axis (its global router: no feasible path). Swapping
+  the buffers into a mirrored order does not help, and the hanan router finds no pins in tower180.
+  ALIGN's own open count is no guide (it counts the unrouted supplies). cIcCreator and laygo are
+  correct on the same floorplan. In `comp_c040_gates_tsmc65` (six rows) ALIGN's M1 leaves one corner
+  closer than the M1 space; cIcCreator and laygo are clean there too.
 - [ ] lf150 LVS on asiclab003: Assura needs `libicui18n.so.50` (package `libicu50`, as on juno).
 
 ## Next

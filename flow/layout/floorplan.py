@@ -141,7 +141,10 @@ def pack_rows(
     ones merged so far, its left half on the left and its right half on the right, so a row mirrored
     about the centre line ALIGN placed it on stays mirrored; a merged row takes the place of its
     first row. A row of standard cells wider than the block is split into rows of about equal width,
-    as many as it needs. An odd number of rows becomes even where a row of standard cells can be
+    as many as it needs. Where no packing fits ALIGN's aspect ratio (a row of transistors wider than
+    the block would be tall: a gate-level netlist's logic gates as transistors), a row of transistors
+    may split too, into nested rings of its mirror pairs (the outermost first), each mirrored like the
+    row; the squarer packing of the two is taken. An odd number of rows becomes even where a row of standard cells can be
     split in two: both block edges are then VSS rails, as in the hand-written floorplans (a VDD rail
     at a block edge leaves its implant and well overhangs bare). Of the row widths tried, an even
     number of rows first, then the least area within ALIGN's aspect ratio (2/3 to 3/2), else the
@@ -173,11 +176,26 @@ def pack_rows(
                     best, least = row, cost
         return best
 
-    def split(cells: list[tuple[str, int]], std: bool, limit: int) -> list[list[tuple[str, int]]]:
+    def split(cells: list[tuple[str, int]], std: bool, limit: int, rings: bool) -> list[list[tuple[str, int]]]:
         total = sum(w for _, w in cells)
-        if not std or total <= limit:
+        if total <= limit or not (std or (rings and len(cells) >= 4)):
             return [cells]
         n = -(-total // limit)
+        if not std:  # the mirror pairs, outside in, each to the ring its middle falls in; a centre cell innermost
+            pairs = [[cells[k], cells[-1 - k]] for k in range(len(cells) // 2)]
+            if len(cells) % 2:
+                pairs[-1].insert(1, cells[len(cells) // 2])
+            nested: list[list[list[tuple[str, int]]]] = [[] for _ in range(n)]
+            done = 0
+            for pair in pairs:
+                w = sum(w for _, w in pair)
+                nested[min(n - 1, int((done + w / 2) * n / total))].append(pair)
+                done += w
+            return [
+                [p[0] for p in ring] + [p[1] for p in ring if len(p) == 3] + [p[-1] for p in reversed(ring)]
+                for ring in nested
+                if ring
+            ]
         parts: list[list[tuple[str, int]]] = [[] for _ in range(n)]
         done = 0
         for cell, w in cells:  # each cell to the part its middle falls in, in order
@@ -185,11 +203,11 @@ def pack_rows(
             done += w
         return [part for part in parts if part]
 
-    def merge(limit: int) -> list[tuple[int, list[str], int]]:
+    def merge(limit: int, rings: bool) -> list[tuple[int, list[str], int]]:
         merged: list[tuple[int, list[str], int]] = []  # (first row, cells, width)
         filling: dict[bool, int] = {}  # per kind: the merged row being filled
         for i, (row, std) in enumerate(rows):
-            for part in split(row, std, limit):
+            for part in split(row, std, limit, rings):
                 cells, width = [c for c, _ in part], sum(w for _, w in part)
                 m = filling.get(std)
                 if m is not None and merged[m][2] + width <= limit:
@@ -225,11 +243,29 @@ def pack_rows(
         for i in range(len(rows))
         for j in range(i + 1, len(rows) + 1)
     }
-    limits |= {-(-w // k) for w, (row, std) in zip(widths, rows, strict=True) if std for k in range(1, len(row) + 1)}
-    # no narrower than a row of transistors or a single standard cell
-    widest = max(w if not std else max(c for _, c in row) for w, (row, std) in zip(widths, rows, strict=True))
-    best = min((merge(limit) for limit in sorted(limits) if limit >= widest), key=cost)
-    return [cells for _, cells, _ in best]
+
+    def best(rings: bool) -> list[tuple[int, list[str], int]]:
+        split_ = {
+            -(-w // k)
+            for w, (row, std) in zip(widths, rows, strict=True)
+            if std or rings
+            for k in range(1, len(row) + 1)
+        }
+        # no narrower than a row of transistors (a mirror pair of it where it splits) or a standard cell
+        narrowest = [
+            max(c for _, c in row)
+            if std
+            else max(row[k][1] + row[-1 - k][1] for k in range(len(row) // 2))
+            if rings and len(row) >= 4
+            else w
+            for w, (row, std) in zip(widths, rows, strict=True)
+        ]
+        return min((merge(limit, rings) for limit in sorted(limits | split_) if limit >= max(narrowest)), key=cost)
+
+    packed = best(False)
+    if cost(packed)[1]:  # outside the aspect ratio: rows of transistors may split
+        packed = min(packed, best(True), key=cost)
+    return [cells for _, cells, _ in packed]
 
 
 def align_floorplan(netlist: Path, pdk: str, out_dir: Path, *, name: str, escape: dict) -> Path:

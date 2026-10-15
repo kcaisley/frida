@@ -104,6 +104,15 @@ def test_a_wide_row_of_standard_cells_takes_several_rows() -> None:
     assert rows == [["Ma", "Mb"], ["X0", "X1"], ["X2", "X3"], ["X4", "X5", "X6", "X7"]]
 
 
+def test_a_row_of_transistors_too_wide_for_any_square_packing_splits_into_mirrored_rings() -> None:
+    row = ["La", "Lb", "Lc", "Ld", "Rd", "Rc", "Rb", "Ra"]  # mirrored about the centre: La mirrors Ra
+    # one row, 8.0 x 1.8 um, is outside the aspect ratio: two rings, 4.0 x 3.6 um, each mirrored
+    assert pack_rows([(_cells(row, 1000), False)], H) == [["La", "Lb", "Rb", "Ra"], ["Lc", "Ld", "Rd", "Rc"]]
+    # where a packing fits, a row stays whole: 4.0 x 3.6 um
+    rows = [(_cells(row[2:6], 1000), False), (_cells(["Ma", "Mb"], 2000), False)]
+    assert pack_rows(rows, H) == [["Lc", "Ld", "Rd", "Rc"], ["Ma", "Mb"]]
+
+
 def test_centred_standard_cells_go_where_their_nets_are_shortest() -> None:
     """A comparator's output stage as ALIGN places it: the latch gates mirrored, the four output
     inverters self-symmetric on the axis, one per row; nested, they would all end on the right."""
