@@ -13,11 +13,10 @@
 * Labels: ALIGN's pin labels (metal/252) move to the PDK's pin-text layers; pin shapes,
   blockages and abstract layers (datatypes 251/253, layer 255 unless the PDK draws on it, and the PnR's whole-block
   boundary marker 235/5) are removed; shapes are merged and snapped to the manufacturing grid.
-* Options (additive, for any block, in a PDK with logic cells and a guard ring): ``fill="decap"``
-  puts decap cells (logiccell.decap) in the row gaps wide enough, and writes their devices to
-  ``out.gds.extra.sp`` for the LVS source (``flow.layout.signoff.add_post_devices``); ``ring``
-  wraps the block in the PDK's guard ring (its ringcell.py), the ring's N-well on ``ring_net``,
-  the substrate ring on ``sub_net`` (a port of its own).
+* Option (for any block, in a PDK with a guard ring): ``ring`` wraps the block in the PDK's
+  guard ring (its ringcell.py), the ring's N-well on ``ring_net``, the substrate ring on
+  ``sub_net`` (a port of its own); ``out.gds.extra.sp`` says so for the LVS source
+  (``flow.layout.signoff.add_post_devices``).
 
 Run bound to a PDK (flow/layout/pdkproc.py), with ``STEMS_STD_DENSE`` set as for the ALIGN run;
 flow/layout/align/build.py calls ``post``.
@@ -43,7 +42,6 @@ from tech import (
     M2_SPACE,
     M3W,
     MFG_GRID,
-    MODELS,
     PIN_TEXT,
     STD_CELLS,
     STD_FILL,
@@ -113,20 +111,14 @@ def _lib_cell(lib_path: str, name: str) -> kdb.Cell:
     return c
 
 
-DECAP_L = (100, 200, 300, 500, 1000)  # gate lengths to choose from: the most gate area that fits
-
-
 def fill_rows(
     layout: kdb.Layout,
     top: kdb.Cell,
     std_rows: set[int],
     fills: dict[str, kdb.Cell],
-    decap: bool = False,
-    devices: list | None = None,
 ) -> int:
     """Rails, taps and well band across the placement gaps of every row; library fillers in
-    standard-cell rows (their implant bands differ from the analog rows'). With ``decap``, a
-    gap wide enough takes a decap cell instead (its devices appended to ``devices``)."""
+    standard-cell rows (their implant bands differ from the analog rows')."""
     bnd = kdb.Region(top.begin_shapes_rec(layout.layer(*BND))).merged()
     box = bnd.bbox()
     n = 0
@@ -159,21 +151,6 @@ def fill_rows(
                 continue
             # orientation: VSS on even rail lines (cells placed R0 on even rows, MX on odd ones)
             t = kdb.Trans(g.left, y0) if k % 2 == 0 else kdb.Trans(kdb.Trans.M0, g.left, y0 + rowcell.H)
-            if decap:
-                import logiccell  # a PDK with logic cells
-            fits = [l for l in DECAP_L if decap and logiccell.decap_fingers(g.width(), l) >= 1]
-            if decap and fits:
-                l = max(fits, key=lambda l: logiccell.decap_fingers(g.width(), l) * l)
-                name = f"FILL{len(devices or [])}"
-                cell, devs = logiccell.decap(name, g.width(), l, hi=f"{name}_hi", lo=f"{name}_lo")
-                devices.extend(devs)
-                for r in cell.rects:
-                    if r.layer != "BND" and r.kind != "stub" and rowcell.GLAYERS.get(r.layer):
-                        top.shapes(layout.layer(*rowcell.GLAYERS[r.layer])).insert(
-                            kdb.Box(r.x0, r.y0, r.x1, r.y1).transformed(t)
-                        )
-                n += 1
-                continue
             cell = rowcell.Cell("fill", g.width())
             rowcell.rails(cell, g.width(), "n", m2=False)
             for r in cell.rects:
@@ -277,7 +254,6 @@ def post(
     src: str | Path,
     dst: str | Path,
     *,
-    fill: str = "plain",
     ring: bool = False,
     ring_net: str = "vdd",
     sub_net: str = "vsub",
@@ -300,8 +276,7 @@ def post(
         fills[name] = layout.create_cell(name + "_fill")
         fills[name].copy_tree(_lib_cell(lib, name))
     layout.flatten(top.cell_index(), -1, True)
-    devices = []
-    n_fill = fill_rows(layout, top, std_rows, fills, decap=fill == "decap", devices=devices)
+    n_fill = fill_rows(layout, top, std_rows, fills)
     std_lib = kdb.Layout()
     std_lib.read(lib)
     n_ties = edge_ties(layout, top, std_rows, std_lib)
@@ -314,13 +289,11 @@ def post(
         rows, sites = ringcell.wrap(layout, top, kdb, ring_net, sub_net)
         layout.flatten(top.cell_index(), -1, True)
         ring_info = f", guard ring ({rows} rows, {sites} sites)"
-    extra = [f"* added by align/post.py ({fill} fill{', ring' if ring else ''})"]
+    extra = [f"* added by align/post.py{' (ring)' if ring else ''}"]
     if ring:
         extra.append("*.DNW")  # NMOS in the deep N-well: extracted as the _dnw models
     if ring and sub_net not in ("vss", "vdd"):
         extra.append(f"*.PORTS {sub_net}")
-    for name, pol, d, g, s_, b, w, l in devices:
-        extra.append(f"M{name} {d} {g} {s_} {b} {MODELS[pol]} w={w / 1000}u l={l / 1000}u")
     Path(dst + ".extra.sp").write_text("\n".join(extra) + "\n")
 
     for info in list(layout.layer_infos()):
@@ -351,7 +324,6 @@ def post(
             shapes.insert(text)
     layout.write(dst)
     print(
-        f"{n_std} standard cells, {n_fill} row gaps filled ({len(devices) // 2} decap fingers), "
-        f"{n_straps} supply straps, {n_ties} row-end ties{ring_info}"
+        f"{n_std} standard cells, {n_fill} row gaps filled, {n_straps} supply straps, {n_ties} row-end ties{ring_info}"
     )
     return Path(dst)

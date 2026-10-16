@@ -9,8 +9,7 @@ The layout renders show PDK layouts (and library cells), so they are build outpu
 build/docs/layout_generators/ and never committed; the deck reads them from there. The schematics
 (no layout) are written here. Inputs are the runner's outputs under build/layout/comp; the ALIGN
 automatic-placement and guard-ring variants come from build/layout/deck (flow/layout/align/build.py
-``build`` without a floorplan, and with ``post=PostOptions(fill="decap", ring=True)`` for the
-ring). Each library cell shown alone is copied into a
+``build`` without a floorplan, and with ``post=PostOptions(ring=True)`` for the ring). Each library cell shown alone is copied into a
 GDS of its own first, so gds2image renders it as a top cell. The schematics are
 flow/util/netlist2image.py's SVGs of the TSMC65 transistor netlists, converted with rsvg-convert.
 """

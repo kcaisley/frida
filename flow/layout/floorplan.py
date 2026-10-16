@@ -140,7 +140,7 @@ def pack_rows(
     about the centre line ALIGN placed it on stays mirrored; a merged row takes the place of its
     first row. A row of standard cells wider than the block is split into rows of about equal width,
     as many as it needs. Where no packing fits ALIGN's aspect ratio (a row of transistors wider than
-    the block would be tall: a gate-level netlist's logic gates as transistors), a row of transistors
+    the block would be tall: a long row of transistors), a row of transistors
     may split too, into nested rings of its mirror pairs (the outermost first), each mirrored like the
     row; the squarer packing of the two is taken. An odd number of rows becomes even where a row of standard cells can be
     split in two: both block edges are then VSS rails, as in the hand-written floorplans (a VDD rail

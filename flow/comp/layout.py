@@ -3,10 +3,9 @@
 A target names one case and one PDK and lays it out with all three tools (cIcCreator, laygo,
 ALIGN), each checked with DRC and LVS; a ``*_all_pdks`` target runs one case in all six PDKs.
 Cases: the FRIDA-1 comparator and the size sweep's example double tail (c040), each from its
-hand-written floorplan (``design/layout``, "manual"), from ALIGN's placement of the transistor
-netlist with its library cells recognized ("auto"), or from ALIGN's placement of the
-standard-cell netlist with every library cell drawn as transistors ("gates"); and ``mos_inv``
-(one NMOS and one PMOS row cell). Every (pdk, tool) runs whatever the others do;
+hand-written floorplan (``design/layout``, "manual") or laid out by ALIGN on its own from the
+transistor netlist with its library cells recognized ("auto", ALIGN's placement the floorplan of
+cIcCreator and laygo); and ``mos_inv`` (one NMOS and one PMOS row cell). Every (pdk, tool) runs whatever the others do;
 the target raises at the end when any failed (``failures.json``).
 
 Tools: ``CICPY`` (cicpy 0.3, with ``compile``), ``LAYGO_CLIENT`` (the hosted laygo server's
@@ -126,18 +125,15 @@ def _run(run_dir: Path, pdk: str, name: str, netlist: Path, floorplan: Path | No
     return _finish(run_dir, summary, failures)
 
 
-def _comp(run_dir: Path, pdk: str, name: str, params: CompParams, floorplan: Path | None, gates: bool = False) -> Path:
+def _comp(run_dir: Path, pdk: str, name: str, params: CompParams, floorplan: Path | None) -> Path:
     """A comparator: its netlists into ``run_dir/netlist/``, then ``_run``. A hand-written floorplan
-    places the generator's standard-cell netlist (it names those cells). From ALIGN's placement:
-    the transistor netlist with the library cells it contains recognized (flow/layout/stdcells.py),
-    or, ``gates``, the standard-cell netlist with its cells as transistors, for the row cells (and
-    ALIGN's own logic gates) to draw."""
+    places the generator's standard-cell netlist (it names those cells). Without one, the
+    transistor netlist with the library cells it contains recognized (flow/layout/stdcells.py):
+    logic is always the PDK's library cells."""
 
     stdcells, transistors = _netlists(params, pdk, run_dir / "netlist", name)
     if floorplan is not None:
         netlist = stdcells
-    elif gates:
-        netlist = in_pdk(pdk, "flow.layout.stdcells", "expand_file", stdcells, run_dir / "netlist" / f"{name}_gates.sp")
     else:
         netlist = in_pdk(
             pdk, "flow.layout.stdcells", "recognize_file", transistors, run_dir / "netlist" / f"{name}_recognized.sp"
@@ -270,60 +266,6 @@ def comp_c040_auto_tpsc65(run_dir: Path) -> Path:
     return _comp(run_dir, "tpsc65", "comp_c040", C040, None)
 
 
-# ---- frida1, its standard cells as transistors, floorplan from ALIGN's placement
-
-
-def comp_frida1_gates_tsmc65(run_dir: Path) -> Path:
-    return _comp(run_dir, "tsmc65", "comp_frida1", FRIDA1, None, gates=True)
-
-
-def comp_frida1_gates_tsmc28(run_dir: Path) -> Path:
-    return _comp(run_dir, "tsmc28", "comp_frida1", FRIDA1, None, gates=True)
-
-
-def comp_frida1_gates_ihp130(run_dir: Path) -> Path:
-    return _comp(run_dir, "ihp130", "comp_frida1", FRIDA1, None, gates=True)
-
-
-def comp_frida1_gates_tower180(run_dir: Path) -> Path:
-    return _comp(run_dir, "tower180", "comp_frida1", FRIDA1, None, gates=True)
-
-
-def comp_frida1_gates_lf150(run_dir: Path) -> Path:
-    return _comp(run_dir, "lf150", "comp_frida1", FRIDA1, None, gates=True)
-
-
-def comp_frida1_gates_tpsc65(run_dir: Path) -> Path:
-    return _comp(run_dir, "tpsc65", "comp_frida1", FRIDA1, None, gates=True)
-
-
-# ---- c040, its standard cells as transistors, floorplan from ALIGN's placement
-
-
-def comp_c040_gates_tsmc65(run_dir: Path) -> Path:
-    return _comp(run_dir, "tsmc65", "comp_c040", C040, None, gates=True)
-
-
-def comp_c040_gates_tsmc28(run_dir: Path) -> Path:
-    return _comp(run_dir, "tsmc28", "comp_c040", C040, None, gates=True)
-
-
-def comp_c040_gates_ihp130(run_dir: Path) -> Path:
-    return _comp(run_dir, "ihp130", "comp_c040", C040, None, gates=True)
-
-
-def comp_c040_gates_tower180(run_dir: Path) -> Path:
-    return _comp(run_dir, "tower180", "comp_c040", C040, None, gates=True)
-
-
-def comp_c040_gates_lf150(run_dir: Path) -> Path:
-    return _comp(run_dir, "lf150", "comp_c040", C040, None, gates=True)
-
-
-def comp_c040_gates_tpsc65(run_dir: Path) -> Path:
-    return _comp(run_dir, "tpsc65", "comp_c040", C040, None, gates=True)
-
-
 # ---- one NMOS and one PMOS row cell, from each PDK's hand-written netlist
 
 
@@ -420,34 +362,6 @@ def comp_c040_auto_all_pdks(run_dir: Path) -> Path:
     )
 
 
-def comp_frida1_gates_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            comp_frida1_gates_tsmc65,
-            comp_frida1_gates_tsmc28,
-            comp_frida1_gates_ihp130,
-            comp_frida1_gates_tower180,
-            comp_frida1_gates_lf150,
-            comp_frida1_gates_tpsc65,
-        ),
-    )
-
-
-def comp_c040_gates_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            comp_c040_gates_tsmc65,
-            comp_c040_gates_tsmc28,
-            comp_c040_gates_ihp130,
-            comp_c040_gates_tower180,
-            comp_c040_gates_lf150,
-            comp_c040_gates_tpsc65,
-        ),
-    )
-
-
 def mos_inv_all_pdks(run_dir: Path) -> Path:
     return _all_pdks(
         run_dir, (mos_inv_tsmc65, mos_inv_tsmc28, mos_inv_ihp130, mos_inv_tower180, mos_inv_lf150, mos_inv_tpsc65)
@@ -459,8 +373,6 @@ ALL_PDKS = (
     comp_c040_manual_all_pdks,
     comp_frida1_auto_all_pdks,
     comp_c040_auto_all_pdks,
-    comp_frida1_gates_all_pdks,
-    comp_c040_gates_all_pdks,
     mos_inv_all_pdks,
 )
 
@@ -507,18 +419,6 @@ def main() -> None:
             comp_c040_auto_tower180,
             comp_c040_auto_lf150,
             comp_c040_auto_tpsc65,
-            comp_frida1_gates_tsmc65,
-            comp_frida1_gates_tsmc28,
-            comp_frida1_gates_ihp130,
-            comp_frida1_gates_tower180,
-            comp_frida1_gates_lf150,
-            comp_frida1_gates_tpsc65,
-            comp_c040_gates_tsmc65,
-            comp_c040_gates_tsmc28,
-            comp_c040_gates_ihp130,
-            comp_c040_gates_tower180,
-            comp_c040_gates_lf150,
-            comp_c040_gates_tpsc65,
             mos_inv_tsmc65,
             mos_inv_tsmc28,
             mos_inv_ihp130,

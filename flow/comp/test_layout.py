@@ -17,8 +17,6 @@ CASES = (
     "comp_c040_manual",
     "comp_frida1_auto",
     "comp_c040_auto",
-    "comp_frida1_gates",
-    "comp_c040_gates",
     "mos_inv",
 )
 
@@ -36,7 +34,7 @@ def test_main_registers_every_target() -> None:
     per_pdk = {f"{case}_{pdk}" for case in CASES for pdk in layout.PDKS}
     assert targets == public - {"main"}
     assert targets == per_pdk | {f"{case}_all_pdks" for case in CASES} | {"all_comp_layouts"}
-    assert len(per_pdk) == 42 and len(targets) == 50
+    assert len(per_pdk) == 30 and len(targets) == 36
 
 
 def test_c040_is_the_sweeps_topology_40_at_half_size() -> None:

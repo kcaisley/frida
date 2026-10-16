@@ -1,6 +1,6 @@
-"""Tests for recognizing standard cells in transistor netlists, and expanding them back."""
+"""Tests for recognizing standard cells in transistor netlists."""
 
-from .stdcells import expand, library, recognize
+from .stdcells import library, recognize
 
 LIB = """\
 .subckt INVX1 A Y VDD VSS
@@ -61,23 +61,3 @@ def test_long_devices_and_ports_inside_a_group_stay_transistors() -> None:
     # a cell's internal net that is a port of the netlist: no NOR2 there
     exposed = NETLIST.replace(".subckt top in out vdd vss", ".subckt top in out stack vdd vss")
     assert "Xnor" not in recognize(exposed, LIB_CELLS)[1]
-
-
-def test_cells_expand_to_merged_transistors() -> None:
-    text = expand("Xnor mid in out vdd vss NOR2X2\n", LIB_CELLS, {"n": "n", "p": "p"})
-    assert text.splitlines() == [  # no finger counts in the netlist: fingers as m, w per finger
-        "Mnor_0 out mid vss vss n w=200n l=30n m=1",
-        "Mnor_1 out in vss vss n w=200n l=30n m=1",
-        "Mnor_2 nor_a in vdd vdd p w=300n l=30n m=2",  # the two stacks as one
-        "Mnor_3 out mid nor_a vdd p w=300n l=30n m=2",
-    ]
-
-
-def test_a_netlist_with_finger_counts_keeps_them() -> None:
-    text = expand(
-        ".subckt top a y vdd vss\nXinv a y vdd vss INVX4\nMx y a vss vss n w=200n l=30n nf=1 m=1\n",
-        LIB_CELLS,
-        {"n": "n", "p": "p"},
-    )
-    assert "Minv_0 y a vss vss n w=800n l=30n nf=2 m=1" in text.splitlines()
-    assert "Minv_1 y a vdd vdd p w=1200n l=30n nf=1 m=1" in text.splitlines()

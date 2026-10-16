@@ -127,8 +127,10 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
   sources are no rail took every track; the crossings now take any M2 track of the cell without a bar
   whose VIA2 keep the via space from the jumpers' ends (beside the rails, past the gate track). The
   tsmc28 pairs on a rail had their crossings a track from the drains (VIA2 spacing); fixed too.
-- [x] Standard cells recognized in transistor netlists, and expanded back (`stdcells.py`): the `auto`
-  targets start from the transistor netlist, the `gates` targets draw the library cells as transistors.
+- [x] Standard cells recognized in transistor netlists (`stdcells.py`): the `auto`
+  targets start from the transistor netlist. The `gates` targets (library cells drawn as transistors,
+  and ALIGN's logic gates as generated cells in tsmc65) are gone: generated logic took 1.3 to 2 times
+  a library cell's area, separate transistors 2 to 8 times; logic is always the library's cells.
 - [x] Row routers (cIcCreator's `rowroute`, laygo's script): an M2 piece keeps the M2 space to a
   separate piece of its own net too, and laygo's branches to pins on the next, half-pitch pin track
   (tower180: a pin bar stretched to a trunk ran within 200 nm of the same net's pin on the next track).
@@ -160,9 +162,9 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
 - [x] A gap in ALIGN's row of standard cells narrower than the library's fillers (tsmc28: one site;
   ALIGN places on a finer grid than the cells') takes the standard cells' profile (`align/post.py`).
 - [x] A row of transistors too wide for any packing in ALIGN's aspect ratio splits into nested rings of
-  its mirror pairs, each mirrored (`pack_rows`): the gates targets put a logic gate's transistors in
-  one row (`comp_c040_gates_tsmc65`: 21.5 x 7.5 um in four rows before, six rows now).
-- [x] ALIGN runs on its own in the `auto` and `gates` targets (2026-10-16): one run that derives its
+  its mirror pairs, each mirrored (`pack_rows`; c040 with its logic as transistors in tsmc65: 21.5 x
+  7.5 um in four rows before, six rows after).
+- [x] ALIGN runs on its own in the `auto` targets (2026-10-16): one run that derives its
   constraints (primitives, symmetry), places and routes; its placement is the floorplan of
   cIcCreator and laygo. The floorplanned second ALIGN run and the merge of ALIGN's symmetry groups
   onto one axis (one_axis.py) are gone. Results: frida1 in tsmc65 clean in all three tools (ALIGN
@@ -174,10 +176,9 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
   poly rule (second poly line past a 30 nm gate) forbids (`comp_c040_auto_tsmc28` and
   `comp_frida1_auto_tsmc28`: 32 each, LVS correct; cIcCreator and laygo clean).
   Place on the cells' abutment grid, or fill such gaps with poly on the gate pitch.
-- [ ] Not yet run with ALIGN on its own: the other auto targets (ihp130, lf150, tpsc65)
-  and all gates targets. Earlier ALIGN-only findings on floorplans from its placement (tpsc65's
-  CMC_S_PMOS_B dummy poly, lf150 frida1's clk-tail short, c040 gates in tsmc65 one M1 corner) need
-  checking again.
+- [ ] Not yet run with ALIGN on its own: the other auto targets (ihp130, lf150, tpsc65). Earlier
+  ALIGN-only findings on floorplans from its placement (tpsc65's CMC_S_PMOS_B dummy poly, lf150
+  frida1's clk-tail short) need checking again.
 - [x] lf150 LVS on asiclab003: Assura (its `gdsIIToVdb`) needs `libicui18n.so.50`, package `libicu50`
   (installed 2026-10-15). The manual and auto floorplans of both comparators are LVS correct in all
   three tools, except ALIGN's frida1 from its placement below.

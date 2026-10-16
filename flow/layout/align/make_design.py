@@ -25,7 +25,6 @@ import re
 from pathlib import Path
 
 import netcells
-import tech
 from paths import STD_SPICE
 
 
@@ -99,11 +98,9 @@ def make_design(pdk: str, netlist: Path, out_dir: Path, *, floorplan: Path | Non
                 "symmetrize": fp.get("symmetric", True),
             },
         ]
-    if not hasattr(tech, "LOGIC_GRID"):
-        # ALIGN groups devices into its logic gates (INV, NAND2, NOR2), which only a PDK with logic cells
-        # draws (stems/logiccell.py, a PDK with LOGIC_GRID); elsewhere they stay single devices, also
-        # where a floorplan puts an inverter's two devices side by side
-        const.append({"constraint": "DoNotUseLib", "libraries": ["INV", "INV_B", "NAND2", "NOR2"]})
+    # logic is the PDK's library cells (flow/layout/stdcells.py recognizes them); ALIGN's own logic
+    # templates would group transistors into gates the row cells do not draw: they stay single devices
+    const.append({"constraint": "DoNotUseLib", "libraries": ["INV", "INV_B", "stage2_inv"]})
     out = out_dir / name
     out.mkdir(parents=True, exist_ok=True)
     # the cells before the block: ALIGN's parser models an unknown cell at its first instance

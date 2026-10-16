@@ -1,4 +1,4 @@
-"""Standard cells in a transistor netlist, and back to transistors.
+"""Standard cells in a transistor netlist: logic is always the PDK's library cells.
 
 ``recognize`` finds groups of transistors that form one of the PDK's library cells and writes
 them as an instance of that cell, so the layout tools place the library cell. A group matches a
@@ -8,11 +8,7 @@ nothing else in the netlist. Of the cells that match one group (the drive streng
 function), the one whose transistor widths come closest. The instance is named after the
 transistors' common prefix (``Mbuf1_outp_n``, ``Mbuf1_outp_p`` -> ``Xbuf1_outp``).
 
-``expand`` writes a netlist's library cells as their transistors (the library's sizes, the row
-cells' models), so a netlist that asks for, say, a NAND2 can be built from the row cells, or as
-ALIGN's own logic gate, instead of the library cell.
-
-Both work on SPICE text: the netlist (one flat subcircuit) and the library's subcircuits.
+It works on SPICE text: the netlist (one flat subcircuit) and the library's subcircuits.
 """
 
 from __future__ import annotations
@@ -238,60 +234,6 @@ def recognize(
     return "\n".join(result) + "\n", cells_of
 
 
-def expand(
-    netlist: str,
-    lib: dict[str, tuple[list[str], list[Mos]]],
-    models: dict[str, str],
-    *,
-    supplies: tuple[str, str] = ("vdd", "vss"),
-    lib_supplies: tuple[str, str] = ("VDD", "VSS"),
-) -> str:
-    """``netlist`` with every instance of a library cell written as the cell's transistors (merged
-    fingers, the library's sizes, ``models`` per polarity), named ``M<instance>_<k>``; a cell's
-    internal nets become ``<instance>_<net>`` (one underscore: the row cells keep ``__`` for their
-    helper pins). Fingers as the netlist's own transistors give them
-    (``nf``, ``ng``, or ``m`` with the width per finger)."""
-
-    lines = _lines(netlist)
-    keys = {
-        kv.split("=", 1)[0].lower()
-        for line in lines
-        if line.split()[:1] and line.split()[0][0] in "Mm"
-        for kv in line.split()[6:]
-    }
-    finger = next((k for k in ("nf", "ng") if k in keys), None)
-    taken = {n for line in lines if line.split()[:1] and line.split()[0][0] in "MmXx" for n in line.split()[1:5]}
-    out = []
-    for line in lines:
-        f = line.split()
-        cell = f[-1] if f and f[0][0] in "Xx" else None
-        if cell not in lib:
-            out.append(line)
-            continue
-        pins, devs = lib[cell]
-        inst = f[0][1:]
-        nets = dict(zip(pins, f[1:-1], strict=True))
-        nets.update(dict(zip(lib_supplies, supplies, strict=True)))
-        for k, v in enumerate(_stacks_merged(_merged(devs), pins)):
-            d, g, s, b = (nets.get(n) or _internal(inst, n, taken) for n in (v.d, v.g, v.s, v.b))
-            size = (
-                f"w={round(v.w)}n l={round(v.l)}n {finger}={v.nf} m=1"
-                if finger
-                else f"w={round(v.w / v.nf)}n l={round(v.l)}n m={v.nf}"
-            )
-            out.append(f"M{inst}_{k} {d} {g} {s} {b} {models[v.pol]} {size}")
-    return "\n".join(out) + "\n"
-
-
-def _internal(inst: str, net: str, taken: set[str]) -> str:
-    """A library cell's internal net, named after its instance, clear of the netlist's nets."""
-
-    name = re.sub(r"_+", "_", re.sub(r"\W", "_", f"{inst}_{net}"))
-    while name in taken:
-        name += "_x"
-    return name
-
-
 def _pdk_library() -> tuple[dict[str, tuple[list[str], list[Mos]]], tuple[str, str]]:
     """The library cells of the PDK this process is bound to (flow/layout/pdkproc.py)."""
 
@@ -315,16 +257,4 @@ def recognize_file(src: Path, dst: Path) -> Path:
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(_named(text, dst.stem))
     print(f"{dst.name}: {len(cells)} library cells recognized")
-    return dst
-
-
-def expand_file(src: Path, dst: Path) -> Path:
-    """Run bound to a PDK: ``src`` with its library cells as transistors (the row cells' models),
-    written to ``dst`` (its subcircuit named after it)."""
-
-    import tech  # the bound PDK's
-
-    lib, supplies = _pdk_library()
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(_named(expand(src.read_text(), lib, tech.MODELS, lib_supplies=supplies), dst.stem))
     return dst
