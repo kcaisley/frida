@@ -1,0 +1,22 @@
+{
+ "_comment": "NMOS source follower (BAG source_follower): the input device, its drain on vdd, above its current source. Netlist (per PDK): written by flow.follower.subckt (source).",
+ "netlist": "../../build/layout/netlists/{pdk}/follower_source.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "vin"
+  ],
+  "down": [
+   "vout",
+   "vbn"
+  ]
+ },
+ "rows": [
+  [
+   "Min"
+  ],
+  [
+   "Mbias"
+  ]
+ ]
+}

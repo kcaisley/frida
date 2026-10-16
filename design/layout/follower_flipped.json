@@ -1,0 +1,23 @@
+{
+ "_comment": "NMOS flipped voltage follower (BAG super_source_follower_n without its bias DACs): the PMOS current source above the input and shunt devices. Netlist (per PDK): written by flow.follower.subckt (flipped).",
+ "netlist": "../../build/layout/netlists/{pdk}/follower_flipped.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "vbp"
+  ],
+  "down": [
+   "vin",
+   "vout"
+  ]
+ },
+ "rows": [
+  [
+   "Mbias"
+  ],
+  [
+   "Min",
+   "Mfb"
+  ]
+ ]
+}
