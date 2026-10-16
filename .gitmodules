@@ -13,11 +13,11 @@
 [submodule "libs/Hdl21"]
 	path = libs/Hdl21
 	url = https://github.com/kcaisley/Hdl21.git
-	branch = spectre
+	branch = main
 [submodule "libs/Vlsir"]
 	path = libs/Vlsir
 	url = https://github.com/kcaisley/Vlsir.git
-	branch = spectre
+	branch = main
 [submodule "libs/basil"]
 	path = libs/basil
 	url = https://github.com/SiLab-Bonn/basil.git
