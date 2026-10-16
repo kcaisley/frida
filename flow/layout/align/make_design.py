@@ -51,6 +51,21 @@ def _nf(line: str) -> str:
     return re.sub(r"(?i)\bng=", "nf=", line)
 
 
+FAR_BITS = {"D": 1, "G": 2, "S": 4}  # the far parameter's bit per terminal
+
+
+def _far(line: str) -> str:
+    """A MOS line with its terminals on the other type's rail (an NMOS drain or gate on vdd, say)
+    flagged in ``far``: ALIGN's primitives see only their own pins, so align/pdk/mos.py ties them to
+    that rail inside the cell (``rowcell.mos_array``'s ``ties``)."""
+
+    f = line.split()
+    pol = next((p for p, model in netcells.MODELS.items() if model == f[5]), None)
+    far = {"n": "vdd", "p": "vss"}.get(pol)
+    bits = sum(bit for term, bit in FAR_BITS.items() if f[1 + "DGS".index(term)] == far)
+    return f"{line} far={bits}" if bits else line
+
+
 def make_design(pdk: str, netlist: Path, out_dir: Path, *, floorplan: Path | None = None, name: str) -> Path:
     """Write the design directory ``out_dir/<name>`` for ``netlist`` and return it; free
     (ALIGN places on its own) when ``floorplan`` is None."""
@@ -60,7 +75,7 @@ def make_design(pdk: str, netlist: Path, out_dir: Path, *, floorplan: Path | Non
     src = netlist.read_text() if floorplan is None else netcells.floorplan_netlist(floorplan, pdk, netlist)[1]
     src = re.sub(r"(?im)^(\.subckt|\.ends)\s+\S+", rf"\1 {name}", src)
     src = (
-        "\n".join(_nf(l) if l[:1] in "Mm" else l for l in netcells.per_finger(src).splitlines()) + "\n"
+        "\n".join(_far(_nf(l)) if l[:1] in "Mm" else l for l in netcells.per_finger(src).splitlines()) + "\n"
     )  # ALIGN reads w per finger
     std = {}  # instance -> (cell, nets)
     for line in src.splitlines():

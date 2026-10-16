@@ -107,7 +107,8 @@ def build(pdk: str, out: Path) -> Path:
     (out / "layers.json").write_text(json.dumps(base, indent=2) + "\n")
     models = (HERE / "models_base.sp").read_text()
     for pol, model in t.MODELS.items():
-        line = f".model {model} {pol}mos l=1 w=1 nf=1 m=1 stack=1 parallel=1"
+        # far: the device's terminals on the other type's rail (make_design.py, align/pdk/mos.py)
+        line = f".model {model} {pol}mos l=1 w=1 nf=1 m=1 stack=1 parallel=1 far=0"
         if f".model {model} " not in models:
             models += line + "\n"
     (out / "models.sp").write_text(models)

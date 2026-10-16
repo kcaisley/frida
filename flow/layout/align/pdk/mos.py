@@ -170,7 +170,7 @@ class MOSGenerator(RowCanvas):
         devs = sorted({d for conn in connections.values() for d, _ in conn})  # the mock's order: M1, M2, ...
         nets = {dev: {pin: n for n, conn in connections.items() for d, pin in conn if d == dev} for dev in devs}
         nm = lambda v: int(round(float(v) * 1e9 / 5)) * 5
-        devices, bulk = [], set()
+        devices, bulk, ties = [], set(), set()
         for dev in devs:
             par = self.primitive_parameters[dev]
             inst = f"{dev}_X0_Y0"
@@ -179,9 +179,12 @@ class MOSGenerator(RowCanvas):
             n = nets[dev]
             devices.append(rowcell.Dev(inst, nm(par["L"]), nm(par["W"]), nf, n["D"], n["G"], n["S"]))
             bulk.add(n["B"])
+            # terminals on the other type's rail (make_design.py's far): tied to it inside the cell
+            far = int(float(par.get("FAR", 0)))
+            ties |= {n[term] for term, bit in (("D", 1), ("G", 2), ("S", 4)) if far & bit}
         assert len(bulk) == 1, f"{devs}: the bulk is the cell's rail, got {bulk}"
         b = bulk.pop()
-        rails = dict(vss=b if pol == "n" else None, vdd=b if pol == "p" else None)
+        rails = dict(vss=b if pol == "n" else None, vdd=b if pol == "p" else None, ties=frozenset(ties))
         units = self._units(devs, x_cells, y_cells, pattern)
         # each device's fingers shared out over its units in order; units left without one are dropped
         count = {d: sum(row.count(d) for row in units) for d in devs}

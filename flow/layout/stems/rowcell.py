@@ -317,9 +317,11 @@ def mos_row(
     vdd: str = "vdd",
     m2_rails: bool = False,
     extra: int = 0,
+    ties: frozenset[str] | None = None,
 ) -> Cell:
     """One transistor, or a pair side by side and mirrored about its middle (``mos_array``)."""
-    return mos_array(name, pol, devs, [Run(k, v.nf) for k, v in enumerate(devs)], grid, vss, vdd, m2_rails, extra)
+    runs = [Run(k, v.nf) for k, v in enumerate(devs)]
+    return mos_array(name, pol, devs, runs, grid, vss, vdd, m2_rails, extra, ties)
 
 
 def mos_array(
@@ -332,6 +334,7 @@ def mos_array(
     vdd: str = "vdd",
     m2_rails: bool = False,
     extra: int = 0,
+    ties: frozenset[str] | None = None,
 ) -> Cell:
     """Transistors of one type in one row, their fingers in the order ``runs`` gives: one device,
     a pair side by side (ALIGN's DP, CMC, CCP ... with two runs, mirrored about the middle), or an
@@ -346,7 +349,9 @@ def mos_array(
     where its gates interleave with another net's, on a free track past it, reached by an M1
     riser from every gate pad. A gate net that is also an S/D net is joined to that net's track by
     an M3 jumper with two VIA2, so every net is one connected piece inside the cell. A pair too
-    narrow for its jumpers' M3 columns is drawn ``grid`` wider (``extra``) until they fit.
+    narrow for its jumpers' M3 columns is drawn ``grid`` wider (``extra``) until they fit. ``ties``:
+    the nets tied to the other type's rail (an NMOS drain or gate on vdd, say), that rail's net by
+    default; a gate net gets an M1 strap into that rail, an S/D net an M3 jumper to its line.
     """
     assert runs and all(r.nf >= 1 for r in runs), f"{name}: no fingers"
     for v in devs:
@@ -637,7 +642,7 @@ def mos_array(
         )
         if best is None:  # too narrow: one column wider, centred
             assert extra < 8 * grid, f"{name}: no M3 tracks for the cross-coupling"
-            return mos_array(name, pol, devs, runs, grid, vss, vdd, m2_rails, extra + grid)
+            return mos_array(name, pol, devs, runs, grid, vss, vdd, m2_rails, extra + grid, ties)
         _, xd, xg = best
         for net, d_, g_, tc in ((nb, xd, xg, free[0]), (na, width - xd, width - xg, free[1])):
             sdx[net] = [min(sdx[net][0], d_), max(sdx[net][1], d_)]
@@ -679,6 +684,41 @@ def mos_array(
             gx2[g] = [min(gx2[g][0], m), max(gx2[g][1], m)]
             m3s.append((g, m, tracks[g], gtrack[g]))
 
+    # an S/D net on the other type's rail (an NMOS drain on vdd, say): an M3 jumper from its bar to
+    # that rail's line, where an M2 pad and a VIA1 land on the rail (the routers leave the rail lines
+    # free of M2)
+    far_y = H if pol == "n" else 0
+    fars = set(ties) if ties is not None else {vdd if pol == "n" else vss} - {None}
+    far_pads = []
+    # a gate net on that rail: one M1 strap per run of its gates, from the middle gate's pad (straps
+    # side by side would enclose holes with the gate bar and the rail)
+    straps = {gxs[len(gxs) // 2] for g, gxs in gruns if g in fars}
+    # the far-rail landing as the row ends' supply stacks: their cut count, pair pitch and M2 pad
+    cuts, pair = getattr(_tech, "EDGE_CUTS", 1), getattr(_tech, "V1_PAIR", 0)
+    land_x, land_y = getattr(_tech, "EDGE_PAD", (M2_MIN_LEN // 2, M2_HW))
+    for far in sorted(fars & set(tracks)):
+        taken = [x for _, x, _, _ in m3s]
+        flo, fhi = sdx[far]
+
+        def far_clear(m, far=far, flo=flo, fhi=fhi):  # the stretched bar keeps the M2 space to other nets' bars
+            a, b = min(flo, m) - BAR_END, max(fhi, m) + BAR_END
+            return all(
+                b + M2_SPACE <= sdx[n][0] - BAR_END or a - M2_SPACE >= sdx[n][1] + BAR_END
+                for n in tracks
+                if n != far and tracks[n] == tracks[far]
+            )
+
+        cand = [
+            m
+            for m in range(_up(M2_EDGE + land_x, XPITCH), width - M2_EDGE - land_x + 1, XPITCH)
+            if all(abs(m - u) >= XPITCH for u in taken) and far_clear(m)
+        ]
+        assert cand, f"{name}: no M3 track for the {far} jumper"
+        m = min(cand, key=lambda m: (max(0, flo - m, m - fhi), abs(m - (flo + fhi) / 2)))
+        sdx[far] = [min(flo, m), max(fhi, m)]
+        m3s.append((far, m, tracks[far], far_y))
+        far_pads.append((m, far))
+
     for net, t in tracks.items():
         a, b = sdx[net][0] - BAR_END, sdx[net][1] + BAR_END
         # a single strip's minimum-length bar keeps half an M2 space to the cell edge (it still covers its VIA1)
@@ -700,11 +740,17 @@ def mos_array(
                 c.add("PO", gx - v.l // 2, gt - PO_HEAD, gx + v.l // 2, oy1 + PO_ENDCAP)
             c.add("CO", cx - CO // 2, gt - CO // 2, cx + CO // 2, gt + CO // 2, g, term=f"{v.name}:G")
             c.add("M1", cx - M1_HW, pad[0], cx + M1_HW, pad[1], g)
+            if g in fars and on_grid(gx - sh) in straps:  # a gate on the other type's rail: its pad on in M1 into it
+                y0, y1 = (pad[0], H) if pol == "n" else (0, pad[1])
+                c.add("M1", cx - M1_HW, y0, cx + M1_HW, y1, g)
+            if g in fars and g not in tracks:  # tied in M1 and never routed: no VIA1 on the strapped rail
+                continue
             if y != gt:
                 y0, y1 = (pad[0], y + BAR_END) if pol == "n" else (y - BAR_END, pad[1])
                 c.add("M1", cx - M1_HW, y0, cx + M1_HW, y1, g)
             c.add("V1", cx - V1_H, y - V1_H, cx + V1_H, y + V1_H, g)
-        c.add("M2", gx2[g][0] - BAR_END, y - M2_HW, gx2[g][1] + BAR_END, y + M2_HW, g, "pin")
+        if not (g in fars and g not in tracks):
+            c.add("M2", gx2[g][0] - BAR_END, y - M2_HW, gx2[g][1] + BAR_END, y + M2_HW, g, "pin")
     # poly bar: the contact's enclosure left and right; M1 bar: the minimum area (M1_AREA)
     for g, gxs in gruns:
         if PO_BAR:
@@ -733,6 +779,11 @@ def mos_array(
         if y1 - y0 < M2_MIN_LEN:  # M3 area
             y0, y1 = _on_grid((y0 + y1) // 2) - M2_MIN_LEN // 2, _on_grid((y0 + y1) // 2) + M2_MIN_LEN // 2
         c.add("M3", x - M3_HW, y0, x + M3_HW, y1, net)
+    for x, far in far_pads:  # the far-rail jumper's landing: the row ends' M2 pad and VIA1 cuts on the rail
+        c.add("M2", x - land_x, far_y - land_y, x + land_x, far_y + land_y, far)
+        for k in range(cuts):
+            cx = x + (2 * k - (cuts - 1)) * pair // 2
+            c.add("V1", cx - V1_H, far_y - V1_H, cx + V1_H, far_y + V1_H, far)
     for net, y, xa, xb in crossings:
         c.add("M2", xa - BAR_END, y - M2_HW, xb + BAR_END, y + M2_HW, net)
     return c
@@ -755,14 +806,21 @@ def _crossing_tracks(pol: str, used: set[int], drains: set[int], gt: int) -> lis
 
 
 def mos_rows(
-    name: str, pol: str, devs: list[Dev], rows: int, grid: int = XPITCH, vss: str = "vss", vdd: str = "vdd"
+    name: str,
+    pol: str,
+    devs: list[Dev],
+    rows: int,
+    grid: int = XPITCH,
+    vss: str = "vss",
+    vdd: str = "vdd",
+    ties: frozenset[str] | None = None,
 ) -> Cell:
     """``mos_row``'s transistor or pair folded over ``rows`` rows instead of one wide row: each
     device's fingers shared evenly between the rows, every row the same (``mos_grid``), so a pair
     keeps A on the left and B on the right in every row and its mirror symmetry holds."""
     assert rows >= 1 and all(v.nf % rows == 0 for v in devs), f"{name}: fingers must split evenly over {rows} rows"
     devs = [replace(v, nf=v.nf // rows) for v in devs]
-    return mos_grid(name, pol, devs, [[Run(k, v.nf) for k, v in enumerate(devs)]] * rows, grid, vss, vdd)
+    return mos_grid(name, pol, devs, [[Run(k, v.nf) for k, v in enumerate(devs)]] * rows, grid, vss, vdd, ties)
 
 
 def mos_grid(
@@ -773,6 +831,7 @@ def mos_grid(
     grid: int = XPITCH,
     vss: str = "vss",
     vdd: str = "vdd",
+    ties: frozenset[str] | None = None,
 ) -> Cell:
     """Rows of ``mos_array`` stacked, the odd ones mirrored about their middle line so neighbours
     share a rail as abutted rows do; each row may order its fingers differently (ALIGN's
@@ -782,11 +841,13 @@ def mos_grid(
     to the nearest one; columns with VIA2 on the same track keep two M3 pitches apart, so no two
     VIA2 face each other a pitch apart.
     """
-    cells = [mos_array(name, pol, devs, runs, grid, vss, vdd) for runs in rows]
+    cells = [mos_array(name, pol, devs, runs, grid, vss, vdd, ties=ties) for runs in rows]
     width = max(c.width for c in cells)
     while any(c.width != width for c in cells):  # the narrower rows drawn wider, centred
         cells = [
-            c if c.width == width else mos_array(name, pol, devs, runs, grid, vss, vdd, extra=width - c.width)
+            c
+            if c.width == width
+            else mos_array(name, pol, devs, runs, grid, vss, vdd, extra=width - c.width, ties=ties)
             for c, runs in zip(cells, rows, strict=True)
         ]
         width = max(c.width for c in cells)
