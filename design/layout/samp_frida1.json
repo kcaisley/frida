@@ -1,0 +1,23 @@
+{
+ "_comment": "FRIDA-1 sampler, a transmission gate: the PMOS above the NMOS, each in a row of its own (both block edges VSS rails). Netlist (per PDK): written by flow.samp.subckt (frida1).",
+ "netlist": "../../build/layout/netlists/{pdk}/samp_frida1.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "din",
+   "clk_b"
+  ],
+  "down": [
+   "dout",
+   "clk"
+  ]
+ },
+ "rows": [
+  [
+   "MP"
+  ],
+  [
+   "MN"
+  ]
+ ]
+}

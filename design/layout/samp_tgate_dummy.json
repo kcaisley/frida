@@ -1,0 +1,25 @@
+{
+ "_comment": "Transmission gate with half-size charge-injection dummies on dout, each beside its switch. Netlist (per PDK): written by flow.samp.subckt (tgate_dummy).",
+ "netlist": "../../build/layout/netlists/{pdk}/samp_tgate_dummy.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "din",
+   "clk_b"
+  ],
+  "down": [
+   "dout",
+   "clk"
+  ]
+ },
+ "rows": [
+  [
+   "MP",
+   "MP_dummy"
+  ],
+  [
+   "MN",
+   "MN_dummy"
+  ]
+ ]
+}
