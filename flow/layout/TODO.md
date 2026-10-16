@@ -178,10 +178,26 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
   Place on the cells' abutment grid, or fill such gaps with poly on the gate pitch.
 - [ ] Not yet run with ALIGN on its own: the other auto targets (ihp130, lf150, tpsc65). Earlier
   ALIGN-only findings on floorplans from its placement (tpsc65's CMC_S_PMOS_B dummy poly, lf150
-  frida1's clk-tail short) need checking again.
+  frida1's clk-tail short) need checking again. In ihp130 ALIGN's ILP placement of c040 ran for
+  over two hours without finishing (2026-10-16).
 - [x] lf150 LVS on asiclab003: Assura (its `gdsIIToVdb`) needs `libicui18n.so.50`, package `libicu50`
   (installed 2026-10-15). The manual and auto floorplans of both comparators are LVS correct in all
   three tools, except ALIGN's frida1 from its placement below.
+
+## Building blocks
+
+- [x] Eleven block generators beside the sampler (`flow/<block>/`: delay, latch, ota, follower,
+  moscap, idac, cml, pi, clkgen, lvshift, ringamp), laid out from `design/layout/<block>_*.json`
+  with all three tools in all six PDKs: with the sampler's, 912 of 918 layouts DRC clean and LVS
+  correct (2026-10-16). The comparators' manual, mos_inv and auto (tsmc65, tsmc28, tower180)
+  results are unchanged.
+- [ ] ALIGN's detailed router (A*, nets in turn, no rip-up) leaves a net open in
+  `delay_ring4_tail_tower180` and `delay_ring5_starved_tpsc65` (its log says
+  `A_star.FindFeasiblePath`); its other router, hanan, fails there too.
+- [ ] lf150's smallest library inverter, in its dense frame (`stdcell_access.py`), reaches both
+  pins from the one M3 track in the cell: `clkgen_pulse_lf150`, a chain of them, routes in no tool. A frame one site wider would
+  give each pin a track of its own.
+- [ ] laygo finds no route for `ringamp_se_tower180` (cIcCreator and ALIGN do).
 
 ## Next
 
