@@ -8,8 +8,10 @@
   the via pads it left out go in (netcells.align_access).
 * Rows: ALIGN places cells on the rows but not always abutted. In every gap inside the block
   the rails, taps, tap implant bands and the N-tap well band are drawn as in a row cell
-  (rowcell.rails without the device parts), so supplies run through every row; then narrow
-  well gaps are closed (netcells.close_wells).
+  (rowcell.rails without the device parts), so supplies run through every row; the cells' N-wells
+  run across a gap where both neighbours have them, and in a gap narrower than the placement grid
+  their device implants, Vt layers and gate markers too (``bridge``); then narrow well gaps are
+  closed (netcells.close_wells).
 * Labels: ALIGN's pin labels (metal/252) move to the PDK's pin-text layers; pin shapes,
   blockages and abstract layers (datatypes 251/253, layer 255 unless the PDK draws on it, and the PnR's whole-block
   boundary marker 235/5) are removed; shapes are merged and snapped to the manufacturing grid.
@@ -116,9 +118,11 @@ def fill_rows(
     top: kdb.Cell,
     std_rows: set[int],
     fills: dict[str, kdb.Cell],
+    filled: list[kdb.Box] | None = None,
 ) -> int:
     """Rails, taps and well band across the placement gaps of every row; library fillers in
-    standard-cell rows (their implant bands differ from the analog rows')."""
+    standard-cell rows (their implant bands differ from the analog rows'). ``filled`` collects the
+    analog rows' gaps (``bridge``)."""
     bnd = kdb.Region(top.begin_shapes_rec(layout.layer(*BND))).merged()
     box = bnd.bbox()
     n = 0
@@ -164,8 +168,40 @@ def fill_rows(
                     continue  # no device implant in a gap
                 b = kdb.Box(r.x0, r.y0, r.x1, r.y1).transformed(t)
                 top.shapes(layout.layer(*rowcell.GLAYERS[r.layer])).insert(b)
+            if filled is not None:
+                filled.append(g)
             n += 1
     return n
+
+
+def bridge(layout: kdb.Layout, top: kdb.Cell, g: kdb.Box, block: kdb.Box) -> None:
+    """Draw the N-well across the gap ``g`` where the cells on both sides (the row-end cells too)
+    carry it at the same height, and in a row's end gap (at the ``block`` outline) as far as its
+    one cell carries it (a PMOS cell's well, not only the tap band: no notches between the rows'
+    wells); in a column the placement grid left over (narrower than the grid) each device
+    implant, Vt layer and gate marker as well (their space rules are wider)."""
+    names = {"NW"}
+    if g.width() < 2 * XPITCH:
+        marks = (rowcell.GATE_MARK["layer"],) if rowcell.GATE_MARK else ()
+        names |= {"NP", "PP", *rowcell.VT["n"], *rowcell.VT["p"], *marks}
+    for name in names:
+        if not rowcell.GLAYERS.get(name):
+            continue
+        li = layout.layer(*rowcell.GLAYERS[name])
+        shapes = kdb.Region(top.begin_shapes_rec(li))
+        left, right = (
+            [p.bbox() for p in (shapes & kdb.Region(kdb.Box(x - 1, g.bottom, x + 1, g.top))).merged().each()]
+            for x in (g.left, g.right)
+        )
+        if name == "NW" and g.left <= block.left:
+            left = right
+        elif name == "NW" and g.right >= block.right:
+            right = left
+        for a in left:
+            for b in right:
+                lo, hi = max(a.bottom, b.bottom), min(a.top, b.top)
+                if lo < hi:
+                    top.shapes(li).insert(kdb.Box(g.left, lo, g.right, hi))
 
 
 def edge_ties(layout: kdb.Layout, top: kdb.Cell, std_rows: set[int], std_lib) -> int:
@@ -200,10 +236,13 @@ def edge_ties(layout: kdb.Layout, top: kdb.Cell, std_rows: set[int], std_lib) ->
 def supply_straps(layout: kdb.Layout, top: kdb.Cell) -> int:
     """Join each supply's rail lines: at both block ends an M3 trunk with, on every rail line of
     the supply, EDGE_CUTS VIA1 (two where the rail is wide), an M2 pad and a VIA2.
-    Positions on the M3 grid near the ends where the pads and the trunk keep the M2 space from
-    other metal. VSS lines are the even ones. Labels vdd/vss go on the trunks (M3 pin text)."""
+    Positions on the M3 grid, the nearest to each end, where the pads and the trunk keep the M2
+    space from other metal and the cuts land on the rails. VSS lines are the even ones. Labels
+    vdd/vss go on the trunks (M3 pin text); a supply of one rail line no strap fits gets its label
+    on that rail."""
     li = lambda ld: layout.layer(*ld)
     sp, hw = M2_SPACE, M3W // 2
+    m1 = kdb.Region(top.begin_shapes_rec(li(LAYERS["M1"]))).merged()
     m2 = kdb.Region(top.begin_shapes_rec(li(LAYERS["M2"]))).merged()
     m3 = kdb.Region(top.begin_shapes_rec(li(LAYERS["M3"]))).merged()
     b = kdb.Region(top.begin_shapes_rec(li(BND))).merged().bbox()
@@ -211,6 +250,7 @@ def supply_straps(layout: kdb.Layout, top: kdb.Cell) -> int:
     placed = 0
     for net, parity in (("vss", 0), ("vdd", 1)):
         ys = [k * rowcell.H for k in lines if k % 2 == parity]
+        rail_ys = list(ys)
         # pads inside the block where the cuts stay on the rail (enclosed 10 nm), else on the rail line
         reach = rowcell.RAIL - V1 // 2 - 10
         ys = [min(max(y, b.bottom + EDGE_PAD[1] + 10), b.top - EDGE_PAD[1] - 10) for y in ys]
@@ -218,21 +258,31 @@ def supply_straps(layout: kdb.Layout, top: kdb.Cell) -> int:
             y if abs(y - k * rowcell.H) <= reach else k * rowcell.H
             for y, k in zip(ys, (k for k in lines if k % 2 == parity))
         ]
-        span = 15 * XPITCH
-        for side in (+1, -1):
+        labelled = False
+        for side in (+1, -1):  # from each end inwards, as far as the other end (a narrow block's ends may all be taken)
             xs = (
-                range(b.left + XPITCH, b.left + span, XPITCH)
+                range(b.left + XPITCH, b.right - XPITCH + 1, XPITCH)
                 if side > 0
-                else range(b.right - XPITCH, b.right - span, -XPITCH)
+                else range(b.right - XPITCH, b.left + XPITCH - 1, -XPITCH)
             )
-            for x in xs:
+            # the pads keep the routers' line-end gap (two M2 spaces) from wires ending beside them
+            # where a position allows it, else the M2 space
+            for gap, x in ((gap, x) for gap in (2 * sp, sp) for x in xs):
                 # the trunk encloses its outermost VIA2 (by BAR_END - V2 / 2), past the block if need be
                 trunk = kdb.Box(x - hw, min(b.bottom, ys[0] - BAR_END), x + hw, max(b.top, ys[-1] + BAR_END))
                 pads = [kdb.Box(x - EDGE_PAD[0], y - EDGE_PAD[1], x + EDGE_PAD[0], y + EDGE_PAD[1]) for y in ys]
                 if not (m3 & kdb.Region(trunk).sized(sp)).is_empty():
                     continue
-                if any(not (m2 & kdb.Region(p).sized(sp)).is_empty() for p in pads):
+                if any(not (m2 & kdb.Region(p).sized(gap, sp)).is_empty() for p in pads):
                     continue
+                cuts = [
+                    kdb.Box(c - V1 // 2, y - V1 // 2, c + V1 // 2, y + V1 // 2)
+                    for y in ys
+                    for c in (x + (2 * k - (EDGE_CUTS - 1)) * V1_PAIR // 2 for k in range(EDGE_CUTS))
+                ]
+                if any(not (kdb.Region(c) - m1).is_empty() for c in cuts):  # past the rails' ends (the
+                    continue  # block outline may reach beyond them): the cuts would have no M1
+
                 top.shapes(li(LAYERS["M3"])).insert(trunk)
                 m3.insert(trunk.enlarged(sp, 0))
                 for p, y in zip(pads, ys):
@@ -246,7 +296,14 @@ def supply_straps(layout: kdb.Layout, top: kdb.Cell) -> int:
                         )
                 top.shapes(li(PIN_TEXT["M3"])).insert(kdb.Text(net, kdb.Trans(x, (b.top + b.bottom) // 2)))
                 placed += 1
+                labelled = True
                 break
+        if not labelled and len(rail_ys) == 1:
+            # no strap fits (the router's M2 runs along the rail line): a supply of one rail line,
+            # joined by abutment, is its port where that rail's M1 is labelled
+            y = rail_ys[0]
+            x = next((p.bbox().center().x for p in m1.each() if p.bbox().bottom <= y <= p.bbox().top), b.center().x)
+            top.shapes(li(PIN_TEXT["M1"])).insert(kdb.Text(net, kdb.Trans(x, y)))
     return placed
 
 
@@ -276,11 +333,15 @@ def post(
         fills[name] = layout.create_cell(name + "_fill")
         fills[name].copy_tree(_lib_cell(lib, name))
     layout.flatten(top.cell_index(), -1, True)
-    n_fill = fill_rows(layout, top, std_rows, fills)
+    filled: list[kdb.Box] = []
+    block = kdb.Region(top.begin_shapes_rec(layout.layer(*BND))).merged().bbox()  # before the row ends
+    n_fill = fill_rows(layout, top, std_rows, fills, filled)
     std_lib = kdb.Layout()
     std_lib.read(lib)
     n_ties = edge_ties(layout, top, std_rows, std_lib)
     layout.flatten(top.cell_index(), -1, True)
+    for g in filled:
+        bridge(layout, top, g, block)
     n_straps = supply_straps(layout, top)
     ring_info = ""
     if ring:
