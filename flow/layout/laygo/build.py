@@ -1,9 +1,10 @@
 """laygo flow for a design in standard-cell rows: templates and design script (rowtemplates.py),
 the hosted run, post.py.
 
-A net the server's router cannot place goes first next time (rip up and retry, up to eight
-runs). ``LAYGO_CLIENT``: the laygo client script (default
-~/Documents/libs/laygo3-client/laygo3.py); it needs internet.
+A net the server's router cannot place goes first next time (rip up and retry); one that failed
+first already, the other nets in a shuffled order (seeded) next time; up to TRIES runs.
+``LAYGO_CLIENT``: the laygo client script (default ~/Documents/libs/laygo3-client/laygo3.py); it
+needs internet.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from pathlib import Path
 from flow.layout.pdkproc import access_points, in_pdk
 
 LAYGO_CLIENT = Path(os.environ.get("LAYGO_CLIENT", "~/Documents/libs/laygo3-client/laygo3.py")).expanduser()
-TRIES = 8
+TRIES = 16
 FAILED = re.compile(r"(?:no M2 route for|no free M3 track for|no edge escape for) ([A-Za-z0-9_]+)")
 
 
@@ -30,8 +31,9 @@ def build(pdk: str, floorplan: Path, netlist: Path, out_dir: Path) -> Path:
     gen = out_dir / name
     raw = out_dir / f"{name}_raw.gds"
     first: list[str] = []
+    shuffle = 0
     for attempt in range(1, TRIES + 1):
-        in_pdk(pdk, "flow.layout.laygo.rowtemplates", "build", pdk, floorplan, gen, netlist, first)
+        in_pdk(pdk, "flow.layout.laygo.rowtemplates", "build", pdk, floorplan, gen, netlist, first, shuffle)
         log = gen / "run.log"
         with log.open("w") as f:
             done = subprocess.run(
@@ -44,8 +46,12 @@ def build(pdk: str, floorplan: Path, netlist: Path, out_dir: Path) -> Path:
         failed = FAILED.search(log.read_text())
         if failed is None or attempt == TRIES:
             raise RuntimeError(f"laygo run failed ({log}):\n{log.read_text()[-3000:]}")
-        print(f"retry: {failed.group(1)} first")
-        first.insert(0, failed.group(1))
+        if first[:1] == [failed.group(1)]:  # first already: the others in another order
+            shuffle += 1
+            print(f"retry: {failed.group(1)} first, the others shuffled ({shuffle})")
+        else:
+            print(f"retry: {failed.group(1)} first")
+            first = [failed.group(1)] + [n for n in first if n != failed.group(1)]
     gds = out_dir / f"{name}.gds"
     in_pdk(pdk, "flow.layout.laygo.post", "post", str(raw), str(gen / f"{name}_templates.gds"), str(gds))
     print(f"wrote {gds}")

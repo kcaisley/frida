@@ -12,13 +12,15 @@ Grids: placement one row tall (laygo flips odd rows, MX), x on the PDK's XPITCH;
 on every PITCH track of a row pair (rail lines included), M3 on XPITCH.
 
 Also writes the design script <design>.py from design_template.py (rows, pins, nets, escapes, tech values);
-``first`` (nets) routes those nets first (laygo/build.py: the nets that failed). Run bound to a PDK
-(flow/layout/pdkproc.py); flow/layout/laygo/build.py calls it.
+``first`` (nets) routes those nets first (laygo/build.py: the nets that failed), ``shuffle`` (a seed)
+the others in a shuffled order. Run bound to a PDK (flow/layout/pdkproc.py); flow/layout/laygo/build.py
+calls it.
 """
 
 from __future__ import annotations
 
 import json
+import random
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -86,18 +88,50 @@ def pins(cell: rowcell.Cell) -> dict:
     for net, rects in cell.pins.items():
         r = rects[0]
         out[net] = {"layer": [SERVER[r.layer], "drawing"], "netname": net, "xy": [[r.x0, r.y0], [r.x1, r.y1]]}
+        # the net's other M2 bars (joined to that pin inside the cell, a diode's gate and drain say):
+        # keep-outs, so other nets' routes stay clear of them
+        for i, r in enumerate((r for r in rects[1:] if r.layer == "M2"), 1):
+            out[f"{net}__pin_{i}"] = {
+                "layer": [SERVER[r.layer], "drawing"],
+                "netname": f"{net}__pin_{i}",
+                "xy": [[r.x0, r.y0], [r.x1, r.y1]],
+            }
     for i, r in enumerate(r for r in cell.rects if r.kind == "stub" and r.layer == "M2"):  # keep-outs, blocked
         out[f"{r.net}{i}"] = {
             "layer": [SERVER[r.layer], "drawing"],
             "netname": r.net,
             "xy": [[r.x0, r.y0], [r.x1, r.y1]],
         }
+    # the cell's other M2 (the edge cells' supply pads, far-rail landings, cross-couplings): keep-outs
+    # under names of their own, so the routers' bars and branches keep the M2 space to them
+    for i, r in enumerate(r for r in cell.rects if r.kind == "drawing" and r.layer == "M2" and r.net):
+        out[f"{r.net}__m2_{i}"] = {
+            "layer": [SERVER[r.layer], "drawing"],
+            "netname": f"{r.net}__m2_{i}",
+            "xy": [[r.x0, r.y0], [r.x1, r.y1]],
+        }
+    # the cell's own M3 (jumpers, far-rail ties): keep-outs the design script books on their M3 tracks,
+    # under names of their own (route_net would take a pin of the net's name as one to route to)
+    for i, r in enumerate(r for r in cell.rects if r.layer == "M3"):
+        out[f"{r.net}__m3_{i}"] = {
+            "layer": [SERVER[r.layer], "drawing"],
+            "netname": f"{r.net}__m3_{i}",
+            "xy": [[r.x0, r.y0], [r.x1, r.y1]],
+        }
     return out
 
 
-def build(pdk: str, floorplan: Path, out_dir: Path, netlist: Path | None = None, first: Sequence[str] = ()) -> None:
+def build(
+    pdk: str,
+    floorplan: Path,
+    out_dir: Path,
+    netlist: Path | None = None,
+    first: Sequence[str] = (),
+    shuffle: int = 0,
+) -> None:
     """Write the templates GDS, the laygo YAML and the design script into ``out_dir``.
-    ``netlist``: the design's netlist (default: the floorplan's); ``first``: nets to route first."""
+    ``netlist``: the design's netlist (default: the floorplan's); ``first``: nets to route first;
+    ``shuffle``: a seed for the order of the others (0: most pins first)."""
 
     out_dir.mkdir(parents=True, exist_ok=True)
     lib = f"{pdk}_microtemplates_dense"
@@ -172,7 +206,8 @@ def build(pdk: str, floorplan: Path, out_dir: Path, netlist: Path | None = None,
         + [p for p in up if p in signals and p not in std_nets]
     )
     early = [n for n in first if n in nets]  # nets that failed before: first
-    nets = early + [n for n in nets if n not in early]
+    rest = [n for n in nets if n not in early]
+    nets = early + (random.Random(shuffle).sample(rest, len(rest)) if shuffle else rest)
     escapes = [(p, p in up) for p in ports]
     tech_values = {
         "H": rowcell.H,

@@ -114,19 +114,37 @@ def book(occ, k, a, b):
 
 current = ["supply"]
 drawn = {}  # net -> M3 trunks actually drawn: (track, y0, y1)
+# the cells' own M3 (jumpers, far-rail ties: rowtemplates.py's "<net>__m3_<k>" keep-outs), booked on
+# their tracks as their nets', so only a route of the same net comes near them
+for row in placed:
+    for inst in row:
+        for name, pin in inst.pins.items():
+            if pin.layer[0] == "Metal3" and "__m3_" in name:
+                (x0, y0), (x1, y1) = pin.xy
+                occ3.setdefault(round((x0 + x1) / 2 / P3), []).append(
+                    (min(y0, y1), max(y0, y1), name.split("__m3_")[0])
+                )
 
 
-def branch_ok(m, members):  # route_net's M2 from each pin to a trunk past its end, and the via pad,
-    for lo, hi, y, _ in members:  # keep the M2 space to other nets' pins on the pin's track, and to any
+routed2 = {}  # y -> [(x0, x1, net)]: route_net's M2 so far (each pin's branch to its trunk)
+
+
+def branch_ok(m, members, pins=True):  # route_net's M2 from each pin to a trunk past its end, and the via pad,
+    for lo, hi, y, d in members:  # keep the M2 space to other nets' pins on the pin's track, and to any
         a, b = min(lo, m * P3 - END), max(hi, m * P3 + END)  # pin on a track closer than a bar and a space
         for yy, bars in pinbars.items():  # (half-pitch pin tracks), the net's own unless it touches them
-            if abs(yy - y) >= 2 * HW2 + SP:
-                continue
+            if not pins or abs(yy - y) >= 2 * HW2 + SP:  # (pins: False for a trunk over its pins, which keep
+                continue  # their spaces already)
             for x0, x1, n in bars:
                 near = a - SP < x1 and x0 < b + SP
                 joined = n == current[0] and a <= x1 and x0 <= b and abs(yy - y) <= 2 * HW2
                 if near and (n != current[0] or (yy != y and not joined)):
                     return False
+        yc = sum(xy[1] for xy in d.pins[current[0]].xy) / 2  # and to other nets' branches and bars on its track
+        segs = [s for yy, ss in routed2.items() if abs(yy - yc) < PITCH / 2 for s in ss]
+        segs += [(x0 - END, x1 + END, n) for yy, ss in occ2.items() if abs(yy - yc) < PITCH / 2 for x0, x1, n in ss]
+        if any(a - SP < x1 and x0 < b + SP for x0, x1, n in segs if n != current[0]):
+            return False
     return True
 
 
@@ -134,8 +152,9 @@ def pick(lo, hi, y0, y1, pad=0, members=()):
     mid = (lo + hi) / 2
     ms = [
         m
-        for m in range(-(-(lo - pad) // P3), (hi + pad) // P3 + 1)
-        if free(occ3, m, y0, y1) and (not pad or branch_ok(m, members))
+        for m in range(max(-(-(lo - pad) // P3), xl0 + 1), min((hi + pad) // P3, xr0 - 1) + 1)  # inside the block
+        # a trunk over its pins still puts a via pad there: other nets' branches and bars stay clear of it
+        if free(occ3, m, y0, y1) and branch_ok(m, members, pins=bool(pad))
     ]
     return min(ms, key=lambda m: abs(m * P3 - mid)) if ms else None
 
@@ -208,9 +227,15 @@ def connect(net):
     while queue:
         lo, hi, y0, y1, nodes, members = queue.pop(0)
         # the trunk spans its pins' tracks (checked against what route_net draws below)
+        if y1 - y0 < MIN - 2 * END:  # a short trunk grows to the M3 area (below, about its middle): room for it
+            need = -(-(MIN - 2 * END) // PITCH) * PITCH
+            a = y0 - need // 2 // PITCH * PITCH
+            grown = (a - END - HW2 - 10, a + need + END + HW2 + 10)
+        else:
+            grown = (y0, y1)
         y0, y1 = (
-            y0 - PITCH - END - 10,
-            y1 + PITCH + END + 10,
+            min(y0 - PITCH - END - 10, grown[0]),
+            max(y1 + PITCH + END + 10, grown[1]),
         )  # route_net runs a trunk ~a track past its pins, plus the via pad
         # a net with several trunks needs each to reach an M2 routing track: take a track free up to
         # the nearest one as well, and reserve that access now
@@ -247,8 +272,12 @@ def connect(net):
                 M3LOG.append((net, m, min(o.xy[0][1], o.xy[1][1]), max(o.xy[0][1], o.xy[1][1]), f"route_net {y0} {y1}"))
             if o.layer[0] == "Metal2":
                 block_m2(o.xy)
-        for _, _, yp, _ in members:  # route_net's vias at the trunk: their M2 pads, booked like pins
-            block_m2([[m * P3 - END, yp], [m * P3 + END, yp]])
+        # route_net returns only the trunk; its M2 from each pin's centre to the via at the trunk, and
+        # the via pad, booked like pins
+        for lo_, hi_, yp, d in members:
+            xc, yc = (lo_ + hi_) / 2, sum(xy[1] for xy in d.pins[net].xy) / 2
+            block_m2([[min(xc, m * P3 - END), yp], [max(xc, m * P3 + END), yp]])
+            routed2.setdefault(yc, []).append((min(xc, m * P3) - END, max(xc, m * P3) + END, net))
         ys = [y for o in flat(r) if o.layer[0] == "Metal3" for y in (o.xy[0][1], o.xy[1][1])]
         assert free(occ3, m, min(ys), max(ys)), f"{net}: trunk on {m} [{min(ys)}, {max(ys)}] hits " + str(occ3.get(m))
         if max(ys) - min(ys) < MIN - 2 * END:  # a short trunk (one pin): grown on its track to the M3 area
@@ -315,6 +344,15 @@ def draw_bar(ma, mb, y):
     # M2 pad below the minimum area)
 
 
+def jog_span(ya, yb):  # the M3 of a jog between routing tracks ya and yb, at least the M3 area long
+    lo, hi = sorted((ya, yb))
+    if hi - lo < MIN - 2 * END:
+        need = -(-(MIN - 2 * END) // PITCH) * PITCH
+        lo -= (need - (hi - lo)) // 2 // PITCH * PITCH
+        hi = lo + need
+    return lo, hi
+
+
 def join(net, trunks):
     done = trunks[:1]
     for t in trunks[1:]:
@@ -336,12 +374,13 @@ def join(net, trunks):
         for u in done:
             for ya in [y for y in ROUTE_YS if reach(t, y) is not None]:
                 for yb in [y for y in ROUTE_YS if y != ya and reach(u, y) is not None]:
-                    lo, hi = sorted((ya, yb))
+                    lo, hi = jog_span(ya, yb)
                     for mj in sorted(
                         range(min(t[0], u[0]) - 40, max(t[0], u[0]) + 41), key=lambda m: abs(m - (t[0] + u[0]) / 2)
                     ):
                         if (
                             mj not in (t[0], u[0])
+                            and xl0 < mj < xr0
                             and free(occ3, mj, lo - GAPS["m3"], hi + GAPS["m3"])
                             and bar_ok(ya, t[0], mj)
                             and bar_ok(yb, u[0], mj)
@@ -376,8 +415,8 @@ def join(net, trunks):
         u, ya, yb, mj = jog
         extend(t, ya)
         extend(u, yb)
-        book(occ3, mj, min(ya, yb), max(ya, yb))
-        m3(mj, min(ya, yb), max(ya, yb))
+        book(occ3, mj, *jog_span(ya, yb))
+        m3(mj, *jog_span(ya, yb))
         draw_bar(t[0], mj, ya)
         draw_bar(u[0], mj, yb)
         done.append(t)
@@ -402,8 +441,11 @@ def escape(net, up):
     for t in ts:  # an M2 bar to a free M3 track, then straight on
         for y in sorted((y for y in ROUTE_YS if reach(t, y) is not None), key=lambda y: -y if up else y):
             lo, hi = (y, TOP) if up else (0, y)
+            if hi - lo < MIN - 2 * END:  # a stub short of the M3 area: on past the bar, away from the edge
+                need = -(-(MIN - 2 * END) // PITCH) * PITCH
+                lo, hi = (TOP - need, TOP) if up else (0, need)
             for m2 in sorted(range(t[0] - 30, t[0] + 31), key=lambda k: abs(k - t[0])):
-                if m2 != t[0] and bar_ok(y, t[0], m2) and free(occ3, m2, lo, hi):
+                if m2 != t[0] and xl0 < m2 < xr0 and bar_ok(y, t[0], m2) and free(occ3, m2, lo, hi):
                     extend(t, y)
                     draw_bar(t[0], m2, y)
                     book(occ3, m2, lo, hi)
