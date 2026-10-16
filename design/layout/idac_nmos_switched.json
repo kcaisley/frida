@@ -1,0 +1,24 @@
+{
+ "_comment": "Two switched NMOS current-source units (Usb2Phy NmosIdac's unit): the switches above the sources. Netlist (per PDK): written by flow.idac.subckt (nmos_switched).",
+ "netlist": "../../build/layout/netlists/{pdk}/idac_nmos_switched.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "out",
+   "en"
+  ],
+  "down": [
+   "vbias"
+  ]
+ },
+ "rows": [
+  [
+   "Msw0",
+   "Msw1"
+  ],
+  [
+   "Msrc0",
+   "Msrc1"
+  ]
+ ]
+}

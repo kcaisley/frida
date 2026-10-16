@@ -1,0 +1,34 @@
+{
+ "_comment": "Four NMOS units steered between two outputs (Usb2Phy cmlpi IdacUnit): each unit's two switches above its source. Netlist (per PDK): written by flow.idac.subckt (nmos_steer).",
+ "netlist": "../../build/layout/netlists/{pdk}/idac_nmos_steer.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "out",
+   "dump",
+   "en",
+   "enb"
+  ],
+  "down": [
+   "vbias"
+  ]
+ },
+ "rows": [
+  [
+   "Msw0",
+   "Mdump0",
+   "Msw1",
+   "Mdump1",
+   "Msw2",
+   "Mdump2",
+   "Msw3",
+   "Mdump3"
+  ],
+  [
+   "Msrc0",
+   "Msrc1",
+   "Msrc2",
+   "Msrc3"
+  ]
+ ]
+}

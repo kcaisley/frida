@@ -1,0 +1,25 @@
+{
+ "_comment": "PMOS bias mirror (Usb2Phy PmosBiasDist): the diode reference between the two sources, their cascodes below. Netlist (per PDK): written by flow.idac.subckt (pmos_mirror).",
+ "netlist": "../../build/layout/netlists/{pdk}/idac_pmos_mirror.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "vbias"
+  ],
+  "down": [
+   "out",
+   "vcas"
+  ]
+ },
+ "rows": [
+  [
+   "Msrc0",
+   "Mref",
+   "Msrc1"
+  ],
+  [
+   "Mcas0",
+   "Mcas1"
+  ]
+ ]
+}

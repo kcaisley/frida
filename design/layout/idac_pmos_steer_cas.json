@@ -1,0 +1,27 @@
+{
+ "_comment": "Cascoded PMOS unit steered between the output and the dump (Usb2Phy PmosIdacUnit): source and cascode above the two switches. Netlist (per PDK): written by flow.idac.subckt (pmos_steer_cas).",
+ "netlist": "../../build/layout/netlists/{pdk}/idac_pmos_steer_cas.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "vbias",
+   "vcas"
+  ],
+  "down": [
+   "out",
+   "dump",
+   "en",
+   "enb"
+  ]
+ },
+ "rows": [
+  [
+   "Msrc0",
+   "Mcas0"
+  ],
+  [
+   "Msw0",
+   "Mdump0"
+  ]
+ ]
+}
