@@ -1,0 +1,29 @@
+{
+ "_comment": "Cross-coupled NAND SR latch (BAG sr_nand): the PMOS row above the NMOS row, the q gate left, the qb gate right. Netlist (per PDK): written by flow.latch.subckt (sr_nand).",
+ "netlist": "../../build/layout/netlists/{pdk}/latch_sr_nand.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "s",
+   "r"
+  ],
+  "down": [
+   "q",
+   "qb"
+  ]
+ },
+ "rows": [
+  [
+   "Mq_p_in",
+   "Mq_p_fb",
+   "Mqb_p_fb",
+   "Mqb_p_in"
+  ],
+  [
+   "Mq_n_in",
+   "Mq_n_fb",
+   "Mqb_n_fb",
+   "Mqb_n_in"
+  ]
+ ]
+}

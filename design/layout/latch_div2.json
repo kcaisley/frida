@@ -1,0 +1,50 @@
+{
+ "_comment": "Divide-by-two flip-flop with reset (bag3_digital div2, BAG vco_cnter_div): latch_flop_rst with qb fed back to the master. Netlist (per PDK): written by flow.latch.subckt (div2).",
+ "netlist": "../../build/layout/netlists/{pdk}/latch_div2.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "clkb",
+   "rst"
+  ],
+  "down": [
+   "clk",
+   "q",
+   "qb"
+  ]
+ },
+ "rows": [
+  [
+   "Mfwd_m_p",
+   "Mfwd_m_pclk",
+   "Mfb_m_pclk",
+   "Mfb_m_p",
+   "Mrst_m_p",
+   "Mout_m_p"
+  ],
+  [
+   "Mfwd_m_n",
+   "Mfwd_m_nclk",
+   "Mfb_m_nclk",
+   "Mfb_m_n",
+   "Mout_m_n",
+   "Mrst_m_n"
+  ],
+  [
+   "Mfwd_s_n",
+   "Mfwd_s_nclk",
+   "Mfb_s_nclk",
+   "Mfb_s_n",
+   "Mout_s_n",
+   "Mrst_s_n"
+  ],
+  [
+   "Mfwd_s_p",
+   "Mfwd_s_pclk",
+   "Mfb_s_pclk",
+   "Mfb_s_p",
+   "Mrst_s_p",
+   "Mout_s_p"
+  ]
+ ]
+}
