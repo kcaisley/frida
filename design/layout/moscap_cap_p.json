@@ -1,0 +1,21 @@
+{
+ "_comment": "Two-net PMOS capacitor, two units: gates on top, channels on bot, one per row. Netlist (per PDK): written by flow.moscap.subckt (cap_p).",
+ "netlist": "../../build/layout/netlists/{pdk}/moscap_cap_p.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "top"
+  ],
+  "down": [
+   "bot"
+  ]
+ },
+ "rows": [
+  [
+   "Mcap0_p"
+  ],
+  [
+   "Mcap1_p"
+  ]
+ ]
+}

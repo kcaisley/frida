@@ -1,0 +1,17 @@
+{
+ "_comment": "Two NMOS decap units (BAG decap_array): gates on vdd, channels on vss, one per row. Netlist (per PDK): written by flow.moscap.subckt (decap_n).",
+ "netlist": "../../build/layout/netlists/{pdk}/moscap_decap_n.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [],
+  "down": []
+ },
+ "rows": [
+  [
+   "Mcap0_n"
+  ],
+  [
+   "Mcap1_n"
+  ]
+ ]
+}

@@ -1,0 +1,21 @@
+{
+ "_comment": "Two-net NMOS capacitor, two units (BAG mos_cap; the sampler's boost capacitor): gates on top, channels on bot, one per row. Netlist (per PDK): written by flow.moscap.subckt (cap_n).",
+ "netlist": "../../build/layout/netlists/{pdk}/moscap_cap_n.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "top"
+  ],
+  "down": [
+   "bot"
+  ]
+ },
+ "rows": [
+  [
+   "Mcap0_n"
+  ],
+  [
+   "Mcap1_n"
+  ]
+ ]
+}

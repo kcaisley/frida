@@ -1,0 +1,17 @@
+{
+ "_comment": "Complementary decap (BAG decap): the PMOS (gate on vss) above the NMOS (gate on vdd). Netlist (per PDK): written by flow.moscap.subckt (decap_np).",
+ "netlist": "../../build/layout/netlists/{pdk}/moscap_decap_np.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [],
+  "down": []
+ },
+ "rows": [
+  [
+   "Mcap0_p"
+  ],
+  [
+   "Mcap0_n"
+  ]
+ ]
+}
