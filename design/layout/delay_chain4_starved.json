@@ -1,0 +1,41 @@
+{
+ "_comment": "Four-stage current-starved delay line (bag3_digital CurrentStarvedInvCore stages): starving PMOS heads, the inverters, starving NMOS feet. Netlist (per PDK): written by flow.delay.subckt (chain4_starved).",
+ "netlist": "../../build/layout/netlists/{pdk}/delay_chain4_starved.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "inp",
+   "vbp"
+  ],
+  "down": [
+   "outp",
+   "vbn"
+  ]
+ },
+ "rows": [
+  [
+   "Mstarve1_p_p",
+   "Mstarve2_p_p",
+   "Mstarve3_p_p",
+   "Mstarve4_p_p"
+  ],
+  [
+   "Minv1_p_p",
+   "Minv2_p_p",
+   "Minv3_p_p",
+   "Minv4_p_p"
+  ],
+  [
+   "Minv1_p_n",
+   "Minv2_p_n",
+   "Minv3_p_n",
+   "Minv4_p_n"
+  ],
+  [
+   "Mstarve1_p_n",
+   "Mstarve2_p_n",
+   "Mstarve3_p_n",
+   "Mstarve4_p_n"
+  ]
+ ]
+}

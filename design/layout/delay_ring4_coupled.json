@@ -1,0 +1,61 @@
+{
+ "_comment": "Four-stage pseudo-differential ring with weak cross-coupled inverters per stage and an injection device (Usb2Phy IloRing, BAG vco_ro_diff_coupled). Rows top first: the inverters' PMOS, the coupling PMOS, the coupling NMOS, the inverters' NMOS; each stage's p- and n-chain devices side by side, the stages in the folded ring order 1, 4, 2, 3: every connection, the loop's crossing between the chains too, spans at most two stages. The enable devices at the first stage, the injection device across the first stage in the bottom row. Netlist (per PDK): written by flow.delay.subckt (ring4_coupled).",
+ "netlist": "../../build/layout/netlists/{pdk}/delay_ring4_coupled.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "en",
+   "outp"
+  ],
+  "down": [
+   "inj",
+   "outn"
+  ]
+ },
+ "rows": [
+  [
+   "Men1_p_p",
+   "Minv1_p_p",
+   "Minv1_n_p",
+   "Minv4_p_p",
+   "Minv4_n_p",
+   "Minv2_p_p",
+   "Minv2_n_p",
+   "Minv3_p_p",
+   "Minv3_n_p"
+  ],
+  [
+   "Mfb1_p_p",
+   "Mfb1_n_p",
+   "Mfb4_p_p",
+   "Mfb4_n_p",
+   "Mfb2_p_p",
+   "Mfb2_n_p",
+   "Mfb3_p_p",
+   "Mfb3_n_p"
+  ],
+  [
+   "Mfb1_p_n",
+   "Mfb1_n_n",
+   "Mfb4_p_n",
+   "Mfb4_n_n",
+   "Mfb2_p_n",
+   "Mfb2_n_n",
+   "Mfb3_p_n",
+   "Mfb3_n_n"
+  ],
+  [
+   "Men1_p_n",
+   "Minv1_p_n",
+   "Minj",
+   "Minv1_n_n",
+   "Men1_n_n",
+   "Minv4_p_n",
+   "Minv4_n_n",
+   "Minv2_p_n",
+   "Minv2_n_n",
+   "Minv3_p_n",
+   "Minv3_n_n"
+  ]
+ ]
+}

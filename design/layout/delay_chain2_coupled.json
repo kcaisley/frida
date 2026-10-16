@@ -1,0 +1,41 @@
+{
+ "_comment": "Two-stage coupled differential buffer (BAG clk_diff_inv_coupled_chain, bag3_digital inv_diff_chain). Rows top first, each mirrored about its centre: a p-chain device left, its n-chain twin right (the coupling inverters of each stage, ALIGN's cross-coupled pairs, at mirrored places), the unpaired devices in the middle: the inverters' PMOS, the coupling PMOS, the coupling NMOS, the inverters' NMOS. Netlist (per PDK): written by flow.delay.subckt (chain2_coupled).",
+ "netlist": "../../build/layout/netlists/{pdk}/delay_chain2_coupled.sp",
+ "symmetric": true,
+ "escape": {
+  "up": [
+   "inp",
+   "outp"
+  ],
+  "down": [
+   "inn",
+   "outn"
+  ]
+ },
+ "rows": [
+  [
+   "Minv1_p_p",
+   "Minv2_p_p",
+   "Minv2_n_p",
+   "Minv1_n_p"
+  ],
+  [
+   "Mfb1_p_p",
+   "Mfb2_p_p",
+   "Mfb2_n_p",
+   "Mfb1_n_p"
+  ],
+  [
+   "Mfb1_p_n",
+   "Mfb2_p_n",
+   "Mfb2_n_n",
+   "Mfb1_n_n"
+  ],
+  [
+   "Minv1_p_n",
+   "Minv2_p_n",
+   "Minv2_n_n",
+   "Minv1_n_n"
+  ]
+ ]
+}

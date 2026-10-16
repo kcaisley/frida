@@ -1,0 +1,31 @@
+{
+ "_comment": "Five-stage inverter ring with its NAND enable, after bag3_digital's inv_chain closed into a ring: the PMOS row above the NMOS row, stage by stage. Stages in the folded ring order 1, 5, 2, 4, 3: every connection, the loop's too, spans at most two places. Netlist (per PDK): written by flow.delay.subckt (ring5).",
+ "netlist": "../../build/layout/netlists/{pdk}/delay_ring5.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "en"
+  ],
+  "down": [
+   "outp"
+  ]
+ },
+ "rows": [
+  [
+   "Men1_p_p",
+   "Minv1_p_p",
+   "Minv5_p_p",
+   "Minv2_p_p",
+   "Minv4_p_p",
+   "Minv3_p_p"
+  ],
+  [
+   "Men1_p_n",
+   "Minv1_p_n",
+   "Minv5_p_n",
+   "Minv2_p_n",
+   "Minv4_p_n",
+   "Minv3_p_n"
+  ]
+ ]
+}

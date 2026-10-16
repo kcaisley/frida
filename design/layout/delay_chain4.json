@@ -1,0 +1,27 @@
+{
+ "_comment": "Four-stage inverter delay line (bag3_digital inv_chain, BAG clk_delay buffers): the PMOS row above the NMOS row, stage by stage. Netlist (per PDK): written by flow.delay.subckt (chain4).",
+ "netlist": "../../build/layout/netlists/{pdk}/delay_chain4.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "inp"
+  ],
+  "down": [
+   "outp"
+  ]
+ },
+ "rows": [
+  [
+   "Minv1_p_p",
+   "Minv2_p_p",
+   "Minv3_p_p",
+   "Minv4_p_p"
+  ],
+  [
+   "Minv1_p_n",
+   "Minv2_p_n",
+   "Minv3_p_n",
+   "Minv4_p_n"
+  ]
+ ]
+}

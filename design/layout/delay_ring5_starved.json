@@ -1,0 +1,47 @@
+{
+ "_comment": "Five-stage current-starved ring (bag3_digital current_starved_inv stages): starving PMOS heads, the inverters' PMOS and NMOS, starving NMOS feet, stage by stage. Stages in the folded ring order 1, 5, 2, 4, 3: every connection, the loop's too, spans at most two places. Netlist (per PDK): written by flow.delay.subckt (ring5_starved).",
+ "netlist": "../../build/layout/netlists/{pdk}/delay_ring5_starved.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "en",
+   "vbp"
+  ],
+  "down": [
+   "outp",
+   "vbn"
+  ]
+ },
+ "rows": [
+  [
+   "Mstarve1_p_p",
+   "Mstarve5_p_p",
+   "Mstarve2_p_p",
+   "Mstarve4_p_p",
+   "Mstarve3_p_p"
+  ],
+  [
+   "Men1_p_p",
+   "Minv1_p_p",
+   "Minv5_p_p",
+   "Minv2_p_p",
+   "Minv4_p_p",
+   "Minv3_p_p"
+  ],
+  [
+   "Men1_p_n",
+   "Minv1_p_n",
+   "Minv5_p_n",
+   "Minv2_p_n",
+   "Minv4_p_n",
+   "Minv3_p_n"
+  ],
+  [
+   "Mstarve1_p_n",
+   "Mstarve5_p_n",
+   "Mstarve2_p_n",
+   "Mstarve4_p_n",
+   "Mstarve3_p_n"
+  ]
+ ]
+}
