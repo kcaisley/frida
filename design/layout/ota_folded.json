@@ -1,0 +1,40 @@
+{
+ "_comment": "Folded cascode, NMOS input (Usb2Phy Fcasc without its bias network): PMOS top sources, PMOS folding cascodes, NMOS cascodes, the bottom sources around the input pair and its tail. Rows top first, each mirrored about its centre: a pair's two devices at mirrored places, a tail in the middle. Netlist (per PDK): written by flow.ota.subckt (folded).",
+ "netlist": "../../build/layout/netlists/{pdk}/ota_folded.sp",
+ "symmetric": true,
+ "escape": {
+  "up": [
+   "vbp",
+   "vcasp",
+   "outp",
+   "outn"
+  ],
+  "down": [
+   "inp",
+   "inn",
+   "vbn",
+   "vcasn"
+  ]
+ },
+ "rows": [
+  [
+   "Mtop_p",
+   "Mtop_n"
+  ],
+  [
+   "Mcas_fold_p",
+   "Mcas_fold_n"
+  ],
+  [
+   "Mcas_bottom_p",
+   "Mcas_bottom_n"
+  ],
+  [
+   "Mbottom_p",
+   "Min_p",
+   "Mtail",
+   "Min_n",
+   "Mbottom_n"
+  ]
+ ]
+}

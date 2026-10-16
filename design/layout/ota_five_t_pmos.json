@@ -1,0 +1,26 @@
+{
+ "_comment": "Five-transistor amplifier, PMOS input (Usb2Phy PmosOpAmp5T): the input pair and its tail above the NMOS mirror load. Rows top first, each mirrored about its centre: a pair's two devices at mirrored places, a tail in the middle. Netlist (per PDK): written by flow.ota.subckt (five_t_pmos).",
+ "netlist": "../../build/layout/netlists/{pdk}/ota_five_t_pmos.sp",
+ "symmetric": true,
+ "escape": {
+  "up": [
+   "inp",
+   "inn",
+   "vbp"
+  ],
+  "down": [
+   "outp"
+  ]
+ },
+ "rows": [
+  [
+   "Min_p",
+   "Mtail",
+   "Min_n"
+  ],
+  [
+   "Mload_d",
+   "Mload"
+  ]
+ ]
+}

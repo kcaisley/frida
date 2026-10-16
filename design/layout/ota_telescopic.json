@@ -1,0 +1,38 @@
+{
+ "_comment": "Telescopic cascode, NMOS input (CT-DS stage1_telescopic_amplifier): PMOS loads, PMOS cascodes, NMOS cascodes, the input pair and its tail. Rows top first, each mirrored about its centre: a pair's two devices at mirrored places, a tail in the middle. Netlist (per PDK): written by flow.ota.subckt (telescopic).",
+ "netlist": "../../build/layout/netlists/{pdk}/ota_telescopic.sp",
+ "symmetric": true,
+ "escape": {
+  "up": [
+   "vbp",
+   "vcasp",
+   "outp",
+   "outn"
+  ],
+  "down": [
+   "inp",
+   "inn",
+   "vbn",
+   "vcasn"
+  ]
+ },
+ "rows": [
+  [
+   "Mload_p",
+   "Mload_n"
+  ],
+  [
+   "Mcas_load_p",
+   "Mcas_load_n"
+  ],
+  [
+   "Mcas_in_p",
+   "Mcas_in_n"
+  ],
+  [
+   "Min_p",
+   "Mtail",
+   "Min_n"
+  ]
+ ]
+}

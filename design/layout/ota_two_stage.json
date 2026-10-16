@@ -1,0 +1,42 @@
+{
+ "_comment": "Telescopic first stage with common-source second stages (CT-DS two_stage_amplifier, without the Miller RC): as ota_telescopic, the PMOS gain devices beside the loads and their NMOS current sources beside the input pair. Rows top first, each mirrored about its centre: a pair's two devices at mirrored places, a tail in the middle. Netlist (per PDK): written by flow.ota.subckt (two_stage).",
+ "netlist": "../../build/layout/netlists/{pdk}/ota_two_stage.sp",
+ "symmetric": true,
+ "escape": {
+  "up": [
+   "vbp",
+   "vcasp",
+   "outp",
+   "outn"
+  ],
+  "down": [
+   "inp",
+   "inn",
+   "vbn",
+   "vcasn"
+  ]
+ },
+ "rows": [
+  [
+   "Mstage2_p",
+   "Mload_p",
+   "Mload_n",
+   "Mstage2_n"
+  ],
+  [
+   "Mcas_load_p",
+   "Mcas_load_n"
+  ],
+  [
+   "Mcas_in_p",
+   "Mcas_in_n"
+  ],
+  [
+   "Mstage2_src_p",
+   "Min_p",
+   "Mtail",
+   "Min_n",
+   "Mstage2_src_n"
+  ]
+ ]
+}

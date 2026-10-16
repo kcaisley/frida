@@ -1,0 +1,26 @@
+{
+ "_comment": "Self-biased complementary amplifier (bag3_analog diffamp_self_biased): the PMOS pair and tail above the NMOS pair and tail. Rows top first, each mirrored about its centre: a pair's two devices at mirrored places, a tail in the middle. Netlist (per PDK): written by flow.ota.subckt (self_biased).",
+ "netlist": "../../build/layout/netlists/{pdk}/ota_self_biased.sp",
+ "symmetric": true,
+ "escape": {
+  "up": [
+   "inp",
+   "inn"
+  ],
+  "down": [
+   "outp"
+  ]
+ },
+ "rows": [
+  [
+   "Min_p_p",
+   "Mtail_p",
+   "Min_n_p"
+  ],
+  [
+   "Min_p_n",
+   "Mtail_n",
+   "Min_n_n"
+  ]
+ ]
+}
