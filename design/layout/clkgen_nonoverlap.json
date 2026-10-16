@@ -1,0 +1,27 @@
+{
+ "_comment": "Non-overlapping two-phase clocks (BAG clk_local_nonoverlap) of library cells: each phase's NOR and delay chain in a row. Netlist (per PDK): written by flow.clkgen.subckt (nonoverlap).",
+ "netlist": "../../build/layout/netlists/{pdk}/clkgen_nonoverlap.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "clk",
+   "clkb"
+  ],
+  "down": [
+   "outp",
+   "outn"
+  ]
+ },
+ "rows": [
+  [
+   "Xnor_p",
+   "Xdly_p0",
+   "Xdly_p1"
+  ],
+  [
+   "Xnor_n",
+   "Xdly_n0",
+   "Xdly_n1"
+  ]
+ ]
+}

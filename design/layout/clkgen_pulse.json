@@ -1,0 +1,31 @@
+{
+ "_comment": "Rising-edge pulse generator (BAG sar_async_pulse, Usb2Phy PulseGen) of library cells: the delay chain, its NOR and the output inverter. Netlist (per PDK): written by flow.clkgen.subckt (pulse).",
+ "netlist": "../../build/layout/netlists/{pdk}/clkgen_pulse.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "clk",
+   "clkb"
+  ],
+  "down": [
+   "outp",
+   "outn"
+  ]
+ },
+ "rows": [
+  [
+   "Xdly0",
+   "Xdly1",
+   "Xdly2",
+   "Xdly3",
+   "Xdly4"
+  ],
+  [
+   "Xdly5",
+   "Xdly6",
+   "Xdly7",
+   "Xnor",
+   "Xout"
+  ]
+ ]
+}

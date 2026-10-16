@@ -1,0 +1,38 @@
+{
+ "_comment": "Glitch-free clock gate (bag3_digital clk_gate): the enable latch's PMOS and NMOS rows, then the NAND and the output inverter in a standard-cell row. Netlist (per PDK): written by flow.clkgen.subckt (gate).",
+ "netlist": "../../build/layout/netlists/{pdk}/clkgen_gate.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "en",
+   "clkb"
+  ],
+  "down": [
+   "clk",
+   "outp",
+   "outn"
+  ]
+ },
+ "rows": [
+  [
+   "Mfwd_p",
+   "Mfwd_pclk",
+   "Mfb_pclk"
+  ],
+  [
+   "Mfb_p",
+   "Mout_p"
+  ],
+  [
+   "Mfwd_n",
+   "Mfwd_nclk",
+   "Mfb_nclk",
+   "Mfb_n",
+   "Mout_n"
+  ],
+  [
+   "Xnand",
+   "Xout"
+  ]
+ ]
+}
