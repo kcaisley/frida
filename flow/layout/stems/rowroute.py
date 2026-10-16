@@ -173,7 +173,7 @@ class Router:
         near = sorted(range(lo // P3 - 6, hi // P3 + 7), key=lambda m: min(abs(m * P3 - lo), abs(m * P3 - hi)))
         for m in near:
             x = m * P3
-            if lo <= x <= hi or not self.free3(m, y - END, y + END, net):
+            if lo <= x <= hi or not self.free3(m, *self._span(y, y), net):  # the trunk as m3 draws it
                 continue
             box = (x - END, y - HW2, lo - END + 1, y + HW2) if x < lo else (hi + END - 1, y - HW2, x + END, y + HW2)
             if self.free_box2(net, *box):
