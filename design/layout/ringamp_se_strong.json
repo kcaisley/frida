@@ -1,0 +1,47 @@
+{
+ "_comment": "Single-ended ring amplifier with a twice-as-strong output stage: as ringamp_se. Netlist (per PDK): written by flow.ringamp.subckt (se_strong).",
+ "netlist": "../../build/layout/netlists/{pdk}/ringamp_se_strong.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "inp",
+   "vcmfb",
+   "en"
+  ],
+  "down": [
+   "out",
+   "enb",
+   "biasn",
+   "biasp"
+  ]
+ },
+ "rows": [
+  [
+   "Mtail_p",
+   "Min_p",
+   "Mbe_p",
+   "Mmid_p"
+  ],
+  [
+   "Mcharge_p",
+   "Men_p0",
+   "Men_p1",
+   "Mbias_p",
+   "Mout_p"
+  ],
+  [
+   "Mcharge_n",
+   "Men_n0",
+   "Men_n1",
+   "Mbias_n",
+   "Mout_n"
+  ],
+  [
+   "Mtail_n",
+   "Min_n",
+   "Mfb",
+   "Mbe_n",
+   "Mmid_n"
+  ]
+ ]
+}

@@ -1,0 +1,47 @@
+{
+ "_comment": "Single-ended ring amplifier (BAG ringamp_se): the PMOS tail, input, enable and second stage; the PMOS charge, enable, dead-zone and output devices (the dead-zone device between the second stage's and the output device it joins); their NMOS counterparts; the NMOS tail, input, feedback, enable and second stage. Netlist (per PDK): written by flow.ringamp.subckt (se).",
+ "netlist": "../../build/layout/netlists/{pdk}/ringamp_se.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "inp",
+   "vcmfb",
+   "en"
+  ],
+  "down": [
+   "out",
+   "enb",
+   "biasn",
+   "biasp"
+  ]
+ },
+ "rows": [
+  [
+   "Mtail_p",
+   "Min_p",
+   "Mbe_p",
+   "Mmid_p"
+  ],
+  [
+   "Mcharge_p",
+   "Men_p0",
+   "Men_p1",
+   "Mbias_p",
+   "Mout_p"
+  ],
+  [
+   "Mcharge_n",
+   "Men_n0",
+   "Men_n1",
+   "Mbias_n",
+   "Mout_n"
+  ],
+  [
+   "Mtail_n",
+   "Min_n",
+   "Mfb",
+   "Mbe_n",
+   "Mmid_n"
+  ]
+ ]
+}
