@@ -69,7 +69,7 @@ def test_one_failing_tool_does_not_stop_the_others(tmp_path: Path, monkeypatch) 
         return RowSignoff(report, 2 if gds.name == "align.gds" else 0, report, True)
 
     monkeypatch.setattr(layout, "row_signoff", signoff)
-    with pytest.raises(RuntimeError, match="2 comparator layouts failed"):
+    with pytest.raises(RuntimeError, match="2 layouts failed"):
         layout._run(tmp_path, "tsmc65", "mos_inv", tmp_path / "n.sp", tmp_path / "fp.json")
     summary = json.loads((tmp_path / "summary.json").read_text())
     failures = json.loads((tmp_path / "failures.json").read_text())
@@ -93,7 +93,7 @@ def test_all_pdks_merges_summaries_and_failures(tmp_path: Path) -> None:
         run_dir.mkdir()
         return layout._finish(run_dir, {"ihp130/cic": {"error": "x"}}, {"ihp130/cic": "x"})
 
-    with pytest.raises(RuntimeError, match="1 comparator layouts failed"):
+    with pytest.raises(RuntimeError, match="1 layouts failed"):
         layout._all_pdks(tmp_path, (case_tsmc65, case_ihp130))
     assert set(json.loads((tmp_path / "summary.json").read_text())) == {"tsmc65/cic", "ihp130/cic"}
     assert json.loads((tmp_path / "failures.json").read_text()) == {"ihp130/cic": "x"}

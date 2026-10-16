@@ -893,14 +893,15 @@ def topologies() -> list[dict[str, Enum]]:
     return found
 
 
-def write_netlist(params: CompParams, path: Path, pdk, constant_from=None) -> Path:
+def write_netlist(params: CompParams, path: Path, pdk, constant_from=None, *, generator=Comp, nets=CompNets) -> Path:
     """The comparator after ``pdk``'s compile, as one flat SPICE subcircuit named after ``path``.
 
     Elaborated with ``pdk`` active, so every device is fingered to its row cells and sized in
     whole unit widths; simulation compiles the same way. MOS lines give the total width and
     the finger count (``w`` is the total, as in the foundry models); logic cells are written as
     their library cells. ``constant_from`` (a PDK) keeps the analog devices at that PDK's
-    physical widths and lengths (``_mos``) instead of the same unit counts.
+    physical widths and lengths (``_mos``) instead of the same unit counts. ``generator`` and
+    ``nets`` write another block built from the same devices (its generator and port bundle).
     """
 
     global _CONSTANT_FROM
@@ -910,15 +911,15 @@ def write_netlist(params: CompParams, path: Path, pdk, constant_from=None) -> Pa
     h.pdk.set_default(pdk)
     _CONSTANT_FROM = constant_from
     try:
-        Comp.Cache.reset()
-        module = Comp(params)
+        generator.Cache.reset()
+        module = generator(params)
         h.pdk.compile(module, pdk)
     finally:
-        Comp.Cache.reset()
+        generator.Cache.reset()
         manager.default = previous
         _CONSTANT_FROM = None
     nm = lambda value: round(float(value) * 1e9)
-    ports = [name for name, net in CompNets.signals.items() if net.vis == h.Visibility.PORT]
+    ports = [name for name, net in nets.signals.items() if net.vis == h.Visibility.PORT]
     lines = [f".subckt {path.stem} {' '.join(ports)}"]
     for name, inst in module.instances.items():
         conns = {port: sig.name for port, sig in inst.conns.items()}

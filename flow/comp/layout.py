@@ -78,7 +78,7 @@ def _finish(run_dir: Path, summary: dict[str, dict[str, Any]], failures: dict[st
     if failures:
         path = run_dir / "failures.json"
         path.write_text(json.dumps(failures, indent=2) + "\n")
-        raise RuntimeError(f"{len(failures)} comparator layouts failed; see {path}")
+        raise RuntimeError(f"{len(failures)} layouts failed; see {path}")
     return run_dir
 
 
