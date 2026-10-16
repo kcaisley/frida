@@ -1,0 +1,42 @@
+{
+ "_comment": "CML XOR (Usb2Phy CmlXor): the biased loads, the diode loads, the top devices, the bottom devices around the tail. Netlist (per PDK): written by flow.cml.subckt (xor).",
+ "netlist": "../../build/layout/netlists/{pdk}/cml_xor.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "outp",
+   "outn",
+   "vbp"
+  ],
+  "down": [
+   "inp",
+   "inn",
+   "clkp",
+   "clkn",
+   "vbn"
+  ]
+ },
+ "rows": [
+  [
+   "Mload_p",
+   "Mload_n"
+  ],
+  [
+   "Mdiode_p",
+   "Mdiode_n"
+  ],
+  [
+   "Mtop_ap",
+   "Mtop_an",
+   "Mtop_bp",
+   "Mtop_bn"
+  ],
+  [
+   "Mbot_ap",
+   "Mbot_an",
+   "Mtail",
+   "Mbot_bp",
+   "Mbot_bn"
+  ]
+ ]
+}

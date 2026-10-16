@@ -1,0 +1,45 @@
+{
+ "_comment": "CML divide-by-two (Usb2Phy CmlDiv): its two latches side by side, loads, tracking pairs, holding pairs, clock pairs and tails. Netlist (per PDK): written by flow.cml.subckt (divider).",
+ "netlist": "../../build/layout/netlists/{pdk}/cml_divider.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "outp",
+   "outn",
+   "vbp"
+  ],
+  "down": [
+   "clkp",
+   "clkn",
+   "vbn"
+  ]
+ },
+ "rows": [
+  [
+   "Mload_a_p",
+   "Mload_a_n",
+   "Mload_b_p",
+   "Mload_b_n"
+  ],
+  [
+   "Min_a_p",
+   "Min_a_n",
+   "Min_b_p",
+   "Min_b_n"
+  ],
+  [
+   "Mhold_a_p",
+   "Mhold_a_n",
+   "Mhold_b_p",
+   "Mhold_b_n"
+  ],
+  [
+   "Mclk_a_p",
+   "Mtail_a",
+   "Mclk_a_n",
+   "Mclk_b_p",
+   "Mtail_b",
+   "Mclk_b_n"
+  ]
+ ]
+}

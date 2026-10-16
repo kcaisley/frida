@@ -1,0 +1,38 @@
+{
+ "_comment": "CML latch with triode loads (Usb2Phy CmlLatch): loads, the tracking pair, the holding pair, the clock pair and the tail. Rows top first, each mirrored about its centre: a pair's two devices at mirrored places, a tail in the middle. Netlist (per PDK): written by flow.cml.subckt (latch).",
+ "netlist": "../../build/layout/netlists/{pdk}/cml_latch.sp",
+ "symmetric": true,
+ "escape": {
+  "up": [
+   "outp",
+   "outn",
+   "vbp"
+  ],
+  "down": [
+   "inp",
+   "inn",
+   "clkp",
+   "clkn",
+   "vbn"
+  ]
+ },
+ "rows": [
+  [
+   "Mload_p",
+   "Mload_n"
+  ],
+  [
+   "Min_p",
+   "Min_n"
+  ],
+  [
+   "Mhold_p",
+   "Mhold_n"
+  ],
+  [
+   "Mclk_p",
+   "Mtail",
+   "Mclk_n"
+  ]
+ ]
+}

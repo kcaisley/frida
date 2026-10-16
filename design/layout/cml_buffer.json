@@ -1,0 +1,30 @@
+{
+ "_comment": "NMOS-input CML buffer with symmetric loads (Usb2Phy CmlBuf): the PMOS loads above the input pair and its tail. Rows top first, each mirrored about its centre: a pair's two devices at mirrored places, a tail in the middle. Netlist (per PDK): written by flow.cml.subckt (buffer).",
+ "netlist": "../../build/layout/netlists/{pdk}/cml_buffer.sp",
+ "symmetric": true,
+ "escape": {
+  "up": [
+   "outp",
+   "outn",
+   "vbp"
+  ],
+  "down": [
+   "inp",
+   "inn",
+   "vbn"
+  ]
+ },
+ "rows": [
+  [
+   "Mload_p",
+   "Mdiode_p",
+   "Mdiode_n",
+   "Mload_n"
+  ],
+  [
+   "Min_p",
+   "Mtail",
+   "Min_n"
+  ]
+ ]
+}
