@@ -14,6 +14,7 @@ Run bound to a PDK (flow/layout/pdkproc.py); flow/layout/cic/build.py calls it.
 from __future__ import annotations
 
 import json
+import random
 from collections import defaultdict
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from tech import BAR_END, M3W, V2
 
 H = rowcell.H
 A = 10
+SHUFFLED = 200  # shuffled net orders tried after the rip-up-and-retry ones
 
 
 def route(pdk: str, out: Path, floorplan: Path, netlist: Path | None = None) -> None:
@@ -90,28 +92,37 @@ def route(pdk: str, out: Path, floorplan: Path, netlist: Path | None = None) -> 
                 extra.append(("VIA2", (x - V2 // 2, y - V2 // 2, x + V2 // 2, y + V2 // 2)))
         port_rects.append((net, "M3", (xs[0] - hw, 0, xs[0] + hw, Ht)))
 
-    def attempt(order):
+    def attempt(order, escape_first):
         router = rowroute.Router(blocked, W, Ht, m3_keep=keep3)
         for net in order:
             if len(pins[net]) > 1 or net in up:
                 router.route(net, pins[net])
         ports = []
-        for net, is_up in up.items():
+        for net in [*escape_first, *(n for n in up if n not in escape_first)]:
             if net in pins:
+                is_up = up[net]
                 m, lo, hi = router.escape(net, is_up)
                 ports.append((net, "M3", (m * rowroute.P3 - hw, lo, m * rowroute.P3 + hw, hi)))
         return router, ports
 
-    # most pins first; the net that fails goes first next time (rip up and retry)
+    # most pins first; the net that fails goes first next time (rip up and retry), and a net that
+    # found no way to the edge also leaves first
+    # after that many tries, shuffled orders (seeded: the same layout every run)
     order = sorted(pins, key=lambda n: (-len(pins[n]), n))
-    for _ in range(30):
+    escape_first: list[str] = []
+    shuffle = random.Random(0)
+    for k in range(30 + SHUFFLED):
+        if k >= 30:
+            order = shuffle.sample(order, len(order))
         try:
-            router, ports = attempt(order)
+            router, ports = attempt(order, escape_first)
             break
         except AssertionError as err:
             failed = str(err).split(":")[0]
             print(f"retry: {err}"[:160])
             order = [failed] + [n for n in order if n != failed]
+            if "no edge escape" in str(err):
+                escape_first = [failed] + [n for n in escape_first if n != failed]
     else:
         raise RuntimeError(f"{name}: no net order routes")
 

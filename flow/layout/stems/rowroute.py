@@ -27,6 +27,8 @@ P2, P3 = PITCH, getattr(_tech, "M3_PITCH", XPITCH)  # M2 tracks (y), M3 tracks (
 HW2, HW3, HV2 = M2W // 2, M3W // 2, V2 // 2
 # cuts on one trunk closer than this share one (where the via space exceeds what the M2 pitch leaves)
 VIA_GAP = max(P2, V2 + getattr(_tech, "VIA_SPACE", 0))
+# (count, distance): no cut may have that many others closer than the distance (a PDK's dense-via rule)
+VIA_CLUSTER = getattr(_tech, "VIA_CLUSTER", None)
 GAP3, GAP2 = 2 * SP, 2 * SP  # keep-out between different nets' segments on one track (line ends, via pads)
 
 
@@ -46,6 +48,7 @@ class Router:
         self.rects: list[tuple[str, int, int, int, int]] = []
         self.exact2 = [(net, x0, y0, x1, y1) for net, x0, y0, x1, y1 in blocked]  # for exact checks
         self.trunks: dict[str, list[list[int]]] = {}
+        self.straps: list[tuple[int, int, int]] = []  # (x, y0, y1): via2's M2 straps between adjacent bars
         for m, y0, y1 in m3_keep:
             self.occ3.setdefault(m, []).append((y0, y1, "__keep"))
         for net, x0, y0, x1, y1 in blocked:  # every M2 track whose wire would come within the M2 space
@@ -66,9 +69,13 @@ class Router:
         return 0 < m * P3 < self.w and self._free(self.occ3, m, a, b, net, GAP3)
 
     def free2(self, y, a, b, net):
-        # bars only join trunks, never pins: keep clear of every M2, the net's own included
-        # (touching a pin of the net would leave jogs and holes, against the grid and minimum-area rules)
-        return self._free(self.occ2, y, a, b, None, GAP2)
+        # bars only join trunks, never pins: keep clear of every M2, the net's own pins included
+        # (touching a pin of the net would leave jogs and holes, against the grid and minimum-area
+        # rules); over the net's own bars on the track a bar runs on as one piece with them
+        return all(
+            b + GAP2 <= lo or a - GAP2 >= hi or (n == (net, "bar") and a < hi and lo < b)
+            for lo, hi, n in self.occ2.get(y, [])
+        )
 
     @staticmethod
     def _span(a, b):
@@ -92,14 +99,41 @@ class Router:
             self.rects.append(("VIA2", x - HV2, y - HV2, x + HV2, y + HV2))
         elif all(abs(r[2] - (y - HV2)) >= P2 for r in near):
             yo = near[0][2] + HV2
-            self.rects.append(("M2", x - HW2, min(y, yo) - HW2, x + HW2, max(y, yo) + HW2))
+            a, b = min(y, yo), max(y, yo)
+            # two bars already strapped at another trunk, unbroken from there to here: a second strap
+            # would enclose a hole between them (and joins nothing new)
+            if any(
+                (ya, yb) == (a, b) and self._covered(a, xs, x) and self._covered(b, xs, x) for xs, ya, yb in self.straps
+            ):
+                return
+            self.straps.append((x, a, b))
+            self.rects.append(("M2", x - HW2, a - HW2, x + HW2, b + HW2))
+
+    def _crowded(self, *cuts) -> bool:
+        """New VIA2 cuts at these centres would leave some cut with VIA_CLUSTER's count of others
+        closer than its distance."""
+        if not VIA_CLUSTER:
+            return False
+        count, dist = VIA_CLUSTER
+        have = [(r[1] + HV2, r[2] + HV2) for r in self.rects if r[0] == "VIA2"]
+        new = [c for c in cuts if c not in have]
+        near = lambda a, b: (
+            a != b and (max(abs(a[0] - b[0]) - V2, 0) ** 2 + max(abs(a[1] - b[1]) - V2, 0) ** 2) < dist**2
+        )
+        every = have + new
+        return any(sum(near(c, o) for o in every) >= count for c in every if c in new or any(near(c, n) for n in new))
+
+    def _covered(self, y, xa, xb) -> bool:
+        """One M2 shape (a cell's or a route's) runs along track y from xa to xb."""
+        lo, hi = min(xa, xb), max(xa, xb)
+        return any(x0 <= lo and hi <= x1 and y0 <= y - HW2 and y + HW2 <= y1 for _, x0, y0, x1, y1 in self.exact2)
 
     def m2(self, net, y, xa, xb):
         a, b = min(xa, xb) - END, max(xa, xb) + END
         if b - a < MIN:
             b = a + MIN if self.free2(y, a, a + MIN, net) else b
             a = b - MIN
-        self.occ2.setdefault(y, []).append((a, b, net))
+        self.occ2.setdefault(y, []).append((a, b, (net, "bar")))
         self.rects.append(("M2", a, y - HW2, b, y + HW2))
         self.exact2.append((net, a, y - HW2, b, y + HW2))
 
@@ -215,6 +249,8 @@ class Router:
                     a, b = sorted((t[0] * P3, u[0] * P3))
                     if ct is None or cu is None or not self.free2(y, a - END, b + END, net):
                         continue
+                    if self._crowded((t[0] * P3, y), (u[0] * P3, y)):
+                        continue
                     cost = ct + cu + (b - a) // 4
                     if best is None or cost < best[0]:
                         best = (cost, u, y)
@@ -236,6 +272,8 @@ class Router:
                 for yb in [y for y in self.tracks2 if y != ya and self._reach(u, y) is not None]:
                     for mj in sorted(range(1, self.w // P3), key=lambda m: abs(m - (t[0] + u[0]) / 2)):
                         if mj in (t[0], u[0]) or not self.free3(mj, *self._span(ya, yb), net):
+                            continue
+                        if self._crowded((t[0] * P3, ya), (mj * P3, ya), (u[0] * P3, yb), (mj * P3, yb)):
                             continue
                         if self.free2(ya, min(t[0], mj) * P3 - END, max(t[0], mj) * P3 + END, net) and self.free2(
                             yb, min(u[0], mj) * P3 - END, max(u[0], mj) * P3 + END, net
