@@ -51,6 +51,23 @@ def _nf(line: str) -> str:
     return re.sub(r"(?i)\bng=", "nf=", line)
 
 
+def _used_ports(src: str) -> str:
+    """The netlist with the ports no instance connects left out of its .subckt line: a block's
+    unused options leave ports dangling, which ALIGN places at the origin as terminals with no pin
+    and then routes around (cIcCreator and laygo leave them out too; LVS compares the connected ones)."""
+
+    lines = src.splitlines()
+    used = {net for line in lines if line[:1] in "Mm" for net in line.split()[1:5]}  # drain, gate, source, bulk
+    used |= {net for line in lines if line[:1] in "Xx" for net in line.split()[1:-1]}  # a library cell's pins
+    out = []
+    for line in lines:
+        f = line.split()
+        if f and f[0].lower() == ".subckt":
+            line = " ".join([*f[:2], *(port for port in f[2:] if port in used or port in ("vdd", "vss"))])
+        out.append(line)
+    return "\n".join(out) + "\n"
+
+
 FAR_BITS = {"D": 1, "G": 2, "S": 4}  # the far parameter's bit per terminal
 
 
@@ -74,6 +91,7 @@ def make_design(pdk: str, netlist: Path, out_dir: Path, *, floorplan: Path | Non
     # a free design keeps the netlist unsplit
     src = netlist.read_text() if floorplan is None else netcells.floorplan_netlist(floorplan, pdk, netlist)[1]
     src = re.sub(r"(?im)^(\.subckt|\.ends)\s+\S+", rf"\1 {name}", src)
+    src = _used_ports(src)
     src = (
         "\n".join(_far(_nf(l)) if l[:1] in "Mm" else l for l in netcells.per_finger(src).splitlines()) + "\n"
     )  # ALIGN reads w per finger

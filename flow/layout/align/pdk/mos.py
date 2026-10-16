@@ -30,7 +30,8 @@ from align.schema.constraint import OffsetsScalings, PlaceOnGrid
 _STEMS = json.loads((Path(__file__).resolve().parent / "stems.json").read_text())  # written by make_pdk.py
 sys.path[:0] = [_STEMS["layout"], _STEMS["stems"]]  # the PDK's tech and paths, then the engine
 import rowcell
-from tech import XPITCH
+import tech
+from tech import BAR_END, M2_EDGE, M2_SPACE, XPITCH
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,33 @@ class RowCanvas(DefaultCanvas):
                     "netType": "pin" if pin else "blockage" if r.kind == "blockage" else "drawing",
                 }
             )
+
+
+def _reach_two_tracks(cell) -> None:
+    """Stretch each signal pin bar (M2) over at least two of ALIGN's M3 tracks where the M2 space
+    allows: ALIGN's router drops a via only on a track over a pin and never jogs in M2, so a bar
+    over one track loses its net when another net's trunk takes that track."""
+
+    pitch = getattr(tech, "M3_PITCH", XPITCH)
+    m2 = [r for r in cell.rects if r.layer == "M2"]
+    for r in m2:
+        if r.kind != "pin" or r.net in (None, "vdd", "vss") or ":" in r.net:
+            continue
+        lo, hi = -(-(r.x0 + BAR_END) // pitch), (r.x1 - BAR_END) // pitch  # the tracks a via fits on
+        for _ in range(2):
+            if hi - lo + 1 >= 2:
+                break
+            others = [
+                o for o in m2 if o is not r and o.net != r.net and o.y0 < r.y1 + M2_SPACE and r.y0 < o.y1 + M2_SPACE
+            ]
+            right = (hi + 1) * pitch + BAR_END
+            left = (lo - 1) * pitch - BAR_END
+            if right <= cell.width - M2_EDGE and all(
+                o.x1 + M2_SPACE <= r.x0 or o.x0 >= right + M2_SPACE for o in others
+            ):
+                r.x1, hi = right, hi + 1
+            elif left >= M2_EDGE and all(o.x0 >= r.x1 + M2_SPACE or o.x1 + M2_SPACE <= left for o in others):
+                r.x0, lo = left, lo - 1
 
 
 def _rows(cell) -> int:
@@ -212,5 +240,6 @@ class MOSGenerator(RowCanvas):
                 cell = rowcell.mos_rows(name, pol, devices, folds, grid=X_GRID, **rails)
             except AssertionError:  # nor folded over the rows ALIGN asked for: one row
                 cell = rowcell.mos_rows(name, pol, devices, 1, grid=X_GRID, **rails)
+        _reach_two_tracks(cell)
         self.draw(cell.rects)
         self.bbox = transformation.Rect(0, 0, cell.width, _rows(cell) * rowcell.H)
