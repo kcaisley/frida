@@ -1,0 +1,41 @@
+{
+ "_comment": "CML phase interpolator, equal tails (Usb2Phy cmlpi PhaseInterp): biased loads, diode loads, the two input pairs, the tail units. Netlist (per PDK): written by flow.pi.subckt (cml_half).",
+ "netlist": "../../build/layout/netlists/{pdk}/pi_cml_half.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "outp",
+   "outn",
+   "vbp"
+  ],
+  "down": [
+   "ap",
+   "an",
+   "bp",
+   "bn",
+   "vbn"
+  ]
+ },
+ "rows": [
+  [
+   "Mload_p",
+   "Mload_n"
+  ],
+  [
+   "Mdiode_p",
+   "Mdiode_n"
+  ],
+  [
+   "Min_a_p",
+   "Min_b_p",
+   "Min_b_n",
+   "Min_a_n"
+  ],
+  [
+   "Mtail_a0",
+   "Mtail_a1",
+   "Mtail_b0",
+   "Mtail_b1"
+  ]
+ ]
+}

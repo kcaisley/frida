@@ -1,0 +1,31 @@
+{
+ "_comment": "CMOS phase interpolator, equal weights (Usb2Phy flashpi PhaseWeighter): the slices' PMOS row above their NMOS row, A's slices left of B's, the output inverter last. Netlist (per PDK): written by flow.pi.subckt (cmos_half).",
+ "netlist": "../../build/layout/netlists/{pdk}/pi_cmos_half.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "ap",
+   "bp"
+  ],
+  "down": [
+   "outp",
+   "outn"
+  ]
+ },
+ "rows": [
+  [
+   "Mslice_a0_p",
+   "Mslice_a1_p",
+   "Mslice_b1_p",
+   "Mslice_b0_p",
+   "Mout_p"
+  ],
+  [
+   "Mslice_a0_n",
+   "Mslice_a1_n",
+   "Mslice_b1_n",
+   "Mslice_b0_n",
+   "Mout_n"
+  ]
+ ]
+}

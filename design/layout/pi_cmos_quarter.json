@@ -1,0 +1,31 @@
+{
+ "_comment": "CMOS phase interpolator, three slices of A to one of B: as pi_cmos_half. Netlist (per PDK): written by flow.pi.subckt (cmos_quarter).",
+ "netlist": "../../build/layout/netlists/{pdk}/pi_cmos_quarter.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "ap",
+   "bp"
+  ],
+  "down": [
+   "outp",
+   "outn"
+  ]
+ },
+ "rows": [
+  [
+   "Mslice_a0_p",
+   "Mslice_a1_p",
+   "Mslice_a2_p",
+   "Mslice_b0_p",
+   "Mout_p"
+  ],
+  [
+   "Mslice_a0_n",
+   "Mslice_a1_n",
+   "Mslice_a2_n",
+   "Mslice_b0_n",
+   "Mout_n"
+  ]
+ ]
+}

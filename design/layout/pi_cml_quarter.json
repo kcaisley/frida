@@ -1,0 +1,41 @@
+{
+ "_comment": "CML phase interpolator, three tail units of A to one of B: as pi_cml_half. Netlist (per PDK): written by flow.pi.subckt (cml_quarter).",
+ "netlist": "../../build/layout/netlists/{pdk}/pi_cml_quarter.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "outp",
+   "outn",
+   "vbp"
+  ],
+  "down": [
+   "ap",
+   "an",
+   "bp",
+   "bn",
+   "vbn"
+  ]
+ },
+ "rows": [
+  [
+   "Mload_p",
+   "Mload_n"
+  ],
+  [
+   "Mdiode_p",
+   "Mdiode_n"
+  ],
+  [
+   "Min_a_p",
+   "Min_b_p",
+   "Min_b_n",
+   "Min_a_n"
+  ],
+  [
+   "Mtail_a0",
+   "Mtail_a1",
+   "Mtail_a2",
+   "Mtail_b0"
+  ]
+ ]
+}
