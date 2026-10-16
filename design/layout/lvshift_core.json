@@ -1,0 +1,25 @@
+{
+ "_comment": "Cross-coupled level shifter core (bag3_digital lvshift_core): the cross-coupled PMOS above the input pair. Rows top first, each mirrored about its centre: a pair's two devices at mirrored places, a tail in the middle. Netlist (per PDK): written by flow.lvshift.subckt (core).",
+ "netlist": "../../build/layout/netlists/{pdk}/lvshift_core.sp",
+ "symmetric": true,
+ "escape": {
+  "up": [
+   "outp",
+   "outn"
+  ],
+  "down": [
+   "inp",
+   "inn"
+  ]
+ },
+ "rows": [
+  [
+   "Mcross_p",
+   "Mcross_n"
+  ],
+  [
+   "Min_p",
+   "Min_n"
+  ]
+ ]
+}

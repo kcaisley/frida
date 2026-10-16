@@ -1,0 +1,34 @@
+{
+ "_comment": "Level shifter with an input inverter and output inverters (bag3_digital lvshift_core_w_drivers): the inverters around the core, PMOS above NMOS. Netlist (per PDK): written by flow.lvshift.subckt (buffered).",
+ "netlist": "../../build/layout/netlists/{pdk}/lvshift_buffered.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "inp",
+   "inn",
+   "vddl",
+   "outp"
+  ],
+  "down": [
+   "bufp",
+   "bufn",
+   "outn"
+  ]
+ },
+ "rows": [
+  [
+   "Minv_p",
+   "Mbuf_p_p",
+   "Mcross_p",
+   "Mcross_n",
+   "Mbuf_n_p"
+  ],
+  [
+   "Minv_n",
+   "Mbuf_p_n",
+   "Min_p",
+   "Min_n",
+   "Mbuf_n_n"
+  ]
+ ]
+}

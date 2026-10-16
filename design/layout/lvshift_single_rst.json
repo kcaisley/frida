@@ -1,0 +1,30 @@
+{
+ "_comment": "Level shifter with an input inverter on vddl and a reset (Usb2Phy IloDiffLevelShift, bag3_digital lvshift): the inverter's PMOS beside the cross-coupled pair, its NMOS beside the input pair and the reset. Netlist (per PDK): written by flow.lvshift.subckt (single_rst).",
+ "netlist": "../../build/layout/netlists/{pdk}/lvshift_single_rst.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "inp",
+   "inn",
+   "vddl"
+  ],
+  "down": [
+   "outp",
+   "outn",
+   "rst"
+  ]
+ },
+ "rows": [
+  [
+   "Minv_p",
+   "Mcross_p",
+   "Mcross_n"
+  ],
+  [
+   "Minv_n",
+   "Min_p",
+   "Min_n",
+   "Mrst"
+  ]
+ ]
+}
