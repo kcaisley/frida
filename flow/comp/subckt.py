@@ -175,13 +175,15 @@ def _fingers(units: int, kind: str, nf: int | None = None) -> tuple[int, int | N
     even count, so both ends of the diffusion are one terminal, raised by up to three steps
     where that rounds closer), and every finger is the nearest whole number of units. Without those limits the device stays one finger at full size.
     ``MOS_FINGER_MIN_UNITS`` (optional) is the narrowest analog finger the PDK can contact: an even
-    count that would go below it gives way to fewer fingers.
+    count that would go below it gives way to fewer fingers, and a narrower device is widened to it.
     """
 
     pdk = h.pdk.default()
     limits = getattr(pdk, "MOS_FINGER_UNITS", None)
     if not limits:
         return units, nf
+    if kind == "analog":  # an analog device narrower than one contacted finger takes that finger
+        units = max(units, getattr(pdk, "MOS_FINGER_MIN_UNITS", 1))
     rounded = lambda count: max(1, int(units / count + 0.5)) * count
     if nf is None:
         nf = ceil(units / limits[kind])
