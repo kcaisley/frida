@@ -54,14 +54,15 @@ no logic gates of their own (they took 1.3 to 8 times a library cell's area).
 **ALIGN's primitives.** On a netlist without a floorplan, ALIGN matches devices to its primitive
 library (its own `basic_template.sp` and `user_template.sp`): groups such as `DP_NMOS`, `CMC_PMOS`,
 `CCP_*` or `CMB_*`, and single devices (`NMOS_S`, `PMOS_4T`, ...); its logic templates (`INV`,
-`INV_B`, `stage2_inv`) are off (`DoNotUseLib`). ALIGN chooses each group's array (units per row, rows) and pattern:
+`INV_B`, `STAGE2_INV`) and its transmission gate (`TGATE`, an NMOS and a PMOS in one primitive) are off (`DoNotUseLib`, by the names ALIGN gives them). ALIGN chooses each group's array (units per row, rows) and pattern:
 common centroid, interdigitated, ratio, or a Generator constraint's `exact_patterns`.
 `align/pdk/mos.py` assigns the units' devices as ALIGN's own mock generator does and draws them
 with the row-cell engine (`rowcell.mos_grid`). Two gate nets whose gates interleave need a second
 gate track (`GATE_SPARE` in the PDK's `tech.py`, set in tsmc28); elsewhere such a pair is drawn side
 by side. Library cells stay leaves (`align/pdk/stdcell.py`). ALIGN's grouping,
 `1_topology`'s `GroupBlocks`, becomes the floorplan's `groups`; with a floorplan, ALIGN keeps every
-device a primitive of its own.
+device a primitive of its own: a device the floorplan's `groups` do not name is kept out of
+ALIGN's matching (`DoNotIdentify`), which would otherwise pair devices by their connections alone.
 
 A floorplan from ALIGN's placement keeps transistors and standard cells in rows of their own, as
 many standard-cell rows as their width needs, and an even number of rows, so both block edges are

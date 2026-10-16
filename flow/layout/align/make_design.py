@@ -98,9 +98,24 @@ def make_design(pdk: str, netlist: Path, out_dir: Path, *, floorplan: Path | Non
                 "symmetrize": fp.get("symmetric", True),
             },
         ]
+        # the floorplan's groups name each device's primitive; a device in none stays a primitive of
+        # its own: ALIGN's matching would pair it by its connections alone (two devices sharing a gate
+        # and a source as a current mirror, say) and demand the pair mirrored in one row
+        parts = fp.get("split", {})
+        grouped = {
+            dev if dev not in parts else f"{dev}_{chr(ord('a') + k)}"
+            for members in fp.get("groups", {}).values()
+            for dev in members
+            for k in range(parts.get(dev, 1))
+        }
+        loose = [f[0] for f in map(str.split, src.splitlines()) if f and f[0][0] in "Mm" and f[0] not in grouped]
+        if loose:
+            const.append({"constraint": "DoNotIdentify", "instances": loose})
     # logic is the PDK's library cells (flow/layout/stdcells.py recognizes them); ALIGN's own logic
-    # templates would group transistors into gates the row cells do not draw: they stay single devices
-    const.append({"constraint": "DoNotUseLib", "libraries": ["INV", "INV_B", "stage2_inv"]})
+    # templates, and its transmission gate, would group an NMOS and a PMOS into one primitive the row
+    # cells do not draw (one type per primitive): they stay single devices (ALIGN matches its
+    # library's names upper-cased)
+    const.append({"constraint": "DoNotUseLib", "libraries": ["INV", "INV_B", "STAGE2_INV", "TGATE"]})
     out = out_dir / name
     out.mkdir(parents=True, exist_ok=True)
     # the cells before the block: ALIGN's parser models an unknown cell at its first instance
