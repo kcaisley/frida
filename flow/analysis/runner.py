@@ -115,6 +115,8 @@ from flow.follower.plots import plot_follower_bandwidth, plot_follower_response,
 from flow.follower.sim import NOMINAL_VIN_V
 from flow.latch.analysis import MeasLatch, analyze_latch_constraint, analyze_latch_sr, analyze_latch_timing
 from flow.latch.plots import plot_latch_frequency, plot_latch_setup_hold, plot_latch_supply
+from flow.moscap.analysis import MeasMosCap, analyze_moscap_cv
+from flow.moscap.plots import plot_moscap_cv, plot_moscap_frequency, plot_moscap_quality
 from flow.ota.analysis import MeasOta, analyze_ota_ac
 from flow.ota.plots import plot_ota_bode, plot_ota_common_mode, plot_ota_supply
 from flow.ota.sim import NOMINAL_VCM_V
@@ -1476,6 +1478,39 @@ def follower_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     )
 
 
+def moscap_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named MOS capacitors' C-V, leakage, and loss over bias and frequency."""
+
+    meas_read_dir = BASE_PATH / "build/sim/moscap/moscap_characterization/20261017_124815"
+    # each case at its working bias: a decap at the core supply, a capacitor in inversion
+    cases = (
+        ("decap_n", "decap_n: NMOS decap", 1.2),
+        ("decap_np", "decap_np: NMOS and PMOS decap", 1.2),
+        ("cap_n", "cap_n: NMOS two-net", 1.2),
+        ("cap_p", "cap_p: PMOS two-net", -1.2),
+    )
+    sweeps = {}
+    for name, _label, _nominal in cases:
+        measurements = []
+        for path in sorted(meas_read_dir.glob(f"{name}/*/result.h5")):
+            measurement = read_measurement(path)
+            if not isinstance(measurement, MeasMosCap):
+                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasMosCap")
+            measurements.append(measurement)
+        sweeps[name] = sorted(measurements, key=lambda item: int(item.info.readbacks["bias_mv"]))
+    labels = [label for _name, label, _nominal in cases]
+    cvs = [analyze_moscap_cv(sweeps[name]) for name, _label, _nominal in cases]
+    nominal = [
+        analyze_moscap_cv([item for item in sweeps[name] if int(item.info.readbacks["bias_mv"]) == round(bias * 1e3)])
+        for name, _label, bias in cases
+    ]
+    return (
+        *plot_moscap_cv(cvs, labels=labels, output_path=output_dir / "moscap_cv"),
+        *plot_moscap_frequency(nominal, labels=labels, output_path=output_dir / "moscap_frequency"),
+        *plot_moscap_quality(cvs, labels=labels, output_path=output_dir / "moscap_quality"),
+    )
+
+
 def main() -> None:
     """Run one explicitly selected analysis pipeline."""
     targets: dict[str, Callable[[Path], tuple[Path, ...]]] = {
@@ -1506,6 +1541,7 @@ def main() -> None:
             latch_characterization_study,
             ota_characterization_study,
             follower_characterization_study,
+            moscap_characterization_study,
         )
     }
 
@@ -1515,7 +1551,7 @@ def main() -> None:
 
     domain = (
         args.target.split("_", 1)[0]
-        if args.target.startswith(("comp_", "cdac_", "delay_", "latch_", "ota_", "follower_"))
+        if args.target.startswith(("comp_", "cdac_", "delay_", "latch_", "ota_", "follower_", "moscap_"))
         else "adc"
     )
     timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")

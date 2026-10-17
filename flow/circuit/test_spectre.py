@@ -65,6 +65,7 @@ def diagnostic_root(spectre_installation):
         ("latch", "latch_characterization"),
         ("ota", "ota_characterization"),
         ("follower", "follower_characterization"),
+        ("moscap", "moscap_characterization"),
     ),
     ids=lambda value: value,
 )
