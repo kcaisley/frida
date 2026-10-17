@@ -1,4 +1,4 @@
-"""Clock conditioning testbench and named TSMC65 Spectre simulation targets.
+"""Clock conditioning testbench and named Spectre simulation targets, in every PDK.
 
 The testbench follows Usb2Phy's ``PulseGenTb`` and BAG's clock benches: complementary clocks,
 an enable that rises a quarter period into the third period (while clk is low), and a load on
@@ -7,6 +7,7 @@ characterization sweeps the supply and the clock period.
 """
 
 import argparse
+import importlib
 import json
 import math
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -18,7 +19,7 @@ import hdl21 as h
 import hdl21.sim as hs
 import numpy as np
 from hdl21.primitives import C, Vdc, Vpulse
-from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
+from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
 from flow.analysis.io import interpolate_wave_records, write_measurement
 from flow.circuit.ports import testbench_from_ports
@@ -41,6 +42,7 @@ def clkgen_signal_names() -> dict[str, str]:
 class ClkgenTbParams:
     """Parameters which determine the generated clock generator testbench."""
 
+    pdk = h.Param(dtype=str, desc="PDK the testbench compiles to and simulates in", default="tsmc65")
     waveform_sample_interval_s = h.Param(
         dtype=float, desc="Maximum raw step and stored waveform spacing", default=1e-12
     )
@@ -93,24 +95,29 @@ def ClkgenTb(params: ClkgenTbParams) -> h.Module:
 
 
 def _run_clkgen_sim(run_dir: Path, params: ClkgenTbParams, *, check: bool = False) -> Path:
-    """Run one clock generator testbench transient in TSMC65 and return its raw file.
+    """Run one clock generator testbench transient in its PDK and return its raw file.
 
     ``check`` adds Spectre's static and connectivity checks and shortens the run to a tenth.
     """
 
-    from pdk import tsmc65
-    from pdk.tsmc65.hdl21 import site
+    pdk = importlib.import_module(f"pdk.{params.pdk}")
+    install = importlib.import_module(f"pdk.{params.pdk}.hdl21.site").install
 
     run_dir.mkdir(parents=True, exist_ok=True)
-    h.pdk.set_default(tsmc65.pdk_logic)
+    h.pdk.set_default(pdk.pdk_logic)
     tb = ClkgenTb(params)
     h.pdk.compile(tb)
     interval = params.waveform_sample_interval_s
     tstop = params.cycles * float(params.period_s)
     attrs = [
-        site.install.include(h.pdk.Corner.TYP),
-        site.install.include_pre_simulation(),
-        site.install.include_stdcell(),
+        install.include(h.pdk.Corner.TYP),
+        # what else the PDK's simulations take, in this order: TSMC's pre-simulation settings,
+        # the standard cells, the device names its netlists use (pdk/<name>/hdl21)
+        *(
+            getattr(install, name)()
+            for name in ("include_pre_simulation", "include_stdcell", "include_devices")
+            if hasattr(install, name)
+        ),
         hs.Options(name="temp", value=25.0),
         hs.Options(name="save", value="selected"),
         hs.Save([raw for raw in clkgen_signal_names() if raw != "time"]),
@@ -133,121 +140,140 @@ def _run_clkgen_sim(run_dir: Path, params: ClkgenTbParams, *, check: bool = Fals
             options={"strobeperiod": interval, "maxstep": interval, "strobeoutput": "strobeonly"},
         )
     )
-    hs.Sim(tb=tb, attrs=attrs).run(
-        SimOptions(
-            simulator=SupportedSimulators.SPECTRE,
-            fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
-            rundir=run_dir,
-            simulator_args=(
-                "+preset=mx",
-                "+mt=1",
-                "+lqtimeout",
-                "3600",
-                "+escchars",
-                "+log",
-                "spectre.log",
-                *(("-ahdllint=warn", "-ahdllint_log", "ahdllint.log") if check else ()),
-            ),
+    # the simulator's error holds its simulation, which cannot cross back from a worker process:
+    # raise it as text
+    try:
+        hs.Sim(tb=tb, attrs=attrs).run(
+            SimOptions(
+                simulator=SupportedSimulators.SPECTRE,
+                fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
+                rundir=run_dir,
+                simulator_args=(
+                    "+preset=mx",
+                    "+mt=1",
+                    "+lqtimeout",
+                    "3600",
+                    "+escchars",
+                    "+log",
+                    "spectre.log",
+                    *(("-ahdllint=warn", "-ahdllint_log", "ahdllint.log") if check else ()),
+                ),
+            )
         )
-    )
+    except SimError as error:
+        raise RuntimeError(f"Spectre failed in {run_dir}: {error}") from None
     return run_dir / "netlist.raw"
 
 
-# The characterization: the supply around TSMC65's 1.2 V core at the 1 ns clock, and the clock
-# period from 2 ns to 100 ps at the core supply.
-SUPPLY_SWEEP_V = (0.8, 0.9, 1.0, 1.1, 1.2, 1.3)
+# The characterization, in every PDK about its own core supply: the supply (two thirds of it to
+# 108 %; 0.8 to 1.3 V in TSMC65) at the 1 ns clock, and the clock period from 2 ns to 100 ps at the
+# core supply.
+SUPPLY_SWEEP = (8 / 12, 9 / 12, 10 / 12, 11 / 12, 1.0, 13 / 12)
 PERIOD_SWEEP_S = (2e-9, 1e-9, 700e-12, 500e-12, 300e-12, 200e-12, 150e-12, 100e-12)
-NOMINAL_SUPPLY_V = 1.2
 NOMINAL_PERIOD_S = 1e-9
 
 
 def clkgen_characterization(run_dir: Path, *, check: bool = False) -> Path:
-    """Run every clock function over the supply and the period: 3 cases, 14 points each.
+    """Run every clock function over the supply and the period in every PDK: 3 cases, 14 points each.
 
-    Each point writes ``<case>/<sweep>/<point>/result.h5`` (a ``MeasClkgen``). ``check`` runs the
-    nominal point of each case with Spectre's checks instead, writing no measurement.
+    Each point writes ``<pdk>/<case>/<sweep>/<point>/result.h5`` (a ``MeasClkgen``). ``check``
+    runs the nominal point of each case with Spectre's checks instead, writing no measurement.
     """
 
     from flow.analysis.types import MeasInfo, Wave
     from flow.circuit.results import read_raw_transient
     from flow.clkgen.analysis import MeasClkgen
+    from flow.comp.layout import PDKS
 
     run_dir.mkdir(parents=True, exist_ok=True)
-    points = {"supply": [(vdd, NOMINAL_PERIOD_S) for vdd in SUPPLY_SWEEP_V]}
-    points["period"] = [(NOMINAL_SUPPLY_V, period) for period in PERIOD_SWEEP_S]
-    if check:
-        points = {"supply": [(NOMINAL_SUPPLY_V, NOMINAL_PERIOD_S)]}
-    jobs = {
-        f"{case}/{sweep}/vdd{round(vdd * 1e3)}_period{round(period * 1e12)}ps": ClkgenTbParams(
-            clkgen=clkgen, vdd=vdd, period_s=period, transition_time_s=min(30e-12, period / 8)
-        )
-        for case, clkgen in CASES.items()
-        for sweep, values in points.items()
-        for vdd, period in values
-    }
+    jobs = {}
+    for pdk in PDKS:
+        supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
+        points = {"supply": [(step * supply, NOMINAL_PERIOD_S) for step in SUPPLY_SWEEP]}
+        points["period"] = [(supply, period) for period in PERIOD_SWEEP_S]
+        if check:
+            points = {"supply": [(supply, NOMINAL_PERIOD_S)]}
+        for case, clkgen in CASES.items():
+            for sweep, values in points.items():
+                for vdd, period in values:
+                    jobs[f"{pdk}/{case}/{sweep}/vdd{round(vdd * 1e3)}_period{round(period * 1e12)}ps"] = (
+                        ClkgenTbParams(
+                            pdk=pdk,
+                            clkgen=clkgen,
+                            vdd=round(vdd, 4),
+                            period_s=period,
+                            transition_time_s=min(30e-12, period / 8),
+                        ),
+                        abs(vdd - supply) < 1e-6 and period == NOMINAL_PERIOD_S,
+                    )
     names = clkgen_signal_names()
     failures: dict[str, str] = {}
-    with ProcessPoolExecutor(max_workers=16, mp_context=get_context("spawn")) as executor:
-        futures = {
-            executor.submit(_run_clkgen_sim, run_dir / name, params, check=check): (name, params)
-            for name, params in jobs.items()
-        }
-        for future in as_completed(futures):
-            name, params = futures[future]
-            try:
-                raw_path = future.result()
-                if check:
-                    continue
-                # one record from time zero on the stored grid; the supply current as positive draw
-                result = read_raw_transient(raw_path)
-                times_s = np.asarray(result.data["time"])
-                interval = params.waveform_sample_interval_s
-                window = [(float(times_s[0]), float(times_s[-1]))]
-                time_s, voltages = interpolate_wave_records(
-                    times_s,
-                    {
-                        names[key]: value
-                        for key, value in result.data.items()
-                        if not names[key].startswith(("i(", "time"))
-                    },
-                    window,
-                    interval,
-                )
-                _, currents = interpolate_wave_records(
-                    times_s,
-                    {
-                        names[key][2:-1]: -np.asarray(value)
-                        for key, value in result.data.items()
-                        if names[key].startswith("i(")
-                    },
-                    window,
-                    interval,
-                )
-                measurement = MeasClkgen(
-                    group=None,
-                    index=None,
-                    dut=params.clkgen,
-                    info=MeasInfo(
-                        backend="spice",
-                        timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
-                        instruments={"simulator": "Spectre"},
-                        readbacks={
-                            "case": name.split("/")[0],
-                            "sweep": name.split("/")[1],
-                            "signal_map_json": json.dumps(names, sort_keys=True),
-                            "raw_file": raw_path.name,
-                            "raw_points": len(times_s),
-                            "waveform_sample_interval_s": interval,
-                            "supply_current_convention": "positive_current_draw",
+    # one pool per PDK: hdl21 compiles each generated module in place, for the first PDK it meets
+    for pdk in PDKS:
+        with ProcessPoolExecutor(max_workers=16, mp_context=get_context("spawn")) as executor:
+            futures = {
+                executor.submit(_run_clkgen_sim, run_dir / name, params, check=check): (name, params, nominal)
+                for name, (params, nominal) in jobs.items()
+                if params.pdk == pdk
+            }
+            for future in as_completed(futures):
+                name, params, nominal = futures[future]
+                try:
+                    raw_path = future.result()
+                    if check:
+                        continue
+                    # one record from time zero on the stored grid; the supply current as positive draw
+                    result = read_raw_transient(raw_path)
+                    times_s = np.asarray(result.data["time"])
+                    interval = params.waveform_sample_interval_s
+                    window = [(float(times_s[0]), float(times_s[-1]))]
+                    time_s, voltages = interpolate_wave_records(
+                        times_s,
+                        {
+                            names[key]: value
+                            for key, value in result.data.items()
+                            if not names[key].startswith(("i(", "time"))
                         },
-                    ),
-                    param=params,
-                    trial_index=np.arange(1, dtype=np.int64),
-                    wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
-                )
-                write_measurement(raw_path.parent / "result.h5", measurement)
-            except Exception as error:  # noqa: BLE001 - report every independent point failure
-                failures[name] = repr(error)
+                        window,
+                        interval,
+                    )
+                    _, currents = interpolate_wave_records(
+                        times_s,
+                        {
+                            names[key][2:-1]: -np.asarray(value)
+                            for key, value in result.data.items()
+                            if names[key].startswith("i(")
+                        },
+                        window,
+                        interval,
+                    )
+                    measurement = MeasClkgen(
+                        group=None,
+                        index=None,
+                        dut=params.clkgen,
+                        info=MeasInfo(
+                            backend="spice",
+                            timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
+                            instruments={"simulator": "Spectre"},
+                            readbacks={
+                                "pdk": name.split("/")[0],
+                                "case": name.split("/")[1],
+                                "sweep": name.split("/")[2],
+                                "nominal": nominal,
+                                "signal_map_json": json.dumps(names, sort_keys=True),
+                                "raw_file": raw_path.name,
+                                "raw_points": len(times_s),
+                                "waveform_sample_interval_s": interval,
+                                "supply_current_convention": "positive_current_draw",
+                            },
+                        ),
+                        param=params,
+                        trial_index=np.arange(1, dtype=np.int64),
+                        wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
+                    )
+                    write_measurement(raw_path.parent / "result.h5", measurement)
+                except Exception as error:  # noqa: BLE001 - report every independent point failure
+                    failures[name] = repr(error)
     if failures:
         failure_path = run_dir / "failures.json"
         failure_path.write_text(json.dumps(failures, indent=2) + "\n")

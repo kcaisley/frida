@@ -60,7 +60,7 @@ def plot_idac_bias(
     labels: Sequence[str],
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Compare the units over their bias (gate voltage or reference current): current and output resistance."""
+    """Compare the units over their reference current: output current and output resistance."""
 
     if not outputs or len(outputs) != len(labels):
         raise ValueError("bias comparison requires one output result and label per unit")
@@ -69,12 +69,8 @@ def plot_idac_bias(
     fig, axes = plt.subplots(rows, columns, squeeze=False)
     for index, (output, label) in enumerate(zip(outputs, labels, strict=True)):
         ax = axes.flat[index]
-        diode = bool(np.all(np.isfinite(output.iref_a)))
-        bias = output.iref_a * 1e6 if diode else output.vbias_v
-        ax.semilogy(bias, output.current_a * 1e6, "o-", color=NORD_BLUE, markersize=3)
-        if diode:
-            ax.set_xscale("log")
-        ax.set_xlabel("Reference current (µA)" if diode else "Gate voltage vbias (V)")
+        bias = output.iref_a * 1e6
+        ax.loglog(bias, output.current_a * 1e6, "o-", color=NORD_BLUE, markersize=3)
         ax.tick_params(axis="y", colors=NORD_BLUE)
         resistance_ax = ax.twinx()
         resistance_ax.semilogy(bias, output.output_resistance_ohm, "s-", color=NORD_RED, markersize=3)
@@ -86,7 +82,8 @@ def plot_idac_bias(
     for ax in axes.flat[len(outputs) :]:
         ax.set_visible(False)
     fig.supylabel("Output current (µA)", color=NORD_BLUE)
-    fig.suptitle(f"Current and output resistance versus bias at {outputs[0].vout_v[-1] / 2:g} V out")
+    fig.supxlabel("Reference current (µA)")
+    fig.suptitle(f"Current and output resistance versus reference current at {outputs[0].vout_v[-1] / 2:g} V out")
     return save_figure(fig, output_path)
 
 
@@ -106,11 +103,11 @@ def plot_idac_steering(
     fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
     for index, (steering, label) in enumerate(zip(steerings, labels, strict=True)):
         ax = axes.flat[index]
-        ax.semilogy(steering.vbias_v, steering.on_current_a, "o-", color=NORD_BLUE, markersize=3, label="On")
-        ax.semilogy(steering.vbias_v, steering.off_current_a, "^--", color=NORD_BLUE, markersize=3, label="Off")
+        ax.loglog(steering.iref_a * 1e6, steering.on_current_a, "o-", color=NORD_BLUE, markersize=3, label="On")
+        ax.loglog(steering.iref_a * 1e6, steering.off_current_a, "^--", color=NORD_BLUE, markersize=3, label="Off")
         ax.tick_params(axis="y", colors=NORD_BLUE)
         change_ax = ax.twinx()
-        change_ax.plot(steering.vbias_v, steering.total_change * 100, "s-", color=NORD_RED, markersize=3)
+        change_ax.semilogx(steering.iref_a * 1e6, steering.total_change * 100, "s-", color=NORD_RED, markersize=3)
         change_ax.set_ylim(-105.0, 5.0)
         change_ax.tick_params(axis="y", colors=NORD_RED)
         if index % columns == columns - 1 or index == len(steerings) - 1:
@@ -120,7 +117,7 @@ def plot_idac_steering(
     for ax in axes.flat[len(steerings) :]:
         ax.set_visible(False)
     axes.flat[0].legend(loc="lower right")
-    fig.supxlabel("Gate voltage vbias (V)")
+    fig.supxlabel("Reference current (µA)")
     fig.supylabel("Output current (A)", color=NORD_BLUE)
     fig.suptitle("Switched and steered units: on, off, and the current kept")
     return save_figure(fig, output_path)

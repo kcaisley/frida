@@ -27,7 +27,7 @@ def plot_pi_transfer(
         raise ValueError("transfer comparison requires one phase result, linearity, and label per interpolator")
     columns = min(2, len(phases))
     rows = (len(phases) + columns - 1) // columns
-    inl_limit = 1.1 * max(np.nanmax(np.abs(item.inl_deg)) for item in linearities)
+    inl_limit = 1.1 * max(np.nanmax(np.abs(item.inl_deg), initial=0.0) for item in linearities)
     fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
     for index, (phase, linearity, label) in enumerate(zip(phases, linearities, labels, strict=True)):
         ax = axes.flat[index]
@@ -74,7 +74,7 @@ def plot_pi_frequency(
         raise ValueError("frequency comparison requires one phase result and label per interpolator")
     columns = min(2, len(phases))
     rows = (len(phases) + columns - 1) // columns
-    swing_limit_mv = 1.1 * max(np.nanmax(item.swing_v) * 1e3 for item in phases)
+    swing_limit_mv = 1.1 * max(np.nanmax(item.swing_v, initial=0.0) * 1e3 for item in phases)
     fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
     for index, (phase, label) in enumerate(zip(phases, labels, strict=True)):
         ax = axes.flat[index]

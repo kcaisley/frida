@@ -26,7 +26,7 @@ def plot_lvshift_vddl(
         raise ValueError("input supply comparison requires one switching result and label per shifter")
     columns = min(3, len(switchings))
     rows = (len(switchings) + columns - 1) // columns
-    energy_limit_fj = 1.1 * max(np.nanmax(item.energy_per_cycle_j) * 1e15 for item in switchings)
+    energy_limit_fj = 1.1 * max(np.nanmax(item.energy_per_cycle_j, initial=0.0) * 1e15 for item in switchings)
     fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
     for index, (switching, label) in enumerate(zip(switchings, labels, strict=True)):
         ax = axes.flat[index]
@@ -68,7 +68,9 @@ def plot_lvshift_vdd(
         raise ValueError("output supply comparison requires one switching result and label per shifter")
     columns = min(3, len(switchings))
     rows = (len(switchings) + columns - 1) // columns
-    delay_limit_ps = 1.1 * max(np.nanmax(np.r_[item.rise_delay_s, item.fall_delay_s]) * 1e12 for item in switchings)
+    delay_limit_ps = 1.1 * max(
+        np.nanmax(np.r_[item.rise_delay_s, item.fall_delay_s], initial=0.0) * 1e12 for item in switchings
+    )
     fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
     for index, (switching, label) in enumerate(zip(switchings, labels, strict=True)):
         ax = axes.flat[index]

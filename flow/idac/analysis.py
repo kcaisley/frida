@@ -23,7 +23,8 @@ from flow.idac.subckt import IdacParams
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MeasIdac(Meas):
-    """Current source output sweep at one bias and enable state: one row per output voltage."""
+    """Current source output sweep at one reference current and enable state: one row per output
+    voltage, with the bias node's voltage."""
 
     dut: IdacParams
     param: IdacTbParams
@@ -31,6 +32,7 @@ class MeasIdac(Meas):
     out_current_a: np.ndarray
     dump_current_a: np.ndarray
     supply_current_a: np.ndarray
+    vbias_v: np.ndarray
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -101,8 +103,8 @@ def analyze_idac_output(measurements: Sequence[MeasIdac]) -> AnalysisIdacOutput:
         compliant = within[int(np.argmin(np.abs(vout_v - nominal)))] and current_a > 0
         rows.append(
             (
-                math.nan if tb.idac.diode else float(tb.vbias),
-                float(tb.iref) if tb.idac.diode else math.nan,
+                calc.value(measurement.vbias_v, vout_v, nominal),
+                float(tb.iref),
                 tb.en,
                 current_a,
                 1 / abs(calc.value(slope, vout_v, nominal)),
@@ -146,12 +148,7 @@ def analyze_idac_steering(measurements: Sequence[MeasIdac], *, on: AnalysisIdacO
     rows = []
     for index, measurement in enumerate(measurements):
         tb = measurement.param
-        bias_matches = (
-            math.isclose(float(tb.iref), on.iref_a[index])
-            if tb.idac.diode
-            else math.isclose(float(tb.vbias), on.vbias_v[index])
-        )
-        if not bias_matches:
+        if not math.isclose(float(tb.iref), on.iref_a[index]):
             raise ValueError("steering requires the disabled sweeps in the enabled result's bias order")
         nominal = float(tb.vout)
         off_current = calc.value(np.abs(measurement.out_current_a), measurement.vout_v, nominal)

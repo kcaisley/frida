@@ -28,7 +28,7 @@ def plot_latch_setup_hold(
     columns = min(3, len(timings))
     rows = (len(timings) + columns - 1) // columns
     delay_limit_ps = 1.1 * max(
-        np.nanmax(np.r_[item.clock_to_q_rise_s, item.clock_to_q_fall_s]) * 1e12 for item in timings
+        np.nanmax(np.r_[item.clock_to_q_rise_s, item.clock_to_q_fall_s], initial=0.0) * 1e12 for item in timings
     )
     # the window around every case's aperture, from 100 ps before the earliest hold edge
     edges_ps = [value * 1e12 for item in constraints for value in (item.setup_s, -item.hold_s) if np.isfinite(value)]
@@ -85,13 +85,12 @@ def plot_latch_supply(
     ] + [(item.vdd_v, item.set_delay_s, item.reset_delay_s, item.energy_per_cycle_j, "Set, reset") for item in srs]
     columns = min(3, len(panels))
     rows = (len(panels) + columns - 1) // columns
-    energy_limit_fj = 1.1 * max(np.nanmax(energy) * 1e15 for *_delays, energy, _kind in panels)
+    energy_limit_fj = 1.1 * max(np.nanmax(energy, initial=0.0) * 1e15 for *_delays, energy, _kind in panels)
     fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
     for index, ((vdd_v, rise, fall, energy, kind), label) in enumerate(zip(panels, labels, strict=True)):
         ax = axes.flat[index]
         ax.plot(vdd_v, rise * 1e12, "o-", color=NORD_BLUE, label=f"{kind}: q rising")
         ax.plot(vdd_v, fall * 1e12, "^--", color=NORD_BLUE, label=f"{kind}: q falling")
-        ax.set_ylim(bottom=0.0)
         ax.tick_params(axis="y", colors=NORD_BLUE)
         if index in (0, len(timings)):
             ax.legend(loc="upper right", fontsize="small")
@@ -103,6 +102,8 @@ def plot_latch_supply(
             energy_ax.set_ylabel("Energy per cycle (fJ)", color=NORD_RED)
         ax.set_title(label)
         style_grid(ax)
+    # the shared limit, once every panel has drawn: one panel's would cut the others' data
+    axes.flat[0].set_ylim(bottom=0.0)
     for ax in axes.flat[len(panels) :]:
         ax.set_visible(False)
     fig.supxlabel("Supply (V)")
@@ -131,7 +132,6 @@ def plot_latch_frequency(
         ax.plot(frequency_ghz, timing.clock_to_q_rise_s * 1e12, "o-", color=NORD_BLUE, label="q rising")
         ax.plot(frequency_ghz, timing.clock_to_q_fall_s * 1e12, "^--", color=NORD_BLUE, label="q falling")
         ax.set_xscale("log")
-        ax.set_ylim(bottom=0.0)
         ax.tick_params(axis="y", colors=NORD_BLUE)
         fraction_ax = ax.twinx()
         fraction_ax.plot(frequency_ghz, timing.captured_fraction, "s-", color=NORD_RED)
@@ -142,6 +142,8 @@ def plot_latch_frequency(
         working = frequency_ghz[timing.captured_fraction == 1.0]
         ax.set_title(f"{label}: up to {np.max(working):.3g} GHz" if len(working) else label)
         style_grid(ax)
+    # the shared limit, once every panel has drawn: one panel's would cut the others' data
+    axes.flat[0].set_ylim(bottom=0.0)
     for ax in axes.flat[len(timings) :]:
         ax.set_visible(False)
     axes.flat[0].legend(loc="upper left")

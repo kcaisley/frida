@@ -1,13 +1,15 @@
-"""Phase interpolator testbench and named TSMC65 Spectre simulation targets.
+"""Phase interpolator testbench and named Spectre simulation targets, in every PDK.
 
 The testbench follows Usb2Phy's ``PhaseInterpTb``: two clock phases, A and B a set spacing
-later, with their complements, fixed biases and a load on each output; Usb2Phy measures the
+later, with their complements, current-reference biases (from a supply of their own) and a load
+on each output; Usb2Phy measures the
 output's differential crossing (``.measure tdelay when V(dck_p)-V(dck_n)=0``). Here the cases'
 weights are fixed, so the characterization sweeps the phase spacing (the interpolator's
 transfer and linearity) and the clock period at quadrature spacing.
 """
 
 import argparse
+import importlib
 import json
 import math
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -18,11 +20,12 @@ from pathlib import Path
 import hdl21 as h
 import hdl21.sim as hs
 import numpy as np
-from hdl21.primitives import C, Vdc, Vpulse
-from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
+from hdl21.primitives import C, Idc, MosType, Vdc, Vpulse
+from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
 from flow.analysis.io import interpolate_wave_records, write_measurement
 from flow.circuit.ports import testbench_from_ports
+from flow.comp.subckt import _mos
 
 from .subckt import CASES, Pi, PiNets, PiParams, Style
 
@@ -42,6 +45,7 @@ def pi_signal_names() -> dict[str, str]:
 class PiTbParams:
     """Parameters which determine the generated phase interpolator testbench."""
 
+    pdk = h.Param(dtype=str, desc="PDK the testbench compiles to and simulates in", default="tsmc65")
     waveform_sample_interval_s = h.Param(
         dtype=float, desc="Maximum raw step and stored waveform spacing", default=0.5e-12
     )
@@ -49,8 +53,9 @@ class PiTbParams:
     pi = h.Param(dtype=PiParams, desc="Interpolator parameters", default=PiParams())
     cload = h.Param(dtype=h.Scalar, desc="Load capacitance on each output (F)", default=2e-15)
     cml_low = h.Param(dtype=h.Scalar, desc="Low level of the CML phases", default=0.8)
-    vbn = h.Param(dtype=h.Scalar, desc="CML tail bias", default=0.55)
-    vbp = h.Param(dtype=h.Scalar, desc="CML load bias", default=0.55)
+    unit_current_a = h.Param(
+        dtype=float, desc="Current of each CML tail unit the bias references set (A)", default=10e-6
+    )
     period_s = h.Param(dtype=h.Scalar, desc="Phase period", default=400e-12)
     spacing_deg = h.Param(dtype=h.Scalar, desc="Phase B's lag behind phase A (degrees)", default=90.0)
     transition_time_s = h.Param(dtype=h.Scalar, desc="Rise and fall time of every source", default=100e-12)
@@ -72,8 +77,8 @@ def _validate_pi_tb_params(params: PiTbParams) -> None:
 @h.generator
 def PiTb(params: PiTbParams) -> h.Module:
     """Generate the phase interpolator testbench (Usb2Phy ``PhaseInterpTb``): phase A and phase
-    B ``spacing_deg`` later, full-swing (CMOS) or at CML levels, both complements; fixed biases,
-    a load on each output."""
+    B ``spacing_deg`` later, full-swing (CMOS) or at CML levels, both complements;
+    current-reference biases, a load on each output."""
 
     _validate_pi_tb_params(params)
 
@@ -96,8 +101,17 @@ def PiTb(params: PiTbParams) -> h.Module:
                 )(p=net, n=vss),
                 name=f"vphase_{phase}{side}",
             )
-    PiTb.vvbn = Vdc(dc=params.vbn)(p=PiTb.vbn, n=vss)
-    PiTb.vvbp = Vdc(dc=params.vbp)(p=PiTb.vbp, n=vss)
+    # the bias references, as Usb2Phy's benches bias: a diode-connected copy of a CML tail unit on
+    # vbn, fed a unit's current, and of a load on vbp, fed half of all the units'; from their own
+    # supply, so the interpolator's is its own current
+    pi = params.pi
+    units = pi.weight_a + pi.weight_b
+    PiTb.vddb = h.Signal()
+    PiTb.vvddb = Vdc(dc=vdd)(p=PiTb.vddb, n=vss)
+    PiTb.mbn = _mos(tp=MosType.NMOS, vth=pi.vth, w=pi.tail_w, l=pi.tail_l)(d=PiTb.vbn, g=PiTb.vbn, s=vss, b=vss)
+    PiTb.ibn = Idc(dc=params.unit_current_a)(p=PiTb.vddb, n=PiTb.vbn)
+    PiTb.mbp = _mos(tp=MosType.PMOS, vth=pi.vth, w=pi.p_w, l=pi.l)(d=PiTb.vbp, g=PiTb.vbp, s=PiTb.vddb, b=PiTb.vddb)
+    PiTb.ibp = Idc(dc=units * params.unit_current_a / 2)(p=PiTb.vbp, n=vss)
     PiTb.cloadp = C(c=params.cload)(p=PiTb.outp, n=vss)
     PiTb.cloadn = C(c=params.cload)(p=PiTb.outn, n=vss)
     PiTb.dut = Pi(params.pi)(**connections)
@@ -105,23 +119,25 @@ def PiTb(params: PiTbParams) -> h.Module:
 
 
 def _run_pi_sim(run_dir: Path, params: PiTbParams, *, check: bool = False) -> Path:
-    """Run one phase interpolator testbench transient in TSMC65 and return its raw file.
+    """Run one phase interpolator testbench transient in its PDK and return its raw file.
 
     ``check`` adds Spectre's static and connectivity checks and shortens the run to a tenth.
     """
 
-    from pdk import tsmc65
-    from pdk.tsmc65.hdl21 import site
+    pdk = importlib.import_module(f"pdk.{params.pdk}")
+    install = importlib.import_module(f"pdk.{params.pdk}.hdl21.site").install
 
     run_dir.mkdir(parents=True, exist_ok=True)
-    h.pdk.set_default(tsmc65.pdk_logic)
+    h.pdk.set_default(pdk.pdk_logic)
     tb = PiTb(params)
     h.pdk.compile(tb)
     interval = params.waveform_sample_interval_s
     tstop = params.cycles * float(params.period_s)
     attrs = [
-        site.install.include(h.pdk.Corner.TYP),
-        site.install.include_pre_simulation(),
+        install.include(h.pdk.Corner.TYP),
+        # what else the PDK's simulations take, in this order: TSMC's pre-simulation settings,
+        # the device names its netlists use (pdk/<name>/hdl21)
+        *(getattr(install, name)() for name in ("include_pre_simulation", "include_devices") if hasattr(install, name)),
         hs.Options(name="temp", value=25.0),
         hs.Options(name="save", value="selected"),
         hs.Save([raw for raw in pi_signal_names() if raw != "time"]),
@@ -144,27 +160,32 @@ def _run_pi_sim(run_dir: Path, params: PiTbParams, *, check: bool = False) -> Pa
             options={"strobeperiod": interval, "maxstep": interval, "strobeoutput": "strobeonly"},
         )
     )
-    hs.Sim(tb=tb, attrs=attrs).run(
-        SimOptions(
-            simulator=SupportedSimulators.SPECTRE,
-            fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
-            rundir=run_dir,
-            simulator_args=(
-                "+preset=mx",
-                "+mt=1",
-                "+lqtimeout",
-                "3600",
-                "+escchars",
-                "+log",
-                "spectre.log",
-                *(("-ahdllint=warn", "-ahdllint_log", "ahdllint.log") if check else ()),
-            ),
+    # the simulator's error holds its simulation, which cannot cross back from a worker process:
+    # raise it as text
+    try:
+        hs.Sim(tb=tb, attrs=attrs).run(
+            SimOptions(
+                simulator=SupportedSimulators.SPECTRE,
+                fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
+                rundir=run_dir,
+                simulator_args=(
+                    "+preset=mx",
+                    "+mt=1",
+                    "+lqtimeout",
+                    "3600",
+                    "+escchars",
+                    "+log",
+                    "spectre.log",
+                    *(("-ahdllint=warn", "-ahdllint_log", "ahdllint.log") if check else ()),
+                ),
+            )
         )
-    )
+    except SimError as error:
+        raise RuntimeError(f"Spectre failed in {run_dir}: {error}") from None
     return run_dir / "netlist.raw"
 
 
-# The characterization: phase B's spacing behind A from 0 to 180 degrees at the 400 ps (2.5 GHz)
+# The characterization, in every PDK: phase B's spacing behind A from 0 to 180 degrees at the 400 ps (2.5 GHz)
 # period, and the period from 1 ns to 100 ps at quadrature spacing. The phases' edges take a
 # quarter period, as an interpolator's slewed inputs do: with sharp edges the slices fight
 # instead of mixing.
@@ -175,14 +196,15 @@ NOMINAL_SPACING_DEG = 90.0
 
 
 def pi_characterization(run_dir: Path, *, check: bool = False) -> Path:
-    """Run every interpolator over the phase spacing and the period: 4 cases, 20 points each.
+    """Run every interpolator over the phase spacing and the period in every PDK: 4 cases, 20 points each.
 
-    Each point writes ``<case>/<sweep>/<point>/result.h5`` (a ``MeasPi``). ``check`` runs the
-    nominal point of each case with Spectre's checks instead, writing no measurement.
+    Each point writes ``<pdk>/<case>/<sweep>/<point>/result.h5`` (a ``MeasPi``). ``check`` runs
+    the nominal point of each case with Spectre's checks instead, writing no measurement.
     """
 
     from flow.analysis.types import MeasInfo, Wave
     from flow.circuit.results import read_raw_transient
+    from flow.comp.layout import PDKS
     from flow.pi.analysis import MeasPi
 
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -190,80 +212,93 @@ def pi_characterization(run_dir: Path, *, check: bool = False) -> Path:
     points["period"] = [(period, NOMINAL_SPACING_DEG) for period in PERIOD_SWEEP_S]
     if check:
         points = {"spacing": [(NOMINAL_PERIOD_S, NOMINAL_SPACING_DEG)]}
-    jobs = {
-        f"{case}/{sweep}/period{round(period * 1e12)}ps_spacing{round(spacing)}deg": PiTbParams(
-            pi=pi,
-            period_s=period,
-            spacing_deg=spacing,
-            transition_time_s=period / 4,
-        )
-        for case, pi in CASES.items()
-        for sweep, values in points.items()
-        for period, spacing in values
-    }
+    # in every PDK at its own core supply, the CML phases across its top third
+    jobs = {}
+    for pdk in PDKS:
+        supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
+        for case, pi in CASES.items():
+            for sweep, values in points.items():
+                for period, spacing in values:
+                    jobs[f"{pdk}/{case}/{sweep}/period{round(period * 1e12)}ps_spacing{round(spacing)}deg"] = (
+                        PiTbParams(
+                            pdk=pdk,
+                            pi=pi,
+                            vdd=supply,
+                            cml_low=round(2 * supply / 3, 4),
+                            period_s=period,
+                            spacing_deg=spacing,
+                            transition_time_s=period / 4,
+                        )
+                    )
     names = pi_signal_names()
     failures: dict[str, str] = {}
-    with ProcessPoolExecutor(max_workers=16, mp_context=get_context("spawn")) as executor:
-        futures = {
-            executor.submit(_run_pi_sim, run_dir / name, params, check=check): (name, params)
-            for name, params in jobs.items()
-        }
-        for future in as_completed(futures):
-            name, params = futures[future]
-            try:
-                raw_path = future.result()
-                if check:
-                    continue
-                # one record from time zero on the stored grid; the supply current as positive draw
-                result = read_raw_transient(raw_path)
-                times_s = np.asarray(result.data["time"])
-                interval = params.waveform_sample_interval_s
-                window = [(float(times_s[0]), float(times_s[-1]))]
-                time_s, voltages = interpolate_wave_records(
-                    times_s,
-                    {
-                        names[key]: value
-                        for key, value in result.data.items()
-                        if not names[key].startswith(("i(", "time"))
-                    },
-                    window,
-                    interval,
-                )
-                _, currents = interpolate_wave_records(
-                    times_s,
-                    {
-                        names[key][2:-1]: -np.asarray(value)
-                        for key, value in result.data.items()
-                        if names[key].startswith("i(")
-                    },
-                    window,
-                    interval,
-                )
-                measurement = MeasPi(
-                    group=None,
-                    index=None,
-                    dut=params.pi,
-                    info=MeasInfo(
-                        backend="spice",
-                        timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
-                        instruments={"simulator": "Spectre"},
-                        readbacks={
-                            "case": name.split("/")[0],
-                            "sweep": name.split("/")[1],
-                            "signal_map_json": json.dumps(names, sort_keys=True),
-                            "raw_file": raw_path.name,
-                            "raw_points": len(times_s),
-                            "waveform_sample_interval_s": interval,
-                            "supply_current_convention": "positive_current_draw",
+    # one pool per PDK: hdl21 compiles each generated module in place, for the first PDK it meets
+    for pdk in PDKS:
+        with ProcessPoolExecutor(max_workers=16, mp_context=get_context("spawn")) as executor:
+            futures = {
+                executor.submit(_run_pi_sim, run_dir / name, params, check=check): (name, params)
+                for name, params in jobs.items()
+                if params.pdk == pdk
+            }
+            for future in as_completed(futures):
+                name, params = futures[future]
+                try:
+                    raw_path = future.result()
+                    if check:
+                        continue
+                    # one record from time zero on the stored grid; the supply current as positive draw
+                    result = read_raw_transient(raw_path)
+                    times_s = np.asarray(result.data["time"])
+                    interval = params.waveform_sample_interval_s
+                    window = [(float(times_s[0]), float(times_s[-1]))]
+                    time_s, voltages = interpolate_wave_records(
+                        times_s,
+                        {
+                            names[key]: value
+                            for key, value in result.data.items()
+                            if not names[key].startswith(("i(", "time"))
                         },
-                    ),
-                    param=params,
-                    trial_index=np.arange(1, dtype=np.int64),
-                    wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
-                )
-                write_measurement(raw_path.parent / "result.h5", measurement)
-            except Exception as error:  # noqa: BLE001 - report every independent point failure
-                failures[name] = repr(error)
+                        window,
+                        interval,
+                    )
+                    _, currents = interpolate_wave_records(
+                        times_s,
+                        {
+                            names[key][2:-1]: -np.asarray(value)
+                            for key, value in result.data.items()
+                            if names[key].startswith("i(")
+                        },
+                        window,
+                        interval,
+                    )
+                    measurement = MeasPi(
+                        group=None,
+                        index=None,
+                        dut=params.pi,
+                        info=MeasInfo(
+                            backend="spice",
+                            timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
+                            instruments={"simulator": "Spectre"},
+                            readbacks={
+                                "pdk": name.split("/")[0],
+                                "case": name.split("/")[1],
+                                "sweep": name.split("/")[2],
+                                "nominal": float(params.period_s) == NOMINAL_PERIOD_S
+                                and float(params.spacing_deg) == NOMINAL_SPACING_DEG,
+                                "signal_map_json": json.dumps(names, sort_keys=True),
+                                "raw_file": raw_path.name,
+                                "raw_points": len(times_s),
+                                "waveform_sample_interval_s": interval,
+                                "supply_current_convention": "positive_current_draw",
+                            },
+                        ),
+                        param=params,
+                        trial_index=np.arange(1, dtype=np.int64),
+                        wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
+                    )
+                    write_measurement(raw_path.parent / "result.h5", measurement)
+                except Exception as error:  # noqa: BLE001 - report every independent point failure
+                    failures[name] = repr(error)
     if failures:
         failure_path = run_dir / "failures.json"
         failure_path.write_text(json.dumps(failures, indent=2) + "\n")

@@ -38,7 +38,8 @@ class AnalysisMoscapCv(Analysis):
     ``bias_v`` is a decap's supply, or a two-net capacitor's gate plate over its channel plate.
     ``capacitance_f`` is at the lowest frequency; ``quality`` and ``series_resistance_ohm`` at
     the sweep frequency nearest 1 GHz (``loss_frequency_hz``); ``corner_hz`` where the quality
-    factor first falls to 1 (NaN within the sweep). ``capacitance_spectrum_f`` and
+    factor first falls to 1 (NaN within the sweep). A model without AC loss gives no conductance:
+    an infinite quality factor, no series resistance, no corner. ``capacitance_spectrum_f`` and
     ``quality_spectrum`` hold every frequency, one row per bias.
     """
 
@@ -67,9 +68,18 @@ def analyze_moscap_cv(measurements: Sequence[MeasMosCap]) -> AnalysisMoscapCv:
     for measurement in measurements:
         tb = measurement.param
         capacitance = measurement.susceptance_s / (2 * np.pi * frequency_hz)
-        quality = measurement.susceptance_s / measurement.conductance_s
+        quality = np.divide(
+            measurement.susceptance_s,
+            measurement.conductance_s,
+            out=np.full_like(measurement.susceptance_s, np.inf),
+            where=measurement.conductance_s != 0,
+        )
         impedance = 1 / (measurement.conductance_s + 1j * measurement.susceptance_s)
-        corner = calc.cross(np.log10(quality), np.log10(frequency_hz), 0.0, edge="falling", occurrence=1)
+        corner = (
+            calc.cross(np.log10(quality), np.log10(frequency_hz), 0.0, edge="falling", occurrence=1)
+            if np.all(np.isfinite(quality))
+            else math.nan
+        )
         rows.append(
             (
                 float(tb.vdd) if decap else float(tb.vtop) - float(tb.vbot),

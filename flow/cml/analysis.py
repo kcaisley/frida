@@ -44,7 +44,7 @@ class AnalysisCmlSwitching(Analysis):
 
     vdd_v: np.ndarray
     clock_period_s: np.ndarray
-    tail_drive_v: np.ndarray
+    tail_current_a: np.ndarray
     swing_v: np.ndarray
     output_cm_v: np.ndarray
     delay_s: np.ndarray
@@ -113,7 +113,7 @@ def analyze_cml_switching(measurements: Sequence[MeasCml]) -> AnalysisCmlSwitchi
             (
                 float(measurement.param.vdd),
                 float(measurement.param.clock_period_s),
-                float(measurement.info.readbacks["tail_drive_v"]),
+                float(measurement.param.tail_current_a),
                 calc.peakToPeak(output_v) / 2,
                 calc.average(*common),
                 float(np.median(delays)) if delays else math.nan,
@@ -130,7 +130,7 @@ def analyze_cml_switching(measurements: Sequence[MeasCml]) -> AnalysisCmlSwitchi
         dut=identity.dut,
         vdd_v=vdd_v,
         clock_period_s=period_s,
-        tail_drive_v=drive,
+        tail_current_a=drive,
         swing_v=swing,
         output_cm_v=common_v,
         delay_s=delay,

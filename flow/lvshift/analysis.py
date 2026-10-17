@@ -34,10 +34,11 @@ class MeasLvShift(Meas):
 class AnalysisLvshiftSwitching(Analysis):
     """Level shifter switching at each pair of supplies.
 
-    Delays are medians over the input edges the output followed within half a period;
+    Delays are medians over the input edges the output followed within half a period, NaN
+    where it missed any edge of that direction (a lone start-up crossing is no switching);
     ``energy_per_cycle_j`` sums both supplies over one input period from the second rising
     input edge; ``static_current_a`` is vdd's larger average current over the last tenth of a
-    half period before an input edge, the output settled high or low.
+    half period before an input edge's ramp, the output settled high or low.
     """
 
     vdd_v: np.ndarray
@@ -87,9 +88,18 @@ def analyze_lvshift_switching(measurements: Sequence[MeasLvShift]) -> AnalysisLv
                 energy += level * calc.average(current, current_s) * period
         else:
             energy = math.nan
-        # idle: the last tenth of each half period, before the next input edge
+        # idle: the last tenth of each half period, before the next input edge's ramp starts (half
+        # a transition before its crossing)
+        transition = float(tb.transition_time_s)
         idle = [
-            calc.average(*calc.clip(wave.i[LvShiftNets.vdd.name][0], time_s, edge - 0.05 * period, edge))
+            calc.average(
+                *calc.clip(
+                    wave.i[LvShiftNets.vdd.name][0],
+                    time_s,
+                    edge - transition / 2 - 0.05 * period,
+                    edge - transition / 2,
+                )
+            )
             for edge in calc.cross(source, time_s, vddl / 2, edge="either")
             if edge > period
         ]
@@ -98,8 +108,12 @@ def analyze_lvshift_switching(measurements: Sequence[MeasLvShift]) -> AnalysisLv
             (
                 vdd,
                 vddl,
-                float(np.median(delays["rising"])) if delays["rising"] else math.nan,
-                float(np.median(delays["falling"])) if delays["falling"] else math.nan,
+                *(
+                    float(np.median(delays[edge]))
+                    if delays[edge] and len(delays[edge]) == delays[edge, "launches"]
+                    else math.nan
+                    for edge in ("rising", "falling")
+                ),
                 followed / launches if launches else math.nan,
                 calc.ymax(settled_v),
                 calc.ymin(settled_v),

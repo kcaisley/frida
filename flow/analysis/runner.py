@@ -104,10 +104,9 @@ from flow.analysis.types import (
 )
 from flow.clkgen.analysis import MeasClkgen, analyze_clkgen_timing
 from flow.clkgen.plots import plot_clkgen_frequency, plot_clkgen_supply, plot_clkgen_waveforms
-from flow.clkgen.sim import NOMINAL_SUPPLY_V as CLKGEN_NOMINAL_SUPPLY_V
 from flow.cml.analysis import MeasCml, analyze_cml_switching
 from flow.cml.plots import plot_cml_frequency, plot_cml_tail, plot_cml_waveforms
-from flow.cml.sim import NOMINAL_CLOCK_PERIOD_S, NOMINAL_TAIL_DRIVE_V
+from flow.comp.layout import PDKS
 from flow.delay.analysis import MeasDelay, analyze_delay_oscillation, analyze_delay_propagation
 from flow.delay.plots import (
     plot_delay_line_control,
@@ -115,26 +114,20 @@ from flow.delay.plots import (
     plot_delay_ring_control,
     plot_delay_ring_supply,
 )
-from flow.delay.sim import NOMINAL_CONTROL_V, NOMINAL_SUPPLY_V
 from flow.follower.analysis import MeasFollower, analyze_follower_impedance, analyze_follower_transfer
 from flow.follower.plots import plot_follower_bandwidth, plot_follower_response, plot_follower_transfer
-from flow.follower.sim import NOMINAL_VIN_V
 from flow.idac.analysis import MeasIdac, analyze_idac_output, analyze_idac_steering
 from flow.idac.plots import plot_idac_bias, plot_idac_iv, plot_idac_steering
-from flow.idac.sim import NOMINAL_GATE_DRIVE_V, NOMINAL_IREF_A
 from flow.latch.analysis import MeasLatch, analyze_latch_constraint, analyze_latch_sr, analyze_latch_timing
 from flow.latch.plots import plot_latch_frequency, plot_latch_setup_hold, plot_latch_supply
 from flow.lvshift.analysis import MeasLvShift, analyze_lvshift_switching
 from flow.lvshift.plots import plot_lvshift_vdd, plot_lvshift_vddl, plot_lvshift_waveforms
-from flow.lvshift.sim import NOMINAL_VDDL_V
 from flow.moscap.analysis import MeasMosCap, analyze_moscap_cv
 from flow.moscap.plots import plot_moscap_cv, plot_moscap_frequency, plot_moscap_quality
-from flow.ota.analysis import MeasOta, analyze_ota_ac
-from flow.ota.plots import plot_ota_bode, plot_ota_common_mode, plot_ota_supply
-from flow.ota.sim import NOMINAL_VCM_V
+from flow.ota.analysis import MeasOta, analyze_ota_ac, analyze_ota_noise
+from flow.ota.plots import plot_ota_bode, plot_ota_common_mode, plot_ota_noise, plot_ota_supply
 from flow.pi.analysis import MeasPi, analyze_pi_linearity, analyze_pi_phase
 from flow.pi.plots import plot_pi_frequency, plot_pi_transfer, plot_pi_waveforms
-from flow.pi.sim import NOMINAL_PERIOD_S, NOMINAL_SPACING_DEG
 from flow.ringamp.analysis import MeasRingamp, analyze_ringamp_settling, analyze_ringamp_transfer
 from flow.ringamp.plots import plot_ringamp_deadzone, plot_ringamp_step, plot_ringamp_transfer, plot_ringamp_waveforms
 from flow.scans.params import load_board_map
@@ -1312,9 +1305,9 @@ def cdac_system_cap_mismatch_study(output_dir: Path) -> tuple[Path, ...]:
 
 
 def delay_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named rings' frequency and energy, and the delay lines' delay, over supply and control."""
+    """Compare the named rings' frequency and energy, and the delay lines' delay, over supply and control, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/delay/delay_characterization/20261017_120632"
+    meas_read_dir = BASE_PATH / "build/sim/delay/delay_characterization/20261017_203820"
     rings = (
         ("ring5", "ring5: inverter"),
         ("ring5_starved", "ring5_starved: current starved"),
@@ -1326,39 +1319,53 @@ def delay_characterization_study(output_dir: Path) -> tuple[Path, ...]:
         ("chain2_coupled", "chain2_coupled: coupled differential"),
         ("chain4_starved", "chain4_starved: current starved"),
     )
-    sweeps = {}
-    for name, _label in (*rings, *lines):
-        measurements = []
-        for path in sorted(meas_read_dir.glob(f"{name}/*/result.h5")):
-            measurement = read_measurement(path)
-            if not isinstance(measurement, MeasDelay):
-                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasDelay")
-            measurements.append(measurement)
-        # the supply sweep at the nominal control, and the control sweep at the nominal supply
-        supply = [item for item in measurements if float(item.param.control_v) == NOMINAL_CONTROL_V]
-        control = [item for item in measurements if float(item.param.vdd) == NOMINAL_SUPPLY_V]
-        sweeps[name] = (
-            sorted(supply, key=lambda item: float(item.param.vdd)),
-            sorted(control, key=lambda item: float(item.param.control_v)),
-        )
-    ring_supply = [analyze_delay_oscillation(sweeps[name][0]) for name, _label in rings]
-    ring_control = [analyze_delay_oscillation(sweeps[name][1]) for name, _label in rings]
-    line_supply = [analyze_delay_propagation(sweeps[name][0]) for name, _label in lines]
-    line_control = [analyze_delay_propagation(sweeps[name][1]) for name, _label in lines]
     ring_labels = [label for _name, label in rings]
     line_labels = [label for _name, label in lines]
-    return (
-        *plot_delay_ring_supply(ring_supply, labels=ring_labels, output_path=output_dir / "delay_ring_supply"),
-        *plot_delay_ring_control(ring_control, labels=ring_labels, output_path=output_dir / "delay_ring_control"),
-        *plot_delay_line_supply(line_supply, labels=line_labels, output_path=output_dir / "delay_line_supply"),
-        *plot_delay_line_control(line_control, labels=line_labels, output_path=output_dir / "delay_line_control"),
-    )
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in (*rings, *lines):
+            for sweep, key in (
+                ("supply", lambda item: float(item.param.vdd)),
+                ("control", lambda item: float(item.param.control_v)),
+            ):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasDelay):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasDelay")
+                    measurements.append(measurement)
+                sweeps[name, sweep] = sorted(measurements, key=key)
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_delay_ring_supply(
+                [analyze_delay_oscillation(sweeps[name, "supply"]) for name, _label in rings],
+                labels=ring_labels,
+                output_path=pdk_dir / "delay_ring_supply",
+            ),
+            *plot_delay_ring_control(
+                [analyze_delay_oscillation(sweeps[name, "control"]) for name, _label in rings],
+                labels=ring_labels,
+                output_path=pdk_dir / "delay_ring_control",
+            ),
+            *plot_delay_line_supply(
+                [analyze_delay_propagation(sweeps[name, "supply"]) for name, _label in lines],
+                labels=line_labels,
+                output_path=pdk_dir / "delay_line_supply",
+            ),
+            *plot_delay_line_control(
+                [analyze_delay_propagation(sweeps[name, "control"]) for name, _label in lines],
+                labels=line_labels,
+                output_path=pdk_dir / "delay_line_control",
+            ),
+        ]
+    return tuple(artifacts)
 
 
 def latch_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named latches' setup and hold, delay and energy over supply, and toggle limit."""
+    """Compare the named latches' setup and hold, delay and energy over supply, and toggle limit, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/latch/latch_characterization/20261017_121722"
+    meas_read_dir = BASE_PATH / "build/sim/latch/latch_characterization/20261017_204123"
     clocked = (
         ("latch", "latch: C2MOS"),
         ("latch_rst", "latch_rst: C2MOS with reset"),
@@ -1366,52 +1373,56 @@ def latch_characterization_study(output_dir: Path) -> tuple[Path, ...]:
         ("div2", "div2: divide by two"),
     )
     srs = (("sr_nand", "sr_nand: NAND"), ("sr_nor", "sr_nor: NOR"))
-    sweeps = {}
-    for name, _label in (*clocked, *srs):
-        for sweep, key in (
-            ("supply", lambda item: float(item.param.vdd)),
-            ("offset", lambda item: float(item.param.data_offset_s)),
-            ("period", lambda item: -float(item.param.clock_period_s)),
-        ):
-            measurements = []
-            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
-                measurement = read_measurement(path)
-                if not isinstance(measurement, MeasLatch):
-                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasLatch")
-                measurements.append(measurement)
-            sweeps[name, sweep] = sorted(measurements, key=key)
-    offset_cases = [(name, label) for name, label in clocked if sweeps[name, "offset"]]
-    period_cases = [(name, label) for name, label in clocked if sweeps[name, "period"]]
-    offset_timings = [analyze_latch_timing(sweeps[name, "offset"]) for name, _label in offset_cases]
-    constraints = [
-        analyze_latch_constraint(sweeps[name, "offset"], timing=timing)
-        for (name, _label), timing in zip(offset_cases, offset_timings, strict=True)
-    ]
-    return (
-        *plot_latch_setup_hold(
-            offset_timings,
-            constraints,
-            labels=[label for _name, label in offset_cases],
-            output_path=output_dir / "latch_setup_hold",
-        ),
-        *plot_latch_supply(
-            [analyze_latch_timing(sweeps[name, "supply"]) for name, _label in clocked],
-            [analyze_latch_sr(sweeps[name, "supply"]) for name, _label in srs],
-            labels=[label for _name, label in (*clocked, *srs)],
-            output_path=output_dir / "latch_supply",
-        ),
-        *plot_latch_frequency(
-            [analyze_latch_timing(sweeps[name, "period"]) for name, _label in period_cases],
-            labels=[label for _name, label in period_cases],
-            output_path=output_dir / "latch_frequency",
-        ),
-    )
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in (*clocked, *srs):
+            for sweep, key in (
+                ("supply", lambda item: float(item.param.vdd)),
+                ("offset", lambda item: float(item.param.data_offset_s)),
+                ("period", lambda item: -float(item.param.clock_period_s)),
+            ):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasLatch):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasLatch")
+                    measurements.append(measurement)
+                sweeps[name, sweep] = sorted(measurements, key=key)
+        offset_cases = [(name, label) for name, label in clocked if sweeps[name, "offset"]]
+        period_cases = [(name, label) for name, label in clocked if sweeps[name, "period"]]
+        offset_timings = [analyze_latch_timing(sweeps[name, "offset"]) for name, _label in offset_cases]
+        constraints = [
+            analyze_latch_constraint(sweeps[name, "offset"], timing=timing)
+            for (name, _label), timing in zip(offset_cases, offset_timings, strict=True)
+        ]
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_latch_setup_hold(
+                offset_timings,
+                constraints,
+                labels=[label for _name, label in offset_cases],
+                output_path=pdk_dir / "latch_setup_hold",
+            ),
+            *plot_latch_supply(
+                [analyze_latch_timing(sweeps[name, "supply"]) for name, _label in clocked],
+                [analyze_latch_sr(sweeps[name, "supply"]) for name, _label in srs],
+                labels=[label for _name, label in (*clocked, *srs)],
+                output_path=pdk_dir / "latch_supply",
+            ),
+            *plot_latch_frequency(
+                [analyze_latch_timing(sweeps[name, "period"]) for name, _label in period_cases],
+                labels=[label for _name, label in period_cases],
+                output_path=pdk_dir / "latch_frequency",
+            ),
+        ]
+    return tuple(artifacts)
 
 
 def ota_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named OTAs' open-loop response, input common-mode range, and supply scaling."""
+    """Compare the named OTAs' open-loop response, input common-mode range, noise, and supply scaling, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/ota/ota_characterization/20261017_123051"
+    meas_read_dir = BASE_PATH / "build/sim/ota/ota_characterization/20261017_201356"
     cases = (
         ("five_t", "five_t: NMOS input"),
         ("five_t_pmos", "five_t_pmos: PMOS input"),
@@ -1420,162 +1431,188 @@ def ota_characterization_study(output_dir: Path) -> tuple[Path, ...]:
         ("folded", "folded: folded cascode"),
         ("two_stage", "two_stage: telescopic, CS"),
     )
-    sweeps = {}
-    for name, _label in cases:
-        for sweep, key in (
-            ("vcm", lambda item: float(item.param.vcm)),
-            ("supply", lambda item: float(item.param.vdd)),
-        ):
-            measurements = []
-            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
-                measurement = read_measurement(path)
-                if not isinstance(measurement, MeasOta):
-                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasOta")
-                measurements.append(measurement)
-            sweeps[name, sweep] = sorted(measurements, key=key)
     labels = [label for _name, label in cases]
-    nominal = [
-        analyze_ota_ac([item for item in sweeps[name, "vcm"] if float(item.param.vcm) == NOMINAL_VCM_V])
-        for name, _label in cases
-    ]
-    return (
-        *plot_ota_bode(nominal, labels=labels, output_path=output_dir / "ota_bode"),
-        *plot_ota_common_mode(
-            [analyze_ota_ac(sweeps[name, "vcm"]) for name, _label in cases],
-            labels=labels,
-            output_path=output_dir / "ota_common_mode",
-        ),
-        *plot_ota_supply(
-            [analyze_ota_ac(sweeps[name, "supply"]) for name, _label in cases],
-            labels=labels,
-            output_path=output_dir / "ota_supply",
-        ),
-    )
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            for sweep, key in (
+                ("vcm", lambda item: float(item.param.vcm)),
+                ("supply", lambda item: float(item.param.vdd)),
+            ):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasOta):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasOta")
+                    measurements.append(measurement)
+                sweeps[name, sweep] = sorted(measurements, key=key)
+        common_modes = [analyze_ota_ac(sweeps[name, "vcm"]) for name, _label in cases]
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_ota_bode(
+                [
+                    analyze_ota_ac([item for item in sweeps[name, "vcm"] if item.info.readbacks["nominal"]])
+                    for name, _label in cases
+                ],
+                labels=labels,
+                output_path=pdk_dir / "ota_bode",
+            ),
+            *plot_ota_common_mode(common_modes, labels=labels, output_path=pdk_dir / "ota_common_mode"),
+            *plot_ota_noise(
+                [
+                    analyze_ota_noise(sweeps[name, "vcm"], ac=ac)
+                    for (name, _label), ac in zip(cases, common_modes, strict=True)
+                ],
+                labels=labels,
+                output_path=pdk_dir / "ota_noise",
+            ),
+            *plot_ota_supply(
+                [analyze_ota_ac(sweeps[name, "supply"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "ota_supply",
+            ),
+        ]
+    return tuple(artifacts)
 
 
 def follower_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named followers' transfer, bandwidth, and output impedance over the input level."""
+    """Compare the named followers' transfer, bandwidth, and output impedance over the input level, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/follower/follower_characterization/20261017_124138"
+    meas_read_dir = BASE_PATH / "build/sim/follower/follower_characterization/20261017_202158"
     cases = (
         ("source", "source: NMOS"),
         ("source_pmos", "source_pmos: PMOS"),
         ("flipped", "flipped: NMOS flipped"),
         ("flipped_pmos", "flipped_pmos: PMOS flipped, sink"),
     )
-    sweeps = {}
-    for name, _label in cases:
-        for stimulus in ("input", "output"):
-            measurements = []
-            for path in sorted(meas_read_dir.glob(f"{name}/{stimulus}/*/result.h5")):
-                measurement = read_measurement(path)
-                if not isinstance(measurement, MeasFollower):
-                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasFollower")
-                measurements.append(measurement)
-            sweeps[name, stimulus] = sorted(measurements, key=lambda item: float(item.param.vin))
     labels = [label for _name, label in cases]
-    transfers = [analyze_follower_transfer(sweeps[name, "input"]) for name, _label in cases]
-    impedances = [analyze_follower_impedance(sweeps[name, "output"]) for name, _label in cases]
-    nominal = {
-        stimulus: [
-            [item for item in sweeps[name, stimulus] if float(item.param.vin) == NOMINAL_VIN_V[name]]
-            for name, _label in cases
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            for stimulus in ("input", "output"):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{stimulus}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasFollower):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasFollower")
+                    measurements.append(measurement)
+                sweeps[name, stimulus] = sorted(measurements, key=lambda item: float(item.param.vin))
+        transfers = [analyze_follower_transfer(sweeps[name, "input"]) for name, _label in cases]
+        impedances = [analyze_follower_impedance(sweeps[name, "output"]) for name, _label in cases]
+        # each case's frequency response where it follows best (its input of highest gain): a fixed
+        # fraction of the supply leaves some PDK's flipped followers outside their range
+        best_vin = [float(transfer.vin_v[np.argmax(transfer.gain_v_per_v)]) for transfer in transfers]
+        nominal = {
+            stimulus: [
+                [item for item in sweeps[name, stimulus] if float(item.param.vin) == vin]
+                for (name, _label), vin in zip(cases, best_vin, strict=True)
+            ]
+            for stimulus in ("input", "output")
+        }
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_follower_transfer(transfers, labels=labels, output_path=pdk_dir / "follower_transfer"),
+            *plot_follower_bandwidth(transfers, impedances, labels=labels, output_path=pdk_dir / "follower_bandwidth"),
+            *plot_follower_response(
+                [analyze_follower_transfer(items) for items in nominal["input"]],
+                [analyze_follower_impedance(items) for items in nominal["output"]],
+                labels=labels,
+                output_path=pdk_dir / "follower_response",
+            ),
         ]
-        for stimulus in ("input", "output")
-    }
-    return (
-        *plot_follower_transfer(transfers, labels=labels, output_path=output_dir / "follower_transfer"),
-        *plot_follower_bandwidth(transfers, impedances, labels=labels, output_path=output_dir / "follower_bandwidth"),
-        *plot_follower_response(
-            [analyze_follower_transfer(items) for items in nominal["input"]],
-            [analyze_follower_impedance(items) for items in nominal["output"]],
-            labels=labels,
-            output_path=output_dir / "follower_response",
-        ),
-    )
+    return tuple(artifacts)
 
 
 def moscap_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named MOS capacitors' C-V, leakage, and loss over bias and frequency."""
+    """Compare the named MOS capacitors' C-V, leakage, and loss over bias and frequency, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/moscap/moscap_characterization/20261017_124815"
-    # each case at its working bias: a decap at the core supply, a capacitor in inversion
+    meas_read_dir = BASE_PATH / "build/sim/moscap/moscap_characterization/20261017_202605"
     cases = (
-        ("decap_n", "decap_n: NMOS decap", 1.2),
-        ("decap_np", "decap_np: NMOS and PMOS decap", 1.2),
-        ("cap_n", "cap_n: NMOS two-net", 1.2),
-        ("cap_p", "cap_p: PMOS two-net", -1.2),
+        ("decap_n", "decap_n: NMOS decap"),
+        ("decap_np", "decap_np: NMOS and PMOS decap"),
+        ("cap_n", "cap_n: NMOS two-net"),
+        ("cap_p", "cap_p: PMOS two-net"),
     )
-    sweeps = {}
-    for name, _label, _nominal in cases:
-        measurements = []
-        for path in sorted(meas_read_dir.glob(f"{name}/*/result.h5")):
-            measurement = read_measurement(path)
-            if not isinstance(measurement, MeasMosCap):
-                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasMosCap")
-            measurements.append(measurement)
-        sweeps[name] = sorted(measurements, key=lambda item: int(item.info.readbacks["bias_mv"]))
-    labels = [label for _name, label, _nominal in cases]
-    cvs = [analyze_moscap_cv(sweeps[name]) for name, _label, _nominal in cases]
-    nominal = [
-        analyze_moscap_cv([item for item in sweeps[name] if int(item.info.readbacks["bias_mv"]) == round(bias * 1e3)])
-        for name, _label, bias in cases
-    ]
-    return (
-        *plot_moscap_cv(cvs, labels=labels, output_path=output_dir / "moscap_cv"),
-        *plot_moscap_frequency(nominal, labels=labels, output_path=output_dir / "moscap_frequency"),
-        *plot_moscap_quality(cvs, labels=labels, output_path=output_dir / "moscap_quality"),
-    )
+    labels = [label for _name, label in cases]
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            measurements = []
+            for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasMosCap):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasMosCap")
+                measurements.append(measurement)
+            sweeps[name] = sorted(measurements, key=lambda item: int(item.info.readbacks["bias_mv"]))
+        cvs = [analyze_moscap_cv(sweeps[name]) for name, _label in cases]
+        # each case at its working bias: a decap at the core supply, a capacitor in inversion
+        nominal = [
+            analyze_moscap_cv([item for item in sweeps[name] if item.info.readbacks["nominal"]])
+            for name, _label in cases
+        ]
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_moscap_cv(cvs, labels=labels, output_path=pdk_dir / "moscap_cv"),
+            *plot_moscap_frequency(nominal, labels=labels, output_path=pdk_dir / "moscap_frequency"),
+            *plot_moscap_quality(cvs, labels=labels, output_path=pdk_dir / "moscap_quality"),
+        ]
+    return tuple(artifacts)
 
 
 def idac_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named current source units' output characteristic, bias range, and switching."""
+    """Compare the named current source units' output characteristic, reference range, and switching, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/idac/idac_characterization/20261017_125351"
+    meas_read_dir = BASE_PATH / "build/sim/idac/idac_characterization/20261017_202758"
     cases = (
         ("nmos_switched", "nmos_switched: 2 NMOS units, switched"),
         ("pmos_steer_cas", "pmos_steer_cas: PMOS cascode, steered"),
         ("nmos_steer", "nmos_steer: 4 NMOS units, steered"),
         ("pmos_mirror", "pmos_mirror: PMOS mirror, cascode"),
     )
-    sweeps = {}
-    for name, _label in cases:
-        for state in ("on", "off"):
-            measurements = []
-            for path in sorted(meas_read_dir.glob(f"{name}/{state}/*/result.h5")):
-                measurement = read_measurement(path)
-                if not isinstance(measurement, MeasIdac):
-                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasIdac")
-                measurements.append(measurement)
-            # in rising current: the bias label is the gate drive in mV or the reference current in nA
-            sweeps[name, state] = sorted(
-                measurements, key=lambda item: int("".join(filter(str.isdigit, str(item.info.readbacks["bias"]))))
-            )
     labels = [label for _name, label in cases]
-    outputs = [analyze_idac_output(sweeps[name, "on"]) for name, _label in cases]
-    nominal_biases = (f"drive{round(NOMINAL_GATE_DRIVE_V * 1e3)}mv", f"iref{round(NOMINAL_IREF_A * 1e9)}na")
-    nominal = [
-        analyze_idac_output([item for item in sweeps[name, "on"] if item.info.readbacks["bias"] in nominal_biases])
-        for name, _label in cases
-    ]
-    switched = [
-        (name, label, output) for (name, label), output in zip(cases, outputs, strict=True) if sweeps[name, "off"]
-    ]
-    return (
-        *plot_idac_iv(nominal, labels=labels, output_path=output_dir / "idac_iv"),
-        *plot_idac_bias(outputs, labels=labels, output_path=output_dir / "idac_bias"),
-        *plot_idac_steering(
-            [analyze_idac_steering(sweeps[name, "off"], on=output) for name, _label, output in switched],
-            labels=[label for _name, label, _output in switched],
-            output_path=output_dir / "idac_steering",
-        ),
-    )
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            for state in ("on", "off"):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{state}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasIdac):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasIdac")
+                    measurements.append(measurement)
+                sweeps[name, state] = sorted(measurements, key=lambda item: float(item.param.iref))
+        outputs = [analyze_idac_output(sweeps[name, "on"]) for name, _label in cases]
+        switched = [
+            (name, label, output) for (name, label), output in zip(cases, outputs, strict=True) if sweeps[name, "off"]
+        ]
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_idac_iv(
+                [
+                    analyze_idac_output([item for item in sweeps[name, "on"] if item.info.readbacks["nominal"]])
+                    for name, _label in cases
+                ],
+                labels=labels,
+                output_path=pdk_dir / "idac_iv",
+            ),
+            *plot_idac_bias(outputs, labels=labels, output_path=pdk_dir / "idac_bias"),
+            *plot_idac_steering(
+                [analyze_idac_steering(sweeps[name, "off"], on=output) for name, _label, output in switched],
+                labels=[label for _name, label, _output in switched],
+                output_path=pdk_dir / "idac_steering",
+            ),
+        ]
+    return tuple(artifacts)
 
 
 def cml_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named CML gates' swing, delay and speed over frequency and tail bias."""
+    """Compare the named CML gates' swing, delay and speed over frequency and tail current, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/cml/cml_characterization/20261017_130010"
+    meas_read_dir = BASE_PATH / "build/sim/cml/cml_characterization/20261017_202919"
     cases = (
         ("buffer", "buffer: NMOS input"),
         ("buffer_pmos", "buffer_pmos: PMOS input"),
@@ -1583,223 +1620,245 @@ def cml_characterization_study(output_dir: Path) -> tuple[Path, ...]:
         ("latch", "latch: triode loads"),
         ("divider", "divider: two latches"),
     )
-    sweeps = {}
-    for name, _label in cases:
-        for sweep, key in (
-            ("period", lambda item: -float(item.param.clock_period_s)),
-            ("tail", lambda item: float(item.info.readbacks["tail_drive_v"])),
-        ):
-            measurements = []
-            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
-                measurement = read_measurement(path)
-                if not isinstance(measurement, MeasCml):
-                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCml")
-                measurements.append(measurement)
-            sweeps[name, sweep] = sorted(measurements, key=key)
     labels = [label for _name, label in cases]
-    nominal = [
-        next(
-            item
-            for item in sweeps[name, "period"]
-            if float(item.param.clock_period_s) == NOMINAL_CLOCK_PERIOD_S
-            and float(item.info.readbacks["tail_drive_v"]) == NOMINAL_TAIL_DRIVE_V
-        )
-        for name, _label in cases
-    ]
-    return (
-        *plot_cml_frequency(
-            [analyze_cml_switching(sweeps[name, "period"]) for name, _label in cases],
-            labels=labels,
-            output_path=output_dir / "cml_frequency",
-        ),
-        *plot_cml_tail(
-            [analyze_cml_switching(sweeps[name, "tail"]) for name, _label in cases],
-            labels=labels,
-            output_path=output_dir / "cml_tail",
-        ),
-        *plot_cml_waveforms(nominal, labels=labels, output_path=output_dir / "cml_waveforms"),
-    )
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            for sweep, key in (
+                ("period", lambda item: -float(item.param.clock_period_s)),
+                ("tail", lambda item: float(item.param.tail_current_a)),
+            ):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasCml):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCml")
+                    measurements.append(measurement)
+                sweeps[name, sweep] = sorted(measurements, key=key)
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_cml_frequency(
+                [analyze_cml_switching(sweeps[name, "period"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "cml_frequency",
+            ),
+            *plot_cml_tail(
+                [analyze_cml_switching(sweeps[name, "tail"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "cml_tail",
+            ),
+            *plot_cml_waveforms(
+                [
+                    next(item for item in sweeps[name, "period"] if item.info.readbacks["nominal"])
+                    for name, _label in cases
+                ],
+                labels=labels,
+                output_path=pdk_dir / "cml_waveforms",
+            ),
+        ]
+    return tuple(artifacts)
 
 
 def pi_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named phase interpolators' transfer, linearity, and frequency response."""
+    """Compare the named phase interpolators' transfer, linearity, and frequency response, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/pi/pi_characterization/20261017_130754"
+    meas_read_dir = BASE_PATH / "build/sim/pi/pi_characterization/20261017_203146"
     cases = (
         ("cmos_half", "cmos_half: CMOS, 2 and 2 slices"),
         ("cmos_quarter", "cmos_quarter: CMOS, 3 and 1 slices"),
         ("cml_half", "cml_half: CML, 2 and 2 tails"),
         ("cml_quarter", "cml_quarter: CML, 3 and 1 tails"),
     )
-    sweeps = {}
-    for name, _label in cases:
-        for sweep, key in (
-            ("spacing", lambda item: float(item.param.spacing_deg)),
-            ("period", lambda item: -float(item.param.period_s)),
-        ):
-            measurements = []
-            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
-                measurement = read_measurement(path)
-                if not isinstance(measurement, MeasPi):
-                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasPi")
-                measurements.append(measurement)
-            sweeps[name, sweep] = sorted(measurements, key=key)
     labels = [label for _name, label in cases]
-    phases = [analyze_pi_phase(sweeps[name, "spacing"]) for name, _label in cases]
-    nominal = [
-        next(
-            item
-            for item in sweeps[name, "spacing"]
-            if float(item.param.spacing_deg) == NOMINAL_SPACING_DEG and float(item.param.period_s) == NOMINAL_PERIOD_S
-        )
-        for name, _label in cases
-    ]
-    return (
-        *plot_pi_transfer(
-            phases,
-            [
-                analyze_pi_linearity(sweeps[name, "spacing"], phase=phase)
-                for (name, _label), phase in zip(cases, phases, strict=True)
-            ],
-            labels=labels,
-            output_path=output_dir / "pi_transfer",
-        ),
-        *plot_pi_frequency(
-            [analyze_pi_phase(sweeps[name, "period"]) for name, _label in cases],
-            labels=labels,
-            output_path=output_dir / "pi_frequency",
-        ),
-        *plot_pi_waveforms(nominal, labels=labels, output_path=output_dir / "pi_waveforms"),
-    )
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            for sweep, key in (
+                ("spacing", lambda item: float(item.param.spacing_deg)),
+                ("period", lambda item: -float(item.param.period_s)),
+            ):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasPi):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasPi")
+                    measurements.append(measurement)
+                sweeps[name, sweep] = sorted(measurements, key=key)
+        phases = [analyze_pi_phase(sweeps[name, "spacing"]) for name, _label in cases]
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_pi_transfer(
+                phases,
+                [
+                    analyze_pi_linearity(sweeps[name, "spacing"], phase=phase)
+                    for (name, _label), phase in zip(cases, phases, strict=True)
+                ],
+                labels=labels,
+                output_path=pdk_dir / "pi_transfer",
+            ),
+            *plot_pi_frequency(
+                [analyze_pi_phase(sweeps[name, "period"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "pi_frequency",
+            ),
+            *plot_pi_waveforms(
+                [
+                    next(item for item in sweeps[name, "spacing"] if item.info.readbacks["nominal"])
+                    for name, _label in cases
+                ],
+                labels=labels,
+                output_path=pdk_dir / "pi_waveforms",
+            ),
+        ]
+    return tuple(artifacts)
 
 
 def clkgen_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named clock functions' timing over supply and frequency, and their start through the enable."""
+    """Compare the named clock functions' timing over supply and frequency, and their start through the enable, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/clkgen/clkgen_characterization/20261017_131544"
+    meas_read_dir = BASE_PATH / "build/sim/clkgen/clkgen_characterization/20261017_203403"
     cases = (
         ("nonoverlap", "nonoverlap: two-phase"),
         ("pulse", "pulse: rising-edge pulse"),
         ("gate", "gate: glitch-free gate"),
     )
-    sweeps = {}
-    for name, _label in cases:
-        for sweep, key in (
-            ("supply", lambda item: float(item.param.vdd)),
-            ("period", lambda item: -float(item.param.period_s)),
-        ):
-            measurements = []
-            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
-                measurement = read_measurement(path)
-                if not isinstance(measurement, MeasClkgen):
-                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasClkgen")
-                measurements.append(measurement)
-            sweeps[name, sweep] = sorted(measurements, key=key)
     labels = [label for _name, label in cases]
-    # the nominal point: the supply sweep's core supply
-    nominal = [
-        next(item for item in sweeps[name, "supply"] if float(item.param.vdd) == CLKGEN_NOMINAL_SUPPLY_V)
-        for name, _label in cases
-    ]
-    return (
-        *plot_clkgen_supply(
-            [analyze_clkgen_timing(sweeps[name, "supply"]) for name, _label in cases],
-            labels=labels,
-            output_path=output_dir / "clkgen_supply",
-        ),
-        *plot_clkgen_frequency(
-            [analyze_clkgen_timing(sweeps[name, "period"]) for name, _label in cases],
-            labels=labels,
-            output_path=output_dir / "clkgen_frequency",
-        ),
-        *plot_clkgen_waveforms(nominal, labels=labels, output_path=output_dir / "clkgen_waveforms"),
-    )
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            for sweep, key in (
+                ("supply", lambda item: float(item.param.vdd)),
+                ("period", lambda item: -float(item.param.period_s)),
+            ):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasClkgen):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasClkgen")
+                    measurements.append(measurement)
+                sweeps[name, sweep] = sorted(measurements, key=key)
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_clkgen_supply(
+                [analyze_clkgen_timing(sweeps[name, "supply"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "clkgen_supply",
+            ),
+            *plot_clkgen_frequency(
+                [analyze_clkgen_timing(sweeps[name, "period"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "clkgen_frequency",
+            ),
+            *plot_clkgen_waveforms(
+                [
+                    next(item for item in sweeps[name, "supply"] if item.info.readbacks["nominal"])
+                    for name, _label in cases
+                ],
+                labels=labels,
+                output_path=pdk_dir / "clkgen_waveforms",
+            ),
+        ]
+    return tuple(artifacts)
 
 
 def lvshift_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named level shifters over the input and output supplies."""
+    """Compare the named level shifters over the input and output supplies, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/lvshift/lvshift_characterization/20261017_132054"
+    meas_read_dir = BASE_PATH / "build/sim/lvshift/lvshift_characterization/20261017_204643"
     cases = (
         ("core", "core: differential input"),
         ("single_rst", "single_rst: inverter, reset"),
         ("buffered", "buffered: in and out inverters"),
     )
-    sweeps = {}
-    for name, _label in cases:
-        for sweep, key in (
-            ("vddl", lambda item: float(item.param.vddl)),
-            ("vdd", lambda item: float(item.param.vdd)),
-        ):
-            measurements = []
-            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
-                measurement = read_measurement(path)
-                if not isinstance(measurement, MeasLvShift):
-                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasLvShift")
-                measurements.append(measurement)
-            sweeps[name, sweep] = sorted(measurements, key=key)
     labels = [label for _name, label in cases]
-    nominal = [
-        next(item for item in sweeps[name, "vddl"] if float(item.param.vddl) == NOMINAL_VDDL_V)
-        for name, _label in cases
-    ]
-    return (
-        *plot_lvshift_vddl(
-            [analyze_lvshift_switching(sweeps[name, "vddl"]) for name, _label in cases],
-            labels=labels,
-            output_path=output_dir / "lvshift_vddl",
-        ),
-        *plot_lvshift_vdd(
-            [analyze_lvshift_switching(sweeps[name, "vdd"]) for name, _label in cases],
-            labels=labels,
-            output_path=output_dir / "lvshift_vdd",
-        ),
-        *plot_lvshift_waveforms(nominal, labels=labels, output_path=output_dir / "lvshift_waveforms"),
-    )
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            for sweep, key in (
+                ("vddl", lambda item: float(item.param.vddl)),
+                ("vdd", lambda item: float(item.param.vdd)),
+            ):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasLvShift):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasLvShift")
+                    measurements.append(measurement)
+                sweeps[name, sweep] = sorted(measurements, key=key)
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_lvshift_vddl(
+                [analyze_lvshift_switching(sweeps[name, "vddl"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "lvshift_vddl",
+            ),
+            *plot_lvshift_vdd(
+                [analyze_lvshift_switching(sweeps[name, "vdd"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "lvshift_vdd",
+            ),
+            *plot_lvshift_waveforms(
+                [
+                    next(item for item in sweeps[name, "vddl"] if item.info.readbacks["nominal"])
+                    for name, _label in cases
+                ],
+                labels=labels,
+                output_path=pdk_dir / "lvshift_waveforms",
+            ),
+        ]
+    return tuple(artifacts)
 
 
 def ringamp_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named ring amplifiers' open-loop transfer and closed-loop settling over dead zone and step."""
+    """Compare the named ring amplifiers' open-loop transfer and closed-loop settling over dead zone and step, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/ringamp/ringamp_characterization/20261017_132727"
+    meas_read_dir = BASE_PATH / "build/sim/ringamp/ringamp_characterization/20261017_203658"
     cases = (("se", "se: single-ended"), ("se_strong", "se_strong: twice the output stage"))
-    sweeps = {}
-    for name, _label in cases:
-        for sweep, key in (
-            ("open", lambda item: float(item.param.biasn)),
-            ("deadzone", lambda item: float(item.param.biasn)),
-            ("step", lambda item: float(item.param.step_v)),
-        ):
-            measurements = []
-            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
-                measurement = read_measurement(path)
-                if not isinstance(measurement, MeasRingamp):
-                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasRingamp")
-                measurements.append(measurement)
-            sweeps[name, sweep] = sorted(measurements, key=key)
     labels = [label for _name, label in cases]
-    return (
-        *plot_ringamp_transfer(
-            [analyze_ringamp_transfer(sweeps[name, "open"]) for name, _label in cases],
-            labels=labels,
-            output_path=output_dir / "ringamp_transfer",
-        ),
-        *plot_ringamp_deadzone(
-            [analyze_ringamp_settling(sweeps[name, "deadzone"]) for name, _label in cases],
-            labels=labels,
-            output_path=output_dir / "ringamp_deadzone",
-        ),
-        *plot_ringamp_step(
-            [analyze_ringamp_settling(sweeps[name, "step"]) for name, _label in cases],
-            labels=labels,
-            output_path=output_dir / "ringamp_step",
-        ),
-        *plot_ringamp_waveforms(
-            [sweeps[name, "step"] for name, _label in cases],
-            labels=labels,
-            output_path=output_dir / "ringamp_waveforms",
-        ),
-    )
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            for sweep, key in (
+                ("open", lambda item: float(item.param.biasn)),
+                ("deadzone", lambda item: float(item.param.biasn)),
+                ("step", lambda item: float(item.param.step_v)),
+            ):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasRingamp):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasRingamp")
+                    measurements.append(measurement)
+                sweeps[name, sweep] = sorted(measurements, key=key)
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_ringamp_transfer(
+                [analyze_ringamp_transfer(sweeps[name, "open"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "ringamp_transfer",
+            ),
+            *plot_ringamp_deadzone(
+                [analyze_ringamp_settling(sweeps[name, "deadzone"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "ringamp_deadzone",
+            ),
+            *plot_ringamp_step(
+                [analyze_ringamp_settling(sweeps[name, "step"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "ringamp_step",
+            ),
+            *plot_ringamp_waveforms(
+                [sweeps[name, "step"] for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "ringamp_waveforms",
+            ),
+        ]
+    return tuple(artifacts)
 
 
 def main() -> None:

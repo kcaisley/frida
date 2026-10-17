@@ -1,4 +1,4 @@
-"""Latch, flip-flop, divider and SR latch testbench and named TSMC65 Spectre simulation targets.
+"""Latch, flip-flop, divider and SR latch testbench and named Spectre simulation targets, in every PDK.
 
 The testbench follows BAG's flip-flop and latch timing benches (bag3_digital's liberty
 characterization): complementary clocks, data that toggles once per cycle and arrives a set
@@ -8,6 +8,7 @@ latches get set and reset pulses on the same bench, and a divider ignores the da
 """
 
 import argparse
+import importlib
 import json
 import math
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -19,7 +20,7 @@ import hdl21 as h
 import hdl21.sim as hs
 import numpy as np
 from hdl21.primitives import C, Vdc, Vpulse
-from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
+from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
 from flow.analysis.io import interpolate_wave_records, write_measurement
 from flow.circuit.ports import testbench_from_ports
@@ -42,6 +43,7 @@ def latch_signal_names() -> dict[str, str]:
 class LatchTbParams:
     """Parameters which determine the generated latch testbench."""
 
+    pdk = h.Param(dtype=str, desc="PDK the testbench compiles to and simulates in", default="tsmc65")
     waveform_sample_interval_s = h.Param(
         dtype=float, desc="Maximum raw step and stored waveform spacing", default=1e-12
     )
@@ -127,17 +129,17 @@ def LatchTb(params: LatchTbParams) -> h.Module:
 
 
 def _run_latch_sim(run_dir: Path, params: LatchTbParams, *, check: bool = False) -> Path:
-    """Run one latch testbench transient in TSMC65 and return its raw file: the reset, then
+    """Run one latch testbench transient in its PDK and return its raw file: the reset, then
     ``cycles`` clock cycles (an SR latch: three set and reset periods).
 
     ``check`` adds Spectre's static and connectivity checks and shortens the run to a tenth.
     """
 
-    from pdk import tsmc65
-    from pdk.tsmc65.hdl21 import site
+    pdk = importlib.import_module(f"pdk.{params.pdk}")
+    install = importlib.import_module(f"pdk.{params.pdk}.hdl21.site").install
 
     run_dir.mkdir(parents=True, exist_ok=True)
-    h.pdk.set_default(tsmc65.pdk_logic)
+    h.pdk.set_default(pdk.pdk_logic)
     tb = LatchTb(params)
     h.pdk.compile(tb)
     interval = params.waveform_sample_interval_s
@@ -147,8 +149,10 @@ def _run_latch_sim(run_dir: Path, params: LatchTbParams, *, check: bool = False)
         else float(params.reset_time_s) + (params.cycles + 1) * float(params.clock_period_s)
     )
     attrs = [
-        site.install.include(h.pdk.Corner.TYP),
-        site.install.include_pre_simulation(),
+        install.include(h.pdk.Corner.TYP),
+        # what else the PDK's simulations take, in this order: TSMC's pre-simulation settings,
+        # the device names its netlists use (pdk/<name>/hdl21)
+        *(getattr(install, name)() for name in ("include_pre_simulation", "include_devices") if hasattr(install, name)),
         hs.Options(name="temp", value=25.0),
         hs.Options(name="save", value="selected"),
         hs.Save([raw for raw in latch_signal_names() if raw != "time"]),
@@ -171,131 +175,160 @@ def _run_latch_sim(run_dir: Path, params: LatchTbParams, *, check: bool = False)
             options={"strobeperiod": interval, "maxstep": interval, "strobeoutput": "strobeonly"},
         )
     )
-    hs.Sim(tb=tb, attrs=attrs).run(
-        SimOptions(
-            simulator=SupportedSimulators.SPECTRE,
-            fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
-            rundir=run_dir,
-            simulator_args=(
-                "+preset=mx",
-                "+mt=1",
-                "+lqtimeout",
-                "3600",
-                "+escchars",
-                "+log",
-                "spectre.log",
-                *(("-ahdllint=warn", "-ahdllint_log", "ahdllint.log") if check else ()),
-            ),
+    # the simulator's error holds its simulation, which cannot cross back from a worker process:
+    # raise it as text
+    try:
+        hs.Sim(tb=tb, attrs=attrs).run(
+            SimOptions(
+                simulator=SupportedSimulators.SPECTRE,
+                fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
+                rundir=run_dir,
+                simulator_args=(
+                    "+preset=mx",
+                    "+mt=1",
+                    "+lqtimeout",
+                    "3600",
+                    "+escchars",
+                    "+log",
+                    "spectre.log",
+                    *(("-ahdllint=warn", "-ahdllint_log", "ahdllint.log") if check else ()),
+                ),
+            )
         )
-    )
+    except SimError as error:
+        raise RuntimeError(f"Spectre failed in {run_dir}: {error}") from None
     return run_dir / "netlist.raw"
 
 
-# The characterization: every case over TSMC65's 1.2 V core supply; the clocked latches and the
-# flip-flop over the data offset (setup and hold); the flip-flop and divider over the clock period.
-SUPPLY_SWEEP_V = (0.9, 1.0, 1.1, 1.2, 1.3)
+# The characterization, in every PDK about its own core supply: every case over the supply (75 to
+# 108 % of it); at the core supply the clocked latches and the flip-flop over the data offset
+# (setup and hold), the flip-flop and divider over the clock period.
+SUPPLY_SWEEP = (9 / 12, 10 / 12, 11 / 12, 1.0, 13 / 12)
 DATA_OFFSET_SWEEP_S = tuple(round(offset * 1e-12, 15) for offset in range(-200, 301, 10))
-CLOCK_PERIOD_SWEEP_S = (2e-9, 1e-9, 500e-12, 300e-12, 200e-12, 150e-12, 120e-12, 100e-12, 80e-12, 60e-12)
-NOMINAL_SUPPLY_V = 1.2
+CLOCK_PERIOD_SWEEP_S = (
+    2e-9,
+    1e-9,
+    500e-12,
+    300e-12,
+    200e-12,
+    150e-12,
+    120e-12,
+    100e-12,
+    80e-12,
+    60e-12,
+    40e-12,
+    30e-12,
+)
 NOMINAL_CLOCK_PERIOD_S = 2e-9
 NOMINAL_DATA_OFFSET_S = 0.5e-9
 
 
 def latch_characterization(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the supply, data offset and clock period sweeps (about 200 transients).
+    """Run the supply, data offset and clock period sweeps in every PDK (about 200 transients each).
 
-    Each point writes ``<case>/<sweep>/<point>/result.h5`` (a ``MeasLatch``). ``check`` runs the
-    nominal point of each case with Spectre's checks instead, writing no measurement.
+    Each point writes ``<pdk>/<case>/<sweep>/<point>/result.h5`` (a ``MeasLatch``). ``check`` runs
+    the nominal point of each case with Spectre's checks instead, writing no measurement.
     """
 
     from flow.analysis.types import MeasInfo, Wave
     from flow.circuit.results import read_raw_transient
+    from flow.comp.layout import PDKS
     from flow.latch.analysis import MeasLatch
 
     run_dir.mkdir(parents=True, exist_ok=True)
     jobs = {}
-    for case, latch in CASES.items():
-        for vdd in (NOMINAL_SUPPLY_V,) if check else SUPPLY_SWEEP_V:
-            jobs[f"{case}/supply/vdd{round(vdd * 1e3)}"] = LatchTbParams(latch=latch, vdd=vdd)
-        if check or latch.style != Style.CLOCKED:
-            continue
-        if not latch.divider:
-            for offset in DATA_OFFSET_SWEEP_S:
-                jobs[f"{case}/offset/offset{round(offset * 1e12)}ps"] = LatchTbParams(latch=latch, data_offset_s=offset)
-        if latch.flop:
-            for period in CLOCK_PERIOD_SWEEP_S:
-                # the edges and the data offset scale with a short clock
-                jobs[f"{case}/period/period{round(period * 1e12)}ps"] = LatchTbParams(
-                    latch=latch,
-                    clock_period_s=period,
-                    transition_time_s=min(50e-12, period / 8),
-                    data_offset_s=period / 4,
-                    reset_time_s=max(0.5e-9, 2 * period),
-                    cycles=12,
-                )
+    for pdk in PDKS:
+        supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
+        for case, latch in CASES.items():
+            for vdd in (supply,) if check else [round(step * supply, 4) for step in SUPPLY_SWEEP]:
+                jobs[f"{pdk}/{case}/supply/vdd{round(vdd * 1e3)}"] = LatchTbParams(pdk=pdk, latch=latch, vdd=vdd)
+            if check or latch.style != Style.CLOCKED:
+                continue
+            if not latch.divider:
+                for offset in DATA_OFFSET_SWEEP_S:
+                    jobs[f"{pdk}/{case}/offset/offset{round(offset * 1e12)}ps"] = LatchTbParams(
+                        pdk=pdk, latch=latch, vdd=supply, data_offset_s=offset
+                    )
+            if latch.flop:
+                for period in CLOCK_PERIOD_SWEEP_S:
+                    # the edges and the data offset scale with a short clock
+                    jobs[f"{pdk}/{case}/period/period{round(period * 1e12)}ps"] = LatchTbParams(
+                        pdk=pdk,
+                        latch=latch,
+                        vdd=supply,
+                        clock_period_s=period,
+                        transition_time_s=min(50e-12, period / 8),
+                        data_offset_s=period / 4,
+                        reset_time_s=max(0.5e-9, 2 * period),
+                        cycles=12,
+                    )
     names = latch_signal_names()
     failures: dict[str, str] = {}
-    with ProcessPoolExecutor(max_workers=16, mp_context=get_context("spawn")) as executor:
-        futures = {
-            executor.submit(_run_latch_sim, run_dir / name, params, check=check): (name, params)
-            for name, params in jobs.items()
-        }
-        for future in as_completed(futures):
-            name, params = futures[future]
-            try:
-                raw_path = future.result()
-                if check:
-                    continue
-                # one record from time zero on the stored grid; the supply current as positive draw
-                result = read_raw_transient(raw_path)
-                times_s = np.asarray(result.data["time"])
-                interval = params.waveform_sample_interval_s
-                window = [(float(times_s[0]), float(times_s[-1]))]
-                time_s, voltages = interpolate_wave_records(
-                    times_s,
-                    {
-                        names[key]: value
-                        for key, value in result.data.items()
-                        if not names[key].startswith(("i(", "time"))
-                    },
-                    window,
-                    interval,
-                )
-                _, currents = interpolate_wave_records(
-                    times_s,
-                    {
-                        names[key][2:-1]: -np.asarray(value)
-                        for key, value in result.data.items()
-                        if names[key].startswith("i(")
-                    },
-                    window,
-                    interval,
-                )
-                measurement = MeasLatch(
-                    group=None,
-                    index=None,
-                    dut=params.latch,
-                    info=MeasInfo(
-                        backend="spice",
-                        timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
-                        instruments={"simulator": "Spectre"},
-                        readbacks={
-                            "case": name.split("/")[0],
-                            "sweep": name.split("/")[1],
-                            "signal_map_json": json.dumps(names, sort_keys=True),
-                            "raw_file": raw_path.name,
-                            "raw_points": len(times_s),
-                            "waveform_sample_interval_s": interval,
-                            "supply_current_convention": "positive_current_draw",
+    # one pool per PDK: hdl21 compiles each generated module in place, for the first PDK it meets
+    for pdk in PDKS:
+        with ProcessPoolExecutor(max_workers=16, mp_context=get_context("spawn")) as executor:
+            futures = {
+                executor.submit(_run_latch_sim, run_dir / name, params, check=check): (name, params)
+                for name, params in jobs.items()
+                if params.pdk == pdk
+            }
+            for future in as_completed(futures):
+                name, params = futures[future]
+                try:
+                    raw_path = future.result()
+                    if check:
+                        continue
+                    # one record from time zero on the stored grid; the supply current as positive draw
+                    result = read_raw_transient(raw_path)
+                    times_s = np.asarray(result.data["time"])
+                    interval = params.waveform_sample_interval_s
+                    window = [(float(times_s[0]), float(times_s[-1]))]
+                    time_s, voltages = interpolate_wave_records(
+                        times_s,
+                        {
+                            names[key]: value
+                            for key, value in result.data.items()
+                            if not names[key].startswith(("i(", "time"))
                         },
-                    ),
-                    param=params,
-                    trial_index=np.arange(1, dtype=np.int64),
-                    wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
-                )
-                write_measurement(raw_path.parent / "result.h5", measurement)
-            except Exception as error:  # noqa: BLE001 - report every independent point failure
-                failures[name] = repr(error)
+                        window,
+                        interval,
+                    )
+                    _, currents = interpolate_wave_records(
+                        times_s,
+                        {
+                            names[key][2:-1]: -np.asarray(value)
+                            for key, value in result.data.items()
+                            if names[key].startswith("i(")
+                        },
+                        window,
+                        interval,
+                    )
+                    measurement = MeasLatch(
+                        group=None,
+                        index=None,
+                        dut=params.latch,
+                        info=MeasInfo(
+                            backend="spice",
+                            timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
+                            instruments={"simulator": "Spectre"},
+                            readbacks={
+                                "pdk": name.split("/")[0],
+                                "case": name.split("/")[1],
+                                "sweep": name.split("/")[2],
+                                "signal_map_json": json.dumps(names, sort_keys=True),
+                                "raw_file": raw_path.name,
+                                "raw_points": len(times_s),
+                                "waveform_sample_interval_s": interval,
+                                "supply_current_convention": "positive_current_draw",
+                            },
+                        ),
+                        param=params,
+                        trial_index=np.arange(1, dtype=np.int64),
+                        wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
+                    )
+                    write_measurement(raw_path.parent / "result.h5", measurement)
+                except Exception as error:  # noqa: BLE001 - report every independent point failure
+                    failures[name] = repr(error)
     if failures:
         failure_path = run_dir / "failures.json"
         failure_path.write_text(json.dumps(failures, indent=2) + "\n")

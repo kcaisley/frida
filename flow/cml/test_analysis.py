@@ -42,9 +42,7 @@ def _record(case: str, *, delay_s: float = 20e-12, swing_v: float = 0.25, wrong:
         group=None,
         index=None,
         dut=params.cml,
-        info=MeasInfo(
-            backend="spice", timestamp_utc=datetime(2026, 10, 17, tzinfo=UTC), readbacks={"tail_drive_v": 0.55}
-        ),
+        info=MeasInfo(backend="spice", timestamp_utc=datetime(2026, 10, 17, tzinfo=UTC), readbacks={}),
         param=params,
         trial_index=np.arange(1),
         wave=Wave(record_index=np.arange(1), time_s=time_s, v=v, i={"vdd": np.full((1, len(time_s)), 30e-6)}),

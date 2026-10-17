@@ -1,4 +1,4 @@
-"""Level shifter testbench and named TSMC65 Spectre simulation targets.
+"""Level shifter testbench and named Spectre simulation targets, in every PDK.
 
 The testbench follows bag3_digital's level shifter benches: input pulses at the low supply's
 levels (and their complement, unless the shifter makes it), a reset for the first quarter
@@ -8,6 +8,7 @@ and the output supply.
 """
 
 import argparse
+import importlib
 import json
 import math
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -19,7 +20,7 @@ import hdl21 as h
 import hdl21.sim as hs
 import numpy as np
 from hdl21.primitives import C, Vdc, Vpulse
-from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
+from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
 from flow.analysis.io import interpolate_wave_records, write_measurement
 from flow.circuit.ports import testbench_from_ports
@@ -44,6 +45,7 @@ def lvshift_signal_names() -> dict[str, str]:
 class LvShiftTbParams:
     """Parameters which determine the generated level shifter testbench."""
 
+    pdk = h.Param(dtype=str, desc="PDK the testbench compiles to and simulates in", default="tsmc65")
     waveform_sample_interval_s = h.Param(
         dtype=float, desc="Maximum raw step and stored waveform spacing", default=2e-12
     )
@@ -101,23 +103,25 @@ def LvShiftTb(params: LvShiftTbParams) -> h.Module:
 
 
 def _run_lvshift_sim(run_dir: Path, params: LvShiftTbParams, *, check: bool = False) -> Path:
-    """Run one level shifter testbench transient in TSMC65 and return its raw file.
+    """Run one level shifter testbench transient in its PDK and return its raw file.
 
     ``check`` adds Spectre's static and connectivity checks and shortens the run to a tenth.
     """
 
-    from pdk import tsmc65
-    from pdk.tsmc65.hdl21 import site
+    pdk = importlib.import_module(f"pdk.{params.pdk}")
+    install = importlib.import_module(f"pdk.{params.pdk}.hdl21.site").install
 
     run_dir.mkdir(parents=True, exist_ok=True)
-    h.pdk.set_default(tsmc65.pdk_logic)
+    h.pdk.set_default(pdk.pdk_logic)
     tb = LvShiftTb(params)
     h.pdk.compile(tb)
     interval = params.waveform_sample_interval_s
     tstop = params.cycles * float(params.period_s)
     attrs = [
-        site.install.include(h.pdk.Corner.TYP),
-        site.install.include_pre_simulation(),
+        install.include(h.pdk.Corner.TYP),
+        # what else the PDK's simulations take, in this order: TSMC's pre-simulation settings,
+        # the device names its netlists use (pdk/<name>/hdl21)
+        *(getattr(install, name)() for name in ("include_pre_simulation", "include_devices") if hasattr(install, name)),
         hs.Options(name="temp", value=25.0),
         hs.Options(name="save", value="selected"),
         hs.Save([raw for raw in lvshift_signal_names() if raw != "time"]),
@@ -140,121 +144,135 @@ def _run_lvshift_sim(run_dir: Path, params: LvShiftTbParams, *, check: bool = Fa
             options={"strobeperiod": interval, "maxstep": interval, "strobeoutput": "strobeonly"},
         )
     )
-    hs.Sim(tb=tb, attrs=attrs).run(
-        SimOptions(
-            simulator=SupportedSimulators.SPECTRE,
-            fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
-            rundir=run_dir,
-            simulator_args=(
-                "+preset=mx",
-                "+mt=1",
-                "+lqtimeout",
-                "3600",
-                "+escchars",
-                "+log",
-                "spectre.log",
-                *(("-ahdllint=warn", "-ahdllint_log", "ahdllint.log") if check else ()),
-            ),
+    # the simulator's error holds its simulation, which cannot cross back from a worker process:
+    # raise it as text
+    try:
+        hs.Sim(tb=tb, attrs=attrs).run(
+            SimOptions(
+                simulator=SupportedSimulators.SPECTRE,
+                fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
+                rundir=run_dir,
+                simulator_args=(
+                    "+preset=mx",
+                    "+mt=1",
+                    "+lqtimeout",
+                    "3600",
+                    "+escchars",
+                    "+log",
+                    "spectre.log",
+                    *(("-ahdllint=warn", "-ahdllint_log", "ahdllint.log") if check else ()),
+                ),
+            )
         )
-    )
+    except SimError as error:
+        raise RuntimeError(f"Spectre failed in {run_dir}: {error}") from None
     return run_dir / "netlist.raw"
 
 
-# The characterization: the input supply from 0.3 V to TSMC65's 1.2 V core supply at that core
-# supply, and the output supply at the 0.6 V input supply.
-VDDL_SWEEP_V = (0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 1.0, 1.2)
-VDD_SWEEP_V = (1.0, 1.1, 1.2, 1.3)
-NOMINAL_VDD_V = 1.2
-NOMINAL_VDDL_V = 0.6
+# The characterization, in every PDK about its own core supply: the input supply from a quarter of
+# it to all of it at the core supply, and the output supply (83 to 108 % of it) at two thirds of
+# it for the input (half of it is below some PDK's threshold); in TSMC65, 0.3 to 1.2 V in and 1.0
+# to 1.3 V out.
+VDDL_SWEEP = (6 / 24, 7 / 24, 8 / 24, 9 / 24, 10 / 24, 12 / 24, 14 / 24, 16 / 24, 20 / 24, 1.0)
+VDD_SWEEP = (10 / 12, 11 / 12, 1.0, 13 / 12)
+NOMINAL_VDDL = 16 / 24
 
 
 def lvshift_characterization(run_dir: Path, *, check: bool = False) -> Path:
-    """Run every level shifter over the input and the output supply: 3 cases, 14 points each.
+    """Run every level shifter over the input and the output supply in every PDK: 3 cases, 14 points each.
 
-    Each point writes ``<case>/<sweep>/<point>/result.h5`` (a ``MeasLvShift``). ``check`` runs the
-    nominal point of each case with Spectre's checks instead, writing no measurement.
+    Each point writes ``<pdk>/<case>/<sweep>/<point>/result.h5`` (a ``MeasLvShift``). ``check``
+    runs the nominal point of each case with Spectre's checks instead, writing no measurement.
     """
 
     from flow.analysis.types import MeasInfo, Wave
     from flow.circuit.results import read_raw_transient
+    from flow.comp.layout import PDKS
     from flow.lvshift.analysis import MeasLvShift
 
     run_dir.mkdir(parents=True, exist_ok=True)
-    points = {"vddl": [(NOMINAL_VDD_V, vddl) for vddl in VDDL_SWEEP_V]}
-    points["vdd"] = [(vdd, NOMINAL_VDDL_V) for vdd in VDD_SWEEP_V]
-    if check:
-        points = {"vddl": [(NOMINAL_VDD_V, NOMINAL_VDDL_V)]}
-    jobs = {
-        f"{case}/{sweep}/vdd{round(vdd * 1e3)}_vddl{round(vddl * 1e3)}": LvShiftTbParams(
-            lvshift=lvshift, vdd=vdd, vddl=vddl
-        )
-        for case, lvshift in CASES.items()
-        for sweep, values in points.items()
-        for vdd, vddl in values
-    }
+    jobs = {}
+    for pdk in PDKS:
+        supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
+        points = {"vddl": [(supply, step * supply) for step in VDDL_SWEEP]}
+        points["vdd"] = [(step * supply, NOMINAL_VDDL * supply) for step in VDD_SWEEP]
+        if check:
+            points = {"vddl": [(supply, NOMINAL_VDDL * supply)]}
+        for case, lvshift in CASES.items():
+            for sweep, values in points.items():
+                for vdd, vddl in values:
+                    jobs[f"{pdk}/{case}/{sweep}/vdd{round(vdd * 1e3)}_vddl{round(vddl * 1e3)}"] = (
+                        LvShiftTbParams(pdk=pdk, lvshift=lvshift, vdd=round(vdd, 4), vddl=round(vddl, 4)),
+                        abs(vdd - supply) < 1e-6 and abs(vddl - NOMINAL_VDDL * supply) < 1e-6,
+                    )
     names = lvshift_signal_names()
     failures: dict[str, str] = {}
-    with ProcessPoolExecutor(max_workers=16, mp_context=get_context("spawn")) as executor:
-        futures = {
-            executor.submit(_run_lvshift_sim, run_dir / name, params, check=check): (name, params)
-            for name, params in jobs.items()
-        }
-        for future in as_completed(futures):
-            name, params = futures[future]
-            try:
-                raw_path = future.result()
-                if check:
-                    continue
-                # one record from time zero on the stored grid; the supply currents as positive draw
-                result = read_raw_transient(raw_path)
-                times_s = np.asarray(result.data["time"])
-                interval = params.waveform_sample_interval_s
-                window = [(float(times_s[0]), float(times_s[-1]))]
-                time_s, voltages = interpolate_wave_records(
-                    times_s,
-                    {
-                        names[key]: value
-                        for key, value in result.data.items()
-                        if not names[key].startswith(("i(", "time"))
-                    },
-                    window,
-                    interval,
-                )
-                _, currents = interpolate_wave_records(
-                    times_s,
-                    {
-                        names[key][2:-1]: -np.asarray(value)
-                        for key, value in result.data.items()
-                        if names[key].startswith("i(")
-                    },
-                    window,
-                    interval,
-                )
-                measurement = MeasLvShift(
-                    group=None,
-                    index=None,
-                    dut=params.lvshift,
-                    info=MeasInfo(
-                        backend="spice",
-                        timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
-                        instruments={"simulator": "Spectre"},
-                        readbacks={
-                            "case": name.split("/")[0],
-                            "sweep": name.split("/")[1],
-                            "signal_map_json": json.dumps(names, sort_keys=True),
-                            "raw_file": raw_path.name,
-                            "raw_points": len(times_s),
-                            "waveform_sample_interval_s": interval,
-                            "supply_current_convention": "positive_current_draw",
+    # one pool per PDK: hdl21 compiles each generated module in place, for the first PDK it meets
+    for pdk in PDKS:
+        with ProcessPoolExecutor(max_workers=16, mp_context=get_context("spawn")) as executor:
+            futures = {
+                executor.submit(_run_lvshift_sim, run_dir / name, params, check=check): (name, params, nominal)
+                for name, (params, nominal) in jobs.items()
+                if params.pdk == pdk
+            }
+            for future in as_completed(futures):
+                name, params, nominal = futures[future]
+                try:
+                    raw_path = future.result()
+                    if check:
+                        continue
+                    # one record from time zero on the stored grid; the supply currents as positive draw
+                    result = read_raw_transient(raw_path)
+                    times_s = np.asarray(result.data["time"])
+                    interval = params.waveform_sample_interval_s
+                    window = [(float(times_s[0]), float(times_s[-1]))]
+                    time_s, voltages = interpolate_wave_records(
+                        times_s,
+                        {
+                            names[key]: value
+                            for key, value in result.data.items()
+                            if not names[key].startswith(("i(", "time"))
                         },
-                    ),
-                    param=params,
-                    trial_index=np.arange(1, dtype=np.int64),
-                    wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
-                )
-                write_measurement(raw_path.parent / "result.h5", measurement)
-            except Exception as error:  # noqa: BLE001 - report every independent point failure
-                failures[name] = repr(error)
+                        window,
+                        interval,
+                    )
+                    _, currents = interpolate_wave_records(
+                        times_s,
+                        {
+                            names[key][2:-1]: -np.asarray(value)
+                            for key, value in result.data.items()
+                            if names[key].startswith("i(")
+                        },
+                        window,
+                        interval,
+                    )
+                    measurement = MeasLvShift(
+                        group=None,
+                        index=None,
+                        dut=params.lvshift,
+                        info=MeasInfo(
+                            backend="spice",
+                            timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
+                            instruments={"simulator": "Spectre"},
+                            readbacks={
+                                "pdk": name.split("/")[0],
+                                "case": name.split("/")[1],
+                                "sweep": name.split("/")[2],
+                                "nominal": nominal,
+                                "signal_map_json": json.dumps(names, sort_keys=True),
+                                "raw_file": raw_path.name,
+                                "raw_points": len(times_s),
+                                "waveform_sample_interval_s": interval,
+                                "supply_current_convention": "positive_current_draw",
+                            },
+                        ),
+                        param=params,
+                        trial_index=np.arange(1, dtype=np.int64),
+                        wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
+                    )
+                    write_measurement(raw_path.parent / "result.h5", measurement)
+                except Exception as error:  # noqa: BLE001 - report every independent point failure
+                    failures[name] = repr(error)
     if failures:
         failure_path = run_dir / "failures.json"
         failure_path.write_text(json.dumps(failures, indent=2) + "\n")

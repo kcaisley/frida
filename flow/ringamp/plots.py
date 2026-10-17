@@ -26,7 +26,7 @@ def plot_ringamp_transfer(
         raise ValueError("transfer comparison requires one transfer result and label per amplifier")
     columns = min(2, len(transfers))
     rows = (len(transfers) + columns - 1) // columns
-    current_limit_ua = 1.1 * max(np.nanmax(item.current_a) * 1e6 for item in transfers)
+    current_limit_ua = 1.1 * max(np.nanmax(item.current_a, initial=0.0) * 1e6 for item in transfers)
     fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
     for index, (transfer, label) in enumerate(zip(transfers, labels, strict=True)):
         ax = axes.flat[index]
@@ -62,7 +62,7 @@ def plot_ringamp_deadzone(
         raise ValueError("dead-zone comparison requires one settling result and label per amplifier")
     columns = min(2, len(settlings))
     rows = (len(settlings) + columns - 1) // columns
-    current_limit_ua = 1.1 * max(np.nanmax(item.quiescent_current_a) * 1e6 for item in settlings)
+    current_limit_ua = 1.1 * max(np.nanmax(item.quiescent_current_a, initial=0.0) * 1e6 for item in settlings)
     fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
     for index, (settling, label) in enumerate(zip(settlings, labels, strict=True)):
         ax = axes.flat[index]
@@ -105,7 +105,7 @@ def plot_ringamp_step(
         raise ValueError("step comparison requires one settling result and label per amplifier")
     columns = min(2, len(settlings))
     rows = (len(settlings) + columns - 1) // columns
-    settling_limit_ns = 1.1 * max(np.nanmax(item.settling_time_s) * 1e9 for item in settlings)
+    settling_limit_ns = 1.1 * max(np.nanmax(item.settling_time_s, initial=0.0) * 1e9 for item in settlings)
     fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
     for index, (settling, label) in enumerate(zip(settlings, labels, strict=True)):
         ax = axes.flat[index]

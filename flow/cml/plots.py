@@ -26,8 +26,8 @@ def plot_cml_frequency(
         raise ValueError("frequency comparison requires one switching result and label per gate")
     columns = min(3, len(switchings))
     rows = (len(switchings) + columns - 1) // columns
-    delay_limit_ps = 1.1 * max(np.nanmax(item.delay_s) * 1e12 for item in switchings)
-    swing_limit_mv = 1.1 * max(np.nanmax(item.swing_v) * 1e3 for item in switchings)
+    delay_limit_ps = 1.1 * max(np.nanmax(item.delay_s, initial=0.0) * 1e12 for item in switchings)
+    swing_limit_mv = 1.1 * max(np.nanmax(item.swing_v, initial=0.0) * 1e3 for item in switchings)
     fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
     for index, (switching, label) in enumerate(zip(switchings, labels, strict=True)):
         ax = axes.flat[index]
@@ -64,22 +64,28 @@ def plot_cml_tail(
     labels: Sequence[str],
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Compare the gates over the tail's gate drive: swing and supply current, failing points hollow."""
+    """Compare the gates over the tail current: swing and supply current, failing points hollow."""
 
     if not switchings or len(switchings) != len(labels):
         raise ValueError("tail comparison requires one switching result and label per gate")
     columns = min(3, len(switchings))
     rows = (len(switchings) + columns - 1) // columns
-    current_limit_ua = 1.1 * max(np.nanmax(item.supply_current_a) * 1e6 for item in switchings)
-    swing_limit_mv = 1.1 * max(np.nanmax(item.swing_v) * 1e3 for item in switchings)
+    current_limit_ua = 1.1 * max(np.nanmax(item.supply_current_a, initial=0.0) * 1e6 for item in switchings)
+    swing_limit_mv = 1.1 * max(np.nanmax(item.swing_v, initial=0.0) * 1e3 for item in switchings)
     fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
     for index, (switching, label) in enumerate(zip(switchings, labels, strict=True)):
         ax = axes.flat[index]
         working = switching.correct_fraction == 1.0
-        ax.plot(switching.tail_drive_v, switching.swing_v * 1e3, "-", color=NORD_BLUE)
-        ax.plot(switching.tail_drive_v[working], switching.swing_v[working] * 1e3, "o", color=NORD_BLUE, markersize=4)
+        ax.plot(switching.tail_current_a * 1e6, switching.swing_v * 1e3, "-", color=NORD_BLUE)
         ax.plot(
-            switching.tail_drive_v[~working],
+            (switching.tail_current_a * 1e6)[working],
+            switching.swing_v[working] * 1e3,
+            "o",
+            color=NORD_BLUE,
+            markersize=4,
+        )
+        ax.plot(
+            (switching.tail_current_a * 1e6)[~working],
             switching.swing_v[~working] * 1e3,
             "o",
             mfc="none",
@@ -89,7 +95,9 @@ def plot_cml_tail(
         ax.set_ylim(0.0, swing_limit_mv)
         ax.tick_params(axis="y", colors=NORD_BLUE)
         current_ax = ax.twinx()
-        current_ax.plot(switching.tail_drive_v, switching.supply_current_a * 1e6, "s--", color=NORD_RED, markersize=3)
+        current_ax.plot(
+            switching.tail_current_a * 1e6, switching.supply_current_a * 1e6, "s--", color=NORD_RED, markersize=3
+        )
         current_ax.set_ylim(0.0, current_limit_ua)
         current_ax.tick_params(axis="y", colors=NORD_RED)
         if index % columns == columns - 1 or index == len(switchings) - 1:
@@ -98,10 +106,10 @@ def plot_cml_tail(
         style_grid(ax)
     for ax in axes.flat[len(switchings) :]:
         ax.set_visible(False)
-    fig.supxlabel("Tail gate drive from its rail (V)")
+    fig.supxlabel("Tail current (µA)")
     fig.supylabel("Single-ended swing (mV)", color=NORD_BLUE)
     fig.suptitle(
-        f"CML swing and current versus tail bias at {1e-9 / switchings[0].clock_period_s[0]:g} GHz (hollow: wrong output)"
+        f"CML swing and current versus tail current at {1e-9 / switchings[0].clock_period_s[0]:g} GHz (hollow: wrong output)"
     )
     return save_figure(fig, output_path)
 

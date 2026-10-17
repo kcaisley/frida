@@ -39,7 +39,6 @@ def plot_clkgen_supply(
     for index, (timing, label) in enumerate(zip(timings, labels, strict=True)):
         ax = axes.flat[index]
         ax.plot(timing.vdd_v, timing.delay_s * 1e12, "o-", color=NORD_BLUE, markersize=3)
-        ax.set_ylim(bottom=0.0)
         ax.tick_params(axis="y", colors=NORD_BLUE)
         width_ax = ax.twinx()
         width_ax.plot(timing.vdd_v, timing.high_width_s * 1e12, "s-", color=NORD_RED, markersize=3, label="outp high")
@@ -57,6 +56,8 @@ def plot_clkgen_supply(
             width_ax.legend(loc="upper right", fontsize="small")
         ax.set_title(label)
         style_grid(ax)
+    # the shared limit, once every panel has drawn: one panel's would cut the others' data
+    axes.flat[0].set_ylim(bottom=0.0)
     for ax in axes.flat[len(timings) :]:
         ax.set_visible(False)
     fig.supxlabel("Supply (V)")
@@ -78,7 +79,7 @@ def plot_clkgen_frequency(
         raise ValueError("frequency comparison requires one timing result and label per function")
     columns = min(3, len(timings))
     rows = (len(timings) + columns - 1) // columns
-    energy_limit_fj = 1.1 * max(np.nanmax(item.energy_per_cycle_j) * 1e15 for item in timings)
+    energy_limit_fj = 1.1 * max(np.nanmax(item.energy_per_cycle_j, initial=0.0) * 1e15 for item in timings)
     fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
     for index, (timing, label) in enumerate(zip(timings, labels, strict=True)):
         ax = axes.flat[index]
