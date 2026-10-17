@@ -126,6 +126,9 @@ from flow.moscap.plots import plot_moscap_cv, plot_moscap_frequency, plot_moscap
 from flow.ota.analysis import MeasOta, analyze_ota_ac
 from flow.ota.plots import plot_ota_bode, plot_ota_common_mode, plot_ota_supply
 from flow.ota.sim import NOMINAL_VCM_V
+from flow.pi.analysis import MeasPi, analyze_pi_linearity, analyze_pi_phase
+from flow.pi.plots import plot_pi_frequency, plot_pi_transfer, plot_pi_waveforms
+from flow.pi.sim import NOMINAL_PERIOD_S, NOMINAL_SPACING_DEG
 from flow.scans.params import load_board_map
 
 timing_sequences = tuple(
@@ -1610,6 +1613,58 @@ def cml_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     )
 
 
+def pi_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named phase interpolators' transfer, linearity, and frequency response."""
+
+    meas_read_dir = BASE_PATH / "build/sim/pi/pi_characterization/20261017_130754"
+    cases = (
+        ("cmos_half", "cmos_half: CMOS, 2 and 2 slices"),
+        ("cmos_quarter", "cmos_quarter: CMOS, 3 and 1 slices"),
+        ("cml_half", "cml_half: CML, 2 and 2 tails"),
+        ("cml_quarter", "cml_quarter: CML, 3 and 1 tails"),
+    )
+    sweeps = {}
+    for name, _label in cases:
+        for sweep, key in (
+            ("spacing", lambda item: float(item.param.spacing_deg)),
+            ("period", lambda item: -float(item.param.period_s)),
+        ):
+            measurements = []
+            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasPi):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasPi")
+                measurements.append(measurement)
+            sweeps[name, sweep] = sorted(measurements, key=key)
+    labels = [label for _name, label in cases]
+    phases = [analyze_pi_phase(sweeps[name, "spacing"]) for name, _label in cases]
+    nominal = [
+        next(
+            item
+            for item in sweeps[name, "spacing"]
+            if float(item.param.spacing_deg) == NOMINAL_SPACING_DEG and float(item.param.period_s) == NOMINAL_PERIOD_S
+        )
+        for name, _label in cases
+    ]
+    return (
+        *plot_pi_transfer(
+            phases,
+            [
+                analyze_pi_linearity(sweeps[name, "spacing"], phase=phase)
+                for (name, _label), phase in zip(cases, phases, strict=True)
+            ],
+            labels=labels,
+            output_path=output_dir / "pi_transfer",
+        ),
+        *plot_pi_frequency(
+            [analyze_pi_phase(sweeps[name, "period"]) for name, _label in cases],
+            labels=labels,
+            output_path=output_dir / "pi_frequency",
+        ),
+        *plot_pi_waveforms(nominal, labels=labels, output_path=output_dir / "pi_waveforms"),
+    )
+
+
 def main() -> None:
     """Run one explicitly selected analysis pipeline."""
     targets: dict[str, Callable[[Path], tuple[Path, ...]]] = {
@@ -1643,6 +1698,7 @@ def main() -> None:
             moscap_characterization_study,
             idac_characterization_study,
             cml_characterization_study,
+            pi_characterization_study,
         )
     }
 
@@ -1653,7 +1709,7 @@ def main() -> None:
     domain = (
         args.target.split("_", 1)[0]
         if args.target.startswith(
-            ("comp_", "cdac_", "delay_", "latch_", "ota_", "follower_", "moscap_", "idac_", "cml_")
+            ("comp_", "cdac_", "delay_", "latch_", "ota_", "follower_", "moscap_", "idac_", "cml_", "pi_")
         )
         else "adc"
     )

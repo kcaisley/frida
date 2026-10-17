@@ -68,6 +68,7 @@ def diagnostic_root(spectre_installation):
         ("moscap", "moscap_characterization"),
         ("idac", "idac_characterization"),
         ("cml", "cml_characterization"),
+        ("pi", "pi_characterization"),
     ),
     ids=lambda value: value,
 )
