@@ -177,7 +177,7 @@ NOMINAL_VCM_V = 0.6
 
 
 def ota_characterization(run_dir: Path, *, check: bool = False) -> Path:
-    """Run every OTA over the input common mode and the supply: 6 cases, 21 points each.
+    """Run every OTA over the input common mode and the supply: 6 cases, 22 runs each.
 
     Each point writes ``<case>/<sweep>/<point>/result.h5`` (a ``MeasOta``). ``check`` runs the
     nominal point of each case with Spectre's checks instead, writing no measurement.
