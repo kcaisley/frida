@@ -124,6 +124,9 @@ from flow.idac.plots import plot_idac_bias, plot_idac_iv, plot_idac_steering
 from flow.idac.sim import NOMINAL_GATE_DRIVE_V, NOMINAL_IREF_A
 from flow.latch.analysis import MeasLatch, analyze_latch_constraint, analyze_latch_sr, analyze_latch_timing
 from flow.latch.plots import plot_latch_frequency, plot_latch_setup_hold, plot_latch_supply
+from flow.lvshift.analysis import MeasLvShift, analyze_lvshift_switching
+from flow.lvshift.plots import plot_lvshift_vdd, plot_lvshift_vddl, plot_lvshift_waveforms
+from flow.lvshift.sim import NOMINAL_VDDL_V
 from flow.moscap.analysis import MeasMosCap, analyze_moscap_cv
 from flow.moscap.plots import plot_moscap_cv, plot_moscap_frequency, plot_moscap_quality
 from flow.ota.analysis import MeasOta, analyze_ota_ac
@@ -1711,6 +1714,48 @@ def clkgen_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     )
 
 
+def lvshift_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named level shifters over the input and output supplies."""
+
+    meas_read_dir = BASE_PATH / "build/sim/lvshift/lvshift_characterization/20261017_132054"
+    cases = (
+        ("core", "core: differential input"),
+        ("single_rst", "single_rst: inverter, reset"),
+        ("buffered", "buffered: in and out inverters"),
+    )
+    sweeps = {}
+    for name, _label in cases:
+        for sweep, key in (
+            ("vddl", lambda item: float(item.param.vddl)),
+            ("vdd", lambda item: float(item.param.vdd)),
+        ):
+            measurements = []
+            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasLvShift):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasLvShift")
+                measurements.append(measurement)
+            sweeps[name, sweep] = sorted(measurements, key=key)
+    labels = [label for _name, label in cases]
+    nominal = [
+        next(item for item in sweeps[name, "vddl"] if float(item.param.vddl) == NOMINAL_VDDL_V)
+        for name, _label in cases
+    ]
+    return (
+        *plot_lvshift_vddl(
+            [analyze_lvshift_switching(sweeps[name, "vddl"]) for name, _label in cases],
+            labels=labels,
+            output_path=output_dir / "lvshift_vddl",
+        ),
+        *plot_lvshift_vdd(
+            [analyze_lvshift_switching(sweeps[name, "vdd"]) for name, _label in cases],
+            labels=labels,
+            output_path=output_dir / "lvshift_vdd",
+        ),
+        *plot_lvshift_waveforms(nominal, labels=labels, output_path=output_dir / "lvshift_waveforms"),
+    )
+
+
 def main() -> None:
     """Run one explicitly selected analysis pipeline."""
     targets: dict[str, Callable[[Path], tuple[Path, ...]]] = {
@@ -1746,6 +1791,7 @@ def main() -> None:
             cml_characterization_study,
             pi_characterization_study,
             clkgen_characterization_study,
+            lvshift_characterization_study,
         )
     }
 
@@ -1756,7 +1802,20 @@ def main() -> None:
     domain = (
         args.target.split("_", 1)[0]
         if args.target.startswith(
-            ("comp_", "cdac_", "delay_", "latch_", "ota_", "follower_", "moscap_", "idac_", "cml_", "pi_", "clkgen_")
+            (
+                "comp_",
+                "cdac_",
+                "delay_",
+                "latch_",
+                "ota_",
+                "follower_",
+                "moscap_",
+                "idac_",
+                "cml_",
+                "pi_",
+                "clkgen_",
+                "lvshift_",
+            )
         )
         else "adc"
     )

@@ -70,6 +70,7 @@ def diagnostic_root(spectre_installation):
         ("cml", "cml_characterization"),
         ("pi", "pi_characterization"),
         ("clkgen", "clkgen_characterization"),
+        ("lvshift", "lvshift_characterization"),
     ),
     ids=lambda value: value,
 )

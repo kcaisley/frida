@@ -1,29 +1,42 @@
-"""Level shifter testbench and named TSMC65 Spectre simulation targets."""
+"""Level shifter testbench and named TSMC65 Spectre simulation targets.
+
+The testbench follows bag3_digital's level shifter benches: input pulses at the low supply's
+levels (and their complement, unless the shifter makes it), a reset for the first quarter
+period, a load on every output, and both supplies' currents. Every case gets the same stimulus.
+The characterization sweeps the input supply (the shifter's figure: how low it still switches)
+and the output supply.
+"""
 
 import argparse
+import json
 import math
-from datetime import datetime
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import UTC, datetime
+from multiprocessing import get_context
 from pathlib import Path
 
 import hdl21 as h
 import hdl21.sim as hs
-from hdl21.prefix import f, p
+import numpy as np
 from hdl21.primitives import C, Vdc, Vpulse
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
+from flow.analysis.io import interpolate_wave_records, write_measurement
 from flow.circuit.ports import testbench_from_ports
 
 from .subckt import CASES, LvShift, LvShiftNets, LvShiftParams
 
 
 def lvshift_signal_names() -> dict[str, str]:
-    """Derive simulator saves and waveform names from the block's net bundle."""
+    """Derive simulator saves and waveform names from the block's net bundle, and the current
+    of the source on the low supply."""
     names = {"time": "time"}
     for net in LvShiftNets.signals.values():
         if net.vis == h.Visibility.PORT and net.usage not in (h.Usage.POWER, h.Usage.GROUND):
             names[f"xtop.{net.name}"] = net.name
         if net.usage == h.Usage.POWER:
             names[f"xtop.v{net.name}:p"] = f"i({net.name})"
+    names["xtop.vvddl:p"] = f"i({LvShiftNets.vddl.name})"
     return names
 
 
@@ -31,29 +44,37 @@ def lvshift_signal_names() -> dict[str, str]:
 class LvShiftTbParams:
     """Parameters which determine the generated level shifter testbench."""
 
+    waveform_sample_interval_s = h.Param(
+        dtype=float, desc="Maximum raw step and stored waveform spacing", default=2e-12
+    )
     vdd = h.Param(dtype=h.Scalar, desc="Supply voltage (the outputs')", default=1.2)
     vddl = h.Param(dtype=h.Scalar, desc="The inputs' supply", default=0.6)
     lvshift = h.Param(dtype=LvShiftParams, desc="Level shifter parameters", default=LvShiftParams())
-    cload = h.Param(dtype=h.Prefixed, desc="Load capacitance on each output", default=2 * f)
+    cload = h.Param(dtype=h.Scalar, desc="Load capacitance on each output (F)", default=2e-15)
     period_s = h.Param(dtype=h.Scalar, desc="Input period", default=4e-9)
     transition_time_s = h.Param(dtype=h.Scalar, desc="Rise and fall time of every source", default=50e-12)
+    cycles = h.Param(dtype=int, desc="Input periods simulated", default=3)
 
 
 def _validate_lvshift_tb_params(params: LvShiftTbParams) -> None:
     values = (params.vdd, params.cload, params.period_s, params.transition_time_s)
-    if not all(math.isfinite(float(value)) for value in values):
+    if not all(math.isfinite(float(value)) for value in (*values, params.waveform_sample_interval_s)):
         raise ValueError("level shifter testbench values must be finite")
-    if float(params.vdd) <= 0 or float(params.cload) <= 0:
-        raise ValueError("level shifter supply and load must be positive")
+    if min(float(params.vdd), float(params.cload), params.waveform_sample_interval_s) <= 0:
+        raise ValueError("level shifter supply, load, and sample interval must be positive")
     if float(params.transition_time_s) <= 0 or float(params.period_s) <= 2 * float(params.transition_time_s):
         raise ValueError("level shifter period must exceed both transitions, which must be positive")
     if not 0 < float(params.vddl) <= float(params.vdd):
         raise ValueError("level shifter input supply must lie between 0 and vdd")
+    if params.cycles < 2:
+        raise ValueError("level shifter run must hold two input periods")
 
 
 @h.generator
 def LvShiftTb(params: LvShiftTbParams) -> h.Module:
-    """Generate a level shifter testbench: complementary input pulses at vddl levels, rst high for the first quarter period, a load on each output and buffered output."""
+    """Generate the level shifter testbench (bag3_digital's level shifter bench): complementary
+    input pulses at vddl levels, rst high for the first quarter period, a load on each output and
+    buffered output."""
 
     _validate_lvshift_tb_params(params)
 
@@ -79,8 +100,11 @@ def LvShiftTb(params: LvShiftTbParams) -> h.Module:
     return LvShiftTb
 
 
-def _transient(run_dir: Path, params: LvShiftTbParams, tstop: float, check: bool) -> Path:
-    """Run one level shifter testbench transient in TSMC65 (``check``: one tenth of it with Spectre's checks)."""
+def _run_lvshift_sim(run_dir: Path, params: LvShiftTbParams, *, check: bool = False) -> Path:
+    """Run one level shifter testbench transient in TSMC65 and return its raw file.
+
+    ``check`` adds Spectre's static and connectivity checks and shortens the run to a tenth.
+    """
 
     from pdk import tsmc65
     from pdk.tsmc65.hdl21 import site
@@ -89,43 +113,41 @@ def _transient(run_dir: Path, params: LvShiftTbParams, tstop: float, check: bool
     h.pdk.set_default(tsmc65.pdk_logic)
     tb = LvShiftTb(params)
     h.pdk.compile(tb)
-    simulation = hs.Sim(
-        tb=tb,
-        attrs=[
-            site.install.include(h.pdk.Corner.TYP),
-            site.install.include_pre_simulation(),
-            hs.Options(name="temp", value=25.0),
-            hs.Options(name="save", value="selected"),
-            hs.Save([raw for raw in lvshift_signal_names() if raw != "time"]),
-            *(
-                [
-                    h.Literal(
-                        "check_caps static_capacitor type=distr\n"
-                        "check_erc static_erc floatbulk=all floatgate=no_top_moscap dangle=no_top "
-                        "gate2power=on gate2ground=on\n"
-                        "check_highz static_highz node=[*] fanout=gate_has_driver_no_moscap\n"
-                        "check_dcpath static_dcpath net=[xtop.vdd 0]\n"
-                        "check_topology static_topology node=[*] pin2gnd=on"
-                    ),
-                ]
-                if check
-                else []
-            ),
-            hs.Tran(
-                tstop=tstop / 10 if check else tstop,
-                name="tran",
-                options={"strobeperiod": 1 * p, "strobeoutput": "strobeonly"},
-            ),
-        ],
+    interval = params.waveform_sample_interval_s
+    tstop = params.cycles * float(params.period_s)
+    attrs = [
+        site.install.include(h.pdk.Corner.TYP),
+        site.install.include_pre_simulation(),
+        hs.Options(name="temp", value=25.0),
+        hs.Options(name="save", value="selected"),
+        hs.Save([raw for raw in lvshift_signal_names() if raw != "time"]),
+    ]
+    if check:
+        attrs.append(
+            h.Literal(
+                "check_caps static_capacitor type=distr\n"
+                "check_erc static_erc floatbulk=all floatgate=no_top_moscap dangle=no_top "
+                "gate2power=on gate2ground=on\n"
+                "check_highz static_highz node=[*] fanout=gate_has_driver_no_moscap\n"
+                "check_dcpath static_dcpath net=[xtop.vdd 0]\n"
+                "check_topology static_topology node=[*] pin2gnd=on"
+            )
+        )
+    attrs.append(
+        hs.Tran(
+            tstop=tstop / 10 if check else tstop,
+            name="tran",
+            options={"strobeperiod": interval, "maxstep": interval, "strobeoutput": "strobeonly"},
+        )
     )
-    simulation.run(
+    hs.Sim(tb=tb, attrs=attrs).run(
         SimOptions(
             simulator=SupportedSimulators.SPECTRE,
             fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
             rundir=run_dir,
             simulator_args=(
                 "+preset=mx",
-                "+mt=4",
+                "+mt=1",
                 "+lqtimeout",
                 "3600",
                 "+escchars",
@@ -135,33 +157,115 @@ def _transient(run_dir: Path, params: LvShiftTbParams, tstop: float, check: bool
             ),
         )
     )
+    return run_dir / "netlist.raw"
+
+
+# The characterization: the input supply from 0.3 V to TSMC65's 1.2 V core supply at that core
+# supply, and the output supply at the 0.6 V input supply.
+VDDL_SWEEP_V = (0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7, 0.8, 1.0, 1.2)
+VDD_SWEEP_V = (1.0, 1.1, 1.2, 1.3)
+NOMINAL_VDD_V = 1.2
+NOMINAL_VDDL_V = 0.6
+
+
+def lvshift_characterization(run_dir: Path, *, check: bool = False) -> Path:
+    """Run every level shifter over the input and the output supply: 3 cases, 14 points each.
+
+    Each point writes ``<case>/<sweep>/<point>/result.h5`` (a ``MeasLvShift``). ``check`` runs the
+    nominal point of each case with Spectre's checks instead, writing no measurement.
+    """
+
+    from flow.analysis.types import MeasInfo, Wave
+    from flow.circuit.results import read_raw_transient
+    from flow.lvshift.analysis import MeasLvShift
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    points = {"vddl": [(NOMINAL_VDD_V, vddl) for vddl in VDDL_SWEEP_V]}
+    points["vdd"] = [(vdd, NOMINAL_VDDL_V) for vdd in VDD_SWEEP_V]
+    if check:
+        points = {"vddl": [(NOMINAL_VDD_V, NOMINAL_VDDL_V)]}
+    jobs = {
+        f"{case}/{sweep}/vdd{round(vdd * 1e3)}_vddl{round(vddl * 1e3)}": LvShiftTbParams(
+            lvshift=lvshift, vdd=vdd, vddl=vddl
+        )
+        for case, lvshift in CASES.items()
+        for sweep, values in points.items()
+        for vdd, vddl in values
+    }
+    names = lvshift_signal_names()
+    failures: dict[str, str] = {}
+    with ProcessPoolExecutor(max_workers=16, mp_context=get_context("spawn")) as executor:
+        futures = {
+            executor.submit(_run_lvshift_sim, run_dir / name, params, check=check): (name, params)
+            for name, params in jobs.items()
+        }
+        for future in as_completed(futures):
+            name, params = futures[future]
+            try:
+                raw_path = future.result()
+                if check:
+                    continue
+                # one record from time zero on the stored grid; the supply currents as positive draw
+                result = read_raw_transient(raw_path)
+                times_s = np.asarray(result.data["time"])
+                interval = params.waveform_sample_interval_s
+                window = [(float(times_s[0]), float(times_s[-1]))]
+                time_s, voltages = interpolate_wave_records(
+                    times_s,
+                    {
+                        names[key]: value
+                        for key, value in result.data.items()
+                        if not names[key].startswith(("i(", "time"))
+                    },
+                    window,
+                    interval,
+                )
+                _, currents = interpolate_wave_records(
+                    times_s,
+                    {
+                        names[key][2:-1]: -np.asarray(value)
+                        for key, value in result.data.items()
+                        if names[key].startswith("i(")
+                    },
+                    window,
+                    interval,
+                )
+                measurement = MeasLvShift(
+                    group=None,
+                    index=None,
+                    dut=params.lvshift,
+                    info=MeasInfo(
+                        backend="spice",
+                        timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
+                        instruments={"simulator": "Spectre"},
+                        readbacks={
+                            "case": name.split("/")[0],
+                            "sweep": name.split("/")[1],
+                            "signal_map_json": json.dumps(names, sort_keys=True),
+                            "raw_file": raw_path.name,
+                            "raw_points": len(times_s),
+                            "waveform_sample_interval_s": interval,
+                            "supply_current_convention": "positive_current_draw",
+                        },
+                    ),
+                    param=params,
+                    trial_index=np.arange(1, dtype=np.int64),
+                    wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
+                )
+                write_measurement(raw_path.parent / "result.h5", measurement)
+            except Exception as error:  # noqa: BLE001 - report every independent point failure
+                failures[name] = repr(error)
+    if failures:
+        failure_path = run_dir / "failures.json"
+        failure_path.write_text(json.dumps(failures, indent=2) + "\n")
+        raise RuntimeError(f"{len(failures)} level shifter points failed; see {failure_path}")
     return run_dir
-
-
-def core_transient(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the cross-coupled core over three input periods."""
-
-    params = LvShiftTbParams(lvshift=CASES["core"])
-    return _transient(run_dir, params, 3 * float(params.period_s), check)
-
-
-def single_rst_transient(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the level shifter with an input inverter and reset over three input periods."""
-
-    params = LvShiftTbParams(lvshift=CASES["single_rst"])
-    return _transient(run_dir, params, 3 * float(params.period_s), check)
 
 
 def main() -> None:
     """Create one output directory and run one named level shifter target."""
 
-    targets = {
-        target.__name__: target
-        for target in (
-            core_transient,
-            single_rst_transient,
-        )
-    }
+    targets = {target.__name__: target for target in (lvshift_characterization,)}
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("target", nargs="?", choices=sorted(targets))
     args = parser.parse_args()
