@@ -78,6 +78,7 @@ def test_runner_exposes_only_named_orchestration_entry_points() -> None:
         "delay_characterization_study",
         "latch_characterization_study",
         "ota_characterization_study",
+        "follower_characterization_study",
         "cdac_system_cap_mismatch_study",
         "adc_behavioral_nonlinearity_study",
         "adc_behavioral_energy_study",

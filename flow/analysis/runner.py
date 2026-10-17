@@ -110,6 +110,9 @@ from flow.delay.plots import (
     plot_delay_ring_supply,
 )
 from flow.delay.sim import NOMINAL_CONTROL_V, NOMINAL_SUPPLY_V
+from flow.follower.analysis import MeasFollower, analyze_follower_impedance, analyze_follower_transfer
+from flow.follower.plots import plot_follower_bandwidth, plot_follower_response, plot_follower_transfer
+from flow.follower.sim import NOMINAL_VIN_V
 from flow.latch.analysis import MeasLatch, analyze_latch_constraint, analyze_latch_sr, analyze_latch_timing
 from flow.latch.plots import plot_latch_frequency, plot_latch_setup_hold, plot_latch_supply
 from flow.ota.analysis import MeasOta, analyze_ota_ac
@@ -1431,6 +1434,48 @@ def ota_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     )
 
 
+def follower_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named followers' transfer, bandwidth, and output impedance over the input level."""
+
+    meas_read_dir = BASE_PATH / "build/sim/follower/follower_characterization/20261017_124138"
+    cases = (
+        ("source", "source: NMOS"),
+        ("source_pmos", "source_pmos: PMOS"),
+        ("flipped", "flipped: NMOS flipped"),
+        ("flipped_pmos", "flipped_pmos: PMOS flipped, sink"),
+    )
+    sweeps = {}
+    for name, _label in cases:
+        for stimulus in ("input", "output"):
+            measurements = []
+            for path in sorted(meas_read_dir.glob(f"{name}/{stimulus}/*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasFollower):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasFollower")
+                measurements.append(measurement)
+            sweeps[name, stimulus] = sorted(measurements, key=lambda item: float(item.param.vin))
+    labels = [label for _name, label in cases]
+    transfers = [analyze_follower_transfer(sweeps[name, "input"]) for name, _label in cases]
+    impedances = [analyze_follower_impedance(sweeps[name, "output"]) for name, _label in cases]
+    nominal = {
+        stimulus: [
+            [item for item in sweeps[name, stimulus] if float(item.param.vin) == NOMINAL_VIN_V[name]]
+            for name, _label in cases
+        ]
+        for stimulus in ("input", "output")
+    }
+    return (
+        *plot_follower_transfer(transfers, labels=labels, output_path=output_dir / "follower_transfer"),
+        *plot_follower_bandwidth(transfers, impedances, labels=labels, output_path=output_dir / "follower_bandwidth"),
+        *plot_follower_response(
+            [analyze_follower_transfer(items) for items in nominal["input"]],
+            [analyze_follower_impedance(items) for items in nominal["output"]],
+            labels=labels,
+            output_path=output_dir / "follower_response",
+        ),
+    )
+
+
 def main() -> None:
     """Run one explicitly selected analysis pipeline."""
     targets: dict[str, Callable[[Path], tuple[Path, ...]]] = {
@@ -1460,6 +1505,7 @@ def main() -> None:
             delay_characterization_study,
             latch_characterization_study,
             ota_characterization_study,
+            follower_characterization_study,
         )
     }
 
@@ -1469,7 +1515,7 @@ def main() -> None:
 
     domain = (
         args.target.split("_", 1)[0]
-        if args.target.startswith(("comp_", "cdac_", "delay_", "latch_", "ota_"))
+        if args.target.startswith(("comp_", "cdac_", "delay_", "latch_", "ota_", "follower_"))
         else "adc"
     )
     timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
