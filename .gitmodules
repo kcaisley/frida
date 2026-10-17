@@ -12,11 +12,11 @@
 	url = git@github.com:kcaisley/ihp130.git
 [submodule "libs/Hdl21"]
 	path = libs/Hdl21
-	url = https://github.com/kcaisley/Hdl21.git
+	url = git@github.com:kcaisley/Hdl21.git
 	branch = main
 [submodule "libs/Vlsir"]
 	path = libs/Vlsir
-	url = https://github.com/kcaisley/Vlsir.git
+	url = git@github.com:kcaisley/Vlsir.git
 	branch = main
 [submodule "libs/basil"]
 	path = libs/basil
