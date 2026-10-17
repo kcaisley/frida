@@ -25,12 +25,12 @@ from flow.analysis.types import (
     MeasCdac,
     MeasComp,
     MeasInfo,
-    MeasSamp,
     Wave,
     check_identity,
     measurement_identity,
 )
 from flow.comp.sim import CompTbParams
+from flow.samp.analysis import MeasSamp
 from flow.samp.sim import SampTbParams
 from flow.scans.params import AdcScanParams
 

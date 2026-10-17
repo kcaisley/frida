@@ -54,10 +54,12 @@ def capture_sim(monkeypatch):
             include_stdcell=lambda: hs.Include(path=Path("/cells/driver.spi")),
         )
     )
-    fake_tsmc65 = SimpleNamespace(site=site, pdk_logic=object())
+    # the logic's unit device sizes the comparator's geometry readbacks
+    fake_tsmc65 = SimpleNamespace(site=site, pdk_logic=SimpleNamespace(default_xtor_size={"core": (120e-9, 60e-9)}))
     monkeypatch.setattr(pdk, "tsmc65", fake_tsmc65, raising=False)
     monkeypatch.setitem(sys.modules, "pdk.tsmc65", fake_tsmc65)
     monkeypatch.setitem(sys.modules, "pdk.tsmc65.hdl21", SimpleNamespace(site=site))
+    monkeypatch.setitem(sys.modules, "pdk.tsmc65.hdl21.site", site)
     monkeypatch.setattr(h.pdk, "set_default", lambda *_: None)
     monkeypatch.setattr(h.pdk, "compile", lambda *_: None)
     captured = {}
@@ -247,7 +249,7 @@ def test_missing_installation_skips_but_missing_collateral_fails(monkeypatch, tm
 def test_spectre_marker_is_opt_in():
     import subprocess
 
-    for selection, expected in (([], "22 deselected"), (["-m", "spectre"], "22 tests collected")):
+    for selection, expected in (([], "25 deselected"), (["-m", "spectre"], "25 tests collected")):
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "--collect-only", "-q", str(test_spectre.__file__), *selection],
             capture_output=True,

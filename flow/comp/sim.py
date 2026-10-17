@@ -1,7 +1,12 @@
-"""Comparator testbench and named TSMC65 Spectre simulation targets."""
+"""Comparator testbench and named Spectre simulation targets.
+
+The FRIDA-1 targets and the size sweep stay TSMC65 references (they reproduce, or size against,
+the fabricated comparator); ``comp_characterization`` compares the study topologies in every PDK.
+"""
 
 import argparse
 import hashlib
+import importlib
 import json
 import math
 import time
@@ -13,7 +18,7 @@ from pathlib import Path
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.primitives import C, MosType, R, Vdc, Vpulse, Vpwl
-from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
+from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
 from flow.analysis.io import write_measurement
 from flow.circuit.ports import testbench_from_ports
@@ -28,6 +33,7 @@ from .subckt import (
     CompParams,
     Stages,
     State,
+    _core_unit,
     is_valid_comp_params,
 )
 from .subckt import topologies as sweep_topologies
@@ -50,6 +56,7 @@ def comp_signal_names() -> dict[str, str]:
 class CompTbParams:
     """Parameters which determine one generated comparator testbench."""
 
+    pdk = h.Param(dtype=str, desc="PDK the testbench compiles to and simulates in", default="tsmc65")
     waveform_sample_interval_s = h.Param(
         dtype=float, desc="Maximum raw step and stored waveform spacing", default=10e-12
     )
@@ -191,14 +198,14 @@ def _run_comp_sim(
     checks, and measurement output. Each campaign worker compiles in an isolated
     process and uses one Spectre thread; no compiled HDL21 graph crosses workers.
     """
-    from pdk import tsmc65
-    from pdk.tsmc65.hdl21 import site
+    pdk = importlib.import_module(f"pdk.{params.pdk}")
+    install = importlib.import_module(f"pdk.{params.pdk}.hdl21.site").install
 
     run_dir.mkdir(parents=True, exist_ok=True)
     if not is_valid_comp_params(params.comp):
         raise ValueError(f"invalid comparator case {candidate_id}")
     try:
-        h.pdk.set_default(tsmc65.pdk_logic)
+        h.pdk.set_default(pdk.pdk_logic)
         tb = CompTb(params)
         h.pdk.compile(tb)
         tstop_s = (
@@ -208,8 +215,14 @@ def _run_comp_sim(
             * (float(params.reset_time_s) + float(params.evaluation_time_s))
         )
         attrs = [
-            site.install.include(h.pdk.Corner.TYP),
-            site.install.include_pre_simulation(),
+            install.include(h.pdk.Corner.TYP),
+            # what else the PDK's simulations take, in this order: TSMC's pre-simulation settings,
+            # the device names its netlists use (pdk/<name>/hdl21)
+            *(
+                getattr(install, name)()
+                for name in ("include_pre_simulation", "include_devices")
+                if hasattr(install, name)
+            ),
             hs.Options(name="temp", value=25.0),
             hs.Options(name="save", value="selected"),
             hs.Save([raw for raw in comp_signal_names() if raw != "time"]),
@@ -240,30 +253,38 @@ def _run_comp_sim(
         attrs.append(hs.Tran(tstop=tstop_s, name="tran", noise=transient_noise, options=tran_options))
         simulation = hs.Sim(tb=tb, attrs=attrs)
         started = time.perf_counter()
-        simulation.run(
-            SimOptions(
-                simulator=SupportedSimulators.SPECTRE,
-                fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
-                rundir=run_dir,
-                simulator_args=(
-                    "+preset=mx",
-                    "+mt=1",
-                    "+lqtimeout",
-                    "3600",
-                    "+escchars",
-                    "+log",
-                    "spectre.log",
-                    *(("-ahdllint=warn", "-ahdllint_log", "ahdllint.log") if check else ()),
-                ),
+        # the simulator's error holds its simulation, which cannot cross back from a worker
+        # process: raise it as text
+        try:
+            simulation.run(
+                SimOptions(
+                    simulator=SupportedSimulators.SPECTRE,
+                    fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
+                    rundir=run_dir,
+                    simulator_args=(
+                        "+preset=mx",
+                        "+mt=1",
+                        "+lqtimeout",
+                        "3600",
+                        "+escchars",
+                        "+log",
+                        "spectre.log",
+                        *(("-ahdllint=warn", "-ahdllint_log", "ahdllint.log") if check else ()),
+                    ),
+                )
             )
-        )
+        except SimError as error:
+            raise RuntimeError(f"Spectre failed in {run_dir}: {error}") from None
         runtime_s = time.perf_counter() - started
+        # device sizes in the PDK's own unit device (its core width and minimum length)
+        unit_w, unit_l = _core_unit(pdk.pdk_logic)
         geometry = tuple(
-            (name, round(float(instance.of.params.w) / 120e-9), round(float(instance.of.params.l) / 60e-9))
+            (name, round(float(instance.of.params.w) / unit_w), round(float(instance.of.params.l) / unit_l))
             for name, instance in tb.dut.of.instances.items()
             if hasattr(instance.of.params, "w") and hasattr(instance.of.params, "l")
         )
         readbacks = {
+            "pdk": params.pdk,
             "candidate_id": candidate_id,
             "candidate_label": candidate_label,
             "topology_index": topology_index,
@@ -271,7 +292,7 @@ def _run_comp_sim(
             "spectre_runtime_s": runtime_s,
             "total_width_units": sum(w for _, w, _ in geometry),
             "total_active_area_units": sum(w * l for _, w, l in geometry),
-            "total_active_area_um2": sum(w * l for _, w, l in geometry) * 0.12 * 0.06,
+            "total_active_area_um2": sum(w * l for _, w, l in geometry) * unit_w * unit_l * 1e12,
             "device_width_signature": ",".join(f"{name}:{w}" for name, w, _ in geometry),
             "device_geometry_signature": ",".join(f"{name}:{w}:{l}" for name, w, l in geometry),
             "transient_noise": transient_noise,
@@ -530,10 +551,10 @@ def hdl21_comp_perf_vs_size(run_dir: Path, *, check: bool = False) -> Path:
     return run_dir
 
 
-# The six comparator topologies of the topology study (StrongARM, triple tail,
-# double tail, and the self-timed and modified double tails), NMOS input with a
-# switched tail, at one shared sizing with short channels.
-TOPOLOGY_STUDY = {
+# The characterization's six topologies (StrongARM, triple tail, double tail, and the self-timed
+# and modified double tails), NMOS input with a switched tail, at one shared sizing with short
+# channels.
+TOPOLOGIES = {
     "strongarm": {"comp_stages": Stages.SINGLE},
     "triple_tail": {"comp_stages": Stages.TRIPLE},
     "double_tail": {
@@ -559,7 +580,7 @@ TOPOLOGY_STUDY = {
         "latch_inner_init_xtors": State.SIGNAL,
     },
 }
-TOPOLOGY_STUDY_SIZES = {
+TOPOLOGY_SIZES = {
     "diffpair_w": 32,
     "diffpair_l": 2,
     "tail_w": 16,
@@ -573,96 +594,120 @@ TOPOLOGY_STUDY_SIZES = {
     "srlatch_n_w": 4,
     "srlatch_p_w": 8,
 }
-TOPOLOGY_STUDY_VDD_V = 1.2  # TSMC65 core supply
-TOPOLOGY_STUDY_VCM_V = (0.45, 0.55, 0.65, 0.75)
-TOPOLOGY_STUDY_VDM_V = (0.2e-3, 0.3e-3, 0.5e-3, 0.7e-3, 1e-3, 1.5e-3, 2.5e-3, 4e-3, 6e-3, 10e-3)
+# In every PDK at its own core supply: four input common modes (3/8 to 5/8 of the supply; 0.45 to
+# 0.75 V in TSMC65), at each the noise-free clock-to-decision delay over ten positive differential
+# inputs and a transient-noise S-curve over +-3 mV for the input-referred noise and the power.
+VCM_SWEEP = (9 / 24, 11 / 24, 13 / 24, 15 / 24)
+VDM_SWEEP_V = (0.2e-3, 0.3e-3, 0.5e-3, 0.7e-3, 1e-3, 1.5e-3, 2.5e-3, 4e-3, 6e-3, 10e-3)
+SCURVE_V = tuple(step * 100e-6 for step in range(-30, 31))
 
 
-def hdl21_comp_topology_study(run_dir: Path, *, check: bool = False) -> Path:
-    """Delay and input-referred noise of the six study topologies versus input.
+def comp_characterization(run_dir: Path, *, check: bool = False) -> Path:
+    """Delay, input-referred noise and power of the six topologies over the common mode, in every PDK.
 
-    ``delay/<topology>``: noise-free decisions at every common mode and every
-    positive differential input (three conversions each, 2 ps waveform spacing)
-    for the clock-to-decision delay. ``noise/<topology>_cm<mV>``: a transient-noise
-    S-curve per common mode for the input-referred noise. Mismatch is not
-    simulated, so the offset is systematic only.
+    Each point writes ``<pdk>/<topology>/<sweep>/cm<mV>/result.h5`` (a ``MeasComp``): ``delay``
+    noise-free decisions at every differential input (three conversions each, 2 ps waveform
+    spacing), ``noise`` a transient-noise S-curve. Mismatch is not simulated, so the offset is
+    systematic only. ``check`` runs one noise-free decision per topology with Spectre's checks
+    instead, writing no measurement.
     """
 
     from dataclasses import replace
 
     from flow.circuit.results import convert_raw_comp_to_measurement, read_raw_transient
+    from flow.comp.layout import PDKS
 
     run_dir.mkdir(parents=True, exist_ok=True)
-    timing = {
-        "vdd": TOPOLOGY_STUDY_VDD_V,
-        "reset_time_s": 1e-9,
-        "evaluation_time_s": 2e-9,
-        "transition_time_s": 20e-12,
-    }
-    jobs = []
-    for index, (name, topology) in enumerate(TOPOLOGY_STUDY.items()):
-        comp = CompParams(**topology, **TOPOLOGY_STUDY_SIZES)
-        if check:
-            params = CompTbParams(
-                comp=comp, vin_cm_values_v=(0.55,), vin_diff_values_v=(1e-3,), conversions=1, **timing
-            )
-            jobs.append((run_dir / name, params, name, index, False))
-            continue
-        delay = CompTbParams(
-            comp=comp,
-            vin_cm_values_v=TOPOLOGY_STUDY_VCM_V,
-            vin_diff_values_v=TOPOLOGY_STUDY_VDM_V,
-            conversions=3,
-            waveform_sample_interval_s=2e-12,
-            **timing,
-        )
-        jobs.append((run_dir / "delay" / name, delay, name, index, False))
-        for vcm in TOPOLOGY_STUDY_VCM_V:
-            scurve = CompTbParams(
-                comp=comp,
-                vin_cm_values_v=(vcm,),
-                vin_diff_values_v=tuple(step * 100e-6 for step in range(-30, 31)),
-                conversions=100,
-                **timing,
-            )
-            jobs.append((run_dir / "noise" / f"{name}_cm{round(vcm * 1e3):03d}", scurve, name, index, True))
-    failures: dict[str, str] = {}
-    with ProcessPoolExecutor(max_workers=24, mp_context=get_context("spawn")) as executor:
-        futures = {
-            executor.submit(
-                _run_comp_sim,
-                case_dir,
-                params,
-                candidate_id=case_dir.name,
-                candidate_label=name.replace("_", " "),
-                topology_index=index,
-                size_profile="topology_study",
-                check=check,
-                noise=noise,
-            ): str(case_dir.relative_to(run_dir))
-            for case_dir, params, name, index, noise in jobs
+    jobs = {}
+    for pdk in PDKS:
+        supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
+        timing = {
+            "pdk": pdk,
+            "vdd": supply,
+            "reset_time_s": 1e-9,
+            "evaluation_time_s": 2e-9,
+            "transition_time_s": 20e-12,
         }
-        for future in as_completed(futures):
-            try:
-                raw_path, params, readbacks = future.result()
-                if not check:
+        for index, (name, topology) in enumerate(TOPOLOGIES.items()):
+            comp = CompParams(**topology, **TOPOLOGY_SIZES)
+            if check:
+                jobs[f"{pdk}/{name}/check"] = (
+                    CompTbParams(
+                        comp=comp,
+                        vin_cm_values_v=(round(supply / 2, 4),),
+                        vin_diff_values_v=(1e-3,),
+                        conversions=1,
+                        **timing,
+                    ),
+                    index,
+                    False,
+                )
+                continue
+            for fraction in VCM_SWEEP:
+                vcm = round(fraction * supply, 4)
+                point = f"cm{round(vcm * 1e3)}"
+                jobs[f"{pdk}/{name}/delay/{point}"] = (
+                    CompTbParams(
+                        comp=comp,
+                        vin_cm_values_v=(vcm,),
+                        vin_diff_values_v=VDM_SWEEP_V,
+                        conversions=3,
+                        waveform_sample_interval_s=2e-12,
+                        **timing,
+                    ),
+                    index,
+                    False,
+                )
+                jobs[f"{pdk}/{name}/noise/{point}"] = (
+                    CompTbParams(
+                        comp=comp, vin_cm_values_v=(vcm,), vin_diff_values_v=SCURVE_V, conversions=100, **timing
+                    ),
+                    index,
+                    True,
+                )
+    failures: dict[str, str] = {}
+    # one pool per PDK: hdl21 compiles each generated module in place, for the first PDK it meets
+    for pdk in PDKS:
+        with ProcessPoolExecutor(max_workers=16, mp_context=get_context("spawn")) as executor:
+            futures = {
+                executor.submit(
+                    _run_comp_sim,
+                    run_dir / name,
+                    params,
+                    candidate_id=name.replace("/", "_"),
+                    candidate_label=name.split("/")[1].replace("_", " "),
+                    topology_index=index,
+                    size_profile="characterization",
+                    check=check,
+                    noise=noise,
+                ): name
+                for name, (params, index, noise) in jobs.items()
+                if params.pdk == pdk
+            }
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    raw_path, params, readbacks = future.result()
+                    if check:
+                        continue
                     measurement = convert_raw_comp_to_measurement(
                         read_raw_transient(raw_path),
                         params=params,
                         raw_path=raw_path,
                         signal_names=comp_signal_names(),
                     )
+                    readbacks = {**readbacks, "case": name.split("/")[1], "sweep": name.split("/")[2]}
                     measurement = replace(
                         measurement,
                         info=replace(measurement.info, readbacks={**measurement.info.readbacks, **readbacks}),
                     )
                     write_measurement(raw_path.parent / "result.h5", measurement)
-            except Exception as error:  # noqa: BLE001 - report every independent case failure
-                failures[futures[future]] = repr(error)
+                except Exception as error:  # noqa: BLE001 - report every independent point failure
+                    failures[name] = repr(error)
     if failures:
         failure_path = run_dir / "failures.json"
         failure_path.write_text(json.dumps(failures, indent=2) + "\n")
-        raise RuntimeError(f"{len(failures)} topology study cases failed; see {failure_path}")
+        raise RuntimeError(f"{len(failures)} comparator characterization points failed; see {failure_path}")
     return run_dir
 
 
@@ -721,7 +766,7 @@ def main() -> None:
         target.__name__: target
         for target in (
             hdl21_comp_perf_vs_size,
-            hdl21_comp_topology_study,
+            comp_characterization,
             frida1_fixed_input_noise,
         )
     }

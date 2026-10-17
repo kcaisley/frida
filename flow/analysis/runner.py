@@ -55,14 +55,7 @@ from flow.analysis.calibration1 import analyze_adc_calibration1
 from flow.analysis.calibration2 import analyze_adc_calibration2
 from flow.analysis.calibration3 import analyze_adc_calibration3
 from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_transition
-from flow.analysis.comp import (
-    analyze_comp_candidate,
-    analyze_comp_common_mode,
-    analyze_comp_delay,
-    analyze_comp_offset_noise,
-    analyze_comp_power,
-    analyze_comp_timing,
-)
+from flow.analysis.comp import analyze_comp_common_mode, analyze_comp_offset_noise
 from flow.analysis.io import read_extracted_calibration, read_measurement, read_measurement_param, write_analysis
 from flow.analysis.plots import (
     plot_adc_calibration_weights,
@@ -87,12 +80,9 @@ from flow.analysis.plots import (
     plot_adc_transfer,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
-    plot_comp_candidate_sweep,
     plot_comp_common_mode_campaign,
-    plot_comp_noise_power_tradeoff,
     plot_comp_offset_noise,
     plot_comp_sampling_campaign,
-    plot_comp_topology_study,
     plot_waveforms,
     style_measurement_text,
 )
@@ -102,11 +92,21 @@ from flow.analysis.types import (
     MeasCdac,
     MeasComp,
 )
+from flow.caparray.analysis import MeasCapArrayTran, analyze_caparray_transfer, analyze_caparray_weights
+from flow.caparray.plots import plot_caparray_error, plot_caparray_transfer, plot_caparray_weights
 from flow.clkgen.analysis import MeasClkgen, analyze_clkgen_timing
 from flow.clkgen.plots import plot_clkgen_frequency, plot_clkgen_supply, plot_clkgen_waveforms
 from flow.cml.analysis import MeasCml, analyze_cml_switching
 from flow.cml.plots import plot_cml_frequency, plot_cml_tail, plot_cml_waveforms
+from flow.comp.analysis import analyze_comp_candidate, analyze_comp_delay, analyze_comp_power, analyze_comp_timing
 from flow.comp.layout import PDKS
+from flow.comp.plots import (
+    plot_comp_candidate_sweep,
+    plot_comp_common_mode,
+    plot_comp_delay,
+    plot_comp_energy,
+    plot_comp_noise_power_tradeoff,
+)
 from flow.delay.analysis import MeasDelay, analyze_delay_oscillation, analyze_delay_propagation
 from flow.delay.plots import (
     plot_delay_line_control,
@@ -130,6 +130,8 @@ from flow.pi.analysis import MeasPi, analyze_pi_linearity, analyze_pi_phase
 from flow.pi.plots import plot_pi_frequency, plot_pi_transfer, plot_pi_waveforms
 from flow.ringamp.analysis import MeasRingamp, analyze_ringamp_settling, analyze_ringamp_transfer
 from flow.ringamp.plots import plot_ringamp_deadzone, plot_ringamp_step, plot_ringamp_transfer, plot_ringamp_waveforms
+from flow.samp.analysis import MeasSamp, analyze_samp_hold, analyze_samp_track
+from flow.samp.plots import plot_samp_hold, plot_samp_resistance, plot_samp_supply, plot_samp_waveforms
 from flow.scans.params import load_board_map
 
 timing_sequences = tuple(
@@ -1164,40 +1166,53 @@ def comp_candidate_sweep_study(output_dir: Path) -> tuple[Path, ...]:
     )
 
 
-def comp_topology_study(output_dir: Path) -> tuple[Path, ...]:
-    """Analyze and plot delay and noise of the six simulated comparator topologies."""
+def comp_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the six comparator topologies' delay, noise, energy and offset over the common mode, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/comp/hdl21_comp_topology_study/20261013_103009"
+    meas_read_dir = BASE_PATH / "build/sim/comp/comp_characterization/PENDING"
     topologies = (
-        ("double_tail_self_timed", "Double tail self-timed"),
-        ("double_tail", "Double tail"),
-        ("double_tail_modified_self_timed", "Double tail modified self-timed"),
-        ("double_tail_modified", "Double tail modified"),
-        ("triple_tail", "Triple tail"),
-        ("strongarm", "StrongARM"),
+        ("double_tail_self_timed", "double_tail_self_timed: self-timed"),
+        ("double_tail", "double_tail: double tail"),
+        ("double_tail_modified_self_timed", "double_tail_modified_self_timed"),
+        ("double_tail_modified", "double_tail_modified: modified double tail"),
+        ("triple_tail", "triple_tail: triple tail"),
+        ("strongarm", "strongarm: StrongARM"),
     )
-    delays = []
-    common_modes = []
-    for name, _label in topologies:
-        measurements = []
-        for path in (
-            meas_read_dir / "delay" / name / "result.h5",
-            *sorted(meas_read_dir.glob(f"noise/{name}_cm*/result.h5")),
-        ):
-            measurement = read_measurement(path)
-            if not isinstance(measurement, MeasComp):
-                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasComp")
-            measurements.append(measurement)
-        delay_measurements, scurves = measurements[:1], measurements[1:]
-        delays.append(analyze_comp_delay(delay_measurements, timing=analyze_comp_timing(delay_measurements)))
-        offsets = [analyze_comp_offset_noise([scurve]) for scurve in scurves]
-        common_modes.append(analyze_comp_common_mode(scurves, offsets=offsets))
-    return plot_comp_topology_study(
-        delays,
-        common_modes,
-        labels=[label for _name, label in topologies],
-        output_path=output_dir / "comp_topology_study",
-    )
+    labels = [label for _name, label in topologies]
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in topologies:
+            for sweep in ("delay", "noise"):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasComp):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasComp")
+                    measurements.append(measurement)
+                sweeps[name, sweep] = sorted(measurements, key=lambda item: float(item.param.vin_cm_values_v[0]))
+        delays = [
+            analyze_comp_delay(sweeps[name, "delay"], timing=analyze_comp_timing(sweeps[name, "delay"]))
+            for name, _label in topologies
+        ]
+        common_modes = [
+            analyze_comp_common_mode(
+                sweeps[name, "noise"], offsets=[analyze_comp_offset_noise([item]) for item in sweeps[name, "noise"]]
+            )
+            for name, _label in topologies
+        ]
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_comp_delay(delays, labels=labels, output_path=pdk_dir / "comp_delay"),
+            *plot_comp_common_mode(delays, common_modes, labels=labels, output_path=pdk_dir / "comp_common_mode"),
+            *plot_comp_energy(
+                [analyze_comp_power(sweeps[name, "noise"]) for name, _label in topologies],
+                common_modes,
+                labels=labels,
+                output_path=pdk_dir / "comp_energy",
+            ),
+        ]
+    return tuple(artifacts)
 
 
 def cdac_system_cap_mismatch_study(output_dir: Path) -> tuple[Path, ...]:
@@ -1861,6 +1876,94 @@ def ringamp_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
+def samp_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named sampling switches' resistance, hold effects and supply scaling, in every PDK."""
+
+    meas_read_dir = BASE_PATH / "build/sim/samp/samp_characterization/20261018_003412"
+    cases = (
+        ("frida1", "frida1: transmission gate"),
+        ("tgate_dummy", "tgate_dummy: with dummies"),
+        ("nmos", "nmos: NMOS switch"),
+        ("bootstrap", "bootstrap: bootstrapped NMOS"),
+    )
+    labels = [label for _name, label in cases]
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            for sweep, key in (
+                ("vin", lambda item: float(item.param.input_voltage)),
+                ("supply", lambda item: float(item.param.vdd)),
+            ):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasSamp):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasSamp")
+                    measurements.append(measurement)
+                sweeps[name, sweep] = sorted(measurements, key=key)
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_samp_resistance(
+                [analyze_samp_track(sweeps[name, "vin"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "samp_resistance",
+            ),
+            *plot_samp_hold(
+                [analyze_samp_hold(sweeps[name, "vin"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "samp_hold",
+            ),
+            *plot_samp_supply(
+                [analyze_samp_track(sweeps[name, "supply"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "samp_supply",
+            ),
+            *plot_samp_waveforms(
+                # each switch at its middle input level
+                [sweeps[name, "vin"][len(sweeps[name, "vin"]) // 2] for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "samp_waveforms",
+            ),
+        ]
+    return tuple(artifacts)
+
+
+def caparray_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named capacitor arrays' stage weights and their code ramp against the design weights, in every PDK."""
+
+    meas_read_dir = BASE_PATH / "build/sim/caparray/caparray_characterization/20261018_003319"
+    cases = (
+        ("radix17", "radix17: FRIDA-1, paired overlay"),
+        ("radix20", "radix20: repeated coarse units"),
+        ("binary", "binary: 11-bit radix 2"),
+        ("subradix2", "subradix2: sub-radix 2"),
+    )
+    labels = [label for _name, label in cases]
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            for sweep in ("stage", "ramp"):
+                path = meas_read_dir / pdk / name / sweep / "result.h5"
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasCapArrayTran):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCapArrayTran")
+                sweeps[name, sweep] = measurement
+        transfers = [analyze_caparray_transfer(sweeps[name, "ramp"]) for name, _label in cases]
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_caparray_weights(
+                [analyze_caparray_weights(sweeps[name, "stage"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "caparray_weights",
+            ),
+            *plot_caparray_transfer(transfers, labels=labels, output_path=pdk_dir / "caparray_transfer"),
+            *plot_caparray_error(transfers, labels=labels, output_path=pdk_dir / "caparray_error"),
+        ]
+    return tuple(artifacts)
+
+
 def main() -> None:
     """Run one explicitly selected analysis pipeline."""
     targets: dict[str, Callable[[Path], tuple[Path, ...]]] = {
@@ -1885,7 +1988,7 @@ def main() -> None:
             comp_system_common_mode_study,
             comp_system_sampling_noise_study,
             comp_candidate_sweep_study,
-            comp_topology_study,
+            comp_characterization_study,
             cdac_system_cap_mismatch_study,
             delay_characterization_study,
             latch_characterization_study,
@@ -1898,6 +2001,8 @@ def main() -> None:
             clkgen_characterization_study,
             lvshift_characterization_study,
             ringamp_characterization_study,
+            samp_characterization_study,
+            caparray_characterization_study,
         )
     }
 
@@ -1922,6 +2027,8 @@ def main() -> None:
                 "clkgen_",
                 "lvshift_",
                 "ringamp_",
+                "samp_",
+                "caparray_",
             )
         )
         else "adc"

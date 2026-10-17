@@ -17,8 +17,6 @@ from .cdac import analyze_cdac_cap_mismatch, analyze_cdac_transition
 from .comp import (
     analyze_comp_common_mode,
     analyze_comp_offset_noise,
-    analyze_comp_power,
-    analyze_comp_timing,
 )
 from .io import read_analysis, read_measurement, write_analysis, write_measurement
 
@@ -38,8 +36,6 @@ __all__ = [
     "analyze_cdac_transition",
     "analyze_comp_common_mode",
     "analyze_comp_offset_noise",
-    "analyze_comp_power",
-    "analyze_comp_timing",
     "read_analysis",
     "read_measurement",
     "write_analysis",
