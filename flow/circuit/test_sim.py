@@ -247,7 +247,7 @@ def test_missing_installation_skips_but_missing_collateral_fails(monkeypatch, tm
 def test_spectre_marker_is_opt_in():
     import subprocess
 
-    for selection, expected in (([], "11 deselected"), (["-m", "spectre"], "11 tests collected")):
+    for selection, expected in (([], "22 deselected"), (["-m", "spectre"], "22 tests collected")):
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "--collect-only", "-q", str(test_spectre.__file__), *selection],
             capture_output=True,
