@@ -146,7 +146,10 @@ def _build_sr(module, param: LatchParams):
     nand = param.style == Style.SR_NAND
     nmos = {"tp": MosType.NMOS, "vth": param.vth, "w": param.n_w, "l": param.l}
     pmos = {"tp": MosType.PMOS, "vth": param.vth, "w": param.p_w, "l": param.l}
-    for out, inp, other in ((module.q, module.s, module.qb), (module.qb, module.r, module.q)):
+    # an active-low s on q's NAND pulls q high; an active-high s pulls its NOR output low, so in a
+    # NOR latch s drives qb's gate and r q's
+    first, second = (module.s, module.r) if nand else (module.r, module.s)
+    for out, inp, other in ((module.q, first, module.qb), (module.qb, second, module.q)):
         side = out.name
         stack = module.add(h.Signal(name=f"{side}_stack"))
         if nand:  # the NMOS in series, the PMOS in parallel

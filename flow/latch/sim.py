@@ -1,16 +1,27 @@
-"""Latch testbench and named TSMC65 Spectre simulation targets."""
+"""Latch, flip-flop, divider and SR latch testbench and named TSMC65 Spectre simulation targets.
+
+The testbench follows BAG's flip-flop and latch timing benches (bag3_digital's liberty
+characterization): complementary clocks, data that toggles once per cycle and arrives a set
+offset before every capturing edge (the rising edge of a flip-flop, the closing falling edge of a
+latch), an initial reset, and output loads. Sweeping that offset finds setup and hold; the SR
+latches get set and reset pulses on the same bench, and a divider ignores the data.
+"""
 
 import argparse
+import json
 import math
-from datetime import datetime
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import UTC, datetime
+from multiprocessing import get_context
 from pathlib import Path
 
 import hdl21 as h
 import hdl21.sim as hs
-from hdl21.prefix import f, p
+import numpy as np
 from hdl21.primitives import C, Vdc, Vpulse
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
+from flow.analysis.io import interpolate_wave_records, write_measurement
 from flow.circuit.ports import testbench_from_ports
 
 from .subckt import CASES, Latch, LatchNets, LatchParams, Style
@@ -31,39 +42,48 @@ def latch_signal_names() -> dict[str, str]:
 class LatchTbParams:
     """Parameters which determine the generated latch testbench."""
 
+    waveform_sample_interval_s = h.Param(
+        dtype=float, desc="Maximum raw step and stored waveform spacing", default=1e-12
+    )
     vdd = h.Param(dtype=h.Scalar, desc="Supply voltage", default=1.2)
     latch = h.Param(dtype=LatchParams, desc="Latch parameters", default=LatchParams())
-    cload = h.Param(dtype=h.Prefixed, desc="Load capacitance on q and qb", default=2 * f)
+    cload = h.Param(dtype=h.Scalar, desc="Load capacitance on q and qb (F)", default=2e-15)
     clock_period_s = h.Param(dtype=h.Scalar, desc="Clock period", default=2e-9)
-    data_period_s = h.Param(dtype=h.Scalar, desc="Data (and SR set) period", default=5.2e-9)
+    data_offset_s = h.Param(dtype=h.Scalar, desc="Data edge before each capturing clock edge", default=0.5e-9)
+    data_period_s = h.Param(dtype=h.Scalar, desc="SR set and reset period", default=5.2e-9)
     reset_time_s = h.Param(dtype=h.Scalar, desc="Reset (rst) pulse length at the start", default=0.5e-9)
     transition_time_s = h.Param(dtype=h.Scalar, desc="Rise and fall time of every source", default=50e-12)
+    cycles = h.Param(dtype=int, desc="Clock cycles after the reset", default=8)
 
 
 def _validate_latch_tb_params(params: LatchTbParams) -> None:
     values = (
+        params.waveform_sample_interval_s,
         params.vdd,
         params.cload,
         params.clock_period_s,
+        params.data_offset_s,
         params.data_period_s,
         params.reset_time_s,
         params.transition_time_s,
     )
     if not all(math.isfinite(float(value)) for value in values):
         raise ValueError("latch testbench values must be finite")
-    if float(params.vdd) <= 0 or float(params.cload) <= 0:
-        raise ValueError("latch supply and load must be positive")
+    if min(float(params.vdd), float(params.cload), float(params.waveform_sample_interval_s)) <= 0:
+        raise ValueError("latch supply, load, and sample interval must be positive")
     edge = 2 * float(params.transition_time_s)
     if float(params.transition_time_s) <= 0 or min(float(params.clock_period_s), float(params.data_period_s)) <= edge:
         raise ValueError("latch periods must exceed both transitions, which must be positive")
-    if float(params.reset_time_s) < 0:
-        raise ValueError("latch reset time must be non-negative")
+    if abs(float(params.data_offset_s)) >= float(params.clock_period_s) / 2 + float(params.transition_time_s):
+        raise ValueError("latch data offset must lie within half a clock period of the capturing edge")
+    if float(params.reset_time_s) < 0 or params.cycles < 3:
+        raise ValueError("latch reset time must be non-negative and the run at least three cycles")
 
 
 @h.generator
 def LatchTb(params: LatchTbParams) -> h.Module:
-    """Generate a latch testbench: complementary clocks, data slower than the clock, an initial
-    reset pulse, and set and reset pulses for an SR latch."""
+    """Generate the shared latch testbench: complementary clocks, data a set offset before each
+    capturing edge, an initial reset pulse, and set and reset pulses for an SR latch."""
 
     _validate_latch_tb_params(params)
 
@@ -71,14 +91,26 @@ def LatchTb(params: LatchTbParams) -> h.Module:
         "LatchTb", {net.name: net for net in LatchNets.signals.values() if net.vis == h.Visibility.PORT}
     )
     vdd, vss = params.vdd, LatchTb.vss
-    edge = {"rise": params.transition_time_s, "fall": params.transition_time_s}
+    transition = float(params.transition_time_s)
+    edge = {"rise": transition, "fall": transition}
     clock, data = float(params.clock_period_s), float(params.data_period_s)
     LatchTb.vvdd = Vdc(dc=vdd)(p=LatchTb.vdd, n=vss)
     LatchTb.vclk = Vpulse(v1=0.0, v2=vdd, period=clock, width=clock / 2, delay=clock / 2, **edge)(p=LatchTb.clk, n=vss)
     LatchTb.vclkb = Vpulse(v1=vdd, v2=0.0, period=clock, width=clock / 2, delay=clock / 2, **edge)(
         p=LatchTb.clkb, n=vss
     )
-    LatchTb.vd = Vpulse(v1=0.0, v2=vdd, period=data, width=data / 2, delay=data / 4, **edge)(p=LatchTb.d, n=vss)
+    # the capturing edge's mid-supply time: a flip-flop's rising edge, a latch's falling (closing) one
+    capture = clock / 2 + transition / 2 + (0.0 if params.latch.flop else clock / 2 + transition)
+    first = max(1, math.ceil((float(params.reset_time_s) + transition + float(params.data_offset_s) - capture) / clock))
+    # data toggles once per cycle, each mid-supply crossing data_offset_s before a capturing edge
+    LatchTb.vd = Vpulse(
+        v1=0.0,
+        v2=vdd,
+        period=2 * clock,
+        width=clock - transition,
+        delay=capture + first * clock - float(params.data_offset_s) - transition / 2,
+        **edge,
+    )(p=LatchTb.d, n=vss)
     LatchTb.vrst = Vpulse(v1=vdd, v2=0.0, period=1.0, width=0.5, delay=params.reset_time_s, **edge)(
         p=LatchTb.rst, n=vss
     )
@@ -94,8 +126,12 @@ def LatchTb(params: LatchTbParams) -> h.Module:
     return LatchTb
 
 
-def _transient(run_dir: Path, params: LatchTbParams, tstop: float, check: bool) -> Path:
-    """Run one latch testbench transient in TSMC65 (``check``: one tenth of it with Spectre's checks)."""
+def _run_latch_sim(run_dir: Path, params: LatchTbParams, *, check: bool = False) -> Path:
+    """Run one latch testbench transient in TSMC65 and return its raw file: the reset, then
+    ``cycles`` clock cycles (an SR latch: three set and reset periods).
+
+    ``check`` adds Spectre's static and connectivity checks and shortens the run to a tenth.
+    """
 
     from pdk import tsmc65
     from pdk.tsmc65.hdl21 import site
@@ -104,43 +140,45 @@ def _transient(run_dir: Path, params: LatchTbParams, tstop: float, check: bool) 
     h.pdk.set_default(tsmc65.pdk_logic)
     tb = LatchTb(params)
     h.pdk.compile(tb)
-    simulation = hs.Sim(
-        tb=tb,
-        attrs=[
-            site.install.include(h.pdk.Corner.TYP),
-            site.install.include_pre_simulation(),
-            hs.Options(name="temp", value=25.0),
-            hs.Options(name="save", value="selected"),
-            hs.Save([raw for raw in latch_signal_names() if raw != "time"]),
-            *(
-                [
-                    h.Literal(
-                        "check_caps static_capacitor type=distr\n"
-                        "check_erc static_erc floatbulk=all floatgate=no_top_moscap dangle=no_top "
-                        "gate2power=on gate2ground=on\n"
-                        "check_highz static_highz node=[*] fanout=gate_has_driver_no_moscap\n"
-                        "check_dcpath static_dcpath net=[xtop.vdd 0]\n"
-                        "check_topology static_topology node=[*] pin2gnd=on"
-                    ),
-                ]
-                if check
-                else []
-            ),
-            hs.Tran(
-                tstop=tstop / 10 if check else tstop,
-                name="tran",
-                options={"strobeperiod": 1 * p, "strobeoutput": "strobeonly"},
-            ),
-        ],
+    interval = params.waveform_sample_interval_s
+    tstop = (
+        3 * float(params.data_period_s)
+        if params.latch.style != Style.CLOCKED
+        else float(params.reset_time_s) + (params.cycles + 1) * float(params.clock_period_s)
     )
-    simulation.run(
+    attrs = [
+        site.install.include(h.pdk.Corner.TYP),
+        site.install.include_pre_simulation(),
+        hs.Options(name="temp", value=25.0),
+        hs.Options(name="save", value="selected"),
+        hs.Save([raw for raw in latch_signal_names() if raw != "time"]),
+    ]
+    if check:
+        attrs.append(
+            h.Literal(
+                "check_caps static_capacitor type=distr\n"
+                "check_erc static_erc floatbulk=all floatgate=no_top_moscap dangle=no_top "
+                "gate2power=on gate2ground=on\n"
+                "check_highz static_highz node=[*] fanout=gate_has_driver_no_moscap\n"
+                "check_dcpath static_dcpath net=[xtop.vdd 0]\n"
+                "check_topology static_topology node=[*] pin2gnd=on"
+            )
+        )
+    attrs.append(
+        hs.Tran(
+            tstop=tstop / 10 if check else tstop,
+            name="tran",
+            options={"strobeperiod": interval, "maxstep": interval, "strobeoutput": "strobeonly"},
+        )
+    )
+    hs.Sim(tb=tb, attrs=attrs).run(
         SimOptions(
             simulator=SupportedSimulators.SPECTRE,
             fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
             rundir=run_dir,
             simulator_args=(
                 "+preset=mx",
-                "+mt=4",
+                "+mt=1",
                 "+lqtimeout",
                 "3600",
                 "+escchars",
@@ -150,34 +188,125 @@ def _transient(run_dir: Path, params: LatchTbParams, tstop: float, check: bool) 
             ),
         )
     )
+    return run_dir / "netlist.raw"
+
+
+# The characterization: every case over TSMC65's 1.2 V core supply; the clocked latches and the
+# flip-flop over the data offset (setup and hold); the flip-flop and divider over the clock period.
+SUPPLY_SWEEP_V = (0.9, 1.0, 1.1, 1.2, 1.3)
+DATA_OFFSET_SWEEP_S = tuple(round(offset * 1e-12, 15) for offset in range(-200, 301, 10))
+CLOCK_PERIOD_SWEEP_S = (2e-9, 1e-9, 500e-12, 300e-12, 200e-12, 150e-12, 120e-12, 100e-12, 80e-12, 60e-12)
+NOMINAL_SUPPLY_V = 1.2
+NOMINAL_CLOCK_PERIOD_S = 2e-9
+NOMINAL_DATA_OFFSET_S = 0.5e-9
+
+
+def latch_characterization(run_dir: Path, *, check: bool = False) -> Path:
+    """Run the supply, data offset and clock period sweeps (about 200 transients).
+
+    Each point writes ``<case>/<sweep>/<point>/result.h5`` (a ``MeasLatch``). ``check`` runs the
+    nominal point of each case with Spectre's checks instead, writing no measurement.
+    """
+
+    from flow.analysis.types import MeasInfo, Wave
+    from flow.circuit.results import read_raw_transient
+    from flow.latch.analysis import MeasLatch
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    jobs = {}
+    for case, latch in CASES.items():
+        for vdd in (NOMINAL_SUPPLY_V,) if check else SUPPLY_SWEEP_V:
+            jobs[f"{case}/supply/vdd{round(vdd * 1e3)}"] = LatchTbParams(latch=latch, vdd=vdd)
+        if check or latch.style != Style.CLOCKED:
+            continue
+        if not latch.divider:
+            for offset in DATA_OFFSET_SWEEP_S:
+                jobs[f"{case}/offset/offset{round(offset * 1e12)}ps"] = LatchTbParams(latch=latch, data_offset_s=offset)
+        if latch.flop:
+            for period in CLOCK_PERIOD_SWEEP_S:
+                # the edges and the data offset scale with a short clock
+                jobs[f"{case}/period/period{round(period * 1e12)}ps"] = LatchTbParams(
+                    latch=latch,
+                    clock_period_s=period,
+                    transition_time_s=min(50e-12, period / 8),
+                    data_offset_s=period / 4,
+                    reset_time_s=max(0.5e-9, 2 * period),
+                    cycles=12,
+                )
+    names = latch_signal_names()
+    failures: dict[str, str] = {}
+    with ProcessPoolExecutor(max_workers=16, mp_context=get_context("spawn")) as executor:
+        futures = {
+            executor.submit(_run_latch_sim, run_dir / name, params, check=check): (name, params)
+            for name, params in jobs.items()
+        }
+        for future in as_completed(futures):
+            name, params = futures[future]
+            try:
+                raw_path = future.result()
+                if check:
+                    continue
+                # one record from time zero on the stored grid; the supply current as positive draw
+                result = read_raw_transient(raw_path)
+                times_s = np.asarray(result.data["time"])
+                interval = params.waveform_sample_interval_s
+                window = [(float(times_s[0]), float(times_s[-1]))]
+                time_s, voltages = interpolate_wave_records(
+                    times_s,
+                    {
+                        names[key]: value
+                        for key, value in result.data.items()
+                        if not names[key].startswith(("i(", "time"))
+                    },
+                    window,
+                    interval,
+                )
+                _, currents = interpolate_wave_records(
+                    times_s,
+                    {
+                        names[key][2:-1]: -np.asarray(value)
+                        for key, value in result.data.items()
+                        if names[key].startswith("i(")
+                    },
+                    window,
+                    interval,
+                )
+                measurement = MeasLatch(
+                    group=None,
+                    index=None,
+                    dut=params.latch,
+                    info=MeasInfo(
+                        backend="spice",
+                        timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
+                        instruments={"simulator": "Spectre"},
+                        readbacks={
+                            "case": name.split("/")[0],
+                            "sweep": name.split("/")[1],
+                            "signal_map_json": json.dumps(names, sort_keys=True),
+                            "raw_file": raw_path.name,
+                            "raw_points": len(times_s),
+                            "waveform_sample_interval_s": interval,
+                            "supply_current_convention": "positive_current_draw",
+                        },
+                    ),
+                    param=params,
+                    trial_index=np.arange(1, dtype=np.int64),
+                    wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
+                )
+                write_measurement(raw_path.parent / "result.h5", measurement)
+            except Exception as error:  # noqa: BLE001 - report every independent point failure
+                failures[name] = repr(error)
+    if failures:
+        failure_path = run_dir / "failures.json"
+        failure_path.write_text(json.dumps(failures, indent=2) + "\n")
+        raise RuntimeError(f"{len(failures)} latch points failed; see {failure_path}")
     return run_dir
-
-
-def div2_transient(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the divide-by-two flip-flop for eight clock periods after its reset."""
-
-    params = LatchTbParams(latch=CASES["div2"])
-    return _transient(run_dir, params, 8 * float(params.clock_period_s) + float(params.reset_time_s), check)
-
-
-def flop_rst_transient(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the flip-flop with reset over three data periods."""
-
-    params = LatchTbParams(latch=CASES["flop_rst"])
-    return _transient(run_dir, params, 3 * float(params.data_period_s), check)
-
-
-def sr_nand_transient(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the NAND SR latch over three set and reset periods."""
-
-    params = LatchTbParams(latch=CASES["sr_nand"])
-    return _transient(run_dir, params, 3 * float(params.data_period_s), check)
 
 
 def main() -> None:
     """Create one output directory and run one named latch target."""
 
-    targets = {target.__name__: target for target in (div2_transient, flop_rst_transient, sr_nand_transient)}
+    targets = {target.__name__: target for target in (latch_characterization,)}
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("target", nargs="?", choices=sorted(targets))
     args = parser.parse_args()

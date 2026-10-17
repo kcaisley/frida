@@ -34,8 +34,10 @@ def test_divider_feeds_qb_back_to_the_master() -> None:
 @pytest.mark.parametrize("style", (Style.SR_NAND, Style.SR_NOR))
 def test_sr_latches_cross_couple(style) -> None:
     m = Latch(LatchParams(style=style))
-    assert m.Mq_n_in.conns["g"] is m.s and m.Mq_n_fb.conns["g"] is m.qb
-    assert m.Mqb_n_in.conns["g"] is m.r and m.Mqb_n_fb.conns["g"] is m.q
+    # s sets q: on q's NAND gate (active low), on qb's NOR gate (active high)
+    on_q, on_qb = (m.s, m.r) if style == Style.SR_NAND else (m.r, m.s)
+    assert m.Mq_n_in.conns["g"] is on_q and m.Mq_n_fb.conns["g"] is m.qb
+    assert m.Mqb_n_in.conns["g"] is on_qb and m.Mqb_n_fb.conns["g"] is m.q
     series = m.Mq_n_in if style == Style.SR_NAND else m.Mq_p_in
     assert series.conns["s"] is m.q_stack
 
