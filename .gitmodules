@@ -21,7 +21,7 @@
 [submodule "libs/basil"]
 	path = libs/basil
 	url = https://github.com/SiLab-Bonn/basil.git
-	branch = behavioral-modules
+	branch = hdl-fmt-and-lint
 [submodule "libs/ubonn-thesis"]
 	path = libs/ubonn-thesis
 	url = https://gitlab.uni-bonn.de/uni/ubonn-thesis.git
