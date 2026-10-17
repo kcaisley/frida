@@ -32,7 +32,12 @@ from flow.samp.subckt import SampParams
 from flow.scans.params import AdcScanParams
 
 ANALYSIS_DIR = Path(__file__).resolve().parent
-CONTRACT_MODULES = ("adc", "comp", "cdac", "calibration1", "calibration2", "calibration3")
+# Building blocks keep their measurement and result types, analyses, and plots in their own
+# folder (flow/<block>/analysis.py and plots.py) under the same contract.
+BLOCKS = ("delay",)
+BLOCK_ANALYSES = tuple(f"flow.{block}.analysis" for block in BLOCKS)
+BLOCK_PLOTS = tuple(f"flow.{block}.plots" for block in BLOCKS)
+CONTRACT_MODULES = ("adc", "comp", "cdac", "calibration1", "calibration2", "calibration3", *BLOCK_ANALYSES)
 PURE_MODULES = (*CONTRACT_MODULES, "calc")
 # Names that annotations in flow.analysis.types refer to only under TYPE_CHECKING.
 TYPE_NAMESPACE = {
@@ -64,7 +69,11 @@ KNOWN_SOURCE_VIOLATIONS: set[str] = set()
 
 
 def _module(name: str):
-    return importlib.import_module(f"flow.analysis.{name}")
+    return importlib.import_module(name if "." in name else f"flow.analysis.{name}")
+
+
+def _path(name: str) -> Path:
+    return Path(typing.cast(str, _module(name).__file__))
 
 
 def _hints(function) -> dict[str, object]:
@@ -92,7 +101,7 @@ def _is_class(annotation, predicate) -> bool:
 
 def _is_measurement(annotation) -> bool:
     return _is_class(
-        annotation, lambda value: value.__name__.startswith("Meas") and value.__module__ == analysis_types.__name__
+        annotation, lambda value: value.__name__.startswith("Meas") and issubclass(value, analysis_types.Meas)
     )
 
 
@@ -125,7 +134,7 @@ def _contract_problems() -> set[str]:
     for module_name in CONTRACT_MODULES:
         for name, function in _public_functions(module_name):
             label = f"{module_name}.{name}"
-            if not re.fullmatch(r"analyze_(adc|comp|cdac)_\w+", name):
+            if not re.fullmatch(rf"analyze_(adc|comp|cdac|{'|'.join(BLOCKS)})_\w+", name):
                 problems.add(f"{label}: public function is not analyze_<block>_*")
                 continue
             parameters = list(inspect.signature(function).parameters.values())
@@ -177,8 +186,12 @@ def test_analysis_functions_follow_the_contract() -> None:
 def _analysis_classes() -> list[type]:
     return [
         value
-        for name, value in vars(analysis_types).items()
-        if name.startswith("Analysis") and isinstance(value, type) and value is not analysis_types.Analysis
+        for module in (analysis_types, *map(_module, BLOCK_ANALYSES))
+        for name, value in vars(module).items()
+        if name.startswith("Analysis")
+        and isinstance(value, type)
+        and value is not analysis_types.Analysis
+        and value.__module__ == module.__name__
     ]
 
 
@@ -188,7 +201,7 @@ def test_every_result_class_derives_from_the_analysis_base() -> None:
 
 
 def _field_hints(cls: type) -> dict[str, object]:
-    return typing.get_type_hints(cls, globalns=vars(analysis_types), localns=TYPE_NAMESPACE)
+    return typing.get_type_hints(cls, localns=TYPE_NAMESPACE)
 
 
 def _contains_analysis(annotation) -> bool:
@@ -249,7 +262,7 @@ def _source_problems() -> set[str]:
     forbidden_attribute_calls = {"write_text", "write_bytes", "open", "to_csv", "savetxt", "save", "savez"}
     analysis_names = {name for module_name in CONTRACT_MODULES for name, _function in _public_functions(module_name)}
     for module_name in PURE_MODULES:
-        tree = _tree(ANALYSIS_DIR / f"{module_name}.py")
+        tree = _tree(_path(module_name))
         for node in tree.body:
             targets = (
                 node.targets
@@ -330,7 +343,7 @@ ARCHITECTURE_ALLOWLIST: set[tuple[str, object]] = set()
 
 @pytest.mark.parametrize("module_name", (*CONTRACT_MODULES, "types"))
 def test_no_current_architecture_literals_remain(module_name: str) -> None:
-    tree = _tree(ANALYSIS_DIR / f"{module_name}.py")
+    tree = _tree(_path(module_name))
     found = {
         (module_name, node.value)
         for node in ast.walk(tree)
@@ -352,11 +365,16 @@ HELPER_MODULES = {"types", "io", "calc"}
 @pytest.mark.parametrize(
     "module_path",
     sorted(
-        path
-        for path in ANALYSIS_DIR.glob("*.py")
-        if not path.name.startswith("test_") and path.stem not in {*HELPER_MODULES, "__init__"}
+        [
+            *(
+                path
+                for path in ANALYSIS_DIR.glob("*.py")
+                if not path.name.startswith("test_") and path.stem not in {*HELPER_MODULES, "__init__"}
+            ),
+            *map(_path, (*BLOCK_ANALYSES, *BLOCK_PLOTS)),
+        ]
     ),
-    ids=lambda path: path.stem,
+    ids=lambda path: f"{path.parent.name}.{path.stem}",
 )
 def test_only_types_io_and_calc_define_helpers_or_classes(module_path: Path) -> None:
     tree = _tree(module_path)
@@ -365,7 +383,14 @@ def test_only_types_io_and_calc_define_helpers_or_classes(module_path: Path) -> 
         for node in tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("_")
     }
-    problems |= {f"{node.name} (class)" for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
+    # a block's analysis module holds its own Meas* and Analysis* result types, nothing else
+    block_types = module_path.stem == "analysis" and module_path.parent.name in BLOCKS
+    problems |= {
+        f"{node.name} (class)"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+        and not (block_types and node in tree.body and re.fullmatch(r"(Meas|Analysis)[A-Z]\w+", node.name))
+    }
     problems |= {
         f"{function.name}.{node.name} (nested function)"
         for function in tree.body
@@ -422,13 +447,17 @@ PUBLIC_FUNCTION_NAMES = {
 }
 
 
-@pytest.mark.parametrize("module_name", sorted(PUBLIC_FUNCTION_NAMES))
+@pytest.mark.parametrize("module_name", sorted([*PUBLIC_FUNCTION_NAMES, *BLOCK_PLOTS]))
 def test_plots_and_runner_define_only_their_public_kinds_of_function(module_name: str) -> None:
-    tree = _tree(ANALYSIS_DIR / f"{module_name}.py")
+    tree = _tree(_path(module_name))
+    pattern = (
+        PUBLIC_FUNCTION_NAMES[module_name]
+        if module_name in PUBLIC_FUNCTION_NAMES
+        else rf"plot_{module_name.split('.')[1]}_\w+"
+    )
     unexpected = {
         node.name
         for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and not re.fullmatch(PUBLIC_FUNCTION_NAMES[module_name], node.name)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not re.fullmatch(pattern, node.name)
     }
     assert unexpected == set()

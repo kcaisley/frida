@@ -102,6 +102,14 @@ from flow.analysis.types import (
     MeasCdac,
     MeasComp,
 )
+from flow.delay.analysis import MeasDelay, analyze_delay_oscillation, analyze_delay_propagation
+from flow.delay.plots import (
+    plot_delay_line_control,
+    plot_delay_line_supply,
+    plot_delay_ring_control,
+    plot_delay_ring_supply,
+)
+from flow.delay.sim import NOMINAL_CONTROL_V, NOMINAL_SUPPLY_V
 from flow.scans.params import load_board_map
 
 timing_sequences = tuple(
@@ -1271,6 +1279,55 @@ def cdac_system_cap_mismatch_study(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
+# =============================================================================
+# Building block studies
+# =============================================================================
+
+
+def delay_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named rings' frequency and energy, and the delay lines' delay, over supply and control."""
+
+    meas_read_dir = BASE_PATH / "build/sim/delay/delay_characterization/20261017_120632"
+    rings = (
+        ("ring5", "ring5: inverter"),
+        ("ring5_starved", "ring5_starved: current starved"),
+        ("ring4_coupled", "ring4_coupled: coupled pseudo-differential"),
+        ("ring4_tail", "ring4_tail: coupled on a shared tail"),
+    )
+    lines = (
+        ("chain4", "chain4: inverter"),
+        ("chain2_coupled", "chain2_coupled: coupled differential"),
+        ("chain4_starved", "chain4_starved: current starved"),
+    )
+    sweeps = {}
+    for name, _label in (*rings, *lines):
+        measurements = []
+        for path in sorted(meas_read_dir.glob(f"{name}/*/result.h5")):
+            measurement = read_measurement(path)
+            if not isinstance(measurement, MeasDelay):
+                raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasDelay")
+            measurements.append(measurement)
+        # the supply sweep at the nominal control, and the control sweep at the nominal supply
+        supply = [item for item in measurements if float(item.param.control_v) == NOMINAL_CONTROL_V]
+        control = [item for item in measurements if float(item.param.vdd) == NOMINAL_SUPPLY_V]
+        sweeps[name] = (
+            sorted(supply, key=lambda item: float(item.param.vdd)),
+            sorted(control, key=lambda item: float(item.param.control_v)),
+        )
+    ring_supply = [analyze_delay_oscillation(sweeps[name][0]) for name, _label in rings]
+    ring_control = [analyze_delay_oscillation(sweeps[name][1]) for name, _label in rings]
+    line_supply = [analyze_delay_propagation(sweeps[name][0]) for name, _label in lines]
+    line_control = [analyze_delay_propagation(sweeps[name][1]) for name, _label in lines]
+    ring_labels = [label for _name, label in rings]
+    line_labels = [label for _name, label in lines]
+    return (
+        *plot_delay_ring_supply(ring_supply, labels=ring_labels, output_path=output_dir / "delay_ring_supply"),
+        *plot_delay_ring_control(ring_control, labels=ring_labels, output_path=output_dir / "delay_ring_control"),
+        *plot_delay_line_supply(line_supply, labels=line_labels, output_path=output_dir / "delay_line_supply"),
+        *plot_delay_line_control(line_control, labels=line_labels, output_path=output_dir / "delay_line_control"),
+    )
+
+
 def main() -> None:
     """Run one explicitly selected analysis pipeline."""
     targets: dict[str, Callable[[Path], tuple[Path, ...]]] = {
@@ -1297,6 +1354,7 @@ def main() -> None:
             comp_candidate_sweep_study,
             comp_topology_study,
             cdac_system_cap_mismatch_study,
+            delay_characterization_study,
         )
     }
 
@@ -1304,7 +1362,7 @@ def main() -> None:
     parser.add_argument("target", choices=sorted(targets), help="analysis pipeline to run")
     args = parser.parse_args()
 
-    domain = args.target.split("_", 1)[0] if args.target.startswith(("comp_", "cdac_")) else "adc"
+    domain = args.target.split("_", 1)[0] if args.target.startswith(("comp_", "cdac_", "delay_")) else "adc"
     timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     output_dir = BASE_PATH / "build/analysis" / domain / timestamp
     output_dir.mkdir(parents=True, exist_ok=False)

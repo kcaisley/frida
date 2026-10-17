@@ -61,6 +61,7 @@ def diagnostic_root(spectre_installation):
         ("comp", "frida1_fixed_input_noise"),
         ("samp", "frida1_transient"),
         ("caparray", "frida1_transfer_curve"),
+        ("delay", "delay_characterization"),
     ),
     ids=lambda value: value,
 )
