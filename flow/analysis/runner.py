@@ -135,6 +135,8 @@ from flow.ota.sim import NOMINAL_VCM_V
 from flow.pi.analysis import MeasPi, analyze_pi_linearity, analyze_pi_phase
 from flow.pi.plots import plot_pi_frequency, plot_pi_transfer, plot_pi_waveforms
 from flow.pi.sim import NOMINAL_PERIOD_S, NOMINAL_SPACING_DEG
+from flow.ringamp.analysis import MeasRingamp, analyze_ringamp_settling, analyze_ringamp_transfer
+from flow.ringamp.plots import plot_ringamp_deadzone, plot_ringamp_step, plot_ringamp_transfer, plot_ringamp_waveforms
 from flow.scans.params import load_board_map
 
 timing_sequences = tuple(
@@ -1756,6 +1758,50 @@ def lvshift_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     )
 
 
+def ringamp_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named ring amplifiers' open-loop transfer and closed-loop settling over dead zone and step."""
+
+    meas_read_dir = BASE_PATH / "build/sim/ringamp/ringamp_characterization/20261017_132727"
+    cases = (("se", "se: single-ended"), ("se_strong", "se_strong: twice the output stage"))
+    sweeps = {}
+    for name, _label in cases:
+        for sweep, key in (
+            ("open", lambda item: float(item.param.biasn)),
+            ("deadzone", lambda item: float(item.param.biasn)),
+            ("step", lambda item: float(item.param.step_v)),
+        ):
+            measurements = []
+            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasRingamp):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasRingamp")
+                measurements.append(measurement)
+            sweeps[name, sweep] = sorted(measurements, key=key)
+    labels = [label for _name, label in cases]
+    return (
+        *plot_ringamp_transfer(
+            [analyze_ringamp_transfer(sweeps[name, "open"]) for name, _label in cases],
+            labels=labels,
+            output_path=output_dir / "ringamp_transfer",
+        ),
+        *plot_ringamp_deadzone(
+            [analyze_ringamp_settling(sweeps[name, "deadzone"]) for name, _label in cases],
+            labels=labels,
+            output_path=output_dir / "ringamp_deadzone",
+        ),
+        *plot_ringamp_step(
+            [analyze_ringamp_settling(sweeps[name, "step"]) for name, _label in cases],
+            labels=labels,
+            output_path=output_dir / "ringamp_step",
+        ),
+        *plot_ringamp_waveforms(
+            [sweeps[name, "step"] for name, _label in cases],
+            labels=labels,
+            output_path=output_dir / "ringamp_waveforms",
+        ),
+    )
+
+
 def main() -> None:
     """Run one explicitly selected analysis pipeline."""
     targets: dict[str, Callable[[Path], tuple[Path, ...]]] = {
@@ -1792,6 +1838,7 @@ def main() -> None:
             pi_characterization_study,
             clkgen_characterization_study,
             lvshift_characterization_study,
+            ringamp_characterization_study,
         )
     }
 
@@ -1815,6 +1862,7 @@ def main() -> None:
                 "pi_",
                 "clkgen_",
                 "lvshift_",
+                "ringamp_",
             )
         )
         else "adc"

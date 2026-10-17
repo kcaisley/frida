@@ -4,8 +4,11 @@
 |---|---|---|---|
 | Netlist generator | ✓ | [subckt.py](subckt.py) | A single-ended ring amplifier: input inverter on common-mode tails, enable transmission gate, dead-zone stage, output inverter (19 devices). |
 | Netlist tests | ✓ | [test_subckt.py](test_subckt.py) | Its stages' wiring, invalid sizes. |
-| Testbench generator | ✓ | [sim.py](sim.py) | en after a quarter period, an input triangle about the common mode, fixed biases, a load. |
-| Simulation runners | ✓ | [sim.py](sim.py) | TSMC65 transient over the input triangle (open loop). |
+| Testbench generator | ✓ | [sim.py](sim.py) | BAG's ring amplifier bench: fixed tail and dead-zone biases, 50 fF on the output; open loop a slow triangle on the input, closed loop a gain of −1 (100 fF in and feedback, 1 GΩ DC feedback, the amplifier on from the start) and a step through the input capacitor. |
+| Simulation runners | ✓ | [sim.py](sim.py) | `ringamp_characterization`: both cases open loop and closed loop over dead-zone drives 0.3–0.7 V, and closed loop over steps of ±25–200 mV (32 TSMC65 transients); `check=True` runs Spectre's static checks on both benches. |
+| Analysis | ✓ | [analysis.py](analysis.py) | `MeasRingamp`; `analyze_ringamp_transfer` (trip point, hysteresis on the ramp, gain, current at the trip), `analyze_ringamp_settling` (output step against the ideal, settling to 1 %, overshoot, quiescent current, settling charge). The sizing is untuned: at 0.5 V drive the dead zone leaves about 12 mV at the input (a 100 mV step lands 24 % off); at 0.3 V the output stage never turns on; from 0.6 V the loop oscillates. |
+| Plots | ✓ | [plots.py](plots.py) | One panel per case: transfer and current per dead-zone bias, step error and quiescent current versus dead zone, error and settling versus step, the step responses. Run by `flow.analysis.runner ringamp_characterization_study`. |
+| Analysis tests | ✓ | [test_analysis.py](test_analysis.py) | A synthetic inverting transfer and an exponential closed-loop settling; every plot renders. |
 | Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows with cIcCreator, laygo and ALIGN from hand-written floorplans (`design/layout/ringamp_*.json`). |
 | Layout tests | ✓ | [test_layout.py](test_layout.py) | Target registry; every floorplan places each netlist device once and escapes every connected port; every PDK writes every case. |
 | Layout runner | ✓ | [layout.py](layout.py) | Two cases in all six PDKs: 35 of 36 layouts DRC clean and LVS correct; laygo finds no route for `se` in tower180 (its coarse M3 pitch), cIcCreator and ALIGN do. |
