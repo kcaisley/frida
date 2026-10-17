@@ -110,6 +110,11 @@ from flow.delay.plots import (
     plot_delay_ring_supply,
 )
 from flow.delay.sim import NOMINAL_CONTROL_V, NOMINAL_SUPPLY_V
+from flow.latch.analysis import MeasLatch, analyze_latch_constraint, analyze_latch_sr, analyze_latch_timing
+from flow.latch.plots import plot_latch_frequency, plot_latch_setup_hold, plot_latch_supply
+from flow.ota.analysis import MeasOta, analyze_ota_ac
+from flow.ota.plots import plot_ota_bode, plot_ota_common_mode, plot_ota_supply
+from flow.ota.sim import NOMINAL_VCM_V
 from flow.scans.params import load_board_map
 
 timing_sequences = tuple(
@@ -1328,6 +1333,104 @@ def delay_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     )
 
 
+def latch_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named latches' setup and hold, delay and energy over supply, and toggle limit."""
+
+    meas_read_dir = BASE_PATH / "build/sim/latch/latch_characterization/20261017_121722"
+    clocked = (
+        ("latch", "latch: C2MOS"),
+        ("latch_rst", "latch_rst: C2MOS with reset"),
+        ("flop_rst", "flop_rst: master-slave"),
+        ("div2", "div2: divide by two"),
+    )
+    srs = (("sr_nand", "sr_nand: NAND"), ("sr_nor", "sr_nor: NOR"))
+    sweeps = {}
+    for name, _label in (*clocked, *srs):
+        for sweep, key in (
+            ("supply", lambda item: float(item.param.vdd)),
+            ("offset", lambda item: float(item.param.data_offset_s)),
+            ("period", lambda item: -float(item.param.clock_period_s)),
+        ):
+            measurements = []
+            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasLatch):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasLatch")
+                measurements.append(measurement)
+            sweeps[name, sweep] = sorted(measurements, key=key)
+    offset_cases = [(name, label) for name, label in clocked if sweeps[name, "offset"]]
+    period_cases = [(name, label) for name, label in clocked if sweeps[name, "period"]]
+    offset_timings = [analyze_latch_timing(sweeps[name, "offset"]) for name, _label in offset_cases]
+    constraints = [
+        analyze_latch_constraint(sweeps[name, "offset"], timing=timing)
+        for (name, _label), timing in zip(offset_cases, offset_timings, strict=True)
+    ]
+    return (
+        *plot_latch_setup_hold(
+            offset_timings,
+            constraints,
+            labels=[label for _name, label in offset_cases],
+            output_path=output_dir / "latch_setup_hold",
+        ),
+        *plot_latch_supply(
+            [analyze_latch_timing(sweeps[name, "supply"]) for name, _label in clocked],
+            [analyze_latch_sr(sweeps[name, "supply"]) for name, _label in srs],
+            labels=[label for _name, label in (*clocked, *srs)],
+            output_path=output_dir / "latch_supply",
+        ),
+        *plot_latch_frequency(
+            [analyze_latch_timing(sweeps[name, "period"]) for name, _label in period_cases],
+            labels=[label for _name, label in period_cases],
+            output_path=output_dir / "latch_frequency",
+        ),
+    )
+
+
+def ota_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named OTAs' open-loop response, input common-mode range, and supply scaling."""
+
+    meas_read_dir = BASE_PATH / "build/sim/ota/ota_characterization/20261017_123051"
+    cases = (
+        ("five_t", "five_t: NMOS input"),
+        ("five_t_pmos", "five_t_pmos: PMOS input"),
+        ("self_biased", "self_biased: complementary"),
+        ("telescopic", "telescopic: cascode"),
+        ("folded", "folded: folded cascode"),
+        ("two_stage", "two_stage: telescopic, CS"),
+    )
+    sweeps = {}
+    for name, _label in cases:
+        for sweep, key in (
+            ("vcm", lambda item: float(item.param.vcm)),
+            ("supply", lambda item: float(item.param.vdd)),
+        ):
+            measurements = []
+            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasOta):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasOta")
+                measurements.append(measurement)
+            sweeps[name, sweep] = sorted(measurements, key=key)
+    labels = [label for _name, label in cases]
+    nominal = [
+        analyze_ota_ac([item for item in sweeps[name, "vcm"] if float(item.param.vcm) == NOMINAL_VCM_V])
+        for name, _label in cases
+    ]
+    return (
+        *plot_ota_bode(nominal, labels=labels, output_path=output_dir / "ota_bode"),
+        *plot_ota_common_mode(
+            [analyze_ota_ac(sweeps[name, "vcm"]) for name, _label in cases],
+            labels=labels,
+            output_path=output_dir / "ota_common_mode",
+        ),
+        *plot_ota_supply(
+            [analyze_ota_ac(sweeps[name, "supply"]) for name, _label in cases],
+            labels=labels,
+            output_path=output_dir / "ota_supply",
+        ),
+    )
+
+
 def main() -> None:
     """Run one explicitly selected analysis pipeline."""
     targets: dict[str, Callable[[Path], tuple[Path, ...]]] = {
@@ -1355,6 +1458,8 @@ def main() -> None:
             comp_topology_study,
             cdac_system_cap_mismatch_study,
             delay_characterization_study,
+            latch_characterization_study,
+            ota_characterization_study,
         )
     }
 
@@ -1362,7 +1467,11 @@ def main() -> None:
     parser.add_argument("target", choices=sorted(targets), help="analysis pipeline to run")
     args = parser.parse_args()
 
-    domain = args.target.split("_", 1)[0] if args.target.startswith(("comp_", "cdac_", "delay_")) else "adc"
+    domain = (
+        args.target.split("_", 1)[0]
+        if args.target.startswith(("comp_", "cdac_", "delay_", "latch_", "ota_"))
+        else "adc"
+    )
     timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     output_dir = BASE_PATH / "build/analysis" / domain / timestamp
     output_dir.mkdir(parents=True, exist_ok=False)

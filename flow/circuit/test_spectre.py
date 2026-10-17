@@ -62,6 +62,8 @@ def diagnostic_root(spectre_installation):
         ("samp", "frida1_transient"),
         ("caparray", "frida1_transfer_curve"),
         ("delay", "delay_characterization"),
+        ("latch", "latch_characterization"),
+        ("ota", "ota_characterization"),
     ),
     ids=lambda value: value,
 )
