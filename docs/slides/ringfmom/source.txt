@@ -1,0 +1,10 @@
+.SUBCKT four_caps TOP SHIELD M0 M1 M2 M3 D0 D1 D2 D3
+Cmain0 TOP M0 24.3f
+Cmain1 TOP M1 21.1f
+Cmain2 TOP M2 17.9f
+Cmain3 TOP M3 14.7f
+Cdiff0 TOP D0 1.9f
+Cdiff1 TOP D1 5.1f
+Cdiff2 TOP D2 8.3f
+Cdiff3 TOP D3 11.5f
+.ENDS four_caps

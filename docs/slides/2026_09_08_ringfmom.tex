@@ -1,0 +1,260 @@
+% FRIDA ring MOM capacitor: recognition, LVS and 3D PEX (8 September 2026).
+% Self-contained preamble (not style.tex). Build with XeLaTeX from docs/slides, twice (the frames
+% place everything on the page with TikZ, which takes a second pass):
+%   xelatex -output-directory=../../build/slides 2026_09_08_ringfmom.tex  (twice)
+% Snippets in ringfmom/, figures in ../images/ringfmom/.
+\documentclass[aspectratio=169]{beamer}
+\geometry{paperwidth=320mm,paperheight=180mm}
+\usepackage{fontspec}
+\setsansfont{DejaVu Sans}
+\setmonofont{DejaVu Sans Mono}
+\usepackage{tikz,fancyvrb,graphicx,booktabs,array}
+\usetikzlibrary{arrows.meta}
+\definecolor{ink}{HTML}{24364B}
+\definecolor{accent}{HTML}{4778AA}
+\definecolor{added}{HTML}{E6FFEC}
+\setbeamercolor{normal text}{fg=ink,bg=white}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}{}
+\newcommand{\boxat}[4]{\node[anchor=north west,inner sep=0] at ([xshift=#1mm,yshift=-#2mm]current page.north west) {\begin{minipage}{#3mm}#4\end{minipage}};}
+\newcommand{\codeat}[5]{\boxat{#1}{#2}{#3}{\VerbatimInput[fontsize=\fontsize{#4}{#4}\selectfont,baselinestretch=1.23]{ringfmom/#5.txt}}}
+\newcommand{\highlightpropertylines}{%
+  \renewcommand{\FancyVerbFormatLine}[1]{%
+    \ifnum\value{FancyVerbLine}>7
+      \ifnum\value{FancyVerbLine}<20
+        \rlap{\color{added}\rule[-0.3\baselineskip]{175mm}{\baselineskip}}%
+      \fi
+    \fi
+    ##1}}
+\newcommand{\fileat}[6]{%
+  \boxat{#1}{#2}{#3}{\color{accent}\ttfamily\fontsize{13}{16}\selectfont > #6}
+  \pgfmathsetmacro{\codey}{#2+8}
+  \codeat{#1}{\codey}{#3}{#4}{#5}
+}
+\newcommand{\picat}[4]{\boxat{#1}{#2}{#3}{\includegraphics[width=\linewidth]{#4}}}
+\newcommand{\titleat}[1]{\boxat{12}{8}{294}{\fontsize{32}{38}\selectfont #1}\boxat{303}{168}{10}{\fontsize{11}{12}\selectfont\insertframenumber}}
+\newcommand{\arrowlabel}[6]{%
+  \node[anchor=west,fill=white,inner sep=2pt,text=accent,font=\fontsize{16}{19}\selectfont] (callout) at ([xshift=#1mm,yshift=-#2mm]current page.north west) {#3};
+  \draw[accent,line width=1.8pt,shorten <=1.5mm,
+    preaction={draw=white,line width=4.5pt},
+    -{Triangle[length=3mm,width=3.5mm]}]
+    (callout.#4) -- ([xshift=#5mm,yshift=-#6mm]current page.north west);
+}
+% Center below-content labels on their strictly vertical, upward arrows.
+\newcommand{\belowlabel}[4]{%
+  \node[anchor=center,fill=white,inner sep=2pt,text=accent,font=\fontsize{16}{19}\selectfont] (callout) at ([xshift=#1mm,yshift=-#2mm]current page.north west) {#3};
+  \draw[accent,line width=1.8pt,shorten <=1.5mm,
+    preaction={draw=white,line width=4.5pt},
+    -{Triangle[length=3mm,width=3.5mm]}]
+    (callout.north) -- ([xshift=#1mm,yshift=-#4mm]current page.north west);
+}
+\begin{document}
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Eight capacitors: geometry and nominal values}
+\picat{10}{27}{116}{../images/ringfmom/layout.png}
+\boxat{137}{39}{174}{\fontsize{17}{22}\selectfont
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Ideal device & Width (µm) & Length (µm) & Nominal (fF) \\
+\midrule
+Cmain0 & 0.10 & 48.52 & 24.3 \\
+Cmain1 & 0.10 & 42.12 & 21.1 \\
+Cmain2 & 0.10 & 35.72 & 17.9 \\
+Cmain3 & 0.10 & 29.32 & 14.7 \\
+\midrule
+Cdiff0 & 0.10 & 3.72 & 1.9 \\
+Cdiff1 & 0.10 & 10.12 & 5.1 \\
+Cdiff2 & 0.10 & 16.52 & 8.3 \\
+Cdiff3 & 0.10 & 22.92 & 11.5 \\
+\bottomrule
+\end{tabular}}
+\belowlabel{68}{166}{Pairs 3--0, left to right}{155}
+\belowlabel{196}{158}{Inner-finger dimensions}{140}
+\belowlabel{279}{158}{Nominal three-layer total}{140}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Layout and nominal ideal netlist}
+\picat{10}{27}{116}{../images/ringfmom/layout.png}
+\fileat{137}{40}{175}{14}{source}{ideal.cdl}
+\arrowlabel{230}{87}{Nominal: 0.50 fF/µm}{west}{199}{87}
+\arrowlabel{138}{142}{M5--M7 plates; M4 shield}{west}{105}{142}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{The authored LVS source: eight capacitors}
+\fileat{14}{31}{200}{14}{source_lvs}{source.cdl}
+\arrowlabel{220}{42}{Include the reusable library}{west}{114}{42}
+\arrowlabel{220}{62}{Total three-layer capacitance}{west}{154}{62}
+\arrowlabel{220}{97}{Cdiff3 becomes Xdiff3}{west}{153}{97}
+\belowlabel{111}{146}{Nominal values, not calibrated}{116}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{The library handles layer-specific devices}
+\fileat{14}{36}{200}{14}{source_library_full}{ringfmom.cdl (three-layer excerpt)}
+\arrowlabel{220}{54}{M5--M7; M4 shield}{west}{164}{54}
+\arrowlabel{220}{64}{Three internal bookkeeping shares}{west}{164}{64}
+\arrowlabel{220}{83}{LVS interface, not simulation}{west}{170}{83}
+\arrowlabel{220}{100}{No source dimensions}{west}{148}{100}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Foundry deck alone}
+\fileat{16}{30}{220}{17}{failure}{lvs.rep}
+\fileat{16}{116}{210}{19}{empty}{svdb/lvs\_top.sp}
+\arrowlabel{222}{86}{No recognized devices}{west}{135}{86}
+\arrowlabel{220}{135}{Extracted top is empty}{west}{125}{135}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Three recognition annotations}
+\picat{12}{26}{133}{../images/ringfmom/annotated.png}
+\picat{148}{112}{60}{../images/ringfmom/shield.png}
+\arrowlabel{170}{45}{155/100: outer ring}{west}{86}{45}
+\arrowlabel{170}{84}{155/120: inner finger}{west}{80}{84}
+\arrowlabel{220}{132}{155/104: shield selector}{west}{205}{132}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Include our rules, keep the PDK}
+\fileat{14}{43}{294}{16}{wrapper}{run.lvs}
+\codeat{14}{112}{294}{22}{command}
+\arrowlabel{220}{54}{Read-only foundry rules}{west}{162}{54}
+\arrowlabel{220}{61}{Our custom addition}{west}{119}{61}
+\arrowlabel{220}{116}{One top-level rule file}{west}{155}{116}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Recognition and connectivity rules}
+\fileat{14}{31}{200}{13}{recognition_detail}{ringfmom.lvs (abridged)}
+\arrowlabel{220}{58}{Map all three annotations}{west}{111}{58}
+\arrowlabel{220}{86}{Extend windows by 0.22 µm}{west}{188}{86}
+\arrowlabel{220}{98}{Join recognition regions}{west}{161}{98}
+\arrowlabel{220}{114}{Connect actual M4 shield}{west}{143}{114}
+\arrowlabel{220}{137}{Select stack from metal}{west}{180}{137}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Connectivity passes; values are unchecked}
+\fileat{15}{30}{285}{15}{connect_success}{lvs.rep}
+\fileat{15}{78}{175}{13}{connect_source}{source.cdl}
+\fileat{15}{109}{150}{12}{counts}{lvs.rep}
+\arrowlabel{220}{88}{Wrong capacitance still passes}{west}{169}{88}
+\belowlabel{66}{170}{All 24 devices match}{157}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Extract the same geometry with 3D PEX}
+\codeat{14}{38}{294}{16}{pex_commands}
+\fileat{14}{88}{195}{16}{pex_evidence}{calibre.3d.pdb.log (one-layer excerpt)}
+\arrowlabel{228}{98}{Actual 3D field solver}{west}{150}{98}
+\arrowlabel{228}{112}{PDK compatibility warnings}{west}{85}{112}
+\arrowlabel{228}{119}{No extraction errors}{west}{85}{119}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+% Vector chart replaces the three former per-stack fit tables.
+% [Sources]
+% /local/frida/build/analysis/20260908_121644_ringfmom_engines/provenance.json
+% /local/frida/build/diagnostics/plot_ringfmom_engines.py
+% [/Sources]
+\picat{12}{2}{296}{../images/ringfmom/ringfmom_capacitance_engines.pdf}
+\boxat{303}{168}{10}{\fontsize{11}{12}\selectfont\insertframenumber}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Add geometry-derived capacitance comparison}
+\begingroup
+\highlightpropertylines
+\fileat{14}{31}{200}{13}{properties_detail}{ringfmom.lvs (M5 excerpt)}
+\endgroup
+\arrowlabel{220}{46}{Layout-only geometry limits}{west}{193}{46}
+\arrowlabel{220}{75}{Metal-specific terminals}{west}{171}{75}
+\arrowlabel{220}{104}{Measure actual metal}{west}{118}{104}
+\arrowlabel{220}{120}{Three-layer 3D PEX fit}{west}{165}{120}
+\arrowlabel{220}{136}{Compare capacitance only: 5\%}{west}{145}{136}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Our model meets the example's 5\% value tolerance}
+% Calculated illustration, not edited or simulated Calibre output.
+% [Sources]
+% /local/frida/pdk/tsmc65/ringfmom.py: NOMINAL_FF_PER_UM_PER_LAYER
+% /local/frida/pdk/tsmc65/calibre/ringfmom.lvs: three-layer property expressions
+% [/Sources]
+\boxat{14}{28}{294}{\color{accent}\fontsize{18}{22}\selectfont
+Demonstration -- calculated comparison, not a Calibre run}
+\boxat{14}{45}{220}{\fontsize{17}{21}\selectfont
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lrrrrl@{}}
+\toprule
+Device & Length (µm) & Model (fF) & LVS fit (fF) & Deviation & Check \\
+\midrule
+Xmain0 & 48.52 & 25.5 & 24.9 & $-2.31\%$ & PASS \\
+Xmain1 & 42.12 & 22.1 & 21.6 & $-2.22\%$ & PASS \\
+Xmain2 & 35.72 & 18.8 & 18.4 & $-2.11\%$ & PASS \\
+Xmain3 & 29.32 & 15.4 & 15.1 & $-1.95\%$ & PASS \\
+Xdiff0 & 3.72 & 2.0 & 2.0 & $+4.31\%$ & PASS \\
+Xdiff1 & 10.12 & 5.3 & 5.3 & $-0.22\%$ & PASS \\
+Xdiff2 & 16.52 & 8.7 & 8.6 & $-1.24\%$ & PASS \\
+Xdiff3 & 22.92 & 12.0 & 11.8 & $-1.69\%$ & PASS \\
+\bottomrule
+\end{tabular}}
+\boxat{242}{52}{67}{\fontsize{17}{24}\selectfont
+Three-layer totals\par\medskip
+Model: 0.525L\par
+LVS fit: 0.51L + 0.14\par\medskip
+L in µm; C in fF}
+\boxat{14}{149}{294}{\fontsize{14}{18}\selectfont
+Deviation = (LVS fit / model - 1) × 100\%; comparison uses unrounded values.\par
+Only these eight lengths; 0.52 µm stubs and full-chip signoff are not covered.}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Change one source capacitance}
+\fileat{16}{57}{205}{15}{edit}{source.cdl (diff)}
+\arrowlabel{220}{68}{Original nominal total}{west}{177}{68}
+\arrowlabel{220}{75}{Wrong total: 30.4 fF}{west}{177}{75}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{The value mismatch is caught}
+\fileat{16}{29}{230}{17}{mismatch}{lvs.rep}
+\fileat{16}{110}{290}{16}{property}{lvs.rep}
+\arrowlabel{226}{84}{Connectivity still matches}{west}{137}{84}
+\belowlabel{216}{166}{Mismatch exceeds 5\% tolerance}{154}
+\end{tikzpicture}
+\end{frame}
+
+\end{document}

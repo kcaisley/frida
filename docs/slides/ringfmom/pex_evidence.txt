@@ -1,0 +1,4 @@
+Extracting (3D fieldsolver) bin 1 of 1
+...
+xACT Warnings  =  6
+xACT Errors    =  0

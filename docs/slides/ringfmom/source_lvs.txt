@@ -1,0 +1,11 @@
+.INCLUDE "ringfmom.cdl"
+.SUBCKT four_caps TOP SHIELD M0 M1 M2 M3 D0 D1 D2 D3
+Xmain0 TOP M0 SHIELD ringfmom_3layer c=24.3f
+Xmain1 TOP M1 SHIELD ringfmom_3layer c=21.1f
+Xmain2 TOP M2 SHIELD ringfmom_3layer c=17.9f
+Xmain3 TOP M3 SHIELD ringfmom_3layer c=14.7f
+Xdiff0 TOP D0 SHIELD ringfmom_3layer c=1.9f
+Xdiff1 TOP D1 SHIELD ringfmom_3layer c=5.1f
+Xdiff2 TOP D2 SHIELD ringfmom_3layer c=8.3f
+Xdiff3 TOP D3 SHIELD ringfmom_3layer c=11.5f
+.ENDS four_caps

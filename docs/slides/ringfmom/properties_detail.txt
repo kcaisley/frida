@@ -1,0 +1,20 @@
+RFM_INNER5 = metal5 INSIDE RFM_MEASURE
+RFM_VALID5 = RECTANGLE RFM_INNER5 == 0.10 BY >= 0.52 <= 51.72
+RFM_BAD5 = RFM_INNER5 NOT RFM_VALID5
+...
+RFM_BODY3_5 = RFM_CAND3_5 NOT INTERACT RFM_BAD5
+DEVICE ringfmom_3l_m5 RFM_BODY3_5
+  metal5(PLUS) metal5(MINUS) RFM_SHIELD4(SHIELD)
+  <RFM_INNER5> <RFM_COVER3_5> (PLUS MINUS) [
+  property w,l,covered,c
+  a = area(RFM_INNER5)
+  hp = perimeter(RFM_INNER5)/2
+  w = (hp-sqrt(hp*hp-4*a))/2
+  l = a/w
+  covered = area(RFM_COVER3_5)/w
+  c = (0.51e-9*l+0.14e-15)/3
+]
+
+TRACE PROPERTY ringfmom_3l_m5 c c 5
+
+...

@@ -1,0 +1,11 @@
+.SUBCKT ringfmom_3layer TOP INNER SHIELD c=0
+XM5 TOP INNER SHIELD ringfmom_3l_m5 c='c/3'
+XM6 TOP INNER SHIELD ringfmom_3l_m6 c='c/3'
+XM7 TOP INNER SHIELD ringfmom_3l_m7 c='c/3'
+.ENDS ringfmom_3layer
+.SUBCKT ringfmom_3l_m5 PLUS MINUS SHIELD c=0
+.ENDS ringfmom_3l_m5
+.SUBCKT ringfmom_3l_m6 PLUS MINUS SHIELD c=0
+.ENDS ringfmom_3l_m6
+.SUBCKT ringfmom_3l_m7 PLUS MINUS SHIELD c=0
+.ENDS ringfmom_3l_m7

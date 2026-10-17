@@ -1,0 +1,8 @@
+           Layout  Source  Component Type
+Ports:         10      10
+Nets:          10      10
+
+Instances:      8       8   ringfmom_3l_m5
+                8       8   ringfmom_3l_m6
+                8       8   ringfmom_3l_m7
+Total Inst:    24      24
