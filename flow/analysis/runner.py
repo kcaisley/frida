@@ -102,6 +102,9 @@ from flow.analysis.types import (
     MeasCdac,
     MeasComp,
 )
+from flow.cml.analysis import MeasCml, analyze_cml_switching
+from flow.cml.plots import plot_cml_frequency, plot_cml_tail, plot_cml_waveforms
+from flow.cml.sim import NOMINAL_CLOCK_PERIOD_S, NOMINAL_TAIL_DRIVE_V
 from flow.delay.analysis import MeasDelay, analyze_delay_oscillation, analyze_delay_propagation
 from flow.delay.plots import (
     plot_delay_line_control,
@@ -1558,6 +1561,55 @@ def idac_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     )
 
 
+def cml_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named CML gates' swing, delay and speed over frequency and tail bias."""
+
+    meas_read_dir = BASE_PATH / "build/sim/cml/cml_characterization/20261017_130010"
+    cases = (
+        ("buffer", "buffer: NMOS input"),
+        ("buffer_pmos", "buffer_pmos: PMOS input"),
+        ("xor", "xor"),
+        ("latch", "latch: triode loads"),
+        ("divider", "divider: two latches"),
+    )
+    sweeps = {}
+    for name, _label in cases:
+        for sweep, key in (
+            ("period", lambda item: -float(item.param.clock_period_s)),
+            ("tail", lambda item: float(item.info.readbacks["tail_drive_v"])),
+        ):
+            measurements = []
+            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasCml):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCml")
+                measurements.append(measurement)
+            sweeps[name, sweep] = sorted(measurements, key=key)
+    labels = [label for _name, label in cases]
+    nominal = [
+        next(
+            item
+            for item in sweeps[name, "period"]
+            if float(item.param.clock_period_s) == NOMINAL_CLOCK_PERIOD_S
+            and float(item.info.readbacks["tail_drive_v"]) == NOMINAL_TAIL_DRIVE_V
+        )
+        for name, _label in cases
+    ]
+    return (
+        *plot_cml_frequency(
+            [analyze_cml_switching(sweeps[name, "period"]) for name, _label in cases],
+            labels=labels,
+            output_path=output_dir / "cml_frequency",
+        ),
+        *plot_cml_tail(
+            [analyze_cml_switching(sweeps[name, "tail"]) for name, _label in cases],
+            labels=labels,
+            output_path=output_dir / "cml_tail",
+        ),
+        *plot_cml_waveforms(nominal, labels=labels, output_path=output_dir / "cml_waveforms"),
+    )
+
+
 def main() -> None:
     """Run one explicitly selected analysis pipeline."""
     targets: dict[str, Callable[[Path], tuple[Path, ...]]] = {
@@ -1590,6 +1642,7 @@ def main() -> None:
             follower_characterization_study,
             moscap_characterization_study,
             idac_characterization_study,
+            cml_characterization_study,
         )
     }
 
@@ -1599,7 +1652,9 @@ def main() -> None:
 
     domain = (
         args.target.split("_", 1)[0]
-        if args.target.startswith(("comp_", "cdac_", "delay_", "latch_", "ota_", "follower_", "moscap_", "idac_"))
+        if args.target.startswith(
+            ("comp_", "cdac_", "delay_", "latch_", "ota_", "follower_", "moscap_", "idac_", "cml_")
+        )
         else "adc"
     )
     timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")

@@ -34,7 +34,7 @@ from flow.scans.params import AdcScanParams
 ANALYSIS_DIR = Path(__file__).resolve().parent
 # Building blocks keep their measurement and result types, analyses, and plots in their own
 # folder (flow/<block>/analysis.py and plots.py) under the same contract.
-BLOCKS = ("delay", "latch", "ota", "follower", "moscap", "idac")
+BLOCKS = ("delay", "latch", "ota", "follower", "moscap", "idac", "cml")
 BLOCK_ANALYSES = tuple(f"flow.{block}.analysis" for block in BLOCKS)
 BLOCK_PLOTS = tuple(f"flow.{block}.plots" for block in BLOCKS)
 CONTRACT_MODULES = ("adc", "comp", "cdac", "calibration1", "calibration2", "calibration3", *BLOCK_ANALYSES)
