@@ -102,6 +102,9 @@ from flow.analysis.types import (
     MeasCdac,
     MeasComp,
 )
+from flow.clkgen.analysis import MeasClkgen, analyze_clkgen_timing
+from flow.clkgen.plots import plot_clkgen_frequency, plot_clkgen_supply, plot_clkgen_waveforms
+from flow.clkgen.sim import NOMINAL_SUPPLY_V as CLKGEN_NOMINAL_SUPPLY_V
 from flow.cml.analysis import MeasCml, analyze_cml_switching
 from flow.cml.plots import plot_cml_frequency, plot_cml_tail, plot_cml_waveforms
 from flow.cml.sim import NOMINAL_CLOCK_PERIOD_S, NOMINAL_TAIL_DRIVE_V
@@ -1665,6 +1668,49 @@ def pi_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     )
 
 
+def clkgen_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named clock functions' timing over supply and frequency, and their start through the enable."""
+
+    meas_read_dir = BASE_PATH / "build/sim/clkgen/clkgen_characterization/20261017_131544"
+    cases = (
+        ("nonoverlap", "nonoverlap: two-phase"),
+        ("pulse", "pulse: rising-edge pulse"),
+        ("gate", "gate: glitch-free gate"),
+    )
+    sweeps = {}
+    for name, _label in cases:
+        for sweep, key in (
+            ("supply", lambda item: float(item.param.vdd)),
+            ("period", lambda item: -float(item.param.period_s)),
+        ):
+            measurements = []
+            for path in sorted(meas_read_dir.glob(f"{name}/{sweep}/*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasClkgen):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasClkgen")
+                measurements.append(measurement)
+            sweeps[name, sweep] = sorted(measurements, key=key)
+    labels = [label for _name, label in cases]
+    # the nominal point: the supply sweep's core supply
+    nominal = [
+        next(item for item in sweeps[name, "supply"] if float(item.param.vdd) == CLKGEN_NOMINAL_SUPPLY_V)
+        for name, _label in cases
+    ]
+    return (
+        *plot_clkgen_supply(
+            [analyze_clkgen_timing(sweeps[name, "supply"]) for name, _label in cases],
+            labels=labels,
+            output_path=output_dir / "clkgen_supply",
+        ),
+        *plot_clkgen_frequency(
+            [analyze_clkgen_timing(sweeps[name, "period"]) for name, _label in cases],
+            labels=labels,
+            output_path=output_dir / "clkgen_frequency",
+        ),
+        *plot_clkgen_waveforms(nominal, labels=labels, output_path=output_dir / "clkgen_waveforms"),
+    )
+
+
 def main() -> None:
     """Run one explicitly selected analysis pipeline."""
     targets: dict[str, Callable[[Path], tuple[Path, ...]]] = {
@@ -1699,6 +1745,7 @@ def main() -> None:
             idac_characterization_study,
             cml_characterization_study,
             pi_characterization_study,
+            clkgen_characterization_study,
         )
     }
 
@@ -1709,7 +1756,7 @@ def main() -> None:
     domain = (
         args.target.split("_", 1)[0]
         if args.target.startswith(
-            ("comp_", "cdac_", "delay_", "latch_", "ota_", "follower_", "moscap_", "idac_", "cml_", "pi_")
+            ("comp_", "cdac_", "delay_", "latch_", "ota_", "follower_", "moscap_", "idac_", "cml_", "pi_", "clkgen_")
         )
         else "adc"
     )

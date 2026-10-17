@@ -83,6 +83,7 @@ def test_runner_exposes_only_named_orchestration_entry_points() -> None:
         "idac_characterization_study",
         "cml_characterization_study",
         "pi_characterization_study",
+        "clkgen_characterization_study",
         "cdac_system_cap_mismatch_study",
         "adc_behavioral_nonlinearity_study",
         "adc_behavioral_energy_study",
