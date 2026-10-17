@@ -79,7 +79,7 @@ uv run python -m flow.samp.sim
 uv run python -m flow.caparray.sim
 ```
 
-The building blocks' `sim.py` (for example `uv run python -m flow.delay.sim`) list their testbench targets the same way.
+The building blocks' `sim.py` (for example `uv run python -m flow.delay.sim`) list their testbench targets the same way. Each has one `<block>_characterization` campaign that writes a typed measurement per point; `uv run python -m flow.analysis.runner <block>_characterization_study` analyzes a pinned campaign and writes its architecture-comparison figures to `build/analysis/<block>/`.
 
 Each target owns its reviewed parameter recipe. Short, noise-free Spectre diagnostics use the same Python target with `check=True`, through pytest only:
 

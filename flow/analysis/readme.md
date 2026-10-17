@@ -130,6 +130,10 @@ The rules:
 - `plots.py` defines only `plot_*` plotters, `style_*` formatting, and `save_figure`; `runner.py` defines only `*_study` functions and the command-line `main()`.
 - `flow/analysis/test_conformance.py` checks these rules from signatures and source, and runs as a pre-commit hook.
 
+### Building blocks
+
+The building blocks (`delay`, `latch`, `ota`, `follower`, `moscap`, `idac`, `cml`, `pi`, `clkgen`, `lvshift`, `ringamp`) keep their analysis next to their generator: `flow/<block>/analysis.py` holds the block's `Meas<Block>` and `Analysis<Block>*` types and its `analyze_<block>_*` functions, `flow/<block>/plots.py` its `plot_<block>_*` architecture comparisons (one panel per named case, shared axes, twin-axis figures, after `plot_comp_topology_study`). The contract above holds for both, with one difference: a block's analysis module may define its own `Meas*` and `Analysis*` dataclasses, and nothing else. The study that runs them is `<block>_characterization_study` in `runner.py`, reading the pinned run of `flow.<block>.sim`'s `<block>_characterization` campaign (one shared testbench per block, nominal TSMC65 TT at 25 °C, no Monte Carlo or extraction, each campaign under a minute or two on 16 workers). `BLOCKS` in `test_conformance.py` lists the blocks it checks.
+
 ## Calculator functions explain
 
 Throughout the circuit block specific analysis function, we should strive as much as possible to express our logic in our own `calc` prefixed primitives.
