@@ -23,7 +23,6 @@ from flow.analysis.types import (
     check_identity,
     measurement_identity,
 )
-from flow.comp.sim import CompTbParams
 from flow.comp.subckt import CompNets
 
 
@@ -328,6 +327,9 @@ def analyze_comp_delay(
 
 def analyze_comp_power(measurements: Sequence[MeasComp]) -> AnalysisCompPower:
     """Time-weight comparator power within each record and average records equally."""
+
+    # here, not at module level: flow.comp.sim imports flow.analysis, which imports this module
+    from flow.comp.sim import CompTbParams
 
     identity = measurement_identity(measurements)
     supply_v = []
