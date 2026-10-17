@@ -113,6 +113,9 @@ from flow.delay.sim import NOMINAL_CONTROL_V, NOMINAL_SUPPLY_V
 from flow.follower.analysis import MeasFollower, analyze_follower_impedance, analyze_follower_transfer
 from flow.follower.plots import plot_follower_bandwidth, plot_follower_response, plot_follower_transfer
 from flow.follower.sim import NOMINAL_VIN_V
+from flow.idac.analysis import MeasIdac, analyze_idac_output, analyze_idac_steering
+from flow.idac.plots import plot_idac_bias, plot_idac_iv, plot_idac_steering
+from flow.idac.sim import NOMINAL_GATE_DRIVE_V, NOMINAL_IREF_A
 from flow.latch.analysis import MeasLatch, analyze_latch_constraint, analyze_latch_sr, analyze_latch_timing
 from flow.latch.plots import plot_latch_frequency, plot_latch_setup_hold, plot_latch_supply
 from flow.moscap.analysis import MeasMosCap, analyze_moscap_cv
@@ -1511,6 +1514,50 @@ def moscap_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     )
 
 
+def idac_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named current source units' output characteristic, bias range, and switching."""
+
+    meas_read_dir = BASE_PATH / "build/sim/idac/idac_characterization/20261017_125351"
+    cases = (
+        ("nmos_switched", "nmos_switched: 2 NMOS units, switched"),
+        ("pmos_steer_cas", "pmos_steer_cas: PMOS cascode, steered"),
+        ("nmos_steer", "nmos_steer: 4 NMOS units, steered"),
+        ("pmos_mirror", "pmos_mirror: PMOS mirror, cascode"),
+    )
+    sweeps = {}
+    for name, _label in cases:
+        for state in ("on", "off"):
+            measurements = []
+            for path in sorted(meas_read_dir.glob(f"{name}/{state}/*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasIdac):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasIdac")
+                measurements.append(measurement)
+            # in rising current: the bias label is the gate drive in mV or the reference current in nA
+            sweeps[name, state] = sorted(
+                measurements, key=lambda item: int("".join(filter(str.isdigit, str(item.info.readbacks["bias"]))))
+            )
+    labels = [label for _name, label in cases]
+    outputs = [analyze_idac_output(sweeps[name, "on"]) for name, _label in cases]
+    nominal_biases = (f"drive{round(NOMINAL_GATE_DRIVE_V * 1e3)}mv", f"iref{round(NOMINAL_IREF_A * 1e9)}na")
+    nominal = [
+        analyze_idac_output([item for item in sweeps[name, "on"] if item.info.readbacks["bias"] in nominal_biases])
+        for name, _label in cases
+    ]
+    switched = [
+        (name, label, output) for (name, label), output in zip(cases, outputs, strict=True) if sweeps[name, "off"]
+    ]
+    return (
+        *plot_idac_iv(nominal, labels=labels, output_path=output_dir / "idac_iv"),
+        *plot_idac_bias(outputs, labels=labels, output_path=output_dir / "idac_bias"),
+        *plot_idac_steering(
+            [analyze_idac_steering(sweeps[name, "off"], on=output) for name, _label, output in switched],
+            labels=[label for _name, label, _output in switched],
+            output_path=output_dir / "idac_steering",
+        ),
+    )
+
+
 def main() -> None:
     """Run one explicitly selected analysis pipeline."""
     targets: dict[str, Callable[[Path], tuple[Path, ...]]] = {
@@ -1542,6 +1589,7 @@ def main() -> None:
             ota_characterization_study,
             follower_characterization_study,
             moscap_characterization_study,
+            idac_characterization_study,
         )
     }
 
@@ -1551,7 +1599,7 @@ def main() -> None:
 
     domain = (
         args.target.split("_", 1)[0]
-        if args.target.startswith(("comp_", "cdac_", "delay_", "latch_", "ota_", "follower_", "moscap_"))
+        if args.target.startswith(("comp_", "cdac_", "delay_", "latch_", "ota_", "follower_", "moscap_", "idac_"))
         else "adc"
     )
     timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
