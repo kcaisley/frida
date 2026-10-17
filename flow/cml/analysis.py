@@ -42,6 +42,7 @@ class AnalysisCmlSwitching(Analysis):
     value (1 when it works); ``swing_v`` half the differential peak-to-peak.
     """
 
+    vdd_v: np.ndarray
     clock_period_s: np.ndarray
     tail_drive_v: np.ndarray
     swing_v: np.ndarray
@@ -52,7 +53,7 @@ class AnalysisCmlSwitching(Analysis):
 
     @property
     def power_w(self) -> np.ndarray:
-        return 1.2 * self.supply_current_a
+        return self.vdd_v * self.supply_current_a
 
 
 def analyze_cml_switching(measurements: Sequence[MeasCml]) -> AnalysisCmlSwitching:
@@ -110,6 +111,7 @@ def analyze_cml_switching(measurements: Sequence[MeasCml]) -> AnalysisCmlSwitchi
         current = calc.clip(wave.i[CmlNets.vdd.name][0], time_s, start_s, stop_s)
         rows.append(
             (
+                float(measurement.param.vdd),
                 float(measurement.param.clock_period_s),
                 float(measurement.info.readbacks["tail_drive_v"]),
                 calc.peakToPeak(output_v) / 2,
@@ -119,13 +121,14 @@ def analyze_cml_switching(measurements: Sequence[MeasCml]) -> AnalysisCmlSwitchi
                 calc.average(*current),
             )
         )
-    period_s, drive, swing, common_v, delay, correct, current_a = (
+    vdd_v, period_s, drive, swing, common_v, delay, correct, current_a = (
         np.asarray(column, dtype=np.float64) for column in zip(*rows)
     )
     return AnalysisCmlSwitching(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
+        vdd_v=vdd_v,
         clock_period_s=period_s,
         tail_drive_v=drive,
         swing_v=swing,

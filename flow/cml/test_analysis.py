@@ -58,6 +58,7 @@ def test_buffer_xor_and_divider_swing_delay_and_function() -> None:
         assert result.delay_s[0] == pytest.approx(20e-12, abs=1e-12)
         assert result.correct_fraction[0] == pytest.approx(1.0)
         assert result.supply_current_a[0] == pytest.approx(30e-6)
+        assert result.power_w[0] == pytest.approx(1.2 * 30e-6)
     assert analyze_cml_switching([_record("buffer", wrong=True)]).correct_fraction[0] == pytest.approx(0.0)
 
 
