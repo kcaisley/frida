@@ -29,6 +29,8 @@ The body's width ``w`` is across the row. The PDK's resistor is ``tech.RES``:
     min_area   {layer: nm2}: a marker's smallest area, which lengthens a short body (optional)
     dummies    (layer, width, space): dummy poly beside the body along its whole length (optional)
     rows       2 where the resistor needs two rows (optional)
+    bulk       True where the model has a third terminal, the substrate (optional)
+    sim_model  the simulation library's name for it, where that differs from the LVS name (optional)
     cdl        the LVS source line of one resistor, formatted with name, plus, minus, bulk, r
                (ohm), w and l (um) (optional: where LVS of it is verified), and cdl_stub, a
                subcircuit the source must define for it
