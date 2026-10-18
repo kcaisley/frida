@@ -88,9 +88,10 @@ def run_layout_pex(
     kept = [line for line in setup if not line.upper().startswith(tuple(word.upper() for word in deck_sets))]
     control.write_text("#!tvf\ntvf::VERBATIM {\n" + "".join(f"{line}\n" for line in kept) + "}\n" + deck)
     # the field solver's accuracy: at its default a small coupling beside a large net (a CDAC's top
-    # plate) may be split to the substrate by a few fF; 1 keeps every stage's coupling to its plate (a
-    # PEX_FS_ACCURACY already set in the environment wins)
-    env = {"PEX_FS_ACCURACY": "1", **os.environ, **(environment or {})}
+    # plate) may be split to the substrate by a few fF; 1 keeps every stage's coupling to its plate (only
+    # a caller's `environment` overrides it, not the shell's, and the run directory records the value)
+    env = {**os.environ, "PEX_FS_ACCURACY": "1", **(environment or {})}
+    (run_dir / "calibre.xact.accuracy").write_text(f"PEX_FS_ACCURACY={env['PEX_FS_ACCURACY']}\n")
     for stage, arguments in (
         ("phdb", "-phdb -turbo 1"),
         ("pdb", "-3d -pdb -rcc -turbo 1"),

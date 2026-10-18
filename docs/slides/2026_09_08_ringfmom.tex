@@ -176,18 +176,6 @@ Cdiff3 & 0.10 & 22.92 & 12.6 \\
 
 \begin{frame}[plain]
 \begin{tikzpicture}[remember picture,overlay]
-% Vector chart replaces the three former per-stack fit tables.
-% [Sources]
-% /local/frida/build/analysis/20260908_121644_ringfmom_engines/provenance.json
-% /local/frida/build/diagnostics/plot_ringfmom_engines.py
-% [/Sources]
-\picat{12}{2}{296}{../images/ringfmom/ringfmom_capacitance_engines.pdf}
-\boxat{303}{168}{10}{\fontsize{11}{12}\selectfont\insertframenumber}
-\end{tikzpicture}
-\end{frame}
-
-\begin{frame}[plain]
-\begin{tikzpicture}[remember picture,overlay]
 \titleat{Add geometry-derived capacitance comparison}
 \begingroup
 \highlightpropertylines
@@ -208,7 +196,7 @@ Cdiff3 & 0.10 & 22.92 & 12.6 \\
 % [Sources]
 % /local/frida/pdk/tsmc65/layout/tech.py: MOM_FITS
 % /local/frida/pdk/tsmc65/calibre/ringfmom.lvs: three-layer property expressions
-% /local/frida/pdk/tsmc65/tests/ringfmom_3d_reference.csv
+% /local/frida/build/work/arrays/fourcaps/3_normal/pex/four_caps.pex.netlist: the fixture's xACT 3D extraction
 % [/Sources]
 \boxat{14}{28}{220}{\fontsize{17}{21}\selectfont
 \renewcommand{\arraystretch}{1.3}
@@ -230,9 +218,13 @@ Xdiff3 & 22.92 & 12.67 & 12.62 & $-0.41\%$ & PASS \\
 Total C, fF; L, µm\par\medskip
 1L: 0.164L + 0.038\par
 2L: 0.356L + 0.070\par
-3L: 0.545L + 0.127}
+3L: 0.545L + 0.127\par\medskip
+Before the refit\par
+1L: 0.17L + 0.03\par
+2L: 0.34L + 0.06\par
+3L: 0.51L + 0.12}
 \boxat{14}{140}{294}{\fontsize{14}{18}\selectfont
-Deviation = (fit / extracted - 1) × 100\%. Extracted at field-solver accuracy 1 (the default split a few fF of a finger's coupling beside the large top-plate net to the substrate).
+Deviation = (fit / extracted - 1) × 100\%, from unrounded values. Refitted at field-solver accuracy 1: the default split a few fF of a finger's coupling beside the large top-plate net to the substrate, so every fitted value rose (Cmain0 24.3 to 26.6 fF).
 Fitted to every finger of the three production arrays (within 1.3\%); the LVS deck's expressions and the generator share the fit; all 21 real-LVS checks pass.}
 \end{tikzpicture}
 \end{frame}

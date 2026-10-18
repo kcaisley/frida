@@ -14,17 +14,18 @@
 ## The model the generators use
 
 `tech.MOM_MODEL[style, layers]` holds rows (spacing nm, slope fF/µm, intercept fF): in each PDK, each extracted spacing's own length fit; the CDAC (`flow.caparray.layout.mom_array_params`) interpolates them in 1/s at the spacing it draws. α/s + β summarises the trend but misses individual spacings by up to a tenth (the extraction's spacing-dependent width bias), so the generator uses the measured rows. A PDK that calibrates its production unit itself (`tech.MOM_FITS`, which its LVS deck checks) keeps that calibration.
+
 ## Results (run 20261018_acc1)
 
-Per-length capacitance at each PDK's minimum spacing, fF/µm for one, two and three stacked metals:
+Per-length capacitance at each PDK's minimum spacing (that spacing's own length fit, the `MOM_MODEL` row), fF/µm for one, two and three stacked metals:
 
 | PDK | Spacing (nm) | Difference | Ring | Strip | α/s + β misses a spacing by |
 |---|---|---|---|---|---|
-| TSMC28 | 50 | 0.138 / 0.283 / 0.428 | 0.138 / 0.284 / 0.429 | 0.076 / 0.154 / 0.228 | up to 8 % |
-| TSMC65 | 100 | 0.178 / 0.369 / 0.560 | 0.177 / 0.368 / 0.558 | 0.099 / 0.198 / 0.296 | up to 12 % |
-| TPSC65 | 100 | 0.192 / 0.351 / 0.476 | 0.191 / 0.348 / 0.472 | 0.109 / 0.193 / 0.256 | up to 8 % |
-| IHP130 | 210 | 0.231 / 0.488 / 0.743 | 0.230 / 0.484 / 0.738 | 0.128 / 0.264 / 0.398 | up to 6 % |
-| LF150 | 240 | 0.184 / 0.393 / 0.596 | 0.182 / 0.388 / 0.589 | 0.099 / 0.209 / 0.316 | up to 6 % |
-| Tower180 | 280 | 0.200 / 0.411 / 0.624 | 0.197 / 0.406 / 0.617 | 0.115 / 0.233 / 0.349 | up to 10 % |
+| TSMC28 | 50 | 0.134 / 0.276 / 0.415 | 0.135 / 0.276 / 0.415 | 0.073 / 0.147 / 0.218 | up to 8 % |
+| TSMC65 | 100 | 0.172 / 0.357 / 0.541 | 0.172 / 0.356 / 0.540 | 0.094 / 0.189 / 0.281 | up to 12 % |
+| TPSC65 | 100 | 0.192 / 0.350 / 0.473 | 0.192 / 0.350 / 0.473 | 0.106 / 0.188 / 0.250 | up to 8 % |
+| IHP130 | 210 | 0.231 / 0.485 / 0.737 | 0.230 / 0.485 / 0.739 | 0.124 / 0.255 / 0.385 | up to 6 % |
+| LF150 | 240 | 0.183 / 0.388 / 0.589 | 0.182 / 0.388 / 0.588 | 0.096 / 0.202 / 0.304 | up to 6 % |
+| Tower180 | 280 | 0.201 / 0.405 / 0.615 | 0.201 / 0.406 / 0.615 | 0.110 / 0.220 / 0.329 | up to 10 % |
 
-The ring and the difference unit match (both inner fingers face the ring on two sides); the strip is about half (one neighbour). Every stacked metal adds the same per-length capacitance. The thicker 130-180 nm metals at two to three times the spacing give as much as 65 nm or more, IHP130's thick metals the most. TSMC65's production unit (`MOM_FITS`, 0.164 / 0.356 / 0.545 with its shield mesh, refitted at accuracy 1) is 8, 4 and 3 % below these solid-shield test structures. The ends add 0.01-0.3 fF (gamma), most in the thick 180 nm stack. The slides are in `docs/slides/2026_09_08_ringfmom.tex` (the last four; TSMC65's refitted production unit is checked against its extraction on the tolerance slide), the figures in `build/analysis/momcap/<run>/`.
+The ring and the difference unit match (both inner fingers face the ring on two sides); the strip is about half (one neighbour). Every stacked metal adds the same per-length capacitance. The thicker 130-180 nm metals at two to three times the spacing give as much as 65 nm or more, IHP130's thick metals the most. TSMC65's production unit (`MOM_FITS`, 0.164 / 0.356 / 0.545 with its shield mesh, refitted at accuracy 1) is 5 % below these solid-shield test structures with one metal and within 1 % with two and three. The ends add 0.01-0.3 fF (gamma), most in the thick 180 nm stack. The slides are in `docs/slides/2026_09_08_ringfmom.tex` (the last four; TSMC65's refitted production unit is checked against its extraction on the tolerance slide), the figures in `build/analysis/momcap/<run>/`.
