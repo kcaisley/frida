@@ -94,6 +94,8 @@ from flow.analysis.types import (
 )
 from flow.caparray.analysis import MeasCapArrayTran, analyze_caparray_transfer, analyze_caparray_weights
 from flow.caparray.plots import plot_caparray_error, plot_caparray_transfer, plot_caparray_weights
+from flow.capdriver.analysis import MeasCapdriver, analyze_capdriver_drive
+from flow.capdriver.plots import plot_capdriver_load, plot_capdriver_supply
 from flow.clkgen.analysis import MeasClkgen, analyze_clkgen_timing
 from flow.clkgen.plots import plot_clkgen_frequency, plot_clkgen_supply, plot_clkgen_waveforms
 from flow.cml.analysis import MeasCml, analyze_cml_switching
@@ -1805,6 +1807,43 @@ def clkgen_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
+def capdriver_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the capacitor driver's drive bands over the load and the supply, in every PDK."""
+
+    meas_read_dir = BASE_PATH / "build/sim/capdriver/capdriver_characterization/20261019_004359"
+    cases = (("x1", "x1: drive band 1"), ("x2", "x2: drive band 2"), ("x4", "x4: drive band 4"))
+    labels = [label for _name, label in cases]
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            for sweep, key in (
+                ("load", lambda item: float(item.param.cload)),
+                ("supply", lambda item: float(item.param.vdd)),
+            ):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasCapdriver):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCapdriver")
+                    measurements.append(measurement)
+                sweeps[name, sweep] = sorted(measurements, key=key)
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_capdriver_load(
+                [analyze_capdriver_drive(sweeps[name, "load"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "capdriver_load",
+            ),
+            *plot_capdriver_supply(
+                [analyze_capdriver_drive(sweeps[name, "supply"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "capdriver_supply",
+            ),
+        ]
+    return tuple(artifacts)
+
+
 def lvshift_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     """Compare the named level shifters over the input and output supplies, in every PDK."""
 
@@ -2062,6 +2101,7 @@ def main() -> None:
             cml_characterization_study,
             pi_characterization_study,
             clkgen_characterization_study,
+            capdriver_characterization_study,
             lvshift_characterization_study,
             ringamp_characterization_study,
             samp_characterization_study,
@@ -2089,6 +2129,7 @@ def main() -> None:
                 "cml_",
                 "pi_",
                 "clkgen_",
+                "capdriver_",
                 "lvshift_",
                 "ringamp_",
                 "samp_",

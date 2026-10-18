@@ -97,3 +97,7 @@ def CapDriver(params: CapDriverParams) -> h.Module:
             ),
         )
     return CapDriver
+
+
+# single drive stages, one per library band: the characterization's cases
+CASES = {f"x{band}": CapDriverParams(n_stages=1, strengths=(band,)) for band in (1, 2, 4)}
