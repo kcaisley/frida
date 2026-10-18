@@ -61,8 +61,8 @@ def _rules(layer: str) -> dict:
 def mom_geometry(layers: int, space: int = 0) -> dict:
     """A test family's dimensions (nm) on the top ``layers`` MOM metals.
 
-    The fingers take the widest minimum width of their metals (an even number of grids, so a
-    centred finger stays on grid), the spacing that width needs alongside a long run (or
+    The fingers take the widest minimum width of their metals, or what their vias need (an even
+    number of grids, so a centred finger stays on grid), the spacing that width needs alongside a long run (or
     ``space``, where wider), and the line-end gap; the vias between stacked plates the widest cut,
     its end enclosure along the finger, and its side enclosure, which a finger's width must hold.
     """
@@ -72,7 +72,14 @@ def mom_geometry(layers: int, space: int = 0) -> dict:
     grid = tech.MFG_GRID
     metals = tuple(tech.MOM_LAYERS[-layers:])
     rules = [tech.RULES[f"M{metal}"] for metal in metals]
-    width = _snap(max(rule["width"] for rule in rules), 2 * grid)
+    width = max(rule["width"] for rule in rules)
+    # a finger holds its via's cut and side enclosure where the metal's minimum width does not
+    for metal in metals[:-1]:
+        via = tech.RULES[f"V{metal}"]
+        if "enclosure" not in via:
+            raise ValueError(f"the PDK has no V{metal} enclosure rule (layout/tech.py RULES)")
+        width = max(width, via["cut"] + 2 * via["enclosure"][1])
+    width = _snap(width, 2 * grid)
     minimum = max(rule["space"] for rule in rules)
     for rule in rules:
         # (space, above width, above parallel run length): a long finger meets every run length
@@ -86,10 +93,6 @@ def mom_geometry(layers: int, space: int = 0) -> dict:
     via_cut, via_end = 0, 0
     for metal in metals[:-1]:
         via = tech.RULES[f"V{metal}"]
-        if "enclosure" not in via:
-            raise ValueError(f"the PDK has no V{metal} enclosure rule (layout/tech.py RULES)")
-        if width < via["cut"] + 2 * via["enclosure"][1]:
-            raise ValueError(f"an M{metal} finger cannot hold a V{metal} cut")
         via_cut, via_end = max(via_cut, via["cut"]), max(via_end, via["enclosure"][0])
     return {
         "grid": grid,

@@ -26,7 +26,7 @@ from flow.momcap.layout import TERMINALS, MomTestParams, MomUnit, mom_geometry, 
 from flow.momcap.subckt import MomStyle
 
 # the PDKs whose kits extract with Calibre (pdk/<tech>/signoff.py ``run_layout_pex``)
-PDKS = ("tsmc65", "tsmc28", "tower180")
+PDKS = ("tsmc65", "tsmc28", "tower180", "tpsc65", "ihp130")
 LENGTHS_UM = (1, 2, 4, 8, 16, 32)
 # wider spacings, in multiples of the PDK's minimum (snapped to its grid), at fewer lengths
 SPACINGS = (1.5, 2.0, 3.0)
@@ -69,11 +69,12 @@ def _extract(run_dir: Path, params: MomTestParams) -> dict[tuple[str, str], floa
     return pair_capacitances(netlist.read_text(), TERMINALS[params.unit.style])
 
 
-def momcap_characterization(run_dir: Path, *, check: bool = False) -> Path:
+def momcap_characterization(run_dir: Path, *, check: bool = False, pdks: tuple[str, ...] = PDKS) -> Path:
     """Extract every style at one to three metals, six lengths at the minimum spacing and three at
     each wider one, in every Calibre PDK (135 per PDK).
 
-    ``check`` extracts one short ring per PDK instead, writing no measurement.
+    ``check`` extracts one short ring per PDK instead, writing no measurement; ``pdks`` limits the
+    run to some of them (into an existing run directory: the PDKs' results are side by side).
     """
 
     from flow.analysis.types import MeasInfo
@@ -81,7 +82,7 @@ def momcap_characterization(run_dir: Path, *, check: bool = False) -> Path:
 
     run_dir.mkdir(parents=True, exist_ok=True)
     jobs = {}
-    for pdk in PDKS:
+    for pdk in pdks:
         for style in MomStyle:
             for layers in (1, 2, 3):
                 if check and (style != MomStyle.RING or layers != 2):

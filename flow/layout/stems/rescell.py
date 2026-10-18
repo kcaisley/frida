@@ -31,6 +31,10 @@ The body's width ``w`` is across the row. The PDK's resistor is ``tech.RES``:
     rows       2 where the resistor needs two rows (optional)
     bulk       True where the model has a third terminal, the substrate (optional)
     sim_model  the simulation library's name for it, where that differs from the LVS name (optional)
+    lvs_sheet  the sheet resistance the LVS deck compares, where it is not the model's (optional)
+    frame_markers  region layers over the whole row frame, the rails' marks dropped (optional)
+    rows       0: an island of its own (``island``) where the PDK confines the resistor to a region
+               the rails cannot share (optional)
     cdl        the LVS source line of one resistor, formatted with name, plus, minus, bulk, r
                (ohm), w and l (um) (optional: where LVS of it is verified), and cdl_stub, a
                subcircuit the source must define for it
@@ -84,6 +88,8 @@ def res(w: int, l: int, plus: str = "PLUS", minus: str = "MINUS", vss: str = "vs
     w = _up(w, 2 * MFG_GRID)
     l = res_length(w, l)
     rows = spec.get("rows", 1)
+    if rows == 0:
+        return _island(spec, w, l, plus, minus, vss)
     co_enc, co_space = spec["co_enc"], spec["co_space"]
     implant, imp_enc = spec["implant"]
     # the heads: a contact column wide enough for the body, or a dog bone for a narrow one
@@ -150,6 +156,12 @@ def res(w: int, l: int, plus: str = "PLUS", minus: str = "MINUS", vss: str = "vs
     cell.add(implant, x0 - imp_enc, imp_y0, x1 + imp_enc, imp_y1)
     for layer, (along, across) in spec["markers"].items():
         cell.add(layer, xb0 - along, yc - w // 2 - across, xb1 + along, yc + w // 2 + across)
+    # region markers over the whole row frame (the N-well band's extent: no sliver of well beside
+    # them), without the rails' marks under them
+    for layer in spec.get("frame_markers", ()):
+        marks = {mark for mark, _half in rowcell.RAIL_MARKS}
+        cell.rects = [r for r in cell.rects if r.layer not in marks]
+        cell.add(layer, -rowcell.NW_OH, -rowcell.PP_TAP, width + rowcell.NW_OH, rowcell.NW_TOP)
     # the heads' contacts, M1 pads, vias and M2 pins
     for net, cx in ((plus, x0 + co_enc + CO // 2), (minus, x1 - co_enc - CO // 2)):
         for cy in column:
@@ -167,6 +179,69 @@ def res(w: int, l: int, plus: str = "PLUS", minus: str = "MINUS", vss: str = "vs
             raise ValueError(f"a {w} nm resistor's contact pads do not fit between the rails")
         cell.add("M1", cx - M1_HW, pad0, cx + M1_HW, pad1, net)
         cell.add("V1", cx - V1_H, track - V1_H, cx + V1_H, track + V1_H, net)
+        cell.add("M2", cx - M2_MIN_LEN // 2, track - M2_HW, cx + M2_MIN_LEN // 2, track + M2_HW, net, "pin")
+    return cell
+
+
+def _island(spec: dict, w: int, l: int, plus: str, minus: str, vss: str) -> Cell:
+    """A resistor whose PDK confines it to a region marker that the rows' rails cannot share
+    (``island``: (layer, its enclosure of the implant), (tap implant, its enclosure of the tap,
+    tap height, the region's enclosure of the tap implant), contacts per head along the length
+    and their gap): no rails, the region around the resistor, and a substrate tap inside it below
+    (``vss``)."""
+
+    (region, margin), (tap_implant, tap_enc, tap_h, tap_margin), (columns, gap) = spec["island"]
+    co_enc, co_space = spec["co_enc"], spec["co_space"]
+    implant, imp_enc = spec["implant"]
+    space = spec.get("implant_space", 0)
+    head_len = co_enc + columns * CO + (columns - 1) * gap + co_space
+    reach = imp_enc + w // 2  # the body's implant above and below its centre
+    # y upwards from the region's bottom: the tap implant, the tap, the space to the body's
+    # implant, the body, the region past its implant
+    tap0 = tap_margin + tap_enc
+    tap1 = tap0 + tap_h
+    yc = _up(tap1 + tap_enc + space + reach, MFG_GRID)
+    top = yc + reach + margin
+    width = _up(2 * (head_len + imp_enc + margin) + l, XPITCH)
+    xb0 = (width - l) // 2
+    xb1 = xb0 + l
+    x0, x1 = xb0 - head_len, xb1 + head_len
+    cell = Cell(f"res_w{w}_l{l}", width)
+    cell.add(region, 0, 0, width, top)
+    cell.add("BND", 0, 0, width, top)
+    cell.add("PO", x0, yc - w // 2, x1, yc + w // 2)
+    cell.add(implant, x0 - imp_enc, yc - reach, x1 + imp_enc, yc + reach)
+    for layer, (along, across) in spec["markers"].items():
+        cell.add(layer, xb0 - along, yc - w // 2 - across, xb1 + along, yc + w // 2 + across)
+    # the substrate tap: diffusion, its implant, contacts and an M1 strip, the vss pin
+    tx0, tx1 = tap_margin + tap_enc, width - tap_margin - tap_enc
+    cell.add("OD", tx0, tap0, tx1, tap1)
+    cell.add(tap_implant, tx0 - tap_enc, tap0 - tap_enc, tx1 + tap_enc, tap1 + tap_enc)
+    ty = (tap0 + tap1) // 2
+    for x in range(tx0 + CO_PITCH // 2, tx1 - CO // 2, CO_PITCH):
+        cell.add("CO", x - CO // 2, ty - CO // 2, x + CO // 2, ty + CO // 2, vss)
+    cell.add("M1", tx0, ty - M1_HW, tx1, ty + M1_HW, vss, "pin")
+    # the heads: contacts in columns along the length and rows across the body, an M1 pad over
+    # them, a via and an M2 pin on the track nearest the body
+    rows_across = max(1, (w - 2 * co_enc - CO) // (CO + gap) + 1)
+    span = (rows_across - 1) * (CO + gap)
+    track = round(yc / PITCH) * PITCH
+    for net, outer, step in ((plus, x0 + co_enc + CO // 2, CO + gap), (minus, x1 - co_enc - CO // 2, -(CO + gap))):
+        xs = [outer + k * step for k in range(columns)]
+        for cx in xs:
+            for k in range(rows_across):
+                cy = yc - span // 2 + k * (CO + gap)
+                cell.add("CO", cx - CO // 2, cy - CO // 2, cx + CO // 2, cy + CO // 2, net)
+        pad_x0, pad_x1 = min(xs) - CO // 2 - M1_CO_END, max(xs) + CO // 2 + M1_CO_END
+        pad0 = min(yc - span // 2 - CO // 2, track - V1_H) - M1_CO_END
+        pad1 = max(yc + span // 2 + CO // 2, track + V1_H) + M1_CO_END
+        cell.add("M1", pad_x0, pad0 // MFG_GRID * MFG_GRID, pad_x1, _up(pad1, MFG_GRID), net)
+        cx = _up((pad_x0 + pad_x1) // 2, MFG_GRID)  # the via in the middle of its pad
+        wide = getattr(tech, "STD_WIDE", None)
+        # a plate wider than STD_WIDE both ways takes two vias, V1_PAIR apart
+        pair = wide is not None and min(pad_x1 - pad_x0, pad1 - pad0) > wide
+        for vx in (cx - tech.V1_PAIR // 2, cx + tech.V1_PAIR // 2) if pair else (cx,):
+            cell.add("V1", vx - V1_H, track - V1_H, vx + V1_H, track + V1_H, net)
         cell.add("M2", cx - M2_MIN_LEN // 2, track - M2_HW, cx + M2_MIN_LEN // 2, track + M2_HW, net, "pin")
     return cell
 

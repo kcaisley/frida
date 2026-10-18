@@ -51,11 +51,14 @@ def run_layout_pex(
     output_stem: str,
     deck: str,
     environment: Mapping[str, str] | None = None,
+    deck_sets: Sequence[str] = (),
 ) -> Path:
     """Extract ``layout_top`` with 3D xACT by its layout's net names and return the Spectre netlist.
 
     ``deck`` is the control file's tail after its own setup: the PDK's (specialized) extraction
     files, as ``source "<tvf file>"`` lines and a ``tvf::VERBATIM { INCLUDE ... }`` block.
+    ``deck_sets`` names the setup statements (their leading words) an encrypted deck sets itself,
+    which the control file then leaves out.
     """
 
     import os
@@ -67,19 +70,23 @@ def run_layout_pex(
     source.write_text(f".SUBCKT {layout_top}\n.ENDS {layout_top}\n")
     netlist = run_dir / f"{output_stem}.pex.netlist"
     control = run_dir / "calibre.xact"
-    control.write_text(
-        "#!tvf\ntvf::VERBATIM {\n"
-        f'LAYOUT PATH "{gds_path.resolve()}"\nLAYOUT SYSTEM GDSII\nLAYOUT PRIMARY "{layout_top}"\n'
-        f'SOURCE PATH "{source}"\nSOURCE SYSTEM SPICE\nSOURCE PRIMARY "{layout_top}"\n'
-        f'PEX NETLIST "{netlist}" SPECTRE LAYOUTNAMES SINGLEFILE\n'
-        f'MASK SVDB DIRECTORY "{run_dir / "svdb"}" QUERY XRC\n'
-        f'LVS REPORT "{run_dir / "calibre.lvs.report"}"\n'
-        f'DRC RESULTS DATABASE "{run_dir / "calibre.drc.results"}" ASCII\n'
-        f'DRC SUMMARY REPORT "{run_dir / "calibre.drc.summary"}"\n'
-        f'ERC RESULTS DATABASE "{run_dir / "calibre.erc.results"}" ASCII\n'
-        f'ERC SUMMARY REPORT "{run_dir / "calibre.erc.summary"}"\n'
-        "}\n" + deck
-    )
+    setup = [
+        f'LAYOUT PATH "{gds_path.resolve()}"',
+        "LAYOUT SYSTEM GDSII",
+        f'LAYOUT PRIMARY "{layout_top}"',
+        f'SOURCE PATH "{source}"',
+        "SOURCE SYSTEM SPICE",
+        f'SOURCE PRIMARY "{layout_top}"',
+        f'PEX NETLIST "{netlist}" SPECTRE LAYOUTNAMES SINGLEFILE',
+        f'MASK SVDB DIRECTORY "{run_dir / "svdb"}" QUERY XRC',
+        f'LVS REPORT "{run_dir / "calibre.lvs.report"}"',
+        f'DRC RESULTS DATABASE "{run_dir / "calibre.drc.results"}" ASCII',
+        f'DRC SUMMARY REPORT "{run_dir / "calibre.drc.summary"}"',
+        f'ERC RESULTS DATABASE "{run_dir / "calibre.erc.results"}" ASCII',
+        f'ERC SUMMARY REPORT "{run_dir / "calibre.erc.summary"}"',
+    ]
+    kept = [line for line in setup if not line.upper().startswith(tuple(word.upper() for word in deck_sets))]
+    control.write_text("#!tvf\ntvf::VERBATIM {\n" + "".join(f"{line}\n" for line in kept) + "}\n" + deck)
     env = dict(os.environ, **(environment or {}))
     for stage, arguments in (
         ("phdb", "-phdb -turbo 1"),

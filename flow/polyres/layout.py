@@ -59,8 +59,10 @@ def polyres_source(unit: PolyResUnit, info: dict) -> str | None:
     spec = pdk_value(unit.technology, "tech", "RES")
     if "cdl" not in spec:
         return None
+    # the resistance the deck compares: the model's, or its own sheet over the drawn squares
+    r = spec["lvs_sheet"] * info["l"] / info["w"] if "lvs_sheet" in spec else info["r"]
     line = spec["cdl"].format(
-        name="0", plus="PLUS", minus="MINUS", bulk="vss", r=f"{info['r']:.6g}", w=info["w"] / 1000, l=info["l"] / 1000
+        name="0", plus="PLUS", minus="MINUS", bulk="vss", r=f"{r:.6g}", w=info["w"] / 1000, l=info["l"] / 1000
     )
     stub = spec.get("cdl_stub", "")
     return f"{stub + chr(10) if stub else ''}.SUBCKT {info['top']} PLUS MINUS vdd vss\n{line}\n.ENDS\n"

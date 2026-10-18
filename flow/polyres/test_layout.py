@@ -14,9 +14,12 @@ def test_a_resistor_is_whole_rows_with_both_rails_and_two_pins(pdk: str) -> None
     cell = layout.top_cell()
     assert cell.name == info["top"]
     labels = {s.text_string for li in layout.layer_indexes() for s in cell.shapes(li).each() if s.is_text()}
-    assert {"PLUS", "MINUS", "vdd", "vss"} <= labels
+    rows = spec.get("rows", 1)
+    # an island (rows 0) has its own substrate tap and no rails
+    assert ({"PLUS", "MINUS", "vss"} | ({"vdd"} if rows else set())) <= labels
     bnd = db.Region(cell.shapes(layout.layer(*pdk_value(pdk, "tech", "LAYERS")["BND"]))).bbox()
-    assert bnd.height() == spec.get("rows", 1) * pdk_value(pdk, "tech", "H")
+    if rows:
+        assert bnd.height() == rows * pdk_value(pdk, "tech", "H")
     # the model: the sheet over the squares and both ends
     squares = info["l"] / (info["w"] - spec["dw"])
     assert info["r"] == pytest.approx(spec["sheet"] * squares + spec["end"] / ((info["w"] - spec["dw"]) / 1000))
@@ -41,4 +44,7 @@ def test_the_lvs_source_names_the_device_where_the_pdk_gives_one() -> None:
     unit = PolyResUnit("tower180", 420, 4000)
     info = polyres_layout(unit)[1]
     assert f"{info['r']:.6g}" in polyres_source(unit, info)  # the deck compares the resistance
-    assert polyres_source(PolyResUnit("tpsc65", 360, 4000), {"top": "x", "r": 1.0, "w": 360, "l": 4000}) is None
+    # where the deck compares its own sheet over the squares, the source carries that
+    info = polyres_layout(PolyResUnit("tpsc65", 400, 10_000))[1]
+    sheet = pdk_value("tpsc65", "tech", "RES")["lvs_sheet"]
+    assert f"{sheet * info['l'] / info['w']:.6g}" in polyres_source(PolyResUnit("tpsc65", 400, 10_000), info)
