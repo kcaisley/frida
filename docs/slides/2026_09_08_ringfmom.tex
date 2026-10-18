@@ -257,4 +257,72 @@ Only these eight lengths; 0.52 µm stubs and full-chip signoff are not covered.}
 \end{tikzpicture}
 \end{frame}
 
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Three FMOM styles, drawn from each PDK's rules}
+\picat{14}{30}{105}{../images/ringfmom/fmom_styles.png}
+\boxat{128}{34}{180}{\fontsize{17}{24}\selectfont
+Difference (FRIDA's unit), ring, open-end strip\par\medskip
+Same stems engine as the transistor row cells:\par
+\quad width, space, line-end gap, vias from \texttt{tech.py}\par\medskip
+Plates on the top 1--3 MOM metals, solid shield below\par
+One via per metal at each terminal's end\par\medskip
+Study: 3 PDKs $\times$ 3 styles $\times$ 1--3 metals\par
+\quad 6 lengths (1--32 µm) at minimum spacing\par
+\quad 3 lengths at 1.5, 2 and 3 $\times$ minimum spacing\par
+\quad 405 layout-only xACT 3D extractions}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Capacitance per length falls with spacing}
+\picat{8}{24}{150}{../images/ringfmom/momcap_spacing_28.pdf}
+\picat{162}{24}{150}{../images/ringfmom/momcap_spacing_65.pdf}
+\picat{8}{96}{150}{../images/ringfmom/momcap_spacing_180.pdf}
+\boxat{168}{110}{140}{\fontsize{15}{19}\selectfont
+28 nm, 65 nm (top), 180 nm (bottom).\par\medskip
+Points: each spacing's own length fit. Lines: $C/L = \alpha/s + \beta$ (field across the gap plus fringe).\par\medskip
+The form misses single spacings by up to 11\% (65 nm), 7\% (28 nm), 7\% (180 nm): the extraction's spacing-dependent width bias.}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{At minimum spacing: linear in length}
+\picat{8}{24}{150}{../images/ringfmom/momcap_fit_28.pdf}
+\picat{162}{24}{150}{../images/ringfmom/momcap_fit_65.pdf}
+\picat{8}{96}{150}{../images/ringfmom/momcap_fit_180.pdf}
+\boxat{168}{110}{140}{\fontsize{15}{19}\selectfont
+28 nm, 65 nm (top), 180 nm (bottom).\par\medskip
+Ring $\approx$ difference (both face the ring on two sides); strip $\approx$ half (one neighbour).\par
+Each stacked metal adds the same per-length capacitance.}
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Across PDKs, and the generator's model}
+\picat{8}{28}{140}{../images/ringfmom/momcap_scaling.pdf}
+\boxat{154}{32}{160}{\fontsize{12}{15}\selectfont
+\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{@{}lrrrrl@{}}
+\toprule
+PDK & Gap (nm) & 1 metal & 2 metals & 3 metals & Source \\
+\midrule
+28 nm & 50 & 0.135 & 0.279 & 0.420 & extracted \\
+65 nm & 100 & 0.172 & 0.351 & 0.529 & extracted \\
+180 nm & 280 & 0.196 & 0.402 & 0.605 & extracted \\
+65 nm (2nd) & 100 & 0.178 & 0.362 & 0.546 & estimate \\
+130 nm & 210 & 0.193 & 0.395 & 0.595 & estimate \\
+150 nm & 240 & 0.195 & 0.399 & 0.602 & estimate \\
+\bottomrule
+\end{tabular}\par\smallskip
+Difference unit, C/L in fF/µm at the drawn gap}
+\boxat{14}{150}{294}{\fontsize{15}{19}\selectfont
+The CDAC interpolates the extracted rows in $1/s$ at the gap it draws (\texttt{tech.MOM\_MODEL}).\par
+Without 3D extraction: $\alpha/s+\beta$ of the nearest nodes at the PDK's own spacings (estimates).}
+\end{tikzpicture}
+\end{frame}
+
 \end{document}

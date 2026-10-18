@@ -271,7 +271,7 @@ def mom_array_params(params: CapArrayLayoutParams) -> CapArrayParams:
         stack_model = import_module(f"pdk.{params.technology}.calibre.ringfmom").ringfmom_device(
             params.active_layers, params.shield_layer
         )
-    except ModuleNotFoundError:
+    except (ModuleNotFoundError, ValueError):  # no recognized device for this PDK or stack
         stack_model = None
     return CapArrayParams(
         cdac=replace(params.cdac, unit_cap=slope * f * (2 * geometry.weight_step / 1000)),

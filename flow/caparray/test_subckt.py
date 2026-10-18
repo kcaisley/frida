@@ -1,6 +1,7 @@
 """Software-only tests for the CDAC electrical and physical generators."""
 
 from dataclasses import asdict, replace
+from itertools import pairwise
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -390,3 +391,24 @@ def test_reviewed_landings_and_bent_topplate(tmp_path: Path) -> None:
         assert sorted(poly.bbox().center().y * layout.dbu for poly in cuts.each()) == pytest.approx(
             [0.31, 0.51, 52.29, 52.49]
         )
+
+
+@pytest.mark.parametrize("pdk", ("tsmc28", "tower180", "ihp130", "lf150", "tpsc65"))
+def test_array_sizing_reads_the_fmom_model_at_the_drawn_gap(pdk: str) -> None:
+    from flow.caparray.layout import _calc_unit_geometry, mom_array_params
+    from flow.layout.pdkproc import pdk_value
+
+    mom = pdk_value(pdk, "tech", "MOM_LAYERS")
+    params = CapArrayLayoutParams(
+        CapArrayConfig(), UnitLengthCapFamilyParams(), pdk, mom[-2] - 1, mom[-2] - 1, tuple(mom[-2:]), "x"
+    )
+    rows = pdk_value(pdk, "tech", "MOM_MODEL")["difference", 2]
+    # rows in rising spacing from the minimum, slopes falling with spacing
+    assert [row[0] for row in rows] == sorted(row[0] for row in rows)
+    assert all(a[1] > b[1] > 0 for a, b in pairwise(rows))
+    space, slope, intercept = rows[0]
+    geometry = _calc_unit_geometry(params)
+    assert geometry.gap == space  # the generator draws the minimum spacing
+    circuit = mom_array_params(params)
+    assert float(circuit.cdac.unit_cap) == pytest.approx(slope * 1e-15 * 2 * geometry.weight_step / 1000)
+    assert float(circuit.tail_cap) == pytest.approx((slope * geometry.tail_length / 1000 + intercept) * 1e-15)
