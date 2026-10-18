@@ -219,5 +219,3 @@ def analyze_comp_common_mode(
         noise_sigma_v=np.asarray([result.noise_sigma_v for result in ordered]),
         validity=tuple(validity),
     )
-
-

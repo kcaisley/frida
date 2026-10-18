@@ -14,4 +14,3 @@
 | PEX runner | - | - | Not applicable: the resistance is the PDK device's (its model, checked in Spectre above); a block's extraction brings the wiring around it. |
 
 The resistance is the PDK model's: the sheet over the squares (with the model's width reduction) plus both heads (`rescell.res_value`). Tower180's and LF150's LVS compare it, and match.
-

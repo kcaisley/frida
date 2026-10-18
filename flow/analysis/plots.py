@@ -3283,5 +3283,3 @@ def plot_cdac_cap_mismatch_comparison(
     fig.supxlabel("Conversion stage")
     fig.suptitle("A-to-B CDAC comparison")
     return save_figure(fig, output_path)
-
-
