@@ -3,7 +3,8 @@
 Each PDK provides ``pdk/<pdk>/signoff.py`` with keyword functions ``run_drc`` (gdscheck where
 installed, then the PDK's DRC; writes ``<run_dir>/drc_violations.json`` and raises unless clean),
 ``run_lvs`` (whether LVS is correct, and its report) and, where the PDK has extraction,
-``run_pex``. The provider picks the checker it has (Calibre, Assura or KLayout). ``row_signoff``
+``run_pex`` (against a schematic) and ``run_layout_pex`` (a primitive's test structure by its own net
+names, ``calibre_pex.py``). The provider picks the checker it has (Calibre, Assura or KLayout). ``row_signoff``
 checks a standard-cell row layout (flow/layout) with DRC and LVS.
 """
 
@@ -112,6 +113,21 @@ def run_pex(params: SignoffParams, run_dir: Path) -> Path:
         output_stem=params.output_stem,
         options=params.pdk_options,
     )
+
+
+def run_layout_pex(technology: str, gds_path: Path, layout_top: str, output_stem: str, run_dir: Path) -> Path:
+    """Dispatch a layout-only extraction (3D, by the layout's own net names, nothing compared).
+
+    For primitives' test structures: plain metal with labelled terminals has no device to
+    recognize and no schematic. Returns the extracted Spectre netlist.
+    """
+
+    if not gds_path.is_file():
+        raise FileNotFoundError(gds_path)
+    provider = _provider(technology)
+    if not callable(getattr(provider, "run_layout_pex", None)):
+        raise TypeError(f"pdk.{technology}.signoff has no layout-only extraction (run_layout_pex)")
+    return provider.run_layout_pex(run_dir=run_dir, gds_path=gds_path, layout_top=layout_top, output_stem=output_stem)
 
 
 def run_signoff(params: SignoffParams, run_dir: Path) -> SignoffResult:

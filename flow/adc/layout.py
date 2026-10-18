@@ -14,12 +14,12 @@ import hdl21 as h
 from hdl21.prefix import f
 from klayout import db
 
-from flow.caparray.laygen import CapArrayLayout, CapArrayLayoutParams, UnitLengthCapFamilyParams
+from flow.caparray.layout import CapArrayLayout, CapArrayLayoutParams, UnitLengthCapFamilyParams, mom_array_params
 from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights
 from flow.layout.gdsdiff import gds_diff
 from flow.layout.signoff import SignoffParams, run_signoff
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
-from pdk.tsmc65.calibre.ringfmom import LIBRARY, ringfmom_array_params
+from pdk.tsmc65.calibre.ringfmom import LIBRARY
 from pdk.tsmc65.calibre.signoff import (
     BLOCK_WAIVERS,
     UPPER_DENSITY_WAIVERS,
@@ -182,7 +182,7 @@ def _run_frida2(run_dir: Path, *, target_name: str, params: CapArrayLayoutParams
 
     reference_path = repository / "build" / "frida-2-template-c0.cdl"
     reference = reference_path.read_text(encoding="utf-8")
-    array = CapArray(ringfmom_array_params(params))
+    array = CapArray(mom_array_params(params))
     array.name = params.top_cell
     (run_dir / "ringfmom.cdl").write_text(LIBRARY.read_text(), encoding="utf-8")
     block_source = io.StringIO()

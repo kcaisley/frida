@@ -88,6 +88,7 @@ def test_runner_exposes_only_named_orchestration_entry_points() -> None:
         "ringamp_characterization_study",
         "samp_characterization_study",
         "caparray_characterization_study",
+        "momcap_characterization_study",
         "cdac_system_cap_mismatch_study",
         "adc_behavioral_nonlinearity_study",
         "adc_behavioral_energy_study",

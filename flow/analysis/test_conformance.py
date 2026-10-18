@@ -38,6 +38,7 @@ BLOCKS = (
     "comp",
     "samp",
     "caparray",
+    "momcap",
     "delay",
     "latch",
     "ota",

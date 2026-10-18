@@ -122,6 +122,8 @@ from flow.latch.analysis import MeasLatch, analyze_latch_constraint, analyze_lat
 from flow.latch.plots import plot_latch_frequency, plot_latch_setup_hold, plot_latch_supply
 from flow.lvshift.analysis import MeasLvShift, analyze_lvshift_switching
 from flow.lvshift.plots import plot_lvshift_vdd, plot_lvshift_vddl, plot_lvshift_waveforms
+from flow.momcap.analysis import MeasMomcap, analyze_momcap_fit
+from flow.momcap.plots import plot_momcap_fit, plot_momcap_scaling, plot_momcap_spacing
 from flow.moscap.analysis import MeasMosCap, analyze_moscap_cv
 from flow.moscap.plots import plot_moscap_cv, plot_moscap_frequency, plot_moscap_quality
 from flow.ota.analysis import MeasOta, analyze_ota_ac, analyze_ota_noise
@@ -1169,7 +1171,7 @@ def comp_candidate_sweep_study(output_dir: Path) -> tuple[Path, ...]:
 def comp_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     """Compare the six comparator topologies' delay, noise, energy and offset over the common mode, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/comp/comp_characterization/PENDING"
+    meas_read_dir = BASE_PATH / "build/sim/comp/comp_characterization/20261018_003552"
     topologies = (
         ("double_tail_self_timed", "double_tail_self_timed: self-timed"),
         ("double_tail", "double_tail: double tail"),
@@ -1964,6 +1966,42 @@ def caparray_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
+def momcap_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Fit every FMOM unit family's capacitance against its plate length and spacing, in every PDK
+    with Calibre extraction, and compare the fits across those PDKs; writes every fit as a result."""
+
+    meas_read_dir = BASE_PATH / "build/pex/momcap/momcap_characterization/PENDING"
+    families = [(style, layers) for style in ("difference", "ring", "strip") for layers in (1, 2, 3)]
+    artifacts = []
+    fits, labels = [], []
+    for pdk in ("tsmc65", "tsmc28", "tower180"):
+        pdk_fits = []
+        for style, layers in families:
+            measurements = []
+            for path in sorted(meas_read_dir.glob(f"{pdk}/{style}_{layers}l/*/*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasMomcap):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasMomcap")
+                measurements.append(measurement)
+            fit = analyze_momcap_fit(measurements)
+            artifacts.append(write_analysis(output_dir / pdk / f"momcap_fit_{style}_{layers}l.h5", fit))
+            pdk_fits.append(fit)
+        fits += pdk_fits
+        labels += [pdk] * len(pdk_fits)
+        artifacts += plot_momcap_fit(
+            pdk_fits,
+            title=f"FMOM capacitance against plate length in {pdk}",
+            output_path=output_dir / pdk / "momcap_fit",
+        )
+        artifacts += plot_momcap_spacing(
+            pdk_fits,
+            title=f"FMOM capacitance per length against plate spacing in {pdk}",
+            output_path=output_dir / pdk / "momcap_spacing",
+        )
+    artifacts += plot_momcap_scaling(fits, labels=labels, output_path=output_dir / "momcap_scaling")
+    return tuple(artifacts)
+
+
 def main() -> None:
     """Run one explicitly selected analysis pipeline."""
     targets: dict[str, Callable[[Path], tuple[Path, ...]]] = {
@@ -2003,6 +2041,7 @@ def main() -> None:
             ringamp_characterization_study,
             samp_characterization_study,
             caparray_characterization_study,
+            momcap_characterization_study,
         )
     }
 
@@ -2029,6 +2068,7 @@ def main() -> None:
                 "ringamp_",
                 "samp_",
                 "caparray_",
+                "momcap_",
             )
         )
         else "adc"

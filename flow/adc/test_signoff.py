@@ -8,7 +8,7 @@ import hdl21 as h
 import pytest
 from hdl21.prefix import f
 
-from flow.caparray.laygen import CapArrayLayoutParams, UnitLengthCapFamilyParams
+from flow.caparray.layout import CapArrayLayoutParams, UnitLengthCapFamilyParams
 from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
 from pdk.tsmc65.calibre.signoff import mom_lvs_device
