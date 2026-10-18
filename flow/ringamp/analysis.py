@@ -156,7 +156,6 @@ def analyze_ringamp_settling(measurements: Sequence[MeasRingamp]) -> AnalysisRin
         ideal = -float(tb.step_v) * float(tb.cin) / float(tb.cfb)
         after_v, after_s = calc.clip(output, time_s, step_s, stop_s)
         settled_s = calc.settlingTime(after_v, after_s, initial=initial, final=final, percent_of_step=1.0)
-        beyond = (after_v - final) * np.sign(change)
         quiescent = calc.average(*calc.clip(current, time_s, stop_s - 1e-9, stop_s))
         drawn, drawn_s = calc.clip(current, time_s, step_s, stop_s)
         rows.append(
@@ -166,7 +165,7 @@ def analyze_ringamp_settling(measurements: Sequence[MeasRingamp]) -> AnalysisRin
                 change,
                 change / ideal - 1,
                 settled_s - step_s if math.isfinite(settled_s) else math.nan,
-                max(calc.ymax(beyond), 0.0) / abs(change) if change else math.nan,
+                max(calc.overshoot(after_v, after_s, initial, final), 0.0) / 100 if change else math.nan,
                 quiescent,
                 calc.integ(drawn - quiescent, drawn_s),
             )
