@@ -1,4 +1,4 @@
-"""OTA analysis and plots on synthetic responses of known gain, bandwidth, and phase margin."""
+"""OTA analysis and plots on synthetic responses of known gain, bandwidth, phase margin, slew and distortion."""
 
 from datetime import UTC, datetime
 from pathlib import Path
@@ -6,9 +6,24 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from flow.analysis.types import MeasInfo
-from flow.ota.analysis import MeasOta, analyze_ota_ac, analyze_ota_noise
-from flow.ota.plots import plot_ota_bode, plot_ota_common_mode, plot_ota_noise, plot_ota_rejection, plot_ota_supply
+from flow.analysis.types import MeasInfo, Wave
+from flow.ota.analysis import (
+    MeasOta,
+    MeasOtaTran,
+    analyze_ota_ac,
+    analyze_ota_distortion,
+    analyze_ota_noise,
+    analyze_ota_slew,
+)
+from flow.ota.plots import (
+    plot_ota_bode,
+    plot_ota_common_mode,
+    plot_ota_distortion,
+    plot_ota_noise,
+    plot_ota_rejection,
+    plot_ota_slew,
+    plot_ota_supply,
+)
 from flow.ota.sim import OtaTbParams
 from flow.ota.subckt import CASES
 
@@ -105,5 +120,75 @@ def test_architecture_comparison_plots_render(tmp_path: Path) -> None:
             labels=["a"],
             output_path=tmp_path / "noise",
         ),
+    )
+    assert paths and all(path.exists() for path in paths)
+
+
+def _transient(params: OtaTbParams, time_s: np.ndarray, outp: np.ndarray, inp: np.ndarray) -> MeasOtaTran:
+    return MeasOtaTran(
+        group=None,
+        index=None,
+        dut=params.ota,
+        info=MeasInfo(backend="spice", timestamp_utc=datetime(2026, 10, 19, tzinfo=UTC)),
+        param=params,
+        trial_index=np.arange(1),
+        wave=Wave(
+            record_index=np.arange(1),
+            time_s=time_s,
+            v={"inp": inp[None, :], "outp": outp[None, :]},
+            i={"vdd": np.full((1, len(time_s)), 30e-6)},
+        ),
+    )
+
+
+def _step(rise_v_per_s: float, fall_v_per_s: float) -> MeasOtaTran:
+    """An output ramping between 0.45 and 0.75 V at the given slopes after each input edge (20 ns
+    period: up at 5 ns, down at 15 ns), drawing 30 µA."""
+    params = OtaTbParams(ota=CASES["five_t"], vcm=0.6, step_v=0.3)
+    time_s = np.arange(0.0, 20e-9, 5e-12)
+    rising = np.clip(0.45 + rise_v_per_s * (time_s - 5e-9), 0.45, 0.75)
+    output = np.where(time_s < 15e-9, rising, np.clip(0.75 - fall_v_per_s * (time_s - 15e-9), 0.45, 0.75))
+    return _transient(params, time_s, output, np.where((time_s >= 5e-9) & (time_s < 15e-9), 0.75, 0.45))
+
+
+def _sine(second_harmonic: float) -> MeasOtaTran:
+    """A unity-gain output of 0.95 times a 0.12 V, 10 MHz sine with a second harmonic of the given
+    fraction of the fundamental."""
+    params = OtaTbParams(ota=CASES["five_t"], vcm=0.6, sine_v=0.12, waveform_sample_interval_s=100e-12)
+    time_s = np.arange(0.0, params.sine_periods / params.sine_hz, 100e-12)
+    phase = 2 * np.pi * params.sine_hz * time_s
+    fundamental = 0.95 * 0.12 * np.sin(phase)
+    output = 0.6 + fundamental + second_harmonic * 0.95 * 0.12 * np.sin(2 * phase)
+    return _transient(params, time_s, output, 0.6 + 0.12 * np.sin(phase))
+
+
+def test_unity_gain_slew_settling_and_overshoot() -> None:
+    slew = analyze_ota_slew([_step(1e9, 2e8)])
+    assert slew.low_v[0] == pytest.approx(0.45) and slew.high_v[0] == pytest.approx(0.75)
+    assert slew.rise_slew_v_per_s[0] == pytest.approx(1e9, rel=1e-3)
+    assert slew.fall_slew_v_per_s[0] == pytest.approx(-2e8, rel=1e-3)
+    # within 1 % of the 0.3 V step: 0.297 V of ramp after the edge's middle
+    assert slew.rise_settling_s[0] == pytest.approx(0.297e-9, rel=0.02)
+    assert slew.fall_settling_s[0] == pytest.approx(1.485e-9, rel=0.01)
+    assert slew.rise_overshoot[0] == 0.0 and slew.supply_current_a[0] == pytest.approx(30e-6)
+    with pytest.raises(ValueError, match="step bench"):
+        analyze_ota_slew([_sine(0.01)])
+
+
+def test_unity_gain_harmonic_distortion() -> None:
+    distortion = analyze_ota_distortion([_sine(0.01)])
+    # a second harmonic at 1 % of the fundamental: -40 dB
+    assert distortion.thd_db[0] == pytest.approx(-40.0, abs=0.1)
+    assert distortion.sndr_db[0] == pytest.approx(40.0, abs=0.1)
+    assert distortion.gain_v_per_v[0] == pytest.approx(0.95, rel=1e-3)
+    with pytest.raises(ValueError, match="sine bench"):
+        analyze_ota_distortion([_step(1e9, 2e8)])
+
+
+def test_unity_gain_plots_render(tmp_path: Path) -> None:
+    step, sine = _step(1e9, 2e8), _sine(0.01)
+    paths = (
+        *plot_ota_slew([step], [analyze_ota_slew([step])], labels=["a"], output_path=tmp_path / "slew"),
+        *plot_ota_distortion([analyze_ota_distortion([sine])], labels=["a"], output_path=tmp_path / "distortion"),
     )
     assert paths and all(path.exists() for path in paths)

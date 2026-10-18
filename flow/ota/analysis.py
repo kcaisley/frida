@@ -7,7 +7,9 @@ output per volt of differential input, of input common mode and of supply, the r
 ingredients. Its operating point (supply current, output and load bias voltages) is in the run
 readbacks. The figures are Usb2Phy's op-amp bench's (DC gain, unity-gain bandwidth, phase margin)
 and the group's archived amplifier benches' (gain-bandwidth product, gain margin, PSRR, CMRR),
-each a calculator function of ``flow.analysis.calc``.
+each a calculator function of ``flow.analysis.calc``. A ``MeasOtaTran`` is the unity-gain bench's
+transient (LF-Monopix2 ``TB_AnaBuffer``): ``outp``'s response to a large input step (slew rate,
+settling, overshoot) or to a sine (harmonic distortion).
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ import numpy as np
 from flow.analysis import calc
 from flow.analysis.types import Analysis, Meas, check_identity, measurement_identity
 from flow.ota.sim import OtaTbParams
-from flow.ota.subckt import OtaParams
+from flow.ota.subckt import OtaNets, OtaParams
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -223,4 +225,158 @@ def analyze_ota_noise(measurements: Sequence[MeasOta], *, ac: AnalysisOtaAc) -> 
         spot_frequency_hz=float(frequency_hz[spot]),
         spot_noise_v_rthz=densities[:, spot],
         integrated_noise_v=np.asarray(integrated, dtype=np.float64),
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MeasOtaTran(Meas):
+    """OTA unity-gain transient, a step or a sine: one record, all in ``wave``."""
+
+    dut: OtaParams
+    param: OtaTbParams
+    trial_index: np.ndarray
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisOtaSlew(Analysis):
+    """OTA unity-gain step response at each step point.
+
+    ``low_v`` and ``high_v`` are ``outp``'s levels just before the rising and falling input steps,
+    ``rise_slew_v_per_s`` and ``fall_slew_v_per_s`` its 10–90 % slopes between them (``slewrate``;
+    the fall's negative), ``rise_settling_s`` and ``fall_settling_s`` the time from each input edge
+    until it stays within 1 % of the step (``settlingTime``; NaN where it never does, as when the
+    loop rings on), ``rise_overshoot`` and ``fall_overshoot`` how far it passes the final level, a
+    fraction of the step (``overshoot``), ``supply_current_a`` the average over the period.
+    """
+
+    vcm_v: np.ndarray
+    step_v: np.ndarray
+    low_v: np.ndarray
+    high_v: np.ndarray
+    rise_slew_v_per_s: np.ndarray
+    fall_slew_v_per_s: np.ndarray
+    rise_settling_s: np.ndarray
+    fall_settling_s: np.ndarray
+    rise_overshoot: np.ndarray
+    fall_overshoot: np.ndarray
+    supply_current_a: np.ndarray
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisOtaDistortion(Analysis):
+    """OTA unity-gain sine response at each sine point: ``thd_db`` and ``sndr_db`` of ``outp`` over
+    the whole periods after the first two (``spectrumMeas``, harmonics to the fifth), and its
+    fundamental's ``gain_v_per_v`` over the input's amplitude; ``frequency_hz`` and
+    ``spectrum_dbfs`` its spectrum relative to the input's amplitude, one row per point."""
+
+    vcm_v: np.ndarray
+    amplitude_v: np.ndarray
+    sine_hz: np.ndarray
+    thd_db: np.ndarray
+    sndr_db: np.ndarray
+    gain_v_per_v: np.ndarray
+    frequency_hz: np.ndarray
+    spectrum_dbfs: np.ndarray
+
+
+def analyze_ota_slew(measurements: Sequence[MeasOtaTran]) -> AnalysisOtaSlew:
+    """Measure ``outp``'s slew rates, settling and overshoot on the input's rising and falling steps."""
+
+    identity = measurement_identity(measurements)
+    if not all(float(item.param.step_v) for item in measurements):
+        raise ValueError("OTA slew requires the unity-gain step bench")
+    rows = []
+    for measurement in measurements:
+        wave, tb = measurement.wave, measurement.param
+        if wave is None:
+            raise ValueError("OTA slew requires a waveform record")
+        time_s, output = wave.time_s, wave.v[OtaNets.outp.name][0]
+        period, edge = float(tb.period_s), float(tb.transition_time_s)
+        rise_s, fall_s = period / 4, 3 * period / 4
+        # the levels: the output just before each input edge
+        low = calc.average(*calc.clip(output, time_s, rise_s - period / 20, rise_s))
+        high = calc.average(*calc.clip(output, time_s, fall_s - period / 20, fall_s))
+        up_v, up_s = calc.clip(output, time_s, rise_s, fall_s)
+        down_v, down_s = calc.clip(output, time_s, fall_s, float(time_s[-1]))
+        rise_settled = calc.settlingTime(up_v, up_s, initial=low, final=high, percent_of_step=1.0)
+        fall_settled = calc.settlingTime(down_v, down_s, initial=high, final=low, percent_of_step=1.0)
+        rows.append(
+            (
+                float(tb.vcm),
+                float(tb.step_v),
+                low,
+                high,
+                calc.slewrate(up_v, up_s, low, high),
+                calc.slewrate(down_v, down_s, high, low),
+                rise_settled - rise_s - edge / 2,
+                fall_settled - fall_s - edge / 2,
+                max(calc.overshoot(up_v, up_s, low, high), 0.0) / 100,
+                max(calc.overshoot(down_v, down_s, high, low), 0.0) / 100,
+                calc.average(wave.i[OtaNets.vdd.name][0], time_s),
+            )
+        )
+    columns = (np.asarray(column, dtype=np.float64) for column in zip(*rows, strict=True))
+    vcm_v, step_v, low_v, high_v, rise_slew, fall_slew, rise_settling, fall_settling, rise_over, fall_over, current = (
+        columns
+    )
+    return AnalysisOtaSlew(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        vcm_v=vcm_v,
+        step_v=step_v,
+        low_v=low_v,
+        high_v=high_v,
+        rise_slew_v_per_s=rise_slew,
+        fall_slew_v_per_s=fall_slew,
+        rise_settling_s=rise_settling,
+        fall_settling_s=fall_settling,
+        rise_overshoot=rise_over,
+        fall_overshoot=fall_over,
+        supply_current_a=current,
+    )
+
+
+def analyze_ota_distortion(measurements: Sequence[MeasOtaTran]) -> AnalysisOtaDistortion:
+    """Measure ``outp``'s harmonic distortion and gain on the unity-gain sine."""
+
+    identity = measurement_identity(measurements)
+    if not all(float(item.param.sine_v) for item in measurements):
+        raise ValueError("OTA distortion requires the unity-gain sine bench")
+    rows, spectra = [], []
+    for measurement in measurements:
+        wave, tb = measurement.wave, measurement.param
+        if wave is None:
+            raise ValueError("OTA distortion requires a waveform record")
+        interval, amplitude = float(tb.waveform_sample_interval_s), float(tb.sine_v)
+        # whole periods after the first two, on the record's uniform grid
+        samples = round((tb.sine_periods - 2) / tb.sine_hz / interval)
+        output = wave.v[OtaNets.outp.name][0][-samples:]
+        sndr, _snr, thd, _sfdr, _enob, frequency_hz, spectrum = calc.spectrumMeas(
+            output,
+            sample_rate=1 / interval,
+            fundamental_frequency=tb.sine_hz,
+            offset=calc.average(output),
+            full_scale_peak=amplitude,
+            maximum_harmonic_order=5,
+        )
+        fundamental = int(np.argmin(np.abs(frequency_hz - tb.sine_hz)))
+        rows.append((float(tb.vcm), amplitude, tb.sine_hz, thd, sndr, 10 ** (spectrum[fundamental] / 20)))
+        spectra.append((frequency_hz, spectrum))
+    vcm_v, amplitude_v, sine_hz, thd_db, sndr_db, gain = (
+        np.asarray(column, dtype=np.float64) for column in zip(*rows, strict=True)
+    )
+    length = min(len(frequency_hz) for frequency_hz, _ in spectra)
+    return AnalysisOtaDistortion(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        vcm_v=vcm_v,
+        amplitude_v=amplitude_v,
+        sine_hz=sine_hz,
+        thd_db=thd_db,
+        sndr_db=sndr_db,
+        gain_v_per_v=gain,
+        frequency_hz=np.asarray(spectra[0][0][:length], dtype=np.float64),
+        spectrum_dbfs=np.asarray([spectrum[:length] for _, spectrum in spectra], dtype=np.float64),
     )

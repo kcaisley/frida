@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from flow.analysis.plots import NORD_BLUE, NORD_DARK, NORD_RED, PLOT_STYLE, save_figure, style_grid
-from flow.ota.analysis import AnalysisOtaAc, AnalysisOtaNoise
+from flow.ota.analysis import AnalysisOtaAc, AnalysisOtaDistortion, AnalysisOtaNoise, AnalysisOtaSlew, MeasOtaTran
 
 
 @mpl.rc_context(PLOT_STYLE)
@@ -190,4 +190,67 @@ def plot_ota_noise(
     fig.supxlabel("Input common mode (V)")
     fig.supylabel(f"Input noise at {noises[0].spot_frequency_hz * 1e-6:.3g} MHz (nV/√Hz)", color=NORD_BLUE)
     fig.suptitle(f"Input-referred noise versus input common mode at {noises[0].vdd_v[0]:g} V")
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_ota_slew(
+    measurements: Sequence[MeasOtaTran],
+    slews: Sequence[AnalysisOtaSlew],
+    *,
+    labels: Sequence[str],
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Compare the OTAs' unity-gain step responses: input and output, slew rates in each title."""
+
+    if not measurements or not len(measurements) == len(slews) == len(labels):
+        raise ValueError("slew comparison requires one step record, slew result, and label per OTA")
+    columns = min(2, len(measurements))
+    rows = (len(measurements) + columns - 1) // columns
+    fig, axes = plt.subplots(rows, columns, sharex=True, squeeze=False)
+    for index, (measurement, slew, label) in enumerate(zip(measurements, slews, labels, strict=True)):
+        ax = axes.flat[index]
+        wave = measurement.wave
+        if wave is None:
+            raise ValueError("slew comparison requires waveform records")
+        ax.plot(wave.time_s * 1e9, wave.v["inp"][0], ":", color=NORD_DARK, label="Input")
+        ax.plot(wave.time_s * 1e9, wave.v["outp"][0], "-", color=NORD_BLUE, label="Output")
+        ax.set_title(
+            f"{label}\nslew +{slew.rise_slew_v_per_s[0] * 1e-9:.2g} / {slew.fall_slew_v_per_s[0] * 1e-9:.2g} V/ns"
+        )
+        style_grid(ax)
+    for ax in axes.flat[len(measurements) :]:
+        ax.set_visible(False)
+    axes.flat[0].legend(loc="upper right", fontsize="small")
+    fig.supxlabel("Time (ns)")
+    fig.supylabel("Voltage (V)")
+    fig.suptitle("OTA unity-gain step response at mid-supply")
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_ota_distortion(
+    distortions: Sequence[AnalysisOtaDistortion],
+    *,
+    labels: Sequence[str],
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Compare the OTAs' unity-gain output spectra on a sine, THD and SNDR in each title."""
+
+    if not distortions or len(distortions) != len(labels):
+        raise ValueError("distortion comparison requires one distortion result and label per OTA")
+    columns = min(2, len(distortions))
+    rows = (len(distortions) + columns - 1) // columns
+    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
+    for index, (distortion, label) in enumerate(zip(distortions, labels, strict=True)):
+        ax = axes.flat[index]
+        ax.semilogx(distortion.frequency_hz[1:], distortion.spectrum_dbfs[0][1:], "-", color=NORD_BLUE)
+        ax.set_ylim(-140.0, 10.0)
+        ax.set_title(f"{label}\nTHD {distortion.thd_db[0]:.1f} dB, SNDR {distortion.sndr_db[0]:.1f} dB")
+        style_grid(ax)
+    for ax in axes.flat[len(distortions) :]:
+        ax.set_visible(False)
+    fig.supxlabel("Frequency (Hz)")
+    fig.supylabel("Output relative to the input amplitude (dB)")
+    fig.suptitle(f"OTA unity-gain output spectrum, {distortions[0].sine_hz[0] * 1e-6:g} MHz sine")
     return save_figure(fig, output_path)

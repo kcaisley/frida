@@ -140,8 +140,23 @@ from flow.momcap.analysis import MeasMomcap, analyze_momcap_fit
 from flow.momcap.plots import plot_momcap_fit, plot_momcap_scaling, plot_momcap_spacing
 from flow.moscap.analysis import MeasMosCap, analyze_moscap_cv
 from flow.moscap.plots import plot_moscap_cv, plot_moscap_frequency, plot_moscap_quality
-from flow.ota.analysis import MeasOta, analyze_ota_ac, analyze_ota_noise
-from flow.ota.plots import plot_ota_bode, plot_ota_common_mode, plot_ota_noise, plot_ota_rejection, plot_ota_supply
+from flow.ota.analysis import (
+    MeasOta,
+    MeasOtaTran,
+    analyze_ota_ac,
+    analyze_ota_distortion,
+    analyze_ota_noise,
+    analyze_ota_slew,
+)
+from flow.ota.plots import (
+    plot_ota_bode,
+    plot_ota_common_mode,
+    plot_ota_distortion,
+    plot_ota_noise,
+    plot_ota_rejection,
+    plot_ota_slew,
+    plot_ota_supply,
+)
 from flow.pi.analysis import MeasPi, analyze_pi_linearity, analyze_pi_phase
 from flow.pi.plots import plot_pi_frequency, plot_pi_transfer, plot_pi_waveforms
 from flow.ringamp.analysis import MeasRingamp, analyze_ringamp_settling, analyze_ringamp_transfer
@@ -1451,9 +1466,9 @@ def latch_characterization_study(output_dir: Path) -> tuple[Path, ...]:
 
 
 def ota_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named OTAs' open-loop response, rejection, input common-mode range, noise, and supply scaling, in every PDK."""
+    """Compare the named OTAs' open-loop response, rejection, input common-mode range, noise, and supply scaling, and the single-ended ones' unity-gain step and distortion, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/ota/ota_characterization/20261019_003101"
+    meas_read_dir = BASE_PATH / "build/sim/ota/ota_characterization/20261019_014526"
     cases = (
         ("five_t", "five_t: NMOS input"),
         ("five_t_pmos", "five_t_pmos: PMOS input"),
@@ -1500,6 +1515,30 @@ def ota_characterization_study(output_dir: Path) -> tuple[Path, ...]:
                 [analyze_ota_ac(sweeps[name, "supply"]) for name, _label in cases],
                 labels=labels,
                 output_path=pdk_dir / "ota_supply",
+            ),
+        ]
+        # the unity-gain benches, which only the single-ended amplifiers have
+        unity = {}
+        for name, label in cases:
+            for bench in ("step", "sine"):
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{bench}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasOtaTran):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasOtaTran")
+                    unity[name, bench] = (measurement, label)
+        steps = [unity[name, "step"] for name, _label in cases if (name, "step") in unity]
+        sines = [unity[name, "sine"] for name, _label in cases if (name, "sine") in unity]
+        artifacts += [
+            *plot_ota_slew(
+                [measurement for measurement, _label in steps],
+                [analyze_ota_slew([measurement]) for measurement, _label in steps],
+                labels=[label for _measurement, label in steps],
+                output_path=pdk_dir / "ota_slew",
+            ),
+            *plot_ota_distortion(
+                [analyze_ota_distortion([measurement]) for measurement, _label in sines],
+                labels=[label for _measurement, label in sines],
+                output_path=pdk_dir / "ota_distortion",
             ),
         ]
     return tuple(artifacts)
