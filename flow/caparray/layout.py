@@ -467,7 +467,9 @@ def _extract_one(run_dir: Path, pdk: str, layers: int = 2) -> dict[str, Any]:
     }
 
 
-def caparray_extract_all_pdks(run_dir: Path, layer_counts: tuple[int, ...] = (1, 2, 3)) -> Path:
+def caparray_extract_all_pdks(
+    run_dir: Path, layer_counts: tuple[int, ...] = (1, 2, 3), pdks: tuple[str, ...] = PDKS
+) -> Path:
     """Extract the radix-17 array at one to three metals by its own net names (3D, layout only) in
     every PDK,
     and compare each stage's effective capacitance (main minus
@@ -480,7 +482,7 @@ def caparray_extract_all_pdks(run_dir: Path, layer_counts: tuple[int, ...] = (1,
     with ProcessPoolExecutor(max_workers=6, mp_context=get_context("spawn")) as executor:
         futures = {
             executor.submit(_extract_one, run_dir, pdk, layers): f"{pdk}/{layers}l"
-            for pdk in PDKS
+            for pdk in pdks
             for layers in layer_counts
         }
         for future in as_completed(futures):

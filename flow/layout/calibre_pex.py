@@ -87,7 +87,9 @@ def run_layout_pex(
     ]
     kept = [line for line in setup if not line.upper().startswith(tuple(word.upper() for word in deck_sets))]
     control.write_text("#!tvf\ntvf::VERBATIM {\n" + "".join(f"{line}\n" for line in kept) + "}\n" + deck)
-    env = dict(os.environ, **(environment or {}))
+    # the field solver's accuracy: at its default a small coupling beside a large net (a CDAC's top
+    # plate) may be split to the substrate by a few fF; 1 keeps every stage's coupling to its plate
+    env = dict(os.environ, PEX_FS_ACCURACY="1", **(environment or {}))
     for stage, arguments in (
         ("phdb", "-phdb -turbo 1"),
         ("pdb", "-3d -pdb -rcc -turbo 1"),

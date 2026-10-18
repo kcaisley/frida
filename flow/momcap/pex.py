@@ -69,7 +69,9 @@ def _extract(run_dir: Path, params: MomTestParams) -> dict[tuple[str, str], floa
     return pair_capacitances(netlist.read_text(), TERMINALS[params.unit.style])
 
 
-def momcap_characterization(run_dir: Path, *, check: bool = False, pdks: tuple[str, ...] = PDKS) -> Path:
+def momcap_characterization(
+    run_dir: Path, *, check: bool = False, pdks: tuple[str, ...] = PDKS, workers: int = 8
+) -> Path:
     """Extract every style at one to three metals, six lengths at the minimum spacing and three at
     each wider one, in every Calibre PDK (135 per PDK).
 
@@ -102,7 +104,7 @@ def momcap_characterization(run_dir: Path, *, check: bool = False, pdks: tuple[s
                         jobs[name] = MomTestParams(unit, length * 1000, diff * 1000, space)
     failures: dict[str, str] = {}
     # eight extractions at a time: the extractor's licences are shared
-    with ProcessPoolExecutor(max_workers=8, mp_context=get_context("spawn")) as executor:
+    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as executor:
         futures = {executor.submit(_extract, run_dir / name, params): (name, params) for name, params in jobs.items()}
         for future in as_completed(futures):
             name, params = futures[future]

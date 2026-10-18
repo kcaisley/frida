@@ -1971,7 +1971,7 @@ def momcap_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     (3D extraction: Calibre xACT, Quantus in LF150), and compare the fits across the PDKs; writes
     every fit as a result."""
 
-    meas_read_dir = BASE_PATH / "build/pex/momcap/momcap_characterization/20261018_021950"
+    meas_read_dir = BASE_PATH / "build/pex/momcap/momcap_characterization/20261018_acc1"
     families = [(style, layers) for style in ("difference", "ring", "strip") for layers in (1, 2, 3)]
     artifacts = []
     fits, labels = [], []
