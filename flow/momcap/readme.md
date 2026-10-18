@@ -13,10 +13,7 @@
 
 ## The model the generators use
 
-`tech.MOM_MODEL[style, layers]` holds rows (spacing nm, slope fF/µm, intercept fF): in the three extracted PDKs each extracted spacing's own length fit; the CDAC (`flow.caparray.layout.mom_array_params`) interpolates them in 1/s at the spacing it draws. α/s + β summarises the trend but misses individual spacings by up to a tenth (the extraction's spacing-dependent width bias), so the generator uses the measured rows. A PDK that calibrates its production unit itself (`tech.MOM_FITS`, which its LVS deck checks) keeps that calibration.
-
-Every PDK's rows are its own extraction's.
-
+`tech.MOM_MODEL[style, layers]` holds rows (spacing nm, slope fF/µm, intercept fF): in each PDK, each extracted spacing's own length fit; the CDAC (`flow.caparray.layout.mom_array_params`) interpolates them in 1/s at the spacing it draws. α/s + β summarises the trend but misses individual spacings by up to a tenth (the extraction's spacing-dependent width bias), so the generator uses the measured rows. A PDK that calibrates its production unit itself (`tech.MOM_FITS`, which its LVS deck checks) keeps that calibration.
 ## Results (run 20261018_acc1)
 
 Per-length capacitance at each PDK's minimum spacing, fF/µm for one, two and three stacked metals:
@@ -30,4 +27,4 @@ Per-length capacitance at each PDK's minimum spacing, fF/µm for one, two and th
 | LF150 | 240 | 0.184 / 0.393 / 0.596 | 0.182 / 0.388 / 0.589 | 0.099 / 0.209 / 0.316 | up to 6 % |
 | Tower180 | 280 | 0.200 / 0.411 / 0.624 | 0.197 / 0.406 / 0.617 | 0.115 / 0.233 / 0.349 | up to 10 % |
 
-The ring and the difference unit match (both inner fingers face the ring on two sides); the strip is about half (one neighbour). Every stacked metal adds the same per-length capacitance. The thicker 130-180 nm metals at two to three times the spacing give as much as 65 nm or more, IHP130's thick metals the most. TSMC65's production unit (`MOM_FITS`, 0.164 / 0.356 / 0.545 with its shield mesh, refitted at accuracy 1) is 8, 4 and 3 % below these solid-shield test structures. The ends add 0.01-0.3 fF (gamma), most in the thick 180 nm stack. The slides are in `docs/slides/2026_09_08_ringfmom.tex` (the four before the last; the last records the refit), the figures in `build/analysis/momcap/<run>/`.
+The ring and the difference unit match (both inner fingers face the ring on two sides); the strip is about half (one neighbour). Every stacked metal adds the same per-length capacitance. The thicker 130-180 nm metals at two to three times the spacing give as much as 65 nm or more, IHP130's thick metals the most. TSMC65's production unit (`MOM_FITS`, 0.164 / 0.356 / 0.545 with its shield mesh, refitted at accuracy 1) is 8, 4 and 3 % below these solid-shield test structures. The ends add 0.01-0.3 fF (gamma), most in the thick 180 nm stack. The slides are in `docs/slides/2026_09_08_ringfmom.tex` (the last four; TSMC65's refitted production unit is checked against its extraction on the tolerance slide), the figures in `build/analysis/momcap/<run>/`.

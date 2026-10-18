@@ -51,37 +51,37 @@
 \begin{document}
 \begin{frame}[plain]
 \begin{tikzpicture}[remember picture,overlay]
-\titleat{Eight capacitors: geometry and nominal values}
+\titleat{Eight capacitors: geometry and fitted values}
 \picat{10}{27}{116}{../images/ringfmom/layout.png}
 \boxat{137}{39}{174}{\fontsize{17}{22}\selectfont
 \renewcommand{\arraystretch}{1.3}
 \begin{tabular}{@{}lrrr@{}}
 \toprule
-Ideal device & Width (µm) & Length (µm) & Nominal (fF) \\
+Ideal device & Width (µm) & Length (µm) & Fit (fF) \\
 \midrule
-Cmain0 & 0.10 & 48.52 & 24.3 \\
-Cmain1 & 0.10 & 42.12 & 21.1 \\
-Cmain2 & 0.10 & 35.72 & 17.9 \\
-Cmain3 & 0.10 & 29.32 & 14.7 \\
+Cmain0 & 0.10 & 48.52 & 26.6 \\
+Cmain1 & 0.10 & 42.12 & 23.1 \\
+Cmain2 & 0.10 & 35.72 & 19.6 \\
+Cmain3 & 0.10 & 29.32 & 16.1 \\
 \midrule
-Cdiff0 & 0.10 & 3.72 & 1.9 \\
-Cdiff1 & 0.10 & 10.12 & 5.1 \\
-Cdiff2 & 0.10 & 16.52 & 8.3 \\
-Cdiff3 & 0.10 & 22.92 & 11.5 \\
+Cdiff0 & 0.10 & 3.72 & 2.2 \\
+Cdiff1 & 0.10 & 10.12 & 5.6 \\
+Cdiff2 & 0.10 & 16.52 & 9.1 \\
+Cdiff3 & 0.10 & 22.92 & 12.6 \\
 \bottomrule
 \end{tabular}}
 \belowlabel{68}{166}{Pairs 3--0, left to right}{155}
 \belowlabel{196}{158}{Inner-finger dimensions}{140}
-\belowlabel{279}{158}{Nominal three-layer total}{140}
+\belowlabel{279}{158}{Fitted three-layer total}{140}
 \end{tikzpicture}
 \end{frame}
 
 \begin{frame}[plain]
 \begin{tikzpicture}[remember picture,overlay]
-\titleat{Layout and nominal ideal netlist}
+\titleat{Layout and ideal netlist}
 \picat{10}{27}{116}{../images/ringfmom/layout.png}
 \fileat{137}{40}{175}{14}{source}{ideal.cdl}
-\arrowlabel{230}{87}{Nominal: 0.50 fF/µm}{west}{199}{87}
+\arrowlabel{230}{87}{Fit: 0.545L + 0.127 fF}{west}{199}{87}
 \arrowlabel{138}{142}{M5--M7 plates; M4 shield}{west}{105}{142}
 \end{tikzpicture}
 \end{frame}
@@ -93,7 +93,7 @@ Cdiff3 & 0.10 & 22.92 & 11.5 \\
 \arrowlabel{220}{42}{Include the reusable library}{west}{114}{42}
 \arrowlabel{220}{62}{Total three-layer capacitance}{west}{154}{62}
 \arrowlabel{220}{97}{Cdiff3 becomes Xdiff3}{west}{153}{97}
-\belowlabel{111}{146}{Nominal values, not calibrated}{116}
+\belowlabel{111}{146}{Values from the 3D fit}{116}
 \end{tikzpicture}
 \end{frame}
 
@@ -203,38 +203,37 @@ Cdiff3 & 0.10 & 22.92 & 11.5 \\
 
 \begin{frame}[plain]
 \begin{tikzpicture}[remember picture,overlay]
-\titleat{Our model meets the example's 5\% value tolerance}
-% Calculated illustration, not edited or simulated Calibre output.
+\titleat{Our fit meets the example's 5\% value tolerance}
+% Extracted: the real-LVS test's four-capacitor fixture, xACT 3D, PEX_FS_ACCURACY=1 (three layers).
 % [Sources]
-% /local/frida/pdk/tsmc65/ringfmom.py: NOMINAL_FF_PER_UM_PER_LAYER
+% /local/frida/pdk/tsmc65/layout/tech.py: MOM_FITS
 % /local/frida/pdk/tsmc65/calibre/ringfmom.lvs: three-layer property expressions
+% /local/frida/pdk/tsmc65/tests/ringfmom_3d_reference.csv
 % [/Sources]
-\boxat{14}{28}{294}{\color{accent}\fontsize{18}{22}\selectfont
-Demonstration -- calculated comparison, not a Calibre run}
-\boxat{14}{45}{220}{\fontsize{17}{21}\selectfont
+\boxat{14}{28}{220}{\fontsize{17}{21}\selectfont
 \renewcommand{\arraystretch}{1.3}
 \begin{tabular}{@{}lrrrrl@{}}
 \toprule
-Device & Length (µm) & Model (fF) & LVS fit (fF) & Deviation & Check \\
+Device & Length (µm) & Extracted (fF) & Fit (fF) & Deviation & Check \\
 \midrule
-Xmain0 & 48.52 & 25.5 & 24.9 & $-2.31\%$ & PASS \\
-Xmain1 & 42.12 & 22.1 & 21.6 & $-2.22\%$ & PASS \\
-Xmain2 & 35.72 & 18.8 & 18.4 & $-2.11\%$ & PASS \\
-Xmain3 & 29.32 & 15.4 & 15.1 & $-1.95\%$ & PASS \\
-Xdiff0 & 3.72 & 2.0 & 2.0 & $+4.31\%$ & PASS \\
-Xdiff1 & 10.12 & 5.3 & 5.3 & $-0.22\%$ & PASS \\
-Xdiff2 & 16.52 & 8.7 & 8.6 & $-1.24\%$ & PASS \\
-Xdiff3 & 22.92 & 12.0 & 11.8 & $-1.69\%$ & PASS \\
+Xmain0 & 48.52 & 26.81 & 26.57 & $-0.89\%$ & PASS \\
+Xmain1 & 42.12 & 23.22 & 23.08 & $-0.59\%$ & PASS \\
+Xmain2 & 35.72 & 19.67 & 19.59 & $-0.38\%$ & PASS \\
+Xmain3 & 29.32 & 16.22 & 16.11 & $-0.70\%$ & PASS \\
+Xdiff0 & 3.72 & 2.12 & 2.15 & $+1.62\%$ & PASS \\
+Xdiff1 & 10.12 & 5.61 & 5.64 & $+0.58\%$ & PASS \\
+Xdiff2 & 16.52 & 9.13 & 9.13 & $+0.00\%$ & PASS \\
+Xdiff3 & 22.92 & 12.67 & 12.62 & $-0.41\%$ & PASS \\
 \bottomrule
 \end{tabular}}
-\boxat{242}{52}{67}{\fontsize{17}{24}\selectfont
-Three-layer totals\par\medskip
-Model: 0.525L\par
-LVS fit: 0.51L + 0.14\par\medskip
-L in µm; C in fF}
-\boxat{14}{149}{294}{\fontsize{14}{18}\selectfont
-Deviation = (LVS fit / model - 1) × 100\%; comparison uses unrounded values.\par
-Only these eight lengths; 0.52 µm stubs and full-chip signoff are not covered.}
+\boxat{242}{35}{70}{\fontsize{15}{20}\selectfont
+Total C, fF; L, µm\par\medskip
+1L: 0.164L + 0.038\par
+2L: 0.356L + 0.070\par
+3L: 0.545L + 0.127}
+\boxat{14}{140}{294}{\fontsize{14}{18}\selectfont
+Deviation = (fit / extracted - 1) × 100\%. Extracted at field-solver accuracy 1 (the default split a few fF of a finger's coupling beside the large top-plate net to the substrate).
+Fitted to every finger of the three production arrays (within 1.3\%); the LVS deck's expressions and the generator share the fit; all 21 real-LVS checks pass.}
 \end{tikzpicture}
 \end{frame}
 
@@ -242,8 +241,8 @@ Only these eight lengths; 0.52 µm stubs and full-chip signoff are not covered.}
 \begin{tikzpicture}[remember picture,overlay]
 \titleat{Change one source capacitance}
 \fileat{16}{57}{205}{15}{edit}{source.cdl (diff)}
-\arrowlabel{220}{68}{Original nominal total}{west}{177}{68}
-\arrowlabel{220}{75}{Wrong total: 30.4 fF}{west}{177}{75}
+\arrowlabel{220}{68}{Original fitted total}{west}{177}{68}
+\arrowlabel{220}{75}{Wrong total: 33.2 fF}{west}{177}{75}
 \end{tikzpicture}
 \end{frame}
 
@@ -327,38 +326,6 @@ Difference unit, C/L in fF/µm at the drawn gap}
 \boxat{14}{150}{294}{\fontsize{15}{19}\selectfont
 The CDAC interpolates the extracted rows in $1/s$ at the gap it draws (\texttt{tech.MOM\_MODEL}).\par
 Every PDK's rows come from its own 3D extraction.}
-\end{tikzpicture}
-\end{frame}
-
-\begin{frame}[plain]
-\begin{tikzpicture}[remember picture,overlay]
-\titleat{Update 2026-10-18: refitted at solver accuracy 1}
-% Extracted: the real-LVS test's four-capacitor fixture, xACT 3D, PEX_FS_ACCURACY=1 (three layers).
-\boxat{14}{28}{220}{\fontsize{17}{21}\selectfont
-\renewcommand{\arraystretch}{1.3}
-\begin{tabular}{@{}lrrrrl@{}}
-\toprule
-Device & Length (µm) & Extracted (fF) & Fit (fF) & Deviation & Check \\
-\midrule
-Xmain0 & 48.52 & 26.81 & 26.57 & $-0.89\%$ & PASS \\
-Xmain1 & 42.12 & 23.22 & 23.08 & $-0.59\%$ & PASS \\
-Xmain2 & 35.72 & 19.67 & 19.59 & $-0.38\%$ & PASS \\
-Xmain3 & 29.32 & 16.22 & 16.11 & $-0.70\%$ & PASS \\
-Xdiff0 & 3.72 & 2.12 & 2.15 & $+1.62\%$ & PASS \\
-Xdiff1 & 10.12 & 5.61 & 5.64 & $+0.58\%$ & PASS \\
-Xdiff2 & 16.52 & 9.13 & 9.13 & $+0.00\%$ & PASS \\
-Xdiff3 & 22.92 & 12.67 & 12.62 & $-0.41\%$ & PASS \\
-\bottomrule
-\end{tabular}}
-\boxat{242}{35}{70}{\fontsize{15}{20}\selectfont
-Total C, fF; L, µm\par\medskip
-1L: 0.164L + 0.038\par
-2L: 0.356L + 0.070\par
-3L: 0.545L + 0.127\par\medskip
-Was 0.17/0.34/0.51 L + 0.03/0.06/0.12}
-\boxat{14}{140}{294}{\fontsize{14}{18}\selectfont
-At its default accuracy the solver split a few fF of a finger's coupling beside the large top-plate net to the substrate.
-Refitted to every finger of the three production arrays (within 1.3\%); the LVS deck's expressions and the generator share the fit; all 21 real-LVS checks pass.}
 \end{tikzpicture}
 \end{frame}
 

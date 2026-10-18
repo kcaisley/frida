@@ -12,7 +12,7 @@ DEVICE ringfmom_3l_m5 RFM_BODY3_5
   w = (hp-sqrt(hp*hp-4*a))/2
   l = a/w
   covered = area(RFM_COVER3_5)/w
-  c = (0.51e-9*l+0.14e-15)/3
+  c = (0.545e-9*l+0.127e-15)/3
 ]
 
 TRACE PROPERTY ringfmom_3l_m5 c c 5
