@@ -492,6 +492,92 @@ def caparray_extract_all_pdks(run_dir: Path, layer_counts: tuple[int, ...] = (1,
     return run_dir
 
 
+def _extract_window(run_dir: Path, pdk: str, layers: int, first: int, last: int) -> dict[str, Any]:
+    """Extract units ``first``-``last`` of the radix-17 array cut out of its layout (the ring and
+    the shield labelled, the ring's metals joined by a via inside the window) and compare each
+    stage there with the sizing: a stage's coupling to the top plate without the whole plate's
+    net, whose size widens the field solver's split of a small coupling from the substrate."""
+
+    from flow.layout.pdkproc import pdk_value
+    from flow.layout.signoff import run_layout_pex
+
+    mom = pdk_value(pdk, "tech", "MOM_LAYERS")
+    layer_names = pdk_value(pdk, "tech", "LAYERS")
+    active = tuple(mom[-layers:])
+    params = CapArrayLayoutParams(
+        cdac=CapArrayConfig(),
+        family=UnitLengthCapFamilyParams(),
+        technology=pdk,
+        route_layer=active[0] - 1,
+        shield_layer=active[0] - 1,
+        active_layers=active,
+        top_cell=f"caparray_{layers}layer_radix17",
+    )
+    geometry = _calc_unit_geometry(params)
+    full = CapArrayLayout(params)
+    top = full.cell(params.top_cell)
+    top.flatten(True)
+    x0 = first * geometry.unit_pitch
+    x1 = last * geometry.unit_pitch + geometry.outer_width
+    window = db.Region(db.Box(x0, -(10**9), x1, 10**9))
+    layout = db.Layout()
+    layout.dbu = full.dbu
+    name = f"window{first}_{last}"
+    cell = layout.create_cell(name)
+    for index in full.layer_indexes():
+        shapes = cell.shapes(layout.layer(full.get_info(index)))
+        shapes.insert(db.Region(top.shapes(index)) & window)
+        for shape in top.shapes(index).each():
+            if shape.is_text() and x0 <= shape.text.trans.disp.x <= x1 and "botplate" in shape.text_string:
+                shapes.insert(shape.text)
+    wall, y = x0 + geometry.ring_width // 2, geometry.outer_height // 2
+    half = geometry.via_cut // 2
+    for metal in active[:-1]:
+        cell.shapes(layout.layer(*layer_names[f"V{metal}"])).insert(
+            db.Box(wall - half, y - half, wall + half, y + half)
+        )
+    for metal, label in (
+        (active[0], ArrayPlates.cap_topplate.name),
+        (params.shield_layer, ArrayPlates.cap_shieldplate.name),
+    ):
+        pin = layout.layer(*layer_names[f"M{metal}.PIN"])
+        cell.shapes(pin).insert(db.Text(label, db.Trans(wall, y)))
+        cell.shapes(pin).insert(db.Box(wall - half, y - half, wall + half, y + half))
+    work = run_dir / pdk / f"{layers}l_{name}"
+    work.mkdir(parents=True, exist_ok=True)
+    gds = work / f"{name}.gds"
+    layout.write(str(gds))
+    weights = get_caparray_weights(params.cdac)
+    extracted = parse_caparray_pex(run_layout_pex(pdk, gds, name, name, work), stage_count=len(weights))
+    unit = float(mom_array_params(params).cdac.unit_cap) * 1e15
+    return {
+        "stages": [
+            {
+                "stage": k,
+                "weight": weights[k],
+                "extracted_ff": main - diff,
+                "ratio": (main - diff) / (weights[k] * unit),
+            }
+            for k, (main, diff) in enumerate(zip(extracted.main_by_stage_ff, extracted.diff_by_stage_ff, strict=True))
+            if main
+        ]
+    }
+
+
+def caparray_window_check(run_dir: Path) -> Path:
+    """Extract the two- and three-metal arrays' units 9-11 (stages 7, 6 and 5) alone in the two PDKs
+    whose whole-array extraction splits stage 6's coupling between the top plate and the
+    substrate; writes ``summary.json``."""
+
+    summary = {
+        f"{pdk}/{layers}l": _extract_window(run_dir, pdk, layers, 9, 11)
+        for pdk in ("tsmc28", "tpsc65")
+        for layers in (2, 3)
+    }
+    (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    return run_dir
+
+
 def main() -> None:
     targets = {
         target.__name__: target
@@ -501,6 +587,7 @@ def main() -> None:
             caparray_3layer_radix17,
             caparray_all_pdks,
             caparray_extract_all_pdks,
+            caparray_window_check,
         )
     }
     targets["main"] = all_caparrays
