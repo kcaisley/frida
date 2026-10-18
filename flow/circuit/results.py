@@ -21,14 +21,12 @@ from flow.analysis.types import (
     MeasCapArray,
     MeasComp,
     MeasInfo,
-    MeasSamp,
     Wave,
 )
 from flow.caparray import get_caparray_weights
 from flow.caparray.subckt import CapArrayParams
 from flow.comp.sim import CompTbParams
 from flow.comp.subckt import CompNets
-from flow.samp.sim import SampTbParams
 
 # Spectre strobe timestamps can jitter by sub-femtoseconds around a 10 ps grid.
 _RAW_STEP_RTOL = 1e-3
@@ -410,17 +408,6 @@ def convert_raw_comp_to_measurement(
             i=current_records,
         ),
     )
-
-
-def convert_raw_samp_to_measurement(
-    result: TranResult,
-    *,
-    params: SampTbParams,
-    raw_path: Path,
-    signal_names: Mapping[str, str],
-) -> MeasSamp:
-    """Reserved sampler transient adapter; signal_names maps SPICE names to aliases."""
-    raise NotImplementedError("sampler transient conversion to MeasSamp is not implemented")
 
 
 def convert_netlist_caparray_to_measurement(

@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from flow.caparray.subckt import CapArrayConfig, CapArrayParams
     from flow.comp.sim import CompTbParams
     from flow.comp.subckt import CompParams
-    from flow.samp.sim import SampTbParams
     from flow.samp.subckt import SampParams
     from flow.scans.params import AdcScanParams
 
@@ -331,15 +330,6 @@ class MeasCdac(Meas):
         if not np.isfinite(topplate_parasitic_weight) or topplate_parasitic_weight < 0.0:
             raise ValueError("CDAC top-plate parasitic expectation must be finite and non-negative")
         return weights / (np.sum(total_weights) + topplate_parasitic_weight)
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class MeasSamp(Meas):
-    """Sampler trials: one row per trial; the observations are all in ``wave``."""
-
-    dut: SampParams
-    param: SampTbParams
-    trial_index: np.ndarray
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1382,64 +1372,6 @@ class AnalysisCompCommonMode(Analysis):
     offset_v: np.ndarray
     noise_sigma_v: np.ndarray
     validity: tuple[Literal["valid", "unbracketed", "non_monotonic", "stuck-low", "stuck-high"], ...]
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisCompTiming(Analysis):
-    """Comparator timing and metastability results across measurements."""
-
-    source_index: np.ndarray
-    trial_index: np.ndarray
-    clock_to_decision_s: np.ndarray
-    settling_s: np.ndarray
-    unresolved: np.ndarray
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisCompDelay(Analysis):
-    """Comparator clock-to-decision delay over common mode and differential input.
-
-    ``delay_s`` has one row per common mode and one column per differential
-    input: the median delay of that point's resolved trials, NaN where none
-    resolved.
-    """
-
-    vin_cm_v: np.ndarray
-    vin_diff_v: np.ndarray
-    delay_s: np.ndarray
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisCompPower(Analysis):
-    """Comparator average consumed power per measurement."""
-
-    source_index: np.ndarray
-    supply_v: np.ndarray
-    average_power_w: np.ndarray
-    energy_per_decision_j: np.ndarray
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisCompCandidate(Analysis):
-    """Noise, power, and settling summary of one generated comparator candidate."""
-
-    candidate_id: str
-    candidate_label: str
-    size_profile: Literal["half", "double", "fabricated"]
-    validity: Literal["valid", "unbracketed", "non_monotonic"]
-    topology_index: int
-    total_width_units: int
-    total_active_area_units: int
-    total_active_area_um2: float
-    device_count: int
-    geometry_signature: str
-    offset_v: float
-    noise_sigma_v: float
-    average_power_w: float
-    energy_per_decision_j: float
-    maximum_clock_to_decision_s: float
-    maximum_settling_s: float
-    unresolved_fraction: float
 
 
 # CDAC analyses

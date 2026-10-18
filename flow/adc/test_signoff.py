@@ -8,10 +8,11 @@ import hdl21 as h
 import pytest
 from hdl21.prefix import f
 
-from flow.caparray.laygen import CapArrayLayoutParams, UnitLengthCapFamilyParams
+from flow.caparray.layout import CapArrayLayoutParams, UnitLengthCapFamilyParams
 from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
 from pdk.tsmc65.calibre.signoff import mom_lvs_device
+from pdk.tsmc65.layout.tech import MOM_FITS
 
 
 def test_replace_subcircuit_renames_block_calls_and_top() -> None:
@@ -123,7 +124,7 @@ def test_frida2_runner_uses_c0_first_paired_template_source(
     assert (result / "source.ideal.cdl").read_text() == source
     assert "ringfmom.cdl" in source
     assert f"ringfmom_{len(active)}layer" in source
-    slope, intercept = {1: (0.17, 0.03), 2: (0.34, 0.06), 3: (0.51, 0.12)}[len(active)]
+    slope, intercept = MOM_FITS["difference", len(active)]
     assert float(arrays[0].main_0_0.of.params.c) == pytest.approx((slope * 51.72 + intercept) * 1e-15, abs=1e-27)
     assert float(arrays[0].diff_0_0.of.params.c) == pytest.approx((slope * 0.52 + intercept) * 1e-15, abs=1e-27)
     assert (result / "ringfmom.cdl").is_file()

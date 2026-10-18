@@ -1,0 +1,6 @@
+DISC#  LAYOUT                    SOURCE                 ERROR
+
+1      X6(1.655,0.055)           Xarray/Xmain0/XM5
+       ringfmom_3l_m5            ringfmom_3l_m5
+       c: 8.8568e-15             c: 1.10667e-14       20%
+...

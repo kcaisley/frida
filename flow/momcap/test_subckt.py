@@ -1,4 +1,4 @@
-"""Electrical contract of the array's ideal capacitor leaf; no layout export."""
+"""Electrical contract of the ideal FMOM leaf (the capacitor array's too); no layout export."""
 
 from io import StringIO
 
@@ -6,7 +6,7 @@ import hdl21 as h
 import pytest
 from hdl21.prefix import f
 
-from .unit import MomCap, MomCapParams
+from .subckt import MomCap, MomCapParams
 
 
 @pytest.mark.parametrize("capacitance", [0.1184 * f, 1 * f, 26.4972 * f])

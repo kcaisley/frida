@@ -1,0 +1,3 @@
+.SUBCKT lvs_top ...
+** N=16 EP=10 IP=0 FDC=0
+.ENDS

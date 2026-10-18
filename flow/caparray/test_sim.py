@@ -56,6 +56,7 @@ def test_runner_uses_passive_array_without_standard_cells(monkeypatch, tmp_path,
     stub_pdk = SimpleNamespace(site=site, pdk_logic=object())
     monkeypatch.setitem(sys.modules, "pdk.tsmc65", stub_pdk)
     monkeypatch.setitem(sys.modules, "pdk.tsmc65.hdl21", SimpleNamespace(site=site))
+    monkeypatch.setitem(sys.modules, "pdk.tsmc65.hdl21.site", site)
     # Without the private submodule an earlier test may already have bound an empty
     # pdk.tsmc65 namespace to the pdk package, which `from pdk import tsmc65` prefers.
     monkeypatch.setattr(pdk, "tsmc65", stub_pdk, raising=False)

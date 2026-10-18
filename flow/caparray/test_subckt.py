@@ -1,6 +1,7 @@
 """Software-only tests for the CDAC electrical and physical generators."""
 
-from dataclasses import replace
+from dataclasses import asdict, replace
+from itertools import pairwise
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,13 +10,15 @@ import pytest
 from hdl21.prefix import f
 from klayout import db
 
-from .laygen import (
-    CapArrayLayout,
+from flow.layout.pdkproc import in_pdk
+
+from .layout import (
     CapArrayLayoutParams,
     UnitLengthCapFamilyParams,
-    _calc_unit_geometry,
     _layout_manifest,
     _ordered_groups,
+    _UnitGeometry,
+    caparray_spec,
     is_valid_caparray_layout_params,
 )
 from .subckt import (
@@ -55,7 +58,24 @@ def _rules(*, pitch: int = 200, eol_threshold: int = 120) -> SimpleNamespace:
         **{f"M{n}.PIN": (5 + 2 * n, 1) for n in range(3, 8)},
         **{f"V{n}": (6 + 2 * n, 0) for n in range(3, 7)},
     }
-    return SimpleNamespace(DBU=0.0005, MFG_GRID=5, RULES=rules, LAYERS=layers)
+    return SimpleNamespace(DBU=0.001, MFG_GRID=5, RULES=rules, LAYERS=layers)
+
+
+def synthetic(function: str, *args, rules: dict | None = None, **kwargs):
+    """Call a stems ``capcell`` function on the synthetic PDK (in a process bound to a real one):
+    ``rules`` overrides ``{"M4": {"area": ...}}`` and ``pitch`` / ``eol_threshold`` its metals."""
+
+    import capcell
+
+    capcell.tech = _rules(**kwargs)
+    for layer, values in (rules or {}).items():
+        capcell.tech.RULES[layer].update(values)
+    return getattr(capcell, function)(*args)
+
+
+def _geometry(params: CapArrayLayoutParams, **kwargs) -> _UnitGeometry:
+    stack = (asdict(params.family), params.route_layer, params.shield_layer, params.active_layers)
+    return _UnitGeometry(**in_pdk("tsmc65", __name__, "synthetic", "difference_geometry", *stack, **kwargs))
 
 
 def _params(
@@ -76,9 +96,12 @@ def _params(
     )
 
 
-def _generate(monkeypatch: pytest.MonkeyPatch, params: CapArrayLayoutParams) -> db.Layout:
-    monkeypatch.setattr("flow.caparray.laygen.import_module", lambda _name: _rules())
-    return CapArrayLayout(params)
+def _generate(tmp_path: Path, params: CapArrayLayoutParams) -> db.Layout:
+    path = str(tmp_path / f"{params.top_cell}.gds")
+    in_pdk("tsmc65", __name__, "synthetic", "caparray_gds", caparray_spec(params), path)
+    layout = db.Layout()
+    layout.read(path)
+    return layout
 
 
 def _layer_index(layout: db.Layout, layer: int, datatype: int) -> int:
@@ -228,30 +251,28 @@ def test_cdac_array_rejects_incompatible_device_views() -> None:
 
 def test_geometry_is_derived_from_rules() -> None:
     params = _params()
-    geometry = _calc_unit_geometry(params, _rules())
+    geometry = _geometry(params)
     assert (geometry.finger_width, geometry.gap, geometry.end_gap) == (100, 100, 120)
     assert (geometry.weight_step, geometry.tail_length, geometry.unit_pitch) == (400, 520, 400)
     assert (geometry.via_cut, geometry.via_pitch, geometry.via_landing) == (100, 200, 380)
-    scaled = _calc_unit_geometry(params, _rules(pitch=240, eol_threshold=90))
+    scaled = _geometry(params, pitch=240, eol_threshold=90)
     assert (scaled.end_gap, scaled.weight_step, scaled.tail_length) == (100, 480, 520)
-    larger_area = _rules()
-    larger_area.RULES["M4"]["area"] = 64_000
-    assert _calc_unit_geometry(params, larger_area).tail_length == 640
-    conditional = _rules()
-    conditional.RULES["M6"]["parallel_space"] = ((140, 90, 380),)
-    assert _calc_unit_geometry(params, conditional).gap == 140
+    assert _geometry(params, rules={"M4": {"area": 64_000}}).tail_length == 640
+    assert _geometry(params, rules={"M6": {"parallel_space": ((140, 90, 380),)}}).gap == 140
 
 
 def test_layout_validation_rejects_reserved_or_nonconsecutive_layers() -> None:
     assert is_valid_caparray_layout_params(_params())
     assert is_valid_caparray_layout_params(_params(shield_layer=4, active_layers=(5, 6, 7)))
-    assert not is_valid_caparray_layout_params(replace(_params(), route_layer=3))
+    assert is_valid_caparray_layout_params(replace(_params(), route_layer=3))
+    assert not is_valid_caparray_layout_params(replace(_params(), route_layer=0))
+    assert not is_valid_caparray_layout_params(replace(_params(), route_layer=6))
     assert not is_valid_caparray_layout_params(_params(active_layers=(6, 8)))
 
 
-def test_rule_derived_radix17_layout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_rule_derived_radix17_layout(tmp_path: Path) -> None:
     params = _params()
-    layout = _generate(monkeypatch, params)
+    layout = _generate(tmp_path, params)
     output = tmp_path / "frida_caparray.gds"
     save = db.SaveLayoutOptions()
     save.set_format_from_filename(str(output))
@@ -269,17 +290,17 @@ def test_rule_derived_radix17_layout(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     assert {"cap_topplate", "cap_shieldplate", "cap_botplate_main<15>", "cap_botplate_diff<0>"} <= texts
 
 
-def test_layout_width_grows_one_pitch_per_chunk(monkeypatch: pytest.MonkeyPatch) -> None:
-    one = _generate(monkeypatch, _params((64,), top_cell="one"))
-    three = _generate(monkeypatch, _params((129,), top_cell="three"))
+def test_layout_width_grows_one_pitch_per_chunk(tmp_path: Path) -> None:
+    one = _generate(tmp_path, _params((64,), top_cell="one"))
+    three = _generate(tmp_path, _params((129,), top_cell="three"))
     assert three.cell("three").dbbox().width() - one.cell("one").dbbox().width() == pytest.approx(0.8)
     assert len(list(one.cell("one").each_inst())) == 3
     assert len(list(three.cell("three").each_inst())) == 5
 
 
-def test_shared_m4_keeps_m3_empty_and_owns_shield_tabs(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_shared_m4_keeps_m3_empty_and_owns_shield_tabs(tmp_path: Path) -> None:
     params = _params(shield_layer=4, active_layers=(5, 6, 7))
-    layout = _generate(monkeypatch, params)
+    layout = _generate(tmp_path, params)
     top = layout.cell(params.top_cell)
     assert db.Region(top.begin_shapes_rec(layout.layer(11, 0))).is_empty()
     assert db.Region(top.begin_shapes_rec(layout.layer(12, 0))).is_empty()
@@ -299,11 +320,9 @@ def test_shared_m4_keeps_m3_empty_and_owns_shield_tabs(monkeypatch: pytest.Monke
 
 
 @pytest.mark.parametrize("shield_layer,active_layers", [(5, (6, 7)), (4, (5, 6, 7))])
-def test_every_shield_tab_reaches_the_shield(
-    monkeypatch: pytest.MonkeyPatch, shield_layer: int, active_layers: tuple[int, ...]
-) -> None:
+def test_every_shield_tab_reaches_the_shield(tmp_path: Path, shield_layer: int, active_layers: tuple[int, ...]) -> None:
     params = _params(shield_layer=shield_layer, active_layers=active_layers)
-    layout = _generate(monkeypatch, params)
+    layout = _generate(tmp_path, params)
     top = layout.cell(params.top_cell)
     route_index = layout.layer(13, 0)
     route = db.Region(top.begin_shapes_rec(route_index)).merged()
@@ -339,7 +358,7 @@ def test_every_shield_tab_reaches_the_shield(
 
 
 def test_manifest_tracks_dynamic_array(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("flow.caparray.laygen.import_module", lambda _name: _rules())
+    monkeypatch.setattr("flow.caparray.layout._calc_unit_geometry", _geometry)
     manifest = _layout_manifest(_params((129, 64, 1)))
     assert manifest["physical_chunk_count"] == 5
     assert manifest["edge_dummy_count"] == 2
@@ -348,8 +367,8 @@ def test_manifest_tracks_dynamic_array(monkeypatch: pytest.MonkeyPatch) -> None:
     assert manifest["partitioned_weights_by_stage"] == [[64, 64, 1], [64], [1]]
 
 
-def test_reviewed_landings_and_bent_topplate(monkeypatch: pytest.MonkeyPatch) -> None:
-    layout = _generate(monkeypatch, _params(shield_layer=4, active_layers=(5, 6, 7)))
+def test_reviewed_landings_and_bent_topplate(tmp_path: Path) -> None:
+    layout = _generate(tmp_path, _params(shield_layer=4, active_layers=(5, 6, 7)))
     top = layout.cell("frida_caparray")
     route = db.Region(top.begin_shapes_rec(layout.layer(13, 0))).merged()
     labels = {s.text.string: db.Point(s.text.x, s.text.y) for s in top.each_shape(layout.layer(13, 1)) if s.is_text()}
@@ -372,3 +391,27 @@ def test_reviewed_landings_and_bent_topplate(monkeypatch: pytest.MonkeyPatch) ->
         assert sorted(poly.bbox().center().y * layout.dbu for poly in cuts.each()) == pytest.approx(
             [0.31, 0.51, 52.29, 52.49]
         )
+
+
+@pytest.mark.parametrize("pdk", ("tsmc28", "tower180", "ihp130", "lf150", "tpsc65"))
+def test_array_sizing_reads_the_fmom_model_at_the_drawn_gap(pdk: str) -> None:
+    from flow.caparray.layout import _calc_unit_geometry, mom_array_params
+    from flow.layout.pdkproc import pdk_value
+
+    mom = pdk_value(pdk, "tech", "MOM_LAYERS")
+    params = CapArrayLayoutParams(
+        CapArrayConfig(), UnitLengthCapFamilyParams(), pdk, mom[-2] - 1, mom[-2] - 1, tuple(mom[-2:]), "x"
+    )
+    rows = pdk_value(pdk, "tech", "MOM_MODEL")["difference", 2]
+    # rows in rising spacing from the minimum, slopes falling with spacing
+    assert [row[0] for row in rows] == sorted(row[0] for row in rows)
+    assert all(a[1] > b[1] > 0 for a, b in pairwise(rows))
+    space, slope, intercept = rows[0]
+    geometry = _calc_unit_geometry(params)
+    assert geometry.gap == space  # the generator draws the minimum spacing
+    scale = pdk_value(pdk, "tech", "MOM_ARRAY_SCALE", {}).get(2, 1.0)
+    assert 0.9 < scale < 1.1
+    circuit = mom_array_params(params)
+    unit = scale * slope * 1e-15 * 2 * geometry.weight_step / 1000
+    assert float(circuit.cdac.unit_cap) == pytest.approx(unit)
+    assert float(circuit.tail_cap) == pytest.approx(scale * (slope * geometry.tail_length / 1000 + intercept) * 1e-15)

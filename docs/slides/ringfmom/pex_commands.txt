@@ -1,0 +1,3 @@
+$ calibre -lvs -hier -nowait calibre.xrc
+$ calibre -xact -3d -pdb -rcc -turbo 1 -nowait calibre.xrc
+$ calibre -xact -fmt -rcc -nowait calibre.xrc

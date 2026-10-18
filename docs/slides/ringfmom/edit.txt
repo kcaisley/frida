@@ -1,0 +1,2 @@
+-Xmain0 TOP M0 SHIELD ringfmom_3layer c=26.6f
++Xmain0 TOP M0 SHIELD ringfmom_3layer c=33.2f

@@ -42,7 +42,7 @@ The `frida1_sequence` and `frida2_sequence` family runners launch independent fl
 
 ## Shared HDL21 source (2026-09-05)
 
-`flow.caparray.subckt.CapArray` now generates both the ideal and LVS capacitor arrays. Both views have the same physical chunk/layer instances and the same ordered 34-port interface: topplate, shield, main C0..C15, diff C0..C15. The handwritten CDAC and ADC LVS circuit builders have been removed. Only the leaf view changes: `flow.caparray.unit.MomCap` contains an ideal capacitor with an unused shield terminal; `pdk.tsmc65.calibre.signoff.mom_lvs_device` supplies the three-terminal recognition model for Calibre.
+`flow.caparray.subckt.CapArray` now generates both the ideal and LVS capacitor arrays. Both views have the same physical chunk/layer instances and the same ordered 34-port interface: topplate, shield, main C0..C15, diff C0..C15. The handwritten CDAC and ADC LVS circuit builders have been removed. Only the leaf view changes: `flow.momcap.subckt.MomCap` contains an ideal capacitor with an unused shield terminal; `pdk.tsmc65.calibre.signoff.mom_lvs_device` supplies the three-terminal recognition model for Calibre.
 
 `CapArrayConfig.unit_cap` retains its meaning as the complete stack's logical unit capacitance. Its ideal value is divided equally over the selected layers, preserving the requested main/diff/effective totals. This is an ideal model convention, not a claim of equal physical layer contributions. LVS checks connectivity; the current recognition deck does not compare numerical capacitance. PEX remains the source of actual capacitance and shunt loading.
 
