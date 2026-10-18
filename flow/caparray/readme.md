@@ -16,6 +16,7 @@
 | DRC runner | ✓ | [layout.py](layout.py) | Shared/PDK dispatch; configured exclusions. Clean at 1-3 metals in TSMC65 (block waivers), TSMC28, Tower180, TPSC65 and LF150; IHP130's KLayout deck needs KLayout 0.29.11 (juno has 0.29.1). |
 | LVS runner | ✓ | [layout.py](layout.py) | Recorded full-array passes; repeat with current end-to-end flow. |
 | PEX runner | ✓ | [layout.py](layout.py), [pex.py](pex.py) | 3D xACT and capacitance tables; current end-to-end validation pending. |
+| Model check | ✓ | [layout.py](layout.py) | `caparray_extract_all_pdks`: the two-metal radix-17 array extracted layout-only (xACT 3D, by its own labels) in the three Calibre PDKs, each stage's main minus difference capacitance against the FMOM model's sizing (run 20261018_0330): TSMC65 within 1 % for most stages (two small stages 5-11 % low), TSMC28 within 1-5 % (stage 6, 21 % low, unexplained), Tower180 3-5 % low throughout (the production shield mesh couples less than the test structures' solid shield). |
 
 TODO: guard the nominal model's geometry range; validate PEX completeness; finish ADC-level driver/array separation. See [project TODO](../../docs/todo.md).
 
