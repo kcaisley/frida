@@ -111,10 +111,12 @@ def res(w: int, l: int, plus: str = "PLUS", minus: str = "MINUS", vss: str = "vs
     cell.rects = [
         r for r in cell.rects if r.layer not in rowcell.VT["n"] and not (r.layer == "NP" and (r.y0, r.y1) == band)
     ]
-    # the poly: body and heads
-    cell.add("PO", xb0, yc - w // 2, xb1, yc + w // 2)
-    for hx0, hx1 in ((x0, xb0), (xb1, x1)):
-        cell.add("PO", hx0, yc - head // 2, hx1, yc + head // 2)
+    # the poly: one strip end to end (a resistor's terminals are the poly beside its body), and
+    # wider heads for a dog bone
+    cell.add("PO", x0, yc - w // 2, x1, yc + w // 2)
+    if head > w:
+        for hx0, hx1 in ((x0, xb0), (xb1, x1)):
+            cell.add("PO", hx0, yc - head // 2, hx1, yc + head // 2)
     cell.add(implant, x0 - imp_enc, imp_y0, x1 + imp_enc, imp_y1)
     for layer, (along, across) in spec["markers"].items():
         cell.add(layer, xb0 - along, yc - w // 2 - across, xb1 + along, yc + w // 2 + across)

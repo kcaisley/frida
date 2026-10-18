@@ -8,11 +8,11 @@
 | Layout tests | ✓ | [test_layout.py](test_layout.py) | Every PDK's cell is one row with both rails and both pins, its model value; short bodies lengthen to their marker area; narrow ones are rejected. |
 | Layout runner | ✓ | [layout.py](layout.py) | `polyres_signoff`: a 4 µm resistor at each PDK's narrowest width, its DRC and LVS. |
 | DRC runner | ✓ | [layout.py](layout.py) | Clean in TSMC65 (block waivers), Tower180, IHP130 and LF150. TPSC65 flags only the row cells' edge (the P+ band's end inside the well band, every TPSC65 row cell's standalone). IHP130's KLayout deck needs KLayout 0.29.11 or newer (`/local/kcaisley/tools/frida-layout.env` on juno). |
-| LVS runner | ✓ | [layout.py](layout.py) | Correct against the PDK's device in TSMC65 (length and width compared; a wrong length fails), Tower180 and LF150 (their resistance compared, and equal to the cell's model value). IHP130's deck extracts the device but no nets yet; TPSC65's encrypted deck extracts nothing: its recognition is unknown. |
+| LVS runner | ✓ | [layout.py](layout.py) | Correct against the PDK's device in TSMC65 (length and width compared; a wrong length fails), Tower180 and LF150 (their resistance compared, and equal to the cell's model value) and IHP130 (width and length). TPSC65's encrypted deck recognizes nothing in it: no marker from the kit's layer map tried so far (`DRES` variants, `RESIZE`) makes it a device. |
 | PEX runner | ✗ | - | No extraction of the resistor itself. |
 
 TSMC28 has no resistor row cell: its high-R poly needs dummy poly on both sides inside the resistor implant, and a P-metal-gate cover, about 1.5 µm across, and its row is 0.9 µm.
 
 The resistance is the PDK model's: the sheet over the squares (with the model's width reduction) plus both heads (`rescell.res_value`). Tower180's and LF150's LVS compare it, and match.
 
-TODO: the netlist view of the PDK device for simulation (PhysicalResistor mappings); TPSC65 LVS recognition; a two-row TSMC28 cell.
+TODO: the netlist view of the PDK device for simulation (PhysicalResistor mappings); TPSC65 LVS recognition.
