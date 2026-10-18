@@ -249,7 +249,8 @@ def mom_array_params(params: CapArrayLayoutParams) -> CapArrayParams:
     weight steps and each finger adds the intercept once (every coarse chunk too). The slope and
     intercept are the PDK's FMOM model at the spacing the generator draws, interpolated in
     1 / spacing between the extracted spacings (``tech.MOM_MODEL["difference", layers]``, from the
-    3D-extraction study or extrapolated to it), unless the PDK calibrates the production unit itself (``tech.MOM_FITS``, which its LVS deck
+    3D-extraction study), scaled to the PDK's extracted arrays (``tech.MOM_ARRAY_SCALE[layers]``:
+    the arrays' shield mesh against the test structures' solid plate), unless the PDK calibrates the production unit itself (``tech.MOM_FITS``, which its LVS deck
     checks). No value is rounded: the smallest fingers stay. Where the PDK has a recognized
     device for the stack (``pdk.<tech>.calibre.ringfmom``), every finger is one; otherwise the
     leaves are ideal capacitors.
@@ -261,11 +262,13 @@ def mom_array_params(params: CapArrayLayoutParams) -> CapArrayParams:
     if ("difference", layers) in getattr(tech, "MOM_FITS", {}):
         slope, intercept = tech.MOM_FITS["difference", layers]
     elif ("difference", layers) in getattr(tech, "MOM_MODEL", {}):
-        # (spacing nm, slope fF/um, intercept fF) rows, interpolated in 1 / spacing at the gap
+        # (spacing nm, slope fF/um, intercept fF) rows, interpolated in 1 / spacing at the gap,
+        # scaled to the extracted arrays (their shield mesh, not the test structures' plate)
         rows = sorted(tech.MOM_MODEL["difference", layers], reverse=True)
         inverse = [1 / space for space, _slope, _intercept in rows]
-        slope = float(np.interp(1 / geometry.gap, inverse, [row[1] for row in rows]))
-        intercept = float(np.interp(1 / geometry.gap, inverse, [row[2] for row in rows]))
+        scale = getattr(tech, "MOM_ARRAY_SCALE", {}).get(layers, 1.0)
+        slope = scale * float(np.interp(1 / geometry.gap, inverse, [row[1] for row in rows]))
+        intercept = scale * float(np.interp(1 / geometry.gap, inverse, [row[2] for row in rows]))
     else:
         raise ValueError(f"{params.technology} has no {layers}-layer difference FMOM model")
     try:
@@ -430,12 +433,12 @@ def caparray_all_pdks(run_dir: Path) -> Path:
     return run_dir
 
 
-def _extract_one(run_dir: Path, pdk: str) -> dict[str, Any]:
+def _extract_one(run_dir: Path, pdk: str, layers: int = 2) -> dict[str, Any]:
     from flow.layout.pdkproc import pdk_value
     from flow.layout.signoff import run_layout_pex
 
     mom = pdk_value(pdk, "tech", "MOM_LAYERS")
-    active = tuple(mom[-2:])
+    active = tuple(mom[-layers:])
     params = CapArrayLayoutParams(
         cdac=CapArrayConfig(),
         family=UnitLengthCapFamilyParams(),
@@ -443,9 +446,9 @@ def _extract_one(run_dir: Path, pdk: str) -> dict[str, Any]:
         route_layer=active[0] - 1,
         shield_layer=active[0] - 1,
         active_layers=active,
-        top_cell="caparray_2layer_radix17",
+        top_cell=f"caparray_{layers}layer_radix17",
     )
-    work = run_dir / pdk
+    work = run_dir / pdk / f"{layers}l"
     work.mkdir(parents=True, exist_ok=True)
     gds = work / f"{params.top_cell}.gds"
     CapArrayLayout(params).write(str(gds))
@@ -464,8 +467,9 @@ def _extract_one(run_dir: Path, pdk: str) -> dict[str, Any]:
     }
 
 
-def caparray_extract_all_pdks(run_dir: Path) -> Path:
-    """Extract the two-metal radix-17 array by its own net names (3D, layout only) in every PDK,
+def caparray_extract_all_pdks(run_dir: Path, layer_counts: tuple[int, ...] = (1, 2, 3)) -> Path:
+    """Extract the radix-17 array at one to three metals by its own net names (3D, layout only) in
+    every PDK,
     and compare each stage's effective capacitance (main minus
     difference) with what the PDK's FMOM model sizes it at; writes ``summary.json``."""
 
@@ -474,7 +478,11 @@ def caparray_extract_all_pdks(run_dir: Path) -> Path:
 
     summary = {}
     with ProcessPoolExecutor(max_workers=6, mp_context=get_context("spawn")) as executor:
-        futures = {executor.submit(_extract_one, run_dir, pdk): pdk for pdk in PDKS}
+        futures = {
+            executor.submit(_extract_one, run_dir, pdk, layers): f"{pdk}/{layers}l"
+            for pdk in PDKS
+            for layers in layer_counts
+        }
         for future in as_completed(futures):
             try:
                 summary[futures[future]] = future.result()

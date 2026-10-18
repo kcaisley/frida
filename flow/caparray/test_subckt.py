@@ -409,6 +409,9 @@ def test_array_sizing_reads_the_fmom_model_at_the_drawn_gap(pdk: str) -> None:
     space, slope, intercept = rows[0]
     geometry = _calc_unit_geometry(params)
     assert geometry.gap == space  # the generator draws the minimum spacing
+    scale = pdk_value(pdk, "tech", "MOM_ARRAY_SCALE", {}).get(2, 1.0)
+    assert 0.9 < scale < 1.1
     circuit = mom_array_params(params)
-    assert float(circuit.cdac.unit_cap) == pytest.approx(slope * 1e-15 * 2 * geometry.weight_step / 1000)
-    assert float(circuit.tail_cap) == pytest.approx((slope * geometry.tail_length / 1000 + intercept) * 1e-15)
+    unit = scale * slope * 1e-15 * 2 * geometry.weight_step / 1000
+    assert float(circuit.cdac.unit_cap) == pytest.approx(unit)
+    assert float(circuit.tail_cap) == pytest.approx(scale * (slope * geometry.tail_length / 1000 + intercept) * 1e-15)
