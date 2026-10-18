@@ -7,6 +7,7 @@ analysis results.
 
 from __future__ import annotations
 
+import itertools
 import math
 from collections.abc import Sequence
 from typing import overload
@@ -204,6 +205,14 @@ def integ(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarr
     return float(np.trapezoid(signal, axis))
 
 
+def iinteg(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray) -> np.ndarray:
+    """Return the indefinite (running trapezoidal) integral, zero at the first sample."""
+    signal, axis = _waveform(signal, axis)
+    if not len(signal):
+        return signal.copy()
+    return np.r_[0.0, np.cumsum((signal[1:] + signal[:-1]) / 2.0 * np.diff(axis))]
+
+
 def deriv(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray) -> np.ndarray:
     """Return the slope over each interval between adjacent samples."""
     signal, axis = _waveform(signal, axis)
@@ -270,6 +279,119 @@ def xmin(signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarra
     if not len(signal):
         raise ValueError("xmin requires a non-empty waveform")
     return float(axis[np.argmin(signal)])
+
+
+def db20(signal: complex | Sequence[float] | np.ndarray) -> float | np.ndarray:
+    """Return 20 log10 of a magnitude (a complex response's absolute value)."""
+    magnitude = np.abs(np.asarray(signal))
+    with np.errstate(divide="ignore"):
+        result = 20.0 * np.log10(magnitude)
+    return float(result) if np.ndim(result) == 0 else result
+
+
+def phaseDegUnwrapped(signal: Sequence[complex] | np.ndarray) -> np.ndarray:
+    """Return a complex response's phase in degrees, shifted by 360 wherever consecutive points jump past 180."""
+    values = np.asarray(signal, dtype=np.complex128)
+    if values.ndim != 1:
+        raise ValueError("phaseDegUnwrapped requires a one-dimensional response")
+    return np.degrees(np.unwrap(np.angle(values)))
+
+
+def _frequency_response(
+    signal: Sequence[complex] | np.ndarray, axis: Sequence[float] | np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Gain in dB, the interpolation axis (log10 frequency on a positive sweep) and the frequencies."""
+    values = np.asarray(signal)
+    frequencies = np.asarray(axis, dtype=np.float64)
+    if values.ndim != 1 or frequencies.ndim != 1 or len(values) != len(frequencies) or len(values) < 2:
+        raise ValueError("a frequency response needs aligned one-dimensional values and frequencies")
+    if not np.all(np.isfinite(values)) or not np.all(np.isfinite(frequencies)):
+        raise ValueError("a frequency response must be finite")
+    if not np.all(np.diff(frequencies) > 0):
+        raise ValueError("frequencies must increase strictly")
+    # sweeps are logarithmic: interpolate between points in log frequency where the axis allows it
+    position = np.log10(frequencies) if frequencies[0] > 0 else frequencies
+    return np.asarray(db20(values), dtype=np.float64), position, frequencies
+
+
+def _frequency_at(position: np.ndarray, frequencies: np.ndarray, at: float) -> float:
+    if not math.isfinite(at):
+        return math.nan
+    return float(10.0**at) if frequencies[0] > 0 else float(at)
+
+
+def bandwidth(
+    signal: Sequence[complex] | np.ndarray, axis: Sequence[float] | np.ndarray, db: float = 3.0, type: str = "low"
+) -> float:
+    """Return the ``db`` bandwidth of a frequency response: the frequency (low or high pass) or the width (band).
+
+    ``low``: the first frequency where the gain falls ``db`` below its value at the lowest frequency.
+    ``high``: the last frequency where the gain rises to ``db`` below its value at the highest
+    frequency. ``band``: the width between the crossings ``db`` below the peak on either side of it.
+    """
+    if not math.isfinite(db) or db <= 0:
+        raise ValueError("db must be positive and finite")
+    if type not in {"low", "high", "band"}:
+        raise ValueError("type must be 'low', 'high', or 'band'")
+    gain_db, position, frequencies = _frequency_response(signal, axis)
+    if type == "low":
+        crossing = cross(gain_db, position, gain_db[0] - db, edge="falling", occurrence=1)
+        return _frequency_at(position, frequencies, crossing)
+    if type == "high":
+        crossing = cross(gain_db, position, gain_db[-1] - db, edge="rising", occurrence=-1)
+        return _frequency_at(position, frequencies, crossing)
+    peak = int(np.argmax(gain_db))
+    level = gain_db[peak] - db
+    lower = cross(gain_db[: peak + 1], position[: peak + 1], level, edge="rising", occurrence=-1) if peak else math.nan
+    upper = (
+        cross(gain_db[peak:], position[peak:], level, edge="falling", occurrence=1)
+        if peak < len(gain_db) - 1
+        else math.nan
+    )
+    return _frequency_at(position, frequencies, upper) - _frequency_at(position, frequencies, lower)
+
+
+def unityGainFreq(signal: Sequence[complex] | np.ndarray, axis: Sequence[float] | np.ndarray) -> float:
+    """Return the lowest frequency where the gain falls through unity (0 dB)."""
+    gain_db, position, frequencies = _frequency_response(signal, axis)
+    return _frequency_at(position, frequencies, cross(gain_db, position, 0.0, edge="falling", occurrence=1))
+
+
+def phaseMargin(signal: Sequence[complex] | np.ndarray, axis: Sequence[float] | np.ndarray) -> float:
+    """Return a loop gain's phase margin in degrees: 180 plus its phase where the gain first falls through unity.
+
+    The phase is unwrapped from the lowest frequency and taken within (-180, 180] there, so a loop
+    gain starting near 0° that has lost 120° at the unity-gain frequency has 60° of margin.
+    """
+    values = np.asarray(signal, dtype=np.complex128)
+    gain_db, position, _frequencies = _frequency_response(values, axis)
+    crossing = cross(gain_db, position, 0.0, edge="falling", occurrence=1)
+    if not math.isfinite(crossing):
+        return math.nan
+    phase = phaseDegUnwrapped(values)
+    phase -= 360.0 * np.round(phase[0] / 360.0)
+    return 180.0 + float(value(phase, position, crossing))
+
+
+def gainMargin(
+    signal: Sequence[complex] | np.ndarray, axis: Sequence[float] | np.ndarray, *, stable: bool = False
+) -> float:
+    """Return a loop gain's dB value where its phase first reaches -180°; positive for a stable loop with ``stable``."""
+    values = np.asarray(signal, dtype=np.complex128)
+    gain_db, position, _frequencies = _frequency_response(values, axis)
+    phase = phaseDegUnwrapped(values)
+    phase -= 360.0 * np.round(phase[0] / 360.0)
+    crossing = cross(phase, position, -180.0, edge="falling", occurrence=1)
+    if not math.isfinite(crossing):
+        return math.nan
+    margin = float(value(gain_db, position, crossing))
+    return -margin if stable else margin
+
+
+def gainBwProd(signal: Sequence[complex] | np.ndarray, axis: Sequence[float] | np.ndarray) -> float:
+    """Return the DC gain (at the lowest frequency) times the lowest frequency where the gain is 1/√2 of it."""
+    gain_db, _position, _frequencies = _frequency_response(signal, axis)
+    return float(10.0 ** (gain_db[0] / 20.0)) * bandwidth(signal, axis, 10.0 * math.log10(2.0), "low")
 
 
 def histogram2D(
@@ -354,6 +476,43 @@ def frequency(
     if len(crossings) < 2:
         return math.nan
     return float((len(crossings) - 1) / (crossings[-1] - crossings[0]))
+
+
+def dutyCycle(
+    signal: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray,
+    *,
+    threshold: float | None = None,
+    x_unit: str = "time",
+    output_type: str = "plot",
+) -> tuple[np.ndarray, np.ndarray] | float:
+    """Return the percentage of each cycle spent above the threshold, or its average.
+
+    A cycle runs from one rising threshold crossing to the next. Without a threshold, the
+    waveform's time average sets it (Virtuoso's auto mode). ``plot`` returns the cycles' start
+    times (``time``) or numbers (``cycle``) and their duty cycles; ``average`` their mean, NaN
+    without a complete cycle.
+    """
+    signal, axis = _waveform(signal, axis)
+    if x_unit not in {"time", "cycle"}:
+        raise ValueError("x_unit must be time or cycle")
+    if output_type not in {"plot", "average"}:
+        raise ValueError("output_type must be plot or average")
+    if threshold is None:
+        threshold = average(signal, axis) if len(signal) > 1 else math.nan
+    rises = cross(signal, axis, threshold, edge="rising") if math.isfinite(threshold) else np.empty(0)
+    falls = cross(signal, axis, threshold, edge="falling") if math.isfinite(threshold) else np.empty(0)
+    starts, duties = [], []
+    for start, stop in itertools.pairwise(rises):
+        fall = falls[(falls > start) & (falls < stop)]
+        if len(fall):
+            starts.append(start)
+            duties.append(100.0 * (fall[0] - start) / (stop - start))
+    duties = np.asarray(duties, dtype=np.float64)
+    if output_type == "average":
+        return float(np.mean(duties)) if len(duties) else math.nan
+    x = np.asarray(starts, dtype=np.float64) if x_unit == "time" else np.arange(1, len(duties) + 1, dtype=np.float64)
+    return x, duties
 
 
 def abs_jitter(
@@ -584,6 +743,15 @@ def cross(
     return float(crossings[selected]) if -len(crossings) <= selected < len(crossings) else math.nan
 
 
+def intersect(
+    first: Sequence[float] | np.ndarray, second: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray
+) -> np.ndarray:
+    """Return the axis coordinates where two waveforms on one axis cross each other."""
+    first, axis = _waveform(first, axis)
+    second, _ = _waveform(second, axis)
+    return cross(first - second, axis, 0.0, edge="either")
+
+
 def riseTime(
     signal: Sequence[float] | np.ndarray,
     axis: Sequence[float] | np.ndarray,
@@ -665,6 +833,26 @@ def slewrate(
         )
     )
     return (final - initial) * (percent_high - percent_low) / 100 / duration
+
+
+def overshoot(
+    signal: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray,
+    initial: float,
+    final: float,
+) -> float:
+    """Return how far a step from ``initial`` to ``final`` passes its final level, in percent of the step.
+
+    A rising step uses the waveform's maximum, a falling one its minimum; a response that never
+    reaches the final level gives a negative value.
+    """
+    signal, axis = _waveform(signal, axis)
+    if not math.isfinite(initial) or not math.isfinite(final) or final == initial:
+        raise ValueError("overshoot requires distinct finite initial and final levels")
+    if not len(signal):
+        return math.nan
+    extreme = ymax(signal) if final > initial else ymin(signal)
+    return 100.0 * (extreme - final) / (final - initial)
 
 
 def settlingTime(
@@ -752,6 +940,32 @@ def delay(
         return trigger_time, math.nan, math.nan
     response_time = float(following[0])
     return trigger_time, response_time, response_time - trigger_time
+
+
+def delayMeasure(
+    first: Sequence[float] | np.ndarray,
+    second: Sequence[float] | np.ndarray,
+    axis: Sequence[float] | np.ndarray,
+    *,
+    edge1: str = "either",
+    nth1: int = 1,
+    value1: float | None = None,
+    edge2: str = "either",
+    nth2: int = 1,
+    value2: float | None = None,
+) -> float:
+    """Return the time from the first waveform's nth crossing to the second's nth crossing.
+
+    Both crossings count from the start of the record (unlike ``delay``, which looks for the
+    response after the trigger). A threshold left out is that waveform's time average.
+    """
+    first, axis = _waveform(first, axis)
+    second, _ = _waveform(second, axis)
+    value1 = average(first, axis) if value1 is None else value1
+    value2 = average(second, axis) if value2 is None else value2
+    start = cross(first, axis, value1, edge=edge1, occurrence=nth1)
+    stop = cross(second, axis, value2, edge=edge2, occurrence=nth2)
+    return float(stop - start)
 
 
 def spectrumMeas(

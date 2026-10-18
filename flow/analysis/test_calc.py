@@ -281,3 +281,73 @@ def test_transfer_linearity_composes_from_calculator_operations() -> None:
     np.testing.assert_allclose(np.percentile([0.0, 10.0], (25.0, 75.0)), [2.5, 7.5])
     assert calc.xmin([2.0, 1.0, 3.0], [0.0, 1.0, 2.0]) == pytest.approx(1.0)
     assert calc.xmax([2.0, 1.0, 3.0], [0.0, 1.0, 2.0]) == pytest.approx(2.0)
+
+
+def test_frequency_response_measures_match_a_two_pole_loop() -> None:
+    frequency = np.logspace(0, 9, 2_001)
+    s = 2j * np.pi * frequency
+    # 60 dB DC gain, poles at 1 kHz and 10 MHz: unity gain near 1 MHz, phase margin near 84°
+    loop = 1_000.0 / ((1 + s / (2 * np.pi * 1e3)) * (1 + s / (2 * np.pi * 1e7)))
+    assert calc.db20(1_000.0) == pytest.approx(60.0)
+    corner_db = 10.0 * np.log10(2.0)  # a single pole is 3.0103 dB down at its frequency
+    assert calc.bandwidth(loop, frequency, corner_db, "low") == pytest.approx(1e3, rel=1e-3)
+    assert calc.bandwidth(loop, frequency, 3.0, "low") < 1e3
+    assert calc.gainBwProd(loop, frequency) == pytest.approx(1e6, rel=1e-3)
+    unity = calc.unityGainFreq(loop, frequency)
+    assert unity == pytest.approx(0.995e6, rel=5e-3)
+    expected = 180.0 - np.degrees(np.arctan(unity / 1e3) + np.arctan(unity / 1e7))
+    assert calc.phaseMargin(loop, frequency) == pytest.approx(expected, abs=0.05)
+    assert np.isnan(calc.gainMargin(loop, frequency))  # two poles never reach -180°
+    three = loop / (1 + s / (2 * np.pi * 2e7))
+    assert calc.gainMargin(three, frequency) < 0
+    assert calc.gainMargin(three, frequency, stable=True) == pytest.approx(-calc.gainMargin(three, frequency))
+    exact = -np.degrees(np.arctan(frequency / 1e3) + np.arctan(frequency / 1e7))
+    np.testing.assert_allclose(calc.phaseDegUnwrapped(loop), exact, atol=1e-9)
+
+
+def test_bandwidth_high_pass_and_band_pass() -> None:
+    frequency = np.logspace(0, 8, 1_601)
+    s = 2j * np.pi * frequency
+    high = (s / (2 * np.pi * 1e3)) / (1 + s / (2 * np.pi * 1e3))
+    corner_db = 10.0 * np.log10(2.0)
+    assert calc.bandwidth(high, frequency, corner_db, "high") == pytest.approx(1e3, rel=1e-3)
+    band = high / (1 + s / (2 * np.pi * 1e6))
+    assert calc.bandwidth(band, frequency, corner_db, "band") == pytest.approx(1e6 - 1e3, rel=3e-3)
+    assert np.isnan(calc.bandwidth(np.ones(4), np.arange(1.0, 5.0), 3.0, "low"))
+    with pytest.raises(ValueError, match="type"):
+        calc.bandwidth(high, frequency, 3.0, "notch")
+
+
+def test_duty_cycle_overshoot_intersections_and_running_integral() -> None:
+    axis = np.arange(0.0, 10.0, 0.01)
+    pulses = np.where((axis % 2.0) < 0.5, 1.0, 0.0)
+    _x, duties = calc.dutyCycle(pulses, axis, threshold=0.5)
+    np.testing.assert_allclose(duties, 25.0, atol=1.0)
+    assert calc.dutyCycle(pulses, axis, threshold=0.5, output_type="average") == pytest.approx(25.0, abs=1.0)
+    cycles, _ = calc.dutyCycle(pulses, axis, threshold=0.5, x_unit="cycle")
+    np.testing.assert_array_equal(cycles, np.arange(1, len(cycles) + 1))
+    step = 1.0 - np.exp(-axis) * np.cos(3.0 * axis)
+    assert calc.overshoot(step, axis, 0.0, 1.0) == pytest.approx(100.0 * (step.max() - 1.0))
+    assert calc.overshoot(1.0 - step, axis, 1.0, 0.0) == pytest.approx(100.0 * (step.max() - 1.0))
+    np.testing.assert_allclose(calc.intersect(axis, 10.0 - axis, axis), [5.0], atol=1e-9)
+    running = calc.iinteg(np.ones(5), np.arange(5.0))
+    np.testing.assert_allclose(running, [0.0, 1.0, 2.0, 3.0, 4.0])
+    assert running[-1] == pytest.approx(calc.integ(np.ones(5), np.arange(5.0)))
+
+
+def test_delay_measure_counts_both_crossings_from_the_start() -> None:
+    axis = np.linspace(0.05, 4.05, 401)
+    trigger = np.sin(2.0 * np.pi * axis)  # rising through zero at 1, 2, 3, 4
+    response = np.sin(2.0 * np.pi * (axis - 0.1))  # rising at 0.1, 1.1, ...; falling at 0.6, 1.6, ...
+    assert calc.delayMeasure(trigger, response, axis, edge1="rising", edge2="rising", value1=0.0, value2=0.0) == (
+        pytest.approx(-0.9, abs=1e-3)
+    )
+    # the response's fourth crossing of either direction (1.6) after the trigger's first rising one (1.0)
+    assert calc.delayMeasure(trigger, response, axis, edge1="rising", value1=0.0, value2=0.0, nth2=4) == (
+        pytest.approx(0.6, abs=1e-3)
+    )
+    # thresholds default to each waveform's time average (here about zero)
+    assert calc.delayMeasure(trigger, response, axis, edge1="rising", edge2="rising", nth2=2) == (
+        pytest.approx(0.1, abs=2e-3)
+    )
+    assert np.isnan(calc.delayMeasure(trigger, response, axis, value1=0.0, value2=5.0))
