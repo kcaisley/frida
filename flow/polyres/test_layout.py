@@ -8,7 +8,7 @@ from flow.polyres.layout import PDKS, PolyResUnit, polyres_layout, polyres_sourc
 
 
 @pytest.mark.parametrize("pdk", PDKS)
-def test_a_resistor_is_one_row_with_both_rails_and_two_pins(pdk: str) -> None:
+def test_a_resistor_is_whole_rows_with_both_rails_and_two_pins(pdk: str) -> None:
     spec = pdk_value(pdk, "tech", "RES")
     layout, info = polyres_layout(PolyResUnit(pdk, spec["width"], 4000))
     cell = layout.top_cell()
@@ -16,7 +16,7 @@ def test_a_resistor_is_one_row_with_both_rails_and_two_pins(pdk: str) -> None:
     labels = {s.text_string for li in layout.layer_indexes() for s in cell.shapes(li).each() if s.is_text()}
     assert {"PLUS", "MINUS", "vdd", "vss"} <= labels
     bnd = db.Region(cell.shapes(layout.layer(*pdk_value(pdk, "tech", "LAYERS")["BND"]))).bbox()
-    assert bnd.height() == pdk_value(pdk, "tech", "H")
+    assert bnd.height() == spec.get("rows", 1) * pdk_value(pdk, "tech", "H")
     # the model: the sheet over the squares and both ends
     squares = info["l"] / (info["w"] - spec["dw"])
     assert info["r"] == pytest.approx(spec["sheet"] * squares + spec["end"] / ((info["w"] - spec["dw"]) / 1000))

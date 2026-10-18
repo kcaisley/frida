@@ -1,8 +1,9 @@
 """Unsilicided poly resistor row cells, drawn by the stems engine from a PDK's values.
 
 ``PolyResUnit`` names a resistor (PDK, body width and length in nm); the stems resistor cell
-(``flow/layout/stems/rescell.py``) draws it one standard-cell row tall with both rails, so it
-abuts the transistor and standard cells of a row, and gives its resistance from the PDK's model
+(``flow/layout/stems/rescell.py``) draws it one standard-cell row tall with both rails (two rows
+sharing their VDD rail where the PDK's resistor needs it), so it abuts the transistor and standard
+cells of a row, and gives its resistance from the PDK's model
 (``tech.RES``). ``polyres_signoff`` draws one resistor in every PDK that has one, runs its DRC and,
 where the PDK names its LVS source line (``RES["cdl"]``), LVS against it, the resistance included
 where the deck compares it.
@@ -21,8 +22,8 @@ from klayout import db
 
 from flow.layout.pdkproc import in_pdk, pdk_value
 
-# the PDKs with a poly resistor row cell (tech.RES), and the smallest body each draws
-PDKS = ("tsmc65", "tower180", "tpsc65", "ihp130", "lf150")
+# the PDKs with a poly resistor row cell (tech.RES)
+PDKS = ("tsmc65", "tsmc28", "tower180", "tpsc65", "ihp130", "lf150")
 
 
 @dataclass(frozen=True)
