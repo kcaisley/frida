@@ -12,7 +12,8 @@ mesh, the arrays' units side by side sharing their ring walls.
 the spacing the generator draws, or the calibrated ``tech.MOM_FITS``): the same lengths the
 generator draws, at the capacitance the model gives them. The targets build an
 array, sign it off (DRC, LVS against that netlist, 3D extraction) and tabulate its extracted
-capacitances (``pex.py``); ``caparray_all_pdks`` draws the array in every PDK and runs its DRC.
+capacitances (``pex.py``); ``caparray_all_pdks`` draws the array in every PDK and runs its DRC, and
+``caparray_extract_all_pdks`` extracts it where the PDK can and compares it with the model.
 """
 
 from __future__ import annotations
@@ -429,10 +430,70 @@ def caparray_all_pdks(run_dir: Path) -> Path:
     return run_dir
 
 
+def _extract_one(run_dir: Path, pdk: str) -> dict[str, Any]:
+    from flow.layout.pdkproc import pdk_value
+    from flow.layout.signoff import run_layout_pex
+
+    mom = pdk_value(pdk, "tech", "MOM_LAYERS")
+    active = tuple(mom[-2:])
+    params = CapArrayLayoutParams(
+        cdac=CapArrayConfig(),
+        family=UnitLengthCapFamilyParams(),
+        technology=pdk,
+        route_layer=active[0] - 1,
+        shield_layer=active[0] - 1,
+        active_layers=active,
+        top_cell="caparray_2layer_radix17",
+    )
+    work = run_dir / pdk
+    work.mkdir(parents=True, exist_ok=True)
+    gds = work / f"{params.top_cell}.gds"
+    CapArrayLayout(params).write(str(gds))
+    netlist = run_layout_pex(pdk, gds, params.top_cell, params.top_cell, work)
+    weights = get_caparray_weights(params.cdac)
+    extracted = parse_caparray_pex(netlist, stage_count=len(weights))
+    write_capacitance_table(work, extracted)
+    unit = float(mom_array_params(params).cdac.unit_cap) * 1e15
+    effective = [main - diff for main, diff in zip(extracted.main_by_stage_ff, extracted.diff_by_stage_ff, strict=True)]
+    return {
+        "unit_model_ff": unit,
+        "stages": [
+            {"weight": weight, "model_ff": weight * unit, "extracted_ff": value, "ratio": value / (weight * unit)}
+            for weight, value in zip(weights, effective, strict=True)
+        ],
+    }
+
+
+def caparray_extract_all_pdks(run_dir: Path) -> Path:
+    """Extract the two-metal radix-17 array by its own net names (3D, layout only) in every PDK
+    with Calibre extraction, and compare each stage's effective capacitance (main minus
+    difference) with what the PDK's FMOM model sizes it at; writes ``summary.json``."""
+
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from multiprocessing import get_context
+
+    summary = {}
+    with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
+        futures = {executor.submit(_extract_one, run_dir, pdk): pdk for pdk in ("tsmc65", "tsmc28", "tower180")}
+        for future in as_completed(futures):
+            try:
+                summary[futures[future]] = future.result()
+            except Exception as error:  # noqa: BLE001 - report every PDK's outcome
+                summary[futures[future]] = {"error": str(error)[:500]}
+    (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    return run_dir
+
+
 def main() -> None:
     targets = {
         target.__name__: target
-        for target in (caparray_1layer_radix17, caparray_2layer_radix17, caparray_3layer_radix17, caparray_all_pdks)
+        for target in (
+            caparray_1layer_radix17,
+            caparray_2layer_radix17,
+            caparray_3layer_radix17,
+            caparray_all_pdks,
+            caparray_extract_all_pdks,
+        )
     }
     targets["main"] = all_caparrays
     parser = argparse.ArgumentParser(description=__doc__)
