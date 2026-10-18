@@ -125,7 +125,7 @@ def plot_momcap_scaling(
             if points:
                 x, y = zip(*sorted(points), strict=True)
                 ax.plot(x, y, "o-", color=CURVE_COLORS[(layers - 1) % len(CURVE_COLORS)], label=f"{layers} layers")
-        ax.set_xticks(range(len(order)), order)
+        ax.set_xticks(range(len(order)), order, rotation=45, ha="right")
         ax.set_title(style.name.lower())
         style_grid(ax)
     axes[0, 0].set_ylim(bottom=0.0)

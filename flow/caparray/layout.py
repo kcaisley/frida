@@ -465,16 +465,16 @@ def _extract_one(run_dir: Path, pdk: str) -> dict[str, Any]:
 
 
 def caparray_extract_all_pdks(run_dir: Path) -> Path:
-    """Extract the two-metal radix-17 array by its own net names (3D, layout only) in every PDK
-    with Calibre extraction, and compare each stage's effective capacitance (main minus
+    """Extract the two-metal radix-17 array by its own net names (3D, layout only) in every PDK,
+    and compare each stage's effective capacitance (main minus
     difference) with what the PDK's FMOM model sizes it at; writes ``summary.json``."""
 
     from concurrent.futures import ProcessPoolExecutor, as_completed
     from multiprocessing import get_context
 
     summary = {}
-    with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
-        futures = {executor.submit(_extract_one, run_dir, pdk): pdk for pdk in ("tsmc65", "tsmc28", "tower180")}
+    with ProcessPoolExecutor(max_workers=6, mp_context=get_context("spawn")) as executor:
+        futures = {executor.submit(_extract_one, run_dir, pdk): pdk for pdk in PDKS}
         for future in as_completed(futures):
             try:
                 summary[futures[future]] = future.result()

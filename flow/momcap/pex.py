@@ -25,8 +25,8 @@ from flow.analysis.io import write_measurement
 from flow.momcap.layout import TERMINALS, MomTestParams, MomUnit, mom_geometry, mom_unit_layout
 from flow.momcap.subckt import MomStyle
 
-# the PDKs whose kits extract with Calibre (pdk/<tech>/signoff.py ``run_layout_pex``)
-PDKS = ("tsmc65", "tsmc28", "tower180", "tpsc65", "ihp130")
+# the PDKs whose kits extract in 3D (pdk/<tech>/signoff.py ``run_layout_pex``): all six
+PDKS = ("tsmc65", "tsmc28", "tower180", "tpsc65", "ihp130", "lf150")
 LENGTHS_UM = (1, 2, 4, 8, 16, 32)
 # wider spacings, in multiples of the PDK's minimum (snapped to its grid), at fewer lengths
 SPACINGS = (1.5, 2.0, 3.0)
