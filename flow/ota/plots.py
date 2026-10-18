@@ -39,9 +39,10 @@ def plot_ota_bode(
         phase_ax.tick_params(axis="y", colors=NORD_RED)
         if index % columns == columns - 1 or index == len(responses) - 1:
             phase_ax.set_ylabel("Phase (°)", color=NORD_RED)
+        margin = f", GM {response.gain_margin_db[0]:.0f} dB" if np.isfinite(response.gain_margin_db[0]) else ""
         ax.set_title(
             f"{label}\n{response.dc_gain_db[0]:.1f} dB, {response.ugbw_hz[0] * 1e-9:.2g} GHz, "
-            f"PM {response.phase_margin_deg[0]:.0f}°"
+            f"PM {response.phase_margin_deg[0]:.0f}°{margin}"
         )
         style_grid(ax)
     for ax in axes.flat[len(responses) :]:
@@ -122,6 +123,38 @@ def plot_ota_supply(
     fig.supxlabel("Supply (V)")
     fig.supylabel("Unity-gain bandwidth (GHz)", color=NORD_BLUE)
     fig.suptitle("Bandwidth and power versus supply, common modes at mid-supply")
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_ota_rejection(
+    responses: Sequence[AnalysisOtaAc],
+    *,
+    labels: Sequence[str],
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Compare the amplifiers' supply and common-mode rejection at outp over frequency, at one point each (their first)."""
+
+    if not responses or len(responses) != len(labels):
+        raise ValueError("rejection comparison requires one AC result and label per amplifier")
+    columns = min(3, len(responses))
+    rows = (len(responses) + columns - 1) // columns
+    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
+    for index, (response, label) in enumerate(zip(responses, labels, strict=True)):
+        ax = axes.flat[index]
+        ax.semilogx(response.frequency_hz, response.psrr_db[0], "-", color=NORD_BLUE, label="PSRR")
+        ax.semilogx(response.frequency_hz, response.cmrr_db[0], "--", color=NORD_RED, label="CMRR")
+        ax.axhline(0.0, color=NORD_DARK, linewidth=0.8)
+        ax.set_title(f"{label}\nPSRR {response.low_psrr_db[0]:.0f} dB, CMRR {response.low_cmrr_db[0]:.0f} dB")
+        style_grid(ax)
+    axes.flat[0].legend(loc="lower left")
+    for ax in axes.flat[len(responses) :]:
+        ax.set_visible(False)
+    fig.supxlabel("Frequency (Hz)")
+    fig.supylabel("Rejection at outp (dB)")
+    fig.suptitle(
+        f"Supply and common-mode rejection at {responses[0].vdd_v[0]:g} V, input common mode {responses[0].vcm_v[0]:g} V"
+    )
     return save_figure(fig, output_path)
 
 

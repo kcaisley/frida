@@ -8,18 +8,28 @@ import pytest
 
 from flow.analysis.types import MeasInfo
 from flow.ota.analysis import MeasOta, analyze_ota_ac, analyze_ota_noise
-from flow.ota.plots import plot_ota_bode, plot_ota_common_mode, plot_ota_noise, plot_ota_supply
+from flow.ota.plots import plot_ota_bode, plot_ota_common_mode, plot_ota_noise, plot_ota_rejection, plot_ota_supply
 from flow.ota.sim import OtaTbParams
 from flow.ota.subckt import CASES
 
 
 def _two_pole(
-    gain: float, pole_hz: float, second_hz: float, *, vdd: float = 1.2, vcm: float = 0.6, vbp: float = 0.5
+    gain: float,
+    pole_hz: float,
+    second_hz: float,
+    *,
+    vdd: float = 1.2,
+    vcm: float = 0.6,
+    vbp: float = 0.5,
+    third_hz: float | None = None,
 ) -> MeasOta:
-    """An amplifier of DC gain ``gain`` and poles at ``pole_hz`` and ``second_hz``, its input noise a
-    white 10 nV/sqrt(Hz), its load bias at ``vbp``."""
+    """An amplifier of DC gain ``gain`` and poles at ``pole_hz`` and ``second_hz`` (and ``third_hz``),
+    its input noise a white 10 nV/sqrt(Hz), its load bias at ``vbp``; at outp half its gain, the
+    supply passing a tenth and the common mode a hundredth."""
     frequency_hz = np.logspace(3, 11, 161)
     response = gain / ((1 + 1j * frequency_hz / pole_hz) * (1 + 1j * frequency_hz / second_hz))
+    if third_hz is not None:
+        response = response / (1 + 1j * frequency_hz / third_hz)
     params = OtaTbParams(ota=CASES["five_t"], vdd=vdd, vcm=vcm)
     return MeasOta(
         group=None,
@@ -35,6 +45,9 @@ def _two_pole(
         gain_v_per_v=np.abs(response),
         phase_deg=np.degrees(np.unwrap(np.angle(response))),
         output_noise_v_rthz=10e-9 * np.abs(response),
+        outp_gain_v_per_v=np.abs(response) / 2,
+        common_mode_gain_v_per_v=np.full_like(frequency_hz, 0.01),
+        supply_gain_v_per_v=np.full_like(frequency_hz, 0.1),
     )
 
 
@@ -45,6 +58,15 @@ def test_gain_bandwidth_and_phase_margin_of_a_two_pole_amplifier() -> None:
     assert result.ugbw_hz[0] == pytest.approx(99.5e6, rel=0.01)
     expected = 180 - np.degrees(np.arctan(result.ugbw_hz[0] / 1e6) + np.arctan(result.ugbw_hz[0] / 1e9))
     assert result.phase_margin_deg[0] == pytest.approx(expected, abs=0.3)
+    assert result.bandwidth_hz[0] == pytest.approx(1e6, rel=0.01)
+    assert result.gbw_hz[0] == pytest.approx(100e6, rel=0.01)
+    assert np.isnan(result.gain_margin_db[0])  # two poles never turn the phase 180°
+    # outp: half the gain (34 dB) over a tenth from the supply and a hundredth from the common mode
+    assert result.low_psrr_db[0] == pytest.approx(20 * np.log10(50 / 0.1), abs=0.01)
+    assert result.low_cmrr_db[0] == pytest.approx(20 * np.log10(50 / 0.01), abs=0.01)
+    assert result.psrr_db.shape == result.gain_db.shape
+    three = analyze_ota_ac([_two_pole(1000.0, 1e5, 1e7, third_hz=2e7)])
+    assert three.gain_margin_db[0] < 0  # three close poles: the loop gain exceeds unity where the phase turns 180°
     assert result.power_w[0] == pytest.approx(1.2 * 50e-6)
     assert result.output_cm_v[0] == pytest.approx(0.6)
     below_unity = analyze_ota_ac([_two_pole(0.5, 1e6, 1e9)])
@@ -76,6 +98,7 @@ def test_architecture_comparison_plots_render(tmp_path: Path) -> None:
     paths = (
         *plot_ota_bode([vcm], labels=["a"], output_path=tmp_path / "bode"),
         *plot_ota_common_mode([vcm], labels=["a"], output_path=tmp_path / "common_mode"),
+        *plot_ota_rejection([vcm], labels=["a"], output_path=tmp_path / "rejection"),
         *plot_ota_supply([supply], labels=["a"], output_path=tmp_path / "supply"),
         *plot_ota_noise(
             [analyze_ota_noise([_two_pole(100.0 * value, 1e6, 1e9, vcm=value) for value in (0.4, 0.6, 0.8)], ac=vcm)],

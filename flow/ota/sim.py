@@ -4,8 +4,10 @@ The testbench follows Usb2Phy's op-amp benches (``OpAmp5T`` ``Tb``, ``FcascTb``)
 the input common mode on both inputs and half the AC stimulus on each, with opposite signs; bias
 references (a diode-connected copy of the devices each bias drives, fed their current from a
 supply of its own, so the amplifier's supply current is its own), fixed cascode biases, and a
-load capacitor on each output; an operating point, the AC response and the output noise. A
-single-ended amplifier sits open loop at the output its mirror sets. A fully differential one
+load capacitor on each output; an operating point, the AC response, the transfer functions from
+every source to ``outp`` (Spectre's ``xf``: the inputs, so the common mode, and the supply, for
+the PSRR and CMRR the group's amplifier benches measure) and the output noise. A single-ended
+amplifier sits open loop at the output its mirror sets. A fully differential one
 has no defined output common mode of its own, so its bench adds an ideal common-mode feedback:
 the outputs' average, against a target, steers the load bias.
 """
@@ -135,9 +137,9 @@ def OtaTb(params: OtaTbParams) -> h.Module:
 
 
 def _run_ota_sim(run_dir: Path, params: OtaTbParams, *, check: bool = False) -> Path:
-    """Run the operating point, AC response and output noise of one OTA in its PDK and return the
-    raw directory (PSF ASCII: VLSIR writes a noise analysis's results so) (``check``: two points a
-    decade, with Spectre's static checks)."""
+    """Run the operating point, AC response, transfer functions to ``outp`` and output noise of one
+    OTA in its PDK and return the raw directory (PSF ASCII: VLSIR writes a noise analysis's results
+    so) (``check``: two points a decade, with Spectre's static checks)."""
 
     pdk = importlib.import_module(f"pdk.{params.pdk}")
     install = importlib.import_module(f"pdk.{params.pdk}.hdl21.site").install
@@ -173,6 +175,11 @@ def _run_ota_sim(run_dir: Path, params: OtaTbParams, *, check: bool = False) -> 
         hs.Op(name="op"),
         hs.Ac(sweep=sweep, name="ac"),
         hs.Noise(output=tb.outp if single else (tb.outp, tb.outn), input_source=tb.vinp, sweep=sweep, name="noise"),
+        # every source's transfer to outp on the same sweep; hdl21 has no transfer-function analysis
+        h.Literal(
+            f"xf (xtop.outp 0) xf start={params.fstart_hz:g} stop={params.fstop_hz:g} "
+            f"dec={2 if check else params.points_per_decade}"
+        ),
     ]
     # the simulator's error holds its simulation, which cannot cross back from a worker process:
     # raise it as text
@@ -256,10 +263,12 @@ def ota_characterization(run_dir: Path, *, check: bool = False) -> Path:
                     if check:
                         continue
                     analyses = parse_psfascii(raw_path)
-                    op, ac, noise = (analyses[key].data for key in ("op", "ac", "noise"))
+                    op, ac, noise, xf = (analyses[key].data for key in ("op", "ac", "noise", "xf"))
                     single = params.ota.topology in (Topology.FIVE_T, Topology.SELF_BIASED)
                     # the differential AC response to the 1 V differential stimulus
                     response = np.asarray(ac["xtop.outp"]) - (0.0 if single else np.asarray(ac["xtop.outn"]))
+                    # at outp: the differential gain (the balun's halves), the common mode's (both inputs), the supply's
+                    to_inp, to_inn = np.asarray(xf["xtop.vinp"]), np.asarray(xf["xtop.vinn"])
                     measurement = MeasOta(
                         group=None,
                         index=None,
@@ -288,6 +297,9 @@ def ota_characterization(run_dir: Path, *, check: bool = False) -> Path:
                         gain_v_per_v=np.abs(response).astype(np.float64),
                         phase_deg=np.degrees(np.unwrap(np.angle(response))).astype(np.float64),
                         output_noise_v_rthz=np.asarray(noise["out"], dtype=np.float64),
+                        outp_gain_v_per_v=np.abs((to_inp - to_inn) / 2).astype(np.float64),
+                        common_mode_gain_v_per_v=np.abs(to_inp + to_inn).astype(np.float64),
+                        supply_gain_v_per_v=np.abs(np.asarray(xf["xtop.vvdd"])).astype(np.float64),
                     )
                     write_measurement(raw_path.parent / "result.h5", measurement)
                 except Exception as error:  # noqa: BLE001 - report every independent point failure

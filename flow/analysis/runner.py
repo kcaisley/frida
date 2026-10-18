@@ -127,7 +127,7 @@ from flow.momcap.plots import plot_momcap_fit, plot_momcap_scaling, plot_momcap_
 from flow.moscap.analysis import MeasMosCap, analyze_moscap_cv
 from flow.moscap.plots import plot_moscap_cv, plot_moscap_frequency, plot_moscap_quality
 from flow.ota.analysis import MeasOta, analyze_ota_ac, analyze_ota_noise
-from flow.ota.plots import plot_ota_bode, plot_ota_common_mode, plot_ota_noise, plot_ota_supply
+from flow.ota.plots import plot_ota_bode, plot_ota_common_mode, plot_ota_noise, plot_ota_rejection, plot_ota_supply
 from flow.pi.analysis import MeasPi, analyze_pi_linearity, analyze_pi_phase
 from flow.pi.plots import plot_pi_frequency, plot_pi_transfer, plot_pi_waveforms
 from flow.ringamp.analysis import MeasRingamp, analyze_ringamp_settling, analyze_ringamp_transfer
@@ -1437,9 +1437,9 @@ def latch_characterization_study(output_dir: Path) -> tuple[Path, ...]:
 
 
 def ota_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named OTAs' open-loop response, input common-mode range, noise, and supply scaling, in every PDK."""
+    """Compare the named OTAs' open-loop response, rejection, input common-mode range, noise, and supply scaling, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/ota/ota_characterization/20261017_201356"
+    meas_read_dir = BASE_PATH / "build/sim/ota/ota_characterization/20261019_003101"
     cases = (
         ("five_t", "five_t: NMOS input"),
         ("five_t_pmos", "five_t_pmos: PMOS input"),
@@ -1465,16 +1465,14 @@ def ota_characterization_study(output_dir: Path) -> tuple[Path, ...]:
                     measurements.append(measurement)
                 sweeps[name, sweep] = sorted(measurements, key=key)
         common_modes = [analyze_ota_ac(sweeps[name, "vcm"]) for name, _label in cases]
+        nominals = [
+            analyze_ota_ac([item for item in sweeps[name, "vcm"] if item.info.readbacks["nominal"]])
+            for name, _label in cases
+        ]
         pdk_dir = output_dir / pdk
         artifacts += [
-            *plot_ota_bode(
-                [
-                    analyze_ota_ac([item for item in sweeps[name, "vcm"] if item.info.readbacks["nominal"]])
-                    for name, _label in cases
-                ],
-                labels=labels,
-                output_path=pdk_dir / "ota_bode",
-            ),
+            *plot_ota_bode(nominals, labels=labels, output_path=pdk_dir / "ota_bode"),
+            *plot_ota_rejection(nominals, labels=labels, output_path=pdk_dir / "ota_rejection"),
             *plot_ota_common_mode(common_modes, labels=labels, output_path=pdk_dir / "ota_common_mode"),
             *plot_ota_noise(
                 [
