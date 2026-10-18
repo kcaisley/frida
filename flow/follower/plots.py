@@ -10,7 +10,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from flow.analysis.plots import NORD_BLUE, NORD_DARK, NORD_RED, PLOT_STYLE, save_figure, style_grid
-from flow.follower.analysis import AnalysisFollowerImpedance, AnalysisFollowerTransfer
+from flow.follower.analysis import (
+    AnalysisFollowerImpedance,
+    AnalysisFollowerSlew,
+    AnalysisFollowerTransfer,
+    MeasFollowerStep,
+)
 
 
 @mpl.rc_context(PLOT_STYLE)
@@ -120,4 +125,69 @@ def plot_follower_response(
     fig.supxlabel("Frequency (Hz)")
     fig.supylabel("Gain (dB)", color=NORD_BLUE)
     fig.suptitle("Follower gain and output impedance versus frequency")
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_follower_psrr(
+    transfers: Sequence[AnalysisFollowerTransfer],
+    *,
+    labels: Sequence[str],
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Compare the followers' supply rejection at the lowest frequency over the input level."""
+
+    if not transfers or len(transfers) != len(labels):
+        raise ValueError("PSRR comparison requires one transfer result and label per follower")
+    columns = min(2, len(transfers))
+    rows = (len(transfers) + columns - 1) // columns
+    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
+    for index, (transfer, label) in enumerate(zip(transfers, labels, strict=True)):
+        ax = axes.flat[index]
+        # only where the follower follows: a gain of at least half
+        working = transfer.gain_v_per_v >= 0.5
+        ax.plot(transfer.vin_v[working], transfer.psrr_db[working], "o-", color=NORD_BLUE, markersize=3)
+        ax.axhline(0.0, color=NORD_DARK, linewidth=0.8)
+        ax.set_title(label)
+        style_grid(ax)
+    for ax in axes.flat[len(transfers) :]:
+        ax.set_visible(False)
+    fig.supxlabel("Input (V)")
+    fig.supylabel("PSRR where gain ≥ 0.5 (dB)")
+    fig.suptitle("Follower supply rejection versus input level")
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_follower_slew(
+    measurements: Sequence[MeasFollowerStep],
+    slews: Sequence[AnalysisFollowerSlew],
+    *,
+    labels: Sequence[str],
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Compare the followers' large-signal step responses: input and output, slew rates in each title."""
+
+    if not measurements or not len(measurements) == len(slews) == len(labels):
+        raise ValueError("slew comparison requires one step record, slew result, and label per follower")
+    columns = min(2, len(measurements))
+    rows = (len(measurements) + columns - 1) // columns
+    fig, axes = plt.subplots(rows, columns, sharex=True, squeeze=False)
+    for index, (measurement, slew, label) in enumerate(zip(measurements, slews, labels, strict=True)):
+        ax = axes.flat[index]
+        wave = measurement.wave
+        if wave is None:
+            raise ValueError("slew comparison requires waveform records")
+        ax.plot(wave.time_s * 1e9, wave.v["vin"][0], ":", color=NORD_DARK, label="Input")
+        ax.plot(wave.time_s * 1e9, wave.v["vout"][0], "-", color=NORD_BLUE, label="Output")
+        ax.set_title(
+            f"{label}\nslew +{slew.rise_slew_v_per_s[0] * 1e-9:.2g} / {slew.fall_slew_v_per_s[0] * 1e-9:.2g} V/ns"
+        )
+        style_grid(ax)
+    for ax in axes.flat[len(measurements) :]:
+        ax.set_visible(False)
+    axes.flat[0].legend(loc="upper right", fontsize="small")
+    fig.supxlabel("Time (ns)")
+    fig.supylabel("Voltage (V)")
+    fig.suptitle("Follower step response at the nominal input")
     return save_figure(fig, output_path)

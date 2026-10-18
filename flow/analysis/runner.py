@@ -114,8 +114,20 @@ from flow.delay.plots import (
     plot_delay_ring_control,
     plot_delay_ring_supply,
 )
-from flow.follower.analysis import MeasFollower, analyze_follower_impedance, analyze_follower_transfer
-from flow.follower.plots import plot_follower_bandwidth, plot_follower_response, plot_follower_transfer
+from flow.follower.analysis import (
+    MeasFollower,
+    MeasFollowerStep,
+    analyze_follower_impedance,
+    analyze_follower_slew,
+    analyze_follower_transfer,
+)
+from flow.follower.plots import (
+    plot_follower_bandwidth,
+    plot_follower_psrr,
+    plot_follower_response,
+    plot_follower_slew,
+    plot_follower_transfer,
+)
 from flow.idac.analysis import MeasIdac, analyze_idac_output, analyze_idac_steering
 from flow.idac.plots import plot_idac_bias, plot_idac_iv, plot_idac_steering
 from flow.latch.analysis import MeasLatch, analyze_latch_constraint, analyze_latch_sr, analyze_latch_timing
@@ -1492,9 +1504,9 @@ def ota_characterization_study(output_dir: Path) -> tuple[Path, ...]:
 
 
 def follower_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named followers' transfer, bandwidth, and output impedance over the input level, in every PDK."""
+    """Compare the named followers' transfer, bandwidth, output impedance and PSRR over the input level, and their step response, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/follower/follower_characterization/20261017_202158"
+    meas_read_dir = BASE_PATH / "build/sim/follower/follower_characterization/20261019_003545"
     cases = (
         ("source", "source: NMOS"),
         ("source_pmos", "source_pmos: PMOS"),
@@ -1514,6 +1526,13 @@ def follower_characterization_study(output_dir: Path) -> tuple[Path, ...]:
                         raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasFollower")
                     measurements.append(measurement)
                 sweeps[name, stimulus] = sorted(measurements, key=lambda item: float(item.param.vin))
+            steps = []
+            for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/step/*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasFollowerStep):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasFollowerStep")
+                steps.append(measurement)
+            sweeps[name, "step"] = steps
         transfers = [analyze_follower_transfer(sweeps[name, "input"]) for name, _label in cases]
         impedances = [analyze_follower_impedance(sweeps[name, "output"]) for name, _label in cases]
         # each case's frequency response where it follows best (its input of highest gain): a fixed
@@ -1535,6 +1554,13 @@ def follower_characterization_study(output_dir: Path) -> tuple[Path, ...]:
                 [analyze_follower_impedance(items) for items in nominal["output"]],
                 labels=labels,
                 output_path=pdk_dir / "follower_response",
+            ),
+            *plot_follower_psrr(transfers, labels=labels, output_path=pdk_dir / "follower_psrr"),
+            *plot_follower_slew(
+                [sweeps[name, "step"][0] for name, _label in cases],
+                [analyze_follower_slew(sweeps[name, "step"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "follower_slew",
             ),
         ]
     return tuple(artifacts)
