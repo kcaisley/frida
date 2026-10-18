@@ -330,4 +330,36 @@ Every PDK's rows come from its own 3D extraction.}
 \end{tikzpicture}
 \end{frame}
 
+\begin{frame}[plain]
+\begin{tikzpicture}[remember picture,overlay]
+\titleat{Update 2026-10-18: refitted at solver accuracy 1}
+% Extracted: the real-LVS test's four-capacitor fixture, xACT 3D, PEX_FS_ACCURACY=1 (three layers).
+\boxat{14}{28}{220}{\fontsize{17}{21}\selectfont
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{@{}lrrrrl@{}}
+\toprule
+Device & Length (µm) & Extracted (fF) & Fit (fF) & Deviation & Check \\
+\midrule
+Xmain0 & 48.52 & 26.81 & 26.57 & $-0.89\%$ & PASS \\
+Xmain1 & 42.12 & 23.22 & 23.08 & $-0.59\%$ & PASS \\
+Xmain2 & 35.72 & 19.67 & 19.59 & $-0.38\%$ & PASS \\
+Xmain3 & 29.32 & 16.22 & 16.11 & $-0.70\%$ & PASS \\
+Xdiff0 & 3.72 & 2.12 & 2.15 & $+1.62\%$ & PASS \\
+Xdiff1 & 10.12 & 5.61 & 5.64 & $+0.58\%$ & PASS \\
+Xdiff2 & 16.52 & 9.13 & 9.13 & $+0.00\%$ & PASS \\
+Xdiff3 & 22.92 & 12.67 & 12.62 & $-0.41\%$ & PASS \\
+\bottomrule
+\end{tabular}}
+\boxat{242}{35}{70}{\fontsize{15}{20}\selectfont
+Total C, fF; L, µm\par\medskip
+1L: 0.164L + 0.038\par
+2L: 0.356L + 0.070\par
+3L: 0.545L + 0.127\par\medskip
+Was 0.17/0.34/0.51 L + 0.03/0.06/0.12}
+\boxat{14}{140}{294}{\fontsize{14}{18}\selectfont
+At its default accuracy the solver split a few fF of a finger's coupling beside the large top-plate net to the substrate.
+Refitted to every finger of the three production arrays (within 1.3\%); the LVS deck's expressions and the generator share the fit; all 21 real-LVS checks pass.}
+\end{tikzpicture}
+\end{frame}
+
 \end{document}
