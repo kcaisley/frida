@@ -86,6 +86,23 @@ def _conversion_inputs(result: TranResult, names: Mapping[str, str], interval: f
     return canonical.data["time"], voltage, current
 
 
+def read_transient_wave(
+    path: Path, names: Mapping[str, str], interval: float, *, supply_rails: tuple[str, ...]
+) -> tuple[Wave, int]:
+    """One saved transient as a single-record ``Wave`` on the uniform ``interval`` grid over its
+    whole time, and the raw point count: traces renamed by ``names`` (which binds every saved trace,
+    ``time`` to itself), the ``supply_rails`` sources' currents as positive draw. Raises unless the
+    raw holds exactly those traces, finite, on steps no longer than ``interval``."""
+
+    times_s, voltages, currents = _conversion_inputs(
+        read_raw_transient(path), names, interval, supply_rails=supply_rails
+    )
+    window = [(float(times_s[0]), float(times_s[-1]))]
+    time_s, v = interpolate_wave_records(times_s, voltages, window, interval)
+    _, i = interpolate_wave_records(times_s, currents, window, interval)
+    return Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=v, i=i), len(times_s)
+
+
 def _adc_decision_times(
     time: np.ndarray,
     init: np.ndarray,

@@ -30,7 +30,7 @@ import numpy as np
 from hdl21.primitives import C, Idc, MosType, Vdc, Vpulse
 from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
-from flow.analysis.io import interpolate_wave_records, write_measurement
+from flow.analysis.io import write_measurement
 from flow.circuit.ports import testbench_from_ports
 from flow.comp.subckt import _mos
 
@@ -290,8 +290,8 @@ def csa_characterization(run_dir: Path, *, check: bool = False) -> Path:
 
     from vlsirtools.spice.spectre import parse_psfascii
 
-    from flow.analysis.types import MeasInfo, Wave
-    from flow.circuit.results import read_raw_transient
+    from flow.analysis.types import MeasInfo
+    from flow.circuit.results import read_transient_wave
     from flow.comp.layout import PDKS
     from flow.csa.analysis import MeasCsa, MeasCsaNoise
 
@@ -355,23 +355,12 @@ def csa_characterization(run_dir: Path, *, check: bool = False) -> Path:
                         write_measurement(raw_path.parent / "result.h5", measurement)
                         continue
                     # one record from time zero on the stored grid; the supply current as positive draw
-                    result = read_raw_transient(raw_path)
-                    times_s = np.asarray(result.data["time"])
-                    window, interval = [(float(times_s[0]), float(times_s[-1]))], params.waveform_sample_interval_s
-                    traces = {names[key]: value for key, value in result.data.items() if key != "time"}
-                    time_s, voltages = interpolate_wave_records(
-                        times_s,
-                        {key: value for key, value in traces.items() if not key.startswith("i(")},
-                        window,
-                        interval,
+                    wave, raw_points = read_transient_wave(
+                        raw_path, names, params.waveform_sample_interval_s, supply_rails=("vdd",)
                     )
-                    _, currents = interpolate_wave_records(
-                        times_s,
-                        {key[2:-1]: -np.asarray(value) for key, value in traces.items() if key.startswith("i(")},
-                        window,
-                        interval,
+                    info.readbacks.update(
+                        {"waveform_sample_interval_s": params.waveform_sample_interval_s, "raw_points": raw_points}
                     )
-                    info.readbacks.update({"waveform_sample_interval_s": interval, "raw_points": len(times_s)})
                     measurement = MeasCsa(
                         group=None,
                         index=None,
@@ -379,7 +368,7 @@ def csa_characterization(run_dir: Path, *, check: bool = False) -> Path:
                         info=info,
                         param=params,
                         trial_index=np.arange(1, dtype=np.int64),
-                        wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
+                        wave=wave,
                     )
                     write_measurement(raw_path.parent / "result.h5", measurement)
                 except Exception as error:  # noqa: BLE001 - report every independent point failure

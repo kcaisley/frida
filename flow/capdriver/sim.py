@@ -22,7 +22,7 @@ import numpy as np
 from hdl21.primitives import C, Vdc, Vpulse
 from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
-from flow.analysis.io import interpolate_wave_records, write_measurement
+from flow.analysis.io import write_measurement
 from flow.circuit.ports import testbench_from_ports
 
 from .subckt import CASES, CapDriver, CapDriverParams, driver_ports
@@ -179,9 +179,9 @@ def capdriver_characterization(run_dir: Path, *, check: bool = False) -> Path:
     runs the nominal point of each case with Spectre's checks instead, writing no measurement.
     """
 
-    from flow.analysis.types import MeasInfo, Wave
+    from flow.analysis.types import MeasInfo
     from flow.capdriver.analysis import MeasCapdriver
-    from flow.circuit.results import read_raw_transient
+    from flow.circuit.results import read_transient_wave
     from flow.comp.layout import PDKS
 
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -224,29 +224,8 @@ def capdriver_characterization(run_dir: Path, *, check: bool = False) -> Path:
                     if check:
                         continue
                     # one record from time zero on the stored grid; the supply current as positive draw
-                    result = read_raw_transient(raw_path)
-                    times_s = np.asarray(result.data["time"])
-                    interval = params.waveform_sample_interval_s
-                    window = [(float(times_s[0]), float(times_s[-1]))]
-                    time_s, voltages = interpolate_wave_records(
-                        times_s,
-                        {
-                            names[key]: value
-                            for key, value in result.data.items()
-                            if not names[key].startswith(("i(", "time"))
-                        },
-                        window,
-                        interval,
-                    )
-                    _, currents = interpolate_wave_records(
-                        times_s,
-                        {
-                            names[key][2:-1]: -np.asarray(value)
-                            for key, value in result.data.items()
-                            if names[key].startswith("i(")
-                        },
-                        window,
-                        interval,
+                    wave, raw_points = read_transient_wave(
+                        raw_path, names, params.waveform_sample_interval_s, supply_rails=("vdd",)
                     )
                     measurement = MeasCapdriver(
                         group=None,
@@ -263,14 +242,14 @@ def capdriver_characterization(run_dir: Path, *, check: bool = False) -> Path:
                                 "nominal": nominal,
                                 "signal_map_json": json.dumps(names, sort_keys=True),
                                 "raw_file": raw_path.name,
-                                "raw_points": len(times_s),
-                                "waveform_sample_interval_s": interval,
+                                "raw_points": raw_points,
+                                "waveform_sample_interval_s": params.waveform_sample_interval_s,
                                 "supply_current_convention": "positive_current_draw",
                             },
                         ),
                         param=params,
                         trial_index=np.arange(1, dtype=np.int64),
-                        wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
+                        wave=wave,
                     )
                     write_measurement(raw_path.parent / "result.h5", measurement)
                 except Exception as error:  # noqa: BLE001 - report every independent point failure

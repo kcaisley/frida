@@ -25,7 +25,7 @@ import numpy as np
 from hdl21.primitives import C, Idc, MosType, R, Vdc, Vpulse
 from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
-from flow.analysis.io import interpolate_wave_records, write_measurement
+from flow.analysis.io import write_measurement
 from flow.circuit.ports import testbench_from_ports
 from flow.comp.subckt import _mos
 
@@ -242,8 +242,8 @@ def follower_characterization(run_dir: Path, *, check: bool = False) -> Path:
 
     from vlsirtools.spice.spectre import parse_nutbin
 
-    from flow.analysis.types import MeasInfo, Wave
-    from flow.circuit.results import read_raw_transient
+    from flow.analysis.types import MeasInfo
+    from flow.circuit.results import read_transient_wave
     from flow.comp.layout import PDKS
     from flow.follower.analysis import MeasFollower, MeasFollowerStep
 
@@ -263,7 +263,8 @@ def follower_characterization(run_dir: Path, *, check: bool = False) -> Path:
                 jobs[f"{pdk}/{case}/step/vin{round(vin * 1e3)}"] = FollowerTbParams(
                     pdk=pdk, follower=follower, vdd=supply, vin=vin, step_v=round(STEP * supply, 4)
                 )
-    names = follower_signal_names()
+    # the step bench's traces: the AC bench's on a time axis
+    tran_names = {"time": "time", **{raw: name for raw, name in follower_signal_names().items() if raw != "freq"}}
     failures: dict[str, str] = {}
     # one pool per PDK: hdl21 compiles each generated module in place, for the first PDK it meets
     for pdk in PDKS:
@@ -293,23 +294,12 @@ def follower_characterization(run_dir: Path, *, check: bool = False) -> Path:
                     )
                     if float(params.step_v):
                         # one record from time zero on the stored grid; the supply current as positive draw
-                        result = read_raw_transient(raw_path)
-                        times_s = np.asarray(result.data["time"])
-                        window, interval = [(float(times_s[0]), float(times_s[-1]))], params.waveform_sample_interval_s
-                        traces = {names[key]: value for key, value in result.data.items() if key != "time"}
-                        time_s, voltages = interpolate_wave_records(
-                            times_s,
-                            {key: value for key, value in traces.items() if not key.startswith("i(")},
-                            window,
-                            interval,
+                        wave, raw_points = read_transient_wave(
+                            raw_path, tran_names, params.waveform_sample_interval_s, supply_rails=("vdd",)
                         )
-                        _, currents = interpolate_wave_records(
-                            times_s,
-                            {key[2:-1]: -np.asarray(value) for key, value in traces.items() if key.startswith("i(")},
-                            window,
-                            interval,
+                        info.readbacks.update(
+                            {"waveform_sample_interval_s": params.waveform_sample_interval_s, "raw_points": raw_points}
                         )
-                        info.readbacks.update({"waveform_sample_interval_s": interval, "raw_points": len(times_s)})
                         measurement = MeasFollowerStep(
                             group=None,
                             index=None,
@@ -317,7 +307,7 @@ def follower_characterization(run_dir: Path, *, check: bool = False) -> Path:
                             info=info,
                             param=params,
                             trial_index=np.arange(1, dtype=np.int64),
-                            wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
+                            wave=wave,
                         )
                         write_measurement(raw_path.parent / "result.h5", measurement)
                         continue
