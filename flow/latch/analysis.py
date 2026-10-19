@@ -3,7 +3,8 @@
 A ``MeasLatch`` is one transient of the shared latch testbench. Timing follows BAG's sequential
 characterization: delays at mid-supply, a capturing edge's data either taken (the new value) or
 not (the old one), setup where the delay has grown by 10 % (the liberty pushout), hold where the
-old value is still held.
+old value is still held. On the upset bench, a latch holding a 1 either keeps it after a strike's
+charge on its storage node or flips; the smallest charge that flips it is its critical charge.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ import numpy as np
 from flow.analysis import calc
 from flow.analysis.types import Analysis, Meas, check_identity, measurement_identity
 from flow.latch.sim import LatchTbParams
-from flow.latch.subckt import LatchNets, LatchParams, Style
+from flow.latch.subckt import CLOCKED_STYLES, LatchNets, LatchParams, Style
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -97,7 +98,7 @@ def analyze_latch_timing(measurements: Sequence[MeasLatch]) -> AnalysisLatchTimi
 
     identity = measurement_identity(measurements)
     dut = identity.dut
-    if dut.style != Style.CLOCKED:
+    if dut.style not in CLOCKED_STYLES:
         raise ValueError("latch timing requires a clocked latch, flip-flop, or divider")
     rows = []
     for measurement in measurements:
@@ -215,7 +216,7 @@ def analyze_latch_sr(measurements: Sequence[MeasLatch]) -> AnalysisLatchSr:
     """Measure SR latch set and reset delays and supply current at each supply."""
 
     identity = measurement_identity(measurements)
-    if identity.dut.style == Style.CLOCKED:
+    if identity.dut.style in CLOCKED_STYLES:
         raise ValueError("SR analysis requires a NAND or NOR SR latch")
     # a NAND latch sets and resets on falling (active-low) inputs, a NOR latch on rising ones
     active = "falling" if identity.dut.style == Style.SR_NAND else "rising"
@@ -259,4 +260,52 @@ def analyze_latch_sr(measurements: Sequence[MeasLatch]) -> AnalysisLatchSr:
         set_delay_s=set_delay_s,
         reset_delay_s=reset_delay_s,
         supply_current_a=current,
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisLatchUpset(Analysis):
+    """Latch response to a strike at each charge (the upset bench).
+
+    ``upset`` is 1 where q, holding a 1, ends below mid-supply, else 0; ``q_dip_v`` is how far q
+    falls after the strike (``ymin``), recovered or not; ``critical_charge_c`` the smallest charge
+    that flipped q (NaN where none did).
+    """
+
+    charge_c: np.ndarray
+    upset: np.ndarray
+    q_dip_v: np.ndarray
+
+    @property
+    def critical_charge_c(self) -> float:
+        flipped = self.charge_c[self.upset > 0]
+        return float(np.min(flipped)) if len(flipped) else math.nan
+
+
+def analyze_latch_upset(measurements: Sequence[MeasLatch]) -> AnalysisLatchUpset:
+    """Measure whether a strike flips the held 1 and how far q dips, at each charge."""
+
+    identity = measurement_identity(measurements)
+    if not all(float(item.param.upset_charge_c) for item in measurements):
+        raise ValueError("latch upset requires the upset bench")
+    rows = []
+    for measurement in sorted(measurements, key=lambda item: float(item.param.upset_charge_c)):
+        wave, tb = measurement.wave, measurement.param
+        if wave is None:
+            raise ValueError("latch upset requires a waveform record")
+        time_s, output, vdd = wave.time_s, wave.v[LatchNets.q.name][0], float(tb.vdd)
+        strike_s, end_s = float(tb.upset_time_s), float(time_s[-1])
+        held = calc.value(output, time_s, strike_s - 0.1e-9)
+        # q at the end, a strike time after the strike: recovered, or flipped
+        final = calc.average(*calc.clip(output, time_s, end_s - 0.1e-9, end_s))
+        rows.append(
+            (
+                float(tb.upset_charge_c),
+                float(held > vdd / 2 > final),
+                held - calc.ymin(calc.clip(output, time_s, strike_s, end_s)[0]),
+            )
+        )
+    charge, upset, dip = (np.asarray(column, dtype=np.float64) for column in zip(*rows, strict=True))
+    return AnalysisLatchUpset(
+        group=identity.group, index=identity.index, dut=identity.dut, charge_c=charge, upset=upset, q_dip_v=dip
     )

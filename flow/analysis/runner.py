@@ -136,8 +136,14 @@ from flow.follower.plots import (
 )
 from flow.idac.analysis import MeasIdac, analyze_idac_output, analyze_idac_steering
 from flow.idac.plots import plot_idac_bias, plot_idac_iv, plot_idac_steering
-from flow.latch.analysis import MeasLatch, analyze_latch_constraint, analyze_latch_sr, analyze_latch_timing
-from flow.latch.plots import plot_latch_frequency, plot_latch_setup_hold, plot_latch_supply
+from flow.latch.analysis import (
+    MeasLatch,
+    analyze_latch_constraint,
+    analyze_latch_sr,
+    analyze_latch_timing,
+    analyze_latch_upset,
+)
+from flow.latch.plots import plot_latch_frequency, plot_latch_setup_hold, plot_latch_supply, plot_latch_upset
 from flow.lvshift.analysis import MeasLvShift, analyze_lvshift_switching
 from flow.lvshift.plots import plot_lvshift_vdd, plot_lvshift_vddl, plot_lvshift_waveforms
 from flow.momcap.analysis import MeasMomcap, analyze_momcap_fit
@@ -1413,14 +1419,17 @@ def delay_characterization_study(output_dir: Path) -> tuple[Path, ...]:
 
 
 def latch_characterization_study(output_dir: Path) -> tuple[Path, ...]:
-    """Compare the named latches' setup and hold, delay and energy over supply, and toggle limit, in every PDK."""
+    """Compare the named latches' setup and hold, delay and energy over supply, toggle limit, and upset by a strike, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/latch/latch_characterization/20261017_204123"
+    meas_read_dir = BASE_PATH / "build/sim/latch/latch_characterization/20261019_021226"
     clocked = (
         ("latch", "latch: C2MOS"),
         ("latch_rst", "latch_rst: C2MOS with reset"),
         ("flop_rst", "flop_rst: master-slave"),
         ("div2", "div2: divide by two"),
+        ("flop_tspc", "flop_tspc: TSPC"),
+        ("div2_tspc", "div2_tspc: TSPC divide by two"),
+        ("latch_dice", "latch_dice: DICE"),
     )
     srs = (("sr_nand", "sr_nand: NAND"), ("sr_nor", "sr_nor: NOR"))
     artifacts = []
@@ -1431,6 +1440,7 @@ def latch_characterization_study(output_dir: Path) -> tuple[Path, ...]:
                 ("supply", lambda item: float(item.param.vdd)),
                 ("offset", lambda item: float(item.param.data_offset_s)),
                 ("period", lambda item: -float(item.param.clock_period_s)),
+                ("upset", lambda item: float(item.param.upset_charge_c)),
             ):
                 measurements = []
                 for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
@@ -1441,6 +1451,7 @@ def latch_characterization_study(output_dir: Path) -> tuple[Path, ...]:
                 sweeps[name, sweep] = sorted(measurements, key=key)
         offset_cases = [(name, label) for name, label in clocked if sweeps[name, "offset"]]
         period_cases = [(name, label) for name, label in clocked if sweeps[name, "period"]]
+        upset_cases = [(name, label) for name, label in clocked if sweeps[name, "upset"]]
         offset_timings = [analyze_latch_timing(sweeps[name, "offset"]) for name, _label in offset_cases]
         constraints = [
             analyze_latch_constraint(sweeps[name, "offset"], timing=timing)
@@ -1464,6 +1475,11 @@ def latch_characterization_study(output_dir: Path) -> tuple[Path, ...]:
                 [analyze_latch_timing(sweeps[name, "period"]) for name, _label in period_cases],
                 labels=[label for _name, label in period_cases],
                 output_path=pdk_dir / "latch_frequency",
+            ),
+            *plot_latch_upset(
+                [analyze_latch_upset(sweeps[name, "upset"]) for name, _label in upset_cases],
+                labels=[label for _name, label in upset_cases],
+                output_path=pdk_dir / "latch_upset",
             ),
         ]
     return tuple(artifacts)

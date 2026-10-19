@@ -2,7 +2,7 @@
 
 A target names one case and one PDK and lays it out with all three tools (cIcCreator, laygo,
 ALIGN) from its hand-written floorplan (``design/layout/latch_*.json``), each checked with DRC
-and LVS; a ``*_all_pdks`` target runs one case in all six PDKs. Cases: static C2MOS latches with and without reset, a master-slave flip-flop, a divide-by-two flip-flop, and NAND and NOR SR latches. The runner is the
+and LVS; a ``*_all_pdks`` target runs one case in all six PDKs. Cases: static C2MOS latches with and without reset, a master-slave flip-flop, a divide-by-two flip-flop, a TSPC flip-flop and divide-by-two, a DICE latch, and NAND and NOR SR latches. The runner is the
 comparator's (``flow.comp.layout``).
 
     uv run python -m flow.latch.layout latch_latch_tsmc65
@@ -201,6 +201,87 @@ def latch_sr_nor_tpsc65(run_dir: Path) -> Path:
 # ---- each case in all six PDKs
 
 
+# ---- TSPC flip-flop
+
+
+def latch_flop_tspc_tsmc65(run_dir: Path) -> Path:
+    return _latch(run_dir, "tsmc65", "flop_tspc")
+
+
+def latch_flop_tspc_tsmc28(run_dir: Path) -> Path:
+    return _latch(run_dir, "tsmc28", "flop_tspc")
+
+
+def latch_flop_tspc_ihp130(run_dir: Path) -> Path:
+    return _latch(run_dir, "ihp130", "flop_tspc")
+
+
+def latch_flop_tspc_tower180(run_dir: Path) -> Path:
+    return _latch(run_dir, "tower180", "flop_tspc")
+
+
+def latch_flop_tspc_lf150(run_dir: Path) -> Path:
+    return _latch(run_dir, "lf150", "flop_tspc")
+
+
+def latch_flop_tspc_tpsc65(run_dir: Path) -> Path:
+    return _latch(run_dir, "tpsc65", "flop_tspc")
+
+
+# ---- TSPC divide-by-two
+
+
+def latch_div2_tspc_tsmc65(run_dir: Path) -> Path:
+    return _latch(run_dir, "tsmc65", "div2_tspc")
+
+
+def latch_div2_tspc_tsmc28(run_dir: Path) -> Path:
+    return _latch(run_dir, "tsmc28", "div2_tspc")
+
+
+def latch_div2_tspc_ihp130(run_dir: Path) -> Path:
+    return _latch(run_dir, "ihp130", "div2_tspc")
+
+
+def latch_div2_tspc_tower180(run_dir: Path) -> Path:
+    return _latch(run_dir, "tower180", "div2_tspc")
+
+
+def latch_div2_tspc_lf150(run_dir: Path) -> Path:
+    return _latch(run_dir, "lf150", "div2_tspc")
+
+
+def latch_div2_tspc_tpsc65(run_dir: Path) -> Path:
+    return _latch(run_dir, "tpsc65", "div2_tspc")
+
+
+# ---- DICE latch
+
+
+def latch_latch_dice_tsmc65(run_dir: Path) -> Path:
+    return _latch(run_dir, "tsmc65", "latch_dice")
+
+
+def latch_latch_dice_tsmc28(run_dir: Path) -> Path:
+    return _latch(run_dir, "tsmc28", "latch_dice")
+
+
+def latch_latch_dice_ihp130(run_dir: Path) -> Path:
+    return _latch(run_dir, "ihp130", "latch_dice")
+
+
+def latch_latch_dice_tower180(run_dir: Path) -> Path:
+    return _latch(run_dir, "tower180", "latch_dice")
+
+
+def latch_latch_dice_lf150(run_dir: Path) -> Path:
+    return _latch(run_dir, "lf150", "latch_dice")
+
+
+def latch_latch_dice_tpsc65(run_dir: Path) -> Path:
+    return _latch(run_dir, "tpsc65", "latch_dice")
+
+
 def latch_latch_all_pdks(run_dir: Path) -> Path:
     return _all_pdks(
         run_dir,
@@ -285,6 +366,48 @@ def latch_sr_nor_all_pdks(run_dir: Path) -> Path:
     )
 
 
+def latch_flop_tspc_all_pdks(run_dir: Path) -> Path:
+    return _all_pdks(
+        run_dir,
+        (
+            latch_flop_tspc_tsmc65,
+            latch_flop_tspc_tsmc28,
+            latch_flop_tspc_ihp130,
+            latch_flop_tspc_tower180,
+            latch_flop_tspc_lf150,
+            latch_flop_tspc_tpsc65,
+        ),
+    )
+
+
+def latch_div2_tspc_all_pdks(run_dir: Path) -> Path:
+    return _all_pdks(
+        run_dir,
+        (
+            latch_div2_tspc_tsmc65,
+            latch_div2_tspc_tsmc28,
+            latch_div2_tspc_ihp130,
+            latch_div2_tspc_tower180,
+            latch_div2_tspc_lf150,
+            latch_div2_tspc_tpsc65,
+        ),
+    )
+
+
+def latch_latch_dice_all_pdks(run_dir: Path) -> Path:
+    return _all_pdks(
+        run_dir,
+        (
+            latch_latch_dice_tsmc65,
+            latch_latch_dice_tsmc28,
+            latch_latch_dice_ihp130,
+            latch_latch_dice_tower180,
+            latch_latch_dice_lf150,
+            latch_latch_dice_tpsc65,
+        ),
+    )
+
+
 ALL_PDKS = (
     latch_latch_all_pdks,
     latch_latch_rst_all_pdks,
@@ -292,11 +415,14 @@ ALL_PDKS = (
     latch_div2_all_pdks,
     latch_sr_nand_all_pdks,
     latch_sr_nor_all_pdks,
+    latch_flop_tspc_all_pdks,
+    latch_div2_tspc_all_pdks,
+    latch_latch_dice_all_pdks,
 )
 
 
 def all_latch_layouts(run_dir: Path) -> Path:
-    """The six ``*_all_pdks`` targets into ``run_dir/<target>/``."""
+    """The nine ``*_all_pdks`` targets into ``run_dir/<target>/``."""
 
     failures: dict[str, str] = {}
     for target in ALL_PDKS:
@@ -349,6 +475,24 @@ def main() -> None:
             latch_sr_nor_tower180,
             latch_sr_nor_lf150,
             latch_sr_nor_tpsc65,
+            latch_flop_tspc_tsmc65,
+            latch_flop_tspc_tsmc28,
+            latch_flop_tspc_ihp130,
+            latch_flop_tspc_tower180,
+            latch_flop_tspc_lf150,
+            latch_flop_tspc_tpsc65,
+            latch_div2_tspc_tsmc65,
+            latch_div2_tspc_tsmc28,
+            latch_div2_tspc_ihp130,
+            latch_div2_tspc_tower180,
+            latch_div2_tspc_lf150,
+            latch_div2_tspc_tpsc65,
+            latch_latch_dice_tsmc65,
+            latch_latch_dice_tsmc28,
+            latch_latch_dice_ihp130,
+            latch_latch_dice_tower180,
+            latch_latch_dice_lf150,
+            latch_latch_dice_tpsc65,
             *ALL_PDKS,
             all_latch_layouts,
         )

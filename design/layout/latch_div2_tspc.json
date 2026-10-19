@@ -1,0 +1,31 @@
+{
+ "_comment": "TSPC divide-by-two (dmc65 DIV2_SeTSPC): latch_flop_tspc with qb fed back to the first stage. Netlist (per PDK): written by flow.latch.subckt (div2_tspc).",
+ "netlist": "../../build/layout/netlists/{pdk}/latch_div2_tspc.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "clk"
+  ],
+  "down": [
+   "q",
+   "qb"
+  ]
+ },
+ "rows": [
+  [
+   "Mt1_p",
+   "Mt1_pclk",
+   "Mt2_pclk",
+   "Mt3_p",
+   "Mout_p"
+  ],
+  [
+   "Mt1_n",
+   "Mt2_n",
+   "Mt2_nclk",
+   "Mt3_nclk",
+   "Mt3_n",
+   "Mout_n"
+  ]
+ ]
+}

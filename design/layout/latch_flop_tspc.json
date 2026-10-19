@@ -1,0 +1,32 @@
+{
+ "_comment": "TSPC flip-flop (Yuan and Svensson): the PMOS row above the NMOS row, the three stages in order, each stack sharing diffusion, the output inverter last. Netlist (per PDK): written by flow.latch.subckt (flop_tspc).",
+ "netlist": "../../build/layout/netlists/{pdk}/latch_flop_tspc.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "d",
+   "clk"
+  ],
+  "down": [
+   "q",
+   "qb"
+  ]
+ },
+ "rows": [
+  [
+   "Mt1_p",
+   "Mt1_pclk",
+   "Mt2_pclk",
+   "Mt3_p",
+   "Mout_p"
+  ],
+  [
+   "Mt1_n",
+   "Mt2_n",
+   "Mt2_nclk",
+   "Mt3_nclk",
+   "Mt3_n",
+   "Mout_n"
+  ]
+ ]
+}

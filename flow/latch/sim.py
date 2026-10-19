@@ -5,6 +5,11 @@ characterization): complementary clocks, data that toggles once per cycle and ar
 offset before every capturing edge (the rising edge of a flip-flop, the closing falling edge of a
 latch), an initial reset, and output loads. Sweeping that offset finds setup and hold; the SR
 latches get set and reset pulses on the same bench, and a divider ignores the data.
+
+The upset bench is the radiation-hardness one (FE-I4's and RD53's SEU benches): a latch takes a 1
+and holds it, and a double-exponential current pulse (5 ps rise, 50 ps fall) puts a charge on the
+storage node that then holds a 0 (the C2MOS latch's inner node, the DICE latch's ``x1``), as a
+particle strike would; whether q flips, over the charge, is the latch's critical charge.
 """
 
 import argparse
@@ -25,7 +30,11 @@ from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimula
 from flow.analysis.io import interpolate_wave_records, write_measurement
 from flow.circuit.ports import testbench_from_ports
 
-from .subckt import CASES, Latch, LatchNets, LatchParams, Style
+from .subckt import CASES, CLOCKED_STYLES, Latch, LatchNets, LatchParams, Style
+
+# the storage node holding a 0 while a latch holds a 1: the one a strike must charge to flip it
+UPSET_NODE = {Style.CLOCKED: "qb", Style.DICE: "x1"}
+UPSET_RISE_S, UPSET_FALL_S = 5e-12, 50e-12
 
 
 def latch_signal_names() -> dict[str, str]:
@@ -56,6 +65,8 @@ class LatchTbParams:
     reset_time_s = h.Param(dtype=h.Scalar, desc="Reset (rst) pulse length at the start", default=0.5e-9)
     transition_time_s = h.Param(dtype=h.Scalar, desc="Rise and fall time of every source", default=50e-12)
     cycles = h.Param(dtype=int, desc="Clock cycles after the reset", default=8)
+    upset_charge_c = h.Param(dtype=h.Scalar, desc="Charge a strike puts on the storage node; 0: no strike", default=0.0)
+    upset_time_s = h.Param(dtype=h.Scalar, desc="Strike time, a nanosecond into the hold", default=2e-9)
 
 
 def _validate_latch_tb_params(params: LatchTbParams) -> None:
@@ -80,12 +91,19 @@ def _validate_latch_tb_params(params: LatchTbParams) -> None:
         raise ValueError("latch data offset must lie within half a clock period of the capturing edge")
     if float(params.reset_time_s) < 0 or params.cycles < 3:
         raise ValueError("latch reset time must be non-negative and the run at least three cycles")
+    if float(params.upset_charge_c):
+        if params.latch.style not in UPSET_NODE or params.latch.flop or params.latch.reset:
+            raise ValueError("the upset bench strikes a C2MOS or DICE latch without reset")
+        closed = 1e-9 + 2 * float(params.transition_time_s)
+        if not (float(params.upset_charge_c) > 0 and float(params.upset_time_s) > closed):
+            raise ValueError("the strike must carry charge and come after the latch closes")
 
 
 @h.generator
 def LatchTb(params: LatchTbParams) -> h.Module:
     """Generate the shared latch testbench: complementary clocks, data a set offset before each
-    capturing edge, an initial reset pulse, and set and reset pulses for an SR latch."""
+    capturing edge, an initial reset pulse, and set and reset pulses for an SR latch; or, with an
+    upset charge, d high and the latch open for the first nanosecond, then holding."""
 
     _validate_latch_tb_params(params)
 
@@ -97,6 +115,17 @@ def LatchTb(params: LatchTbParams) -> h.Module:
     edge = {"rise": transition, "fall": transition}
     clock, data = float(params.clock_period_s), float(params.data_period_s)
     LatchTb.vvdd = Vdc(dc=vdd)(p=LatchTb.vdd, n=vss)
+    if float(params.upset_charge_c):
+        # open while d is high, closed from 1 ns on; the strike itself is a literal (``_run_latch_sim``)
+        hold = {"period": 1.0, "width": 0.5, "delay": 1e-9, **edge}
+        LatchTb.vclk = Vpulse(v1=vdd, v2=0.0, **hold)(p=LatchTb.clk, n=vss)
+        LatchTb.vclkb = Vpulse(v1=0.0, v2=vdd, **hold)(p=LatchTb.clkb, n=vss)
+        for name, net in (("vd", LatchTb.d), ("vrst", LatchTb.rst), ("vs", LatchTb.s), ("vr", LatchTb.r)):
+            LatchTb.add(Vdc(dc=vdd if name == "vd" else 0.0)(p=net, n=vss), name=name)
+        LatchTb.cloadq = C(c=params.cload)(p=LatchTb.q, n=vss)
+        LatchTb.cloadqb = C(c=params.cload)(p=LatchTb.qb, n=vss)
+        LatchTb.dut = Latch(params.latch)(**connections)
+        return LatchTb
     LatchTb.vclk = Vpulse(v1=0.0, v2=vdd, period=clock, width=clock / 2, delay=clock / 2, **edge)(p=LatchTb.clk, n=vss)
     LatchTb.vclkb = Vpulse(v1=vdd, v2=0.0, period=clock, width=clock / 2, delay=clock / 2, **edge)(
         p=LatchTb.clkb, n=vss
@@ -130,7 +159,8 @@ def LatchTb(params: LatchTbParams) -> h.Module:
 
 def _run_latch_sim(run_dir: Path, params: LatchTbParams, *, check: bool = False) -> Path:
     """Run one latch testbench transient in its PDK and return its raw file: the reset, then
-    ``cycles`` clock cycles (an SR latch: three set and reset periods).
+    ``cycles`` clock cycles (an SR latch: three set and reset periods; the upset bench: twice the
+    strike time).
 
     ``check`` adds Spectre's static and connectivity checks and shortens the run to a tenth.
     """
@@ -144,8 +174,10 @@ def _run_latch_sim(run_dir: Path, params: LatchTbParams, *, check: bool = False)
     h.pdk.compile(tb)
     interval = params.waveform_sample_interval_s
     tstop = (
-        3 * float(params.data_period_s)
-        if params.latch.style != Style.CLOCKED
+        2 * float(params.upset_time_s)
+        if float(params.upset_charge_c)
+        else 3 * float(params.data_period_s)
+        if params.latch.style not in CLOCKED_STYLES
         else float(params.reset_time_s) + (params.cycles + 1) * float(params.clock_period_s)
     )
     attrs = [
@@ -157,6 +189,17 @@ def _run_latch_sim(run_dir: Path, params: LatchTbParams, *, check: bool = False)
         hs.Options(name="save", value="selected"),
         hs.Save([raw for raw in latch_signal_names() if raw != "time"]),
     ]
+    if float(params.upset_charge_c):
+        # the double exponential into the storage node: its charge is the peak times the
+        # difference of the time constants; hdl21 has no exponential source
+        peak = float(params.upset_charge_c) / (UPSET_FALL_S - UPSET_RISE_S)
+        strike = float(params.upset_time_s)
+        attrs.append(
+            h.Literal(
+                f"iupset (xtop.dut.{UPSET_NODE[params.latch.style]} 0) isource type=exp val0=0 val1={-peak:g} "
+                f"td1={strike:g} tau1={UPSET_RISE_S:g} td2={strike:g} tau2={UPSET_FALL_S:g}"
+            )
+        )
     if check:
         attrs.append(
             h.Literal(
@@ -201,8 +244,9 @@ def _run_latch_sim(run_dir: Path, params: LatchTbParams, *, check: bool = False)
 
 
 # The characterization, in every PDK about its own core supply: every case over the supply (75 to
-# 108 % of it); at the core supply the clocked latches and the flip-flop over the data offset
-# (setup and hold), the flip-flop and divider over the clock period.
+# 108 % of it); at the core supply the clocked latches and the flip-flops over the data offset
+# (setup and hold), the flip-flops and dividers over the clock period, and the C2MOS and DICE
+# latches struck while holding a 1.
 SUPPLY_SWEEP = (9 / 12, 10 / 12, 11 / 12, 1.0, 13 / 12)
 DATA_OFFSET_SWEEP_S = tuple(round(offset * 1e-12, 15) for offset in range(-200, 301, 10))
 CLOCK_PERIOD_SWEEP_S = (
@@ -221,10 +265,12 @@ CLOCK_PERIOD_SWEEP_S = (
 )
 NOMINAL_CLOCK_PERIOD_S = 2e-9
 NOMINAL_DATA_OFFSET_S = 0.5e-9
+# the strikes, 2 to 200 fC: a minimum-size node's critical charge is a few femtocoulombs
+UPSET_CHARGES_C = (2e-15, 5e-15, 10e-15, 20e-15, 50e-15, 100e-15, 200e-15)
 
 
 def latch_characterization(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the supply, data offset and clock period sweeps in every PDK (about 200 transients each).
+    """Run the supply, data offset, clock period and upset sweeps in every PDK (about 360 transients each).
 
     Each point writes ``<pdk>/<case>/<sweep>/<point>/result.h5`` (a ``MeasLatch``). ``check`` runs
     the nominal point of each case with Spectre's checks instead, writing no measurement.
@@ -242,8 +288,13 @@ def latch_characterization(run_dir: Path, *, check: bool = False) -> Path:
         for case, latch in CASES.items():
             for vdd in (supply,) if check else [round(step * supply, 4) for step in SUPPLY_SWEEP]:
                 jobs[f"{pdk}/{case}/supply/vdd{round(vdd * 1e3)}"] = LatchTbParams(pdk=pdk, latch=latch, vdd=vdd)
-            if check or latch.style != Style.CLOCKED:
+            if check or latch.style not in CLOCKED_STYLES:
                 continue
+            if latch.style in UPSET_NODE and not (latch.flop or latch.reset):
+                for charge in UPSET_CHARGES_C:
+                    jobs[f"{pdk}/{case}/upset/q{round(charge * 1e18)}"] = LatchTbParams(
+                        pdk=pdk, latch=latch, vdd=supply, upset_charge_c=charge
+                    )
             if not latch.divider:
                 for offset in DATA_OFFSET_SWEEP_S:
                     jobs[f"{pdk}/{case}/offset/offset{round(offset * 1e12)}ps"] = LatchTbParams(

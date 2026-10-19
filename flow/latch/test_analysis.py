@@ -1,4 +1,4 @@
-"""Latch analyses and plots on synthetic records with known setup, delay, and current."""
+"""Latch analyses and plots on synthetic records with known setup, delay, current, and upset."""
 
 import math
 from datetime import UTC, datetime
@@ -8,8 +8,14 @@ import numpy as np
 import pytest
 
 from flow.analysis.types import MeasInfo, Wave
-from flow.latch.analysis import MeasLatch, analyze_latch_constraint, analyze_latch_sr, analyze_latch_timing
-from flow.latch.plots import plot_latch_frequency, plot_latch_setup_hold, plot_latch_supply
+from flow.latch.analysis import (
+    MeasLatch,
+    analyze_latch_constraint,
+    analyze_latch_sr,
+    analyze_latch_timing,
+    analyze_latch_upset,
+)
+from flow.latch.plots import plot_latch_frequency, plot_latch_setup_hold, plot_latch_supply, plot_latch_upset
 from flow.latch.sim import LatchTbParams
 from flow.latch.subckt import CASES
 
@@ -120,4 +126,31 @@ def test_architecture_comparison_plots_render(tmp_path: Path) -> None:
         *plot_latch_supply([supply], [sr], labels=["flop", "sr"], output_path=tmp_path / "supply"),
         *plot_latch_frequency([supply], labels=["flop"], output_path=tmp_path / "frequency"),
     )
+    assert paths and all(path.exists() for path in paths)
+
+
+def _upset(charge_c: float, critical_c: float) -> MeasLatch:
+    """A latch holding q at 1.2 V that, struck at 2 ns, dips by 60 mV per femtocoulomb (at most to
+    ground) and stays down from the critical charge on, else recovers within 0.2 ns."""
+    params = LatchTbParams(latch=CASES["latch_dice"], upset_charge_c=charge_c)
+    time_s = np.arange(0.0, 4e-9, 1e-12)
+    dip = min(1.2, 0.06 * charge_c * 1e15)
+    struck = (time_s >= 2e-9) & ((time_s < 2.2e-9) | (charge_c >= critical_c))
+    return _measurement(params, time_s, {"q": np.where(struck, 1.2 - dip, 1.2)}, 1e-6)
+
+
+def test_upset_critical_charge_and_dip() -> None:
+    upset = analyze_latch_upset([_upset(charge * 1e-15, 20e-15) for charge in (50, 5, 10, 20)])
+    assert upset.charge_c == pytest.approx([5e-15, 10e-15, 20e-15, 50e-15])
+    assert list(upset.upset) == [0.0, 0.0, 1.0, 1.0]
+    assert upset.q_dip_v == pytest.approx([0.3, 0.6, 1.2, 1.2])
+    assert upset.critical_charge_c == pytest.approx(20e-15)
+    assert math.isnan(analyze_latch_upset([_upset(5e-15, 20e-15)]).critical_charge_c)
+    with pytest.raises(ValueError, match="upset bench"):
+        analyze_latch_upset([_flop(0.2e-9)])
+
+
+def test_upset_plot_renders(tmp_path: Path) -> None:
+    upset = analyze_latch_upset([_upset(charge * 1e-15, 20e-15) for charge in (5, 20, 50)])
+    paths = plot_latch_upset([upset], labels=["a"], output_path=tmp_path / "upset")
     assert paths and all(path.exists() for path in paths)

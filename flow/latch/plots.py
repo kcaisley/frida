@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from flow.analysis.plots import NORD_BLUE, NORD_DARK, NORD_ORANGE, NORD_RED, PLOT_STYLE, save_figure, style_grid
-from flow.latch.analysis import AnalysisLatchConstraint, AnalysisLatchSr, AnalysisLatchTiming
+from flow.latch.analysis import AnalysisLatchConstraint, AnalysisLatchSr, AnalysisLatchTiming, AnalysisLatchUpset
 
 
 @mpl.rc_context(PLOT_STYLE)
@@ -150,4 +150,37 @@ def plot_latch_frequency(
     fig.supxlabel("Clock frequency (GHz)")
     fig.supylabel("Clock to q delay (ps)", color=NORD_BLUE)
     fig.suptitle(f"Flip-flop and divider speed at {timings[0].vdd_v[0]:g} V")
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
+def plot_latch_upset(
+    upsets: Sequence[AnalysisLatchUpset],
+    *,
+    labels: Sequence[str],
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Compare the latches' response to a strike over its charge: q's dip, the strikes that flipped
+    q marked, the critical charge in each title."""
+
+    if not upsets or len(upsets) != len(labels):
+        raise ValueError("upset comparison requires one upset result and label per latch")
+    columns = min(2, len(upsets))
+    rows = (len(upsets) + columns - 1) // columns
+    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
+    for index, (upset, label) in enumerate(zip(upsets, labels, strict=True)):
+        ax = axes.flat[index]
+        charge_fc = upset.charge_c * 1e15
+        ax.semilogx(charge_fc, upset.q_dip_v, "o-", color=NORD_BLUE, markersize=3, label="q dip")
+        flipped = upset.upset > 0
+        ax.semilogx(charge_fc[flipped], upset.q_dip_v[flipped], "x", color=NORD_RED, markersize=7, label="Flipped")
+        critical = upset.critical_charge_c
+        ax.set_title(f"{label}\ncritical charge {'none' if np.isnan(critical) else f'{critical * 1e15:g} fC'}")
+        style_grid(ax)
+    for ax in axes.flat[len(upsets) :]:
+        ax.set_visible(False)
+    axes.flat[0].legend(loc="upper left", fontsize="small")
+    fig.supxlabel("Charge on the storage node (fC)")
+    fig.supylabel("q dip after the strike (V)")
+    fig.suptitle("Latch upset: a strike while holding a 1")
     return save_figure(fig, output_path)

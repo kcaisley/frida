@@ -1,0 +1,56 @@
+{
+ "_comment": "DICE latch (FE-I4 SEU_latch, helena latch9_dice): the writers' PMOS and NMOS rows with the d inverter first and the output inverters last, then the interlocked storage devices' NMOS and PMOS rows below. Rows top first. Netlist (per PDK): written by flow.latch.subckt (latch_dice).",
+ "netlist": "../../build/layout/netlists/{pdk}/latch_latch_dice.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "d",
+   "clk",
+   "clkb"
+  ],
+  "down": [
+   "q",
+   "qb"
+  ]
+ },
+ "rows": [
+  [
+   "Mdb_p",
+   "Mw1_p",
+   "Mw1_pclk",
+   "Mw2_p",
+   "Mw2_pclk",
+   "Mw3_p",
+   "Mw3_pclk",
+   "Mw4_p",
+   "Mw4_pclk",
+   "Mout_q_p",
+   "Mout_qb_p"
+  ],
+  [
+   "Mdb_n",
+   "Mw1_n",
+   "Mw1_nclk",
+   "Mw2_n",
+   "Mw2_nclk",
+   "Mw3_n",
+   "Mw3_nclk",
+   "Mw4_n",
+   "Mw4_nclk",
+   "Mout_q_n",
+   "Mout_qb_n"
+  ],
+  [
+   "Mx1_n",
+   "Mx2_n",
+   "Mx3_n",
+   "Mx4_n"
+  ],
+  [
+   "Mx1_p",
+   "Mx2_p",
+   "Mx3_p",
+   "Mx4_p"
+  ]
+ ]
+}
