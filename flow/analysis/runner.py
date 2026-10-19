@@ -92,6 +92,8 @@ from flow.analysis.types import (
     MeasCdac,
     MeasComp,
 )
+from flow.bias.analysis import MeasBias, analyze_bias_mirror
+from flow.bias.plots import plot_bias_mirror, plot_bias_reference
 from flow.caparray.analysis import MeasCapArrayTran, analyze_caparray_transfer, analyze_caparray_weights
 from flow.caparray.plots import plot_caparray_error, plot_caparray_transfer, plot_caparray_weights
 from flow.capdriver.analysis import MeasCapdriver, analyze_capdriver_drive
@@ -2011,6 +2013,36 @@ def schmitt_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
+def bias_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named cascode bias generators' test mirrors over the reference current and the supply, in every PDK."""
+
+    meas_read_dir = BASE_PATH / "build/sim/bias/bias_characterization/20261019_022652"
+    cases = (("wide", "wide: a quarter-strength diode"), ("margin", "margin: a sixteenth"))
+    labels = [label for _name, label in cases]
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            for sweep, key in (
+                ("iref", lambda item: float(item.param.iref)),
+                ("supply", lambda item: float(item.param.vdd)),
+            ):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasBias):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasBias")
+                    measurements.append(measurement)
+                sweeps[name, sweep] = sorted(measurements, key=key)
+        mirrors = [analyze_bias_mirror(sweeps[name, "iref"]) for name, _label in cases]
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_bias_mirror(mirrors, labels=labels, output_path=pdk_dir / "bias_mirror"),
+            *plot_bias_reference(mirrors, labels=labels, output_path=pdk_dir / "bias_reference"),
+        ]
+    return tuple(artifacts)
+
+
 def lvshift_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     """Compare the named level shifters over the input and output supplies, in every PDK."""
 
@@ -2272,6 +2304,7 @@ def main() -> None:
             csa_characterization_study,
             disc_characterization_study,
             schmitt_characterization_study,
+            bias_characterization_study,
             lvshift_characterization_study,
             ringamp_characterization_study,
             samp_characterization_study,
@@ -2303,6 +2336,7 @@ def main() -> None:
                 "csa_",
                 "disc_",
                 "schmitt_",
+                "bias_",
                 "lvshift_",
                 "ringamp_",
                 "samp_",

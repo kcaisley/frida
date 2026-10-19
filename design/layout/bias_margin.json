@@ -1,0 +1,34 @@
+{
+ "_comment": "Cascode bias generator, margin cascode-gate diodes (RD53B MIRROR_CASCODE_BIAS): the PMOS reference and its copy with the vcasp diode above the NMOS reference, its copies, the vcasn diode and the start-up follower; each device beside its cascode. Rows top first. Netlist (per PDK): written by flow.bias.subckt (margin).",
+ "netlist": "../../build/layout/netlists/{pdk}/bias_margin.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "vbp",
+   "vcasp"
+  ],
+  "down": [
+   "vbn",
+   "vcasn"
+  ]
+ },
+ "rows": [
+  [
+   "Mp_cas",
+   "Mp",
+   "Mp_to_casn",
+   "Mp_to_casn_cas",
+   "Mcasp"
+  ],
+  [
+   "Mn_cas",
+   "Mn",
+   "Mn_to_p",
+   "Mn_to_p_cas",
+   "Mn_to_casp",
+   "Mn_to_casp_cas",
+   "Mcasn",
+   "Mstart"
+  ]
+ ]
+}

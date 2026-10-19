@@ -1,0 +1,20 @@
+# Status
+
+| Feature | Status | File | Notes |
+|---|---|---|---|
+| Netlist generator | ✓ | [subckt.py](subckt.py) | Wide-swing cascode bias generator (13 devices): from one reference current into `vbn`, self-cascoded NMOS and PMOS reference diodes (`vbn`, `vbp`) and weak diodes for the cascode gates (`vcasn`, `vcasp`), fed by cascoded copies of the current, and a start-up follower from `vbn` onto `vcasn`. The diodes' W/L is a quarter (`wide`) or a sixteenth (`margin`) of the mirror device's. |
+| Netlist tests | ✓ | [test_subckt.py](test_subckt.py) | Reference, diode, copy and start-up wiring; the margin case's weaker diodes; invalid generators. |
+| Testbench generator | ✓ | [sim.py](sim.py) | The current source's bench (Usb2Phy `IdacSweepTb`): the reference current into `vbn` from a supply of its own, cascoded NMOS and PMOS test mirrors (copies of the generator's devices) on the four gates, their outputs held by sources and swept from ground to the supply (Spectre's DC sweep). |
+| Simulation runners | ✓ | [sim.py](sim.py) | `bias_characterization`: every case over reference currents of 1–50 µA at the core supply and supplies of 75–108 % at 10 µA, in each PDK (22 runs per PDK, all 132 in about a minute on 16 workers); `check=True` runs Spectre's static checks at the nominal point. |
+| Analysis | ✓ | [analysis.py](analysis.py) | `MeasBias`; `analyze_bias_mirror` (each test mirror's current at mid-supply over the reference, output resistance there from `deriv`, compliance where its current stays within 5 % as in `flow.idac`, the mirror devices' drain-source voltages, the four gates, the supply current). Run 20261019_022652, at 10 µA: both mirrors within 8 % of the reference in every PDK (`margin` within 6 %), NMOS compliance 0.17–0.49 V above ground and PMOS 0.21–0.49 V below the supply, the generator drawing 2.3–3.2 times the reference. At 1 µA, in weak inversion, the quarter-strength diodes leave the mirrors off by up to a third (LF150's PMOS mirror; in IHP130 the NMOS mirror device has no drain-source voltage left and the start-up follower stays on); the sixteenth brings TSMC65 and TPSC65 within 8 % but leaves IHP130 and LF150 up to 50 % off; at 50 µA TSMC28's PMOS mirror runs out of headroom at 0.9 V (0.64). Over the supply the ratios move by at most 0.1. Uncascoded copies were off by up to three times at 1 µA (barrier lowering), and once cascoded the DC solution without start-up could sit dead (no current, `vbn` far above the supply) in IHP130 and LF150. |
+| Plots | ✓ | [plots.py](plots.py) | One panel per case: both test mirrors' current over the reference across the output voltage at 10 µA with their compliance limits; the mirror devices' headroom and the current ratios over the reference current; one figure set per PDK. Run by `flow.analysis.runner bias_characterization_study`. |
+| Analysis tests | ✓ | [test_analysis.py](test_analysis.py) | Synthetic mirror characteristics of known ratio, output resistance, compliance and headroom; every plot renders. |
+| Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows with cIcCreator, laygo and ALIGN from hand-written floorplans (`design/layout/bias_*.json`). |
+| Layout tests | ✓ | [test_layout.py](test_layout.py) | Target registry; every floorplan places each netlist device once and escapes every connected port; every PDK writes every case. |
+| Layout runner | ✓ | [layout.py](layout.py) | Two cases in six PDKs with cIcCreator and laygo: all 24 layouts DRC clean and LVS correct. ALIGN not run: `ALIGN_HOME` names a deleted install. |
+| DRC runner | ✓ | [layout.py](layout.py) | gdscheck and the PDK's DRC for every layout (`row_signoff`). |
+| LVS runner | ✓ | [layout.py](layout.py) | The PDK's LVS for every layout against the netlist the build placed. |
+| PEX runner | ✗ | - | No extraction. |
+| Reference current | ✗ | - | The reference current is ideal: a constant-gm or beta-multiplier reference (CCPD `SELF_BIASGEN`) needs a resistor in the rows. |
+
+Inspiration: RD53B `MIRROR_CASCODE_BIAS`, `TO_VBIAS_KRUM`; Johns and Martin's wide-swing cascode bias.
