@@ -162,7 +162,7 @@ def _run_capdriver_sim(run_dir: Path, params: CapdriverTbParams, *, check: bool 
 # CDAC stage's bottom plate, from the LSBs to the MSB) at the core supply, and the supply (75 to
 # 108 %) at 100 fF. Each period lasts 200 ps per fF of load (at least 2 ns), so even the weakest
 # band-1 XORs (up to about 20 kΩ, behind a nanosecond of delay) settle to 1 % within half of it; the
-# record holds 2000 samples a period (at most 1 ps apart).
+# record holds 2000 samples a period, no closer than 1 ps (1 ps up to a 2 ns period, 100 ps at 1 pF).
 LOAD_SWEEP_F = (10e-15, 30e-15, 100e-15, 300e-15, 1e-12)
 SUPPLY_SWEEP = (9 / 12, 10 / 12, 11 / 12, 1.0, 13 / 12)
 NOMINAL_LOAD_F = 100e-15
@@ -203,7 +203,7 @@ def capdriver_characterization(run_dir: Path, *, check: bool = False) -> Path:
                             vdd=round(vdd, 4),
                             cload=load,
                             period_s=period,
-                            waveform_sample_interval_s=min(1e-12, period / 2000),
+                            waveform_sample_interval_s=max(1e-12, period / 2000),
                         ),
                         abs(vdd - supply) < 1e-6 and load == NOMINAL_LOAD_F,
                     )

@@ -1431,7 +1431,7 @@ def delay_characterization_study(output_dir: Path) -> tuple[Path, ...]:
 def latch_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     """Compare the named latches' setup and hold, delay and energy over supply, toggle limit, and upset by a strike, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/latch/latch_characterization/20261019_021226"
+    meas_read_dir = BASE_PATH / "build/sim/latch/latch_characterization/20261019_234509"
     clocked = (
         ("latch", "latch: C2MOS"),
         ("latch_rst", "latch_rst: C2MOS with reset"),
@@ -1861,7 +1861,7 @@ def clkgen_characterization_study(output_dir: Path) -> tuple[Path, ...]:
 def capdriver_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     """Compare the capacitor driver's drive bands over the load and the supply, in every PDK."""
 
-    meas_read_dir = BASE_PATH / "build/sim/capdriver/capdriver_characterization/20261019_004359"
+    meas_read_dir = BASE_PATH / "build/sim/capdriver/capdriver_characterization/20261019_234512"
     cases = (("x1", "x1: drive band 1"), ("x2", "x2: drive band 2"), ("x4", "x4: drive band 4"))
     labels = [label for _name, label in cases]
     artifacts = []

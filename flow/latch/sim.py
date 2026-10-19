@@ -8,8 +8,9 @@ latches get set and reset pulses on the same bench, and a divider ignores the da
 
 The upset bench is the radiation-hardness one (FE-I4's and RD53's SEU benches): a latch takes a 1
 and holds it, and a double-exponential current pulse (5 ps rise, 50 ps fall) puts a charge on the
-storage node that then holds a 0 (the C2MOS latch's inner node, the DICE latch's ``x1``), as a
-particle strike would; whether q flips, over the charge, is the latch's critical charge.
+storage node that then holds a 0 (the C2MOS latch's inner node, the DICE latch's ``x1``, neither
+loaded), as a particle strike would; whether q flips, over the charge, is the latch's critical
+charge.
 """
 
 import argparse
@@ -122,8 +123,9 @@ def LatchTb(params: LatchTbParams) -> h.Module:
         LatchTb.vclkb = Vpulse(v1=0.0, v2=vdd, **hold)(p=LatchTb.clkb, n=vss)
         for name, net in (("vd", LatchTb.d), ("vrst", LatchTb.rst), ("vs", LatchTb.s), ("vr", LatchTb.r)):
             LatchTb.add(Vdc(dc=vdd if name == "vd" else 0.0)(p=net, n=vss), name=name)
+        # q loaded as on the timing bench, qb not: it is the C2MOS latch's storage node, and a load
+        # there would raise the charge a strike needs over the DICE latch's unloaded x1
         LatchTb.cloadq = C(c=params.cload)(p=LatchTb.q, n=vss)
-        LatchTb.cloadqb = C(c=params.cload)(p=LatchTb.qb, n=vss)
         LatchTb.dut = Latch(params.latch)(**connections)
         return LatchTb
     LatchTb.vclk = Vpulse(v1=0.0, v2=vdd, period=clock, width=clock / 2, delay=clock / 2, **edge)(p=LatchTb.clk, n=vss)
@@ -246,7 +248,7 @@ def _run_latch_sim(run_dir: Path, params: LatchTbParams, *, check: bool = False)
 # The characterization, in every PDK about its own core supply: every case over the supply (75 to
 # 108 % of it); at the core supply the clocked latches and the flip-flops over the data offset
 # (setup and hold), the flip-flops and dividers over the clock period, and the C2MOS and DICE
-# latches struck while holding a 1.
+# latches struck while holding a 1 (12 charges).
 SUPPLY_SWEEP = (9 / 12, 10 / 12, 11 / 12, 1.0, 13 / 12)
 DATA_OFFSET_SWEEP_S = tuple(round(offset * 1e-12, 15) for offset in range(-200, 301, 10))
 CLOCK_PERIOD_SWEEP_S = (
@@ -265,12 +267,12 @@ CLOCK_PERIOD_SWEEP_S = (
 )
 NOMINAL_CLOCK_PERIOD_S = 2e-9
 NOMINAL_DATA_OFFSET_S = 0.5e-9
-# the strikes, 2 to 200 fC: a minimum-size node's critical charge is a few femtocoulombs
-UPSET_CHARGES_C = (2e-15, 5e-15, 10e-15, 20e-15, 50e-15, 100e-15, 200e-15)
+# the strikes, 1 to 200 fC: a minimum-size node's critical charge is a few femtocoulombs
+UPSET_CHARGES_C = tuple(charge * 1e-15 for charge in (1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 100, 200))
 
 
 def latch_characterization(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the supply, data offset, clock period and upset sweeps in every PDK (about 360 transients each).
+    """Run the supply, data offset, clock period and upset sweeps in every PDK (about 370 transients each).
 
     Each point writes ``<pdk>/<case>/<sweep>/<point>/result.h5`` (a ``MeasLatch``). ``check`` runs
     the nominal point of each case with Spectre's checks instead, writing no measurement.
