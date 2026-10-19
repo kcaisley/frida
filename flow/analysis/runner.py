@@ -56,7 +56,13 @@ from flow.analysis.calibration2 import analyze_adc_calibration2
 from flow.analysis.calibration3 import analyze_adc_calibration3
 from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_transition
 from flow.analysis.comp import analyze_comp_common_mode, analyze_comp_offset_noise
-from flow.analysis.io import read_extracted_calibration, read_measurement, read_measurement_param, write_analysis
+from flow.analysis.io import (
+    read_extracted_calibration,
+    read_measurement,
+    read_measurement_param,
+    read_measurements,
+    write_analysis,
+)
 from flow.analysis.plots import (
     plot_adc_calibration_weights,
     plot_adc_cdac_settling,
@@ -93,7 +99,7 @@ from flow.analysis.types import (
     MeasComp,
 )
 from flow.bias.analysis import MeasBias, analyze_bias_mirror
-from flow.bias.plots import plot_bias_mirror, plot_bias_reference
+from flow.bias.plots import plot_bias_mirror, plot_bias_reference, plot_bias_supply
 from flow.caparray.analysis import MeasCapArrayTran, analyze_caparray_transfer, analyze_caparray_weights
 from flow.caparray.plots import plot_caparray_error, plot_caparray_transfer, plot_caparray_weights
 from flow.capdriver.analysis import MeasCapdriver, analyze_capdriver_drive
@@ -1446,13 +1452,9 @@ def latch_characterization_study(output_dir: Path) -> tuple[Path, ...]:
                 ("period", lambda item: -float(item.param.clock_period_s)),
                 ("upset", lambda item: float(item.param.upset_charge_c)),
             ):
-                measurements = []
-                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
-                    measurement = read_measurement(path)
-                    if not isinstance(measurement, MeasLatch):
-                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasLatch")
-                    measurements.append(measurement)
-                sweeps[name, sweep] = sorted(measurements, key=key)
+                sweeps[name, sweep] = read_measurements(
+                    meas_read_dir, f"{pdk}/{name}/{sweep}/*/result.h5", MeasLatch, key=key
+                )
         offset_cases = [(name, label) for name, label in clocked if sweeps[name, "offset"]]
         period_cases = [(name, label) for name, label in clocked if sweeps[name, "period"]]
         upset_cases = [(name, label) for name, label in clocked if sweeps[name, "upset"]]
@@ -1510,13 +1512,9 @@ def ota_characterization_study(output_dir: Path) -> tuple[Path, ...]:
                 ("vcm", lambda item: float(item.param.vcm)),
                 ("supply", lambda item: float(item.param.vdd)),
             ):
-                measurements = []
-                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
-                    measurement = read_measurement(path)
-                    if not isinstance(measurement, MeasOta):
-                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasOta")
-                    measurements.append(measurement)
-                sweeps[name, sweep] = sorted(measurements, key=key)
+                sweeps[name, sweep] = read_measurements(
+                    meas_read_dir, f"{pdk}/{name}/{sweep}/*/result.h5", MeasOta, key=key
+                )
         common_modes = [analyze_ota_ac(sweeps[name, "vcm"]) for name, _label in cases]
         nominals = [
             analyze_ota_ac([item for item in sweeps[name, "vcm"] if item.info.readbacks["nominal"]])
@@ -1545,10 +1543,7 @@ def ota_characterization_study(output_dir: Path) -> tuple[Path, ...]:
         unity = {}
         for name, label in cases:
             for bench in ("step", "sine"):
-                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{bench}/*/result.h5")):
-                    measurement = read_measurement(path)
-                    if not isinstance(measurement, MeasOtaTran):
-                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasOtaTran")
+                for measurement in read_measurements(meas_read_dir, f"{pdk}/{name}/{bench}/*/result.h5", MeasOtaTran):
                     unity[name, bench] = (measurement, label)
         steps = [unity[name, "step"] for name, _label in cases if (name, "step") in unity]
         sines = [unity[name, "sine"] for name, _label in cases if (name, "sine") in unity]
@@ -1581,23 +1576,16 @@ def follower_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     labels = [label for _name, label in cases]
     artifacts = []
     for pdk in PDKS:
-        sweeps = {}
+        sweeps, steps = {}, {}
         for name, _label in cases:
             for stimulus in ("input", "output"):
-                measurements = []
-                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{stimulus}/*/result.h5")):
-                    measurement = read_measurement(path)
-                    if not isinstance(measurement, MeasFollower):
-                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasFollower")
-                    measurements.append(measurement)
-                sweeps[name, stimulus] = sorted(measurements, key=lambda item: float(item.param.vin))
-            steps = []
-            for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/step/*/result.h5")):
-                measurement = read_measurement(path)
-                if not isinstance(measurement, MeasFollowerStep):
-                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasFollowerStep")
-                steps.append(measurement)
-            sweeps[name, "step"] = steps
+                sweeps[name, stimulus] = read_measurements(
+                    meas_read_dir,
+                    f"{pdk}/{name}/{stimulus}/*/result.h5",
+                    MeasFollower,
+                    key=lambda item: float(item.param.vin),
+                )
+            steps[name] = read_measurements(meas_read_dir, f"{pdk}/{name}/step/*/result.h5", MeasFollowerStep)
         transfers = [analyze_follower_transfer(sweeps[name, "input"]) for name, _label in cases]
         impedances = [analyze_follower_impedance(sweeps[name, "output"]) for name, _label in cases]
         # each case's frequency response where it follows best (its input of highest gain): a fixed
@@ -1622,8 +1610,8 @@ def follower_characterization_study(output_dir: Path) -> tuple[Path, ...]:
             ),
             *plot_follower_psrr(transfers, labels=labels, output_path=pdk_dir / "follower_psrr"),
             *plot_follower_slew(
-                [sweeps[name, "step"][0] for name, _label in cases],
-                [analyze_follower_slew(sweeps[name, "step"]) for name, _label in cases],
+                [steps[name][0] for name, _label in cases],
+                [analyze_follower_slew(steps[name]) for name, _label in cases],
                 labels=labels,
                 output_path=pdk_dir / "follower_slew",
             ),
@@ -1884,13 +1872,9 @@ def capdriver_characterization_study(output_dir: Path) -> tuple[Path, ...]:
                 ("load", lambda item: float(item.param.cload)),
                 ("supply", lambda item: float(item.param.vdd)),
             ):
-                measurements = []
-                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
-                    measurement = read_measurement(path)
-                    if not isinstance(measurement, MeasCapdriver):
-                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCapdriver")
-                    measurements.append(measurement)
-                sweeps[name, sweep] = sorted(measurements, key=key)
+                sweeps[name, sweep] = read_measurements(
+                    meas_read_dir, f"{pdk}/{name}/{sweep}/*/result.h5", MeasCapdriver, key=key
+                )
         pdk_dir = output_dir / pdk
         artifacts += [
             *plot_capdriver_load(
@@ -1921,20 +1905,11 @@ def csa_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     for pdk in PDKS:
         pulses, noises, noise_labels = [], [], []
         for name, label in cases:
-            measurements = []
-            for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/q*/result.h5")):
-                measurement = read_measurement(path)
-                if not isinstance(measurement, MeasCsa):
-                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCsa")
-                measurements.append(measurement)
-            pulses.append(analyze_csa_pulse(measurements))
+            pulses.append(analyze_csa_pulse(read_measurements(meas_read_dir, f"{pdk}/{name}/q*/result.h5", MeasCsa)))
             # the reset amplifier, open at rest, has no noise bench
-            noise_path = meas_read_dir / pdk / name / "noise" / "result.h5"
-            if noise_path.exists():
-                noise = read_measurement(noise_path)
-                if not isinstance(noise, MeasCsaNoise):
-                    raise TypeError(f"{noise_path} contains {type(noise).__name__}, expected MeasCsaNoise")
-                noises.append(analyze_csa_noise([noise], pulses[-1]))
+            noise = read_measurements(meas_read_dir, f"{pdk}/{name}/noise/result.h5", MeasCsaNoise)
+            if noise:
+                noises.append(analyze_csa_noise(noise, pulse=pulses[-1]))
                 noise_labels.append(label)
         labels = [label for _name, label in cases]
         pdk_dir = output_dir / pdk
@@ -1956,24 +1931,24 @@ def disc_characterization_study(output_dir: Path) -> tuple[Path, ...]:
         ("pmos", "pmos: PMOS pair, mirror load"),
         ("pmos_hyst", "pmos_hyst: PMOS pair, hysteresis"),
     )
-    labels = [label for _name, label in cases]
     artifacts = []
     for pdk in PDKS:
-        trips, delays = [], []
-        for name, _label in cases:
-            records = {}
-            for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/*/result.h5")):
-                measurement = read_measurement(path)
-                if not isinstance(measurement, MeasDisc):
-                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasDisc")
-                records[path.parent.name] = measurement
-            trips.append(analyze_disc_trip([records.pop("ramp")]))
-            delays.append(analyze_disc_delay(list(records.values())))
+        # a case missing its triangle or its steps loses that panel, not the study
+        trips, trip_labels, delays, delay_labels = [], [], [], []
+        for name, label in cases:
+            ramp = read_measurements(meas_read_dir, f"{pdk}/{name}/ramp/result.h5", MeasDisc)
+            steps = read_measurements(meas_read_dir, f"{pdk}/{name}/od*/result.h5", MeasDisc)
+            if ramp:
+                trips.append(analyze_disc_trip(ramp))
+                trip_labels.append(label)
+            if steps:
+                delays.append(analyze_disc_delay(steps))
+                delay_labels.append(label)
         pdk_dir = output_dir / pdk
-        artifacts += [
-            *plot_disc_transfer(trips, labels=labels, output_path=pdk_dir / "disc_transfer"),
-            *plot_disc_delay(delays, labels=labels, output_path=pdk_dir / "disc_delay"),
-        ]
+        if trips:
+            artifacts += plot_disc_transfer(trips, labels=trip_labels, output_path=pdk_dir / "disc_transfer")
+        if delays:
+            artifacts += plot_disc_delay(delays, labels=delay_labels, output_path=pdk_dir / "disc_delay")
     return tuple(artifacts)
 
 
@@ -1992,13 +1967,7 @@ def schmitt_characterization_study(output_dir: Path) -> tuple[Path, ...]:
         sweeps = {}
         for name, _label in cases:
             for sweep in ("supply", "step"):
-                measurements = []
-                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
-                    measurement = read_measurement(path)
-                    if not isinstance(measurement, MeasSchmitt):
-                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasSchmitt")
-                    measurements.append(measurement)
-                sweeps[name, sweep] = measurements
+                sweeps[name, sweep] = read_measurements(meas_read_dir, f"{pdk}/{name}/{sweep}/*/result.h5", MeasSchmitt)
         trips = [analyze_schmitt_trip(sweeps[name, "supply"]) for name, _label in cases]
         pdk_dir = output_dir / pdk
         artifacts += [
@@ -2027,18 +1996,16 @@ def bias_characterization_study(output_dir: Path) -> tuple[Path, ...]:
                 ("iref", lambda item: float(item.param.iref)),
                 ("supply", lambda item: float(item.param.vdd)),
             ):
-                measurements = []
-                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
-                    measurement = read_measurement(path)
-                    if not isinstance(measurement, MeasBias):
-                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasBias")
-                    measurements.append(measurement)
-                sweeps[name, sweep] = sorted(measurements, key=key)
+                sweeps[name, sweep] = read_measurements(
+                    meas_read_dir, f"{pdk}/{name}/{sweep}/*/result.h5", MeasBias, key=key
+                )
         mirrors = [analyze_bias_mirror(sweeps[name, "iref"]) for name, _label in cases]
+        supplies = [analyze_bias_mirror(sweeps[name, "supply"]) for name, _label in cases]
         pdk_dir = output_dir / pdk
         artifacts += [
             *plot_bias_mirror(mirrors, labels=labels, output_path=pdk_dir / "bias_mirror"),
             *plot_bias_reference(mirrors, labels=labels, output_path=pdk_dir / "bias_reference"),
+            *plot_bias_supply(supplies, labels=labels, output_path=pdk_dir / "bias_supply"),
         ]
     return tuple(artifacts)
 
@@ -2317,35 +2284,8 @@ def main() -> None:
     parser.add_argument("target", choices=sorted(targets), help="analysis pipeline to run")
     args = parser.parse_args()
 
-    domain = (
-        args.target.split("_", 1)[0]
-        if args.target.startswith(
-            (
-                "comp_",
-                "cdac_",
-                "delay_",
-                "latch_",
-                "ota_",
-                "follower_",
-                "moscap_",
-                "idac_",
-                "cml_",
-                "pi_",
-                "clkgen_",
-                "capdriver_",
-                "csa_",
-                "disc_",
-                "schmitt_",
-                "bias_",
-                "lvshift_",
-                "ringamp_",
-                "samp_",
-                "caparray_",
-                "momcap_",
-            )
-        )
-        else "adc"
-    )
+    # every study's name starts with its block (adc, comp, ota, ...): its output directory
+    domain = args.target.split("_", 1)[0]
     timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     output_dir = BASE_PATH / "build/analysis" / domain / timestamp
     output_dir.mkdir(parents=True, exist_ok=False)

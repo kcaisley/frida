@@ -7,7 +7,7 @@ import dataclasses
 import importlib
 import math
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -230,6 +230,21 @@ def read_measurement(path: Path) -> Meas:
     if not isinstance(measurement, Meas):
         raise TypeError(f"{path} contains {type(measurement).__name__}, not a Meas measurement")
     return dataclasses.replace(measurement, info=dataclasses.replace(measurement.info, source_path=path))
+
+
+def read_measurements[M: Meas](
+    directory: Path, pattern: str, kind: type[M], key: Callable[[M], float] | None = None
+) -> list[M]:
+    """Every measurement under ``directory`` matching ``pattern``, each checked to be a ``kind``,
+    sorted by ``key`` (else by path); empty where none matches."""
+
+    measurements = []
+    for path in sorted(Path(directory).glob(pattern)):
+        measurement = read_measurement(path)
+        if not isinstance(measurement, kind):
+            raise TypeError(f"{path} contains {type(measurement).__name__}, expected {kind.__name__}")
+        measurements.append(measurement)
+    return sorted(measurements, key=key) if key else measurements
 
 
 def read_measurement_param(path: Path):

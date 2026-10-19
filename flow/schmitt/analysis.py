@@ -69,18 +69,14 @@ class AnalysisSchmittDelay(Analysis):
     energy_per_cycle_j: np.ndarray
 
 
-def _output_edges(dut: SchmittParams) -> tuple[str, str]:
-    """The output's edge on the input's rising and falling ones."""
-    return ("rising", "falling") if dut.buffer else ("falling", "rising")
-
-
 def analyze_schmitt_trip(measurements: Sequence[MeasSchmitt]) -> AnalysisSchmittTrip:
     """Measure the input where the output switches on the triangle's way up and down."""
 
     identity = measurement_identity(measurements)
     if any(item.param.step for item in measurements):
         raise ValueError("Schmitt trigger trip points require the triangle bench")
-    on_rise, on_fall = _output_edges(identity.dut)
+    # the output's edge on the input's rising and falling ones
+    on_rise, on_fall = ("rising", "falling") if identity.dut.buffer else ("falling", "rising")
     rows, traces = [], []
     for measurement in sorted(measurements, key=lambda item: float(item.param.vdd)):
         wave, vdd = measurement.wave, float(measurement.param.vdd)
@@ -120,7 +116,8 @@ def analyze_schmitt_delay(measurements: Sequence[MeasSchmitt]) -> AnalysisSchmit
     identity = measurement_identity(measurements)
     if not all(item.param.step for item in measurements):
         raise ValueError("Schmitt trigger delays require the step bench")
-    on_rise, on_fall = _output_edges(identity.dut)
+    # the output's edge on the input's rising and falling ones
+    on_rise, on_fall = ("rising", "falling") if identity.dut.buffer else ("falling", "rising")
     rows = []
     for measurement in measurements:
         wave, vdd = measurement.wave, float(measurement.param.vdd)

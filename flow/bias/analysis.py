@@ -5,13 +5,12 @@ gate voltages, the test mirrors' inner nodes and its supply current, in the run 
 test mirrors' output currents over their output voltage. The figures are the current source's
 (``flow.idac``), for a mirror the generator biases: the current at mid-supply over the reference,
 the output resistance there (``deriv``), the compliance (the output voltages around mid-supply
-whose current stays within 5 % of it) and the mirror device's drain-source voltage, the headroom
-the cascode gate leaves it.
+whose current stays within 5 % of it, ``calc.compliance_range``) and the mirror
+device's drain-source voltage, the headroom the cascode gate leaves it.
 """
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -21,6 +20,8 @@ from flow.analysis import calc
 from flow.analysis.types import Analysis, Meas, measurement_identity
 from flow.bias.sim import BiasTbParams
 from flow.bias.subckt import BiasParams
+
+# the characteristics' common shape: each resampled at this many points from ground to its supply
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -45,7 +46,7 @@ class AnalysisBiasMirror(Analysis):
     that (the PMOS mirror's ``p_compliance_v`` the highest), ``n_headroom_v`` and ``p_headroom_v``
     the mirror devices' drain-source voltages; ``vbn_v`` to ``vcasp_v`` the generated gates,
     ``supply_current_a`` the generator's own. ``vout_v`` and ``n_iv_ratio``/``p_iv_ratio`` (one row
-    per point) hold both characteristics over the reference.
+    per point, 49 from ground to its supply) hold both characteristics over the reference.
     """
 
     vdd_v: np.ndarray
@@ -68,20 +69,6 @@ class AnalysisBiasMirror(Analysis):
     p_iv_ratio: np.ndarray
 
 
-def _within(current: np.ndarray, vout_v: np.ndarray, nominal: float, *, low_side: bool) -> float:
-    """The output voltage, on one side of ``nominal``, down to (or up to) which the current stays
-    within 5 % of its value at ``nominal``; NaN where it is not there either."""
-    target = calc.value(current, vout_v, nominal)
-    inside = np.abs(current - target) <= 0.05 * target
-    index = int(np.argmin(np.abs(vout_v - nominal)))
-    if not inside[index] or target <= 0:
-        return math.nan
-    step = -1 if low_side else 1
-    while 0 <= index + step < len(vout_v) and inside[index + step]:
-        index += step
-    return float(vout_v[index])
-
-
 def analyze_bias_mirror(measurements: Sequence[MeasBias]) -> AnalysisBiasMirror:
     """Measure each test mirror's ratio, output resistance, compliance and headroom at each point."""
 
@@ -97,14 +84,18 @@ def analyze_bias_mirror(measurements: Sequence[MeasBias]) -> AnalysisBiasMirror:
         middles = (vout_v[1:] + vout_v[:-1]) / 2
         for current in (measurement.n_current_a, measurement.p_current_a):
             row.append(1 / abs(calc.value(calc.deriv(current, vout_v), middles, nominal)))
-        row.append(_within(measurement.n_current_a, vout_v, nominal, low_side=True))
-        row.append(_within(measurement.p_current_a, vout_v, nominal, low_side=False))
+        row.append(calc.compliance_range(measurement.n_current_a, vout_v, nominal)[0])
+        row.append(calc.compliance_range(measurement.p_current_a, vout_v, nominal)[1])
         row += [float(readbacks["op_tn_v"]), vdd - float(readbacks["op_tp_v"])]
         row += [float(readbacks[f"op_{name}_v"]) for name in ("vbn", "vcasn", "vbp", "vcasp")]
         row.append(float(readbacks["op_supply_current_a"]))
-        rows.append((*row, measurement.n_current_a / iref, measurement.p_current_a / iref))
+        grid = np.linspace(0.0, vdd, 49)
+        characteristics = (
+            calc.value(current / iref, vout_v, grid) for current in (measurement.n_current_a, measurement.p_current_a)
+        )
+        rows.append((*row, grid, *characteristics))
     columns = list(zip(*rows, strict=True))
-    scalars = [np.asarray(column, dtype=np.float64) for column in columns[:-2]]
+    scalars = [np.asarray(column, dtype=np.float64) for column in columns[:-3]]
     vdd_v, iref_a, n_ratio, p_ratio, n_res, p_res, n_comp, p_comp, n_head, p_head, vbn, vcasn, vbp, vcasp, current = (
         scalars
     )
@@ -127,7 +118,7 @@ def analyze_bias_mirror(measurements: Sequence[MeasBias]) -> AnalysisBiasMirror:
         vbp_v=vbp,
         vcasp_v=vcasp,
         supply_current_a=current,
-        vout_v=np.asarray(measurements[0].vout_v, dtype=np.float64),
+        vout_v=np.asarray(columns[-3], dtype=np.float64),
         n_iv_ratio=np.asarray(columns[-2], dtype=np.float64),
         p_iv_ratio=np.asarray(columns[-1], dtype=np.float64),
     )

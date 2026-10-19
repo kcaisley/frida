@@ -289,6 +289,15 @@ def style_time_units(time_s: np.ndarray) -> tuple[float, str]:
     return 1.0, "s"
 
 
+def style_ratio_limits(*ratios: np.ndarray) -> tuple[float, float]:
+    """An axis around 1 wide enough for every finite ratio, so the worst points stay in view."""
+    finite = np.concatenate([np.asarray(ratio, dtype=np.float64) for ratio in ratios])
+    finite = finite[np.isfinite(finite)]
+    if not len(finite):
+        return 0.9, 1.1
+    return min(0.9, float(np.min(finite)) - 0.05), max(1.1, float(np.max(finite)) + 0.05)
+
+
 def save_figure(
     fig: plt.Figure,
     output_path: Path,

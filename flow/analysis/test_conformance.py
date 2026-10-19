@@ -50,6 +50,11 @@ BLOCKS = (
     "clkgen",
     "lvshift",
     "ringamp",
+    "capdriver",
+    "csa",
+    "disc",
+    "schmitt",
+    "bias",
 )
 BLOCK_ANALYSES = tuple(f"flow.{block}.analysis" for block in BLOCKS)
 BLOCK_PLOTS = tuple(f"flow.{block}.plots" for block in BLOCKS)

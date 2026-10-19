@@ -17,13 +17,12 @@ from dataclasses import dataclass
 
 import numpy as np
 from hdl21.primitives import MosType
+from scipy.constants import elementary_charge
 
 from flow.analysis import calc
 from flow.analysis.types import Analysis, Meas, check_identity, measurement_identity
 from flow.csa.sim import CsaTbParams
-from flow.csa.subckt import CsaNets, CsaParams
-
-ELEMENTARY_CHARGE_C = 1.602176634e-19
+from flow.csa.subckt import CsaNets, CsaParams, Feedback
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -55,8 +54,9 @@ class AnalysisCsaPulse(Analysis):
     over a threshold half the smallest charge's amplitude from the baseline, ``return_time_s`` the
     time from the injection until the output stays within 5 % of the amplitude of the baseline,
     ``supply_current_a`` the average before the charge. A reset amplifier holds the charge until
-    its reset: its time over threshold, return and peaking time (the maximum of a held level) are
-    NaN. ``time_s`` and ``pulse_v`` hold each response's excursion from the baseline, one row
+    its reset: its peaking time (the maximum of a held level) is NaN, and so are its time over
+    threshold and return, which never come; so are another amplifier's where its tail outlasts the
+    record. ``time_s`` and ``pulse_v`` hold each response's excursion from the baseline, one row
     per charge, from the injection on.
     """
 
@@ -92,11 +92,6 @@ class AnalysisCsaNoise(Analysis):
     output_noise_v_rthz: np.ndarray
 
 
-def _direction(csa: CsaParams) -> float:
-    """The output's excursion: up for an NMOS input, down for a PMOS one."""
-    return 1.0 if csa.input_xtors == MosType.NMOS else -1.0
-
-
 def analyze_csa_pulse(measurements: Sequence[MeasCsa]) -> AnalysisCsaPulse:
     """Measure the baseline, amplitude, peaking and rise time, time over threshold, return to the
     baseline and supply current at each injected charge."""
@@ -113,7 +108,9 @@ def analyze_csa_pulse(measurements: Sequence[MeasCsa]) -> AnalysisCsaPulse:
         # at rest: the second half of the time between the reset's opening and the charge
         rest = (float(tb.reset_time_s) + float(tb.inject_time_s)) / 2, float(tb.inject_time_s)
         baseline = calc.average(*calc.clip(output, time_s, *rest))
-        pulse_v, pulse_s = calc.clip(_direction(measurement.dut) * (output - baseline), time_s, inject_s, time_s[-1])
+        # the output's excursion: up for an NMOS input, down for a PMOS one
+        direction = 1.0 if measurement.dut.input_xtors == MosType.NMOS else -1.0
+        pulse_v, pulse_s = calc.clip(direction * (output - baseline), time_s, inject_s, time_s[-1])
         amplitude, peak_s = calc.ymax(pulse_v), calc.xmax(pulse_v, pulse_s)
         leading = calc.clip(pulse_v, pulse_s, inject_s, peak_s) if peak_s > inject_s else (pulse_v[:1], pulse_s[:1])
         trailing = calc.clip(pulse_v, pulse_s, peak_s, pulse_s[-1]) if peak_s < pulse_s[-1] else leading
@@ -123,7 +120,7 @@ def analyze_csa_pulse(measurements: Sequence[MeasCsa]) -> AnalysisCsaPulse:
                 float(tb.charge_c),
                 baseline,
                 amplitude,
-                peak_s - inject_s if np.isfinite(returned) else np.nan,
+                np.nan if measurement.dut.feedback == Feedback.RESET else peak_s - inject_s,
                 calc.riseTime(*leading, 0.0, amplitude) if len(leading[0]) > 1 else np.nan,
                 returned - inject_s,
                 calc.average(*calc.clip(wave.i[CsaNets.vdd.name][0], time_s, *rest)),
@@ -160,7 +157,7 @@ def analyze_csa_pulse(measurements: Sequence[MeasCsa]) -> AnalysisCsaPulse:
     )
 
 
-def analyze_csa_noise(measurements: Sequence[MeasCsaNoise], pulse: AnalysisCsaPulse) -> AnalysisCsaNoise:
+def analyze_csa_noise(measurements: Sequence[MeasCsaNoise], *, pulse: AnalysisCsaPulse) -> AnalysisCsaNoise:
     """Measure the output's rms noise and, over the response to the smallest charge, the ENC."""
 
     identity = measurement_identity(measurements)
@@ -180,7 +177,7 @@ def analyze_csa_noise(measurements: Sequence[MeasCsaNoise], pulse: AnalysisCsaPu
         ),
         noise_rms_v=noise.astype(np.float64),
         gain_v_per_c=np.full(len(measurements), gain),
-        enc_electrons=(noise / gain / ELEMENTARY_CHARGE_C).astype(np.float64),
+        enc_electrons=(noise / gain / elementary_charge).astype(np.float64),
         frequency_hz=np.asarray(frequency_hz, dtype=np.float64),
         output_noise_v_rthz=np.asarray([item.output_noise_v_rthz for item in measurements], dtype=np.float64),
     )

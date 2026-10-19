@@ -5,9 +5,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from scipy.constants import elementary_charge
 
 from flow.analysis.types import MeasInfo, Wave
-from flow.csa.analysis import ELEMENTARY_CHARGE_C, MeasCsa, MeasCsaNoise, analyze_csa_noise, analyze_csa_pulse
+from flow.csa.analysis import MeasCsa, MeasCsaNoise, analyze_csa_noise, analyze_csa_pulse
 from flow.csa.plots import plot_csa_charge, plot_csa_noise, plot_csa_pulse
 from flow.csa.sim import CsaTbParams
 from flow.csa.subckt import CASES
@@ -85,7 +86,7 @@ def test_amplitude_peaking_threshold_and_return(case) -> None:
 
 
 def test_a_held_charge_has_no_peak_threshold_time_or_return() -> None:
-    held = _pulse(1e-15)
+    held = _pulse(1e-15, "reset")
     output = held.wave.v["out"][0]
     peak = int(np.argmax(output))
     output[peak:] = output[peak]
@@ -95,19 +96,29 @@ def test_a_held_charge_has_no_peak_threshold_time_or_return() -> None:
     assert pulse.rise_time_s[0] == pytest.approx(0.8 * PEAKING_S, rel=1e-3)
 
 
+def test_a_tail_outlasting_the_record_keeps_its_peaking_time() -> None:
+    # Krummenacher: the same flat top, but the amplifier still peaked; only the return is missing
+    long = _pulse(1e-15)
+    output = long.wave.v["out"][0]
+    output[int(np.argmax(output)) :] = output.max()
+    pulse = analyze_csa_pulse([long])
+    assert pulse.peaking_time_s[0] == pytest.approx(PEAKING_S, rel=1e-6)
+    assert np.isnan(pulse.return_time_s[0]) and np.isnan(pulse.tot_s[0])
+
+
 def test_enc_is_the_rms_noise_over_the_smallest_charge_gain() -> None:
     pulse = analyze_csa_pulse([_pulse(charge) for charge in (0.5e-15, 1e-15)])
-    noise = analyze_csa_noise([_noise(1e-7)], pulse)
+    noise = analyze_csa_noise([_noise(1e-7)], pulse=pulse)
     rms = 1e-7 * np.sqrt(1e9 - 1)
     assert noise.noise_rms_v[0] == pytest.approx(rms, rel=1e-6)
-    assert noise.enc_electrons[0] == pytest.approx(rms / GAIN_V_PER_C / ELEMENTARY_CHARGE_C, rel=1e-6)
+    assert noise.enc_electrons[0] == pytest.approx(rms / GAIN_V_PER_C / elementary_charge, rel=1e-6)
     with pytest.raises(ValueError, match="does not match"):
-        analyze_csa_noise([_noise(1e-7)], analyze_csa_pulse([_pulse(1e-15, "krum_pmos")]))
+        analyze_csa_noise([_noise(1e-7)], pulse=analyze_csa_pulse([_pulse(1e-15, "krum_pmos")]))
 
 
 def test_comparison_plots_render(tmp_path: Path) -> None:
     pulse = analyze_csa_pulse([_pulse(charge) for charge in (0.5e-15, 1e-15, 2e-15)])
-    noise = analyze_csa_noise([_noise(1e-7)], pulse)
+    noise = analyze_csa_noise([_noise(1e-7)], pulse=pulse)
     paths = (
         *plot_csa_pulse([pulse], labels=["a"], output_path=tmp_path / "pulse"),
         *plot_csa_charge([pulse], labels=["a"], output_path=tmp_path / "charge"),
