@@ -305,6 +305,16 @@ def test_frequency_response_measures_match_a_two_pole_loop() -> None:
     np.testing.assert_allclose(calc.phaseDegUnwrapped(loop), exact, atol=1e-9)
 
 
+def test_margins_read_an_inverting_start_the_same_from_either_side() -> None:
+    frequency = np.logspace(0, 9, 2_001)
+    s = 2j * np.pi * frequency
+    loop = 1_000.0 / ((1 + s / (2 * np.pi * 1e3)) * (1 + s / (2 * np.pi * 1e7)))
+    # an inverting loop gain starts at 180°: just above and just below must give one margin
+    above, below = -loop * np.exp(1j * np.radians(1e-6)), -loop * np.exp(-1j * np.radians(1e-6))
+    assert calc.phaseMargin(above, frequency) == pytest.approx(calc.phaseMargin(below, frequency), abs=1e-3)
+    assert calc.phaseMargin(above, frequency) == pytest.approx(calc.phaseMargin(loop, frequency) - 180.0, abs=1e-3)
+
+
 def test_bandwidth_high_pass_and_band_pass() -> None:
     frequency = np.logspace(0, 8, 1_601)
     s = 2j * np.pi * frequency
@@ -351,3 +361,5 @@ def test_delay_measure_counts_both_crossings_from_the_start() -> None:
         pytest.approx(0.1, abs=2e-3)
     )
     assert np.isnan(calc.delayMeasure(trigger, response, axis, value1=0.0, value2=5.0))
+    # a single sample has no time average to default the thresholds to
+    assert np.isnan(calc.delayMeasure([0.0], [1.0], [0.0]))

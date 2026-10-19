@@ -93,14 +93,7 @@ def analyze_idac_output(measurements: Sequence[MeasIdac]) -> AnalysisIdacOutput:
         current = np.abs(measurement.out_current_a)
         current_a = calc.value(current, vout_v, nominal)
         slope = np.gradient(current, vout_v)
-        # the contiguous output voltages around the nominal one whose current is within 5 %
-        within = np.abs(current - current_a) <= 0.05 * current_a
-        start = stop = int(np.argmin(np.abs(vout_v - nominal)))
-        while start > 0 and within[start - 1]:
-            start -= 1
-        while stop < len(vout_v) - 1 and within[stop + 1]:
-            stop += 1
-        compliant = within[int(np.argmin(np.abs(vout_v - nominal)))] and current_a > 0
+        compliance_low, compliance_high = calc.compliance_range(current, vout_v, nominal)
         rows.append(
             (
                 calc.value(measurement.vbias_v, vout_v, nominal),
@@ -108,8 +101,8 @@ def analyze_idac_output(measurements: Sequence[MeasIdac]) -> AnalysisIdacOutput:
                 tb.en,
                 current_a,
                 1 / abs(calc.value(slope, vout_v, nominal)),
-                float(vout_v[start]) if compliant else math.nan,
-                float(vout_v[stop]) if compliant else math.nan,
+                compliance_low,
+                compliance_high,
                 calc.value(np.abs(measurement.dump_current_a), vout_v, nominal),
                 calc.value(measurement.supply_current_a, vout_v, nominal),
                 current,

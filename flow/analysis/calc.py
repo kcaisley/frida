@@ -314,7 +314,8 @@ def _frequency_response(
     return np.asarray(db20(values), dtype=np.float64), position, frequencies
 
 
-def _frequency_at(position: np.ndarray, frequencies: np.ndarray, at: float) -> float:
+def _frequency_at(frequencies: np.ndarray, at: float) -> float:
+    """The frequency at a crossing on ``_frequency_response``'s interpolation axis."""
     if not math.isfinite(at):
         return math.nan
     return float(10.0**at) if frequencies[0] > 0 else float(at)
@@ -336,10 +337,10 @@ def bandwidth(
     gain_db, position, frequencies = _frequency_response(signal, axis)
     if type == "low":
         crossing = cross(gain_db, position, gain_db[0] - db, edge="falling", occurrence=1)
-        return _frequency_at(position, frequencies, crossing)
+        return _frequency_at(frequencies, crossing)
     if type == "high":
         crossing = cross(gain_db, position, gain_db[-1] - db, edge="rising", occurrence=-1)
-        return _frequency_at(position, frequencies, crossing)
+        return _frequency_at(frequencies, crossing)
     peak = int(np.argmax(gain_db))
     level = gain_db[peak] - db
     lower = cross(gain_db[: peak + 1], position[: peak + 1], level, edge="rising", occurrence=-1) if peak else math.nan
@@ -348,29 +349,36 @@ def bandwidth(
         if peak < len(gain_db) - 1
         else math.nan
     )
-    return _frequency_at(position, frequencies, upper) - _frequency_at(position, frequencies, lower)
+    return _frequency_at(frequencies, upper) - _frequency_at(frequencies, lower)
 
 
 def unityGainFreq(signal: Sequence[complex] | np.ndarray, axis: Sequence[float] | np.ndarray) -> float:
     """Return the lowest frequency where the gain falls through unity (0 dB)."""
     gain_db, position, frequencies = _frequency_response(signal, axis)
-    return _frequency_at(position, frequencies, cross(gain_db, position, 0.0, edge="falling", occurrence=1))
+    return _frequency_at(frequencies, cross(gain_db, position, 0.0, edge="falling", occurrence=1))
+
+
+def _loop_phase(values: np.ndarray) -> np.ndarray:
+    """A loop gain's phase unwrapped from the lowest frequency and shifted by whole turns into
+    [-270, 90) there: a loop gain starting near 0° stays there, and one starting near ±180° (an
+    inverting loop) reads -180° from either side, the cut lying where no loop gain starts."""
+    phase = phaseDegUnwrapped(values)
+    return phase - 360.0 * math.floor((phase[0] + 270.0) / 360.0)
 
 
 def phaseMargin(signal: Sequence[complex] | np.ndarray, axis: Sequence[float] | np.ndarray) -> float:
     """Return a loop gain's phase margin in degrees: 180 plus its phase where the gain first falls through unity.
 
-    The phase is unwrapped from the lowest frequency and taken within (-180, 180] there, so a loop
-    gain starting near 0° that has lost 120° at the unity-gain frequency has 60° of margin.
+    The phase is unwrapped from the lowest frequency and taken within [-270, 90) there, so a loop
+    gain starting near 0° that has lost 120° at the unity-gain frequency has 60° of margin, and an
+    inverting one starting near ±180° reads the same from either side of it.
     """
     values = np.asarray(signal, dtype=np.complex128)
     gain_db, position, _frequencies = _frequency_response(values, axis)
     crossing = cross(gain_db, position, 0.0, edge="falling", occurrence=1)
     if not math.isfinite(crossing):
         return math.nan
-    phase = phaseDegUnwrapped(values)
-    phase -= 360.0 * np.round(phase[0] / 360.0)
-    return 180.0 + float(value(phase, position, crossing))
+    return 180.0 + float(value(_loop_phase(values), position, crossing))
 
 
 def gainMargin(
@@ -379,9 +387,7 @@ def gainMargin(
     """Return a loop gain's dB value where its phase first reaches -180°; positive for a stable loop with ``stable``."""
     values = np.asarray(signal, dtype=np.complex128)
     gain_db, position, _frequencies = _frequency_response(values, axis)
-    phase = phaseDegUnwrapped(values)
-    phase -= 360.0 * np.round(phase[0] / 360.0)
-    crossing = cross(phase, position, -180.0, edge="falling", occurrence=1)
+    crossing = cross(_loop_phase(values), position, -180.0, edge="falling", occurrence=1)
     if not math.isfinite(crossing):
         return math.nan
     margin = float(value(gain_db, position, crossing))
@@ -752,6 +758,27 @@ def intersect(
     return cross(first - second, axis, 0.0, edge="either")
 
 
+def compliance_range(
+    signal: Sequence[float] | np.ndarray, axis: Sequence[float] | np.ndarray, at: float, tolerance: float = 0.05
+) -> tuple[float, float]:
+    """The lowest and highest axis value of the run of points around ``at`` whose signal stays
+    within ``tolerance`` of its value at ``at``; NaN for both where the signal there is not
+    positive or the nearest point is already outside."""
+
+    values = np.asarray(signal, dtype=np.float64)
+    coordinates = np.asarray(axis, dtype=np.float64)
+    target = value(values, coordinates, at)
+    within = np.abs(values - target) <= tolerance * target
+    start = stop = int(np.argmin(np.abs(coordinates - at)))
+    if not (target > 0 and within[start]):
+        return math.nan, math.nan
+    while start > 0 and within[start - 1]:
+        start -= 1
+    while stop < len(coordinates) - 1 and within[stop + 1]:
+        stop += 1
+    return float(coordinates[start]), float(coordinates[stop])
+
+
 def riseTime(
     signal: Sequence[float] | np.ndarray,
     axis: Sequence[float] | np.ndarray,
@@ -957,12 +984,15 @@ def delayMeasure(
     """Return the time from the first waveform's nth crossing to the second's nth crossing.
 
     Both crossings count from the start of the record (unlike ``delay``, which looks for the
-    response after the trigger). A threshold left out is that waveform's time average.
+    response after the trigger). A threshold left out is that waveform's time average; NaN where
+    that is undefined (a single sample), as where a crossing is missing.
     """
     first, axis = _waveform(first, axis)
     second, _ = _waveform(second, axis)
     value1 = average(first, axis) if value1 is None else value1
     value2 = average(second, axis) if value2 is None else value2
+    if not (math.isfinite(value1) and math.isfinite(value2)):
+        return math.nan
     start = cross(first, axis, value1, edge=edge1, occurrence=nth1)
     stop = cross(second, axis, value2, edge=edge2, occurrence=nth2)
     return float(stop - start)
