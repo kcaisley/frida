@@ -34,8 +34,8 @@ class MeasClkgen(Meas):
 class AnalysisClkgenTiming(Analysis):
     """Clock conditioning timing at each measured point (medians over the periods after the enable).
 
-    ``duty_cycle`` is outp's high share of each of its cycles (``dutyCycle``), averaged over the
-    whole clock periods in the window; NaN where outp completes no cycle there. ``rise_gap_s``
+    ``duty_cycle`` is outp's high share of the whole clock periods in the window (the time average
+    of outp above mid-supply): 0 or 1 where outp stops toggling. ``rise_gap_s``
     runs from each outp fall to the nearest outn rise, ``fall_gap_s`` from each outn fall to the
     nearest outp rise; negative where the outputs overlap.
     """
@@ -101,7 +101,7 @@ def analyze_clkgen_timing(measurements: Sequence[MeasClkgen]) -> AnalysisClkgenT
                 period,
                 float(np.median(delays)) if delays else math.nan,
                 float(np.median(widths)) if widths else math.nan,
-                calc.dutyCycle(window_v, window_s, threshold=threshold, output_type="average") / 100,
+                calc.average((window_v > threshold).astype(np.float64), window_s),
                 float(np.median(rise_gaps)) if rise_gaps else math.nan,
                 float(np.median(fall_gaps)) if fall_gaps else math.nan,
                 int(np.sum(p_rise < enable_s)),

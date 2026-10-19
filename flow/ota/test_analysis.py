@@ -175,6 +175,14 @@ def test_unity_gain_slew_settling_and_overshoot() -> None:
         analyze_ota_slew([_sine(0.01)])
 
 
+def test_a_stuck_output_has_no_edges() -> None:
+    stuck = _step(1e9, 2e8)
+    stuck.wave.v["outp"][0][:] = 0.3
+    slew = analyze_ota_slew([stuck])
+    assert np.isnan(slew.rise_slew_v_per_s[0]) and np.isnan(slew.fall_settling_s[0])
+    assert slew.low_v[0] == pytest.approx(0.3) and slew.supply_current_a[0] == pytest.approx(30e-6)
+
+
 def test_unity_gain_harmonic_distortion() -> None:
     distortion = analyze_ota_distortion([_sine(0.01)])
     # a second harmonic at 1 % of the fundamental: -40 dB

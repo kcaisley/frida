@@ -10,6 +10,7 @@ benches measure. Every figure is a calculator function of ``flow.analysis.calc``
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -86,7 +87,8 @@ class AnalysisFollowerSlew(Analysis):
     (``slewrate``; the fall's negative), ``rise_settling_s`` and ``fall_settling_s`` the time from
     each input edge until the output stays within 1 % of the step (``settlingTime``),
     ``rise_overshoot`` and ``fall_overshoot`` how far it passes the final level, a fraction of the
-    step (``overshoot``), ``supply_current_a`` the average over the period.
+    step (``overshoot``), ``supply_current_a`` the average over the period. The edges are NaN where the
+    output moves less than a tenth of the step.
     """
 
     vin_v: np.ndarray
@@ -181,22 +183,22 @@ def analyze_follower_slew(measurements: Sequence[MeasFollowerStep]) -> AnalysisF
         high = calc.average(*calc.clip(output, time_s, fall_s - period / 20, fall_s))
         up_v, up_s = calc.clip(output, time_s, rise_s, fall_s)
         down_v, down_s = calc.clip(output, time_s, fall_s, float(time_s[-1]))
-        rise_settled = calc.settlingTime(up_v, up_s, initial=low, final=high, percent_of_step=1.0)
-        fall_settled = calc.settlingTime(down_v, down_s, initial=high, final=low, percent_of_step=1.0)
-        rows.append(
-            (
-                float(tb.vin),
-                float(tb.step_v),
-                low,
-                high,
+        # an output that moves less than a tenth of the step (stuck, or not following) has no edges
+        if high - low > float(tb.step_v) / 10:
+            rise_settled = calc.settlingTime(up_v, up_s, initial=low, final=high, percent_of_step=1.0)
+            fall_settled = calc.settlingTime(down_v, down_s, initial=high, final=low, percent_of_step=1.0)
+            edges = (
                 calc.slewrate(up_v, up_s, low, high),
                 calc.slewrate(down_v, down_s, high, low),
                 rise_settled - rise_s - edge / 2,
                 fall_settled - fall_s - edge / 2,
                 max(calc.overshoot(up_v, up_s, low, high), 0.0) / 100,
                 max(calc.overshoot(down_v, down_s, high, low), 0.0) / 100,
-                calc.average(wave.i[FollowerNets.vdd.name][0], time_s),
             )
+        else:
+            edges = (math.nan,) * 6
+        rows.append(
+            (float(tb.vin), float(tb.step_v), low, high, *edges, calc.average(wave.i[FollowerNets.vdd.name][0], time_s))
         )
     columns = (np.asarray(column, dtype=np.float64) for column in zip(*rows, strict=True))
     vin_v, step_v, low_v, high_v, rise_slew, fall_slew, rise_settling, fall_settling, rise_over, fall_over, current = (

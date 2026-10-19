@@ -109,16 +109,19 @@ def analyze_ota_ac(measurements: Sequence[MeasOta]) -> AnalysisOtaAc:
         outputs = [float(readbacks["op_outp_v"])]
         if "op_outn_v" in readbacks:
             outputs.append(float(readbacks["op_outn_v"]))
+        # the -3 dB bandwidth once: the gain-bandwidth product (calc.gainBwProd) is the DC gain times it
+        bandwidth_hz = calc.bandwidth(response, frequency_hz, 10 * math.log10(2.0), "low")
         figures = (
             gain_db,
-            measurement.phase_deg - 360 * np.round(measurement.phase_deg[0] / 360),
+            # whole turns off, the start in [-270, 90) as the margins take it
+            measurement.phase_deg - 360 * math.floor((measurement.phase_deg[0] + 270) / 360),
             psrr_db,
             cmrr_db,
             float(gain_db[0]),
             ugbw_hz,
             phase_margin_deg,
-            calc.bandwidth(response, frequency_hz, 10 * math.log10(2.0), "low"),
-            calc.gainBwProd(response, frequency_hz),
+            bandwidth_hz,
+            float(measurement.gain_v_per_v[0]) * bandwidth_hz,
             calc.gainMargin(response, frequency_hz, stable=True),
             float(psrr_db[0]),
             float(cmrr_db[0]),
@@ -246,7 +249,8 @@ class AnalysisOtaSlew(Analysis):
     the fall's negative), ``rise_settling_s`` and ``fall_settling_s`` the time from each input edge
     until it stays within 1 % of the step (``settlingTime``; NaN where it never does, as when the
     loop rings on), ``rise_overshoot`` and ``fall_overshoot`` how far it passes the final level, a
-    fraction of the step (``overshoot``), ``supply_current_a`` the average over the period.
+    fraction of the step (``overshoot``), ``supply_current_a`` the average over the period. The edges are NaN where the
+    output moves less than a tenth of the step.
     """
 
     vcm_v: np.ndarray
@@ -298,22 +302,22 @@ def analyze_ota_slew(measurements: Sequence[MeasOtaTran]) -> AnalysisOtaSlew:
         high = calc.average(*calc.clip(output, time_s, fall_s - period / 20, fall_s))
         up_v, up_s = calc.clip(output, time_s, rise_s, fall_s)
         down_v, down_s = calc.clip(output, time_s, fall_s, float(time_s[-1]))
-        rise_settled = calc.settlingTime(up_v, up_s, initial=low, final=high, percent_of_step=1.0)
-        fall_settled = calc.settlingTime(down_v, down_s, initial=high, final=low, percent_of_step=1.0)
-        rows.append(
-            (
-                float(tb.vcm),
-                float(tb.step_v),
-                low,
-                high,
+        # an output that moves less than a tenth of the step (stuck, or not following) has no edges
+        if high - low > float(tb.step_v) / 10:
+            rise_settled = calc.settlingTime(up_v, up_s, initial=low, final=high, percent_of_step=1.0)
+            fall_settled = calc.settlingTime(down_v, down_s, initial=high, final=low, percent_of_step=1.0)
+            edges = (
                 calc.slewrate(up_v, up_s, low, high),
                 calc.slewrate(down_v, down_s, high, low),
                 rise_settled - rise_s - edge / 2,
                 fall_settled - fall_s - edge / 2,
                 max(calc.overshoot(up_v, up_s, low, high), 0.0) / 100,
                 max(calc.overshoot(down_v, down_s, high, low), 0.0) / 100,
-                calc.average(wave.i[OtaNets.vdd.name][0], time_s),
             )
+        else:
+            edges = (math.nan,) * 6
+        rows.append(
+            (float(tb.vcm), float(tb.step_v), low, high, *edges, calc.average(wave.i[OtaNets.vdd.name][0], time_s))
         )
     columns = (np.asarray(column, dtype=np.float64) for column in zip(*rows, strict=True))
     vcm_v, step_v, low_v, high_v, rise_slew, fall_slew, rise_settling, fall_settling, rise_over, fall_over, current = (

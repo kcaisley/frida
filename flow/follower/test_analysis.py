@@ -112,6 +112,13 @@ def test_slew_rates_settling_and_overshoot_of_a_ramped_step() -> None:
     assert slew.supply_current_a[0] == pytest.approx(40e-6)
 
 
+def test_a_stuck_output_has_no_edges() -> None:
+    stuck = _step(1e9, 1e8)
+    stuck.wave.v["vout"][0][:] = 0.6
+    slew = analyze_follower_slew([stuck])
+    assert np.isnan(slew.rise_slew_v_per_s[0]) and np.isnan(slew.fall_overshoot[0])
+
+
 def test_psrr_and_slew_plots_render(tmp_path: Path) -> None:
     transfer = analyze_follower_transfer([_single_pole(vin, 0.8, 1e9) for vin in (0.3, 0.6, 0.9)])
     step = _step(1e9, 1e8)
