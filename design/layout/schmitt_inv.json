@@ -1,0 +1,25 @@
+{
+ "_comment": "Inverting Schmitt trigger (RD53A SchmittTrigger, helena inv_schmitttrigger): the PMOS stack above the NMOS one, each feedback device between its stack's two devices, on their shared middle node. Rows top first. Netlist (per PDK): written by flow.schmitt.subckt (inv).",
+ "netlist": "../../build/layout/netlists/{pdk}/schmitt_inv.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "inp"
+  ],
+  "down": [
+   "out"
+  ]
+ },
+ "rows": [
+  [
+   "Mp1",
+   "Mpf",
+   "Mp2"
+  ],
+  [
+   "Mn1",
+   "Mnf",
+   "Mn2"
+  ]
+ ]
+}

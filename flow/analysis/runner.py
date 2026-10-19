@@ -174,6 +174,8 @@ from flow.ringamp.plots import plot_ringamp_deadzone, plot_ringamp_step, plot_ri
 from flow.samp.analysis import MeasSamp, analyze_samp_hold, analyze_samp_track
 from flow.samp.plots import plot_samp_hold, plot_samp_resistance, plot_samp_supply, plot_samp_waveforms
 from flow.scans.params import load_board_map
+from flow.schmitt.analysis import MeasSchmitt, analyze_schmitt_delay, analyze_schmitt_trip
+from flow.schmitt.plots import plot_schmitt_supply, plot_schmitt_transfer
 
 timing_sequences = tuple(
     sequence for name, sequence in SEQUENCES if name.startswith("symbol256_init8_samp16_comp11110000_")
@@ -1973,6 +1975,42 @@ def disc_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
+def schmitt_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named Schmitt triggers' trip points over the supply and their step delays, in every PDK."""
+
+    meas_read_dir = BASE_PATH / "build/sim/schmitt/schmitt_characterization/20261019_020145"
+    cases = (
+        ("inv", "inv: inverting"),
+        ("inv_wide", "inv_wide: stronger feedback"),
+        ("buffer", "buffer: non-inverting"),
+    )
+    labels = [label for _name, label in cases]
+    artifacts = []
+    for pdk in PDKS:
+        sweeps = {}
+        for name, _label in cases:
+            for sweep in ("supply", "step"):
+                measurements = []
+                for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/{sweep}/*/result.h5")):
+                    measurement = read_measurement(path)
+                    if not isinstance(measurement, MeasSchmitt):
+                        raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasSchmitt")
+                    measurements.append(measurement)
+                sweeps[name, sweep] = measurements
+        trips = [analyze_schmitt_trip(sweeps[name, "supply"]) for name, _label in cases]
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_schmitt_transfer(
+                trips,
+                [analyze_schmitt_delay(sweeps[name, "step"]) for name, _label in cases],
+                labels=labels,
+                output_path=pdk_dir / "schmitt_transfer",
+            ),
+            *plot_schmitt_supply(trips, labels=labels, output_path=pdk_dir / "schmitt_supply"),
+        ]
+    return tuple(artifacts)
+
+
 def lvshift_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     """Compare the named level shifters over the input and output supplies, in every PDK."""
 
@@ -2233,6 +2271,7 @@ def main() -> None:
             capdriver_characterization_study,
             csa_characterization_study,
             disc_characterization_study,
+            schmitt_characterization_study,
             lvshift_characterization_study,
             ringamp_characterization_study,
             samp_characterization_study,
@@ -2263,6 +2302,7 @@ def main() -> None:
                 "capdriver_",
                 "csa_",
                 "disc_",
+                "schmitt_",
                 "lvshift_",
                 "ringamp_",
                 "samp_",

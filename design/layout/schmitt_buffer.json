@@ -1,0 +1,27 @@
+{
+ "_comment": "Schmitt trigger buffer (helena schmitttrigger): schmitt_inv with the output inverter last. Rows top first. Netlist (per PDK): written by flow.schmitt.subckt (buffer).",
+ "netlist": "../../build/layout/netlists/{pdk}/schmitt_buffer.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "inp"
+  ],
+  "down": [
+   "out"
+  ]
+ },
+ "rows": [
+  [
+   "Mp1",
+   "Mpf",
+   "Mp2",
+   "Mout_p"
+  ],
+  [
+   "Mn1",
+   "Mnf",
+   "Mn2",
+   "Mout_n"
+  ]
+ ]
+}

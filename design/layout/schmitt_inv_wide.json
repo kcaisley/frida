@@ -1,0 +1,25 @@
+{
+ "_comment": "Inverting Schmitt trigger with stronger feedback: as schmitt_inv. Rows top first. Netlist (per PDK): written by flow.schmitt.subckt (inv_wide).",
+ "netlist": "../../build/layout/netlists/{pdk}/schmitt_inv_wide.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "inp"
+  ],
+  "down": [
+   "out"
+  ]
+ },
+ "rows": [
+  [
+   "Mp1",
+   "Mpf",
+   "Mp2"
+  ],
+  [
+   "Mn1",
+   "Mnf",
+   "Mn2"
+  ]
+ ]
+}
