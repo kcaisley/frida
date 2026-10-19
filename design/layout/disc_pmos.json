@@ -1,0 +1,28 @@
+{
+ "_comment": "PMOS pair with a current-mirror load: the input pair, its tail and the output current source above the NMOS mirror and second stage device. Rows top first. Netlist (per PDK): written by flow.disc.subckt (pmos).",
+ "netlist": "../../build/layout/netlists/{pdk}/disc_pmos.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "inp",
+   "inn",
+   "vbias"
+  ],
+  "down": [
+   "out"
+  ]
+ },
+ "rows": [
+  [
+   "Minp",
+   "Mtail",
+   "Minn",
+   "Msink"
+  ],
+  [
+   "Mload_a",
+   "Mload_b",
+   "Mout"
+  ]
+ ]
+}

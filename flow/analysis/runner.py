@@ -109,6 +109,8 @@ from flow.comp.plots import (
     plot_comp_energy,
     plot_comp_noise_power_tradeoff,
 )
+from flow.csa.analysis import MeasCsa, MeasCsaNoise, analyze_csa_noise, analyze_csa_pulse
+from flow.csa.plots import plot_csa_charge, plot_csa_noise, plot_csa_pulse
 from flow.delay.analysis import MeasDelay, analyze_delay_oscillation, analyze_delay_propagation
 from flow.delay.plots import (
     plot_delay_line_control,
@@ -116,6 +118,8 @@ from flow.delay.plots import (
     plot_delay_ring_control,
     plot_delay_ring_supply,
 )
+from flow.disc.analysis import MeasDisc, analyze_disc_delay, analyze_disc_trip
+from flow.disc.plots import plot_disc_delay, plot_disc_transfer
 from flow.follower.analysis import (
     MeasFollower,
     MeasFollowerStep,
@@ -1883,6 +1887,76 @@ def capdriver_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     return tuple(artifacts)
 
 
+def csa_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named charge-sensitive amplifiers' responses to injected charge and their noise, in every PDK."""
+
+    meas_read_dir = BASE_PATH / "build/sim/csa/csa_characterization/20261019_011909"
+    cases = (
+        ("krum", "krum: NMOS input, Krummenacher"),
+        ("krum_pmos", "krum_pmos: PMOS input, Krummenacher"),
+        ("continuous", "continuous: NMOS input, long device"),
+        ("reset", "reset: NMOS input, reset switch"),
+    )
+    artifacts = []
+    for pdk in PDKS:
+        pulses, noises, noise_labels = [], [], []
+        for name, label in cases:
+            measurements = []
+            for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/q*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasCsa):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasCsa")
+                measurements.append(measurement)
+            pulses.append(analyze_csa_pulse(measurements))
+            # the reset amplifier, open at rest, has no noise bench
+            noise_path = meas_read_dir / pdk / name / "noise" / "result.h5"
+            if noise_path.exists():
+                noise = read_measurement(noise_path)
+                if not isinstance(noise, MeasCsaNoise):
+                    raise TypeError(f"{noise_path} contains {type(noise).__name__}, expected MeasCsaNoise")
+                noises.append(analyze_csa_noise([noise], pulses[-1]))
+                noise_labels.append(label)
+        labels = [label for _name, label in cases]
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_csa_pulse(pulses, labels=labels, output_path=pdk_dir / "csa_pulse"),
+            *plot_csa_charge(pulses, labels=labels, output_path=pdk_dir / "csa_charge"),
+            *plot_csa_noise(noises, labels=noise_labels, output_path=pdk_dir / "csa_noise"),
+        ]
+    return tuple(artifacts)
+
+
+def disc_characterization_study(output_dir: Path) -> tuple[Path, ...]:
+    """Compare the named discriminators' trip points on a slow triangle and their delay over the overdrive, in every PDK."""
+
+    meas_read_dir = BASE_PATH / "build/sim/disc/disc_characterization/20261019_012953"
+    cases = (
+        ("nmos", "nmos: NMOS pair, mirror load"),
+        ("nmos_hyst", "nmos_hyst: NMOS pair, hysteresis"),
+        ("pmos", "pmos: PMOS pair, mirror load"),
+        ("pmos_hyst", "pmos_hyst: PMOS pair, hysteresis"),
+    )
+    labels = [label for _name, label in cases]
+    artifacts = []
+    for pdk in PDKS:
+        trips, delays = [], []
+        for name, _label in cases:
+            records = {}
+            for path in sorted(meas_read_dir.glob(f"{pdk}/{name}/*/result.h5")):
+                measurement = read_measurement(path)
+                if not isinstance(measurement, MeasDisc):
+                    raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasDisc")
+                records[path.parent.name] = measurement
+            trips.append(analyze_disc_trip([records.pop("ramp")]))
+            delays.append(analyze_disc_delay(list(records.values())))
+        pdk_dir = output_dir / pdk
+        artifacts += [
+            *plot_disc_transfer(trips, labels=labels, output_path=pdk_dir / "disc_transfer"),
+            *plot_disc_delay(delays, labels=labels, output_path=pdk_dir / "disc_delay"),
+        ]
+    return tuple(artifacts)
+
+
 def lvshift_characterization_study(output_dir: Path) -> tuple[Path, ...]:
     """Compare the named level shifters over the input and output supplies, in every PDK."""
 
@@ -2141,6 +2215,8 @@ def main() -> None:
             pi_characterization_study,
             clkgen_characterization_study,
             capdriver_characterization_study,
+            csa_characterization_study,
+            disc_characterization_study,
             lvshift_characterization_study,
             ringamp_characterization_study,
             samp_characterization_study,
@@ -2169,6 +2245,8 @@ def main() -> None:
                 "pi_",
                 "clkgen_",
                 "capdriver_",
+                "csa_",
+                "disc_",
                 "lvshift_",
                 "ringamp_",
                 "samp_",

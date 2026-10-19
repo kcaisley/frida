@@ -1,0 +1,26 @@
+{
+ "_comment": "NMOS input with continuous feedback (CCPD CSA_cont): the PMOS load above the input device, its cascode and the long feedback device. Rows top first. Netlist (per PDK): written by flow.csa.subckt (continuous), without its feedback capacitor.",
+ "netlist": "../../build/layout/netlists/{pdk}/csa_continuous.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "vload",
+   "out"
+  ],
+  "down": [
+   "inp",
+   "vcas",
+   "vfb"
+  ]
+ },
+ "rows": [
+  [
+   "Mload"
+  ],
+  [
+   "Mcas",
+   "Min",
+   "Mfb"
+  ]
+ ]
+}

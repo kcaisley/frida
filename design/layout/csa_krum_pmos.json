@@ -1,0 +1,36 @@
+{
+ "_comment": "PMOS input with Krummenacher feedback: the input device with the mirror's filter capacitor, the PMOS cascode with the mirror, the NMOS pair, the NMOS load and Krummenacher tail. Rows top first. Netlist (per PDK): written by flow.csa.subckt (krum_pmos), without its feedback capacitor.",
+ "netlist": "../../build/layout/netlists/{pdk}/csa_krum_pmos.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "inp",
+   "vcas"
+  ],
+  "down": [
+   "vload",
+   "vfb",
+   "vref",
+   "out"
+  ]
+ },
+ "rows": [
+  [
+   "Min",
+   "Mk_filter"
+  ],
+  [
+   "Mcas",
+   "Mk_diode",
+   "Mk_mirror"
+  ],
+  [
+   "Mk_ref",
+   "Mk_sig"
+  ],
+  [
+   "Mload",
+   "Mk_tail"
+  ]
+ ]
+}

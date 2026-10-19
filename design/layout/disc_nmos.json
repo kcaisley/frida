@@ -1,0 +1,28 @@
+{
+ "_comment": "NMOS pair with a current-mirror load (FE65-P2 Comparator): the PMOS mirror and second stage device above the input pair, its tail and the output current source. Rows top first. Netlist (per PDK): written by flow.disc.subckt (nmos).",
+ "netlist": "../../build/layout/netlists/{pdk}/disc_nmos.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "out"
+  ],
+  "down": [
+   "inp",
+   "inn",
+   "vbias"
+  ]
+ },
+ "rows": [
+  [
+   "Mload_a",
+   "Mload_b",
+   "Mout"
+  ],
+  [
+   "Minp",
+   "Mtail",
+   "Minn",
+   "Msink"
+  ]
+ ]
+}

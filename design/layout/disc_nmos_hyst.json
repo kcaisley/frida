@@ -1,0 +1,36 @@
+{
+ "_comment": "NMOS pair with hysteresis (RD53B Comparator_hyst): the PMOS diode loads either side of the cross-coupled pair, the PMOS second stage pair, the input pair and its tail, the NMOS mirror of the second stage. Rows top first. Netlist (per PDK): written by flow.disc.subckt (nmos_hyst).",
+ "netlist": "../../build/layout/netlists/{pdk}/disc_nmos_hyst.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "out"
+  ],
+  "down": [
+   "inp",
+   "inn",
+   "vbias"
+  ]
+ },
+ "rows": [
+  [
+   "Mload_a",
+   "Mcross_a",
+   "Mcross_b",
+   "Mload_b"
+  ],
+  [
+   "Mout_a",
+   "Mout_b"
+  ],
+  [
+   "Minp",
+   "Mtail",
+   "Minn"
+  ],
+  [
+   "Mmirror_o",
+   "Mmirror_d"
+  ]
+ ]
+}

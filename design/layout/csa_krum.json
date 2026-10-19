@@ -1,0 +1,36 @@
+{
+ "_comment": "NMOS input with Krummenacher feedback (RD53A lcamp_casc and Krummenacher_feedback): the PMOS load and Krummenacher tail, the PMOS pair, the NMOS cascode with the mirror, the input device with the mirror's filter capacitor. Rows top first. Netlist (per PDK): written by flow.csa.subckt (krum), without its feedback capacitor.",
+ "netlist": "../../build/layout/netlists/{pdk}/csa_krum.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "vload",
+   "vfb",
+   "vref",
+   "out"
+  ],
+  "down": [
+   "inp",
+   "vcas"
+  ]
+ },
+ "rows": [
+  [
+   "Mload",
+   "Mk_tail"
+  ],
+  [
+   "Mk_ref",
+   "Mk_sig"
+  ],
+  [
+   "Mcas",
+   "Mk_diode",
+   "Mk_mirror"
+  ],
+  [
+   "Min",
+   "Mk_filter"
+  ]
+ ]
+}

@@ -1,0 +1,36 @@
+{
+ "_comment": "PMOS pair with hysteresis: the PMOS mirror of the second stage, the input pair and its tail, the NMOS second stage pair, the NMOS diode loads either side of the cross-coupled pair. Rows top first. Netlist (per PDK): written by flow.disc.subckt (pmos_hyst).",
+ "netlist": "../../build/layout/netlists/{pdk}/disc_pmos_hyst.sp",
+ "symmetric": false,
+ "escape": {
+  "up": [
+   "inp",
+   "inn",
+   "vbias"
+  ],
+  "down": [
+   "out"
+  ]
+ },
+ "rows": [
+  [
+   "Mmirror_o",
+   "Mmirror_d"
+  ],
+  [
+   "Minp",
+   "Mtail",
+   "Minn"
+  ],
+  [
+   "Mout_a",
+   "Mout_b"
+  ],
+  [
+   "Mload_a",
+   "Mcross_a",
+   "Mcross_b",
+   "Mload_b"
+  ]
+ ]
+}
