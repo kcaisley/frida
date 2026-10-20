@@ -124,6 +124,21 @@ Every executable target builds one native HDL21 `Sim` per parameter variant and 
 
 Concurrency and each case's Spectre `+mt` setting are visible in the target which owns the campaign. Simulation targets require `spectre` on `PATH`; source `design/spice/workspace.sh` first when necessary.
 
+## Design-space sweeps
+
+`flow.sweep` characterizes every block's design space: each `flow/<block>/sweep.py` names its topologies and four to eight sizings of its key devices, and every PDK x topology x sizing is one instance, characterized in a fresh process of its own (under five minutes; 56 at once):
+
+```sh
+uv run python -m flow.sweep run [--blocks comp] [--pdks tsmc65 ihp130] [--workers 56] [--failed]
+uv run python -m flow.sweep layout [--blocks comp]   # ALIGN, signed off: area and density join the metrics
+uv run python -m flow.web export                     # the viewer's tables (flow.sweep table)
+uv run python -m flow.web serve
+```
+
+Each instance writes `build/sweep/<block>/<run>/<pdk>/<topology>/<sizing>/instance.json`: its parameters, its scalar metrics (the device count and gate area of its compiled netlist among them), its condition sweeps (over supply, common mode, load, frequency) and its transient measurements. `--failed` runs the newest run's failed instances again. The viewer (`flow/web`) shows a block's instances as one table and a scatter plot of any metric against any other, and each instance on a page of its own.
+
+The PDK packages give each simulator what it reads: `Install.simulation_includes(corner, simulator, mismatch=False)`. `pdk/test_spice.py` loads every device and standard cell each package wraps in Spectre and ngspice (`-m site_pdk`); ngspice runs TSMC65, IHP130 and TPSC65. `flow.mosfet` characterizes every PDK's core devices in both (`python -m flow.mosfet.sim mosfet_characterization`, then `python -m flow.analysis.runner mosfet_characterization_study`).
+
 ## Netlist conversion
 
 Netlist utilities are subcommands of their owning module:
