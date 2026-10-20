@@ -55,6 +55,7 @@ BLOCKS = (
     "disc",
     "schmitt",
     "bias",
+    "mosfet",
 )
 BLOCK_ANALYSES = tuple(f"flow.{block}.analysis" for block in BLOCKS)
 BLOCK_PLOTS = tuple(f"flow.{block}.plots" for block in BLOCKS)
