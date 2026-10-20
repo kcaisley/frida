@@ -48,6 +48,13 @@ def _json(value):
     return value
 
 
+def write_record(path: Path, record: dict) -> None:
+    """``instance.json``, replaced whole: the layout step rewrites records others may be reading."""
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(json.dumps(_json(record), indent=1) + "\n")
+    temporary.replace(path)
+
+
 def instance_job(block: str, run_dir: Path, pdk: str, topology: str, sizing: str) -> dict:
     """Characterize one instance in this (fresh) process; its record, also as ``instance.json``."""
 
@@ -81,7 +88,7 @@ def instance_job(block: str, run_dir: Path, pdk: str, topology: str, sizing: str
     except Exception:  # noqa: BLE001 - every instance reports its own failure
         record["error"] = traceback.format_exc(limit=6)[-4000:]
     record["seconds"] = round(time.time() - start, 1)
-    (run_dir / "instance.json").write_text(json.dumps(_json(record), indent=1) + "\n")
+    write_record(run_dir / "instance.json", record)
     return record
 
 
@@ -166,7 +173,7 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
         record["metrics"]["layout_area_um2"] = area
         gate = record["metrics"].get("gate_area_um2")
         record["metrics"]["density"] = gate / area if gate else None
-    (instance_dir / "instance.json").write_text(json.dumps(_json(record), indent=1) + "\n")
+    write_record(instance_dir / "instance.json", record)
     return entry
 
 
