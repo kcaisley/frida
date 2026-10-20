@@ -137,9 +137,29 @@ def newest_run(block: str) -> Path:
     return runs[-1]
 
 
+def case_floorplan(block: str, out_dir: Path, pdk: str, topology: str, params) -> tuple[Path, Path] | None:
+    """The block's hand-written floorplan of the topology (``design/layout/<block>_<topology>.json``)
+    with the netlist its layout runner places by it (``write_netlist`` of the block's subckt, at
+    the instance's sizes); None without one. A sweep module may name its own
+    (``layout_floorplan``)."""
+
+    sweep = import_module(f"flow.{block}.sweep")
+    if hasattr(sweep, "layout_floorplan"):
+        return sweep.layout_floorplan(out_dir, pdk, topology, params)
+    floorplan = ROOT / "design/layout" / f"{block}_{topology}.json"
+    write_netlist = getattr(import_module(f"flow.{block}.subckt"), "write_netlist", None)
+    if not floorplan.exists() or write_netlist is None:
+        return None
+    logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
+    return write_netlist(params, out_dir / f"{floorplan.stem}.sp", logic), floorplan
+
+
 def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
     """ALIGN's layout of one instance and its signoff, into ``instance_dir/layout``; the record's
-    layout entry (also written into its ``instance.json``)."""
+    layout entry (also written into its ``instance.json``). ALIGN places by the topology's
+    hand-written floorplan where it has one (a minute or two, the same rows the floorplan's other
+    tools draw); without one, or where that fails, ALIGN derives its constraints and places and
+    routes on its own (ten minutes or more, and its router fails on some IHP130 designs)."""
 
     from klayout import db
 
@@ -152,20 +172,40 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
     out = instance_dir / "layout"
     entry: dict = {"error": None}
     start = time.time()
+    attempts = []
     try:
-        netlist = sweep.layout_netlist(out / "netlist", pdk, params)
-        name = netlist.stem
-        gds = align_build(pdk, None, netlist, out / "align", name=name)
-        layout = db.Layout()
-        layout.read(str(gds))
-        box = max(layout.top_cells(), key=lambda cell: cell.bbox().area()).dbbox()
-        entry.update(
-            gds=str(gds.relative_to(ROOT)), netlist=str(netlist.relative_to(ROOT)), w_um=box.width(), h_um=box.height()
-        )
-        check = row_signoff(pdk, gds, netlist, None, out / "signoff")
-        entry.update(drc_violations=check.drc_violations, lvs_correct=check.lvs_correct)
-    except Exception:  # noqa: BLE001 - every instance reports its own failure
-        entry["error"] = traceback.format_exc(limit=6)[-4000:]
+        planned = case_floorplan(block, out / "netlist", pdk, record["topology"], params)
+        if planned is not None:
+            attempts.append(planned)
+    except Exception:  # noqa: BLE001 - ALIGN on its own instead
+        entry["floorplan_error"] = traceback.format_exc(limit=4)[-2000:]
+    if hasattr(sweep, "layout_netlist"):
+        attempts.append((None, None))
+    for netlist, floorplan in attempts:
+        try:
+            if netlist is None:
+                netlist = sweep.layout_netlist(out / "netlist", pdk, params)
+            gds = align_build(
+                pdk, floorplan, netlist, out / ("align_floorplan" if floorplan else "align"), name=netlist.stem
+            )
+            layout = db.Layout()
+            layout.read(str(gds))
+            box = max(layout.top_cells(), key=lambda cell: cell.bbox().area()).dbbox()
+            entry.update(
+                error=None,
+                floorplan=str(floorplan.relative_to(ROOT)) if floorplan else None,
+                gds=str(gds.relative_to(ROOT)),
+                netlist=str(netlist.relative_to(ROOT)),
+                w_um=box.width(),
+                h_um=box.height(),
+            )
+            check = row_signoff(pdk, gds, netlist, floorplan, out / "signoff")
+            entry.update(drc_violations=check.drc_violations, lvs_correct=check.lvs_correct)
+            break
+        except Exception:  # noqa: BLE001 - every instance reports its own failure
+            entry["error"] = traceback.format_exc(limit=6)[-4000:]
+    if not attempts:
+        entry["error"] = "no floorplan and no layout netlist"
     entry["seconds"] = round(time.time() - start, 1)
     record["layout"] = entry
     if entry.get("w_um"):
@@ -182,9 +222,6 @@ def layout(blocks: list[str], workers: int) -> None:
 
     jobs = []
     for block in blocks:
-        if not hasattr(import_module(f"flow.{block}.sweep"), "layout_netlist"):
-            print(f"{block}: no layout netlist")
-            continue
         for path in sorted(newest_run(block).glob("*/*/*/instance.json")):
             record = json.loads(path.read_text())
             done = (record.get("layout") or {}).get("gds") and not record["layout"].get("error")
@@ -203,6 +240,7 @@ def layout(blocks: list[str], workers: int) -> None:
                 "failed"
                 if entry["error"]
                 else f"{entry['w_um']:.1f} x {entry['h_um']:.1f} um, DRC {entry['drc_violations']}, LVS {entry['lvs_correct']}"
+                f"{'' if entry.get('floorplan') else ', ALIGN alone'}"
             )
             print(f"[{done}/{len(jobs)}] {path.relative_to(SWEEP_DIR)}: {status} in {entry['seconds']} s", flush=True)
 

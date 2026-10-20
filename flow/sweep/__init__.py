@@ -10,7 +10,11 @@ A block takes part with a module ``flow/<block>/sweep.py``:
 - ``params(pdk, topology, sizing)``: the block's parameters, or None where the two do not combine.
 - ``characterize(run_dir, pdk, params) -> Record``: simulate the instance in ``run_dir``, in
   under five minutes.
-- ``layout_netlist(run_dir, pdk, params) -> Path`` (optional): the netlist ALIGN lays out.
+- ``layout_netlist(run_dir, pdk, params) -> Path`` (optional): the netlist ALIGN lays out on its
+  own, where the topology has no hand-written floorplan or ALIGN fails by it.
+- ``layout_floorplan(run_dir, pdk, topology, params) -> (netlist, floorplan)`` (optional): the
+  netlist ALIGN places by a floorplan; without it, ``design/layout/<block>_<topology>.json`` with
+  the block's ``write_netlist``, where both exist.
 
 A ``Record`` holds the instance's scalar ``metrics`` (each name ends in its unit, as the
 analyses' fields do: ``_s``, ``_j``, ``_v``, ``_w``, ``_um2``), its ``details`` (plots of its

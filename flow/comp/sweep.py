@@ -222,3 +222,15 @@ def layout_netlist(out_dir: Path, pdk: str, comp: CompParams) -> Path:
         CompParams(**{**comp.__dict__, "output_stage": OutputStage.TRANSISTORS}), out_dir / "comp_transistors.sp", logic
     )
     return in_pdk(pdk, "flow.layout.stdcells", "recognize_file", transistors, out_dir / "comp.sp")
+
+
+def layout_floorplan(out_dir: Path, pdk: str, topology: str, comp: CompParams) -> tuple[Path, Path]:
+    """The topology's hand-written floorplan (``design/layout/comp_<topology>.json``) with the
+    netlist it places, the standard-cell output stage's (``flow.comp.layout``)."""
+
+    from flow.comp.layout import FLOORPLANS
+
+    logic = importlib.import_module(f"pdk.{pdk}.hdl21").pdk_logic
+    name = f"comp_{topology}"
+    stdcells = CompParams(**{**comp.__dict__, "output_stage": OutputStage.STDCELLS})
+    return write_netlist(stdcells, out_dir / f"{name}.sp", logic), FLOORPLANS / f"{name}.json"
