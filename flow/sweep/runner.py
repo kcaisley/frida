@@ -212,7 +212,7 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
         entry.update((clean or laid_out or results)[0])
         entry["attempts"] = len(results)
     if not attempts:
-        entry["error"] = "no floorplan and no layout netlist"
+        return {"error": "no floorplan and no layout netlist", "seconds": 0.0}
     entry["seconds"] = round(time.time() - start, 1)
     record["layout"] = entry
     if entry.get("w_um"):
@@ -230,8 +230,13 @@ def layout(blocks: list[str], workers: int) -> None:
 
     jobs = []
     for block in blocks:
+        sweep = import_module(f"flow.{block}.sweep")
+        own = hasattr(sweep, "layout_netlist") or hasattr(sweep, "layout_floorplan")
         for path in sorted(newest_run(block).glob("*/*/*/instance.json")):
             record = json.loads(path.read_text())
+            # a block drawn otherwise (the capacitor array) or of standard cells alone has nothing to place
+            if not own and not (ROOT / "design/layout" / f"{block}_{record['topology']}.json").exists():
+                continue
             entry = record.get("layout") or {}
             done = (
                 entry.get("gds")
