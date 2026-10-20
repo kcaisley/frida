@@ -171,7 +171,7 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
 
 
 def layout(blocks: list[str], workers: int) -> None:
-    """Lay out every characterized instance of the newest runs of ``blocks``."""
+    """Lay out every characterized instance of the newest runs of ``blocks`` not laid out yet."""
 
     jobs = []
     for block in blocks:
@@ -180,7 +180,8 @@ def layout(blocks: list[str], workers: int) -> None:
             continue
         for path in sorted(newest_run(block).glob("*/*/*/instance.json")):
             record = json.loads(path.read_text())
-            if record["error"] is None:
+            done = (record.get("layout") or {}).get("gds") and not record["layout"].get("error")
+            if record["error"] is None and not done:
                 jobs.append((block, path.parent, record["pdk"]))
     print(f"{len(jobs)} layouts on {workers} workers")
     with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=1) as pool:

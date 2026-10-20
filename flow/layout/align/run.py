@@ -2,7 +2,7 @@
 
 ALIGN cannot run in frida's environment (it needs ``pydantic<2`` and its compiled placer and
 router): it runs from its own install, ``ALIGN_HOME`` (default
-/local/kcaisley/layout-eval/ALIGN-public), with that install's Python, as a subprocess. Its
+/local/kcaisley/tools/ALIGN-public), with that install's Python, as a subprocess. Its
 ``LD_LIBRARY_PATH`` starts with the directory of the install's ``libOsiCbc.so.3`` (under
 ``_skbuild``). A design with a Floorplan constraint runs with ``STEMS_STD_DENSE=1``: the
 generators in the PDK directory (align/pdk) then draw standard cells for rows of their own.
@@ -14,7 +14,7 @@ import os
 import subprocess
 from pathlib import Path
 
-ALIGN_HOME = Path(os.environ.get("ALIGN_HOME", "/local/kcaisley/layout-eval/ALIGN-public"))
+ALIGN_HOME = Path(os.environ.get("ALIGN_HOME", "/local/kcaisley/tools/ALIGN-public"))
 
 
 def _schematic2layout(design_dir: Path, pdk_dir: Path, work: Path, args: list[str], env: dict[str, str]) -> None:
