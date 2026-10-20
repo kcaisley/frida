@@ -245,5 +245,3 @@ def export_schematic(netlist: str, out: str) -> str:
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     render(Path(netlist), Path(out))
     return out
-
-
