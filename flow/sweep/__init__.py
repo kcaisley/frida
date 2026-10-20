@@ -17,7 +17,7 @@ analyses' fields do: ``_s``, ``_j``, ``_v``, ``_w``, ``_um2``), its ``details`` 
 condition sweeps, whose axes the viewer fixes across a block's instances) and ``waves``
 (measurement files under ``build/`` holding transient waveforms, by label).
 
-    uv run python -m flow.sweep run [--blocks comp] [--pdks tsmc65] [--workers 56]
+    uv run python -m flow.sweep run [--blocks comp] [--pdks tsmc65] [--workers 36] [--failed]
     uv run python -m flow.sweep layout [--blocks comp] [--workers 28]
     uv run python -m flow.sweep table [--blocks comp]
 """

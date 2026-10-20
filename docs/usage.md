@@ -126,10 +126,10 @@ Concurrency and each case's Spectre `+mt` setting are visible in the target whic
 
 ## Design-space sweeps
 
-`flow.sweep` characterizes every block's design space: each `flow/<block>/sweep.py` names its topologies and four to eight sizings of its key devices, and every PDK x topology x sizing is one instance, characterized in a fresh process of its own (under five minutes; 56 at once):
+`flow.sweep` characterizes every block's design space: each `flow/<block>/sweep.py` names its topologies and four to eight sizings of its key devices, and every PDK x topology x sizing is one instance, characterized in a fresh process of its own (under five minutes; 36 at once by default: a Spectre X run holds 3 of the server's 120 licences):
 
 ```sh
-uv run python -m flow.sweep run [--blocks comp] [--pdks tsmc65 ihp130] [--workers 56] [--failed]
+uv run python -m flow.sweep run [--blocks comp] [--pdks tsmc65 ihp130] [--workers 36] [--failed]
 uv run python -m flow.sweep layout [--blocks comp]   # ALIGN, signed off: area and density join the metrics
 uv run python -m flow.web export                     # the viewer's tables (flow.sweep table)
 uv run python -m flow.web serve

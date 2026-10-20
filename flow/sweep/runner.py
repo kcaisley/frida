@@ -326,7 +326,8 @@ def main() -> None:
     parser.add_argument("step", choices=("run", "layout", "table"))
     parser.add_argument("--blocks", nargs="*", default=None, help="blocks (default: every block with a sweep.py)")
     parser.add_argument("--pdks", nargs="*", default=list(PDKS))
-    parser.add_argument("--workers", type=int, default=56)
+    # a Spectre X run holds 3 of the server's 120 licences: 40 runs at most, and others work too
+    parser.add_argument("--workers", type=int, default=36)
     parser.add_argument("--failed", action="store_true", help="run: only the newest run's failed instances, again")
     args = parser.parse_args()
     blocks = args.blocks or sweep_blocks()
