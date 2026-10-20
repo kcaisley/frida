@@ -123,7 +123,12 @@ def test_triple_tail_stages() -> None:
     Comp.Cache.reset()
     m = Comp(CompParams(comp_stages=Stages.TRIPLE))
     assert m.Mdiff_p.conns["d"] is m.cas_p and m.Mcas_p.conns["d"] is m.input_p_drain
-    assert m.Mcas_p.conns["g"] is m.vdd
+    # the cascodes' gates reach VDD through a tie, never by metal alone
+    assert m.Mcas_p.conns["g"] is m.cas_gate and m.Mcas_n.conns["g"] is m.cas_gate
+    assert m.Mtie.conns["d"] is m.cas_gate and m.Mtie.conns["s"] is m.vdd and m.Mtie.conns["g"] is m.tie_bias
+    assert m.Mtie_bias.conns["g"] is m.tie_bias and m.Mtie_bias.conns["s"] is m.vss
+    gates = [inst.conns["g"] for inst in m.instances.values() if "g" in inst.conns]
+    assert m.vdd not in gates and m.vss not in gates
     assert m.Mtail2.conns["g"] is m.clkb and m.Mmid_cross_p.conns["s"] is m.tail2
     assert m.Mmid_in_p.conns["d"] is m.midp and m.Mmid_in_p.conns["g"] is m.input_p_drain
     assert m.Mtail3.conns["g"] is m.clk and m.Mcross_on_p.conns["s"] is m.tail3

@@ -349,17 +349,27 @@ def _build_preamp(module, param: CompParams):
     # Opposite polarity is only needed for dynamic bias devices
     off_clk = module.clkb if diff_type == MosType.NMOS else module.clk
 
-    # Differential pair. A triple tail cascodes it with devices gated by the reset
-    # rail (always on), isolating the input pair from the precharged outputs.
+    # Differential pair. A triple tail cascodes it with devices held on at the reset rail,
+    # isolating the input pair from the precharged outputs. Their gates reach the rail through a
+    # tie (a gate on a rail by metal alone breaks TPSC65's rules, and an ESD event on the rail
+    # would land on the gate oxide): a diode-connected device of the input pair's type biases the
+    # gate of one of the other type, whose drain is the held net, as a library tie cell does.
     if param.comp_stages == Stages.TRIPLE:
         module.cas_p = h.Signal()
         module.cas_n = h.Signal()
+        module.cas_gate, module.tie_bias = h.Signal(), h.Signal()
         diff_drain_p, diff_drain_n = module.cas_p, module.cas_n
+        module.Mtie_bias = _mos(tp=diff_type, vth=param.diffpair_vth, w=1, l=1)(
+            d=module.tie_bias, g=module.tie_bias, s=on_rail, b=on_rail
+        )
+        module.Mtie = _mos(tp=reset_type, vth=param.diffpair_vth, w=1, l=1)(
+            d=module.cas_gate, g=module.tie_bias, s=init_rail, b=init_rail
+        )
         module.Mcas_p = _mos(tp=diff_type, vth=param.diffpair_vth, w=param.diffpair_w, l=1)(
-            d=module.input_p_drain, g=init_rail, s=module.cas_p, b=on_rail
+            d=module.input_p_drain, g=module.cas_gate, s=module.cas_p, b=on_rail
         )
         module.Mcas_n = _mos(tp=diff_type, vth=param.diffpair_vth, w=param.diffpair_w, l=1)(
-            d=module.input_n_drain, g=init_rail, s=module.cas_n, b=on_rail
+            d=module.input_n_drain, g=module.cas_gate, s=module.cas_n, b=on_rail
         )
     else:
         diff_drain_p, diff_drain_n = module.input_p_drain, module.input_n_drain
