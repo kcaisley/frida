@@ -207,6 +207,54 @@ def _run_samp_sim(run_dir: Path, params: SampTbParams, *, check: bool = False, t
     return run_dir / "netlist.raw"
 
 
+def samp_measurement(raw_path: Path, params: SampTbParams, readbacks: dict):
+    """One run's raw transient as a ``MeasSamp``: one record from time zero on the stored grid,
+    the supply current as positive draw; ``readbacks`` (its PDK, case and sweep) join the run's own."""
+
+    from flow.analysis.types import MeasInfo, Wave
+    from flow.circuit.results import read_raw_transient
+    from flow.samp.analysis import MeasSamp
+
+    names = samp_signal_names()
+    result = read_raw_transient(raw_path)
+    times_s = np.asarray(result.data["time"])
+    interval = params.waveform_sample_interval_s
+    window = [(float(times_s[0]), float(times_s[-1]))]
+    time_s, voltages = interpolate_wave_records(
+        times_s,
+        {names[key]: value for key, value in result.data.items() if not names[key].startswith(("i(", "time"))},
+        window,
+        interval,
+    )
+    _, currents = interpolate_wave_records(
+        times_s,
+        {names[key][2:-1]: -np.asarray(value) for key, value in result.data.items() if names[key].startswith("i(")},
+        window,
+        interval,
+    )
+    return MeasSamp(
+        group=None,
+        index=None,
+        dut=params.samp,
+        info=MeasInfo(
+            backend="spice",
+            timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
+            instruments={"simulator": "Spectre"},
+            readbacks={
+                **readbacks,
+                "signal_map_json": json.dumps(names, sort_keys=True),
+                "raw_file": raw_path.name,
+                "raw_points": len(times_s),
+                "waveform_sample_interval_s": interval,
+                "supply_current_convention": "positive_current_draw",
+            },
+        ),
+        param=params,
+        trial_index=np.arange(1, dtype=np.int64),
+        wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
+    )
+
+
 def frida1_transient(run_dir: Path, *, check: bool = False) -> Path:
     """Run five periods of the fabricated-size sampler transient (TSMC65)."""
 
@@ -230,10 +278,7 @@ def samp_characterization(run_dir: Path, *, check: bool = False) -> Path:
     each case's nominal point for one period with Spectre's checks instead, writing no measurement.
     """
 
-    from flow.analysis.types import MeasInfo, Wave
-    from flow.circuit.results import read_raw_transient
     from flow.comp.layout import PDKS
-    from flow.samp.analysis import MeasSamp
 
     run_dir.mkdir(parents=True, exist_ok=True)
     jobs = {}
@@ -259,7 +304,6 @@ def samp_characterization(run_dir: Path, *, check: bool = False) -> Path:
                         waveform_sample_interval_s=5e-12,
                         periods=6,
                     )
-    names = samp_signal_names()
     failures: dict[str, str] = {}
     # one pool per PDK: hdl21 compiles each generated module in place, for the first PDK it meets
     for pdk in PDKS:
@@ -275,54 +319,8 @@ def samp_characterization(run_dir: Path, *, check: bool = False) -> Path:
                     raw_path = future.result()
                     if check:
                         continue
-                    # one record from time zero on the stored grid; the supply current as positive draw
-                    result = read_raw_transient(raw_path)
-                    times_s = np.asarray(result.data["time"])
-                    interval = params.waveform_sample_interval_s
-                    window = [(float(times_s[0]), float(times_s[-1]))]
-                    time_s, voltages = interpolate_wave_records(
-                        times_s,
-                        {
-                            names[key]: value
-                            for key, value in result.data.items()
-                            if not names[key].startswith(("i(", "time"))
-                        },
-                        window,
-                        interval,
-                    )
-                    _, currents = interpolate_wave_records(
-                        times_s,
-                        {
-                            names[key][2:-1]: -np.asarray(value)
-                            for key, value in result.data.items()
-                            if names[key].startswith("i(")
-                        },
-                        window,
-                        interval,
-                    )
-                    measurement = MeasSamp(
-                        group=None,
-                        index=None,
-                        dut=params.samp,
-                        info=MeasInfo(
-                            backend="spice",
-                            timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
-                            instruments={"simulator": "Spectre"},
-                            readbacks={
-                                "pdk": name.split("/")[0],
-                                "case": name.split("/")[1],
-                                "sweep": name.split("/")[2],
-                                "signal_map_json": json.dumps(names, sort_keys=True),
-                                "raw_file": raw_path.name,
-                                "raw_points": len(times_s),
-                                "waveform_sample_interval_s": interval,
-                                "supply_current_convention": "positive_current_draw",
-                            },
-                        ),
-                        param=params,
-                        trial_index=np.arange(1, dtype=np.int64),
-                        wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
-                    )
+                    pdk_name, case, sweep = name.split("/")[:3]
+                    measurement = samp_measurement(raw_path, params, {"pdk": pdk_name, "case": case, "sweep": sweep})
                     write_measurement(raw_path.parent / "result.h5", measurement)
                 except Exception as error:  # noqa: BLE001 - report every independent point failure
                     failures[name] = repr(error)
