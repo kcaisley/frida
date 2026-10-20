@@ -83,6 +83,8 @@ def geometry(module: h.Module, pdk: str) -> dict[str, float]:
     """A compiled module's device count, total gate area (W L, um2) and standard-cell count."""
 
     xtors = {m.name for m in import_module(f"pdk.{pdk}.hdl21.primitives.prim_dicts").xtors.values()}
+    # a library cell by its name: older wrappers name their domain otherwise (IHP130's "ihp")
+    library = set(import_module(f"pdk.{pdk}.hdl21.cells").CELLS)
     totals = {"devices": 0.0, "gate_area_um2": 0.0, "cells": 0.0}
 
     def walk(module: h.Module, multiplier: float) -> None:
@@ -96,7 +98,7 @@ def geometry(module: h.Module, pdk: str) -> dict[str, float]:
                 width, length = float(getattr(params, "w", math.nan)), float(getattr(params, "l", math.nan))
                 totals["devices"] += count
                 totals["gate_area_um2"] += count * width * length * 1e12
-            elif isinstance(target, h.ExternalModuleCall) and target.module.domain == pdk:
+            elif isinstance(target, h.ExternalModuleCall) and target.module.name in library:
                 totals["cells"] += multiplier
 
     walk(module, 1.0)
