@@ -199,8 +199,8 @@ def layout(blocks: list[str], workers: int) -> None:
             print(f"[{done}/{len(jobs)}] {path.relative_to(SWEEP_DIR)}: {status} in {entry['seconds']} s", flush=True)
 
 
-def instance_views(block: str, ident: str, record: dict) -> dict:
-    """An instance's views for its page, under ``build/web/data/sweep/<block>/``: its layout
+def instance_views(block: str, ident: str, record: dict, data_dir: Path) -> dict:
+    """An instance's views for its page, under ``data_dir/<block>/`` (``build/web/data/sweep``): its layout
     flattened onto the PDK's generic layers (``flow.web.export``), its schematic and netlist, and
     the index of its waveforms (``<ident>/traces.json``, as the waveform panel reads one); the
     files written, by kind."""
@@ -212,13 +212,13 @@ def instance_views(block: str, ident: str, record: dict) -> dict:
     entry = record.get("layout") or {}
     if entry.get("gds"):
         files["file"] = f"sweep/{block}/{ident}.layout.json"
-        export_layout(str(ROOT / entry["gds"]), record["pdk"], str(DATA_DIR.parent / files["file"]))
+        export_layout(str(ROOT / entry["gds"]), record["pdk"], str(data_dir.parent / files["file"]))
     if entry.get("netlist"):
         files["netlist_file"] = f"sweep/{block}/{ident}.netlist.sp"
-        (DATA_DIR.parent / files["netlist_file"]).write_text((ROOT / entry["netlist"]).read_text())
+        (data_dir.parent / files["netlist_file"]).write_text((ROOT / entry["netlist"]).read_text())
         try:
             files["schematic"] = f"sweep/{block}/{ident}.schematic.svg"
-            export_schematic(str(ROOT / entry["netlist"]), str(DATA_DIR.parent / files["schematic"]))
+            export_schematic(str(ROOT / entry["netlist"]), str(data_dir.parent / files["schematic"]))
         except Exception:  # noqa: BLE001 - the netlist stays readable without its drawing
             del files["schematic"]
     waves = []
@@ -228,7 +228,7 @@ def instance_views(block: str, ident: str, record: dict) -> dict:
             wave = wave_entry(path, read_measurement(path))
             if wave is not None:
                 waves.append({**wave, "pdk": record["pdk"], "case": ident, "sweep": label})
-    index = DATA_DIR / block / ident / "traces.json"
+    index = data_dir / block / ident / "traces.json"
     index.parent.mkdir(parents=True, exist_ok=True)
     index.write_text(json.dumps(_json(trace_index(waves)), separators=(",", ":")))
     return files
@@ -246,6 +246,7 @@ def table(blocks: list[str], workers: int) -> None:
         for block in blocks:
             run_dir = newest_run(block)
             records = [json.loads(path.read_text()) for path in sorted(run_dir.glob("*/*/*/instance.json"))]
+            (DATA_DIR / block).mkdir(parents=True, exist_ok=True)
             rows, details, views = [], {}, {}
             for record in records:
                 ident = f"{record['pdk']}__{record['topology']}__{record['sizing']}"
@@ -278,7 +279,7 @@ def table(blocks: list[str], workers: int) -> None:
                         limits["x"] = [min(limits["x"][0], *xs), max(limits["x"][1], *xs)]
                     if ys:
                         limits["y"] = [min(limits["y"][0], *ys), max(limits["y"][1], *ys)]
-                views[ident] = (record, pool.submit(instance_views, block, ident, record))
+                views[ident] = (record, pool.submit(instance_views, block, ident, record, DATA_DIR))
             for row in rows:
                 record, future = views[row["id"]]
                 try:

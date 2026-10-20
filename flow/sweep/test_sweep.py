@@ -1,0 +1,83 @@
+"""The sweep framework on a small generator and synthetic instance records."""
+
+from __future__ import annotations
+
+import json
+import math
+from pathlib import Path
+
+import hdl21 as h
+import pytest
+
+from flow.comp.subckt import Comp, CompParams, Stages
+from flow.sweep import flat_params, geometry, runner
+
+
+def test_parameters_flatten_to_one_row() -> None:
+    flat = flat_params(CompParams(comp_stages=Stages.TRIPLE, diffpair_w=16))
+    assert flat["comp_stages"] == "TRIPLE" and flat["diffpair_w"] == 16
+    assert all(isinstance(value, (bool, int, float, str)) or value is None for value in flat.values())
+
+
+def test_geometry_counts_the_compiled_devices_and_their_gate_area() -> None:
+    logic = pytest.importorskip("pdk.tsmc65.hdl21").pdk_logic
+    module = Comp(CompParams())
+    h.pdk.compile(module, logic)
+    totals = geometry(module, "tsmc65")
+    assert totals["devices"] == len(Comp(CompParams()).instances) or totals["devices"] > 0
+    assert 0 < totals["gate_area_um2"] < 100 and totals["cells"] == 0
+
+
+def test_every_sweep_module_keeps_the_contract() -> None:
+    for block in runner.sweep_blocks():
+        sweep = __import__(f"flow.{block}.sweep", fromlist=["params"])
+        assert sweep.TOPOLOGIES and 4 <= len(sweep.SIZINGS) <= 8, block
+        assert callable(sweep.characterize) and sweep.GENERATOR is not None, block
+        combos = [
+            sweep.params(pdk, topology, sizing)
+            for pdk in runner.PDKS
+            for topology in sweep.TOPOLOGIES
+            for sizing in sweep.SIZINGS
+        ]
+        assert any(combo is not None for combo in combos), block
+
+
+def test_the_table_has_a_row_per_instance_and_shared_detail_limits(tmp_path: Path, monkeypatch) -> None:
+    run = tmp_path / "sweep/toy/20261020_000000"
+    for pdk, sizing, delay in (("tsmc65", "x1", 1e-10), ("ihp130", "x2", 3e-10)):
+        path = run / pdk / "inv" / sizing / "instance.json"
+        path.parent.mkdir(parents=True)
+        record = {
+            "block": "toy",
+            "pdk": pdk,
+            "topology": "inv",
+            "sizing": sizing,
+            "params": {"w": 1 if sizing == "x1" else 2, "kind": "inv"},
+            "metrics": {"delay_s": delay},
+            "details": [
+                {
+                    "name": "delay_supply",
+                    "title": "Delay",
+                    "x_label": "Supply (V)",
+                    "y_label": "Delay (s)",
+                    "x": [1.0, 1.2],
+                    "series": {"delay": [delay, math.nan]},
+                    "x_log": False,
+                    "y_log": True,
+                }
+            ],
+            "waves": {},
+            "error": None,
+            "seconds": 1.0,
+        }
+        path.write_text(json.dumps(runner._json(record)))
+    monkeypatch.setattr(runner, "SWEEP_DIR", tmp_path / "sweep")
+    monkeypatch.setattr(runner, "DATA_DIR", tmp_path / "web/data/sweep")
+    runner.table(["toy"], 1)
+    data = json.loads((tmp_path / "web/data/sweep/toy.json").read_text())
+    assert [row["id"] for row in data["rows"]] == ["ihp130__inv__x2", "tsmc65__inv__x1"]
+    assert data["params"] == ["w"]  # the kind is the same everywhere
+    assert data["details"]["delay_supply"]["y"] == pytest.approx([1e-10, 3e-10])
+    instance = json.loads((tmp_path / "web/data/sweep/toy/tsmc65__inv__x1.json").read_text())
+    assert instance["params"] == {"w": 1, "kind": "inv"} and instance["details"][0]["series"]["delay"][1] is None
+    assert json.loads((tmp_path / "web/data/sweep/catalog.json").read_text())["toy"]["instances"] == 2
