@@ -166,6 +166,45 @@ def _run_caparray_sim(
     return run_dir / "netlist.raw"
 
 
+def caparray_measurement(raw_path: Path, params: CapArrayTbParams, readbacks: dict):
+    """One run's raw transient as a ``MeasCapArrayTran``: the top plate, one record on the stored
+    grid; ``readbacks`` (its PDK, case and sweep) join the run's own."""
+
+    from flow.analysis.types import MeasInfo, Wave
+    from flow.caparray.analysis import MeasCapArrayTran
+    from flow.circuit.results import read_raw_transient
+
+    result = read_raw_transient(raw_path)
+    times_s = np.asarray(result.data["time"])
+    interval = params.waveform_sample_interval_s
+    time_s, voltages = interpolate_wave_records(
+        times_s,
+        {"cap_topplate": result.data["xtop.cap_topplate"]},
+        [(float(times_s[0]), float(times_s[-1]))],
+        interval,
+    )
+    return MeasCapArrayTran(
+        group=None,
+        index=None,
+        dut=params.cdac,
+        info=MeasInfo(
+            backend="spice",
+            timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
+            instruments={"simulator": "Spectre"},
+            readbacks={
+                **readbacks,
+                "stage_weights_json": json.dumps(get_caparray_weights(params.cdac)),
+                "raw_file": raw_path.name,
+                "raw_points": len(times_s),
+                "waveform_sample_interval_s": interval,
+            },
+        ),
+        param=params,
+        trial_index=np.arange(1, dtype=np.int64),
+        wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i={}),
+    )
+
+
 def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
     """Run the complete fabricated-size CDAC code ramp (TSMC65)."""
 
@@ -194,9 +233,6 @@ def caparray_characterization(run_dir: Path, *, check: bool = False) -> Path:
     measurement.
     """
 
-    from flow.analysis.types import MeasInfo, Wave
-    from flow.caparray.analysis import MeasCapArrayTran
-    from flow.circuit.results import read_raw_transient
     from flow.comp.layout import PDKS
 
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -230,36 +266,9 @@ def caparray_characterization(run_dir: Path, *, check: bool = False) -> Path:
                     raw_path = future.result()
                     if check:
                         continue
-                    result = read_raw_transient(raw_path)
-                    times_s = np.asarray(result.data["time"])
-                    interval = params.waveform_sample_interval_s
-                    time_s, voltages = interpolate_wave_records(
-                        times_s,
-                        {"cap_topplate": result.data["xtop.cap_topplate"]},
-                        [(float(times_s[0]), float(times_s[-1]))],
-                        interval,
-                    )
-                    measurement = MeasCapArrayTran(
-                        group=None,
-                        index=None,
-                        dut=params.cdac,
-                        info=MeasInfo(
-                            backend="spice",
-                            timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
-                            instruments={"simulator": "Spectre"},
-                            readbacks={
-                                "pdk": name.split("/")[0],
-                                "case": name.split("/")[1],
-                                "sweep": name.split("/")[2],
-                                "stage_weights_json": json.dumps(get_caparray_weights(params.cdac)),
-                                "raw_file": raw_path.name,
-                                "raw_points": len(times_s),
-                                "waveform_sample_interval_s": interval,
-                            },
-                        ),
-                        param=params,
-                        trial_index=np.arange(1, dtype=np.int64),
-                        wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i={}),
+                    pdk_name, case, sweep = name.split("/")[:3]
+                    measurement = caparray_measurement(
+                        raw_path, params, {"pdk": pdk_name, "case": case, "sweep": sweep}
                     )
                     write_measurement(raw_path.parent / "result.h5", measurement)
                 except Exception as error:  # noqa: BLE001 - report every independent point failure
