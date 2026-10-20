@@ -11,6 +11,7 @@ generators in the PDK directory (align/pdk) then draw standard cells for rows of
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 from pathlib import Path
 
@@ -38,8 +39,22 @@ def _schematic2layout(design_dir: Path, pdk_dir: Path, work: Path, args: list[st
         *args,
     ]
     log = work / "schematic2layout.log"
+    # ALIGN_TIMEOUT (seconds, unset: none): its placer can search for hours on a large design;
+    # the run and the PnR processes it starts stop together
+    limit = float(os.environ["ALIGN_TIMEOUT"]) if os.environ.get("ALIGN_TIMEOUT") else None
     with log.open("w") as out:
-        done = subprocess.run(command, cwd=work, env=env, stdout=out, stderr=subprocess.STDOUT, check=False)
+        process = subprocess.Popen(
+            command, cwd=work, env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True
+        )
+        try:
+            process.wait(timeout=limit)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            raise RuntimeError(
+                f"ALIGN stopped after {limit:g} s on {design_dir.name} {' '.join(args)}; {log}"
+            ) from None
+    done = process
     if done.returncode:
         tail = "\n".join(log.read_text().splitlines()[-15:])
         raise RuntimeError(f"ALIGN failed ({done.returncode}) on {design_dir.name} {' '.join(args)}; {log}:\n{tail}")

@@ -161,11 +161,16 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
     tools draw); without one, or where that fails, ALIGN derives its constraints and places and
     routes on its own (ten minutes or more, and its router fails on some IHP130 designs)."""
 
+    import os
+
     from klayout import db
 
     from flow.layout.align.build import build as align_build
     from flow.layout.signoff import row_signoff
 
+    # an attempt that has not placed and routed in half an hour fails (ALIGN's placer can search
+    # for hours on the larger sizings); the next attempt, if any, follows
+    os.environ.setdefault("ALIGN_TIMEOUT", "1800")
     record = json.loads((instance_dir / "instance.json").read_text())
     sweep = import_module(f"flow.{block}.sweep")
     params = sweep.params(pdk, record["topology"], record["sizing"])
