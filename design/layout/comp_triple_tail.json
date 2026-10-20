@@ -1,0 +1,68 @@
+{
+ "_comment": "Triple tail (flow.comp.sim TOPOLOGIES) in standard-cell rows, top row first, each row mirrored about the centre: cascoded input pair and tail, preamp resets, the second stage (PMOS cross pair and tail, NMOS input pair and tail), the NMOS cross-coupled pair, the PMOS latch (inner init beside the cross-coupled pair, split cross-quad over two rows), standard-cell output stage. Netlist (per PDK): written by flow.comp.subckt (triple_tail, standard-cell output stage); the cross-coupled init pair is split into halves for a cross-quad over two rows.",
+ "netlist": "../../build/layout/netlists/{pdk}/comp_triple_tail_stdcells.sp",
+ "split": {
+  "Mcross_init_p": 2,
+  "Mcross_init_n": 2
+ },
+ "escape": {
+  "up": [
+   "inp",
+   "inn"
+  ],
+  "down": [
+   "clk",
+   "clkb",
+   "outp",
+   "outn"
+  ]
+ },
+ "rows": [
+  [
+   "Mcas_p",
+   "Mdiff_p",
+   "Mtail",
+   "Mdiff_n",
+   "Mcas_n"
+  ],
+  [
+   "Mrst_p",
+   "Mtail_reset",
+   "Mrst_n"
+  ],
+  [
+   "Mmid_cross_p",
+   "Mtail2",
+   "Mmid_cross_n"
+  ],
+  [
+   "Mmid_in_p",
+   "Mtail3",
+   "Mmid_in_n"
+  ],
+  [
+   "Mcross_on_p",
+   "Mcross_on_n"
+  ],
+  [
+   "Minner_init_p",
+   "Mcross_init_p_a",
+   "Mcross_init_n_a",
+   "Minner_init_n"
+  ],
+  [
+   "Mcross_init_n_b",
+   "Mcross_init_p_b"
+  ],
+  [
+   "Xbuf2_outp",
+   "Xbuf1_outp",
+   "Xsr_p",
+   "Xdecision_n",
+   "Xdecision_p",
+   "Xsr_n",
+   "Xbuf1_outn",
+   "Xbuf2_outn"
+  ]
+ ]
+}

@@ -15,6 +15,12 @@ from flow.layout.signoff import RowSignoff
 CASES = (
     "comp_frida1_manual",
     "comp_c040_manual",
+    "comp_strongarm",
+    "comp_triple_tail",
+    "comp_double_tail",
+    "comp_double_tail_self_timed",
+    "comp_double_tail_modified",
+    "comp_double_tail_modified_self_timed",
     "comp_frida1_auto",
     "comp_c040_auto",
     "mos_inv",
@@ -34,7 +40,7 @@ def test_main_registers_every_target() -> None:
     per_pdk = {f"{case}_{pdk}" for case in CASES for pdk in layout.PDKS}
     assert targets == public - {"main"}
     assert targets == per_pdk | {f"{case}_all_pdks" for case in CASES} | {"all_comp_layouts"}
-    assert len(per_pdk) == 30 and len(targets) == 36
+    assert len(per_pdk) == 66 and len(targets) == 78
 
 
 def test_c040_is_the_sweeps_topology_40_at_half_size() -> None:

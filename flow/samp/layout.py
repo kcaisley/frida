@@ -3,8 +3,8 @@
 A target names one case and one PDK and lays it out with all three tools (cIcCreator, laygo,
 ALIGN) from its hand-written floorplan (``design/layout/samp_*.json``), each checked with DRC
 and LVS; a ``*_all_pdks`` target runs one case in all six PDKs. Cases: the FRIDA-1
-transmission gate, the transmission gate with half-size charge-injection dummies, and the
-bootstrapped NMOS switch. The runner is the comparator's (``flow.comp.layout``).
+transmission gate, the transmission gate with half-size charge-injection dummies, the bootstrapped
+NMOS switch, and the NMOS switch alone. The runner is the comparator's (``flow.comp.layout``).
 
     uv run python -m flow.samp.layout samp_bootstrap_tsmc65
 """
@@ -149,6 +149,33 @@ def samp_tgate_dummy_all_pdks(run_dir: Path) -> Path:
     )
 
 
+# ---- NMOS switch alone
+
+
+def samp_nmos_tsmc65(run_dir: Path) -> Path:
+    return _samp(run_dir, "tsmc65", "nmos")
+
+
+def samp_nmos_tsmc28(run_dir: Path) -> Path:
+    return _samp(run_dir, "tsmc28", "nmos")
+
+
+def samp_nmos_ihp130(run_dir: Path) -> Path:
+    return _samp(run_dir, "ihp130", "nmos")
+
+
+def samp_nmos_tower180(run_dir: Path) -> Path:
+    return _samp(run_dir, "tower180", "nmos")
+
+
+def samp_nmos_lf150(run_dir: Path) -> Path:
+    return _samp(run_dir, "lf150", "nmos")
+
+
+def samp_nmos_tpsc65(run_dir: Path) -> Path:
+    return _samp(run_dir, "tpsc65", "nmos")
+
+
 def samp_bootstrap_all_pdks(run_dir: Path) -> Path:
     return _all_pdks(
         run_dir,
@@ -163,11 +190,25 @@ def samp_bootstrap_all_pdks(run_dir: Path) -> Path:
     )
 
 
-ALL_PDKS = (samp_frida1_all_pdks, samp_tgate_dummy_all_pdks, samp_bootstrap_all_pdks)
+def samp_nmos_all_pdks(run_dir: Path) -> Path:
+    return _all_pdks(
+        run_dir,
+        (
+            samp_nmos_tsmc65,
+            samp_nmos_tsmc28,
+            samp_nmos_ihp130,
+            samp_nmos_tower180,
+            samp_nmos_lf150,
+            samp_nmos_tpsc65,
+        ),
+    )
+
+
+ALL_PDKS = (samp_frida1_all_pdks, samp_tgate_dummy_all_pdks, samp_bootstrap_all_pdks, samp_nmos_all_pdks)
 
 
 def all_samp_layouts(run_dir: Path) -> Path:
-    """The three ``*_all_pdks`` targets into ``run_dir/<target>/``."""
+    """The four ``*_all_pdks`` targets into ``run_dir/<target>/``."""
 
     failures: dict[str, str] = {}
     for target in ALL_PDKS:
@@ -202,6 +243,12 @@ def main() -> None:
             samp_bootstrap_tower180,
             samp_bootstrap_lf150,
             samp_bootstrap_tpsc65,
+            samp_nmos_tsmc65,
+            samp_nmos_tsmc28,
+            samp_nmos_ihp130,
+            samp_nmos_tower180,
+            samp_nmos_lf150,
+            samp_nmos_tpsc65,
             *ALL_PDKS,
             all_samp_layouts,
         )

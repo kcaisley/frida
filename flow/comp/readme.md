@@ -11,7 +11,7 @@
 | Analysis tests | ✓ | [test_analysis.py](test_analysis.py) | Timing, settling, power and candidates on synthetic decisions; every characterization plot renders. |
 | Layout generator | ✓ | [floorplan.py](../layout/floorplan.py) | Standard-cell rows with cIcCreator, laygo and ALIGN (`flow/layout`), from a hand-written floorplan or ALIGN's placement. |
 | Layout tests | ✓ | [test_layout.py](test_layout.py) | Target registry and per-tool failure collection; the floorplan conversion in `flow/layout`. |
-| Layout runner | ✓ | [layout.py](layout.py) | 42 per-PDK targets (frida1 and c040: manual, auto, gates; mos_inv), seven all-PDK targets, `all_comp_layouts`. |
+| Layout runner | ✓ | [layout.py](layout.py) | 66 per-PDK targets (frida1 and c040: manual and auto; the characterization's six topologies, each from its hand-written floorplan `design/layout/comp_<topology>.json`; mos_inv), eleven all-PDK targets, `all_comp_layouts`. The six topologies at the characterization's sizing in six PDKs with cIcCreator and laygo: 70 of 72 layouts DRC clean and LVS correct; the triple tail in TPSC65 breaks its rule 4.1.20 (16 times, both tools), an NMOS gate tied to VDD by metal alone: the generator ties the input cascodes' gates to the supply, where TPSC65 asks for a tie-high cell. ALIGN not run: `ALIGN_HOME` names a deleted install. |
 | DRC runner | ✓ | [layout.py](layout.py) | gdscheck and the PDK's DRC for every layout (`row_signoff`). |
 | LVS runner | ✓ | [layout.py](layout.py) | The PDK's LVS for every layout against the netlist the build placed. |
 | PEX runner | ✗ | - | No comparator extraction. |

@@ -5,7 +5,9 @@ ALIGN), each checked with DRC and LVS; a ``*_all_pdks`` target runs one case in 
 Cases: the FRIDA-1 comparator and the size sweep's example double tail (c040), each from its
 hand-written floorplan (``design/layout``, "manual") or laid out by ALIGN on its own from the
 transistor netlist with its library cells recognized ("auto", ALIGN's placement the floorplan of
-cIcCreator and laygo); and ``mos_inv`` (one NMOS and one PMOS row cell). Every (pdk, tool) runs whatever the others do;
+cIcCreator and laygo); the characterization's six topologies (``flow.comp.sim``: StrongARM,
+triple tail and the double tails) at its sizing, each from its hand-written floorplan; and
+``mos_inv`` (one NMOS and one PMOS row cell). Every (pdk, tool) runs whatever the others do;
 the target raises at the end when any failed (``failures.json``).
 
 Tools: ``CICPY`` (cicpy 0.3, with ``compile``), ``LAYGO_CLIENT`` (the hosted laygo server's
@@ -212,6 +214,163 @@ def comp_c040_manual_tpsc65(run_dir: Path) -> Path:
     return _comp(run_dir, "tpsc65", "comp_c040", C040, FLOORPLANS / "comp_c040.json")
 
 
+# ---- the characterization's six topologies (flow.comp.sim), hand-written floorplans
+
+
+def _topology(run_dir: Path, pdk: str, topology: str) -> Path:
+    """One of the characterization's topologies at its shared sizing, as ``comp_characterization``
+    simulates it."""
+
+    from flow.comp.sim import TOPOLOGIES, TOPOLOGY_SIZES
+
+    name = f"comp_{topology}"
+    return _comp(run_dir, pdk, name, CompParams(**TOPOLOGIES[topology], **TOPOLOGY_SIZES), FLOORPLANS / f"{name}.json")
+
+
+def comp_strongarm_tsmc65(run_dir: Path) -> Path:
+    return _topology(run_dir, "tsmc65", "strongarm")
+
+
+def comp_strongarm_tsmc28(run_dir: Path) -> Path:
+    return _topology(run_dir, "tsmc28", "strongarm")
+
+
+def comp_strongarm_ihp130(run_dir: Path) -> Path:
+    return _topology(run_dir, "ihp130", "strongarm")
+
+
+def comp_strongarm_tower180(run_dir: Path) -> Path:
+    return _topology(run_dir, "tower180", "strongarm")
+
+
+def comp_strongarm_lf150(run_dir: Path) -> Path:
+    return _topology(run_dir, "lf150", "strongarm")
+
+
+def comp_strongarm_tpsc65(run_dir: Path) -> Path:
+    return _topology(run_dir, "tpsc65", "strongarm")
+
+
+def comp_triple_tail_tsmc65(run_dir: Path) -> Path:
+    return _topology(run_dir, "tsmc65", "triple_tail")
+
+
+def comp_triple_tail_tsmc28(run_dir: Path) -> Path:
+    return _topology(run_dir, "tsmc28", "triple_tail")
+
+
+def comp_triple_tail_ihp130(run_dir: Path) -> Path:
+    return _topology(run_dir, "ihp130", "triple_tail")
+
+
+def comp_triple_tail_tower180(run_dir: Path) -> Path:
+    return _topology(run_dir, "tower180", "triple_tail")
+
+
+def comp_triple_tail_lf150(run_dir: Path) -> Path:
+    return _topology(run_dir, "lf150", "triple_tail")
+
+
+def comp_triple_tail_tpsc65(run_dir: Path) -> Path:
+    return _topology(run_dir, "tpsc65", "triple_tail")
+
+
+def comp_double_tail_tsmc65(run_dir: Path) -> Path:
+    return _topology(run_dir, "tsmc65", "double_tail")
+
+
+def comp_double_tail_tsmc28(run_dir: Path) -> Path:
+    return _topology(run_dir, "tsmc28", "double_tail")
+
+
+def comp_double_tail_ihp130(run_dir: Path) -> Path:
+    return _topology(run_dir, "ihp130", "double_tail")
+
+
+def comp_double_tail_tower180(run_dir: Path) -> Path:
+    return _topology(run_dir, "tower180", "double_tail")
+
+
+def comp_double_tail_lf150(run_dir: Path) -> Path:
+    return _topology(run_dir, "lf150", "double_tail")
+
+
+def comp_double_tail_tpsc65(run_dir: Path) -> Path:
+    return _topology(run_dir, "tpsc65", "double_tail")
+
+
+def comp_double_tail_self_timed_tsmc65(run_dir: Path) -> Path:
+    return _topology(run_dir, "tsmc65", "double_tail_self_timed")
+
+
+def comp_double_tail_self_timed_tsmc28(run_dir: Path) -> Path:
+    return _topology(run_dir, "tsmc28", "double_tail_self_timed")
+
+
+def comp_double_tail_self_timed_ihp130(run_dir: Path) -> Path:
+    return _topology(run_dir, "ihp130", "double_tail_self_timed")
+
+
+def comp_double_tail_self_timed_tower180(run_dir: Path) -> Path:
+    return _topology(run_dir, "tower180", "double_tail_self_timed")
+
+
+def comp_double_tail_self_timed_lf150(run_dir: Path) -> Path:
+    return _topology(run_dir, "lf150", "double_tail_self_timed")
+
+
+def comp_double_tail_self_timed_tpsc65(run_dir: Path) -> Path:
+    return _topology(run_dir, "tpsc65", "double_tail_self_timed")
+
+
+def comp_double_tail_modified_tsmc65(run_dir: Path) -> Path:
+    return _topology(run_dir, "tsmc65", "double_tail_modified")
+
+
+def comp_double_tail_modified_tsmc28(run_dir: Path) -> Path:
+    return _topology(run_dir, "tsmc28", "double_tail_modified")
+
+
+def comp_double_tail_modified_ihp130(run_dir: Path) -> Path:
+    return _topology(run_dir, "ihp130", "double_tail_modified")
+
+
+def comp_double_tail_modified_tower180(run_dir: Path) -> Path:
+    return _topology(run_dir, "tower180", "double_tail_modified")
+
+
+def comp_double_tail_modified_lf150(run_dir: Path) -> Path:
+    return _topology(run_dir, "lf150", "double_tail_modified")
+
+
+def comp_double_tail_modified_tpsc65(run_dir: Path) -> Path:
+    return _topology(run_dir, "tpsc65", "double_tail_modified")
+
+
+def comp_double_tail_modified_self_timed_tsmc65(run_dir: Path) -> Path:
+    return _topology(run_dir, "tsmc65", "double_tail_modified_self_timed")
+
+
+def comp_double_tail_modified_self_timed_tsmc28(run_dir: Path) -> Path:
+    return _topology(run_dir, "tsmc28", "double_tail_modified_self_timed")
+
+
+def comp_double_tail_modified_self_timed_ihp130(run_dir: Path) -> Path:
+    return _topology(run_dir, "ihp130", "double_tail_modified_self_timed")
+
+
+def comp_double_tail_modified_self_timed_tower180(run_dir: Path) -> Path:
+    return _topology(run_dir, "tower180", "double_tail_modified_self_timed")
+
+
+def comp_double_tail_modified_self_timed_lf150(run_dir: Path) -> Path:
+    return _topology(run_dir, "lf150", "double_tail_modified_self_timed")
+
+
+def comp_double_tail_modified_self_timed_tpsc65(run_dir: Path) -> Path:
+    return _topology(run_dir, "tpsc65", "double_tail_modified_self_timed")
+
+
 # ---- FRIDA-1, floorplan from ALIGN's placement
 
 
@@ -334,6 +493,90 @@ def comp_c040_manual_all_pdks(run_dir: Path) -> Path:
     )
 
 
+def comp_strongarm_all_pdks(run_dir: Path) -> Path:
+    return _all_pdks(
+        run_dir,
+        (
+            comp_strongarm_tsmc65,
+            comp_strongarm_tsmc28,
+            comp_strongarm_ihp130,
+            comp_strongarm_tower180,
+            comp_strongarm_lf150,
+            comp_strongarm_tpsc65,
+        ),
+    )
+
+
+def comp_triple_tail_all_pdks(run_dir: Path) -> Path:
+    return _all_pdks(
+        run_dir,
+        (
+            comp_triple_tail_tsmc65,
+            comp_triple_tail_tsmc28,
+            comp_triple_tail_ihp130,
+            comp_triple_tail_tower180,
+            comp_triple_tail_lf150,
+            comp_triple_tail_tpsc65,
+        ),
+    )
+
+
+def comp_double_tail_all_pdks(run_dir: Path) -> Path:
+    return _all_pdks(
+        run_dir,
+        (
+            comp_double_tail_tsmc65,
+            comp_double_tail_tsmc28,
+            comp_double_tail_ihp130,
+            comp_double_tail_tower180,
+            comp_double_tail_lf150,
+            comp_double_tail_tpsc65,
+        ),
+    )
+
+
+def comp_double_tail_self_timed_all_pdks(run_dir: Path) -> Path:
+    return _all_pdks(
+        run_dir,
+        (
+            comp_double_tail_self_timed_tsmc65,
+            comp_double_tail_self_timed_tsmc28,
+            comp_double_tail_self_timed_ihp130,
+            comp_double_tail_self_timed_tower180,
+            comp_double_tail_self_timed_lf150,
+            comp_double_tail_self_timed_tpsc65,
+        ),
+    )
+
+
+def comp_double_tail_modified_all_pdks(run_dir: Path) -> Path:
+    return _all_pdks(
+        run_dir,
+        (
+            comp_double_tail_modified_tsmc65,
+            comp_double_tail_modified_tsmc28,
+            comp_double_tail_modified_ihp130,
+            comp_double_tail_modified_tower180,
+            comp_double_tail_modified_lf150,
+            comp_double_tail_modified_tpsc65,
+        ),
+    )
+
+
+def comp_double_tail_modified_self_timed_all_pdks(run_dir: Path) -> Path:
+    return _all_pdks(
+        run_dir,
+        (
+            comp_double_tail_modified_self_timed_tsmc65,
+            comp_double_tail_modified_self_timed_tsmc28,
+            comp_double_tail_modified_self_timed_ihp130,
+            comp_double_tail_modified_self_timed_tower180,
+            comp_double_tail_modified_self_timed_lf150,
+            comp_double_tail_modified_self_timed_tpsc65,
+        ),
+    )
+
+
 def comp_frida1_auto_all_pdks(run_dir: Path) -> Path:
     return _all_pdks(
         run_dir,
@@ -371,6 +614,12 @@ def mos_inv_all_pdks(run_dir: Path) -> Path:
 ALL_PDKS = (
     comp_frida1_manual_all_pdks,
     comp_c040_manual_all_pdks,
+    comp_strongarm_all_pdks,
+    comp_triple_tail_all_pdks,
+    comp_double_tail_all_pdks,
+    comp_double_tail_self_timed_all_pdks,
+    comp_double_tail_modified_all_pdks,
+    comp_double_tail_modified_self_timed_all_pdks,
     comp_frida1_auto_all_pdks,
     comp_c040_auto_all_pdks,
     mos_inv_all_pdks,
@@ -407,6 +656,42 @@ def main() -> None:
             comp_c040_manual_tower180,
             comp_c040_manual_lf150,
             comp_c040_manual_tpsc65,
+            comp_strongarm_tsmc65,
+            comp_strongarm_tsmc28,
+            comp_strongarm_ihp130,
+            comp_strongarm_tower180,
+            comp_strongarm_lf150,
+            comp_strongarm_tpsc65,
+            comp_triple_tail_tsmc65,
+            comp_triple_tail_tsmc28,
+            comp_triple_tail_ihp130,
+            comp_triple_tail_tower180,
+            comp_triple_tail_lf150,
+            comp_triple_tail_tpsc65,
+            comp_double_tail_tsmc65,
+            comp_double_tail_tsmc28,
+            comp_double_tail_ihp130,
+            comp_double_tail_tower180,
+            comp_double_tail_lf150,
+            comp_double_tail_tpsc65,
+            comp_double_tail_self_timed_tsmc65,
+            comp_double_tail_self_timed_tsmc28,
+            comp_double_tail_self_timed_ihp130,
+            comp_double_tail_self_timed_tower180,
+            comp_double_tail_self_timed_lf150,
+            comp_double_tail_self_timed_tpsc65,
+            comp_double_tail_modified_tsmc65,
+            comp_double_tail_modified_tsmc28,
+            comp_double_tail_modified_ihp130,
+            comp_double_tail_modified_tower180,
+            comp_double_tail_modified_lf150,
+            comp_double_tail_modified_tpsc65,
+            comp_double_tail_modified_self_timed_tsmc65,
+            comp_double_tail_modified_self_timed_tsmc28,
+            comp_double_tail_modified_self_timed_ihp130,
+            comp_double_tail_modified_self_timed_tower180,
+            comp_double_tail_modified_self_timed_lf150,
+            comp_double_tail_modified_self_timed_tpsc65,
             comp_frida1_auto_tsmc65,
             comp_frida1_auto_tsmc28,
             comp_frida1_auto_ihp130,

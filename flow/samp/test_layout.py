@@ -13,7 +13,7 @@ from flow.comp.layout import FLOORPLANS, PDKS
 from flow.samp import layout
 from flow.samp.subckt import CASES, write_netlist
 
-LAID_OUT = ("frida1", "tgate_dummy", "bootstrap")  # an NMOS switch alone is one row: no floorplan
+LAID_OUT = ("frida1", "tgate_dummy", "bootstrap", "nmos")
 
 
 def test_main_registers_every_target() -> None:
@@ -40,8 +40,9 @@ def test_floorplans_place_every_device_once(case: str, tmp_path: Path) -> None:
     nets = {net for line in netlist if line.startswith("M") for net in line.split()[1:5]}
     nets |= {net for line in netlist if line.startswith("X") for net in line.split()[1:-1]}  # library cells
     fp = json.loads((FLOORPLANS / f"samp_{case}.json").read_text())
-    placed = [cell for row in fp["rows"] for cell in row]
-    assert sorted(placed) == sorted(devices)
+    split = fp.get("split", {})  # a device folded over rows: its parts <device>_a, _b, ...
+    placed = [cell[:-2] if cell[:-2] in split else cell for row in fp["rows"] for cell in row]
+    assert sorted(placed) == sorted(device for device in devices for _ in range(split.get(device, 1)))
     ports = set(netlist[0].split()[2:])
     escaped = fp["escape"]["up"] + fp["escape"]["down"]
     for port in escaped:
