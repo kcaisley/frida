@@ -1,5 +1,5 @@
 {
- "_comment": "Triple tail (flow.comp.sim TOPOLOGIES) in standard-cell rows, top row first, each row mirrored about the centre: cascoded input pair and tail, preamp resets, the second stage (PMOS cross pair and tail, NMOS input pair and tail), the NMOS cross-coupled pair, the PMOS latch (inner init beside the cross-coupled pair, split cross-quad over two rows), standard-cell output stage. Netlist (per PDK): written by flow.comp.subckt (triple_tail, standard-cell output stage); the cross-coupled init pair is split into halves for a cross-quad over two rows.",
+ "_comment": "Triple tail (flow.comp.sim TOPOLOGIES) in standard-cell rows, top row first, each row mirrored about the centre: cascoded input pair and tail, the cascodes' tie (its bias device and the tie, a row each, as a row's centre mirrors onto itself), preamp resets, the second stage (PMOS cross pair and tail, NMOS input pair and tail), the NMOS cross-coupled pair, the PMOS latch (inner init beside the cross-coupled pair, split cross-quad over two rows), standard-cell output stage. Netlist (per PDK): written by flow.comp.subckt (triple_tail, standard-cell output stage); the cross-coupled init pair is split into halves for a cross-quad over two rows.",
  "netlist": "../../build/layout/netlists/{pdk}/comp_triple_tail_stdcells.sp",
  "split": {
   "Mcross_init_p": 2,
@@ -24,6 +24,12 @@
    "Mtail",
    "Mdiff_n",
    "Mcas_n"
+  ],
+  [
+   "Mtie_bias"
+  ],
+  [
+   "Mtie"
   ],
   [
    "Mrst_p",
