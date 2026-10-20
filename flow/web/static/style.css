@@ -1672,3 +1672,267 @@ pre.netlist {
 .js-plotly-plot rect.legendtoggle {
     stroke: none;
 }
+
+/* ─── Design-space explorer (index.html): blocks, the instance table, the scatter plot ───────── */
+
+#toolbar .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 6px;
+    color: var(--fg-bright);
+    font-weight: 600;
+}
+
+#toolbar .brand span {
+    display: flex;
+    color: var(--accent-bright);
+}
+
+#explorer {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 190px minmax(0, 1.25fr) minmax(360px, 1fr);
+    background: var(--bg-main);
+    gap: 4px;
+    padding: 4px;
+}
+
+#explorer > * {
+    min-height: 0;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+}
+
+#blocks-pane {
+    overflow: auto;
+}
+
+.pane-title {
+    padding: 8px 12px 4px;
+    color: var(--fg-muted);
+    font-size: var(--fs-11);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+#table-pane .table-scroll {
+    height: 100%;
+    overflow: auto;
+}
+
+table.grid.sweep {
+    border-collapse: separate;
+    border-spacing: 0;
+    min-width: 100%;
+}
+
+table.grid.sweep th,
+table.grid.sweep td {
+    padding: 4px 8px;
+}
+
+table.grid.sweep thead th {
+    text-align: right;
+    vertical-align: bottom;
+}
+
+table.grid.sweep thead th .label {
+    display: block;
+    color: var(--fg-primary);
+}
+
+table.grid.sweep thead th .marks {
+    color: var(--accent-bright);
+}
+
+table.grid.sweep thead th.filtered .label {
+    color: var(--accent-bright);
+}
+
+table.grid.sweep th:not(.num),
+table.grid.sweep td:not(.num) {
+    text-align: left;
+}
+
+table.grid.sweep th.param .label {
+    font: var(--fs-11) var(--font-mono);
+}
+
+table.grid.sweep td.tools,
+table.grid.sweep th.tools {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    padding: 2px 6px;
+}
+
+table.grid.sweep td.tools {
+    background: var(--bg-panel);
+}
+
+table.grid.sweep .pin {
+    width: 20px;
+    border: none;
+    background: none;
+    color: var(--fg-muted);
+    cursor: pointer;
+}
+
+table.grid.sweep tr.pinned .pin {
+    color: var(--sem-warn);
+}
+
+table.grid.sweep a.detail {
+    margin-left: 2px;
+    padding: 1px 7px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--accent-text);
+    font: var(--fs-11) var(--font-sans);
+    text-decoration: none;
+}
+
+table.grid.sweep a.detail:hover {
+    background: var(--accent-alpha);
+}
+
+table.grid.sweep tr.hover td,
+table.grid.sweep tr.hover td.tools {
+    background: var(--accent-alpha-strong);
+}
+
+table.grid.sweep tr.pinned td {
+    background: var(--accent-alpha);
+}
+
+table.grid.sweep tr.failed td {
+    color: var(--sem-error);
+}
+
+table.grid.sweep .swatch {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    margin-right: 6px;
+    border-radius: 50%;
+}
+
+table.grid.sweep .symbol {
+    display: inline-block;
+    width: 14px;
+    color: var(--fg-muted);
+}
+
+#plot-pane {
+    display: flex;
+    flex-direction: column;
+}
+
+#plot-controls .check {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 6px;
+    color: var(--fg-muted);
+}
+
+#scatter {
+    flex: 1;
+    min-height: 0;
+}
+
+.popover.filter-pop {
+    min-width: 220px;
+    max-height: 60vh;
+    overflow: auto;
+    padding: 8px;
+}
+
+.filter-title {
+    margin-bottom: 6px;
+    color: var(--fg-bright);
+    font-weight: 600;
+}
+
+.filter-sort {
+    display: flex;
+    gap: 6px;
+    margin: 4px 0;
+}
+
+.filter-values {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 6px 0;
+}
+
+.filter-value {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 4px;
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+}
+
+.filter-value:hover {
+    background: var(--bg-hover);
+}
+
+.filter-range {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 0;
+}
+
+.filter-range input.num {
+    width: 90px;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-input);
+}
+
+/* ─── Instance page (detail.html): its summary and detail plots beside the shared panels ─── */
+
+.summary {
+    padding: 10px 14px;
+    overflow: auto;
+    user-select: text;
+}
+
+.summary h1 {
+    margin: 0 0 4px;
+    color: var(--fg-bright);
+    font-size: var(--fs-16);
+    font-weight: 600;
+}
+
+.summary .error {
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-input);
+    color: var(--sem-error);
+    font: var(--fs-11) var(--font-mono);
+    white-space: pre-wrap;
+}
+
+.detail-plots {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 6px;
+    padding: 6px;
+    overflow: auto;
+}
+
+.detail-plots .plot {
+    height: 290px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+}

@@ -16,6 +16,7 @@ const SUFFIXES = [
     ["_deg", "°", false],
     ["_ohm", "Ω", true],
     ["_hz", "Hz", true],
+    ["_um2", "µm²", false],
     ["_um", "µm", false],
     ["_nm", "nm", false],
     ["_electrons", "e⁻", false],
@@ -50,6 +51,12 @@ export function fieldInfo(name) {
         }
     }
     const words = base.split("_").map((word, index) => {
+        // a stimulus in a name: 0p5mv, 100mv, 10ff -> 0.5 mV, 100 mV, 10 fF
+        const stimulus = word.match(/^(\d+)(?:p(\d+))?(mv|uv|v|ps|ns|us|ff|pf|ua|ma|mhz|ghz|khz)$/);
+        if (stimulus) {
+            const units = { mv: "mV", uv: "µV", v: "V", ps: "ps", ns: "ns", us: "µs", ff: "fF", pf: "pF", ua: "µA", ma: "mA", mhz: "MHz", ghz: "GHz", khz: "kHz" };
+            return `${stimulus[1]}${stimulus[2] ? `.${stimulus[2]}` : ""} ${units[stimulus[3]]}`;
+        }
         const mapped = WORDS[word];
         if (mapped && (index > 0 || mapped !== word)) return mapped;
         return index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word;

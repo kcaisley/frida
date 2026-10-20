@@ -1,9 +1,10 @@
 """Export the viewer's data, or serve the viewer.
 
-    uv run python -m flow.web export [--blocks schmitt bias] [--no-figures] [--workers 16]
+    uv run python -m flow.web export [--blocks comp mosfet] [--workers 16]
     uv run python -m flow.web serve [--port 8765] [--host 127.0.0.1]
 
-``serve`` answers ``/`` from ``flow/web/static``, ``/data/`` from ``build/web/data``, and
+``export`` is ``python -m flow.sweep table``: each block's newest sweep as its table and a file
+per instance. ``serve`` answers ``/`` from ``flow/web/static``, ``/data/`` from ``build/web/data``, and
 ``/api/wave?path=<measurement>&record=<n>`` with one record of a cached measurement's waveforms
 (read from its HDF5 file, under ``build/``); on a remote machine, forward the port
 (``ssh -L 8765:localhost:8765 host``) and open http://localhost:8765.
@@ -19,7 +20,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from flow.web.export import BLOCKS, DATA_DIR, export, read_wave
+from flow.web.export import DATA_DIR, read_wave
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -71,19 +72,20 @@ class Handler(SimpleHTTPRequestHandler):
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m flow.web", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
-    export_parser = commands.add_parser("export", help="export cached results, layouts and schematics")
-    export_parser.add_argument("--blocks", nargs="+", choices=list(BLOCKS), default=list(BLOCKS))
-    export_parser.add_argument("--no-figures", action="store_true", help="skip the studies' SVG figures")
+    export_parser = commands.add_parser("export", help="the sweep tables and instance files (flow.sweep table)")
+    export_parser.add_argument("--blocks", nargs="+", default=None, help="blocks (default: every block with a sweep)")
     export_parser.add_argument("--workers", type=int, default=16)
     serve_parser = commands.add_parser("serve", help="serve the viewer")
     serve_parser.add_argument("--port", type=int, default=8765)
     serve_parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
     if args.command == "export":
-        print(export(args.blocks, figures=not args.no_figures, workers=args.workers))
+        from flow.sweep.runner import sweep_blocks, table
+
+        table(args.blocks or sweep_blocks(), args.workers)
         return
-    if not (DATA_DIR / "catalog.json").exists():
-        raise SystemExit(f"no exported data in {DATA_DIR}: run `python -m flow.web export` first")
+    if not (DATA_DIR / "sweep/catalog.json").exists():
+        raise SystemExit(f"no sweep tables in {DATA_DIR / 'sweep'}: run `python -m flow.web export` first")
     try:
         server = ThreadingHTTPServer((args.host, args.port), functools.partial(Handler, directory=str(STATIC_DIR)))
     except OSError as error:

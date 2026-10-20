@@ -10,18 +10,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from flow.analysis.types import Analysis
 from flow.web.__main__ import STATIC_DIR, Handler
-from flow.web.export import (
-    DATA_DIR,
-    MAX_SAMPLES,
-    case_comments,
-    case_name,
-    dataset_title,
-    export_layout,
-    json_value,
-    study_results,
-)
+from flow.web.export import DATA_DIR, MAX_SAMPLES, export_layout, json_value
 
 
 class Flavour(Enum):
@@ -32,22 +22,6 @@ class Flavour(Enum):
 class ToyParams:
     w: int = 2
     vth: Flavour = Flavour.LOW
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisToyTrip(Analysis):
-    vdd_v: np.ndarray
-    rise_trip_v: np.ndarray
-    fall_trip_v: np.ndarray
-
-    @property
-    def hysteresis_v(self) -> np.ndarray:
-        return self.rise_trip_v - self.fall_trip_v
-
-
-def _trip(shift: float) -> AnalysisToyTrip:
-    vdd = np.array([0.9, 1.0, 1.1])
-    return AnalysisToyTrip(None, None, ToyParams(), vdd, vdd / 2 + shift, vdd / 2 - shift)
 
 
 def test_values_become_json_at_six_digits_with_nan_as_null() -> None:
@@ -62,49 +36,6 @@ def test_long_records_are_thinned_keeping_both_ends() -> None:
     rows = json_value(np.tile(np.arange(5000.0), (2, 1)))
     assert len(rows) == 2 and len(rows[0]) == MAX_SAMPLES
     assert rows[0][0] == 0 and rows[0][-1] == 4999
-
-
-def test_study_labels_name_the_cases_and_classes_the_datasets() -> None:
-    assert case_name("inv_wide: stronger feedback") == ("inv_wide", "stronger feedback")
-    assert dataset_title("toy", "AnalysisToyTrip", None) == "Trip"
-    assert dataset_title("bias", "AnalysisBiasMirror", "bias_supply") == "Mirror (supply)"
-    assert dataset_title("ota", "AnalysisOtaAc", None) == "AC"
-    assert dataset_title("moscap", "AnalysisMoscapCv", None) == "C–V"
-
-
-def test_plot_calls_become_datasets_per_pdk_and_case() -> None:
-    first, second = _trip(0.1), _trip(0.2)
-    supply = _trip(0.05)
-    calls = [
-        (
-            "plot_toy_trip",
-            ([first, second],),
-            {"labels": ["a: one", "b: two"], "output_path": Path("/x/tsmc65/toy_trip")},
-        ),
-        (
-            "plot_toy_again",
-            ([first, second],),
-            {"labels": ["a: one", "b: two"], "output_path": Path("/x/tsmc65/toy_again")},
-        ),
-        (
-            "plot_toy_supply",
-            ([supply, supply],),
-            {"labels": ["a: one", "b: two"], "output_path": Path("/x/tsmc65/toy_supply")},
-        ),
-    ]
-    datasets, results, cases = study_results("toy", calls)
-    assert list(datasets) == ["AnalysisToyTrip", "AnalysisToyTrip:toy_supply"]
-    assert datasets["AnalysisToyTrip"]["plots"] == ["toy_trip", "toy_again"]
-    assert datasets["AnalysisToyTrip:toy_supply"]["title"] == "Trip (supply)"
-    fields = {field["name"]: field["ndim"] for field in datasets["AnalysisToyTrip"]["fields"]}
-    assert fields == {"vdd_v": 1, "rise_trip_v": 1, "fall_trip_v": 1, "hysteresis_v": 1}
-    assert results["AnalysisToyTrip"]["tsmc65"]["b"]["hysteresis_v"] == pytest.approx([0.4] * 3)
-    assert cases["a"] == {"label": "a: one", "description": "one", "params": {"w": 2, "vth": "LOW"}}
-
-
-def test_case_comments_come_from_the_cases_dict() -> None:
-    assert "inverting" in case_comments("schmitt")["inv"]
-    assert case_comments("not_a_block") == {}
 
 
 def test_layouts_flatten_onto_generic_layers_and_merge(tmp_path: Path) -> None:
@@ -138,38 +69,16 @@ def test_layouts_flatten_onto_generic_layers_and_merge(tmp_path: Path) -> None:
 def test_the_server_answers_data_from_the_export_and_the_rest_from_static() -> None:
     handler = Handler.__new__(Handler)
     handler.directory = str(STATIC_DIR)
-    assert Path(handler.translate_path("/data/schmitt/block.json")) == DATA_DIR / "schmitt/block.json"
-    assert Path(handler.translate_path("/js/app.js?v=1")) == STATIC_DIR / "js/app.js"
+    assert Path(handler.translate_path("/data/sweep/comp.json")) == DATA_DIR / "sweep/comp.json"
+    assert Path(handler.translate_path("/js/explorer.js?v=1")) == STATIC_DIR / "js/explorer.js"
     assert Path(handler.translate_path("/data/../../../etc/passwd")).is_relative_to(DATA_DIR)
 
 
-def test_the_page_loads_only_pinned_library_versions() -> None:
-    urls = re.findall(r"https://[^\"' )]+", (STATIC_DIR / "index.html").read_text())
+@pytest.mark.parametrize("page", ["index.html", "detail.html"])
+def test_the_pages_load_only_pinned_library_versions(page: str) -> None:
+    urls = re.findall(r"https://[^\"' )]+", (STATIC_DIR / page).read_text())
     assert urls
     assert all(re.search(r"@\d+\.\d+\.\d+", url) for url in urls)
-
-
-def test_unlabelled_plots_name_their_cases_after_the_differing_parameters() -> None:
-    first = AnalysisToyTrip(None, None, ToyParams(w=2), np.array([1.0]), np.array([0.6]), np.array([0.4]))
-    second = AnalysisToyTrip(None, None, ToyParams(w=4), np.array([1.0]), np.array([0.7]), np.array([0.3]))
-    calls = [
-        ("plot_toy_fit", ([first, second],), {"output_path": Path("/x/ihp130/toy_fit")}),
-        ("plot_toy_all", ([first, second],), {"labels": ["ihp130", "ihp130"], "output_path": Path("/x/toy_all")}),
-    ]
-    datasets, results, cases = study_results("toy", calls)
-    assert list(datasets) == ["AnalysisToyTrip"]
-    assert sorted(results["AnalysisToyTrip"]["ihp130"]) == ["2", "4"]
-    assert cases["4"]["params"] == {"w": 4, "vth": "LOW"}
-
-
-def test_one_label_list_through_several_result_lists_is_split_in_order() -> None:
-    a, b, c = _trip(0.1), _trip(0.2), _trip(0.3)
-    calls = [
-        ("plot_toy", ([a, b], [c]), {"labels": ["a: one", "b: two", "c: three"], "output_path": Path("/x/lf150/toy")})
-    ]
-    _, results, cases = study_results("toy", calls)
-    assert sorted(results["AnalysisToyTrip"]["lf150"]) == ["a", "b", "c"]
-    assert list(cases) == ["a", "b", "c"]
 
 
 def test_waveforms_are_indexed_per_instance_and_served_thinned(tmp_path: Path) -> None:
