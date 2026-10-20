@@ -181,29 +181,36 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
         entry["floorplan_error"] = traceback.format_exc(limit=4)[-2000:]
     if hasattr(sweep, "layout_netlist"):
         attempts.append((None, None))
+    results = []  # each attempt's entry; the first clean one is kept, else the first laid out
     for netlist, floorplan in attempts:
+        result: dict = {"error": None}
         try:
             if netlist is None:
                 netlist = sweep.layout_netlist(out / "netlist", pdk, params)
-            gds = align_build(
-                pdk, floorplan, netlist, out / ("align_floorplan" if floorplan else "align"), name=netlist.stem
-            )
+            work = out / ("align_floorplan" if floorplan else "align")
+            gds = align_build(pdk, floorplan, netlist, work, name=netlist.stem)
             layout = db.Layout()
             layout.read(str(gds))
             box = max(layout.top_cells(), key=lambda cell: cell.bbox().area()).dbbox()
-            entry.update(
-                error=None,
+            result.update(
                 floorplan=str(floorplan.relative_to(ROOT)) if floorplan else None,
                 gds=str(gds.relative_to(ROOT)),
                 netlist=str(netlist.relative_to(ROOT)),
                 w_um=box.width(),
                 h_um=box.height(),
             )
-            check = row_signoff(pdk, gds, netlist, floorplan, out / "signoff")
-            entry.update(drc_violations=check.drc_violations, lvs_correct=check.lvs_correct)
-            break
+            check = row_signoff(pdk, gds, netlist, floorplan, work / "signoff")
+            result.update(drc_violations=check.drc_violations, lvs_correct=check.lvs_correct)
         except Exception:  # noqa: BLE001 - every instance reports its own failure
-            entry["error"] = traceback.format_exc(limit=6)[-4000:]
+            result["error"] = traceback.format_exc(limit=6)[-4000:]
+        results.append(result)
+        if result["error"] is None and result["drc_violations"] == 0 and result["lvs_correct"]:
+            break
+    clean = [r for r in results if r["error"] is None and r["drc_violations"] == 0 and r["lvs_correct"]]
+    laid_out = [r for r in results if r["error"] is None]
+    if results:
+        entry.update((clean or laid_out or results)[0])
+        entry["attempts"] = len(results)
     if not attempts:
         entry["error"] = "no floorplan and no layout netlist"
     entry["seconds"] = round(time.time() - start, 1)
@@ -218,13 +225,20 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
 
 
 def layout(blocks: list[str], workers: int) -> None:
-    """Lay out every characterized instance of the newest runs of ``blocks`` not laid out yet."""
+    """Lay out every characterized instance of the newest runs of ``blocks`` not yet laid out DRC
+    clean and LVS correct."""
 
     jobs = []
     for block in blocks:
         for path in sorted(newest_run(block).glob("*/*/*/instance.json")):
             record = json.loads(path.read_text())
-            done = (record.get("layout") or {}).get("gds") and not record["layout"].get("error")
+            entry = record.get("layout") or {}
+            done = (
+                entry.get("gds")
+                and not entry.get("error")
+                and entry.get("drc_violations") == 0
+                and entry.get("lvs_correct")
+            )
             if record["error"] is None and not done:
                 jobs.append((block, path.parent, record["pdk"]))
     print(f"{len(jobs)} layouts on {workers} workers")
