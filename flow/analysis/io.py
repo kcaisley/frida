@@ -352,8 +352,11 @@ def interpolate_wave_records(
         raise ValueError("sample_interval_s must provide at least two samples per record")
     relative_time = np.arange(sample_count, dtype=np.float64) * sample_interval_s
     records = {name: [] for name in normalized_signals}
+    # the samples stop an interval short of each window's end: half an interval of slack there absorbs
+    # the rounding of windows summed from their periods (840 x 3 ns ends past 2.52 us)
+    slack = sample_interval_s / 2
     for start, stop in windows_s:
-        if start < source_time[0] or stop > source_time[-1]:
+        if start < source_time[0] or stop > source_time[-1] + slack:
             raise ValueError(f"waveform window {(start, stop)} lies outside source time")
         sample_times = start + relative_time
         for name, values in normalized_signals.items():
