@@ -163,7 +163,9 @@ def _run_mosfet_sim(run_dir: Path, params: MosfetTbParams, *, mismatch: bool = F
         attrs = [*includes, hs.Save(["xtop.vd:p"]), h.Literal(_spectre_analyses(params, mismatch=mismatch))]
         SpectreNetlister(out).write_sim_input(hs.to_proto(hs.Sim(tb=tb, attrs=attrs)))
         (run_dir / "netlist.scs").write_text(out.getvalue())
-        command = ["spectre", "-64", "+escchars", "-format", "psfascii", "+log", "spectre.log", "netlist.scs"]
+        # queue for a license rather than fail when every one is taken
+        command = ["spectre", "-64", "+lqtimeout", "3600", "+escchars", "-format", "psfascii"]
+        command += ["+log", "spectre.log", "netlist.scs"]
     else:
         # ngspice's noise output is a voltage: the drain source's current through a unit transresistance
         attrs = [*includes, h.Literal("hsense nsense 0 v.xtop.vvd 1"), h.Literal(_ngspice_control(params))]
