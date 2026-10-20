@@ -23,7 +23,7 @@ from hdl21.primitives import MosType
 from flow.circuit.ports import module_from_ports, port_connections
 
 from ..caparray import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights, is_valid_caparray_config
-from ..capdriver import CapDriver, CapDriverParams
+from ..capdriver import CapDriver, CapDriverParams, Cells
 from ..comp import Comp, CompParams, is_valid_comp_params
 from ..samp import Samp, SampParams
 
@@ -134,7 +134,10 @@ def Adc(p: AdcParams) -> h.Module:
 
     # Identical passive arrays share their definition; each ADC gets fresh drivers.
     array = CapArray(CapArrayParams(cdac=p.cdac))
-    driver = CapDriver(CapDriverParams(n_stages=AdcNets.dac_state_p.width, strengths=p.cdac.driver_strengths))
+    # FRIDA-1's drivers: its library clock XORs, one per stage in its drive band
+    driver = CapDriver(
+        CapDriverParams(n_stages=AdcNets.dac_state_p.width, strengths=p.cdac.driver_strengths, cells=Cells.CLOCK_XOR)
+    )
     sampler = Samp(p.samp)
     for side, vin, top, main_state, diff_state, main_invert, diff_invert, main_bot, diff_bot, clk, clk_b in (
         (

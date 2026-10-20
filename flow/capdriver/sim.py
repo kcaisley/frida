@@ -4,7 +4,7 @@ Each stage drives a load capacitor, the CDAC stage's bottom plate it stands for.
 the state steps up and back down with the invert input low (the state path), then the invert input
 does the same with the state low (the invert path), so every edge of both XOR paths is seen once.
 The characterization sweeps the load and the supply; the period grows with the load so that even
-the weakest band settles within half of it.
+the weakest drive settles within half of it.
 """
 
 import argparse
@@ -161,7 +161,7 @@ def _run_capdriver_sim(run_dir: Path, params: CapdriverTbParams, *, check: bool 
 # The characterization, in every PDK about its own core supply: the load from 10 fF to 1 pF (a
 # CDAC stage's bottom plate, from the LSBs to the MSB) at the core supply, and the supply (75 to
 # 108 %) at 100 fF. Each period lasts 200 ps per fF of load (at least 2 ns), so even the weakest
-# band-1 XORs (up to about 20 kΩ, behind a nanosecond of delay) settle to 1 % within half of it; the
+# x1 XORs (up to about 20 kΩ, behind a nanosecond of delay) settle to 1 % within half of it; the
 # record holds 2000 samples a period, no closer than 1 ps (1 ps up to a 2 ns period, 100 ps at 1 pF).
 LOAD_SWEEP_F = (10e-15, 30e-15, 100e-15, 300e-15, 1e-12)
 SUPPLY_SWEEP = (9 / 12, 10 / 12, 11 / 12, 1.0, 13 / 12)
@@ -173,7 +173,7 @@ def _period_s(cload: float) -> float:
 
 
 def capdriver_characterization(run_dir: Path, *, check: bool = False) -> Path:
-    """Run every drive band over the load and the supply in every PDK: 3 cases, 10 points each.
+    """Run every drive weight over the load and the supply in every PDK: 5 cases, 10 points each.
 
     Each point writes ``<pdk>/<case>/<sweep>/<point>/result.h5`` (a ``MeasCapdriver``). ``check``
     runs the nominal point of each case with Spectre's checks instead, writing no measurement.

@@ -8,7 +8,10 @@ import pytest
 
 from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
 
-from .subckt import CapDriver, CapDriverParams, ClockXor, ClockXorParams
+from .subckt import GENERIC_STRENGTHS, CapDriver, CapDriverParams, Cells, ClockXor, ClockXorParams
+
+PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
+CLOCK_XOR = Cells.CLOCK_XOR
 
 
 @pytest.mark.parametrize("band", [1, 2, 4])
@@ -29,7 +32,7 @@ def test_clock_xor_rejects_invalid_bands(band):
 
 @pytest.mark.parametrize("n_stages", [1, 2, 3, 4, 5, 16, 19])
 def test_default_bands_and_stage_wiring(n_stages):
-    module = CapDriver(CapDriverParams(n_stages=n_stages))
+    module = CapDriver(CapDriverParams(n_stages=n_stages, cells=CLOCK_XOR))
     assert tuple(module.ports) == ("dac_state", "dac_drive", "dac_drive_invert", "vdd", "vss")
     assert module.dac_state.width == module.dac_drive.width == n_stages
     assert module.dac_drive_invert.width == 1
@@ -50,7 +53,7 @@ def test_default_bands_and_stage_wiring(n_stages):
 
 
 def test_custom_bands_and_generic_netlist():
-    module = CapDriver(CapDriverParams(n_stages=3, strengths=(1, 4, 2)))
+    module = CapDriver(CapDriverParams(n_stages=3, strengths=(1, 4, 2), cells=CLOCK_XOR))
     assert tuple(inst.of.params.drive_band for inst in module.instances.values()) == (1, 4, 2)
     dest = io.StringIO()
     h.netlist(module, dest, fmt="spice")
@@ -61,7 +64,7 @@ def test_custom_bands_and_generic_netlist():
 @pytest.mark.parametrize("technology", ["tsmc65", "tsmc28", "tower180"])
 def test_compiled_driver_preserves_invert_and_state_pin_paths(technology):
     compiler = pytest.importorskip(f"pdk.{technology}.hdl21.pdk_logic")
-    module = CapDriver(CapDriverParams(n_stages=6))
+    module = CapDriver(CapDriverParams(n_stages=6, cells=CLOCK_XOR))
     compiler.compile(module)
     for stage in range(6):
         xor = module.instances[f"xor_{stage}"]
@@ -83,7 +86,7 @@ def test_public_driver_api_isolates_pdk_compilation():
         pytest.importorskip(f"pdk.{technology}.hdl21.pdk_logic")
         for technology in ("tsmc65", "tower180", "tsmc28", "tsmc65")
     ]
-    params = CapDriverParams(n_stages=3, strengths=(1, 2, 4))
+    params = CapDriverParams(n_stages=3, strengths=(1, 2, 4), cells=CLOCK_XOR)
     previous = []
     for compiler in compilers:
         module = CapDriver(params)
@@ -107,7 +110,7 @@ def test_public_api_returns_unmodified_hierarchy_after_mutation(kind):
     from flow.adc.subckt import Adc, AdcParams
 
     cases = {
-        "driver": (CapDriver, CapDriverParams(n_stages=3), ()),
+        "driver": (CapDriver, CapDriverParams(n_stages=3, cells=CLOCK_XOR), ()),
         "adc": (Adc, AdcParams(), ("xcapdriver_p_main",)),
         "adc_tb": (AdcTb, AdcTbParams(view="hdl21gen"), ("xadc", "xcapdriver_p_main")),
     }
@@ -140,6 +143,8 @@ def test_public_api_returns_unmodified_hierarchy_after_mutation(kind):
         {"n_stages": 2, "strengths": (1, 2, 4)},
         {"n_stages": 2, "strengths": (1, 3)},
         {"n_stages": 2, "strengths": (0, 4)},
+        {"n_stages": 2, "strengths": (32, 4)},
+        {"n_stages": 2, "strengths": (8, 4), "cells": CLOCK_XOR},
     ],
 )
 def test_invalid_driver_configuration(kwargs):
@@ -166,3 +171,42 @@ def test_passive_array_has_no_driver_dependency():
     module = CapArray(CapArrayParams(cdac=CapArrayConfig(weights=(1,) * 16)))
     assert all(inst.of is not ClockXor for inst in module.instances.values())
     assert not {"vdd", "dac_state", "dac_drive_invert"} & module.ports.keys()
+
+
+@pytest.mark.parametrize("n_stages", [1, 4, 16])
+def test_generic_stages(n_stages):
+    """An xor2_x1 per stage, inversion on A and state on B, and a buffer of the stage's weight
+    after it where that is above 1."""
+
+    strengths = tuple(GENERIC_STRENGTHS[i % len(GENERIC_STRENGTHS)] for i in range(n_stages))
+    module = CapDriver(CapDriverParams(n_stages=n_stages, strengths=strengths))
+    assert tuple(module.ports) == ("dac_state", "dac_drive", "dac_drive_invert", "vdd", "vss")
+    for stage, strength in enumerate(strengths):
+        xor = module.instances[f"xor_{stage}"]
+        assert (xor.of.module.domain, xor.of.module.name) == ("generic", "xor2_x1")
+        assert xor.conns["A"] is module.dac_drive_invert
+        assert xor.conns["B"].parent is module.dac_state and xor.conns["B"].index == stage
+        out = xor.conns["Y"]
+        if strength == 1:
+            assert f"buf_{stage}" not in module.instances
+        else:
+            buf = module.instances[f"buf_{stage}"]
+            assert buf.of.module.name == f"buf_x{strength}"
+            assert buf.conns["A"] is out
+            out = buf.conns["Y"]
+        assert out.parent is module.dac_drive and out.index == stage
+    h.elaborate(module)
+
+
+@pytest.mark.parametrize("technology", PDKS)
+def test_generic_driver_compiles_to_library_cells(technology):
+    compiler = pytest.importorskip(f"pdk.{technology}.hdl21.pdk_logic")
+    library = pytest.importorskip(f"pdk.{technology}.hdl21.cells")
+    module = CapDriver(CapDriverParams(n_stages=len(GENERIC_STRENGTHS), strengths=GENERIC_STRENGTHS))
+    compiler.compile(module)
+    dest = io.StringIO()
+    h.netlist(module, dest, fmt="spice")
+    text = dest.getvalue()
+    for generic in ("xor2_x1", *(f"buf_x{s}" for s in GENERIC_STRENGTHS if s > 1)):
+        assert f"+ {library.GENERIC[generic][0]}" in text
+    assert "generic" not in {inst.of.module.domain for inst in module.instances.values() if hasattr(inst.of, "module")}

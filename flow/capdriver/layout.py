@@ -40,11 +40,11 @@ def _generate_source(run_dir: Path) -> dict[str, Any]:
     """Compile a fresh generic driver; retain upstream transistor model names."""
     import hdl21 as h
 
-    from .subckt import CapDriver, CapDriverParams
+    from .subckt import CapDriver, CapDriverParams, Cells
 
     tsmc65 = import_module("pdk.tsmc65")
     site = import_module("pdk.tsmc65.hdl21.site")
-    driver = CapDriver(CapDriverParams(n_stages=16))
+    driver = CapDriver(CapDriverParams(n_stages=16, cells=Cells.CLOCK_XOR))  # FRIDA-1's cells
     driver.name = "generated_driver"
     strengths = [instance.of.params.drive_band for instance in driver.instances.values()]
     generic = io.StringIO()

@@ -1,4 +1,4 @@
-"""Capacitor driver drive-band comparisons: one panel per band, shared axes."""
+"""Capacitor driver drive comparisons: one panel per drive weight, shared axes."""
 
 from __future__ import annotations
 
@@ -20,11 +20,11 @@ def plot_capdriver_load(
     labels: Sequence[str],
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Compare the bands over the load: the state path's delays and the output's transitions, the
+    """Compare the drives over the load: the state path's delays and the output's transitions, the
     fitted drive resistance in each title."""
 
     if not drives or len(drives) != len(labels):
-        raise ValueError("load comparison requires one drive result and label per band")
+        raise ValueError("load comparison requires one drive result and label per drive")
     columns = min(3, len(drives))
     rows = (len(drives) + columns - 1) // columns
     fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
@@ -56,11 +56,11 @@ def plot_capdriver_supply(
     labels: Sequence[str],
     output_path: Path,
 ) -> tuple[Path, ...]:
-    """Compare the bands over the supply: the state path's rising delay and 1 % settling, the energy
+    """Compare the drives over the supply: the state path's rising delay and 1 % settling, the energy
     per cycle over C V² on the right."""
 
     if not drives or len(drives) != len(labels):
-        raise ValueError("supply comparison requires one drive result and label per band")
+        raise ValueError("supply comparison requires one drive result and label per drive")
     columns = min(3, len(drives))
     rows = (len(drives) + columns - 1) // columns
     energy_limit = 1.1 * max(np.nanmax(item.energy_per_cv2, initial=0.0) for item in drives)

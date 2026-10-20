@@ -5,7 +5,7 @@ first through the state input, then through the invert input. The figures are th
 settling budget needs, each a calculator function of ``flow.analysis.calc``: the delay from each
 input edge to the output's (``delay``, at mid-supply), the output's 10–90 % transitions
 (``riseTime``, ``fallTime``), its settling to 1 % (``settlingTime``) and the energy it draws per
-cycle (``integ``). Over the load, the transitions' slope against the capacitance is the band's
+cycle (``integ``). Over the load, the transitions' slope against the capacitance is the drive's
 effective drive resistance (a 10–90 % RC transition is ln 9 RC), the driver sizing's input.
 """
 
