@@ -153,6 +153,44 @@ def _run_moscap_sim(run_dir: Path, params: MosCapTbParams, *, check: bool = Fals
     return run_dir / "netlist.raw"
 
 
+def moscap_measurement(raw_path: Path, params: MosCapTbParams, readbacks: dict):
+    """One run's operating point and AC response as a ``MeasMosCap``: the stimulated source's
+    admittance per frequency, its operating-point current the leakage; ``readbacks`` (its PDK,
+    case, bias and whether it is the nominal one) join the run's own."""
+
+    from vlsirtools.spice.spectre import parse_nutbin
+
+    from flow.analysis.types import MeasInfo
+    from flow.moscap.analysis import MeasMosCap
+
+    with raw_path.open("rb") as stream:
+        analyses = parse_nutbin(stream)
+    op, ac = analyses["op"].data, analyses["ac"].data
+    # the stimulated source's current drawn per volt of AC: the capacitor's admittance
+    source = "xtop.vvdd:p" if params.moscap.mode == Mode.DECAP else "xtop.vtop:p"
+    admittance = -np.asarray(ac[source])
+    return MeasMosCap(
+        group=None,
+        index=None,
+        dut=params.moscap,
+        info=MeasInfo(
+            backend="spice",
+            timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
+            instruments={"simulator": "Spectre"},
+            readbacks={
+                **readbacks,
+                "raw_file": raw_path.name,
+                "stimulated_source": source,
+                "op_leakage_a": -float(np.real(op[source][0])),
+            },
+        ),
+        param=params,
+        frequency_hz=np.real(np.asarray(ac["freq"])).astype(np.float64),
+        conductance_s=np.real(admittance).astype(np.float64),
+        susceptance_s=np.imag(admittance).astype(np.float64),
+    )
+
+
 # The characterization, in every PDK about its own core supply: a decap over its supply (a twelfth
 # of the core supply to 108 % of it), a two-net capacitor over the gate plate's voltage relative to
 # the channel plate, both signs up to the core supply; in TSMC65, 0.1 to 1.3 V and -1.2 to 1.2 V.
@@ -169,11 +207,7 @@ def moscap_characterization(run_dir: Path, *, check: bool = False) -> Path:
     one that far below.
     """
 
-    from vlsirtools.spice.spectre import parse_nutbin
-
-    from flow.analysis.types import MeasInfo
     from flow.comp.layout import PDKS
-    from flow.moscap.analysis import MeasMosCap
 
     run_dir.mkdir(parents=True, exist_ok=True)
     jobs = {}
@@ -207,34 +241,16 @@ def moscap_characterization(run_dir: Path, *, check: bool = False) -> Path:
                     raw_path = future.result()
                     if check:
                         continue
-                    with raw_path.open("rb") as stream:
-                        analyses = parse_nutbin(stream)
-                    op, ac = analyses["op"].data, analyses["ac"].data
-                    # the stimulated source's current drawn per volt of AC: the capacitor's admittance
-                    source = "xtop.vvdd:p" if params.moscap.mode == Mode.DECAP else "xtop.vtop:p"
-                    admittance = -np.asarray(ac[source])
-                    measurement = MeasMosCap(
-                        group=None,
-                        index=None,
-                        dut=params.moscap,
-                        info=MeasInfo(
-                            backend="spice",
-                            timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
-                            instruments={"simulator": "Spectre"},
-                            readbacks={
-                                "pdk": name.split("/")[0],
-                                "case": name.split("/")[1],
-                                "nominal": nominal,
-                                "raw_file": raw_path.name,
-                                "stimulated_source": source,
-                                "bias_mv": int(name.split("/")[2].removeprefix("bias")),
-                                "op_leakage_a": -float(np.real(op[source][0])),
-                            },
-                        ),
-                        param=params,
-                        frequency_hz=np.real(np.asarray(ac["freq"])).astype(np.float64),
-                        conductance_s=np.real(admittance).astype(np.float64),
-                        susceptance_s=np.imag(admittance).astype(np.float64),
+                    pdk_name, case, bias = name.split("/")[:3]
+                    measurement = moscap_measurement(
+                        raw_path,
+                        params,
+                        {
+                            "pdk": pdk_name,
+                            "case": case,
+                            "nominal": nominal,
+                            "bias_mv": int(bias.removeprefix("bias")),
+                        },
                     )
                     write_measurement(raw_path.parent / "result.h5", measurement)
                 except Exception as error:  # noqa: BLE001 - report every independent point failure
