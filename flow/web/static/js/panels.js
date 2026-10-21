@@ -1,7 +1,7 @@
-// The focused series' transistor schematic (pan, zoom), or the netlist its layout was built
-// from; on an instance page, the instance's.
+// The focused series' transistor schematic (pan, zoom) and, in a panel of its own, the netlist its
+// layout was built from; on an instance page, the instance's.
 
-import { h, icon, seg, select } from "./icons.js";
+import { h, icon, select } from "./icons.js";
 import { fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
 
 // The schematic's own stylesheet (netlist2image: black on white) scoped to the sheet: inline, its
@@ -15,19 +15,21 @@ function scopedSvg(text) {
     });
 }
 
+// view: "schematic" or "netlist"
 export class SchematicPanel {
-    constructor(container, saved) {
-        this.config = { view: "schematic", ...(saved || {}) };
+    constructor(container, view = "schematic") {
+        this.viewName = view;
         this.element = h("div.panel");
         this.toolbar = h("div.panel-toolbar");
         this.sheet = h("div.sheet");
         this.page = h("div.page");
         this.listing = h("pre.netlist", { style: { display: "none" } });
-        this.emptyNote = h("div.empty", {}, h("span", { html: icon("schematic", 28) }), h("strong", {}, "No schematic"), h("span", {}, ""));
+        this.emptyNote = h("div.empty", {}, h("span", { html: icon("schematic", 28) }), h("strong", {}, view === "netlist" ? "No netlist" : "No schematic"), h("span", {}, ""));
         this.sheet.append(this.page);
-        this.element.append(this.toolbar, h("div.panel-body.fill", {}, this.sheet, this.listing, this.emptyNote));
+        // the schematic's fit floats over its sheet: no toolbar row for one button
+        this.fitButton = h("button.icon-btn.float", { title: "Fit (double-click)", onclick: () => this.fit(), html: icon("fit", 14) });
+        this.element.append(this.toolbar, h("div.panel-body.fill", {}, this.sheet, this.listing, this.emptyNote, this.fitButton));
         container.element.append(this.element);
-        container.stateRequestEvent = () => ({ ...this.config });
         this.view = { k: 1, x: 0, y: 0 };
         this.bindInput();
         this.off = [on("block", () => this.refresh()), on("selection", () => this.refresh()), on("focus", () => this.refresh())];
@@ -37,7 +39,7 @@ export class SchematicPanel {
         this.refresh();
     }
 
-    // the focused series' schematic, or its netlist where it has no schematic (standard cells)
+    // the focused series' schematic, or its netlist
     async refresh() {
         const shown = series();
         const schematicOf = (item) => (state.block?.schematics || []).find((entry) => entry.case === item.case && entry.pdk === item.pdk);
@@ -45,35 +47,29 @@ export class SchematicPanel {
         const focused = focusSeries();
         const focus = focused && !schematicOf(focused) ? shown.find(schematicOf) || focused : focused;
         const entry = focus && schematicOf(focus);
-        const view = entry && !entry.path ? "netlist" : this.config.view;
+        const view = this.viewName;
         this.toolbar.replaceChildren();
         if (shown.length > 1) {
             this.toolbar.append(h("label.field", {}, h("span", {}, "Series"), select(shown.map((item) => ({ value: item.key, label: `${item.case} · ${item.pdk}` })), focus?.key, (value) => setFocus(value))));
         }
-        const toggle = seg(
-            [
-                { value: "schematic", label: "Schematic", title: entry && !entry.path ? entry.note || "A standard-cell netlist: no transistor schematic" : "Transistor schematic" },
-                { value: "netlist", label: "Netlist", title: "The netlist the layout was built from" },
-            ],
-            view,
-            (value) => {
-                this.config.view = value;
-                this.key = null;
-                this.refresh();
-            },
-        );
-        this.toolbar.append(h("span.grow"), toggle, h("button.icon-btn", { title: "Fit", onclick: () => this.fit(), html: icon("fit", 14) }));
-        if (!entry) {
+        // a toolbar only to choose among several series
+        this.toolbar.style.display = this.toolbar.childElementCount ? "" : "none";
+        const path = entry && (view === "netlist" ? entry.netlist : entry.path);
+        this.fitButton.style.display = view === "schematic" && path ? "" : "none";
+        if (!path) {
             this.page.replaceChildren();
             this.listing.style.display = "none";
-            this.sheet.style.display = "";
+            this.sheet.style.display = "none";
             this.key = null;
             this.emptyNote.style.display = "";
-            this.emptyNote.lastChild.textContent = !state.block ? "Select a block." : "No netlist was cached for the focused series' layout.";
+            this.emptyNote.lastChild.textContent = !state.block
+                ? "Select a block."
+                : entry
+                  ? entry.note || "A standard-cell netlist: no transistor schematic. See the Netlist panel."
+                  : "No netlist was cached for the focused series' layout.";
             return;
         }
         this.emptyNote.style.display = "none";
-        const path = view === "netlist" ? entry.netlist : entry.path;
         const key = `${view}:${path}`;
         if (key === this.key) return;
         this.key = key;
@@ -84,7 +80,6 @@ export class SchematicPanel {
             this.sheet.style.display = view === "netlist" ? "none" : "";
             if (view === "netlist") {
                 this.listing.textContent = text;
-                if (!entry.path) status(`${entry.cell}: a standard-cell netlist, shown as text`);
                 return;
             }
             this.page.innerHTML = scopedSvg(text);
@@ -93,7 +88,7 @@ export class SchematicPanel {
             this.moved = false;
             this.fit();
         } catch (error) {
-            status(`Schematic: ${error.message}`, true);
+            status(`${view === "netlist" ? "Netlist" : "Schematic"}: ${error.message}`, true);
         }
     }
 

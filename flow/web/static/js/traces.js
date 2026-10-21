@@ -427,7 +427,9 @@ export class TracesPanel {
         });
 
         // marker, cursor and hover line
-        for (const [time, color, dash] of [[this.marker, "#88C0D0", [4, 3]], [this.cursor, "#EBCB8B", []], [this.hover, muted, [2, 3]]]) {
+        const marker = root.getPropertyValue("--accent-bright").trim();
+        const cursor = root.getPropertyValue("--sem-warn").trim();
+        for (const [time, color, dash] of [[this.marker, marker, [4, 3]], [this.cursor, cursor, []], [this.hover, muted, [2, 3]]]) {
             if (time === null || time < t0 || time > t1) continue;
             const x = Math.round(this.pxAt(time)) + 0.5;
             for (const [context, cssHeight] of [[ctx, height], [axis, AXIS]]) {

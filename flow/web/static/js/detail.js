@@ -1,6 +1,6 @@
 // One sweep instance's own page (detail.html?block=<block>&id=<pdk>__<topology>__<sizing>): its
 // parameters and metrics, its condition sweeps on the axes every instance of the block shares (so
-// two pages compare at a glance), and the shared panels (layout, 3D, layers, schematic,
+// two pages compare at a glance), and the shared panels (layout, 3D, layers, schematic, netlist,
 // waveforms) on the instance alone: the store holds a one-instance block they read as any other.
 
 import { GoldenLayout } from "golden-layout";
@@ -154,7 +154,8 @@ const PANELS = {
     layout: { title: "Layout", make: (container, saved) => new LayoutPanel(container, saved) },
     layout3d: { title: "3D", make: (container, saved) => new Layout3DPanel(container, saved) },
     layers: { title: "Layers", make: (container) => new LayersPanel(container) },
-    schematic: { title: "Schematic", make: (container, saved) => new SchematicPanel(container, saved) },
+    schematic: { title: "Schematic", make: (container) => new SchematicPanel(container, "schematic") },
+    netlist: { title: "Netlist", make: (container) => new SchematicPanel(container, "netlist") },
     traces: { title: "Waveforms", make: (container, saved) => new TracesPanel(container, saved) },
 };
 
@@ -180,8 +181,8 @@ const LAYOUT = {
                 type: "column",
                 width: 38,
                 content: [
-                    { type: "stack", height: 60, content: [component("layout"), component("layout3d")] },
-                    { type: "stack", height: 40, content: [component("schematic"), component("layers")] },
+                    { type: "stack", height: 60, content: [component("layout"), component("layout3d"), component("layers")] },
+                    { type: "stack", height: 40, content: [component("schematic"), component("netlist")] },
                 ],
             },
         ],
@@ -199,7 +200,7 @@ function shimBlock(instance) {
         pdks: [instance.pdk],
         cases: { [ID]: { label: `${instance.topology} · ${instance.sizing}` } },
         layouts: layout?.file ? [{ case: ID, pdk: instance.pdk, generator: "align", path: layout.file, cell: instance.topology }] : [],
-        schematics: layout?.schematic ? [{ case: ID, pdk: instance.pdk, path: layout.schematic, netlist: layout.netlist_file }] : [],
+        schematics: layout?.schematic || layout?.netlist_file ? [{ case: ID, pdk: instance.pdk, path: layout.schematic || null, netlist: layout.netlist_file }] : [],
         datasets: [],
     };
     state.pdks = new Set([instance.pdk]);

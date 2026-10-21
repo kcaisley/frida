@@ -80,6 +80,9 @@ html[data-theme="dark"] {
     --sem-warn: #dec184;
     --shadow: rgba(0, 0, 0, 0.5);
     --layout-bg: #2f343e;
+    --hud-bg: rgba(40, 44, 51, 0.88);
+    --hud-ink: #dce0e5;
+    --hud-line: rgba(220, 224, 229, 0.16);
     --layout-grid: rgba(220, 224, 229, 0.05);
     --layout-ink: #dce0e5;
     --scene-bg: #2f343e;
@@ -116,6 +119,9 @@ html[data-theme="light"] {
     --sem-warn: #a48819;
     --shadow: rgba(36, 37, 41, 0.18);
     --layout-bg: #fafafa;
+    --hud-bg: rgba(250, 250, 250, 0.9);
+    --hud-ink: #242529;
+    --hud-line: rgba(36, 37, 41, 0.18);
     --layout-grid: rgba(36, 37, 41, 0.05);
     --layout-ink: #242529;
     --scene-bg: #f0f0f1;
@@ -1227,9 +1233,9 @@ table.grid.instances td.name {
     pointer-events: none;
     padding: 3px 7px;
     border-radius: var(--radius-sm);
-    background: rgba(31, 35, 43, 0.86);
-    border: 1px solid rgba(216, 222, 233, 0.14);
-    color: #eceff4;
+    background: var(--hud-bg);
+    border: 1px solid var(--hud-line);
+    color: var(--hud-ink);
     font: var(--fs-11) var(--font-mono);
     white-space: nowrap;
 }
@@ -1251,11 +1257,11 @@ table.grid.instances td.name {
 }
 
 .hud .ok {
-    color: #a3be8c;
+    color: var(--sem-ok);
 }
 
 .hud .bad {
-    color: #bf616a;
+    color: var(--sem-error);
 }
 
 .rubber {
@@ -1313,6 +1319,15 @@ table.grid.instances td.name {
 
 .sheet.panning {
     cursor: grabbing;
+}
+
+.panel-body > .icon-btn.float {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 2;
+    background: var(--hud-bg);
+    border: 1px solid var(--hud-line);
 }
 
 .sheet .page {

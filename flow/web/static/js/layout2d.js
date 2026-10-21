@@ -363,6 +363,8 @@ export class LayoutPanel {
         const width = this.canvas.width / ratio;
         const height = this.canvas.height / ratio;
         const root = getComputedStyle(document.documentElement);
+        // the overlays (pin labels, ruler, scale bar) in the theme's colors, as the HTML ones
+        const hud = { bg: root.getPropertyValue("--hud-bg").trim(), ink: root.getPropertyValue("--hud-ink").trim(), ruler: root.getPropertyValue("--sem-warn").trim() };
         ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
         ctx.fillStyle = root.getPropertyValue("--layout-bg").trim();
         ctx.fillRect(0, 0, width, height);
@@ -468,7 +470,7 @@ export class LayoutPanel {
                     const overlaps = (box) => Math.abs(box[0] - sx) < (box[2] + textWidth) / 2 + 6 && Math.abs(box[1] - sy) < 15;
                     for (let tries = 0; tries < 4 && placed.some(overlaps); tries++) sy += 15;
                     placed.push([sx, sy, textWidth]);
-                    ctx.fillStyle = "rgba(31, 35, 43, 0.82)";
+                    ctx.fillStyle = hud.bg;
                     ctx.fillRect(sx - textWidth / 2 - 3, sy - 7, textWidth + 6, 14);
                     ctx.fillStyle = layerColor(layerStyle(layer));
                     ctx.fillText(text, sx, sy + 0.5);
@@ -517,8 +519,8 @@ export class LayoutPanel {
         if (this.ruler.a && this.ruler.b) {
             const [ax, ay] = this.toScreen(...this.ruler.a);
             const [bx, by] = this.toScreen(...this.ruler.b);
-            ctx.strokeStyle = "#EBCB8B";
-            ctx.fillStyle = "#EBCB8B";
+            ctx.strokeStyle = hud.ruler;
+            ctx.fillStyle = hud.ruler;
             ctx.lineWidth = 1.5;
             ctx.setLineDash([]);
             ctx.beginPath();
@@ -537,9 +539,9 @@ export class LayoutPanel {
             const textWidth = ctx.measureText(text).width;
             const mx = (ax + bx) / 2;
             const my = (ay + by) / 2 - 14;
-            ctx.fillStyle = "rgba(31, 35, 43, 0.9)";
+            ctx.fillStyle = hud.bg;
             ctx.fillRect(mx - textWidth / 2 - 5, my - 9, textWidth + 10, 18);
-            ctx.fillStyle = "#EBCB8B";
+            ctx.fillStyle = hud.ruler;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
             ctx.fillText(text, mx, my);
@@ -548,9 +550,9 @@ export class LayoutPanel {
         // scale bar
         const length = niceLength(90 / k);
         const barWidth = length * k;
-        ctx.fillStyle = "rgba(31, 35, 43, 0.78)";
+        ctx.fillStyle = hud.bg;
         ctx.fillRect(10, height - 34, barWidth + 16, 24);
-        ctx.strokeStyle = "#ECEFF4";
+        ctx.strokeStyle = hud.ink;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(18, height - 18);
@@ -558,7 +560,7 @@ export class LayoutPanel {
         ctx.lineTo(18 + barWidth, height - 14);
         ctx.lineTo(18 + barWidth, height - 18);
         ctx.stroke();
-        ctx.fillStyle = "#ECEFF4";
+        ctx.fillStyle = hud.ink;
         ctx.font = "11px ui-monospace, 'SF Mono', 'DejaVu Sans Mono', monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "alphabetic";
