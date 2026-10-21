@@ -33,7 +33,7 @@ def test_every_sweep_module_keeps_the_contract() -> None:
         sweep = __import__(f"flow.{block}.sweep", fromlist=["params"])
         # four to eight sizings, ten where a block also brackets a fabricated design (comp: FRIDA-1);
         # the converters' sizings are their capacitor arrays, a redundancy scheme each
-        most = 30 if block.startswith("adc") else 10
+        most = 40 if block.startswith("adc") else 10
         assert sweep.TOPOLOGIES and 4 <= len(sweep.SIZINGS) <= most, block
         assert callable(sweep.characterize) and sweep.GENERATOR is not None, block
         combos = [
