@@ -1808,13 +1808,26 @@ table.grid.sweep a.detail:hover {
     background: var(--accent-alpha);
 }
 
-table.grid.sweep tr.hover td,
-table.grid.sweep tr.hover td.tools {
+table.grid.sweep tr.hover td {
     background: var(--accent-alpha-strong);
 }
 
 table.grid.sweep tr.pinned td {
     background: var(--accent-alpha);
+}
+
+/* the tools column stays put while the rest scrolls under it: its highlights lie over the opaque
+   panel colour, never see-through */
+table.grid.sweep tr.pinned td.tools {
+    background: linear-gradient(var(--accent-alpha), var(--accent-alpha)), var(--bg-panel);
+}
+
+table.grid.sweep tbody tr:hover td.tools {
+    background: linear-gradient(var(--bg-hover), var(--bg-hover)), var(--bg-panel);
+}
+
+table.grid.sweep tr.hover td.tools {
+    background: linear-gradient(var(--accent-alpha-strong), var(--accent-alpha-strong)), var(--bg-panel);
 }
 
 table.grid.sweep tr.failed td {
