@@ -31,7 +31,8 @@ def test_geometry_counts_the_compiled_devices_and_their_gate_area() -> None:
 def test_every_sweep_module_keeps_the_contract() -> None:
     for block in runner.sweep_blocks():
         sweep = __import__(f"flow.{block}.sweep", fromlist=["params"])
-        assert sweep.TOPOLOGIES and 4 <= len(sweep.SIZINGS) <= 8, block
+        # four to eight sizings, ten where a block also brackets a fabricated design (comp: FRIDA-1)
+        assert sweep.TOPOLOGIES and 4 <= len(sweep.SIZINGS) <= 10, block
         assert callable(sweep.characterize) and sweep.GENERATOR is not None, block
         combos = [
             sweep.params(pdk, topology, sizing)
