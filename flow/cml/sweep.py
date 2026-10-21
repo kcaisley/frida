@@ -21,7 +21,6 @@ from pathlib import Path
 
 import hdl21 as h
 import numpy as np
-from hdl21.primitives import MosType
 
 from flow.sweep import Detail, Record
 
@@ -33,6 +32,7 @@ from .sim import (
     CmlTbParams,
     _run_cml_sim,
     cml_signal_names,
+    drive_levels,
 )
 from .subckt import CASES, Cml, CmlParams, Function, is_valid_cml_params, write_netlist
 
@@ -117,9 +117,7 @@ def characterize(run_dir: Path, pdk: str, cml: CmlParams) -> Record:
     tail = NOMINAL_TAIL_CURRENT_A * cml.tail_w / DEFAULT.tail_w
 
     def bench(vdd: float, period: float, current: float) -> CmlTbParams:
-        # the CML levels across the supply's top third (a PMOS input: its bottom third)
-        pmos = cml.input_xtors == MosType.PMOS
-        levels = {"vhigh": vdd / 3, "vlow": 0.0} if pmos else {"vhigh": vdd, "vlow": 2 * vdd / 3}
+        levels = drive_levels(cml, vdd)
         return CmlTbParams(
             pdk=pdk,
             cml=cml,

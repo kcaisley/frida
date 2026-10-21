@@ -1,9 +1,10 @@
 """CML testbench and named Spectre simulation targets, in every PDK.
 
 The testbench follows Usb2Phy's CML benches (``CmlDivTb`` and its ``DiffClkGen``): differential
-pulses between the CML levels on the data input and on the clock (an XOR's second input),
-current-reference biases (a diode-connected copy fed the tail current, from a supply of its own)
-and a load on each output. Every case gets the same stimulus: a buffer ignores the clock, a
+pulses between the CML levels on the data input and on the clock (an XOR's second input; a latch's
+or divider's clock a quarter of the supply below the data, ``drive_levels``), current-reference
+biases (a diode-connected copy fed the tail current, from a supply of its own) and a load on each
+output. Every case gets the same stimulus: a buffer ignores the clock, a
 divider the data. The characterization sweeps the clock frequency, with the data at 2.6 clock
 periods, and the tail current, the knob that sets a CML gate's swing.
 """
@@ -27,7 +28,21 @@ from flow.analysis.io import interpolate_wave_records, write_measurement
 from flow.circuit.ports import testbench_from_ports
 from flow.comp.subckt import _mos
 
-from .subckt import CASES, Cml, CmlNets, CmlParams
+from .subckt import CASES, Cml, CmlNets, CmlParams, Function
+
+
+def drive_levels(cml: CmlParams, vdd: float) -> dict[str, float]:
+    """The testbench's CML levels for ``cml`` at supply ``vdd``: the inputs across the supply's top
+    third (a PMOS input's: its bottom third), and a latch's or divider's clock a quarter of the
+    supply below them (above, for PMOS). That clock's pair sits under the data pair: at the data's
+    common mode it is left without the headroom to steer the tail current off the data pair, which
+    then leaks into the held state (a tsmc65 latch lost it within a 1 ns clock, a divider followed
+    the clock). An XOR drives each input into a bottom and a top device alike: one level for both."""
+
+    pmos = cml.input_xtors == MosType.PMOS
+    levels = {"vhigh": vdd / 3, "vlow": 0.0} if pmos else {"vhigh": vdd, "vlow": 2 * vdd / 3}
+    stacked = cml.function in (Function.LATCH, Function.DIVIDER)
+    return {**levels, "clock_offset_v": (vdd / 4 if pmos else -vdd / 4) if stacked else 0.0}
 
 
 def cml_signal_names() -> dict[str, str]:
@@ -54,6 +69,9 @@ class CmlTbParams:
     cload = h.Param(dtype=h.Scalar, desc="Load capacitance on each output (F)", default=2e-15)
     vhigh = h.Param(dtype=h.Scalar, desc="High level of the CML inputs", default=1.2)
     vlow = h.Param(dtype=h.Scalar, desc="Low level of the CML inputs", default=0.8)
+    clock_offset_v = h.Param(
+        dtype=h.Scalar, desc="The clock's levels less the data's (drive_levels: a stacked clock pair's)", default=-0.3
+    )
     tail_current_a = h.Param(dtype=float, desc="Tail current the bias references set (A)", default=30e-6)
     clock_period_s = h.Param(dtype=h.Scalar, desc="Clock (or second input) period", default=200e-12)
     data_period_s = h.Param(dtype=h.Scalar, desc="Data input period", default=520e-12)
@@ -62,7 +80,7 @@ class CmlTbParams:
 
 
 def _validate_cml_tb_params(params: CmlTbParams) -> None:
-    values = (params.vdd, params.cload, params.vhigh, params.vlow, params.tail_current_a)
+    values = (params.vdd, params.cload, params.vhigh, params.vlow, params.clock_offset_v, params.tail_current_a)
     values += (params.clock_period_s, params.data_period_s, params.transition_time_s, params.tstop_s)
     if not all(math.isfinite(float(value)) for value in (*values, params.waveform_sample_interval_s)):
         raise ValueError("CML testbench values must be finite")
@@ -89,8 +107,9 @@ def CmlTb(params: CmlTbParams) -> h.Module:
     hi, lo = params.vhigh, params.vlow
     edge = {"rise": params.transition_time_s, "fall": params.transition_time_s}
     CmlTb.vvdd = Vdc(dc=params.vdd)(p=CmlTb.vdd, n=vss)
-    for name, period in (("in", float(params.data_period_s)), ("clk", float(params.clock_period_s))):
-        for side, (v1, v2) in (("p", (lo, hi)), ("n", (hi, lo))):
+    shift = params.clock_offset_v
+    for name, period, offset in (("in", float(params.data_period_s), 0), ("clk", float(params.clock_period_s), shift)):
+        for side, (v1, v2) in (("p", (lo + offset, hi + offset)), ("n", (hi + offset, lo + offset))):
             net = getattr(CmlTb, f"{name}{side}")
             CmlTb.add(
                 Vpulse(v1=v1, v2=v2, period=period, width=period / 2, delay=period / 4, **edge)(p=net, n=vss),
@@ -207,8 +226,7 @@ def cml_characterization(run_dir: Path, *, check: bool = False) -> Path:
     for pdk in PDKS:
         supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
         for case, cml in CASES.items():
-            pmos = cml.input_xtors == MosType.PMOS
-            levels = {"vhigh": supply / 3, "vlow": 0.0} if pmos else {"vhigh": supply, "vlow": 2 * supply / 3}
+            levels = drive_levels(cml, supply)
             points = {"period": [(period, NOMINAL_TAIL_CURRENT_A) for period in CLOCK_PERIOD_SWEEP_S]}
             points["tail"] = [(NOMINAL_CLOCK_PERIOD_S, current) for current in TAIL_CURRENT_SWEEP_A]
             if check:
