@@ -4,13 +4,13 @@
 // waveforms) on the instance alone: the store holds a one-instance block they read as any other.
 
 import { GoldenLayout } from "golden-layout";
-import { h, icon } from "./icons.js";
+import { h } from "./icons.js";
 import { LayersPanel } from "./layers.js";
 import { Layout3DPanel } from "./layout3d.js";
 import { LayoutPanel } from "./layout2d.js";
 import { currentTheme, PAPERS, paperLayout, tone } from "./paper.js";
 import { SchematicPanel } from "./panels.js";
-import { COLORS, emit, on, state, store } from "./store.js";
+import { COLORS, emit, on, state } from "./store.js";
 import { TracesPanel } from "./traces.js";
 import { fieldInfo, scaledUnit, siExponent } from "./units.js";
 
@@ -65,17 +65,25 @@ class SummaryPanel {
             h("tr", {}, h("th.mono", { title: name }, name), h(typeof value === "number" ? "td.num" : "td.num.text", {}, value === null ? "—" : String(value)), h("td.unit", {}, "")),
         );
         const section = (title) => h("tr.section", {}, h("th", { colspan: "3" }, title));
+        const row = (name, number, unit = "") => h("tr", {}, h("th", {}, name), h("td.num", {}, number), h("td.unit", {}, unit));
         const layout = instance.layout;
-        const layoutNote = !layout
-            ? "Not laid out."
+        const layoutRows = !layout
+            ? [row("Layout", "none")]
             : layout.error
-              ? `ALIGN failed: ${layout.error.trim().split("\n").pop()}`
-              : `ALIGN${layout.floorplan ? " (by the floorplan)" : ""}: ${layout.w_um.toFixed(2)} × ${layout.h_um.toFixed(2)} µm, DRC ${layout.drc_violations} violations, LVS ${layout.lvs_correct ? "correct" : "incorrect"}.`;
+              ? [row("ALIGN", "failed")]
+              : [
+                  row("Size", `${layout.w_um.toFixed(3)} × ${layout.h_um.toFixed(3)}`, "µm"),
+                  row("Placed", layout.floorplan ? "by floorplan" : "ALIGN alone"),
+                  row("DRC", layout.drc_violations ? `${layout.drc_violations} violations` : "clean"),
+                  row("LVS", layout.lvs_correct ? "correct" : "incorrect"),
+              ];
         const parts = [
-            h("h1", {}, `${page.table?.title || BLOCK}: ${instance.topology} · ${instance.sizing} · ${instance.pdk}`),
-            h("p.muted", {}, `Run ${page.table?.run || "?"}, characterized in ${instance.seconds ?? "?"} s. ${layoutNote}`),
             instance.error ? h("pre.error", {}, instance.error) : null,
-            h("table.summary-table", {}, h("tbody", {}, section("Metrics"), metricRows, section("Parameters"), paramRows)),
+            h(
+                "table.summary-table",
+                {},
+                h("tbody", {}, section("Parameters"), paramRows, section("Metrics"), metricRows, section("Layout"), layoutRows),
+            ),
         ];
         this.element.replaceChildren(...parts.filter(Boolean));
     }
@@ -146,7 +154,7 @@ class PlotsPanel {
 
 const PANELS = {
     summary: { title: "Summary", make: (container) => new SummaryPanel(container) },
-    plots: { title: "Condition sweeps", make: (container) => new PlotsPanel(container) },
+    plots: { title: "Analyses", make: (container) => new PlotsPanel(container) },
     layout: { title: "Layout", make: (container, saved) => new LayoutPanel(container, saved) },
     layout3d: { title: "3D", make: (container, saved) => new Layout3DPanel(container, saved) },
     layers: { title: "Layers", make: (container) => new LayersPanel(container) },
@@ -203,30 +211,6 @@ function shimBlock(instance) {
     state.focus = `${instance.pdk}|${ID}`;
 }
 
-function setTheme(theme) {
-    document.documentElement.dataset.theme = theme;
-    store("theme", theme);
-    emit("theme", theme);
-    buildToolbar();
-}
-
-function buildToolbar() {
-    const theme = document.documentElement.dataset.theme;
-    const instance = page.instance;
-    const tool = (name, title, onclick, label) => h("button.tool-btn", { title, onclick }, h("span", { html: icon(name, 16) }), label ? h("span", {}, label) : null);
-    document.getElementById("toolbar").replaceChildren(
-        h("a.tool-btn", { href: "index.html", title: "Back to the design space" }, h("span", {}, "← Design space")),
-        h("div.tool-sep"),
-        h("span.brand", {}, h("span", { html: icon("chip", 16) }), instance ? `${page.table?.title || BLOCK}: ${instance.topology} · ${instance.sizing} · ${instance.pdk}` : ID),
-        h("span.spacer"),
-        tool("fit", "Fit the layout (F)", () => emit("command", "fit")),
-        tool("ruler", "Measure (K)", () => emit("command", "ruler")),
-        tool("tag", "Layout labels (L)", () => emit("command", "labels")),
-        h("div.tool-sep"),
-        tool(theme === "dark" ? "sun" : "moon", "Theme (T)", () => setTheme(theme === "dark" ? "light" : "dark")),
-    );
-}
-
 async function main() {
     const bar = document.getElementById("status-bar");
     const message = h("span.msg", {}, "Loading…");
@@ -243,8 +227,7 @@ async function main() {
         const target = event.target;
         if (event.ctrlKey || event.metaKey || target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
         const key = event.key.toLowerCase();
-        if (key === "t") setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
-        else if (key === "f") emit("command", "fit");
+        if (key === "f") emit("command", "fit");
         else if (key === "k") emit("command", "ruler");
         else if (key === "l") emit("command", "labels");
         else return;
@@ -259,7 +242,11 @@ async function main() {
     }
     document.title = `${page.instance.topology} · ${page.instance.sizing} · ${page.instance.pdk}`;
     shimBlock(page.instance);
-    buildToolbar();
+    // the desktop's light or dark setting, followed as it changes
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
+        document.documentElement.dataset.theme = event.matches ? "dark" : "light";
+        emit("theme", document.documentElement.dataset.theme);
+    });
     const container = document.getElementById("gl-container");
     const layout = new GoldenLayout(container);
     for (const [type, panel] of Object.entries(PANELS)) layout.registerComponentFactoryFunction(type, (glContainer, saved) => panel.make(glContainer, saved));

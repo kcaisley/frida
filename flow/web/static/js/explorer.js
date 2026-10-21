@@ -7,7 +7,7 @@
 import { h, icon, popover, select } from "./icons.js";
 import { currentTheme, PAPERS, paperLayout, tone } from "./paper.js";
 import { COLORS, recall, store } from "./store.js";
-import { fieldInfo, formatValue, scaledUnit, siExponent } from "./units.js";
+import { fieldInfo, scaledUnit, siExponent } from "./units.js";
 
 const PDK_ORDER = ["tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65"];
 const SYMBOLS = ["circle", "square", "diamond", "triangle-up", "triangle-down", "cross", "x", "star", "hexagon", "pentagon", "hourglass", "bowtie"];
@@ -491,36 +491,21 @@ function renderBlocks() {
     }
 }
 
-function setTheme(theme) {
-    document.documentElement.dataset.theme = theme;
-    store("theme", theme);
-    buildToolbar();
-    if (view.block) {
-        renderTable();
-        renderPlot();
-    }
-}
-
-function buildToolbar() {
-    const theme = document.documentElement.dataset.theme;
-    const bar = document.getElementById("toolbar");
-    bar.replaceChildren(
-        h("span.brand", {}, h("span", { html: icon("chip", 16) }), "FRIDA design space"),
-        h("span.spacer"),
-        h("span.toolbar-title", { id: "count" }, ""),
-        h("button.tool-btn", { title: "Clear every filter and the sort", onclick: () => { view.filters = {}; view.sort = null; refresh(); } }, h("span", { html: icon("reset", 16) }), h("span", {}, "Clear filters")),
-        h("div.tool-sep"),
-        h("button.tool-btn", { title: "Theme (T)", onclick: () => setTheme(theme === "dark" ? "light" : "dark") }, h("span", { html: icon(theme === "dark" ? "sun" : "moon", 16) })),
-    );
-}
-
 async function main() {
-    buildToolbar();
-    document.getElementById("status-bar").replaceChildren(h("span.cell", {}, h("span.dot"), "sweep"), h("span.msg", {}, "Ready"));
-    window.addEventListener("keydown", (event) => {
-        const target = event.target;
-        if (event.ctrlKey || event.metaKey || target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
-        if (event.key === "t" || event.key === "T") setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+    // the status bar: what is shown, the filters' reset
+    document.getElementById("status-bar").replaceChildren(
+        h("span.cell", {}, h("span.dot"), "sweep"),
+        h("span.msg", {}, "Ready"),
+        h("span.cell", { id: "count" }, ""),
+        h("button.icon-btn", { title: "Clear every filter and the sort", onclick: () => { view.filters = {}; view.sort = null; refresh(); } }, h("span", { html: icon("reset", 13) }), "Clear filters"),
+    );
+    // the desktop's light or dark setting, followed as it changes
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
+        document.documentElement.dataset.theme = event.matches ? "dark" : "light";
+        if (view.block) {
+            renderTable();
+            renderPlot();
+        }
     });
     const loading = document.getElementById("loading");
     try {

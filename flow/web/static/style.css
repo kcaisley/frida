@@ -1,5 +1,5 @@
-/* FRIDA viewer: an application shell after OpenROAD's web viewer (menu bar, toolbar, docked
- * GoldenLayout panels, status bar) in the Nord palette.
+/* FRIDA viewer: an application shell after OpenROAD's web viewer (docked GoldenLayout panels,
+ * status bar), in the desktop's theme: dark in the Nord palette, light in Zed's One Light.
  *
  * Colors live in two layers, as OpenROAD's: the scales (--surface-*, --line-*, --ink-*,
  * --accent-*, --sem-*) are the palette and each theme defines the whole set; the role names
@@ -52,6 +52,7 @@ html[data-theme="dark"] {
     color-scheme: dark;
     --surface-ground: #1f232b;
     --surface-panel: #262b34;
+    --surface-side: #262b34;
     --surface-raised: #2e3440;
     --surface-float: #343b48;
     --surface-sunken: #1b1f26;
@@ -83,42 +84,46 @@ html[data-theme="dark"] {
 }
 
 html[data-theme="light"] {
+    /* Zed's One Light: its window background between panes, its editor's (a panel's content and
+     * active tab), its tab bars and side panels (headers), its text, hover and selection */
     color-scheme: light;
-    --surface-ground: #d8dee9;
-    --surface-panel: #eceff4;
-    --surface-raised: #e5e9f0;
-    --surface-float: #ffffff;
+    --surface-ground: #dcdcdd;
+    --surface-panel: #fafafa;
+    --surface-side: #ebebec;
+    --surface-raised: #ebebec;
+    --surface-float: #ebebec;
     --surface-sunken: #ffffff;
-    --surface-hover: #dde3ec;
-    --surface-tint: #d6e2ee;
-    --line-1: #dde3ec;
-    --line-2: #cbd3df;
-    --line-3: #aab4c3;
-    --ink-0: #1f232b;
-    --ink-1: #2e3440;
-    --ink-2: #3b4252;
-    --ink-3: #5a6478;
-    --ink-4: #8a93a5;
-    --accent-solid: #5e81ac;
-    --accent-solid-hover: #4c6f98;
-    --accent-bright: #5e81ac;
-    --accent-on-surface: #4c6f98;
-    --accent-alpha: rgba(94, 129, 172, 0.12);
-    --accent-alpha-strong: rgba(94, 129, 172, 0.22);
-    --sem-error: #b0505a;
-    --sem-ok: #6f9a52;
-    --sem-warn: #b8902f;
-    --shadow: rgba(46, 52, 64, 0.18);
-    --layout-bg: #f4f6f9;
-    --layout-grid: rgba(46, 52, 64, 0.05);
-    --layout-ink: #2e3440;
-    --scene-bg: #e9edf2;
-    --plot-paper: #ffffff;
+    --surface-hover: #dfdfe0;
+    --surface-tint: #cacaca;
+    --line-1: #dfdfe0;
+    --line-2: #c9c9ca;
+    --line-3: #a1a1a3;
+    --ink-0: #18191c;
+    --ink-1: #242529;
+    --ink-2: #3c3d41;
+    --ink-3: #58585a;
+    --ink-4: #7e8086;
+    --accent-solid: #5c78e2;
+    --accent-solid-hover: #4b67d1;
+    --accent-bright: #5c78e2;
+    --accent-on-surface: #4561c9;
+    --accent-alpha: rgba(92, 120, 226, 0.14);
+    --accent-alpha-strong: rgba(92, 120, 226, 0.24);
+    --sem-error: #d36151;
+    --sem-ok: #669f59;
+    --sem-warn: #a48819;
+    --shadow: rgba(36, 37, 41, 0.18);
+    --layout-bg: #fafafa;
+    --layout-grid: rgba(36, 37, 41, 0.05);
+    --layout-ink: #242529;
+    --scene-bg: #f0f0f1;
+    --plot-paper: #fafafa;
 }
 
 html {
     --bg-main: var(--surface-ground);
     --bg-panel: var(--surface-panel);
+    --bg-side: var(--surface-side);
     --bg-header: var(--surface-raised);
     --bg-input: var(--surface-sunken);
     --bg-hover: var(--surface-hover);
@@ -222,115 +227,6 @@ select {
     height: 1px;
     margin: 4px 0;
     background: var(--border);
-}
-
-/* ─── Toolbar ───────────────────────────────────────────────────────────── */
-
-#toolbar {
-    flex: none;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    height: 36px;
-    padding: 0 8px;
-    background: var(--bg-header);
-    border-bottom: 1px solid var(--bg-input);
-    z-index: 20;
-}
-
-.tool-sep {
-    width: 1px;
-    height: 20px;
-    margin: 0 6px;
-    background: var(--border);
-}
-
-.tool-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    height: 26px;
-    min-width: 26px;
-    padding: 0 7px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-    background: none;
-    color: var(--fg-secondary);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.tool-btn:hover {
-    background: var(--bg-hover);
-    color: var(--fg-bright);
-}
-
-.tool-btn.active {
-    background: var(--accent-alpha-strong);
-    border-color: var(--accent-bright);
-    color: var(--fg-bright);
-}
-
-.tool-btn:disabled {
-    opacity: 0.4;
-    cursor: default;
-}
-
-.tool-btn svg {
-    flex: none;
-}
-
-.block-picker {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    height: 26px;
-    padding: 0 8px 0 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-input);
-    min-width: 260px;
-    cursor: pointer;
-}
-
-.block-picker:hover {
-    border-color: var(--border-strong);
-}
-
-.block-picker .name {
-    font-weight: 600;
-    color: var(--fg-bright);
-}
-
-.block-picker .key {
-    color: var(--fg-muted);
-    font: var(--fs-11) var(--font-mono);
-}
-
-.block-picker .chev {
-    margin-left: auto;
-    color: var(--fg-muted);
-}
-
-.toolbar-title {
-    color: var(--fg-muted);
-    font-size: var(--fs-11);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-right: 2px;
-}
-
-#toolbar .spacer {
-    flex: 1;
-}
-
-.series-strip {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    max-width: 40vw;
-    overflow: hidden;
 }
 
 .series-dot {
@@ -1142,45 +1038,6 @@ table.grid.instances td.name {
     display: flex;
 }
 
-.traces-side {
-    flex: none;
-    display: flex;
-    flex-direction: column;
-    width: 170px;
-    border-right: 1px solid var(--border-subtle);
-}
-
-.traces-side-head {
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--border-subtle);
-}
-
-.signal-list {
-    flex: 1;
-    overflow: auto;
-    padding-bottom: 6px;
-}
-
-.signal-list .group {
-    padding: 8px 10px 3px;
-    color: var(--fg-muted);
-    font-size: var(--fs-11);
-    font-weight: 600;
-}
-
-.signal-list label.signal {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    height: 22px;
-    padding: 0 10px;
-    cursor: pointer;
-}
-
-.signal-list label.signal:hover {
-    background: var(--bg-hover);
-}
-
 .traces-main {
     position: relative;
     flex: 1;
@@ -1199,7 +1056,7 @@ table.grid.instances td.name {
 
 .traces-axis-gutter {
     flex: none;
-    width: 200px;
+    width: 150px;
     padding: 0 10px;
     line-height: 26px;
     border-right: 1px solid var(--border-subtle);
@@ -1234,7 +1091,7 @@ table.grid.instances td.name {
 
 .traces-names {
     flex: none;
-    width: 200px;
+    width: 150px;
     border-right: 1px solid var(--border-subtle);
     background: var(--bg-panel);
 }
@@ -1243,7 +1100,7 @@ table.grid.instances td.name {
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 2px;
+    gap: 0;
     padding: 0 6px 0 9px;
     border-left: 3px solid transparent;
     border-bottom: 1px solid var(--border-subtle);
@@ -1270,14 +1127,20 @@ table.grid.instances td.name {
 }
 
 .trace-name .range {
+    overflow: hidden;
     color: var(--fg-muted);
     font-size: var(--fs-10);
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
+.trace-name .value {
+    font-size: var(--fs-11);
+}
+
 .trace-name .icon-btn {
-    height: 18px;
-    min-width: 18px;
+    height: 16px;
+    min-width: 16px;
     padding: 0 4px;
     font-size: var(--fs-10);
 }
@@ -1684,20 +1547,6 @@ pre.netlist {
 
 /* ─── Design-space explorer (index.html): blocks, the instance table, the scatter plot ───────── */
 
-#toolbar .brand {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 6px;
-    color: var(--fg-bright);
-    font-weight: 600;
-}
-
-#toolbar .brand span {
-    display: flex;
-    color: var(--accent-bright);
-}
-
 #explorer {
     flex: 1;
     min-height: 0;
@@ -1717,6 +1566,7 @@ pre.netlist {
 
 #blocks-pane {
     overflow: auto;
+    background: var(--bg-side);
 }
 
 .pane-title {

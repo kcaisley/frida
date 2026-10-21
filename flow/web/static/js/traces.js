@@ -1,16 +1,17 @@
 // The traces view, after Surfer's waveform viewer: the focused instance's cached transient runs,
-// one row per chosen net on a shared time axis, analog or (threshold at mid-swing) digital. The
+// a row per net on a shared time axis (every net at first; a row's x hides it, + brings it back),
+// analog or (threshold at mid-swing) digital. The
 // waveform comes from the measurement's HDF5 file through the server (/api/wave), on request.
 // Wheel zooms time about the cursor, drag pans, right-drag zooms to a span, double-click fits;
 // a click places the cursor, shift-click a second marker for the time between them.
 
-import { h, icon, select } from "./icons.js";
+import { h, icon, popover, select } from "./icons.js";
 import { COLORS, emit, fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
 import { fieldInfo, formatValue, scaledUnit, siExponent } from "./units.js";
 
-const ROW = 54; // px per signal row
+const ROW = 40; // px per signal row
 const AXIS = 26; // px of the time axis
-const GUTTER = 200; // px of the names column
+const GUTTER = 150; // px of the names column
 const VOLT = { unit: "V", scalable: true };
 const AMP = { unit: "A", scalable: true };
 
@@ -80,10 +81,6 @@ export class TracesPanel {
         this.hover = null;
         this.element = h("div.panel");
         this.toolbar = h("div.panel-toolbar");
-        this.filter = h("input", { type: "search", placeholder: "Filter nets", spellcheck: "false" });
-        this.filter.addEventListener("input", () => this.buildSignals());
-        this.signalList = h("div.signal-list");
-        this.sidebar = h("div.traces-side", {}, h("div.traces-side-head", {}, this.filter), this.signalList);
         this.axisCanvas = h("canvas");
         this.names = h("div.traces-names");
         this.canvas = h("canvas");
@@ -98,7 +95,7 @@ export class TracesPanel {
             this.rubber,
             this.emptyNote,
         );
-        this.element.append(this.toolbar, h("div.panel-body.fill.traces", {}, this.sidebar, this.main));
+        this.element.append(this.toolbar, h("div.panel-body.fill.traces", {}, this.main));
         container.element.append(this.element);
         container.stateRequestEvent = () => ({ ...this.config });
         this.bindInput();
@@ -137,7 +134,6 @@ export class TracesPanel {
             this.wave = null;
             this.emptyNote.style.display = "";
             this.emptyNote.lastChild.textContent = !block ? "Select a block." : "No cached transient runs for the selected series.";
-            this.signalList.replaceChildren();
             this.names.replaceChildren();
             this.draw();
             return;
@@ -173,10 +169,12 @@ export class TracesPanel {
             );
         }
         this.readout = h("span.mono.muted", {}, "");
-        this.toolbar.append(h("span.grow"), this.readout, h("button.icon-btn", { title: "Fit (F, double-click)", onclick: () => this.fit(), html: icon("fit", 14) }));
+        this.addButton = h("button.icon-btn", { title: "Show a hidden net", html: icon("plus", 14) });
+        this.addButton.addEventListener("click", () => this.hiddenMenu());
+        this.toolbar.append(h("span.grow"), this.readout, this.addButton, h("button.icon-btn", { title: "Fit (F, double-click)", onclick: () => this.fit(), html: icon("fit", 14) }));
         const key = `${this.run.path}#${this.config.record}`;
         if (key === this.key) {
-            this.buildSignals();
+            this.buildNames();
             this.draw();
             return;
         }
@@ -210,43 +208,41 @@ export class TracesPanel {
         // the chosen nets carry over between runs of one bench; another bench starts with its first
         const names = this.traces.map((trace) => trace.name);
         const nets = names.join(",");
-        if (!this.config.signals || nets !== this.config.nets) this.config.signals = names.slice(0, 12);
+        if (!this.config.signals || nets !== this.config.nets) this.config.signals = names;
         this.config.nets = nets;
         status(`${this.run.sweep} run: ${wave.samples} samples${wave.stride > 1 ? `, 1 in ${wave.stride} shown` : ""}`);
         this.fit();
-        this.buildSignals();
+        this.buildNames();
     }
 
     shownTraces() {
         return (this.config.signals || []).map((name) => this.traces?.find((trace) => trace.name === name)).filter(Boolean);
     }
 
-    buildSignals() {
-        this.signalList.replaceChildren();
-        if (!this.traces) return;
-        const filter = this.filter.value.trim().toLowerCase();
-        for (const [kind, title] of [["v", "Voltages"], ["i", "Supply currents"]]) {
-            const group = this.traces.filter((trace) => trace.kind === kind && trace.name.toLowerCase().includes(filter));
-            if (!group.length) continue;
-            this.signalList.append(h("div.group", {}, title));
-            for (const trace of group) {
-                const box = h("input", { type: "checkbox" });
-                box.checked = this.config.signals.includes(trace.name);
-                const row = h("label.signal", { title: `${trace.name}: ${formatValue(trace.range[0], trace.info)} to ${formatValue(trace.range[1], trace.info)}` }, box, h("span.mono", {}, trace.name));
-                box.addEventListener("change", () => {
-                    this.config.signals = box.checked ? [...this.config.signals, trace.name] : this.config.signals.filter((name) => name !== trace.name);
-                    this.buildNames();
-                    this.draw();
-                });
-                this.signalList.append(row);
-            }
-        }
-        this.buildNames();
+    // the nets not shown, to show again (every one, or one at a time)
+    hiddenMenu() {
+        const hidden = (this.traces || []).filter((trace) => !this.config.signals.includes(trace.name));
+        if (!hidden.length) return;
+        popover(this.addButton, (element) => {
+            const show = (names) => {
+                element.remove();
+                this.config.signals = this.traces.map((trace) => trace.name).filter((name) => this.config.signals.includes(name) || names.includes(name));
+                this.buildNames();
+                this.draw();
+            };
+            element.append(h("div.menu-item", { onclick: () => show(hidden.map((trace) => trace.name)) }, "Show all"), h("div.menu-sep"));
+            for (const trace of hidden) element.append(h("div.menu-item.mono", { onclick: () => show([trace.name]) }, trace.name));
+        });
     }
 
     buildNames() {
         this.names.replaceChildren();
         this.valueCells = [];
+        if (this.addButton) {
+            const hidden = (this.traces || []).length - this.shownTraces().length;
+            this.addButton.disabled = !hidden;
+            this.addButton.title = hidden ? `Show a hidden net (${hidden} hidden)` : "Every net is shown";
+        }
         this.shownTraces().forEach((trace, index) => {
             const color = COLORS[index % COLORS.length];
             const digital = this.config.digital.includes(trace.name);
@@ -258,10 +254,10 @@ export class TracesPanel {
                 this.buildNames();
                 this.draw();
             });
-            const remove = h("button.icon-btn", { title: "Remove", html: icon("x", 12) });
+            const remove = h("button.icon-btn", { title: "Hide (+ shows it again)", html: icon("x", 12) });
             remove.addEventListener("click", () => {
                 this.config.signals = this.config.signals.filter((name) => name !== trace.name);
-                this.buildSignals();
+                this.buildNames();
                 this.draw();
             });
             this.names.append(

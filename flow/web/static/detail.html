@@ -8,10 +8,8 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/golden-layout@2.6.0/dist/css/goldenlayout-base.css">
     <link rel="stylesheet" href="style.css">
     <script>
-        try {
-            const saved = localStorage.getItem("frida.theme");
-            if (saved) document.documentElement.dataset.theme = JSON.parse(saved);
-        } catch (error) {}
+        // the desktop's light or dark setting
+        document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     </script>
     <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
     <script type="importmap">
@@ -25,7 +23,6 @@
     </script>
 </head>
 <body>
-    <div id="toolbar"></div>
     <div id="gl-container"></div>
     <div id="status-bar"></div>
     <div id="loading"><div class="spinner"></div><span>Loading the instance…</span></div>
