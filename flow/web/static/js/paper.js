@@ -1,5 +1,5 @@
 // The plots' paper, as flow/analysis/plots.py draws it: Computer Modern on white for saved SVGs,
-// a plain sans on screen, on white in the light theme and Nord's dark paper in the dark one;
+// a plain sans on screen, on white in the light theme and the panels' One Dark in the dark one;
 // inward ticks on all four sides and style_grid's grid.
 
 const PT = 4 / 3; // px per point
@@ -9,7 +9,7 @@ const FONTS = {
 };
 export const PAPERS = {
     light: { paper: "#fff", ink: "#000", spine: "#4C566A", major: "#D8DEE9", minor: "#E5E9F0", legend: "rgba(236, 239, 244, 0.9)", hover: "#ECEFF4" },
-    dark: { paper: "#2E3440", ink: "#ECEFF4", spine: "#8F9BB0", major: "rgba(216, 222, 233, 0.13)", minor: "rgba(216, 222, 233, 0.06)", legend: "rgba(59, 66, 82, 0.92)", hover: "#3B4252" },
+    dark: { paper: "#2F343E", ink: "#DCE0E5", spine: "#A9AFBC", major: "rgba(220, 224, 229, 0.13)", minor: "rgba(220, 224, 229, 0.06)", legend: "rgba(59, 65, 77, 0.92)", hover: "#3B414D" },
 };
 PAPERS.paper = PAPERS.light;
 

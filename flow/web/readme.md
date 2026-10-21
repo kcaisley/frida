@@ -11,7 +11,7 @@
 | 3D | ✓ | [static/js/layout3d.js](static/js/layout3d.js) | three.js, each layer extruded between nominal heights (an even stack, the same for every PDK), adjustable vertical scale, orbit, PNG export. Not checked by eye here: headless Chromium on this machine draws no WebGL geometry. |
 | Schematic | ✓ | [static/js/panels.js](static/js/panels.js) | The instance's transistor schematic (pan, zoom), or the netlist its layout was built from. |
 | Layers | ✓ | [static/js/layers.js](static/js/layers.js) | The shown layers with their fills, toggled (alt-click: only that one) or in groups, for the 2-D and 3-D views together. |
-| Theme | ✓ | [static/style.css](static/style.css) | The desktop's, on both pages: dark in Nord, light in Zed's One Light; plots on Nord's dark paper in the dark theme. |
+| Theme | ✓ | [static/style.css](static/style.css) | The desktop's, on both pages, in Zed's colors: One Dark or One Light; curves in Nord; plots on the panels' color in the dark theme. |
 | Tests | ✓ | [test_export.py](test_export.py) | JSON conversion and thinning, layer flattening and merging on a synthetic layout, waveform indexing and serving, the server's path mapping, pinned library versions on both pages. |
 
 Libraries come from jsDelivr at pinned versions (GoldenLayout 2.6.0, three.js 0.160.0, Plotly 2.35.2), so the browser needs the internet; the data stays on this machine.
