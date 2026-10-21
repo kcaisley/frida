@@ -2,7 +2,7 @@
 
 | Feature | Status | File | Notes |
 |---|---|---|---|
-| Netlist generator | ✓ | [subckt.py](subckt.py) | Fixed 16-stage digital block; driver/array separation remains partial. |
+| Netlist generator | ✓ | [subckt.py](subckt.py), [digital.py](digital.py) | Any stage count: FRIDA's hardened 16-stage digital block, or the same RTL synthesized for the array's count (yosys onto the TSMC65 LVT cells, no placement or clock tree; C0 on register 0); the extracted views stay 16. Driver/array separation remains partial. |
 | Netlist tests | ✓ | [test_subckt.py](test_subckt.py) | Hierarchy, interfaces, and stage conventions. |
 | Testbench generator | ✓ | [sim.py](sim.py) | Generated ADC and extracted FRIDA-1/2 views. |
 | Simulation runners | ✓ | [sim.py](sim.py) | Named timing and noise campaigns; require explicit PDK/extraction inputs. |
@@ -25,7 +25,7 @@ The seven entry points are `hdl21_sample_rate`, `frida1_sample_rate`, `hdl21_tra
 
 New runs use `build/sim/adc/<timestamp>_<target>/`. Each case keeps `result.h5` and its native raw/deck/log files together, under flavor/sequence directories where needed. Rate case names use the programmed `mbd`, avoiding ambiguity between active conversion timing and actual repetition rate. The archived campaign paths selected by analysis are unchanged. Run `python -m flow` to list every target (the ADC's as `adc.<target>`) without starting a simulation; diagnostics remain pytest-only.
 
-Signal selection lives in `sim.py` as explicit SPICE-name → analysis-alias maps per view. The same map drives Spectre saves and HDF5 conversion. Both PEX and generated views save all C0–C15 capacitor stages; B16 is the final comparator decision and has no C16 capacitor. Original saved traces, including the next-cycle tail, are embedded in `result.h5` alongside resampled records.
+Signal selection lives in `sim.py` as explicit SPICE-name → analysis-alias maps per view. The same map drives Spectre saves and HDF5 conversion. Both views save every capacitor stage, C0 first (C0–C15 at FRIDA's 16); the last decision (B16 at 16 stages) has no capacitor of its own. Original saved traces, including the next-cycle tail, are embedded in `result.h5` alongside resampled records.
 
 ## Shared net definitions
 

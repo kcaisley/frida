@@ -1,5 +1,6 @@
 """Software-only tests for the ADC generator."""
 
+import shutil
 from pathlib import Path
 
 import hdl21 as h
@@ -26,7 +27,6 @@ def test_adc():
         AdcParams(adc_bits=0),
         AdcParams(cdac=CapArrayConfig(n_dac=0, n_extra=16)),
         AdcParams(cdac=CapArrayConfig(n_dac=17, n_extra=-1)),
-        AdcParams(cdac=CapArrayConfig(n_extra=4)),
         AdcParams(cdac=CapArrayConfig(weights=(1,) * 15)),
         AdcParams(comp=CompParams(srlatch_n_w=0)),
         AdcParams(samp=SampParams(mos_w=0)),
@@ -43,6 +43,22 @@ def test_adc_accepts_a_binary_array_with_sixteen_physical_stages():
     params = AdcParams(cdac=CapArrayConfig(n_dac=16, n_extra=0, redun_strat=RedunStrat.RDX2))
     assert is_valid_adc_params(params) is True
     assert Adc(params).dac_state_p.width == 16
+
+
+@pytest.mark.skipif(shutil.which("yosys") is None, reason="synthesizing the digital block needs yosys")
+@pytest.mark.parametrize(("n_dac", "n_extra"), ((11, 0), (9, 2), (11, 6)))
+def test_adc_at_any_stage_count_binds_a_synthesized_digital_block_c0_first(n_dac, n_extra):
+    """Any array: the digital block synthesized for its stage count, register 0 on C0."""
+    stages = n_dac + n_extra
+    strategy = RedunStrat.SUBRDX2_OVLY if n_extra else RedunStrat.RDX2
+    module = Adc(AdcParams(cdac=CapArrayConfig(n_dac=n_dac, n_extra=n_extra, redun_strat=strategy)))
+    assert module.dac_state_p.width == stages
+    assert module.xdigital.of.module.name == f"adc_digital_n{stages}"
+    for stage in range(stages):
+        for port, signal in (("dac_astate_p", module.dac_astate_p), ("dac_state_n_main", module.dac_state_n)):
+            connection = module.xdigital.conns[f"{port}[{stage}]"]
+            assert connection.index == stage and connection.parent is signal
+    assert sum(name.startswith("xcapdriver_") for name in module.instances) == 4
 
 
 def test_adc_hierarchy_exports_without_duplicate_cell_names():

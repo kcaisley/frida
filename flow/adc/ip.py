@@ -12,30 +12,35 @@ import hdl21 as h
 from flow.comp.subckt import CompNets
 from flow.util.netlist import normalize_bus_pin, subcircuit_ports
 
+from .digital import digital_cell, digital_netlist
 from .subckt import AdcNets
 
 
-def adc_digital() -> h.ExternalModule:
-    """Use the synthesized block's exact scalar pin order."""
-    path = Path(__file__).resolve().parents[2] / "design/spice/adc_digital.sp"
+def adc_digital(stages: int = 16) -> h.ExternalModule:
+    """The digital block at ``stages`` (``flow.adc.digital``) with its netlist's exact scalar pin
+    order."""
+    path, cell = digital_netlist(stages)
     return h.ExternalModule(
-        name="adc_digital", port_list=[h.Inout(name=pin) for pin in subcircuit_ports(path.read_text(), "adc_digital")]
+        name=cell, port_list=[h.Inout(name=pin) for pin in subcircuit_ports(path.read_text(), cell)]
     )
 
 
-def digital_net_aliases(module: h.ExternalModule) -> dict[h.Signal | h.Slice, str]:
-    """Bind every digital pin to its canonical ADC net; physical bit 15 is C0."""
+def digital_net_aliases(module: h.ExternalModule, nets=AdcNets) -> dict[h.Signal | h.Slice, str]:
+    """Bind every digital pin to its canonical ADC net (``nets``: ``adc_nets`` of its stage count).
+    FRIDA's hardened netlist predates the C0-first RTL: its physical bit 15 is C0. A synthesized
+    netlist follows the RTL: its bit 0 is."""
+    reversed_bits = module.name == digital_cell(16)
     renamed = {
-        AdcNets.seq_logic: "seq_update",
-        AdcNets.dac_state_p: "dac_state_p_main",
-        AdcNets.dac_state_n: "dac_state_n_main",
+        nets.seq_logic: "seq_update",
+        nets.dac_state_p: "dac_state_p_main",
+        nets.dac_state_n: "dac_state_n_main",
     }
-    by_physical_name = {renamed.get(net, net.name): net for net in AdcNets.signals.values()}
+    by_physical_name = {renamed.get(net, net.name): net for net in nets.signals.values()}
     aliases = {}
     for pin in module.port_list:
         if match := re.fullmatch(r"(.+)\[(\d+)\]", pin.name):
             net = by_physical_name[match[1]]
-            index = net.width - 1 - int(match[2])
+            index = net.width - 1 - int(match[2]) if reversed_bits else int(match[2])
             if not 0 <= index < net.width:
                 raise ValueError(f"Digital pin {pin.name} exceeds canonical width {net.width}")
             canonical = net[index]

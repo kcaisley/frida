@@ -14,13 +14,14 @@ import hdl21.sim as hs
 from hdl21.prefix import G, m, p
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
+from flow.adc.digital import digital_netlist
 from flow.adc.ip import adc_pex, adc_port_aliases, frida1_net_aliases, frida2_net_aliases
 from flow.adc.sequences import (
     SEQUENCES,
     symbol256_init8_samp16_comp11110000_logic00001111,
     symbol256_init8_samp16_comp11110000_logic11000011,
 )
-from flow.adc.subckt import Adc, AdcNets, AdcParams, is_valid_adc_params
+from flow.adc.subckt import Adc, AdcNets, AdcParams, adc_nets, adc_stages, is_valid_adc_params
 from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.circuit.ports import testbench_from_ports
 from flow.comp.subckt import CompNets
@@ -120,6 +121,10 @@ def is_valid_adc_tb_params(params: AdcTbParams) -> bool:
     """
     if not is_valid_adc_params(params.dut):
         return False
+    nets = adc_nets(adc_stages(params.dut))
+    # the extracted views are FRIDA's, 16 stages
+    if params.view != "hdl21gen" and adc_stages(params.dut) != 16:
+        return False
     if not math.isfinite(params.waveform_sample_interval_s) or params.waveform_sample_interval_s <= 0:
         return False
     if params.view not in {"frida1", "frida2", "hdl21gen"}:
@@ -134,7 +139,7 @@ def is_valid_adc_tb_params(params: AdcTbParams) -> bool:
         symbol_rate = float(params.symbol_rate)
         if not math.isfinite(symbol_rate) or symbol_rate <= 0.0:
             return False
-        supplies = [net.name for net in AdcNets.signals.values() if net.usage == h.Usage.POWER]
+        supplies = [net.name for net in nets.signals.values() if net.usage == h.Usage.POWER]
         for name in (*supplies, "vin_cm"):
             source = getattr(params, name)
             if source.dc is None or not math.isfinite(float(source.dc)):
@@ -157,8 +162,8 @@ def is_valid_adc_tb_params(params: AdcTbParams) -> bool:
         return False
     if not math.isfinite(params.supply_noise_bandwidth_hz) or params.supply_noise_bandwidth_hz <= 0.0:
         return False
-    for net in AdcNets.signals.values():
-        if net.direction != h.PortDir.INPUT or net.usage != h.Usage.SIGNAL or net in (AdcNets.vin_p, AdcNets.vin_n):
+    for net in nets.signals.values():
+        if net.direction != h.PortDir.INPUT or net.usage != h.Usage.SIGNAL or net in (nets.vin_p, nets.vin_n):
             continue
         value = getattr(params, net.name)
         if net.width == 1:
@@ -168,12 +173,18 @@ def is_valid_adc_tb_params(params: AdcTbParams) -> bool:
             return False
     patterns = tuple(
         getattr(params, f"{net.name}_pattern")
-        for net in AdcNets.signals.values()
+        for net in nets.signals.values()
         if net.vis == h.Visibility.PORT and net.usage == h.Usage.CLOCK
     )
     if any(not pattern or set(pattern) - {"0", "1"} for pattern in patterns):
         return False
     if len({len(pattern) for pattern in patterns}) != 1 or len(patterns[0]) % 8:
+        return False
+    # one COMP pulse a decision: a decision a stage and the last one
+    comp = params.seq_comp_pattern
+    if sum(bit == "1" and before == "0" for before, bit in zip(comp[-1] + comp[:-1], comp, strict=True)) != (
+        adc_stages(params.dut) + 1
+    ):
         return False
     if isinstance(params.vin_diff, hs.LinearSweep):
         try:
@@ -203,19 +214,20 @@ def AdcTb(params: AdcTbParams, *, pex_netlist: Path | None = None) -> h.Module:
     if (params.view != "hdl21gen") != (pex_netlist is not None):
         raise ValueError("extracted views require a PEX input; HDL21 must not have one")
 
+    nets = adc_nets(adc_stages(params.dut))
     if pex_netlist is None:
-        ports = {name: net for name, net in AdcNets.signals.items() if net.vis == h.Visibility.PORT}
+        ports = {name: net for name, net in nets.signals.items() if net.vis == h.Visibility.PORT}
     else:
         aliases = adc_port_aliases(params.view)
         selected = {net.parent if isinstance(net, h.Slice) else net for net in aliases}
-        ports = {name: net for name, net in AdcNets.signals.items() if net in selected}
+        ports = {name: net for name, net in nets.signals.items() if net in selected}
     tb, connections = testbench_from_ports(f"AdcTb_{params.view}", ports)
     tb.vin_cm, tb.vin_diff = h.Signals(2)
     symbol_period_s = 1.0 / float(params.symbol_rate)
     pattern_period_s = len(params.seq_init_pattern) * symbol_period_s
     transition_s = min(float(100 * p), symbol_period_s / 20.0)
     rlc_enabled = params.supply_series_resistance_ohm > 0.0
-    supplies = (net for net in AdcNets.signals.values() if net.usage == h.Usage.POWER)
+    supplies = (net for net in nets.signals.values() if net.usage == h.Usage.POWER)
     for rail, noise_rms_v in zip(supplies, params.supply_noise_rms_v, strict=True):
         rail_name = rail.name
         source_params = getattr(params, rail_name)
@@ -279,7 +291,7 @@ def AdcTb(params: AdcTbParams, *, pex_netlist: Path | None = None) -> h.Module:
     tb.evin_p = h.Vcvs(gain=0.5)(p=tb.vin_p, n=tb.vin_cm, cp=tb.vin_diff, cn=tb.vss)
     tb.evin_n = h.Vcvs(gain=-0.5)(p=tb.vin_n, n=tb.vin_cm, cp=tb.vin_diff, cn=tb.vss)
 
-    for canonical in AdcNets.signals.values():
+    for canonical in nets.signals.values():
         if canonical.vis != h.Visibility.PORT or canonical.usage != h.Usage.CLOCK:
             continue
         net = connections[canonical.name]
@@ -299,8 +311,8 @@ def AdcTb(params: AdcTbParams, *, pex_netlist: Path | None = None) -> h.Module:
                 rpttimes=-1,
             )(p=net, n=tb.vss),
         )
-    for net in AdcNets.signals.values():
-        if net.direction != h.PortDir.INPUT or net.usage != h.Usage.SIGNAL or net in (AdcNets.vin_p, AdcNets.vin_n):
+    for net in nets.signals.values():
+        if net.direction != h.PortDir.INPUT or net.usage != h.Usage.SIGNAL or net in (nets.vin_p, nets.vin_n):
             continue
         value = getattr(params, net.name)
         if net.width == 1:
@@ -329,17 +341,18 @@ def AdcTb(params: AdcTbParams, *, pex_netlist: Path | None = None) -> h.Module:
     return tb
 
 
-def adc_signal_names(tb: h.Module, view: str, *, save_supply_voltages: bool = False) -> dict[str, str]:
-    """Resolve canonical observations once for both Save and raw conversion."""
+def adc_signal_names(tb: h.Module, view: str, *, save_supply_voltages: bool = False, nets=AdcNets) -> dict[str, str]:
+    """Resolve canonical observations once for both Save and raw conversion; ``nets`` are the
+    ADC's (``adc_nets`` of its stage count)."""
     if view not in {"hdl21gen", "frida1", "frida2"}:
         raise ValueError(f"Unsupported ADC view {view!r}")
     aliases = frida1_net_aliases() if view == "frida1" else frida2_net_aliases() if view == "frida2" else {}
     names = {"time": "time"}
-    for schema, prefix in ((AdcNets, ""), (CompNets, "comp.")):
+    for schema, prefix in ((nets, ""), (CompNets, "comp.")):
         for net in schema.signals.values():
             if not net.props.get("save"):
                 continue
-            testbench_net = schema is AdcNets and net.vis == h.Visibility.PORT and net.width == 1
+            testbench_net = schema is nets and net.vis == h.Visibility.PORT and net.width == 1
             path = "xtop" if testbench_net else f"xtop.{tb.xadc.name}"
             if view == "hdl21gen" or testbench_net:
                 scope = tb if testbench_net else tb.xadc.of
@@ -359,7 +372,7 @@ def adc_signal_names(tb: h.Module, view: str, *, save_supply_voltages: bool = Fa
                 if raw in names or label in names.values():
                     raise ValueError(f"Duplicate probe binding: {raw} -> {label}")
                 names[raw] = label
-    for net in AdcNets.signals.values():
+    for net in nets.signals.values():
         if net.usage == h.Usage.POWER:
             names[f"xtop.v{net.name}:p"] = f"i({net.name})"
             if save_supply_voltages:
@@ -389,6 +402,7 @@ def _run_adc_sim(
 
     if not is_valid_adc_tb_params(params):
         raise ValueError(f"Invalid ADC testbench params: {params}")
+    nets = adc_nets(adc_stages(params.dut))
 
     from pdk import tsmc65
     from pdk.tsmc65.hdl21 import site
@@ -409,7 +423,7 @@ def _run_adc_sim(
         "expected_historical_disconnect": expected_disconnect,
         "sequencer": {
             net.name.removeprefix("seq_"): {"pattern": getattr(params, f"{net.name}_pattern")}
-            for net in AdcNets.signals.values()
+            for net in nets.signals.values()
             if net.vis == h.Visibility.PORT and net.usage == h.Usage.CLOCK
         },
     }
@@ -445,7 +459,9 @@ def _run_adc_sim(
     h.pdk.set_default(tsmc65.pdk_logic)
     tb = AdcTb(params, pex_netlist=pex_netlist)
     h.pdk.compile(tb)
-    signal_names = adc_signal_names(tb, params.view, save_supply_voltages=bool(params.supply_series_resistance_ohm))
+    signal_names = adc_signal_names(
+        tb, params.view, save_supply_voltages=bool(params.supply_series_resistance_ohm), nets=nets
+    )
     if pex_netlist is not None:
         text = pex_netlist.read_text().replace("\\\n", " ")
         nodes = set(text.replace("\\", "").split())
@@ -467,7 +483,7 @@ def _run_adc_sim(
         # include the driver library twice when it is shared with digital.
         standard_cells = (
             *(path for path in site.STANDARD_CELL_SPICE_NETLISTS if path != driver_cells.path),
-            Path(__file__).resolve().parents[2] / "design/spice/adc_digital.sp",
+            digital_netlist(adc_stages(params.dut))[0],
         )
         attrs.append(
             h.Literal(

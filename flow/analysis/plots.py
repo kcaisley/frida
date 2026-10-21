@@ -543,10 +543,11 @@ def plot_adc_comparator_response(
     output_path: Path,
     context: str | None = None,
 ) -> tuple[Path, ...]:
-    """Plot XC rail validity and positive SR output histograms at B0..B16."""
+    """Plot XC rail validity and positive SR output histograms at each decision, B0 first."""
 
-    internal = [analysis.internal_response_s[analysis.decision_index == decision] for decision in range(17)]
-    output = [analysis.sr_response_s[analysis.decision_index == decision] for decision in range(17)]
+    decisions = int(np.max(analysis.decision_index)) + 1
+    internal = [analysis.internal_response_s[analysis.decision_index == decision] for decision in range(decisions)]
+    output = [analysis.sr_response_s[analysis.decision_index == decision] for decision in range(decisions)]
     fig, ax = plt.subplots(figsize=(12, 6))
     series = (internal, output)
     labels = ("XC-latch |P−N| (both rails valid)", "SR-latch P (single-ended rail valid)")
@@ -585,8 +586,8 @@ def plot_adc_comparator_response(
         bars = ax.barh(positions, widths, height=bin_height, left=left_edges, alpha=0.5, label=label)
         if bars.patches:
             ax.plot(median_x, median_y, linestyle="none", marker="_", color=bars.patches[0].get_facecolor())
-    ax.set_xlim(-0.7, 16.7)
-    ax.set_xticks(range(17))
+    ax.set_xlim(-0.7, decisions - 0.3)
+    ax.set_xticks(range(decisions))
     ax.set_xlabel("ADC decision step (bar width: fraction of transitions per bin)")
     ax.set_ylabel("Time from COMP rise to midpoint response (ns)")
     title = f"ADC comparator response at {analysis.conversion_rate_hz / 1e6:.3g} MSPS (PEX simulation, 50% VDD)"

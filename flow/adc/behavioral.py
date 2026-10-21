@@ -158,13 +158,14 @@ def calc_redundancy_margins(weights) -> np.ndarray:
 
     Their Eq. (5) defines the redundancy of step k as q(k) = -p(k+1) + 1 + sum_{i=k+2}^{M} p(i),
     and Proposition 1 shows that a wrong decision at step k still gives the right output code
-    when |Vin - Vref(k)| < q(k). Their p(k+1) is the step that decision k sets (p(1) is the initial
-    mid-scale reference) and their +1 is the last comparison's LSB. With the weights here, w_k
-    being the step decision k sets (+-w_k, as the CDAC switches, in conversion order), that is::
+    when |Vin - Vref(k)| < q(k). They count from 1: p(1) is the initial mid-scale reference, p(k+1)
+    the step that decision k sets, and the +1 the last comparison's LSB. Here everything counts
+    from 0: the M weights w_0 (C0, the first decision's) to w_{M-1} (the last decision's), w_k the
+    step that decision k sets (+-w_k, as the CDAC switches). Their q(k+1) is then::
 
-        q_k = sum_{j>k} w_j - w_k + w_M        (w_M the last decision's weight)
+        q_k = sum_{j=k+1}^{M-1} w_j - w_k + w_{M-1}
 
-    returned as 100 * q_k / sum_{j>=k} w_j. Binary weights give 0 at every stage; a positive
+    returned as 100 * q_k / sum_{j=k}^{M-1} w_j. Binary weights give 0 at every stage; a positive
     value is the dynamic error (comparator noise or metastability, incomplete DAC settling,
     reference ripple) that stage tolerates; a negative one an error band the later stages cannot
     recover. The last stage's is 0: nothing after it corrects it. The tolerance is a worst-case
@@ -175,9 +176,9 @@ def calc_redundancy_margins(weights) -> np.ndarray:
     if values.ndim != 1 or len(values) < 2 or not np.all(np.isfinite(values)) or np.any(values <= 0):
         raise ValueError("expected at least two finite, positive SAR weights in conversion order")
     remaining = np.cumsum(values[::-1])[::-1]
-    # q_k = sum_{j>k} w_j - w_k + w_M (Ogawa et al. Eq. 5). Until 2026-10-21 this was
-    # (sum_{j>k} w_j - w_k) / sum_{j>=k} w_j over all but the last stage: without the w_M term
-    # every stage read w_M low, so binary weights went negative toward the LSB instead of 0
+    # q_k = sum_{j=k+1}^{M-1} w_j - w_k + w_{M-1} (Ogawa et al. Eq. 5, counted from 0). Until
+    # 2026-10-21 this was (sum_{j=k+1}^{M-1} w_j - w_k) / sum_{j=k}^{M-1} w_j for k < M-1: without
+    # the w_{M-1} term every stage read w_{M-1} low, so binary weights went negative toward the LSB
     return (remaining - 2 * values + values[-1]) / remaining * 100
 
 

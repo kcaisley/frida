@@ -9,13 +9,15 @@ Creates a complete SAR ADC by composing:
 
 Architecture:
     Adc (HDL21 generator)
-    ├── Xadc_digital (ExternalModule - static 16-stage)
+    ├── Xadc_digital (ExternalModule: FRIDA's hardened netlist at 16 stages, synthesized otherwise)
     ├── Xcaparray_p / Xcaparray_n (HDL21 CapArray)
     ├── Xcapdriver_{p,n}_{main,diff} (HDL21 CapDriver)
     ├── Xsamp_p (HDL21 Samp)
     ├── Xsamp_n (HDL21 Samp)
     └── Xcomp (HDL21 Comp)
 """
+
+from functools import cache
 
 import hdl21 as h
 from hdl21.primitives import MosType
@@ -44,46 +46,58 @@ class AdcParams:
     comp = h.Param(dtype=CompParams, desc="Comparator parameters", default=CompParams())
 
 
-@h.bundle
-class AdcNets:
-    """Canonical C0-first nets. External ports and internal signals stay flat."""
+@cache
+def adc_nets(stages: int):
+    """Canonical C0-first nets of an ADC with ``stages`` capacitors a side (one bundle a count, so
+    its signals compare equal everywhere). External ports and internal signals stay flat."""
 
-    vin_p, vin_n = (h.Input(props=h.Properties(inner={"save": True})) for _ in range(2))
-    seq_init, seq_samp, seq_comp, seq_logic = (h.Clock(props=h.Properties(inner={"save": True})) for _ in range(4))
-    en_init, en_samp_p, en_samp_n, en_comp, en_update = (h.Input() for _ in range(5))
-    dac_mode, dac_diffcaps = h.Input(), h.Input()
-    dac_astate_p, dac_bstate_p, dac_astate_n, dac_bstate_n = (h.Input(width=16) for _ in range(4))
-    dac_state_p, dac_state_n = (h.Output(width=16, props=h.Properties(inner={"save": True})) for _ in range(2))
-    comp_out = h.Output(props=h.Properties(inner={"save": True}))
-    vdd_a = h.Power(direction=h.PortDir.INOUT)
-    vss_a = h.Ground(direction=h.PortDir.INOUT)
-    vdd_d = h.Power(direction=h.PortDir.INOUT)
-    vss_d = h.Ground(direction=h.PortDir.INOUT)
-    vdd_dac = h.Power(direction=h.PortDir.INOUT)
-    vss_dac = h.Ground(direction=h.PortDir.INOUT)
-    clk_samp_p, clk_samp_p_b, clk_samp_n, clk_samp_n_b, clk_comp = (
-        h.Signal(usage=h.Usage.CLOCK, props=h.Properties(inner={"save": True})) for _ in range(5)
-    )
-    clk_comp_b = h.Signal(usage=h.Usage.CLOCK)
-    comp_out_p, comp_out_n, vdac_p, vdac_n = (h.Signal(props=h.Properties(inner={"save": True})) for _ in range(4))
-    dac_state_p_diff, dac_state_n_diff = (
-        h.Signal(width=16, props=h.Properties(inner={"save": True})) for _ in range(2)
-    )
-    dac_botplate_p, dac_botplate_n, dac_botplate_p_diff, dac_botplate_n_diff = (
-        h.Signal(width=16, props=h.Properties(inner={"save": True})) for _ in range(4)
-    )
-    dac_invert_p_main, dac_invert_p_diff, dac_invert_n_main, dac_invert_n_diff = h.Signals(4)
+    @h.bundle
+    class AdcNets:
+        vin_p, vin_n = (h.Input(props=h.Properties(inner={"save": True})) for _ in range(2))
+        seq_init, seq_samp, seq_comp, seq_logic = (h.Clock(props=h.Properties(inner={"save": True})) for _ in range(4))
+        en_init, en_samp_p, en_samp_n, en_comp, en_update = (h.Input() for _ in range(5))
+        dac_mode, dac_diffcaps = h.Input(), h.Input()
+        dac_astate_p, dac_bstate_p, dac_astate_n, dac_bstate_n = (h.Input(width=stages) for _ in range(4))
+        dac_state_p, dac_state_n = (h.Output(width=stages, props=h.Properties(inner={"save": True})) for _ in range(2))
+        comp_out = h.Output(props=h.Properties(inner={"save": True}))
+        vdd_a = h.Power(direction=h.PortDir.INOUT)
+        vss_a = h.Ground(direction=h.PortDir.INOUT)
+        vdd_d = h.Power(direction=h.PortDir.INOUT)
+        vss_d = h.Ground(direction=h.PortDir.INOUT)
+        vdd_dac = h.Power(direction=h.PortDir.INOUT)
+        vss_dac = h.Ground(direction=h.PortDir.INOUT)
+        clk_samp_p, clk_samp_p_b, clk_samp_n, clk_samp_n_b, clk_comp = (
+            h.Signal(usage=h.Usage.CLOCK, props=h.Properties(inner={"save": True})) for _ in range(5)
+        )
+        clk_comp_b = h.Signal(usage=h.Usage.CLOCK)
+        comp_out_p, comp_out_n, vdac_p, vdac_n = (h.Signal(props=h.Properties(inner={"save": True})) for _ in range(4))
+        dac_state_p_diff, dac_state_n_diff = (
+            h.Signal(width=stages, props=h.Properties(inner={"save": True})) for _ in range(2)
+        )
+        dac_botplate_p, dac_botplate_n, dac_botplate_p_diff, dac_botplate_n_diff = (
+            h.Signal(width=stages, props=h.Properties(inner={"save": True})) for _ in range(4)
+        )
+        dac_invert_p_main, dac_invert_p_diff, dac_invert_n_main, dac_invert_n_diff = h.Signals(4)
+
+    return AdcNets
+
+
+# FRIDA's 16 stages: the extracted views (frida1, frida2) and their bindings have no other count
+AdcNets = adc_nets(16)
+
+
+def adc_stages(param: AdcParams) -> int:
+    """The capacitors a side, each switched by one decision (one more decision resolves the last)."""
+    return len(get_caparray_weights(param.cdac))
 
 
 def is_valid_adc_params(param: AdcParams) -> bool:
-    """Check resolution, component parameters, and the fixed 16-stage interface."""
+    """Check resolution, component parameters, and one capacitor a side per stage."""
     if param.adc_bits <= 0 or param.cdac.n_dac <= 0 or param.cdac.n_extra < 0:
-        return False
-    if param.cdac.n_dac + param.cdac.n_extra != AdcNets.dac_state_p.width:
         return False
     if not is_valid_caparray_config(param.cdac):
         return False
-    if len(get_caparray_weights(param.cdac)) != AdcNets.dac_state_p.width:
+    if adc_stages(param) != param.cdac.n_dac + param.cdac.n_extra:
         return False
     if param.samp.mos_w <= 0 or param.samp.mos_l <= 0:
         return False
@@ -98,21 +112,23 @@ def Adc(p: AdcParams) -> h.Module:
 
     Composes digital control with analog blocks (CDAC, sampler, comparator).
 
-    The fabricated digital block fixes this implementation at 16 capacitor
-    stages and 17 comparator decisions.
+    Its stage count follows the array: at FRIDA's 16 the digital block is
+    the fabricated, hardened netlist; at any other count the same RTL is
+    synthesized for it (``flow.adc.digital``).
     """
     if not is_valid_adc_params(p):
         raise ValueError(f"Invalid ADC params: {p}")
 
-    Adc = module_from_ports("Adc", AdcNets.signals)
-    # The IP adapter imports AdcNets; import here after this module is defined.
+    stages = adc_stages(p)
+    Adc = module_from_ports("Adc", adc_nets(stages).signals)
+    # The IP adapter imports this module; import here after it is defined.
     from .ip import adc_digital, digital_net_aliases
 
-    digital = adc_digital()
+    digital = adc_digital(stages)
     Adc.xdigital = digital()(
         **{
             physical: Adc.namespace[net.parent.name][net.index] if isinstance(net, h.Slice) else Adc.namespace[net.name]
-            for net, physical in digital_net_aliases(digital).items()
+            for net, physical in digital_net_aliases(digital, adc_nets(stages)).items()
         }
     )
 
@@ -135,9 +151,7 @@ def Adc(p: AdcParams) -> h.Module:
     # Identical passive arrays share their definition; each ADC gets fresh drivers.
     array = CapArray(CapArrayParams(cdac=p.cdac))
     # FRIDA-1's drivers: its library clock XORs, one per stage in its drive band
-    driver = CapDriver(
-        CapDriverParams(n_stages=AdcNets.dac_state_p.width, strengths=p.cdac.driver_strengths, cells=Cells.CLOCK_XOR)
-    )
+    driver = CapDriver(CapDriverParams(n_stages=stages, strengths=p.cdac.driver_strengths, cells=Cells.CLOCK_XOR))
     sampler = Samp(p.samp)
     for side, vin, top, main_state, diff_state, main_invert, diff_invert, main_bot, diff_bot, clk, clk_b in (
         (

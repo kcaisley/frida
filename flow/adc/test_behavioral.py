@@ -30,7 +30,7 @@ from flow.samp.subckt import SampParams, SwitchType
 
 
 def test_redundancy_calculator(tmp_path: Path) -> None:
-    # q_k = sum_{j>k} w_j - w_k + w_M over sum_{j>=k} w_j (Ogawa et al., IEICE 2010, Eq. 5)
+    # q_k = sum_{j=k+1}^{M-1} w_j - w_k + w_{M-1} over sum_{j=k}^{M-1} w_j (Ogawa et al., IEICE 2010, Eq. 5)
     margins = calc_redundancy_margins((4, 3, 2, 1))
     assert margins.tolist() == pytest.approx((30.0, 100 / 6, 0.0, 0.0))
     # binary weights tolerate nothing; one more LSB decision tolerates one LSB weight at each stage

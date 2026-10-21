@@ -327,55 +327,73 @@ def _reorder_subckt_ports(cdl_text: str, verilog_path: Path, module_name: str) -
 
 
 def _parse_verilog_ports(verilog_path: Path, module_name: str) -> tuple[list[str], list[str]]:
-    """Extract ordered port names and PININFO from a Verilog module."""
-    verilog = verilog_path.read_text()
+    """Extract ordered port names and PININFO from a Verilog module; bus ranges in its parameters
+    (``[N_STAGES-1:0]``) take their defaults."""
+    verilog = re.sub(r"//.*", "", verilog_path.read_text())
 
-    match = re.search(rf"module\s+{module_name}\s*\((.*?)\);", verilog, re.DOTALL)
-    if not match:
+    header = re.search(rf"module\s+{module_name}\b\s*", verilog)
+    if not header:
         raise ValueError(f"Module {module_name} not found in {verilog_path}")
+    position, parameters = header.end(), {}
+    if verilog.startswith("#", position):
+        # the parameter block, to its balanced closing parenthesis
+        start = verilog.index("(", position)
+        depth, end = 0, start
+        for end, char in enumerate(verilog[start:], start):
+            depth += {"(": 1, ")": -1}.get(char, 0)
+            if depth == 0:
+                break
+        for name, value in re.findall(r"parameter\s+(?:integer\s+)?(\w+)\s*=\s*([^,)]+)", verilog[start : end + 1]):
+            parameters[name] = value.strip()
+        position = end + 1
+    match = re.compile(r"\s*\((.*?)\);", re.DOTALL).match(verilog, position)
+    if not match:
+        raise ValueError(f"Module {module_name} has no port list in {verilog_path}")
 
     body = match.group(1)
 
-    # Strip comments, keep ifdef USE_POWER_PINS content
+    # Keep the USE_POWER_PINS branch (the power pins), drop its `else
     filtered = []
-    in_power = False
+    branch = None
     for line in body.splitlines():
-        line = re.sub(r"//.*", "", line)
         if "`ifdef USE_POWER_PINS" in line:
-            in_power = True
-            continue
-        if in_power and "`endif" in line:
-            in_power = False
-            continue
-        if in_power:
-            line = re.sub(r"^\s*,\s*", "", line)
-        filtered.append(line)
+            branch = "power"
+        elif branch and "`else" in line:
+            branch = "else"
+        elif branch and "`endif" in line:
+            branch = None
+        elif branch != "else":
+            filtered.append(line)
 
-    text = "\n".join(filtered)
     dir_map = {"input": "I", "output": "O", "inout": "B"}
     ports, pininfo = [], []
-
-    for m in re.finditer(r"(input|output|inout)\s+wire\s*(?:\[([^\]]+)\])?\s*([^;\n]+)", text):
-        direction, bus_range, names_str = m.group(1), m.group(2), m.group(3)
-        pin_dir = dir_map[direction]
-
-        for name in names_str.split(","):
-            name = re.sub(r"//.*", "", name).strip()
-            nm = re.match(r"([a-zA-Z_]\w*)", name)
-            if not nm or nm.group(1) in ("input", "output", "inout", "wire"):
-                continue
-            name = nm.group(1)
-
-            if bus_range:
-                rm = re.match(r"(\d+):(\d+)", bus_range.strip())
-                if rm:
-                    msb, lsb = int(rm.group(1)), int(rm.group(2))
-                    rng = range(msb, lsb - 1, -1) if msb > lsb else range(msb, lsb + 1)
-                    for i in rng:
-                        ports.append(f"{name}[{i}]")
-                        pininfo.append(f"{name}[{i}]:{pin_dir}")
-            else:
-                ports.append(name)
-                pininfo.append(f"{name}:{pin_dir}")
+    # ANSI style: a bare name takes the direction and range of the declaration before it; a
+    # direction starts a declaration even where its comma is missing (salogic's power pins)
+    pin_dir, bus_range = None, None
+    for item in re.split(r",|(?=\b(?:input|output|inout)\b)", "\n".join(filtered)):
+        declaration = re.fullmatch(
+            r"\s*(?:(input|output|inout)\s+(?:wire\s+)?(?:\[([^\]]+)\]\s*)?)?([A-Za-z_]\w*)\s*", item
+        )
+        if not declaration:
+            if item.strip():
+                raise ValueError(f"unsupported port declaration {item.strip()!r} in {verilog_path}")
+            continue
+        if declaration[1]:
+            pin_dir, bus_range = dir_map[declaration[1]], declaration[2]
+        name = declaration[3]
+        if bus_range:
+            # each bound an integer expression of the parameters' defaults
+            bounds = [
+                re.sub(r"[A-Za-z_]\w*", lambda word: parameters[word[0]], bound) for bound in bus_range.split(":")
+            ]
+            if len(bounds) != 2 or not all(re.fullmatch(r"[\d\s+\-*/()]+", bound) for bound in bounds):
+                raise ValueError(f"unsupported bus range [{bus_range}] of {name} in {verilog_path}")
+            msb, lsb = (int(eval(bound, {"__builtins__": {}})) for bound in bounds)  # digits and operators alone
+            for i in range(msb, lsb - 1, -1) if msb > lsb else range(msb, lsb + 1):
+                ports.append(f"{name}[{i}]")
+                pininfo.append(f"{name}[{i}]:{pin_dir}")
+        else:
+            ports.append(name)
+            pininfo.append(f"{name}:{pin_dir}")
 
     return ports, pininfo

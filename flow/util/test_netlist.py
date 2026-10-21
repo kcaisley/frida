@@ -87,3 +87,11 @@ def test_spectre_header_preserves_escaped_pins_and_continuations():
     assert tuple(map(netlist.normalize_bus_pin, pins)) == ("vdd", "bus_3", "vin", "bus_0")
     with pytest.raises(ValueError, match="duplicate"):
         netlist.subcircuit_ports("subckt adc (A a)\nends adc\n", "adc")
+
+
+def test_verilog_ports_of_a_parameterized_module_follow_its_defaults() -> None:
+    """The digital block's RTL, its bus ranges in N_STAGES, gives the hardened netlist's pin order."""
+    root = Path(__file__).resolve().parents[2]
+    ports, _pininfo = netlist._parse_verilog_ports(root / "design/hdl/adc_digital.v", "adc_digital")
+    hardened = netlist.subcircuit_ports((root / "design/spice/adc_digital.sp").read_text(), "adc_digital")
+    assert ports == list(hardened)
