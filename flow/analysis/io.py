@@ -346,8 +346,10 @@ def interpolate_wave_records(
     if len(durations) == 0 or np.any(durations <= 0) or not np.allclose(durations, durations[0]):
         raise ValueError("waveform windows must be non-empty and have equal positive duration")
     # Use a half-open [0, duration) grid so adjacent waveform records do not
-    # duplicate their shared boundary sample.
-    sample_count = int(np.ceil(durations[0] / sample_interval_s))
+    # duplicate their shared boundary sample. A window that is a whole number of
+    # intervals by its schedule but a hair over by its float sum (7 ns over 10 ps:
+    # 700.0000000001) keeps that whole number.
+    sample_count = int(np.ceil(durations[0] / sample_interval_s - 1e-6))
     if sample_count < 2:
         raise ValueError("sample_interval_s must provide at least two samples per record")
     relative_time = np.arange(sample_count, dtype=np.float64) * sample_interval_s

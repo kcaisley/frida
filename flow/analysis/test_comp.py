@@ -78,6 +78,39 @@ def test_comp_offset_noise_uses_binary_decision_curve() -> None:
     assert result.validity == "valid"
 
 
+def test_comp_offset_noise_leaves_out_unresolved_trials_and_flags_a_slow_comparator() -> None:
+    rng = np.random.default_rng(5)
+
+    def curve(unresolved_share: float) -> list[MeasComp]:
+        measurements = []
+        for vin_diff_v in np.linspace(-3e-3, 3e-3, 25):
+            decisions = rng.random(2_000) < 0.5 * (1.0 + math.erf(vin_diff_v / (0.8e-3 * np.sqrt(2.0))))
+            resolved = rng.random(2_000) >= unresolved_share
+            # an undecided latch leaves the output holding a stale decision: here always low
+            decisions = np.where(resolved, decisions, False)
+            measurements.append(
+                replace(
+                    comparator_measurement(),
+                    trial_index=np.arange(2_000),
+                    vin_diff_v=np.full(2_000, vin_diff_v),
+                    vin_cm_v=np.full(2_000, 0.6),
+                    decision=decisions.astype(np.uint8),
+                    resolved=resolved,
+                )
+            )
+        return measurements
+
+    # a few undecided trials are left out: the fit is the resolved trials' S-curve
+    few = analyze_comp_offset_noise(curve(0.005))
+    assert few.validity == "valid"
+    assert few.offset_v == pytest.approx(0.0, abs=0.15e-3)
+    assert few.noise_sigma_v == pytest.approx(0.8e-3, rel=0.15)
+    # a comparator too slow for its clock gives no noise or offset
+    slow = analyze_comp_offset_noise(curve(0.2))
+    assert slow.validity == "unresolved"
+    assert math.isnan(slow.noise_sigma_v) and math.isnan(slow.offset_v)
+
+
 @pytest.mark.parametrize("one_counts, expected_offset", (((0, 5, 5, 10), 1e-3), ((0, 2, 5), math.nan)))
 def test_comp_offset_uses_first_contact_and_requires_a_bracketed_crossing(one_counts, expected_offset) -> None:
     msmt = comparator_measurement()

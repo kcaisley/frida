@@ -7,8 +7,9 @@ energy per decision at 0.5 mV and 100 mV of input (the slowest and fastest respo
 over the input from 0.1 mV to 100 mV (its metastability), and the offset and input-referred noise
 from a transient-noise S-curve (+-2 mV, 21 points, 40 decisions each). Over the common mode (3/8
 to 5/8 of the supply) the S-curve again; over the supply (90 to 120 % of its own) the delay and
-energy at both inputs. Clock: 1 ns reset, 2 ns evaluation. Eleven Spectre runs, two to four
-minutes in all.
+energy at both inputs. Clock: 1 ns reset, 6 ns evaluation, long enough for a long-channel latch
+to settle fully; a decision whose latch has not (``MeasComp.resolved``) is left out of the
+S-curve, and a curve with more than 1 % of them gives no noise or offset. Eleven Spectre runs.
 """
 
 from __future__ import annotations
@@ -46,7 +47,7 @@ SIZINGS = {
 FRIDA1_LIKE = {
     "diffpair_w": 32,
     "diffpair_l": 4,
-    "tail_w": 4,
+    "tail_w": 6,
     "tail_l": 16,
     "rst_w": 8,
     "rst_l": 1,
@@ -103,7 +104,8 @@ def characterize(run_dir: Path, pdk: str, comp: CompParams) -> Record:
     from flow.comp.analysis import analyze_comp_delay, analyze_comp_power, analyze_comp_timing
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
-    timing = {"pdk": pdk, "reset_time_s": 1e-9, "evaluation_time_s": 2e-9, "transition_time_s": 20e-12}
+    # 7 ns a decision: a long-channel latch (FRIDA-1's takes 1.9 ns at 0.1 mV) settles fully
+    timing = {"pdk": pdk, "reset_time_s": 1e-9, "evaluation_time_s": 6e-9, "transition_time_s": 20e-12}
 
     def bench(
         vdd: float, cm: float, inputs: tuple[float, ...], conversions: int, spacing: float = 2e-12

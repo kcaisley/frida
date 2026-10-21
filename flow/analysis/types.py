@@ -281,6 +281,9 @@ class MeasComp(Meas):
     decision: np.ndarray
     fastrx_word: np.ndarray | None = None
     fastrx_frame: np.ndarray | None = None
+    # per trial: the regenerative latch had decided when the decision was read (simulation only;
+    # an undecided latch leaves the output stage holding the previous trial's decision)
+    resolved: np.ndarray | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1356,7 +1359,7 @@ class AnalysisCompOffsetNoise(Analysis):
     offset_v: float
     noise_sigma_v: float
     decision_polarity: Literal[-1, 1]
-    validity: Literal["valid", "unbracketed", "non_monotonic"]
+    validity: Literal["valid", "unbracketed", "non_monotonic", "unresolved"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1371,7 +1374,7 @@ class AnalysisCompCommonMode(Analysis):
     vin_cm_v: np.ndarray
     offset_v: np.ndarray
     noise_sigma_v: np.ndarray
-    validity: tuple[Literal["valid", "unbracketed", "non_monotonic", "stuck-low", "stuck-high"], ...]
+    validity: tuple[Literal["valid", "unbracketed", "non_monotonic", "unresolved", "stuck-low", "stuck-high"], ...]
 
 
 # CDAC analyses

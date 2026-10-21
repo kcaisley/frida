@@ -341,6 +341,13 @@ def convert_raw_comp_to_measurement(
     out_p = calc.value(signals[CompNets.outp.name], times_s, sample_times_s)
     out_n = calc.value(signals[CompNets.outn.name], times_s, sample_times_s)
     decisions = (out_p > out_n).astype(np.uint8)
+    # The output stage holds the last decision while the regenerative latch is still undecided, so
+    # a trial is resolved only where the latch's own nodes are half the supply apart by then.
+    resolved = None
+    if CompNets.latch_p.name in signals and CompNets.latch_n.name in signals:
+        latch_p = calc.value(signals[CompNets.latch_p.name], times_s, sample_times_s)
+        latch_n = calc.value(signals[CompNets.latch_n.name], times_s, sample_times_s)
+        resolved = np.abs(latch_p - latch_n) > float(params.vdd) / 2
 
     # Preserve all records at the three points closest to 50% probability and
     # one representative record from every other S-curve point. Selecting from
@@ -418,6 +425,7 @@ def convert_raw_comp_to_measurement(
         vin_diff_v=np.asarray(nominal_vdiff, dtype=np.float64),
         vin_cm_v=np.asarray(nominal_vcm, dtype=np.float64),
         decision=decisions,
+        resolved=resolved,
         wave=Wave(
             record_index=waveform_trial_indices,
             time_s=relative_time_s,

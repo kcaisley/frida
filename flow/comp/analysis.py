@@ -69,7 +69,7 @@ class AnalysisCompCandidate(Analysis):
     candidate_id: str
     candidate_label: str
     size_profile: Literal["half", "double", "fabricated"]
-    validity: Literal["valid", "unbracketed", "non_monotonic"]
+    validity: Literal["valid", "unbracketed", "non_monotonic", "unresolved"]
     topology_index: int
     total_width_units: int
     total_active_area_units: int

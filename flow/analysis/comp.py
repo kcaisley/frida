@@ -20,6 +20,9 @@ from flow.analysis.types import (
     measurement_identity,
 )
 
+# the share of a curve's trials that may stay undecided before its fit is not trusted
+UNRESOLVED_LIMIT = 0.01
+
 
 def analyze_comp_offset_noise(
     measurements: Sequence[MeasComp | MeasCdac],
@@ -28,7 +31,10 @@ def analyze_comp_offset_noise(
 
     The same S-curve fit locates a CDAC switching curve's transition, so CDAC
     curves are accepted too; their common mode comes from the testbench when
-    the DAQ did not record it.
+    the DAQ did not record it. Trials a simulation marks unresolved (the latch
+    still undecided when the decision was read: the output holds the previous
+    one) are left out; where more than ``UNRESOLVED_LIMIT`` of them are, the
+    comparator is too slow for its clock and the fit is ``unresolved``.
     """
 
     identity = measurement_identity(measurements)
@@ -55,6 +61,17 @@ def analyze_comp_offset_noise(
         decimals=12,
     )
     decisions = np.concatenate([measurement.decision for measurement in measurements])
+    resolved = np.concatenate(
+        [
+            np.ones(len(measurement.decision), dtype=np.bool_)
+            if getattr(measurement, "resolved", None) is None
+            else np.asarray(measurement.resolved, dtype=np.bool_)
+            for measurement in measurements
+        ]
+    )
+    unresolved_fraction = 1.0 - float(np.mean(resolved))
+    if unresolved_fraction <= UNRESOLVED_LIMIT:
+        vin_diff_v, decisions = vin_diff_v[resolved], decisions[resolved]
     unique_input, inverse = np.unique(vin_diff_v, return_inverse=True)
     if len(unique_input) < 3:
         raise ValueError("comparator offset/noise analysis requires at least three inputs")
@@ -145,8 +162,12 @@ def analyze_comp_offset_noise(
     p50 = calc.cross(fitted_probability, unique_input, 0.5, occurrence=1)
     p84 = calc.cross(fitted_probability, unique_input, 0.841345, occurrence=1)
     noise_sigma_v = abs(p84 - p16) / 2.0 if math.isfinite(p16) and math.isfinite(p84) else math.nan
-    validity: Literal["valid", "unbracketed", "non_monotonic"]
-    if significant_reversal:
+    validity: Literal["valid", "unbracketed", "non_monotonic", "unresolved"]
+    if unresolved_fraction > UNRESOLVED_LIMIT:
+        validity = "unresolved"
+        p50 = math.nan
+        noise_sigma_v = math.nan
+    elif significant_reversal:
         validity = "non_monotonic"
         p50 = math.nan
         noise_sigma_v = math.nan
@@ -193,9 +214,11 @@ def analyze_comp_common_mode(
         raise ValueError("comparator offsets must contain exactly one fit per measured common mode")
 
     valid = np.asarray([result.validity == "valid" for result in ordered], dtype=np.bool_)
-    validity: list[Literal["valid", "unbracketed", "non_monotonic", "stuck-low", "stuck-high"]] = []
+    validity: list[Literal["valid", "unbracketed", "non_monotonic", "unresolved", "stuck-low", "stuck-high"]] = []
     for position, result in enumerate(ordered):
-        label: Literal["valid", "unbracketed", "non_monotonic", "stuck-low", "stuck-high"] = result.validity
+        label: Literal["valid", "unbracketed", "non_monotonic", "unresolved", "stuck-low", "stuck-high"] = (
+            result.validity
+        )
         # A curve that never leaves 10% or 90% probability is pinned; the
         # 0.1/0.9 levels sit well outside the noise of a bracketed S-curve.
         probability = result.decision_probability
