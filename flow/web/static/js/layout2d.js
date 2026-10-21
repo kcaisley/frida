@@ -1,7 +1,9 @@
 // The 2-D layout view: a canvas of the exported, merged layer geometry. One layout follows the
 // focused series; "tiled" lays every selected series' layout out at one scale, a column per PDK
 // and a row per case. Wheel zooms about the cursor, drag pans, right-drag (or shift-drag) zooms
-// to a box, double-click fits; K measures (KLayout's ruler key), L toggles labels, F fits.
+// to a box, double-click fits; K measures (KLayout's ruler key), L toggles labels, F fits. A
+// page may mark boxes on the layout (a check's violations: the "markers" event) and offer the
+// shown layout's GDS (its layout entry's ``gds``).
 
 import { h, icon, select } from "./icons.js";
 import { hatchTile, isVisible, layerColor, layerStyle, reportLayers, rgba, sortLayers } from "./layers.js";
@@ -102,6 +104,8 @@ export class LayoutPanel {
         container.element.append(this.element);
         container.stateRequestEvent = () => ({ ...this.config });
         this.ruler = { on: false, a: null, b: null, fixed: false };
+        this.markers = []; // boxes in the shown layout's own coordinates (µm)
+        this.pendingFocus = null; // a box to zoom to once the layout is shown
         this.bindInput();
         this.off = [
             on("block", () => this.refresh(true)),
@@ -113,6 +117,7 @@ export class LayoutPanel {
                 this.draw();
             }),
             on("command", (command) => this.command(command)),
+            on("markers", (markers) => this.setMarkers(markers)),
         ];
         this.resizeObserver = new ResizeObserver(() => this.resize());
         this.resizeObserver.observe(this.host);
@@ -174,8 +179,11 @@ export class LayoutPanel {
             if (active) element.classList.add("on");
             return element;
         };
+        // the shown layout's GDS, where its page offers it
+        const gds = !this.config.tiled && focus ? layoutsFor(focus, this.config.generator)?.gds : null;
         this.toolbar.append(
             h("span.grow"),
+            gds ? h("a.icon-btn", { href: gds, download: `${layoutsFor(focus, this.config.generator).cell || "layout"}.gds`, title: "Download GDS" }, h("span", { html: icon("download", 14) })) : "",
             button("tiles", "Tile every selected series at one scale (PDK columns, case rows)", this.config.tiled, () => {
                 this.config.tiled = !this.config.tiled;
                 this.refresh(true);
@@ -196,7 +204,9 @@ export class LayoutPanel {
             this.tiles = [];
             this.signature = "";
             reportLayers(this, null);
-            const why = !state.block ? "Select a block." : !state.block.layouts.length ? "This block has no cached layouts." : "No layout for the selected series with this generator.";
+            const why = !state.block
+                ? "Select a block."
+                : state.block.layoutNote || (!state.block.layouts.length ? "This block has no cached layouts." : "No layout for the selected series with this generator.");
             this.empty(true, why);
             this.draw();
             return;
@@ -214,6 +224,7 @@ export class LayoutPanel {
         this.arrange(wanted, loaded);
         if (refit || signature !== this.signature) this.fit();
         this.signature = signature;
+        if (this.pendingFocus) this.zoomTo(this.pendingFocus);
         const counts = {};
         for (const tile of this.tiles) for (const layer of tile.layout.layers) counts[layer.key] = (counts[layer.key] || 0) + layer.count;
         reportLayers(this, counts);
@@ -339,7 +350,29 @@ export class LayoutPanel {
             this.patterns = null;
             if (!this.view) this.fit();
         }
+        if (this.pendingFocus && this.tiles.length) this.zoomTo(this.pendingFocus);
         this.draw();
+    }
+
+    // boxes to mark (µm, the shown layout's own coordinates; none clears them) and the one to
+    // zoom to, now or once the panel and its layout are shown
+    setMarkers({ boxes = [], focus = null } = {}) {
+        this.markers = boxes;
+        this.pendingFocus = focus;
+        if (focus && this.tiles.length && this.host.offsetParent !== null) this.zoomTo(focus);
+        this.draw();
+    }
+
+    // frame a box of the (first) layout's own coordinates with room around it
+    zoomTo([x1, y1, x2, y2]) {
+        const tile = this.tiles[0];
+        if (!tile || !this.host.clientWidth || !this.host.clientHeight) {
+            this.pendingFocus = [x1, y1, x2, y2];
+            return;
+        }
+        this.pendingFocus = null;
+        const pad = Math.max(x2 - x1, y2 - y1, 0.5) * 2;
+        this.fit([x1 + tile.dx - pad, y1 + tile.dy - pad, x2 + tile.dx + pad, y2 + tile.dy + pad]);
     }
 
     toWorld(px, py) {
@@ -475,6 +508,25 @@ export class LayoutPanel {
                     ctx.fillStyle = layerColor(layerStyle(layer));
                     ctx.fillText(text, sx, sy + 0.5);
                 }
+            }
+        }
+
+        // markers on the first layout, in the theme's error color, at least 8 pixels across
+        if (this.markers.length && this.tiles.length) {
+            const tile = this.tiles[0];
+            const color = root.getPropertyValue("--sem-error").trim();
+            ctx.strokeStyle = color;
+            ctx.fillStyle = rgba(color, 0.16);
+            ctx.lineWidth = 1.5;
+            for (const [x1, y1, x2, y2] of this.markers) {
+                const [ax, ay] = this.toScreen(x1 + tile.dx, y2 + tile.dy);
+                const [bx, by] = this.toScreen(x2 + tile.dx, y1 + tile.dy);
+                const w = Math.max(bx - ax, 8);
+                const hgt = Math.max(by - ay, 8);
+                const left = (ax + bx) / 2 - w / 2;
+                const top = (ay + by) / 2 - hgt / 2;
+                ctx.fillRect(left, top, w, hgt);
+                ctx.strokeRect(left, top, w, hgt);
             }
         }
 

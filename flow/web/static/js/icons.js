@@ -1,6 +1,7 @@
 // 16-pixel stroke icons, drawn in currentColor.
 
 const PATHS = {
+    compare: '<rect x="1.5" y="2.5" width="5.5" height="11" rx="1"/><rect x="9" y="2.5" width="5.5" height="11" rx="1"/><path d="M3.5 5.5h1.5M3.5 8h1.5M11 5.5h1.5M11 8h1.5"/>',
     chip: '<rect x="4" y="4" width="8" height="8" rx="1"/><path d="M6 1.5v2.5M10 1.5v2.5M6 12v2.5M10 12v2.5M1.5 6H4M1.5 10H4M12 6h2.5M12 10h2.5"/>',
     chart: '<path d="M2 2v12h12"/><path d="M4.5 10.5l3-4 2.5 2.5 3.5-5"/>',
     instances: '<rect x="2" y="2" width="12" height="3.2" rx=".7"/><rect x="2" y="6.4" width="12" height="3.2" rx=".7"/><rect x="2" y="10.8" width="12" height="3.2" rx=".7"/><path d="M4.5 3.6h.01M4.5 8h.01M4.5 12.4h.01"/>',

@@ -1944,3 +1944,700 @@ html[data-theme="dark"] .sheet .page svg .splitjoinBody {
 html[data-theme="dark"] .sheet .page svg rect[stroke="#999"] {
     stroke: var(--ink-4);
 }
+
+/* ─── Compiler page (compile.html) ──────────────────────────────────────── */
+
+/* the editor's syntax colors, after Zed's One Dark and One Light */
+html[data-theme="dark"] {
+    --syn-comment: #878a98;
+    --syn-keyword: #b477cf;
+    --syn-instance: #74ade8;
+    --syn-cell: #6eb4bf;
+    --syn-param: #bf956a;
+    --syn-number: #d07277;
+    --syn-operator: #a9afbc;
+}
+
+html[data-theme="light"] {
+    --syn-comment: #7e8086;
+    --syn-keyword: #a449ab;
+    --syn-instance: #4561c9;
+    --syn-cell: #3882b7;
+    --syn-param: #ad6e25;
+    --syn-number: #c43e3e;
+    --syn-operator: #58585a;
+}
+
+.editor-host {
+    position: absolute;
+    inset: 0;
+    user-select: text;
+}
+
+.editor-host .CodeMirror {
+    height: 100%;
+    background: var(--bg-input);
+    color: var(--fg-primary);
+    font: var(--fs-12) / 1.55 var(--font-mono);
+}
+
+.editor-host .CodeMirror-gutters {
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border-subtle);
+}
+
+.editor-host .CodeMirror-linenumber {
+    color: var(--fg-disabled);
+}
+
+.editor-host .CodeMirror-cursor {
+    border-left: 1.5px solid var(--accent-bright);
+}
+
+.editor-host .CodeMirror-selected,
+.editor-host .CodeMirror-focused .CodeMirror-selected,
+.editor-host .CodeMirror-line::selection,
+.editor-host .CodeMirror-line > span::selection,
+.editor-host .CodeMirror-line > span > span::selection {
+    background: var(--accent-alpha-strong);
+}
+
+.editor-host .CodeMirror-matchingbracket {
+    color: var(--fg-bright) !important;
+}
+
+.editor-host .cm-s-default .cm-comment {
+    color: var(--syn-comment);
+    font-style: italic;
+}
+
+.editor-host .cm-s-default .cm-keyword {
+    color: var(--syn-keyword);
+}
+
+.editor-host .cm-s-default .cm-variable-2,
+.editor-host .cm-s-default .cm-def {
+    color: var(--syn-instance);
+}
+
+.editor-host .cm-s-default .cm-variable-3 {
+    color: var(--syn-cell);
+}
+
+.editor-host .cm-s-default .cm-attribute {
+    color: var(--syn-param);
+}
+
+.editor-host .cm-s-default .cm-number {
+    color: var(--syn-number);
+}
+
+.editor-host .cm-s-default .cm-operator {
+    color: var(--syn-operator);
+}
+
+.editor-host .lint {
+    width: 16px;
+}
+
+.lint-marker {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 100%;
+    padding-top: 3px;
+    cursor: help;
+}
+
+.lint-marker.error,
+.diag-item.error .sev,
+.diag-count.bad {
+    color: var(--sem-error);
+}
+
+.lint-marker.warning,
+.diag-item.warning .sev,
+.diag-count.warn {
+    color: var(--sem-warn);
+}
+
+.lint-marker.info,
+.diag-item.info .sev {
+    color: var(--accent-text);
+}
+
+.editor-host .lint-line.error .CodeMirror-line > span {
+    text-decoration: underline wavy var(--sem-error);
+    text-decoration-skip-ink: none;
+    text-underline-offset: 3px;
+}
+
+.editor-host .lint-line.warning .CodeMirror-line > span {
+    text-decoration: underline wavy var(--sem-warn);
+    text-decoration-skip-ink: none;
+    text-underline-offset: 3px;
+}
+
+.editor-host .CodeMirror-code .flash {
+    background: var(--accent-alpha-strong);
+    transition: background 0.4s;
+}
+
+.netlist-summary {
+    display: inline-flex;
+    gap: 10px;
+    font-size: var(--fs-11);
+    color: var(--fg-secondary);
+}
+
+.netlist-summary .bad,
+.diag-checks .bad,
+.flow-message.bad {
+    color: var(--sem-error);
+}
+
+.netlist-summary .warn {
+    color: var(--sem-warn);
+}
+
+.netlist-summary .ok,
+.diag-checks .ok,
+.diag-count.ok {
+    color: var(--sem-ok);
+}
+
+/* the Flow panel: settings and Run above, the run's stages below */
+.btn-run {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 12px 0 9px;
+    border: 1px solid var(--accent-solid);
+    border-radius: var(--radius-sm);
+    background: var(--accent-solid);
+    color: #fff;
+    font-size: var(--fs-12);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-run > span {
+    display: flex;
+}
+
+.btn-run:hover {
+    background: var(--accent-solid-hover);
+    border-color: var(--accent-solid-hover);
+}
+
+.btn-run:disabled {
+    opacity: 0.45;
+    cursor: default;
+    background: var(--accent-solid);
+}
+
+.flow-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 7px 10px;
+}
+
+/* a short panel scrolls rather than squeezing its rows */
+.flow-body > * {
+    flex-shrink: 0;
+}
+
+.flow-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+    color: var(--fg-secondary);
+    font-size: var(--fs-11);
+}
+
+.flow-checks b {
+    color: var(--fg-muted);
+    font-weight: 600;
+}
+
+.flow-checks .sep {
+    color: var(--fg-disabled);
+}
+
+.flow-idle {
+    color: var(--fg-muted);
+    font-size: var(--fs-11);
+}
+
+.flow-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: var(--fs-11);
+}
+
+.flow-head .grow,
+.flow-footer .grow {
+    flex: 1;
+}
+
+.flow-state {
+    color: var(--fg-bright);
+    font-size: var(--fs-12);
+    font-weight: 600;
+}
+
+.flow-state.done {
+    color: var(--sem-ok);
+}
+
+.flow-state.failed {
+    color: var(--sem-error);
+}
+
+.flow-state.cancelled {
+    color: var(--fg-muted);
+}
+
+.progress {
+    height: 5px;
+    border-radius: 3px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    overflow: hidden;
+}
+
+.progress .bar {
+    height: 100%;
+    background: var(--accent-bright);
+    transition: width 0.5s ease;
+}
+
+.progress.running .bar,
+.progress.queued .bar {
+    background-image: linear-gradient(90deg, transparent 0, rgba(255, 255, 255, 0.28) 50%, transparent 100%);
+    background-color: var(--accent-bright);
+    background-size: 60px 100%;
+    background-repeat: no-repeat;
+    animation: progress-sheen 1.6s linear infinite;
+}
+
+.progress.done .bar {
+    background: var(--sem-ok);
+}
+
+.progress.failed .bar {
+    background: var(--sem-error);
+}
+
+.progress.cancelled .bar {
+    background: var(--line-3);
+}
+
+@keyframes progress-sheen {
+    from {
+        background-position: -60px 0;
+    }
+    to {
+        background-position: calc(100% + 60px) 0;
+    }
+}
+
+.stage-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.stage-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 20px;
+    padding: 0 7px 0 5px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    background: var(--bg-input);
+    color: var(--fg-muted);
+    font-size: var(--fs-11);
+    white-space: nowrap;
+}
+
+.stage-chip > span:first-child {
+    display: flex;
+}
+
+.stage-chip .time {
+    color: var(--fg-muted);
+    font: var(--fs-10) var(--font-mono);
+}
+
+.stage-chip.running {
+    border-color: var(--accent-bright);
+    background: var(--accent-alpha);
+    color: var(--fg-bright);
+}
+
+.stage-chip.done {
+    color: var(--fg-secondary);
+}
+
+.stage-chip.done > span:first-child {
+    color: var(--sem-ok);
+}
+
+.stage-chip.failed {
+    border-color: var(--sem-error);
+    color: var(--sem-error);
+}
+
+.stage-chip.skipped {
+    opacity: 0.55;
+}
+
+.chip-spin {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--line-3);
+    border-top-color: var(--accent-bright);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.flow-message {
+    overflow: hidden;
+    color: var(--fg-secondary);
+    font: var(--fs-11) var(--font-mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    user-select: text;
+}
+
+.flow-message.note {
+    color: var(--sem-warn);
+    font-family: var(--font-sans);
+}
+
+.flow-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    margin-top: auto;
+    padding-top: 6px;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.flow-footer select {
+    max-width: 260px;
+}
+
+a.icon-btn {
+    text-decoration: none;
+}
+
+/* Diagnostics: the numbers, the checks' engines and results, then the issues by source */
+.diagnostics {
+    padding: 6px 10px 10px;
+    user-select: text;
+}
+
+.diag-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--fs-12);
+    font-weight: 600;
+}
+
+.diag-count > span {
+    display: flex;
+}
+
+.checking {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--fg-muted);
+    font-size: var(--fs-11);
+}
+
+/* a line per group: its name, then each number after its label */
+.diag-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.stat-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 14px;
+}
+
+.stat-title {
+    flex: none;
+    width: 52px;
+    color: var(--fg-muted);
+    font-size: var(--fs-10);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.stat {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+}
+
+.stat .label {
+    color: var(--fg-secondary);
+    font-size: var(--fs-11);
+}
+
+.stat .value {
+    color: var(--fg-primary);
+    font: var(--fs-11) var(--font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+.stat .unit {
+    color: var(--fg-muted);
+}
+
+.diag-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: var(--fs-11);
+}
+
+.diag-checks > div {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.diag-checks b {
+    flex: none;
+    width: 52px;
+    color: var(--fg-muted);
+    font-size: var(--fs-10);
+    font-weight: 400;
+    letter-spacing: 0.05em;
+}
+
+.diag-checks .engine {
+    flex: 1;
+    color: var(--fg-secondary);
+}
+
+.diag-group {
+    padding: 8px 0 2px;
+    color: var(--fg-muted);
+    font-size: var(--fs-10);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.diag-item {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    padding: 2px 4px;
+    border-radius: var(--radius-xs);
+    font-size: var(--fs-12);
+}
+
+.diag-item .sev {
+    position: relative;
+    top: 2px;
+    display: flex;
+    flex: none;
+}
+
+.diag-item .text {
+    flex: 1;
+    min-width: 0;
+    color: var(--fg-primary);
+}
+
+.diag-item .rule {
+    margin-right: 6px;
+    color: var(--fg-secondary);
+    font: var(--fs-11) var(--font-mono);
+}
+
+.diag-item .where {
+    flex: none;
+    color: var(--fg-muted);
+    font: var(--fs-11) var(--font-mono);
+}
+
+.diag-item.goto {
+    cursor: pointer;
+}
+
+.diag-item.goto:hover {
+    background: var(--bg-hover);
+}
+
+.diag-item.on {
+    background: var(--accent-alpha);
+}
+
+.diag-none {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-top: 8px;
+    color: var(--sem-ok);
+}
+
+.diag-none > span {
+    display: flex;
+}
+
+.diag-error {
+    max-height: 160px;
+    margin: 8px 0 0;
+    padding: 6px 8px;
+    overflow: auto;
+    border-radius: var(--radius-sm);
+    background: var(--bg-input);
+    color: var(--sem-error);
+    font: var(--fs-11) var(--font-mono);
+    white-space: pre-wrap;
+}
+
+/* ---- the compare page (detail.html?ids=...): a column an instance ---------------------------- */
+
+.icon-btn.disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.compare-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 4px 8px;
+    color: var(--fg-secondary);
+    font-size: var(--fs-12);
+}
+
+.compare-controls .check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.summary-table.compare {
+    width: auto;
+    min-width: 100%;
+}
+
+.summary-table.compare thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg-panel);
+    border-bottom-color: var(--border);
+    vertical-align: bottom;
+}
+
+.summary-table.compare th.instance {
+    max-width: 16em;
+    color: var(--fg-primary);
+    text-align: right;
+    white-space: normal;
+}
+
+.summary-table.compare th.instance a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.summary-table.compare th.instance a:hover {
+    color: var(--accent-bright);
+    text-decoration: underline;
+}
+
+.summary-table.compare .swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    margin-right: 6px;
+    border-radius: 2px;
+    vertical-align: baseline;
+}
+
+.summary-table.compare td.num {
+    padding-left: 12px;
+}
+
+/* the rows whose values differ between the instances */
+.summary-table.compare tr.differs th {
+    color: var(--fg-primary);
+}
+
+.summary-table.compare tr.differs td.num {
+    background: var(--accent-alpha);
+}
+
+.summary-table.compare tr.error-row td {
+    max-width: 16em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--fg-secondary);
+    font-size: var(--fs-11);
+}
+
+/* a figure per instance, side by side */
+.figure-row {
+    display: flex;
+    gap: 8px;
+}
+
+.figure-row > a {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.figure-label {
+    display: block;
+    padding: 2px 0 4px;
+    color: var(--fg-secondary);
+    font-size: var(--fs-11);
+}
+
+/* a map (heatmap) detail: its title above one map per instance */
+.map-card {
+    grid-column: 1 / -1;
+}
+
+.map-title {
+    padding: 6px 0 2px;
+    color: var(--fg-primary);
+    font-size: var(--fs-12);
+    text-align: center;
+}
+
+.map-row {
+    display: flex;
+    gap: 6px;
+}
+
+.map-row > .plot.map {
+    flex: 1 1 0;
+    min-width: 0;
+}

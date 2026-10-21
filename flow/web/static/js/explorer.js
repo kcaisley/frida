@@ -1,4 +1,4 @@
-// The design-space explorer: a block's sweep (python -m flow.sweep table) as one table, a row per
+// The Assembler: a block's sweep (python -m flow.sweep table) as one table, a row per
 // instance (its PDK, topology and sizing, the parameters that differ, then the metrics), and a
 // scatter plot of any metric against any other, coloured by PDK and marked by topology. A column
 // header sorts and filters; hovering a row or a point lights up the other; clicking a point (or a
@@ -226,7 +226,7 @@ function renderTable() {
             event.stopPropagation();
             togglePin(row.id);
         });
-        const open = h("a.detail", { href: `detail.html?block=${encodeURIComponent(view.block.block)}&id=${encodeURIComponent(row.id)}`, target: "_blank", title: "Open the instance: schematic, layout, 3D, detail plots, waveforms" }, "Open");
+        const open = h("a.detail", { href: `detail.html?block=${encodeURIComponent(view.block.block)}&id=${encodeURIComponent(row.id)}`, target: "_blank", title: "Open the instance in the Explorer: its analyses, layout, 3D, schematic, waveforms" }, "Open");
         const tr = h(`tr${view.pins.has(row.id) ? ".pinned" : ""}${row.error ? ".failed" : ""}`, { "data-id": row.id }, h("td.tools", {}, pin, open));
         if (row.error) tr.title = `failed: ${row.error}`;
         for (const column of view.columns) {
@@ -365,11 +365,20 @@ function toolButton(name, title, onclick, on = false) {
     return button;
 }
 
+// the buttons that act on the pinned instances: unpin them all, compare them
 function updateUnpin() {
     const button = document.getElementById("unpin");
-    if (!button) return;
-    button.disabled = !view.pins.size;
-    button.title = view.pins.size ? `Unpin the ${view.pins.size} pinned instance${view.pins.size > 1 ? "s" : ""}` : "Unpin: no instance is pinned";
+    if (button) {
+        button.disabled = !view.pins.size;
+        button.title = view.pins.size ? `Unpin the ${view.pins.size} pinned instance${view.pins.size > 1 ? "s" : ""}` : "Unpin: no instance is pinned";
+    }
+    const compare = document.getElementById("compare");
+    if (!compare || !view.block) return;
+    const count = view.pins.size;
+    compare.classList.toggle("disabled", count < 2);
+    compare.href = count < 2 ? "#" : `detail.html?block=${encodeURIComponent(view.block.block)}&ids=${[...view.pins].map(encodeURIComponent).join(",")}`;
+    compare.title = count < 2 ? "Comparer: pin two or more instances (a row's ○, or click their points)" : `Open the ${count} pinned instances in the Comparer: their parameters and analyses side by side`;
+    compare.lastChild.textContent = count < 2 ? "Compare" : `Compare ${count}`;
 }
 
 // the plot as PNG: the legend the page draws beside it is Plotly's here
@@ -596,7 +605,16 @@ async function main() {
         refresh();
     });
     clear.id = "clear-filters";
-    document.getElementById("table-controls").replaceChildren(h("strong", { id: "block-title" }, ""), h("span.muted.mono", { id: "count" }, ""), h("span.grow"), clear);
+    // the layout compiler, a page of its own
+    const compiler = h("a.icon-btn", { href: "compile.html", target: "_blank", title: "The Compiler: lay out a netlist with ALIGN and check it" }, h("span", { html: icon("chip", 14) }), "Compiler");
+    // the pinned instances side by side, on a page of their own (updatePins sets it)
+    const compare = h(
+        "a.icon-btn",
+        { id: "compare", target: "_blank", onclick: (event) => view.pins.size < 2 && event.preventDefault() },
+        h("span", { html: icon("compare", 14) }),
+        h("span", {}, "Compare"),
+    );
+    document.getElementById("table-controls").replaceChildren(h("strong", { id: "block-title" }, ""), h("span.muted.mono", { id: "count" }, ""), h("span.grow"), clear, compare, compiler);
     // the desktop's light or dark setting, followed as it changes
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
         document.documentElement.dataset.theme = event.matches ? "dark" : "light";

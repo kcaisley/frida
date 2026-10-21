@@ -83,9 +83,12 @@ def _far(line: str) -> str:
     return f"{line} far={bits}" if bits else line
 
 
-def make_design(pdk: str, netlist: Path, out_dir: Path, *, floorplan: Path | None = None, name: str) -> Path:
+def make_design(
+    pdk: str, netlist: Path, out_dir: Path, *, floorplan: Path | None = None, name: str, symmetric: bool = True
+) -> Path:
     """Write the design directory ``out_dir/<name>`` for ``netlist`` and return it; free
-    (ALIGN places on its own) when ``floorplan`` is None."""
+    (ALIGN places on its own) when ``floorplan`` is None, then with ALIGN's symmetry search unless
+    ``symmetric`` is False (no symmetry constraints: the placer packs for area alone)."""
 
     free = floorplan is None
     # a free design keeps the netlist unsplit
@@ -111,6 +114,8 @@ def make_design(pdk: str, netlist: Path, out_dir: Path, *, floorplan: Path | Non
             # a roughly square block: the placer chooses each primitive's array (gen_param.py, ALIGN's variants)
             {"constraint": "AspectRatio", "ratio_low": 1 / 1.5, "ratio_high": 1.5},
         ]
+        if not symmetric:
+            const.insert(0, {"constraint": "ConfigureCompiler", "auto_constraint": False})
     else:
         fp = json.loads(floorplan.read_text())
         const = [

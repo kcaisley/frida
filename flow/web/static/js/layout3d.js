@@ -158,7 +158,7 @@ export class Layout3DPanel {
         if (!meta) {
             this.clear();
             this.emptyNote.style.display = "";
-            this.emptyNote.lastChild.textContent = !state.block ? "Select a block." : "No layout for the focused series with this generator.";
+            this.emptyNote.lastChild.textContent = !state.block ? "Select a block." : state.block.layoutNote || "No layout for the focused series with this generator.";
             this.info.style.display = "none";
             return;
         }

@@ -50,10 +50,12 @@ def build(
     *,
     name: str | None = None,
     post: PostOptions = PLAIN,
+    symmetric: bool = True,
 ) -> Path:
-    """Lay out ``netlist`` in ``pdk`` with ALIGN, placed as ``floorplan`` says (None: by ALIGN);
-    returns the GDS ``out_dir/<name>/<name>.gds`` (``<name>``: given, else the floorplan's, else the
-    netlist's). ALIGN's work directory, ``out_dir/<name>``, keeps its placement and constraints."""
+    """Lay out ``netlist`` in ``pdk`` with ALIGN, placed as ``floorplan`` says (None: by ALIGN, with
+    its symmetry search unless ``symmetric`` is False); returns the GDS ``out_dir/<name>/<name>.gds``
+    (``<name>``: given, else the floorplan's, else the netlist's). ALIGN's work directory,
+    ``out_dir/<name>``, keeps its placement and constraints."""
 
     access_points(pdk)
     name = name or (floorplan.stem if floorplan else netlist.stem)
@@ -68,6 +70,7 @@ def build(
         out_dir / "input",
         floorplan=floorplan,
         name=name,
+        symmetric=symmetric,
     )
     work = out_dir / name
     dense = {"STEMS_STD_DENSE": "1"} if floorplan else {}  # post.py as the generators drew the cells
@@ -93,7 +96,15 @@ def build(
         if floorplan is None and len(kept) < len(json.loads(const.read_text())):
             print(f"{name}: no placement in ALIGN's square outline ({str(error)[:80]}...); any outline")
             const.write_text(json.dumps(kept, indent=1) + "\n")
-            out = attempt(router or None)
+            try:
+                out = attempt(router or None)
+            except Exception as again:
+                if not router:
+                    raise
+                print(
+                    f"{name}: ALIGN with --router {router} failed ({str(again)[:80]}...); again with ALIGN's default router"
+                )
+                out = attempt(None)
         elif router:
             print(f"{name}: ALIGN with --router {router} failed ({error}); again with ALIGN's default router")
             out = attempt(None)
