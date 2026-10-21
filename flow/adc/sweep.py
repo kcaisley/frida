@@ -1,6 +1,6 @@
 """The ADC's design space (``flow.sweep``): two comparators and three samplers at 10 to 14 bits
-(the topologies), each with 0, 2, 4 or 6 redundant decisions, 8 from 12 bits up (the sizings;
-FRIDA's 12-bit array with 5 as well), so 10 to 20 decisions a conversion, on the three-metal
+(the topologies), each with 0 to 6 redundant decisions (the sizings; FRIDA's array is the 12-bit
+one with 5), so 10 to 20 decisions a conversion, on the three-metal
 difference-capacitor arrays, in TSMC65, by the behavioral model (``flow.adc.model``) of its
 characterized blocks.
 
@@ -54,15 +54,13 @@ TOPOLOGIES = {
     for samp_name, samp in SAMPLERS.items()
     for bits in (10, 11, 12, 13, 14)
 }
-SIZINGS = {f"plus{extra}": {"extra": extra} for extra in (0, 2, 4, 5, 6, 8)}
+SIZINGS = {f"plus{extra}": {"extra": extra} for extra in range(7)}
 
 
 def params(pdk: str, topology: str, sizing: str) -> AdcParams | None:
     if pdk != "tsmc65":  # the variants' arrays are extracted in TSMC65 only
         return None
-    cdac = ADC_VARIANTS.get(f"{TOPOLOGIES[topology]['bits']}b_plus{SIZINGS[sizing]['extra']}")
-    if cdac is None:  # 5 redundant decisions only in FRIDA's 12-bit array, 8 from 12 bits up within 20
-        return None
+    cdac = ADC_VARIANTS[f"{TOPOLOGIES[topology]['bits']}b_plus{SIZINGS[sizing]['extra']}"]
     return AdcParams(
         adc_bits=cdac.n_dac + 1,
         cdac=cdac,

@@ -339,16 +339,15 @@ def _run_caparray(run_dir: Path, params: CapArrayLayoutParams) -> Path:
 # FRIDA's array: 12 bits in 16 stages, sub-radix-2 with paired overlays (17 decisions)
 RADIX17 = CapArrayConfig(n_dac=11, n_extra=5, redun_strat=RedunStrat.SUBRDX2_OVLY)
 # the ADC variants' arrays: 10 and 12 bits with 0, 2, 4 or 5 redundant stages (binary without)
-# 10 to 14 bits with up to 20 decisions a conversion (19 capacitors); the overlay places 8 redundant
-# decisions from 12 bits up only
+# 10 to 14 bits, each with 0 to 6 redundant decisions: 10 to 20 decisions a conversion (12b_plus5 is
+# FRIDA's array)
 ADC_VARIANTS = {
     f"{n_dac + 1}b_plus{extra}": CapArrayConfig(
         n_dac=n_dac, n_extra=extra, redun_strat=RedunStrat.SUBRDX2_OVLY if extra else RedunStrat.RDX2
     )
     for n_dac in (9, 10, 11, 12, 13)
-    for extra in (0, 2, 4, 6, 8)
-    if n_dac + extra <= 19 and (extra < 8 or n_dac >= 11)
-} | {"12b_plus5": CapArrayConfig(n_dac=11, n_extra=5, redun_strat=RedunStrat.SUBRDX2_OVLY)}  # FRIDA's
+    for extra in range(7)
+}
 
 
 def caparray_1layer_radix17(run_dir: Path) -> Path:
