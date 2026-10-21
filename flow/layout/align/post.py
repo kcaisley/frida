@@ -248,6 +248,7 @@ def supply_straps(layout: kdb.Layout, top: kdb.Cell) -> int:
     b = kdb.Region(top.begin_shapes_rec(li(BND))).merged().bbox()
     lines = range(b.bottom // rowcell.H, b.top // rowcell.H + 1)
     placed = 0
+    supplies = {}  # net -> (its rail lines, its pads' y)
     for net, parity in (("vss", 0), ("vdd", 1)):
         ys = [k * rowcell.H for k in lines if k % 2 == parity]
         rail_ys = list(ys)
@@ -258,8 +259,13 @@ def supply_straps(layout: kdb.Layout, top: kdb.Cell) -> int:
             y if abs(y - k * rowcell.H) <= reach else k * rowcell.H
             for y, k in zip(ys, (k for k in lines if k % 2 == parity))
         ]
-        labelled = False
-        for side in (+1, -1):  # from each end inwards, as far as the other end (a narrow block's ends may all be taken)
+        supplies[net] = (rail_ys, ys)
+    labelled = set()
+    # from each end inwards, as far as the other end (a narrow block's ends may all be taken); each
+    # end in turn for both supplies, as where the routes leave few free M3 columns the first supply
+    # would otherwise take one at both ends and leave the second none
+    for side in (+1, -1):
+        for net, (_rail_ys, ys) in supplies.items():
             xs = (
                 range(b.left + XPITCH, b.right - XPITCH + 1, XPITCH)
                 if side > 0
@@ -284,7 +290,7 @@ def supply_straps(layout: kdb.Layout, top: kdb.Cell) -> int:
                     continue  # block outline may reach beyond them): the cuts would have no M1
 
                 top.shapes(li(LAYERS["M3"])).insert(trunk)
-                m3.insert(trunk.enlarged(sp, 0))
+                m3.insert(trunk)  # a candidate is sized by the space: one M3 space between trunks
                 for p, y in zip(pads, ys):
                     top.shapes(li(LAYERS["M2"])).insert(p)
                     m2.insert(p)
@@ -296,9 +302,10 @@ def supply_straps(layout: kdb.Layout, top: kdb.Cell) -> int:
                         )
                 top.shapes(li(PIN_TEXT["M3"])).insert(kdb.Text(net, kdb.Trans(x, (b.top + b.bottom) // 2)))
                 placed += 1
-                labelled = True
+                labelled.add(net)
                 break
-        if not labelled and len(rail_ys) == 1:
+    for net, (rail_ys, _ys) in supplies.items():
+        if net not in labelled and len(rail_ys) == 1:
             # no strap fits (the router's M2 runs along the rail line): a supply of one rail line,
             # joined by abutment, is its port where that rail's M1 is labelled
             y = rail_ys[0]
