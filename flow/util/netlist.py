@@ -1,12 +1,11 @@
 """Netlist conversion utilities: OA → CDL → SP → SP (cleaned).
 
-Each function takes explicit input and output paths. Run the module with
-``python -m flow.util.netlist`` to select one conversion as a subcommand.
+Each function takes explicit input and output paths: ``oa_to_cdl``, ``cdl_to_sp`` and
+``clean_cdl`` are the conversions.
 """
 
 from __future__ import annotations
 
-import argparse
 import re
 import subprocess
 from pathlib import Path
@@ -264,6 +263,8 @@ def clean_cdl(inpath: Path, outpath: Path, verilog: Path | None = None, module: 
     module : str, optional
         Module name (required if *verilog* is given).
     """
+    if bool(verilog) != bool(module):
+        raise ValueError("verilog and module must be given together")
     text = inpath.read_text()
 
     # Base CDL→SP cleanup
@@ -378,43 +379,3 @@ def _parse_verilog_ports(verilog_path: Path, module_name: str) -> tuple[list[str
                 pininfo.append(f"{name}:{pin_dir}")
 
     return ports, pininfo
-
-
-def main() -> None:
-    """Run one netlist conversion through this module."""
-    parser = argparse.ArgumentParser(
-        prog="python -m flow.util.netlist",
-        description="Convert OA and CDL netlists",
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    oa = subparsers.add_parser("oa-to-cdl", help="Export an OpenAccess schematic to CDL")
-    oa.add_argument("--cdslib", required=True, type=Path, help="Path to cds.lib")
-    oa.add_argument("--lib", required=True, help="OpenAccess library")
-    oa.add_argument("--cell", required=True, help="OpenAccess cell")
-    oa.add_argument("--outdir", required=True, type=Path, help="Output directory")
-
-    sp = subparsers.add_parser("cdl-to-sp", help="Convert CDL to ngspice-compatible SPICE")
-    sp.add_argument("input", type=Path, help="Input CDL file")
-    sp.add_argument("output", type=Path, help="Output SPICE file")
-
-    clean = subparsers.add_parser("clean-cdl", help="Convert and clean an implementation CDL netlist")
-    clean.add_argument("input", type=Path, help="Input CDL file")
-    clean.add_argument("output", type=Path, help="Output SPICE file")
-    clean.add_argument("--verilog", type=Path, help="Verilog source for port reordering")
-    clean.add_argument("--module", help="Verilog module for port reordering")
-
-    args = parser.parse_args()
-    if args.command == "oa-to-cdl":
-        output = oa_to_cdl(args.lib, args.cell, args.outdir, cdslib=args.cdslib)
-    elif args.command == "cdl-to-sp":
-        output = cdl_to_sp(args.input, args.output)
-    else:
-        if bool(args.verilog) != bool(args.module):
-            parser.error("--verilog and --module must be used together")
-        output = clean_cdl(args.input, args.output, verilog=args.verilog, module=args.module)
-    print(f"Converted: {output}")
-
-
-if __name__ == "__main__":
-    main()

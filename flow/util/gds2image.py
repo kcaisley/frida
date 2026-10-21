@@ -7,15 +7,14 @@ using a few metal levels (M1-M3); a whole chip with its full stack becomes one c
 blob, so ``metals="auto"`` hatches as soon as more than ``SOLID_MAX_METALS`` levels are
 drawn. Overlays (``Overlay``) add marker shapes, e.g. DRC results or fill regions.
 
-    uv run python -m flow.util.gds2image out.png a.gds="Title A" b.gds="Title B" [--tech tsmc65]
-        [--metals auto|solid|hatched] [--zoom x0,y0,x1,y1] [--width 2400] [--no-titles]
+    render_png([(Path("a.gds"), "Title A"), (Path("b.gds"), "Title B")], Path("out.png"), tech="tsmc65",
+               metals="auto", zoom=(x0, y0, x1, y1), width=2400, titles=True)
 
 ``gds_to_png_with_pdk_style`` is the single-file helper the primitive tests use.
 """
 
 from __future__ import annotations
 
-import argparse
 import re
 from dataclasses import dataclass
 from importlib import import_module
@@ -284,35 +283,3 @@ def gds_to_png_with_pdk_style(
         view.zoom_fit()
     view.save_image(str(png), width, height)
     return png
-
-
-def main(argv: list[str] | None = None) -> None:
-    """Command line for ``render_png``; a GDS without ``=Title`` gets no title."""
-    ap = argparse.ArgumentParser(description="Render GDS files side by side in the PDK palette.")
-    ap.add_argument("out", type=Path, help="PNG to write")
-    ap.add_argument("panels", nargs="+", help="GDS files, each optionally with =Title")
-    ap.add_argument("--tech", default="tsmc65")
-    ap.add_argument("--metals", choices=("auto", "solid", "hatched"), default="auto")
-    ap.add_argument("--zoom", help="x0,y0,x1,y1 in um (the first panel's coordinates)")
-    ap.add_argument("--width", type=int)
-    ap.add_argument("--height", type=int)
-    ap.add_argument("--no-titles", action="store_true")
-    a = ap.parse_args(argv)
-    panels = [(Path(p.split("=", 1)[0]), p.split("=", 1)[1] if "=" in p else None) for p in a.panels]
-    zoom = tuple(float(v) for v in a.zoom.split(",")) if a.zoom else None
-    print(
-        render_png(
-            panels,
-            a.out,
-            tech=a.tech,
-            metals=a.metals,
-            width=a.width,
-            height=a.height,
-            titles=not a.no_titles,
-            zoom=zoom,
-        )
-    )
-
-
-if __name__ == "__main__":
-    main()

@@ -94,10 +94,6 @@ def analyze_cml_switching(measurements: Sequence[MeasCml]) -> AnalysisCmlSwitchi
         level = (float(measurement.param.vhigh) - float(measurement.param.vlow)) / 2
         data, clock, output = (differential[name] for name in ("in", "clk", "out"))
 
-        def holds(instant: float, value: bool, output=output, level=level) -> bool:
-            out = calc.value(*output, instant)
-            return bool((out > 0) == value and abs(out) >= level)
-
         checks = []
         if function in (Function.BUFFER, Function.XOR):
             for previous, event in pairwise(launches):
@@ -107,7 +103,8 @@ def analyze_cml_switching(measurements: Sequence[MeasCml]) -> AnalysisCmlSwitchi
                     value = calc.value(*data, middle) > 0
                     if function == Function.XOR:
                         value = value != (calc.value(*clock, middle) > 0)
-                    checks.append(holds(event, value))
+                    out = calc.value(*output, event)
+                    checks.append(bool((out > 0) == value and abs(out) >= level))
         elif function == Function.LATCH:
             closing = calc.cross(*clock, 0.0, edge="falling")
             opening = calc.cross(*clock, 0.0, edge="rising")
@@ -116,14 +113,17 @@ def analyze_cml_switching(measurements: Sequence[MeasCml]) -> AnalysisCmlSwitchi
                     value = calc.value(*data, edge) > 0
                     # captured a quarter period on, still held as the latch opens again
                     reopen = opening[opening > edge]
-                    held = holds(reopen[0], value) if len(reopen) else True
-                    checks.append(holds(edge + period / 4, value) and held)
+                    captured = calc.value(*output, edge + period / 4)
+                    held = calc.value(*output, reopen[0]) if len(reopen) else captured
+                    checks.append(all((out > 0) == value and abs(out) >= level for out in (captured, held)))
         else:
             rising = calc.cross(*clock, 0.0, edge="rising")
             for before, after in pairwise(rising):
                 flips = np.count_nonzero((crossings["out"] > before) & (crossings["out"] <= after))
-                state = calc.value(*output, before) > 0
-                checks.append(bool(flips == 1 and holds(before, state) and holds(after, not state)))
+                first, second = calc.value(*output, before), calc.value(*output, after)
+                checks.append(
+                    bool(flips == 1 and (first > 0) != (second > 0) and min(abs(first), abs(second)) >= level)
+                )
         output_v, _output_s = output
         common = calc.clip((wave.v[CmlNets.outp.name][0] + wave.v[CmlNets.outn.name][0]) / 2, time_s, start_s, stop_s)
         current = calc.clip(wave.i[CmlNets.vdd.name][0], time_s, start_s, stop_s)

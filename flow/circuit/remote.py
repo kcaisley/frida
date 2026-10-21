@@ -1,8 +1,9 @@
-"""Deploy existing simulation targets with SSH/rsync/tmux; collect with this CLI.
+"""Deploy existing simulation targets with SSH/rsync/tmux (``launch``); check a worker
+(``status``) and collect (``collect``).
 
 FTD infrastructure (examples, not defaults): launch from /local/frida on
-asiclab003 to SSH aliases juno or jupiter, using --work-root /local/kcaisley and
---setup /eda/local/scripts/cadence_2024-25.sh. Both workers have 28 physical
+asiclab003 to SSH aliases juno or jupiter, using work_root="/local/kcaisley" and
+setup="/eda/local/scripts/cadence_2024-25.sh". Both workers have 28 physical
 cores / 56 hardware threads; existing runners budget about 24 compute threads.
 Before launch, review uptime, free -h, running Spectre processes, and lmutil
 lmstat for Virtuoso_Multi_mode_Simulation and Spectre_XPS after sourcing setup.
@@ -14,18 +15,17 @@ must already be accessible there. SSH authentication, uv, rsync and tmux must
 be configured on the worker; rsync, SSH and tmux are also needed locally.
 
 Each launch gets a fresh revision-pinned snapshot under the supplied work root
-and a local build/remote/<session>/ record. --input adds explicit build inputs
+and a local build/remote/<session>/ record. ``inputs`` adds explicit build inputs
 (e.g. signed-off PEX directories), never an old simulation campaign or a venv.
 The detached worker runs focused tests, the target's Spectre diagnostic (skips
-are failures), then the unchanged runner CLI. A detached *local* tmux collector
+are failures), then the target (``python -m flow <block>.<target>``). A detached *local* tmux collector
 checks every 30 minutes and copies raw/HDF5 results and logs when the whole
 target exits, including failures. Analysis runners select reviewed collected directories explicitly.
 Neither host may power off; SSH outages are retried by the collector. Resume
-collection with `collect <campaign> --watch` if the local session was lost.
+collection with ``collect(campaign, watch=True)`` if the local session was lost.
 No simulation is automatically restarted and no remote files are deleted.
 """
 
-import argparse
 import fcntl
 import json
 import re
@@ -36,6 +36,9 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+BLOCKS = ("adc", "comp", "samp", "caparray")
 
 
 def _ssh(host: str, script: str) -> str:
@@ -108,7 +111,8 @@ def _snapshot_files(root: Path, inputs: list[str], pdk: str) -> list[str]:
 
 
 def _worker_script(remote_dir: str, block: str, target: str, setup: str | None) -> str:
-    """Only shell plumbing: experiment/diagnostic definitions stay in the runners/tests."""
+    """Only shell plumbing: experiment/diagnostic definitions stay in the runners/tests. ``target``
+    is the simulation function in ``flow.<block>.sim``; its flow target drops the block prefix."""
     node = f"flow/circuit/test_spectre.py::test_target_diagnostic[{block}-{target}]"
     # pytest succeeds on skipped tests; require a real passing diagnostic before a campaign.
     gate = (
@@ -138,39 +142,73 @@ def _worker_script(remote_dir: str, block: str, target: str, setup: str | None) 
             f"uv run --frozen pytest flow/{block}/test_sim.py",
             f"uv run --frozen pytest -m spectre {shlex.quote(node)} --junitxml=build/remote/preflight.xml",
             f"uv run --frozen python -c {shlex.quote(gate)}",
-            shlex.join(["uv", "run", "--frozen", "python", "-m", f"flow.{block}.sim", target]),
+            shlex.join(
+                ["uv", "run", "--frozen", "python", "-m", "flow", f"{block}.{target.removeprefix(block + '_')}"]
+            ),
             "",
         ]
     )
 
 
-def launch(args: argparse.Namespace, root: Path) -> Path:
+def _check_worker(host: str, *paths: str | None) -> None:
+    """A plain SSH alias or user@hostname; absolute, non-root worker paths without '..'."""
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@-]*", host):
+        raise ValueError("host must be a plain SSH alias or user@hostname")
+    for path in paths:
+        if path is not None and (not Path(path).is_absolute() or ".." in Path(path).parts or path == "/"):
+            raise ValueError("worker paths must be absolute, non-root paths without '..'")
+
+
+def launch(
+    target: str,
+    *,
+    host: str,
+    work_root: str,
+    block: str = "adc",
+    setup: str | None = None,
+    pdk: str = "tsmc65",
+    inputs: list[str] | tuple[str, ...] = (),
+    root: Path = ROOT,
+) -> Path:
+    """Snapshot, diagnose, run detached and collect automatically: ``target`` (a simulation function
+    of ``flow.<block>.sim``) on the trusted SSH ``host`` (FTD: juno or jupiter) in a fresh snapshot
+    under ``work_root`` (an existing absolute worker directory), after sourcing ``setup`` (an
+    absolute shell environment script on the worker); ``pdk`` names the PDK submodule to include
+    (not a foundry model installation), ``inputs`` repository-relative build inputs. The local
+    campaign directory."""
+
+    _check_worker(host, work_root, setup)
+    if block not in BLOCKS:
+        raise ValueError(f"block must be one of {BLOCKS}")
+    if not all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) for value in (target, pdk)):
+        raise ValueError("target and PDK must be identifiers")
+    inputs = list(inputs)
     for tool in ("ssh", "rsync", "tmux"):
         if shutil.which(tool) is None:
             raise FileNotFoundError(f"Required local tool is missing: {tool}")
-    files = _snapshot_files(root, args.input, args.pdk)
+    files = _snapshot_files(root, inputs, pdk)
     stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f")
     session = f"frida-{stamp}"
     campaign = root / "build/remote" / session
-    remote_dir = f"{args.work_root.rstrip('/')}/{session}"
+    remote_dir = f"{work_root.rstrip('/')}/{session}"
     campaign.mkdir(parents=True)
     record = {
-        "host": args.host,
+        "host": host,
         "remote_dir": remote_dir,
         "session": session,
-        "block": args.block,
-        "target": args.target,
-        "setup": args.setup,
-        "inputs": args.input,
+        "block": block,
+        "target": target,
+        "setup": setup,
+        "inputs": inputs,
         "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
         "submodules": subprocess.check_output(["git", "submodule", "status", "--recursive"], cwd=root, text=True),
     }
     (campaign / "manifest.json").write_text(json.dumps(record, indent=2) + "\n")
     (campaign / "source-files.txt").write_bytes("\0".join(files).encode() + b"\0")
-    (campaign / "run.sh").write_text(_worker_script(remote_dir, args.block, args.target, args.setup))
+    (campaign / "run.sh").write_text(_worker_script(remote_dir, block, target, setup))
     # No mkdir -p for the snapshot itself: an existing destination must never be overwritten.
     _ssh(
-        args.host,
+        host,
         f"set -e; command -v rsync tmux; mkdir -- {shlex.quote(remote_dir)}; "
         f"mkdir -p -- {shlex.quote(remote_dir + '/build/remote')}",
     )
@@ -184,7 +222,7 @@ def launch(args: argparse.Namespace, root: Path) -> Path:
             "--from0",
             f"--files-from={campaign / 'source-files.txt'}",
             f"{root}/",
-            f"{args.host}:{remote_dir}/",
+            f"{host}:{remote_dir}/",
         ],
         check=True,
     )
@@ -196,14 +234,16 @@ def launch(args: argparse.Namespace, root: Path) -> Path:
             "--timeout=120",
             "--rsh=ssh -o BatchMode=yes -o ConnectTimeout=10",
             f"{campaign}/",
-            f"{args.host}:{remote_dir}/build/remote/",
+            f"{host}:{remote_dir}/build/remote/",
         ],
         check=True,
     )
     command = shlex.join(["bash", f"{remote_dir}/build/remote/run.sh"])
-    _ssh(args.host, shlex.join(["tmux", "new-session", "-d", "-s", session, command]))
-    print(f"Campaign: {campaign}\nWorker: {args.host}:{remote_dir}\nSession: {session}", flush=True)
-    collector = shlex.join([sys.executable, "-m", "flow.circuit.remote", "collect", str(campaign), "--watch"])
+    _ssh(host, shlex.join(["tmux", "new-session", "-d", "-s", session, command]))
+    print(f"Campaign: {campaign}\nWorker: {host}:{remote_dir}\nSession: {session}", flush=True)
+    collect_call = "import sys; from pathlib import Path; from flow.circuit.remote import collect; "
+    collect_call += "sys.exit(collect(Path(sys.argv[1]), watch=True))"
+    collector = shlex.join([sys.executable, "-c", collect_call, str(campaign)])
     collector = f"cd {shlex.quote(str(root))} && {collector} > {shlex.quote(str(campaign / 'collector.log'))} 2>&1"
     subprocess.run(["tmux", "new-session", "-d", "-s", f"{session}-collect", collector], check=True)
     return campaign
@@ -266,59 +306,28 @@ def collect(campaign: Path, *, watch: bool = False) -> int:
             time.sleep(1800)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    commands = parser.add_subparsers(dest="command", required=True)
-    start = commands.add_parser("launch", help="Snapshot, diagnose, run detached, and collect automatically")
-    start.add_argument("target", help="Existing named simulation target")
-    start.add_argument("--block", choices=("adc", "comp", "samp", "caparray"), default="adc")
-    start.add_argument("--host", required=True, help="Trusted SSH host/alias (FTD: juno or jupiter)")
-    start.add_argument("--work-root", required=True, help="Existing absolute worker parent directory")
-    start.add_argument("--setup", help="Absolute shell environment script on the worker")
-    start.add_argument("--pdk", default="tsmc65", help="PDK submodule to include, not a foundry model installation")
-    start.add_argument("--input", action="append", default=[], help="Repository-relative build input; repeat as needed")
-    status = commands.add_parser("status", help="Check worker CPU/memory use and available Spectre licenses")
-    status.add_argument("--host", required=True)
-    status.add_argument("--setup", help="Absolute shell environment script on the worker")
-    status.add_argument("--license-server", help="FlexNet server; default: worker CDS_LIC_FILE, then LM_LICENSE_FILE")
-    status.add_argument(
-        "--license-feature", action="append", help="FlexNet feature; repeat to override the usual Spectre features"
-    )
-    copy = commands.add_parser("collect", help="Collect or resume watching a campaign")
-    copy.add_argument("campaign", type=Path, help="Local build/remote/<session> directory")
-    copy.add_argument("--watch", action="store_true", help="Wait/retry every 30 minutes (foreground)")
-    args = parser.parse_args()
-    if args.command in ("launch", "status"):
-        if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.@-]*", args.host):
-            parser.error("--host must be a plain SSH alias or user@hostname")
-        for path in (getattr(args, "work_root", None), args.setup):
-            if path is not None and (not Path(path).is_absolute() or ".." in Path(path).parts or path == "/"):
-                parser.error("worker paths must be absolute, non-root paths without '..'")
-    if args.command == "launch":
-        if not all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) for value in (args.target, args.pdk)):
-            parser.error("target and PDK must be identifiers")
-        launch(args, Path(__file__).resolve().parents[2])
-    elif args.command == "collect":
-        raise SystemExit(collect(args.campaign.resolve(), watch=args.watch))
-    else:
-        script = [
-            "set -e",
-            f"source {shlex.quote(args.setup)} || exit $?" if args.setup else ":",
-            "hostname",
-            "uptime",
-            "LC_ALL=C lscpu | grep -E '^(CPU\\(s\\)|On-line|Thread|Core|Socket)'",
-            "free -h",
-            "ps -eo user,pid,comm,nlwp,pcpu,etime --sort=-pcpu | head -n 12",
-        ]
-        server = shlex.quote(args.license_server) if args.license_server else '"${CDS_LIC_FILE:-${LM_LICENSE_FILE:-}}"'
-        for feature in args.license_feature or ("Virtuoso_Multi_mode_Simulation", "Spectre_XPS"):
-            script.append(shlex.join(["lmutil", "lmstat", "-f", feature]) + f" -c {server}")
-        try:
-            print(_ssh(args.host, "\n".join(script)))
-        except subprocess.CalledProcessError as error:
-            print(error.stdout or "Remote status check failed", file=sys.stderr)
-            raise SystemExit(error.returncode) from error
+def status(
+    host: str,
+    *,
+    setup: str | None = None,
+    license_server: str | None = None,
+    license_features: tuple[str, ...] = ("Virtuoso_Multi_mode_Simulation", "Spectre_XPS"),
+) -> str:
+    """The worker's CPU and memory use and the available Spectre licenses (read only, also before a
+    launch): ``setup`` an absolute shell environment script on the worker, ``license_server`` the
+    FlexNet server (default: the worker's CDS_LIC_FILE, then LM_LICENSE_FILE)."""
 
-
-if __name__ == "__main__":
-    main()
+    _check_worker(host, setup)
+    script = [
+        "set -e",
+        f"source {shlex.quote(setup)} || exit $?" if setup else ":",
+        "hostname",
+        "uptime",
+        "LC_ALL=C lscpu | grep -E '^(CPU\\(s\\)|On-line|Thread|Core|Socket)'",
+        "free -h",
+        "ps -eo user,pid,comm,nlwp,pcpu,etime --sort=-pcpu | head -n 12",
+    ]
+    server = shlex.quote(license_server) if license_server else '"${CDS_LIC_FILE:-${LM_LICENSE_FILE:-}}"'
+    for feature in license_features:
+        script.append(shlex.join(["lmutil", "lmstat", "-f", feature]) + f" -c {server}")
+    return _ssh(host, "\n".join(script))

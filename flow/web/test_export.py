@@ -10,8 +10,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from flow.web.__main__ import STATIC_DIR, Handler
 from flow.web.export import DATA_DIR, MAX_SAMPLES, export_layout, json_value
+from flow.web.server import STATIC_DIR, Handler
 
 
 class Flavour(Enum):

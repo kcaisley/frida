@@ -22,9 +22,8 @@ condition sweeps, whose axes the viewer fixes across a block's instances, or fig
 analysis plots) and ``waves`` (measurement files under ``build/`` holding transient waveforms, by
 label).
 
-    uv run python -m flow.sweep run [--blocks comp] [--pdks tsmc65] [--workers 36] [--failed]
-    uv run python -m flow.sweep layout [--blocks comp] [--workers 28]
-    uv run python -m flow.sweep table [--blocks comp]
+    uv run python -m flow comp.sweep      # one block: characterize, lay out, tabulate
+    uv run python -m flow sweep.run       # every block (sweep.missing, sweep.layout, sweep.tables)
 """
 
 from __future__ import annotations

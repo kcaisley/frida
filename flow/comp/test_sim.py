@@ -5,7 +5,7 @@ import inspect
 import hdl21 as h
 import pytest
 
-from . import sim
+from . import sim, targets
 
 
 def test_default_comparator_sweep_is_complete() -> None:
@@ -33,9 +33,9 @@ def test_comparator_testbench_rejects_repeated_values() -> None:
         sim.CompTb(sim.CompTbParams(vin_diff_values_v=(0.0, 0.0)))
 
 
-def test_main_owns_only_experiment_targets() -> None:
-    source = inspect.getsource(sim.main)
+def test_targets_own_only_experiment_targets() -> None:
+    source = inspect.getsource(targets)
     assert "hdl21_comp_perf_vs_size" in source
     assert "frida1_fixed_input_noise" in source
     assert "_check" not in source
-    assert "TARGETS" not in vars(sim)
+    assert "TARGETS" not in vars(sim) and not hasattr(sim, "main")

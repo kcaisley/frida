@@ -1,6 +1,6 @@
 """The capacitor array's behavioral model: each stage's main and difference capacitance and the
 top plate's other load, from the 3D extraction of the same ``CapArrayConfig`` laid out in the PDK
-(``flow.caparray.layout``: ``caparray_extract_adc_variants`` writes one table per ADC variant).
+(``python -m flow caparray.layout_extract_adc_variants`` writes one table per ADC variant).
 
     model = CapArrayModel.of("tsmc65", CapArrayConfig(n_dac=11, n_extra=5))
     main_f, diff_f = model.draw(unit_mismatch=0.001, rng=rng)
@@ -24,7 +24,7 @@ from flow.sweep.runner import ROOT
 from .layout import ADC_VARIANTS
 from .subckt import CapArrayConfig, get_caparray_weights
 
-EXTRACTIONS = ROOT / "build/layout/caparray/caparray_extract_adc_variants"
+EXTRACTIONS = ROOT / "build/layout/caparray/extract_adc_variants"
 # Random part of Harpe's measured unit-length DAC linearity (JSSC 2018, 65 nm): 0.10 %·sqrt(fF)
 UNIT_MISMATCH_HARPE = 0.0010
 
@@ -46,7 +46,7 @@ class CapArrayModel:
         tables = sorted(EXTRACTIONS.glob(f"*/{name}/{pdk}/{layers}l/capacitance_table.json")) if name else []
         if not tables:
             raise LookupError(
-                f"no {layers}-metal extraction of {params} in {pdk}: run python -m flow caparray.extract_adc_variants"
+                f"no {layers}-metal extraction of {params} in {pdk}: run python -m flow caparray.layout_extract_adc_variants"
             )
         extracted = json.loads(tables[-1].read_text())
         main_f = np.asarray(extracted["main_by_stage_ff"]) * 1e-15

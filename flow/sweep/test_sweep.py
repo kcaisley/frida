@@ -82,3 +82,27 @@ def test_the_table_has_a_row_per_instance_and_shared_detail_limits(tmp_path: Pat
     instance = json.loads((tmp_path / "web/data/sweep/toy/tsmc65__inv__x1.json").read_text())
     assert instance["params"] == {"w": 1, "kind": "inv"} and instance["details"][0]["series"]["delay"][1] is None
     assert json.loads((tmp_path / "web/data/sweep/catalog.json").read_text())["toy"]["instances"] == 2
+
+
+def test_the_sweep_targets_call_the_library_on_every_block(monkeypatch) -> None:
+    from flow.comp import targets as comp
+    from flow.sweep import targets
+
+    calls = []
+    monkeypatch.setattr(runner, "run", lambda blocks, pdks, workers, **kw: calls.append(("run", blocks, workers, kw)))
+    monkeypatch.setattr(runner, "layout", lambda blocks, workers: calls.append(("layout", blocks, workers)))
+    monkeypatch.setattr(runner, "table", lambda blocks, workers: calls.append(("table", blocks, workers)))
+    blocks = runner.sweep_blocks()
+    targets.run()
+    targets.missing()
+    targets.layout()
+    targets.tables()
+    assert calls == [
+        ("run", blocks, 36, {}),
+        ("run", blocks, 36, {"failed": True}),
+        ("layout", blocks, 28),
+        ("table", blocks, 16),
+    ]
+    calls.clear()
+    comp.sweep()  # one block: a fresh run, laid out, tabulated
+    assert calls == [("run", ["comp"], 36, {}), ("layout", ["comp"], 28), ("table", ["comp"], 16)]

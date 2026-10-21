@@ -21,24 +21,25 @@ from . import test_spectre
 
 
 @pytest.mark.parametrize("block", ("adc", "comp", "samp", "caparray"))
-def test_runner_cli_and_python_contract(block, monkeypatch, capsys):
+def test_targets_and_python_contract(block):
     module = importlib.import_module(f"flow.{block}.sim")
-    monkeypatch.setattr(sys, "argv", ["sim"])
-    module.main()
-    names = capsys.readouterr().out.splitlines()[1:]
+    targets = importlib.import_module(f"flow.{block}.targets")
+    # the simulation targets: each runs the sim function of its name (the block prefix dropped)
+    runs = {
+        name: getattr(module, name, None) or getattr(module, f"{block}_{name}", None)
+        for name, value in vars(targets).items()
+        if inspect.isfunction(value) and value.__module__ == targets.__name__ and not name.startswith("_")
+    }
+    names = [name for name, function in runs.items() if function is not None]
     assert names
-    targets = [name.strip() for name in names]
-    assert targets == sorted(targets, key=lambda name: (not name.startswith("hdl21"), name.startswith("frida2")))
-    for name in targets:
-        signature = inspect.signature(getattr(module, name))
+    assert names == sorted(names, key=lambda name: (not name.startswith("hdl21"), name.startswith("frida2")))
+    for name in names:
+        assert not inspect.signature(getattr(targets, name)).parameters
+        signature = inspect.signature(runs[name])
         assert list(signature.parameters) == ["run_dir", "check"]
         assert signature.parameters["check"].default is False
         assert signature.parameters["check"].kind is inspect.Parameter.KEYWORD_ONLY
-        for flag in ("--check", "--netlist-only"):
-            monkeypatch.setattr(sys, "argv", ["sim", name, flag])
-            with pytest.raises(SystemExit) as error:
-                module.main()
-            assert error.value.code == 2
+    assert not hasattr(module, "main")
     assert "netlist_only" not in inspect.getsource(module)
     assert not any(name.startswith("frida65") for name in vars(module))
 

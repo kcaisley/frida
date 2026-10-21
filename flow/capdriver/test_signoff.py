@@ -12,6 +12,7 @@ from klayout import db
 from flow.util.netlist import _spice_statements, _subcircuit_span, subcircuit_ports
 
 from . import layout as target
+from . import targets
 
 
 @pytest.fixture
@@ -261,18 +262,16 @@ def test_source_failure_writes_summary(tmp_path, source_gds, mock_checks, mock_p
     assert (run / "provenance.json").is_file()
 
 
-def test_cli_explicit_and_default_paths(tmp_path, monkeypatch):
+def test_target_lays_out_into_a_fresh_run_directory(tmp_path, monkeypatch):
     calls = []
-    monkeypatch.setattr(target, "ROOT", tmp_path)
+
+    def new_run(*parts):
+        run_dir = (tmp_path / "build").joinpath(*parts, "20260101_000000")
+        run_dir.mkdir(parents=True)
+        return run_dir
+
+    monkeypatch.setattr(targets, "new_run", new_run)
     monkeypatch.setattr(target, "frida1", lambda run_dir, **kwargs: calls.append((run_dir, kwargs)) or run_dir)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["layout", "frida1", "--output-dir", str(tmp_path / "run"), "--source-gds", str(tmp_path / "input.gds")],
-    )
-    target.main()
-    assert calls[-1] == (tmp_path / "run", {"source_gds": tmp_path / "input.gds"})
-    monkeypatch.setattr(sys, "argv", ["layout", "frida1"])
-    target.main()
-    assert calls[-1][0].parent == tmp_path / "build/layout/capdriver/frida1"
-    assert calls[-1][1] == {"source_gds": None}
+    targets.layout_frida1()
+    assert calls == [(tmp_path / "build/layout/capdriver/frida1/20260101_000000", {})]
+    assert not calls[0][0].exists()  # frida1 makes it, refusing an existing one

@@ -13,7 +13,7 @@ import pytest
 
 import pdk
 
-from . import sim
+from . import sim, targets
 
 
 def test_caparray_testbench_uses_typed_timing() -> None:
@@ -37,11 +37,11 @@ def test_caparray_testbench_packs_code_with_c0_as_highest_stage() -> None:
     assert len(tb.vmain_15.of.params.wave.points) == 4096
 
 
-def test_main_owns_only_experiment_targets() -> None:
-    source = inspect.getsource(sim.main)
+def test_targets_own_only_experiment_targets() -> None:
+    source = inspect.getsource(targets)
     assert "frida1_transfer_curve" in source
-    assert "_check" not in source
-    assert "TARGETS" not in vars(sim)
+    assert re.search(r"\b_check\b|check=", source) is None  # no diagnostic runs
+    assert "TARGETS" not in vars(sim) and not hasattr(sim, "main")
 
 
 @pytest.mark.parametrize("check", [False, True])

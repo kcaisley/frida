@@ -5,7 +5,7 @@ import inspect
 import hdl21 as h
 import pytest
 
-from . import sim
+from . import sim, targets
 
 
 def test_sampler_testbench_uses_typed_clock_parameters() -> None:
@@ -19,11 +19,11 @@ def test_sampler_testbench_uses_typed_clock_parameters() -> None:
     assert not hasattr(params, "temperature_c")
 
 
-def test_main_owns_only_experiment_targets() -> None:
-    source = inspect.getsource(sim.main)
+def test_targets_own_only_experiment_targets() -> None:
+    source = inspect.getsource(targets)
     assert "frida1_transient" in source
     assert "_check" not in source
-    assert "TARGETS" not in vars(sim)
+    assert "TARGETS" not in vars(sim) and not hasattr(sim, "main")
 
 
 @pytest.mark.parametrize(

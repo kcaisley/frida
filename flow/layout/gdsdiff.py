@@ -7,7 +7,6 @@ geometry, 1 for old-only geometry, and 2 for new-only geometry.
 
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 from typing import Any
@@ -53,8 +52,10 @@ def gds_diff(
     *,
     old_top: str | None = None,
     new_top: str | None = None,
+    summary_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Write a flattened geometric diff and return its area summary."""
+    """Write a flattened geometric diff and return its area summary (also as JSON to
+    ``summary_path`` when given)."""
 
     old = db.Layout()
     new = db.Layout()
@@ -101,30 +102,7 @@ def gds_diff(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     result.write(str(output_path))
+    if summary_path is not None:
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return summary
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Write a geometric GDS diff")
-    parser.add_argument("old", type=Path)
-    parser.add_argument("new", type=Path)
-    parser.add_argument("output", type=Path)
-    parser.add_argument("--old-top")
-    parser.add_argument("--new-top")
-    parser.add_argument("--summary", type=Path)
-    args = parser.parse_args()
-    summary = gds_diff(
-        args.old,
-        args.new,
-        args.output,
-        old_top=args.old_top,
-        new_top=args.new_top,
-    )
-    if args.summary is not None:
-        args.summary.parent.mkdir(parents=True, exist_ok=True)
-        args.summary.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    print(args.output)
-
-
-if __name__ == "__main__":
-    main()

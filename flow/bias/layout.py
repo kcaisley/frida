@@ -1,21 +1,19 @@
 """Cascode bias generator layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
 
-A target names one case and one PDK and lays it out with all three tools (cIcCreator, laygo,
+A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator, laygo,
 ALIGN) from its hand-written floorplan (``design/layout/bias_*.json``), each checked with DRC and
-LVS; a ``*_all_pdks`` target runs one case in all six PDKs. Cases: wide-swing and margin
+LVS. Cases: wide-swing and margin
 cascode-gate diodes. The runner is the comparator's (``flow.comp.layout``).
 
-    uv run python -m flow.bias.layout bias_wide_tsmc65
+    uv run python -m flow bias.layout_wide
 """
 
 from __future__ import annotations
 
-import argparse
-from datetime import datetime
 from importlib import import_module
 from pathlib import Path
 
-from flow.comp.layout import FLOORPLANS, ROOT, _all_pdks, _finish, _run
+from flow.comp.layout import FLOORPLANS, _all_pdks, _finish, _run
 
 from .subckt import CASES, BiasParams, write_netlist
 
@@ -36,86 +34,17 @@ def _bias(run_dir: Path, pdk: str, case: str) -> Path:
     return _run(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
 
 
-# ---- Wide-swing cascode gates
-
-
-def bias_wide_tsmc65(run_dir: Path) -> Path:
-    return _bias(run_dir, "tsmc65", "wide")
-
-
-def bias_wide_tsmc28(run_dir: Path) -> Path:
-    return _bias(run_dir, "tsmc28", "wide")
-
-
-def bias_wide_ihp130(run_dir: Path) -> Path:
-    return _bias(run_dir, "ihp130", "wide")
-
-
-def bias_wide_tower180(run_dir: Path) -> Path:
-    return _bias(run_dir, "tower180", "wide")
-
-
-def bias_wide_lf150(run_dir: Path) -> Path:
-    return _bias(run_dir, "lf150", "wide")
-
-
-def bias_wide_tpsc65(run_dir: Path) -> Path:
-    return _bias(run_dir, "tpsc65", "wide")
-
-
-# ---- Margin cascode gates
-
-
-def bias_margin_tsmc65(run_dir: Path) -> Path:
-    return _bias(run_dir, "tsmc65", "margin")
-
-
-def bias_margin_tsmc28(run_dir: Path) -> Path:
-    return _bias(run_dir, "tsmc28", "margin")
-
-
-def bias_margin_ihp130(run_dir: Path) -> Path:
-    return _bias(run_dir, "ihp130", "margin")
-
-
-def bias_margin_tower180(run_dir: Path) -> Path:
-    return _bias(run_dir, "tower180", "margin")
-
-
-def bias_margin_lf150(run_dir: Path) -> Path:
-    return _bias(run_dir, "lf150", "margin")
-
-
-def bias_margin_tpsc65(run_dir: Path) -> Path:
-    return _bias(run_dir, "tpsc65", "margin")
+# ---- each case in all six PDKs
 
 
 def bias_wide_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            bias_wide_tsmc65,
-            bias_wide_tsmc28,
-            bias_wide_ihp130,
-            bias_wide_tower180,
-            bias_wide_lf150,
-            bias_wide_tpsc65,
-        ),
-    )
+    """Wide-swing cascode gates."""
+    return _all_pdks(run_dir, _bias, "wide")
 
 
 def bias_margin_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            bias_margin_tsmc65,
-            bias_margin_tsmc28,
-            bias_margin_ihp130,
-            bias_margin_tower180,
-            bias_margin_lf150,
-            bias_margin_tpsc65,
-        ),
-    )
+    """Margin cascode gates."""
+    return _all_pdks(run_dir, _bias, "margin")
 
 
 ALL_PDKS = (
@@ -125,7 +54,7 @@ ALL_PDKS = (
 
 
 def all_bias_layouts(run_dir: Path) -> Path:
-    """The two ``*_all_pdks`` targets into ``run_dir/<target>/``."""
+    """The two ``*_all_pdks`` functions into ``run_dir/<function>/``."""
 
     failures: dict[str, str] = {}
     for target in ALL_PDKS:
@@ -134,42 +63,3 @@ def all_bias_layouts(run_dir: Path) -> Path:
         except Exception as error:  # noqa: BLE001 - run every case
             failures[target.__name__] = repr(error)
     return _finish(run_dir, {}, failures)
-
-
-def main() -> None:
-    """Create one output directory and run one named cascode bias layout target."""
-
-    targets = {
-        target.__name__: target
-        for target in (
-            bias_wide_tsmc65,
-            bias_wide_tsmc28,
-            bias_wide_ihp130,
-            bias_wide_tower180,
-            bias_wide_lf150,
-            bias_wide_tpsc65,
-            bias_margin_tsmc65,
-            bias_margin_tsmc28,
-            bias_margin_ihp130,
-            bias_margin_tower180,
-            bias_margin_lf150,
-            bias_margin_tpsc65,
-            *ALL_PDKS,
-            all_bias_layouts,
-        )
-    }
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("target", nargs="?", choices=list(targets))
-    args = parser.parse_args()
-    if args.target is None:
-        print("Available cascode bias layout targets:")
-        for name in targets:
-            print(f"  {name}")
-        return
-    run_dir = ROOT / "build" / "layout" / "bias" / args.target / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    run_dir.mkdir(parents=True, exist_ok=False)
-    targets[args.target](run_dir)
-
-
-if __name__ == "__main__":
-    main()

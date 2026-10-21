@@ -1,18 +1,13 @@
-"""Export the viewer's data, or serve the viewer.
-
-    uv run python -m flow.web export [--blocks comp mosfet] [--workers 16]
-    uv run python -m flow.web serve [--port 8765] [--host 127.0.0.1]
-
-``export`` is ``python -m flow.sweep table``: each block's newest sweep as its table and a file
-per instance. ``serve`` answers ``/`` from ``flow/web/static``, ``/data/`` from ``build/web/data``, and
+"""The viewer's server: ``/`` from ``flow/web/static``, ``/data/`` from ``build/web/data``,
 ``/api/wave?path=<measurement>&record=<n>`` with one record of a cached measurement's waveforms
-(read from its HDF5 file, under ``build/``); on a remote machine, forward the port
-(``ssh -L 8765:localhost:8765 host``) and open http://localhost:8765.
+(read from its HDF5 file, under ``build/``), and ``/api/figure?path=<svg>`` with an instance's
+figure (an SVG under ``build/sweep/``, drawn by its analysis plots). ``python -m flow web.serve``
+serves it; on a remote machine, forward the port (``ssh -L 8765:localhost:8765 host``) and open
+http://localhost:8765.
 """
 
 from __future__ import annotations
 
-import argparse
 import errno
 import functools
 import json
@@ -23,6 +18,7 @@ from urllib.parse import parse_qs, urlsplit
 from flow.web.export import DATA_DIR, read_wave
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+FIGURES_DIR = Path(__file__).resolve().parents[2] / "build" / "sweep"
 
 
 @functools.lru_cache(maxsize=32)
@@ -31,23 +27,34 @@ def wave_body(path: str, record: int) -> bytes:
     return json.dumps(read_wave(path, record), separators=(",", ":")).encode()
 
 
+def figure_body(path: str) -> bytes:
+    """An instance's SVG figure: only an ``.svg`` under ``build/sweep/``."""
+    figure = (FIGURES_DIR.parent.parent / path).resolve()
+    if figure.suffix != ".svg" or not figure.is_relative_to(FIGURES_DIR.resolve()):
+        raise ValueError(f"not a sweep figure: {path}")
+    return figure.read_bytes()
+
+
 class Handler(SimpleHTTPRequestHandler):
     """Static files from ``flow/web/static``, the exported data under ``/data/``, waveforms
     under ``/api/wave``."""
 
     def do_GET(self) -> None:
         url = urlsplit(self.path)
-        if url.path != "/api/wave":
+        if url.path not in ("/api/wave", "/api/figure"):
             super().do_GET()
             return
         query = parse_qs(url.query)
         try:
-            body = wave_body(query["path"][0], int(query.get("record", ["0"])[0]))
+            if url.path == "/api/figure":
+                body, kind = figure_body(query["path"][0]), "image/svg+xml"
+            else:
+                body, kind = wave_body(query["path"][0], int(query.get("record", ["0"])[0])), "application/json"
         except (KeyError, ValueError, OSError) as error:
             self.send_error(404, str(error))
             return
         self.send_response(200)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", kind)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -69,37 +76,23 @@ class Handler(SimpleHTTPRequestHandler):
             super().log_message(format, *args)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(prog="python -m flow.web", description=__doc__.splitlines()[0])
-    commands = parser.add_subparsers(dest="command", required=True)
-    export_parser = commands.add_parser("export", help="the sweep tables and instance files (flow.sweep table)")
-    export_parser.add_argument("--blocks", nargs="+", default=None, help="blocks (default: every block with a sweep)")
-    export_parser.add_argument("--workers", type=int, default=16)
-    serve_parser = commands.add_parser("serve", help="serve the viewer")
-    serve_parser.add_argument("--port", type=int, default=8765)
-    serve_parser.add_argument("--host", default="127.0.0.1")
-    args = parser.parse_args()
-    if args.command == "export":
-        from flow.sweep.runner import sweep_blocks, table
+def serve(port: int, host: str) -> None:
+    """Serve the viewer on ``host:port`` until interrupted; the sweep tables must exist
+    (``python -m flow web.tables``)."""
 
-        table(args.blocks or sweep_blocks(), args.workers)
-        return
     if not (DATA_DIR / "sweep/catalog.json").exists():
-        raise SystemExit(f"no sweep tables in {DATA_DIR / 'sweep'}: run `python -m flow.web export` first")
+        raise SystemExit(f"no sweep tables in {DATA_DIR / 'sweep'}: run `python -m flow web.tables` first")
     try:
-        server = ThreadingHTTPServer((args.host, args.port), functools.partial(Handler, directory=str(STATIC_DIR)))
+        server = ThreadingHTTPServer((host, port), functools.partial(Handler, directory=str(STATIC_DIR)))
     except OSError as error:
         if error.errno != errno.EADDRINUSE:
             raise
         raise SystemExit(
-            f"port {args.port} is in use (another viewer?): stop it, or serve on another port (--port {args.port + 1})"
+            f"port {port} is in use (another viewer?): stop it, or serve on another port "
+            f"(flow.web.server.serve({port + 1}, {host!r}))"
         ) from None
-    print(f"frida viewer on http://{args.host}:{args.port} (data {DATA_DIR})", flush=True)
+    print(f"frida viewer on http://{host}:{port} (data {DATA_DIR})", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         server.server_close()
-
-
-if __name__ == "__main__":
-    main()

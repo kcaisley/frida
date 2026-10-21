@@ -1,31 +1,28 @@
 """Comparator layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
 
-A target names one case and one PDK and lays it out with all three tools (cIcCreator, laygo,
-ALIGN), each checked with DRC and LVS; a ``*_all_pdks`` target runs one case in all six PDKs.
+A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator,
+laygo, ALIGN), each checked with DRC and LVS.
 Cases: the FRIDA-1 comparator and the size sweep's example double tail (c040), each from its
 hand-written floorplan (``design/layout``, "manual") or laid out by ALIGN on its own from the
 transistor netlist with its library cells recognized ("auto", ALIGN's placement the floorplan of
 cIcCreator and laygo); the characterization's six topologies (``flow.comp.sim``: StrongARM,
 triple tail and the double tails) at its sizing, each from its hand-written floorplan; and
 ``mos_inv`` (one NMOS and one PMOS row cell). Every (pdk, tool) runs whatever the others do;
-the target raises at the end when any failed (``failures.json``).
+the function raises at the end when any failed (``failures.json``).
 
 Tools: ``CICPY`` (cicpy 0.3, with ``compile``), ``LAYGO_CLIENT`` (the hosted laygo server's
 client, needs internet), ``ALIGN_HOME`` (an ALIGN install); Calibre, Assura or KLayout as each
 PDK's signoff provider (``pdk/<pdk>/signoff.py``) uses them.
 
-    uv run python -m flow.comp.layout comp_c040_manual_tsmc65
+    uv run python -m flow comp.layout_c040_manual
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 from collections.abc import Callable
-from datetime import datetime
 from importlib import import_module
 from pathlib import Path
-from types import FunctionType
 from typing import Any
 
 from klayout import db
@@ -45,12 +42,10 @@ PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
 BUILD: dict[str, Callable[..., Path]] = {"cic": cic_build, "laygo": laygo_build, "align": align_build}
 
 # the example double tail ("c040"): the size sweep's topology 40 at the half profile, as
-# `python -m flow.comp.subckt 40_half ...` builds it
+# `write_case_netlist("40_half", ...)` in flow.comp.subckt builds it
 C040 = CompParams(**topologies()[40], **SIZE_PROFILES["half"], **LENGTHS)
 # where the ports leave the block, as in both comparator floorplans (circuit knowledge, not placement)
 ESCAPE = {"up": ["inp", "inn"], "down": ["clk", "clkb", "outp", "outn"]}
-
-Target = FunctionType  # a target: (run_dir) -> run_dir
 
 
 def _netlists(params: CompParams, pdk: str, out_dir: Path, name: str) -> tuple[Path, Path]:
@@ -143,75 +138,22 @@ def _comp(run_dir: Path, pdk: str, name: str, params: CompParams, floorplan: Pat
     return _run(run_dir, pdk, name, netlist, floorplan)
 
 
-def _all_pdks(run_dir: Path, targets: tuple[Target, ...]) -> Path:
-    """The per-PDK targets into ``run_dir/<pdk>/``; every failure collected, the summaries merged."""
+def _all_pdks(run_dir: Path, case: Callable[..., Path], *args: Any) -> Path:
+    """``case(run_dir / pdk, pdk, *args)`` in every PDK; every failure collected, the summaries
+    merged."""
 
     summary: dict[str, dict[str, Any]] = {}
     failures: dict[str, str] = {}
-    for target in targets:
-        sub = run_dir / target.__name__.rsplit("_", 1)[1]
+    for pdk in PDKS:
+        sub = run_dir / pdk
         try:
-            target(sub)
+            case(sub, pdk, *args)
         except Exception as error:  # noqa: BLE001 - report every PDK
             found = sub / "failures.json"
-            failures.update(json.loads(found.read_text()) if found.exists() else {target.__name__: repr(error)})
+            failures.update(json.loads(found.read_text()) if found.exists() else {pdk: repr(error)})
         if (sub / "summary.json").exists():
             summary.update(json.loads((sub / "summary.json").read_text()))
     return _finish(run_dir, summary, failures)
-
-
-# ---- FRIDA-1, hand-written floorplan
-
-
-def comp_frida1_manual_tsmc65(run_dir: Path) -> Path:
-    return _comp(run_dir, "tsmc65", "comp_frida1", FRIDA1, FLOORPLANS / "comp_frida1.json")
-
-
-def comp_frida1_manual_tsmc28(run_dir: Path) -> Path:
-    return _comp(run_dir, "tsmc28", "comp_frida1", FRIDA1, FLOORPLANS / "comp_frida1.json")
-
-
-def comp_frida1_manual_ihp130(run_dir: Path) -> Path:
-    return _comp(run_dir, "ihp130", "comp_frida1", FRIDA1, FLOORPLANS / "comp_frida1.json")
-
-
-def comp_frida1_manual_tower180(run_dir: Path) -> Path:
-    return _comp(run_dir, "tower180", "comp_frida1", FRIDA1, FLOORPLANS / "comp_frida1.json")
-
-
-def comp_frida1_manual_lf150(run_dir: Path) -> Path:
-    return _comp(run_dir, "lf150", "comp_frida1", FRIDA1, FLOORPLANS / "comp_frida1.json")
-
-
-def comp_frida1_manual_tpsc65(run_dir: Path) -> Path:
-    return _comp(run_dir, "tpsc65", "comp_frida1", FRIDA1, FLOORPLANS / "comp_frida1.json")
-
-
-# ---- c040, hand-written floorplan
-
-
-def comp_c040_manual_tsmc65(run_dir: Path) -> Path:
-    return _comp(run_dir, "tsmc65", "comp_c040", C040, FLOORPLANS / "comp_c040.json")
-
-
-def comp_c040_manual_tsmc28(run_dir: Path) -> Path:
-    return _comp(run_dir, "tsmc28", "comp_c040", C040, FLOORPLANS / "comp_c040.json")
-
-
-def comp_c040_manual_ihp130(run_dir: Path) -> Path:
-    return _comp(run_dir, "ihp130", "comp_c040", C040, FLOORPLANS / "comp_c040.json")
-
-
-def comp_c040_manual_tower180(run_dir: Path) -> Path:
-    return _comp(run_dir, "tower180", "comp_c040", C040, FLOORPLANS / "comp_c040.json")
-
-
-def comp_c040_manual_lf150(run_dir: Path) -> Path:
-    return _comp(run_dir, "lf150", "comp_c040", C040, FLOORPLANS / "comp_c040.json")
-
-
-def comp_c040_manual_tpsc65(run_dir: Path) -> Path:
-    return _comp(run_dir, "tpsc65", "comp_c040", C040, FLOORPLANS / "comp_c040.json")
 
 
 # ---- the characterization's six topologies (flow.comp.sim), hand-written floorplans
@@ -227,388 +169,61 @@ def _topology(run_dir: Path, pdk: str, topology: str) -> Path:
     return _comp(run_dir, pdk, name, CompParams(**TOPOLOGIES[topology], **TOPOLOGY_SIZES), FLOORPLANS / f"{name}.json")
 
 
-def comp_strongarm_tsmc65(run_dir: Path) -> Path:
-    return _topology(run_dir, "tsmc65", "strongarm")
+def _mos_inv(run_dir: Path, pdk: str) -> Path:
+    """One NMOS and one PMOS row cell, from the PDK's hand-written netlist."""
 
-
-def comp_strongarm_tsmc28(run_dir: Path) -> Path:
-    return _topology(run_dir, "tsmc28", "strongarm")
-
-
-def comp_strongarm_ihp130(run_dir: Path) -> Path:
-    return _topology(run_dir, "ihp130", "strongarm")
-
-
-def comp_strongarm_tower180(run_dir: Path) -> Path:
-    return _topology(run_dir, "tower180", "strongarm")
-
-
-def comp_strongarm_lf150(run_dir: Path) -> Path:
-    return _topology(run_dir, "lf150", "strongarm")
-
-
-def comp_strongarm_tpsc65(run_dir: Path) -> Path:
-    return _topology(run_dir, "tpsc65", "strongarm")
-
-
-def comp_triple_tail_tsmc65(run_dir: Path) -> Path:
-    return _topology(run_dir, "tsmc65", "triple_tail")
-
-
-def comp_triple_tail_tsmc28(run_dir: Path) -> Path:
-    return _topology(run_dir, "tsmc28", "triple_tail")
-
-
-def comp_triple_tail_ihp130(run_dir: Path) -> Path:
-    return _topology(run_dir, "ihp130", "triple_tail")
-
-
-def comp_triple_tail_tower180(run_dir: Path) -> Path:
-    return _topology(run_dir, "tower180", "triple_tail")
-
-
-def comp_triple_tail_lf150(run_dir: Path) -> Path:
-    return _topology(run_dir, "lf150", "triple_tail")
-
-
-def comp_triple_tail_tpsc65(run_dir: Path) -> Path:
-    return _topology(run_dir, "tpsc65", "triple_tail")
-
-
-def comp_double_tail_tsmc65(run_dir: Path) -> Path:
-    return _topology(run_dir, "tsmc65", "double_tail")
-
-
-def comp_double_tail_tsmc28(run_dir: Path) -> Path:
-    return _topology(run_dir, "tsmc28", "double_tail")
-
-
-def comp_double_tail_ihp130(run_dir: Path) -> Path:
-    return _topology(run_dir, "ihp130", "double_tail")
-
-
-def comp_double_tail_tower180(run_dir: Path) -> Path:
-    return _topology(run_dir, "tower180", "double_tail")
-
-
-def comp_double_tail_lf150(run_dir: Path) -> Path:
-    return _topology(run_dir, "lf150", "double_tail")
-
-
-def comp_double_tail_tpsc65(run_dir: Path) -> Path:
-    return _topology(run_dir, "tpsc65", "double_tail")
-
-
-def comp_double_tail_self_timed_tsmc65(run_dir: Path) -> Path:
-    return _topology(run_dir, "tsmc65", "double_tail_self_timed")
-
-
-def comp_double_tail_self_timed_tsmc28(run_dir: Path) -> Path:
-    return _topology(run_dir, "tsmc28", "double_tail_self_timed")
-
-
-def comp_double_tail_self_timed_ihp130(run_dir: Path) -> Path:
-    return _topology(run_dir, "ihp130", "double_tail_self_timed")
-
-
-def comp_double_tail_self_timed_tower180(run_dir: Path) -> Path:
-    return _topology(run_dir, "tower180", "double_tail_self_timed")
-
-
-def comp_double_tail_self_timed_lf150(run_dir: Path) -> Path:
-    return _topology(run_dir, "lf150", "double_tail_self_timed")
-
-
-def comp_double_tail_self_timed_tpsc65(run_dir: Path) -> Path:
-    return _topology(run_dir, "tpsc65", "double_tail_self_timed")
-
-
-def comp_double_tail_modified_tsmc65(run_dir: Path) -> Path:
-    return _topology(run_dir, "tsmc65", "double_tail_modified")
-
-
-def comp_double_tail_modified_tsmc28(run_dir: Path) -> Path:
-    return _topology(run_dir, "tsmc28", "double_tail_modified")
-
-
-def comp_double_tail_modified_ihp130(run_dir: Path) -> Path:
-    return _topology(run_dir, "ihp130", "double_tail_modified")
-
-
-def comp_double_tail_modified_tower180(run_dir: Path) -> Path:
-    return _topology(run_dir, "tower180", "double_tail_modified")
-
-
-def comp_double_tail_modified_lf150(run_dir: Path) -> Path:
-    return _topology(run_dir, "lf150", "double_tail_modified")
-
-
-def comp_double_tail_modified_tpsc65(run_dir: Path) -> Path:
-    return _topology(run_dir, "tpsc65", "double_tail_modified")
-
-
-def comp_double_tail_modified_self_timed_tsmc65(run_dir: Path) -> Path:
-    return _topology(run_dir, "tsmc65", "double_tail_modified_self_timed")
-
-
-def comp_double_tail_modified_self_timed_tsmc28(run_dir: Path) -> Path:
-    return _topology(run_dir, "tsmc28", "double_tail_modified_self_timed")
-
-
-def comp_double_tail_modified_self_timed_ihp130(run_dir: Path) -> Path:
-    return _topology(run_dir, "ihp130", "double_tail_modified_self_timed")
-
-
-def comp_double_tail_modified_self_timed_tower180(run_dir: Path) -> Path:
-    return _topology(run_dir, "tower180", "double_tail_modified_self_timed")
-
-
-def comp_double_tail_modified_self_timed_lf150(run_dir: Path) -> Path:
-    return _topology(run_dir, "lf150", "double_tail_modified_self_timed")
-
-
-def comp_double_tail_modified_self_timed_tpsc65(run_dir: Path) -> Path:
-    return _topology(run_dir, "tpsc65", "double_tail_modified_self_timed")
-
-
-# ---- FRIDA-1, floorplan from ALIGN's placement
-
-
-def comp_frida1_auto_tsmc65(run_dir: Path) -> Path:
-    return _comp(run_dir, "tsmc65", "comp_frida1", FRIDA1, None)
-
-
-def comp_frida1_auto_tsmc28(run_dir: Path) -> Path:
-    return _comp(run_dir, "tsmc28", "comp_frida1", FRIDA1, None)
-
-
-def comp_frida1_auto_ihp130(run_dir: Path) -> Path:
-    return _comp(run_dir, "ihp130", "comp_frida1", FRIDA1, None)
-
-
-def comp_frida1_auto_tower180(run_dir: Path) -> Path:
-    return _comp(run_dir, "tower180", "comp_frida1", FRIDA1, None)
-
-
-def comp_frida1_auto_lf150(run_dir: Path) -> Path:
-    return _comp(run_dir, "lf150", "comp_frida1", FRIDA1, None)
-
-
-def comp_frida1_auto_tpsc65(run_dir: Path) -> Path:
-    return _comp(run_dir, "tpsc65", "comp_frida1", FRIDA1, None)
-
-
-# ---- c040, floorplan from ALIGN's placement
-
-
-def comp_c040_auto_tsmc65(run_dir: Path) -> Path:
-    return _comp(run_dir, "tsmc65", "comp_c040", C040, None)
-
-
-def comp_c040_auto_tsmc28(run_dir: Path) -> Path:
-    return _comp(run_dir, "tsmc28", "comp_c040", C040, None)
-
-
-def comp_c040_auto_ihp130(run_dir: Path) -> Path:
-    return _comp(run_dir, "ihp130", "comp_c040", C040, None)
-
-
-def comp_c040_auto_tower180(run_dir: Path) -> Path:
-    return _comp(run_dir, "tower180", "comp_c040", C040, None)
-
-
-def comp_c040_auto_lf150(run_dir: Path) -> Path:
-    return _comp(run_dir, "lf150", "comp_c040", C040, None)
-
-
-def comp_c040_auto_tpsc65(run_dir: Path) -> Path:
-    return _comp(run_dir, "tpsc65", "comp_c040", C040, None)
-
-
-# ---- one NMOS and one PMOS row cell, from each PDK's hand-written netlist
-
-
-def mos_inv_tsmc65(run_dir: Path) -> Path:
-    return _run(
-        run_dir, "tsmc65", "mos_inv", ROOT / "pdk/tsmc65/layout/netlists/mos_inv.sp", FLOORPLANS / "mos_inv.json"
-    )
-
-
-def mos_inv_tsmc28(run_dir: Path) -> Path:
-    return _run(
-        run_dir, "tsmc28", "mos_inv", ROOT / "pdk/tsmc28/layout/netlists/mos_inv.sp", FLOORPLANS / "mos_inv.json"
-    )
-
-
-def mos_inv_ihp130(run_dir: Path) -> Path:
-    return _run(
-        run_dir, "ihp130", "mos_inv", ROOT / "pdk/ihp130/layout/netlists/mos_inv.sp", FLOORPLANS / "mos_inv.json"
-    )
-
-
-def mos_inv_tower180(run_dir: Path) -> Path:
-    return _run(
-        run_dir, "tower180", "mos_inv", ROOT / "pdk/tower180/layout/netlists/mos_inv.sp", FLOORPLANS / "mos_inv.json"
-    )
-
-
-def mos_inv_lf150(run_dir: Path) -> Path:
-    return _run(run_dir, "lf150", "mos_inv", ROOT / "pdk/lf150/layout/netlists/mos_inv.sp", FLOORPLANS / "mos_inv.json")
-
-
-def mos_inv_tpsc65(run_dir: Path) -> Path:
-    return _run(
-        run_dir, "tpsc65", "mos_inv", ROOT / "pdk/tpsc65/layout/netlists/mos_inv.sp", FLOORPLANS / "mos_inv.json"
-    )
+    return _run(run_dir, pdk, "mos_inv", ROOT / f"pdk/{pdk}/layout/netlists/mos_inv.sp", FLOORPLANS / "mos_inv.json")
 
 
 # ---- each case in all six PDKs
 
 
 def comp_frida1_manual_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            comp_frida1_manual_tsmc65,
-            comp_frida1_manual_tsmc28,
-            comp_frida1_manual_ihp130,
-            comp_frida1_manual_tower180,
-            comp_frida1_manual_lf150,
-            comp_frida1_manual_tpsc65,
-        ),
-    )
+    """FRIDA-1, by its hand-written floorplan."""
+    return _all_pdks(run_dir, _comp, "comp_frida1", FRIDA1, FLOORPLANS / "comp_frida1.json")
 
 
 def comp_c040_manual_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            comp_c040_manual_tsmc65,
-            comp_c040_manual_tsmc28,
-            comp_c040_manual_ihp130,
-            comp_c040_manual_tower180,
-            comp_c040_manual_lf150,
-            comp_c040_manual_tpsc65,
-        ),
-    )
+    """c040, by its hand-written floorplan."""
+    return _all_pdks(run_dir, _comp, "comp_c040", C040, FLOORPLANS / "comp_c040.json")
 
 
 def comp_strongarm_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            comp_strongarm_tsmc65,
-            comp_strongarm_tsmc28,
-            comp_strongarm_ihp130,
-            comp_strongarm_tower180,
-            comp_strongarm_lf150,
-            comp_strongarm_tpsc65,
-        ),
-    )
+    return _all_pdks(run_dir, _topology, "strongarm")
 
 
 def comp_triple_tail_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            comp_triple_tail_tsmc65,
-            comp_triple_tail_tsmc28,
-            comp_triple_tail_ihp130,
-            comp_triple_tail_tower180,
-            comp_triple_tail_lf150,
-            comp_triple_tail_tpsc65,
-        ),
-    )
+    return _all_pdks(run_dir, _topology, "triple_tail")
 
 
 def comp_double_tail_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            comp_double_tail_tsmc65,
-            comp_double_tail_tsmc28,
-            comp_double_tail_ihp130,
-            comp_double_tail_tower180,
-            comp_double_tail_lf150,
-            comp_double_tail_tpsc65,
-        ),
-    )
+    return _all_pdks(run_dir, _topology, "double_tail")
 
 
 def comp_double_tail_self_timed_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            comp_double_tail_self_timed_tsmc65,
-            comp_double_tail_self_timed_tsmc28,
-            comp_double_tail_self_timed_ihp130,
-            comp_double_tail_self_timed_tower180,
-            comp_double_tail_self_timed_lf150,
-            comp_double_tail_self_timed_tpsc65,
-        ),
-    )
+    return _all_pdks(run_dir, _topology, "double_tail_self_timed")
 
 
 def comp_double_tail_modified_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            comp_double_tail_modified_tsmc65,
-            comp_double_tail_modified_tsmc28,
-            comp_double_tail_modified_ihp130,
-            comp_double_tail_modified_tower180,
-            comp_double_tail_modified_lf150,
-            comp_double_tail_modified_tpsc65,
-        ),
-    )
+    return _all_pdks(run_dir, _topology, "double_tail_modified")
 
 
 def comp_double_tail_modified_self_timed_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            comp_double_tail_modified_self_timed_tsmc65,
-            comp_double_tail_modified_self_timed_tsmc28,
-            comp_double_tail_modified_self_timed_ihp130,
-            comp_double_tail_modified_self_timed_tower180,
-            comp_double_tail_modified_self_timed_lf150,
-            comp_double_tail_modified_self_timed_tpsc65,
-        ),
-    )
+    return _all_pdks(run_dir, _topology, "double_tail_modified_self_timed")
 
 
 def comp_frida1_auto_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            comp_frida1_auto_tsmc65,
-            comp_frida1_auto_tsmc28,
-            comp_frida1_auto_ihp130,
-            comp_frida1_auto_tower180,
-            comp_frida1_auto_lf150,
-            comp_frida1_auto_tpsc65,
-        ),
-    )
+    """FRIDA-1, its floorplan from ALIGN's placement."""
+    return _all_pdks(run_dir, _comp, "comp_frida1", FRIDA1, None)
 
 
 def comp_c040_auto_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir,
-        (
-            comp_c040_auto_tsmc65,
-            comp_c040_auto_tsmc28,
-            comp_c040_auto_ihp130,
-            comp_c040_auto_tower180,
-            comp_c040_auto_lf150,
-            comp_c040_auto_tpsc65,
-        ),
-    )
+    """c040, its floorplan from ALIGN's placement."""
+    return _all_pdks(run_dir, _comp, "comp_c040", C040, None)
 
 
 def mos_inv_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(
-        run_dir, (mos_inv_tsmc65, mos_inv_tsmc28, mos_inv_ihp130, mos_inv_tower180, mos_inv_lf150, mos_inv_tpsc65)
-    )
+    return _all_pdks(run_dir, _mos_inv)
 
 
 ALL_PDKS = (
@@ -627,7 +242,7 @@ ALL_PDKS = (
 
 
 def all_comp_layouts(run_dir: Path) -> Path:
-    """The five ``*_all_pdks`` targets into ``run_dir/<target>/``."""
+    """The ``*_all_pdks`` functions into ``run_dir/<function>/``."""
 
     failures: dict[str, str] = {}
     for target in ALL_PDKS:
@@ -636,96 +251,3 @@ def all_comp_layouts(run_dir: Path) -> Path:
         except Exception as error:  # noqa: BLE001 - run every case
             failures[target.__name__] = repr(error)
     return _finish(run_dir, {}, failures)
-
-
-def main() -> None:
-    """Create one output directory and run one named comparator layout target."""
-
-    targets = {
-        target.__name__: target
-        for target in (
-            comp_frida1_manual_tsmc65,
-            comp_frida1_manual_tsmc28,
-            comp_frida1_manual_ihp130,
-            comp_frida1_manual_tower180,
-            comp_frida1_manual_lf150,
-            comp_frida1_manual_tpsc65,
-            comp_c040_manual_tsmc65,
-            comp_c040_manual_tsmc28,
-            comp_c040_manual_ihp130,
-            comp_c040_manual_tower180,
-            comp_c040_manual_lf150,
-            comp_c040_manual_tpsc65,
-            comp_strongarm_tsmc65,
-            comp_strongarm_tsmc28,
-            comp_strongarm_ihp130,
-            comp_strongarm_tower180,
-            comp_strongarm_lf150,
-            comp_strongarm_tpsc65,
-            comp_triple_tail_tsmc65,
-            comp_triple_tail_tsmc28,
-            comp_triple_tail_ihp130,
-            comp_triple_tail_tower180,
-            comp_triple_tail_lf150,
-            comp_triple_tail_tpsc65,
-            comp_double_tail_tsmc65,
-            comp_double_tail_tsmc28,
-            comp_double_tail_ihp130,
-            comp_double_tail_tower180,
-            comp_double_tail_lf150,
-            comp_double_tail_tpsc65,
-            comp_double_tail_self_timed_tsmc65,
-            comp_double_tail_self_timed_tsmc28,
-            comp_double_tail_self_timed_ihp130,
-            comp_double_tail_self_timed_tower180,
-            comp_double_tail_self_timed_lf150,
-            comp_double_tail_self_timed_tpsc65,
-            comp_double_tail_modified_tsmc65,
-            comp_double_tail_modified_tsmc28,
-            comp_double_tail_modified_ihp130,
-            comp_double_tail_modified_tower180,
-            comp_double_tail_modified_lf150,
-            comp_double_tail_modified_tpsc65,
-            comp_double_tail_modified_self_timed_tsmc65,
-            comp_double_tail_modified_self_timed_tsmc28,
-            comp_double_tail_modified_self_timed_ihp130,
-            comp_double_tail_modified_self_timed_tower180,
-            comp_double_tail_modified_self_timed_lf150,
-            comp_double_tail_modified_self_timed_tpsc65,
-            comp_frida1_auto_tsmc65,
-            comp_frida1_auto_tsmc28,
-            comp_frida1_auto_ihp130,
-            comp_frida1_auto_tower180,
-            comp_frida1_auto_lf150,
-            comp_frida1_auto_tpsc65,
-            comp_c040_auto_tsmc65,
-            comp_c040_auto_tsmc28,
-            comp_c040_auto_ihp130,
-            comp_c040_auto_tower180,
-            comp_c040_auto_lf150,
-            comp_c040_auto_tpsc65,
-            mos_inv_tsmc65,
-            mos_inv_tsmc28,
-            mos_inv_ihp130,
-            mos_inv_tower180,
-            mos_inv_lf150,
-            mos_inv_tpsc65,
-            *ALL_PDKS,
-            all_comp_layouts,
-        )
-    }
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("target", nargs="?", choices=list(targets))
-    args = parser.parse_args()
-    if args.target is None:
-        print("Available comparator layout targets:")
-        for name in targets:
-            print(f"  {name}")
-        return
-    run_dir = ROOT / "build" / "layout" / "comp" / args.target / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    run_dir.mkdir(parents=True, exist_ok=False)
-    targets[args.target](run_dir)
-
-
-if __name__ == "__main__":
-    main()

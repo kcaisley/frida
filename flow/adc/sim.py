@@ -1,12 +1,10 @@
 """ADC testbench and named Spectre simulation targets."""
 
-import argparse
 import hashlib
 import json
 import math
 import re
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime
 from itertools import product
 from multiprocessing import get_context
 from pathlib import Path
@@ -885,39 +883,3 @@ def frida2_sequence(run_dir: Path, *, check: bool = False) -> Path:
                 )
                 write_measurement(raw_path.parent / "result.h5", measurement)
     return run_dir
-
-
-def main() -> None:
-    """Select an experiment; diagnostics are available to Python callers only."""
-
-    targets = {
-        target.__name__: target
-        for target in (
-            hdl21_sample_rate,
-            hdl21_transfer_curve,
-            frida1_sequence,
-            frida1_sample_rate,
-            frida1_transfer_curve,
-            frida1_supply_noise,
-            frida2_sequence,
-        )
-    }
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", nargs="?", choices=list(targets))
-    args = parser.parse_args()
-    if args.target is None:
-        print("Available ADC simulation targets:")
-        for name in targets:
-            print(f"  {name}")
-        return
-    run_dir = (
-        Path(__file__).resolve().parents[2]
-        / "build/sim/adc"
-        / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") + "_" + args.target)
-    )
-    run_dir.mkdir(parents=True, exist_ok=False)
-    targets[args.target](run_dir)
-
-
-if __name__ == "__main__":
-    main()

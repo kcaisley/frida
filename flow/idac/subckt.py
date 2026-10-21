@@ -125,21 +125,3 @@ CASES = {
     # PMOS bias mirror: a diode reference and two cascoded always-on units (Usb2Phy PmosBiasDist)
     "pmos_mirror": IdacParams(source_xtors=MosType.PMOS, units=2, cascode=True, switch=Switch.NONE, diode=True),
 }
-
-
-def main() -> None:
-    """Write a current source netlist: one of the named units."""
-
-    import argparse
-
-    parser = argparse.ArgumentParser(description=main.__doc__)
-    parser.add_argument("case", choices=sorted(CASES), help="named unit")
-    parser.add_argument("output", type=Path, help="SPICE file to write (its stem names the subcircuit)")
-    parser.add_argument("--pdk", default="tsmc65")
-    args = parser.parse_args()
-    pdk = __import__(f"pdk.{args.pdk}.hdl21", fromlist=["pdk_logic"]).pdk_logic
-    print(write_netlist(CASES[args.case], args.output, pdk))
-
-
-if __name__ == "__main__":
-    main()

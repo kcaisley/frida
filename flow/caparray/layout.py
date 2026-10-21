@@ -12,7 +12,7 @@ mesh, the arrays' units side by side sharing their ring walls.
 the spacing the generator draws, or the calibrated ``tech.MOM_FITS``): the same lengths the
 generator draws, at the capacitance the model gives them. The helpers take the array they
 work on; each named target declares its arrays (FRIDA's ``RADIX17``, the ADC variants of
-``ADC_VARIANTS``) and its stack, and ``main`` only dispatches to one. The production targets
+``ADC_VARIANTS``) and its stack (``flow.caparray.targets`` runs them). The production targets
 build an array, sign it off (DRC, LVS against that netlist, 3D extraction) and tabulate its
 extracted capacitances (``pex.py``); ``caparray_all_pdks`` draws the array in every PDK and runs
 its DRC, ``caparray_extract_all_pdks`` extracts it where the PDK can and compares it with the
@@ -21,11 +21,9 @@ model, and ``caparray_extract_adc_variants`` extracts each ADC variant's array i
 
 from __future__ import annotations
 
-import argparse
 import json
 import tempfile
 from dataclasses import asdict, dataclass, replace
-from datetime import datetime
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -600,40 +598,3 @@ def caparray_window_check(run_dir: Path) -> Path:
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return run_dir
-
-
-def main() -> None:
-    targets = {
-        target.__name__: target
-        for target in (
-            caparray_1layer_radix17,
-            caparray_2layer_radix17,
-            caparray_3layer_radix17,
-            caparray_all_pdks,
-            caparray_extract_all_pdks,
-            caparray_extract_adc_variants,
-            caparray_window_check,
-        )
-    }
-    targets["main"] = all_caparrays
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", nargs="?", choices=sorted(targets))
-    args = parser.parse_args()
-    if args.target is None:
-        print("Available CDAC layout targets:")
-        for name in sorted(targets):
-            print(f"  {name}")
-        return
-    run_dir = (
-        Path(__file__).resolve().parents[2]
-        / "build"
-        / "layout"
-        / "caparray"
-        / args.target
-        / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    )
-    targets[args.target](run_dir)
-
-
-if __name__ == "__main__":
-    main()

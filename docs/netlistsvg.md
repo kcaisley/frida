@@ -32,5 +32,5 @@ npx --yes netlistsvg@1.0.2 path/to/netlist.json --skin path/to/style.svg -o path
 netlistsvg drops bus widths and constant values; [`flow/util/hdl2image.py`](../flow/util/hdl2image.py) runs netlistsvg and then adds width marks and 0/1 tie bars from the JSON.
 
 ```bash
-uv run python -m flow.util.hdl2image path/to/write_json.tcl -o path/to/diagram.svg --json path/to/netlist.json
+uv run python -c 'from pathlib import Path; from flow.util.hdl2image import hdl_to_svg; hdl_to_svg(Path("path/to/write_json.tcl"), Path("path/to/diagram.svg"), json_path=Path("path/to/netlist.json"))'
 ```

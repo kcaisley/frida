@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import ast
+import inspect
 import json
 from pathlib import Path
 
 import pytest
 from klayout import db
 
-from flow.comp import layout
+from flow.comp import layout, targets
 from flow.layout.signoff import RowSignoff
 
 CASES = (
@@ -27,20 +27,16 @@ CASES = (
 )
 
 
-def test_main_registers_every_target() -> None:
-    tree = ast.parse(Path(layout.__file__).read_text())
-    public = {node.name for node in tree.body if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")}
-    main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
-    registry = next(node for node in main.body if isinstance(node, ast.Assign))
-    assert isinstance(registry.value, ast.DictComp)
-    entries = registry.value.generators[0].iter
-    assert isinstance(entries, ast.Tuple)
-    listed = {ast.unparse(node) for node in entries.elts}
-    targets = (listed - {"*ALL_PDKS"}) | {target.__name__ for target in layout.ALL_PDKS}
-    per_pdk = {f"{case}_{pdk}" for case in CASES for pdk in layout.PDKS}
-    assert targets == public - {"main"}
-    assert targets == per_pdk | {f"{case}_all_pdks" for case in CASES} | {"all_comp_layouts"}
-    assert len(per_pdk) == 66 and len(targets) == 78
+def test_targets_lay_out_every_case_in_every_pdk() -> None:
+    public = {
+        name
+        for name, value in vars(layout).items()
+        if inspect.isfunction(value) and value.__module__ == layout.__name__ and not name.startswith("_")
+    }
+    assert public == {f"{case}_all_pdks" for case in CASES} | {"all_comp_layouts"}
+    assert [target.__name__ for target in layout.ALL_PDKS] == [f"{case}_all_pdks" for case in CASES]
+    expected = {f"layout_{case.removeprefix('comp_')}" for case in CASES} | {"layout_all"}
+    assert expected == {name for name in vars(targets) if name.startswith("layout_")}
 
 
 def test_c040_is_the_sweeps_topology_40_at_half_size() -> None:
@@ -91,15 +87,13 @@ def test_one_failing_tool_does_not_stop_the_others(tmp_path: Path, monkeypatch) 
 
 
 def test_all_pdks_merges_summaries_and_failures(tmp_path: Path) -> None:
-    def case_tsmc65(run_dir: Path) -> Path:
+    def case(run_dir: Path, pdk: str, name: str) -> Path:
         run_dir.mkdir()
-        return layout._finish(run_dir, {"tsmc65/cic": {"drc_violations": 0}}, {})
-
-    def case_ihp130(run_dir: Path) -> Path:
-        run_dir.mkdir()
-        return layout._finish(run_dir, {"ihp130/cic": {"error": "x"}}, {"ihp130/cic": "x"})
+        if pdk == "ihp130":
+            return layout._finish(run_dir, {f"{pdk}/{name}": {"error": "x"}}, {f"{pdk}/{name}": "x"})
+        return layout._finish(run_dir, {f"{pdk}/{name}": {"drc_violations": 0}}, {})
 
     with pytest.raises(RuntimeError, match="1 layouts failed"):
-        layout._all_pdks(tmp_path, (case_tsmc65, case_ihp130))
-    assert set(json.loads((tmp_path / "summary.json").read_text())) == {"tsmc65/cic", "ihp130/cic"}
+        layout._all_pdks(tmp_path, case, "cic")
+    assert set(json.loads((tmp_path / "summary.json").read_text())) == {f"{pdk}/cic" for pdk in layout.PDKS}
     assert json.loads((tmp_path / "failures.json").read_text()) == {"ihp130/cic": "x"}

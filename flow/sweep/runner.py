@@ -1,7 +1,7 @@
-"""Run, lay out and tabulate the blocks' design-space sweeps (``python -m flow.sweep``).
+"""Run, lay out and tabulate the blocks' design-space sweeps (``python -m flow sweep.<target>``).
 
 ``run``: every block's instances (PDK x topology x sizing) characterized, one process each, at
-most ``--workers`` at once; each writes ``instance.json`` (its parameters, metrics, details,
+most ``workers`` at once; each writes ``instance.json`` (its parameters, metrics, details,
 waves, its run time or error) in ``build/sweep/<block>/<run>/<pdk>/<topology>/<sizing>/``.
 ``layout``: ALIGN places and routes each instance of the newest run whose block gives a layout
 netlist, signoff checks it, and its area joins the record. ``table``: the newest run of each
@@ -12,7 +12,6 @@ file per instance (its details, waves, layout and schematic).
 
 from __future__ import annotations
 
-import argparse
 import dataclasses
 import json
 import math
@@ -389,25 +388,3 @@ def table(blocks: list[str], workers: int) -> None:
             laid_out = sum(1 for record, _future in views.values() if (record.get("layout") or {}).get("gds"))
             print(f"{block}: {len(rows)} instances, {len(metrics)} metrics, {len(details)} details, {laid_out} layouts")
     catalog_path.write_text(json.dumps(dict(sorted(catalog.items())), indent=1) + "\n")
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("step", choices=("run", "layout", "table"))
-    parser.add_argument("--blocks", nargs="*", default=None, help="blocks (default: every block with a sweep.py)")
-    parser.add_argument("--pdks", nargs="*", default=list(PDKS))
-    # a Spectre X run holds 3 of the server's 120 licences: 40 runs at most, and others work too
-    parser.add_argument("--workers", type=int, default=36)
-    parser.add_argument("--failed", action="store_true", help="run: only the newest run's failed instances, again")
-    args = parser.parse_args()
-    blocks = args.blocks or sweep_blocks()
-    if args.step == "run":
-        run(blocks, tuple(args.pdks), args.workers, failed=args.failed)
-    elif args.step == "layout":
-        layout(blocks, args.workers)
-    else:
-        table(blocks, min(args.workers, 16))
-
-
-if __name__ == "__main__":
-    main()

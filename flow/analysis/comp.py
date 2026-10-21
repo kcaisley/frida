@@ -20,9 +20,6 @@ from flow.analysis.types import (
     measurement_identity,
 )
 
-# the share of a curve's trials that may stay undecided before its fit is not trusted
-UNRESOLVED_LIMIT = 0.01
-
 
 def analyze_comp_offset_noise(
     measurements: Sequence[MeasComp | MeasCdac],
@@ -33,8 +30,8 @@ def analyze_comp_offset_noise(
     curves are accepted too; their common mode comes from the testbench when
     the DAQ did not record it. Trials a simulation marks unresolved (the latch
     still undecided when the decision was read: the output holds the previous
-    one) are left out; where more than ``UNRESOLVED_LIMIT`` of them are, the
-    comparator is too slow for its clock and the fit is ``unresolved``.
+    one) are left out; where more than 1 % of them are, the comparator is too
+    slow for its clock and the fit is ``unresolved``.
     """
 
     identity = measurement_identity(measurements)
@@ -70,7 +67,8 @@ def analyze_comp_offset_noise(
         ]
     )
     unresolved_fraction = 1.0 - float(np.mean(resolved))
-    if unresolved_fraction <= UNRESOLVED_LIMIT:
+    # more than 1 % undecided: the comparator is too slow for its clock, and its curve is kept as read
+    if unresolved_fraction <= 0.01:
         vin_diff_v, decisions = vin_diff_v[resolved], decisions[resolved]
     unique_input, inverse = np.unique(vin_diff_v, return_inverse=True)
     if len(unique_input) < 3:
@@ -163,7 +161,7 @@ def analyze_comp_offset_noise(
     p84 = calc.cross(fitted_probability, unique_input, 0.841345, occurrence=1)
     noise_sigma_v = abs(p84 - p16) / 2.0 if math.isfinite(p16) and math.isfinite(p84) else math.nan
     validity: Literal["valid", "unbracketed", "non_monotonic", "unresolved"]
-    if unresolved_fraction > UNRESOLVED_LIMIT:
+    if unresolved_fraction > 0.01:
         validity = "unresolved"
         p50 = math.nan
         noise_sigma_v = math.nan

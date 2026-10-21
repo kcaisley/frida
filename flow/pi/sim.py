@@ -8,7 +8,6 @@ weights are fixed, so the characterization sweeps the phase spacing (the interpo
 transfer and linearity) and the clock period at quadrature spacing.
 """
 
-import argparse
 import importlib
 import json
 import math
@@ -304,31 +303,3 @@ def pi_characterization(run_dir: Path, *, check: bool = False) -> Path:
         failure_path.write_text(json.dumps(failures, indent=2) + "\n")
         raise RuntimeError(f"{len(failures)} phase interpolator points failed; see {failure_path}")
     return run_dir
-
-
-def main() -> None:
-    """Create one output directory and run one named phase interpolator target."""
-
-    targets = {target.__name__: target for target in (pi_characterization,)}
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", nargs="?", choices=sorted(targets))
-    args = parser.parse_args()
-    if args.target is None:
-        print("Available phase interpolator simulation targets:")
-        for name in sorted(targets):
-            print(f"  {name}")
-        return
-    run_dir = (
-        Path(__file__).resolve().parents[2]
-        / "build"
-        / "sim"
-        / "pi"
-        / args.target
-        / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    )
-    run_dir.mkdir(parents=True, exist_ok=False)
-    targets[args.target](run_dir)
-
-
-if __name__ == "__main__":
-    main()

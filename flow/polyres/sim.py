@@ -8,11 +8,9 @@ and returns its resistance. ``polyres_check`` compares that with the row cell's 
 
 from __future__ import annotations
 
-import argparse
 import importlib
 import json
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import datetime
 from multiprocessing import get_context
 from pathlib import Path
 
@@ -105,31 +103,3 @@ def polyres_check(run_dir: Path) -> Path:
                 summary[futures[future]] = {"error": str(error)[:500]}
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return run_dir
-
-
-def main() -> None:
-    """Create one output directory and run one named poly resistor simulation target."""
-
-    targets = {target.__name__: target for target in (polyres_check,)}
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", nargs="?", choices=sorted(targets))
-    args = parser.parse_args()
-    if args.target is None:
-        print("Available poly resistor simulation targets:")
-        for name in sorted(targets):
-            print(f"  {name}")
-        return
-    run_dir = (
-        Path(__file__).resolve().parents[2]
-        / "build"
-        / "sim"
-        / "polyres"
-        / args.target
-        / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    )
-    run_dir.mkdir(parents=True, exist_ok=False)
-    targets[args.target](run_dir)
-
-
-if __name__ == "__main__":
-    main()

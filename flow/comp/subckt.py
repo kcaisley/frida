@@ -957,30 +957,24 @@ def write_netlist(params: CompParams, path: Path, pdk, constant_from=None, *, ge
     return path
 
 
-def main() -> None:
-    """Write a comparator netlist: FRIDA-1 or a size-sweep case, either output stage."""
+def write_case_netlist(
+    case: str,
+    output: Path,
+    *,
+    output_stage: str = "transistors",
+    pdk: str = "tsmc65",
+    constant_from: str | None = None,
+) -> Path:
+    """A comparator netlist (``write_netlist``) by name: ``"frida1"``, or a size-sweep case
+    ``<topology index>_<half|double>`` (e.g. ``"40_half"``), with either output stage
+    (``"transistors"`` or ``"stdcells"``) in ``pdk``; ``constant_from`` keeps the analog devices at
+    that PDK's physical sizes (e.g. ``"tsmc65"``)."""
 
-    import argparse
-
-    parser = argparse.ArgumentParser(description=main.__doc__)
-    parser.add_argument("case", help="frida1, or a sweep case <topology index>_<half|double>, e.g. 40_half")
-    parser.add_argument("output", type=Path, help="SPICE file to write (its stem names the subcircuit)")
-    parser.add_argument("--output-stage", choices=("transistors", "stdcells"), default="transistors")
-    parser.add_argument("--pdk", default="tsmc65")
-    parser.add_argument("--constant-from", help="keep the analog devices at this PDK's physical sizes, e.g. tsmc65")
-    args = parser.parse_args()
-    if args.case == "frida1":
+    if case == "frida1":
         params = FRIDA1
     else:
-        index, profile = args.case.split("_")
+        index, profile = case.split("_")
         params = CompParams(**topologies()[int(index)], **SIZE_PROFILES[profile], **LENGTHS)
-    params = CompParams(**{**params.__dict__, "output_stage": OutputStage[args.output_stage.upper()]})
-    pdk, reference = (
-        __import__(f"pdk.{name}.hdl21", fromlist=["pdk_logic"]).pdk_logic if name else None
-        for name in (args.pdk, args.constant_from)
-    )
-    print(write_netlist(params, args.output, pdk, reference))
-
-
-if __name__ == "__main__":
-    main()
+    params = CompParams(**{**params.__dict__, "output_stage": OutputStage[output_stage.upper()]})
+    logic, reference = (import_module(f"pdk.{name}.hdl21").pdk_logic if name else None for name in (pdk, constant_from))
+    return write_netlist(params, output, logic, reference)

@@ -1,6 +1,7 @@
 """Transistor-level schematic images of SPICE netlists, laid out by signal flow and symmetry.
 
-    uv run python -m flow.util.netlist2image NETLIST.sp OUT.svg [ALIGN.const.json]
+    from flow.util.netlist2image import render
+    render(Path("NETLIST.sp"), Path("OUT.svg"), "ALIGN.const.json")  # the constraints optional
 
 Stages are channel-connected components in signal-flow order, inputs on the left: devices
 joined through drain and source nets form one stage (a StrongARM is one), and each next stage
@@ -26,7 +27,6 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
@@ -285,7 +285,9 @@ def label(name, x, y, side):
     ]
 
 
-def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN):
+def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN) -> dict[int, list[str]]:
+    """Draw ``netlist`` into ``out`` (SVG), by ALIGN's constraints (``const_path``, a
+    ``.const.json``) where given; the stacks drawn, each its devices."""
     skin = Skin(skin_path)
     ports, devs = parse(netlist)
     pairs, axis, sym_nets = symmetry(devs, const_path)
@@ -518,14 +520,3 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN):
         f'{skin.style}<rect width="100%" height="100%" fill="white" stroke="none"/>' + "".join(svg) + "</svg>"
     )
     return {k: sorted(n for n in devs if stack[stage[n]] == k) for k in sorted(set(stack.values()))}
-
-
-def main() -> None:
-    if len(sys.argv) not in (3, 4):
-        raise SystemExit(__doc__)
-    for k, members in render(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3] if len(sys.argv) > 3 else None).items():
-        print(f"stack {k}: {' '.join(members)}")
-
-
-if __name__ == "__main__":
-    main()

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import ast
+import inspect
 import json
 from importlib import import_module
 from pathlib import Path
@@ -10,23 +10,22 @@ from pathlib import Path
 import pytest
 
 from flow.comp.layout import FLOORPLANS, PDKS
-from flow.samp import layout
+from flow.samp import layout, targets
 from flow.samp.subckt import CASES, write_netlist
 
 LAID_OUT = ("frida1", "tgate_dummy", "bootstrap", "nmos")
 
 
-def test_main_registers_every_target() -> None:
-    tree = ast.parse(Path(layout.__file__).read_text())
-    public = {node.name for node in tree.body if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")}
-    main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
-    registry = next(node for node in main.body if isinstance(node, ast.Assign))
-    entries = registry.value.generators[0].iter
-    listed = {ast.unparse(node) for node in entries.elts}
-    targets = (listed - {"*ALL_PDKS"}) | {target.__name__ for target in layout.ALL_PDKS}
-    per_pdk = {f"samp_{case}_{pdk}" for case in LAID_OUT for pdk in PDKS}
-    assert targets == public - {"main"}
-    assert targets == per_pdk | {f"samp_{case}_all_pdks" for case in LAID_OUT} | {"all_samp_layouts"}
+def test_targets_lay_out_every_case_in_every_pdk() -> None:
+    public = {
+        name
+        for name, value in vars(layout).items()
+        if inspect.isfunction(value) and value.__module__ == layout.__name__ and not name.startswith("_")
+    }
+    assert public == {f"samp_{case}_all_pdks" for case in LAID_OUT} | {"all_samp_layouts"}
+    assert {target.__name__ for target in layout.ALL_PDKS} == {f"samp_{case}_all_pdks" for case in LAID_OUT}
+    expected = {f"layout_{case}" for case in LAID_OUT} | {"layout_all"}
+    assert expected == {name for name in vars(targets) if name.startswith("layout_")}
 
 
 @pytest.mark.parametrize("case", LAID_OUT)

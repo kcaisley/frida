@@ -10,7 +10,6 @@ is a study, not a step of a capacitor's generation.
 
 from __future__ import annotations
 
-import argparse
 import json
 import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -146,31 +145,3 @@ def momcap_characterization(
         failure_path.write_text(json.dumps(failures, indent=2) + "\n")
         raise RuntimeError(f"{len(failures)} MOM test structures failed; see {failure_path}")
     return run_dir
-
-
-def main() -> None:
-    """Create one output directory and run one named MOM extraction target."""
-
-    targets = {target.__name__: target for target in (momcap_characterization,)}
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", nargs="?", choices=sorted(targets))
-    args = parser.parse_args()
-    if args.target is None:
-        print("Available MOM capacitor extraction targets:")
-        for name in sorted(targets):
-            print(f"  {name}")
-        return
-    run_dir = (
-        Path(__file__).resolve().parents[2]
-        / "build"
-        / "pex"
-        / "momcap"
-        / args.target
-        / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    )
-    run_dir.mkdir(parents=True, exist_ok=False)
-    targets[args.target](run_dir)
-
-
-if __name__ == "__main__":
-    main()

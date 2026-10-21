@@ -1,8 +1,8 @@
 """Schematic images from HDL (Verilog, SystemVerilog), through Yosys and netlistsvg.
 
-    uv run python -m flow.util.hdl2image input.v --top TOP -o out.svg [--skin digital|analog|SKIN.svg]
-    uv run python -m flow.util.hdl2image script.tcl -o out.svg      # a Yosys script that writes the JSON
-    uv run python -m flow.util.hdl2image netlist.json -o out.svg    # a Yosys JSON netlist
+    hdl_to_svg(Path("input.v"), Path("out.svg"), top="TOP", skin="digital")  # or "analog", or a skin SVG
+    hdl_to_svg(Path("script.tcl"), Path("out.svg"))      # a Yosys script that writes the JSON
+    hdl_to_svg(Path("netlist.json"), Path("out.svg"))    # a Yosys JSON netlist
 
 The digital skin draws blocks, with bus widths and 0/1 tie symbols added after netlistsvg (it drops
 both). The analog skin normalizes MOS cells (any PDK's MOS models, flow/util/mos_models.py)
@@ -13,7 +13,6 @@ SPICE, laid out by signal-flow stage and symmetry, see ``flow/util/netlist2image
 
 from __future__ import annotations
 
-import argparse
 import json
 import re
 import subprocess
@@ -528,38 +527,29 @@ def verilog_to_analog_svg(
     return json_path, output_path
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "source", type=Path, help="structural Verilog, a Yosys script (.tcl) writing the JSON, or the JSON"
-    )
-    parser.add_argument("-o", "--output", required=True, type=Path, help="output SVG path")
-    parser.add_argument("--top", help="top-level Verilog module (Verilog input)")
-    parser.add_argument("--json", type=Path, help="the JSON a Yosys script writes (default: OUTPUT with .json)")
-    parser.add_argument("--skin", default="digital", help="digital, analog, or a skin SVG")
-    args = parser.parse_args()
-    skin = {"digital": DIGITAL_SKIN, "analog": ANALOG_SKIN}.get(args.skin, Path(args.skin))
-    if args.source.suffix == ".json":
-        json_to_digital_svg(args.source, args.output, skin)
-    elif args.source.suffix == ".tcl":
-        tcl_to_digital_svg(args.source, args.json or args.output.with_suffix(".json"), args.output, skin)
-    elif skin == DIGITAL_SKIN:
-        if not args.top:
-            parser.error("Verilog input needs --top")
+def hdl_to_svg(
+    source: Path, output: Path, *, top: str | None = None, json_path: Path | None = None, skin: str = "digital"
+) -> Path:
+    """Draw ``source`` into ``output`` (SVG): structural Verilog (with its ``top`` module), a Yosys
+    script (``.tcl``) writing the JSON (to ``json_path``, by default ``output`` with ``.json``), or
+    the Yosys JSON netlist itself; ``skin`` is ``digital``, ``analog`` or a skin SVG's path."""
+
+    skin_path = {"digital": DIGITAL_SKIN, "analog": ANALOG_SKIN}.get(skin, Path(skin))
+    if source.suffix == ".json":
+        json_to_digital_svg(source, output, skin_path)
+    elif source.suffix == ".tcl":
+        tcl_to_digital_svg(source, json_path or output.with_suffix(".json"), output, skin_path)
+    elif not top:
+        raise ValueError("Verilog input needs its top module")
+    elif skin_path == DIGITAL_SKIN:
         with tempfile.TemporaryDirectory(prefix="frida-netlistsvg-") as tmp:
             script = Path(tmp) / "write_json.tcl"
-            json_path = args.output.resolve().with_suffix(".json")
+            netlist = output.resolve().with_suffix(".json")
             script.write_text(
-                f'yosys -import\nread_verilog -sv "{args.source.resolve()}"\nprep -top {args.top}\n'
-                f'techmap\nopt\nwrite_json "{json_path}"\n'
+                f'yosys -import\nread_verilog -sv "{source.resolve()}"\nprep -top {top}\n'
+                f'techmap\nopt\nwrite_json "{netlist}"\n'
             )
-            tcl_to_digital_svg(script, json_path, args.output.resolve(), skin)
+            tcl_to_digital_svg(script, netlist, output.resolve(), skin_path)
     else:
-        if not args.top:
-            parser.error("Verilog input needs --top")
-        verilog_to_analog_svg(args.source, args.output, args.top, skin)
-    print(f"Created {args.output}")
-
-
-if __name__ == "__main__":
-    main()
+        verilog_to_analog_svg(source, output, top, skin_path)
+    return output

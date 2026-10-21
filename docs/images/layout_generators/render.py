@@ -26,7 +26,8 @@ from flow.util.gds2image import render_png
 ROOT = Path(__file__).resolve().parents[3]
 OUT = Path(__file__).resolve().parent  # the schematics
 RUNS = ROOT / "build/layout/comp"
-# the runs this deck shows: python -m flow.comp.layout <target>, one directory per PDK in each
+# the runs this deck shows, from python -m flow.comp.layout <target> (now python -m flow comp.layout_<case>),
+# one directory per PDK in each
 RUN = {
     "comp_frida1": RUNS / "comp_frida1_manual_all_pdks/20261014_221027",
     "comp_c040": RUNS / "comp_c040_manual_all_pdks/20261014_221027",

@@ -108,21 +108,3 @@ CASES = {
     # glitch-free clock gate (bag3_digital clk_gate)
     "gate": ClkgenParams(function=Function.GATE),
 }
-
-
-def main() -> None:
-    """Write a clock generator netlist: one of the named clock functions."""
-
-    import argparse
-
-    parser = argparse.ArgumentParser(description=main.__doc__)
-    parser.add_argument("case", choices=sorted(CASES), help="named clock function")
-    parser.add_argument("output", type=Path, help="SPICE file to write (its stem names the subcircuit)")
-    parser.add_argument("--pdk", default="tsmc65")
-    args = parser.parse_args()
-    pdk = __import__(f"pdk.{args.pdk}.hdl21", fromlist=["pdk_logic"]).pdk_logic
-    print(write_netlist(CASES[args.case], args.output, pdk))
-
-
-if __name__ == "__main__":
-    main()

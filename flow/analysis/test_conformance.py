@@ -328,10 +328,13 @@ def test_analysis_modules_are_pure_and_never_nest_analyses() -> None:
     assert _source_problems() <= KNOWN_SOURCE_VIOLATIONS
 
 
-def test_runner_writes_only_analysis_results_and_figures() -> None:
-    tree = _tree(ANALYSIS_DIR / "runner.py")
+# the studies: the *_study targets in the blocks' targets.py, and what they share
+STUDY_MODULES = (ANALYSIS_DIR / "studies.py", *sorted(ANALYSIS_DIR.parent.glob("*/targets.py")))
+
+
+def test_studies_write_only_analysis_results_and_figures() -> None:
     problems = set()
-    for node in ast.walk(tree):
+    for node in (node for path in STUDY_MODULES for node in ast.walk(_tree(path))):
         if isinstance(node, ast.Import):
             problems |= {
                 alias.name
@@ -380,7 +383,7 @@ def test_no_current_architecture_literals_remain(module_name: str) -> None:
 
 
 # Only these modules may define private helper functions or classes. Analysis,
-# plotting, and runner code keep their logic inside their public functions.
+# plotting, and study code keep their logic inside their public functions.
 HELPER_MODULES = {"types", "io", "calc"}
 
 
@@ -461,16 +464,16 @@ def test_every_measurement_class_follows_the_meas_base() -> None:
     assert problems == set()
 
 
-# The only functions the plotting and runner modules may define.
+# The only functions the plotting and study modules may define.
 PUBLIC_FUNCTION_NAMES = {
     "plots": r"plot_\w+|style_\w+|save_figure",
-    # main() is the command-line entry point that selects one study.
-    "runner": r"\w+_study|main",
+    # the studies themselves are targets in the blocks' targets.py
+    "studies": r"(?!)",
 }
 
 
 @pytest.mark.parametrize("module_name", sorted([*PUBLIC_FUNCTION_NAMES, *BLOCK_PLOTS]))
-def test_plots_and_runner_define_only_their_public_kinds_of_function(module_name: str) -> None:
+def test_plots_and_studies_define_only_their_public_kinds_of_function(module_name: str) -> None:
     tree = _tree(_path(module_name))
     pattern = (
         PUBLIC_FUNCTION_NAMES[module_name]

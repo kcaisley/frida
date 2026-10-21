@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import importlib.util
 import re
 import sys
+from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -14,9 +16,10 @@ import hdl21 as h
 import numpy as np
 import pytest
 
+import flow
 import flow.analysis as analysis_api
+from flow.adc import targets as adc_targets
 from flow.adc.sequences import SEQUENCES
-from flow.analysis import runner
 from flow.analysis.adc import analyze_adc_ramp
 from flow.analysis.io import read_analysis
 from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
@@ -26,6 +29,8 @@ from flow.analysis.types import (
     AnalysisAdcOperatingConditions,
     AnalysisAdcTimingSummary,
 )
+from flow.caparray import targets as caparray_targets
+from flow.comp import targets as comp_targets
 
 
 def test_root_api_exposes_domain_analyses_not_campaign_combiners() -> None:
@@ -41,77 +46,81 @@ def test_root_api_exposes_domain_analyses_not_campaign_combiners() -> None:
     assert not hasattr(analysis_api, "analyze_adc_dynamic_sweep")
 
 
-def test_runner_exposes_only_named_orchestration_entry_points() -> None:
-    """Keep the public runner surface limited to explicit, user-invoked pipelines.
+STUDIES = {
+    adc_targets: {
+        "transfer_curve_study",
+        "ramp_nonlinearity_study",
+        "calibration_study",
+        "sequence_study",
+        "interferer_study",
+        "sample_rate_study",
+        "power_study",
+        "behavioral_nonlinearity_study",
+        "behavioral_energy_study",
+        "behavioral_sample_rate_study",
+        "behavioral_trajectory_study",
+        "behavioral_calibration_study",
+        "behavioral_architecture_study",
+        "behavioral_noise_spectrum_study",
+        "behavioral_input_frequency_study",
+    },
+    comp_targets: {
+        "system_common_mode_study",
+        "system_sampling_noise_study",
+        "candidate_sweep_study",
+        "characterization_study",
+        "behavioral_offset_noise_study",
+    },
+    caparray_targets: {"system_cap_mismatch_study", "characterization_study"},
+    **{
+        import_module(f"flow.{block}.targets"): {"characterization_study"}
+        for block in (
+            "delay",
+            "latch",
+            "ota",
+            "follower",
+            "moscap",
+            "idac",
+            "cml",
+            "pi",
+            "clkgen",
+            "capdriver",
+            "csa",
+            "disc",
+            "schmitt",
+            "bias",
+            "lvshift",
+            "ringamp",
+            "samp",
+            "momcap",
+            "mosfet",
+        )
+    },
+}
 
-    Private helpers implement shared stages (input selection and prior-result
-    analyses) used by several pipelines.
-    """
 
-    tree = ast.parse(Path(runner.__file__).read_text())
-    public_functions = {
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_")
-    }
+def study(monkeypatch: pytest.MonkeyPatch, module, name: str, output_dir: Path) -> tuple[Path, ...]:
+    """Run a study target of ``module`` with ``output_dir`` as its run directory."""
 
-    main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
-    registry = next(node for node in main.body if isinstance(node, ast.AnnAssign))
-    assert isinstance(registry.value, ast.DictComp)
-    entries = registry.value.generators[0].iter
-    assert isinstance(entries, ast.Tuple)
-    targets = {ast.unparse(node) for node in entries.elts}
-    assert not hasattr(runner, "TARGETS")
-    assert public_functions == {*targets, "main"}
-    assert targets == {
-        "adc_transfer_curve_study",
-        "adc_ramp_nonlinearity_study",
-        "adc_calibration_study",
-        "adc_sequence_study",
-        "adc_interferer_study",
-        "adc_sample_rate_study",
-        "adc_power_study",
-        "comp_system_common_mode_study",
-        "comp_system_sampling_noise_study",
-        "comp_candidate_sweep_study",
-        "comp_characterization_study",
-        "delay_characterization_study",
-        "latch_characterization_study",
-        "ota_characterization_study",
-        "follower_characterization_study",
-        "moscap_characterization_study",
-        "idac_characterization_study",
-        "cml_characterization_study",
-        "pi_characterization_study",
-        "clkgen_characterization_study",
-        "capdriver_characterization_study",
-        "csa_characterization_study",
-        "disc_characterization_study",
-        "schmitt_characterization_study",
-        "bias_characterization_study",
-        "lvshift_characterization_study",
-        "ringamp_characterization_study",
-        "samp_characterization_study",
-        "caparray_characterization_study",
-        "momcap_characterization_study",
-        "mosfet_characterization_study",
-        "cdac_system_cap_mismatch_study",
-        "adc_behavioral_nonlinearity_study",
-        "adc_behavioral_energy_study",
-        "adc_behavioral_sample_rate_study",
-        "adc_behavioral_trajectory_study",
-        "adc_behavioral_calibration_study",
-        "adc_behavioral_architecture_study",
-        "adc_behavioral_noise_spectrum_study",
-        "adc_behavioral_input_frequency_study",
-        "comp_behavioral_offset_noise_study",
-    }
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name in targets:
-            assert [arg.arg for arg in node.args.args] == ["output_dir"]
-            assert not node.args.kwonlyargs
-            assert node.returns is not None
+    monkeypatch.setattr(module, "new_run", lambda *_parts: output_dir)
+    return getattr(module, name)()
+
+
+def test_studies_are_the_blocks_explicit_targets() -> None:
+    """Keep the studies explicit, user-invoked pipelines: targets without arguments in the block
+    they analyze, each making its own output directory; flow.analysis.runner is gone."""
+
+    assert importlib.util.find_spec("flow.analysis.runner") is None
+    for module, names in STUDIES.items():
+        tree = ast.parse(Path(module.__file__).read_text())
+        studies = {
+            node.name: node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name.endswith("_study")
+        }
+        assert set(studies) == names, module.__name__
+        for node in studies.values():
+            assert not node.args.args and not node.args.kwonlyargs and not node.args.vararg
             assert ast.unparse(node.returns) == "tuple[Path, ...]"
+            assert "new_run" in ast.unparse(node.body[1]), f"{module.__name__}.{node.name}"
 
 
 def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, monkeypatch) -> None:
@@ -152,9 +161,9 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     historical.write_bytes(b"historical measurement")
     output_dir = tmp_path / "output"
     sequence_name, sequence = next(
-        (name, seq) for name, seq in runner.SEQUENCES if name.startswith("symbol160_init4_samp20_")
+        (name, seq) for name, seq in adc_targets.SEQUENCES if name.startswith("symbol160_init4_samp20_")
     )
-    monkeypatch.setattr(runner, "SEQUENCES", ((sequence_name, sequence),))
+    monkeypatch.setattr(adc_targets, "SEQUENCES", ((sequence_name, sequence),))
     physical_dir = tmp_path / "build/scan_adc/20260926_172920_adc_sequence_static"
     physical_dir.mkdir(parents=True)
     physical_captures = {}
@@ -227,12 +236,12 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
         sequence = pex_sequences[path.parent.name]
         return dataclasses.replace(measurement, param=dataclasses.replace(measurement.param, **sequence.as_tb_fields()))
 
-    monkeypatch.setattr(runner, "read_measurement", load)
+    monkeypatch.setattr(adc_targets, "read_measurement", load)
     monkeypatch.setattr(
-        runner, "read_measurement_param", lambda path: SimpleNamespace(observed_adc=physical_captures[path][0])
+        adc_targets, "read_measurement_param", lambda path: SimpleNamespace(observed_adc=physical_captures[path][0])
     )
-    monkeypatch.setattr(runner, "analyze_adc_decision_paths", lambda *args, **kwargs: object())
-    monkeypatch.setattr(runner, "analyze_adc_cdac_settling", lambda *args: object())
+    monkeypatch.setattr(adc_targets, "analyze_adc_decision_paths", lambda *args, **kwargs: object())
+    monkeypatch.setattr(adc_targets, "analyze_adc_cdac_settling", lambda *args: object())
 
     def plot(*args, output_path, **kwargs):
         if output_path.name == "all_adc_sequence_overview":
@@ -252,10 +261,10 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
         "plot_adc_noise_sweep",
         "plot_adc_code_distribution",
     ):
-        monkeypatch.setattr(runner, name, plot)
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
+        monkeypatch.setattr(adc_targets, name, plot)
+    monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
 
-    artifacts = runner.adc_sequence_study(output_dir)
+    artifacts = study(monkeypatch, adc_targets, "sequence_study", output_dir)
     flavor_count = 7
     assert len(artifacts) == 2 * 16 + 1 + 4 * case_count + clock_count + 2 * flavor_count
     assert len([path for path in artifacts if path.name.endswith("_sequence_enob.pdf")]) == 16
@@ -270,7 +279,9 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     assert all(isinstance(read_analysis(path), AnalysisAdcTimingSummary) for path in summaries)
 
 
-def install_cdac_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, adc_indices=(0, 1)) -> dict[str, Any]:
+def install_cdac_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, module, adc_indices=(0, 1)
+) -> dict[str, Any]:
     """Create placeholder CDAC and comparator files whose reads return marked fakes.
 
     The first CDAC run holds every curve; the second reacquires ADC00's
@@ -335,13 +346,13 @@ def install_cdac_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, adc_
         )
         return SimpleNamespace(index=adc_index)
 
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "MeasCdac", SimpleNamespace)
-    monkeypatch.setattr(runner, "MeasComp", SimpleNamespace)
-    monkeypatch.setattr(runner, "read_measurement", by_path.__getitem__)
-    monkeypatch.setattr(runner, "analyze_comp_offset_noise", offset_noise)
-    monkeypatch.setattr(runner, "analyze_cdac_transition", transition)
-    monkeypatch.setattr(runner, "analyze_cdac_cap_mismatch", cap_mismatch)
+    monkeypatch.setattr(module, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(module, "MeasCdac", SimpleNamespace)
+    monkeypatch.setattr(module, "MeasComp", SimpleNamespace)
+    monkeypatch.setattr(module, "read_measurement", by_path.__getitem__)
+    monkeypatch.setattr(module, "analyze_comp_offset_noise", offset_noise)
+    monkeypatch.setattr(module, "analyze_cdac_transition", transition)
+    monkeypatch.setattr(module, "analyze_cdac_cap_mismatch", cap_mismatch)
     received["by_path"] = by_path
     return received
 
@@ -375,7 +386,7 @@ def test_adc_calibration_runner_combines_three_common_results(
             output_offset_lsb=0.0,
         )
 
-    received = install_cdac_inputs(tmp_path, monkeypatch)
+    received = install_cdac_inputs(tmp_path, monkeypatch, module=adc_targets)
     ramp_path = tmp_path / (
         "build/scan_adc/20260812_011910/"
         "0000_00_adc00_160mbd_pwl10hz_m1000top1000mv_logicp0sym_"
@@ -387,9 +398,9 @@ def test_adc_calibration_runner_combines_three_common_results(
         received["calibration1"] = (measurements, cap_mismatch)
         return calibration("calibration1")
 
-    monkeypatch.setattr(runner, "analyze_adc_calibration1", calibration1)
-    monkeypatch.setattr(runner, "analyze_adc_calibration2", lambda _m, *, ramp: calibration("calibration2"))
-    monkeypatch.setattr(runner, "analyze_adc_calibration3", lambda _m, *, ramp: calibration("calibration3"))
+    monkeypatch.setattr(adc_targets, "analyze_adc_calibration1", calibration1)
+    monkeypatch.setattr(adc_targets, "analyze_adc_calibration2", lambda _m, *, ramp: calibration("calibration2"))
+    monkeypatch.setattr(adc_targets, "analyze_adc_calibration3", lambda _m, *, ramp: calibration("calibration3"))
     plotted = []
     for name in (
         "plot_adc_calibration_weights",
@@ -397,11 +408,11 @@ def test_adc_calibration_runner_combines_three_common_results(
         "plot_adc_ramp_histogram",
         "plot_adc_ramp_nonlinearity",
     ):
-        monkeypatch.setattr(runner, name, lambda analysis, **_kwargs: plotted.append(analysis) or ())
+        monkeypatch.setattr(adc_targets, name, lambda analysis, **_kwargs: plotted.append(analysis) or ())
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
-    assert runner.adc_calibration_study(output_dir) == ()
+    assert study(monkeypatch, adc_targets, "calibration_study", output_dir) == ()
     # Only ADC00's curves reach calibration 1, together with ADC00's mismatch result.
     measurements, cap_mismatch = received["calibration1"]
     assert {point.param.observed_adc for point in measurements} == {0}
@@ -426,11 +437,13 @@ def test_cdac_runner_replaces_whole_curves_and_uses_each_adc_comparator(
 ) -> None:
     """Never concatenate analog points from two acquisition sessions."""
 
-    received = install_cdac_inputs(tmp_path, monkeypatch, adc_indices=(0, 1))
-    monkeypatch.setattr(runner, "plot_cdac_cap_mismatch", lambda *_args, output_path: (output_path,))
-    monkeypatch.setattr(runner, "plot_cdac_cap_mismatch_comparison", lambda *_args, output_path: (output_path,))
+    received = install_cdac_inputs(tmp_path, monkeypatch, module=caparray_targets, adc_indices=(0, 1))
+    monkeypatch.setattr(caparray_targets, "plot_cdac_cap_mismatch", lambda *_args, output_path: (output_path,))
+    monkeypatch.setattr(
+        caparray_targets, "plot_cdac_cap_mismatch_comparison", lambda *_args, output_path: (output_path,)
+    )
 
-    artifacts = runner.cdac_system_cap_mismatch_study(tmp_path / "output")
+    artifacts = study(monkeypatch, caparray_targets, "system_cap_mismatch_study", tmp_path / "output")
 
     assert [path.name for path in artifacts] == [
         "adc00_cdac_cap_mismatch",
@@ -485,16 +498,18 @@ def test_adc_transfer_curve_loads_pinned_directory_without_reconstructing_grid(
                 ),
             ),
         )
-    monkeypatch.setattr(runner, "read_measurement", measurements.__getitem__)
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "analyze_adc_transfer", lambda measurements: measurements)
+    monkeypatch.setattr(adc_targets, "read_measurement", measurements.__getitem__)
+    monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(adc_targets, "analyze_adc_transfer", lambda measurements: measurements)
     monkeypatch.setattr(
-        runner,
+        adc_targets,
         "plot_adc_transfer",
         lambda _measurements, _analysis, *, output_path: (output_path.with_suffix(".png"),),
     )
 
-    assert runner.adc_transfer_curve_study(tmp_path / "output") == (tmp_path / "output/adc00_transfer_curve.png",)
+    assert study(monkeypatch, adc_targets, "transfer_curve_study", tmp_path / "output") == (
+        tmp_path / "output/adc00_transfer_curve.png",
+    )
 
 
 def test_adc_ramp_runner_rejects_wrong_measurement_type(
@@ -503,14 +518,14 @@ def test_adc_ramp_runner_rejects_wrong_measurement_type(
 ) -> None:
     """Keep the runner boundary at the typed measurement object."""
 
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "read_measurement", lambda _path: object())
+    monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(adc_targets, "read_measurement", lambda _path: object())
     path = tmp_path / "build/scan_adc/20260812_011910/0000_adc00.h5"
     path.parent.mkdir(parents=True)
     path.touch()
 
     with pytest.raises(TypeError, match="expected MeasAdc"):
-        runner.adc_ramp_nonlinearity_study(tmp_path / "output")
+        study(monkeypatch, adc_targets, "ramp_nonlinearity_study", tmp_path / "output")
 
 
 def test_comp_common_mode_groups_adc_and_common_mode_from_h5(
@@ -530,24 +545,24 @@ def test_comp_common_mode_groups_adc_and_common_mode_from_h5(
             )
 
     plotted = []
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "MeasComp", SimpleNamespace)
-    monkeypatch.setattr(runner, "read_measurement", measurements_by_path.__getitem__)
-    monkeypatch.setattr(runner, "analyze_comp_offset_noise", lambda group: tuple(group))
+    monkeypatch.setattr(comp_targets, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(comp_targets, "MeasComp", SimpleNamespace)
+    monkeypatch.setattr(comp_targets, "read_measurement", measurements_by_path.__getitem__)
+    monkeypatch.setattr(comp_targets, "analyze_comp_offset_noise", lambda group: tuple(group))
 
     def common_mode(measurements, *, offsets):
         return ("common-mode", tuple(measurements), tuple(offsets))
 
-    monkeypatch.setattr(runner, "analyze_comp_common_mode", common_mode)
+    monkeypatch.setattr(comp_targets, "analyze_comp_common_mode", common_mode)
     monkeypatch.setattr(
-        runner,
+        comp_targets,
         "plot_comp_common_mode_campaign",
         lambda measurements, offsets, result, *, output_path: (
             plotted.append((offsets, result, output_path)) or (output_path,)
         ),
     )
 
-    runner.comp_system_common_mode_study(tmp_path / "output")
+    study(monkeypatch, comp_targets, "system_common_mode_study", tmp_path / "output")
 
     assert [path.name for _offsets, _result, path in plotted] == [
         "adc02_comparator_common_mode",
@@ -604,17 +619,17 @@ def test_comp_sampling_noise_replaces_exact_correction_curves(
         analyzed_groups[key] = tuple(measurement.marker for measurement in group)
         return SimpleNamespace()
 
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "MeasComp", SimpleNamespace)
-    monkeypatch.setattr(runner, "read_measurement", measurements_by_path.__getitem__)
-    monkeypatch.setattr(runner, "analyze_comp_offset_noise", analyze)
+    monkeypatch.setattr(comp_targets, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(comp_targets, "MeasComp", SimpleNamespace)
+    monkeypatch.setattr(comp_targets, "read_measurement", measurements_by_path.__getitem__)
+    monkeypatch.setattr(comp_targets, "analyze_comp_offset_noise", analyze)
     monkeypatch.setattr(
-        runner,
+        comp_targets,
         "plot_comp_sampling_campaign",
         lambda *_args, output_path: (output_path,),
     )
 
-    runner.comp_system_sampling_noise_study(tmp_path / "output")
+    study(monkeypatch, comp_targets, "system_sampling_noise_study", tmp_path / "output")
 
     assert analyzed_groups[(1, 100.0, "track")] == ("correction-adc01-a", "correction-adc01-b")
     assert analyzed_groups[(2, 75.0, "track")] == ("correction-adc02-a", "correction-adc02-b")
@@ -636,19 +651,21 @@ def test_comp_candidate_sweep_delegates_validity_to_typed_analysis(
         received.update(measurement=value, offset=offset, timing=timing, power=power)
         return SimpleNamespace(candidate_id="fixture")
 
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "MeasComp", SimpleNamespace)
-    monkeypatch.setattr(runner, "read_measurement", lambda _path: measurement)
-    monkeypatch.setattr(runner, "analyze_comp_offset_noise", lambda values: ("offset", tuple(values)))
-    monkeypatch.setattr(runner, "analyze_comp_timing", lambda values: ("timing", tuple(values)))
-    monkeypatch.setattr(runner, "analyze_comp_power", lambda values: ("power", tuple(values)))
-    monkeypatch.setattr(runner, "analyze_comp_candidate", candidate)
-    monkeypatch.setattr(runner, "plot_comp_candidate_sweep", lambda *_args, highlights, output_path: (output_path,))
+    monkeypatch.setattr(comp_targets, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(comp_targets, "MeasComp", SimpleNamespace)
+    monkeypatch.setattr(comp_targets, "read_measurement", lambda _path: measurement)
+    monkeypatch.setattr(comp_targets, "analyze_comp_offset_noise", lambda values: ("offset", tuple(values)))
+    monkeypatch.setattr(comp_targets, "analyze_comp_timing", lambda values: ("timing", tuple(values)))
+    monkeypatch.setattr(comp_targets, "analyze_comp_power", lambda values: ("power", tuple(values)))
+    monkeypatch.setattr(comp_targets, "analyze_comp_candidate", candidate)
     monkeypatch.setattr(
-        runner, "plot_comp_noise_power_tradeoff", lambda *_args, highlights, output_path: (output_path,)
+        comp_targets, "plot_comp_candidate_sweep", lambda *_args, highlights, output_path: (output_path,)
+    )
+    monkeypatch.setattr(
+        comp_targets, "plot_comp_noise_power_tradeoff", lambda *_args, highlights, output_path: (output_path,)
     )
 
-    artifacts = runner.comp_candidate_sweep_study(tmp_path / "output")
+    artifacts = study(monkeypatch, comp_targets, "candidate_sweep_study", tmp_path / "output")
 
     assert [artifact.name for artifact in artifacts] == [
         "comp_candidate_noise_power_settling",
@@ -663,75 +680,29 @@ def test_comp_candidate_sweep_delegates_validity_to_typed_analysis(
     assert not (tmp_path / "output").exists()
 
 
-def test_main_runs_named_target_in_one_timestamped_directory(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+def test_a_study_runs_in_one_timestamped_directory_and_propagates_missing_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Pass one shared derived-artifact directory to the selected target."""
+    """The study makes one fresh build/analysis/<domain>/<timestamp> directory, then fails on its
+    missing pinned input."""
 
-    received_output_dirs: list[Path] = []
-
-    def comp_system_common_mode_study(output_dir: Path) -> tuple[Path, ...]:
-        received_output_dirs.append(output_dir)
-        artifact = output_dir / "example.png"
-        artifact.write_bytes(b"plot")
-        return (artifact,)
-
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "comp_system_common_mode_study", comp_system_common_mode_study)
-    monkeypatch.setattr(sys, "argv", ["flow.analysis.runner", "comp_system_common_mode_study"])
-
-    runner.main()
-
-    assert len(received_output_dirs) == 1
-    output_dir = received_output_dirs[0]
-    assert output_dir.parent == tmp_path / "build/analysis/comp"
+    monkeypatch.setattr(flow, "__file__", str(tmp_path / "flow/__init__.py"))
+    monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
+    with pytest.raises(FileNotFoundError, match="scan_adc"):
+        adc_targets.transfer_curve_study()
+    (output_dir,) = (tmp_path / "build/analysis/adc").iterdir()
     assert re.fullmatch(r"\d{8}_\d{6}", output_dir.name)
-    assert (output_dir / "example.png").read_bytes() == b"plot"
-    output = capsys.readouterr().out
-    assert f"Analysis output: {output_dir}" in output
-    assert "Completed comp_system_common_mode_study: 1 artifacts" in output
 
 
-def test_main_requires_a_target(tmp_path, monkeypatch):
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(sys, "argv", ["flow.analysis.runner"])
-    with pytest.raises(SystemExit, match="2"):
-        runner.main()
-    assert not (tmp_path / "build").exists()
-
-
-def test_main_propagates_missing_input(tmp_path, monkeypatch):
-    def adc_transfer_curve_study(output_dir):
-        raise FileNotFoundError("capture.h5")
-
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "adc_transfer_curve_study", adc_transfer_curve_study)
-    monkeypatch.setattr(sys, "argv", ["flow.analysis.runner", "adc_transfer_curve_study"])
-    with pytest.raises(FileNotFoundError, match="capture.h5"):
-        runner.main()
-
-
-def test_main_rejects_unknown_target(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_the_flow_rejects_unknown_studies(monkeypatch: pytest.MonkeyPatch) -> None:
     """Reject arbitrary function names before creating an output directory."""
 
-    monkeypatch.setattr(sys, "argv", ["flow.analysis.runner", "unknown_target"])
+    from flow import __main__ as cli
 
-    with pytest.raises(SystemExit, match="2"):
-        runner.main()
-
-    assert "invalid choice: 'unknown_target'" in capsys.readouterr().err
-
-
-@pytest.mark.parametrize("flag", ["--capture-decodes", "--additional-campaign", "--inputs"])
-def test_main_rejects_experiment_flags(flag, monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["flow.analysis.runner", "adc_sequence_study", flag])
-    with pytest.raises(SystemExit, match="2"):
-        runner.main()
+    for name in ("adc.unknown_target", "analysis.adc_sequence_study", "adc.adc_sequence_study"):
+        monkeypatch.setattr(sys, "argv", ["flow", name])
+        with pytest.raises(SystemExit, match="no target"):
+            cli.main()
 
 
 def test_ramp_study_uses_the_ramp_wrap_exclusion_and_no_cdac_measurements(tmp_path, monkeypatch):
@@ -742,8 +713,8 @@ def test_ramp_study_uses_the_ramp_wrap_exclusion_and_no_cdac_measurements(tmp_pa
         path = directory / f"{adc_index:04d}_adc{adc_index:02d}.h5"
         path.touch()
         measurements[path] = adc_ramp_measurement(observed_adc=adc_index)
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "read_measurement", measurements.__getitem__)
+    monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(adc_targets, "read_measurement", measurements.__getitem__)
     plotted = []
 
     def plot(measurement, analysis, *, output_path):
@@ -752,9 +723,9 @@ def test_ramp_study_uses_the_ramp_wrap_exclusion_and_no_cdac_measurements(tmp_pa
             plotted.append(measurement.index)
         return (output_path.with_suffix(".pdf"),)
 
-    monkeypatch.setattr(runner, "plot_adc_code_distribution", plot)
-    monkeypatch.setattr(runner, "plot_adc_static_nonlinearity", plot)
-    assert len(runner.adc_ramp_nonlinearity_study(tmp_path / "output")) == 8
+    monkeypatch.setattr(adc_targets, "plot_adc_code_distribution", plot)
+    monkeypatch.setattr(adc_targets, "plot_adc_static_nonlinearity", plot)
+    assert len(study(monkeypatch, adc_targets, "ramp_nonlinearity_study", tmp_path / "output")) == 8
     assert plotted == [0, 1, 2, 3]
 
 
@@ -810,8 +781,8 @@ def test_sample_rate_study_separates_sequences_inputs_and_spectral_data(tmp_path
         measurements[path] = dataclasses.replace(
             value, param=dataclasses.replace(value.param, tb=dataclasses.replace(value.param.tb, vin_diff=wrong_source))
         )
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "read_measurement", measurements.__getitem__)
+    monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(adc_targets, "read_measurement", measurements.__getitem__)
     calls = []
 
     def noise_plot(values, analyses, *, output_path, rate_axis, series_labels=()):
@@ -827,14 +798,14 @@ def test_sample_rate_study_separates_sequences_inputs_and_spectral_data(tmp_path
         calls.append(output_path)
         return (output_path.with_suffix(".pdf"),)
 
-    monkeypatch.setattr(runner, "plot_adc_noise_sweep", noise_plot)
-    monkeypatch.setattr(runner, "plot_adc_noise_distribution_sweep", noise_plot)
+    monkeypatch.setattr(adc_targets, "plot_adc_noise_sweep", noise_plot)
+    monkeypatch.setattr(adc_targets, "plot_adc_noise_distribution_sweep", noise_plot)
 
     def analyze_dynamic(value):
         assert isinstance(value.param.tb.vin_diff, h.Vsin.Params)
         return SimpleNamespace(sample_rate_hz=value.sample_rate_hz)
 
-    monkeypatch.setattr(runner, "analyze_adc_dynamic", analyze_dynamic)
+    monkeypatch.setattr(adc_targets, "analyze_adc_dynamic", analyze_dynamic)
     spectra = []
 
     def dynamic_plot(values, analyses, *, output_path, x_axis):
@@ -843,9 +814,9 @@ def test_sample_rate_study_separates_sequences_inputs_and_spectral_data(tmp_path
         spectra.append(output_path)
         return (output_path.with_suffix(".pdf"),)
 
-    monkeypatch.setattr(runner, "plot_adc_dynamic_sweep", dynamic_plot)
-    monkeypatch.setattr(runner, "plot_adc_dynamic", lambda *args, output_path: (output_path.with_suffix(".pdf"),))
-    artifacts = runner.adc_sample_rate_study(tmp_path / "output")
+    monkeypatch.setattr(adc_targets, "plot_adc_dynamic_sweep", dynamic_plot)
+    monkeypatch.setattr(adc_targets, "plot_adc_dynamic", lambda *args, output_path: (output_path.with_suffix(".pdf"),))
+    artifacts = study(monkeypatch, adc_targets, "sample_rate_study", tmp_path / "output")
     assert len(calls) == 6
     assert len(spectra) == 1
     assert len(artifacts) == 9
@@ -898,8 +869,8 @@ def test_power_study_selects_instrumented_dc_measurements(tmp_path, monkeypatch)
         path = directory / "9999_capture.h5"
         path.touch()
         measurements[path] = adc_measurement([100, 101], observed_adc=0)
-    monkeypatch.setattr(runner, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(runner, "read_measurement", measurements.__getitem__)
+    monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
+    monkeypatch.setattr(adc_targets, "read_measurement", measurements.__getitem__)
     group_sizes = []
 
     def plot(values, analyses, *, output_path, rate_axis):
@@ -908,12 +879,6 @@ def test_power_study_selects_instrumented_dc_measurements(tmp_path, monkeypatch)
         np.testing.assert_allclose([analysis.total_power_w for analysis in analyses], np.full(len(values), 6e-6))
         return (output_path.with_suffix(".pdf"),)
 
-    monkeypatch.setattr(runner, "plot_adc_power_sweep", plot)
-    assert len(runner.adc_power_study(tmp_path / "output")) == 6
+    monkeypatch.setattr(adc_targets, "plot_adc_power_sweep", plot)
+    assert len(study(monkeypatch, adc_targets, "power_study", tmp_path / "output")) == 6
     assert group_sizes == [4, 1] * 3
-
-
-def test_main_rejects_input_directory_override(tmp_path, monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["flow.analysis.runner", "adc_sequence_study", str(tmp_path)])
-    with pytest.raises(SystemExit, match="2"):
-        runner.main()

@@ -10,7 +10,6 @@ one control voltage, which sets every analog control at once: ``vbn`` and ``vctr
 ``vbp`` to the supply minus it, so a starved stage's NMOS and PMOS starve alike.
 """
 
-import argparse
 import importlib
 import json
 import math
@@ -310,31 +309,3 @@ def delay_characterization(run_dir: Path, *, check: bool = False) -> Path:
         failure_path.write_text(json.dumps(failures, indent=2) + "\n")
         raise RuntimeError(f"{len(failures)} delay points failed; see {failure_path}")
     return run_dir
-
-
-def main() -> None:
-    """Create one output directory and run one named delay line or ring target."""
-
-    targets = {target.__name__: target for target in (delay_characterization,)}
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", nargs="?", choices=sorted(targets))
-    args = parser.parse_args()
-    if args.target is None:
-        print("Available delay line and ring simulation targets:")
-        for name in sorted(targets):
-            print(f"  {name}")
-        return
-    run_dir = (
-        Path(__file__).resolve().parents[2]
-        / "build"
-        / "sim"
-        / "delay"
-        / args.target
-        / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    )
-    run_dir.mkdir(parents=True, exist_ok=False)
-    targets[args.target](run_dir)
-
-
-if __name__ == "__main__":
-    main()

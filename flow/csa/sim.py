@@ -15,7 +15,6 @@ without the charge, gives the output noise from 1 Hz to 1 GHz (an operating poin
 ``noise``), which over the response to a known charge is the ENC, as ``TB_CSA_NMOS`` measures it.
 """
 
-import argparse
 import importlib
 import json
 import math
@@ -378,31 +377,3 @@ def csa_characterization(run_dir: Path, *, check: bool = False) -> Path:
         failure_path.write_text(json.dumps(failures, indent=2) + "\n")
         raise RuntimeError(f"{len(failures)} amplifier points failed; see {failure_path}")
     return run_dir
-
-
-def main() -> None:
-    """Create one output directory and run one named amplifier target."""
-
-    targets = {target.__name__: target for target in (csa_characterization,)}
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", nargs="?", choices=sorted(targets))
-    args = parser.parse_args()
-    if args.target is None:
-        print("Available charge-sensitive amplifier simulation targets:")
-        for name in sorted(targets):
-            print(f"  {name}")
-        return
-    run_dir = (
-        Path(__file__).resolve().parents[2]
-        / "build"
-        / "sim"
-        / "csa"
-        / args.target
-        / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    )
-    run_dir.mkdir(parents=True, exist_ok=False)
-    targets[args.target](run_dir)
-
-
-if __name__ == "__main__":
-    main()

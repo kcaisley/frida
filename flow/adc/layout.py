@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import argparse
 import io
 import json
 import re
-from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -366,40 +364,3 @@ def all_adcs(run_dir: Path) -> Path:
     ):
         target(run_dir / target.__name__)
     return run_dir
-
-
-def main() -> None:
-    targets = {
-        target.__name__: target
-        for target in (
-            frida1_1layer_radix17,
-            frida1_1layer_radix20,
-            frida1_2layer_radix17,
-            frida1_2layer_radix20,
-            frida2_1layer_radix17,
-            frida2_2layer_radix17,
-            frida2_3layer_radix17,
-        )
-    }
-    targets["main"] = all_adcs
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", nargs="?", choices=sorted(targets))
-    args = parser.parse_args()
-    if args.target is None:
-        print("Available ADC layout targets:")
-        for name in sorted(targets):
-            print(f"  {name}")
-        return
-    run_dir = (
-        Path(__file__).resolve().parents[2]
-        / "build"
-        / "layout"
-        / "adc"
-        / args.target
-        / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    )
-    targets[args.target](run_dir)
-
-
-if __name__ == "__main__":
-    main()

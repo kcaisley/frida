@@ -4,14 +4,12 @@ The FRIDA-1 targets and the size sweep stay TSMC65 references (they reproduce, o
 the fabricated comparator); ``comp_characterization`` compares the study topologies in every PDK.
 """
 
-import argparse
 import hashlib
 import importlib
 import json
 import math
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import datetime
 from multiprocessing import get_context
 from pathlib import Path
 
@@ -757,38 +755,3 @@ def frida1_fixed_input_noise(run_dir: Path, *, check: bool = False) -> Path:
         )
         write_measurement(run_dir / "result.h5", measurement)
     return run_dir
-
-
-def main() -> None:
-    """Create one output directory and run one named comparator target."""
-
-    targets = {
-        target.__name__: target
-        for target in (
-            hdl21_comp_perf_vs_size,
-            comp_characterization,
-            frida1_fixed_input_noise,
-        )
-    }
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", nargs="?", choices=list(targets))
-    args = parser.parse_args()
-    if args.target is None:
-        print("Available comparator simulation targets:")
-        for name in list(targets):
-            print(f"  {name}")
-        return
-    run_dir = (
-        Path(__file__).resolve().parents[2]
-        / "build"
-        / "sim"
-        / "comp"
-        / args.target
-        / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    )
-    run_dir.mkdir(parents=True, exist_ok=False)
-    targets[args.target](run_dir)
-
-
-if __name__ == "__main__":
-    main()

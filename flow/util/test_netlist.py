@@ -1,8 +1,7 @@
-"""Software-only tests for netlist command entry points."""
+"""Software-only tests for the netlist conversions."""
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
@@ -10,19 +9,21 @@ import pytest
 from flow.util import netlist
 
 
-def test_netlist_conversion_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_netlist_conversion(tmp_path: Path) -> None:
     source = tmp_path / "input.cdl"
     output = tmp_path / "output.sp"
     source.write_text("*.PININFO A:I\nX0 A B / BUF\n")
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["python -m flow.util.netlist", "cdl-to-sp", str(source), str(output)],
-    )
 
-    netlist.main()
+    assert netlist.cdl_to_sp(source, output) == output
 
     assert output.read_text() == "X0 A B BUF"
+
+
+def test_clean_cdl_reorders_by_verilog_only_with_its_module(tmp_path: Path) -> None:
+    source = tmp_path / "input.cdl"
+    source.write_text("X0 A B / BUF\n")
+    with pytest.raises(ValueError, match="together"):
+        netlist.clean_cdl(source, tmp_path / "output.sp", verilog=tmp_path / "top.v")
 
 
 def test_replacement_reorders_actual_connections_by_formal_name() -> None:

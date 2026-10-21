@@ -158,20 +158,6 @@ def write_netlist(params: SampParams, path: Path, pdk) -> Path:
     return _write_netlist(params, path, pdk, generator=Samp, nets=SampNets)
 
 
-def main() -> None:
-    """Write a sampler netlist: the FRIDA-1 transmission gate or a named variant."""
-
-    import argparse
-
-    parser = argparse.ArgumentParser(description=main.__doc__)
-    parser.add_argument("case", choices=sorted(CASES), help="sampler case")
-    parser.add_argument("output", type=Path, help="SPICE file to write (its stem names the subcircuit)")
-    parser.add_argument("--pdk", default="tsmc65")
-    args = parser.parse_args()
-    pdk = __import__(f"pdk.{args.pdk}.hdl21", fromlist=["pdk_logic"]).pdk_logic
-    print(write_netlist(CASES[args.case], args.output, pdk))
-
-
 # ==== Named switches ====
 
 FRIDA1 = SampParams()  # the fabricated FRIDA-1 sampler: transmission gate, 32 units each
@@ -181,7 +167,3 @@ CASES = {
     "nmos": SampParams(switch_type=SwitchType.NMOS),
     "bootstrap": SampParams(switch_type=SwitchType.NMOS, bootstrap=True),
 }
-
-
-if __name__ == "__main__":
-    main()

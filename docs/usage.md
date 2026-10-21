@@ -2,19 +2,13 @@
 
 ADC capacitor stages, comparator decisions, and output codes follow the [project-wide ADC convention](adc_conventions.md): C0 is the largest and first capacitor, B0..B16 are chronological decisions, and DOUT is the 12-bit result formed from all 17 decisions.
 
-FRIDA commands run through the Python module that owns the operation:
-
-```text
-python -m flow.<block>.sim
-python -m flow.util.netlist
-python -m flow.scans.<scan>
-```
+FRIDA's simulation, layout, extraction, analysis and sweep recipes are targets: `python -m flow` lists every one, `python -m flow <block>.<target>` runs one. A target is a public function without arguments in `flow/<block>/targets.py`; it makes its own fresh run directory under `build/` and calls the block's implementation, which takes that directory. There are no options or flags. Physical scans keep their own runner (`python -m flow.scans.<scan>`), and the file tools (`flow.util.netlist`, `flow.util.gds2image`, ...) are Python functions.
 
 There is no installed `flow` executable or separate build-system orchestration layer. Run commands from the repository root through `uv`, for example:
 
 ```bash
-uv run python -m flow.comp.sim --help
-uv run python -m flow.comp.sim
+uv run python -m flow
+uv run python -m flow comp.characterization
 ```
 
 Digital lint, simulation, synthesis, and implementation use their stock tools directly.
@@ -26,30 +20,28 @@ Capacitor layouts are generated only as arrays; the standalone unit-capacitor la
 The process-independent FRIDA capacitor-array runners are:
 
 ```bash
-uv run python -m flow.caparray.layout
-uv run python -m flow.caparray.layout caparray_1layer_radix17
-uv run python -m flow.caparray.layout caparray_2layer_radix17
-uv run python -m flow.caparray.layout caparray_3layer_radix17
-uv run python -m flow.caparray.layout caparray_extract_adc_variants
+uv run python -m flow caparray.layout_1layer_radix17
+uv run python -m flow caparray.layout_2layer_radix17
+uv run python -m flow caparray.layout_3layer_radix17
+uv run python -m flow caparray.layout_extract_adc_variants
 ```
 
-`main` only dispatches to a named target. Each target declares its arrays and stack: FRIDA's array is `RADIX17`, and `caparray_extract_adc_variants` extracts the ADC variants' arrays (`ADC_VARIANTS`: 10 and 12 bits with 0, 2, 4 or 5 redundant stages) at three metals in TSMC65, one capacitance table each under `<variant>/tsmc65/3l/`. The helpers they call take the array as an argument.
+Each target declares its arrays and stack: FRIDA's array is `RADIX17`, and `caparray.layout_extract_adc_variants` (`caparray_extract_adc_variants`) extracts the ADC variants' arrays (`ADC_VARIANTS`: 10 and 12 bits with 0, 2, 4 or 5 redundant stages) at three metals in TSMC65, one capacitance table each under `<variant>/tsmc65/3l/`. The helpers they call take the array as an argument.
 
-Each target visibly constructs its electrical `CapArrayConfig`, unit family, and metal stack. The generator derives every physical distance from the selected PDK, builds the complete `1..coarse_weight` unit family, partitions arbitrary positive electrical weights through the shared netlist decomposition, and adds routing, shield taps, connection stacks, and pins. A named target always runs `gdscheck`, foundry Calibre DRC/LVS, and xACT PEX. Results are written to `build/layout/caparray/<target>/<timestamp>/`.
+Each target visibly constructs its electrical `CapArrayConfig`, unit family, and metal stack. The generator derives every physical distance from the selected PDK, builds the complete `1..coarse_weight` unit family, partitions arbitrary positive electrical weights through the shared netlist decomposition, and adds routing, shield taps, connection stacks, and pins. A named target always runs `gdscheck`, foundry Calibre DRC/LVS, and xACT PEX. Results are written to `build/layout/caparray/<name>/<timestamp>/` (`caparray.layout_<name>`).
 
 FRIDA-2/CDAC targets now use the shared `ringfmom.cdl` ideal/LVS model and three recognition purposes, with a read-only foundry LVS include and explicit 3D xACT extraction. See `pdk/tsmc65/calibre/ringfmom.md` in the TSMC65 submodule for model limits, diagnostics, and PEX double-counting protection. Nominal C uses the same affine fit as LVS: 0.17L + 0.03, 0.34L + 0.06, and 0.51L + 0.12 for one, two, and three active layers (C in fF, full inner-finger L in um). Each physical main/diff finger receives one intercept, including every coarse chunk and minimum-length tail; it is not a single offset per electrical net. This replaces generic `unit_cap` sizing only for these generated ringfmom arrays; historical FRIDA-1 and generic HDL21 sizing are unchanged. LVS measures geometry independently and its 5% tolerance is unchanged. All ten recorded xACT 3D samples per stack, including 0.52/51.72 um endpoints, agree within 2%; this is in-sample agreement, not independent qualification. New PEX remains gated on LVS; simulation targets still pin the previously reviewed extraction timestamps.
 
-ADC layout validation and extraction use the same named-target convention as simulation. Omitting the target lists the four archived FRIDA-1 ADCs and three generated FRIDA-2 stacks:
+ADC layout validation and extraction use the same named-target convention as simulation: `adc.layout_<name>` for the four archived FRIDA-1 ADCs and three generated FRIDA-2 stacks, for example:
 
 ```bash
-uv run python -m flow.adc.layout
-uv run python -m flow.adc.layout frida1_1layer_radix17
-uv run python -m flow.adc.layout frida1_2layer_radix20
-uv run python -m flow.adc.layout frida2_2layer_radix17
-uv run python -m flow.adc.layout frida2_3layer_radix17
+uv run python -m flow adc.layout_frida1_1layer_radix17
+uv run python -m flow adc.layout_frida1_2layer_radix20
+uv run python -m flow adc.layout_frida2_2layer_radix17
+uv run python -m flow adc.layout_frida2_3layer_radix17
 ```
 
-A target always generates and runs the complete signoff sequence. The DRC stage includes the PDK-local `gdscheck` ADC suite before foundry Calibre DRC. Results are isolated beneath `build/layout/adc/<target>/<timestamp>/`. Each result contains the exact GDS and source CDL used, a recognition-only GDS diff where applicable, generated decks and logs, DRC/LVS reports, coupling and net-summary reports, and the final RC-plus-coupling `*.pex.netlist`. xACT stops unless its own conductive-source LVS comparison is correct.
+A target always generates and runs the complete signoff sequence. The DRC stage includes the PDK-local `gdscheck` ADC suite before foundry Calibre DRC. Results are isolated beneath `build/layout/adc/<name>/<timestamp>/`. Each result contains the exact GDS and source CDL used, a recognition-only GDS diff where applicable, generated decks and logs, DRC/LVS reports, coupling and net-summary reports, and the final RC-plus-coupling `*.pex.netlist`. xACT stops unless its own conductive-source LVS comparison is correct.
 
 For FRIDA-1, the run-local layout copy adds only PDK-local non-mask MOM recognition shapes; the archived source and GDS are never modified. The normal LVS source contains the intended per-layer capacitor network. Thus the old one-layer layout must report `CORRECT`, while the known disconnected upper layer in an old two-layer layout must report the expected connectivity warning. The separate conductive PEX source omits the electrically empty CDAC wrappers so xACT extracts the fabricated connectivity.
 
@@ -57,34 +49,26 @@ The FRIDA-2 targets regenerate their CDAC GDS and ideal per-chunk MOM source net
 
 ## Layout targets
 
-Comparator layouts in standard-cell rows use the same named-target interface. Omitting the target prints the 36 choices:
+Comparator layouts in standard-cell rows use the same named-target interface, one target per case, each in all six PDKs:
 
 ```bash
-uv run python -m flow.comp.layout
-uv run python -m flow.comp.layout comp_frida1_manual_tsmc65
-uv run python -m flow.comp.layout comp_c040_auto_all_pdks
+uv run python -m flow comp.layout_frida1_manual
+uv run python -m flow comp.layout_c040_auto
 ```
 
-A per-PDK target (`comp_frida1_manual_<pdk>`, `comp_c040_manual_<pdk>`, `comp_frida1_auto_<pdk>`, `comp_c040_auto_<pdk>` or `mos_inv_<pdk>`, for tsmc65, tsmc28, ihp130, tower180, lf150 and tpsc65) writes its netlists, lays the design out with cIcCreator, laygo and ALIGN, and runs DRC and LVS on each layout. A `manual` target places the rows as `design/layout/comp_*.json` says; an `auto` target starts from the transistor netlist and recognizes the PDK's library cells in it (`flow/layout/stdcells.py`); ALIGN lays it out on its own (it derives its constraints, places and routes), and its placement becomes the floorplan of the same format for cIcCreator and laygo, its rows packed toward a square block. Logic is always the PDK's library cells. `design/layout/README.md` describes the recognition. Each `*_all_pdks` target runs one case in all six PDKs, and `all_comp_layouts` runs all five. Results go to `build/layout/comp/<target>/<timestamp>/`: `<tool>/` with the GDS and its `signoff/`, `netlist/`, `floorplan/` (auto), and `summary.json` with the GDS, cell size, DRC violation count and LVS result per PDK and tool. A failing PDK or tool does not stop the others: the target lists them in `failures.json` and fails at the end.
+A layout target (`comp.layout_frida1_manual`, `layout_c040_manual`, `layout_frida1_auto`, `layout_c040_auto`, the six topologies' `layout_strongarm` ... `layout_double_tail_modified_self_timed`, or `layout_mos_inv`) writes the case's netlists in tsmc65, tsmc28, ihp130, tower180, lf150 and tpsc65, lays it out with cIcCreator, laygo and ALIGN, and runs DRC and LVS on each layout. A `manual` target places the rows as `design/layout/comp_*.json` says; an `auto` target starts from the transistor netlist and recognizes the PDK's library cells in it (`flow/layout/stdcells.py`); ALIGN lays it out on its own (it derives its constraints, places and routes), and its placement becomes the floorplan of the same format for cIcCreator and laygo, its rows packed toward a square block. Logic is always the PDK's library cells. `design/layout/README.md` describes the recognition. Each runs its `*_all_pdks` function (`comp_frida1_manual_all_pdks`, ...), and `comp.layout_all` runs every case. Results go to `build/layout/comp/<case>/<timestamp>/<pdk>/`: `<tool>/` with the GDS and its `signoff/`, `netlist/`, `floorplan/` (auto), and `summary.json` with the GDS, cell size, DRC violation count and LVS result per PDK and tool. A failing PDK or tool does not stop the others: the target lists them in `failures.json` and fails at the end.
 
-The building blocks use the comparator's runner: `flow.samp`, `flow.delay` (delay lines and ring oscillators), `flow.latch` (latches, flip-flops, dividers, SR latches; TSPC and DICE styles), `flow.ota`, `flow.follower`, `flow.moscap`, `flow.idac`, `flow.cml`, `flow.pi` (phase interpolators), `flow.clkgen`, `flow.lvshift`, `flow.ringamp`, `flow.csa` (charge-sensitive amplifiers), `flow.disc` (continuous-time discriminators), `flow.schmitt` (Schmitt triggers) and `flow.bias` (cascode bias generators). `uv run python -m flow.<block>.layout` lists a block's targets; `<block>_<case>_<pdk>` lays out one of the generator's named cases (`CASES` in its `subckt.py`) from the hand-written floorplan `design/layout/<block>_<case>.json` with all three tools, and `<block>_<case>_all_pdks` runs it in all six PDKs. Results go to `build/layout/<block>/<target>/<timestamp>/`, laid out as the comparator's. Each block's `readme.md` lists its cases.
+The building blocks use the comparator's runner: `flow.samp`, `flow.delay` (delay lines and ring oscillators), `flow.latch` (latches, flip-flops, dividers, SR latches; TSPC and DICE styles), `flow.ota`, `flow.follower`, `flow.moscap`, `flow.idac`, `flow.cml`, `flow.pi` (phase interpolators), `flow.clkgen`, `flow.lvshift`, `flow.ringamp`, `flow.csa` (charge-sensitive amplifiers), `flow.disc` (continuous-time discriminators), `flow.schmitt` (Schmitt triggers) and `flow.bias` (cascode bias generators). `<block>.layout_<case>` lays out one of the generator's named cases (`CASES` in its `subckt.py`) from the hand-written floorplan `design/layout/<block>_<case>.json` with all three tools in all six PDKs (its `<block>_<case>_all_pdks` function), and `<block>.layout_all` every case. Results go to `build/layout/<block>/<case>/<timestamp>/`, laid out as the comparator's. Each block's `readme.md` lists its cases.
 
 The tools come from the environment: `CICPY` (cicpy 0.3, which has `compile`; default `cicpy` on the `PATH`), `LAYGO_CLIENT` (the hosted laygo server's client, default `~/Documents/libs/laygo3-client/laygo3.py`; it needs internet), `ALIGN_HOME` (an ALIGN install with its own Python, default `/local/kcaisley/layout-eval/ALIGN-public` on juno and asiclab003) and `IHP_OPEN_PDK` (a full IHP-Open-PDK checkout for ihp130's KLayout decks). Each PDK's signoff provider, `pdk/<pdk>/signoff.py`, runs the gdscheck precheck and then Calibre (Assura for LF150 LVS, the KLayout decks for ihp130).
 
 ## Circuit simulation targets
 
-ADC, comparator, sampler, and CDAC simulations use the same named-target interface. Omitting the target prints the choices without generating or running anything:
+ADC, comparator, sampler, and CDAC simulations use the same named-target interface; `python -m flow` lists the choices without generating or running anything.
 
-```bash
-uv run python -m flow.adc.sim
-uv run python -m flow.comp.sim
-uv run python -m flow.samp.sim
-uv run python -m flow.caparray.sim
-```
+The building blocks' simulations are targets the same way. Each has one `<block>.characterization` campaign (`<block>_characterization` in its `sim.py`) that writes a typed measurement per point, in every PDK (`<run>/<pdk>/<case>/…/result.h5`); `uv run python -m flow <block>.characterization_study` analyzes a pinned campaign and writes its architecture-comparison figures per PDK to `build/analysis/<block>/<timestamp>/<pdk>/`.
 
-The building blocks' `sim.py` (for example `uv run python -m flow.delay.sim`) list their testbench targets the same way. Each has one `<block>_characterization` campaign that writes a typed measurement per point, in every PDK (`<run>/<pdk>/<case>/…/result.h5`); `uv run python -m flow.analysis.runner <block>_characterization_study` analyzes a pinned campaign and writes its architecture-comparison figures per PDK to `build/analysis/<block>/<timestamp>/<pdk>/`.
-
-Each target owns its reviewed parameter recipe. Short, noise-free Spectre diagnostics use the same Python target with `check=True`, through pytest only:
+Each target owns its reviewed parameter recipe. Short, noise-free Spectre diagnostics call the same simulation function with `check=True`, through pytest only:
 
 ```bash
 source /eda/local/scripts/cadence_2024-25.sh
@@ -99,29 +83,29 @@ The `spectre` group is excluded by default and requires no custom pytest flag. I
 
 ## Circuit simulation
 
-Simulation targets use the same interface and always create a fresh complete run beneath `build/sim/adc/<YYYYMMDD_HHMMSS>_<target>/` for ADCs. Other blocks retain `build/sim/<module>/<target>/<YYYYMMDD_HHMMSS>/`:
+Simulation targets always create a fresh complete run beneath `build/sim/adc/<YYYYMMDD_HHMMSS>_<target>/` for ADCs. Other blocks retain `build/sim/<block>/<target>/<YYYYMMDD_HHMMSS>/`:
 
 ```bash
 # Reviewed ADC campaigns
-uv run python -m flow.adc.sim hdl21_sample_rate
-uv run python -m flow.adc.sim frida1_sample_rate
-uv run python -m flow.adc.sim frida1_sequence
-uv run python -m flow.adc.sim frida2_sequence
-uv run python -m flow.adc.sim hdl21_transfer_curve
-uv run python -m flow.adc.sim frida1_transfer_curve
+uv run python -m flow adc.hdl21_sample_rate
+uv run python -m flow adc.frida1_sample_rate
+uv run python -m flow adc.frida1_sequence
+uv run python -m flow adc.frida2_sequence
+uv run python -m flow adc.hdl21_transfer_curve
+uv run python -m flow adc.frida1_transfer_curve
 
 # Comparator campaigns
-uv run python -m flow.comp.sim hdl21_comp_perf_vs_size
-uv run python -m flow.comp.sim frida1_fixed_input_noise
+uv run python -m flow comp.hdl21_comp_perf_vs_size
+uv run python -m flow comp.frida1_fixed_input_noise
 
 # First standalone block-level simulations
-uv run python -m flow.samp.sim frida1_transient
-uv run python -m flow.caparray.sim frida1_transfer_curve
+uv run python -m flow samp.frida1_transient
+uv run python -m flow caparray.frida1_transfer_curve
 ```
 
 The extracted fixed-input rate sweep groups the one-layer and two-layer radix-17 and radix-20 ADCs beneath one timestamped run. Each flavor has its own named subdirectory containing the 2, 6, and 10 MS/s results. Independent cases run concurrently within a fixed worker budget, while retaining one coherent campaign directory.
 
-The ADC and comparator runners convert completed raw results to typed HDF5 in each case directory. Sampler and CDAC retain the Spectre raw result and log; their standalone runners do not yet invoke the existing typed measurement and analysis path. The comparator analysis validates the 297 typed HDF5 files and their embedded candidate metadata directly, without a separate campaign manifest. Accepted analysis directories remain explicit paths in `flow.analysis.runner` and are updated manually after reviewing a run.
+The ADC and comparator runners convert completed raw results to typed HDF5 in each case directory. Sampler and CDAC retain the Spectre raw result and log; their standalone runners do not yet invoke the existing typed measurement and analysis path. The comparator analysis validates the 297 typed HDF5 files and their embedded candidate metadata directly, without a separate campaign manifest. Accepted analysis directories remain explicit paths in the studies (the `*_study` targets) and are updated manually after reviewing a run.
 
 Every executable target builds one native HDL21 `Sim` per parameter variant and calls `Sim.run()` or `hs.run()` with the timestamped output as the VLSIR run directory. ADC and comparator batches use isolated spawned processes. The comparator campaign runs 24 workers with one Spectre thread each; the single-case sampler and CDAC targets run directly. ADC and comparator convert the returned transient to typed HDF5 before releasing it; the standalone sampler and CDAC targets retain the native raw result without converting it. VLSIR retains the generated `netlist.scs` in every run directory, so a separate netlist-writing layer or target is unnecessary.
 
@@ -132,34 +116,35 @@ Concurrency and each case's Spectre `+mt` setting are visible in the target whic
 `flow.sweep` characterizes every block's design space: each `flow/<block>/sweep.py` names its topologies and four to eight sizings of its key devices, and every PDK x topology x sizing is one instance, characterized in a fresh process of its own (under five minutes; 36 at once by default: a Spectre X run holds 3 of the server's 120 licences):
 
 ```sh
-uv run python -m flow.sweep run [--blocks comp] [--pdks tsmc65 ihp130] [--workers 36] [--failed]
-uv run python -m flow.sweep layout [--blocks comp]   # ALIGN, signed off: area and density join the metrics; rerun to retry what is not clean
-uv run python -m flow.web export                     # the viewer's tables (flow.sweep table)
-uv run python -m flow.web serve
+uv run python -m flow sweep.run       # every block, every PDK, a fresh run (36 workers)
+uv run python -m flow sweep.missing   # each block's newest run's failed or missing instances, again
+uv run python -m flow sweep.layout    # ALIGN, signed off: area and density join the metrics; rerun to retry what is not clean
+uv run python -m flow sweep.tables    # the viewer's tables (also web.tables)
+uv run python -m flow web.serve
+uv run python -m flow comp.sweep      # one block: characterized, laid out and tabulated
 ```
 
-Each instance writes `build/sweep/<block>/<run>/<pdk>/<topology>/<sizing>/instance.json`: its parameters, its scalar metrics (the device count and gate area of its compiled netlist among them), its condition sweeps (over supply, common mode, load, frequency) and its transient measurements. `--failed` runs the newest run's failed instances again. ALIGN places each instance by its topology's hand-written floorplan (`design/layout/<block>_<topology>.json`, a minute or two) and, where it has none or that layout is not DRC clean and LVS correct, on its own (ten minutes or more). The viewer (`flow/web`) shows a block's instances as one table and a scatter plot of any metric against any other, and each instance on a page of its own.
+For another selection of blocks, PDKs or workers, call `flow.sweep.runner`'s `run`, `layout` and `table` from Python.
 
-The PDK packages give each simulator what it reads: `Install.simulation_includes(corner, simulator, mismatch=False)`. `pdk/test_spice.py` loads every device and standard cell each package wraps in Spectre and ngspice (`-m site_pdk`); ngspice runs TSMC65, IHP130 and TPSC65. `flow.mosfet` characterizes every PDK's core devices in both (`python -m flow.mosfet.sim mosfet_characterization`, then `python -m flow.analysis.runner mosfet_characterization_study`).
+Each instance writes `build/sweep/<block>/<run>/<pdk>/<topology>/<sizing>/instance.json`: its parameters, its scalar metrics (the device count and gate area of its compiled netlist among them), its condition sweeps (over supply, common mode, load, frequency) and its transient measurements. `sweep.missing` runs the newest run's failed instances again. ALIGN places each instance by its topology's hand-written floorplan (`design/layout/<block>_<topology>.json`, a minute or two) and, where it has none or that layout is not DRC clean and LVS correct, on its own (ten minutes or more). The viewer (`flow/web`) shows a block's instances as one table and a scatter plot of any metric against any other, and each instance on a page of its own.
+
+The PDK packages give each simulator what it reads: `Install.simulation_includes(corner, simulator, mismatch=False)`. `pdk/test_spice.py` loads every device and standard cell each package wraps in Spectre and ngspice (`-m site_pdk`); ngspice runs TSMC65, IHP130 and TPSC65. `flow.mosfet` characterizes every PDK's core devices in both (`python -m flow mosfet.characterization`, then `python -m flow mosfet.characterization_study`).
 
 ## Netlist conversion
 
-Netlist utilities are subcommands of their owning module:
+Netlist utilities are functions of `flow.util.netlist`:
 
-```bash
-uv run python -m flow.util.netlist oa-to-cdl \
-  --cdslib cadence/cds.lib --lib frida --cell core \
-  --outdir build/netlist
+```python
+from pathlib import Path
+from flow.util.netlist import cdl_to_sp, clean_cdl, oa_to_cdl
 
-uv run python -m flow.util.netlist cdl-to-sp \
-  design/spice/core.cdl build/netlist/core.sp
-
-uv run python -m flow.util.netlist clean-cdl \
-  design/spice/core.cdl build/netlist/core.sp \
-  --verilog design/hdl/frida_core.v --module frida_core
+oa_to_cdl("frida", "core", Path("build/netlist"), cdslib=Path("cadence/cds.lib"))
+cdl_to_sp(Path("design/spice/core.cdl"), Path("build/netlist/core.sp"))
+clean_cdl(Path("design/spice/core.cdl"), Path("build/netlist/core.sp"),
+          verilog=Path("design/hdl/frida_core.v"), module="frida_core")
 ```
 
-`clean-cdl` removes filler and decap instances and normalizes OpenROAD hierarchy names. Pass `--verilog` and `--module` together to reorder the subcircuit ports using a Verilog module declaration.
+`clean_cdl` removes filler and decap instances and normalizes OpenROAD hierarchy names. Pass `verilog` and `module` together to reorder the subcircuit ports using a Verilog module declaration.
 
 ## Digital checks
 
@@ -207,7 +192,7 @@ It records one four-million-conversion sawtooth capture per ADC for transfer, co
 The digital-calibration flow compares three ways to derive backend BOUT weights for ADC00. `calibration1.py` uses the direction-matched physical CDAC S-curves, `calibration2.py` performs a nonnegative fit against the known ramp, and `calibration3.py` extracts the all-zero/all-one prefix thresholds described by Hsu. None changes the analog ADC. The two ramp-derived methods use disjoint training and validation cycles, and the threshold method preserves nominal ratios once the measured steps become noise-limited.
 
 ```bash
-uv run python -m flow.analysis.runner adc_calibration_study
+uv run python -m flow adc.calibration_study
 ```
 
 All three analyses return the same typed 17-weight result. The runner writes a shared weight comparison, transfer, code-density, and INL/DNL plots plus metrics and normalized-weight CSV files below one fresh `build/analysis/adc/` directory. Every weight vector sums to 4095; rounding to a 12-bit integer is deferred until the final backend output.
@@ -244,33 +229,33 @@ Behavioral and SPICE-backed scans use the same acquisition schema. The ADC Spect
 
 ```bash
 uv run python -m flow.scans.scan_behavioral
-uv run python -m flow.adc.sim hdl21_sample_rate
-uv run python -m flow.adc.sim frida1_sample_rate
+uv run python -m flow adc.hdl21_sample_rate
+uv run python -m flow adc.frida1_sample_rate
 ```
 
-Use the `spectre` pytest group for short diagnostics with circuit checks and AHDL linting. Normal CLI runs write below a fresh `build/sim/adc/<YYYYMMDD_HHMMSS>_<target>/`; omitting the target lists all choices.
+Use the `spectre` pytest group for short diagnostics with circuit checks and AHDL linting. Normal target runs write below a fresh `build/sim/adc/<YYYYMMDD_HHMMSS>_<target>/`; `python -m flow` lists all choices.
 
 For the extracted-layout comparison, `frida1_sequence` selects all four historical flavors and `frida2_sequence` selects the connected one-, two-, and three-layer radix-17 variants. Each case uses 100 conversions, 50 mV differential input, 700 mV common mode, 1.2 V supplies, and transient device noise. These reuse the same testbench and result conversion as the rate-sweep targets.
 
 ```bash
 uv run pytest -m spectre -k 'adc and sequence'
-uv run python -m flow.adc.sim frida1_sequence
-uv run python -m flow.adc.sim frida2_sequence
-uv run python -m flow.analysis.runner adc_sequence_study
+uv run python -m flow adc.frida1_sequence
+uv run python -m flow adc.frida2_sequence
+uv run python -m flow adc.sequence_study
 ```
 
 The analysis entrypoints select their input directories in source:
 
 ```bash
-uv run python -m flow.analysis.runner adc_transfer_curve_study
-uv run python -m flow.analysis.runner adc_ramp_nonlinearity_study
-uv run python -m flow.analysis.runner adc_calibration_study
-uv run python -m flow.analysis.runner adc_sequence_study
-uv run python -m flow.analysis.runner adc_sample_rate_study
-uv run python -m flow.analysis.runner adc_power_study
+uv run python -m flow adc.transfer_curve_study
+uv run python -m flow adc.ramp_nonlinearity_study
+uv run python -m flow adc.calibration_study
+uv run python -m flow adc.sequence_study
+uv run python -m flow adc.sample_rate_study
+uv run python -m flow adc.power_study
 ```
 
-Each takes only `output_dir: Path` in Python. The CLI accepts a study name; there is no input-directory override. Docstrings identify the selected ADCs, rate/sequence limits and requirements for simulated `MeasAdc` waveform records. The sequence study includes all 1,392 corrected physical captures and 49 reviewed PEX cases. The PEX subset supplies internal-node plots, seven clock plots, per-decision timing tables, a timing/reset summary, and the `frida_2_vs_1.tex`/PDF deck; it covers seven of the 29 physical recipes at 1600 MBd. Scope/setup HDF5 files are excluded. Other studies use the independently pinned historical inputs documented in their docstrings.
+Each takes no arguments and writes into a fresh `build/analysis/<domain>/<timestamp>/`; there is no input-directory override. Docstrings identify the selected ADCs, rate/sequence limits and requirements for simulated `MeasAdc` waveform records. The sequence study includes all 1,392 corrected physical captures and 49 reviewed PEX cases. The PEX subset supplies internal-node plots, seven clock plots, per-decision timing tables, a timing/reset summary, and the `frida_2_vs_1.tex`/PDF deck; it covers seven of the 29 physical recipes at 1600 MBd. Scope/setup HDF5 files are excluded. Other studies use the independently pinned historical inputs documented in their docstrings.
 
 `flow.adc.sequences` defines the `AdcSequence` value type and contains explicit named channel rows and 65 named, rate-independent four-channel sequences. Whitespace in definitions is removed when the dataclass is constructed. Each combination contains four equally sized INIT, SAMP, COMP and LOGIC rows: 160 symbols for the continuous recipes, 256 for the padded recipes. The simulation and scan runners pass those strings into the existing `seq_*_pattern` parameters and supply `symbol_rate` separately. Testbenches and FPGA packing consume the final rows without per-signal phase parameters. All catalogue rows start at INIT rising. The historical INIT8 recipes are rotated eight symbols earlier on all four channels, preserving relative timing and period length. Historical saved data remains unchanged and readable. Hardware ADC acquisition preserves all four rows exactly. FastRX alignment adjusts only RX_SEN placement and comparator IDELAY. A wrapped receive window can require dropping a partial receive frame, but no ADC control rotation or startup-conversion discard is applied. Set `fastrx_capture=FastRxCapture(comp_delay_taps, rx_sen_start_word)` in the physical parameters (combined taps 0..62), or use a characterized sequence-length, first-COMP-edge, and baud profile in `map_board.yaml`. Missing profiles fail before instrument setup; single-stage calibration cannot be reused. Historical result directories keep their old names; new simulation directories use the full sequence names.
 
@@ -295,41 +280,49 @@ These comparison targets pin their reviewed extraction directories explicitly; t
 
 The standard sequence has a 100 ns active conversion window at a 1.6 GHz symbol rate, followed by padding to a 160 ns record. Thus “10 MS/s” describes the active timing, not a continuous 100 ns sampling interval. The analysis uses all 100 decision records and writes both B0-first 17-bit decisions and decoded 12-bit outputs. Run long campaigns in detached worker sessions and copy results back before selecting them for analysis.
 
-## Remote simulation CLI
+## Remote simulation
 
 `flow.circuit.remote` wraps SSH, rsync, and tmux; the existing simulation targets still define the experiments and their concurrency. FTD host/path conventions are documented at the top of that module, not fixed in its configuration. Start from the primary checkout on asiclab003 and check capacity first:
 
-```bash
-uv run python -m flow.circuit.remote status --host juno \
-  --setup /eda/local/scripts/cadence_2024-25.sh
+```python
+from flow.circuit.remote import status
+print(status("juno", setup="/eda/local/scripts/cadence_2024-25.sh"))
 ```
 
-This shows CPU topology/load, memory, busy processes, and the issued/in-use counts for `Virtuoso_Multi_mode_Simulation` and `Spectre_XPS`. Repeat `--license-feature NAME` to inspect different FlexNet features. These are shared license pools, not reservations. The server comes from the worker environment's `CDS_LIC_FILE` or `LM_LICENSE_FILE`, or an explicit `--license-server` override. Review other users' load and the runner's multicore license needs before launching; the tool does not allocate resources.
+This shows CPU topology/load, memory, busy processes, and the issued/in-use counts for `Virtuoso_Multi_mode_Simulation` and `Spectre_XPS`. Pass `license_features=(...)` to inspect different FlexNet features. These are shared license pools, not reservations. The server comes from the worker environment's `CDS_LIC_FILE` or `LM_LICENSE_FILE`, or an explicit `license_server` override. Review other users' load and the runner's multicore license needs before launching; the tool does not allocate resources.
 
 After committing the source and submodule changes, launch an existing target:
 
-```bash
-uv run python -m flow.circuit.remote launch frida2_sequence \
-  --host juno --work-root /local/kcaisley \
-  --setup /eda/local/scripts/cadence_2024-25.sh \
-  --input build/layout/adc/frida2_1layer_radix17/20260905_193440 \
-  --input build/layout/adc/frida2_2layer_radix17/20260905_193629 \
-  --input build/layout/adc/frida2_3layer_radix17/20260905_193816
+```python
+from flow.circuit.remote import launch
+launch(
+    "frida2_sequence",
+    host="juno",
+    work_root="/local/kcaisley",
+    setup="/eda/local/scripts/cadence_2024-25.sh",
+    inputs=[
+        "build/layout/adc/frida2_1layer_radix17/20260905_193440",
+        "build/layout/adc/frida2_2layer_radix17/20260905_193629",
+        "build/layout/adc/frida2_3layer_radix17/20260905_193816",
+    ],
+)
 ```
 
-Use `frida1_sequence` with `--host jupiter` and its four reviewed input directories for the historical campaign. Input paths must match those selected inside the target; the CLI never substitutes newer PEX files. `--block` defaults to `adc`; use `comp`, `samp`, or `caparray` for other runners. Analysis is a separate explicitly selected study, not a collection hook. The selected PDK submodule defaults to `tsmc65`; foundry installations and absolute site inputs are not copied and must already be accessible on the trusted worker. No PDK data goes to public CI.
+Use `frida1_sequence` with `host="jupiter"` and its four reviewed input directories for the historical campaign. The target is the simulation function in `flow.<block>.sim` (its diagnostic's name); the worker runs it as `python -m flow <block>.<target without the block prefix>`. Input paths must match those selected inside the target; `launch` never substitutes newer PEX files. `block` defaults to `adc`; use `comp`, `samp`, or `caparray` for other runners. Analysis is a separate explicitly selected study, not a collection hook. The selected PDK submodule defaults to `tsmc65`; foundry installations and absolute site inputs are not copied and must already be accessible on the trusted worker. No PDK data goes to public CI.
 
-The worker parent directory must already exist. Each launch creates a fresh snapshot there from clean tracked source, dependencies, `uv.lock`, and explicit build inputs, without a `.git` directory, virtual environment, or old results. The remote tmux session installs from the lockfile, runs focused unit tests and the selected Spectre diagnostic, then launches the normal simulation CLI. Skipped diagnostics, missing inputs, and simulator/license errors prevent the full run. Existing Spectre processes owned by the same user also stop preflight; other users' resource use needs the manual review above.
+The worker parent directory must already exist. Each launch creates a fresh snapshot there from clean tracked source, dependencies, `uv.lock`, and explicit build inputs, without a `.git` directory, virtual environment, or old results. The remote tmux session installs from the lockfile, runs focused unit tests and the selected Spectre diagnostic, then launches the normal simulation target. Skipped diagnostics, missing inputs, and simulator/license errors prevent the full run. Existing Spectre processes owned by the same user also stop preflight; other users' resource use needs the manual review above.
 
-The printed local `build/remote/<session>/` directory contains the revision and input-path manifest, file list, and one shell bootstrap, not campaign-specific Python scripts. Its detached local tmux collector checks every 30 minutes. Once the entire target exits, it copies raw results, HDF5, diagnostics, and logs into `results/`, including failed-run artifacts. `collected.json` records worker and final exit codes. Select reviewed result directories in the study source before invoking the analysis CLI; collection never automatically changes study inputs.
+The printed local `build/remote/<session>/` directory contains the revision and input-path manifest, file list, and one shell bootstrap, not campaign-specific Python scripts. Its detached local tmux collector checks every 30 minutes. Once the entire target exits, it copies raw results, HDF5, diagnostics, and logs into `results/`, including failed-run artifacts. `collected.json` records worker and final exit codes. Select reviewed result directories in the study source before running the study; collection never automatically changes study inputs.
 
 Collection can also be resumed explicitly if the local collector was lost:
 
-```bash
-uv run python -m flow.circuit.remote collect build/remote/<session> --watch
+```python
+from pathlib import Path
+from flow.circuit.remote import collect
+collect(Path("build/remote/<session>"), watch=True)
 ```
 
-Without `--watch`, this checks once and copies if finished. Transport failures are retried in watch mode; simulations are never automatically restarted and remote snapshots are never deleted. Leave both machines powered on. Use tmux and the worker's `build/remote/run.log` for live progress; `collector.log` records local collection progress. Historical one-off recovery scripts are not used.
+Without `watch=True`, this checks once and copies if finished. Transport failures are retried in watch mode; simulations are never automatically restarted and remote snapshots are never deleted. Leave both machines powered on. Use tmux and the worker's `build/remote/run.log` for live progress; `collector.log` records local collection progress. Historical one-off recovery scripts are not used.
 
 ## Environment setup
 

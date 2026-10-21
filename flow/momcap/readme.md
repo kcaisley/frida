@@ -8,7 +8,7 @@
 | Layout tests | ✓ | [test_layout.py](test_layout.py) | Dimensions hold a via in a minimum finger; every terminal labelled and every stack joined; the netlist's terminal pairs. |
 | PEX runner | ✓ | [pex.py](pex.py) | `momcap_characterization`: every style at 1-3 metals, six lengths (1-32 µm) at the minimum spacing and three (2, 8, 32 µm) at 1.5, 2 and 3 times it, in all six PDKs (810 layout-only 3D extractions by the structures' own net names: Calibre xACT with each kit's rules, `flow/layout/calibre_pex.py`, and Quantus's field solver on the Assura database in LF150); about an hour per three PDKs on eight licences. Calibre's field solver runs at accuracy 1 (`PEX_FS_ACCURACY`, set by `flow/layout/calibre_pex.py`): at its default it may split a few fF of a small coupling beside a large net to the substrate. |
 | Analysis | ✓ | [analysis.py](analysis.py) | `MeasMomcap`; `analyze_momcap_fit`: C = (α/s + β) L + γ over all lengths and spacings (relative least squares), and each spacing's own affine fit. |
-| Plots | ✓ | [plots.py](plots.py) | Capacitance against length at the minimum spacing with the model and its error; capacitance per length against spacing; per-length capacitance across PDKs. Run by `flow.analysis.runner momcap_characterization_study`. |
+| Plots | ✓ | [plots.py](plots.py) | Capacitance against length at the minimum spacing with the model and its error; capacitance per length against spacing; per-length capacitance across PDKs. Run by `python -m flow momcap.characterization_study`. |
 | Analysis tests | ✓ | [test_analysis.py](test_analysis.py) | Structures that follow the model exactly give back α, β, γ and every spacing's fit; every plot renders. |
 
 ## The model the generators use

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import io
 import json
 from dataclasses import replace
-from datetime import datetime
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -177,19 +175,3 @@ def frida1(run_dir: Path, *, source_gds: Path | None = None) -> Path:
     if summary["status"] != "passed":
         raise RuntimeError(f"capdriver signoff failed; see {run_dir / 'summary.json'}: " + "; ".join(summary["errors"]))
     return run_dir
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", choices=("frida1",))
-    parser.add_argument("--output-dir", type=Path)
-    parser.add_argument("--source-gds", type=Path)
-    args = parser.parse_args()
-    run_dir = args.output_dir or (
-        ROOT / "build/layout/capdriver" / args.target / datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    )
-    print(frida1(run_dir, source_gds=args.source_gds))
-
-
-if __name__ == "__main__":
-    main()

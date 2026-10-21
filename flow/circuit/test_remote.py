@@ -1,6 +1,5 @@
-"""Remote CLI contracts, with Git/rsync/shell tests but no SSH or EDA jobs."""
+"""Remote deployment contracts, with Git/rsync/shell tests but no SSH or EDA jobs."""
 
-import argparse
 import json
 import os
 import shlex
@@ -88,18 +87,20 @@ def test_snapshot_rejects_input_symlinks(repository):
 @pytest.mark.parametrize(
     "args",
     (
-        ["--host", "-oProxyCommand=bad", "--work-root", "/local/user"],
-        ["--host", "worker;bad", "--work-root", "/local/user"],
-        ["--host", "worker", "--work-root", "~/work"],
-        ["--host", "worker", "--work-root", "/"],
-        ["--host", "worker", "--work-root", "/local/../tmp"],
+        {"host": "-oProxyCommand=bad", "work_root": "/local/user"},
+        {"host": "worker;bad", "work_root": "/local/user"},
+        {"host": "worker", "work_root": "~/work"},
+        {"host": "worker", "work_root": "/"},
+        {"host": "worker", "work_root": "/local/../tmp"},
+        {"host": "worker", "work_root": "/local/user", "setup": "relative/setup.sh"},
+        {"host": "worker", "work_root": "/local/user", "pdk": "tsmc65;bad"},
+        {"host": "worker", "work_root": "/local/user", "block": "unknown"},
     ),
 )
-def test_cli_rejects_unsafe_arguments(args, monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["remote", "launch", "frida2_sequence", *args])
-    with pytest.raises(SystemExit) as error:
-        remote.main()
-    assert error.value.code == 2
+def test_launch_rejects_unsafe_arguments(args, monkeypatch):
+    monkeypatch.setattr(remote, "_snapshot_files", lambda *_: pytest.fail("validated before any snapshot"))
+    with pytest.raises(ValueError):
+        remote.launch("frida2_sequence", **args)
 
 
 def test_ssh_quotes_one_remote_bash_command(monkeypatch):
@@ -124,32 +125,31 @@ def test_launch_uses_existing_target_and_detached_collector(repository, monkeypa
 
     monkeypatch.setattr(subprocess, "run", run)
     monkeypatch.setattr(remote, "_ssh", lambda host, command: calls.append([host, command]))
-    args = argparse.Namespace(
+    campaign = remote.launch(
+        "frida2_sequence",
         host="worker",
         work_root="/local/user",
         setup="/eda/setup.sh",
         block="adc",
-        target="frida2_sequence",
-        input=[],
+        inputs=[],
         pdk="tsmc65",
+        root=repository,
     )
-    campaign = remote.launch(args, repository)
     record = json.loads((campaign / "manifest.json").read_text())
     assert (
         record["revision"] == subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip()
     )
     assert record["remote_dir"].startswith("/local/user/frida-")
-    assert "uv run --frozen python -m flow.adc.sim frida2_sequence" in (campaign / "run.sh").read_text()
-    assert any(call[0] == "tmux" and "collect" in call[-1] and "--watch" in call[-1] for call in calls)
+    assert "uv run --frozen python -m flow adc.frida2_sequence" in (campaign / "run.sh").read_text()
+    assert any(call[0] == "tmux" and "collect" in call[-1] and "watch=True" in call[-1] for call in calls)
     assert any(call[0] == "worker" and "tmux new-session -d" in call[1] for call in calls)
     assert not any("--delete" in call for call in calls)
 
 
-def test_resource_status_is_read_only_and_works_before_launch(monkeypatch, capsys):
+def test_resource_status_is_read_only_and_works_before_launch(monkeypatch):
     calls = []
-    monkeypatch.setattr(sys, "argv", ["remote", "status", "--host", "worker", "--setup", "/eda/setup.sh"])
     monkeypatch.setattr(remote, "_ssh", lambda host, command: calls.append(command) or "resource report")
-    remote.main()
+    assert remote.status("worker", setup="/eda/setup.sh") == "resource report"
     script = calls[0]
     assert "source /eda/setup.sh" in script
     assert "lscpu" in script and "ps -eo" in script
@@ -157,7 +157,6 @@ def test_resource_status_is_read_only_and_works_before_launch(monkeypatch, capsy
     assert "lmutil lmstat -f Spectre_XPS" in script
     assert "${CDS_LIC_FILE:-${LM_LICENSE_FILE:-}}" in script
     assert "mkdir" not in script and "new-session" not in script
-    assert "resource report" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -228,7 +227,7 @@ def test_collection_waits_for_exit_without_running_analysis(campaign, monkeypatc
     monkeypatch.setattr(remote, "_status", lambda _: state)
     monkeypatch.setattr(subprocess, "run", lambda argv, **kw: calls.append(argv) or SimpleNamespace(returncode=0))
     assert remote.collect(campaign) == (7 if state == "7" else 0)
-    assert not any("flow.analysis.runner" in call for call in calls)
+    assert not any("_study" in " ".join(map(str, call)) for call in calls)
     assert any(call[0] == "rsync" for call in calls) == (state != "running")
     if state != "running":
         count = len(calls)

@@ -1,7 +1,7 @@
 """Write each PDK's standard-cell library for hdl21 (``pdk/<pdk>/hdl21/cells.py``): every cell of
 its chosen library, and which cell implements each generic cell (``flow.circuit.cells``).
 
-    uv run python -m flow.circuit.cellmap [pdk ...]
+    uv run python -c "from flow.circuit.cellmap import write_libraries; write_libraries()"  # or ("tsmc65",)
 
 From the library's Liberty (``layout/paths.py``'s ``STD_LIBERTY``): each pin's direction and
 function, the flip-flops' and latches' groups, ``dont_use``, the area; from its SPICE
@@ -23,7 +23,6 @@ from __future__ import annotations
 import gzip
 import itertools
 import re
-import sys
 from importlib import import_module
 from pathlib import Path
 
@@ -299,7 +298,7 @@ def write_library(pdk: str) -> tuple[Path, list[str]]:
         f'"""Every cell of {tech.STD_LIB} for hdl21 and the generic cells (flow.circuit.cells) it implements.',
         "",
         "Written by flow.circuit.cellmap from the library's Liberty and SPICE; do not edit:",
-        f"    uv run python -m flow.circuit.cellmap {pdk}",
+        f"    uv run python -c \"from flow.circuit.cellmap import write_library; write_library('{pdk}')\"",
         '"""',
         "",
         f'DOMAIN = "{pdk}"',
@@ -327,11 +326,13 @@ def write_library(pdk: str) -> tuple[Path, list[str]]:
     return out, missing
 
 
-def main() -> None:
-    for pdk in sys.argv[1:] or PDKS:
+def write_libraries(pdks: tuple[str, ...] = PDKS) -> dict[str, list[str]]:
+    """``write_library`` for each PDK (every PDK by default), each reported; the generic cells each
+    lacks."""
+
+    lacking = {}
+    for pdk in pdks:
         out, missing = write_library(pdk)
         print(f"{pdk}: {out.relative_to(ROOT)}" + (f"; lacks {', '.join(missing)}" if missing else ""))
-
-
-if __name__ == "__main__":
-    main()
+        lacking[pdk] = missing
+    return lacking

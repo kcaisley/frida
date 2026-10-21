@@ -14,7 +14,7 @@ import pytest
 
 from flow.util.netlist import subcircuit_ports
 
-from . import sim
+from . import sim, targets
 
 PEX_FIXTURES = {view: Path(__file__).parent / "fixtures" / f"{view}_ports.scs" for view in ("frida1", "frida2")}
 PEX_PINS = {view: subcircuit_ports(path.read_text(), "adc_12b_17step") for view, path in PEX_FIXTURES.items()}
@@ -622,46 +622,49 @@ def test_historical_lvs_exception_is_narrow(view, target, warning, accepted, cap
             sim._run_adc_sim(tmp_path / "run", params, **kwargs)
 
 
-def test_adc_main_lists_only_experiment_targets_in_family_order(monkeypatch, capsys):
-    monkeypatch.setattr("sys.argv", ["sim"])
-    sim.main()
-    assert capsys.readouterr().out.splitlines()[1:] == [
-        "  hdl21_sample_rate",
-        "  hdl21_transfer_curve",
-        "  frida1_sequence",
-        "  frida1_sample_rate",
-        "  frida1_transfer_curve",
-        "  frida1_supply_noise",
-        "  frida2_sequence",
+def test_adc_targets_list_only_experiment_targets_in_family_order():
+    names = [
+        name
+        for name, value in vars(targets).items()
+        if inspect.isfunction(value) and value.__module__ == targets.__name__ and hasattr(sim, name)
     ]
+    assert names == [
+        "hdl21_sample_rate",
+        "hdl21_transfer_curve",
+        "frida1_sequence",
+        "frida1_sample_rate",
+        "frida1_transfer_curve",
+        "frida1_supply_noise",
+        "frida2_sequence",
+    ]
+    assert all(not inspect.signature(getattr(targets, name)).parameters for name in names)
     functions = [
         name
         for name, value in vars(sim).items()
         if inspect.isfunction(value) and value.__module__ == sim.__name__ and name.startswith("_")
     ]
     assert functions == ["_run_adc_sim"]
+    assert not hasattr(sim, "main")
 
 
-def test_main_runs_full_experiment(tmp_path, monkeypatch):
+def test_target_runs_full_experiment(tmp_path, monkeypatch):
     calls = []
 
     def frida2_sequence(directory, **options):
         calls.append((directory, options))
 
+    def new_run(*parts):
+        run_dir = (tmp_path / "build").joinpath(*parts, "20260101_000000")
+        run_dir.mkdir(parents=True)
+        return run_dir
+
     monkeypatch.setattr(sim, "frida2_sequence", frida2_sequence)
-    monkeypatch.setattr(sim, "__file__", str(tmp_path / "flow/adc/sim.py"))
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "sim",
-            "frida2_sequence",
-        ],
-    )
-    sim.main()
+    monkeypatch.setattr(targets, "new_run", new_run)
+    targets.frida2_sequence()
     directory, options = calls[0]
-    assert directory.parent == tmp_path / "build/sim/adc"
-    assert directory.name.endswith("_frida2_sequence")
+    assert directory == tmp_path / "build/sim/adc/20260101_000000_frida2_sequence"
     assert directory.is_dir()
+    assert not (tmp_path / "build/sim/adc/20260101_000000").exists()
     assert options == {}
 
 
