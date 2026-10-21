@@ -8,6 +8,8 @@ from hdl21.prefix import G
 
 from flow.adc.behavioral import (
     AdcBehavioralParams,
+    CdacBehavioralParams,
+    CompBehavioralParams,
     SalogicBehavioralParams,
     SampBehavioralParams,
     build_continuous_sequence,
@@ -204,3 +206,72 @@ def test_strongarm_noise_falls_with_larger_pq_capacitance() -> None:
     large = calc_strongarm_noise(CompParams(diffpair_w=64, rst_w=16), 0.7)
     assert 1e-3 < small < 5e-3
     assert large < small
+
+
+def rail_noise_lsb(reference_noise_v: float, vin_v: float, conversions: int = 400) -> float:
+    """The output code's standard deviation at a DC input with the DAC rail's noise alone."""
+    params = AdcBehavioralParams(
+        tb=TB,
+        comp=CompBehavioralParams(noise_v=0.0),
+        cdac=CdacBehavioralParams(reference_noise_v=reference_noise_v),
+        seed=3,
+    )
+    code_weights = np.append(2 * np.asarray(get_caparray_weights(TB.dut.cdac)), 1)
+    bout = convert_behavioral(params, np.full(conversions, vin_v)).bout
+    code = (bout @ code_weights) * ((1 << TB.dut.adc_bits) - 1) / code_weights.sum()
+    return float(np.std(code))
+
+
+def test_rail_noise_cancels_at_mid_scale_and_grows_toward_the_ends() -> None:
+    main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac)
+    full_scale_v = float(TB.vdd_dac.dc) * np.sum(main_f - diff_f) / np.sum(main_f + diff_f)
+    lsb_v = 2 * full_scale_v / (1 << TB.dut.adc_bits)
+    # off the first threshold by a third of an LSB: noiseless, every conversion gives one code
+    middle, near_top, near_bottom = 0.33 * lsb_v, 0.9 * full_scale_v, -0.9 * full_scale_v
+    assert rail_noise_lsb(0.0, near_top) == 0.0
+    # 2 mV on VDD_DAC: the sides' plates at the rail differ by about vin / VDD_DAC near the ends
+    sigma = {vin: rail_noise_lsb(2e-3, vin) for vin in (middle, near_top, near_bottom)}
+    assert sigma[middle] < 0.3
+    assert sigma[near_top] > 1.0 and sigma[near_bottom] > 1.0
+
+
+def test_the_model_quiets_each_source_alone_and_scales_the_settling() -> None:
+    from types import SimpleNamespace
+
+    from flow.adc.model import AdcModel
+
+    main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac)
+    model = AdcModel(
+        pdk="none",
+        params=TB.dut,
+        comp=SimpleNamespace(
+            behavioral=lambda vin_cm_v: CompBehavioralParams(
+                noise_v=1e-4, delay_table_v=(1e-6, 1e-3), delay_table_s=(200e-12, 50e-12)
+            )
+        ),
+        samp=SimpleNamespace(behavioral=lambda load_f: SampBehavioralParams(noise_v=1e-4)),
+        cdac=SimpleNamespace(
+            draw=lambda unit_mismatch, rng: (main_f, diff_f),
+            parasitic_f=0.0,
+            main_f=main_f,
+            diff_f=diff_f,
+            load_f=float(np.sum(main_f) + np.sum(diff_f)),
+        ),
+        drivers=tuple(SimpleNamespace(resistance_ohm=1.0, intrinsic_delay_s=20e-12, energy_j=0.0) for _ in main_f),
+        rail_noise_v=2e-3,
+    )
+    assert model.behavioral(TB).cdac.reference_noise_v == 2e-3
+    quiet = model.behavioral(TB, quiet=("rail",))
+    assert quiet.cdac.reference_noise_v == 0.0
+    assert quiet.comp.noise_v == 1e-4 and quiet.samp.noise_v == 1e-4  # the other sources stay
+    # the comparator's noise alone: its delay stays, so a late decision still holds
+    noiseless = model.behavioral(TB, quiet=("comparator_noise",)).comp
+    assert noiseless.noise_v == 0.0 and noiseless.delay_table_v == (1e-6, 1e-3)
+    ideal = model.behavioral(TB, quiet=("comparator",)).comp
+    assert ideal.noise_v == 0.0 and ideal.delay_table_v is None
+    # the settling time constants scale; at 0 settling is ideal, the drivers' delay gone too
+    nominal, slower = model.behavioral(TB).cdac, model.behavioral(TB, tau_scale=4.0).cdac
+    np.testing.assert_allclose(slower.stage_tau_s, 4 * np.asarray(nominal.stage_tau_s))
+    assert slower.stage_delay_s == nominal.stage_delay_s
+    settled = model.behavioral(TB, tau_scale=0.0).cdac
+    assert not any(settled.stage_tau_s) and not any(settled.stage_delay_s) and settled.settling_tau_s == 0.0

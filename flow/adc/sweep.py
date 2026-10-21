@@ -1,6 +1,8 @@
-"""The ADC's design space (``flow.sweep``): two comparators and three samplers at 10 to 14 bits
-(the topologies), each with 0 to 6 redundant decisions (the sizings; FRIDA's array is the 12-bit
-one with 5), so 10 to 20 decisions a conversion, on the three-metal
+"""The ADC's design space (``flow.sweep``): five comparators (216 uV to 1.2 mV of noise, 0.13 to
+4.6 ns of delay) and three samplers at 10 to 14 bits (the topologies; the samplers compared on the
+FRIDA-like comparators with binary or overlay arrays only), each with 0 to 6 redundant decisions spent four ways (the sizings: FRIDA's
+sub-radix-2 overlay, its array the 12-bit one with 5, or repeated binary weights at the start,
+along the chain or at the end), so 10 to 20 decisions a conversion, on the three-metal
 difference-capacitor arrays, in TSMC65, by the behavioral model (``flow.adc.model``) of its
 characterized blocks.
 
@@ -26,7 +28,7 @@ from pathlib import Path
 
 import hdl21 as h
 
-from flow.caparray.layout import ADC_VARIANTS
+from flow.caparray.layout import ADC_VARIANTS, REDUNDANCY
 from flow.caparray.subckt import CapArray, CapArrayParams
 from flow.comp import sweep as comp_sweep
 from flow.comp.subckt import Comp
@@ -37,10 +39,19 @@ from flow.sweep import Record
 from .subckt import AdcParams
 
 # the comparators: (comparator topology, sizing) of the comparator sweep
+# (input-referred noise and delay at 0.1 mV in TSMC65), from quiet and slow to fast and noisy: where
+# the comparator's delay limits the conversion, and how much of its noise redundancy can absorb
 COMPARATORS = {
-    "strongarm_frida1": ("strongarm", "frida1_like"),
-    "double_tail": ("double_tail_modified", "frida1_like"),
+    "double_tail_long": ("double_tail_self_timed", "frida1_like_long"),  # 216 uV, 4.6 ns
+    "strongarm_frida1": ("strongarm", "frida1_like"),  # 249 uV, 2.5 ns
+    "double_tail": ("double_tail_modified", "frida1_like"),  # 264 uV, 1.5 ns
+    "strongarm_x1": ("strongarm", "x1"),  # 449 uV, 0.13 ns
+    "double_tail_x0p5": ("double_tail_modified", "x0.5"),  # 1.2 mV, 0.13 ns
 }
+# the samplers are compared on FRIDA-like comparators with binary or overlay arrays; the redundancy
+# study (every comparator and strategy) uses the four-times-wider gate
+SAMPLER_STUDY = ("strongarm_frida1", "double_tail")
+STUDY_SAMPLER = "tgate_x4"
 # the samplers: (sampler topology, sizing) of the sampler sweep
 SAMPLERS = {
     "tgate": ("frida1", "x1"),
@@ -49,18 +60,34 @@ SAMPLERS = {
 }
 # each topology's comparator, sampler and resolution; each sizing's redundant decisions
 TOPOLOGIES = {
-    f"{comp_name}_{samp_name}_{bits}b": {"comp": comp, "samp": samp, "bits": bits}
+    f"{comp_name}_{samp_name}_{bits}b": {
+        "comp": comp,
+        "samp": samp,
+        "bits": bits,
+        "comp_name": comp_name,
+        "samp_name": samp_name,
+    }
     for comp_name, comp in COMPARATORS.items()
     for samp_name, samp in SAMPLERS.items()
     for bits in (10, 11, 12, 13, 14)
 }
-SIZINGS = {f"plus{extra}": {"extra": extra} for extra in range(7)}
+# each sizing's redundant decisions and how the array spends them (flow.caparray.layout.REDUNDANCY):
+# plus<n> FRIDA's sub-radix-2 overlay, plus<n>_start, _spread and _end binary weights with n of them
+# repeated at the start, along the chain or at the end
+SIZINGS = {"plus0": {"extra": 0, "variant": ""}} | {
+    f"plus{extra}{suffix}": {"extra": extra, "variant": suffix} for extra in range(1, 7) for suffix in REDUNDANCY
+}
 
 
 def params(pdk: str, topology: str, sizing: str) -> AdcParams | None:
     if pdk != "tsmc65":  # the variants' arrays are extracted in TSMC65 only
         return None
-    cdac = ADC_VARIANTS[f"{TOPOLOGIES[topology]['bits']}b_plus{SIZINGS[sizing]['extra']}"]
+    sizing_ = SIZINGS[sizing]
+    topology_ = TOPOLOGIES[topology]
+    sampler_study = topology_["comp_name"] in SAMPLER_STUDY and sizing_["variant"] == ""
+    if topology_["samp_name"] != STUDY_SAMPLER and not sampler_study:
+        return None
+    cdac = ADC_VARIANTS[f"{TOPOLOGIES[topology]['bits']}b_plus{sizing_['extra']}{sizing_['variant']}"]
     return AdcParams(
         adc_bits=cdac.n_dac + 1,
         cdac=cdac,
@@ -127,16 +154,17 @@ def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
     for name, capture in campaign(model.tb, model.full_scale_v, params.adc_bits).items():
         captures[name] = model.capture(
             capture.tb,
-            # the mismatch study's hundred-odd ramps stay in memory: its figure and metrics keep them
-            None if name.startswith("mc_") else run_dir / f"{name}.h5",
+            # the mismatch and Hsu studies' many captures stay in memory: their figures keep them
+            None if name.startswith(("mc_", "hsu_")) else run_dir / f"{name}.h5",
             seed=capture.seed,
             noise_seed=capture.noise_seed,
             unit_mismatch=capture.unit_mismatch,
-            quiet=("sampling", "comparator") if capture.noise_free else (),
+            quiet=("sampling", "comparator", "rail") if capture.noise_free else capture.quiet,
+            tau_scale=capture.tau_scale,
         )
-    # the behavioral model alone can silence one noise source at a time
+    # the behavioral model alone can keep one noise source at a time
     noise = campaign(model.tb, model.full_scale_v, params.adc_bits)["noise"]
-    for name, quiet in (("noise_sampling", ("comparator",)), ("noise_comparator", ("sampling",))):
+    for name, quiet in (("noise_sampling", ("comparator", "rail")), ("noise_comparator", ("sampling", "rail"))):
         captures[name] = model.capture(noise.tb, run_dir / f"{name}.h5", quiet=quiet)
     metrics, details = adc_figures(captures, run_dir / "figures")
     metrics |= {
@@ -145,6 +173,7 @@ def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
         "full_scale_v": model.full_scale_v,
         "settling_tau_s": model.settling_tau_s,
         "comp_noise_v": model.comp.noise_v,
+        "rail_noise_v": model.rail_noise_v,  # assumed, not characterized
         "comp_delay_s": model.comp.delay_s,
         **_metastability(model),
     }

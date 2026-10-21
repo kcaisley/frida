@@ -22,6 +22,7 @@ PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
 # block -> title
 BLOCKS = {
     "adc": "SAR ADC (behavioral)",
+    "adc14": "14-bit SAR ADC (specification study)",
     "comp": "Comparator",
     "samp": "Sampling switch",
     "caparray": "Capacitor array",

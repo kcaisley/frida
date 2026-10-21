@@ -329,7 +329,7 @@ def table(blocks: list[str], workers: int) -> None:
             run_dir = newest_run(block)
             records = [json.loads(path.read_text()) for path in sorted(run_dir.glob("*/*/*/instance.json"))]
             (DATA_DIR / block).mkdir(parents=True, exist_ok=True)
-            rows, details, views = [], {}, {}
+            rows, views = [], {}
             for record in records:
                 ident = f"{record['pdk']}__{record['topology']}__{record['sizing']}"
                 rows.append(
@@ -344,23 +344,6 @@ def table(blocks: list[str], workers: int) -> None:
                         "seconds": record.get("seconds"),
                     }
                 )
-                for detail in record["details"]:
-                    limits = details.setdefault(
-                        detail["name"],
-                        {k: detail[k] for k in ("title", "x_label", "y_label", "x_log", "y_log")}
-                        | {"x": [math.inf, -math.inf], "y": [math.inf, -math.inf]},
-                    )
-                    xs = [x for x in detail["x"] if x is not None and (x > 0 or not detail["x_log"])]
-                    ys = [
-                        y
-                        for values in detail["series"].values()
-                        for y in values
-                        if y is not None and (y > 0 or not detail["y_log"])
-                    ]
-                    if xs:
-                        limits["x"] = [min(limits["x"][0], *xs), max(limits["x"][1], *xs)]
-                    if ys:
-                        limits["y"] = [min(limits["y"][0], *ys), max(limits["y"][1], *ys)]
                 views[ident] = (record, pool.submit(instance_views, block, ident, record, DATA_DIR))
             for row in rows:
                 record, future = views[row["id"]]
@@ -393,11 +376,11 @@ def table(blocks: list[str], workers: int) -> None:
                 "run": run_dir.name,
                 "params": varying,
                 "metrics": metrics,
-                "details": details,
                 "rows": rows,
             }
             (DATA_DIR / f"{block}.json").write_text(json.dumps(_json(data), separators=(",", ":")))
             catalog[block] = {"title": title, "run": run_dir.name, "instances": len(rows)}
             laid_out = sum(1 for record, _future in views.values() if (record.get("layout") or {}).get("gds"))
-            print(f"{block}: {len(rows)} instances, {len(metrics)} metrics, {len(details)} details, {laid_out} layouts")
+            details = len({detail["name"] for record in records for detail in record["details"]})
+            print(f"{block}: {len(rows)} instances, {len(metrics)} metrics, {details} details, {laid_out} layouts")
     catalog_path.write_text(json.dumps(dict(sorted(catalog.items())), indent=1) + "\n")

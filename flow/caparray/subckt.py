@@ -7,6 +7,7 @@ Supports multiple architectures including:
 - Variable bit widths with dynamic port generation
 """
 
+import math
 from enum import Enum, auto
 
 import hdl21 as h
@@ -25,6 +26,11 @@ class RedunStrat(Enum):
     SUBRDX2_RDST = auto()
     RDX2_RPT = auto()
     SUBRDX2_OVLY = auto()  # Sub-radix-2 with paired overlay
+    # binary, n_extra of its weights each followed by a second capacitor of that weight: the
+    # largest after the MSB, evenly spread along the chain, or the smallest
+    RDX2_RPT_START = auto()
+    RDX2_RPT_SPREAD = auto()
+    RDX2_RPT_END = auto()
 
 
 class SplitStrat(Enum):
@@ -72,6 +78,11 @@ class CapArrayConfig:
     weights = h.Param(
         dtype=tuple[int, ...] | None,
         desc="Explicit C0-first unit-capacitor weights in conversion-stage order",
+        default=None,
+    )
+    parasitic_cap = h.Param(
+        dtype=h.Scalar | None,
+        desc="The top plate's other load of an ideal array (weights x unit_cap, nothing extracted); None: extracted",
         default=None,
     )
 
@@ -408,6 +419,21 @@ def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> list[int] |
             result[i + 2] += val
 
         return result
+
+    elif strategy in (RedunStrat.RDX2_RPT_START, RedunStrat.RDX2_RPT_SPREAD, RedunStrat.RDX2_RPT_END):
+        # Binary weights, n_extra of them repeated right after themselves (never the MSB: a repeat
+        # gives the decisions before it their tolerance). START repeats the largest after the MSB,
+        # END the smallest, SPREAD picks evenly along the chain after the MSB.
+        base = [2**i for i in range(n_dac - 1, -1, -1)]
+        if not 0 < n_extra <= n_dac - 1:
+            return None
+        if strategy == RedunStrat.RDX2_RPT_START:
+            repeated = set(range(1, n_extra + 1))
+        elif strategy == RedunStrat.RDX2_RPT_END:
+            repeated = set(range(n_dac - n_extra, n_dac))
+        else:
+            repeated = {1 + math.floor((k + 0.5) * (n_dac - 1) / n_extra) for k in range(n_extra)}
+        return [w for i, weight in enumerate(base) for w in ((weight, weight) if i in repeated else (weight,))]
 
     else:
         return None  # Unknown strategy

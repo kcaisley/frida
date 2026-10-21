@@ -8,6 +8,7 @@ from flow.adc.campaign import (
     MISMATCH_COEFFICIENTS,
     MISMATCH_DRAWS,
     RATES_HZ,
+    TAU_SCALES,
     UNIT_MISMATCH,
     campaign,
 )
@@ -32,7 +33,12 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
     assert abs(captures["rate_10"].tb["vin_diff"].vamp - 0.7 * 10 ** (-0.5 / 20)) < 1e-9
     assert isinstance(captures["dc_00"].tb["vin_diff"], h.Vdc.Params)
     assert captures["dc_00"].tb["vin_diff"].dc == -0.7 and captures["dc_32"].tb["vin_diff"].dc == 0.7
-    assert len(FIGURES) == 16 and next(iter(FIGURES)) == "redundancy"
+    assert next(iter(FIGURES)) == "redundancy" and {"noise_input", "hsu_map", "hsu_rate", "hsu_fastest"} <= set(FIGURES)
+    # the noise over the input, and Hsu's study: every rate at every settling scale and a reference
+    assert "noise_input" in names and "hsu_reference" in names
+    assert sum(name.startswith("hsu_r") and name != "hsu_reference" for name in names) == len(RATES_HZ) * len(
+        TAU_SCALES
+    )
     # the mismatch study: noise-free draws at each Pelgrom coefficient, one draw per seed
     studies = [capture for name, capture in captures.items() if name.startswith("mc_")]
     assert len(studies) == len(MISMATCH_COEFFICIENTS) * MISMATCH_DRAWS and all(c.noise_free for c in studies)

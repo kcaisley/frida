@@ -31,8 +31,10 @@ def test_geometry_counts_the_compiled_devices_and_their_gate_area() -> None:
 def test_every_sweep_module_keeps_the_contract() -> None:
     for block in runner.sweep_blocks():
         sweep = __import__(f"flow.{block}.sweep", fromlist=["params"])
-        # four to eight sizings, ten where a block also brackets a fabricated design (comp: FRIDA-1)
-        assert sweep.TOPOLOGIES and 4 <= len(sweep.SIZINGS) <= 10, block
+        # four to eight sizings, ten where a block also brackets a fabricated design (comp: FRIDA-1);
+        # the converters' sizings are their capacitor arrays, a redundancy scheme each
+        most = 30 if block.startswith("adc") else 10
+        assert sweep.TOPOLOGIES and 4 <= len(sweep.SIZINGS) <= most, block
         assert callable(sweep.characterize) and sweep.GENERATOR is not None, block
         combos = [
             sweep.params(pdk, topology, sizing)
@@ -43,7 +45,7 @@ def test_every_sweep_module_keeps_the_contract() -> None:
         assert any(combo is not None for combo in combos), block
 
 
-def test_the_table_has_a_row_per_instance_and_shared_detail_limits(tmp_path: Path, monkeypatch) -> None:
+def test_the_table_has_a_row_per_instance_and_a_file_each(tmp_path: Path, monkeypatch) -> None:
     run = tmp_path / "sweep/toy/20261020_000000"
     for pdk, sizing, delay in (("tsmc65", "x1", 1e-10), ("ihp130", "x2", 3e-10)):
         path = run / pdk / "inv" / sizing / "instance.json"
@@ -78,7 +80,7 @@ def test_the_table_has_a_row_per_instance_and_shared_detail_limits(tmp_path: Pat
     data = json.loads((tmp_path / "web/data/sweep/toy.json").read_text())
     assert [row["id"] for row in data["rows"]] == ["ihp130__inv__x2", "tsmc65__inv__x1"]
     assert data["params"] == ["w"]  # the kind is the same everywhere
-    assert data["details"]["delay_supply"]["y"] == pytest.approx([1e-10, 3e-10])
+    assert "details" not in data  # each plot is scaled to its own data
     instance = json.loads((tmp_path / "web/data/sweep/toy/tsmc65__inv__x1.json").read_text())
     assert instance["params"] == {"w": 1, "kind": "inv"} and instance["details"][0]["series"]["delay"][1] is None
     assert json.loads((tmp_path / "web/data/sweep/catalog.json").read_text())["toy"]["instances"] == 2

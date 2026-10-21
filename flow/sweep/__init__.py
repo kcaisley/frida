@@ -18,8 +18,7 @@ A block takes part with a module ``flow/<block>/sweep.py``:
 
 A ``Record`` holds the instance's scalar ``metrics`` (each name ends in its unit, as the
 analyses' fields do: ``_s``, ``_j``, ``_v``, ``_w``, ``_um2``), its ``details`` (plots of its
-condition sweeps, whose axes the viewer fixes across a block's instances, or figures drawn by the
-analysis plots) and ``waves`` (measurement files under ``build/`` holding transient waveforms, by
+condition sweeps, each plotted on its own data, or figures drawn by the analysis plots) and ``waves`` (measurement files under ``build/`` holding transient waveforms, by
 label).
 
     uv run python -m flow comp.sweep      # one block: characterize, lay out, tabulate
@@ -50,6 +49,12 @@ class Detail:
     x_log: bool = False
     y_log: bool = False
     figure: str | None = None  # an SVG under build/ the viewer shows in place of the plot (x, series empty)
+    # step lines over x, each {"y": [...], "count": n}: how many records took it (the ADC's decision
+    # paths), drawn weighted by their counts beside or instead of the series
+    paths: list[dict] = field(default_factory=list)
+    # a map over x and grid["y"] instead of curves: {"y": [...], "z": [[z at y[i], x[j]]...],
+    # "z_label": ..., "z_max": colour scale's top (larger values saturate), "y_log": bool}
+    grid: dict = field(default_factory=dict)
 
 
 @dataclass

@@ -1,0 +1,7 @@
+# Status
+
+| Feature | Status | File | Notes |
+|---|---|---|---|
+| Design space | ✓ | [sweep.py](sweep.py) | `python -m flow adc14.sweep`: a 14-bit specification (1.4 pF switched in 7 pF a side, FRIDA-1's transmission gate at 32 minimum widths and minimum length, a comparator near 300 uV) with sixteen proposed capacitor arrays: binary, and binary with added decisions at the LSB end, at the MSB or both, double or triple conversion at the LSB or the LSB+1, and mildly non-binary steps, each scaled to the same switched capacitance; three comparators near 300 uV from slow (2.5 ns) to fast (0.14 ns); 48 instances in TSMC65. |
+| Arrays | ✓ | [sweep.py](sweep.py) | Each array as its search steps (nominal weight plus non-binary addition, in LSB), every step a capacitor of an ideal array (`CapArrayConfig.parasitic_cap`: nothing extracted); the steps' margins are the spreadsheet's. The converter samples on its top plates and adds one free first decision alike for every array, so its code has a bit more than the specification's: arrays compare by ENOB and SNDR over the same full scale in volts. |
+| Characterization | ✓ | [../adc/sweep.py](../adc/sweep.py) | The ADC's campaign and figures (`flow.adc.sweep.characterize`), Hsu's redundancy study included: where the DAC's settling limits the rate, redundancy can raise it; where the comparator's delay does, it cannot ([../adc/readme.md](../adc/readme.md)). |
