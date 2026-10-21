@@ -6,7 +6,7 @@
 // a click places the cursor, shift-click a second marker for the time between them.
 
 import { h, icon, popover, select } from "./icons.js";
-import { COLORS, emit, fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
+import { COLORS, fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
 import { fieldInfo, formatValue, scaledUnit, siExponent } from "./units.js";
 
 const ROW = 40; // px per signal row
@@ -264,8 +264,9 @@ export class TracesPanel {
                 h(
                     "div.trace-name",
                     { style: { height: `${ROW}px`, borderLeftColor: color } },
-                    h("div.line", {}, h("span.mono.label", { style: { color } }, trace.name), toggle, remove),
-                    h("div.line", {}, value, h("span.range.mono", {}, `${formatValue(trace.range[0], trace.info)} … ${formatValue(trace.range[1], trace.info)}`)),
+                    // its name, the value under the cursor and its controls; below, its range
+                    h("div.line", {}, h("span.mono.label", { style: { color } }, trace.name), value, toggle, remove),
+                    h("div.line", {}, h("span.range.mono", {}, `${formatValue(trace.range[0], trace.info)} … ${formatValue(trace.range[1], trace.info)}`)),
                 ),
             );
         });
@@ -461,6 +462,7 @@ export class TracesPanel {
         if (!this.readout) return;
         const seconds = { unit: "s", scalable: true };
         const parts = [];
+        if (this.hover !== null) parts.push(`t ${formatValue(this.hover, seconds)}`);
         if (this.cursor !== null) parts.push(`cursor ${formatValue(this.cursor, seconds)}`);
         if (this.marker !== null) parts.push(`marker ${formatValue(this.marker, seconds)}`);
         if (this.cursor !== null && this.marker !== null) parts.push(`Δt ${formatValue(Math.abs(this.cursor - this.marker), seconds)}`);
@@ -522,7 +524,6 @@ export class TracesPanel {
             const hover = inside ? this.timeAt(px) : null;
             if (hover !== this.hover) {
                 this.hover = hover;
-                if (hover !== null) emit("cursor", `t ${formatValue(hover, { unit: "s", scalable: true })}`);
                 this.draw();
             }
         });

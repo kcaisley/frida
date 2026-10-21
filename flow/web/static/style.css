@@ -728,16 +728,18 @@ input[type="checkbox"] {
 /* blocks */
 
 .block-list {
-    padding: 4px 0;
+    padding: 2px 0;
 }
 
+/* dense monospace rows, as Zed's project panel lists files; the instance count in grey after the
+ * name, as its git panel shows a file's folder */
 .block-row {
-    display: grid;
-    grid-template-columns: 1fr auto;
+    display: flex;
     align-items: center;
-    gap: 2px 8px;
-    padding: 6px 12px;
-    border-left: 2px solid transparent;
+    gap: 7px;
+    height: 22px;
+    padding: 0 10px 0 12px;
+    font: var(--fs-12) var(--font-mono);
     cursor: pointer;
 }
 
@@ -747,46 +749,20 @@ input[type="checkbox"] {
 
 .block-row.on {
     background: var(--bg-selected-row);
-    border-left-color: var(--accent-bright);
+    box-shadow: inset 1px 0 0 var(--accent-bright);
 }
 
 .block-row .title {
+    min-width: 0;
+    overflow: hidden;
     color: var(--fg-primary);
-    font-weight: 550;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.block-row .key {
-    grid-column: 1;
+.block-row .count {
+    flex: none;
     color: var(--fg-muted);
-    font: var(--fs-11) var(--font-mono);
-}
-
-.block-row .counts {
-    grid-row: 1 / span 2;
-    grid-column: 2;
-    display: flex;
-    gap: 4px;
-}
-
-.badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    height: 18px;
-    padding: 0 6px;
-    border-radius: 9px;
-    background: var(--bg-input);
-    border: 1px solid var(--border-subtle);
-    color: var(--fg-muted);
-    font: var(--fs-10) var(--font-mono);
-}
-
-.badge.ok {
-    color: var(--sem-ok);
-}
-
-.badge.err {
-    color: var(--sem-error);
 }
 
 /* series */
@@ -1116,6 +1092,7 @@ table.grid.instances td.name {
 
 .trace-name .label {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1123,8 +1100,10 @@ table.grid.instances td.name {
 }
 
 .trace-name .value {
-    flex: 1;
+    flex: none;
     color: var(--fg-bright);
+    font-size: var(--fs-11);
+    white-space: nowrap;
 }
 
 .trace-name .range {
@@ -1133,10 +1112,6 @@ table.grid.instances td.name {
     font-size: var(--fs-10);
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.trace-name .value {
-    font-size: var(--fs-11);
 }
 
 .trace-name .icon-btn {
@@ -1224,10 +1199,6 @@ table.grid.instances td.name {
     color: var(--fg-muted);
 }
 
-.popover .block-row .title {
-    white-space: nowrap;
-}
-
 /* layout canvas */
 
 .canvas-host {
@@ -1265,6 +1236,11 @@ table.grid.instances td.name {
 
 .hud.tip {
     transform: translate(14px, 14px);
+}
+
+.hud.coords {
+    right: 8px;
+    bottom: 8px;
 }
 
 .hud.info {
@@ -1411,45 +1387,26 @@ pre.netlist {
     max-height: 100%;
 }
 
-/* ─── Status bar ────────────────────────────────────────────────────────── */
+/* ─── Toasts: the pages' errors ─────────────────────────────────────────── */
 
-#status-bar {
-    flex: none;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    height: 24px;
-    padding: 0 10px;
-    background: var(--bg-header);
-    border-top: 1px solid var(--bg-input);
-    color: var(--fg-muted);
+.toast {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    z-index: 300;
+    max-width: 480px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--sem-error);
+    border-radius: var(--radius-sm);
+    background: var(--bg-float);
+    box-shadow: 0 4px 14px var(--shadow);
+    color: var(--fg-primary);
     font: var(--fs-11) var(--font-mono);
-    z-index: 20;
 }
 
-#status-bar .msg {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-family: var(--font-sans);
-}
-
-#status-bar .msg.err {
-    color: var(--sem-error);
-}
-
-#status-bar .cell {
-    white-space: nowrap;
-}
-
-#status-bar .dot {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    margin-right: 6px;
-    border-radius: 50%;
-    background: var(--sem-ok);
+.toast + .toast {
+    bottom: 52px;
 }
 
 /* ─── Dialog, loading ───────────────────────────────────────────────────── */
@@ -1552,7 +1509,7 @@ pre.netlist {
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template-columns: 190px minmax(0, 1.25fr) minmax(360px, 1fr);
+    grid-template-columns: 150px minmax(0, 1.25fr) minmax(360px, 1fr);
     background: var(--bg-main);
     gap: 4px;
     padding: 4px;
@@ -1570,16 +1527,26 @@ pre.netlist {
 }
 
 .pane-title {
-    padding: 8px 12px 4px;
+    padding: 6px 12px 2px;
     color: var(--fg-muted);
     font-size: var(--fs-11);
     letter-spacing: 0.05em;
     text-transform: uppercase;
 }
 
+#table-pane {
+    display: flex;
+    flex-direction: column;
+}
+
 #table-pane .table-scroll {
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     overflow: auto;
+}
+
+#table-controls #count {
+    font-size: var(--fs-11);
 }
 
 table.grid.sweep {

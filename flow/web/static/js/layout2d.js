@@ -5,7 +5,7 @@
 
 import { h, icon, select } from "./icons.js";
 import { hatchTile, isVisible, layerColor, layerStyle, reportLayers, rgba, sortLayers } from "./layers.js";
-import { emit, fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
+import { fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
 
 export function layoutsFor(item, generator) {
     return (state.block?.layouts || []).find((layout) => layout.case === item.case && layout.pdk === item.pdk && layout.generator === generator) || null;
@@ -94,9 +94,10 @@ export class LayoutPanel {
         this.canvas = h("canvas");
         this.info = h("div.hud.info", { style: { display: "none" } });
         this.tip = h("div.hud.tip", { style: { display: "none" } });
+        this.coords = h("div.hud.coords", { style: { display: "none" } });
         this.rubber = h("div.rubber", { style: { display: "none" } });
         this.emptyNote = h("div.empty", {}, h("span", { html: icon("layout", 28) }), h("strong", {}, "No layout"), h("span", {}, ""));
-        this.host.append(this.canvas, this.info, this.tip, this.rubber, this.emptyNote);
+        this.host.append(this.canvas, this.info, this.tip, this.coords, this.rubber, this.emptyNote);
         this.element.append(this.toolbar, h("div.panel-body.fill", {}, this.host));
         container.element.append(this.element);
         container.stateRequestEvent = () => ({ ...this.config });
@@ -663,6 +664,7 @@ export class LayoutPanel {
                 return;
             }
             if (!inside) {
+                this.coords.style.display = "none";
                 if (this.hover) {
                     this.hover = null;
                     this.tip.style.display = "none";
@@ -671,7 +673,8 @@ export class LayoutPanel {
                 return;
             }
             const [wx, wy] = this.toWorld(px, py);
-            emit("cursor", `x ${wx.toFixed(3)}  y ${wy.toFixed(3)} µm`);
+            this.coords.textContent = `x ${wx.toFixed(3)}  y ${wy.toFixed(3)} µm`;
+            this.coords.style.display = "";
             if (this.ruler.on && this.ruler.a && !this.ruler.fixed) {
                 this.ruler.b = [snap(wx), snap(wy)];
                 this.draw();

@@ -4,7 +4,7 @@
 // header sorts and filters; hovering a row or a point lights up the other; clicking a point (or a
 // row's pin) pins it, across axis changes; a row's detail button opens the instance's own page.
 
-import { h, icon, popover, select } from "./icons.js";
+import { h, icon, popover, select, toast } from "./icons.js";
 import { currentTheme, PAPERS, paperLayout, tone } from "./paper.js";
 import { COLORS, recall, store } from "./store.js";
 import { fieldInfo, scaledUnit, siExponent } from "./units.js";
@@ -26,13 +26,6 @@ const view = {
     logX: false,
     logY: false,
 };
-
-function status(message, error = false) {
-    const element = document.querySelector("#status-bar .msg");
-    if (!element) return;
-    element.textContent = message;
-    element.classList.toggle("err", error);
-}
 
 async function fetchJson(path) {
     const response = await fetch(`data/${path}`);
@@ -231,7 +224,7 @@ function renderTable() {
         body.append(tr);
     }
     table.replaceChildren(head, body);
-    document.getElementById("count").textContent = `${view.rows.length} of ${view.block.rows.length} instances${Object.keys(view.filters).length ? " (filtered)" : ""}`;
+    document.getElementById("count").textContent = `${view.rows.length} of ${view.block.rows.length}${Object.keys(view.filters).length ? " (filtered)" : ""}`;
 }
 
 function rowElement(id) {
@@ -430,7 +423,6 @@ function setHover(id, source) {
         const y = columnOf(view.y);
         Plotly.restyle(element, { x: [row ? [point(row, x)] : []], y: [row ? [point(row, y)] : []] }, [traceIndex]);
     }
-    if (row) status(`${row.pdk} · ${row.topology} · ${row.sizing}${row.seconds ? ` · characterized in ${row.seconds} s` : ""}`);
 }
 
 function togglePin(id) {
@@ -456,7 +448,6 @@ function refresh() {
 // ---- blocks -----------------------------------------------------------------------------------
 
 async function loadBlock(name) {
-    status(`Loading ${name}…`);
     const table = await fetchJson(`sweep/${name}.json`);
     view.block = table;
     view.columns = buildColumns(table);
@@ -477,26 +468,29 @@ async function loadBlock(name) {
     renderPlotControls();
     refresh();
     const failed = table.rows.filter((row) => row.error).length;
-    status(`${table.title}: ${table.rows.length} instances (${failed} failed), ${table.metrics.length} metrics, run ${table.run}`);
+    const title = document.getElementById("block-title");
+    title.textContent = table.title;
+    title.title = `${table.metrics.length} metrics${failed ? `, ${failed} failed` : ""}, run ${table.run}`;
 }
 
 function renderBlocks() {
     const host = document.getElementById("blocks");
     host.replaceChildren();
     for (const [name, entry] of Object.entries(view.catalog)) {
-        const row = h("div.block-row", { title: `run ${entry.run}` }, h("span.title", {}, entry.title), h("span.counts", {}, h("span.badge", {}, `${entry.instances}`)));
+        // the block's folder under flow/ and its instance count, as Zed's git panel lists a file
+        const row = h("div.block-row", { title: `${entry.title}: run ${entry.run}` }, h("span.title", {}, name), h("span.count", {}, `${entry.instances}`));
         if (name === view.block?.block) row.classList.add("on");
-        row.addEventListener("click", () => loadBlock(name).catch((error) => status(error.message, true)));
+        row.addEventListener("click", () => loadBlock(name).catch((error) => toast(error.message)));
         host.append(row);
     }
 }
 
 async function main() {
-    // the status bar: what is shown, the filters' reset
-    document.getElementById("status-bar").replaceChildren(
-        h("span.cell", {}, h("span.dot"), "sweep"),
-        h("span.msg", {}, "Ready"),
-        h("span.cell", { id: "count" }, ""),
+    // above the table: the block, how many of its instances are shown, the filters' reset
+    document.getElementById("table-controls").replaceChildren(
+        h("strong", { id: "block-title" }, ""),
+        h("span.muted.mono", { id: "count" }, ""),
+        h("span.grow"),
         h("button.icon-btn", { title: "Clear every filter and the sort", onclick: () => { view.filters = {}; view.sort = null; refresh(); } }, h("span", { html: icon("reset", 13) }), "Clear filters"),
     );
     // the desktop's light or dark setting, followed as it changes
@@ -516,7 +510,7 @@ async function main() {
     }
     const names = Object.keys(view.catalog);
     const last = recall("sweep.block", null);
-    await loadBlock(names.includes(last) ? last : names[0]).catch((error) => status(error.message, true));
+    await loadBlock(names.includes(last) ? last : names[0]).catch((error) => toast(error.message));
     loading.classList.add("done");
 }
 

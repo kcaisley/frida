@@ -81,6 +81,13 @@ export function seg(options, value, onChange) {
     return element;
 }
 
+// a passing note at the window's bottom right: the pages' errors, as they have no status bar
+export function toast(message) {
+    const element = h("div.toast", {}, message);
+    document.body.append(element);
+    setTimeout(() => element.remove(), 8000);
+}
+
 // a popover anchored under ``anchor``; closes on an outside click or Escape
 export function popover(anchor, build) {
     document.querySelectorAll(".popover").forEach((element) => element.remove());

@@ -4,7 +4,7 @@
 // waveforms) on the instance alone: the store holds a one-instance block they read as any other.
 
 import { GoldenLayout } from "golden-layout";
-import { h } from "./icons.js";
+import { h, toast } from "./icons.js";
 import { LayersPanel } from "./layers.js";
 import { Layout3DPanel } from "./layout3d.js";
 import { LayoutPanel } from "./layout2d.js";
@@ -27,10 +27,6 @@ async function fetchJson(path) {
     const response = await fetch(`data/${path}`);
     if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
     return response.json();
-}
-
-function status(message, error = false) {
-    emit("status", { message, error });
 }
 
 // ---- the summary ------------------------------------------------------------------------------
@@ -212,16 +208,9 @@ function shimBlock(instance) {
 }
 
 async function main() {
-    const bar = document.getElementById("status-bar");
-    const message = h("span.msg", {}, "Loading…");
-    const cursor = h("span.cell", {}, "");
-    bar.replaceChildren(h("span.cell", {}, h("span.dot"), "instance"), message, cursor);
-    on("status", ({ message: text, error }) => {
-        message.textContent = text;
-        message.classList.toggle("err", Boolean(error));
-    });
-    on("cursor", (text) => {
-        cursor.textContent = text;
+    // the panels' errors; their other notes went to the status bar this page no longer has
+    on("status", ({ message, error }) => {
+        if (error) toast(message);
     });
     window.addEventListener("keydown", (event) => {
         const target = event.target;
@@ -254,7 +243,6 @@ async function main() {
     new ResizeObserver(() => layout.updateRootSize?.() ?? layout.updateSize?.()).observe(container);
     emit("block", state.block);
     emit("selection");
-    status(page.instance.error ? "The characterization failed: see the summary." : "Ready");
     loading.classList.add("done");
 }
 
