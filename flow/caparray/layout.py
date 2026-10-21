@@ -10,10 +10,13 @@ mesh, the arrays' units side by side sharing their ring walls.
 
 ``mom_array_params`` sizes the array's netlist from the PDK's FMOM model (``tech.MOM_MODEL``, at
 the spacing the generator draws, or the calibrated ``tech.MOM_FITS``): the same lengths the
-generator draws, at the capacitance the model gives them. The targets build an
-array, sign it off (DRC, LVS against that netlist, 3D extraction) and tabulate its extracted
-capacitances (``pex.py``); ``caparray_all_pdks`` draws the array in every PDK and runs its DRC, and
-``caparray_extract_all_pdks`` extracts it where the PDK can and compares it with the model.
+generator draws, at the capacitance the model gives them. The helpers take the array they
+work on; each named target declares its arrays (FRIDA's ``RADIX17``, the ADC variants of
+``ADC_VARIANTS``) and its stack, and ``main`` only dispatches to one. The production targets
+build an array, sign it off (DRC, LVS against that netlist, 3D extraction) and tabulate its
+extracted capacitances (``pex.py``); ``caparray_all_pdks`` draws the array in every PDK and runs
+its DRC, ``caparray_extract_all_pdks`` extracts it where the PDK can and compares it with the
+model, and ``caparray_extract_adc_variants`` extracts each ADC variant's array in TSMC65.
 """
 
 from __future__ import annotations
@@ -43,6 +46,7 @@ from .subckt import (
     CapArray,
     CapArrayConfig,
     CapArrayParams,
+    RedunStrat,
     _calc_weight_partitions,
     array_ports,
     get_caparray_weights,
@@ -334,11 +338,23 @@ def _run_caparray(run_dir: Path, params: CapArrayLayoutParams) -> Path:
     return run_dir
 
 
+# FRIDA's array: 12 bits in 16 stages, sub-radix-2 with paired overlays (17 decisions)
+RADIX17 = CapArrayConfig(n_dac=11, n_extra=5, redun_strat=RedunStrat.SUBRDX2_OVLY)
+# the ADC variants' arrays: 10 and 12 bits with 0, 2, 4 or 5 redundant stages (binary without)
+ADC_VARIANTS = {
+    f"{n_dac + 1}b_plus{extra}": CapArrayConfig(
+        n_dac=n_dac, n_extra=extra, redun_strat=RedunStrat.SUBRDX2_OVLY if extra else RedunStrat.RDX2
+    )
+    for n_dac in (9, 11)
+    for extra in (0, 2, 4, 5)
+}
+
+
 def caparray_1layer_radix17(run_dir: Path) -> Path:
     return _run_caparray(
         run_dir,
         CapArrayLayoutParams(
-            cdac=CapArrayConfig(),
+            cdac=RADIX17,
             family=UnitLengthCapFamilyParams(),
             technology="tsmc65",
             route_layer=4,
@@ -353,7 +369,7 @@ def caparray_2layer_radix17(run_dir: Path) -> Path:
     return _run_caparray(
         run_dir,
         CapArrayLayoutParams(
-            cdac=CapArrayConfig(),
+            cdac=RADIX17,
             family=UnitLengthCapFamilyParams(),
             technology="tsmc65",
             route_layer=4,
@@ -368,7 +384,7 @@ def caparray_3layer_radix17(run_dir: Path) -> Path:
     return _run_caparray(
         run_dir,
         CapArrayLayoutParams(
-            cdac=CapArrayConfig(),
+            cdac=RADIX17,
             family=UnitLengthCapFamilyParams(),
             technology="tsmc65",
             route_layer=4,
@@ -390,27 +406,34 @@ def all_caparrays(run_dir: Path) -> Path:
 PDKS = ("tsmc65", "tsmc28", "tower180", "tpsc65", "ihp130", "lf150")
 
 
-def caparray_all_pdks(run_dir: Path) -> Path:
-    """Draw the radix-17 array at one to three stacked metals in every PDK and run its DRC (the
-    block-level waivers where the PDK has them); writes ``summary.json`` with each outcome."""
+def _stacked(pdk: str, cdac: CapArrayConfig, name: str, layers: int) -> CapArrayLayoutParams:
+    """``cdac`` on the top ``layers`` of the PDK's MOM metals, its shield and buses on the metal
+    below, as ``caparray_<layers>layer_<name>``."""
 
     from flow.layout.pdkproc import pdk_value
+
+    active = tuple(pdk_value(pdk, "tech", "MOM_LAYERS")[-layers:])
+    return CapArrayLayoutParams(
+        cdac=cdac,
+        family=UnitLengthCapFamilyParams(),
+        technology=pdk,
+        route_layer=active[0] - 1,
+        shield_layer=active[0] - 1,
+        active_layers=active,
+        top_cell=f"caparray_{layers}layer_{name}",
+    )
+
+
+def _draw_all_pdks(run_dir: Path, cdac: CapArrayConfig, name: str) -> Path:
+    """Draw ``cdac`` at one to three stacked metals in every PDK and run its DRC (the block-level
+    waivers where the PDK has them); writes ``summary.json`` with each outcome."""
+
     from flow.layout.signoff import run_drc
 
     summary = {}
     for pdk in PDKS:
-        mom = pdk_value(pdk, "tech", "MOM_LAYERS")
         for layers in (1, 2, 3):
-            active = tuple(mom[-layers:])
-            params = CapArrayLayoutParams(
-                cdac=CapArrayConfig(),
-                family=UnitLengthCapFamilyParams(),
-                technology=pdk,
-                route_layer=active[0] - 1,
-                shield_layer=active[0] - 1,
-                active_layers=active,
-                top_cell=f"caparray_{layers}layer_radix17",
-            )
+            params = _stacked(pdk, cdac, name, layers)
             work = run_dir / pdk / params.top_cell
             work.mkdir(parents=True, exist_ok=True)
             gds = work / f"{params.top_cell}.gds"
@@ -433,22 +456,16 @@ def caparray_all_pdks(run_dir: Path) -> Path:
     return run_dir
 
 
-def _extract_one(run_dir: Path, pdk: str, layers: int = 2) -> dict[str, Any]:
-    from flow.layout.pdkproc import pdk_value
+def caparray_all_pdks(run_dir: Path) -> Path:
+    """FRIDA's array at one to three stacked metals in every PDK, through DRC."""
+    return _draw_all_pdks(run_dir, RADIX17, "radix17")
+
+
+def _extract_one(run_dir: Path, pdk: str, cdac: CapArrayConfig, name: str, layers: int) -> dict[str, Any]:
     from flow.layout.signoff import run_layout_pex
 
-    mom = pdk_value(pdk, "tech", "MOM_LAYERS")
-    active = tuple(mom[-layers:])
-    params = CapArrayLayoutParams(
-        cdac=CapArrayConfig(),
-        family=UnitLengthCapFamilyParams(),
-        technology=pdk,
-        route_layer=active[0] - 1,
-        shield_layer=active[0] - 1,
-        active_layers=active,
-        top_cell=f"caparray_{layers}layer_radix17",
-    )
-    work = run_dir / pdk / f"{layers}l"
+    params = _stacked(pdk, cdac, name, layers)
+    work = run_dir / name / pdk / f"{layers}l"
     work.mkdir(parents=True, exist_ok=True)
     gds = work / f"{params.top_cell}.gds"
     CapArrayLayout(params).write(str(gds))
@@ -467,13 +484,13 @@ def _extract_one(run_dir: Path, pdk: str, layers: int = 2) -> dict[str, Any]:
     }
 
 
-def caparray_extract_all_pdks(
-    run_dir: Path, layer_counts: tuple[int, ...] = (1, 2, 3), pdks: tuple[str, ...] = PDKS
+def _extract_all(
+    run_dir: Path, arrays: dict[str, CapArrayConfig], layer_counts: tuple[int, ...], pdks: tuple[str, ...]
 ) -> Path:
-    """Extract the radix-17 array at one to three metals by its own net names (3D, layout only) in
-    every PDK,
-    and compare each stage's effective capacitance (main minus
-    difference) with what the PDK's FMOM model sizes it at; writes ``summary.json``."""
+    """Extract each named array at each metal count by its own net names (3D, layout only) in each
+    PDK, its capacitance table under ``<name>/<pdk>/<layers>l/``, and compare each stage's
+    effective capacitance (main minus difference) with what the PDK's FMOM model sizes it at;
+    writes ``summary.json``."""
 
     from concurrent.futures import ProcessPoolExecutor, as_completed
     from multiprocessing import get_context
@@ -481,7 +498,8 @@ def caparray_extract_all_pdks(
     summary = {}
     with ProcessPoolExecutor(max_workers=6, mp_context=get_context("spawn")) as executor:
         futures = {
-            executor.submit(_extract_one, run_dir, pdk, layers): f"{pdk}/{layers}l"
+            executor.submit(_extract_one, run_dir, pdk, cdac, name, layers): f"{name}/{pdk}/{layers}l"
+            for name, cdac in arrays.items()
             for pdk in pdks
             for layers in layer_counts
         }
@@ -494,27 +512,31 @@ def caparray_extract_all_pdks(
     return run_dir
 
 
-def _extract_window(run_dir: Path, pdk: str, layers: int, first: int, last: int) -> dict[str, Any]:
-    """Extract units ``first``-``last`` of the radix-17 array cut out of its layout (the ring and
-    the shield labelled, the ring's metals joined by a via inside the window) and compare each
-    stage there with the sizing: a stage's coupling to the top plate without the whole plate's
-    net, whose size widens the field solver's split of a small coupling from the substrate."""
+def caparray_extract_all_pdks(run_dir: Path) -> Path:
+    """FRIDA's array at one to three metals, extracted in every PDK."""
+    return _extract_all(run_dir, {"radix17": RADIX17}, (1, 2, 3), PDKS)
+
+
+def caparray_extract_adc_variants(run_dir: Path) -> Path:
+    """Each ADC variant's array (``ADC_VARIANTS``) at three metals, extracted in TSMC65: the main
+    and difference capacitances its behavioral model switches."""
+    return _extract_all(run_dir, ADC_VARIANTS, (3,), ("tsmc65",))
+
+
+def _extract_window(
+    run_dir: Path, pdk: str, cdac: CapArrayConfig, name: str, layers: int, first: int, last: int
+) -> dict[str, Any]:
+    """Extract units ``first``-``last`` of ``cdac`` cut out of its layout (the ring and the
+    shield labelled, the ring's metals joined by a via inside the window) and compare each stage
+    there with the sizing: a stage's coupling to the top plate without the whole plate's net,
+    whose size widens the field solver's split of a small coupling from the substrate."""
 
     from flow.layout.pdkproc import pdk_value
     from flow.layout.signoff import run_layout_pex
 
-    mom = pdk_value(pdk, "tech", "MOM_LAYERS")
     layer_names = pdk_value(pdk, "tech", "LAYERS")
-    active = tuple(mom[-layers:])
-    params = CapArrayLayoutParams(
-        cdac=CapArrayConfig(),
-        family=UnitLengthCapFamilyParams(),
-        technology=pdk,
-        route_layer=active[0] - 1,
-        shield_layer=active[0] - 1,
-        active_layers=active,
-        top_cell=f"caparray_{layers}layer_radix17",
-    )
+    params = _stacked(pdk, cdac, name, layers)
+    active = params.active_layers
     geometry = _calc_unit_geometry(params)
     full = CapArrayLayout(params)
     top = full.cell(params.top_cell)
@@ -572,7 +594,7 @@ def caparray_window_check(run_dir: Path) -> Path:
     substrate; writes ``summary.json``."""
 
     summary = {
-        f"{pdk}/{layers}l": _extract_window(run_dir, pdk, layers, 9, 11)
+        f"{pdk}/{layers}l": _extract_window(run_dir, pdk, RADIX17, "radix17", layers, 9, 11)
         for pdk in ("tsmc28", "tpsc65")
         for layers in (2, 3)
     }
@@ -589,6 +611,7 @@ def main() -> None:
             caparray_3layer_radix17,
             caparray_all_pdks,
             caparray_extract_all_pdks,
+            caparray_extract_adc_variants,
             caparray_window_check,
         )
     }

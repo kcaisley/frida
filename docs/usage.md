@@ -30,7 +30,10 @@ uv run python -m flow.caparray.layout
 uv run python -m flow.caparray.layout caparray_1layer_radix17
 uv run python -m flow.caparray.layout caparray_2layer_radix17
 uv run python -m flow.caparray.layout caparray_3layer_radix17
+uv run python -m flow.caparray.layout caparray_extract_adc_variants
 ```
+
+`main` only dispatches to a named target. Each target declares its arrays and stack: FRIDA's array is `RADIX17`, and `caparray_extract_adc_variants` extracts the ADC variants' arrays (`ADC_VARIANTS`: 10 and 12 bits with 0, 2, 4 or 5 redundant stages) at three metals in TSMC65, one capacitance table each under `<variant>/tsmc65/3l/`. The helpers they call take the array as an argument.
 
 Each target visibly constructs its electrical `CapArrayConfig`, unit family, and metal stack. The generator derives every physical distance from the selected PDK, builds the complete `1..coarse_weight` unit family, partitions arbitrary positive electrical weights through the shared netlist decomposition, and adds routing, shield taps, connection stacks, and pins. A named target always runs `gdscheck`, foundry Calibre DRC/LVS, and xACT PEX. Results are written to `build/layout/caparray/<target>/<timestamp>/`.
 
