@@ -1,6 +1,5 @@
 """Software-only checks for the native HDL21 capacitor-array interface."""
 
-import inspect
 import io
 import re
 import sys
@@ -13,7 +12,7 @@ import pytest
 
 import pdk
 
-from . import sim, targets
+from . import sim
 
 
 def test_caparray_testbench_uses_typed_timing() -> None:
@@ -38,7 +37,9 @@ def test_caparray_testbench_packs_code_with_c0_as_highest_stage() -> None:
 
 
 def test_targets_own_only_experiment_targets() -> None:
-    source = inspect.getsource(targets)
+    # its source alone: importing the targets imports the layout's TSMC65 signoff, which the
+    # PDK-independent tests do not have
+    source = Path(__file__).with_name("targets.py").read_text()
     assert "frida1_transfer_curve" in source
     assert re.search(r"\b_check\b|check=", source) is None  # no diagnostic runs
     assert "TARGETS" not in vars(sim) and not hasattr(sim, "main")
