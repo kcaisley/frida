@@ -1,5 +1,6 @@
-"""The comparator's design space (``flow.sweep``): the characterization's six topologies at seven
-sizings, in every PDK.
+"""The comparator's design space (``flow.sweep``): the characterization's six topologies at ten
+sizings (seven around the short-channel base, three around FRIDA-1's long-channel comparator), in
+every PDK.
 
 Each instance at the nominal common mode (13/24 of its supply): the clock-to-decision delay and
 energy per decision at 0.5 mV and 100 mV of input (the slowest and fastest response), the delay
@@ -38,6 +39,29 @@ SIZINGS = {
     "pair_x2": {"diffpair_w": 2 * TOPOLOGY_SIZES["diffpair_w"]},
     "latch_x2": {name: 2 * TOPOLOGY_SIZES[name] for name in ("latch_on_w", "latch_init_w")},
     "long": {"diffpair_l": 2 * TOPOLOGY_SIZES["diffpair_l"], "tail_l": 2 * TOPOLOGY_SIZES["tail_l"]},
+}
+# near FRIDA-1's hand-sized comparator (flow.comp.subckt.FRIDA1: a long, weak tail and long latch
+# devices) in round multiples of the minimum, with its widths doubled and its lengths doubled, so
+# every FRIDA-1 size falls inside the sweep's range
+FRIDA1_LIKE = {
+    "diffpair_w": 32,
+    "diffpair_l": 4,
+    "tail_w": 4,
+    "tail_l": 16,
+    "rst_w": 8,
+    "rst_l": 1,
+    "latch_on_w": 24,
+    "latch_on_l": 6,
+    "latch_init_w": 32,
+    "latch_init_l": 16,
+    "srlatch_n_w": 4,
+    "srlatch_p_w": 8,
+}
+LENGTHS = ("diffpair_l", "tail_l", "rst_l", "latch_on_l", "latch_init_l")
+SIZINGS |= {
+    "frida1_like": FRIDA1_LIKE,
+    "frida1_like_x2": {**FRIDA1_LIKE, **{name: 2 * FRIDA1_LIKE[name] for name in WIDTHS}},
+    "frida1_like_long": {**FRIDA1_LIKE, **{name: 2 * FRIDA1_LIKE[name] for name in LENGTHS}},
 }
 NOMINAL_CM = 13 / 24
 CM_SWEEP = (9 / 24, 11 / 24, 13 / 24, 15 / 24)
