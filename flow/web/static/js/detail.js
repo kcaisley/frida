@@ -69,9 +69,14 @@ class SummaryPanel {
               ? [row("ALIGN", "failed")]
               : [
                   row("Size", `${layout.w_um.toFixed(3)} × ${layout.h_um.toFixed(3)}`, "µm"),
-                  row("Placed", layout.floorplan ? "by floorplan" : "ALIGN alone"),
-                  row("DRC", layout.drc_violations ? `${layout.drc_violations} violations` : "clean"),
-                  row("LVS", layout.lvs_correct ? "correct" : "incorrect"),
+                  // the blocks' own layouts side by side (a behavioral ADC): nothing routed or signed off
+                  ...(layout.blocks
+                      ? [row("Placed", "blocks, unconnected"), row("Signoff", "none")]
+                      : [
+                            row("Placed", layout.floorplan ? "by floorplan" : "ALIGN alone"),
+                            row("DRC", layout.drc_violations ? `${layout.drc_violations} violations` : "clean"),
+                            row("LVS", layout.lvs_correct ? "correct" : "incorrect"),
+                        ]),
               ];
         const parts = [
             instance.error ? h("pre.error", {}, instance.error) : null,
@@ -197,18 +202,19 @@ const LAYOUT = {
     },
 };
 
-// an instance with figures and nothing to draw beside them (a behavioral ADC: no layout, no
-// waveforms): its summary and its figures alone
-const FIGURES_LAYOUT = {
+// an instance with figures and no waveforms (a behavioral ADC): its summary, its figures and,
+// where it has one, the layout of its blocks
+const figuresLayout = (withLayout) => ({
     ...LAYOUT,
     root: {
         type: "row",
         content: [
-            { type: "stack", width: 22, content: [component("summary")] },
-            { type: "stack", width: 78, content: [component("plots")] },
+            { type: "stack", width: 18, content: [component("summary")] },
+            { type: "stack", width: withLayout ? 52 : 82, content: [component("plots")] },
+            ...(withLayout ? [{ type: "stack", width: 30, content: [component("layout"), component("layout3d"), component("layers")] }] : []),
         ],
     },
-};
+});
 
 // a one-instance block: its layout, schematic and waveform index under data/sweep/<block>/<id>/
 function shimBlock(instance) {
@@ -220,7 +226,7 @@ function shimBlock(instance) {
         title: `${instance.topology} · ${instance.sizing}`,
         pdks: [instance.pdk],
         cases: { [ID]: { label: `${instance.topology} · ${instance.sizing}` } },
-        layouts: layout?.file ? [{ case: ID, pdk: instance.pdk, generator: "align", path: layout.file, cell: instance.topology }] : [],
+        layouts: layout?.file ? [{ case: ID, pdk: instance.pdk, generator: layout.blocks ? "blocks" : "align", path: layout.file, cell: instance.topology }] : [],
         schematics: layout?.schematic || layout?.netlist_file ? [{ case: ID, pdk: instance.pdk, path: layout.schematic || null, netlist: layout.netlist_file }] : [],
         datasets: [],
     };
@@ -261,8 +267,9 @@ async function main() {
     const container = document.getElementById("gl-container");
     const layout = new GoldenLayout(container);
     for (const [type, panel] of Object.entries(PANELS)) layout.registerComponentFactoryFunction(type, (glContainer, saved) => panel.make(glContainer, saved));
-    const figuresOnly = page.instance.details.some((detail) => detail.figure) && !page.instance.layout && !Object.keys(page.instance.waves || {}).length;
-    layout.loadLayout(figuresOnly ? FIGURES_LAYOUT : LAYOUT);
+    const instanceLayout = page.instance.layout;
+    const figures = page.instance.details.some((detail) => detail.figure) && !Object.keys(page.instance.waves || {}).length && (!instanceLayout || instanceLayout.blocks);
+    layout.loadLayout(figures ? figuresLayout(Boolean(instanceLayout?.file)) : LAYOUT);
     new ResizeObserver(() => layout.updateRootSize?.() ?? layout.updateSize?.()).observe(container);
     emit("block", state.block);
     emit("selection");

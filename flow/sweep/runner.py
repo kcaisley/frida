@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
+import os
 import time
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -113,6 +114,10 @@ def run(blocks: list[str], pdks: tuple[str, ...], workers: int, *, failed: bool 
                     jobs.append((block, path, pdk, topology, sizing))
     print(f"{len(jobs)} instances of {', '.join(blocks)} on {workers} workers")
     failed = 0
+    # one BLAS thread a worker (the spawned workers inherit it): numpy's pool of a thread a core in
+    # every worker oversubscribes the machine many times over
+    for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ.setdefault(name, "1")
     # a fresh process per instance: hdl21 compiles a generated module in place, for one PDK
     with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=1) as pool:
         futures = {pool.submit(instance_job, *job): job for job in jobs}
