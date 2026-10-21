@@ -5,19 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Explorer</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='1' width='14' height='14' rx='3' fill='%232e3440'/%3E%3Cpath d='M4 4h8v3H4zM4 9h3v3H4zM9 9h3v3H9z' fill='%2388c0d0'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/golden-layout@2.6.0/dist/css/goldenlayout-base.css">
     <link rel="stylesheet" href="style.css">
     <script>
         // the desktop's light or dark setting
         document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     </script>
     <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "golden-layout": "https://cdn.jsdelivr.net/npm/golden-layout@2.6.0/+esm"
+            }
+        }
+    </script>
 </head>
 <body>
-    <main id="explorer">
-        <aside id="blocks-pane"><div class="pane-title">Blocks</div><div id="blocks" class="block-list"></div></aside>
-        <section id="table-pane"><div id="table-controls" class="panel-toolbar"></div><div class="table-scroll"><table id="instances" class="grid sweep"></table></div></section>
-        <section id="plot-pane"><div id="plot-controls" class="panel-toolbar"></div><div id="scatter"></div><div id="plot-legend"></div></section>
-    </main>
+    <div id="gl-container"></div>
     <div id="loading"><div class="spinner"></div><span>Loading the sweep tables…</span></div>
     <script type="module" src="js/explorer.js"></script>
 </body>

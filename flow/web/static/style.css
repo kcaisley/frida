@@ -598,6 +598,12 @@ input[type="checkbox"] {
     color: var(--fg-bright);
 }
 
+.icon-btn:disabled {
+    opacity: 0.35;
+    background: none;
+    cursor: default;
+}
+
 .empty {
     position: absolute;
     inset: 0;
@@ -1520,46 +1526,6 @@ pre.netlist {
 
 /* ─── Design-space explorer (index.html): blocks, the instance table, the scatter plot ───────── */
 
-#explorer {
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    grid-template-columns: 150px minmax(0, 1.25fr) minmax(360px, 1fr);
-    background: var(--bg-main);
-    gap: 4px;
-    padding: 4px;
-}
-
-#explorer > * {
-    min-height: 0;
-    background: var(--bg-panel);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
-}
-
-#blocks-pane {
-    overflow: auto;
-}
-
-.pane-title {
-    padding: 6px 12px 2px;
-    color: var(--fg-muted);
-    font-size: var(--fs-11);
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-}
-
-#table-pane {
-    display: flex;
-    flex-direction: column;
-}
-
-#table-pane .table-scroll {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-}
-
 #table-controls #count {
     font-size: var(--fs-11);
 }
@@ -1718,20 +1684,6 @@ table.grid.sweep .swatch {
 table.grid.sweep .symbol {
     display: inline-block;
     width: 14px;
-    color: var(--fg-muted);
-}
-
-#plot-pane {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-#plot-controls .check {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    margin-left: 6px;
     color: var(--fg-muted);
 }
 

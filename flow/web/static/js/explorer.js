@@ -3,8 +3,10 @@
 // scatter plot of any metric against any other, coloured by PDK and marked by topology. A column
 // header sorts and filters; hovering a row or a point lights up the other; clicking a point (or a
 // row's pin) pins it, across axis changes; a row's detail button opens the instance's own page.
+// The three are GoldenLayout panels (Blocks, Sweeps, Metrics), as the instance page's.
 
-import { h, icon, popover, seg, select, toast } from "./icons.js";
+import { GoldenLayout } from "golden-layout";
+import { h, icon, popover, select, toast } from "./icons.js";
 import { currentTheme, PAPERS, paperLayout, tone } from "./paper.js";
 import { COLORS, recall, store } from "./store.js";
 import { fieldInfo, scaledUnit, siExponent } from "./units.js";
@@ -240,6 +242,8 @@ function renderTable() {
     }
     table.replaceChildren(head, body);
     document.getElementById("count").textContent = `${view.rows.length} of ${view.block.rows.length}${Object.keys(view.filters).length ? " (filtered)" : ""}`;
+    const clear = document.getElementById("clear-filters");
+    clear.disabled = !Object.keys(view.filters).length && !view.sort;
 }
 
 function rowElement(id) {
@@ -294,18 +298,24 @@ function renderPlotControls() {
     const columns = axisColumns();
     const host = document.getElementById("plot-controls");
     const options = columns.map((column) => ({ value: column.key, label: column.unit ? `${column.label} (${column.unit})` : column.label }));
-    const logBox = (axis) => {
-        const box = h("input", { type: "checkbox", title: `Log ${axis}` });
-        box.checked = axis === "x" ? view.logX : view.logY;
-        box.disabled = !positive(columnOf(axis === "x" ? view.x : view.y));
-        box.addEventListener("change", () => {
-            if (axis === "x") view.logX = box.checked;
-            else view.logY = box.checked;
+    const logButton = (axis) => {
+        const on = axis === "x" ? view.logX : view.logY;
+        const button = toolButton("log", positive(columnOf(axis === "x" ? view.x : view.y)) ? `Log ${axis} axis` : `Log ${axis} axis: the column is not positive`, () => {
+            if (axis === "x") view.logX = !view.logX;
+            else view.logY = !view.logY;
             save();
+            renderPlotControls();
             renderPlot();
-        });
-        return h("label.check", {}, box, "log");
+        }, on);
+        button.disabled = !positive(columnOf(axis === "x" ? view.x : view.y));
+        return button;
     };
+    const drag = (mode, name, title) =>
+        toolButton(name, title, () => {
+            view.dragmode = mode;
+            Plotly.relayout("scatter", { dragmode: mode });
+            renderPlotControls();
+        }, view.dragmode === mode);
     const choose = (axis) =>
         select(options, axis === "x" ? view.x : view.y, (value) => {
             const column = columnOf(value);
@@ -320,29 +330,46 @@ function renderPlotControls() {
             renderPlotControls();
             renderPlot();
         });
+    const unpin = toolButton("unpin", "", () => {
+        view.pins.clear();
+        save();
+        refresh();
+    });
+    unpin.id = "unpin";
     host.replaceChildren(
-        h("label.field", {}, h("span", {}, "x"), choose("x"), logBox("x")),
-        h("label.field", {}, h("span", {}, "y"), choose("y"), logBox("y")),
-        h("button.icon-btn", { title: "Swap the axes", onclick: () => { [view.x, view.y, view.logX, view.logY] = [view.y, view.x, view.logY, view.logX]; save(); renderPlotControls(); renderPlot(); } }, "⇄"),
+        h("label.field", {}, h("span", {}, "x"), choose("x")),
+        logButton("x"),
+        toolButton("swap", "Swap the axes", () => {
+            [view.x, view.y, view.logX, view.logY] = [view.y, view.x, view.logY, view.logX];
+            save();
+            renderPlotControls();
+            renderPlot();
+        }),
+        h("label.field", {}, h("span", {}, "y"), choose("y")),
+        logButton("y"),
         h("span.grow"),
-        h("span.muted.mono", { id: "pin-count" }, ""),
-        h("button.icon-btn", { title: "Unpin every instance", onclick: () => { view.pins.clear(); save(); refresh(); } }, "Clear pins"),
         // the plot's own tools, always shown (Plotly's mode bar only on hover, over the plot)
-        seg(
-            [
-                { value: "zoom", icon: "zoom", title: "Drag: zoom to a box" },
-                { value: "pan", icon: "pan", title: "Drag: pan" },
-            ],
-            view.dragmode,
-            (value) => {
-                view.dragmode = value;
-                Plotly.relayout("scatter", { dragmode: value });
-                renderPlotControls();
-            },
-        ),
-        h("button.icon-btn", { title: "Fit both axes to the points (double-click)", onclick: () => Plotly.relayout("scatter", { "xaxis.autorange": true, "yaxis.autorange": true }), html: icon("fit", 14) }),
-        h("button.icon-btn", { title: "Save as PNG, with its legend", onclick: () => savePng(), html: icon("download", 14) }),
+        drag("zoom", "zoom", "Drag: zoom to a box (wheel: zoom)"),
+        drag("pan", "pan", "Drag: pan"),
+        toolButton("fit", "Fit both axes to the points (double-click)", () => Plotly.relayout("scatter", { "xaxis.autorange": true, "yaxis.autorange": true })),
+        toolButton("download", "Save as PNG, with its legend", () => savePng()),
+        unpin,
     );
+    updateUnpin();
+}
+
+// an icon button, as every toolbar's; ``on`` marks a toggle that is set
+function toolButton(name, title, onclick, on = false) {
+    const button = h("button.icon-btn", { title, onclick, html: icon(name, 14) });
+    if (on) button.classList.add("on");
+    return button;
+}
+
+function updateUnpin() {
+    const button = document.getElementById("unpin");
+    if (!button) return;
+    button.disabled = !view.pins.size;
+    button.title = view.pins.size ? `Unpin the ${view.pins.size} pinned instance${view.pins.size > 1 ? "s" : ""}` : "Unpin: no instance is pinned";
 }
 
 // the plot as PNG: the legend the page draws beside it is Plotly's here
@@ -446,7 +473,7 @@ function renderPlot() {
             if (id) togglePin(id);
         });
     }
-    document.getElementById("pin-count").textContent = view.pins.size ? `${view.pins.size} pinned` : "";
+    updateUnpin();
 }
 
 // light up an instance in both views (from the table: its point; from the plot: its row)
@@ -528,14 +555,48 @@ function renderBlocks() {
     }
 }
 
+// ---- the page ---------------------------------------------------------------------------------
+
+const PANELS = {
+    blocks: { title: "Blocks", make: () => h("div.panel", {}, h("div.panel-body", {}, h("div.block-list", { id: "blocks" }))) },
+    sweeps: {
+        title: "Sweeps",
+        make: () => h("div.panel", {}, h("div.panel-toolbar", { id: "table-controls" }), h("div.panel-body", {}, h("table.grid.sweep", { id: "instances" }))),
+    },
+    metrics: { title: "Metrics", make: () => h("div.panel", {}, h("div.panel-toolbar", { id: "plot-controls" }), h("div", { id: "scatter" }), h("div", { id: "plot-legend" })) },
+};
+
+const component = (type) => ({ type: "component", componentType: type, title: PANELS[type].title, isClosable: false, componentState: {} });
+
+const LAYOUT = {
+    settings: { showPopoutIcon: false, popoutWholeStack: false, reorderEnabled: true },
+    dimensions: { borderWidth: 4, headerHeight: 28, minItemHeight: 90, minItemWidth: 120 },
+    header: { popout: false, close: false },
+    root: {
+        type: "row",
+        content: [
+            { type: "stack", width: 9, content: [component("blocks")] },
+            { type: "stack", width: 52, content: [component("sweeps")] },
+            { type: "stack", width: 39, content: [component("metrics")] },
+        ],
+    },
+};
+
 async function main() {
+    // the three panels in GoldenLayout's tabs
+    const container = document.getElementById("gl-container");
+    const layout = new GoldenLayout(container);
+    for (const [type, panel] of Object.entries(PANELS)) layout.registerComponentFactoryFunction(type, (glContainer) => glContainer.element.append(panel.make()));
+    layout.loadLayout(LAYOUT);
+    new ResizeObserver(() => layout.updateRootSize?.() ?? layout.updateSize?.()).observe(container);
     // above the table: the block, how many of its instances are shown, the filters' reset
-    document.getElementById("table-controls").replaceChildren(
-        h("strong", { id: "block-title" }, ""),
-        h("span.muted.mono", { id: "count" }, ""),
-        h("span.grow"),
-        h("button.icon-btn", { title: "Clear every filter and the sort", onclick: () => { view.filters = {}; view.sort = null; refresh(); } }, h("span", { html: icon("reset", 13) }), "Clear filters"),
-    );
+    const clear = toolButton("unfilter", "Clear every filter and the sort", () => {
+        view.filters = {};
+        view.sort = null;
+        refresh();
+    });
+    clear.id = "clear-filters";
+    document.getElementById("table-controls").replaceChildren(h("strong", { id: "block-title" }, ""), h("span.muted.mono", { id: "count" }, ""), h("span.grow"), clear);
     // the desktop's light or dark setting, followed as it changes
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
         document.documentElement.dataset.theme = event.matches ? "dark" : "light";
