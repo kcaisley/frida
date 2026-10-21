@@ -94,7 +94,7 @@ def analyze_cml_switching(measurements: Sequence[MeasCml]) -> AnalysisCmlSwitchi
         level = (float(measurement.param.vhigh) - float(measurement.param.vlow)) / 2
         data, clock, output = (differential[name] for name in ("in", "clk", "out"))
 
-        def holds(instant: float, value: bool) -> bool:
+        def holds(instant: float, value: bool, output=output, level=level) -> bool:
             out = calc.value(*output, instant)
             return bool((out > 0) == value and abs(out) >= level)
 
