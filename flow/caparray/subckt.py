@@ -27,10 +27,12 @@ class RedunStrat(Enum):
     RDX2_RPT = auto()
     SUBRDX2_OVLY = auto()  # Sub-radix-2 with paired overlay
     # binary, n_extra of its weights each followed by a second capacitor of that weight: the
-    # largest after the MSB, evenly spread along the chain, or the smallest
+    # largest after the MSB, evenly spread along the chain, the smallest, or both ends (the larger
+    # half at the start)
     RDX2_RPT_START = auto()
     RDX2_RPT_SPREAD = auto()
     RDX2_RPT_END = auto()
+    RDX2_RPT_BOTH = auto()
 
 
 class SplitStrat(Enum):
@@ -420,10 +422,16 @@ def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> list[int] |
 
         return result
 
-    elif strategy in (RedunStrat.RDX2_RPT_START, RedunStrat.RDX2_RPT_SPREAD, RedunStrat.RDX2_RPT_END):
+    elif strategy in (
+        RedunStrat.RDX2_RPT_START,
+        RedunStrat.RDX2_RPT_SPREAD,
+        RedunStrat.RDX2_RPT_END,
+        RedunStrat.RDX2_RPT_BOTH,
+    ):
         # Binary weights, n_extra of them repeated right after themselves (never the MSB: a repeat
         # gives the decisions before it their tolerance). START repeats the largest after the MSB,
-        # END the smallest, SPREAD picks evenly along the chain after the MSB.
+        # END the smallest, BOTH the larger half of them at the start and the rest at the end,
+        # SPREAD picks evenly along the chain after the MSB.
         base = [2**i for i in range(n_dac - 1, -1, -1)]
         if not 0 < n_extra <= n_dac - 1:
             return None
@@ -431,6 +439,9 @@ def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> list[int] |
             repeated = set(range(1, n_extra + 1))
         elif strategy == RedunStrat.RDX2_RPT_END:
             repeated = set(range(n_dac - n_extra, n_dac))
+        elif strategy == RedunStrat.RDX2_RPT_BOTH:
+            start = (n_extra + 1) // 2
+            repeated = set(range(1, start + 1)) | set(range(n_dac - (n_extra - start), n_dac))
         else:
             repeated = {1 + math.floor((k + 0.5) * (n_dac - 1) / n_extra) for k in range(n_extra)}
         return [w for i, weight in enumerate(base) for w in ((weight, weight) if i in repeated else (weight,))]

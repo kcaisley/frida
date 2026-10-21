@@ -126,7 +126,7 @@ def campaign(tb: Builder, full_scale_v: float, bits: int = 12) -> dict[str, Capt
         tb(
             conversions=INPUT_NOISE_LEVELS * INPUT_NOISE_CONVERSIONS,
             rate_hz=NOMINAL_RATE_HZ,
-            vin_diff=_staircase(INPUT_NOISE_SPAN * full_scale_v, full_scale_v / (1 << bits)),  # half an LSB
+            vin_diff=_staircase(INPUT_NOISE_SPAN * full_scale_v, 2 * full_scale_v / (1 << bits)),
         ),
         noise_seed=2001,
     )
@@ -156,13 +156,13 @@ def campaign(tb: Builder, full_scale_v: float, bits: int = 12) -> dict[str, Capt
     return captures
 
 
-def _staircase(span_v: float, offset_v: float = 0.0) -> h.Vpwl.Params:
-    """``INPUT_NOISE_LEVELS`` DC levels evenly over +-``span_v``, moved by ``offset_v`` (half an LSB
-    puts the middle one at a code's centre, not on the first decision's threshold), each held for
-    ``INPUT_NOISE_CONVERSIONS`` conversions at the nominal rate: every step falls half a conversion
-    from the samples, in 1 ns."""
+def _staircase(span_v: float, lsb_v: float) -> h.Vpwl.Params:
+    """``INPUT_NOISE_LEVELS`` DC levels about evenly over +-``span_v``, each at an ideal code's
+    centre (a noise under an LSB reads differently at a code's edge and at its centre, so every
+    level sits alike), each held for ``INPUT_NOISE_CONVERSIONS`` conversions at the nominal rate:
+    every step falls half a conversion from the samples, in 1 ns."""
 
-    levels = np.linspace(-span_v, span_v, INPUT_NOISE_LEVELS) + offset_v
+    levels = (np.floor(np.linspace(-span_v, span_v, INPUT_NOISE_LEVELS) / lsb_v) + 0.5) * lsb_v
     period_s = 1 / NOMINAL_RATE_HZ
     points = [(0.0, levels[0])]
     for index in range(1, INPUT_NOISE_LEVELS):

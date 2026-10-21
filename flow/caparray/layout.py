@@ -341,12 +341,14 @@ def _run_caparray(run_dir: Path, params: CapArrayLayoutParams) -> Path:
 # FRIDA's array: 12 bits in 16 stages, sub-radix-2 with paired overlays (17 decisions)
 RADIX17 = CapArrayConfig(n_dac=11, n_extra=5, redun_strat=RedunStrat.SUBRDX2_OVLY)
 # the ways the ADC variants spend their redundant decisions (the overlay unnamed): FRIDA's sub-radix-2
-# overlay, or binary weights with repeated ones at the start, spread along the chain or at the end
+# overlay, or binary weights with repeated ones at the start, spread along the chain, at the end or at
+# both ends
 REDUNDANCY = {
     "": RedunStrat.SUBRDX2_OVLY,
     "_start": RedunStrat.RDX2_RPT_START,
     "_spread": RedunStrat.RDX2_RPT_SPREAD,
     "_end": RedunStrat.RDX2_RPT_END,
+    "_both": RedunStrat.RDX2_RPT_BOTH,
 }
 # the ADC variants' arrays: 10 to 14 bits, each binary or with 1 to 6 redundant decisions by each
 # strategy, 10 to 20 decisions a conversion (12b_plus5 is FRIDA's array)

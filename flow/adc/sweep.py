@@ -72,8 +72,8 @@ TOPOLOGIES = {
     for bits in (10, 11, 12, 13, 14)
 }
 # each sizing's redundant decisions and how the array spends them (flow.caparray.layout.REDUNDANCY):
-# plus<n> FRIDA's sub-radix-2 overlay, plus<n>_start, _spread and _end binary weights with n of them
-# repeated at the start, along the chain or at the end
+# plus<n> FRIDA's sub-radix-2 overlay, plus<n>_start, _spread, _end and _both binary weights with n of
+# them repeated at the start, along the chain, at the end or at both ends
 SIZINGS = {"plus0": {"extra": 0, "variant": ""}} | {
     f"plus{extra}{suffix}": {"extra": extra, "variant": suffix} for extra in range(1, 7) for suffix in REDUNDANCY
 }
