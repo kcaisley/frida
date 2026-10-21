@@ -3,7 +3,8 @@ sizings, in every PDK.
 
 Each instance at the nominal point (a 200 ps clock, the data at 2.6 clock periods, its own core
 supply): the single-ended swing, output common mode, delay, the share of checked instants where
-the output holds its function's value, and the supply current. The tail current scales with the
+the output holds its function's value at a usable level (its sign, and half the inputs' swing:
+``flow.cml.analysis``), and the supply current. The tail current scales with the
 tail's width (30 uA at the generator's default), so a wider gate draws more. Over the clock
 period (1 ns to 25 ps) and the tail current (a sixth to 3.3 times its own) the swing, delay and
 correctness; over the supply (90 to 120 % of its own) the swing and delay; the differential

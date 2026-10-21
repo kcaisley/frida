@@ -3,9 +3,12 @@
 A ``MeasCml`` is one transient of the shared CML testbench. Every figure is taken over the
 record's second half, after the start-up: the single-ended swing (half the differential
 peak-to-peak), the delay from the driving input's differential crossing to the output's, and
-whether the output holds its function's value where that is defined: a buffer's and an XOR's
-just before each input change (one at least a quarter clock period after the last), a latch's
-a quarter period after each closing clock edge, a divider's alternating at each rising one.
+whether the output holds its function's value where that is defined, at a level the next gate can
+use: the right sign and at least half the inputs' differential swing (``vhigh - vlow``). A
+buffer's and an XOR's just before each input change (one at least a quarter clock period after
+the last); a latch's a quarter period after each closing clock edge (it captured the data) and
+at the next opening one (it held it); a divider's at each rising one, alternating with one
+output crossing between them (it divides, rather than following the clock or ringing).
 """
 
 from __future__ import annotations
@@ -39,7 +42,7 @@ class AnalysisCmlSwitching(Analysis):
     ``delay_s`` is the median over output crossings of the time since the latest driving input
     crossing (the clock for a divider, the data for a buffer, either for a latch or an XOR);
     ``correct_fraction`` the share of checked instants where the output held its function's
-    value (1 when it works); ``swing_v`` half the differential peak-to-peak.
+    value at a usable level (1 when it works); ``swing_v`` half the differential peak-to-peak.
     """
 
     vdd_v: np.ndarray
@@ -85,9 +88,16 @@ def analyze_cml_switching(measurements: Sequence[MeasCml]) -> AnalysisCmlSwitchi
             for crossing in crossings["out"]
             if np.any(launches < crossing)
         ]
-        # the function's value at each checked instant, against the output's sign there
+        # the function's value at each checked instant, against the output there: its sign, and
+        # at least half the inputs' swing (a sign alone passes any low-passed square wave)
         period = float(measurement.param.clock_period_s)
+        level = (float(measurement.param.vhigh) - float(measurement.param.vlow)) / 2
         data, clock, output = (differential[name] for name in ("in", "clk", "out"))
+
+        def holds(instant: float, value: bool) -> bool:
+            out = calc.value(*output, instant)
+            return bool((out > 0) == value and abs(out) >= level)
+
         checks = []
         if function in (Function.BUFFER, Function.XOR):
             for previous, event in pairwise(launches):
@@ -97,15 +107,23 @@ def analyze_cml_switching(measurements: Sequence[MeasCml]) -> AnalysisCmlSwitchi
                     value = calc.value(*data, middle) > 0
                     if function == Function.XOR:
                         value = value != (calc.value(*clock, middle) > 0)
-                    checks.append((calc.value(*output, event) > 0) == value)
+                    checks.append(holds(event, value))
         elif function == Function.LATCH:
             closing = calc.cross(*clock, 0.0, edge="falling")
+            opening = calc.cross(*clock, 0.0, edge="rising")
             for edge in closing[closing + period / 4 < stop_s]:
                 if not np.any(np.abs(crossings["in"] - edge) < period / 8):
-                    checks.append((calc.value(*output, edge + period / 4) > 0) == (calc.value(*data, edge) > 0))
+                    value = calc.value(*data, edge) > 0
+                    # captured a quarter period on, still held as the latch opens again
+                    reopen = opening[opening > edge]
+                    held = holds(reopen[0], value) if len(reopen) else True
+                    checks.append(holds(edge + period / 4, value) and held)
         else:
-            states = [calc.value(*output, edge) > 0 for edge in calc.cross(*clock, 0.0, edge="rising")]
-            checks = [state != before for before, state in pairwise(states)]
+            rising = calc.cross(*clock, 0.0, edge="rising")
+            for before, after in pairwise(rising):
+                flips = np.count_nonzero((crossings["out"] > before) & (crossings["out"] <= after))
+                state = calc.value(*output, before) > 0
+                checks.append(bool(flips == 1 and holds(before, state) and holds(after, not state)))
         output_v, _output_s = output
         common = calc.clip((wave.v[CmlNets.outp.name][0] + wave.v[CmlNets.outn.name][0]) / 2, time_s, start_s, stop_s)
         current = calc.clip(wave.i[CmlNets.vdd.name][0], time_s, start_s, stop_s)
