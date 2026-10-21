@@ -26,7 +26,8 @@ export function paperAxis(title, log, colors, fonts) {
     return {
         title: { text: title, font: { size: fonts.axis }, standoff: 6 },
         type: log ? "log" : "linear",
-        dtick: log ? 1 : undefined,
+        // a log axis labelled at 1, 2 and 5 of each decade: a narrow range still reads
+        dtick: log ? "D2" : undefined,
         showline: true,
         linecolor: colors.spine,
         linewidth: 0.8 * PT,

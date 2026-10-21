@@ -372,8 +372,19 @@ function renderPlot() {
     // the hovered row's point
     traces.push({ type: "scatter", mode: "markers", name: "hover", showlegend: false, x: [], y: [], hoverinfo: "skip", marker: { symbol: "circle-open", size: 24, line: { width: 3, color: "#EBCB8B" } } });
     const layout = paperLayout("", axisLabel(x), axisLabel(y), view.logX, view.logY, 1, theme);
-    layout.margin = { l: 70, r: 10, t: 16, b: 52 };
-    layout.legend = { ...layout.legend, x: 1.01, xanchor: "left", y: 1, yanchor: "top", itemclick: false, itemdoubleclick: false };
+    // the mode bar sits in the top margin, above the legend beside the plot
+    layout.margin = { l: 70, r: 10, t: 40, b: 52 };
+    layout.legend = {
+        ...layout.legend,
+        x: 1.02,
+        xanchor: "left",
+        y: 1,
+        yanchor: "top",
+        font: { size: 12 },
+        tracegroupgap: 12,
+        itemclick: false,
+        itemdoubleclick: false,
+    };
     layout.uirevision = `${view.x}|${view.y}|${view.logX}|${view.logY}`;
     Plotly.react(element, traces, layout, { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["select2d", "lasso2d", "autoScale2d"] });
     if (!element.dataset.bound) {
