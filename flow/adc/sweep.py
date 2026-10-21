@@ -117,7 +117,8 @@ def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
         captures[name] = model.capture(noise.tb, run_dir / f"{name}.h5", quiet=quiet)
     metrics, figures = adc_figures(captures, run_dir / "figures")
     metrics |= {
-        "stages": float(model.stages),
+        "stages": float(model.stages),  # the switched capacitors a side
+        "decisions": float(model.stages + 1),  # a conversion's comparator decisions
         "full_scale_v": model.full_scale_v,
         "settling_tau_s": model.settling_tau_s,
         "comp_noise_v": model.comp.noise_v,

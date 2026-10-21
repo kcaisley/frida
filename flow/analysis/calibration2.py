@@ -72,9 +72,12 @@ def analyze_adc_calibration2(measurement: MeasAdc, *, ramp: AnalysisAdcRamp) -> 
     inner_cycle = np.searchsorted(even_cycles, cycle_index)
     inner_training = training & (inner_cycle % 2 == 0)
     inner_validation = training & (inner_cycle % 2 != 0)
-    # Candidate strengths from no prior to the mild 2% default, spaced roughly
-    # by factors of five, cover the useful regularization range.
-    candidates = (0.0, 0.0001, 0.001, 0.005, 0.02)
+    # Candidate strengths from a vanishing prior to the mild 2% default, spaced
+    # roughly by factors of five, cover the useful regularization range. Never
+    # quite zero: a noise-free ramp repeats its BOUT words exactly, so with
+    # redundant decisions the fit is rank-deficient and only the prior picks
+    # the weights nearest the design's among the many that fit.
+    candidates = (1e-6, 0.0001, 0.001, 0.005, 0.02)
 
     # Fit every candidate on the inner split, then refit all even cycles with
     # the strength whose inner validation error was lowest.
