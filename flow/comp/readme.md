@@ -15,6 +15,6 @@
 | DRC runner | ✓ | [layout.py](layout.py) | gdscheck and the PDK's DRC for every layout (`row_signoff`). |
 | LVS runner | ✓ | [layout.py](layout.py) | The PDK's LVS for every layout against the netlist the build placed. |
 | PEX runner | ✗ | - | No comparator extraction. |
-| Behavioral model | ✓ | [model.py](model.py) | `CompModel.of(pdk, CompParams)`: the characterization's noise, offset, delay and energy (`flow.sweep.lookup`); `decide()` for the SAR loop. |
+| Behavioral model | ✓ | [model.py](model.py) | `CompModel.of(pdk, CompParams)`: the characterization's noise and offset over the common mode, its delay over the input (0.1-100 mV, extrapolated below by its regeneration time constant) and its energy (`flow.sweep.lookup`); `decide()` for the SAR loop. |
 
 TODO: investigate settling, metastability, kickback, and offset; the tools placing by the floorplans' ALIGN groups. See [project TODO](../../docs/todo.md#comp).

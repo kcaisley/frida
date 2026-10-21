@@ -82,6 +82,14 @@ class CompBehavioralParams:
     offset_v = h.Param(dtype=float, desc="Input-referred offset", default=0.0)
     decision_energy_j = h.Param(dtype=float, desc="Supply energy per decision", default=0.0)
     static_power_w = h.Param(dtype=float, desc="Static supply power", default=0.0)
+    delay_table_v = h.Param(
+        dtype=tuple[float, ...] | None,
+        desc="Ascending input magnitudes of a measured clock-to-decision delay (flow.comp.model); None never late",
+        default=None,
+    )
+    delay_table_s = h.Param(
+        dtype=tuple[float, ...] | None, desc="The clock-to-decision delay at each of delay_table_v", default=None
+    )
 
 
 @h.paramclass
@@ -94,6 +102,16 @@ class CdacBehavioralParams:
     diff_n_f = h.Param(dtype=tuple[float, ...] | None, desc="C0-first N diff capacitances", default=None)
     parasitic_f = h.Param(dtype=float, desc="Top-plate capacitance to ground per side", default=0.0)
     settling_tau_s = h.Param(dtype=float, desc="Single-pole top-plate settling time constant; 0 is ideal", default=0.0)
+    stage_tau_s = h.Param(
+        dtype=tuple[float, ...] | None,
+        desc="C0-first settling time constant after each stage switches; None uses settling_tau_s",
+        default=None,
+    )
+    stage_delay_s = h.Param(
+        dtype=tuple[float, ...] | None,
+        desc="C0-first delay from the LOGIC edge to each stage's plates starting to move; None is 0",
+        default=None,
+    )
     driver_energy_j = h.Param(dtype=float, desc="Driver energy per bottom-plate transition", default=0.0)
     driver_static_w = h.Param(dtype=float, desc="Static power per bottom-plate driver", default=0.0)
     reference_noise_v = h.Param(
@@ -132,15 +150,35 @@ class BehavioralConversions:
 
 
 def calc_redundancy_margins(weights) -> np.ndarray:
-    """Return each SAR stage's correction margin as a percentage.
+    """Return each SAR stage's error tolerance as a percentage of the residue range left at it.
 
-    Weights are in conversion order; the final stage has no later correction.
+    T. Ogawa, H. Kobayashi, Y. Takahashi, N. Takai, M. Hotta, H. San, T. Matsuura, A. Abe,
+    K. Yagi and T. Mori, "SAR ADC Algorithm with Redundancy and Digital Error Correction," IEICE
+    Trans. Fundamentals, vol. E93-A, no. 2, pp. 415-423, Feb. 2010, doi:10.1587/transfun.E93.A.415.
+
+    Their Eq. (5) defines the redundancy of step k as q(k) = -p(k+1) + 1 + sum_{i=k+2}^{M} p(i),
+    and Proposition 1 shows that a wrong decision at step k still gives the right output code
+    when |Vin - Vref(k)| < q(k). Their p(k+1) is the step that decision k sets (p(1) is the initial
+    mid-scale reference) and their +1 is the last comparison's LSB. With the weights here, w_k
+    being the step decision k sets (+-w_k, as the CDAC switches, in conversion order), that is::
+
+        q_k = sum_{j>k} w_j - w_k + w_M        (w_M the last decision's weight)
+
+    returned as 100 * q_k / sum_{j>=k} w_j. Binary weights give 0 at every stage; a positive
+    value is the dynamic error (comparator noise or metastability, incomplete DAC settling,
+    reference ripple) that stage tolerates; a negative one an error band the later stages cannot
+    recover. The last stage's is 0: nothing after it corrects it. The tolerance is a worst-case
+    bound per stage, and every stage may err within its own at once. Static weight errors
+    (capacitor mismatch) are not tolerated: they need the decoder's weights calibrated.
     """
     values = np.asarray(weights, dtype=float)
     if values.ndim != 1 or len(values) < 2 or not np.all(np.isfinite(values)) or np.any(values <= 0):
         raise ValueError("expected at least two finite, positive SAR weights in conversion order")
     remaining = np.cumsum(values[::-1])[::-1]
-    return (remaining[1:] - values[:-1]) / remaining[:-1] * 100
+    # q_k = sum_{j>k} w_j - w_k + w_M (Ogawa et al. Eq. 5). Until 2026-10-21 this was
+    # (sum_{j>k} w_j - w_k) / sum_{j>=k} w_j over all but the last stage: without the w_M term
+    # every stage read w_M low, so binary weights went negative toward the LSB instead of 0
+    return (remaining - 2 * values + values[-1]) / remaining * 100
 
 
 def calc_ideal_capacitances(cdac: CapArrayConfig) -> tuple[np.ndarray, np.ndarray]:
@@ -185,6 +223,23 @@ def calc_sequence_times(tb: AdcTbParams, decisions: int) -> tuple[np.ndarray, np
     if len(comp_s) != decisions or len(logic_s) < decisions - 1:
         raise ValueError(f"sequence must contain {decisions} COMP and {decisions - 1} LOGIC rises after INIT")
     return comp_s, logic_s[: decisions - 1]
+
+
+def calc_decision_windows(tb: AdcTbParams, decisions: int) -> np.ndarray:
+    """Return, for each COMP rise, the time until the comparator resets (COMP falls) or the SAR
+    logic reads it (LOGIC rises), whichever comes first, wrapping into the next conversion."""
+
+    sequence = AdcSequence.from_tb_params(tb).relative_to_init()
+    symbol_s = 1.0 / float(tb.symbol_rate)
+    comp = np.asarray([int(bit) for bit in sequence.comp])
+    logic = np.asarray([int(bit) for bit in sequence.logic])
+    rises = np.flatnonzero((comp == 1) & (np.roll(comp, 1) == 0))
+    ends = np.flatnonzero(((comp == 0) & (np.roll(comp, 1) == 1)) | ((logic == 1) & (np.roll(logic, 1) == 0)))
+    if len(rises) != decisions or not len(ends):
+        raise ValueError(f"sequence must contain {decisions} COMP rises and a COMP fall or LOGIC rise")
+    # symbols from each rise to every end, the next conversion's ends a whole conversion later
+    after = (ends[None, :] - rises[:, None] - 1) % len(comp) + 1
+    return np.min(after, axis=1) * symbol_s
 
 
 def calc_switch_conductances(hw: SampParams, params: SampBehavioralParams) -> tuple[float, float]:
@@ -280,16 +335,44 @@ def comp(
     rng: np.random.Generator,
     *,
     vin_cm_v: float,
+    window_s: float | None = None,
+    held: np.ndarray | None = None,
 ) -> np.ndarray:
     """Return 1 where the noisy differential input exceeds the offset.
 
     Unset noise comes from ``calc_strongarm_noise`` of ``hw`` at ``vin_cm_v``;
-    otherwise ``hw`` and ``vin_cm_v`` are not used.
+    otherwise ``hw`` and ``vin_cm_v`` are not used. With a measured delay curve
+    and a ``window_s`` (the time until the comparator resets or its output is
+    read), a decision whose input is too small to regenerate in time is late:
+    the comparator's SR latch still holds its last decision, ``held``.
     """
 
     noise_v = calc_strongarm_noise(hw, vin_cm_v) if params.noise_v is None else params.noise_v
     noise = rng.normal(0.0, noise_v, len(vin_diff_v)) if noise_v else 0.0
-    return (vin_diff_v + noise - params.offset_v > 0).astype(np.int64)
+    overdrive_v = vin_diff_v + noise - params.offset_v
+    decided = (overdrive_v > 0).astype(np.int64)
+    if params.delay_table_v is None or window_s is None or held is None:
+        return decided
+    return np.where(calc_comp_delay(params, overdrive_v) > window_s, held, decided)
+
+
+def calc_comp_delay(params: CompBehavioralParams, overdrive_v: np.ndarray) -> np.ndarray:
+    """Return the clock-to-decision delay at each input, from the measured curve.
+
+    The delay is interpolated over ln|v|; below the smallest measured input it
+    grows by the regeneration time constant of the two smallest points,
+    ``tau * ln(v_min / |v|)``, the latch's exponential growth; above the largest
+    it holds. A zero input never decides.
+    """
+
+    table_v = np.asarray(params.delay_table_v, dtype=np.float64)
+    table_s = np.asarray(params.delay_table_s, dtype=np.float64)
+    tau_s = (table_s[0] - table_s[1]) / np.log(table_v[1] / table_v[0])
+    magnitude = np.abs(overdrive_v)
+    with np.errstate(divide="ignore"):
+        log_v = np.log(magnitude)
+    inside = np.interp(log_v, np.log(table_v), table_s)
+    return np.where(magnitude < table_v[0], table_s[0] + tau_s * (np.log(table_v[0]) - log_v), inside)
 
 
 def salogic(tb: AdcTbParams, state: dict[str, np.ndarray], stage: int, decided: np.ndarray):
@@ -351,6 +434,9 @@ def convert_behavioral(
     conversions = len(vin_diff_v)
     stages = len(get_caparray_weights(tb.dut.cdac))
     comp_s, logic_s = calc_sequence_times(tb, stages + 1)
+    windows_s = calc_decision_windows(tb, stages + 1)
+    stage_tau_s = params.cdac.stage_tau_s or (params.cdac.settling_tau_s,) * stages
+    stage_delay_s = params.cdac.stage_delay_s or (0.0,) * stages
     initial = {side: np.asarray(getattr(tb, f"dac_astate_{side}"), dtype=np.int64) for side in ("p", "n")}
     if any(len(value) != stages for value in initial.values()):
         raise ValueError(f"A states must hold one value per capacitor ({stages})")
@@ -375,8 +461,11 @@ def convert_behavioral(
     dac_charge = np.zeros(conversions)
     transitions = np.zeros(conversions)
     writes = np.zeros(conversions)
-    steps: list[tuple[float, np.ndarray]] = []
+    steps: list[tuple[float, float, np.ndarray]] = []
     bout = np.empty((conversions, stages + 1), dtype=np.uint8)
+    # the comparator's SR latch holds its last decision: the previous conversion's last, a coin
+    # toss here, before the first
+    held = rng.integers(0, 2, conversions)
     for decision in range(stages + 1):
         # Unsettled remainders of earlier updates decay with one time constant.
         seen = top["p"] - top["n"]
@@ -388,11 +477,19 @@ def convert_behavioral(
                 main_f, diff_f = calc_side_capacitances(params.cdac, tb, side)
                 at_vref_f = state[side] @ main_f + (state[side] ^ int(tb.dac_diffcaps)) @ diff_f
                 seen = seen + sign * vref_noise * at_vref_f / load_f[side]
-        if params.cdac.settling_tau_s > 0:
-            for update_s, step in steps:
-                seen = seen - step * np.exp(-(comp_s[decision] - update_s) / params.cdac.settling_tau_s)
-        decided = comp(tb.dut.comp, params.comp, seen, rng, vin_cm_v=vin_cm_v)
+        # each stage's step starts after its driver's delay and settles with its own time constant;
+        # one not yet started is missing whole
+        for start_s, tau_s, step in steps:
+            elapsed_s = comp_s[decision] - start_s
+            if elapsed_s < 0:
+                seen = seen - step
+            elif tau_s > 0:
+                seen = seen - step * np.exp(-elapsed_s / tau_s)
+        decided = comp(
+            tb.dut.comp, params.comp, seen, rng, vin_cm_v=vin_cm_v, window_s=float(windows_s[decision]), held=held
+        )
         bout[:, decision] = decided
+        held = decided
         if decision == stages:
             break
         after = salogic(tb, state, decision, decided)
@@ -405,7 +502,7 @@ def convert_behavioral(
             writes += np.sum(after[side] != state[side], axis=1)
             differential_step += top_step if side == "p" else -top_step
         state = after
-        steps.append((logic_s[decision], differential_step))
+        steps.append((logic_s[decision] + stage_delay_s[decision], stage_tau_s[decision], differential_step))
 
     # INIT reloads the A state with floating top plates, then SAMP forces them
     # to the new input; both edges start from the previous conversion's end.

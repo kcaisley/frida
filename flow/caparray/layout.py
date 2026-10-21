@@ -343,9 +343,9 @@ ADC_VARIANTS = {
     f"{n_dac + 1}b_plus{extra}": CapArrayConfig(
         n_dac=n_dac, n_extra=extra, redun_strat=RedunStrat.SUBRDX2_OVLY if extra else RedunStrat.RDX2
     )
-    for n_dac in (9, 11)
-    for extra in (0, 2, 4, 5)
-}
+    for n_dac in (9, 10, 11)
+    for extra in (0, 2, 4, 6)
+} | {"12b_plus5": CapArrayConfig(n_dac=11, n_extra=5, redun_strat=RedunStrat.SUBRDX2_OVLY)}  # FRIDA's
 
 
 def caparray_1layer_radix17(run_dir: Path) -> Path:

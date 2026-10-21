@@ -367,6 +367,41 @@ def plot_adc_redundancy(
 
 
 @mpl.rc_context(PLOT_STYLE)
+def plot_adc_mismatch_nonlinearity(
+    coefficients: Sequence[float],
+    decodings: Mapping[str, Mapping[str, np.ndarray]],
+    *,
+    output_path: Path,
+) -> tuple[Path, ...]:
+    """Plot the worst DNL and INL and the missing codes of capacitor draws at each Pelgrom
+    coefficient (A_C, the relative sigma of a 1-fF capacitor).
+
+    ``decodings`` maps each decoding's label to its ``dnl``, ``inl`` and ``missing`` arrays of
+    shape (coefficients, draws); each panel shows the median over the draws and their 5-95 % band.
+    """
+
+    fig, axes = plt.subplots(3, 1, sharex=True)
+    percent = np.asarray(coefficients, dtype=np.float64) * 100
+    for (label, stats), color in zip(decodings.items(), CURVE_COLORS, strict=False):
+        for ax, key in zip(axes, ("dnl", "inl", "missing"), strict=True):
+            values = np.asarray(stats[key], dtype=np.float64)
+            low, median, high = np.percentile(values, (5, 50, 95), axis=1)
+            ax.fill_between(percent, low, high, color=color, alpha=0.2, linewidth=0)
+            ax.plot(percent, median, "o-", color=color, label=label)
+    axes[0].axhline(0.5, color=SPINE_COLOR, linestyle="--", linewidth=0.8)
+    axes[0].set_ylabel("Max |DNL| (LSB)")
+    axes[1].set_ylabel("Max |INL| (LSB)")
+    axes[2].set_ylabel("Missing codes")
+    axes[2].set_xscale("log")
+    axes[2].set_xlabel(r"Pelgrom coefficient $A_C$ (%$\cdot\sqrt{\mathrm{fF}}$)")
+    for ax in axes:
+        style_grid(ax)
+    axes[0].legend()
+    fig.suptitle("ADC nonlinearity over capacitor mismatch (median, 5-95 % of draws)")
+    return save_figure(fig, output_path)
+
+
+@mpl.rc_context(PLOT_STYLE)
 def plot_waveforms(
     wave: Wave,
     *,

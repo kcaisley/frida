@@ -106,7 +106,8 @@ def analyze_adc_calibration2(measurement: MeasAdc, *, ramp: AnalysisAdcRamp) -> 
             target,
             # The intercept is free; effective weights cannot be negative.
             bounds=(np.r_[-np.inf, np.zeros(decision_count)], np.full(decision_count + 1, np.inf)),
-            lsmr_tol="auto",
+            # an exact active-set solve: with a noise-free ramp the trust-region one never converges
+            method="bvls",
         )
         if not solution.success:
             raise RuntimeError(f"empirical BOUT calibration failed: {solution.message}")

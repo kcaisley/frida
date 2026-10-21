@@ -6,8 +6,9 @@ characterization of a driver of that stage's strength (``flow.capdriver.sweep``,
 
 The sweep characterizes the generic-cell driver (an XOR into a buffer of the strength); the ADC
 instantiates its clocked-XOR cells, whose bands (1, 2, 4) these stand in for. A stage's drive
-resistance is its rise and fall time constant over its load; its own energy per transition is what
-it draws beyond the load's C V^2.
+resistance is its rise and fall time constant over its load; its delay, from the state input to
+its output, less the ln 2 RC its characterized load adds, is its intrinsic delay before the plate
+starts to move; its own energy per transition is what it draws beyond the load's C V^2.
 """
 
 from __future__ import annotations
@@ -33,6 +34,8 @@ class CapDriverModel:
     cload_f: float  # the characterized load nearest the stage's
     resistance_rise_ohm: float
     resistance_fall_ohm: float
+    delay_rise_s: float  # state input to the output's 50 % at the characterized load
+    delay_fall_s: float
     energy_j: float  # drawn per transition beyond the load's C V^2
 
     @classmethod
@@ -51,6 +54,8 @@ class CapDriverModel:
             cload_f=cload,
             resistance_rise_ohm=metrics["drive_resistance_rise_ohm"],
             resistance_fall_ohm=metrics["drive_resistance_fall_ohm"],
+            delay_rise_s=metrics["delay_rise_s"],
+            delay_fall_s=metrics["delay_fall_s"],
             energy_j=overhead / 2,
         )
 
@@ -58,6 +63,16 @@ class CapDriverModel:
     def resistance_ohm(self) -> float:
         """The slower edge's drive resistance."""
         return max(self.resistance_rise_ohm, self.resistance_fall_ohm)
+
+    @property
+    def intrinsic_delay_s(self) -> float:
+        """The slower edge's delay before its output moves: the measured delay less the ln 2 RC its
+        characterized load adds (the ADC's settling adds the stage's own RC)."""
+        return max(
+            0.0,
+            self.delay_rise_s - math.log(2) * self.resistance_rise_ohm * self.cload_f,
+            self.delay_fall_s - math.log(2) * self.resistance_fall_ohm * self.cload_f,
+        )
 
 
 def stage_drivers(pdk: str, params: CapDriverParams, loads_f, *, simulate: bool = True) -> tuple[CapDriverModel, ...]:

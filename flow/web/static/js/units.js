@@ -17,6 +17,7 @@ const SUFFIXES = [
     ["_deg", "°", false],
     ["_bits", "bit", false],
     ["_lsb", "LSB", false],
+    ["_pct", "%", false],
     ["_ohm", "Ω", true],
     ["_hz", "Hz", true],
     ["_um2", "µm²", false],

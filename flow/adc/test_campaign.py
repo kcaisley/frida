@@ -2,7 +2,15 @@
 
 import hdl21 as h
 
-from flow.adc.campaign import FIN_CYCLES, FIN_RATES_HZ, RATES_HZ, UNIT_MISMATCH, campaign
+from flow.adc.campaign import (
+    FIN_CYCLES,
+    FIN_RATES_HZ,
+    MISMATCH_COEFFICIENTS,
+    MISMATCH_DRAWS,
+    RATES_HZ,
+    UNIT_MISMATCH,
+    campaign,
+)
 from flow.adc.figures import FIGURES
 
 
@@ -24,4 +32,8 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
     assert abs(captures["rate_10"].tb["vin_diff"].vamp - 0.7 * 10 ** (-0.5 / 20)) < 1e-9
     assert isinstance(captures["dc_00"].tb["vin_diff"], h.Vdc.Params)
     assert captures["dc_00"].tb["vin_diff"].dc == -0.7 and captures["dc_32"].tb["vin_diff"].dc == 0.7
-    assert len(FIGURES) == 12
+    assert len(FIGURES) == 14 and next(iter(FIGURES)) == "redundancy"
+    # the mismatch study: noise-free draws at each Pelgrom coefficient, one draw per seed
+    studies = [capture for name, capture in captures.items() if name.startswith("mc_")]
+    assert len(studies) == len(MISMATCH_COEFFICIENTS) * MISMATCH_DRAWS and all(c.noise_free for c in studies)
+    assert {c.unit_mismatch for c in studies} == set(MISMATCH_COEFFICIENTS)

@@ -15,7 +15,7 @@
 | DRC runner | ✓ | [layout.py](layout.py) | ✗ Seven M4-area precheck violations; foundry DRC not reached. |
 | LVS runner | ✓ | [layout.py](layout.py) | ✗ DNW layout devices mismatch ordinary upstream source models. |
 | PEX runner | ✗ | - | Not implemented. |
-| Behavioral model | ✓ | [model.py](model.py) | `CapDriverModel.of(pdk, strength, load_f=...)`: a stage's drive resistance and own energy from the generic-cell characterization at the nearest load (standing in for the ADC's clocked-XOR cells). |
+| Behavioral model | ✓ | [model.py](model.py) | `CapDriverModel.of(pdk, strength, load_f=...)`: a stage's drive resistance, intrinsic delay and own energy from the generic-cell characterization at the nearest load (standing in for the ADC's clocked-XOR cells). |
 
 Sizing: a stage settles to 1 / 2^(N+1) of the supply in ln(2^(N+1)) R C after its delay, with R the band's `drive_resistance_ohm` and C its stage's bottom-plate capacitance.
 

@@ -90,15 +90,19 @@ class AdcModel:
         return self.supply_v * effective / self.cdac.load_f
 
     @property
-    def settling_tau_s(self) -> float:
-        """The top plate's settling time constant after the slowest stage switches: its driver
-        through its plate in series with the rest of the load, the worst of every stage's plates."""
+    def stage_tau_s(self) -> tuple[float, ...]:
+        """Each stage's top-plate settling time constant, C0 first: its driver through its plate in
+        series with the rest of the load, the slower of its main and difference plates."""
         load = self.cdac.load_f
-        return max(
-            driver.resistance_ohm * plate * (load - plate) / load
+        return tuple(
+            max(driver.resistance_ohm * plate * (load - plate) / load for plate in (main, diff))
             for driver, main, diff in zip(self.drivers, self.cdac.main_f, self.cdac.diff_f, strict=True)
-            for plate in (main, diff)
         )
+
+    @property
+    def settling_tau_s(self) -> float:
+        """The slowest stage's settling time constant."""
+        return max(self.stage_tau_s)
 
     def tb(self, *, conversions: int, rate_hz: float, vin_diff) -> AdcTbParams:
         """The testbench of ``conversions`` at ``rate_hz`` with the continuous sequence (8 symbols a
@@ -125,18 +129,21 @@ class AdcModel:
         self, tb: AdcTbParams, *, seed: int = 0, unit_mismatch: float = 0.0, quiet: tuple[str, ...] = ()
     ) -> AdcBehavioralParams:
         """The behavioral ADC: one capacitor draw from ``seed`` (none where ``unit_mismatch`` is 0);
-        ``quiet`` silences the "sampling" or "comparator" noise."""
+        ``quiet`` silences the "sampling" noise or makes the "comparator" ideal (no noise, never
+        late). Each stage's plates start moving its driver's intrinsic delay after the LOGIC edge
+        (the SAR register's clock-to-output is not modeled) and settle with the stage's own RC."""
         rng = np.random.default_rng(seed)
         plates = {}
         for side in ("p", "n"):
             main, diff = self.cdac.draw(unit_mismatch=unit_mismatch, rng=rng)
             plates |= {f"main_{side}_f": tuple(map(float, main)), f"diff_{side}_f": tuple(map(float, diff))}
         samp = self.samp.behavioral(load_f=self.cdac.load_f)
-        comp = self.comp.behavioral()
+        comp = self.comp.behavioral(vin_cm_v=float(tb.vin_cm.dc))
         if "sampling" in quiet:
             samp = type(samp)(**{**samp.__dict__, "noise_v": 0.0, "jitter_s": 0.0})
         if "comparator" in quiet:
-            comp = type(comp)(**{**comp.__dict__, "noise_v": 0.0})
+            # an ideal comparator: no noise, and never late
+            comp = type(comp)(**{**comp.__dict__, "noise_v": 0.0, "delay_table_v": None, "delay_table_s": None})
         return AdcBehavioralParams(
             tb=tb,
             samp=samp,
@@ -145,6 +152,8 @@ class AdcModel:
                 **plates,
                 parasitic_f=self.cdac.parasitic_f,
                 settling_tau_s=self.settling_tau_s,
+                stage_tau_s=self.stage_tau_s,
+                stage_delay_s=tuple(driver.intrinsic_delay_s for driver in self.drivers),
                 driver_energy_j=float(np.mean([driver.energy_j for driver in self.drivers])),
             ),
             salogic=SALOGIC,
@@ -154,15 +163,16 @@ class AdcModel:
     def capture(
         self,
         tb: AdcTbParams,
-        path: Path,
+        path: Path | None,
         *,
         seed: int = 0,
         noise_seed: int | None = None,
         unit_mismatch: float = 0.0,
         quiet: tuple[str, ...] = (),
     ) -> MeasAdc:
-        """Convert every conversion of ``tb`` and write the MeasAdc with its supply power; its
-        ``cap_table`` readback is the array's extraction, the decoding's "extracted" weights."""
+        """Convert every conversion of ``tb`` and write the MeasAdc with its supply power to ``path``
+        (kept in memory alone where it is None); its ``cap_table`` readback is the array's
+        extraction, the decoding's "extracted" weights."""
 
         params = self.behavioral(tb, seed=seed, unit_mismatch=unit_mismatch, quiet=quiet)
         if noise_seed is not None:
@@ -209,5 +219,6 @@ class AdcModel:
             vin_diff_v=vin_diff_v,
             wave=build_adc_interface_wave(tb, result.bout[0]),
         )
-        write_measurement(path, measurement)
+        if path is not None:
+            write_measurement(path, measurement)
         return measurement

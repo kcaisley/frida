@@ -30,8 +30,12 @@ from flow.samp.subckt import SampParams, SwitchType
 
 
 def test_redundancy_calculator(tmp_path: Path) -> None:
+    # q_k = sum_{j>k} w_j - w_k + w_M over sum_{j>=k} w_j (Ogawa et al., IEICE 2010, Eq. 5)
     margins = calc_redundancy_margins((4, 3, 2, 1))
-    assert margins.tolist() == pytest.approx((20.0, 0.0, -100 / 3))
+    assert margins.tolist() == pytest.approx((30.0, 100 / 6, 0.0, 0.0))
+    # binary weights tolerate nothing; one more LSB decision tolerates one LSB weight at each stage
+    assert calc_redundancy_margins((8, 4, 2, 1)).tolist() == pytest.approx((0.0,) * 4)
+    assert calc_redundancy_margins((8, 4, 2, 1, 1)).tolist() == pytest.approx((6.25, 12.5, 25.0, 50.0, 0.0))
     with pytest.raises(ValueError, match="positive SAR weights"):
         calc_redundancy_margins((4, 0, 1))
     (path,) = plot_adc_redundancy(margins, output_path=tmp_path / "single")
@@ -51,7 +55,7 @@ def test_14_bit_weight_comparison(tmp_path: Path) -> None:
     binary_margin = calc_redundancy_margins(binary)
     redistributed_18_margin = calc_redundancy_margins(redistributed_18)
     redistributed_20_margin = calc_redundancy_margins(redistributed_20)
-    assert np.all(binary_margin < 0)
+    assert np.allclose(binary_margin, 0.0)
     assert np.all(redistributed_18_margin[:14] > 0)
     assert np.all(redistributed_20_margin[:16] > 0)
 
