@@ -3,8 +3,9 @@ alone, so a SPICE campaign and the behavioral model's take the same path.
 
 Every capture is decoded with the design weights and with the "extracted" weights of its
 ``cap_table`` readback (a PEX table, or the behavioral model's extraction); the calibrations learn
-from the training ramp and are checked on the other. The figures are the analysis plots
-(``flow.analysis.plots``) of one ADC, written as SVG for the viewer.
+from the training ramp and are checked on the other. The figures are the viewer's details (shared
+x, named series, drawn like every block's), from the same analyses the paper's figures
+(``flow.analysis.plots``) draw; the decision-path density, a 2-D histogram, is that plot's SVG.
 
 The mismatch study's ramps (``mc_*``) are each decoded with the design weights and with calibration
 2 learned from that ramp (calibration 3's threshold fits need many more trials a branch than these
@@ -34,6 +35,8 @@ from flow.analysis.calibration2 import analyze_adc_calibration2
 from flow.analysis.calibration3 import analyze_adc_calibration3
 from flow.analysis.io import read_extracted_calibration
 from flow.analysis.types import MeasAdc
+from flow.sweep import Detail
+from flow.sweep.runner import ROOT
 
 from .campaign import NOMINAL_RATE_HZ, UNIT_MISMATCH
 
@@ -41,19 +44,22 @@ from .campaign import NOMINAL_RATE_HZ, UNIT_MISMATCH
 FIGURES = {
     "redundancy": "Redundancy by conversion stage",
     "code_density": "Ramp code density",
-    "inl_dnl": "Ramp INL and DNL",
+    "inl": "Ramp INL by decoding",
+    "dnl": "Ramp DNL by decoding",
     "trajectory": "Decision-path density",
-    "enob_rate": "ENOB and SNDR over the conversion rate",
+    "enob_rate": "ENOB over the conversion rate",
     "power_rate": "Supply power over the conversion rate",
     "energy_input": "Energy per conversion over the input",
-    "noise_spectrum": "Output-code noise spectral density by source",
-    "enob_fin": "ENOB and SNDR over the input frequency",
+    "noise_spectrum": "Output-code noise density by source",
+    "enob_fin": "ENOB over the input frequency",
     "spectrum_low": "Spectrum at 10 MS/s, low input frequency",
     "spectrum_nyquist": "Spectrum at 10 MS/s, input near Nyquist",
-    "calibration_weights": "Calibrated digital weights",
-    "calibration_inl_dnl": "INL and DNL after each calibration",
-    "mismatch": "INL and DNL over capacitor mismatch",
+    "calibration_weights": "Calibrated weights against the design's",
+    "mismatch_dnl": "Worst DNL over capacitor mismatch",
+    "mismatch_inl": "Worst INL over capacitor mismatch",
+    "mismatch_missing": "Missing codes over capacitor mismatch",
 }
+RAILS = {"vdd_a": "VDD_A", "vdd_d": "VDD_D", "vdd_dac": "VDD_DAC"}
 
 
 @contextmanager
@@ -71,6 +77,43 @@ def _extracted(measurement: MeasAdc):
     return read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
 
 
+def _by_code(ramps, values: str) -> tuple[list[float], dict[str, list[float]]]:
+    """Each decoding's per-code ``values`` (dnl, inl, or the count over the ideal) over the codes
+    any of them grades, the clipped end codes left out as the linearity leaves them: one shared
+    axis, NaN where a decoding has no such code."""
+    codes = np.arange(
+        min(int(np.min(ramp.linearity_code)) for ramp in ramps.values()),
+        max(int(np.max(ramp.linearity_code)) for ramp in ramps.values()) + 1,
+    )
+    series = {}
+    for label, ramp in ramps.items():
+        column = np.full(len(codes), np.nan)
+        if values == "density":
+            code = np.asarray(ramp.code, dtype=np.int64)
+            graded = (code >= ramp.linearity_code.min()) & (code <= ramp.linearity_code.max())
+            column[code[graded] - codes[0]] = ramp.count[graded] / ramp.ideal_count
+        else:
+            column[np.asarray(ramp.linearity_code, dtype=np.int64) - codes[0]] = getattr(ramp, values)
+        series[label] = column.tolist()
+    return codes.astype(float).tolist(), series
+
+
+def _log_binned(frequency_hz: np.ndarray, densities: dict[str, np.ndarray], bins: int = 300):
+    """Densities averaged in power over log-spaced frequency bins (a 50k-bin spectrum is more than
+    a plot can show): the bins' geometric centres, NaN where a bin is empty."""
+    positive = frequency_hz > 0
+    edges = np.geomspace(frequency_hz[positive].min(), frequency_hz.max() * (1 + 1e-9), bins + 1)
+    index = np.digitize(frequency_hz, edges) - 1
+    inside = positive & (index >= 0) & (index < bins)
+    counts = np.bincount(index[inside], minlength=bins)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        series = {
+            label: np.sqrt(np.bincount(index[inside], weights=density[inside] ** 2, minlength=bins) / counts).tolist()
+            for label, density in densities.items()
+        }
+    return np.sqrt(edges[:-1] * edges[1:]).tolist(), series
+
+
 def _mismatch_study(captures: dict[str, MeasAdc]) -> tuple[np.ndarray, dict[str, dict[str, np.ndarray]]]:
     """Each mismatch ramp's worst DNL and INL and missing codes by decoding, as arrays of shape
     (Pelgrom coefficients, draws)."""
@@ -80,7 +123,7 @@ def _mismatch_study(captures: dict[str, MeasAdc]) -> tuple[np.ndarray, dict[str,
             continue
         design = analyze_adc_ramp(measurement)
         calibration = analyze_adc_calibration2(measurement, ramp=design)
-        ramps = {"Design weights": design, calibration.label: analyze_adc_ramp(measurement, calibration=calibration)}
+        ramps = {"Design weights": design, "Calibration 2": analyze_adc_ramp(measurement, calibration=calibration)}
         coefficient = float(measurement.info.readbacks["unit_mismatch"])
         rows.setdefault(coefficient, []).append(
             {
@@ -99,20 +142,36 @@ def _mismatch_study(captures: dict[str, MeasAdc]) -> tuple[np.ndarray, dict[str,
     return coefficients, decodings
 
 
-def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, float], dict[str, Path]]:
-    """The campaign's metrics and its figures (name -> SVG path; ``FIGURES`` names them) from its
-    captures by name; ``noise_sampling`` and ``noise_comparator`` (the noise capture with one
-    source) add the noise spectrum by source where present, the ``mc_*`` ramps the mismatch study."""
+def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, float], list[Detail]]:
+    """The campaign's metrics and its figures as the viewer's details (``FIGURES`` names and
+    titles them) from its captures by name: data the viewer plots, but the decision-path density,
+    an SVG under ``out_dir``. ``noise_sampling`` and ``noise_comparator`` (the noise capture with
+    one source) add the noise spectrum by source where present, the ``mc_*`` ramps the mismatch
+    study."""
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    figures: dict[str, Path] = {}
+    details: list[Detail] = []
 
-    def keep(name: str, paths: tuple[Path, ...]) -> None:
-        figures[name] = next(path for path in paths if path.suffix == ".svg")
+    def add(name: str, x_label: str, y_label: str, x, series, **scales) -> None:
+        details.append(
+            Detail(
+                name=name,
+                title=FIGURES[name],
+                x_label=x_label,
+                y_label=y_label,
+                # six significant digits, as the viewer's other exports
+                x=[float(f"{value:.6g}") for value in x],
+                series={label: [float(f"{value:.6g}") for value in ys] for label, ys in series.items()},
+                **scales,
+            )
+        )
 
     check, train = captures["ramp_check"], captures["ramp_train"]
     extracted = _extracted(check)
-    ramps = (analyze_adc_ramp(check), analyze_adc_ramp(check, calibration=extracted))
+    ramps = {
+        "Design weights": analyze_adc_ramp(check),
+        "Extracted weights": analyze_adc_ramp(check, calibration=extracted),
+    }
     rates = sorted((m for n, m in captures.items() if n.startswith("rate_")), key=lambda m: float(m.tb.symbol_rate))
     dynamics = [analyze_adc_dynamic(m, calibration=_extracted(m)) for m in rates]
     powers = [analyze_adc_power(m) for m in rates]
@@ -120,10 +179,11 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
     fin_dynamics = [analyze_adc_dynamic(m, calibration=_extracted(m)) for m in fins]
     dcs = [m for n, m in sorted(captures.items()) if n.startswith("dc_")]
     train_ramp = analyze_adc_ramp(train)
-    learned = (
-        analyze_adc_calibration2(train, ramp=train_ramp),
-        analyze_adc_calibration3(train, ramp=train_ramp),
-    )
+    learned = {
+        "Calibration 2": analyze_adc_calibration2(train, ramp=train_ramp),
+        "Calibration 3": analyze_adc_calibration3(train, ramp=train_ramp),
+    }
+    decoded = ramps | {label: analyze_adc_ramp(check, calibration=c) for label, c in learned.items()}
     # each stage's error tolerance: the design's weights and the extracted array's
     redundancy = {
         "Design weights": calc_redundancy_margins(extracted.nominal_weights),
@@ -132,77 +192,143 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
     coefficients, mismatch = _mismatch_study(captures)
     drawn, drawn_calibrated = mismatch.values()
     harpe = int(np.argmin(np.abs(coefficients - UNIT_MISMATCH)))
+
+    add(
+        "redundancy",
+        "Conversion stage (C0 first)",
+        "Error tolerance (%)",
+        range(len(redundancy["Design weights"])),
+        redundancy,
+    )
+    add("code_density", "Output code", "Code width (count / ideal)", *_by_code(ramps, "density"))
+    add("inl", "Output code", "INL (LSB)", *_by_code(decoded, "inl"))
+    add("dnl", "Output code", "DNL (LSB)", *_by_code(decoded, "dnl"))
+    trajectory = captures["trajectory"]
     with _svg_only():
-        keep("redundancy", plots.plot_adc_redundancy(redundancy, output_path=out_dir / "redundancy"))
-        keep("code_density", plots.plot_adc_ramp_histogram(ramps, output_path=out_dir / "code_density", msmt=check))
-        keep("inl_dnl", plots.plot_adc_ramp_nonlinearity(ramps, output_path=out_dir / "inl_dnl", msmt=check))
-        trajectory = captures["trajectory"]
-        keep(
-            "trajectory",
-            plots.plot_adc_decision_path_density(
-                trajectory, analyze_adc_decision_paths(trajectory), output_path=out_dir / "trajectory"
-            ),
+        paths = plots.plot_adc_decision_path_density(
+            trajectory, analyze_adc_decision_paths(trajectory), output_path=out_dir / "trajectory"
         )
-        keep(
-            "enob_rate",
-            plots.plot_adc_dynamic_sweep(rates, dynamics, output_path=out_dir / "enob_rate", x_axis="sample_rate"),
+    details.append(
+        Detail(
+            name="trajectory",
+            title=FIGURES["trajectory"],
+            x_label="",
+            y_label="",
+            x=[],
+            series={},
+            figure=str(next(path for path in paths if path.suffix == ".svg").relative_to(ROOT)),
         )
-        keep(
-            "power_rate",
-            plots.plot_adc_power_sweep(
-                rates, powers, output_path=out_dir / "power_rate", rate_axis="sampling", merge_static=True
-            ),
+    )
+    rate_hz = [d.sample_rate_hz for d in dynamics]
+    add(
+        "enob_rate",
+        "Conversion rate (Hz)",
+        "ENOB (bits)",
+        rate_hz,
+        # no ENOB where the output no longer follows the input (SNDR under 1.76 dB): a point
+        # there would only stretch the axis
+        {"ENOB": [d.spectral_enob_bits if d.spectral_enob_bits > 0 else math.nan for d in dynamics]},
+        x_log=True,
+    )
+    add(
+        "power_rate",
+        "Conversion rate (Hz)",
+        "Supply power (W)",
+        rate_hz,
+        {
+            label: [getattr(p, f"{rail}_static_power_w") + getattr(p, f"{rail}_dynamic_power_w") for p in powers]
+            for rail, label in RAILS.items()
+        }
+        | {"Total": [p.total_power_w for p in powers]},
+        x_log=True,
+        y_log=True,
+    )
+    dc_powers = [analyze_adc_power(m) for m in dcs]
+    energy = {
+        label: [
+            getattr(p, f"{rail}_dynamic_power_w") / p.active_conversion_rate_hz
+            + getattr(p, f"{rail}_static_power_w") / p.sample_rate_hz
+            for p in dc_powers
+        ]
+        for rail, label in RAILS.items()
+    }
+    add(
+        "energy_input",
+        "Differential input (V)",
+        "Energy per conversion (J)",
+        [float(np.mean(m.vin_diff_v)) for m in dcs],
+        energy | {"Total": np.sum(list(energy.values()), axis=0)},
+    )
+    sources = {"noise_sampling": "Sampling switch (kT/C)", "noise_comparator": "Comparator", "noise": "Total ADC"}
+    spectra = {
+        label: analyze_adc_code_spectrum(captures[name], calibration=_extracted(captures[name]))
+        for name, label in sources.items()
+        if name in captures
+    }
+    frequency_hz = next(iter(spectra.values())).frequency_hz
+    add(
+        "noise_spectrum",
+        "Frequency (Hz)",
+        "Noise density (LSB/sqrt(Hz))",
+        *_log_binned(frequency_hz, {label: spectrum.asd_lsb_per_sqrt_hz for label, spectrum in spectra.items()}),
+        x_log=True,
+        y_log=True,
+    )
+    # the input frequency over the rate, shared by the three rates
+    by_rate: dict[float, dict[float, float]] = {}
+    for d in fin_dynamics:
+        by_rate.setdefault(round(d.sample_rate_hz), {})[round(d.input_frequency_hz / d.sample_rate_hz, 6)] = (
+            d.spectral_enob_bits if d.spectral_enob_bits > 0 else math.nan
         )
-        keep(
-            "energy_input",
-            plots.plot_adc_conversion_energy(
-                dcs, [analyze_adc_power(m) for m in dcs], output_path=out_dir / "energy_input"
-            ),
+    fractions = sorted({fraction for enobs in by_rate.values() for fraction in enobs})
+    add(
+        "enob_fin",
+        "Input frequency / conversion rate",
+        "ENOB (bits)",
+        fractions,
+        {
+            f"{rate / 1e6:g} MS/s": [enobs.get(f, math.nan) for f in fractions]
+            for rate, enobs in sorted(by_rate.items())
+        },
+    )
+    at_nominal = sorted(
+        (d for d in fin_dynamics if round(d.sample_rate_hz) == round(NOMINAL_RATE_HZ)),
+        key=lambda d: d.input_frequency_hz,
+    )
+    for name, dynamic in (("spectrum_low", at_nominal[0]), ("spectrum_nyquist", at_nominal[-1])):
+        add(
+            name,
+            "Frequency (Hz)",
+            "Power (dBFS)",
+            dynamic.spectrum_frequency_hz,
+            {f"{dynamic.input_frequency_hz / 1e6:.3g} MHz input": dynamic.spectrum_dbfs},
         )
-        sources = {"noise_sampling": "Sampling switch (kT/C)", "noise_comparator": "Comparator", "noise": "Total ADC"}
-        present = {name: label for name, label in sources.items() if name in captures}
-        keep(
-            "noise_spectrum",
-            plots.plot_adc_code_spectrum(
-                [analyze_adc_code_spectrum(captures[name], calibration=_extracted(captures[name])) for name in present],
-                labels=tuple(present.values()),
-                title="Output-code noise by source",
-                output_path=out_dir / "noise_spectrum",
-            ),
-        )
-        keep(
-            "enob_fin",
-            plots.plot_adc_dynamic_sweep(
-                fins, fin_dynamics, output_path=out_dir / "enob_fin", x_axis="input_frequency"
-            ),
-        )
-        at_nominal = sorted(
-            (
-                (dynamic.input_frequency_hz, measurement, dynamic)
-                for measurement, dynamic in zip(fins, fin_dynamics, strict=True)
-                if round(dynamic.sample_rate_hz) == round(NOMINAL_RATE_HZ)
-            ),
-            key=lambda entry: entry[0],
-        )
-        for name, (_frequency, measurement, dynamic) in (
-            ("spectrum_low", at_nominal[0]),
-            ("spectrum_nyquist", at_nominal[-1]),
-        ):
-            keep(name, plots.plot_adc_dynamic(measurement, dynamic, output_path=out_dir / name))
-        keep(
-            "calibration_weights",
-            plots.plot_adc_calibration_weights((extracted, *learned), output_path=out_dir / "calibration_weights"),
-        )
-        calibrated = [*ramps, *(analyze_adc_ramp(check, calibration=calibration) for calibration in learned)]
-        keep(
-            "calibration_inl_dnl",
-            plots.plot_adc_ramp_nonlinearity(
-                calibrated, output_path=out_dir / "calibration_inl_dnl", msmt=check, stacked=True
-            ),
-        )
-        keep(
-            "mismatch",
-            plots.plot_adc_mismatch_nonlinearity(coefficients, mismatch, output_path=out_dir / "mismatch"),
+    add(
+        "calibration_weights",
+        "Decision (B0 first)",
+        "Weight error (%)",
+        range(len(extracted.nominal_weights)),
+        {
+            label: 100.0 * (calibration.calibrated_weights / calibration.nominal_weights - 1.0)
+            for label, calibration in ({"Extracted weights": extracted} | learned).items()
+        },
+    )
+    for name, key, y_label in (
+        ("mismatch_dnl", "dnl", "Max |DNL| (LSB)"),
+        ("mismatch_inl", "inl", "Max |INL| (LSB)"),
+        ("mismatch_missing", "missing", "Missing codes"),
+    ):
+        add(
+            name,
+            "Pelgrom coefficient A_C (%·sqrt(fF))",
+            y_label,
+            coefficients * 100,
+            {
+                f"{label}, {name_}": np.percentile(stats[key], q, axis=1)
+                for label, stats in mismatch.items()
+                for name_, q in (("median", 50), ("95th percentile", 95))
+            },
+            x_log=True,
         )
 
     nominal = next(
@@ -220,12 +346,12 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         "enob_bits": dynamic.spectral_enob_bits,
         "sndr_db": dynamic.spectral_sndr_db,
         "sfdr_db": dynamic.spectral_sfdr_db,
-        "enob_nyquist_bits": at_nominal[-1][2].spectral_enob_bits,
-        "enob_low_fin_bits": at_nominal[0][2].spectral_enob_bits,
-        "inl_max_lsb": ramps[0].maximum_abs_inl,
-        "dnl_max_lsb": ramps[0].maximum_abs_dnl,
-        "inl_max_extracted_lsb": ramps[1].maximum_abs_inl,
-        "missing_codes": float(ramps[0].missing_codes),
+        "enob_nyquist_bits": at_nominal[-1].spectral_enob_bits,
+        "enob_low_fin_bits": at_nominal[0].spectral_enob_bits,
+        "inl_max_lsb": ramps["Design weights"].maximum_abs_inl,
+        "dnl_max_lsb": ramps["Design weights"].maximum_abs_dnl,
+        "inl_max_extracted_lsb": ramps["Extracted weights"].maximum_abs_inl,
+        "missing_codes": float(ramps["Design weights"].missing_codes),
         "power_w": power_w,
         "energy_per_conversion_j": power_w / dynamic.sample_rate_hz,
         "fom_walden_j": power_w / (2**dynamic.spectral_enob_bits * dynamic.sample_rate_hz),
@@ -245,4 +371,4 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         "mismatch_missing_codes_p95": float(np.percentile(drawn["missing"][harpe], 95)),
         "mismatch_inl_p95_calibrated_lsb": float(np.percentile(drawn_calibrated["inl"][harpe], 95)),
     }
-    return metrics, figures
+    return metrics, details

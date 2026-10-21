@@ -137,13 +137,15 @@ class PlotsPanel {
             const shared = page.table?.details?.[detail.name] || { x: [], y: [] };
             const x = unitScale(detail.x_label, shared.x);
             const y = unitScale(detail.y_label, shared.y);
+            // a condition sweep's few points marked; a long series (a code axis, a spectrum) a thin line
+            const dense = detail.x.length > 100;
             const traces = Object.entries(detail.series).map(([name, values], index) => ({
                 type: "scatter",
-                mode: "lines+markers",
+                mode: dense ? "lines" : "lines+markers",
                 name,
                 x: detail.x.map((value) => (value === null ? null : value * x.factor)),
                 y: values.map((value) => (value === null ? null : value * y.factor)),
-                line: { color: tone(COLORS[index % COLORS.length], theme), width: 2 },
+                line: { color: tone(COLORS[index % COLORS.length], theme), width: dense ? 1.2 : 2 },
                 marker: { size: 6 },
             }));
             const layout = paperLayout(detail.title, x.label, y.label, detail.x_log, detail.y_log, traces.length > 1 ? traces.length : 0, theme);

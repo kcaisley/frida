@@ -172,6 +172,13 @@ def characterize(run_dir: Path, pdk: str, comp: CompParams) -> Record:
         metrics={
             "delay_0p5mv_s": delay_small,
             "delay_100mv_s": delay_large,
+            # metastability: the slowest measured decision (0.1 mV) and the latch's regeneration time
+            # constant, the delay's growth per e-fold fall of the input between the two smallest
+            "delay_0p1mv_s": float(meta_delay.delay_s[0][0]),
+            "regeneration_tau_s": float(
+                (meta_delay.delay_s[0][0] - meta_delay.delay_s[0][1])
+                / math.log(meta_delay.vin_diff_v[1] / meta_delay.vin_diff_v[0])
+            ),
             "energy_0p5mv_j": energy_small,
             "energy_100mv_j": energy_large,
             "noise_v": nominal.noise_sigma_v if valid(nominal) else math.nan,

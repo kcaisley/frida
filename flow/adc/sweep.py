@@ -20,6 +20,7 @@ behavioral conversions, most of them the mismatch study's) and draws its figures
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import hdl21 as h
@@ -30,7 +31,7 @@ from flow.comp import sweep as comp_sweep
 from flow.comp.subckt import Comp
 from flow.samp import sweep as samp_sweep
 from flow.samp.subckt import Samp
-from flow.sweep import Detail, Record
+from flow.sweep import Record
 
 from .subckt import AdcParams
 
@@ -69,6 +70,24 @@ def params(pdk: str, topology: str, sizing: str) -> AdcParams | None:
     )
 
 
+def _metastability(model) -> dict[str, float]:
+    """The comparator's regeneration time constant, the time a decision has at the nominal rate
+    (the shortest of its sequence's windows), and the input below which it is late there, in LSB:
+    the measured delay extrapolated by the time constant, V0 * exp(-(window - t0) / tau)."""
+    from .behavioral import calc_decision_windows
+    from .campaign import NOMINAL_RATE_HZ
+
+    tb = model.tb(conversions=1, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.0))
+    window_s = float(min(calc_decision_windows(tb, model.stages + 1)))
+    tau_s = model.comp.regeneration_tau_s
+    late_v = model.comp.delay_table_v[0] * math.exp(-(window_s - model.comp.delay_table_s[0]) / tau_s)
+    return {
+        "comp_regeneration_tau_s": tau_s,
+        "decision_window_s": window_s,
+        "metastable_input_lsb": late_v / (2 * model.full_scale_v / 2**model.params.adc_bits),
+    }
+
+
 def AdcBlocks(params: AdcParams) -> h.Module:
     """The ADC's analog blocks for the geometry metrics: the comparator, and a sampler and a
     capacitor array a side (the SAR logic is the fixed digital netlist)."""
@@ -93,10 +112,8 @@ GENERATOR = AdcBlocks
 
 
 def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
-    from flow.sweep.runner import ROOT
-
     from .campaign import campaign
-    from .figures import FIGURES, adc_figures
+    from .figures import adc_figures
     from .model import AdcModel
 
     model = AdcModel.of(pdk, params)
@@ -115,7 +132,7 @@ def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
     noise = campaign(model.tb, model.full_scale_v)["noise"]
     for name, quiet in (("noise_sampling", ("comparator",)), ("noise_comparator", ("sampling",))):
         captures[name] = model.capture(noise.tb, run_dir / f"{name}.h5", quiet=quiet)
-    metrics, figures = adc_figures(captures, run_dir / "figures")
+    metrics, details = adc_figures(captures, run_dir / "figures")
     metrics |= {
         "stages": float(model.stages),  # the switched capacitors a side
         "decisions": float(model.stages + 1),  # a conversion's comparator decisions
@@ -123,19 +140,6 @@ def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
         "settling_tau_s": model.settling_tau_s,
         "comp_noise_v": model.comp.noise_v,
         "comp_delay_s": model.comp.delay_s,
+        **_metastability(model),
     }
-    return Record(
-        metrics=metrics,
-        details=[
-            Detail(
-                name=name,
-                title=FIGURES[name],
-                x_label="",
-                y_label="",
-                x=[],
-                series={},
-                figure=str(path.relative_to(ROOT)),
-            )
-            for name, path in figures.items()
-        ],
-    )
+    return Record(metrics=metrics, details=details)

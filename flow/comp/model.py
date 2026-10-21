@@ -62,6 +62,12 @@ class CompModel:
             offset_table_v=tuple(detail(record, "offset_cm")["series"]["offset"]),
         )
 
+    @property
+    def regeneration_tau_s(self) -> float:
+        """The latch's regeneration time constant: the delay's growth per e-fold fall of the input,
+        between the two smallest measured inputs."""
+        return (self.delay_table_s[0] - self.delay_table_s[1]) / math.log(self.delay_table_v[1] / self.delay_table_v[0])
+
     def behavioral(self, *, vin_cm_v: float | None = None) -> CompBehavioralParams:
         """The behavioral ADC's comparator parameters at ``vin_cm_v`` (the nominal common mode where
         None): the noise and offset interpolated over the common mode's resolved S-curves, the

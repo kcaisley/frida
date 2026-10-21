@@ -1621,6 +1621,15 @@ table.grid.sweep td.tools {
     background: var(--bg-panel);
 }
 
+/* the headers stay over the rows that scroll under them, the tools' corner over both */
+table.grid.sweep thead th {
+    z-index: 2;
+}
+
+table.grid.sweep thead th.tools {
+    z-index: 3;
+}
+
 table.grid.sweep .pin {
     width: 20px;
     border: none;
@@ -1815,7 +1824,6 @@ table.grid.sweep .symbol {
 
 /* a figure's row as tall as its image: a percent-wide image adds no height to an auto row */
 .detail-plots:has(.figure-card) {
-    grid-template-columns: repeat(auto-fill, minmax(560px, 1fr));
     grid-auto-rows: max-content;
     align-content: start;
 }
@@ -1834,10 +1842,19 @@ table.grid.sweep .symbol {
     font-size: var(--fs-12);
 }
 
+.detail-plots .figure-card {
+    grid-column: span 2;
+}
+
 .detail-plots .figure-card img {
     display: block;
     width: 100%;
     height: auto;
+}
+
+/* a figure is a light-paper image: in the dark theme, its lightness inverted, its hues kept */
+html[data-theme="dark"] .detail-plots .figure-card img {
+    filter: invert(0.9) hue-rotate(180deg);
 }
 
 .detail-plots .plot {

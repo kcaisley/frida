@@ -164,18 +164,28 @@ export class LayersPanel {
         this.present = presentLayers();
         const keys = sortLayers(this.present.keys).reverse();
         const group = (names) => Object.fromEntries(keys.map((key) => [key, names.includes(layerStyle(key).group)]));
+        // the quick selections as one segmented control, as the other panels' toolbars
         this.toolbar.replaceChildren(
-            h("span.link", { onclick: () => setVisible(Object.fromEntries(keys.map((key) => [key, true]))) }, "All"),
-            h("span.link", { onclick: () => setVisible(Object.fromEntries(keys.map((key) => [key, false]))) }, "None"),
-            h("span.link", { onclick: () => setVisible(group(["metal", "via", "boundary"])) }, "Metals"),
-            h("span.link", { onclick: () => setVisible(group(["fe", "well", "via", "boundary"])) }, "Devices"),
-            h("span.link", {
-                onclick: () => {
-                    state.layerVisible = {};
-                    store("layers", {});
-                    emit("layers");
-                },
-            }, "Default"),
+            h(
+                "div.seg",
+                {},
+                h("button", { title: "Show every layer", onclick: () => setVisible(Object.fromEntries(keys.map((key) => [key, true]))) }, "All"),
+                h("button", { title: "Hide every layer", onclick: () => setVisible(Object.fromEntries(keys.map((key) => [key, false]))) }, "None"),
+                h("button", { title: "Metals, vias and the boundary", onclick: () => setVisible(group(["metal", "via", "boundary"])) }, "Metals"),
+                h("button", { title: "Front end, wells, vias and the boundary", onclick: () => setVisible(group(["fe", "well", "via", "boundary"])) }, "Devices"),
+                h(
+                    "button",
+                    {
+                        title: "The default selection",
+                        onclick: () => {
+                            state.layerVisible = {};
+                            store("layers", {});
+                            emit("layers");
+                        },
+                    },
+                    "Default",
+                ),
+            ),
             h("span.grow"),
             h("span.muted", { title: "Alt-click a layer to show it alone" }, "alt-click: solo"),
         );
