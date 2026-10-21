@@ -130,7 +130,7 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         "Extracted weights": calc_redundancy_margins(extracted.calibrated_weights),
     }
     coefficients, mismatch = _mismatch_study(captures)
-    design, calibrated = mismatch.values()
+    drawn, drawn_calibrated = mismatch.values()
     harpe = int(np.argmin(np.abs(coefficients - UNIT_MISMATCH)))
     with _svg_only():
         keep("redundancy", plots.plot_adc_redundancy(redundancy, output_path=out_dir / "redundancy"))
@@ -240,9 +240,9 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         "redundancy_first_extracted_pct": float(redundancy["Extracted weights"][0]),
         # the 95th percentile over the capacitor draws at Harpe's matching (0.10 %·sqrt(fF)): the
         # array's own layout error and the draw, decoded with the design weights and recalibrated
-        "mismatch_dnl_p95_lsb": float(np.percentile(design["dnl"][harpe], 95)),
-        "mismatch_inl_p95_lsb": float(np.percentile(design["inl"][harpe], 95)),
-        "mismatch_missing_codes_p95": float(np.percentile(design["missing"][harpe], 95)),
-        "mismatch_inl_p95_calibrated_lsb": float(np.percentile(calibrated["inl"][harpe], 95)),
+        "mismatch_dnl_p95_lsb": float(np.percentile(drawn["dnl"][harpe], 95)),
+        "mismatch_inl_p95_lsb": float(np.percentile(drawn["inl"][harpe], 95)),
+        "mismatch_missing_codes_p95": float(np.percentile(drawn["missing"][harpe], 95)),
+        "mismatch_inl_p95_calibrated_lsb": float(np.percentile(drawn_calibrated["inl"][harpe], 95)),
     }
     return metrics, figures
