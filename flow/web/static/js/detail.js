@@ -46,25 +46,30 @@ class SummaryPanel {
 
     render() {
         const instance = page.instance;
+        // one table, so the two sections' columns line up: the name, the number (right-aligned),
+        // its unit
         const metricRows = Object.entries(instance.metrics).map(([name, value]) => {
             const info = fieldInfo(name);
-            return h("tr", {}, h("th", { title: name }, info.label), h("td", {}, formatValue(value, info)));
+            const text = formatValue(value, info);
+            const unit = info.unit && text.includes(" ") ? text.slice(text.lastIndexOf(" ") + 1) : "";
+            const number = unit ? text.slice(0, text.lastIndexOf(" ")) : text;
+            return h("tr", {}, h("th", { title: name }, info.label), h("td.num", {}, number), h("td.unit", {}, unit));
         });
-        const paramRows = Object.entries(instance.params).map(([name, value]) => h("tr", {}, h("th", { class: "mono" }, name), h("td", {}, value === null ? "—" : String(value))));
+        const paramRows = Object.entries(instance.params).map(([name, value]) =>
+            h("tr", {}, h("th.mono", { title: name }, name), h(typeof value === "number" ? "td.num" : "td.num.text", {}, value === null ? "—" : String(value)), h("td.unit", {}, "")),
+        );
+        const section = (title) => h("tr.section", {}, h("th", { colspan: "3" }, title));
         const layout = instance.layout;
         const layoutNote = !layout
-            ? "Not laid out (python -m flow.sweep layout)."
+            ? "Not laid out."
             : layout.error
               ? `ALIGN failed: ${layout.error.trim().split("\n").pop()}`
-              : `ALIGN: ${layout.w_um.toFixed(2)} × ${layout.h_um.toFixed(2)} µm, DRC ${layout.drc_violations} violations, LVS ${layout.lvs_correct ? "correct" : "incorrect"}`;
+              : `ALIGN${layout.floorplan ? " (by the floorplan)" : ""}: ${layout.w_um.toFixed(2)} × ${layout.h_um.toFixed(2)} µm, DRC ${layout.drc_violations} violations, LVS ${layout.lvs_correct ? "correct" : "incorrect"}.`;
         const parts = [
             h("h1", {}, `${page.table?.title || BLOCK}: ${instance.topology} · ${instance.sizing} · ${instance.pdk}`),
             h("p.muted", {}, `Run ${page.table?.run || "?"}, characterized in ${instance.seconds ?? "?"} s. ${layoutNote}`),
             instance.error ? h("pre.error", {}, instance.error) : null,
-            h("div.section-title", {}, "Metrics"),
-            h("table.params", {}, h("tbody", {}, metricRows)),
-            h("div.section-title", {}, "Parameters"),
-            h("table.params", {}, h("tbody", {}, paramRows)),
+            h("table.summary-table", {}, h("tbody", {}, section("Metrics"), metricRows, section("Parameters"), paramRows)),
         ];
         this.element.replaceChildren(...parts.filter(Boolean));
     }
@@ -152,10 +157,10 @@ const LAYOUT = {
     root: {
         type: "row",
         content: [
-            { type: "column", width: 22, content: [{ type: "stack", content: [component("summary")] }] },
+            { type: "column", width: 15, content: [{ type: "stack", content: [component("summary")] }] },
             {
                 type: "column",
-                width: 42,
+                width: 47,
                 content: [
                     { type: "stack", height: 55, content: [component("plots")] },
                     { type: "stack", height: 45, content: [component("traces")] },
@@ -163,7 +168,7 @@ const LAYOUT = {
             },
             {
                 type: "column",
-                width: 36,
+                width: 38,
                 content: [
                     { type: "stack", height: 60, content: [component("layout"), component("layout3d")] },
                     { type: "stack", height: 40, content: [component("schematic"), component("layers")] },

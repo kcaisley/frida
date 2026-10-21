@@ -128,7 +128,7 @@ export class TracesPanel {
         const focus = focused && !runsOf(focused).length ? shown.find((item) => runsOf(item).length) || focused : focused;
         const runs = focus ? runsOf(focus) : [];
         this.toolbar.replaceChildren();
-        if (shown.length) {
+        if (shown.length > 1) {
             this.toolbar.append(
                 h("label.field", {}, h("span", {}, "Series"), select(shown.map((item) => ({ value: item.key, label: `${item.case} · ${item.pdk}${runsOf(item).length ? "" : " (none)"}` })), focus?.key, (value) => setFocus(value))),
             );

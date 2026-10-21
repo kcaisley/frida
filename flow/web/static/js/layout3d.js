@@ -75,7 +75,7 @@ function polygonGeometry(rings, z0, z1, ox, oy) {
 export class Layout3DPanel {
     constructor(container, saved) {
         this.container = container;
-        this.config = { generator: null, exaggeration: 4, edges: true, ...(saved || {}) };
+        this.config = { generator: null, exaggeration: 1, edges: true, ...(saved || {}) };
         this.element = h("div.panel");
         this.toolbar = h("div.panel-toolbar");
         this.host = h("div.canvas-host", { style: { background: "var(--scene-bg)" } });
@@ -115,7 +115,7 @@ export class Layout3DPanel {
         const shown = series();
         const focus = layoutFocus(this.config.generator);
         this.toolbar.replaceChildren();
-        if (shown.length) {
+        if (shown.length > 1) {
             this.toolbar.append(
                 h("label.field", {}, h("span", {}, "Series"), select(shown.map((item) => ({ value: item.key, label: `${item.case} · ${item.pdk}` })), focus?.key, (value) => setFocus(value))),
             );

@@ -141,7 +141,7 @@ export class LayoutPanel {
         const shown = series();
         const focus = layoutFocus(this.config.generator);
         this.toolbar.replaceChildren();
-        if (!this.config.tiled && shown.length) {
+        if (!this.config.tiled && shown.length > 1) {
             this.toolbar.append(
                 h(
                     "label.field",

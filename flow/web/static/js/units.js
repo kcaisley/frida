@@ -7,6 +7,7 @@ const SUFFIXES = [
     ["_f_nm_per_um", "F·nm/µm", false],
     ["_f_per_um", "F/µm", true],
     ["_v_per_s", "V/s", true],
+    ["_v_s", "V/s", true],
     ["_v_per_v", "V/V", false],
     ["_v_per_c", "V/C", true],
     ["_v_rthz", "V/√Hz", true],

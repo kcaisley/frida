@@ -670,9 +670,18 @@ input[type="checkbox"] {
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     background: none;
-    color: var(--fg-secondary);
+    color: var(--fg-primary);
     cursor: pointer;
     font-size: var(--fs-11);
+}
+
+/* the icon centred in its button, not riding on the text baseline */
+.icon-btn > span {
+    display: flex;
+}
+
+.icon-btn svg {
+    display: block;
 }
 
 .icon-btn:hover {
@@ -1935,4 +1944,50 @@ table.grid.sweep .symbol {
     height: 290px;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-sm);
+}
+
+.summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-12);
+}
+
+.summary-table th,
+.summary-table td {
+    padding: 3px 4px;
+    border-bottom: 1px solid var(--border-subtle);
+    vertical-align: baseline;
+    white-space: nowrap;
+}
+
+.summary-table th {
+    color: var(--fg-secondary);
+    font-weight: 400;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 12em;
+}
+
+.summary-table td.num {
+    color: var(--fg-primary);
+    font-family: var(--font-mono);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.summary-table td.unit {
+    width: 1%;
+    padding-left: 0;
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+}
+
+.summary-table tr.section th {
+    padding-top: 12px;
+    border-bottom-color: var(--border);
+    color: var(--fg-muted);
+    font-size: var(--fs-11);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
 }
