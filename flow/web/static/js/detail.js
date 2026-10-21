@@ -121,6 +121,14 @@ class PlotsPanel {
             return;
         }
         for (const detail of page.instance.details) {
+            // a figure the analysis plots drew (an SVG under build/sweep/): shown as it is
+            if (detail.figure) {
+                const src = `api/figure?path=${encodeURIComponent(detail.figure)}`;
+                this.element.append(
+                    h("figure.figure-card", {}, h("figcaption", {}, detail.title), h("a", { href: src, target: "_blank", title: "Open full size" }, h("img", { src, loading: "lazy", alt: detail.title }))),
+                );
+                continue;
+            }
             const shared = page.table?.details?.[detail.name] || { x: [], y: [] };
             const x = unitScale(detail.x_label, shared.x);
             const y = unitScale(detail.y_label, shared.y);
@@ -189,6 +197,19 @@ const LAYOUT = {
     },
 };
 
+// an instance with figures and nothing to draw beside them (a behavioral ADC: no layout, no
+// waveforms): its summary and its figures alone
+const FIGURES_LAYOUT = {
+    ...LAYOUT,
+    root: {
+        type: "row",
+        content: [
+            { type: "stack", width: 22, content: [component("summary")] },
+            { type: "stack", width: 78, content: [component("plots")] },
+        ],
+    },
+};
+
 // a one-instance block: its layout, schematic and waveform index under data/sweep/<block>/<id>/
 function shimBlock(instance) {
     const name = `sweep/${BLOCK}/${ID}`;
@@ -240,7 +261,8 @@ async function main() {
     const container = document.getElementById("gl-container");
     const layout = new GoldenLayout(container);
     for (const [type, panel] of Object.entries(PANELS)) layout.registerComponentFactoryFunction(type, (glContainer, saved) => panel.make(glContainer, saved));
-    layout.loadLayout(LAYOUT);
+    const figuresOnly = page.instance.details.some((detail) => detail.figure) && !page.instance.layout && !Object.keys(page.instance.waves || {}).length;
+    layout.loadLayout(figuresOnly ? FIGURES_LAYOUT : LAYOUT);
     new ResizeObserver(() => layout.updateRootSize?.() ?? layout.updateSize?.()).observe(container);
     emit("block", state.block);
     emit("selection");

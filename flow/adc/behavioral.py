@@ -60,6 +60,14 @@ class SampBehavioralParams:
     n_threshold_v = h.Param(dtype=float, desc="NMOS threshold voltage", default=0.35)
     p_threshold_v = h.Param(dtype=float, desc="PMOS threshold magnitude", default=0.35)
     jitter_s = h.Param(dtype=float, desc="RMS aperture jitter, common to both sides", default=0.0)
+    ron_table_v = h.Param(
+        dtype=tuple[float, ...] | None,
+        desc="Input levels of a measured on-resistance curve (flow.samp.model); None uses the conductances",
+        default=None,
+    )
+    ron_table_ohm = h.Param(
+        dtype=tuple[float, ...] | None, desc="The on-resistance at each of ron_table_v", default=None
+    )
 
 
 @h.paramclass
@@ -199,8 +207,11 @@ def calc_switch_conductances(hw: SampParams, params: SampBehavioralParams) -> tu
 def calc_switch_resistance(
     hw: SampParams, params: SampBehavioralParams, vin_v: np.ndarray, gate_v: float
 ) -> np.ndarray:
-    """Return the sampler on-resistance at each input voltage; zero for an ideal switch."""
+    """Return the sampler on-resistance at each input voltage; zero for an ideal switch. A measured
+    curve (``ron_table_v``, ``ron_table_ohm``) is interpolated, held flat past its ends."""
 
+    if params.ron_table_v is not None:
+        return np.interp(vin_v, np.asarray(params.ron_table_v), np.asarray(params.ron_table_ohm))
     n_s, p_s = calc_switch_conductances(hw, params)
     if n_s == 0 and p_s == 0:
         return np.zeros_like(vin_v)

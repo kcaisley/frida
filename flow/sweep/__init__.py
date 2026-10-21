@@ -18,8 +18,9 @@ A block takes part with a module ``flow/<block>/sweep.py``:
 
 A ``Record`` holds the instance's scalar ``metrics`` (each name ends in its unit, as the
 analyses' fields do: ``_s``, ``_j``, ``_v``, ``_w``, ``_um2``), its ``details`` (plots of its
-condition sweeps, whose axes the viewer fixes across a block's instances) and ``waves``
-(measurement files under ``build/`` holding transient waveforms, by label).
+condition sweeps, whose axes the viewer fixes across a block's instances, or figures drawn by the
+analysis plots) and ``waves`` (measurement files under ``build/`` holding transient waveforms, by
+label).
 
     uv run python -m flow.sweep run [--blocks comp] [--pdks tsmc65] [--workers 36] [--failed]
     uv run python -m flow.sweep layout [--blocks comp] [--workers 28]
@@ -49,6 +50,7 @@ class Detail:
     series: dict[str, list[float]]  # label -> y at each x (NaN where the point failed)
     x_log: bool = False
     y_log: bool = False
+    figure: str | None = None  # an SVG under build/ the viewer shows in place of the plot (x, series empty)
 
 
 @dataclass

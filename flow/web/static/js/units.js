@@ -15,6 +15,8 @@ const SUFFIXES = [
     ["_dbfs", "dBFS", false],
     ["_db", "dB", false],
     ["_deg", "°", false],
+    ["_bits", "bit", false],
+    ["_lsb", "LSB", false],
     ["_ohm", "Ω", true],
     ["_hz", "Hz", true],
     ["_um2", "µm²", false],
@@ -33,7 +35,7 @@ const SUFFIXES = [
 const WORDS = {
     vdd: "VDD", vddl: "VDDL", ugbw: "UGBW", gbw: "GBW", psrr: "PSRR", cmrr: "CMRR", thd: "THD",
     sndr: "SNDR", enc: "ENC", tot: "ToT", dc: "DC", iv: "I–V", cm: "CM", inl: "INL", dnl: "DNL",
-    rms: "RMS", vcm: "Vcm", iref: "Iref", vin: "Vin", vout: "Vout", op: "OP", rise: "rise",
+    rms: "RMS", enob: "ENOB", sfdr: "SFDR", fom: "FoM", vcm: "Vcm", iref: "Iref", vin: "Vin", vout: "Vout", op: "OP", rise: "rise",
     n: "NMOS", p: "PMOS", q: "q",
 };
 
