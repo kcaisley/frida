@@ -55,13 +55,13 @@ function buildColumns(table) {
     ];
     for (const name of table.params) {
         const get = (row) => row.params[name];
-        columns.push({ key: `p:${name}`, label: name, kind: numeric(get) ? "num" : "cat", get, param: true, info: { label: name, unit: "", scalable: false } });
+        columns.push({ key: `p:${name}`, label: name, kind: numeric(get) ? "num" : "cat", get, param: true, info: { label: name, unit: "", scalable: false }, decimals: decimalsOf(rows, get) });
     }
     for (const name of table.metrics) {
         const get = (row) => row.metrics[name];
         const info = fieldInfo(name);
         const exponent = siExponent(rows.map(get));
-        columns.push({ key: `m:${name}`, label: info.label, unit: scaledUnit(info, info.scalable ? exponent : 0), kind: "num", get, info, exponent: info.scalable ? exponent : 0, metric: name });
+        columns.push({ key: `m:${name}`, label: info.label, unit: scaledUnit(info, info.scalable ? exponent : 0), kind: "num", get, info, exponent: info.scalable ? exponent : 0, metric: name, decimals: decimalsOf(rows, get) });
     }
     return columns;
 }
@@ -70,11 +70,22 @@ function columnOf(key) {
     return view.columns.find((column) => column.key === key) || null;
 }
 
+// a number at its column's scale and decimals: three (to 0.001 of the column's unit), none in a
+// column of whole numbers, so the column's points line up
 function cellText(column, value) {
     if (value === null || value === undefined || (typeof value === "number" && !Number.isFinite(value))) return "—";
     if (column.kind !== "num" || typeof value !== "number") return String(value);
-    if (column.metric) return `${+(value / 10 ** column.exponent).toPrecision(3)}`;
-    return `${+value.toPrecision(4)}`;
+    const text = (value / 10 ** (column.exponent || 0)).toFixed(column.decimals);
+    return /^-0\.?0*$/.test(text) ? text.slice(1) : text;
+}
+
+function decimalsOf(rows, get) {
+    return rows.every((row) => {
+        const value = get(row);
+        return !Number.isFinite(value) || Number.isInteger(value);
+    })
+        ? 0
+        : 3;
 }
 
 // ---- filtering and sorting --------------------------------------------------------------------
@@ -185,14 +196,14 @@ function renderTable() {
     const head = h("thead");
     const headRow = h("tr", {}, h("th.tools", {}, ""));
     for (const column of view.columns) {
-        const sorted = view.sort?.key === column.key ? (view.sort.dir === "asc" ? " ▲" : " ▼") : "";
+        const sorted = view.sort?.key === column.key ? (view.sort.dir === "asc" ? "▲" : "▼") : "";
         const filtered = view.filters[column.key];
         const th = h(
-            `th${column.kind === "num" ? ".num" : ""}${column.param ? ".param" : ""}${filtered ? ".filtered" : ""}`,
+            `th${column.kind === "num" ? ".num" : ""}${column.param ? ".param" : ""}${filtered ? ".filtered" : ""}${sorted ? ".sorted" : ""}`,
             { title: `${column.metric || column.label}: click to sort or filter` },
             h("span.label", {}, column.label),
             column.unit ? h("span.unit", {}, column.unit) : null,
-            h("span.marks", {}, `${filtered ? " ⏷" : ""}${sorted}`),
+            h("span.marks", {}, `${filtered ? "⏷" : ""}${sorted}`),
         );
         th.addEventListener("click", () => headerMenu(th, column));
         headRow.append(th);

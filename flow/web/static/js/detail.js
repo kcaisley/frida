@@ -12,7 +12,7 @@ import { currentTheme, PAPERS, paperLayout, tone } from "./paper.js";
 import { SchematicPanel } from "./panels.js";
 import { COLORS, emit, on, state, store } from "./store.js";
 import { TracesPanel } from "./traces.js";
-import { fieldInfo, formatValue, siExponent } from "./units.js";
+import { fieldInfo, scaledUnit, siExponent } from "./units.js";
 
 const query = new URLSearchParams(location.search);
 const BLOCK = query.get("block");
@@ -48,11 +48,17 @@ class SummaryPanel {
         const instance = page.instance;
         // one table, so the two sections' columns line up: the name, the number (right-aligned),
         // its unit
+        // each number at its own SI prefix to 0.001 of it (whole numbers as they are), as the
+        // explorer's table shows them
         const metricRows = Object.entries(instance.metrics).map(([name, value]) => {
             const info = fieldInfo(name);
-            const text = formatValue(value, info);
-            const unit = info.unit && text.includes(" ") ? text.slice(text.lastIndexOf(" ") + 1) : "";
-            const number = unit ? text.slice(0, text.lastIndexOf(" ")) : text;
+            let number = "—";
+            let unit = "";
+            if (typeof value === "number" && Number.isFinite(value)) {
+                const exponent = info.scalable && !Number.isInteger(value) ? siExponent([value]) : 0;
+                number = Number.isInteger(value) ? String(value) : (value / 10 ** exponent).toFixed(3).replace(/^-(0\.0*)$/, "$1");
+                unit = scaledUnit(info, exponent);
+            }
             return h("tr", {}, h("th", { title: name }, info.label), h("td.num", {}, number), h("td.unit", {}, unit));
         });
         const paramRows = Object.entries(instance.params).map(([name, value]) =>

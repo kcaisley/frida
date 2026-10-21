@@ -1753,8 +1753,26 @@ table.grid.sweep thead th .label {
     color: var(--fg-primary);
 }
 
+/* a header's sort and filter marks in its corner, out of the flow: sorting moves nothing */
+table.grid.sweep thead th {
+    padding-right: 16px;
+}
+
 table.grid.sweep thead th .marks {
+    position: absolute;
+    right: 3px;
+    bottom: 5px;
     color: var(--accent-bright);
+    font-size: 9px;
+    line-height: 1;
+}
+
+table.grid.sweep thead th.sorted .label {
+    color: var(--accent-bright);
+}
+
+table.grid.sweep td.num {
+    font-variant-numeric: tabular-nums;
 }
 
 table.grid.sweep thead th.filtered .label {
