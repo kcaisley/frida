@@ -9,7 +9,9 @@
  * - TSMC65 CUP pad ring with LVDS/CMOS/Analog/Power pads
  */
 
-module frida_top (
+module frida_top #(
+    parameter integer N_STAGES = 16  // Capacitor stages per ADC; FRIDA has 16
+) (
     // LVDS Receiver Pads (sequencing clocks)
     input wire seq_init_p_PAD,
     seq_init_n_PAD,  // DAC initialization sequencing
@@ -365,7 +367,9 @@ module frida_top (
     );
 
     // Core logic behind the TSMC65 pad ring.
-    frida_core frida_core (
+    frida_core #(
+        .N_STAGES(N_STAGES)
+    ) frida_core (
         .seq_init (seq_init),
         .seq_samp (seq_samp),
         .seq_comp (seq_cmp),

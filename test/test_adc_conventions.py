@@ -47,7 +47,7 @@ def test_rtl_selects_register_zero_first() -> None:
     repository = Path(__file__).resolve().parents[1]
     source = (repository / "design" / "hdl" / "salogic.v").read_text(encoding="utf-8")
 
-    assert "dac_cycle <= 16'h0001;" in source
+    assert "dac_cycle <= {{(N_STAGES - 1) {1'b0}}, 1'b1};" in source
     assert "dac_cycle <= dac_cycle << 1;" in source
     assert not (repository / "design" / "spice" / "frida_complete.cdl").exists()
 
@@ -56,5 +56,5 @@ def test_new_cores_translate_serialized_fields_to_internal_stage_zero() -> None:
     repository = Path(__file__).resolve().parents[1]
     for filename, index in (("frida_core.v", "i"), ("frida_core_1chan.v", "stage")):
         source = "".join((repository / "design" / "hdl" / filename).read_text(encoding="utf-8").split())
-        assert f"shared_dac_astate_p[{index}]=spi_bits[63-{index}]" in source
-        assert f"shared_dac_bstate_n[{index}]=spi_bits[15-{index}]" in source
+        assert f"shared_dac_astate_p[{index}]=spi_bits[4*N_STAGES-1-{index}]" in source
+        assert f"shared_dac_bstate_n[{index}]=spi_bits[N_STAGES-1-{index}]" in source

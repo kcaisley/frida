@@ -1,6 +1,8 @@
 // ADC Digital Module - Digital portion only, analog macros factored out
 
-module adc_digital (
+module adc_digital #(
+    parameter integer N_STAGES = 16  // Capacitor stages, one SAR decision each; FRIDA has 16
+) (
 
     // Sequencing signals
     input wire seq_init,   // Initialization sequence timing
@@ -16,15 +18,15 @@ module adc_digital (
     input wire en_update,  // Enable update logic
 
     // DAC config - positive side
-    input wire        dac_mode,      // DAC mode control (shared for both sides)
+    input wire                dac_mode,      // DAC mode control (shared for both sides)
     // DAC diff caps (for unit length caps!)
-    input wire        dac_diffcaps,  // Enable differential capacitor mode.
-    input wire [15:0] dac_astate_p,  // C0-first DAC A state, positive side
-    input wire [15:0] dac_bstate_p,  // C0-first DAC B state, positive side
+    input wire                dac_diffcaps,  // Enable differential capacitor mode.
+    input wire [N_STAGES-1:0] dac_astate_p,  // C0-first DAC A state, positive side
+    input wire [N_STAGES-1:0] dac_bstate_p,  // C0-first DAC B state, positive side
 
     // DAC config - negative side
-    input wire [15:0] dac_astate_n,  // C0-first DAC A state, negative side
-    input wire [15:0] dac_bstate_n,  // C0-first DAC B state, negative side
+    input wire [N_STAGES-1:0] dac_astate_n,  // C0-first DAC A state, negative side
+    input wire [N_STAGES-1:0] dac_bstate_n,  // C0-first DAC B state, negative side
 
     input wire comp_out_p,
     comp_out_n,  // Comparator differential outputs - from comparator
@@ -38,11 +40,11 @@ module adc_digital (
     // Digital clock output - to comparator
     output wire clk_comp,  // Comparator clock
 
-    // DAC state outputs - buffered to four separate signals (64 bits total)
-    output wire [15:0] dac_state_p_main,  // C0-first positive main states
-    output wire [15:0] dac_state_p_diff,  // C0-first positive diff states
-    output wire [15:0] dac_state_n_main,  // C0-first negative main states
-    output wire [15:0] dac_state_n_diff,  // C0-first negative diff states
+    // DAC state outputs - buffered to four separate signals (4 x N_STAGES bits)
+    output wire [N_STAGES-1:0] dac_state_p_main,  // C0-first positive main states
+    output wire [N_STAGES-1:0] dac_state_p_diff,  // C0-first positive diff states
+    output wire [N_STAGES-1:0] dac_state_n_main,  // C0-first negative main states
+    output wire [N_STAGES-1:0] dac_state_n_diff,  // C0-first negative diff states
 
     // DAC invert outputs - control signals for capacitor drivers (4 bits total)
     output wire dac_invert_p_main,  // Positive DAC invert main (tied low)
@@ -66,8 +68,8 @@ module adc_digital (
     wire clk_update;  // Logic clock signal
 
     // Internal DAC state signals from SAR logic
-    wire [15:0] dac_state_p;  // Stage 0 is C0, largest and first
-    wire [15:0] dac_state_n;  // Stage 0 is C0, largest and first
+    wire [N_STAGES-1:0] dac_state_p;  // Stage 0 is C0, largest and first
+    wire [N_STAGES-1:0] dac_state_n;  // Stage 0 is C0, largest and first
 
     // Clock gate module - generates all gated clocks
     clkgate clkgate (
@@ -99,7 +101,9 @@ module adc_digital (
     );
 
     // SAR Logic - Consolidated dual-channel
-    salogic salogic_dual (
+    salogic #(
+        .N_STAGES(N_STAGES)
+    ) salogic_dual (
         .clk_init    (clk_init),      // Initialization clock
         .clk_update  (clk_update),    // Update clock
         .dac_astate_p(dac_astate_p),  // DAC A state positive

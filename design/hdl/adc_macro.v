@@ -3,7 +3,9 @@
 // The actual implementation will be provided via the adc.lef file
 
 (* blackbox *)
-module adc (
+module adc #(
+    parameter integer N_STAGES = 16  // Must match the macro's pins; FRIDA has 16
+) (
     // Control signals (bottom edge, M2)
     input  wire dac_mode,
     input  wire dac_diffcaps,
@@ -19,10 +21,10 @@ module adc (
     output wire comp_out,
 
     // DAC state inputs (left/right edges, M3)
-    input wire [15:0] dac_astate_p,
-    input wire [15:0] dac_astate_n,
-    input wire [15:0] dac_bstate_p,
-    input wire [15:0] dac_bstate_n
+    input wire [N_STAGES-1:0] dac_astate_p,
+    input wire [N_STAGES-1:0] dac_astate_n,
+    input wire [N_STAGES-1:0] dac_bstate_p,
+    input wire [N_STAGES-1:0] dac_bstate_n
 );
 
     // Blackbox - no implementation

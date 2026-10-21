@@ -5,10 +5,15 @@
 // ADC config-field alignment scan with a simple comparator-clock ADC model.
 //
 // Compile this bench with frida_spi.v and without adc.v/adc_macro.v; this file
-// provides a simulation-only adc wrapper.
+// provides a simulation-only adc wrapper. Override N_STAGES (for example
+// iverilog -P tb_frida_digital.N_STAGES=12) to check another stage count's SPI
+// layout; the sequencer patterns stay FRIDA's, as only comparator edges are counted.
 
 module tb_frida_digital;
-    localparam integer SPI_BITS        = 180;
+    parameter integer N_STAGES = 16;  // Capacitor stages per ADC; FRIDA has 16
+
+    localparam integer CTRL_BASE       = 4 * N_STAGES;  // Per-ADC fields follow the DAC states
+    localparam integer SPI_BITS        = CTRL_BASE + 16 * 7 + 4;  // 180 on FRIDA
     localparam integer SPI_HALF_PERIOD = 50;   // 10 MHz SPI, as in the existing SPICE smoke test
     localparam integer SEQ_STEP_NS     = 10;   // One temporal slot in the 64-step sequencer pattern
     localparam integer NUM_CONFIG_SLOTS = 16;
@@ -59,7 +64,9 @@ module tb_frida_digital;
     integer comp_edge_count;
     integer cfg_slot;
 
-    frida_top dut (
+    frida_top #(
+        .N_STAGES(N_STAGES)
+    ) dut (
         .seq_init_p_PAD(seq_init_p_PAD),
         .seq_init_n_PAD(seq_init_n_PAD),
         .seq_samp_p_PAD(seq_samp_p_PAD),
@@ -109,13 +116,15 @@ module tb_frida_digital;
             check_spi_config(spi_config);
 
             apply_sequence_once_count_edges();
-            $display("%2d    %07b               %016b     %0d  mux[179:176]=%04b bits176..179=%b%b%b%b", cfg_slot,
-                     dut.frida_core.spi_bits[64 + cfg_slot * 7 +: 7],
+            $display("%2d    %07b               %016b     %0d  mux[%0d:%0d]=%04b bits%0d..%0d=%b%b%b%b", cfg_slot,
+                     dut.frida_core.spi_bits[CTRL_BASE + cfg_slot * 7 +: 7],
                      dut.frida_core.adc_en_comp,
                      comp_edge_count,
-                     dut.frida_core.spi_bits[179:176],
-                     dut.frida_core.spi_bits[176], dut.frida_core.spi_bits[177],
-                     dut.frida_core.spi_bits[178], dut.frida_core.spi_bits[179]);
+                     SPI_BITS - 1, SPI_BITS - 4,
+                     dut.frida_core.spi_bits[SPI_BITS-1-:4],
+                     SPI_BITS - 4, SPI_BITS - 1,
+                     dut.frida_core.spi_bits[SPI_BITS-4], dut.frida_core.spi_bits[SPI_BITS-3],
+                     dut.frida_core.spi_bits[SPI_BITS-2], dut.frida_core.spi_bits[SPI_BITS-1]);
             #(10 * SEQ_STEP_NS);
         end
 
@@ -153,30 +162,31 @@ module tb_frida_digital;
     endtask
 
     task build_spi_config;
-        output [179:0] cfg;
+        output [SPI_BITS-1:0] cfg;
         input integer enabled_cfg_slot;
         input [3:0] mux_bits;
         integer control_bit;
         begin
             cfg = {SPI_BITS{1'b0}};
 
-            // Same DAC values as the first scan_adc.py scan case.
-            cfg[63:48]  = 16'b0111111111111111;
-            cfg[47:32]  = 16'b1111111111111111;
-            cfg[31:16]  = 16'b0111111111111111;
-            cfg[15:0]   = 16'b1111111111111111;
+            // Same DAC values as the first scan_adc.py scan case (C0 is the
+            // high bit of each serialized field).
+            cfg[4*N_STAGES-1-:N_STAGES] = {1'b0, {(N_STAGES - 1) {1'b1}}};
+            cfg[3*N_STAGES-1-:N_STAGES] = {N_STAGES{1'b1}};
+            cfg[2*N_STAGES-1-:N_STAGES] = {1'b0, {(N_STAGES - 1) {1'b1}}};
+            cfg[N_STAGES-1:0]           = {N_STAGES{1'b1}};
 
             // Enable exactly one 7-bit ADC config field per scan iteration.
             for (control_bit = 0; control_bit < 7; control_bit = control_bit + 1) begin
-                cfg[64 + enabled_cfg_slot * 7 + control_bit] = 1'b1;
+                cfg[CTRL_BASE + enabled_cfg_slot * 7 + control_bit] = 1'b1;
             end
 
-            cfg[179:176] = mux_bits;
+            cfg[SPI_BITS-1-:4] = mux_bits;
         end
     endtask
 
     task spi_write_config;
-        input [179:0] cfg;
+        input [SPI_BITS-1:0] cfg;
         integer bit_index;
         begin
             spi_cs_b_PAD = 1'b0;
@@ -258,7 +268,9 @@ endmodule
 // seq_comp only when its en_comp config bit is high.
 // -----------------------------------------------------------------------------
 `ifndef FRIDA_USE_EXTERNAL_ADC_MODEL
-module adc (
+module adc #(
+    parameter integer N_STAGES = 16
+) (
     input wire seq_init,
     input wire seq_samp,
     input wire seq_comp,
@@ -269,10 +281,10 @@ module adc (
     input wire en_comp,
     input wire en_update,
     input wire dac_mode,
-    input wire [15:0] dac_astate_p,
-    input wire [15:0] dac_bstate_p,
-    input wire [15:0] dac_astate_n,
-    input wire [15:0] dac_bstate_n,
+    input wire [N_STAGES-1:0] dac_astate_p,
+    input wire [N_STAGES-1:0] dac_bstate_p,
+    input wire [N_STAGES-1:0] dac_astate_n,
+    input wire [N_STAGES-1:0] dac_bstate_n,
     input wire dac_diffcaps,
     output wire comp_out
 );

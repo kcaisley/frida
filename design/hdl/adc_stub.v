@@ -10,7 +10,9 @@
 
 /* verilator lint_off UNUSEDSIGNAL */
 (* blackbox *)
-module adc (
+module adc #(
+    parameter integer N_STAGES = 16  // Must match the SPICE subcircuit's bus widths
+) (
 
     // Sequencing signals
     input wire seq_init,
@@ -26,12 +28,12 @@ module adc (
     input wire en_update,
 
     // DAC config
-    input wire        dac_mode,
-    input wire [15:0] dac_astate_p,
-    input wire [15:0] dac_bstate_p,
-    input wire [15:0] dac_astate_n,
-    input wire [15:0] dac_bstate_n,
-    input wire        dac_diffcaps,
+    input wire                dac_mode,
+    input wire [N_STAGES-1:0] dac_astate_p,
+    input wire [N_STAGES-1:0] dac_bstate_p,
+    input wire [N_STAGES-1:0] dac_astate_n,
+    input wire [N_STAGES-1:0] dac_bstate_n,
+    input wire                dac_diffcaps,
 
     // Analog inputs
 `ifdef COCOTBEXT_AMS

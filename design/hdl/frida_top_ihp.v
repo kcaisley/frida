@@ -9,7 +9,9 @@
  * - IHP-SG13G2 I/O pad ring (pads placed by OpenROAD flow)
  */
 
-module frida_top (
+module frida_top #(
+    parameter integer N_STAGES = 16  // Capacitor stages per ADC; FRIDA has 16
+) (
     // I/O Pad connections (must match pad.tcl instance names with _PAD suffix)
 
     // SPI Interface
@@ -204,7 +206,9 @@ module frida_top (
     wire vdd_a, vss_a, vdd_d, vss_d, vdd_io, vss_io, vdd_dac, vss_dac;
 
     // Instantiate core logic
-    frida_core frida_core (
+    frida_core #(
+        .N_STAGES(N_STAGES)
+    ) frida_core (
         .seq_init (seq_init),
         .seq_samp (seq_samp),
         .seq_cmp  (seq_cmp),

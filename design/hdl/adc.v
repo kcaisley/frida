@@ -1,6 +1,8 @@
 // ADC Module - with configurable resolution
 
-module adc (
+module adc #(
+    parameter integer N_STAGES = 16  // Capacitor stages, one SAR decision each; FRIDA has 16
+) (
 
     // Sequencing signals
     input wire seq_init,   // Initialization sequence timing
@@ -16,13 +18,13 @@ module adc (
     input wire en_update,  // Enable update logic
 
     // DAC config - positive side
-    input wire        dac_mode,      // DAC mode control (shared for both sides)
-    input wire [15:0] dac_astate_p,  // C0-first DAC A state, positive side
-    input wire [15:0] dac_bstate_p,  // C0-first DAC B state, positive side
+    input wire                dac_mode,      // DAC mode control (shared for both sides)
+    input wire [N_STAGES-1:0] dac_astate_p,  // C0-first DAC A state, positive side
+    input wire [N_STAGES-1:0] dac_bstate_p,  // C0-first DAC B state, positive side
 
     // DAC config - negative side
-    input wire [15:0] dac_astate_n,  // C0-first DAC A state, negative side
-    input wire [15:0] dac_bstate_n,  // C0-first DAC B state, negative side
+    input wire [N_STAGES-1:0] dac_astate_n,  // C0-first DAC A state, negative side
+    input wire [N_STAGES-1:0] dac_bstate_n,  // C0-first DAC B state, negative side
 
     // DAC diff caps (for unit length caps!)
     input wire dac_diffcaps,  // Enable differential capacitor mode.
@@ -53,13 +55,13 @@ module adc (
     wire clk_samp_p_b, clk_samp_n_b;  // Complementary sampling clock signals
     wire clk_comp;  // Comparator clock
     wire clk_update;  // Logic clock signal
-    wire [15:0] dac_state_p, dac_state_n;  // C0-first SAR stage buses
+    wire [N_STAGES-1:0] dac_state_p, dac_state_n;  // C0-first SAR stage buses
 
-    // Four 16-bit capacitor driver outputs (keeping same signal names at top level)
-    wire [15:0] dac_drive_botplate_main_p;  // Positive capacitor driver outputs
-    wire [15:0] dac_drive_botplate_diff_p;  // Positive capacitor driver outputs, difference caps
-    wire [15:0] dac_drive_botplate_main_n;  // Negative capacitor driver outputs
-    wire [15:0] dac_drive_botplate_diff_n;  // Negative capacitor driver outputs, difference caps
+    // Four N_STAGES-bit capacitor driver outputs (keeping same signal names at top level)
+    wire [N_STAGES-1:0] dac_drive_botplate_main_p;  // Positive capacitor driver outputs
+    wire [N_STAGES-1:0] dac_drive_botplate_diff_p;  // Positive capacitor driver outputs, diff caps
+    wire [N_STAGES-1:0] dac_drive_botplate_main_n;  // Negative capacitor driver outputs
+    wire [N_STAGES-1:0] dac_drive_botplate_diff_n;  // Negative capacitor driver outputs, diff caps
 
     // Clock gate module - generates all gated clocks
     clkgate clkgate (
@@ -91,7 +93,9 @@ module adc (
     );
 
     // SAR Logic - Consolidated dual-channel
-    salogic salogic_dual (
+    salogic #(
+        .N_STAGES(N_STAGES)
+    ) salogic_dual (
         .clk_init    (clk_init),      // Initialization clock
         .clk_update  (clk_update),    // Update clock
         .dac_astate_p(dac_astate_p),  // DAC A state positive
@@ -112,14 +116,16 @@ module adc (
     );
 
 
-    // Four Capacitor Drivers (4×16-bit instances)
+    // Four Capacitor Drivers (4×N_STAGES-bit instances)
 
     // dac_drive_invert is active high. The main banks always follow the SAR
     // state, while dac_diffcaps optionally makes the difference banks switch
     // oppositely, matching the fabricated active-high XOR implementation.
 
     // P-side main capacitor driver (0 = no invert)
-    capdriver capdriver_p_main (
+    capdriver #(
+        .N_STAGES(N_STAGES)
+    ) capdriver_p_main (
         .dac_state       (dac_state_p),                // SAR logic positive output
         .dac_drive_invert(1'b0),                       // Main drivers: no inversion
         .dac_drive       (dac_drive_botplate_main_p)   // To positive main capacitor array
@@ -130,7 +136,9 @@ module adc (
     );
 
     // P-side diff capacitor driver (1 = invert)
-    capdriver capdriver_p_diff (
+    capdriver #(
+        .N_STAGES(N_STAGES)
+    ) capdriver_p_diff (
         .dac_state(dac_state_p),  // SAR logic positive output
         .dac_drive_invert(dac_diffcaps),  // Invert diff caps when differential mode is enabled
         .dac_drive(dac_drive_botplate_diff_p)  // To positive diff capacitor array
@@ -141,7 +149,9 @@ module adc (
     );
 
     // N-side main capacitor driver (0 = no invert)
-    capdriver capdriver_n_main (
+    capdriver #(
+        .N_STAGES(N_STAGES)
+    ) capdriver_n_main (
         .dac_state       (dac_state_n),                // SAR logic negative output
         .dac_drive_invert(1'b0),                       // Main drivers: no inversion
         .dac_drive       (dac_drive_botplate_main_n)   // To negative main capacitor array
@@ -152,7 +162,9 @@ module adc (
     );
 
     // N-side diff capacitor driver (1 = invert)
-    capdriver capdriver_n_diff (
+    capdriver #(
+        .N_STAGES(N_STAGES)
+    ) capdriver_n_diff (
         .dac_state(dac_state_n),  // SAR logic negative output
         .dac_drive_invert(dac_diffcaps),  // Invert diff caps when differential mode is enabled
         .dac_drive(dac_drive_botplate_diff_n)  // To negative diff capacitor array
@@ -187,14 +199,18 @@ module adc (
     );
 
     // ! ANALOG MACRO ! Capacitor arrays (CDACs)
-    caparray caparray_p (
+    caparray #(
+        .N_STAGES(N_STAGES)
+    ) caparray_p (
         .cap_topplate_in(vsamp_p),  // Positive sampling input from sampling switch
         .cap_topplate_out(vdac_p),  // Positive DAC voltage output to comparator
         .cap_botplate_main(dac_drive_botplate_main_p),  // Positive main capacitor bottom plates
         .cap_botplate_diff(dac_drive_botplate_diff_p)  // Positive diff capacitor bottom plates
     );
 
-    caparray caparray_n (
+    caparray #(
+        .N_STAGES(N_STAGES)
+    ) caparray_n (
         .cap_topplate_in(vsamp_n),  // Negative sampling input from sampling switch
         .cap_topplate_out(vdac_n),  // Negative DAC voltage output to comparator
         .cap_botplate_main(dac_drive_botplate_main_n),  // Negative main capacitor bottom plates

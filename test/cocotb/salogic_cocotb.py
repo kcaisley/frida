@@ -1,10 +1,30 @@
 """Cocotb checks for the dual-channel SAR logic."""
 
+import os
+
 import cocotb
 from cocotb.triggers import Timer
 
-DAC_WIDTH = 16
+# The runner builds salogic with this N_STAGES; FRIDA's 16 is the default.
+DAC_WIDTH = int(os.getenv("SALOGIC_N_STAGES", "16"))
 DAC_MASK = (1 << DAC_WIDTH) - 1
+
+# Comparator decisions of the 16-stage check, repeated or cut to DAC_WIDTH.
+COMP_P_BITS = [1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 1]
+COMP_N_BITS = [0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0]
+
+
+def stages(word16: int) -> int:
+    """Repeat a 16-bit test word over DAC_WIDTH bits, so 16 stages see it unchanged."""
+
+    repeats = -(-DAC_WIDTH // 16)
+    return sum(word16 << (16 * k) for k in range(repeats)) & DAC_MASK
+
+
+def decisions(bits16: list[int]) -> list[int]:
+    """Repeat a 16-entry decision list over DAC_WIDTH stages."""
+
+    return (bits16 * -(-DAC_WIDTH // 16))[:DAC_WIDTH]
 
 
 async def pulse_update(dut) -> None:
@@ -35,24 +55,30 @@ async def initialize(dut, astate_p: int, astate_n: int) -> None:
 
 
 @cocotb.test()
-async def test_init_loads_a_states(dut) -> None:
-    await initialize(dut, 0xA55A, 0x3CC3)
+async def test_ports_follow_n_stages(dut) -> None:
+    assert len(dut.dac_state_p) == DAC_WIDTH
+    assert len(dut.dac_astate_n) == DAC_WIDTH
 
-    assert int(dut.dac_state_p.value) == 0xA55A
-    assert int(dut.dac_state_n.value) == 0x3CC3
+
+@cocotb.test()
+async def test_init_loads_a_states(dut) -> None:
+    await initialize(dut, stages(0xA55A), stages(0x3CC3))
+
+    assert int(dut.dac_state_p.value) == stages(0xA55A)
+    assert int(dut.dac_state_n.value) == stages(0x3CC3)
 
 
 @cocotb.test()
 async def test_static_mode_loads_b_states(dut) -> None:
-    await initialize(dut, 0x0000, 0xFFFF)
-    dut.dac_bstate_p.value = 0x1234
-    dut.dac_bstate_n.value = 0xFEDC
+    await initialize(dut, 0x0000, DAC_MASK)
+    dut.dac_bstate_p.value = stages(0x1234)
+    dut.dac_bstate_n.value = stages(0xFEDC)
     dut.dac_mode.value = 0
 
     await pulse_update(dut)
 
-    assert int(dut.dac_state_p.value) == 0x1234
-    assert int(dut.dac_state_n.value) == 0xFEDC
+    assert int(dut.dac_state_p.value) == stages(0x1234)
+    assert int(dut.dac_state_n.value) == stages(0xFEDC)
 
 
 @cocotb.test()
@@ -60,8 +86,8 @@ async def test_sar_mode_updates_each_side_c0_first(dut) -> None:
     await initialize(dut, 0x0000, DAC_MASK)
     dut.dac_mode.value = 1
 
-    comp_p_bits = [1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 1]
-    comp_n_bits = [0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0]
+    comp_p_bits = decisions(COMP_P_BITS)
+    comp_n_bits = decisions(COMP_N_BITS)
     expected_p = 0x0000
     expected_n = DAC_MASK
 
@@ -77,6 +103,7 @@ async def test_sar_mode_updates_each_side_c0_first(dut) -> None:
         assert int(dut.dac_state_p.value) == expected_p
         assert int(dut.dac_state_n.value) == expected_n
 
+    # The one-hot cycle counter has run out: further updates change nothing.
     dut.comp_p.value = 1 - comp_p_bits[-1]
     dut.comp_n.value = 1 - comp_n_bits[-1]
     await pulse_update(dut)

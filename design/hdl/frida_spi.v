@@ -1,7 +1,8 @@
 `timescale 1ns / 1ps
 
 /*
- * 180-bit shift register for ADC control
+ * WIDTH-bit shift register for ADC control (180 bits on FRIDA: 4 x 16 DAC
+ * state bits, 7 control bits for each of 16 ADCs, 4 mux select bits)
  * Standard SPI interface (SCLK, SDI, SDO, CS_B)
  *
  * Physically implemented FRIDA variant using explicit OPENROAD_* cells for
@@ -12,25 +13,27 @@
  * for design/hdl/spi.v without changing the surrounding FRIDA hierarchy.
  */
 
-module spi_register (
-    input  wire         rst_b,     // Active-low async reset
-    input  wire         spi_cs_b,  // SPI chip select (active low)
-    input  wire         spi_sdi,   // SPI serial data input (MOSI)
-    input  wire         spi_sclk,  // SPI serial clock
-    output wire         spi_sdo,   // SPI serial data output (MISO)
-    output wire [179:0] spi_bits   // Parallel output of all register bits
+module spi_register #(
+    parameter integer WIDTH = 180  // Register length; frida_core derives it from N_STAGES
+) (
+    input  wire             rst_b,     // Active-low async reset
+    input  wire             spi_cs_b,  // SPI chip select (active low)
+    input  wire             spi_sdi,   // SPI serial data input (MOSI)
+    input  wire             spi_sclk,  // SPI serial clock
+    output wire             spi_sdo,   // SPI serial data output (MISO)
+    output wire [WIDTH-1:0] spi_bits   // Parallel output of all register bits
 );
 
-    wire [179:0] shift_reg;
+    wire [WIDTH-1:0] shift_reg;
     wire enable;
-    wire [179:0] d_in;
+    wire [WIDTH-1:0] d_in;
 
     assign enable   = !spi_cs_b;
     assign spi_bits = shift_reg;
 
     genvar i;
     generate
-        for (i = 0; i < 180; i = i + 1) begin : g_shift_stage
+        for (i = 0; i < WIDTH; i = i + 1) begin : g_shift_stage
             assign d_in[i] = (i == 0) ? spi_sdi : shift_reg[i-1];
 
             OPENROAD_DFFER dff_inst (
@@ -51,7 +54,7 @@ module spi_register (
     );
 
     OPENROAD_DFFER sdo_dff (
-        .D(shift_reg[179]),
+        .D(shift_reg[WIDTH-1]),
         .C(spi_sclk_n),
         .E(enable),
         .R(rst_b),

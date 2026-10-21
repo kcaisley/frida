@@ -16,7 +16,9 @@
 
 `timescale 1ns / 1ps
 
-module frida_core_1chan (
+module frida_core_1chan #(
+    parameter integer N_STAGES = 16  // Capacitor stages per ADC; FRIDA has 16
+) (
     // Clock inputs (from sequencer / LVDS RX)
     input wire seq_init,
     input wire seq_samp,
@@ -64,20 +66,26 @@ module frida_core_1chan (
 `endif
 );
 
-    // SPI register outputs (180 bits, same mapping as 16-ADC version)
-    wire [179:0] spi_bits;
+    // SPI register length, same mapping as the 16-ADC version (180 bits on FRIDA)
+    localparam integer SpiBits = 4 * N_STAGES + 16 * 7 + 4;
+    localparam integer BASE = 4 * N_STAGES;  // ADC 0 controls start after the DAC states
+
+    // SPI register outputs
+    wire [SpiBits-1:0] spi_bits;
 
     // ADC 0 control signals (extracted from SPI bits)
     wire adc_en_init, adc_en_samp_p, adc_en_samp_n, adc_en_comp, adc_en_update;
     wire adc_dac_mode, adc_dac_diffcaps;
 
-    // Shared DAC states (64 bits)
-    wire [15:0] shared_dac_astate_p, shared_dac_bstate_p;
-    wire [15:0] shared_dac_astate_n, shared_dac_bstate_n;
+    // Shared DAC states (4 x N_STAGES bits, 64 on FRIDA)
+    wire [N_STAGES-1:0] shared_dac_astate_p, shared_dac_bstate_p;
+    wire [N_STAGES-1:0] shared_dac_astate_n, shared_dac_bstate_n;
 
     // SPI Register (USE_POWER_PINS must be defined in the cosim build)
 
-    spi_register spi_reg (
+    spi_register #(
+        .WIDTH(SpiBits)
+    ) spi_reg (
         .rst_b   (reset_b),
         .spi_cs_b(spi_cs_b),
         .spi_sdi (spi_sdi),
@@ -88,34 +96,37 @@ module frida_core_1chan (
 
     // SPI Bit Mapping (identical to frida_core.v, only ADC 0 used)
 
-    // [179:176] mux_sel — unused with 1 ADC, but preserved for register compat
-    // [175:64]  per-ADC controls (7 bits × 16 ADCs), only index 0 wired
-    // [63:0]    shared DAC states
+    // With N = N_STAGES ([179:176], [175:64], [63:0] on FRIDA):
+    // [4N+115:4N+112] mux_sel — unused with 1 ADC, but preserved for register compat
+    // [4N+111:4N]     per-ADC controls (7 bits × 16 ADCs), only index 0 wired
+    // [4N-1:0]        shared DAC states
 
     // The serialized fields keep C0 at the high end for wire compatibility.
     // Reverse once here so every internal ADC bus uses stage index 0 for C0.
     genvar stage;
     generate
-        for (stage = 0; stage < 16; stage = stage + 1) begin : g_dac_state_mapping
-            assign shared_dac_astate_p[stage] = spi_bits[63-stage];
-            assign shared_dac_bstate_p[stage] = spi_bits[47-stage];
-            assign shared_dac_astate_n[stage] = spi_bits[31-stage];
-            assign shared_dac_bstate_n[stage] = spi_bits[15-stage];
+        for (stage = 0; stage < N_STAGES; stage = stage + 1) begin : g_dac_state_mapping
+            assign shared_dac_astate_p[stage] = spi_bits[4*N_STAGES-1-stage];
+            assign shared_dac_bstate_p[stage] = spi_bits[3*N_STAGES-1-stage];
+            assign shared_dac_astate_n[stage] = spi_bits[2*N_STAGES-1-stage];
+            assign shared_dac_bstate_n[stage] = spi_bits[N_STAGES-1-stage];
         end
     endgenerate
 
-    // Per-ADC control — ADC 0 at BASE = 64
-    assign adc_en_init      = spi_bits[64];
-    assign adc_en_samp_p    = spi_bits[65];
-    assign adc_en_samp_n    = spi_bits[66];
-    assign adc_en_comp      = spi_bits[67];
-    assign adc_en_update    = spi_bits[68];
-    assign adc_dac_mode     = spi_bits[69];
-    assign adc_dac_diffcaps = spi_bits[70];
+    // Per-ADC control — ADC 0 at BASE (64 on FRIDA)
+    assign adc_en_init      = spi_bits[BASE+0];
+    assign adc_en_samp_p    = spi_bits[BASE+1];
+    assign adc_en_samp_n    = spi_bits[BASE+2];
+    assign adc_en_comp      = spi_bits[BASE+3];
+    assign adc_en_update    = spi_bits[BASE+4];
+    assign adc_dac_mode     = spi_bits[BASE+5];
+    assign adc_dac_diffcaps = spi_bits[BASE+6];
 
     // Single ADC Instance
 
-    adc adc_inst (
+    adc #(
+        .N_STAGES(N_STAGES)
+    ) adc_inst (
         .seq_init    (seq_init),
         .seq_samp    (seq_samp),
         .seq_comp    (seq_comp),
