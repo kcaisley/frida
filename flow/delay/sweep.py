@@ -2,7 +2,7 @@
 chains at up to seven sizings, in every PDK.
 
 Each instance at the core supply and the nominal control (8/12 of it): a ring's frequency,
-swing, power and energy per cycle (Usb2Phy's ten-cycle window), a delay line's rise and fall
+swing, power and energy per cycle, a delay line's rise and fall
 delays and output transitions and its energy per input cycle (4 ns period), either one's delay per
 stage; over the supply (90 to 120 % of its own) the same. A chain with a control (starved or on a
 shared tail) also over the control, 5/12 of the supply to all of it, and its tuning gain about

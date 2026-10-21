@@ -1,6 +1,6 @@
 """Clock conditioning testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows Usb2Phy's ``PulseGenTb`` and BAG's clock benches: complementary clocks,
+The testbench: complementary clocks,
 an enable that rises a quarter period into the third period (while clk is low), and a load on
 each output. Every case gets the same stimulus; only the clock gate uses the enable. The
 characterization sweeps the supply and the clock period.
@@ -67,7 +67,7 @@ def _validate_clkgen_tb_params(params: ClkgenTbParams) -> None:
 
 @h.generator
 def ClkgenTb(params: ClkgenTbParams) -> h.Module:
-    """Generate the clock generator testbench (Usb2Phy ``PulseGenTb``): complementary clocks, en
+    """Generate the clock generator testbench: complementary clocks, en
     low for the first two periods then high, a load on each output."""
 
     _validate_clkgen_tb_params(params)

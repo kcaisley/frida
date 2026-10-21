@@ -1,11 +1,11 @@
 """Ring amplifier testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows BAG's ring amplifier bench (``ringamp_se``): fixed tail and dead-zone
+The testbench: fixed tail and dead-zone
 biases, a load on the output, and the enable. Open loop, the input is a slow triangle about the
 common mode (the transfer curve and its supply current); closed loop, an input capacitor and a
 feedback capacitor of the same size set a gain of -1, a 1 GOhm resistor across the feedback
 capacitor holds the amplifier at its trip point at DC, and a step through the input capacitor
-asks it to settle (BAG's settling measurement). Both cases get the same stimulus; the
+asks it to settle. Both cases get the same stimulus; the
 characterization sweeps the dead-zone bias, and the step.
 """
 

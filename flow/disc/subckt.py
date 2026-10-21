@@ -1,15 +1,13 @@
 """
 Continuous-time discriminator generator for FRIDA.
 
-The threshold comparator of the group's pixel front ends (FE65-P2 ``Comparator``, CCPD
-``Comparator_cont``, DHPT ``Comparator_normal``; RD53B ``Comparator_hyst``): an unclocked two-stage
+A pixel front end's threshold comparator: an unclocked two-stage
 open-loop comparator, a differential pair into its load, then a second stage whose output turns
 high while ``inp`` is above ``inn``. Supports, with an NMOS or PMOS input pair:
-- A current-mirror load (FE65-P2 ``Comparator``): the diode on the ``inn`` side; the second stage a
+- A current-mirror load: the diode on the ``inn`` side; the second stage a
   common-source device of the load's type driven from the ``inp`` side, against a current source of
   the input's type sharing the tail's bias ``vbias``
-- Internal hysteresis (RD53B ``Comparator_hyst``; Allen and Holberg's comparator with internal
-  hysteresis): both loads diode-connected, each in parallel with one of a cross-coupled pair
+- Internal hysteresis (Allen and Holberg's comparator with internal hysteresis): both loads diode-connected, each in parallel with one of a cross-coupled pair
   stronger than the diodes, whose ratio sets how far past the threshold the pair must be driven to
   flip either way; the second stage a pair of the load's type on both sides into a mirror of the
   input's type, so that the output switches where the first stage flips
@@ -135,9 +133,9 @@ def write_netlist(params: DiscParams, path: Path, pdk) -> Path:
 # ==== Named discriminators ====
 
 CASES = {
-    # NMOS input pair, current-mirror load (FE65-P2 Comparator)
+    # NMOS input pair, current-mirror load
     "nmos": DiscParams(),
-    # NMOS input pair, hysteresis load (RD53B Comparator_hyst)
+    # NMOS input pair, hysteresis load
     "nmos_hyst": DiscParams(hysteresis=True),
     # PMOS input pair, current-mirror load
     "pmos": DiscParams(input_xtors=MosType.PMOS),

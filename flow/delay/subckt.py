@@ -238,18 +238,18 @@ def write_netlist(params: DelayParams, path: Path, pdk) -> Path:
 # ==== Named chains ====
 
 CASES = {
-    # five-stage inverter ring oscillator, enabled (bag3 inv_chain stages, closed)
+    # five-stage inverter ring oscillator, enabled
     "ring5": DelayParams(stages=5, ring=True),
-    # current-starved five-stage ring VCO (bag3_digital current_starved_inv stages)
+    # current-starved five-stage ring VCO
     "ring5_starved": DelayParams(stages=5, ring=True, control=Control.STARVED),
-    # four-stage pseudo-differential coupled ring, injection locked (Usb2Phy IloRing, BAG vco_ro_diff_coupled)
+    # four-stage pseudo-differential coupled ring, injection locked
     "ring4_coupled": DelayParams(stages=4, ring=True, differential=True, stage=Stage.COUPLED, inject=True),
-    # four-stage coupled ring on a shared tail (BAG vco_vco: vco_ro_ctrl under the ring)
+    # four-stage coupled ring on a shared tail
     "ring4_tail": DelayParams(stages=4, ring=True, differential=True, stage=Stage.COUPLED, control=Control.TAIL),
-    # four-stage inverter delay line (bag3 inv_chain, BAG clk_delay_* buffers)
+    # four-stage inverter delay line
     "chain4": DelayParams(stages=4),
-    # two-stage coupled differential buffer (BAG clk_diff_inv_coupled_chain, bag3 inv_diff_chain)
+    # two-stage coupled differential buffer
     "chain2_coupled": DelayParams(stages=2, differential=True, stage=Stage.COUPLED),
-    # four-stage current-starved delay line (bag3_digital CurrentStarvedInvDiffChain, single-ended)
+    # four-stage current-starved delay line
     "chain4_starved": DelayParams(stages=4, control=Control.STARVED),
 }

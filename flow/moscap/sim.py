@@ -1,7 +1,6 @@
 """MOS capacitor testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows BAG's MOS capacitor characterization (``bag3_analog`` ``mos_cap``, the
-decap array): the AC stimulus on the capacitor's own net at its DC bias, so the stimulated
+The testbench: the AC stimulus on the capacitor's own net at its DC bias, so the stimulated
 source's current is the admittance, whose imaginary part over 2 pi f is the capacitance and whose
 real part the loss; an operating point gives the leakage. A decap's bias is its supply, a
 two-net capacitor's the gate plate's voltage over the channel plate's.

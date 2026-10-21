@@ -1,12 +1,12 @@
 """Follower testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows Usb2Phy's ``UnityGainTb``: the input a DC level carrying a 1 V AC
+The testbench: the input a DC level carrying a 1 V AC
 stimulus, current-reference biases (a diode-connected copy fed the bias current, from a supply
 of its own), a capacitive load, an operating point, the AC response and the supply's transfer to
 the output (Spectre's ``xf``, for the PSRR). The same bench can instead put its AC stimulus on a
 test current into the output (1 V through a large resistor), whose response is the output
 impedance, where a flipped follower differs from a plain one; or drive the input with a large
-step up and back down, whose transient gives the slew rates the group's buffer benches measure
+step up and back down, whose transient gives the slew rates
 (a source follower pulls one way through its device, the other only with its bias current).
 """
 
@@ -92,7 +92,7 @@ def _validate_follower_tb_params(params: FollowerTbParams) -> None:
 
 @h.generator
 def FollowerTb(params: FollowerTbParams) -> h.Module:
-    """Generate the follower testbench (Usb2Phy ``UnityGainTb``): vin a DC level with the AC
+    """Generate the follower testbench: vin a DC level with the AC
     stimulus, current-reference biases, a capacitive load; or the AC stimulus as a test current
     into vout; or with ``step_v`` the input stepping up about vin a quarter period in and back down
     three quarters in."""
@@ -117,7 +117,7 @@ def FollowerTb(params: FollowerTbParams) -> h.Module:
         )(p=FollowerTb.vin, n=vss)
     else:
         FollowerTb.vvin = Vdc(dc=params.vin, ac=0.0 if params.output_test else 1.0)(p=FollowerTb.vin, n=vss)
-    # the bias references, as Usb2Phy's benches bias: a diode-connected copy of the current-source
+    # the bias references: a diode-connected copy of the current-source
     # device on each bias, fed the bias current
     follower = params.follower
     size = {"vth": follower.vth, "w": follower.bias_w, "l": follower.bias_l}

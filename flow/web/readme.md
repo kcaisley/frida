@@ -14,17 +14,3 @@
 | Errors | ✓ | [static/js/icons.js](static/js/icons.js) | Neither page has a status bar: a panel's error shows for a few seconds in the bottom right corner. |
 | Theme | ✓ | [static/style.css](static/style.css) | The desktop's, on both pages, in Zed's colors: One Dark or One Light; curves in Nord; plots on the panels' color in the dark theme. |
 | Tests | ✓ | [test_export.py](test_export.py) | JSON conversion and thinning, layer flattening and merging on a synthetic layout, waveform indexing and serving, the server's path mapping, pinned library versions on both pages. |
-
-Libraries come from jsDelivr at pinned versions (GoldenLayout 2.6.0, three.js 0.160.0, Plotly 2.35.2), so the browser needs the internet; the data stays on this machine.
-
-## Use
-
-```sh
-uv run python -m flow comp.sweep      # characterize, lay out and tabulate one block's sweep
-uv run python -m flow sweep.run       # characterize every block's instances (36 workers)
-uv run python -m flow sweep.layout    # ALIGN layouts, signed off; area and density
-uv run python -m flow web.tables      # the tables and instance files
-uv run python -m flow web.serve       # http://127.0.0.1:8765
-```
-
-From another machine, forward the port (`ssh -L 8765:localhost:8765 <host>`) and open <http://localhost:8765>.

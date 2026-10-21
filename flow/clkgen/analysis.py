@@ -1,7 +1,6 @@
 """Typed clock conditioning measurements, results, and analyses.
 
-A ``MeasClkgen`` is one transient of the shared clock testbench. The figures follow BAG's clock
-benches, all at mid-supply and from one period after the enable: the delay from clk's rising
+A ``MeasClkgen`` is one transient of the shared clock testbench. The figures, all at mid-supply and from one period after the enable: the delay from clk's rising
 edge to outp's, outp's high width and duty cycle, the gaps between one output falling and the
 other rising (positive: non-overlapping), outp's pulses before the enable (a clock gate's should
 be none) and the share of clock periods after it that produced one.

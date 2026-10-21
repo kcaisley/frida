@@ -1,6 +1,6 @@
 """Current source testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows Usb2Phy's ``IdacSweepTb``: an operating point of the unit biased by a
+The testbench: an operating point of the unit biased by a
 reference current (into its own diode or a diode-connected copy of its source device, from a
 supply of its own), here with out and dump held by sources whose
 currents are the unit's and the output's voltage swept (Spectre's DC sweep), so one run gives the
@@ -65,7 +65,7 @@ def _validate_idac_tb_params(params: IdacTbParams) -> None:
 
 @h.generator
 def IdacTb(params: IdacTbParams) -> h.Module:
-    """Generate the current source testbench (Usb2Phy ``IdacSweepTb``): out and dump held by
+    """Generate the current source testbench: out and dump held by
     sources (their currents are the unit's), and a reference current into vbias, taken by the
     unit's own diode or, without one, by a diode-connected copy of its source device."""
 

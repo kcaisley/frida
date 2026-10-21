@@ -57,7 +57,7 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
   - [x] Signoff: the kit's encrypted Calibre decks, which name their inputs `LAYOUT_PATH` /
     `LAYOUT_PRIMARY` / `SOURCE_PATH` / `SOURCE_PRIMARY`: the runner writes copies under those
     names. Block-level waivers: density, the generated deep P-well's enclosures, and the standard
-    cells' well-expansion DFM guideline (DRM 6.1.2).
+    cells' well-expansion DFM guideline.
 
 ## Comparator layouts
 
@@ -146,7 +146,7 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
 - [x] Floorplans from ALIGN's placement fall back to a placement on one axis in any outline (without
   the AspectRatio constraint; `pack_rows` squares the rows anyway) where none fits the square one
   (frida1's gates in tsmc28: 15 self-symmetric blocks). ALIGN's own symmetry groups failed there too.
-- [x] Pairs of differing short gates where the dummy poly stands on the gates' pitch (tsmc28: 30 nm)
+- [x] Pairs of differing short gates where the dummy poly stands on the gates' pitch
   take a diffusion break under the dummy lines, every line on the pitch. A shared strip with the
   gates pushed apart gave each gate two spaces to its neighbours and met the gates' M2 bars end to
   end; a break with one dummy line crowded the lines (ALIGN's DP_NMOS of c040's `Minner_init`
@@ -173,7 +173,7 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
   three (ALIGN's open buffer nets on the floorplan are gone), c040 in tsmc28 cIcCreator and laygo
   clean. A generator fallback draws a group side by side in one row where ALIGN's array does not fit.
 - [ ] ALIGN on its own in tsmc28: free placement leaves gaps whose dummy-poly spacing the gridded
-  poly rule (second poly line past a 30 nm gate) forbids (`comp_c040_auto_tsmc28` and
+  poly rule forbids (`comp_c040_auto_tsmc28` and
   `comp_frida1_auto_tsmc28`: 32 each, LVS correct; cIcCreator and laygo clean).
   Place on the cells' abutment grid, or fill such gaps with poly on the gate pitch.
 - [ ] Not yet run with ALIGN on its own: the other auto targets (ihp130, lf150, tpsc65). Earlier

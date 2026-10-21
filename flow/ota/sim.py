@@ -1,17 +1,17 @@
 """OTA testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows Usb2Phy's op-amp benches (``OpAmp5T`` ``Tb``, ``FcascTb``): a balun puts
+The testbench: a balun puts
 the input common mode on both inputs and half the AC stimulus on each, with opposite signs; bias
 references (a diode-connected copy of the devices each bias drives, fed their current from a
 supply of its own, so the amplifier's supply current is its own), fixed cascode biases, and a
 load capacitor on each output; an operating point, the AC response, the transfer functions from
 every source to ``outp`` (Spectre's ``xf``: the inputs, so the common mode, and the supply, for
-the PSRR and CMRR the group's amplifier benches measure) and the output noise. A single-ended
+the PSRR and CMRR) and the output noise. A single-ended
 amplifier sits open loop at the output its mirror sets. A fully differential one
 has no defined output common mode of its own, so its bench adds an ideal common-mode feedback:
 the outputs' average, against a target, steers the load bias.
 
-The large-signal benches follow LF-Monopix2's ``TB_AnaBuffer``, for a single-ended amplifier:
+The large-signal benches, for a single-ended amplifier:
 ``outp`` drives ``inn`` (unity-gain feedback), and ``inp`` steps a quarter of the supply up and back
 down about the common mode (slew rate, settling, overshoot) or carries a sine (its harmonic
 distortion). A fully differential amplifier would need a common-mode feedback circuit to swing
@@ -121,7 +121,7 @@ def _validate_ota_tb_params(params: OtaTbParams) -> None:
 
 @h.generator
 def OtaTb(params: OtaTbParams) -> h.Module:
-    """Generate the OTA testbench (Usb2Phy ``OpAmp5T`` ``Tb``): a balun on the inputs, biases from
+    """Generate the OTA testbench: a balun on the inputs, biases from
     reference currents, output loads, and for a differential output an ideal common-mode feedback;
     or, with a step or a sine, ``outp`` fed back to ``inn`` and the stimulus on ``inp``."""
 
@@ -155,7 +155,7 @@ def OtaTb(params: OtaTbParams) -> h.Module:
         OtaTb.vinn = Vdc(dc=params.vcm, ac=-0.5)(p=OtaTb.inn, n=vss)
     for name, value in (("vcasn", params.vcasn), ("vcasp", params.vcasp)):
         OtaTb.add(Vdc(dc=value)(p=getattr(OtaTb, name), n=vss), name=f"v{name}")
-    # the bias references, as Usb2Phy's benches bias: each bias a diode-connected copy of the
+    # the bias references: each bias a diode-connected copy of the
     # devices it drives, fed their current. An NMOS input's tail (and bottom sources) sit on vbn
     # and carry the bias current, its loads on vbp and half of it each (a folded cascode's top
     # sources one and a half: their fold's half and their bottom source's whole); a PMOS input's

@@ -3,7 +3,7 @@
 A ``MeasRingamp`` is one transient of the shared ring amplifier testbench, open loop (a slow
 triangle on the input) or closed loop (a step through the input capacitor, a gain of -1). Open
 loop: the transfer curve and supply current on the rising ramp, the trip point and gain, and the
-trip's shift on the falling ramp. Closed loop, after BAG's settling measurement: the output step
+trip's shift on the falling ramp. Closed loop: the output step
 against the ideal, the time to settle within 1 % of it, the overshoot, and the supply current
 once settled (the dead zone's purpose) against the charge spent settling.
 """

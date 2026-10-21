@@ -16,7 +16,3 @@
 | LVS runner | ✓ | [layout.py](layout.py) | ✗ DNW layout devices mismatch ordinary upstream source models. |
 | PEX runner | ✗ | - | Not implemented. |
 | Behavioral model | ✓ | [model.py](model.py) | `CapDriverModel.of(pdk, strength, load_f=...)`: a stage's drive resistance, intrinsic delay and own energy from the generic-cell characterization at the nearest load (standing in for the ADC's clocked-XOR cells). |
-
-Sizing: a stage settles to 1 / 2^(N+1) of the supply in ln(2^(N+1)) R C after its delay, with R the band's `drive_resistance_ohm` and C its stage's bottom-plate capacitance.
-
-TODO: standard-cell row layout in all six PDKs; review standalone M4 violations; provide a DNW-aware LVS source; rerun DRC/LVS before adding PEX. ADC-level driver/array separation remains incomplete. See [project TODO](../../docs/todo.md#capdriver).

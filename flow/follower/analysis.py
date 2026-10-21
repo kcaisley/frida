@@ -4,8 +4,7 @@ A ``MeasFollower`` is one operating point and AC response of the follower testbe
 per volt of input or, with the output test current, per ampere into the output (the output
 impedance), and the output per volt of supply (Spectre's ``xf``). Its operating point (supply
 current, output level) is in the run readbacks. A ``MeasFollowerStep`` is the transient of a large
-input step up and back down, whose output gives the slew rates and settling the group's buffer
-benches measure. Every figure is a calculator function of ``flow.analysis.calc``.
+input step up and back down, whose output gives the slew rates and settling. Every figure is a calculator function of ``flow.analysis.calc``.
 """
 
 from __future__ import annotations

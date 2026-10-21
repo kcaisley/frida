@@ -1,9 +1,9 @@
 """Typed delay line and ring oscillator measurements, results, and analyses.
 
 A ``MeasDelay`` is one transient of the shared delay testbench at one supply and control
-voltage. A ring is measured like Usb2Phy's ``IloRingFreqTb`` (the period over ten cycles from
-the fifth rising output edge, the supply current averaged over the same window); a delay line
-like BAG's combinational delay benches (50 % delays and 10–90 % output transitions).
+voltage. A ring is measured by its period over ten cycles from the fifth rising
+output edge, the supply current averaged over the same window; a delay line by its 50 % delays and
+10–90 % output transitions.
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ def analyze_delay_oscillation(measurements: Sequence[MeasDelay]) -> AnalysisDela
         output = wave.v[DelayNets.outp.name][0]
         rises = calc.cross(output, wave.time_s, vdd / 2, edge="rising")
         rises = rises[rises > float(tb.enable_delay_s)]
-        # Usb2Phy's window: rise 5 to rise 15, shortened when a slow point made fewer cycles
+        # the window: rise 5 to rise 15, shortened when a slow point made fewer cycles
         first = min(4, len(rises) // 3)
         last = min(first + 10, len(rises) - 1)
         if last - first < 3:

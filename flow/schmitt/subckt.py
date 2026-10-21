@@ -1,8 +1,7 @@
 """
 Schmitt trigger generator for FRIDA.
 
-The CMOS Schmitt trigger of the group's power-on reset (RD53A ``SchmittTrigger``) and of helena's
-logic (``inv_schmitttrigger``, ``schmitttrigger``): an inverter whose NMOS and PMOS are each split
+A CMOS Schmitt trigger, as in a power-on reset or a logic input: an inverter whose NMOS and PMOS are each split
 into a stack of two, with a feedback device from the output into each stack's middle node (an NMOS
 to vdd, a PMOS to vss). While the output is high the NMOS feedback holds the lower stack's middle
 up, so the input must rise further to pull the output down; while it is low the PMOS feedback
@@ -101,10 +100,10 @@ def write_netlist(params: SchmittParams, path: Path, pdk) -> Path:
 # ==== Named triggers ====
 
 CASES = {
-    # inverting trigger (RD53A SchmittTrigger, helena inv_schmitttrigger)
+    # inverting trigger
     "inv": SchmittParams(),
     # inverting trigger with stronger feedback: wider hysteresis
     "inv_wide": SchmittParams(fb_n_w=4, fb_p_w=8),
-    # non-inverting buffer (helena schmitttrigger)
+    # non-inverting buffer
     "buffer": SchmittParams(buffer=True),
 }

@@ -1,6 +1,6 @@
 """Cascode bias generator testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows the current source's (Usb2Phy ``IdacSweepTb``): the reference current
+The testbench follows the current source's: the reference current
 flows into ``vbn`` from a supply of its own, and the four gate voltages bias two cascoded test
 mirrors, copies of the generator's NMOS and PMOS mirror devices and cascodes, whose outputs are
 held by sources and swept across the supply (Spectre's DC sweep): their currents over the output

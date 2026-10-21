@@ -5,10 +5,9 @@ of the OTA testbench: the differential output per volt of differential input, ma
 unwrapped phase, and the output noise density, at each frequency; and at ``outp`` alone, the
 output per volt of differential input, of input common mode and of supply, the rejections'
 ingredients. Its operating point (supply current, output and load bias voltages) is in the run
-readbacks. The figures are Usb2Phy's op-amp bench's (DC gain, unity-gain bandwidth, phase margin)
-and the group's archived amplifier benches' (gain-bandwidth product, gain margin, PSRR, CMRR),
-each a calculator function of ``flow.analysis.calc``. A ``MeasOtaTran`` is the unity-gain bench's
-transient (LF-Monopix2 ``TB_AnaBuffer``): ``outp``'s response to a large input step (slew rate,
+readbacks. The figures (DC gain, unity-gain bandwidth, phase margin, gain-bandwidth product,
+gain margin, PSRR, CMRR) are each a calculator function of ``flow.analysis.calc``. A ``MeasOtaTran`` is the unity-gain bench's
+transient: ``outp``'s response to a large input step (slew rate,
 settling, overshoot) or to a sine (harmonic distortion).
 """
 

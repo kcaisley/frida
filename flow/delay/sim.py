@@ -1,12 +1,10 @@
 """Delay line and ring oscillator testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows Usb2Phy's ring-oscillator benches (``IloRingFreqTb``, ``CmlRoFreqTb``): a
-supply source, the rings' enable and a kick-start (switches holding the outputs apart for a while
-after enable), the bias sources and output loads, and for a delay line the complementary input
-clock of Usb2Phy's ``DiffClkGen``. Every case gets the same stimulus; a ring ignores the input
-clock and a delay line the enable. Usb2Phy's ring benches sweep
-the supply (``vddsweep``) and the frequency-control code (``test_dac_code``); here the supply and
-one control voltage, which sets every analog control at once: ``vbn`` and ``vctrl`` to it and
+The testbench: a supply source, the rings' enable and a kick-start (switches holding the outputs
+apart for a while after enable), the bias sources and output loads, and for a delay line a
+complementary input clock. Every case gets the same stimulus; a ring ignores the input clock and a
+delay line the enable. The characterization sweeps the supply and one control voltage, which sets
+every analog control at once: ``vbn`` and ``vctrl`` to it and
 ``vbp`` to the supply minus it, so a starved stage's NMOS and PMOS starve alike.
 """
 
@@ -89,7 +87,7 @@ def _validate_delay_tb_params(params: DelayTbParams) -> None:
 
 @h.generator
 def DelayTb(params: DelayTbParams) -> h.Module:
-    """Generate the shared delay line and ring testbench (Usb2Phy ``IloRingFreqTb`` and ``DiffClkGen``)."""
+    """Generate the shared delay line and ring testbench."""
 
     _validate_delay_tb_params(params)
 
@@ -114,7 +112,7 @@ def DelayTb(params: DelayTbParams) -> h.Module:
     DelayTb.vvctrl = Vdc(dc=params.control_v)(p=DelayTb.vctrl, n=vss)
     DelayTb.cloadp = C(c=params.cload)(p=DelayTb.outp, n=vss)
     DelayTb.cloadn = C(c=params.cload)(p=DelayTb.outn, n=vss)
-    # the kick-start (Usb2Phy's injection pulse): from just after en rises, a PMOS switch holds outp
+    # the kick-start: from just after en rises, a PMOS switch holds outp
     # at vdd and an NMOS one outn at vss (each twice the output inverter's device), then lets go. A
     # coupled ring's enable leaves both chains alike, a state its main inverters hold against the
     # coupling ones; held apart, its outputs start it from a differential one.
@@ -203,7 +201,7 @@ def _run_delay_sim(run_dir: Path, params: DelayTbParams, *, check: bool = False)
     return run_dir / "netlist.raw"
 
 
-# The characterization, in every PDK about its own core supply: Usb2Phy's supply sweep (75 to 108 %
+# The characterization, in every PDK about its own core supply: a supply sweep (75 to 108 %
 # of it) at the nominal control, and a control sweep (42 to 100 % of the supply) at the nominal
 # supply; in TSMC65, 0.9 to 1.3 V and 0.5 to 1.2 V.
 SUPPLY_SWEEP = (9 / 12, 10 / 12, 11 / 12, 1.0, 13 / 12)

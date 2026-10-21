@@ -105,10 +105,10 @@ def write_netlist(params: LvShiftParams, path: Path, pdk) -> Path:
 # ==== Named level shifters ====
 
 CASES = {
-    # cross-coupled core, differential input (bag3_digital lvshift_core without its cascodes)
+    # cross-coupled core, differential input
     "core": LvShiftParams(),
-    # with an input inverter on vddl and a reset (Usb2Phy IloDiffLevelShift, bag3_digital lvshift)
+    # with an input inverter on vddl and a reset
     "single_rst": LvShiftParams(input_inverter=True, reset=True),
-    # with an input inverter and output inverters (bag3_digital lvshift_core_w_drivers)
+    # with an input inverter and output inverters
     "buffered": LvShiftParams(input_inverter=True, buffers=True),
 }

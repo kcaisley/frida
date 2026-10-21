@@ -2,7 +2,7 @@
 Cascode bias generator for FRIDA.
 
 From one reference current, the four gate voltages a cascoded current source of each type needs
-(RD53B ``MIRROR_CASCODE_BIAS``, ``TO_VBIAS_KRUM``; the wide-swing bias of Johns and Martin):
+ (the wide-swing bias of Johns and Martin):
 - ``vbn``, ``vbp``: each a self-cascoded diode, its mirror device under a cascode on ``vcasn`` or
   ``vcasp``, so the reference's mirror device sits at the drain-source voltage an output's does
 - ``vcasn``, ``vcasp``: each a diode-connected device weaker than the mirror device (its W/L a

@@ -1,7 +1,7 @@
 """Typed level shifter measurements, results, and analyses.
 
-A ``MeasLvShift`` is one transient of the shared level shifter testbench. The figures follow
-bag3_digital's level shifter benches, on the case's output (bufp for a buffered shifter, outp
+A ``MeasLvShift`` is one transient of the shared level shifter testbench. The figures are taken
+on the case's output (bufp for a buffered shifter, outp
 otherwise): the delays from the input's crossing at half the low supply to the output's at half
 vdd, the share of input edges the output followed, its levels, the energy per input period from
 both supplies, and the idle supply current once the output has settled.

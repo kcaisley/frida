@@ -32,7 +32,7 @@ GENERATOR = Comp
 # doubled, and the input pair and tail at twice their length
 WIDTHS = ("diffpair_w", "tail_w", "rst_w", "latch_on_w", "latch_init_w", "srlatch_n_w", "srlatch_p_w")
 SIZINGS = {
-    # no width under 4 units: half of the 4-unit output latch would fall below TSMC28's 90 nm minimum
+    # no width under 4 units: half of the 4-unit output latch would fall below the finest PDK's minimum width
     "x0.5": {name: max(4, TOPOLOGY_SIZES[name] // 2) for name in WIDTHS},
     "x1": {},
     "x2": {name: 2 * TOPOLOGY_SIZES[name] for name in WIDTHS},

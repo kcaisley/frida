@@ -31,7 +31,7 @@ TOPOLOGIES = {
 }
 # every width scaled together (x0.25 to x4: the switch, the bootstrap's helpers and its boost
 # capacitor), the switch at twice its length, and the boost capacitor alone doubled; no width under
-# 4 units (TSMC28's 90 nm minimum: the 4-unit helpers stay)
+# 4 units (the finest PDK's minimum width: the 4-unit helpers stay)
 BASE = SampParams()
 WIDTHS = ("mos_w", "boot_w", "cap_w")
 SIZINGS = {

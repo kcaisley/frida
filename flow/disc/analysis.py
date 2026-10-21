@@ -1,8 +1,7 @@
 """Typed discriminator measurements, results, and analyses.
 
 A ``MeasDisc`` is one transient of the discriminator testbench: the slow triangle across the
-threshold, or one step from below it to an overdrive above it and back. The figures are those of
-the group's comparator benches (DHPT ``Comparator_normal_TB``), each a calculator function of
+threshold, or one step from below it to an overdrive above it and back. The figures are each a calculator function of
 ``flow.analysis.calc``: the input where the output crosses mid-supply on the triangle's way up and
 down (``cross``, ``value``), whose mean is the offset and whose difference the hysteresis; each
 step edge's delay from the input's threshold crossing to the output's mid-supply crossing

@@ -1,6 +1,6 @@
 """Level shifter testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows bag3_digital's level shifter benches: input pulses at the low supply's
+The testbench: input pulses at the low supply's
 levels (and their complement, unless the shifter makes it), a reset for the first quarter
 period, a load on every output, and both supplies' currents. Every case gets the same stimulus.
 The characterization sweeps the input supply (the shifter's figure: how low it still switches)
@@ -73,7 +73,7 @@ def _validate_lvshift_tb_params(params: LvShiftTbParams) -> None:
 
 @h.generator
 def LvShiftTb(params: LvShiftTbParams) -> h.Module:
-    """Generate the level shifter testbench (bag3_digital's level shifter bench): complementary
+    """Generate the level shifter testbench: complementary
     input pulses at vddl levels, rst high for the first quarter period, a load on each output and
     buffered output."""
 

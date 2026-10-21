@@ -1,21 +1,20 @@
 """
 Charge-sensitive amplifier generator for FRIDA.
 
-The preamplifier core of the group's pixel front ends (DHPT ``CSA_Core``, FE-I4
-``PreampNscasCore``, RD53 ``lcamp_casc``, CCPD ``CSA_cont`` and ``CSA_sw``): an input device, its
+A pixel front end's preamplifier core: an input device, its
 cascode and a current-source load of the other type, a cascoded common-source stage whose output
 ``out`` returns to the input through the feedback capacitor and one of three discharges.
 Supports, with an NMOS or PMOS input device:
-- Krummenacher feedback (RD53A ``Krummenacher_feedback``): a differential pair of the other type,
+- Krummenacher feedback: a differential pair of the other type,
   its tail biased by ``vfb``, compares ``out`` with ``vref`` and feeds the input from one side and
   through a mirror of the input's type from the other; the mirror, its gate filtered by a MOS
   capacitor, holds the output's baseline near ``vref`` and follows the detector's slow leakage,
   while under signal the pair switches and returns the input at half the tail current (a time
   over threshold linear in the charge)
-- Continuous feedback (CCPD ``CSA_cont``): one long device of the input's type across the
+- Continuous feedback: one long device of the input's type across the
   capacitor, its gate biased by ``vfb``: a large resistance at rest, a constant current under
   signal
-- Reset feedback (CCPD ``CSA_sw``): a switch of the input's type across the capacitor, closed
+- Reset feedback: a switch of the input's type across the capacitor, closed
   while ``vfb`` turns it on
 
 The feedback capacitor ``cf`` belongs to simulation: the row cells draw MOS only, and the
@@ -148,12 +147,12 @@ def write_netlist(params: CsaParams, path: Path, pdk) -> Path:
 # ==== Named amplifiers ====
 
 CASES = {
-    # NMOS input, Krummenacher feedback (RD53A Krummenacher_feedback on a lcamp_casc-like core)
+    # NMOS input, Krummenacher feedback
     "krum": CsaParams(),
     # PMOS input, Krummenacher feedback
     "krum_pmos": CsaParams(input_xtors=MosType.PMOS),
-    # NMOS input, a long feedback device (CCPD CSA_cont)
+    # NMOS input, a long feedback device
     "continuous": CsaParams(feedback=Feedback.CONTINUOUS, fb_l=16),
-    # NMOS input, a reset switch (CCPD CSA_sw)
+    # NMOS input, a reset switch
     "reset": CsaParams(feedback=Feedback.RESET, fb_l=1),
 }

@@ -1,10 +1,9 @@
 """Discriminator testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows the group's pixel comparator benches (DHPT ``Comparator_normal_TB``: the
-input at the output's rising crossing less the reference, the offset, and the crossing's time
-after the input's, the timewalk; LF-Monopix2 ``TB_CSA_NMOS_DisV1``): the threshold a DC level on
+The testbench measures the offset (the input at the output's rising crossing less the reference)
+and the timewalk (the crossing's time after the input's): the threshold a DC level on
 ``inn``, the tail and output current sources biased by a diode-connected copy fed the bias current
-from a supply of its own (Usb2Phy's ``UnityGainTb``), the output loaded by the next gate's input.
+from a supply of its own, the output loaded by the next gate's input.
 ``inp`` either ramps slowly up across the threshold and back down (a triangle, its trip points:
 offset and hysteresis), or steps from well below the threshold (a front end's baseline) to an
 overdrive above it and back (the delay of each edge, and over the overdrive the timewalk).

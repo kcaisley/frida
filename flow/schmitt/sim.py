@@ -1,8 +1,7 @@
 """Schmitt trigger testbench and named Spectre simulation targets, in every PDK.
 
 The input either ramps slowly from ground to the supply and back (a triangle: the trip points
-on the way up and down, their difference the hysteresis, as the group's power-on reset benches
-check them) or steps rail to rail and back with fast edges (each edge's delay, the output's
+on the way up and down, their difference the hysteresis) or steps rail to rail and back with fast edges (each edge's delay, the output's
 transitions and the energy per cycle); the output drives the next gate's input.
 """
 

@@ -1,7 +1,7 @@
 """
 Ring amplifier generator for FRIDA.
 
-A single-ended ring amplifier (after BAG's ringamp_se): an input inverter on common-mode-biased
+A single-ended ring amplifier: an input inverter on common-mode-biased
 tails, split by the enable switches into the two halves that drive the dead-zone stage, whose
 bias devices set the dead zone between ctrlp and ctrln, and an output inverter of the two ctrl
 nodes. With en low the amplifier is off: the dead-zone nodes go to the rails and the output
@@ -113,7 +113,7 @@ def write_netlist(params: RingampParams, path: Path, pdk) -> Path:
 # ==== Named ring amplifiers ====
 
 CASES = {
-    # single-ended ring amplifier (BAG ringamp_se)
+    # single-ended ring amplifier
     "se": RingampParams(),
     # with a twice-as-strong output stage
     "se_strong": RingampParams(out_w=32),

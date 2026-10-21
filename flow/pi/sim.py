@@ -1,9 +1,9 @@
 """Phase interpolator testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows Usb2Phy's ``PhaseInterpTb``: two clock phases, A and B a set spacing
+The testbench: two clock phases, A and B a set spacing
 later, with their complements, current-reference biases (from a supply of their own) and a load
-on each output; Usb2Phy measures the
-output's differential crossing (``.measure tdelay when V(dck_p)-V(dck_n)=0``). Here the cases'
+on each output; delays are taken at the
+output's differential crossing. Here the cases'
 weights are fixed, so the characterization sweeps the phase spacing (the interpolator's
 transfer and linearity) and the clock period at quadrature spacing.
 """
@@ -75,7 +75,7 @@ def _validate_pi_tb_params(params: PiTbParams) -> None:
 
 @h.generator
 def PiTb(params: PiTbParams) -> h.Module:
-    """Generate the phase interpolator testbench (Usb2Phy ``PhaseInterpTb``): phase A and phase
+    """Generate the phase interpolator testbench: phase A and phase
     B ``spacing_deg`` later, full-swing (CMOS) or at CML levels, both complements;
     current-reference biases, a load on each output."""
 
@@ -100,7 +100,7 @@ def PiTb(params: PiTbParams) -> h.Module:
                 )(p=net, n=vss),
                 name=f"vphase_{phase}{side}",
             )
-    # the bias references, as Usb2Phy's benches bias: a diode-connected copy of a CML tail unit on
+    # the bias references: a diode-connected copy of a CML tail unit on
     # vbn, fed a unit's current, and of a load on vbp, fed half of all the units'; from their own
     # supply, so the interpolator's is its own current
     pi = params.pi

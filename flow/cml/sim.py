@@ -1,6 +1,6 @@
 """CML testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows Usb2Phy's CML benches (``CmlDivTb`` and its ``DiffClkGen``): differential
+The testbench: differential
 pulses between the CML levels on the data input and on the clock (an XOR's second input; a latch's
 or divider's clock a quarter of the supply below the data, ``drive_levels``), current-reference
 biases (a diode-connected copy fed the tail current, from a supply of its own) and a load on each
@@ -94,7 +94,7 @@ def _validate_cml_tb_params(params: CmlTbParams) -> None:
 
 @h.generator
 def CmlTb(params: CmlTbParams) -> h.Module:
-    """Generate the CML testbench (Usb2Phy ``CmlDivTb``'s ``DiffClkGen``): differential data and
+    """Generate the CML testbench: differential data and
     clock pulses between the CML levels, current-reference biases, a load on each output."""
 
     _validate_cml_tb_params(params)
@@ -114,7 +114,7 @@ def CmlTb(params: CmlTbParams) -> h.Module:
                 Vpulse(v1=v1, v2=v2, period=period, width=period / 2, delay=period / 4, **edge)(p=net, n=vss),
                 name=f"v{name}{side}",
             )
-    # the bias references, as Usb2Phy's benches bias: a diode-connected copy of the tail on the
+    # the bias references: a diode-connected copy of the tail on the
     # input type's bias, fed the tail current, and of a load on the other, fed half of it
     cml = params.cml
     tail = (cml.tail_w, cml.tail_l, params.tail_current_a)

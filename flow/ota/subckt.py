@@ -276,15 +276,15 @@ def write_netlist(params: OtaParams, path: Path, pdk) -> Path:
 # ==== Named amplifiers ====
 
 CASES = {
-    # five-transistor amplifier, NMOS input (Usb2Phy NmosOpAmp5T, BAG diffamp)
+    # five-transistor amplifier, NMOS input
     "five_t": OtaParams(),
-    # five-transistor amplifier, PMOS input (Usb2Phy PmosOpAmp5T)
+    # five-transistor amplifier, PMOS input
     "five_t_pmos": OtaParams(input_xtors=MosType.PMOS),
     # telescopic cascode, NMOS input (CT-DS stage1_telescopic_amplifier)
     "telescopic": OtaParams(topology=Topology.TELESCOPIC),
-    # folded cascode, NMOS input (Usb2Phy Fcasc, without its bias network)
+    # folded cascode, NMOS input
     "folded": OtaParams(topology=Topology.FOLDED),
-    # self-biased complementary amplifier (bag3_analog diffamp_self_biased)
+    # self-biased complementary amplifier
     "self_biased": OtaParams(topology=Topology.SELF_BIASED),
     # telescopic first stage with common-source second stages (CT-DS two_stage_amplifier, no Miller RC)
     "two_stage": OtaParams(topology=Topology.TELESCOPIC, two_stage=True),

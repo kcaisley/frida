@@ -2,8 +2,7 @@
 
 A ``MeasCsa`` is one transient of the amplifier testbench: the output's response to one injected
 charge. A ``MeasCsaNoise`` is the output noise density without charge, and the operating point
-(supply current, input and output levels) in its run readbacks. The figures are those of the
-group's front-end benches (LF-Monopix2 ``TB_CSA_NMOS``), each a calculator function of
+(supply current, input and output levels) in its run readbacks. The figures are each a calculator function of
 ``flow.analysis.calc``: the baseline before the charge (``average``), the peak above it (``ymax``)
 and the gain per charge, the peaking and 10–90 % rise time of the leading edge (``xmax``,
 ``riseTime``), the time over a threshold (``cross``), the return to the baseline (``settlingTime``),

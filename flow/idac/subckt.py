@@ -116,12 +116,12 @@ def write_netlist(params: IdacParams, path: Path, pdk) -> Path:
 # ==== Named units ====
 
 CASES = {
-    # switched NMOS unit (Usb2Phy NmosIdac's unit), two of them
+    # switched NMOS unit, two of them
     "nmos_switched": IdacParams(units=2),
-    # cascoded PMOS unit steered between the output and the dump (Usb2Phy PmosIdacUnit)
+    # cascoded PMOS unit steered between the output and the dump
     "pmos_steer_cas": IdacParams(source_xtors=MosType.PMOS, cascode=True, switch=Switch.STEER),
-    # four NMOS units steered between two outputs (Usb2Phy cmlpi IdacUnit, I/Q steering)
+    # four NMOS units steered between two outputs
     "nmos_steer": IdacParams(units=4, switch=Switch.STEER),
-    # PMOS bias mirror: a diode reference and two cascoded always-on units (Usb2Phy PmosBiasDist)
+    # PMOS bias mirror: a diode reference and two cascoded always-on units
     "pmos_mirror": IdacParams(source_xtors=MosType.PMOS, units=2, cascode=True, switch=Switch.NONE, diode=True),
 }

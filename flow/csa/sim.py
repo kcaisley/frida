@@ -1,10 +1,9 @@
 """Charge-sensitive amplifier testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows the group's pixel benches (LF-Monopix2 ``TB_CSA_NMOS``, DHPT
-``CSA_Core_TB``): the input loaded by the detector capacitance, the charge injected through a
+The testbench: the input loaded by the detector capacitance, the charge injected through a
 small capacitor by a voltage step, the output loaded by the discriminator's input. The load's and
 the Krummenacher tail's biases are diode-connected copies of their devices fed the bias currents
-from a supply of their own (Usb2Phy's ``UnityGainTb``). The cascode's is a copy fed the load
+from a supply of their own. The cascode's is a copy fed the load
 current standing a little off the input device's rail, so that the input device keeps that much
 of a drain-source voltage; the continuous feedback's gate a copy of the feedback device fed its
 current standing on a copy of the input device, so that at rest the feedback device carries that

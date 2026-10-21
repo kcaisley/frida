@@ -102,11 +102,11 @@ def write_netlist(params: MosCapParams, path: Path, pdk) -> Path:
 # ==== Named capacitors ====
 
 CASES = {
-    # two NMOS decap units (BAG decap_array of NMOS units)
+    # two NMOS decap units
     "decap_n": MosCapParams(units=2),
-    # complementary decap: an NMOS and a PMOS (BAG decap)
+    # complementary decap: an NMOS and a PMOS
     "decap_np": MosCapParams(devices=Devices.BOTH),
-    # two-net NMOS capacitor, two units (BAG mos_cap; the sampler's boost capacitor)
+    # two-net NMOS capacitor, two units (the sampler's boost capacitor)
     "cap_n": MosCapParams(mode=Mode.CAP, units=2),
     # two-net PMOS capacitor, two units
     "cap_p": MosCapParams(mode=Mode.CAP, devices=Devices.PMOS, units=2),

@@ -2,7 +2,7 @@
 
 | Feature | Status | File | Notes |
 |---|---|---|---|
-| Netlist generator | ✓ | [subckt.py](subckt.py) | NMOS, PMOS, or transmission-gate switch; half-size charge-injection dummies; bootstrapped NMOS gate (after ciccreator's SARBSSW and BAG's bootstrap, with a MOS boost capacitor); PDK-compiled devices fingered to the row cells. |
+| Netlist generator | ✓ | [subckt.py](subckt.py) | NMOS, PMOS, or transmission-gate switch; half-size charge-injection dummies; bootstrapped NMOS gate; PDK-compiled devices fingered to the row cells. |
 | Netlist tests | ✓ | [test_subckt.py](test_subckt.py) | Generator checks, dummies and bootstrap wiring. |
 | Testbench generator | ✓ | [sim.py](sim.py) | Complementary clocks (tracking while `clk` is high), an input level, and a load capacitor; with an input step the input toggles by it once per period in mid-hold, so every track phase settles from a known step. |
 | Simulation runners | ✓ | [sim.py](sim.py) | `samp_characterization`: every named switch into 1 pF at a 10 ns clock, its input stepping a twelfth of the supply each period, over input levels 1/12–11/12 of the supply and over the supply (75–108 %, mid-supply input), in each PDK (16 runs per case and PDK, all 384 in under two minutes on 16 workers); `frida1_transient` stays the TSMC65 FRIDA-1 reference. `check=True` runs Spectre's static checks. |

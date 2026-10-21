@@ -1,12 +1,11 @@
 """Latch, flip-flop, divider and SR latch testbench and named Spectre simulation targets, in every PDK.
 
-The testbench follows BAG's flip-flop and latch timing benches (bag3_digital's liberty
-characterization): complementary clocks, data that toggles once per cycle and arrives a set
+The testbench, a flip-flop and latch timing characterization: complementary clocks, data that toggles once per cycle and arrives a set
 offset before every capturing edge (the rising edge of a flip-flop, the closing falling edge of a
 latch), an initial reset, and output loads. Sweeping that offset finds setup and hold; the SR
 latches get set and reset pulses on the same bench, and a divider ignores the data.
 
-The upset bench is the radiation-hardness one (FE-I4's and RD53's SEU benches): a latch takes a 1
+The upset bench is the radiation-hardness one: a latch takes a 1
 and holds it, and a double-exponential current pulse (5 ps rise, 50 ps fall) puts a charge on the
 storage node that then holds a 0 (the C2MOS latch's inner node, the DICE latch's ``x1``, neither
 loaded), as a particle strike would; whether q flips, over the charge, is the latch's critical

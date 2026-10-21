@@ -160,7 +160,7 @@ def _build_latch(module, param: CmlParams, name: str, data, clock, outs):
 
 def _build_xor(module, param: CmlParams):
     """A CML XOR: each input pair's devices steer the tail current into a top device of the other
-    input, so outp is low where the inputs agree and high where they differ (Usb2Phy's CmlXor)."""
+    input, so outp is low where the inputs agree and high where they differ."""
     tp, _, rail, _, _, _ = _types(module, param)
     tail = _build_tail(module, param, "")
     a, b = (module.inp, module.inn), (module.clkp, module.clkn)
@@ -191,14 +191,14 @@ def write_netlist(params: CmlParams, path: Path, pdk) -> Path:
 # ==== Named gates ====
 
 CASES = {
-    # NMOS-input buffer with symmetric loads (Usb2Phy CmlBuf, CmlDelayBuf; loads without resistors)
+    # NMOS-input buffer with symmetric loads (loads without resistors)
     "buffer": CmlParams(),
-    # PMOS-input buffer with NMOS symmetric loads (Usb2Phy PmosCmlStage)
+    # PMOS-input buffer with NMOS symmetric loads
     "buffer_pmos": CmlParams(input_xtors=MosType.PMOS),
-    # clocked latch with triode loads (Usb2Phy CmlLatch, bag3_digital cml_latch_res without resistors)
+    # clocked latch with triode loads
     "latch": CmlParams(function=Function.LATCH, load=Load.TRIODE),
-    # divide-by-two of two latches (Usb2Phy CmlDiv)
+    # divide-by-two of two latches
     "divider": CmlParams(function=Function.DIVIDER, load=Load.TRIODE),
-    # XOR of the two input pairs (Usb2Phy CmlXor)
+    # XOR of the two input pairs
     "xor": CmlParams(function=Function.XOR),
 }

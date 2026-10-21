@@ -15,5 +15,3 @@
 | DRC runner | ✓ | [layout.py](layout.py) | gdscheck and the PDK's DRC for every layout (`row_signoff`). |
 | LVS runner | ✓ | [layout.py](layout.py) | The PDK's LVS for every layout against the netlist the build placed. |
 | PEX runner | ✗ | - | No extraction. |
-
-Inspiration: RD53A `SchmittTrigger` (the power-on reset's), helena `inv_schmitttrigger`, `schmitttrigger`.

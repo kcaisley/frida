@@ -6,10 +6,10 @@ Supports:
   asynchronous reset) to the output, and a weaker clocked inverter feeding the output back
 - Master-slave flip-flops of two such latches, and divide-by-two flip-flops (qb fed back to d)
 - True single-phase clock (TSPC) flip-flops and dividers: three dynamic stages on clk alone and
-  an output inverter (dmc65 ``DIV2_SeTSPC``)
+  an output inverter
 - Dual interlocked storage cell (DICE) latches: four nodes, each driven up by one neighbour and
   down by the other and written by a clocked inverter of its own, so that an upset of any one
-  node does not flip the stored bit (FE-I4 ``SEU_latch``, helena ``latch9_dice``)
+  node does not flip the stored bit
 - Cross-coupled NAND or NOR SR latches
 """
 
@@ -248,22 +248,22 @@ def write_netlist(params: LatchParams, path: Path, pdk) -> Path:
 # ==== Named latches ====
 
 CASES = {
-    # static C2MOS latch (bag3_digital latch, BAG clk_retime_latch)
+    # static C2MOS latch
     "latch": LatchParams(),
-    # latch with asynchronous reset (bag3_digital rst_latch)
+    # latch with asynchronous reset
     "latch_rst": LatchParams(reset=True),
-    # master-slave flip-flop with reset (bag3_digital rst_flop, ciccreator DFRNQNX1)
+    # master-slave flip-flop with reset
     "flop_rst": LatchParams(flop=True, reset=True),
-    # divide-by-two flip-flop with reset (bag3_digital div2, BAG vco_cnter_div)
+    # divide-by-two flip-flop with reset
     "div2": LatchParams(flop=True, divider=True, reset=True),
     # TSPC flip-flop (Yuan and Svensson)
     "flop_tspc": LatchParams(style=Style.TSPC, flop=True),
-    # TSPC divide-by-two (dmc65 DIV2_SeTSPC)
+    # TSPC divide-by-two
     "div2_tspc": LatchParams(style=Style.TSPC, flop=True, divider=True),
-    # DICE latch, upset-immune to one node (FE-I4 SEU_latch, helena latch9_dice)
+    # DICE latch, upset-immune to one node
     "latch_dice": LatchParams(style=Style.DICE),
-    # NAND SR latch (BAG sr_nand)
+    # NAND SR latch
     "sr_nand": LatchParams(style=Style.SR_NAND),
-    # NOR SR latch (bag3_digital sr_latch_symmetric_core, the comparator's held output)
+    # NOR SR latch
     "sr_nor": LatchParams(style=Style.SR_NOR),
 }

@@ -10,19 +10,3 @@
 | Plots | ✓ | [plots.py](plots.py) | Per PDK: Id-Vgs and gm/Id per device over its lengths, Id-Vds at twice the minimum length, gate-referred noise, transient against small-signal noise, the Pelgrom plot, Spectre against ngspice. Run by `python -m flow mosfet.characterization_study`. |
 | Analysis tests | ✓ | [test_analysis.py](test_analysis.py) | A square-law device of known threshold, gm/Id and output conductance; 1/f-plus-white noise of known corner; white transient noise and Gaussian mismatch of known density and spread; every plot renders. |
 | Layout | - | - | A single device: the row-cell generators' MOS cells. |
-
-Run 20261020_132427, each PDK's devices at twice the minimum length:
-
-- **Threshold:** 0.21 V (TPSC65 SLVT PMOS) to 0.72 V (LF150 low-leakage PMOS).
-- **Subthreshold swing:** 70–80 mV/decade (Tower180's HVT devices 87–92).
-- **Peak gm/Id:** 24–32 V⁻¹.
-- **Flicker corners:** 0.5–60 MHz, the NMOS an order above the PMOS.
-- **Spectre against ngspice:** the threshold within 0.1 mV and the on current within 0.2 % in TSMC65, IHP130 and TPSC65 (the same BSIM4 and PSP models).
-- **A_VT:**
-  - TSMC28: 0.9–1.3 mV·µm.
-  - IHP130: 2.6–3.4 mV·µm.
-  - TPSC65: 3.2–4.2 mV·µm.
-  - Tower180: 2.7–4.4 mV·µm (18 for its HVT NMOS, worth a check against the kit's matching data).
-- **Transient against small-signal noise:** the transient record's drain noise density lies within about 15 % of the small-signal analysis's above 1 MHz.
-
-Inspiration: the gm/Id methodology (Jespers and Murmann), BAG's `mos_char` characterization.

@@ -118,12 +118,12 @@ def write_netlist(params: FollowerParams, path: Path, pdk) -> Path:
 # ==== Named followers ====
 
 CASES = {
-    # NMOS source follower with an NMOS current source (BAG source_follower), output-buffer sized
+    # NMOS source follower with an NMOS current source, output-buffer sized
     "source": FollowerParams(in_w=32, bias_w=16),
     # PMOS source follower with a PMOS current source, output-buffer sized
     "source_pmos": FollowerParams(input_xtors=MosType.PMOS, in_w=32, bias_w=16),
-    # NMOS flipped voltage follower (BAG super_source_follower_n, without its bias DACs)
+    # NMOS flipped voltage follower
     "flipped": FollowerParams(topology=Topology.FLIPPED),
-    # PMOS flipped voltage follower with an output sink (BAG super_source_follower_p, without its bias DACs)
+    # PMOS flipped voltage follower with an output sink
     "flipped_pmos": FollowerParams(topology=Topology.FLIPPED, input_xtors=MosType.PMOS, sink=True),
 }

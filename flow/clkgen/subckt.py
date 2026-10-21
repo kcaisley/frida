@@ -101,10 +101,10 @@ def write_netlist(params: ClkgenParams, path: Path, pdk) -> Path:
 # ==== Named clock functions ====
 
 CASES = {
-    # non-overlapping two-phase clocks (BAG clk_local_nonoverlap)
+    # non-overlapping two-phase clocks
     "nonoverlap": ClkgenParams(),
-    # rising-edge pulse (BAG sar_async_pulse, Usb2Phy PulseGen)
+    # rising-edge pulse
     "pulse": ClkgenParams(function=Function.PULSE, delay=4),
-    # glitch-free clock gate (bag3_digital clk_gate)
+    # glitch-free clock gate
     "gate": ClkgenParams(function=Function.GATE),
 }

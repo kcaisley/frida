@@ -1,7 +1,7 @@
 """Typed latch, flip-flop, divider and SR latch measurements, results, and analyses.
 
-A ``MeasLatch`` is one transient of the shared latch testbench. Timing follows BAG's sequential
-characterization: delays at mid-supply, a capturing edge's data either taken (the new value) or
+A ``MeasLatch`` is one transient of the shared latch testbench. Timing as a sequential
+cell characterization takes it: delays at mid-supply, a capturing edge's data either taken (the new value) or
 not (the old one), setup where the delay has grown by 10 % (the liberty pushout), hold where the
 old value is still held. On the upset bench, a latch holding a 1 either keeps it after a strike's
 charge on its storage node or flips; the smallest charge that flips it is its critical charge.

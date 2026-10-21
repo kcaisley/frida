@@ -4,7 +4,7 @@ A ``MeasPi`` is one transient of the shared interpolator testbench. Each figure 
 three clock periods of start-up, on the differential signals (a CMOS interpolator's mix node is
 its outn): the output's delay from phase A's rising crossing, as a phase, the swing and duty
 cycle. Over a spacing sweep, an ideal interpolator's delay rises by phase B's weight share of the
-spacing (Usb2Phy's code-to-delay slope); the linearity fit over quadrature gives that slope and the deviation
+spacing; the linearity fit over quadrature gives that slope and the deviation
 from it.
 """
 

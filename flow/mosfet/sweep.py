@@ -37,7 +37,7 @@ TOPOLOGIES = {
     for name, vth in (("ulvt", MosVth.ULTRA_LOW), ("lvt", MosVth.LOW), ("svt", MosVth.STD), ("hvt", MosVth.HIGH))
 }
 # the characterization's lengths (1 to 8 times the minimum) at its width, and a narrow and a wide
-# device at twice the minimum length (no width under 4 units: TSMC28's 90 nm minimum)
+# device at twice the minimum length (no width under 4 units: the finest PDK's minimum width)
 SIZINGS = {
     **{f"l{length}": {"w": WIDTH, "l": length} for length in (1, 2, 4, 8)},
     "narrow": {"w": WIDTH // 2, "l": 2},

@@ -132,11 +132,11 @@ def write_netlist(params: PiParams, path: Path, pdk) -> Path:
 # ==== Named interpolators ====
 
 CASES = {
-    # CMOS, the two phases at equal weight (Usb2Phy flashpi PhaseWeighter, cmospi FineInterp)
+    # CMOS, the two phases at equal weight
     "cmos_half": PiParams(),
     # CMOS, three slices of A to one of B
     "cmos_quarter": PiParams(weight_a=3, weight_b=1),
-    # CML, equal tails (Usb2Phy cmlpi PhaseInterp with its IDAC at mid code)
+    # CML, equal tails
     "cml_half": PiParams(style=Style.CML),
     # CML, three tail units of A to one of B
     "cml_quarter": PiParams(style=Style.CML, weight_a=3, weight_b=1),
