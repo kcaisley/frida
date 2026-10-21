@@ -51,3 +51,45 @@ def test_strongarm_is_one_stage_and_the_inverters_one_stack(tmp_path: Path) -> N
     texts = {t.text for t in root.iter("{http://www.w3.org/2000/svg}text")}
     # single-gate inputs get flags, the outputs flags at the trunk ends, clk a label per gate
     assert {"inp", "inn", "outp", "outn", "clk"} <= texts
+
+
+# A CML latch: the input and hold pairs both on the clock pair's drains, side by side.
+CML_LATCH = """
+.subckt latch inp inn clkp clkn outp outn vbn vbp vdd vss
+Mtail tail vbn vss vss nmos
+Mclk_p track clkp tail vss nmos
+Mclk_n hold clkn tail vss nmos
+Min_p outn inp track vss nmos
+Min_n outp inn track vss nmos
+Mhold_p outn outp hold vss nmos
+Mhold_n outp outn hold vss nmos
+Mload_p outp vbp vdd vdd pmos
+Mload_n outn vbp vdd vdd pmos
+.ends
+"""
+
+
+def test_cml_latch_keeps_its_outputs_apart(tmp_path: Path) -> None:
+    from flow.util.netlist2image import TRACK, levels, parse, stages, symmetry
+
+    netlist = tmp_path / "latch.sp"
+    netlist.write_text(CML_LATCH)
+    ports, devs = parse(netlist)
+    row, _ = levels(devs, stages(ports, devs, symmetry(devs, None)[2]))
+    # parallel pairs share a row: one on another's common source does not push it down a row
+    assert row["Min_p"] == row["Min_n"] == row["Mhold_p"] == row["Mhold_n"]
+    assert row["Mclk_p"] == row["Mclk_n"]
+    svg = tmp_path / "latch.svg"
+    render(netlist, svg)
+    # no two junctions in one column within two tracks: two nets' wires there read as one (the
+    # outputs drawn tied together, where a load's drain ran through the other output's trunk)
+    root = ET.parse(svg).getroot()
+    dots = [
+        (float(c.get("cx")), float(c.get("cy")))
+        for c in root.iter("{http://www.w3.org/2000/svg}circle")
+        if c.get("fill") == "#000"  # junctions, not the symbols' gate bubbles
+    ]
+    assert dots
+    for i, (x, y) in enumerate(dots):
+        for x2, y2 in dots[i + 1 :]:
+            assert not (abs(x - x2) < 1 and abs(y - y2) <= 2 * TRACK), (x, y, x2, y2)

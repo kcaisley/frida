@@ -219,10 +219,15 @@ def levels(devs, stage):
             while frontier:
                 nets = {x for n in frontier for x in (mem[n]["d"], mem[n]["s"])} - set(SUPPLY)
                 frontier = [n for n, d in mem.items() if d["pol"] == pol and n not in lvl and {d["d"], d["s"]} & nets]
+                # from the rounds before alone: devices of one round (a pair on its common source,
+                # a latch's input and hold pairs on the clock pair's drains) share a row
+                before = dict(lvl)
                 for n in frontier:
                     lvl[n] = (
                         max(
-                            lvl[m] for m in lvl if {mem[m]["d"], mem[m]["s"]} & {mem[n]["d"], mem[n]["s"]} - set(SUPPLY)
+                            before[m]
+                            for m in before
+                            if {mem[m]["d"], mem[m]["s"]} & {mem[n]["d"], mem[n]["s"]} - set(SUPPLY)
                         )
                         + 1
                     )
@@ -344,9 +349,19 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN):
         return ch <= p[4] if bottom else ch > p[4]
 
     def jog_x(p):
-        """A column beside the device, past its name on the side away from the gate."""
-        text = len(p[0]) * CHAR_W + 14
+        """A column beside the device, past its name on the side away from the gate (staggered by
+        row, so jogs out of one column keep apart)."""
+        text = len(p[0]) * CHAR_W + 14 + 8 * (p[4] % 3)
         return round(p[2] - text) if p[0] in mirrored else round(p[2] + text)
+
+    def blocked(p, ch):
+        """Whether the straight wire from a drain or source to channel ``ch`` passes another device
+        of its column: it would read as joined to that device's pins."""
+        bottom = p[3] > ys[p[4]] + DEV_H / 2 if ys else False
+        passed = range(p[4] + 1, ch) if bottom else range(ch, p[4])
+        return any(m != p[0] and pos[m][0] == pos[p[0]][0] and row[m] in passed for m in devs)
+
+    forced = set()  # (net, device, pin): drains and sources jogged off another net's wire
 
     def route(ys):
         all_pins = defaultdict(list)
@@ -367,8 +382,10 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN):
                 p[2] + (((-1 if p[0] not in mirrored else 1) * (16 + 10 * (p[4] % 3))) if p[1] == "G" else 0)
                 for p in ps
             ]
-            for i, p in enumerate(ps):  # a drain/source whose trunk lies past its own device: jog around it
-                if p[1] != "G" and crosses(p, ch, ys):
+            # a drain/source whose trunk lies past its own device, or past another of its column, or
+            # whose wire would run along another net's: jog around it
+            for i, p in enumerate(ps):
+                if p[1] != "G" and (crosses(p, ch, ys) or blocked(p, ch) or (net, p[0], p[1]) in forced):
                     xs[i] = jog_x(p)
             plan[net] = (ch, ps, xs)
             hi = max(xs + ([width - 60] if net in ports and net.startswith("out") else []))  # the output flag's run
@@ -388,11 +405,53 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN):
             chans[ch] = lanes
         return all_pins, plan, tracks, chans
 
+    def trunk_y(ch, net, chans, tracks):
+        chan_top = (ys[ch] if ch < nrows else height - 60) - 30 - (len(chans[ch]) + 1) * TRACK
+        return chan_top + (tracks[(ch, net)] + 1) * TRACK
+
+    def verticals(plan, tracks, chans):
+        """Every wire's vertical runs: (x, y0, y1, net, (net, device, pin))."""
+        runs = []
+        for net, (ch, ps, xs) in plan.items():
+            ty = trunk_y(ch, net, chans, tracks)
+            for (n, pin, x, y, r), sx in zip(ps, xs, strict=True):
+                if pin != "G" and sx != x:
+                    yy = y + (10 if y > ys[r] + DEV_H / 2 else -10)
+                    runs += [(x, y, yy, net, None), (sx, yy, ty, net, (net, n, pin))]
+                else:
+                    runs.append((sx, y, ty, net, (net, n, pin) if pin != "G" else None))
+        return runs
+
+    def collisions(plan, tracks, chans):
+        """Drains and sources whose vertical touches another net's at the same x, or ends within a
+        track of it: two junctions a track apart in one column read as one wire."""
+        runs = verticals(plan, tracks, chans)
+        found = set()
+        for i, (x, a0, a1, net, key) in enumerate(runs):
+            for x2, b0, b1, net2, key2 in runs[i + 1 :]:
+                gap = max(min(a0, a1), min(b0, b1)) - min(max(a0, a1), max(b0, b1))
+                if abs(x - x2) < 1 and net != net2 and gap <= TRACK:
+                    # jog the one not yet jogged, a drain or source (a gate's run is staggered already)
+                    for k in (key, key2):
+                        if k and k not in forced:
+                            found.add(k)
+                            break
+        return found
+
+    ys, height = [], 0
     ys, height = place_rows({})
     for _ in range(2):
         _, plan, tracks, chans = route(ys)
         ys, height = place_rows(chans)
     _, plan, tracks, chans = route(ys)
+    for _ in range(4):  # jog until no two nets' wires run together
+        found = collisions(plan, tracks, chans)
+        if not found:
+            break
+        forced |= found
+        _, plan, tracks, chans = route(ys)
+        ys, height = place_rows(chans)
+        _, plan, tracks, chans = route(ys)
 
     svg = [
         f'<rect x="{a - 20}" y="20" width="{b - a + 40}" height="{height - 40}" stroke="#999" stroke-dasharray="6 4"/>'
@@ -414,8 +473,7 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN):
                 else:
                     svg += label(net, x, y, side)
     for net, (ch, ps, xs) in plan.items():
-        chan_top = (ys[ch] if ch < nrows else height - 60) - 30 - (len(chans[ch]) + 1) * TRACK
-        ty = chan_top + (tracks[(ch, net)] + 1) * TRACK
+        ty = trunk_y(ch, net, chans, tracks)
         a, b = min(xs), max(xs)
         if net in ports and net not in SUPPLY:  # an output or a multi-pin port: a flag at the trunk's end
             b = max(b, width - 60) if net.startswith("out") else b
