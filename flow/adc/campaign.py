@@ -5,14 +5,14 @@ model (``flow.adc.model``), each of which turns one into a ``MeasAdc``.
 - ``ramp_train`` and ``ramp_check``: eight full-scale sawtooth periods with one Harpe capacitor
   draw, independent noise: the code density, INL and DNL, and the calibrations learned from the
   training ramp and checked on the other.
-- ``rate_<MS/s>``: a -0.5 dBFS sine near fs/8 at eleven rates from 1.25 to 40 MS/s: ENOB and power
+- ``rate_<MS/s>``: a -0.5 dBFS sine near fs/8 at ten rates, 1 to 10 MS/s: ENOB and power
   over the rate.
 - ``fin_<MS/s>_<cycles>``: the sine at nine input frequencies up to Nyquist at 2, 6 and 10 MS/s.
 - ``dc_<n>``: 33 DC inputs across the full scale: the energy a conversion takes over the input.
 - ``trajectory``: 0 V at 10 MS/s, on the first decision's threshold: the redundant decision paths.
 - ``noise``: 50 mV at 10 MS/s: the output-code noise spectrum (the behavioral model repeats it with
   one noise source at a time).
-- ``mc_<A_C %>_<draw>``: noise-free ramps (four periods, 16 hits a code at 12 bits), 25
+- ``mc_<A_C %>_<draw>``: noise-free ramps (four periods, 16 hits a code at 12 bits, at least 8 at any), 25
   capacitor draws at each Pelgrom coefficient from 0.05 to 0.85 %·sqrt(fF): the INL and DNL to
   expect for a given capacitor matching (a SPICE run draws them with the PDK's Monte Carlo).
 """
@@ -27,7 +27,8 @@ import numpy as np
 
 from flow.adc.sim import AdcTbParams
 
-RATES_HZ = (1.25e6, 2.5e6, 5e6, 7.5e6, 10e6, 12.5e6, 15e6, 17.5e6, 20e6, 30e6, 40e6)
+# 1 to 10 MS/s in 1 MS/s steps: 10 MS/s is the fastest the ADC is meant to run
+RATES_HZ = tuple(rate * 1e6 for rate in range(1, 11))
 FIN_RATES_HZ = (2e6, 6e6, 10e6)
 # odd cycle counts in 8,192 conversions, coprime with it, from 0.4 % to 49 % of the rate
 FIN_CYCLES = (31, 101, 257, 509, 1021, 1531, 2039, 3067, 4013)
@@ -58,8 +59,8 @@ class Capture:
 Builder = Callable[..., AdcTbParams]  # (conversions=, rate_hz=, vin_diff=) -> AdcTbParams
 
 
-def campaign(tb: Builder, full_scale_v: float) -> dict[str, Capture]:
-    """Every capture of the campaign, by name, for an ADC whose differential full scale is
+def campaign(tb: Builder, full_scale_v: float, bits: int = 12) -> dict[str, Capture]:
+    """Every capture of the campaign, by name, for a ``bits`` ADC whose differential full scale is
     +-``full_scale_v``."""
 
     amplitude_v = full_scale_v * 10 ** (-0.5 / 20)
@@ -95,9 +96,11 @@ def campaign(tb: Builder, full_scale_v: float) -> dict[str, Capture]:
         )
     captures["trajectory"] = Capture(tb(conversions=2_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.0)))
     captures["noise"] = Capture(tb(conversions=100_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.05)))
-    mismatch_period_s = MISMATCH_CONVERSIONS / 4 / NOMINAL_RATE_HZ
+    # at least 8 hits a code over the four periods (14 bits double the ramp)
+    mismatch_conversions = max(MISMATCH_CONVERSIONS, 8 << bits)
+    mismatch_period_s = mismatch_conversions / 4 / NOMINAL_RATE_HZ
     mismatch_ramp = h.Vpwl.Params(wave=f"0 {-edge_v:.6g} {mismatch_period_s:.6g} {edge_v:.6g}")
-    mismatch_tb = tb(conversions=MISMATCH_CONVERSIONS, rate_hz=NOMINAL_RATE_HZ, vin_diff=mismatch_ramp)
+    mismatch_tb = tb(conversions=mismatch_conversions, rate_hz=NOMINAL_RATE_HZ, vin_diff=mismatch_ramp)
     for coefficient in MISMATCH_COEFFICIENTS:
         for draw in range(MISMATCH_DRAWS):
             captures[f"mc_{coefficient * 100:g}_{draw:02d}"] = Capture(

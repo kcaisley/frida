@@ -1,7 +1,8 @@
-"""The ADC's design space (``flow.sweep``): two comparators and three samplers at 10, 11 and 12 bits
-(the topologies), each with 0, 2, 4 or 6 redundant decisions (the sizings; FRIDA's 12-bit array
-with 5 as well), so 10 to 18 decisions a conversion, on the three-metal difference-capacitor
-arrays, in TSMC65, by the behavioral model (``flow.adc.model``) of its characterized blocks.
+"""The ADC's design space (``flow.sweep``): two comparators and three samplers at 10 to 14 bits
+(the topologies), each with 0, 2, 4 or 6 redundant decisions, 8 from 12 bits up (the sizings;
+FRIDA's 12-bit array with 5 as well), so 10 to 20 decisions a conversion, on the three-metal
+difference-capacitor arrays, in TSMC65, by the behavioral model (``flow.adc.model``) of its
+characterized blocks.
 
 The comparators: a StrongARM near FRIDA-1's (``frida1_like``: its long-channel sizes in round
 multiples; 249 uV, 2.1 ns at 0.5 mV in TSMC65) and the lowest-noise double tail that decides well
@@ -51,16 +52,16 @@ TOPOLOGIES = {
     f"{comp_name}_{samp_name}_{bits}b": {"comp": comp, "samp": samp, "bits": bits}
     for comp_name, comp in COMPARATORS.items()
     for samp_name, samp in SAMPLERS.items()
-    for bits in (10, 11, 12)
+    for bits in (10, 11, 12, 13, 14)
 }
-SIZINGS = {f"plus{extra}": {"extra": extra} for extra in (0, 2, 4, 5, 6)}
+SIZINGS = {f"plus{extra}": {"extra": extra} for extra in (0, 2, 4, 5, 6, 8)}
 
 
 def params(pdk: str, topology: str, sizing: str) -> AdcParams | None:
     if pdk != "tsmc65":  # the variants' arrays are extracted in TSMC65 only
         return None
     cdac = ADC_VARIANTS.get(f"{TOPOLOGIES[topology]['bits']}b_plus{SIZINGS[sizing]['extra']}")
-    if cdac is None:  # 5 redundant decisions only in FRIDA's 12-bit array
+    if cdac is None:  # 5 redundant decisions only in FRIDA's 12-bit array, 8 from 12 bits up within 20
         return None
     return AdcParams(
         adc_bits=cdac.n_dac + 1,
@@ -118,7 +119,7 @@ def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
 
     model = AdcModel.of(pdk, params)
     captures = {}
-    for name, capture in campaign(model.tb, model.full_scale_v).items():
+    for name, capture in campaign(model.tb, model.full_scale_v, params.adc_bits).items():
         captures[name] = model.capture(
             capture.tb,
             # the mismatch study's hundred-odd ramps stay in memory: its figure and metrics keep them
@@ -129,7 +130,7 @@ def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
             quiet=("sampling", "comparator") if capture.noise_free else (),
         )
     # the behavioral model alone can silence one noise source at a time
-    noise = campaign(model.tb, model.full_scale_v)["noise"]
+    noise = campaign(model.tb, model.full_scale_v, params.adc_bits)["noise"]
     for name, quiet in (("noise_sampling", ("comparator",)), ("noise_comparator", ("sampling",))):
         captures[name] = model.capture(noise.tb, run_dir / f"{name}.h5", quiet=quiet)
     metrics, details = adc_figures(captures, run_dir / "figures")
