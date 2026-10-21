@@ -1,5 +1,6 @@
 """Software-only tests for the ADC generator."""
 
+import importlib.util
 import shutil
 from pathlib import Path
 
@@ -45,7 +46,16 @@ def test_adc_accepts_a_binary_array_with_sixteen_physical_stages():
     assert Adc(params).dac_state_p.width == 16
 
 
-@pytest.mark.skipif(shutil.which("yosys") is None, reason="synthesizing the digital block needs yosys")
+def _tsmc65_cells() -> bool:
+    try:
+        return importlib.util.find_spec("pdk.tsmc65.hdl21.cells") is not None
+    except ModuleNotFoundError:
+        return False
+
+
+@pytest.mark.skipif(
+    shutil.which("yosys") is None or not _tsmc65_cells(), reason="synthesizing the digital block needs yosys and TSMC65"
+)
 @pytest.mark.parametrize(("n_dac", "n_extra"), ((11, 0), (9, 2), (11, 6)))
 def test_adc_at_any_stage_count_binds_a_synthesized_digital_block_c0_first(n_dac, n_extra):
     """Any array: the digital block synthesized for its stage count, register 0 on C0."""

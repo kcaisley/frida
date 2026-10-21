@@ -175,7 +175,7 @@ def test_clean_cdl_verilog_port_reorder(tmp_path):
         module="digital",
     )
     text = (tmp_path / "out.sp").read_text()
-    subckt_line = [l for l in text.splitlines() if l.startswith(".SUBCKT")][0]
+    subckt_line = next(line for line in text.splitlines() if line.startswith(".SUBCKT"))
     ports = subckt_line.split()[2:]
     assert ports == ["clk", "out", "vdd", "vss"]
     assert "*.PININFO" in text

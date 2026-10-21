@@ -6,10 +6,10 @@ netlist of the PDK's standard cells.
 FRIDA's 16 stages are the hardened OpenROAD netlist (``design/spice/adc_digital.sp``: placed,
 clock-tree buffered and routed, from an earlier RTL that switched register 15 first). Any other
 count is synthesized from the RTL at ``N_STAGES`` with yosys (on the PATH: the OSS CAD suite)
-onto the same TSMC65 LVT library, without placement or clock tree: flip-flops by ``dfflibmap``,
-the logic by ABC into generic gates, bound to named cells by ``GATES`` (ABC's own Liberty reader
-misnames this library's output pins, which loses every gate it maps), constants on tie cells and
-ports that only alias another net behind a buffer. Register 0 drives C0, as in the RTL. The
+onto the PDK's standard cells, without placement or clock tree: flip-flops by ``dfflibmap``, the
+logic by ABC into generic gates, each bound to the smallest cell of its function in the PDK's
+generic map (``pdk.<pdk>.hdl21.cells.GENERIC``; ABC's own Liberty mapping misreads some libraries'
+output pins), constants on its tie cells and ports that only alias another net behind its buffer. Register 0 drives C0, as in the RTL. The
 netlist is cached under ``build/models/adc_digital/``.
 """
 
@@ -29,17 +29,18 @@ SOURCES = tuple(
     ROOT / "design/hdl" / name for name in ("cells_tsmc65.v", "clkgate.v", "sampdriver.v", "salogic.v", "adc_digital.v")
 )
 CACHE = ROOT / "build/models/adc_digital"
-# yosys's generic gates -> (library cell, its pin for each gate port)
+# yosys's generic gates -> the generic function whose smallest cell the PDK's map gives it; the
+# generic pins are yosys's ports (A, B, S in, Y out; mux2's Y = S ? B : A, as $_MUX_'s)
 GATES = {
-    "$_BUF_": ("BUFFD1LVT", {"A": "I", "Y": "Z"}),
-    "$_NOT_": ("INVD1LVT", {"A": "I", "Y": "ZN"}),
-    "$_AND_": ("AN2D1LVT", {"A": "A1", "B": "A2", "Y": "Z"}),
-    "$_NAND_": ("ND2D1LVT", {"A": "A1", "B": "A2", "Y": "ZN"}),
-    "$_OR_": ("OR2D1LVT", {"A": "A1", "B": "A2", "Y": "Z"}),
-    "$_NOR_": ("NR2D1LVT", {"A": "A1", "B": "A2", "Y": "ZN"}),
-    "$_XOR_": ("XOR2D1LVT", {"A": "A1", "B": "A2", "Y": "Z"}),
-    "$_XNOR_": ("XNR2D1LVT", {"A": "A1", "B": "A2", "Y": "ZN"}),
-    "$_MUX_": ("MUX2D1LVT", {"A": "I0", "B": "I1", "S": "S", "Y": "Z"}),  # Y = S ? B : A
+    "$_BUF_": "buf",
+    "$_NOT_": "inv",
+    "$_AND_": "and2",
+    "$_NAND_": "nand2",
+    "$_OR_": "or2",
+    "$_NOR_": "nor2",
+    "$_XOR_": "xor2",
+    "$_XNOR_": "xnor2",
+    "$_MUX_": "mux2",
 }
 
 
@@ -69,7 +70,15 @@ def digital_netlist(stages: int, pdk: str = "tsmc65") -> tuple[Path, str]:
     return path, cell
 
 
+def _library_cell(library, function: str) -> tuple[str, dict[str, str]]:
+    """The smallest cell of a generic function in the PDK's map, and its pin for each generic pin."""
+    drives = sorted(int(name.rsplit("_x", 1)[1]) for name in library.GENERIC if name.rsplit("_x", 1)[0] == function)
+    target, pins, _high, _low = library.GENERIC[f"{function}_x{drives[0]}"]
+    return target, {generic: pin for pin, generic in pins.items()}
+
+
 def _synthesize(stages: int, cell: str, work: Path) -> str:
+    from pdk.tsmc65.hdl21 import cells as library
     from pdk.tsmc65.hdl21.site import STANDARD_CELL_SPICE_NETLISTS
     from pdk.tsmc65.layout.paths import STD_LIBERTY
 
@@ -79,15 +88,23 @@ def _synthesize(stages: int, cell: str, work: Path) -> str:
     with gzip.open(STD_LIBERTY, "rb") as compressed:
         liberty.write_bytes(compressed.read())
     gates = work / "gates.v"
+    maps = {gate: _library_cell(library, function) for gate, function in GATES.items()}
     gates.write_text(
         "".join(
-            f"module \\{gate} ({', '.join(pins)});\n"
-            + "".join(f"  {'output' if port == 'Y' else 'input'} {port};\n" for port in pins)
-            + f"  {library} _TECHMAP_REPLACE_ ({', '.join(f'.{pin}({port})' for port, pin in pins.items())});\n"
+            f"module \\{gate} ({', '.join(port for port in ports if port not in ('VDD', 'VSS'))});\n"
+            + "".join(
+                f"  {'output' if port == 'Y' else 'input'} {port};\n" for port in ports if port not in ("VDD", "VSS")
+            )
+            + f"  {target} _TECHMAP_REPLACE_ ("
+            + ", ".join(f".{pin}({port})" for port, pin in ports.items() if port not in ("VDD", "VSS"))
+            + ");\n"
             + "endmodule\n"
-            for gate, (library, pins) in GATES.items()
+            for gate, (target, ports) in maps.items()
         )
     )
+    tie_high, high = _library_cell(library, "tiehi")
+    tie_low, low = _library_cell(library, "tielo")
+    buffer, buffer_pins = _library_cell(library, "buf")
     script = work / "synth.ys"
     script.write_text(
         "\n".join(
@@ -101,8 +118,8 @@ def _synthesize(stages: int, cell: str, work: Path) -> str:
                 "abc -g AND,NAND,OR,NOR,XOR,XNOR,MUX",
                 f"techmap -map {gates}",
                 "opt_clean -purge",
-                "hilomap -singleton -hicell TIEHLVT Z -locell TIELLVT ZN",
-                "insbuf -buf BUFFD1LVT I Z",
+                f"hilomap -singleton -hicell {tie_high} {high['Y']} -locell {tie_low} {low['Y']}",
+                f"insbuf -buf {buffer} {buffer_pins['A']} {buffer_pins['Y']}",
                 "opt_clean -purge",
                 "check -assert",
                 f"write_json {work / 'netlist.json'}",

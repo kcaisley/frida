@@ -40,6 +40,7 @@ def _check_interface() -> bool:
     try:
         result = subprocess.run(
             ["ip", "-4", "addr", "show", INTERFACE],
+            check=False,
             capture_output=True,
             text=True,
             timeout=5,
@@ -69,6 +70,7 @@ def _check_ping(name: str, ip: str) -> bool:
     try:
         result = subprocess.run(
             ["ping", "-c", "1", "-W", "2", ip],
+            check=False,
             capture_output=True,
             timeout=5,
         )
@@ -112,9 +114,8 @@ def check_network() -> bool:
         if not _check_ping(name, ip):
             all_ok = False
             continue
-        if "tcp_port" in info:
-            if not _check_tcp(name, ip, info["tcp_port"]):
-                all_ok = False
+        if "tcp_port" in info and not _check_tcp(name, ip, info["tcp_port"]):
+            all_ok = False
 
     print()
     if all_ok:

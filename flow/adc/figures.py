@@ -179,10 +179,13 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
     fin_dynamics = [analyze_adc_dynamic(m, calibration=_extracted(m)) for m in fins]
     dcs = [m for n, m in sorted(captures.items()) if n.startswith("dc_")]
     train_ramp = analyze_adc_ramp(train)
-    learned = {
-        "Calibration 2": analyze_adc_calibration2(train, ramp=train_ramp),
-        "Calibration 3": analyze_adc_calibration3(train, ramp=train_ramp),
-    }
+    learned = {"Calibration 2": analyze_adc_calibration2(train, ramp=train_ramp)}
+    # calibration 3 fits a threshold in every late branch, and a ramp can hold too few hits there to
+    # bracket one; then it is left out (``calibration3_fitted`` says so) rather than failing the rest
+    try:
+        learned["Calibration 3"] = analyze_adc_calibration3(train, ramp=train_ramp)
+    except ValueError:
+        pass
     decoded = ramps | {label: analyze_adc_ramp(check, calibration=c) for label, c in learned.items()}
     # each stage's error tolerance: the design's weights and the extracted array's
     redundancy = {
@@ -364,6 +367,7 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         )[-1].sample_rate_hz,
         "redundancy_first_pct": float(redundancy["Design weights"][0]),
         "redundancy_first_extracted_pct": float(redundancy["Extracted weights"][0]),
+        "calibration3_fitted": float("Calibration 3" in learned),
         # the 95th percentile over the capacitor draws at Harpe's matching (0.10 %·sqrt(fF)): the
         # array's own layout error and the draw, decoded with the design weights and recalibrated
         "mismatch_dnl_p95_lsb": float(np.percentile(drawn["dnl"][harpe], 95)),

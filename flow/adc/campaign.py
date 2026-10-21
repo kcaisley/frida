@@ -64,13 +64,15 @@ def campaign(tb: Builder, full_scale_v: float, bits: int = 12) -> dict[str, Capt
     +-``full_scale_v``."""
 
     amplitude_v = full_scale_v * 10 ** (-0.5 / 20)
-    # a sawtooth slightly past the full scale, eight periods in the ramp
-    period_s = RAMP_CONVERSIONS / 8 / NOMINAL_RATE_HZ
+    # a sawtooth slightly past the full scale, eight periods in the ramp; at least 64 hits a code
+    # (14 bits double the ramp: calibration 3 fits its thresholds from the late branches' hits)
+    ramp_conversions = max(RAMP_CONVERSIONS, 64 << bits)
+    period_s = ramp_conversions / 8 / NOMINAL_RATE_HZ
     edge_v = 1.05 * full_scale_v
     ramp = h.Vpwl.Params(wave=f"0 {-edge_v:.6g} {period_s:.6g} {edge_v:.6g}")
     captures = {
         role: Capture(
-            tb(conversions=RAMP_CONVERSIONS, rate_hz=NOMINAL_RATE_HZ, vin_diff=ramp),
+            tb(conversions=ramp_conversions, rate_hz=NOMINAL_RATE_HZ, vin_diff=ramp),
             seed=1,
             noise_seed=noise_seed,
             unit_mismatch=UNIT_MISMATCH,

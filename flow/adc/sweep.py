@@ -110,6 +110,13 @@ def AdcBlocks(params: AdcParams) -> h.Module:
 GENERATOR = AdcBlocks
 
 
+def cost(pdk: str, topology: str, sizing: str) -> float:
+    """An instance's relative run time, for the runner's longest-first order: its conversions grow
+    with the codes, each conversion with its decisions."""
+    bits, extra = TOPOLOGIES[topology]["bits"], SIZINGS[sizing]["extra"]
+    return 2.0**bits * (bits + extra)
+
+
 def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
     from .campaign import campaign
     from .figures import adc_figures

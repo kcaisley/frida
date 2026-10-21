@@ -17,14 +17,6 @@ from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams, get_c
 from flow.layout.gdsdiff import gds_diff
 from flow.layout.signoff import SignoffParams, run_signoff
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
-from pdk.tsmc65.calibre.ringfmom import LIBRARY
-from pdk.tsmc65.calibre.signoff import (
-    BLOCK_WAIVERS,
-    UPPER_DENSITY_WAIVERS,
-    SignoffOptions,
-    add_mom_recognition,
-    mom_lvs_device,
-)
 
 from .laygen import AdcLayout, AdcLayoutParams, is_valid_adc_layout_params
 
@@ -53,6 +45,15 @@ def _run_frida1(
     active_layers: tuple[int, ...],
     lvs_expectation: Literal["correct", "incorrect"],
 ) -> Path:
+    # the kit's signoff, imported here: the module loads without the kit
+    from pdk.tsmc65.calibre.signoff import (
+        BLOCK_WAIVERS,
+        UPPER_DENSITY_WAIVERS,
+        SignoffOptions,
+        add_mom_recognition,
+        mom_lvs_device,
+    )
+
     run_dir.mkdir(parents=True, exist_ok=False)
     repository = Path(__file__).resolve().parents[2]
     pristine = db.Layout()
@@ -162,6 +163,10 @@ def _run_frida1(
 
 
 def _run_frida2(run_dir: Path, *, target_name: str, params: CapArrayLayoutParams) -> Path:
+    # the kit's ring-MOM library and signoff, imported here: the module loads without the kit
+    from pdk.tsmc65.calibre.ringfmom import LIBRARY
+    from pdk.tsmc65.calibre.signoff import BLOCK_WAIVERS, UPPER_DENSITY_WAIVERS, SignoffOptions
+
     run_dir.mkdir(parents=True, exist_ok=False)
     repository = Path(__file__).resolve().parents[2]
     template = db.Layout()

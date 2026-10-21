@@ -112,6 +112,14 @@ def run(blocks: list[str], pdks: tuple[str, ...], workers: int, *, failed: bool 
                     if failed and record.exists() and json.loads(record.read_text())["error"] is None:
                         continue
                     jobs.append((block, path, pdk, topology, sizing))
+
+    # the longest first where a block ranks its instances (``cost``), so the pool does not end on
+    # one long instance alone
+    def cost(job: tuple) -> float:
+        rank = getattr(import_module(f"flow.{job[0]}.sweep"), "cost", None)
+        return rank(job[2], job[3], job[4]) if rank else 0.0
+
+    jobs.sort(key=cost, reverse=True)
     print(f"{len(jobs)} instances of {', '.join(blocks)} on {workers} workers")
     failed = 0
     # one BLAS thread a worker (the spawned workers inherit it): numpy's pool of a thread a core in

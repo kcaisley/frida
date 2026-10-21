@@ -35,8 +35,6 @@ from klayout import db
 
 from flow.layout.pdkproc import in_pdk
 from flow.layout.signoff import SignoffParams, run_signoff
-from pdk.tsmc65.calibre.ringfmom import LIBRARY
-from pdk.tsmc65.calibre.signoff import BLOCK_WAIVERS, SignoffOptions
 
 from .pex import parse_caparray_pex, write_capacitance_table
 from .subckt import (
@@ -305,6 +303,10 @@ def _run_caparray(run_dir: Path, params: CapArrayLayoutParams) -> Path:
     circuit_params = mom_array_params(params)
     ideal = CapArray(circuit_params)
     ideal.name = params.top_cell
+    # the kit's ring-MOM library and waivers, imported here: the module loads without the kit
+    from pdk.tsmc65.calibre.ringfmom import LIBRARY
+    from pdk.tsmc65.calibre.signoff import BLOCK_WAIVERS, SignoffOptions
+
     (run_dir / "ringfmom.cdl").write_text(LIBRARY.read_text(), encoding="utf-8")
     with (run_dir / f"{params.top_cell}.ideal.cdl").open("w", encoding="utf-8") as stream:
         stream.write('.INCLUDE "ringfmom.cdl"\n')
@@ -441,7 +443,11 @@ def _draw_all_pdks(run_dir: Path, cdac: CapArrayConfig, name: str) -> Path:
             (work / "geometry_manifest.json").write_text(json.dumps(_layout_manifest(params), indent=2) + "\n")
             source = work / "empty.cdl"
             source.write_text(f".SUBCKT {params.top_cell}\n.ENDS\n")
-            options = SignoffOptions(drc_unselect_checks=BLOCK_WAIVERS) if pdk == "tsmc65" else None
+            options = None
+            if pdk == "tsmc65":
+                from pdk.tsmc65.calibre.signoff import BLOCK_WAIVERS, SignoffOptions
+
+                options = SignoffOptions(drc_unselect_checks=BLOCK_WAIVERS)
             try:
                 run_drc(
                     SignoffParams(
