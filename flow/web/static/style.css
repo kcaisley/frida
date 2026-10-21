@@ -1991,3 +1991,39 @@ table.grid.sweep .symbol {
     letter-spacing: 0.05em;
     text-transform: uppercase;
 }
+
+/* the schematic on the dark theme's paper: its strokes, text, fills and frames in the theme's ink */
+html[data-theme="dark"] .sheet {
+    background: var(--plot-paper);
+}
+
+html[data-theme="dark"] .sheet .page svg > rect:first-of-type {
+    fill: var(--plot-paper);
+    stroke: none;
+}
+
+html[data-theme="dark"] .sheet .page svg,
+html[data-theme="dark"] .sheet .page svg path,
+html[data-theme="dark"] .sheet .page svg circle,
+html[data-theme="dark"] .sheet .page svg rect {
+    stroke: var(--ink-1);
+}
+
+html[data-theme="dark"] .sheet .page svg text {
+    fill: var(--ink-1);
+}
+
+html[data-theme="dark"] .sheet .page svg [fill="white"],
+html[data-theme="dark"] .sheet .page svg .gatebubble {
+    fill: var(--plot-paper);
+}
+
+html[data-theme="dark"] .sheet .page svg [fill="black"],
+html[data-theme="dark"] .sheet .page svg [fill="#000"],
+html[data-theme="dark"] .sheet .page svg .splitjoinBody {
+    fill: var(--ink-1);
+}
+
+html[data-theme="dark"] .sheet .page svg rect[stroke="#999"] {
+    stroke: var(--ink-4);
+}

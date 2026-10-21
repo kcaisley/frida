@@ -4,6 +4,17 @@
 import { h, icon, seg, select } from "./icons.js";
 import { fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
 
+// The schematic's own stylesheet (netlist2image: black on white) scoped to the sheet: inline, its
+// "svg" and "text" rules would restyle every icon on the page; the theme recolours the sheet.
+function scopedSvg(text) {
+    return text.replace(/<style([^>]*)>([\s\S]*?)<\/style>/, (whole, attributes, css) => {
+        const scoped = css.replace(/(^|\})\s*([^@{}][^{}]*)\{/g, (rule, close, selectors) =>
+            `${close}\n${selectors.split(",").map((selector) => `.sheet .page ${selector.trim()}`).join(", ")} {`,
+        );
+        return `<style${attributes}>${scoped}</style>`;
+    });
+}
+
 export class SchematicPanel {
     constructor(container, saved) {
         this.config = { view: "schematic", ...(saved || {}) };
@@ -76,7 +87,7 @@ export class SchematicPanel {
                 if (!entry.path) status(`${entry.cell}: a standard-cell netlist, shown as text`);
                 return;
             }
-            this.page.innerHTML = text;
+            this.page.innerHTML = scopedSvg(text);
             const svg = this.page.querySelector("svg");
             this.svgSize = [Number(svg.getAttribute("width")) || svg.viewBox.baseVal.width, Number(svg.getAttribute("height")) || svg.viewBox.baseVal.height];
             this.moved = false;
