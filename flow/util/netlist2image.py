@@ -36,6 +36,7 @@ from flow.util.mos_models import polarity
 SUPPLY = {"vdd": "vdd", "vss": "vss"}
 SKIN = Path(__file__).resolve().parents[2] / "docs/images/netlistsvg/circuitikz_analog.svg"
 DEV_W, DEV_H, SLOT, STAGE_GAP, SUB_GAP, TRACK = 80, 64, 190, 160, 0, 12
+GAP = 4  # half the break in a wire where another net's trunk crosses it
 CHAR_W = 5.3  # the skin's 10 px monospace font
 _SVG_NS, _SKIN_NS = "http://www.w3.org/2000/svg", "https://github.com/nturley/netlistsvg"
 
@@ -472,11 +473,27 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN):
                     svg += flag(skin, net, x + (20 if side == "right" else -20), y, side)
                 else:
                     svg += label(net, x, y, side)
+    spans = {}  # net -> (trunk y, x0, x1)
     for net, (ch, ps, xs) in plan.items():
-        ty = trunk_y(ch, net, chans, tracks)
         a, b = min(xs), max(xs)
         if net in ports and net not in SUPPLY:  # an output or a multi-pin port: a flag at the trunk's end
             b = max(b, width - 60) if net.startswith("out") else b
+        spans[net] = (trunk_y(ch, net, chans, tracks), a, b)
+
+    def down(net, x, y0, y1):
+        """A wire's vertical from y0 to y1 at x (path commands after a move to (x, y0)), broken
+        where another net's trunk crosses it: a crossing a track from a junction, drawn unbroken,
+        reads as a second junction (two outputs drawn as one)."""
+        lo, hi = min(y0, y1), max(y0, y1)
+        cuts = sorted(
+            (ty for other, (ty, a, b) in spans.items() if other != net and a < x < b and lo + GAP < ty < hi - GAP),
+            reverse=y1 < y0,
+        )
+        sign = 1 if y1 > y0 else -1
+        return "".join(f" V{c - sign * GAP} M{x},{c + sign * GAP}" for c in cuts) + f" V{y1}"
+
+    for net, (ch, ps, xs) in plan.items():
+        ty, a, b = spans[net]
         svg.append(f'<path d="M{a},{ty} H{b}"/>')
         flagged = net in ports and net not in SUPPLY
         if flagged:
@@ -484,12 +501,12 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN):
         drops = defaultdict(set)  # x on the trunk -> the sides (above/below) wires drop from
         for (_n, pin, x, y, r), sx in zip(ps, xs, strict=True):
             if pin == "G":
-                svg.append(f'<path d="M{x},{y} H{sx} V{ty}"/>')
+                svg.append(f'<path d="M{x},{y} H{sx}{down(net, sx, y, ty)}"/>')
             elif sx != x:  # jog: out of the pin, across, then to the trunk
                 yy = y + (10 if y > ys[r] + DEV_H / 2 else -10)
-                svg.append(f'<path d="M{x},{y} V{yy} H{sx} V{ty}"/>')
+                svg.append(f'<path d="M{x},{y} V{yy} H{sx}{down(net, sx, yy, ty)}"/>')
             else:
-                svg.append(f'<path d="M{x},{y} V{ty}"/>')
+                svg.append(f'<path d="M{x},{y}{down(net, x, y, ty)}"/>')
             drops[sx].add("above" if y < ty else "below")
         # a junction dot only where three or more wires meet; a trunk end with one drop is a corner
         for sx, sides in drops.items():
