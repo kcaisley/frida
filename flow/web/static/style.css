@@ -1616,8 +1616,31 @@ table.grid.sweep td:not(.num) {
     text-align: left;
 }
 
-table.grid.sweep th.param .label {
+/* every header in one monospace face: the instance's names, the parameters', the metrics' */
+table.grid.sweep thead th .label {
     font: var(--fs-11) var(--font-mono);
+}
+
+/* the group row over the headers, sticky above them */
+table.grid.sweep thead tr.groups th {
+    height: 20px;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+    color: var(--fg-muted);
+    font: var(--fs-10) / 20px var(--font-mono);
+    letter-spacing: 0.04em;
+    text-align: left;
+    cursor: default;
+}
+
+table.grid.sweep thead tr:not(.groups) th {
+    top: 20px;
+}
+
+table.grid.sweep th.first,
+table.grid.sweep td.first {
+    border-left: 1px solid var(--border);
 }
 
 table.grid.sweep td.tools,
@@ -1701,6 +1724,7 @@ table.grid.sweep .symbol {
 #plot-pane {
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 #plot-controls .check {
@@ -1714,6 +1738,47 @@ table.grid.sweep .symbol {
 #scatter {
     flex: 1;
     min-height: 0;
+    margin: 6px 6px 0;
+}
+
+/* the scatter's legend, under it: wraps rather than clipping at the pane's edge */
+#plot-legend {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 18px;
+    padding: 6px 12px 8px;
+    border-top: 1px solid var(--border-subtle);
+    color: var(--fg-secondary);
+    font: var(--fs-11) var(--font-mono);
+}
+
+.legend-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 10px;
+}
+
+.legend-title {
+    color: var(--fg-muted);
+}
+
+.legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+}
+
+#plot-legend .swatch {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+#plot-legend .symbol {
+    color: var(--fg-muted);
 }
 
 .popover.filter-pop {

@@ -4,7 +4,7 @@
 // header sorts and filters; hovering a row or a point lights up the other; clicking a point (or a
 // row's pin) pins it, across axis changes; a row's detail button opens the instance's own page.
 
-import { h, icon, popover, select, toast } from "./icons.js";
+import { h, icon, popover, seg, select, toast } from "./icons.js";
 import { currentTheme, PAPERS, paperLayout, tone } from "./paper.js";
 import { COLORS, recall, store } from "./store.js";
 import { fieldInfo, scaledUnit, siExponent } from "./units.js";
@@ -25,6 +25,7 @@ const view = {
     y: null,
     logX: false,
     logY: false,
+    dragmode: "zoom", // the scatter's drag: box zoom or pan
 };
 
 async function fetchJson(path) {
@@ -41,21 +42,27 @@ function buildColumns(table) {
         const value = get(row);
         return value === null || value === undefined || typeof value === "number";
     });
+    // an instance is a PDK, a topology and a sizing of the block's sweep (flow/<block>/sweep.py):
+    // the names its parameters come from, the parameters' columns after them
     const columns = [
-        { key: "pdk", label: "PDK", kind: "cat", get: (row) => row.pdk },
-        { key: "topology", label: "Topology", kind: "cat", get: (row) => row.topology },
-        { key: "sizing", label: "Sizing", kind: "cat", get: (row) => row.sizing },
+        { key: "pdk", label: "pdk", kind: "cat", get: (row) => row.pdk, group: "instance", note: "The PDK" },
+        { key: "topology", label: "topology", kind: "cat", get: (row) => row.topology, group: "instance", note: "The sweep's topology (TOPOLOGIES in the block's sweep.py): it sets the circuit's structural parameters" },
+        { key: "sizing", label: "sizing", kind: "cat", get: (row) => row.sizing, group: "instance", note: "The sweep's sizing (SIZINGS in the block's sweep.py): it scales the key devices' sizes" },
     ];
     for (const name of table.params) {
         const get = (row) => row.params[name];
-        columns.push({ key: `p:${name}`, label: name, kind: numeric(get) ? "num" : "cat", get, param: true, info: { label: name, unit: "", scalable: false }, decimals: decimalsOf(rows, get) });
+        columns.push({ key: `p:${name}`, label: name, kind: numeric(get) ? "num" : "cat", get, group: "parameters", info: { label: name, unit: "", scalable: false }, decimals: decimalsOf(rows, get) });
     }
     for (const name of table.metrics) {
         const get = (row) => row.metrics[name];
         const info = fieldInfo(name);
         const exponent = siExponent(rows.map(get));
-        columns.push({ key: `m:${name}`, label: info.label, unit: scaledUnit(info, info.scalable ? exponent : 0), kind: "num", get, info, exponent: info.scalable ? exponent : 0, metric: name, decimals: decimalsOf(rows, get) });
+        columns.push({ key: `m:${name}`, label: info.label, unit: scaledUnit(info, info.scalable ? exponent : 0), kind: "num", get, group: "metrics", info, exponent: info.scalable ? exponent : 0, metric: name, decimals: decimalsOf(rows, get) });
     }
+    // each group's first column draws the line between the groups
+    columns.forEach((column, index) => {
+        column.first = index > 0 && columns[index - 1].group !== column.group;
+    });
     return columns;
 }
 
@@ -187,13 +194,21 @@ function headerMenu(anchor, column) {
 function renderTable() {
     const table = document.getElementById("instances");
     const head = h("thead");
+    // the groups over the columns: the instance's names, its parameters, its metrics
+    const groupRow = h("tr.groups", {}, h("th.tools", {}, ""));
+    for (const column of view.columns) {
+        const last = groupRow.lastChild;
+        if (last.dataset.group === column.group) last.colSpan += 1;
+        else groupRow.append(h(`th.group${column.first ? ".first" : ""}`, { "data-group": column.group }, column.group));
+    }
+    head.append(groupRow);
     const headRow = h("tr", {}, h("th.tools", {}, ""));
     for (const column of view.columns) {
         const sorted = view.sort?.key === column.key ? (view.sort.dir === "asc" ? "▲" : "▼") : "";
         const filtered = view.filters[column.key];
         const th = h(
-            `th${column.kind === "num" ? ".num" : ""}${column.param ? ".param" : ""}${filtered ? ".filtered" : ""}${sorted ? ".sorted" : ""}`,
-            { title: `${column.metric || column.label}: click to sort or filter` },
+            `th${column.kind === "num" ? ".num" : ""}${column.first ? ".first" : ""}${filtered ? ".filtered" : ""}${sorted ? ".sorted" : ""}`,
+            { title: `${column.note ? `${column.note}. ` : ""}${column.metric || column.label}: click to sort or filter` },
             h("span.label", {}, column.label),
             column.unit ? h("span.unit", {}, column.unit) : null,
             h("span.marks", {}, `${filtered ? "⏷" : ""}${sorted}`),
@@ -214,7 +229,7 @@ function renderTable() {
         if (row.error) tr.title = `failed: ${row.error}`;
         for (const column of view.columns) {
             const value = column.get(row);
-            const td = h(`td${column.kind === "num" ? ".num" : ""}`, {}, cellText(column, value));
+            const td = h(`td${column.kind === "num" ? ".num" : ""}${column.first ? ".first" : ""}`, {}, cellText(column, value));
             if (column.key === "pdk") td.prepend(h("span.swatch", { style: { background: pdkColor(row.pdk) } }));
             if (column.key === "topology") td.prepend(h("span.symbol", {}, symbolGlyph(row.topology)));
             tr.append(td);
@@ -310,8 +325,40 @@ function renderPlotControls() {
         h("label.field", {}, h("span", {}, "y"), choose("y"), logBox("y")),
         h("button.icon-btn", { title: "Swap the axes", onclick: () => { [view.x, view.y, view.logX, view.logY] = [view.y, view.x, view.logY, view.logX]; save(); renderPlotControls(); renderPlot(); } }, "⇄"),
         h("span.grow"),
-        h("span.muted", { id: "pin-count" }, ""),
+        h("span.muted.mono", { id: "pin-count" }, ""),
         h("button.icon-btn", { title: "Unpin every instance", onclick: () => { view.pins.clear(); save(); refresh(); } }, "Clear pins"),
+        // the plot's own tools, always shown (Plotly's mode bar only on hover, over the plot)
+        seg(
+            [
+                { value: "zoom", icon: "zoom", title: "Drag: zoom to a box" },
+                { value: "pan", icon: "pan", title: "Drag: pan" },
+            ],
+            view.dragmode,
+            (value) => {
+                view.dragmode = value;
+                Plotly.relayout("scatter", { dragmode: value });
+                renderPlotControls();
+            },
+        ),
+        h("button.icon-btn", { title: "Fit both axes to the points (double-click)", onclick: () => Plotly.relayout("scatter", { "xaxis.autorange": true, "yaxis.autorange": true }), html: icon("fit", 14) }),
+        h("button.icon-btn", { title: "Save as PNG, with its legend", onclick: () => savePng(), html: icon("download", 14) }),
+    );
+}
+
+// the plot as PNG: the legend the page draws beside it is Plotly's here
+async function savePng() {
+    const element = document.getElementById("scatter");
+    const layout = { ...element.layout, showlegend: true, margin: { ...element.layout.margin, r: 150 } };
+    const url = await Plotly.toImage({ data: element.data, layout }, { format: "png", width: element.clientWidth + 140, height: element.clientHeight, scale: 2 });
+    h("a", { href: url, download: `${view.block.block}_${view.y}_vs_${view.x}.png`.replace(/[:/]/g, "_") }).click();
+}
+
+// under the plot: each PDK's colour, each topology's marker
+function renderLegend(pdks) {
+    const group = (title, items) => h("span.legend-group", {}, h("span.legend-title", {}, title), ...items);
+    document.getElementById("plot-legend").replaceChildren(
+        group("pdk", pdks.map((pdk) => h("span.legend-item", {}, h("span.swatch", { style: { background: pdkColor(pdk) } }), pdk))),
+        group("topology", topologies().map((topology) => h("span.legend-item", {}, h("span.symbol", {}, symbolGlyph(topology)), topology))),
     );
 }
 
@@ -341,7 +388,7 @@ function renderPlot() {
             marker: { color: pdkColor(pdk), symbol: rows.map((row) => symbolOf(row.topology)), size: 9, line: { width: 0.6, color: colors.paper }, opacity: 0.9 },
         };
     });
-    // the legend alone: each PDK's colour, each topology's marker
+    // the legend alone, for the saved PNG (the page draws its own under the plot)
     for (const pdk of pdks) {
         traces.push({ type: "scatter", mode: "markers", name: pdk, legendgroup: "pdk", legendgrouptitle: { text: "PDK" }, x: [null], y: [null], hoverinfo: "skip", marker: { color: pdkColor(pdk), symbol: "circle", size: 9 } });
     }
@@ -374,25 +421,21 @@ function renderPlot() {
         marker: { symbol: "circle-open", size: 18, line: { width: 2, color: colors.ink }, color: colors.ink },
     });
     // the hovered row's point
-    traces.push({ type: "scatter", mode: "markers", name: "hover", showlegend: false, x: [], y: [], hoverinfo: "skip", marker: { symbol: "circle-open", size: 24, line: { width: 3, color: "#EBCB8B" } } });
+    const ring = getComputedStyle(document.documentElement).getPropertyValue("--sem-warn").trim();
+    traces.push({ type: "scatter", mode: "markers", name: "hover", showlegend: false, x: [], y: [], hoverinfo: "skip", marker: { symbol: "circle-open", size: 24, line: { width: 3, color: ring } } });
     const layout = paperLayout("", axisLabel(x), axisLabel(y), view.logX, view.logY, 1, theme);
-    // the mode bar sits in the top margin, above the legend beside the plot
-    layout.margin = { l: 70, r: 10, t: 40, b: 52 };
-    layout.legend = {
-        ...layout.legend,
-        x: 1.02,
-        xanchor: "left",
-        y: 1,
-        yanchor: "top",
-        font: { size: 12 },
-        tracegroupgap: 12,
-        itemclick: false,
-        itemdoubleclick: false,
-    };
+    // the axes' titles and ticks take what they need (automargin); no legend or mode bar beside
+    layout.margin = { l: 12, r: 16, t: 14, b: 12 };
+    layout.showlegend = false;
+    layout.legend = { ...layout.legend, x: 1.02, xanchor: "left", y: 1, yanchor: "top", font: { size: 12 }, tracegroupgap: 12 };
+    layout.dragmode = view.dragmode;
     layout.uirevision = `${view.x}|${view.y}|${view.logX}|${view.logY}`;
-    Plotly.react(element, traces, layout, { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["select2d", "lasso2d", "autoScale2d"] });
+    renderLegend(pdks);
+    Plotly.react(element, traces, layout, { displaylogo: false, displayModeBar: false, responsive: true, scrollZoom: true });
     if (!element.dataset.bound) {
         element.dataset.bound = "1";
+        // the legend under the plot takes more or fewer lines by block: the plot follows its room
+        new ResizeObserver(() => element.data && Plotly.Plots.resize(element)).observe(element);
         element.on("plotly_hover", (event) => {
             const id = event.points?.[0]?.customdata;
             if (id) setHover(id, "plot");

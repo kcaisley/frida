@@ -24,6 +24,8 @@ const PATHS = {
     x: '<path d="M4 4l8 8M12 4l-8 8"/>',
     plus: '<path d="M8 3v10M3 8h10"/>',
     download: '<path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M2.5 13.5h11"/>',
+    zoom: '<circle cx="7" cy="7" r="4.5"/><path d="M10.3 10.3L14 14"/>',
+    pan: '<path d="M8 1.5v13M1.5 8h13M6 3.5l2-2 2 2M6 12.5l2 2 2-2M3.5 6l-2 2 2 2M12.5 6l2 2-2 2"/>',
     reset: '<path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.5 2.5v3h3"/>',
     chevron: '<path d="M4 6l4 4 4-4"/>',
     keyboard: '<rect x="1.5" y="4" width="13" height="8" rx="1"/><path d="M4 7h1M7 7h1M10 7h1M5 9.5h6"/>',
