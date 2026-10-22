@@ -28,6 +28,7 @@ BLOCKS = {
     "caparray": "Capacitor array",
     "momcap": "MOM capacitor",
     "capdriver": "Capacitor driver",
+    "cdac": "CDAC (array and drivers)",
     "latch": "Latches and flip-flops",
     "delay": "Delay lines and rings",
     "clkgen": "Clock generator",

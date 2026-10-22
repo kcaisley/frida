@@ -7,7 +7,10 @@ generator takes (``AdcParams``), switched by the SAR loop of ``flow.adc.behavior
 
 The blocks: the comparator (``flow.comp.model``), the sampling switch (``flow.samp.model``), the
 capacitor array (``flow.caparray.model``) and its drivers (``flow.capdriver.model``), each from its
-own characterization or extraction in the PDK. The SAR logic is the fixed digital netlist built by
+own characterization or extraction in the PDK; the DAC's settling, stage by stage, from the SPICE
+characterization of the array with its drivers (``flow.cdac.model``: ``python -m flow
+cdac.characterization`` runs it ahead), or, where there is none, estimated from the drivers'
+resistance and delay with a warning. The SAR logic is the fixed digital netlist built by
 OpenROAD: it is not characterized, so its energies are the ones fitted to the FRIDA-2 three-layer
 PEX transient (``SALOGIC``). The DAC rail's noise (``RAIL_NOISE_V``) is assumed, not characterized.
 """
@@ -15,6 +18,7 @@ PEX transient (``SALOGIC``). The DAC rail's noise (``RAIL_NOISE_V``) is assumed,
 from __future__ import annotations
 
 import importlib
+import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -38,6 +42,7 @@ from flow.caparray.model import CapArrayModel
 from flow.caparray.subckt import get_caparray_weights
 from flow.capdriver.model import CapDriverModel, stage_drivers
 from flow.capdriver.subckt import CapDriverParams, Cells
+from flow.cdac.model import CdacModel
 from flow.comp.model import CompModel
 from flow.samp.model import SampModel
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
@@ -66,11 +71,22 @@ class AdcModel:
     cdac: CapArrayModel
     drivers: tuple[CapDriverModel, ...]
     rail_noise_v: float = RAIL_NOISE_V  # VDD_DAC's RMS noise at each decision (assumed)
+    settling: CdacModel | None = None  # the DAC's SPICE settling by stage; None: the RC estimate
 
     @classmethod
     def of(cls, pdk: str, params: AdcParams, *, simulate: bool = True, rail_noise_v: float = RAIL_NOISE_V) -> AdcModel:
         cdac = CapArrayModel.of(pdk, params.cdac)
         driver = CapDriverParams(n_stages=len(cdac.main_f), strengths=params.cdac.driver_strengths, cells=Cells.GENERIC)
+        # the DAC's characterization is looked up, never run here (minutes of SPICE an array, which
+        # every converter on the array would wait for)
+        try:
+            settling = CdacModel.of(pdk, params, simulate=False)
+        except (LookupError, RuntimeError) as error:
+            warnings.warn(
+                f"the DAC's settling is not characterized ({error}); it settles by the RC estimate instead",
+                stacklevel=2,
+            )
+            settling = None
         return cls(
             pdk=pdk,
             params=params,
@@ -79,6 +95,7 @@ class AdcModel:
             cdac=cdac,
             drivers=stage_drivers(pdk, driver, np.maximum(cdac.main_f, cdac.diff_f), simulate=simulate),
             rail_noise_v=rail_noise_v,
+            settling=settling,
         )
 
     @property
@@ -98,13 +115,25 @@ class AdcModel:
 
     @property
     def stage_tau_s(self) -> tuple[float, ...]:
-        """Each stage's top-plate settling time constant, C0 first: its driver through its plate in
-        series with the rest of the load, the slower of its main and difference plates."""
+        """Each stage's top-plate settling time constant, C0 first: the one that brings its step
+        within half an LSB when SPICE does (``flow.cdac.model``); without that characterization, its
+        driver through its plate in series with the rest of the load, the slower of its main and
+        difference plates."""
+        if self.settling is not None:
+            return self.settling.tau_s
         load = self.cdac.load_f
         return tuple(
             max(driver.resistance_ohm * plate * (load - plate) / load for plate in (main, diff))
             for driver, main, diff in zip(self.drivers, self.cdac.main_f, self.cdac.diff_f, strict=True)
         )
+
+    @property
+    def stage_delay_s(self) -> tuple[float, ...]:
+        """Each stage's delay from the LOGIC edge until its step starts, C0 first: its driver's delay
+        to 50 % in SPICE (``flow.cdac.model``); without it, its driver's intrinsic delay."""
+        if self.settling is not None:
+            return self.settling.delay_s
+        return tuple(driver.intrinsic_delay_s for driver in self.drivers)
 
     @property
     def settling_tau_s(self) -> float:
@@ -144,9 +173,9 @@ class AdcModel:
         """The behavioral ADC: one capacitor draw from ``seed`` (none where ``unit_mismatch`` is 0);
         ``quiet`` silences the "sampling" noise, the DAC "rail" noise or the comparator's noise alone
         ("comparator_noise": its delay stays, so a late decision still holds the last bit), or makes
-        the "comparator" ideal (no noise, never late). Each stage's plates start moving its driver's
-        intrinsic delay after the LOGIC edge (the SAR register's clock-to-output is not modeled) and
-        settle with the stage's own RC, times ``tau_scale`` (0: ideal, every step whole at once)."""
+        the "comparator" ideal (no noise, never late). Each stage's step starts its delay after the
+        LOGIC edge (the SAR register's clock-to-output is not modeled) and settles with the stage's
+        time constant, times ``tau_scale`` (0: ideal, every step whole at once)."""
         rng = np.random.default_rng(seed)
         plates = {}
         for side in ("p", "n"):
@@ -171,7 +200,7 @@ class AdcModel:
                 settling_tau_s=self.settling_tau_s * tau_scale,
                 stage_tau_s=tuple(tau_s * tau_scale for tau_s in self.stage_tau_s),
                 # ideal settling: the drivers' delay goes too
-                stage_delay_s=tuple(driver.intrinsic_delay_s if tau_scale else 0.0 for driver in self.drivers),
+                stage_delay_s=tuple(delay_s if tau_scale else 0.0 for delay_s in self.stage_delay_s),
                 driver_energy_j=float(np.mean([driver.energy_j for driver in self.drivers])),
                 reference_noise_v=0.0 if "rail" in quiet else self.rail_noise_v,
             ),

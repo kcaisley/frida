@@ -13,6 +13,7 @@ from flow.adc import targets as adc
 from flow.bias import targets as bias
 from flow.caparray import targets as caparray
 from flow.capdriver import targets as capdriver
+from flow.cdac import targets as cdac
 from flow.clkgen import targets as clkgen
 from flow.cml import targets as cml
 from flow.comp import targets as comp
@@ -40,6 +41,7 @@ BLOCKS = {
     "bias": bias,
     "caparray": caparray,
     "capdriver": capdriver,
+    "cdac": cdac,
     "clkgen": clkgen,
     "cml": cml,
     "comp": comp,

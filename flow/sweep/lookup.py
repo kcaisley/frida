@@ -101,15 +101,19 @@ def characterized(block: str, pdk: str, params, *, simulate: bool = True) -> dic
     digest = hashlib.sha1(_key(flat).encode()).hexdigest()[:12]
     run_dir = MODELS_DIR / block / pdk / digest
     path = run_dir / "instance.json"
-    run_dir.parent.mkdir(parents=True, exist_ok=True)
-    # one characterization however many models ask for it at once
-    with (run_dir.parent / f"{digest}.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    if not simulate:
+        # only looking: never wait on a characterization another process is running
         if not path.exists():
-            if not simulate:
-                raise LookupError(f"{block} in {pdk} with {flat} is not characterized ({run_dir})")
-            with ProcessPoolExecutor(max_workers=1, mp_context=get_context("spawn")) as pool:
-                pool.submit(_characterize, block, pdk, params, run_dir).result()
+            raise LookupError(f"{block} in {pdk} with {flat} is not characterized ({run_dir})")
+    else:
+        run_dir.parent.mkdir(parents=True, exist_ok=True)
+        # one characterization however many models ask for it at once; the kernel releases a lock
+        # whose holder died, so a lock file left behind holds nothing
+        with (run_dir.parent / f"{digest}.lock").open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if not path.exists():
+                with ProcessPoolExecutor(max_workers=1, mp_context=get_context("spawn")) as pool:
+                    pool.submit(_characterize, block, pdk, params, run_dir).result()
     record = json.loads(path.read_text())
     if record["error"] is not None:
         raise RuntimeError(f"{block} in {pdk} failed its characterization ({path}):\n{record['error']}")

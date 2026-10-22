@@ -21,9 +21,15 @@ def test_python_hooks_cover_capacitor_blocks(python_hooks, hook_id, block):
     pattern = python_hooks[hook_id]["files"]
     assert re.search(pattern, f"flow/{block}/subckt.py")
     assert re.search(pattern, f"flow/{block}/test_subckt.py")
-    assert not re.search(pattern, "flow/cdac/subckt.py")
     assert not re.search(pattern, f"flow/{block}/readme.md")
     assert not re.search(pattern, f"flow/{block}_other/subckt.py")
+
+
+@pytest.mark.parametrize("hook_id", ["ruff-lint", "ruff-format"])
+def test_ruff_hooks_cover_the_cdac(python_hooks, hook_id):
+    pattern = python_hooks[hook_id]["files"]
+    assert re.search(pattern, "flow/cdac/subckt.py")
+    assert not re.search(pattern, "flow/cdac/readme.md")
 
 
 def test_ty_checks_both_capacitor_blocks(python_hooks):

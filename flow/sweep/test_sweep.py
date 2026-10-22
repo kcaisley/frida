@@ -32,8 +32,8 @@ def test_every_sweep_module_keeps_the_contract() -> None:
     for block in runner.sweep_blocks():
         sweep = __import__(f"flow.{block}.sweep", fromlist=["params"])
         # four to eight sizings, ten where a block also brackets a fabricated design (comp: FRIDA-1);
-        # the converters' sizings are their capacitor arrays, a redundancy scheme each
-        most = 40 if block.startswith("adc") else 10
+        # the converters' and their DACs' sizings are their capacitor arrays, a redundancy scheme each
+        most = 40 if block.startswith(("adc", "cdac")) else 10
         assert sweep.TOPOLOGIES and 4 <= len(sweep.SIZINGS) <= most, block
         assert callable(sweep.characterize) and sweep.GENERATOR is not None, block
         combos = [
@@ -108,3 +108,26 @@ def test_the_sweep_targets_call_the_library_on_every_block(monkeypatch) -> None:
     calls.clear()
     comp.sweep()  # one block: a fresh run, laid out, tabulated
     assert calls == [("run", ["comp"], 36, {}), ("layout", ["comp"], 28), ("table", ["comp"], 16)]
+
+
+def test_a_lookup_without_simulation_never_waits_on_a_lock(tmp_path: Path, monkeypatch) -> None:
+    import fcntl
+    import hashlib
+
+    from flow.sweep import lookup
+
+    monkeypatch.setattr(lookup, "MODELS_DIR", tmp_path)
+    monkeypatch.setattr(lookup, "_sweep_index", lambda block: {})
+    params = CompParams()
+    digest = hashlib.sha1(lookup._key(flat_params(params)).encode()).hexdigest()[:12]
+    lock = tmp_path / "comp/tsmc65" / f"{digest}.lock"
+    lock.parent.mkdir(parents=True)
+    # another process's characterization, running
+    with lock.open("w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        with pytest.raises(LookupError):
+            lookup.characterized("comp", "tsmc65", params, simulate=False)
+        record = {"error": None, "metrics": {"delay_s": 1e-10}}
+        (lock.parent / digest).mkdir()
+        (lock.parent / digest / "instance.json").write_text(json.dumps(record))
+        assert lookup.characterized("comp", "tsmc65", params, simulate=False) == record
