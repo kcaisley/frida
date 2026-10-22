@@ -31,18 +31,18 @@ from .subckt import WIDTH, Mosfet, MosfetParams, flavors
 
 GENERATOR = Mosfet
 # the core flavors by type and threshold: each PDK has some of them (``flavors``)
-TOPOLOGIES = {
-    f"{tp.name.lower()}_{name}": {"tp": tp, "vth": vth}
+FLAVORS = [
+    {"tp": tp, "vth": vth}
     for tp in (MosType.NMOS, MosType.PMOS)
-    for name, vth in (("ulvt", MosVth.ULTRA_LOW), ("lvt", MosVth.LOW), ("svt", MosVth.STD), ("hvt", MosVth.HIGH))
-}
+    for vth in (MosVth.ULTRA_LOW, MosVth.LOW, MosVth.STD, MosVth.HIGH)
+]
 # the characterization's lengths (1 to 8 times the minimum) at its width, and a narrow and a wide
 # device at twice the minimum length (no width under 4 units: the finest PDK's minimum width)
-SIZINGS = {
-    **{f"l{length}": {"w": WIDTH, "l": length} for length in (1, 2, 4, 8)},
-    "narrow": {"w": WIDTH // 2, "l": 2},
-    "wide": {"w": 4 * WIDTH, "l": 2},
-}
+SIZES = [
+    *({"w": WIDTH, "l": length} for length in (1, 2, 4, 8)),
+    {"w": WIDTH // 2, "l": 2},
+    {"w": 4 * WIDTH, "l": 2},
+]
 
 
 @cache
@@ -51,11 +51,14 @@ def _devices(pdk: str) -> dict[tuple[MosType, MosVth], str]:
     return {flavor: name for name, flavor in flavors(pdk).items()}
 
 
-def params(pdk: str, topology: str, sizing: str) -> MosfetParams | None:
-    flavor = TOPOLOGIES[topology]
-    if (flavor["tp"], flavor["vth"]) not in _devices(pdk):
-        return None
-    return MosfetParams(**flavor, **SIZINGS[sizing])
+def instances(pdk: str) -> list[MosfetParams]:
+    """Every flavor the PDK has at every size."""
+    return [
+        MosfetParams(**flavor, **sizes)
+        for flavor in FLAVORS
+        if (flavor["tp"], flavor["vth"]) in _devices(pdk)
+        for sizes in SIZES
+    ]
 
 
 def _binned(frequency: np.ndarray, density: np.ndarray, grid: np.ndarray) -> list[float]:

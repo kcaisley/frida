@@ -3,7 +3,7 @@ at their delay chain's length and output drive, in every PDK.
 
 The functions are built of the PDK's library cells, so their sizing is the delay chain (1 to 8
 inverter pairs: the non-overlap gap, the pulse's width) and the output inverter's drive (1, 4 or
-8). A function takes only the sizings that change it: the non-overlapping clocks have no output
+8). A function takes only the sizes that change it: the non-overlapping clocks have no output
 inverter, the clock gate no delay chain.
 
 Each instance at the core supply and a 1 ns clock: clk-to-outp delay, outp's high width, the gaps
@@ -29,32 +29,28 @@ from .sim import ClkgenTbParams, _run_clkgen_sim, clkgen_signal_names
 from .subckt import CASES, Clkgen, ClkgenParams, Function, is_valid_clkgen_params
 
 GENERATOR = Clkgen
-TOPOLOGIES = {name: {"function": case.function, "delay": case.delay} for name, case in CASES.items()}
+# the characterization's functions (flow.clkgen.subckt.CASES), each with its own delay chain
+STRUCTURE = ("function",)
+FUNCTIONS = [{"function": case.function, "delay": case.delay} for case in CASES.values()]
 # the delay chain from one to eight inverter pairs (output drive 4), and the output drive 1 or 8
 # at the function's own chain
-SIZINGS = {
-    "delay1": {"delay": 1},
-    "delay2": {"delay": 2},
-    "delay3": {"delay": 3},
-    "delay4": {"delay": 4},
-    "delay6": {"delay": 6},
-    "delay8": {"delay": 8},
-    "drive1": {"drive": 1},
-    "drive8": {"drive": 8},
-}
+SIZES = [{"delay": delay} for delay in (1, 2, 3, 4, 6, 8)] + [{"drive": 1}, {"drive": 8}]
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 NOMINAL_PERIOD_S = 1e-9
 PERIOD_SWEEP_S = (2e-9, 1e-9, 700e-12, 500e-12, 300e-12, 200e-12, 150e-12, 100e-12)
 
 
-def params(pdk: str, topology: str, sizing: str) -> ClkgenParams | None:
-    function = TOPOLOGIES[topology]["function"]
-    if function == Function.NONOVERLAP and "drive" in SIZINGS[sizing]:
-        return None  # no output inverter
-    if function == Function.GATE and SIZINGS[sizing].get("delay", 1) != 1:
-        return None  # no delay chain
-    clkgen = ClkgenParams(**{**TOPOLOGIES[topology], **SIZINGS[sizing]})
-    return clkgen if is_valid_clkgen_params(clkgen) else None
+def instances(pdk: str) -> list[ClkgenParams]:
+    """Every function at every chain and drive it has (the non-overlapping clocks no output
+    inverter, the gate no delay chain), in every PDK."""
+    clkgens = (
+        ClkgenParams(**{**function, **sizes})
+        for function in FUNCTIONS
+        for sizes in SIZES
+        if not (function["function"] == Function.NONOVERLAP and "drive" in sizes)
+        and not (function["function"] == Function.GATE and sizes.get("delay", 1) != 1)
+    )
+    return [clkgen for clkgen in clkgens if is_valid_clkgen_params(clkgen)]
 
 
 def _measure(run_dir: Path, tb: ClkgenTbParams):

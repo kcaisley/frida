@@ -9,13 +9,16 @@ from klayout import db
 
 from flow.adc import sweep
 from flow.adc.assembly import assemble_blocks
+from flow.caparray.subckt import RedunStrat
 from flow.sweep.runner import ROOT
 from flow.web.export import export_layout
 
 
 def test_the_blocks_sit_side_by_side_in_one_labelled_cell(tmp_path: Path) -> None:
-    # the first converter the sweep runs at plus4 (not every comparator runs with every sampler)
-    params = next(p for t in sweep.TOPOLOGIES if (p := sweep.params("tsmc65", t, "plus4")))
+    # the first converter of the sweep with FRIDA's overlay of 4 redundant decisions
+    params = next(
+        p for p in sweep.instances("tsmc65") if p.cdac.n_extra == 4 and p.cdac.redun_strat == RedunStrat.SUBRDX2_OVLY
+    )
     try:
         entry = assemble_blocks("tsmc65", params, tmp_path)
     except (FileNotFoundError, LookupError) as error:

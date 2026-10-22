@@ -1,5 +1,5 @@
 """The latch's design space (``flow.sweep``): the characterization's nine latches, flip-flops,
-dividers and SR latches at up to six sizings, in every PDK.
+dividers and SR latches at up to six sizes, in every PDK.
 
 Each instance at the core supply (2 ns clock, data 0.5 ns before each capturing edge; an SR
 latch's set and reset 5.2 ns apart): the rising and falling delays to q (clk, or s and r) and the
@@ -27,33 +27,38 @@ from .sim import UPSET_NODE, LatchTbParams, _run_latch_sim, latch_signal_names
 from .subckt import CASES, CLOCKED_STYLES, Latch, LatchParams, Style, is_valid_latch_params, write_netlist
 
 GENERATOR = Latch
-TOPOLOGY_FIELDS = ("style", "flop", "divider", "reset")
-TOPOLOGIES = {name: {key: getattr(case, key) for key in TOPOLOGY_FIELDS} for name, case in CASES.items()}
+# the characterization's latches, flip-flops, dividers and SR latches (flow.latch.subckt.CASES)
+STRUCTURE = ("style", "flop", "divider", "reset")
+STRUCTURES = [{key: getattr(case, key) for key in STRUCTURE} for case in CASES.values()]
 # every width scaled together (x0.5 to x4), the feedback (DICE: storage) devices alone doubled
 # (not in a TSPC or SR latch, which have none), and every device at twice its length
 NOMINAL = LatchParams()
 WIDTHS = ("n_w", "p_w", "fb_n_w", "fb_p_w")
-FEEDBACK = ("fb_n_w", "fb_p_w")
-SIZINGS = {
-    "x0.5": {name: max(1, getattr(NOMINAL, name) // 2) for name in WIDTHS},
-    "x1": {},
-    "x2": {name: 2 * getattr(NOMINAL, name) for name in WIDTHS},
-    "x4": {name: 4 * getattr(NOMINAL, name) for name in WIDTHS},
-    "fb_x2": {name: 2 * getattr(NOMINAL, name) for name in FEEDBACK},
-    "long": {"l": 2 * NOMINAL.l},
-}
+FEEDBACK = {name: 2 * getattr(NOMINAL, name) for name in ("fb_n_w", "fb_p_w")}
+SIZES = [
+    {name: max(1, getattr(NOMINAL, name) // 2) for name in WIDTHS},
+    {},
+    {name: 2 * getattr(NOMINAL, name) for name in WIDTHS},
+    {name: 4 * getattr(NOMINAL, name) for name in WIDTHS},
+    FEEDBACK,
+    {"l": 2 * NOMINAL.l},
+]
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 DATA_OFFSET_SWEEP_S = tuple(round(offset * 1e-12, 15) for offset in range(-200, 301, 25))
 PERIOD_SWEEP_S = (1e-9, 500e-12, 300e-12, 200e-12, 150e-12, 100e-12, 70e-12, 50e-12, 30e-12)
 UPSET_CHARGES_C = tuple(charge * 1e-15 for charge in (1, 2, 3, 5, 7, 10, 20, 50, 100, 200))
 
 
-def params(pdk: str, topology: str, sizing: str) -> LatchParams | None:
-    topo = TOPOLOGIES[topology]
-    if sizing == "fb_x2" and topo["style"] not in (Style.CLOCKED, Style.DICE):
-        return None  # no feedback devices
-    latch = LatchParams(**topo, **SIZINGS[sizing])
-    return latch if is_valid_latch_params(latch) else None
+def instances(pdk: str) -> list[LatchParams]:
+    """Every latch at every size it has devices for (feedback devices only in the clocked and DICE
+    styles), in every PDK."""
+    latches = (
+        LatchParams(**structure, **sizes)
+        for structure in STRUCTURES
+        for sizes in SIZES
+        if sizes is not FEEDBACK or structure["style"] in (Style.CLOCKED, Style.DICE)
+    )
+    return [latch for latch in latches if is_valid_latch_params(latch)]
 
 
 def _measure(run_dir: Path, tb: LatchTbParams):

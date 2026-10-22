@@ -1,5 +1,5 @@
 """The charge-sensitive amplifier's design space (``flow.sweep``): the characterization's four
-cases at seven sizings, in every PDK.
+cases at seven sizes, in every PDK.
 
 Each instance on the characterization's bench (``flow.csa.sim``: 100 fF of detector, the charge
 through 1 fF, 10 fF of load, a 4 µA load, 10 nA of discharge, the Krummenacher reference at 45 %
@@ -31,32 +31,32 @@ from .subckt import CASES, Csa, CsaParams, Feedback, is_valid_csa_params, write_
 
 ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = Csa
-# the characterization's cases: input type, feedback, and the feedback device's length
-TOPOLOGIES = {
-    case: {name: getattr(csa, name) for name in ("input_xtors", "feedback", "cf", "fb_l")}
-    for case, csa in CASES.items()
-}
+# the characterization's amplifiers (flow.csa.subckt.CASES): input type, feedback, and the
+# feedback capacitor and device's length
+STRUCTURE = ("input_xtors", "feedback")
+STRUCTURES = [{name: getattr(csa, name) for name in (*STRUCTURE, "cf", "fb_l")} for csa in CASES.values()]
 # the amplifier's widths (input device, cascode, load) scaled together (x0.5 to x4), the input
 # device alone twice as wide or long, and the load at twice its length; the feedback as it is
 DEFAULT = CsaParams()
 WIDTHS = ("in_w", "cas_w", "load_w")
-SIZINGS = {
-    "x0.5": {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
-    "x1": {},
-    "x2": {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
-    "x4": {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
-    "input_x2": {"in_w": 2 * DEFAULT.in_w},
-    "input_long": {"in_l": 2 * DEFAULT.in_l},
-    "load_long": {"load_l": 2 * DEFAULT.load_l},
-}
+SIZES = [
+    {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
+    {},
+    {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
+    {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
+    {"in_w": 2 * DEFAULT.in_w},
+    {"in_l": 2 * DEFAULT.in_l},
+    {"load_l": 2 * DEFAULT.load_l},
+]
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 SMALL_C, LARGE_C = min(CHARGES_C), max(CHARGES_C)
 PULSE_STEP_S = 1e-9  # the responses' detail, sampled from the record
 
 
-def params(pdk: str, topology: str, sizing: str) -> CsaParams | None:
-    csa = CsaParams(**TOPOLOGIES[topology], **SIZINGS[sizing])
-    return csa if is_valid_csa_params(csa) else None
+def instances(pdk: str) -> list[CsaParams]:
+    """Every amplifier at every size, in every PDK."""
+    csas = (CsaParams(**structure, **sizes) for structure in STRUCTURES for sizes in SIZES)
+    return [csa for csa in csas if is_valid_csa_params(csa)]
 
 
 def _measure(run_dir: Path, tb: CsaTbParams):

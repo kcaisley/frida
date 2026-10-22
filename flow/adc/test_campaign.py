@@ -7,7 +7,6 @@ from flow.adc.campaign import (
     FIN_RATES_HZ,
     MISMATCH_COEFFICIENTS,
     RATES_HZ,
-    TAU_SCALES,
     UNIT_MISMATCH,
     VALIDATION_DRAWS,
     campaign,
@@ -33,17 +32,20 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
     assert abs(captures["rate_10"].tb["vin_diff"].vamp - 0.7 * 10 ** (-0.5 / 20)) < 1e-9
     assert isinstance(captures["dc_00"].tb["vin_diff"], h.Vdc.Params)
     assert captures["dc_00"].tb["vin_diff"].dc == -0.7 and captures["dc_32"].tb["vin_diff"].dc == 0.7
-    assert next(iter(FIGURES)) == "redundancy" and {"noise_input", "hsu_map", "hsu_rate", "hsu_fastest"} <= set(FIGURES)
-    # the noise over the input, and Hsu's study: every rate at every settling scale, and at each rate
-    # a reference with ideal timing at the same rate
+    assert next(iter(FIGURES)) == "redundancy" and {"noise_input", "hsu_rate"} <= set(FIGURES)
+    # what a fabricated instance can show: its settling is its own, only its rate varies
+    assert not {"hsu_map", "hsu_fastest"} & set(FIGURES)
+    # the noise over the input, and Hsu's study: every rate at the array's own settling, and at each
+    # rate a reference with ideal timing at the same rate
     assert "noise_input" in names
-    hsu = [name for name in names if name.startswith("hsu_r") and "_t" in name]
+    hsu = [name for name in names if name.startswith("hsu_r") and not name.startswith("hsu_reference")]
     references = [name for name in names if name.startswith("hsu_reference_r")]
-    assert len(hsu) == len(RATES_HZ) * len(TAU_SCALES) and len(references) == len(RATES_HZ)
+    assert len(hsu) == len(references) == len(RATES_HZ)
     for index, rate in enumerate(RATES_HZ):
-        reference = captures[f"hsu_reference_r{index}"]
-        assert reference.tb["rate_hz"] == rate == captures[f"hsu_r{index}_t0"].tb["rate_hz"]
+        reference, own = captures[f"hsu_reference_r{index}"], captures[f"hsu_r{index}"]
+        assert reference.tb["rate_hz"] == rate == own.tb["rate_hz"]
         assert reference.tau_scale == 0.0 and "comparator" in reference.quiet
+        assert own.tau_scale == 1.0 and "comparator" not in own.quiet
     # the mismatch is predicted, not drawn: the Monte Carlo that checks it only where asked for
     assert not any(name.startswith("mc_") for name in names)
     assert {"mismatch_weight_sigma", "mismatch_transition_sigma", "mismatch_margin"} <= set(FIGURES)

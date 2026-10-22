@@ -27,35 +27,38 @@ from .subckt import CASES, Disc, DiscNets, DiscParams, is_valid_disc_params, wri
 
 ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = Disc
-# the characterization's cases: input type, hysteresis
-TOPOLOGIES = {
-    case: {name: getattr(disc, name) for name in ("input_xtors", "hysteresis")} for case, disc in CASES.items()
-}
+# the characterization's discriminators (flow.disc.subckt.CASES): input type, hysteresis
+STRUCTURE = ("input_xtors", "hysteresis")
+STRUCTURES = [{name: getattr(disc, name) for name in STRUCTURE} for disc in CASES.values()]
 # every width scaled together (x0.5 to x4; the cross-coupled pair keeps 1.5 times the diodes'
 # strength), the input pair twice as wide or long, and the cross-coupled pair at twice the diodes'
 # strength (more hysteresis: with it only)
 DEFAULT = DiscParams()
 WIDTHS = ("in_w", "tail_w", "load_w", "cross_w", "out_w")
-SIZINGS = {
-    "x0.5": {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
-    "x1": {},
-    "x2": {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
-    "x4": {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
-    "pair_x2": {"in_w": 2 * DEFAULT.in_w},
-    "pair_long": {"in_l": 2 * DEFAULT.in_l},
-    "cross_strong": {"cross_w": 2 * DEFAULT.load_w},
-}
+SIZES = [
+    {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
+    {},
+    {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
+    {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
+    {"in_w": 2 * DEFAULT.in_w},
+    {"in_l": 2 * DEFAULT.in_l},
+    {"cross_w": 2 * DEFAULT.load_w},
+]
 NOMINAL_OD = 10e-3
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 TRANSFER_POINTS = 401  # the transfer detail's input grid across the triangle
 
 
-def params(pdk: str, topology: str, sizing: str) -> DiscParams | None:
-    disc = DiscParams(**TOPOLOGIES[topology], **SIZINGS[sizing])
-    # the cross-coupled pair alone resized: without hysteresis, the x1 discriminator again
-    if not disc.hysteresis and SIZINGS[sizing] and set(SIZINGS[sizing]) <= {"cross_w", "cross_l"}:
-        return None
-    return disc if is_valid_disc_params(disc) else None
+def instances(pdk: str) -> list[DiscParams]:
+    """Every discriminator at every size, in every PDK; the cross-coupled pair alone resized only
+    with hysteresis (without, the base discriminator again)."""
+    discs = (
+        DiscParams(**structure, **sizes)
+        for structure in STRUCTURES
+        for sizes in SIZES
+        if structure["hysteresis"] or not sizes or not set(sizes) <= {"cross_w", "cross_l"}
+    )
+    return [disc for disc in discs if is_valid_disc_params(disc)]
 
 
 def _measure(run_dir: Path, tb: DiscTbParams):

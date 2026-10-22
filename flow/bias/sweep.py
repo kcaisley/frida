@@ -1,5 +1,5 @@
 """The cascode bias generator's design space (``flow.sweep``): the characterization's two cases at
-eight sizings, in every PDK.
+eight sizes, in every PDK.
 
 Each instance on the characterization's bench (``flow.bias.sim``: the reference current into
 ``vbn``, cascoded NMOS and PMOS test mirrors on the four gates, their outputs swept from ground to
@@ -27,43 +27,45 @@ from .subckt import CASES, Bias, BiasParams, is_valid_bias_params, write_netlist
 
 ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = Bias
-DEFAULT = BiasParams()
-# the characterization's cases: the cascode-gate diodes' sizes that set their W/L
-TOPOLOGIES = {
-    case: {name: value for name, value in vars(bias).items() if value != getattr(DEFAULT, name)}
-    for case, bias in CASES.items()
-}
+# the characterization's cases (flow.bias.subckt.CASES): one circuit, the cascode-gate diodes' sizes
+# setting their W/L
+STRUCTURE = ()
 # factors on each case's sizes, so the diodes keep their fraction of the mirror devices' W/L: every
 # W/L x0.5 to x4, every mirror and diode device twice as wide and long (its W/L kept), the
 # cascodes twice as long, the cascode-gate diodes at half their W/L, the start-up follower four
 # times as wide. A width that cannot shrink so far keeps its size and its length grows instead.
 WL = ("n_w", "p_w", "casn_w", "casp_w")
-SIZINGS = {
-    "x0.5": dict.fromkeys(WL, 0.5),
-    "x1": {},
-    "x2": dict.fromkeys(WL, 2),
-    "x4": dict.fromkeys(WL, 4),
-    "long": dict.fromkeys(("n_w", "n_l", "p_w", "p_l", "casn_w", "casn_l", "casp_w", "casp_l"), 2),
-    "cas_long": {"cas_l": 2},
-    "diodes_weak": dict.fromkeys(("casn_w", "casp_w"), 0.5),
-    "start_x4": {"start_w": 4},
-}
+FACTORS = [
+    dict.fromkeys(WL, 0.5),
+    {},
+    dict.fromkeys(WL, 2),
+    dict.fromkeys(WL, 4),
+    dict.fromkeys(("n_w", "n_l", "p_w", "p_l", "casn_w", "casn_l", "casp_w", "casp_l"), 2),
+    {"cas_l": 2},
+    dict.fromkeys(("casn_w", "casp_w"), 0.5),
+    {"start_w": 4},
+]
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 GATES = ("vbn", "vcasn", "vbp", "vcasp")
 
 
-def params(pdk: str, topology: str, sizing: str) -> BiasParams | None:
-    case = BiasParams(**TOPOLOGIES[topology])
+def scaled(case: BiasParams, factors: dict[str, float]) -> BiasParams:
+    """``case`` with its sizes scaled by ``factors``."""
     sizes = {}
-    for name, factor in SIZINGS[sizing].items():
+    for name, factor in factors.items():
         value = getattr(case, name) * factor
         if value >= 1 and value == int(value):
             sizes[name] = int(value)
         else:  # a width under one unit: its length grows instead, for the same W/L
             length = f"{name[:-2]}_l"
             sizes[length] = round(sizes.get(length, getattr(case, length)) / factor)
-    bias = dataclasses.replace(case, **sizes)
-    return bias if is_valid_bias_params(bias) else None
+    return dataclasses.replace(case, **sizes)
+
+
+def instances(pdk: str) -> list[BiasParams]:
+    """Every case at every scaling, in every PDK."""
+    biases = (scaled(case, factors) for case in CASES.values() for factors in FACTORS)
+    return [bias for bias in biases if is_valid_bias_params(bias)]
 
 
 def _measure(run_dir: Path, tb: BiasTbParams):

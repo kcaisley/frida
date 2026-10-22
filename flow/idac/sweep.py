@@ -30,39 +30,43 @@ from .subckt import CASES, Idac, IdacParams, Switch, is_valid_idac_params, write
 
 ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = Idac
-# the characterization's units: source type, unit count, cascode, switching, diode
-TOPOLOGIES = {
-    case: {name: getattr(idac, name) for name in ("source_xtors", "units", "cascode", "switch", "diode")}
-    for case, idac in CASES.items()
-}
+# the characterization's units (flow.idac.subckt.CASES): source type, unit count, cascode,
+# switching, diode
+STRUCTURE = ("source_xtors", "units", "cascode", "switch", "diode")
+STRUCTURES = [{name: getattr(idac, name) for name in STRUCTURE} for idac in CASES.values()]
 # every width scaled together (x0.5 to x4), the source device twice as wide and long (its W/L
 # kept), the switches four times as wide (switched units only), the cascode twice as long
 # (cascoded units only)
 DEFAULT = IdacParams()
 WIDTHS = ("src_w", "cas_w", "sw_w")
-SIZINGS = {
-    "x0.5": {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
-    "x1": {},
-    "x2": {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
-    "x4": {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
-    "src_long": {"src_w": 2 * DEFAULT.src_w, "src_l": 2 * DEFAULT.src_l},
-    "switch_x4": {"sw_w": 4 * DEFAULT.sw_w},
-    "cas_long": {"cas_l": 2 * DEFAULT.cas_l},
-}
+SIZES = [
+    {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
+    {},
+    {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
+    {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
+    {"src_w": 2 * DEFAULT.src_w, "src_l": 2 * DEFAULT.src_l},
+    {"sw_w": 4 * DEFAULT.sw_w},
+    {"cas_l": 2 * DEFAULT.cas_l},
+]
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 
 
-def _absent(idac: IdacParams) -> set[str]:
-    """The sizes of devices the unit does not have."""
-    return ({"cas_w", "cas_l"} if not idac.cascode else set()) | ({"sw_w"} if idac.switch == Switch.NONE else set())
+def _absent(structure: dict) -> set[str]:
+    """The sizes of devices a unit of this structure does not have."""
+    cascode = set() if structure["cascode"] else {"cas_w", "cas_l"}
+    return cascode | ({"sw_w"} if structure["switch"] == Switch.NONE else set())
 
 
-def params(pdk: str, topology: str, sizing: str) -> IdacParams | None:
-    idac = IdacParams(**TOPOLOGIES[topology], **SIZINGS[sizing])
-    # only devices the unit does not have resized: the x1 unit again
-    if SIZINGS[sizing] and set(SIZINGS[sizing]) <= _absent(idac):
-        return None
-    return idac if is_valid_idac_params(idac) else None
+def instances(pdk: str) -> list[IdacParams]:
+    """Every unit at every size it has devices for (only devices it lacks resized: the base unit
+    again), in every PDK."""
+    idacs = (
+        IdacParams(**structure, **sizes)
+        for structure in STRUCTURES
+        for sizes in SIZES
+        if not (sizes and set(sizes) <= _absent(structure))
+    )
+    return [idac for idac in idacs if is_valid_idac_params(idac)]
 
 
 def _measure(run_dir: Path, tb: IdacTbParams):

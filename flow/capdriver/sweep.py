@@ -1,10 +1,10 @@
 """The capacitor driver's design space (``flow.sweep``): one generic-cell stage (``Cells.GENERIC``)
 of each drive weight driving five loads, in every PDK.
 
-A topology is the stage's drive weight (the characterization's cases: the XOR alone, or the XOR
-and a buffer of weight 2 to 16); a sizing is the load it drives, the bottom plate of the CDAC
-stage it stands for, from an LSB's 10 fF to an MSB's 1 pF. Which weight settles which load in
-time, at what energy, is the driver's sizing question.
+Each instance is a drive weight (the characterization's cases: the XOR alone, or the XOR and a
+buffer of weight 2 to 16) into a load, the bottom plate of the CDAC stage it stands for, from an
+LSB's 10 fF to an MSB's 1 pF. Which weight settles which load in time, at what energy, is the
+driver's sizing question.
 
 Each instance at its load and the core supply: both paths' delays, the output's transitions, its
 settling to 1 %, the energy per cycle (and over C V^2); the effective drive resistance from the
@@ -42,20 +42,22 @@ def GENERATOR(params: CapdriverLoad) -> h.Module:
     return CapDriver(params.driver)
 
 
-TOPOLOGIES = {name: {"n_stages": case.n_stages, "strengths": case.strengths} for name, case in CASES.items()}
-SIZINGS = {
-    "c10f": {"cload": 10e-15},
-    "c30f": {"cload": 30e-15},
-    "c100f": {"cload": 100e-15},
-    "c300f": {"cload": 300e-15},
-    "c1p": {"cload": 1e-12},
-}
+# the characterization's drivers (flow.capdriver.subckt.CASES): a stage of each strength
+DRIVERS = [{"n_stages": case.n_stages, "strengths": case.strengths} for case in CASES.values()]
+# the load on each stage: a CDAC stage's bottom plate
+LOADS_F = (10e-15, 30e-15, 100e-15, 300e-15, 1e-12)
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 LOAD_SWEEP = (0.5, 1.0, 2.0)  # times the instance's load: the drive resistance's fit
 
 
-def params(pdk: str, topology: str, sizing: str) -> CapdriverLoad | None:
-    return CapdriverLoad(driver=CapDriverParams(**TOPOLOGIES[topology], cells=Cells.GENERIC), **SIZINGS[sizing])
+def driver_load(driver: dict, cload: float) -> CapdriverLoad:
+    """The generic-cell driver of ``driver``'s stages, each into ``cload``."""
+    return CapdriverLoad(driver=CapDriverParams(**driver, cells=Cells.GENERIC), cload=cload)
+
+
+def instances(pdk: str) -> list[CapdriverLoad]:
+    """Every driver into every load, in every PDK."""
+    return [driver_load(driver, cload) for driver in DRIVERS for cload in LOADS_F]
 
 
 def _measure(run_dir: Path, tb: CapdriverTbParams):

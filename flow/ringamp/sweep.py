@@ -1,5 +1,5 @@
 """The ring amplifiers' design space (``flow.sweep``): the characterization's two amplifiers at
-eight sizings, in every PDK.
+eight sizes, in every PDK.
 
 Each instance at the nominal point (its own core supply, the dead-zone biases 5/12 of it from
 their rails): open loop the trip point, hysteresis, gain and supply current; closed loop (a gain
@@ -35,30 +35,36 @@ from .sim import (
 from .subckt import CASES, Ringamp, RingampParams, is_valid_ringamp_params, write_netlist
 
 GENERATOR = Ringamp
-# the two amplifiers differ in their output stage alone
-TOPOLOGIES = {name: {"out_w": case.out_w} for name, case in CASES.items()}
+# the characterization's two amplifiers (flow.ringamp.subckt.CASES) differ in their output stage
+# alone: one circuit
+STRUCTURE = ()
 # factors of each amplifier's own sizes: its widths scaled together (x0.5 to x4), the input
 # inverter or the dead-zone devices alone doubled, the dead-zone devices or the tails at twice
 # their length
 WIDTHS = ("in_w", "tail_w", "mid_w", "bias_w", "out_w", "en_w")
-SIZINGS = {
-    "x0.5": dict.fromkeys(WIDTHS, 0.5),
-    "x1": {},
-    "x2": dict.fromkeys(WIDTHS, 2),
-    "x4": dict.fromkeys(WIDTHS, 4),
-    "input_x2": {"in_w": 2},
-    "deadzone_x2": {"bias_w": 2},
-    "deadzone_long": {"bias_l": 2},
-    "tail_long": {"tail_l": 2},
-}
+FACTORS = [
+    dict.fromkeys(WIDTHS, 0.5),
+    {},
+    dict.fromkeys(WIDTHS, 2),
+    dict.fromkeys(WIDTHS, 4),
+    {"in_w": 2},
+    {"bias_w": 2},
+    {"bias_l": 2},
+    {"tail_l": 2},
+]
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 
 
-def params(pdk: str, topology: str, sizing: str) -> RingampParams | None:
-    case = RingampParams(**TOPOLOGIES[topology])
-    sizes = {name: max(1, round(getattr(case, name) * factor)) for name, factor in SIZINGS[sizing].items()}
-    ringamp = RingampParams(**{**TOPOLOGIES[topology], **sizes})
-    return ringamp if is_valid_ringamp_params(ringamp) else None
+def instances(pdk: str) -> list[RingampParams]:
+    """Every amplifier at every scaling of its own sizes, in every PDK."""
+    ringamps = (
+        RingampParams(
+            **{"out_w": case.out_w, **{name: max(1, round(getattr(case, name) * f)) for name, f in factors.items()}}
+        )
+        for case in CASES.values()
+        for factors in FACTORS
+    )
+    return [ringamp for ringamp in ringamps if is_valid_ringamp_params(ringamp)]
 
 
 def _measure(run_dir: Path, tb: RingampTbParams):

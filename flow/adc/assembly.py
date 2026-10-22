@@ -21,8 +21,7 @@ from klayout import db
 from flow.caparray.model import CapArrayModel
 from flow.caparray.subckt import CapArrayConfig, get_caparray_weights
 from flow.capdriver.subckt import CapDriverParams, Cells, stage_strengths
-from flow.sweep import flat_params
-from flow.sweep.runner import ROOT, SWEEP_DIR, _json, write_record
+from flow.sweep.runner import ROOT, SWEEP_DIR, digest, instance_params, write_record
 
 from .subckt import AdcParams
 
@@ -47,13 +46,13 @@ def _path(path: Path) -> str:
 
 
 def sweep_gds(block: str, pdk: str, params) -> Path:
-    """The layout of the instance of ``block``'s sweep with exactly these parameters, newest run
-    first."""
-    want = _json(flat_params(params))
-    for path in sorted((SWEEP_DIR / block).glob(f"*/{pdk}/*/*/instance.json"), reverse=True):
+    """The layout of the instance of ``block``'s sweep with exactly these parameters (its digest),
+    newest run first."""
+    ident = digest(params)
+    for path in sorted((SWEEP_DIR / block).glob(f"*/{pdk}/{ident}/instance.json"), reverse=True):
         record = json.loads(path.read_text())
         gds = (record.get("layout") or {}).get("gds")
-        if record["params"] == want and gds and (ROOT / gds).exists():
+        if gds and (ROOT / gds).exists():
             return ROOT / gds
     raise FileNotFoundError(
         f"no laid-out instance of the {block} sweep in {pdk} with these parameters under {SWEEP_DIR / block}: "
@@ -170,14 +169,12 @@ def assemble_blocks(pdk: str, params: AdcParams, out_dir: Path) -> dict:
 def layout_run(run_dir: Path) -> None:
     """Each characterized instance of an ADC sweep run (``build/sweep/adc/<run>``) given its
     blocks' layout entry in its ``instance.json``, which the viewer's table exports."""
-    from .sweep import params
-
-    for path in sorted(run_dir.glob("*/*/*/instance.json")):
+    for path in sorted(run_dir.glob("*/*/instance.json")):
         record = json.loads(path.read_text())
         if record["error"] is not None:
             continue
         try:
-            adc = params(record["pdk"], record["topology"], record["sizing"])
+            adc = instance_params("adc", record["pdk"], path.parent.name)
             record["layout"] = assemble_blocks(record["pdk"], adc, path.parent / "layout")
         except Exception:  # noqa: BLE001 - every instance reports its own failure
             record["layout"] = {"error": traceback.format_exc(limit=4)[-2000:]}

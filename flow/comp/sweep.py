@@ -1,5 +1,5 @@
 """The comparator's design space (``flow.sweep``): the characterization's six topologies at ten
-sizings (seven around the short-channel base, three around FRIDA-1's long-channel comparator), in
+sizes (seven around the short-channel base, three around FRIDA-1's long-channel comparator), in
 every PDK.
 
 Each instance at the nominal common mode (13/24 of its supply): the clock-to-decision delay and
@@ -33,23 +33,29 @@ import numpy as np
 
 from flow.sweep import Detail, Record
 
-from .sim import TOPOLOGIES, TOPOLOGY_SIZES, CompTbParams, _run_comp_sim, comp_signal_names
+from . import sim
+from .sim import TOPOLOGY_SIZES, CompTbParams, _run_comp_sim, comp_signal_names
 from .subckt import Comp, CompParams, OutputStage, is_valid_comp_params, write_netlist
 
 GENERATOR = Comp
+# the characterization's six topologies (flow.comp.sim): the parameters that make each
+STRUCTURES = list(sim.TOPOLOGIES.values())
+STRUCTURE = (
+    "comp_stages",
+    "preamp_diff_xtors",
+    "preamp_bias",
+    "latch_outer_on_xtors",
+    "latch_inner_on_xtors",
+    "latch_outer_init_xtors",
+    "latch_inner_init_xtors",
+    "latch_tail_shared",
+)
 # the key devices' widths scaled together (x0.5 to x4), the input pair or the latch alone
-# doubled, and the input pair and tail at twice their length
+# doubled, and the input pair and tail at twice their length, around the short-channel base
 WIDTHS = ("diffpair_w", "tail_w", "rst_w", "latch_on_w", "latch_init_w", "srlatch_n_w", "srlatch_p_w")
-SIZINGS = {
-    # no width under 4 units: half of the 4-unit output latch would fall below the finest PDK's minimum width
-    "x0.5": {name: max(4, TOPOLOGY_SIZES[name] // 2) for name in WIDTHS},
-    "x1": {},
-    "x2": {name: 2 * TOPOLOGY_SIZES[name] for name in WIDTHS},
-    "x4": {name: 4 * TOPOLOGY_SIZES[name] for name in WIDTHS},
-    "pair_x2": {"diffpair_w": 2 * TOPOLOGY_SIZES["diffpair_w"]},
-    "latch_x2": {name: 2 * TOPOLOGY_SIZES[name] for name in ("latch_on_w", "latch_init_w")},
-    "long": {"diffpair_l": 2 * TOPOLOGY_SIZES["diffpair_l"], "tail_l": 2 * TOPOLOGY_SIZES["tail_l"]},
-}
+# no width under 4 units: half of the 4-unit output latch would fall below the finest PDK's minimum width
+X0P5 = {name: max(4, TOPOLOGY_SIZES[name] // 2) for name in WIDTHS}
+X4 = {name: 4 * TOPOLOGY_SIZES[name] for name in WIDTHS}
 # near FRIDA-1's hand-sized comparator (flow.comp.subckt.FRIDA1: a long, weak tail and long latch
 # devices) in round multiples of the minimum, with its widths doubled and its lengths doubled, so
 # every FRIDA-1 size falls inside the sweep's range
@@ -68,11 +74,32 @@ FRIDA1_LIKE = {
     "srlatch_p_w": 8,
 }
 LENGTHS = ("diffpair_l", "tail_l", "rst_l", "latch_on_l", "latch_init_l")
-SIZINGS |= {
-    "frida1_like": FRIDA1_LIKE,
-    "frida1_like_x2": {**FRIDA1_LIKE, **{name: 2 * FRIDA1_LIKE[name] for name in WIDTHS}},
-    "frida1_like_long": {**FRIDA1_LIKE, **{name: 2 * FRIDA1_LIKE[name] for name in LENGTHS}},
-}
+FRIDA1_LIKE_LONG = {**FRIDA1_LIKE, **{name: 2 * FRIDA1_LIKE[name] for name in LENGTHS}}
+SIZES = [
+    X0P5,
+    {},
+    {name: 2 * TOPOLOGY_SIZES[name] for name in WIDTHS},
+    X4,
+    {"diffpair_w": 2 * TOPOLOGY_SIZES["diffpair_w"]},
+    {name: 2 * TOPOLOGY_SIZES[name] for name in ("latch_on_w", "latch_init_w")},
+    {"diffpair_l": 2 * TOPOLOGY_SIZES["diffpair_l"], "tail_l": 2 * TOPOLOGY_SIZES["tail_l"]},
+    FRIDA1_LIKE,
+    {**FRIDA1_LIKE, **{name: 2 * FRIDA1_LIKE[name] for name in WIDTHS}},
+    FRIDA1_LIKE_LONG,
+]
+
+
+def comparator(structure: dict, sizes: dict | None = None) -> CompParams:
+    """A comparator of the characterization's structure at ``sizes`` over its shared ones."""
+    return CompParams(**structure, **{**TOPOLOGY_SIZES, **(sizes or {})})
+
+
+def instances(pdk: str) -> list[CompParams]:
+    """Every topology at every size, in every PDK."""
+    comps = (comparator(structure, sizes) for structure in STRUCTURES for sizes in SIZES)
+    return [comp for comp in comps if is_valid_comp_params(comp)]
+
+
 NOMINAL_CM = 13 / 24
 CM_SWEEP = (9 / 24, 11 / 24, 13 / 24, 15 / 24)
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
@@ -92,11 +119,6 @@ CLOCKS_S = ((1e-9, 6e-9), (2e-9, 12e-9), (4e-9, 24e-9), (8e-9, 48e-9))
 RESOLVED_V = 10e-6
 SETTLED_RTOL = 0.02
 UNRESOLVED_MAX = 0.01  # the S-curve fit's limit (flow.analysis.comp.analyze_comp_offset_noise)
-
-
-def params(pdk: str, topology: str, sizing: str) -> CompParams | None:
-    comp = CompParams(**TOPOLOGIES[topology], **{**TOPOLOGY_SIZES, **SIZINGS[sizing]})
-    return comp if is_valid_comp_params(comp) else None
 
 
 def _measure(run_dir: Path, tb: CompTbParams, *, noise: bool):
@@ -381,13 +403,17 @@ def layout_netlist(out_dir: Path, pdk: str, comp: CompParams) -> Path:
     return in_pdk(pdk, "flow.layout.stdcells", "recognize_file", transistors, out_dir / "comp.sp")
 
 
-def layout_floorplan(out_dir: Path, pdk: str, topology: str, comp: CompParams) -> tuple[Path, Path]:
-    """The topology's hand-written floorplan (``design/layout/comp_<topology>.json``) with the
-    netlist it places, the standard-cell output stage's (``flow.comp.layout``)."""
+def layout_floorplan(out_dir: Path, pdk: str, comp: CompParams) -> tuple[Path, Path] | None:
+    """The hand-written floorplan of the characterization's topology of the instance's structure
+    (``design/layout/comp_<topology>.json``) with the netlist it places, the standard-cell output
+    stage's (``flow.comp.layout``); None where it has none."""
 
-    from flow.comp.layout import FLOORPLANS
+    from flow.sweep.runner import hand_floorplan
 
+    cases = {name: comparator(structure) for name, structure in sim.TOPOLOGIES.items()}
+    floorplan = hand_floorplan("comp", comp, cases)
+    if floorplan is None:
+        return None
     logic = importlib.import_module(f"pdk.{pdk}.hdl21").pdk_logic
-    name = f"comp_{topology}"
     stdcells = CompParams(**{**comp.__dict__, "output_stage": OutputStage.STDCELLS})
-    return write_netlist(stdcells, out_dir / f"{name}.sp", logic), FLOORPLANS / f"{name}.json"
+    return write_netlist(stdcells, out_dir / f"{floorplan.stem}.sp", logic), floorplan

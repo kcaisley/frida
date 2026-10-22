@@ -1,5 +1,5 @@
 """The sampling switch's design space (``flow.sweep``): the characterization's four switches at
-seven sizings, in every PDK.
+six sizes (a bootstrapped one at seven), in every PDK.
 
 Each instance as the characterization runs it (``flow.samp.sim``): into 1 pF at a 10 ns clock (5 ns
 tracking), its input stepping a twelfth of the supply each period, six periods. Over the input
@@ -25,34 +25,40 @@ from .sim import NOMINAL_VIN, VIN_SWEEP, SampTbParams, _run_samp_sim, samp_measu
 from .subckt import CASES, Samp, SampParams, is_valid_samp_params, write_netlist
 
 GENERATOR = Samp
-# the named switches' architecture: the switch, its dummies, a bootstrapped gate
-TOPOLOGIES = {
-    name: {key: getattr(case, key) for key in ("switch_type", "dummy", "bootstrap")} for name, case in CASES.items()
-}
+# the characterization's four switches (flow.samp.subckt.CASES): the switch, its dummies, a
+# bootstrapped gate
+STRUCTURE = ("switch_type", "dummy", "bootstrap")
+STRUCTURES = [{key: getattr(case, key) for key in STRUCTURE} for case in CASES.values()]
 # every width scaled together (x0.25 to x4: the switch, the bootstrap's helpers and its boost
-# capacitor), the switch at twice its length, and the boost capacitor alone doubled; no width under
-# 4 units (the finest PDK's minimum width: the 4-unit helpers stay)
+# capacitor), the switch at twice its length, and the boost capacitor alone doubled (a bootstrap's
+# only); no width under 4 units (the finest PDK's minimum width: the 4-unit helpers stay)
 BASE = SampParams()
 WIDTHS = ("mos_w", "boot_w", "cap_w")
-SIZINGS = {
-    "x0.25": {name: max(4, getattr(BASE, name) // 4) for name in WIDTHS},
-    "x0.5": {name: max(4, getattr(BASE, name) // 2) for name in WIDTHS},
-    "x1": {},
-    "x2": {name: 2 * getattr(BASE, name) for name in WIDTHS},
-    "x4": {name: 4 * getattr(BASE, name) for name in WIDTHS},
-    "long": {"mos_l": 2 * BASE.mos_l},
-    "boost_x2": {"cap_w": 2 * BASE.cap_w},
-}
-BOOTSTRAP_ONLY = ("boost_x2",)  # the same circuit as x1 without a bootstrap
+X4 = {name: 4 * getattr(BASE, name) for name in WIDTHS}
+BOOST_X2 = {"cap_w": 2 * BASE.cap_w}
+SIZES = [
+    {name: max(4, getattr(BASE, name) // 4) for name in WIDTHS},
+    {name: max(4, getattr(BASE, name) // 2) for name in WIDTHS},
+    {},
+    {name: 2 * getattr(BASE, name) for name in WIDTHS},
+    X4,
+    {"mos_l": 2 * BASE.mos_l},
+    BOOST_X2,
+]
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 WAVE_VIN = (VIN_SWEEP[0], NOMINAL_VIN, VIN_SWEEP[-1])  # the transients kept
 
 
-def params(pdk: str, topology: str, sizing: str) -> SampParams | None:
-    if sizing in BOOTSTRAP_ONLY and not TOPOLOGIES[topology]["bootstrap"]:
-        return None
-    samp = SampParams(**TOPOLOGIES[topology], **SIZINGS[sizing])
-    return samp if is_valid_samp_params(samp) else None
+def instances(pdk: str) -> list[SampParams]:
+    """Every switch at every size, in every PDK; the boost capacitor sized only where there is one
+    (without a bootstrap the same circuit as at its base size)."""
+    switches = (
+        SampParams(**structure, **sizes)
+        for structure in STRUCTURES
+        for sizes in SIZES
+        if sizes is not BOOST_X2 or structure["bootstrap"]
+    )
+    return [samp for samp in switches if is_valid_samp_params(samp)]
 
 
 def characterize(run_dir: Path, pdk: str, samp: SampParams) -> Record:

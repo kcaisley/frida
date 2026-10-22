@@ -30,32 +30,59 @@ def test_geometry_counts_the_compiled_devices_and_their_gate_area() -> None:
 
 def test_every_sweep_module_keeps_the_contract() -> None:
     for block in runner.sweep_blocks():
-        sweep = __import__(f"flow.{block}.sweep", fromlist=["params"])
-        # four to eight sizings, ten where a block also brackets a fabricated design (comp: FRIDA-1);
-        # the converters' and their DACs' sizings are their capacitor arrays, a redundancy scheme each
-        most = 40 if block.startswith(("adc", "cdac")) else 10
-        assert sweep.TOPOLOGIES and 4 <= len(sweep.SIZINGS) <= most, block
+        sweep = __import__(f"flow.{block}.sweep", fromlist=["instances"])
         assert callable(sweep.characterize) and sweep.GENERATOR is not None, block
-        combos = [
-            sweep.params(pdk, topology, sizing)
-            for pdk in runner.PDKS
-            for topology in sweep.TOPOLOGIES
-            for sizing in sweep.SIZINGS
-        ]
-        assert any(combo is not None for combo in combos), block
+        assert not hasattr(sweep, "TOPOLOGIES") and not hasattr(sweep, "SIZINGS"), block
+        spaces = {pdk: sweep.instances(pdk) for pdk in runner.PDKS}
+        assert any(spaces.values()), block
+        for pdk, instances in spaces.items():
+            # an instance is its parameters: each class the generator takes, none twice but where two
+            # ways reach the same parameters
+            assert all(type(params) is type(instances[0]) for params in instances), (block, pdk)
+            if hasattr(sweep, "cost"):
+                assert all(sweep.cost(pdk, params) > 0 for params in instances), (block, pdk)
+            # a floorplan chosen by structure names parameters the instances have
+            for name in getattr(sweep, "STRUCTURE", ()):
+                assert all(hasattr(params, name) for params in instances), (block, name)
+
+
+def test_an_instance_is_its_parameters() -> None:
+    from flow.comp import sweep as comp
+
+    a, b = comp.instances("tsmc65")[:2]
+    assert runner.digest(a) == runner.digest(flat_params(a)) == runner.digest(CompParams(**vars(a)))
+    assert runner.digest(a) != runner.digest(b) and len(runner.digest(a)) == 12
+    assert runner.instance_id("ihp130", a) == f"ihp130__{runner.digest(a)}"
+    # the models' cache and the sweep's runs key an instance alike
+    assert runner.design_space("comp", "tsmc65")[runner.digest(a)] == a
+
+
+def test_a_floorplan_is_chosen_by_the_instances_structure() -> None:
+    from flow.samp import sweep as samp
+    from flow.samp.subckt import SampParams, SwitchType
+
+    # every size of a switch by its case's floorplan; a structure no case has, none
+    assert runner.hand_floorplan("samp", SampParams(**samp.X4)).name == "samp_frida1.json"
+    bootstrap = SampParams(switch_type=SwitchType.NMOS, bootstrap=True, **samp.BOOST_X2)
+    assert runner.hand_floorplan("samp", bootstrap).name == "samp_bootstrap.json"
+    assert runner.hand_floorplan("samp", SampParams(switch_type=SwitchType.PMOS)) is None
+    assert runner.hand_floorplan("capdriver", object()) is None  # no structure named
 
 
 def test_the_table_has_a_row_per_instance_and_a_file_each(tmp_path: Path, monkeypatch) -> None:
     run = tmp_path / "sweep/toy/20261020_000000"
-    for pdk, sizing, delay in (("tsmc65", "x1", 1e-10), ("ihp130", "x2", 3e-10)):
-        path = run / pdk / "inv" / sizing / "instance.json"
+    idents = []
+    for pdk, w, delay in (("tsmc65", 1, 1e-10), ("ihp130", 2, 3e-10)):
+        params = {"w": w, "kind": "inv"}
+        ident = runner.instance_id(pdk, params)
+        idents.append(ident)
+        path = run / pdk / runner.digest(params) / "instance.json"
         path.parent.mkdir(parents=True)
         record = {
             "block": "toy",
+            "id": ident,
             "pdk": pdk,
-            "topology": "inv",
-            "sizing": sizing,
-            "params": {"w": 1 if sizing == "x1" else 2, "kind": "inv"},
+            "params": params,
             "metrics": {"delay_s": delay},
             "details": [
                 {
@@ -76,14 +103,22 @@ def test_the_table_has_a_row_per_instance_and_a_file_each(tmp_path: Path, monkey
         path.write_text(json.dumps(runner._json(record)))
     monkeypatch.setattr(runner, "SWEEP_DIR", tmp_path / "sweep")
     monkeypatch.setattr(runner, "DATA_DIR", tmp_path / "web/data/sweep")
+    # an instance file of an earlier run's, under an older id
+    (tmp_path / "web/data/sweep/toy").mkdir(parents=True)
+    (tmp_path / "web/data/sweep/toy/tsmc65__inv__x1.json").write_text("{}")
+    # and a block whose sweep is gone
+    (tmp_path / "web/data/sweep/catalog.json").write_text(json.dumps({"gone": {"title": "Gone", "instances": 1}}))
     runner.table(["toy"], 1)
     data = json.loads((tmp_path / "web/data/sweep/toy.json").read_text())
-    assert [row["id"] for row in data["rows"]] == ["ihp130__inv__x2", "tsmc65__inv__x1"]
+    assert [row["id"] for row in data["rows"]] == sorted(idents)
+    assert all(set(row) == {"id", "pdk", "params", "metrics", "error", "seconds"} for row in data["rows"])
     assert data["params"] == ["w"]  # the kind is the same everywhere
     assert "details" not in data  # each plot is scaled to its own data
-    instance = json.loads((tmp_path / "web/data/sweep/toy/tsmc65__inv__x1.json").read_text())
+    instance = json.loads((tmp_path / f"web/data/sweep/toy/{idents[0]}.json").read_text())
     assert instance["params"] == {"w": 1, "kind": "inv"} and instance["details"][0]["series"]["delay"][1] is None
-    assert json.loads((tmp_path / "web/data/sweep/catalog.json").read_text())["toy"]["instances"] == 2
+    assert not (tmp_path / "web/data/sweep/toy/tsmc65__inv__x1.json").exists()
+    catalog = json.loads((tmp_path / "web/data/sweep/catalog.json").read_text())
+    assert catalog["toy"]["instances"] == 2 and "gone" not in catalog
 
 
 def test_the_sweep_targets_call_the_library_on_every_block(monkeypatch) -> None:
@@ -117,9 +152,10 @@ def test_a_lookup_without_simulation_never_waits_on_a_lock(tmp_path: Path, monke
     from flow.sweep import lookup
 
     monkeypatch.setattr(lookup, "MODELS_DIR", tmp_path)
-    monkeypatch.setattr(lookup, "_sweep_index", lambda block: {})
+    monkeypatch.setattr(lookup, "_sweep_record", lambda block, pdk, ident: None)
     params = CompParams()
-    digest = hashlib.sha1(lookup._key(flat_params(params)).encode()).hexdigest()[:12]
+    digest = hashlib.sha1(json.dumps(flat_params(params), sort_keys=True).encode()).hexdigest()[:12]
+    assert digest == runner.digest(params)
     lock = tmp_path / "comp/tsmc65" / f"{digest}.lock"
     lock.parent.mkdir(parents=True)
     # another process's characterization, running

@@ -25,17 +25,21 @@ from .sim import CASES, CapArrayTbParams, _run_caparray_sim, caparray_measuremen
 from .subckt import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights, is_valid_caparray_params
 
 GENERATOR = CapArray
-# the named arrays' weights: FRIDA-1's radix 1.7, radix 2 on repeated coarse units, 11-bit binary,
-# sub-radix 2
-TOPOLOGIES = {name: {"cdac": case} for name, case in CASES.items()}
+# the characterization's arrays (flow.caparray.sim.CASES): FRIDA-1's radix 1.7, radix 2 on repeated
+# coarse units, 11-bit binary, sub-radix 2
+ARRAYS = list(CASES.values())
 # the unit capacitor (FRIDA-1's 1 fF) from a quarter to eight times, against the 100 fF load
-SIZINGS = {f"x{scale:g}": {"unit_cap": scale * f} for scale in (0.25, 0.5, 1, 2, 4, 8)}
+UNIT_CAPS = [scale * f for scale in (0.25, 0.5, 1, 2, 4, 8)]
 
 
-def params(pdk: str, topology: str, sizing: str) -> CapArrayParams | None:
-    cdac = CapArrayConfig(**{**vars(TOPOLOGIES[topology]["cdac"]), **SIZINGS[sizing]})
-    array = CapArrayParams(cdac=cdac)
-    return array if is_valid_caparray_params(array) else None
+def instances(pdk: str) -> list[CapArrayParams]:
+    """Every array at every unit capacitor, in every PDK."""
+    arrays = (
+        CapArrayParams(cdac=CapArrayConfig(**{**vars(cdac), "unit_cap": unit_cap}))
+        for cdac in ARRAYS
+        for unit_cap in UNIT_CAPS
+    )
+    return [array for array in arrays if is_valid_caparray_params(array)]
 
 
 def characterize(run_dir: Path, pdk: str, array: CapArrayParams) -> Record:

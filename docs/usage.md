@@ -113,7 +113,7 @@ Concurrency and each case's Spectre `+mt` setting are visible in the target whic
 
 ## Design-space sweeps
 
-`flow.sweep` characterizes every block's design space: each `flow/<block>/sweep.py` names its topologies and four to eight sizings of its key devices, and every PDK x topology x sizing is one instance, characterized in a fresh process of its own (under five minutes; 36 at once by default: a Spectre X run holds 3 of the server's 120 licences):
+`flow.sweep` characterizes every block's design space: each `flow/<block>/sweep.py` gives its instances in each PDK as parameter values (`instances(pdk)`: its circuits' structures times four to eight sizes of their key devices, the invalid combinations left out). An instance is its parameters, nothing else: its id is `<pdk>__<digest>`, the digest the first 12 hex digits of the SHA-1 of its flat parameters, the same digest the behavioral models look a characterization up by. Each is characterized in a fresh process of its own (under five minutes; 36 at once by default: a Spectre X run holds 3 of the server's 120 licences):
 
 ```sh
 uv run python -m flow sweep.run       # every block, every PDK, a fresh run (36 workers)
@@ -126,7 +126,7 @@ uv run python -m flow comp.sweep      # one block: characterized, laid out and t
 
 For another selection of blocks, PDKs or workers, call `flow.sweep.runner`'s `run`, `layout` and `table` from Python.
 
-Each instance writes `build/sweep/<block>/<run>/<pdk>/<topology>/<sizing>/instance.json`: its parameters, its scalar metrics (the device count and gate area of its compiled netlist among them), its condition sweeps (over supply, common mode, load, frequency) and its transient measurements. `sweep.missing` runs the newest run's failed instances again. ALIGN places each instance by its topology's hand-written floorplan (`design/layout/<block>_<topology>.json`, a minute or two) and, where it has none or that layout is not DRC clean and LVS correct, on its own (ten minutes or more). The viewer (`flow/web`) shows a block's instances as one table and a scatter plot of any metric against any other, and each instance on a page of its own.
+Each instance writes `build/sweep/<block>/<run>/<pdk>/<digest>/instance.json`: its id, its parameters, its scalar metrics (the device count and gate area of its compiled netlist among them), its condition sweeps (over supply, common mode, load, frequency) and its transient measurements. `sweep.missing` runs the newest run's failed instances again. ALIGN places each instance by the hand-written floorplan of the block's named case with the same structure (`design/layout/<block>_<case>.json`, chosen by the parameters the block's `STRUCTURE` names; a minute or two) and, where it has none or that layout is not DRC clean and LVS correct, on its own (ten minutes or more). The viewer (`flow/web`) shows a block's instances as one table and a scatter plot of any metric against any other, and each instance on a page of its own.
 
 The PDK packages give each simulator what it reads: `Install.simulation_includes(corner, simulator, mismatch=False)`. `pdk/test_spice.py` loads every device and standard cell each package wraps in Spectre and ngspice (`-m site_pdk`); ngspice runs TSMC65, IHP130 and TPSC65. `flow.mosfet` characterizes every PDK's core devices in both (`python -m flow mosfet.characterization`, then `python -m flow mosfet.characterization_study`).
 

@@ -1,38 +1,83 @@
 """Run, lay out and tabulate the blocks' design-space sweeps (``python -m flow sweep.<target>``).
 
-``run``: every block's instances (PDK x topology x sizing) characterized, one process each, at
-most ``workers`` at once; each writes ``instance.json`` (its parameters, metrics, details,
-waves, its run time or error) in ``build/sweep/<block>/<run>/<pdk>/<topology>/<sizing>/``.
-``layout``: ALIGN places and routes each instance of the newest run whose block gives a layout
-netlist, signoff checks it, and its area joins the record. ``table``: the newest run of each
+An instance is its parameters: its id is ``<pdk>__<digest>``, the digest the first 12 hex digits of
+the SHA-1 of its flat parameters (``digest``), as ``flow.sweep.lookup`` keys the models' cache.
+
+``run``: every block's instances (each PDK's ``instances(pdk)``) characterized, one process each,
+at most ``workers`` at once; each writes ``instance.json`` (its id, parameters, metrics, details,
+waves, its run time or error) in ``build/sweep/<block>/<run>/<pdk>/<digest>/``. ``layout``: ALIGN
+places and routes each instance of the newest run whose block gives a layout netlist or a
+floorplan, signoff checks it, and its area joins the record. ``table``: the newest run of each
 block as the viewer's table (``build/web/data/sweep/<block>.json``: one row per instance, the
-parameters that differ, then the metrics; each detail's axis limits over all instances) and one
-file per instance (its details, waves, layout and schematic).
+parameters that differ, then the metrics) and one file per instance (its details, waves, layout
+and schematic).
 """
 
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import math
 import os
+import shutil
 import time
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
+from functools import cache
 from importlib import import_module
 from multiprocessing import get_context
 from pathlib import Path
 
+from flow.sweep import flat_params
+
 ROOT = Path(__file__).resolve().parents[2]
 SWEEP_DIR = ROOT / "build/sweep"
 DATA_DIR = ROOT / "build/web/data/sweep"
+FLOORPLANS = ROOT / "design/layout"
 PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
 
 
 def sweep_blocks() -> list[str]:
     """Every block with a ``sweep.py``, in name order."""
     return sorted(path.parent.name for path in (ROOT / "flow").glob("*/sweep.py"))
+
+
+def params_key(flat: dict) -> str:
+    """A flat parameter row (``flat_params``) as canonical JSON: the key an instance is found by."""
+    return json.dumps(flat, sort_keys=True)
+
+
+def digest(params) -> str:
+    """An instance's identity: the first 12 hex digits of the SHA-1 of its flat parameters, from its
+    parameter class or the flat row a record holds."""
+    flat = params if isinstance(params, dict) else flat_params(params)
+    return hashlib.sha1(params_key(flat).encode()).hexdigest()[:12]
+
+
+def instance_id(pdk: str, params) -> str:
+    """``<pdk>__<digest>``: the instance's id in the viewer's tables and its directory in a run."""
+    return f"{pdk}__{digest(params)}"
+
+
+@cache
+def design_space(block: str, pdk: str) -> dict:
+    """The block's instances in ``pdk`` (its sweep's ``instances``), by digest: a design space may
+    reach the same parameters twice (two arrays that come out alike), which are one instance."""
+    sweep = import_module(f"flow.{block}.sweep")
+    return {digest(params): params for params in sweep.instances(pdk)}
+
+
+def instance_params(block: str, pdk: str, ident: str):
+    """The parameters of the instance of ``block`` in ``pdk`` with this digest."""
+    try:
+        return design_space(block, pdk)[ident]
+    except KeyError:
+        raise LookupError(
+            f"no instance of the {block} design space in {pdk} has the digest {ident}: its parameters "
+            f"are not among flow.{block}.sweep.instances({pdk!r}) (changed since it ran?)"
+        ) from None
 
 
 def _json(value):
@@ -55,20 +100,18 @@ def write_record(path: Path, record: dict) -> None:
     temporary.replace(path)
 
 
-def instance_job(block: str, run_dir: Path, pdk: str, topology: str, sizing: str) -> dict:
+def instance_job(block: str, run_dir: Path, pdk: str, params) -> dict:
     """Characterize one instance in this (fresh) process; its record, also as ``instance.json``."""
 
     import hdl21 as h
 
-    from flow.sweep import flat_params, geometry
+    from flow.sweep import geometry
 
     sweep = import_module(f"flow.{block}.sweep")
-    params = sweep.params(pdk, topology, sizing)
     record = {
         "block": block,
+        "id": instance_id(pdk, params),
         "pdk": pdk,
-        "topology": topology,
-        "sizing": sizing,
         "params": flat_params(params),
         "metrics": {},
         "details": [],
@@ -98,28 +141,20 @@ def run(blocks: list[str], pdks: tuple[str, ...], workers: int, *, failed: bool 
     into that run."""
 
     stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-    jobs, runs = [], {}
+    ranked, runs = [], {}
     for block in blocks:
-        sweep = import_module(f"flow.{block}.sweep")
+        rank = getattr(import_module(f"flow.{block}.sweep"), "cost", None)
         runs[block] = newest_run(block) if failed else SWEEP_DIR / block / stamp
         for pdk in pdks:
-            for topology in sweep.TOPOLOGIES:
-                for sizing in sweep.SIZINGS:
-                    if sweep.params(pdk, topology, sizing) is None:
-                        continue
-                    path = runs[block] / pdk / topology / sizing
-                    record = path / "instance.json"
-                    if failed and record.exists() and json.loads(record.read_text())["error"] is None:
-                        continue
-                    jobs.append((block, path, pdk, topology, sizing))
-
+            for ident, params in design_space(block, pdk).items():
+                path = runs[block] / pdk / ident
+                record = path / "instance.json"
+                if failed and record.exists() and json.loads(record.read_text())["error"] is None:
+                    continue
+                ranked.append((rank(pdk, params) if rank else 0.0, (block, path, pdk, params)))
     # the longest first where a block ranks its instances (``cost``), so the pool does not end on
     # one long instance alone
-    def cost(job: tuple) -> float:
-        rank = getattr(import_module(f"flow.{job[0]}.sweep"), "cost", None)
-        return rank(job[2], job[3], job[4]) if rank else 0.0
-
-    jobs.sort(key=cost, reverse=True)
+    jobs = [job for _cost, job in sorted(ranked, key=lambda item: item[0], reverse=True)]
     print(f"{len(jobs)} instances of {', '.join(blocks)} on {workers} workers")
     failed = 0
     # one BLAS thread a worker (the spawned workers inherit it): numpy's pool of a thread a core in
@@ -149,18 +184,36 @@ def newest_run(block: str) -> Path:
     return runs[-1]
 
 
-def case_floorplan(block: str, out_dir: Path, pdk: str, topology: str, params) -> tuple[Path, Path] | None:
-    """The block's hand-written floorplan of the topology (``design/layout/<block>_<topology>.json``)
-    with the netlist its layout runner places by it (``write_netlist`` of the block's subckt, at
-    the instance's sizes); None without one. A sweep module may name its own
-    (``layout_floorplan``)."""
+def hand_floorplan(block: str, params, cases: dict | None = None) -> Path | None:
+    """The hand-written floorplan an instance is placed by: that of the first of the block's named
+    cases (``cases``, else its subckt's ``CASES``) whose structure is the instance's (the values of
+    the parameters its sweep's ``STRUCTURE`` names: those that make its devices and their wiring,
+    not their sizes) and that has one, ``design/layout/<block>_<case>.json``; None where the block
+    names no structure or no such case has a floorplan."""
+
+    structure = getattr(import_module(f"flow.{block}.sweep"), "STRUCTURE", None)
+    if structure is None:
+        return None
+    if cases is None:
+        cases = getattr(import_module(f"flow.{block}.subckt"), "CASES", {})
+    for name, case in cases.items():
+        floorplan = FLOORPLANS / f"{block}_{name}.json"
+        if all(getattr(case, field) == getattr(params, field) for field in structure) and floorplan.exists():
+            return floorplan
+    return None
+
+
+def case_floorplan(block: str, out_dir: Path, pdk: str, params) -> tuple[Path, Path] | None:
+    """The instance's hand-written floorplan (``hand_floorplan``) with the netlist its layout
+    runner places by it (``write_netlist`` of the block's subckt, at the instance's sizes); None
+    without one. A sweep module may give its own (``layout_floorplan``)."""
 
     sweep = import_module(f"flow.{block}.sweep")
     if hasattr(sweep, "layout_floorplan"):
-        return sweep.layout_floorplan(out_dir, pdk, topology, params)
-    floorplan = ROOT / "design/layout" / f"{block}_{topology}.json"
+        return sweep.layout_floorplan(out_dir, pdk, params)
+    floorplan = hand_floorplan(block, params)
     write_netlist = getattr(import_module(f"flow.{block}.subckt"), "write_netlist", None)
-    if not floorplan.exists() or write_netlist is None:
+    if floorplan is None or write_netlist is None:
         return None
     logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
     return write_netlist(params, out_dir / f"{floorplan.stem}.sp", logic), floorplan
@@ -168,7 +221,7 @@ def case_floorplan(block: str, out_dir: Path, pdk: str, topology: str, params) -
 
 def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
     """ALIGN's layout of one instance and its signoff, into ``instance_dir/layout``; the record's
-    layout entry (also written into its ``instance.json``). ALIGN places by the topology's
+    layout entry (also written into its ``instance.json``). ALIGN places by the instance's
     hand-written floorplan where it has one (a minute or two, the same rows the floorplan's other
     tools draw); without one, or where that fails, ALIGN derives its constraints and places and
     routes on its own (ten minutes or more, and its router fails on some IHP130 designs)."""
@@ -185,13 +238,13 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
     os.environ.setdefault("ALIGN_TIMEOUT", "1800")
     record = json.loads((instance_dir / "instance.json").read_text())
     sweep = import_module(f"flow.{block}.sweep")
-    params = sweep.params(pdk, record["topology"], record["sizing"])
+    params = instance_params(block, pdk, instance_dir.name)
     out = instance_dir / "layout"
     entry: dict = {"error": None}
     start = time.time()
     attempts = []
     try:
-        planned = case_floorplan(block, out / "netlist", pdk, record["topology"], params)
+        planned = case_floorplan(block, out / "netlist", pdk, params)
         if planned is not None:
             attempts.append(planned)
     except Exception:  # noqa: BLE001 - ALIGN on its own instead
@@ -249,10 +302,14 @@ def layout(blocks: list[str], workers: int) -> None:
     for block in blocks:
         sweep = import_module(f"flow.{block}.sweep")
         own = hasattr(sweep, "layout_netlist") or hasattr(sweep, "layout_floorplan")
-        for path in sorted(newest_run(block).glob("*/*/*/instance.json")):
+        for path in sorted(newest_run(block).glob("*/*/instance.json")):
             record = json.loads(path.read_text())
+            params = design_space(block, record["pdk"]).get(path.parent.name)
+            if params is None:
+                print(f"{path.parent.relative_to(SWEEP_DIR)}: not in the design space any more, not laid out")
+                continue
             # a block drawn otherwise (the capacitor array) or of standard cells alone has nothing to place
-            if not own and not (ROOT / "design/layout" / f"{block}_{record['topology']}.json").exists():
+            if not own and hand_floorplan(block, params) is None:
                 continue
             entry = record.get("layout") or {}
             done = (
@@ -324,20 +381,20 @@ def table(blocks: list[str], workers: int) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     catalog_path = DATA_DIR / "catalog.json"
     catalog = json.loads(catalog_path.read_text()) if catalog_path.exists() else {}
+    # a block whose sweep is gone leaves the catalog
+    catalog = {block: entry for block, entry in catalog.items() if block in sweep_blocks() or block in blocks}
     with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as pool:
         for block in blocks:
             run_dir = newest_run(block)
-            records = [json.loads(path.read_text()) for path in sorted(run_dir.glob("*/*/*/instance.json"))]
+            records = [json.loads(path.read_text()) for path in sorted(run_dir.glob("*/*/instance.json"))]
             (DATA_DIR / block).mkdir(parents=True, exist_ok=True)
             rows, views = [], {}
             for record in records:
-                ident = f"{record['pdk']}__{record['topology']}__{record['sizing']}"
+                ident = record["id"]
                 rows.append(
                     {
                         "id": ident,
                         "pdk": record["pdk"],
-                        "topology": record["topology"],
-                        "sizing": record["sizing"],
                         "params": record["params"],
                         "metrics": record["metrics"],
                         "error": ((record["error"] or "").strip().splitlines() or [None])[-1],
@@ -379,6 +436,10 @@ def table(blocks: list[str], workers: int) -> None:
                 "rows": rows,
             }
             (DATA_DIR / f"{block}.json").write_text(json.dumps(_json(data), separators=(",", ":")))
+            # the files of instances no longer in the run (an earlier run's, or under older ids)
+            for stale in (DATA_DIR / block).iterdir():
+                if stale.name.split(".", 1)[0] not in views:
+                    shutil.rmtree(stale) if stale.is_dir() else stale.unlink()
             catalog[block] = {"title": title, "run": run_dir.name, "instances": len(rows)}
             laid_out = sum(1 for record, _future in views.values() if (record.get("layout") or {}).get("gds"))
             details = len({detail["name"] for record in records for detail in record["details"]})

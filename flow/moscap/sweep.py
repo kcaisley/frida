@@ -26,24 +26,27 @@ from .sim import BIAS_SWEEP, SUPPLY_SWEEP, MosCapTbParams, _run_moscap_sim, mosc
 from .subckt import CASES, Devices, Mode, MosCap, MosCapParams, is_valid_moscap_params, write_netlist
 
 GENERATOR = MosCap
-# the named capacitors: a decap of NMOS units or of an NMOS and a PMOS, a two-net NMOS or PMOS
-TOPOLOGIES = {name: {key: getattr(case, key) for key in ("mode", "devices", "units")} for name, case in CASES.items()}
+# the characterization's capacitors (flow.moscap.subckt.CASES): a decap of NMOS units or of an
+# NMOS and a PMOS, a two-net NMOS or PMOS
+STRUCTURE = ("mode", "devices", "units")
+STRUCTURES = [{key: getattr(case, key) for key in STRUCTURE} for case in CASES.values()]
 # the width scaled (x0.5 to x4: the capacitance), and the length halved or doubled (the
 # channel's series resistance, so the quality factor, against the capacitance per width)
 BASE = MosCapParams()
-SIZINGS = {
-    "x0.5": {"w": BASE.w // 2},
-    "x1": {},
-    "x2": {"w": 2 * BASE.w},
-    "x4": {"w": 4 * BASE.w},
-    "short": {"l": BASE.l // 2},
-    "long": {"l": 2 * BASE.l},
-}
+SIZES = [
+    {"w": BASE.w // 2},
+    {},
+    {"w": 2 * BASE.w},
+    {"w": 4 * BASE.w},
+    {"l": BASE.l // 2},
+    {"l": 2 * BASE.l},
+]
 
 
-def params(pdk: str, topology: str, sizing: str) -> MosCapParams | None:
-    moscap = MosCapParams(**TOPOLOGIES[topology], **SIZINGS[sizing])
-    return moscap if is_valid_moscap_params(moscap) else None
+def instances(pdk: str) -> list[MosCapParams]:
+    """Every capacitor at every size, in every PDK."""
+    moscaps = (MosCapParams(**structure, **sizes) for structure in STRUCTURES for sizes in SIZES)
+    return [moscap for moscap in moscaps if is_valid_moscap_params(moscap)]
 
 
 def characterize(run_dir: Path, pdk: str, moscap: MosCapParams) -> Record:

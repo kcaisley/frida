@@ -1,5 +1,5 @@
 """The phase interpolators' design space (``flow.sweep``): the characterization's four
-interpolators at seven sizings (a CML interpolator has no output inverter to size: six), in
+interpolators at seven sizes (a CML interpolator has no output inverter to size: six), in
 every PDK.
 
 Each instance at the nominal point (a 400 ps period, phase B a quarter period behind A, its own
@@ -35,31 +35,37 @@ from .sim import (
 from .subckt import CASES, Pi, PiParams, Style, is_valid_pi_params, write_netlist
 
 GENERATOR = Pi
-TOPOLOGIES = {
-    name: {"style": case.style, "weight_a": case.weight_a, "weight_b": case.weight_b} for name, case in CASES.items()
-}
+# the characterization's interpolators (flow.pi.subckt.CASES): style and weights
+STRUCTURE = ("style", "weight_a", "weight_b")
+STRUCTURES = [{key: getattr(case, key) for key in STRUCTURE} for case in CASES.values()]
 # the key devices' widths scaled together (x0.5 to x4), the slices (CML: the input pairs and
 # loads) or the output inverter alone doubled, and every device at twice its length
 DEFAULT = PiParams()
 WIDTHS = ("n_w", "p_w", "out_n_w", "out_p_w", "tail_w")
-SIZINGS = {
-    "x0.5": {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
-    "x1": {},
-    "x2": {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
-    "x4": {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
-    "slice_x2": {"n_w": 2 * DEFAULT.n_w, "p_w": 2 * DEFAULT.p_w},
-    "out_x2": {"out_n_w": 2 * DEFAULT.out_n_w, "out_p_w": 2 * DEFAULT.out_p_w},
-    "long": {"l": 2 * DEFAULT.l, "tail_l": 2 * DEFAULT.tail_l},
-}
+OUTPUT_X2 = {"out_n_w": 2 * DEFAULT.out_n_w, "out_p_w": 2 * DEFAULT.out_p_w}
+SIZES = [
+    {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
+    {},
+    {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
+    {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
+    {"n_w": 2 * DEFAULT.n_w, "p_w": 2 * DEFAULT.p_w},
+    OUTPUT_X2,
+    {"l": 2 * DEFAULT.l, "tail_l": 2 * DEFAULT.tail_l},
+]
 NOMINAL_UNIT_CURRENT_A = PiTbParams().unit_current_a
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 
 
-def params(pdk: str, topology: str, sizing: str) -> PiParams | None:
-    pi = PiParams(**TOPOLOGIES[topology], **SIZINGS[sizing])
-    if pi.style == Style.CML and sizing == "out_x2":
-        return None  # a CML interpolator has no output inverter: the same as x1
-    return pi if is_valid_pi_params(pi) else None
+def instances(pdk: str) -> list[PiParams]:
+    """Every interpolator at every size, in every PDK; a CML interpolator has no output inverter
+    to size (the base interpolator again)."""
+    pis = (
+        PiParams(**structure, **sizes)
+        for structure in STRUCTURES
+        for sizes in SIZES
+        if not (structure["style"] == Style.CML and sizes is OUTPUT_X2)
+    )
+    return [pi for pi in pis if is_valid_pi_params(pi)]
 
 
 def _measure(run_dir: Path, tb: PiTbParams):

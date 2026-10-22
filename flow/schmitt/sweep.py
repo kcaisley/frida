@@ -1,5 +1,5 @@
 """The Schmitt trigger's design space (``flow.sweep``): the inverting trigger and the buffer at
-eight sizings, in every PDK.
+eight sizes, in every PDK.
 
 Each instance over the supply (90 to 120 % of its own): the slow triangle (1 us a ramp: the trip
 points on the way up and down, their difference the hysteresis) and the step (4 ns period, 50 ps
@@ -22,30 +22,33 @@ from .sim import SchmittTbParams, _run_schmitt_sim, schmitt_signal_names
 from .subckt import Schmitt, SchmittParams, is_valid_schmitt_params, write_netlist
 
 GENERATOR = Schmitt
-# the characterization's inv_wide (the feedback at twice its width) is the sizing fb_x2 here
-TOPOLOGIES = {"inv": {"buffer": False}, "buffer": {"buffer": True}}
+# the inverting trigger and the buffer (the characterization's inv_wide, the feedback at twice its
+# width, is among the inverting trigger's sizes)
+STRUCTURE = ("buffer",)
+STRUCTURES = [{"buffer": False}, {"buffer": True}]
 # every width scaled together (x0.5 to x4), the feedback devices alone from half to four times
 # (narrower to wider hysteresis), and every device at twice its length
 NOMINAL = SchmittParams()
 WIDTHS = ("n_w", "p_w", "fb_n_w", "fb_p_w")
 FEEDBACK = ("fb_n_w", "fb_p_w")
-SIZINGS = {
-    "x0.5": {name: max(1, getattr(NOMINAL, name) // 2) for name in WIDTHS},
-    "x1": {},
-    "x2": {name: 2 * getattr(NOMINAL, name) for name in WIDTHS},
-    "x4": {name: 4 * getattr(NOMINAL, name) for name in WIDTHS},
-    "fb_x0.5": {name: max(1, getattr(NOMINAL, name) // 2) for name in FEEDBACK},
-    "fb_x2": {name: 2 * getattr(NOMINAL, name) for name in FEEDBACK},
-    "fb_x4": {name: 4 * getattr(NOMINAL, name) for name in FEEDBACK},
-    "long": {"l": 2 * NOMINAL.l},
-}
+SIZES = [
+    {name: max(1, getattr(NOMINAL, name) // 2) for name in WIDTHS},
+    {},
+    {name: 2 * getattr(NOMINAL, name) for name in WIDTHS},
+    {name: 4 * getattr(NOMINAL, name) for name in WIDTHS},
+    {name: max(1, getattr(NOMINAL, name) // 2) for name in FEEDBACK},
+    {name: 2 * getattr(NOMINAL, name) for name in FEEDBACK},
+    {name: 4 * getattr(NOMINAL, name) for name in FEEDBACK},
+    {"l": 2 * NOMINAL.l},
+]
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 TRANSFER_POINTS = 81
 
 
-def params(pdk: str, topology: str, sizing: str) -> SchmittParams | None:
-    schmitt = SchmittParams(**TOPOLOGIES[topology], **SIZINGS[sizing])
-    return schmitt if is_valid_schmitt_params(schmitt) else None
+def instances(pdk: str) -> list[SchmittParams]:
+    """Both triggers at every size, in every PDK."""
+    schmitts = (SchmittParams(**structure, **sizes) for structure in STRUCTURES for sizes in SIZES)
+    return [schmitt for schmitt in schmitts if is_valid_schmitt_params(schmitt)]
 
 
 def _measure(run_dir: Path, tb: SchmittTbParams):

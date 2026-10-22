@@ -37,31 +37,31 @@ from .sim import (
 from .subckt import CASES, Cml, CmlParams, Function, is_valid_cml_params, write_netlist
 
 GENERATOR = Cml
-TOPOLOGIES = {
-    name: {"function": case.function, "input_xtors": case.input_xtors, "load": case.load}
-    for name, case in CASES.items()
-}
+# the characterization's gates (flow.cml.subckt.CASES): function, input type, load
+STRUCTURE = ("function", "input_xtors", "load")
+STRUCTURES = [{key: getattr(case, key) for key in STRUCTURE} for case in CASES.values()]
 # the key devices' widths scaled together (x0.5 to x4), the input pair or the loads alone doubled,
 # and the input pair and tail at twice their length
 DEFAULT = CmlParams()
 WIDTHS = ("in_w", "tail_w", "load_w")
-SIZINGS = {
-    "x0.5": {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
-    "x1": {},
-    "x2": {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
-    "x4": {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
-    "pair_x2": {"in_w": 2 * DEFAULT.in_w},
-    "load_x2": {"load_w": 2 * DEFAULT.load_w},
-    "long": {"in_l": 2 * DEFAULT.in_l, "tail_l": 2 * DEFAULT.tail_l},
-}
+SIZES = [
+    {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
+    {},
+    {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
+    {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
+    {"in_w": 2 * DEFAULT.in_w},
+    {"load_w": 2 * DEFAULT.load_w},
+    {"in_l": 2 * DEFAULT.in_l, "tail_l": 2 * DEFAULT.tail_l},
+]
 TAIL_SWEEP = tuple(current / NOMINAL_TAIL_CURRENT_A for current in TAIL_CURRENT_SWEEP_A)
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 EYE_TRACES = 8
 
 
-def params(pdk: str, topology: str, sizing: str) -> CmlParams | None:
-    cml = CmlParams(**TOPOLOGIES[topology], **SIZINGS[sizing])
-    return cml if is_valid_cml_params(cml) else None
+def instances(pdk: str) -> list[CmlParams]:
+    """Every gate at every size, in every PDK."""
+    cmls = (CmlParams(**structure, **sizes) for structure in STRUCTURES for sizes in SIZES)
+    return [cml for cml in cmls if is_valid_cml_params(cml)]
 
 
 def _measure(run_dir: Path, tb: CmlTbParams):

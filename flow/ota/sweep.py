@@ -32,32 +32,31 @@ from .subckt import CASES, Ota, OtaParams, Topology, is_valid_ota_params, write_
 
 ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = Ota
-# the characterization's cases: topology, input type, second stage
-TOPOLOGIES = {
-    case: {name: getattr(ota, name) for name in ("topology", "input_xtors", "two_stage", "miller")}
-    for case, ota in CASES.items()
-}
+# the characterization's amplifiers (flow.ota.subckt.CASES): topology, input type, second stage
+STRUCTURE = ("topology", "input_xtors", "two_stage")
+STRUCTURES = [{name: getattr(ota, name) for name in (*STRUCTURE, "miller")} for ota in CASES.values()]
 # every width scaled together (x0.5 to x4), the input pair twice as wide or long, and the current
 # sources (tail and load) at twice their length
 DEFAULT = OtaParams()
 WIDTHS = ("in_w", "tail_w", "load_w", "cas_w", "stage2_w")
-SIZINGS = {
-    "x0.5": {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
-    "x1": {},
-    "x2": {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
-    "x4": {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
-    "pair_x2": {"in_w": 2 * DEFAULT.in_w},
-    "pair_long": {"in_l": 2 * DEFAULT.in_l},
-    "sources_long": {"tail_l": 2 * DEFAULT.tail_l, "load_l": 2 * DEFAULT.load_l},
-}
+SIZES = [
+    {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
+    {},
+    {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
+    {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
+    {"in_w": 2 * DEFAULT.in_w},
+    {"in_l": 2 * DEFAULT.in_l},
+    {"tail_l": 2 * DEFAULT.tail_l, "load_l": 2 * DEFAULT.load_l},
+]
 CM_SWEEP = tuple(step / 24 for step in range(4, 21, 2))
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 GAIN_DROP_DB = 6.0  # the common-mode range: the DC gain no further below its mid-supply value
 
 
-def params(pdk: str, topology: str, sizing: str) -> OtaParams | None:
-    ota = OtaParams(**TOPOLOGIES[topology], **SIZINGS[sizing])
-    return ota if is_valid_ota_params(ota) else None
+def instances(pdk: str) -> list[OtaParams]:
+    """Every amplifier at every size, in every PDK."""
+    otas = (OtaParams(**structure, **sizes) for structure in STRUCTURES for sizes in SIZES)
+    return [ota for ota in otas if is_valid_ota_params(ota)]
 
 
 def _bench(pdk: str, ota: OtaParams, vdd: float, vcm: float, **large) -> OtaTbParams:

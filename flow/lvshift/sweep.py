@@ -1,5 +1,5 @@
 """The level shifters' design space (``flow.sweep``): the characterization's three shifters at
-seven sizings, in every PDK.
+seven sizes, in every PDK.
 
 Each instance at the nominal supplies (its own core supply out, two thirds of it in): the rise
 and fall delays, the share of input edges followed, the output levels, the energy per input
@@ -25,29 +25,29 @@ from .sim import NOMINAL_VDDL, VDDL_SWEEP, LvShiftTbParams, _run_lvshift_sim, lv
 from .subckt import CASES, LvShift, LvShiftParams, is_valid_lvshift_params, write_netlist
 
 GENERATOR = LvShift
-TOPOLOGIES = {
-    name: {"input_inverter": case.input_inverter, "reset": case.reset, "buffers": case.buffers}
-    for name, case in CASES.items()
-}
+# the characterization's shifters (flow.lvshift.subckt.CASES)
+STRUCTURE = ("input_inverter", "reset", "buffers")
+STRUCTURES = [{key: getattr(case, key) for key in STRUCTURE} for case in CASES.values()]
 # the key devices' widths scaled together (x0.5 to x4), the input pair or the cross-coupled pair
 # alone doubled (the ratio the input pair must win), and the cross-coupled pair at twice its length
 DEFAULT = LvShiftParams()
 WIDTHS = ("in_w", "cross_w", "inv_n_w", "inv_p_w")
-SIZINGS = {
-    "x0.5": {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
-    "x1": {},
-    "x2": {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
-    "x4": {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
-    "pair_x2": {"in_w": 2 * DEFAULT.in_w},
-    "cross_x2": {"cross_w": 2 * DEFAULT.cross_w},
-    "cross_long": {"cross_l": 2 * DEFAULT.cross_l},
-}
+SIZES = [
+    {name: getattr(DEFAULT, name) // 2 for name in WIDTHS},
+    {},
+    {name: 2 * getattr(DEFAULT, name) for name in WIDTHS},
+    {name: 4 * getattr(DEFAULT, name) for name in WIDTHS},
+    {"in_w": 2 * DEFAULT.in_w},
+    {"cross_w": 2 * DEFAULT.cross_w},
+    {"cross_l": 2 * DEFAULT.cross_l},
+]
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 
 
-def params(pdk: str, topology: str, sizing: str) -> LvShiftParams | None:
-    lvshift = LvShiftParams(**TOPOLOGIES[topology], **SIZINGS[sizing])
-    return lvshift if is_valid_lvshift_params(lvshift) else None
+def instances(pdk: str) -> list[LvShiftParams]:
+    """Every shifter at every size, in every PDK."""
+    shifters = (LvShiftParams(**structure, **sizes) for structure in STRUCTURES for sizes in SIZES)
+    return [lvshift for lvshift in shifters if is_valid_lvshift_params(lvshift)]
 
 
 def _measure(run_dir: Path, tb: LvShiftTbParams):

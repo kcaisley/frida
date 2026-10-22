@@ -1,20 +1,31 @@
-"""Design-space sweeps: every block's topologies at several sizings of their key devices, in every
-PDK, each instance characterized at its nominal point and over its conditions, and laid out by
-ALIGN.
+"""Design-space sweeps: every block's circuits at several sizes of their key devices, in every PDK,
+each instance characterized at its nominal point and over its conditions, and laid out by ALIGN.
+
+An instance is its parameters (the block generator's parameter class), nothing else: no name. Its
+id is ``<pdk>__<digest>``, the digest the first 12 hex digits of the SHA-1 of its flat parameters
+(``flat_params`` as canonical JSON: ``flow.sweep.runner.digest``), and it runs in
+``build/sweep/<block>/<run>/<pdk>/<digest>/``; the behavioral models look a characterization up by
+the same digest (``flow.sweep.lookup``), so a model's parameters find the sweep's instance.
 
 A block takes part with a module ``flow/<block>/sweep.py``:
 
-- ``TOPOLOGIES``: topology name -> the parameters that make it.
-- ``SIZINGS``: sizing name -> the key devices' sizes (four to eight of them).
+- ``instances(pdk) -> list[Params]``: its design space in ``pdk`` as parameter values, built from
+  unnamed lists of partial parameter dicts (the structures, the sizes), their products and the
+  generator's validity filter; an empty list where the block does not run in that PDK. Parameter
+  values another block's design space reuses (a comparator in the ADC's) are module constants.
+- ``cost(pdk, params) -> float`` (optional): an instance's relative run time; the runner starts
+  the longest first.
 - ``GENERATOR``: the block's generator, whose compiled devices give the geometry metrics.
-- ``params(pdk, topology, sizing)``: the block's parameters, or None where the two do not combine.
 - ``characterize(run_dir, pdk, params) -> Record``: simulate the instance in ``run_dir``, in
   under five minutes.
 - ``layout_netlist(run_dir, pdk, params) -> Path`` (optional): the netlist ALIGN lays out on its
-  own, where the topology has no hand-written floorplan or ALIGN fails by it.
-- ``layout_floorplan(run_dir, pdk, topology, params) -> (netlist, floorplan)`` (optional): the
-  netlist ALIGN places by a floorplan; without it, ``design/layout/<block>_<topology>.json`` with
-  the block's ``write_netlist``, where both exist.
+  own, where the instance has no hand-written floorplan or ALIGN fails by it.
+- ``layout_floorplan(run_dir, pdk, params) -> (netlist, floorplan)`` (optional): the netlist ALIGN
+  places by a hand-written floorplan, and that floorplan.
+- ``STRUCTURE`` (optional, without ``layout_floorplan``): the parameters that make the circuit's
+  devices and their wiring. An instance is placed by the floorplan of the block's named case
+  (``subckt.CASES``) of the same structure, ``design/layout/<block>_<case>.json``, with the block's
+  ``write_netlist`` (``flow.sweep.runner.hand_floorplan``), where both exist.
 
 A ``Record`` holds the instance's scalar ``metrics`` (each name ends in its unit, as the
 analyses' fields do: ``_s``, ``_j``, ``_v``, ``_w``, ``_um2``), its ``details`` (plots of its
@@ -52,9 +63,16 @@ class Detail:
     # step lines over x, each {"y": [...], "count": n}: how many records took it (the ADC's decision
     # paths), drawn weighted by their counts beside or instead of the series
     paths: list[dict] = field(default_factory=list)
-    # a map over x and grid["y"] instead of curves: {"y": [...], "z": [[z at y[i], x[j]]...],
-    # "z_label": ..., "z_max": colour scale's top (larger values saturate), "y_log": bool}
-    grid: dict = field(default_factory=dict)
+    # each axis's ticks where its values alone do not say (the viewer's paperLayout infers them
+    # otherwise: whole numbers tick at whole numbers, log axes at decades or 1, 2 and 5):
+    # "integer" (whole-number ticks, never an exponent), "code" (an output code or a code estimate:
+    # as "integer", whatever the values), "step" (a decision or stage index: 0 and at least every
+    # even step labelled, every step ticked) or "real" (continuous, though the values are whole)
+    x_ticks: str | None = None
+    y_ticks: str | None = None
+    # the series are a histogram: each y the count in the bin one unit wide centred on its x (an
+    # output code), drawn as a step outline without markers or fill, so compared instances overlay
+    histogram: bool = False
 
 
 @dataclass

@@ -41,11 +41,10 @@ class CapDriverModel:
     @classmethod
     def of(cls, pdk: str, strength: int, *, load_f: float, simulate: bool = True) -> CapDriverModel:
         # the characterized load nearest this stage's, on a log scale
-        sizing = min(sweep.SIZINGS, key=lambda name: abs(math.log(sweep.SIZINGS[name]["cload"] / load_f)))
-        params = sweep.params(pdk, f"x{strength}", sizing)
+        cload = min(sweep.LOADS_F, key=lambda load: abs(math.log(load / load_f)))
+        params = sweep.driver_load({"n_stages": 1, "strengths": (strength,)}, cload)
         metrics = characterized("capdriver", pdk, params, simulate=simulate)["metrics"]
         supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
-        cload = params.cload
         # a rise and a fall draw the load's C V^2 once between them; the rest is the driver's own
         overhead = max(0.0, metrics["energy_per_cycle_j"] - cload * supply**2)
         return cls(

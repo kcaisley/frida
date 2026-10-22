@@ -1,5 +1,5 @@
 """The delay line and ring oscillator's design space (``flow.sweep``): the characterization's seven
-chains at up to seven sizings, in every PDK.
+chains at up to seven sizes, in every PDK.
 
 Each instance at the core supply and the nominal control (8/12 of it): a ring's frequency,
 swing, power and energy per cycle, a delay line's rise and fall
@@ -25,37 +25,41 @@ from .sim import CONTROL_SWEEP, NOMINAL_CONTROL, DelayTbParams, _run_delay_sim, 
 from .subckt import CASES, Control, Delay, DelayParams, Stage, is_valid_delay_params, write_netlist
 
 GENERATOR = Delay
-TOPOLOGY_FIELDS = ("stage", "control", "stages", "differential", "ring", "inject")
-TOPOLOGIES = {name: {key: getattr(case, key) for key in TOPOLOGY_FIELDS} for name, case in CASES.items()}
+# the characterization's lines and rings (flow.delay.subckt.CASES)
+STRUCTURE = ("stage", "control", "stages", "differential", "ring", "inject")
+STRUCTURES = [{key: getattr(case, key) for key in STRUCTURE} for case in CASES.values()]
 # every width scaled together (x0.5 to x4); the coupling inverters alone doubled (coupled stages
 # only); the starving devices and the tail doubled (controlled chains only); the stage inverters
 # at twice their length
 NOMINAL = DelayParams()
 WIDTHS = ("inv_n_w", "inv_p_w", "fb_n_w", "fb_p_w", "starve_n_w", "starve_p_w", "tail_w", "en_w", "inj_w")
-COUPLING = ("fb_n_w", "fb_p_w")
-CONTROLS = ("starve_n_w", "starve_p_w", "tail_w")
-SIZINGS = {
-    "x0.5": {name: max(1, getattr(NOMINAL, name) // 2) for name in WIDTHS},
-    "x1": {},
-    "x2": {name: 2 * getattr(NOMINAL, name) for name in WIDTHS},
-    "x4": {name: 4 * getattr(NOMINAL, name) for name in WIDTHS},
-    "coupling_x2": {name: 2 * getattr(NOMINAL, name) for name in COUPLING},
-    "control_x2": {name: 2 * getattr(NOMINAL, name) for name in CONTROLS},
-    "long": {"inv_l": 2 * NOMINAL.inv_l},
-}
+COUPLING = {name: 2 * getattr(NOMINAL, name) for name in ("fb_n_w", "fb_p_w")}
+CONTROLS = {name: 2 * getattr(NOMINAL, name) for name in ("starve_n_w", "starve_p_w", "tail_w")}
+SIZES = [
+    {name: max(1, getattr(NOMINAL, name) // 2) for name in WIDTHS},
+    {},
+    {name: 2 * getattr(NOMINAL, name) for name in WIDTHS},
+    {name: 4 * getattr(NOMINAL, name) for name in WIDTHS},
+    COUPLING,
+    CONTROLS,
+    {"inv_l": 2 * NOMINAL.inv_l},
+]
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 # the tuning gain from the control points either side of the nominal
 GAIN_POINTS = (7 / 12, 9 / 12)
 
 
-def params(pdk: str, topology: str, sizing: str) -> DelayParams | None:
-    topo = TOPOLOGIES[topology]
-    if sizing == "coupling_x2" and topo["stage"] != Stage.COUPLED:
-        return None  # no coupling inverters
-    if sizing == "control_x2" and topo["control"] == Control.NONE:
-        return None  # no starving devices or tail
-    delay = DelayParams(**topo, **SIZINGS[sizing])
-    return delay if is_valid_delay_params(delay) else None
+def instances(pdk: str) -> list[DelayParams]:
+    """Every line at every size it has devices for (coupling inverters only in coupled stages,
+    starving devices or a tail only in controlled ones), in every PDK."""
+    delays = (
+        DelayParams(**structure, **sizes)
+        for structure in STRUCTURES
+        for sizes in SIZES
+        if not (sizes is COUPLING and structure["stage"] != Stage.COUPLED)
+        and not (sizes is CONTROLS and structure["control"] == Control.NONE)
+    )
+    return [delay for delay in delays if is_valid_delay_params(delay)]
 
 
 def _measure(run_dir: Path, tb: DelayTbParams):

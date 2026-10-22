@@ -27,44 +27,43 @@ from .sim import NOMINAL_VIN, STEP, FollowerTbParams, _run_follower_sim, followe
 from .subckt import CASES, Follower, FollowerParams, Topology, is_valid_follower_params, write_netlist
 
 GENERATOR = Follower
-TOPOLOGIES = {
-    name: {
-        "topology": case.topology,
-        "input_xtors": case.input_xtors,
-        "sink": case.sink,
-        "in_w": case.in_w,
-        "bias_w": case.bias_w,
-    }
-    for name, case in CASES.items()
-}
+# the characterization's followers (flow.follower.subckt.CASES) at their own input and source widths
+STRUCTURE = ("topology", "input_xtors", "sink")
+CASE_SIZES = ("in_w", "bias_w")
 # factors of each follower's own sizes: its widths scaled together (x0.5 to x4), the input or
 # the shunt device alone doubled, the input device or the current source at twice its length
 WIDTHS = ("in_w", "bias_w", "fb_w")
-SIZINGS = {
-    "x0.5": dict.fromkeys(WIDTHS, 0.5),
-    "x1": {},
-    "x2": dict.fromkeys(WIDTHS, 2),
-    "x4": dict.fromkeys(WIDTHS, 4),
-    "in_x2": {"in_w": 2},
-    "fb_x2": {"fb_w": 2},
-    "in_long": {"in_l": 2},
-    "bias_long": {"bias_l": 2},
-}
+FACTORS = [
+    dict.fromkeys(WIDTHS, 0.5),
+    {},
+    dict.fromkeys(WIDTHS, 2),
+    dict.fromkeys(WIDTHS, 4),
+    {"in_w": 2},
+    {"fb_w": 2},
+    {"in_l": 2},
+    {"bias_l": 2},
+]
 NOMINAL_BIAS_A = FollowerTbParams().bias_current_a
 VIN_SWEEP = tuple(range(13))  # twelfths of the supply
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 
 
-def params(pdk: str, topology: str, sizing: str) -> FollowerParams | None:
-    case = FollowerParams(**TOPOLOGIES[topology])
-    factors = SIZINGS[sizing]
-    if case.topology == Topology.SOURCE:  # no shunt device to size
-        factors = {name: factor for name, factor in factors.items() if name != "fb_w"}
-        if SIZINGS[sizing] and not factors:
-            return None  # the same as x1
+def scaled(case: FollowerParams, factors: dict[str, float]) -> FollowerParams | None:
+    """The case's follower with its sizes scaled by ``factors`` (a source follower has no shunt
+    device to size); None where nothing it has is scaled (its base sizes again)."""
+    if case.topology == Topology.SOURCE:
+        kept = {name: factor for name, factor in factors.items() if name != "fb_w"}
+        if factors and not kept:
+            return None
+        factors = kept
     sizes = {name: max(1, round(getattr(case, name) * factor)) for name, factor in factors.items()}
-    follower = FollowerParams(**{**TOPOLOGIES[topology], **sizes})
-    return follower if is_valid_follower_params(follower) else None
+    return FollowerParams(**{**{name: getattr(case, name) for name in (*STRUCTURE, *CASE_SIZES)}, **sizes})
+
+
+def instances(pdk: str) -> list[FollowerParams]:
+    """Every follower at every scaling, in every PDK."""
+    followers = (scaled(case, factors) for case in CASES.values() for factors in FACTORS)
+    return [follower for follower in followers if follower is not None and is_valid_follower_params(follower)]
 
 
 def _case(follower: FollowerParams) -> str:

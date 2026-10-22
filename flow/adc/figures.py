@@ -62,8 +62,6 @@ FIGURES = {
     "spectrum_low": "Spectrum at 10 MS/s, low input frequency",
     "spectrum_nyquist": "Spectrum at 10 MS/s, input near Nyquist",
     "hsu_rate": "Integrated error over the conversion rate",
-    "hsu_fastest": "Fastest error-free rate over the DAC settling",
-    "hsu_map": "Integrated error over the rate and the DAC settling",
     "power_rate": "Supply power over the conversion rate",
     "energy_input": "Energy per conversion over the input",
     "energy_dac_input": "DAC energy per conversion over the input",
@@ -87,8 +85,8 @@ PELGROM_AXIS = np.geomspace(0.0002, 0.01, 41)
 def _path_details(trajectory: MeasAdc) -> list[Detail]:
     """The trajectory capture's decision paths (one input, many conversions): every distinct path of
     running code estimates with how many conversions took it, over the whole conversion and over
-    its last decisions (where noise splits them), and the histogram of the codes they end on (its
-    mean and spread in the curve's name)."""
+    its last decisions (where noise splits them), and the histogram of the codes they end on, a
+    bin a code (its mean and spread in the curve's name)."""
 
     analysis = analyze_adc_decision_paths(trajectory)
     estimates = np.round(np.asarray(analysis.estimate_dout, dtype=np.float64), 6)
@@ -105,8 +103,19 @@ def _path_details(trajectory: MeasAdc) -> list[Detail]:
     counts = np.array([np.count_nonzero(final == code) for code in codes], dtype=np.float64)
     first = max(steps - 1 - FINAL_DECISIONS, 0)
     label = "Code estimate (LSB)"
+    # decisions are steps, the estimates codes: whole-number ticks on both
+    ticks = {"x_ticks": "step", "y_ticks": "code"}
     return [
-        Detail("trajectory", FIGURES["trajectory"], "Decisions made", label, list(range(steps)), {}, paths=family(0)),
+        Detail(
+            "trajectory",
+            FIGURES["trajectory"],
+            "Decisions made",
+            label,
+            list(range(steps)),
+            {},
+            paths=family(0),
+            **ticks,
+        ),
         Detail(
             "trajectory_final",
             FIGURES["trajectory_final"],
@@ -115,7 +124,9 @@ def _path_details(trajectory: MeasAdc) -> list[Detail]:
             list(range(first, steps)),
             {},
             paths=family(first),
+            **ticks,
         ),
+        # a bin a code, two empty ones either side: the outline closes on the axis
         Detail(
             "trajectory_codes",
             FIGURES["trajectory_codes"],
@@ -123,6 +134,9 @@ def _path_details(trajectory: MeasAdc) -> list[Detail]:
             "Conversions",
             [float(code) for code in codes],
             {f"Conversions (mean {mean:.2f}, σ {sigma:.2f} LSB)": [float(count) for count in counts]},
+            x_ticks="code",
+            y_ticks="integer",
+            histogram=True,
         ),
     ]
 
@@ -221,7 +235,7 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
     out_dir.mkdir(parents=True, exist_ok=True)
     details: list[Detail] = []
 
-    def add(name: str, x_label: str, y_label: str, x, series, **scales) -> None:
+    def add(name: str, x_label: str, y_label: str, x, series, **options) -> None:
         details.append(
             Detail(
                 name=name,
@@ -231,7 +245,7 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
                 # six significant digits, as the viewer's other exports
                 x=[float(f"{value:.6g}") for value in x],
                 series={label: [float(f"{value:.6g}") for value in ys] for label, ys in series.items()},
-                **scales,
+                **options,
             )
         )
 
@@ -273,12 +287,16 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         "Error tolerance (%)",
         range(len(redundancy["Design weights"])),
         {"Design weights": redundancy["Design weights"]},
+        x_ticks="step",
     )
+    # a histogram, a bin a code: a step outline, so compared instances overlay
     add(
         "code_density",
         "Output code",
         "Code width (count / ideal)",
         *_by_code({"Design weights": ramps["Design weights"]}, "density"),
+        x_ticks="code",
+        histogram=True,
     )
     for name, values, label in (
         ("inl", "inl", "Design weights"),
@@ -286,7 +304,7 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         ("dnl", "dnl", "Design weights"),
         ("dnl_calibrated", "dnl", best),
     ):
-        add(name, "Output code", f"{values.upper()} (LSB)", *_by_code({label: decoded[label]}, values))
+        add(name, "Output code", f"{values.upper()} (LSB)", *_by_code({label: decoded[label]}, values), x_ticks="code")
     details += _path_details(captures["trajectory"])
     spectrum = analyze_adc_code_spectrum(captures["noise"], calibration=_extracted(captures["noise"]))
     add(
@@ -330,42 +348,15 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
             {f"{dynamic.input_frequency_hz / 1e6:.3g} MHz input": dynamic.spectrum_dbfs},
         )
     # Hsu's study (A. H. T. Chang, MIT PhD thesis 2013, sec. 3.3.3): every code centre once, noise-free, at each
-    # rate and with the DAC's settling time constants scaled; the integrated |code - ideal timing's|
-    hsu_rates, tau_scales, hsu = hsu_errors(captures)
-    nominal_tau = int(np.argmin(np.abs(tau_scales - 1.0)))
-    add("hsu_rate", "Conversion rate (Hz)", "Integrated error (LSB)", hsu_rates, {"Integrated error": hsu[nominal_tau]})
-    # each scale's fastest rate before the integrated error first passes a code in 1024 (Hsu's zero,
-    # less the rare metastable decision at a code centre), counting up from the slowest; NaN where
-    # even the slowest does
+    # rate with the array's own settling; the integrated |code - ideal timing's|
+    hsu_rates, hsu = hsu_errors(captures)
+    add("hsu_rate", "Conversion rate (Hz)", "Integrated error (LSB)", hsu_rates, {"Integrated error": hsu})
+    # the fastest rate before the integrated error first passes a code in 1024 (Hsu's zero, less the
+    # rare metastable decision at a code centre), counting up from the slowest; NaN where even the
+    # slowest does
     tolerance = max(1.0, len(captures["hsu_reference_r0"].dout) / 1024)
-    fastest = []
-    for row in hsu:
-        failing = np.flatnonzero(row > tolerance)
-        fastest.append(hsu_rates[-1] if not len(failing) else hsu_rates[failing[0] - 1] if failing[0] else math.nan)
-    add(
-        "hsu_fastest",
-        "Settling time constant (x the array's)",
-        "Fastest error-free rate (Hz)",
-        tau_scales,
-        {"Fastest error-free rate": fastest},
-        x_log=True,
-    )
-    details.append(
-        Detail(
-            name="hsu_map",
-            title=FIGURES["hsu_map"],
-            x_label="Conversion rate (Hz)",
-            y_label="Settling time constant (x the array's)",
-            x=[float(rate) for rate in hsu_rates],
-            series={},
-            grid={
-                "y": [float(scale) for scale in tau_scales],
-                "z": [[float(value) for value in row] for row in hsu],
-                "z_label": "Integrated error (LSB)",
-                "z_max": 10.0,
-            },
-        )
-    )
+    failing = np.flatnonzero(hsu > tolerance)
+    fastest = hsu_rates[-1] if not len(failing) else hsu_rates[failing[0] - 1] if failing[0] else math.nan
     add(
         "power_rate",
         "Conversion rate (Hz)",
@@ -399,6 +390,7 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         "Weight error (%)",
         range(len(extracted.nominal_weights)),
         {"Extracted weights": 100.0 * (extracted.calibrated_weights / extracted.nominal_weights - 1.0)},
+        x_ticks="step",
     )
     # the mismatch at Harpe's matching by stage, and the worst DNL and INL one converter in twenty
     # sees over the matching, decoded with the design weights
@@ -409,7 +401,7 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         ("mismatch_transition_sigma", "DNL σ (LSB)", UNIT_MISMATCH * statistics.transition_sigma),
         ("mismatch_margin", "Margin / σ", statistics.margin_over_sigma(UNIT_MISMATCH)),
     ):
-        add(name, "Conversion stage (C0 first)", y_label, stages, {harpe: values})
+        add(name, "Conversion stage (C0 first)", y_label, stages, {harpe: values}, x_ticks="step")
     for name, y_label, quantile in (
         ("mismatch_dnl", "Max |DNL| (LSB)", statistics.dnl_quantile),
         ("mismatch_inl", "Max |INL| (LSB)", statistics.inl_quantile),
@@ -464,8 +456,8 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         "noise_input_edge_lsb": float(max(sigma_lsb[0], sigma_lsb[-1])),
         "noise_input_mid_lsb": float(sigma_lsb[len(sigma_lsb) // 2]),
         # Hsu's study at the array's own settling: the fastest error-free rate, and the error at 10 MS/s
-        "error_free_rate_max_hz": float(fastest[nominal_tau]),
-        "integrated_error_nominal_lsb": float(hsu[nominal_tau][-1]),
+        "error_free_rate_max_hz": float(fastest),
+        "integrated_error_nominal_lsb": float(hsu[-1]),
         # the fastest rate before the ENOB first falls a bit below the slowest rate's: past it the
         # comparator or the DAC runs out of time (the sampler's distortion slopes off more gently)
         "rate_max_hz": list(

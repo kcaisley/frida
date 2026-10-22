@@ -1,14 +1,13 @@
-"""The CDAC's design space (``flow.sweep``): every ADC variant's array (``flow.caparray.layout``'s
-``ADC_VARIANTS``, extracted in TSMC65) with its drivers, in TSMC65, named as ``flow.adc.sweep``
-names them.
+"""The CDAC's design space (``flow.sweep``): the array of every converter of ``flow.adc.sweep``
+with its drivers, in TSMC65, at that converter's resolution: every ADC variant's (extracted in
+TSMC65) at one bit more than its nominal (the free first comparison), and the specification study's
+ideal arrays at 15 bits.
 
-A topology is the resolution (10 to 14 bits), a sizing the redundant decisions and how the array
-spends them; the converter's resolution is one bit more than the nominal (the free first
-comparison, as ``flow.adc.sweep``'s). The drivers are the generic cells the ADC model stands in
-with, at the array's strengths. Each instance switches every stage alone, both ways
-(``flow.cdac.sim``): its settling to half an LSB, its drivers' delay and the time constant the
-behavioral ADC settles it with, by stage. One Spectre run, under two minutes; a window too short for
-a stage to settle in its first half is doubled and run again.
+The drivers are the generic cells the ADC model stands in with, at the array's strengths. Each
+instance switches every stage alone, both ways (``flow.cdac.sim``): its settling to half an LSB, its
+drivers' delay and the time constant the behavioral ADC settles it with, by stage. One Spectre run,
+under two minutes; a window too short for a stage to settle in its first half is doubled and run
+again.
 """
 
 from __future__ import annotations
@@ -18,8 +17,7 @@ from pathlib import Path
 
 import hdl21 as h
 
-from flow.caparray.layout import ADC_VARIANTS, REDUNDANCY
-from flow.caparray.subckt import CapArrayConfig, get_caparray_weights
+from flow.caparray.subckt import CapArrayConfig
 from flow.capdriver.subckt import Cells
 from flow.sweep import Detail, Record
 
@@ -43,29 +41,21 @@ def GENERATOR(params: CdacSettling) -> h.Module:
     return Cdac(params.dac)
 
 
-TOPOLOGIES = {f"{bits}b": {"bits": bits} for bits in (10, 11, 12, 13, 14)}
-# plus<n> FRIDA's sub-radix-2 overlay, plus<n>_start, _spread, _end and _both binary weights with n of
-# them repeated at the start, along the chain, at the end or at both ends
-SIZINGS = {"plus0": {"extra": 0, "variant": ""}} | {
-    f"plus{extra}{suffix}": {"extra": extra, "variant": suffix} for extra in range(1, 7) for suffix in REDUNDANCY
-}
 ATTEMPTS = 3  # windows tried, each twice the last
 
 
-def array(topology: str, sizing: str) -> CapArrayConfig:
-    """The instance's ADC variant."""
-    return ADC_VARIANTS[f"{TOPOLOGIES[topology]['bits']}b_plus{SIZINGS[sizing]['extra']}{SIZINGS[sizing]['variant']}"]
+def instances(pdk: str) -> list[CdacSettling]:
+    """Each ADC instance's CDAC at its resolution, once however many converters share it."""
+    from flow.adc.sweep import instances as adc_instances
+    from flow.sweep.runner import digest
+
+    arrays = {(digest(adc.cdac), adc.adc_bits): adc for adc in adc_instances(pdk)}
+    settlings = (settling_params(pdk, adc.cdac, adc.adc_bits) for adc in arrays.values())
+    return list({digest(settling): settling for settling in settlings}.values())
 
 
-def params(pdk: str, topology: str, sizing: str) -> CdacSettling | None:
-    if pdk != "tsmc65":  # the variants' arrays are extracted in TSMC65 only
-        return None
-    config = array(topology, sizing)
-    return settling_params(pdk, config, config.n_dac + 1)
-
-
-def cost(pdk: str, topology: str, sizing: str) -> float:
-    return float(len(get_caparray_weights(array(topology, sizing))))
+def cost(pdk: str, params: CdacSettling) -> float:
+    return float(params.dac.driver.n_stages)
 
 
 def characterize(run_dir: Path, pdk: str, params: CdacSettling) -> Record:

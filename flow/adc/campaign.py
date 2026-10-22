@@ -15,15 +15,15 @@ model (``flow.adc.model``), each of which turns one into a ``MeasAdc``.
 - ``noise_input``: nine DC inputs evenly over +-90 % of the full scale at 10 MS/s, 512 conversions
   each, in one staircase: the output-code noise over the input (``input_noise``), where the DAC
   rail's noise, cancelled at mid-scale, grows toward the ends.
-- ``hsu_r<rate>_t<tau>``: every ideal code centre once (a ramp of one LSB a conversion), at each
-  rate of ``RATES_HZ`` with the DAC's settling time constants scaled by each of ``TAU_SCALES``,
-  noiseless but with the comparator's delay (a late decision holds the last bit); and
-  ``hsu_reference_r<rate>``, the same inputs at each rate with ideal settling and an ideal
-  comparator: the integrated error of each against its rate's reference (``hsu_errors``) maps
-  where the time a decision has, against the DAC's settling, costs codes, after A. Hsu's thesis
-  (MIT 2013, pp. 77-84): redundancy recovers settling errors, not a late comparator's. The
-  reference at the same rate takes off what every array shares there (the ramp's input moves
-  while it is sampled, more the faster the rate).
+- ``hsu_r<rate>``: every ideal code centre once (a ramp of one LSB a conversion), at each rate of
+  ``RATES_HZ`` with the array's own settling, noiseless but with the comparator's delay (a late
+  decision holds the last bit); and ``hsu_reference_r<rate>``, the same inputs at each rate with
+  ideal settling and an ideal comparator: the integrated error of each against its rate's
+  reference (``hsu_errors``) over the rate shows how fast the instance converts before the time a
+  decision has costs codes, after A. H. T. Chang's thesis (MIT 2013, pp. 77-84): redundancy recovers
+  settling errors, not a late comparator's. The rate is all a fabricated converter lets one vary,
+  so the study keeps to it. The reference at the same rate takes off what every array shares
+  there (the ramp's input moves while it is sampled, more the faster the rate).
 - ``mc_<A_C %>_<draw>``, only where ``mismatch_draws`` asks for them (the figures predict the
   mismatch from the capacitances, ``flow.adc.statistics``; the draws check it): noise-free ramps
   (four periods, 16 hits a code at 12 bits, at least 8 at any), at each Pelgrom coefficient from
@@ -64,9 +64,7 @@ MISMATCH_CONVERSIONS = 1 << 16
 INPUT_NOISE_LEVELS = 9
 INPUT_NOISE_SPAN = 0.9
 INPUT_NOISE_CONVERSIONS = 512
-# the Hsu study's DAC settling time constants, as multiples of the model's
-TAU_SCALES = (0.5, 1.0, 2.0, 4.0, 8.0, 16.0)
-# its noise switched off, the comparator's delay kept (or, for the reference, ideal)
+# the Hsu study's noise switched off, the comparator's delay kept (or, for the reference, ideal)
 HSU_QUIET = ("sampling", "comparator_noise", "rail")
 HSU_REFERENCE_QUIET = ("sampling", "comparator", "rail")
 
@@ -75,7 +73,8 @@ HSU_REFERENCE_QUIET = ("sampling", "comparator", "rail")
 class Capture:
     """One capture: its testbench, its capacitor draw (``seed``, at ``unit_mismatch``), its noise
     seed, whether it has noise at all, the sources it silences otherwise (``quiet``, as
-    ``AdcModel.behavioral``'s) and its DAC settling time constants' scale."""
+    ``AdcModel.behavioral``'s) and its DAC settling time constants' scale (1: the array's own, 0:
+    ideal settling, the Hsu study's reference)."""
 
     tb: AdcTbParams
     seed: int = 0
@@ -141,12 +140,9 @@ def campaign(
     )
     code_ramp = _code_ramp(full_scale_v, bits)
     for rate_index, rate in enumerate(RATES_HZ):
-        for tau_index, tau_scale in enumerate(TAU_SCALES):
-            captures[f"hsu_r{rate_index}_t{tau_index}"] = Capture(
-                tb(conversions=(1 << bits) + 1, rate_hz=rate, vin_diff=code_ramp(rate)),
-                quiet=HSU_QUIET,
-                tau_scale=tau_scale,
-            )
+        captures[f"hsu_r{rate_index}"] = Capture(
+            tb(conversions=(1 << bits) + 1, rate_hz=rate, vin_diff=code_ramp(rate)), quiet=HSU_QUIET
+        )
         captures[f"hsu_reference_r{rate_index}"] = Capture(
             tb(conversions=(1 << bits) + 1, rate_hz=rate, vin_diff=code_ramp(rate)),
             quiet=HSU_REFERENCE_QUIET,
@@ -221,16 +217,14 @@ def _code_ramp(full_scale_v: float, bits: int) -> Callable[[float], h.Vpwl.Param
     return ramp
 
 
-def hsu_errors(captures: dict[str, MeasAdc]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """The Hsu study: its rates (Hz), its settling time constants' scales, and at each (scale,
-    rate) the integrated error sum_k |code_k - reference_k| (LSB) over every code centre, the
-    codes decoded with the design weights and the reference the ideal-timing capture's at the same
-    rate (``hsu_reference_r<rate>``)."""
+def hsu_errors(captures: dict[str, MeasAdc]) -> tuple[np.ndarray, np.ndarray]:
+    """The Hsu study: its rates (Hz) and at each the integrated error sum_k |code_k - reference_k|
+    (LSB) over every code centre, the codes decoded with the design weights and the reference the
+    ideal-timing capture's at the same rate (``hsu_reference_r<rate>``)."""
 
-    errors = np.empty((len(TAU_SCALES), len(RATES_HZ)))
+    errors = np.empty(len(RATES_HZ))
     for rate_index in range(len(RATES_HZ)):
         reference = np.asarray(captures[f"hsu_reference_r{rate_index}"].dout, dtype=np.int64)[1:]
-        for tau_index in range(len(TAU_SCALES)):
-            codes = np.asarray(captures[f"hsu_r{rate_index}_t{tau_index}"].dout, dtype=np.int64)[1:]
-            errors[tau_index, rate_index] = float(np.sum(np.abs(codes - reference)))
-    return np.asarray(RATES_HZ), np.asarray(TAU_SCALES), errors
+        codes = np.asarray(captures[f"hsu_r{rate_index}"].dout, dtype=np.int64)[1:]
+        errors[rate_index] = float(np.sum(np.abs(codes - reference)))
+    return np.asarray(RATES_HZ), errors
