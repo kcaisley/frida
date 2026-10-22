@@ -6,10 +6,10 @@ from flow.adc.campaign import (
     FIN_CYCLES,
     FIN_RATES_HZ,
     MISMATCH_COEFFICIENTS,
-    MISMATCH_DRAWS,
     RATES_HZ,
     TAU_SCALES,
     UNIT_MISMATCH,
+    VALIDATION_DRAWS,
     campaign,
 )
 from flow.adc.figures import FIGURES
@@ -34,12 +34,20 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
     assert isinstance(captures["dc_00"].tb["vin_diff"], h.Vdc.Params)
     assert captures["dc_00"].tb["vin_diff"].dc == -0.7 and captures["dc_32"].tb["vin_diff"].dc == 0.7
     assert next(iter(FIGURES)) == "redundancy" and {"noise_input", "hsu_map", "hsu_rate", "hsu_fastest"} <= set(FIGURES)
-    # the noise over the input, and Hsu's study: every rate at every settling scale and a reference
-    assert "noise_input" in names and "hsu_reference" in names
-    assert sum(name.startswith("hsu_r") and name != "hsu_reference" for name in names) == len(RATES_HZ) * len(
-        TAU_SCALES
-    )
-    # the mismatch study: noise-free draws at each Pelgrom coefficient, one draw per seed
-    studies = [capture for name, capture in captures.items() if name.startswith("mc_")]
-    assert len(studies) == len(MISMATCH_COEFFICIENTS) * MISMATCH_DRAWS and all(c.noise_free for c in studies)
+    # the noise over the input, and Hsu's study: every rate at every settling scale, and at each rate
+    # a reference with ideal timing at the same rate
+    assert "noise_input" in names
+    hsu = [name for name in names if name.startswith("hsu_r") and "_t" in name]
+    references = [name for name in names if name.startswith("hsu_reference_r")]
+    assert len(hsu) == len(RATES_HZ) * len(TAU_SCALES) and len(references) == len(RATES_HZ)
+    for index, rate in enumerate(RATES_HZ):
+        reference = captures[f"hsu_reference_r{index}"]
+        assert reference.tb["rate_hz"] == rate == captures[f"hsu_r{index}_t0"].tb["rate_hz"]
+        assert reference.tau_scale == 0.0 and "comparator" in reference.quiet
+    # the mismatch is predicted, not drawn: the Monte Carlo that checks it only where asked for
+    assert not any(name.startswith("mc_") for name in names)
+    assert {"mismatch_weight_sigma", "mismatch_transition_sigma", "mismatch_margin"} <= set(FIGURES)
+    drawn = campaign(tb, 0.7, mismatch_draws=VALIDATION_DRAWS)
+    studies = [capture for name, capture in drawn.items() if name.startswith("mc_")]
+    assert len(studies) == len(MISMATCH_COEFFICIENTS) * VALIDATION_DRAWS and all(c.noise_free for c in studies)
     assert {c.unit_mismatch for c in studies} == set(MISMATCH_COEFFICIENTS)

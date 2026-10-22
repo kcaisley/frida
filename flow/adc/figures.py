@@ -9,10 +9,11 @@ x, named series, drawn like every block's), from the same analyses the paper's f
 many conversions took it (``Detail.paths``): the whole conversion, its last decisions, and where
 the conversions at one input end.
 
-The mismatch study's ramps (``mc_*``) are each decoded with the design weights and with calibration
-2 learned from that ramp (calibration 3's threshold fits need many more trials a branch than these
-short ramps have): the spread of their worst DNL and INL over the capacitor draws at each Pelgrom
-coefficient is what that matching costs, and what calibration wins back.
+Capacitor mismatch is predicted rather than drawn (``flow.adc.statistics``): from the nominal
+array's capacitances, each stage's weight sigma, each code's DNL and INL sigma and the 95th
+percentile of the worst DNL and INL over a continuous Pelgrom coefficient. Where the campaign also
+holds the Monte Carlo ramps that check it (``mc_*``, ``campaign(mismatch_draws=...)``), their 95th
+percentiles at Harpe's matching are reported beside the predictions.
 """
 
 from __future__ import annotations
@@ -37,7 +38,9 @@ from flow.analysis.io import read_extracted_calibration
 from flow.analysis.types import MeasAdc
 from flow.sweep import Detail
 
+from .behavioral import calc_side_capacitances
 from .campaign import NOMINAL_RATE_HZ, UNIT_MISMATCH, hsu_errors, input_noise
+from .statistics import MismatchStatistics
 
 # the figures, in the order the viewer shows them: name -> title. Each is one curve (one series, or
 # one family of decision paths), so instances compared on one plot stay readable; what a second
@@ -65,10 +68,11 @@ FIGURES = {
     "energy_input": "Energy per conversion over the input",
     "energy_dac_input": "DAC energy per conversion over the input",
     "calibration_weights": "Weight error of the extracted array",
-    "mismatch_dnl": "Worst DNL over capacitor mismatch",
-    "mismatch_inl": "Worst INL over capacitor mismatch",
-    "mismatch_inl_calibrated": "Worst INL after calibration over capacitor mismatch",
-    "mismatch_missing": "Missing codes over capacitor mismatch",
+    "mismatch_weight_sigma": "Capacitor weight σ by stage",
+    "mismatch_transition_sigma": "DNL σ at each stage's transition",
+    "mismatch_margin": "Redundancy margin over its mismatch σ by stage",
+    "mismatch_dnl": "Worst DNL over the Pelgrom coefficient (predicted 95th percentile)",
+    "mismatch_inl": "Worst INL over the Pelgrom coefficient (predicted 95th percentile)",
 }
 RAILS = {"vdd_a": "VDD_A", "vdd_d": "VDD_D", "vdd_dac": "VDD_DAC"}
 
@@ -76,6 +80,8 @@ RAILS = {"vdd_a": "VDD_A", "vdd_d": "VDD_D", "vdd_dac": "VDD_DAC"}
 # the decision paths drawn: the last decisions' zoom, and at most this many distinct paths a plot
 FINAL_DECISIONS = 6
 MAX_PATHS = 400
+# the predicted mismatch's Pelgrom coefficients: 0.02 to 1 %·sqrt(fF), as fractions
+PELGROM_AXIS = np.geomspace(0.0002, 0.01, 41)
 
 
 def _path_details(trajectory: MeasAdc) -> list[Detail]:
@@ -162,9 +168,25 @@ def _log_binned(frequency_hz: np.ndarray, densities: dict[str, np.ndarray], bins
     return np.sqrt(edges[:-1] * edges[1:]).tolist(), series
 
 
+def _mismatch_statistics(measurement: MeasAdc) -> MismatchStatistics:
+    """The predicted mismatch statistics of a behavioral capture's array: its nominal capacitances
+    (a capture without a draw), top-plate load, design weights and code range."""
+    cdac = measurement.param.cdac
+    main_f, diff_f = calc_side_capacitances(cdac, measurement.tb, "p")
+    return MismatchStatistics.of(
+        main_f,
+        diff_f,
+        cdac.parasitic_f,
+        measurement.nominal_bout_weights,
+        measurement.code_max,
+        diffcaps=bool(measurement.tb.dac_diffcaps),
+    )
+
+
 def _mismatch_study(captures: dict[str, MeasAdc]) -> tuple[np.ndarray, dict[str, dict[str, np.ndarray]]]:
-    """Each mismatch ramp's worst DNL and INL and missing codes by decoding, as arrays of shape
-    (Pelgrom coefficients, draws)."""
+    """Each Monte Carlo ramp's worst DNL and INL and missing codes by decoding, as arrays of shape
+    (Pelgrom coefficients, draws): the check on the predicted statistics, where the campaign was
+    asked for the draws."""
     rows: dict[float, list[dict[str, tuple[float, float, float]]]] = {}
     for name, measurement in sorted(captures.items()):
         if not name.startswith("mc_"):
@@ -194,7 +216,7 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
     """The campaign's metrics and its figures as the viewer's details (``FIGURES`` names and
     titles them) from its captures by name. ``noise_sampling`` and ``noise_comparator`` (the noise
     capture with one source) add each source's rms noise where present, the ``mc_*`` ramps the
-    mismatch study."""
+    Monte Carlo's check on the predicted mismatch."""
 
     out_dir.mkdir(parents=True, exist_ok=True)
     details: list[Detail] = []
@@ -239,13 +261,12 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         "Design weights": calc_redundancy_margins(extracted.nominal_weights),
         "Extracted weights": calc_redundancy_margins(extracted.calibrated_weights),
     }
-    coefficients, mismatch = _mismatch_study(captures)
-    drawn, drawn_calibrated = mismatch.values()
-    harpe = int(np.argmin(np.abs(coefficients - UNIT_MISMATCH)))
-
-    # the decodings a ramp is graded by: the design weights (the converter as it comes) and the best
-    # calibration learned (calibration 3 where it fitted)
-    best = "Calibration 3" if "Calibration 3" in learned else "Calibration 2"
+    # the decodings a ramp is graded by: the design weights (the converter as it comes) and the
+    # calibration that grades the check ramp best (calibration 3 keeps the design weights where its
+    # validation finds no measured weight that helps)
+    best = min(learned, key=lambda label: decoded[label].maximum_abs_inl)
+    # the mismatch, predicted from the nominal array (a capture without a draw)
+    statistics = _mismatch_statistics(captures["noise"])
     add(
         "redundancy",
         "Conversion stage (C0 first)",
@@ -316,7 +337,7 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
     # each scale's fastest rate before the integrated error first passes a code in 1024 (Hsu's zero,
     # less the rare metastable decision at a code centre), counting up from the slowest; NaN where
     # even the slowest does
-    tolerance = max(1.0, len(captures["hsu_reference"].dout) / 1024)
+    tolerance = max(1.0, len(captures["hsu_reference_r0"].dout) / 1024)
     fastest = []
     for row in hsu:
         failing = np.flatnonzero(row > tolerance)
@@ -379,19 +400,26 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         range(len(extracted.nominal_weights)),
         {"Extracted weights": 100.0 * (extracted.calibrated_weights / extracted.nominal_weights - 1.0)},
     )
-    # the 95th percentile over the draws at each matching: the worst one converter in twenty sees
-    for name, label, key, y_label in (
-        ("mismatch_dnl", "Design weights", "dnl", "Max |DNL| (LSB)"),
-        ("mismatch_inl", "Design weights", "inl", "Max |INL| (LSB)"),
-        ("mismatch_inl_calibrated", "Calibration 2", "inl", "Max |INL| (LSB)"),
-        ("mismatch_missing", "Design weights", "missing", "Missing codes"),
+    # the mismatch at Harpe's matching by stage, and the worst DNL and INL one converter in twenty
+    # sees over the matching, decoded with the design weights
+    stages = range(len(statistics.weight_sigma))
+    harpe = f"A_C {UNIT_MISMATCH * 100:g} %·sqrt(fF)"
+    for name, y_label, values in (
+        ("mismatch_weight_sigma", "Weight σ (LSB)", UNIT_MISMATCH * statistics.weight_sigma),
+        ("mismatch_transition_sigma", "DNL σ (LSB)", UNIT_MISMATCH * statistics.transition_sigma),
+        ("mismatch_margin", "Margin / σ", statistics.margin_over_sigma(UNIT_MISMATCH)),
+    ):
+        add(name, "Conversion stage (C0 first)", y_label, stages, {harpe: values})
+    for name, y_label, quantile in (
+        ("mismatch_dnl", "Max |DNL| (LSB)", statistics.dnl_quantile),
+        ("mismatch_inl", "Max |INL| (LSB)", statistics.inl_quantile),
     ):
         add(
             name,
             "Pelgrom coefficient A_C (%·sqrt(fF))",
             y_label,
-            coefficients * 100,
-            {f"{label}, 95th percentile": np.percentile(mismatch[label][key], 95, axis=1)},
+            PELGROM_AXIS * 100,
+            {"Design weights, 95th percentile": [quantile(coefficient) for coefficient in PELGROM_AXIS]},
             x_log=True,
         )
 
@@ -406,6 +434,8 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
     )
     noise = captures["noise"]
     noise_lsb = float(np.std(noise.dout))
+    # the redundant stages' margins over their sigma (the others have none to lose)
+    margins = statistics.margin_over_sigma(UNIT_MISMATCH)[np.abs(statistics.margin_lsb) > 1e-9]
     # each noise source alone (the noise capture with only it on), where the campaign has them
     by_source = {
         f"noise_{source}_rms_lsb": float(np.std(captures[f"noise_{source}"].dout))
@@ -444,11 +474,22 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         "redundancy_first_pct": float(redundancy["Design weights"][0]),
         "redundancy_first_extracted_pct": float(redundancy["Extracted weights"][0]),
         "calibration3_fitted": float("Calibration 3" in learned),
-        # the 95th percentile over the capacitor draws at Harpe's matching (0.10 %·sqrt(fF)): the
-        # array's own layout error and the draw, decoded with the design weights and recalibrated
-        "mismatch_dnl_p95_lsb": float(np.percentile(drawn["dnl"][harpe], 95)),
-        "mismatch_inl_p95_lsb": float(np.percentile(drawn["inl"][harpe], 95)),
-        "mismatch_missing_codes_p95": float(np.percentile(drawn["missing"][harpe], 95)),
-        "mismatch_inl_p95_calibrated_lsb": float(np.percentile(drawn_calibrated["inl"][harpe], 95)),
+        "calibration_best": float(best.split()[-1]),  # the calibration the calibrated metrics use
+        # predicted at Harpe's matching (0.10 %·sqrt(fF)), decoded with the design weights: the
+        # array's own layout error and the mismatch's 95th percentile; the largest DNL and INL sigma
+        # of any code; the smallest margin of a redundant stage over its sigma (NaN without one)
+        "mismatch_dnl_p95_lsb": statistics.dnl_quantile(UNIT_MISMATCH),
+        "mismatch_inl_p95_lsb": statistics.inl_quantile(UNIT_MISMATCH),
+        "mismatch_missing_codes_p95": statistics.missing_codes_quantile(UNIT_MISMATCH),
+        "dnl_sigma_max_lsb": UNIT_MISMATCH * float(np.max(statistics.dnl_sigma)),
+        "inl_sigma_max_lsb": UNIT_MISMATCH * float(np.max(statistics.inl_sigma)),
+        "min_margin_over_sigma": float(np.min(margins)) if len(margins) else math.nan,
     }
+    # the Monte Carlo's check, where the campaign drew it: its 95th percentiles at Harpe's matching
+    if any(name.startswith("mc_") for name in captures):
+        coefficients, mismatch = _mismatch_study(captures)
+        drawn = mismatch["Design weights"]
+        index = int(np.argmin(np.abs(coefficients - UNIT_MISMATCH)))
+        for key, column in (("dnl", "dnl_p95_lsb"), ("inl", "inl_p95_lsb"), ("missing", "missing_codes_p95")):
+            metrics[f"mismatch_mc_{column}"] = float(np.percentile(drawn[key][index], 95))
     return metrics, details
