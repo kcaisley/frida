@@ -243,185 +243,321 @@ select {
     flex: none;
 }
 
-/* ─── GoldenLayout ──────────────────────────────────────────────────────── */
+/* ─── The page: the Library, the top bar, the stage's fixed regions ─────────── */
 
-#gl-container {
+#app {
     flex: 1;
     min-height: 0;
-    width: 100%;
-    position: relative;
+    display: flex;
 }
 
-.lm_goldenlayout {
-    background: var(--bg-main);
-}
-
-.lm_content {
+/* the Library: the blocks with a sweep, folding to a strip on the left */
+.library {
+    flex: none;
+    width: 172px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     background: var(--bg-panel);
-    border: 1px solid var(--border-subtle);
-    border-top: none;
-    overflow: hidden;
+    border-right: 4px solid var(--bg-main);
+}
+
+.library-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    height: 28px;
+    padding: 0 4px 0 12px;
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.library-title {
+    flex: 1;
+    color: var(--fg-bright);
+    font: 500 var(--fs-12) var(--font-sans);
+}
+
+.library-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+
+.library-strip {
+    display: none;
+}
+
+.library.collapsed {
+    width: 30px;
+}
+
+.library.collapsed .library-head {
+    justify-content: center;
+    padding: 0;
+}
+
+.library.collapsed .library-title,
+.library.collapsed .library-body {
+    display: none;
+}
+
+/* folded: the name down the strip, pressed to unfold */
+.library.collapsed .library-strip {
+    display: block;
+    flex: 1;
+    padding: 10px 0;
+    border: 0;
+    background: none;
+    color: var(--fg-muted);
+    font: 500 var(--fs-12) var(--font-sans);
+    letter-spacing: 0.04em;
+    writing-mode: vertical-rl;
+    text-align: start;
+    cursor: pointer;
+}
+
+.library.collapsed .library-strip:hover {
+    background: var(--bg-hover);
+    color: var(--fg-bright);
+}
+
+.main {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* over the stage: the block, its filters and marks, and the states' buttons */
+.topbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    min-height: 38px;
+    padding: 4px 8px;
+    background: var(--bg-header);
+    border-bottom: 4px solid var(--bg-main);
+}
+
+.topbar .grow {
+    flex: 1;
+}
+
+.bar-title {
+    color: var(--fg-bright);
+    font-size: var(--fs-13);
+}
+
+.bar-count {
+    font-size: var(--fs-11);
+}
+
+.bar-sep {
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+}
+
+.bar-marks {
+    color: var(--sem-warn);
+    font-size: var(--fs-12);
+}
+
+.bar-hint {
+    font-size: var(--fs-11);
+}
+
+.bar-group {
+    display: flex;
+    gap: 4px;
+}
+
+.bar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-input);
+    color: var(--fg-primary);
+    font-size: var(--fs-12);
+    cursor: pointer;
+}
+
+.bar-btn > span {
+    display: flex;
+}
+
+.bar-btn:hover {
+    background: var(--bg-hover);
+    color: var(--fg-bright);
+}
+
+.bar-btn.on {
+    background: var(--accent-alpha-strong);
+    border-color: var(--accent-bright);
+    color: var(--fg-bright);
+}
+
+.bar-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.bar-btn.on:disabled {
+    opacity: 1;
+}
+
+.bar-btn:disabled:hover {
+    background: var(--bg-input);
+}
+
+.bar-btn.on:disabled:hover {
+    background: var(--accent-alpha-strong);
+}
+
+.stage {
+    flex: 1;
+    min-height: 0;
     position: relative;
 }
 
-.lm_splitter {
-    background: var(--bg-main);
-    opacity: 1;
-    transition: background 120ms ease;
+.stage-host {
+    position: absolute;
+    inset: 0;
 }
 
-.lm_splitter:hover,
-.lm_splitter.lm_dragging {
+.stage-host.hidden {
+    display: none;
+}
+
+/* the stage while a state's files load */
+.stage-note {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--fg-muted);
+}
+
+.layout-root {
+    position: absolute;
+    inset: 0;
+    display: flex;
+}
+
+.layout-root > * {
+    flex: 1;
+}
+
+.split {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+}
+
+.split.row {
+    flex-direction: row;
+}
+
+.split.column {
+    flex-direction: column;
+}
+
+/* between the regions, in the window's ground colour; dragged, the neighbours' shares change */
+.divider {
+    flex: none;
+    background: var(--bg-main);
+    transition: background 120ms ease;
+    touch-action: none;
+}
+
+.split.row > .divider {
+    width: 4px;
+    cursor: col-resize;
+}
+
+.split.column > .divider {
+    height: 4px;
+    cursor: row-resize;
+}
+
+.divider:hover,
+.divider.dragging {
     background: var(--accent-bright);
 }
 
-.lm_header {
-    height: 28px !important;
+.region {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+/* a region's tabs, as the docked panels' were: none closes, none moves */
+.region-head {
+    flex: none;
+    display: flex;
+    height: 28px;
+    overflow: hidden;
     background: var(--bg-header);
     border: 1px solid var(--border-subtle);
     border-bottom: 1px solid var(--bg-input);
 }
 
-.lm_header .lm_tabs {
+.region-tab {
     height: 27px;
-}
-
-.lm_header .lm_tab {
-    height: 27px !important;
-    margin: 0;
-    padding: 0 26px 0 12px;
-    line-height: 27px;
-    font: 500 var(--fs-12) / 27px var(--font-sans);
-    color: var(--fg-muted);
-    background: transparent;
+    padding: 0 14px;
+    border: 0;
     border-right: 1px solid var(--border-subtle);
-    box-shadow: none;
+    background: transparent;
+    color: var(--fg-muted);
+    font: 500 var(--fs-12) / 27px var(--font-sans);
+    white-space: nowrap;
+    cursor: pointer;
 }
 
-.lm_header .lm_tab:hover {
+.region-tab:hover {
     color: var(--fg-primary);
     background: var(--bg-hover);
 }
 
-.lm_header .lm_tab.lm_active {
+.region-tab.on {
     color: var(--fg-bright);
     background: var(--bg-panel);
     box-shadow: inset 0 2px 0 var(--accent-bright);
-    padding-bottom: 0;
 }
 
-.lm_header .lm_tab .lm_title {
-    padding-top: 0;
+.region-head.single .region-tab {
+    cursor: default;
 }
 
-.lm_header .lm_tab .lm_close_tab {
-    top: 8px;
-    right: 7px;
-    width: 11px;
-    height: 11px;
-    opacity: 0;
-    background: none;
+.region-body {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-top: none;
 }
 
-.lm_header .lm_tab .lm_close_tab::before,
-.lm_controls > *::before {
-    content: "";
+.pane {
     position: absolute;
     inset: 0;
-    background: currentColor;
-    -webkit-mask: var(--icon) center / contain no-repeat;
-    mask: var(--icon) center / contain no-repeat;
 }
 
-.lm_header .lm_tab .lm_close_tab::before {
-    --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 2l8 8M10 2l-8 8' stroke='black' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
-}
-
-.lm_header .lm_tab:hover .lm_close_tab,
-.lm_header .lm_tab.lm_active .lm_close_tab {
-    opacity: 0.6;
-}
-
-.lm_header .lm_tab .lm_close_tab:hover {
-    opacity: 1;
-}
-
-.lm_header .lm_controls {
-    top: 5px;
-    right: 6px;
-    display: flex;
-    gap: 2px;
-}
-
-.lm_header .lm_controls > * {
-    position: relative;
-    width: 18px;
-    height: 18px;
-    opacity: 0.55;
-    color: var(--fg-secondary);
-    background: none;
-    border-radius: var(--radius-xs);
-}
-
-.lm_header .lm_controls > *:hover {
-    opacity: 1;
-    background-color: var(--bg-hover);
-}
-
-.lm_header .lm_controls .lm_maximise::before {
-    --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E");
-    inset: 3px;
-}
-
-.lm_maximised .lm_header .lm_controls .lm_maximise::before {
-    --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6 3v3H3M10 3v3h3M6 13v-3H3M10 13v-3h3' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E");
-}
-
-.lm_header .lm_controls .lm_close::before {
-    --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 2l8 8M10 2l-8 8' stroke='black' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-    inset: 4px;
-}
-
-.lm_header .lm_controls .lm_tabdropdown::before {
-    --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E");
-    inset: 3px;
-}
-
-.lm_header .lm_tabdropdown_list {
-    background: var(--bg-float);
-    border: 1px solid var(--border);
-    box-shadow: 0 8px 24px var(--shadow);
-    z-index: 40;
-}
-
-.lm_header .lm_tabdropdown_list .lm_tab {
-    border: none;
-    background: transparent;
-}
-
-.lm_maximised .lm_header {
-    background: var(--bg-header);
-}
-
-.lm_dragProxy .lm_content {
-    box-shadow: 0 12px 32px var(--shadow);
-}
-
-.lm_dragProxy .lm_header .lm_tab.lm_active {
-    background: var(--bg-panel);
-}
-
-.lm_dropTargetIndicator {
-    outline: 1px solid var(--accent-bright);
-    box-shadow: inset 0 0 0 9999px var(--accent-alpha);
-}
-
-.lm_dropTargetIndicator .lm_inner {
-    background: transparent;
-}
-
-.lm_transition_indicator {
-    border: 1px dashed var(--accent-bright);
+.pane.hidden {
+    display: none;
 }
 
 /* ─── Panels ────────────────────────────────────────────────────────────── */
@@ -749,9 +885,14 @@ input[type="checkbox"] {
     display: flex;
     align-items: center;
     gap: 7px;
+    width: 100%;
     height: 22px;
     padding: 0 10px 0 12px;
+    border: 0;
+    background: none;
+    color: inherit;
     font: var(--fs-12) var(--font-mono);
+    text-align: left;
     cursor: pointer;
 }
 
@@ -1524,186 +1665,303 @@ pre.netlist {
     stroke: none;
 }
 
-/* ─── Design-space explorer (index.html): blocks, the instance table, the scatter plot ───────── */
+/* ─── The Assembler: the sweep's table on its side (a row per field, a column per instance) ─── */
 
-#table-controls #count {
+.sweep-scroll {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+}
+
+table.tgrid {
+    border-collapse: separate;
+    border-spacing: 0;
     font-size: var(--fs-11);
 }
 
-table.grid.sweep {
-    border-collapse: separate;
-    border-spacing: 0;
-    min-width: 100%;
+table.tgrid.full {
+    table-layout: fixed;
 }
 
-table.grid.sweep th,
-table.grid.sweep td {
-    padding: 4px 8px;
+table.tgrid th,
+table.tgrid td {
+    height: 22px;
+    padding: 2px 7px;
+    border-bottom: 1px solid var(--border-subtle);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-table.grid.sweep thead th {
-    text-align: right;
-    vertical-align: bottom;
-}
-
-table.grid.sweep thead th .label {
-    display: block;
+/* the values right-aligned in one face, so a row's points line up */
+table.tgrid td {
     color: var(--fg-primary);
-}
-
-/* a header's sort and filter marks in its corner, out of the flow: sorting moves nothing */
-table.grid.sweep thead th {
-    padding-right: 16px;
-}
-
-table.grid.sweep thead th .marks {
-    position: absolute;
-    right: 3px;
-    bottom: 5px;
-    color: var(--accent-bright);
-    font-size: 9px;
-    line-height: 1;
-}
-
-table.grid.sweep thead th.sorted .label {
-    color: var(--accent-bright);
-}
-
-table.grid.sweep td.num {
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+    text-align: right;
 }
 
-table.grid.sweep thead th.filtered .label {
-    color: var(--accent-bright);
+table.tgrid td.pad,
+table.tgrid th.pad {
+    padding: 0;
+    border: 0;
 }
 
-table.grid.sweep th:not(.num),
-table.grid.sweep td:not(.num) {
-    text-align: left;
-}
-
-/* every header in one monospace face: the instance's names, the parameters', the metrics' */
-table.grid.sweep thead th .label {
-    font: var(--fs-11) var(--font-mono);
-}
-
-/* the group row over the headers, sticky above them */
-table.grid.sweep thead tr.groups th {
-    height: 20px;
-    padding-top: 0;
-    padding-bottom: 0;
-    border-bottom: none;
-    color: var(--fg-muted);
-    font: var(--fs-10) / 20px var(--font-mono);
-    letter-spacing: 0.04em;
-    text-align: left;
-    cursor: default;
-}
-
-table.grid.sweep thead tr:not(.groups) th {
-    top: 20px;
-}
-
-table.grid.sweep th.first,
-table.grid.sweep td.first {
-    border-left: 1px solid var(--border);
-}
-
-table.grid.sweep td.tools,
-table.grid.sweep th.tools {
-    position: sticky;
-    left: 0;
-    z-index: 1;
-    padding: 2px 6px;
-}
-
-table.grid.sweep td.tools {
-    background: var(--bg-panel);
-}
-
-/* the headers stay over the rows that scroll under them, the tools' corner over both */
-table.grid.sweep thead th {
-    z-index: 2;
-}
-
-table.grid.sweep thead th.tools {
-    z-index: 3;
-}
-
-table.grid.sweep .pin {
-    width: 20px;
-    border: none;
-    background: none;
-    color: var(--fg-muted);
-    cursor: pointer;
-}
-
-table.grid.sweep tr.pinned .pin {
-    color: var(--sem-warn);
-}
-
-table.grid.sweep a.detail {
-    margin-left: 2px;
-    padding: 1px 7px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--accent-text);
-    font: var(--fs-11) var(--font-sans);
-    text-decoration: none;
-}
-
-table.grid.sweep a.detail:hover {
-    background: var(--accent-alpha);
-}
-
-table.grid.sweep tr.hover td {
-    background: var(--accent-alpha-strong);
-}
-
-table.grid.sweep tr.pinned td {
-    background: var(--accent-alpha);
-}
-
-/* the tools column stays put while the rest scrolls under it: its highlights lie over the opaque
-   panel colour, never see-through */
-table.grid.sweep tr.pinned td.tools {
-    background: linear-gradient(var(--accent-alpha), var(--accent-alpha)), var(--bg-panel);
-}
-
-table.grid.sweep tbody tr:hover td.tools {
-    background: linear-gradient(var(--bg-hover), var(--bg-hover)), var(--bg-panel);
-}
-
-table.grid.sweep tr.hover td.tools {
-    background: linear-gradient(var(--accent-alpha-strong), var(--accent-alpha-strong)), var(--bg-panel);
-}
-
-table.grid.sweep tr.failed td {
+table.tgrid td.failed {
     color: var(--sem-error);
 }
 
-table.grid.sweep .swatch {
-    display: inline-block;
-    width: 9px;
-    height: 9px;
-    margin-right: 6px;
-    border-radius: 50%;
+/* the PDK's dot, its marker in the scatter */
+table.tgrid td.pdk {
+    text-align: left;
 }
 
-table.grid.sweep .symbol {
+.pdk-mark {
     display: inline-block;
-    width: 14px;
+    flex: none;
+    margin-right: 5px;
+    vertical-align: -1px;
+}
+
+/* the row labels stay at the left while the instances scroll under them */
+table.tgrid th.label {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    padding-right: 6px;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    color: var(--fg-secondary);
+    font-weight: 400;
+    text-align: left;
+}
+
+table.tgrid th.label[data-key] {
+    cursor: pointer;
+}
+
+table.tgrid .lab {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+table.tgrid .lab .name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--font-mono);
+}
+
+table.tgrid .lab .unit {
+    flex: none;
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+}
+
+/* a label's sort and filter marks at its end: sorting moves nothing */
+table.tgrid .lab .mk {
+    flex: none;
+    min-width: 14px;
+    color: var(--accent-bright);
+    font-size: 9px;
+    text-align: right;
+}
+
+table.tgrid .lab .mk svg {
+    display: inline-block;
+    vertical-align: -1px;
+}
+
+table.tgrid.narrow .lab .mk {
+    display: none;
+}
+
+table.tgrid th.label.sorted .name,
+table.tgrid th.label.filtered .name {
+    color: var(--accent-bright);
+}
+
+table.tgrid tr.section th.label {
+    height: 26px;
+    padding-top: 9px;
+    border-bottom-color: var(--border);
+    color: var(--fg-muted);
+    font-size: var(--fs-10);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+table.tgrid tr.section td {
+    border-bottom-color: var(--border);
+}
+
+/* a row under the mouse, across the instances */
+table.tgrid tbody tr:not(.section):hover > td:not(.pad) {
+    background: var(--bg-hover);
+}
+
+table.tgrid tbody tr:not(.section):hover > th.label {
+    background: linear-gradient(var(--bg-hover), var(--bg-hover)), var(--bg-panel);
+    color: var(--fg-bright);
+}
+
+/* the heads stay over the rows that scroll under them, the corner over both */
+table.tgrid thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    height: 26px;
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border);
+}
+
+table.tgrid thead th.corner {
+    left: 0;
+    z-index: 3;
+    border-right: 1px solid var(--border);
+    font-weight: 400;
+    text-align: left;
+}
+
+/* a column's head: its mark, pressed to mark it */
+table.tgrid th.inst {
+    color: var(--fg-muted);
+    font-size: var(--fs-13);
+    text-align: center;
+    cursor: pointer;
+}
+
+table.tgrid th.inst .mark::before {
+    content: "○";
+}
+
+table.tgrid th.inst.marked .mark::before {
+    content: "●";
+}
+
+table.tgrid th.inst:hover {
+    color: var(--fg-bright);
+}
+
+table.tgrid th.inst.marked {
+    background: linear-gradient(var(--accent-alpha), var(--accent-alpha)), var(--bg-header);
+    color: var(--sem-warn);
+}
+
+table.tgrid th.inst.hover {
+    background: linear-gradient(var(--accent-alpha-strong), var(--accent-alpha-strong)), var(--bg-header);
+}
+
+table.tgrid th.inst .fail {
+    margin-left: 4px;
+    color: var(--sem-error);
+    font-weight: 700;
+}
+
+/* a marked or hovered instance's column, through its cells */
+table.tgrid col.marked {
+    background: var(--accent-alpha);
+}
+
+table.tgrid col.hover {
+    background: var(--accent-alpha-strong);
+}
+
+/* ─── The Explorer and the Comparer: the shown instances' columns ─────────────────────────── */
+
+.panel-body.selection {
+    user-select: text;
+}
+
+table.tgrid.narrow {
+    min-width: 100%;
+}
+
+table.tgrid.narrow th.label {
+    width: 1%;
+    max-width: 230px;
+}
+
+table.tgrid.narrow td {
+    min-width: 84px;
+    max-width: 180px;
+}
+
+table.tgrid.narrow th.inst.sel {
+    padding: 0 3px 0 7px;
+    cursor: default;
+}
+
+.inst-head {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.inst-head .grow {
+    flex: 1;
+}
+
+.inst-head .swatch {
+    width: 11px;
+    height: 11px;
+    border-radius: 2px;
+}
+
+.icon-btn.mini {
+    height: 20px;
+    min-width: 20px;
+    padding: 0 2px;
     color: var(--fg-muted);
 }
 
-#scatter {
+.icon-btn.mini:hover {
+    color: var(--fg-bright);
+}
+
+/* compared: the rows whose values differ between the instances */
+table.tgrid.narrow tr.differs th.label .name {
+    color: var(--fg-bright);
+}
+
+table.tgrid.narrow tr.differs td {
+    background: var(--accent-alpha);
+}
+
+table.tgrid.narrow tbody tr.differs:hover > td {
+    background: var(--accent-alpha-strong);
+}
+
+.panel-toolbar .check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--fg-secondary);
+    cursor: pointer;
+}
+
+.selection pre.error {
+    margin: 10px;
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-input);
+    color: var(--sem-error);
+    font: var(--fs-11) var(--font-mono);
+    white-space: pre-wrap;
+}
+
+/* ─── The scatter ─────────────────────────────────────────────────────────── */
+
+.scatter {
     flex: 1;
     min-height: 0;
     margin: 6px 6px 0;
 }
 
 /* the scatter's legend, under it: wraps rather than clipping at the pane's edge */
-#plot-legend {
+.plot-legend {
     flex: none;
     display: flex;
     flex-wrap: wrap;
@@ -1718,7 +1976,7 @@ table.grid.sweep .symbol {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 2px 10px;
+    gap: 2px 12px;
 }
 
 .legend-title {
@@ -1728,18 +1986,11 @@ table.grid.sweep .symbol {
 .legend-item {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
     white-space: nowrap;
 }
 
-#plot-legend .swatch {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-}
-
-#plot-legend .symbol {
-    color: var(--fg-muted);
+.filter-value .pdk-mark {
+    margin-right: 3px;
 }
 
 .popover.filter-pop {
@@ -1797,22 +2048,7 @@ table.grid.sweep .symbol {
     background: var(--bg-input);
 }
 
-/* ─── Instance page (detail.html): its summary and detail plots beside the shared panels ─── */
-
-.summary {
-    padding: 10px 14px;
-    overflow: auto;
-    user-select: text;
-}
-
-.summary .error {
-    padding: 8px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-input);
-    color: var(--sem-error);
-    font: var(--fs-11) var(--font-mono);
-    white-space: pre-wrap;
-}
+/* ─── The analyses: an instance's condition sweeps, or several instances' stacked ─────────── */
 
 .detail-plots {
     flex: 1;
@@ -1865,50 +2101,74 @@ html[data-theme="dark"] .detail-plots .figure-card img {
     border-radius: var(--radius-sm);
 }
 
-.summary-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: var(--fs-12);
+/* compared: the plots stacked, each the region's width */
+.detail-plots.stacked {
+    grid-template-columns: minmax(0, 1fr);
 }
 
-.summary-table th,
-.summary-table td {
-    padding: 3px 4px;
-    border-bottom: 1px solid var(--border-subtle);
-    vertical-align: baseline;
-    white-space: nowrap;
+.detail-plots.stacked .figure-card {
+    grid-column: auto;
 }
 
-.summary-table th {
-    color: var(--fg-secondary);
-    font-weight: 400;
+.detail-plots.stacked .plot {
+    height: 320px;
+}
+
+/* a figure pressed to show it over the page */
+.figure-open {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
     text-align: left;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 12em;
+    cursor: zoom-in;
 }
 
-.summary-table td.num {
-    color: var(--fg-primary);
-    font-family: var(--font-mono);
-    text-align: right;
-    font-variant-numeric: tabular-nums;
+.figure-open img {
+    display: block;
+    width: 100%;
+    height: auto;
 }
 
-.summary-table td.unit {
-    width: 1%;
-    padding-left: 0;
-    color: var(--fg-muted);
-    font-family: var(--font-mono);
+.lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 250;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.55);
+    cursor: zoom-out;
 }
 
-.summary-table tr.section th {
-    padding-top: 12px;
-    border-bottom-color: var(--border);
-    color: var(--fg-muted);
-    font-size: var(--fs-11);
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+.lightbox figure {
+    max-width: 100%;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 10px 12px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--paper);
+    box-shadow: 0 12px 40px var(--shadow);
+}
+
+.lightbox figcaption {
+    padding-bottom: 6px;
+    color: var(--paper-ink);
+    font-size: var(--fs-13);
+}
+
+.lightbox img {
+    min-height: 0;
+    max-width: 100%;
+    max-height: calc(100vh - 100px);
+    object-fit: contain;
+}
+
+html[data-theme="dark"] .lightbox img {
+    filter: invert(0.9) hue-rotate(180deg);
 }
 
 /* the schematic on the dark theme's paper: its strokes, text, fills and frames in the theme's ink */
@@ -2520,89 +2780,7 @@ a.icon-btn {
     white-space: pre-wrap;
 }
 
-/* ---- the compare page (detail.html?ids=...): a column an instance ---------------------------- */
-
-.icon-btn.disabled {
-    opacity: 0.35;
-    cursor: default;
-}
-
-.compare-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 4px 8px;
-    color: var(--fg-secondary);
-    font-size: var(--fs-12);
-}
-
-.compare-controls .check {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    cursor: pointer;
-}
-
-.summary-table.compare {
-    width: auto;
-    min-width: 100%;
-}
-
-.summary-table.compare thead th {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    background: var(--bg-panel);
-    border-bottom-color: var(--border);
-    vertical-align: bottom;
-}
-
-.summary-table.compare th.instance {
-    max-width: 16em;
-    color: var(--fg-primary);
-    text-align: right;
-    white-space: normal;
-}
-
-.summary-table.compare th.instance a {
-    color: inherit;
-    text-decoration: none;
-}
-
-.summary-table.compare th.instance a:hover {
-    color: var(--accent-bright);
-    text-decoration: underline;
-}
-
-.summary-table.compare .swatch {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    margin-right: 6px;
-    border-radius: 2px;
-    vertical-align: baseline;
-}
-
-.summary-table.compare td.num {
-    padding-left: 12px;
-}
-
-/* the rows whose values differ between the instances */
-.summary-table.compare tr.differs th {
-    color: var(--fg-primary);
-}
-
-.summary-table.compare tr.differs td.num {
-    background: var(--accent-alpha);
-}
-
-.summary-table.compare tr.error-row td {
-    max-width: 16em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--fg-secondary);
-    font-size: var(--fs-11);
-}
+/* ---- the Comparer's key and side-by-side figures and maps ---------------------------------- */
 
 /* the compared instances' colours over their analyses: an instance clicked hides its curves */
 .compare-key {
@@ -2653,36 +2831,23 @@ a.icon-btn {
     gap: 8px;
 }
 
-.figure-row > a {
+.figure-row > .figure-open {
     flex: 1 1 0;
     min-width: 0;
 }
 
 .figure-label {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 6px;
     padding: 2px 0 4px;
-    color: var(--fg-secondary);
+    color: var(--paper-ink);
     font-size: var(--fs-11);
 }
 
-/* a map (heatmap) detail: its title above one map per instance */
-.map-card {
-    grid-column: 1 / -1;
+.figure-label .swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
 }
 
-.map-title {
-    padding: 6px 0 2px;
-    color: var(--fg-primary);
-    font-size: var(--fs-12);
-    text-align: center;
-}
-
-.map-row {
-    display: flex;
-    gap: 6px;
-}
-
-.map-row > .plot.map {
-    flex: 1 1 0;
-    min-width: 0;
-}

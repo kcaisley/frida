@@ -70,11 +70,11 @@ def test_the_server_answers_data_from_the_export_and_the_rest_from_static() -> N
     handler = Handler.__new__(Handler)
     handler.directory = str(STATIC_DIR)
     assert Path(handler.translate_path("/data/sweep/comp.json")) == DATA_DIR / "sweep/comp.json"
-    assert Path(handler.translate_path("/js/explorer.js?v=1")) == STATIC_DIR / "js/explorer.js"
+    assert Path(handler.translate_path("/js/app.js?v=1")) == STATIC_DIR / "js/app.js"
     assert Path(handler.translate_path("/data/../../../etc/passwd")).is_relative_to(DATA_DIR)
 
 
-@pytest.mark.parametrize("page", ["index.html", "detail.html", "compile.html"])
+@pytest.mark.parametrize("page", ["index.html", "js/compile.js"])
 def test_the_pages_load_only_pinned_library_versions(page: str) -> None:
     urls = re.findall(r"https://[^\"' )]+", (STATIC_DIR / page).read_text())
     assert urls

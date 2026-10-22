@@ -1,175 +1,40 @@
-// The Explorer: one sweep instance's own page (detail.html?block=<block>&id=<pdk>__<topology>__<sizing>): its
-// parameters and metrics, its condition sweeps (each plot scaled to its own data), and the shared
-// panels (layout, 3D, layers, schematic, netlist, waveforms) on the instance alone: the store holds
-// a one-instance block they read as any other.
+// The Explorer and the Comparer: the instances marked in the Sweeps, opened in place by the top
+// bar's View (one) or Compare (two or more); nothing here loads before.
 //
-// The Comparer: several instances (detail.html?block=<block>&ids=<id>,<id>,..., the Assembler's pins): their
-// parameters and metrics in one table, a column each, and their condition sweeps overlaid, an
-// instance a colour; no layout, schematic or waveforms.
+// View: the instance's column on the left (its parameters, metrics and layout: sweep.js's
+// SelectionPanel), its condition sweeps (Analyses, each plot scaled to its own data) and waveforms
+// beside it, its layout, 3D and layers and its schematic and netlist on the right: the shared panels
+// read a one-instance block from the store, as they read any other.
+//
+// Compare: their columns side by side, each under its colour, and their condition sweeps stacked,
+// an instance a colour under one key (an instance clicked in it hides or shows its curves in every
+// plot), a detail's several series a dash each; no layout, schematic or waveforms.
 
-import { GoldenLayout } from "golden-layout";
-import { h, toast } from "./icons.js";
+import { h } from "./icons.js";
 import { LayersPanel } from "./layers.js";
 import { Layout3DPanel } from "./layout3d.js";
 import { LayoutPanel } from "./layout2d.js";
-import { currentTheme, PAPERS, paperLayout, tone } from "./paper.js";
+import { currentTheme, keepTicks, PAPERS, paperLayout, tone } from "./paper.js";
 import { SchematicPanel } from "./panels.js";
-import { COLORS, DASHES, emit, on, recall, state, store } from "./store.js";
+import { Layout } from "./regions.js";
+import { COLORS, DASHES, emit, on, state } from "./store.js";
+import { describe, SelectionPanel } from "./sweep.js";
 import { TracesPanel } from "./traces.js";
-import { fieldInfo, scaledUnit, siExponent } from "./units.js";
+import { siExponent } from "./units.js";
 
-const query = new URLSearchParams(location.search);
-const BLOCK = query.get("block");
-const IDS = (query.get("ids") || query.get("id") || "").split(",").filter(Boolean);
-const ID = IDS[0];
-const COMPARE = IDS.length > 1;
 // the units the detail plots' labels end in that take an SI prefix
-const SCALABLE = new Set(["s", "V", "A", "J", "W", "F", "Hz", "Ω", "C", "V/√Hz"]);
+const SCALABLE = new Set(["s", "V", "A", "J", "W", "F", "Hz", "Ω", "C", "V/C", "V/√Hz"]);
 const PREFIXES = { "-18": "a", "-15": "f", "-12": "p", "-9": "n", "-6": "µ", "-3": "m", 0: "", 3: "k", 6: "M", 9: "G", 12: "T" };
 // a family of counted paths is drawn in this many weights, the most taken boldest
 const PATH_LEVELS = 8;
 
-const page = { instance: null, instances: [] };
+const page = { instances: [], labels: [], compare: false };
 
-async function fetchJson(path) {
-    const response = await fetch(`data/${path}`);
-    if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
-    return response.json();
-}
+// a compared instance's colour, by its place in the selection
+export const colorOf = (index, theme = currentTheme()) => tone(COLORS[index % COLORS.length], theme);
 
-// an instance's colour on the compare page
-const colorOf = (index, theme) => tone(COLORS[index % COLORS.length], theme);
-
-// an instance's name on the compare page: its topology and sizing, its PDK where they differ
-function labelOf(instance) {
-    const pdks = new Set(page.instances.map((item) => item.pdk));
-    return [instance.topology, instance.sizing, ...(pdks.size > 1 ? [instance.pdk] : [])].join(" · ");
-}
-
-// a number at its row's SI prefix to 0.001 of it (whole numbers as they are), as the explorer's
-// table shows them
-function formatted(value, exponent) {
-    if (typeof value !== "number" || !Number.isFinite(value)) return value === null || value === undefined ? "—" : String(value);
-    return Number.isInteger(value) ? String(value) : (value / 10 ** exponent).toFixed(3).replace(/^-(0\.0*)$/, "$1");
-}
-
-// ---- the summary ------------------------------------------------------------------------------
-
-class SummaryPanel {
-    constructor(container) {
-        this.element = h("div.panel.summary");
-        container.element.append(this.element);
-        this.onlyDifferences = recall("compare.differences", true);
-        this.render();
-        this.off = on("theme", () => this.render());
-        container.on("destroy", () => this.off());
-    }
-
-    render() {
-        this.element.replaceChildren(...(COMPARE ? this.compared() : this.single()).filter(Boolean));
-    }
-
-    single() {
-        const instance = page.instance;
-        // one table, so the two sections' columns line up: the name, the number (right-aligned),
-        // its unit
-        const metricRows = Object.entries(instance.metrics).map(([name, value]) => {
-            const info = fieldInfo(name);
-            const exponent = info.scalable && typeof value === "number" && !Number.isInteger(value) ? siExponent([value]) : 0;
-            const number = formatted(value, exponent);
-            return h("tr", {}, h("th", { title: name }, info.label), h("td.num", {}, number), h("td.unit", {}, number === "—" ? "" : scaledUnit(info, exponent)));
-        });
-        const paramRows = Object.entries(instance.params).map(([name, value]) =>
-            h("tr", {}, h("th.mono", { title: name }, name), h(typeof value === "number" ? "td.num" : "td.num.text", {}, value === null ? "—" : String(value)), h("td.unit", {}, "")),
-        );
-        const section = (title) => h("tr.section", {}, h("th", { colspan: "3" }, title));
-        const row = (name, number, unit = "") => h("tr", {}, h("th", {}, name), h("td.num", {}, number), h("td.unit", {}, unit));
-        const layout = instance.layout;
-        const layoutRows = !layout
-            ? [row("Layout", "none")]
-            : layout.error
-              ? [row("ALIGN", "failed")]
-              : [
-                  row("Size", `${layout.w_um.toFixed(3)} × ${layout.h_um.toFixed(3)}`, "µm"),
-                  // the blocks' own layouts side by side (a behavioral ADC): nothing routed or signed off
-                  ...(layout.blocks
-                      ? [row("Placed", "blocks, unconnected"), row("Signoff", "none")]
-                      : [
-                            row("Placed", layout.floorplan ? "by floorplan" : "ALIGN alone"),
-                            row("DRC", layout.drc_violations ? `${layout.drc_violations} violations` : "clean"),
-                            row("LVS", layout.lvs_correct ? "correct" : "incorrect"),
-                        ]),
-              ];
-        return [
-            instance.error ? h("pre.error", {}, instance.error) : null,
-            h("table.summary-table", {}, h("tbody", {}, section("Parameters"), paramRows, section("Metrics"), metricRows, section("Layout"), layoutRows)),
-        ];
-    }
-
-    // a column an instance: the parameters (those that differ, unless asked for all), every metric
-    // at one SI prefix a row
-    compared() {
-        const instances = page.instances;
-        const theme = currentTheme();
-        const span = instances.length + 2;
-        const section = (title) => h("tr.section", {}, h("th", { colspan: String(span) }, title));
-        const names = (key) => [...new Set(instances.flatMap((instance) => Object.keys(instance[key] || {})))];
-        const differs = (values) => new Set(values.map((value) => JSON.stringify(value ?? null))).size > 1;
-        const paramRows = names("params")
-            .map((name) => [name, instances.map((instance) => instance.params?.[name])])
-            .filter(([, values]) => !this.onlyDifferences || differs(values))
-            .map(([name, values]) =>
-                h(
-                    `tr${differs(values) ? ".differs" : ""}`,
-                    {},
-                    h("th.mono", { title: name }, name),
-                    values.map((value) => h(typeof value === "number" ? "td.num" : "td.num.text", {}, value === null || value === undefined ? "—" : String(value))),
-                    h("td.unit", {}, ""),
-                ),
-            );
-        const metricRows = names("metrics").map((name) => {
-            const info = fieldInfo(name);
-            const values = instances.map((instance) => instance.metrics?.[name]);
-            const finite = values.filter((value) => typeof value === "number" && Number.isFinite(value) && !Number.isInteger(value));
-            const exponent = info.scalable && finite.length ? siExponent(finite) : 0;
-            return h(
-                `tr${differs(values) ? ".differs" : ""}`,
-                {},
-                h("th", { title: name }, info.label),
-                values.map((value) => h("td.num", {}, formatted(value, exponent))),
-                h("td.unit", {}, scaledUnit(info, exponent)),
-            );
-        });
-        const failed = instances.some((instance) => instance.error);
-        const errorRow = failed
-            ? [h("tr.error-row", {}, h("th", {}, "Error"), instances.map((instance) => h("td.text", { title: instance.error || "" }, instance.error ? (instance.error.trim().split("\n").pop() || "failed") : "—")), h("td.unit", {}, ""))]
-            : [];
-        const head = h(
-            "tr",
-            {},
-            h("th", {}, ""),
-            instances.map((instance, index) =>
-                h(
-                    "th.instance",
-                    {},
-                    h("span.swatch", { style: { background: colorOf(index, theme) } }),
-                    h("a", { href: `detail.html?block=${encodeURIComponent(BLOCK)}&id=${encodeURIComponent(instance.id)}`, target: "_blank", title: "Open this instance alone" }, labelOf(instance)),
-                ),
-            ),
-            h("th", {}, ""),
-        );
-        const toggle = h("label.check", {}, h("input", { type: "checkbox", checked: this.onlyDifferences }), "Only the parameters that differ");
-        toggle.querySelector("input").addEventListener("change", (event) => {
-            this.onlyDifferences = event.target.checked;
-            store("compare.differences", this.onlyDifferences);
-            this.render();
-        });
-        return [
-            h("div.compare-controls", {}, toggle),
-            h("table.summary-table.compare", {}, h("thead", {}, head), h("tbody", {}, errorRow, section("Parameters"), paramRows, section("Metrics"), metricRows)),
-        ];
-    }
-}
+// a compared instance's name: its PDK and the parameters that tell it from the others
+const labelOf = (index) => page.labels[index]?.short || `instance ${index + 1}`;
 
 // ---- the detail plots, each on its own data -----------------------------------------------------
 
@@ -218,10 +83,26 @@ function pathTraces(detail, x, y, color, meta) {
 // plot area as tall as the others'
 function fitLegend(element) {
     const legend = element.querySelector(".legend");
-    if (!legend) return;
+    if (!legend || !element.isConnected) return;
     element.style.height = "";
     element.style.height = `${element.offsetHeight + Math.ceil(legend.getBBox().height)}px`;
     Plotly.Plots.resize(element);
+}
+
+// a figure the analysis plots drew, over the page until clicked or Escape
+function showFigure(src, title) {
+    const close = () => {
+        overlay.remove();
+        document.removeEventListener("keydown", onKey, true);
+    };
+    const onKey = (event) => {
+        if (event.key !== "Escape") return;
+        event.stopPropagation();
+        close();
+    };
+    const overlay = h("div.lightbox", { title: "Close (click or Escape)", onclick: close }, h("figure", {}, h("figcaption", {}, title), h("img", { src, alt: title })));
+    document.body.append(overlay);
+    document.addEventListener("keydown", onKey, true);
 }
 
 class PlotsPanel {
@@ -229,45 +110,61 @@ class PlotsPanel {
         // compared: one key to the instances' colours over the plots, which then need no legends
         // of their own; an instance clicked in it hides or shows its curves in every plot
         this.key = h("div.compare-key");
-        this.plots = h("div.detail-plots");
-        this.element = h("div.panel", {}, COMPARE ? this.key : null, this.plots);
+        this.plots = h(`div.detail-plots${page.compare ? ".stacked" : ""}`);
+        this.element = h("div.panel", {}, page.compare ? this.key : null, this.plots);
         this.hidden = new Set();
         container.element.append(this.element);
         this.off = on("theme", () => this.render());
-        container.on("destroy", () => this.off());
-        container.on("resize", () => this.plots.querySelectorAll(".plot").forEach((plot) => Plotly.Plots.resize(plot).then(() => fitLegend(plot))));
+        container.on("destroy", () => {
+            this.off();
+            clearTimeout(this.resizeTimer);
+            this.plots.querySelectorAll(".plot").forEach((plot) => Plotly.purge(plot));
+        });
+        container.on("resize", () => this.resize());
         this.render();
+    }
+
+    // once a divider's drag pauses: every plot redrawn at each step would stall it
+    resize() {
+        clearTimeout(this.resizeTimer);
+        this.resizeTimer = setTimeout(() => {
+            if (!this.plots.clientWidth) return;
+            this.plots.querySelectorAll(".plot").forEach((plot) => plot.data && Plotly.Plots.resize(plot).then(() => fitLegend(plot)));
+        }, 80);
     }
 
     render() {
         const theme = currentTheme();
         const colors = PAPERS[theme];
+        const compare = page.compare;
+        this.plots.querySelectorAll(".plot").forEach((plot) => Plotly.purge(plot));
         this.plots.replaceChildren();
         const instances = page.instances;
-        if (COMPARE) {
+        if (compare) {
             this.key.replaceChildren(
                 ...instances.map((instance, index) =>
                     h(
                         `button.key-item${this.hidden.has(instance.id) ? ".off" : ""}`,
-                        { title: "Hide or show this instance's curves", onclick: (event) => this.toggle(instance.id, event.currentTarget) },
+                        { title: `${page.labels[index]?.full || ""}\nClick: hide or show this instance's curves`, onclick: (event) => this.toggle(instance.id, event.currentTarget) },
                         h("span.swatch", { style: { background: colorOf(index, theme) } }),
-                        labelOf(instance),
+                        labelOf(index),
                     ),
                 ),
             );
         }
         // every detail any instance has, in the first one's order
-        const names = [...new Set(instances.flatMap((instance) => instance.details.map((detail) => detail.name)))];
+        const names = [...new Set(instances.flatMap((instance) => (instance.details || []).map((detail) => detail.name)))];
         if (!names.length) {
             this.plots.append(h("div.empty", {}, h("strong", {}, "No condition sweeps"), h("span", {}, instances.some((instance) => instance.error) ? "The characterization failed." : "")));
             return;
         }
         for (const name of names) {
             const entries = instances
-                .map((instance, index) => ({ instance, index, detail: instance.details.find((detail) => detail.name === name) }))
+                .map((instance, index) => ({ instance, index, detail: (instance.details || []).find((detail) => detail.name === name) }))
                 .filter((entry) => entry.detail);
             const first = entries[0].detail;
-            // a figure the analysis plots drew (an SVG under build/sweep/): shown as it is, side by side
+            // a figure the analysis plots drew (an SVG under build/sweep/): shown as it is, side by side;
+            // clicked, over the page
             if (first.figure) {
                 this.plots.append(
                     h(
@@ -277,20 +174,19 @@ class PlotsPanel {
                         h(
                             "div.figure-row",
                             {},
-                            entries.map(({ instance, detail }) => {
+                            entries.map(({ index, detail }) => {
                                 const src = `api/figure?path=${encodeURIComponent(detail.figure)}`;
-                                return h("a", { href: src, target: "_blank", title: "Open full size" }, COMPARE ? h("span.figure-label", {}, labelOf(instance)) : null, h("img", { src, loading: "lazy", alt: detail.title }));
+                                const title = compare ? `${first.title}: ${labelOf(index)}` : first.title;
+                                return h(
+                                    "button.figure-open",
+                                    { title: "Show it over the page", onclick: () => showFigure(src, title) },
+                                    compare ? h("span.figure-label", {}, h("span.swatch", { style: { background: colorOf(index, theme) } }), labelOf(index)) : null,
+                                    h("img", { src, loading: "lazy", alt: detail.title }),
+                                );
                             }),
                         ),
                     ),
                 );
-                continue;
-            }
-            // a map (detail.grid): one per instance, side by side when compared
-            if (first.grid?.z) {
-                const row = h("div.map-row");
-                this.plots.append(h("div.map-card", {}, h("div.map-title", {}, first.title), row));
-                for (const { instance, index, detail } of entries) this.map(row, detail, COMPARE ? labelOf(instance) : null, index, theme);
                 continue;
             }
             // SI prefixes from the values plotted
@@ -298,27 +194,29 @@ class PlotsPanel {
             const ys = entries.flatMap(({ detail }) => [...Object.values(detail.series).flat(), ...(detail.paths || []).flatMap((path) => path.y)]);
             const x = unitScale(first.x_label, xs);
             const y = unitScale(first.y_label, ys);
-            // a condition sweep's few points marked; a long series (a code axis, a spectrum) a thin line
+            // a condition sweep's few points marked; a long series (a code axis, a spectrum) a thin line;
+            // a histogram (one bin a code) its outline, steps centred on the bins, so compared ones overlay
             const dense = entries.some(({ detail }) => detail.x.length > 100);
+            const histogram = Boolean(first.histogram);
             // alone, a series a colour; compared, an instance a colour (the key over the plots) and,
             // where an instance has several, a series a dash, keyed under the plot in the spine's grey
             const seriesNames = [...new Set(entries.flatMap(({ detail }) => Object.keys(detail.series)))];
-            const dashed = COMPARE && entries.some(({ detail }) => Object.keys(detail.series).length > 1);
+            const dashed = compare && entries.some(({ detail }) => Object.keys(detail.series).length > 1);
             const traces = [];
             for (const { instance, index, detail } of entries) {
-                const meta = COMPARE ? instance.id : undefined;
-                if (detail.paths?.length) traces.push(...pathTraces(detail, x, y, colorOf(COMPARE ? index : 0, theme), meta));
+                const meta = compare ? instance.id : undefined;
+                if (detail.paths?.length) traces.push(...pathTraces(detail, x, y, colorOf(compare ? index : 0, theme), meta));
                 for (const [series, values] of Object.entries(detail.series)) {
                     const j = seriesNames.indexOf(series);
                     traces.push({
                         type: "scatter",
-                        mode: dense ? "lines" : "lines+markers",
-                        name: COMPARE ? (seriesNames.length > 1 ? `${labelOf(instance)} · ${series}` : labelOf(instance)) : series,
+                        mode: dense || histogram ? "lines" : "lines+markers",
+                        name: compare ? (seriesNames.length > 1 ? `${labelOf(index)} · ${series}` : labelOf(index)) : series,
                         meta,
-                        showlegend: !COMPARE,
+                        showlegend: !compare,
                         x: detail.x.map((value) => (value === null ? null : value * x.factor)),
                         y: values.map((value) => (value === null ? null : value * y.factor)),
-                        line: { color: colorOf(COMPARE ? index : j, theme), width: dense ? 1.2 : 2, dash: dashed ? DASHES[j % DASHES.length] : "solid" },
+                        line: { color: colorOf(compare ? index : j, theme), width: dense ? 1.2 : 2, dash: dashed ? DASHES[j % DASHES.length] : "solid", ...(histogram ? { shape: "hvh" } : {}) },
                         marker: { size: 6 },
                     });
                 }
@@ -330,7 +228,8 @@ class PlotsPanel {
             }
             for (const trace of traces) if (this.hidden.has(trace.meta)) trace.visible = false;
             const legendEntries = traces.filter((trace) => trace.showlegend !== false).length;
-            const layout = paperLayout(first.title, x.label, y.label, first.x_log, first.y_log, legendEntries > 1 ? legendEntries : 0, theme);
+            // the axes ticked for what they hold: the detail's hints (whole codes, steps) where it has them
+            const layout = paperLayout(first.title, x.label, y.label, first.x_log, first.y_log, legendEntries > 1 ? legendEntries : 0, theme, { traces, x: first.x_ticks ?? null, y: first.y_ticks ?? null });
             layout.title.font.size = 13;
             layout.margin = { l: 64, r: 12, t: 34, b: 46 };
             layout.legend.font = { size: 11, color: colors.ink };
@@ -338,7 +237,10 @@ class PlotsPanel {
             if (dashed) layout.legend.itemclick = layout.legend.itemdoubleclick = false;
             const element = h("div.plot");
             this.plots.append(element);
-            Plotly.newPlot(element, traces, layout, { displayModeBar: false, responsive: true }).then(() => fitLegend(element));
+            Plotly.newPlot(element, traces, layout, { displayModeBar: false }).then(() => {
+                keepTicks(element);
+                fitLegend(element);
+            });
         }
     }
 
@@ -354,190 +256,108 @@ class PlotsPanel {
     }
 }
 
-// a map's colours: the theme's blue (none) through to red (the scale's top and beyond), as the
-// thesis maps it is read against draw an error count
-const MAP_SCALE = [
-    [0, "#5E81AC"],
-    [0.1, "#81A1C1"],
-    [0.3, "#A3BE8C"],
-    [0.5, "#EBCB8B"],
-    [0.75, "#D08770"],
-    [1, "#BF616A"],
-];
+// ---- the shared panels' one-instance block ------------------------------------------------------
 
-PlotsPanel.prototype.map = function map(host, detail, label, index, theme) {
-    const colors = PAPERS[theme];
-    const grid = detail.grid;
-    const x = unitScale(detail.x_label, detail.x);
-    const y = unitScale(detail.y_label, grid.y);
-    const trace = {
-        type: "heatmap",
-        x: detail.x.map((value) => value * x.factor),
-        y: grid.y.map((value) => value * y.factor),
-        z: grid.z,
-        zmin: 0,
-        zmax: grid.z_max ?? undefined,
-        colorscale: MAP_SCALE,
-        xgap: 1,
-        ygap: 1,
-        colorbar: { title: { text: grid.z_label || "", side: "right" }, thickness: 10, outlinewidth: 0, tickfont: { size: 11, color: colors.ink } },
-        hovertemplate: `${x.label}: %{x}<br>${y.label}: %{y}<br>${grid.z_label || "z"}: %{z}<extra></extra>`,
-    };
-    const layout = paperLayout(label || "", x.label, y.label, detail.x_log, grid.y_log, 0, theme);
-    layout.title.font.size = 12;
-    layout.margin = { l: 64, r: 12, t: label ? 30 : 12, b: 46 };
-    if (label) layout.title.font.color = colorOf(index, theme);
-    // categories, not a continuous axis: each rate and time constant a cell
-    layout.xaxis.type = "category";
-    layout.yaxis.type = "category";
-    layout.xaxis.dtick = layout.yaxis.dtick = undefined;
-    const element = h("div.plot.map");
-    host.append(element);
-    Plotly.newPlot(element, [trace], layout, { displayModeBar: false, responsive: true });
-};
-
-// ---- the page ---------------------------------------------------------------------------------
-
-const PANELS = {
-    summary: { title: "Summary", make: (container) => new SummaryPanel(container) },
-    plots: { title: "Analyses", make: (container) => new PlotsPanel(container) },
-    layout: { title: "Layout", make: (container, saved) => new LayoutPanel(container, saved) },
-    layout3d: { title: "3D", make: (container, saved) => new Layout3DPanel(container, saved) },
-    layers: { title: "Layers", make: (container) => new LayersPanel(container) },
-    schematic: { title: "Schematic", make: (container) => new SchematicPanel(container, "schematic") },
-    netlist: { title: "Netlist", make: (container) => new SchematicPanel(container, "netlist") },
-    traces: { title: "Waveforms", make: (container, saved) => new TracesPanel(container, saved) },
-};
-
-const component = (type) => ({ type: "component", componentType: type, title: PANELS[type].title, componentState: {} });
-
-const LAYOUT = {
-    settings: { showPopoutIcon: false, popoutWholeStack: false, reorderEnabled: true },
-    dimensions: { borderWidth: 4, headerHeight: 28, minItemHeight: 90, minItemWidth: 180 },
-    header: { popout: false },
-    root: {
-        type: "row",
-        content: [
-            { type: "column", width: 15, content: [{ type: "stack", content: [component("summary")] }] },
-            {
-                type: "column",
-                width: 47,
-                content: [
-                    { type: "stack", height: 55, content: [component("plots")] },
-                    { type: "stack", height: 45, content: [component("traces")] },
-                ],
-            },
-            {
-                type: "column",
-                width: 38,
-                content: [
-                    { type: "stack", height: 60, content: [component("layout"), component("layout3d"), component("layers")] },
-                    { type: "stack", height: 40, content: [component("schematic"), component("netlist")] },
-                ],
-            },
-        ],
-    },
-};
-
-// an instance with figures and no waveforms (a behavioral ADC): its summary, its figures and,
-// where it has one, the layout of its blocks
-const figuresLayout = (withLayout) => ({
-    ...LAYOUT,
-    root: {
-        type: "row",
-        content: [
-            { type: "stack", width: 18, content: [component("summary")] },
-            { type: "stack", width: withLayout ? 52 : 82, content: [component("plots")] },
-            ...(withLayout ? [{ type: "stack", width: 30, content: [component("layout"), component("layout3d"), component("layers")] }] : []),
-        ],
-    },
-});
-
-// several instances: their table (wider as they are more) and their analyses
-const compareLayout = (count) => ({
-    ...LAYOUT,
-    root: {
-        type: "row",
-        content: [
-            { type: "stack", width: Math.min(55, 16 + 9 * count), content: [component("summary")] },
-            { type: "stack", width: 100 - Math.min(55, 16 + 9 * count), content: [component("plots")] },
-        ],
-    },
-});
-
-// a one-instance block: its layout, schematic and waveform index under data/sweep/<block>/<id>/
-function shimBlock(instance) {
-    const name = `sweep/${BLOCK}/${ID}`;
+// its layout, schematic and waveform index under data/sweep/<block>/<id>/
+function shimBlock(block, instance) {
+    const id = instance.id;
     const layout = instance.layout;
+    // the GDS's own cell name for its download
+    const cell = (layout?.gds || "layout").split("/").pop().replace(/\.gds$/, "");
     state.catalog = { pdks: [instance.pdk], blocks: [] };
     state.block = {
-        name,
-        title: `${instance.topology} · ${instance.sizing}`,
+        name: `sweep/${block}/${id}`,
+        title: instance.pdk,
         pdks: [instance.pdk],
-        cases: { [ID]: { label: `${instance.topology} · ${instance.sizing}` } },
+        cases: { [id]: { label: instance.pdk } },
         layouts: layout?.file
             ? [
                   {
-                      case: ID,
+                      case: id,
                       pdk: instance.pdk,
                       generator: layout.blocks ? "blocks" : "align",
                       path: layout.file,
-                      cell: instance.topology,
+                      cell,
                       // the GDS itself, answered as a download by the server
                       gds: layout.gds ? `api/gds?path=${encodeURIComponent(layout.gds)}` : null,
                   },
               ]
             : [],
-        schematics: layout?.schematic || layout?.netlist_file ? [{ case: ID, pdk: instance.pdk, path: layout.schematic || null, netlist: layout.netlist_file }] : [],
+        schematics: layout?.schematic || layout?.netlist_file ? [{ case: id, pdk: instance.pdk, path: layout.schematic || null, netlist: layout.netlist_file }] : [],
         datasets: [],
     };
     state.pdks = new Set([instance.pdk]);
-    state.cases = new Set([ID]);
-    state.focus = `${instance.pdk}|${ID}`;
+    state.cases = new Set([id]);
+    state.hidden = new Set();
+    state.focus = `${instance.pdk}|${id}`;
 }
 
-async function main() {
-    // the panels' errors; their other notes went to the status bar this page no longer has
-    on("status", ({ message, error }) => {
-        if (error) toast(message);
-    });
-    window.addEventListener("keydown", (event) => {
-        const target = event.target;
-        if (event.ctrlKey || event.metaKey || target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
-        const key = event.key.toLowerCase();
-        if (key === "f") emit("command", "fit");
-        else if (key === "k") emit("command", "ruler");
-        else if (key === "l") emit("command", "labels");
-        else return;
-        event.preventDefault();
-    });
-    const loading = document.getElementById("loading");
-    try {
-        page.instances = await Promise.all(IDS.map((id) => fetchJson(`sweep/${BLOCK}/${id}.json`).then((instance) => ({ ...instance, id }))));
-    } catch (error) {
-        loading.replaceChildren(h("strong", {}, "No such instance"), h("span.mono.muted", {}, error.message));
-        return;
+// ---- the arrangements -------------------------------------------------------------------------
+
+// the instances (their exported files, each with its id) in place under host; onRemove(id) takes
+// one out of the selection, onView(id) views it alone. Returns the Layout, destroyed on leaving.
+export function mountInstances(host, { block, instances, onRemove, onView }) {
+    const compare = instances.length > 1;
+    page.instances = instances;
+    page.compare = compare;
+    page.labels = describe(instances);
+    const layout = new Layout(host);
+    const panel = (id, title, make) => ({ id, title, make });
+    const selection = layout.region([panel("sweeps", "Sweeps", (container) => new SelectionPanel(container, { instances, colorOf: (index) => colorOf(index), onRemove, onView }))]);
+    const plots = layout.region([panel("plots", "Analyses", (container) => new PlotsPanel(container))]);
+    let root;
+    if (compare) {
+        // their table wider as they are more
+        const share = Math.min(55, 14 + 7 * instances.length);
+        root = layout.split("row", [selection, plots], `compare.${Math.min(instances.length, 6)}`, [share, 100 - share]);
+    } else {
+        const instance = instances[0];
+        shimBlock(block, instance);
+        const shapes = () =>
+            layout.region(
+                [
+                    panel("layout", "Layout", (container) => new LayoutPanel(container)),
+                    panel("layout3d", "3D", (container) => new Layout3DPanel(container)),
+                    panel("layers", "Layers", (container) => new LayersPanel(container)),
+                ],
+                "view.layout",
+            );
+        // an instance with figures and no waveforms (a behavioral ADC): its figures and, where it
+        // has one, the layout of its blocks
+        const own = instance.layout;
+        const figures = (instance.details || []).some((detail) => detail.figure || detail.paths?.length) && !Object.keys(instance.waves || {}).length && (!own || own.blocks);
+        if (figures) {
+            root = own?.file ? layout.split("row", [selection, plots, shapes()], "view.figures", [20, 50, 30]) : layout.split("row", [selection, plots], "view.figures.alone", [20, 80]);
+        } else {
+            const traces = layout.region([panel("traces", "Waveforms", (container) => new TracesPanel(container))]);
+            const sheets = layout.region(
+                [panel("schematic", "Schematic", (container) => new SchematicPanel(container, "schematic")), panel("netlist", "Netlist", (container) => new SchematicPanel(container, "netlist"))],
+                "view.schematic",
+            );
+            root = layout.split(
+                "row",
+                [selection, layout.split("column", [plots, traces], "view.center", [55, 45]), layout.split("column", [shapes(), sheets], "view.right", [60, 40])],
+                "view",
+                [18, 45, 37],
+            );
+        }
     }
-    page.instance = page.instances[0];
-    document.title = COMPARE ? `Comparer · ${page.instances.length} ${BLOCK}` : `Explorer · ${page.instance.topology} · ${page.instance.sizing} · ${page.instance.pdk}`;
-    if (!COMPARE) shimBlock(page.instance);
-    // the desktop's light or dark setting, followed as it changes
-    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
-        document.documentElement.dataset.theme = event.matches ? "dark" : "light";
-        emit("theme", document.documentElement.dataset.theme);
-    });
-    const container = document.getElementById("gl-container");
-    const layout = new GoldenLayout(container);
-    for (const [type, panel] of Object.entries(PANELS)) layout.registerComponentFactoryFunction(type, (glContainer, saved) => panel.make(glContainer, saved));
-    const instanceLayout = page.instance.layout;
-    const figures = page.instance.details.some((detail) => detail.figure || detail.paths?.length) && !Object.keys(page.instance.waves || {}).length && (!instanceLayout || instanceLayout.blocks);
-    layout.loadLayout(COMPARE ? compareLayout(page.instances.length) : figures ? figuresLayout(Boolean(instanceLayout?.file)) : LAYOUT);
-    new ResizeObserver(() => layout.updateRootSize?.() ?? layout.updateSize?.()).observe(container);
-    if (!COMPARE) {
+    layout.mount(root);
+    // the instances' columns as wide as they need (within bounds) until a divider is dragged
+    const fit = () => {
+        const table = selection.querySelector("table.tgrid.narrow");
+        const total = root.getBoundingClientRect().width;
+        if (!table || !total) return;
+        table.style.minWidth = "0";
+        const natural = table.offsetWidth + 14;
+        table.style.minWidth = "";
+        root.fitFirst(Math.min(compare ? 62 : 30, Math.max(12, (100 * natural) / total)));
+    };
+    fit();
+    root.addEventListener("reset", fit);
+    if (!compare) {
         emit("block", state.block);
         emit("selection");
     }
-    loading.classList.add("done");
+    return layout;
 }
-
-main();

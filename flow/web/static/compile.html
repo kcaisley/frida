@@ -1,32 +1,17 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Compiler</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='1' width='14' height='14' rx='3' fill='%232e3440'/%3E%3Cpath d='M4 4h8v3H4zM4 9h3v3H4zM9 9h3v3H9z' fill='%2388c0d0'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/golden-layout@2.6.0/dist/css/goldenlayout-base.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.css">
-    <link rel="stylesheet" href="style.css">
     <script>
-        // the desktop's light or dark setting
-        document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/addon/mode/simple.js"></script>
-    <script type="importmap">
-        {
-            "imports": {
-                "golden-layout": "https://cdn.jsdelivr.net/npm/golden-layout@2.6.0/+esm",
-                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-            }
-        }
+        // the Compiler is a state of the one page now (index.html#compiler&job=<id>)
+        (() => {
+            const job = new URLSearchParams(location.search).get("job");
+            location.replace(`index.html#compiler${job ? `&job=${encodeURIComponent(job)}` : ""}`);
+        })();
     </script>
 </head>
 <body>
-    <div id="gl-container"></div>
-    <div id="loading"><div class="spinner"></div><span>Loading the compiler…</span></div>
-    <script type="module" src="js/compile.js"></script>
+    <p><a href="index.html#compiler">The Compiler</a></p>
 </body>
 </html>

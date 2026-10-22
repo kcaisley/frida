@@ -1,16 +1,21 @@
-// The layout compiler (compile.html?job=<id>): a netlist typed, pasted or opened on the left and
-// checked as it changes (its diagnostics, its schematic), then laid out on demand in the chosen
-// PDK: ALIGN places and routes it, gdscheck checks its rules and the PDK's KLayout deck its netlist. The Flow panel
-// starts a run and follows its stages; the result shows in the shared Layout, 3D and Layers panels
-// on the right, fed through a one-instance block as on the instance page.
+// The layout compiler, a view of the one page (index.html#compiler&job=<id>, switched to from the
+// top bar and back with the block and selection kept): a netlist typed, pasted or opened on the left
+// and checked as it changes (its diagnostics, its schematic), then laid out on demand in the chosen
+// PDK: ALIGN places and routes it, gdscheck checks its rules and the PDK's KLayout deck its netlist.
+// The Flow panel starts a run and follows its stages; the result shows in the shared Layout, 3D and
+// Layers panels on the right, fed through a one-instance block as the Explorer's. Its state (the
+// editor, the run, its polling) outlives the view: switched back to, it is as it was left.
 
-import { GoldenLayout } from "golden-layout";
 import { h, icon, seg, select, toast } from "./icons.js";
 import { LayersPanel } from "./layers.js";
 import { Layout3DPanel } from "./layout3d.js";
 import { LayoutPanel } from "./layout2d.js";
 import { SchematicPanel } from "./panels.js";
+import { Layout } from "./regions.js";
 import { emit, on, recall, state, store } from "./store.js";
+
+// the editor, from jsDelivr the first time the Compiler is opened
+const CODEMIRROR = "https://cdn.jsdelivr.net/npm/codemirror@5.65.18";
 
 // a run's stages, in order (the server's keys)
 const STAGES = [
@@ -69,7 +74,11 @@ const page = {
     jobText: null, // {id, text}: the shown run's netlist, to tell an edited editor
     jobs: [], // the run history, newest first
     polling: null, // the run being polled
-    layout: null, // GoldenLayout
+    view: null, // the panels' Layout while the Compiler is shown
+    mounted: false,
+    onJob: null, // (id or null): the shown run, for the page's URL
+    editorHost: null, // the editor's element, moved into each Netlist panel
+    log: null, // {path, text}: the shown run's log
 };
 
 async function api(path, body) {
@@ -196,8 +205,10 @@ function schematicNote() {
     return "No transistors to draw.";
 }
 
-// the page's block: the run's layout once it is done, the editor's schematic as it is checked
+// the page's block: the run's layout once it is done, the editor's schematic as it is checked; only
+// while the Compiler is shown (the store is the shown view's)
 function shim() {
+    if (!page.mounted) return;
     const job = page.job;
     const done = job?.state === "done" && job.files?.layout;
     const pdk = done ? job.pdk : page.pdk;
@@ -238,12 +249,7 @@ function shim() {
 
 // bring a panel's tab to the front
 function activate(id) {
-    try {
-        const item = page.layout?.findFirstComponentItemById(id);
-        item?.parentItem?.setActiveComponentItem(item, false);
-    } catch (error) {
-        /* the panel was closed */
-    }
+    page.view?.activate(id);
 }
 
 // ---- runs ------------------------------------------------------------------------------------
@@ -290,7 +296,7 @@ async function cancelRun() {
 async function openJob(id, withNetlist) {
     page.polling = id;
     page.job = { id, state: "queued", stages: [], diagnostics: [], stats: [], files: {}, checks: {} };
-    history.replaceState(null, "", `?job=${encodeURIComponent(id)}`);
+    page.onJob?.(id);
     emit("markers", { boxes: [] });
     shim();
     emit("compile", "job");
@@ -329,7 +335,7 @@ async function poll(id) {
             toast(`No run ${id}`);
             page.job = null;
             page.polling = null;
-            history.replaceState(null, "", location.pathname);
+            page.onJob?.(null);
             shim();
             emit("compile", "job");
             return;
@@ -500,15 +506,14 @@ class FlowPanel {
             if (value) openJob(value, true);
         });
         runs.title = "Open a previous run: its netlist, settings, layout and checks";
-        const link = (href, name, label, title, download) => h("a.icon-btn", { href, title, target: download ? null : "_blank", download: download || null }, h("span", { html: glyph(name, 13) }), label);
         this.footerElement = h(
             "div.flow-footer",
             {},
             h("label.field", {}, h("span", {}, "History"), runs),
             h("span.grow"),
             files.gds && job?.state === "done" ? h("a.icon-btn", { href: `data/${files.gds}`, download: `${job.cell || "layout"}.gds`, title: "Download the GDS" }, h("span", { html: icon("download", 13) }), "GDS") : "",
-            files.log ? link(`data/${files.log}`, "file", "Log", "The run's log") : "",
-            link("index.html", "explorer", "Assembler", "The Assembler: the sweeps' instances, their table and scatter"),
+            // the log in its tab beside Diagnostics, not a page of its own
+            files.log ? h("button.icon-btn", { title: "The run's log, in its tab beside Diagnostics", onclick: () => activate("log") }, h("span", { html: glyph("file", 13) }), "Log") : "",
         );
         return this.footerElement;
     }
@@ -529,26 +534,32 @@ class NetlistPanel {
             this.summary,
             this.fileInput,
         );
+        // the one editor, made the first time and moved here after: its text, cursor and undo kept
+        if (page.editorHost) this.host = page.editorHost;
         this.element.append(this.toolbar, h("div.panel-body.fill", {}, this.host));
         container.element.append(this.element);
-        const editor = CodeMirror(this.host, {
-            value: initial,
-            mode: "spice",
-            lineNumbers: true,
-            gutters: ["lint", "CodeMirror-linenumbers"],
-            indentUnit: 4,
-            tabSize: 4,
-            indentWithTabs: false,
-            lineWrapping: false,
-            extraKeys: { "Ctrl-Enter": () => startRun(), "Cmd-Enter": () => startRun() },
-        });
-        editor.setSize("100%", "100%");
-        page.editor = editor;
-        editor.on("change", () => {
-            store("compile.netlist", editor.getValue());
-            scheduleCheck();
-            emit("compile", "edit");
-        });
+        if (!page.editor) {
+            page.editorHost = this.host;
+            const editor = CodeMirror(this.host, {
+                value: initial,
+                mode: "spice",
+                lineNumbers: true,
+                gutters: ["lint", "CodeMirror-linenumbers"],
+                indentUnit: 4,
+                tabSize: 4,
+                indentWithTabs: false,
+                lineWrapping: false,
+                extraKeys: { "Ctrl-Enter": () => startRun(), "Cmd-Enter": () => startRun() },
+            });
+            editor.setSize("100%", "100%");
+            page.editor = editor;
+            editor.on("change", () => {
+                store("compile.netlist", editor.getValue());
+                scheduleCheck();
+                emit("compile", "edit");
+            });
+        }
+        const editor = page.editor;
         this.resizeObserver = new ResizeObserver(() => editor.refresh());
         this.resizeObserver.observe(this.host);
         this.off = [on("compile", () => this.renderSummary())];
@@ -557,6 +568,7 @@ class NetlistPanel {
             this.resizeObserver.disconnect();
         });
         container.on("show", () => editor.refresh());
+        this.renderSummary();
     }
 
     renderSummary() {
@@ -749,75 +761,73 @@ function defineMode() {
     });
 }
 
-// ---- the page ---------------------------------------------------------------------------------
-
-const PANELS = {
-    flow: { title: "Flow", make: (container) => new FlowPanel(container) },
-    netlist: { title: "Netlist", make: (container) => new NetlistPanel(container, page.initialText) },
-    diagnostics: { title: "Diagnostics", make: (container) => new DiagnosticsPanel(container) },
-    layout: { title: "Layout", make: (container, saved) => new LayoutPanel(container, saved) },
-    layout3d: { title: "3D", make: (container, saved) => new Layout3DPanel(container, saved) },
-    layers: { title: "Layers", make: (container) => new LayersPanel(container) },
-    schematic: { title: "Schematic", make: (container) => new SchematicPanel(container, "schematic") },
-};
-
-const component = (type) => ({ type: "component", componentType: type, title: PANELS[type].title, id: type, isClosable: false, componentState: {} });
-
-const LAYOUT = {
-    settings: { showPopoutIcon: false, popoutWholeStack: false, reorderEnabled: true },
-    dimensions: { borderWidth: 4, headerHeight: 28, minItemHeight: 90, minItemWidth: 180 },
-    header: { popout: false, close: false },
-    root: {
-        type: "row",
-        content: [
-            {
-                type: "column",
-                width: 36,
-                content: [
-                    { type: "stack", height: 27, content: [component("flow")] },
-                    { type: "stack", height: 45, content: [component("netlist")] },
-                    { type: "stack", height: 28, content: [component("diagnostics")] },
-                ],
-            },
-            {
-                type: "column",
-                width: 64,
-                content: [
-                    { type: "stack", height: 62, content: [component("layout"), component("layout3d"), component("layers")] },
-                    { type: "stack", height: 38, content: [component("schematic")] },
-                ],
-            },
-        ],
-    },
-};
-
-async function main() {
-    on("status", ({ message, error }) => {
-        if (error) toast(message);
-    });
-    // F, K and L reach the layout unless a field or the editor has the keys
-    window.addEventListener("keydown", (event) => {
-        const target = event.target;
-        if (event.ctrlKey || event.metaKey || event.altKey) return;
-        if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement || target.isContentEditable || target.closest?.(".CodeMirror")) return;
-        const key = event.key.toLowerCase();
-        if (key === "f") emit("command", "fit");
-        else if (key === "k") emit("command", "ruler");
-        else if (key === "l") emit("command", "labels");
-        else return;
-        event.preventDefault();
-    });
-    const loading = document.getElementById("loading");
-    let catalog;
-    try {
-        catalog = await api("pdks");
-    } catch (error) {
-        loading.replaceChildren(h("strong", {}, "No compiler on this server"), h("span", {}, "Restart  python -m flow web.serve  and reload."), h("span.mono.muted", {}, error.message));
-        return;
+// the run's log, fetched when its tab is shown and again while the run goes on
+class LogPanel {
+    constructor(container) {
+        this.element = h("div.panel");
+        this.listing = h("pre.netlist.log");
+        this.emptyNote = h("div.empty", {}, h("span", { html: glyph("file", 28) }), h("strong", {}, "No log"), h("span", {}, "A run writes its log here."));
+        this.element.append(h("div.panel-body", {}, this.listing, this.emptyNote));
+        container.element.append(this.element);
+        this.off = [on("compile", (kind) => kind === "job" && this.refresh())];
+        container.on("destroy", () => this.off.forEach((off) => off()));
+        container.on("show", () => this.refresh(true));
+        this.refresh();
     }
+
+    shown() {
+        return this.element.offsetParent !== null;
+    }
+
+    async refresh(force = false) {
+        const path = page.job?.files?.log;
+        this.emptyNote.style.display = path ? "none" : "";
+        this.listing.style.display = path ? "" : "none";
+        if (!path) return;
+        const live = ACTIVE.has(page.job.state);
+        // a finished run's log once; a running one's at most every two seconds, while shown
+        if (!this.shown() || (!force && page.log?.path === path && (!live || Date.now() - (page.log.at || 0) < 2000))) {
+            if (page.log?.path === path) this.listing.textContent = page.log.text;
+            return;
+        }
+        try {
+            const response = await fetch(`data/${path}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            page.log = { path, text: await response.text(), at: Date.now() };
+            if (page.job?.files?.log !== path) return;
+            const atEnd = this.listing.scrollHeight - this.listing.scrollTop - this.listing.clientHeight < 40;
+            this.listing.textContent = page.log.text;
+            if (atEnd || force) this.listing.scrollTop = this.listing.scrollHeight;
+        } catch (error) {
+            toast(`The run's log: ${error.message}`);
+        }
+    }
+}
+
+// ---- the view ---------------------------------------------------------------------------------
+
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        const script = h("script", { src });
+        script.addEventListener("load", resolve);
+        script.addEventListener("error", () => reject(new Error(`${src} did not load`)));
+        document.head.append(script);
+    });
+}
+
+// once per page: the editor's library, the server's PDKs and examples, the run history
+async function setup() {
+    const catalog = await api("pdks").catch((error) => {
+        throw new Error(`No compiler on this server (${error.message}): restart  python -m flow web.serve  and reload.`);
+    });
     if (typeof CodeMirror === "undefined") {
-        loading.replaceChildren(h("strong", {}, "The editor did not load"), h("span", {}, "CodeMirror comes from cdn.jsdelivr.net: check the connection and reload."));
-        return;
+        document.head.append(h("link", { rel: "stylesheet", href: `${CODEMIRROR}/lib/codemirror.css` }));
+        try {
+            await loadScript(`${CODEMIRROR}/lib/codemirror.min.js`);
+            await loadScript(`${CODEMIRROR}/addon/mode/simple.js`);
+        } catch (error) {
+            throw new Error("The editor did not load: CodeMirror comes from cdn.jsdelivr.net; check the connection and reload.");
+        }
     }
     defineMode();
     page.pdks = catalog.pdks || [];
@@ -827,26 +837,76 @@ async function main() {
     page.pdk = names.includes(saved) ? saved : names.includes(catalog.default) ? catalog.default : names[0] || page.pdks[0]?.name || null;
     page.style = STYLES.some((item) => item.value === recall("compile.style", null)) ? recall("compile.style", null) : "symmetric";
     page.initialText = recall("compile.netlist", null) ?? page.examples[page.pdk] ?? "";
-    // the desktop's light or dark setting, followed as it changes
-    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
-        document.documentElement.dataset.theme = event.matches ? "dark" : "light";
-        emit("theme", document.documentElement.dataset.theme);
-    });
+    refreshJobs();
+}
+
+let ready = null;
+
+// the Compiler's panels under host; job: a run to show (the URL's); onJob(id or null): the shown
+// run changed. Returns {layout, show(job), destroy()}.
+export async function mountCompiler(host, { job, onJob }) {
+    page.onJob = onJob;
+    const loading = h("div.stage-note", {}, h("div.spinner"), h("span", {}, "Loading the compiler…"));
+    host.append(loading);
+    try {
+        await (ready ??= setup());
+    } catch (error) {
+        ready = null;
+        loading.replaceChildren(h("strong", {}, "No compiler"), h("span", {}, error.message));
+        return { show() {}, destroy: () => loading.remove() };
+    }
+    loading.remove();
+    const layout = new Layout(host);
+    const panel = (id, title, make) => ({ id, title, make });
+    const left = layout.split(
+        "column",
+        [
+            layout.region([panel("flow", "Flow", (container) => new FlowPanel(container))]),
+            layout.region([panel("netlist", "Netlist", (container) => new NetlistPanel(container, page.initialText))]),
+            layout.region([panel("diagnostics", "Diagnostics", (container) => new DiagnosticsPanel(container)), panel("log", "Log", (container) => new LogPanel(container))]),
+        ],
+        "compile.left",
+        [27, 45, 28],
+    );
+    const right = layout.split(
+        "column",
+        [
+            layout.region(
+                [
+                    panel("layout", "Layout", (container) => new LayoutPanel(container)),
+                    panel("layout3d", "3D", (container) => new Layout3DPanel(container)),
+                    panel("layers", "Layers", (container) => new LayersPanel(container)),
+                ],
+                "compile.layout",
+            ),
+            layout.region([panel("schematic", "Schematic", (container) => new SchematicPanel(container, "schematic"))]),
+        ],
+        "compile.right",
+        [62, 38],
+    );
+    page.view = layout;
+    page.mounted = true;
+    layout.mount(layout.split("row", [left, right], "compile", [36, 64]));
     shim();
-    const container = document.getElementById("gl-container");
-    const layout = new GoldenLayout(container);
-    page.layout = layout;
-    for (const [type, panel] of Object.entries(PANELS)) layout.registerComponentFactoryFunction(type, (glContainer, saved) => panel.make(glContainer, saved));
-    layout.loadLayout(LAYOUT);
-    new ResizeObserver(() => layout.updateRootSize?.() ?? layout.updateSize?.()).observe(container);
     emit("block", state.block);
     emit("selection");
     emit("compile", "settings");
-    loading.classList.add("done");
-    runCheck();
-    refreshJobs();
-    const job = new URLSearchParams(location.search).get("job");
-    if (job) openJob(job, recall("compile.netlist", null) === null);
+    emit("compile", "job");
+    page.editor?.refresh();
+    if (!page.check) runCheck();
+    const show = (id) => {
+        if (id && id !== page.job?.id) openJob(id, recall("compile.netlist", null) === null);
+        else if (page.job?.id) onJob(page.job.id);
+    };
+    show(job);
+    return {
+        layout,
+        show,
+        destroy() {
+            page.mounted = false;
+            page.view = null;
+            emit("markers", { boxes: [] });
+            layout.destroy();
+        },
+    };
 }
-
-main();
