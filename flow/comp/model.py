@@ -58,8 +58,9 @@ class CompModel:
             delay_table_v=tuple(detail(record, "metastability")["x"]),
             delay_table_s=tuple(detail(record, "metastability")["series"]["delay"]),
             cm_table_v=tuple(detail(record, "noise_cm")["x"]),
-            noise_table_v=tuple(detail(record, "noise_cm")["series"]["noise"]),
-            offset_table_v=tuple(detail(record, "offset_cm")["series"]["offset"]),
+            # an S-curve that did not resolve is null in the record: NaN here
+            noise_table_v=tuple(math.nan if v is None else v for v in detail(record, "noise_cm")["series"]["noise"]),
+            offset_table_v=tuple(math.nan if v is None else v for v in detail(record, "offset_cm")["series"]["offset"]),
         )
 
     @property
