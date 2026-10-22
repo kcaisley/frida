@@ -106,7 +106,13 @@ def _metastability(model) -> dict[str, float]:
     tb = model.tb(conversions=1, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.0))
     window_s = float(min(calc_decision_windows(tb, model.stages + 1)))
     tau_s = model.comp.regeneration_tau_s
-    late_v = model.comp.delay_table_v[0] * math.exp(-(window_s - model.comp.delay_table_s[0]) / tau_s)
+    # a delay curve that does not grow as the input falls (a fast latch measured above its
+    # regeneration) has no time constant to extrapolate: no input is known to be late
+    late_v = (
+        model.comp.delay_table_v[0] * math.exp(-(window_s - model.comp.delay_table_s[0]) / tau_s)
+        if tau_s > 0
+        else math.nan
+    )
     return {
         "comp_regeneration_tau_s": tau_s,
         "decision_window_s": window_s,
