@@ -1815,8 +1815,11 @@ table.grid.sweep .symbol {
 }
 
 .detail-plots {
+    flex: 1;
+    min-height: 0;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    align-content: start;
     gap: 6px;
     padding: 6px;
     overflow: auto;
@@ -1825,7 +1828,6 @@ table.grid.sweep .symbol {
 /* a figure's row as tall as its image: a percent-wide image adds no height to an auto row */
 .detail-plots:has(.figure-card) {
     grid-auto-rows: max-content;
-    align-content: start;
 }
 
 .detail-plots .figure-card {
@@ -2600,6 +2602,49 @@ a.icon-btn {
     text-overflow: ellipsis;
     color: var(--fg-secondary);
     font-size: var(--fs-11);
+}
+
+/* the compared instances' colours over their analyses: an instance clicked hides its curves */
+.compare-key {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 6px;
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.key-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--fg-primary);
+    font-size: var(--fs-12);
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.key-item:hover {
+    background: var(--bg-hover);
+}
+
+.key-item.off {
+    color: var(--fg-muted);
+    text-decoration: line-through;
+}
+
+.key-item .swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+}
+
+.key-item.off .swatch {
+    opacity: 0.3;
 }
 
 /* a figure per instance, side by side */

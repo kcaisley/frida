@@ -463,7 +463,7 @@ function renderPlot() {
     // the axes' titles and ticks take what they need (automargin); no legend or mode bar beside
     layout.margin = { l: 12, r: 16, t: 14, b: 12 };
     layout.showlegend = false;
-    layout.legend = { ...layout.legend, x: 1.02, xanchor: "left", y: 1, yanchor: "top", font: { size: 12 }, tracegroupgap: 12 };
+    layout.legend = { ...layout.legend, orientation: "v", x: 1.02, xanchor: "left", yref: "paper", y: 1, yanchor: "top", font: { size: 12 }, tracegroupgap: 12 };
     layout.dragmode = view.dragmode;
     layout.uirevision = `${view.x}|${view.y}|${view.logX}|${view.logY}`;
     renderLegend(pdks);

@@ -47,11 +47,11 @@ export function paperAxis(title, log, colors, fonts) {
     };
 }
 
-// mode: "dark" or "light" on screen, "paper" for a saved SVG
+// mode: "dark" or "light" on screen, "paper" for a saved SVG; the legend, where there is one, under
+// the plot (plots.py's "outside lower center"), its entries a row that wraps: never over the curves
 export function paperLayout(title, xTitle, yTitle, logX, logY, legendCount, mode = currentTheme()) {
     const colors = PAPERS[mode];
     const fonts = mode === "paper" ? FONTS.paper : FONTS.screen;
-    const legend = { bgcolor: colors.legend, bordercolor: colors.spine, borderwidth: 0.8, font: { size: fonts.legend } };
     return {
         paper_bgcolor: colors.paper,
         plot_bgcolor: colors.paper,
@@ -61,12 +61,22 @@ export function paperLayout(title, xTitle, yTitle, logX, logY, legendCount, mode
         xaxis: paperAxis(xTitle, logX, colors, fonts),
         yaxis: paperAxis(yTitle, logY, colors, fonts),
         showlegend: legendCount > 0,
-        legend:
-            legendCount > 4
-                ? { ...legend, x: 1.02, xanchor: "left", y: 1, yanchor: "top" }
-                : { ...legend, x: 0.99, xanchor: "right", y: 0.99, yanchor: "top" },
+        legend: {
+            bgcolor: colors.legend,
+            bordercolor: colors.spine,
+            borderwidth: 0.8,
+            font: { size: fonts.legend },
+            orientation: "h",
+            x: 0.5,
+            xanchor: "center",
+            // from the figure's foot: the margin grows to hold it, the axis title stays above
+            yref: "container",
+            y: 0,
+            yanchor: "bottom",
+        },
         hovermode: "closest",
-        hoverlabel: { bgcolor: colors.hover, bordercolor: colors.spine, font: { family: fonts.family, size: 13, color: colors.ink } },
+        // the whole trace name: where a plot has no legend, the hover is what names a curve
+        hoverlabel: { bgcolor: colors.hover, bordercolor: colors.spine, namelength: -1, font: { family: fonts.family, size: 13, color: colors.ink } },
         dragmode: "zoom",
     };
 }

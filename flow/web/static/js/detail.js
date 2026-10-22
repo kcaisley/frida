@@ -182,8 +182,9 @@ function unitScale(label, values) {
 }
 
 // a family of counted step lines (the ADC's decision paths) as a few traces, each the paths of one
-// weight joined by gaps: the more conversions took a path, the bolder and more opaque it is
-function pathTraces(detail, x, y, color, legend) {
+// weight joined by gaps: the more conversions took a path, the bolder and more opaque it is; meta,
+// the compared instance they are (the key over the plots names it)
+function pathTraces(detail, x, y, color, meta) {
     const most = Math.max(...detail.paths.map((path) => path.count));
     const levels = Array.from({ length: PATH_LEVELS }, () => ({ xs: [], ys: [], count: 0, paths: 0 }));
     for (const path of detail.paths) {
@@ -198,7 +199,7 @@ function pathTraces(detail, x, y, color, legend) {
     return levels
         .map((level, index) => ({ level, weight: index / (PATH_LEVELS - 1) }))
         .filter(({ level }) => level.paths)
-        .map(({ level, weight }, index) => ({
+        .map(({ level, weight }) => ({
             type: "scatter",
             mode: "lines",
             x: level.xs,
@@ -206,32 +207,59 @@ function pathTraces(detail, x, y, color, legend) {
             connectgaps: false,
             line: { color, width: 0.8 + 2.6 * weight, shape: "hv" },
             opacity: 0.18 + 0.82 * weight,
-            name: legend?.name || "paths",
-            legendgroup: legend?.group,
-            showlegend: Boolean(legend) && index === 0,
+            name: "paths",
+            meta,
+            showlegend: false,
             hovertemplate: `${level.paths} path${level.paths > 1 ? "s" : ""}, ${level.count} of ${total} conversions<extra></extra>`,
         }));
 }
 
+// a plot with a legend under it taller by the legend (its lines wrap to the plot's width): its
+// plot area as tall as the others'
+function fitLegend(element) {
+    const legend = element.querySelector(".legend");
+    if (!legend) return;
+    element.style.height = "";
+    element.style.height = `${element.offsetHeight + Math.ceil(legend.getBBox().height)}px`;
+    Plotly.Plots.resize(element);
+}
+
 class PlotsPanel {
     constructor(container) {
-        this.element = h("div.panel.detail-plots");
+        // compared: one key to the instances' colours over the plots, which then need no legends
+        // of their own; an instance clicked in it hides or shows its curves in every plot
+        this.key = h("div.compare-key");
+        this.plots = h("div.detail-plots");
+        this.element = h("div.panel", {}, COMPARE ? this.key : null, this.plots);
+        this.hidden = new Set();
         container.element.append(this.element);
         this.off = on("theme", () => this.render());
         container.on("destroy", () => this.off());
-        container.on("resize", () => this.element.querySelectorAll(".plot").forEach((plot) => Plotly.Plots.resize(plot)));
+        container.on("resize", () => this.plots.querySelectorAll(".plot").forEach((plot) => Plotly.Plots.resize(plot).then(() => fitLegend(plot))));
         this.render();
     }
 
     render() {
         const theme = currentTheme();
         const colors = PAPERS[theme];
-        this.element.replaceChildren();
+        this.plots.replaceChildren();
         const instances = page.instances;
+        if (COMPARE) {
+            this.key.replaceChildren(
+                ...instances.map((instance, index) =>
+                    h(
+                        `button.key-item${this.hidden.has(instance.id) ? ".off" : ""}`,
+                        { title: "Hide or show this instance's curves", onclick: (event) => this.toggle(instance.id, event.currentTarget) },
+                        h("span.swatch", { style: { background: colorOf(index, theme) } }),
+                        labelOf(instance),
+                    ),
+                ),
+            );
+        }
         // every detail any instance has, in the first one's order
         const names = [...new Set(instances.flatMap((instance) => instance.details.map((detail) => detail.name)))];
         if (!names.length) {
-            this.element.append(h("div.empty", {}, h("strong", {}, "No condition sweeps"), h("span", {}, instances.some((instance) => instance.error) ? "The characterization failed." : "")));
+            this.plots.append(h("div.empty", {}, h("strong", {}, "No condition sweeps"), h("span", {}, instances.some((instance) => instance.error) ? "The characterization failed." : "")));
             return;
         }
         for (const name of names) {
@@ -241,7 +269,7 @@ class PlotsPanel {
             const first = entries[0].detail;
             // a figure the analysis plots drew (an SVG under build/sweep/): shown as it is, side by side
             if (first.figure) {
-                this.element.append(
+                this.plots.append(
                     h(
                         "figure.figure-card",
                         {},
@@ -261,7 +289,7 @@ class PlotsPanel {
             // a map (detail.grid): one per instance, side by side when compared
             if (first.grid?.z) {
                 const row = h("div.map-row");
-                this.element.append(h("div.map-card", {}, h("div.map-title", {}, first.title), row));
+                this.plots.append(h("div.map-card", {}, h("div.map-title", {}, first.title), row));
                 for (const { instance, index, detail } of entries) this.map(row, detail, COMPARE ? labelOf(instance) : null, index, theme);
                 continue;
             }
@@ -272,34 +300,56 @@ class PlotsPanel {
             const y = unitScale(first.y_label, ys);
             // a condition sweep's few points marked; a long series (a code axis, a spectrum) a thin line
             const dense = entries.some(({ detail }) => detail.x.length > 100);
+            // alone, a series a colour; compared, an instance a colour (the key over the plots) and,
+            // where an instance has several, a series a dash, keyed under the plot in the spine's grey
+            const seriesNames = [...new Set(entries.flatMap(({ detail }) => Object.keys(detail.series)))];
+            const dashed = COMPARE && entries.some(({ detail }) => Object.keys(detail.series).length > 1);
             const traces = [];
             for (const { instance, index, detail } of entries) {
-                const group = COMPARE ? instance.id : undefined;
-                if (detail.paths?.length) {
-                    traces.push(...pathTraces(detail, x, y, COMPARE ? colorOf(index, theme) : colorOf(0, theme), COMPARE ? { name: labelOf(instance), group } : null));
-                }
-                Object.entries(detail.series).forEach(([series, values], j) =>
+                const meta = COMPARE ? instance.id : undefined;
+                if (detail.paths?.length) traces.push(...pathTraces(detail, x, y, colorOf(COMPARE ? index : 0, theme), meta));
+                for (const [series, values] of Object.entries(detail.series)) {
+                    const j = seriesNames.indexOf(series);
                     traces.push({
                         type: "scatter",
                         mode: dense ? "lines" : "lines+markers",
-                        // compared: an instance a colour, its series by dash
-                        name: COMPARE ? (Object.keys(detail.series).length > 1 ? `${labelOf(instance)} · ${series}` : labelOf(instance)) : series,
-                        legendgroup: group,
+                        name: COMPARE ? (seriesNames.length > 1 ? `${labelOf(instance)} · ${series}` : labelOf(instance)) : series,
+                        meta,
+                        showlegend: !COMPARE,
                         x: detail.x.map((value) => (value === null ? null : value * x.factor)),
                         y: values.map((value) => (value === null ? null : value * y.factor)),
-                        line: { color: colorOf(COMPARE ? index : j, theme), width: dense ? 1.2 : 2, dash: COMPARE ? DASHES[j % DASHES.length] : "solid" },
+                        line: { color: colorOf(COMPARE ? index : j, theme), width: dense ? 1.2 : 2, dash: dashed ? DASHES[j % DASHES.length] : "solid" },
                         marker: { size: 6 },
-                    }),
+                    });
+                }
+            }
+            if (dashed) {
+                seriesNames.forEach((series, j) =>
+                    traces.push({ type: "scatter", mode: "lines", name: series, x: [null], y: [null], hoverinfo: "skip", line: { color: colors.spine, width: 2, dash: DASHES[j % DASHES.length] } }),
                 );
             }
+            for (const trace of traces) if (this.hidden.has(trace.meta)) trace.visible = false;
             const legendEntries = traces.filter((trace) => trace.showlegend !== false).length;
             const layout = paperLayout(first.title, x.label, y.label, first.x_log, first.y_log, legendEntries > 1 ? legendEntries : 0, theme);
             layout.title.font.size = 13;
             layout.margin = { l: 64, r: 12, t: 34, b: 46 };
             layout.legend.font = { size: 11, color: colors.ink };
+            // the compared series' key names dashes: nothing to toggle
+            if (dashed) layout.legend.itemclick = layout.legend.itemdoubleclick = false;
             const element = h("div.plot");
-            this.element.append(element);
-            Plotly.newPlot(element, traces, layout, { displayModeBar: false, responsive: true });
+            this.plots.append(element);
+            Plotly.newPlot(element, traces, layout, { displayModeBar: false, responsive: true }).then(() => fitLegend(element));
+        }
+    }
+
+    // an instance's curves (its maps and figures stay) hidden or shown in every plot
+    toggle(id, item) {
+        const hidden = !this.hidden.delete(id);
+        if (hidden) this.hidden.add(id);
+        item.classList.toggle("off", hidden);
+        for (const element of this.plots.querySelectorAll(".plot")) {
+            const indices = (element.data || []).flatMap((trace, index) => (trace.meta === id ? [index] : []));
+            if (indices.length) Plotly.restyle(element, { visible: !hidden }, indices);
         }
     }
 }
