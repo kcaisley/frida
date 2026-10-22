@@ -14,7 +14,8 @@ from flow.web.export import export_layout
 
 
 def test_the_blocks_sit_side_by_side_in_one_labelled_cell(tmp_path: Path) -> None:
-    params = sweep.params("tsmc65", next(iter(sweep.TOPOLOGIES)), "plus4")
+    # the first converter the sweep runs at plus4 (not every comparator runs with every sampler)
+    params = next(p for t in sweep.TOPOLOGIES if (p := sweep.params("tsmc65", t, "plus4")))
     try:
         entry = assemble_blocks("tsmc65", params, tmp_path)
     except (FileNotFoundError, LookupError) as error:
