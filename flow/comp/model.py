@@ -8,8 +8,9 @@ The characterization gives the input-referred noise and the systematic offset ov
 mode (3/8 to 5/8 of the supply; the model interpolates them at the ADC's), the clock-to-decision
 delay over the input from 0.1 mV to 100 mV (its metastability: the ADC's decision is late where
 it exceeds the time the SAR sequence allows), and the supply energy per decision at 0.5 mV, the
-slowest response. A comparator whose S-curve did not resolve (too slow for the
-characterization's 7 ns a decision) has no noise and no model.
+slowest response. A comparator whose nominal S-curve gives no fit has no noise and no model: more
+than 1 % of its decisions unresolved even at the characterization's longest clock (8 ns reset,
+48 ns evaluation), or no monotonic transition within the +-2 mV the S-curve spans.
 """
 
 from __future__ import annotations
