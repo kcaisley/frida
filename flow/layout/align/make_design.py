@@ -118,6 +118,10 @@ def make_design(
             const.insert(0, {"constraint": "ConfigureCompiler", "auto_constraint": False})
     else:
         fp = json.loads(floorplan.read_text())
+        # a floorplan drawn for a block's largest netlist (clkgen's pulse at eight delay stages) lists
+        # instances a smaller one lacks: ALIGN refuses a region naming one, so they are dropped
+        names = {f[0] for f in map(str.split, src.splitlines()) if f and f[0][0] in "XxMm"}
+        rows = [[m for m in row if m in names or any(n.startswith(f"{m}_") for n in names)] for row in fp["rows"]]
         const = [
             {
                 "constraint": "ConfigureCompiler",
@@ -131,7 +135,7 @@ def make_design(
             *supplies,
             {
                 "constraint": "Floorplan",
-                "regions": fp["rows"],
+                "regions": [row for row in rows if row],
                 "order": True,
                 "symmetrize": fp.get("symmetric", True),
             },
