@@ -81,7 +81,7 @@ def test_the_pages_load_only_pinned_library_versions(page: str) -> None:
     assert all(re.search(r"@\d+\.\d+\.\d+", url) for url in urls)
 
 
-def test_waveforms_are_indexed_per_instance_and_served_thinned(tmp_path: Path) -> None:
+def test_waveforms_are_indexed_per_instance_and_served_whole(tmp_path: Path) -> None:
     from flow.analysis.io import write_measurement
     from flow.schmitt.test_analysis import _step
     from flow.web.export import read_wave, trace_index, wave_entry
@@ -92,13 +92,10 @@ def test_waveforms_are_indexed_per_instance_and_served_thinned(tmp_path: Path) -
     write_measurement(path, measurement)
 
     samples = len(measurement.wave.time_s)  # about 4000 of inp, out and the supply current
-    wave = read_wave(str(path.relative_to(tmp_path)), root=tmp_path, max_samples=3000)  # more than MAX_SAMPLES kept
-    stride = math.ceil(samples / 3000)
-    assert wave["samples"] == samples and wave["stride"] == stride
-    kept = len({*range(0, samples, stride), samples - 1})
-    assert kept > MAX_SAMPLES
-    assert len(wave["time_s"]) == len(wave["v"]["inp"]) == len(wave["v"]["out"]) == len(wave["i"]["vdd"]) == kept
-    assert wave["time_s"][-1] == pytest.approx(float(measurement.wave.time_s[-1]))
+    wave = read_wave(str(path.relative_to(tmp_path)), root=tmp_path)
+    assert wave["samples"] == samples > MAX_SAMPLES
+    assert len(wave["time_s"]) == len(wave["v"]["inp"]) == len(wave["v"]["out"]) == len(wave["i"]["vdd"]) == samples
+    assert wave["time_s"] == pytest.approx(measurement.wave.time_s.tolist())
     assert set(wave["v"]) == {"inp", "out"} and set(wave["i"]) == {"vdd"}
     with pytest.raises(ValueError, match="not a cached measurement"):
         read_wave("../outside.h5", root=tmp_path)

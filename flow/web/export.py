@@ -47,8 +47,6 @@ BLOCKS = {
 }
 # 2-D records longer than this are thinned to it for the browser (every k-th sample)
 MAX_SAMPLES = 1600
-# a waveform record longer than this is thinned to it when served
-MAX_WAVE_SAMPLES = 20000
 
 
 def json_value(value):
@@ -147,10 +145,11 @@ def wave_entry(path: Path, measurement, *, root: Path = ROOT) -> dict | None:
     }
 
 
-def read_wave(relative: str, record: int = 0, *, root: Path = ROOT, max_samples: int = MAX_WAVE_SAMPLES) -> dict:
+def read_wave(relative: str, record: int = 0, *, root: Path = ROOT) -> dict:
     """One record of a cached measurement's waveforms, for the traces view: time and every node
-    voltage and supply current, every k-th sample where longer than ``max_samples``. Only HDF5
-    files under ``root/build`` are read."""
+    voltage and supply current, every sample (the view draws a column of min and max per pixel,
+    so a zoom shows the samples the simulator wrote). Only HDF5 files under ``root/build`` are
+    read."""
 
     from flow.analysis.io import read_measurement
 
@@ -162,20 +161,16 @@ def read_wave(relative: str, record: int = 0, *, root: Path = ROOT, max_samples:
         raise ValueError(f"{relative} holds no waveforms")
     if not 0 <= record < len(wave.record_index):
         raise ValueError(f"{relative} has no record {record}")
-    samples = len(wave.time_s)
-    stride = max(1, math.ceil(samples / max_samples))
-    keep = np.unique(np.append(np.arange(0, samples, stride), samples - 1))
 
-    def trace(values: np.ndarray) -> list:  # not json_value: that thins to MAX_SAMPLES again
-        return [float(f"{value:.6g}") if math.isfinite(value) else None for value in values[record][keep].tolist()]
+    def trace(values: np.ndarray) -> list:  # not json_value: that thins to MAX_SAMPLES
+        return [float(f"{value:.6g}") if math.isfinite(value) else None for value in values[record].tolist()]
 
     return {
         "path": relative,
         "record": record,
         "records": len(wave.record_index),
-        "samples": samples,
-        "stride": stride,
-        "time_s": [float(f"{value:.10g}") for value in wave.time_s[keep].tolist()],
+        "samples": len(wave.time_s),
+        "time_s": [float(f"{value:.10g}") for value in wave.time_s.tolist()],
         "v": {name: trace(values) for name, values in sorted(wave.v.items())},
         "i": {name: trace(values) for name, values in sorted(wave.i.items())},
     }
