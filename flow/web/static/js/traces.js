@@ -210,7 +210,7 @@ export class TracesPanel {
         const nets = names.join(",");
         if (!this.config.signals || nets !== this.config.nets) this.config.signals = names;
         this.config.nets = nets;
-        status(`${this.run.sweep} run: ${wave.samples} samples${wave.stride > 1 ? `, 1 in ${wave.stride} shown` : ""}`);
+        status(`${this.run.sweep} run: ${wave.samples} samples`);
         this.fit();
         this.buildNames();
     }
