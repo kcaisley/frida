@@ -7,10 +7,10 @@ the SHA-1 of its flat parameters (``digest``), as ``flow.sweep.lookup`` keys the
 at most ``workers`` at once; each writes ``instance.json`` (its id, parameters, metrics, details,
 waves, its run time or error) in ``build/sweep/<block>/<run>/<pdk>/<digest>/``. ``layout``: ALIGN
 places and routes each instance of the newest run whose block gives a layout netlist or a
-floorplan, signoff checks it, and its area joins the record. ``table``: the newest run of each
-block as the viewer's table (``build/web/data/sweep/<block>.json``: one row per instance, the
-parameters that differ, then the metrics) and one file per instance (its details, waves, layout
-and schematic).
+floorplan, signoff checks it, and its area joins the record. ``table``: each block's newest run in
+each PDK (a run of some PDKs alone keeps the others' from the run before) as the viewer's table
+(``build/web/data/sweep/<block>.json``: one row per instance, the parameters that differ, then the
+metrics) and one file per instance (its details, waves, layout and schematic).
 """
 
 from __future__ import annotations
@@ -63,10 +63,59 @@ def instance_id(pdk: str, params) -> str:
 
 @cache
 def design_space(block: str, pdk: str) -> dict:
-    """The block's instances in ``pdk`` (its sweep's ``instances``), by digest: a design space may
-    reach the same parameters twice (two arrays that come out alike), which are one instance."""
+    """The block's instances in ``pdk``, by digest: a design space may reach the same parameters
+    twice (two arrays that come out alike), which are one instance. A block on the pipeline gives
+    its families and named instances (``labelled_space``), another its sweep's ``instances``."""
     sweep = import_module(f"flow.{block}.sweep")
-    return {digest(params): params for params in sweep.instances(pdk)}
+    if hasattr(sweep, "instances"):
+        return {digest(params): params for params in sweep.instances(pdk)}
+    return {ident: params for ident, (_label, params) in labelled_space(block, pdk).items()}
+
+
+@cache
+def labelled_space(block: str, pdk: str) -> dict:
+    """A pipeline block's instances in ``pdk`` by digest, each with its label (its family and knobs,
+    or its name; the first that reaches it): its sweep's families and swept named instances
+    (``flow.pipeline.design``) that its ``params.valid`` admits in ``pdk``."""
+    from flow import pipeline
+
+    sweep = import_module(f"flow.{block}.sweep")
+    valid = import_module(f"flow.{block}.params").valid
+    space: dict = {}
+    for label, params in pipeline.design(sweep, pdk):
+        if valid(params, pdk):
+            space.setdefault(digest(params), (label, params))
+    return space
+
+
+def select(block: str, pdk: str, names: list[str]) -> dict:
+    """The instances ``names`` pick in ``pdk``, by digest, with their labels: each a named instance
+    of the block's sweep (swept or not), the label of one of its instances (``family(knob=value,
+    ...)``), or a digest. Those ``params.valid`` does not admit in ``pdk`` are left out."""
+    from flow import pipeline
+
+    sweep = import_module(f"flow.{block}.sweep")
+    named = pipeline.names(sweep)
+    labelled = labelled_space(block, pdk)
+    by_label = {label: (ident, params) for ident, (label, params) in labelled.items()}
+    picked: dict = {}
+    for name in names:
+        if name in named:
+            params = named[name]()
+            label = name
+        elif name in by_label or name in labelled:
+            ident, params = by_label[name] if name in by_label else (name, labelled[name][1])
+            label = labelled[ident][0]
+        else:
+            raise LookupError(
+                f"no instance {name!r} of {block} in {pdk}: a name ({', '.join(named)}), a label as "
+                "the run's records hold it, or a digest"
+            )
+        if import_module(f"flow.{block}.params").valid(params, pdk):
+            picked.setdefault(digest(params), (label, params))
+        else:
+            print(f"{name}: not valid in {pdk}, left out")
+    return picked
 
 
 def instance_params(block: str, pdk: str, ident: str):
@@ -100,18 +149,61 @@ def write_record(path: Path, record: dict) -> None:
     temporary.replace(path)
 
 
-def instance_job(block: str, run_dir: Path, pdk: str, params) -> dict:
-    """Characterize one instance in this (fresh) process; its record, also as ``instance.json``."""
+def characterize(block: str, run_dir: Path, pdk: str, params) -> tuple[dict, list, dict]:
+    """One instance's metrics (the geometry of its compiled circuit among them), plots and waves, in
+    ``run_dir``. A block on the pipeline (docs/pipeline.md: its sweep gives ``runs`` and ``record``)
+    is simulated run by run (``sim.simulate``), each read back (``flow.pipeline.read``) and its raw
+    file removed, and recorded from the measurements (``sweep.record``), the runs it names
+    (the record's ``waves``) kept as HDF5 for the viewer; another block characterizes itself
+    (``sweep.characterize``)."""
 
     import hdl21 as h
 
+    from flow import pipeline
+    from flow.analysis.io import write_measurement
     from flow.sweep import geometry
 
+    h.pdk.set_default(import_module(f"pdk.{pdk}").pdk_logic)
     sweep = import_module(f"flow.{block}.sweep")
+    if hasattr(sweep, "runs"):
+        sim = import_module(f"flow.{block}.sim")
+        measurements = {}
+        for name, tb in sweep.runs(pdk, params).items():
+            raw = sim.simulate(tb, run_dir / name)
+            measurements[name] = pipeline.read(raw, tb)
+            raw.unlink()
+        result = sweep.record(measurements)
+        result.waves = {
+            label: str(write_measurement(run_dir / name / "result.h5", measurements[name]).relative_to(ROOT))
+            for label, name in result.waves.items()
+        }
+        module = import_module(f"flow.{block}.subckt").netlist(params)
+    else:
+        result = sweep.characterize(run_dir, pdk, params)
+        module = sweep.GENERATOR(params)
+    h.pdk.compile(module)
+    metrics = {**geometry(module, pdk), **result.metrics}
+    return metrics, [dataclasses.asdict(detail) for detail in result.details], result.waves
+
+
+def layout_hooks(block: str):
+    """The module giving the block's layout netlists (``layout_netlist``, ``layout_floorplan``): its
+    ``layout`` module on the pipeline, else its sweep."""
+
+    sweep = import_module(f"flow.{block}.sweep")
+    if hasattr(sweep, "runs"):
+        return import_module(f"flow.{block}.layout")
+    return sweep
+
+
+def instance_job(block: str, run_dir: Path, pdk: str, params, label: str | None = None) -> dict:
+    """Characterize one instance in this (fresh) process; its record, also as ``instance.json``."""
+
     record = {
         "block": block,
         "id": instance_id(pdk, params),
         "pdk": pdk,
+        "label": label,
         "params": flat_params(params),
         "metrics": {},
         "details": [],
@@ -121,13 +213,7 @@ def instance_job(block: str, run_dir: Path, pdk: str, params) -> dict:
     start = time.time()
     run_dir.mkdir(parents=True, exist_ok=True)
     try:
-        h.pdk.set_default(import_module(f"pdk.{pdk}").pdk_logic)
-        result = sweep.characterize(run_dir, pdk, params)
-        module = sweep.GENERATOR(params)
-        h.pdk.compile(module)
-        record["metrics"] = {**geometry(module, pdk), **result.metrics}
-        record["details"] = [dataclasses.asdict(detail) for detail in result.details]
-        record["waves"] = result.waves
+        record["metrics"], record["details"], record["waves"] = characterize(block, run_dir, pdk, params)
     except Exception:  # noqa: BLE001 - every instance reports its own failure
         record["error"] = traceback.format_exc(limit=6)[-4000:]
     record["seconds"] = round(time.time() - start, 1)
@@ -135,10 +221,17 @@ def instance_job(block: str, run_dir: Path, pdk: str, params) -> dict:
     return record
 
 
-def run(blocks: list[str], pdks: tuple[str, ...], workers: int, *, failed: bool = False) -> dict[str, Path]:
-    """Characterize every instance of ``blocks`` in ``pdks``; each block's run directory.
-    ``failed``: only the instances of each block's newest run that failed (or never ran), again,
-    into that run."""
+def run(
+    blocks: list[str],
+    pdks: tuple[str, ...],
+    workers: int,
+    *,
+    failed: bool = False,
+    names: list[str] | None = None,
+) -> dict[str, Path]:
+    """Characterize every instance of ``blocks`` in ``pdks``, or those ``names`` pick (``select``);
+    each block's run directory. ``failed``: only the instances of each block's newest run that
+    failed (or never ran), again, into that run."""
 
     stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     ranked, runs = [], {}
@@ -146,12 +239,18 @@ def run(blocks: list[str], pdks: tuple[str, ...], workers: int, *, failed: bool 
         rank = getattr(import_module(f"flow.{block}.sweep"), "cost", None)
         runs[block] = newest_run(block) if failed else SWEEP_DIR / block / stamp
         for pdk in pdks:
-            for ident, params in design_space(block, pdk).items():
+            if names:
+                space = select(block, pdk, names)
+            elif hasattr(import_module(f"flow.{block}.sweep"), "instances"):
+                space = {ident: (None, params) for ident, params in design_space(block, pdk).items()}
+            else:
+                space = labelled_space(block, pdk)
+            for ident, (label, params) in space.items():
                 path = runs[block] / pdk / ident
                 record = path / "instance.json"
                 if failed and record.exists() and json.loads(record.read_text())["error"] is None:
                     continue
-                ranked.append((rank(pdk, params) if rank else 0.0, (block, path, pdk, params)))
+                ranked.append((rank(pdk, params) if rank else 0.0, (block, path, pdk, params, label)))
     # the longest first where a block ranks its instances (``cost``), so the pool does not end on
     # one long instance alone
     jobs = [job for _cost, job in sorted(ranked, key=lambda item: item[0], reverse=True)]
@@ -177,11 +276,25 @@ def run(blocks: list[str], pdks: tuple[str, ...], workers: int, *, failed: bool 
     return runs
 
 
-def newest_run(block: str) -> Path:
-    runs = sorted(path for path in (SWEEP_DIR / block).iterdir() if path.is_dir())
+def newest_run(block: str, pdk: str | None = None) -> Path:
+    """The block's newest run; with ``pdk``, the newest that ran in that PDK (a run of some PDKs
+    alone leaves each other PDK's newest records in the run before)."""
+    runs = sorted(
+        path for path in (SWEEP_DIR / block).iterdir() if path.is_dir() and (pdk is None or (path / pdk).is_dir())
+    )
     if not runs:
-        raise FileNotFoundError(f"no sweep run of {block} in {SWEEP_DIR / block}")
+        raise FileNotFoundError(f"no sweep run of {block}{f' in {pdk}' if pdk else ''} in {SWEEP_DIR / block}")
     return runs[-1]
+
+
+def pdk_runs(block: str) -> dict[str, Path]:
+    """Each PDK's newest run of the block (``newest_run``), the PDKs in name order."""
+    runs = {}
+    for run in sorted((path for path in (SWEEP_DIR / block).iterdir() if path.is_dir()), reverse=True):
+        for pdk in run.iterdir():
+            if pdk.is_dir():
+                runs.setdefault(pdk.name, run)
+    return dict(sorted(runs.items()))
 
 
 def hand_floorplan(block: str, params, cases: dict | None = None) -> Path | None:
@@ -208,9 +321,9 @@ def case_floorplan(block: str, out_dir: Path, pdk: str, params) -> tuple[Path, P
     runner places by it (``write_netlist`` of the block's subckt, at the instance's sizes); None
     without one. A sweep module may give its own (``layout_floorplan``)."""
 
-    sweep = import_module(f"flow.{block}.sweep")
-    if hasattr(sweep, "layout_floorplan"):
-        return sweep.layout_floorplan(out_dir, pdk, params)
+    hooks = layout_hooks(block)
+    if hasattr(hooks, "layout_floorplan"):
+        return hooks.layout_floorplan(out_dir, pdk, params)
     floorplan = hand_floorplan(block, params)
     write_netlist = getattr(import_module(f"flow.{block}.subckt"), "write_netlist", None)
     if floorplan is None or write_netlist is None:
@@ -237,7 +350,7 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
     # for hours on the larger sizings); the next attempt, if any, follows
     os.environ.setdefault("ALIGN_TIMEOUT", "1800")
     record = json.loads((instance_dir / "instance.json").read_text())
-    sweep = import_module(f"flow.{block}.sweep")
+    hooks = layout_hooks(block)
     params = instance_params(block, pdk, instance_dir.name)
     out = instance_dir / "layout"
     entry: dict = {"error": None}
@@ -249,14 +362,14 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
             attempts.append(planned)
     except Exception:  # noqa: BLE001 - ALIGN on its own instead
         entry["floorplan_error"] = traceback.format_exc(limit=4)[-2000:]
-    if hasattr(sweep, "layout_netlist"):
+    if hasattr(hooks, "layout_netlist"):
         attempts.append((None, None))
     results = []  # each attempt's entry; the first clean one is kept, else the first laid out
     for netlist, floorplan in attempts:
         result: dict = {"error": None}
         try:
             if netlist is None:
-                netlist = sweep.layout_netlist(out / "netlist", pdk, params)
+                netlist = hooks.layout_netlist(out / "netlist", pdk, params)
             work = out / ("align_floorplan" if floorplan else "align")
             gds = align_build(pdk, floorplan, netlist, work, name=netlist.stem)
             layout = db.Layout()
@@ -294,16 +407,18 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
     return entry
 
 
-def layout(blocks: list[str], workers: int) -> None:
-    """Lay out every characterized instance of the newest runs of ``blocks`` not yet laid out DRC
-    clean and LVS correct."""
+def layout(blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS) -> None:
+    """Lay out every characterized instance of the newest runs of ``blocks`` in ``pdks`` not yet laid
+    out DRC clean and LVS correct."""
 
     jobs = []
     for block in blocks:
-        sweep = import_module(f"flow.{block}.sweep")
-        own = hasattr(sweep, "layout_netlist") or hasattr(sweep, "layout_floorplan")
+        hooks = layout_hooks(block)
+        own = hasattr(hooks, "layout_netlist") or hasattr(hooks, "layout_floorplan")
         for path in sorted(newest_run(block).glob("*/*/instance.json")):
             record = json.loads(path.read_text())
+            if record["pdk"] not in pdks:
+                continue
             params = design_space(block, record["pdk"]).get(path.parent.name)
             if params is None:
                 print(f"{path.parent.relative_to(SWEEP_DIR)}: not in the design space any more, not laid out")
@@ -385,8 +500,24 @@ def table(blocks: list[str], workers: int) -> None:
     catalog = {block: entry for block, entry in catalog.items() if block in sweep_blocks() or block in blocks}
     with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as pool:
         for block in blocks:
-            run_dir = newest_run(block)
-            records = [json.loads(path.read_text()) for path in sorted(run_dir.glob("*/*/instance.json"))]
+            # each PDK's newest run: a run of some PDKs alone keeps the others' rows from the run before
+            runs = pdk_runs(block)
+            if not runs:
+                raise FileNotFoundError(f"no sweep run of {block} in {SWEEP_DIR / block}")
+            paths = sorted(
+                (path for pdk, run in runs.items() for path in (run / pdk).glob("*/instance.json")),
+                key=lambda path: path.parts[-3:],  # by PDK, then digest
+            )
+            records = [json.loads(path.read_text()) for path in paths]
+            # the run, or each run with the PDKs it gives where they differ
+            run_name = (
+                max(runs.values()).name
+                if len(set(runs.values())) == 1
+                else ", ".join(
+                    f"{run.name} ({', '.join(pdk for pdk, of in runs.items() if of == run)})"
+                    for run in sorted(set(runs.values()), reverse=True)
+                )
+            )
             (DATA_DIR / block).mkdir(parents=True, exist_ok=True)
             rows, views = [], {}
             for record in records:
@@ -430,7 +561,7 @@ def table(blocks: list[str], workers: int) -> None:
             data = {
                 "block": block,
                 "title": title,
-                "run": run_dir.name,
+                "run": run_name,
                 "params": varying,
                 "metrics": metrics,
                 "rows": rows,
@@ -440,7 +571,7 @@ def table(blocks: list[str], workers: int) -> None:
             for stale in (DATA_DIR / block).iterdir():
                 if stale.name.split(".", 1)[0] not in views:
                     shutil.rmtree(stale) if stale.is_dir() else stale.unlink()
-            catalog[block] = {"title": title, "run": run_dir.name, "instances": len(rows)}
+            catalog[block] = {"title": title, "run": run_name, "instances": len(rows)}
             laid_out = sum(1 for record, _future in views.values() if (record.get("layout") or {}).get("gds"))
             details = len({detail["name"] for record in records for detail in record["details"]})
             print(f"{block}: {len(rows)} instances, {len(metrics)} metrics, {details} details, {laid_out} layouts")

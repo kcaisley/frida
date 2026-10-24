@@ -169,7 +169,7 @@ def test_physical_fastrx_matches_scope(
         cdac=CapArrayConfig(
             n_dac=11,
             n_extra=5,
-            redun_strat=RedunStrat.SUBRDX2_OVLY,
+            redun_strat=RedunStrat.MSB_REDIST,
             weights=cap_weights,
         ),
     )

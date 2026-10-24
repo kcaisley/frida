@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flow import new_run
-from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_transition
-from flow.analysis.comp import analyze_comp_offset_noise
-from flow.analysis.io import read_measurement
+from flow import comp, new_run
+from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_decisions, analyze_cdac_transition
+from flow.analysis.io import read_analysis, read_measurement
 from flow.analysis.plots import (
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
@@ -16,11 +15,9 @@ from flow.analysis.studies import BASE_PATH
 from flow.analysis.types import (
     AnalysisCdacCapMismatch,
     MeasCdac,
-    MeasComp,
 )
 from flow.caparray.analysis import MeasCapArrayTran, analyze_caparray_transfer, analyze_caparray_weights
 from flow.caparray.plots import plot_caparray_error, plot_caparray_transfer, plot_caparray_weights
-from flow.comp.layout import PDKS
 from flow.sweep import runner as sweep_runner
 
 from . import layout, sim
@@ -73,9 +70,14 @@ def layout_extract_all_pdks() -> Path:
     return layout.caparray_extract_all_pdks(new_run("layout", "caparray", "extract_all_pdks"))
 
 
-def layout_extract_adc_variants() -> Path:
-    """Each ADC variant's array at three metals, extracted in TSMC65."""
-    return layout.caparray_extract_adc_variants(new_run("layout", "caparray", "extract_adc_variants"))
+def layout_extract_adc_arrays() -> Path:
+    """Each ADC array (``layout.ADC_ARRAYS``: 10, 12 and 14 bits, binary and three schemes with 2, 4
+    and 6 extra cycles, at one and two of its resolution's least capacitance, and FRIDA-1's array
+    at 12 bits and two) at three metals in TSMC65, its split and capacitance sized through its
+    extraction (``flow.caparray.sizing``), 16 at a time."""
+    from . import sizing
+
+    return sizing.extract_adc_arrays(new_run("layout", "caparray", "extract_adc_arrays"))
 
 
 def layout_window_check() -> Path:
@@ -157,9 +159,9 @@ def system_cap_mismatch_study() -> tuple[Path, ...]:
     for adc_index in sorted({curve_key[0] for curve_key in selected_curves}):
         comparator_measurements = []
         for path in sorted(comparator_read_dirs[adc_index].glob(f"*adc{adc_index:02d}*.h5")):
-            comparator_point = read_measurement(path)
-            if not isinstance(comparator_point, MeasComp):
-                raise TypeError(f"{path} contains {type(comparator_point).__name__}, expected MeasComp")
+            comparator_point = read_analysis(path)
+            if not isinstance(comparator_point, comp.AnalysisDecisions):
+                raise TypeError(f"{path} contains {type(comparator_point).__name__}, expected comp.AnalysisDecisions")
             comparator_measurements.append(comparator_point)
         transitions = []
         cdac_measurements[adc_index] = []
@@ -168,11 +170,15 @@ def system_cap_mismatch_study() -> tuple[Path, ...]:
             cdac_measurements[adc_index].extend(curve)
             # Fit the fine sweep stage where the curve has one.
             fit_points = [point for point in curve if point.param.sweep_stage == "fine"] or curve
-            transitions.append(analyze_cdac_transition(fit_points, offset=analyze_comp_offset_noise(fit_points)))
+            transitions.append(
+                analyze_cdac_transition(
+                    fit_points, offset=comp.analyze_offset_noise([analyze_cdac_decisions(fit_points)])
+                )
+            )
         cap_mismatch[adc_index] = analyze_cdac_cap_mismatch(
             cdac_measurements[adc_index],
             transitions=transitions,
-            comparator=analyze_comp_offset_noise(comparator_measurements),
+            comparator=comp.analyze_offset_noise(comparator_measurements),
         )
     artifacts = []
     for adc_index, analysis in cap_mismatch.items():
@@ -197,16 +203,17 @@ def characterization_study() -> tuple[Path, ...]:
     """Compare the named capacitor arrays' stage weights and their code ramp against the design weights, in every PDK."""
     output_dir = new_run("analysis", "caparray")
 
-    meas_read_dir = BASE_PATH / "build/sim/caparray/caparray_characterization/20261018_003319"
+    meas_read_dir = BASE_PATH / "build/sim/caparray/characterization/20261024_002825"
     cases = (
-        ("radix17", "radix17: FRIDA-1, paired overlay"),
-        ("radix20", "radix20: repeated coarse units"),
+        ("radix17", "radix17: FRIDA-1, MSB redistribution with 5"),
+        ("radix20", "radix20: FRIDA-1, repeated coarse units"),
         ("binary", "binary: 11-bit radix 2"),
-        ("subradix2", "subradix2: sub-radix 2"),
+        ("msb_split5", "msb_split5: MSB split with 5"),
+        ("lsb_split5", "lsb_split5: LSB split with 5"),
     )
     labels = [label for _name, label in cases]
     artifacts = []
-    for pdk in PDKS:
+    for pdk in sweep_runner.PDKS:
         sweeps = {}
         for name, _label in cases:
             for sweep in ("stage", "ramp"):

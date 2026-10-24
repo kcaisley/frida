@@ -21,7 +21,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import NOMINAL_VIN, STEP, FollowerTbParams, _run_follower_sim, follower_signal_names
 from .subckt import CASES, Follower, FollowerParams, Topology, is_valid_follower_params, write_netlist
@@ -204,7 +204,7 @@ def characterize(run_dir: Path, pdk: str, follower: FollowerParams) -> Record:
             "bandwidth_min_supply_hz": float(np.min(over_supply.bandwidth_hz)),
         },
         details=[
-            Detail(
+            Plot(
                 name="vout_vin",
                 title="Output level over the input",
                 x_label="Input (V)",
@@ -212,7 +212,7 @@ def characterize(run_dir: Path, pdk: str, follower: FollowerParams) -> Record:
                 x=vin_v,
                 series={"output": list(transfer.vout_v)},
             ),
-            Detail(
+            Plot(
                 name="gain_vin",
                 title="Small-signal gain over the input",
                 x_label="Input (V)",
@@ -220,7 +220,7 @@ def characterize(run_dir: Path, pdk: str, follower: FollowerParams) -> Record:
                 x=vin_v,
                 series={"gain": list(transfer.gain_v_per_v)},
             ),
-            Detail(
+            Plot(
                 name="bandwidth_vin",
                 title="-3 dB bandwidth over the input",
                 x_label="Input (V)",
@@ -229,7 +229,7 @@ def characterize(run_dir: Path, pdk: str, follower: FollowerParams) -> Record:
                 series={"bandwidth": list(transfer.bandwidth_hz)},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="impedance_vin",
                 title="Output impedance over the input",
                 x_label="Input (V)",
@@ -238,7 +238,7 @@ def characterize(run_dir: Path, pdk: str, follower: FollowerParams) -> Record:
                 series={"impedance": list(impedance.impedance_ohm)},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="psrr_vin",
                 title="PSRR over the input",
                 x_label="Input (V)",
@@ -246,7 +246,7 @@ def characterize(run_dir: Path, pdk: str, follower: FollowerParams) -> Record:
                 x=vin_v,
                 series={"PSRR": list(transfer.psrr_db)},
             ),
-            Detail(
+            Plot(
                 name="response",
                 title="Response over frequency at the nominal input",
                 x_label="Frequency (Hz)",
@@ -255,7 +255,7 @@ def characterize(run_dir: Path, pdk: str, follower: FollowerParams) -> Record:
                 series={"gain": list(transfer.response_db[k])},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="impedance_frequency",
                 title="Output impedance over frequency at the nominal input",
                 x_label="Frequency (Hz)",
@@ -264,7 +264,7 @@ def characterize(run_dir: Path, pdk: str, follower: FollowerParams) -> Record:
                 series={"impedance": list(impedance.impedance_db_ohm[k])},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="gain_supply",
                 title="Gain over the supply (the input at its share of it)",
                 x_label="Supply over nominal",
@@ -272,7 +272,7 @@ def characterize(run_dir: Path, pdk: str, follower: FollowerParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"gain": list(over_supply.gain_v_per_v)},
             ),
-            Detail(
+            Plot(
                 name="bandwidth_supply",
                 title="-3 dB bandwidth over the supply",
                 x_label="Supply over nominal",
@@ -281,7 +281,7 @@ def characterize(run_dir: Path, pdk: str, follower: FollowerParams) -> Record:
                 series={"bandwidth": list(over_supply.bandwidth_hz)},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="psrr_supply",
                 title="PSRR over the supply",
                 x_label="Supply over nominal",

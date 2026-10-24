@@ -17,8 +17,8 @@ from hdl21.prefix import f
 from hdl21.primitives import C, MosType, MosVth
 
 from flow.circuit.ports import module_from_ports
-from flow.comp.subckt import _mos
-from flow.comp.subckt import write_netlist as _write_netlist
+from flow.circuit.devices import mos as _mos
+from flow.circuit.devices import write_netlist as _write_netlist
 
 
 class Topology(Enum):
@@ -268,7 +268,7 @@ def _build_second_stage(module, param: OtaParams, inp, out, side: str):
 
 def write_netlist(params: OtaParams, path: Path, pdk) -> Path:
     """The amplifier after ``pdk``'s compile, as one flat SPICE subcircuit named after ``path``
-    (``flow.comp.subckt.write_netlist``: devices fingered to the row cells in whole unit widths)."""
+    (``flow.circuit.devices.write_netlist``: devices fingered to the row cells in whole unit widths)."""
 
     return _write_netlist(params, path, pdk, generator=Ota, nets=OtaNets)
 

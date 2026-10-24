@@ -16,6 +16,7 @@ import numpy as np
 from scipy.optimize import minimize_scalar
 from scipy.special import erfc
 
+from flow import comp
 from flow.adc.sequences import AdcSequence
 from flow.adc.subckt import AdcNets
 from flow.analysis import calc
@@ -47,7 +48,6 @@ from flow.analysis.types import (
     check_identity,
     measurement_identity,
 )
-from flow.comp.subckt import CompNets
 
 # =============================================================================
 # Scope and comparator-output analyses
@@ -249,8 +249,11 @@ def analyze_adc_dynamic(
 ) -> AnalysisAdcDynamic:
     """Fit one sine acquisition and calculate time- and frequency-domain metrics.
 
-    A calibration decodes the stored BOUT decisions to rounded codes in place
-    of the stored nominal DOUT.
+    A calibration decodes the stored BOUT decisions to fractional codes in
+    place of the stored nominal DOUT. They are not rounded: whole codes would
+    quantize the converter's output a second time and cost about 0.5 bit. To
+    grade whole N-bit codes, as an output word would carry them, analyze the
+    measurement with its DOUT replaced by ``calibration.decode_bout(bout)``.
     """
 
     source = measurement.tb.vin_diff
@@ -259,7 +262,8 @@ def analyze_adc_dynamic(
     if calibration is not None:
         check_identity(calibration, measurement.identity, name="calibration")
     measured_dout = np.asarray(
-        measurement.dout if calibration is None else calibration.decode_bout(measurement.bout), dtype=np.float64
+        measurement.dout if calibration is None else calibration.decode_bout(measurement.bout, rounded=False),
+        dtype=np.float64,
     )
     sample_count = len(measured_dout)
     sample_rate_hz = measurement.sample_rate_hz
@@ -1580,7 +1584,7 @@ def analyze_adc_timing_closure(measurement: MeasAdc) -> AnalysisAdcTimingClosure
                 AdcNets.vdac_n,
             )
         }
-        | {f"comp.{net.name}" for net in (CompNets.latch_p, CompNets.latch_n)}
+        | {f"comp.{net.name}" for net in (comp.Nets.latch_p, comp.Nets.latch_n)}
         | {f"{net.name}[{stage}]" for net in buses for stage in range(capacitors)}
     )
     if missing := required - wave.v.keys():
@@ -1614,7 +1618,7 @@ def analyze_adc_timing_closure(measurement: MeasAdc) -> AnalysisAdcTimingClosure
                 when = math.nan
             logic.append(when)
         resets = calc.cross(signals[AdcNets.clk_comp.name], time, threshold_v, edge="falling")
-        internal = signals[f"comp.{CompNets.latch_p.name}"] - signals[f"comp.{CompNets.latch_n.name}"]
+        internal = signals[f"comp.{comp.Nets.latch_p.name}"] - signals[f"comp.{comp.Nets.latch_n.name}"]
         sr_p, sr_n = signals[AdcNets.comp_out_p.name], signals[AdcNets.comp_out_n.name]
         for decision, (start, logic_time, next_comp) in enumerate(
             zip(comp_edges[comp_indices], logic, following, strict=True)

@@ -19,14 +19,11 @@ from flow.analysis.io import interpolate_wave_records
 from flow.analysis.types import (
     MeasAdc,
     MeasCapArray,
-    MeasComp,
     MeasInfo,
     Wave,
 )
 from flow.caparray import get_caparray_weights
 from flow.caparray.subckt import CapArrayParams
-from flow.comp.sim import CompTbParams
-from flow.comp.subckt import CompNets
 
 # Spectre strobe timestamps can jitter by sub-femtoseconds around a 10 ps grid.
 _RAW_STEP_RTOL = 1e-3
@@ -165,16 +162,6 @@ def _validate_adc_conversion(logic_times: np.ndarray) -> np.ndarray:
     return valid
 
 
-def _validate_comp_conversion(times_s: np.ndarray, params: CompTbParams) -> tuple[int, float]:
-    """Require the recorded duration to match every scheduled comparator trial."""
-    trial_count = len(params.vin_cm_values_v) * len(params.vin_diff_values_v) * params.conversions
-    cycle_s = float(params.reset_time_s) + float(params.evaluation_time_s)
-    actual_duration_s = float(times_s[-1] - times_s[0])
-    if not np.isclose(actual_duration_s, trial_count * cycle_s, rtol=1e-6, atol=params.waveform_sample_interval_s):
-        raise ValueError("Comparator transient duration differs from its trial schedule")
-    return trial_count, cycle_s
-
-
 def convert_raw_adc_to_measurement(
     result: TranResult,
     *,
@@ -295,139 +282,6 @@ def convert_raw_adc_to_measurement(
         vin_diff_v=vin_diff_v,
         wave=Wave(
             record_index=waveform_conversion_indices,
-            time_s=relative_time_s,
-            v=waveform_records,
-            i=current_records,
-        ),
-    )
-
-
-def convert_raw_comp_to_measurement(
-    result: TranResult,
-    *,
-    params: CompTbParams,
-    raw_path: Path,
-    signal_names: Mapping[str, str],
-) -> MeasComp:
-    """Decode one Spectre comparator campaign result into ``MeasComp``.
-
-    All decisions at every input point are retained in ``daq``. Dense
-    waveforms retain every trial at the three points nearest 50% probability
-    plus one representative trial everywhere else.
-    """
-
-    times_s, signals, currents = _conversion_inputs(
-        result, signal_names, params.waveform_sample_interval_s, supply_rails=(CompNets.vdd.name,)
-    )
-    expected_trial_count, cycle_s = _validate_comp_conversion(times_s, params)
-
-    nominal_vdiff = []
-    nominal_vcm = []
-    point_first_trial = []
-    point_index = 0
-    for vcm in params.vin_cm_values_v:
-        for vdiff in params.vin_diff_values_v:
-            first_trial = point_index * params.conversions
-            point_first_trial.append(first_trial)
-            nominal_vdiff.extend([float(vdiff)] * params.conversions)
-            nominal_vcm.extend([float(vcm)] * params.conversions)
-            point_index += 1
-
-    # Sample just before the evaluation falling edge. Interpolation uses the
-    # uniformly stored raw grid but Spectre's transient-noise integration keeps
-    # its much finer internal timesteps.
-    decision_margin_s = max(float(params.transition_time_s) * 2.0, params.waveform_sample_interval_s / 2.0)
-    sample_times_s = times_s[0] + (np.arange(expected_trial_count) + 1) * cycle_s - decision_margin_s
-    out_p = calc.value(signals[CompNets.outp.name], times_s, sample_times_s)
-    out_n = calc.value(signals[CompNets.outn.name], times_s, sample_times_s)
-    decisions = (out_p > out_n).astype(np.uint8)
-    # The output stage holds the last decision while the regenerative latch is still undecided, so
-    # a trial is resolved only where the latch's own nodes are half the supply apart by then.
-    resolved = None
-    if CompNets.latch_p.name in signals and CompNets.latch_n.name in signals:
-        latch_p = calc.value(signals[CompNets.latch_p.name], times_s, sample_times_s)
-        latch_n = calc.value(signals[CompNets.latch_n.name], times_s, sample_times_s)
-        resolved = np.abs(latch_p - latch_n) > float(params.vdd) / 2
-
-    # Preserve all records at the three points closest to 50% probability and
-    # one representative record from every other S-curve point. Selecting from
-    # the measured decisions follows offset topologies whose metastable region
-    # is not centered at zero input, while bounding each production H5 file.
-    representative_trials = [first + params.conversions // 2 for first in point_first_trial]
-    point_probability = np.asarray(
-        [calc.average(decisions[first : first + params.conversions]) for first in point_first_trial],
-        dtype=np.float64,
-    )
-    transition_points = np.argsort(np.abs(point_probability - 0.5), kind="stable")[: min(3, len(point_first_trial))]
-    transition_trials = [
-        trial
-        for point in transition_points
-        for trial in range(point_first_trial[point], point_first_trial[point] + params.conversions)
-    ]
-    waveform_trial_indices = np.unique(np.asarray((*representative_trials, *transition_trials), dtype=np.int64))
-    record_duration_s = cycle_s
-    relative_time_s, waveform_records = interpolate_wave_records(
-        times_s,
-        signals,
-        [
-            (
-                float(times_s[0] + trial * cycle_s),
-                float(times_s[0] + trial * cycle_s + record_duration_s),
-            )
-            for trial in waveform_trial_indices
-        ],
-        params.waveform_sample_interval_s,
-    )
-
-    _, current_records = interpolate_wave_records(
-        times_s,
-        currents,
-        [
-            (float(times_s[0] + trial * cycle_s), float(times_s[0] + (trial + 1) * cycle_s))
-            for trial in waveform_trial_indices
-        ],
-        params.waveform_sample_interval_s,
-    )
-    supply_v = float(params.vdd)
-    average_current_a = calc.average(currents[CompNets.vdd.name], times_s)
-    average_power_w = supply_v * average_current_a
-    readbacks: dict[str, str | int | float | bool] = {
-        "signal_map_json": json.dumps(dict(signal_names), sort_keys=True),
-        "raw_file": Path(raw_path).name,
-        "raw_format": "spectre_nutbin",
-        "raw_points": len(times_s),
-        "raw_max_timestep_s": calc.ymax(np.diff(times_s)),
-        "waveform_sample_interval_s": params.waveform_sample_interval_s,
-        "waveform_interpolated_from_coarser_raw": bool(
-            calc.ymax(np.diff(times_s)) > params.waveform_sample_interval_s * (1.0 + _RAW_STEP_RTOL)
-        ),
-        "decision_sample_margin_s": decision_margin_s,
-        "supply_power_available": True,
-        "supply_current_convention": "positive_current_draw",
-        "vdd_v": supply_v,
-        "vdd_active_average_current_a": average_current_a,
-        "vdd_active_average_power_w": average_power_w,
-        "energy_per_decision_j": average_power_w * cycle_s,
-    }
-
-    return MeasComp(
-        group=params.mc_seed,
-        index=params.mc_index,
-        dut=params.comp,
-        info=MeasInfo(
-            backend="spice",
-            timestamp_utc=datetime.fromtimestamp(Path(raw_path).stat().st_mtime, tz=UTC),
-            instruments={"simulator": "Spectre"},
-            readbacks=readbacks,
-        ),
-        param=params,
-        trial_index=np.arange(expected_trial_count, dtype=np.int64),
-        vin_diff_v=np.asarray(nominal_vdiff, dtype=np.float64),
-        vin_cm_v=np.asarray(nominal_vcm, dtype=np.float64),
-        decision=decisions,
-        resolved=resolved,
-        wave=Wave(
-            record_index=waveform_trial_indices,
             time_s=relative_time_s,
             v=waveform_records,
             i=current_records,

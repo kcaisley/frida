@@ -12,7 +12,7 @@ import hdl21 as h
 from hdl21.primitives import MosFamily, MosType, MosVth
 
 from flow.circuit.ports import module_from_ports
-from flow.comp.subckt import _mos
+from flow.circuit.devices import mos as _mos
 
 
 @h.paramclass

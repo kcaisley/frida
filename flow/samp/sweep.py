@@ -19,7 +19,7 @@ import hdl21 as h
 import numpy as np
 from hdl21.prefix import p
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import NOMINAL_VIN, VIN_SWEEP, SampTbParams, _run_samp_sim, samp_measurement
 from .subckt import CASES, Samp, SampParams, is_valid_samp_params, write_netlist
@@ -34,13 +34,14 @@ STRUCTURES = [{key: getattr(case, key) for key in STRUCTURE} for case in CASES.v
 # only); no width under 4 units (the finest PDK's minimum width: the 4-unit helpers stay)
 BASE = SampParams()
 WIDTHS = ("mos_w", "boot_w", "cap_w")
+X2 = {name: 2 * getattr(BASE, name) for name in WIDTHS}
 X4 = {name: 4 * getattr(BASE, name) for name in WIDTHS}
 BOOST_X2 = {"cap_w": 2 * BASE.cap_w}
 SIZES = [
     {name: max(4, getattr(BASE, name) // 4) for name in WIDTHS},
     {name: max(4, getattr(BASE, name) // 2) for name in WIDTHS},
     {},
-    {name: 2 * getattr(BASE, name) for name in WIDTHS},
+    X2,
     X4,
     {"mos_l": 2 * BASE.mos_l},
     BOOST_X2,
@@ -128,7 +129,7 @@ def characterize(run_dir: Path, pdk: str, samp: SampParams) -> Record:
             "ron_max_supply_ohm": most(supply_track.on_resistance_ohm),
         },
         details=[
-            Detail(
+            Plot(
                 name="ron_vin",
                 title="On-resistance into 1 pF over the input level",
                 x_label="Input level (V)",
@@ -137,7 +138,7 @@ def characterize(run_dir: Path, pdk: str, samp: SampParams) -> Record:
                 series={"on-resistance": list(track.on_resistance_ohm)},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="track_error_vin",
                 title="Track error at the end of tracking over the input level",
                 x_label="Input level (V)",
@@ -145,7 +146,7 @@ def characterize(run_dir: Path, pdk: str, samp: SampParams) -> Record:
                 x=list(track.vin_v),
                 series={"track error": list(track.track_error_v)},
             ),
-            Detail(
+            Plot(
                 name="pedestal_vin",
                 title="Pedestal over the input level",
                 x_label="Input level (V)",
@@ -153,7 +154,7 @@ def characterize(run_dir: Path, pdk: str, samp: SampParams) -> Record:
                 x=list(hold.vin_v),
                 series={"pedestal": list(hold.pedestal_v)},
             ),
-            Detail(
+            Plot(
                 name="feedthrough_vin",
                 title="Input feedthrough while holding, over the input level",
                 x_label="Input level (V)",
@@ -161,7 +162,7 @@ def characterize(run_dir: Path, pdk: str, samp: SampParams) -> Record:
                 x=list(hold.vin_v),
                 series={"feedthrough": list(feedthrough_db)},
             ),
-            Detail(
+            Plot(
                 name="ron_supply",
                 title="On-resistance over the supply (mid-supply input)",
                 x_label="Supply over nominal",
@@ -170,7 +171,7 @@ def characterize(run_dir: Path, pdk: str, samp: SampParams) -> Record:
                 series={"on-resistance": list(supply_track.on_resistance_ohm)},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="pedestal_supply",
                 title="Pedestal over the supply (mid-supply input)",
                 x_label="Supply over nominal",

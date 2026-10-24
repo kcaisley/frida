@@ -92,11 +92,31 @@ def thinned(length: int) -> np.ndarray:
     return np.unique(np.linspace(0, length - 1, MAX_SAMPLES).round().astype(int))
 
 
+def measurement_wave(measurement):
+    """A measurement's waveforms as records (``flow.pipeline.Wave``): its own, or a pipeline
+    measurement's signals on the simulator's time axis as one record; None without."""
+
+    from flow.pipeline import Wave
+
+    wave = getattr(measurement, "wave", None)
+    time_s = getattr(measurement, "time_s", None)
+    if wave is not None or time_s is None or len(time_s) < 2:
+        return wave
+    # the simulator may repeat a time point at a breakpoint: the first of each kept
+    keep = np.concatenate(([True], np.diff(time_s) > 0))
+    return Wave(
+        record_index=np.zeros(1, dtype=np.int64),
+        time_s=time_s[keep],
+        v={name: values[keep][None, :] for name, values in measurement.v.items()},
+        i={name: values[keep][None, :] for name, values in measurement.i.items()},
+    )
+
+
 def wave_entry(path: Path, measurement, *, root: Path = ROOT) -> dict | None:
     """A measurement's waveforms in the traces index: its PDK, case and sweep (from the path:
     ``<pdk>/<case>/<sweep>/...``), its bench parameters, its nets and time span; None without."""
 
-    wave = getattr(measurement, "wave", None)
+    wave = measurement_wave(measurement)
     if wave is None:
         return None
     try:
@@ -137,7 +157,7 @@ def read_wave(relative: str, record: int = 0, *, root: Path = ROOT, max_samples:
     path = (root / relative).resolve()
     if path.suffix != ".h5" or not path.is_relative_to((root / "build").resolve()):
         raise ValueError(f"{relative} is not a cached measurement")
-    wave = getattr(read_measurement(path), "wave", None)
+    wave = measurement_wave(read_measurement(path))
     if wave is None:
         raise ValueError(f"{relative} holds no waveforms")
     if not 0 <= record < len(wave.record_index):

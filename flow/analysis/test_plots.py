@@ -14,6 +14,7 @@ from matplotlib import colors as mcolors
 from matplotlib.ticker import FixedLocator
 
 import flow.analysis.plots as analysis_plots
+from flow import comp
 from flow.adc.sequences import symbol160_init4_samp20_comp11111100_logic11000011
 from flow.analysis.adc import (
     analyze_adc_cdac_settling,
@@ -31,7 +32,6 @@ from flow.analysis.adc import (
     analyze_adc_ramp,
     analyze_adc_transfer,
 )
-from flow.analysis.comp import analyze_comp_common_mode, analyze_comp_offset_noise
 from flow.analysis.plots import (
     CURVE_COLORS,
     DENSITY_COLOR_MAP,
@@ -82,14 +82,13 @@ from flow.analysis.plots import (
     style_measurement_text,
 )
 from flow.analysis.test_adc import adc_cdac_settling_measurement, adc_measurement, adc_ramp_measurement, tone_codes
-from flow.analysis.test_comp import comparator_measurement
 from flow.analysis.test_types import cdac_physical
 from flow.analysis.types import (
     AnalysisCdacCapMismatch,
     MeasAdc,
-    MeasComp,
     Wave,
 )
+from flow.comp.test_analysis import decisions_at
 from flow.scans.scan_cdac import _build_cdac_params
 from flow.scans.scan_comp import _build_comp_params
 
@@ -549,7 +548,7 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
     for vin_cm_v in (0.6, 0.8):
         group = []
         for vin_diff_v, ones in ((-1e-3, 100), (0.0, 50), (1e-3, 0)):
-            base = comparator_measurement()
+            base = decisions_at()
             params = _build_comp_params(
                 adc_index=0,
                 campaign="comp_common_mode",
@@ -560,7 +559,7 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
                 conversions=100,
             )
             group.append(
-                MeasComp(
+                comp.AnalysisDecisions(
                     group=params.board_id,
                     index=params.observed_adc,
                     dut=params.tb.dut.comp,
@@ -574,12 +573,12 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
                 )
             )
         comparator_groups.append(group)
-        comparator_analyses.append(analyze_comp_offset_noise(group))
+        comparator_analyses.append(comp.analyze_offset_noise(group))
     comparator_measurements = [measurement for group in comparator_groups for measurement in group]
     comparator_paths = plot_comp_common_mode_campaign(
         comparator_measurements,
         comparator_analyses,
-        analyze_comp_common_mode(comparator_measurements, offsets=comparator_analyses),
+        comp.analyze_common_mode(comparator_measurements),
         output_path=tmp_path / "comp_campaign",
     )
     assert comparator_paths[0].is_file()
@@ -665,7 +664,7 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
             (center_v, 50),
             (center_v + 1.0e-3, 100),
         ):
-            base = comparator_measurement()
+            base = decisions_at()
             params = _build_comp_params(
                 adc_index=0,
                 campaign=campaign,
@@ -677,7 +676,7 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
                 requested_dac_rail_percent=coupling_percent,
             )
             measurements.append(
-                MeasComp(
+                comp.AnalysisDecisions(
                     group=params.board_id,
                     index=params.observed_adc,
                     dut=params.tb.dut.comp,
@@ -696,11 +695,11 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
         group("comp_common_mode", "track", vin_cm_v, center_v=10.0e-3) for vin_cm_v in (0.6, 0.7, 0.8, 1.0)
     ]
     common_measurements = [measurement for values in common_groups for measurement in values]
-    common_offsets = [analyze_comp_offset_noise(values) for values in common_groups]
+    common_offsets = [comp.analyze_offset_noise(values) for values in common_groups]
     plot_comp_common_mode_campaign(
         common_measurements,
         common_offsets,
-        analyze_comp_common_mode(common_measurements, offsets=common_offsets),
+        comp.analyze_common_mode(common_measurements),
         output_path=Path("unused_common"),
     )
     common_figure = figures[-1]
@@ -753,7 +752,7 @@ def test_comparator_common_mode_crop_and_sampling_noise_layout(
     ]
     plot_comp_sampling_campaign(
         sampling_groups,
-        [analyze_comp_offset_noise(values) for values in sampling_groups],
+        [comp.analyze_offset_noise(values) for values in sampling_groups],
         output_path=Path("unused_sampling"),
     )
     sampling_figure = figures[-1]

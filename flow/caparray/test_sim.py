@@ -78,7 +78,9 @@ def test_runner_uses_passive_array_without_standard_cells(monkeypatch, tmp_path,
 
 
 def test_array_testbench_spectre_escapes_scalar_plate_connections() -> None:
-    tb = sim.CapArrayTb(sim.CapArrayTbParams(cdac=sim.CapArrayConfig(n_dac=3, n_extra=0, weights=(4, 2, 1))))
+    tb = sim.CapArrayTb(
+        sim.CapArrayTbParams(cdac=sim.CapArrayConfig(n_dac=3, n_extra=0, redun_strat=sim.RedunStrat.BINARY))
+    )
     source = io.StringIO()
     h.netlist(tb, source, fmt="spectre")
     spectre = source.getvalue()
@@ -97,7 +99,9 @@ def test_array_testbench_spectre_escapes_scalar_plate_connections() -> None:
 
 
 def test_array_testbench_drives_main_and_diff_branches_separately():
-    tb = sim.CapArrayTb(sim.CapArrayTbParams(cdac=sim.CapArrayConfig(n_dac=3, n_extra=0, weights=(4, 2, 1))))
+    tb = sim.CapArrayTb(
+        sim.CapArrayTbParams(cdac=sim.CapArrayConfig(n_dac=3, n_extra=0, redun_strat=sim.RedunStrat.BINARY))
+    )
     assert tb.dut.conns["cap_shieldplate"] is tb.vss
     assert tb.dut.conns["cap_topplate"] is tb.cap_topplate
     for stage in range(3):

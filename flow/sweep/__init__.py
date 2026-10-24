@@ -27,12 +27,16 @@ A block takes part with a module ``flow/<block>/sweep.py``:
   (``subckt.CASES``) of the same structure, ``design/layout/<block>_<case>.json``, with the block's
   ``write_netlist`` (``flow.sweep.runner.hand_floorplan``), where both exist.
 
-A ``Record`` holds the instance's scalar ``metrics`` (each name ends in its unit, as the
-analyses' fields do: ``_s``, ``_j``, ``_v``, ``_w``, ``_um2``), its ``details`` (plots of its
-condition sweeps, each plotted on its own data, or figures drawn by the analysis plots) and ``waves`` (measurement files under ``build/`` holding transient waveforms, by
-label).
+A ``Record`` (``flow.pipeline.Record``) holds the instance's scalar ``metrics`` (each name ends in
+its unit, as the analyses' fields do: ``_s``, ``_j``, ``_v``, ``_w``, ``_um2``), its ``details``
+(``flow.pipeline.Plot`` specs of its condition sweeps, each plotted on its own data, or figures
+drawn by the analysis plots) and ``waves`` (measurement files under ``build/`` holding transient
+waveforms, by label). A block on the pipeline (docs/pipeline.md) gives its design space as
+families and named instances (``flow.pipeline.family``, ``named``; its ``params.valid(params, pdk)``
+keeps what works in a PDK), and ``runs`` and ``record``, instead of ``instances``,
+``characterize`` and ``GENERATOR``; its ``layout.py`` gives the layout hooks.
 
-    uv run python -m flow comp.sweep      # one block: characterize, lay out, tabulate
+    uv run python -m flow run comp        # one block on the pipeline (layout comp, table comp)
     uv run python -m flow sweep.run       # every block (sweep.missing, sweep.layout, sweep.tables)
 """
 
@@ -40,56 +44,26 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from dataclasses import dataclass, field
 from enum import Enum
 from importlib import import_module
 
 import hdl21 as h
 
-
-@dataclass
-class Detail:
-    """One condition sweep of an instance: each series' y over the shared x."""
-
-    name: str  # stable key, the same for every instance of a block
-    title: str
-    x_label: str  # with its unit: "Common mode (V)"
-    y_label: str
-    x: list[float]
-    series: dict[str, list[float]]  # label -> y at each x (NaN where the point failed)
-    x_log: bool = False
-    y_log: bool = False
-    figure: str | None = None  # an SVG under build/ the viewer shows in place of the plot (x, series empty)
-    # step lines over x, each {"y": [...], "count": n}: how many records took it (the ADC's decision
-    # paths), drawn weighted by their counts beside or instead of the series
-    paths: list[dict] = field(default_factory=list)
-    # each axis's ticks where its values alone do not say (the viewer's paperLayout infers them
-    # otherwise: whole numbers tick at whole numbers, log axes at decades or 1, 2 and 5):
-    # "integer" (whole-number ticks, never an exponent), "code" (an output code or a code estimate:
-    # as "integer", whatever the values), "step" (a decision or stage index: 0 and at least every
-    # even step labelled, every step ticked) or "real" (continuous, though the values are whole)
-    x_ticks: str | None = None
-    y_ticks: str | None = None
-    # the series are a histogram: each y the count in the bin one unit wide centred on its x (an
-    # output code), drawn as a step outline without markers or fill, so compared instances overlay
-    histogram: bool = False
-
-
-@dataclass
-class Record:
-    """What one instance's characterization gives."""
-
-    metrics: dict[str, float]
-    details: list[Detail] = field(default_factory=list)
-    waves: dict[str, str] = field(default_factory=dict)  # label -> measurement path under build/
+# Parameters a block's class gained after its instances ran, by name (in a nested class too), with
+# the value every earlier instance has: a flat row leaves them out at that value, so the earlier
+# instances keep their rows and digests (flow.sweep.runner.digest) and are found as before.
+ADDED_DEFAULTS = {"preamp_c_ff": 0, "latch_tail_w": 0, "bias_c_ff": 100}  # flow.comp.params.Params
 
 
 def flat_params(params, prefix: str = "") -> dict[str, float | int | str | bool | None]:
     """A parameter class as one flat row: nested classes by dotted names, enumerations by name,
-    sizes as numbers."""
+    sizes as numbers; a parameter added later (``ADDED_DEFAULTS``) only where it differs from its
+    default."""
 
     flat = {}
     for name, value in vars(params).items():
+        if name in ADDED_DEFAULTS and value == ADDED_DEFAULTS[name]:
+            continue
         key = f"{prefix}{name}"
         if dataclasses.is_dataclass(value) and not isinstance(value, type):
             flat |= flat_params(value, f"{key}.")

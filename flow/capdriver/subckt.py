@@ -5,7 +5,8 @@ the PDK's compile pass picks. Two builds:
 
 - ``Cells.GENERIC`` (the default): the generic cells every PDK's library has
   (``flow.circuit.cells``): an ``xor2_x1``, and after it a ``buf_x<strength>`` where the stage's
-  strength (1, 2, 4, 8 or 16) is above 1.
+  strength (1, 2, 4, 8 or 16) is above 1; a stronger stage, 16 k, is k ``buf_x16`` in parallel
+  after a pre-driver buffer of the next drive at or above k (``PARALLEL_DRIVE``).
 - ``Cells.CLOCK_XOR``: FRIDA-1's, one ``generic.clock_xor`` per stage in drive band 1, 2 or 4,
   which each PDK's compile pass replaces with its library's clock XOR of that band (or cells
   that make one), preserving the A, B, Y, VDD, VSS interface.
@@ -23,9 +24,25 @@ from pydantic import StrictInt
 from flow.circuit.cells import DRIVES, cell
 from flow.circuit.ports import module_from_ports, port_connections
 
-# the drive weights a generic stage reaches: the XOR alone, or the XOR and a buffer of the weight
+# the drive weights a generic stage reaches with one cell: the XOR alone, or the XOR and a buffer
+# of the weight; beyond them, multiples of the strongest buffer in parallel
 GENERIC_STRENGTHS = (1, *DRIVES["buf"])
+PARALLEL_DRIVE = DRIVES["buf"][-1]
 CLOCK_XOR_BANDS = (1, 2, 4)
+
+
+def is_generic_strength(strength) -> bool:
+    """A generic stage's drive weight: one cell's (``GENERIC_STRENGTHS``), or k buffers of the
+    strongest drive in parallel (16 k, k >= 2)."""
+    return type(strength) is int and (
+        strength in GENERIC_STRENGTHS or (strength > PARALLEL_DRIVE and strength % PARALLEL_DRIVE == 0)
+    )
+
+
+def pre_driver(strength: int) -> int:
+    """The buffer that drives a parallel stage's k buffers: the next drive at or above k."""
+    copies = strength // PARALLEL_DRIVE
+    return next((drive for drive in DRIVES["buf"] if drive >= copies), PARALLEL_DRIVE)
 
 
 class Cells(Enum):
@@ -78,7 +95,8 @@ class CapDriverParams:
     n_stages = h.Param(dtype=StrictInt, desc="Number of C0-first conversion stages")
     strengths = h.Param(
         dtype=tuple[StrictInt, ...] | None,
-        desc="C0-first drive weights: 1, 2, 4, 8 or 16 (CLOCK_XOR: bands 1, 2, 4); None selects (4, 4, 2, 2, 1, ...)",
+        desc="C0-first drive weights: 1, 2, 4, 8, 16 or a multiple of 16 (CLOCK_XOR: bands 1, 2, 4); None selects "
+        "(4, 4, 2, 2, 1, ...)",
         default=None,
     )
     cells = h.Param(dtype=Cells, desc="Which standard cells build the stages", default=Cells.GENERIC)
@@ -94,9 +112,11 @@ def stage_strengths(params: CapDriverParams) -> tuple[int, ...]:
         strengths = (4, 4, 2, 2)[: params.n_stages] + (1,) * max(0, params.n_stages - 4)
     if len(strengths) != params.n_stages:
         raise ValueError("CapDriver strengths must have one drive weight per stage")
-    allowed = GENERIC_STRENGTHS if params.cells == Cells.GENERIC else CLOCK_XOR_BANDS
-    if any(type(strength) is not int or strength not in allowed for strength in strengths):
-        raise ValueError(f"CapDriver strengths must be integers in {allowed} for {params.cells.name}")
+    if params.cells == Cells.GENERIC:
+        if not all(is_generic_strength(strength) for strength in strengths):
+            raise ValueError(f"CapDriver strengths must be in {GENERIC_STRENGTHS} or multiples of {PARALLEL_DRIVE}")
+    elif any(type(strength) is not int or strength not in CLOCK_XOR_BANDS for strength in strengths):
+        raise ValueError(f"CapDriver strengths must be integers in {CLOCK_XOR_BANDS} for {params.cells.name}")
     return tuple(strengths)
 
 
@@ -116,8 +136,14 @@ def CapDriver(params: CapDriverParams) -> h.Module:
                 cell("xor2", 1)(A=CapDriver.dac_drive_invert, B=CapDriver.dac_state[stage], Y=xor_out, **supplies),
                 name=f"xor_{stage}",
             )
-            if strength > 1:
+            if 1 < strength <= PARALLEL_DRIVE:
                 CapDriver.add(cell("buf", strength)(A=xor_out, Y=out, **supplies), name=f"buf_{stage}")
+            elif strength > PARALLEL_DRIVE:
+                # k buffers of the strongest drive in parallel, after a pre-driver
+                pre_out = CapDriver.add(h.Signal(), name=f"pre_out_{stage}")
+                CapDriver.add(cell("buf", pre_driver(strength))(A=xor_out, Y=pre_out, **supplies), name=f"pre_{stage}")
+                for copy in range(strength // PARALLEL_DRIVE):
+                    CapDriver.add(cell("buf", PARALLEL_DRIVE)(A=pre_out, Y=out, **supplies), name=f"buf_{stage}_{copy}")
         return CapDriver
 
     for stage, band in enumerate(strengths):

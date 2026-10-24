@@ -39,6 +39,7 @@ class CapArrayTbParams:
     )
     vdd = h.Param(dtype=h.Scalar, desc="Supply voltage", default=1.2)
     cdac = h.Param(dtype=CapArrayConfig, desc="CDAC parameters", default=CapArrayConfig())
+    unit_cap = h.Param(dtype=h.Scalar | None, desc="Unit capacitance; None: the config's", default=None)
     codes = h.Param(
         dtype=tuple[int, ...] | None,
         desc="Packed codes in order; None ramps every code of the DAC resolution",
@@ -56,7 +57,7 @@ def CapArrayTb(params: CapArrayTbParams) -> h.Module:
         raise ValueError("CDAC dwell and transition times must be positive")
     n_stages = params.cdac.n_dac + params.cdac.n_extra
 
-    array = CapArray(CapArrayParams(cdac=params.cdac))
+    array = CapArray(CapArrayParams(cdac=params.cdac, unit_cap=params.unit_cap))
     CapArrayTb, connections = testbench_from_ports(
         "CapArrayTb",
         {name: net for name, net in array.ports.items() if net is not array.cap_shieldplate},
@@ -211,15 +212,17 @@ def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
     return run_dir
 
 
-# The characterization's arrays: FRIDA-1's (16 stages, radix about 1.7, paired overlay), FRIDA's
-# radix-2 tail on six repeated coarse units (radix 2.0 at the bottom), a plain 11-bit binary array,
-# and an unpaired sub-radix-2 one. In every PDK at its own core supply: each stage toggled alone
-# between all-zero codes (its weight), and the packed ramp over the DAC resolution's codes.
+# The characterization's arrays: FRIDA-1's two fabricated flavours (16 stages: MSB redistribution
+# with 5 extra cycles, radix about 1.7; and radix 2 on six repeated coarse units, explicit weights),
+# a plain 11-bit binary array, and the two split schemes with 5 extra cycles. In every PDK at its own
+# core supply: each stage toggled alone between all-zero codes (its weight), and the packed ramp over
+# the DAC resolution's codes.
 CASES = {
     "radix17": CapArrayConfig(),
     "radix20": CapArrayConfig(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)),
-    "binary": CapArrayConfig(n_extra=0, redun_strat=RedunStrat.RDX2),
-    "subradix2": CapArrayConfig(redun_strat=RedunStrat.SUBRDX2),
+    "binary": CapArrayConfig(n_extra=0, redun_strat=RedunStrat.BINARY),
+    "msb_split5": CapArrayConfig(redun_strat=RedunStrat.MSB_SPLIT),
+    "lsb_split5": CapArrayConfig(redun_strat=RedunStrat.LSB_SPLIT),
 }
 
 

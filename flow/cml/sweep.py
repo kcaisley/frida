@@ -22,7 +22,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import (
     CLOCK_PERIOD_SWEEP_S,
@@ -184,7 +184,7 @@ def characterize(run_dir: Path, pdk: str, cml: CmlParams) -> Record:
             "delay_max_supply_s": float(np.nanmax(supply_delay)) if np.isfinite(supply_delay).any() else math.nan,
         },
         details=[
-            Detail(
+            Plot(
                 name="swing_frequency",
                 title="Swing over the clock frequency (data at 1/2.6 of it)",
                 x_label="Clock frequency (Hz)",
@@ -193,7 +193,7 @@ def characterize(run_dir: Path, pdk: str, cml: CmlParams) -> Record:
                 series={"swing": list(over_period.swing_v)},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="delay_frequency",
                 title="Delay over the clock frequency",
                 x_label="Clock frequency (Hz)",
@@ -202,7 +202,7 @@ def characterize(run_dir: Path, pdk: str, cml: CmlParams) -> Record:
                 series={"delay": delay(over_period)},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="correct_frequency",
                 title="Correct output over the clock frequency (1: it works)",
                 x_label="Clock frequency (Hz)",
@@ -211,7 +211,7 @@ def characterize(run_dir: Path, pdk: str, cml: CmlParams) -> Record:
                 series={"correct": list(over_period.correct_fraction)},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="swing_tail",
                 title="Swing over the tail current (200 ps clock)",
                 x_label="Tail current (A)",
@@ -220,7 +220,7 @@ def characterize(run_dir: Path, pdk: str, cml: CmlParams) -> Record:
                 series={"swing": list(over_tail.swing_v)},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="delay_tail",
                 title="Delay over the tail current (200 ps clock)",
                 x_label="Tail current (A)",
@@ -229,7 +229,7 @@ def characterize(run_dir: Path, pdk: str, cml: CmlParams) -> Record:
                 series={"delay": delay(over_tail)},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="swing_supply",
                 title="Swing over the supply",
                 x_label="Supply over nominal",
@@ -237,7 +237,7 @@ def characterize(run_dir: Path, pdk: str, cml: CmlParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"swing": list(over_supply.swing_v)},
             ),
-            Detail(
+            Plot(
                 name="delay_supply",
                 title="Delay over the supply",
                 x_label="Supply over nominal",
@@ -245,7 +245,7 @@ def characterize(run_dir: Path, pdk: str, cml: CmlParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"delay": delay(over_supply)},
             ),
-            Detail(
+            Plot(
                 name="eye",
                 title="Eye: the differential output on the driving input's edges (200 ps clock)",
                 x_label="Time from the input's edge (s)",

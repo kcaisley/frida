@@ -14,7 +14,7 @@ Architecture:
     ├── Xcapdriver_{p,n}_{main,diff} (HDL21 CapDriver)
     ├── Xsamp_p (HDL21 Samp)
     ├── Xsamp_n (HDL21 Samp)
-    └── Xcomp (HDL21 Comp)
+    └── Xcomp (HDL21 comp.netlist)
 """
 
 from functools import cache
@@ -22,11 +22,11 @@ from functools import cache
 import hdl21 as h
 from hdl21.primitives import MosType
 
+from flow import comp
 from flow.circuit.ports import module_from_ports, port_connections
 
 from ..caparray import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights, is_valid_caparray_config
 from ..capdriver import CapDriver, CapDriverParams, Cells
-from ..comp import Comp, CompParams, is_valid_comp_params
 from ..samp import Samp, SampParams
 
 
@@ -43,7 +43,7 @@ class AdcParams:
         default=CapArrayConfig(n_dac=11, n_extra=5),
     )
     samp = h.Param(dtype=SampParams, desc="Sampler parameters", default=SampParams())
-    comp = h.Param(dtype=CompParams, desc="Comparator parameters", default=CompParams())
+    comp = h.Param(dtype=comp.Params, desc="Comparator parameters", default=comp.Params())
 
 
 @cache
@@ -101,7 +101,7 @@ def is_valid_adc_params(param: AdcParams) -> bool:
         return False
     if param.samp.mos_w <= 0 or param.samp.mos_l <= 0:
         return False
-    return is_valid_comp_params(param.comp)
+    return comp.valid(param.comp)
 
 
 # Keep the driver hierarchy fresh when this ADC is requested after compilation.
@@ -197,7 +197,7 @@ def Adc(p: AdcParams) -> h.Module:
         Adc.add(sampler(din=vin, dout=top, clk=clk, clk_b=clk_b, vdd=Adc.vdd_a, vss=Adc.vss_a), name=f"xsamp_{side}")
 
     # Instantiate comparator
-    comparator = Comp(p.comp)
+    comparator = comp.netlist(p.comp)
     Adc.xcomp = comparator(
         **port_connections(
             comparator.ports,

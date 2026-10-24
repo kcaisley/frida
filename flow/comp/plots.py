@@ -1,406 +1,240 @@
-"""Comparator plots: the generated-candidate sweep, and the topology comparisons of the
-characterization, one panel per topology with shared axes."""
+"""The comparator's figures as ``Plot`` specs (``flow.pipeline.Plot``), each from analysis results
+alone: a characterization's condition sweeps (the record's plots) and the lab captures' S-curves,
+offset and noise. The viewer draws a record's from its JSON, ``flow.plot.render`` any with
+matplotlib (``python -m flow plot comp``)."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from pathlib import Path
+import math
+from collections.abc import Sequence
 
-import matplotlib as mpl
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.cm import ScalarMappable
-from matplotlib.colors import Normalize
+from scipy.special import ndtr
 
-from flow.analysis import calc
-from flow.analysis.plots import (
-    CURVE_COLORS,
-    NORD_BLUE,
-    NORD_RED,
-    PLOT_STYLE,
-    SPECTRUM_COLOR_MAP,
-    SPINE_COLOR,
-    TEXT_COLOR,
-    save_figure,
-    style_grid,
-    style_info_box,
-    style_measurement_group_text,
+from flow.pipeline import Plot
+
+from .params import SUPPLY_SWEEP
+from .types import (
+    AnalysisCommonMode,
+    AnalysisDelay,
+    AnalysisMetastability,
+    AnalysisOffsetNoise,
+    AnalysisPower,
+    AnalysisSamplingNoise,
+    AnalysisScurve,
 )
-from flow.analysis.types import AnalysisCompCommonMode, MeasComp
-from flow.comp.analysis import AnalysisCompCandidate, AnalysisCompDelay, AnalysisCompPower, AnalysisCompTiming
 
 
-@mpl.rc_context(PLOT_STYLE)
-def plot_comp_timing(
-    msmt_list: Sequence[MeasComp],
-    analysis: AnalysisCompTiming,
-    *,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Plot comparator delay, settling time, and unresolved outcomes."""
-
-    fig, axes = plt.subplots(2, 1)
-    axes[0].plot(analysis.trial_index, analysis.clock_to_decision_s * 1e9, "o", label="Clock to decision")
-    axes[0].plot(analysis.trial_index, analysis.settling_s * 1e9, "o", label="Settling")
-    axes[0].set_ylabel("Time (ns)")
-    axes[0].legend()
-    axes[1].step(analysis.trial_index, analysis.unresolved, where="mid")
-    axes[1].set_ylabel("Unresolved")
-    axes[1].set_xlabel("Trial index")
-    axes[1].set_yticks((0, 1))
-    for ax in axes:
-        style_grid(ax)
-    style_info_box(axes[1], style_measurement_group_text(msmt_list), location="lower right")
-    fig.suptitle("Comparator timing")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_comp_power(
-    msmt_list: Sequence[MeasComp],
-    analysis: AnalysisCompPower,
-    *,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Plot comparator average power per measurement."""
-
-    fig, ax = plt.subplots()
-    labels = [str(index) for index in analysis.source_index]
-    ax.bar(labels, analysis.average_power_w * 1e6)
-    ax.set_ylabel("Average power (µW)")
-    ax.set_xlabel("Measurement index")
-    style_grid(ax)
-    style_info_box(ax, style_measurement_group_text(msmt_list))
-    fig.suptitle("Comparator power")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_comp_candidate_sweep(
-    msmt_list: Sequence[MeasComp],
-    candidates: Sequence[AnalysisCompCandidate],
-    *,
-    highlights: Mapping[str, str] | None = None,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Plot candidate noise, power, and settling on one area-ordered axis.
-
-    ``highlights`` marks candidates by ID with a labeled line.
-    """
-
-    # Order candidates by summed MOS W*L; geometry and ID break ties reproducibly.
-    ordered = sorted(
-        candidates,
-        key=lambda candidate: (candidate.total_active_area_units, candidate.geometry_signature, candidate.candidate_id),
+def plot_metastability(metastability: AnalysisMetastability) -> Plot:
+    """The delay over the input near metastability."""
+    return Plot(
+        name="metastability",
+        title="Delay over the input (nominal common mode)",
+        x_label="Differential input (V)",
+        y_label="Clock-to-decision delay (s)",
+        x=[float(value) for value in metastability.input_v],
+        series={"delay": [float(value) for value in metastability.delay_s]},
+        x_log=True,
     )
-    analysis = {
-        name: np.asarray([getattr(candidate, name) for candidate in ordered])
-        for name in ("size_profile", "total_active_area_um2", "noise_sigma_v", "average_power_w", "maximum_settling_s")
-    }
-    candidate_count = len(candidates)
-    position = np.arange(candidate_count)
-    colors = {
-        "half": CURVE_COLORS[0],
-        "double": CURVE_COLORS[1],
-        "fabricated": CURVE_COLORS[2],
-    }
-    fig, axes = plt.subplots(3, 1, sharex=True)
-    metrics = (
-        (analysis["noise_sigma_v"] * 1e3, "Noise σ (mV)", "linear"),
-        (analysis["average_power_w"] * 1e6, "Power (µW)", "log"),
-        (analysis["maximum_settling_s"] * 1e9, "Settling (ns)", "linear"),
+
+
+def plot_noise_cm(offsets: Sequence[AnalysisOffsetNoise]) -> Plot:
+    """The input-referred noise over the common mode (NaN where an S-curve gave no valid fit)."""
+    return Plot(
+        name="noise_cm",
+        title="Input-referred noise over the common mode",
+        x_label="Input common mode (V)",
+        y_label="Input-referred noise (V)",
+        x=[fit.vin_cm_v for fit in offsets],
+        series={"noise": [fit.noise_sigma_v if fit.validity == "valid" else math.nan for fit in offsets]},
     )
-    for ax, (values, ylabel, scale) in zip(axes, metrics, strict=True):
-        for profile in ("half", "double", "fabricated"):
-            selected = analysis["size_profile"] == profile
-            if not np.any(selected):
-                continue
-            ax.scatter(
-                position[selected],
-                values[selected],
-                marker="o" if profile != "fabricated" else "*",
-                color=colors[profile],
-                label={"half": "0.5× FRIDA widths", "double": "2× FRIDA widths", "fabricated": "FRIDA baseline"}[
-                    profile
-                ],
-                zorder=4 if profile == "fabricated" else 2,
+
+
+def plot_offset_cm(offsets: Sequence[AnalysisOffsetNoise]) -> Plot:
+    """The systematic offset over the common mode (no mismatch is simulated)."""
+    return Plot(
+        name="offset_cm",
+        title="Offset over the common mode (no mismatch: systematic)",
+        x_label="Input common mode (V)",
+        y_label="Offset (V)",
+        x=[fit.vin_cm_v for fit in offsets],
+        series={"offset": [fit.offset_v if fit.validity == "valid" else math.nan for fit in offsets]},
+    )
+
+
+def plot_delay_supply_small(delays: Sequence[AnalysisDelay]) -> Plot:
+    """The delay at the small input over the supply (``SUPPLY_SWEEP``)."""
+    return Plot(
+        name="delay_supply_0p5mv",
+        title="Delay at 0.5 mV over the supply",
+        x_label="Supply over nominal",
+        y_label="Clock-to-decision delay (s)",
+        x=list(SUPPLY_SWEEP),
+        series={"delay": [float(delay.delay_s[0, 0]) for delay in delays]},
+    )
+
+
+def plot_delay_supply_large(delays: Sequence[AnalysisDelay]) -> Plot:
+    """The delay at the large input over the supply (``SUPPLY_SWEEP``)."""
+    return Plot(
+        name="delay_supply_100mv",
+        title="Delay at 100 mV over the supply",
+        x_label="Supply over nominal",
+        y_label="Clock-to-decision delay (s)",
+        x=list(SUPPLY_SWEEP),
+        series={"delay": [float(delay.delay_s[0, -1]) for delay in delays]},
+    )
+
+
+def plot_energy_supply(power: AnalysisPower) -> Plot:
+    """The energy per decision over the supply (``SUPPLY_SWEEP``, one run each)."""
+    return Plot(
+        name="energy_supply",
+        title="Energy per decision over the supply",
+        x_label="Supply over nominal",
+        y_label="Energy per decision (J)",
+        x=list(SUPPLY_SWEEP),
+        series={"energy": [float(value) for value in power.energy_per_decision_j]},
+    )
+
+
+def plot_scurve(scurve: AnalysisScurve) -> Plot:
+    """P(high) of the resolved decisions at each input of the nominal S-curve."""
+    return Plot(
+        name="scurve",
+        title="Decision probability (nominal common mode, transient noise)",
+        x_label="Differential input (V)",
+        y_label="P(high) of the resolved decisions",
+        x=[float(value) for value in scurve.vin_diff_v],
+        series={"P(high)": [float(value) for value in scurve.probability]},
+    )
+
+
+def plot_scurve_unresolved(scurve: AnalysisScurve) -> Plot:
+    """The fraction of the nominal S-curve's decisions unresolved at each input."""
+    return Plot(
+        name="scurve_unresolved",
+        title="Unresolved decisions (nominal common mode, transient noise)",
+        x_label="Differential input (V)",
+        y_label="Fraction unresolved",
+        x=[float(value) for value in scurve.vin_diff_v],
+        series={"unresolved": [float(value) for value in scurve.unresolved_fraction]},
+    )
+
+
+def plot_offset_noise(offset: AnalysisOffsetNoise) -> Plot:
+    """One common mode's S-curve: the measured probability and, where valid, the fitted Gaussian."""
+    x = offset.vin_diff_v
+    series = {"measured": [float(value) for value in offset.decision_probability]}
+    if offset.validity == "valid":
+        fitted = ndtr(offset.decision_polarity * (x - offset.offset_v) / offset.noise_sigma_v)
+        series["fit"] = [float(value) for value in fitted]
+    return Plot(
+        name="offset_noise",
+        title=f"S-curve at {offset.vin_cm_v:.3g} V: offset {offset.offset_v * 1e3:.3g} mV, "
+        f"noise {offset.noise_sigma_v * 1e3:.3g} mV ({offset.validity})",
+        x_label="Differential input (mV)",
+        y_label="Decision probability",
+        x=[float(value) * 1e3 for value in x],
+        series=series,
+    )
+
+
+def plot_common_mode_scurves(common_mode: AnalysisCommonMode) -> Plot:
+    """Each common mode's S-curve over the inputs of every curve (NaN where a curve has no point)."""
+    x = np.unique(common_mode.vin_diff_v[np.isfinite(common_mode.vin_diff_v)])
+    return Plot(
+        name="common_mode_scurves",
+        title="S-curves over the common mode",
+        x_label="Differential input (mV)",
+        y_label="Decision probability",
+        x=[float(value) * 1e3 for value in x],
+        series={
+            f"{cm:.3g} V ({validity})": [
+                float(probability[inputs == value][0]) if np.any(inputs == value) else math.nan for value in x
+            ]
+            for cm, validity, inputs, probability in zip(
+                common_mode.vin_cm_v,
+                common_mode.validity,
+                common_mode.vin_diff_v,
+                common_mode.decision_probability,
+                strict=True,
             )
-        ax.set_ylabel(ylabel)
-        ax.set_yscale(scale)
-        style_grid(ax)
-
-    baseline = np.flatnonzero(analysis["size_profile"] == "fabricated")
-    for ax in axes:
-        ax.axvline(baseline[0], color=CURVE_COLORS[2], linestyle="--")
-    ordered_ids = [candidate.candidate_id for candidate in ordered]
-    for candidate_id, label in (highlights or {}).items():
-        index = ordered_ids.index(candidate_id)
-        for ax in axes:
-            ax.axvline(index, color=NORD_RED, linestyle="--", label=label)
-    axes[0].legend(ncols=4 if highlights else 3)
-
-    tick_count = min(12, candidate_count)
-    tick_positions = np.unique(np.rint(np.linspace(0, candidate_count - 1, tick_count)).astype(int))
-    axes[-1].set_xticks(tick_positions)
-    axes[-1].set_xticklabels(
-        tuple(f"{index}\n{analysis['total_active_area_um2'][index]:.2f}" for index in tick_positions)
+        },
+        legend_title="Common mode",
     )
-    axes[-1].set_xlabel("Area-ordered candidate index\n(total instantiated MOS Σ(W×L) in µm²)")
-    axes[-1].set_xlim(-2, candidate_count + 1)
-    style_info_box(axes[2], style_measurement_group_text(msmt_list), location="lower right")
-    fig.suptitle("Comparator candidate noise, power, and settling")
-    return save_figure(fig, output_path)
 
 
-@mpl.rc_context(PLOT_STYLE)
-def plot_comp_noise_power_tradeoff(
-    candidates: Sequence[AnalysisCompCandidate],
-    *,
-    highlights: Mapping[str, str] | None = None,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Plot candidate noise against power, colored by settling.
-
-    Candidates with unresolved trials or an invalid S-curve fit have no
-    meaningful settling color; those with finite noise and power are shown
-    as gray crosses. ``highlights`` rings and labels candidates by ID.
-    """
-
-    analysis = {
-        name: np.asarray([getattr(candidate, name) for candidate in candidates])
-        for name in (
-            "size_profile",
-            "validity",
-            "noise_sigma_v",
-            "average_power_w",
-            "maximum_settling_s",
-            "unresolved_fraction",
-        )
-    }
-    noise_mv = analysis["noise_sigma_v"] * 1e3
-    power_uw = analysis["average_power_w"] * 1e6
-    settling_ns = analysis["maximum_settling_s"] * 1e9
-    valid_scurve = analysis["validity"] == "valid"
-    finite_positive = (
-        np.isfinite(noise_mv)
-        & np.isfinite(power_uw)
-        & np.isfinite(settling_ns)
-        & (noise_mv > 0.0)
-        & (power_uw > 0.0)
-        & (settling_ns > 0.0)
+def plot_common_mode(common_mode: AnalysisCommonMode) -> Plot:
+    """The offset and the noise over the common mode (NaN where a curve gave no valid fit)."""
+    valid = np.asarray(common_mode.validity) == "valid"
+    return Plot(
+        name="common_mode",
+        title="Offset and input-referred noise over the common mode",
+        x_label="Input common mode (V)",
+        y_label="Offset, noise (mV)",
+        x=[float(value) for value in common_mode.vin_cm_v],
+        series={
+            "offset": [
+                float(value) * 1e3 if ok else math.nan for value, ok in zip(common_mode.offset_v, valid, strict=True)
+            ],
+            "noise": [
+                float(value) * 1e3 if ok else math.nan
+                for value, ok in zip(common_mode.noise_sigma_v, valid, strict=True)
+            ],
+        },
     )
-    resolved = analysis["unresolved_fraction"] == 0.0
-    selected = valid_scurve & finite_positive & resolved
-    other = ~selected & np.isfinite(noise_mv) & np.isfinite(power_uw) & (power_uw > 0.0)
-    selected_settling_ns = settling_ns[selected]
-    color_min = float(calc.ymin(selected_settling_ns))
-    color_max = float(calc.ymax(selected_settling_ns))
-    if np.isclose(color_min, color_max):
-        color_max = color_min + 1.0
-    color_norm = Normalize(vmin=color_min, vmax=color_max)
-    profiles = analysis["size_profile"]
-
-    fig, ax = plt.subplots()
-    mappable = ScalarMappable(norm=color_norm, cmap=SPECTRUM_COLOR_MAP)
-    for profile, marker, label in (
-        ("half", "o", "0.5× FRIDA widths"),
-        ("double", "s", "2× FRIDA widths"),
-    ):
-        profile_selected = selected & (profiles == profile)
-        if not np.any(profile_selected):
-            continue
-        ax.scatter(
-            noise_mv[profile_selected],
-            power_uw[profile_selected],
-            c=settling_ns[profile_selected],
-            cmap=SPECTRUM_COLOR_MAP,
-            norm=color_norm,
-            marker=marker,
-            edgecolors=SPINE_COLOR,
-            linewidths=0.35,
-            label=label,
-            zorder=2,
-        )
-    if np.any(other):
-        ax.scatter(
-            noise_mv[other],
-            power_uw[other],
-            marker="x",
-            color=SPINE_COLOR,
-            label="Unresolved trials or invalid S-curve",
-            zorder=1,
-        )
-    baseline = np.flatnonzero(profiles == "fabricated")
-    baseline_index = int(baseline[0])
-    ax.scatter(
-        noise_mv[baseline_index],
-        power_uw[baseline_index],
-        marker="*",
-        color=CURVE_COLORS[2],
-        edgecolors=TEXT_COLOR,
-        linewidths=0.7,
-        label="FRIDA65A fabricated baseline",
-        zorder=5,
-    )
-    ax.annotate(
-        "FRIDA65A",
-        (noise_mv[baseline_index], power_uw[baseline_index]),
-        xytext=(8, 7),
-        textcoords="offset points",
-    )
-    candidate_ids = [candidate.candidate_id for candidate in candidates]
-    for candidate_id, label in (highlights or {}).items():
-        index = candidate_ids.index(candidate_id)
-        ax.scatter(
-            noise_mv[index],
-            power_uw[index],
-            s=160,
-            facecolors="none",
-            edgecolors=NORD_RED,
-            linewidths=1.5,
-            zorder=6,
-        )
-        ax.annotate(label, (noise_mv[index], power_uw[index]), xytext=(10, -14), textcoords="offset points")
-
-    colorbar = fig.colorbar(mappable, ax=ax, pad=0.02)
-    colorbar.set_label("Worst settling time (ns)")
-
-    ax.set_yscale("log")
-    ax.set_xlabel("Input-referred noise σ (mV)")
-    ax.set_ylabel("Average power (µW)")
-    style_grid(ax)
-    ax.legend()
-    fig.suptitle("Comparator noise–power trade-off")
-    return save_figure(fig, output_path)
 
 
-@mpl.rc_context(PLOT_STYLE)
-def plot_comp_delay(
-    delays: Sequence[AnalysisCompDelay],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare the topologies' clock-to-decision delay versus differential input, one curve per common mode."""
-
-    if not delays or len(delays) != len(labels):
-        raise ValueError("delay comparison requires one delay result and label per topology")
-    columns = min(3, len(delays))
-    rows = (len(delays) + columns - 1) // columns
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (delay, label) in enumerate(zip(delays, labels, strict=True)):
-        ax = axes.flat[index]
-        for row, vin_cm_v in enumerate(delay.vin_cm_v):
-            ax.plot(
-                delay.vin_diff_v * 1e3,
-                delay.delay_s[row] * 1e12,
-                "o-",
-                color=SPECTRUM_COLOR_MAP(row / max(len(delay.vin_cm_v) - 1, 1)),
-                markersize=3,
-                label=f"{vin_cm_v * 1e3:g} mV",
+def plot_sampling_noise_scurves(sampling: AnalysisSamplingNoise) -> Plot:
+    """Each curve's S-curve, by coupling (P/N % of VDD_DAC) and sampling mode."""
+    x = np.unique(sampling.vin_diff_v[np.isfinite(sampling.vin_diff_v)])
+    return Plot(
+        name="sampling_noise_scurves",
+        title="S-curves over the DAC's coupling",
+        x_label="Differential input (mV)",
+        y_label="Decision probability",
+        x=[float(value) * 1e3 for value in x],
+        series={
+            f"{coupling:g}/{100 - coupling:g} % {mode}": [
+                float(probability[inputs == value][0]) if np.any(inputs == value) else math.nan for value in x
+            ]
+            for coupling, mode, inputs, probability in zip(
+                sampling.coupling_percent,
+                sampling.sampling_mode,
+                sampling.vin_diff_v,
+                sampling.decision_probability,
+                strict=True,
             )
-        ax.set_xscale("log")
-        ax.set_title(label)
-        style_grid(ax)
-    # the shared limit, once every panel has drawn: one panel's would cut the others' data
-    axes.flat[0].set_ylim(bottom=0.0)
-    for ax in axes.flat[len(delays) :]:
-        ax.set_visible(False)
-    axes.flat[0].legend(title="Common mode")
-    fig.supxlabel("Differential input (mV)")
-    fig.supylabel("Clock-to-decision delay (ps)")
-    fig.suptitle("Comparator delay versus input")
-    return save_figure(fig, output_path)
+        },
+        legend_title="Coupling P/N, mode",
+    )
 
 
-@mpl.rc_context(PLOT_STYLE)
-def plot_comp_common_mode(
-    delays: Sequence[AnalysisCompDelay],
-    common_modes: Sequence[AnalysisCompCommonMode],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare the topologies' input-referred noise and smallest-input delay versus common mode."""
-
-    if not delays or not len(delays) == len(common_modes) == len(labels):
-        raise ValueError("common-mode comparison requires one delay, common-mode result and label per topology")
-    columns = min(3, len(delays))
-    rows = (len(delays) + columns - 1) // columns
-    # only valid S-curve fits are drawn; every panel shares one noise and one delay scale
-    noise_mv = [
-        np.where(np.asarray(item.validity) == "valid", item.noise_sigma_v * 1e3, np.nan) for item in common_modes
-    ]
-    noise_limit_mv = 1.1 * max(np.nanmax(values, initial=0.0) for values in noise_mv) or 1.0
-    delay_ps = [item.delay_s[:, 0] * 1e12 for item in delays]
-    delay_limit_ps = 1.1 * max(np.nanmax(values, initial=0.0) for values in delay_ps) or 1.0
-    fig, axes = plt.subplots(rows, columns, sharex=True, squeeze=False)
-    for index, (delay, common_mode, noise, smallest, label) in enumerate(
-        zip(delays, common_modes, noise_mv, delay_ps, labels, strict=True)
-    ):
-        ax = axes.flat[index]
-        ax.plot(common_mode.vin_cm_v * 1e3, noise, "o-", color=NORD_BLUE, markersize=3)
-        ax.set_ylim(0.0, noise_limit_mv)
-        ax.tick_params(axis="y", colors=NORD_BLUE)
-        delay_ax = ax.twinx()
-        delay_ax.plot(delay.vin_cm_v * 1e3, smallest, "s--", color=NORD_RED, markersize=3)
-        delay_ax.set_ylim(0.0, delay_limit_ps)
-        delay_ax.tick_params(axis="y", colors=NORD_RED)
-        if index % columns == columns - 1 or index == len(delays) - 1:
-            delay_ax.set_ylabel(f"Delay at {delay.vin_diff_v[0] * 1e3:g} mV (ps)", color=NORD_RED)
-        ax.set_title(label)
-        style_grid(ax)
-    for ax in axes.flat[len(delays) :]:
-        ax.set_visible(False)
-    fig.supxlabel("Common mode (mV)")
-    fig.supylabel("Input-referred noise σ (mV)", color=NORD_BLUE)
-    fig.suptitle("Comparator noise and delay versus common mode")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_comp_energy(
-    powers: Sequence[AnalysisCompPower],
-    common_modes: Sequence[AnalysisCompCommonMode],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare the topologies' energy per decision and systematic offset versus common mode.
-
-    Each power result holds one entry per S-curve, in the order of its common-mode result.
-    """
-
-    if not powers or not len(powers) == len(common_modes) == len(labels):
-        raise ValueError("energy comparison requires one power, common-mode result and label per topology")
-    if any(
-        len(power.energy_per_decision_j) != len(item.vin_cm_v) for power, item in zip(powers, common_modes, strict=True)
-    ):
-        raise ValueError("energy comparison requires one power entry per common mode")
-    columns = min(3, len(powers))
-    rows = (len(powers) + columns - 1) // columns
-    offsets_mv = [np.where(np.asarray(item.validity) == "valid", item.offset_v * 1e3, np.nan) for item in common_modes]
-    offset_limit_mv = 1.1 * max(np.nanmax(np.abs(values), initial=0.0) for values in offsets_mv) or 1.0
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (power, common_mode, offset, label) in enumerate(
-        zip(powers, common_modes, offsets_mv, labels, strict=True)
-    ):
-        ax = axes.flat[index]
-        ax.plot(common_mode.vin_cm_v * 1e3, power.energy_per_decision_j * 1e15, "o-", color=NORD_BLUE, markersize=3)
-        ax.tick_params(axis="y", colors=NORD_BLUE)
-        offset_ax = ax.twinx()
-        offset_ax.plot(common_mode.vin_cm_v * 1e3, offset, "s--", color=NORD_RED, markersize=3)
-        offset_ax.set_ylim(-offset_limit_mv, offset_limit_mv)
-        offset_ax.tick_params(axis="y", colors=NORD_RED)
-        if index % columns == columns - 1 or index == len(powers) - 1:
-            offset_ax.set_ylabel("Systematic offset (mV)", color=NORD_RED)
-        ax.set_title(label)
-        style_grid(ax)
-    # the shared limit, once every panel has drawn: one panel's would cut the others' data
-    axes.flat[0].set_ylim(bottom=0.0)
-    for ax in axes.flat[len(powers) :]:
-        ax.set_visible(False)
-    fig.supxlabel("Common mode (mV)")
-    fig.supylabel("Energy per decision (fJ)", color=NORD_BLUE)
-    fig.suptitle("Comparator energy and offset versus common mode")
-    return save_figure(fig, output_path)
+def plot_sampling_noise(sampling: AnalysisSamplingNoise) -> Plot:
+    """Offset and noise over the coupling, one curve each per sampling mode (NaN where invalid)."""
+    couplings = np.unique(sampling.coupling_percent)
+    series = {}
+    for mode in sorted(set(sampling.sampling_mode)):
+        for quantity, values in (("offset", sampling.offset_v), ("noise", sampling.noise_sigma_v)):
+            series[f"{mode} {quantity}"] = [
+                next(
+                    (
+                        float(value) * 1e3 if validity == "valid" else math.nan
+                        for value, coupling_at, mode_at, validity in zip(
+                            values, sampling.coupling_percent, sampling.sampling_mode, sampling.validity, strict=True
+                        )
+                        if coupling_at == coupling and mode_at == mode
+                    ),
+                    math.nan,
+                )
+                for coupling in couplings
+            ]
+    return Plot(
+        name="sampling_noise",
+        title="Offset and input-referred noise over the DAC's coupling",
+        x_label="P-side coupling (% of VDD_DAC)",
+        y_label="Offset, noise (mV)",
+        x=[float(value) for value in couplings],
+        series=series,
+    )

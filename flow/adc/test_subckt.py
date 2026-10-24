@@ -7,8 +7,8 @@ from pathlib import Path
 import hdl21 as h
 import pytest
 
+from flow import comp
 from flow.caparray import CapArrayConfig, RedunStrat
-from flow.comp import CompParams
 from flow.samp import SampParams
 
 from . import subckt
@@ -29,7 +29,7 @@ def test_adc():
         AdcParams(cdac=CapArrayConfig(n_dac=0, n_extra=16)),
         AdcParams(cdac=CapArrayConfig(n_dac=17, n_extra=-1)),
         AdcParams(cdac=CapArrayConfig(weights=(1,) * 15)),
-        AdcParams(comp=CompParams(srlatch_n_w=0)),
+        AdcParams(comp=comp.Params(srlatch_n_w=0)),
         AdcParams(samp=SampParams(mos_w=0)),
     ),
 )
@@ -41,7 +41,7 @@ def test_invalid_adc_params_fail_before_creating_a_module(params, monkeypatch):
 
 
 def test_adc_accepts_a_binary_array_with_sixteen_physical_stages():
-    params = AdcParams(cdac=CapArrayConfig(n_dac=16, n_extra=0, redun_strat=RedunStrat.RDX2))
+    params = AdcParams(cdac=CapArrayConfig(n_dac=16, n_extra=0, redun_strat=RedunStrat.BINARY))
     assert is_valid_adc_params(params) is True
     assert Adc(params).dac_state_p.width == 16
 
@@ -60,7 +60,7 @@ def _tsmc65_cells() -> bool:
 def test_adc_at_any_stage_count_binds_a_synthesized_digital_block_c0_first(n_dac, n_extra):
     """Any array: the digital block synthesized for its stage count, register 0 on C0."""
     stages = n_dac + n_extra
-    strategy = RedunStrat.SUBRDX2_OVLY if n_extra else RedunStrat.RDX2
+    strategy = RedunStrat.MSB_REDIST if n_extra else RedunStrat.BINARY
     module = Adc(AdcParams(cdac=CapArrayConfig(n_dac=n_dac, n_extra=n_extra, redun_strat=strategy)))
     assert module.dac_state_p.width == stages
     assert module.xdigital.of.module.name == f"adc_digital_n{stages}"

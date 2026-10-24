@@ -19,7 +19,7 @@ import numpy as np
 from hdl21.prefix import Prefix, Prefixed
 
 from flow.analysis import calc
-from flow.analysis.types import Analysis, AnalysisAdcCalibration, Meas, MeasAdc
+from flow.analysis.types import Analysis, AnalysisAdcCalibration, Meas, MeasAdc, MeasInfo
 
 
 def _dataclass_fields(value) -> tuple[Any, ...]:
@@ -266,6 +266,10 @@ def write_analysis(path: Path, analysis: Analysis) -> Path:
     try:
         with h5py.File(temporary_path, "w") as output:
             output.attrs["_content"] = "analysis"
+            # the reader records where a capture came from; a stored path would go stale
+            info = getattr(analysis, "info", None)
+            if isinstance(info, MeasInfo):
+                analysis = dataclasses.replace(analysis, info=dataclasses.replace(info, source_path=None))
             _write_native(output, "analysis", analysis, finite=False)
         temporary_path.replace(path)
     finally:
@@ -283,6 +287,10 @@ def read_analysis(path: Path) -> Analysis:
         analysis = _read_native(input_file["analysis"])
     if not isinstance(analysis, Analysis):
         raise TypeError(f"{path} contains {type(analysis).__name__}, not an Analysis result")
+    # a capture read back (comp.AnalysisDecisions) records where it came from, as a measurement does
+    info = getattr(analysis, "info", None)
+    if isinstance(info, MeasInfo):
+        return dataclasses.replace(analysis, info=dataclasses.replace(info, source_path=path))
     return analysis
 
 

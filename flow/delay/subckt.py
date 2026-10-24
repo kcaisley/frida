@@ -15,8 +15,8 @@ import hdl21 as h
 from hdl21.primitives import MosType, MosVth
 
 from flow.circuit.ports import module_from_ports
-from flow.comp.subckt import _mos
-from flow.comp.subckt import write_netlist as _write_netlist
+from flow.circuit.devices import mos as _mos
+from flow.circuit.devices import write_netlist as _write_netlist
 
 
 class Stage(Enum):
@@ -229,7 +229,7 @@ def _build_inverter(module, param: DelayParams, name: str, inp, out, n_w: int, p
 
 def write_netlist(params: DelayParams, path: Path, pdk) -> Path:
     """The delay line or ring after ``pdk``'s compile, as one flat SPICE subcircuit named after
-    ``path`` (``flow.comp.subckt.write_netlist``: devices fingered to the row cells in whole unit
+    ``path`` (``flow.circuit.devices.write_netlist``: devices fingered to the row cells in whole unit
     widths)."""
 
     return _write_netlist(params, path, pdk, generator=Delay, nets=DelayNets)

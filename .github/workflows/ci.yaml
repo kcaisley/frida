@@ -67,7 +67,15 @@ jobs:
         run: >-
           uv run ty check
           flow/adc/subckt.py
+          flow/comp/params.py
           flow/comp/subckt.py
+          flow/comp/sim.py
+          flow/comp/types.py
+          flow/comp/analysis.py
+          flow/comp/plots.py
+          flow/comp/sweep.py
+          flow/pipeline.py
+          flow/plot.py
           flow/samp/subckt.py
           flow/scans/plldrp.py
 
@@ -92,6 +100,10 @@ jobs:
       - name: Run Ruff format
         if: ${{ always() }}
         run: uvx pre-commit run ruff-format --all-files --show-diff-on-failure
+
+      - name: Check the block pipeline's stage order
+        if: ${{ always() }}
+        run: PYTHONPATH=. uvx --from import-linter==2.15 lint-imports
 
   pytest:
     name: Pytest
@@ -136,8 +148,13 @@ jobs:
           test/test_pdk_agnostic.py
           flow/samp/test_subckt.py
           flow/comp/test_sim.py
+          flow/comp/test_analysis.py
+          flow/comp/test_plots.py
+          flow/test_pipeline.py
+          flow/test_plot.py
           flow/samp/test_sim.py
           flow/caparray/test_sim.py
+          flow/caparray/test_sizing.py
           flow/cdac/test_analysis.py
           flow/cdac/test_model.py
           flow/cdac/test_subckt.py

@@ -19,7 +19,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import NOMINAL_VDDL, VDDL_SWEEP, LvShiftTbParams, _run_lvshift_sim, lvshift_signal_names
 from .subckt import CASES, LvShift, LvShiftParams, is_valid_lvshift_params, write_netlist
@@ -120,7 +120,7 @@ def characterize(run_dir: Path, pdk: str, lvshift: LvShiftParams) -> Record:
             "delay_max_supply_s": float(np.nanmax(delays)) if np.isfinite(delays).any() else math.nan,
         },
         details=[
-            Detail(
+            Plot(
                 name="delay_vddl",
                 title="Delay over the input supply (core supply out)",
                 x_label="Input supply (V)",
@@ -128,7 +128,7 @@ def characterize(run_dir: Path, pdk: str, lvshift: LvShiftParams) -> Record:
                 x=input_v,
                 series={"rise": list(over_input.rise_delay_s), "fall": list(over_input.fall_delay_s)},
             ),
-            Detail(
+            Plot(
                 name="energy_vddl",
                 title="Energy per input period over the input supply (both supplies)",
                 x_label="Input supply (V)",
@@ -136,7 +136,7 @@ def characterize(run_dir: Path, pdk: str, lvshift: LvShiftParams) -> Record:
                 x=input_v,
                 series={"energy": list(over_input.energy_per_cycle_j)},
             ),
-            Detail(
+            Plot(
                 name="idle_vddl",
                 title="Idle supply current over the input supply",
                 x_label="Input supply (V)",
@@ -145,7 +145,7 @@ def characterize(run_dir: Path, pdk: str, lvshift: LvShiftParams) -> Record:
                 series={"idle": list(over_input.static_current_a)},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="delay_supply",
                 title="Delay over the output supply (input supply fixed)",
                 x_label="Output supply over nominal",
@@ -153,7 +153,7 @@ def characterize(run_dir: Path, pdk: str, lvshift: LvShiftParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"rise": list(over_output.rise_delay_s), "fall": list(over_output.fall_delay_s)},
             ),
-            Detail(
+            Plot(
                 name="idle_supply",
                 title="Idle supply current over the output supply",
                 x_label="Output supply over nominal",

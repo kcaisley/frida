@@ -1,41 +1,39 @@
 """The ADC's design space (``flow.sweep``), in TSMC65, by the behavioral model (``flow.adc.model``)
-of its characterized blocks: two studies of where redundancy pays.
+of its characterized blocks: the plain product of its components, each converter given by its
+parameters.
 
-The redundancy study: five comparators (216 uV to 1.2 mV of noise, 0.13 to 4.6 ns of delay) at 10
-to 14 bits, each with 0 to 6 redundant decisions spent five ways (FRIDA's sub-radix-2 overlay, or
-repeated binary weights at the start, along the chain, at the end or at both ends), so 10 to 20
-decisions a conversion, on the three-metal difference-capacitor arrays (the ADC variants,
-``flow.caparray.layout.ADC_VARIANTS``, each extracted in TSMC65 only, so the other PDKs give no
-instance); the three samplers compared on the FRIDA-like comparators with binary or overlay arrays,
-every other converter with the four-times-wider gate.
+Every converter samples on its top plates, makes one free comparison before any capacitor switches
+and fires the comparator again after the last one switches: an N-bit converter has an N-1-step DAC
+(``adc_bits = n_dac + 1``) and n_dac + n_extra + 1 decisions. Its arrays are the ADC study's
+(``flow.caparray.layout.ADC_ARRAYS``: three-metal unit-length arrays, each sized through its 3-D
+extraction in TSMC65 only, so the other PDKs give no instance; ``flow.caparray.sizing``). Every
+array's full scale is at least 80 % of the reference and its sampled noise at most its quantization
+noise there: each resolution's least switched capacitance is the larger of the two constraints'
+for its most demanding array, and each array switches one or two times it (``cap_scale``) at the
+split between its length-scaled binary and unary rows that keeps both with the fewest rows. Its
+drivers are derived from its extracted plates (``flow.cdac.subckt.driver_strengths``), each stage
+sized to settle in about 1 ns.
 
-The comparators: a StrongARM near FRIDA-1's (its long-channel sizes in round multiples; 249 uV,
-2.1 ns at 0.5 mV in TSMC65) and the lowest-noise double tail that decides well within the
-comparator's 2.5 ns at 10 MS/s with 16 stages (the modified double tail at the same sizes: 264 uV,
-1.3 ns). The model takes their noise and offset over the common mode, their energy, and their delay
-over the input: a decision too small to regenerate before the SAR logic reads it is late. The
-samplers: FRIDA-1's transmission gate (179-562 ohm over the input, its tracking distortion limits
-the 12-bit converters near Nyquist), the same four times wider (54-160 ohm, about 11 dB more SFDR)
-and the bootstrapped switch with the doubled boost capacitor (191-283 ohm, the flattest, about
-90 dB).
+The product, nothing pruned:
 
-The specification study: a 14-bit converter with 1.4 pF of switched capacitance a side in 7 pF of
-top-plate load (the rest routing, the sampler, the comparator and dummies), FRIDA-1's transmission
-gate at 32 minimum widths and minimum length, and a comparator of about 300 uV input-referred
-noise: sixteen proposed arrays, each scaled to the same 1.4 pF, with three comparators near that
-noise from slow (2.5 ns) to fast (0.14 ns), whose delay decides whether the comparator or the DAC
-limits the conversion. Each array is given as its search steps (each its nominal weight plus a
-non-binary addition), every step a capacitor: plain binary, binary with added LSB-end decisions,
-double or triple conversion at the LSB or the LSB+1, mildly non-binary steps there, and additions
-at both ends and at the MSB. The arrays are ideal (``CapArrayConfig.parasitic_cap``: each stage its
-weight in unit capacitors, nothing extracted), so the comparison is of the schemes alone. The
-converter samples on its top plates and makes one more decision, a free first comparison at
-mid-scale, alike for every array: its code has a bit more than the specification's (15 bits over
-the same full scale in volts), so the arrays compare by ENOB and SNDR, not by counts of the finer
-LSB.
+- the comparators of the comparator grid (``COMP_GRID``: five noise levels by four
+  delays, FRIDA-1's StrongARM among them at its fabricated sizes);
+- the samplers (``SAMPLER_STEPS``), by their tracking linearity: FRIDA-1's transmission gate (32
+  minimum widths, minimum length), the same two and four times wider, the bootstrapped NMOS switch
+  with the doubled boost capacitor, and that switch with every width four times; the gates without
+  half-size dummy switches, as FRIDA-1's;
+- the arrays, 10 at each resolution and scale: binary, and each scheme
+  (``flow.caparray.subckt.RedunStrat``: the MSBs split, the LSBs split, FRIDA's MSB redistribution)
+  with 2, 4 and 6 extra cycles, every one of the binary total weight;
+- the resolutions, 10, 12 and 14 bits;
+- the switched capacitance, one and two times the resolution's least (``cap_scale``);
+- and FRIDA-1's array (``RADIX17``: 12 bits on MSB redistribution with 5 extra cycles, 17
+  decisions) at two times the 12-bit least, near its drawn size.
 
-Each instance runs the campaign of ``flow.adc.campaign`` (about 10 M behavioral conversions, most
-of them the mismatch study's) and draws its figures (``flow.adc.figures``) for the viewer.
+20 x 5 x (10 x 3 x 2 + 1) = 6,100 converters.
+
+Each instance runs the campaign of ``flow.adc.campaign`` and draws its figures
+(``flow.adc.figures``) for the viewer; its captures stay in memory, so its run is its record.
 """
 
 from __future__ import annotations
@@ -45,102 +43,69 @@ from pathlib import Path
 
 import hdl21 as h
 
-from flow.caparray.layout import ADC_VARIANTS
-from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams, RedunStrat
-from flow.comp.sim import TOPOLOGIES as COMP
-from flow.comp.subckt import Comp
-from flow.comp.sweep import FRIDA1_LIKE, FRIDA1_LIKE_LONG, X0P5, X4, comparator
+from flow import comp
+from flow.caparray.layout import ADC_ARRAYS, ADC_BITS, FRIDA1_ADC_ARRAY, adc_arrays
+from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
+from flow.pipeline import Record
 from flow.samp import sweep as samp_sweep
 from flow.samp.subckt import Samp, SampParams, SwitchType
-from flow.sweep import Record
 
 from .subckt import AdcParams
 
-# the comparators (input-referred noise and delay at 0.1 mV in TSMC65), from quiet and slow to fast
-# and noisy: where the comparator's delay limits the conversion, and how much of its noise
-# redundancy can absorb
-DOUBLE_TAIL_LONG = comparator(COMP["double_tail_self_timed"], FRIDA1_LIKE_LONG)  # 216 uV, 4.6 ns
-STRONGARM_FRIDA1 = comparator(COMP["strongarm"], FRIDA1_LIKE)  # 249 uV, 2.5 ns
-DOUBLE_TAIL = comparator(COMP["double_tail_modified"], FRIDA1_LIKE)  # 264 uV, 1.5 ns
-STRONGARM_X4 = comparator(COMP["strongarm"], X4)  # 327 uV, 0.14 ns
-STRONGARM = comparator(COMP["strongarm"])  # 449 uV, 0.13 ns
-DOUBLE_TAIL_X0P5 = comparator(COMP["double_tail_modified"], X0P5)  # 1.2 mV, 0.13 ns
-# the samplers: FRIDA-1's transmission gate (32 minimum widths, minimum length), the same four
-# times wider, and the bootstrapped NMOS switch with the doubled boost capacitor
+# the comparators: the comparator grid, noise by delay
+# The comparator grid: five levels of input-referred noise (rows, at the nominal common mode) by
+# four of delay (columns, at 0.5 mV), each cell the characterized TSMC65 comparator of least energy
+# per decision within 15 % of the noise and 20 % of the delay (flow/comp/readme.md), FRIDA-1's at
+# 200 uV and 2 ns
+GRID_NOISE_V = (200e-6, 150e-6, 100e-6, 70e-6, 50e-6)
+GRID_DELAY_S = (0.5e-9, 1.0e-9, 1.5e-9, 2.0e-9)
+COMP_GRID = (
+    # 0.5 ns                              1 ns                                  1.5 ns                                 2 ns
+    comp.base_strongarm(tail_l=14, k=3),  comp.dynamic_bias(ratio=3.5, k=0.75), comp.dynamic_bias(ratio=2.75, k=0.75), comp.frida1(),  # 200 uV
+    comp.base_strongarm(tail_l=14, k=6),  comp.dynamic_bias(ratio=3.5, k=1),    comp.dynamic_bias(ratio=2.75, k=1.5),  comp.dynamic_bias(ratio=2.25, k=1.5),  # 150 uV
+    comp.base_strongarm(tail_l=14, k=12), comp.dynamic_bias(ratio=3.5, k=2),    comp.dynamic_bias(ratio=2.75, k=3),    comp.dynamic_bias(ratio=2.25, k=3),  # 100 uV
+    comp.base_strongarm(tail_l=14, k=24), comp.dynamic_bias(ratio=3.5, k=6),    comp.dynamic_bias(ratio=2.75, k=6),    comp.dynamic_bias(ratio=2.25, k=6),  # 70 uV
+    comp.base_strongarm(tail_l=14, k=64), comp.dynamic_bias(ratio=3.5, k=12),   comp.dynamic_bias(ratio=2.75, k=12),   comp.dynamic_bias(ratio=2.25, k=12),  # 50 uV
+)  # fmt: skip
+# each cell's noise and delay, in COMP_GRID's order (the noise outer)
+COMP_GRID_TARGETS = tuple((noise, delay) for noise in GRID_NOISE_V for delay in GRID_DELAY_S)
+# FRIDA-1's comparator, then each quieter at about its speed (the grid's 2 ns column)
+COMP_NOISE_STEPS = COMP_GRID[len(GRID_DELAY_S) - 1 :: len(GRID_DELAY_S)]
+COMPARATORS: tuple[comp.Params, ...] = COMP_GRID
+# the samplers, in steps of tracking linearity: FRIDA-1's transmission gate (32 minimum widths,
+# minimum length), the gate two and four times wider, the bootstrapped NMOS switch with the doubled
+# boost capacitor, and the bootstrapped switch with every width four times; none with dummy switches
 TGATE = SampParams()
+TGATE_X2 = SampParams(**samp_sweep.X2)
 TGATE_X4 = SampParams(**samp_sweep.X4)
 BOOTSTRAP = SampParams(switch_type=SwitchType.NMOS, bootstrap=True, **samp_sweep.BOOST_X2)
-
-# the redundancy study: every comparator with every ADC variant's array, at its resolution (one bit
-# more than its nominal: the free first comparison) and with the four-times-wider gate; the
-# samplers compared on the FRIDA-like comparators with binary or overlay arrays
-COMPARATORS = (DOUBLE_TAIL_LONG, STRONGARM_FRIDA1, DOUBLE_TAIL, STRONGARM, DOUBLE_TAIL_X0P5)
-SAMPLERS = (TGATE, TGATE_X4, BOOTSTRAP)
-STUDY_SAMPLER = TGATE_X4
-SAMPLER_STUDY = (STRONGARM_FRIDA1, DOUBLE_TAIL)
-SAMPLER_ARRAYS = (RedunStrat.RDX2, RedunStrat.SUBRDX2_OVLY)  # binary, and FRIDA's overlay
-
-# the specification study: 14 bits, every array switching 1.4 pF a side in 7 pF of top-plate load,
-# FRIDA-1's gate, comparators near 300 uV from slow to fast
-SPEC_BITS = 14  # the converter's code has one bit more
-SWITCHED_F = 1.4e-12  # a side's switched capacitance, every array scaled to it
-TOTAL_F = 7.0e-12  # a side's top-plate load: the switched plates and the rest
-SPEC_SAMPLER = TGATE
-SPEC_COMPARATORS = (STRONGARM_FRIDA1, DOUBLE_TAIL, STRONGARM_X4)
-# each array's search steps, MSB first, in units of the 14-bit LSB: every step its nominal weight
-# plus its non-binary addition
-SPEC_STEPS = (
-    (8192, 4096, 2048, 1024, 512, 256, 128, 64, 32, 16, 8, 4, 2, 1),  # binary
-    (4096, 4096, 4096, 2048, 1152, 768, 512, 256, 128, 96, 64, 32, 16, 12, 8, 4, 2, 1),  # added LSB-end decisions
-    (4096, 4096, 4096, 2048, 1152, 768, 512, 256, 128, 96, 64, 32, 16, 12, 8, 4, 2, 2, 1),  # double conversion at the LSB+1
-    (4096, 4096, 4096, 2048, 1152, 768, 512, 256, 128, 96, 64, 32, 16, 12, 8, 4, 2, 1, 1),  # double conversion at the LSB
-    (4096, 4096, 4096, 2048, 1152, 768, 512, 256, 128, 96, 64, 32, 16, 12, 8, 4, 3, 2, 1),  # non-binary at the LSB end
-    (4096, 4096, 4096, 2048, 1152, 768, 512, 256, 128, 96, 64, 32, 16, 12, 8, 4, 2, 2, 1, 1),  # double conversion at the LSB and LSB+1
-    (4096, 4096, 4096, 2048, 1152, 768, 512, 256, 128, 96, 64, 32, 16, 12, 8, 4, 2, 1, 1, 1),  # triple conversion at the LSB
-    (4096, 4096, 4096, 2048, 1152, 768, 512, 256, 128, 96, 64, 32, 16, 12, 8, 4, 3, 2, 1, 1),  # non-binary, double at the LSB and LSB+1
-    (4096, 4096, 4096, 2048, 1152, 768, 512, 256, 128, 96, 64, 32, 16, 12, 8, 5, 3, 2, 1),  # non-binary at the LSB end
-    (4096, 4096, 4096, 2048, 1024, 576, 384, 256, 128, 64, 48, 32, 16, 8, 6, 4, 2, 1),  # added decisions at the LSB end and the MSB
-    (4096, 4096, 4096, 2048, 1024, 576, 384, 256, 128, 64, 48, 32, 16, 8, 6, 4, 2, 1, 1),  # the same, double at the LSB
-    (4096, 4096, 4096, 2048, 1024, 576, 384, 256, 128, 64, 48, 32, 16, 8, 6, 4, 2, 2, 1),  # the same, non-binary at the LSB end
-    (4096, 4096, 4096, 3072, 2048, 1024, 576, 384, 256, 128, 64, 48, 32, 16, 8, 6, 4, 2, 2, 1),  # the same, non-binary at both ends
-    (4096, 4096, 4096, 2048, 1024, 512, 288, 192, 128, 64, 32, 24, 16, 8, 4, 3, 2, 1),  # added decisions near the MSB
-    (4096, 4096, 4096, 3072, 2048, 1024, 512, 288, 192, 128, 64, 32, 24, 16, 8, 4, 3, 2, 1),  # the same, non-binary
-    (4096, 4096, 4096, 3072, 2048, 1024, 512, 288, 192, 128, 64, 32, 24, 16, 8, 4, 3, 2, 1, 1),  # the same, double at the LSB
-)  # fmt: skip
+BOOTSTRAP_X4 = SampParams(switch_type=SwitchType.NMOS, bootstrap=True, **samp_sweep.X4)
+SAMPLER_STEPS = (TGATE, TGATE_X2, TGATE_X4, BOOTSTRAP, BOOTSTRAP_X4)
+RESOLUTIONS = ADC_BITS  # 10, 12 and 14 bits
+# FRIDA-1's converter: its array (12 bits in 16 stages, MSB redistribution with 5 extra cycles) at
+# two of the 12-bit least switched capacitance
+FRIDA1_BITS = 12
+FRIDA1_ARRAY = FRIDA1_ADC_ARRAY
 
 
-def spec_array(steps: tuple[int, ...]) -> CapArrayConfig:
-    """An array of the specification: every search step a switched capacitor of that weight (so
-    every capacitor and every step's margin as proposed), at the unit that switches 1.4 pF, the top
-    plate's rest as the ideal array's parasitic."""
-    return CapArrayConfig(
-        n_dac=SPEC_BITS,
-        n_extra=len(steps) - SPEC_BITS,
-        redun_strat=RedunStrat.RDX2 if len(steps) == SPEC_BITS else RedunStrat.RDX2_RPT,
-        weights=tuple(steps),
-        unit_cap=SWITCHED_F / sum(steps),
-        parasitic_cap=TOTAL_F - SWITCHED_F,
-    )
+def arrays(bits: int, cap_scale: int = 1) -> list[CapArrayConfig]:
+    """A ``bits`` converter's 10 arrays at ``cap_scale``: binary, and each scheme with 2, 4 and 6
+    extra cycles (``flow.caparray.layout.adc_arrays``)."""
+    return adc_arrays(bits, cap_scale)
 
 
 def instances(pdk: str) -> list[AdcParams]:
-    """Both studies' converters; none outside TSMC65, where the variants' arrays are extracted and
-    the blocks characterized for them."""
+    """Every comparator with every sampler and ADC array (``ADC_ARRAYS``: each resolution's arrays
+    at both scales, and FRIDA-1's), each at its resolution; none outside TSMC65, where the arrays
+    are extracted and the blocks characterized for them."""
     if pdk != "tsmc65":
         return []
-    redundancy = [
+    return [
         AdcParams(adc_bits=cdac.n_dac + 1, cdac=cdac, samp=samp, comp=comp)
         for comp in COMPARATORS
-        for samp in SAMPLERS
-        for cdac in ADC_VARIANTS.values()
-        if samp == STUDY_SAMPLER or (comp in SAMPLER_STUDY and cdac.redun_strat in SAMPLER_ARRAYS)
+        for samp in SAMPLER_STEPS
+        for cdac in ADC_ARRAYS.values()
     ]
-    specification = [
-        AdcParams(adc_bits=SPEC_BITS + 1, cdac=spec_array(steps), samp=SPEC_SAMPLER, comp=comp)
-        for comp in SPEC_COMPARATORS
-        for steps in SPEC_STEPS
-    ]
-    return redundancy + specification
 
 
 def _metastability(model) -> dict[str, float]:
@@ -180,7 +145,7 @@ def AdcBlocks(params: AdcParams) -> h.Module:
         }
         blocks.add(module(**connections), name=name)
 
-    place(Comp(params.comp), "comp")
+    place(comp.netlist(params.comp), "comp")
     for side in ("p", "n"):
         place(Samp(params.samp), f"samp_{side}")
         place(CapArray(CapArrayParams(cdac=params.cdac)), f"cap_{side}")
@@ -197,6 +162,9 @@ def cost(pdk: str, params: AdcParams) -> float:
 
 
 def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
+    """The campaign's captures, converted and kept in memory, and the metrics and figures they
+    give (``flow.adc.figures``): the viewer shows the figures (the record's details) and no
+    waveform of an ADC instance, so no capture is written (a run is its ``instance.json``)."""
     from .campaign import campaign
     from .figures import adc_figures
     from .model import AdcModel
@@ -206,8 +174,7 @@ def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
     for name, capture in campaign(model.tb, model.full_scale_v, params.adc_bits).items():
         captures[name] = model.capture(
             capture.tb,
-            # the mismatch and Hsu studies' many captures stay in memory: their figures keep them
-            None if name.startswith(("mc_", "hsu_")) else run_dir / f"{name}.h5",
+            None,
             seed=capture.seed,
             noise_seed=capture.noise_seed,
             unit_mismatch=capture.unit_mismatch,
@@ -217,8 +184,8 @@ def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
     # the behavioral model alone can keep one noise source at a time
     noise = campaign(model.tb, model.full_scale_v, params.adc_bits)["noise"]
     for name, quiet in (("noise_sampling", ("comparator", "rail")), ("noise_comparator", ("sampling", "rail"))):
-        captures[name] = model.capture(noise.tb, run_dir / f"{name}.h5", quiet=quiet)
-    metrics, details = adc_figures(captures, run_dir / "figures")
+        captures[name] = model.capture(noise.tb, None, quiet=quiet)
+    metrics, details = adc_figures(captures)
     metrics |= {
         "stages": float(model.stages),  # the switched capacitors a side
         "decisions": float(model.stages + 1),  # a conversion's comparator decisions

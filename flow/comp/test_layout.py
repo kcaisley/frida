@@ -9,38 +9,50 @@ from pathlib import Path
 import pytest
 from klayout import db
 
-from flow.comp import layout, targets
+from flow import pipeline
 from flow.layout.signoff import RowSignoff
 
-CASES = (
-    "comp_frida1_manual",
-    "comp_c040_manual",
-    "comp_strongarm",
-    "comp_triple_tail",
-    "comp_double_tail",
-    "comp_double_tail_self_timed",
-    "comp_double_tail_modified",
-    "comp_double_tail_modified_self_timed",
-    "comp_frida1_auto",
-    "comp_c040_auto",
-    "mos_inv",
-)
+from . import layout, sweep
 
 
-def test_targets_lay_out_every_case_in_every_pdk() -> None:
+def test_a_named_instance_is_laid_out_by_its_floorplan_or_alignss(tmp_path: Path, monkeypatch) -> None:
+    """``python -m flow layout comp --instance NAME [--auto]``: every named instance of the sweep has a
+    hand-written floorplan; the three tools in each PDK asked for, from it or from ALIGN's."""
     public = {
         name
         for name, value in vars(layout).items()
         if inspect.isfunction(value) and value.__module__ == layout.__name__ and not name.startswith("_")
     }
-    assert public == {f"{case}_all_pdks" for case in CASES} | {"all_comp_layouts"}
-    assert [target.__name__ for target in layout.ALL_PDKS] == [f"{case}_all_pdks" for case in CASES]
-    expected = {f"layout_{case.removeprefix('comp_')}" for case in CASES} | {"layout_all"}
-    assert expected == {name for name in vars(targets) if name.startswith("layout_")}
+    # the named instances' layout, and the hooks the sweep's layout runner calls (flow.sweep.runner.layout_hooks)
+    assert public == {"layout_named", "write_netlist", "layout_netlist", "layout_floorplan"}
+    named = pipeline.names(sweep)
+    assert set(named) == {
+        "frida1",
+        "c040",
+        "strongarm",
+        "double_tail",
+        "triple_tail",
+        "double_tail_self_timed",
+        "double_tail_modified",
+        "double_tail_modified_self_timed",
+    }
+    assert all((layout.FLOORPLANS / f"comp_{name}.json").exists() for name in named)
+    calls = []
+    monkeypatch.setattr(layout, "_comp", lambda run_dir, pdk, *args: calls.append((pdk, *args)) or run_dir)
+    monkeypatch.setattr(layout, "_finish", lambda run_dir, summary, failures: run_dir)
+    layout.layout_named(tmp_path, "c040", named["c040"](), pdks=("tsmc65", "ihp130"))
+    layout.layout_named(tmp_path, "c040", named["c040"](), auto=True, pdks=("tsmc65",))
+    assert [(pdk, name, floorplan.name if floorplan else None) for pdk, name, _params, floorplan in calls] == [
+        ("tsmc65", "comp_c040", "comp_c040.json"),
+        ("ihp130", "comp_c040", "comp_c040.json"),
+        ("tsmc65", "comp_c040", None),
+    ]
+    with pytest.raises(FileNotFoundError, match="no hand-written floorplan"):
+        layout.layout_named(tmp_path, "dynamic", sweep.dynamic_bias(ratio=3.5, k=2))
 
 
-def test_c040_is_the_sweeps_topology_40_at_half_size() -> None:
-    assert layout.C040.diffpair_w == 19 and layout.C040.latch_init_l == 17
+def test_c040_is_the_retired_size_sweeps_topology_40_at_half_size() -> None:
+    assert sweep.c040().diffpair_w == 19 and sweep.c040().latch_init_l == 17
 
 
 def _gds(path: Path) -> Path:

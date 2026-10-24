@@ -9,7 +9,7 @@ from pathlib import Path
 
 import hdl21 as h
 
-from flow.comp.subckt import CompNets
+from flow import comp
 from flow.util.netlist import normalize_bus_pin, subcircuit_ports
 
 from .digital import digital_cell, digital_netlist
@@ -92,10 +92,10 @@ def frida1_net_aliases() -> dict[h.Signal | h.Slice, str]:
         AdcNets.clk_comp: "N_CLK_COMP_XXcomp/XXLATCH/MMM0_g",
         AdcNets.comp_out_p: "N_COMP_OUT_P_XXcomp/XXI3/XXI46/MM_u2_1_d",
         AdcNets.comp_out_n: "N_COMP_OUT_N_XXcomp/XXI3/XXI47/MM_u2_1_d",
-        CompNets.latch_p: "N_XXCOMP/COMP_P_XXcomp/XXLATCH/MMM4_d",
-        CompNets.latch_n: "N_XXCOMP/COMP_N_XXcomp/XXLATCH/MMM3_d",
-        CompNets.input_p_drain: "N_XXCOMP/XXLATCH/NET031_XXcomp/XXLATCH/MMM1_d",
-        CompNets.input_n_drain: "N_XXCOMP/XXLATCH/NET037_XXcomp/XXLATCH/MMM2_d",
+        comp.Nets.latch_p: "N_XXCOMP/COMP_P_XXcomp/XXLATCH/MMM4_d",
+        comp.Nets.latch_n: "N_XXCOMP/COMP_N_XXcomp/XXLATCH/MMM3_d",
+        comp.Nets.input_p_drain: "N_XXCOMP/XXLATCH/NET031_XXcomp/XXLATCH/MMM1_d",
+        comp.Nets.input_n_drain: "N_XXCOMP/XXLATCH/NET037_XXcomp/XXLATCH/MMM2_d",
         AdcNets.dac_state_p[0]: "N_DAC_STATE_P_MAIN<15>_XXcapdriver_p_main/XXxor15_0/MMM_u2_1-M_u3_g",
         AdcNets.dac_botplate_p[0]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<15>_XXcapdriver_p_main/XXxor15_0/MMM_u4_1-M_u3_d",
         AdcNets.dac_state_p_diff[0]: "N_DAC_STATE_P_DIFF<15>_XXcapdriver_p_diff/XXxor15_0/MMM_u2_1-M_u3_g",
@@ -239,10 +239,10 @@ def frida2_net_aliases() -> dict[h.Signal | h.Slice, str]:
         AdcNets.clk_comp: "N_CLK_COMP_XXcomp/XXLATCH/MMM0_g",
         AdcNets.comp_out_p: "N_COMP_OUT_P_XXcomp/XXI3/XXI46/MM_u2_1_d",
         AdcNets.comp_out_n: "N_COMP_OUT_N_XXcomp/XXI3/XXI47/MM_u2_1_d",
-        CompNets.latch_p: "N_XXCOMP/COMP_P_XXcomp/XXLATCH/MMM4_d",
-        CompNets.latch_n: "N_XXCOMP/COMP_N_XXcomp/XXLATCH/MMM3_d",
-        CompNets.input_p_drain: "N_XXCOMP/XXLATCH/NET031_XXcomp/XXLATCH/MMM1_d",
-        CompNets.input_n_drain: "N_XXCOMP/XXLATCH/NET037_XXcomp/XXLATCH/MMM2_d",
+        comp.Nets.latch_p: "N_XXCOMP/COMP_P_XXcomp/XXLATCH/MMM4_d",
+        comp.Nets.latch_n: "N_XXCOMP/COMP_N_XXcomp/XXLATCH/MMM3_d",
+        comp.Nets.input_p_drain: "N_XXCOMP/XXLATCH/NET031_XXcomp/XXLATCH/MMM1_d",
+        comp.Nets.input_n_drain: "N_XXCOMP/XXLATCH/NET037_XXcomp/XXLATCH/MMM2_d",
         AdcNets.dac_state_p[0]: "N_DAC_STATE_P_MAIN<0>_XXcapdriver_p_main/XXxor15_0/MMM_u2_1-M_u3_g",
         AdcNets.dac_botplate_p[0]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<0>_XXcapdriver_p_main/XXxor15_0/MMM_u4_1-M_u3_d",
         AdcNets.dac_state_p_diff[0]: "N_DAC_STATE_P_DIFF<0>_XXcapdriver_p_diff/XXxor15_0/MMM_u2_1-M_u3_g",

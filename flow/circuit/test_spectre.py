@@ -57,11 +57,8 @@ def diagnostic_root(spectre_installation):
         ("adc", "frida1_transfer_curve"),
         ("adc", "frida1_supply_noise"),
         ("adc", "frida2_sequence"),
-        ("comp", "hdl21_comp_perf_vs_size"),
-        ("comp", "frida1_fixed_input_noise"),
         ("samp", "frida1_transient"),
         ("caparray", "frida1_transfer_curve"),
-        ("comp", "comp_characterization"),
         ("samp", "samp_characterization"),
         ("caparray", "caparray_characterization"),
         ("delay", "delay_characterization"),
@@ -84,3 +81,18 @@ def test_target_diagnostic(block, target, diagnostic_root):
     assert runner(run_dir, check=True) == run_dir
     assert list(run_dir.rglob("netlist.scs")), f"no generated decks beneath {run_dir}"
     assert list(run_dir.rglob("spectre.log")), f"no simulator reports beneath {run_dir}"
+
+
+@pytest.mark.spectre
+def test_comp_pipeline_diagnostic(diagnostic_root):
+    """The comparator on the pipeline: one short run simulated (``comp.simulate``) and read
+    (``flow.pipeline.read``) on Spectre's own steps."""
+
+    from flow import comp, pipeline
+
+    tb = comp.TbParams(pdk="tsmc65", vin_diff_values_v=(-1e-3, 1e-3), conversions=1)
+    run_dir = diagnostic_root / "comp" / "pipeline"
+    meas = pipeline.read(comp.simulate(tb, run_dir), tb)
+    assert list(run_dir.rglob("netlist.scs")) and list(run_dir.rglob("spectre.log"))
+    assert {"clk", "outp", "outn", "latch_p", "latch_n"} <= set(meas.v) and "vdd" in meas.i
+    assert comp.analyze_decisions(meas).decision.tolist() == [0, 1]

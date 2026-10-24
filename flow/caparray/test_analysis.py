@@ -10,9 +10,9 @@ import pytest
 from flow.analysis.types import MeasInfo, Wave
 from flow.caparray.analysis import MeasCapArrayTran, analyze_caparray_transfer, analyze_caparray_weights
 from flow.caparray.plots import plot_caparray_error, plot_caparray_transfer, plot_caparray_weights
-from flow.caparray.sim import CapArrayConfig, CapArrayTbParams
+from flow.caparray.sim import CapArrayConfig, CapArrayTbParams, RedunStrat
 
-CDAC = CapArrayConfig(n_dac=3, n_extra=0, weights=(4, 2, 1))
+CDAC = CapArrayConfig(n_dac=3, n_extra=0, redun_strat=RedunStrat.BINARY)  # weights 4, 2, 1
 
 
 def _top_plate(codes, *, levels) -> MeasCapArrayTran:

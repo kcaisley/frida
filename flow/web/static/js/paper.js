@@ -11,6 +11,8 @@
 //       fit each axis's ticks
 //     x, y: each axis's kind, a Detail's x_ticks / y_ticks: "integer", "code", "step", "real", or
 //       null to infer it (see fitAxis)
+//     xLabels, yLabels: the axis's categories by name (a Detail's x_labels), its values their
+//       indices 0, 1, 2, ...: then it is ticked at each by its name (labelTicks), its kind unused
 //   returns the Plotly layout.
 // keepTicks(element): call once after Plotly.newPlot or Plotly.react; refits the ticks paperLayout
 //   fitted when the plot is zoomed or panned, and restores them when it is reset.
@@ -25,7 +27,9 @@
 //   each decade, fully labelled; beyond, the decades (every second or more past 7), plain from
 //   0.001 to 10000 and powers of ten otherwise, the digits between them ticked, not labelled;
 // - degrees (a "(deg)" or "(°)" title): 15, 30, 45, 90 or 180 degree steps where the range is wide;
-// - real: Plotly's own steps.
+// - real: Plotly's own steps;
+// - labels (xLabels, yLabels): each category's index, by its name, nothing between; level where the
+//   names fit, angled where they would collide (Plotly's automatic angles).
 
 const PT = 4 / 3; // px per point
 const FONTS = {
@@ -212,6 +216,20 @@ function fitAxis(kind, low, high, minor, values = []) {
     };
 }
 
+// a categories' axis: a tick at each index, labelled by the category's name, nothing between; the
+// names level where they fit and angled where they would collide (Plotly's auto angle tries 0, 30
+// and 90 degrees); a hovered index reads whole
+function labelTicks(labels, minor) {
+    return {
+        tickmode: "array",
+        tickvals: labels.map((_, index) => index),
+        ticktext: labels.map(String),
+        tickangle: "auto",
+        hoverformat: "d",
+        minor: { ...minor, ticks: "", showgrid: false },
+    };
+}
+
 function fitFromValues(kind, values, minor) {
     // a kind without values to fit: whole numbers at least print whole
     if (!values.length) return kind === "integer" || kind === "step" ? { tickformat: "d" } : {};
@@ -256,13 +274,19 @@ export function paperLayout(title, xTitle, yTitle, logX, logY, legendCount, mode
         dragmode: "zoom",
     };
     const traces = axes?.traces;
-    if (!traces && !axes?.x && !axes?.y) return layout;
+    if (!traces && !axes?.x && !axes?.y && !axes?.xLabels?.length && !axes?.yLabels?.length) return layout;
     const fitted = {};
     for (const [key, title, log] of [
         ["x", xTitle, logX],
         ["y", yTitle, logY],
     ]) {
         const axis = layout[`${key}axis`];
+        const labels = axes[`${key}Labels`];
+        if (Array.isArray(labels) && labels.length) {
+            Object.assign(axis, labelTicks(labels, axis.minor));
+            fitted[key] = { kind: "labels", ticks: { ...axis } };
+            continue;
+        }
         const values = traceValues(traces, key);
         const kind = axisKind(axes[key], title, log, values);
         Object.assign(axis, fitFromValues(kind, values, axis.minor));
@@ -285,7 +309,8 @@ export function keepTicks(element) {
         for (const key of ["x", "y"]) {
             const name = `${key}axis`;
             const entry = fitted[key];
-            if (!entry) continue;
+            // categories keep their named ticks at any zoom
+            if (!entry || entry.kind === "labels") continue;
             let ticks = null;
             if (event[`${name}.autorange`] || event[name]?.autorange) {
                 ticks = entry.ticks;

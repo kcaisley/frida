@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from hdl21.prefix import G
 
+from flow import comp
 from flow.adc.behavioral import (
     AdcBehavioralParams,
     CdacBehavioralParams,
@@ -26,8 +27,7 @@ from flow.adc.sequences import symbol160_init4_samp20_comp11110000_logic00001111
 from flow.adc.sim import AdcTbParams
 from flow.adc.subckt import AdcParams
 from flow.analysis.plots import plot_adc_redundancy
-from flow.caparray.subckt import CapArrayConfig, RedunStrat, get_caparray_weights
-from flow.comp.subckt import CompParams
+from flow.caparray.subckt import CapArrayConfig, RedunStrat, get_caparray_weights, unit_capacitance_f
 from flow.samp.subckt import SampParams, SwitchType
 
 
@@ -47,10 +47,10 @@ def test_redundancy_calculator(tmp_path: Path) -> None:
 def test_14_bit_weight_comparison(tmp_path: Path) -> None:
     binary = tuple(2**bit for bit in range(13, -1, -1))
     redistributed_18 = tuple(
-        get_caparray_weights(CapArrayConfig(n_dac=14, n_extra=4, redun_strat=RedunStrat.SUBRDX2_OVLY))
+        get_caparray_weights(CapArrayConfig(n_dac=14, n_extra=4, redun_strat=RedunStrat.MSB_REDIST))
     )
     redistributed_20 = tuple(
-        get_caparray_weights(CapArrayConfig(n_dac=14, n_extra=6, redun_strat=RedunStrat.SUBRDX2_OVLY))
+        get_caparray_weights(CapArrayConfig(n_dac=14, n_extra=6, redun_strat=RedunStrat.MSB_REDIST))
     )
     assert tuple(map(len, (binary, redistributed_18, redistributed_20))) == (14, 18, 20)
     assert tuple(map(sum, (binary, redistributed_18, redistributed_20))) == (16383,) * 3
@@ -73,6 +73,41 @@ def test_14_bit_weight_comparison(tmp_path: Path) -> None:
     assert path.read_bytes().startswith(b"%PDF")
 
 
+def ideal_sar_codes(weights: list[int]) -> tuple[np.ndarray, np.ndarray]:
+    """Every code's centre converted by an ideal top-plate SAR on ``weights``: the free first
+    comparison, each capacitor's step both ways, the comparison after the last; the codes it gives."""
+    codes = np.arange(2 * sum(weights) + 2)
+    residue = codes + 0.5 - len(codes) / 2
+    found = np.zeros_like(codes)
+    for weight in weights:
+        decision = residue > 0
+        found += decision * 2 * weight
+        residue = residue - np.where(decision, weight, -weight)
+    return codes, found + (residue > 0)
+
+
+@pytest.mark.parametrize("bits", (10, 11, 12, 13, 14))
+def test_every_scheme_reaches_every_code(bits: int) -> None:
+    # the decisions' weights of an N-bit converter on its N-1-step DAC: each capacitor's step both
+    # ways, then the comparison after the last one switches
+    arrays = [CapArrayConfig(n_dac=bits - 1, n_extra=0, redun_strat=RedunStrat.BINARY)] + [
+        CapArrayConfig(n_dac=bits - 1, n_extra=extra, redun_strat=scheme)
+        for scheme in (RedunStrat.MSB_SPLIT, RedunStrat.LSB_SPLIT, RedunStrat.MSB_REDIST)
+        for extra in range(1, 7)
+    ]
+    for cdac in arrays:
+        weights = get_caparray_weights(cdac)
+        assert sum(weights) == 2 ** (bits - 1) - 1  # every scheme the binary total
+        margins = calc_redundancy_margins((*(2 * weight for weight in weights), 1))
+        # no stage's error band is lost (a negative margin would be missing codes); the split MSBs
+        # and the redistribution give the free first comparison its tolerance, the split LSBs none
+        assert np.all(margins >= 0.0), (bits, cdac)
+        assert (margins[0] > 0.0) == (cdac.redun_strat in (RedunStrat.MSB_SPLIT, RedunStrat.MSB_REDIST)), cdac
+        # and an ideal SAR on the weights converts every code to itself
+        codes, found = ideal_sar_codes(weights)
+        assert len(codes) == 2**bits and np.array_equal(codes, found), cdac
+
+
 TB = AdcTbParams(
     dut=AdcParams(adc_bits=12, cdac=CapArrayConfig()),
     symbol_rate=1.6 * G,
@@ -90,7 +125,7 @@ def test_continuous_sequence_reproduces_the_catalog_recipe() -> None:
 
 def test_ideal_capacitances_reproduce_the_generated_weights() -> None:
     main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac)
-    np.testing.assert_allclose((main_f - diff_f) / 1e-15, get_caparray_weights(TB.dut.cdac))
+    np.testing.assert_allclose((main_f - diff_f) / unit_capacitance_f(TB.dut.cdac), get_caparray_weights(TB.dut.cdac))
 
 
 def test_capacitor_mismatch_follows_pelgrom_area_scaling() -> None:
@@ -202,8 +237,8 @@ def test_sampler_conductances_follow_the_hdl21_switch_sizing() -> None:
 
 
 def test_strongarm_noise_falls_with_larger_pq_capacitance() -> None:
-    small = calc_strongarm_noise(CompParams(), 0.7)
-    large = calc_strongarm_noise(CompParams(diffpair_w=64, rst_w=16), 0.7)
+    small = calc_strongarm_noise(comp.Params(), 0.7)
+    large = calc_strongarm_noise(comp.Params(diffpair_w=64, rst_w=16), 0.7)
     assert 1e-3 < small < 5e-3
     assert large < small
 
@@ -249,7 +284,11 @@ def test_the_model_quiets_each_source_alone_and_scales_the_settling() -> None:
                 noise_v=1e-4, delay_table_v=(1e-6, 1e-3), delay_table_s=(200e-12, 50e-12)
             )
         ),
-        samp=SimpleNamespace(behavioral=lambda load_f: SampBehavioralParams(noise_v=1e-4)),
+        samp=SimpleNamespace(
+            behavioral=lambda load_f: SampBehavioralParams(
+                noise_v=1e-4, jitter_s=2e-12, ron_table_v=(0.2, 1.0), ron_table_ohm=(100.0, 300.0)
+            )
+        ),
         cdac=SimpleNamespace(
             draw=lambda unit_mismatch, rng: (main_f, diff_f),
             parasitic_f=0.0,
@@ -269,6 +308,16 @@ def test_the_model_quiets_each_source_alone_and_scales_the_settling() -> None:
     assert noiseless.noise_v == 0.0 and noiseless.delay_table_v == (1e-6, 1e-3)
     ideal = model.behavioral(TB, quiet=("comparator",)).comp
     assert ideal.noise_v == 0.0 and ideal.delay_table_v is None
+    # a perfect track-and-hold: no on-resistance (so no tracking lag), its noise and jitter kept
+    sampler = model.behavioral(TB, quiet=("sampler",)).samp
+    assert sampler.ron_table_v is None and sampler.n_conductance_s_per_v == sampler.p_conductance_s_per_v == 0.0
+    assert sampler.noise_v == 1e-4 and sampler.jitter_s == 2e-12
+    resistance = calc_switch_resistance(TB.dut.samp, sampler, np.asarray([0.2, 0.6, 1.0]), 1.2)
+    assert not np.any(resistance)
+    quiet = model.behavioral(TB, quiet=("sampling",)).samp
+    assert quiet.noise_v == quiet.jitter_s == 0.0 and quiet.ron_table_v == (0.2, 1.0)
+    with pytest.raises(ValueError, match="nothing to quiet"):
+        model.behavioral(TB, quiet=("samplers",))
     # the settling time constants scale; at 0 settling is ideal, the drivers' delay gone too
     nominal, slower = model.behavioral(TB).cdac, model.behavioral(TB, tau_scale=4.0).cdac
     np.testing.assert_allclose(slower.stage_tau_s, 4 * np.asarray(nominal.stage_tau_s))

@@ -9,10 +9,9 @@ import hdl21 as h
 import numpy as np
 import pytest
 
-from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_transition
-from flow.analysis.comp import analyze_comp_offset_noise
+from flow import comp
+from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_decisions, analyze_cdac_transition
 from flow.analysis.types import (
-    AnalysisCompOffsetNoise,
     MeasCdac,
     MeasInfo,
     Wave,
@@ -23,10 +22,10 @@ from flow.scans.scan_cdac import _build_cdac_params
 def transition_of(curve: list[MeasCdac]):
     """Fit one switching curve the way the runner does: S-curve fit, then CDAC placement."""
 
-    return analyze_cdac_transition(curve, offset=analyze_comp_offset_noise(curve))
+    return analyze_cdac_transition(curve, offset=comp.analyze_offset_noise([analyze_cdac_decisions(curve)]))
 
 
-def cap_mismatch_of(measurements: list[MeasCdac], comparator: AnalysisCompOffsetNoise):
+def cap_mismatch_of(measurements: list[MeasCdac], comparator: comp.AnalysisOffsetNoise):
     """Fit every curve of one ADC, preferring its fine sweep stage, then decompose (as the runner does)."""
 
     curves: dict[tuple[object, ...], list[MeasCdac]] = {}
@@ -42,10 +41,10 @@ def cap_mismatch_of(measurements: list[MeasCdac], comparator: AnalysisCompOffset
     return analyze_cdac_cap_mismatch(measurements, transitions=transitions, comparator=comparator)
 
 
-def comparator_offset(measurement: MeasCdac, offset_v: float, *, index: int | None = None) -> AnalysisCompOffsetNoise:
+def comparator_offset(measurement: MeasCdac, offset_v: float, *, index: int | None = None) -> comp.AnalysisOffsetNoise:
     """Return a valid comparator characterization of the measured ADC's comparator."""
 
-    return AnalysisCompOffsetNoise(
+    return comp.AnalysisOffsetNoise(
         group=measurement.group,
         index=measurement.index if index is None else index,
         dut=measurement.param.tb.dut.comp,
@@ -300,10 +299,12 @@ def test_cdac_transition_records_curve_coordinates_and_rejects_mixed_curves() ->
     assert transition.valid
     assert transition.transition_v == pytest.approx(4e-3)
     with pytest.raises(ValueError, match="not made from these measurements"):
-        analyze_cdac_transition(curve, offset=analyze_comp_offset_noise(_curve("p", "0to1", 1, 9e-3)))
+        analyze_cdac_transition(
+            curve, offset=comp.analyze_offset_noise([analyze_cdac_decisions(_curve("p", "0to1", 1, 9e-3))])
+        )
     with pytest.raises(ValueError, match="exactly one switching curve"):
         mixed = [*curve, *_curve("n", "0to1", 1, 4e-3)]
-        analyze_cdac_transition(mixed, offset=analyze_comp_offset_noise(mixed))
+        analyze_cdac_transition(mixed, offset=comp.analyze_offset_noise([analyze_cdac_decisions(mixed)]))
 
 
 def test_cdac_cap_mismatch_rejects_mismatched_or_missing_prior_results() -> None:

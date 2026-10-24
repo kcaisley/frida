@@ -79,13 +79,28 @@ function pathTraces(detail, x, y, color, meta) {
         }));
 }
 
-// a plot with a legend under it taller by the legend (its lines wrap to the plot's width): its
-// plot area as tall as the others'
+// what a plot's x tick labels take below a level row of them: none level, more where its category
+// names angle, as they do where they would collide level
+function angledTicks(element) {
+    const labels = [...element.querySelectorAll(".xaxislayer-above .xtick text")];
+    const angle = Number(labels[0]?.getAttribute("transform")?.match(/rotate\(([-\d.e]+)/)?.[1] || 0);
+    if (!angle) return 0;
+    // the labels' extent on the page, as drawn (rotated), over one label's own height
+    const boxes = labels.map((label) => label.getBoundingClientRect());
+    const extent = Math.max(...boxes.map((box) => box.bottom)) - Math.min(...boxes.map((box) => box.top));
+    return Math.max(0, Math.ceil(extent - labels[0].getBBox().height));
+}
+
+// a plot with a legend under it taller by the legend (its lines wrap to the plot's width), and one
+// with angled tick labels by what they take more than level ones: its plot area as tall as the
+// others'
 function fitLegend(element) {
+    if (!element.isConnected) return;
     const legend = element.querySelector(".legend");
-    if (!legend || !element.isConnected) return;
+    const extra = (legend ? Math.ceil(legend.getBBox().height) : 0) + angledTicks(element);
+    if (!extra && !element.style.height) return;
     element.style.height = "";
-    element.style.height = `${element.offsetHeight + Math.ceil(legend.getBBox().height)}px`;
+    element.style.height = `${element.offsetHeight + extra}px`;
     Plotly.Plots.resize(element);
 }
 
@@ -202,6 +217,8 @@ class PlotsPanel {
             // where an instance has several, a series a dash, keyed under the plot in the spine's grey
             const seriesNames = [...new Set(entries.flatMap(({ detail }) => Object.keys(detail.series)))];
             const dashed = compare && entries.some(({ detail }) => Object.keys(detail.series).length > 1);
+            // categories on x (their indices, by name: first.x_labels): ticked and hovered by name
+            const categories = first.x_labels?.length ? first.x_labels : null;
             const traces = [];
             for (const { instance, index, detail } of entries) {
                 const meta = compare ? instance.id : undefined;
@@ -218,6 +235,7 @@ class PlotsPanel {
                         y: values.map((value) => (value === null ? null : value * y.factor)),
                         line: { color: colorOf(compare ? index : j, theme), width: dense ? 1.2 : 2, dash: dashed ? DASHES[j % DASHES.length] : "solid", ...(histogram ? { shape: "hvh" } : {}) },
                         marker: { size: 6 },
+                        ...(categories ? { text: detail.x.map((value) => categories[value] ?? ""), hovertemplate: "%{text}: %{y}" } : {}),
                     });
                 }
             }
@@ -229,7 +247,7 @@ class PlotsPanel {
             for (const trace of traces) if (this.hidden.has(trace.meta)) trace.visible = false;
             const legendEntries = traces.filter((trace) => trace.showlegend !== false).length;
             // the axes ticked for what they hold: the detail's hints (whole codes, steps) where it has them
-            const layout = paperLayout(first.title, x.label, y.label, first.x_log, first.y_log, legendEntries > 1 ? legendEntries : 0, theme, { traces, x: first.x_ticks ?? null, y: first.y_ticks ?? null });
+            const layout = paperLayout(first.title, x.label, y.label, first.x_log, first.y_log, legendEntries > 1 ? legendEntries : 0, theme, { traces, x: first.x_ticks ?? null, y: first.y_ticks ?? null, xLabels: categories });
             layout.title.font.size = 13;
             layout.margin = { l: 64, r: 12, t: 34, b: 46 };
             layout.legend.font = { size: 11, color: colors.ink };

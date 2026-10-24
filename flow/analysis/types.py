@@ -3,16 +3,60 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
-from dataclasses import dataclass, field, fields
-from datetime import datetime
+from dataclasses import dataclass
 from itertools import pairwise
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
 from flow.analysis import calc
+from flow.pipeline import (  # the shared base, used here and re-exported for the unmigrated blocks
+    Analysis,
+    Identity,
+    Meas,
+    MeasInfo,
+    Wave,
+    check_identity,
+    measurement_identity,
+)
+
+__all__ = [
+    "Analysis",
+    "AnalysisAdcCalibration",
+    "AnalysisAdcCdacSettling",
+    "AnalysisAdcCodeDensityNonlinearity",
+    "AnalysisAdcCodeDistribution",
+    "AnalysisAdcCodeSpectrum",
+    "AnalysisAdcCompOutEdgeEye",
+    "AnalysisAdcComparatorEdgeEye",
+    "AnalysisAdcComparatorResponse",
+    "AnalysisAdcDecisionPaths",
+    "AnalysisAdcDynamic",
+    "AnalysisAdcEndpointNonlinearity",
+    "AnalysisAdcInterferer",
+    "AnalysisAdcNoise",
+    "AnalysisAdcOperatingConditions",
+    "AnalysisAdcPower",
+    "AnalysisAdcPowerWaveform",
+    "AnalysisAdcRamp",
+    "AnalysisAdcSamplingNoise",
+    "AnalysisAdcScopeBits",
+    "AnalysisAdcTimingClosure",
+    "AnalysisAdcTimingSummary",
+    "AnalysisAdcTransfer",
+    "AnalysisCdacCapMismatch",
+    "AnalysisCdacTransition",
+    "AnalysisScope",
+    "Identity",
+    "Meas",
+    "MeasAdc",
+    "MeasCapArray",
+    "MeasCdac",
+    "MeasInfo",
+    "Wave",
+    "check_identity",
+    "measurement_identity",
+]
 
 if TYPE_CHECKING:
     from flow.adc.sequences import AdcSequence
@@ -20,65 +64,7 @@ if TYPE_CHECKING:
     from flow.adc.subckt import AdcParams
     from flow.caparray.sim import CapArrayTbParams
     from flow.caparray.subckt import CapArrayConfig, CapArrayParams
-    from flow.comp.sim import CompTbParams
-    from flow.comp.subckt import CompParams
-    from flow.samp.subckt import SampParams
     from flow.scans.params import AdcScanParams
-
-
-@dataclass(frozen=True, slots=True)
-class Identity:
-    """Instance and design identity shared by measurements and their results.
-
-    ``group`` is the physical board number or a Monte Carlo seed. ``index`` is
-    the observed ADC channel or a Monte Carlo iteration. Nominal simulations
-    use ``None`` for both. ``dut`` holds the design parameters analyzed.
-    """
-
-    group: int | None
-    index: int | None
-    dut: AdcParams | CompParams | CapArrayConfig | SampParams | None
-
-
-@dataclass(frozen=True, slots=True)
-class Analysis:
-    """Base of every typed analysis result: identity only, no behavior.
-
-    ``dut`` is ``None`` only for instrument characterizations that involve no
-    design under test, such as a raw oscilloscope capture or the diff-amp.
-    """
-
-    group: int | None
-    index: int | None
-    dut: AdcParams | CompParams | CapArrayConfig | SampParams | None
-
-    @property
-    def identity(self) -> Identity:
-        return Identity(self.group, self.index, self.dut)
-
-
-def measurement_identity(measurements: Sequence[Meas]) -> Identity:
-    """Return the one identity shared by every input measurement, or raise."""
-
-    if not measurements:
-        raise ValueError("analysis requires at least one measurement")
-    identities = [measurement.identity for measurement in measurements]
-    first = identities[0]
-    if any(identity != first for identity in identities[1:]):
-        raise ValueError("analysis inputs must share one group, index, and DUT parameter set")
-    return first
-
-
-def check_identity(prior: Analysis | Sequence[Analysis], identity: Identity, *, name: str) -> None:
-    """Raise unless every prior result has the consumer's group, index, and DUT params."""
-
-    for result in (prior,) if isinstance(prior, Analysis) else prior:
-        if result.identity != identity:
-            raise ValueError(
-                f"{name} ({type(result).__name__}) does not match the analyzed instance: "
-                f"group {result.group}/{identity.group}, index {result.index}/{identity.index}, "
-                f"DUT params {'equal' if result.dut == identity.dut else 'different'}"
-            )
 
 
 # =============================================================================
@@ -89,80 +75,6 @@ def check_identity(prior: Analysis | Sequence[Analysis], identity: Identity, *, 
 # them carry. A subclass adds only its per-record readback arrays. The HDF5
 # reader finds a subclass by its stored type name, so a new measurement class
 # needs no registration.
-
-
-@dataclass(frozen=True, slots=True)
-class MeasInfo:
-    """Run information shared by every measurement."""
-
-    backend: Literal["physical", "behavioral", "spice"]
-    timestamp_utc: datetime
-    instruments: dict[str, str] = field(default_factory=dict)
-    readbacks: dict[str, str | int | float | bool] = field(default_factory=dict)
-    source_path: Path | None = None
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Wave:
-    """Records of node voltages and supply currents, read like Cadence's ``v()`` and ``i()``.
-
-    Keys are canonical net names from the circuit's net bundle, such as
-    ``comp_out`` or ``comp.latch_p``, whether the source was a simulator or an
-    oscilloscope. ``vin_diff`` is the one derived name: a differential probe
-    observes no single net. Supply currents use the supply name and are
-    positive for current drawn from the source. Every trace has one row per
-    record, the measurement row given by ``record_index``, and one column per
-    sample of ``time_s``.
-    """
-
-    record_index: np.ndarray
-    time_s: np.ndarray
-    v: dict[str, np.ndarray]
-    i: dict[str, np.ndarray] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        shape = (len(self.record_index), len(self.time_s))
-        if len(self.time_s) < 2 or np.any(np.diff(self.time_s) <= 0):
-            raise ValueError("wave.time_s must contain at least two strictly increasing samples")
-        if wrong := {name: trace.shape for name, trace in (*self.v.items(), *self.i.items()) if trace.shape != shape}:
-            raise ValueError(f"wave traces must have shape {shape}: {wrong}")
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Meas:
-    """Base of every measurement: identity, run information, parameters, and waveforms.
-
-    ``group``, ``index``, and ``dut`` match :class:`Analysis`, so results copy
-    them across. ``param`` holds the complete scan or testbench parameters
-    that produced the data. A subclass adds its readback arrays as fields;
-    they share one row per conversion or trial, which is checked here.
-    """
-
-    group: int | None
-    index: int | None
-    dut: AdcParams | CompParams | CapArrayConfig | SampParams | CapArrayParams
-    info: MeasInfo
-    param: Any
-    wave: Wave | None = None
-
-    def __post_init__(self) -> None:
-        rows = {
-            data_field.name: len(value)
-            for data_field in fields(self)
-            if isinstance(value := getattr(self, data_field.name), np.ndarray)
-        }
-        if len(set(rows.values())) > 1:
-            raise ValueError(f"{type(self).__name__} readback arrays are not aligned: {rows}")
-
-    @property
-    def identity(self) -> Identity:
-        return Identity(self.group, self.index, self.dut)
-
-    @property
-    def tb(self) -> Any:
-        """Return the testbench parameters, nested inside scan parameters for a physical capture."""
-
-        return getattr(self.param, "tb", self.param)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -267,23 +179,6 @@ class MeasAdc(Meas):
         if len(spacing) != decisions - 1 or np.any(spacing != spacing[0]):
             raise ValueError(f"sequence must contain {decisions} equally spaced COMP rising edges")
         return int(spacing[0])
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class MeasComp(Meas):
-    """Comparator trials: one row per trial with its input and binary decision."""
-
-    dut: CompParams
-    param: AdcScanParams | AdcTbParams | CompTbParams
-    trial_index: np.ndarray
-    vin_diff_v: np.ndarray
-    vin_cm_v: np.ndarray
-    decision: np.ndarray
-    fastrx_word: np.ndarray | None = None
-    fastrx_frame: np.ndarray | None = None
-    # per trial: the regenerative latch had decided when the decision was read (simulation only;
-    # an undecided latch leaves the output stage holding the previous trial's decision)
-    resolved: np.ndarray | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -566,7 +461,11 @@ class AnalysisAdcCalibration(Analysis):
         """Decode stored BOUT decisions with the calibrated weights, clipped to the code range.
 
         The stored DAQ codes are never replaced; calibrated codes exist only
-        in the analysis that requests them.
+        in the analysis that requests them. ``rounded`` gives whole codes,
+        what an N-bit output word would carry and what the histogram analyses
+        count. ``rounded=False`` keeps the fractional codes the dynamic and
+        code-spectrum analyses take: rounding them would quantize the
+        converter's output a second time, about 0.5 bit of ENOB.
         """
 
         decisions = np.asarray(bout)
@@ -951,6 +850,13 @@ class AnalysisAdcDynamic(Analysis):
 
     The residual tail limit is a multiple of the fitted residual RMS, and the
     expected tail count is the matching two-sided Gaussian tail probability.
+
+    Three ENOBs: ``spectral_enob_bits`` is (SNDR - 1.76) / 6.02 at the test
+    sine's own amplitude, as Virtuoso's spectrumMeas reports it, so an ideal
+    N-bit quantizer reads N - |amplitude_dbfs| / 6.02 there (N - 0.08 for a
+    -0.5 dBFS sine). ``spectral_enob_fs_bits`` refers the same SNDR to a
+    full-scale sine and reads N for it. ``enob_bits`` is the time-domain
+    ENOB of the fit residual, at the test amplitude like the first.
     """
 
     sample_rate_hz: float
@@ -1020,6 +926,21 @@ class AnalysisAdcDynamic(Analysis):
         """Return time-domain effective number of bits."""
 
         return (self.sinad_db - 1.76) / 6.02
+
+    @property
+    def spectral_enob_fs_bits(self) -> float:
+        """Return the spectral ENOB referred to full scale.
+
+        This is the spectral SNDR plus the fitted sine's distance below full
+        scale (the code range, ``amplitude_dbfs``), so (SNDR - amplitude_dbfs
+        - 1.76) / 6.02: the noise and distortion against a full-scale sine,
+        IEEE Std 1241's ENOB. A converter whose gain fell is not penalized
+        here; ``amplitude_dbfs`` shows that. Without a fitted sine it is -inf.
+        """
+
+        if self.amplitude_dout == 0.0:
+            return -math.inf
+        return (self.spectral_sndr_db - self.amplitude_dbfs - 1.76) / 6.02
 
     @property
     def negative_residual_tail_count(self) -> int:
@@ -1343,38 +1264,6 @@ class AnalysisAdcTimingSummary(Analysis):
     timing_passed: int
     minimum_logic_setup_s: float
     minimum_cdac_setup_s: float
-
-
-# Comparator analyses
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisCompOffsetNoise(Analysis):
-    """Comparator decision probability, offset, and input-referred noise at one common mode."""
-
-    vin_cm_v: float
-    vin_diff_v: np.ndarray
-    decision_probability: np.ndarray
-    trial_count: np.ndarray
-    offset_v: float
-    noise_sigma_v: float
-    decision_polarity: Literal[-1, 1]
-    validity: Literal["valid", "unbracketed", "non_monotonic", "unresolved"]
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisCompCommonMode(Analysis):
-    """Comparator offset, noise, and validity across input common modes.
-
-    ``stuck-low`` and ``stuck-high`` mark a curve pinned below 0.1 or above 0.9
-    probability whose expected transition, given by a valid neighboring common
-    mode's offset, lies inside its swept input range.
-    """
-
-    vin_cm_v: np.ndarray
-    offset_v: np.ndarray
-    noise_sigma_v: np.ndarray
-    validity: tuple[Literal["valid", "unbracketed", "non_monotonic", "unresolved", "stuck-low", "stuck-high"], ...]
 
 
 # CDAC analyses

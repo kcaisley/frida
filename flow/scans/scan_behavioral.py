@@ -27,6 +27,7 @@ import hdl21 as h
 import numpy as np
 from hdl21.prefix import G
 
+from flow import comp as comparator
 from flow.adc.behavioral import (
     AdcBehavioralParams,
     CdacBehavioralParams,
@@ -44,11 +45,10 @@ from flow.adc.behavioral import (
 from flow.adc.sequences import AdcSequence, symbol160_init4_samp20_comp11110000_logic00001111
 from flow.adc.sim import AdcTbParams
 from flow.adc.subckt import AdcNets, AdcParams
-from flow.analysis.io import write_measurement
-from flow.analysis.types import MeasAdc, MeasCdac, MeasComp, MeasInfo, Wave
+from flow.analysis.io import write_analysis, write_measurement
+from flow.analysis.types import MeasAdc, MeasCdac, MeasInfo, Wave
 from flow.caparray import get_caparray_weights
 from flow.caparray.subckt import CapArrayConfig, RedunStrat
-from flow.comp.sim import CompTbParams
 from flow.scans.params import AdcScanParams
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 
@@ -442,17 +442,17 @@ def frida2_cdac_ab(run_dir: Path) -> None:
             readbacks={"cap_table": str(CAP_TABLE), "unit_mismatch": mismatch, "seed": seed},
         )
 
-        comp_tb = CompTbParams(
-            comp=TB.dut.comp,
+        comp_tb = comparator.TbParams(
+            params=TB.dut.comp,
             vin_cm_values_v=(vin_cm_v,),
             vin_diff_values_v=tuple(float(value) for value in np.linspace(-4 * sigma_v, 4 * sigma_v, 41)),
             conversions=trials,
         )
         vin_diff_v = np.repeat(np.asarray(comp_tb.vin_diff_values_v, dtype=np.float64), trials)
-        comparator = MeasComp(
+        comparator_decisions = comparator.AnalysisDecisions(
             group=seed,
             index=0,
-            dut=comp_tb.comp,
+            dut=comp_tb.params,
             info=info,
             param=comp_tb,
             trial_index=np.arange(len(vin_diff_v)),
@@ -460,7 +460,7 @@ def frida2_cdac_ab(run_dir: Path) -> None:
             vin_cm_v=np.full(len(vin_diff_v), vin_cm_v),
             decision=comp(TB.dut.comp, params.comp, vin_diff_v, rng, vin_cm_v=vin_cm_v).astype(np.uint8),
         )
-        write_measurement(draw_dir / "comparator.h5", comparator)
+        write_analysis(draw_dir / "comparator.h5", comparator_decisions)
 
         for side in ("p", "n"):
             for element in range(stages):
@@ -557,7 +557,7 @@ def architecture_variants(run_dir: Path) -> None:
     parasitic_f = TOTAL_LOAD_F - array_f
     configs = {
         "redundant": CapArrayConfig(),
-        "binary": CapArrayConfig(n_dac=11, n_extra=0, redun_strat=RedunStrat.RDX2),
+        "binary": CapArrayConfig(n_dac=11, n_extra=0, redun_strat=RedunStrat.BINARY),
     }
     cases = [(0, 0.0), (1, UNIT_MISMATCH_HARPE), (2, UNIT_MISMATCH_HARPE), (1, UNIT_MISMATCH), (2, UNIT_MISMATCH)]
     for weighting, cdac_config in configs.items():
@@ -620,18 +620,18 @@ def architecture_variants(run_dir: Path) -> None:
 def frida2_comparator(run_dir: Path) -> None:
     """The comparator block alone: 61 differential inputs within +/-1.5 mV at 0.7 V, 400 decisions each."""
 
-    tb = CompTbParams(
-        comp=TB.dut.comp,
+    tb = comparator.TbParams(
+        params=TB.dut.comp,
         vin_cm_values_v=(0.7,),
         vin_diff_values_v=tuple(float(value) for value in np.linspace(-1.5e-3, 1.5e-3, 61)),
         conversions=400,
     )
     vin_diff_v = np.repeat(np.asarray(tb.vin_diff_values_v, dtype=np.float64), tb.conversions)
-    decision = comp(tb.comp, COMP, vin_diff_v, np.random.default_rng(0), vin_cm_v=0.7)
-    measurement = MeasComp(
+    decision = comp(tb.params, COMP, vin_diff_v, np.random.default_rng(0), vin_cm_v=0.7)
+    measurement = comparator.AnalysisDecisions(
         group=None,
         index=None,
-        dut=tb.comp,
+        dut=tb.params,
         info=MeasInfo(
             backend="behavioral",
             timestamp_utc=datetime.now().astimezone(),
@@ -643,7 +643,7 @@ def frida2_comparator(run_dir: Path) -> None:
         vin_cm_v=np.full(len(vin_diff_v), 0.7),
         decision=decision.astype(np.uint8),
     )
-    print(f"Saved {write_measurement(run_dir / 'comparator.h5', measurement)}")
+    print(f"Saved {write_analysis(run_dir / 'comparator.h5', measurement)}")
 
 
 def main() -> None:

@@ -20,7 +20,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import IREF_SWEEP_A, NOMINAL_IREF_A, BiasTbParams, _run_bias_sim, bias_signal_names
 from .subckt import CASES, Bias, BiasParams, is_valid_bias_params, write_netlist
@@ -152,7 +152,7 @@ def characterize(run_dir: Path, pdk: str, bias: BiasParams) -> Record:
             "mirror_error_max_supply_ratio": float(np.max(errors[:, supply_rows])),
         },
         details=[
-            Detail(
+            Plot(
                 name="iv",
                 title="Test mirrors' current over the reference across the output (10 µA)",
                 x_label="Output voltage (V)",
@@ -160,7 +160,7 @@ def characterize(run_dir: Path, pdk: str, bias: BiasParams) -> Record:
                 x=mirror.vout_v[nominal].tolist(),
                 series={"NMOS": mirror.n_iv_ratio[nominal].tolist(), "PMOS": mirror.p_iv_ratio[nominal].tolist()},
             ),
-            Detail(
+            Plot(
                 name="ratio_iref",
                 title="Test mirrors' current over the reference current",
                 x_label="Reference current (A)",
@@ -169,7 +169,7 @@ def characterize(run_dir: Path, pdk: str, bias: BiasParams) -> Record:
                 series={"NMOS": mirror.n_ratio[iref_rows].tolist(), "PMOS": mirror.p_ratio[iref_rows].tolist()},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="compliance_iref",
                 title="Test mirrors' compliance from their rail over the reference current",
                 x_label="Reference current (A)",
@@ -178,7 +178,7 @@ def characterize(run_dir: Path, pdk: str, bias: BiasParams) -> Record:
                 series={"NMOS": mirror.n_compliance_v[iref_rows].tolist(), "PMOS": p_compliance[iref_rows].tolist()},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="gates_iref",
                 title="Gate voltages over the reference current",
                 x_label="Reference current (A)",
@@ -187,7 +187,7 @@ def characterize(run_dir: Path, pdk: str, bias: BiasParams) -> Record:
                 series={gate: getattr(mirror, f"{gate}_v")[iref_rows].tolist() for gate in GATES},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="ratio_supply",
                 title="Test mirrors' current over the reference over the supply (10 µA)",
                 x_label="Supply over nominal",
@@ -195,7 +195,7 @@ def characterize(run_dir: Path, pdk: str, bias: BiasParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"NMOS": mirror.n_ratio[supply_rows].tolist(), "PMOS": mirror.p_ratio[supply_rows].tolist()},
             ),
-            Detail(
+            Plot(
                 name="gates_supply",
                 title="Gate voltages over the supply (10 µA)",
                 x_label="Supply over nominal",
@@ -203,7 +203,7 @@ def characterize(run_dir: Path, pdk: str, bias: BiasParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={gate: getattr(mirror, f"{gate}_v")[supply_rows].tolist() for gate in GATES},
             ),
-            Detail(
+            Plot(
                 name="power_supply",
                 title="Generator power over the supply (10 µA)",
                 x_label="Supply over nominal",

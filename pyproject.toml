@@ -82,6 +82,21 @@ exclude = ["libs/basil"]
 
 [tool.ruff.lint]
 ignore = ["E741"]  # Allow 'l' for transistor length
+extend-select = ["ICN003"]
+
+[tool.ruff.lint.flake8-import-conventions]
+# a block on the pipeline is reached by its namespace: `from flow import comp` then `comp.Params`
+# (docs/pipeline.md); inside the block its stages import each other relatively
+banned-from = [
+    "flow.comp",
+    "flow.comp.params",
+    "flow.comp.subckt",
+    "flow.comp.sim",
+    "flow.comp.types",
+    "flow.comp.analysis",
+    "flow.comp.plots",
+    "flow.comp.sweep",
+]
 
 [tool.ruff.lint.isort]
 # PDK submodules are intentionally absent from the public Ruff CI checkout.
@@ -90,6 +105,23 @@ known-first-party = ["flow", "pdk"]
 [tool.ruff.lint.per-file-ignores]
 "flow/adc/behavioral.py" = ["F841", "F401"]
 "pdk/**" = ["F401", "F403", "F405"]
+
+[tool.importlinter]
+# the pipeline's stage order (docs/pipeline.md), for each block on it (flow/test_pipeline.py: MIGRATED);
+# run as `PYTHONPATH=. uvx --from import-linter==2.15 lint-imports` (pre-commit and CI)
+root_packages = ["flow"]
+
+[[tool.importlinter.contracts]]
+name = "comp: each stage imports only the stages below it"
+type = "layers"
+containers = ["flow.comp"]
+layers = ["model", "sweep", "plots", "analysis", "types", "sim | layout", "subckt", "params"]
+
+[[tool.importlinter.contracts]]
+name = "the pipeline's base knows no block"
+type = "forbidden"
+source_modules = ["flow.pipeline"]
+forbidden_modules = ["flow.comp", "flow.adc", "flow.cdac", "flow.caparray", "flow.sweep"]
 
 [tool.pytest.ini_options]
 testpaths = ["flow", "pdk", "test"]

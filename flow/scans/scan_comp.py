@@ -20,11 +20,12 @@ import numpy as np
 from bitarray import bitarray
 from pyvisa.errors import VisaIOError
 
+from flow import comp
 from flow.adc import AdcParams
 from flow.adc.sim import AdcTbParams
 from flow.analysis import calc
-from flow.analysis.io import read_measurement, write_measurement
-from flow.analysis.types import MeasComp, MeasInfo, Wave
+from flow.analysis.io import read_analysis, write_analysis
+from flow.analysis.types import MeasInfo, Wave
 from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.scans.fastrx import (
     convert_fastrx_words_to_comp,
@@ -111,7 +112,7 @@ def _build_comp_params(
         cdac=CapArrayConfig(
             n_dac=11,
             n_extra=5,
-            redun_strat=RedunStrat.SUBRDX2_OVLY,
+            redun_strat=RedunStrat.MSB_REDIST,
             weights=cap_weights,
         ),
     )
@@ -422,8 +423,8 @@ def scan(
     scope_captured_curves: set[tuple[Any, ...]] = set()
     drift_checkpoint_curves: set[tuple[Any, ...]] = set()
     for path in sorted(run_dir.glob("*.h5")):
-        measurement = read_measurement(path)
-        if not isinstance(measurement, MeasComp):
+        measurement = read_analysis(path)
+        if not isinstance(measurement, comp.AnalysisDecisions):
             raise TypeError(f"comparator run directory contains {type(measurement).__name__}: {path}")
         stem = _comp_point_stem(measurement.param)
         if stem in existing_paths:
@@ -814,7 +815,7 @@ def scan(
                     readbacks[f"{field}_{quantity}"] = value
 
             h5_path = run_dir / f"{next_file_index:05d}_{point_stem}.h5"
-            measurement = MeasComp(
+            measurement = comp.AnalysisDecisions(
                 group=scan_params.board_id,
                 index=scan_params.observed_adc,
                 dut=scan_params.tb.dut.comp,
@@ -833,7 +834,7 @@ def scan(
                 fastrx_frame=frames,
                 wave=wave,
             )
-            write_measurement(h5_path, measurement)
+            write_analysis(h5_path, measurement)
             existing_paths[point_stem] = h5_path
             next_file_index += 1
             print(

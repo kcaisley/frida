@@ -61,26 +61,17 @@ flowchart TB
 
     subgraph comparator[Comparator and CDAC decisions]
         direction LR
-        decisions["MeasComp"] --> offset["analyze_comp_offset_noise"] --> offset_out["AnalysisCompOffsetNoise (one common mode)"]
-        decisions --> common_mode["analyze_comp_common_mode (+ offsets)"] --> common_mode_out["AnalysisCompCommonMode"]
+        decisions["comp.AnalysisDecisions (a capture's, or comp.analyze_decisions of a run)"] --> offset["comp.analyze_offset_noise"] --> offset_out["comp.AnalysisOffsetNoise (one common mode)"]
+        decisions --> common_mode["comp.analyze_common_mode (+ offsets)"] --> common_mode_out["comp.AnalysisCommonMode"]
         offset_out --> common_mode
-        comp_int["MeasComp with internal nets"]
-        comp_int --> timing["analyze_comp_timing"] --> timing_out["AnalysisCompTiming"]
-        comp_int --> delay["analyze_comp_delay (+ timing)"] --> delay_out["AnalysisCompDelay"]
-        timing_out --> delay
-        comp_int --> comp_power["analyze_comp_power"] --> comp_power_out["AnalysisCompPower"]
-        comp_int --> candidate["analyze_comp_candidate (+ offset, timing, power)"] --> candidate_out["AnalysisCompCandidate"]
-        cdac_ext["MeasCdac (one curve)"] --> transition["analyze_cdac_transition"] --> transition_out["AnalysisCdacTransition"]
+        cdac_ext["MeasCdac (one curve)"] --> cdac_decisions["analyze_cdac_decisions"] --> decisions
+        cdac_ext --> transition["analyze_cdac_transition (+ its curve's offset)"] --> transition_out["AnalysisCdacTransition"]
+        offset_out --> transition
         cdac_adc["MeasCdac (one ADC)"] --> mismatch["analyze_cdac_cap_mismatch (+ transitions, comparator offset)"] --> mismatch_out["AnalysisCdacCapMismatch"]
         transition_out --> mismatch
         offset_out --> mismatch
         offset_out --> offset_plots["plot_comp_offset_noise / plot_comp_sampling_campaign"]
         common_mode_out --> common_mode_plot["plot_comp_common_mode_campaign"]
-        timing_out --> timing_plot["plot_comp_timing"]
-        delay_out --> topology_plot["plot_comp_topology_study (lists, + common modes)"]
-        common_mode_out --> topology_plot
-        comp_power_out --> comp_power_plot["plot_comp_power"]
-        candidate_out --> candidates_plot["plot_comp_candidate_sweep / plot_comp_noise_power_tradeoff (lists)"]
         mismatch_out --> mismatch_plot["plot_cdac_cap_mismatch / plot_cdac_cap_mismatch_comparison (list)"]
     end
 
@@ -91,7 +82,7 @@ flowchart TB
         cal_adc --> cal2["analyze_adc_calibration2 (+ ramp)"] --> cal_out
         cal_adc --> cal3["analyze_adc_calibration3 (+ ramp)"] --> cal_out
         cal_out --> cal_weights_plot["plot_adc_calibration_weights (list)"]
-        cal_out --> calibrated["transfer / ramp / code density / distribution (+ calibration)"]
+        cal_out --> calibrated["dynamic / transfer / ramp / code density / distribution (+ calibration)"]
     end
 
     subgraph waveform[Saved waveforms]
@@ -120,7 +111,7 @@ Arrows show inputs, analyses, and plotters; plotters return artifact paths. One 
 
 The rules:
 
-- Every public function in `adc.py`, `comp.py`, `cdac.py`, and the calibration modules is named `analyze_<block>_<thing>`, takes exactly one positional `Meas*` or `Sequence[Meas*]`, takes earlier results only as keyword-only `Analysis*` arguments, and returns one `Analysis*` result. There are no threshold or setting arguments and no `ALL_CAPS` module constants.
+- Every public function in `adc.py`, `cdac.py`, and the calibration modules is named `analyze_<block>_<thing>`, takes exactly one positional `Meas*` or `Sequence[Meas*]`, takes earlier results only as keyword-only `Analysis*` arguments, and returns one `Analysis*` result. There are no threshold or setting arguments and no `ALL_CAPS` module constants.
 - Architecture facts (resolution, capacitor and decision counts, symbols per decision) are derived from the measurement parameters. Numerical method settings and portable heuristics are written inline at their point of use with a comment.
 - A pass/fail or validity judgment is a field of the result, next to the quantity it judges.
 - An analysis never calls another public analysis, and a result never contains another result. Runners run each stage and pass flat lists of results into the next one.
@@ -132,7 +123,7 @@ The rules:
 
 ### Building blocks
 
-The building blocks (`comp`, `samp`, `caparray`, `delay`, `latch`, `ota`, `follower`, `moscap`, `idac`, `cml`, `pi`, `clkgen`, `lvshift`, `ringamp`) keep their analysis next to their generator: `flow/<block>/analysis.py` holds the block's `Meas<Block>` and `Analysis<Block>*` types and its `analyze_<block>_*` functions, `flow/<block>/plots.py` its `plot_<block>_*` architecture comparisons (one panel per named case, shared axes, twin-axis figures, after `plot_comp_topology_study`). The contract above holds for both, with one difference: a block's analysis module may define its own `Meas*` and `Analysis*` dataclasses, and nothing else. The study that runs them is the `<block>.characterization_study` target in `flow/<block>/targets.py`, reading the pinned run of `flow.<block>.sim`'s `<block>_characterization` campaign (one shared testbench per block, run in all six PDKs at TT and 25 °C about each PDK's own core supply, no Monte Carlo or extraction, each campaign one to five minutes on 16 workers and all eleven about 27); each study writes one figure set per PDK, `build/analysis/<block>/<timestamp>/<pdk>/`. `BLOCKS` in `test_conformance.py` lists the blocks it checks. The comparator's and the CDAC's measurements (`MeasComp`, `MeasCdac`) and the analyses lab captures share with simulations (offset and noise, common mode, CDAC transitions and capacitor mismatch) stay here, in `types.py`, `comp.py` and `cdac.py`: saved files name their class by module, and the scans and the ADC flows read them. Only what the blocks' own simulations feed lives in `flow/comp`, `flow/samp` and `flow/caparray`.
+The building blocks (`samp`, `caparray`, `delay`, `latch`, `ota`, `follower`, `moscap`, `idac`, `cml`, `pi`, `clkgen`, `lvshift`, `ringamp`) keep their analysis next to their generator: `flow/<block>/analysis.py` holds the block's `Meas<Block>` and `Analysis<Block>*` types and its `analyze_<block>_*` functions, `flow/<block>/plots.py` its `plot_<block>_*` architecture comparisons (one panel per named case, shared axes, twin-axis figures). The contract above holds for both, with one difference: a block's analysis module may define its own `Meas*` and `Analysis*` dataclasses, and nothing else. The study that runs them is the `<block>.characterization_study` target in `flow/<block>/targets.py`, reading the pinned run of `flow.<block>.sim`'s `<block>_characterization` campaign (one shared testbench per block, run in all six PDKs at TT and 25 °C about each PDK's own core supply, no Monte Carlo or extraction, each campaign one to five minutes on 16 workers and all eleven about 27); each study writes one figure set per PDK, `build/analysis/<block>/<timestamp>/<pdk>/`. `BLOCKS` in `test_conformance.py` lists the blocks it checks. The comparator follows the [block pipeline](../../docs/pipeline.md) instead (`flow/test_pipeline.py` checks it): its results, its analyses, and the decisions lab captures and simulations share (`comp.AnalysisDecisions`, with the offset, noise and common-mode analyses that take them) live in `flow/comp`. The CDAC's measurements (`MeasCdac`) and their transition and capacitor-mismatch analyses stay here, in `types.py` and `cdac.py`; a switching curve's S-curve fit is the comparator's, of the curve's decisions (`analyze_cdac_decisions`).
 
 ## Calculator functions explain
 
@@ -140,7 +131,7 @@ Throughout the circuit block specific analysis function, we should strive as muc
 
 ## Measurement types
 
-Every measurement derives from `Meas`, which fixes the fields all of them carry: `group`, `index`, and `dut` (the same identity as `Analysis`), `info` (`MeasInfo`: backend, timestamp, instruments, readbacks), `param` (the complete scan or testbench parameters), and an optional `wave`. A subclass (`MeasAdc`, `MeasComp`, `MeasCdac`, `MeasSamp`) adds only its per-record readback arrays, such as `conversion_index`, `bout`, and `dout`. Producers set the identity explicitly: a physical capture uses its board and observed ADC, a simulation its Monte Carlo seed and iteration. `Meas` checks that the readback arrays share one row per conversion or trial; `test_conformance.py` checks that every subclass is a frozen, slotted, keyword-only dataclass adding only array fields.
+Every measurement derives from `Meas`, which fixes the fields all of them carry: `group`, `index`, and `dut` (the same identity as `Analysis`), `info` (`MeasInfo`: backend, timestamp, instruments, readbacks), `param` (the complete scan or testbench parameters), and an optional `wave`. `Meas` is `flow.pipeline.Meas`, which a simulation on the pipeline fills with its signals on the simulator's own time axis (`time_s`, `v`, `i`). A subclass (`MeasAdc`, `MeasCdac`, `MeasSamp`) adds only its per-record readback arrays, such as `conversion_index`, `bout`, and `dout`. Producers set the identity explicitly: a physical capture uses its board and observed ADC, a simulation its Monte Carlo seed and iteration. `Meas` checks that the readback arrays share one row per conversion or trial; `test_conformance.py` checks that every subclass is a frozen, slotted, keyword-only dataclass adding only array fields.
 
 `Wave` holds node voltages `v` and supply currents `i`, read like Cadence's `v()` and `i()`. Keys are canonical net names from the circuit's net bundle (`comp_out`, `dac_state_p[0]`, `comp.latch_p`) whether the source was a simulator or an oscilloscope; `vin_diff` is the one derived name, for a differential probe. Each trace has one row per record (the measurement row in `record_index`) and one column per sample of `time_s`. Supply currents use the supply name and are positive for current drawn from the source.
 
@@ -152,7 +143,7 @@ Reusable analysis functions accept concrete `Meas*` values and keyword-only prio
 
 For example, `calc.cross(signal, time_s, threshold, edge="rising")` returns interpolated crossing coordinates, `calc.clip(signal, time_s, start, stop)` returns clipped signal and axis arrays, and `calc.average(signal, time_s)` uses time weighting. Without an axis, `calc.average(signal)` and `calc.stddev(signal)` treat values as discrete samples; passing an axis computes continuous-waveform statistics. `calc.value(signal, time_s, at)` interpolates at one or several coordinates. Spectral functions accept uniformly sampled arrays and an explicit sample rate, and `calc.dft` returns one-sided complex amplitudes in the signal's units. The calculator knows nothing about circuit nets, HDF5 records, or plotting artifacts.
 
-The calculator groups are waveform selection and timing (`value`, `clip`, `sample`, `cross`, `delay`, `settlingTime`, `riseTime`, `fallTime`, `slewrate`, `frequency`, `eyeDiagram`, `eyeHeightAtXY`, `abs_jitter`, `period_jitter`), statistics and integration (`average`, `integ`, `deriv`, `rms`, `stddev`, `ymin`, `ymax`, `xmin`, `xmax`, `peakToPeak`), spectra and noise (`dft`, `psd`, `rmsNoise`, `thd`, `spectrumMeas`), and converter or density calculations (`dnl`, `inl`, `histogram2D`). Boolean validity traces use `calc.settlingTime` to find the first sample of the final uninterrupted valid interval. CDAC traces use a late-window median target, an explicit tolerance, and a clipped update interval for analog settling time. ADC-specific sine fitting and code-density calculations live in `adc.py`; scope validation filters spurious crossings before estimating a median cycle period; simple medians, percentiles, and histograms use NumPy directly. Circuit analyses choose the signals and windows, then assemble their typed results.
+The calculator groups are waveform selection and timing (`value`, `clip`, `sample`, `cross`, `delay`, `settlingTime`, `riseTime`, `fallTime`, `slewrate`, `frequency`, `eyeDiagram`, `eyeHeightAtXY`, `abs_jitter`, `period_jitter`), statistics and integration (`average`, `integ`, `deriv`, `rms`, `stddev`, `ymin`, `ymax`, `xmin`, `xmax`, `peakToPeak`), spectra and noise (`dft`, `psd`, `rmsNoise`, `thd`, `spectrumMeas`), converter or density calculations (`dnl`, `inl`, `histogram2D`), and fits (`probit_fit`: the Gaussian cumulative curve of most likelihood through binomial counts, which the comparator fits its S-curves with from the crossings `comp.analyze_offset_noise` reads). Boolean validity traces use `calc.settlingTime` to find the first sample of the final uninterrupted valid interval. CDAC traces use a late-window median target, an explicit tolerance, and a clipped update interval for analog settling time. ADC-specific sine fitting and code-density calculations live in `adc.py`; scope validation filters spurious crossings before estimating a median cycle period; simple medians, percentiles, and histograms use NumPy directly. Circuit analyses choose the signals and windows, then assemble their typed results.
 
 `calc.eyeDiagram` interpolates requested window boundaries and returns phase/value columns separated by NaN rows. The serializer symbol plot folds a two-UI window at each nominal UI and uses `calc.eyeHeightAtXY` for the geometric center opening; the midpoint is estimated from waveform levels. The comparator eye analyses resample every decision window around its COMP rise onto a common phase axis, so their plotters only draw. Jitter functions return numeric arrays by default; optional axes, phase units, moving period references, and scalar period-jitter standard deviation are requested by keyword.
 
@@ -167,6 +158,22 @@ All active plots use the shared presentation and saver in `plots.py`: a fixed 9.
 Ordinary series follow `CURVE_COLORS`; ordered density and spectrum data use `SPECTRUM_COLOR_MAP`. Supply rails are always added as Analog, Digital, and DAC so they receive blue, orange, and green consistently. Data artists are opaque. Information boxes contain only concise measurement setup that is not already in the title, axes, or legend; numerical results belong in the plotted data or short legend labels. Renderers trust their typed inputs and limit their work to unit conversion, text formatting, and drawing.
 
 Tests should exercise each analyzer using the same concrete measurement types used in production, validate dataclass invariants, and test plotting separately from numerical results. For fitted calibration, final acceptance metrics should eventually come from a separately acquired validation run: freeze all weights and model choices learned from the training run, then apply them to the validation run without refitting.
+
+## ADC dynamic metrics and ENOB
+
+A calibration decodes the stored BOUT decisions with its weights (`AnalysisAdcCalibration.decode_bout`), which gives a fractional code. The dynamic analysis (`analyze_adc_dynamic`) and the code spectrum (`analyze_adc_code_spectrum`) keep that fraction: rounding it to a whole code quantizes the converter's output a second time, about 0.5 bit of ENOB for a converter near its resolution. The histogram analyses (ramp code density, DNL and INL, code distribution, transfer and endpoint nonlinearity) count whole codes and decode rounded, the `decode_bout` default. To grade whole N-bit codes dynamically, as an output word would carry them, analyze the measurement with its DOUT replaced by the rounded decode, `replace(measurement, dout=calibration.decode_bout(measurement.bout))`; the analysis contract keeps the choice out of the analysis's arguments. Without a calibration, the stored DOUT is analyzed as it is.
+
+`AnalysisAdcDynamic` reports three ENOBs, all from (SNDR - 1.76 dB) / 6.02 dB:
+
+| Field | SNDR from | Reference | An ideal N-bit quantizer, -0.5 dBFS sine |
+| --- | --- | --- | --- |
+| `spectral_enob_bits` | Blackman-Harris spectrum | the test sine's amplitude, as Virtuoso's `spectrumMeas` | N - 0.08 |
+| `spectral_enob_fs_bits` | the same spectrum | full scale: SNDR - `amplitude_dbfs`, the fitted amplitude against the code range (IEEE Std 1241's ENOB) | N |
+| `enob_bits` | the time-domain sine-fit residual | the test sine's amplitude | N - 0.08 |
+
+`spectral_enob_fs_bits` measures the noise and distortion against a full-scale sine, so it does not see a converter whose gain fell; `amplitude_dbfs` does. The ADC flow (`flow/adc/figures.py`: `enob_bits`, the `enob_*` metrics, the ENOB plots and the ENOB ladder) reports `spectral_enob_fs_bits` of the extracted weights' fractional codes, so quantization alone reads the design resolution. The fixed-input `AnalysisAdcNoise.enob_bits` is noise-equivalent and already refers to a full-scale sine.
+
+The lab studies keep `spectral_enob_bits`. FRIDA-1's lab sines are analyzed without a calibration (`adc.sample_rate_study`), so their ENOB is unchanged, bit for bit. The behavioral FRIDA-2 studies that decode with the extracted weights (`adc.behavioral_sample_rate_study`, `adc.behavioral_input_frequency_study`) read higher since the codes stopped being rounded (2026-10-22). On saved behavioral sines at 10 MS/s the gain was 0.2 to 0.28 bit at 10 bits, 0.1 to 0.19 at 11, 0.03 to 0.11 at 12 and at most 0.02 at 13 to 15 bits. Referred to full scale, a -0.5 dBFS sine adds 0.08 bit more.
 
 ## Runtime follow-up
 
@@ -194,9 +201,9 @@ Reusable plotting functions need not all appear in these selected studies. `plot
 
 Simulated waveforms use the same `Wave` as scope captures. ADC comparator internals use the `comp.` scope, for example `comp.latch_p`, and buses one key per bit, for example `dac_botplate_n_diff[15]`. Derived input differences are calculated from the saved P/N voltages.
 
-Each target in `adc/sim.py` and `comp/sim.py` invokes conversion and HDF5 writing. Simulation workers return raw-file locations and bindings or run metadata. `circuit.results.read_raw_transient` loads a VLSIR `TranResult`; converters map its raw variable names to the canonical names selected by the save bindings. The converter rejects missing/unmapped traces and raw time gaps larger than the requested waveform spacing. It neither adds fictitious timing detail nor reads old waveform formats as a fallback. Rebuild old simulation HDF5 files from raw results with an explicitly appropriate sample interval, or rerun simulations when their saved samples are too coarse for the intended timing measurement.
+Each target in `adc/sim.py` invokes conversion and HDF5 writing (the comparator's runs are read by `flow.pipeline.read`, which converts nothing). Simulation workers return raw-file locations and bindings or run metadata. `circuit.results.read_raw_transient` loads a VLSIR `TranResult`; converters map its raw variable names to the canonical names selected by the save bindings. The converter rejects missing/unmapped traces and raw time gaps larger than the requested waveform spacing. It neither adds fictitious timing detail nor reads old waveform formats as a fallback. Rebuild old simulation HDF5 files from raw results with an explicitly appropriate sample interval, or rerun simulations when their saved samples are too coarse for the intended timing measurement.
 
-Both simulator `maxstep` and `strobeperiod` default to 10 ps through `waveform_sample_interval_s` on the testbench parameters. The HDF5 record spacing uses the same setting. This is a configurable numerical resolution, not a validated claim of transistor-level timing accuracy. ADC records retain every complete decoded conversion, all mapped traces, and a next-cycle tail for B16. Comparator records retain every trial at the three transition-region points and a representative trial at other points, with the complete evaluation window. The record indices identify the retained population.
+Both simulator `maxstep` and `strobeperiod` default to 10 ps through `waveform_sample_interval_s` on the testbench parameters. The HDF5 record spacing uses the same setting. This is a configurable numerical resolution, not a validated claim of transistor-level timing accuracy. ADC records retain every complete decoded conversion, all mapped traces, and a next-cycle tail for B16. The record indices identify the retained population.
 
 Ordinary analyses and plots consume the saved measurement without redecoding or replacing its DAQ codes. `analyze_adc_timing_closure(MeasAdc)` on a simulation returns `AnalysisAdcTimingClosure`: one row per saved conversion and decision, including internal resolution time, SR agreement at LOGIC, and LOGIC-to-CDAC settling time. The setup requirements are 200 ps before LOGIC and before the next observed COMP, written inline and recorded in the result. A repeated SR value is valid; a late polarity reversal, weak resolution, wrong SR/state value, or insufficient margin fails the corresponding check. Missing observations produce NaN times and cannot pass. The final decision retains its SR observation but has no SAR/CDAC update, so that check is inapplicable; the decision and capacitor counts come from the DUT's CDAC.
 

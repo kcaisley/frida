@@ -548,6 +548,90 @@ def test_dynamic_analysis_separates_noise_and_harmonics() -> None:
     assert result.spectral_thd_db == pytest.approx(-40.0, abs=0.15)
     assert result.spectral_sfdr_db == pytest.approx(40.0, abs=0.15)
     assert result.spectral_sndr_db == pytest.approx(39.96, abs=0.2)
+    # referred to full scale, the same SNDR plus the sine's distance below it
+    assert result.spectral_enob_fs_bits == pytest.approx(result.spectral_enob_bits - result.amplitude_dbfs / 6.02)
+
+
+def sar_sine_measurement(
+    adc_bits: int, cdac: CapArrayConfig, *, spread: float
+) -> tuple[MeasAdc, AnalysisAdcCalibration]:
+    """An ideal SAR converting a coherent -0.5 dBFS sine (8,192 conversions): no noise, no
+    distortion, its capacitors off their design values by a fixed draw of relative sigma
+    ``spread``, and the calibration that knows those weights (a perfect extraction). Its stored
+    DOUT decodes the decisions with the design weights."""
+
+    code_max = (1 << adc_bits) - 1
+    sample_rate_hz, count, cycles = 10.0e6, 8_192, 1_021
+    dut = AdcParams(adc_bits=adc_bits, cdac=cdac)
+    template = adc_measurement([0], sample_rate_hz=sample_rate_hz, input_frequency_hz=sample_rate_hz * cycles / count)
+    nominal = replace(template, dut=dut).nominal_bout_weights
+    capacitors = 1.0 + spread * np.random.default_rng(1).standard_normal(len(nominal) - 1)
+    weights = nominal * np.append(capacitors, 1.0)
+    weights *= code_max / np.sum(weights)
+    # the input in codes; each decision compares it with the DAC, which moves half a weight either way
+    sine = 10 ** (-0.5 / 20) * code_max / 2 * np.sin(2 * np.pi * cycles / count * np.arange(count) + 0.3)
+    dac = np.zeros(count)
+    bout = np.zeros((count, len(weights)), dtype=np.uint8)
+    for decision, weight in enumerate(weights):
+        bout[:, decision] = sine > dac
+        dac += np.where(sine > dac, weight, -weight) / 2
+    dout = bout.astype(np.int64) @ nominal
+    tb = AdcTbParams(
+        dut=dut,
+        conversions=count,
+        symbol_rate=template.tb.symbol_rate,
+        vin_diff=template.tb.vin_diff,
+        seq_logic_pattern=template.tb.seq_logic_pattern,
+    )
+    measurement = replace(
+        adc_measurement(dout, sample_rate_hz=sample_rate_hz, input_frequency_hz=sample_rate_hz * cycles / count),
+        dut=dut,
+        param=AdcScanParams(tb=tb),
+        bout=bout,
+    )
+    calibration = AnalysisAdcCalibration(
+        group=measurement.group,
+        index=measurement.index,
+        dut=dut,
+        method="extracted",
+        label="The capacitors' own weights",
+        code_max=code_max,
+        nominal_weights=nominal * code_max / np.sum(nominal),
+        calibrated_weights=weights,
+        measured_weight_mask=np.append(np.ones(len(capacitors), dtype=np.bool_), False),
+        training_sample_count=0,
+        validation_sample_count=0,
+        output_gain=1.0,
+        output_offset_lsb=0.0,
+    )
+    return measurement, calibration
+
+
+@pytest.mark.parametrize(
+    ("adc_bits", "cdac"), [(10, CapArrayConfig(n_dac=9, n_extra=3)), (12, CapArrayConfig())], ids=["10b", "12b"]
+)
+def test_an_ideal_quantizer_reads_its_resolution_referred_to_full_scale(adc_bits: int, cdac: CapArrayConfig) -> None:
+    """Quantization alone is the design resolution: decoded unrounded and referred to full scale."""
+
+    # an ideal N-bit quantizer: the design weights, whole codes
+    ideal, _ = sar_sine_measurement(adc_bits, cdac, spread=0.0)
+    np.testing.assert_array_equal(ideal.dout, np.rint(ideal.dout))
+    result = analyze_adc_dynamic(ideal)
+    assert result.amplitude_dbfs == pytest.approx(-0.5, abs=0.01)
+    assert result.spectral_enob_fs_bits == pytest.approx(adc_bits, abs=0.02)
+    # at the test sine's own amplitude it reads half a dB less
+    assert result.spectral_enob_bits == pytest.approx(adc_bits - 0.5 / 6.02, abs=0.02)
+
+    # capacitors off their design values: its own weights put each code between whole ones
+    measurement, calibration = sar_sine_measurement(adc_bits, cdac, spread=0.003)
+    fractional = calibration.decode_bout(measurement.bout, rounded=False)
+    assert np.std(fractional - np.rint(fractional)) > 0.2
+    calibrated = analyze_adc_dynamic(measurement, calibration=calibration)
+    np.testing.assert_array_equal(calibrated.measured_dout, fractional)
+    assert calibrated.spectral_enob_fs_bits == pytest.approx(adc_bits, abs=0.02)
+    # whole codes, as an N-bit output word carries them, quantize a second time
+    whole = analyze_adc_dynamic(replace(measurement, dout=calibration.decode_bout(measurement.bout)))
+    assert whole.spectral_enob_fs_bits < adc_bits - 0.3
 
 
 def test_transfer_noise_and_code_density_use_typed_adc_data() -> None:

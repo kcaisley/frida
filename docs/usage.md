@@ -2,13 +2,13 @@
 
 ADC capacitor stages, comparator decisions, and output codes follow the [project-wide ADC convention](adc_conventions.md): C0 is the largest and first capacitor, B0..B16 are chronological decisions, and DOUT is the 12-bit result formed from all 17 decisions.
 
-FRIDA's simulation, layout, extraction, analysis and sweep recipes are targets: `python -m flow` lists every one, `python -m flow <block>.<target>` runs one. A target is a public function without arguments in `flow/<block>/targets.py`; it makes its own fresh run directory under `build/` and calls the block's implementation, which takes that directory. There are no options or flags. Physical scans keep their own runner (`python -m flow.scans.<scan>`), and the file tools (`flow.util.netlist`, `flow.util.gds2image`, ...) are Python functions.
+`python -m flow` is the one entry point and lists what it runs. A block on the [pipeline](pipeline.md) (the comparator) is run by verbs over its design space: `python -m flow run comp`, `layout comp`, `table comp` and `plot comp` (below). The other blocks' simulation, layout, extraction, analysis and sweep recipes are still targets until they move onto the pipeline: `python -m flow <block>.<target>` runs a public function without arguments in `flow/<block>/targets.py`; it makes its own fresh run directory under `build/` and calls the block's implementation, which takes that directory. Physical scans keep their own runner (`python -m flow.scans.<scan>`), and the file tools (`flow.util.netlist`, `flow.util.gds2image`, ...) are Python functions.
 
 There is no installed `flow` executable or separate build-system orchestration layer. Run commands from the repository root through `uv`, for example:
 
 ```bash
 uv run python -m flow
-uv run python -m flow comp.characterization
+uv run python -m flow run comp
 ```
 
 Digital lint, simulation, synthesis, and implementation use their stock tools directly.
@@ -23,10 +23,10 @@ The process-independent FRIDA capacitor-array runners are:
 uv run python -m flow caparray.layout_1layer_radix17
 uv run python -m flow caparray.layout_2layer_radix17
 uv run python -m flow caparray.layout_3layer_radix17
-uv run python -m flow caparray.layout_extract_adc_variants
+uv run python -m flow caparray.layout_extract_adc_arrays
 ```
 
-Each target declares its arrays and stack: FRIDA's array is `RADIX17`, and `caparray.layout_extract_adc_variants` (`caparray_extract_adc_variants`) extracts the ADC variants' arrays (`ADC_VARIANTS`: 10 and 12 bits with 0, 2, 4 or 5 redundant stages) at three metals in TSMC65, one capacitance table each under `<variant>/tsmc65/3l/`. The helpers they call take the array as an argument.
+Each target declares its arrays and stack: FRIDA's array is `RADIX17`, and `caparray.layout_extract_adc_arrays` (`flow.caparray.sizing.extract_adc_arrays`) sizes and extracts the ADC study's arrays (`ADC_ARRAYS`: 10, 12 and 14 bits, binary and the MSB split, LSB split and MSB redistribution with 2, 4 and 6 extra cycles, at one and two of the resolution's least switched capacitance, and FRIDA-1's array at 12 bits and two: 61) at three metals in TSMC65, 16 at a time: each pass sizes every array's split and step from its newest extraction (full scale at least 80 % of the reference, sampled noise at most the quantization noise) and extracts those that moved, until none does, each array's holding pass then its capacitance table under `<name>/tsmc65/3l/` (`array_name`, e.g. `12b_msb_redist5_x2`). The helpers they call take the array as an argument.
 
 Each target visibly constructs its electrical `CapArrayConfig`, unit family, and metal stack. The generator derives every physical distance from the selected PDK, builds the complete `1..coarse_weight` unit family, partitions arbitrary positive electrical weights through the shared netlist decomposition, and adds routing, shield taps, connection stacks, and pins. A named target always runs `gdscheck`, foundry Calibre DRC/LVS, and xACT PEX. Results are written to `build/layout/caparray/<name>/<timestamp>/` (`caparray.layout_<name>`).
 
@@ -49,14 +49,16 @@ The FRIDA-2 targets regenerate their CDAC GDS and ideal per-chunk MOM source net
 
 ## Layout targets
 
-Comparator layouts in standard-cell rows use the same named-target interface, one target per case, each in all six PDKs:
+Comparator layouts in standard-cell rows lay out one of the comparator's named instances (`@named` in `flow/comp/sweep.py`: `frida1`, `c040`, `strongarm`, `double_tail`, `triple_tail` and the self-timed and modified double tails), in every PDK or those given:
 
 ```bash
-uv run python -m flow comp.layout_frida1_manual
-uv run python -m flow comp.layout_c040_auto
+uv run python -m flow layout comp --instance frida1
+uv run python -m flow layout comp --instance c040 --auto --pdk tsmc65
+uv run python -m flow layout comp --instance all
+uv run python -m flow layout.mos_inv   # each PDK's NMOS and PMOS row cell
 ```
 
-A layout target (`comp.layout_frida1_manual`, `layout_c040_manual`, `layout_frida1_auto`, `layout_c040_auto`, the six topologies' `layout_strongarm` ... `layout_double_tail_modified_self_timed`, or `layout_mos_inv`) writes the case's netlists in tsmc65, tsmc28, ihp130, tower180, lf150 and tpsc65, lays it out with cIcCreator, laygo and ALIGN, and runs DRC and LVS on each layout. A `manual` target places the rows as `design/layout/comp_*.json` says; an `auto` target starts from the transistor netlist and recognizes the PDK's library cells in it (`flow/layout/stdcells.py`); ALIGN lays it out on its own (it derives its constraints, places and routes), and its placement becomes the floorplan of the same format for cIcCreator and laygo, its rows packed toward a square block. Logic is always the PDK's library cells. `design/layout/README.md` describes the recognition. Each runs its `*_all_pdks` function (`comp_frida1_manual_all_pdks`, ...), and `comp.layout_all` runs every case. Results go to `build/layout/comp/<case>/<timestamp>/<pdk>/`: `<tool>/` with the GDS and its `signoff/`, `netlist/`, `floorplan/` (auto), and `summary.json` with the GDS, cell size, DRC violation count and LVS result per PDK and tool. A failing PDK or tool does not stop the others: the target lists them in `failures.json` and fails at the end.
+Each writes the instance's netlists in tsmc65, tsmc28, ihp130, tower180, lf150 and tpsc65, lays it out with cIcCreator, laygo and ALIGN, and runs DRC and LVS on each layout. By default the rows are placed as `design/layout/comp_<name>.json` says; `--auto` starts from the transistor netlist and recognizes the PDK's library cells in it (`flow/layout/stdcells.py`); ALIGN lays it out on its own (it derives its constraints, places and routes), and its placement becomes the floorplan of the same format for cIcCreator and laygo, its rows packed toward a square block. Logic is always the PDK's library cells. `design/layout/README.md` describes the recognition. Results go to `build/layout/comp/<name>/<timestamp>/<pdk>/` (`<name>_auto` with `--auto`): `<tool>/` with the GDS and its `signoff/`, `netlist/`, `floorplan/` (auto), and `summary.json` with the GDS, cell size, DRC violation count and LVS result per PDK and tool. A failing PDK or tool does not stop the others: they are listed in `failures.json`, and the command fails at the end.
 
 The building blocks use the comparator's runner: `flow.samp`, `flow.delay` (delay lines and ring oscillators), `flow.latch` (latches, flip-flops, dividers, SR latches; TSPC and DICE styles), `flow.ota`, `flow.follower`, `flow.moscap`, `flow.idac`, `flow.cml`, `flow.pi` (phase interpolators), `flow.clkgen`, `flow.lvshift`, `flow.ringamp`, `flow.csa` (charge-sensitive amplifiers), `flow.disc` (continuous-time discriminators), `flow.schmitt` (Schmitt triggers) and `flow.bias` (cascode bias generators). `<block>.layout_<case>` lays out one of the generator's named cases (`CASES` in its `subckt.py`) from the hand-written floorplan `design/layout/<block>_<case>.json` with all three tools in all six PDKs (its `<block>_<case>_all_pdks` function), and `<block>.layout_all` every case. Results go to `build/layout/<block>/<case>/<timestamp>/`, laid out as the comparator's. Each block's `readme.md` lists its cases.
 
@@ -66,7 +68,7 @@ The tools come from the environment: `CICPY` (cicpy 0.3, which has `compile`; de
 
 ADC, comparator, sampler, and CDAC simulations use the same named-target interface; `python -m flow` lists the choices without generating or running anything.
 
-The building blocks' simulations are targets the same way. Each has one `<block>.characterization` campaign (`<block>_characterization` in its `sim.py`) that writes a typed measurement per point, in every PDK (`<run>/<pdk>/<case>/…/result.h5`); `uv run python -m flow <block>.characterization_study` analyzes a pinned campaign and writes its architecture-comparison figures per PDK to `build/analysis/<block>/<timestamp>/<pdk>/`.
+The building blocks' simulations are targets the same way. The comparator follows the [block pipeline](pipeline.md): its stage files from parameters to records, characterized instance by instance by the sweep runner (`python -m flow run comp`). Each other block has one `<block>.characterization` campaign (`<block>_characterization` in its `sim.py`) that writes a typed measurement per point, in every PDK (`<run>/<pdk>/<case>/…/result.h5`); `uv run python -m flow <block>.characterization_study` analyzes a pinned campaign and writes its architecture-comparison figures per PDK to `build/analysis/<block>/<timestamp>/<pdk>/`.
 
 Each target owns its reviewed parameter recipe. Short, noise-free Spectre diagnostics call the same simulation function with `check=True`, through pytest only:
 
@@ -79,7 +81,7 @@ uv run pytest -m spectre -k 'adc-frida2_sequence'
 
 Allow roughly one hour for the full Spectre suite on asiclab003; runtime depends on the host and available resources. Run the full group occasionally or after broad simulation-flow changes, not after every edit. For routine changes, use `-k` to select the tests covering the affected block or experiment. "Short" describes the simulated time, not the wall-clock runtime of extracted circuits.
 
-The `spectre` group is excluded by default and requires no custom pytest flag. It covers the maintained ADC, comparator, sampler and capacitor-array targets, including six representative comparator cases. Artifacts and diagnostic reports remain beneath timestamped `build/diagnostics/` directories. Missing Spectre or an unavailable PDK installation skips with a reason; missing configured inputs, invalid decks, license failures, and simulator errors fail. Circuit-check findings remain available in reports; these diagnostics are not comprehensive circuit signoff. There are no CLI diagnostic flags, netlist-only modes, or separate check targets.
+The `spectre` group is excluded by default and requires no custom pytest flag. It covers the maintained ADC, sampler and capacitor-array targets, and one short run of the comparator's pipeline (simulated and read). Artifacts and diagnostic reports remain beneath timestamped `build/diagnostics/` directories. Missing Spectre or an unavailable PDK installation skips with a reason; missing configured inputs, invalid decks, license failures, and simulator errors fail. Circuit-check findings remain available in reports; these diagnostics are not comprehensive circuit signoff. There are no CLI diagnostic flags, netlist-only modes, or separate check targets.
 
 ## Circuit simulation
 
@@ -94,9 +96,6 @@ uv run python -m flow adc.frida2_sequence
 uv run python -m flow adc.hdl21_transfer_curve
 uv run python -m flow adc.frida1_transfer_curve
 
-# Comparator campaigns
-uv run python -m flow comp.hdl21_comp_perf_vs_size
-uv run python -m flow comp.frida1_fixed_input_noise
 
 # First standalone block-level simulations
 uv run python -m flow samp.frida1_transient
@@ -105,15 +104,15 @@ uv run python -m flow caparray.frida1_transfer_curve
 
 The extracted fixed-input rate sweep groups the one-layer and two-layer radix-17 and radix-20 ADCs beneath one timestamped run. Each flavor has its own named subdirectory containing the 2, 6, and 10 MS/s results. Independent cases run concurrently within a fixed worker budget, while retaining one coherent campaign directory.
 
-The ADC and comparator runners convert completed raw results to typed HDF5 in each case directory. Sampler and CDAC retain the Spectre raw result and log; their standalone runners do not yet invoke the existing typed measurement and analysis path. The comparator analysis validates the 297 typed HDF5 files and their embedded candidate metadata directly, without a separate campaign manifest. Accepted analysis directories remain explicit paths in the studies (the `*_study` targets) and are updated manually after reviewing a run.
+The ADC runners convert completed raw results to typed HDF5 in each case directory; the comparator's runs are read as measurements on the simulator's own time axis (`flow.pipeline.read`, [pipeline](pipeline.md)). Sampler and CDAC retain the Spectre raw result and log; their standalone runners do not yet invoke the existing typed measurement and analysis path. Accepted analysis directories remain explicit paths in the studies (the `*_study` targets) and are updated manually after reviewing a run.
 
-Every executable target builds one native HDL21 `Sim` per parameter variant and calls `Sim.run()` or `hs.run()` with the timestamped output as the VLSIR run directory. ADC and comparator batches use isolated spawned processes. The comparator campaign runs 24 workers with one Spectre thread each; the single-case sampler and CDAC targets run directly. ADC and comparator convert the returned transient to typed HDF5 before releasing it; the standalone sampler and CDAC targets retain the native raw result without converting it. VLSIR retains the generated `netlist.scs` in every run directory, so a separate netlist-writing layer or target is unnecessary.
+Every executable target builds one native HDL21 `Sim` per parameter variant and calls `Sim.run()` or `hs.run()` with the timestamped output as the VLSIR run directory. ADC batches and the sweep's instances use isolated spawned processes, one Spectre thread each; the single-case sampler and CDAC targets run directly. The ADC converts the returned transient to typed HDF5 before releasing it; the standalone sampler and CDAC targets retain the native raw result without converting it. VLSIR retains the generated `netlist.scs` in every run directory, so a separate netlist-writing layer or target is unnecessary.
 
 Concurrency and each case's Spectre `+mt` setting are visible in the target which owns the campaign. Simulation targets require `spectre` on `PATH`; source `design/spice/workspace.sh` first when necessary.
 
 ## Design-space sweeps
 
-`flow.sweep` characterizes every block's design space: each `flow/<block>/sweep.py` gives its instances in each PDK as parameter values (`instances(pdk)`: its circuits' structures times four to eight sizes of their key devices, the invalid combinations left out). An instance is its parameters, nothing else: its id is `<pdk>__<digest>`, the digest the first 12 hex digits of the SHA-1 of its flat parameters, the same digest the behavioral models look a characterization up by. Each is characterized in a fresh process of its own (under five minutes; 36 at once by default: a Spectre X run holds 3 of the server's 120 licences):
+`flow.sweep` characterizes every block's design space: each `flow/<block>/sweep.py` gives its instances in each PDK as parameter values (a block on the pipeline as families, each the product of its knobs, and named instances, its `params.valid(params, pdk)` leaving out what does not work in a PDK; the others as `instances(pdk)`: their circuits' structures times four to eight sizes of their key devices). An instance is its parameters, nothing else: its id is `<pdk>__<digest>`, the digest the first 12 hex digits of the SHA-1 of its flat parameters, the same digest the behavioral models look a characterization up by. Each is characterized in a fresh process of its own (under five minutes; 36 at once by default: a Spectre X run holds 3 of the server's 120 licences):
 
 ```sh
 uv run python -m flow sweep.run       # every block, every PDK, a fresh run (36 workers)
@@ -121,10 +120,21 @@ uv run python -m flow sweep.missing   # each block's newest run's failed or miss
 uv run python -m flow sweep.layout    # ALIGN, signed off: area and density join the metrics; rerun to retry what is not clean
 uv run python -m flow sweep.tables    # the viewer's tables (also web.tables)
 uv run python -m flow web.serve
-uv run python -m flow comp.sweep      # one block: characterized, laid out and tabulated
 ```
 
-For another selection of blocks, PDKs or workers, call `flow.sweep.runner`'s `run`, `layout` and `table` from Python.
+A block on the pipeline is run alone by its verbs:
+
+```sh
+uv run python -m flow run comp                                   # a fresh run, every PDK (36 workers)
+uv run python -m flow run comp --pdk tsmc65 --instance frida1 --instance 'dynamic_bias(ratio=3.5, k=2)'
+uv run python -m flow run comp --missing                         # the newest run's failed or missing instances
+uv run python -m flow layout comp                                # the newest run's instances by ALIGN
+uv run python -m flow table comp
+uv run python -m flow plot comp noise_cm --from build/sweep/comp/<run> --pdk tsmc65   # records' figures (PDF)
+uv run python -m flow plot comp common_mode --from build/scan_comp/<run>             # captures' figures
+```
+
+An instance is picked by name, by its label (`family(knob=value, ...)`, as the run's records hold it) or by its digest. `plot` draws with matplotlib, or with `--backend web` writes each figure's spec as the JSON the viewer draws. For another selection of blocks, PDKs or workers, call `flow.sweep.runner`'s `run`, `layout` and `table` from Python. A run of some PDKs alone replaces only those: the table and the behavioral models' lookup (`flow.sweep.lookup`) take each PDK's newest run of the block.
 
 Each instance writes `build/sweep/<block>/<run>/<pdk>/<digest>/instance.json`: its id, its parameters, its scalar metrics (the device count and gate area of its compiled netlist among them), its condition sweeps (over supply, common mode, load, frequency) and its transient measurements. `sweep.missing` runs the newest run's failed instances again. ALIGN places each instance by the hand-written floorplan of the block's named case with the same structure (`design/layout/<block>_<case>.json`, chosen by the parameters the block's `STRUCTURE` names; a minute or two) and, where it has none or that layout is not DRC clean and LVS correct, on its own (ten minutes or more). The viewer (`flow/web`) shows a block's instances as one table and a scatter plot of any metric against any other, and each instance on a page of its own.
 

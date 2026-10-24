@@ -4,8 +4,9 @@
 
 The record (an ``instance.json``: its metrics and condition sweeps) of the block's instance whose
 parameters equal ``params`` in ``pdk``: an instance is its parameters, so it is found by their
-digest (``flow.sweep.runner.digest``): in the block's newest sweep run
-(``build/sweep/<block>/<run>/<pdk>/<digest>/``) where it ran there, else in
+digest (``flow.sweep.runner.digest``): in the block's newest sweep run in that PDK
+(``build/sweep/<block>/<run>/<pdk>/<digest>/``; a run of some PDKs alone leaves the others' in the
+run before) where it ran there, else in
 ``build/models/<block>/<pdk>/<digest>/``, characterized there once, on demand, by the block's
 ``sweep.characterize`` in a process of its own, as the sweep runs an instance. The same parameters
 that build the block's netlist so fetch the numbers its behavioral model runs on.
@@ -13,14 +14,12 @@ that build the block's netlist so fetch the numbers its behavioral model runs on
 
 from __future__ import annotations
 
-import dataclasses
 import fcntl
 import json
 import time
 import traceback
 from concurrent.futures import ProcessPoolExecutor
 from functools import cache
-from importlib import import_module
 from multiprocessing import get_context
 from pathlib import Path
 
@@ -31,18 +30,18 @@ MODELS_DIR = ROOT / "build/models"
 
 
 @cache
-def _newest_run(block: str) -> Path | None:
+def _newest_run(block: str, pdk: str) -> Path | None:
     try:
-        return newest_run(block)
+        return newest_run(block, pdk)
     except FileNotFoundError:
         return None
 
 
 def _sweep_record(block: str, pdk: str, ident: str) -> dict | None:
-    """The newest sweep run's record of ``block``'s instance with this digest, where it ran there
-    without error."""
+    """The record of ``block``'s instance with this digest in the newest sweep run in ``pdk``,
+    where it ran there without error."""
 
-    run = _newest_run(block)
+    run = _newest_run(block, pdk)
     path = run / pdk / ident / "instance.json" if run is not None else None
     if path is None or not path.exists():
         return None
@@ -52,13 +51,10 @@ def _sweep_record(block: str, pdk: str, ident: str) -> dict | None:
 
 def _characterize(block: str, pdk: str, params, run_dir: Path) -> dict:
     """One instance characterized in this (fresh) process, as ``flow.sweep.runner.instance_job``
-    characterizes a sweep's."""
+    characterizes a sweep's (``flow.sweep.runner.characterize``)."""
 
-    import hdl21 as h
+    from flow.sweep.runner import characterize
 
-    from flow.sweep import geometry
-
-    sweep = import_module(f"flow.{block}.sweep")
     flat = flat_params(params)
     record = {
         "block": block,
@@ -73,13 +69,7 @@ def _characterize(block: str, pdk: str, params, run_dir: Path) -> dict:
     start = time.time()
     run_dir.mkdir(parents=True, exist_ok=True)
     try:
-        h.pdk.set_default(import_module(f"pdk.{pdk}").pdk_logic)
-        result = sweep.characterize(run_dir, pdk, params)
-        module = sweep.GENERATOR(params)
-        h.pdk.compile(module)
-        record["metrics"] = {**geometry(module, pdk), **result.metrics}
-        record["details"] = [dataclasses.asdict(detail) for detail in result.details]
-        record["waves"] = result.waves
+        record["metrics"], record["details"], record["waves"] = characterize(block, run_dir, pdk, params)
     except Exception:  # noqa: BLE001 - the record carries the failure
         record["error"] = traceback.format_exc(limit=6)[-4000:]
     record["seconds"] = round(time.time() - start, 1)

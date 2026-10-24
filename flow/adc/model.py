@@ -6,8 +6,9 @@ generator takes (``AdcParams``), switched by the SAR loop of ``flow.adc.behavior
     model.capture(tb, path)  # a MeasAdc, as a SPICE capture of the same AdcTbParams writes one
 
 The blocks: the comparator (``flow.comp.model``), the sampling switch (``flow.samp.model``), the
-capacitor array (``flow.caparray.model``) and its drivers (``flow.capdriver.model``), each from its
-own characterization or extraction in the PDK; the DAC's settling, stage by stage, from the SPICE
+capacitor array (``flow.caparray.model``) and its drivers (``flow.capdriver.model``, derived from the
+array's plates: ``flow.cdac.subckt.driver_strengths``), each from its own characterization or
+extraction in the PDK; the DAC's settling, stage by stage, from the SPICE
 characterization of the array with its drivers (``flow.cdac.model``: ``python -m flow
 cdac.characterization`` runs it ahead), or, where there is none, estimated from the drivers'
 resistance and delay with a warning. The SAR logic is the fixed digital netlist built by
@@ -26,6 +27,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
+import flow.comp.model as comp_model
 from flow.adc.behavioral import (
     AdcBehavioralParams,
     CdacBehavioralParams,
@@ -43,7 +45,7 @@ from flow.caparray.subckt import get_caparray_weights
 from flow.capdriver.model import CapDriverModel, stage_drivers
 from flow.capdriver.subckt import CapDriverParams, Cells
 from flow.cdac.model import CdacModel
-from flow.comp.model import CompModel
+from flow.cdac.subckt import driver_strengths
 from flow.samp.model import SampModel
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 from flow.scans.scan_behavioral import build_adc_interface_wave, calc_source_value
@@ -58,6 +60,8 @@ VIN_CM_FRACTION = 0.700 / 1.2
 # rail couple it to their top plate, so differentially it cancels where both sides hold equal
 # capacitance at the rail (mid-scale) and grows toward either end of the codes.
 RAIL_NOISE_V = 0.5e-3
+# what ``AdcModel.behavioral``'s ``quiet`` silences or makes ideal
+QUIET = frozenset({"sampler", "sampling", "comparator", "comparator_noise", "rail"})
 
 
 @dataclass(frozen=True)
@@ -66,7 +70,7 @@ class AdcModel:
 
     pdk: str
     params: AdcParams
-    comp: CompModel
+    comp: comp_model.Model
     samp: SampModel
     cdac: CapArrayModel
     drivers: tuple[CapDriverModel, ...]
@@ -76,7 +80,9 @@ class AdcModel:
     @classmethod
     def of(cls, pdk: str, params: AdcParams, *, simulate: bool = True, rail_noise_v: float = RAIL_NOISE_V) -> AdcModel:
         cdac = CapArrayModel.of(pdk, params.cdac)
-        driver = CapDriverParams(n_stages=len(cdac.main_f), strengths=params.cdac.driver_strengths, cells=Cells.GENERIC)
+        # the drivers the array's plates call for (flow.cdac.subckt.driver_strengths)
+        strengths = driver_strengths(pdk, params.cdac, cdac, simulate=simulate)
+        driver = CapDriverParams(n_stages=len(cdac.main_f), strengths=strengths, cells=Cells.GENERIC)
         # the DAC's characterization is looked up, never run here (minutes of SPICE an array, which
         # every converter on the array would wait for)
         try:
@@ -90,7 +96,7 @@ class AdcModel:
         return cls(
             pdk=pdk,
             params=params,
-            comp=CompModel.of(pdk, params.comp, simulate=simulate),
+            comp=comp_model.Model.of(pdk, params.comp, simulate=simulate),
             samp=SampModel.of(pdk, params.samp, simulate=simulate),
             cdac=cdac,
             drivers=stage_drivers(pdk, driver, np.maximum(cdac.main_f, cdac.diff_f), simulate=simulate),
@@ -171,11 +177,15 @@ class AdcModel:
         tau_scale: float = 1.0,
     ) -> AdcBehavioralParams:
         """The behavioral ADC: one capacitor draw from ``seed`` (none where ``unit_mismatch`` is 0);
-        ``quiet`` silences the "sampling" noise, the DAC "rail" noise or the comparator's noise alone
-        ("comparator_noise": its delay stays, so a late decision still holds the last bit), or makes
-        the "comparator" ideal (no noise, never late). Each stage's step starts its delay after the
-        LOGIC edge (the SAR register's clock-to-output is not modeled) and settles with the stage's
-        time constant, times ``tau_scale`` (0: ideal, every step whole at once)."""
+        ``quiet`` silences the "sampling" noise (kT/C and the aperture jitter), the DAC "rail" noise
+        or the comparator's noise alone ("comparator_noise": its delay stays, so a late decision
+        still holds the last bit), or makes the "comparator" ideal (no noise, never late) or the
+        "sampler" a perfect track-and-hold (no on-resistance, so no tracking error: its noise is
+        "sampling"'s). Each stage's step starts its delay after the LOGIC edge (the SAR register's
+        clock-to-output is not modeled) and settles with the stage's time constant, times
+        ``tau_scale`` (0: ideal, every step whole at once)."""
+        if unknown := set(quiet) - QUIET:
+            raise ValueError(f"nothing to quiet by {sorted(unknown)}: expected some of {sorted(QUIET)}")
         rng = np.random.default_rng(seed)
         plates = {}
         for side in ("p", "n"):
@@ -185,6 +195,18 @@ class AdcModel:
         comp = self.comp.behavioral(vin_cm_v=float(tb.vin_cm.dc))
         if "sampling" in quiet:
             samp = type(samp)(**{**samp.__dict__, "noise_v": 0.0, "jitter_s": 0.0})
+        if "sampler" in quiet:
+            # a perfect track-and-hold: the held value is the input at the sampling instant (the
+            # switch's on-resistance, which lags the input by R(v) C dv/dt, gone)
+            samp = type(samp)(
+                **{
+                    **samp.__dict__,
+                    "ron_table_v": None,
+                    "ron_table_ohm": None,
+                    "n_conductance_s_per_v": 0.0,
+                    "p_conductance_s_per_v": 0.0,
+                }
+            )
         if "comparator" in quiet:
             # an ideal comparator: no noise, and never late
             comp = type(comp)(**{**comp.__dict__, "noise_v": 0.0, "delay_table_v": None, "delay_table_s": None})

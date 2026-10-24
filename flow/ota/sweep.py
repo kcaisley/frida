@@ -25,7 +25,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import NOMINAL_VCM, SINE, STEP, OtaTbParams, _run_ota_sim, is_large_signal, ota_transient_names
 from .subckt import CASES, Ota, OtaParams, Topology, is_valid_ota_params, write_netlist
@@ -206,7 +206,7 @@ def characterize(run_dir: Path, pdk: str, ota: OtaParams) -> Record:
             "thd_db": float(distortion.thd_db[0]) if distortion else math.nan,
         },
         details=[
-            Detail(
+            Plot(
                 name="gain",
                 title="Gain over frequency (mid-supply input)",
                 x_label="Frequency (Hz)",
@@ -215,7 +215,7 @@ def characterize(run_dir: Path, pdk: str, ota: OtaParams) -> Record:
                 series={"gain": ac.gain_db[nominal].tolist()},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="phase",
                 title="Phase over frequency (mid-supply input)",
                 x_label="Frequency (Hz)",
@@ -224,7 +224,7 @@ def characterize(run_dir: Path, pdk: str, ota: OtaParams) -> Record:
                 series={"phase": ac.phase_deg[nominal].tolist()},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="noise_density",
                 title="Input-referred noise density (mid-supply input)",
                 x_label="Frequency (Hz)",
@@ -234,7 +234,7 @@ def characterize(run_dir: Path, pdk: str, ota: OtaParams) -> Record:
                 x_log=True,
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="rejection",
                 title="Supply and common-mode rejection at outp",
                 x_label="Frequency (Hz)",
@@ -243,7 +243,7 @@ def characterize(run_dir: Path, pdk: str, ota: OtaParams) -> Record:
                 series={"PSRR": ac.psrr_db[nominal].tolist(), "CMRR": ac.cmrr_db[nominal].tolist()},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="gain_cm",
                 title="DC gain over the input common mode",
                 x_label="Input common mode (V)",
@@ -251,7 +251,7 @@ def characterize(run_dir: Path, pdk: str, ota: OtaParams) -> Record:
                 x=cm_v,
                 series={"DC gain": gains.tolist()},
             ),
-            Detail(
+            Plot(
                 name="ugbw_cm",
                 title="Unity-gain frequency over the input common mode",
                 x_label="Input common mode (V)",
@@ -260,7 +260,7 @@ def characterize(run_dir: Path, pdk: str, ota: OtaParams) -> Record:
                 series={"unity-gain frequency": ac.ugbw_hz[cm_rows].tolist()},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="noise_cm",
                 title="Input-referred noise at 1 MHz over the input common mode",
                 x_label="Input common mode (V)",
@@ -269,7 +269,7 @@ def characterize(run_dir: Path, pdk: str, ota: OtaParams) -> Record:
                 series={"1 MHz": noise.spot_noise_v_rthz[cm_rows].tolist()},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="gain_supply",
                 title="DC gain over the supply",
                 x_label="Supply over nominal",
@@ -277,7 +277,7 @@ def characterize(run_dir: Path, pdk: str, ota: OtaParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"DC gain": supply_gains.tolist()},
             ),
-            Detail(
+            Plot(
                 name="ugbw_supply",
                 title="Unity-gain frequency over the supply",
                 x_label="Supply over nominal",
@@ -286,7 +286,7 @@ def characterize(run_dir: Path, pdk: str, ota: OtaParams) -> Record:
                 series={"unity-gain frequency": ac.ugbw_hz[supply_rows].tolist()},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="power_supply",
                 title="Power over the supply",
                 x_label="Supply over nominal",

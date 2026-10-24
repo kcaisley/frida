@@ -19,7 +19,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import CONTROL_SWEEP, NOMINAL_CONTROL, DelayTbParams, _run_delay_sim, delay_signal_names
 from .subckt import CASES, Control, Delay, DelayParams, Stage, is_valid_delay_params, write_netlist
@@ -135,7 +135,7 @@ def characterize(run_dir: Path, pdk: str, delay: DelayParams) -> Record:
             "transition_fall_s": math.nan,
         }
         details = [
-            Detail(
+            Plot(
                 name="frequency_supply",
                 title="Ring frequency over the supply (control 8/12 of the core supply)",
                 x_label="Supply over nominal",
@@ -157,7 +157,7 @@ def characterize(run_dir: Path, pdk: str, delay: DelayParams) -> Record:
             "transition_fall_s": float(over_supply.output_fall_s[at]),
         }
         details = [
-            Detail(
+            Plot(
                 name="delay_supply",
                 title="Line delay over the supply (control 8/12 of the core supply)",
                 x_label="Supply over nominal",
@@ -178,7 +178,7 @@ def characterize(run_dir: Path, pdk: str, delay: DelayParams) -> Record:
         "delay_gain_s_per_v": math.nan,
     }
     details += [
-        Detail(
+        Plot(
             name="stage_delay_supply",
             title="Delay per stage over the supply",
             x_label="Supply over nominal",
@@ -186,7 +186,7 @@ def characterize(run_dir: Path, pdk: str, delay: DelayParams) -> Record:
             x=list(SUPPLY_SWEEP),
             series={"stage delay": list(stage_delay)},
         ),
-        Detail(
+        Plot(
             name="energy_supply",
             title="Energy per cycle over the supply" if delay.ring else "Energy per input cycle over the supply",
             x_label="Supply over nominal",
@@ -206,7 +206,7 @@ def characterize(run_dir: Path, pdk: str, delay: DelayParams) -> Record:
                 (over_control.frequency_hz[high] - over_control.frequency_hz[low]) / span
             )
             details.append(
-                Detail(
+                Plot(
                     name="frequency_control",
                     title="Ring frequency over the control (core supply)",
                     x_label="Control (V)",
@@ -220,7 +220,7 @@ def characterize(run_dir: Path, pdk: str, delay: DelayParams) -> Record:
             line = (over_control.rise_delay_s + over_control.fall_delay_s) / 2
             metrics["delay_gain_s_per_v"] = float((line[high] - line[low]) / span)
             details.append(
-                Detail(
+                Plot(
                     name="delay_control",
                     title="Line delay over the control (core supply)",
                     x_label="Control (V)",
@@ -233,7 +233,7 @@ def characterize(run_dir: Path, pdk: str, delay: DelayParams) -> Record:
                 )
             )
         details.append(
-            Detail(
+            Plot(
                 name="energy_control",
                 title="Energy per cycle over the control (core supply)",
                 x_label="Control (V)",

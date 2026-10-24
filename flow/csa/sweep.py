@@ -24,7 +24,7 @@ import hdl21 as h
 import numpy as np
 from hdl21.prefix import f
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import CHARGES_C, VREF, CsaTbParams, _run_csa_sim, csa_signal_names
 from .subckt import CASES, Csa, CsaParams, Feedback, is_valid_csa_params, write_netlist
@@ -165,7 +165,7 @@ def characterize(run_dir: Path, pdk: str, csa: CsaParams) -> Record:
             "enc_max_supply_electrons": float(np.max(encs)),
         },
         details=[
-            Detail(
+            Plot(
                 name="pulse",
                 title="Response to each charge, from the injection",
                 x_label="Time from the injection (s)",
@@ -173,7 +173,7 @@ def characterize(run_dir: Path, pdk: str, csa: CsaParams) -> Record:
                 x=pulse.time_s[::stride].tolist(),
                 series={f"{charge * 1e15:g} fC": row[::stride].tolist() for charge, row in zip(charges, pulse.pulse_v)},
             ),
-            Detail(
+            Plot(
                 name="amplitude_charge",
                 title="Amplitude over the injected charge",
                 x_label="Injected charge (C)",
@@ -183,7 +183,7 @@ def characterize(run_dir: Path, pdk: str, csa: CsaParams) -> Record:
                 x_log=True,
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="gain_charge",
                 title="Gain over the injected charge",
                 x_label="Injected charge (C)",
@@ -192,7 +192,7 @@ def characterize(run_dir: Path, pdk: str, csa: CsaParams) -> Record:
                 series={"gain": pulse.gain_v_per_c.tolist()},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="tot_charge",
                 title="Time over threshold (half the smallest charge's amplitude) over the charge",
                 x_label="Injected charge (C)",
@@ -203,7 +203,7 @@ def characterize(run_dir: Path, pdk: str, csa: CsaParams) -> Record:
             ),
             *(
                 [
-                    Detail(
+                    Plot(
                         name="noise_density",
                         title="Output noise density without charge",
                         x_label="Frequency (Hz)",
@@ -217,7 +217,7 @@ def characterize(run_dir: Path, pdk: str, csa: CsaParams) -> Record:
                 if noise is not None
                 else []
             ),
-            Detail(
+            Plot(
                 name="gain_supply",
                 title="Gain over the supply (0.25 fC)",
                 x_label="Supply over nominal",
@@ -225,7 +225,7 @@ def characterize(run_dir: Path, pdk: str, csa: CsaParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"gain": gains},
             ),
-            Detail(
+            Plot(
                 name="peaking_supply",
                 title="Peaking time over the supply (0.25 fC)",
                 x_label="Supply over nominal",
@@ -233,7 +233,7 @@ def characterize(run_dir: Path, pdk: str, csa: CsaParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"peaking time": peakings},
             ),
-            Detail(
+            Plot(
                 name="enc_supply",
                 title="Equivalent noise charge over the supply",
                 x_label="Supply over nominal",
@@ -241,7 +241,7 @@ def characterize(run_dir: Path, pdk: str, csa: CsaParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"ENC": encs},
             ),
-            Detail(
+            Plot(
                 name="power_supply",
                 title="Power over the supply",
                 x_label="Supply over nominal",

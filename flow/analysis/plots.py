@@ -26,6 +26,7 @@ from matplotlib.patches import Patch
 from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator, NullLocator, StrMethodFormatter
 from scipy.special import ndtr
 
+from flow import comp
 from flow.adc.sequences import AdcSequence
 from flow.analysis import calc
 from flow.analysis.types import (
@@ -51,13 +52,10 @@ from flow.analysis.types import (
     AnalysisAdcScopeBits,
     AnalysisAdcTransfer,
     AnalysisCdacCapMismatch,
-    AnalysisCompCommonMode,
-    AnalysisCompOffsetNoise,
     AnalysisScope,
     Meas,
     MeasAdc,
     MeasCdac,
-    MeasComp,
     Wave,
 )
 from flow.scans.scope import ScopeConns, scope_wave
@@ -254,7 +252,7 @@ def style_instance_text(analysis: Analysis) -> tuple[str, ...]:
     return () if analysis.index is None else (f"ADC: {analysis.index:02d}",)
 
 
-def style_measurement_group_text(msmt_list: Sequence[Meas]) -> tuple[str, ...]:
+def style_measurement_group_text(msmt_list: Sequence[Meas | comp.AnalysisDecisions]) -> tuple[str, ...]:
     """Return only setup lines shared by every measurement in a group."""
 
     # rcParams cannot derive display text from typed measurement metadata.
@@ -442,7 +440,7 @@ def plot_waveforms(
     return save_figure(fig, output_path)
 
 
-def style_measurement_text(msmt: Meas) -> tuple[str, ...]:
+def style_measurement_text(msmt: Meas | comp.AnalysisDecisions) -> tuple[str, ...]:
     """Format concise plot context persisted with one measurement."""
 
     tb = msmt.tb
@@ -450,7 +448,7 @@ def style_measurement_text(msmt: Meas) -> tuple[str, ...]:
     adc_index = getattr(msmt.param, "observed_adc", None)
     if adc_index is not None:
         lines += (f"ADC: {adc_index:02d}",)
-    elif msmt.info.backend != "physical" and isinstance(msmt, (MeasAdc, MeasComp)):
+    elif msmt.info.backend != "physical" and isinstance(msmt, (MeasAdc, comp.AnalysisDecisions)):
         lines += ("Source: Sim" if msmt.info.backend == "behavioral" else f"Source: {msmt.info.backend.upper()}",)
     mismatch = msmt.info.readbacks.get("unit_mismatch") if msmt.info.readbacks else None
     if msmt.info.backend == "behavioral" and mismatch is not None:
@@ -2927,8 +2925,8 @@ def plot_adc_decision_path_density(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_comp_offset_noise(
-    msmt_list: Sequence[MeasComp],
-    analysis: AnalysisCompOffsetNoise,
+    msmt_list: Sequence[comp.AnalysisDecisions],
+    analysis: comp.AnalysisOffsetNoise,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -2962,8 +2960,8 @@ def plot_comp_offset_noise(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_comp_sampling_campaign(
-    msmt_list2d: Sequence[Sequence[MeasComp]],
-    analysis_list: Sequence[AnalysisCompOffsetNoise],
+    msmt_list2d: Sequence[Sequence[comp.AnalysisDecisions]],
+    analysis_list: Sequence[comp.AnalysisOffsetNoise],
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -3082,9 +3080,9 @@ def plot_comp_sampling_campaign(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_comp_common_mode_campaign(
-    msmt_list: Sequence[MeasComp],
-    offsets: Sequence[AnalysisCompOffsetNoise],
-    common_mode: AnalysisCompCommonMode,
+    msmt_list: Sequence[comp.AnalysisDecisions],
+    offsets: Sequence[comp.AnalysisOffsetNoise],
+    common_mode: comp.AnalysisCommonMode,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:

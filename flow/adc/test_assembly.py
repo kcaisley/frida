@@ -15,9 +15,12 @@ from flow.web.export import export_layout
 
 
 def test_the_blocks_sit_side_by_side_in_one_labelled_cell(tmp_path: Path) -> None:
-    # the first converter of the sweep with FRIDA's overlay of 4 redundant decisions
+    # the first converter of the sweep with MSB redistribution of 4 extra cycles and the second
+    # comparator of the grid
     params = next(
-        p for p in sweep.instances("tsmc65") if p.cdac.n_extra == 4 and p.cdac.redun_strat == RedunStrat.SUBRDX2_OVLY
+        p
+        for p in sweep.instances("tsmc65")
+        if p.cdac.n_extra == 4 and p.cdac.redun_strat == RedunStrat.MSB_REDIST and p.comp == sweep.COMPARATORS[1]
     )
     try:
         entry = assemble_blocks("tsmc65", params, tmp_path)

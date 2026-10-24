@@ -428,7 +428,7 @@ def _build_cdac_params(
         cdac=CapArrayConfig(
             n_dac=11,
             n_extra=5,
-            redun_strat=RedunStrat.SUBRDX2_OVLY,
+            redun_strat=RedunStrat.MSB_REDIST,
             weights=cap_weights,
         ),
     )

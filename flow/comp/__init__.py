@@ -1,16 +1,124 @@
-"""
-Comparator generator module for FRIDA.
+"""The comparator, the reference block of the pipeline (docs/pipeline.md): its parameters, circuit,
+testbench, analyses, plots and design space, each in its own stage module, their names re-exported
+here (``from flow import comp`` then ``comp.Params``, ``comp.analyze_offset_noise``)."""
 
-Exports:
-- Comp: Comparator generator
-- CompParams: Comparator parameters
-- is_valid_comp_params: Validate parameter combinations
-"""
-
-from .subckt import Comp, CompParams, is_valid_comp_params
+from . import params, subckt, sim, types, analysis, plots, sweep  # noqa: I001 - the pipeline's order
+from .analysis import (
+    analyze_clock_check,
+    analyze_common_mode,
+    analyze_decisions,
+    analyze_delay,
+    analyze_kickback,
+    analyze_metastability,
+    analyze_offset_noise,
+    analyze_power,
+    analyze_scurve,
+    analyze_timing,
+    metrics,
+)
+from .params import FRIDA1, Bias, OutputStage, Params, Stages, State, TbParams, valid
+from .plots import (
+    plot_delay_supply_large,
+    plot_delay_supply_small,
+    plot_energy_supply,
+    plot_metastability,
+    plot_noise_cm,
+    plot_offset_cm,
+    plot_scurve,
+    plot_scurve_unresolved,
+)
+from .sim import simulate, testbench
+from .subckt import Nets, netlist
+from .sweep import (
+    base_strongarm,
+    c040,
+    double_tail,
+    double_tail_modified,
+    double_tail_modified_self_timed,
+    double_tail_self_timed,
+    dynamic_bias,
+    frida1,
+    frida1_like,
+    record,
+    reference,
+    runs,
+    strongarm,
+    triple_tail,
+)
+from .types import (
+    AnalysisClockCheck,
+    AnalysisCommonMode,
+    AnalysisDecisions,
+    AnalysisDelay,
+    AnalysisKickback,
+    AnalysisMetastability,
+    AnalysisOffsetNoise,
+    AnalysisPower,
+    AnalysisScurve,
+    AnalysisTiming,
+)
 
 __all__ = [
-    "Comp",
-    "CompParams",
-    "is_valid_comp_params",
+    "FRIDA1",
+    "AnalysisClockCheck",
+    "AnalysisCommonMode",
+    "AnalysisDecisions",
+    "AnalysisDelay",
+    "AnalysisKickback",
+    "AnalysisMetastability",
+    "AnalysisOffsetNoise",
+    "AnalysisPower",
+    "AnalysisScurve",
+    "AnalysisTiming",
+    "Bias",
+    "Nets",
+    "OutputStage",
+    "Params",
+    "Stages",
+    "State",
+    "TbParams",
+    "analysis",
+    "analyze_clock_check",
+    "analyze_common_mode",
+    "analyze_decisions",
+    "analyze_delay",
+    "analyze_kickback",
+    "analyze_metastability",
+    "analyze_offset_noise",
+    "analyze_power",
+    "analyze_scurve",
+    "analyze_timing",
+    "base_strongarm",
+    "c040",
+    "double_tail",
+    "double_tail_modified",
+    "double_tail_modified_self_timed",
+    "double_tail_self_timed",
+    "dynamic_bias",
+    "frida1",
+    "frida1_like",
+    "metrics",
+    "netlist",
+    "params",
+    "plot_delay_supply_large",
+    "plot_delay_supply_small",
+    "plot_energy_supply",
+    "plot_metastability",
+    "plot_noise_cm",
+    "plot_offset_cm",
+    "plot_scurve",
+    "plot_scurve_unresolved",
+    "plots",
+    "record",
+    "reference",
+    "runs",
+    "sim",
+    "simulate",
+    "strongarm",
+    "subckt",
+    "sweep",
+    "testbench",
+    "triple_tail",
+    "types",
+    "valid",
 ]

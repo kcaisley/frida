@@ -21,7 +21,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import UPSET_NODE, LatchTbParams, _run_latch_sim, latch_signal_names
 from .subckt import CASES, CLOCKED_STYLES, Latch, LatchParams, Style, is_valid_latch_params, write_netlist
@@ -141,7 +141,7 @@ def characterize(run_dir: Path, pdk: str, latch: LatchParams) -> Record:
     }
     cycle = "clock cycle" if clocked else "set and reset cycle"
     details = [
-        Detail(
+        Plot(
             name="delay_supply",
             title=f"Delay to q over the supply ({'2 ns clock' if clocked else 'set and reset'})",
             x_label="Supply over nominal",
@@ -149,7 +149,7 @@ def characterize(run_dir: Path, pdk: str, latch: LatchParams) -> Record:
             x=list(SUPPLY_SWEEP),
             series={"q rising": list(rise), "q falling": list(fall)},
         ),
-        Detail(
+        Plot(
             name="energy_supply",
             title=f"Energy per {cycle} over the supply",
             x_label="Supply over nominal",
@@ -171,7 +171,7 @@ def characterize(run_dir: Path, pdk: str, latch: LatchParams) -> Record:
         constraint = analyze_latch_constraint(offsets, timing=over_offset)
         metrics |= {"setup_s": constraint.setup_s, "hold_s": constraint.hold_s}
         details += [
-            Detail(
+            Plot(
                 name="delay_offset",
                 title="Delay to q over the data offset before the capturing edge (setup and hold)",
                 x_label="Data offset (s)",
@@ -182,7 +182,7 @@ def characterize(run_dir: Path, pdk: str, latch: LatchParams) -> Record:
                     "q falling": list(over_offset.clock_to_q_fall_s),
                 },
             ),
-            Detail(
+            Plot(
                 name="capture_offset",
                 title="Edges taking the new value or keeping the old over the data offset",
                 x_label="Data offset (s)",
@@ -215,7 +215,7 @@ def characterize(run_dir: Path, pdk: str, latch: LatchParams) -> Record:
         working = frequency[over_period.captured_fraction == 1.0]
         metrics["fmax_hz"] = float(np.max(working)) if len(working) else math.nan
         details += [
-            Detail(
+            Plot(
                 name="capture_frequency",
                 title="Edges captured over the clock frequency" + (" (toggling)" if latch.divider else ""),
                 x_label="Clock frequency (Hz)",
@@ -224,7 +224,7 @@ def characterize(run_dir: Path, pdk: str, latch: LatchParams) -> Record:
                 series={"captured": list(over_period.captured_fraction)},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="delay_frequency",
                 title="Delay to q over the clock frequency",
                 x_label="Clock frequency (Hz)",
@@ -253,7 +253,7 @@ def characterize(run_dir: Path, pdk: str, latch: LatchParams) -> Record:
         index = int(np.argmin(np.abs(np.asarray(UPSET_CHARGES_C) - shown)))
         keep(f"{round(shown * 1e15)} fC strike", f"upset_{round(shown * 1e15)}fc", strikes[index])
         details += [
-            Detail(
+            Plot(
                 name="upset_dip",
                 title="q's dip after a strike on the storage node (holding a 1)",
                 x_label="Charge (C)",
@@ -262,7 +262,7 @@ def characterize(run_dir: Path, pdk: str, latch: LatchParams) -> Record:
                 series={"dip": list(upset.q_dip_v)},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="upset_flip",
                 title="Whether a strike flips the held 1",
                 x_label="Charge (C)",

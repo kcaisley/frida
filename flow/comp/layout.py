@@ -1,20 +1,18 @@
 """Comparator layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
 
-A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator,
-laygo, ALIGN), each checked with DRC and LVS.
-Cases: the FRIDA-1 comparator and the size sweep's example double tail (c040), each from its
-hand-written floorplan (``design/layout``, "manual") or laid out by ALIGN on its own from the
-transistor netlist with its library cells recognized ("auto", ALIGN's placement the floorplan of
-cIcCreator and laygo); the characterization's six topologies (``flow.comp.sim``: StrongARM,
-triple tail and the double tails) at its sizing, each from its hand-written floorplan; and
-``mos_inv`` (one NMOS and one PMOS row cell). Every (pdk, tool) runs whatever the others do;
-the function raises at the end when any failed (``failures.json``).
+``layout_named`` lays out one named instance (``flow.comp.sweep``'s ``@named``) in the PDKs with all
+three tools (cIcCreator, laygo, ALIGN), each checked with DRC and LVS: from its hand-written
+floorplan (``design/layout/comp_<name>.json``), or, ``auto``, laid out by ALIGN on its own from the
+transistor netlist with its library cells recognized (ALIGN's placement then the floorplan of
+cIcCreator and laygo). Every (pdk, tool) runs whatever the others do; it raises at the end when any
+failed (``failures.json``). ``layout_netlist`` and ``layout_floorplan`` give the sweep's layout step
+(``flow.sweep.runner.layout``, ALIGN alone) an instance's netlists.
 
 Tools: ``CICPY`` (cicpy 0.3, with ``compile``), ``LAYGO_CLIENT`` (the hosted laygo server's
 client, needs internet), ``ALIGN_HOME`` (an ALIGN install); Calibre, Assura or KLayout as each
 PDK's signoff provider (``pdk/<pdk>/signoff.py``) uses them.
 
-    uv run python -m flow comp.layout_c040_manual
+    uv run python -m flow layout comp --instance c040
 """
 
 from __future__ import annotations
@@ -27,6 +25,7 @@ from typing import Any
 
 from klayout import db
 
+from flow.circuit import devices
 from flow.layout.align.build import build as align_build
 from flow.layout.cic.build import build as cic_build
 from flow.layout.floorplan import align_floorplan
@@ -34,26 +33,69 @@ from flow.layout.laygo.build import build as laygo_build
 from flow.layout.pdkproc import in_pdk
 from flow.layout.signoff import row_signoff
 
-from .subckt import FRIDA1, LENGTHS, SIZE_PROFILES, CompParams, OutputStage, topologies, write_netlist
+from .params import (
+    STRUCTURE,
+    TOPOLOGIES,
+    TOPOLOGY_SIZES,
+    OutputStage,
+    Params,
+)
+from .subckt import Nets, netlist
 
 ROOT = Path(__file__).resolve().parents[2]
 FLOORPLANS = ROOT / "design" / "layout"
 PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
 BUILD: dict[str, Callable[..., Path]] = {"cic": cic_build, "laygo": laygo_build, "align": align_build}
 
-# the example double tail ("c040"): the size sweep's topology 40 at the half profile, as
-# `write_case_netlist("40_half", ...)` in flow.comp.subckt builds it
-C040 = CompParams(**topologies()[40], **SIZE_PROFILES["half"], **LENGTHS)
 # where the ports leave the block, as in both comparator floorplans (circuit knowledge, not placement)
 ESCAPE = {"up": ["inp", "inn"], "down": ["clk", "clkb", "outp", "outn"]}
 
 
-def _netlists(params: CompParams, pdk: str, out_dir: Path, name: str) -> tuple[Path, Path]:
+def write_netlist(params: Params, path: Path, pdk, constant_from=None) -> Path:
+    """The comparator after ``pdk``'s compile, as one flat SPICE subcircuit named after ``path``
+    (``flow.circuit.devices.write_netlist``)."""
+    return devices.write_netlist(params, path, pdk, constant_from, generator=netlist, nets=Nets)
+
+
+def layout_netlist(out_dir: Path, pdk: str, comp: Params) -> Path:
+    """The all-transistor netlist with the PDK's library cells it contains recognized
+    (``flow.layout.stdcells``), as a comparator is laid out without a floorplan (the sweep's
+    layout step, ``flow.sweep.runner.layout_job``)."""
+
+    logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
+    transistors = write_netlist(
+        Params(**{**comp.__dict__, "output_stage": OutputStage.TRANSISTORS}), out_dir / "comp_transistors.sp", logic
+    )
+    return in_pdk(pdk, "flow.layout.stdcells", "recognize_file", transistors, out_dir / "comp.sp")
+
+
+def layout_floorplan(out_dir: Path, pdk: str, comp: Params) -> tuple[Path, Path] | None:
+    """The hand-written floorplan of the characterization's topology of the instance's structure
+    (``design/layout/comp_<topology>.json``) with the netlist it places, the standard-cell output
+    stage's; None where it has none."""
+
+    floorplan = next(
+        (
+            path
+            for name, structure in TOPOLOGIES.items()
+            if all(getattr(Params(**structure, **TOPOLOGY_SIZES), key) == getattr(comp, key) for key in STRUCTURE)
+            and (path := FLOORPLANS / f"comp_{name}.json").exists()
+        ),
+        None,
+    )
+    if floorplan is None:
+        return None
+    logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
+    stdcells = Params(**{**comp.__dict__, "output_stage": OutputStage.STDCELLS})
+    return write_netlist(stdcells, out_dir / f"{floorplan.stem}.sp", logic), floorplan
+
+
+def _netlists(params: Params, pdk: str, out_dir: Path, name: str) -> tuple[Path, Path]:
     """The two netlists of a comparator in ``pdk``: standard-cell output stage and all-transistor.
     The file stem names the subcircuit."""
 
     logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
-    stage = lambda s: CompParams(**{**params.__dict__, "output_stage": s})
+    stage = lambda s: Params(**{**params.__dict__, "output_stage": s})
     stdcells = write_netlist(stage(OutputStage.STDCELLS), out_dir / f"{name}_stdcells.sp", logic)
     transistors = write_netlist(stage(OutputStage.TRANSISTORS), out_dir / f"{name}_transistors.sp", logic)
     return stdcells, transistors
@@ -122,7 +164,7 @@ def _run(run_dir: Path, pdk: str, name: str, netlist: Path, floorplan: Path | No
     return _finish(run_dir, summary, failures)
 
 
-def _comp(run_dir: Path, pdk: str, name: str, params: CompParams, floorplan: Path | None) -> Path:
+def _comp(run_dir: Path, pdk: str, name: str, params: Params, floorplan: Path | None) -> Path:
     """A comparator: its netlists into ``run_dir/netlist/``, then ``_run``. A hand-written floorplan
     places the generator's standard-cell netlist (it names those cells). Without one, the
     transistor netlist with the library cells it contains recognized (flow/layout/stdcells.py):
@@ -138,13 +180,13 @@ def _comp(run_dir: Path, pdk: str, name: str, params: CompParams, floorplan: Pat
     return _run(run_dir, pdk, name, netlist, floorplan)
 
 
-def _all_pdks(run_dir: Path, case: Callable[..., Path], *args: Any) -> Path:
-    """``case(run_dir / pdk, pdk, *args)`` in every PDK; every failure collected, the summaries
-    merged."""
+def _all_pdks(run_dir: Path, case: Callable[..., Path], *args: Any, pdks: tuple[str, ...] = PDKS) -> Path:
+    """``case(run_dir / pdk, pdk, *args)`` in every PDK (or ``pdks``); every failure collected, the
+    summaries merged."""
 
     summary: dict[str, dict[str, Any]] = {}
     failures: dict[str, str] = {}
-    for pdk in PDKS:
+    for pdk in pdks:
         sub = run_dir / pdk
         try:
             case(sub, pdk, *args)
@@ -156,98 +198,11 @@ def _all_pdks(run_dir: Path, case: Callable[..., Path], *args: Any) -> Path:
     return _finish(run_dir, summary, failures)
 
 
-# ---- the characterization's six topologies (flow.comp.sim), hand-written floorplans
+def layout_named(run_dir: Path, name: str, params: Params, *, auto: bool = False, pdks: tuple[str, ...] = PDKS) -> Path:
+    """The named instance ``name`` in each of ``pdks`` with the three tools, into ``run_dir/<pdk>/``:
+    from its hand-written floorplan, or ``auto`` from ALIGN's placement."""
 
-
-def _topology(run_dir: Path, pdk: str, topology: str) -> Path:
-    """One of the characterization's topologies at its shared sizing, as ``comp_characterization``
-    simulates it."""
-
-    from flow.comp.sim import TOPOLOGIES, TOPOLOGY_SIZES
-
-    name = f"comp_{topology}"
-    return _comp(run_dir, pdk, name, CompParams(**TOPOLOGIES[topology], **TOPOLOGY_SIZES), FLOORPLANS / f"{name}.json")
-
-
-def _mos_inv(run_dir: Path, pdk: str) -> Path:
-    """One NMOS and one PMOS row cell, from the PDK's hand-written netlist."""
-
-    return _run(run_dir, pdk, "mos_inv", ROOT / f"pdk/{pdk}/layout/netlists/mos_inv.sp", FLOORPLANS / "mos_inv.json")
-
-
-# ---- each case in all six PDKs
-
-
-def comp_frida1_manual_all_pdks(run_dir: Path) -> Path:
-    """FRIDA-1, by its hand-written floorplan."""
-    return _all_pdks(run_dir, _comp, "comp_frida1", FRIDA1, FLOORPLANS / "comp_frida1.json")
-
-
-def comp_c040_manual_all_pdks(run_dir: Path) -> Path:
-    """c040, by its hand-written floorplan."""
-    return _all_pdks(run_dir, _comp, "comp_c040", C040, FLOORPLANS / "comp_c040.json")
-
-
-def comp_strongarm_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _topology, "strongarm")
-
-
-def comp_triple_tail_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _topology, "triple_tail")
-
-
-def comp_double_tail_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _topology, "double_tail")
-
-
-def comp_double_tail_self_timed_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _topology, "double_tail_self_timed")
-
-
-def comp_double_tail_modified_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _topology, "double_tail_modified")
-
-
-def comp_double_tail_modified_self_timed_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _topology, "double_tail_modified_self_timed")
-
-
-def comp_frida1_auto_all_pdks(run_dir: Path) -> Path:
-    """FRIDA-1, its floorplan from ALIGN's placement."""
-    return _all_pdks(run_dir, _comp, "comp_frida1", FRIDA1, None)
-
-
-def comp_c040_auto_all_pdks(run_dir: Path) -> Path:
-    """c040, its floorplan from ALIGN's placement."""
-    return _all_pdks(run_dir, _comp, "comp_c040", C040, None)
-
-
-def mos_inv_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _mos_inv)
-
-
-ALL_PDKS = (
-    comp_frida1_manual_all_pdks,
-    comp_c040_manual_all_pdks,
-    comp_strongarm_all_pdks,
-    comp_triple_tail_all_pdks,
-    comp_double_tail_all_pdks,
-    comp_double_tail_self_timed_all_pdks,
-    comp_double_tail_modified_all_pdks,
-    comp_double_tail_modified_self_timed_all_pdks,
-    comp_frida1_auto_all_pdks,
-    comp_c040_auto_all_pdks,
-    mos_inv_all_pdks,
-)
-
-
-def all_comp_layouts(run_dir: Path) -> Path:
-    """The ``*_all_pdks`` functions into ``run_dir/<function>/``."""
-
-    failures: dict[str, str] = {}
-    for target in ALL_PDKS:
-        try:
-            target(run_dir / target.__name__)
-        except Exception as error:  # noqa: BLE001 - run every case
-            failures[target.__name__] = repr(error)
-    return _finish(run_dir, {}, failures)
+    floorplan = None if auto else FLOORPLANS / f"comp_{name}.json"
+    if floorplan is not None and not floorplan.exists():
+        raise FileNotFoundError(f"{floorplan}: no hand-written floorplan of {name}; lay it out from ALIGN's (auto)")
+    return _all_pdks(run_dir, _comp, f"comp_{name}", params, floorplan, pdks=pdks)

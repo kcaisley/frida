@@ -6,7 +6,7 @@ Every capture is decoded with the design weights and with the "extracted" weight
 from the training ramp and are checked on the other. The figures are the viewer's details (shared
 x, named series, drawn like every block's), from the same analyses the paper's figures
 (``flow.analysis.plots``) draw. The decision-path density is its paths, each distinct one with how
-many conversions took it (``Detail.paths``): the whole conversion, its last decisions, and where
+many conversions took it (``Plot.paths``): the whole conversion, its last decisions, and where
 the conversions at one input end.
 
 Capacitor mismatch is predicted rather than drawn (``flow.adc.statistics``): from the nominal
@@ -36,10 +36,10 @@ from flow.analysis.calibration2 import analyze_adc_calibration2
 from flow.analysis.calibration3 import analyze_adc_calibration3
 from flow.analysis.io import read_extracted_calibration
 from flow.analysis.types import MeasAdc
-from flow.sweep import Detail
+from flow.pipeline import Plot
 
 from .behavioral import calc_side_capacitances
-from .campaign import NOMINAL_RATE_HZ, UNIT_MISMATCH, hsu_errors, input_noise
+from .campaign import LADDER, NOMINAL_RATE_HZ, UNIT_MISMATCH, hsu_errors, input_noise, ladder_names
 from .statistics import MismatchStatistics
 
 # the figures, in the order the viewer shows them: name -> title. Each is one curve (one series, or
@@ -59,6 +59,7 @@ FIGURES = {
     "noise_input": "Output noise over the input",
     "enob_rate": "ENOB over the conversion rate",
     "enob_fin": "ENOB over the input frequency at 10 MS/s",
+    "enob_ladder": "ENOB as impairments are added",
     "spectrum_low": "Spectrum at 10 MS/s, low input frequency",
     "spectrum_nyquist": "Spectrum at 10 MS/s, input near Nyquist",
     "hsu_rate": "Integrated error over the conversion rate",
@@ -82,7 +83,7 @@ MAX_PATHS = 400
 PELGROM_AXIS = np.geomspace(0.0002, 0.01, 41)
 
 
-def _path_details(trajectory: MeasAdc) -> list[Detail]:
+def _path_details(trajectory: MeasAdc) -> list[Plot]:
     """The trajectory capture's decision paths (one input, many conversions): every distinct path of
     running code estimates with how many conversions took it, over the whole conversion and over
     its last decisions (where noise splits them), and the histogram of the codes they end on, a
@@ -106,7 +107,7 @@ def _path_details(trajectory: MeasAdc) -> list[Detail]:
     # decisions are steps, the estimates codes: whole-number ticks on both
     ticks = {"x_ticks": "step", "y_ticks": "code"}
     return [
-        Detail(
+        Plot(
             "trajectory",
             FIGURES["trajectory"],
             "Decisions made",
@@ -116,7 +117,7 @@ def _path_details(trajectory: MeasAdc) -> list[Detail]:
             paths=family(0),
             **ticks,
         ),
-        Detail(
+        Plot(
             "trajectory_final",
             FIGURES["trajectory_final"],
             "Decisions made",
@@ -127,7 +128,7 @@ def _path_details(trajectory: MeasAdc) -> list[Detail]:
             **ticks,
         ),
         # a bin a code, two empty ones either side: the outline closes on the axis
-        Detail(
+        Plot(
             "trajectory_codes",
             FIGURES["trajectory_codes"],
             "Output code",
@@ -143,6 +144,22 @@ def _path_details(trajectory: MeasAdc) -> list[Detail]:
 
 def _extracted(measurement: MeasAdc):
     return read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
+
+
+def enob_ladder(captures: dict[str, MeasAdc]) -> np.ndarray | None:
+    """The ENOB ladder (``flow.adc.campaign.LADDER``): each step's spectral ENOB referred to full
+    scale, decoded as ``enob_bits`` is (the extracted weights, unrounded), quantization alone first
+    (the design resolution) and the converter as ``enob_bits`` measures it last; None where the
+    campaign has no ladder."""
+    names = ladder_names()
+    if not all(name in captures for name in names):
+        return None
+    return np.asarray(
+        [
+            analyze_adc_dynamic(captures[name], calibration=_extracted(captures[name])).spectral_enob_fs_bits
+            for name in names
+        ]
+    )
 
 
 def _by_code(ramps, values: str) -> tuple[list[float], dict[str, list[float]]]:
@@ -226,18 +243,18 @@ def _mismatch_study(captures: dict[str, MeasAdc]) -> tuple[np.ndarray, dict[str,
     return coefficients, decodings
 
 
-def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, float], list[Detail]]:
+def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Plot]]:
     """The campaign's metrics and its figures as the viewer's details (``FIGURES`` names and
     titles them) from its captures by name. ``noise_sampling`` and ``noise_comparator`` (the noise
-    capture with one source) add each source's rms noise where present, the ``mc_*`` ramps the
-    Monte Carlo's check on the predicted mismatch."""
+    capture with one source) add each source's rms noise where present, the ``ladder_*`` captures
+    the ENOB ladder (``enob_ladder``), the ``mc_*`` ramps the Monte Carlo's check on the predicted
+    mismatch."""
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    details: list[Detail] = []
+    details: list[Plot] = []
 
     def add(name: str, x_label: str, y_label: str, x, series, **options) -> None:
         details.append(
-            Detail(
+            Plot(
                 name=name,
                 title=FIGURES[name],
                 x_label=x_label,
@@ -318,14 +335,20 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
     levels_v, sigma_lsb = input_noise(captures)
     add("noise_input", "Differential input (V)", "Output noise (LSB rms)", levels_v, {"Noise": sigma_lsb})
     rate_hz = [d.sample_rate_hz for d in dynamics]
+
+    # every ENOB here is the spectral one referred to full scale (an ideal N-bit quantizer reads N,
+    # whatever the sine's amplitude), from the extracted weights' fractional codes; none where the
+    # output no longer follows the input (SNDR under 1.76 dB): a point there would only stretch
+    # the axis
+    def enob(dynamic) -> float:
+        return dynamic.spectral_enob_fs_bits if dynamic.spectral_sndr_db > 1.76 else math.nan
+
     add(
         "enob_rate",
         "Conversion rate (Hz)",
         "ENOB (bits)",
         rate_hz,
-        # no ENOB where the output no longer follows the input (SNDR under 1.76 dB): a point
-        # there would only stretch the axis
-        {"ENOB": [d.spectral_enob_bits if d.spectral_enob_bits > 0 else math.nan for d in dynamics]},
+        {"ENOB": [enob(d) for d in dynamics]},
         x_log=True,
     )
     at_nominal = sorted(
@@ -337,8 +360,19 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         "Input frequency / conversion rate",
         "ENOB (bits)",
         [d.input_frequency_hz / d.sample_rate_hz for d in at_nominal],
-        {"ENOB": [d.spectral_enob_bits if d.spectral_enob_bits > 0 else math.nan for d in at_nominal]},
+        {"ENOB": [enob(d) for d in at_nominal]},
     )
+    # the ENOB ladder: the 10 MS/s sine with one impairment more a step, ticked by their names
+    ladder = enob_ladder(captures)
+    if ladder is not None:
+        add(
+            "enob_ladder",
+            "Impairment added",
+            "ENOB (bits)",
+            range(len(LADDER)),
+            {"ENOB": ladder},
+            x_labels=[label for _, label, _, _ in LADDER],
+        )
     for name, dynamic in (("spectrum_low", at_nominal[0]), ("spectrum_nyquist", at_nominal[-1])):
         add(
             name,
@@ -435,11 +469,13 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         if f"noise_{source}" in captures
     }
     metrics = {
-        "enob_bits": dynamic.spectral_enob_bits,
+        # ENOB referred to full scale (an ideal N-bit quantizer reads N); the SNDR is the test
+        # sine's own, at -0.5 dBFS
+        "enob_bits": dynamic.spectral_enob_fs_bits,
         "sndr_db": dynamic.spectral_sndr_db,
         "sfdr_db": dynamic.spectral_sfdr_db,
-        "enob_nyquist_bits": at_nominal[-1].spectral_enob_bits,
-        "enob_low_fin_bits": at_nominal[0].spectral_enob_bits,
+        "enob_nyquist_bits": at_nominal[-1].spectral_enob_fs_bits,
+        "enob_low_fin_bits": at_nominal[0].spectral_enob_fs_bits,
         "inl_max_lsb": ramps["Design weights"].maximum_abs_inl,
         "dnl_max_lsb": ramps["Design weights"].maximum_abs_dnl,
         "inl_max_extracted_lsb": ramps["Extracted weights"].maximum_abs_inl,
@@ -448,7 +484,7 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         "missing_codes": float(ramps["Design weights"].missing_codes),
         "power_w": power_w,
         "energy_per_conversion_j": power_w / dynamic.sample_rate_hz,
-        "fom_walden_j": power_w / (2**dynamic.spectral_enob_bits * dynamic.sample_rate_hz),
+        "fom_walden_j": power_w / (2**dynamic.spectral_enob_fs_bits * dynamic.sample_rate_hz),
         "fom_schreier_db": dynamic.spectral_sndr_db + 10 * math.log10(dynamic.sample_rate_hz / 2 / power_w),
         "noise_rms_lsb": noise_lsb,
         **by_source,
@@ -461,7 +497,7 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         # the fastest rate before the ENOB first falls a bit below the slowest rate's: past it the
         # comparator or the DAC runs out of time (the sampler's distortion slopes off more gently)
         "rate_max_hz": list(
-            takewhile(lambda d: d.spectral_enob_bits >= dynamics[0].spectral_enob_bits - 1.0, dynamics)
+            takewhile(lambda d: d.spectral_enob_fs_bits >= dynamics[0].spectral_enob_fs_bits - 1.0, dynamics)
         )[-1].sample_rate_hz,
         "redundancy_first_pct": float(redundancy["Design weights"][0]),
         "redundancy_first_extracted_pct": float(redundancy["Extracted weights"][0]),
@@ -477,6 +513,12 @@ def adc_figures(captures: dict[str, MeasAdc], out_dir: Path) -> tuple[dict[str, 
         "inl_sigma_max_lsb": UNIT_MISMATCH * float(np.max(statistics.inl_sigma)),
         "min_margin_over_sigma": float(np.min(margins)) if len(margins) else math.nan,
     }
+    # the ladder's first step, and what each impairment after it costs where it is added (the
+    # losses add up to the quantization's ENOB less enob_bits)
+    if ladder is not None:
+        metrics["enob_quantization_bits"] = float(ladder[0])
+        for (key, _, _, _), before, after in zip(LADDER[1:], ladder[:-1], ladder[1:], strict=True):
+            metrics[f"enob_loss_{key}_bits"] = float(before - after)
     # the Monte Carlo's check, where the campaign drew it: its 95th percentiles at Harpe's matching
     if any(name.startswith("mc_") for name in captures):
         coefficients, mismatch = _mismatch_study(captures)

@@ -20,7 +20,7 @@ import hdl21 as h
 import numpy as np
 
 from flow.analysis import calc
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import OVERDRIVES_V, THRESHOLD, DiscTbParams, _ramp_settle_s, _run_disc_sim, disc_signal_names
 from .subckt import CASES, Disc, DiscNets, DiscParams, is_valid_disc_params, write_netlist
@@ -162,7 +162,7 @@ def characterize(run_dir: Path, pdk: str, disc: DiscParams) -> Record:
             "delay_max_supply_s": float(np.max(rise_delays)),
         },
         details=[
-            Detail(
+            Plot(
                 name="transfer",
                 title="Output over the input on the triangle (50 mV/µs)",
                 x_label="Input less the threshold (V)",
@@ -170,7 +170,7 @@ def characterize(run_dir: Path, pdk: str, disc: DiscParams) -> Record:
                 x=grid.tolist(),
                 series={"input rising": up.tolist(), "input falling": down.tolist()},
             ),
-            Detail(
+            Plot(
                 name="delay_overdrive",
                 title="Delay over the overdrive (from 100 mV below the threshold)",
                 x_label="Overdrive (V)",
@@ -179,7 +179,7 @@ def characterize(run_dir: Path, pdk: str, disc: DiscParams) -> Record:
                 series={"rising": delay.rise_delay_s.tolist(), "falling": delay.fall_delay_s.tolist()},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="trip_supply",
                 title="Trip points over the supply",
                 x_label="Supply over nominal",
@@ -187,7 +187,7 @@ def characterize(run_dir: Path, pdk: str, disc: DiscParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"rising": rise_trips, "falling": fall_trips},
             ),
-            Detail(
+            Plot(
                 name="delay_supply",
                 title="Delay over the supply (10 mV overdrive)",
                 x_label="Supply over nominal",
@@ -195,7 +195,7 @@ def characterize(run_dir: Path, pdk: str, disc: DiscParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"rising": rise_delays, "falling": fall_delays},
             ),
-            Detail(
+            Plot(
                 name="power_supply",
                 title="Power over the supply",
                 x_label="Supply over nominal",

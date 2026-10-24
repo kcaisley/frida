@@ -1,4 +1,4 @@
-"""The capacitor array's design space (``flow.sweep``): the characterization's four arrays at six
+"""The capacitor array's design space (``flow.sweep``): the characterization's five arrays at six
 unit capacitances, in every PDK.
 
 Each instance as the characterization runs it (``flow.caparray.sim``): every stage's main bottom
@@ -19,26 +19,22 @@ import hdl21 as h
 import numpy as np
 from hdl21.prefix import f
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import CASES, CapArrayTbParams, _run_caparray_sim, caparray_measurement
-from .subckt import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights, is_valid_caparray_params
+from .subckt import CapArray, CapArrayParams, get_caparray_weights, is_valid_caparray_params
 
 GENERATOR = CapArray
-# the characterization's arrays (flow.caparray.sim.CASES): FRIDA-1's radix 1.7, radix 2 on repeated
-# coarse units, 11-bit binary, sub-radix 2
+# the characterization's arrays (flow.caparray.sim.CASES): FRIDA-1's two fabricated flavours (MSB
+# redistribution, radix 2 on repeated coarse units), 11-bit binary, the MSB and LSB splits with 5
 ARRAYS = list(CASES.values())
-# the unit capacitor (FRIDA-1's 1 fF) from a quarter to eight times, against the 100 fF load
+# the unit capacitor from a quarter to eight times 1 fF, against the 100 fF load
 UNIT_CAPS = [scale * f for scale in (0.25, 0.5, 1, 2, 4, 8)]
 
 
 def instances(pdk: str) -> list[CapArrayParams]:
     """Every array at every unit capacitor, in every PDK."""
-    arrays = (
-        CapArrayParams(cdac=CapArrayConfig(**{**vars(cdac), "unit_cap": unit_cap}))
-        for cdac in ARRAYS
-        for unit_cap in UNIT_CAPS
-    )
+    arrays = (CapArrayParams(cdac=cdac, unit_cap=unit_cap) for cdac in ARRAYS for unit_cap in UNIT_CAPS)
     return [array for array in arrays if is_valid_caparray_params(array)]
 
 
@@ -49,7 +45,7 @@ def characterize(run_dir: Path, pdk: str, array: CapArrayParams) -> Record:
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
     cdac = array.cdac
     n_stages = len(get_caparray_weights(cdac))
-    timing = {"pdk": pdk, "vdd": supply, "cdac": cdac, "transition_time_s": 50e-12}
+    timing = {"pdk": pdk, "vdd": supply, "cdac": cdac, "unit_cap": array.unit_cap, "transition_time_s": 50e-12}
     benches = {
         # stage s is the packed code's bit n_stages - 1 - s; zero before each
         "stage": CapArrayTbParams(
@@ -86,7 +82,7 @@ def characterize(run_dir: Path, pdk: str, array: CapArrayParams) -> Record:
             "ramp_error_max_lsb": float(np.max(np.abs(transfer.error_units))),
         },
         details=[
-            Detail(
+            Plot(
                 name="stage_weights",
                 title="Stage weights, each stage toggled alone",
                 x_label="Stage (C0 first)",
@@ -98,7 +94,7 @@ def characterize(run_dir: Path, pdk: str, array: CapArrayParams) -> Record:
                 },
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="weight_error",
                 title="Stage weight error against the design",
                 x_label="Stage (C0 first)",
@@ -106,7 +102,7 @@ def characterize(run_dir: Path, pdk: str, array: CapArrayParams) -> Record:
                 x=stage,
                 series={"error": list(weights.weight_error * 100)},
             ),
-            Detail(
+            Plot(
                 name="transfer",
                 title="Top plate over the packed code ramp",
                 x_label="Code",
@@ -114,7 +110,7 @@ def characterize(run_dir: Path, pdk: str, array: CapArrayParams) -> Record:
                 x=list(transfer.code),
                 series={"top plate": list(transfer.voltage_v)},
             ),
-            Detail(
+            Plot(
                 name="ramp_error",
                 title="Ramp error against the design weights",
                 x_label="Code",

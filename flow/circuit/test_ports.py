@@ -65,10 +65,15 @@ def test_generated_save_maps_reference_existing_nets_and_source_terminals(block)
     from importlib import import_module
 
     sim = import_module(f"flow.{block}.sim")
-    name = block.capitalize()
-    tb = getattr(sim, f"{name}Tb")(getattr(sim, f"{name}TbParams")())
-    saved = sim.adc_signal_names(tb, "hdl21gen") if block == "adc" else getattr(sim, f"{block}_signal_names")()
-    assert len(set(saved.values())) == len(saved)
+    if block == "comp":  # on the pipeline: its testbench and the raw names it saves
+        from flow import comp
+
+        tb, saved = comp.testbench(comp.TbParams()), dict.fromkeys(comp.sim.SAVES)
+    else:
+        name = block.capitalize()
+        tb = getattr(sim, f"{name}Tb")(getattr(sim, f"{name}TbParams")())
+        saved = sim.adc_signal_names(tb, "hdl21gen") if block == "adc" else getattr(sim, f"{block}_signal_names")()
+    assert block == "comp" or len(set(saved.values())) == len(saved)
     for raw in saved:
         if raw == "time":
             continue

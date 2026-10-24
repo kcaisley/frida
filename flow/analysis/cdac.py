@@ -7,11 +7,11 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from flow import comp
 from flow.analysis import calc
 from flow.analysis.types import (
     AnalysisCdacCapMismatch,
     AnalysisCdacTransition,
-    AnalysisCompOffsetNoise,
     Identity,
     MeasCdac,
     check_identity,
@@ -20,15 +20,42 @@ from flow.analysis.types import (
 from flow.caparray import get_caparray_weights
 
 
+def analyze_cdac_decisions(measurements: Sequence[MeasCdac]) -> comp.AnalysisDecisions:
+    """One switching curve's trials as the comparator's decisions (``comp.AnalysisDecisions``),
+    for the comparator's S-curve fit (``comp.analyze_offset_noise``): each trial's differential
+    input and decision, its common mode from the testbench where the DAQ did not record it."""
+
+    identity = measurement_identity(measurements)
+    first = measurements[0]
+    return comp.AnalysisDecisions(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        info=first.info,
+        param=first.param,
+        trial_index=np.concatenate([np.asarray(m.trial_index) for m in measurements]),
+        vin_diff_v=np.concatenate([np.asarray(m.vin_diff_v, dtype=np.float64) for m in measurements]),
+        vin_cm_v=np.concatenate(
+            [
+                np.full(len(m.decision), float(m.tb.vin_cm.dc))
+                if m.vin_cm_v is None
+                else np.asarray(m.vin_cm_v, dtype=np.float64)
+                for m in measurements
+            ]
+        ),
+        decision=np.concatenate([np.asarray(m.decision) for m in measurements]),
+    )
+
+
 def analyze_cdac_transition(
     measurements: Sequence[MeasCdac],
     *,
-    offset: AnalysisCompOffsetNoise,
+    offset: comp.AnalysisOffsetNoise,
 ) -> AnalysisCdacTransition:
     """Place one element's switching-curve fit at its CDAC side, element, direction, and mode.
 
     ``offset`` is the S-curve fit of exactly these measurements, made by
-    ``analyze_comp_offset_noise``; its 50% point is the transition. The runner
+    ``comp.analyze_offset_noise`` (of ``analyze_cdac_decisions``); its 50% point is the transition. The runner
     chooses which sweep stage (for example only the fine points) forms the curve.
     """
 
@@ -69,7 +96,7 @@ def analyze_cdac_cap_mismatch(
     measurements: Sequence[MeasCdac],
     *,
     transitions: Sequence[AnalysisCdacTransition],
-    comparator: AnalysisCompOffsetNoise,
+    comparator: comp.AnalysisOffsetNoise,
 ) -> AnalysisCdacCapMismatch:
     """Decompose main/diff normalized capacitance of one ADC from its switching curves.
 

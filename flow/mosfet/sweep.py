@@ -24,7 +24,7 @@ import hdl21 as h
 import numpy as np
 from hdl21.primitives import MosType, MosVth
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import MosfetTbParams, _characterize, readbacks
 from .subckt import WIDTH, Mosfet, MosfetParams, flavors
@@ -127,7 +127,7 @@ def characterize(run_dir: Path, pdk: str, mosfet: MosfetParams) -> Record:
             "avt_mv_um": mismatch.avt_v_m * 1e9 if mismatch else math.nan,
         },
         details=[
-            Detail(
+            Plot(
                 name="idvg",
                 title="Drain current over the gate voltage",
                 x_label="|Vgs| (V)",
@@ -136,7 +136,7 @@ def characterize(run_dir: Path, pdk: str, mosfet: MosfetParams) -> Record:
                 series={"|Vds| 50 mV": list(transfer.id_lin_a), "|Vds| supply": list(transfer.id_sat_a)},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="gm_id",
                 title="gm/Id over the current density (|Vds| supply)",
                 x_label="Id/W (A/m)",
@@ -145,7 +145,7 @@ def characterize(run_dir: Path, pdk: str, mosfet: MosfetParams) -> Record:
                 series={"gm/Id": list(transfer.gm_over_id)},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="idvd",
                 title="Drain current over the drain voltage",
                 x_label="|Vds| (V)",
@@ -156,7 +156,7 @@ def characterize(run_dir: Path, pdk: str, mosfet: MosfetParams) -> Record:
                     for index, fraction in enumerate(tb.family)
                 },
             ),
-            Detail(
+            Plot(
                 name="gate_noise",
                 title="Gate-referred noise at the bias",
                 x_label="Frequency (Hz)",
@@ -166,7 +166,7 @@ def characterize(run_dir: Path, pdk: str, mosfet: MosfetParams) -> Record:
                 x_log=True,
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="drain_noise",
                 title="Drain current noise at the bias: small-signal and transient",
                 x_label="Frequency (Hz)",

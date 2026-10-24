@@ -8,7 +8,16 @@ import pytest
 
 from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
 
-from .subckt import GENERIC_STRENGTHS, CapDriver, CapDriverParams, Cells, ClockXor, ClockXorParams
+from .subckt import (
+    GENERIC_STRENGTHS,
+    PARALLEL_DRIVE,
+    CapDriver,
+    CapDriverParams,
+    Cells,
+    ClockXor,
+    ClockXorParams,
+    pre_driver,
+)
 
 PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
 CLOCK_XOR = Cells.CLOCK_XOR
@@ -143,7 +152,9 @@ def test_public_api_returns_unmodified_hierarchy_after_mutation(kind):
         {"n_stages": 2, "strengths": (1, 2, 4)},
         {"n_stages": 2, "strengths": (1, 3)},
         {"n_stages": 2, "strengths": (0, 4)},
-        {"n_stages": 2, "strengths": (32, 4)},
+        {"n_stages": 2, "strengths": (24, 4)},
+        {"n_stages": 2, "strengths": (33, 4)},
+        {"n_stages": 2, "strengths": (32, 4), "cells": CLOCK_XOR},
         {"n_stages": 2, "strengths": (8, 4), "cells": CLOCK_XOR},
     ],
 )
@@ -210,3 +221,22 @@ def test_generic_driver_compiles_to_library_cells(technology):
     for generic in ("xor2_x1", *(f"buf_x{s}" for s in GENERIC_STRENGTHS if s > 1)):
         assert f"+ {library.GENERIC[generic][0]}" in text
     assert "generic" not in {inst.of.module.domain for inst in module.instances.values() if hasattr(inst.of, "module")}
+
+
+@pytest.mark.parametrize("strength", [32, 48, 128, 256])
+def test_a_stronger_stage_is_parallel_buffers_after_a_pre_driver(strength):
+    """k buffers of 16 in parallel on the stage's output, after a buffer of the next drive at or
+    above k (at most 16) that the XOR drives."""
+
+    module = CapDriver(CapDriverParams(n_stages=2, strengths=(strength, 1)))
+    copies = strength // PARALLEL_DRIVE
+    xor, pre = module.instances["xor_0"], module.instances["pre_0"]
+    assert pre.conns["A"] is xor.conns["Y"]
+    assert pre.of.module.name == f"buf_x{pre_driver(strength)}"
+    assert pre_driver(strength) == {32: 2, 48: 4, 128: 8, 256: 16}[strength]
+    buffers = [module.instances[f"buf_0_{copy}"] for copy in range(copies)]
+    assert {buf.of.module.name for buf in buffers} == {"buf_x16"}
+    assert all(buf.conns["A"] is pre.conns["Y"] for buf in buffers)
+    assert all(buf.conns["Y"].parent is module.dac_drive and buf.conns["Y"].index == 0 for buf in buffers)
+    assert f"buf_0_{copies}" not in module.instances and "pre_1" not in module.instances
+    h.elaborate(module)

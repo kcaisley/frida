@@ -628,6 +628,38 @@ def period_jitter(
     return x, jitter
 
 
+def probit_fit(
+    axis: Sequence[float] | np.ndarray,
+    successes: Sequence[float] | np.ndarray,
+    trials: Sequence[float] | np.ndarray,
+    *,
+    mean: float,
+    sigma: float,
+) -> tuple[float, float]:
+    """The Gaussian cumulative curve of most likelihood through binomial counts: ``successes`` of
+    ``trials`` at each ``axis`` point, P = Phi((x - mean) / sigma); its mean and sigma, searched
+    from ``mean`` and ``sigma``."""
+
+    from scipy.optimize import minimize
+    from scipy.special import log_ndtr
+
+    x, k, n = (np.asarray(values, dtype=np.float64) for values in (axis, successes, trials))
+    steps = minimize(
+        lambda step: (
+            -float(
+                np.sum(
+                    k * log_ndtr((x - mean - step[0] * sigma) / (sigma * math.exp(step[1])))
+                    + (n - k) * log_ndtr(-(x - mean - step[0] * sigma) / (sigma * math.exp(step[1])))
+                )
+            )
+        ),
+        np.zeros(2),
+        method="Nelder-Mead",
+        options={"xatol": 1e-6, "fatol": 1e-9},
+    ).x
+    return mean + float(steps[0]) * sigma, sigma * math.exp(float(steps[1]))
+
+
 def dnl(counts: Sequence[int] | np.ndarray, *, ideal_count: float | None = None) -> np.ndarray:
     """Return code-density differential nonlinearity in LSB."""
     counts = np.asarray(counts, dtype=np.float64)

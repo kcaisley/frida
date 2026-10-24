@@ -16,6 +16,7 @@ import hdl21 as h
 import numpy as np
 import pytest
 
+from flow import comp
 from flow.adc import AdcParams
 from flow.adc.sim import AdcTbParams
 from flow.analysis.adc import (
@@ -29,8 +30,7 @@ from flow.analysis.adc import (
 )
 from flow.analysis.calibration1 import analyze_adc_calibration1
 from flow.analysis.calibration2 import analyze_adc_calibration2
-from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_transition
-from flow.analysis.comp import analyze_comp_offset_noise
+from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_decisions, analyze_cdac_transition
 from flow.analysis.test_cdac import comparator_offset
 from flow.analysis.types import (
     AnalysisCdacCapMismatch,
@@ -177,7 +177,9 @@ def test_cdac_mismatch_and_calibration1_use_the_measured_capacitor_count() -> No
                 wave=None,
             )
         )
-    transition = analyze_cdac_transition(measurements, offset=analyze_comp_offset_noise(measurements))
+    transition = analyze_cdac_transition(
+        measurements, offset=comp.analyze_offset_noise([analyze_cdac_decisions(measurements)])
+    )
     mismatch = analyze_cdac_cap_mismatch(
         measurements, transitions=[transition], comparator=comparator_offset(measurements[0], 0.0)
     )

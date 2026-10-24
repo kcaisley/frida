@@ -23,7 +23,7 @@ import hdl21 as h
 import numpy as np
 from hdl21.primitives import MosType
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import IREF_SWEEP_A, NOMINAL_IREF_A, IdacTbParams, _run_idac_sim
 from .subckt import CASES, Idac, IdacParams, Switch, is_valid_idac_params, write_netlist
@@ -164,7 +164,7 @@ def characterize(run_dir: Path, pdk: str, idac: IdacParams) -> Record:
             "current_change_supply_ratio": (max(currents) - min(currents)) / current,
         },
         details=[
-            Detail(
+            Plot(
                 name="iv",
                 title="Output current over the output voltage (10 µA reference)",
                 x_label="Output voltage (V)",
@@ -175,7 +175,7 @@ def characterize(run_dir: Path, pdk: str, idac: IdacParams) -> Record:
                     **({"disabled": off.iv_current_a[0].tolist()} if off is not None else {}),
                 },
             ),
-            Detail(
+            Plot(
                 name="rout_vout",
                 title="Output resistance over the output voltage (10 µA reference)",
                 x_label="Output voltage (V)",
@@ -184,7 +184,7 @@ def characterize(run_dir: Path, pdk: str, idac: IdacParams) -> Record:
                 series={"enabled": on.iv_resistance_ohm[nominal].tolist()},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="ratio_iref",
                 title="Output current over the units' share of the reference",
                 x_label="Reference current (A)",
@@ -193,7 +193,7 @@ def characterize(run_dir: Path, pdk: str, idac: IdacParams) -> Record:
                 series={"ratio": (on.current_a / share).tolist()},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="rout_iref",
                 title="Output resistance over the reference current",
                 x_label="Reference current (A)",
@@ -203,7 +203,7 @@ def characterize(run_dir: Path, pdk: str, idac: IdacParams) -> Record:
                 x_log=True,
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="headroom_iref",
                 title="Headroom from the rail over the reference current",
                 x_label="Reference current (A)",
@@ -212,7 +212,7 @@ def characterize(run_dir: Path, pdk: str, idac: IdacParams) -> Record:
                 series={"headroom": headrooms},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="current_supply",
                 title="Output current over the supply (10 µA reference)",
                 x_label="Supply over nominal",
@@ -220,7 +220,7 @@ def characterize(run_dir: Path, pdk: str, idac: IdacParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"current": currents},
             ),
-            Detail(
+            Plot(
                 name="rout_supply",
                 title="Output resistance over the supply",
                 x_label="Supply over nominal",
@@ -231,7 +231,7 @@ def characterize(run_dir: Path, pdk: str, idac: IdacParams) -> Record:
                 },
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="headroom_supply",
                 title="Headroom from the rail over the supply",
                 x_label="Supply over nominal",

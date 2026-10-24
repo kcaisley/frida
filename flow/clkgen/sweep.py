@@ -23,7 +23,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import ClkgenTbParams, _run_clkgen_sim, clkgen_signal_names
 from .subckt import CASES, Clkgen, ClkgenParams, Function, is_valid_clkgen_params
@@ -135,7 +135,7 @@ def characterize(run_dir: Path, pdk: str, clkgen: ClkgenParams) -> Record:
             "delay_max_supply_s": float(np.nanmax(over_supply.delay_s)),
         },
         details=[
-            Detail(
+            Plot(
                 name="timing_supply",
                 title="Delay, outp's width and the output gaps over the supply (1 ns clock)",
                 x_label="Supply over nominal",
@@ -148,7 +148,7 @@ def characterize(run_dir: Path, pdk: str, clkgen: ClkgenParams) -> Record:
                     "outn to outp": list(over_supply.fall_gap_s),
                 },
             ),
-            Detail(
+            Plot(
                 name="energy_supply",
                 title="Energy per cycle over the supply (1 ns clock)",
                 x_label="Supply over nominal",
@@ -156,7 +156,7 @@ def characterize(run_dir: Path, pdk: str, clkgen: ClkgenParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"energy": list(over_supply.energy_per_cycle_j)},
             ),
-            Detail(
+            Plot(
                 name="pulsing_frequency",
                 title="outp's duty and the periods pulsing over the clock frequency",
                 x_label="Clock frequency (Hz)",
@@ -165,7 +165,7 @@ def characterize(run_dir: Path, pdk: str, clkgen: ClkgenParams) -> Record:
                 series={"outp duty": list(over_period.duty_cycle), "periods pulsing": list(over_period.pulse_fraction)},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="timing_frequency",
                 title="Delay and outp's width over the clock frequency",
                 x_label="Clock frequency (Hz)",
@@ -174,7 +174,7 @@ def characterize(run_dir: Path, pdk: str, clkgen: ClkgenParams) -> Record:
                 series={"clk to outp": list(over_period.delay_s), "outp high": list(over_period.high_width_s)},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="energy_frequency",
                 title="Energy per cycle over the clock frequency",
                 x_label="Clock frequency (Hz)",

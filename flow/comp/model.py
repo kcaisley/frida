@@ -1,7 +1,7 @@
 """The comparator's behavioral model: the decision a SAR loop sees, from the characterization of
-the same ``CompParams`` in the PDK (``flow.comp.sweep``, looked up by ``flow.sweep.lookup``).
+the same ``Params`` in the PDK (``flow.comp.sweep``, looked up by ``flow.sweep.lookup``).
 
-    model = CompModel.of("tsmc65", CompParams(...))
+    model = comp.model.Model.of("tsmc65", comp.Params(...))
     bits = model.decide(vin_diff_v, rng, vin_cm_v=0.7)
 
 The characterization gives the input-referred noise and the systematic offset over the common
@@ -9,8 +9,8 @@ mode (3/8 to 5/8 of the supply; the model interpolates them at the ADC's), the c
 delay over the input from 0.1 mV to 100 mV (its metastability: the ADC's decision is late where
 it exceeds the time the SAR sequence allows), and the supply energy per decision at 0.5 mV, the
 slowest response. A comparator whose nominal S-curve gives no fit has no noise and no model: more
-than 1 % of its decisions unresolved even at the characterization's longest clock (8 ns reset,
-48 ns evaluation), or no monotonic transition within the +-2 mV the S-curve spans.
+than 1 % of its decisions unresolved at the characterization's clock (1 ns reset, 4 ns evaluation),
+or no monotonic transition within the +-3 mV the S-curve spans.
 """
 
 from __future__ import annotations
@@ -23,15 +23,15 @@ import numpy as np
 from flow.adc.behavioral import CompBehavioralParams, comp
 from flow.sweep.lookup import characterized, detail
 
-from .subckt import CompParams
+from .params import Params
 
 
 @dataclass(frozen=True)
-class CompModel:
+class Model:
     """A comparator as its characterization measured it."""
 
     pdk: str
-    params: CompParams
+    params: Params
     noise_v: float  # input-referred RMS noise at the nominal common mode
     offset_v: float  # systematic only: the characterization has no mismatch
     delay_s: float  # clock to decision at 0.5 mV
@@ -43,7 +43,7 @@ class CompModel:
     offset_table_v: tuple[float, ...]
 
     @classmethod
-    def of(cls, pdk: str, params: CompParams, *, simulate: bool = True) -> CompModel:
+    def of(cls, pdk: str, params: Params, *, simulate: bool = True) -> Model:
         record = characterized("comp", pdk, params, simulate=simulate)
         metrics = record["metrics"]
         noise = metrics.get("noise_v")

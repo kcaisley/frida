@@ -30,7 +30,6 @@ from flow.analysis.types import (
     AnalysisAdcTimingSummary,
 )
 from flow.caparray import targets as caparray_targets
-from flow.comp import targets as comp_targets
 
 
 def test_root_api_exposes_domain_analyses_not_campaign_combiners() -> None:
@@ -63,13 +62,6 @@ STUDIES = {
         "behavioral_architecture_study",
         "behavioral_noise_spectrum_study",
         "behavioral_input_frequency_study",
-    },
-    comp_targets: {
-        "system_common_mode_study",
-        "system_sampling_noise_study",
-        "candidate_sweep_study",
-        "characterization_study",
-        "behavioral_offset_noise_study",
     },
     caparray_targets: {"system_cap_mismatch_study", "characterization_study"},
     **{
@@ -332,8 +324,10 @@ def install_cdac_inputs(
         by_path[path] = SimpleNamespace(comparator=adc_index)
     received: dict[str, Any] = {"mismatch": {}}
 
-    def offset_noise(points):
-        return ("fit", tuple(points))
+    def offset_noise(groups):
+        # a curve's fit takes its decisions (analyze_cdac_decisions: here the points), the
+        # comparator's its captures
+        return ("fit", tuple(point for group in groups for point in (group if isinstance(group, list) else [group])))
 
     def transition(points, *, offset):
         assert offset == ("fit", tuple(points))
@@ -348,9 +342,12 @@ def install_cdac_inputs(
 
     monkeypatch.setattr(module, "BASE_PATH", tmp_path)
     monkeypatch.setattr(module, "MeasCdac", SimpleNamespace)
-    monkeypatch.setattr(module, "MeasComp", SimpleNamespace)
+    monkeypatch.setattr(
+        module, "comp", SimpleNamespace(AnalysisDecisions=SimpleNamespace, analyze_offset_noise=offset_noise)
+    )
     monkeypatch.setattr(module, "read_measurement", by_path.__getitem__)
-    monkeypatch.setattr(module, "analyze_comp_offset_noise", offset_noise)
+    monkeypatch.setattr(module, "read_analysis", by_path.__getitem__)
+    monkeypatch.setattr(module, "analyze_cdac_decisions", list)
     monkeypatch.setattr(module, "analyze_cdac_transition", transition)
     monkeypatch.setattr(module, "analyze_cdac_cap_mismatch", cap_mismatch)
     received["by_path"] = by_path
@@ -526,158 +523,6 @@ def test_adc_ramp_runner_rejects_wrong_measurement_type(
 
     with pytest.raises(TypeError, match="expected MeasAdc"):
         study(monkeypatch, adc_targets, "ramp_nonlinearity_study", tmp_path / "output")
-
-
-def test_comp_common_mode_groups_adc_and_common_mode_from_h5(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    meas_read_dir = tmp_path / "build/scan_comp/20260805_171216"
-    meas_read_dir.mkdir(parents=True)
-    measurements_by_path = {}
-    for adc_index in (2, 5):
-        for point_index, common_mode_v in enumerate((0.9, 0.7)):
-            path = meas_read_dir / f"adc{adc_index:02d}_{point_index}.h5"
-            path.touch()
-            measurements_by_path[path] = SimpleNamespace(
-                index=adc_index,
-                tb=SimpleNamespace(vin_cm=h.Vdc.Params(dc=common_mode_v)),
-            )
-
-    plotted = []
-    monkeypatch.setattr(comp_targets, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(comp_targets, "MeasComp", SimpleNamespace)
-    monkeypatch.setattr(comp_targets, "read_measurement", measurements_by_path.__getitem__)
-    monkeypatch.setattr(comp_targets, "analyze_comp_offset_noise", lambda group: tuple(group))
-
-    def common_mode(measurements, *, offsets):
-        return ("common-mode", tuple(measurements), tuple(offsets))
-
-    monkeypatch.setattr(comp_targets, "analyze_comp_common_mode", common_mode)
-    monkeypatch.setattr(
-        comp_targets,
-        "plot_comp_common_mode_campaign",
-        lambda measurements, offsets, result, *, output_path: (
-            plotted.append((offsets, result, output_path)) or (output_path,)
-        ),
-    )
-
-    study(monkeypatch, comp_targets, "system_common_mode_study", tmp_path / "output")
-
-    assert [path.name for _offsets, _result, path in plotted] == [
-        "adc02_comparator_common_mode",
-        "adc05_comparator_common_mode",
-    ]
-    offsets, result, _path = plotted[0]
-    assert [float(group[0].tb.vin_cm.dc) for group in offsets] == [0.7, 0.9]
-    assert result[0] == "common-mode" and result[2] == tuple(offsets)
-
-
-def test_comp_sampling_noise_replaces_exact_correction_curves(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    base_meas_read_dir = tmp_path / "build/scan_comp/20260805_183915"
-    correction_meas_read_dir = tmp_path / "build/scan_comp/20260805_192902"
-    base_meas_read_dir.mkdir(parents=True)
-    correction_meas_read_dir.mkdir(parents=True)
-    measurements_by_path = {}
-
-    def add(directory: Path, name: str, adc_index: int, coupling: float, mode: str, marker: str) -> None:
-        path = directory / f"{name}.h5"
-        path.touch()
-        measurements_by_path[path] = SimpleNamespace(
-            marker=marker,
-            index=adc_index,
-            param=SimpleNamespace(
-                observed_adc=adc_index,
-                requested_dac_rail_percent=coupling,
-                sampling_mode=mode,
-            ),
-        )
-
-    add(base_meas_read_dir, "adc01_target_a", 1, 100.0, "track", "base-adc01-target-a")
-    add(base_meas_read_dir, "adc01_target_b", 1, 100.0, "track", "base-adc01-target-b")
-    add(base_meas_read_dir, "adc01_keep", 1, 50.0, "hold", "base-adc01-keep")
-    add(base_meas_read_dir, "adc02_target_a", 2, 75.0, "track", "base-adc02-target-a")
-    add(base_meas_read_dir, "adc02_target_b", 2, 75.0, "track", "base-adc02-target-b")
-    add(base_meas_read_dir, "adc02_keep", 2, 25.0, "hold", "base-adc02-keep")
-    add(correction_meas_read_dir, "adc01_a", 1, 100.0, "track", "correction-adc01-a")
-    add(correction_meas_read_dir, "adc01_b", 1, 100.0, "track", "correction-adc01-b")
-    add(correction_meas_read_dir, "adc02_a", 2, 75.0, "track", "correction-adc02-a")
-    add(correction_meas_read_dir, "adc02_b", 2, 75.0, "track", "correction-adc02-b")
-
-    analyzed_groups = {}
-
-    def analyze(group):
-        first = group[0]
-        key = (
-            first.param.observed_adc,
-            first.param.requested_dac_rail_percent,
-            first.param.sampling_mode,
-        )
-        analyzed_groups[key] = tuple(measurement.marker for measurement in group)
-        return SimpleNamespace()
-
-    monkeypatch.setattr(comp_targets, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(comp_targets, "MeasComp", SimpleNamespace)
-    monkeypatch.setattr(comp_targets, "read_measurement", measurements_by_path.__getitem__)
-    monkeypatch.setattr(comp_targets, "analyze_comp_offset_noise", analyze)
-    monkeypatch.setattr(
-        comp_targets,
-        "plot_comp_sampling_campaign",
-        lambda *_args, output_path: (output_path,),
-    )
-
-    study(monkeypatch, comp_targets, "system_sampling_noise_study", tmp_path / "output")
-
-    assert analyzed_groups[(1, 100.0, "track")] == ("correction-adc01-a", "correction-adc01-b")
-    assert analyzed_groups[(2, 75.0, "track")] == ("correction-adc02-a", "correction-adc02-b")
-    assert analyzed_groups[(1, 50.0, "hold")] == ("base-adc01-keep",)
-    assert analyzed_groups[(2, 25.0, "hold")] == ("base-adc02-keep",)
-
-
-def test_comp_candidate_sweep_delegates_validity_to_typed_analysis(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = tmp_path / "build/comp/frida65_candidate_scurve_power_netnames/candidates/fixture/result.h5"
-    path.parent.mkdir(parents=True)
-    path.touch()
-    measurement = SimpleNamespace(info=SimpleNamespace(readbacks={"candidate_id": "fixture"}))
-    received = {}
-
-    def candidate(value, *, offset, timing, power):
-        received.update(measurement=value, offset=offset, timing=timing, power=power)
-        return SimpleNamespace(candidate_id="fixture")
-
-    monkeypatch.setattr(comp_targets, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(comp_targets, "MeasComp", SimpleNamespace)
-    monkeypatch.setattr(comp_targets, "read_measurement", lambda _path: measurement)
-    monkeypatch.setattr(comp_targets, "analyze_comp_offset_noise", lambda values: ("offset", tuple(values)))
-    monkeypatch.setattr(comp_targets, "analyze_comp_timing", lambda values: ("timing", tuple(values)))
-    monkeypatch.setattr(comp_targets, "analyze_comp_power", lambda values: ("power", tuple(values)))
-    monkeypatch.setattr(comp_targets, "analyze_comp_candidate", candidate)
-    monkeypatch.setattr(
-        comp_targets, "plot_comp_candidate_sweep", lambda *_args, highlights, output_path: (output_path,)
-    )
-    monkeypatch.setattr(
-        comp_targets, "plot_comp_noise_power_tradeoff", lambda *_args, highlights, output_path: (output_path,)
-    )
-
-    artifacts = study(monkeypatch, comp_targets, "candidate_sweep_study", tmp_path / "output")
-
-    assert [artifact.name for artifact in artifacts] == [
-        "comp_candidate_noise_power_settling",
-        "comp_candidate_noise_power_tradeoff",
-    ]
-    assert received == {
-        "measurement": measurement,
-        "offset": ("offset", (measurement,)),
-        "timing": ("timing", (measurement,)),
-        "power": ("power", (measurement,)),
-    }
-    assert not (tmp_path / "output").exists()
 
 
 def test_a_study_runs_in_one_timestamped_directory_and_propagates_missing_input(

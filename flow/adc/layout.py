@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Literal
 
 import hdl21 as h
-from hdl21.prefix import f
 from klayout import db
 
 from flow.caparray.layout import CapArrayLayout, CapArrayLayoutParams, UnitLengthCapFamilyParams, mom_array_params
@@ -242,7 +241,7 @@ def frida1_1layer_radix17(run_dir: Path) -> Path:
         source_netlist_top="adc_1layer_radix17",
         cap_cell="caparray_1layer_radix17",
         unit_cell_prefix="capunit_1layer",
-        cdac=CapArrayConfig(unit_cap=0.8 * f),
+        cdac=CapArrayConfig(),
         active_layers=(6,),
         lvs_expectation="correct",
     )
@@ -263,7 +262,6 @@ def frida1_1layer_radix20(run_dir: Path) -> Path:
             n_dac=16,
             n_extra=0,
             weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1),
-            unit_cap=0.8 * f,
         ),
         active_layers=(6,),
         lvs_expectation="correct",
@@ -281,7 +279,7 @@ def frida1_2layer_radix17(run_dir: Path) -> Path:
         source_netlist_top="adc_2layer_radix17",
         cap_cell="caparray_2layer_radix17",
         unit_cell_prefix="capunit_2layer",
-        cdac=CapArrayConfig(unit_cap=0.8 * f),
+        cdac=CapArrayConfig(),
         active_layers=(6, 7),
         lvs_expectation="incorrect",
     )
@@ -302,7 +300,6 @@ def frida1_2layer_radix20(run_dir: Path) -> Path:
             n_dac=16,
             n_extra=0,
             weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1),
-            unit_cap=0.8 * f,
         ),
         active_layers=(6, 7),
         lvs_expectation="incorrect",

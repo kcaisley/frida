@@ -24,6 +24,11 @@ model (``flow.adc.model``), each of which turns one into a ``MeasAdc``.
   settling errors, not a late comparator's. The rate is all a fabricated converter lets one vary,
   so the study keeps to it. The reference at the same rate takes off what every array shares
   there (the ramp's input moves while it is sampled, more the faster the rate).
+- ``ladder_<step>``: the ``rate_10`` sine with the behavioral model's impairments added one at a
+  time (``LADDER``), from quantization alone (a perfect track-and-hold, no noise, ideal settling and
+  an ideal comparator, decoded as ``rate_10`` is) to the converter as ``rate_10`` has it, whose
+  capture is the last step's (``ladder_names``): what each impairment costs in ENOB where it is
+  added (errors add in power, so a source costs fewer bits after larger ones: the order matters).
 - ``mc_<A_C %>_<draw>``, only where ``mismatch_draws`` asks for them (the figures predict the
   mismatch from the capacitances, ``flow.adc.statistics``; the draws check it): noise-free ramps
   (four periods, 16 hits a code at 12 bits, at least 8 at any), at each Pelgrom coefficient from
@@ -33,7 +38,7 @@ model (``flow.adc.model``), each of which turns one into a ``MeasAdc``.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import hdl21 as h
 import numpy as np
@@ -67,6 +72,21 @@ INPUT_NOISE_CONVERSIONS = 512
 # the Hsu study's noise switched off, the comparator's delay kept (or, for the reference, ideal)
 HSU_QUIET = ("sampling", "comparator_noise", "rail")
 HSU_REFERENCE_QUIET = ("sampling", "comparator", "rail")
+# the ENOB ladder: the nominal rate's sine converted with the model's impairments added one at a
+# time, each step (its key in the metrics, its label, the sources it keeps quiet, as
+# ``AdcModel.behavioral``'s, and its settling's scale) the last one with one more: the tracking
+# error of the sampler's on-resistance, its kT/C noise and aperture jitter, the DAC's settling (with
+# its drivers' delay), the comparator's delay (a late decision holds the last bit), its noise and
+# the DAC rail's (assumed). The last step is the converter as the sine at the nominal rate has it.
+LADDER = (
+    ("quantization", "Quantization", ("sampler", "sampling", "comparator", "rail"), 0.0),
+    ("sampler", "+ Sampling error", ("sampling", "comparator", "rail"), 0.0),
+    ("sampling_noise", "+ Sampling noise", ("comparator", "rail"), 0.0),
+    ("settling", "+ DAC settling", ("comparator", "rail"), 1.0),
+    ("comparator_timing", "+ Comp. timing", ("comparator_noise", "rail"), 1.0),
+    ("comparator_noise", "+ Comp. noise", ("rail",), 1.0),
+    ("rail", "+ Rail noise", (), 1.0),
+)
 
 
 @dataclass(frozen=True)
@@ -119,6 +139,11 @@ def campaign(
         captures[f"rate_{rate / 1e6:g}"] = Capture(
             tb(conversions=SINE_CONVERSIONS, rate_hz=rate, vin_diff=sine(rate, 1021))
         )
+    # the ladder's steps but the last, which is the nominal rate's sine itself: its testbench and
+    # seeds, fewer impairments
+    nominal = captures[ladder_names()[-1]]
+    for step, (_, _, quiet, tau_scale) in enumerate(LADDER[:-1]):
+        captures[f"ladder_{step}"] = replace(nominal, quiet=quiet, tau_scale=tau_scale)
     for rate in FIN_RATES_HZ:
         for cycles in FIN_CYCLES:
             captures[f"fin_{rate / 1e6:g}_{cycles}"] = Capture(
@@ -159,6 +184,12 @@ def campaign(
                 mismatch_tb, seed=100 + draw, unit_mismatch=coefficient, noise_free=True
             )
     return captures
+
+
+def ladder_names() -> list[str]:
+    """The ENOB ladder's captures by name, a step each (``LADDER``), quantization alone first: the
+    last, every impairment on, is the sine at the nominal rate (``rate_10``)."""
+    return [f"ladder_{step}" for step in range(len(LADDER) - 1)] + [f"rate_{NOMINAL_RATE_HZ / 1e6:g}"]
 
 
 def _staircase(span_v: float, lsb_v: float) -> h.Vpwl.Params:

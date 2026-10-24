@@ -16,7 +16,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import SchmittTbParams, _run_schmitt_sim, schmitt_signal_names
 from .subckt import Schmitt, SchmittParams, is_valid_schmitt_params, write_netlist
@@ -140,7 +140,7 @@ def characterize(run_dir: Path, pdk: str, schmitt: SchmittParams) -> Record:
             "delay_max_supply_s": float(np.nanmax([delay.rise_delay_s, delay.fall_delay_s])),
         },
         details=[
-            Detail(
+            Plot(
                 name="transfer",
                 title="Transfer on the triangle (nominal supply)",
                 x_label="Input (V)",
@@ -148,7 +148,7 @@ def characterize(run_dir: Path, pdk: str, schmitt: SchmittParams) -> Record:
                 x=list(levels),
                 series={"input rising": up, "input falling": down},
             ),
-            Detail(
+            Plot(
                 name="trip_supply",
                 title="Trip points over the supply",
                 x_label="Supply over nominal",
@@ -156,7 +156,7 @@ def characterize(run_dir: Path, pdk: str, schmitt: SchmittParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"input rising": list(trip.rise_trip_v), "input falling": list(trip.fall_trip_v)},
             ),
-            Detail(
+            Plot(
                 name="hysteresis_supply",
                 title="Hysteresis over the supply",
                 x_label="Supply over nominal",
@@ -164,7 +164,7 @@ def characterize(run_dir: Path, pdk: str, schmitt: SchmittParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"hysteresis": list(trip.hysteresis_v)},
             ),
-            Detail(
+            Plot(
                 name="delay_supply",
                 title="Delay over the supply (5 fF)",
                 x_label="Supply over nominal",
@@ -172,7 +172,7 @@ def characterize(run_dir: Path, pdk: str, schmitt: SchmittParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"input rising": list(delay.rise_delay_s), "input falling": list(delay.fall_delay_s)},
             ),
-            Detail(
+            Plot(
                 name="energy_supply",
                 title="Energy per step cycle over the supply",
                 x_label="Supply over nominal",

@@ -1,18 +1,42 @@
-"""
-Capacitor DAC (CDAC) generator for FRIDA.
+"""The capacitor array (CDAC) generator: a passive main/difference array of unit-length capacitors.
 
-Supports multiple architectures including:
-- Various redundancy strategies (RDX2, sub-radix-2, etc.)
-- Different split strategies (no split, voltage divider, difference cap)
-- Variable bit widths with dynamic port generation
+An array is four integers and an enum (``CapArrayConfig``): its DAC resolution ``n_dac``, binary
+steps of total weight 2^n_dac - 1 units; its extra conversion cycles ``n_extra`` (0: binary); the
+scheme that spends them, ``redun_strat``; and its capacitance, ``cap_scale``. Every scheme keeps
+the binary total exactly: an extra cycle redistributes weight, it never adds capacitance.
+
+- ``MSB_SPLIT``: the n_extra most significant binary weights each split into two halves;
+- ``LSB_SPLIT``: the n_extra least significant binary weights of at least 2 (2, 4, ...,
+  2^n_extra) each split into two halves, the LSB kept whole;
+- ``MSB_REDIST``: FRIDA's paired overlay, a run of paired powers of two taken from the MSB and
+  added to the stages from the third on (FRIDA-1's array is MSB_REDIST with 5 at n_dac = 11).
+
+Each array's weights fall from the first stage to the last, and no stage weighs more than the
+stages after it and the final comparison can correct (``tolerance_units`` >= 0), so every code is
+reached.
+
+The converter samples on its top plates and compares once before any capacitor switches: an
+n_dac-step array serves an n_dac + 1 bit converter. Its capacitance is sized to its own full scale:
+the reference across the switched plates' share of the top plate, which only its layout knows (the
+fingers' tails and the ring's coupling to the shield load the top plate too). At that full scale
+the converter's sampled noise, both sides' kT/C on the whole top plate, is 1/``cap_scale`` of its
+quantization noise (``total_capacitance_f``); its switched capacitance is the switched share of
+that top plate (``switched_capacitance_f``), and the unit that over the total weight
+(``unit_capacitance_f``). ``flow.caparray.layout`` sizes each ADC array at the full scale its own
+extraction measures; a netlist without a layout is an ideal array, all of its top plate switched,
+at a 1 V reference.
+
+``weights`` and ``driver_strengths`` are FRIDA-1's fabricated arrays' alone (lab scans, FRIDA-1's
+layout checks, decoding archived captures): the design space never sets them. Its arrays' weights
+are their scheme's, and their drivers are derived from their extracted plates
+(``flow.cdac.subckt.driver_strengths``).
 """
 
-import math
-from enum import Enum, auto
+from enum import Enum
+from itertools import pairwise
 
 import hdl21 as h
 from hdl21.prefix import f
-from hdl21.primitives import MosVth
 
 from flow.circuit.ports import module_from_ports
 from flow.momcap.subckt import PORTS as MOM_PORTS
@@ -20,71 +44,49 @@ from flow.momcap.subckt import MomCap, MomCapParams
 
 
 class RedunStrat(Enum):
-    RDX2 = auto()
-    SUBRDX2 = auto()
-    SUBRDX2_LIM = auto()
-    SUBRDX2_RDST = auto()
-    RDX2_RPT = auto()
-    SUBRDX2_OVLY = auto()  # Sub-radix-2 with paired overlay
-    # binary, n_extra of its weights each followed by a second capacitor of that weight: the
-    # largest after the MSB, evenly spread along the chain, the smallest, or both ends (the larger
-    # half at the start)
-    RDX2_RPT_START = auto()
-    RDX2_RPT_SPREAD = auto()
-    RDX2_RPT_END = auto()
-    RDX2_RPT_BOTH = auto()
+    """How an array spends its extra conversion cycles on the binary weight."""
+
+    BINARY = 1
+    MSB_SPLIT = 2
+    LSB_SPLIT = 3
+    MSB_REDIST = 4
+    # aliases: the names archived measurements (FRIDA-1's captures) store these two under, read
+    # back as the same members
+    RDX2 = 1  # noqa: PIE796
+    SUBRDX2_OVLY = 4  # noqa: PIE796
 
 
-class SplitStrat(Enum):
-    NO_SPLIT = auto()
-    VDIV_SPLIT = auto()
-    DIFFCAP_SPLIT = auto()
-
-
-class CapType(Enum):
-    MOM1 = auto()
-    MOM2 = auto()
-    MOM3 = auto()
+BOLTZMANN_J_PER_K = 1.380649e-23
+TEMPERATURE_K = 300.0
+# a netlist's array without a layout: ideal (all of its top plate switched, so its full scale is
+# its reference) at 1 V
+NOMINAL_REFERENCE_V = 1.0
 
 
 @h.paramclass
 class CapArrayConfig:
-    """CDAC parameters."""
+    """An array: its DAC resolution, its extra cycles and their scheme, and its capacitance."""
 
-    n_dac = h.Param(dtype=int, desc="DAC resolution (bits)", default=11)
-    n_extra = h.Param(dtype=int, desc="Extra caps for redundancy", default=5)
-    redun_strat = h.Param(dtype=RedunStrat, desc="Redundancy strategy", default=RedunStrat.SUBRDX2_OVLY)
-    split_strat = h.Param(dtype=SplitStrat, desc="Split strategy", default=SplitStrat.NO_SPLIT)
-    cap_type = h.Param(dtype=CapType, desc="Capacitor type", default=CapType.MOM1)
-    mos_vth = h.Param(
-        dtype=MosVth,
-        desc="Legacy transistor Vth metadata; standard-cell Vth is selected by the PDK",
-        default=MosVth.LOW,
+    n_dac = h.Param(dtype=int, desc="DAC resolution: binary steps of total weight 2^n_dac - 1 units", default=11)
+    n_extra = h.Param(dtype=int, desc="Extra conversion cycles (0: binary)", default=5)
+    redun_strat = h.Param(
+        dtype=RedunStrat, desc="The scheme that spends the extra cycles", default=RedunStrat.MSB_REDIST
     )
-    unit_cap = h.Param(dtype=h.Scalar, desc="Unit capacitance", default=1 * f)
-    driver_p_w = h.Param(
+    cap_scale = h.Param(
         dtype=int,
-        desc="Historical PMOS width metadata; unused by the passive array",
-        default=9,
-    )
-    driver_n_w = h.Param(
-        dtype=int,
-        desc="Historical NMOS width metadata; unused by the passive array",
-        default=7,
+        desc="Switched capacitance a side, in kT/C minimums of an n_dac + 1 bit converter",
+        default=1,
     )
     driver_strengths = h.Param(
         dtype=tuple[int, ...] | None,
-        desc="Optional C0-first standard-cell drive bands (1, 2, or 4)",
+        desc="FRIDA-1's fabricated C0-first drive bands (1, 2 or 4); None: derived from the array's plates "
+        "(flow.cdac.subckt.driver_strengths). The design space never sets it",
         default=None,
     )
     weights = h.Param(
         dtype=tuple[int, ...] | None,
-        desc="Explicit C0-first unit-capacitor weights in conversion-stage order",
-        default=None,
-    )
-    parasitic_cap = h.Param(
-        dtype=h.Scalar | None,
-        desc="The top plate's other load of an ideal array (weights x unit_cap, nothing extracted); None: extracted",
+        desc="FRIDA-1's fabricated C0-first weights (lab scans, its layout checks, archived captures); None: "
+        "the scheme's. The design space never sets it",
         default=None,
     )
 
@@ -94,6 +96,11 @@ class CapArrayParams:
     """Electrical parameters for the passive unit-length capacitor array."""
 
     cdac = h.Param(dtype=CapArrayConfig, desc="CDAC electrical sizing", default=CapArrayConfig())
+    unit_cap = h.Param(
+        dtype=h.Scalar | None,
+        desc="Unit capacitance (a weight's main less difference); None: the config's (unit_capacitance_f)",
+        default=None,
+    )
     coarse_weight = h.Param(dtype=int, desc="Largest available unit-capacitor weight", default=64)
     active_layers = h.Param(dtype=tuple[int, ...], desc="Consecutive active metals, lowest first", default=(6,))
     unit_models = h.Param(
@@ -111,11 +118,85 @@ class CapArrayParams:
         desc="Capacitance of each minimum-length finger; None preserves the historical half-unit tail",
         default=None,
     )
+    unary_rows = h.Param(
+        dtype=bool,
+        desc="Each chunk of the coarse weight a unary row: one main finger of the coarse weight in units, no "
+        "difference finger (flow.caparray.layout.UnitLengthCapFamilyParams.unary_length)",
+        default=False,
+    )
+
+
+def binary_weights(n_dac: int) -> list[int]:
+    """The n_dac-step binary DAC's weights, C0 (the MSB) first."""
+    return [2**i for i in range(n_dac - 1, -1, -1)]
+
+
+def tolerance_units(weights: list[int] | tuple[int, ...]) -> list[int]:
+    """Each stage's tolerance in units, C0 first: the error its decision may make and the stages
+    after it and the final comparison still correct, sum_{j>k} w_j + 1 - w_k (binary: 0 at every
+    stage). None negative: every code is reached."""
+    later = 0
+    tolerances = []
+    for weight in reversed(weights):
+        tolerances.append(later + 1 - weight)
+        later += weight
+    return tolerances[::-1]
+
+
+def _split(n_dac: int, stages: range) -> list[int]:
+    """Binary weights with those at ``stages`` (C0 first) each split into two halves."""
+    return [
+        w for k, weight in enumerate(binary_weights(n_dac)) for w in ((weight // 2,) * 2 if k in stages else (weight,))
+    ]
+
+
+def _msb_redist(n_dac: int, n_extra: int) -> list[int]:
+    """FRIDA's paired overlay: the last n_dac + n_extra - 2 of the paired powers of two
+    ..., 16, 16, 8, 8 ending 4, 4, 4, 2, 1, 1 (an even count) or 4, 4, 2, 2, 2, 1, 1 (odd) added to
+    the stages from the third on and their sum taken from the MSB (FRIDA-1's 768, 512, 320, ... at
+    n_dac = 11, n_extra = 5)."""
+    length = n_dac + n_extra - 2
+    pairs = [weight for power in range(n_dac + 1, 2, -1) for weight in (2**power, 2**power)]
+    overlay = (pairs + ([4, 4, 4, 2, 1, 1] if length % 2 == 0 else [4, 4, 2, 2, 2, 1, 1]))[-length:]
+    if len(overlay) < length:
+        return []
+    weights = binary_weights(n_dac) + [0] * n_extra
+    weights[0] -= sum(overlay)
+    for stage, weight in enumerate(overlay, start=2):
+        weights[stage] += weight
+    return weights
+
+
+def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> list[int] | None:
+    """The C0-first weights of the n_dac-step array with n_extra extra cycles by ``strategy``, or
+    None where the scheme cannot: binary has none, every other scheme at least one, and the result
+    must keep the binary total, fall from stage to stage and tolerate no negative error."""
+    if n_dac < 1 or n_extra < 0 or (n_extra == 0) != (strategy == RedunStrat.BINARY):
+        return None
+    if strategy == RedunStrat.BINARY:
+        weights = binary_weights(n_dac)
+    elif strategy == RedunStrat.MSB_SPLIT:
+        weights = _split(n_dac, range(n_extra))
+    elif strategy == RedunStrat.LSB_SPLIT:
+        weights = _split(n_dac, range(n_dac - 1 - n_extra, n_dac - 1))
+    elif strategy == RedunStrat.MSB_REDIST:
+        weights = _msb_redist(n_dac, n_extra)
+    else:
+        return None
+    if (
+        len(weights) != n_dac + n_extra
+        or min(weights) < 1
+        or sum(weights) != 2**n_dac - 1
+        or any(a < b for a, b in pairwise(weights))
+        or min(tolerance_units(weights)) < 0
+    ):
+        return None
+    return weights
 
 
 def is_valid_caparray_config(p: CapArrayConfig) -> bool:
     """Check if this CDAC configuration is valid."""
-    if p.driver_p_w <= 0 or p.driver_n_w <= 0:
+    if isinstance(p.cap_scale, bool) or not isinstance(p.cap_scale, int) or p.cap_scale < 1:
         return False
     if p.driver_strengths is not None:
         if len(p.driver_strengths) != p.n_dac + p.n_extra:
@@ -129,12 +210,6 @@ def is_valid_caparray_config(p: CapArrayConfig) -> bool:
         return len(p.weights) == p.n_dac + p.n_extra and all(
             not isinstance(weight, bool) and isinstance(weight, int) and weight > 0 for weight in p.weights
         )
-    # RDX2 only works with n_extra=0
-    if p.redun_strat == RedunStrat.RDX2 and p.n_extra != 0:
-        return False
-    # Other strategies need n_extra > 0
-    if p.redun_strat != RedunStrat.RDX2 and p.n_extra == 0:
-        return False
     return _calc_weights(p.n_dac, p.n_extra, p.redun_strat) is not None
 
 
@@ -145,16 +220,40 @@ def get_caparray_weights(p: CapArrayConfig) -> list[int]:
     is the final switched capacitor; the terminal BOUT decision has no CDAC
     element and is therefore not included here.
     """
-    if p.weights is not None:
-        if not is_valid_caparray_config(p):
-            raise ValueError(
-                f"Explicit CDAC weights must contain exactly n_dac + n_extra = {p.n_dac + p.n_extra} positive integers"
-            )
-        return list(p.weights)
-    weights = _calc_weights(p.n_dac, p.n_extra, p.redun_strat)
-    if weights is None:
+    weights = list(p.weights) if p.weights is not None else _calc_weights(p.n_dac, p.n_extra, p.redun_strat)
+    if weights is None or not is_valid_caparray_config(p):
         raise ValueError(f"Invalid CDAC params: {p}")
     return weights
+
+
+def total_capacitance_f(adc_bits: int, full_scale_v: float, cap_scale: int = 1) -> float:
+    """The top-plate capacitance a side at which an ``adc_bits`` converter's sampled noise, both
+    sides' kT/C (2 kT / C), is 1/``cap_scale`` of its quantization noise, LSB^2 / 12 with
+    LSB = 2 FS / 2^N at its differential full scale +-``full_scale_v``:
+    C = cap_scale 24 kT / LSB^2 = cap_scale 6 kT 4^N / FS^2."""
+    lsb_v = 2 * full_scale_v / 2**adc_bits
+    return cap_scale * 24 * BOLTZMANN_J_PER_K * TEMPERATURE_K / lsb_v**2
+
+
+def switched_capacitance_f(
+    p: CapArrayConfig, full_scale_v: float = NOMINAL_REFERENCE_V, reference_v: float = NOMINAL_REFERENCE_V
+) -> float:
+    """The array's switched capacitance a side (main less difference): the switched share,
+    FS / reference, of the top plate at which its n_dac + 1 bit converter's kT/C is 1/``cap_scale``
+    of its quantization noise at that full scale (``total_capacitance_f``),
+    cap_scale 6 kT 4^N / (FS reference). By default an ideal array at 1 V (26 fF at 10 bits x1,
+    6.7 pF at 14); the layout passes the PDK's reference and the full scale the array's extraction
+    gives it."""
+    return total_capacitance_f(p.n_dac + 1, full_scale_v, p.cap_scale) * full_scale_v / reference_v
+
+
+def unit_capacitance_f(
+    p: CapArrayConfig, full_scale_v: float = NOMINAL_REFERENCE_V, reference_v: float = NOMINAL_REFERENCE_V
+) -> float:
+    """The unit capacitance, a weight's main less difference capacitance: the switched capacitance
+    (``switched_capacitance_f``) over the total weight (2^n_dac - 1 units for every scheme; 51 aF at
+    10 bits x1 for the ideal array at 1 V)."""
+    return switched_capacitance_f(p, full_scale_v, reference_v) / sum(get_caparray_weights(p))
 
 
 def _calc_weight_partitions(weights: list[int], coarse_weight: int) -> list[list[int]]:
@@ -177,6 +276,8 @@ def is_valid_caparray_params(p: CapArrayParams) -> bool:
     """Check passive-array sizing and its coarse unit family."""
 
     if p.tail_cap is not None and float(p.tail_cap) < 0:
+        return False
+    if not isinstance(p.unary_rows, bool):
         return False
     if isinstance(p.coarse_weight, bool) or not isinstance(p.coarse_weight, int) or p.coarse_weight <= 0:
         return False
@@ -227,7 +328,8 @@ def CapArray(p: CapArrayParams) -> h.Module:
     weights = get_caparray_weights(p.cdac)
     partitions = _calc_weight_partitions(weights, p.coarse_weight)
     n_caps = len(weights)
-    tail_cap = p.cdac.unit_cap / 2 if p.tail_cap is None else p.tail_cap
+    unit_cap = unit_capacitance_f(p.cdac) * 1e15 * f if p.unit_cap is None else p.unit_cap
+    tail_cap = unit_cap / 2 if p.tail_cap is None else p.tail_cap
 
     CapArray = module_from_ports("CapArray", array_ports(n_caps))
     bottom_plates = {
@@ -237,9 +339,12 @@ def CapArray(p: CapArrayParams) -> h.Module:
 
     for stage, chunks in enumerate(partitions):
         for chunk_index, chunk in enumerate(chunks):
+            # a unary row: its main finger the coarse weight in units, no difference finger
+            unary = p.unary_rows and chunk == p.coarse_weight
+            kinds = (("main", 1),) if unary else (("main", 1), ("diff", -1))
             if p.stack_model is not None:
-                for kind, sign in (("main", 1), ("diff", -1)):
-                    value = p.cdac.unit_cap * ((p.coarse_weight + sign * chunk) / 2) + tail_cap
+                for kind, sign in kinds:
+                    value = unit_cap * chunk if unary else unit_cap * ((p.coarse_weight + sign * chunk) / 2) + tail_cap
                     setattr(
                         CapArray,
                         f"{kind}_{stage}_{chunk_index}",
@@ -251,11 +356,12 @@ def CapArray(p: CapArrayParams) -> h.Module:
                     )
                 continue
             for layer_index, layer in enumerate(p.active_layers):
-                for kind, sign in (("main", 1), ("diff", -1)):
+                for kind, sign in kinds:
                     # unit_cap specifies the total logical unit across the
                     # stack. Equal ideal shares preserve that electrical sizing;
                     # actual per-layer capacitances are measured by PEX.
-                    value = (p.cdac.unit_cap * ((p.coarse_weight + sign * chunk) / 2) + tail_cap) / len(p.active_layers)
+                    finger = unit_cap * chunk if unary else unit_cap * ((p.coarse_weight + sign * chunk) / 2) + tail_cap
+                    value = finger / len(p.active_layers)
                     unit = p.unit_models[layer_index] if p.unit_models else MomCap(MomCapParams(c=value))
                     setattr(
                         CapArray,
@@ -270,181 +376,3 @@ def CapArray(p: CapArrayParams) -> h.Module:
 
 
 # Weight Calculation
-
-
-def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> list[int] | None:
-    """
-    Calculate capacitor weights for CDAC.
-
-    Args:
-        n_dac: DAC resolution (number of bits)
-        n_extra: Number of extra physical capacitors for redundancy
-        strategy: RedunStrat enum for weighting strategy
-
-    Returns:
-        List of (n_dac + n_extra) integer weights (in units of Cu), or None for invalid combos
-    """
-    m_caps = n_dac + n_extra
-
-    if strategy == RedunStrat.RDX2:
-        # Standard binary weighting: [2^(n-1), 2^(n-2), ..., 2, 1]
-        # Pad with unit caps if n_extra > 0
-        weights = [2**i for i in range(n_dac - 1, -1, -1)]
-        if n_extra > 0:
-            weights.extend([1] * n_extra)
-        return weights
-
-    elif strategy == RedunStrat.SUBRDX2:
-        # Each bit is equal to radix^bit up to bit M-1, where radix = 2^(N/M)
-        # Round to nearest integer (not floor like normalized)
-        radix = 2 ** (n_dac / m_caps)
-        weights = [round(radix ** (m_caps - 1 - i)) for i in range(m_caps)]
-        return weights
-
-    elif strategy == RedunStrat.SUBRDX2_LIM:
-        # Sub-radix-2 with unit quantization
-        # Radix < 2 provides redundancy for error correction
-        radix = 2 ** (n_dac / m_caps)
-        weights = [max(1, int(radix ** (m_caps - 1 - i))) for i in range(m_caps)]
-        return weights
-
-    elif strategy == RedunStrat.SUBRDX2_RDST:
-        # Binary with largest-stage redistribution for redundancy
-        # Split 2^n_redist from C0 and redistribute as pairs
-        n_redist = n_extra + 2  # Extra caps determine redistribution
-
-        # Base binary weights
-        weights = [2**i for i in range(n_dac - 1, -1, -1)]
-
-        # Check if C0 would become negative.
-        if weights[0] < 2**n_redist:
-            return None
-
-        weights[0] -= 2**n_redist
-
-        # Redundant weights as paired powers of 2
-        w_redun = [2**i for i in range(n_redist - 2, -1, -1) for _ in range(2)]
-        w_redun += [1, 1]  # Final unit pair
-
-        # Merge: add redundant weights offset by 1 position
-        result = [0] * m_caps
-        for i, w in enumerate(weights):
-            if i < m_caps:
-                result[i] += w
-        for i, w in enumerate(w_redun):
-            if i + 1 < m_caps:
-                result[i + 1] += w
-
-        return result
-
-    elif strategy == RedunStrat.RDX2_RPT:
-        # Generate base radix-2 array, then insert repeated capacitors
-        # Extra capacitors are inserted at regular intervals
-
-        # Base radix-2 weights
-        base_weights = [2**i for i in range(n_dac - 1, -1, -1)]
-
-        if n_extra == 0:
-            return base_weights
-
-        # Calculate spacing for inserted capacitors
-        spacing = n_dac // n_extra
-
-        # Calculate which base array positions should be duplicated
-        # First duplicate is 1 position from end, then every 'spacing' positions earlier
-        duplicate_indices = []
-        for k in range(n_extra):
-            pos_from_end = 1 + k * spacing
-            # Convert to 0-based index in base_weights array
-            idx = n_dac - 1 - pos_from_end
-            duplicate_indices.append(idx)
-
-        # Process duplicate locations from early to late conversion stage.
-        duplicate_indices.sort()
-
-        # Build result by inserting duplicates after their positions
-        result = []
-        dup_idx = 0
-        for i in range(n_dac):
-            result.append(base_weights[i])
-            # Check if this position should be duplicated
-            if dup_idx < len(duplicate_indices) and i == duplicate_indices[dup_idx]:
-                result.append(base_weights[i])
-                dup_idx += 1
-
-        return result
-
-    elif strategy == RedunStrat.SUBRDX2_OVLY:
-        # Sub-radix-2 with paired overlay sequence.
-        # Returns FRIDA 65nm weights [768,512,320,...] when n_dac=11, n_extra=5.
-        #
-        # Algorithm:
-        # 1. Base overlay sequence: pairs of powers of 2 from high to low
-        #    ...64,64, 32,32, 16,16, 8,8, 4,4, 2,2, 1,1, 1,1
-        # 2. For even overlay_len: merge (2+2)->4 and (1+1)->2
-        #    Tail becomes: [4, 4, 4, 2, 1, 1]
-        # 3. For odd overlay_len: merge only (1+1)->2
-        #    Tail becomes: [4, 4, 2, 2, 2, 1, 1]
-        # 4. Take last overlay_len elements
-        # 5. Subtract the sum from C0, then add the overlay at stage 2
-
-        if n_extra == 0:
-            # No redundancy, pure radix-2
-            return [2**i for i in range(n_dac - 1, -1, -1)]
-
-        overlay_len = n_dac + n_extra - 2
-
-        # Build overlay sequences (extend high enough for any practical use)
-        # Even: merge (2+2)->4 and (1+1)->2, tail = [4,4,4,2,1,1]
-        # Odd: merge only (1+1)->2, tail = [4,4,2,2,2,1,1]
-        overlay_even = []
-        overlay_odd = []
-        for power in range(20, 2, -1):  # 2^20 down to 2^3=8
-            overlay_even.extend([2**power, 2**power])
-            overlay_odd.extend([2**power, 2**power])
-        overlay_even.extend([4, 4, 4, 2, 1, 1])
-        overlay_odd.extend([4, 4, 2, 2, 2, 1, 1])
-
-        if overlay_len % 2 == 0:
-            overlay = overlay_even[-overlay_len:]
-        else:
-            overlay = overlay_odd[-overlay_len:]
-
-        overlay_sum = sum(overlay)
-        base = [2**i for i in range(n_dac - 1, -1, -1)]
-
-        result = [0] * m_caps
-        result[0] = base[0] - overlay_sum
-        for i in range(1, n_dac):
-            result[i] = base[i]
-        for i, val in enumerate(overlay):
-            result[i + 2] += val
-
-        return result
-
-    elif strategy in (
-        RedunStrat.RDX2_RPT_START,
-        RedunStrat.RDX2_RPT_SPREAD,
-        RedunStrat.RDX2_RPT_END,
-        RedunStrat.RDX2_RPT_BOTH,
-    ):
-        # Binary weights, n_extra of them repeated right after themselves (never the MSB: a repeat
-        # gives the decisions before it their tolerance). START repeats the largest after the MSB,
-        # END the smallest, BOTH the larger half of them at the start and the rest at the end,
-        # SPREAD picks evenly along the chain after the MSB.
-        base = [2**i for i in range(n_dac - 1, -1, -1)]
-        if not 0 < n_extra <= n_dac - 1:
-            return None
-        if strategy == RedunStrat.RDX2_RPT_START:
-            repeated = set(range(1, n_extra + 1))
-        elif strategy == RedunStrat.RDX2_RPT_END:
-            repeated = set(range(n_dac - n_extra, n_dac))
-        elif strategy == RedunStrat.RDX2_RPT_BOTH:
-            start = (n_extra + 1) // 2
-            repeated = set(range(1, start + 1)) | set(range(n_dac - (n_extra - start), n_dac))
-        else:
-            repeated = {1 + math.floor((k + 0.5) * (n_dac - 1) / n_extra) for k in range(n_extra)}
-        return [w for i, weight in enumerate(base) for w in ((weight, weight) if i in repeated else (weight,))]
-
-    else:
-        return None  # Unknown strategy

@@ -15,8 +15,8 @@ import hdl21 as h
 from hdl21.primitives import MosType, MosVth
 
 from flow.circuit.ports import module_from_ports
-from flow.comp.subckt import _mos
-from flow.comp.subckt import write_netlist as _write_netlist
+from flow.circuit.devices import mos as _mos
+from flow.circuit.devices import write_netlist as _write_netlist
 
 
 @h.paramclass
@@ -97,7 +97,7 @@ def LvShift(param: LvShiftParams) -> h.Module:
 
 def write_netlist(params: LvShiftParams, path: Path, pdk) -> Path:
     """The level shifter after ``pdk``'s compile, as one flat SPICE subcircuit named after ``path``
-    (``flow.comp.subckt.write_netlist``: devices fingered to the row cells in whole unit widths)."""
+    (``flow.circuit.devices.write_netlist``: devices fingered to the row cells in whole unit widths)."""
 
     return _write_netlist(params, path, pdk, generator=LvShift, nets=LvShiftNets)
 

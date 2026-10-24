@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-import hdl21 as h
 import numpy as np
 import pytest
 from vlsirtools.spice.sim_data import TranResult
@@ -10,12 +9,9 @@ from vlsirtools.spice.sim_data import TranResult
 from flow.adc.sim import AdcTbParams
 from flow.adc.subckt import AdcNets
 from flow.analysis.io import read_measurement, write_measurement
-from flow.analysis.types import MeasAdc, MeasComp
+from flow.analysis.types import MeasAdc
 from flow.circuit.ports import waveform_net_names
-from flow.circuit.results import convert_raw_adc_to_measurement, convert_raw_comp_to_measurement
-from flow.comp import CompParams
-from flow.comp.sim import CompTb, CompTbParams
-from pdk import tsmc65
+from flow.circuit.results import convert_raw_adc_to_measurement
 
 
 def test_adc_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
@@ -252,87 +248,6 @@ def test_adc_continuous_records_require_next_init_logic(tmp_path: Path) -> None:
     assert measurement.wave.time_s[-1] > 100e-9
 
 
-def test_comp_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
-    params = CompTbParams(
-        waveform_sample_interval_s=500e-12,
-        comp=CompParams(diffpair_w=31),
-        vin_diff_values_v=(-100e-6, 0.0, 100e-6),
-        conversions=2,
-    )
-    time_step_s = 0.5e-9
-    cycle_s = 40e-9
-    trial_count = 6
-    times_s = np.arange(0.0, trial_count * cycle_s + time_step_s / 2.0, time_step_s)
-    decisions = np.asarray([0, 0, 0, 1, 1, 1], dtype=np.uint8)
-    clock = np.zeros_like(times_s)
-    comp_difference = np.zeros_like(times_s)
-    output_difference = np.zeros_like(times_s)
-    previous_sign = -1.0
-    for trial, decision in enumerate(decisions):
-        start_s = trial * cycle_s
-        eval_start_s = start_s + 10e-9
-        stop_s = start_s + cycle_s
-        active = (times_s >= eval_start_s) & (times_s < stop_s)
-        clock[active] = 1.2
-        sign = 1.0 if decision else -1.0
-        resolved = (times_s >= eval_start_s + 2e-9) & (times_s < stop_s)
-        comp_difference[resolved] = sign
-        output_difference[(times_s >= start_s) & (times_s < eval_start_s + 2e-9)] = previous_sign
-        output_difference[resolved] = sign
-        previous_sign = sign
-
-    values = {
-        "time": times_s,
-        "vin_p": np.full_like(times_s, 0.8),
-        "vin_n": np.full_like(times_s, 0.8),
-        "clock": clock,
-        "vout_p": 0.6 + output_difference / 2.0,
-        "vout_n": 0.6 - output_difference / 2.0,
-        "comp_p": 0.6 + comp_difference / 2.0,
-        "comp_n": 0.6 - comp_difference / 2.0,
-        "i(vdd)": np.full_like(times_s, -10e-6),
-    }
-    signal_names = {
-        "time": "time",
-        "inp": "vin_p",
-        "inn": "vin_n",
-        "clk": "clock",
-        "outp": "vout_p",
-        "outn": "vout_n",
-        "latch_p": "comp_p",
-        "latch_n": "comp_n",
-        "i(vdd)": "i(vdd)",
-    }
-    raw_path = tmp_path / "netlist.raw"
-    raw_path.touch()
-    h.pdk.set_default(tsmc65.pdk_logic)
-    compiled_tb = CompTb(params)
-    h.pdk.compile(compiled_tb)
-
-    h5_path = tmp_path / "comp.h5"
-    expected = convert_raw_comp_to_measurement(
-        TranResult("tran", values, {}),
-        params=params,
-        raw_path=raw_path,
-        signal_names={raw: alias for alias, raw in signal_names.items()},
-    )
-    write_measurement(h5_path, expected)
-    measurement = read_measurement(h5_path)
-    assert measurement.wave is not None
-
-    assert isinstance(measurement, MeasComp)
-    assert measurement.wave is not None
-    assert measurement.param == params
-    assert measurement.info.readbacks["raw_format"] == "spectre_nutbin"
-    assert measurement.info.readbacks["vdd_active_average_power_w"] == pytest.approx(12e-6)
-    assert measurement.info.readbacks["energy_per_decision_j"] == pytest.approx(480e-15)
-    np.testing.assert_allclose(measurement.vin_diff_v, [-100e-6, -100e-6, 0.0, 0.0, 100e-6, 100e-6])
-    np.testing.assert_array_equal(measurement.decision, decisions)
-    np.testing.assert_array_equal(measurement.wave.record_index, np.arange(6))
-    assert measurement.wave.v["clk"].shape == (6, 80)
-    np.testing.assert_allclose(measurement.wave.i["vdd"], 10e-6)
-
-
 def _adc_names(view):
     from flow.adc.sim import AdcTb, AdcTbParams, adc_signal_names
 
@@ -379,8 +294,6 @@ def test_generated_adc_map_covers_all_sixteen_capacitor_stages():
 
 @pytest.mark.parametrize("fault", ("coarse", "nonfinite", "shape", "duplicate_alias", "unmapped", "missing"))
 def test_converters_reject_invalid_transients_before_decoding(tmp_path, fault):
-    from flow.comp.sim import CompTbParams
-
     times = np.arange(4) * 10e-12
     data = {"time": times, "raw": np.zeros(4)}
     names = {"time": "time", "raw": "vin_p"}
@@ -397,20 +310,18 @@ def test_converters_reject_invalid_transients_before_decoding(tmp_path, fault):
     else:
         names["missing"] = "vin_n"
     result = TranResult("tran", data, {})
-    for convert, params in (
-        (convert_raw_adc_to_measurement, AdcTbParams()),
-        (convert_raw_comp_to_measurement, CompTbParams()),
-    ):
-        with pytest.raises(ValueError, match="Invalid transient"):
-            convert(result, params=params, raw_path=tmp_path / "unused.raw", signal_names=names)
+    with pytest.raises(ValueError, match="Invalid transient"):
+        convert_raw_adc_to_measurement(
+            result, params=AdcTbParams(), raw_path=tmp_path / "unused.raw", signal_names=names
+        )
 
 
 def test_conversion_bodies_contain_no_inline_raises():
     import ast
     import inspect
 
-    for convert in (convert_raw_adc_to_measurement, convert_raw_comp_to_measurement):
-        assert not any(isinstance(node, ast.Raise) for node in ast.walk(ast.parse(inspect.getsource(convert))))
+    source = inspect.getsource(convert_raw_adc_to_measurement)
+    assert not any(isinstance(node, ast.Raise) for node in ast.walk(ast.parse(source)))
 
 
 def test_raw_step_validation_accepts_spectre_strobe_jitter_but_rejects_coarser_data():
@@ -452,17 +363,3 @@ def test_adc_conversion_requires_one_complete_record():
     times[0, -1] = np.nan
     with pytest.raises(ValueError, match="No complete ADC conversions"):
         _validate_adc_conversion(times)
-
-
-@pytest.mark.parametrize("duration_error", (0.0, 0.5e-12, -2e-9, 2e-9))
-def test_comp_conversion_checks_trial_schedule(duration_error):
-    from flow.circuit.results import _validate_comp_conversion
-
-    params = CompTbParams(conversions=2, vin_cm_values_v=(0.6, 0.7), vin_diff_values_v=(-0.001, 0.001))
-    cycle = float(params.reset_time_s) + float(params.evaluation_time_s)
-    times = np.array([10e-9, 10e-9 + 8 * cycle + duration_error])
-    if abs(duration_error) > params.waveform_sample_interval_s:
-        with pytest.raises(ValueError, match="duration differs"):
-            _validate_comp_conversion(times, params)
-    else:
-        assert _validate_comp_conversion(times, params) == (8, cycle)

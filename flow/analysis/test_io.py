@@ -145,6 +145,7 @@ def test_spectre_reader_uses_raw_to_alias_map_and_preserves_all_samples(tmp_path
 def analysis_results():
     """Return one constructed instance of many analysis result types, nested records included."""
 
+    from flow import comp
     from flow.analysis.adc import (
         analyze_adc_code_density_nonlinearity,
         analyze_adc_decision_paths,
@@ -157,10 +158,9 @@ def analysis_results():
         analyze_adc_timing_summary,
         analyze_adc_transfer,
     )
-    from flow.analysis.comp import analyze_comp_common_mode, analyze_comp_offset_noise
     from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement, adc_timing_measurement
     from flow.analysis.test_cdac import _curve, transition_of
-    from flow.analysis.test_comp import comparator_measurement
+    from flow.comp.test_analysis import decisions_at
 
     ramp_measurement = adc_ramp_measurement()
     ramp = analyze_adc_ramp(ramp_measurement)
@@ -182,8 +182,8 @@ def analysis_results():
     noise_measurement = adc_measurement([100, 101, 100, 102], observed_adc=2)
     timing = adc_timing_measurement()
     closure = analyze_adc_timing_closure(timing)
-    comparator = comparator_measurement()
-    offset = analyze_comp_offset_noise([comparator])
+    comparator = decisions_at()
+    offset = comp.analyze_offset_noise([comparator])
     return (
         ramp,
         analyze_adc_code_density_nonlinearity(ramp_measurement, ramp=ramp),
@@ -196,7 +196,7 @@ def analysis_results():
         closure,
         analyze_adc_timing_summary(timing, closure=closure),
         offset,
-        analyze_comp_common_mode([comparator], offsets=[offset]),
+        comp.analyze_common_mode([comparator]),
         transition_of(_curve("n", "1to0", 0, 2e-3)),
     )
 

@@ -39,7 +39,8 @@ def test_omit_subcircuit_removes_multiline_calls() -> None:
 
 def test_historical_mom_source_translates_pin15_to_stage_c0() -> None:
     params = CapArrayParams(
-        cdac=CapArrayConfig(n_dac=2, n_extra=0, weights=(64, 1), unit_cap=0.8 * f),
+        cdac=CapArrayConfig(n_dac=2, n_extra=0, weights=(64, 1)),
+        unit_cap=0.8 * f,
         active_layers=(6,),
         unit_models=(mom_lvs_device(6, 5),),
     )

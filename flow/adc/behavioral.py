@@ -23,11 +23,12 @@ from dataclasses import dataclass
 
 import hdl21 as h
 import numpy as np
+from hdl21.primitives import MosType
 
+from flow import comp as comparator
 from flow.adc.sequences import AdcSequence
 from flow.adc.sim import AdcTbParams
-from flow.caparray.subckt import CapArrayConfig, CapArrayParams, get_caparray_weights
-from flow.comp.subckt import CompParams, MosType, Stages
+from flow.caparray.subckt import CapArrayConfig, CapArrayParams, get_caparray_weights, unit_capacitance_f
 from flow.samp.subckt import SampParams, SwitchType
 
 # Rough 65-nm LVT device constants for the estimates drawn from HDL21 sizing.
@@ -72,11 +73,11 @@ class SampBehavioralParams:
 
 @h.paramclass
 class CompBehavioralParams:
-    """Comparator physics beyond its HDL21 ``CompParams``; energy is pinned per decision."""
+    """Comparator physics beyond its HDL21 ``comp.Params``; energy is pinned per decision."""
 
     noise_v = h.Param(
         dtype=float | None,
-        desc="Input-referred RMS noise per decision; None estimates it from the CompParams sizing",
+        desc="Input-referred RMS noise per decision; None estimates it from the comp.Params sizing",
         default=0.0,
     )
     offset_v = h.Param(dtype=float, desc="Input-referred offset", default=0.0)
@@ -183,13 +184,14 @@ def calc_redundancy_margins(weights) -> np.ndarray:
 
 
 def calc_ideal_capacitances(cdac: CapArrayConfig) -> tuple[np.ndarray, np.ndarray]:
-    """Return the ideal C0-first main and diff capacitances that ``CapArray`` generates.
+    """Return the ideal C0-first main and diff capacitances that ``CapArray`` generates at the
+    config's unit capacitance (``unit_capacitance_f``).
 
     Each weight is split into coarse chunks; a chunk adds
     ``unit * (coarse +/- chunk) / 2 + tail`` to the main and diff plates.
     """
     array = CapArrayParams(cdac=cdac)
-    unit_f = float(cdac.unit_cap)
+    unit_f = unit_capacitance_f(cdac)
     tail_f = unit_f / 2 if array.tail_cap is None else float(array.tail_cap)
     main_f, diff_f = [], []
     for weight in get_caparray_weights(cdac):
@@ -277,7 +279,7 @@ def calc_switch_resistance(
 
 
 def calc_strongarm_noise(
-    hw: CompParams, vin_cm_v: float, *, vth_v: float = 0.3, gamma: float = 1.0, temperature_k: float = 300.0
+    hw: comparator.Params, vin_cm_v: float, *, vth_v: float = 0.3, gamma: float = 1.0, temperature_k: float = 300.0
 ) -> float:
     """Estimate the StrongARM input-referred RMS noise, Razavi (SSC Magazine 2015) eq. (15).
 
@@ -291,7 +293,7 @@ def calc_strongarm_noise(
     rather than predicting noise.
     """
 
-    if hw.comp_stages != Stages.SINGLE or hw.preamp_diff_xtors != MosType.NMOS:
+    if hw.comp_stages != comparator.Stages.SINGLE or hw.preamp_diff_xtors != MosType.NMOS:
         raise ValueError("the StrongARM noise estimate needs a single-stage NMOS-input comparator")
     diff_w = hw.diffpair_w * W_MIN_UM
     latch_w, latch_l = hw.latch_on_w * W_MIN_UM, hw.latch_on_l * L_MIN_UM
@@ -330,7 +332,7 @@ def samp(
 
 
 def comp(
-    hw: CompParams,
+    hw: comparator.Params,
     params: CompBehavioralParams,
     vin_diff_v: np.ndarray,
     rng: np.random.Generator,

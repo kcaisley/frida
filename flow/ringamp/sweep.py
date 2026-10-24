@@ -21,7 +21,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import (
     DEAD_ZONE_SWEEP,
@@ -174,7 +174,7 @@ def characterize(run_dir: Path, pdk: str, ringamp: RingampParams) -> Record:
             "settling_time_max_supply_s": nanmax(over_supply.settling_time_s),
         },
         details=[
-            Detail(
+            Plot(
                 name="transfer",
                 title="Open-loop transfer, rising input, at each dead-zone drive",
                 x_label="Input (V)",
@@ -182,7 +182,7 @@ def characterize(run_dir: Path, pdk: str, ringamp: RingampParams) -> Record:
                 x=list(transfer.input_v),
                 series={label: list(transfer.output_v[row]) for label, row in drives.items()},
             ),
-            Detail(
+            Plot(
                 name="current_transfer",
                 title="Open-loop supply current, rising input, at each dead-zone drive",
                 x_label="Input (V)",
@@ -191,7 +191,7 @@ def characterize(run_dir: Path, pdk: str, ringamp: RingampParams) -> Record:
                 series={label: list(transfer.current_a[row]) for label, row in drives.items()},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="settling_deadzone",
                 title="Settling to 1 % over the dead-zone drive (closed loop, step 1/12 VDD)",
                 x_label="Dead-zone drive (V)",
@@ -199,7 +199,7 @@ def characterize(run_dir: Path, pdk: str, ringamp: RingampParams) -> Record:
                 x=drive_v,
                 series={"settling": list(over_drive.settling_time_s)},
             ),
-            Detail(
+            Plot(
                 name="error_deadzone",
                 title="Output step error over the dead-zone drive (closed loop, step 1/12 VDD)",
                 x_label="Dead-zone drive (V)",
@@ -207,7 +207,7 @@ def characterize(run_dir: Path, pdk: str, ringamp: RingampParams) -> Record:
                 x=drive_v,
                 series={"error": list(over_drive.gain_error)},
             ),
-            Detail(
+            Plot(
                 name="quiescent_deadzone",
                 title="Quiescent current over the dead-zone drive (closed loop, settled)",
                 x_label="Dead-zone drive (V)",
@@ -216,7 +216,7 @@ def characterize(run_dir: Path, pdk: str, ringamp: RingampParams) -> Record:
                 series={"quiescent": list(over_drive.quiescent_current_a)},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="settling_step",
                 title="Settling to 1 % over the step (closed loop)",
                 x_label="Input step (V)",
@@ -224,7 +224,7 @@ def characterize(run_dir: Path, pdk: str, ringamp: RingampParams) -> Record:
                 x=step_v,
                 series={"settling": list(over_step.settling_time_s)},
             ),
-            Detail(
+            Plot(
                 name="error_step",
                 title="Output step error over the step (closed loop)",
                 x_label="Input step (V)",
@@ -232,7 +232,7 @@ def characterize(run_dir: Path, pdk: str, ringamp: RingampParams) -> Record:
                 x=step_v,
                 series={"error": list(over_step.gain_error)},
             ),
-            Detail(
+            Plot(
                 name="settling_supply",
                 title="Settling to 1 % over the supply (closed loop, step 1/12 VDD)",
                 x_label="Supply over nominal",
@@ -240,7 +240,7 @@ def characterize(run_dir: Path, pdk: str, ringamp: RingampParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"settling": list(over_supply.settling_time_s)},
             ),
-            Detail(
+            Plot(
                 name="error_supply",
                 title="Output step error over the supply (closed loop, step 1/12 VDD)",
                 x_label="Supply over nominal",

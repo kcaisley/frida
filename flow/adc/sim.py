@@ -14,6 +14,7 @@ import hdl21.sim as hs
 from hdl21.prefix import G, m, p
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
+from flow import comp
 from flow.adc.digital import digital_netlist
 from flow.adc.ip import adc_pex, adc_port_aliases, frida1_net_aliases, frida2_net_aliases
 from flow.adc.sequences import (
@@ -24,7 +25,6 @@ from flow.adc.sequences import (
 from flow.adc.subckt import Adc, AdcNets, AdcParams, adc_nets, adc_stages, is_valid_adc_params
 from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.circuit.ports import testbench_from_ports
-from flow.comp.subckt import CompNets
 
 
 @h.paramclass
@@ -44,7 +44,7 @@ class AdcTbParams:
         dtype=AdcParams,
         desc="ADC DUT parameters",
         default=AdcParams(
-            cdac=CapArrayConfig(n_dac=11, n_extra=5, redun_strat=RedunStrat.SUBRDX2_OVLY),
+            cdac=CapArrayConfig(n_dac=11, n_extra=5, redun_strat=RedunStrat.MSB_REDIST),
         ),
     )
     symbol_rate = h.Param(dtype=h.Scalar, desc="DDR symbol rate", default=1.6 * G)
@@ -348,7 +348,7 @@ def adc_signal_names(tb: h.Module, view: str, *, save_supply_voltages: bool = Fa
         raise ValueError(f"Unsupported ADC view {view!r}")
     aliases = frida1_net_aliases() if view == "frida1" else frida2_net_aliases() if view == "frida2" else {}
     names = {"time": "time"}
-    for schema, prefix in ((nets, ""), (CompNets, "comp.")):
+    for schema, prefix in ((nets, ""), (comp.Nets, "comp.")):
         for net in schema.signals.values():
             if not net.props.get("save"):
                 continue
@@ -356,7 +356,7 @@ def adc_signal_names(tb: h.Module, view: str, *, save_supply_voltages: bool = Fa
             path = "xtop" if testbench_net else f"xtop.{tb.xadc.name}"
             if view == "hdl21gen" or testbench_net:
                 scope = tb if testbench_net else tb.xadc.of
-                if schema is CompNets:
+                if schema is comp.Nets:
                     path += f".{scope.xcomp.name}"
                     scope = scope.xcomp.of
                 actual = scope.namespace[net.name]

@@ -10,21 +10,36 @@ repos:
         entry: uvx --from ruff==0.16.6 ruff check --fix
         language: system
         types: [python]
-        files: ^flow/(analysis|scans|adc|caparray|capdriver|cdac|comp|samp|circuit)/.*\.py$
+        files: ^flow/((analysis|scans|adc|caparray|capdriver|cdac|comp|samp|circuit|sweep|web|layout)/.*|[^/]+)\.py$
       - id: ruff-format
         name: ruff format
         entry: uvx --from ruff==0.16.6 ruff format
         language: system
         types: [python]
-        files: ^flow/(analysis|scans|adc|caparray|capdriver|cdac|comp|samp|circuit)/.*\.py$
+        files: ^flow/((analysis|scans|adc|caparray|capdriver|cdac|comp|samp|circuit|sweep|web|layout)/.*|[^/]+)\.py$
 
       - id: ty-flow
         name: ty flow type check
         entry: >-
           uv run ty check flow/analysis flow/scans flow/adc flow/caparray flow/capdriver flow/comp
-          flow/samp flow/circuit
+          flow/samp flow/circuit flow/pipeline.py flow/plot.py
         language: system
-        files: ^flow/(analysis|scans|adc|caparray|capdriver|comp|samp|circuit)/.*\.py$
+        files: ^flow/((analysis|scans|adc|caparray|capdriver|comp|samp|circuit)/.*|pipeline|plot)\.py$
+        pass_filenames: false
+
+      # the block pipeline (docs/pipeline.md): its contract on every migrated block, and its stages' order
+      - id: pipeline-contract
+        name: block pipeline contract
+        entry: uv run pytest -q -p no:cacheprovider flow/test_pipeline.py
+        language: system
+        files: ^flow/([^/]+\.py|comp/.*\.py)$
+        pass_filenames: false
+
+      - id: import-linter
+        name: import-linter stage order
+        entry: env PYTHONPATH=. uvx --from import-linter==2.15 lint-imports
+        language: system
+        files: ^(flow/.*\.py|pyproject\.toml)$
         pass_filenames: false
 
       - id: analysis-conformance

@@ -20,7 +20,8 @@ from klayout import db
 
 from flow.caparray.model import CapArrayModel
 from flow.caparray.subckt import CapArrayConfig, get_caparray_weights
-from flow.capdriver.subckt import CapDriverParams, Cells, stage_strengths
+from flow.capdriver.subckt import PARALLEL_DRIVE, CapDriverParams, Cells, pre_driver, stage_strengths
+from flow.cdac.subckt import driver_strengths
 from flow.sweep.runner import ROOT, SWEEP_DIR, digest, instance_params, write_record
 
 from .subckt import AdcParams
@@ -62,7 +63,7 @@ def sweep_gds(block: str, pdk: str, params) -> Path:
 
 def caparray_gds(pdk: str, cdac: CapArrayConfig) -> Path:
     """The array drawn for the extraction the behavioral model reads."""
-    table = CapArrayModel.of(pdk, cdac).table  # a LookupError where the variant is not extracted
+    table = CapArrayModel.of(pdk, cdac).table  # a LookupError where the array is not extracted
     gds = next(table.parent.glob("caparray_*.gds"), None)
     if gds is None:
         raise FileNotFoundError(f"no array GDS beside {table}")
@@ -80,20 +81,26 @@ def _copied(layout: db.Layout, gds: Path) -> db.Cell:
 
 
 def _driver(layout: db.Layout, pdk: str, cdac: CapArrayConfig, boundary: int) -> db.Cell:
-    """One side's main or difference driver: each stage's XOR and buffer, C0's row at the bottom,
-    every other row flipped so the rails abut."""
+    """One side's main or difference driver: each stage's XOR and buffers (the drives its plates
+    call for, ``flow.cdac.subckt.driver_strengths``), C0's row at the bottom, every other row
+    flipped so the rails abut."""
     library = db.Layout()
     library.read(str(import_module(f"pdk.{pdk}.layout.paths").STD_GDS))
     generic = import_module(f"pdk.{pdk}.hdl21.cells").GENERIC
     params = CapDriverParams(
-        n_stages=len(get_caparray_weights(cdac)), strengths=cdac.driver_strengths, cells=Cells.GENERIC
+        n_stages=len(get_caparray_weights(cdac)), strengths=driver_strengths(pdk, cdac), cells=Cells.GENERIC
     )
     driver = layout.create_cell("capdriver")
     cells: dict[str, db.Cell] = {}
     y = 0.0
     for row, strength in enumerate(stage_strengths(params)):
         x, height = 0.0, 0.0
-        for name in ("xor2_x1", *((f"buf_x{strength}",) if strength > 1 else ())):
+        if strength > PARALLEL_DRIVE:
+            # a pre-driver and k buffers of 16
+            buffers = (f"buf_x{pre_driver(strength)}", *(f"buf_x{PARALLEL_DRIVE}",) * (strength // PARALLEL_DRIVE))
+        else:
+            buffers = (f"buf_x{strength}",) if strength > 1 else ()
+        for name in ("xor2_x1", *buffers):
             cell_name = generic[name][0]
             if cell_name not in cells:
                 cells[cell_name] = layout.create_cell(cell_name)

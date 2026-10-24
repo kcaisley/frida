@@ -13,8 +13,8 @@ from pathlib import Path
 import hdl21 as h
 
 from flow.circuit.ports import module_from_ports
-from flow.comp.subckt import Inverter, LogicCellParams, Nand2, Nor2
-from flow.comp.subckt import write_netlist as _write_netlist
+from flow.circuit.devices import Inverter, LogicCellParams, Nand2, Nor2
+from flow.circuit.devices import write_netlist as _write_netlist
 from flow.latch.subckt import LatchParams, _build_latch
 
 
@@ -93,7 +93,7 @@ def Clkgen(param: ClkgenParams) -> h.Module:
 
 def write_netlist(params: ClkgenParams, path: Path, pdk) -> Path:
     """The clock generator after ``pdk``'s compile, as one flat SPICE subcircuit named after
-    ``path`` (``flow.comp.subckt.write_netlist``: its logic cells written as the PDK's library cells)."""
+    ``path`` (``flow.circuit.devices.write_netlist``: its logic cells written as the PDK's library cells)."""
 
     return _write_netlist(params, path, pdk, generator=Clkgen, nets=ClkgenNets)
 

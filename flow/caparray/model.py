@@ -1,8 +1,10 @@
 """The capacitor array's behavioral model: each stage's main and difference capacitance and the
 top plate's other load, from the 3D extraction of the same ``CapArrayConfig`` laid out in the PDK
-(``python -m flow caparray.layout_extract_adc_variants`` writes one table per ADC variant).
+at its split and capacitance (``python -m flow caparray.layout_extract_adc_arrays`` sizes each ADC
+array through its extraction, ``flow.caparray.sizing``, and writes one table per array, named by
+``flow.caparray.layout.array_name``). A unary stage has no difference plate (0).
 
-    model = CapArrayModel.of("tsmc65", CapArrayConfig(n_dac=11, n_extra=5))
+    model = CapArrayModel.of("tsmc65", CapArrayConfig(n_dac=11, n_extra=5, cap_scale=2))
     main_f, diff_f = model.draw(unit_mismatch=0.001, rng=rng)
 
 The top plate's load beyond the switched plates is the array's own: its coupling to the shield
@@ -12,7 +14,6 @@ between the blocks are not extracted for these arrays, so they are left out.
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,11 +23,10 @@ import numpy as np
 from flow.adc.behavioral import calc_capacitor_mismatch
 from flow.sweep.runner import ROOT
 
-from .layout import ADC_VARIANTS
+from .layout import array_name
 from .subckt import CapArrayConfig, get_caparray_weights
 
-EXTRACTIONS = ROOT / "build/layout/caparray/extract_adc_variants"
-IDEAL = ROOT / "build/models/caparray/ideal"  # the ideal arrays' tables, in the extractions' format
+EXTRACTIONS = ROOT / "build/layout/caparray/extract_adc_arrays"
 # Random part of Harpe's measured unit-length DAC linearity (JSSC 2018, 65 nm): 0.10 %·sqrt(fF)
 UNIT_MISMATCH_HARPE = 0.0010
 
@@ -44,13 +44,12 @@ class CapArrayModel:
 
     @classmethod
     def of(cls, pdk: str, params: CapArrayConfig, *, layers: int = 3) -> CapArrayModel:
-        if params.parasitic_cap is not None:
-            return cls.ideal(pdk, params)
-        name = next((key for key, value in ADC_VARIANTS.items() if value == params), None)
+        """The newest extraction of the array ``params`` names (``array_name``) in ``pdk``."""
+        name = array_name(params) if params.weights is None else None
         tables = sorted(EXTRACTIONS.glob(f"*/{name}/{pdk}/{layers}l/capacitance_table.json")) if name else []
         if not tables:
             raise LookupError(
-                f"no {layers}-metal extraction of {params} in {pdk}: run python -m flow caparray.layout_extract_adc_variants"
+                f"no {layers}-metal extraction of {params} in {pdk}: run python -m flow caparray.layout_extract_adc_arrays"
             )
         extracted = json.loads(tables[-1].read_text())
         main_f = np.asarray(extracted["main_by_stage_ff"]) * 1e-15
@@ -65,25 +64,6 @@ class CapArrayModel:
             diff_f=diff_f,
             parasitic_f=parasitic,
             table=tables[-1].with_suffix(".csv"),
-        )
-
-    @classmethod
-    def ideal(cls, pdk: str, params: CapArrayConfig) -> CapArrayModel:
-        """An array as specified rather than laid out: each stage its weight in unit capacitors, no
-        difference plates, and the top plate's other load ``parasitic_cap`` (a specification's
-        total less its switched capacitance: routing, the sampler, the comparator, dummies). Its
-        table is the extraction's format, so the decoders read it as an extraction's."""
-        weights = np.asarray(get_caparray_weights(params), dtype=np.float64)
-        main_f = weights * float(params.unit_cap)
-        parasitic = float(params.parasitic_cap)
-        rows = "".join(f"{i},{c * 1e15:.6f},0,{c * 1e15:.6f}\n" for i, c in enumerate(main_f))
-        text = "stage,main_ff,diff_ff,effective_ff\n" + rows
-        table = IDEAL / f"{hashlib.sha256(f'{text}{parasitic}'.encode()).hexdigest()[:16]}.csv"
-        if not table.exists():
-            table.parent.mkdir(parents=True, exist_ok=True)
-            table.write_text(text)
-        return cls(
-            pdk=pdk, params=params, main_f=main_f, diff_f=np.zeros_like(main_f), parasitic_f=parasitic, table=table
         )
 
     @property

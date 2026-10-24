@@ -1,13 +1,14 @@
 """The CDAC's design space (``flow.sweep``): the array of every converter of ``flow.adc.sweep``
-with its drivers, in TSMC65, at that converter's resolution: every ADC variant's (extracted in
-TSMC65) at one bit more than its nominal (the free first comparison), and the specification study's
-ideal arrays at 15 bits.
+with its drivers, in TSMC65, at that converter's resolution: every ADC array (``ADC_ARRAYS``, each
+sized through its extraction in TSMC65, ``flow.caparray.sizing``) at one bit more than its DAC's
+steps (the free first comparison), 61 instances.
 
-The drivers are the generic cells the ADC model stands in with, at the array's strengths. Each
-instance switches every stage alone, both ways (``flow.cdac.sim``): its settling to half an LSB, its
-drivers' delay and the time constant the behavioral ADC settles it with, by stage. One Spectre run,
-under two minutes; a window too short for a stage to settle in its first half is doubled and run
-again.
+The drivers are the generic cells the ADC model stands in with, derived from the array's plates
+(``flow.cdac.subckt.driver_strengths``: each stage's drive scaled with its plate to settle in about
+1 ns). Each instance switches every stage alone, both ways (``flow.cdac.sim``): its settling to half
+an LSB, its drivers' delay and the time constant the behavioral ADC settles it with, by stage. One
+Spectre run, a few minutes beside other jobs; a window too short for a stage to settle in its first
+half is doubled and run again.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import hdl21 as h
 
 from flow.caparray.subckt import CapArrayConfig
 from flow.capdriver.subckt import Cells
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .subckt import Cdac, CdacParams, cdac_params
 
@@ -98,7 +99,7 @@ def characterize(run_dir: Path, pdk: str, params: CdacSettling) -> Record:
             "step_error_lsb": result.step_error_lsb,
         },
         details=[
-            Detail(
+            Plot(
                 name="settling_stage",
                 title="Settling to half an LSB by stage (the slower direction)",
                 x_label="Stage (C0, the MSB, first)",
@@ -106,7 +107,7 @@ def characterize(run_dir: Path, pdk: str, params: CdacSettling) -> Record:
                 x=stages,
                 series={"settling": list(map(float, result.settling_s))},
             ),
-            Detail(
+            Plot(
                 name="model_stage",
                 title="The behavioral model's step by stage: its start and time constant",
                 x_label="Stage (C0, the MSB, first)",

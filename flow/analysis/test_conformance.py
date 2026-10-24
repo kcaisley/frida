@@ -25,17 +25,15 @@ from flow.adc.subckt import AdcParams
 from flow.analysis import types as analysis_types
 from flow.caparray.sim import CapArrayTbParams
 from flow.caparray.subckt import CapArrayConfig, CapArrayParams
-from flow.comp.sim import CompTbParams
-from flow.comp.subckt import CompParams
 from flow.samp.sim import SampTbParams
 from flow.samp.subckt import SampParams
 from flow.scans.params import AdcScanParams
 
 ANALYSIS_DIR = Path(__file__).resolve().parent
 # Building blocks keep their measurement and result types, analyses, and plots in their own
-# folder (flow/<block>/analysis.py and plots.py) under the same contract.
+# folder (flow/<block>/analysis.py and plots.py) under the same contract. The blocks on the pipeline
+# (flow/test_pipeline.py: MIGRATED) follow its contract instead (docs/pipeline.md).
 BLOCKS = (
-    "comp",
     "samp",
     "caparray",
     "momcap",
@@ -59,7 +57,7 @@ BLOCKS = (
 )
 BLOCK_ANALYSES = tuple(f"flow.{block}.analysis" for block in BLOCKS)
 BLOCK_PLOTS = tuple(f"flow.{block}.plots" for block in BLOCKS)
-CONTRACT_MODULES = ("adc", "comp", "cdac", "calibration1", "calibration2", "calibration3", *BLOCK_ANALYSES)
+CONTRACT_MODULES = ("adc", "cdac", "calibration1", "calibration2", "calibration3", *BLOCK_ANALYSES)
 PURE_MODULES = (*CONTRACT_MODULES, "calc")
 # Names that annotations in flow.analysis.types refer to only under TYPE_CHECKING.
 TYPE_NAMESPACE = {
@@ -69,8 +67,6 @@ TYPE_NAMESPACE = {
     "CapArrayTbParams": CapArrayTbParams,
     "CapArrayConfig": CapArrayConfig,
     "CapArrayParams": CapArrayParams,
-    "CompTbParams": CompTbParams,
-    "CompParams": CompParams,
     "SampTbParams": SampTbParams,
     "SampParams": SampParams,
     "AdcScanParams": AdcScanParams,
@@ -186,8 +182,13 @@ def _contract_problems() -> set[str]:
             if not _is_analysis(result):
                 problems.add(f"{label}: does not return an Analysis subclass")
                 continue
-            if not _camel(name.removeprefix("analyze_")).startswith(
-                typing.cast(type, result).__name__.removeprefix("Analysis")
+            # its own result type, or another block's of the same thing (the CDAC's switching curves
+            # as the comparator's decisions: analyze_cdac_decisions -> comp.AnalysisDecisions)
+            own = typing.cast(type, result).__name__.removeprefix("Analysis")
+            thing = name.removeprefix("analyze_")
+            if not (
+                _camel(thing).startswith(own)
+                or (result.__module__.startswith("flow.") and _camel(thing.split("_", 1)[1]).startswith(own))
             ):
                 problems.add(f"{label}: returns {typing.cast(type, result).__name__}, not its own result type")
             prior_types = {
@@ -265,11 +266,13 @@ def _persistable(annotation) -> bool:
 
 
 def test_every_result_field_is_persistable() -> None:
+    # the identity's design parameters are any block's (flow.pipeline.Analysis.dut), stored by type
+    identity = {data_field.name for data_field in dataclasses.fields(analysis_types.Analysis)}
     unsupported = {
         f"{cls.__name__}.{name}: {annotation}"
         for cls in _analysis_classes()
         for name, annotation in _field_hints(cls).items()
-        if not _persistable(annotation)
+        if not _persistable(annotation) and not (name in identity and annotation is typing.Any)
     }
     assert unsupported == set()
 

@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 import flow.analysis.io as analysis_io
+from flow import comp
 from flow.adc.sim import AdcTbParams
 from flow.analysis.io import interpolate_wave_records, read_measurement, write_measurement
 from flow.analysis.types import (
@@ -23,13 +24,12 @@ from flow.analysis.types import (
     Meas,
     MeasAdc,
     MeasCdac,
-    MeasComp,
     MeasInfo,
     Wave,
     check_identity,
     measurement_identity,
 )
-from flow.comp.sim import CompTbParams
+from flow.caparray.subckt import RedunStrat
 from flow.samp.analysis import MeasSamp
 from flow.samp.sim import SampTbParams
 from flow.scans.params import AdcScanParams
@@ -107,9 +107,10 @@ def adc_spice() -> MeasAdc:
     )
 
 
-def comp_physical() -> MeasComp:
+def comp_capture() -> comp.AnalysisDecisions:
+    """A comparator capture's decisions, as the lab writes them (an analysis: its trials)."""
     params = physical_scan_params()
-    return MeasComp(
+    return comp.AnalysisDecisions(
         group=params.board_id,
         index=params.observed_adc,
         dut=params.tb.dut.comp,
@@ -121,22 +122,23 @@ def comp_physical() -> MeasComp:
         decision=np.asarray([0, 1], dtype=np.uint8),
         fastrx_word=np.asarray([1, 2], dtype=np.uint32),
         fastrx_frame=np.asarray([0, 1], dtype=np.uint32),
+        wave=wave(("comp_out",)),
     )
 
 
-def comp_spice() -> MeasComp:
-    params = CompTbParams()
-    return MeasComp(
+def comp_spice() -> Meas:
+    """A comparator run as ``flow.pipeline.read`` gives it: every signal on the simulator's steps."""
+    params = comp.TbParams()
+    time_s = np.asarray([0.0, 1e-12, 3e-12, 10e-12])
+    return Meas(
         group=None,
         index=None,
-        dut=params.comp,
+        dut=params.params,
         info=info(),
         param=params,
-        trial_index=np.arange(1),
-        vin_diff_v=np.asarray([0.0]),
-        vin_cm_v=np.asarray([0.6]),
-        decision=np.asarray([1], dtype=np.uint8),
-        wave=wave(("inp", "inn", "clk", "latch_p", "latch_n"), ("vdd",)),
+        time_s=time_s,
+        v={name: time_s * 1e9 for name in ("inp", "inn", "clk", "latch_p", "latch_n")},
+        i={"vdd": np.full(4, 1e-5)},
     )
 
 
@@ -174,11 +176,11 @@ def samp_spice() -> MeasSamp:
 
 
 def example() -> MeasExample:
-    params = CompTbParams()
+    params = comp.TbParams()
     return MeasExample(
         group=None,
         index=None,
-        dut=params.comp,
+        dut=params.params,
         info=info(),
         param=params,
         trial_index=np.arange(3),
@@ -186,7 +188,7 @@ def example() -> MeasExample:
     )
 
 
-MEASUREMENTS = (adc_physical, adc_spice, comp_physical, comp_spice, cdac_physical, samp_spice, example)
+MEASUREMENTS = (adc_physical, adc_spice, comp_spice, cdac_physical, samp_spice, example)
 
 
 def assert_same_measurement(loaded: Meas, original: Meas) -> None:
@@ -200,6 +202,11 @@ def assert_same_measurement(loaded: Meas, original: Meas) -> None:
             stored = getattr(loaded, data_field.name)
             assert stored.dtype == value.dtype
             np.testing.assert_array_equal(stored, value)
+    for name in ("v", "i"):
+        stored, expected = getattr(loaded, name), getattr(original, name)
+        assert stored.keys() == expected.keys()
+        for key in expected:
+            np.testing.assert_array_equal(stored[key], expected[key])
     if original.wave is None:
         assert loaded.wave is None
     else:
@@ -227,6 +234,19 @@ def test_every_measurement_type_round_trips(tmp_path: Path, build) -> None:
         assert stored["measurement"].attrs["_type"] == f"{type(original).__module__}:{type(original).__qualname__}"
 
 
+def test_a_comparator_captures_decisions_round_trip_as_an_analysis(tmp_path: Path) -> None:
+    """A capture is the comparator's decisions (``comp.AnalysisDecisions``), its scope record and
+    raw words with them."""
+
+    original = comp_capture()
+    loaded = analysis_io.read_analysis(analysis_io.write_analysis(tmp_path / "capture.h5", original))
+    assert type(loaded) is comp.AnalysisDecisions and loaded.param == original.param
+    for name in ("trial_index", "vin_diff_v", "vin_cm_v", "decision", "fastrx_word", "fastrx_frame"):
+        np.testing.assert_array_equal(getattr(loaded, name), getattr(original, name))
+    assert loaded.wave is not None and original.wave is not None
+    np.testing.assert_array_equal(loaded.wave.v["comp_out"], original.wave.v["comp_out"])
+
+
 def test_a_new_measurement_class_needs_no_registration(tmp_path: Path) -> None:
     """The reader rebuilds any importable Meas subclass from its stored type name."""
 
@@ -236,15 +256,19 @@ def test_a_new_measurement_class_needs_no_registration(tmp_path: Path) -> None:
 
 def test_every_measurement_carries_the_base_fields() -> None:
     base = [data_field.name for data_field in fields(Meas)]
-    assert base == ["group", "index", "dut", "info", "param", "wave"]
-    assert [data_field.name for data_field in fields(Meas) if data_field.default is not MISSING] == ["wave"]
+    assert base == ["group", "index", "dut", "info", "param", "wave", "time_s", "v", "i"]
+    assert [
+        data_field.name
+        for data_field in fields(Meas)
+        if data_field.default is not MISSING or data_field.default_factory is not MISSING
+    ] == ["wave", "time_s", "v", "i"]
     for build in MEASUREMENTS:
         assert [data_field.name for data_field in fields(type(build()))][: len(base)] == base
 
 
 def test_measurement_readback_arrays_must_share_one_row_per_record() -> None:
     with pytest.raises(ValueError, match="readback arrays are not aligned"):
-        replace(comp_physical(), decision=np.asarray([1], dtype=np.uint8))
+        replace(cdac_physical(), decision=np.asarray([1], dtype=np.uint8))
 
 
 def test_wave_rejects_misaligned_traces_and_a_nonincreasing_axis() -> None:
@@ -296,13 +320,18 @@ def test_parameter_reader_applies_defaults_added_after_capture(tmp_path: Path) -
     path = write_measurement(tmp_path / "older.h5", adc_physical())
     with h5py.File(path, "a") as stored:
         for cdac in (stored["measurement/param/tb/dut/cdac"], stored["measurement/dut/cdac"]):
-            for name in ("driver_p_w", "driver_n_w", "driver_strengths"):
+            for name in ("cap_scale", "driver_strengths"):
                 del cdac[name]
+            # an archived capture: the scheme under its old name, and a field since removed
+            attrs = dict(cdac["redun_strat"].attrs)
+            del cdac["redun_strat"]
+            cdac.create_dataset("redun_strat", data="SUBRDX2_OVLY").attrs.update(attrs)
+            cdac.create_dataset("split_strat", data="NO_SPLIT")
 
     loaded = read_measurement(path)
-    assert loaded.dut.cdac.driver_p_w == 9
-    assert loaded.dut.cdac.driver_n_w == 7
+    assert loaded.dut.cdac.cap_scale == 1
     assert loaded.dut.cdac.driver_strengths is None
+    assert loaded.dut.cdac.redun_strat is RedunStrat.MSB_REDIST
 
 
 def test_reader_rejects_a_missing_required_field(tmp_path: Path) -> None:
@@ -350,7 +379,7 @@ def test_analysis_base_holds_only_identity_fields_without_defaults() -> None:
 
 def test_monte_carlo_parameters_default_to_nominal() -> None:
     assert (AdcTbParams().mc_seed, AdcTbParams().mc_index) == (None, None)
-    assert (CompTbParams().mc_seed, CompTbParams().mc_index) == (None, None)
+    assert (comp.TbParams().mc_seed, comp.TbParams().mc_index) == (None, None)
 
 
 def test_identity_helpers_reject_mixed_inputs_and_mismatched_priors() -> None:

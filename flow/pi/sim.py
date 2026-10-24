@@ -24,7 +24,7 @@ from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimula
 
 from flow.analysis.io import interpolate_wave_records, write_measurement
 from flow.circuit.ports import testbench_from_ports
-from flow.comp.subckt import _mos
+from flow.circuit.devices import mos as _mos
 
 from .subckt import CASES, Pi, PiNets, PiParams, Style
 

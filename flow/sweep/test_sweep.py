@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
 import json
 import math
 from pathlib import Path
@@ -9,31 +11,44 @@ from pathlib import Path
 import hdl21 as h
 import pytest
 
-from flow.comp.subckt import Comp, CompParams, Stages
+from flow import comp
 from flow.sweep import flat_params, geometry, runner
 
 
 def test_parameters_flatten_to_one_row() -> None:
-    flat = flat_params(CompParams(comp_stages=Stages.TRIPLE, diffpair_w=16))
+    flat = flat_params(comp.Params(comp_stages=comp.Stages.TRIPLE, diffpair_w=16))
     assert flat["comp_stages"] == "TRIPLE" and flat["diffpair_w"] == 16
     assert all(isinstance(value, (bool, int, float, str)) or value is None for value in flat.values())
 
 
 def test_geometry_counts_the_compiled_devices_and_their_gate_area() -> None:
     logic = pytest.importorskip("pdk.tsmc65.hdl21").pdk_logic
-    module = Comp(CompParams())
+    module = comp.netlist(comp.Params())
     h.pdk.compile(module, logic)
     totals = geometry(module, "tsmc65")
-    assert totals["devices"] == len(Comp(CompParams()).instances) or totals["devices"] > 0
+    assert totals["devices"] == len(comp.netlist(comp.Params()).instances) or totals["devices"] > 0
     assert 0 < totals["gate_area_um2"] < 100 and totals["cells"] == 0
 
 
 def test_every_sweep_module_keeps_the_contract() -> None:
     for block in runner.sweep_blocks():
         sweep = __import__(f"flow.{block}.sweep", fromlist=["instances"])
-        assert callable(sweep.characterize) and sweep.GENERATOR is not None, block
-        assert not hasattr(sweep, "TOPOLOGIES") and not hasattr(sweep, "SIZINGS"), block
-        spaces = {pdk: sweep.instances(pdk) for pdk in runner.PDKS}
+        # a block on the pipeline gives its runs and its record (flow/test_pipeline.py checks the
+        # rest), the others their characterization and generator
+        if hasattr(sweep, "runs"):
+            assert callable(sweep.runs) and callable(sweep.record), block
+        else:
+            assert callable(sweep.characterize) and sweep.GENERATOR is not None, block
+        # no tables of topologies or sizings of its own (a block's params may name its topologies)
+        defined = {
+            target.id
+            for node in ast.parse(inspect.getsource(sweep)).body
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+            for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+            if isinstance(target, ast.Name)
+        }
+        assert not {"TOPOLOGIES", "SIZINGS"} & defined, block
+        spaces = {pdk: list(runner.design_space(block, pdk).values()) for pdk in runner.PDKS}
         assert any(spaces.values()), block
         for pdk, instances in spaces.items():
             # an instance is its parameters: each class the generator takes, none twice but where two
@@ -47,14 +62,56 @@ def test_every_sweep_module_keeps_the_contract() -> None:
 
 
 def test_an_instance_is_its_parameters() -> None:
-    from flow.comp import sweep as comp
-
-    a, b = comp.instances("tsmc65")[:2]
-    assert runner.digest(a) == runner.digest(flat_params(a)) == runner.digest(CompParams(**vars(a)))
+    a, b = list(runner.design_space("comp", "tsmc65").values())[:2]
+    assert runner.digest(a) == runner.digest(flat_params(a)) == runner.digest(comp.Params(**vars(a)))
     assert runner.digest(a) != runner.digest(b) and len(runner.digest(a)) == 12
     assert runner.instance_id("ihp130", a) == f"ihp130__{runner.digest(a)}"
     # the models' cache and the sweep's runs key an instance alike
     assert runner.design_space("comp", "tsmc65")[runner.digest(a)] == a
+
+
+def test_the_comparator_space_is_its_families_within_each_pdks_limits() -> None:
+    # every family's product, FRIDA-1's comparator by name, each instance once
+    space = runner.labelled_space("comp", "tsmc65")
+    labels = [label for label, _params in space.values()]
+    assert (
+        "frida1" in labels
+        and "dynamic_bias(ratio=3.5, k=2)" in labels
+        and "reference(topology=strongarm, size=x1)" in labels
+    )
+    assert {pdk: len(runner.design_space("comp", pdk)) for pdk in runner.PDKS} == {
+        "tsmc65": 92,
+        "tsmc28": 47,
+        "ihp130": 37,
+        "tower180": 12,
+        "lf150": 47,
+        "tpsc65": 79,
+    }
+    assert comp.frida1() == comp.FRIDA1
+    # a family is a function of its knobs: every width times k
+    assert comp.base_strongarm(tail_l=34, k=2.5).diffpair_w == 80 and comp.base_strongarm(tail_l=34, k=2.5).tail_w == 10
+    for pdk in runner.PDKS:
+        assert all(comp.valid(params, pdk) for params in runner.design_space("comp", pdk).values()), pdk
+    # FRIDA-1's long latch decides too late in the older PDKs, a 54-unit tail in IHP130, a 14-unit
+    # one in Tower180 (comp.params.LIMITS)
+    space = {pdk: list(runner.design_space("comp", pdk).values()) for pdk in runner.PDKS}
+    assert comp.frida1() in space["tsmc28"] and comp.frida1() not in space["ihp130"]
+    assert comp.base_strongarm(tail_l=34, k=4) in space["ihp130"]
+    assert comp.base_strongarm(tail_l=54, k=4) not in space["ihp130"]
+    assert comp.base_strongarm(tail_l=14, k=4) not in space["tower180"]
+    # the dynamic bias where its tail capacitor drops the common mode far and fast enough, none in
+    # IHP130 or Tower180
+    assert comp.dynamic_bias(ratio=6, k=2) in space["lf150"]
+    assert comp.dynamic_bias(ratio=3.5, k=2) not in space["lf150"]
+    for pdk in ("ihp130", "tower180"):
+        assert not any(params.preamp_bias == comp.Bias.DYNAMIC for params in space[pdk])
+    # named but not swept: picked by name, and by label or digest the swept ones
+    picked = runner.select(
+        "comp", "tsmc65", ["triple_tail", "dynamic_bias(ratio=3.5, k=2)", runner.digest(comp.frida1())]
+    )
+    assert [label for label, _params in picked.values()] == ["triple_tail", "dynamic_bias(ratio=3.5, k=2)", "frida1"]
+    with pytest.raises(LookupError, match="no instance"):
+        runner.select("comp", "tsmc65", ["no_such_comparator"])
 
 
 def test_a_floorplan_is_chosen_by_the_instances_structure() -> None:
@@ -121,8 +178,55 @@ def test_the_table_has_a_row_per_instance_and_a_file_each(tmp_path: Path, monkey
     assert catalog["toy"]["instances"] == 2 and "gone" not in catalog
 
 
+def test_a_run_of_some_pdks_keeps_the_others_from_the_run_before(tmp_path: Path, monkeypatch) -> None:
+    from flow.sweep import lookup
+
+    params = {"w": 1, "kind": "inv"}
+    ident = runner.digest(params)
+    # an earlier run in two PDKs, a later one in TSMC65 alone
+    for run, pdk, delay in (
+        ("20261020_000000", "tsmc65", 1e-10),
+        ("20261020_000000", "ihp130", 3e-10),
+        ("20261021_000000", "tsmc65", 2e-10),
+    ):
+        path = tmp_path / "sweep/toy" / run / pdk / ident / "instance.json"
+        path.parent.mkdir(parents=True)
+        record = {
+            "block": "toy",
+            "id": runner.instance_id(pdk, params),
+            "pdk": pdk,
+            "params": params,
+            "metrics": {"delay_s": delay},
+            "details": [],
+            "waves": {},
+            "error": None,
+            "seconds": 1.0,
+        }
+        path.write_text(json.dumps(record))
+    monkeypatch.setattr(runner, "SWEEP_DIR", tmp_path / "sweep")
+    monkeypatch.setattr(runner, "DATA_DIR", tmp_path / "web/data/sweep")
+    assert runner.newest_run("toy").name == runner.newest_run("toy", "tsmc65").name == "20261021_000000"
+    assert runner.newest_run("toy", "ihp130").name == "20261020_000000"
+    assert {pdk: run.name for pdk, run in runner.pdk_runs("toy").items()} == {
+        "ihp130": "20261020_000000",
+        "tsmc65": "20261021_000000",
+    }
+    # the table: each PDK's newest run
+    runner.table(["toy"], 1)
+    data = json.loads((tmp_path / "web/data/sweep/toy.json").read_text())
+    assert {row["pdk"]: row["metrics"]["delay_s"] for row in data["rows"]} == {"tsmc65": 2e-10, "ihp130": 3e-10}
+    assert data["run"] == "20261021_000000 (tsmc65), 20261020_000000 (ihp130)"
+    # and the models' lookup alike
+    lookup._newest_run.cache_clear()
+    try:
+        assert lookup._sweep_record("toy", "tsmc65", ident)["metrics"]["delay_s"] == 2e-10
+        assert lookup._sweep_record("toy", "ihp130", ident)["metrics"]["delay_s"] == 3e-10
+        assert lookup._sweep_record("toy", "tower180", ident) is None
+    finally:
+        lookup._newest_run.cache_clear()
+
+
 def test_the_sweep_targets_call_the_library_on_every_block(monkeypatch) -> None:
-    from flow.comp import targets as comp
     from flow.sweep import targets
 
     calls = []
@@ -140,9 +244,6 @@ def test_the_sweep_targets_call_the_library_on_every_block(monkeypatch) -> None:
         ("layout", blocks, 28),
         ("table", blocks, 16),
     ]
-    calls.clear()
-    comp.sweep()  # one block: a fresh run, laid out, tabulated
-    assert calls == [("run", ["comp"], 36, {}), ("layout", ["comp"], 28), ("table", ["comp"], 16)]
 
 
 def test_a_lookup_without_simulation_never_waits_on_a_lock(tmp_path: Path, monkeypatch) -> None:
@@ -153,7 +254,7 @@ def test_a_lookup_without_simulation_never_waits_on_a_lock(tmp_path: Path, monke
 
     monkeypatch.setattr(lookup, "MODELS_DIR", tmp_path)
     monkeypatch.setattr(lookup, "_sweep_record", lambda block, pdk, ident: None)
-    params = CompParams()
+    params = comp.Params()
     digest = hashlib.sha1(json.dumps(flat_params(params), sort_keys=True).encode()).hexdigest()[:12]
     assert digest == runner.digest(params)
     lock = tmp_path / "comp/tsmc65" / f"{digest}.lock"

@@ -20,7 +20,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import BIAS_SWEEP, SUPPLY_SWEEP, MosCapTbParams, _run_moscap_sim, moscap_measurement
 from .subckt import CASES, Devices, Mode, MosCap, MosCapParams, is_valid_moscap_params, write_netlist
@@ -91,7 +91,7 @@ def characterize(run_dir: Path, pdk: str, moscap: MosCapParams) -> Record:
             "leakage_a": abs(float(cv.leakage_a[at])),
         },
         details=[
-            Detail(
+            Plot(
                 name="cv",
                 title="Capacitance over the bias (C-V, at 1 MHz)",
                 x_label=bias_label,
@@ -99,7 +99,7 @@ def characterize(run_dir: Path, pdk: str, moscap: MosCapParams) -> Record:
                 x=list(cv.bias_v),
                 series={"capacitance": list(cv.capacitance_f)},
             ),
-            Detail(
+            Plot(
                 name="leakage_bias",
                 title="Leakage over the bias",
                 x_label=bias_label,
@@ -108,7 +108,7 @@ def characterize(run_dir: Path, pdk: str, moscap: MosCapParams) -> Record:
                 series={"leakage": list(np.abs(cv.leakage_a))},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="quality_bias",
                 title=f"Quality factor over the bias (at {cv.loss_frequency_hz / 1e9:.2g} GHz)",
                 x_label=bias_label,
@@ -117,7 +117,7 @@ def characterize(run_dir: Path, pdk: str, moscap: MosCapParams) -> Record:
                 series={"quality": [q if math.isfinite(q) else math.nan for q in cv.quality]},
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="c_frequency",
                 title="Capacitance over frequency (nominal bias)",
                 x_label="Frequency (Hz)",
@@ -126,7 +126,7 @@ def characterize(run_dir: Path, pdk: str, moscap: MosCapParams) -> Record:
                 series={"capacitance": list(cv.capacitance_spectrum_f[at])},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="quality_frequency",
                 title="Quality factor over frequency (nominal bias)",
                 x_label="Frequency (Hz)",

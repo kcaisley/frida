@@ -6,17 +6,25 @@ engine (``flow/layout/stems/capcell.py``, in a process bound to the PDK, ``in_pd
 every dimension from the PDK's metal and via rules (``pdk.<tech>.layout.tech``: ``RULES``,
 ``MFG_GRID``) and draws on its layers (``LAYERS``), as it draws the analog row cells. Each unit is a
 difference FMOM (``flow.momcap``): a ring around a main and a difference finger, over a shield
-mesh, the arrays' units side by side sharing their ring walls.
+mesh, the arrays' units side by side sharing their ring walls. A chunk of weight w lengthens its
+main finger and shortens its difference finger by w weight steps: its capacitance is the two
+strips' difference, so a unit far below the smallest drawable capacitor is two long strips a few
+grids apart in length. Every unit is a row of the same length, the coarse weight's: a chunk of
+the coarse weight is a unary element, a lighter one a length-scaled binary element (Harpe, JSSC
+2018); the coarse weight is the split between them. A unary element keeps a difference finger of
+the tail alone, or (``unary_length``) is one main finger and no difference finger. The ADC study's
+arrays draw unary rows so, tie their edge dummies' fingers to the top plate, and take their split
+and step from ``flow.caparray.sizing``.
 
 ``mom_array_params`` sizes the array's netlist from the PDK's FMOM model (``tech.MOM_MODEL``, at
 the spacing the generator draws, or the calibrated ``tech.MOM_FITS``): the same lengths the
 generator draws, at the capacitance the model gives them. The helpers take the array they
-work on; each named target declares its arrays (FRIDA's ``RADIX17``, the ADC variants of
-``ADC_VARIANTS``) and its stack (``flow.caparray.targets`` runs them). The production targets
+work on; each named target declares its arrays (FRIDA's ``RADIX17``, the ADC study's
+``ADC_ARRAYS``) and its stack (``flow.caparray.targets`` runs them). The production targets
 build an array, sign it off (DRC, LVS against that netlist, 3D extraction) and tabulate its
 extracted capacitances (``pex.py``); ``caparray_all_pdks`` draws the array in every PDK and runs
 its DRC, ``caparray_extract_all_pdks`` extracts it where the PDK can and compares it with the
-model, and ``caparray_extract_adc_variants`` extracts each ADC variant's array in TSMC65.
+model; ``flow.caparray.sizing`` sizes and extracts each ADC array in TSMC65.
 """
 
 from __future__ import annotations
@@ -59,6 +67,20 @@ class UnitLengthCapFamilyParams:
     edge_dummy_units: int = 1
     shield_bridge_tracks: int = 15
     side_access_tracks: int = 5
+    # the length (nm) a unit of weight adds to the main finger and takes from the difference
+    # finger: the unit capacitance is twice it times the fingers' capacitance per length. None:
+    # two tracks, the production arrays' step; ``flow.caparray.sizing`` sizes an ADC array's
+    weight_step: int | None = None
+    # the edge dummies' fingers joined to the ring, on the top plate, rather than floating: the
+    # same pattern beside the outermost units, without the load (an extraction lumps a floating
+    # finger into ground). The ADC arrays tie them; FRIDA's production arrays do not
+    tied_dummies: bool = False
+    # each chunk of the coarse weight a unary row: one main finger this long (nm), its capacitance the
+    # coarse weight in units (the fit's slope over its length, its intercept once), and no
+    # difference finger, so nothing of it opposes its step (Harpe's unary elements, C' = 0); its
+    # ring and length every row's. None: the unary rows keep a difference finger of the tail.
+    # ``flow.caparray.sizing`` sets it for the ADC arrays; FRIDA's production arrays keep None
+    unary_length: int | None = None
 
 
 @dataclass(frozen=True)
@@ -130,6 +152,16 @@ def is_valid_caparray_layout_params(params: CapArrayLayoutParams) -> bool:
         isinstance(family.edge_dummy_units, bool)
         or not isinstance(family.edge_dummy_units, int)
         or family.edge_dummy_units < 0
+    ):
+        return False
+    if family.weight_step is not None and (
+        isinstance(family.weight_step, bool) or not isinstance(family.weight_step, int) or family.weight_step < 1
+    ):
+        return False
+    if not isinstance(family.tied_dummies, bool):
+        return False
+    if family.unary_length is not None and (
+        isinstance(family.unary_length, bool) or not isinstance(family.unary_length, int) or family.unary_length < 1
     ):
         return False
     if params.route_layer < 1 or not params.active_layers:
@@ -241,36 +273,43 @@ def _layout_manifest(params: CapArrayLayoutParams) -> dict[str, Any]:
     }
 
 
+def _mom_fit(params: CapArrayLayoutParams, gap: int) -> tuple[float, float]:
+    """The PDK's difference FMOM for the stack at the drawn ``gap``: its capacitance per finger
+    length (fF/um) and per finger (fF). The calibrated ``tech.MOM_FITS`` where the PDK has them
+    (its LVS deck checks them); otherwise ``tech.MOM_MODEL``'s rows interpolated in 1 / spacing at
+    the gap, scaled to the PDK's extracted arrays (``tech.MOM_ARRAY_SCALE``: the arrays' shield mesh
+    against the test structures' solid plate)."""
+
+    tech = import_module(f"pdk.{params.technology}.layout.tech")
+    layers = len(params.active_layers)
+    if ("difference", layers) in getattr(tech, "MOM_FITS", {}):
+        return tech.MOM_FITS["difference", layers]
+    if ("difference", layers) in getattr(tech, "MOM_MODEL", {}):
+        # (spacing nm, slope fF/um, intercept fF) rows
+        rows = sorted(tech.MOM_MODEL["difference", layers], reverse=True)
+        inverse = [1 / space for space, _slope, _intercept in rows]
+        scale = getattr(tech, "MOM_ARRAY_SCALE", {}).get(layers, 1.0)
+        slope = scale * float(np.interp(1 / gap, inverse, [row[1] for row in rows]))
+        intercept = scale * float(np.interp(1 / gap, inverse, [row[2] for row in rows]))
+        return slope, intercept
+    raise ValueError(f"{params.technology} has no {layers}-layer difference FMOM model")
+
+
 def mom_array_params(params: CapArrayLayoutParams) -> CapArrayParams:
     """The array's netlist at its PDK's FMOM capacitance, for ideal simulation and LVS alike.
 
     Every finger's capacitance is the difference unit's at the length the generator draws it:
     L = tail + (coarse_weight +/- chunk_weight) * step, so the logical unit is the slope over two
-    weight steps and each finger adds the intercept once (every coarse chunk too). The slope and
-    intercept are the PDK's FMOM model at the spacing the generator draws, interpolated in
-    1 / spacing between the extracted spacings (``tech.MOM_MODEL["difference", layers]``, from the
-    3D-extraction study), scaled to the PDK's extracted arrays (``tech.MOM_ARRAY_SCALE[layers]``:
-    the arrays' shield mesh against the test structures' solid plate), unless the PDK calibrates the production unit itself (``tech.MOM_FITS``, which its LVS deck
-    checks). No value is rounded: the smallest fingers stay. Where the PDK has a recognized
-    device for the stack (``pdk.<tech>.calibre.ringfmom``), every finger is one; otherwise the
-    leaves are ideal capacitors.
+    weight steps and each finger adds the intercept once (every coarse chunk too; a unary row's one
+    finger, ``unary_length``, is the coarse weight in units), the slope and
+    intercept the PDK's FMOM model at the spacing the generator draws (``_mom_fit``). No value is
+    rounded: the smallest fingers stay. Where the PDK has a recognized device for the stack
+    (``pdk.<tech>.calibre.ringfmom``), every finger is one; otherwise the leaves are ideal
+    capacitors.
     """
 
-    tech = import_module(f"pdk.{params.technology}.layout.tech")
-    layers = len(params.active_layers)
     geometry = _calc_unit_geometry(params)
-    if ("difference", layers) in getattr(tech, "MOM_FITS", {}):
-        slope, intercept = tech.MOM_FITS["difference", layers]
-    elif ("difference", layers) in getattr(tech, "MOM_MODEL", {}):
-        # (spacing nm, slope fF/um, intercept fF) rows, interpolated in 1 / spacing at the gap,
-        # scaled to the extracted arrays (their shield mesh, not the test structures' plate)
-        rows = sorted(tech.MOM_MODEL["difference", layers], reverse=True)
-        inverse = [1 / space for space, _slope, _intercept in rows]
-        scale = getattr(tech, "MOM_ARRAY_SCALE", {}).get(layers, 1.0)
-        slope = scale * float(np.interp(1 / geometry.gap, inverse, [row[1] for row in rows]))
-        intercept = scale * float(np.interp(1 / geometry.gap, inverse, [row[2] for row in rows]))
-    else:
-        raise ValueError(f"{params.technology} has no {layers}-layer difference FMOM model")
+    slope, intercept = _mom_fit(params, geometry.gap)
     try:
         stack_model = import_module(f"pdk.{params.technology}.calibre.ringfmom").ringfmom_device(
             params.active_layers, params.shield_layer
@@ -278,11 +317,13 @@ def mom_array_params(params: CapArrayLayoutParams) -> CapArrayParams:
     except (ModuleNotFoundError, ValueError):  # no recognized device for this PDK or stack
         stack_model = None
     return CapArrayParams(
-        cdac=replace(params.cdac, unit_cap=slope * f * (2 * geometry.weight_step / 1000)),
+        cdac=params.cdac,
+        unit_cap=slope * f * (2 * geometry.weight_step / 1000),
         coarse_weight=params.family.coarse_weight,
         active_layers=params.active_layers,
         stack_model=stack_model,
         tail_cap=slope * f * (geometry.tail_length / 1000) + intercept * f,
+        unary_rows=params.family.unary_length is not None,
     )
 
 
@@ -338,28 +379,44 @@ def _run_caparray(run_dir: Path, params: CapArrayLayoutParams) -> Path:
     return run_dir
 
 
-# FRIDA's array: 12 bits in 16 stages, sub-radix-2 with paired overlays (17 decisions)
-RADIX17 = CapArrayConfig(n_dac=11, n_extra=5, redun_strat=RedunStrat.SUBRDX2_OVLY)
-# the ways the ADC variants spend their redundant decisions (the overlay unnamed): FRIDA's sub-radix-2
-# overlay, or binary weights with repeated ones at the start, spread along the chain, at the end or at
-# both ends
-REDUNDANCY = {
-    "": RedunStrat.SUBRDX2_OVLY,
-    "_start": RedunStrat.RDX2_RPT_START,
-    "_spread": RedunStrat.RDX2_RPT_SPREAD,
-    "_end": RedunStrat.RDX2_RPT_END,
-    "_both": RedunStrat.RDX2_RPT_BOTH,
-}
-# the ADC variants' arrays: 10 to 14 bits, each binary or with 1 to 6 redundant decisions by each
-# strategy, 10 to 20 decisions a conversion (12b_plus5 is FRIDA's array)
-ADC_VARIANTS = {
-    f"{n_dac + 1}b_plus0": CapArrayConfig(n_dac=n_dac, n_extra=0, redun_strat=RedunStrat.RDX2)
-    for n_dac in (9, 10, 11, 12, 13)
-} | {
-    f"{n_dac + 1}b_plus{extra}{suffix}": CapArrayConfig(n_dac=n_dac, n_extra=extra, redun_strat=strategy)
-    for n_dac in (9, 10, 11, 12, 13)
-    for extra in range(1, 7)
-    for suffix, strategy in REDUNDANCY.items()
+# FRIDA's array: 12 bits in 16 stages, MSB redistribution with 5 extra cycles (17 decisions)
+RADIX17 = CapArrayConfig(n_dac=11, n_extra=5, redun_strat=RedunStrat.MSB_REDIST)
+# the ADC study's arrays (flow.adc.sweep): an N-bit converter on its N-1-step DAC at 10, 12 and 14
+# bits, binary and each scheme with 2, 4 and 6 extra cycles, at one and two kT/C minimums of
+# switched capacitance (10 arrays at each resolution and scale, 60), and FRIDA-1's array at 12
+# bits, at two (its drawn 0.9 pF is near two minimums at 12 bits): 61 in all
+ADC_BITS = (10, 12, 14)
+EXTRA_CYCLES = (2, 4, 6)
+SCHEMES = (RedunStrat.MSB_SPLIT, RedunStrat.LSB_SPLIT, RedunStrat.MSB_REDIST)
+CAP_SCALES = (1, 2)
+FRIDA1_ADC_ARRAY = replace(RADIX17, cap_scale=2)
+
+
+def adc_arrays(bits: int, cap_scale: int) -> list[CapArrayConfig]:
+    """A ``bits`` converter's arrays at ``cap_scale``: binary, then each scheme with each count of
+    extra cycles."""
+    n_dac = bits - 1
+    binary = CapArrayConfig(n_dac=n_dac, n_extra=0, redun_strat=RedunStrat.BINARY, cap_scale=cap_scale)
+    return [binary] + [
+        CapArrayConfig(n_dac=n_dac, n_extra=extra, redun_strat=scheme, cap_scale=cap_scale)
+        for scheme in SCHEMES
+        for extra in EXTRA_CYCLES
+    ]
+
+
+def array_name(cdac: CapArrayConfig) -> str:
+    """An array's name in the extractions, by its converter's resolution, scheme and scale: e.g.
+    ``12b_binary_x1``, ``12b_msb_redist5_x2`` (FRIDA-1's), ``14b_lsb_split6_x2``."""
+    if cdac.weights is not None:
+        raise ValueError("a fabricated array (explicit weights) has no generated layout")
+    extra = cdac.n_extra or ""
+    return f"{cdac.n_dac + 1}b_{cdac.redun_strat.name.lower()}{extra}_x{cdac.cap_scale}"
+
+
+ADC_ARRAYS = {
+    array_name(cdac): cdac
+    for cdac in [cdac for bits in ADC_BITS for scale in CAP_SCALES for cdac in adc_arrays(bits, scale)]
+    + [FRIDA1_ADC_ARRAY]
 }
 
 
@@ -478,42 +535,73 @@ def caparray_all_pdks(run_dir: Path) -> Path:
     return _draw_all_pdks(run_dir, RADIX17, "radix17")
 
 
-def _extract_one(run_dir: Path, pdk: str, cdac: CapArrayConfig, name: str, layers: int) -> dict[str, Any]:
+def extract_array(work: Path, pdk: str, params: CapArrayLayoutParams) -> dict[str, Any]:
+    """Draw and extract one array in ``work`` (3D, layout only, by its own net names): its
+    capacitance table, and its stages' effective capacitance (main less difference) against the
+    model's and against its own weights in its mean unit (the extracted unit: the effective total
+    over the total weight), the error in LSB."""
+
     from flow.layout.signoff import run_layout_pex
 
-    params = _stacked(pdk, cdac, name, layers)
-    work = run_dir / name / pdk / f"{layers}l"
     work.mkdir(parents=True, exist_ok=True)
     gds = work / f"{params.top_cell}.gds"
     CapArrayLayout(params).write(str(gds))
+    (work / "geometry_manifest.json").write_text(json.dumps(_layout_manifest(params), indent=2) + "\n")
     netlist = run_layout_pex(pdk, gds, params.top_cell, params.top_cell, work)
     weights = get_caparray_weights(params.cdac)
     extracted = parse_caparray_pex(netlist, stage_count=len(weights))
     write_capacitance_table(work, extracted)
-    unit = float(mom_array_params(params).cdac.unit_cap) * 1e15
+    unit = float(mom_array_params(params).unit_cap) * 1e15
     effective = [main - diff for main, diff in zip(extracted.main_by_stage_ff, extracted.diff_by_stage_ff, strict=True)]
+    unit_extracted = sum(effective) / sum(weights)
     return {
         "unit_model_ff": unit,
+        "unit_extracted_ff": unit_extracted,
+        "weight_step_nm": _calc_unit_geometry(params).weight_step,
+        "weight_error_max_lsb": max(
+            abs(value / unit_extracted - weight) for weight, value in zip(weights, effective, strict=True)
+        ),
         "stages": [
-            {"weight": weight, "model_ff": weight * unit, "extracted_ff": value, "ratio": value / (weight * unit)}
+            {
+                "weight": weight,
+                "model_ff": weight * unit,
+                "extracted_ff": value,
+                "ratio": value / (weight * unit),
+                "error_lsb": value / unit_extracted - weight,
+            }
             for weight, value in zip(weights, effective, strict=True)
         ],
     }
 
 
+def _extract_one(run_dir: Path, pdk: str, cdac: CapArrayConfig, name: str, layers: int) -> dict[str, Any]:
+    """Draw and extract one array at the family's step under ``<name>/<pdk>/<layers>l``."""
+
+    import time
+
+    start = time.monotonic()
+    result = extract_array(run_dir / name / pdk / f"{layers}l", pdk, _stacked(pdk, cdac, name, layers))
+    return {**result, "seconds": time.monotonic() - start}
+
+
 def _extract_all(
-    run_dir: Path, arrays: dict[str, CapArrayConfig], layer_counts: tuple[int, ...], pdks: tuple[str, ...]
+    run_dir: Path,
+    arrays: dict[str, CapArrayConfig],
+    layer_counts: tuple[int, ...],
+    pdks: tuple[str, ...],
+    *,
+    workers: int = 6,
 ) -> Path:
     """Extract each named array at each metal count by its own net names (3D, layout only) in each
-    PDK, its capacitance table under ``<name>/<pdk>/<layers>l/``, and compare each stage's
-    effective capacitance (main minus difference) with what the PDK's FMOM model sizes it at;
-    writes ``summary.json``."""
+    PDK, ``workers`` at a time, its capacitance table under ``<name>/<pdk>/<layers>l/``, and compare
+    each stage's effective capacitance (main minus difference) with what the PDK's FMOM model sizes
+    it at; writes ``summary.json``."""
 
     from concurrent.futures import ProcessPoolExecutor, as_completed
     from multiprocessing import get_context
 
     summary = {}
-    with ProcessPoolExecutor(max_workers=6, mp_context=get_context("spawn")) as executor:
+    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as executor:
         futures = {
             executor.submit(_extract_one, run_dir, pdk, cdac, name, layers): f"{name}/{pdk}/{layers}l"
             for name, cdac in arrays.items()
@@ -525,6 +613,7 @@ def _extract_all(
                 summary[futures[future]] = future.result()
             except Exception as error:  # noqa: BLE001 - report every PDK's outcome
                 summary[futures[future]] = {"error": str(error)[:500]}
+            (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return run_dir
 
@@ -532,12 +621,6 @@ def _extract_all(
 def caparray_extract_all_pdks(run_dir: Path) -> Path:
     """FRIDA's array at one to three metals, extracted in every PDK."""
     return _extract_all(run_dir, {"radix17": RADIX17}, (1, 2, 3), PDKS)
-
-
-def caparray_extract_adc_variants(run_dir: Path) -> Path:
-    """Each ADC variant's array (``ADC_VARIANTS``) at three metals, extracted in TSMC65: the main
-    and difference capacitances its behavioral model switches."""
-    return _extract_all(run_dir, ADC_VARIANTS, (3,), ("tsmc65",))
 
 
 def _extract_window(
@@ -590,7 +673,7 @@ def _extract_window(
     layout.write(str(gds))
     weights = get_caparray_weights(params.cdac)
     extracted = parse_caparray_pex(run_layout_pex(pdk, gds, name, name, work), stage_count=len(weights))
-    unit = float(mom_array_params(params).cdac.unit_cap) * 1e15
+    unit = float(mom_array_params(params).unit_cap) * 1e15
     return {
         "stages": [
             {

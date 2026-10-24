@@ -21,7 +21,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import (
     NOMINAL_PERIOD_S,
@@ -173,7 +173,7 @@ def characterize(run_dir: Path, pdk: str, pi: PiParams) -> Record:
             else math.nan,
         },
         details=[
-            Detail(
+            Plot(
                 name="transfer",
                 title="Output phase over the phase spacing (400 ps period)",
                 x_label="Phase B behind A (deg)",
@@ -185,7 +185,7 @@ def characterize(run_dir: Path, pdk: str, pi: PiParams) -> Record:
                     "ideal": [360 * intrinsic / NOMINAL_PERIOD_S + ideal * value for value in spacing],
                 },
             ),
-            Detail(
+            Plot(
                 name="inl",
                 title="Deviation from the linear fit up to quadrature",
                 x_label="Phase B behind A (deg)",
@@ -193,7 +193,7 @@ def characterize(run_dir: Path, pdk: str, pi: PiParams) -> Record:
                 x=list(over_spacing.spacing_deg[fitted]),
                 series={"INL": list(inl[fitted])},
             ),
-            Detail(
+            Plot(
                 name="phase_frequency",
                 title="Output phase over the frequency (quadrature)",
                 x_label="Phase frequency (Hz)",
@@ -202,7 +202,7 @@ def characterize(run_dir: Path, pdk: str, pi: PiParams) -> Record:
                 series={"output": list(over_period.output_phase_deg)},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="swing_frequency",
                 title="Swing over the frequency (quadrature)",
                 x_label="Phase frequency (Hz)",
@@ -211,7 +211,7 @@ def characterize(run_dir: Path, pdk: str, pi: PiParams) -> Record:
                 series={"swing": list(over_period.swing_v)},
                 x_log=True,
             ),
-            Detail(
+            Plot(
                 name="delay_supply",
                 title="Delay over the supply",
                 x_label="Supply over nominal",
@@ -219,7 +219,7 @@ def characterize(run_dir: Path, pdk: str, pi: PiParams) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"delay": list(over_supply.delay_s)},
             ),
-            Detail(
+            Plot(
                 name="swing_supply",
                 title="Swing over the supply",
                 x_label="Supply over nominal",

@@ -109,3 +109,30 @@ def test_waveforms_are_indexed_per_instance_and_served_thinned(tmp_path: Path) -
     other = {**entry, "path": "b.h5", "params": {**entry["params"], "vdd": 0.9}}
     index = trace_index([entry, other, dict(entry)])  # the same file twice is one run
     assert [run["point"] for run in index["ihp130"]["inv"]] == [{"vdd": 0.9}, {"vdd": 1.2}]
+
+
+def test_a_pipeline_measurement_is_one_record_on_the_simulators_axis(tmp_path: Path) -> None:
+    from datetime import UTC, datetime
+
+    import numpy as np
+
+    from flow.analysis.io import write_measurement
+    from flow.pipeline import Meas, MeasInfo
+    from flow.web.export import read_wave, wave_entry
+
+    time_s = np.asarray([0.0, 1e-12, 1e-12, 5e-12, 2e-11])  # uneven, a breakpoint repeated
+    meas = Meas(
+        group=None,
+        index=None,
+        dut=None,
+        info=MeasInfo(backend="spice", timestamp_utc=datetime(2026, 10, 24, tzinfo=UTC)),
+        param={"vdd": 1.2},
+        time_s=time_s,
+        v={"clk": time_s * 1e10},
+        i={"vdd": np.ones(5)},
+    )
+    path = write_measurement(tmp_path / "build/sweep/comp/run/tsmc65/abc/small/result.h5", meas)
+    entry = wave_entry(path, meas, root=tmp_path)
+    assert entry is not None and entry["records"] == 1 and entry["samples"] == 4 and entry["v"] == ["clk"]
+    wave = read_wave(str(path.relative_to(tmp_path)), root=tmp_path)
+    assert wave["time_s"] == [0.0, 1e-12, 5e-12, 2e-11] and wave["i"]["vdd"] == [1.0] * 4

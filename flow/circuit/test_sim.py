@@ -3,9 +3,7 @@
 import importlib
 import inspect
 import sys
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Barrier
 from types import SimpleNamespace
 
 import hdl21 as h
@@ -15,12 +13,11 @@ from vlsirtools.spice import ResultFormat
 from vlsirtools.spice.sim_data import AnalysisType
 
 import pdk
-from flow.comp import sim as comp
 
 from . import test_spectre
 
 
-@pytest.mark.parametrize("block", ("adc", "comp", "samp", "caparray"))
+@pytest.mark.parametrize("block", ("adc", "samp", "caparray"))
 def test_targets_and_python_contract(block):
     module = importlib.import_module(f"flow.{block}.sim")
     targets = importlib.import_module(f"flow.{block}.targets")
@@ -77,23 +74,15 @@ def capture_sim(monkeypatch):
         return SimpleNamespace(run=run)
 
     monkeypatch.setattr(hs, "Sim", build)
-    from flow.analysis.test_comp import comparator_measurement
     from flow.circuit import results
 
-    def convert(*args, **kwargs):
-        captured["measurement"] = kwargs
-        return comparator_measurement()
-
     monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
-    monkeypatch.setattr(results, "convert_raw_comp_to_measurement", convert)
-    monkeypatch.setattr(comp, "write_measurement", lambda path, value: captured.update(hdf5=path, saved=value))
     return captured
 
 
 @pytest.mark.parametrize(
     "block,target,short_stop,full_stop,threads",
     (
-        ("comp", "frida1_fixed_input_noise", 40e-9, 61 * 100 * 40e-9, 1),
         ("samp", "frida1_transient", 100e-9, 500e-9, 4),
         ("caparray", "frida1_transfer_curve", 200.1e-9, 2048 * 200e-9 + 2047 * 100e-12, 4),
     ),
@@ -104,8 +93,8 @@ def test_block_simulation_recipe(block, target, short_stop, full_stop, threads, 
     assert runner(tmp_path, check=check) == tmp_path
     tran = next(attr for attr in capture_sim["attrs"] if isinstance(attr, hs.Tran))
     assert float(tran.tstop) == pytest.approx(short_stop if check else full_stop)
-    assert bool(tran.noise) == (block == "comp" and not check)
-    assert float(tran.options["strobeperiod"]) == pytest.approx(10e-12 if block == "comp" else 100e-12)
+    assert not tran.noise
+    assert float(tran.options["strobeperiod"]) == pytest.approx(100e-12)
     assert tran.options["strobeoutput"].text == "strobeonly"
     options = capture_sim["options"]
     assert options.fmt == (ResultFormat.NONE if check else ResultFormat.SIM_DATA)
@@ -115,107 +104,9 @@ def test_block_simulation_recipe(block, target, short_stop, full_stop, threads, 
     literals = "\n".join(attr.text for attr in capture_sim["attrs"] if isinstance(attr, h.Literal))
     assert ("static_erc" in literals) == check
     assert ("dyn_nodecap" in literals) == check
-    if block == "comp":
-        assert ("hdf5" in capture_sim) == (not check)
-        if not check:
-            assert float(tran.options["noisefmin"]) == pytest.approx(1 / full_stop)
-            assert tran.options["noisefmax"].text == "25G"
-            assert float(tran.options["noiseseed"]) == 1
-            assert capture_sim["saved"].info.readbacks["candidate_id"] == "frida1_fabricated_baseline"
     capture_sim["fail"] = True
     with pytest.raises(RuntimeError, match="simulator/license failure"):
         runner(tmp_path / "failure", check=check)
-
-
-@pytest.mark.parametrize("check,count", ((False, 297), (True, 6)))
-def test_comparator_coverage_and_concurrency(check, count, monkeypatch, tmp_path):
-    calls = []
-    barrier = Barrier(min(count, 24))
-
-    def pool(*, max_workers, mp_context):
-        assert max_workers == 24
-        assert mp_context.get_start_method() == "spawn"
-        return ThreadPoolExecutor(max_workers=max_workers)
-
-    def capture(directory, params, **options):
-        calls.append((directory, params, options))
-        if len(calls) <= min(count, 24):
-            barrier.wait(timeout=10)
-        return directory / "netlist.raw", params, {}
-
-    monkeypatch.setattr(comp, "ProcessPoolExecutor", pool)
-    from flow.analysis.test_comp import comparator_measurement
-    from flow.circuit import results
-
-    monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
-    monkeypatch.setattr(results, "convert_raw_comp_to_measurement", lambda *args, **kwargs: comparator_measurement())
-    monkeypatch.setattr(comp, "write_measurement", lambda *args: None)
-    monkeypatch.setattr(comp, "_run_comp_sim", capture)
-    comp.hdl21_comp_perf_vs_size(tmp_path, check=check)
-    assert len(calls) == count
-    assert len({directory.name for directory, *_ in calls}) == count
-    assert all(comp.is_valid_comp_params(params.comp) for _, params, _ in calls)
-    for directory, params, options in calls:
-        assert options["check"] == check
-        assert options["candidate_id"] == directory.name
-        assert params.conversions == (1 if check else 100)
-        assert len(params.vin_diff_values_v) == (1 if check else 61)
-        size = directory.name.split("_")[0] if check else options["size_profile"]
-        expected_widths = {
-            "half": (19, 3, 4, 13, 17, 2, 4),
-            "double": (74, 10, 16, 50, 66, 8, 16),
-            "fabricated": (37, 5, 8, 25, 33, 4, 8),
-        }[size]
-        assert (
-            tuple(
-                getattr(params.comp, name)
-                for name in (
-                    "diffpair_w",
-                    "tail_w",
-                    "rst_w",
-                    "latch_on_w",
-                    "latch_init_w",
-                    "srlatch_n_w",
-                    "srlatch_p_w",
-                )
-            )
-            == expected_widths
-        )
-        assert tuple(
-            getattr(params.comp, name) for name in ("diffpair_l", "tail_l", "rst_l", "latch_on_l", "latch_init_l")
-        ) == (5, 13, 1, 6, 17)
-    if check:
-        assert {path.name for path, *_ in calls} == {
-            "fabricated_single_nmos_switched",
-            "half_single_pmos_dynamic",
-            "double_double_nmos_switched",
-            "fabricated_double_pmos_dynamic",
-            "half_double_nmos_dynamic",
-            "double_double_pmos_switched",
-        }
-    else:
-        assert {options["topology_index"] for _, _, options in calls} == set(range(148))
-        assert sum(options["size_profile"] == "half" for _, _, options in calls) == 148
-        assert sum(options["size_profile"] == "double" for _, _, options in calls) == 148
-        assert sum(options["size_profile"] == "fabricated" for _, _, options in calls) == 1
-
-
-def test_comparator_reports_all_case_failures(monkeypatch, tmp_path):
-    import json
-
-    calls = []
-    monkeypatch.setattr(comp, "ProcessPoolExecutor", lambda **kw: ThreadPoolExecutor(max_workers=kw["max_workers"]))
-
-    def fail(directory, *_args, **_kwargs):
-        calls.append(directory.name)
-        raise RuntimeError("broken deck")
-
-    monkeypatch.setattr(comp, "_run_comp_sim", fail)
-    with pytest.raises(RuntimeError, match="6 comparator cases failed"):
-        comp.hdl21_comp_perf_vs_size(tmp_path, check=True)
-    failures = json.loads((tmp_path / "failures.json").read_text())
-    assert set(failures) == set(calls)
-    assert all("broken deck" in error for error in failures.values())
 
 
 def test_missing_spectre_skips_before_pdk_import(monkeypatch):
@@ -250,7 +141,7 @@ def test_missing_installation_skips_but_missing_collateral_fails(monkeypatch, tm
 def test_spectre_marker_is_opt_in():
     import subprocess
 
-    for selection, expected in (([], "25 deselected"), (["-m", "spectre"], "25 tests collected")):
+    for selection, expected in (([], "23 deselected"), (["-m", "spectre"], "23 tests collected")):
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "--collect-only", "-q", str(test_spectre.__file__), *selection],
             capture_output=True,

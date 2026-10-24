@@ -192,8 +192,12 @@ def difference_geometry(family: dict, route: int, shield: int, active: tuple[int
     """Derive the CDAC unit geometry (nm) from the PDK's rules and the family's track counts.
 
     ``family``: ``coarse_weight``, ``tail_landings``, ``shield_bridge_tracks``,
-    ``side_access_tracks``; the plates on the ``active`` metals, the shield on ``shield``, the
-    buses on ``route`` (``route == shield`` shares the metal: the shield keeps to the body).
+    ``side_access_tracks`` and ``weight_step`` (the length a unit of weight adds to the main finger
+    and takes from the difference finger, on the grid; None: two tracks), and for
+    ``caparray_cells`` ``tied_dummies`` (the edge dummies' fingers on the top plate) and
+    ``unary_length`` (the unary units' one finger); the plates on the
+    ``active`` metals, the shield on ``shield``, the buses on ``route`` (``route == shield`` shares
+    the metal: the shield keeps to the body).
     """
 
     grid = _required(getattr(tech, "MFG_GRID", None), "manufacturing grid")
@@ -203,7 +207,10 @@ def difference_geometry(family: dict, route: int, shield: int, active: tuple[int
     min_width = max(_required(rule.get("width"), "active-metal minimum width") for rule in metal_rules)
     # widths about a centre line are an even number of grids, so both edges stay on grid
     centered_grid = 2 * grid
-    weight_step = _snap(2 * track_pitch, grid)
+    # a unit of weight: the main finger that much longer, the difference finger that much shorter
+    weight_step = family.get("weight_step") or _snap(2 * track_pitch, grid)
+    if weight_step % grid:
+        raise ValueError(f"a weight step of {weight_step} nm is off the {grid} nm grid")
 
     via_rules = [_rules(f"V{layer}") for layer in range(route, active[-1])]
     via_cut = max(_required(rule.get("cut"), "via cut width") for rule in via_rules)
@@ -397,25 +404,46 @@ def _recognition(cell: Cell, g: dict, y0: int, y1: int, *, side: str) -> None:
     _box(cell, "MOM_RECOG_INNER", inner_x - inset, y0 - inset, inner_x + g["finger_width"] + inset, y1 + inset)
 
 
-def difference_unit(g: dict, route: int, shield: int, active: tuple[int, ...], weight: int) -> Cell:
-    """One weighted CDAC unit (weight 0: an edge dummy, its inner plates floating)."""
+def difference_unit(
+    g: dict,
+    route: int,
+    shield: int,
+    active: tuple[int, ...],
+    weight: int,
+    tied: bool = False,
+    unary_length: int | None = None,
+) -> Cell:
+    """One weighted CDAC unit (weight 0: an edge dummy, its inner plates floating, or, ``tied``,
+    each joined to the ring at its outer end: on the top plate, which it then does not load, the
+    same pattern as a unit's with no access to the route metal). ``unary_length``: a unary unit,
+    one main finger that long (nm) from the bottom and no difference finger, so nothing of it
+    opposes its step; its ring and its length the same as every unit's."""
 
     suffix = "_".join(f"m{layer}" for layer in active)
-    cell = Cell(f"frida_mom_w{weight}_{suffix}" if weight else f"frida_mom_dummy_{suffix}", g["unit_pitch"])
+    dummy = "frida_mom_dummy_tied" if tied else "frida_mom_dummy"
+    name = f"frida_mom_w{weight}{'u' if unary_length else ''}_{suffix}"
+    cell = Cell(name if weight else f"{dummy}_{suffix}", g["unit_pitch"])
     width, height, ring = g["outer_width"], g["outer_height"], g["ring_width"]
     x0 = ring + g["gap"]
     inner_y0 = ring + g["end_gap"]
     bottom_y1 = inner_y0 + g["nominal_length"] + weight * g["weight_step"]
     top_y0 = bottom_y1 + g["end_gap"]
     top_y1 = height - ring - g["end_gap"]
+    tied = tied and not weight
+    if unary_length:
+        if not g["tail_length"] <= unary_length <= top_y1 - inner_y0:
+            raise ValueError(f"a unary finger of {unary_length} nm does not fit its unit")
+        bottom_y1 = inner_y0 + unary_length
     for metal in active:
         _ring(cell, f"M{metal}", width, height, ring)
-        cell.add(f"M{metal}", x0, inner_y0, x0 + g["finger_width"], bottom_y1)
-        cell.add(f"M{metal}", x0, top_y0, x0 + g["finger_width"], top_y1)
+        cell.add(f"M{metal}", x0, ring if tied else inner_y0, x0 + g["finger_width"], bottom_y1)
+        if not unary_length:
+            cell.add(f"M{metal}", x0, top_y0, x0 + g["finger_width"], height - ring if tied else top_y1)
     # the PDK's MOM recognition annotations, where its LVS recognizes the unit as a device
     if weight and tech.LAYERS.get("MOM_RECOG"):
         _recognition(cell, g, inner_y0, bottom_y1, side="main")
-        _recognition(cell, g, top_y0, top_y1, side="diff")
+        if not unary_length:
+            _recognition(cell, g, top_y0, top_y1, side="diff")
         inset = g["grid"]
         cell.add(
             "MOM_RECOG_SHIELD",
@@ -425,9 +453,14 @@ def difference_unit(g: dict, route: int, shield: int, active: tuple[int, ...], w
             g["shield_bridge_ys"][-1] + ring - inset,
         )
     _shield(cell, f"M{shield}", g, shared_routing=route == shield)
+    if tied:
+        return cell
     access_x, bottom, top = _access_centers(g)
     extension = (g["landing_long"] - g["via_landing"]) / 2
-    for access_y, landing_y in ((bottom, bottom + extension), (top, top - extension)):
+    accesses = (
+        ((bottom, bottom + extension),) if unary_length else ((bottom, bottom + extension), (top, top - extension))
+    )
+    for access_y, landing_y in accesses:
         for metal in range(route, active[0]):
             _landing(cell, f"M{metal}", access_x, landing_y, g)
         for lower in range(route, active[-1]):
@@ -447,8 +480,15 @@ def caparray_cells(spec: dict) -> tuple[dict[int, Cell], Cell, list[tuple[int, i
 
     route, shield, active = spec["route"], spec["shield"], tuple(spec["active"])
     g = difference_geometry(spec["family"], route, shield, active)
-    weights = sorted(set(spec["order"]) | set(range(1, spec["family"]["coarse_weight"] + 1)))
-    units = {weight: difference_unit(g, route, shield, active, weight) for weight in weights}
+    coarse = spec["family"]["coarse_weight"]
+    weights = sorted(set(spec["order"]) | set(range(1, coarse + 1)))
+    tied = spec["family"].get("tied_dummies", False)
+    # unary units: a chunk of the coarse weight, one main finger and no difference finger
+    unary = spec["family"].get("unary_length")
+    units = {
+        weight: difference_unit(g, route, shield, active, weight, tied, unary if weight == coarse else None)
+        for weight in weights
+    }
     pitch, ring = g["unit_pitch"], g["ring_width"]
     placements = [(weight, position * pitch) for position, weight in enumerate(spec["order"])]
     top = Cell(spec["top"], 0)
@@ -457,11 +497,18 @@ def caparray_cells(spec: dict) -> tuple[dict[int, Cell], Cell, list[tuple[int, i
     extension = (g["landing_long"] - g["via_landing"]) / 2
     pin_half = max(g["grid"], g["finger_width"]) / 2
     for main, diff, first, size in spec["groups"]:
-        x0 = first * pitch + x_local - g["landing_short"] / 2
-        x1 = (first + size - 1) * pitch + x_local + g["landing_short"] / 2
-        for label, y, landing_y in ((main, bottom_y, bottom_y + extension), (diff, top_y, top_y - extension)):
+        # the difference bus spans the units with a difference finger (none of a unary stage)
+        with_diff = [
+            position for position in range(first, first + size) if not (unary and spec["order"][position] == coarse)
+        ]
+        spans = [(main, bottom_y, bottom_y + extension, first, first + size - 1)]
+        if with_diff:
+            spans.append((diff, top_y, top_y - extension, with_diff[0], with_diff[-1]))
+        for label, y, landing_y, left, right in spans:
+            x0 = left * pitch + x_local - g["landing_short"] / 2
+            x1 = right * pitch + x_local + g["landing_short"] / 2
             _box(top, route_metal, x0, landing_y - g["landing_long"] / 2, x1, landing_y + g["landing_long"] / 2)
-            cx = first * pitch + x_local
+            cx = left * pitch + x_local
             _box(top, pin, cx - pin_half, y - pin_half, cx + pin_half, y + pin_half, label, "pin")
 
     # the top plate: a bar over the units' top ring walls, down a stack beside the array to the route metal
@@ -481,9 +528,13 @@ def caparray_cells(spec: dict) -> tuple[dict[int, Cell], Cell, list[tuple[int, i
         _vias(top, f"V{lower}", stack_x, y, g, columns=2)
     _box(top, pin, stack_x - ring / 2, y - ring / 2, stack_x + ring / 2, y + ring / 2, spec["topplate"], "pin")
 
-    # the shield: taps on its bridges at the array's right wall, out on route metal
+    # the shield: taps on its bridges at the array's right wall, out on route metal, past the top
+    # plate's stack: a tap that would meet the stack's pad (a short unit's top bridge) is left out
     tap_x = array_right - ring / 2
-    ys = [bridge + ring / 2 for bridge in g["shield_bridge_ys"]]
+    clearance = pad / 2 + ring / 2 + g["shield_spacing"]
+    ys = [bridge + ring / 2 for bridge in g["shield_bridge_ys"] if abs(bridge + ring / 2 - y) >= clearance]
+    if not ys:
+        raise ValueError("unit family is too short for a shield tap beside the top plate's stack")
     for index, y in enumerate(ys):
         for metal in range(route, shield):
             _landing(top, f"M{metal}", tap_x, y, g, horizontal=True)

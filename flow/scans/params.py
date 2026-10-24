@@ -197,7 +197,7 @@ def build_adc_variants(
             cdac=CapArrayConfig(
                 n_dac=11,
                 n_extra=5,
-                redun_strat=RedunStrat.SUBRDX2_OVLY,
+                redun_strat=RedunStrat.MSB_REDIST,
                 weights=tuple(board_map["adc_flavors"][flavor]["cdac_weights"]),
             ),
         )

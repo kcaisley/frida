@@ -23,7 +23,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.sweep import Detail, Record
+from flow.pipeline import Plot, Record
 
 from .sim import CapdriverTbParams, _period_s, _run_capdriver_sim, capdriver_signal_names
 from .subckt import CASES, CapDriver, CapDriverParams, Cells
@@ -145,7 +145,7 @@ def characterize(run_dir: Path, pdk: str, load: CapdriverLoad) -> Record:
             "settling_max_supply_s": float(np.nanmax([over_supply.rise_settling_s, over_supply.fall_settling_s])),
         },
         details=[
-            Detail(
+            Plot(
                 name="transition_load",
                 title="Output transitions over the load (core supply)",
                 x_label="Load (F)",
@@ -155,7 +155,7 @@ def characterize(run_dir: Path, pdk: str, load: CapdriverLoad) -> Record:
                 x_log=True,
                 y_log=True,
             ),
-            Detail(
+            Plot(
                 name="delay_supply",
                 title="Delay over the supply",
                 x_label="Supply over nominal",
@@ -168,7 +168,7 @@ def characterize(run_dir: Path, pdk: str, load: CapdriverLoad) -> Record:
                     "invert falling": list(over_supply.invert_fall_delay_s),
                 },
             ),
-            Detail(
+            Plot(
                 name="settling_supply",
                 title="Settling to 1 % over the supply",
                 x_label="Supply over nominal",
@@ -176,7 +176,7 @@ def characterize(run_dir: Path, pdk: str, load: CapdriverLoad) -> Record:
                 x=list(SUPPLY_SWEEP),
                 series={"rising": list(over_supply.rise_settling_s), "falling": list(over_supply.fall_settling_s)},
             ),
-            Detail(
+            Plot(
                 name="energy_supply",
                 title="Energy per cycle over the supply",
                 x_label="Supply over nominal",

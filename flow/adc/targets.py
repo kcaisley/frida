@@ -9,7 +9,7 @@ import hdl21 as h
 import matplotlib as mpl
 import numpy as np
 
-from flow import new_run
+from flow import comp, new_run
 from flow.adc.assembly import layout_run
 from flow.adc.sequences import (
     SEQUENCES,
@@ -36,9 +36,9 @@ from flow.analysis.adc import (
 from flow.analysis.calibration1 import analyze_adc_calibration1
 from flow.analysis.calibration2 import analyze_adc_calibration2
 from flow.analysis.calibration3 import analyze_adc_calibration3
-from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_transition
-from flow.analysis.comp import analyze_comp_offset_noise
+from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_decisions, analyze_cdac_transition
 from flow.analysis.io import (
+    read_analysis,
     read_extracted_calibration,
     read_measurement,
     read_measurement_param,
@@ -73,7 +73,6 @@ from flow.analysis.types import (
     AnalysisCdacCapMismatch,
     MeasAdc,
     MeasCdac,
-    MeasComp,
 )
 from flow.scans.params import load_board_map
 from flow.sweep import runner as sweep_runner
@@ -386,18 +385,21 @@ def behavioral_calibration_study() -> tuple[Path, ...]:
         train_ramp = analyze_adc_ramp(train)
         # Calibration 1 learns from the same draw's CDAC A-to-B switching curves.
         draw_dir = cdac_dir / train_path.stem.removesuffix("_train")
-        comparator = read_measurement(draw_dir / "comparator.h5")
-        if not isinstance(comparator, MeasComp):
-            raise TypeError(f"{draw_dir} must hold one MeasComp and MeasCdac switching curves")
+        comparator = read_analysis(draw_dir / "comparator.h5")
+        if not isinstance(comparator, comp.AnalysisDecisions):
+            raise TypeError(f"{draw_dir} must hold one comp.AnalysisDecisions and MeasCdac switching curves")
         curves: list[MeasCdac] = []
         for curve_path in sorted(draw_dir.glob("cdac_*.h5")):
             curve = read_measurement(curve_path)
             if not isinstance(curve, MeasCdac):
-                raise TypeError(f"{draw_dir} must hold one MeasComp and MeasCdac switching curves")
+                raise TypeError(f"{draw_dir} must hold one comp.AnalysisDecisions and MeasCdac switching curves")
             curves.append(curve)
-        transitions = [analyze_cdac_transition([curve], offset=analyze_comp_offset_noise([curve])) for curve in curves]
+        transitions = [
+            analyze_cdac_transition([curve], offset=comp.analyze_offset_noise([analyze_cdac_decisions([curve])]))
+            for curve in curves
+        ]
         cap_mismatch = analyze_cdac_cap_mismatch(
-            curves, transitions=transitions, comparator=analyze_comp_offset_noise([comparator])
+            curves, transitions=transitions, comparator=comp.analyze_offset_noise([comparator])
         )
         learned = (
             analyze_adc_calibration1(curves, cap_mismatch=cap_mismatch),
@@ -528,7 +530,7 @@ def calibration_study() -> tuple[Path, ...]:
 
     Coverage: ADC00's known 10-Hz ramp (MeasAdc), three reviewed CDAC
     threshold campaigns (MeasCdac), and the accepted comparator
-    characterization (MeasComp). Calibration 1 extracts A-state threshold
+    characterization (comp.AnalysisDecisions). Calibration 1 extracts A-state threshold
     movements; calibrations 2/3 use ramp BOUT fits/prefix thresholds. The ramp
     validates the resulting decoders. No internal SPICE waveforms are needed.
     """
@@ -607,9 +609,9 @@ def calibration_study() -> tuple[Path, ...]:
     for adc_index in sorted({curve_key[0] for curve_key in selected_curves}):
         comparator_measurements = []
         for path in sorted(comparator_read_dirs[adc_index].glob(f"*adc{adc_index:02d}*.h5")):
-            comparator_point = read_measurement(path)
-            if not isinstance(comparator_point, MeasComp):
-                raise TypeError(f"{path} contains {type(comparator_point).__name__}, expected MeasComp")
+            comparator_point = read_analysis(path)
+            if not isinstance(comparator_point, comp.AnalysisDecisions):
+                raise TypeError(f"{path} contains {type(comparator_point).__name__}, expected comp.AnalysisDecisions")
             comparator_measurements.append(comparator_point)
         transitions = []
         cdac_measurements[adc_index] = []
@@ -618,11 +620,15 @@ def calibration_study() -> tuple[Path, ...]:
             cdac_measurements[adc_index].extend(curve)
             # Fit the fine sweep stage where the curve has one.
             fit_points = [point for point in curve if point.param.sweep_stage == "fine"] or curve
-            transitions.append(analyze_cdac_transition(fit_points, offset=analyze_comp_offset_noise(fit_points)))
+            transitions.append(
+                analyze_cdac_transition(
+                    fit_points, offset=comp.analyze_offset_noise([analyze_cdac_decisions(fit_points)])
+                )
+            )
         cap_mismatch[adc_index] = analyze_cdac_cap_mismatch(
             cdac_measurements[adc_index],
             transitions=transitions,
-            comparator=analyze_comp_offset_noise(comparator_measurements),
+            comparator=comp.analyze_offset_noise(comparator_measurements),
         )
 
     nominal_ramp = analyze_adc_ramp(measurement)
