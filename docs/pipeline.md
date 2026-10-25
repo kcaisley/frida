@@ -12,9 +12,11 @@ Each stage imports only the stages above it in this table.
 | `subckt.py` | `Nets`, `netlist(params) -> h.Module` | The circuit: its nets, the generator. |
 | `sim.py` | `testbench(tb) -> h.Module`, `simulate(tb, run_dir) -> Path` | The testbench of one run, and its simulation, which leaves the raw output on disk and parses nothing. Which signals are saved is declared here, from `Nets`. |
 | `types.py` | `Analysis<Thing>` | The block's results: frozen dataclasses deriving `flow.pipeline.Analysis`, data only. |
-| `analysis.py` | `analyze_<thing>(meas, *, prior) -> Analysis<Thing>`, `metrics(...) -> dict[str, float]` | One measurement (or a sequence) in, prior results by keyword, one result out; an analysis may group its input and apply the block's other analyses to each group. `metrics` gives the record's numbers. |
-| `plots.py` | `plot_<thing>(result) -> Plot` | Each figure as a `flow.pipeline.Plot` spec, from results alone. |
+| `analysis.py` | `@analysis analyze_<thing>(meas, *, prior) -> Analysis<Thing>`, `metrics(...) -> dict[str, float]` | One measurement (or a sequence) in, prior results by keyword, one result out; an analysis may group its input and apply the block's other analyses to each group. `metrics` gives the record's numbers. |
+| `plots.py` | `@plot plot_<thing>(result) -> Plot` | Each figure as a `flow.pipeline.Plot` spec, from results alone. |
 | `sweep.py` | `@family` and `@named` functions, `runs(pdk, params) -> dict[str, TbParams]`, `record(measurements) -> Record` | The design space, the runs that characterize one instance, and its record (which also names the runs whose waveforms the viewer shows). Nothing else: no module constants. |
+
+An analysis and a figure declare their stage with `flow.pipeline`'s `@analysis` and `@plot`: each checks its function when the module is imported (one measurement or result in, earlier results by keyword, an `Analysis` out; results in, a `Plot` out), so a block that breaks the contract does not import, and their types let ty reject an analysis that returns anything but an `Analysis`. Module constants live in `params.py` (the design's and the testbench's) and `sim.py` (what a run saves) alone.
 
 Beside them: `layout.py` (beside `sim.py`: it imports `params.py` and `subckt.py`; `layout_named` lays out a named instance, `layout_netlist` and `layout_floorplan` give the sweep's layout step its netlists), and `model.py` (above `sweep.py`: the behavioral model from an instance's record). No `targets.py`.
 

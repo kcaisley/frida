@@ -20,7 +20,7 @@ from scipy.stats import norm
 from scipy.stats import t as student_t
 
 from flow.analysis import calc
-from flow.pipeline import Meas, check_identity, measurement_identity
+from flow.pipeline import Meas, analysis, check_identity, measurement_identity
 
 from .params import CHARGE_METER, CHARGE_METER_F
 from .types import (
@@ -38,6 +38,7 @@ from .types import (
 )
 
 
+@analysis
 def analyze_decisions(meas: Meas) -> AnalysisDecisions:
     """Each trial of a simulation: its input from the testbench's schedule, its decision (the
     positive output above the negative) and whether the latch had decided (its nodes more than half
@@ -67,6 +68,7 @@ def analyze_decisions(meas: Meas) -> AnalysisDecisions:
     )
 
 
+@analysis
 def analyze_timing(meas: Meas, *, decisions: AnalysisDecisions) -> AnalysisTiming:
     """Each trial's clock-to-decision delay and settling, on the raw points of its own cycle.
 
@@ -117,6 +119,7 @@ def analyze_timing(meas: Meas, *, decisions: AnalysisDecisions) -> AnalysisTimin
     )
 
 
+@analysis
 def analyze_delay(meas: Meas, *, decisions: AnalysisDecisions, timing: AnalysisTiming) -> AnalysisDelay:
     """The median clock-to-decision delay of the resolved trials at every input point."""
 
@@ -141,6 +144,7 @@ def analyze_delay(meas: Meas, *, decisions: AnalysisDecisions, timing: AnalysisT
     )
 
 
+@analysis
 def analyze_metastability(meas: Meas, *, delay: AnalysisDelay) -> AnalysisMetastability:
     """The delay at each positive input of the first common mode, and the regeneration time
     constant from the two smallest."""
@@ -159,6 +163,7 @@ def analyze_metastability(meas: Meas, *, delay: AnalysisDelay) -> AnalysisMetast
     )
 
 
+@analysis
 def analyze_clock_check(
     meas: Sequence[Meas],
     *,
@@ -207,6 +212,7 @@ def analyze_clock_check(
     )
 
 
+@analysis
 def analyze_kickback(meas: Meas) -> AnalysisKickback:
     """The inputs' largest excursion over the first decision's cycle from their values at its
     start."""
@@ -223,6 +229,7 @@ def analyze_kickback(meas: Meas) -> AnalysisKickback:
     )
 
 
+@analysis
 def analyze_power(meas: Sequence[Meas]) -> AnalysisPower:
     """Each run's energy per decision: the supply's charge over each decision's cycle, read off the
     testbench's charge meter (``params.CHARGE_METER``: integrated by the simulator, exact at any
@@ -250,6 +257,7 @@ def analyze_power(meas: Sequence[Meas]) -> AnalysisPower:
     )
 
 
+@analysis
 def analyze_scurve(decisions: Sequence[AnalysisDecisions]) -> AnalysisScurve:
     """Per input, over every trial: P(high) of the resolved decisions and the fraction
     unresolved."""
@@ -282,6 +290,7 @@ def analyze_scurve(decisions: Sequence[AnalysisDecisions]) -> AnalysisScurve:
     )
 
 
+@analysis
 def analyze_offset_noise(decisions: Sequence[AnalysisDecisions]) -> AnalysisOffsetNoise:
     """Pool decision sweeps at one input common mode and fit offset and input noise.
 
@@ -431,6 +440,7 @@ def analyze_offset_noise(decisions: Sequence[AnalysisDecisions]) -> AnalysisOffs
     )
 
 
+@analysis
 def analyze_common_mode(decisions: Sequence[AnalysisDecisions]) -> AnalysisCommonMode:
     """Fit each common mode's decisions (``analyze_offset_noise``) and classify each, distinguishing
     stuck outputs from unbracketed curves.
@@ -500,6 +510,7 @@ def analyze_common_mode(decisions: Sequence[AnalysisDecisions]) -> AnalysisCommo
     )
 
 
+@analysis
 def analyze_sampling_noise(decisions: Sequence[AnalysisDecisions]) -> AnalysisSamplingNoise:
     """Fit each curve of one ADC's captures over the DAC's coupling to its inputs: a curve is one
     P-side coupling (the scan's ``requested_dac_rail_percent``) in one sampling mode, fitted as

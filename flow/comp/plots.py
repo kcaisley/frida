@@ -11,7 +11,7 @@ from collections.abc import Sequence
 import numpy as np
 from scipy.special import ndtr
 
-from flow.pipeline import Plot
+from flow.pipeline import Plot, plot
 
 from .params import SUPPLY_SWEEP
 from .types import (
@@ -25,6 +25,7 @@ from .types import (
 )
 
 
+@plot
 def plot_metastability(metastability: AnalysisMetastability) -> Plot:
     """The delay over the input near metastability."""
     return Plot(
@@ -38,6 +39,7 @@ def plot_metastability(metastability: AnalysisMetastability) -> Plot:
     )
 
 
+@plot
 def plot_noise_cm(offsets: Sequence[AnalysisOffsetNoise]) -> Plot:
     """The input-referred noise over the common mode (NaN where an S-curve gave no valid fit)."""
     return Plot(
@@ -50,6 +52,7 @@ def plot_noise_cm(offsets: Sequence[AnalysisOffsetNoise]) -> Plot:
     )
 
 
+@plot
 def plot_offset_cm(offsets: Sequence[AnalysisOffsetNoise]) -> Plot:
     """The systematic offset over the common mode (no mismatch is simulated)."""
     return Plot(
@@ -62,6 +65,7 @@ def plot_offset_cm(offsets: Sequence[AnalysisOffsetNoise]) -> Plot:
     )
 
 
+@plot
 def plot_delay_supply_small(delays: Sequence[AnalysisDelay]) -> Plot:
     """The delay at the small input over the supply (``SUPPLY_SWEEP``)."""
     return Plot(
@@ -74,6 +78,7 @@ def plot_delay_supply_small(delays: Sequence[AnalysisDelay]) -> Plot:
     )
 
 
+@plot
 def plot_delay_supply_large(delays: Sequence[AnalysisDelay]) -> Plot:
     """The delay at the large input over the supply (``SUPPLY_SWEEP``)."""
     return Plot(
@@ -86,6 +91,7 @@ def plot_delay_supply_large(delays: Sequence[AnalysisDelay]) -> Plot:
     )
 
 
+@plot
 def plot_energy_supply(power: AnalysisPower) -> Plot:
     """The energy per decision over the supply (``SUPPLY_SWEEP``, one run each)."""
     return Plot(
@@ -98,6 +104,7 @@ def plot_energy_supply(power: AnalysisPower) -> Plot:
     )
 
 
+@plot
 def plot_scurve(scurve: AnalysisScurve) -> Plot:
     """P(high) of the resolved decisions at each input of the nominal S-curve."""
     return Plot(
@@ -110,6 +117,7 @@ def plot_scurve(scurve: AnalysisScurve) -> Plot:
     )
 
 
+@plot
 def plot_scurve_unresolved(scurve: AnalysisScurve) -> Plot:
     """The fraction of the nominal S-curve's decisions unresolved at each input."""
     return Plot(
@@ -122,6 +130,7 @@ def plot_scurve_unresolved(scurve: AnalysisScurve) -> Plot:
     )
 
 
+@plot
 def plot_offset_noise(offset: AnalysisOffsetNoise) -> Plot:
     """One common mode's S-curve: the measured probability and, where valid, the fitted Gaussian."""
     x = offset.vin_diff_v
@@ -140,6 +149,7 @@ def plot_offset_noise(offset: AnalysisOffsetNoise) -> Plot:
     )
 
 
+@plot
 def plot_common_mode_scurves(common_mode: AnalysisCommonMode) -> Plot:
     """Each common mode's S-curve over the inputs of every curve (NaN where a curve has no point)."""
     x = np.unique(common_mode.vin_diff_v[np.isfinite(common_mode.vin_diff_v)])
@@ -165,6 +175,7 @@ def plot_common_mode_scurves(common_mode: AnalysisCommonMode) -> Plot:
     )
 
 
+@plot
 def plot_common_mode(common_mode: AnalysisCommonMode) -> Plot:
     """The offset and the noise over the common mode (NaN where a curve gave no valid fit)."""
     valid = np.asarray(common_mode.validity) == "valid"
@@ -186,6 +197,7 @@ def plot_common_mode(common_mode: AnalysisCommonMode) -> Plot:
     )
 
 
+@plot
 def plot_sampling_noise_scurves(sampling: AnalysisSamplingNoise) -> Plot:
     """Each curve's S-curve, by coupling (P/N % of VDD_DAC) and sampling mode."""
     x = np.unique(sampling.vin_diff_v[np.isfinite(sampling.vin_diff_v)])
@@ -211,6 +223,7 @@ def plot_sampling_noise_scurves(sampling: AnalysisSamplingNoise) -> Plot:
     )
 
 
+@plot
 def plot_sampling_noise(sampling: AnalysisSamplingNoise) -> Plot:
     """Offset and noise over the coupling, one curve each per sampling mode (NaN where invalid)."""
     couplings = np.unique(sampling.coupling_percent)

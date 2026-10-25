@@ -29,7 +29,15 @@ MIGRATED = ("comp",)
 STAGES = ("params", "subckt", "sim", "types", "analysis", "plots", "sweep")
 PURE = ("types", "analysis", "plots")  # no helpers, no file I/O
 # Known violations, as "<block>.<stage>: <problem>"; entries may be removed, never added.
-KNOWN_VIOLATIONS: set[str] = set()
+KNOWN_VIOLATIONS: set[str] = {
+    # the layout runner's shared constants, which 16 blocks still import from comp/layout.py
+    *(
+        f"comp.layout: module constant {name} outside params.py and sim.py"
+        for name in ("BUILD", "ESCAPE", "FLOORPLANS", "FLOORPLAN_CASES", "PDKS", "ROOT")
+    ),
+}
+# beside the stages: layout.py (its layout_<thing> functions and write_netlist) and model.py (Model)
+SIDE = {"layout": r"layout_\w+|write_netlist", "model": r"Model"}
 
 UPPER = re.compile(r"[A-Z][A-Z0-9_]*")
 RUN_ID = re.compile(r"\d{8}_\d{6}")
@@ -161,6 +169,8 @@ def _problems(block: str) -> set[str]:
         if not name.startswith("analyze_") or not inspect.isfunction(value):
             problem("analysis", f"{name} is not an analyze_<thing> function or metrics")
             continue
+        if pipeline.STAGE_FUNCTIONS.get(value) != "analysis":
+            problem("analysis", f"{name} is not declared with @analysis")
         hints = _hints(value)
         result = hints.pop("return", None)
         parameters = list(inspect.signature(value).parameters.values())
@@ -182,6 +192,8 @@ def _problems(block: str) -> set[str]:
         hints = _hints(value) if inspect.isfunction(value) else {}
         if not name.startswith("plot_") or hints.pop("return", None) is not pipeline.Plot:
             problem("plots", f"{name} is not a plot_<thing> returning a Plot")
+        elif pipeline.STAGE_FUNCTIONS.get(value) != "plot":
+            problem("plots", f"{name} is not declared with @plot")
         elif not all(_is(hint, pipeline.Analysis) for hint in hints.values()):
             problem("plots", f"{name} draws other than Analysis results")
 
@@ -205,6 +217,17 @@ def _problems(block: str) -> set[str]:
             not isinstance(value, (pipeline.Family, pipeline.Named)) or _hints(value.build).get("return") is not Params
         ):
             problem("sweep", f"{name} is not a family, a named instance (of Params), runs or record")
+
+    # the side files beside the stages: their own names only, and no module constant (a block's
+    # constants live in params.py, a testbench's in sim.py)
+    for name, allowed in SIDE.items():
+        if not (folder / f"{name}.py").is_file():
+            continue
+        for defined_name in _defined(_module(block, name)):
+            if UPPER.fullmatch(defined_name):
+                problem(name, f"module constant {defined_name} outside params.py and sim.py")
+            elif not re.fullmatch(allowed, defined_name):
+                problem(name, f"{defined_name} is not one of {name}.py's names ({allowed})")
 
     # the block runs from the one entry point (``python -m flow <verb> <block>``): no targets of its
     # own; and its code names no run and no input under build/ (a run is a verb's argument)
@@ -266,6 +289,9 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
         (package / f"{name}.py").write_text(text)
     with (package / "analysis.py").open("a") as stream:
         stream.write("\n\ndef summarize(meas: Meas) -> AnalysisTiming:\n    return meas\n")
+    with (package / "analysis.py").open("a") as stream:
+        stream.write("\n\ndef analyze_extra(meas: Meas) -> AnalysisTiming:\n    return meas\n")
+    (package / "model.py").write_text('"""A model."""\n\nLIMIT = 3\n\n\nclass Model:\n    pass\n')
     with (package / "plots.py").open("a") as stream:
         stream.write("\n\ndef _helper() -> None:\n    open('x')\n")
     with (package / "types.py").open("a") as stream:
@@ -278,9 +304,31 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
     monkeypatch.setattr(flow, "__path__", [*flow.__path__, str(tmp_path / "flow")])
     problems = _problems("badblock")
     assert "badblock.analysis: summarize is not an analyze_<thing> function or metrics" in problems
+    assert "badblock.analysis: analyze_extra is not declared with @analysis" in problems
+    assert "badblock.model: module constant LIMIT outside params.py and sim.py" in problems
     assert "badblock.plots: private helper _helper" in problems
     assert "badblock.plots: calls open: file I/O" in problems
     assert "badblock.types: Extra is not an Analysis<Thing> deriving pipeline.Analysis" in problems
     assert "badblock.sweep: module constant SIZES: a knob's values belong to its family" in problems
     assert {"badblock.targets: a block on the pipeline has no targets.py: the CLI's verbs run it"} <= problems
     assert {"badblock.sweep: names a run (20260101_000000)", "badblock.sweep: names a path under build/"} <= problems
+
+
+def test_a_stage_with_the_wrong_signature_does_not_import() -> None:
+    """``@analysis`` and ``@plot`` check their function when its module is imported."""
+
+    def summary(meas: pipeline.Meas) -> dict[str, float]:
+        return {}
+
+    def figure(meas: pipeline.Meas) -> pipeline.Plot:
+        raise NotImplementedError
+
+    def positional_prior(meas: pipeline.Meas, prior: pipeline.Analysis) -> pipeline.Analysis:
+        return prior
+
+    with pytest.raises(TypeError, match="returns an Analysis"):
+        pipeline.analysis(summary)
+    with pytest.raises(TypeError, match="not an Analysis result"):
+        pipeline.plot(figure)
+    with pytest.raises(TypeError, match="positionally"):
+        pipeline.analysis(positional_prior)

@@ -19,8 +19,10 @@ from abc import ABC
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime
+from inspect import signature
 from pathlib import Path
-from typing import Any, Literal
+from types import UnionType
+from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 import numpy as np
 
@@ -353,3 +355,61 @@ class Record:
     details: list[Plot] = field(default_factory=list)
     # label -> the run whose measurement the viewer shows (the runner writes it, then its path)
     waves: dict[str, str] = field(default_factory=dict)
+
+
+# The stages' functions declare what they are: ``@analysis`` and ``@plot`` check a function's
+# signature when its module is imported (a block that breaks the contract does not import), and
+# their types let a type checker see that an analysis returns an ``Analysis`` and a plot a ``Plot``.
+# ``STAGE_FUNCTIONS`` holds each decorated function's stage, for the contract's test.
+STAGE_FUNCTIONS: dict[Callable[..., Any], str] = {}
+
+
+def annotation_is(annotation: Any, base: type) -> bool:
+    """``annotation`` names ``base`` (a subclass, a union of them) or a sequence of them."""
+    if get_origin(annotation) in (Sequence, list, tuple):
+        return all(annotation_is(arg, base) for arg in get_args(annotation) if arg is not Ellipsis)
+    if isinstance(annotation, UnionType) or get_origin(annotation) is Union:
+        return all(annotation_is(arg, base) for arg in get_args(annotation))
+    return isinstance(annotation, type) and issubclass(annotation, base)
+
+
+def _stage(function: Callable[..., Any], kind: Literal["analysis", "plot"]) -> None:
+    """Check ``function`` as a stage of ``kind``, or raise TypeError: an analysis takes one
+    measurement or result (or a sequence) and earlier results by keyword and returns an
+    ``Analysis``; a plot takes results and returns a ``Plot``."""
+    hints = get_type_hints(function)
+    result = hints.pop("return", None)
+    parameters = list(signature(function).parameters.values())
+    where = f"{function.__module__}.{getattr(function, '__qualname__', function)}"
+    if kind == "analysis":
+        if not (isinstance(result, type) and issubclass(result, Analysis)):
+            raise TypeError(f"{where}: an analysis returns an Analysis, not {result}")
+        positional = [p for p in parameters if p.kind is p.POSITIONAL_OR_KEYWORD]
+        if len(positional) != 1 or not (
+            annotation_is(hints.get(positional[0].name), Meas) or annotation_is(hints.get(positional[0].name), Analysis)
+        ):
+            raise TypeError(f"{where}: an analysis takes one measurement or result (or a sequence) positionally")
+        priors = parameters[1:]
+    else:
+        if result is not Plot:
+            raise TypeError(f"{where}: a plot returns a Plot, not {result}")
+        priors = parameters
+    for parameter in priors:
+        keyword = parameter.kind is parameter.KEYWORD_ONLY or kind == "plot"
+        if not keyword or not annotation_is(hints.get(parameter.name), Analysis):
+            raise TypeError(
+                f"{where}: {parameter.name} is not an Analysis result{' by keyword' * (kind == 'analysis')}"
+            )
+    STAGE_FUNCTIONS[function] = kind
+
+
+def analysis[F: Callable[..., Analysis]](function: F) -> F:
+    """An analysis of a block's ``analysis.py``: measurement (or results) in, one ``Analysis`` out."""
+    _stage(function, "analysis")
+    return function
+
+
+def plot[F: Callable[..., Plot]](function: F) -> F:
+    """A figure of a block's ``plots.py``: ``Analysis`` results in, one ``Plot`` spec out."""
+    _stage(function, "plot")
+    return function
