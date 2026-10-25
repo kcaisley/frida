@@ -145,7 +145,7 @@ LIMITS: dict[str, dict[str, Any]] = {
     "tpsc65": {"latch_l": 1, "ratio": (2.5, math.inf)},
     "ihp130": {"latch_l": 1, "tail_l": 34, "ratio": None},
     "lf150": {"latch_l": 1, "tail_l": 34, "ratio": (5, math.inf)},
-    "tower180": {"latch_l": 1, "tail_l": 4, "ratio": None},
+    "tower180": {"latch_l": 1, "ratio": (0, 5)},
 }
 
 
@@ -305,6 +305,10 @@ TRANSITION_S = 20e-12  # the clock's and the input's edges
 # 1 to 6 % short and the energy per decision 1.3 to 2.7 times too large
 STROBE_S = 2e-12
 NOISE_STROBE_S = 10e-12
+# the supply's charge, integrated by the simulator (exact at any output step): the supply source's
+# current mirrored onto this capacitor, whose voltage is the charge drawn since the run began over it
+CHARGE_METER_F = 1e-12
+CHARGE_METER = "qmeter"  # its node, as a measurement names it
 # the input source: 1 ohm onto 100 fF a side, as quiet and stiff as a CDAC's top plate (1 kohm added
 # its own thermal noise, about 0.2 mV a side, and let the input pair's kickback pull the input);
 # for kickback, 1 pF a side behind 1 Mohm (a microsecond's time constant: the charge a decision

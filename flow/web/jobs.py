@@ -72,7 +72,8 @@ def pdks() -> dict:
         engines = checks(pdk) if reason is None else {"drc": [], "lvs": None}
         if reason is None:
             models = _assigned(ROOT / "pdk" / pdk / "layout/tech.py", "MODELS")
-            examples[pdk] = lint.example({"models": models, "cells": {}})
+            per_finger = bool(_assigned(ROOT / "pdk" / pdk / "hdl21/pdk_logic.py", "MOS_W_PER_FINGER"))
+            examples[pdk] = lint.example({"models": models, "cells": {}, "w_per_finger": per_finger})
         drc = engines["drc"][0] if engines["drc"] else None
         note = f"DRC by {drc}" if drc else "no DRC"
         note += f"; LVS by {engines['lvs']}" if engines["lvs"] else "; no LVS"

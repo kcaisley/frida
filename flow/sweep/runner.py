@@ -27,6 +27,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from functools import cache
 from importlib import import_module
+from importlib.util import find_spec
 from multiprocessing import get_context
 from pathlib import Path
 
@@ -508,6 +509,10 @@ def table(blocks: list[str], workers: int) -> None:
                 (path for pdk, run in runs.items() for path in (run / pdk).glob("*/instance.json")),
                 key=lambda path: path.parts[-3:],  # by PDK, then digest
             )
+            # a block on the pipeline shows its design space as it is: a run's instances since left
+            # out of it stay on disk (and for the models' lookup), not in the table
+            if find_spec(f"flow.{block}") and hasattr(import_module(f"flow.{block}.sweep"), "runs"):
+                paths = [path for path in paths if path.parent.name in design_space(block, path.parts[-3])]
             records = [json.loads(path.read_text()) for path in paths]
             # the run, or each run with the PDKs it gives where they differ
             run_name = (

@@ -18,7 +18,7 @@ from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimula
 
 from flow.circuit.ports import testbench_from_ports
 
-from .params import TbParams
+from .params import CHARGE_METER, CHARGE_METER_F, TbParams
 from .subckt import Nets, netlist
 
 # what each run saves: every port but the supplies, the nets marked to save inside the comparator,
@@ -34,6 +34,12 @@ SAVES = tuple(
         else ()
     )
 ) + tuple(f"xtop.v{net.name}:p" for net in Nets.signals.values() if net.usage == h.Usage.POWER)
+# the supply's charge meter (params.CHARGE_METER_F): the supply source's current mirrored onto a
+# capacitor, at the top level, where Spectre's current-controlled source finds the source by name
+METER = (
+    f"c{CHARGE_METER} ({CHARGE_METER} 0) capacitor c={CHARGE_METER_F} ic=0\n"
+    f"f{CHARGE_METER} ({CHARGE_METER} 0) cccs probe=xtop.vvdd gain=1"
+)
 
 
 def testbench(tb: TbParams) -> h.Module:
@@ -116,7 +122,8 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
         *(getattr(install, name)() for name in ("include_pre_simulation", "include_devices") if hasattr(install, name)),
         hs.Options(name="temp", value=25.0),
         hs.Options(name="save", value="selected"),
-        hs.Save(list(SAVES)),
+        h.Literal(METER),
+        hs.Save([*SAVES, CHARGE_METER]),
         hs.Tran(tstop=tb.stop_s, name="tran", noise=tb.noise, options=options),
     ]
     try:

@@ -1,9 +1,9 @@
 """Cells of a row design, one per netlist instance, for generators that place fixed cells.
 
-Reads a flat SPICE netlist (MOS lines with total w and nf; X lines naming a library
-standard cell) and draws every instance as a fixed cell with its nets already named:
-transistors through rowcell.mos, standard cells as the library cell plus the VIA1 / M2
-pin bars at their access points (stdcell_access.py). laygo and cIcCreator place and route
+Reads a flat SPICE netlist (MOS lines with w and nf, w total or per finger as the PDK writes
+it: mosline.py; X lines naming a library standard cell) and draws every instance as a fixed cell
+with its nets already named: transistors through rowcell.mos, standard cells as the library cell
+plus the VIA1 / M2 pin bars at their access points (stdcell_access.py). laygo and cIcCreator place and route
 these cells; ALIGN draws the same cells through its own PDK. The PDK's layout directory
 (``tech``, ``paths``) goes on the path ahead of this one.
 
@@ -14,15 +14,16 @@ from __future__ import annotations
 
 import itertools
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import mosline
 import rowcell
 import tech as _tech
 from paths import ACCESS_JSON, STD_GDS  # noqa: F401  (STD_GDS: re-exported to the tool scripts)
 from tech import EDGE_CUTS, EDGE_PAD, MODELS, STD_FILL, STD_FILL_W, STD_SUPPLY, STD_TEXT_LAYERS, V1, V1_PAIR, XPITCH
 
+W_PER_FINGER = mosline.w_per_finger()  # the bound PDK's netlists give w per finger with nf
 EDGE_TIE = getattr(_tech, "EDGE_TIE", None)  # (library tie cell, its width): in every row end
 # a library cell's M2 plate: (space, run length) of wide metal
 PLATE_SPACE, PLATE_RUN = getattr(_tech, "M2_PLATE_SPACE", (_tech.M2_SPACE, 0))
@@ -141,63 +142,15 @@ class Inst:
         return "p" if self.model.lower() == MODELS["p"].lower() else "n"
 
 
-def _nm(v: str) -> int:
-    """A SPICE length in nm: 400n, 0.4u, 4e-07 (metres without a suffix, nm when >= 1)."""
-    m = re.fullmatch(r"([-+0-9.eE]+)(n|u|m)?", v.strip())
-    x = float(m.group(1))
-    scale = {"n": 1, "u": 1000, "m": 1e6}.get(m.group(2) or "", 1 if x >= 1 else 1e9)
-    return round(x * scale)
-
-
-def _fingers(p: dict[str, str]) -> int:
-    """Fingers of one copy: nf (or ng); a device with neither is fingered by m."""
-    return int(float(p.get("nf", p.get("ng", 1))))
-
-
-def _key(p: dict[str, str]) -> str:
-    """The parameter that carries a device's fingers: nf, ng, or m (with w per finger) where neither is given."""
-    return "nf" if "nf" in p else "ng" if "ng" in p else "m"
-
-
 def split(src: str, parts: dict[str, int]) -> str:
-    """Split devices into equal parallel parts named ``<device>_a``, ``_b``, ...: a floorplan's
-    ``split`` (e.g. the halves of a cross-quad pair placed in two rows). Each part takes an
-    equal share of the fingers and of the total width."""
-
-    out = []
-    for line in src.splitlines():
-        f = line.split()
-        if f and f[0] in parts:
-            n = parts[f[0]]
-            p = dict(kv.split("=") for kv in f[6:])
-            key = _key(p)
-            nf, w = int(float(p.get(key, 1))), _nm(p["w"])
-            if nf % n or (key != "m" and w % n):
-                raise ValueError(f"{f[0]}: {nf} fingers, {w} nm do not split into {n} equal parts")
-            p[key] = str(nf // n)
-            if key != "m":  # w is the total width; with m it is per finger
-                p["w"] = f"{w // n}n"
-            for k in range(n):
-                out.append(" ".join([f"{f[0]}_{chr(ord('a') + k)}", *f[1:6], *(f"{a}={b}" for a, b in p.items())]))
-        else:
-            out.append(line)
-    return "\n".join(out) + "\n"
+    """``mosline.split`` in the bound PDK's width convention: a floorplan's ``split``."""
+    return mosline.split(src, parts, W_PER_FINGER)
 
 
 def per_finger(src: str) -> str:
-    """The netlist with each MOS width per finger instead of total and all its fingers in nf
-    (as ALIGN reads ``w`` and ``nf``)."""
-
-    out = []
-    for line in src.splitlines():
-        f = line.split()
-        if f and f[0][0] in "Mm" and len(f) > 6:
-            p = dict(kv.split("=") for kv in f[6:])
-            nf, m = _fingers(p), int(p.get("m", 1))
-            p.update({"w": f"{_nm(p['w']) // nf}n", "ng" if "ng" in p else "nf": str(nf * m), "m": "1"})
-            line = " ".join([*f[:6], *(f"{a}={b}" for a, b in p.items())])
-        out.append(line)
-    return "\n".join(out) + "\n"
+    """``mosline.per_finger`` in the bound PDK's width convention: each MOS width per finger and
+    all its fingers in nf (as ALIGN reads ``w`` and ``nf``)."""
+    return mosline.per_finger(src, W_PER_FINGER)
 
 
 def floorplan_netlist(floorplan: str | Path, pdk: str, netlist: str | Path | None = None) -> tuple[str, str]:
@@ -240,8 +193,9 @@ def check_groups(fp: dict, devices: set[str]) -> None:
 
 
 def parse(src: str | Path) -> tuple[str, list[str], list[Inst]]:
-    """Instances of a flat netlist (a path, or SPICE text). MOS lines give the total width ``w``
-    and the finger count ``nf``; ``Inst.w`` is the width per finger."""
+    """Instances of a flat netlist (a path, or SPICE text). MOS lines give ``w`` and the finger
+    count ``nf`` (``mosline``: ``w`` total or per finger, as the bound PDK writes it); ``Inst.w``
+    is the width per finger."""
 
     text = Path(src).read_text() if isinstance(src, Path) else src
     name, ports, insts = "", [], []
@@ -252,17 +206,16 @@ def parse(src: str | Path) -> tuple[str, list[str], list[Inst]]:
         if f[0].lower() == ".subckt":
             name, ports = f[1], f[2:]
         elif f[0][0] in "Mm":
-            p = dict(kv.split("=") for kv in f[6:])
-            nf = _fingers(p)
+            p = mosline.params(f)
             insts.append(
                 Inst(
                     f[0],
                     "mos",
                     dict(zip("DGSB", f[1:5], strict=True)),
                     f[5],
-                    _nm(p["w"]) // nf,
-                    _nm(p["l"]),
-                    nf * int(p.get("m", 1)),
+                    mosline.finger_width(p, W_PER_FINGER),
+                    mosline.nm(p["l"]),
+                    mosline.fingers(p) * int(p.get("m", 1)),
                 )
             )
         elif f[0][0] in "Xx":

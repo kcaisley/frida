@@ -37,6 +37,7 @@ from .params import (
     STRUCTURE,
     TOPOLOGIES,
     TOPOLOGY_SIZES,
+    Bias,
     OutputStage,
     Params,
 )
@@ -49,6 +50,18 @@ BUILD: dict[str, Callable[..., Path]] = {"cic": cic_build, "laygo": laygo_build,
 
 # where the ports leave the block, as in both comparator floorplans (circuit knowledge, not placement)
 ESCAPE = {"up": ["inp", "inn"], "down": ["clk", "clkb", "outp", "outn"]}
+# the structures with a hand-written floorplan (design/layout/comp_<name>.json): the six topologies,
+# and the dynamic-bias double tail (the modified double tail's latch, the input pair's tail switched
+# onto C_TAIL, with C_P: flow.comp.sweep's dynamic_bias)
+FLOORPLAN_CASES = {
+    **TOPOLOGIES,
+    "dynamic_bias": {**TOPOLOGIES["double_tail_modified"], "preamp_bias": Bias.DYNAMIC, "preamp_c_ff": 60},
+}
+
+
+def _structure(comp: Params) -> tuple[object, ...]:
+    """The comparator's devices and wiring (``STRUCTURE``), C_P by whether it is there, not its size."""
+    return tuple(bool(comp.preamp_c_ff) if key == "preamp_c_ff" else getattr(comp, key) for key in STRUCTURE)
 
 
 def write_netlist(params: Params, path: Path, pdk, constant_from=None) -> Path:
@@ -70,15 +83,15 @@ def layout_netlist(out_dir: Path, pdk: str, comp: Params) -> Path:
 
 
 def layout_floorplan(out_dir: Path, pdk: str, comp: Params) -> tuple[Path, Path] | None:
-    """The hand-written floorplan of the characterization's topology of the instance's structure
-    (``design/layout/comp_<topology>.json``) with the netlist it places, the standard-cell output
-    stage's; None where it has none."""
+    """The hand-written floorplan of the instance's structure (``FLOORPLAN_CASES``:
+    ``design/layout/comp_<name>.json``) with the netlist it places, the standard-cell output stage's;
+    None where it has none."""
 
     floorplan = next(
         (
             path
-            for name, structure in TOPOLOGIES.items()
-            if all(getattr(Params(**structure, **TOPOLOGY_SIZES), key) == getattr(comp, key) for key in STRUCTURE)
+            for name, structure in FLOORPLAN_CASES.items()
+            if _structure(Params(**structure, **TOPOLOGY_SIZES)) == _structure(comp)
             and (path := FLOORPLANS / f"comp_{name}.json").exists()
         ),
         None,

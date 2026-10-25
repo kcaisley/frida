@@ -3,7 +3,9 @@ one the ALIGN row flow lays out (``flow/layout/align/build.py``), its diagnostic
 statistics; ``normalize`` writes the netlist the flow builds from.
 
 The subset: one ``.subckt`` with ``vdd`` and ``vss`` among its ports, of MOS lines (``M name d g s
-b model w=... l=... [nf=...] [m=...]``, ``w`` the total width, of the PDK's row transistors) and
+b model w=... l=... [nf=...] [m=...]``, ``w`` the total width of the fingers or, in a PDK whose
+netlists give it per finger (the manifest's ``w_per_finger``), one finger's, of the PDK's row
+transistors) and
 standard-cell lines (``X name nets... cell``, of the PDK's library); comments (``*`` lines, ``$`` or
 ``;`` after a statement), continuation lines (``+``) and ``.end``. Nothing else: no includes,
 libraries, models, parameters, sources or control blocks, as nothing here is simulated and the
@@ -55,8 +57,10 @@ class Result:
 
 def pdk_manifest() -> dict:
     """What a netlist may use in the PDK this process is bound to (``flow.layout.pdkproc.in_pdk``):
-    its row transistors' models by polarity and its library cells with their pins."""
+    its row transistors' models by polarity, its library cells with their pins, and whether its
+    netlists give a MOS's ``w`` per finger (``stems/mosline.py``)."""
 
+    import mosline
     import tech
     from paths import STD_SPICE
 
@@ -65,7 +69,7 @@ def pdk_manifest() -> dict:
         words = line.split()
         if len(words) > 1 and words[0].lower() == ".subckt":
             cells.setdefault(words[1], [pin.lower() for pin in words[2:]])
-    return {"models": dict(tech.MODELS), "cells": cells}
+    return {"models": dict(tech.MODELS), "cells": cells, "w_per_finger": mosline.w_per_finger()}
 
 
 def number(text: str) -> float | None:
@@ -191,10 +195,13 @@ def check(text: str, manifest: dict) -> Result:
             None,
             "size",
         )
-    gate_area = sum(
-        d.params["w"] * d.params["l"] * d.params.get("m", 1) for d in mos if "w" in d.params and "l" in d.params
-    )
-    width = sum(d.params["w"] * d.params.get("m", 1) for d in mos if "w" in d.params)
+    per_finger = manifest.get("w_per_finger", False)
+
+    def copies(d: Device) -> float:  # w times this: the device's total width
+        return d.params.get("m", 1) * (d.params.get("nf", 1) if per_finger else 1)
+
+    gate_area = sum(d.params["w"] * d.params["l"] * copies(d) for d in mos if "w" in d.params and "l" in d.params)
+    width = sum(d.params["w"] * copies(d) for d in mos if "w" in d.params)
     nets = {net for device in devices for net in device.nets} - set(ports)
     stats = [
         {"group": "Netlist", "label": "Cell", "value": top or "—"},
@@ -316,13 +323,14 @@ def example(manifest: dict) -> str:
     """A small netlist in the PDK: a five-transistor OTA."""
 
     n, p = manifest["models"]["n"], manifest["models"]["p"]
+    w, meaning = ("2u", "one finger's width") if manifest.get("w_per_finger") else ("4u", "the total width")
     return f"""* A five-transistor OTA: an NMOS pair on a tail current source and a PMOS mirror load.
-* w is the total width, nf the fingers; the supplies are vdd and vss.
+* w is {meaning}, nf the fingers; the supplies are vdd and vss.
 .subckt ota5t inp inn out vbn vdd vss
-Mtail tail vbn vss vss {n} w=4u l=1u nf=2
-Mpair_p mir inp tail vss {n} w=4u l=0.5u nf=2
-Mpair_n out inn tail vss {n} w=4u l=0.5u nf=2
-Mload_p mir mir vdd vdd {p} w=4u l=0.5u nf=2
-Mload_n out mir vdd vdd {p} w=4u l=0.5u nf=2
+Mtail tail vbn vss vss {n} w={w} l=1u nf=2
+Mpair_p mir inp tail vss {n} w={w} l=0.5u nf=2
+Mpair_n out inn tail vss {n} w={w} l=0.5u nf=2
+Mload_p mir mir vdd vdd {p} w={w} l=0.5u nf=2
+Mload_n out mir vdd vdd {p} w={w} l=0.5u nf=2
 .ends ota5t
 """

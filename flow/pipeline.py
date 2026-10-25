@@ -47,12 +47,13 @@ type Axis = Sequence[Any] | Callable[[str], Sequence[Any]]
 class Family:
     """A family of a block's design space (``@family``): ``build(**knobs)`` makes one instance's
     ``Params``; each mapping in ``axes`` gives every knob its values, its instances the cartesian
-    product of them (several mappings, the union of their products). A knob's values are the same in
-    every PDK, or a function of the PDK. An instance is its parameters: a family's name and knobs
-    only label it."""
+    product of them, in the PDKs its entry of ``pdks`` names (None: every PDK); several mappings,
+    the union of their products. A knob's values are the same in every PDK, or a function of the
+    PDK. An instance is its parameters: a family's name and knobs only label it."""
 
     build: Callable[..., Any]
     axes: tuple[Mapping[str, Axis], ...]
+    pdks: tuple[tuple[str, ...] | None, ...]
 
     @property
     def name(self) -> str:
@@ -63,7 +64,9 @@ class Family:
 
     def instances(self, pdk: str) -> Iterator[tuple[str, Any]]:
         """Each instance in ``pdk`` with its label, ``name(knob=value, ...)``."""
-        for axes in self.axes:
+        for axes, pdks in zip(self.axes, self.pdks, strict=True):
+            if pdks is not None and pdk not in pdks:
+                continue
             values = [axis if isinstance(axis, Sequence) else axis(pdk) for axis in axes.values()]
             for combination in itertools.product(*values):
                 knobs = dict(zip(axes, combination, strict=True))
@@ -71,11 +74,15 @@ class Family:
                 yield f"{self.name}({label})", self.build(**knobs)
 
 
-def family(**axes: Axis) -> Callable[[Callable[..., Any] | Family], Family]:
+def family(*, pdks: Sequence[str] | None = None, **axes: Axis) -> Callable[[Callable[..., Any] | Family], Family]:
     """Make a function of a few named knobs, returning a block's ``Params``, a family swept over
-    ``axes``; stacked, the families' products are joined, the first written first."""
+    ``axes`` (in the ``pdks`` named, else in every PDK); stacked, the products are joined, the first
+    written first."""
+    entry = tuple(pdks) if pdks is not None else None
     return lambda build: (
-        Family(build.build, (axes, *build.axes)) if isinstance(build, Family) else Family(build, (axes,))
+        Family(build.build, (axes, *build.axes), (entry, *build.pdks))
+        if isinstance(build, Family)
+        else Family(build, (axes,), (entry,))
     )
 
 

@@ -51,6 +51,27 @@ def test_a_named_instance_is_laid_out_by_its_floorplan_or_alignss(tmp_path: Path
         layout.layout_named(tmp_path, "dynamic", sweep.dynamic_bias(ratio=3.5, k=2))
 
 
+def test_every_family_is_placed_by_a_hand_written_floorplan() -> None:
+    """The sweep's layout step (``layout_floorplan``) finds each family's floorplan by its structure,
+    C_P by whether it is there: the dynamic bias's, with its capacitors, at any size."""
+    structures = {
+        name: layout._structure(layout.Params(**structure, **layout.TOPOLOGY_SIZES))
+        for name, structure in layout.FLOORPLAN_CASES.items()
+    }
+    assert all((layout.FLOORPLANS / f"comp_{name}.json").exists() for name in structures)
+    for params, name in (
+        (sweep.dynamic_bias(ratio=3.5, k=2), "dynamic_bias"),
+        (sweep.dynamic_bias(ratio=2.25, k=12), "dynamic_bias"),
+        (sweep.base_strongarm(tail_l=14, k=32), "strongarm"),
+    ):
+        assert [case for case, structure in structures.items() if structure == layout._structure(params)] == [name]
+    fp = json.loads((layout.FLOORPLANS / "comp_dynamic_bias.json").read_text())
+    assert len(fp["rows"]) % 2 == 0  # as every comparator floorplan: the top row meets the edge as theirs do
+    assert {"Mcap_tail_a", "Mcap_tail_b", "Mcap_p_a", "Mcap_n_b", "Mbias"} <= {
+        cell for row in fp["rows"] for cell in row
+    }
+
+
 def test_c040_is_the_retired_size_sweeps_topology_40_at_half_size() -> None:
     assert sweep.c040().diffpair_w == 19 and sweep.c040().latch_init_l == 17
 

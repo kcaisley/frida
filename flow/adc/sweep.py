@@ -10,7 +10,8 @@ extraction in TSMC65 only, so the other PDKs give no instance; ``flow.caparray.s
 array's full scale is at least 80 % of the reference and its sampled noise at most its quantization
 noise there: each resolution's least switched capacitance is the larger of the two constraints'
 for its most demanding array, and each array switches one or two times it (``cap_scale``) at the
-split between its length-scaled binary and unary rows that keeps both with the fewest rows. Its
+split between its length-scaled binary and unary rows that keeps both with its outline nearest
+twice as tall as wide (one side's array: the two side by side make about a square). Its
 drivers are derived from its extracted plates (``flow.cdac.subckt.driver_strengths``), each stage
 sized to settle in about 1 ns.
 
@@ -62,9 +63,9 @@ GRID_DELAY_S = (0.5e-9, 1.0e-9, 1.5e-9, 2.0e-9)
 COMP_GRID = (
     # 0.5 ns                              1 ns                                  1.5 ns                                 2 ns
     comp.base_strongarm(tail_l=14, k=3),  comp.dynamic_bias(ratio=3.5, k=0.75), comp.dynamic_bias(ratio=2.75, k=0.75), comp.frida1(),  # 200 uV
-    comp.base_strongarm(tail_l=14, k=6),  comp.dynamic_bias(ratio=3.5, k=1),    comp.dynamic_bias(ratio=2.75, k=1.5),  comp.dynamic_bias(ratio=2.25, k=1.5),  # 150 uV
-    comp.base_strongarm(tail_l=14, k=12), comp.dynamic_bias(ratio=3.5, k=2),    comp.dynamic_bias(ratio=2.75, k=3),    comp.dynamic_bias(ratio=2.25, k=3),  # 100 uV
-    comp.base_strongarm(tail_l=14, k=24), comp.dynamic_bias(ratio=3.5, k=6),    comp.dynamic_bias(ratio=2.75, k=6),    comp.dynamic_bias(ratio=2.25, k=6),  # 70 uV
+    comp.base_strongarm(tail_l=14, k=6),  comp.dynamic_bias(ratio=3.5, k=1.5),  comp.dynamic_bias(ratio=2.75, k=1.5),  comp.dynamic_bias(ratio=2.25, k=1.5),  # 150 uV
+    comp.base_strongarm(tail_l=14, k=12), comp.dynamic_bias(ratio=3.5, k=3),    comp.dynamic_bias(ratio=2.75, k=3),    comp.dynamic_bias(ratio=2.25, k=3),  # 100 uV
+    comp.base_strongarm(tail_l=14, k=32), comp.dynamic_bias(ratio=3.5, k=6),    comp.dynamic_bias(ratio=2.75, k=6),    comp.dynamic_bias(ratio=2.25, k=6),  # 70 uV
     comp.base_strongarm(tail_l=14, k=64), comp.dynamic_bias(ratio=3.5, k=12),   comp.dynamic_bias(ratio=2.75, k=12),   comp.dynamic_bias(ratio=2.25, k=12),  # 50 uV
 )  # fmt: skip
 # each cell's noise and delay, in COMP_GRID's order (the noise outer)

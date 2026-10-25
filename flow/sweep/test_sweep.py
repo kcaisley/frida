@@ -71,45 +71,44 @@ def test_an_instance_is_its_parameters() -> None:
 
 
 def test_the_comparator_space_is_its_families_within_each_pdks_limits() -> None:
-    # every family's product, FRIDA-1's comparator by name, each instance once
-    space = runner.labelled_space("comp", "tsmc65")
-    labels = [label for label, _params in space.values()]
-    assert (
-        "frida1" in labels
-        and "dynamic_bias(ratio=3.5, k=2)" in labels
-        and "reference(topology=strongarm, size=x1)" in labels
-    )
+    # each PDK's products of each family, FRIDA-1's comparator by name, each instance once
+    labels = [label for label, _params in runner.labelled_space("comp", "tsmc65").values()]
+    assert {"frida1", "dynamic_bias(ratio=3.5, k=3)", "reference(topology=strongarm)"} <= set(labels)
     assert {pdk: len(runner.design_space("comp", pdk)) for pdk in runner.PDKS} == {
-        "tsmc65": 92,
-        "tsmc28": 47,
-        "ihp130": 37,
-        "tower180": 12,
-        "lf150": 47,
-        "tpsc65": 79,
+        "tsmc65": 23,
+        "tsmc28": 7,
+        "ihp130": 20,
+        "tower180": 20,
+        "lf150": 16,
+        "tpsc65": 20,
     }
     assert comp.frida1() == comp.FRIDA1
-    # a family is a function of its knobs: every width times k
+    # a family is a function of its knobs: every width times k; TSMC28's at TSMC65's physical widths
     assert comp.base_strongarm(tail_l=34, k=2.5).diffpair_w == 80 and comp.base_strongarm(tail_l=34, k=2.5).tail_w == 10
-    for pdk in runner.PDKS:
-        assert all(comp.valid(params, pdk) for params in runner.design_space("comp", pdk).values()), pdk
-    # FRIDA-1's long latch decides too late in the older PDKs, a 54-unit tail in IHP130, a 14-unit
-    # one in Tower180 (comp.params.LIMITS)
     space = {pdk: list(runner.design_space("comp", pdk).values()) for pdk in runner.PDKS}
+    assert (
+        comp.base_strongarm(tail_l=28, k=18) in space["tsmc28"]
+        and comp.base_strongarm(tail_l=14, k=3) in space["tsmc65"]
+    )
+    for pdk in runner.PDKS:
+        assert all(comp.valid(params, pdk) for params in space[pdk]), pdk
+    # FRIDA-1's long latch decides too late in the older PDKs, a 54-unit tail in IHP130, the dynamic
+    # bias in IHP130, and below C_TAIL/C_P of 5 in LF150 (comp.params.LIMITS)
     assert comp.frida1() in space["tsmc28"] and comp.frida1() not in space["ihp130"]
-    assert comp.base_strongarm(tail_l=34, k=4) in space["ihp130"]
-    assert comp.base_strongarm(tail_l=54, k=4) not in space["ihp130"]
-    assert comp.base_strongarm(tail_l=14, k=4) not in space["tower180"]
-    # the dynamic bias where its tail capacitor drops the common mode far and fast enough, none in
-    # IHP130 or Tower180
-    assert comp.dynamic_bias(ratio=6, k=2) in space["lf150"]
-    assert comp.dynamic_bias(ratio=3.5, k=2) not in space["lf150"]
-    for pdk in ("ihp130", "tower180"):
+    assert not comp.valid(comp.frida1(), "ihp130") and not comp.valid(comp.base_strongarm(tail_l=54, k=4), "ihp130")
+    assert comp.valid(comp.dynamic_bias(ratio=6, k=2), "lf150") and not comp.valid(
+        comp.dynamic_bias(ratio=3.5, k=2), "lf150"
+    )
+    assert not comp.valid(comp.dynamic_bias(ratio=3.5, k=2), "ihp130") and not comp.valid(
+        comp.dynamic_bias(ratio=6, k=2), "tower180"
+    )
+    for pdk in ("ihp130", "tower180", "tsmc28"):
         assert not any(params.preamp_bias == comp.Bias.DYNAMIC for params in space[pdk])
     # named but not swept: picked by name, and by label or digest the swept ones
     picked = runner.select(
-        "comp", "tsmc65", ["triple_tail", "dynamic_bias(ratio=3.5, k=2)", runner.digest(comp.frida1())]
+        "comp", "tsmc65", ["triple_tail", "dynamic_bias(ratio=3.5, k=3)", runner.digest(comp.frida1())]
     )
-    assert [label for label, _params in picked.values()] == ["triple_tail", "dynamic_bias(ratio=3.5, k=2)", "frida1"]
+    assert [label for label, _params in picked.values()] == ["triple_tail", "dynamic_bias(ratio=3.5, k=3)", "frida1"]
     with pytest.raises(LookupError, match="no instance"):
         runner.select("comp", "tsmc65", ["no_such_comparator"])
 

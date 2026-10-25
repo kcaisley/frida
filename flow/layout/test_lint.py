@@ -99,3 +99,13 @@ def test_numbers_take_spice_scales() -> None:
     assert lint.number("0.5u") == pytest.approx(5e-7)
     assert lint.number("4e-6") == pytest.approx(4e-6)
     assert lint.number("{w}") is None
+
+
+def test_statistics_read_w_per_finger_where_the_pdk_writes_it() -> None:
+    per_finger = {**MANIFEST, "w_per_finger": True}
+    example = lint.example(per_finger)
+    assert "w=2u l=1u nf=2" in example and "one finger's width" in example
+    stats = {item["label"]: item["value"] for item in lint.check(example, per_finger).stats}
+    # the same devices as the total-width example: 2 fingers of 2 um each
+    assert stats["Gate area"] == pytest.approx(4 * 1 + 4 * 0.5 * 4)
+    assert stats["Total width"] == pytest.approx(5 * 4)

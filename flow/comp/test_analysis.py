@@ -26,7 +26,7 @@ from .analysis import (
     analyze_timing,
     metrics,
 )
-from .params import Params, TbParams
+from .params import CHARGE_METER, CHARGE_METER_F, Params, TbParams
 from .types import AnalysisDecisions
 
 INFO = MeasInfo(backend="spice", timestamp_utc=datetime(2026, 10, 24, tzinfo=UTC))
@@ -63,7 +63,7 @@ def run(tb: TbParams, *, delay_s=lambda diff: 200e-12, current_a: float = 50e-6,
     split = np.clip((since_s - tb.transition_time_s / 2 - trial_delay_s) / 20e-12 + 0.5, 0.0, 1.0)
     sign = np.where(diff >= 0, 1.0, -1.0)
     kick = kick_v * np.exp(-(((time_s - edges[0] - 100e-12) / 50e-12) ** 2))
-    return Meas(
+    meas = Meas(
         group=None,
         index=None,
         dut=tb.params,
@@ -81,6 +81,9 @@ def run(tb: TbParams, *, delay_s=lambda diff: 200e-12, current_a: float = 50e-6,
         },
         i={"vdd": np.full_like(time_s, current_a)},
     )
+    # the testbench's charge meter: the supply's charge since the run began, over its capacitance
+    meas.v[CHARGE_METER] = current_a * time_s / CHARGE_METER_F
+    return meas
 
 
 def decisions_at() -> AnalysisDecisions:

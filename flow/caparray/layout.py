@@ -14,7 +14,9 @@ the coarse weight is a unary element, a lighter one a length-scaled binary eleme
 2018); the coarse weight is the split between them. A unary element keeps a difference finger of
 the tail alone, or (``unary_length``) is one main finger and no difference finger. The ADC study's
 arrays draw unary rows so, tie their edge dummies' fingers to the top plate, and take their split
-and step from ``flow.caparray.sizing``.
+and step from ``flow.caparray.sizing``, each to an outline about twice as tall as wide
+(``outline_um``). A unit stacks its fingers on the PDK's top three MOM metals unless a target says
+otherwise (``STACKED_METALS``).
 
 ``mom_array_params`` sizes the array's netlist from the PDK's FMOM model (``tech.MOM_MODEL``, at
 the spacing the generator draws, or the calibrated ``tech.MOM_FITS``): the same lengths the
@@ -270,7 +272,17 @@ def _layout_manifest(params: CapArrayLayoutParams) -> dict[str, Any]:
             "active_layers": list(params.active_layers),
         },
         "derived_geometry_nm": asdict(geometry),
+        "outline_um": outline_um(geometry, sum(len(group) for group in chunks) + 2 * params.family.edge_dummy_units),
     }
+
+
+def outline_um(geometry: _UnitGeometry, placed: int) -> tuple[float, float]:
+    """An array's outline, its boundary (width, height) in um: its ``placed`` units side by side
+    (the edge dummies too, sharing their ring walls), the top plate's stack and the shield taps
+    beside them (``caparray_cells``), and the top plate's bar over the units' top ring walls."""
+    width = (placed - 1) * geometry.unit_pitch + geometry.outer_width + geometry.side_extension
+    height = geometry.outer_height - geometry.ring_width + geometry.via_landing
+    return width / 1000, height / 1000
 
 
 def _mom_fit(params: CapArrayLayoutParams, gap: int) -> tuple[float, float]:
@@ -476,13 +488,22 @@ def all_caparrays(run_dir: Path) -> Path:
 PDKS = ("tsmc65", "tsmc28", "tower180", "tpsc65", "ihp130", "lf150")
 
 
-def _stacked(pdk: str, cdac: CapArrayConfig, name: str, layers: int) -> CapArrayLayoutParams:
-    """``cdac`` on the top ``layers`` of the PDK's MOM metals, its shield and buses on the metal
-    below, as ``caparray_<layers>layer_<name>``."""
+# a unit's fingers stack on this many of the PDK's MOM metals (at most its ``MOM_LAYERS``): every
+# metal stacked adds the same capacitance per length on the same footprint, so three give the
+# densest array and the shortest rows for a capacitance
+STACKED_METALS = 3
+
+
+def _stacked(pdk: str, cdac: CapArrayConfig, name: str, layers: int | None = None) -> CapArrayLayoutParams:
+    """``cdac`` on the top ``layers`` of the PDK's MOM metals (None: ``STACKED_METALS``, as many as
+    the PDK has up to three), its shield and buses on the metal below, as
+    ``caparray_<layers>layer_<name>``."""
 
     from flow.layout.pdkproc import pdk_value
 
-    active = tuple(pdk_value(pdk, "tech", "MOM_LAYERS")[-layers:])
+    metals = pdk_value(pdk, "tech", "MOM_LAYERS")
+    layers = min(STACKED_METALS, len(metals)) if layers is None else layers
+    active = tuple(metals[-layers:])
     return CapArrayLayoutParams(
         cdac=cdac,
         family=UnitLengthCapFamilyParams(),

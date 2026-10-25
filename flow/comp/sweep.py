@@ -58,51 +58,33 @@ from .plots import (
 )
 
 
-@family(
-    topology=("strongarm", "double_tail"),
-    size=("x1", "x2", "x4", "pair_x2", "latch_x2", "long"),
-)
-def reference(topology: str, size: str) -> Params:
-    """A topology at the characterization's short-channel sizes (``x1``), its key widths doubled or
-    quadrupled, the input pair or the latch alone doubled, or the input pair and tail twice as long."""
-    widths = ("diffpair_w", "tail_w", "rst_w", "latch_on_w", "latch_init_w", "srlatch_n_w", "srlatch_p_w")
-    base = TOPOLOGY_SIZES
-    sizes = {
-        "x1": {},
-        "x2": {name: 2 * base[name] for name in widths},
-        "x4": {name: 4 * base[name] for name in widths},
-        "pair_x2": {"diffpair_w": 2 * base["diffpair_w"]},
-        "latch_x2": {name: 2 * base[name] for name in ("latch_on_w", "latch_init_w")},
-        "long": {"diffpair_l": 2 * base["diffpair_l"], "tail_l": 2 * base["tail_l"]},
-    }[size]
-    return Params(**TOPOLOGIES[topology], **{**base, **sizes})
+@family(pdks=("tsmc65", "tsmc28"), topology=("strongarm", "double_tail"))
+def reference(topology: str) -> Params:
+    """A topology at the characterization's short-channel sizes."""
+    return Params(**TOPOLOGIES[topology], **TOPOLOGY_SIZES)
 
 
-@family(k=(1, 2))
-def frida1_like(k: int) -> Params:
-    """The StrongARM near FRIDA-1's hand-sized comparator (a long, weak tail and long latch devices)
-    in round multiples of the minimum, every width times ``k``."""
-    sizes = {
-        "diffpair_w": 32 * k,
-        "diffpair_l": 4,
-        "tail_w": 6 * k,
-        "tail_l": 16,
-        "rst_w": 8 * k,
-        "rst_l": 1,
-        "latch_on_w": 24 * k,
-        "latch_on_l": 6,
-        "latch_init_w": 32 * k,
-        "latch_init_l": 16,
-        "srlatch_n_w": 4 * k,
-        "srlatch_p_w": 8 * k,
-    }
-    return Params(**TOPOLOGIES["strongarm"], **sizes)
-
-
-@family(tail_l=(14, 34, 54), k=(2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64))
-@family(tail_l=(34, 54), k=(96,))
-@family(tail_l=(34,), k=(2.5,))
-@family(tail_l=(16,), k=(3,))
+# each PDK's tails (its delays: 0.5, 1, 1.5 and 2 ns at 0.5 mV) and widths (its noise levels: 200,
+# 150, 100, 70 and 50 uV, where its noise floor reaches them), where the base StrongARM is the more
+# frugal family; TSMC28 at TSMC65's physical sizes (three of its 40 nm units to one of 120 nm, the
+# tail 840 nm long)
+@family(pdks=("tsmc65",), tail_l=(14,), k=(3, 6, 12, 32, 64))
+@family(pdks=("tsmc28",), tail_l=(28,), k=(18, 36, 72, 192))
+@family(pdks=("tpsc65",), tail_l=(6,), k=(2, 4, 8, 16, 32))
+@family(pdks=("tpsc65",), tail_l=(16, 26), k=(2,))
+@family(pdks=("tpsc65",), tail_l=(36,), k=(2, 4, 8, 16, 40))
+@family(pdks=("ihp130",), tail_l=(4,), k=(2.5, 4, 10, 20, 40))
+@family(pdks=("ihp130",), tail_l=(11,), k=(1.5, 3, 6, 12, 24))
+@family(pdks=("ihp130",), tail_l=(20,), k=(1.5, 2.5, 6, 12, 24))
+@family(pdks=("ihp130",), tail_l=(28,), k=(1.25, 2, 5, 10, 20))
+@family(pdks=("lf150",), tail_l=(4,), k=(1, 2, 5, 24))
+@family(pdks=("lf150",), tail_l=(13,), k=(1, 2))
+@family(pdks=("lf150",), tail_l=(23,), k=(1, 2, 5, 16))
+@family(pdks=("lf150",), tail_l=(34,), k=(1, 1.5, 5, 10))
+@family(pdks=("tower180",), tail_l=(3,), k=(2.5, 4, 10, 20, 40))
+@family(pdks=("tower180",), tail_l=(9,), k=(1.5, 3, 6, 12, 24))
+@family(pdks=("tower180",), tail_l=(15,), k=(1.5, 2.5, 6, 12, 24))
+@family(pdks=("tower180",), tail_l=(21,), k=(1.25, 2.5, 5, 10, 20))
 def base_strongarm(tail_l: int, k: float) -> Params:
     """The StrongARM at the short-channel sizes with every width times ``k`` but its tail, 4 k units
     wide and ``tail_l`` minimum lengths long: the tail's length sets the delay, ``k`` the noise."""
@@ -111,7 +93,12 @@ def base_strongarm(tail_l: int, k: float) -> Params:
     return Params(**TOPOLOGIES["strongarm"], **{**TOPOLOGY_SIZES, **sizes, "tail_w": round(4 * k), "tail_l": tail_l})
 
 
-@family(ratio=(6, 3.5, 2.75, 2.25), k=(0.75, 1, 1.5, 2, 3, 4, 6, 8, 12, 16))
+# each PDK's C_TAIL/C_P (its delays) and widths (its noise levels), where the dynamic bias is the
+# more frugal family
+@family(pdks=("tsmc65",), ratio=(3.5, 2.75, 2.25), k=(0.75, 1.5, 3, 6, 12))
+@family(pdks=("tpsc65",), ratio=(3.5,), k=(1, 2, 4, 8))
+@family(pdks=("tpsc65",), ratio=(2.75,), k=(0.75, 2, 4, 8))
+@family(pdks=("lf150",), ratio=(6,), k=(0.75, 2.5))
 def dynamic_bias(ratio: float, k: float) -> Params:
     """The dynamic-bias double tail (the modified double tail's latch, the input pair's tail a
     minimum-length switch onto C_TAIL): a unit per 60 fF of C_P (input pair 64, tail switch 4, latch

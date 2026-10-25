@@ -61,3 +61,22 @@ def test_long_devices_and_ports_inside_a_group_stay_transistors() -> None:
     # a cell's internal net that is a port of the netlist: no NOR2 there
     exposed = NETLIST.replace(".subckt top in out vdd vss", ".subckt top in out stack vdd vss")
     assert "Xnor" not in recognize(exposed, LIB_CELLS)[1]
+
+
+def test_mos_width_is_total_in_both_conventions() -> None:
+    # 2 copies of 4 fingers of 500 nm: 4 um in all, 8 fingers
+    total = library(".subckt C A VDD VSS\nMN A A VSS VSS n w=2u l=30n nf=4 m=2\n.ends\n", ["C"], ("VDD", "VSS"))
+    per_finger = library(
+        ".subckt C A VDD VSS\nMN A A VSS VSS n w=500n l=30n nf=4 m=2\n.ends\n", ["C"], ("VDD", "VSS"), w_per_finger=True
+    )
+    for lib in (total, per_finger):
+        (mos,) = lib["C"][1]
+        assert (round(mos.w), mos.nf) == (4000, 8)
+
+
+def test_gates_are_found_in_a_per_finger_netlist() -> None:
+    # the inverter pair written per finger: Mbig_n is 2 fingers of 400 nm, as INVX4's two 400 nm devices
+    netlist = NETLIST.replace("w=800n l=30n nf=2", "w=400n l=30n nf=2").replace(
+        "w=1200n l=30n nf=2", "w=600n l=30n nf=2"
+    )
+    assert recognize(netlist, LIB_CELLS, w_per_finger=True)[1] == {"Xnor": "NOR2X2", "Xbig": "INVX4"}

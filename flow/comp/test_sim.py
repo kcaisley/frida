@@ -97,3 +97,8 @@ def test_a_run_is_one_spectre_transient_in_nutbin(monkeypatch, tmp_path, interva
     arguments = captured["options"].simulator_args
     assert arguments[:2] == ("-format", "nutbin") and {"+preset=mx", "+mt=1"} <= set(arguments)
     assert captured["options"].rundir == tmp_path
+    # the supply's charge meter: the supply source's current onto a capacitor, saved
+    meter = next(attr.text for attr in captured["attrs"] if isinstance(attr, h.Literal) and "cccs" in attr.text)
+    assert "cccs probe=xtop.vvdd" in meter and f"c={params.CHARGE_METER_F}" in meter
+    save = next(attr for attr in captured["attrs"] if isinstance(attr, hs.Save))
+    assert params.CHARGE_METER in save.targ

@@ -22,6 +22,7 @@ from scipy.stats import t as student_t
 from flow.analysis import calc
 from flow.pipeline import Meas, check_identity, measurement_identity
 
+from .params import CHARGE_METER, CHARGE_METER_F
 from .types import (
     AnalysisClockCheck,
     AnalysisCommonMode,
@@ -223,19 +224,29 @@ def analyze_kickback(meas: Meas) -> AnalysisKickback:
 
 
 def analyze_power(meas: Sequence[Meas]) -> AnalysisPower:
-    """Each run's supply power, time-weighted over the whole run, and the energy of one decision
-    (one cycle) at that power."""
+    """Each run's energy per decision: the supply's charge over each decision's cycle, read off the
+    testbench's charge meter (``params.CHARGE_METER``: integrated by the simulator, exact at any
+    output step) at the cycle's ends, at the supply's voltage, averaged over the decisions that
+    follow one at the same input (the run's first starts from the operating point, and a decision
+    after another input carries that change); and the power that is over a cycle."""
 
     identity = measurement_identity(meas)
     supply_v = np.asarray([float(run.param.vdd) for run in meas])
-    power_w = np.asarray([calc.average(run.i["vdd"], run.time_s) for run in meas]) * supply_v
+    energy_j = []
+    for run, vdd in zip(meas, supply_v, strict=True):
+        tb = run.param
+        charge_c = run.v[CHARGE_METER] * CHARGE_METER_F
+        start, end = (calc.value(charge_c, run.time_s, tb.trial_start_s + offset) for offset in (0.0, tb.cycle_s))
+        steady = np.flatnonzero(tb.trial_point[1:] == tb.trial_point[:-1]) + 1
+        energy_j.append(float(vdd * np.mean((end - start)[steady])) if len(steady) else math.nan)
+    energy = np.asarray(energy_j)
     return AnalysisPower(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
         supply_v=supply_v,
-        average_power_w=power_w,
-        energy_per_decision_j=power_w * np.asarray([run.param.cycle_s for run in meas]),
+        average_power_w=energy / np.asarray([run.param.cycle_s for run in meas]),
+        energy_per_decision_j=energy,
     )
 
 

@@ -17,18 +17,25 @@ Two constraints size every array, both on its own extracted top plate:
 - its sampled noise, both sides' kT/C, no more than its quantization noise at that full scale
   (``flow.caparray.subckt.total_capacitance_f``).
 
-Each array's own least switched capacitance is at its largest split whose least capacitance (the
-larger of the two constraints') is within ``SPLIT_SLACK`` of the least of any split: fewer rows,
-unless they cost much more capacitance. A resolution's least switched capacitance is the largest of
-its arrays' (``resolution_minimums``). Each array at ``cap_scale`` switches that many times it, at
-the largest split (the fewest rows) that keeps its full scale and its noise below 1/cap_scale of
-its quantization noise there (``design``).
+Every array's outline (one side's; the converter's two sit side by side) is drawn about ``ASPECT``
+times as tall as wide, so that the pair is about square: the strips' pitch is the technology's, and
+the split (the coarse weight, any integer from 8 to 512, ``COARSE_WEIGHTS``) sets the rows and,
+with the capacitance, their length. Each array's own least switched capacitance is at the split
+whose outline is nearest ``ASPECT`` among those whose least capacitance (the larger of the two
+constraints') is within ``SPLIT_SLACK`` of any split's least. A resolution's least switched
+capacitance is the largest of its arrays' (``resolution_minimums``). Each array at ``cap_scale``
+switches that many times it, at the split whose outline is nearest ``ASPECT`` of those that keep
+its full scale and its noise below 1/cap_scale of its quantization noise there (``design``). A
+small array cannot reach the outline: the full scale wants many short rows, so it is as near as its
+capacitance lets it be. From ``EXACT_UNARY_BITS`` (14 bits) the splits are powers of two and the
+unary rows keep a difference finger of the tail, so that the tens of unary rows of a stage weigh
+exactly the coarse weight each.
 
 The capacitances are the PDK's FMOM model's (``RowModel``, from ``flow.caparray.layout``'s
 geometry and ``_mom_fit``) corrected by each array's own extraction (``calibrated``): its binary
 unit (exact by the strips' difference, whatever the fit), its unary row (one finger, its ends not
-cancelled: its length is corrected to the coarse weight in binary units), its binary rows' fingers
-and its other load. ``extract_adc_arrays`` sizes every array from its newest earlier extraction (or
+cancelled: its length is corrected to the coarse weight in binary units, at each split by the
+array's newest extraction at it), its binary rows' fingers and its other load. ``extract_adc_arrays`` sizes every array from its newest earlier extraction (or
 its resolution's binary array's), extracts it and sizes again from that, until every array keeps
 its split, its step moves less than ``STEP_TOLERANCE``, its unary rows weigh the coarse weight
 within ``UNARY_TOLERANCE`` and both constraints hold in its extraction (``SIZING_PASSES`` at most).
@@ -49,6 +56,7 @@ import numpy as np
 from .layout import (
     ADC_ARRAYS,
     RADIX17,
+    STACKED_METALS,
     CapArrayLayoutParams,
     _calc_unit_geometry,
     _mom_fit,
@@ -59,21 +67,48 @@ from .subckt import CapArrayConfig, _calc_weight_partitions, get_caparray_weight
 
 # every ADC array's differential full scale: at least this share of the reference
 MIN_FULL_SCALE = 0.80
-# the splits an array may take: its coarse weight, 2^N_b
-COARSE_WEIGHTS = (8, 16, 32, 64, 128, 256)
-# an array's split: the largest whose least capacitance is within this factor of any split's least
+# the splits an array may take: its coarse weight, the unary row's weight (2^N_b where a power of
+# two), integers from 8 to 512 about 9 % apart, so that its rows and their length come close to the
+# outline it is drawn to (below 8, a row's tails outweigh what it switches)
+COARSE_WEIGHTS = tuple(sorted({round(8 * 2 ** (k / 8)) for k in range(49)}))
+# from this resolution a stage holds tens of unary rows, whose weight errors add: the splits are
+# powers of two (every large stage unary rows alone, Harpe's segmentation) and a unary row keeps a
+# difference finger of the tail, so its weight is exact by the strips' difference (the tails cost
+# about 1.5 % of the full scale there); below it, any split and one-finger unary rows, for the full
+# scale that their tails would cost
+EXACT_UNARY_BITS = 14
+POWER_OF_TWO_WEIGHTS = tuple(weight for weight in COARSE_WEIGHTS if weight & (weight - 1) == 0)
+
+
+def exact_unary(cdac: CapArrayConfig) -> bool:
+    """Whether the array's unary rows keep a difference finger (``EXACT_UNARY_BITS``)."""
+    return cdac.n_dac + 1 >= EXACT_UNARY_BITS
+
+
+def splits(cdac: CapArrayConfig) -> tuple[int, ...]:
+    """The coarse weights the array may take: powers of two where its unary rows are exact."""
+    return POWER_OF_TWO_WEIGHTS if exact_unary(cdac) else COARSE_WEIGHTS
+
+
+# every array's outline (one side's: the converter's two sit side by side) about this many times as
+# tall as wide, so that the pair is about square: its split sets its rows, its capacitance their
+# length; an outline within ASPECT_TOLERANCE of it is on target
+ASPECT = 2.0
+ASPECT_TOLERANCE = 1.25
+# an array's own least capacitance: at the split nearest the outline among those whose least
+# capacitance is within this factor of any split's least
 SPLIT_SLACK = 1.25
 # the model sizes a resolution's least capacitance this much inside both constraints, and takes an
 # array's split half as much inside, so that a step on the grid and the model's error still meet them
 MARGIN = 0.01
 # a pass's array is kept where the next sizing keeps its split and moves its step by no more than
-# this share, its unary rows weigh the coarse weight within UNARY_TOLERANCE binary units, and its
-# extraction meets both constraints
+# this share, its one-finger unary rows weigh the coarse weight within UNARY_TOLERANCE binary units,
+# and its extraction meets both constraints
 STEP_TOLERANCE = 0.03
 UNARY_TOLERANCE = 0.25
 SIZING_PASSES = 5
 PDK = "tsmc65"
-LAYERS = 3
+LAYERS = STACKED_METALS
 
 
 def reference_v(pdk: str) -> float:
@@ -90,9 +125,12 @@ class RowModel:
     A binary row of weight w switches w units and its ends' offset; it loads the top plate with
     its main and difference fingers, the coarse weight c in units and a tail each (its access and
     ends, ``tail_ff``). A unary row's one finger of length L switches and loads ``scale * slope * L
-    + unary_ff``, drawn to c units (``unary_length_nm``). The unit is ``scale`` times twice the step's
+    + unary_ff`` (at a split extracted before, that extraction's scale and unary_ff:
+    ``unary_by_split``), drawn to c units (``unary_length_nm``). The unit is ``scale`` times twice the step's
     finger. The top plate's other load is ``other_row_ff`` a placed row (the edge dummies too) and
-    ``other_row_um_ff`` a micrometre of row, which is two tails, c steps of finger and its ends."""
+    ``other_row_um_ff`` a micrometre of row, which is two tails, c steps of finger and its ends. The
+    outline is the rows and two edge dummies a ``pitch_um`` apart, the top plate's stack and the
+    shield taps beside them (``side_um``), and the top plate's bar over them (``bar_um``)."""
 
     slope_ff_um: float  # a finger's capacitance per length
     intercept_ff: float  # a finger's ends
@@ -100,11 +138,19 @@ class RowModel:
     tail_um: float
     ends_um: float  # a row's length beyond its two fingers: three end gaps and two ring walls
     grid_nm: int
+    pitch_um: float = 0.0  # a row's: the units share their ring walls
+    outer_width_um: float = 0.0  # a unit's ring, its outer edges
+    side_um: float = 0.0  # beside the array: the top plate's stack and the shield taps
+    bar_um: float = 0.0  # above the rows: the top plate's bar beyond the top ring wall
     scale: float = 1.0  # the extracted slope over the fit's
     binary_offset_ff: float = 0.0  # a binary row's effective capacitance beyond its weight
     unary_ff: float | None = None  # a unary finger beyond its length's slope: its ends and access
     other_row_ff: float = 0.0
     other_row_um_ff: float = 0.0
+    # each split's (coarse weight, scale, unary_ff) from the array's newest extraction at it: a
+    # unary row weighs tens of units, so a fraction of a percent of scale between splits is a
+    # tenth of a unit or more
+    unary_by_split: tuple[tuple[int, float, float], ...] = ()
 
     def unit_ff(self, step_nm: float) -> float:
         """The unit at a weight step: twice the step of finger."""
@@ -113,19 +159,41 @@ class RowModel:
     def row_um(self, coarse: int, step_nm: float) -> float:
         return 2 * (self.tail_um + coarse * step_nm / 1000) + self.ends_um
 
+    def outline_um(self, rows: int, coarse: int, step_nm: float) -> tuple[float, float]:
+        """The array's outline (width, height): its rows and two edge dummies, as
+        ``flow.caparray.layout.outline_um`` draws it."""
+        width = (rows + 1) * self.pitch_um + self.outer_width_um + self.side_um
+        return width, self.row_um(coarse, step_nm) + self.bar_um
+
     @property
     def unary_ff_or_intercept(self) -> float:
         """A unary finger's capacitance beyond its length's slope: as extracted, else the fit's."""
         return self.intercept_ff if self.unary_ff is None else self.unary_ff
 
+    def unary_fit(self, coarse: int) -> tuple[float, float]:
+        """The scale and the unary finger's capacitance beyond its length's slope at the split
+        ``coarse``: its own extraction's (``unary_by_split``), else the model's."""
+        for split, scale, unary_ff in self.unary_by_split:
+            if split == coarse:
+                return scale, unary_ff
+        return self.scale, self.unary_ff_or_intercept
+
     def unary_length_nm(self, coarse: int, step_nm: int) -> int:
         """A unary row's finger, on the grid, whose capacitance is the coarse weight in units."""
-        length = (coarse * self.unit_ff(step_nm) - self.unary_ff_or_intercept) / (self.scale * self.slope_ff_um) * 1000
+        scale, unary_ff = self.unary_fit(coarse)
+        slope = scale * self.slope_ff_um
+        length = (coarse * 2 * slope * step_nm / 1000 - unary_ff) / slope * 1000
         return int(round(length / self.grid_nm) * self.grid_nm)
 
+    def unary_error_lsb(self, coarse: int, step_nm: int, length_nm: int) -> float:
+        """A unary row's finger of ``length_nm`` less the coarse weight, in the unit at ``step_nm``."""
+        scale, unary_ff = self.unary_fit(coarse)
+        slope = scale * self.slope_ff_um
+        return (slope * length_nm / 1000 + unary_ff) / (2 * slope * step_nm / 1000) - coarse
 
-def row_model(pdk: str = PDK, layers: int = LAYERS) -> RowModel:
-    """The PDK's rows at ``layers`` stacked metals, uncorrected."""
+
+def row_model(pdk: str = PDK, layers: int | None = None) -> RowModel:
+    """The PDK's rows at ``layers`` stacked metals (None: ``STACKED_METALS``), uncorrected."""
     params = _stacked(pdk, RADIX17, "rows", layers)
     geometry = _calc_unit_geometry(params)
     slope, intercept = _mom_fit(params, geometry.gap)
@@ -136,6 +204,10 @@ def row_model(pdk: str = PDK, layers: int = LAYERS) -> RowModel:
         tail_um=geometry.tail_length / 1000,
         ends_um=(3 * geometry.end_gap + 2 * geometry.ring_width) / 1000,
         grid_nm=geometry.grid,
+        pitch_um=geometry.unit_pitch / 1000,
+        outer_width_um=geometry.outer_width / 1000,
+        side_um=geometry.side_extension / 1000,
+        bar_um=(geometry.via_landing - geometry.ring_width) / 1000,
     )
 
 
@@ -155,6 +227,13 @@ class Prediction:
     switched_f: float
     total_f: float
     reference_v: float
+    width_um: float = math.nan
+    height_um: float = math.nan
+
+    @property
+    def aspect(self) -> float:
+        """The outline's height over its width."""
+        return self.height_um / self.width_um
 
     @property
     def full_scale(self) -> float:
@@ -183,10 +262,21 @@ def predict(
     unit = model.unit_ff(step_nm)
     switched_ff = total_weight * unit + binary * model.binary_offset_ff
     row_um = model.row_um(coarse, step_nm)
-    fingers_ff = (unary + binary) * coarse * unit + binary * 2 * model.tail_ff
+    # every row the coarse weight in units; a binary row's (and an exact unary row's) two fingers a
+    # tail each besides
+    tailed = unary + binary if exact_unary(cdac) else binary
+    fingers_ff = (unary + binary) * coarse * unit + tailed * 2 * model.tail_ff
     # the edge dummies are placed rows too
     other_ff = (unary + binary + 2) * (model.other_row_ff + model.other_row_um_ff * row_um)
-    return Prediction(unary + binary, step_nm, row_um, switched_ff * 1e-15, (fingers_ff + other_ff) * 1e-15, reference)
+    width, height = model.outline_um(unary + binary, coarse, step_nm)
+    return Prediction(
+        unary + binary, step_nm, row_um, switched_ff * 1e-15, (fingers_ff + other_ff) * 1e-15, reference, width, height
+    )
+
+
+def _off_outline(aspect: float) -> float:
+    """How far an outline is from ``ASPECT``: the log of their ratio's magnitude."""
+    return abs(math.log(aspect / ASPECT))
 
 
 def _bisect(condition, low: float = 1e-16, high: float = 1e-9) -> float:
@@ -213,15 +303,19 @@ def least_switched_f(cdac: CapArrayConfig, coarse: int, model: RowModel, referen
 
 
 def array_minimum(cdac: CapArrayConfig, model: RowModel, reference: float) -> dict[str, Any]:
-    """The array's own least switched capacitance (at one kT/C minimum): at its largest split whose
-    least capacitance is within ``SPLIT_SLACK`` of any split's least, and the constraint that sets
-    it there."""
+    """The array's own least switched capacitance (at one kT/C minimum): at the split whose outline
+    there is nearest ``ASPECT`` among those whose least capacitance is within ``SPLIT_SLACK`` of any
+    split's least, and the constraint that sets it there."""
     unscaled = replace(cdac, cap_scale=1)
-    needs = {coarse: least_switched_f(unscaled, coarse, model, reference) for coarse in COARSE_WEIGHTS}
+    needs = {coarse: least_switched_f(unscaled, coarse, model, reference) for coarse in splits(cdac)}
     least = min(max(need.values()) for need in needs.values())
-    coarse = max(coarse for coarse, need in needs.items() if max(need.values()) <= SPLIT_SLACK * least)
+    near = [coarse for coarse, need in needs.items() if max(need.values()) <= SPLIT_SLACK * least]
+    aspects = {
+        coarse: predict(unscaled, coarse, max(needs[coarse].values()), model, reference).aspect for coarse in near
+    }
+    coarse = min(near, key=lambda coarse: _off_outline(aspects[coarse]))
     binding = max(needs[coarse], key=needs[coarse].get)
-    return {"switched_f": needs[coarse][binding], "coarse_weight": coarse, "set_by": binding}
+    return {"switched_f": needs[coarse][binding], "coarse_weight": coarse, "set_by": binding, "aspect": aspects[coarse]}
 
 
 def resolution_minimums(
@@ -249,28 +343,36 @@ class Design:
 
 
 def design(cdac: CapArrayConfig, least_f: float, model: RowModel, reference: float) -> tuple[Design, Prediction] | None:
-    """The array at ``cap_scale`` times its resolution's least switched capacitance, at the largest
-    split that keeps its full scale and its noise below 1/cap_scale of its quantization noise and
-    whose unary finger, at most a binary row's two fingers long, weighs the coarse weight within
-    ``UNARY_TOLERANCE``; its step on the grid. None where no split does."""
+    """The array at ``cap_scale`` times its resolution's least switched capacitance, at the split
+    (``splits``) whose outline is nearest ``ASPECT`` (the fewer rows where two are as near) of those
+    that keep its full scale and its noise below 1/cap_scale of its quantization noise and whose
+    one-finger unary rows, at most a binary row's two fingers long, weigh the coarse weight within
+    ``UNARY_TOLERANCE`` (an exact unary row's, unary_length 0, weighs it by the strips' difference);
+    its step on the grid. None where no split does."""
     switched_f = cdac.cap_scale * least_f
     bits = cdac.n_dac + 1
-    for coarse in sorted(COARSE_WEIGHTS, reverse=True):
+    exact = exact_unary(cdac)
+    feasible = []
+    for coarse in splits(cdac):
         guess = predict(cdac, coarse, switched_f, model, reference)
-        step = max(1, round(guess.step_nm / model.grid_nm)) * model.grid_nm
-        drawn = predict(cdac, coarse, switched_f, model, reference, step_nm=step)
-        # a unary finger at most a binary row's two fingers long: its weight there within tolerance
-        longest = round(2 * (model.tail_um * 1000 + coarse * step))
-        unary = min(model.unary_length_nm(coarse, step), longest)
-        unit = model.unit_ff(step)
-        error = (model.scale * model.slope_ff_um * unary / 1000 + model.unary_ff_or_intercept - coarse * unit) / unit
-        if (
-            abs(error) <= UNARY_TOLERANCE
-            and drawn.full_scale >= MIN_FULL_SCALE + MARGIN / 2
-            and drawn.noise_ratio(bits) * cdac.cap_scale <= 1 - MARGIN / 2
-        ):
-            return Design(coarse, step, unary), drawn
-    return None
+        nearest = max(1, round(guess.step_nm / model.grid_nm))
+        # the nearest step on the grid, or one grid more where rounding down loses a constraint
+        for step in (nearest * model.grid_nm, (nearest + 1) * model.grid_nm):
+            drawn = predict(cdac, coarse, switched_f, model, reference, step_nm=step)
+            # a unary finger at most a binary row's two fingers long: its weight there within tolerance
+            longest = round(2 * (model.tail_um * 1000 + coarse * step))
+            unary = 0 if exact else min(model.unary_length_nm(coarse, step), longest)
+            error = 0.0 if exact else model.unary_error_lsb(coarse, step, unary)
+            if (
+                abs(error) <= UNARY_TOLERANCE
+                and drawn.full_scale >= MIN_FULL_SCALE + MARGIN / 2
+                and drawn.noise_ratio(bits) * cdac.cap_scale <= 1 - MARGIN / 2
+            ):
+                feasible.append((Design(coarse, step, unary), drawn))
+                break
+    if not feasible:
+        return None
+    return min(feasible, key=lambda option: (round(_off_outline(option[1].aspect), 3), option[1].rows))
 
 
 def _drawn(work: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -336,8 +438,9 @@ def calibrated(
     base: RowModel, work: Path, shape: tuple[float, float] | None = None, history: list[Path] | tuple = ()
 ) -> RowModel:
     """``base`` corrected by an extraction of the array in ``work`` (its manifest and capacitance
-    table): its unit's slope, its binary rows' offset and fingers' tails, its unary finger's ends,
-    and its top plate's other load: fitted per row and per micrometre of row, neither negative, over
+    table): its unit's slope, its binary rows' offset and fingers' tails, its unary finger's ends
+    (and each split's scale and unary finger by the newest of them at it, ``unary_by_split``), and
+    its top plate's other load: fitted per row and per micrometre of row, neither negative, over
     it and the array's ``history`` at the same split where their rows' lengths span a fifth or more,
     else ``shape`` (``other_load_shape``) scaled to it, or half each. A floating edge dummy's
     fingers are extracted to ground: where the dummies were not tied, the ground part is left out."""
@@ -351,6 +454,10 @@ def calibrated(
     unary_rows, binary_rows = int(unary.sum()), int(binary.sum())
     if unary_rows:
         model = replace(model, unary_ff=fit["unary_ff"] - scale * base.slope_ff_um * family["unary_length"] / 1000)
+    # each split's unary rows by the newest extraction at it (the history oldest first)
+    unary_points = [_unary_point(base, drawn) for drawn in (*history, work)]
+    own = {point[0]: point for point in unary_points if point is not None}
+    model = replace(model, unary_by_split=tuple(sorted(own.values())))
     fingers = table["main_ff"] + table["diff_ff"] - unary_rows * (fit["unary_ff"] if unary_rows else 0.0)
     model = replace(model, tail_ff=(fingers / binary_rows - coarse * fit["unit_ff"]) / 2)
     tied = family.get("tied_dummies")
@@ -369,6 +476,18 @@ def calibrated(
     per_row, per_um = shape if shape is not None and any(shape) else (1.0, 1.0 / length)
     own = other / (placed * (per_row + per_um * length))
     return replace(model, other_row_ff=own * per_row, other_row_um_ff=own * per_um)
+
+
+def _unary_point(base: RowModel, work: Path) -> tuple[int, float, float] | None:
+    """An extraction's split, scale and unary finger beyond its length's slope, where its unary
+    rows are one finger."""
+    manifest, _table = _drawn(work)
+    family = manifest["unit_family"]
+    if not family.get("unary_length") or not stage_rows(manifest)[0].any():
+        return None
+    fit = stage_fit(work)
+    scale = fit["unit_ff"] / base.unit_ff(manifest["derived_geometry_nm"]["weight_step"])
+    return family["coarse_weight"], scale, fit["unary_ff"] - scale * base.slope_ff_um * family["unary_length"] / 1000
 
 
 def _same_split(one: Path, other: Path) -> bool:
@@ -424,14 +543,15 @@ def _all_extractions() -> list[Path]:
 
 
 def layout_params(name: str, cdac: CapArrayConfig, choice: Design) -> CapArrayLayoutParams:
-    """The array drawn at its design: its unary rows one finger, its edge dummies tied."""
+    """The array drawn at its design: its unary rows one finger (or, unary_length 0, a main and a
+    difference finger of the tail), its edge dummies tied."""
     params = _stacked(PDK, cdac, name, LAYERS)
     family = replace(
         params.family,
         coarse_weight=choice.coarse_weight,
         weight_step=choice.weight_step,
         tied_dummies=True,
-        unary_length=choice.unary_length,
+        unary_length=choice.unary_length or None,
     )
     return replace(params, family=family)
 
@@ -606,13 +726,17 @@ def _holding(drawn: list[tuple[Design, Path, dict[str, Any]]], new: Design, cdac
     """The extraction of the array that holds for its ``new`` design, if one does: one of the same
     split and step (two designs alternating), or the last, at the same split, its step within
     ``STEP_TOLERANCE``; either meeting both constraints."""
+
+    def alike(choice: Design) -> bool:  # the same split and the same unary rows (one finger or two)
+        return choice.coarse_weight == new.coarse_weight and (choice.unary_length == 0) == (new.unary_length == 0)
+
     for choice, work, entry in drawn:
-        if (choice.coarse_weight, choice.weight_step) == (new.coarse_weight, new.weight_step) and _meets(entry, cdac):
+        if alike(choice) and choice.weight_step == new.weight_step and _meets(entry, cdac):
             return choice, work, entry
     if drawn:
         choice, work, entry = drawn[-1]
         if (
-            choice.coarse_weight == new.coarse_weight
+            alike(choice)
             and abs(new.weight_step - choice.weight_step) <= STEP_TOLERANCE * choice.weight_step
             and _meets(entry, cdac)
         ):
@@ -621,20 +745,32 @@ def _holding(drawn: list[tuple[Design, Path, dict[str, Any]]], new: Design, cdac
 
 
 def _finals(arrays, passes, designs) -> dict[str, tuple[Design, Path, dict[str, Any]]]:
-    """Each array's extraction that holds for its last design; else, of those meeting both
-    constraints, the nearest its design's step; else its last."""
+    """Each array's extraction that holds for its last design; else, at its design's split, of those
+    meeting every tolerance the nearest its design's step, else of those keeping both constraints
+    the one whose unary rows weigh nearest the coarse weight; else its last."""
     finals = {}
     for name, cdac in arrays.items():
         drawn = passes[name]
         if not drawn:
             continue
         holding = _holding(drawn, designs[name], cdac) if name in designs else None
-        meeting = [entry for entry in drawn if _meets(entry[2], cdac)]
-        finals[name] = holding or (
-            min(meeting, key=lambda entry: abs(entry[0].weight_step - designs[name].weight_step))
-            if meeting and name in designs
-            else drawn[-1]
-        )
+        if holding or name not in designs:
+            finals[name] = holding or drawn[-1]
+            continue
+        split = [
+            entry
+            for entry in drawn
+            if entry[0].coarse_weight == designs[name].coarse_weight
+            and (entry[0].unary_length == 0) == (designs[name].unary_length == 0)
+        ] or drawn
+        meeting = [entry for entry in split if _meets(entry[2], cdac)]
+        keeping = [entry for entry in split if _meets({**entry[2], "unary_error_lsb": 0.0}, cdac)]
+        if meeting:
+            finals[name] = min(meeting, key=lambda entry: abs(entry[0].weight_step - designs[name].weight_step))
+        elif keeping:
+            finals[name] = min(keeping, key=lambda entry: abs(entry[2]["unary_error_lsb"]))
+        else:
+            finals[name] = drawn[-1]
     return finals
 
 

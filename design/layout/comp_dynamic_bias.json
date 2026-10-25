@@ -1,0 +1,74 @@
+{
+ "_comment": "Dynamic-bias double tail (flow.comp.layout FLOORPLAN_CASES: the modified double tail's latch, the input pair's tail switched onto C_TAIL, with C_P) in standard-cell rows, top row first, each row mirrored about the centre: C_TAIL (the PMOS capacitor on the cap node, the block's largest device, split over two rows), input pair and tail switch, C_P on the input-pair drains (split cross-quad over two rows, the cap node's charging switch between the first halves), preamp resets, the PMOS latch stack (cross, inner-on), the NMOS latch (cross-coupled pair split cross-quad over two rows), standard-cell output stage. Ten rows: an even count, as every comparator floorplan, so the top row meets the block's edge as theirs do. Netlist: the sweep's (flow.comp.layout.layout_floorplan, standard-cell output stage); no named instance has this structure.",
+ "split": {
+  "Mcap_tail": 2,
+  "Mcap_p": 2,
+  "Mcap_n": 2,
+  "Mcross_init_p": 2,
+  "Mcross_init_n": 2
+ },
+ "escape": {
+  "up": [
+   "inp",
+   "inn"
+  ],
+  "down": [
+   "clk",
+   "clkb",
+   "outp",
+   "outn"
+  ]
+ },
+ "rows": [
+  [
+   "Mcap_tail_a"
+  ],
+  [
+   "Mcap_tail_b"
+  ],
+  [
+   "Mdiff_p",
+   "Mtail",
+   "Mdiff_n"
+  ],
+  [
+   "Mcap_p_a",
+   "Mbias",
+   "Mcap_n_a"
+  ],
+  [
+   "Mcap_n_b",
+   "Mcap_p_b"
+  ],
+  [
+   "Mrst_p",
+   "Mrst_n"
+  ],
+  [
+   "Mcross_on_p",
+   "Minner_on_p",
+   "Minner_on_n",
+   "Mcross_on_n"
+  ],
+  [
+   "Minner_init_p",
+   "Mcross_init_p_a",
+   "Mcross_init_n_a",
+   "Minner_init_n"
+  ],
+  [
+   "Mcross_init_n_b",
+   "Mcross_init_p_b"
+  ],
+  [
+   "Xbuf2_outp",
+   "Xbuf1_outp",
+   "Xsr_p",
+   "Xdecision_n",
+   "Xdecision_p",
+   "Xsr_n",
+   "Xbuf1_outn",
+   "Xbuf2_outn"
+  ]
+ ]
+}

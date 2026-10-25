@@ -8,7 +8,9 @@ nothing else in the netlist. Of the cells that match one group (the drive streng
 function), the one whose transistor widths come closest. The instance is named after the
 transistors' common prefix (``Mbuf1_outp_n``, ``Mbuf1_outp_p`` -> ``Xbuf1_outp``).
 
-It works on SPICE text: the netlist (one flat subcircuit) and the library's subcircuits.
+It works on SPICE text: the netlist (one flat subcircuit) and the library's subcircuits, their
+MOS ``w`` the total width of the fingers or, with ``w_per_finger`` (the PDK's convention,
+``stems/mosline.py``), one finger's.
 """
 
 from __future__ import annotations
@@ -50,18 +52,22 @@ def _lines(spice: str) -> list[str]:
     return re.sub(r"\n\+", " ", spice).splitlines()  # continuation lines joined
 
 
-def _mos(fields: list[str], supplies: tuple[str, str]) -> Mos:
-    """A MOS line; ``supplies``: (VDD, VSS) net names, whose bulk tells PMOS from NMOS."""
+def _mos(fields: list[str], supplies: tuple[str, str], w_per_finger: bool = False) -> Mos:
+    """A MOS line; ``supplies``: (VDD, VSS) net names, whose bulk tells PMOS from NMOS;
+    ``w_per_finger``: its ``w`` is one finger's width, not the total."""
 
     p = {k.lower(): v for k, v in (kv.split("=", 1) for kv in fields[6:] if "=" in kv)}
     fingers = int(float(p.get("nf", p.get("ng", 1))))
     m = int(float(p.get("m", 1)))
+    w = _nm(p["w"]) * (fingers if w_per_finger else 1)  # one copy's total width
     d, g, s, b = fields[1:5]
     pol = "p" if b.lower() == supplies[0].lower() else "n" if b.lower() == supplies[1].lower() else "?"
-    return Mos(fields[0], d, g, s, b, fields[5], _nm(p["w"]) * m, _nm(p["l"]), fingers * m, pol)
+    return Mos(fields[0], d, g, s, b, fields[5], w * m, _nm(p["l"]), fingers * m, pol)
 
 
-def library(spice: str, cells: Iterable[str], supplies: tuple[str, str]) -> dict[str, tuple[list[str], list[Mos]]]:
+def library(
+    spice: str, cells: Iterable[str], supplies: tuple[str, str], *, w_per_finger: bool = False
+) -> dict[str, tuple[list[str], list[Mos]]]:
     """The cells' subcircuits from library SPICE: pins in .subckt order and transistors."""
 
     wanted = {c.lower(): c for c in cells}
@@ -78,7 +84,7 @@ def library(spice: str, cells: Iterable[str], supplies: tuple[str, str]) -> dict
         elif f[0].lower() == ".ends":
             name = None
         elif name and f[0][0] in "Mm":
-            out[name][1].append(_mos(f, supplies))
+            out[name][1].append(_mos(f, supplies, w_per_finger))
     return out
 
 
@@ -185,15 +191,17 @@ def recognize(
     *,
     supplies: tuple[str, str] = ("vdd", "vss"),
     lib_supplies: tuple[str, str] = ("VDD", "VSS"),
+    w_per_finger: bool = False,
 ) -> tuple[str, dict[str, str]]:
     """``netlist`` with every group of transistors that forms a library cell written as an instance
-    of it; also returns instance -> cell. Larger cells first, then the closest drive."""
+    of it; also returns instance -> cell. Larger cells first, then the closest drive.
+    ``w_per_finger``: the netlist's MOS ``w`` is one finger's width (the PDK's convention)."""
 
     lines = _lines(netlist)
     sub = next(k for k, line in enumerate(lines) if line.split()[:1] and line.split()[0].lower() == ".subckt")
     ports = set(lines[sub].split()[2:])
     rows = {
-        k: _mos(line.split(), supplies)
+        k: _mos(line.split(), supplies, w_per_finger)
         for k, line in enumerate(lines)
         if line.split()[:1] and line.split()[0][0] in "Mm"
     }
@@ -234,14 +242,18 @@ def recognize(
     return "\n".join(result) + "\n", cells_of
 
 
-def _pdk_library() -> tuple[dict[str, tuple[list[str], list[Mos]]], tuple[str, str]]:
-    """The library cells of the PDK this process is bound to (flow/layout/pdkproc.py)."""
+def _pdk_library() -> tuple[dict[str, tuple[list[str], list[Mos]]], tuple[str, str], bool]:
+    """The library cells of the PDK this process is bound to (flow/layout/pdkproc.py), its
+    supplies and its width convention (``w_per_finger``)."""
 
+    import mosline  # the engine's, on the bound path
     import paths  # the bound PDK's
     import tech
 
     supplies = tuple(tech.STD_SUPPLY)
-    return library(paths.STD_SPICE.read_text(errors="replace"), tech.STD_CELLS, supplies), supplies
+    per_finger = mosline.w_per_finger()
+    spice = paths.STD_SPICE.read_text(errors="replace")
+    return library(spice, tech.STD_CELLS, supplies, w_per_finger=per_finger), supplies, per_finger
 
 
 def _named(text: str, name: str) -> str:
@@ -252,8 +264,8 @@ def recognize_file(src: Path, dst: Path) -> Path:
     """Run bound to a PDK: ``src`` with its library cells recognized, written to ``dst`` (its
     subcircuit named after it)."""
 
-    lib, supplies = _pdk_library()
-    text, cells = recognize(src.read_text(), lib, lib_supplies=supplies)
+    lib, supplies, per_finger = _pdk_library()
+    text, cells = recognize(src.read_text(), lib, lib_supplies=supplies, w_per_finger=per_finger)
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(_named(text, dst.stem))
     print(f"{dst.name}: {len(cells)} library cells recognized")
