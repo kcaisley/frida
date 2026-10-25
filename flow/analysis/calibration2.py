@@ -91,9 +91,12 @@ def analyze_adc_calibration2(measurement: MeasAdc, *, ramp: AnalysisAdcRamp) -> 
         else:
             best = min(range(len(candidates)), key=lambda index: (inner_validation_rmse[index], candidates[index]))
             fit_mask, score_mask, ridge_strength = training, validation, candidates[best]
-        unique_bout, inverse, word_count = np.unique(
-            decisions[fit_mask], axis=0, return_inverse=True, return_counts=True
-        )
+        # each decision word as one integer, its first decision the most significant bit: the words
+        # sort as np.unique(axis=0) sorts the rows, an order of magnitude faster than sorting rows
+        bit_value = 1 << np.arange(decision_count - 1, -1, -1, dtype=np.int64)
+        word_key = decisions[fit_mask].astype(np.int64) @ bit_value
+        unique_key, inverse, word_count = np.unique(word_key, return_inverse=True, return_counts=True)
+        unique_bout = ((unique_key[:, None] & bit_value) != 0).astype(np.float64)
         word_target = np.bincount(np.ravel(inverse), weights=ideal_dout[fit_mask]) / word_count
         sqrt_count = np.sqrt(word_count.astype(np.float64))
         design = np.column_stack((np.ones(len(unique_bout)), unique_bout)) * sqrt_count[:, None]

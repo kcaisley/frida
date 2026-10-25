@@ -261,8 +261,11 @@ def run(
     # every worker oversubscribes the machine many times over
     for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ.setdefault(name, "1")
-    # a fresh process per instance: hdl21 compiles a generated module in place, for one PDK
-    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=1) as pool:
+    # a fresh process per instance: hdl21 compiles a generated module in place, for one PDK. A block
+    # that compiles nothing (its sweep's ``tasks_per_worker``: the ADC's behavioral converters) runs
+    # that many instances a process, which pays its imports (seconds) once, not per instance
+    tasks = min((getattr(import_module(f"flow.{block}.sweep"), "tasks_per_worker", 1) for block in blocks), default=1)
+    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=tasks) as pool:
         futures = {pool.submit(instance_job, *job): job for job in jobs}
         for done, future in enumerate(as_completed(futures), 1):
             block, path, *_ = futures[future]

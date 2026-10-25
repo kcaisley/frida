@@ -411,6 +411,31 @@ def cdac(
     return top_step, charge, transitions
 
 
+def cdac_stage(
+    main_f: np.ndarray,
+    diff_f: np.ndarray,
+    total_f: float,
+    vref_v: float,
+    diffcaps: int,
+    stage: int,
+    before: np.ndarray,
+    after: np.ndarray,
+    at_vref_f: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``cdac`` where one stage alone switches, from ``before`` to ``after`` (its column): the same
+    top-plate step, VDD_DAC charge and transitions in one column's work, ``at_vref_f`` the
+    capacitance whose bottom plates sit at the reference after the switch (main and difference)."""
+
+    main_step = vref_v * (after - before)
+    diff_after = after ^ diffcaps
+    diff_step = vref_v * (diff_after - (before ^ diffcaps))
+    top_step = (main_step * main_f[stage] + diff_step * diff_f[stage]) / total_f
+    # cdac's charge: the switching stage's own term, less the top-plate step across every plate at
+    # the reference
+    charge = after * main_step * main_f[stage] + diff_after * diff_step * diff_f[stage] - top_step * at_vref_f
+    return top_step, charge, 2 * (after != before)
+
+
 def calc_side_capacitances(params: CdacBehavioralParams, tb: AdcTbParams, side: str) -> tuple[np.ndarray, np.ndarray]:
     """Return one side's main and diff capacitances, ideal where not given."""
 
@@ -446,10 +471,12 @@ def convert_behavioral(
     rng = np.random.default_rng(params.seed)
     vin_cm_v = float(tb.vin_cm.dc)
     slope = np.zeros(conversions) if vin_diff_slope_v_per_s is None else np.asarray(vin_diff_slope_v_per_s)
-    load_f = {}
-    for side in ("p", "n"):
-        main_f, diff_f = calc_side_capacitances(params.cdac, tb, side)
-        load_f[side] = float(np.sum(main_f) + np.sum(diff_f)) + params.cdac.parasitic_f
+    caps = {side: calc_side_capacitances(params.cdac, tb, side) for side in ("p", "n")}
+    load_f = {
+        side: float(np.sum(main_f) + np.sum(diff_f)) + params.cdac.parasitic_f
+        for side, (main_f, diff_f) in caps.items()
+    }
+    vref_v, diffcaps = float(tb.vdd_dac.dc), int(tb.dac_diffcaps)
     top = samp(
         tb.dut.samp,
         params.samp,
@@ -469,6 +496,10 @@ def convert_behavioral(
     # the comparator's SR latch holds its last decision: the previous conversion's last, a coin
     # toss here, before the first
     held = rng.integers(0, 2, conversions)
+    # each side's capacitance whose bottom plates sit at the reference (main and difference plates),
+    # kept up to date stage by stage
+    at_main_f = {side: state[side] @ caps[side][0] for side in ("p", "n")}
+    at_diff_f = {side: (state[side] ^ diffcaps) @ caps[side][1] for side in ("p", "n")}
     for decision in range(stages + 1):
         # Unsettled remainders of earlier updates decay with one time constant.
         seen = top["p"] - top["n"]
@@ -477,17 +508,22 @@ def convert_behavioral(
             # fraction of its load whose bottom plates sit at the reference.
             vref_noise = rng.normal(0.0, params.cdac.reference_noise_v, conversions)
             for side, sign in (("p", 1.0), ("n", -1.0)):
-                main_f, diff_f = calc_side_capacitances(params.cdac, tb, side)
-                at_vref_f = state[side] @ main_f + (state[side] ^ int(tb.dac_diffcaps)) @ diff_f
+                main_f, diff_f = caps[side]
+                at_vref_f = state[side] @ main_f + (state[side] ^ diffcaps) @ diff_f
                 seen = seen + sign * vref_noise * at_vref_f / load_f[side]
         # each stage's step starts after its driver's delay and settles with its own time constant;
-        # one not yet started is missing whole
+        # one not yet started is missing whole. A step 36 time constants on (2e-16 of itself, below a
+        # double's resolution of it) or without settling is done and leaves the list
+        unsettled = []
         for start_s, tau_s, step in steps:
             elapsed_s = comp_s[decision] - start_s
             if elapsed_s < 0:
                 seen = seen - step
-            elif tau_s > 0:
+                unsettled.append((start_s, tau_s, step))
+            elif tau_s > 0 and elapsed_s < 36 * tau_s:
                 seen = seen - step * np.exp(-elapsed_s / tau_s)
+                unsettled.append((start_s, tau_s, step))
+        steps = unsettled
         decided = comp(
             tb.dut.comp, params.comp, seen, rng, vin_cm_v=vin_cm_v, window_s=float(windows_s[decision]), held=held
         )
@@ -495,16 +531,36 @@ def convert_behavioral(
         held = decided
         if decision == stages:
             break
-        after = salogic(tb, state, decision, decided)
         differential_step = np.zeros(conversions)
-        for side in ("p", "n"):
-            top_step, charge, toggled = cdac(params.cdac, tb, side, state[side], after[side])
-            top[side] = top[side] + top_step
-            dac_charge += charge
-            transitions += toggled
-            writes += np.sum(after[side] != state[side], axis=1)
-            differential_step += top_step if side == "p" else -top_step
-        state = after
+        if tb.dac_mode:
+            # the counted stage alone switches: its column, in place
+            for side, target in (("p", 1 - decided), ("n", decided)):
+                main_f, diff_f = caps[side]
+                before = state[side][:, decision].copy()
+                state[side][:, decision] = target
+                at_main_f[side] += (target - before) * main_f[decision]
+                at_diff_f[side] += ((target ^ diffcaps) - (before ^ diffcaps)) * diff_f[decision]
+                at_vref_f = at_main_f[side] + at_diff_f[side]
+                top_step, charge, toggled = cdac_stage(
+                    main_f, diff_f, load_f[side], vref_v, diffcaps, decision, before, target, at_vref_f
+                )
+                top[side] = top[side] + top_step
+                dac_charge += charge
+                transitions += toggled
+                writes += target != before
+                differential_step += top_step if side == "p" else -top_step
+        else:
+            after = salogic(tb, state, decision, decided)
+            for side in ("p", "n"):
+                top_step, charge, toggled = cdac(params.cdac, tb, side, state[side], after[side])
+                top[side] = top[side] + top_step
+                dac_charge += charge
+                transitions += toggled
+                writes += np.sum(after[side] != state[side], axis=1)
+                differential_step += top_step if side == "p" else -top_step
+                at_main_f[side] = after[side] @ caps[side][0]
+                at_diff_f[side] = (after[side] ^ diffcaps) @ caps[side][1]
+            state = after
         steps.append((logic_s[decision] + stage_delay_s[decision], stage_tau_s[decision], differential_step))
 
     # INIT reloads the A state with floating top plates, then SAMP forces them
@@ -513,8 +569,8 @@ def convert_behavioral(
         previous_state = np.roll(state[side], 1, axis=0)
         init_state = np.broadcast_to(initial[side], (conversions, stages))
         top_step, charge, toggled = cdac(params.cdac, tb, side, previous_state, init_state)
-        main_f, diff_f = calc_side_capacitances(params.cdac, tb, side)
-        at_vref_f = init_state @ main_f + (init_state ^ int(tb.dac_diffcaps)) @ diff_f
+        main_f, diff_f = caps[side]
+        at_vref_f = init_state @ main_f + (init_state ^ diffcaps) @ diff_f
         dac_charge += charge - at_vref_f * (sampled[side] - (np.roll(top[side], 1) + top_step))
         transitions += toggled
         writes += np.sum(init_state != previous_state, axis=1)

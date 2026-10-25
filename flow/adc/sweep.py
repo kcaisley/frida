@@ -154,6 +154,9 @@ def AdcBlocks(params: AdcParams) -> h.Module:
 
 
 GENERATOR = AdcBlocks
+# a converter is characterized in Python alone (the behavioral model on its blocks' records, no
+# circuit compiled), so a worker process runs this many before the runner replaces it
+tasks_per_worker = 25
 
 
 def cost(pdk: str, params: AdcParams) -> float:
