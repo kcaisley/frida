@@ -493,7 +493,7 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
         "noise_input_mid_lsb": float(sigma_lsb[len(sigma_lsb) // 2]),
         # Hsu's study at the array's own settling: the fastest error-free rate, and the error at 10 MS/s
         "error_free_rate_max_hz": float(fastest),
-        "integrated_error_nominal_lsb": float(hsu[-1]),
+        "integrated_error_nominal_lsb": float(hsu[np.flatnonzero(hsu_rates == NOMINAL_RATE_HZ)[0]]),
         # the fastest rate before the ENOB first falls a bit below the slowest rate's: past it the
         # comparator or the DAC runs out of time (the sampler's distortion slopes off more gently)
         "rate_max_hz": list(

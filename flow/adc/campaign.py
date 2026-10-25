@@ -46,8 +46,10 @@ import numpy as np
 from flow.adc.sim import AdcTbParams
 from flow.analysis.types import MeasAdc
 
-# 1 to 10 MS/s in 1 MS/s steps: 10 MS/s is the fastest the ADC is meant to run
-RATES_HZ = tuple(rate * 1e6 for rate in range(1, 11))
+# 1 to 10 MS/s in 1 MS/s steps, the rates the ADC is meant to run at, then on to 100 MS/s: where
+# the DAC's settling or the comparator's delay starts to cost codes, and whether redundancy recovers
+# them
+RATES_HZ = tuple(rate * 1e6 for rate in (*range(1, 11), 12, 15, 20, 25, 30, 40, 50, 60, 80, 100))
 FIN_RATES_HZ = (2e6, 6e6, 10e6)
 # odd cycle counts in 8,192 conversions, coprime with it, from 0.4 % to 49 % of the rate
 FIN_CYCLES = (31, 101, 257, 509, 1021, 1531, 2039, 3067, 4013)
