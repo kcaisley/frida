@@ -55,5 +55,8 @@ def test_a_record_scores_by_the_problems_costs_and_bounds() -> None:
     stored = {"valid": True, "metrics": {**metrics, "layout_area_um2": None}, "unmeasurable": ["layout_area_um2"]}
     assert runner.unmeasurable({**metrics, "layout_area_um2": math.nan}) == ["layout_area_um2"]
     assert runner.score(PROBLEM, stored, better)[1]["layout_area_um2"] == 1.0
+    # an area estimated from the gates alone (a best case) breaks its bound by at least 1
+    gated = {"valid": True, "metrics": {"layout_area_um2": 401.0}, "estimated": ["layout_area_um2"]}
+    assert runner.score(PROBLEM, gated, better)[1]["layout_area_um2"] == pytest.approx(1 + math.log(401 / 400))
     # a design the block does not admit: every bound violated, without metrics
     assert runner.score(PROBLEM, {"valid": False, "metrics": {}}, better) == (0.0, dict.fromkeys(PROBLEM.bound, 1.0))

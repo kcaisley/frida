@@ -204,7 +204,9 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
         # no layout has its gates cover more than DENSITY of it: where the gates over DENSITY exceed
         # the area bound, the design is out without simulating, its area estimated so
         if bounded and extra["gate_area_um2"] / DENSITY > problem.bound["layout_area_um2"]:
-            record.update(metrics={**extra, "layout_area_um2": extra["gate_area_um2"] / DENSITY})
+            record.update(
+                metrics={**extra, "layout_area_um2": extra["gate_area_um2"] / DENSITY}, estimated=["layout_area_um2"]
+            )
             record["seconds"] = round(time.time() - start, 1)
             write_record(path, record)
             return record
@@ -237,7 +239,13 @@ def score(
         return 0.0, {name: 1.0 for name in problem.bound}
     metrics = measured(record)
     value = pipeline.objective(problem, metrics)
-    return (value if math.isfinite(value) else 0.0), pipeline.violations(problem, metrics, better)
+    violations = pipeline.violations(problem, metrics, better)
+    # a bound on an estimate (an area from the gates alone) is broken by at least 1, the estimate
+    # being a best case: the sampler must not take such a design for nearly met
+    for name in record.get("estimated", ()):
+        if name in violations:
+            violations[name] = 1.0 + max(violations[name], 0.0)
+    return (value if math.isfinite(value) else 0.0), violations
 
 
 def warm_start(study: Any, block: str, pdk: str, problem: pipeline.Problem, cls: Any) -> int:
