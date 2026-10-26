@@ -111,6 +111,24 @@ def test_the_split_is_the_one_nearest_the_outline_that_keeps_both_constraints() 
     assert two.row_um > one.row_um
 
 
+def test_no_design_draws_a_row_shorter_than_the_cell_does() -> None:
+    # a cell whose shortest finger is longer than the free design's rows: the rows reach it
+    least = sizing.array_minimum(BINARY_10, MODEL, REFERENCE)["switched_f"]
+    free = sizing.design(BINARY_10, least, MODEL, REFERENCE)
+    assert free is not None
+    choice, _ = free
+    shortest = MODEL.tail_um + choice.coarse_weight * choice.weight_step / 1000 + 1.0
+    model = replace(MODEL, nominal_min_um=shortest)
+    for coarse in (8, 16):
+        needs = sizing.least_switched_f(BINARY_10, coarse, model, REFERENCE)
+        at_row = sizing.predict(BINARY_10, coarse, needs["row"], model, REFERENCE)
+        assert model.tail_um + coarse * at_row.step_nm / 1000 == pytest.approx(shortest, rel=1e-6)
+    bound = sizing.design(BINARY_10, sizing.array_minimum(BINARY_10, model, REFERENCE)["switched_f"], model, REFERENCE)
+    assert bound is not None
+    choice, _ = bound
+    assert model.tail_um + choice.coarse_weight * choice.weight_step / 1000 >= shortest
+
+
 def test_from_14_bits_the_splits_are_powers_of_two_and_the_unary_rows_exact() -> None:
     assert sizing.EXACT_UNARY_BITS == 14
     assert sizing.splits(ADC_ARRAYS["14b_binary_x1"]) == (8, 16, 32, 64, 128, 256, 512)

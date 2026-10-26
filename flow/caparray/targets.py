@@ -70,14 +70,14 @@ def layout_extract_all_pdks() -> Path:
     return layout.caparray_extract_all_pdks(new_run("layout", "caparray", "extract_all_pdks"))
 
 
-def layout_extract_adc_arrays() -> Path:
+def layout_extract_adc_arrays(pdk: str = "tsmc65") -> Path:
     """Each ADC array (``layout.ADC_ARRAYS``: 10, 12 and 14 bits, binary and three schemes with 2, 4
     and 6 extra cycles, at one and two of its resolution's least capacitance, and FRIDA-1's array
-    at 12 bits and two) at three metals in TSMC65, its split and capacitance sized through its
+    at 12 bits and two) at three metals in ``pdk``, its split and capacitance sized through its
     extraction (``flow.caparray.sizing``), 16 at a time."""
     from . import sizing
 
-    return sizing.extract_adc_arrays(new_run("layout", "caparray", "extract_adc_arrays"))
+    return sizing.extract_adc_arrays(new_run("layout", "caparray", "extract_adc_arrays"), pdk=pdk)
 
 
 def layout_window_check() -> Path:

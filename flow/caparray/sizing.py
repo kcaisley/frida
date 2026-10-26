@@ -107,7 +107,6 @@ MARGIN = 0.01
 STEP_TOLERANCE = 0.03
 UNARY_TOLERANCE = 0.25
 SIZING_PASSES = 5
-PDK = "tsmc65"
 LAYERS = STACKED_METALS
 
 
@@ -142,6 +141,9 @@ class RowModel:
     outer_width_um: float = 0.0  # a unit's ring, its outer edges
     side_um: float = 0.0  # beside the array: the top plate's stack and the shield taps
     bar_um: float = 0.0  # above the rows: the top plate's bar beyond the top ring wall
+    # the shortest nominal finger (tail and coarse weight in steps) the PDK's capacitor cell draws:
+    # shorter, one shield bridge from each end leaves no room for the plate access (0: no limit)
+    nominal_min_um: float = 0.0
     scale: float = 1.0  # the extracted slope over the fit's
     binary_offset_ff: float = 0.0  # a binary row's effective capacitance beyond its weight
     unary_ff: float | None = None  # a unary finger beyond its length's slope: its ends and access
@@ -192,11 +194,22 @@ class RowModel:
         return (slope * length_nm / 1000 + unary_ff) / (2 * slope * step_nm / 1000) - coarse
 
 
-def row_model(pdk: str = PDK, layers: int | None = None) -> RowModel:
+def row_model(pdk: str, layers: int | None = None) -> RowModel:
     """The PDK's rows at ``layers`` stacked metals (None: ``STACKED_METALS``), uncorrected."""
     params = _stacked(pdk, RADIX17, "rows", layers)
     geometry = _calc_unit_geometry(params)
     slope, intercept = _mom_fit(params, geometry.gap)
+    # the shortest finger the cell draws: the least step of a coarse weight of one it accepts
+    shortest = replace(params, family=replace(params.family, coarse_weight=1))
+    low, high = 0, 1
+    while not _draws(shortest, high * geometry.grid):
+        low, high = high, 2 * high
+    while high - low > 1:
+        middle = (low + high) // 2
+        low, high = (low, middle) if _draws(shortest, middle * geometry.grid) else (middle, high)
+    nominal_min = _calc_unit_geometry(
+        replace(shortest, family=replace(shortest.family, weight_step=high * geometry.grid))
+    ).nominal_length
     return RowModel(
         slope_ff_um=slope,
         intercept_ff=intercept,
@@ -208,7 +221,17 @@ def row_model(pdk: str = PDK, layers: int | None = None) -> RowModel:
         outer_width_um=geometry.outer_width / 1000,
         side_um=geometry.side_extension / 1000,
         bar_um=(geometry.via_landing - geometry.ring_width) / 1000,
+        nominal_min_um=nominal_min / 1000,
     )
+
+
+def _draws(params: CapArrayLayoutParams, step_nm: int) -> bool:
+    """Whether the capacitor cell draws ``params``'s unit at ``step_nm``."""
+    try:
+        _calc_unit_geometry(replace(params, family=replace(params.family, weight_step=step_nm)))
+    except ValueError:
+        return False
+    return True
 
 
 def rows(cdac: CapArrayConfig, coarse: int) -> tuple[int, int, int]:
@@ -292,14 +315,24 @@ def _bisect(condition, low: float = 1e-16, high: float = 1e-9) -> float:
 def least_switched_f(cdac: CapArrayConfig, coarse: int, model: RowModel, reference: float) -> dict[str, float]:
     """The least switched capacitance at which the array, split at ``coarse``, keeps its full scale
     (``full_scale``) and its noise below its quantization noise (``noise``): its full scale grows
-    with the capacitance, its noise over its quantization noise falls."""
+    with the capacitance, its noise over its quantization noise falls; and, where the PDK's cell
+    has a shortest finger, at which its rows are that long (``row``)."""
     bits = cdac.n_dac + 1
-    return {
+    needs = {
         "full_scale": _bisect(
             lambda c: predict(cdac, coarse, c, model, reference).full_scale >= MIN_FULL_SCALE + MARGIN
         ),
         "noise": _bisect(lambda c: predict(cdac, coarse, c, model, reference).noise_ratio(bits) <= 1 - MARGIN),
     }
+    if model.nominal_min_um > 0:
+        # the rows as long as the cell draws: the step grows with the capacitance
+        needs["row"] = _bisect(
+            lambda c: (
+                model.tail_um + coarse * predict(cdac, coarse, c, model, reference).step_nm / 1000
+                >= model.nominal_min_um
+            )
+        )
+    return needs
 
 
 def array_minimum(cdac: CapArrayConfig, model: RowModel, reference: float) -> dict[str, Any]:
@@ -358,6 +391,8 @@ def design(cdac: CapArrayConfig, least_f: float, model: RowModel, reference: flo
         nearest = max(1, round(guess.step_nm / model.grid_nm))
         # the nearest step on the grid, or one grid more where rounding down loses a constraint
         for step in (nearest * model.grid_nm, (nearest + 1) * model.grid_nm):
+            if model.tail_um + coarse * step / 1000 < model.nominal_min_um:
+                continue  # shorter than the cell draws
             drawn = predict(cdac, coarse, switched_f, model, reference, step_nm=step)
             # a unary finger at most a binary row's two fingers long: its weight there within tolerance
             longest = round(2 * (model.tail_um * 1000 + coarse * step))
@@ -505,24 +540,24 @@ def _other_point(work: Path) -> tuple[int, float, float]:
     return manifest["placed_unit_count"], manifest["derived_geometry_nm"]["outer_height"] / 1000, other
 
 
-def extractions(name: str, root: Path | None = None) -> list[Path]:
-    """The array's extractions in its newest run that has any (its passes and its final, oldest
-    first), or in ``root`` alone."""
+def extractions(name: str, pdk: str, root: Path | None = None) -> list[Path]:
+    """The array's extractions in ``pdk`` in its newest run that has any (its passes and its final,
+    oldest first), or in ``root`` alone."""
     from .model import EXTRACTIONS
 
     runs = [root] if root is not None else sorted(EXTRACTIONS.glob("*"), reverse=True)
     for run in runs:
-        tables = list((run / name / PDK).glob(f"{LAYERS}l*/capacitance_table.json"))
+        tables = list((run / name / pdk).glob(f"{LAYERS}l*/capacitance_table.json"))
         if tables:
             return [table.parent for table in sorted(tables, key=lambda table: table.stat().st_mtime)]
     return []
 
 
-def _earlier_model(base: RowModel, name: str, cdac: CapArrayConfig, shape=None) -> RowModel:
+def _earlier_model(base: RowModel, name: str, cdac: CapArrayConfig, pdk: str, shape=None) -> RowModel:
     """``base`` corrected by the newest earlier extractions of the array, or of its resolution's
     binary array at its scale; uncorrected where there is none (it only shortens the passes)."""
     for candidate in (name, f"{cdac.n_dac + 1}b_binary_x{cdac.cap_scale}"):
-        works = extractions(candidate)
+        works = extractions(candidate, pdk)
         for index in range(len(works) - 1, -1, -1):
             try:
                 return calibrated(base, works[index], shape, works[:index])
@@ -536,16 +571,16 @@ def _design_of(work: Path) -> Design:
     return Design(family["coarse_weight"], family["weight_step"], family.get("unary_length") or 0)
 
 
-def _all_extractions() -> list[Path]:
+def _all_extractions(pdk: str) -> list[Path]:
     from .model import EXTRACTIONS
 
-    return [table.parent for table in EXTRACTIONS.glob(f"*/*/{PDK}/{LAYERS}l*/capacitance_table.json")]
+    return [table.parent for table in EXTRACTIONS.glob(f"*/*/{pdk}/{LAYERS}l*/capacitance_table.json")]
 
 
-def layout_params(name: str, cdac: CapArrayConfig, choice: Design) -> CapArrayLayoutParams:
+def layout_params(name: str, cdac: CapArrayConfig, choice: Design, pdk: str) -> CapArrayLayoutParams:
     """The array drawn at its design: its unary rows one finger (or, unary_length 0, a main and a
     difference finger of the tail), its edge dummies tied."""
-    params = _stacked(PDK, cdac, name, LAYERS)
+    params = _stacked(pdk, cdac, name, LAYERS)
     family = replace(
         params.family,
         coarse_weight=choice.coarse_weight,
@@ -600,9 +635,11 @@ def _meets(entry: dict[str, Any], cdac: CapArrayConfig) -> bool:
     )
 
 
-def _extract_job(work: Path, name: str, cdac: CapArrayConfig, choice: Design, reference: float) -> dict[str, Any]:
+def _extract_job(
+    work: Path, name: str, cdac: CapArrayConfig, choice: Design, reference: float, pdk: str
+) -> dict[str, Any]:
     start = time.monotonic()
-    result = extract_array(work, PDK, layout_params(name, cdac, choice))
+    result = extract_array(work, pdk, layout_params(name, cdac, choice, pdk))
     return {**result, **measured(work, cdac, reference), "seconds": time.monotonic() - start}
 
 
@@ -620,14 +657,19 @@ def _designs(
 
 
 def extract_adc_arrays(
-    run_dir: Path, *, arrays: dict[str, CapArrayConfig] | None = None, workers: int = 16, seed: bool = True
+    run_dir: Path,
+    *,
+    pdk: str = "tsmc65",
+    arrays: dict[str, CapArrayConfig] | None = None,
+    workers: int = 16,
+    seed: bool = True,
 ) -> Path:
     """Size and extract the ADC study's arrays (``ADC_ARRAYS``, or ``arrays`` of them) at three
-    metals in TSMC65, ``workers`` at a time, from the newest earlier run's extractions of them
+    metals in ``pdk``, ``workers`` at a time, from the newest earlier run's extractions of them
     (``seed``: those of the same family, a holding one copied in rather than drawn again): each pass
     sizes every array from its extractions (``resolution_minimums``, ``design``) and extracts those no extraction holds for
-    (``_holding``), into ``<name>/tsmc65/3l_pass<k>``, until none is left; each array's holding
-    extraction is then its ``<name>/tsmc65/3l`` (``flow.caparray.model.CapArrayModel`` reads it),
+    (``_holding``), into ``<name>/<pdk>/3l_pass<k>``, until none is left; each array's holding
+    extraction is then its ``<name>/<pdk>/3l`` (``flow.caparray.model.CapArrayModel`` reads it),
     the others stay as passes. Writes ``summary.json``:
     each resolution's least switched capacitance and what sets it, each array's design, its
     extraction against both constraints, and its passes."""
@@ -636,9 +678,9 @@ def extract_adc_arrays(
     from multiprocessing import get_context
 
     arrays = ADC_ARRAYS if arrays is None else arrays
-    reference = reference_v(PDK)
-    base = row_model()
-    shape = other_load_shape(_all_extractions())
+    reference = reference_v(pdk)
+    base = row_model(pdk)
+    shape = other_load_shape(_all_extractions(pdk))
     # each array's extractions, in order: its design, directory and measurement; seeded with its
     # newest earlier run's of the same family (tied dummies), which hold where their design does
     passes: dict[str, list[tuple[Design, Path, dict[str, Any]]]] = {name: [] for name in arrays}
@@ -647,7 +689,7 @@ def extract_adc_arrays(
     for name, cdac in arrays.items():
         works = [
             work
-            for work in (extractions(name) if seed else [])
+            for work in (extractions(name, pdk) if seed else [])
             if work.parent.parent.parent != run_dir and _drawn(work)[0]["unit_family"].get("tied_dummies")
         ]
         for work in works:
@@ -655,7 +697,7 @@ def extract_adc_arrays(
             passes[name].append((_design_of(work), work, entry))
             history[name].append({"pass": "seed", **entry})
         models[name] = (
-            calibrated(base, works[-1], shape, works[:-1]) if works else _earlier_model(base, name, cdac, shape)
+            calibrated(base, works[-1], shape, works[:-1]) if works else _earlier_model(base, name, cdac, pdk, shape)
         )
     summary: dict[str, Any] = {"min_full_scale": MIN_FULL_SCALE, "reference_v": reference}
     designs: dict[str, Design] = {}
@@ -677,17 +719,18 @@ def extract_adc_arrays(
             futures = {
                 executor.submit(
                     _extract_job,
-                    run_dir / name / PDK / f"{LAYERS}l_pass{index}",
+                    run_dir / name / pdk / f"{LAYERS}l_pass{index}",
                     name,
                     arrays[name],
                     todo[name],
                     reference,
+                    pdk,
                 ): name
                 for name in order
             }
             for future in as_completed(futures):
                 name = futures[future]
-                work = run_dir / name / PDK / f"{LAYERS}l_pass{index}"
+                work = run_dir / name / pdk / f"{LAYERS}l_pass{index}"
                 try:
                     entry = future.result()
                 except Exception as error:  # noqa: BLE001 - every array reports its own failure
@@ -698,7 +741,7 @@ def extract_adc_arrays(
                 summary["arrays"] = _array_summary(arrays, _finals(arrays, passes, designs), history)
                 (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
         # the other load's shape over every extraction so far, each array corrected by its newest
-        shape = other_load_shape(_all_extractions())
+        shape = other_load_shape(_all_extractions(pdk))
         summary["other_load_shape"] = shape
         for name in arrays:
             if passes[name]:
@@ -709,7 +752,7 @@ def extract_adc_arrays(
                     history[name].append({"pass": index, "calibration_error": str(error)[:200]})
     finals = _finals(arrays, passes, designs)
     for name, (_choice, work, _entry) in finals.items():
-        final = run_dir / name / PDK / f"{LAYERS}l"
+        final = run_dir / name / pdk / f"{LAYERS}l"
         if work.is_relative_to(run_dir):
             work.rename(final)
         else:  # a seed that holds: copied in, so that the newest run holds every array
@@ -791,14 +834,14 @@ def _array_summary(arrays, drawn, history, final: bool = False) -> dict[str, Any
     return summary
 
 
-def designs_table(arrays: dict[str, CapArrayConfig] | None = None) -> list[dict[str, Any]]:
+def designs_table(arrays: dict[str, CapArrayConfig] | None = None, *, pdk: str = "tsmc65") -> list[dict[str, Any]]:
     """Each array's design as the model, corrected by the newest extraction of it, gives it: for a
     look before extracting."""
     arrays = ADC_ARRAYS if arrays is None else arrays
-    reference = reference_v(PDK)
-    base = row_model()
-    shape = other_load_shape(_all_extractions())
-    models = {name: _earlier_model(base, name, cdac, shape) for name, cdac in arrays.items()}
+    reference = reference_v(pdk)
+    base = row_model(pdk)
+    shape = other_load_shape(_all_extractions(pdk))
+    models = {name: _earlier_model(base, name, cdac, pdk, shape) for name, cdac in arrays.items()}
     minimums = resolution_minimums(arrays, models, reference)
     table = []
     for name, cdac in arrays.items():
