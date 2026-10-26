@@ -6,57 +6,62 @@ from datetime import UTC, datetime
 import numpy as np
 import pytest
 
-from flow.analysis.types import MeasInfo, Wave
+from flow import cdac
 from flow.capdriver.subckt import CapDriverParams
-from flow.cdac.analysis import MeasCdac, analyze_cdac_settling, ideal_steps_v, lsb_v, settling_tau_s
-from flow.cdac.sim import CdacTbParams, window_start_s
-from flow.cdac.subckt import CdacParams
+from flow.pipeline import Meas, MeasInfo
 
-DAC = CdacParams(
-    driver=CapDriverParams(n_stages=3),
-    main_f=(400e-15, 200e-15, 100e-15),
-    diff_f=(0.0, 0.0, 50e-15),
-    parasitic_f=250e-15,
+from .params import _Dac
+
+PARAMS = cdac.Params(
+    dac=_Dac(
+        driver=CapDriverParams(n_stages=3),
+        main_f=(400e-15, 200e-15, 100e-15),
+        diff_f=(0.0, 0.0, 50e-15),
+        parasitic_f=250e-15,
+    ),
+    adc_bits=10,
 )
 VDD, EDGE = 1.2, 30e-12
 
 
-def _rc(taus: tuple[float, ...], *, lag: float = 40e-12, window: float = 4e-9, adc_bits: int = 10) -> MeasCdac:
+def _rc(taus: tuple[float, ...], *, lag: float = 40e-12, window: float = 4e-9) -> Meas:
     """Each stage's bottom plate and differential top plate an RC of ``taus[stage]`` starting ``lag``
-    after its state's edge, the top plate stepping by the capacitances' step."""
-    tb = CdacTbParams(dac=DAC, adc_bits=adc_bits, window_s=window, waveform_sample_interval_s=window / 4000, vdd=VDD)
-    stages = DAC.driver.n_stages
-    time_s = np.arange(0.0, (2 * stages + 1) * window + window / 8000, window / 4000)
-    steps = ideal_steps_v(DAC, VDD)
+    after its state's edge, the top plate stepping by the capacitances' step, on the simulator's
+    time axis as ``flow.pipeline.read`` gives it."""
+    tb = cdac.TbParams(params=PARAMS, window_s=window, waveform_sample_interval_s=window / 4000, vdd=VDD)
+    time_s = np.arange(0.0, tb.stop_s + window / 8000, window / 4000)
+    steps = tb.ideal_step_v
     differential = np.full_like(time_s, -steps.sum() / 2)
     v = {}
     for stage, tau in enumerate(taus):
-        up, down = (window_start_s(tb, stage, rising) + EDGE / 2 for rising in (True, False))
+        up, down = (tb.window_start_s(stage, rising) + EDGE / 2 for rising in (True, False))
         state = np.where((time_s >= up) & (time_s < down), VDD, 0.0)
         rising = 1 - np.exp(-np.clip(time_s - up - lag, 0.0, None) / tau)
         falling = np.exp(-np.clip(time_s - down - lag, 0.0, None) / tau)
         fraction = np.where(time_s < down, rising, rising * falling)
-        v[f"dac_state_p[{stage}]"] = state[None, :]
-        v[f"dac_botplate_p[{stage}]"] = (VDD * fraction)[None, :]
+        v[f"dac_state_p_{stage}"] = state
+        v[f"dac_botplate_p_{stage}"] = VDD * fraction
         differential = differential + steps[stage] * fraction
-    v["vdac_p"], v["vdac_n"] = (0.6 + differential / 2)[None, :], (0.6 - differential / 2)[None, :]
-    return MeasCdac(
+    v["vdac_p"], v["vdac_n"] = 0.6 + differential / 2, 0.6 - differential / 2
+    return Meas(
         group=None,
         index=None,
-        dut=DAC,
+        dut=PARAMS,
         info=MeasInfo(backend="spice", timestamp_utc=datetime(2026, 10, 22, tzinfo=UTC)),
         param=tb,
-        trial_index=np.arange(1),
-        wave=Wave(record_index=np.arange(1), time_s=time_s, v=v),
+        time_s=time_s,
+        v=v,
     )
 
 
 def test_an_rc_step_settles_when_its_exponential_reaches_half_an_lsb():
     taus, lag = (200e-12, 100e-12, 60e-12), 40e-12
-    result = analyze_cdac_settling(_rc(taus, lag=lag))
-    lsb = lsb_v(DAC, VDD, 10)
-    assert result.lsb_v == pytest.approx(lsb) and result.settled
-    steps = ideal_steps_v(DAC, VDD)
+    meas = _rc(taus, lag=lag)
+    result = cdac.analyze_settling(meas)
+    lsb = meas.param.lsb_v
+    assert result.lsb_v == pytest.approx(2 * meas.param.full_scale_v / 2**10) and result.settled
+    assert result.full_scale_v == pytest.approx(VDD * (700e-15 - 50e-15) / 1000e-15)
+    steps = meas.param.ideal_step_v
     np.testing.assert_allclose(result.step_rise_v, steps, rtol=1e-6)
     np.testing.assert_allclose(result.step_fall_v, -steps, rtol=1e-6)
     assert result.step_error_lsb < 1e-3
@@ -72,15 +77,50 @@ def test_an_rc_step_settles_when_its_exponential_reaches_half_an_lsb():
     np.testing.assert_allclose(result.tau_s, np.asarray(taus) * (1 - math.log(2) / ratio), rtol=0.02)
     modeled = result.delay_s + result.tau_s * np.log(np.abs(result.step_v) / (lsb / 2))
     np.testing.assert_allclose(modeled, result.settling_s, rtol=1e-9)
+    metrics = cdac.metrics(settling=result)
+    assert metrics["stages"] == 3 and metrics["settling_max_s"] == pytest.approx(max(expected_settling), abs=2e-12)
+    assert metrics["settling_msb_s"] == result.settling_s[0] and metrics["lsb_v"] == lsb
 
 
 def test_a_step_still_moving_at_its_window_middle_is_not_settled():
-    result = analyze_cdac_settling(_rc((900e-12, 100e-12, 60e-12), window=4e-9))
+    result = cdac.analyze_settling(_rc((900e-12, 100e-12, 60e-12), window=4e-9))
     assert not result.settled
     assert result.settling_s[0] > result.window_s / 2
 
 
 def test_a_step_inside_the_tolerance_has_no_time_constant():
-    assert settling_tau_s(1e-9, 0.1e-9, 0.4e-3, 0.5e-3) == 0.0
-    assert settling_tau_s(0.05e-9, 0.1e-9, 2e-3, 0.5e-3) == 0.0
-    assert settling_tau_s(1.1e-9, 0.1e-9, 0.5e-3 * math.e, 0.5e-3) == pytest.approx(1e-9)
+    def settling(settling_s: float, delay_s: float, step_v: float) -> cdac.AnalysisSettling:
+        one = np.asarray([settling_s])
+        return cdac.AnalysisSettling(
+            group=None,
+            index=None,
+            dut=None,
+            lsb_v=1e-3,
+            full_scale_v=0.5,
+            window_s=4e-9,
+            ideal_step_v=np.asarray([step_v]),
+            step_rise_v=np.asarray([step_v]),
+            step_fall_v=np.asarray([-step_v]),
+            delay_rise_s=np.asarray([delay_s]),
+            delay_fall_s=np.asarray([delay_s]),
+            settling_rise_s=one,
+            settling_fall_s=one,
+        )
+
+    assert settling(1e-9, 0.1e-9, 0.4e-3).tau_s[0] == 0.0
+    assert settling(0.05e-9, 0.1e-9, 2e-3).tau_s[0] == 0.0
+    assert settling(1.1e-9, 0.1e-9, 0.5e-3 * math.e).tau_s[0] == pytest.approx(1e-9)
+
+
+def test_the_record_plots_the_settling_and_the_model_by_stage():
+    result = cdac.analyze_settling(_rc((200e-12, 100e-12, 60e-12)))
+    settling, model = cdac.plot_settling_stage(result), cdac.plot_model_stage(result)
+    assert (settling.name, model.name) == ("settling_stage", "model_stage")
+    assert settling.x == model.x == [0, 1, 2]
+    assert settling.series["settling"] == list(result.settling_s)
+    assert model.series == {"delay": list(result.delay_s), "time constant": list(result.tau_s)}
+    record = cdac.record({"settling": _rc((200e-12, 100e-12, 60e-12))})
+    assert [plot.name for plot in record.details] == ["settling_stage", "model_stage"]
+    assert record.waves == {"settling": "settling"} and record.metrics["stages"] == 3
+    with pytest.raises(RuntimeError, match="did not settle"):
+        cdac.record({"settling": _rc((900e-12, 100e-12, 60e-12))})

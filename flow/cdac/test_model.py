@@ -1,26 +1,20 @@
 """The CDAC model from its characterization record, and the ADC model settling by it."""
 
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
-import pytest
 
 from flow.adc.behavioral import CompBehavioralParams, SampBehavioralParams, calc_ideal_capacitances
 from flow.adc.sim import AdcTbParams
-from flow.capdriver.subckt import CapDriverParams
 
 from . import model as cdac_model
-from .subckt import CdacParams
-from .sweep import CdacSettling
+from .test_subckt import PARAMS
 
 TB = AdcTbParams()
-SETTLING = CdacSettling(
-    dac=CdacParams(driver=CapDriverParams(n_stages=2), main_f=(2e-13, 1e-13), diff_f=(0.0, 0.0), parasitic_f=1e-13),
-    adc_bits=3,
-)
 
 
-def _record(stages: int) -> dict:
+def _record(stages: int) -> dict[str, Any]:
     return {
         "metrics": {"lsb_v": 1e-3},
         "details": [
@@ -33,23 +27,18 @@ def _record(stages: int) -> dict:
     }
 
 
-def test_the_model_reads_its_record_by_the_adcs_array_and_resolution(monkeypatch):
+def test_the_model_reads_its_record_by_its_parameters(monkeypatch):
     asked = {}
 
-    def settling_params(pdk, config, adc_bits, cells):
-        asked.update(pdk=pdk, config=config, adc_bits=adc_bits)
-        return SETTLING
+    def characterized(block, pdk, params, simulate):
+        asked.update(block=block, pdk=pdk, params=params, simulate=simulate)
+        return _record(3)
 
-    monkeypatch.setattr(cdac_model, "settling_params", settling_params)
-    monkeypatch.setattr(cdac_model, "characterized", lambda block, pdk, params, simulate: _record(2))
-    adc = SimpleNamespace(cdac="the array", adc_bits=11)
-    model = cdac_model.CdacModel.of("tsmc65", adc)
-    assert asked == {"pdk": "tsmc65", "config": "the array", "adc_bits": 11}
-    assert model.tau_s == (1e-10, 2e-10) and model.delay_s == (50e-12, 50e-12) and model.lsb_v == 1e-3
-    cdac_model.CdacModel.of("tsmc65", "the array", 9)
-    assert asked["adc_bits"] == 9
-    with pytest.raises(ValueError):
-        cdac_model.CdacModel.of("tsmc65", "the array")
+    monkeypatch.setattr(cdac_model, "characterized", characterized)
+    model = cdac_model.Model.of("tsmc65", PARAMS, simulate=False)
+    assert asked == {"block": "cdac", "pdk": "tsmc65", "params": PARAMS, "simulate": False}
+    assert model.tau_s == (1e-10, 2e-10, 3e-10) and model.delay_s == (50e-12,) * 3 and model.lsb_v == 1e-3
+    assert model.settling_s == tuple(1e-9 * (3 - k) for k in range(3))
 
 
 def test_the_adc_settles_each_stage_by_its_characterization_and_falls_back_to_rc():
@@ -57,8 +46,8 @@ def test_the_adc_settles_each_stage_by_its_characterization_and_falls_back_to_rc
 
     main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac)
     stages = len(main_f)
-    settling = SimpleNamespace(tau_s=tuple(1e-10 * (k + 1) for k in range(stages)), delay_s=(30e-12,) * stages)
-    blocks = {
+    settling: Any = SimpleNamespace(tau_s=tuple(1e-10 * (k + 1) for k in range(stages)), delay_s=(30e-12,) * stages)
+    blocks: dict[str, Any] = {
         "pdk": "none",
         "params": TB.dut,
         "comp": SimpleNamespace(behavioral=lambda vin_cm_v: CompBehavioralParams()),

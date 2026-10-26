@@ -1,4 +1,4 @@
-"""Keep Python hook coverage aligned with the capacitor block packages."""
+"""Keep Python hook coverage aligned with the capacitor block packages (the array, its drivers and the CDAC)."""
 
 import re
 import shlex
@@ -16,7 +16,7 @@ def python_hooks():
 
 
 @pytest.mark.parametrize("hook_id", ["ruff-lint", "ruff-format", "ty-flow"])
-@pytest.mark.parametrize("block", ["caparray", "capdriver"])
+@pytest.mark.parametrize("block", ["caparray", "capdriver", "cdac"])
 def test_python_hooks_cover_capacitor_blocks(python_hooks, hook_id, block):
     pattern = python_hooks[hook_id]["files"]
     assert re.search(pattern, f"flow/{block}/subckt.py")
@@ -25,19 +25,10 @@ def test_python_hooks_cover_capacitor_blocks(python_hooks, hook_id, block):
     assert not re.search(pattern, f"flow/{block}_other/subckt.py")
 
 
-@pytest.mark.parametrize("hook_id", ["ruff-lint", "ruff-format"])
-def test_ruff_hooks_cover_the_cdac(python_hooks, hook_id):
-    pattern = python_hooks[hook_id]["files"]
-    assert re.search(pattern, "flow/cdac/subckt.py")
-    assert not re.search(pattern, "flow/cdac/readme.md")
-
-
-def test_ty_checks_both_capacitor_blocks(python_hooks):
+def test_ty_checks_the_capacitor_blocks(python_hooks):
     hook = python_hooks["ty-flow"]
     command = shlex.split(hook["entry"])
-    assert "flow/caparray" in command
-    assert "flow/capdriver" in command
-    assert "flow/cdac" not in command
+    assert {"flow/caparray", "flow/capdriver", "flow/cdac"} <= set(command)
     assert hook["pass_filenames"] is False
 
 
@@ -49,5 +40,4 @@ def test_ty_hdl21_boundary_covers_renamed_blocks():
         if "hdl21.**" in override.get("analysis", {}).get("replace-imports-with-any", [])
         for pattern in override["include"]
     }
-    assert {"flow/caparray/**", "flow/capdriver/**"} <= includes
-    assert "flow/cdac/**" not in includes
+    assert {"flow/caparray/**", "flow/capdriver/**", "flow/cdac/**"} <= includes

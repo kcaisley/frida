@@ -1,12 +1,15 @@
 """Sampler layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
 
-A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator, laygo,
-ALIGN) from its hand-written floorplan (``design/layout/samp_*.json``), each checked with DRC and
-LVS. Cases: the FRIDA-1 transmission gate, the transmission gate with half-size charge-injection
-dummies, the bootstrapped NMOS switch, and the NMOS switch alone. The runner is the comparator's
-(``flow.comp.layout``).
+``layout_named`` lays out one named instance (``flow.samp.sweep``'s ``@named``: the characterization's
+four switches) in the PDKs with all three tools (cIcCreator, laygo, ALIGN), each checked with DRC
+and LVS: from its hand-written floorplan (``design/layout/samp_<name>.json``), or, ``auto``, laid
+out by ALIGN on its own from the netlist (ALIGN's placement then the floorplan of cIcCreator and
+laygo). ``layout_netlist`` and ``layout_floorplan`` give the sweep's layout step
+(``flow.sweep.runner.layout``, ALIGN alone) an instance's netlists: every size of a switch is placed
+by the floorplan of its case (``params.CASES``) of the same structure. The runner is the
+comparator's (``flow.comp.layout``).
 
-    uv run python -m flow samp.layout_frida1
+    uv run python -m flow layout samp --instance frida1
 """
 
 from __future__ import annotations
@@ -14,56 +17,64 @@ from __future__ import annotations
 from importlib import import_module
 from pathlib import Path
 
-from flow.comp.layout import FLOORPLANS, _all_pdks, _finish, _run
+from flow.circuit import devices
+from flow.comp.layout import FLOORPLANS, PDKS, _all_pdks, _run
+from flow.layout.pdkproc import in_pdk
 
-from .subckt import CASES, SampParams, write_netlist
+from .params import CASES, STRUCTURE, Params
+from .subckt import Nets, netlist
 
 
-def _netlists(params: SampParams, pdk: str, out_dir: Path, name: str) -> Path:
-    """The sampler's netlist in ``pdk``; the file stem names the subcircuit."""
+def write_netlist(params: Params, path: Path, pdk) -> Path:
+    """The sampler after ``pdk``'s compile, as one flat SPICE subcircuit named after ``path``
+    (``flow.circuit.devices.write_netlist``: devices fingered to the row cells in whole unit widths)."""
+    return devices.write_netlist(params, path, pdk, generator=netlist, nets=Nets)
+
+
+def layout_netlist(out_dir: Path, pdk: str, samp: Params) -> Path:
+    """The all-transistor netlist with any library cells it contains recognized
+    (``flow.layout.stdcells``), as a switch is laid out without a floorplan (the sweep's layout step,
+    ``flow.sweep.runner.layout_job``)."""
 
     logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
-    return write_netlist(params, out_dir / f"{name}.sp", logic)
+    transistors = write_netlist(samp, out_dir / "samp_transistors.sp", logic)
+    return in_pdk(pdk, "flow.layout.stdcells", "recognize_file", transistors, out_dir / "samp.sp")
 
 
-def _samp(run_dir: Path, pdk: str, case: str) -> Path:
-    """A sampler case: its netlist into ``run_dir/netlist/``, then the three tools as its floorplan
-    places it."""
+def layout_floorplan(out_dir: Path, pdk: str, samp: Params) -> tuple[Path, Path] | None:
+    """The hand-written floorplan of the instance's case (``params.CASES``: the case of the same
+    ``STRUCTURE``, ``design/layout/samp_<case>.json``) with the netlist it places, at the instance's
+    sizes; None where no case has its structure."""
 
-    name = f"samp_{case}"
-    netlist = _netlists(CASES[case], pdk, run_dir / "netlist", name)
-    return _run(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
-
-
-# ---- each case in all six PDKs
-
-
-def samp_frida1_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _samp, "frida1")
-
-
-def samp_tgate_dummy_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _samp, "tgate_dummy")
-
-
-def samp_bootstrap_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _samp, "bootstrap")
+    floorplan = next(
+        (
+            path
+            for name, structure in CASES.items()
+            if all(structure[key] == getattr(samp, key) for key in STRUCTURE)
+            and (path := FLOORPLANS / f"samp_{name}.json").exists()
+        ),
+        None,
+    )
+    if floorplan is None:
+        return None
+    logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
+    return write_netlist(samp, out_dir / f"{floorplan.stem}.sp", logic), floorplan
 
 
-def samp_nmos_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _samp, "nmos")
+def _samp(run_dir: Path, pdk: str, name: str, params: Params, floorplan: Path | None) -> Path:
+    """A switch: its netlist into ``run_dir/netlist/``, then the three tools as its floorplan (or,
+    without one, ALIGN's placement) places it."""
+
+    logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
+    netlist_path = write_netlist(params, run_dir / "netlist" / f"{name}.sp", logic)
+    return _run(run_dir, pdk, name, netlist_path, floorplan)
 
 
-ALL_PDKS = (samp_frida1_all_pdks, samp_tgate_dummy_all_pdks, samp_bootstrap_all_pdks, samp_nmos_all_pdks)
+def layout_named(run_dir: Path, name: str, params: Params, *, auto: bool = False, pdks: tuple[str, ...] = PDKS) -> Path:
+    """The named instance ``name`` in each of ``pdks`` with the three tools, into ``run_dir/<pdk>/``:
+    from its hand-written floorplan, or ``auto`` from ALIGN's placement."""
 
-
-def all_samp_layouts(run_dir: Path) -> Path:
-    """The four ``*_all_pdks`` functions into ``run_dir/<function>/``."""
-
-    failures: dict[str, str] = {}
-    for target in ALL_PDKS:
-        try:
-            target(run_dir / target.__name__)
-        except Exception as error:  # noqa: BLE001 - run every case
-            failures[target.__name__] = repr(error)
-    return _finish(run_dir, {}, failures)
+    floorplan = None if auto else FLOORPLANS / f"samp_{name}.json"
+    if floorplan is not None and not floorplan.exists():
+        raise FileNotFoundError(f"{floorplan}: no hand-written floorplan of {name}; lay it out from ALIGN's (auto)")
+    return _all_pdks(run_dir, _samp, f"samp_{name}", params, floorplan, pdks=pdks)

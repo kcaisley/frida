@@ -1,7 +1,7 @@
 """The sampling switch's behavioral model: the held top-plate voltage, from the characterization of
-the same ``SampParams`` in the PDK (``flow.samp.sweep``, looked up by ``flow.sweep.lookup``).
+the same ``Params`` in the PDK (``flow.samp.sweep``, looked up by ``flow.sweep.lookup``).
 
-    model = SampModel.of("tsmc65", SampParams())
+    model = samp.model.Model.of("tsmc65", samp.Params())
     params = model.behavioral(load_f=1.2e-12)
 
 The characterization's on-resistance over the input level (into 1 pF, the gate at the supply)
@@ -18,24 +18,22 @@ import numpy as np
 from flow.adc.behavioral import BOLTZMANN_J_PER_K, SampBehavioralParams, samp
 from flow.sweep.lookup import characterized, detail
 
-from .subckt import SampParams
-
-# ASSUMED RMS aperture jitter of the on-chip sampling clock (as the FRIDA-2 behavioral scans)
-JITTER_S = 2e-12
+from .params import Params
 
 
 @dataclass(frozen=True)
-class SampModel:
+class Model:
     """A sampling switch as its characterization measured it."""
 
     pdk: str
-    params: SampParams
+    params: Params
     ron_v: tuple[float, ...]  # input levels of the on-resistance curve
     ron_ohm: tuple[float, ...]
     bandwidth_hz: float  # into 1 pF at mid-supply
+    jitter_s: float = 2e-12  # ASSUMED RMS aperture jitter of the on-chip clock (as FRIDA-2's behavioral scans)
 
     @classmethod
-    def of(cls, pdk: str, params: SampParams, *, simulate: bool = True) -> SampModel:
+    def of(cls, pdk: str, params: Params, *, simulate: bool = True) -> Model:
         record = characterized("samp", pdk, params, simulate=simulate)
         curve = detail(record, "ron_vin")
         pairs = [(x, y) for x, y in zip(curve["x"], curve["series"]["on-resistance"], strict=True) if y is not None]
@@ -52,7 +50,7 @@ class SampModel:
         differential kT/C noise of the two plates, sqrt(2 k T / C)."""
         return SampBehavioralParams(
             noise_v=float(np.sqrt(2 * BOLTZMANN_J_PER_K * temperature_k / load_f)),
-            jitter_s=JITTER_S,
+            jitter_s=self.jitter_s,
             ron_table_v=self.ron_v,
             ron_table_ohm=self.ron_ohm,
         )

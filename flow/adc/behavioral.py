@@ -26,10 +26,10 @@ import numpy as np
 from hdl21.primitives import MosType
 
 from flow import comp as comparator
+from flow import samp as sampler
 from flow.adc.sequences import AdcSequence
 from flow.adc.sim import AdcTbParams
 from flow.caparray.subckt import CapArrayConfig, CapArrayParams, get_caparray_weights, unit_capacitance_f
-from flow.samp.subckt import SampParams, SwitchType
 
 # Rough 65-nm LVT device constants for the estimates drawn from HDL21 sizing.
 W_MIN_UM = 0.12
@@ -43,11 +43,11 @@ BOLTZMANN_J_PER_K = 1.380649e-23
 
 @h.paramclass
 class SampBehavioralParams:
-    """Top-plate sampler physics beyond its HDL21 ``SampParams``.
+    """Top-plate sampler physics beyond its HDL21 ``samp.Params``.
 
     Its on-resistance follows the triode conductances of the two devices,
     ``n * (V_gate - v - V_tn) + p * (v - V_tp)``, and peaks near mid-supply.
-    None conductances come from the ``SampParams`` sizing; zero for both makes
+    None conductances come from the ``samp.Params`` sizing; zero for both makes
     the switch ideal.
     """
 
@@ -245,17 +245,17 @@ def calc_decision_windows(tb: AdcTbParams, decisions: int) -> np.ndarray:
     return np.min(after, axis=1) * symbol_s
 
 
-def calc_switch_conductances(hw: SampParams, params: SampBehavioralParams) -> tuple[float, float]:
+def calc_switch_conductances(hw: sampler.Params, params: SampBehavioralParams) -> tuple[float, float]:
     """Return the NMOS and PMOS triode conductances per volt of overdrive.
 
-    Unset values are ``k' * W / L`` of the ``SampParams`` devices; a switch
+    Unset values are ``k' * W / L`` of the ``samp.Params`` devices; a switch
     type without a device contributes zero. ``mos_vth`` is not used: the
     thresholds are behavioral parameters.
     """
 
     aspect = hw.mos_w * W_MIN_UM / (hw.mos_l * L_MIN_UM)
-    n_s = NMOS_K_A_PER_V2 * aspect if hw.switch_type in (SwitchType.NMOS, SwitchType.TGATE) else 0.0
-    p_s = PMOS_K_A_PER_V2 * aspect if hw.switch_type in (SwitchType.PMOS, SwitchType.TGATE) else 0.0
+    n_s = NMOS_K_A_PER_V2 * aspect if hw.switch_type in (sampler.SwitchType.NMOS, sampler.SwitchType.TGATE) else 0.0
+    p_s = PMOS_K_A_PER_V2 * aspect if hw.switch_type in (sampler.SwitchType.PMOS, sampler.SwitchType.TGATE) else 0.0
     return (
         n_s if params.n_conductance_s_per_v is None else params.n_conductance_s_per_v,
         p_s if params.p_conductance_s_per_v is None else params.p_conductance_s_per_v,
@@ -263,7 +263,7 @@ def calc_switch_conductances(hw: SampParams, params: SampBehavioralParams) -> tu
 
 
 def calc_switch_resistance(
-    hw: SampParams, params: SampBehavioralParams, vin_v: np.ndarray, gate_v: float
+    hw: sampler.Params, params: SampBehavioralParams, vin_v: np.ndarray, gate_v: float
 ) -> np.ndarray:
     """Return the sampler on-resistance at each input voltage; zero for an ideal switch. A measured
     curve (``ron_table_v``, ``ron_table_ohm``) is interpolated, held flat past its ends."""
@@ -304,7 +304,7 @@ def calc_strongarm_noise(
 
 
 def samp(
-    hw: SampParams,
+    hw: sampler.Params,
     params: SampBehavioralParams,
     vin: dict[str, np.ndarray],
     slope: dict[str, np.ndarray],

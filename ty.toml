@@ -32,6 +32,7 @@ include = [
     "flow/adc/**",
     "flow/caparray/**",
     "flow/capdriver/**",
+    "flow/cdac/**",
     "flow/comp/**",
     "flow/samp/**",
     "flow/circuit/**",

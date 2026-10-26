@@ -21,10 +21,10 @@ repos:
       - id: ty-flow
         name: ty flow type check
         entry: >-
-          uv run ty check flow/analysis flow/scans flow/adc flow/caparray flow/capdriver flow/comp
+          uv run ty check flow/analysis flow/scans flow/adc flow/caparray flow/capdriver flow/cdac flow/comp
           flow/samp flow/circuit flow/pipeline.py flow/plot.py
         language: system
-        files: ^flow/((analysis|scans|adc|caparray|capdriver|comp|samp|circuit)/.*|pipeline|plot)\.py$
+        files: ^flow/((analysis|scans|adc|caparray|capdriver|cdac|comp|samp|circuit)/.*|pipeline|plot)\.py$
         pass_filenames: false
 
       # the block pipeline (docs/pipeline.md): its contract on every migrated block, and its stages' order
@@ -32,7 +32,7 @@ repos:
         name: block pipeline contract
         entry: uv run pytest -q -p no:cacheprovider flow/test_pipeline.py
         language: system
-        files: ^flow/([^/]+\.py|comp/.*\.py)$
+        files: ^flow/([^/]+\.py|(comp|cdac)/.*\.py)$
         pass_filenames: false
 
       - id: import-linter

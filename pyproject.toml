@@ -96,6 +96,22 @@ banned-from = [
     "flow.comp.analysis",
     "flow.comp.plots",
     "flow.comp.sweep",
+    "flow.samp",
+    "flow.samp.params",
+    "flow.samp.subckt",
+    "flow.samp.sim",
+    "flow.samp.types",
+    "flow.samp.analysis",
+    "flow.samp.plots",
+    "flow.samp.sweep",
+    "flow.cdac",
+    "flow.cdac.params",
+    "flow.cdac.subckt",
+    "flow.cdac.sim",
+    "flow.cdac.types",
+    "flow.cdac.analysis",
+    "flow.cdac.plots",
+    "flow.cdac.sweep",
 ]
 
 [tool.ruff.lint.isort]
@@ -118,10 +134,22 @@ containers = ["flow.comp"]
 layers = ["model", "sweep", "plots", "analysis", "types", "sim | layout", "subckt", "params"]
 
 [[tool.importlinter.contracts]]
+name = "samp: each stage imports only the stages below it"
+type = "layers"
+containers = ["flow.samp"]
+layers = ["model", "sweep", "plots", "analysis", "types", "sim | layout", "subckt", "params"]
+
+[[tool.importlinter.contracts]]
+name = "cdac: each stage imports only the stages below it"
+type = "layers"
+containers = ["flow.cdac"]
+layers = ["model", "sweep", "plots", "analysis", "types", "sim", "subckt", "params"]
+
+[[tool.importlinter.contracts]]
 name = "the pipeline's base knows no block"
 type = "forbidden"
 source_modules = ["flow.pipeline"]
-forbidden_modules = ["flow.comp", "flow.adc", "flow.cdac", "flow.caparray", "flow.sweep"]
+forbidden_modules = ["flow.comp", "flow.samp", "flow.adc", "flow.cdac", "flow.caparray", "flow.sweep"]
 
 [tool.pytest.ini_options]
 testpaths = ["flow", "pdk", "test"]

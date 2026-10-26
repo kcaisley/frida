@@ -1,68 +1,40 @@
-"""Typed sampler measurements, results, and analyses.
+"""The sampler's analyses: each from a run's measurement (``flow.pipeline.Meas``, its signals on
+Spectre's own time axis) of the testbench with a stepped input, and the record's metrics.
 
-A ``MeasSamp`` is one transient of the sampler testbench with a stepped input: it tracks while
-``clk`` is high, and the input steps once per period in the middle of each hold phase. Every
-figure is the median over the periods after the first (whose track phase starts from an arbitrary
-held value). A track phase settles from the step: its time constant, the switch's effective
-resistance into the load, and what is left at the end. A hold phase shows the pedestal the opening
-switch leaves, the droop before the input steps, and how much of that step feeds through.
+A run tracks while ``clk`` is high, and its input steps once per period in the middle of each hold
+phase. Every figure is the median over the periods after the first (whose track phase starts from
+an arbitrary held value). A track phase settles from the step: its time constant, the switch's
+effective resistance into the load, and what is left at the end (``analyze_track``). A hold phase
+shows the pedestal the opening switch leaves, the droop before the input steps, and how much of
+that step feeds through (``analyze_hold``).
 """
 
 from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 import numpy as np
 
 from flow.analysis import calc
-from flow.analysis.types import Analysis, Meas, measurement_identity
-from flow.samp.sim import SampTbParams
-from flow.samp.subckt import SampNets, SampParams
+from flow.pipeline import Meas, analysis, measurement_identity
+
+from .params import NOMINAL_VIN, VIN_SWEEP
+from .subckt import Nets
+from .types import AnalysisHold, AnalysisTrack
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class MeasSamp(Meas):
-    """Sampler trials: one row per trial; the observations are all in ``wave``."""
-
-    dut: SampParams
-    param: SampTbParams
-    trial_index: np.ndarray
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class AnalysisSampTrack(Analysis):
-    """Sampler tracking at each measured point.
-
-    ``time_constant_s`` is the time from the track phase's clock edge until the output's error
-    to the input falls to 1/e of its start; ``on_resistance_ohm`` that over the load
-    capacitance (the switch's own capacitance adds to it, so it bounds the resistance from
-    above); ``bandwidth_hz`` 1/(2 pi tau); ``track_error_v`` the output minus the input as the
-    clock starts to fall. NaN where the output never settles that far.
-    """
-
-    vdd_v: np.ndarray
-    vin_v: np.ndarray
-    time_constant_s: np.ndarray
-    on_resistance_ohm: np.ndarray
-    bandwidth_hz: np.ndarray
-    track_error_v: np.ndarray
-
-
-def analyze_samp_track(measurements: Sequence[MeasSamp]) -> AnalysisSampTrack:
+@analysis
+def analyze_track(measurements: Sequence[Meas]) -> AnalysisTrack:
     """Measure the track phases' time constant, on-resistance, bandwidth, and remaining error at each point."""
 
     identity = measurement_identity(measurements)
     rows = []
     for measurement in measurements:
-        wave = measurement.wave
-        if wave is None:
-            raise ValueError("sampler tracking requires a waveform record")
         tb = measurement.param
         vdd, transition = float(tb.vdd), float(tb.clock_transition_time_s)
-        time_s = wave.time_s
-        clock, data, output = (wave.v[net.name][0] for net in (SampNets.clk, SampNets.din, SampNets.dout))
+        time_s = measurement.time_s
+        clock, data, output = (measurement.v[net.name] for net in (Nets.clk, Nets.din, Nets.dout))
         falls = calc.cross(clock, time_s, vdd / 2, edge="falling")
         constants, errors = [], []
         for start in calc.cross(clock, time_s, vdd / 2, edge="rising")[1:]:
@@ -93,7 +65,7 @@ def analyze_samp_track(measurements: Sequence[MeasSamp]) -> AnalysisSampTrack:
     vdd_v, vin_v, tau_s, resistance, bandwidth, error_v = (
         np.asarray(column, dtype=np.float64) for column in zip(*rows)
     )
-    return AnalysisSampTrack(
+    return AnalysisTrack(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -106,36 +78,17 @@ def analyze_samp_track(measurements: Sequence[MeasSamp]) -> AnalysisSampTrack:
     )
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class AnalysisSampHold(Analysis):
-    """Sampler holding at each measured point.
-
-    ``pedestal_v`` is the held output halfway to the input step minus the output just before
-    the clock falls (the charge the opening switch dumps, and its clock feedthrough);
-    ``droop_v_per_s`` the held output's slope from there to the step; ``feedthrough`` the held
-    output's change over the input's step while the switch is off (V/V).
-    """
-
-    vdd_v: np.ndarray
-    vin_v: np.ndarray
-    pedestal_v: np.ndarray
-    droop_v_per_s: np.ndarray
-    feedthrough: np.ndarray
-
-
-def analyze_samp_hold(measurements: Sequence[MeasSamp]) -> AnalysisSampHold:
+@analysis
+def analyze_hold(measurements: Sequence[Meas]) -> AnalysisHold:
     """Measure the hold phases' pedestal, droop, and input feedthrough at each point."""
 
     identity = measurement_identity(measurements)
     rows = []
     for measurement in measurements:
-        wave = measurement.wave
-        if wave is None:
-            raise ValueError("sampler hold requires a waveform record")
         tb = measurement.param
         vdd, transition = float(tb.vdd), float(tb.clock_transition_time_s)
-        time_s = wave.time_s
-        clock, data, output = (wave.v[net.name][0] for net in (SampNets.clk, SampNets.din, SampNets.dout))
+        time_s = measurement.time_s
+        clock, data, output = (measurement.v[net.name] for net in (Nets.clk, Nets.din, Nets.dout))
         rises = calc.cross(clock, time_s, vdd / 2, edge="rising")
         steps = calc.cross(data, time_s, float(tb.input_voltage), edge="either")
         pedestals, droops, feedthroughs = [], [], []
@@ -161,7 +114,7 @@ def analyze_samp_hold(measurements: Sequence[MeasSamp]) -> AnalysisSampHold:
             )
         )
     vdd_v, vin_v, pedestal_v, droop, feedthrough = (np.asarray(column, dtype=np.float64) for column in zip(*rows))
-    return AnalysisSampHold(
+    return AnalysisHold(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -171,3 +124,36 @@ def analyze_samp_hold(measurements: Sequence[MeasSamp]) -> AnalysisSampHold:
         droop_v_per_s=droop,
         feedthrough=feedthrough,
     )
+
+
+def metrics(*, track: AnalysisTrack, hold: AnalysisHold, supply: AnalysisTrack) -> dict[str, float]:
+    """The record's numbers: from the input level's runs (``track``, ``hold``: in ``VIN_SWEEP``'s
+    order) the on-resistance, bandwidth, track error, pedestal, droop and feedthrough at mid-supply
+    input, the largest on-resistance and pedestal where a point settled, the input range over which
+    it settles; from the supply's (``supply``) the largest on-resistance."""
+
+    nominal = VIN_SWEEP.index(NOMINAL_VIN)
+    settled = np.isfinite(track.on_resistance_ohm)
+    # each the largest magnitude where the point settled to a value
+    largest = {
+        name: float(finite.max()) if finite.size else math.nan
+        for name, values in (
+            ("ron", track.on_resistance_ohm),
+            ("pedestal", hold.pedestal_v),
+            ("supply", supply.on_resistance_ohm),
+        )
+        for finite in (np.abs(values[np.isfinite(values)]),)
+    }
+    feedthrough_db = 20 * np.log10(np.abs(hold.feedthrough))
+    return {
+        "ron_ohm": float(track.on_resistance_ohm[nominal]),
+        "ron_max_ohm": largest["ron"],
+        "input_range_v": float(np.ptp(track.vin_v[settled])) if settled.any() else 0.0,
+        "bandwidth_hz": float(track.bandwidth_hz[nominal]),
+        "track_error_v": float(track.track_error_v[nominal]),
+        "pedestal_v": float(hold.pedestal_v[nominal]),
+        "pedestal_max_v": largest["pedestal"],
+        "droop_v_s": float(hold.droop_v_per_s[nominal]),
+        "feedthrough_db": float(feedthrough_db[nominal]),
+        "ron_max_supply_ohm": largest["supply"],
+    }

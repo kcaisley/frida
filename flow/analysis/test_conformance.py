@@ -25,8 +25,6 @@ from flow.adc.subckt import AdcParams
 from flow.analysis import types as analysis_types
 from flow.caparray.sim import CapArrayTbParams
 from flow.caparray.subckt import CapArrayConfig, CapArrayParams
-from flow.samp.sim import SampTbParams
-from flow.samp.subckt import SampParams
 from flow.scans.params import AdcScanParams
 
 ANALYSIS_DIR = Path(__file__).resolve().parent
@@ -34,7 +32,6 @@ ANALYSIS_DIR = Path(__file__).resolve().parent
 # folder (flow/<block>/analysis.py and plots.py) under the same contract. The blocks on the pipeline
 # (flow/test_pipeline.py: MIGRATED) follow its contract instead (docs/pipeline.md).
 BLOCKS = (
-    "samp",
     "caparray",
     "momcap",
     "delay",
@@ -67,8 +64,6 @@ TYPE_NAMESPACE = {
     "CapArrayTbParams": CapArrayTbParams,
     "CapArrayConfig": CapArrayConfig,
     "CapArrayParams": CapArrayParams,
-    "SampTbParams": SampTbParams,
-    "SampParams": SampParams,
     "AdcScanParams": AdcScanParams,
 }
 

@@ -20,8 +20,8 @@ from klayout import db
 
 from flow.caparray.model import CapArrayModel
 from flow.caparray.subckt import CapArrayConfig, get_caparray_weights
+from flow.capdriver.model import driver_strengths
 from flow.capdriver.subckt import PARALLEL_DRIVE, CapDriverParams, Cells, pre_driver, stage_strengths
-from flow.cdac.subckt import driver_strengths
 from flow.sweep.runner import ROOT, SWEEP_DIR, digest, instance_params, write_record
 
 from .subckt import AdcParams
@@ -82,7 +82,7 @@ def _copied(layout: db.Layout, gds: Path) -> db.Cell:
 
 def _driver(layout: db.Layout, pdk: str, cdac: CapArrayConfig, boundary: int) -> db.Cell:
     """One side's main or difference driver: each stage's XOR and buffers (the drives its plates
-    call for, ``flow.cdac.subckt.driver_strengths``), C0's row at the bottom, every other row
+    call for, ``flow.capdriver.model.driver_strengths``), C0's row at the bottom, every other row
     flipped so the rails abut."""
     library = db.Layout()
     library.read(str(import_module(f"pdk.{pdk}.layout.paths").STD_GDS))

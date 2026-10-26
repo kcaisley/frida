@@ -57,9 +57,7 @@ def diagnostic_root(spectre_installation):
         ("adc", "frida1_transfer_curve"),
         ("adc", "frida1_supply_noise"),
         ("adc", "frida2_sequence"),
-        ("samp", "frida1_transient"),
         ("caparray", "frida1_transfer_curve"),
-        ("samp", "samp_characterization"),
         ("caparray", "caparray_characterization"),
         ("delay", "delay_characterization"),
         ("latch", "latch_characterization"),
@@ -96,3 +94,18 @@ def test_comp_pipeline_diagnostic(diagnostic_root):
     assert list(run_dir.rglob("netlist.scs")) and list(run_dir.rglob("spectre.log"))
     assert {"clk", "outp", "outn", "latch_p", "latch_n"} <= set(meas.v) and "vdd" in meas.i
     assert comp.analyze_decisions(meas).decision.tolist() == [0, 1]
+
+
+@pytest.mark.spectre
+def test_samp_pipeline_diagnostic(diagnostic_root):
+    """The sampler on the pipeline: two periods of the FRIDA-1 switch simulated (``samp.simulate``)
+    and read (``flow.pipeline.read``), its tracking analysed."""
+
+    from flow import pipeline, samp
+
+    tb = samp.TbParams(pdk="tsmc65", periods=3)
+    run_dir = diagnostic_root / "samp" / "pipeline"
+    meas = pipeline.read(samp.simulate(tb, run_dir), tb)
+    assert list(run_dir.rglob("netlist.scs")) and list(run_dir.rglob("spectre.log"))
+    assert {"din", "dout", "clk", "clk_b"} <= set(meas.v) and "vdd" in meas.i
+    assert 50 < samp.analyze_track([meas]).on_resistance_ohm[0] < 2000

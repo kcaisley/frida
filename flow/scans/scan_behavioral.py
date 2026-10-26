@@ -163,7 +163,7 @@ SAMP = SampBehavioralParams(
     noise_v=float(np.sqrt(2 * 1.380649e-23 * 300.0 / TOTAL_LOAD_F)),
     # ASSUMED 2-ps RMS aperture jitter of the on-chip sampling clock.
     jitter_s=2e-12,
-    # Triode conductances come from the TB SampParams sizing (rough 65-nm
+    # Triode conductances come from the TB's samp.Params sizing (rough 65-nm
     # k' of 300 and 100 uA/V^2, calc_switch_conductances).
     n_threshold_v=0.3,
     p_threshold_v=0.3,

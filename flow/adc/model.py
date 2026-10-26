@@ -7,11 +7,11 @@ generator takes (``AdcParams``), switched by the SAR loop of ``flow.adc.behavior
 
 The blocks: the comparator (``flow.comp.model``), the sampling switch (``flow.samp.model``), the
 capacitor array (``flow.caparray.model``) and its drivers (``flow.capdriver.model``, derived from the
-array's plates: ``flow.cdac.subckt.driver_strengths``), each from its own characterization or
-extraction in the PDK; the DAC's settling, stage by stage, from the SPICE
-characterization of the array with its drivers (``flow.cdac.model``: ``python -m flow
-cdac.characterization`` runs it ahead), or, where there is none, estimated from the drivers'
-resistance and delay with a warning. The SAR logic is the fixed digital netlist built by
+array's plates: ``flow.capdriver.model.driver_strengths``), each from its own characterization or
+extraction in the PDK; the DAC's settling, stage by stage, from the SPICE characterization of the
+array with its drivers (``flow.cdac.model``, of the converter's array at its resolution,
+``cdac.adc_array``: ``python -m flow run cdac`` runs it ahead), or, where there is none, estimated
+from the drivers' resistance and delay with a warning. The SAR logic is the fixed digital netlist built by
 OpenROAD: it is not characterized, so its energies are the ones fitted to the FRIDA-2 three-layer
 PEX transient (``SALOGIC``). The DAC rail's noise (``RAIL_NOISE_V``) is assumed, not characterized.
 """
@@ -27,7 +27,10 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
+import flow.cdac.model as cdac_model
 import flow.comp.model as comp_model
+import flow.samp.model as samp_model
+from flow import cdac
 from flow.adc.behavioral import (
     AdcBehavioralParams,
     CdacBehavioralParams,
@@ -40,13 +43,11 @@ from flow.adc.sim import AdcTbParams
 from flow.adc.subckt import AdcParams
 from flow.analysis.io import write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
+from flow.caparray.layout import array_name
 from flow.caparray.model import CapArrayModel
 from flow.caparray.subckt import get_caparray_weights
-from flow.capdriver.model import CapDriverModel, stage_drivers
+from flow.capdriver.model import CapDriverModel, driver_strengths, stage_drivers
 from flow.capdriver.subckt import CapDriverParams, Cells
-from flow.cdac.model import CdacModel
-from flow.cdac.subckt import driver_strengths
-from flow.samp.model import SampModel
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 from flow.scans.scan_behavioral import build_adc_interface_wave, calc_source_value
 
@@ -71,23 +72,29 @@ class AdcModel:
     pdk: str
     params: AdcParams
     comp: comp_model.Model
-    samp: SampModel
+    samp: samp_model.Model
     cdac: CapArrayModel
     drivers: tuple[CapDriverModel, ...]
     rail_noise_v: float = RAIL_NOISE_V  # VDD_DAC's RMS noise at each decision (assumed)
-    settling: CdacModel | None = None  # the DAC's SPICE settling by stage; None: the RC estimate
+    settling: cdac_model.Model | None = None  # the DAC's SPICE settling by stage; None: the RC estimate
 
     @classmethod
     def of(cls, pdk: str, params: AdcParams, *, simulate: bool = True, rail_noise_v: float = RAIL_NOISE_V) -> AdcModel:
-        cdac = CapArrayModel.of(pdk, params.cdac)
-        # the drivers the array's plates call for (flow.cdac.subckt.driver_strengths)
-        strengths = driver_strengths(pdk, params.cdac, cdac, simulate=simulate)
-        driver = CapDriverParams(n_stages=len(cdac.main_f), strengths=strengths, cells=Cells.GENERIC)
-        # the DAC's characterization is looked up, never run here (minutes of SPICE an array, which
-        # every converter on the array would wait for)
+        array = CapArrayModel.of(pdk, params.cdac)
+        # the drivers the array's plates call for (flow.capdriver.model.driver_strengths)
+        strengths = driver_strengths(pdk, params.cdac, array, simulate=simulate)
+        driver = CapDriverParams(n_stages=len(array.main_f), strengths=strengths, cells=Cells.GENERIC)
+        # the DAC's characterization, of the converter's array at its resolution (n_dac + 1 bits), is
+        # looked up, never run here (minutes of SPICE an array, which every converter on the array
+        # would wait for)
         try:
-            settling = CdacModel.of(pdk, params, simulate=False)
-        except (LookupError, RuntimeError) as error:
+            dac = cdac.adc_array(pdk=pdk, array=array_name(params.cdac))
+            if dac.adc_bits != params.adc_bits:
+                raise LookupError(
+                    f"the CDAC is characterized at {dac.adc_bits} bits, the converter has {params.adc_bits}"
+                )
+            settling = cdac_model.Model.of(pdk, dac, simulate=False)
+        except (KeyError, LookupError, RuntimeError) as error:
             warnings.warn(
                 f"the DAC's settling is not characterized ({error}); it settles by the RC estimate instead",
                 stacklevel=2,
@@ -97,9 +104,9 @@ class AdcModel:
             pdk=pdk,
             params=params,
             comp=comp_model.Model.of(pdk, params.comp, simulate=simulate),
-            samp=SampModel.of(pdk, params.samp, simulate=simulate),
-            cdac=cdac,
-            drivers=stage_drivers(pdk, driver, np.maximum(cdac.main_f, cdac.diff_f), simulate=simulate),
+            samp=samp_model.Model.of(pdk, params.samp, simulate=simulate),
+            cdac=array,
+            drivers=stage_drivers(pdk, driver, np.maximum(array.main_f, array.diff_f), simulate=simulate),
             rail_noise_v=rail_noise_v,
             settling=settling,
         )

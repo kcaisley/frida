@@ -7,6 +7,7 @@ import pytest
 from hdl21.prefix import G
 
 from flow import comp
+from flow import samp as sampler
 from flow.adc.behavioral import (
     AdcBehavioralParams,
     CdacBehavioralParams,
@@ -28,7 +29,6 @@ from flow.adc.sim import AdcTbParams
 from flow.adc.subckt import AdcParams
 from flow.analysis.plots import plot_adc_redundancy
 from flow.caparray.subckt import CapArrayConfig, RedunStrat, get_caparray_weights, unit_capacitance_f
-from flow.samp.subckt import SampParams, SwitchType
 
 
 def test_redundancy_calculator(tmp_path: Path) -> None:
@@ -185,10 +185,10 @@ def test_static_bottom_plates_draw_no_reference_charge() -> None:
 
 def test_sampler_resistance_peaks_at_mid_supply_and_delays_the_track() -> None:
     switch = SampBehavioralParams(n_conductance_s_per_v=10e-3, p_conductance_s_per_v=10e-3)
-    resistance = calc_switch_resistance(SampParams(), switch, np.asarray([0.1, 0.6, 1.1]), 1.2)
+    resistance = calc_switch_resistance(sampler.Params(), switch, np.asarray([0.1, 0.6, 1.1]), 1.2)
     assert resistance[1] > resistance[0] and resistance[1] > resistance[2]
     held = samp(
-        SampParams(),
+        sampler.Params(),
         switch,
         {"p": np.asarray([0.6]), "n": np.asarray([0.6])},
         {"p": np.asarray([1e6]), "n": np.asarray([0.0])},
@@ -214,7 +214,7 @@ def test_differential_caps_double_their_weight_without_diffcaps() -> None:
 
 def test_sampler_jitter_shifts_both_sides_by_one_common_time() -> None:
     held = samp(
-        SampParams(),
+        sampler.Params(),
         SampBehavioralParams(n_conductance_s_per_v=0.0, p_conductance_s_per_v=0.0, jitter_s=1e-9),
         {"p": np.full(20000, 0.6), "n": np.full(20000, 0.6)},
         {"p": np.full(20000, 1e6), "n": np.full(20000, -1e6)},
@@ -230,10 +230,10 @@ def test_sampler_jitter_shifts_both_sides_by_one_common_time() -> None:
 def test_sampler_conductances_follow_the_hdl21_switch_sizing() -> None:
     switch = SampBehavioralParams()
     # 32 x 0.12 um over 60 nm: W/L of 64.
-    assert calc_switch_conductances(SampParams(), switch) == pytest.approx((300e-6 * 64, 100e-6 * 64))
-    assert calc_switch_conductances(SampParams(switch_type=SwitchType.NMOS, mos_l=2), switch) == pytest.approx(
-        (300e-6 * 32, 0.0)
-    )
+    assert calc_switch_conductances(sampler.Params(), switch) == pytest.approx((300e-6 * 64, 100e-6 * 64))
+    assert calc_switch_conductances(
+        sampler.Params(switch_type=sampler.SwitchType.NMOS, mos_l=2), switch
+    ) == pytest.approx((300e-6 * 32, 0.0))
 
 
 def test_strongarm_noise_falls_with_larger_pq_capacitance() -> None:

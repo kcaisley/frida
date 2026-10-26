@@ -7,7 +7,6 @@ from flow.adc import sweep
 from flow.caparray.layout import ADC_ARRAYS, RADIX17
 from flow.caparray.sim import CASES
 from flow.caparray.subckt import RedunStrat, get_caparray_weights
-from flow.samp import sweep as samp_sweep
 from flow.sweep.runner import design_space, digest
 
 
@@ -62,7 +61,7 @@ def test_every_component_is_its_block_sweeps_instance() -> None:
     # the same parameters, so the same digest: the ADC model reads that instance's characterization
     comparators = set(design_space("comp", "tsmc65"))
     assert all(digest(params) in comparators for params in sweep.COMPARATORS)
-    samplers = {digest(samp) for samp in samp_sweep.instances("tsmc65")}
+    samplers = set(design_space("samp", "tsmc65"))
     assert [digest(samp) for samp in sweep.SAMPLER_STEPS] == [
         "0208193e4ead",  # FRIDA-1's transmission gate
         "b2cc08f9747c",  # bootstrapped, doubled boost capacitor (32 minimum widths)

@@ -1,5 +1,5 @@
 {
- "_comment": "Bootstrapped NMOS switch (after ciccreator's SARBSSW and BAG's bootstrap): the PMOS top-plate switches and the input transmission gate's PMOS, the MOS boost capacitor, the stacked gate pull-down with the bottom-plate pull-down, the main switch with the transmission gate's NMOS. Netlist (per PDK): written by flow.samp.subckt (bootstrap).",
+ "_comment": "Bootstrapped NMOS switch (after ciccreator's SARBSSW and BAG's bootstrap): the PMOS top-plate switches and the input transmission gate's PMOS, the MOS boost capacitor, the stacked gate pull-down with the bottom-plate pull-down, the main switch with the transmission gate's NMOS. Netlist (per PDK): written by flow.samp.layout.write_netlist (bootstrap).",
  "netlist": "../../build/layout/netlists/{pdk}/samp_bootstrap.sp",
  "symmetric": false,
  "escape": {

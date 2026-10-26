@@ -31,7 +31,6 @@ from flow.adc import targets as adc
 from flow.bias import targets as bias
 from flow.caparray import targets as caparray
 from flow.capdriver import targets as capdriver
-from flow.cdac import targets as cdac
 from flow.clkgen import targets as clkgen
 from flow.cml import targets as cml
 from flow.csa import targets as csa
@@ -49,7 +48,6 @@ from flow.ota import targets as ota
 from flow.pi import targets as pi
 from flow.polyres import targets as polyres
 from flow.ringamp import targets as ringamp
-from flow.samp import targets as samp
 from flow.schmitt import targets as schmitt
 from flow.sweep import targets as sweep
 from flow.web import targets as web
@@ -59,7 +57,6 @@ BLOCKS = {
     "bias": bias,
     "caparray": caparray,
     "capdriver": capdriver,
-    "cdac": cdac,
     "clkgen": clkgen,
     "cml": cml,
     "csa": csa,
@@ -77,7 +74,6 @@ BLOCKS = {
     "pi": pi,
     "polyres": polyres,
     "ringamp": ringamp,
-    "samp": samp,
     "schmitt": schmitt,
     "sweep": sweep,
     "web": web,

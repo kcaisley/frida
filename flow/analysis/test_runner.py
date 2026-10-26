@@ -83,7 +83,6 @@ STUDIES = {
             "bias",
             "lvshift",
             "ringamp",
-            "samp",
             "momcap",
             "mosfet",
         )

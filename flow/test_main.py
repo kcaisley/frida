@@ -31,7 +31,8 @@ def test_the_listing_names_every_target_and_nothing_else_runs(monkeypatch, capsy
     lines = capsys.readouterr().out.splitlines()
     # the verbs over the blocks on the pipeline, then every other block's targets
     assert [line.split()[3] for line in lines[:4]] == ["run", "layout", "table", "plot"]
-    assert lines[4] == "(blocks on the pipeline: comp)"
+    assert lines[4] == f"(blocks on the pipeline: {', '.join(cli.pipeline_blocks())})"
+    assert {"comp", "samp"} <= set(cli.pipeline_blocks())
     listed = lines[5:]
     assert listed == [f"{block}.{name}" for block, module in cli.BLOCKS.items() for name in cli.targets(module)]
     assert {"layout.mos_inv", "sweep.run", "web.serve"} <= set(listed) and not any(
@@ -80,6 +81,6 @@ def test_a_verb_runs_a_pipeline_block_and_only_one(monkeypatch) -> None:
         ("table", ["comp"], 16),
     ]
     # a block not on the pipeline keeps its targets
-    monkeypatch.setattr(sys, "argv", ["flow", "run", "samp"])
+    monkeypatch.setattr(sys, "argv", ["flow", "run", "delay"])
     with pytest.raises(SystemExit):
         cli.main()

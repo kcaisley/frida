@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 import flow.analysis.io as analysis_io
-from flow import comp
+from flow import comp, samp
 from flow.adc.sim import AdcTbParams
 from flow.analysis.io import interpolate_wave_records, read_measurement, write_measurement
 from flow.analysis.types import (
@@ -30,8 +30,6 @@ from flow.analysis.types import (
     measurement_identity,
 )
 from flow.caparray.subckt import RedunStrat
-from flow.samp.analysis import MeasSamp
-from flow.samp.sim import SampTbParams
 from flow.scans.params import AdcScanParams
 
 
@@ -162,16 +160,19 @@ def cdac_physical() -> MeasCdac:
     )
 
 
-def samp_spice() -> MeasSamp:
-    params = SampTbParams()
-    return MeasSamp(
+def samp_spice() -> Meas:
+    """A sampler run as ``flow.pipeline.read`` gives it: its design's enums in its testbench's."""
+    params = samp.TbParams(params=samp.Params(**samp.CASES["bootstrap"]))
+    time_s = np.asarray([0.0, 5e-12, 10e-12, 15e-12])
+    return Meas(
         group=None,
         index=None,
-        dut=params.samp,
+        dut=params.params,
         info=info(),
         param=params,
-        trial_index=np.arange(1),
-        wave=wave(("din", "dout", "clk", "clk_b"), ("vdd",)),
+        time_s=time_s,
+        v={name: time_s * 1e9 for name in ("din", "dout", "clk", "clk_b")},
+        i={"vdd": np.full(4, 1e-5)},
     )
 
 

@@ -17,7 +17,7 @@ import pdk
 from . import test_spectre
 
 
-@pytest.mark.parametrize("block", ("adc", "samp", "caparray"))
+@pytest.mark.parametrize("block", ("adc", "caparray"))
 def test_targets_and_python_contract(block):
     module = importlib.import_module(f"flow.{block}.sim")
     targets = importlib.import_module(f"flow.{block}.targets")
@@ -82,10 +82,7 @@ def capture_sim(monkeypatch):
 
 @pytest.mark.parametrize(
     "block,target,short_stop,full_stop,threads",
-    (
-        ("samp", "frida1_transient", 100e-9, 500e-9, 4),
-        ("caparray", "frida1_transfer_curve", 200.1e-9, 2048 * 200e-9 + 2047 * 100e-12, 4),
-    ),
+    (("caparray", "frida1_transfer_curve", 200.1e-9, 2048 * 200e-9 + 2047 * 100e-12, 4),),
 )
 @pytest.mark.parametrize("check", (False, True))
 def test_block_simulation_recipe(block, target, short_stop, full_stop, threads, check, capture_sim, tmp_path):
@@ -141,7 +138,7 @@ def test_missing_installation_skips_but_missing_collateral_fails(monkeypatch, tm
 def test_spectre_marker_is_opt_in():
     import subprocess
 
-    for selection, expected in (([], "23 deselected"), (["-m", "spectre"], "23 tests collected")):
+    for selection, expected in (([], "22 deselected"), (["-m", "spectre"], "22 tests collected")):
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "--collect-only", "-q", str(test_spectre.__file__), *selection],
             capture_output=True,

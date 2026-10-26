@@ -114,14 +114,14 @@ def test_the_comparator_space_is_its_families_within_each_pdks_limits() -> None:
 
 
 def test_a_floorplan_is_chosen_by_the_instances_structure() -> None:
-    from flow.samp import sweep as samp
-    from flow.samp.subckt import SampParams, SwitchType
+    from flow.lvshift import sweep as lvshift
+    from flow.lvshift.subckt import LvShiftParams
 
-    # every size of a switch by its case's floorplan; a structure no case has, none
-    assert runner.hand_floorplan("samp", SampParams(**samp.X4)).name == "samp_frida1.json"
-    bootstrap = SampParams(switch_type=SwitchType.NMOS, bootstrap=True, **samp.BOOST_X2)
-    assert runner.hand_floorplan("samp", bootstrap).name == "samp_bootstrap.json"
-    assert runner.hand_floorplan("samp", SampParams(switch_type=SwitchType.PMOS)) is None
+    # every size of a shifter by its case's floorplan; a structure no case has, none
+    assert runner.hand_floorplan("lvshift", LvShiftParams(**lvshift.SIZES[3])).name == "lvshift_core.json"
+    buffered = LvShiftParams(input_inverter=True, buffers=True, **lvshift.SIZES[0])
+    assert runner.hand_floorplan("lvshift", buffered).name == "lvshift_buffered.json"
+    assert runner.hand_floorplan("lvshift", LvShiftParams(buffers=True)) is None
     assert runner.hand_floorplan("capdriver", object()) is None  # no structure named
 
 

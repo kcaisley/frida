@@ -7,9 +7,8 @@ from pathlib import Path
 import hdl21 as h
 import pytest
 
-from flow import comp
+from flow import comp, samp
 from flow.caparray import CapArrayConfig, RedunStrat
-from flow.samp import SampParams
 
 from . import subckt
 from .subckt import Adc, AdcParams, is_valid_adc_params
@@ -30,7 +29,7 @@ def test_adc():
         AdcParams(cdac=CapArrayConfig(n_dac=17, n_extra=-1)),
         AdcParams(cdac=CapArrayConfig(weights=(1,) * 15)),
         AdcParams(comp=comp.Params(srlatch_n_w=0)),
-        AdcParams(samp=SampParams(mos_w=0)),
+        AdcParams(samp=samp.Params(mos_w=0)),
     ),
 )
 def test_invalid_adc_params_fail_before_creating_a_module(params, monkeypatch):

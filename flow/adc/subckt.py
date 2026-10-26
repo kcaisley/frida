@@ -22,12 +22,11 @@ from functools import cache
 import hdl21 as h
 from hdl21.primitives import MosType
 
-from flow import comp
+from flow import comp, samp
 from flow.circuit.ports import module_from_ports, port_connections
 
 from ..caparray import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights, is_valid_caparray_config
 from ..capdriver import CapDriver, CapDriverParams, Cells
-from ..samp import Samp, SampParams
 
 
 @h.paramclass
@@ -42,7 +41,7 @@ class AdcParams:
         desc="CDAC parameters",
         default=CapArrayConfig(n_dac=11, n_extra=5),
     )
-    samp = h.Param(dtype=SampParams, desc="Sampler parameters", default=SampParams())
+    samp = h.Param(dtype=samp.Params, desc="Sampler parameters", default=samp.Params())
     comp = h.Param(dtype=comp.Params, desc="Comparator parameters", default=comp.Params())
 
 
@@ -152,7 +151,7 @@ def Adc(p: AdcParams) -> h.Module:
     array = CapArray(CapArrayParams(cdac=p.cdac))
     # FRIDA-1's drivers: its library clock XORs, one per stage in its drive band
     driver = CapDriver(CapDriverParams(n_stages=stages, strengths=p.cdac.driver_strengths, cells=Cells.CLOCK_XOR))
-    sampler = Samp(p.samp)
+    sampler = samp.netlist(p.samp)
     for side, vin, top, main_state, diff_state, main_invert, diff_invert, main_bot, diff_bot, clk, clk_b in (
         (
             "p",

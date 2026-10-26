@@ -29,7 +29,7 @@ at a 1 V reference.
 ``weights`` and ``driver_strengths`` are FRIDA-1's fabricated arrays' alone (lab scans, FRIDA-1's
 layout checks, decoding archived captures): the design space never sets them. Its arrays' weights
 are their scheme's, and their drivers are derived from their extracted plates
-(``flow.cdac.subckt.driver_strengths``).
+(``flow.capdriver.model.driver_strengths``).
 """
 
 from enum import Enum
@@ -80,7 +80,7 @@ class CapArrayConfig:
     driver_strengths = h.Param(
         dtype=tuple[int, ...] | None,
         desc="FRIDA-1's fabricated C0-first drive bands (1, 2 or 4); None: derived from the array's plates "
-        "(flow.cdac.subckt.driver_strengths). The design space never sets it",
+        "(flow.capdriver.model.driver_strengths). The design space never sets it",
         default=None,
     )
     weights = h.Param(

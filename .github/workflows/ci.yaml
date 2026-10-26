@@ -67,6 +67,13 @@ jobs:
         run: >-
           uv run ty check
           flow/adc/subckt.py
+          flow/cdac/params.py
+          flow/cdac/subckt.py
+          flow/cdac/sim.py
+          flow/cdac/types.py
+          flow/cdac/analysis.py
+          flow/cdac/plots.py
+          flow/cdac/sweep.py
           flow/comp/params.py
           flow/comp/subckt.py
           flow/comp/sim.py
@@ -76,7 +83,13 @@ jobs:
           flow/comp/sweep.py
           flow/pipeline.py
           flow/plot.py
+          flow/samp/params.py
           flow/samp/subckt.py
+          flow/samp/sim.py
+          flow/samp/types.py
+          flow/samp/analysis.py
+          flow/samp/plots.py
+          flow/samp/sweep.py
           flow/scans/plldrp.py
 
   ruff:
@@ -142,6 +155,7 @@ jobs:
           flow/comp/test_layout.py
           flow/layout/test_floorplan.py
           flow/layout/test_lint.py
+          flow/layout/test_mosline.py
           flow/layout/test_pdkproc.py
           flow/layout/test_signoff.py
           flow/layout/test_stdcells.py
@@ -153,11 +167,16 @@ jobs:
           flow/test_pipeline.py
           flow/test_plot.py
           flow/samp/test_sim.py
+          flow/samp/test_analysis.py
+          flow/samp/test_plots.py
+          flow/samp/test_layout.py
           flow/caparray/test_sim.py
           flow/caparray/test_sizing.py
           flow/cdac/test_analysis.py
           flow/cdac/test_model.py
+          flow/cdac/test_sim.py
           flow/cdac/test_subckt.py
+          flow/capdriver/test_model.py
           flow/adc/test_statistics.py
           flow/capdriver/test_subckt.py
           flow/circuit/test_sim.py

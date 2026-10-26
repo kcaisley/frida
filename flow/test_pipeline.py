@@ -25,7 +25,7 @@ import pytest
 
 from flow import pipeline
 
-MIGRATED = ("comp",)
+MIGRATED = ("comp", "samp", "cdac")
 STAGES = ("params", "subckt", "sim", "types", "analysis", "plots", "sweep")
 PURE = ("types", "analysis", "plots")  # no helpers, no file I/O
 # Known violations, as "<block>.<stage>: <problem>"; entries may be removed, never added.

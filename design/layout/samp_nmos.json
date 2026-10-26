@@ -1,5 +1,5 @@
 {
- "_comment": "NMOS sampling switch alone, folded over two rows (both block edges VSS rails): its fingers split in halves, one per row. Netlist (per PDK): written by flow.samp.subckt (nmos).",
+ "_comment": "NMOS sampling switch alone, folded over two rows (both block edges VSS rails): its fingers split in halves, one per row. Netlist (per PDK): written by flow.samp.layout.write_netlist (nmos).",
  "netlist": "../../build/layout/netlists/{pdk}/samp_nmos.sp",
  "symmetric": false,
  "split": {

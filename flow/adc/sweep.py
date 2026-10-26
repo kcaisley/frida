@@ -12,7 +12,7 @@ noise there: each resolution's least switched capacitance is the larger of the t
 for its most demanding array, and each array switches one or two times it (``cap_scale``) at the
 split between its length-scaled binary and unary rows that keeps both with its outline nearest
 twice as tall as wide (one side's array: the two side by side make about a square). Its
-drivers are derived from its extracted plates (``flow.cdac.subckt.driver_strengths``), each stage
+drivers are derived from its extracted plates (``flow.capdriver.model.driver_strengths``), each stage
 sized to settle in about 1 ns.
 
 The product, nothing pruned:
@@ -21,7 +21,7 @@ The product, nothing pruned:
   delays, FRIDA-1's StrongARM among them at its fabricated sizes);
 - the samplers (``SAMPLER_STEPS``), an on-resistance ladder: FRIDA-1's transmission gate (32
   minimum widths, minimum length) the worst, then the bootstrapped NMOS switch at 32, 64, 112 and
-  160 minimum widths (``flow.samp.sweep.BOOST_LADDER``, each boosted alike), about a half, a
+  160 minimum widths (``samp.boost_ladder``, each boosted alike), about a half, a
   quarter, a seventh and a tenth of the gate's resistance; none with half-size dummy switches, as
   FRIDA-1's;
 - the arrays, 10 at each resolution and scale: binary, and each scheme
@@ -45,12 +45,10 @@ from pathlib import Path
 
 import hdl21 as h
 
-from flow import comp
+from flow import comp, samp
 from flow.caparray.layout import ADC_ARRAYS, ADC_BITS, FRIDA1_ADC_ARRAY, adc_arrays
 from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
 from flow.pipeline import Record
-from flow.samp import sweep as samp_sweep
-from flow.samp.subckt import Samp, SampParams, SwitchType
 
 from .subckt import AdcParams
 
@@ -75,14 +73,10 @@ COMP_GRID_TARGETS = tuple((noise, delay) for noise in GRID_NOISE_V for delay in 
 COMP_NOISE_STEPS = COMP_GRID[len(GRID_DELAY_S) - 1 :: len(GRID_DELAY_S)]
 COMPARATORS: tuple[comp.Params, ...] = COMP_GRID
 # the samplers, an on-resistance ladder: FRIDA-1's transmission gate (32 minimum widths, minimum
-# length) the worst, then the bootstrapped NMOS switch with the doubled boost capacitor and the
-# sampler sweep's wider rungs, boosted alike; none with dummy switches
-TGATE = SampParams()
-BOOTSTRAP = SampParams(switch_type=SwitchType.NMOS, bootstrap=True, **samp_sweep.BOOST_X2)
-BOOTSTRAP_LADDER = tuple(
-    SampParams(switch_type=SwitchType.NMOS, bootstrap=True, **sizes) for sizes in samp_sweep.BOOST_LADDER
-)
-SAMPLER_STEPS = (TGATE, BOOTSTRAP, *BOOTSTRAP_LADDER)
+# length) the worst, then the bootstrapped NMOS switch's rungs (samp.boost_ladder: 32 minimum widths
+# with the doubled boost capacitor, then 64, 112 and 160, boosted alike); none with dummy switches
+TGATE = samp.frida1()
+SAMPLER_STEPS = (TGATE, *(params for _label, params in samp.boost_ladder.instances("tsmc65")))
 RESOLUTIONS = ADC_BITS  # 10, 12 and 14 bits
 # FRIDA-1's converter: its array (12 bits in 16 stages, MSB redistribution with 5 extra cycles) at
 # two of the 12-bit least switched capacitance
@@ -149,7 +143,7 @@ def AdcBlocks(params: AdcParams) -> h.Module:
 
     place(comp.netlist(params.comp), "comp")
     for side in ("p", "n"):
-        place(Samp(params.samp), f"samp_{side}")
+        place(samp.netlist(params.samp), f"samp_{side}")
         place(CapArray(CapArrayParams(cdac=params.cdac)), f"cap_{side}")
     return blocks
 
