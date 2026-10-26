@@ -3,6 +3,7 @@ axis (as Spectre's own steps leave them), and decisions as a capture or a simula
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -231,7 +232,7 @@ def test_the_metrics_are_the_records_keys() -> None:
         scurve=analyze_scurve([decisions]),
         supply=[delay],
     )
-    assert set(values) == {
+    assert set(dataclasses.asdict(values)) == {
         "delay_0p5mv_s",
         "delay_100mv_s",
         "delay_0p1mv_s",
@@ -245,8 +246,9 @@ def test_the_metrics_are_the_records_keys() -> None:
         "noise_max_v",
         "delay_max_supply_s",
         "unresolved_fraction",
+        "decides_in_time",
     }
-    assert values["delay_0p5mv_s"] == pytest.approx(200e-12, abs=1e-12)
+    assert values.delay_0p5mv_s == pytest.approx(200e-12, abs=1e-12)
     assert Params() == delay.dut
 
 

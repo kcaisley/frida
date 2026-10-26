@@ -5,12 +5,13 @@ instance (``runs``) and the record they make (``record``). The runner keeps, in 
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 from dataclasses import replace
 
 import hdl21 as h
 
-from flow.pipeline import Meas, Record, family, named
+from flow.pipeline import Level, Meas, Record, family, named
 
 from .analysis import (
     analyze_clock_check,
@@ -167,13 +168,15 @@ def double_tail_modified_self_timed() -> Params:
     return Params(**TOPOLOGIES["double_tail_modified_self_timed"], **TOPOLOGY_SIZES)
 
 
-def runs(pdk: str, params: Params) -> dict[str, TbParams]:
-    """The testbench runs that characterize ``params`` in ``pdk``, by name (each run's folder): the
+def runs(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
+    """The testbench runs that characterize ``params`` in ``pdk`` at ``level``, by name (each run's
+    folder), the quick ones first. ``Level.SCREEN``, no transient noise (about 25 s): the
     noise-free decisions over the input at the clock and at twice it (``metastability``,
     ``metastability_check``: the delay near metastability, and whether the comparator decides in
     time), three decisions at the small and the large input (delay, energy), one onto a DAC-like
-    source (kickback), the transient-noise S-curve at each common mode (noise, offset), and both
-    inputs at each supply."""
+    source (kickback), and both inputs at each supply. ``Level.SEARCH`` adds the transient-noise
+    S-curve at the nominal common mode (noise, offset); ``Level.FULL`` the S-curves at the other
+    common modes."""
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
     # the nominal run: the supply, its common mode; each run changes what it measures
@@ -195,16 +198,6 @@ def runs(pdk: str, params: Params) -> dict[str, TbParams]:
             source_capacitance_f=KICKBACK_SOURCE[1],
         ),
     }
-    for fraction in CM_SWEEP:
-        benches[f"scurve_cm{round(fraction * 24)}"] = replace(
-            nominal,
-            vin_cm_values_v=(round(fraction * supply, 4),),
-            vin_diff_values_v=SCURVE_V,
-            conversions=SCURVE_DECISIONS,
-            input_order="shuffled",
-            noise=True,
-            waveform_sample_interval_s=NOISE_STROBE_S,
-        )
     for factor in SUPPLY_SWEEP:
         vdd = factor * supply
         benches[f"supply_{round(factor * 100)}"] = TbParams(
@@ -215,13 +208,25 @@ def runs(pdk: str, params: Params) -> dict[str, TbParams]:
             vin_diff_values_v=(SMALL_V, LARGE_V),
             conversions=2,
         )
+    fractions = {Level.SCREEN: (), Level.SEARCH: (NOMINAL_CM,), Level.FULL: CM_SWEEP}[level]
+    for fraction in sorted(fractions, key=lambda fraction: fraction != NOMINAL_CM):
+        benches[f"scurve_cm{round(fraction * 24)}"] = replace(
+            nominal,
+            vin_cm_values_v=(round(fraction * supply, 4),),
+            vin_diff_values_v=SCURVE_V,
+            conversions=SCURVE_DECISIONS,
+            input_order="shuffled",
+            noise=True,
+            waveform_sample_interval_s=NOISE_STROBE_S,
+        )
     return benches
 
 
 def record(measurements: dict[str, Meas]) -> Record:
-    """The record of one instance from its runs' measurements (``runs``): the metrics
-    (``analysis.metrics``) and the plots of its condition sweeps; a comparator that does not decide
-    within the clock raises."""
+    """The record of one instance from the measurements of the runs of any level (``runs``): the
+    metrics (``analysis.metrics``: None where its runs did not run) and the plots of its condition
+    sweeps. A comparator that does not decide within the clock is recorded so
+    (``decides_in_time``), not raised: an optimization learns from it."""
 
     decisions = {name: analyze_decisions(meas) for name, meas in measurements.items()}
     delays = {
@@ -247,37 +252,38 @@ def record(measurements: dict[str, Meas]) -> Record:
         decisions=[decisions["metastability"], decisions["metastability_check"]],
         metastability=[metastability["metastability"], metastability["metastability_check"]],
     )
-    if not clock.decides_in_time:
-        raise RuntimeError(
-            f"no decision within the {clock.evaluation_s * 1e9:g} ns evaluation: {'; '.join(clock.reasons)}"
-        )
-    offsets = [analyze_offset_noise([decisions[f"scurve_cm{round(fraction * 24)}"]]) for fraction in CM_SWEEP]
-    nominal = offsets[CM_SWEEP.index(NOMINAL_CM)]
-    scurve = analyze_scurve([decisions[f"scurve_cm{round(NOMINAL_CM * 24)}"]])
+    scurves = [f"scurve_cm{round(fraction * 24)}" for fraction in CM_SWEEP]
+    offsets = [analyze_offset_noise([decisions[name]]) for name in scurves if name in measurements]
+    nominal_run = f"scurve_cm{round(NOMINAL_CM * 24)}"
+    nominal = analyze_offset_noise([decisions[nominal_run]]) if nominal_run in measurements else None
+    scurve = analyze_scurve([decisions[nominal_run]]) if nominal_run in measurements else None
     supply = [delays[f"supply_{round(factor * 100)}"] for factor in SUPPLY_SWEEP]
     plots = [
         plot_metastability(metastability["metastability"]),
-        plot_noise_cm(offsets),
-        plot_offset_cm(offsets),
         plot_delay_supply_small(supply),
         plot_delay_supply_large(supply),
         plot_energy_supply(analyze_power([measurements[f"supply_{round(factor * 100)}"] for factor in SUPPLY_SWEEP])),
-        plot_scurve(scurve),
     ]
-    if scurve.total_unresolved_fraction > 0:
-        plots.append(plot_scurve_unresolved(scurve))
+    if offsets:
+        plots[1:1] = [plot_noise_cm(offsets), plot_offset_cm(offsets)]
+    if scurve is not None:
+        plots.append(plot_scurve(scurve))
+        if scurve.total_unresolved_fraction > 0:
+            plots.append(plot_scurve_unresolved(scurve))
+    values = metrics(
+        small=delays["small"],
+        large=delays["large"],
+        metastability=metastability["metastability"],
+        power=analyze_power([measurements["small"], measurements["large"]]),
+        kickback=analyze_kickback(measurements["kickback"]),
+        supply=supply,
+        clock=clock,
+        offsets=offsets,
+        nominal=nominal,
+        scurve=scurve,
+    )
     return Record(
-        metrics=metrics(
-            small=delays["small"],
-            large=delays["large"],
-            metastability=metastability["metastability"],
-            power=analyze_power([measurements["small"], measurements["large"]]),
-            kickback=analyze_kickback(measurements["kickback"]),
-            offsets=offsets,
-            nominal=nominal,
-            scurve=scurve,
-            supply=supply,
-        ),
+        metrics=dataclasses.asdict(values),
         details=plots,
         # the runs the viewer shows the waveforms of, by label
         waves={

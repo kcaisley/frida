@@ -35,6 +35,7 @@ from .types import (
     AnalysisSamplingNoise,
     AnalysisScurve,
     AnalysisTiming,
+    Metrics,
 )
 
 
@@ -561,31 +562,35 @@ def metrics(
     metastability: AnalysisMetastability,
     power: AnalysisPower,
     kickback: AnalysisKickback,
-    offsets: Sequence[AnalysisOffsetNoise],
-    nominal: AnalysisOffsetNoise,
-    scurve: AnalysisScurve,
     supply: Sequence[AnalysisDelay],
-) -> dict[str, float]:
+    clock: AnalysisClockCheck | None = None,
+    offsets: Sequence[AnalysisOffsetNoise] = (),
+    nominal: AnalysisOffsetNoise | None = None,
+    scurve: AnalysisScurve | None = None,
+) -> Metrics:
     """The scalar metrics of a characterization: the delay at the small and large inputs (the
     slowest of their decisions) and their energy (``power``: the small run's, then the large's),
-    the 0.1 mV delay and the regeneration time constant, kickback, the nominal common mode's noise
-    and offset (NaN unless valid) and the largest valid noise over the common mode, the slowest
-    small-input delay over the supply (NaN where one did not resolve), and the fraction of the
-    nominal S-curve's decisions unresolved."""
+    the 0.1 mV delay and the regeneration time constant, kickback, the slowest small-input delay over
+    the supply (NaN where one did not resolve) and whether it decides within the clock (``clock``);
+    where the S-curves ran, the nominal common mode's noise and offset (NaN unless valid), the
+    fraction of its decisions unresolved, and the largest valid noise over the common mode (only
+    from all four common modes)."""
 
     valid = [fit for fit in offsets if fit.validity == "valid"]
-    return {
-        "delay_0p5mv_s": float(np.nanmax(small.delay_s)),
-        "delay_100mv_s": float(np.nanmax(large.delay_s)),
-        "delay_0p1mv_s": float(metastability.delay_s[0]),
-        "regeneration_tau_s": metastability.regeneration_tau_s,
-        "energy_0p5mv_j": float(power.energy_per_decision_j[0]),
-        "energy_100mv_j": float(power.energy_per_decision_j[1]),
-        "kickback_v": kickback.kickback_v,
-        "kickback_diff_v": kickback.kickback_diff_v,
-        "noise_v": nominal.noise_sigma_v if nominal.validity == "valid" else math.nan,
-        "offset_v": nominal.offset_v if nominal.validity == "valid" else math.nan,
-        "noise_max_v": max((fit.noise_sigma_v for fit in valid), default=math.nan),
-        "delay_max_supply_s": float(np.max([delay.delay_s[0, 0] for delay in supply])),
-        "unresolved_fraction": scurve.total_unresolved_fraction,
-    }
+    measured = nominal is not None
+    return Metrics(
+        delay_0p5mv_s=float(np.nanmax(small.delay_s)),
+        delay_100mv_s=float(np.nanmax(large.delay_s)),
+        delay_0p1mv_s=float(metastability.delay_s[0]),
+        regeneration_tau_s=metastability.regeneration_tau_s,
+        energy_0p5mv_j=float(power.energy_per_decision_j[0]),
+        energy_100mv_j=float(power.energy_per_decision_j[1]),
+        kickback_v=kickback.kickback_v,
+        kickback_diff_v=kickback.kickback_diff_v,
+        delay_max_supply_s=float(np.max([delay.delay_s[0, 0] for delay in supply])),
+        decides_in_time=clock.decides_in_time if clock is not None else None,
+        noise_v=(nominal.noise_sigma_v if nominal.validity == "valid" else math.nan) if measured else None,
+        offset_v=(nominal.offset_v if nominal.validity == "valid" else math.nan) if measured else None,
+        unresolved_fraction=scurve.total_unresolved_fraction if scurve is not None else None,
+        noise_max_v=max((fit.noise_sigma_v for fit in valid), default=math.nan) if len(offsets) > 1 else None,
+    )

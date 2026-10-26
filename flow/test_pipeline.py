@@ -75,11 +75,12 @@ def _members(annotation) -> tuple[object, ...]:
     return (annotation,)
 
 
-def _is(annotation, base: type) -> bool:
-    """``annotation`` is a ``base`` (a subclass), or a sequence of them."""
+def _is(annotation, base: type, *, optional: bool = False) -> bool:
+    """``annotation`` is a ``base`` (a subclass), or a sequence of them; ``optional``, or None."""
     if typing.get_origin(annotation) in (Sequence, list, tuple):
         return all(_is(arg, base) for arg in typing.get_args(annotation) if arg is not Ellipsis)
-    return all(isinstance(member, type) and issubclass(member, base) for member in _members(annotation))
+    members = [member for member in _members(annotation) if not (optional and member is type(None))]
+    return all(isinstance(member, type) and issubclass(member, base) for member in members)
 
 
 def _camel(name: str) -> str:
@@ -144,8 +145,16 @@ def _problems(block: str) -> set[str]:
     if list(_hints(defined.get("simulate", lambda: None)).values()) != [TbParams, Path, Path]:
         problem("sim", "simulate does not take TbParams and a run directory and return the raw file's Path")
 
-    # types.py: Analysis<Thing> dataclasses deriving pipeline.Analysis, data only (properties allowed)
+    # types.py: Analysis<Thing> dataclasses deriving pipeline.Analysis, and at most the block's
+    # Metrics deriving pipeline.Metrics (each field declared with its better-direction), data only
+    # (properties allowed)
     for name, value in _defined(stage["types"]).items():
+        if name == "Metrics" and isinstance(value, type) and issubclass(value, pipeline.Metrics):
+            if not dataclasses.is_dataclass(value) or set(pipeline.betters(value)) != {
+                f.name for f in dataclasses.fields(value)
+            }:
+                problem("types", "Metrics is not a dataclass whose every field is a pipeline.metric")
+            continue
         if not (
             re.fullmatch(r"Analysis[A-Z]\w+", name) and isinstance(value, type) and issubclass(value, pipeline.Analysis)
         ):
@@ -161,10 +170,12 @@ def _problems(block: str) -> set[str]:
     for name, value in _defined(stage["analysis"]).items():
         if name == "metrics":
             hints = _hints(value)
-            if hints.pop("return") != dict[str, float] or not all(
-                _is(hint, pipeline.Analysis) for hint in hints.values()
+            result = hints.pop("return")
+            typed = isinstance(result, type) and issubclass(result, pipeline.Metrics)
+            if not (result == dict[str, float] or typed) or not all(
+                _is(hint, pipeline.Analysis, optional=True) for hint in hints.values()
             ):
-                problem("analysis", "metrics does not take Analysis results and return dict[str, float]")
+                problem("analysis", "metrics does not take Analysis results and return Metrics or dict[str, float]")
             continue
         if not name.startswith("analyze_") or not inspect.isfunction(value):
             problem("analysis", f"{name} is not an analyze_<thing> function or metrics")
@@ -205,8 +216,11 @@ def _problems(block: str) -> set[str]:
         "runs": [str, Params, dict[str, TbParams]],
         "record": [dict[str, pipeline.Meas], pipeline.Record],
     }
+    # runs may take the evaluation level (pipeline.Level), the third of its arguments
+    leveled = {"runs": [str, Params, pipeline.Level, dict[str, TbParams]]}
     for name, signature in expected.items():
-        if name not in sweep or list(_hints(sweep[name]).values()) != signature:
+        hints = list(_hints(sweep[name]).values()) if name in sweep else None
+        if hints not in (signature, leveled.get(name)):
             problem("sweep", f"{name} is missing or does not have the signature {signature}")
     for name, value in sweep.items():
         if name in expected:

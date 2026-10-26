@@ -281,6 +281,11 @@ RESET_S = 1e-9
 EVALUATION_S = 4e-9
 CHECK_CLOCK_S = (2 * RESET_S, 2 * EVALUATION_S)
 TRANSITION_S = 20e-12  # the clock's and the input's edges
+# the clock drivers' taper (TbParams.clock_fanout): fanout 4 a stage, the last stage's input at least
+# half the clocked gates (fanout 2: a fanout of 4 or more into the comparator is too slow an edge);
+# their energy is the comparator's, their area is not (the converter's digital control drives it)
+CLOCK_FANOUT = 4.0
+CLOCK_LAST_FANOUT = 2.0
 # Spectre's output and its largest step: 2 ps for the noise-free runs (their delays within 0.1 % of a
 # 1 ps step's), 10 ps for the transient-noise S-curves (whose noise up to 25 GHz bounds the step to
 # 20 ps already). On Spectre's own steps (``waveform_sample_interval_s=None``) the delays came
@@ -311,11 +316,13 @@ SMALL_V, LARGE_V = 0.5e-3, 100e-3
 # no input steps by more than twice the next one (the source settles within the reset)
 METASTABILITY_V = (0.1e-3, 0.3e-3, 1e-3, 3e-3, 10e-3, 30e-3, 100e-3)
 METASTABILITY_RUN_V = tuple(v for value in METASTABILITY_V for v in (-value, value))
-# the S-curve: 0 and 16 magnitudes from 25 uV to 3 mV a side (33 points finest at the centre),
-# reading 50 uV to 1.5 mV of noise; SCURVE_DECISIONS at each, a pass through every input at a time
-# in a fresh random order (input_order "shuffled"), so that noise slower than a pass moves every
-# input alike: one reading's noise scatters by about 4 % (one sigma) between noise seeds
-SCURVE_UV = (25, 50, 75, 100, 125, 150, 200, 250, 300, 400, 500, 700, 1000, 1400, 2000, 3000)
+# the S-curve: 0 and 16 magnitudes from 5 uV to 3 mV a side (33 points, log-spaced, finest at the
+# centre), reading 10 uV to 1.5 mV of noise: 15 points within 2 sigma of a 37 uV comparator (a 14-bit
+# converter's quantization noise), 29 of a 560 uV one (10 bits), the span wide enough for 1 mV of
+# offset; SCURVE_DECISIONS at each, a pass through every input at a time in a fresh random order
+# (input_order "shuffled"), so that noise slower than a pass moves every input alike: one reading's
+# noise scatters by about 4 % (one sigma) between noise seeds
+SCURVE_UV = (5, 10, 15, 20, 25, 35, 50, 75, 100, 150, 200, 300, 500, 1000, 2000, 3000)
 SCURVE_V = (*(-round(uv * 1e-6, 9) for uv in reversed(SCURVE_UV)), 0.0, *(round(uv * 1e-6, 9) for uv in SCURVE_UV))
 SCURVE_DECISIONS = 80
 INPUT_ORDERS = ("blocked", "shuffled")
@@ -345,6 +352,12 @@ class TbParams(pipeline.TbParams):
     source_resistance_ohm: float = SOURCE_RESISTANCE_OHM
     source_capacitance_f: float = SOURCE_CAPACITANCE_F
     output_load_f: float = 10e-15
+    # the clock's drivers (flow.comp.sim.testbench): each clock an inverter chain from a unit
+    # inverter, on the comparator's supply, tapering by clock_fanout a stage to a last stage whose
+    # input is clock_last_fanout times smaller than the clocked gates; None, ideal sources (the
+    # clock's energy then not counted)
+    clock_fanout: float | None = CLOCK_FANOUT
+    clock_last_fanout: float = CLOCK_LAST_FANOUT
     waveform_sample_interval_s: float | None = STROBE_S
     # TODO: matching a building-block Monte Carlo result to a higher-level run
     # by seed and iteration alone is not valid; the two runs draw independent
@@ -373,6 +386,10 @@ class TbParams(pipeline.TbParams):
         ):
             if not math.isfinite(float(getattr(self, name))) or float(getattr(self, name)) <= 0.0:
                 raise ValueError(f"comparator {name} must be finite and positive")
+        if self.clock_fanout is not None and not (
+            float(self.clock_fanout) > 1.0 and float(self.clock_last_fanout) > 0.0
+        ):
+            raise ValueError("comparator clock fanouts must be positive, the taper's above 1")
         if self.waveform_sample_interval_s is not None and not float(self.waveform_sample_interval_s) > 0.0:
             raise ValueError("comparator waveform_sample_interval_s must be positive or None")
         if float(self.transition_time_s) >= min(float(self.reset_time_s), float(self.evaluation_time_s)):

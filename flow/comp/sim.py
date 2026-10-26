@@ -9,13 +9,15 @@ Spectre's own steps where the run asks for those.
 """
 
 import importlib
+import math
 from pathlib import Path
 
 import hdl21 as h
 import hdl21.sim as hs
-from hdl21.primitives import C, R, Vdc, Vpulse, Vpwl
+from hdl21.primitives import C, MosType, R, Vdc, Vpulse, Vpwl
 from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
+from flow.circuit.devices import mos
 from flow.circuit.ports import testbench_from_ports
 
 from .params import CHARGE_METER, CHARGE_METER_F, TbParams
@@ -56,11 +58,25 @@ def testbench(tb: TbParams) -> h.Module:
     bench.rsrc_n = R(r=tb.source_resistance_ohm)(p=bench.vin.n, n=bench.inn)
     bench.csrc_p = C(c=tb.source_capacitance_f)(p=bench.inp, n=bench.vss)
     bench.csrc_n = C(c=tb.source_capacitance_f)(p=bench.inn, n=bench.vss)
+    chains, unit = _clock_chains(tb)
     for port in Nets.signals.values():
         if port.usage != h.Usage.CLOCK:
             continue
-        complement = port is Nets.clkb
         net = connections[port.name]
+        # the source drives the chain's first inverter (or, without a chain, the clock itself); an
+        # odd chain inverts, so its source is the complement
+        sizes = chains.get(port.name, [])
+        driven = net if not sizes else bench.add(h.Signal(name=f"{net.name}_source"))
+        complement = (port is Nets.clkb) != (len(sizes) % 2 == 1)
+        node = driven
+        for index, size in enumerate(sizes):
+            out = net if index == len(sizes) - 1 else bench.add(h.Signal(name=f"{net.name}_stage{index}"))
+            for tp, rail, units in ((MosType.PMOS, bench.vdd, unit[1]), (MosType.NMOS, bench.vss, unit[0])):
+                bench.add(
+                    mos(tp=tp, vth=tb.params.vth, w=max(1, round(size * units)), l=1)(d=out, g=node, s=rail, b=rail),
+                    name=f"m{net.name}_{index}_{tp.name.lower()}",
+                )
+            node = out
         bench.add(
             Vpulse(
                 v1=tb.vdd if complement else 0.0,
@@ -70,7 +86,7 @@ def testbench(tb: TbParams) -> h.Module:
                 rise=tb.transition_time_s,
                 fall=tb.transition_time_s,
                 delay=tb.reset_time_s,
-            )(p=net, n=bench.vss),
+            )(p=driven, n=bench.vss),
             name=f"v{net.name}",
         )
     bench.cload_p = C(c=tb.output_load_f)(p=bench.outp, n=bench.vss)
@@ -90,6 +106,34 @@ def testbench(tb: TbParams) -> h.Module:
     bench.evin_p = h.Vcvs(gain=0.5)(p=bench.vin.p, n=bench.vin_cm, cp=bench.vin_diff, cn=bench.vss)
     bench.evin_n = h.Vcvs(gain=-0.5)(p=bench.vin.n, n=bench.vin_cm, cp=bench.vin_diff, cn=bench.vss)
     return bench
+
+
+def _clock_chains(tb: TbParams) -> tuple[dict[str, list[float]], tuple[int, int]]:
+    """Each clock's inverter chain (``TbParams.clock_fanout``), by its port: the stages' sizes in unit
+    inverters, first to last, as many stages on both clocks; and the unit inverter's NMOS and PMOS
+    widths, the active PDK's logic fingers. The last stage's input is ``clock_last_fanout`` times
+    smaller than the clocked gates (their area times the PDK's gate capacitance per unit device),
+    the stages before it shrinking by at most ``clock_fanout`` each to one unit inverter. No chains
+    without a fanout."""
+
+    pdk = h.pdk.default()
+    fingers = getattr(pdk, "MOS_FINGER_UNITS", None) or {"logic_n": 1, "logic_p": 2}
+    unit = (int(fingers["logic_n"]), int(fingers["logic_p"]))
+    if tb.clock_fanout is None:
+        return {}, unit
+    density = getattr(pdk, "MOS_CAP_FF", None) or {"n": 0.1, "p": 0.1}
+    load = {"clk": 0.0, "clkb": 0.0}
+    # a fresh module: an earlier run's compile turned the cached one's devices into the PDK's
+    netlist.Cache.reset()
+    for inst in netlist(tb.params).instances.values():
+        gate, device = inst.conns.get("g"), getattr(inst.of, "params", None)
+        if gate is not None and gate.name in load and hasattr(device, "tp"):
+            kind = "n" if device.tp == MosType.NMOS else "p"
+            load[gate.name] += float(device.w) * float(device.l) * density[kind]
+    unit_f = unit[0] * density["n"] + unit[1] * density["p"]
+    last = {name: max(1.0, value / float(tb.clock_last_fanout) / unit_f) for name, value in load.items()}
+    count = 1 + max(math.ceil(math.log(size) / math.log(float(tb.clock_fanout)) - 1e-9) for size in last.values())
+    return {name: [size ** (i / max(count - 1, 1)) for i in range(count)] for name, size in last.items()}, unit
 
 
 def simulate(tb: TbParams, run_dir: Path) -> Path:

@@ -216,12 +216,12 @@ class Metrics:
     or flag, named with its unit, declared with ``metric`` (which way is better)."""
 
 
-type Better = Literal["lower", "higher", "true"]
+type Better = Literal["lower", "higher", "true", "none"]
 
 
 def metric(desc: str, better: Better, default: Any = float("nan")) -> Any:
-    """A field of a ``Metrics`` dataclass: what it is and which way is better ("lower", "higher", or
-    "true" for a flag that must hold)."""
+    """A field of a ``Metrics`` dataclass: what it is and which way is better ("lower", "higher",
+    "true" for a flag that must hold, "none" for a number only reported, a signed offset)."""
     return field(default=default, metadata={"desc": desc, "better": better})
 
 
@@ -541,7 +541,7 @@ class Plot:
 class Record:
     """What one instance's characterization gives."""
 
-    metrics: dict[str, float]
+    metrics: dict[str, Any]  # numbers, flags, None where a level did not measure one
     details: list[Plot] = field(default_factory=list)
     # label -> the run whose measurement the viewer shows (the runner writes it, then its path)
     waves: dict[str, str] = field(default_factory=dict)
