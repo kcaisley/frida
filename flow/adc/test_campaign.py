@@ -16,7 +16,6 @@ from flow.adc.campaign import (
     LADDER,
     MISMATCH_COEFFICIENTS,
     RATES_HZ,
-    UNIT_MISMATCH,
     VALIDATION_DRAWS,
     campaign,
     ladder_names,
@@ -37,10 +36,13 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
     assert sum(name.startswith("rate_") for name in names) == len(RATES_HZ)
     assert sum(name.startswith("fin_") for name in names) == len(FIN_RATES_HZ) * len(FIN_CYCLES)
     assert sum(name.startswith("dc_") for name in names) == 33
-    # one capacitor draw for both ramps, independent noise: the calibration's training and check
+    # both ramps on the CDAC's SPICE draw, independent noise: the calibration's training and check;
+    # the nominal rate's sine on it too, its testbench and seeds the nominal sine's
     train, check = captures["ramp_train"], captures["ramp_check"]
-    assert train.seed == check.seed and train.unit_mismatch == check.unit_mismatch == UNIT_MISMATCH
+    assert train.drawn and check.drawn and train.unit_mismatch == check.unit_mismatch == 0.0
     assert train.noise_seed != check.noise_seed
+    drawn, nominal = captures["drawn_sine"], captures["rate_10"]
+    assert drawn.drawn and not nominal.drawn and drawn.tb == nominal.tb and drawn.noise_seed == nominal.noise_seed
     # sines at -0.5 dBFS of the full scale, DC inputs across it
     assert abs(captures["rate_10"].tb["vin_diff"].vamp - 0.7 * 10 ** (-0.5 / 20)) < 1e-9
     assert isinstance(captures["dc_00"].tb["vin_diff"], h.Vdc.Params)

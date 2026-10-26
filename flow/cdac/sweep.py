@@ -16,18 +16,29 @@ from __future__ import annotations
 
 import importlib
 import math
+from dataclasses import replace
 
 import hdl21 as h
 
 from flow.caparray.layout import ADC_ARRAYS
 from flow.caparray.model import CapArrayModel
+from flow.caparray.subckt import get_caparray_weights
 from flow.capdriver.model import CapDriverModel, driver_strengths
 from flow.capdriver.subckt import CapDriverParams, Cells, stage_strengths
 from flow.pipeline import Meas, Record, family
 
-from .analysis import analyze_settling, metrics
-from .params import SAMPLES_PER_WINDOW, Params, TbParams, _Dac
-from .plots import plot_model_stage, plot_settling_stage
+from .analysis import analyze_mismatch, analyze_settling, metrics
+from .params import GRADIENTS_PER_UM, MC_RUNS, PAIR_GAP_UM, PELGROMS, SAMPLES_PER_WINDOW, Params, TbParams, _Dac
+from .plots import (
+    plot_dac_dnl,
+    plot_dac_inl,
+    plot_mismatch_dac_inl,
+    plot_mismatch_gap,
+    plot_mismatch_gradient,
+    plot_mismatch_inl,
+    plot_model_stage,
+    plot_settling_stage,
+)
 
 
 # the arrays in TSMC65, where they are extracted; the 14-bit ones first, as they take longest
@@ -38,6 +49,8 @@ def adc_array(pdk: str, array: str) -> Params:
     generic cells derived from them (``driver_strengths``)."""
     config = ADC_ARRAYS[array]
     plates = CapArrayModel.of(pdk, config)
+    # the pair about the origin: the P array left, the N array its mirror image right
+    shift = (plates.outline_um[0] + PAIR_GAP_UM) / 2
     return Params(
         dac=_Dac(
             driver=CapDriverParams(
@@ -46,6 +59,11 @@ def adc_array(pdk: str, array: str) -> Params:
             main_f=tuple(float(c) for c in plates.main_f),
             diff_f=tuple(float(c) for c in plates.diff_f),
             parasitic_f=float(plates.parasitic_f),
+            weights=tuple(get_caparray_weights(config)),
+            main_p_um=tuple((x - shift, y) for x, y in plates.main_xy_um),
+            diff_p_um=tuple((x - shift, y) for x, y in plates.diff_xy_um),
+            main_n_um=tuple((shift - x, y) for x, y in plates.main_xy_um),
+            diff_n_um=tuple((shift - x, y) for x, y in plates.diff_xy_um),
         ),
         adc_bits=config.n_dac + 1,
     )
@@ -75,27 +93,50 @@ def _window_s(pdk: str, params: Params, vdd: float) -> float:
 
 
 def runs(pdk: str, params: Params) -> dict[str, TbParams]:
-    """The one testbench run that characterizes ``params`` in ``pdk``: every stage up and back down,
-    at the PDK's supply, in a window its slowest stage settles in within its first half."""
+    """The testbench runs that characterize ``params`` in ``pdk``: every stage up and back down, at
+    the PDK's supply, in a window its slowest stage settles in within its first half
+    (``settling``); and the plates' Monte Carlo at each Pelgrom coefficient and gradient
+    (``PELGROMS`` x ``GRADIENTS_PER_UM``, ``MC_RUNS`` draws each: ``mc_a<0.1 %·sqrt(fF)>_g<ppm/mm>``)."""
     supply = round(importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP), 4)
     window = _window_s(pdk, params, supply)
-    return {
-        "settling": TbParams(
-            pdk=pdk, params=params, vdd=supply, window_s=window, waveform_sample_interval_s=window / SAMPLES_PER_WINDOW
+    settling = TbParams(
+        pdk=pdk, params=params, vdd=supply, window_s=window, waveform_sample_interval_s=window / SAMPLES_PER_WINDOW
+    )
+    return {"settling": settling} | {
+        f"mc_a{round(pelgrom * 1000)}_g{round(gradient * 1e9)}": replace(
+            settling, pelgrom=pelgrom, gradient_per_um=gradient, mc_runs=MC_RUNS
         )
+        for pelgrom in PELGROMS
+        for gradient in GRADIENTS_PER_UM
     }
 
 
 def record(measurements: dict[str, Meas]) -> Record:
-    """The record of one instance from its run's measurement (``runs``): the metrics
+    """The record of one instance from its runs' measurements (``runs``): the metrics
     (``analysis.metrics``), the settling and the behavioral model's step by stage (which
-    ``flow.cdac.model`` reads); a stage that does not settle in its window's first half raises."""
+    ``flow.cdac.model`` reads), and the plates' Monte Carlo over its conditions; a stage that does
+    not settle in its window's first half raises. The Monte Carlo runs' measurements are kept (their
+    drawn plates, for the converter's calibration)."""
     settling = analyze_settling(measurements["settling"])
     if not settling.settled:
         raise RuntimeError(f"a stage did not settle within half of its {settling.window_s:.3g} s window")
+    mismatch = tuple(analyze_mismatch(meas) for name, meas in measurements.items() if name.startswith("mc_"))
+    middle = (
+        [plot_dac_inl(mismatch[len(mismatch) // 2]), plot_dac_dnl(mismatch[len(mismatch) // 2])] if mismatch else []
+    )
+    figures = (
+        [
+            plot_mismatch_inl(mismatch),
+            plot_mismatch_gap(mismatch),
+            plot_mismatch_dac_inl(mismatch),
+            plot_mismatch_gradient(mismatch),
+        ]
+        if mismatch
+        else []
+    )
     return Record(
-        metrics=metrics(settling=settling),
-        details=[plot_settling_stage(settling), plot_model_stage(settling)],
-        # the run the viewer shows the waveforms of, by label
-        waves={"settling": "settling"},
+        metrics=metrics(settling=settling, mismatch=mismatch),
+        details=[plot_settling_stage(settling), plot_model_stage(settling), *figures, *middle],
+        # the runs whose measurements are kept, by label: the viewer shows the settling's waveforms
+        waves={"settling": "settling"} | {name: name for name in measurements if name.startswith("mc_")},
     )

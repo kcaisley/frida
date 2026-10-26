@@ -471,6 +471,23 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
         for source in ("sampling", "comparator")
         if f"noise_{source}" in captures
     }
+    # the nominal rate's sine on the CDAC's SPICE draw the ramps calibrate on, decoded with the design
+    # weights (as it comes), the nominal extraction's (its systematic error calibrated, not the draw's)
+    # and the best calibration learned from the drawn training ramp
+    drawn = (
+        {
+            f"enob_drawn_{name}_bits": analyze_adc_dynamic(
+                captures["drawn_sine"], calibration=decoding
+            ).spectral_enob_fs_bits
+            for name, decoding in (
+                ("design", None),
+                ("extracted", _extracted(captures["drawn_sine"])),
+                ("calibrated", learned[best]),
+            )
+        }
+        if "drawn_sine" in captures
+        else {}
+    )
     metrics = {
         # ENOB referred to full scale (an ideal N-bit quantizer reads N); the SNDR is the test
         # sine's own, at -0.5 dBFS
@@ -506,6 +523,7 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
         "redundancy_first_extracted_pct": float(redundancy["Extracted weights"][0]),
         "calibration3_fitted": float("Calibration 3" in learned),
         "calibration_best": float(best.split()[-1]),  # the calibration the calibrated metrics use
+        **drawn,
         # predicted at Harpe's matching (0.10 %·sqrt(fF)), decoded with the design weights: the
         # array's own layout error and the mismatch's 95th percentile; the largest DNL and INL sigma
         # of any code; the smallest margin of a redundant stage over its sigma (NaN without one)

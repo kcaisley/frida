@@ -10,6 +10,7 @@ from __future__ import annotations
 import itertools
 import math
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import overload
 
 import numpy as np
@@ -1116,3 +1117,149 @@ def spectrumMeas(
         frequency_hz,
         amplitude_dbfs,
     )
+
+
+# ---- a CDAC's static transfer in a SAR loop: every decision path some input takes, from the steps
+# its capacitors give, and what a drawn array's paths and control words give (flow.cdac, flow.adc)
+
+
+@dataclass(frozen=True)
+class Paths:
+    """Every decision path of one conversion that some input takes, by the input interval it
+    holds (LSB), in input order."""
+
+    decisions: np.ndarray  # (paths, decisions) 0 or 1, the first decision first
+    lower: np.ndarray  # the input where the path starts (-inf for the lowest)
+    upper: np.ndarray
+    lower_stage: np.ndarray  # the decision whose threshold is the lower edge (-1: none)
+    upper_stage: np.ndarray
+    code: np.ndarray  # the output code the design weights decode it to
+
+
+def calc_paths(a_lsb, b_lsb, weights, code_max: int) -> Paths:
+    """Each decision path that some input takes, with the p and n sides' steps ``a_lsb`` and
+    ``b_lsb`` (LSB, C0 first) and the decoder's ``weights`` (one a decision): each comparator
+    splits the input interval a path still holds at its threshold, and empty halves are dropped."""
+    a, b = np.asarray(a_lsb, dtype=np.float64), np.asarray(b_lsb, dtype=np.float64)
+    weights = np.asarray(weights, dtype=np.float64)
+    stages = len(a)
+    if len(b) != stages or len(weights) != stages + 1:
+        raise ValueError("expected one step a side per capacitor and one weight a decision")
+    tie = 1e-6  # LSB: thresholds closer than this are one
+    lower, upper = np.array([-np.inf]), np.array([np.inf])
+    lower_stage, upper_stage = np.array([-1]), np.array([-1])
+    reference = np.zeros(1)
+    decisions = np.zeros((1, 0), dtype=np.int8)
+    for k in range(stages + 1):
+        # decided 0 below the threshold, 1 above it; the threshold is the new edge where it cuts
+        # (a threshold within tie of an edge already there is that edge: redundant arrays put
+        # thresholds of different decisions on one input, and rounding would open slivers there)
+        cuts_upper = reference < upper - tie
+        cuts_lower = reference > lower + tie
+        below_upper = np.where(cuts_upper, reference, upper)
+        below_upper_stage = np.where(cuts_upper, k, upper_stage)
+        above_lower = np.where(cuts_lower, reference, lower)
+        above_lower_stage = np.where(cuts_lower, k, lower_stage)
+        below = cuts_lower
+        above = cuts_upper
+        lower, upper, lower_stage, upper_stage = (
+            np.concatenate((lower[below], above_lower[above])),
+            np.concatenate((below_upper[below], upper[above])),
+            np.concatenate((lower_stage[below], above_lower_stage[above])),
+            np.concatenate((below_upper_stage[below], upper_stage[above])),
+        )
+        decisions = np.concatenate(
+            (
+                np.column_stack((decisions[below], np.zeros(np.count_nonzero(below), dtype=np.int8))),
+                np.column_stack((decisions[above], np.ones(np.count_nonzero(above), dtype=np.int8))),
+            )
+        )
+        if k < stages:
+            reference = np.concatenate((reference[below] - a[k], reference[above] + b[k]))
+    order = np.argsort(lower, kind="stable")
+    code = np.clip(np.rint(decisions[order] @ weights * code_max / np.sum(weights)), 0, code_max).astype(np.int64)
+    return Paths(decisions[order], lower[order], upper[order], lower_stage[order], upper_stage[order], code)
+
+
+def calc_side_steps(main_f, diff_f, parasitic_f: float, code_max: int, *, diffcaps: bool = True, nominal=None):
+    """One side's steps in the nominal array's LSB: each capacitor's share of the side's load,
+    (main - diff) / (sum(main) + sum(diff) + parasitic) (main + diff where the difference plate
+    moves with the main one), scaled so the nominal steps are c 2^bits / (2 sum(c)). ``nominal``
+    (main, diff) sets the LSB; the array itself where not given."""
+    main, diff = np.asarray(main_f, dtype=np.float64), np.asarray(diff_f, dtype=np.float64)
+    sign = -1.0 if diffcaps else 1.0
+    nominal_main, nominal_diff = (main, diff) if nominal is None else map(np.asarray, nominal)
+    load = np.sum(nominal_main) + np.sum(nominal_diff) + parasitic_f
+    lsb_per_share = (code_max + 1) * load / (2 * np.sum(nominal_main + sign * nominal_diff))
+    return (main + sign * diff) / (np.sum(main) + np.sum(diff) + parasitic_f) * lsb_per_share
+
+
+def calc_decision_steps(
+    sides, parasitic_f: float, code_max: int, *, diffcaps: bool = True, nominal=None, astate=None
+) -> tuple[np.ndarray, np.ndarray]:
+    """The steps each decision takes (LSB, C0 first) of a drawn array: below its threshold the
+    reference moves down by a_k, above it up by b_k (``calc_paths``). ``sides`` holds the p and n
+    sides' (main, diff) capacitances, ``nominal`` the design's (main, diff) for the LSB, ``astate``
+    each stage's state before it switches (the converter's A state, 0 where not given): a stage
+    held at 0 raises the n side's capacitor on a 1 and the p side's on a 0; one held at 1 lowers
+    the p side's on a 1 and the n side's on a 0, so its steps are the other side's."""
+    (main_p, diff_p), (main_n, diff_n) = sides
+    p = calc_side_steps(main_p, diff_p, parasitic_f, code_max, diffcaps=diffcaps, nominal=nominal)
+    n = calc_side_steps(main_n, diff_n, parasitic_f, code_max, diffcaps=diffcaps, nominal=nominal)
+    held = np.zeros(len(p), dtype=bool) if astate is None else np.asarray(astate, dtype=np.int64) == 1
+    return np.where(held, n, p), np.where(held, p, n)
+
+
+def calc_paths_linearity(paths: Paths, code_max: int) -> tuple[np.ndarray, np.ndarray, int]:
+    """The exact DNL and INL (LSB, codes 1 to code_max - 1, as a ramp's code density grades them)
+    and the missing codes of a converter's decision paths (``calc_paths``, decoded with its
+    weights): each code's width the input its paths hold."""
+    active = (paths.code > 0) & (paths.code < code_max)
+    widths = np.bincount(paths.code[active], weights=(paths.upper - paths.lower)[active], minlength=code_max + 1)
+    widths = widths[1:code_max]
+    differential = dnl(widths)
+    return differential, inl(differential), int(np.count_nonzero(widths <= 0))
+
+
+def calc_paths_gap(paths: Paths, code_lsb: float) -> float:
+    """What no calibration recovers of a converter's decision paths (Hsu's missing level, the
+    thesis's eq. 3.7): with every decision's true weight, each path still maps all the input it
+    holds to one value, so the widest path over a code's width ``code_lsb`` (in the paths' unit: a
+    unit capacitor's step, 2^bits / (2 sum of the capacitor weights) of the nominal array's LSB),
+    less one (0 where none is wider). A redundant array's paths are narrower than a code, its
+    codes split among them."""
+    inside = np.isfinite(paths.lower) & np.isfinite(paths.upper)
+    widths = (paths.upper - paths.lower)[inside]
+    return max(0.0, float(np.max(widths)) / code_lsb - 1.0) if len(widths) else math.nan
+
+
+def calc_dac_transfer(steps, weights) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """A capacitor DAC's static transfer: every control word's output (the sum of its stages'
+    ``steps``, C0 first) against the code its ``weights`` decode it to (the capacitor weights, in
+    units), referred to the endpoints. By code from 0 to sum(weights): the codes, each code's worst
+    INL over the words that decode to it, and the DNL of its words' mean output (LSB; NaN where no
+    word decodes to a code). A redundant DAC has more words than codes."""
+    outputs, codes = np.zeros(1), np.zeros(1, dtype=np.int64)
+    for step, weight in zip(steps, weights, strict=True):
+        outputs, codes = np.concatenate((outputs, outputs + step)), np.concatenate((codes, codes + int(weight)))
+    full = int(np.sum(weights))
+    lsb = (outputs[-1] - outputs[0]) / full
+    inl = (outputs - outputs[0]) / lsb - codes
+    counts = np.bincount(codes, minlength=full + 1)
+    worst = np.full(full + 1, np.nan)
+    order = np.argsort(np.abs(inl))
+    worst[codes[order]] = inl[order]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        mean = np.bincount(codes, weights=outputs, minlength=full + 1) / counts
+    dnl = np.diff(mean) / lsb - 1.0
+    return np.arange(full + 1), worst, np.r_[dnl, np.nan]
+
+
+def calc_drawn_linearity(
+    sides, parasitic_f: float, weights, code_max: int, *, diffcaps: bool = True, nominal=None, astate=None
+):
+    """The exact DNL and INL (LSB, codes 1 to code_max - 1, as the ramp's code density grades
+    them) and the missing codes of one drawn array decoded with ``weights``: ``sides``, ``nominal``
+    and ``astate`` as ``calc_decision_steps`` takes them."""
+    a, b = calc_decision_steps(sides, parasitic_f, code_max, diffcaps=diffcaps, nominal=nominal, astate=astate)
+    return calc_paths_linearity(calc_paths(a, b, weights, code_max), code_max)

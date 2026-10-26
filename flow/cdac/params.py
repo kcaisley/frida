@@ -35,6 +35,17 @@ TRANSITION_S = 30e-12
 SAMPLES_PER_WINDOW = 2000
 TOLERANCES = {"reltol": 1e-4, "vabstol": 1e-9, "iabstol": 1e-15}
 ERRPRESET = "moderate"
+# the Monte Carlo of the plates (flow.momcap.subckt.variation), test conditions a chip has one
+# realization of: Pelgrom's coefficient from Harpe's unit-length MOM (0.1 %·sqrt(fF), JSSC 2018) to
+# about Tripathi and Murmann's lateral MOM (0.85 %, TCAS-I 2014), as fractions, and a process
+# gradient of 10 to 100 ppm/mm (oxide-thickness gradients, US5952952), per um; MC_RUNS draws a
+# condition from MC_SEED
+PELGROMS = (0.001, 0.005, 0.010)
+GRADIENTS_PER_UM = (10e-9, 50e-9, 100e-9)
+MC_RUNS = 100
+MC_SEED = 1
+# the converter's two arrays side by side, the N array the P one mirrored, this far apart (um)
+PAIR_GAP_UM = 2.0
 
 
 @h.paramclass
@@ -45,6 +56,19 @@ class _Dac:
     main_f = h.Param(dtype=tuple[float, ...], desc="C0-first main plate capacitances (F)")
     diff_f = h.Param(dtype=tuple[float, ...], desc="C0-first difference plate capacitances (F)")
     parasitic_f = h.Param(dtype=float, desc="Each top plate's other load, to ground (F)")
+    weights = h.Param(
+        dtype=tuple[int, ...], desc="C0-first design weights, the decoder's (units); empty: none", default=()
+    )
+    # each plate's centroid on the die (x, y um), C0 first, for the Monte Carlo's process gradient;
+    # empty: every plate at the origin
+    main_p_um = h.Param(dtype=tuple[tuple[float, float], ...], desc="P side's main plates' centroids (um)", default=())
+    diff_p_um = h.Param(
+        dtype=tuple[tuple[float, float], ...], desc="P side's difference plates' centroids (um)", default=()
+    )
+    main_n_um = h.Param(dtype=tuple[tuple[float, float], ...], desc="N side's main plates' centroids (um)", default=())
+    diff_n_um = h.Param(
+        dtype=tuple[tuple[float, float], ...], desc="N side's difference plates' centroids (um)", default=()
+    )
 
 
 @h.paramclass
@@ -59,10 +83,12 @@ def valid(params: Params, pdk: str | None = None) -> bool:
     """Whether the CDAC can be built: a main and a difference plate for each of its drivers' stages,
     no negative capacitance, a positive resolution. It builds in any PDK its plates are given in."""
     dac = params.dac
+    placed = (dac.main_p_um, dac.diff_p_um, dac.main_n_um, dac.diff_n_um)
     return (
         len(dac.main_f) == len(dac.diff_f) == dac.driver.n_stages
         and min(*dac.main_f, *dac.diff_f, dac.parasitic_f) >= 0
         and params.adc_bits > 0
+        and all(len(plates) in (0, dac.driver.n_stages) for plates in (*placed, dac.weights))
     )
 
 
@@ -74,7 +100,9 @@ class TbParams(pipeline.TbParams):
     """One run of the CDAC's testbench (``flow.cdac.sim.testbench``): the CDAC ``params`` in ``pdk``
     at supply ``vdd`` (the DAC's reference), each stage switched up a window into its turn and back
     down the window after (``window_start_s``), its states' edges ``transition_time_s`` long.
-    Spectre writes its output every ``waveform_sample_interval_s`` and steps no further."""
+    Spectre writes its output every ``waveform_sample_interval_s`` and steps no further. With
+    ``mc_runs``, the run is instead a Monte Carlo of the plates' variation (``pelgrom``,
+    ``gradient_per_um``): each run's operating point, the drawn plates read back."""
 
     pdk: str = "tsmc65"
     params: Params
@@ -82,12 +110,21 @@ class TbParams(pipeline.TbParams):
     waveform_sample_interval_s: float
     vdd: float = 1.2
     transition_time_s: float = TRANSITION_S
+    # the plates' variation: Pelgrom's coefficient (a fraction) and the process gradient per um; with
+    # mc_runs, a Monte Carlo of operating points that reads each run's drawn plates instead of the
+    # settling transient
+    pelgrom: float = 0.0
+    gradient_per_um: float = 0.0
+    mc_runs: int = 0
+    mc_seed: int = MC_SEED
 
     def __post_init__(self) -> None:
         if not math.isfinite(float(self.vdd)) or float(self.vdd) <= 0.0:
             raise ValueError("the CDAC testbench's vdd must be finite and positive")
         if self.window_s <= 4 * self.transition_time_s or self.waveform_sample_interval_s <= 0:
             raise ValueError("the CDAC testbench's window must hold its edges, and its sample interval be positive")
+        if min(self.pelgrom, self.gradient_per_um, self.mc_runs) < 0:
+            raise ValueError("the CDAC testbench's variation and Monte Carlo runs must not be negative")
 
     @property
     def stages(self) -> int:
@@ -97,6 +134,12 @@ class TbParams(pipeline.TbParams):
     def stop_s(self) -> float:
         """The run: a window before the first stage, two windows a stage."""
         return (2 * self.stages + 1) * self.window_s
+
+    @property
+    def astate(self) -> tuple[int, ...]:
+        """Each stage's state before it switches: the converter's A state, alternating from 0
+        (``flow.adc.model.AdcModel.tb``)."""
+        return tuple(stage % 2 for stage in range(self.stages))
 
     @property
     def load_f(self) -> float:

@@ -124,3 +124,53 @@ def test_the_record_plots_the_settling_and_the_model_by_stage():
     assert record.waves == {"settling": "settling"} and record.metrics["stages"] == 3
     with pytest.raises(RuntimeError, match="did not settle"):
         cdac.record({"settling": _rc((900e-12, 100e-12, 60e-12))})
+
+
+# a 4-bit binary DAC (three stages and the free first comparison) of 100 fF units
+UNIT_F = 100e-15
+BINARY = cdac.Params(
+    dac=_Dac(
+        driver=CapDriverParams(n_stages=3),
+        main_f=(4 * UNIT_F, 2 * UNIT_F, UNIT_F),
+        diff_f=(0.0, 0.0, 0.0),
+        parasitic_f=0.0,
+        weights=(4, 2, 1),
+    ),
+    adc_bits=4,
+)
+
+
+def _draws(main_p: np.ndarray, main_n: np.ndarray) -> Meas:
+    """A Monte Carlo measurement of ``BINARY`` whose runs drew these main plates (F, a row a run), as
+    ``flow.pipeline.read`` gives one: each plate's probe in fF, a value a run."""
+    tb = cdac.TbParams(params=BINARY, window_s=4e-9, waveform_sample_interval_s=1e-12, mc_runs=len(main_p))
+    v = {
+        f"cmain_{side}_{stage}.drawn": plates[:, stage] * 1e15
+        for side, plates in (("p", main_p), ("n", main_n))
+        for stage in range(3)
+    }
+    return Meas(
+        group=1,
+        index=None,
+        dut=BINARY,
+        info=MeasInfo(
+            backend="spice", timestamp_utc=datetime(2026, 10, 27, tzinfo=UTC), readbacks={"runs": len(main_p)}
+        ),
+        param=tb,
+        v=v,
+    )
+
+
+def test_nominal_draws_are_ideal_and_a_heavy_msb_leaves_a_gap_no_calibration_recovers():
+    nominal = np.tile(np.asarray(BINARY.dac.main_f), (2, 1))
+    heavy = nominal.copy()
+    heavy[1, 0] *= 1.25  # the second run's MSB a quarter unit heavy, both sides
+    result = cdac.analyze_mismatch(_draws(heavy, heavy))
+    assert result.runs == 2
+    # the nominal run: every code one LSB wide, nothing to recover
+    assert result.dac_inl_lsb[0] == pytest.approx(0.0, abs=1e-12) and result.inl_lsb[0] == pytest.approx(0.0, abs=1e-9)
+    assert result.gap_lsb[0] == pytest.approx(0.0, abs=1e-12) and result.missing_codes[0] == 0
+    # the heavy MSB: a binary array has no redundancy below it, so the mid-scale code widens past
+    # one LSB and no weight recovers it
+    assert result.gap_lsb[1] > 0.1 and result.dac_dnl_lsb[1] > 0.1
+    assert result.dac_inl_curve_lsb.shape == (8,)

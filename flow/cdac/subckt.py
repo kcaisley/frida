@@ -2,10 +2,12 @@
 plates of the design ``Params``.
 
 Each side has a main and a difference driver (``flow.capdriver``) of the array's stages; its plates
-are ideal capacitors at the array's extracted values; its top plate carries the array's other load
-to ground. The main plates follow each stage's state through the main drivers (their invert input
-``dac_invert``), the difference plates follow it through the difference drivers, inverted where
-``dac_diffcaps`` is high, as the ADC's.
+are FMOM capacitors (``flow.momcap``) at the array's extracted values, varying with a run's Monte
+Carlo (``flow.momcap.subckt.variation``) at their centroids on the die, ``cmain_<side>_<stage>`` and
+``cdiff_<side>_<stage>`` (each one's probe ``drawn`` reads its value back); its top plate carries
+the array's other load to ground. The main plates follow each stage's state through the main
+drivers (their invert input ``dac_invert``), the difference plates follow it through the difference
+drivers, inverted where ``dac_diffcaps`` is high, as the ADC's.
 """
 
 from dataclasses import replace
@@ -15,6 +17,7 @@ from hdl21.primitives import C
 
 from flow.capdriver.subckt import CapDriver
 from flow.circuit.ports import module_from_ports
+from flow.momcap.subckt import mom_cap
 
 from .params import Params, valid
 
@@ -63,9 +66,21 @@ def netlist(params: Params) -> h.Module:
     supplies = {"vdd": Cdac.vdd_dac, "vss": Cdac.vss_dac}
     for side in ("p", "n"):
         state, top = getattr(Cdac, f"dac_state_{side}"), getattr(Cdac, f"vdac_{side}")
-        for kind, invert, bottom, plates in (
-            ("main", Cdac.dac_invert, getattr(Cdac, f"dac_botplate_{side}"), dac.main_f),
-            ("diff", Cdac.dac_diffcaps, getattr(Cdac, f"dac_botplate_{side}_diff"), dac.diff_f),
+        for kind, invert, bottom, plates, placed in (
+            (
+                "main",
+                Cdac.dac_invert,
+                getattr(Cdac, f"dac_botplate_{side}"),
+                dac.main_f,
+                getattr(dac, f"main_{side}_um"),
+            ),
+            (
+                "diff",
+                Cdac.dac_diffcaps,
+                getattr(Cdac, f"dac_botplate_{side}_diff"),
+                dac.diff_f,
+                getattr(dac, f"diff_{side}_um"),
+            ),
         ):
             Cdac.add(
                 driver(dac_state=state, dac_drive=bottom, dac_drive_invert=invert, **supplies),
@@ -74,6 +89,8 @@ def netlist(params: Params) -> h.Module:
             for stage, plate in enumerate(plates):
                 # an ideal array has no difference plates: its drivers run unloaded
                 if plate > 0:
-                    Cdac.add(C(c=plate)(p=bottom[stage], n=top), name=f"c{kind}_{side}_{stage}")
+                    x_um, y_um = placed[stage] if placed else (0.0, 0.0)
+                    leaf = mom_cap(plate, varies=True, x_um=x_um, y_um=y_um)
+                    Cdac.add(leaf(PLUS=bottom[stage], MINUS=top, BULK=Cdac.vss_dac), name=f"c{kind}_{side}_{stage}")
         Cdac.add(C(c=dac.parasitic_f)(p=top, n=Cdac.vss_dac), name=f"cparasitic_{side}")
     return Cdac

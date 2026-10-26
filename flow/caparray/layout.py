@@ -235,6 +235,46 @@ def caparray_spec(params: CapArrayLayoutParams) -> dict[str, Any]:
     }
 
 
+def plate_centroids_um(
+    manifest: dict[str, Any],
+) -> tuple[tuple[tuple[float, float], ...], tuple[tuple[float, float], ...]]:
+    """Each stage's main and difference plate centroid (x, y in um, C0 first; (0, 0) for a plate
+    with no finger) of an array as its geometry manifest records it, from the array's centre: its
+    rows side by side in the drawn order (``caparray_spec``: the edge dummies, the stages by weight
+    with the lightest left, the edge dummies) a unit pitch apart; each row's main finger from one
+    end, lengthened by its weight in weight steps, and its difference finger from the other end,
+    shortened as much (a unary row of ``unary_length`` is one main finger); a plate's centroid
+    weights its fingers by their length."""
+
+    geometry, family = manifest["derived_geometry_nm"], manifest["unit_family"]
+    weights, chunks = manifest["weights_by_stage"], manifest["partitioned_weights_by_stage"]
+    pitch, nominal, step, gap = (geometry[key] for key in ("unit_pitch", "nominal_length", "weight_step", "end_gap"))
+    unary, coarse, dummies = family.get("unary_length"), family["coarse_weight"], family["edge_dummy_units"]
+    rows = 2 * dummies + sum(len(group) for group in chunks)
+    # each plate's finger length, and its length-weighted x and y, summed over its rows
+    sums = {kind: np.zeros((len(weights), 3)) for kind in ("main", "diff")}
+    row = dummies
+    for stage, _weight, group in _ordered_groups(weights, chunks):
+        for weight in group:
+            x = (row - (rows - 1) / 2) * pitch
+            main, diff = (
+                (unary, 0)
+                if unary is not None and weight == coarse
+                else (nominal + weight * step, nominal - weight * step)
+            )
+            sums["main"][stage] += (main, main * x, main * (main / 2 - (nominal + gap / 2)))
+            sums["diff"][stage] += (diff, diff * x, diff * (nominal + gap / 2 - diff / 2))
+            row += 1
+
+    def centroids(plate: np.ndarray) -> tuple[tuple[float, float], ...]:
+        return tuple(
+            (float(length_x / length) / 1000, float(length_y / length) / 1000) if length > 0 else (0.0, 0.0)
+            for length, length_x, length_y in plate
+        )
+
+    return centroids(sums["main"]), centroids(sums["diff"])
+
+
 def CapArrayLayout(params: CapArrayLayoutParams) -> db.Layout:
     """Build one arbitrary-width, rule-derived unit-length capacitor array (stems ``capcell``)."""
 

@@ -1,12 +1,12 @@
-"""The ADC's design space (``flow.sweep``), in TSMC65, by the behavioral model (``flow.adc.model``)
-of its characterized blocks: the plain product of its components, each converter given by its
-parameters.
+"""The ADC's design space (``flow.sweep``), by the behavioral model (``flow.adc.model``) of its
+characterized blocks: the plain product of its components, each converter given by its parameters;
+in TSMC65 the full product below, in the other PDKs a smaller one.
 
 Every converter samples on its top plates, makes one free comparison before any capacitor switches
 and fires the comparator again after the last one switches: an N-bit converter has an N-1-step DAC
 (``adc_bits = n_dac + 1``) and n_dac + n_extra + 1 decisions. Its arrays are the ADC study's
 (``flow.caparray.layout.ADC_ARRAYS``: three-metal unit-length arrays, each sized through its 3-D
-extraction in TSMC65 only, so the other PDKs give no instance; ``flow.caparray.sizing``). Every
+extraction in each PDK, ``flow.caparray.sizing``). Every
 array's full scale is at least 80 % of the reference and its sampled noise at most its quantization
 noise there: each resolution's least switched capacitance is the larger of the two constraints'
 for its most demanding array, and each array switches one or two times it (``cap_scale``) at the
@@ -32,7 +32,10 @@ The product, nothing pruned:
 - and FRIDA-1's array (``RADIX17``: 12 bits on MSB redistribution with 5 extra cycles, 17
   decisions) at two times the 12-bit least, near its drawn size.
 
-20 x 5 x (10 x 3 x 2 + 1) = 6,100 converters.
+20 x 5 x (10 x 3 x 2 + 1) = 6,100 converters in TSMC65. In the other PDKs, where the arrays and
+the blocks are the same study's but the comparator grid is the PDK's own (``flow.comp.sweep``), each
+array with the PDK's StrongARM noise ladder at about FRIDA-1's speed (``comparators``) and the widest
+bootstrapped switch (``samplers``): 244 to 305 converters a PDK.
 
 Each instance runs the campaign of ``flow.adc.campaign`` and draws its figures
 (``flow.adc.figures``) for the viewer; its captures stay in memory, so its run is its record.
@@ -90,16 +93,34 @@ def arrays(bits: int, cap_scale: int = 1) -> list[CapArrayConfig]:
     return adc_arrays(bits, cap_scale)
 
 
+def comparators(pdk: str) -> list[comp.Params]:
+    """The comparators of ``pdk``'s converters: TSMC65's grid (``COMPARATORS``); elsewhere the PDK's
+    StrongARM noise ladder at its longest tail (its comparator sweep's: 200 to 50 uV where its noise
+    floor reaches them, about 2 ns at 0.5 mV, FRIDA-1's speed)."""
+    if pdk == "tsmc65":
+        return list(COMPARATORS)
+    ladder = [params for _label, params in comp.base_strongarm.instances(pdk)]
+    longest = max(params.tail_l for params in ladder)
+    return [params for params in ladder if params.tail_l == longest]
+
+
+def samplers(pdk: str) -> list[samp.Params]:
+    """The samplers of ``pdk``'s converters: TSMC65's ladder (``SAMPLER_STEPS``); elsewhere the
+    bootstrapped switch's widest rung alone, so the array and the comparator set the converter."""
+    if pdk == "tsmc65":
+        return list(SAMPLER_STEPS)
+    return [list(samp.boost_ladder.instances(pdk))[-1][1]]
+
+
 def instances(pdk: str) -> list[AdcParams]:
     """Every comparator with every sampler and ADC array (``ADC_ARRAYS``: each resolution's arrays
-    at both scales, and FRIDA-1's), each at its resolution; none outside TSMC65, where the arrays
-    are extracted and the blocks characterized for them."""
-    if pdk != "tsmc65":
-        return []
+    at both scales, and FRIDA-1's), each at its resolution: in TSMC65 the full product, elsewhere
+    the PDK's smaller one (``comparators``, ``samplers``), each array sized through its extraction
+    there."""
     return [
-        AdcParams(adc_bits=cdac.n_dac + 1, cdac=cdac, samp=samp, comp=comp)
-        for comp in COMPARATORS
-        for samp in SAMPLER_STEPS
+        AdcParams(adc_bits=cdac.n_dac + 1, cdac=cdac, samp=sampler, comp=comparator)
+        for comparator in comparators(pdk)
+        for sampler in samplers(pdk)
         for cdac in ADC_ARRAYS.values()
     ]
 
@@ -181,6 +202,7 @@ def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
             unit_mismatch=capture.unit_mismatch,
             quiet=("sampling", "comparator") if capture.noise_free else capture.quiet,
             tau_scale=capture.tau_scale,
+            drawn=capture.drawn,
         )
     # the behavioral model alone can keep one noise source at a time
     for name, quiet in (("noise_sampling", ("comparator",)), ("noise_comparator", ("sampling",))):

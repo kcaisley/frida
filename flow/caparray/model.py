@@ -23,7 +23,7 @@ import numpy as np
 from flow.adc.behavioral import calc_capacitor_mismatch
 from flow.sweep.runner import ROOT
 
-from .layout import array_name
+from .layout import array_name, plate_centroids_um
 from .subckt import CapArrayConfig, get_caparray_weights
 
 EXTRACTIONS = ROOT / "build/layout/caparray/extract_adc_arrays"
@@ -42,6 +42,10 @@ class CapArrayModel:
     parasitic_f: float  # the top plate's other load: to the shield and to ground
     table: Path  # the extraction's capacitance table (``read_extracted_calibration`` reads it)
     outline_um: tuple[float, float] = (0.0, 0.0)  # the drawn array's boundary (width, height), one side's
+    # each stage's main and difference plate centroid (x, y um) from the array's centre (empty where
+    # its extraction kept no manifest; ``flow.caparray.layout.plate_centroids_um``)
+    main_xy_um: tuple[tuple[float, float], ...] = ()
+    diff_xy_um: tuple[tuple[float, float], ...] = ()
 
     @classmethod
     def of(cls, pdk: str, params: CapArrayConfig, *, layers: int = 3) -> CapArrayModel:
@@ -58,10 +62,10 @@ class CapArrayModel:
         if len(main_f) != len(get_caparray_weights(params)):
             raise ValueError(f"{tables[-1]} has {len(main_f)} stages, the array {len(get_caparray_weights(params))}")
         parasitic = (extracted["topplate_shield_ff"] + extracted["topplate_ground_ff"]) * 1e-15
-        manifest = tables[-1].with_name("geometry_manifest.json")
-        width_um, height_um = (
-            json.loads(manifest.read_text()).get("outline_um", (0.0, 0.0)) if manifest.exists() else (0.0, 0.0)
-        )
+        manifest_path = tables[-1].with_name("geometry_manifest.json")
+        manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+        width_um, height_um = manifest.get("outline_um", (0.0, 0.0))
+        main_xy, diff_xy = plate_centroids_um(manifest) if "derived_geometry_nm" in manifest else ((), ())
         return cls(
             pdk=pdk,
             params=params,
@@ -70,6 +74,8 @@ class CapArrayModel:
             parasitic_f=parasitic,
             table=tables[-1].with_suffix(".csv"),
             outline_um=(float(width_um), float(height_um)),
+            main_xy_um=main_xy,
+            diff_xy_um=diff_xy,
         )
 
     @property

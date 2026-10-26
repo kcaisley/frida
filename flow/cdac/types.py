@@ -80,3 +80,57 @@ class AnalysisSettling(Analysis):
                 for settling, delay, ratio in zip(self.settling_s, self.delay_s, ratios, strict=True)
             ]
         )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisMismatch(Analysis):
+    """The plates' Monte Carlo at one condition (``pelgrom``: Pelgrom's coefficient, a fraction;
+    ``gradient_per_um``): each run's drawn plates (F, a row a run, C0 first; zero where the design
+    has no plate) and what they give, a value a run:
+
+    - the DAC alone (``dac_*``): either side's capacitor DAC over all its control words, each placed
+      by its design weights (the decoder's halved), its worst |INL| and |DNL| (LSB of the DAC's
+      unit), the worse side's;
+    - the converter's static transfer with the design weights (``dnl_lsb``, ``inl_lsb``: worst |DNL|
+      and |INL|, ``missing_codes``): every decision path of the drawn sides in the SAR loop, from the
+      converter's A state;
+    - what no calibration recovers (``gap_lsb``): with every decision's true weight, the widest
+      decision path over the mean, less one LSB (Hsu's missing level).
+
+    ``dac_inl_curve_lsb`` and ``dac_dnl_curve_lsb`` are the DAC's INL and DNL by code of the run at
+    the 95th percentile of the DAC's worst INL (the worse side).
+    """
+
+    pelgrom: float
+    gradient_per_um: float
+    main_p_f: np.ndarray
+    diff_p_f: np.ndarray
+    main_n_f: np.ndarray
+    diff_n_f: np.ndarray
+    dac_inl_lsb: np.ndarray
+    dac_dnl_lsb: np.ndarray
+    dnl_lsb: np.ndarray
+    inl_lsb: np.ndarray
+    missing_codes: np.ndarray
+    gap_lsb: np.ndarray
+    dac_inl_curve_lsb: np.ndarray
+    dac_dnl_curve_lsb: np.ndarray
+
+    @property
+    def runs(self) -> int:
+        return len(self.gap_lsb)
+
+    @property
+    def dac_inl_p95_lsb(self) -> float:
+        """The DAC's worst INL, its 95th percentile over the runs."""
+        return float(np.nanpercentile(self.dac_inl_lsb, 95))
+
+    @property
+    def inl_p95_lsb(self) -> float:
+        """The converter's worst INL with its design weights, its 95th percentile over the runs."""
+        return float(np.nanpercentile(self.inl_lsb, 95))
+
+    @property
+    def gap_p95_lsb(self) -> float:
+        """What no calibration recovers, its 95th percentile over the runs."""
+        return float(np.nanpercentile(self.gap_lsb, 95))

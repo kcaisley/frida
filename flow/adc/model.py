@@ -76,6 +76,11 @@ class Reference:
 IDEAL_REFERENCE = Reference()
 # what ``AdcModel.behavioral``'s ``quiet`` silences or makes ideal
 QUIET = frozenset({"sampler", "sampling", "comparator", "comparator_noise"})
+# the array a converter calibrates on (``AdcModel.drawn``): of its CDAC's Monte Carlo
+# (``flow.cdac``), the middle condition's draw (0.5 %·sqrt(fF), 50 ppm/mm) at the 90th percentile
+# of what no calibration recovers
+DRAWN_RUN = "mc_a5_g50"
+DRAWN_PERCENTILE = 90.0
 
 
 @dataclass(frozen=True)
@@ -89,6 +94,9 @@ class AdcModel:
     cdac: CapArrayModel
     drivers: tuple[CapDriverModel, ...]
     settling: cdac_model.Model | None = None  # the DAC's SPICE settling by stage; None: the RC estimate
+    # the plates the converter calibrates on, (main, diff) for the P side then the N side: its CDAC's
+    # Monte Carlo draw (DRAWN_RUN at DRAWN_PERCENTILE, drawn in SPICE); None where none is characterized
+    drawn: tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]] | None = None
 
     @classmethod
     def of(cls, pdk: str, params: AdcParams, *, simulate: bool = True) -> AdcModel:
@@ -111,7 +119,14 @@ class AdcModel:
                 f"the DAC's settling is not characterized ({error}); it settles by the RC estimate instead",
                 stacklevel=2,
             )
-            settling = None
+            dac, settling = None, None
+        try:
+            drawn = cdac_model.Model.drawn(pdk, dac, DRAWN_RUN, DRAWN_PERCENTILE) if dac is not None else None
+        except (KeyError, LookupError, OSError) as error:
+            warnings.warn(
+                f"the DAC's Monte Carlo is not characterized ({error}); its draws convert nominal", stacklevel=2
+            )
+            drawn = None
         return cls(
             pdk=pdk,
             params=params,
@@ -120,6 +135,7 @@ class AdcModel:
             cdac=array,
             drivers=stage_drivers(pdk, driver, np.maximum(array.main_f, array.diff_f), simulate=simulate),
             settling=settling,
+            drawn=drawn,
         )
 
     @property
@@ -194,8 +210,10 @@ class AdcModel:
         quiet: tuple[str, ...] = (),
         tau_scale: float = 1.0,
         reference: Reference | None = None,
+        drawn: bool = False,
     ) -> AdcBehavioralParams:
-        """The behavioral ADC: one capacitor draw from ``seed`` (none where ``unit_mismatch`` is 0);
+        """The behavioral ADC: the CDAC's SPICE draw where ``drawn`` (``AdcModel.drawn``; nominal
+        where there is none), else one capacitor draw from ``seed`` (none where ``unit_mismatch`` is 0);
         ``quiet`` silences the "sampling" noise (kT/C and the aperture jitter) or the comparator's
         noise alone ("comparator_noise": its delay stays, so a late decision
         still holds the last bit), or makes the "comparator" ideal (no noise, never late) or the
@@ -207,8 +225,11 @@ class AdcModel:
             raise ValueError(f"nothing to quiet by {sorted(unknown)}: expected some of {sorted(QUIET)}")
         rng = np.random.default_rng(seed)
         plates = {}
-        for side in ("p", "n"):
-            main, diff = self.cdac.draw(unit_mismatch=unit_mismatch, rng=rng)
+        for index, side in enumerate(("p", "n")):
+            if drawn:
+                main, diff = self.drawn[index] if self.drawn is not None else (self.cdac.main_f, self.cdac.diff_f)
+            else:
+                main, diff = self.cdac.draw(unit_mismatch=unit_mismatch, rng=rng)
             plates |= {f"main_{side}_f": tuple(map(float, main)), f"diff_{side}_f": tuple(map(float, diff))}
         samp = self.samp.behavioral(load_f=self.cdac.load_f)
         comp = self.comp.behavioral(vin_cm_v=float(tb.vin_cm.dc))
@@ -262,14 +283,21 @@ class AdcModel:
         quiet: tuple[str, ...] = (),
         tau_scale: float = 1.0,
         reference: Reference | None = None,
+        drawn: bool = False,
     ) -> MeasAdc:
         """Convert every conversion of ``tb`` and write the MeasAdc with its supply power to ``path``
         (kept in memory alone where it is None); its ``cap_table`` readback is the array's
-        extraction, the decoding's "extracted" weights. ``quiet``, ``tau_scale`` and ``reference``:
-        as ``behavioral``'s."""
+        extraction, the decoding's "extracted" weights. ``quiet``, ``tau_scale``, ``reference`` and
+        ``drawn``: as ``behavioral``'s."""
 
         params = self.behavioral(
-            tb, seed=seed, unit_mismatch=unit_mismatch, quiet=quiet, tau_scale=tau_scale, reference=reference
+            tb,
+            seed=seed,
+            unit_mismatch=unit_mismatch,
+            quiet=quiet,
+            tau_scale=tau_scale,
+            reference=reference,
+            drawn=drawn,
         )
         if noise_seed is not None:
             params = AdcBehavioralParams(**{**params.__dict__, "seed": noise_seed})
@@ -289,6 +317,7 @@ class AdcModel:
         readbacks: dict[str, str | int | float | bool] = {
             "cap_table": str(self.cdac.table),
             "unit_mismatch": unit_mismatch,
+            "drawn": bool(drawn and self.drawn is not None),
             "tau_scale": tau_scale,
             "pdk": self.pdk,
         }

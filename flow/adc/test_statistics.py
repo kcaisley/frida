@@ -3,7 +3,8 @@
 import numpy as np
 
 from flow.adc.behavioral import calc_capacitor_mismatch
-from flow.adc.statistics import MismatchStatistics, calc_drawn_linearity, calc_paths
+from flow.adc.statistics import MismatchStatistics
+from flow.analysis.calc import calc_drawn_linearity, calc_paths
 
 UNIT_F = 1e-15
 CODE_MAX = 63  # six bits: five capacitors and the free first comparison

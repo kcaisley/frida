@@ -2,9 +2,11 @@
 (``AdcTbParams``) from a builder, the same for a SPICE run of ``AdcTb`` and for the behavioral
 model (``flow.adc.model``), each of which turns one into a ``MeasAdc``.
 
-- ``ramp_train`` and ``ramp_check``: eight full-scale sawtooth periods with one Harpe capacitor
-  draw, independent noise: the code density, INL and DNL, and the calibrations learned from the
-  training ramp and checked on the other.
+- ``ramp_train`` and ``ramp_check``: eight full-scale sawtooth periods on the CDAC's SPICE draw
+  (``AdcModel.drawn``: its Monte Carlo's middle condition, the draw at the 90th percentile of what
+  no calibration recovers), independent noise: the code density, INL and DNL, and the calibrations
+  learned from the training ramp and checked on the other.
+- ``drawn_sine``: the nominal rate's sine on that draw: its ENOB before and after the calibration.
 - ``rate_<MS/s>``: a -0.5 dBFS sine near fs/8 at ten rates, 1 to 10 MS/s: ENOB and power
   over the rate.
 - ``fin_<MS/s>_<cycles>``: the sine at nine input frequencies up to Nyquist at 2, 6 and 10 MS/s.
@@ -55,7 +57,7 @@ FIN_CYCLES = (31, 101, 257, 509, 1021, 1531, 2039, 3067, 4013)
 SINE_CONVERSIONS = 8_192
 RAMP_CONVERSIONS = 1 << 19
 NOMINAL_RATE_HZ = 10e6
-# Harpe's unit-length MOM mismatch (0.10 %·sqrt(fF)) for the ramps' capacitor draw
+# Harpe's unit-length MOM mismatch (0.10 %·sqrt(fF)): the predicted mismatch statistics' coefficient
 UNIT_MISMATCH = 0.0010
 # the mismatch study's Pelgrom coefficients: Harpe's 0.10 % (JSSC 2018, unit-length MOM, 65 nm)
 # and Tripathi and Murmann's 0.85 % (TCAS-I 2014, single-layer lateral MOM), around and between
@@ -92,10 +94,10 @@ LADDER = (
 
 @dataclass(frozen=True)
 class Capture:
-    """One capture: its testbench, its capacitor draw (``seed``, at ``unit_mismatch``), its noise
-    seed, whether it has noise at all, the sources it silences otherwise (``quiet``, as
-    ``AdcModel.behavioral``'s) and its DAC settling time constants' scale (1: the array's own, 0:
-    ideal settling, the Hsu study's reference)."""
+    """One capture: its testbench, its capacitor draw (``seed``, at ``unit_mismatch``; or the CDAC's
+    SPICE draw, ``drawn``), its noise seed, whether it has noise at all, the sources it silences
+    otherwise (``quiet``, as ``AdcModel.behavioral``'s) and its DAC settling time constants' scale
+    (1: the array's own, 0: ideal settling, the Hsu study's reference)."""
 
     tb: AdcTbParams
     seed: int = 0
@@ -104,6 +106,7 @@ class Capture:
     noise_free: bool = False  # no sampling or comparator noise: the capacitors' nonlinearity alone
     quiet: tuple[str, ...] = ()
     tau_scale: float = 1.0
+    drawn: bool = False
 
 
 Builder = Callable[..., AdcTbParams]  # (conversions=, rate_hz=, vin_diff=) -> AdcTbParams
@@ -128,7 +131,7 @@ def campaign(
             tb(conversions=ramp_conversions, rate_hz=NOMINAL_RATE_HZ, vin_diff=ramp),
             seed=1,
             noise_seed=noise_seed,
-            unit_mismatch=UNIT_MISMATCH,
+            drawn=True,
         )
         for role, noise_seed in (("ramp_train", 1), ("ramp_check", 1001))
     }
@@ -143,6 +146,8 @@ def campaign(
     # the ladder's steps but the last, which is the nominal rate's sine itself: its testbench and
     # seeds, fewer impairments
     nominal = captures[ladder_names()[-1]]
+    # the nominal rate's sine on the draw the ramps calibrate on
+    captures["drawn_sine"] = replace(nominal, drawn=True)
     for step, (_, _, quiet, tau_scale) in enumerate(LADDER[:-1]):
         captures[f"ladder_{step}"] = replace(nominal, quiet=quiet, tau_scale=tau_scale)
     for rate in FIN_RATES_HZ:

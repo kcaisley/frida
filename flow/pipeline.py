@@ -15,6 +15,7 @@ the CDAC's), which add their own per-row arrays to it.
 from __future__ import annotations
 
 import itertools
+import re
 from abc import ABC
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields
@@ -271,30 +272,45 @@ class Meas:
 
 
 def read(raw: Path, tb: TbParams) -> Meas:
-    """A simulation's raw transient (Spectre's nutbin) as a measurement of the testbench ``tb``:
-    every saved signal on the simulator's own time axis, named by its net (``xtop.<net>`` and
-    ``xtop.dut.<net>`` as ``<net>``; a supply source's current ``xtop.v<net>:p`` as ``i[<net>]``,
-    positive for current drawn), the design ``tb.params``, Monte Carlo seed and iteration where
-    ``tb`` has them."""
+    """A simulation's raw output (Spectre's nutbin) as a measurement of the testbench ``tb``: its
+    one transient, every saved signal on the simulator's own time axis; or its Monte Carlo of
+    operating points (the plots ``mc-<run>_<analysis>``), every saved signal one value a run, in
+    the runs' order (``time_s`` empty; ``readbacks["runs"]`` their count). Signals are named by
+    their net (``xtop.<net>`` and ``xtop.dut.<net>`` as ``<net>``; a supply source's current
+    ``xtop.v<net>:p`` as ``i[<net>]``, positive for current drawn); the design ``tb.params``,
+    Monte Carlo seed and iteration where ``tb`` has them."""
 
     from vlsirtools.spice.spectre import parse_nutbin
 
     raw = Path(raw)
     with raw.open("rb") as stream:
-        plots = [plot for plot in parse_nutbin(stream).values() if "time" in plot.data]
-    if len(plots) != 1:
-        raise ValueError(f"{raw} must hold exactly one transient")
-    data = plots[0].data
-    time_s = np.asarray(data["time"], dtype=np.float64)
+        plots = parse_nutbin(stream)
+    transients = [plot for plot in plots.values() if "time" in plot.data]
+    runs = sorted(
+        (int(match.group(1)), plot)
+        for name, plot in plots.items()
+        if (match := re.match(r"mc-(\d+)_", name)) and "time" not in plot.data
+    )
+    if len(transients) == 1:
+        data = {name: np.asarray(values, dtype=np.float64) for name, values in transients[0].data.items()}
+        time_s = data.pop("time")
+    elif not transients and runs:
+        names = set(runs[0][1].data) - {"dummy"}
+        data = {
+            name: np.asarray([np.ravel(plot.data[name])[0] for _, plot in runs], dtype=np.float64) for name in names
+        }
+        time_s = np.zeros(0)
+    else:
+        raise ValueError(f"{raw} must hold exactly one transient or one Monte Carlo of operating points")
     v, i = {}, {}
     for name, values in data.items():
-        if name == "time":
-            continue
-        values = np.asarray(values, dtype=np.float64)
         if name.endswith(":p") and name.startswith("xtop.v"):
             i[name.removeprefix("xtop.v").removesuffix(":p")] = -values
         else:
             v[name.removeprefix("xtop.").removeprefix("dut.")] = values
+    readbacks: dict[str, str | int | float | bool] = {"raw_file": raw.name, "raw_points": len(time_s)}
+    if runs:
+        readbacks["runs"] = len(runs)
     return Meas(
         group=getattr(tb, "mc_seed", None),
         index=getattr(tb, "mc_index", None),
@@ -303,7 +319,7 @@ def read(raw: Path, tb: TbParams) -> Meas:
             backend="spice",
             timestamp_utc=datetime.fromtimestamp(raw.stat().st_mtime, tz=UTC),
             instruments={"simulator": "Spectre"},
-            readbacks={"raw_file": raw.name, "raw_points": len(time_s)},
+            readbacks=readbacks,
         ),
         param=tb,
         time_s=time_s,

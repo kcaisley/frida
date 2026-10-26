@@ -70,3 +70,23 @@ def test_the_adc_settles_each_stage_by_its_characterization_and_falls_back_to_rc
     rc = AdcModel(**blocks)
     assert rc.stage_delay_s == (20e-12,) * stages
     assert rc.stage_tau_s != spice.stage_tau_s
+
+
+def test_a_converter_calibrates_on_the_monte_carlo_draw_at_its_percentile(monkeypatch):
+    """``Model.drawn``: of a characterization's Monte Carlo run, the draw at a percentile of what no
+    calibration recovers (the converter's INL breaking ties), both sides' plates."""
+    import pytest
+
+    from .test_analysis import BINARY, _draws
+
+    nominal = np.asarray(BINARY.dac.main_f)
+    # three runs: the MSB 0 %, 30 % and 15 % heavy, so what no calibration recovers ranks them 0, 2, 1
+    main = np.vstack([nominal * np.r_[1 + heavy, 1.0, 1.0] for heavy in (0.0, 0.3, 0.15)])
+    monkeypatch.setattr(cdac_model, "characterized", lambda *args, **kwargs: {"waves": {"mc_a5_g50": "mc.h5"}})
+    monkeypatch.setattr(cdac_model, "read_measurement", lambda path: _draws(main, main))
+    (main_p, diff_p), (main_n, _diff_n) = cdac_model.Model.drawn("tsmc65", BINARY, "mc_a5_g50", 100.0)
+    assert np.allclose(main_p, main[1]) and np.allclose(main_n, main[1]) and not diff_p.any()
+    (main_p, _), _ = cdac_model.Model.drawn("tsmc65", BINARY, "mc_a5_g50", 50.0)
+    assert np.allclose(main_p, main[2])
+    with pytest.raises(LookupError):
+        cdac_model.Model.drawn("tsmc65", BINARY, "mc_a10_g100", 50.0)

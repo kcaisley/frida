@@ -95,95 +95,9 @@ from scipy.special import ndtr
 
 from flow.adc.behavioral import calc_redundancy_margins
 from flow.analysis import calc
+from flow.analysis.calc import calc_paths
 
 FEMTO = 1e-15
-# thresholds closer than this (LSB) are one
-TIE_LSB = 1e-6
-
-
-@dataclass(frozen=True)
-class Paths:
-    """Every decision path of one conversion that some input takes, by the input interval it
-    holds (LSB), in input order."""
-
-    decisions: np.ndarray  # (paths, decisions) 0 or 1, the first decision first
-    lower: np.ndarray  # the input where the path starts (-inf for the lowest)
-    upper: np.ndarray
-    lower_stage: np.ndarray  # the decision whose threshold is the lower edge (-1: none)
-    upper_stage: np.ndarray
-    code: np.ndarray  # the output code the design weights decode it to
-
-
-def calc_paths(a_lsb, b_lsb, weights, code_max: int) -> Paths:
-    """Each decision path that some input takes, with the p and n sides' steps ``a_lsb`` and
-    ``b_lsb`` (LSB, C0 first) and the decoder's ``weights`` (one a decision): each comparator
-    splits the input interval a path still holds at its threshold, and empty halves are dropped."""
-    a, b = np.asarray(a_lsb, dtype=np.float64), np.asarray(b_lsb, dtype=np.float64)
-    weights = np.asarray(weights, dtype=np.float64)
-    stages = len(a)
-    if len(b) != stages or len(weights) != stages + 1:
-        raise ValueError("expected one step a side per capacitor and one weight a decision")
-    lower, upper = np.array([-np.inf]), np.array([np.inf])
-    lower_stage, upper_stage = np.array([-1]), np.array([-1])
-    reference = np.zeros(1)
-    decisions = np.zeros((1, 0), dtype=np.int8)
-    for k in range(stages + 1):
-        # decided 0 below the threshold, 1 above it; the threshold is the new edge where it cuts
-        # (a threshold within TIE_LSB of an edge already there is that edge: redundant arrays put
-        # thresholds of different decisions on one input, and rounding would open slivers there)
-        cuts_upper = reference < upper - TIE_LSB
-        cuts_lower = reference > lower + TIE_LSB
-        below_upper = np.where(cuts_upper, reference, upper)
-        below_upper_stage = np.where(cuts_upper, k, upper_stage)
-        above_lower = np.where(cuts_lower, reference, lower)
-        above_lower_stage = np.where(cuts_lower, k, lower_stage)
-        below = cuts_lower
-        above = cuts_upper
-        lower, upper, lower_stage, upper_stage = (
-            np.concatenate((lower[below], above_lower[above])),
-            np.concatenate((below_upper[below], upper[above])),
-            np.concatenate((lower_stage[below], above_lower_stage[above])),
-            np.concatenate((below_upper_stage[below], upper_stage[above])),
-        )
-        decisions = np.concatenate(
-            (
-                np.column_stack((decisions[below], np.zeros(np.count_nonzero(below), dtype=np.int8))),
-                np.column_stack((decisions[above], np.ones(np.count_nonzero(above), dtype=np.int8))),
-            )
-        )
-        if k < stages:
-            reference = np.concatenate((reference[below] - a[k], reference[above] + b[k]))
-    order = np.argsort(lower, kind="stable")
-    code = np.clip(np.rint(decisions[order] @ weights * code_max / np.sum(weights)), 0, code_max).astype(np.int64)
-    return Paths(decisions[order], lower[order], upper[order], lower_stage[order], upper_stage[order], code)
-
-
-def calc_side_steps(main_f, diff_f, parasitic_f: float, code_max: int, *, diffcaps: bool = True, nominal=None):
-    """One side's steps in the nominal array's LSB: each capacitor's share of the side's load,
-    (main - diff) / (sum(main) + sum(diff) + parasitic) (main + diff where the difference plate
-    moves with the main one), scaled so the nominal steps are c 2^bits / (2 sum(c)). ``nominal``
-    (main, diff) sets the LSB; the array itself where not given."""
-    main, diff = np.asarray(main_f, dtype=np.float64), np.asarray(diff_f, dtype=np.float64)
-    sign = -1.0 if diffcaps else 1.0
-    nominal_main, nominal_diff = (main, diff) if nominal is None else map(np.asarray, nominal)
-    load = np.sum(nominal_main) + np.sum(nominal_diff) + parasitic_f
-    lsb_per_share = (code_max + 1) * load / (2 * np.sum(nominal_main + sign * nominal_diff))
-    return (main + sign * diff) / (np.sum(main) + np.sum(diff) + parasitic_f) * lsb_per_share
-
-
-def calc_drawn_linearity(sides, parasitic_f: float, weights, code_max: int, *, diffcaps: bool = True, nominal=None):
-    """The exact DNL and INL (LSB, codes 1 to code_max - 1, as the ramp's code density grades
-    them) and the missing codes of one drawn array: ``sides`` the p and n sides' (main, diff)
-    capacitances, ``nominal`` the design's (main, diff) for the LSB."""
-    (main_p, diff_p), (main_n, diff_n) = sides
-    a = calc_side_steps(main_p, diff_p, parasitic_f, code_max, diffcaps=diffcaps, nominal=nominal)
-    b = calc_side_steps(main_n, diff_n, parasitic_f, code_max, diffcaps=diffcaps, nominal=nominal)
-    paths = calc_paths(a, b, weights, code_max)
-    active = (paths.code > 0) & (paths.code < code_max)
-    widths = np.bincount(paths.code[active], weights=(paths.upper - paths.lower)[active], minlength=code_max + 1)
-    widths = widths[1:code_max]
-    dnl = calc.dnl(widths)
-    return dnl, calc.inl(dnl), int(np.count_nonzero(widths <= 0))
 
 
 def _sum_of_folded_normals_quantile(means, scales, quantile: float, points: int = 1 << 14) -> float:

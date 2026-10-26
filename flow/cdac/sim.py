@@ -5,7 +5,10 @@ The testbench drives both sides' states, every stage up and back down in its tur
 high (the main plates follow the states, the difference plates their complement), and bleeds both
 top plates to mid-supply. ``simulate`` runs it in Spectre and leaves Spectre's raw output on disk:
 the nets ``Nets`` marks to save (both top plates, the P side's states and main bottom plates, a
-bit per stage), every ``TbParams.waveform_sample_interval_s``, Spectre's step bounded to it.
+bit per stage), every ``TbParams.waveform_sample_interval_s``, Spectre's step bounded to it; or,
+for a Monte Carlo run (``TbParams.mc_runs``), each run's operating point with every plate's probe
+(``flow.momcap``: its drawn value in fF), Spectre's runs a plot each. Every run sets the plates'
+variation (``flow.momcap.subckt.variation``), none where the testbench gives none.
 """
 
 import importlib
@@ -17,6 +20,7 @@ from hdl21.primitives import R, Vdc, Vpulse
 from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
 from flow.circuit.ports import testbench_from_ports
+from flow.momcap.subckt import variation
 
 from .params import BLEED_OHM, ERRPRESET, TOLERANCES, TbParams
 from .subckt import Nets, netlist
@@ -52,10 +56,12 @@ def testbench(tb: TbParams) -> h.Module:
 
 
 def simulate(tb: TbParams, run_dir: Path) -> Path:
-    """Run ``testbench(tb)`` in Spectre in ``run_dir``: its raw transient, in nutbin, on disk.
+    """Run ``testbench(tb)`` in Spectre in ``run_dir``: its raw output, in nutbin, on disk.
 
-    The nets ``Nets`` marks to save, a bit a stage where they have one; the output strobed every
-    ``tb.waveform_sample_interval_s``, the step bounded to it, at the tolerances ``TOLERANCES``.
+    The settling run: the nets ``Nets`` marks to save, a bit a stage where they have one; the output
+    strobed every ``tb.waveform_sample_interval_s``, the step bounded to it, at the tolerances
+    ``TOLERANCES``. A Monte Carlo run (``tb.mc_runs``): every plate's probe at each run's operating
+    point, from ``tb.mc_seed``.
     """
 
     pdk = importlib.import_module(f"pdk.{tb.pdk}")
@@ -64,11 +70,39 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
     h.pdk.set_default(pdk.pdk_logic)
     bench = testbench(tb)
     h.pdk.compile(bench)
-    saved = [net for net in Nets.signals.values() if net.props.get("save")]
-    saves = [f"xtop.{net.name}" for net in saved if not net.props.get("stages")] + [
-        f"xtop.{net.name}_{stage}" for stage in range(tb.stages) for net in saved if net.props.get("stages")
-    ]
-    interval = tb.waveform_sample_interval_s
+    dac = tb.params.dac
+    if tb.mc_runs:
+        # every plate's drawn value, each run's operating point
+        saves = [
+            f"xtop.dut.c{kind}_{side}_{stage}.drawn"
+            for side in ("p", "n")
+            for kind, plates in (("main", dac.main_f), ("diff", dac.diff_f))
+            for stage, plate in enumerate(plates)
+            if plate > 0
+        ]
+        analysis = hs.MonteCarlo(
+            inner=[hs.Op(name="op")],
+            npts=tb.mc_runs,
+            seed=tb.mc_seed,
+            name="mc",
+            options={"savefamilyplots": "yes"},
+        )
+    else:
+        saved = [net for net in Nets.signals.values() if net.props.get("save")]
+        saves = [f"xtop.{net.name}" for net in saved if not net.props.get("stages")] + [
+            f"xtop.{net.name}_{stage}" for stage in range(tb.stages) for net in saved if net.props.get("stages")
+        ]
+        interval = tb.waveform_sample_interval_s
+        analysis = hs.Tran(
+            tstop=tb.stop_s,
+            name="tran",
+            options={
+                "strobeperiod": interval,
+                "maxstep": interval,
+                "strobeoutput": "strobeonly",
+                "errpreset": ERRPRESET,
+            },
+        )
     attrs = [
         install.include(h.pdk.Corner.TYP),
         # what else the PDK's simulations take, in this order: TSMC's pre-simulation settings, its
@@ -81,17 +115,9 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
         hs.Options(name="temp", value=25.0),
         hs.Options(name="save", value="selected"),
         *(hs.Options(name=name, value=value) for name, value in TOLERANCES.items()),
+        *variation(pelgrom=tb.pelgrom, gradient_per_um=tb.gradient_per_um),
         hs.Save(saves),
-        hs.Tran(
-            tstop=tb.stop_s,
-            name="tran",
-            options={
-                "strobeperiod": interval,
-                "maxstep": interval,
-                "strobeoutput": "strobeonly",
-                "errpreset": ERRPRESET,
-            },
-        ),
+        analysis,
     ]
     try:
         hs.Sim(tb=bench, attrs=attrs).run(
@@ -99,7 +125,8 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
                 simulator=SupportedSimulators.SPECTRE,
                 fmt=ResultFormat.NONE,
                 rundir=run_dir,
-                simulator_args=("-format", "nutbin", "+escchars", "+log", "spectre.log"),
+                # wait up to an hour for a license: other runs share the server's
+                simulator_args=("-format", "nutbin", "+lqtimeout", "3600", "+escchars", "+log", "spectre.log"),
             )
         )
     except SimError as error:

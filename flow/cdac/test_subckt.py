@@ -38,8 +38,10 @@ def test_both_sides_switch_their_plates_through_a_main_and_a_difference_driver()
                     assert name not in module.instances
                     continue
                 cap = module.instances[name]
-                assert float(cap.of.params.c) == pytest.approx(plate)
-                assert cap.conns["p"].index == stage and cap.conns["n"] is top
+                # a varying FMOM leaf at the plate's extracted value, its shield on the DAC's ground
+                assert cap.of.cap.of.params.c.text.startswith(f"{plate:.9g}*(1 + mom_pelgrom")
+                assert cap.conns["PLUS"].index == stage and cap.conns["MINUS"] is top
+                assert cap.conns["BULK"] is module.vss_dac
         assert float(module.instances[f"cparasitic_{side}"].of.params.c) == pytest.approx(dac.parasitic_f)
     h.elaborate(module)
 
@@ -71,3 +73,29 @@ def test_mismatched_or_negative_capacitances_are_refused():
         with pytest.raises(ValueError):
             cdac.netlist(params)
     assert cdac.valid(PARAMS) and not cdac.valid(cdac.Params(dac=dac, adc_bits=0))
+
+
+def test_each_plate_varies_at_its_centroid_and_a_wrong_placement_is_refused():
+    dac = PARAMS.dac
+    placed = tuple((10.0 * stage, -5.0) for stage in range(3))
+    params = cdac.Params(
+        dac=_Dac(
+            driver=dac.driver,
+            main_f=dac.main_f,
+            diff_f=dac.diff_f,
+            parasitic_f=dac.parasitic_f,
+            main_p_um=placed,
+            diff_p_um=placed,
+            main_n_um=tuple((-x, y) for x, y in placed),
+            diff_n_um=tuple((-x, y) for x, y in placed),
+        ),
+        adc_bits=10,
+    )
+    module = cdac.netlist(params)
+    assert "mom_gradient*(20*mom_gx + -5*mom_gy)" in module.instances["cmain_p_2"].of.cap.of.params.c.text
+    assert "mom_gradient*(-20*mom_gx + -5*mom_gy)" in module.instances["cmain_n_2"].of.cap.of.params.c.text
+    short = cdac.Params(
+        dac=_Dac(driver=dac.driver, main_f=dac.main_f, diff_f=dac.diff_f, parasitic_f=0.0, main_p_um=placed[:2]),
+        adc_bits=10,
+    )
+    assert not cdac.valid(short)

@@ -12,7 +12,6 @@ from flow.sweep.runner import design_space, digest
 
 def test_the_design_space_is_the_plain_product() -> None:
     adcs = sweep.instances("tsmc65")
-    assert all(not sweep.instances(pdk) for pdk in ("tsmc28", "ihp130", "tower180", "lf150", "tpsc65"))
     assert sweep.COMPARATORS == sweep.COMP_GRID and len(sweep.SAMPLER_STEPS) == 5
     assert len(adcs) == len(sweep.COMPARATORS) * 5 * (10 * 3 * 2 + 1) == 6_100
     assert len({digest(adc) for adc in adcs}) == len(adcs)
@@ -27,6 +26,18 @@ def test_the_design_space_is_the_plain_product() -> None:
     assert {(adc.comp, adc.samp, adc.cdac) for adc in adcs} == {
         (comp, samp, cdac) for comp in sweep.COMPARATORS for samp in sweep.SAMPLER_STEPS for cdac in arrays
     }
+
+
+def test_elsewhere_each_array_takes_the_pdks_strongarm_ladder_and_the_widest_switch() -> None:
+    arrays = list(ADC_ARRAYS.values())
+    for pdk in ("tsmc28", "ihp130", "tower180", "lf150", "tpsc65"):
+        adcs = sweep.instances(pdk)
+        ladder = [params for _label, params in comp.base_strongarm.instances(pdk)]
+        longest = max(params.tail_l for params in ladder)
+        assert sweep.comparators(pdk) == [params for params in ladder if params.tail_l == longest]
+        assert len(sweep.samplers(pdk)) == 1 and sweep.samplers(pdk)[0].mos_w == 160
+        assert len(adcs) == len(sweep.comparators(pdk)) * len(arrays) in (244, 305)
+        assert {adc.cdac for adc in adcs} == set(arrays)
 
 
 def test_each_resolution_takes_binary_and_three_schemes_with_two_four_and_six_extra_cycles() -> None:

@@ -291,6 +291,45 @@ def test_the_reference_kickback_needs_both_a_slow_driver_and_a_small_decap() -> 
     assert np.array_equal(reference_codes(vin_v, 50, reference_c_f=10e-12), ideal)
 
 
+def test_a_drawn_arrays_exact_transfer_is_the_noise_free_converters() -> None:
+    """The decision paths of a drawn array (``calc_paths``, with each stage's A state) give the
+    decisions the behavioral converter makes, ideal sampler and comparator, at every input: a stage
+    held at 1 moves the other side's capacitor."""
+    from flow.analysis.calc import calc_decision_steps, calc_paths
+
+    stages = len(get_caparray_weights(TB.dut.cdac))
+    astate = (0, 1) * (stages // 2) + (0,) * (stages % 2)
+    tb = AdcTbParams(**{**TB.__dict__, "dac_astate_p": astate, "dac_astate_n": astate})
+    rng = np.random.default_rng(5)
+    main_f, diff_f = calc_ideal_capacitances(tb.dut.cdac)
+    drawn = {
+        side: (
+            calc_capacitor_mismatch(main_f, unit_mismatch=0.01, rng=rng),
+            calc_capacitor_mismatch(diff_f, unit_mismatch=0.01, rng=rng),
+        )
+        for side in ("p", "n")
+    }
+    cdac = CdacBehavioralParams(
+        **{
+            f"{kind}_{side}_f": tuple(drawn[side][index])
+            for side in drawn
+            for index, kind in enumerate(("main", "diff"))
+        }
+    )
+    params = AdcBehavioralParams(tb=tb, comp=CompBehavioralParams(noise_v=0.0), cdac=cdac)
+    code_max = (1 << tb.dut.adc_bits) - 1
+    full_scale_v, lsb_v = full_scale_and_lsb()
+    vin_v = np.linspace(-full_scale_v, full_scale_v, 20_011)
+    bout = convert_behavioral(params, vin_v).bout
+    weights = np.append(2 * np.asarray(get_caparray_weights(tb.dut.cdac), dtype=np.float64), 1.0)
+    a, b = calc_decision_steps(
+        (drawn["p"], drawn["n"]), 0.0, code_max, diffcaps=bool(tb.dac_diffcaps), nominal=(main_f, diff_f), astate=astate
+    )
+    paths = calc_paths(a, b, weights, code_max)
+    exact = paths.decisions[np.searchsorted(paths.lower, vin_v / lsb_v, side="right") - 1]
+    assert np.array_equal(exact, bout)
+
+
 def test_the_reference_noise_leaves_the_other_sources_draws_alike() -> None:
     """The reference's noise draws from a stream of its own: a negligible one changes no decision
     the comparator's noise makes."""
@@ -333,6 +372,13 @@ def test_the_model_quiets_each_source_alone_and_scales_the_settling() -> None:
         ),
         drivers=tuple(SimpleNamespace(resistance_ohm=1.0, intrinsic_delay_s=20e-12, energy_j=0.0) for _ in main_f),
     )
+    # the CDAC's SPICE draw where a capture asks for it, the nominal plates where none is characterized
+    from dataclasses import replace
+
+    heavy = (main_f * 1.01, diff_f)
+    drawn = replace(model, drawn=(heavy, (main_f, diff_f))).behavioral(TB, drawn=True).cdac
+    assert drawn.main_p_f == tuple(heavy[0]) and drawn.main_n_f == tuple(main_f)
+    assert model.behavioral(TB, drawn=True).cdac.main_p_f == tuple(main_f)
     # the reference is ideal unless one is given (the reference study's)
     ideal = model.behavioral(TB).cdac
     assert ideal.reference_r_ohm == ideal.reference_c_f == ideal.reference_noise_v == 0.0
