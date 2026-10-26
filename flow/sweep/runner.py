@@ -197,6 +197,11 @@ def layout_hooks(block: str):
     return sweep
 
 
+def instance_batch(jobs: list[tuple]) -> list[dict]:
+    """Several instances in one worker process (``instance_job`` each), their records in order."""
+    return [instance_job(*job) for job in jobs]
+
+
 def instance_job(block: str, run_dir: Path, pdk: str, params, label: str | None = None) -> dict:
     """Characterize one instance in this (fresh) process; its record, also as ``instance.json``."""
 
@@ -261,21 +266,29 @@ def run(
     # every worker oversubscribes the machine many times over
     for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ.setdefault(name, "1")
-    # a fresh process per instance: hdl21 compiles a generated module in place, for one PDK. A block
-    # that compiles nothing (its sweep's ``tasks_per_worker``: the ADC's behavioral converters) runs
-    # that many instances a process, which pays its imports (seconds) once, not per instance
+    # a fresh process per task: hdl21 compiles a generated module in place, for one PDK. A block that
+    # compiles nothing (its sweep's ``tasks_per_worker``: the ADC's behavioral converters) runs that
+    # many instances as one task, which pays its imports (seconds) once, not per instance. (Not by
+    # the pool's max_tasks_per_child: once every worker has run its share and exited, the pool starts
+    # no new ones and waits forever.)
     tasks = min((getattr(import_module(f"flow.{block}.sweep"), "tasks_per_worker", 1) for block in blocks), default=1)
-    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=tasks) as pool:
-        futures = {pool.submit(instance_job, *job): job for job in jobs}
-        for done, future in enumerate(as_completed(futures), 1):
-            block, path, *_ = futures[future]
+    batches = [jobs[start : start + tasks] for start in range(0, len(jobs), tasks)]
+    done = 0
+    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=1) as pool:
+        futures = {pool.submit(instance_batch, batch): batch for batch in batches}
+        for future in as_completed(futures):
+            batch = futures[future]
             try:
-                record = future.result()
+                records = future.result()
             except Exception as error:  # noqa: BLE001 - a worker that died
-                record = {"error": repr(error), "seconds": math.nan}
-            failed += record["error"] is not None
-            status = "failed" if record["error"] else "ok"
-            print(f"[{done}/{len(jobs)}] {path.relative_to(SWEEP_DIR)}: {status} in {record['seconds']} s", flush=True)
+                records = [{"error": repr(error), "seconds": math.nan}] * len(batch)
+            for (_block, path, *_), record in zip(batch, records, strict=True):
+                done += 1
+                failed += record["error"] is not None
+                status = "failed" if record["error"] else "ok"
+                print(
+                    f"[{done}/{len(jobs)}] {path.relative_to(SWEEP_DIR)}: {status} in {record['seconds']} s", flush=True
+                )
     print(f"{len(jobs) - failed} instances characterized, {failed} failed: {', '.join(map(str, runs.values()))}")
     return runs
 
