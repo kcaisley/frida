@@ -81,6 +81,8 @@ jobs:
           flow/comp/analysis.py
           flow/comp/plots.py
           flow/comp/sweep.py
+          flow/comp/opt.py
+          flow/opt/runner.py
           flow/pipeline.py
           flow/plot.py
           flow/samp/params.py

@@ -13,7 +13,9 @@ import ast
 import dataclasses
 import enum
 import importlib
+import importlib.util
 import inspect
+import itertools
 import re
 import types
 import typing
@@ -278,6 +280,80 @@ def _problems(block: str) -> set[str]:
                 callee = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
                 if callee in io_calls or callee.startswith(("read_", "write_")):
                     problem(name, f"calls {callee}: file I/O")
+    if (folder / "opt.py").is_file():
+        problems |= _optimizable(block, Params, stage)
+    return problems
+
+
+def _optimizable(block: str, Params, stage: dict) -> set[str]:
+    """The contract of a block with problems (its opt.py, ``python -m flow opt``): its searched
+    parameters declare their domains on ``Params`` (every combination of its choices valid, every
+    instance of its design space inside the domains, a knob whose ``when`` is false not in its
+    circuit), its metrics are typed (``types.Metrics``), and opt.py gives problems alone, each naming
+    metrics and bounding only those with a direction."""
+
+    problems: set[str] = set()
+    problem = lambda where, text: problems.add(f"{block}.{where}: {text}")
+    opt = _module(block, "opt")
+    domains = pipeline.domains(Params)
+    if not domains:
+        problem("params", "no parameter declares a domain (pipeline.knob)")
+    metrics_class = getattr(stage["types"], "Metrics", None)
+    if metrics_class is None:
+        problem("types", "no Metrics: a block with problems types its metrics")
+        return problems
+    for name, value in _defined(opt).items():
+        if not isinstance(value, pipeline.ProblemFamily):
+            problem("opt", f"{name} is not a @problem")
+    better = {**pipeline.betters(metrics_class), **pipeline.GEOMETRY}
+    dtypes = {name: param.dtype for name, param in Params.__params__.items()}
+    from flow.sweep.runner import PDKS
+
+    for pdk in PDKS:
+        installed = importlib.util.find_spec(f"pdk.{pdk}.hdl21") is not None
+        for label, built in (pipeline.problems(opt, pdk) if installed else {}).items():
+            for name in [*built.cost, *built.bound]:
+                if name not in better:
+                    problem("opt", f"{label} names {name}, not a metric")
+            for name, limit in built.bound.items():
+                if better.get(name) == "none" or (better.get(name) == "true") != isinstance(limit, bool):
+                    problem("opt", f"{label} bounds {name} against its direction")
+            for name in built.fixed:
+                if name not in dtypes:
+                    problem("opt", f"{label} fixes {name}, not a parameter")
+        # every combination of the choices builds
+        choices = {
+            name: pipeline.choices(domain, dtypes[name], pdk)
+            for name, domain in domains.items()
+            if isinstance(domain, pipeline.Choice)
+        }
+        for combination in itertools.product(*choices.values()):
+            params = Params(**dict(zip(choices, combination, strict=True)))
+            if not stage["params"].valid(params):
+                problem("params", f"the choices {combination} are not valid")
+        # the design space lies inside the domains
+        sweep = stage["sweep"]
+        for label, params in pipeline.design(sweep, pdk):
+            if not stage["params"].valid(params, pdk):
+                continue
+            for name, domain in domains.items():
+                if isinstance(domain, pipeline.Int) and pipeline.active(domain, params):
+                    low, high = pipeline.bounds(domain, pdk)
+                    if not low <= getattr(params, name) <= high:
+                        problem("params", f"{label}: {name} = {getattr(params, name)} is outside its domain")
+    # a knob its design does not use is not in its circuit: the default design and the same with
+    # each such knob changed build alike
+    netlist = stage["subckt"].netlist
+    base = Params()
+    for name, domain in domains.items():
+        if isinstance(domain, pipeline.Int) and not pipeline.active(domain, base):
+            changed = Params(**{**base.__dict__, name: getattr(base, name) * 2 + 1})
+            netlist.Cache.reset()
+            first = [(n, repr(i.of.params)) for n, i in netlist(base).instances.items()]
+            netlist.Cache.reset()
+            second = [(n, repr(i.of.params)) for n, i in netlist(changed).instances.items()]
+            if first != second:
+                problem("subckt", f"{name} changes the circuit where its domain's when is false")
     return problems
 
 

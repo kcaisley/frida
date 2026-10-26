@@ -132,7 +132,7 @@ root_packages = ["flow"]
 name = "comp: each stage imports only the stages below it"
 type = "layers"
 containers = ["flow.comp"]
-layers = ["model", "sweep", "plots", "analysis", "types", "sim | layout", "subckt", "params"]
+layers = ["model | opt", "sweep", "plots", "analysis", "types", "sim | layout", "subckt", "params"]
 
 [[tool.importlinter.contracts]]
 name = "samp: each stage imports only the stages below it"
