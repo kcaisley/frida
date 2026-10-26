@@ -346,6 +346,38 @@ def _line(number: int, params: Any, record: dict[str, Any], value: float, constr
     )
 
 
+def characterize_full(block: str, pdk: str, params: Any) -> dict[str, Any]:
+    """A design's metrics from all its runs (``Level.FULL``: every common mode's S-curve), in its
+    evaluation's folder (``full``), kept beside its record as ``metrics_full``."""
+
+    import hdl21 as h
+
+    h.pdk.set_default(import_module(f"pdk.{pdk}").pdk_logic)
+    folder = study_dir(block, pdk) / "evals" / identity(block, pdk, params)
+    sweep = import_module(f"flow.{block}.sweep")
+    metrics = sweep.record(simulate(block, sweep.runs(pdk, params, pipeline.Level.FULL), folder / "full")).metrics
+    path = folder / "instance.json"
+    record = json.loads(path.read_text())
+    record["metrics_full"] = metrics
+    write_record(path, record)
+    return metrics
+
+
+def finalize(block: str, pdk: str, label: str, count: int, workers: int) -> list[dict[str, Any]]:
+    """The study's ``count`` best feasible designs characterized in full (``characterize_full``),
+    each with its search-level and full metrics."""
+
+    import optuna
+
+    problem = pipeline.problems(import_module(f"flow.{block}.opt"), pdk)[label]
+    cls = import_module(f"flow.{block}.params").Params
+    finalists = best(block, pdk, label)[:count]
+    designs = [suggest(optuna.trial.FixedTrial(entry["params"]), cls, pdk, problem) for entry in finalists]
+    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=1) as pool:
+        fulls = list(pool.map(characterize_full, [block] * len(designs), [pdk] * len(designs), designs))
+    return [{**entry, "metrics_full": full} for entry, full in zip(finalists, fulls, strict=True)]
+
+
 def best(block: str, pdk: str, label: str) -> list[dict[str, Any]]:
     """The study's feasible trials, cheapest first: each one's number, cost, parameters and metrics."""
     import optuna

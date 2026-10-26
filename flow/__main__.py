@@ -7,7 +7,7 @@ named instances (its ``sweep.py``):
     python -m flow layout <block> [--pdk P ...] [--instance I ... [--auto]] [--workers N]
     python -m flow table <block> [--workers N]
     python -m flow plot <block> [FIGURE ...] --from DIR [--from DIR ...] [--backend matplotlib|web]
-    python -m flow opt <block> --problem P [--pdk P] [--budget N] [--workers N] [--best N]
+    python -m flow opt <block> --problem P [--pdk P] [--budget N] [--workers N] [--best N] [--finalists N]
 
 An instance ``I`` is a named instance, an instance's label (``family(knob=value, ...)``) or its
 digest. ``layout`` without ``--instance`` lays out the newest run's instances by ALIGN into their
@@ -137,6 +137,9 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--budget", type=int, default=500, help="trials in the study, those before included")
     command.add_argument("--workers", type=int, default=48)
     command.add_argument("--best", type=int, metavar="N", help="print the study's N best feasible designs, run none")
+    command.add_argument(
+        "--finalists", type=int, metavar="N", help="characterize the study's N best feasible designs in full"
+    )
     return verbs
 
 
@@ -158,6 +161,9 @@ def verb(argv: list[str]) -> None:
 
         if args.best:
             for entry in opt.best(args.block, args.pdk, args.problem)[: args.best]:
+                print(entry)
+        elif args.finalists:
+            for entry in opt.finalize(args.block, args.pdk, args.problem, args.finalists, args.workers):
                 print(entry)
         else:
             print(opt.optimize(args.block, args.pdk, args.problem, args.budget, args.workers))
