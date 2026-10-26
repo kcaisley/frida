@@ -263,7 +263,19 @@ class Problem:
 
 class ProblemFamily(Family):
     """Problems of a block (its opt.py's ``@problem``): a function of a few knobs returning a
-    ``Problem``, expanded like a family of instances."""
+    ``Problem``, expanded like a family of instances; a function that takes ``pdk`` is given the
+    PDK as well, which its label leaves out (``adc(bits=12)``)."""
+
+    def instances(self, pdk: str) -> Iterator[tuple[str, Any]]:
+        takes_pdk = "pdk" in signature(self.build).parameters
+        for axes, pdks in zip(self.axes, self.pdks, strict=True):
+            if pdks is not None and pdk not in pdks:
+                continue
+            values = [axis if isinstance(axis, Sequence) else axis(pdk) for axis in axes.values()]
+            for combination in itertools.product(*values):
+                knobs = dict(zip(axes, combination, strict=True))
+                label = ", ".join(f"{knob}={value}" for knob, value in knobs.items())
+                yield f"{self.name}({label})", self.build(**knobs, **({"pdk": pdk} if takes_pdk else {}))
 
 
 def problem(*, pdks: Sequence[str] | None = None, **axes: Axis) -> Callable[[Callable[..., Problem]], ProblemFamily]:
@@ -284,36 +296,38 @@ def problems(opt: Any, pdk: str) -> dict[str, Problem]:
 
 
 def objective(problem: Problem, metrics: Mapping[str, Any]) -> float:
-    """The problem's cost of an instance's metrics: the sum of its terms (NaN where a cost metric is
-    missing or not positive)."""
+    """The problem's cost of an instance's metrics: the sum of its terms, each term of a metric not
+    measured (absent, None) or not a positive number left out (its bound, if any, says so)."""
     total = 0.0
     for name, weight in problem.cost.items():
-        value = float(metrics.get(name, float("nan")))
+        value = metrics.get(name)
+        if value is None or not np.isfinite(float(value)) or float(value) <= 0:
+            continue
         if isinstance(weight, tuple):
-            total += weight[0] * float(np.log1p((value / weight[1]) ** 2))
+            total += weight[0] * float(np.log1p((float(value) / weight[1]) ** 2))
         else:
-            total += weight * float(np.log(value)) if value > 0 else float("nan")
+            total += weight * float(np.log(float(value)))
     return total
 
 
 def violations(problem: Problem, metrics: Mapping[str, Any], better: Mapping[str, Better]) -> dict[str, float]:
-    """Each bound's violation, at most 0 where it is met: log(value / limit) for a "lower" metric,
-    log(limit / value) for a "higher" one, 0 or 1 for a flag; 0 where the metric was not measured
-    (absent), 1 where it was measured and is not a number (beyond what the bench resolves)."""
+    """Each bound's violation, at most 0 where it is met: log(value / limit) for a "lower" metric
+    (-10, met by far, at zero), log(limit / value) for a "higher" one, 0 or 1 for a flag; 0 where the
+    metric was not measured (absent), 1 where it was measured and is not a number (beyond what the
+    bench resolves)."""
     result = {}
     for name, limit in problem.bound.items():
-        if name not in metrics or metrics[name] is None:
+        value = metrics.get(name)
+        if value is None:
             result[name] = 0.0
-            continue
-        value = metrics[name]
-        if better[name] == "true":
+        elif better[name] == "true":
             result[name] = 0.0 if bool(value) is bool(limit) else 1.0
-        elif not np.isfinite(float(value)) or float(value) <= 0:
+        elif not np.isfinite(float(value)):
             result[name] = 1.0
         elif better[name] == "lower":
-            result[name] = float(np.log(float(value) / float(limit)))
+            result[name] = float(np.log(float(value) / float(limit))) if float(value) > 0 else -10.0
         else:
-            result[name] = float(np.log(float(limit) / float(value)))
+            result[name] = float(np.log(float(limit) / float(value))) if float(value) > 0 else 1.0
     return result
 
 

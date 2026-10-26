@@ -325,6 +325,21 @@ METASTABILITY_RUN_V = tuple(v for value in METASTABILITY_V for v in (-value, val
 SCURVE_UV = (5, 10, 15, 20, 25, 35, 50, 75, 100, 150, 200, 300, 500, 1000, 2000, 3000)
 SCURVE_V = (*(-round(uv * 1e-6, 9) for uv in reversed(SCURVE_UV)), 0.0, *(round(uv * 1e-6, 9) for uv in SCURVE_UV))
 SCURVE_DECISIONS = 80
+
+# The optimization's problems (flow.comp.opt): a comparator for a converter of each resolution. Its
+# noise at most the converter's quantization noise (LSB / sqrt(12), every noise source about equal
+# to it), the LSB twice the full scale over 2^bits, the full scale ADC_FULL_SCALE of the supply (the
+# converter's arrays reach at least 80 % of the reference: flow.adc.sweep); its layout within a
+# square of AREA_SIDE_UM a side, the same in every PDK (a denser PDK fits more in it); its delay at
+# 0.5 mV within DECISION_S (the converter allows about 2 ns a decision), deciding within the clock.
+# Its cost: log energy + AREA_WEIGHT log area + NOISE_WEIGHT log(1 + (noise / LSB-noise)^2), the
+# noise term saturating where the converter no longer gains from a quieter comparator; a design that
+# only scales settles at noise / LSB-noise = 1 / sqrt(NOISE_WEIGHT / (1 + AREA_WEIGHT) - 1), 0.71 here.
+ADC_FULL_SCALE = 0.8
+AREA_SIDE_UM = {10: 15.0, 12: 20.0, 14: 63.0}
+DECISION_S = 2e-9
+AREA_WEIGHT = 1.0
+NOISE_WEIGHT = 6.0
 INPUT_ORDERS = ("blocked", "shuffled")
 
 

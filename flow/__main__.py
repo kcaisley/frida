@@ -7,6 +7,7 @@ named instances (its ``sweep.py``):
     python -m flow layout <block> [--pdk P ...] [--instance I ... [--auto]] [--workers N]
     python -m flow table <block> [--workers N]
     python -m flow plot <block> [FIGURE ...] --from DIR [--from DIR ...] [--backend matplotlib|web]
+    python -m flow opt <block> --problem P [--pdk P] [--budget N] [--workers N] [--best N]
 
 An instance ``I`` is a named instance, an instance's label (``family(knob=value, ...)``) or its
 digest. ``layout`` without ``--instance`` lays out the newest run's instances by ALIGN into their
@@ -89,7 +90,7 @@ def targets(module) -> dict:
     }
 
 
-VERBS = ("run", "layout", "table", "plot")
+VERBS = ("run", "layout", "table", "plot", "opt")
 
 
 def pipeline_blocks() -> list[str]:
@@ -128,7 +129,22 @@ def parser() -> argparse.ArgumentParser:
             floorplan.add_argument("--auto", action="store_true", help="from ALIGN's placement")
         if workers:
             command.add_argument("--workers", type=int, default=workers)
+    text = "optimize the block over its parameters for one of its problems (its opt.py)"
+    command = commands.add_parser("opt", help=text, description=text)
+    command.add_argument("block", choices=[block for block in pipeline_blocks() if _has_opt(block)])
+    command.add_argument("--problem", required=True, help='a problem by its label, as "adc(bits=12)"')
+    command.add_argument("--pdk", choices=runner.PDKS, default="tsmc65")
+    command.add_argument("--budget", type=int, default=500, help="trials in the study, those before included")
+    command.add_argument("--workers", type=int, default=48)
+    command.add_argument("--best", type=int, metavar="N", help="print the study's N best feasible designs, run none")
     return verbs
+
+
+def _has_opt(block: str) -> bool:
+    """Whether a block on the pipeline gives optimization problems (an opt.py)."""
+    from importlib.util import find_spec
+
+    return find_spec(f"flow.{block}.opt") is not None
 
 
 def verb(argv: list[str]) -> None:
@@ -137,6 +153,15 @@ def verb(argv: list[str]) -> None:
     from flow.sweep import runner
 
     args = parser().parse_args(argv)
+    if args.verb == "opt":
+        from flow.opt import runner as opt
+
+        if args.best:
+            for entry in opt.best(args.block, args.pdk, args.problem)[: args.best]:
+                print(entry)
+        else:
+            print(opt.optimize(args.block, args.pdk, args.problem, args.budget, args.workers))
+        return
     pdks = tuple(args.pdks or runner.PDKS) if args.verb != "table" else runner.PDKS
     if args.verb == "run":
         runner.run([args.block], pdks, args.workers, failed=args.missing, names=args.instances)
