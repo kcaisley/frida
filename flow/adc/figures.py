@@ -72,6 +72,8 @@ FIGURES = {
     "mismatch_margin": "Redundancy margin over its mismatch σ by stage",
     "mismatch_dnl": "Worst DNL over the Pelgrom coefficient (predicted 95th percentile)",
     "mismatch_inl": "Worst INL over the Pelgrom coefficient (predicted 95th percentile)",
+    "reference_noise": "ENOB lost to the reference's noise",
+    "reference_r_out": "ENOB lost to the reference driver's resistance, at the converter's decoupling",
 }
 RAILS = {"vdd_a": "VDD_A", "vdd_d": "VDD_D", "vdd_dac": "VDD_DAC"}
 
@@ -146,6 +148,12 @@ def _extracted(measurement: MeasAdc):
     return read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
 
 
+def dynamic_enob(measurement: MeasAdc) -> float:
+    """A sine capture's spectral ENOB referred to full scale, decoded as ``enob_bits`` is (the
+    extracted weights, unrounded)."""
+    return analyze_adc_dynamic(measurement, calibration=_extracted(measurement)).spectral_enob_fs_bits
+
+
 def enob_ladder(captures: dict[str, MeasAdc]) -> np.ndarray | None:
     """The ENOB ladder (``flow.adc.campaign.LADDER``): each step's spectral ENOB referred to full
     scale, decoded as ``enob_bits`` is (the extracted weights, unrounded), quantization alone first
@@ -154,12 +162,7 @@ def enob_ladder(captures: dict[str, MeasAdc]) -> np.ndarray | None:
     names = ladder_names()
     if not all(name in captures for name in names):
         return None
-    return np.asarray(
-        [
-            analyze_adc_dynamic(captures[name], calibration=_extracted(captures[name])).spectral_enob_fs_bits
-            for name in names
-        ]
-    )
+    return np.asarray([dynamic_enob(captures[name]) for name in names])
 
 
 def _by_code(ramps, values: str) -> tuple[list[float], dict[str, list[float]]]:
@@ -488,7 +491,7 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
         "fom_schreier_db": dynamic.spectral_sndr_db + 10 * math.log10(dynamic.sample_rate_hz / 2 / power_w),
         "noise_rms_lsb": noise_lsb,
         **by_source,
-        # the rails' share: the noise at the input's ends (their plates unbalanced) over mid-scale's
+        # the output-code noise at the input's ends and at mid-scale
         "noise_input_edge_lsb": float(max(sigma_lsb[0], sigma_lsb[-1])),
         "noise_input_mid_lsb": float(sigma_lsb[len(sigma_lsb) // 2]),
         # Hsu's study at the array's own settling: the fastest error-free rate, and the error at 10 MS/s

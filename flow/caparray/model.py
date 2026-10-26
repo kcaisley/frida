@@ -41,6 +41,7 @@ class CapArrayModel:
     diff_f: np.ndarray
     parasitic_f: float  # the top plate's other load: to the shield and to ground
     table: Path  # the extraction's capacitance table (``read_extracted_calibration`` reads it)
+    outline_um: tuple[float, float] = (0.0, 0.0)  # the drawn array's boundary (width, height), one side's
 
     @classmethod
     def of(cls, pdk: str, params: CapArrayConfig, *, layers: int = 3) -> CapArrayModel:
@@ -57,6 +58,8 @@ class CapArrayModel:
         if len(main_f) != len(get_caparray_weights(params)):
             raise ValueError(f"{tables[-1]} has {len(main_f)} stages, the array {len(get_caparray_weights(params))}")
         parasitic = (extracted["topplate_shield_ff"] + extracted["topplate_ground_ff"]) * 1e-15
+        manifest = tables[-1].with_name("geometry_manifest.json")
+        width_um, height_um = json.loads(manifest.read_text())["outline_um"] if manifest.exists() else (0.0, 0.0)
         return cls(
             pdk=pdk,
             params=params,
@@ -64,7 +67,13 @@ class CapArrayModel:
             diff_f=diff_f,
             parasitic_f=parasitic,
             table=tables[-1].with_suffix(".csv"),
+            outline_um=(float(width_um), float(height_um)),
         )
+
+    @property
+    def area_um2(self) -> float:
+        """The drawn array's area, one side's (0 where its extraction kept no outline)."""
+        return self.outline_um[0] * self.outline_um[1]
 
     @property
     def load_f(self) -> float:

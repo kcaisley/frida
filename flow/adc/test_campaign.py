@@ -65,7 +65,7 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
     assert len(names) == len(LADDER) and names[-1] == "rate_10" and "enob_ladder" in FIGURES
     steps = [captures[name] for name in names]
     assert all(replace(step, quiet=(), tau_scale=1.0) == captures["rate_10"] for step in steps)
-    assert steps[0].tau_scale == 0.0 and {"sampler", "sampling", "comparator", "rail"} <= set(steps[0].quiet)
+    assert steps[0].tau_scale == 0.0 and {"sampler", "sampling", "comparator"} <= set(steps[0].quiet)
     assert steps[-1].quiet == () and steps[-1].tau_scale == 1.0
     # each step adds one impairment: the timing of the comparator ("comparator" made it ideal,
     # "comparator_noise" keeps its delay), else one source less quiet or the settling on

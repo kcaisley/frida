@@ -13,7 +13,9 @@ array with its drivers (``flow.cdac.model``, of the converter's array at its res
 ``cdac.adc_array``: ``python -m flow run cdac`` runs it ahead), or, where there is none, estimated
 from the drivers' resistance and delay with a warning. The SAR logic is the fixed digital netlist built by
 OpenROAD: it is not characterized, so its energies are the ones fitted to the FRIDA-2 three-layer
-PEX transient (``SALOGIC``). The DAC rail's noise (``RAIL_NOISE_V``) is assumed, not characterized.
+PEX transient (``SALOGIC``). The DAC's reference is ideal here, the front end's own characterization;
+a ``Reference`` (driver resistance, decoupling capacitance, noise) is what the reference study
+(``flow.adc.reference``) varies to find the reference buffer's requirements.
 """
 
 from __future__ import annotations
@@ -56,13 +58,24 @@ from flow.scans.scan_behavioral import build_adc_interface_wave, calc_source_val
 SALOGIC = SalogicBehavioralParams(clock_energy_j=25.5e-15, write_energy_j=31.9e-15, register_static_w=27.9e-9)
 # FRIDA's input common mode at TSMC65's 1.2 V supply, scaled with the PDK's supply elsewhere
 VIN_CM_FRACTION = 0.700 / 1.2
-# The DAC reference rail's (VDD_DAC's) RMS noise at each decision, white from one decision to the
-# next: an assumption about a decoupled on-chip supply, not a measurement. Each side's plates at the
-# rail couple it to their top plate, so differentially it cancels where both sides hold equal
-# capacitance at the rail (mid-scale) and grows toward either end of the codes.
-RAIL_NOISE_V = 0.5e-3
+
+
+@dataclass(frozen=True)
+class Reference:
+    """The DAC's reference (VDD_DAC) as its buffer would supply it: a driver of output resistance
+    ``r_ohm`` onto a decoupling capacitance ``c_f`` (each switch draws its charge from the
+    capacitance, the driver restores it with R C: a code-dependent dip at the next comparison), and
+    white noise ``noise_v`` RMS at the node at each decision. Zero is ideal: no dip without both,
+    no noise."""
+
+    r_ohm: float = 0.0
+    c_f: float = 0.0
+    noise_v: float = 0.0
+
+
+IDEAL_REFERENCE = Reference()
 # what ``AdcModel.behavioral``'s ``quiet`` silences or makes ideal
-QUIET = frozenset({"sampler", "sampling", "comparator", "comparator_noise", "rail"})
+QUIET = frozenset({"sampler", "sampling", "comparator", "comparator_noise"})
 
 
 @dataclass(frozen=True)
@@ -75,11 +88,10 @@ class AdcModel:
     samp: samp_model.Model
     cdac: CapArrayModel
     drivers: tuple[CapDriverModel, ...]
-    rail_noise_v: float = RAIL_NOISE_V  # VDD_DAC's RMS noise at each decision (assumed)
     settling: cdac_model.Model | None = None  # the DAC's SPICE settling by stage; None: the RC estimate
 
     @classmethod
-    def of(cls, pdk: str, params: AdcParams, *, simulate: bool = True, rail_noise_v: float = RAIL_NOISE_V) -> AdcModel:
+    def of(cls, pdk: str, params: AdcParams, *, simulate: bool = True) -> AdcModel:
         array = CapArrayModel.of(pdk, params.cdac)
         # the drivers the array's plates call for (flow.capdriver.model.driver_strengths)
         strengths = driver_strengths(pdk, params.cdac, array, simulate=simulate)
@@ -107,7 +119,6 @@ class AdcModel:
             samp=samp_model.Model.of(pdk, params.samp, simulate=simulate),
             cdac=array,
             drivers=stage_drivers(pdk, driver, np.maximum(array.main_f, array.diff_f), simulate=simulate),
-            rail_noise_v=rail_noise_v,
             settling=settling,
         )
 
@@ -182,10 +193,11 @@ class AdcModel:
         unit_mismatch: float = 0.0,
         quiet: tuple[str, ...] = (),
         tau_scale: float = 1.0,
+        reference: Reference | None = None,
     ) -> AdcBehavioralParams:
         """The behavioral ADC: one capacitor draw from ``seed`` (none where ``unit_mismatch`` is 0);
-        ``quiet`` silences the "sampling" noise (kT/C and the aperture jitter), the DAC "rail" noise
-        or the comparator's noise alone ("comparator_noise": its delay stays, so a late decision
+        ``quiet`` silences the "sampling" noise (kT/C and the aperture jitter) or the comparator's
+        noise alone ("comparator_noise": its delay stays, so a late decision
         still holds the last bit), or makes the "comparator" ideal (no noise, never late) or the
         "sampler" a perfect track-and-hold (no on-resistance, so no tracking error: its noise is
         "sampling"'s). Each stage's step starts its delay after the LOGIC edge (the SAR register's
@@ -231,7 +243,9 @@ class AdcModel:
                 # ideal settling: the drivers' delay goes too
                 stage_delay_s=tuple(delay_s if tau_scale else 0.0 for delay_s in self.stage_delay_s),
                 driver_energy_j=float(np.mean([driver.energy_j for driver in self.drivers])),
-                reference_noise_v=0.0 if "rail" in quiet else self.rail_noise_v,
+                reference_r_ohm=(reference or IDEAL_REFERENCE).r_ohm,
+                reference_c_f=(reference or IDEAL_REFERENCE).c_f,
+                reference_noise_v=(reference or IDEAL_REFERENCE).noise_v,
             ),
             salogic=SALOGIC,
             seed=seed,
@@ -247,13 +261,16 @@ class AdcModel:
         unit_mismatch: float = 0.0,
         quiet: tuple[str, ...] = (),
         tau_scale: float = 1.0,
+        reference: Reference | None = None,
     ) -> MeasAdc:
         """Convert every conversion of ``tb`` and write the MeasAdc with its supply power to ``path``
         (kept in memory alone where it is None); its ``cap_table`` readback is the array's
-        extraction, the decoding's "extracted" weights. ``quiet`` and ``tau_scale``: as
-        ``behavioral``'s."""
+        extraction, the decoding's "extracted" weights. ``quiet``, ``tau_scale`` and ``reference``:
+        as ``behavioral``'s."""
 
-        params = self.behavioral(tb, seed=seed, unit_mismatch=unit_mismatch, quiet=quiet, tau_scale=tau_scale)
+        params = self.behavioral(
+            tb, seed=seed, unit_mismatch=unit_mismatch, quiet=quiet, tau_scale=tau_scale, reference=reference
+        )
         if noise_seed is not None:
             params = AdcBehavioralParams(**{**params.__dict__, "seed": noise_seed})
         sample_rate_hz = float(tb.symbol_rate) / len(tb.seq_init_pattern)

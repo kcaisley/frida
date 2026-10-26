@@ -13,8 +13,7 @@ model (``flow.adc.model``), each of which turns one into a ``MeasAdc``.
 - ``noise``: 50 mV at 10 MS/s: the output-code noise spectrum (the behavioral model repeats it with
   one noise source at a time).
 - ``noise_input``: nine DC inputs evenly over +-90 % of the full scale at 10 MS/s, 512 conversions
-  each, in one staircase: the output-code noise over the input (``input_noise``), where the DAC
-  rail's noise, cancelled at mid-scale, grows toward the ends.
+  each, in one staircase: the output-code noise over the input (``input_noise``).
 - ``hsu_r<rate>``: every ideal code centre once (a ramp of one LSB a conversion), at each rate of
   ``RATES_HZ`` with the array's own settling, noiseless but with the comparator's delay (a late
   decision holds the last bit); and ``hsu_reference_r<rate>``, the same inputs at each rate with
@@ -72,22 +71,22 @@ INPUT_NOISE_LEVELS = 9
 INPUT_NOISE_SPAN = 0.9
 INPUT_NOISE_CONVERSIONS = 512
 # the Hsu study's noise switched off, the comparator's delay kept (or, for the reference, ideal)
-HSU_QUIET = ("sampling", "comparator_noise", "rail")
-HSU_REFERENCE_QUIET = ("sampling", "comparator", "rail")
+HSU_QUIET = ("sampling", "comparator_noise")
+HSU_REFERENCE_QUIET = ("sampling", "comparator")
 # the ENOB ladder: the nominal rate's sine converted with the model's impairments added one at a
 # time, each step (its key in the metrics, its label, the sources it keeps quiet, as
 # ``AdcModel.behavioral``'s, and its settling's scale) the last one with one more: the tracking
 # error of the sampler's on-resistance, its kT/C noise and aperture jitter, the DAC's settling (with
-# its drivers' delay), the comparator's delay (a late decision holds the last bit), its noise and
-# the DAC rail's (assumed). The last step is the converter as the sine at the nominal rate has it.
+# its drivers' delay), the comparator's delay (a late decision holds the last bit) and its noise,
+# on an ideal reference (the reference study, flow.adc.reference, varies it). The last step is the
+# converter as the sine at the nominal rate has it.
 LADDER = (
-    ("quantization", "Quantization", ("sampler", "sampling", "comparator", "rail"), 0.0),
-    ("sampler", "+ Sampling error", ("sampling", "comparator", "rail"), 0.0),
-    ("sampling_noise", "+ Sampling noise", ("comparator", "rail"), 0.0),
-    ("settling", "+ DAC settling", ("comparator", "rail"), 1.0),
-    ("comparator_timing", "+ Comp. timing", ("comparator_noise", "rail"), 1.0),
-    ("comparator_noise", "+ Comp. noise", ("rail",), 1.0),
-    ("rail", "+ Rail noise", (), 1.0),
+    ("quantization", "Quantization", ("sampler", "sampling", "comparator"), 0.0),
+    ("sampler", "+ Sampling error", ("sampling", "comparator"), 0.0),
+    ("sampling_noise", "+ Sampling noise", ("comparator",), 0.0),
+    ("settling", "+ DAC settling", ("comparator",), 1.0),
+    ("comparator_timing", "+ Comp. timing", ("comparator_noise",), 1.0),
+    ("comparator_noise", "+ Comp. noise", (), 1.0),
 )
 
 
@@ -102,7 +101,7 @@ class Capture:
     seed: int = 0
     noise_seed: int | None = None
     unit_mismatch: float = 0.0
-    noise_free: bool = False  # no sampling, comparator or rail noise: the capacitors' nonlinearity alone
+    noise_free: bool = False  # no sampling or comparator noise: the capacitors' nonlinearity alone
     quiet: tuple[str, ...] = ()
     tau_scale: float = 1.0
 

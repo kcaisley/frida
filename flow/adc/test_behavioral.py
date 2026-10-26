@@ -243,37 +243,72 @@ def test_strongarm_noise_falls_with_larger_pq_capacitance() -> None:
     assert large < small
 
 
-def rail_noise_lsb(reference_noise_v: float, vin_v: float, conversions: int = 400) -> float:
-    """The output code's standard deviation at a DC input with the DAC rail's noise alone."""
+def reference_codes(vin_v: float, conversions: int = 400, **reference) -> np.ndarray:
+    """The output codes at a DC input with the reference's departure (``CdacBehavioralParams``'s
+    ``reference_*``) the only impairment."""
     params = AdcBehavioralParams(
         tb=TB,
         comp=CompBehavioralParams(noise_v=0.0),
-        cdac=CdacBehavioralParams(reference_noise_v=reference_noise_v),
+        cdac=CdacBehavioralParams(**reference),
         seed=3,
     )
     code_weights = np.append(2 * np.asarray(get_caparray_weights(TB.dut.cdac)), 1)
     bout = convert_behavioral(params, np.full(conversions, vin_v)).bout
-    code = (bout @ code_weights) * ((1 << TB.dut.adc_bits) - 1) / code_weights.sum()
-    return float(np.std(code))
+    return (bout @ code_weights) * ((1 << TB.dut.adc_bits) - 1) / code_weights.sum()
 
 
-def test_rail_noise_cancels_at_mid_scale_and_grows_toward_the_ends() -> None:
+def full_scale_and_lsb() -> tuple[float, float]:
     main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac)
     full_scale_v = float(TB.vdd_dac.dc) * np.sum(main_f - diff_f) / np.sum(main_f + diff_f)
-    lsb_v = 2 * full_scale_v / (1 << TB.dut.adc_bits)
+    return full_scale_v, 2 * full_scale_v / (1 << TB.dut.adc_bits)
+
+
+def test_reference_noise_cancels_at_mid_scale_and_grows_toward_the_ends() -> None:
+    full_scale_v, lsb_v = full_scale_and_lsb()
     # off the first threshold by a third of an LSB: noiseless, every conversion gives one code
     middle, near_top, near_bottom = 0.33 * lsb_v, 0.9 * full_scale_v, -0.9 * full_scale_v
-    assert rail_noise_lsb(0.0, near_top) == 0.0
-    # 2 mV on VDD_DAC: the sides' plates at the rail differ by about vin / VDD_DAC near the ends
-    sigma = {vin: rail_noise_lsb(2e-3, vin) for vin in (middle, near_top, near_bottom)}
+    assert np.std(reference_codes(near_top)) == 0.0
+    # 2 mV at the reference: the sides' plates at it differ by about vin / VDD_DAC near the ends
+    sigma = {
+        vin: float(np.std(reference_codes(vin, reference_noise_v=2e-3))) for vin in (middle, near_top, near_bottom)
+    }
     assert sigma[middle] < 0.3
     assert sigma[near_top] > 1.0 and sigma[near_bottom] > 1.0
+
+
+def test_the_reference_kickback_needs_both_a_slow_driver_and_a_small_decap() -> None:
+    full_scale_v, _ = full_scale_and_lsb()
+    vin_v = 0.6 * full_scale_v
+    ideal = reference_codes(vin_v, 50)
+    # 10 pF of decoupling behind 1 kohm: the dip (a switch's charge over 10 pF) has not recovered
+    # by the next comparison, so the code moves; a strong driver (1 ohm) restores it in time
+    slow = reference_codes(vin_v, 50, reference_r_ohm=1e3, reference_c_f=10e-12)
+    fast = reference_codes(vin_v, 50, reference_r_ohm=1.0, reference_c_f=10e-12)
+    assert abs(float(np.mean(slow)) - float(np.mean(ideal))) >= 1.0
+    assert np.array_equal(fast, ideal)
+    # either part alone is an ideal reference
+    assert np.array_equal(reference_codes(vin_v, 50, reference_r_ohm=1e3), ideal)
+    assert np.array_equal(reference_codes(vin_v, 50, reference_c_f=10e-12), ideal)
+
+
+def test_the_reference_noise_leaves_the_other_sources_draws_alike() -> None:
+    """The reference's noise draws from a stream of its own: a negligible one changes no decision
+    the comparator's noise makes."""
+    _, lsb_v = full_scale_and_lsb()
+
+    def bout(**reference) -> np.ndarray:
+        params = AdcBehavioralParams(
+            tb=TB, comp=CompBehavioralParams(noise_v=lsb_v), cdac=CdacBehavioralParams(**reference), seed=3
+        )
+        return convert_behavioral(params, np.full(200, 0.33 * lsb_v)).bout
+
+    assert np.array_equal(bout(reference_noise_v=1e-12), bout())
 
 
 def test_the_model_quiets_each_source_alone_and_scales_the_settling() -> None:
     from types import SimpleNamespace
 
-    from flow.adc.model import AdcModel
+    from flow.adc.model import AdcModel, Reference
 
     main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac)
     model = AdcModel(
@@ -297,12 +332,12 @@ def test_the_model_quiets_each_source_alone_and_scales_the_settling() -> None:
             load_f=float(np.sum(main_f) + np.sum(diff_f)),
         ),
         drivers=tuple(SimpleNamespace(resistance_ohm=1.0, intrinsic_delay_s=20e-12, energy_j=0.0) for _ in main_f),
-        rail_noise_v=2e-3,
     )
-    assert model.behavioral(TB).cdac.reference_noise_v == 2e-3
-    quiet = model.behavioral(TB, quiet=("rail",))
-    assert quiet.cdac.reference_noise_v == 0.0
-    assert quiet.comp.noise_v == 1e-4 and quiet.samp.noise_v == 1e-4  # the other sources stay
+    # the reference is ideal unless one is given (the reference study's)
+    ideal = model.behavioral(TB).cdac
+    assert ideal.reference_r_ohm == ideal.reference_c_f == ideal.reference_noise_v == 0.0
+    given = model.behavioral(TB, reference=Reference(r_ohm=3.0, c_f=200e-12, noise_v=1e-4)).cdac
+    assert (given.reference_r_ohm, given.reference_c_f, given.reference_noise_v) == (3.0, 200e-12, 1e-4)
     # the comparator's noise alone: its delay stays, so a late decision still holds
     noiseless = model.behavioral(TB, quiet=("comparator_noise",)).comp
     assert noiseless.noise_v == 0.0 and noiseless.delay_table_v == (1e-6, 1e-3)

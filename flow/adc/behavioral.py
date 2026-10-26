@@ -115,8 +115,13 @@ class CdacBehavioralParams:
     )
     driver_energy_j = h.Param(dtype=float, desc="Driver energy per bottom-plate transition", default=0.0)
     driver_static_w = h.Param(dtype=float, desc="Static power per bottom-plate driver", default=0.0)
+    # the reference (VDD_DAC) as a driver of output resistance reference_r_ohm onto a decoupling
+    # capacitance reference_c_f, with white noise reference_noise_v at the node; the defaults are an
+    # ideal reference (the front end's own characterization), the reference study sets them
+    reference_r_ohm = h.Param(dtype=float, desc="Reference driver's output resistance; 0 is ideal", default=0.0)
+    reference_c_f = h.Param(dtype=float, desc="Reference node's decoupling capacitance; 0 is ideal", default=0.0)
     reference_noise_v = h.Param(
-        dtype=float, desc="RMS VDD_DAC noise at each decision, coupled by the plates held at it", default=0.0
+        dtype=float, desc="RMS reference noise at each decision, coupled by the plates held at it", default=0.0
     )
 
 
@@ -469,6 +474,9 @@ def convert_behavioral(
     if any(len(value) != stages for value in initial.values()):
         raise ValueError(f"A states must hold one value per capacitor ({stages})")
     rng = np.random.default_rng(params.seed)
+    # the reference's noise draws from a stream of its own, so the other sources draw alike with and
+    # without it
+    reference_rng = rng.spawn(1)[0]
     vin_cm_v = float(tb.vin_cm.dc)
     slope = np.zeros(conversions) if vin_diff_slope_v_per_s is None else np.asarray(vin_diff_slope_v_per_s)
     caps = {side: calc_side_capacitances(params.cdac, tb, side) for side in ("p", "n")}
@@ -500,17 +508,26 @@ def convert_behavioral(
     # kept up to date stage by stage
     at_main_f = {side: state[side] @ caps[side][0] for side in ("p", "n")}
     at_diff_f = {side: (state[side] ^ diffcaps) @ caps[side][1] for side in ("p", "n")}
+    # the reference node's dip below its value, each conversion's, as of dip_s: every switch draws its
+    # charge from the decoupling capacitance and the driver restores it with R C; the node has
+    # recovered over the sampling phase by the first decision
+    reference_tau_s = params.cdac.reference_r_ohm * params.cdac.reference_c_f
+    droop = reference_tau_s > 0
+    dip = np.zeros(conversions)
+    dip_s = 0.0
     for decision in range(stages + 1):
         # Unsettled remainders of earlier updates decay with one time constant.
         seen = top["p"] - top["n"]
-        if params.cdac.reference_noise_v:
-            # One VDD_DAC noise sample reaches each top plate through the
-            # fraction of its load whose bottom plates sit at the reference.
-            vref_noise = rng.normal(0.0, params.cdac.reference_noise_v, conversions)
+        if params.cdac.reference_noise_v or droop:
+            # the reference's error (its dip, a noise sample) reaches each top plate through the
+            # fraction of its load whose bottom plates sit at the reference
+            reference_v = dip * np.exp(-(comp_s[decision] - dip_s) / reference_tau_s) if droop else 0.0
+            if params.cdac.reference_noise_v:
+                reference_v = reference_v + reference_rng.normal(0.0, params.cdac.reference_noise_v, conversions)
             for side, sign in (("p", 1.0), ("n", -1.0)):
                 main_f, diff_f = caps[side]
                 at_vref_f = state[side] @ main_f + (state[side] ^ diffcaps) @ diff_f
-                seen = seen + sign * vref_noise * at_vref_f / load_f[side]
+                seen = seen + sign * reference_v * at_vref_f / load_f[side]
         # each stage's step starts after its driver's delay and settles with its own time constant;
         # one not yet started is missing whole. A step 36 time constants on (2e-16 of itself, below a
         # double's resolution of it) or without settling is done and leaves the list
@@ -532,6 +549,7 @@ def convert_behavioral(
         if decision == stages:
             break
         differential_step = np.zeros(conversions)
+        step_charge = np.zeros(conversions)
         if tb.dac_mode:
             # the counted stage alone switches: its column, in place
             for side, target in (("p", 1 - decided), ("n", decided)):
@@ -546,6 +564,7 @@ def convert_behavioral(
                 )
                 top[side] = top[side] + top_step
                 dac_charge += charge
+                step_charge += charge
                 transitions += toggled
                 writes += target != before
                 differential_step += top_step if side == "p" else -top_step
@@ -555,13 +574,18 @@ def convert_behavioral(
                 top_step, charge, toggled = cdac(params.cdac, tb, side, state[side], after[side])
                 top[side] = top[side] + top_step
                 dac_charge += charge
+                step_charge += charge
                 transitions += toggled
                 writes += np.sum(after[side] != state[side], axis=1)
                 differential_step += top_step if side == "p" else -top_step
                 at_main_f[side] = after[side] @ caps[side][0]
                 at_diff_f[side] = (after[side] ^ diffcaps) @ caps[side][1]
             state = after
-        steps.append((logic_s[decision] + stage_delay_s[decision], stage_tau_s[decision], differential_step))
+        switch_s = logic_s[decision] + stage_delay_s[decision]
+        steps.append((switch_s, stage_tau_s[decision], differential_step))
+        if droop:
+            dip = dip * np.exp(-(switch_s - dip_s) / reference_tau_s) - step_charge / params.cdac.reference_c_f
+            dip_s = switch_s
 
     # INIT reloads the A state with floating top plates, then SAMP forces them
     # to the new input; both edges start from the previous conversion's end.

@@ -164,35 +164,37 @@ def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
     """The campaign's captures, converted and kept in memory, and the metrics and figures they
     give (``flow.adc.figures``): the viewer shows the figures (the record's details) and no
     waveform of an ADC instance, so no capture is written (a run is its ``instance.json``)."""
-    from .campaign import campaign
+    from .campaign import campaign, ladder_names
     from .figures import adc_figures
     from .model import AdcModel
+    from .reference import requirements
 
     model = AdcModel.of(pdk, params)
+    plan = campaign(model.tb, model.full_scale_v, params.adc_bits)
     captures = {}
-    for name, capture in campaign(model.tb, model.full_scale_v, params.adc_bits).items():
+    for name, capture in plan.items():
         captures[name] = model.capture(
             capture.tb,
             None,
             seed=capture.seed,
             noise_seed=capture.noise_seed,
             unit_mismatch=capture.unit_mismatch,
-            quiet=("sampling", "comparator", "rail") if capture.noise_free else capture.quiet,
+            quiet=("sampling", "comparator") if capture.noise_free else capture.quiet,
             tau_scale=capture.tau_scale,
         )
     # the behavioral model alone can keep one noise source at a time
-    noise = campaign(model.tb, model.full_scale_v, params.adc_bits)["noise"]
-    for name, quiet in (("noise_sampling", ("comparator", "rail")), ("noise_comparator", ("sampling", "rail"))):
-        captures[name] = model.capture(noise.tb, None, quiet=quiet)
+    for name, quiet in (("noise_sampling", ("comparator",)), ("noise_comparator", ("sampling",))):
+        captures[name] = model.capture(plan["noise"].tb, None, quiet=quiet)
     metrics, details = adc_figures(captures)
-    metrics |= {
+    # the reference buffer's requirements this converter sets, apart from its own ENOB
+    reference_metrics, reference_details = requirements(model, plan[ladder_names()[-1]], metrics["enob_bits"])
+    metrics |= reference_metrics | {
         "stages": float(model.stages),  # the switched capacitors a side
         "decisions": float(model.stages + 1),  # a conversion's comparator decisions
         "full_scale_v": model.full_scale_v,
         "settling_tau_s": model.settling_tau_s,
         "comp_noise_v": model.comp.noise_v,
-        "rail_noise_v": model.rail_noise_v,  # assumed, not characterized
         "comp_delay_s": model.comp.delay_s,
         **_metastability(model),
     }
-    return Record(metrics=metrics, details=details)
+    return Record(metrics=metrics, details=details + reference_details)
