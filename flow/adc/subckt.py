@@ -134,13 +134,13 @@ def Adc(p: AdcParams) -> h.Module:
     # The generated comparator consumes both clock polarities, whereas the
     # synthesized digital block exposes only ``clk_comp``. Generate its true
     # complement locally instead of borrowing an unrelated sampling clock.
-    Adc.MP_clk_comp_b = h.Mos(tp=MosType.PMOS, vth=p.comp.rst_vth, w=10, l=1)(
+    Adc.MP_clk_comp_b = h.Mos(tp=MosType.PMOS, vth=p.comp.vth, w=10, l=1)(
         d=Adc.clk_comp_b,
         g=Adc.clk_comp,
         s=Adc.vdd_a,
         b=Adc.vdd_a,
     )
-    Adc.MN_clk_comp_b = h.Mos(tp=MosType.NMOS, vth=p.comp.rst_vth, w=10, l=1)(
+    Adc.MN_clk_comp_b = h.Mos(tp=MosType.NMOS, vth=p.comp.vth, w=10, l=1)(
         d=Adc.clk_comp_b,
         g=Adc.clk_comp,
         s=Adc.vss_a,

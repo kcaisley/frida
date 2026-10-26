@@ -52,7 +52,7 @@ import hdl21 as h
 # Parameters a block's class gained after its instances ran, by name (in a nested class too), with
 # the value every earlier instance has: a flat row leaves them out at that value, so the earlier
 # instances keep their rows and digests (flow.sweep.runner.digest) and are found as before.
-ADDED_DEFAULTS = {"preamp_c_ff": 0, "latch_tail_w": 0, "bias_c_ff": 100}  # flow.comp.params.Params
+ADDED_DEFAULTS: dict[str, object] = {}  # none since the comparator's parameters were redefined
 
 
 def flat_params(params, prefix: str = "") -> dict[str, float | int | str | bool | None]:

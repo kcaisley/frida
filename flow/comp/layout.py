@@ -12,7 +12,7 @@ Tools: ``CICPY`` (cicpy 0.3, with ``compile``), ``LAYGO_CLIENT`` (the hosted lay
 client, needs internet), ``ALIGN_HOME`` (an ALIGN install); Calibre, Assura or KLayout as each
 PDK's signoff provider (``pdk/<pdk>/signoff.py``) uses them.
 
-    uv run python -m flow layout comp --instance c040
+    uv run python -m flow layout comp --instance frida1
 """
 
 from __future__ import annotations
@@ -55,13 +55,13 @@ ESCAPE = {"up": ["inp", "inn"], "down": ["clk", "clkb", "outp", "outn"]}
 # onto C_TAIL, with C_P: flow.comp.sweep's dynamic_bias)
 FLOORPLAN_CASES = {
     **TOPOLOGIES,
-    "dynamic_bias": {**TOPOLOGIES["double_tail_modified"], "preamp_bias": Bias.DYNAMIC, "preamp_c_ff": 60},
+    "dynamic_bias": {**TOPOLOGIES["double_tail_modified"], "bias": Bias.DYNAMIC},
 }
 
 
 def _structure(comp: Params) -> tuple[object, ...]:
-    """The comparator's devices and wiring (``STRUCTURE``), C_P by whether it is there, not its size."""
-    return tuple(bool(comp.preamp_c_ff) if key == "preamp_c_ff" else getattr(comp, key) for key in STRUCTURE)
+    """The comparator's devices and wiring (``STRUCTURE``)."""
+    return tuple(getattr(comp, key) for key in STRUCTURE)
 
 
 def write_netlist(params: Params, path: Path, pdk, constant_from=None) -> Path:

@@ -19,6 +19,7 @@ from abc import ABC
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime
+from enum import Enum
 from inspect import signature
 from pathlib import Path
 from types import UnionType
@@ -125,6 +126,195 @@ def design(sweep: Any, pdk: str) -> Iterator[tuple[str, Any]]:
 def names(sweep: Any) -> dict[str, Named]:
     """A block's named instances, swept or not, by name."""
     return {value.name: value for value in vars(sweep).values() if isinstance(value, Named)}
+
+
+# ---- the search space: each design parameter's domain (a block's params.py)
+
+
+@dataclass(frozen=True)
+class Choice:
+    """A choice among ``values`` (a sequence, or a function of the PDK giving one; None: every member
+    of the parameter's enumeration, or False and True), searched where ``when(params)`` holds."""
+
+    values: Sequence[Any] | Callable[[str], Sequence[Any]] | None = None
+    when: Callable[[Any], bool] | None = None
+
+
+@dataclass(frozen=True)
+class Int:
+    """A whole number from ``low`` to ``high`` inclusive (each a number or a function of the PDK),
+    searched on a log scale where ``log``, and where ``when(params)`` holds."""
+
+    low: int | Callable[[str], int]
+    high: int | Callable[[str], int]
+    log: bool = True
+    when: Callable[[Any], bool] | None = None
+
+
+type Domain = Choice | Int
+# each knob's domain by its hdl21 Param (``knob``): hdl21 keeps the very Param objects a paramclass
+# was declared with (``Params.__params__``), so a parameter class's domains are found from it
+_DOMAINS: dict[int, tuple[Any, Domain]] = {}
+
+
+def knob(*, dtype: Any, desc: str, default: Any, domain: Domain | None = None) -> Any:
+    """A design parameter (an hdl21 ``Param``) and the values a search may give it (``domain``;
+    None: a fixed parameter, never searched)."""
+    import hdl21 as h
+
+    param = h.Param(dtype=dtype, desc=desc, default=default)
+    if domain is not None:
+        _DOMAINS[id(param)] = (param, domain)  # the Param itself, so its id stays its own
+    return param
+
+
+def domains(cls: type) -> dict[str, Domain]:
+    """The searched parameters of an hdl21 parameter class, by name, with their domains."""
+    declared = getattr(cls, "__params__", {})
+    return {name: _DOMAINS[id(param)][1] for name, param in declared.items() if id(param) in _DOMAINS}
+
+
+def bounds(domain: Domain, pdk: str) -> tuple[Any, Any]:
+    """An ``Int`` domain's low and high in ``pdk``."""
+    assert isinstance(domain, Int)
+    low = domain.low if isinstance(domain.low, int) else domain.low(pdk)
+    high = domain.high if isinstance(domain.high, int) else domain.high(pdk)
+    return low, high
+
+
+def choices(domain: Choice, dtype: Any, pdk: str) -> tuple[Any, ...]:
+    """A ``Choice`` domain's values in ``pdk``: its own, else the enumeration's members, else False and
+    True."""
+    if isinstance(domain.values, Sequence):
+        return tuple(domain.values)
+    if domain.values is not None:
+        return tuple(domain.values(pdk))
+    if isinstance(dtype, type) and issubclass(dtype, Enum):
+        return tuple(dtype)
+    return (False, True)
+
+
+def active(domain: Domain, params: Any) -> bool:
+    """Whether a knob is searched (its ``when`` holds) for these parameters."""
+    return domain.when is None or bool(domain.when(params))
+
+
+def canonical(params: Any) -> Any:
+    """``params`` with every knob its design does not use (``when`` false) at its default: the one
+    representative of the designs that differ in those knobs alone."""
+    cls = type(params)
+    defaults = cls.defaults()
+    held = {name: defaults[name] for name, domain in domains(cls).items() if not active(domain, params)}
+    return cls(**{**params.__dict__, **held}) if held else params
+
+
+# ---- metrics, evaluation levels and problems (a block's types.py, sweep.py and opt.py)
+
+
+class Metrics:
+    """A block's metrics (a frozen dataclass deriving this, in its types.py): each field one number
+    or flag, named with its unit, declared with ``metric`` (which way is better)."""
+
+
+type Better = Literal["lower", "higher", "true"]
+
+
+def metric(desc: str, better: Better, default: Any = float("nan")) -> Any:
+    """A field of a ``Metrics`` dataclass: what it is and which way is better ("lower", "higher", or
+    "true" for a flag that must hold)."""
+    return field(default=default, metadata={"desc": desc, "better": better})
+
+
+def betters(cls: Any) -> dict[str, Better]:
+    """Each metric of a ``Metrics`` dataclass and which way is better."""
+    return {f.name: f.metadata["better"] for f in fields(cls) if "better" in f.metadata}
+
+
+# the metrics every sweep and optimization record carries beside the block's own (the runner's
+# geometry of the compiled circuit, the layout step's area), and which way is better
+GEOMETRY: dict[str, Better] = {
+    "devices": "lower",
+    "gate_area_um2": "lower",
+    "cells": "lower",
+    "layout_area_um2": "lower",
+}
+
+
+class Level(Enum):
+    """How much of an instance's characterization to run: a quick screen (no transient noise), the
+    runs a search needs, or all of them. Each level's runs include the lower levels'."""
+
+    SCREEN = 1
+    SEARCH = 2
+    FULL = 3
+
+
+@dataclass(frozen=True)
+class Problem:
+    """What an optimization of a block minimizes and what it must meet, by metric name: ``cost``, each
+    a weight (the term w log(metric)) or a weight and a scale (w log(1 + (metric / scale)^2), which
+    saturates below the scale); ``bound``, each a limit on the side its metric's ``better`` names (a
+    flag: True, it must hold); ``fixed``, parameters held for this problem instead of searched."""
+
+    cost: Mapping[str, float | tuple[float, float]]
+    bound: Mapping[str, float | bool]
+    fixed: Mapping[str, Any] = field(default_factory=dict)
+
+
+class ProblemFamily(Family):
+    """Problems of a block (its opt.py's ``@problem``): a function of a few knobs returning a
+    ``Problem``, expanded like a family of instances."""
+
+
+def problem(*, pdks: Sequence[str] | None = None, **axes: Axis) -> Callable[[Callable[..., Problem]], ProblemFamily]:
+    """Make a function of a few named knobs returning a ``Problem`` a family of problems over ``axes``
+    (in the ``pdks`` named, else in every PDK): ``adc(bits=12)`` is one."""
+    entry = tuple(pdks) if pdks is not None else None
+    return lambda build: ProblemFamily(build, (axes,), (entry,))
+
+
+def problems(opt: Any, pdk: str) -> dict[str, Problem]:
+    """A block's problems in ``pdk`` by label (``adc(bits=12)``), from its opt module."""
+    return {
+        label: built
+        for value in vars(opt).values()
+        if isinstance(value, ProblemFamily)
+        for label, built in value.instances(pdk)
+    }
+
+
+def objective(problem: Problem, metrics: Mapping[str, Any]) -> float:
+    """The problem's cost of an instance's metrics: the sum of its terms (NaN where a cost metric is
+    missing or not positive)."""
+    total = 0.0
+    for name, weight in problem.cost.items():
+        value = float(metrics.get(name, float("nan")))
+        if isinstance(weight, tuple):
+            total += weight[0] * float(np.log1p((value / weight[1]) ** 2))
+        else:
+            total += weight * float(np.log(value)) if value > 0 else float("nan")
+    return total
+
+
+def violations(problem: Problem, metrics: Mapping[str, Any], better: Mapping[str, Better]) -> dict[str, float]:
+    """Each bound's violation, at most 0 where it is met: log(value / limit) for a "lower" metric,
+    log(limit / value) for a "higher" one, 0 or 1 for a flag; 0 where the metric was not measured
+    (absent), 1 where it was measured and is not a number (beyond what the bench resolves)."""
+    result = {}
+    for name, limit in problem.bound.items():
+        if name not in metrics or metrics[name] is None:
+            result[name] = 0.0
+            continue
+        value = metrics[name]
+        if better[name] == "true":
+            result[name] = 0.0 if bool(value) is bool(limit) else 1.0
+        elif not np.isfinite(float(value)) or float(value) <= 0:
+            result[name] = 1.0
+        elif better[name] == "lower":
+            result[name] = float(np.log(float(value) / float(limit)))
+        else:
+            result[name] = float(np.log(float(limit) / float(value)))
+    return result
 
 
 @dataclass(frozen=True, slots=True)

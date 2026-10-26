@@ -298,7 +298,7 @@ def calc_strongarm_noise(
     rather than predicting noise.
     """
 
-    if hw.comp_stages != comparator.Stages.SINGLE or hw.preamp_diff_xtors != MosType.NMOS:
+    if hw.latch != comparator.Latch.STRONGARM or hw.input_pair != MosType.NMOS:
         raise ValueError("the StrongARM noise estimate needs a single-stage NMOS-input comparator")
     diff_w = hw.diffpair_w * W_MIN_UM
     latch_w, latch_l = hw.latch_on_w * W_MIN_UM, hw.latch_on_l * L_MIN_UM

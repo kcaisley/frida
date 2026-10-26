@@ -28,7 +28,6 @@ def test_a_named_instance_is_laid_out_by_its_floorplan_or_alignss(tmp_path: Path
     named = pipeline.names(sweep)
     assert set(named) == {
         "frida1",
-        "c040",
         "strongarm",
         "double_tail",
         "triple_tail",
@@ -40,12 +39,12 @@ def test_a_named_instance_is_laid_out_by_its_floorplan_or_alignss(tmp_path: Path
     calls = []
     monkeypatch.setattr(layout, "_comp", lambda run_dir, pdk, *args: calls.append((pdk, *args)) or run_dir)
     monkeypatch.setattr(layout, "_finish", lambda run_dir, summary, failures: run_dir)
-    layout.layout_named(tmp_path, "c040", named["c040"](), pdks=("tsmc65", "ihp130"))
-    layout.layout_named(tmp_path, "c040", named["c040"](), auto=True, pdks=("tsmc65",))
+    layout.layout_named(tmp_path, "frida1", named["frida1"](), pdks=("tsmc65", "ihp130"))
+    layout.layout_named(tmp_path, "frida1", named["frida1"](), auto=True, pdks=("tsmc65",))
     assert [(pdk, name, floorplan.name if floorplan else None) for pdk, name, _params, floorplan in calls] == [
-        ("tsmc65", "comp_c040", "comp_c040.json"),
-        ("ihp130", "comp_c040", "comp_c040.json"),
-        ("tsmc65", "comp_c040", None),
+        ("tsmc65", "comp_frida1", "comp_frida1.json"),
+        ("ihp130", "comp_frida1", "comp_frida1.json"),
+        ("tsmc65", "comp_frida1", None),
     ]
     with pytest.raises(FileNotFoundError, match="no hand-written floorplan"):
         layout.layout_named(tmp_path, "dynamic", sweep.dynamic_bias(ratio=3.5, k=2))
@@ -70,10 +69,6 @@ def test_every_family_is_placed_by_a_hand_written_floorplan() -> None:
     assert {"Mcap_tail_a", "Mcap_tail_b", "Mcap_p_a", "Mcap_n_b", "Mbias"} <= {
         cell for row in fp["rows"] for cell in row
     }
-
-
-def test_c040_is_the_retired_size_sweeps_topology_40_at_half_size() -> None:
-    assert sweep.c040().diffpair_w == 19 and sweep.c040().latch_init_l == 17
 
 
 def _gds(path: Path) -> Path:

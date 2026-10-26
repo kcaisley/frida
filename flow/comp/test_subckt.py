@@ -1,11 +1,14 @@
 """Software-only structural tests for the comparator's circuit (``netlist``)."""
 
+import itertools
+
 import pytest
 from hdl21.primitives import MosType
 
+from flow import pipeline
 from flow.circuit.devices import CAP_L, fingers
 
-from .params import Bias, Params, Stages, State
+from .params import LATCHES, Bias, Latch, Params, State, valid
 from .subckt import netlist
 
 
@@ -20,13 +23,9 @@ def test_default_comp_is_single_tail_nmos_strongarm() -> None:
 
     netlist.Cache.reset()
     params = Params()
-    assert params.comp_stages == Stages.SINGLE
-    assert params.preamp_diff_xtors == MosType.NMOS
-    assert params.preamp_bias == Bias.SWITCHED
-    assert params.latch_inner_init_xtors == State.CLOCK
-    assert params.latch_inner_on_xtors == State.OMIT
-    assert params.latch_outer_init_xtors == State.OMIT
-    assert params.latch_outer_on_xtors == State.OMIT
+    assert params.latch == Latch.STRONGARM
+    assert params.input_pair == MosType.NMOS
+    assert params.bias == Bias.SWITCHED
     assert (
         params.diffpair_w,
         params.diffpair_l,
@@ -56,6 +55,32 @@ def test_default_comp_is_single_tail_nmos_strongarm() -> None:
     assert not hasattr(module, "Cbias")
 
 
+def test_every_combination_of_latch_input_pair_and_bias_builds() -> None:
+    """The topology is three independent choices: each of their 24 combinations is valid and
+    builds."""
+
+    for latch, input_pair, bias in itertools.product(Latch, MosType, Bias):
+        params = Params(latch=latch, input_pair=input_pair, bias=bias)
+        assert valid(params), params
+        netlist.Cache.reset()
+        assert netlist(params) is not None
+
+
+def test_the_search_space_is_declared_on_the_parameters() -> None:
+    """Every searched knob carries its domain; the dynamic bias's capacitors are searched only with a
+    dynamic bias, and a design that does not use them is canonical at their defaults."""
+
+    domains = pipeline.domains(Params)
+    assert {"latch", "input_pair", "bias", "diffpair_w", "tail_l", "preamp_c_ff", "bias_c_ff"} <= set(domains)
+    assert not {"output_stage", "rst_l", "srlatch_n_w", "srlatch_p_w", "vth"} & set(domains)
+    assert pipeline.bounds(domains["latch_on_l"], "tpsc65") == (1, 1)
+    assert pipeline.choices(domains["latch"], Latch, "tsmc65") == tuple(Latch)
+    switched = Params(preamp_c_ff=240, bias_c_ff=900)
+    assert pipeline.canonical(switched) == Params()
+    dynamic = Params(bias=Bias.DYNAMIC, preamp_c_ff=240, bias_c_ff=900)
+    assert pipeline.canonical(dynamic) == dynamic
+
+
 def test_comp_output_srlatch_handles_both_reset_polarities() -> None:
     """Build the NOR and NAND variants of the held comparator output."""
 
@@ -68,7 +93,7 @@ def test_comp_output_srlatch_handles_both_reset_polarities() -> None:
     assert nor.Mbuf2_outn_p.conns["d"] is nor.outn
 
     # latch_p rising pulls decision_n low, which must set sr_p (outp high for inp > inn)
-    nand = netlist(Params(preamp_diff_xtors=MosType.PMOS))
+    nand = netlist(Params(input_pair=MosType.PMOS))
     assert nand.Msr_p_p_decision.conns["d"] is nand.sr_p
     assert nand.Msr_p_n_decision.conns["s"] is nand.sr_p_stack
     assert nand.Msr_p_p_decision.conns["g"] is nand.decision_n
@@ -77,54 +102,38 @@ def test_comp_output_srlatch_handles_both_reset_polarities() -> None:
 
 
 def test_signaled_latch_devices_take_the_opposite_input_drain() -> None:
-    """All four signaled pairs are driven alike, so none of them works against another."""
+    """In every latch, each signaled device pair is driven alike, so none works against another."""
 
-    netlist.Cache.reset()
-    m = netlist(
-        Params(
-            comp_stages=Stages.DOUBLE,
-            latch_inner_on_xtors=State.SIGNAL,
-            latch_outer_on_xtors=State.SIGNAL,
-            latch_inner_init_xtors=State.SIGNAL,
-            latch_outer_init_xtors=State.SIGNAL,
-        )
-    )
-    for device in ("Minner_on", "Mouter_on", "Minner_init", "Mouter_init"):
-        assert getattr(m, f"{device}_p").conns["g"] is m.input_p_drain
-        assert getattr(m, f"{device}_n").conns["g"] is m.input_n_drain
+    pairs = {"outer_on": "Mouter_on", "inner_on": "Minner_on", "outer_init": "Mouter_init", "inner_init": "Minner_init"}
+    for latch, wiring in LATCHES.items():
+        if latch == Latch.TRIPLE_TAIL:
+            continue  # its later stages are fixed, its devices driven by the second stage
+        netlist.Cache.reset()
+        m = netlist(Params(latch=latch))
+        for key, device in pairs.items():
+            if wiring[key] == State.SIGNAL:
+                assert getattr(m, f"{device}_p").conns["g"] is m.input_p_drain, (latch, key)
+                assert getattr(m, f"{device}_n").conns["g"] is m.input_n_drain, (latch, key)
 
 
 def test_double_tail_shares_one_clocked_tail() -> None:
-    """The double tail's second stage: one clocked tail under both cross-coupled halves."""
+    """The double tail's second stage: one clocked tail under both cross-coupled halves, as wide as
+    both halves' on devices together."""
 
     netlist.Cache.reset()
-    params = Params(
-        comp_stages=Stages.DOUBLE,
-        latch_inner_init_xtors=State.SIGNAL,
-        latch_outer_on_xtors=State.CLOCK,
-        latch_tail_shared=True,
-    )
+    params = Params(latch=Latch.DOUBLE_TAIL)
     m = netlist(params)
     assert m.Mcross_on_p.conns["s"] is m.outer and m.Mcross_on_n.conns["s"] is m.outer
     assert m.Mouter_on.conns["g"] is m.clkb and m.Mouter_on.conns["s"] is m.vdd
     assert float(m.Mouter_on.of.params.w) == fingers(2 * params.latch_on_w, "analog")[0]
     assert not hasattr(m, "Mouter_on_p") and not hasattr(m, "outerp")
-    with pytest.raises(ValueError):
-        netlist(
-            Params(
-                comp_stages=Stages.DOUBLE,
-                latch_inner_init_xtors=State.SIGNAL,
-                latch_outer_on_xtors=State.SIGNAL,
-                latch_tail_shared=True,
-            )
-        )
 
 
 def test_triple_tail_stages() -> None:
     """Cascoded preamp, PMOS-latch second stage on midp/midn, clocked-tail third stage."""
 
     netlist.Cache.reset()
-    m = netlist(Params(comp_stages=Stages.TRIPLE))
+    m = netlist(Params(latch=Latch.TRIPLE_TAIL))
     assert m.Mdiff_p.conns["d"] is m.cas_p and m.Mcas_p.conns["d"] is m.input_p_drain
     # the cascodes' gates reach VDD through a tie, never by metal alone
     assert m.Mcas_p.conns["g"] is m.cas_gate and m.Mcas_n.conns["g"] is m.cas_gate
@@ -140,10 +149,9 @@ def test_triple_tail_stages() -> None:
     params = Params()
     assert float(m.Minner_init_p.of.params.w) == fingers(4 * params.rst_w, "analog")[0]
     assert float(m.Mtail3.of.params.w) == fingers(params.latch_on_w, "analog")[0]
+    assert float(m.Mtail2.of.params.w) == fingers(2 * params.latch_on_w, "analog")[0]
     # the third stage precharges high like a StrongARM: NOR output latch
     assert m.Msr_p_p_decision.conns["d"] is m.sr_p_stack
-    with pytest.raises(ValueError):
-        netlist(Params(comp_stages=Stages.TRIPLE, latch_inner_init_xtors=State.SIGNAL))
 
 
 def test_devices_fit_the_pdk_rows_in_whole_units(tmp_path) -> None:
@@ -193,31 +201,14 @@ def test_standard_cell_output_stage(tmp_path) -> None:
     assert not any(name.startswith(("Mdecision", "Msr", "Mbuf")) for name in lines)
 
 
-def test_the_added_sizes_leave_an_instance_as_it_was_at_their_defaults() -> None:
-    """The input pair's load capacitance, the latch tail's width and the dynamic bias's tail
-    capacitance: as before at their defaults (no capacitor, twice the latch's on width, 100 fF), so
-    an instance's flat row and digest do not change; set, each sizes its device. The capacitors are
-    MOS capacitors whose gate is their node, in strong inversion over its swing."""
+def test_the_dynamic_bias_capacitors() -> None:
+    """The dynamic bias's capacitors, C_P on the input pair's drains and C_TAIL under its tail switch:
+    MOS capacitors whose gate is their node, in strong inversion over its swing; a switched tail has
+    neither, whatever their values."""
 
-    from flow.sweep import flat_params
-    from flow.sweep.runner import digest
-
-    double = {
-        "comp_stages": Stages.DOUBLE,
-        "latch_inner_init_xtors": State.SIGNAL,
-        "latch_outer_on_xtors": State.CLOCK,
-    }
-    shared = Params(**double, latch_tail_shared=True, latch_on_w=8)
-    flat = flat_params(shared)
-    assert not {"preamp_c_ff", "latch_tail_w", "bias_c_ff"} & set(flat)
-    assert digest(shared) == digest(flat)
-    module = netlist(shared)
-    assert float(module.Mouter_on.of.params.w) == 16 and not hasattr(module, "Mcap_p")
-
-    wide = Params(**double, latch_tail_shared=True, latch_on_w=8, latch_tail_w=64, preamp_c_ff=240)
-    assert flat_params(wide)["latch_tail_w"] == 64 and digest(wide) != digest(shared)
-    module = netlist(wide)
-    assert float(module.Mouter_on.of.params.w) == 64
+    netlist.Cache.reset()
+    assert not hasattr(netlist(Params(preamp_c_ff=240)), "Mcap_p")
+    module = netlist(Params(bias=Bias.DYNAMIC, preamp_c_ff=240, bias_c_ff=320))
     # an NMOS against ground, its gate the input pair's drain (precharged high), as wide as the
     # active PDK's gate capacitance per unit device makes 240 fF at CAP_L (fingered); without a
     # PDK, a unit device holds 0.1 fF
@@ -229,14 +220,10 @@ def test_the_added_sizes_leave_an_instance_as_it_was_at_their_defaults() -> None
     assert cap.of.params.tp == MosType.NMOS and float(cap.of.params.l) == CAP_L
     assert float(cap.of.params.w) == pytest.approx(240 / (density["n"] * CAP_L), rel=0.05)
 
-    triple = netlist(Params(comp_stages=Stages.TRIPLE, latch_on_w=8, latch_tail_w=48))
-    assert float(triple.Mtail2.of.params.w) == 48 and float(triple.Mtail3.of.params.w) == 8
-
     # the tail capacitor: a PMOS against the supply, its gate the cap node (starting at ground)
-    dynamic = netlist(Params(preamp_bias=Bias.DYNAMIC, bias_c_ff=320))
-    tail = dynamic.Mcap_tail
-    assert tail.conns["g"] is dynamic.cap_node and tail.conns["s"] is tail.conns["b"] is dynamic.vdd
+    tail = module.Mcap_tail
+    assert tail.conns["g"] is module.cap_node and tail.conns["s"] is tail.conns["b"] is module.vdd
     assert tail.of.params.tp == MosType.PMOS
     assert float(tail.of.params.w) == pytest.approx(320 / (density["p"] * CAP_L), rel=0.05)
-    default = netlist(Params(preamp_bias=Bias.DYNAMIC)).Mcap_tail
+    default = netlist(Params(bias=Bias.DYNAMIC)).Mcap_tail
     assert float(default.of.params.w) == pytest.approx(100 / (density["p"] * CAP_L), rel=0.05)

@@ -16,7 +16,7 @@ from .analysis import (
     analyze_timing,
     metrics,
 )
-from .params import FRIDA1, Bias, OutputStage, Params, Stages, State, TbParams, valid
+from .params import FRIDA1, LATCHES, Bias, Latch, OutputStage, Params, Stages, State, TbParams, valid
 from .plots import (
     plot_delay_supply_large,
     plot_delay_supply_small,
@@ -31,7 +31,6 @@ from .sim import simulate, testbench
 from .subckt import Nets, netlist
 from .sweep import (
     base_strongarm,
-    c040,
     double_tail,
     double_tail_modified,
     double_tail_modified_self_timed,
@@ -59,6 +58,7 @@ from .types import (
 
 __all__ = [
     "FRIDA1",
+    "LATCHES",
     "AnalysisClockCheck",
     "AnalysisCommonMode",
     "AnalysisDecisions",
@@ -70,6 +70,7 @@ __all__ = [
     "AnalysisScurve",
     "AnalysisTiming",
     "Bias",
+    "Latch",
     "Nets",
     "OutputStage",
     "Params",
@@ -88,7 +89,6 @@ __all__ = [
     "analyze_scurve",
     "analyze_timing",
     "base_strongarm",
-    "c040",
     "double_tail",
     "double_tail_modified",
     "double_tail_modified_self_timed",

@@ -41,14 +41,14 @@ def corpus(pdk: str | None) -> dict[str, Params]:
     from flow.sweep.runner import labelled_space
 
     instances: dict[str, Params] = {}
-    for _ident, (label, params) in labelled_space("comp", pdk or "tsmc65").items():
+    for label, params in labelled_space("comp", pdk or "tsmc65").values():
         instances.setdefault(label, params)
     for name, named in pipeline.names(sweep).items():
         instances.setdefault(name, named())
     for topology, structure in TOPOLOGIES.items():
         base = {**structure, **TOPOLOGY_SIZES}
-        instances[f"{topology}+pmos"] = Params(**{**base, "preamp_diff_xtors": MosType.PMOS})
-        instances[f"{topology}+dynamic"] = Params(**{**base, "preamp_bias": Bias.DYNAMIC, "preamp_c_ff": 60})
+        instances[f"{topology}+pmos"] = Params(**{**base, "input_pair": MosType.PMOS})
+        instances[f"{topology}+dynamic"] = Params(**{**base, "bias": Bias.DYNAMIC, "preamp_c_ff": 60})
     return {label: params for label, params in instances.items() if valid(params, pdk)}
 
 

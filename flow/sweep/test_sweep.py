@@ -16,8 +16,8 @@ from flow.sweep import flat_params, geometry, runner
 
 
 def test_parameters_flatten_to_one_row() -> None:
-    flat = flat_params(comp.Params(comp_stages=comp.Stages.TRIPLE, diffpair_w=16))
-    assert flat["comp_stages"] == "TRIPLE" and flat["diffpair_w"] == 16
+    flat = flat_params(comp.Params(latch=comp.Latch.TRIPLE_TAIL, diffpair_w=16))
+    assert flat["latch"] == "TRIPLE_TAIL" and flat["diffpair_w"] == 16
     assert all(isinstance(value, (bool, int, float, str)) or value is None for value in flat.values())
 
 
@@ -103,7 +103,7 @@ def test_the_comparator_space_is_its_families_within_each_pdks_limits() -> None:
         comp.dynamic_bias(ratio=6, k=2), "tower180"
     )
     for pdk in ("ihp130", "tower180", "tsmc28"):
-        assert not any(params.preamp_bias == comp.Bias.DYNAMIC for params in space[pdk])
+        assert not any(params.bias == comp.Bias.DYNAMIC for params in space[pdk])
     # named but not swept: picked by name, and by label or digest the swept ones
     picked = runner.select(
         "comp", "tsmc65", ["triple_tail", "dynamic_bias(ratio=3.5, k=3)", runner.digest(comp.frida1())]

@@ -9,7 +9,6 @@ import importlib
 from dataclasses import replace
 
 import hdl21 as h
-from hdl21.primitives import MosType
 
 from flow.pipeline import Meas, Record, family, named
 
@@ -42,8 +41,6 @@ from .params import (
     TOPOLOGY_SIZES,
     Bias,
     Params,
-    Stages,
-    State,
     TbParams,
 )
 from .plots import (
@@ -116,7 +113,7 @@ def dynamic_bias(ratio: float, k: float) -> Params:
     sizes = {name: max(4, round(k * units)) for name, units in unit.items()}
     c_p = round(60 * k)
     return Params(
-        **{**TOPOLOGIES["double_tail_modified"], "preamp_bias": Bias.DYNAMIC},
+        **{**TOPOLOGIES["double_tail_modified"], "bias": Bias.DYNAMIC},
         **{
             **TOPOLOGY_SIZES,
             **sizes,
@@ -132,32 +129,6 @@ def dynamic_bias(ratio: float, k: float) -> Params:
 def frida1() -> Params:
     """FRIDA-1's fabricated comparator."""
     return FRIDA1
-
-
-@named(swept=False)
-def c040() -> Params:
-    """The example double tail of the retired size sweep (its topology 40 at its half sizes)."""
-    return Params(
-        comp_stages=Stages.DOUBLE,
-        preamp_diff_xtors=MosType.NMOS,
-        preamp_bias=Bias.SWITCHED,
-        latch_inner_on_xtors=State.CLOCK,
-        latch_outer_on_xtors=State.CLOCK,
-        latch_inner_init_xtors=State.SIGNAL,
-        latch_outer_init_xtors=State.OMIT,
-        diffpair_w=19,
-        diffpair_l=5,
-        tail_w=3,
-        tail_l=13,
-        rst_w=4,
-        rst_l=1,
-        latch_on_w=13,
-        latch_on_l=6,
-        latch_init_w=17,
-        latch_init_l=17,
-        srlatch_n_w=2,
-        srlatch_p_w=4,
-    )
 
 
 @named(swept=False)
