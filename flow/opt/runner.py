@@ -30,6 +30,7 @@ import tempfile
 import time
 import traceback
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from concurrent.futures.process import BrokenProcessPool
 from datetime import datetime
 from enum import Enum
 from importlib import import_module
@@ -304,33 +305,59 @@ def optimize(block: str, pdk: str, label: str, budget: int, workers: int) -> Pat
         f"{label} of {block} in {pdk}: {warm_start(study, block, pdk, problem, cls)} evaluations rescored", flush=True
     )
     log = (folder / f"{label}.log").open("a")
+    # trials a stopped run left running: failed, their designs asked again
+    for stale in study.get_trials(deepcopy=False, states=(optuna.trial.TrialState.RUNNING,)):
+        study.tell(stale.number, state=optuna.trial.TrialState.FAIL, skip_if_finished=True)
+        study.enqueue_trial(stale.params, skip_if_exists=True)
     running: dict[Any, tuple[Any, Any]] = {}
-    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=1) as pool:
-        while running or len(study.trials) < budget:
-            while len(running) < workers and len(study.trials) < budget:
-                trial = study.ask()
-                params = suggest(trial, cls, pdk, problem)
-                running[pool.submit(evaluate, block, pdk, params, problem)] = (trial, params)
-            done, _ = wait(running, return_when=FIRST_COMPLETED)
-            for future in done:
-                trial, params = running.pop(future)
-                try:
-                    record = future.result()
-                except Exception:  # noqa: BLE001 - a broken evaluation fails its trial, not the study
-                    study.tell(trial, state=optuna.trial.TrialState.FAIL)
-                    print(f"[{trial.number}] failed: {traceback.format_exc(limit=3)[-600:]}", file=log, flush=True)
-                    continue
-                value, constraints = score(problem, record, better)
-                for name, violation in constraints.items():
-                    trial.set_constraint(name, violation)
-                trial.set_user_attr("id", record["id"])
-                trial.set_user_attr("metrics", record["metrics"])
-                study.tell(trial, value)
-                line = _line(trial.number, params, record, value, constraints)
-                print(line, flush=True)
-                print(line, file=log, flush=True)
+    pool = _pool(workers)
+    while running or len(study.trials) < budget:
+        while len(running) < workers and len(study.trials) < budget:
+            trial = study.ask()
+            params = suggest(trial, cls, pdk, problem)
+            running[pool.submit(evaluate, block, pdk, params, problem)] = (trial, params)
+        done, _ = wait(running, return_when=FIRST_COMPLETED)
+        broken = False
+        for future in done:
+            trial, params = running.pop(future)
+            try:
+                record = future.result()
+            except BrokenProcessPool:
+                broken = True
+                study.tell(trial, state=optuna.trial.TrialState.FAIL)
+                study.enqueue_trial(trial.params, skip_if_exists=True)
+                continue
+            except Exception:  # noqa: BLE001 - a broken evaluation fails its trial, not the study
+                study.tell(trial, state=optuna.trial.TrialState.FAIL)
+                print(f"[{trial.number}] failed: {traceback.format_exc(limit=3)[-600:]}", file=log, flush=True)
+                continue
+            value, constraints = score(problem, record, better)
+            for name, violation in constraints.items():
+                trial.set_constraint(name, violation)
+            trial.set_user_attr("id", record["id"])
+            trial.set_user_attr("metrics", record["metrics"])
+            study.tell(trial, value)
+            line = _line(trial.number, params, record, value, constraints)
+            print(line, flush=True)
+            print(line, file=log, flush=True)
+        if broken:
+            # a worker killed from outside breaks the whole pool: its other trials are lost with it,
+            # failed and asked again, and a new pool takes over
+            for trial, _params in running.values():
+                study.tell(trial, state=optuna.trial.TrialState.FAIL)
+                study.enqueue_trial(trial.params, skip_if_exists=True)
+            running.clear()
+            pool.shutdown(wait=False, cancel_futures=True)
+            pool = _pool(workers)
+            print(f"{datetime.now().astimezone():%H:%M:%S} a worker died: a new pool", file=log, flush=True)
+    pool.shutdown()
     log.close()
     return database
+
+
+def _pool(workers: int) -> ProcessPoolExecutor:
+    """A fresh process per evaluation (hdl21 compiles a generated module in place, for one PDK)."""
+    return ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=1)
 
 
 def _line(number: int, params: Any, record: dict[str, Any], value: float, constraints: dict[str, float]) -> str:
