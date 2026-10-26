@@ -65,9 +65,9 @@ def test_every_component_is_its_block_sweeps_instance() -> None:
     samplers = {digest(samp) for samp in samp_sweep.instances("tsmc65")}
     assert [digest(samp) for samp in sweep.SAMPLER_STEPS] == [
         "0208193e4ead",  # FRIDA-1's transmission gate
-        "92b895be0359",  # x2
-        "30c3a3c54e7a",  # x4
-        "b2cc08f9747c",  # bootstrapped, doubled boost capacitor
-        "c2d42c5c75e1",  # bootstrapped x4
+        "b2cc08f9747c",  # bootstrapped, doubled boost capacitor (32 minimum widths)
+        "9c9f7a31d4a4",  # bootstrapped, 64, boosted alike
+        "4cdbd50b7bca",  # 112
+        "a24997a98572",  # 160
     ]
     assert all(digest(samp) in samplers and not samp.dummy for samp in sweep.SAMPLER_STEPS)

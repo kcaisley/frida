@@ -1,5 +1,5 @@
 """The sampling switch's design space (``flow.sweep``): the characterization's four switches at
-six sizes (a bootstrapped one at seven), in every PDK.
+six sizes (a bootstrapped one at seven, and at three more as an on-resistance ladder), in every PDK.
 
 Each instance as the characterization runs it (``flow.samp.sim``): into 1 pF at a 10 ns clock (5 ns
 tracking), its input stepping a twelfth of the supply each period, six periods. Over the input
@@ -46,6 +46,10 @@ SIZES = [
     {"mos_l": 2 * BASE.mos_l},
     BOOST_X2,
 ]
+# and the bootstrapped switch as an on-resistance ladder (the ADC study's samplers): 2, 3.5 and 5
+# times its doubled-boost size, the boost capacitor as wide as the switch and the helpers an eighth,
+# the ratios of that size, so every rung is boosted alike and its on-resistance falls with its width
+BOOST_LADDER = [{"mos_w": width, "boot_w": width // 8, "cap_w": width} for width in (64, 112, 160)]
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
 WAVE_VIN = (VIN_SWEEP[0], NOMINAL_VIN, VIN_SWEEP[-1])  # the transients kept
 
@@ -59,7 +63,10 @@ def instances(pdk: str) -> list[SampParams]:
         for sizes in SIZES
         if sizes is not BOOST_X2 or structure["bootstrap"]
     )
-    return [samp for samp in switches if is_valid_samp_params(samp)]
+    ladder = (
+        SampParams(**structure, **sizes) for structure in STRUCTURES if structure["bootstrap"] for sizes in BOOST_LADDER
+    )
+    return [samp for samp in (*switches, *ladder) if is_valid_samp_params(samp)]
 
 
 def characterize(run_dir: Path, pdk: str, samp: SampParams) -> Record:

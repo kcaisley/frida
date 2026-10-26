@@ -19,10 +19,11 @@ The product, nothing pruned:
 
 - the comparators of the comparator grid (``COMP_GRID``: five noise levels by four
   delays, FRIDA-1's StrongARM among them at its fabricated sizes);
-- the samplers (``SAMPLER_STEPS``), by their tracking linearity: FRIDA-1's transmission gate (32
-  minimum widths, minimum length), the same two and four times wider, the bootstrapped NMOS switch
-  with the doubled boost capacitor, and that switch with every width four times; the gates without
-  half-size dummy switches, as FRIDA-1's;
+- the samplers (``SAMPLER_STEPS``), an on-resistance ladder: FRIDA-1's transmission gate (32
+  minimum widths, minimum length) the worst, then the bootstrapped NMOS switch at 32, 64, 112 and
+  160 minimum widths (``flow.samp.sweep.BOOST_LADDER``, each boosted alike), about a half, a
+  quarter, a seventh and a tenth of the gate's resistance; none with half-size dummy switches, as
+  FRIDA-1's;
 - the arrays, 10 at each resolution and scale: binary, and each scheme
   (``flow.caparray.subckt.RedunStrat``: the MSBs split, the LSBs split, FRIDA's MSB redistribution)
   with 2, 4 and 6 extra cycles, every one of the binary total weight;
@@ -73,15 +74,15 @@ COMP_GRID_TARGETS = tuple((noise, delay) for noise in GRID_NOISE_V for delay in 
 # FRIDA-1's comparator, then each quieter at about its speed (the grid's 2 ns column)
 COMP_NOISE_STEPS = COMP_GRID[len(GRID_DELAY_S) - 1 :: len(GRID_DELAY_S)]
 COMPARATORS: tuple[comp.Params, ...] = COMP_GRID
-# the samplers, in steps of tracking linearity: FRIDA-1's transmission gate (32 minimum widths,
-# minimum length), the gate two and four times wider, the bootstrapped NMOS switch with the doubled
-# boost capacitor, and the bootstrapped switch with every width four times; none with dummy switches
+# the samplers, an on-resistance ladder: FRIDA-1's transmission gate (32 minimum widths, minimum
+# length) the worst, then the bootstrapped NMOS switch with the doubled boost capacitor and the
+# sampler sweep's wider rungs, boosted alike; none with dummy switches
 TGATE = SampParams()
-TGATE_X2 = SampParams(**samp_sweep.X2)
-TGATE_X4 = SampParams(**samp_sweep.X4)
 BOOTSTRAP = SampParams(switch_type=SwitchType.NMOS, bootstrap=True, **samp_sweep.BOOST_X2)
-BOOTSTRAP_X4 = SampParams(switch_type=SwitchType.NMOS, bootstrap=True, **samp_sweep.X4)
-SAMPLER_STEPS = (TGATE, TGATE_X2, TGATE_X4, BOOTSTRAP, BOOTSTRAP_X4)
+BOOTSTRAP_LADDER = tuple(
+    SampParams(switch_type=SwitchType.NMOS, bootstrap=True, **sizes) for sizes in samp_sweep.BOOST_LADDER
+)
+SAMPLER_STEPS = (TGATE, BOOTSTRAP, *BOOTSTRAP_LADDER)
 RESOLUTIONS = ADC_BITS  # 10, 12 and 14 bits
 # FRIDA-1's converter: its array (12 bits in 16 stages, MSB redistribution with 5 extra cycles) at
 # two of the 12-bit least switched capacitance

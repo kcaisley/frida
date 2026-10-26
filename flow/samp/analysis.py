@@ -72,8 +72,12 @@ def analyze_samp_track(measurements: Sequence[MeasSamp]) -> AnalysisSampTrack:
             end = float(ends[0])
             level = calc.value(data, time_s, (start + end) / 2)
             error, error_s = calc.clip(np.abs(output - level), time_s, float(start), end)
-            settled = calc.cross(error, error_s, float(error[0]) / math.e, edge="falling")
-            constants.append(float(settled[0]) - float(start) if len(settled) else math.nan)
+            # the time constant of the exponential itself, from its 1/e to its 1/e^2 point: counted
+            # from the clock edge it would also hold the edge and the switch's turning on (some
+            # 40 ps, which reads as 40 ohm into 1 pF and hides a wide switch's resistance)
+            first = calc.cross(error, error_s, float(error[0]) / math.e, edge="falling")
+            second = calc.cross(error, error_s, float(error[0]) / math.e**2, edge="falling")
+            constants.append(float(second[0]) - float(first[0]) if len(first) and len(second) else math.nan)
             errors.append(calc.value(output, time_s, end - transition) - level)
         tau = float(np.median(constants)) if constants else math.nan
         rows.append(
