@@ -59,7 +59,9 @@ class CapArrayModel:
             raise ValueError(f"{tables[-1]} has {len(main_f)} stages, the array {len(get_caparray_weights(params))}")
         parasitic = (extracted["topplate_shield_ff"] + extracted["topplate_ground_ff"]) * 1e-15
         manifest = tables[-1].with_name("geometry_manifest.json")
-        width_um, height_um = json.loads(manifest.read_text())["outline_um"] if manifest.exists() else (0.0, 0.0)
+        width_um, height_um = (
+            json.loads(manifest.read_text()).get("outline_um", (0.0, 0.0)) if manifest.exists() else (0.0, 0.0)
+        )
         return cls(
             pdk=pdk,
             params=params,
