@@ -45,6 +45,9 @@ OPT_DIR = ROOT / "build/opt"
 # an ALIGN layout in the loop that has not placed and routed in ten minutes fails (its placer can
 # search for hours on the larger sizings); the evaluation is then broken, not the design
 ALIGN_TIMEOUT_S = 600
+# the largest share of a layout its devices' gates cover: at most 0.24 over the 714 comparator layouts
+# of the sweeps (2026-10-26), so a design whose gates over it exceed the area bound cannot meet it
+DENSITY = 0.25
 
 
 def study_dir(block: str, pdk: str) -> Path:
@@ -197,10 +200,10 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
         h.pdk.compile(module)
         extra = geometry(module, pdk)
         bounded = "layout_area_um2" in problem.bound
-        # a layout is no smaller than its devices' gates: where they alone exceed the area bound,
-        # the design is out without simulating (its area at least that)
-        if bounded and extra["gate_area_um2"] > problem.bound["layout_area_um2"]:
-            record.update(metrics={**extra, "layout_area_um2": extra["gate_area_um2"]})
+        # no layout has its gates cover more than DENSITY of it: where the gates over DENSITY exceed
+        # the area bound, the design is out without simulating, its area estimated so
+        if bounded and extra["gate_area_um2"] / DENSITY > problem.bound["layout_area_um2"]:
+            record.update(metrics={**extra, "layout_area_um2": extra["gate_area_um2"] / DENSITY})
             record["seconds"] = round(time.time() - start, 1)
             write_record(path, record)
             return record
