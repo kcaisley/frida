@@ -6,7 +6,7 @@ import pytest
 
 from flow.adc import reference
 from flow.adc.model import Reference
-from flow.adc.reference import DECAP_COVERAGE, SHARE, decoupling_f, enob_floor, requirements
+from flow.adc.reference import DECAP_COVERAGE, QUIET, SHARE, decoupling_f, enob_floor, requirements
 
 
 def test_an_error_of_the_quantization_noise_costs_an_ideal_quantizer_half_a_bit() -> None:
@@ -33,14 +33,23 @@ def test_each_requirement_is_where_its_loss_reaches_its_share_of_the_quantizatio
     lsb2 = 1.0 / 12  # the quantization noise power, in LSB^2
 
     def measured(ref: Reference) -> float:
+        # an ideal reference gives the converter's own ENOB
         error = (ref.noise_v / 100e-6) ** 2 + (ref.r_ohm * ref.c_f / 1e-9) ** 2
         return bits - 0.5 * math.log2(2.0 ** (2 * (bits - enob_bits)) + error / lsb2)
 
     monkeypatch.setattr(reference, "dynamic_enob", measured)
     monkeypatch.setattr(reference, "decoupling_f", lambda model: 1e-12)
     capture = SimpleNamespace(tb=None, seed=0, noise_seed=0, unit_mismatch=0.0, quiet=(), tau_scale=1.0)
-    model = SimpleNamespace(params=SimpleNamespace(adc_bits=bits), capture=lambda tb, path, reference, **_: reference)
-    metrics, details = requirements(model, capture, enob_bits)
+    quiets = set()
+
+    def converted(tb, path, reference, quiet, **_) -> Reference:
+        quiets.add(quiet)
+        return reference
+
+    model = SimpleNamespace(params=SimpleNamespace(adc_bits=bits), capture=converted)
+    metrics, details = requirements(model, capture)
+    # every point on the DAC alone: the sampler and the comparator ideal
+    assert quiets == {QUIET}
     # the error may reach SHARE of the quantization noise power: (x / x0)^2 = SHARE / 12
     within = math.sqrt(SHARE * lsb2)
     assert metrics["ref_noise_max_v"] == pytest.approx(100e-6 * within, rel=0.05)

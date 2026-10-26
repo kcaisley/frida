@@ -19,7 +19,11 @@ The two add in power, and each may add ``SHARE`` of an ideal quantizer's noise p
 the converter's resolution, so a buffer meeting both adds no more than the quantization noise: each
 may cost ``ref_enob_loss_max_bits``. Each requirement is the largest value on its grid within that
 loss, refined by bisection on a log scale to the next grid point that is not. Every point converts
-the sine at the nominal rate with that capture's seeds, so only the reference moves.
+the sine at the nominal rate with that capture's seeds, so only the reference moves, on the
+converter with an ideal sampler and comparator (``QUIET``): its DAC alone, whose settling takes the
+time and the redundancy the reference's error competes for. An error the size of the quantization
+noise cannot be told from one capture of a converter whose own error is many times it, and the
+comparator does not see the reference.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from flow.pipeline import Plot
 
 from .campaign import Capture
 from .figures import FIGURES, dynamic_enob
-from .model import AdcModel, Reference
+from .model import IDEAL_REFERENCE, AdcModel, Reference
 
 # the share of the converter's footprint its layout fills with decap cells (front-end-of-line area
 # under the routing)
@@ -47,6 +51,8 @@ NOISE_V = np.logspace(-6, -2, 9)
 R_OUT_OHM = np.logspace(-1, 5, 13)
 # halvings of a grid step in the bisection (to about 4 % of the value)
 HALVINGS = 5
+# what the reference's study silences or makes ideal in the converter (``flow.adc.model.QUIET``)
+QUIET = ("sampler", "sampling", "comparator")
 
 
 def enob_floor(bits: int, enob_bits: float, share: float = 1.0) -> float:
@@ -63,24 +69,28 @@ def decoupling_f(model: AdcModel) -> float:
     return float(f"{capacitance_f:.0e}") if capacitance_f > 0 else math.nan
 
 
-def requirements(model: AdcModel, capture: Capture, enob_bits: float) -> tuple[dict[str, float], list[Plot]]:
-    """The reference's requirements for ``model``'s converter, whose ENOB on an ideal reference is
-    ``enob_bits`` at ``capture`` (the nominal rate's sine), and the ENOB it loses over each."""
+def requirements(model: AdcModel, capture: Capture) -> tuple[dict[str, float], list[Plot]]:
+    """The reference's requirements for ``model``'s converter at ``capture`` (the nominal rate's
+    sine), and the ENOB it loses over each."""
 
-    budget_bits = enob_bits - enob_floor(model.params.adc_bits, enob_bits, SHARE)
-
-    def loss(reference: Reference) -> float:
+    def enob(reference: Reference) -> float:
         measurement = model.capture(
             capture.tb,
             None,
             seed=capture.seed,
             noise_seed=capture.noise_seed,
             unit_mismatch=capture.unit_mismatch,
-            quiet=capture.quiet,
+            quiet=QUIET,
             tau_scale=capture.tau_scale,
             reference=reference,
         )
-        return enob_bits - dynamic_enob(measurement)
+        return dynamic_enob(measurement)
+
+    enob_bits = enob(IDEAL_REFERENCE)
+    budget_bits = enob_bits - enob_floor(model.params.adc_bits, enob_bits, SHARE)
+
+    def loss(reference: Reference) -> float:
+        return enob_bits - enob(reference)
 
     def tolerated(make: Callable[[float], Reference], grid: np.ndarray) -> tuple[list[float], float]:
         # the loss at each grid point, and the largest value within the budget: below the first

@@ -187,7 +187,7 @@ def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
         captures[name] = model.capture(plan["noise"].tb, None, quiet=quiet)
     metrics, details = adc_figures(captures)
     # the reference buffer's requirements this converter sets, apart from its own ENOB
-    reference_metrics, reference_details = requirements(model, plan[ladder_names()[-1]], metrics["enob_bits"])
+    reference_metrics, reference_details = requirements(model, plan[ladder_names()[-1]])
     metrics |= reference_metrics | {
         "stages": float(model.stages),  # the switched capacitors a side
         "decisions": float(model.stages + 1),  # a conversion's comparator decisions

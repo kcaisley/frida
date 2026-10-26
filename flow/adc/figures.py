@@ -72,8 +72,8 @@ FIGURES = {
     "mismatch_margin": "Redundancy margin over its mismatch σ by stage",
     "mismatch_dnl": "Worst DNL over the Pelgrom coefficient (predicted 95th percentile)",
     "mismatch_inl": "Worst INL over the Pelgrom coefficient (predicted 95th percentile)",
-    "reference_noise": "ENOB lost to the reference's noise",
-    "reference_r_out": "ENOB lost to the reference driver's resistance, at the converter's decoupling",
+    "reference_noise": "ENOB lost to the reference's noise, sampler and comparator ideal",
+    "reference_r_out": "ENOB lost to the reference driver's resistance at its decoupling, sampler and comparator ideal",
 }
 RAILS = {"vdd_a": "VDD_A", "vdd_d": "VDD_D", "vdd_dac": "VDD_DAC"}
 
