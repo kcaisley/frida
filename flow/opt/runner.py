@@ -149,6 +149,17 @@ def simulate(block: str, runs: dict[str, Any], run_dir: Path) -> dict[str, pipel
     return measurements
 
 
+def unmeasurable(metrics: dict[str, Any]) -> list[str]:
+    """The metrics measured but not a number (beyond what the bench resolves, an area without a
+    floorplan): a record names them, since its JSON keeps NaN as null, which reads as not measured."""
+    return sorted(name for name, value in metrics.items() if isinstance(value, float) and not math.isfinite(value))
+
+
+def measured(record: dict[str, Any]) -> dict[str, Any]:
+    """A record's metrics as measured: its unmeasurable ones NaN again (``unmeasurable``)."""
+    return {**record["metrics"], **dict.fromkeys(record.get("unmeasurable", ()), math.nan)}
+
+
 def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> dict[str, Any]:
     """One design's evaluation for ``problem`` (in a fresh process): its record, from the shared
     evaluations where it was made before and measured enough, else made now (module docstring)."""
@@ -165,7 +176,7 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
     path = folder / "instance.json"
     if path.exists():
         cached = json.loads(path.read_text())
-        stopped = any(value > 0 for value in pipeline.violations(problem, cached["metrics"], better).values())
+        stopped = any(value > 0 for value in pipeline.violations(problem, measured(cached), better).values())
         if cached["level"] >= pipeline.Level.SEARCH.value or stopped or not cached["valid"]:
             return {**cached, "cached": True}
     record: dict[str, Any] = {
@@ -208,6 +219,7 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
             metrics = {**sweep.record(measurements).metrics, **extra}
             record.update(metrics=metrics, level=pipeline.Level.SEARCH.value)
     record["seconds"] = round(time.time() - start, 1)
+    record["unmeasurable"] = unmeasurable(record["metrics"])
     write_record(path, record)
     return record
 
@@ -219,8 +231,9 @@ def score(
     violated, its objective 0 (the sampler ranks infeasible trials by their violations)."""
     if not record["valid"]:
         return 0.0, {name: 1.0 for name in problem.bound}
-    value = pipeline.objective(problem, record["metrics"])
-    return (value if math.isfinite(value) else 0.0), pipeline.violations(problem, record["metrics"], better)
+    metrics = measured(record)
+    value = pipeline.objective(problem, metrics)
+    return (value if math.isfinite(value) else 0.0), pipeline.violations(problem, metrics, better)
 
 
 def warm_start(study: Any, block: str, pdk: str, problem: pipeline.Problem, cls: Any) -> int:
