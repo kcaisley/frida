@@ -22,6 +22,7 @@ every evaluation already made, rescored under its problem.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import math
@@ -157,6 +158,23 @@ def simulate(block: str, runs: dict[str, Any], run_dir: Path) -> dict[str, pipel
     return measurements
 
 
+def kept(result: pipeline.Record, measurements: dict[str, pipeline.Meas], run_dir: Path) -> dict[str, Any]:
+    """What a record keeps of its measurements for the viewer, as a sweep's (``flow.sweep.runner
+    .characterize``): its analyses, and the runs it names for their waveforms as HDF5 beside them,
+    by path (a few MB a design)."""
+
+    from flow.analysis.io import write_measurement
+
+    return {
+        "details": [dataclasses.asdict(detail) for detail in result.details],
+        "waves": {
+            label: str(write_measurement(run_dir / name / "result.h5", measurements[name]).relative_to(ROOT))
+            for label, name in result.waves.items()
+            if name in measurements
+        },
+    }
+
+
 def unmeasurable(metrics: dict[str, Any]) -> list[str]:
     """The metrics measured but not a number (beyond what the bench resolves, an area without a
     floorplan): a record names them, since its JSON keeps NaN as null, which reads as not measured."""
@@ -215,8 +233,9 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
             write_record(path, record)
             return record
         measurements = simulate(block, sweep.runs(pdk, params, pipeline.Level.SCREEN), folder / "runs")
-        metrics = {**sweep.record(measurements).metrics, **extra}
-        record.update(metrics=metrics, level=pipeline.Level.SCREEN.value)
+        result = sweep.record(measurements)
+        metrics = {**result.metrics, **extra}
+        record.update(metrics=metrics, level=pipeline.Level.SCREEN.value, **kept(result, measurements, folder / "runs"))
         # the layout only for a design the screen keeps: a minute of ALIGN
         if bounded and met(metrics):
             extra["layout_area_um2"] = layout_area(block, pdk, params, folder / "layout")
@@ -226,8 +245,11 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
             # the search's runs include the screen's: only the rest are simulated, one record of all
             more = {n: tb for n, tb in sweep.runs(pdk, params, pipeline.Level.SEARCH).items() if n not in measurements}
             measurements.update(simulate(block, more, folder / "runs"))
-            metrics = {**sweep.record(measurements).metrics, **extra}
-            record.update(metrics=metrics, level=pipeline.Level.SEARCH.value)
+            result = sweep.record(measurements)
+            metrics = {**result.metrics, **extra}
+            record.update(
+                metrics=metrics, level=pipeline.Level.SEARCH.value, **kept(result, measurements, folder / "runs")
+            )
     record["seconds"] = round(time.time() - start, 1)
     record["unmeasurable"] = unmeasurable(record["metrics"])
     write_record(path, record)
@@ -408,19 +430,21 @@ def _line(number: int, params: Any, record: dict[str, Any], value: float, constr
 
 def characterize_full(block: str, pdk: str, params: Any) -> dict[str, Any]:
     """A design's metrics from all its runs (``Level.FULL``: every common mode's S-curve), in its
-    evaluation's folder (``full``), kept beside its record as ``metrics_full``."""
+    evaluation's folder (``full``), kept beside its record as ``metrics_full``, its analyses and
+    waveforms (``kept``) in place of the search's."""
 
     import hdl21 as h
 
     h.pdk.set_default(import_module(f"pdk.{pdk}").pdk_logic)
     folder = study_dir(block, pdk) / "evals" / identity(block, pdk, params)
     sweep = import_module(f"flow.{block}.sweep")
-    metrics = sweep.record(simulate(block, sweep.runs(pdk, params, pipeline.Level.FULL), folder / "full")).metrics
+    measurements = simulate(block, sweep.runs(pdk, params, pipeline.Level.FULL), folder / "full")
+    result = sweep.record(measurements)
     path = folder / "instance.json"
     record = json.loads(path.read_text())
-    record["metrics_full"] = metrics
+    record.update(metrics_full=result.metrics, **kept(result, measurements, folder / "full"))
     write_record(path, record)
-    return metrics
+    return result.metrics
 
 
 def finalize(block: str, pdk: str, label: str, count: int, workers: int) -> list[dict[str, Any]]:
