@@ -92,17 +92,19 @@ def test_an_instance_is_its_parameters() -> None:
 
 def test_the_comparator_space_is_its_grid_and_the_adcs_comparators() -> None:
     # in every PDK the grid (every latch with either tail, three pair widths, C_P twice with a dynamic
-    # bias: 54) and FRIDA-1's comparator by name; in TSMC65 the ADC's 20 comparators too; each once
+    # bias: 54) and FRIDA-1's comparator by name; and the ADC's comparators, the PDK's StrongARM
+    # ladders (TSMC65's 20 with its dynamic biases, TSMC28's 4, IHP130's and Tower180's 20, LF150's 14
+    # and TPSC65's 12, with their dynamic biases: 2 and 8); each once
     labels = [label for label, _params in runner.labelled_space("comp", "tsmc65").values()]
     grid_point = "topologies(latch=STRONGARM, bias=SWITCHED, diffpair_w=128)"
     assert {"frida1", "dynamic_bias(ratio=3.5, k=3)", "base_strongarm(tail_l=14, k=3)", grid_point} <= set(labels)
     assert {pdk: len(runner.design_space("comp", pdk)) for pdk in runner.PDKS} == {
         "tsmc65": 75,
-        "tsmc28": 55,
-        "ihp130": 55,
-        "tower180": 55,
-        "lf150": 55,
-        "tpsc65": 55,
+        "tsmc28": 59,
+        "ihp130": 75,
+        "tower180": 75,
+        "lf150": 71,
+        "tpsc65": 75,
     }
     assert comp.frida1() == comp.FRIDA1
     # the ADC's StrongARM: every width times k but the tail's, 4 k wide
