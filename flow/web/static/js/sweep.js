@@ -735,12 +735,14 @@ export function setBlock(table) {
     const saved = recall(`sweep.${table.block}`, {});
     const axes = axisFields().map((field) => field.key);
     const ids = new Set(table.rows.map((row) => row.id));
-    view.sort = saved.sort && fieldOf(saved.sort.key) ? saved.sort : null;
+    // first visit: the table's own sort and axes where it gives them (a study's: by cost, cost
+    // against trial), else unsorted, energy against delay where the block has them
+    const sort = "sort" in saved ? saved.sort : table.sort;
+    view.sort = sort && fieldOf(sort.key) ? sort : null;
     view.filters = Object.fromEntries(Object.entries(saved.filters || {}).filter(([key]) => fieldOf(key)));
     view.marks = new Set((saved.marks || saved.pins || []).filter((id) => ids.has(id)));
-    // first visit: energy against delay, where the block has them
-    const preferX = axes.find((key) => /energy|power/.test(key)) || axes[0];
-    const preferY = axes.find((key) => /delay|time|noise/.test(key) && key !== preferX) || axes[1] || axes[0];
+    const preferX = axes.find((key) => key === table.axes?.x) || axes.find((key) => /energy|power/.test(key)) || axes[0];
+    const preferY = axes.find((key) => key === table.axes?.y) || axes.find((key) => /delay|time|noise/.test(key) && key !== preferX) || axes[1] || axes[0];
     view.x = axes.includes(saved.x) ? saved.x : preferX;
     view.y = axes.includes(saved.y) ? saved.y : preferY;
     view.logX = saved.logX ?? (positive(fieldOf(view.x)) && wideRange(fieldOf(view.x)));

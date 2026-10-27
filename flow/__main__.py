@@ -140,6 +140,7 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument(
         "--finalists", type=int, metavar="N", help="characterize the study's N best feasible designs in full"
     )
+    command.add_argument("--table", action="store_true", help="export the study as the viewer's table, run none")
     return verbs
 
 
@@ -159,7 +160,9 @@ def verb(argv: list[str]) -> None:
     if args.verb == "opt":
         from flow.opt import runner as opt
 
-        if args.best:
+        if args.table:
+            print(opt.table(args.block, args.pdk, args.problem, args.workers))
+        elif args.best:
             for entry in opt.best(args.block, args.pdk, args.problem)[: args.best]:
                 print(entry)
         elif args.finalists:

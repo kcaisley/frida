@@ -26,6 +26,8 @@ import hashlib
 import json
 import math
 import os
+import re
+import shutil
 import tempfile
 import time
 import traceback
@@ -455,3 +457,113 @@ def best(block: str, pdk: str, label: str) -> list[dict[str, Any]]:
         {"number": t.number, "cost": t.value, "params": t.params, "metrics": t.user_attrs.get("metrics", {})}
         for t in sorted(feasible, key=lambda trial: trial.value)
     ]
+
+
+def table(block: str, pdk: str, label: str, workers: int) -> Path:
+    """The study as one of the viewer's tables (``flow.sweep.runner.table``'s format), the block
+    ``<block>.<label>`` in its Library, the label's values alone (``comp.adc(12)``): a column per design the study evaluated, led by the trial
+    that first did, whether it met every bound, those it missed, how far it was simulated and its
+    cost (none where it missed a bound), then its metrics, the problem's first, with what a
+    finalist's full characterization measured beyond the search; and a file per design, its layout,
+    schematic and netlist where it was laid out."""
+
+    import optuna
+
+    from flow.sweep.runner import DATA_DIR, _json, instance_views
+    from flow.web.export import BLOCKS
+
+    problem = pipeline.problems(import_module(f"flow.{block}.opt"), pdk)[label]
+    better = betters(block)
+    study = optuna.load_study(storage=f"sqlite:///{study_dir(block, pdk) / f'{label}.db'}", study_name=label)
+    first: dict[str, int] = {}
+    for trial in study.trials:
+        if trial.state == optuna.trial.TrialState.COMPLETE and "id" in trial.user_attrs:
+            first.setdefault(trial.user_attrs["id"], trial.number)
+    name = f"{block}.{re.sub(r'\w+=', '', label)}"
+    rows, records = [], {}
+    for ident, number in first.items():
+        folder = study_dir(block, pdk) / "evals" / ident
+        record = json.loads((folder / "instance.json").read_text())
+        value, violations = score(problem, record, better)
+        missed = [bound for bound, violation in violations.items() if violation > 0]
+        metrics = measured(record)
+        metrics.update({key: v for key, v in record.get("metrics_full", {}).items() if metrics.get(key) is None})
+        level = record["level"]
+        rows.append(
+            {
+                "id": ident,
+                "pdk": pdk,
+                "params": {
+                    "trial": number,
+                    "feasible": not missed,
+                    "missed": (", ".join(missed) or "none") if record["valid"] else "invalid",
+                    "simulated": pipeline.Level(level).name.lower() if level else "no",
+                    **record["params"],
+                },
+                "metrics": {"cost": None if missed else value, **metrics},
+                "error": ((record.get("error") or "").strip().splitlines() or [None])[-1],
+                "seconds": record.get("seconds"),
+            }
+        )
+        # the floorplan's layout (layout_area), where the screen kept the design
+        netlist = next(iter(sorted((folder / "layout/netlist").glob("*.sp"))), None)
+        gds = netlist and folder / "layout/align_floorplan" / netlist.stem / f"{netlist.stem}.gds"
+        layout = (
+            {"gds": str(gds.relative_to(ROOT)), "netlist": str(netlist.relative_to(ROOT))}
+            if netlist and gds and gds.exists()
+            else None
+        )
+        records[ident] = {**record, "layout": layout}
+    (DATA_DIR / name).mkdir(parents=True, exist_ok=True)
+    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as pool:
+        views = {ident: pool.submit(instance_views, name, ident, record, DATA_DIR) for ident, record in records.items()}
+        for row in rows:
+            record = records[row["id"]]
+            try:
+                files = views[row["id"]].result()
+            except Exception as error:  # noqa: BLE001 - a missing view is shown as missing
+                print(f"{name}/{row['id']}: {error!r}")
+                files = {}
+            instance = {
+                **row,
+                "details": record.get("details", []),
+                "waves": record.get("waves", {}),
+                "layout": {**record["layout"], **files} if record["layout"] else None,
+                "error": record.get("error"),
+            }
+            (DATA_DIR / name / f"{row['id']}.json").write_text(json.dumps(_json(instance), separators=(",", ":")))
+    for stale in (DATA_DIR / name).iterdir():
+        if stale.name.split(".", 1)[0] not in records:
+            shutil.rmtree(stale) if stale.is_dir() else stale.unlink()
+    # the trial's fields, then the parameters that differ; the cost, the problem's metrics, the rest
+    lead = ["trial", "feasible", "missed", "simulated"]
+    params = [
+        key
+        for key in dict.fromkeys(key for row in rows for key in row["params"])
+        if key in lead or len({json.dumps(row["params"].get(key)) for row in rows}) > 1
+    ]
+    for row in rows:
+        row["params"] = {key: row["params"].get(key) for key in params}
+    every = {key for row in rows for key in row["metrics"]}
+    metrics = [key for key in dict.fromkeys(["cost", *problem.cost, *problem.bound, *sorted(every)]) if key in every]
+    feasible = sum(1 for row in rows if row["params"]["feasible"])
+    title = f"{BLOCKS.get(block, block)}, {label} in {pdk}"
+    run = f"{len(study.trials)} trials, {len(rows)} designs, {feasible} feasible"
+    data = {
+        "block": name,
+        "title": title,
+        "run": run,
+        "params": params,
+        "metrics": metrics,
+        "rows": rows,
+        # on first view: the cheapest design first, the cost against the trial (the search's progress)
+        "sort": {"key": "m:cost", "dir": "asc"},
+        "axes": {"x": "p:trial", "y": "m:cost"},
+    }
+    path = DATA_DIR / f"{name}.json"
+    path.write_text(json.dumps(_json(data), separators=(",", ":")))
+    catalog_path = DATA_DIR / "catalog.json"
+    catalog = json.loads(catalog_path.read_text()) if catalog_path.exists() else {}
+    catalog[name] = {"title": title, "run": run, "instances": len(rows)}
+    catalog_path.write_text(json.dumps(dict(sorted(catalog.items())), indent=1) + "\n")
+    return path

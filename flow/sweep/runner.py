@@ -513,8 +513,11 @@ def table(blocks: list[str], workers: int) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     catalog_path = DATA_DIR / "catalog.json"
     catalog = json.loads(catalog_path.read_text()) if catalog_path.exists() else {}
-    # a block whose sweep is gone leaves the catalog
-    catalog = {block: entry for block, entry in catalog.items() if block in sweep_blocks() or block in blocks}
+    # a block whose sweep is gone leaves the catalog; a block's study (``<block>.<problem>``,
+    # flow.opt.runner.table) stays with it
+    catalog = {
+        block: entry for block, entry in catalog.items() if block.split(".", 1)[0] in sweep_blocks() or block in blocks
+    }
     with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as pool:
         for block in blocks:
             # each PDK's newest run: a run of some PDKs alone keeps the others' rows from the run before
