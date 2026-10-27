@@ -78,6 +78,11 @@ Tower180, run 20261027_131105 (305 converters, 12 min): the design weights lose 
 and calibration brings every array within 0.3 bit of its nominal ENOB (12.5–12.9 at 14 bits, the
 switch costing 0.3–0.5 bit there).
 
+TSMC28, run 20261027_133457 (244 converters, 9 min): the design weights lose 0.3–1.1 bit at 10 bits,
+0.4–1.5 at 12 and up to 0.4 at 14, and calibration brings every array within 0.6 bit of its nominal
+ENOB (most within 0.2; its 12-bit MSB redistribution 2 at x1, whose gap is near one LSB, among them);
+at 14 bits the switch costs 1.1 bits into its 9.3 pF arrays (nominal ENOB 11.7–12.3).
+
 ## Redundancy schemes
 
 An array's extra conversion cycles never add capacitance: each scheme redistributes the binary
