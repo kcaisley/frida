@@ -30,12 +30,14 @@ def test_geometry_counts_the_compiled_devices_and_their_area() -> None:
     h.pdk.compile(module, logic)
     totals = geometry(module, "tsmc65")
     assert totals["devices"] == len(module.instances) and "child_cells" not in totals
-    assert 0 < totals["device_area_um2"] < 100
+    # the devices' own row cells, unplaced: about 86 um2, several times their gates' W L
+    assert 50 < totals["device_area_um2"] < 150
     comp.netlist.Cache.reset()
     cells = comp.netlist(comp.Params(output_stage=comp.OutputStage.STDCELLS))
     h.pdk.compile(cells, logic)
     hierarchy = geometry(cells, "tsmc65")
     assert hierarchy["child_cells"] == 8 and hierarchy["devices"] < totals["devices"]
+    assert 0 < hierarchy["device_area_um2"] < totals["device_area_um2"]  # the library cells' own footprints in it
     comp.netlist.Cache.reset()
 
 

@@ -43,7 +43,6 @@ keeps what works in a PDK), and ``runs`` and ``record``, instead of ``instances`
 from __future__ import annotations
 
 import dataclasses
-import math
 from enum import Enum
 from importlib import import_module
 
@@ -85,13 +84,16 @@ def geometry(module: h.Module, pdk: str) -> dict[str, float]:
     """A compiled module's size: where it has any, its child cells, the cells directly in it, custom (a
     submodule: a comparator, a sampling switch) or standard (a library cell), none in a leaf
     (primitives alone); its devices, every primitive through its hierarchy (transistors, capacitors,
-    resistors; a library cell's own are not in its netlist); and its device area, its transistors'
-    total W L (um2)."""
+    resistors; a library cell's own are not in its netlist); and its device area (um2), every device
+    and library cell's own footprint, unplaced: the row cell the layout flows draw for it
+    (``netcells.area``, in a process bound to ``pdk``; an ideal element has none)."""
 
-    xtors = {m.name for m in import_module(f"pdk.{pdk}.hdl21.primitives.prim_dicts").xtors.values()}
+    from flow.circuit.devices import instance_lines
+    from flow.layout.pdkproc import access_points, in_pdk
+
     # a library cell by its name: older wrappers name their domain otherwise (IHP130's "ihp")
     library = set(import_module(f"pdk.{pdk}.hdl21.cells").CELLS)
-    totals = {"child_cells": 0.0, "devices": 0.0, "device_area_um2": 0.0}
+    totals = {"child_cells": 0.0, "devices": 0.0}
 
     def walk(module: h.Module, top: bool) -> None:
         for instance in module.instances.values():
@@ -103,17 +105,13 @@ def geometry(module: h.Module, pdk: str) -> dict[str, float]:
                 if isinstance(target, h.Module):
                     walk(target, False)
                 continue
-            params = getattr(target, "params", None)
-            count = float(getattr(params, "m", 1) or 1)
-            totals["devices"] += count
-            if isinstance(target, h.ExternalModuleCall) and target.module.name in xtors:
-                width, length = (
-                    float(getattr(params, "w", math.nan)),
-                    float(getattr(params, "l", math.nan)),
-                )
-                totals["device_area_um2"] += count * width * length * 1e12
+            totals["devices"] += float(getattr(getattr(target, "params", None), "m", 1) or 1)
 
     walk(module, True)
     if not totals["child_cells"]:
         del totals["child_cells"]
+    lines = instance_lines(module)
+    if any(line[0] in "Xx" for line in lines):
+        access_points(pdk)  # the library cells' footprints, written the first time a PDK needs them
+    totals["device_area_um2"] = in_pdk(pdk, "netcells", "area", "\n".join(lines))
     return totals

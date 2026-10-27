@@ -325,6 +325,13 @@ def widths(src: str | Path) -> dict[str, int]:
     return {inst.name: cell_of(inst).width for inst in parse(src)[2]}
 
 
+def area(src: str | Path) -> float:
+    """The instances' own area (um2), unplaced: each one's row cell, its width (``widths``) by the
+    row height."""
+
+    return sum(widths(src).values()) * _tech.H * 1e-6
+
+
 STD_DROP_LAYERS = getattr(_tech, "STD_DROP_LAYERS", set())  # (layer, datatype) of the library cells not placed
 # layer -> (y0, y1): library cells' layers cut back to the rows' own bands (where the library's well and
 # implants reach 1.37 um into the next row, where an analog row's devices may be)

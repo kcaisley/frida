@@ -49,9 +49,10 @@ OPT_DIR = ROOT / "build/opt"
 # an ALIGN layout in the loop that has not placed and routed in ten minutes fails (its placer can
 # search for hours on the larger sizings); the evaluation is then broken, not the design
 ALIGN_TIMEOUT_S = 600
-# the largest share of a layout its devices' gates cover: at most 0.24 over the 714 comparator layouts
-# of the sweeps (2026-10-26), so a design whose gates over it exceed the area bound cannot meet it
-DENSITY = 0.25
+# the largest share of a layout its devices' own footprints cover (flow.sweep.geometry's device area):
+# at most 0.873 over the 1615 comparator layouts of the TSMC65 studies (median 0.47, 2026-10-27), so
+# a design whose device area over it exceeds the area bound cannot meet it
+DENSITY = 0.9
 # the objective of a design that misses a bound: no cost, above any design that meets them
 INFEASIBLE = math.inf
 
@@ -256,8 +257,8 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
         h.pdk.compile(module)
         extra = geometry(module, pdk)
         bounded = "layout_area_um2" in problem.bound
-        # no layout has its gates cover more than DENSITY of it: where the gates over DENSITY exceed
-        # the area bound, the design is out without simulating, its area estimated so
+        # no layout has its devices cover more than DENSITY of it: where the device area over DENSITY
+        # exceeds the area bound, the design is out without simulating, its area estimated so
         if bounded and extra["device_area_um2"] / DENSITY > problem.bound["layout_area_um2"]:
             record.update(
                 metrics={**extra, "layout_area_um2": extra["device_area_um2"] / DENSITY}, estimated=["layout_area_um2"]

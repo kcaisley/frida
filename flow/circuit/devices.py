@@ -129,6 +129,42 @@ Inverter, Nor2, Nand2 = (
 )
 
 
+def instance_lines(module: h.Module) -> list[str]:
+    """A compiled module's instances as the flat SPICE lines ``write_netlist`` writes: a capacitor's
+    value, a MOS's total width and finger count, a logic cell's wrapper as its library cell; a custom
+    child cell (a module of its own devices) as its own lines, each name followed by the child's
+    (``Mdiff_p@Xcomp``: unique, and still a MOS line by its first letter)."""
+
+    nm = lambda value: round(float(value) * 1e9)
+    lines = []
+    for name, inst in module.instances.items():
+        conns = {port: sig.name for port, sig in inst.conns.items()}
+        call = inst.of
+        if isinstance(call, h.PrimitiveCall) and call.prim is C:
+            lines.append(f"{name} {conns['p']} {conns['n']} {float(call.params.c) * 1e15:g}f")
+        elif isinstance(call, h.ExternalModuleCall):
+            q = call.params
+            # the PDK's name for the finger count; none where m carries the fingers (LF150, w per finger)
+            fingers = next((f" {k}={int(getattr(q, k))}" for k in ("nf", "ng") if hasattr(q, k)), "")
+            lines.append(
+                f"{name} {conns['d']} {conns['g']} {conns['s']} {conns['b']} {call.module.name} "
+                f"w={nm(q.w)}n l={nm(q.l)}n{fingers} m={int(q.m)}"
+            )
+        elif isinstance(call, h.PrimitiveCall):
+            continue  # an ideal source or element of a testbench: no device of a layout
+        elif len(call.instances) == 1 and isinstance(next(iter(call.instances.values())).of, h.ExternalModuleCall):
+            # a logic cell's wrapper around one library cell
+            (cell,) = call.instances.values()
+            outer = {port.name: conns[port.name] for port in call.ports.values()}
+            pins = [outer[sig.name] for sig in (cell.conns[p.name] for p in cell.of.module.port_list)]
+            lines.append(f"{name} {' '.join(pins)} {cell.of.module.name}")
+        else:  # a custom child cell
+            for line in instance_lines(call):
+                first, rest = line.split(" ", 1)
+                lines.append(f"{first}@{name} {rest}")
+    return lines
+
+
 def write_netlist(params, path: Path, pdk, constant_from=None, *, generator, nets) -> Path:
     """The block of ``generator`` (``params``, its port bundle ``nets``) after ``pdk``'s compile,
     as one flat SPICE subcircuit named after ``path``.
@@ -154,28 +190,8 @@ def write_netlist(params, path: Path, pdk, constant_from=None, *, generator, net
         generator.Cache.reset()
         manager.default = previous
         CONSTANT_FROM = None
-    nm = lambda value: round(float(value) * 1e9)
     ports = [name for name, net in nets.signals.items() if net.vis == h.Visibility.PORT]
-    lines = [f".subckt {path.stem} {' '.join(ports)}"]
-    for name, inst in module.instances.items():
-        conns = {port: sig.name for port, sig in inst.conns.items()}
-        call = inst.of
-        if isinstance(call, h.PrimitiveCall) and call.prim is C:
-            lines.append(f"{name} {conns['p']} {conns['n']} {float(call.params.c) * 1e15:g}f")
-        elif isinstance(call, h.ExternalModuleCall):
-            q = call.params
-            # the PDK's name for the finger count; none where m carries the fingers (LF150, w per finger)
-            fingers = next((f" {k}={int(getattr(q, k))}" for k in ("nf", "ng") if hasattr(q, k)), "")
-            lines.append(
-                f"{name} {conns['d']} {conns['g']} {conns['s']} {conns['b']} {call.module.name} "
-                f"w={nm(q.w)}n l={nm(q.l)}n{fingers} m={int(q.m)}"
-            )
-        else:  # a logic cell's wrapper around one library cell
-            (cell,) = call.instances.values()
-            outer = {port.name: conns[port.name] for port in call.ports.values()}
-            pins = [outer[sig.name] for sig in (cell.conns[p.name] for p in cell.of.module.port_list)]
-            lines.append(f"{name} {' '.join(pins)} {cell.of.module.name}")
-    lines.append(f".ends {path.stem}")
+    lines = [f".subckt {path.stem} {' '.join(ports)}", *instance_lines(module), f".ends {path.stem}"]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n")
     return path
