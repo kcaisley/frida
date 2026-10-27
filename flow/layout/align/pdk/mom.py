@@ -91,13 +91,22 @@ class MomUnit(DefaultCanvas):
         # each terminal's plates joined by a via per metal at its terminal end
         for metal in g["metals"][:-1]:
             via = self.addGen(
-                Via(f"mom_via{metal}", f"V{metal}", h_clg=self.nm, v_clg=fingers, WidthX=g["via_cut"], WidthY=g["via_cut"])
+                Via(
+                    f"mom_via{metal}",
+                    f"V{metal}",
+                    h_clg=self.nm,
+                    v_clg=fingers,
+                    WidthX=g["via_cut"],
+                    WidthY=g["via_cut"],
+                )
             )
             for terminal, column, _y0, _y1, centre in columns:
                 if centre is not None:
                     self.addVia(via, terminal, column, centre)
         # every terminal a pin at its via column on the top metal
-        pin = Via("mom_pin", f"M{g['metals'][-1]}", h_clg=self.nm, v_clg=fingers, WidthX=g["via_cut"], WidthY=g["via_cut"])
+        pin = Via(
+            "mom_pin", f"M{g['metals'][-1]}", h_clg=self.nm, v_clg=fingers, WidthX=g["via_cut"], WidthY=g["via_cut"]
+        )
         for terminal, column, _y0, _y1, centre in columns:
             if centre is not None:
                 self.transform_and_add(pin.segment(terminal, column, centre, netType="pin"))
@@ -118,5 +127,7 @@ class MomUnit(DefaultCanvas):
             self.drc = type("NoDRC", (), {"errors": [], "num_errors": property(lambda s: len(s.errors))})()
         # a pin is its terminal's metal (ALIGN merges the pin square into the finger it sits on), and
         # ALIGN's writer draws a pin on its pin purpose alone: the metal is drawn as well
-        data["terminals"] += [{**term, "netType": "drawing"} for term in data["terminals"] if term.get("netType") == "pin"]
+        data["terminals"] += [
+            {**term, "netType": "drawing"} for term in data["terminals"] if term.get("netType") == "pin"
+        ]
         return data
