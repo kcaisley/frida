@@ -480,12 +480,13 @@ def best(block: str, pdk: str, label: str) -> list[dict[str, Any]]:
 
 
 def table(block: str, pdk: str, label: str, workers: int) -> Path:
-    """The study as one of the viewer's tables (``flow.sweep.runner.table``'s format), the block
-    ``<block>.<label>`` in its Library, the label's values alone (``comp.adc(12)``): a column per design the study evaluated, led by the trial
-    that first did, whether it met every bound, those it missed, how far it was simulated and its
-    cost (none where it missed a bound), then its metrics, the problem's first, with what a
-    finalist's full characterization measured beyond the search; and a file per design, its layout,
-    schematic and netlist where it was laid out."""
+    """The study as one of the viewer's tables (``flow.sweep.runner.table``'s format), one of its
+    block's searches beside its sweep (the catalog's ``searches``; its file ``<block>.<label>``, the
+    label's values alone, ``comp.adc(12)``): a column per design the study evaluated, led by the
+    trial that first did, whether it met every bound, those it missed, how far it was simulated and
+    its cost (none where it missed a bound), then its metrics, the problem's first, with what a
+    finalist's full characterization measured beyond the search; and a file per design, its
+    analyses, waveforms, layout, schematic and netlist where it kept them."""
 
     import optuna
 
@@ -510,6 +511,13 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
         metrics = measured(record)
         metrics.update({key: v for key, v in record.get("metrics_full", {}).items() if metrics.get(key) is None})
         level = record["level"]
+        # a design that missed a bound is shown greyed (``dim``), at its cost from what was measured
+        # where each plain factor was (an unmeasured saturating one counts as 1: a lower bound)
+        priced = all(
+            isinstance(metrics.get(key), (int, float)) and math.isfinite(metrics[key]) and metrics[key] > 0
+            for key, weight in problem.cost.items()
+            if not isinstance(weight, tuple)
+        )
         rows.append(
             {
                 "id": ident,
@@ -521,7 +529,11 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
                     "simulated": pipeline.Level(level).name.lower() if level else "no",
                     **record["params"],
                 },
-                "metrics": {cost: None if missed else value, **metrics},
+                "metrics": {
+                    cost: value if not missed else pipeline.objective(problem, metrics) if priced else None,
+                    **metrics,
+                },
+                "dim": f"missed {', '.join(missed)}" if missed and record["valid"] else "invalid" if missed else None,
                 "error": ((record.get("error") or "").strip().splitlines() or [None])[-1],
                 "seconds": record.get("seconds"),
             }
@@ -580,11 +592,15 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
         # on first view: the cheapest design first, the cost against the trial (the search's progress)
         "sort": {"key": f"m:{cost}", "dir": "asc"},
         "axes": {"x": "p:trial", "y": f"m:{cost}"},
+        "dimmed": "missed a bound",  # the grey designs' name in the scatter's legend
     }
     path = DATA_DIR / f"{name}.json"
     path.write_text(json.dumps(_json(data), separators=(",", ":")))
     catalog_path = DATA_DIR / "catalog.json"
     catalog = json.loads(catalog_path.read_text()) if catalog_path.exists() else {}
-    catalog[name] = {"title": title, "run": run, "instances": len(rows)}
+    # one of the block's searches beside its sweep, picked in the viewer's Sweeps panel
+    entry = catalog.setdefault(block, {"title": BLOCKS.get(block, block)})
+    searches = {**entry.get("searches", {}), label: {"table": name, "title": title, "run": run, "instances": len(rows)}}
+    entry["searches"] = dict(sorted(searches.items()))
     catalog_path.write_text(json.dumps(dict(sorted(catalog.items())), indent=1) + "\n")
     return path

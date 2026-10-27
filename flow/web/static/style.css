@@ -1711,6 +1711,11 @@ table.tgrid td.failed {
     color: var(--sem-error);
 }
 
+/* an instance shown but out of the running: an optimization's design that missed a bound */
+table.tgrid td.dim {
+    color: var(--fg-muted);
+}
+
 /* the PDK's dot, its marker in the scatter */
 table.tgrid td.pdk {
     text-align: left;

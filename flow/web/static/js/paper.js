@@ -296,7 +296,7 @@ export function paperLayout(title, xTitle, yTitle, logX, logY, legendCount, mode
     return layout;
 }
 
-const TICK_KEYS = ["tickmode", "tick0", "dtick", "tickvals", "ticktext", "tickformat", "hoverformat", "exponentformat", "minor"];
+export const TICK_KEYS = ["tickmode", "tick0", "dtick", "tickvals", "ticktext", "tickformat", "hoverformat", "exponentformat", "minor"];
 
 // the ticks paperLayout fitted, refitted to a zoomed or panned range and restored on a reset
 export function keepTicks(element) {

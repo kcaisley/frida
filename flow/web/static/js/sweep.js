@@ -8,7 +8,7 @@
 // (SelectionPanel). An instance is its PDK and parameters: its id names it only in the URL.
 
 import { h, icon, popover, select } from "./icons.js";
-import { currentTheme, keepTicks, PAPERS, paperLayout, tone } from "./paper.js";
+import { currentTheme, keepTicks, PAPERS, paperLayout, TICK_KEYS, tone } from "./paper.js";
 import { COLORS, emit, on, recall, store } from "./store.js";
 import { fieldInfo, scaledUnit, siExponent } from "./units.js";
 
@@ -87,10 +87,18 @@ function buildFields(table) {
         fields.push({ key: `p:${name}`, label: name, kind: numeric(get) ? "num" : "cat", get, decimals: decimalsOf(rows, get) });
     }
     fields.push({ section: "Metrics" });
+    // a row's SI prefix by the instances in the running, where some are dimmed; by its smallest tenth
+    // where every one is (an optimization that met no bound, its costs over many decades: the
+    // cheapest, sorted first, read in full)
+    const running = rows.filter((row) => !row.dim);
+    const smallest = (values) => {
+        const finite = values.filter((value) => typeof value === "number" && Number.isFinite(value)).sort((a, b) => Math.abs(a) - Math.abs(b));
+        return finite.length ? [finite[Math.floor(finite.length / 10)]] : [];
+    };
     for (const name of table.metrics) {
         const get = (row) => row.metrics?.[name];
         const info = fieldInfo(name);
-        const exponent = info.scalable ? siExponent(rows.map(get)) : 0;
+        const exponent = !info.scalable ? 0 : running.length ? siExponent(running.map(get)) : siExponent(smallest(rows.map(get)));
         fields.push({ key: `m:${name}`, label: info.label, unit: scaledUnit(info, exponent), kind: "num", get, info, exponent, metric: name, decimals: decimalsOf(rows, get) });
     }
     return fields;
@@ -172,6 +180,8 @@ function orderCols() {
         const field = fieldOf(view.sort.key);
         const sign = view.sort.dir === "asc" ? 1 : -1;
         cols.sort((a, b) => {
+            // a dimmed instance (an optimization's design that missed a bound) after every other
+            if (Boolean(a.dim) !== Boolean(b.dim)) return a.dim ? 1 : -1;
             const va = field.get(a);
             const vb = field.get(b);
             if (missing(va) || missing(vb)) return missing(va) - missing(vb);
@@ -282,14 +292,24 @@ function rowMenu(anchor, field) {
 
 // ---- the table: a row per field, a column per instance ----------------------------------------
 
+// the Search: the block's sweep and each of its optimizations (app.js), none where it has its sweep alone
+const searches = { options: [], value: "", onChange: null };
+
+export function setSearches(options, value, onChange) {
+    Object.assign(searches, { options, value, onChange });
+    tablePanel?.renderSearches();
+}
+
 export class SweepTablePanel {
     constructor(container) {
         this.scroller = h("div.sweep-scroll");
         this.table = h("table.tgrid.full");
         this.emptyNote = h("div.empty", { style: { display: "none" } }, h("strong", {}, "No instances"), h("span", {}, "None passes the filters: clear them in the bar above."));
         this.scroller.append(this.table);
-        this.element = h("div.panel", {}, h("div.panel-body.fill", {}, this.scroller, this.emptyNote));
+        this.toolbar = h("div.panel-toolbar");
+        this.element = h("div.panel", {}, this.toolbar, h("div.panel-body.fill", {}, this.scroller, this.emptyNote));
         container.element.append(this.element);
+        this.renderSearches();
         this.range = null;
         this.dirty = true;
         this.scroller.addEventListener("scroll", () => this.update(false), { passive: true });
@@ -309,6 +329,13 @@ export class SweepTablePanel {
             if (tablePanel === this) tablePanel = null;
         });
         this.update(true);
+    }
+
+    // the Search, as the layout's Generator above its panel
+    renderSearches() {
+        this.toolbar.replaceChildren();
+        this.toolbar.style.display = searches.options.length ? "" : "none";
+        if (searches.options.length) this.toolbar.append(h("label.field", {}, h("span", {}, "Search"), select(searches.options, searches.value, (value) => searches.onChange?.(value))));
     }
 
     // the instance a cell is in: a head carries its index, a value cell its place in the row
@@ -387,7 +414,8 @@ export class SweepTablePanel {
                 for (const row of cols) {
                     const text = esc(cellText(field, field.get(row)));
                     const title = field.kind === "cat" && text.length > fits ? ` title="${text}"` : "";
-                    parts.push(`<td${row.error ? ' class="failed"' : ""}${title}>${text}</td>`);
+                    const kind = row.error ? "failed" : row.dim ? "dim" : "";
+                    parts.push(`<td${kind ? ` class="${kind}"` : ""}${title}>${text}</td>`);
                 }
             }
             parts.push('<td class="pad"></td></tr>');
@@ -543,9 +571,41 @@ export class ScatterPanel {
             // the plot's own tools, always shown (Plotly's mode bar only on hover, over the plot)
             drag("zoom", "zoom", "Drag: zoom to a box (wheel: zoom)"),
             drag("pan", "pan", "Drag: pan"),
-            toolButton("fit", "Fit both axes to the points (double-click)", () => this.plot.data && Plotly.relayout(this.plot, { "xaxis.autorange": true, "yaxis.autorange": true })),
+            toolButton("fit", "Fit both axes to the points (double-click)", () => this.fit()),
             toolButton("download", "Save as PNG, with its legend", () => this.savePng()),
         );
+    }
+
+    // every point in view, the dimmed ones too
+    fit() {
+        if (!this.plot.data) return;
+        this.focus = false;
+        this.render();
+        Plotly.relayout(this.plot, { "xaxis.autorange": true, "yaxis.autorange": true });
+    }
+
+    // where a table dims some instances, the metric axes' ranges over the others (log ones in decades),
+    // padded: the plot opens on the instances in the running, Fit shows them all; a parameter's axis
+    // (a search's trial) keeps every instance
+    focusRanges(x, y) {
+        const ranges = {};
+        for (const [key, field, log] of [
+            ["x", x, view.logX],
+            ["y", y, view.logY],
+        ]) {
+            if (!field.metric) continue;
+            const values = view.cols
+                .filter((row) => !row.dim)
+                .map((row) => point(row, field))
+                .filter((value) => Number.isFinite(value) && (!log || value > 0))
+                .map((value) => (log ? Math.log10(value) : value));
+            if (!values.length) continue;
+            const low = Math.min(...values);
+            const high = Math.max(...values);
+            const pad = (high - low) * 0.06 || (log ? 0.1 : Math.abs(high) * 0.05 || 1);
+            ranges[key] = [low - pad, high + pad];
+        }
+        return ranges;
     }
 
     // the plot as PNG: the legend the page draws under it is Plotly's here
@@ -577,7 +637,7 @@ export class ScatterPanel {
         const known = [...new Set(view.cols.map((row) => row.pdk))];
         const pdks = [...PDK_ORDER.filter((pdk) => known.includes(pdk)), ...known.filter((pdk) => !PDK_ORDER.includes(pdk))];
         const traces = pdks.map((pdk) => {
-            const rows = view.cols.filter((row) => row.pdk === pdk);
+            const rows = view.cols.filter((row) => row.pdk === pdk && !row.dim);
             return {
                 type: "scatter",
                 mode: "markers",
@@ -590,6 +650,22 @@ export class ScatterPanel {
                 marker: { color: pdkColor(pdk, theme), symbol: pdkSymbol(pdk), size: 9, line: { width: 0.6, color: colors.paper }, opacity: 0.9 },
             };
         });
+        // the dimmed instances (an optimization's designs that missed a bound) in grey, under the rest
+        const dimmed = view.cols.filter((row) => row.dim);
+        if (dimmed.length) {
+            traces.unshift({
+                type: "scatter",
+                mode: "markers",
+                name: "dimmed",
+                showlegend: false,
+                x: dimmed.map((row) => point(row, x)),
+                y: dimmed.map((row) => point(row, y)),
+                customdata: dimmed.map((row) => row.id),
+                text: dimmed.map((row) => `${row.pdk} · ${typeof row.dim === "string" ? row.dim : "dimmed"}`),
+                hovertemplate: `%{text}<br>${x.label}: %{x:.4g} ${x.unit || ""}<br>${y.label}: %{y:.4g} ${y.unit || ""}<extra></extra>`,
+                marker: { color: colors.spine, size: 6, opacity: 0.3, line: { width: 0 } },
+            });
+        }
         // the legend alone, for the saved PNG (the page draws its own under the plot)
         for (const pdk of pdks) {
             traces.push({ type: "scatter", mode: "markers", name: pdk, legendgroup: "pdk", legendgrouptitle: { text: "PDK" }, x: [null], y: [null], hoverinfo: "skip", marker: { color: pdkColor(pdk, theme), symbol: pdkSymbol(pdk), size: 9 } });
@@ -619,14 +695,27 @@ export class ScatterPanel {
             hoverinfo: "skip",
             marker: { symbol: "circle-open", size: 24, line: { width: 3, color: ring } },
         });
-        const layout = paperLayout("", axisLabel(x), axisLabel(y), view.logX, view.logY, 1, theme, { traces: traces.slice(0, pdks.length) });
+        // a new table or new axes open focused on the undimmed instances, until Fit or a double-click
+        const revision = `${view.table.block}|${view.x}|${view.y}|${view.logX}|${view.logY}`;
+        if (this.revision !== revision) [this.revision, this.focus] = [revision, true];
+        const focused = this.focus && dimmed.length && dimmed.length < view.cols.length;
+        // the ticks of every point (Fit restores them), a focused axis's of the undimmed ones alone
+        const layout = paperLayout("", axisLabel(x), axisLabel(y), view.logX, view.logY, 1, theme, { traces: traces.slice(0, pdks.length + (dimmed.length ? 1 : 0)) });
+        if (focused) {
+            const narrow = paperLayout("", axisLabel(x), axisLabel(y), view.logX, view.logY, 1, theme, { traces: traces.slice(1, pdks.length + 1) });
+            for (const [key, range] of Object.entries(this.focusRanges(x, y))) {
+                const axis = layout[`${key}axis`];
+                for (const attribute of TICK_KEYS) axis[attribute] = narrow[`${key}axis`][attribute];
+                axis.range = range;
+            }
+        }
         // the axes' titles and ticks take what they need (automargin); no legend or mode bar beside
         layout.margin = { l: 12, r: 16, t: 14, b: 12 };
         layout.showlegend = false;
         layout.legend = { ...layout.legend, orientation: "v", x: 1.02, xanchor: "left", yref: "paper", y: 1, yanchor: "top", font: { size: 12 }, tracegroupgap: 12 };
         layout.dragmode = view.dragmode;
-        layout.uirevision = `${view.table.block}|${view.x}|${view.y}|${view.logX}|${view.logY}`;
-        this.renderLegend(pdks);
+        layout.uirevision = revision;
+        this.renderLegend(pdks, dimmed.length ? view.table.dimmed || "dimmed" : null);
         Plotly.react(element, traces, layout, { displaylogo: false, displayModeBar: false, scrollZoom: true });
         keepTicks(element);
         if (!element.dataset.bound) {
@@ -636,6 +725,9 @@ export class ScatterPanel {
                 if (id) setHover(id, "plot");
             });
             element.on("plotly_unhover", () => setHover(null, "plot"));
+            element.on("plotly_doubleclick", () => {
+                this.focus = false;
+            });
             element.on("plotly_click", (event) => {
                 const id = event.points?.[0]?.customdata;
                 if (id) toggleMark(id);
@@ -643,10 +735,11 @@ export class ScatterPanel {
         }
     }
 
-    // under the plot: each PDK's colour and marker
-    renderLegend(pdks) {
+    // under the plot: each PDK's colour and marker, and the grey of the dimmed instances (named by the table)
+    renderLegend(pdks, dimmed) {
         this.legend.replaceChildren(
             h("span.legend-group", {}, h("span.legend-title", {}, "pdk"), ...pdks.map((pdk) => h("span.legend-item", { html: `${pdkMark(pdk, 10)}${esc(pdk)}` }))),
+            ...(dimmed ? [h("span.legend-group", {}, h("span.legend-item.muted", { html: `${symbolSvg("circle", PAPERS[currentTheme()].spine, 8)}${esc(dimmed)}` }))] : []),
         );
     }
 

@@ -513,11 +513,8 @@ def table(blocks: list[str], workers: int) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     catalog_path = DATA_DIR / "catalog.json"
     catalog = json.loads(catalog_path.read_text()) if catalog_path.exists() else {}
-    # a block whose sweep is gone leaves the catalog; a block's study (``<block>.<problem>``,
-    # flow.opt.runner.table) stays with it
-    catalog = {
-        block: entry for block, entry in catalog.items() if block.split(".", 1)[0] in sweep_blocks() or block in blocks
-    }
+    # a block whose sweep is gone leaves the catalog
+    catalog = {block: entry for block, entry in catalog.items() if block in sweep_blocks() or block in blocks}
     with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as pool:
         for block in blocks:
             # each PDK's newest run: a run of some PDKs alone keeps the others' rows from the run before
@@ -595,7 +592,8 @@ def table(blocks: list[str], workers: int) -> None:
             for stale in (DATA_DIR / block).iterdir():
                 if stale.name.split(".", 1)[0] not in views:
                     shutil.rmtree(stale) if stale.is_dir() else stale.unlink()
-            catalog[block] = {"title": title, "run": run_name, "instances": len(rows)}
+            # its optimizations' tables (flow.opt.runner.table, ``searches``) kept
+            catalog[block] = {**catalog.get(block, {}), "title": title, "run": run_name, "instances": len(rows)}
             laid_out = sum(1 for record, _future in views.values() if (record.get("layout") or {}).get("gds"))
             details = len({detail["name"] for record in records for detail in record["details"]})
             print(f"{block}: {len(rows)} instances, {len(metrics)} metrics, {details} details, {laid_out} layouts")

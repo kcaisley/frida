@@ -1,7 +1,8 @@
 // The viewer, one page (index.html): the Library of blocks on the left (it folds to a strip), a top
 // bar, and under it the stage in one of four states, kept in the URL's hash so a view is bookmarked
-// and Back and Forward step through them (#block=<block>&ids=<id>,<id>&compiler&job=<run>):
-//   the Assembler (no ids): the block's sweep, its table on its side and its scatter (sweep.js);
+// and Back and Forward step through them (#block=<block>&search=<label>&ids=<id>,<id>&compiler&job=<run>):
+//   the Assembler (no ids): the block's sweep, or one of its optimizations (search, a study's problem
+//     as adc(bits=12); the Sweeps panel's Search picks it), its table on its side and its scatter (sweep.js);
 //     marking instances (a column's head, a point) loads nothing;
 //   the Explorer (one id, the top bar's View): its column, its analyses, waveforms, layout and
 //     schematic (detail.js);
@@ -14,12 +15,14 @@
 import { h, icon, toast } from "./icons.js";
 import { Layout } from "./regions.js";
 import { emit, on, recall, store } from "./store.js";
-import { clearFilters, marks, ScatterPanel, setBlock, setMarks, SweepTablePanel, sweepStatus } from "./sweep.js";
+import { clearFilters, marks, ScatterPanel, setBlock, setMarks, setSearches, SweepTablePanel, sweepStatus } from "./sweep.js";
 
 const app = {
-    catalog: null, // block -> {title, run, instances}
+    catalog: null, // block -> {title, run, instances, searches: {label -> {table, title, run, instances}}}
     block: null, // the shown block's name
-    table: null, // its table
+    search: null, // the shown optimization's label, null for the block's sweep
+    file: null, // the shown table's name under data/sweep/: the block's, or its search's
+    table: null, // the shown table
     mode: null, // "table", "view", "compare" or "compiler"
     key: null, // what the stage shows: block, mode and ids
     ids: [],
@@ -42,15 +45,17 @@ function parseHash() {
     const params = new URLSearchParams(location.hash.replace(/^#/, ""));
     return {
         block: params.get("block"),
+        search: params.get("search"),
         ids: (params.get("ids") || "").split(",").filter(Boolean),
         compiler: params.has("compiler"),
         job: params.get("job"),
     };
 }
 
-function hashOf({ block, ids = [], compiler = false, job = null }) {
+function hashOf({ block, search = null, ids = [], compiler = false, job = null }) {
     const parts = [];
     if (block) parts.push(`block=${encodeURIComponent(block)}`);
+    if (search) parts.push(`search=${encodeURIComponent(search)}`);
     if (ids.length) parts.push(`ids=${ids.map(encodeURIComponent).join(",")}`);
     if (compiler) parts.push("compiler", ...(job ? [`job=${encodeURIComponent(job)}`] : []));
     return `#${parts.join("&")}`;
@@ -79,25 +84,37 @@ async function route() {
     if (want.block && !block) toast(`No sweep table for ${want.block}`);
     const last = recall("sweep.block", null);
     block ||= app.block || (app.catalog[last] ? last : Object.keys(app.catalog)[0]);
-    // another block's ids are not this one's
-    if (block !== want.block) amend({ block, ids: [] });
-    if (block !== app.block || !app.table) {
+    // the search: the URL's, else the block's sweep, else (a block with optimizations alone) its first
+    const searches = app.catalog[block].searches || {};
+    let search = want.search && searches[want.search] ? want.search : null;
+    if (want.search && !search) toast(`No search ${want.search} of ${block}`);
+    if (!search && app.catalog[block].instances === undefined) search = Object.keys(searches)[0] || null;
+    // another block's or search's ids are not this one's
+    const same = block === want.block && search === want.search;
+    if (!same) amend({ block, search, ids: [] });
+    const file = search ? searches[search].table : block;
+    if (file !== app.file || !app.table) {
         let table;
         try {
-            table = await fetchJson(`sweep/${block}.json`);
+            table = await fetchJson(`sweep/${file}.json`);
         } catch (error) {
             toast(error.message);
             return;
         }
         if (token !== app.routes) return;
         app.block = block;
+        app.search = search;
+        app.file = file;
         app.table = table;
         store("sweep.block", block);
         setBlock(table);
+        // the Search: the block's sweep and each of its optimizations, where it has any
+        const options = [...(app.catalog[block].instances !== undefined ? [{ value: "", label: `sweep · ${app.catalog[block].instances}` }] : []), ...Object.entries(searches).map(([label, entry]) => ({ value: label, label: `${label} · ${entry.instances}` }))];
+        setSearches(Object.keys(searches).length ? options : [], search || "", (value) => navigate({ search: value || null, ids: [] }));
         renderLibrary();
     }
-    // the instances: those of the block's sweep (an id from an older sweep is gone)
-    const ids = block === want.block ? want.ids : [];
+    // the instances: those of the shown table (an id from an older sweep is gone)
+    const ids = same ? want.ids : [];
     const known = ids.filter((id) => app.table.rows.some((row) => row.id === id));
     if (known.length !== ids.length) {
         toast(`Not in ${block}'s sweep: ${ids.filter((id) => !known.includes(id)).join(", ")}`);
@@ -108,7 +125,7 @@ async function route() {
 }
 
 async function show(mode, ids, want) {
-    const key = mode === "compiler" ? "compiler" : `${app.block}|${mode}|${ids.join(",")}`;
+    const key = mode === "compiler" ? "compiler" : `${app.file}|${mode}|${ids.join(",")}`;
     if (key === app.key) {
         if (mode === "compiler") app.stage?.show?.(want.job);
         renderTopbar();
@@ -142,7 +159,7 @@ async function show(mode, ids, want) {
     let instances;
     let mount;
     try {
-        [instances, { mountInstances: mount }] = await Promise.all([Promise.all(ids.map((id) => fetchJson(`sweep/${app.block}/${id}.json`).then((instance) => ({ ...instance, id })))), import("./detail.js")]);
+        [instances, { mountInstances: mount }] = await Promise.all([Promise.all(ids.map((id) => fetchJson(`sweep/${app.file}/${id}.json`).then((instance) => ({ ...instance, id })))), import("./detail.js")]);
     } catch (error) {
         if (token !== app.mounts) return;
         note.replaceChildren(h("strong", {}, "The instance did not load"), h("span.mono.muted", {}, error.message));
@@ -151,7 +168,7 @@ async function show(mode, ids, want) {
     if (token !== app.mounts) return;
     note.remove();
     app.stage = mount(element.view, {
-        block: app.block,
+        block: app.file,
         instances,
         onRemove: (id) => navigate({ ids: app.ids.filter((item) => item !== id) }),
         onView: (id) => navigate({ ids: [id] }),
@@ -167,9 +184,9 @@ function renderLibrary() {
         // the block's folder under flow/ and its instance count, as Zed's git panel lists a file
         const row = h(
             "button.block-row",
-            { title: `${entry.title}: ${entry.instances} instances, run ${entry.run}`, onclick: () => navigate({ block: name, ids: [], compiler: false }) },
+            { title: [entry.instances !== undefined ? `${entry.title}: ${entry.instances} instances, run ${entry.run}` : entry.title, ...Object.entries(entry.searches || {}).map(([label, search]) => `${label}: ${search.run}`)].join("\n"), onclick: () => navigate({ block: name, search: null, ids: [], compiler: false }) },
             h("span.title", {}, name),
-            h("span.count", {}, `${entry.instances}`),
+            h("span.count", {}, `${entry.instances ?? Object.values(entry.searches || {}).reduce((total, search) => total + search.instances, 0)}`),
         );
         if (name === app.block) row.classList.add("on");
         list.append(row);
