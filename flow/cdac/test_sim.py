@@ -34,6 +34,27 @@ def test_the_testbench_switches_each_stage_up_and_back_in_its_turn():
         assert name in netlist
 
 
+def test_a_monte_carlo_run_holds_the_plates_alone_as_the_netlist_names_them():
+    tb = cdac.TbParams(params=PARAMS, window_s=2e-9, waveform_sample_interval_s=1e-12, mc_runs=4)
+    bench = cdac.testbench(tb)
+    plates = bench.instances["dut"].of
+    dest = io.StringIO()
+    h.netlist(bench, dest, fmt="spice")
+    netlist = dest.getvalue()
+    # no driver, and every plate by the name its probe is saved by, varying with its probe
+    assert "capdriver" not in netlist.lower() and "drawn" in netlist
+    dac = PARAMS.dac
+    names = {
+        f"c{kind}_{side}_{stage}"
+        for side in ("p", "n")
+        for kind, values in (("main", dac.main_f), ("diff", dac.diff_f))
+        for stage, plate in enumerate(values)
+        if plate > 0
+    }
+    assert names <= set(plates.instances)
+    assert set(plates.instances) - names == {"rbleed_p", "rbleed_n"}
+
+
 def test_a_window_too_short_for_its_edges_is_refused():
     with pytest.raises(ValueError):
         cdac.TbParams(params=PARAMS, window_s=100e-12, waveform_sample_interval_s=1e-12)

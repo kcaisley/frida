@@ -7,8 +7,12 @@ top plates to mid-supply. ``simulate`` runs it in Spectre and leaves Spectre's r
 the nets ``Nets`` marks to save (both top plates, the P side's states and main bottom plates, a
 bit per stage), every ``TbParams.waveform_sample_interval_s``, Spectre's step bounded to it; or,
 for a Monte Carlo run (``TbParams.mc_runs``), each run's operating point with every plate's probe
-(``flow.momcap``: its drawn value in fF), Spectre's runs a plot each. Every run sets the plates'
-variation (``flow.momcap.subckt.variation``), none where the testbench gives none.
+(``flow.momcap``: its drawn value in fF), Spectre's runs a plot each. A Monte Carlo run's testbench
+holds the plates alone, as the netlist names and places them: its operating point reads nothing
+else, and without the drivers it is linear, solved at once in every PDK (with them, each run
+re-evaluates the drivers' models and, in some PDKs, converges only by gmin stepping: minutes a
+condition). Every run sets the plates' variation (``flow.momcap.subckt.variation``), none where the
+testbench gives none.
 """
 
 import importlib
@@ -20,7 +24,7 @@ from hdl21.primitives import R, Vdc, Vpulse
 from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
 from flow.circuit.ports import testbench_from_ports
-from flow.momcap.subckt import variation
+from flow.momcap.subckt import mom_cap, variation
 
 from .params import BLEED_OHM, ERRPRESET, TOLERANCES, TbParams
 from .subckt import Nets, netlist
@@ -28,7 +32,27 @@ from .subckt import Nets, netlist
 
 def testbench(tb: TbParams) -> h.Module:
     """The CDAC testbench of one run: each stage's P state up and its N state down a window into its
-    turn and back the window after, both top plates bled to mid-supply."""
+    turn and back the window after, both top plates bled to mid-supply; a Monte Carlo run's, the
+    plates alone, each top plate bled to ground."""
+
+    if tb.mc_runs:
+        dac = tb.params.dac
+        plates = h.Module(name="CdacPlates")
+        plates.vss = h.Port()
+        for side in ("p", "n"):
+            top = plates.add(h.Signal(), name=f"vdac_{side}")
+            plates.add(R(r=BLEED_OHM)(p=top, n=plates.vss), name=f"rbleed_{side}")
+            for kind, values in (("main", dac.main_f), ("diff", dac.diff_f)):
+                placed = getattr(dac, f"{kind}_{side}_um")
+                for stage, plate in enumerate(values):
+                    if plate > 0:
+                        x_um, y_um = placed[stage] if placed else (0.0, 0.0)
+                        leaf = mom_cap(plate, varies=True, x_um=x_um, y_um=y_um)
+                        plates.add(leaf(PLUS=plates.vss, MINUS=top, BULK=plates.vss), name=f"c{kind}_{side}_{stage}")
+        bench = h.Module(name="CdacPlatesTb")
+        bench.vss = h.Port()
+        bench.dut = plates(vss=bench.vss)
+        return bench
 
     dut = netlist(tb.params)
     bench, connections = testbench_from_ports("CdacTb", dut.ports)
