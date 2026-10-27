@@ -695,6 +695,29 @@ export class ScatterPanel {
             hoverinfo: "skip",
             marker: { symbol: "circle-open", size: 24, line: { width: 3, color: ring } },
         });
+        // the instances with an x and no y (a search's designs rejected before they had a cost) as
+        // ticks in a strip over the plot, a lane each by the table's rug field (their stage)
+        const rugField = view.table.rug ? fieldOf(view.table.rug.key) : null;
+        const rugRows = rugField ? view.cols.filter((row) => point(row, x) !== null && point(row, y) === null) : [];
+        const laneOf = (row) => String(rugField.get(row) ?? "—");
+        const present = new Set(rugRows.map(laneOf));
+        const lanes = [...(view.table.rug?.lanes || []).filter((lane) => present.has(lane)), ...[...present].filter((lane) => !(view.table.rug?.lanes || []).includes(lane))];
+        if (rugRows.length) {
+            traces.push({
+                type: "scatter",
+                mode: "markers",
+                name: "rug",
+                showlegend: false,
+                yaxis: "y2",
+                x: rugRows.map((row) => point(row, x)),
+                y: rugRows.map(laneOf),
+                customdata: rugRows.map((row) => row.id),
+                text: rugRows.map((row) => `${row.pdk} · ${typeof row.dim === "string" ? row.dim : laneOf(row)}`),
+                hovertemplate: `%{text}<br>${x.label}: %{x:.4g} ${x.unit || ""}<br>no ${y.label.toLowerCase()}: %{y}<extra></extra>`,
+                // an open symbol is drawn in the marker's colour
+                marker: { symbol: "line-ns-open", size: 11, color: colors.spine, line: { width: 1.2 }, opacity: 0.4 },
+            });
+        }
         // a new table or new axes open focused on the undimmed instances, until Fit or a double-click
         const revision = `${view.table.block}|${view.x}|${view.y}|${view.logX}|${view.logY}`;
         if (this.revision !== revision) [this.revision, this.focus] = [revision, true];
@@ -708,6 +731,38 @@ export class ScatterPanel {
                 for (const attribute of TICK_KEYS) axis[attribute] = narrow[`${key}axis`][attribute];
                 axis.range = range;
             }
+        }
+        if (rugRows.length) {
+            const strip = Math.min(0.3, 0.035 * lanes.length + 0.02);
+            layout.yaxis.domain = [0, 1 - strip];
+            layout.yaxis2 = {
+                domain: [1 - strip + 0.012, 1],
+                anchor: "x",
+                type: "category",
+                categoryorder: "array",
+                categoryarray: [...lanes].reverse(),
+                range: [-0.6, lanes.length - 0.4],
+                fixedrange: true,
+                automargin: true,
+                showgrid: false,
+                zeroline: false,
+                showline: false,
+                ticks: "",
+                tickfont: { size: 10, color: colors.spine },
+            };
+        }
+        // the table's bands on an axis it plots (a study's warm start over its trials), shaded behind
+        const top = layout.yaxis.domain?.[1] ?? 1;
+        for (const band of view.table.bands || []) {
+            const on = band.key === view.x ? "x" : band.key === view.y ? "y" : null;
+            if (!on) continue;
+            const field = fieldOf(band.key);
+            const log = on === "x" ? view.logX : view.logY;
+            const [from, to] = [band.from, band.to].map((value) => value / 10 ** (field?.exponent || 0)).map((value) => (log ? Math.log10(Math.max(value, 1e-300)) : value));
+            const across = on === "x" ? { xref: "x", yref: "paper", x0: from, x1: to, y0: 0, y1: 1 } : { xref: "paper", yref: "y", x0: 0, x1: 1, y0: from, y1: to };
+            layout.shapes = [...(layout.shapes || []), { type: "rect", ...across, fillcolor: colors.major, opacity: 0.5, line: { width: 0 }, layer: "below" }];
+            const label = on === "x" ? { xref: "x", yref: "paper", x: (from + to) / 2, y: top, yanchor: "top" } : { xref: "paper", yref: "y", x: 0, y: (from + to) / 2, xanchor: "left" };
+            layout.annotations = [...(layout.annotations || []), { ...label, text: band.label, showarrow: false, font: { size: 11, color: colors.spine } }];
         }
         // the axes' titles and ticks take what they need (automargin); no legend or mode bar beside
         layout.margin = { l: 12, r: 16, t: 14, b: 12 };

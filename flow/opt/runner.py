@@ -54,6 +54,9 @@ ALIGN_TIMEOUT_S = 600
 DENSITY = 0.25
 # the objective of a design that misses a bound: no cost, above any design that meets them
 INFEASIBLE = math.inf
+# how far an evaluation went, by its level, in the viewer's words: none (its area estimated from its
+# gates broke the bound), the screen's runs (no noise), or the search's (the S-curve's noise too)
+STAGES = {0: "gate area", 1: "quick check", 2: "full search"}
 
 
 def study_dir(block: str, pdk: str) -> Path:
@@ -314,7 +317,7 @@ def warm_start(study: Any, block: str, pdk: str, problem: pipeline.Problem, cls:
             distributions={name: dists[name] for name in params},
             value=value,
             system_attrs={"constraints": [constraints[name] for name in problem.bound]},
-            user_attrs={"id": record["id"], "metrics": record["metrics"]},
+            user_attrs={"id": record["id"], "metrics": record["metrics"], "origin": "warm start"},
         )
         study.add_trial(trial)
         added += 1
@@ -496,14 +499,17 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
     problem = pipeline.problems(import_module(f"flow.{block}.opt"), pdk)[label]
     better = betters(block)
     study = optuna.load_study(storage=f"sqlite:///{study_dir(block, pdk) / f'{label}.db'}", study_name=label)
-    first: dict[str, int] = {}
+    # each design by the trial that first evaluated it, and whether that trial was the warm start's
+    # (marked so since; before, a trial completed the instant it started)
+    first: dict[str, tuple[int, str]] = {}
     for trial in study.trials:
         if trial.state == optuna.trial.TrialState.COMPLETE and "id" in trial.user_attrs:
-            first.setdefault(trial.user_attrs["id"], trial.number)
+            warm = trial.user_attrs.get("origin") == "warm start" or trial.datetime_start == trial.datetime_complete
+            first.setdefault(trial.user_attrs["id"], (trial.number, "warm start" if warm else "search"))
     name = f"{block}.{re.sub(r'\w+=', '', label)}"
     cost = "_".join(filter(None, ["cost", pipeline.cost_unit(problem)]))  # its unit for the viewer
     rows, records = [], {}
-    for ident, number in first.items():
+    for ident, (number, origin) in first.items():
         folder = study_dir(block, pdk) / "evals" / ident
         record = json.loads((folder / "instance.json").read_text())
         value, violations = score(problem, record, better)
@@ -524,9 +530,10 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
                 "pdk": pdk,
                 "params": {
                     "trial": number,
+                    "origin": origin,
                     "feasible": not missed,
                     "missed": (", ".join(missed) or "none") if record["valid"] else "invalid",
-                    "simulated": pipeline.Level(level).name.lower() if level else "no",
+                    "stage": STAGES.get(level, "full") if record["valid"] else "invalid",
                     **record["params"],
                 },
                 "metrics": {
@@ -569,7 +576,7 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
         if stale.name.split(".", 1)[0] not in records:
             shutil.rmtree(stale) if stale.is_dir() else stale.unlink()
     # the trial's fields, then the parameters that differ; the cost, the problem's metrics, the rest
-    lead = ["trial", "feasible", "missed", "simulated"]
+    lead = ["trial", "origin", "feasible", "missed", "stage"]
     params = [
         key
         for key in dict.fromkeys(key for row in rows for key in row["params"])
@@ -593,6 +600,14 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
         "sort": {"key": f"m:{cost}", "dir": "asc"},
         "axes": {"x": "p:trial", "y": f"m:{cost}"},
         "dimmed": "missed a bound",  # the grey designs' name in the scatter's legend
+        # a design without a cost (stopped before it had one) a tick over the plot, a lane by its stage
+        "rug": {"key": "p:stage", "lanes": [*STAGES.values(), "invalid"]},
+        # the warm start's trials shaded on the trial axis
+        "bands": [
+            {"key": "p:trial", "from": min(warm) - 0.5, "to": max(warm) + 0.5, "label": "warm start"}
+            for warm in [[number for number, origin in first.values() if origin == "warm start"]]
+            if warm
+        ],
     }
     path = DATA_DIR / f"{name}.json"
     path.write_text(json.dumps(_json(data), separators=(",", ":")))
