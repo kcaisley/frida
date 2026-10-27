@@ -55,8 +55,9 @@ DENSITY = 0.25
 # the objective of a design that misses a bound: no cost, above any design that meets them
 INFEASIBLE = math.inf
 # how far an evaluation went, by its level, in the viewer's words: none (its area estimated from its
-# gates broke the bound), the screen's runs (no noise), or the search's (the S-curve's noise too)
-STAGES = {0: "gate area", 1: "quick check", 2: "full search"}
+# gates broke the bound), the screen's runs (no noise), or the search's (the S-curve's noise too);
+# the first two pre-filter a design before the full benchmark
+STAGES = {0: "gate area", 1: "quick check", 2: "full benchmark"}
 
 
 def study_dir(block: str, pdk: str) -> Path:
@@ -517,9 +518,11 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
         metrics = measured(record)
         metrics.update({key: v for key, v in record.get("metrics_full", {}).items() if metrics.get(key) is None})
         level = record["level"]
-        # a design that missed a bound is shown greyed (``dim``), at its cost from what was measured
-        # where each plain factor was (an unmeasured saturating one counts as 1: a lower bound)
-        priced = all(
+        stage = STAGES.get(level, "full") if record["valid"] else "invalid"
+        # a design that missed a bound is shown greyed (``dim``): one the full benchmark rejected at
+        # its cost from what was measured, where each plain factor was; one rejected before it
+        # (pre-filtered) without a cost, a tick over the plot
+        priced = level >= pipeline.Level.SEARCH.value and all(
             isinstance(metrics.get(key), (int, float)) and math.isfinite(metrics[key]) and metrics[key] > 0
             for key, weight in problem.cost.items()
             if not isinstance(weight, tuple)
@@ -533,14 +536,14 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
                     "origin": origin,
                     "feasible": not missed,
                     "missed": (", ".join(missed) or "none") if record["valid"] else "invalid",
-                    "stage": STAGES.get(level, "full") if record["valid"] else "invalid",
+                    "stage": stage,
                     **record["params"],
                 },
                 "metrics": {
                     cost: value if not missed else pipeline.objective(problem, metrics) if priced else None,
                     **metrics,
                 },
-                "dim": f"missed {', '.join(missed)}" if missed and record["valid"] else "invalid" if missed else None,
+                "dim": (f"{stage}: missed {', '.join(missed)}" if record["valid"] else "invalid") if missed else None,
                 "error": ((record.get("error") or "").strip().splitlines() or [None])[-1],
                 "seconds": record.get("seconds"),
             }
@@ -599,9 +602,10 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
         # on first view: the cheapest design first, the cost against the trial (the search's progress)
         "sort": {"key": f"m:{cost}", "dir": "asc"},
         "axes": {"x": "p:trial", "y": f"m:{cost}"},
-        "dimmed": "missed a bound",  # the grey designs' name in the scatter's legend
-        # a design without a cost (stopped before it had one) a tick over the plot, a lane by its stage
-        "rug": {"key": "p:stage", "lanes": [*STAGES.values(), "invalid"]},
+        "dimmed": "failed the full benchmark",  # the grey designs' name in the scatter's legend
+        # a design without a cost (pre-filtered: rejected before the full benchmark) a tick over the
+        # plot of its cost, one lane for all
+        "rug": {"label": "pre-filtered", "on": [f"m:{cost}"]},
         # the warm start's trials shaded on the trial axis
         "bands": [
             {"key": "p:trial", "from": min(warm) - 0.5, "to": max(warm) + 0.5, "label": "warm start"}

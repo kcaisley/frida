@@ -14,7 +14,7 @@
 
 import { h, icon, toast } from "./icons.js";
 import { Layout } from "./regions.js";
-import { emit, on, recall, store } from "./store.js";
+import { emit, on, recall, setBar, store } from "./store.js";
 import { clearFilters, marks, ScatterPanel, setBlock, setMarks, setSearches, SweepTablePanel, sweepStatus } from "./sweep.js";
 
 const app = {
@@ -128,7 +128,7 @@ async function show(mode, ids, want) {
     const key = mode === "compiler" ? "compiler" : `${app.file}|${mode}|${ids.join(",")}`;
     if (key === app.key) {
         if (mode === "compiler") app.stage?.show?.(want.job);
-        renderTopbar();
+        renderBar();
         return;
     }
     const token = ++app.mounts;
@@ -141,7 +141,7 @@ async function show(mode, ids, want) {
     element.sweeps.classList.toggle("hidden", mode !== "table");
     element.view.classList.toggle("hidden", mode === "table");
     element.view.replaceChildren();
-    renderTopbar();
+    renderBar();
     document.title = { table: `Assembler · ${app.block}`, view: `Explorer · ${app.block}`, compare: `Comparer · ${app.block} (${ids.length})`, compiler: "Compiler" }[mode];
     if (mode === "table") return;
     if (mode === "compiler") {
@@ -200,7 +200,7 @@ function setCollapsed(collapsed) {
     store("library.collapsed", collapsed);
 }
 
-// ---- the top bar ------------------------------------------------------------------------------
+// ---- the bar: in the toolbar of the shown state's first panel (store.js's setBar) -------------
 
 function button(name, label, title, onclick, { on = false, disabled = false } = {}) {
     const item = h(`button.bar-btn${on ? ".on" : ""}`, { title, onclick }, h("span", { html: icon(name, 14) }), label);
@@ -208,8 +208,7 @@ function button(name, label, title, onclick, { on = false, disabled = false } = 
     return item;
 }
 
-function renderTopbar() {
-    const bar = element.topbar;
+function renderBar() {
     if (!app.table) return;
     const mode = app.mode;
     const marked = marks();
@@ -217,26 +216,16 @@ function renderTopbar() {
     const entry = app.catalog[app.block] || {};
     const failed = app.table.rows.filter((row) => row.error).length;
     const left = [];
+    const about = `${app.table.title || entry.title || app.block}: ${app.table.metrics.length} metrics${failed ? `, ${failed} failed` : ""}, run ${app.table.run}`;
     if (mode === "view" || mode === "compare") left.push(button("back", "All instances", "Back to every instance of the block (the shown ones stay marked)", () => navigate({ ids: [] })));
     if (mode === "compiler") left.push(button("back", app.block, `Back to ${app.table.title}`, () => navigate({ compiler: false })));
-    if (mode === "compiler") {
-        left.push(h("strong.bar-title", {}, "Compiler"), h("span.muted", {}, "a netlist laid out with ALIGN, checked with gdscheck and KLayout"));
-    } else {
-        left.push(h("strong.bar-title", { title: `${app.table.metrics.length} metrics${failed ? `, ${failed} failed` : ""}, run ${app.table.run}` }, app.table.title || entry.title || app.block));
-    }
     if (mode === "table") {
-        const clear = h("button.icon-btn", { title: "Clear every filter and the sort", onclick: () => clearFilters(), html: icon("unfilter", 14) });
+        // the instances shown and the filters' clear, the marks and theirs
+        const clear = button("unfilter", "", "Clear every filter and the sort", () => clearFilters());
         clear.disabled = !status.filtered && !status.sorted;
-        left.push(h("span.mono.muted.bar-count", {}, `${status.shown} of ${status.total}${status.filtered ? " (filtered)" : ""}`), clear);
-        if (marked.length) {
-            left.push(
-                h("span.bar-sep"),
-                h("span.bar-marks", {}, `${marked.length} marked`),
-                h("button.icon-btn", { title: "Unmark every instance", onclick: () => setMarks([]), html: icon("x", 13) }),
-            );
-        } else {
-            left.push(h("span.bar-sep"), h("span.muted.bar-hint", {}, "Click a column's ○ or a point to mark an instance"));
-        }
+        left.push(h("span.mono.muted.bar-count", { title: about }, `${status.shown} of ${status.total}${status.filtered ? " (filtered)" : ""}`), clear);
+        if (marked.length) left.push(h("button.bar-btn.bar-marks", { title: "Unmark every instance", onclick: () => setMarks([]) }, `${marked.length} marked`, h("span", { html: icon("x", 12) })));
+        else left.push(h("span.muted.bar-hint", {}, "mark: a column's ○ or a point"));
     }
     if (mode === "view") left.push(h("span.muted", {}, "one instance"));
     if (mode === "compare") left.push(h("span.muted", {}, `${app.ids.length} instances compared`));
@@ -259,7 +248,7 @@ function renderTopbar() {
     const compiler = button("chip", "Compiler", mode === "compiler" ? `Back to ${app.block}` : "The Compiler: lay out a netlist with ALIGN and check it (the block and its marked instances stay)", () => navigate({ compiler: mode !== "compiler" }), {
         on: mode === "compiler",
     });
-    bar.replaceChildren(...left, h("span.grow"), h("div.bar-group", {}, view, compare, compiler));
+    setBar(mode, mode === "compiler" ? left : [...left, h("span.grow"), h("div.bar-group", {}, view, compare, compiler)]);
 }
 
 // ---- the page ---------------------------------------------------------------------------------
@@ -275,11 +264,10 @@ function build() {
         h("button.library-strip", { title: "Show the Library", onclick: () => setCollapsed(false) }, "Library"),
         h("div.library-body", {}, element.blocks),
     );
-    element.topbar = h("div.topbar");
     element.sweeps = h("div.stage-host");
     element.view = h("div.stage-host");
     element.stage = h("div.stage", {}, element.sweeps, element.view);
-    document.getElementById("app").replaceChildren(element.library, h("main.main", {}, element.topbar, element.stage));
+    document.getElementById("app").replaceChildren(element.library, h("main.main", {}, element.stage));
     setCollapsed(recall("library.collapsed", false));
     // the Assembler's two regions, made once and kept while another state is shown
     const sweeps = new Layout(element.sweeps);
@@ -296,8 +284,8 @@ function build() {
 async function main() {
     // the panels' errors show for a few seconds in the corner: the page has no status bar
     on("status", ({ message, error }) => error && toast(message));
-    on("marks", () => renderTopbar());
-    on("sweep", () => renderTopbar());
+    on("marks", () => renderBar());
+    on("sweep", () => renderBar());
     // F, K and L reach the shown layout unless a field or the editor has the keys
     window.addEventListener("keydown", (event) => {
         const target = event.target;

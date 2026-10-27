@@ -9,7 +9,7 @@
 
 import { h, icon, popover, select } from "./icons.js";
 import { currentTheme, keepTicks, PAPERS, paperLayout, TICK_KEYS, tone } from "./paper.js";
-import { COLORS, emit, on, recall, store } from "./store.js";
+import { COLORS, emit, hostBar, on, recall, store } from "./store.js";
 import { fieldInfo, scaledUnit, siExponent } from "./units.js";
 
 export const PDK_ORDER = ["tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65"];
@@ -307,6 +307,7 @@ export class SweepTablePanel {
         this.emptyNote = h("div.empty", { style: { display: "none" } }, h("strong", {}, "No instances"), h("span", {}, "None passes the filters: clear them in the bar above."));
         this.scroller.append(this.table);
         this.toolbar = h("div.panel-toolbar");
+        this.barSlot = h("div.bar-slot");
         this.element = h("div.panel", {}, this.toolbar, h("div.panel-body.fill", {}, this.scroller, this.emptyNote));
         container.element.append(this.element);
         this.renderSearches();
@@ -322,10 +323,12 @@ export class SweepTablePanel {
         this.table.addEventListener("mouseleave", () => setHover(null, "table"));
         this.table.addEventListener("click", (event) => this.click(event));
         this.off = on("theme", () => this.update(true));
+        this.offBar = hostBar(this.barSlot, ["table"]);
         tablePanel = this;
         container.on("destroy", () => {
             this.resizeObserver.disconnect();
             this.off();
+            this.offBar();
             if (tablePanel === this) tablePanel = null;
         });
         this.update(true);
@@ -333,9 +336,8 @@ export class SweepTablePanel {
 
     // the Search, as the layout's Generator above its panel
     renderSearches() {
-        this.toolbar.replaceChildren();
-        this.toolbar.style.display = searches.options.length ? "" : "none";
-        if (searches.options.length) this.toolbar.append(h("label.field", {}, h("span", {}, "Search"), select(searches.options, searches.value, (value) => searches.onChange?.(value))));
+        // then the page's bar: the instances shown, filters and marks, View, Compare and Compiler
+        this.toolbar.replaceChildren(...(searches.options.length ? [h("label.field", {}, h("span", {}, "Search"), select(searches.options, searches.value, (value) => searches.onChange?.(value)))] : []), this.barSlot);
     }
 
     // the instance a cell is in: a head carries its index, a value cell its place in the row
@@ -696,10 +698,13 @@ export class ScatterPanel {
             marker: { symbol: "circle-open", size: 24, line: { width: 3, color: ring } },
         });
         // the instances with an x and no y (a search's designs rejected before they had a cost) as
-        // ticks in a strip over the plot, a lane each by the table's rug field (their stage)
-        const rugField = view.table.rug ? fieldOf(view.table.rug.key) : null;
-        const rugRows = rugField ? view.cols.filter((row) => point(row, x) !== null && point(row, y) === null) : [];
-        const laneOf = (row) => String(rugField.get(row) ?? "—");
+        // ticks in a strip over the plot, where the y axis is one the table names (its cost: another
+        // metric a design lacks was only not measured): one lane by the rug's label, or a lane each by
+        // its field
+        const rug = view.table.rug && (!view.table.rug.on || view.table.rug.on.includes(view.y)) ? view.table.rug : null;
+        const rugField = rug?.key ? fieldOf(rug.key) : null;
+        const rugRows = rug ? view.cols.filter((row) => point(row, x) !== null && point(row, y) === null) : [];
+        const laneOf = (row) => (rugField ? String(rugField.get(row) ?? "—") : rug.label || "no value");
         const present = new Set(rugRows.map(laneOf));
         const lanes = [...(view.table.rug?.lanes || []).filter((lane) => present.has(lane)), ...[...present].filter((lane) => !(view.table.rug?.lanes || []).includes(lane))];
         if (rugRows.length) {
@@ -956,11 +961,13 @@ export class SelectionPanel {
         this.compare = instances.length > 1;
         this.onlyDifferences = recall("compare.differences", true);
         this.toolbar = h("div.panel-toolbar");
+        this.barSlot = h("div.bar-slot");
+        this.toolbar.append(this.barSlot);
         this.body = h("div.panel-body.selection");
-        this.element = h("div.panel", {}, this.compare ? this.toolbar : null, this.body);
+        this.element = h("div.panel", {}, this.toolbar, this.body);
         container.element.append(this.element);
-        this.off = on("theme", () => this.render());
-        container.on("destroy", () => this.off());
+        this.off = [on("theme", () => this.render()), hostBar(this.barSlot, ["view", "compare"])];
+        container.on("destroy", () => this.off.forEach((off) => off()));
         this.render();
     }
 
@@ -1026,7 +1033,7 @@ export class SelectionPanel {
                 store("compare.differences", this.onlyDifferences);
                 this.render();
             });
-            this.toolbar.replaceChildren(toggle);
+            this.toolbar.replaceChildren(this.barSlot, toggle);
         }
     }
 

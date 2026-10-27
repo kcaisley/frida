@@ -13,7 +13,7 @@ import { Layout3DPanel } from "./layout3d.js";
 import { LayoutPanel } from "./layout2d.js";
 import { SchematicPanel } from "./panels.js";
 import { Layout } from "./regions.js";
-import { emit, on, recall, state, store } from "./store.js";
+import { emit, hostBar, on, recall, state, store } from "./store.js";
 
 // the editor, from jsDelivr the first time the Compiler is opened
 
@@ -381,10 +381,12 @@ class FlowPanel {
     constructor(container) {
         this.element = h("div.panel.flow");
         this.toolbar = h("div.panel-toolbar");
+        // the page's bar first: the way back to the block
+        this.barSlot = h("div.bar-slot");
         this.body = h("div.panel-body.flow-body");
         this.element.append(this.toolbar, this.body);
         container.element.append(this.element);
-        this.off = [on("compile", () => this.render())];
+        this.off = [on("compile", () => this.render()), hostBar(this.barSlot, ["compiler"])];
         // the running stage's clock
         this.clock = setInterval(() => running() && this.renderProgress(), 1000);
         container.on("destroy", () => {
@@ -424,6 +426,7 @@ class FlowPanel {
         const run = h("button.btn-run", { title: why || "Lay out the netlist (Ctrl+Enter)", onclick: () => startRun() }, h("span", { html: glyph("play", 12) }), "Run");
         run.disabled = Boolean(why);
         this.toolbar.replaceChildren(
+            this.barSlot,
             h("label.field", {}, h("span", {}, "PDK"), pdkSelect),
             h("label.field", {}, h("span", {}, "Style"), seg(STYLES, page.style, (value) => setStyle(value))),
             h("span.grow"),

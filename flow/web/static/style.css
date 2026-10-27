@@ -330,41 +330,17 @@ select {
     flex-direction: column;
 }
 
-/* over the stage: the block, its filters and marks, and the states' buttons */
-.topbar {
-    flex: none;
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 4px 8px;
-    min-height: 38px;
-    padding: 4px 8px;
-    background: var(--bg-header);
-    border-bottom: 4px solid var(--bg-main);
-}
-
-.topbar .grow {
-    flex: 1;
-}
-
-.bar-title {
-    color: var(--fg-bright);
-    font-size: var(--fs-13);
+/* the page's bar (app.js) in the shown state's first panel toolbar: its items join the toolbar's row */
+.bar-slot {
+    display: contents;
 }
 
 .bar-count {
     font-size: var(--fs-11);
 }
 
-.bar-sep {
-    width: 1px;
-    height: 16px;
-    background: var(--border);
-}
-
 .bar-marks {
     color: var(--sem-warn);
-    font-size: var(--fs-12);
 }
 
 .bar-hint {
@@ -1228,23 +1204,33 @@ table.grid.instances td.name {
 
 .trace-name {
     display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 0;
+    align-items: center;
+    gap: 6px;
     padding: 0 6px 0 9px;
     border-left: 3px solid transparent;
     border-bottom: 1px solid var(--border-subtle);
 }
 
-.trace-name .line {
+/* its name over its value at the cursor */
+.trace-name .trace-id {
+    flex: 1;
     display: flex;
-    align-items: center;
-    gap: 4px;
+    flex-direction: column;
     min-width: 0;
 }
 
+/* its maximum over its minimum, on the right */
+.trace-name .trace-range {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    color: var(--fg-muted);
+    font-size: var(--fs-10);
+    line-height: 1.3;
+}
+
 .trace-name .label {
-    flex: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1253,25 +1239,10 @@ table.grid.instances td.name {
 }
 
 .trace-name .value {
-    flex: none;
+    min-height: 1.3em;
     color: var(--fg-bright);
     font-size: var(--fs-11);
     white-space: nowrap;
-}
-
-.trace-name .range {
-    overflow: hidden;
-    color: var(--fg-muted);
-    font-size: var(--fs-10);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.trace-name .icon-btn {
-    height: 16px;
-    min-width: 16px;
-    padding: 0 4px;
-    font-size: var(--fs-10);
 }
 
 /* plot */
@@ -2181,9 +2152,16 @@ html[data-theme="dark"] .sheet {
     background: var(--plot-paper);
 }
 
-html[data-theme="dark"] .sheet .page svg > rect:first-of-type {
-    fill: var(--plot-paper);
+/* the schematic's own white page transparent, and its white symbols on the sheet's colour: no white
+   box on the panel in either theme */
+.sheet .page svg > rect:first-of-type {
+    fill: none;
     stroke: none;
+}
+
+.sheet .page svg [fill="white"],
+.sheet .page svg .gatebubble {
+    fill: var(--plot-paper);
 }
 
 html[data-theme="dark"] .sheet .page svg,
@@ -2195,11 +2173,6 @@ html[data-theme="dark"] .sheet .page svg rect {
 
 html[data-theme="dark"] .sheet .page svg text {
     fill: var(--ink-1);
-}
-
-html[data-theme="dark"] .sheet .page svg [fill="white"],
-html[data-theme="dark"] .sheet .page svg .gatebubble {
-    fill: var(--plot-paper);
 }
 
 html[data-theme="dark"] .sheet .page svg [fill="black"],

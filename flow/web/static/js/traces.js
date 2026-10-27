@@ -1,11 +1,10 @@
 // The traces view, after Surfer's waveform viewer: the focused instance's cached transient runs,
-// a row per net on a shared time axis (every net at first; a row's x hides it, + brings it back),
-// analog or (threshold at mid-swing) digital. The
-// waveform comes from the measurement's HDF5 file through the server (/api/wave), on request.
+// a row per net on a shared time axis, its name over its value at the cursor, its maximum over its
+// minimum beside them. The waveform comes from the measurement's HDF5 file through the server (/api/wave), on request.
 // Wheel zooms time about the cursor, drag pans, right-drag zooms to a span, double-click fits;
 // a click places the cursor, shift-click a second marker for the time between them.
 
-import { h, icon, popover, select } from "./icons.js";
+import { h, icon, select } from "./icons.js";
 import { COLORS, fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
 import { fieldInfo, formatValue, scaledUnit, siExponent } from "./units.js";
 
@@ -74,7 +73,7 @@ function valueAt(times, values, t) {
 
 export class TracesPanel {
     constructor(container, saved) {
-        this.config = { run: null, record: 0, signals: null, digital: [], ...(saved || {}) };
+        this.config = { run: null, record: 0, ...(saved || {}) };
         this.view = null; // visible time span [t0, t1]
         this.cursor = null;
         this.marker = null;
@@ -169,9 +168,7 @@ export class TracesPanel {
             );
         }
         this.readout = h("span.mono.muted", {}, "");
-        this.addButton = h("button.icon-btn", { title: "Show a hidden net", html: icon("plus", 14) });
-        this.addButton.addEventListener("click", () => this.hiddenMenu());
-        this.toolbar.append(h("span.grow"), this.readout, this.addButton, h("button.icon-btn", { title: "Fit (F, double-click)", onclick: () => this.fit(), html: icon("fit", 14) }));
+        this.toolbar.append(h("span.grow"), this.readout, h("button.icon-btn", { title: "Fit (F, double-click)", onclick: () => this.fit(), html: icon("fit", 14) }));
         const key = `${this.run.path}#${this.config.record}`;
         if (key === this.key) {
             this.buildNames();
@@ -205,68 +202,30 @@ export class TracesPanel {
             if (high - low < 1e-15) [low, high] = [low - 0.5 * (Math.abs(low) || 1), high + 0.5 * (Math.abs(high) || 1)];
             trace.range = [low, high];
         }
-        // the chosen nets carry over between runs of one bench; another bench starts with its first
-        const names = this.traces.map((trace) => trace.name);
-        const nets = names.join(",");
-        if (!this.config.signals || nets !== this.config.nets) this.config.signals = names;
-        this.config.nets = nets;
         status(`${this.run.sweep} run: ${wave.samples} samples`);
         this.fit();
         this.buildNames();
     }
 
     shownTraces() {
-        return (this.config.signals || []).map((name) => this.traces?.find((trace) => trace.name === name)).filter(Boolean);
-    }
-
-    // the nets not shown, to show again (every one, or one at a time)
-    hiddenMenu() {
-        const hidden = (this.traces || []).filter((trace) => !this.config.signals.includes(trace.name));
-        if (!hidden.length) return;
-        popover(this.addButton, (element) => {
-            const show = (names) => {
-                element.remove();
-                this.config.signals = this.traces.map((trace) => trace.name).filter((name) => this.config.signals.includes(name) || names.includes(name));
-                this.buildNames();
-                this.draw();
-            };
-            element.append(h("div.menu-item", { onclick: () => show(hidden.map((trace) => trace.name)) }, "Show all"), h("div.menu-sep"));
-            for (const trace of hidden) element.append(h("div.menu-item.mono", { onclick: () => show([trace.name]) }, trace.name));
-        });
+        return this.traces || [];
     }
 
     buildNames() {
         this.names.replaceChildren();
         this.valueCells = [];
-        if (this.addButton) {
-            const hidden = (this.traces || []).length - this.shownTraces().length;
-            this.addButton.disabled = !hidden;
-            this.addButton.title = hidden ? `Show a hidden net (${hidden} hidden)` : "Every net is shown";
-        }
         this.shownTraces().forEach((trace, index) => {
             const color = COLORS[index % COLORS.length];
-            const digital = this.config.digital.includes(trace.name);
             const value = h("span.value.mono", {}, "");
             this.valueCells.push(value);
-            const toggle = h("button.icon-btn", { title: digital ? "Show as analog" : "Show as digital (threshold at mid-swing)" }, digital ? "D" : "A");
-            toggle.addEventListener("click", () => {
-                this.config.digital = digital ? this.config.digital.filter((name) => name !== trace.name) : [...this.config.digital, trace.name];
-                this.buildNames();
-                this.draw();
-            });
-            const remove = h("button.icon-btn", { title: "Hide (+ shows it again)", html: icon("x", 12) });
-            remove.addEventListener("click", () => {
-                this.config.signals = this.config.signals.filter((name) => name !== trace.name);
-                this.buildNames();
-                this.draw();
-            });
+            const [low, high] = trace.range;
             this.names.append(
                 h(
                     "div.trace-name",
                     { style: { height: `${ROW}px`, borderLeftColor: color } },
-                    // its name, the value under the cursor and its controls; below, its range
-                    h("div.line", {}, h("span.mono.label", { style: { color } }, trace.name), value, toggle, remove),
-                    h("div.line", {}, h("span.range.mono", {}, `${formatValue(trace.range[0], trace.info)} … ${formatValue(trace.range[1], trace.info)}`)),
+                    // its name over its value at the cursor; on the right its maximum over its minimum
+                    h("div.trace-id", {}, h("span.mono.label", { style: { color } }, trace.name), value),
+                    h("div.trace-range.mono", { title: "Its maximum and minimum over the run" }, h("span", {}, formatValue(high, trace.info)), h("span", {}, formatValue(low, trace.info))),
                 ),
             );
         });
@@ -361,69 +320,40 @@ export class TracesPanel {
             ctx.moveTo(0, top + ROW - 0.5);
             ctx.lineTo(width, top + ROW - 0.5);
             ctx.stroke();
-            const [low, high] = trace.range;
+            const [bottom, ceiling] = trace.range;
             const pad = 7;
-            const y = (value) => top + pad + (1 - (value - low) / (high - low)) * (ROW - 2 * pad);
+            const y = (value) => top + pad + (1 - (value - bottom) / (ceiling - bottom)) * (ROW - 2 * pad);
             ctx.strokeStyle = color;
             ctx.lineWidth = 1.4;
-            if (this.config.digital.includes(trace.name)) {
-                // Surfer's look: a level per state, transitions at mid-swing, the high state filled
-                const threshold = (low + high) / 2;
-                const level = (value) => (value >= threshold ? top + pad + 4 : top + ROW - pad - 4);
-                ctx.beginPath();
-                let previous = null;
-                const highs = [];
-                for (let index = first; index <= last; index++) {
-                    const value = trace.values[index];
-                    if (value === null) continue;
-                    const x = this.pxAt(times[index]);
-                    const state = value >= threshold;
-                    if (previous === null) ctx.moveTo(x, level(value));
-                    else if (state !== previous.state) {
-                        ctx.lineTo(x, level(previous.value));
-                        ctx.lineTo(x, level(value));
-                    }
-                    if (state && (!previous || !previous.state)) highs.push([x, null]);
-                    if (!state && previous?.state && highs.length) highs[highs.length - 1][1] = x;
-                    previous = { state, value };
+            // a column of min and max per pixel where samples are denser than pixels
+            ctx.beginPath();
+            let column = null;
+            let started = false;
+            let low = 0;
+            let high = 0;
+            const flush = () => {
+                if (column === null) return;
+                if (!started) {
+                    ctx.moveTo(column, y(low));
+                    started = true;
+                } else ctx.lineTo(column, y(low));
+                if (high !== low) ctx.lineTo(column, y(high));
+            };
+            for (let index = first; index <= last; index++) {
+                const value = trace.values[index];
+                if (value === null) continue;
+                const x = Math.round(this.pxAt(times[index]) * ratio) / ratio;
+                if (x !== column) {
+                    flush();
+                    column = x;
+                    low = high = value;
+                } else {
+                    low = Math.min(low, value);
+                    high = Math.max(high, value);
                 }
-                if (previous) ctx.lineTo(width, level(previous.value));
-                ctx.stroke();
-                ctx.fillStyle = color;
-                ctx.globalAlpha = 0.16;
-                for (const [x0, x1] of highs) ctx.fillRect(x0, top + pad + 4, (x1 ?? width) - x0, ROW - 2 * pad - 8);
-                ctx.globalAlpha = 1;
-            } else {
-                // a column of min and max per pixel where samples are denser than pixels
-                ctx.beginPath();
-                let column = null;
-                let started = false;
-                let low = 0;
-                let high = 0;
-                const flush = () => {
-                    if (column === null) return;
-                    if (!started) {
-                        ctx.moveTo(column, y(low));
-                        started = true;
-                    } else ctx.lineTo(column, y(low));
-                    if (high !== low) ctx.lineTo(column, y(high));
-                };
-                for (let index = first; index <= last; index++) {
-                    const value = trace.values[index];
-                    if (value === null) continue;
-                    const x = Math.round(this.pxAt(times[index]) * ratio) / ratio;
-                    if (x !== column) {
-                        flush();
-                        column = x;
-                        low = high = value;
-                    } else {
-                        low = Math.min(low, value);
-                        high = Math.max(high, value);
-                    }
-                }
-                flush();
-                ctx.stroke();
             }
+            flush();
+            ctx.stroke();
         });
 
         // marker, cursor and hover line
@@ -457,9 +387,7 @@ export class TracesPanel {
                 cell.textContent = "";
                 return;
             }
-            const value = valueAt(this.wave.time_s, trace.values, time);
-            const digital = this.config.digital.includes(trace.name);
-            cell.textContent = digital ? (value >= (trace.range[0] + trace.range[1]) / 2 ? "1" : "0") : formatValue(value, trace.info);
+            cell.textContent = formatValue(valueAt(this.wave.time_s, trace.values, time), trace.info);
         });
         if (!this.readout) return;
         const seconds = { unit: "s", scalable: true };
