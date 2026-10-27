@@ -221,7 +221,7 @@ def _problems(block: str) -> set[str]:
         elif not all(_is(hint, pipeline.Analysis) for hint in hints.values()):
             problem("plots", f"{name} draws other than Analysis results")
 
-    # sweep.py: its design space as families (``@family``) and named instances (``@named``) of the
+    # sweep.py: its design space as grids (``@grid``) and named instances (``@named``) of the
     # block's Params, runs(pdk, params) -> dict[str, TbParams] and record(measurements) -> Record;
     # nothing else, no module constants
     sweep = _defined(stage["sweep"])
@@ -239,11 +239,13 @@ def _problems(block: str) -> set[str]:
         if name in expected:
             continue
         if UPPER.fullmatch(name):
-            problem("sweep", f"module constant {name}: a knob's values belong to its family")
-        elif not isinstance(value, (pipeline.Grid, pipeline.Family, pipeline.Named)) or _hints(value.build).get(
-            "return"
-        ) not in (Params, list[Params], dict[str, Params]):
-            problem("sweep", f"{name} is not a grid, a family, a named instance (of Params), runs or record")
+            problem("sweep", f"module constant {name}: a parameter's values belong to its grid")
+        elif not isinstance(value, (pipeline.Grid, pipeline.Named)) or _hints(value.build).get("return") not in (
+            Params,
+            list[Params],
+            dict[str, Params],
+        ):
+            problem("sweep", f"{name} is not a grid, a named instance (of Params), runs or record")
 
     # the side files beside the stages: their own names only, and no module constant (a block's
     # constants live in params.py, a testbench's in sim.py)
@@ -426,7 +428,7 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
     assert "badblock.plots: private helper _helper" in problems
     assert "badblock.plots: calls open: file I/O" in problems
     assert "badblock.types: Extra is not an Analysis<Thing> deriving pipeline.Analysis" in problems
-    assert "badblock.sweep: module constant SIZES: a knob's values belong to its family" in problems
+    assert "badblock.sweep: module constant SIZES: a parameter's values belong to its grid" in problems
     assert {"badblock.targets: a block on the pipeline has no targets.py: the CLI's verbs run it"} <= problems
     assert {"badblock.sweep: names a run (20260101_000000)", "badblock.sweep: names a path under build/"} <= problems
 

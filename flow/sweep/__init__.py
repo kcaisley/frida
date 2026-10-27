@@ -31,10 +31,11 @@ A ``Record`` (``flow.pipeline.Record``) holds the instance's scalar ``metrics`` 
 its unit, as the analyses' fields do: ``_s``, ``_j``, ``_v``, ``_w``, ``_um2``), its ``details``
 (``flow.pipeline.Plot`` specs of its condition sweeps, each plotted on its own data, or figures
 drawn by the analysis plots) and ``waves`` (measurement files under ``build/`` holding transient
-waveforms, by label). A block on the pipeline (docs/pipeline.md) gives its design space as
-families and named instances (``flow.pipeline.family``, ``named``; its ``params.valid(params, pdk)``
-keeps what works in a PDK), and ``runs`` and ``record``, instead of ``instances``,
-``characterize`` and ``GENERATOR``; its ``layout.py`` gives the layout hooks.
+waveforms, by label). A block gives its design space as grids and named instances
+(``flow.pipeline.grid``, ``named``; a block not yet typed so, its ``params.valid(params, pdk)``
+keeps what works in a PDK); a block on the pipeline (docs/pipeline.md) gives ``runs`` and
+``record``, another ``characterize`` and ``GENERATOR`` (the ADC's behavioral model); its
+``layout.py`` gives the layout hooks.
 
     uv run python -m flow run comp        # one block on the pipeline (layout comp, table comp)
     uv run python -m flow sweep.run       # every block (sweep.missing, sweep.layout, sweep.tables)

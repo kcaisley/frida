@@ -9,7 +9,7 @@ named instances (its ``sweep.py``):
     python -m flow plot <block> [FIGURE ...] --from DIR [--from DIR ...] [--backend matplotlib|web]
     python -m flow opt <block> --problem P [--pdk P] [--budget N] [--workers N] [--best N] [--finalists N]
 
-An instance ``I`` is a named instance, an instance's label (``family(knob=value, ...)``) or its
+An instance ``I`` is a named instance, an instance's label (``grid(name, parameter=value, ...)``) or its
 digest. ``layout`` without ``--instance`` lays out the newest run's instances by ALIGN into their
 records; with it, each named instance by all three tools from its hand-written floorplan (or, with
 ``--auto``, from ALIGN's placement) into ``build/layout/<block>/<name>/``. ``plot`` draws a sweep

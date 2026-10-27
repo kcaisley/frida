@@ -3,7 +3,7 @@
 An instance is its parameters: its id is ``<pdk>__<digest>``, the digest the first 12 hex digits of
 the SHA-1 of its flat parameters (``digest``), as ``flow.sweep.lookup`` keys the models' cache.
 
-``run``: every block's instances (each PDK's ``instances(pdk)``) characterized, one process each,
+``run``: every block's instances (each PDK's grids and named instances) characterized, one process each,
 at most ``workers`` at once; each writes ``instance.json`` (its id, parameters, metrics, details,
 waves, its run time or error) in ``build/sweep/<block>/<run>/<pdk>/<digest>/``. ``layout``: ALIGN
 places and routes each instance of the newest run whose block gives a layout netlist or a
@@ -66,7 +66,7 @@ def instance_id(pdk: str, params) -> str:
 def design_space(block: str, pdk: str) -> dict:
     """The block's instances in ``pdk``, by digest: a design space may reach the same parameters
     twice (two arrays that come out alike), which are one instance. A block on the pipeline gives
-    its families and named instances (``labelled_space``), another its sweep's ``instances``."""
+    its grids and named instances (``labelled_space``), another its sweep's ``instances``."""
     sweep = import_module(f"flow.{block}.sweep")
     if hasattr(sweep, "instances"):
         return {digest(params): params for params in sweep.instances(pdk)}
@@ -83,8 +83,8 @@ def _valid(block: str):
 
 @cache
 def labelled_space(block: str, pdk: str) -> dict:
-    """A pipeline block's instances in ``pdk`` by digest, each with its label (its family and knobs,
-    or its name; the first that reaches it): its sweep's families and swept named instances
+    """A block's instances in ``pdk`` by digest, each with its label (its grid and the values that
+    vary there, or its name; the first that reaches it): its sweep's grids and swept named instances
     (``flow.pipeline.design``) that its ``params.valid`` admits in ``pdk``."""
     from flow import pipeline
 
@@ -99,8 +99,8 @@ def labelled_space(block: str, pdk: str) -> dict:
 
 def select(block: str, pdk: str, names: list[str]) -> dict:
     """The instances ``names`` pick in ``pdk``, by digest, with their labels: each a named instance
-    of the block's sweep (swept or not), the label of one of its instances (``family(knob=value,
-    ...)``), or a digest. Those ``params.valid`` does not admit in ``pdk`` are left out."""
+    of the block's sweep (swept or not), the label of one of its instances (``grid(name,
+    parameter=value, ...)``), or a digest. Those ``params.valid`` does not admit in ``pdk`` are left out."""
     from flow import pipeline
 
     sweep = import_module(f"flow.{block}.sweep")

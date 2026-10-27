@@ -133,6 +133,7 @@ jobs:
           flow/adc/test_behavioral.py
           flow/adc/test_reference.py
           flow/adc/test_subckt.py
+          flow/adc/test_sweep.py
           flow/comp/test_subckt.py
           flow/comp/test_layout.py
           flow/test_netlists.py
@@ -167,6 +168,7 @@ jobs:
           flow/circuit/test_remote.py
           flow/circuit/test_spectre.py
           flow/scans/test_plldrp.py
+          flow/sweep/test_sweep.py
           test/test_hooks.py
           test/test_adc_capdriver.py
           test/test_salogic.py

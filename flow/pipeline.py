@@ -6,8 +6,8 @@ simulator's raw output becomes a ``Meas`` here (``read``: every saved signal on 
 time axis), the block's ``analysis.py`` turns measurements into ``Analysis`` results and metrics,
 its ``plots.py`` into ``Plot`` specs, and its ``sweep.py`` into the ``Record`` of an instance.
 Its ``sweep.py`` also gives its design space: grids (``@grid``: spaces, each a design with some of
-its parameters widened, ``widen``), named instances (``@named``), and, in a block not yet on grids,
-families (``@family``); its ``opt.py`` its problems, each with the space it searches.
+its parameters widened, ``widen``) and named instances (``@named``); its ``opt.py`` its problems,
+each with the space it searches.
 
 ``Meas`` also stays the base of the measurement types of the blocks not yet migrated (the ADC's,
 the CDAC's), which add their own per-row arrays to it.
@@ -61,52 +61,9 @@ class TbParams(ABC):
     params: Any
 
 
-# ---- the design space: families and named instances (a block's sweep.py)
+# ---- the design space: named instances (a block's sweep.py); its grids below
 
 type Axis = Sequence[Any] | Callable[[str], Sequence[Any]]
-
-
-@dataclass(frozen=True)
-class Family:
-    """A family of a block's design space (``@family``): ``build(**knobs)`` makes one instance's
-    ``Params``; each mapping in ``axes`` gives every knob its values, its instances the cartesian
-    product of them, in the PDKs its entry of ``pdks`` names (None: every PDK); several mappings,
-    the union of their products. A knob's values are the same in every PDK, or a function of the
-    PDK. An instance is its parameters: a family's name and knobs only label it."""
-
-    build: Callable[..., Any]
-    axes: tuple[Mapping[str, Axis], ...]
-    pdks: tuple[tuple[str, ...] | None, ...]
-
-    @property
-    def name(self) -> str:
-        return getattr(self.build, "__name__", "")
-
-    def __call__(self, **knobs: Any) -> Any:
-        return self.build(**knobs)
-
-    def instances(self, pdk: str) -> Iterator[tuple[str, Any]]:
-        """Each instance in ``pdk`` with its label, ``name(knob=value, ...)``."""
-        for axes, pdks in zip(self.axes, self.pdks, strict=True):
-            if pdks is not None and pdk not in pdks:
-                continue
-            values = [axis if isinstance(axis, Sequence) else axis(pdk) for axis in axes.values()]
-            for combination in itertools.product(*values):
-                knobs = dict(zip(axes, combination, strict=True))
-                label = ", ".join(f"{knob}={value}" for knob, value in knobs.items())
-                yield f"{self.name}({label})", self.build(**knobs)
-
-
-def family(*, pdks: Sequence[str] | None = None, **axes: Axis) -> Callable[[Callable[..., Any] | Family], Family]:
-    """Make a function of a few named knobs, returning a block's ``Params``, a family swept over
-    ``axes`` (in the ``pdks`` named, else in every PDK); stacked, the products are joined, the first
-    written first."""
-    entry = tuple(pdks) if pdks is not None else None
-    return lambda build: (
-        Family(build.build, (axes, *build.axes), (entry, *build.pdks))
-        if isinstance(build, Family)
-        else Family(build, (axes,), (entry,))
-    )
 
 
 @dataclass(frozen=True)
@@ -135,10 +92,9 @@ def named(build: Callable[[], Any] | None = None, *, swept: bool = True) -> Any:
 
 def design(sweep: Any, pdk: str) -> Iterator[tuple[str, Any]]:
     """A block's design space in ``pdk`` (before a block's ``params.valid``, where it has one): each
-    grid's and family's instances and each swept named instance of its sweep module, labelled, in
-    source order."""
+    grid's instances and each swept named instance of its sweep module, labelled, in source order."""
     for value in vars(sweep).values():
-        if isinstance(value, (Grid, Family)):
+        if isinstance(value, Grid):
             yield from value.instances(pdk)
         elif isinstance(value, Named) and value.swept:
             yield value.name, value()
@@ -412,30 +368,40 @@ class Problem:
     space: Any = None
 
 
-class ProblemFamily(Family):
+@dataclass(frozen=True)
+class ProblemFamily:
     """Problems of a block (its opt.py's ``@problem``): a function of a few knobs returning a
-    ``Problem``, expanded like a family of instances; a function that takes ``pdk`` is given the
-    PDK as well (a ``Pdk``), which its label leaves out (``adc(bits=12)``)."""
+    ``Problem``, one for each combination of its knobs' values (``axes``: each knob's values, or a
+    function of the PDK's folder giving them), in the PDKs ``pdks`` names (their folders; None: every
+    PDK); a function that takes ``pdk`` is given the PDK as well (a ``Pdk``), which its label leaves
+    out (``adc(bits=12)``)."""
+
+    build: Callable[..., Any]
+    axes: Mapping[str, Axis]
+    pdks: tuple[str, ...] | None
+
+    @property
+    def name(self) -> str:
+        return getattr(self.build, "__name__", "")
 
     def instances(self, pdk: str | Pdk) -> Iterator[tuple[str, Any]]:
         takes_pdk = "pdk" in signature(self.build).parameters
         pdk = pdk_of(pdk)
-        folder = pdk.name.lower()  # the family's entries name PDKs by their folders
-        for axes, pdks in zip(self.axes, self.pdks, strict=True):
-            if pdks is not None and folder not in pdks:
-                continue
-            values = [axis if isinstance(axis, Sequence) else axis(folder) for axis in axes.values()]
-            for combination in itertools.product(*values):
-                knobs = dict(zip(axes, combination, strict=True))
-                label = ", ".join(f"{knob}={value}" for knob, value in knobs.items())
-                yield f"{self.name}({label})", self.build(**knobs, **({"pdk": pdk} if takes_pdk else {}))
+        folder = pdk.name.lower()  # the problems' entries name PDKs by their folders
+        if self.pdks is not None and folder not in self.pdks:
+            return
+        values = [axis if isinstance(axis, Sequence) else axis(folder) for axis in self.axes.values()]
+        for combination in itertools.product(*values):
+            knobs = dict(zip(self.axes, combination, strict=True))
+            label = ", ".join(f"{knob}={value}" for knob, value in knobs.items())
+            yield f"{self.name}({label})", self.build(**knobs, **({"pdk": pdk} if takes_pdk else {}))
 
 
 def problem(*, pdks: Sequence[Pdk] | None = None, **axes: Axis) -> Callable[[Callable[..., Problem]], ProblemFamily]:
-    """Make a function of a few named knobs returning a ``Problem`` a family of problems over ``axes``
+    """Make a function of a few named knobs returning a ``Problem`` problems over ``axes``
     (in the ``pdks`` named, else in every PDK): ``adc(bits=12)`` is one."""
     entry = tuple(pdk.name.lower() for pdk in pdks) if pdks is not None else None
-    return lambda build: ProblemFamily(build, (axes,), (entry,))
+    return lambda build: ProblemFamily(build, axes, entry)
 
 
 def problems(opt: Any, pdk: str) -> dict[str, Problem]:
