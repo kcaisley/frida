@@ -273,6 +273,11 @@ def warm_start(study: Any, block: str, pdk: str, problem: pipeline.Problem, cls:
         if not all(inside):
             continue
         value, constraints = score(problem, record, better)
+        # a bound left unmeasured (another problem stopped the evaluation first) is unknown here,
+        # unless another is broken already: such a record would need evaluating again
+        unknown = any(record["metrics"].get(name) is None for name in problem.bound)
+        if record["valid"] and unknown and all(v <= 0 for v in constraints.values()):
+            continue
         trial = optuna.trial.create_trial(
             params=params,
             distributions={name: dists[name] for name in params},
