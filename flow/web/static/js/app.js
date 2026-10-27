@@ -180,7 +180,10 @@ async function show(mode, ids, want) {
 function renderLibrary() {
     const list = element.blocks;
     list.replaceChildren();
+    // the blocks whose name or title has the filter's text
+    const query = element.filter.value.trim().toLowerCase();
     for (const [name, entry] of Object.entries(app.catalog)) {
+        if (query && !`${name} ${entry.title || ""}`.toLowerCase().includes(query)) continue;
         // the block's folder under flow/ and its instance count, as Zed's git panel lists a file
         const row = h(
             "button.block-row",
@@ -250,10 +253,13 @@ function renderBar() {
 function build() {
     element.fold = h("button.icon-btn.fold", { onclick: () => setCollapsed(!element.library.classList.contains("collapsed")) });
     element.blocks = h("div.block-list");
+    element.filter = h("input", { type: "search", placeholder: "Filter", spellcheck: "false", oninput: () => renderLibrary() });
     element.library = h(
         "aside.library",
         {},
         h("div.library-head", {}, h("span.library-title", {}, "Library"), element.fold),
+        // its own toolbar: a filter box in the bar's style
+        h("div.library-tools", {}, h("label.search-field", { title: "Show the blocks whose name or title has this text" }, h("span", { html: icon("filter", 13) }), element.filter)),
         // folded: the strip's name, a button too
         h("button.library-strip", { title: "Show the Library", onclick: () => setCollapsed(false) }, "Library"),
         h("div.library-body", {}, element.blocks),

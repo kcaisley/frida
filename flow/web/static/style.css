@@ -284,6 +284,51 @@ select {
     overflow: auto;
 }
 
+/* the Library's toolbar, under its head: the filter box */
+.library-tools {
+    flex: none;
+    display: flex;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+/* a text box in the bar's buttons' style: its icon, then the text, in one rounded box */
+.search-field {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    height: 26px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-input);
+    color: var(--fg-muted);
+}
+
+.search-field > span {
+    display: flex;
+}
+
+.search-field:focus-within {
+    border-color: var(--accent-bright);
+}
+
+.search-field input[type="search"] {
+    flex: 1;
+    min-width: 0;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: var(--fs-12);
+}
+
+.search-field input[type="search"]:focus-visible {
+    outline: none;
+}
+
 .library-strip {
     display: none;
 }
@@ -298,6 +343,7 @@ select {
 }
 
 .library.collapsed .library-title,
+.library.collapsed .library-tools,
 .library.collapsed .library-body {
     display: none;
 }

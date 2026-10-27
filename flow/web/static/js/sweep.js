@@ -483,8 +483,9 @@ function axisLabel(field) {
 }
 
 // an icon button, as every toolbar's; ``on`` marks a toggle that is set
-export function toolButton(name, title, onclick, on = false) {
-    const button = h("button.icon-btn", { title, onclick, html: icon(name, 14) });
+// a tool of the scatter, as the bar's buttons: its icon in the box, its name beside it
+export function toolButton(name, label, title, onclick, on = false) {
+    const button = h("button.bar-btn", { title, onclick }, h("span", { html: icon(name, 14) }), label);
     if (on) button.classList.add("on");
     return button;
 }
@@ -539,7 +540,7 @@ export class ScatterPanel {
         };
         const logButton = (axis) => {
             const field = fieldOf(axis === "x" ? view.x : view.y);
-            const button = toolButton("log", positive(field) ? `Log ${axis} axis` : `Log ${axis} axis: the values are not all positive`, () => {
+            const button = toolButton("log", "Log", positive(field) ? `Log ${axis} axis` : `Log ${axis} axis: the values are not all positive`, () => {
                 if (axis === "x") view.logX = !view.logX;
                 else view.logY = !view.logY;
                 rerender();
@@ -547,8 +548,8 @@ export class ScatterPanel {
             button.disabled = !positive(field);
             return button;
         };
-        const drag = (mode, name, title) =>
-            toolButton(name, title, () => {
+        const drag = (mode, name, label, title) =>
+            toolButton(name, label, title, () => {
                 view.dragmode = mode;
                 if (this.plot.data) Plotly.relayout(this.plot, { dragmode: mode });
                 this.renderControls();
@@ -568,7 +569,7 @@ export class ScatterPanel {
         this.controls.replaceChildren(
             titled("x", choose("x")),
             logButton("x"),
-            toolButton("swap", "Swap the axes", () => {
+            toolButton("swap", "Swap", "Swap the axes", () => {
                 [view.x, view.y, view.logX, view.logY] = [view.y, view.x, view.logY, view.logX];
                 rerender();
             }),
@@ -576,10 +577,10 @@ export class ScatterPanel {
             logButton("y"),
             h("span.grow"),
             // the plot's own tools, always shown (Plotly's mode bar only on hover, over the plot)
-            drag("zoom", "zoom", "Drag: zoom to a box (wheel: zoom)"),
-            drag("pan", "pan", "Drag: pan"),
-            toolButton("fit", "Fit both axes to the points (double-click)", () => this.fit()),
-            toolButton("download", "Save as PNG, with its legend", () => this.savePng()),
+            drag("zoom", "zoom", "Zoom", "Drag: zoom to a box (wheel: zoom)"),
+            drag("pan", "pan", "Pan", "Drag: pan"),
+            toolButton("fit", "Fit", "Fit both axes to the points (double-click)", () => this.fit()),
+            toolButton("download", "PNG", "Save as PNG, with its legend", () => this.savePng()),
         );
     }
 
