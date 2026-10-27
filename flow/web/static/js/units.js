@@ -93,10 +93,17 @@ export function axisTitle(infos, exponent) {
     return unit ? `${labels.join(", ")} (${unit})` : labels.join(", ");
 }
 
+// a value as the viewer shows it: an enumeration's member name (STRONGARM, DOUBLE_TAIL) in words,
+// lowercase (strongarm, double tail); anything else as it is
+export function words(value) {
+    const text = String(value);
+    return /^[A-Z][A-Z0-9_]*$/.test(text) ? text.toLowerCase().replaceAll("_", " ") : text;
+}
+
 export function formatValue(value, info) {
     if (value === null || value === undefined || (typeof value === "number" && !Number.isFinite(value))) return "—";
     if (typeof value === "boolean") return value ? "yes" : "no";
-    if (typeof value !== "number") return String(value);
+    if (typeof value !== "number") return words(value);
     if (!info || !info.scalable) {
         const text = Math.abs(value) >= 1e5 || (value && Math.abs(value) < 1e-3) ? value.toExponential(3) : +value.toPrecision(4);
         return `${text}${info?.unit ? ` ${info.unit}` : ""}`;

@@ -10,7 +10,7 @@
 import { h, icon, popover, select, titled } from "./icons.js";
 import { currentTheme, keepTicks, PAPERS, paperLayout, TICK_KEYS, tone } from "./paper.js";
 import { COLORS, emit, hostBar, on, recall, store } from "./store.js";
-import { fieldInfo, scaledUnit, siExponent } from "./units.js";
+import { fieldInfo, scaledUnit, siExponent, words } from "./units.js";
 
 export const PDK_ORDER = ["tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65"];
 // a PDK's marker, in the scatter and beside its name in the table: Plotly's symbol names
@@ -80,8 +80,18 @@ function buildFields(table) {
             const value = get(row);
             return value === null || value === undefined || typeof value === "number";
         });
+    // a search's own fields first (its trial, where it came from, how far it went, whether it met
+    // every bound and which it missed): the evaluation's, not the design's
+    const fields = [];
+    if (table.status?.length) {
+        fields.push({ section: "Status" });
+        for (const name of table.status) {
+            const get = (row) => row.status?.[name];
+            fields.push({ key: `s:${name}`, label: name, kind: numeric(get) ? "num" : "cat", get, decimals: decimalsOf(rows, get) });
+        }
+    }
     // an instance is its PDK and the parameters its sweep sets: the PDK a parameter, the first
-    const fields = [{ section: "Parameters" }, { key: "pdk", label: "pdk", kind: "cat", get: (row) => row.pdk, pdk: true, note: "The PDK" }];
+    fields.push({ section: "Parameters" }, { key: "pdk", label: "pdk", kind: "cat", get: (row) => row.pdk, pdk: true, note: "The PDK" });
     for (const name of table.params) {
         const get = (row) => row.params?.[name];
         fields.push({ key: `p:${name}`, label: name, kind: numeric(get) ? "num" : "cat", get, decimals: decimalsOf(rows, get) });
@@ -112,7 +122,7 @@ function fieldOf(key) {
 // whole numbers, so a row's values line up
 function cellText(field, value) {
     if (value === null || value === undefined || (typeof value === "number" && !Number.isFinite(value))) return "—";
-    if (field.kind !== "num" || typeof value !== "number") return String(value);
+    if (field.kind !== "num" || typeof value !== "number") return words(value);
     const text = (value / 10 ** (field.exponent || 0)).toFixed(field.decimals);
     return /^-0\.?0*$/.test(text) ? text.slice(1) : text;
 }
@@ -254,7 +264,7 @@ function rowMenu(anchor, field) {
                     },
                     "only",
                 );
-                const name = value === null ? "—" : String(value);
+                const name = value === null ? "—" : words(value);
                 list.append(h("label.filter-value", {}, box, h("span", field.pdk ? { html: `${pdkMark(value)} ${esc(name)}` } : {}, field.pdk ? null : name), h("span.muted", {}, `${counts.get(value)}`), only));
             }
             const all = () => {
@@ -939,7 +949,7 @@ function paramNames(instances) {
     return [...new Set(instances.flatMap((instance) => Object.keys(instance.params || {})))];
 }
 
-const shown = (value) => (value === null || value === undefined ? "—" : String(value));
+const shown = (value) => (value === null || value === undefined ? "—" : words(value));
 
 // a number at its row's SI prefix to 0.001 of it, whole numbers as they are
 function formatted(value, exponent) {
@@ -1024,6 +1034,11 @@ export class SelectionPanel {
         );
         const head = h("tr", {}, h("th.corner", {}, h("span.muted", {}, this.compare ? `${instances.length} compared` : "")), heads);
         const pdkRow = row("pdk", instances.map((instance) => h("td.pdk", { html: `${symbolSvg(pdkSymbol(instance.pdk), pdkColor(instance.pdk, theme), 9)}${esc(shown(instance.pdk))}` })), { mono: true, differ: this.compare && differs(instances.map((instance) => instance.pdk)) });
+        // a search's own fields, the evaluation's: a Status group before the parameters
+        const statusRows = [...new Set(instances.flatMap((instance) => Object.keys(instance.status || {})))].map((name) => {
+            const values = instances.map((instance) => instance.status?.[name]);
+            return row(name, values.map((value) => cell("td", shown(value))), { mono: true, differ: this.compare && differs(values) });
+        });
         const paramRows = paramNames(instances)
             .map((name) => [name, instances.map((instance) => instance.params?.[name])])
             .filter(([, values]) => !this.compare || !this.onlyDifferences || differs(values))
@@ -1045,7 +1060,7 @@ export class SelectionPanel {
             "table.tgrid.narrow",
             {},
             h("thead", {}, head),
-            h("tbody", {}, errorRow, section("Parameters"), pdkRow, paramRows, section("Metrics"), metricRows, section("Layout"), layoutRows),
+            h("tbody", {}, errorRow, ...(statusRows.length ? [section("Status"), ...statusRows] : []), section("Parameters"), pdkRow, paramRows, section("Metrics"), metricRows, section("Layout"), layoutRows),
         );
         // alone, a failure's whole message under its column
         const error = !this.compare && instances[0].error ? h("pre.error", {}, instances[0].error) : null;

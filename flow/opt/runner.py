@@ -35,7 +35,7 @@ import traceback
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from concurrent.futures.process import BrokenProcessPool
 from datetime import datetime
-from enum import Enum
+from enum import Enum, auto
 from importlib import import_module
 from multiprocessing import get_context
 from pathlib import Path
@@ -54,10 +54,39 @@ ALIGN_TIMEOUT_S = 600
 DENSITY = 0.25
 # the objective of a design that misses a bound: no cost, above any design that meets them
 INFEASIBLE = math.inf
-# how far an evaluation went, by its level, in the viewer's words: none (its area estimated from its
-# gates broke the bound), the screen's runs (no noise), or the search's (the S-curve's noise too);
-# the first two pre-filter a design before the full benchmark
-STAGES = {0: "gate area", 1: "quick check", 2: "full benchmark"}
+
+
+class Origin(Enum):
+    """Where a study's trial came from: an evaluation made before, rescored when the study started,
+    or the search's own proposal."""
+
+    WARM_START = auto()
+    SEARCH = auto()
+
+
+class Stage(Enum):
+    """How far a design's evaluation went: rejected by its gates' area alone, by the screen's runs (no
+    noise; these two pre-filter it), through the search's runs (the full benchmark, the S-curve's
+    noise too), or not admitted by the block at all."""
+
+    GATE_AREA = auto()
+    QUICK_CHECK = auto()
+    FULL_BENCHMARK = auto()
+    INVALID = auto()
+
+
+def stage(record: dict[str, Any]) -> Stage:
+    """How far ``record``'s evaluation went."""
+    if not record["valid"]:
+        return Stage.INVALID
+    if record["level"] >= pipeline.Level.SEARCH.value:
+        return Stage.FULL_BENCHMARK
+    return Stage.QUICK_CHECK if record["level"] == pipeline.Level.SCREEN.value else Stage.GATE_AREA
+
+
+def shown(member: Enum) -> str:
+    """A member as the viewer shows it: its name in words (``Stage.GATE_AREA``: gate area)."""
+    return member.name.lower().replace("_", " ")
 
 
 def study_dir(block: str, pdk: str) -> Path:
@@ -318,7 +347,7 @@ def warm_start(study: Any, block: str, pdk: str, problem: pipeline.Problem, cls:
             distributions={name: dists[name] for name in params},
             value=value,
             system_attrs={"constraints": [constraints[name] for name in problem.bound]},
-            user_attrs={"id": record["id"], "metrics": record["metrics"], "origin": "warm start"},
+            user_attrs={"id": record["id"], "metrics": record["metrics"], "warm_start": True},
         )
         study.add_trial(trial)
         added += 1
@@ -502,11 +531,11 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
     study = optuna.load_study(storage=f"sqlite:///{study_dir(block, pdk) / f'{label}.db'}", study_name=label)
     # each design by the trial that first evaluated it, and whether that trial was the warm start's
     # (marked so since; before, a trial completed the instant it started)
-    first: dict[str, tuple[int, str]] = {}
+    first: dict[str, tuple[int, Origin]] = {}
     for trial in study.trials:
         if trial.state == optuna.trial.TrialState.COMPLETE and "id" in trial.user_attrs:
-            warm = trial.user_attrs.get("origin") == "warm start" or trial.datetime_start == trial.datetime_complete
-            first.setdefault(trial.user_attrs["id"], (trial.number, "warm start" if warm else "search"))
+            warm = trial.user_attrs.get("warm_start", False) or trial.datetime_start == trial.datetime_complete
+            first.setdefault(trial.user_attrs["id"], (trial.number, Origin.WARM_START if warm else Origin.SEARCH))
     name = f"{block}.{re.sub(r'\w+=', '', label)}"
     cost = "_".join(filter(None, ["cost", pipeline.cost_unit(problem)]))  # its unit for the viewer
     rows, records = [], {}
@@ -517,12 +546,11 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
         missed = [bound for bound, violation in violations.items() if violation > 0]
         metrics = measured(record)
         metrics.update({key: v for key, v in record.get("metrics_full", {}).items() if metrics.get(key) is None})
-        level = record["level"]
-        stage = STAGES.get(level, "full") if record["valid"] else "invalid"
+        reached = stage(record)
         # a design that missed a bound is shown greyed (``dim``): one the full benchmark rejected at
         # its cost from what was measured, where each plain factor was; one rejected before it
         # (pre-filtered) without a cost, a tick over the plot
-        priced = level >= pipeline.Level.SEARCH.value and all(
+        priced = reached is Stage.FULL_BENCHMARK and all(
             isinstance(metrics.get(key), (int, float)) and math.isfinite(metrics[key]) and metrics[key] > 0
             for key, weight in problem.cost.items()
             if not isinstance(weight, tuple)
@@ -531,19 +559,22 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
             {
                 "id": ident,
                 "pdk": pdk,
-                "params": {
+                # the search's own fields, the evaluation's (the viewer's Status), apart from the design's
+                "status": {
                     "trial": number,
-                    "origin": origin,
+                    "origin": shown(origin),
+                    "stage": shown(reached),
                     "feasible": not missed,
-                    "missed": (", ".join(missed) or "none") if record["valid"] else "invalid",
-                    "stage": stage,
-                    **record["params"],
+                    "missed": (", ".join(missed) or "none") if record["valid"] else shown(Stage.INVALID),
                 },
+                "params": record["params"],
                 "metrics": {
                     cost: value if not missed else pipeline.objective(problem, metrics) if priced else None,
                     **metrics,
                 },
-                "dim": (f"{stage}: missed {', '.join(missed)}" if record["valid"] else "invalid") if missed else None,
+                "dim": (f"{shown(reached)}: missed {', '.join(missed)}" if record["valid"] else shown(reached))
+                if missed
+                else None,
                 "error": ((record.get("error") or "").strip().splitlines() or [None])[-1],
                 "seconds": record.get("seconds"),
             }
@@ -578,38 +609,38 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
     for stale in (DATA_DIR / name).iterdir():
         if stale.name.split(".", 1)[0] not in records:
             shutil.rmtree(stale) if stale.is_dir() else stale.unlink()
-    # the trial's fields, then the parameters that differ; the cost, the problem's metrics, the rest
-    lead = ["trial", "origin", "feasible", "missed", "stage"]
+    # the parameters that differ; the cost, the problem's metrics, the rest
     params = [
         key
         for key in dict.fromkeys(key for row in rows for key in row["params"])
-        if key in lead or len({json.dumps(row["params"].get(key)) for row in rows}) > 1
+        if len({json.dumps(row["params"].get(key)) for row in rows}) > 1
     ]
     for row in rows:
         row["params"] = {key: row["params"].get(key) for key in params}
     every = {key for row in rows for key in row["metrics"]}
     metrics = [key for key in dict.fromkeys([cost, *problem.cost, *problem.bound, *sorted(every)]) if key in every]
-    feasible = sum(1 for row in rows if row["params"]["feasible"])
+    feasible = sum(1 for row in rows if row["status"]["feasible"])
     title = f"{BLOCKS.get(block, block)}, {label} in {pdk}"
     run = f"{len(study.trials)} trials, {len(rows)} designs, {feasible} feasible"
     data = {
         "block": name,
         "title": title,
         "run": run,
+        "status": ["trial", "origin", "stage", "feasible", "missed"],
         "params": params,
         "metrics": metrics,
         "rows": rows,
         # on first view: the cheapest design first, the cost against the trial (the search's progress)
         "sort": {"key": f"m:{cost}", "dir": "asc"},
-        "axes": {"x": "p:trial", "y": f"m:{cost}"},
+        "axes": {"x": "s:trial", "y": f"m:{cost}"},
         "dimmed": "failed the full benchmark",  # the grey designs' name in the scatter's legend
         # a design without a cost (pre-filtered: rejected before the full benchmark) a tick over the
         # plot of its cost, one lane for all
         "rug": {"label": "pre-filtered", "on": [f"m:{cost}"]},
         # the warm start's trials shaded on the trial axis
         "bands": [
-            {"key": "p:trial", "from": min(warm) - 0.5, "to": max(warm) + 0.5, "label": "warm start"}
-            for warm in [[number for number, origin in first.values() if origin == "warm start"]]
+            {"key": "s:trial", "from": min(warm) - 0.5, "to": max(warm) + 0.5, "label": shown(Origin.WARM_START)}
+            for warm in [[number for number, origin in first.values() if origin is Origin.WARM_START]]
             if warm
         ],
     }
