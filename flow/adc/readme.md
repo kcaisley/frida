@@ -62,6 +62,17 @@ their nominal ENOB once calibrated (14 bits binary 11.73 against 12.71, 12 bits 
 learned weights fail where a code is several LSB wide. MSB redistribution and the MSB split calibrate
 to within 0.2 bit of their nominal ENOB, or above it.
 
+IHP130, run 20261027_113126 (305 converters, 18 min): with the quietest comparator the design weights
+lose 0.1–0.9 bit at 10 bits and 0.4–2.0 at 12, and calibration brings every array to within 0.5 bit
+of its nominal ENOB (most within 0.05). At 14 bits the widest bootstrapped switch limits: into the
+6.5 pF array it costs 2.2 bits (the comparator 0.06–0.46), so the nominal ENOB is 10.7–11.7 and the
+array hides (the design weights lose 0.1–0.9 bit there).
+
+TPSC65, run 20261027_113851 (305 converters, 17 min): the design weights lose up to 0.65 bit at 10
+bits and 1.5 at 12, and calibration brings every array within 0.7 bit of its nominal ENOB (most
+within 0.3). At 14 bits the switch costs 3.3 bits into the 5.7 pF array, so the nominal ENOB is
+9.6–10.6 whatever the array or comparator: IHP130 and TPSC65 need a wider sampler at 14 bits.
+
 ## Redundancy schemes
 
 An array's extra conversion cycles never add capacitance: each scheme redistributes the binary
