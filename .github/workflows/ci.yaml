@@ -156,6 +156,8 @@ jobs:
           flow/adc/test_subckt.py
           flow/comp/test_subckt.py
           flow/comp/test_layout.py
+          flow/comp/test_netlists.py
+          flow/opt/test_runner.py
           flow/layout/test_floorplan.py
           flow/layout/test_lint.py
           flow/layout/test_mosline.py
