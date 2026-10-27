@@ -94,7 +94,8 @@ def difference_geometry(family: dict, route: int, shield: int, active: tuple[int
 
     ``family``: ``coarse_weight``, ``tail_landings``, ``shield_bridge_tracks``,
     ``side_access_tracks`` and ``weight_step`` (the length a unit of weight adds to the main finger
-    and takes from the difference finger, on the grid; None: two tracks), and for
+    and takes from the difference finger, on the grid; None: two tracks), ``shield_strip`` (the
+    shield's strip under the inner fingers; False: holes across them), and for
     ``caparray_plan`` ``tied_dummies`` (the edge dummies' fingers on the top plate) and
     ``unary_length`` (the unary units' one finger); the plates on the
     ``active`` metals, the shield on ``shield``, the buses on ``route`` (``route == shield`` shares
@@ -176,8 +177,9 @@ def difference_geometry(family: dict, route: int, shield: int, active: tuple[int
     shield_cutout_width = landing_short + 2 * shield_spacing
     enclosed_area = _required(shield_rules.get("enclosed_area"), "shield minimum enclosed area")
     # the mesh's holes span a gap beside the strip under the fingers, or, where the shield metal's
-    # holes must be wider than that, both gaps and the finger (no strip under it)
-    hole_width = gap if gap >= shield_rules.get("hole_width", 0) else 2 * gap + finger_width
+    # holes must be wider than that or the family has no strip, both gaps and the finger
+    strip = family.get("shield_strip", True) and gap >= shield_rules.get("hole_width", 0)
+    hole_width = gap if strip else 2 * gap + finger_width
     hole_height = _snap((enclosed_area + hole_width - 1) // hole_width, grid)
     # the bridges every shield_bridge_tracks tracks, or as many more as the holes need
     bridge_pitch = max(family["shield_bridge_tracks"] * track_pitch, _snap(hole_height + ring_width, track_pitch))
@@ -188,7 +190,17 @@ def difference_geometry(family: dict, route: int, shield: int, active: tuple[int
         # its central hole and access stay clear
         bridge_count = 1
         bridge_pitch = (bridge_extent // grid) * grid
-        if bridge_pitch < landing_long + end_gap:
+        # a bridge clears the bus landing below it, whose run is the row's: as wide metal, where
+        # the landing is wide
+        bus_space = max(
+            [end_gap]
+            + [
+                space
+                for space, above_width, _run in shield_rules.get("parallel_space", ())
+                if landing_long > above_width
+            ]
+        )
+        if bridge_pitch < landing_long + bus_space:
             raise ValueError("unit family is too short for the shield and plate access")
     bridge_ys = tuple(
         sorted(
@@ -252,8 +264,8 @@ def caparray_plan(spec: dict) -> dict:
         name = f"frida_mom_w{weight}{'u' if length else ''}_{suffix}" if weight else f"{dummy}_{suffix}"
         units[weight] = {"name": name, "weight": weight, "tied": tied, "unary_length": length}
     placements = [(units[weight]["name"], position * g["unit_pitch"]) for position, weight in enumerate(spec["order"])]
-    # the shield's strip under the fingers, where its metal's holes may be as narrow as a gap; the
-    # PDK's MOM recognition layers, where its LVS recognizes a unit as a device
-    strip = g["gap"] >= _rules(f"M{shield}").get("hole_width", 0)
+    # the shield's strip under the fingers, where the family keeps it and its metal's holes may be
+    # as narrow as a gap; the PDK's MOM recognition layers, where its LVS recognizes a unit as a device
+    strip = spec["family"].get("shield_strip", True) and g["gap"] >= _rules(f"M{shield}").get("hole_width", 0)
     marks = [name for name in ("MOM_RECOG", "MOM_RECOG_INNER", "MOM_RECOG_SHIELD") if tech.LAYERS.get(name)]
     return {"geometry": g, "strip": strip, "marks": marks, "units": list(units.values()), "placements": placements}

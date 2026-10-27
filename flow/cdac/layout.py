@@ -18,18 +18,29 @@ from __future__ import annotations
 import json
 import math
 import tempfile
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
 import hdl21 as h
 from klayout import db
 
-from flow.caparray.layout import ADC_ARRAYS, CapArrayLayout, CapArrayLayoutParams, UnitLengthCapFamilyParams
+from flow.caparray.layout import (
+    ADC_ARRAYS,
+    CapArrayLayout,
+    CapArrayLayoutParams,
+    UnitLengthCapFamilyParams,
+    _calc_unit_geometry,
+    _mom_fit,
+    caparray_spec,
+    mom_array_params,
+)
 from flow.caparray.model import EXTRACTIONS
+from flow.caparray.subckt import CapArrayParams
 from flow.circuit.devices import instance_lines
 from flow.layout.align.build import build
 from flow.layout.align.run import Drawing, draw, drawn_only
-from flow.layout.pdkproc import in_pdk, pdk_value
+from flow.layout.pdkproc import access_points, in_pdk, pdk_value
 
 from .params import Params
 from .subckt import netlist
@@ -454,11 +465,28 @@ def layout_side(out_dir: Path, pdk: str, array: str, params: Params, side: str) 
     # the states and supplies: from each bank's far side, along a column left of everything
     joined = sorted(name for name in banks["main"]["pins"]["bars"] if name.startswith("dac_state")) + ["vdd", "vss"]
     left = min(array_box.left, *(b["box"].left for b in banks.values()))
+    side_x, ends = _side_columns(wires, banks, joined, left, rule, g)
+    with tempfile.TemporaryDirectory() as scratch:
+        (gds,) = draw(
+            pdk_dir, [Drawing("Wiring", "wires", wires.parts, Path(scratch) / "wiring.gds", f"wiring_{side}")]
+        )
+        result.read(str(gds))
+    combined.insert(db.CellInstArray(result.cell(f"wiring_{side}").cell_index(), db.Trans()))
+    drawn_only(result, set(layers.values()))
+    _name_pins(result, combined, side)
+    return result, {"columns": side_x, "lowest": ends}
+
+
+def _side_columns(
+    wires: _Wires, banks: dict[str, dict[str, Any]], joined: list[str], left: int, rule: dict, g: dict
+) -> tuple[dict[str, int], dict[str, int]]:
+    """The nets ``joined`` (states, supplies) from each bank's far side along a channel there, to a
+    column each left of ``left``, the columns joining the banks' tracks. Each net's column (x) and
+    its lowest track (y), nm."""
     side_x = {name: left - g["clearance"] - k * g["column"] for k, name in enumerate(reversed(joined))}
-    ends = {}
-    for kind, bank in banks.items():
+    ends: dict[str, list[int]] = {}
+    for bank in banks.values():
         direction, pins = bank["direction"], bank["pins"]
-        start = bank["far_edge"]
         nets = []
         for name in joined:
             if name in pins["bars"]:
@@ -468,22 +496,15 @@ def layout_side(out_dir: Path, pdk: str, array: str, params: Params, side: str) 
                 depth = 2 * g["landing"] if name == "vdd" else 0
                 pin = _strap_pin(pins["straps"][name][0], direction, g, depth)
             nets.append({"name": name, "near_x": pin["x"], "far_x": side_x[name], "pin": pin})
-        tracks, _ = _tracks(nets, start, direction, g)
+        tracks, _ = _tracks(nets, bank["far_edge"], direction, g)
         for n in nets:
             wires.track(n["name"], n["near_x"], "V4", side_x[n["name"]], "V3", tracks[n["name"]])
             wires.to_pin(n["name"], n["pin"], tracks[n["name"]])
             ends.setdefault(n["name"], []).append(tracks[n["name"]])
-    for name, (y0, y1) in ends.items():
-        wires.column(name, side_x[name], y0, y1, ("V3", "V3"))
-    with tempfile.TemporaryDirectory() as scratch:
-        (gds,) = draw(
-            pdk_dir, [Drawing("Wiring", "wires", wires.parts, Path(scratch) / "wiring.gds", f"wiring_{side}")]
-        )
-        result.read(str(gds))
-    combined.insert(db.CellInstArray(result.cell(f"wiring_{side}").cell_index(), db.Trans()))
-    drawn_only(result, set(layers.values()))
-    _name_pins(result, combined, side)
-    return result, {"columns": dict(side_x), "lowest": {name: min(y) for name, y in ends.items()}}
+    for name, ys in ends.items():
+        if len(ys) > 1:
+            wires.column(name, side_x[name], min(ys), max(ys), ("V3", "V3"))
+    return side_x, {name: min(ys) for name, ys in ends.items()}
 
 
 def _name_pins(layout: db.Layout, top: db.Cell, side: str) -> None:
@@ -509,16 +530,20 @@ def _name_pins(layout: db.Layout, top: db.Cell, side: str) -> None:
 
 
 def layout_cdac(out_dir: Path, pdk: str, array: str, params: Params) -> db.Layout:
-    """The CDAC ``params`` (the ADC array ``array``): its P side (``layout_side``) and its N side
-    mirrored to the P side's right, their supplies joined by a track each under both."""
-    sides = {side: layout_side(out_dir / side, pdk, array, params, side) for side in ("p", "n")}
+    """The CDAC ``params`` (the ADC array ``array``): its P side (``layout_side``, or with no split
+    ``layout_units``) and its N side mirrored to the P side's right, their supplies joined by a
+    track each under both."""
+    units = params.dac.split is None
+    name = f"cdac_units_{array}" if units else f"cdac_{array}"
+    builder = layout_units if units else layout_side
+    sides = {side: builder(out_dir / side, pdk, array, params, side) for side in ("p", "n")}
     layout = db.Layout()
     layout.dbu = sides["p"][0].dbu
-    top = layout.create_cell(f"cdac_{array}")
+    top = layout.create_cell(name)
     boxes, cells = {}, {}
     for side, (source, _info) in sides.items():
-        cell = layout.create_cell(f"cdac_{array}_{side}")
-        cell.copy_tree(source.cell(f"cdac_{array}_{side}"))
+        cell = layout.create_cell(f"{name}_{side}")
+        cell.copy_tree(source.cell(f"{name}_{side}"))
         cells[side] = cell
         b = cell.bbox()
         boxes[side] = (
@@ -550,3 +575,276 @@ def layout_cdac(out_dir: Path, pdk: str, array: str, params: Params) -> db.Layou
     drawn_only(layout, set(pdk_value(pdk, "tech", "LAYERS").values()))
     _name_pins(layout, top, "")
     return layout
+
+
+def _unit_params(pdk: str, array: str, unit_f: float) -> CapArrayLayoutParams:
+    """The ADC array ``array``'s stack with every unit a ring around one finger (a unary row of
+    weight one) of ``unit_f``: its length the PDK's FMOM model's for that capacitance, the ring
+    just tall enough to hold it, its shield open under the finger (the bottom plate's) so the
+    mesh's holes are short."""
+    base = _array_params(pdk, array)
+    # a tall probe of the family: its spacing, tail and grid (none of which its height sets)
+    probe = replace(
+        base,
+        family=UnitLengthCapFamilyParams(coarse_weight=1, weight_step=20000, tied_dummies=True, shield_strip=False),
+    )
+    g = _calc_unit_geometry(probe)
+    slope, intercept = _mom_fit(probe, g.gap)  # fF/um, fF
+    length = max(g.tail_length, -(-round((unit_f * 1e15 - intercept) / slope * 1000) // g.grid) * g.grid)
+    # the ring holds the finger (2 nominal + end gap past it, the nominal the tail and one weight
+    # step), and is no shorter than its shield's bridges and the finger's access need
+    step = max(g.grid, -(-((length - g.end_gap + 1) // 2 - g.tail_length) // g.grid) * g.grid)
+    family = replace(probe.family, unary_length=length)
+    # a track taller until it fits, then the shortest step on the grid within that track
+    while not _fits(base, family, step):
+        step += g.track_pitch
+    low = max(g.grid, step - g.track_pitch)
+    while step - low > g.grid:
+        middle = low + (step - low) // (2 * g.grid) * g.grid
+        low, step = (low, middle) if _fits(base, family, middle) else (middle, step)
+    return replace(base, family=replace(family, weight_step=step), top_cell=f"units_{array}")
+
+
+def _fits(base: CapArrayLayoutParams, family: UnitLengthCapFamilyParams, step: int) -> bool:
+    """The ``family`` at weight step ``step`` is tall enough for its shield and its plate's access."""
+    try:
+        _calc_unit_geometry(replace(base, family=replace(family, weight_step=step)))
+    except ValueError:
+        return False
+    return True
+
+
+def _rows(weights: list[int], per_row: int) -> tuple[list[list[tuple[int, int, int]]], dict[int, int]]:
+    """The stages' units in rows of ``per_row``, and each stage's column (its line's, below its
+    pieces). Each stage its whole rows first, the heaviest first (nearest the drivers); then each
+    stage's rest, the heaviest first, in a row where it covers the stage's own column, the columns
+    spread across the width, so no two stages' lines share one. A row's pieces: (stage, first
+    column, units)."""
+    rows: list[list[tuple[int, int, int]]] = []
+    rest: list[tuple[int, int]] = []
+    for stage in sorted(range(len(weights)), key=lambda k: -weights[k]):
+        rows += [[(stage, 0, per_row)] for _ in range(weights[stage] // per_row)]
+        if weights[stage] % per_row:
+            rest.append((stage, weights[stage] % per_row))
+    if len(weights) > per_row:
+        raise ValueError(f"{len(weights)} stages' lines do not fit {per_row} columns")
+    # every stage a column of its own, spread across the row
+    columns = {
+        stage: (k * per_row) // len(weights) + per_row // (2 * len(weights))
+        for k, stage in enumerate(sorted(range(len(weights)), key=lambda k: -weights[k]))
+    }
+    partial: list[list[tuple[int, int, int]]] = []
+    for stage, count in sorted(rest, key=lambda item: -item[1]):
+        column = columns[stage]
+        start = min(max(0, column - count // 2), per_row - count)  # the piece about its column
+        for row in partial:
+            if all(start + count <= first or first + n <= start for _, first, n in row):
+                row.append((stage, start, count))
+                break
+        else:
+            partial.append([(stage, start, count)])
+    return rows + [sorted(row, key=lambda piece: piece[1]) for row in partial], columns
+
+
+def _unit_grid(out_dir: Path, pdk: str, array: str, params: Params, side: str) -> tuple[db.Layout, dict[str, Any]]:
+    """One ``side``'s units of a CDAC with no split (every stage in unit capacitors), each a ring of
+    the array's unit capacitance (its switched capacitance over its total weight), in rows
+    (``_rows``) stacked about twice as tall as wide, each row an array of its own (``ArrayWiring``:
+    its buses a segment a stage, its shield's taps on its right). Its layout and its geometry."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    weights = list(params.dac.weights)
+    switched = sum(params.dac.main_f) - sum(params.dac.diff_f)
+    unit = _unit_params(pdk, array, switched / sum(weights))
+    route = unit.route_layer
+    if route < 2:
+        raise ValueError(f"{pdk}'s array routes on M{route}: no metal below it for the stages' lines")
+    g = asdict(_calc_unit_geometry(unit))
+    # units a row: the rows' stack about twice as tall as wide
+    row_pitch = g["outer_height"] - g["ring_width"] + g["via_landing"]
+    per_row = max(1, round(math.sqrt(sum(weights) * row_pitch / (2 * g["unit_pitch"]))))
+    rows, columns = _rows(weights, per_row)
+    dummies = unit.family.edge_dummy_units
+    layers = pdk_value(pdk, "tech", "LAYERS")
+    pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, out_dir / "pdk")
+    rule = _rules(pdk, pdk_dir)
+    geo = _geometry(rule)
+    # each row as an array of its own (``ArrayWiring`` over its units), its buses a segment a stage
+    specs = []
+    for r, segments in enumerate(rows):
+        # a row's pieces at their columns, tied dummies between them and at its ends
+        order = [0] * (per_row + 2 * dummies)
+        groups = []
+        for stage, first, count in segments:
+            groups.append((f"cap_botplate_main<{stage}>", f"cap_botplate_diff<{stage}>", dummies + first, count))
+            order[dummies + first : dummies + first + count] = [1] * count
+        specs.append(
+            {
+                **{key: value for key, value in caparray_spec(unit).items() if key not in ("order", "groups", "top")},
+                "top": f"units_{array}_{side}_row{r}",
+                "order": order,
+                "groups": groups,
+            }
+        )
+    plan = in_pdk(pdk, "capcell", "caparray_plan", specs[0])
+    access_points(pdk)
+    with tempfile.TemporaryDirectory() as scratch:
+        work = Path(scratch)
+        stack = {"route": route, "shield": unit.shield_layer, "active": list(unit.active_layers)}
+        drawings = [
+            Drawing(
+                "DifferenceUnit",
+                "unit",
+                {
+                    "g": plan["geometry"],
+                    **stack,
+                    **{key: u[key] for key in ("weight", "tied", "unary_length")},
+                    **{key: plan[key] for key in ("strip", "marks")},
+                },
+                work / f"{u['name']}.gds",
+                u["name"],
+            )
+            for u in plan["units"]
+        ]
+        drawings += [
+            Drawing("ArrayWiring", "wiring", {"g": plan["geometry"], "spec": s}, work / f"{s['top']}.gds", s["top"])
+            for s in specs
+        ]
+        layout = db.Layout()
+        for path in draw(pdk_dir, drawings):
+            layout.read(str(path))
+    names = {weight: u["name"] for weight, u in zip((u["weight"] for u in plan["units"]), plan["units"], strict=True)}
+    grid = layout.create_cell(f"units_{array}_{side}")
+    for r, s in enumerate(specs):
+        row = layout.cell(s["top"])
+        for position, weight in enumerate(s["order"]):
+            row.insert(
+                db.DCellInstArray(
+                    layout.cell(names[weight]).cell_index(), db.DTrans(position * g["unit_pitch"] / 1000, 0)
+                )
+            )
+        grid.insert(db.DCellInstArray(row.cell_index(), db.DTrans(0, r * row_pitch / 1000)))
+    return layout, {
+        "rows": rows,
+        "columns": columns,
+        "per_row": per_row,
+        "row_pitch": row_pitch,
+        "geometry": g,
+        "unit": unit,
+        "rule": rule,
+        "geo": geo,
+        "pdk_dir": pdk_dir,
+        "layers": layers,
+    }
+
+
+def layout_units(out_dir: Path, pdk: str, array: str, params: Params, side: str) -> tuple[db.Layout, dict[str, Any]]:
+    """One ``side`` of a CDAC with no split: its unit grid (``_unit_grid``), a line a stage under the
+    rows (on M3, below the route metal) joining the stage's bus segments down to the main drivers'
+    bank below (no difference plates: no difference drivers), through a channel as ``layout_side``'s;
+    the rows' shield taps joined on the right, down to the bank's ground; the bank's supplies out to
+    a column each on the left. Its layout, and its supplies' columns (x) and lowest ends (y), nm."""
+    layout, info = _unit_grid(out_dir, pdk, array, params, side)
+    g, rule, geo, unit = info["geometry"], info["rule"], info["geo"], info["unit"]
+    route = unit.route_layer
+    if route != 4:
+        raise ValueError(f"{pdk}'s stages' lines would run on M{route - 1}: only M3 (below an M4 route) is drawn")
+    grid = layout.cell(f"units_{array}_{side}")
+    box = grid.bbox()
+    nm = lambda value: round(value * layout.dbu * 1000)
+    array_box = db.Box(nm(box.left), nm(box.bottom), nm(box.right), nm(box.top))
+    pitch, row_pitch = g["unit_pitch"], info["row_pitch"]
+    x_local = g["ring_width"] + g["gap"] + g["finger_width"] // 2
+    bus_y = g["ring_width"] + g["end_gap"] + g["via_landing"] // 2 + (g["landing_long"] - g["via_landing"]) // 2
+    dummies = unit.family.edge_dummy_units
+    # each stage's pieces (row, first column, units) and its line's column (the packing's)
+    segments: dict[int, list[tuple[int, int, int]]] = {}
+    for r, row in enumerate(info["rows"]):
+        for stage, first, count in row:
+            segments.setdefault(stage, []).append((r, dummies + first, count))
+    columns = {stage: dummies + column for stage, column in info["columns"].items()}
+    wires = _Wires(rule, geo)
+    exit_y = array_box.bottom - geo["clearance"]
+    nets = []
+    for stage, column in columns.items():
+        name = f"dac_botplate_{side}_{stage}"
+        x = column * pitch + x_local
+        taps = [r * row_pitch + bus_y for r, first, count in segments[stage]]
+        for y in taps:  # two cuts: the bus beside is a wide plate
+            wires.stack(name, x, y, 3, 4, cuts=2)
+        # the line from past its topmost pair's upper cut
+        pair = (rule["V3"]["cut"] + rule["V3"]["space"]) // 2
+        nets.append({"name": name, "near_x": x, "top": max(taps) + pair})
+    # the shield: every row's tap (the middle one at its right) joined by a route-metal strap there
+    right = array_box.right - g["ring_width"] // 2
+    shield_taps = [y for y in _shield_tap_ys(layout, grid)]
+    wires.segment(f"M{route}", "vss_dac", right, min(shield_taps), right, max(shield_taps))
+    shield = [{"name": "vss_dac", "near_x": array_box.right + geo["clearance"], "tap": (right, min(shield_taps))}]
+    # the main drivers' bank below, its outputs and the shield's ground along the channel
+    bank = db.Layout()
+    bank.read(str(layout_bank(out_dir / "main", pdk, params, "main", side)))
+    cell = max(bank.top_cells(), key=lambda c: c.bbox().area())
+    outline = cell.bbox()
+    bank_nm = lambda value, unit=bank.dbu: round(value * unit * 1000)
+    for n in nets + shield:
+        n["far_x"] = 0
+    _, far = _tracks(nets + shield, exit_y, -1, geo)
+    dy = far - bank_nm(outline.top)
+    dx = (array_box.left + array_box.right) // 2 - bank_nm((outline.left + outline.right) // 2)
+    pins = _pins(bank, cell, dx, dy, {key: info["layers"][key] for key in ("M2", "M3", "V2")})
+    for n in nets:
+        pin = _bar_pin(pins["bars"][n["name"]], 1, pins, rule, geo)
+        n["far_x"], n["pin"] = pin["x"], pin
+    for n in shield:
+        strap = pins["straps"]["vss"][-1]
+        n["far_x"], n["pin"] = (strap.left + strap.right) // 2, _strap_pin(strap, 1, geo)
+    tracks, _ = _tracks(nets + shield, exit_y, -1, geo)
+    for n in nets:
+        wires.column(n["name"], n["near_x"], n["top"], tracks[n["name"]], ("V3", "V3"))
+        wires.track(n["name"], n["near_x"], "V3", n["far_x"], "V4", tracks[n["name"]])
+        wires.to_pin(n["name"], n["pin"], tracks[n["name"]])
+    for n in shield:
+        tx, ty = n["tap"]
+        x = n["near_x"]
+        wires.segment(f"M{route}", n["name"], tx, ty, x + geo["end_V3"], ty)
+        wires.stack(n["name"], x, ty, 3, route)
+        wires.column(n["name"], x, ty, tracks[n["name"]], ("V3", "V3"))
+        wires.track(n["name"], x, "V3", n["far_x"], "V4", tracks[n["name"]])
+        wires.to_pin(n["name"], n["pin"], tracks[n["name"]])
+    # the supplies from the bank's far side to a column each on the left
+    placed_box = db.Box(
+        bank_nm(outline.left) + dx, bank_nm(outline.bottom) + dy, bank_nm(outline.right) + dx, bank_nm(outline.top) + dy
+    )
+    banks = {"main": {"pins": pins, "box": placed_box, "far_edge": placed_box.bottom, "direction": -1}}
+    side_x, ends = _side_columns(wires, banks, ["vdd", "vss"], min(array_box.left, placed_box.left), rule, geo)
+    result = db.Layout()
+    result.dbu = layout.dbu
+    top = result.create_cell(f"cdac_units_{array}_{side}")
+    top.copy_tree(grid)
+    placed = result.create_cell(f"drivers_main_{side}")
+    placed.copy_tree(cell)
+    top.insert(db.DCellInstArray(placed.cell_index(), db.DTrans(dx / 1000, dy / 1000)))
+    with tempfile.TemporaryDirectory() as scratch:
+        (gds,) = draw(
+            info["pdk_dir"], [Drawing("Wiring", "wires", wires.parts, Path(scratch) / "w.gds", f"wiring_{side}")]
+        )
+        result.read(str(gds))
+    top.insert(db.CellInstArray(result.cell(f"wiring_{side}").cell_index(), db.Trans()))
+    drawn_only(result, set(info["layers"].values()))
+    _name_pins(result, top, side)
+    return result, {"columns": side_x, "lowest": ends}
+
+
+def _shield_tap_ys(layout: db.Layout, grid: db.Cell) -> list[int]:
+    """Each row's shield pin (its label ``cap_shieldplate``): its y (nm), at the grid's right."""
+    return sorted(
+        round(y * layout.dbu * 1000) for text, _x, y, _layer in _labels(layout, grid) if text == "cap_shieldplate"
+    )
+
+
+def _unit_array_params(unit: CapArrayLayoutParams) -> CapArrayParams:
+    """The all-unit array's netlist parameters (``flow.caparray.subckt.CapArray``) for LVS: every
+    unit one finger of the unit length, at the PDK's FMOM model there (its slope over the length,
+    its intercept once), not the production arrays' logical unit of two weight steps."""
+    g = _calc_unit_geometry(unit)
+    slope, intercept = _mom_fit(unit, g.gap)
+    return replace(mom_array_params(unit), unit_cap=(slope * unit.family.unary_length / 1000 + intercept) * 1e-15)

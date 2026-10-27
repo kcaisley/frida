@@ -8,7 +8,8 @@ pre-driver for 16 k), one inverter before it on the main side, none on the diffe
 where a pre-driver is needed). Its plates are FMOM capacitors (``flow.momcap``) at the array's
 extracted values, varying with a run's Monte Carlo (``flow.momcap.subckt.variation``) at their
 centroids on the die, ``cmain_<side>_<stage>`` and ``cdiff_<side>_<stage>`` (each one's probe
-``drawn`` reads its value back); its top plate carries the array's other load to ground.
+``drawn`` reads its value back); its top plate carries the array's other load to ground. A CDAC
+with no difference plates (no coarse/fine split, ``Params.dac.split``) has main drivers only.
 """
 
 from dataclasses import replace
@@ -44,9 +45,14 @@ class Nets:
     vss_dac = h.Ground(direction=h.PortDir.INOUT)
 
 
-def _ports(stages: int) -> dict[str, h.Signal]:
-    """``Nets`` as the CDAC's ports: its buses a bit per stage."""
-    return {name: replace(net, width=stages) if net.props.get("stages") else net for name, net in Nets.signals.items()}
+def _ports(stages: int, diff: bool) -> dict[str, h.Signal]:
+    """``Nets`` as the CDAC's ports: its buses a bit per stage; without difference plates (``diff``),
+    no difference bottom plates."""
+    return {
+        name: replace(net, width=stages) if net.props.get("stages") else net
+        for name, net in Nets.signals.items()
+        if diff or not name.endswith("_diff")
+    }
 
 
 def _drive(module: h.Module, name: str, state: h.Signal, out: h.Signal, strength: int, invert: bool) -> None:
@@ -78,13 +84,18 @@ def netlist(params: Params) -> h.Module:
     stages = dac.driver.n_stages
     strengths = stage_strengths(dac.driver)
 
-    Cdac = module_from_ports("Cdac", _ports(stages))
+    # a CDAC with no difference plates (no split: every stage in unit capacitors) has no
+    # difference drivers
+    diff = any(dac.diff_f)
+    Cdac = module_from_ports("Cdac", _ports(stages, diff))
     for side in ("p", "n"):
         state, top = getattr(Cdac, f"dac_state_{side}"), getattr(Cdac, f"vdac_{side}")
-        for kind, bottom, plates, placed in (
-            ("main", getattr(Cdac, f"dac_botplate_{side}"), dac.main_f, getattr(dac, f"main_{side}_um")),
-            ("diff", getattr(Cdac, f"dac_botplate_{side}_diff"), dac.diff_f, getattr(dac, f"diff_{side}_um")),
-        ):
+        kinds = [("main", getattr(Cdac, f"dac_botplate_{side}"), dac.main_f, getattr(dac, f"main_{side}_um"))]
+        if diff:
+            kinds.append(
+                ("diff", getattr(Cdac, f"dac_botplate_{side}_diff"), dac.diff_f, getattr(dac, f"diff_{side}_um"))
+            )
+        for kind, bottom, plates, placed in kinds:
             for stage, plate in enumerate(plates):
                 _drive(Cdac, f"x{kind}_{side}_{stage}", state[stage], bottom[stage], strengths[stage], kind == "diff")
                 # an ideal array has no difference plates: its drivers run unloaded

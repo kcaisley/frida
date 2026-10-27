@@ -19,7 +19,7 @@ from .plots import (
 )
 from .sim import simulate, testbench
 from .subckt import Nets, netlist
-from .sweep import adc_array, record, runs
+from .sweep import adc_array, adc_units, record, runs
 from .types import AnalysisMismatch, AnalysisSettling
 
 __all__ = [
@@ -29,6 +29,7 @@ __all__ = [
     "Params",
     "TbParams",
     "adc_array",
+    "adc_units",
     "analysis",
     "analyze_mismatch",
     "analyze_settling",

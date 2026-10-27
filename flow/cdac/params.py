@@ -2,7 +2,7 @@
 resolution its settling is measured to), one run of its testbench (``TbParams``), and the testbench
 every CDAC is switched on. Every design the parameters admit builds: a main and a difference plate
 for each of its drivers' stages, none negative, a weight and a centroid each where given, a positive
-resolution.
+resolution, no difference plate where there is no coarse/fine split.
 
 The design is an ADC array with the drivers that switch it, wired as the ADC wires them
 (``flow.adc.subckt``): each side's main and difference driver of the array's stages
@@ -67,6 +67,15 @@ class _Dac:
         dtype=tuple[float, ...], desc="C0-first difference plate capacitances (F)", default=(0.0, 10e-15, 90e-15)
     )
     parasitic_f = h.Param(dtype=float, desc="Each top plate's other load, to ground (F)", default=250e-15)
+    # the coarse/fine split: each stage's weight in coarse units of this weight, its rest in
+    # difference fingers (``flow.caparray.layout``); None, no split: every stage in ring units of the
+    # array's unit capacitance, no difference plates (``flow.cdac.layout.layout_units``)
+    split = h.Param(
+        dtype=int | None,
+        desc="A coarse unit's weight (0: the array's sized split, its extraction's); None: every stage in "
+        "unit capacitors, no difference plates",
+        default=0,
+    )
     weights = h.Param(
         dtype=tuple[int, ...], desc="C0-first design weights, the decoder's (units); empty: none", default=()
     )
@@ -87,6 +96,10 @@ class _Dac:
             raise ValueError(f"a CDAC needs a main and a difference capacitance for each of its {stages} stages")
         if min(*self.main_f, *self.diff_f, self.parasitic_f) < 0:
             raise ValueError("a CDAC's capacitances must not be negative")
+        if self.split is None and any(self.diff_f):
+            raise ValueError("a CDAC with no split has no difference plates")
+        if self.split is not None and self.split < 0:
+            raise ValueError("a CDAC's coarse unit weight must not be negative")
         placed = (self.main_p_um, self.diff_p_um, self.main_n_um, self.diff_n_um, self.weights)
         if any(len(values) not in (0, stages) for values in placed):
             raise ValueError(f"a CDAC's weights and centroids are one a stage ({stages}), or none")

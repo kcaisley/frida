@@ -6,8 +6,10 @@ from pydantic import ValidationError
 
 from flow import cdac
 from flow.capdriver.subckt import CapDriverParams
+from flow.sweep import flat_params
 
 from .params import _Dac
+from .sweep import _units
 
 PARAMS = cdac.Params(
     dac=_Dac(
@@ -112,3 +114,24 @@ def test_each_plate_varies_at_its_centroid_and_a_wrong_placement_is_refused():
     assert "mom_gradient*(-20*mom_gx + -5*mom_gy)" in module.instances["cmain_n_2"].of.cap.of.params.c.text
     with pytest.raises(ValidationError):
         _Dac(driver=dac.driver, main_f=dac.main_f, diff_f=dac.diff_f, parasitic_f=0.0, main_p_um=placed[:2])
+
+
+def test_a_cdac_with_no_split_drives_its_unit_plates_alone():
+    """No coarse/fine split: every stage its weight in units of the array's unit, no difference
+    plates, so main drivers only and no difference bottom plates; its digest's row has the split."""
+    weighted = cdac.Params(dac=_Dac(**{**PARAMS.dac.__dict__, "weights": (4, 2, 1)}), adc_bits=10)
+    units = _units(weighted)
+    unit = (sum(PARAMS.dac.main_f) - sum(PARAMS.dac.diff_f)) / 7
+    assert units.dac.split is None and not any(units.dac.diff_f)
+    assert units.dac.main_f == pytest.approx((4 * unit, 2 * unit, unit))
+    module = cdac.netlist(units)
+    assert not any(name.endswith("_diff") for name in module.ports)
+    assert not any(name.startswith("xdiff") for name in module.instances)
+    for side in "pn":
+        for stage in range(3):
+            assert len(_chain(module, getattr(module, f"dac_botplate_{side}")[stage])) % 2 == 0
+    h.elaborate(module)
+    # the split is in a row only where it is not the earlier instances' (their digests stand)
+    assert "dac.split" not in flat_params(weighted) and flat_params(units)["dac.split"] is None
+    with pytest.raises(ValidationError):
+        _Dac(**{**PARAMS.dac.__dict__, "split": None})

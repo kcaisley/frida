@@ -84,6 +84,11 @@ class UnitLengthCapFamilyParams:
     # ring and length every row's. None: the unary rows keep a difference finger of the tail.
     # ``flow.caparray.sizing`` sets it for the ADC arrays; FRIDA's production arrays keep None
     unary_length: int | None = None
+    # the shield's strip under the inner fingers (the bottom plates, driven: the strip only spares
+    # their drivers the substrate's load). False: the mesh's holes span both gaps and the finger,
+    # holes that meet the shield metal's minimum enclosed area at a third of the height, the
+    # all-unit arrays' short rings (``flow.cdac.layout``)
+    shield_strip: bool = True
 
 
 @dataclass(frozen=True)
@@ -161,7 +166,7 @@ def is_valid_caparray_layout_params(params: CapArrayLayoutParams) -> bool:
         isinstance(family.weight_step, bool) or not isinstance(family.weight_step, int) or family.weight_step < 1
     ):
         return False
-    if not isinstance(family.tied_dummies, bool):
+    if not isinstance(family.tied_dummies, bool) or not isinstance(family.shield_strip, bool):
         return False
     if family.unary_length is not None and (
         isinstance(family.unary_length, bool) or not isinstance(family.unary_length, int) or family.unary_length < 1

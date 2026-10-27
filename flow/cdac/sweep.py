@@ -1,8 +1,9 @@
 """The CDAC's design space (docs/pipeline.md): the array of every converter of ``flow.adc.sweep``
 with its drivers, at that converter's resolution (``adc_array``, a grid of each PDK's arrays by name:
 every ADC array, ``flow.caparray.layout.ADC_ARRAYS``, sized through its extraction in the PDK, at
-one bit more than its DAC's steps, the free first comparison: 61 instances a PDK); the testbench runs
-that characterize one instance (``runs``) and the record they make (``record``).
+one bit more than its DAC's steps, the free first comparison: 61 instances a PDK), and each with no
+coarse/fine split (``adc_units``: every stage in unit capacitors); the testbench runs that
+characterize one instance (``runs``) and the record they make (``record``).
 
 The drivers are the generic cells the ADC model stands in with, derived from the array's plates
 (``flow.capdriver.model.driver_strengths``: each stage's drive scaled with its plate to settle in
@@ -48,6 +49,36 @@ def adc_array(pdk: Pdk) -> dict[str, Params]:
     each PDK's own, so each CDAC is a fixed point), its drivers the generic cells derived from them
     (``driver_strengths``); the 14-bit ones first, as they take longest."""
     return {array: widen(_adc_array(pdk.name.lower(), array)) for array in reversed(ADC_ARRAYS)}
+
+
+@grid
+def adc_units(pdk: Pdk) -> dict[str, Params]:
+    """The CDAC of every ADC array in ``pdk`` with no coarse/fine split (``_units``): every stage in
+    ring units (``flow.cdac.layout.layout_units``), main drivers alone, by the array's name."""
+    return {array: widen(_units(_adc_array(pdk.name.lower(), array))) for array in reversed(ADC_ARRAYS)}
+
+
+def _units(params: Params) -> Params:
+    """The CDAC ``params`` with no split: every stage its weight in unit capacitors of its array's unit
+    (its switched capacitance, main less difference plates, over its total weight: C_tot / 2^N of
+    an N-bit binary array), no difference plates. Its plates' centroids are left out (the unit grid
+    places them anew; the Monte Carlo draws no gradient) and its top plates' other load is the
+    difference array's (until the unit array is extracted)."""
+    dac = params.dac
+    unit = (sum(dac.main_f) - sum(dac.diff_f)) / sum(dac.weights)
+    return replace(
+        params,
+        dac=replace(
+            dac,
+            split=None,
+            main_f=tuple(weight * unit for weight in dac.weights),
+            diff_f=(0.0,) * len(dac.weights),
+            main_p_um=(),
+            diff_p_um=(),
+            main_n_um=(),
+            diff_n_um=(),
+        ),
+    )
 
 
 def _adc_array(pdk: str, array: str) -> Params:
