@@ -9,33 +9,44 @@ from hdl21.primitives import MosType
 from flow import comp, pipeline
 from flow.opt import runner
 
+
+def _space() -> comp.Params:
+    """NMOS input pairs, every latch and tail, the pair's width, the dynamic bias's capacitors with it."""
+    space = pipeline.widen(comp.Params(input_pair=MosType.NMOS))
+    space.latch = pipeline.every(comp.Latch)
+    space.bias = pipeline.every(comp.Bias)
+    space.diffpair_w = pipeline.steps(2, 8192, log=True)
+    space.preamp_c_ff = pipeline.steps(10, 16000, log=True, when=comp.Bias.DYNAMIC)
+    space.bias_c_ff = pipeline.steps(10, 64000, log=True, when=comp.Bias.DYNAMIC)
+    return space
+
+
 PROBLEM = pipeline.Problem(
     cost={"energy_0p5mv_j": 1.0, "layout_area_um2": 1.0, "noise_v": (6.0, 100e-6)},
     bound={"noise_v": 100e-6, "layout_area_um2": 400.0, "decides_in_time": True},
-    fixed={"input_pair": MosType.NMOS},
+    space=_space(),
 )
 
 
 def _trial(**chosen) -> optuna.trial.FixedTrial:
-    """A trial that answers every searched knob: ``chosen``, else each number's lower bound."""
+    """A trial that answers every widened parameter: ``chosen``, else each range's low end or the
+    first choice."""
     values = {
         name: dist.low if hasattr(dist, "low") else dist.choices[0]
-        for name, dist in runner.distributions(comp.Params, "tsmc65", PROBLEM).items()
+        for name, dist in runner.distributions(PROBLEM).items()
     }
     return optuna.trial.FixedTrial({**values, **chosen})
 
 
-def test_a_trial_proposes_a_design_of_the_problem() -> None:
-    """Its choices, then the numbers its choices use (a switched tail asks for no capacitors), the
-    problem's fixed parameters held."""
-    switched = runner.suggest(
-        _trial(latch="DOUBLE_TAIL", bias="SWITCHED", diffpair_w=64), comp.Params, "tsmc65", PROBLEM
-    )
+def test_a_trial_proposes_a_design_of_the_problems_space() -> None:
+    """Its choices, then the ranges its choices use (a switched tail asks for no capacitors), every
+    other parameter at the space's base."""
+    switched = runner.suggest(_trial(latch="DOUBLE_TAIL", bias="SWITCHED", diffpair_w=64), PROBLEM)
     assert switched.latch == comp.Latch.DOUBLE_TAIL and switched.diffpair_w == 64
     assert switched.input_pair == MosType.NMOS and switched.preamp_c_ff == comp.Params().preamp_c_ff
-    dynamic = runner.suggest(_trial(bias="DYNAMIC", preamp_c_ff=120, bias_c_ff=400), comp.Params, "tsmc65", PROBLEM)
+    dynamic = runner.suggest(_trial(bias="DYNAMIC", preamp_c_ff=120, bias_c_ff=400), PROBLEM)
     assert dynamic.bias == comp.Bias.DYNAMIC and (dynamic.preamp_c_ff, dynamic.bias_c_ff) == (120, 400)
-    assert "input_pair" not in runner.distributions(comp.Params, "tsmc65", PROBLEM)
+    assert "input_pair" not in runner.distributions(PROBLEM)
 
 
 def test_a_record_scores_by_the_problems_costs_and_bounds() -> None:

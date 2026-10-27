@@ -95,24 +95,29 @@ def study_dir(block: str, pdk: str) -> Path:
     return OPT_DIR / block / pdk
 
 
-def knobs(cls: Any, pdk: str, problem: pipeline.Problem) -> dict[str, pipeline.Domain]:
-    """The searched parameters of ``cls`` for ``problem``: those with a domain, less its fixed."""
-    return {name: domain for name, domain in pipeline.domains(cls).items() if name not in problem.fixed}
+def searched(problem: pipeline.Problem) -> pipeline.Space:
+    """The space ``problem`` searches (``Problem.space``)."""
+    if problem.space is None:
+        raise ValueError("the problem gives no space to search (Problem.space: pipeline.vary)")
+    return problem.space
 
 
-def distributions(cls: Any, pdk: str, problem: pipeline.Problem) -> dict[str, Any]:
-    """Each searched parameter's Optuna distribution (a choice by its values' names)."""
+def distributions(problem: pipeline.Problem) -> dict[str, Any]:
+    """Each widened parameter's Optuna distribution: a choice among its values (by their names), or
+    its range, of whole numbers where the space's base gives one."""
     import optuna
 
-    dtypes = {name: param.dtype for name, param in cls.__params__.items()}
+    space = searched(problem)
     result: dict[str, Any] = {}
-    for name, domain in knobs(cls, pdk, problem).items():
-        if isinstance(domain, pipeline.Choice):
-            values = pipeline.choices(domain, dtypes[name], pdk)
-            result[name] = optuna.distributions.CategoricalDistribution([_name(value) for value in values])
+    for name, widened in space.widened.items():
+        if isinstance(widened, pipeline.Values):
+            result[name] = optuna.distributions.CategoricalDistribution([_name(value) for value in widened.values])
+        elif isinstance(getattr(space.base, name), int):
+            result[name] = optuna.distributions.IntDistribution(
+                round(widened.low), round(widened.high), log=widened.log
+            )
         else:
-            low, high = pipeline.bounds(domain, pdk)
-            result[name] = optuna.distributions.IntDistribution(low, high, log=domain.log)
+            result[name] = optuna.distributions.FloatDistribution(widened.low, widened.high, log=widened.log)
     return result
 
 
@@ -120,38 +125,47 @@ def _name(value: Any) -> Any:
     return value.name if isinstance(value, Enum) else value
 
 
-def suggest(trial: Any, cls: Any, pdk: str, problem: pipeline.Problem) -> Any:
-    """The design ``trial`` proposes: its choices first, then each number whose ``when`` holds for
-    those choices, the problem's fixed parameters, the rest at their defaults."""
+def suggest(trial: Any, problem: pipeline.Problem) -> Any:
+    """The design ``trial`` proposes in the problem's space: its choices first, then each range that
+    applies (``when``) to those choices; every other parameter at the space's base."""
 
-    dtypes = {name: param.dtype for name, param in cls.__params__.items()}
-    space = knobs(cls, pdk, problem)
-    dists = distributions(cls, pdk, problem)
-    values: dict[str, Any] = dict(problem.fixed)
-    for name, domain in space.items():
-        if isinstance(domain, pipeline.Choice):
+    import optuna
+
+    space = searched(problem)
+    dists = distributions(problem)
+    cls = type(space.base)
+    values: dict[str, Any] = {}
+    for name, widened in space.widened.items():
+        if isinstance(widened, pipeline.Values):
             picked = trial.suggest_categorical(name, dists[name].choices)
-            values[name] = (
-                dtypes[name][picked] if isinstance(dtypes[name], type) and issubclass(dtypes[name], Enum) else picked
-            )
-    chosen = cls(**{**cls.defaults(), **values})
-    for name, domain in space.items():
-        if isinstance(domain, pipeline.Int) and pipeline.active(domain, chosen):
-            values[name] = trial.suggest_int(name, dists[name].low, dists[name].high, log=dists[name].log)
-    return cls(**{**cls.defaults(), **values})
+            values[name] = next(value for value in widened.values if _name(value) == picked)
+    chosen = cls(**{**space.base.__dict__, **values})
+    for name, widened in space.widened.items():
+        if isinstance(widened, pipeline.Steps) and pipeline.holds(widened.when, chosen):
+            dist = dists[name]
+            draw = trial.suggest_int if isinstance(dist, optuna.distributions.IntDistribution) else trial.suggest_float
+            values[name] = draw(name, dist.low, dist.high, log=dist.log)
+    return cls(**{**space.base.__dict__, **values})
 
 
 def identity(block: str, pdk: str, params: Any) -> str:
     """The design's identity: the first 16 hex digits of the SHA-256 of its compiled netlist in
-    ``pdk`` (its layout hook's ``write_netlist``), else of its canonical parameters."""
+    ``pdk`` (its layout hook's ``write_netlist``), else of its parameters."""
 
     write_netlist = getattr(import_module(f"flow.{block}.layout"), "write_netlist", None)
     if write_netlist is None:
-        return digest(flat_params(pipeline.canonical(params)))
+        return digest(flat_params(params))
     logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
     with tempfile.TemporaryDirectory() as folder:
-        text = write_netlist(pipeline.canonical(params), Path(folder) / "design.sp", logic).read_text()
+        text = write_netlist(params, Path(folder) / "design.sp", logic).read_text()
     return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def admitted(block: str, params: Any, pdk: str) -> bool:
+    """Whether ``block`` builds ``params`` in ``pdk``: its ``params.valid``, where it has one (a block
+    whose parameter class admits only what builds, as the comparator's, has none)."""
+    valid = getattr(import_module(f"flow.{block}.params"), "valid", None)
+    return valid is None or bool(valid(params, pdk))
 
 
 def betters(block: str) -> dict[str, pipeline.Better]:
@@ -243,8 +257,8 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
         "block": block,
         "id": ident,
         "pdk": pdk,
-        "params": flat_params(pipeline.canonical(params)),
-        "valid": bool(import_module(f"flow.{block}.params").valid(params, pdk)),
+        "params": flat_params(params),
+        "valid": admitted(block, params, pdk),
         "level": 0,
         "metrics": {},
         "error": None,
@@ -313,22 +327,24 @@ def score(
     return value, violations
 
 
-def warm_start(study: Any, block: str, pdk: str, problem: pipeline.Problem, cls: Any) -> int:
-    """Add every evaluation already made in ``pdk`` that a design of ``problem`` could be (its fixed
-    parameters, every searched value inside its domain) to an empty study, rescored under the
-    problem; how many."""
+def warm_start(study: Any, block: str, pdk: str, problem: pipeline.Problem) -> int:
+    """Add every evaluation already made in ``pdk`` that a design of ``problem`` could be (every held
+    parameter at the space's base, every widened one inside its range) to an empty study, rescored
+    under the problem; how many."""
 
     import optuna
 
     if study.trials:
         return 0
-    dists = distributions(cls, pdk, problem)
+    dists = distributions(problem)
+    space = searched(problem)
+    held = {name: value for name, value in flat_params(space.base).items() if name not in space.widened}
     better = betters(block)
     added = 0
     for path in sorted((study_dir(block, pdk) / "evals").glob("*/instance.json")):
         record = json.loads(path.read_text())
         flat = record["params"]
-        if any(flat.get(name) != _name(value) for name, value in problem.fixed.items()):
+        if any(flat.get(name) != value for name, value in held.items()):
             continue
         params = {name: flat[name] for name in dists if name in flat}
         inside = (
@@ -368,7 +384,6 @@ def optimize(block: str, pdk: str, label: str, budget: int, workers: int) -> Pat
     if label not in problems:
         raise SystemExit(f"no problem {label} of {block} in {pdk}: {', '.join(problems)}")
     problem = problems[label]
-    cls = import_module(f"flow.{block}.params").Params
     better = betters(block)
     folder = study_dir(block, pdk)
     folder.mkdir(parents=True, exist_ok=True)
@@ -384,9 +399,7 @@ def optimize(block: str, pdk: str, label: str, budget: int, workers: int) -> Pat
     study = optuna.create_study(
         storage=f"sqlite:///{database}", study_name=label, direction="minimize", sampler=sampler, load_if_exists=True
     )
-    print(
-        f"{label} of {block} in {pdk}: {warm_start(study, block, pdk, problem, cls)} evaluations rescored", flush=True
-    )
+    print(f"{label} of {block} in {pdk}: {warm_start(study, block, pdk, problem)} evaluations rescored", flush=True)
     log = (folder / f"{label}.log").open("a")
     # trials a stopped run left running: failed, their designs asked again
     for stale in study.get_trials(deepcopy=False, states=(optuna.trial.TrialState.RUNNING,)):
@@ -397,7 +410,7 @@ def optimize(block: str, pdk: str, label: str, budget: int, workers: int) -> Pat
     while running or len(study.trials) < budget:
         while len(running) < workers and len(study.trials) < budget:
             trial = study.ask()
-            params = suggest(trial, cls, pdk, problem)
+            params = suggest(trial, problem)
             running[pool.submit(evaluate, block, pdk, params, problem)] = (trial, params)
         done, _ = wait(running, return_when=FIRST_COMPLETED)
         broken = False
@@ -488,9 +501,8 @@ def finalize(block: str, pdk: str, label: str, count: int, workers: int) -> list
     import optuna
 
     problem = pipeline.problems(import_module(f"flow.{block}.opt"), pdk)[label]
-    cls = import_module(f"flow.{block}.params").Params
     finalists = best(block, pdk, label)[:count]
-    designs = [suggest(optuna.trial.FixedTrial(entry["params"]), cls, pdk, problem) for entry in finalists]
+    designs = [suggest(optuna.trial.FixedTrial(entry["params"]), problem) for entry in finalists]
     with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=1) as pool:
         fulls = list(pool.map(characterize_full, [block] * len(designs), [pdk] * len(designs), designs))
     return [{**entry, "metrics_full": full} for entry, full in zip(finalists, fulls, strict=True)]

@@ -1,7 +1,7 @@
-"""The comparator's design space (docs/pipeline.md): its families, each the cartesian product of its
-knobs (``@family``), and its named instances (``@named``); the testbench runs that characterize one
-instance (``runs``) and the record they make (``record``). The runner keeps, in each PDK, what
-``params.valid`` admits there; readme.md says why the space is what it is."""
+"""The comparator's design space (docs/pipeline.md): its grid (``@grid``: a design with some of its
+parameters widened, ``widen``, every point of it), the ADC's comparators (``@family``, until the ADC is on
+grids) and its named instances (``@named``); the testbench runs that characterize one instance
+(``runs``) and the record they make (``record``); readme.md says why the space is what it is."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from dataclasses import replace
 
 import hdl21 as h
 
-from flow.pipeline import Level, Meas, Record, family, named
+from flow.pipeline import Level, Meas, Record, every, family, grid, named, steps, widen
 
 from .analysis import (
     analyze_clock_check,
@@ -38,9 +38,8 @@ from .params import (
     SCURVE_V,
     SMALL_V,
     SUPPLY_SWEEP,
-    TOPOLOGIES,
-    TOPOLOGY_SIZES,
     Bias,
+    Latch,
     Params,
     TbParams,
 )
@@ -56,47 +55,31 @@ from .plots import (
 )
 
 
-@family(pdks=("tsmc65", "tsmc28"), topology=("strongarm", "double_tail"))
-def reference(topology: str) -> Params:
-    """A topology at the characterization's short-channel sizes."""
-    return Params(**TOPOLOGIES[topology], **TOPOLOGY_SIZES)
+@grid
+def topologies() -> Params:
+    """Every latch with either tail at the characterization's sizes, the input pair 32 to 512 units
+    wide, and with a dynamic bias C_P 30 or 120 fF: how the topologies compare as they widen."""
+    space = widen(Params())
+    space.latch = every(Latch)
+    space.bias = every(Bias)
+    space.diffpair_w = steps(32, 512, n=3, log=True)
+    space.preamp_c_ff = steps(30, 120, n=2, log=True, when=Bias.DYNAMIC)
+    return space
 
 
-# each PDK's tails (its delays: 0.5, 1, 1.5 and 2 ns at 0.5 mV) and widths (its noise levels: 200,
-# 150, 100, 70 and 50 uV, where its noise floor reaches them), where the base StrongARM is the more
-# frugal family; TSMC28 at TSMC65's physical sizes (three of its 40 nm units to one of 120 nm, the
-# tail 840 nm long)
+# The ADC's comparators (flow.adc.sweep's COMP_GRID), until the ADC is ported to grids: the
+# StrongARM with every width but the tail's times ``k``, and the dynamic bias by its C_TAIL/C_P
 @family(pdks=("tsmc65",), tail_l=(14,), k=(3, 6, 12, 32, 64))
-@family(pdks=("tsmc28",), tail_l=(28,), k=(18, 36, 72, 192))
-@family(pdks=("tpsc65",), tail_l=(6,), k=(2, 4, 8, 16, 32))
-@family(pdks=("tpsc65",), tail_l=(16, 26), k=(2,))
-@family(pdks=("tpsc65",), tail_l=(36,), k=(2, 4, 8, 16, 40))
-@family(pdks=("ihp130",), tail_l=(4,), k=(2.5, 4, 10, 20, 40))
-@family(pdks=("ihp130",), tail_l=(11,), k=(1.5, 3, 6, 12, 24))
-@family(pdks=("ihp130",), tail_l=(20,), k=(1.5, 2.5, 6, 12, 24))
-@family(pdks=("ihp130",), tail_l=(28,), k=(1.25, 2, 5, 10, 20))
-@family(pdks=("lf150",), tail_l=(4,), k=(1, 2, 5, 24))
-@family(pdks=("lf150",), tail_l=(13,), k=(1, 2))
-@family(pdks=("lf150",), tail_l=(23,), k=(1, 2, 5, 16))
-@family(pdks=("lf150",), tail_l=(34,), k=(1, 1.5, 5, 10))
-@family(pdks=("tower180",), tail_l=(3,), k=(2.5, 4, 10, 20, 40))
-@family(pdks=("tower180",), tail_l=(9,), k=(1.5, 3, 6, 12, 24))
-@family(pdks=("tower180",), tail_l=(15,), k=(1.5, 2.5, 6, 12, 24))
-@family(pdks=("tower180",), tail_l=(21,), k=(1.25, 2.5, 5, 10, 20))
 def base_strongarm(tail_l: int, k: float) -> Params:
     """The StrongARM at the short-channel sizes with every width times ``k`` but its tail, 4 k units
     wide and ``tail_l`` minimum lengths long: the tail's length sets the delay, ``k`` the noise."""
+    base = Params()
     widths = ("diffpair_w", "rst_w", "latch_on_w", "latch_init_w", "srlatch_n_w", "srlatch_p_w")
-    sizes = {name: round(k * TOPOLOGY_SIZES[name]) for name in widths}
-    return Params(**TOPOLOGIES["strongarm"], **{**TOPOLOGY_SIZES, **sizes, "tail_w": round(4 * k), "tail_l": tail_l})
+    sizes = {name: round(k * getattr(base, name)) for name in widths}
+    return Params(latch=Latch.STRONGARM, **sizes, tail_w=round(4 * k), tail_l=tail_l)
 
 
-# each PDK's C_TAIL/C_P (its delays) and widths (its noise levels), where the dynamic bias is the
-# more frugal family
 @family(pdks=("tsmc65",), ratio=(3.5, 2.75, 2.25), k=(0.75, 1.5, 3, 6, 12))
-@family(pdks=("tpsc65",), ratio=(3.5,), k=(1, 2, 4, 8))
-@family(pdks=("tpsc65",), ratio=(2.75,), k=(0.75, 2, 4, 8))
-@family(pdks=("lf150",), ratio=(6,), k=(0.75, 2.5))
 def dynamic_bias(ratio: float, k: float) -> Params:
     """The dynamic-bias double tail (the modified double tail's latch, the input pair's tail a
     minimum-length switch onto C_TAIL): a unit per 60 fF of C_P (input pair 64, tail switch 4, latch
@@ -114,15 +97,13 @@ def dynamic_bias(ratio: float, k: float) -> Params:
     sizes = {name: max(4, round(k * units)) for name, units in unit.items()}
     c_p = round(60 * k)
     return Params(
-        **{**TOPOLOGIES["double_tail_modified"], "bias": Bias.DYNAMIC},
-        **{
-            **TOPOLOGY_SIZES,
-            **sizes,
-            "diffpair_l": 1,
-            "tail_l": 1,
-            "preamp_c_ff": c_p,
-            "bias_c_ff": round(ratio * c_p),
-        },
+        latch=Latch.DOUBLE_TAIL_MODIFIED,
+        bias=Bias.DYNAMIC,
+        **sizes,
+        diffpair_l=1,
+        tail_l=1,
+        preamp_c_ff=c_p,
+        bias_c_ff=round(ratio * c_p),
     )
 
 
@@ -134,38 +115,38 @@ def frida1() -> Params:
 
 @named(swept=False)
 def strongarm() -> Params:
-    """The StrongARM at the characterization's sizes (``reference``'s ``x1``)."""
-    return Params(**TOPOLOGIES["strongarm"], **TOPOLOGY_SIZES)
+    """The StrongARM at the characterization's sizes."""
+    return Params(latch=Latch.STRONGARM)
 
 
 @named(swept=False)
 def double_tail() -> Params:
-    """The double tail at the characterization's sizes (``reference``'s ``x1``)."""
-    return Params(**TOPOLOGIES["double_tail"], **TOPOLOGY_SIZES)
+    """The double tail at the characterization's sizes."""
+    return Params(latch=Latch.DOUBLE_TAIL)
 
 
 @named(swept=False)
 def triple_tail() -> Params:
     """The triple tail at the characterization's sizes."""
-    return Params(**TOPOLOGIES["triple_tail"], **TOPOLOGY_SIZES)
+    return Params(latch=Latch.TRIPLE_TAIL)
 
 
 @named(swept=False)
 def double_tail_self_timed() -> Params:
     """The self-timed double tail at the characterization's sizes."""
-    return Params(**TOPOLOGIES["double_tail_self_timed"], **TOPOLOGY_SIZES)
+    return Params(latch=Latch.DOUBLE_TAIL_SELF_TIMED)
 
 
 @named(swept=False)
 def double_tail_modified() -> Params:
     """The modified double tail at the characterization's sizes."""
-    return Params(**TOPOLOGIES["double_tail_modified"], **TOPOLOGY_SIZES)
+    return Params(latch=Latch.DOUBLE_TAIL_MODIFIED)
 
 
 @named(swept=False)
 def double_tail_modified_self_timed() -> Params:
     """The self-timed modified double tail at the characterization's sizes."""
-    return Params(**TOPOLOGIES["double_tail_modified_self_timed"], **TOPOLOGY_SIZES)
+    return Params(latch=Latch.DOUBLE_TAIL_MODIFIED_SELF_TIMED)
 
 
 def runs(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:

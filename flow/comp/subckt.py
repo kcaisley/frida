@@ -12,7 +12,7 @@ from hdl21.primitives import MosType
 from flow.circuit.devices import Inverter, LogicCellParams, Nand2, Nor2, logic_pair, mos, mos_cap
 from flow.circuit.ports import module_from_ports
 
-from .params import Bias, Latch, OutputStage, Params, valid
+from .params import Bias, Latch, OutputStage, Params
 
 
 @h.bundle
@@ -36,9 +36,6 @@ def netlist(param: Params) -> h.Module:
 
     Uses h.Mos primitives - call pdk.compile() to convert to PDK devices.
     """
-    if not valid(param):
-        raise ValueError(f"Invalid comparator params: {param}")
-
     Comp = module_from_ports("Comp", Nets.signals)
     Comp.tail = h.Signal()
 

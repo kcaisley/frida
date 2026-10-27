@@ -1,5 +1,5 @@
-"""The comparator's parameters: its design (``Params``), one run of its testbench (``TbParams``),
-which designs the generator builds (``valid``), and the testbench every comparator is tested on.
+"""The comparator's parameters: its design (``Params``, every one of which builds), one run of its
+testbench (``TbParams``), and the testbench every comparator is tested on.
 
 Every comparator is tested the same way, so that comparators compare: the clock (``RESET_S`` of
 reset, then ``EVALUATION_S`` of evaluation), the inputs driven through ``SOURCE_RESISTANCE_OHM`` onto
@@ -13,14 +13,13 @@ shuffled passes), kickback onto a DAC-like source (``KICKBACK_SOURCE``), over th
 import math
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any
 
 import hdl21 as h
 import numpy as np
 from hdl21.primitives import MosType, MosVth
+from pydantic import PositiveInt
 
 from flow import pipeline
-from flow.pipeline import Choice, Int, knob
 
 
 class Latch(Enum):
@@ -45,119 +44,54 @@ class OutputStage(Enum):
     STDCELLS = auto()  # the same stage as generic logic cells, mapped to a library by the PDK
 
 
-# where not every size decides within the evaluation (EVALUATION_S) in a PDK, what does: the longest
-# latch devices (``latch_l``: latch_on_l and latch_init_l) and tail (``tail_l``), in minimum lengths,
-# and the dynamic bias's range of C_TAIL over C_P (``ratio``: bias_c_ff over preamp_c_ff; None, no
-# dynamic bias)
-LIMITS: dict[str, dict[str, Any]] = {
-    "tsmc28": {"tail_l": 32, "ratio": (0, 3)},
-    "tpsc65": {"latch_l": 1, "ratio": (2.5, math.inf)},
-    "ihp130": {"latch_l": 1, "tail_l": 34, "ratio": None},
-    "lf150": {"latch_l": 1, "tail_l": 34, "ratio": (5, math.inf)},
-    "tower180": {"latch_l": 1, "ratio": (0, 5)},
-}
-# the search's longest devices where a PDK sets no limit, in minimum lengths
-LONGEST = {"tail_l": 64, "latch_l": 32}
-
-
 @h.paramclass
 class Params:
-    """The comparator: its latch (``Latch``), input pair and bias, any combination of them, and its
-    device sizes as multiples of the PDK's unit width and minimum length (w = 10: ten unit widths),
-    so that one design ports across PDKs. A knob's domain (``pipeline.knob``) is what an
-    optimization may give it; a parameter without one is held."""
+    """The comparator: its latch, input pair and bias, any combination of them, and its device sizes
+    as positive multiples of the PDK's unit width and minimum length (w = 10: ten unit widths), so
+    that one design ports across PDKs. Every Params the class admits builds; the defaults are the
+    characterization's short-channel sizes, at which ``Params(latch=...)`` is a topology's reference.
+    What a grid or a search varies is a space of it (``pipeline.vary``: sweep.py, opt.py)."""
 
-    latch = knob(dtype=Latch, desc="Latch topology", default=Latch.STRONGARM, domain=Choice())
-    input_pair = knob(dtype=MosType, desc="Input pair type (NMOS or PMOS)", default=MosType.NMOS, domain=Choice())
-    bias = knob(
+    latch = h.Param(dtype=Latch, desc="Latch topology", default=Latch.STRONGARM)
+    input_pair = h.Param(dtype=MosType, desc="Input pair type (NMOS or PMOS)", default=MosType.NMOS)
+    bias = h.Param(
         dtype=Bias,
         desc="The input pair's tail: a clocked switch, or a switch onto C_TAIL (dynamic bias)",
         default=Bias.SWITCHED,
-        domain=Choice(),
     )
-    output_stage = knob(
+    output_stage = h.Param(
         dtype=OutputStage,
         desc="Output stage implementation (a view: layout draws both)",
         default=OutputStage.TRANSISTORS,
     )
 
-    # Device sizing (multipliers of Wmin/Lmin)
-    diffpair_w = knob(dtype=int, desc="Diff pair width multiplier", default=32, domain=Int(2, 8192))
-    diffpair_l = knob(dtype=int, desc="Diff pair length multiplier", default=4, domain=Int(1, 16))
-    tail_w = knob(dtype=int, desc="Tail width multiplier", default=4, domain=Int(2, 4096))
-    tail_l = knob(
-        dtype=int,
-        desc="Tail length multiplier",
-        default=16,
-        domain=Int(1, lambda pdk: LIMITS.get(pdk, {}).get("tail_l", LONGEST["tail_l"])),
-    )
-    rst_w = knob(dtype=int, desc="Reset device width multiplier", default=8, domain=Int(2, 2048))
-    rst_l = knob(dtype=int, desc="Reset device length multiplier", default=1)
-    latch_on_w = knob(dtype=int, desc="Latch evaluation-side width multiplier", default=4, domain=Int(2, 2048))
-    latch_on_l = knob(
-        dtype=int,
-        desc="Latch evaluation-side length multiplier",
-        default=1,
-        domain=Int(1, lambda pdk: LIMITS.get(pdk, {}).get("latch_l", LONGEST["latch_l"])),
-    )
-    latch_init_w = knob(dtype=int, desc="Latch precharge-side width multiplier", default=4, domain=Int(2, 2048))
-    latch_init_l = knob(
-        dtype=int,
-        desc="Latch precharge-side length multiplier",
-        default=1,
-        domain=Int(1, lambda pdk: LIMITS.get(pdk, {}).get("latch_l", LONGEST["latch_l"])),
-    )
-    srlatch_n_w = knob(dtype=int, desc="Output SR-latch NMOS width multiplier", default=4)
-    srlatch_p_w = knob(dtype=int, desc="Output SR-latch PMOS width multiplier", default=8)
-    vth = knob(dtype=MosVth, desc="Every device's Vth", default=MosVth.LOW)
+    # device sizes, in unit widths and minimum lengths
+    diffpair_w = h.Param(dtype=PositiveInt, desc="Diff pair width multiplier", default=32)
+    diffpair_l = h.Param(dtype=PositiveInt, desc="Diff pair length multiplier", default=2)
+    tail_w = h.Param(dtype=PositiveInt, desc="Tail width multiplier", default=16)
+    tail_l = h.Param(dtype=PositiveInt, desc="Tail length multiplier", default=2)
+    rst_w = h.Param(dtype=PositiveInt, desc="Reset device width multiplier", default=8)
+    rst_l = h.Param(dtype=PositiveInt, desc="Reset device length multiplier", default=1)
+    latch_on_w = h.Param(dtype=PositiveInt, desc="Latch evaluation-side width multiplier", default=8)
+    latch_on_l = h.Param(dtype=PositiveInt, desc="Latch evaluation-side length multiplier", default=1)
+    latch_init_w = h.Param(dtype=PositiveInt, desc="Latch precharge-side width multiplier", default=8)
+    latch_init_l = h.Param(dtype=PositiveInt, desc="Latch precharge-side length multiplier", default=1)
+    srlatch_n_w = h.Param(dtype=PositiveInt, desc="Output SR-latch NMOS width multiplier", default=4)
+    srlatch_p_w = h.Param(dtype=PositiveInt, desc="Output SR-latch PMOS width multiplier", default=8)
+    vth = h.Param(dtype=MosVth, desc="Every device's Vth", default=MosVth.LOW)
 
-    # the dynamic bias's capacitors, MOS capacitors of nominal capacitance
-    preamp_c_ff = knob(
-        dtype=int,
+    # the dynamic bias's capacitors, MOS capacitors of nominal capacitance (unused with a switched tail)
+    preamp_c_ff = h.Param(
+        dtype=PositiveInt,
         desc="Dynamic bias: C_P, the MOS capacitance on each input-pair drain to its evaluation rail (fF)",
         default=60,
-        domain=Int(10, 16000, when=lambda p: p.bias == Bias.DYNAMIC),
     )
-    bias_c_ff = knob(
-        dtype=int,
-        desc="Dynamic bias: C_TAIL, the tail's MOS capacitance (fF)",
-        default=100,
-        domain=Int(10, 64000, when=lambda p: p.bias == Bias.DYNAMIC),
-    )
+    bias_c_ff = h.Param(dtype=PositiveInt, desc="Dynamic bias: C_TAIL, the tail's MOS capacitance (fF)", default=100)
 
 
 # the parameters that make a comparator's devices and their wiring (a hand-written floorplan's
 # case is found by them: flow.comp.layout.layout_floorplan); a dynamic bias adds its capacitors
 STRUCTURE = ("latch", "input_pair", "bias")
-
-
-def valid(param: Params, pdk: str | None = None) -> bool:
-    """Whether the comparator can be built (every size and, with a dynamic bias, both capacitors
-    positive) and, given its PDK, decides within the evaluation there (``LIMITS``)."""
-    sizes = (
-        param.diffpair_w,
-        param.diffpair_l,
-        param.tail_w,
-        param.tail_l,
-        param.rst_w,
-        param.rst_l,
-        param.latch_on_w,
-        param.latch_on_l,
-        param.latch_init_w,
-        param.latch_init_l,
-        param.srlatch_n_w,
-        param.srlatch_p_w,
-    )
-    dynamic = param.bias == Bias.DYNAMIC
-    if min(sizes) <= 0 or (dynamic and min(param.preamp_c_ff, param.bias_c_ff) <= 0):
-        return False
-    limits = LIMITS.get(pdk or "", {})
-    ratio = limits.get("ratio", (0, math.inf))
-    return (
-        max(param.latch_on_l, param.latch_init_l) <= limits.get("latch_l", math.inf)
-        and param.tail_l <= limits.get("tail_l", math.inf)
-        and (not dynamic or (ratio is not None and ratio[0] <= param.bias_c_ff / param.preamp_c_ff <= ratio[1]))
-    )
 
 
 pipeline.Params.register(Params)
@@ -180,31 +114,6 @@ FRIDA1 = Params(
     input_pair=MosType.NMOS,
     bias=Bias.SWITCHED,
 )  # the fabricated FRIDA-1 comparator: single stage, NMOS input, switched tail
-# The characterization's six topologies, one a latch, by name (as their floorplans,
-# design/layout/comp_<name>.json, are named), NMOS input with a switched tail, and the shared
-# short-channel sizing they are compared at (flow.comp.sweep builds on both)
-TOPOLOGIES = {
-    "strongarm": {"latch": Latch.STRONGARM},
-    "triple_tail": {"latch": Latch.TRIPLE_TAIL},
-    "double_tail": {"latch": Latch.DOUBLE_TAIL},
-    "double_tail_self_timed": {"latch": Latch.DOUBLE_TAIL_SELF_TIMED},
-    "double_tail_modified": {"latch": Latch.DOUBLE_TAIL_MODIFIED},
-    "double_tail_modified_self_timed": {"latch": Latch.DOUBLE_TAIL_MODIFIED_SELF_TIMED},
-}
-TOPOLOGY_SIZES = {
-    "diffpair_w": 32,
-    "diffpair_l": 2,
-    "tail_w": 16,
-    "tail_l": 2,
-    "rst_w": 8,
-    "rst_l": 1,
-    "latch_on_w": 8,
-    "latch_on_l": 1,
-    "latch_init_w": 8,
-    "latch_init_l": 1,
-    "srlatch_n_w": 4,
-    "srlatch_p_w": 8,
-}
 
 
 # The clock: 1 ns of reset, then 4 ns of evaluation (a comparator that needs longer is too slow for

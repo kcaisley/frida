@@ -3,9 +3,9 @@
 refactor of its ``Params`` or ``netlist`` that changes any circuit fails. A block without a record is
 skipped until it records one.
 
-The instances (``corpus``): its design space (each family's and named instance), every combination
-of its searched choices (``pipeline.knob``) and every other value of each enumeration it holds, the
-rest at their defaults. Two records per instance: its structure before any PDK compile (each
+The instances (``corpus``): its design space (each grid's, family's and named instance), every
+combination of each problem's space's choices (``Problem.space``) at its base, and every other value
+of each enumeration no space widens, the rest at their defaults. Two records per instance: its structure before any PDK compile (each
 instance's name, primitive, parameters and connections, in order; no PDK needed), and, in each
 installed PDK where ``params.valid`` admits it and the block's layout writes netlists
 (``layout.write_netlist``), its flat SPICE after the PDK's compile (``site_pdk``). Only hashes are
@@ -55,25 +55,34 @@ def corpus(block: str, pdk: str | None) -> dict[str, Any]:
         instances.setdefault(label, instance)
     for name, named in pipeline.names(sweep).items():
         instances.setdefault(name, named())
-    domains = pipeline.domains(Params)
-    dtypes = {name: param.dtype for name, param in Params.__params__.items()}
-    choices = {
-        name: pipeline.choices(domain, dtypes[name], pdk or STRUCTURE_PDK)
-        for name, domain in domains.items()
-        if isinstance(domain, pipeline.Choice)
-    }
+    # each problem's space: every combination of its choices at its base; and every other value of each
+    # enumeration no space widens, at the defaults
+    spaces = []
+    if importlib.util.find_spec(f"flow.{block}.opt") is not None:
+        opt = importlib.import_module(f"flow.{block}.opt")
+        spaces = [made.space for made in pipeline.problems(opt, pdk or STRUCTURE_PDK).values() if made.space]
     shown = lambda value: getattr(value, "name", value)
-    for combination in itertools.product(*choices.values()):
-        knobs = dict(zip(choices, combination, strict=True))
-        instances[f"choices({', '.join(f'{name}={shown(value)}' for name, value in knobs.items())})"] = Params(**knobs)
+    for space in spaces:
+        choices = {
+            name: widened.values
+            for name, widened in space.widened.items()
+            if isinstance(widened, pipeline.Values) and widened.when is None
+        }
+        for combination in itertools.product(*choices.values()):
+            knobs = dict(zip(choices, combination, strict=True))
+            label = f"choices({', '.join(f'{name}={shown(value)}' for name, value in knobs.items())})"
+            instances[label] = Params(**{**space.base.__dict__, **knobs})
+    widened = {name for space in spaces for name in space.widened}
     default = Params()
-    for name, dtype in dtypes.items():
-        if name in domains or not (isinstance(dtype, type) and issubclass(dtype, enum.Enum)):
+    for name, param in Params.__params__.items():
+        dtype = param.dtype
+        if name in widened or not (isinstance(dtype, type) and issubclass(dtype, enum.Enum)):
             continue
         for value in dtype:
             if value != getattr(default, name):
                 instances[f"held({name}={value.name})"] = Params(**{name: value})
-    return {label: instance for label, instance in instances.items() if params.valid(instance, pdk)}
+    valid = getattr(params, "valid", None)
+    return {label: instance for label, instance in instances.items() if valid is None or valid(instance, pdk)}
 
 
 def structure(block: str, instance: Any) -> str:

@@ -5,8 +5,9 @@ its ``params.py``, its circuit in ``subckt.py``, its testbench and simulator run
 simulator's raw output becomes a ``Meas`` here (``read``: every saved signal on the simulator's own
 time axis), the block's ``analysis.py`` turns measurements into ``Analysis`` results and metrics,
 its ``plots.py`` into ``Plot`` specs, and its ``sweep.py`` into the ``Record`` of an instance.
-Its ``sweep.py`` also gives its design space: families of instances (``@family``, each the cartesian
-product of its axes) and named instances (``@named``).
+Its ``sweep.py`` also gives its design space: grids (``@grid``: spaces, each a design with some of
+its parameters widened, ``widen``), named instances (``@named``), and, in a block not yet on grids,
+families (``@family``); its ``opt.py`` its problems, each with the space it searches.
 
 ``Meas`` also stays the base of the measurement types of the blocks not yet migrated (the ADC's,
 the CDAC's), which add their own per-row arrays to it.
@@ -19,13 +20,31 @@ from abc import ABC
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime
-from enum import Enum
+from enum import Enum, auto
 from inspect import signature
 from pathlib import Path
 from types import UnionType
-from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
+from typing import Any, Literal, Union, cast, get_args, get_origin, get_type_hints
 
 import numpy as np
+
+
+class Pdk(Enum):
+    """The PDKs a block is built in. A member's name in lower case is its package and folder
+    (``Pdk.TSMC65``: ``pdk.tsmc65``, ``pdk/tsmc65``), the string records, paths and the command line
+    keep (``pdk_of`` reads one back)."""
+
+    TSMC65 = auto()
+    TSMC28 = auto()
+    IHP130 = auto()
+    TOWER180 = auto()
+    LF150 = auto()
+    TPSC65 = auto()
+
+
+def pdk_of(pdk: str | Pdk) -> Pdk:
+    """A PDK's member, from its folder's name (``"tsmc65"``) or the member itself."""
+    return pdk if isinstance(pdk, Pdk) else Pdk[pdk.upper()]
 
 
 class Params(ABC):
@@ -114,10 +133,11 @@ def named(build: Callable[[], Any] | None = None, *, swept: bool = True) -> Any:
 
 
 def design(sweep: Any, pdk: str) -> Iterator[tuple[str, Any]]:
-    """A block's design space in ``pdk`` before its PDK's validity (``params.valid``): each family's
-    instances and each swept named instance of its sweep module, labelled, in source order."""
+    """A block's design space in ``pdk`` (before a block's ``params.valid``, where it has one): each
+    grid's and family's instances and each swept named instance of its sweep module, labelled, in
+    source order."""
     for value in vars(sweep).values():
-        if isinstance(value, Family):
+        if isinstance(value, (Grid, Family)):
             yield from value.instances(pdk)
         elif isinstance(value, Named) and value.swept:
             yield value.name, value()
@@ -128,84 +148,180 @@ def names(sweep: Any) -> dict[str, Named]:
     return {value.name: value for value in vars(sweep).values() if isinstance(value, Named)}
 
 
-# ---- the search space: each design parameter's domain (a block's params.py)
+# ---- spaces: a design with some of its parameters widened, for a grid (a block's sweep.py, @grid)
+# or a search (a problem's space, its opt.py)
 
 
 @dataclass(frozen=True)
-class Choice:
-    """A choice among ``values`` (a sequence, or a function of the PDK giving one; None: every member
-    of the parameter's enumeration, or False and True), searched where ``when(params)`` holds."""
+class Steps:
+    """A number's range, ``low`` to ``high``: a grid takes ``n`` points across it (evenly, or evenly in
+    log where ``log``; whole numbers for a whole-number parameter, each once), a search any value in
+    it (on a log scale where ``log``). ``when``: where it applies, a member of an enumeration the
+    design holds (``Bias.DYNAMIC``) or a test of the design; elsewhere the parameter keeps its base
+    value."""
 
-    values: Sequence[Any] | Callable[[str], Sequence[Any]] | None = None
-    when: Callable[[Any], bool] | None = None
+    low: float
+    high: float
+    n: int = 2
+    log: bool = False
+    when: Any = None
 
 
 @dataclass(frozen=True)
-class Int:
-    """A whole number from ``low`` to ``high`` inclusive (each a number or a function of the PDK),
-    searched on a log scale where ``log``, and where ``when(params)`` holds."""
+class Values:
+    """These values of a parameter: a grid takes each, a search chooses among them. ``when`` as for
+    ``Steps``."""
 
-    low: int | Callable[[str], int]
-    high: int | Callable[[str], int]
-    log: bool = True
-    when: Callable[[Any], bool] | None = None
+    values: tuple[Any, ...]
+    when: Any = None
 
 
-type Domain = Choice | Int
-# each knob's domain by its hdl21 Param (``knob``): hdl21 keeps the very Param objects a paramclass
-# was declared with (``Params.__params__``), so a parameter class's domains are found from it
-_DOMAINS: dict[int, tuple[Any, Domain]] = {}
+type Widened = Steps | Values
 
 
-def knob(*, dtype: Any, desc: str, default: Any, domain: Domain | None = None) -> Any:
-    """A design parameter (an hdl21 ``Param``) and the values a search may give it (``domain``;
-    None: a fixed parameter, never searched)."""
-    import hdl21 as h
-
-    param = h.Param(dtype=dtype, desc=desc, default=default)
-    if domain is not None:
-        _DOMAINS[id(param)] = (param, domain)  # the Param itself, so its id stays its own
-    return param
+# A space's parameters are set by attribute on a space typed as its Params (``widen``), so these
+# return Any: a range assigned to a parameter of whole numbers is not a type error
+def steps(low: float, high: float, n: int = 2, *, log: bool = False, when: Any = None) -> Any:
+    """A number's range (``Steps``)."""
+    return Steps(low, high, n, log, when)
 
 
-def domains(cls: type) -> dict[str, Domain]:
-    """The searched parameters of an hdl21 parameter class, by name, with their domains."""
-    declared = getattr(cls, "__params__", {})
-    return {name: _DOMAINS[id(param)][1] for name, param in declared.items() if id(param) in _DOMAINS}
+def values(*choices: Any, when: Any = None) -> Any:
+    """These values (``Values``)."""
+    return Values(tuple(choices), when)
 
 
-def bounds(domain: Domain, pdk: str) -> tuple[Any, Any]:
-    """An ``Int`` domain's low and high in ``pdk``."""
-    assert isinstance(domain, Int)
-    low = domain.low if isinstance(domain.low, int) else domain.low(pdk)
-    high = domain.high if isinstance(domain.high, int) else domain.high(pdk)
-    return low, high
+def every(dtype: type, *, when: Any = None) -> Any:
+    """Every member of an enumeration (False and True for a flag)."""
+    return Values(tuple(dtype) if issubclass(dtype, Enum) else (False, True), when)
 
 
-def choices(domain: Choice, dtype: Any, pdk: str) -> tuple[Any, ...]:
-    """A ``Choice`` domain's values in ``pdk``: its own, else the enumeration's members, else False and
-    True."""
-    if isinstance(domain.values, Sequence):
-        return tuple(domain.values)
-    if domain.values is not None:
-        return tuple(domain.values(pdk))
-    if isinstance(dtype, type) and issubclass(dtype, Enum):
-        return tuple(dtype)
-    return (False, True)
+def holds(when: Any, design: Any) -> bool:
+    """Whether a widened parameter applies to ``design``: always, where the design holds the member
+    ``when`` names, or where the test ``when`` passes."""
+    if when is None:
+        return True
+    if isinstance(when, Enum):
+        return any(value is when for value in design.__dict__.values())
+    return bool(when(design))
 
 
-def active(domain: Domain, params: Any) -> bool:
-    """Whether a knob is searched (its ``when`` holds) for these parameters."""
-    return domain.when is None or bool(domain.when(params))
+def grid_values(base: Any, name: str, widened: Widened) -> tuple[Any, ...]:
+    """The values a grid gives a widened parameter of ``base``."""
+    if isinstance(widened, Values):
+        return widened.values
+    if widened.n <= 1:
+        points = [widened.low]
+    elif widened.log:
+        points = list(np.geomspace(widened.low, widened.high, widened.n))
+    else:
+        points = list(np.linspace(widened.low, widened.high, widened.n))
+    value = getattr(base, name)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return tuple(dict.fromkeys(round(float(point)) for point in points))
+    return tuple(float(point) for point in points)
 
 
-def canonical(params: Any) -> Any:
-    """``params`` with every knob its design does not use (``when`` false) at its default: the one
-    representative of the designs that differ in those knobs alone."""
-    cls = type(params)
-    defaults = cls.defaults()
-    held = {name: defaults[name] for name, domain in domains(cls).items() if not active(domain, params)}
-    return cls(**{**params.__dict__, **held}) if held else params
+class Space:
+    """A design (``base``, a block's ``Params``) with some of its parameters widened, each set by
+    attribute (``widen``): ``steps`` or ``values`` (``every``) widen it, a bare value holds it there;
+    every parameter not set is held at the base's value. Each is checked as it is set, by the
+    parameter class: a name it does not have, or a value it does not take (a bare one, each of
+    ``values``, the ends of ``steps``), raises there."""
+
+    __slots__ = ("base", "widened")
+    base: Any
+    widened: dict[str, Widened]
+
+    def __init__(self, base: Any) -> None:
+        object.__setattr__(self, "base", base)
+        object.__setattr__(self, "widened", {})
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        cls = type(self.base)
+        if name not in cls.__params__:
+            raise AttributeError(f"{cls.__name__} has no parameter {name}")
+        if isinstance(value, (Steps, Values)):
+            ends = (
+                value.values
+                if isinstance(value, Values)
+                else grid_values(self.base, name, Steps(value.low, value.high))
+            )
+            for end in ends:
+                cls(**{**self.base.__dict__, name: end})
+            self.widened[name] = value
+        else:
+            object.__setattr__(self, "base", cls(**{**self.base.__dict__, name: value}))
+            self.widened.pop(name, None)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.base, name)
+
+    def points(self) -> Iterator[tuple[dict[str, Any], Any]]:
+        """The space as a grid: every combination of its widened parameters' grid values (one whose
+        ``when`` fails for the rest keeps its base value), each with the values it varies (those
+        widened to more than one) and the design."""
+        cls = type(self.base)
+        plain = {name: widened for name, widened in self.widened.items() if widened.when is None}
+        conditional = {name: widened for name, widened in self.widened.items() if widened.when is not None}
+        varies = {name for name, widened in self.widened.items() if len(grid_values(self.base, name, widened)) > 1}
+        for combination in itertools.product(*(grid_values(self.base, n, w) for n, w in plain.items())):
+            chosen = dict(zip(plain, combination, strict=True))
+            design = cls(**{**self.base.__dict__, **chosen})
+            active = {name: widened for name, widened in conditional.items() if holds(widened.when, design)}
+            for more in itertools.product(*(grid_values(self.base, n, w) for n, w in active.items())):
+                extra = dict(zip(active, more, strict=True))
+                shown = {name: value for name, value in {**chosen, **extra}.items() if name in varies}
+                yield shown, cls(**{**design.__dict__, **extra})
+
+
+def widen[P](base: P) -> P:
+    """A space of ``base`` (a block's ``Params``) to widen by attribute: ``space = widen(Params())``,
+    then ``space.diffpair_w = steps(32, 512, n=3, log=True)``. Typed as the Params it widens, so that
+    an editor completes the parameters' names; it is a ``Space``."""
+    return cast(P, Space(base))
+
+
+def shown(value: Any) -> str:
+    """A value as a label gives it: a member by its name, a number briefly."""
+    if isinstance(value, Enum):
+        return value.name
+    return f"{value:g}" if isinstance(value, float) else str(value)
+
+
+@dataclass(frozen=True)
+class Grid:
+    """A grid of a block's design space (``@grid``): ``build`` (given the PDK, where it takes one)
+    gives a space or several (``widen``; their union), in the PDKs ``pdks`` names (None: every PDK); its
+    instances every point of each, labelled ``name(parameter=value, ...)`` by the values that vary."""
+
+    build: Callable[..., Any]
+    pdks: tuple[Pdk, ...] | None = None
+
+    @property
+    def name(self) -> str:
+        return getattr(self.build, "__name__", "")
+
+    def spaces(self, pdk: str | Pdk) -> tuple[Space, ...]:
+        built = self.build(pdk_of(pdk)) if "pdk" in signature(self.build).parameters else self.build()
+        return (built,) if isinstance(built, Space) else tuple(built)
+
+    def instances(self, pdk: str | Pdk) -> Iterator[tuple[str, Any]]:
+        """Each instance in ``pdk`` with its label."""
+        if self.pdks is not None and pdk_of(pdk) not in self.pdks:
+            return
+        for space in self.spaces(pdk):
+            for varied, design in space.points():
+                yield f"{self.name}({', '.join(f'{name}={shown(value)}' for name, value in varied.items())})", design
+
+
+def grid(build: Callable[..., Any] | None = None, *, pdks: Sequence[Pdk] | None = None) -> Any:
+    """Make a function (of the PDK, a ``Pdk``, where it takes one) returning a space or several, a grid
+    of a block's design space: ``@grid``, or ``@grid(pdks=(Pdk.TSMC65, ...))`` in those PDKs alone."""
+    entry = tuple(pdks) if pdks is not None else None
+    if build is None:
+        return lambda function: Grid(function, entry)
+    return Grid(build, entry)
 
 
 # ---- metrics, evaluation levels and problems (a block's types.py, sweep.py and opt.py)
@@ -255,34 +371,37 @@ class Problem:
     product of factors, each a weight (the factor metric^w, in the metric's unit) or a weight and a
     scale (the factor (1 + (metric / scale)^2)^w, without unit, which stays near 1 below the scale);
     ``bound``, each a limit on the side its metric's ``better`` names (a flag: True, it must hold);
-    ``fixed``, parameters held for this problem instead of searched."""
+    ``space``, the designs it searches (``widen``: a design, its searched parameters widened, every
+    other held)."""
 
     cost: Mapping[str, float | tuple[float, float]]
     bound: Mapping[str, float | bool]
-    fixed: Mapping[str, Any] = field(default_factory=dict)
+    space: Any = None
 
 
 class ProblemFamily(Family):
     """Problems of a block (its opt.py's ``@problem``): a function of a few knobs returning a
     ``Problem``, expanded like a family of instances; a function that takes ``pdk`` is given the
-    PDK as well, which its label leaves out (``adc(bits=12)``)."""
+    PDK as well (a ``Pdk``), which its label leaves out (``adc(bits=12)``)."""
 
-    def instances(self, pdk: str) -> Iterator[tuple[str, Any]]:
+    def instances(self, pdk: str | Pdk) -> Iterator[tuple[str, Any]]:
         takes_pdk = "pdk" in signature(self.build).parameters
+        pdk = pdk_of(pdk)
+        folder = pdk.name.lower()  # the family's entries name PDKs by their folders
         for axes, pdks in zip(self.axes, self.pdks, strict=True):
-            if pdks is not None and pdk not in pdks:
+            if pdks is not None and folder not in pdks:
                 continue
-            values = [axis if isinstance(axis, Sequence) else axis(pdk) for axis in axes.values()]
+            values = [axis if isinstance(axis, Sequence) else axis(folder) for axis in axes.values()]
             for combination in itertools.product(*values):
                 knobs = dict(zip(axes, combination, strict=True))
                 label = ", ".join(f"{knob}={value}" for knob, value in knobs.items())
                 yield f"{self.name}({label})", self.build(**knobs, **({"pdk": pdk} if takes_pdk else {}))
 
 
-def problem(*, pdks: Sequence[str] | None = None, **axes: Axis) -> Callable[[Callable[..., Problem]], ProblemFamily]:
+def problem(*, pdks: Sequence[Pdk] | None = None, **axes: Axis) -> Callable[[Callable[..., Problem]], ProblemFamily]:
     """Make a function of a few named knobs returning a ``Problem`` a family of problems over ``axes``
     (in the ``pdks`` named, else in every PDK): ``adc(bits=12)`` is one."""
-    entry = tuple(pdks) if pdks is not None else None
+    entry = tuple(pdk.name.lower() for pdk in pdks) if pdks is not None else None
     return lambda build: ProblemFamily(build, (axes,), (entry,))
 
 

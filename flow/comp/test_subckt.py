@@ -4,11 +4,12 @@ import itertools
 
 import pytest
 from hdl21.primitives import MosType
+from pydantic import ValidationError
 
 from flow import pipeline
 from flow.circuit.devices import CAP_L, fingers
 
-from .params import Bias, Latch, Params, valid
+from .params import Bias, Latch, Params
 from .subckt import netlist
 
 
@@ -19,7 +20,7 @@ def test_comp():
 
 
 def test_default_comp_is_single_tail_nmos_strongarm() -> None:
-    """Pin the default topology and its power-of-two size multipliers."""
+    """Pin the default topology and its sizes, the characterization's short-channel ones."""
 
     netlist.Cache.reset()
     params = Params()
@@ -39,46 +40,61 @@ def test_default_comp_is_single_tail_nmos_strongarm() -> None:
         params.latch_init_l,
         params.srlatch_n_w,
         params.srlatch_p_w,
-    ) == (32, 4, 4, 16, 8, 1, 4, 1, 4, 1, 4, 8)
+    ) == (32, 2, 16, 2, 8, 1, 8, 1, 8, 1, 4, 8)
 
     module = netlist(params)
     assert module.Mtail.conns["s"] is module.vss
     assert module.Mtail_reset.conns["d"] is module.tail
     assert module.Mtail_reset.conns["g"] is module.clk
     assert module.Mtail_reset.conns["s"] is module.vdd
-    assert float(module.Mtail.of.params.w) == 4
-    assert float(module.Mtail.of.params.l) == 16
+    assert float(module.Mtail.of.params.w) == 16
+    assert float(module.Mtail.of.params.l) == 2
     assert float(module.Minner_init_p.of.params.w) == 8
-    assert float(module.Mcross_on_p.of.params.w) == 4
-    assert float(module.Mcross_init_p.of.params.w) == 4
+    assert float(module.Mcross_on_p.of.params.w) == 8
+    assert float(module.Mcross_init_p.of.params.w) == 8
     assert not hasattr(module, "Mbias")
     assert not hasattr(module, "Cbias")
 
 
 def test_every_combination_of_latch_input_pair_and_bias_builds() -> None:
-    """The topology is three independent choices: each of their 24 combinations is valid and
-    builds."""
+    """The topology is three independent choices: each of their 24 combinations builds."""
 
     for latch, input_pair, bias in itertools.product(Latch, MosType, Bias):
-        params = Params(latch=latch, input_pair=input_pair, bias=bias)
-        assert valid(params), params
         netlist.Cache.reset()
-        assert netlist(params) is not None
+        assert netlist(Params(latch=latch, input_pair=input_pair, bias=bias)) is not None
 
 
-def test_the_search_space_is_declared_on_the_parameters() -> None:
-    """Every searched knob carries its domain; the dynamic bias's capacitors are searched only with a
-    dynamic bias, and a design that does not use them is canonical at their defaults."""
+def test_every_comparator_the_class_admits_builds() -> None:
+    """Sizes and capacitors are positive by type: a design with one at zero is refused when it is
+    made, never checked after; the defaults are the characterization's sizes."""
 
-    domains = pipeline.domains(Params)
-    assert {"latch", "input_pair", "bias", "diffpair_w", "tail_l", "preamp_c_ff", "bias_c_ff"} <= set(domains)
-    assert not {"output_stage", "rst_l", "srlatch_n_w", "srlatch_p_w", "vth"} & set(domains)
-    assert pipeline.bounds(domains["latch_on_l"], "tpsc65") == (1, 1)
-    assert pipeline.choices(domains["latch"], Latch, "tsmc65") == tuple(Latch)
-    switched = Params(preamp_c_ff=240, bias_c_ff=900)
-    assert pipeline.canonical(switched) == Params()
-    dynamic = Params(bias=Bias.DYNAMIC, preamp_c_ff=240, bias_c_ff=900)
-    assert pipeline.canonical(dynamic) == dynamic
+    for name in ("diffpair_w", "tail_l", "latch_init_w", "preamp_c_ff", "bias_c_ff"):
+        with pytest.raises(ValidationError):
+            Params(**{name: 0})
+    assert (Params().diffpair_l, Params().tail_w, Params().latch_on_w) == (2, 16, 8)
+
+
+def test_a_space_widens_the_parameters_by_name() -> None:
+    """``widen``: a parameter set to a range or values widens, to a bare value is held; a name the
+    class does not have, or a value it does not take, is refused as it is set; a grid gives every
+    combination, a range that applies only to a dynamic bias only there."""
+
+    space = pipeline.widen(Params())
+    space.latch = pipeline.values(Latch.STRONGARM, Latch.DOUBLE_TAIL)
+    space.bias = pipeline.every(Bias)
+    space.diffpair_w = pipeline.steps(32, 512, n=3, log=True)
+    space.preamp_c_ff = pipeline.steps(30, 120, n=2, log=True, when=Bias.DYNAMIC)
+    space.rst_l = 2
+    with pytest.raises(AttributeError, match="no parameter diffpiar_w"):
+        space.diffpiar_w = 64
+    with pytest.raises(ValidationError):
+        space.tail_w = pipeline.steps(0, 8)
+    assert isinstance(space, pipeline.Space)
+    points = list(space.points())
+    assert len(points) == 2 * 3 + 2 * 3 * 2  # switched: latch x width; dynamic: also C_P
+    assert all(design.rst_l == 2 for _varied, design in points)
+    assert {design.diffpair_w for _varied, design in points} == {32, 128, 512}
+    assert {design.preamp_c_ff for _varied, design in points if design.bias is Bias.SWITCHED} == {60}
 
 
 def test_comp_output_srlatch_handles_both_reset_polarities() -> None:

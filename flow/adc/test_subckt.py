@@ -7,7 +7,7 @@ from pathlib import Path
 import hdl21 as h
 import pytest
 
-from flow import comp, samp
+from flow import samp
 from flow.caparray import CapArrayConfig, RedunStrat
 
 from . import subckt
@@ -28,7 +28,7 @@ def test_adc():
         AdcParams(cdac=CapArrayConfig(n_dac=0, n_extra=16)),
         AdcParams(cdac=CapArrayConfig(n_dac=17, n_extra=-1)),
         AdcParams(cdac=CapArrayConfig(weights=(1,) * 15)),
-        AdcParams(comp=comp.Params(srlatch_n_w=0)),
+        # (a comparator of a zero size is refused when it is made: flow/comp/test_subckt.py)
         AdcParams(samp=samp.Params(mos_w=0)),
     ),
 )

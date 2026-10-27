@@ -240,10 +240,10 @@ def _problems(block: str) -> set[str]:
             continue
         if UPPER.fullmatch(name):
             problem("sweep", f"module constant {name}: a knob's values belong to its family")
-        elif (
-            not isinstance(value, (pipeline.Family, pipeline.Named)) or _hints(value.build).get("return") is not Params
-        ):
-            problem("sweep", f"{name} is not a family, a named instance (of Params), runs or record")
+        elif not isinstance(value, (pipeline.Grid, pipeline.Family, pipeline.Named)) or _hints(value.build).get(
+            "return"
+        ) not in (Params, list[Params]):
+            problem("sweep", f"{name} is not a grid, a family, a named instance (of Params), runs or record")
 
     # the side files beside the stages: their own names only, and no module constant (a block's
     # constants live in params.py, a testbench's in sim.py)
@@ -297,18 +297,15 @@ def _problems(block: str) -> set[str]:
 
 
 def _optimizable(block: str, Params, stage: dict) -> set[str]:
-    """The contract of a block with problems (its opt.py, ``python -m flow opt``): its searched
-    parameters declare their domains on ``Params`` (every combination of its choices valid, every
-    instance of its design space inside the domains, a knob whose ``when`` is false not in its
-    circuit), its metrics are typed (``types.Metrics``), and opt.py gives problems alone, each naming
-    metrics and bounding only those with a direction."""
+    """The contract of a block with problems (its opt.py, ``python -m flow opt``): opt.py gives
+    problems alone, each naming metrics, bounding only those with a direction, and searching a space
+    of the block's ``Params`` (``Problem.space``: ``pipeline.widen``) in which every combination of
+    its choices builds and a range that does not apply (``when``) leaves the circuit as it is; its
+    metrics are typed (``types.Metrics``)."""
 
     problems: set[str] = set()
     problem = lambda where, text: problems.add(f"{block}.{where}: {text}")
     opt = _module(block, "opt")
-    domains = pipeline.domains(Params)
-    if not domains:
-        problem("params", "no parameter declares a domain (pipeline.knob)")
     metrics_class = getattr(stage["types"], "Metrics", None)
     if metrics_class is None:
         problem("types", "no Metrics: a block with problems types its metrics")
@@ -317,54 +314,49 @@ def _optimizable(block: str, Params, stage: dict) -> set[str]:
         if not isinstance(value, pipeline.ProblemFamily):
             problem("opt", f"{name} is not a @problem")
     better = {**pipeline.betters(metrics_class), **pipeline.GEOMETRY}
-    dtypes = {name: param.dtype for name, param in Params.__params__.items()}
+    netlist = stage["subckt"].netlist
+
+    def built(design) -> list[tuple[str, str]]:
+        netlist.Cache.reset()
+        return [(n, repr(i.of.params)) for n, i in netlist(design).instances.items()]
+
     from flow.sweep.runner import PDKS
 
     for pdk in PDKS:
         installed = importlib.util.find_spec(f"pdk.{pdk}.hdl21") is not None
-        for label, built in (pipeline.problems(opt, pdk) if installed else {}).items():
-            for name in [*built.cost, *built.bound]:
+        for label, made in (pipeline.problems(opt, pdk) if installed else {}).items():
+            for name in [*made.cost, *made.bound]:
                 if name not in better:
                     problem("opt", f"{label} names {name}, not a metric")
-            for name, limit in built.bound.items():
+            for name, limit in made.bound.items():
                 if better.get(name) == "none" or (better.get(name) == "true") != isinstance(limit, bool):
                     problem("opt", f"{label} bounds {name} against its direction")
-            for name in built.fixed:
-                if name not in dtypes:
-                    problem("opt", f"{label} fixes {name}, not a parameter")
-        # every combination of the choices builds
-        choices = {
-            name: pipeline.choices(domain, dtypes[name], pdk)
-            for name, domain in domains.items()
-            if isinstance(domain, pipeline.Choice)
-        }
-        for combination in itertools.product(*choices.values()):
-            params = Params(**dict(zip(choices, combination, strict=True)))
-            if not stage["params"].valid(params):
-                problem("params", f"the choices {combination} are not valid")
-        # the design space lies inside the domains
-        sweep = stage["sweep"]
-        for label, params in pipeline.design(sweep, pdk):
-            if not stage["params"].valid(params, pdk):
+            space = made.space
+            if not isinstance(space, pipeline.Space) or not isinstance(space.base, Params):
+                problem("opt", f"{label} searches no space of its Params (Problem.space: pipeline.widen)")
                 continue
-            for name, domain in domains.items():
-                if isinstance(domain, pipeline.Int) and pipeline.active(domain, params):
-                    low, high = pipeline.bounds(domain, pdk)
-                    if not low <= getattr(params, name) <= high:
-                        problem("params", f"{label}: {name} = {getattr(params, name)} is outside its domain")
-    # a knob its design does not use is not in its circuit: the default design and the same with
-    # each such knob changed build alike
-    netlist = stage["subckt"].netlist
-    base = Params()
-    for name, domain in domains.items():
-        if isinstance(domain, pipeline.Int) and not pipeline.active(domain, base):
-            changed = Params(**{**base.__dict__, name: getattr(base, name) * 2 + 1})
-            netlist.Cache.reset()
-            first = [(n, repr(i.of.params)) for n, i in netlist(base).instances.items()]
-            netlist.Cache.reset()
-            second = [(n, repr(i.of.params)) for n, i in netlist(changed).instances.items()]
-            if first != second:
-                problem("subckt", f"{name} changes the circuit where its domain's when is false")
+            # every combination of the space's choices builds
+            choices = {
+                name: widened.values
+                for name, widened in space.widened.items()
+                if isinstance(widened, pipeline.Values) and widened.when is None
+            }
+            designs = []
+            for combination in itertools.product(*choices.values()):
+                design = Params(**{**space.base.__dict__, **dict(zip(choices, combination, strict=True))})
+                try:
+                    built(design)
+                    designs.append(design)
+                except Exception as error:  # noqa: BLE001 - the contract reports what does not build
+                    problem("opt", f"{label}: the choices {combination} do not build ({type(error).__name__})")
+            # a range that does not apply to a design leaves its circuit as it is
+            for name, widened in space.widened.items():
+                design = next((d for d in designs if widened.when and not pipeline.holds(widened.when, d)), None)
+                if design is None:
+                    continue
+                other = widened.values[-1] if isinstance(widened, pipeline.Values) else round(widened.high)
+                if built(design) != built(Params(**{**design.__dict__, name: other})):
+                    problem("opt", f"{label}: {name} changes the circuit where it does not apply")
     return problems
 
 

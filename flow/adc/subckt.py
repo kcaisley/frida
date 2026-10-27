@@ -98,9 +98,8 @@ def is_valid_adc_params(param: AdcParams) -> bool:
         return False
     if adc_stages(param) != param.cdac.n_dac + param.cdac.n_extra:
         return False
-    if param.samp.mos_w <= 0 or param.samp.mos_l <= 0:
-        return False
-    return comp.valid(param.comp)
+    # every comparator its parameter class admits builds: the sampler's sizes alone to check
+    return not (param.samp.mos_w <= 0 or param.samp.mos_l <= 0)
 
 
 # Keep the driver hierarchy fresh when this ADC is requested after compilation.

@@ -81,10 +81,10 @@ def labelled_space(block: str, pdk: str) -> dict:
     from flow import pipeline
 
     sweep = import_module(f"flow.{block}.sweep")
-    valid = import_module(f"flow.{block}.params").valid
+    valid = getattr(import_module(f"flow.{block}.params"), "valid", None)
     space: dict = {}
     for label, params in pipeline.design(sweep, pdk):
-        if valid(params, pdk):
+        if valid is None or valid(params, pdk):
             space.setdefault(digest(params), (label, params))
     return space
 
@@ -112,7 +112,8 @@ def select(block: str, pdk: str, names: list[str]) -> dict:
                 f"no instance {name!r} of {block} in {pdk}: a name ({', '.join(named)}), a label as "
                 "the run's records hold it, or a digest"
             )
-        if import_module(f"flow.{block}.params").valid(params, pdk):
+        valid = getattr(import_module(f"flow.{block}.params"), "valid", None)
+        if valid is None or valid(params, pdk):
             picked.setdefault(digest(params), (label, params))
         else:
             print(f"{name}: not valid in {pdk}, left out")

@@ -35,9 +35,8 @@ from flow.layout.signoff import row_signoff
 
 from .params import (
     STRUCTURE,
-    TOPOLOGIES,
-    TOPOLOGY_SIZES,
     Bias,
+    Latch,
     OutputStage,
     Params,
 )
@@ -50,12 +49,12 @@ BUILD: dict[str, Callable[..., Path]] = {"cic": cic_build, "laygo": laygo_build,
 
 # where the ports leave the block, as in both comparator floorplans (circuit knowledge, not placement)
 ESCAPE = {"up": ["inp", "inn"], "down": ["clk", "clkb", "outp", "outn"]}
-# the structures with a hand-written floorplan (design/layout/comp_<name>.json): the six topologies,
-# and the dynamic-bias double tail (the modified double tail's latch, the input pair's tail switched
-# onto C_TAIL, with C_P: flow.comp.sweep's dynamic_bias)
+# the structures with a hand-written floorplan (design/layout/comp_<name>.json): each latch (its
+# floorplan named after it, comp_strongarm.json), and the dynamic-bias double tail (the modified double
+# tail's latch, the input pair's tail switched onto C_TAIL, with C_P: flow.comp.sweep's dynamic_bias)
 FLOORPLAN_CASES = {
-    **TOPOLOGIES,
-    "dynamic_bias": {**TOPOLOGIES["double_tail_modified"], "bias": Bias.DYNAMIC},
+    **{latch.name.lower(): {"latch": latch} for latch in Latch},
+    "dynamic_bias": {"latch": Latch.DOUBLE_TAIL_MODIFIED, "bias": Bias.DYNAMIC},
 }
 
 
@@ -91,7 +90,7 @@ def layout_floorplan(out_dir: Path, pdk: str, comp: Params) -> tuple[Path, Path]
         (
             path
             for name, structure in FLOORPLAN_CASES.items()
-            if _structure(Params(**structure, **TOPOLOGY_SIZES)) == _structure(comp)
+            if _structure(Params(**structure)) == _structure(comp)
             and (path := FLOORPLANS / f"comp_{name}.json").exists()
         ),
         None,

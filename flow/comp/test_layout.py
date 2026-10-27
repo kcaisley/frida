@@ -54,8 +54,7 @@ def test_every_family_is_placed_by_a_hand_written_floorplan() -> None:
     """The sweep's layout step (``layout_floorplan``) finds each family's floorplan by its structure,
     C_P by whether it is there: the dynamic bias's, with its capacitors, at any size."""
     structures = {
-        name: layout._structure(layout.Params(**structure, **layout.TOPOLOGY_SIZES))
-        for name, structure in layout.FLOORPLAN_CASES.items()
+        name: layout._structure(layout.Params(**structure)) for name, structure in layout.FLOORPLAN_CASES.items()
     }
     assert all((layout.FLOORPLANS / f"comp_{name}.json").exists() for name in structures)
     for params, name in (
