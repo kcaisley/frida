@@ -44,7 +44,7 @@ from hdl21.prefix import f
 from klayout import db
 
 from flow.layout.align.run import Drawing, draw, drawn_only
-from flow.layout.pdkproc import in_pdk, pdk_value
+from flow.layout.pdkproc import access_points, in_pdk, pdk_value
 from flow.layout.signoff import SignoffParams, run_signoff
 
 from .pex import parse_caparray_pex, write_capacitance_table
@@ -285,6 +285,7 @@ def CapArrayLayout(params: CapArrayLayoutParams) -> db.Layout:
         raise ValueError(f"Invalid CDAC layout params: {params}")
     spec = caparray_spec(params)
     plan = in_pdk(params.technology, "capcell", "caparray_plan", spec)
+    access_points(params.technology)  # the ALIGN PDK's standard cells read them at import
     with tempfile.TemporaryDirectory() as scratch:
         pdk_dir = in_pdk(
             params.technology, "flow.layout.align.make_pdk", "build", params.technology, Path(scratch) / "pdk"

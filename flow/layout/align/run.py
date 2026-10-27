@@ -126,6 +126,7 @@ def draw(pdk_dir: Path, drawings: list[Drawing]) -> list[Path]:
         text=True,
         env=env,
         check=False,
+        cwd=first.parent,  # ALIGN logs into ./LOG, rotating it: one directory a run
     )
     missing = [drawing for drawing in drawings if not drawing.gds.is_file()]
     if result.returncode or missing:

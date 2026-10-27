@@ -10,9 +10,11 @@ must be picklable (paths, strings, numbers, dicts).
 
 from __future__ import annotations
 
+import json
 import multiprocessing
 import os
 import sys
+from collections.abc import Iterable
 from concurrent.futures import ProcessPoolExecutor
 from importlib import import_module
 from pathlib import Path
@@ -67,11 +69,13 @@ def pdk_value(pdk: str, module: str, name: str, default: Any = None) -> Any:
         return pool.submit(_value, module, name, default).result()
 
 
-def access_points(pdk: str) -> Path:
+def access_points(pdk: str, cells: Iterable[str] = ()) -> Path:
     """The PDK's standard-cell access points (its ``paths.ACCESS_JSON``), which the row cells
-    read at import; ``stems/stdcell_access.py`` writes them the first time a build needs them."""
+    read at import: its row cells' and ``cells'``, library cells a netlist names;
+    ``stems/stdcell_access.py`` adds a cell's the first time a build needs them."""
 
     path = Path(pdk_value(pdk, "paths", "ACCESS_JSON"))
-    if not path.exists():
-        in_pdk(pdk, "stdcell_access", "write_access", pdk)
+    cells = tuple(cells)
+    if not path.exists() or not set(cells) <= set(json.loads(path.read_text())):
+        in_pdk(pdk, "stdcell_access", "write_access", pdk, cells)
     return path

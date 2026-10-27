@@ -20,7 +20,7 @@ from pathlib import Path
 from klayout import db
 
 from flow.layout.align.run import Drawing, draw, drawn_only
-from flow.layout.pdkproc import in_pdk, pdk_value
+from flow.layout.pdkproc import access_points, in_pdk, pdk_value
 from flow.momcap.subckt import MomStyle
 
 
@@ -95,6 +95,7 @@ def mom_unit_layout(params: MomTestParams, top_cell: str) -> db.Layout:
         "diff_length": params.diff_length_nm,
         "space": params.space_nm,
     }
+    access_points(pdk)  # the ALIGN PDK's standard cells read them at import
     with tempfile.TemporaryDirectory() as scratch:
         pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, Path(scratch) / "pdk")
         (gds,) = draw(pdk_dir, [Drawing("MomUnit", "unit", arguments, Path(scratch) / f"{top_cell}.gds", top_cell)])

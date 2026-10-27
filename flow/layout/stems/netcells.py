@@ -21,7 +21,19 @@ import mosline
 import rowcell
 import tech as _tech
 from paths import ACCESS_JSON, STD_GDS
-from tech import EDGE_CUTS, EDGE_PAD, MODELS, STD_FILL, STD_FILL_W, STD_SUPPLY, STD_TEXT_LAYERS, V1, V1_PAIR, XPITCH
+from tech import (
+    EDGE_CUTS,
+    EDGE_PAD,
+    MODELS,
+    STD_CELLS,
+    STD_FILL,
+    STD_FILL_W,
+    STD_SUPPLY,
+    STD_TEXT_LAYERS,
+    V1,
+    V1_PAIR,
+    XPITCH,
+)
 
 W_PER_FINGER = mosline.w_per_finger()  # the bound PDK's netlists give w per finger with nf
 EDGE_TIE = getattr(_tech, "EDGE_TIE", None)  # (library tie cell, its width): in every row end
@@ -336,11 +348,11 @@ def _outline(cell: str) -> int:
 
 
 def widths(src: str | Path) -> dict[str, int]:
-    """Each instance's row cell width (nm): what a floorplan places for it; a library cell the rows
-    do not draw (no access points), its own width."""
+    """Each instance's row cell width (nm): what a floorplan places for it; a library cell beyond
+    the row cells (``STD_CELLS``), its own width."""
 
     return {
-        inst.name: cell_of(inst).width if inst.kind == "mos" or inst.kind in ACCESS else _outline(inst.kind)
+        inst.name: cell_of(inst).width if inst.kind == "mos" or inst.kind in STD_CELLS else _outline(inst.kind)
         for inst in parse(src)[2]
     }
 

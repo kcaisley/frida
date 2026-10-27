@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -122,10 +123,12 @@ def lef_pins(lef: str, cell: str, layers: bool = False) -> dict[str, list[list[t
     return pins
 
 
-def candidates(y, own: kdb.Region, other: kdb.Region):
+def candidates(y, own: kdb.Region, other: kdb.Region, *, local: bool = False):
     """Access points on the pin's M1 at track y, best first: (cuts, patch). A cut fits where its
     landing (cut + 40 nm along the strip) lies inside the pin's M1, whatever the pin's outline;
-    pins narrower than a cut get a patch; plates wider than 300 nm take two cuts."""
+    pins narrower than a cut get a patch; plates wider than 300 nm take two cuts. ``local``: a
+    plate is wide where the metal around the cut is (a square WIDE across), not where its band
+    along the track is (a thin column joined to a long bar is no plate)."""
     out = []
     for hw, hh in LANDINGS:
         band = (own & kdb.Region(kdb.Box(-(10**6), y - hh, 10**6, y + hh))).merged()
@@ -142,6 +145,9 @@ def candidates(y, own: kdb.Region, other: kdb.Region):
             piece = own.interacting(kdb.Region(b)).bbox()  # across: the M1's width is its smaller side
             wide = WIDE is not None and (b.width() if hh == BAR_END else min(piece.width(), piece.height())) > WIDE
             for xc in [centre] + [x for x in range(b.left + hw, b.right - hw + 1, 10) if x != centre]:
+                if local and WIDE is not None:
+                    square = kdb.Box(xc - WIDE // 2, y - WIDE // 2, xc + WIDE // 2, y + WIDE // 2)
+                    wide = (kdb.Region(square) - own).is_empty()
                 half = V1_PAIR // 2 + hw if wide else hw
                 need = kdb.Box(xc - half, y - hh, xc + half, y + hh)
                 if (kdb.Region(need) - own).is_empty():
@@ -343,6 +349,18 @@ def _options(pin, pins, m1, padded, off, patches=False, m2=None, direct=None):
                     out.append((y, cuts, patch, *got))
         if out and not patches:
             break
+    if not out:  # no access at all: a wide plate where the metal around the cut is (``candidates``)
+        for y in TRACKS:
+            for cuts, patch in candidates(y, own, other, local=True):
+                got = _bar([x + off for x, _ in cuts], y, padded)
+                obstacle = (m2 or {}).get(pin)
+                if got and obstacle is not None and not obstacle.is_empty():
+                    got = next(
+                        (g for g in (got, *_sides(got, [x + off for x, _ in cuts], padded)) if _off_m2(g, obstacle)),
+                        None,
+                    )
+                if got:
+                    out.append((y, cuts, patch, *got))
     # accesses without a pad first: a pad reaches across the neighbouring tracks, which a router
     # that books only along its tracks (ALIGN) does not see
     return sorted(out, key=lambda o: o[4] is not None)
@@ -423,16 +441,20 @@ def _bar(xs: list[int], y: int, width: int):
     return [lo, y - M2_HW, hi, y + M2_HW], pad
 
 
-def write_access(pdk: str) -> Path:
+def write_access(pdk: str, cells: tuple[str, ...] = ()) -> Path:
     """Write the access points of ``pdk``'s standard cells (this process is bound to it) to
-    ``paths.ACCESS_JSON`` and return that path."""
+    ``paths.ACCESS_JSON`` and return that path: its row cells (``STD_CELLS``) and ``cells``, any
+    other of its library's a netlist names. A cell the file already holds keeps its entry (and its
+    place: the order indexes the cells through ALIGN); the file is replaced whole."""
 
     gds = kdb.Layout()
     gds.read(str(STD_GDS))
     lef = STD_LEF.read_text()
     spice = STD_SPICE.read_text()
-    data = {}
-    for cell in STD_CELLS:
+    data = json.loads(ACCESS_JSON.read_text()) if ACCESS_JSON.exists() else {}
+    for cell in dict.fromkeys((*STD_CELLS, *cells)):
+        if cell in data or gds.cell(cell) is None:  # known, or no library cell (a netlist's own subcircuit)
+            continue
         pins = subckt_pins(spice, cell)
         if any(p not in STD_SUPPLY for p in pins):
             data[cell] = access(gds, lef, cell, pins)
@@ -449,7 +471,9 @@ def write_access(pdk: str) -> Path:
             }
     out = ACCESS_JSON
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(data, indent=1) + "\n")
+    temporary = out.with_name(f".{out.name}.{os.getpid()}")
+    temporary.write_text(json.dumps(data, indent=1) + "\n")
+    temporary.replace(out)  # readers see the old file or the new one, never part of one
     for cell, d in data.items():
         print(cell, d["width"], d["padded"], {p: (a["cuts"], a["patch"] is not None) for p, a in d["access"].items()})
     print(f"{pdk}: wrote {out}")

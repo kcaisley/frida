@@ -46,7 +46,6 @@ from tech import (
     M3W,
     MFG_GRID,
     PIN_TEXT,
-    STD_CELLS,
     STD_FILL,
     V1,
     V1_PAIR,
@@ -56,10 +55,13 @@ from tech import (
 
 GRID = MFG_GRID
 BND = LAYERS["BND"]
-STD = re.compile(rf"^({'|'.join(re.escape(c) for c in STD_CELLS if c != STD_FILL)})(_\d+)*$", re.IGNORECASE)
-LIB_NAME = {c.upper(): c for c in STD_CELLS}  # ALIGN upper-cases cell names: back to the library's
-LIB = str(STD_GDS)
 ACCESS = json.loads(ACCESS_JSON.read_text())
+# the library cells ALIGN placed as abstracts: every cell with access points (the row cells and
+# any other a netlist named), longest name first so no name matches as another's prefix
+CELLS = sorted((c for c in ACCESS if c != STD_FILL), key=len, reverse=True)
+STD = re.compile(rf"^({'|'.join(re.escape(c) for c in CELLS)})(_\d+)*$", re.IGNORECASE)
+LIB_NAME = {c.upper(): c for c in ACCESS}  # ALIGN upper-cases cell names: back to the library's
+LIB = str(STD_GDS)
 
 
 def insert_stdcells(layout: kdb.Layout, lib_path: str) -> int:

@@ -57,7 +57,8 @@ def build(
     (``<name>``: given, else the floorplan's, else the netlist's). ALIGN's work directory,
     ``out_dir/<name>``, keeps its placement and constraints."""
 
-    access_points(pdk)
+    # the library cells the netlist names, its own subcircuits' names among them (none of the library's)
+    access_points(pdk, sorted({line.split()[-1] for line in netlist.read_text().splitlines() if line[:1] in "Xx"}))
     name = name or (floorplan.stem if floorplan else netlist.stem)
     # ALIGN imports the PDK directory as a package named after it: the generated one is called pdk
     pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, out_dir / "pdk")
