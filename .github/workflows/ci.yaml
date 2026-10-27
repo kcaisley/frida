@@ -67,32 +67,11 @@ jobs:
         run: >-
           uv run ty check
           flow/adc/subckt.py
-          flow/cdac/params.py
-          flow/cdac/subckt.py
-          flow/cdac/sim.py
-          flow/cdac/types.py
-          flow/cdac/analysis.py
-          flow/cdac/plots.py
-          flow/cdac/sweep.py
-          flow/comp/params.py
-          flow/comp/subckt.py
-          flow/comp/sim.py
-          flow/comp/types.py
-          flow/comp/analysis.py
-          flow/comp/plots.py
-          flow/comp/sweep.py
-          flow/comp/opt.py
           flow/opt/runner.py
           flow/pipeline.py
           flow/plot.py
-          flow/samp/params.py
-          flow/samp/subckt.py
-          flow/samp/sim.py
-          flow/samp/types.py
-          flow/samp/analysis.py
-          flow/samp/plots.py
-          flow/samp/sweep.py
           flow/scans/plldrp.py
+          $(uv run python -c "from flow.test_pipeline import typed; print(*typed())")
 
   ruff:
     name: Ruff
@@ -156,7 +135,7 @@ jobs:
           flow/adc/test_subckt.py
           flow/comp/test_subckt.py
           flow/comp/test_layout.py
-          flow/comp/test_netlists.py
+          flow/test_netlists.py
           flow/opt/test_runner.py
           flow/layout/test_floorplan.py
           flow/layout/test_lint.py

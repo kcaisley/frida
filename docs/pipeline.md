@@ -45,12 +45,13 @@ python -m flow opt <block> --problem P [--pdk P] [--budget N] [--workers N] [--b
 
 ## Checks
 
-Pre-commit and CI hold a migrated block to this:
+Pre-commit and CI hold a migrated block to this. A migrated block is every block with a `sweep.py`, a new one too, unless `NOT_MIGRATED` in `flow/test_pipeline.py` names it (that list only shrinks), and no check names a block: each finds the migrated ones itself.
 
 - [`flow/test_pipeline.py`](../flow/test_pipeline.py): the stage files, the public names each defines, their signatures, no nested functions, in `types.py`, `analysis.py` and `plots.py` no private helpers and no file I/O, `sweep.py` only families, named instances, `runs` and `record`, no `targets.py`, and no run and no path under `build/` named in the block's code. Its known-violations list only shrinks.
-- import-linter (`[tool.importlinter]` in `pyproject.toml`): the stage order, and that `flow.pipeline` imports no block.
+- import-linter (`[tool.importlinter]` in `pyproject.toml`): one contract orders every migrated block's stages (`model.py`, `opt.py` and `layout.py` optional in it; `flow/test_pipeline.py` holds its containers to the migrated blocks), and `flow.pipeline` imports no block.
 - Ruff ICN003: outside the block, `from flow import comp` and `comp.Params`, never `from flow.comp import Params`; inside it the stages import each other relatively.
-- ty on the base module and the block's stage files.
+- ty on the base module and every migrated block's stage files and `opt.py` (`typed()` in `flow/test_pipeline.py` lists them for CI).
+- [`flow/test_netlists.py`](../flow/test_netlists.py): a block that records its netlists (`flow/<block>/netlists.json`, `uv run python -m flow.test_netlists <block>`) makes the same circuits for every instance its code makes (its design space, every combination of its searched choices, every value of each enumeration it holds), before any PDK compile and, in each installed PDK, after it; a block without a record is skipped.
 - A block with an `opt.py` (`flow/test_pipeline.py`): its `Params` declares domains, every combination of its choices is valid, its design space lies inside the domains, a knob whose `when` is false leaves the circuit unchanged, its metrics are typed, and its problems name metrics and bound only those with a direction.
 
 ## Optimizing a block

@@ -1,10 +1,12 @@
-"""The pipeline contract (docs/pipeline.md), checked on every block that follows it (``MIGRATED``):
-its stage files, the names each may define, their signatures, and that its pure stages hold no
-helpers and do no file I/O. Reads no data and runs no simulator: a pre-commit hook and CI run it.
+"""The pipeline contract (docs/pipeline.md), checked on every block that follows it (``MIGRATED``:
+every block with a sweep, a new one too, unless ``NOT_MIGRATED`` names it): its stage files, the
+names each may define, their signatures, and that its pure stages hold no helpers and do no file
+I/O. Reads no data and runs no simulator: a pre-commit hook and CI run it.
 
 The import order of the stages is checked by import-linter (``[tool.importlinter]`` in
-pyproject.toml), ``from flow.<block> import ...`` outside a block by Ruff (ICN003).
-``KNOWN_VIOLATIONS`` may only shrink.
+pyproject.toml: one contract over every migrated block, held to them here), ``from flow.<block>
+import ...`` outside a block by Ruff (ICN003), the stages' types by ty over ``typed()`` (CI), their
+netlists by ``flow/test_netlists.py``. ``KNOWN_VIOLATIONS`` and ``NOT_MIGRATED`` may only shrink.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import importlib.util
 import inspect
 import itertools
 import re
+import tomllib
 import types
 import typing
 from collections.abc import Sequence
@@ -26,8 +29,16 @@ import hdl21 as h
 import pytest
 
 from flow import pipeline
+from flow.sweep.runner import sweep_blocks
 
-MIGRATED = ("comp", "samp", "cdac")
+ROOT = Path(__file__).resolve().parents[1]
+# The blocks not on the pipeline yet; every other block with a sweep follows it, a new one too.
+# Entries may be removed (a block migrated), never added.
+NOT_MIGRATED = (
+    *("adc", "bias", "caparray", "capdriver", "clkgen", "cml", "csa", "delay", "disc", "follower"),
+    *("idac", "latch", "lvshift", "moscap", "mosfet", "ota", "pi", "ringamp", "schmitt"),
+)
+MIGRATED = tuple(block for block in sweep_blocks() if block not in NOT_MIGRATED)
 STAGES = ("params", "subckt", "sim", "types", "analysis", "plots", "sweep")
 PURE = ("types", "analysis", "plots")  # no helpers, no file I/O
 # Known violations, as "<block>.<stage>: <problem>"; entries may be removed, never added.
@@ -355,6 +366,30 @@ def _optimizable(block: str, Params, stage: dict) -> set[str]:
             if first != second:
                 problem("subckt", f"{name} changes the circuit where its domain's when is false")
     return problems
+
+
+def typed() -> list[str]:
+    """The files ty checks for the pipeline (CI): every migrated block's stages and its opt.py."""
+    return [
+        f"flow/{block}/{stage}.py"
+        for block in MIGRATED
+        for stage in (*STAGES, "opt")
+        if (ROOT / "flow" / block / f"{stage}.py").is_file()
+    ]
+
+
+def test_the_blocks_not_migrated_are_blocks() -> None:
+    """Every name ``NOT_MIGRATED`` gives is a block with a sweep: one migrated or gone leaves it."""
+    assert set(NOT_MIGRATED) <= set(sweep_blocks())
+
+
+def test_one_import_contract_orders_every_migrated_block() -> None:
+    """import-linter's layers contract covers exactly the migrated blocks, a block's own files
+    (model.py, opt.py, layout.py) optional in it."""
+    contracts = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["importlinter"]["contracts"]
+    layers = [contract for contract in contracts if contract["type"] == "layers"]
+    assert len(layers) == 1
+    assert sorted(layers[0]["containers"]) == sorted(f"flow.{block}" for block in MIGRATED)
 
 
 @pytest.mark.parametrize("block", MIGRATED)
