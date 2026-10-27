@@ -11,6 +11,7 @@ const SUFFIXES = [
     ["_v_per_v", "V/V", false],
     ["_v_per_c", "V/C", true],
     ["_v_rthz", "V/√Hz", true],
+    ["_j_um2", "J·µm²", true],
     ["_db_ohm", "dBΩ", false],
     ["_dbfs", "dBFS", false],
     ["_db", "dB", false],

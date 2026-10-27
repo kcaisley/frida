@@ -251,10 +251,11 @@ class Level(Enum):
 
 @dataclass(frozen=True)
 class Problem:
-    """What an optimization of a block minimizes and what it must meet, by metric name: ``cost``, each
-    a weight (the term w log(metric)) or a weight and a scale (w log(1 + (metric / scale)^2), which
-    saturates below the scale); ``bound``, each a limit on the side its metric's ``better`` names (a
-    flag: True, it must hold); ``fixed``, parameters held for this problem instead of searched."""
+    """What an optimization of a block minimizes and what it must meet, by metric name: ``cost``, a
+    product of factors, each a weight (the factor metric^w, in the metric's unit) or a weight and a
+    scale (the factor (1 + (metric / scale)^2)^w, without unit, which stays near 1 below the scale);
+    ``bound``, each a limit on the side its metric's ``better`` names (a flag: True, it must hold);
+    ``fixed``, parameters held for this problem instead of searched."""
 
     cost: Mapping[str, float | tuple[float, float]]
     bound: Mapping[str, float | bool]
@@ -296,8 +297,10 @@ def problems(opt: Any, pdk: str) -> dict[str, Problem]:
 
 
 def objective(problem: Problem, metrics: Mapping[str, Any]) -> float:
-    """The problem's cost of an instance's metrics: the sum of its terms, each term of a metric not
-    measured (absent, None) or not a positive number left out (its bound, if any, says so)."""
+    """The problem's cost of an instance's metrics, in its factors' units (a comparator's J um^2):
+    the product of its factors, each factor of a metric not measured (absent, None) or not a positive
+    number left out (its bound, if any, says so). Summed as logs, so that no factor under- or
+    overflows on its way."""
     total = 0.0
     for name, weight in problem.cost.items():
         value = metrics.get(name)
@@ -307,7 +310,16 @@ def objective(problem: Problem, metrics: Mapping[str, Any]) -> float:
             total += weight[0] * float(np.log1p((float(value) / weight[1]) ** 2))
         else:
             total += weight * float(np.log(float(value)))
-    return total
+    return float(np.exp(total))
+
+
+def cost_unit(problem: Problem) -> str:
+    """The unit of the problem's cost as a metric name's suffix (``j_um2``): each plain factor's metric
+    unit (its name's last word), where every such factor has the weight 1; else none."""
+    plain = {name: weight for name, weight in problem.cost.items() if not isinstance(weight, tuple)}
+    if any(weight != 1 for weight in plain.values()):
+        return ""
+    return "_".join(name.rsplit("_", 1)[-1] for name in plain)
 
 
 def violations(problem: Problem, metrics: Mapping[str, Any], better: Mapping[str, Better]) -> dict[str, float]:

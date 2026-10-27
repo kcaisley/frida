@@ -51,9 +51,8 @@ ALIGN_TIMEOUT_S = 600
 # the largest share of a layout its devices' gates cover: at most 0.24 over the 714 comparator layouts
 # of the sweeps (2026-10-26), so a design whose gates over it exceed the area bound cannot meet it
 DENSITY = 0.25
-# the objective of a design that misses a bound, plus its violations: above any cost that meets them
-# (a cost is a sum of logs, -30 to +10 for a comparator)
-INFEASIBLE = 100.0
+# the objective of a design that misses a bound: no cost, above any design that meets them
+INFEASIBLE = math.inf
 
 
 def study_dir(block: str, pdk: str) -> Path:
@@ -239,14 +238,12 @@ def score(
     problem: pipeline.Problem, record: dict[str, Any], better: dict[str, pipeline.Better]
 ) -> tuple[float, dict[str, float]]:
     """A record's objective and constraints under ``problem``. A design that misses a bound (an
-    invalid one misses every bound) scores INFEASIBLE plus its violations, above every design that
-    meets them: its cost alone leaves out what it was never measured on (a comparator that never
-    decides costs only its tiny energy), and a tool that ranks by the objective alone (Optuna
-    Dashboard's best trial) would take it for the best. The sampler ranks infeasible trials by their
-    violations, whatever their objective."""
+    invalid one misses every bound) scores INFEASIBLE, above every design that meets them: its cost
+    alone leaves out what it was never measured on (a comparator that never decides costs only its
+    tiny energy), and a tool that ranks by the objective alone would take it for the best. The
+    sampler ranks infeasible trials by their violations, whatever their objective."""
     if not record["valid"]:
-        violations = {name: 1.0 for name in problem.bound}
-        return INFEASIBLE + sum(violations.values()), violations
+        return INFEASIBLE, {name: 1.0 for name in problem.bound}
     metrics = measured(record)
     value = pipeline.objective(problem, metrics)
     violations = pipeline.violations(problem, metrics, better)
@@ -255,9 +252,8 @@ def score(
     for name in record.get("estimated", ()):
         if name in violations:
             violations[name] = 1.0 + max(violations[name], 0.0)
-    broken = sum(v for v in violations.values() if v > 0)
-    if broken > 0:
-        return INFEASIBLE + broken, violations
+    if any(v > 0 for v in violations.values()):
+        return INFEASIBLE, violations
     return value, violations
 
 
@@ -403,7 +399,7 @@ def _line(number: int, params: Any, record: dict[str, Any], value: float, constr
     feasible = record["valid"] and all(v <= 0 for v in constraints.values())
     fmt = lambda key, scale, unit: f"{m[key] * scale:.3g}{unit}" if isinstance(m.get(key), (int, float)) else "-"
     return (
-        f"{datetime.now().astimezone():%H:%M:%S} [{number}] {'FEASIBLE' if feasible else 'infeasible'} cost={value:.3f} "
+        f"{datetime.now().astimezone():%H:%M:%S} [{number}] {'FEASIBLE' if feasible else 'infeasible'} cost={value:.4g} "
         f"{getattr(params, 'latch', '')} E={fmt('energy_0p5mv_j', 1e15, 'fJ')} A={fmt('layout_area_um2', 1, 'um2')} "
         f"noise={fmt('noise_v', 1e6, 'uV')} delay={fmt('delay_0p5mv_s', 1e9, 'ns')} "
         f"level={record['level']}{' cached' if record.get('cached') else ''} {record.get('seconds', 0)}s"
@@ -480,6 +476,7 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
         if trial.state == optuna.trial.TrialState.COMPLETE and "id" in trial.user_attrs:
             first.setdefault(trial.user_attrs["id"], trial.number)
     name = f"{block}.{re.sub(r'\w+=', '', label)}"
+    cost = "_".join(filter(None, ["cost", pipeline.cost_unit(problem)]))  # its unit for the viewer
     rows, records = [], {}
     for ident, number in first.items():
         folder = study_dir(block, pdk) / "evals" / ident
@@ -500,7 +497,7 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
                     "simulated": pipeline.Level(level).name.lower() if level else "no",
                     **record["params"],
                 },
-                "metrics": {"cost": None if missed else value, **metrics},
+                "metrics": {cost: None if missed else value, **metrics},
                 "error": ((record.get("error") or "").strip().splitlines() or [None])[-1],
                 "seconds": record.get("seconds"),
             }
@@ -545,7 +542,7 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
     for row in rows:
         row["params"] = {key: row["params"].get(key) for key in params}
     every = {key for row in rows for key in row["metrics"]}
-    metrics = [key for key in dict.fromkeys(["cost", *problem.cost, *problem.bound, *sorted(every)]) if key in every]
+    metrics = [key for key in dict.fromkeys([cost, *problem.cost, *problem.bound, *sorted(every)]) if key in every]
     feasible = sum(1 for row in rows if row["params"]["feasible"])
     title = f"{BLOCKS.get(block, block)}, {label} in {pdk}"
     run = f"{len(study.trials)} trials, {len(rows)} designs, {feasible} feasible"
@@ -557,8 +554,8 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
         "metrics": metrics,
         "rows": rows,
         # on first view: the cheapest design first, the cost against the trial (the search's progress)
-        "sort": {"key": "m:cost", "dir": "asc"},
-        "axes": {"x": "p:trial", "y": "m:cost"},
+        "sort": {"key": f"m:{cost}", "dir": "asc"},
+        "axes": {"x": "p:trial", "y": f"m:{cost}"},
     }
     path = DATA_DIR / f"{name}.json"
     path.write_text(json.dumps(_json(data), separators=(",", ":")))

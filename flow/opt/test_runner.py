@@ -42,7 +42,9 @@ def test_a_record_scores_by_the_problems_costs_and_bounds() -> None:
     better = runner.betters("comp")
     metrics = {"energy_0p5mv_j": 1e-13, "layout_area_um2": 300.0, "noise_v": 80e-6, "decides_in_time": True}
     value, violations = runner.score(PROBLEM, {"valid": True, "metrics": metrics}, better)
-    assert value == pytest.approx(math.log(1e-13) + math.log(300.0) + 6.0 * math.log1p(0.64))
+    # the product of the factors, in J um^2: 0.1 pJ x 300 um^2 x (1 + 0.8^2)^6
+    assert value == pytest.approx(1e-13 * 300.0 * 1.64**6)
+    assert pipeline.cost_unit(PROBLEM) == "j_um2"
     assert all(v <= 0 for v in violations.values())
     # not measured (the screen stopped first): no term, no violation; measured but not a number: violated
     _, screened = runner.score(PROBLEM, {"valid": True, "metrics": {**metrics, "noise_v": None}}, better)
@@ -55,7 +57,7 @@ def test_a_record_scores_by_the_problems_costs_and_bounds() -> None:
     # one that meets every bound, for a tool ranking by the objective alone
     broken = {"energy_0p5mv_j": 1e-15, "layout_area_um2": 100.0, "noise_v": None, "decides_in_time": False}
     broken_value, _ = runner.score(PROBLEM, {"valid": True, "metrics": broken}, better)
-    assert broken_value == late_value == runner.INFEASIBLE + 1.0 and broken_value > value
+    assert broken_value == late_value == runner.INFEASIBLE and broken_value > value
     # an area without a floorplan stays unmeasurable through the record's JSON (NaN written as null)
     stored = {"valid": True, "metrics": {**metrics, "layout_area_um2": None}, "unmeasurable": ["layout_area_um2"]}
     assert runner.unmeasurable({**metrics, "layout_area_um2": math.nan}) == ["layout_area_um2"]
@@ -65,6 +67,6 @@ def test_a_record_scores_by_the_problems_costs_and_bounds() -> None:
     assert runner.score(PROBLEM, gated, better)[1]["layout_area_um2"] == pytest.approx(1 + math.log(401 / 400))
     # a design the block does not admit: every bound violated, without metrics
     assert runner.score(PROBLEM, {"valid": False, "metrics": {}}, better) == (
-        runner.INFEASIBLE + len(PROBLEM.bound),
+        runner.INFEASIBLE,
         dict.fromkeys(PROBLEM.bound, 1.0),
     )
