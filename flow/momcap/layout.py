@@ -1,10 +1,11 @@
-"""Fringe MOM capacitor test structures, drawn by the stems engine from a PDK's rules.
+"""Fringe MOM capacitor test structures, drawn by ALIGN from a PDK's rules.
 
 ``MomUnit`` names a unit family (PDK, style, layer count); ``MomGeometry`` is its process
-dimensions, which the stems capacitor cells (``flow/layout/stems/capcell.py``) derive from
-``pdk.<tech>.layout.tech`` (``RULES``, ``MFG_GRID``, ``MOM_LAYERS``): the minimum finger width, the
-spacing it needs, the line-end gap, and the via between stacked plates. ``mom_unit_layout`` draws
-one test structure at a plate length and spacing: the same plates on the top ``layers`` of
+dimensions, which ``flow/layout/stems/capcell.py`` derives from ``pdk.<tech>.layout.tech``
+(``RULES``, ``MFG_GRID``, ``MOM_LAYERS``): the minimum finger width, the spacing it needs, the
+line-end gap, and the via between stacked plates. ``mom_unit_layout`` draws one test structure at a
+plate length and spacing with the PDK's ALIGN generator (``MomUnit`` in
+``flow/layout/align/pdk/mom.py``, on cell_fabric grids): the same plates on the top ``layers`` of
 ``MOM_LAYERS``, the plates of one terminal joined through a column of single vias at their
 terminal end, over a shield plate on the metal below, every terminal a labelled pin. The labels
 are what a layout-only extraction (``flow.layout.signoff.run_layout_pex``) names its nets by.
@@ -18,7 +19,8 @@ from pathlib import Path
 
 from klayout import db
 
-from flow.layout.pdkproc import in_pdk
+from flow.layout.align.run import draw
+from flow.layout.pdkproc import in_pdk, pdk_value
 from flow.momcap.subckt import MomStyle
 
 
@@ -77,24 +79,29 @@ def mom_geometry(unit: MomUnit, space_nm: int = 0) -> MomGeometry:
 
 
 def mom_unit_layout(params: MomTestParams, top_cell: str) -> db.Layout:
-    """Draw one test structure (``capcell.mom_unit``): its plates on every stacked metal, joined
-    by vias, over its shield, labelled."""
+    """Draw one test structure with the PDK's ALIGN generator (``MomUnit``): its plates on every
+    stacked metal, joined by vias, over its shield, labelled; ALIGN's abstract layers and pin
+    purpose left out, as its layouts' post step leaves them out (``flow/layout/align/post.py``)."""
 
     unit = params.unit
+    pdk = unit.technology
+    hold = mom_geometry(unit, params.space_nm).min_length
+    if params.length_nm < hold or (unit.style == MomStyle.DIFFERENCE and params.diff_length_nm < hold):
+        raise ValueError(f"plates shorter than {hold} nm cannot hold their vias")
+    arguments = {
+        "style": unit.style.name.lower(),
+        "layers": unit.layers,
+        "length": params.length_nm,
+        "diff_length": params.diff_length_nm,
+        "space": params.space_nm,
+    }
     with tempfile.TemporaryDirectory() as scratch:
-        path = str(Path(scratch) / f"{top_cell}.gds")
-        in_pdk(
-            unit.technology,
-            "capcell",
-            "mom_unit_gds",
-            path,
-            unit.style.name.lower(),
-            unit.layers,
-            params.length_nm,
-            params.diff_length_nm,
-            params.space_nm,
-            top_cell,
-        )
+        pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, Path(scratch) / "pdk")
+        gds = draw(pdk_dir, "MomUnit", "unit", arguments, Path(scratch) / f"{top_cell}.gds", top_cell)
         layout = db.Layout()
-        layout.read(path)
+        layout.read(str(gds))
+    drawn = set(pdk_value(pdk, "tech", "LAYERS").values())
+    for info in list(layout.layer_infos()):
+        if (info.layer == 255 and (info.layer, info.datatype) not in drawn) or info.datatype in (251, 253):
+            layout.delete_layer(layout.layer(info))
     return layout

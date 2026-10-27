@@ -4,11 +4,9 @@ The same cell model as the row cells (``rowcell.Cell`` of ``Rect``), in integer 
 capacitors are drawn by the engine the ALIGN flow draws its transistor cells with. The values come from the PDK's ``tech`` (``RULES``, ``LAYERS``, ``MFG_GRID``,
 ``MOM_LAYERS``), read when a function is called; a PDK names no capacitor device. Two families:
 
-- test structures (``mom_geometry``, ``mom_unit``): the three FMOM styles, ``difference`` (a ring
-  around a main and a difference finger in line), ``ring`` (a ring around one finger) and
-  ``strip`` (two open-ended strips), on the top 1-3 ``MOM_LAYERS``, the plates of a terminal joined
-  by one via per metal at its terminal end, over a solid shield plate on the metal below, every
-  terminal a pin. Their extraction (``flow.momcap``) gives the PDK's capacitance model;
+- test structures (``mom_geometry``): the dimensions of the three FMOM styles on the top 1-3
+  ``MOM_LAYERS``, which ALIGN's ``MomUnit`` generator draws (``flow/layout/align/pdk/mom.py``).
+  Their extraction (``flow.momcap``) gives the PDK's capacitance model;
 - the CDAC (``difference_geometry``, ``difference_unit``, ``caparray_cells``): difference units of
   a weight family over a shield mesh, with two-cut access landings down to the route metal, side
   by side sharing their ring walls, and the array's buses, top-plate stack and shield taps.
@@ -106,81 +104,6 @@ def mom_geometry(layers: int, space: int = 0) -> dict:
         # a finger holds its via column at the end
         "min_length": _snap(max(width, via_cut + 2 * via_end), grid),
     }
-
-
-def mom_unit(style: str, layers: int, length: int, diff_length: int = 0, space: int = 0, name: str = "momunit") -> Cell:
-    """One test structure: its plates on every stacked metal, joined by vias, over its shield.
-
-    ``length`` is the inner finger's (``ring``), the main finger's (``difference``) or the
-    strips' (``strip``); ``diff_length`` the difference finger's; ``space`` the plates' spacing
-    (0: the minimum). The shield passes the unit by a spacing on every side.
-    """
-
-    g = mom_geometry(layers, space)
-    w, s, e, hold = g["width"], g["space"], g["end_gap"], g["min_length"]
-    if length < hold or (style == "difference" and diff_length < hold):
-        raise ValueError(f"plates shorter than {hold} nm cannot hold their vias")
-    # plates as (terminal, box (x0, y0, x1, y1), via centre (x, y) or None)
-    if style == "strip":
-        plates = [
-            ("A", (0, 0, w, length), (w // 2, length - hold // 2)),
-            ("B", (w + s, 0, 2 * w + s, length), (w + s + w // 2, hold // 2)),
-        ]
-    elif style in ("ring", "difference"):
-        # the inner fingers' span: a line-end gap at each end of it and between two fingers
-        height = length + diff_length + 3 * e + 2 * w if style == "difference" else length + 2 * e + 2 * w
-        x0, outer = w + s, 3 * w + 2 * s
-        plates = [
-            ("TOP", (0, 0, w, height), (w // 2, height // 2)),
-            ("TOP", (0, height - w, outer, height), None),
-            ("TOP", (2 * w + 2 * s, 0, outer, height), None),
-            ("TOP", (0, 0, outer, w), None),
-            (
-                "MAIN" if style == "difference" else "INNER",
-                (x0, w + e, x0 + w, w + e + length),
-                (x0 + w // 2, w + e + hold // 2),
-            ),
-        ]
-        if style == "difference":
-            top = height - w - e
-            plates.append(("DIFF", (x0, top - diff_length, x0 + w, top), (x0 + w // 2, top - hold // 2)))
-    else:
-        raise ValueError(f"unknown FMOM style {style!r}")
-    cell = Cell(name, 0)
-    for metal in g["metals"]:
-        for terminal, box, _via in plates:
-            cell.add(f"M{metal}", *box, terminal)
-    half = g["via_cut"] // 2
-    for metal in g["metals"][:-1]:
-        for terminal, _box, via in plates:
-            if via is not None:
-                cell.add(f"V{metal}", via[0] - half, via[1] - half, via[0] + half, via[1] + half, terminal)
-    pin = f"M{g['metals'][-1]}.PIN"
-    for terminal, _box, via in plates:
-        if via is not None:
-            cell.add(pin, via[0] - half, via[1] - half, via[0] + half, via[1] + half, terminal, "pin")
-    x1 = max(r.x1 for r in cell.rects)
-    y1 = max(r.y1 for r in cell.rects)
-    cell.add(f"M{g['shield']}", -s, -s, x1 + s, y1 + s, "SHIELD")
-    # the shield's pin in its margin, below the unit's corner
-    corner, half = -(s // 2), max(g["grid"], s // 4)
-    cell.add(f"M{g['shield']}.PIN", corner - half, corner - half, corner + half, corner + half, "SHIELD", "pin")
-    cell.width = x1
-    return cell
-
-
-def mom_unit_gds(
-    path: str, style: str, layers: int, length: int, diff_length: int = 0, space: int = 0, name: str = "momunit"
-) -> str:
-    """Write one test structure (top cell ``name``) to a GDS file."""
-
-    from klayout import db as kdb
-
-    layout = kdb.Layout()
-    layout.dbu = tech.DBU
-    to_klayout(mom_unit(style, layers, length, diff_length, space, name), layout, kdb)
-    layout.write(path)
-    return path
 
 
 # ---------------------------------------------------------------------------------------------

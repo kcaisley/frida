@@ -10,10 +10,12 @@ generators in the PDK directory (align/pdk) then draw standard cells for rows of
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
 from pathlib import Path
+from typing import Any
 
 ALIGN_HOME = Path(os.environ.get("ALIGN_HOME", "/local/kcaisley/tools/ALIGN-public"))
 
@@ -89,3 +91,39 @@ def run_align(
     args = [*(["--router", router] if router else []), *(["--flow_stop", flow_stop] if flow_stop else [])]
     _schematic2layout(design_dir, pdk_dir, work, args, env)
     return work
+
+
+def draw(pdk_dir: Path, generator: str, method: str, arguments: dict[str, Any], gds: Path, top: str) -> Path:
+    """Draw one generator of the generated ALIGN PDK ``pdk_dir`` (``make_pdk.py``) to ``gds`` as the
+    top cell ``top``, in ALIGN's own Python (``draw.py``): ``<generator>().<method>(**arguments)``.
+    ALIGN's abstract layers and pin purpose stay in the file, as ALIGN writes them (``post.py``'s
+    rule, ``abstract``, says which they are)."""
+
+    gds.parent.mkdir(parents=True, exist_ok=True)
+    spec = gds.with_suffix(".draw.json")
+    spec.write_text(
+        json.dumps(
+            {
+                "pdk_dir": str(pdk_dir.resolve()),
+                "generator": generator,
+                "method": method,
+                "arguments": arguments,
+                "gds": str(gds.resolve()),
+                "top": top,
+            }
+        )
+    )
+    lib = next((ALIGN_HOME / "_skbuild").rglob("libOsiCbc.so.3"), None)
+    env = dict(os.environ)
+    if lib is not None:
+        env["LD_LIBRARY_PATH"] = os.pathsep.join(filter(None, (str(lib.parent), env.get("LD_LIBRARY_PATH"))))
+    result = subprocess.run(
+        [str(ALIGN_HOME / "general/bin/python"), str(Path(__file__).with_name("draw.py")), str(spec)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    if result.returncode or not gds.is_file():
+        raise RuntimeError(f"ALIGN could not draw {generator}.{method}({arguments}): {result.stderr[-1500:]}")
+    return gds

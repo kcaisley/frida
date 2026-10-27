@@ -94,6 +94,8 @@ def build(pdk: str, out: Path) -> Path:
             (a["GdsLayerNo"], a["GdsDatatype"]["Draw"]) = gds(names[name])
         elif name in ("M4", "M5", "M6", "M7", "M8", "M9", "V3", "V4", "V5", "V6", "V7", "V8"):
             (a["GdsLayerNo"], a["GdsDatatype"]["Draw"]) = gds(name)  # unused above M3: abstract
+            if f"{name}.PIN" in t.LAYERS:  # a metal's labels (the MOM units' terminals) on its pin layer
+                a["LabelLayerNo"] = [list(t.LAYERS[f"{name}.PIN"])]
             rule = t.RULES.get(name, {})
             if "pitch" in rule:  # a metal: the PDK's pitch, width and space
                 a.update(Pitch=rule["pitch"], Width=rule["width"], EndToEnd=rule["space"])
