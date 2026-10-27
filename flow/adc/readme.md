@@ -73,6 +73,11 @@ bits and 1.5 at 12, and calibration brings every array within 0.7 bit of its nom
 within 0.3). At 14 bits the switch costs 3.3 bits into the 5.7 pF array, so the nominal ENOB is
 9.6–10.6 whatever the array or comparator: IHP130 and TPSC65 need a wider sampler at 14 bits.
 
+Tower180, run 20261027_131105 (305 converters, 12 min): the design weights lose the most of any PDK,
+0.1–1.0 bit at 10 bits, 0.7–3.3 at 12 and 0.8–2.9 at 14 (its arrays' INL with them reaches 16 LSB),
+and calibration brings every array within 0.3 bit of its nominal ENOB (12.5–12.9 at 14 bits, the
+switch costing 0.3–0.5 bit there).
+
 ## Redundancy schemes
 
 An array's extra conversion cycles never add capacitance: each scheme redistributes the binary
