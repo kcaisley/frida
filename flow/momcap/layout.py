@@ -19,7 +19,7 @@ from pathlib import Path
 
 from klayout import db
 
-from flow.layout.align.run import draw
+from flow.layout.align.run import Drawing, draw, drawn_only
 from flow.layout.pdkproc import in_pdk, pdk_value
 from flow.momcap.subckt import MomStyle
 
@@ -97,11 +97,8 @@ def mom_unit_layout(params: MomTestParams, top_cell: str) -> db.Layout:
     }
     with tempfile.TemporaryDirectory() as scratch:
         pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, Path(scratch) / "pdk")
-        gds = draw(pdk_dir, "MomUnit", "unit", arguments, Path(scratch) / f"{top_cell}.gds", top_cell)
+        (gds,) = draw(pdk_dir, [Drawing("MomUnit", "unit", arguments, Path(scratch) / f"{top_cell}.gds", top_cell)])
         layout = db.Layout()
         layout.read(str(gds))
-    drawn = set(pdk_value(pdk, "tech", "LAYERS").values())
-    for info in list(layout.layer_infos()):
-        if (info.layer == 255 and (info.layer, info.datatype) not in drawn) or info.datatype in (251, 253):
-            layout.delete_layer(layout.layer(info))
+    drawn_only(layout, set(pdk_value(pdk, "tech", "LAYERS").values()))
     return layout

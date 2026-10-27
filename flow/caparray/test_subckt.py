@@ -1,5 +1,6 @@
 """Software-only tests for the CDAC electrical and physical generators."""
 
+import json
 from dataclasses import asdict, replace
 from itertools import pairwise
 from pathlib import Path
@@ -11,6 +12,7 @@ from hdl21.prefix import f
 from klayout import db
 from pydantic import ValidationError
 
+from flow.layout.align.run import drawn_only
 from flow.layout.pdkproc import in_pdk
 
 from .layout import (
@@ -27,6 +29,7 @@ from .layout import (
     adc_arrays,
     array_name,
     caparray_spec,
+    draw_caparray,
     is_valid_caparray_layout_params,
 )
 from .subckt import (
@@ -108,11 +111,36 @@ def _params(
     )
 
 
+def _synthetic_align(pdk_dir: Path) -> None:
+    """A generated ALIGN PDK on the synthetic PDK's layers: its metals, vias, pin labels, outline
+    and MOM annotations at the synthetic GDS numbers."""
+    layers = _rules().LAYERS
+    path = pdk_dir / "layers.json"
+    base = json.loads(path.read_text())
+    entries = [entry for entry in base["Abstraction"] if not entry["Layer"].startswith("Ann_")]
+    for entry in entries:
+        name = "BND" if entry["Layer"] == "Boundary" else entry["Layer"]
+        if name in layers:
+            entry["GdsLayerNo"], entry["GdsDatatype"]["Draw"] = layers[name]
+            if f"{name}.PIN" in layers:
+                entry["LabelLayerNo"] = [list(layers[f"{name}.PIN"])]
+    entries += [
+        {"Layer": f"Ann_{name}", "GdsLayerNo": ld[0], "GdsDatatype": {"Draw": ld[1]}}
+        for name, ld in layers.items()
+        if name.startswith("MOM_RECOG")
+    ]
+    path.write_text(json.dumps({**base, "Abstraction": entries}))
+
+
 def _generate(tmp_path: Path, params: CapArrayLayoutParams) -> db.Layout:
-    path = str(tmp_path / f"{params.top_cell}.gds")
-    in_pdk("tsmc65", __name__, "synthetic", "caparray_gds", caparray_spec(params), path)
-    layout = db.Layout()
-    layout.read(path)
+    """The array drawn by ALIGN's generators on the synthetic PDK (TSMC65's generated ALIGN PDK,
+    its layers the synthetic ones), as ``CapArrayLayout`` draws a PDK's."""
+    spec = caparray_spec(params)
+    plan = in_pdk("tsmc65", __name__, "synthetic", "caparray_plan", spec)
+    pdk_dir = in_pdk("tsmc65", "flow.layout.align.make_pdk", "build", "tsmc65", tmp_path / "pdk")
+    _synthetic_align(pdk_dir)
+    layout = draw_caparray(pdk_dir, spec, plan, tmp_path)
+    drawn_only(layout, set(_rules().LAYERS.values()))
     return layout
 
 

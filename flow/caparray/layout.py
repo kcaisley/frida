@@ -43,7 +43,8 @@ import numpy as np
 from hdl21.prefix import f
 from klayout import db
 
-from flow.layout.pdkproc import in_pdk
+from flow.layout.align.run import Drawing, draw, drawn_only
+from flow.layout.pdkproc import in_pdk, pdk_value
 from flow.layout.signoff import SignoffParams, run_signoff
 
 from .pex import parse_caparray_pex, write_capacitance_table
@@ -204,7 +205,7 @@ def _ordered_groups(weights: list[int], chunks: list[list[int]]) -> list[tuple[i
 
 
 def caparray_spec(params: CapArrayLayoutParams) -> dict[str, Any]:
-    """The array as the stems capacitor cells take it (``capcell.caparray_cells``): the stack,
+    """The array as its drawing takes it (``capcell.caparray_plan``, ``draw_caparray``): the stack,
     the placed chunk weights left to right (0 an edge dummy), and each stage's buses."""
 
     weights = get_caparray_weights(params.cdac)
@@ -276,15 +277,52 @@ def plate_centroids_um(
 
 
 def CapArrayLayout(params: CapArrayLayoutParams) -> db.Layout:
-    """Build one arbitrary-width, rule-derived unit-length capacitor array (stems ``capcell``)."""
+    """Build one arbitrary-width, rule-derived unit-length capacitor array: its units and its
+    wiring drawn by the PDK's ALIGN generators (``draw_caparray``), its geometry the PDK's
+    (``capcell.caparray_plan``)."""
 
     if not is_valid_caparray_layout_params(params):
         raise ValueError(f"Invalid CDAC layout params: {params}")
+    spec = caparray_spec(params)
+    plan = in_pdk(params.technology, "capcell", "caparray_plan", spec)
     with tempfile.TemporaryDirectory() as scratch:
-        path = str(Path(scratch) / f"{params.top_cell}.gds")
-        in_pdk(params.technology, "capcell", "caparray_gds", caparray_spec(params), path)
-        layout = db.Layout()
-        layout.read(path)
+        pdk_dir = in_pdk(
+            params.technology, "flow.layout.align.make_pdk", "build", params.technology, Path(scratch) / "pdk"
+        )
+        layout = draw_caparray(pdk_dir, spec, plan, Path(scratch))
+    drawn_only(layout, set(pdk_value(params.technology, "tech", "LAYERS").values()))
+    return layout
+
+
+def draw_caparray(pdk_dir: Path, spec: dict[str, Any], plan: dict[str, Any], work: Path) -> db.Layout:
+    """A CDAC drawn by the ALIGN PDK ``pdk_dir`` (``make_pdk.py``): each unit by its
+    ``DifferenceUnit`` generator, the top's wiring by ``ArrayWiring``, the units placed in the top
+    as cells (``plan``: ``capcell.caparray_plan``'s)."""
+
+    stack = {"route": spec["route"], "shield": spec["shield"], "active": list(spec["active"])}
+    geometry = plan["geometry"]
+    drawings = [
+        Drawing(
+            "DifferenceUnit",
+            "unit",
+            {
+                "g": geometry,
+                **stack,
+                **{key: unit[key] for key in ("weight", "tied", "unary_length")},
+                **{key: plan[key] for key in ("strip", "marks")},
+            },
+            work / f"{unit['name']}.gds",
+            unit["name"],
+        )
+        for unit in plan["units"]
+    ]
+    drawings.append(Drawing("ArrayWiring", "wiring", {"g": geometry, "spec": spec}, work / "top.gds", spec["top"]))
+    layout = db.Layout()
+    for path in draw(pdk_dir, drawings):
+        layout.read(str(path))
+    top = layout.cell(spec["top"])
+    for name, x in plan["placements"]:
+        top.insert(db.DCellInstArray(layout.cell(name).cell_index(), db.DTrans(x / 1000, 0)))
     return layout
 
 
@@ -319,7 +357,7 @@ def _layout_manifest(params: CapArrayLayoutParams) -> dict[str, Any]:
 def outline_um(geometry: _UnitGeometry, placed: int) -> tuple[float, float]:
     """An array's outline, its boundary (width, height) in um: its ``placed`` units side by side
     (the edge dummies too, sharing their ring walls), the top plate's stack and the shield taps
-    beside them (``caparray_cells``), and the top plate's bar over the units' top ring walls."""
+    beside them (``ArrayWiring``), and the top plate's bar over the units' top ring walls."""
     width = (placed - 1) * geometry.unit_pitch + geometry.outer_width + geometry.side_extension
     height = geometry.outer_height - geometry.ring_width + geometry.via_landing
     return width / 1000, height / 1000

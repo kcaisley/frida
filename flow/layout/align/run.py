@@ -14,6 +14,7 @@ import json
 import os
 import signal
 import subprocess
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -93,26 +94,28 @@ def run_align(
     return work
 
 
-def draw(pdk_dir: Path, generator: str, method: str, arguments: dict[str, Any], gds: Path, top: str) -> Path:
-    """Draw one generator of the generated ALIGN PDK ``pdk_dir`` (``make_pdk.py``) to ``gds`` as the
-    top cell ``top``, in ALIGN's own Python (``draw.py``): ``<generator>().<method>(**arguments)``.
-    ALIGN's abstract layers and pin purpose stay in the file, as ALIGN writes them (``post.py``'s
-    rule, ``abstract``, says which they are)."""
+@dataclass(frozen=True)
+class Drawing:
+    """One cell for ALIGN to draw: ``<generator>().<method>(**arguments)`` of the PDK package,
+    written to ``gds`` as the top cell ``top``."""
 
-    gds.parent.mkdir(parents=True, exist_ok=True)
-    spec = gds.with_suffix(".draw.json")
-    spec.write_text(
-        json.dumps(
-            {
-                "pdk_dir": str(pdk_dir.resolve()),
-                "generator": generator,
-                "method": method,
-                "arguments": arguments,
-                "gds": str(gds.resolve()),
-                "top": top,
-            }
-        )
-    )
+    generator: str
+    method: str
+    arguments: dict[str, Any]
+    gds: Path
+    top: str
+
+
+def draw(pdk_dir: Path, drawings: list[Drawing]) -> list[Path]:
+    """Draw generators of the generated ALIGN PDK ``pdk_dir`` (``make_pdk.py``), each to its GDS,
+    in one run of ALIGN's own Python (``draw.py``). ALIGN's abstract layers and pin purpose stay
+    in the files, as ALIGN writes them (``post.py``'s rule, ``abstract``, says which they are)."""
+
+    first = drawings[0].gds
+    first.parent.mkdir(parents=True, exist_ok=True)
+    spec = first.with_suffix(".draw.json")
+    cells = [{**asdict(drawing), "gds": str(drawing.gds.resolve())} for drawing in drawings]
+    spec.write_text(json.dumps({"pdk_dir": str(pdk_dir.resolve()), "cells": cells}))
     lib = next((ALIGN_HOME / "_skbuild").rglob("libOsiCbc.so.3"), None)
     env = dict(os.environ)
     if lib is not None:
@@ -124,6 +127,15 @@ def draw(pdk_dir: Path, generator: str, method: str, arguments: dict[str, Any], 
         env=env,
         check=False,
     )
-    if result.returncode or not gds.is_file():
-        raise RuntimeError(f"ALIGN could not draw {generator}.{method}({arguments}): {result.stderr[-1500:]}")
-    return gds
+    missing = [drawing for drawing in drawings if not drawing.gds.is_file()]
+    if result.returncode or missing:
+        raise RuntimeError(f"ALIGN could not draw {missing[:1] or drawings[:1]}: {result.stderr[-1500:]}")
+    return [drawing.gds for drawing in drawings]
+
+
+def drawn_only(layout, drawn: set[tuple[int, int]]) -> None:
+    """A layout ALIGN drew, without ALIGN's own layers: its abstract ones (255, where the PDK draws
+    nothing) and its pin and blockage purposes (datatypes 251, 253), as ``post.py`` leaves them out."""
+    for info in list(layout.layer_infos()):
+        if (info.layer == 255 and (info.layer, info.datatype) not in drawn) or info.datatype in (251, 253):
+            layout.delete_layer(layout.layer(info))
