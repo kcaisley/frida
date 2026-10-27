@@ -1,13 +1,14 @@
-"""The sampling switch's generator (``netlist``) and which designs it builds (``valid``)."""
+"""The sampling switch's generator (``netlist``), and the designs its parameters refuse."""
 
 import pytest
+from pydantic import ValidationError
 
-from .params import CASES, Params, SwitchType, valid
+from .params import Params, SwitchType
 from .subckt import netlist
 
 
 def test_the_frida1_switch_is_a_transmission_gate_of_32_units() -> None:
-    params = Params(**CASES["frida1"])
+    params = Params()
     m = netlist(params)
     assert params == Params() and params.switch_type is SwitchType.TGATE and params.mos_w == 32
     assert m.MN.of.params.w == 32 and m.MP.of.params.w == 32
@@ -16,14 +17,14 @@ def test_the_frida1_switch_is_a_transmission_gate_of_32_units() -> None:
 
 
 def test_dummies_clock_opposite_their_switch() -> None:
-    m = netlist(Params(**CASES["tgate_dummy"]))
+    m = netlist(Params(dummy=True))
     assert m.MN_dummy.conns == {"d": m.dout, "g": m.clk_b, "s": m.dout, "b": m.vss}
     assert m.MP_dummy.conns == {"d": m.dout, "g": m.clk, "s": m.dout, "b": m.vdd}
     assert m.MN_dummy.of.params.w == 16
 
 
 def test_bootstrap_boosts_the_nmos_gate() -> None:
-    m = netlist(Params(**CASES["bootstrap"]))
+    m = netlist(Params(switch_type=SwitchType.BOOTSTRAP))
     assert m.MN.conns["g"] is m.gate and not hasattr(m, "MP")
     assert m.Mgate.conns == {"d": m.boot_top, "g": m.clk_b, "s": m.gate, "b": m.vdd}
     assert m.Mpre.conns == {"d": m.vdd, "g": m.gate, "s": m.boot_top, "b": m.vdd}
@@ -32,9 +33,9 @@ def test_bootstrap_boosts_the_nmos_gate() -> None:
     assert m.Mgate_cas.conns["d"] is m.gate and m.Mgate_off.conns["s"] is m.vss
 
 
-def test_valid_is_the_generators_rule() -> None:
-    assert all(valid(Params(**case), pdk) for case in CASES.values() for pdk in (None, "tsmc65", "ihp130"))
-    for params in (Params(bootstrap=True), Params(mos_w=0), Params(dummy=True, mos_w=1)):
-        assert not valid(params)
-        with pytest.raises(ValueError):
-            netlist(params)
+def test_the_parameters_refuse_what_does_not_build() -> None:
+    """A size below one unit, and a dummy (half its switch) on a switch narrower than two units."""
+    for fields in ({"mos_w": 0}, {"cap_l": 0}, {"dummy": True, "mos_w": 1}):
+        with pytest.raises(ValidationError):
+            Params(**fields)
+    assert Params(dummy=True, mos_w=2).mos_w == 2

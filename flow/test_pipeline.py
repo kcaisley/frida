@@ -242,7 +242,7 @@ def _problems(block: str) -> set[str]:
             problem("sweep", f"module constant {name}: a knob's values belong to its family")
         elif not isinstance(value, (pipeline.Grid, pipeline.Family, pipeline.Named)) or _hints(value.build).get(
             "return"
-        ) not in (Params, list[Params]):
+        ) not in (Params, list[Params], dict[str, Params]):
             problem("sweep", f"{name} is not a grid, a family, a named instance (of Params), runs or record")
 
     # the side files beside the stages: their own names only, and no module constant (a block's

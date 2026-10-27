@@ -162,7 +162,7 @@ def cdac_physical() -> MeasCdac:
 
 def samp_spice() -> Meas:
     """A sampler run as ``flow.pipeline.read`` gives it: its design's enums in its testbench's."""
-    params = samp.TbParams(params=samp.Params(**samp.CASES["bootstrap"]))
+    params = samp.TbParams(params=samp.Params(switch_type=samp.SwitchType.BOOTSTRAP))
     time_s = np.asarray([0.0, 5e-12, 10e-12, 15e-12])
     return Meas(
         group=None,

@@ -6,8 +6,9 @@ and LVS: from its hand-written floorplan (``design/layout/samp_<name>.json``), o
 out by ALIGN on its own from the netlist (ALIGN's placement then the floorplan of cIcCreator and
 laygo). ``layout_netlist`` and ``layout_floorplan`` give the sweep's layout step
 (``flow.sweep.runner.layout``, ALIGN alone) an instance's netlists: every size of a switch is placed
-by the floorplan of its case (``params.CASES``) of the same structure. The runner is the
-comparator's (``flow.comp.layout``).
+by the floorplan of its structure (``params.STRUCTURE``: its switch type and dummies), named after
+the switch type (the transmission gate's after FRIDA-1, the one with dummies ``tgate_dummy``). The
+runner is the comparator's (``flow.comp.layout``).
 
     uv run python -m flow layout samp --instance frida1
 """
@@ -21,7 +22,7 @@ from flow.circuit import devices
 from flow.comp.layout import FLOORPLANS, PDKS, _all_pdks, _run
 from flow.layout.pdkproc import in_pdk
 
-from .params import CASES, STRUCTURE, Params
+from .params import Params, SwitchType
 from .subckt import Nets, netlist
 
 
@@ -41,21 +42,19 @@ def layout_netlist(out_dir: Path, pdk: str, samp: Params) -> Path:
     return in_pdk(pdk, "flow.layout.stdcells", "recognize_file", transistors, out_dir / "samp.sp")
 
 
-def layout_floorplan(out_dir: Path, pdk: str, samp: Params) -> tuple[Path, Path] | None:
-    """The hand-written floorplan of the instance's case (``params.CASES``: the case of the same
-    ``STRUCTURE``, ``design/layout/samp_<case>.json``) with the netlist it places, at the instance's
-    sizes; None where no case has its structure."""
+def _case(samp: Params) -> str:
+    """The name of the floorplan of the switch's structure: its switch type's (the transmission
+    gate's FRIDA-1's), with ``_dummy`` where it has dummies."""
+    name = "frida1" if samp.switch_type is SwitchType.TGATE and not samp.dummy else samp.switch_type.name.lower()
+    return f"{name}_dummy" if samp.dummy else name
 
-    floorplan = next(
-        (
-            path
-            for name, structure in CASES.items()
-            if all(structure[key] == getattr(samp, key) for key in STRUCTURE)
-            and (path := FLOORPLANS / f"samp_{name}.json").exists()
-        ),
-        None,
-    )
-    if floorplan is None:
+
+def layout_floorplan(out_dir: Path, pdk: str, samp: Params) -> tuple[Path, Path] | None:
+    """The hand-written floorplan of the instance's structure (``design/layout/samp_<case>.json``)
+    with the netlist it places, at the instance's sizes; None where its structure has none."""
+
+    floorplan = FLOORPLANS / f"samp_{_case(samp)}.json"
+    if not floorplan.exists():
         return None
     logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
     return write_netlist(samp, out_dir / f"{floorplan.stem}.sp", logic), floorplan

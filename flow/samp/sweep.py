@@ -1,15 +1,15 @@
-"""The sampling switch's design space (docs/pipeline.md): its families, each the cartesian product of
-its knobs (``@family``), and its named instances (``@named``); the testbench runs that characterize
-one instance (``runs``) and the record they make (``record``).
+"""The sampling switch's design space (docs/pipeline.md): its grids (``@grid``: designs with some of
+their parameters widened, ``widen``, every point of each) and its named instances (``@named``); the
+testbench runs that characterize one instance (``runs``) and the record they make (``record``).
 
-The characterization's four switches (``params.CASES``: FRIDA-1's transmission gate, the same with
-dummies, the NMOS switch, the bootstrapped NMOS switch) at five widths and at twice their length,
-and the bootstrapped switch as an on-resistance ladder (the ADC study's samplers), in every PDK.
-Each instance is run on the bench every switch is characterized on (``params``): over the input
-level (1/12 to 11/12 of the supply) the on-resistance into the load, the track error, the pedestal
-and the input's feedthrough while holding; at the nominal point (mid-supply input) those and the
-bandwidth and droop; over the supply (90 to 120 % of its own, mid-supply input) the on-resistance
-and pedestal. Fourteen Spectre runs, about a minute in all.
+The characterization's switches (FRIDA-1's transmission gate, with and without dummies, the NMOS
+switch, the bootstrapped NMOS switch) 8 to 128 units wide and at twice their length, and the
+bootstrapped switch as an on-resistance ladder (the ADC study's samplers), in every PDK. Each
+instance is run on the bench every switch is characterized on (``params``): over the input level
+(1/12 to 11/12 of the supply) the on-resistance into the load, the track error, the pedestal and the
+input's feedthrough while holding; at the nominal point (mid-supply input) those and the bandwidth
+and droop; over the supply (90 to 120 % of its own, mid-supply input) the on-resistance and pedestal.
+Fourteen Spectre runs, about a minute in all.
 """
 
 from __future__ import annotations
@@ -19,10 +19,10 @@ from dataclasses import replace
 
 import hdl21 as h
 
-from flow.pipeline import Meas, Record, family, named
+from flow.pipeline import Meas, Record, every, grid, named, steps, widen
 
 from .analysis import analyze_hold, analyze_track, metrics
-from .params import CASES, NOMINAL_VIN, SUPPLY_SWEEP, VIN_SWEEP, WAVE_VIN, Params, TbParams
+from .params import FRIDA1, NOMINAL_VIN, SUPPLY_SWEEP, VIN_SWEEP, WAVE_VIN, Params, SwitchType, TbParams
 from .plots import (
     plot_feedthrough_vin,
     plot_pedestal_supply,
@@ -33,53 +33,78 @@ from .plots import (
 )
 
 
-@family(case=("frida1", "tgate_dummy", "nmos", "bootstrap"), scale=(0.25, 0.5, 1, 2, 4))
-def scaled(case: str, scale: float) -> Params:
-    """A switch with every width times ``scale``: the switch, the bootstrap's helpers and its boost
-    capacitor (in every case, a bootstrap or not), none under 4 units (the finest PDK's minimum
-    width: the 4-unit helpers stay)."""
-    base = Params()
-    widths = {name: max(4, int(scale * getattr(base, name))) for name in ("mos_w", "boot_w", "cap_w")}
-    return Params(**CASES[case], **widths)
+@grid
+def scaled() -> dict[str, Params]:
+    """Each switch 8 to 128 units wide (a quarter to four times FRIDA-1's): the transmission gate
+    with and without dummies, the NMOS switch, and the bootstrapped one, each width by name, its
+    boost capacitor half the switch and its helpers an eighth, none under 4 units (the finest PDK's
+    minimum width)."""
+    tgate = widen(Params(switch_type=SwitchType.TGATE))
+    tgate.mos_w = steps(8, 128, n=5, log=True)
+    tgate.dummy = every(bool)
+    nmos = widen(Params(switch_type=SwitchType.NMOS))
+    nmos.mos_w = steps(8, 128, n=5, log=True)
+    return {
+        "tgate": tgate,
+        "nmos": nmos,
+        **{
+            f"bootstrap_w{width}": widen(
+                Params(
+                    switch_type=SwitchType.BOOTSTRAP, mos_w=width, boot_w=max(4, width // 8), cap_w=max(4, width // 2)
+                )
+            )
+            for width in (8, 16, 32, 64, 128)
+        },
+    }
 
 
-@family(case=("frida1", "tgate_dummy", "nmos", "bootstrap"))
-def long_channel(case: str) -> Params:
-    """A switch at twice its length."""
-    return Params(**CASES[case], mos_l=2)
+@grid
+def long_channel() -> dict[str, Params]:
+    """Each switch at twice its length: the transmission gate with and without dummies, the NMOS
+    switch, the bootstrapped one."""
+    spaces = {}
+    for switch in (SwitchType.TGATE, SwitchType.NMOS, SwitchType.BOOTSTRAP):
+        space = widen(Params(switch_type=switch, mos_l=2))
+        if switch is SwitchType.TGATE:
+            space.dummy = every(bool)
+        spaces[switch.name.lower()] = space
+    return spaces
 
 
-@family(width=(32, 64, 112, 160))
-def boost_ladder(width: int) -> Params:
-    """The bootstrapped switch as an on-resistance ladder (the ADC study's samplers): ``width`` units
-    wide, its boost capacitor as wide and its helpers an eighth, so every rung is boosted alike and
-    its on-resistance falls with its width; at 32 units the doubled boost capacitor of the base size,
-    then 2, 3.5 and 5 times that."""
-    return Params(**CASES["bootstrap"], mos_w=width, boot_w=width // 8, cap_w=width)
+@grid
+def boost_ladder() -> dict[str, Params]:
+    """The bootstrapped switch as an on-resistance ladder (the ADC study's samplers), each rung by its
+    width: 32 to 160 units wide, its boost capacitor as wide and its helpers an eighth, so every rung
+    is boosted alike and its on-resistance falls with its width; at 32 units the doubled boost
+    capacitor of the base size, then 2, 3.5 and 5 times that."""
+    return {
+        f"w{width}": widen(Params(switch_type=SwitchType.BOOTSTRAP, mos_w=width, boot_w=width // 8, cap_w=width))
+        for width in (32, 64, 112, 160)
+    }
 
 
 @named(swept=False)
 def frida1() -> Params:
     """FRIDA-1's fabricated sampler: the transmission gate, 32 units a side."""
-    return Params(**CASES["frida1"])
+    return FRIDA1
 
 
 @named(swept=False)
 def tgate_dummy() -> Params:
     """The transmission gate with half-size charge-injection dummies."""
-    return Params(**CASES["tgate_dummy"])
+    return Params(dummy=True)
 
 
 @named(swept=False)
 def nmos() -> Params:
     """The NMOS switch alone."""
-    return Params(**CASES["nmos"])
+    return Params(switch_type=SwitchType.NMOS)
 
 
 @named(swept=False)
 def bootstrap() -> Params:
     """The bootstrapped NMOS switch."""
-    return Params(**CASES["bootstrap"])
+    return Params(switch_type=SwitchType.BOOTSTRAP)
 
 
 def runs(pdk: str, params: Params) -> dict[str, TbParams]:

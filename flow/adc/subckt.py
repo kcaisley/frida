@@ -96,10 +96,8 @@ def is_valid_adc_params(param: AdcParams) -> bool:
         return False
     if not is_valid_caparray_config(param.cdac):
         return False
-    if adc_stages(param) != param.cdac.n_dac + param.cdac.n_extra:
-        return False
-    # every comparator its parameter class admits builds: the sampler's sizes alone to check
-    return not (param.samp.mos_w <= 0 or param.samp.mos_l <= 0)
+    # every comparator and sampler their parameter classes admit build
+    return adc_stages(param) == param.cdac.n_dac + param.cdac.n_extra
 
 
 # Keep the driver hierarchy fresh when this ADC is requested after compilation.

@@ -1,13 +1,13 @@
 """The sampling switch's parameters: its design (``Params``), one run of its testbench (``TbParams``),
-which designs the generator builds (``valid``), and the bench every switch is characterized on.
+and the bench every switch is characterized on.
 
 Every switch is characterized the same way, so that switches compare: into ``LOAD_F`` (about the
 CDAC it samples onto) at a ``PERIOD_S`` clock (``TRACK_S`` tracking, ``TRANSITION_S`` edges), its
 input stepping a twelfth of the supply once a period, ``PERIODS`` periods, Spectre's output every
 ``STROBE_S``; over the input level (``VIN_SWEEP``, fractions of the supply) and over the supply
-(``SUPPLY_SWEEP``, fractions of its own) at mid-supply input (``NOMINAL_VIN``). ``CASES`` are the
-four switches the characterization compares, by their structure (``STRUCTURE``: the parameters
-that make the circuit's devices and their wiring), each with a hand-written floorplan.
+(``SUPPLY_SWEEP``, fractions of its own) at mid-supply input (``NOMINAL_VIN``). ``STRUCTURE`` names
+the parameters that make the circuit's devices and their wiring (a hand-written floorplan's case is
+found by them: ``flow.samp.layout``).
 """
 
 import math
@@ -16,6 +16,7 @@ from enum import Enum, auto
 
 import hdl21 as h
 from hdl21.primitives import MosVth
+from pydantic import PositiveInt
 
 from flow import pipeline
 
@@ -26,55 +27,38 @@ class SwitchType(Enum):
     NMOS = auto()
     PMOS = auto()
     TGATE = auto()
+    BOOTSTRAP = auto()  # the NMOS switch, its gate boosted one supply above the input while tracking
 
 
 @h.paramclass
 class Params:
-    """Sampling switch parameters.
-
-    Device sizing uses multiplier-based scaling:
-    - mos_w: Width multiplier (the default 32 is approximately 4µm in FRIDA65A)
-    - mos_l: Length multiplier (l=1 means 1×Lmin, e.g., 60nm for a 65nm node)
-
-    This approach allows the same design to be portable across PDKs.
-    """
+    """The sampling switch: its topology and its devices' sizes as positive multiples of the PDK's
+    unit width and minimum length (``mos_w`` 32 is about 4 um in FRIDA65A, ``mos_l`` 1 its minimum
+    length), so that one design ports across PDKs. Every Params the class admits builds; the defaults
+    are FRIDA-1's fabricated sampler, a transmission gate of 32 units a side. The bootstrap's helpers
+    and capacitor (``boot_w``, ``cap_w``, ``cap_l``) size only a ``SwitchType.BOOTSTRAP``."""
 
     switch_type = h.Param(dtype=SwitchType, desc="Switch topology", default=SwitchType.TGATE)
-    mos_w = h.Param(dtype=int, desc="Width multiplier (× Wmin)", default=32)
-    mos_l = h.Param(dtype=int, desc="Length multiplier (× Lmin)", default=1)
+    mos_w = h.Param(dtype=PositiveInt, desc="Width multiplier (x Wmin)", default=32)
+    mos_l = h.Param(dtype=PositiveInt, desc="Length multiplier (x Lmin)", default=1)
     mos_vth = h.Param(dtype=MosVth, desc="Threshold voltage flavor", default=MosVth.LOW)
     dummy = h.Param(dtype=bool, desc="Half-size dummies on dout, clocked opposite their switch", default=False)
-    bootstrap = h.Param(dtype=bool, desc="Bootstrapped NMOS gate (NMOS switch only)", default=False)
-    boot_w = h.Param(dtype=int, desc="Bootstrap helper device width multiplier", default=4)
-    cap_w = h.Param(dtype=int, desc="Bootstrap MOS capacitor width multiplier", default=16)
-    cap_l = h.Param(dtype=int, desc="Bootstrap MOS capacitor length multiplier", default=8)
+    boot_w = h.Param(dtype=PositiveInt, desc="Bootstrap helper device width multiplier", default=4)
+    cap_w = h.Param(dtype=PositiveInt, desc="Bootstrap MOS capacitor width multiplier", default=16)
+    cap_l = h.Param(dtype=PositiveInt, desc="Bootstrap MOS capacitor length multiplier", default=8)
+
+    def __post_init__(self) -> None:
+        # a dummy is half its switch, in whole units
+        if self.dummy and self.mos_w < 2:
+            raise ValueError("a dummy is half its switch: the switch needs at least 2 width units")
 
 
 pipeline.Params.register(Params)
 
 
-def valid(param: Params, pdk: str | None = None) -> bool:
-    """Whether the switch can be built, in any PDK: every size positive, a bootstrap only on the NMOS
-    switch (it boosts one NMOS gate), a dummy only on a switch of at least two width units (it is
-    half its switch)."""
-    if min(param.mos_w, param.mos_l, param.boot_w, param.cap_w, param.cap_l) <= 0:
-        return False
-    if param.bootstrap and param.switch_type != SwitchType.NMOS:
-        return False
-    return not (param.dummy and param.mos_w < 2)
-
-
-# the parameters that make a switch's devices and their wiring, and the characterization's four
-# switches by them: FRIDA-1's transmission gate (the fabricated sampler, 32 units a side at the
-# defaults), the same with half-size dummies, the NMOS switch alone, and the bootstrapped NMOS switch
-STRUCTURE = ("switch_type", "dummy", "bootstrap")
-CASES = {
-    "frida1": {"switch_type": SwitchType.TGATE, "dummy": False, "bootstrap": False},
-    "tgate_dummy": {"switch_type": SwitchType.TGATE, "dummy": True, "bootstrap": False},
-    "nmos": {"switch_type": SwitchType.NMOS, "dummy": False, "bootstrap": False},
-    "bootstrap": {"switch_type": SwitchType.NMOS, "dummy": False, "bootstrap": True},
-}
-FRIDA1 = Params(**CASES["frida1"])  # the fabricated FRIDA-1 sampler: transmission gate, 32 units each
+# the parameters that make a switch's devices and their wiring
+STRUCTURE = ("switch_type", "dummy")
+FRIDA1 = Params()  # the fabricated FRIDA-1 sampler: transmission gate, 32 units each
 
 # the bench: 1 pF at a 10 ns clock (5 ns tracking), 50 ps edges, six periods, a sample every 5 ps
 LOAD_F = 1e-12

@@ -12,7 +12,7 @@ from hdl21.primitives import MosType
 from flow.circuit.devices import mos
 from flow.circuit.ports import module_from_ports
 
-from .params import Params, SwitchType, valid
+from .params import Params, SwitchType
 
 
 @h.bundle
@@ -29,11 +29,9 @@ def netlist(param: Params) -> h.Module:
     """The sampling switch: an NMOS, a PMOS or both (a transmission gate) between ``din`` and
     ``dout``, tracking while ``clk`` is high; a bootstrap drives the NMOS gate from its boosted node,
     half-size dummies on ``dout`` absorb the charge their switch's channel releases at turn-off."""
-    if not valid(param):
-        raise ValueError(f"Invalid sampler params: {param}")
-
     Samp = module_from_ports("Samp", Nets.signals)
-    nmos = param.switch_type in (SwitchType.NMOS, SwitchType.TGATE)
+    bootstrap = param.switch_type is SwitchType.BOOTSTRAP
+    nmos = param.switch_type in (SwitchType.NMOS, SwitchType.TGATE, SwitchType.BOOTSTRAP)
     pmos = param.switch_type in (SwitchType.PMOS, SwitchType.TGATE)
 
     # The boosted gate of the NMOS switch (a bootstrap). During hold (clk low) the capacitor's bottom
@@ -42,7 +40,7 @@ def netlist(param: Params) -> h.Module:
     # bottom plate and a PMOS joins ``gate`` to the top plate, which then sits one supply above din:
     # the switch's gate-source voltage stays near vdd whatever the input. The PMOS bodies sit on vdd,
     # so the boosted node's junctions leak toward vdd while sampling.
-    if param.bootstrap:
+    if bootstrap:
         Samp.gate = h.Signal(desc="Boosted switch gate")
         Samp.boot_top, Samp.boot_bot, Samp.gate_off = h.Signal(), h.Signal(), h.Signal()
         aux = {"vth": param.mos_vth, "w": param.boot_w, "l": 1}
@@ -65,7 +63,7 @@ def netlist(param: Params) -> h.Module:
         )
     if nmos:
         Samp.MN = mos(tp=MosType.NMOS, vth=param.mos_vth, w=param.mos_w, l=param.mos_l)(
-            d=Samp.dout, g=Samp.gate if param.bootstrap else Samp.clk, s=Samp.din, b=Samp.vss
+            d=Samp.dout, g=Samp.gate if bootstrap else Samp.clk, s=Samp.din, b=Samp.vss
         )
     if pmos:
         Samp.MP = mos(tp=MosType.PMOS, vth=param.mos_vth, w=param.mos_w, l=param.mos_l)(

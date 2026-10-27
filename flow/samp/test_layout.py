@@ -1,5 +1,5 @@
 """The sampler's layout hooks: its named instances by their floorplans with the three tools, and the
-sweep's instances by the floorplan of their case (``params.CASES``) of the same structure."""
+sweep's instances by the floorplan of their structure."""
 
 from __future__ import annotations
 
@@ -12,9 +12,13 @@ import pytest
 from flow import pipeline
 
 from . import layout, sweep
-from .params import CASES, Params, SwitchType
+from .params import Params, SwitchType
 
 NAMED = ("frida1", "tgate_dummy", "nmos", "bootstrap")
+
+
+def _named(case: str) -> Params:
+    return pipeline.names(sweep)[case]()
 
 
 def test_a_named_instance_is_laid_out_by_its_floorplan_or_aligns(tmp_path: Path, monkeypatch) -> None:
@@ -27,7 +31,7 @@ def test_a_named_instance_is_laid_out_by_its_floorplan_or_aligns(tmp_path: Path,
     }
     assert public == {"layout_named", "write_netlist", "layout_netlist", "layout_floorplan"}
     named = pipeline.names(sweep)
-    assert tuple(named) == NAMED == tuple(CASES) and not any(value.swept for value in named.values())
+    assert tuple(named) == NAMED and not any(value.swept for value in named.values())
     assert all((layout.FLOORPLANS / f"samp_{name}.json").exists() for name in named)
     calls = []
     monkeypatch.setattr(layout, "_samp", lambda run_dir, pdk, *args: calls.append((pdk, *args)) or run_dir)
@@ -40,15 +44,15 @@ def test_a_named_instance_is_laid_out_by_its_floorplan_or_aligns(tmp_path: Path,
         ("tsmc65", "samp_nmos", None),
     ]
     with pytest.raises(FileNotFoundError, match="no hand-written floorplan"):
-        layout.layout_named(tmp_path, "ladder", sweep.boost_ladder(width=64))
+        layout.layout_named(tmp_path, "ladder", sweep.boost_ladder.spaces("tsmc65")["w64"].base)
 
 
 def test_every_size_is_placed_by_its_cases_floorplan(tmp_path: Path) -> None:
     pytest.importorskip("pdk.tsmc65.hdl21")
     for params, case in (
-        (sweep.scaled(case="frida1", scale=4), "frida1"),
-        (sweep.long_channel(case="tgate_dummy"), "tgate_dummy"),
-        (sweep.boost_ladder(width=160), "bootstrap"),
+        (Params(mos_w=128), "frida1"),
+        (Params(dummy=True, mos_l=2), "tgate_dummy"),
+        (sweep.boost_ladder.spaces("tsmc65")["w160"].base, "bootstrap"),
     ):
         found = layout.layout_floorplan(tmp_path, "tsmc65", params)
         assert found is not None
@@ -64,7 +68,7 @@ def test_floorplans_place_every_device_once(case: str, tmp_path: Path) -> None:
     the netlist connects."""
 
     pdk = pytest.importorskip("pdk.tsmc65.hdl21").pdk_logic
-    netlist = layout.write_netlist(Params(**CASES[case]), tmp_path / f"samp_{case}.sp", pdk).read_text().splitlines()
+    netlist = layout.write_netlist(_named(case), tmp_path / f"samp_{case}.sp", pdk).read_text().splitlines()
     devices = [line.split()[0] for line in netlist if line.startswith(("M", "X"))]
     nets = {net for line in netlist if line.startswith("M") for net in line.split()[1:5]}
     nets |= {net for line in netlist if line.startswith("X") for net in line.split()[1:-1]}  # library cells
@@ -83,5 +87,5 @@ def test_floorplans_place_every_device_once(case: str, tmp_path: Path) -> None:
 def test_every_pdk_writes_every_case(tmp_path: Path) -> None:
     for name in layout.PDKS:
         pdk = pytest.importorskip(f"pdk.{name}.hdl21").pdk_logic
-        for case, structure in CASES.items():
-            assert layout.write_netlist(Params(**structure), tmp_path / name / f"samp_{case}.sp", pdk).exists()
+        for case in NAMED:
+            assert layout.write_netlist(_named(case), tmp_path / name / f"samp_{case}.sp", pdk).exists()

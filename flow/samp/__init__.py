@@ -4,7 +4,7 @@ here (``from flow import samp`` then ``samp.Params``, ``samp.analyze_track``).""
 
 from . import params, subckt, sim, types, analysis, plots, sweep  # noqa: I001 - the pipeline's order
 from .analysis import analyze_hold, analyze_track, metrics
-from .params import CASES, FRIDA1, Params, SwitchType, TbParams, valid
+from .params import FRIDA1, STRUCTURE, Params, SwitchType, TbParams
 from .plots import (
     plot_feedthrough_vin,
     plot_pedestal_supply,
@@ -19,8 +19,8 @@ from .sweep import boost_ladder, bootstrap, frida1, long_channel, nmos, record, 
 from .types import AnalysisHold, AnalysisTrack
 
 __all__ = [
-    "CASES",
     "FRIDA1",
+    "STRUCTURE",
     "AnalysisHold",
     "AnalysisTrack",
     "Nets",
@@ -55,5 +55,4 @@ __all__ = [
     "testbench",
     "tgate_dummy",
     "types",
-    "valid",
 ]

@@ -259,7 +259,8 @@ def calc_switch_conductances(hw: sampler.Params, params: SampBehavioralParams) -
     """
 
     aspect = hw.mos_w * W_MIN_UM / (hw.mos_l * L_MIN_UM)
-    n_s = NMOS_K_A_PER_V2 * aspect if hw.switch_type in (sampler.SwitchType.NMOS, sampler.SwitchType.TGATE) else 0.0
+    nmos = (sampler.SwitchType.NMOS, sampler.SwitchType.TGATE, sampler.SwitchType.BOOTSTRAP)
+    n_s = NMOS_K_A_PER_V2 * aspect if hw.switch_type in nmos else 0.0
     p_s = PMOS_K_A_PER_V2 * aspect if hw.switch_type in (sampler.SwitchType.PMOS, sampler.SwitchType.TGATE) else 0.0
     return (
         n_s if params.n_conductance_s_per_v is None else params.n_conductance_s_per_v,
