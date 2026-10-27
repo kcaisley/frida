@@ -41,8 +41,9 @@ from .plots import (
 )
 
 
-# the arrays in TSMC65, where they are extracted; the 14-bit ones first, as they take longest
-@family(pdks=("tsmc65",), pdk=lambda pdk: (pdk,), array=tuple(reversed(ADC_ARRAYS)))
+# the arrays in each PDK where they are extracted (flow.caparray.sizing.extract_adc_arrays); the
+# 14-bit ones first, as they take longest
+@family(pdks=("tsmc65", "lf150"), pdk=lambda pdk: (pdk,), array=tuple(reversed(ADC_ARRAYS)))
 def adc_array(pdk: str, array: str) -> Params:
     """The CDAC of the ADC array ``array`` (``ADC_ARRAYS``) in ``pdk``, at its converter's
     resolution: its plates as its extraction gives them (``CapArrayModel.of``), its drivers the

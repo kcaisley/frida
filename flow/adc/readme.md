@@ -37,6 +37,24 @@ gives each instance's integrated error over the rate at its own settling; the de
 the redundancy schemes to find where each regime holds. Where the DAC's settling limits the rate,
 redundancy can raise it; where the comparator's delay does, it cannot.
 
+## Mismatch and calibration
+
+Run 20261027_021329 (2026-10-27: the 6,100 converters on 20 workers in 4 h 46 min beside other
+jobs) converts each converter's sine on its CDAC's drawn array, the Monte Carlo draw at the 90th
+percentile of what no calibration recovers at 0.5 %·√fF and 50 ppm/mm (`flow/cdac`), and decodes it
+three ways: with the design weights, with the extraction's (the nominal array's) and with the
+weights the converter learns from its ramps (`enob_drawn_design_bits`, `_extracted_bits`,
+`_calibrated_bits`). With the quietest comparator and the widest switch, where the array limits:
+
+- The design weights lose 0.2–1.0 bit at 10 bits, 0.3–1.2 at 12 and 0.3–2.0 at 14 against the
+  nominal converter (14 bits: 10.97–12.64 against 12.93–13.05; the MSB split at x2 the worst).
+- Calibrated, every array comes within 0.3 bit of its nominal ENOB at every resolution, binary
+  included (14 bits: 12.76–13.23, above the nominal where the extraction's own error had cost it).
+  A code a fraction of an LSB too wide costs little noise power, so the ENOB hides what the INL and
+  missing codes show: the CDAC's gap (`flow/cdac`) is where the schemes differ.
+- The extraction's weights recover most of the loss over all comparators and samplers (medians
+  within 0.44 bit at 10 bits, 0.22 at 12 and 0.12 at 14).
+
 ## Redundancy schemes
 
 An array's extra conversion cycles never add capacitance: each scheme redistributes the binary
