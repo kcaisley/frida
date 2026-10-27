@@ -1,5 +1,5 @@
 {
-  "_comment": "PDK-neutral ALIGN abstraction (ALIGN's public Bulk65nm mock PDK values): make_pdk.py replaces the GDS layers, pitches, widths, cuts and spacings with a PDK's own (pdk/<pdk>/layout/tech.py). Every drawn layer here is a 255/x placeholder. Pins/labels on datatype 251/252 are rewritten by post.py.",
+  "_comment": "PDK-neutral ALIGN abstraction (ALIGN's public Bulk65nm mock PDK values): make_pdk.py replaces the GDS layers, pitches, widths, cuts and spacings with a PDK's own (pdk/<pdk>/layout/tech.py). Every drawn layer here is a 255/x placeholder. Pins on datatype 251 are removed by post.py; labels go where make_pdk.py's LabelLayerNo says.",
   "ScaleFactor": 1,
   "design_info": {
     "vt_type": [

@@ -81,6 +81,8 @@ def build(pdk: str, out: Path) -> Path:
             pitch, width, end = metal[name]
             (a["GdsLayerNo"], a["GdsDatatype"]["Draw"]) = gds(name)
             a.update(Pitch=pitch, Width=width, EndToEnd=end)
+            if name in t.PIN_TEXT:  # ALIGN writes the metal's pin labels on the PDK's pin-text layer
+                a["LabelLayerNo"] = [list(t.PIN_TEXT[name])]
             if name != "M1":
                 a["MinL"] = t.M2_MIN_LEN
         elif name in cut:

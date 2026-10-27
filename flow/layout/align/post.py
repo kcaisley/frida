@@ -12,7 +12,8 @@
   run across a gap where both neighbours have them, and in a gap narrower than the placement grid
   their device implants, Vt layers and gate markers too (``bridge``); then narrow well gaps are
   closed (netcells.close_wells).
-* Labels: ALIGN's pin labels (metal/252) move to the PDK's pin-text layers; pin shapes,
+* Labels: ALIGN writes the pin labels on the PDK's pin-text layers itself (make_pdk.py's
+  LabelLayerNo, honoured by its writers since ALIGN 24656418); pin shapes,
   blockages and abstract layers (datatypes 251/253, layer 255 unless the PDK draws on it, and the PnR's whole-block
   boundary marker 235/5) are removed; shapes are merged and snapped to the manufacturing grid.
 * Option (for any block, in a PDK with a guard ring): ``ring`` wraps the block in the PDK's
@@ -59,7 +60,6 @@ STD = re.compile(rf"^({'|'.join(re.escape(c) for c in STD_CELLS if c != STD_FILL
 LIB_NAME = {c.upper(): c for c in STD_CELLS}  # ALIGN upper-cases cell names: back to the library's
 LIB = str(STD_GDS)
 ACCESS = json.loads(ACCESS_JSON.read_text())
-TEXT = {LAYERS[m][0]: PIN_TEXT[m] for m in PIN_TEXT}  # metal GDS layer -> its pin-text layer
 
 
 def insert_stdcells(layout: kdb.Layout, lib_path: str) -> int:
@@ -366,13 +366,7 @@ def post(
 
     for info in list(layout.layer_infos()):
         li = layout.layer(info)
-        if info.layer in TEXT and info.datatype == 252:
-            pin_layer = layout.layer(*TEXT[info.layer])
-            for shape in top.shapes(li).each():
-                if shape.is_text():
-                    top.shapes(pin_layer).insert(shape.text)
-            layout.clear_layer(li)
-        elif (
+        if (
             (info.layer == 255 and (info.layer, info.datatype) not in LAYERS.values())  # abstract, not a PDK layer
             or info.datatype in (251, 253)
             or (info.layer, info.datatype) == (235, 5)
