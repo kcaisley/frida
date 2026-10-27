@@ -16,6 +16,7 @@ recorded: the PDKs' netlists stay private.
 
 from __future__ import annotations
 
+import contextlib
 import enum
 import hashlib
 import importlib
@@ -51,8 +52,11 @@ def corpus(block: str, pdk: str | None) -> dict[str, Any]:
     params = importlib.import_module(f"flow.{block}.params")
     Params = params.Params
     instances: dict[str, Any] = {}
-    for label, instance in labelled_space(block, pdk or STRUCTURE_PDK).values():
-        instances.setdefault(label, instance)
+    # a grid or a problem made of what this checkout lacks (a PDK's own data: its extracted arrays,
+    # its supply) is left out, and the comparison with the record with it (``test_structures_unchanged``)
+    with contextlib.suppress(LookupError, ModuleNotFoundError):
+        for label, instance in labelled_space(block, pdk or STRUCTURE_PDK).values():
+            instances.setdefault(label, instance)
     for name, named in pipeline.names(sweep).items():
         instances.setdefault(name, named())
     # each problem's space: every combination of its choices at its base; and every other value of each
@@ -60,7 +64,8 @@ def corpus(block: str, pdk: str | None) -> dict[str, Any]:
     spaces = []
     if importlib.util.find_spec(f"flow.{block}.opt") is not None:
         opt = importlib.import_module(f"flow.{block}.opt")
-        spaces = [made.space for made in pipeline.problems(opt, pdk or STRUCTURE_PDK).values() if made.space]
+        with contextlib.suppress(ModuleNotFoundError):
+            spaces = [made.space for made in pipeline.problems(opt, pdk or STRUCTURE_PDK).values() if made.space]
     shown = lambda value: getattr(value, "name", value)
     for space in spaces:
         choices = {
@@ -155,8 +160,17 @@ def recorded(block: str) -> dict[str, dict[str, str]]:
 
 @pytest.mark.parametrize("block", MIGRATED)
 def test_structures_unchanged(block: str) -> None:
+    """Every instance the block makes is recorded and its structure unchanged; all of the record's
+    where the checkout has what they are made of (the PDKs and the build's extractions), else those
+    it can make (CI's checkout has neither)."""
     record = recorded(block)
-    assert hashes(block, None) == record["structure"]
+    current = hashes(block, None)
+    if all(importlib.util.find_spec(f"pdk.{pdk}.hdl21") for pdk in PDKS) and (ROOT / "build").is_dir():
+        assert current == record["structure"]
+    # without them: each instance as recorded, by its label, or, where the record reached its circuit
+    # under another (a searched choice's, made of a PDK's supply), by its circuit
+    for label, value in current.items():
+        assert record["structure"].get(label, value if value in record["structure"].values() else None) == value, label
 
 
 @pytest.mark.site_pdk
