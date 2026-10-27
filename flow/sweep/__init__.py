@@ -103,12 +103,13 @@ def geometry(module: h.Module, pdk: str) -> dict[str, float]:
                 if isinstance(target, h.Module):
                     walk(target, False)
                 continue
-            count = float(getattr(target.params, "m", 1) or 1)
+            params = getattr(target, "params", None)
+            count = float(getattr(params, "m", 1) or 1)
             totals["devices"] += count
             if isinstance(target, h.ExternalModuleCall) and target.module.name in xtors:
                 width, length = (
-                    float(getattr(target.params, "w", math.nan)),
-                    float(getattr(target.params, "l", math.nan)),
+                    float(getattr(params, "w", math.nan)),
+                    float(getattr(params, "l", math.nan)),
                 )
                 totals["device_area_um2"] += count * width * length * 1e12
 
