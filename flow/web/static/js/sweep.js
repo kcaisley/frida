@@ -579,6 +579,10 @@ export class ScatterPanel {
             // the plot's own tools, always shown (Plotly's mode bar only on hover, over the plot)
             drag("zoom", "zoom", "Zoom", "Drag: zoom to a box (wheel: zoom)"),
             drag("pan", "pan", "Pan", "Drag: pan"),
+            // where the table dims some instances: the view the plot opened on, the others in it
+            ...(view.table?.rows.some((row) => row.dim) && view.table.rows.some((row) => !row.dim)
+                ? [toolButton("points", "Focus", "Fit the metric axes to the instances not greyed out, as the plot opened (Fit shows all)", () => this.focusOn())]
+                : []),
             toolButton("fit", "Fit", "Fit both axes to the points (double-click)", () => this.fit()),
             toolButton("download", "PNG", "Save as PNG, with its legend", () => this.savePng()),
         );
@@ -590,6 +594,20 @@ export class ScatterPanel {
         this.focus = false;
         this.render();
         Plotly.relayout(this.plot, { "xaxis.autorange": true, "yaxis.autorange": true });
+    }
+
+    // the view the plot opened on: its metric axes over the undimmed instances, a parameter's whole
+    focusOn() {
+        if (!this.plot.data) return;
+        this.focus = true;
+        this.render();
+        const ranges = this.focusRanges(fieldOf(view.x), fieldOf(view.y));
+        const update = {};
+        for (const key of ["x", "y"]) {
+            if (ranges[key]) update[`${key}axis.range`] = ranges[key];
+            else update[`${key}axis.autorange`] = true;
+        }
+        Plotly.relayout(this.plot, update);
     }
 
     // where a table dims some instances, the metric axes' ranges over the others (log ones in decades),
