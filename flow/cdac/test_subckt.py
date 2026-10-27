@@ -20,16 +20,36 @@ PARAMS = cdac.Params(
 )
 
 
-def test_both_sides_switch_their_plates_through_a_main_and_a_difference_driver():
+def _chain(module, bottom) -> list[str]:
+    """The inverters from a bottom plate back to the state that drives it: their cells, last first."""
+
+    def key(net):
+        # a bus bit is a new slice each time it is taken: by its bus and index
+        return (net.parent.name, net.index) if hasattr(net, "parent") else net.name
+
+    cells, net = [], bottom
+    while True:
+        driver = next((i for i in module.instances.values() if "Y" in i.conns and key(i.conns["Y"]) == key(net)), None)
+        if driver is None:
+            return cells
+        cells.append(driver.of.name)
+        net = driver.conns["A"]
+
+
+def test_each_stage_drives_its_main_plate_with_its_state_and_its_difference_plate_inverted():
+    """A buffer of the stage's state onto its main plate, an inverter onto its difference plate,
+    the last inverter of each at the stage's drive."""
     module = cdac.netlist(PARAMS)
     dac = PARAMS.dac
-    drivers = {name: inst for name, inst in module.instances.items() if name.startswith("xcapdriver_")}
-    assert sorted(drivers) == [f"xcapdriver_{side}_{kind}" for side in "np" for kind in ("diff", "main")]
     for side in "pn":
-        main, diff = drivers[f"xcapdriver_{side}_main"], drivers[f"xcapdriver_{side}_diff"]
-        assert main.conns["dac_state"] is diff.conns["dac_state"] is getattr(module, f"dac_state_{side}")
-        assert main.conns["dac_drive_invert"] is module.dac_invert
-        assert diff.conns["dac_drive_invert"] is module.dac_diffcaps
+        state = getattr(module, f"dac_state_{side}")
+        for stage, strength in enumerate(dac.driver.strengths):
+            main = _chain(module, getattr(module, f"dac_botplate_{side}")[stage])
+            diff = _chain(module, getattr(module, f"dac_botplate_{side}_diff")[stage])
+            assert len(main) % 2 == 0 and len(diff) % 2 == 1
+            assert main[0] == diff[0] == f"inv_x{strength}()"  # an external cell call
+        assert not any(name.startswith("xcapdriver") for name in module.instances) and state.width == 3
+    for side in "pn":
         top = getattr(module, f"vdac_{side}")
         for kind, plates in (("main", dac.main_f), ("diff", dac.diff_f)):
             for stage, plate in enumerate(plates):

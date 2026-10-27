@@ -1,9 +1,8 @@
 """The CDAC's testbench (``testbench``) and the one Spectre run of it (``simulate``).
 
 The testbench drives both sides' states, every stage up and back down in its turn
-(``TbParams.window_start_s``), holds the main plates' invert low and the difference plates' select
-high (the main plates follow the states, the difference plates their complement), and bleeds both
-top plates to mid-supply. ``simulate`` runs it in Spectre and leaves Spectre's raw output on disk:
+(``TbParams.window_start_s``) (the main plates follow the states, the difference plates their
+complement), and bleeds both top plates to mid-supply. ``simulate`` runs it in Spectre and leaves Spectre's raw output on disk:
 the nets ``Nets`` marks to save (both top plates, the P side's states and main bottom plates, a
 bit per stage), every ``TbParams.waveform_sample_interval_s``, Spectre's step bounded to it; or,
 for a Monte Carlo run (``TbParams.mc_runs``), each run's operating point with every plate's probe
@@ -60,9 +59,6 @@ def testbench(tb: TbParams) -> h.Module:
     bench.vcm = h.Signal()
     bench.vvdd_dac = Vdc(dc=vdd)(p=bench.vdd_dac, n=vss)
     bench.vvcm = Vdc(dc=vdd / 2)(p=bench.vcm, n=vss)
-    # the main plates follow the states, the difference plates their complement
-    bench.vinvert = Vdc(dc=0.0)(p=bench.dac_invert, n=vss)
-    bench.vdiffcaps = Vdc(dc=vdd)(p=bench.dac_diffcaps, n=vss)
     for side in ("p", "n"):
         bench.add(R(r=BLEED_OHM)(p=getattr(bench, f"vdac_{side}"), n=bench.vcm), name=f"rbleed_{side}")
     for stage in range(tb.stages):

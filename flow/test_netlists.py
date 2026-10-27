@@ -90,6 +90,13 @@ def corpus(block: str, pdk: str | None) -> dict[str, Any]:
     return {label: instance for label, instance in instances.items() if valid is None or valid(instance, pdk)}
 
 
+def _net(signal: Any) -> str:
+    """A connection by name: a bus bit by its bus and index."""
+    if hasattr(signal, "parent") and hasattr(signal, "index"):
+        return f"{signal.parent.name}[{signal.index}]"
+    return signal.name
+
+
 def structure(block: str, instance: Any) -> str:
     """The block's circuit before any PDK compile, as text: each instance's name, what it
     instantiates with which parameters, and its connections, in the generator's order."""
@@ -107,8 +114,13 @@ def structure(block: str, instance: Any) -> str:
         for name, inst in module.instances.items():
             call = inst.of
             target = getattr(call, "prim", None) or getattr(call, "module", None)
-            conns = " ".join(f"{port}={signal.name}" for port, signal in inst.conns.items())
-            lines.append(f"{name} {getattr(target, 'name', target)} {call.params!r} {conns}")
+            conns = " ".join(f"{port}={_net(signal)}" for port, signal in inst.conns.items())
+            # a module instantiated as it is (a leaf of the generator's own, the CDAC's plates): by
+            # its instances' parameters
+            params = getattr(call, "params", None)
+            if params is None:
+                params = [(leaf, getattr(inner.of, "params", None)) for leaf, inner in call.instances.items()]
+            lines.append(f"{name} {getattr(target, 'name', target)} {params!r} {conns}")
         return "\n".join(lines) + "\n"
     finally:
         netlist.Cache.reset()
