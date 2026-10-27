@@ -213,22 +213,16 @@ function renderBar() {
     const mode = app.mode;
     const marked = marks();
     const status = sweepStatus();
-    const entry = app.catalog[app.block] || {};
-    const failed = app.table.rows.filter((row) => row.error).length;
     const left = [];
-    const about = `${app.table.title || entry.title || app.block}: ${app.table.metrics.length} metrics${failed ? `, ${failed} failed` : ""}, run ${app.table.run}`;
     if (mode === "view" || mode === "compare") left.push(button("back", "All instances", "Back to every instance of the block (the shown ones stay marked)", () => navigate({ ids: [] })));
     if (mode === "compiler") left.push(button("back", app.block, `Back to ${app.table.title}`, () => navigate({ compiler: false })));
     if (mode === "table") {
-        // the instances shown and the filters' clear, the marks and theirs
+        // the filters' and sort's clear, the marks' (the instances shown are the table's corner)
         const clear = button("unfilter", "", "Clear every filter and the sort", () => clearFilters());
         clear.disabled = !status.filtered && !status.sorted;
-        left.push(h("span.mono.muted.bar-count", { title: about }, `${status.shown} of ${status.total}${status.filtered ? " (filtered)" : ""}`), clear);
+        left.push(clear);
         if (marked.length) left.push(h("button.bar-btn.bar-marks", { title: "Unmark every instance", onclick: () => setMarks([]) }, `${marked.length} marked`, h("span", { html: icon("x", 12) })));
-        else left.push(h("span.muted.bar-hint", {}, "mark: a column's ○ or a point"));
     }
-    if (mode === "view") left.push(h("span.muted", {}, "one instance"));
-    if (mode === "compare") left.push(h("span.muted", {}, `${app.ids.length} instances compared`));
     const single = marked.length === 1;
     const several = marked.length > 1;
     const view = button(

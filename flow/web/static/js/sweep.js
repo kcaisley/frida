@@ -7,7 +7,7 @@
 // more) open the marked instances in place (detail.js), where the table narrows to their columns
 // (SelectionPanel). An instance is its PDK and parameters: its id names it only in the URL.
 
-import { h, icon, popover, select } from "./icons.js";
+import { h, icon, popover, select, titled } from "./icons.js";
 import { currentTheme, keepTicks, PAPERS, paperLayout, TICK_KEYS, tone } from "./paper.js";
 import { COLORS, emit, hostBar, on, recall, store } from "./store.js";
 import { fieldInfo, scaledUnit, siExponent } from "./units.js";
@@ -337,7 +337,7 @@ export class SweepTablePanel {
     // the Search, as the layout's Generator above its panel
     renderSearches() {
         // then the page's bar: the instances shown, filters and marks, View, Compare and Compiler
-        this.toolbar.replaceChildren(...(searches.options.length ? [h("label.field", {}, h("span", {}, "Search"), select(searches.options, searches.value, (value) => searches.onChange?.(value)))] : []), this.barSlot);
+        this.toolbar.replaceChildren(...(searches.options.length ? [select(searches.options, searches.value, (value) => searches.onChange?.(value), { title: "The block's sweep, or one of its optimizations" })] : []), this.barSlot);
     }
 
     // the instance a cell is in: a head carries its index, a value cell its place in the row
@@ -390,7 +390,12 @@ export class SweepTablePanel {
         for (const mark of marks) parts.push(`<col class="${mark}" style="width:${view.colWidth}px">`);
         parts.push(`<col style="width:${(count - last) * view.colWidth}px"></colgroup>`);
         // the heads: a column's mark (and its failure)
-        parts.push(`<thead><tr><th class="corner"><span class="muted">${count} instance${count === 1 ? "" : "s"}</span></th><th class="pad"></th>`);
+        // the corner: the instances shown, of how many where filtered; the table's run on hover
+        const total = view.table.rows.length;
+        const failed = view.table.rows.filter((row) => row.error).length;
+        const about = `${view.table.title || view.table.block}: ${view.table.metrics.length} metrics${failed ? `, ${failed} failed` : ""}, run ${view.table.run}`;
+        const shown = count === total ? `${count} instance${count === 1 ? "" : "s"}` : `${count} of ${total}`;
+        parts.push(`<thead><tr><th class="corner" title="${esc(about)}"><span class="muted">${shown}</span></th><th class="pad"></th>`);
         cols.forEach((row, k) => {
             const failed = row.error ? (row.error.trim().split("\n").pop() || "failed") : "";
             const title = `${view.marks.has(row.id) ? "Unmark" : "Mark"} this instance: View or Compare the marked ones from the bar above${failed ? `\nFailed: ${failed}` : ""}`;
@@ -561,13 +566,13 @@ export class ScatterPanel {
                 rerender();
             });
         this.controls.replaceChildren(
-            h("label.field", {}, h("span", {}, "x"), choose("x")),
+            titled("x", choose("x")),
             logButton("x"),
             toolButton("swap", "Swap the axes", () => {
                 [view.x, view.y, view.logX, view.logY] = [view.y, view.x, view.logY, view.logX];
                 rerender();
             }),
-            h("label.field", {}, h("span", {}, "y"), choose("y")),
+            titled("y", choose("y")),
             logButton("y"),
             h("span.grow"),
             // the plot's own tools, always shown (Plotly's mode bar only on hover, over the plot)

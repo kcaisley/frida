@@ -3,7 +3,7 @@
 // thicknesses), with an adjustable vertical exaggeration. Drag orbits, right-drag pans, wheel
 // zooms.
 
-import { h, icon, select } from "./icons.js";
+import { h, icon, select, titled } from "./icons.js";
 import { isVisible, layerColor, layerStyle, reportLayers } from "./layers.js";
 import { generators, layoutFocus, layoutsFor, loadLayout } from "./layout2d.js";
 import { on, series, setFocus, state, status } from "./store.js";
@@ -117,12 +117,12 @@ export class Layout3DPanel {
         this.toolbar.replaceChildren();
         if (shown.length > 1) {
             this.toolbar.append(
-                h("label.field", {}, h("span", {}, "Series"), select(shown.map((item) => ({ value: item.key, label: `${item.case} · ${item.pdk}` })), focus?.key, (value) => setFocus(value))),
+                titled("Series", select(shown.map((item) => ({ value: item.key, label: `${item.case} · ${item.pdk}` })), focus?.key, (value) => setFocus(value))),
             );
         }
         if (gens.length) {
             this.toolbar.append(
-                h("label.field", {}, h("span", {}, "Generator"), select(gens.map((generator) => ({ value: generator, label: generator })), this.config.generator, (value) => {
+                titled("Generator", select(gens.map((generator) => ({ value: generator, label: generator })), this.config.generator, (value) => {
                     this.config.generator = value;
                     this.refresh(true);
                 })),

@@ -2,7 +2,7 @@
 // layout was built from; on an instance page, the instance's.
 
 import { loadEditor } from "./editor.js";
-import { h, icon, select } from "./icons.js";
+import { h, icon, select, titled } from "./icons.js";
 import { fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
 
 // The schematic's own stylesheet (netlist2image: black on white) scoped to the sheet: inline, its
@@ -55,7 +55,7 @@ export class SchematicPanel {
         const view = this.viewName;
         this.toolbar.replaceChildren();
         if (shown.length > 1) {
-            this.toolbar.append(h("label.field", {}, h("span", {}, "Series"), select(shown.map((item) => ({ value: item.key, label: `${item.case} · ${item.pdk}` })), focus?.key, (value) => setFocus(value))));
+            this.toolbar.append(titled("Series", select(shown.map((item) => ({ value: item.key, label: `${item.case} · ${item.pdk}` })), focus?.key, (value) => setFocus(value))));
         }
         // a toolbar only to choose among several series
         this.toolbar.style.display = this.toolbar.childElementCount ? "" : "none";

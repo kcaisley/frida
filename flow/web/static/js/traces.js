@@ -4,7 +4,7 @@
 // Wheel zooms time about the cursor, drag pans, right-drag zooms to a span, double-click fits;
 // a click places the cursor, shift-click a second marker for the time between them.
 
-import { h, icon, select } from "./icons.js";
+import { h, icon, select, titled } from "./icons.js";
 import { COLORS, fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
 import { fieldInfo, formatValue, scaledUnit, siExponent } from "./units.js";
 
@@ -126,7 +126,7 @@ export class TracesPanel {
         this.toolbar.replaceChildren();
         if (shown.length > 1) {
             this.toolbar.append(
-                h("label.field", {}, h("span", {}, "Series"), select(shown.map((item) => ({ value: item.key, label: `${item.case} · ${item.pdk}${runsOf(item).length ? "" : " (none)"}` })), focus?.key, (value) => setFocus(value))),
+                titled("Series", select(shown.map((item) => ({ value: item.key, label: `${item.case} · ${item.pdk}${runsOf(item).length ? "" : " (none)"}` })), focus?.key, (value) => setFocus(value))),
             );
         }
         if (!runs.length) {
@@ -158,10 +158,10 @@ export class TracesPanel {
             this.config.record = 0;
             this.refresh();
         });
-        this.toolbar.append(h("label.field", {}, h("span", {}, "Run"), chooser));
+        this.toolbar.append(titled("Run", chooser));
         if (this.run.records > 1) {
             this.toolbar.append(
-                h("label.field", {}, h("span", {}, "Record"), select(Array.from({ length: this.run.records }, (_, index) => ({ value: String(index), label: String(index) })), String(this.config.record), (value) => {
+                titled("Record", select(Array.from({ length: this.run.records }, (_, index) => ({ value: String(index), label: String(index) })), String(this.config.record), (value) => {
                     this.config.record = Number(value);
                     this.refresh();
                 })),

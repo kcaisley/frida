@@ -335,16 +335,8 @@ select {
     display: contents;
 }
 
-.bar-count {
-    font-size: var(--fs-11);
-}
-
 .bar-marks {
     color: var(--sem-warn);
-}
-
-.bar-hint {
-    font-size: var(--fs-11);
 }
 
 .bar-group {

@@ -7,7 +7,7 @@
 // editor, the run, its polling) outlives the view: switched back to, it is as it was left.
 
 import { loadEditor } from "./editor.js";
-import { h, icon, seg, select, toast } from "./icons.js";
+import { h, icon, seg, select, titled, toast } from "./icons.js";
 import { LayersPanel } from "./layers.js";
 import { Layout3DPanel } from "./layout3d.js";
 import { LayoutPanel } from "./layout2d.js";
@@ -427,7 +427,7 @@ class FlowPanel {
         run.disabled = Boolean(why);
         this.toolbar.replaceChildren(
             this.barSlot,
-            h("label.field", {}, h("span", {}, "PDK"), pdkSelect),
+            titled("PDK", pdkSelect),
             h("label.field", {}, h("span", {}, "Style"), seg(STYLES, page.style, (value) => setStyle(value))),
             h("span.grow"),
             running() ? h("button.icon-btn", { title: "Stop the run", onclick: () => cancelRun() }, h("span", { html: glyph("stop", 12) }), "Cancel") : "",
@@ -512,7 +512,7 @@ class FlowPanel {
         this.footerElement = h(
             "div.flow-footer",
             {},
-            h("label.field", {}, h("span", {}, "History"), runs),
+            titled("History", runs),
             h("span.grow"),
             files.gds && job?.state === "done" ? h("a.icon-btn", { href: `data/${files.gds}`, download: `${job.cell || "layout"}.gds`, title: "Download the GDS" }, h("span", { html: icon("download", 13) }), "GDS") : "",
             // the log in its tab beside Diagnostics, not a page of its own
