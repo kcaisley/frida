@@ -6,6 +6,7 @@
 // Layers panels on the right, fed through a one-instance block as the Explorer's. Its state (the
 // editor, the run, its polling) outlives the view: switched back to, it is as it was left.
 
+import { loadEditor } from "./editor.js";
 import { h, icon, seg, select, toast } from "./icons.js";
 import { LayersPanel } from "./layers.js";
 import { Layout3DPanel } from "./layout3d.js";
@@ -15,7 +16,6 @@ import { Layout } from "./regions.js";
 import { emit, on, recall, state, store } from "./store.js";
 
 // the editor, from jsDelivr the first time the Compiler is opened
-const CODEMIRROR = "https://cdn.jsdelivr.net/npm/codemirror@5.65.18";
 
 // a run's stages, in order (the server's keys)
 const STAGES = [
@@ -742,25 +742,6 @@ class DiagnosticsPanel {
     }
 }
 
-// a simple SPICE mode: comments, dot statements, instance names, parameters, SI numbers
-function defineMode() {
-    CodeMirror.defineSimpleMode("spice", {
-        start: [
-            { regex: /\*.*/, token: "comment", sol: true },
-            { regex: /[$;].*/, token: "comment" },
-            { regex: /\.\w+/, token: "keyword", sol: true },
-            { regex: /\+/, token: "operator", sol: true },
-            { regex: /[Mm]\w*/, token: "variable-2", sol: true },
-            { regex: /[Xx]\w*/, token: "variable-3", sol: true },
-            { regex: /[A-Za-z]\w*/, token: "def", sol: true },
-            { regex: /[A-Za-z_]\w*(?==)/, token: "attribute" },
-            { regex: /=/, token: "operator" },
-            { regex: /[A-Za-z_][\w<>[\]#!.]*/, token: null },
-            { regex: /[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?(?:meg|[afpnumkgt])?(?![\w.])/i, token: "number" },
-        ],
-    });
-}
-
 // the run's log, fetched when its tab is shown and again while the run goes on
 class LogPanel {
     constructor(container) {
@@ -806,30 +787,16 @@ class LogPanel {
 
 // ---- the view ---------------------------------------------------------------------------------
 
-function loadScript(src) {
-    return new Promise((resolve, reject) => {
-        const script = h("script", { src });
-        script.addEventListener("load", resolve);
-        script.addEventListener("error", () => reject(new Error(`${src} did not load`)));
-        document.head.append(script);
-    });
-}
-
 // once per page: the editor's library, the server's PDKs and examples, the run history
 async function setup() {
     const catalog = await api("pdks").catch((error) => {
         throw new Error(`No compiler on this server (${error.message}): restart  python -m flow web.serve  and reload.`);
     });
-    if (typeof CodeMirror === "undefined") {
-        document.head.append(h("link", { rel: "stylesheet", href: `${CODEMIRROR}/lib/codemirror.css` }));
-        try {
-            await loadScript(`${CODEMIRROR}/lib/codemirror.min.js`);
-            await loadScript(`${CODEMIRROR}/addon/mode/simple.js`);
-        } catch (error) {
-            throw new Error("The editor did not load: CodeMirror comes from cdn.jsdelivr.net; check the connection and reload.");
-        }
+    try {
+        await loadEditor();
+    } catch (error) {
+        throw new Error("The editor did not load: CodeMirror comes from cdn.jsdelivr.net; check the connection and reload.");
     }
-    defineMode();
     page.pdks = catalog.pdks || [];
     page.examples = catalog.example || {};
     const names = page.pdks.filter((item) => item.available).map((item) => item.name);

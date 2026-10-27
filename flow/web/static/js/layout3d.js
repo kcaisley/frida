@@ -202,11 +202,12 @@ export class Layout3DPanel {
         this.controls.addEventListener("change", () => this.render());
         this.controls.addEventListener("start", () => this.animate(true));
         this.controls.addEventListener("end", () => this.animate(false));
-        this.scene.add(new THREE.HemisphereLight(0xeceff4, 0x2e3440, 1.1));
-        const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+        // three's lights in physical units (since r155): an intensity of pi lights as 1 did before
+        this.scene.add(new THREE.HemisphereLight(0xeceff4, 0x2e3440, 1.1 * Math.PI));
+        const sun = new THREE.DirectionalLight(0xffffff, 1.6 * Math.PI);
         sun.position.set(0.6, -1, 1.4);
         this.scene.add(sun);
-        const fill = new THREE.DirectionalLight(0x88c0d0, 0.5);
+        const fill = new THREE.DirectionalLight(0x88c0d0, 0.5 * Math.PI);
         fill.position.set(-1, 0.8, 0.6);
         this.scene.add(fill);
         this.applyTheme();
@@ -261,10 +262,11 @@ export class Layout3DPanel {
             if (!parts.length) continue;
             const geometry = parts.length === 1 ? parts[0] : mergeGeometries(parts, false);
             const color = new THREE.Color(layerColor(style));
+            // a little sheen on the metals: with nothing to reflect, a metallic surface is dark
             const material = new THREE.MeshStandardMaterial({
                 color,
-                roughness: style.group === "metal" ? 0.42 : 0.7,
-                metalness: style.group === "metal" || style.group === "via" ? 0.35 : 0.05,
+                roughness: style.group === "metal" ? 0.5 : 0.7,
+                metalness: style.group === "metal" || style.group === "via" ? 0.1 : 0,
                 transparent: style.group === "well",
                 opacity: style.group === "well" ? 0.25 : 1,
                 polygonOffset: true,
@@ -278,12 +280,6 @@ export class Layout3DPanel {
             this.layers[layer.key] = { holder, lines };
             this.group.add(holder);
         }
-        const base = new THREE.Mesh(
-            new THREE.PlaneGeometry((x2 - x1) * 1.15, (y2 - y1) * 1.15),
-            new THREE.MeshStandardMaterial({ color: 0x3b4252, roughness: 0.9, metalness: 0, transparent: true, opacity: 0.55 }),
-        );
-        base.position.z = -0.13;
-        this.group.add(base);
         this.group.scale.z = this.config.exaggeration;
         this.scene.add(this.group);
         reportLayers(this, Object.fromEntries(layout.layers.map((layer) => [layer.key, layer.count])));

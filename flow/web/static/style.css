@@ -124,7 +124,7 @@ html[data-theme="light"] {
     --hud-line: rgba(36, 37, 41, 0.18);
     --layout-grid: rgba(36, 37, 41, 0.05);
     --layout-ink: #242529;
-    --scene-bg: #f0f0f1;
+    --scene-bg: #fafafa;
     --plot-paper: #fafafa;
 }
 
@@ -1460,7 +1460,7 @@ table.grid.instances td.name {
     position: absolute;
     inset: 0;
     overflow: hidden;
-    background: var(--paper);
+    background: var(--plot-paper);
     cursor: grab;
 }
 

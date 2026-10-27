@@ -1,6 +1,7 @@
 // The focused series' transistor schematic (pan, zoom) and, in a panel of its own, the netlist its
 // layout was built from; on an instance page, the instance's.
 
+import { loadEditor } from "./editor.js";
 import { h, icon, select } from "./icons.js";
 import { fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
 
@@ -24,16 +25,20 @@ export class SchematicPanel {
         this.sheet = h("div.sheet");
         this.page = h("div.page");
         this.listing = h("pre.netlist", { style: { display: "none" } });
+        // the netlist as the Compiler's editor highlights it, read-only (the listing where it cannot load)
+        this.editorHost = h("div.editor-host", { style: { display: "none" } });
         this.emptyNote = h("div.empty", {}, h("span", { html: icon("schematic", 28) }), h("strong", {}, view === "netlist" ? "No netlist" : "No schematic"), h("span", {}, ""));
         this.sheet.append(this.page);
         // the schematic's fit floats over its sheet: no toolbar row for one button
         this.fitButton = h("button.icon-btn.float", { title: "Fit (double-click)", onclick: () => this.fit(), html: icon("fit", 14) });
-        this.element.append(this.toolbar, h("div.panel-body.fill", {}, this.sheet, this.listing, this.emptyNote, this.fitButton));
+        this.element.append(this.toolbar, h("div.panel-body.fill", {}, this.sheet, this.listing, this.editorHost, this.emptyNote, this.fitButton));
         container.element.append(this.element);
         this.view = { k: 1, x: 0, y: 0 };
         this.bindInput();
         this.off = [on("block", () => this.refresh()), on("selection", () => this.refresh()), on("focus", () => this.refresh())];
         container.on("destroy", () => this.off.forEach((off) => off()));
+        // an editor made while its tab was hidden measures itself once shown
+        container.on("show", () => this.editor?.refresh());
         this.resizeObserver = new ResizeObserver(() => this.svgSize && !this.moved && this.fit());
         this.resizeObserver.observe(this.sheet);
         this.refresh();
@@ -59,6 +64,7 @@ export class SchematicPanel {
         if (!path) {
             this.page.replaceChildren();
             this.listing.style.display = "none";
+            this.editorHost.style.display = "none";
             this.sheet.style.display = "none";
             this.key = null;
             this.emptyNote.style.display = "";
@@ -80,6 +86,17 @@ export class SchematicPanel {
             this.sheet.style.display = view === "netlist" ? "none" : "";
             if (view === "netlist") {
                 this.listing.textContent = text;
+                try {
+                    await loadEditor();
+                } catch {
+                    return;
+                }
+                if (this.key !== key) return;
+                this.editor ||= CodeMirror(this.editorHost, { mode: "spice", readOnly: true, lineNumbers: true, lineWrapping: false });
+                this.editor.setValue(text);
+                this.listing.style.display = "none";
+                this.editorHost.style.display = "";
+                this.editor.refresh();
                 return;
             }
             this.page.innerHTML = scopedSvg(text);
