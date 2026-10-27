@@ -2,6 +2,7 @@
 
 import hdl21 as h
 import pytest
+from pydantic import ValidationError
 
 from flow import cdac
 from flow.capdriver.subckt import CapDriverParams
@@ -62,17 +63,12 @@ def test_the_buses_have_a_bit_per_stage_and_the_nets_keep_their_order():
 
 def test_mismatched_or_negative_capacitances_are_refused():
     dac = PARAMS.dac
-    short = cdac.Params(
-        dac=_Dac(driver=dac.driver, main_f=dac.main_f[:2], diff_f=dac.diff_f, parasitic_f=0.0), adc_bits=10
-    )
-    negative = cdac.Params(
-        dac=_Dac(driver=dac.driver, main_f=dac.main_f, diff_f=(0.0, -1e-15, 0.0), parasitic_f=0.0), adc_bits=10
-    )
-    for params in (short, negative):
-        assert not cdac.valid(params)
-        with pytest.raises(ValueError):
-            cdac.netlist(params)
-    assert cdac.valid(PARAMS) and not cdac.valid(cdac.Params(dac=dac, adc_bits=0))
+    for fields in ({"main_f": dac.main_f[:2]}, {"diff_f": (0.0, -1e-15, 0.0)}, {"weights": (1, 2)}):
+        with pytest.raises(ValidationError):
+            _Dac(**{**dac.__dict__, **fields})
+    with pytest.raises(ValidationError):
+        cdac.Params(dac=dac, adc_bits=0)
+    assert cdac.Params() == PARAMS
 
 
 def test_each_plate_varies_at_its_centroid_and_a_wrong_placement_is_refused():
@@ -94,8 +90,5 @@ def test_each_plate_varies_at_its_centroid_and_a_wrong_placement_is_refused():
     module = cdac.netlist(params)
     assert "mom_gradient*(20*mom_gx + -5*mom_gy)" in module.instances["cmain_p_2"].of.cap.of.params.c.text
     assert "mom_gradient*(-20*mom_gx + -5*mom_gy)" in module.instances["cmain_n_2"].of.cap.of.params.c.text
-    short = cdac.Params(
-        dac=_Dac(driver=dac.driver, main_f=dac.main_f, diff_f=dac.diff_f, parasitic_f=0.0, main_p_um=placed[:2]),
-        adc_bits=10,
-    )
-    assert not cdac.valid(short)
+    with pytest.raises(ValidationError):
+        _Dac(driver=dac.driver, main_f=dac.main_f, diff_f=dac.diff_f, parasitic_f=0.0, main_p_um=placed[:2])

@@ -10,7 +10,7 @@ capacitor array (``flow.caparray.model``) and its drivers (``flow.capdriver.mode
 array's plates: ``flow.capdriver.model.driver_strengths``), each from its own characterization or
 extraction in the PDK; the DAC's settling, stage by stage, from the SPICE characterization of the
 array with its drivers (``flow.cdac.model``, of the converter's array at its resolution,
-``cdac.adc_array``: ``python -m flow run cdac`` runs it ahead), or, where there is none, estimated
+``cdac.adc_array``, by the array's name: ``python -m flow run cdac`` runs it ahead), or, where there is none, estimated
 from the drivers' resistance and delay with a warning. The SAR logic is the fixed digital netlist built by
 OpenROAD: it is not characterized, so its energies are the ones fitted to the FRIDA-2 three-layer
 PEX transient (``SALOGIC``). The DAC's reference is ideal here, the front end's own characterization;
@@ -24,6 +24,7 @@ import importlib
 import warnings
 from dataclasses import dataclass
 from datetime import datetime
+from functools import cache
 from pathlib import Path
 
 import hdl21 as h
@@ -50,8 +51,16 @@ from flow.caparray.model import CapArrayModel
 from flow.caparray.subckt import get_caparray_weights
 from flow.capdriver.model import CapDriverModel, driver_strengths, stage_drivers
 from flow.capdriver.subckt import CapDriverParams, Cells
+from flow.pipeline import Space
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 from flow.scans.scan_behavioral import build_adc_interface_wave, calc_source_value
+
+
+@cache
+def _cdac_arrays(pdk: str) -> dict[str, Space]:
+    """The PDK's CDACs by their arrays' names (``cdac.adc_array``), built once a process."""
+    return cdac.adc_array.spaces(pdk)
+
 
 # The SAR logic's energies, fitted to the FRIDA-2 three-layer PEX transient (10 MS/s): 22.85 pJ a
 # conversion and 1.338 uW idle on VDD_D over its 48 registers (flow.scans.scan_behavioral).
@@ -108,7 +117,7 @@ class AdcModel:
         # looked up, never run here (minutes of SPICE an array, which every converter on the array
         # would wait for)
         try:
-            dac = cdac.adc_array(pdk=pdk, array=array_name(params.cdac))
+            dac = _cdac_arrays(pdk)[array_name(params.cdac)].base
             if dac.adc_bits != params.adc_bits:
                 raise LookupError(
                     f"the CDAC is characterized at {dac.adc_bits} bits, the converter has {params.adc_bits}"

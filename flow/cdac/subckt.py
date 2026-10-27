@@ -19,7 +19,7 @@ from flow.capdriver.subckt import CapDriver
 from flow.circuit.ports import module_from_ports
 from flow.momcap.subckt import mom_cap
 
-from .params import Params, valid
+from .params import Params
 
 # a net with a bit per stage (C0 first), its width the design's; a net a run saves
 _STAGES = h.Properties(inner={"stages": True})
@@ -56,10 +56,6 @@ def netlist(params: Params) -> h.Module:
 
     dac = params.dac
     stages = dac.driver.n_stages
-    if not valid(params):
-        raise ValueError(
-            f"a CDAC needs a main and a difference capacitance, none negative, for each of its {stages} stages"
-        )
 
     Cdac = module_from_ports("Cdac", _ports(stages))
     driver = CapDriver(dac.driver)

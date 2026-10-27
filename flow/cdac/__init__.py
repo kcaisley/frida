@@ -6,7 +6,7 @@ Its behavioral model is ``flow.cdac.model``."""
 
 from . import params, subckt, sim, types, analysis, plots, sweep  # noqa: I001 - the pipeline's order
 from .analysis import analyze_mismatch, analyze_settling, metrics
-from .params import Params, TbParams, valid
+from .params import Params, TbParams
 from .plots import (
     plot_dac_dnl,
     plot_dac_inl,
@@ -52,5 +52,4 @@ __all__ = [
     "sweep",
     "testbench",
     "types",
-    "valid",
 ]

@@ -1,8 +1,8 @@
 """The CDAC's design space (docs/pipeline.md): the array of every converter of ``flow.adc.sweep``
-with its drivers, at that converter's resolution (``adc_array``: every ADC array,
-``flow.caparray.layout.ADC_ARRAYS``, sized through its extraction in TSMC65, at one bit more than
-its DAC's steps, the free first comparison: 61 instances); the testbench run that characterizes one
-instance (``runs``) and the record it makes (``record``).
+with its drivers, at that converter's resolution (``adc_array``, a grid of each PDK's arrays by name:
+every ADC array, ``flow.caparray.layout.ADC_ARRAYS``, sized through its extraction in the PDK, at
+one bit more than its DAC's steps, the free first comparison: 61 instances a PDK); the testbench runs
+that characterize one instance (``runs``) and the record they make (``record``).
 
 The drivers are the generic cells the ADC model stands in with, derived from the array's plates
 (``flow.capdriver.model.driver_strengths``: each stage's drive scaled with its plate to settle in
@@ -25,7 +25,7 @@ from flow.caparray.model import CapArrayModel
 from flow.caparray.subckt import get_caparray_weights
 from flow.capdriver.model import CapDriverModel, driver_strengths
 from flow.capdriver.subckt import CapDriverParams, Cells, stage_strengths
-from flow.pipeline import Meas, Record, family
+from flow.pipeline import Meas, Pdk, Record, grid, widen
 
 from .analysis import analyze_mismatch, analyze_settling, metrics
 from .params import GRADIENTS_PER_UM, MC_RUNS, PAIR_GAP_UM, PELGROMS, SAMPLES_PER_WINDOW, Params, TbParams, _Dac
@@ -41,13 +41,17 @@ from .plots import (
 )
 
 
-# the arrays in every PDK, each extracted there (flow.caparray.sizing.extract_adc_arrays); the
-# 14-bit ones first, as they take longest
-@family(pdk=lambda pdk: (pdk,), array=tuple(reversed(ADC_ARRAYS)))
-def adc_array(pdk: str, array: str) -> Params:
-    """The CDAC of the ADC array ``array`` (``ADC_ARRAYS``) in ``pdk``, at its converter's
-    resolution: its plates as its extraction gives them (``CapArrayModel.of``), its drivers the
-    generic cells derived from them (``driver_strengths``)."""
+@grid
+def adc_array(pdk: Pdk) -> dict[str, Params]:
+    """The CDAC of every ADC array (``ADC_ARRAYS``) in ``pdk``, by the array's name, at its
+    converter's resolution: its plates as its extraction there gives them (``CapArrayModel.of``:
+    each PDK's own, so each CDAC is a fixed point), its drivers the generic cells derived from them
+    (``driver_strengths``); the 14-bit ones first, as they take longest."""
+    return {array: widen(_adc_array(pdk.name.lower(), array)) for array in reversed(ADC_ARRAYS)}
+
+
+def _adc_array(pdk: str, array: str) -> Params:
+    """The CDAC of the ADC array ``array`` in ``pdk``."""
     config = ADC_ARRAYS[array]
     plates = CapArrayModel.of(pdk, config)
     # the pair about the origin: the P array left, the N array its mirror image right

@@ -1,6 +1,8 @@
 """The CDAC's parameters: its design (``Params``: both sides' drivers and plates, and the converter
-resolution its settling is measured to), one run of its testbench (``TbParams``), which designs the
-generator builds (``valid``), and the testbench every CDAC is switched on.
+resolution its settling is measured to), one run of its testbench (``TbParams``), and the testbench
+every CDAC is switched on. Every design the parameters admit builds: a main and a difference plate
+for each of its drivers' stages, none negative, a weight and a centroid each where given, a positive
+resolution.
 
 The design is an ADC array with the drivers that switch it, wired as the ADC wires them
 (``flow.adc.subckt``): each side's main and difference driver of the array's stages
@@ -23,6 +25,7 @@ from dataclasses import dataclass
 
 import hdl21 as h
 import numpy as np
+from pydantic import PositiveInt
 
 from flow import pipeline
 from flow.capdriver.subckt import CapDriverParams
@@ -52,10 +55,18 @@ PAIR_GAP_UM = 2.0
 class _Dac:
     """Both sides' drivers and plates (``Params.dac``)."""
 
-    driver = h.Param(dtype=CapDriverParams, desc="Each side's main and difference drivers: a stage each, its weight")
-    main_f = h.Param(dtype=tuple[float, ...], desc="C0-first main plate capacitances (F)")
-    diff_f = h.Param(dtype=tuple[float, ...], desc="C0-first difference plate capacitances (F)")
-    parasitic_f = h.Param(dtype=float, desc="Each top plate's other load, to ground (F)")
+    driver = h.Param(
+        dtype=CapDriverParams,
+        desc="Each side's main and difference drivers: a stage each, its weight",
+        default=CapDriverParams(n_stages=3, strengths=(4, 2, 1)),
+    )
+    main_f = h.Param(
+        dtype=tuple[float, ...], desc="C0-first main plate capacitances (F)", default=(400e-15, 200e-15, 100e-15)
+    )
+    diff_f = h.Param(
+        dtype=tuple[float, ...], desc="C0-first difference plate capacitances (F)", default=(0.0, 10e-15, 90e-15)
+    )
+    parasitic_f = h.Param(dtype=float, desc="Each top plate's other load, to ground (F)", default=250e-15)
     weights = h.Param(
         dtype=tuple[int, ...], desc="C0-first design weights, the decoder's (units); empty: none", default=()
     )
@@ -70,26 +81,25 @@ class _Dac:
         dtype=tuple[tuple[float, float], ...], desc="N side's difference plates' centroids (um)", default=()
     )
 
+    def __post_init__(self) -> None:
+        stages = self.driver.n_stages
+        if not len(self.main_f) == len(self.diff_f) == stages:
+            raise ValueError(f"a CDAC needs a main and a difference capacitance for each of its {stages} stages")
+        if min(*self.main_f, *self.diff_f, self.parasitic_f) < 0:
+            raise ValueError("a CDAC's capacitances must not be negative")
+        placed = (self.main_p_um, self.diff_p_um, self.main_n_um, self.diff_n_um, self.weights)
+        if any(len(values) not in (0, stages) for values in placed):
+            raise ValueError(f"a CDAC's weights and centroids are one a stage ({stages}), or none")
+
 
 @h.paramclass
 class Params:
-    """A CDAC and the converter's resolution its settling is measured to."""
+    """A CDAC and the converter's resolution its settling is measured to. The defaults are a reference
+    of three stages, independent of any PDK: 400, 200 and 100 fF main plates less 0, 10 and 90 fF
+    difference plates, 250 fF more on each top plate, at 10 bits."""
 
-    dac = h.Param(dtype=_Dac, desc="Both sides' drivers and plates")
-    adc_bits = h.Param(dtype=int, desc="The converter's resolution: settling is to half its LSB")
-
-
-def valid(params: Params, pdk: str | None = None) -> bool:
-    """Whether the CDAC can be built: a main and a difference plate for each of its drivers' stages,
-    no negative capacitance, a positive resolution. It builds in any PDK its plates are given in."""
-    dac = params.dac
-    placed = (dac.main_p_um, dac.diff_p_um, dac.main_n_um, dac.diff_n_um)
-    return (
-        len(dac.main_f) == len(dac.diff_f) == dac.driver.n_stages
-        and min(*dac.main_f, *dac.diff_f, dac.parasitic_f) >= 0
-        and params.adc_bits > 0
-        and all(len(plates) in (0, dac.driver.n_stages) for plates in (*placed, dac.weights))
-    )
+    dac = h.Param(dtype=_Dac, desc="Both sides' drivers and plates", default=_Dac())
+    adc_bits = h.Param(dtype=PositiveInt, desc="The converter's resolution: settling is to half its LSB", default=10)
 
 
 pipeline.Params.register(Params)
