@@ -90,40 +90,10 @@ class CapArrayConfig:
         default=None,
     )
 
-
-@h.paramclass
-class CapArrayParams:
-    """Electrical parameters for the passive unit-length capacitor array."""
-
-    cdac = h.Param(dtype=CapArrayConfig, desc="CDAC electrical sizing", default=CapArrayConfig())
-    unit_cap = h.Param(
-        dtype=h.Scalar | None,
-        desc="Unit capacitance (a weight's main less difference); None: the config's (unit_capacitance_f)",
-        default=None,
-    )
-    coarse_weight = h.Param(dtype=int, desc="Largest available unit-capacitor weight", default=64)
-    active_layers = h.Param(dtype=tuple[int, ...], desc="Consecutive active metals, lowest first", default=(6,))
-    unit_models = h.Param(
-        dtype=tuple[h.Module, ...],
-        desc="Optional PLUS/MINUS/BULK device model per active layer; empty selects ideal MOMs",
-        default=(),
-    )
-    stack_model = h.Param(
-        dtype=h.ExternalModule | None,
-        desc="Optional parameterized PLUS/MINUS/BULK model for the complete stack",
-        default=None,
-    )
-    tail_cap = h.Param(
-        dtype=h.Scalar | None,
-        desc="Capacitance of each minimum-length finger; None preserves the historical half-unit tail",
-        default=None,
-    )
-    unary_rows = h.Param(
-        dtype=bool,
-        desc="Each chunk of the coarse weight a unary row: one main finger of the coarse weight in units, no "
-        "difference finger (flow.caparray.layout.UnitLengthCapFamilyParams.unary_length)",
-        default=False,
-    )
+    def __post_init__(self) -> None:
+        # every array the parameters admit builds (is_valid_caparray_config)
+        if not is_valid_caparray_config(self):
+            raise ValueError(f"no array has these parameters: {self}")
 
 
 def binary_weights(n_dac: int) -> list[int]:
@@ -195,7 +165,11 @@ def _calc_weights(n_dac: int, n_extra: int, strategy: RedunStrat) -> list[int] |
 
 
 def is_valid_caparray_config(p: CapArrayConfig) -> bool:
-    """Check if this CDAC configuration is valid."""
+    """Whether an array has these parameters (``CapArrayConfig`` refuses any other): a positive
+    resolution and capacitance scale, no negative extra cycles, the scheme's weights for them (binary
+    has none, every other scheme at least one), and a weight and a drive each where given."""
+    if p.n_dac < 1 or p.n_extra < 0:
+        return False
     if isinstance(p.cap_scale, bool) or not isinstance(p.cap_scale, int) or p.cap_scale < 1:
         return False
     if p.driver_strengths is not None:
@@ -224,6 +198,41 @@ def get_caparray_weights(p: CapArrayConfig) -> list[int]:
     if weights is None or not is_valid_caparray_config(p):
         raise ValueError(f"Invalid CDAC params: {p}")
     return weights
+
+
+@h.paramclass
+class CapArrayParams:
+    """Electrical parameters for the passive unit-length capacitor array."""
+
+    cdac = h.Param(dtype=CapArrayConfig, desc="CDAC electrical sizing", default=CapArrayConfig())
+    unit_cap = h.Param(
+        dtype=h.Scalar | None,
+        desc="Unit capacitance (a weight's main less difference); None: the config's (unit_capacitance_f)",
+        default=None,
+    )
+    coarse_weight = h.Param(dtype=int, desc="Largest available unit-capacitor weight", default=64)
+    active_layers = h.Param(dtype=tuple[int, ...], desc="Consecutive active metals, lowest first", default=(6,))
+    unit_models = h.Param(
+        dtype=tuple[h.Module, ...],
+        desc="Optional PLUS/MINUS/BULK device model per active layer; empty selects ideal MOMs",
+        default=(),
+    )
+    stack_model = h.Param(
+        dtype=h.ExternalModule | None,
+        desc="Optional parameterized PLUS/MINUS/BULK model for the complete stack",
+        default=None,
+    )
+    tail_cap = h.Param(
+        dtype=h.Scalar | None,
+        desc="Capacitance of each minimum-length finger; None preserves the historical half-unit tail",
+        default=None,
+    )
+    unary_rows = h.Param(
+        dtype=bool,
+        desc="Each chunk of the coarse weight a unary row: one main finger of the coarse weight in units, no "
+        "difference finger (flow.caparray.layout.UnitLengthCapFamilyParams.unary_length)",
+        default=False,
+    )
 
 
 def total_capacitance_f(adc_bits: int, full_scale_v: float, cap_scale: int = 1) -> float:

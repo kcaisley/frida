@@ -73,6 +73,14 @@ def design_space(block: str, pdk: str) -> dict:
     return {ident: params for ident, (_label, params) in labelled_space(block, pdk).items()}
 
 
+def _valid(block: str):
+    """The block's ``params.valid`` (which designs build in a PDK), where it has one: a block whose
+    parameter classes admit only what builds, or without a params module (the ADC's), has none."""
+    if find_spec(f"flow.{block}.params") is None:
+        return None
+    return getattr(import_module(f"flow.{block}.params"), "valid", None)
+
+
 @cache
 def labelled_space(block: str, pdk: str) -> dict:
     """A pipeline block's instances in ``pdk`` by digest, each with its label (its family and knobs,
@@ -81,7 +89,7 @@ def labelled_space(block: str, pdk: str) -> dict:
     from flow import pipeline
 
     sweep = import_module(f"flow.{block}.sweep")
-    valid = getattr(import_module(f"flow.{block}.params"), "valid", None)
+    valid = _valid(block)
     space: dict = {}
     for label, params in pipeline.design(sweep, pdk):
         if valid is None or valid(params, pdk):
@@ -112,7 +120,7 @@ def select(block: str, pdk: str, names: list[str]) -> dict:
                 f"no instance {name!r} of {block} in {pdk}: a name ({', '.join(named)}), a label as "
                 "the run's records hold it, or a digest"
             )
-        valid = getattr(import_module(f"flow.{block}.params"), "valid", None)
+        valid = _valid(block)
         if valid is None or valid(params, pdk):
             picked.setdefault(digest(params), (label, params))
         else:

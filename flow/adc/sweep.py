@@ -35,7 +35,9 @@ The product, nothing pruned:
 20 x 5 x (10 x 3 x 2 + 1) = 6,100 converters in TSMC65. In the other PDKs, where the arrays and
 the blocks are the same study's but the comparator grid is the PDK's own (``flow.comp.sweep``), each
 array with the PDK's StrongARM noise ladder at about FRIDA-1's speed (``comparators``) and the widest
-bootstrapped switch (``samplers``): 244 to 305 converters a PDK.
+bootstrapped switch (``samplers``): 244 to 305 converters a PDK. The design space is a grid
+(``converters``, docs/pipeline.md): one space per resolution, its arrays, comparators and samplers
+values by name.
 
 Each instance runs the campaign of ``flow.adc.campaign`` and draws its figures
 (``flow.adc.figures``) for the viewer; its captures stay in memory, so its run is its record.
@@ -51,24 +53,25 @@ import hdl21 as h
 from flow import comp, samp
 from flow.caparray.layout import ADC_ARRAYS, ADC_BITS, FRIDA1_ADC_ARRAY, adc_arrays
 from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
-from flow.pipeline import Record
+from flow.pipeline import Pdk, Record, grid, values, widen
 
 from .subckt import AdcParams
 
-# the comparators: the comparator grid, noise by delay
 # The comparator grid: five levels of input-referred noise (rows, at the nominal common mode) by
 # four of delay (columns, at 0.5 mV), each cell the characterized TSMC65 comparator of least energy
 # per decision within 15 % of the noise and 20 % of the delay (flow/comp/readme.md), FRIDA-1's at
-# 200 uV and 2 ns
+# 200 uV and 2 ns; each from the comparator's grids by name (comp.base_strongarm, comp.dynamic_bias)
 GRID_NOISE_V = (200e-6, 150e-6, 100e-6, 70e-6, 50e-6)
 GRID_DELAY_S = (0.5e-9, 1.0e-9, 1.5e-9, 2.0e-9)
+_STRONGARM = {name: space.base for name, space in comp.base_strongarm.spaces(Pdk.TSMC65).items()}
+_DYNAMIC = {name: space.base for name, space in comp.dynamic_bias.spaces(Pdk.TSMC65).items()}
 COMP_GRID = (
-    # 0.5 ns                              1 ns                                  1.5 ns                                 2 ns
-    comp.base_strongarm(tail_l=14, k=3),  comp.dynamic_bias(ratio=3.5, k=0.75), comp.dynamic_bias(ratio=2.75, k=0.75), comp.frida1(),  # 200 uV
-    comp.base_strongarm(tail_l=14, k=6),  comp.dynamic_bias(ratio=3.5, k=1.5),  comp.dynamic_bias(ratio=2.75, k=1.5),  comp.dynamic_bias(ratio=2.25, k=1.5),  # 150 uV
-    comp.base_strongarm(tail_l=14, k=12), comp.dynamic_bias(ratio=3.5, k=3),    comp.dynamic_bias(ratio=2.75, k=3),    comp.dynamic_bias(ratio=2.25, k=3),  # 100 uV
-    comp.base_strongarm(tail_l=14, k=32), comp.dynamic_bias(ratio=3.5, k=6),    comp.dynamic_bias(ratio=2.75, k=6),    comp.dynamic_bias(ratio=2.25, k=6),  # 70 uV
-    comp.base_strongarm(tail_l=14, k=64), comp.dynamic_bias(ratio=3.5, k=12),   comp.dynamic_bias(ratio=2.75, k=12),   comp.dynamic_bias(ratio=2.25, k=12),  # 50 uV
+    # 0.5 ns                       1 ns                           1.5 ns                          2 ns
+    _STRONGARM["tail_l=14, k=3"],  _DYNAMIC["ratio=3.5, k=0.75"], _DYNAMIC["ratio=2.75, k=0.75"], comp.FRIDA1,  # 200 uV
+    _STRONGARM["tail_l=14, k=6"],  _DYNAMIC["ratio=3.5, k=1.5"],  _DYNAMIC["ratio=2.75, k=1.5"],  _DYNAMIC["ratio=2.25, k=1.5"],  # 150 uV
+    _STRONGARM["tail_l=14, k=12"], _DYNAMIC["ratio=3.5, k=3"],    _DYNAMIC["ratio=2.75, k=3"],    _DYNAMIC["ratio=2.25, k=3"],  # 100 uV
+    _STRONGARM["tail_l=14, k=32"], _DYNAMIC["ratio=3.5, k=6"],    _DYNAMIC["ratio=2.75, k=6"],    _DYNAMIC["ratio=2.25, k=6"],  # 70 uV
+    _STRONGARM["tail_l=14, k=64"], _DYNAMIC["ratio=3.5, k=12"],   _DYNAMIC["ratio=2.75, k=12"],   _DYNAMIC["ratio=2.25, k=12"],  # 50 uV
 )  # fmt: skip
 # each cell's noise and delay, in COMP_GRID's order (the noise outer)
 COMP_GRID_TARGETS = tuple((noise, delay) for noise in GRID_NOISE_V for delay in GRID_DELAY_S)
@@ -78,8 +81,8 @@ COMPARATORS: tuple[comp.Params, ...] = COMP_GRID
 # the samplers, an on-resistance ladder: FRIDA-1's transmission gate (32 minimum widths, minimum
 # length) the worst, then the bootstrapped NMOS switch's rungs (samp.boost_ladder: 32 minimum widths
 # with the doubled boost capacitor, then 64, 112 and 160, boosted alike); none with dummy switches
-TGATE = samp.frida1()
-SAMPLER_STEPS = (TGATE, *(params for _label, params in samp.boost_ladder.instances("tsmc65")))
+TGATE = samp.FRIDA1
+SAMPLER_STEPS = (TGATE, *(space.base for space in samp.boost_ladder.spaces(Pdk.TSMC65).values()))
 RESOLUTIONS = ADC_BITS  # 10, 12 and 14 bits
 # FRIDA-1's converter: its array (12 bits in 16 stages, MSB redistribution with 5 extra cycles) at
 # two of the 12-bit least switched capacitance
@@ -93,36 +96,48 @@ def arrays(bits: int, cap_scale: int = 1) -> list[CapArrayConfig]:
     return adc_arrays(bits, cap_scale)
 
 
-def comparators(pdk: str) -> list[comp.Params]:
-    """The comparators of ``pdk``'s converters: TSMC65's grid (``COMPARATORS``); elsewhere the PDK's
-    StrongARM noise ladder at its longest tail (its comparator sweep's: 200 to 50 uV where its noise
-    floor reaches them, about 2 ns at 0.5 mV, FRIDA-1's speed)."""
+def comparators(pdk: str) -> dict[str, comp.Params]:
+    """The comparators of ``pdk``'s converters by name: TSMC65's grid (``COMP_GRID``, by noise and
+    delay, ``200uV_2ns``); elsewhere the PDK's StrongARM noise ladder at its longest tail (its
+    comparator grid's, ``comp.base_strongarm``: 200 to 50 uV where its noise floor reaches them,
+    about 2 ns at 0.5 mV, FRIDA-1's speed), by its width factor (``k2.5``)."""
     if pdk == "tsmc65":
-        return list(COMPARATORS)
-    ladder = [params for _label, params in comp.base_strongarm.instances(pdk)]
-    longest = max(params.tail_l for params in ladder)
-    return [params for params in ladder if params.tail_l == longest]
+        return {
+            f"{noise * 1e6:g}uV_{delay * 1e9:g}ns": params
+            for (noise, delay), params in zip(COMP_GRID_TARGETS, COMP_GRID, strict=True)
+        }
+    ladder = {name: space.base for name, space in comp.base_strongarm.spaces(pdk).items()}
+    longest = max(params.tail_l for params in ladder.values())
+    return {f"k{name.rsplit('k=', 1)[1]}": params for name, params in ladder.items() if params.tail_l == longest}
 
 
-def samplers(pdk: str) -> list[samp.Params]:
-    """The samplers of ``pdk``'s converters: TSMC65's ladder (``SAMPLER_STEPS``); elsewhere the
+def samplers(pdk: str) -> dict[str, samp.Params]:
+    """The samplers of ``pdk``'s converters by name: TSMC65's ladder (``SAMPLER_STEPS``: FRIDA-1's
+    transmission gate, ``frida1``, then ``samp.boost_ladder``'s rungs by name); elsewhere the
     bootstrapped switch's widest rung alone, so the array and the comparator set the converter."""
+    ladder = {f"boost_{name}": space.base for name, space in samp.boost_ladder.spaces(pdk).items()}
     if pdk == "tsmc65":
-        return list(SAMPLER_STEPS)
-    return [list(samp.boost_ladder.instances(pdk))[-1][1]]
+        return {"frida1": TGATE, **ladder}
+    return dict([list(ladder.items())[-1]])
 
 
-def instances(pdk: str) -> list[AdcParams]:
+@grid
+def converters(pdk: Pdk) -> dict[str, AdcParams]:
     """Every comparator with every sampler and ADC array (``ADC_ARRAYS``: each resolution's arrays
-    at both scales, and FRIDA-1's), each at its resolution: in TSMC65 the full product, elsewhere
-    the PDK's smaller one (``comparators``, ``samplers``), each array sized through its extraction
-    there."""
-    return [
-        AdcParams(adc_bits=cdac.n_dac + 1, cdac=cdac, samp=sampler, comp=comparator)
-        for comparator in comparators(pdk)
-        for sampler in samplers(pdk)
-        for cdac in ADC_ARRAYS.values()
-    ]
+    at both scales, and FRIDA-1's), one space per resolution, each array at its resolution
+    (``adc_bits = n_dac + 1``): in TSMC65 the full product, elsewhere the PDK's smaller one
+    (``comparators``, ``samplers``), each array sized through its extraction there. A converter is
+    labelled by its resolution and its parts' names, ``converters(12b, cdac=12b_binary_x1,
+    comp=200uV_2ns, samp=frida1)``."""
+    folder = pdk.name.lower()
+    spaces = {}
+    for bits in RESOLUTIONS:
+        space = widen(AdcParams(adc_bits=bits, comp=comp.FRIDA1, samp=samp.FRIDA1))
+        space.cdac = values({name: cdac for name, cdac in ADC_ARRAYS.items() if cdac.n_dac + 1 == bits})
+        space.comp = values(comparators(folder))
+        space.samp = values(samplers(folder))
+        spaces[f"{bits}b"] = space
+    return spaces
 
 
 def _metastability(model) -> dict[str, float]:

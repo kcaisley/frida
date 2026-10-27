@@ -108,7 +108,8 @@ def test_the_comparator_space_is_its_grid_and_the_adcs_comparators() -> None:
     }
     assert comp.frida1() == comp.FRIDA1
     # the ADC's StrongARM: every width times k but the tail's, 4 k wide
-    assert comp.base_strongarm(tail_l=34, k=2.5).diffpair_w == 80 and comp.base_strongarm(tail_l=34, k=2.5).tail_w == 10
+    strongarm = comp.base_strongarm.spaces("lf150")["tail_l=34, k=1.5"].base
+    assert strongarm.diffpair_w == 48 and strongarm.tail_w == 6
     # named but not swept: picked by name, and by label or digest the swept ones
     picked = runner.select(
         "comp", "tsmc65", ["triple_tail", "dynamic_bias(ratio=3.5, k=3)", runner.digest(comp.frida1())]

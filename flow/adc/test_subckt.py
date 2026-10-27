@@ -6,41 +6,34 @@ from pathlib import Path
 
 import hdl21 as h
 import pytest
+from pydantic import ValidationError
 
 from flow.caparray import CapArrayConfig, RedunStrat
 
-from . import subckt
-from .subckt import Adc, AdcParams, is_valid_adc_params
+from .subckt import Adc, AdcParams
 
 
 def test_adc():
     """Verify ADC generator produces a valid module."""
-    assert is_valid_adc_params(AdcParams())
     m = Adc(AdcParams())
     assert m is not None
 
 
-@pytest.mark.parametrize(
-    "params",
-    (
-        AdcParams(adc_bits=0),
-        AdcParams(cdac=CapArrayConfig(n_dac=0, n_extra=16)),
-        AdcParams(cdac=CapArrayConfig(n_dac=17, n_extra=-1)),
-        AdcParams(cdac=CapArrayConfig(weights=(1,) * 15)),
-        # (a comparator or a sampler of a zero size is refused when it is made: flow/comp and
-        # flow/samp's test_subckt.py)
-    ),
-)
-def test_invalid_adc_params_fail_before_creating_a_module(params, monkeypatch):
-    monkeypatch.setattr(subckt, "module_from_ports", lambda *_: pytest.fail("invalid ADC reached generation"))
-    assert is_valid_adc_params(params) is False
-    with pytest.raises(ValueError, match="Invalid ADC params"):
-        Adc(params)
+def test_invalid_adc_params_are_refused_when_made():
+    """A resolution or an array no converter has: refused by the parameters' types (a comparator or
+    a sampler of a zero size likewise, flow/comp and flow/samp's test_subckt.py)."""
+    for make in (
+        lambda: AdcParams(adc_bits=0),
+        lambda: CapArrayConfig(n_dac=0, n_extra=16),
+        lambda: CapArrayConfig(n_dac=17, n_extra=-1),
+        lambda: CapArrayConfig(weights=(1,) * 15),
+    ):
+        with pytest.raises(ValidationError):
+            make()
 
 
 def test_adc_accepts_a_binary_array_with_sixteen_physical_stages():
     params = AdcParams(cdac=CapArrayConfig(n_dac=16, n_extra=0, redun_strat=RedunStrat.BINARY))
-    assert is_valid_adc_params(params) is True
     assert Adc(params).dac_state_p.width == 16
 
 

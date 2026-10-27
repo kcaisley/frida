@@ -1,6 +1,6 @@
-"""The comparator's design space (docs/pipeline.md): its grid (``@grid``: a design with some of its
-parameters widened, ``widen``, every point of it), the ADC's comparators (``@family``, until the ADC is on
-grids) and its named instances (``@named``); the testbench runs that characterize one instance
+"""The comparator's design space (docs/pipeline.md): its grids (``@grid``: a design with some of its
+parameters widened, ``widen``, every point of it; the ADC's comparators, each PDK's, by name) and
+its named instances (``@named``); the testbench runs that characterize one instance
 (``runs``) and the record they make (``record``); readme.md says why the space is what it is."""
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from dataclasses import replace
 
 import hdl21 as h
 
-from flow.pipeline import Level, Meas, Record, every, family, grid, named, steps, widen
+from flow.pipeline import Level, Meas, Pdk, Record, every, grid, named, steps, widen
 
 from .analysis import (
     analyze_clock_check,
@@ -67,29 +67,40 @@ def topologies() -> Params:
     return space
 
 
-# The ADC's comparators (flow.adc.sweep: TSMC65's COMP_GRID, elsewhere the PDK's StrongARM ladder at
-# its longest tail), until the ADC is ported to grids: each PDK's tails (its delays: 0.5, 1, 1.5 and
-# 2 ns at 0.5 mV) and widths (its noise levels: 200, 150, 100, 70 and 50 uV, where its noise floor
-# reaches them), where the base StrongARM is the more frugal family; TSMC28 at TSMC65's physical
-# sizes (three of its 40 nm units to one of 120 nm, the tail 840 nm long)
-@family(pdks=("tsmc65",), tail_l=(14,), k=(3, 6, 12, 32, 64))
-@family(pdks=("tsmc28",), tail_l=(28,), k=(18, 36, 72, 192))
-@family(pdks=("tpsc65",), tail_l=(6,), k=(2, 4, 8, 16, 32))
-@family(pdks=("tpsc65",), tail_l=(16, 26), k=(2,))
-@family(pdks=("tpsc65",), tail_l=(36,), k=(2, 4, 8, 16, 40))
-@family(pdks=("ihp130",), tail_l=(4,), k=(2.5, 4, 10, 20, 40))
-@family(pdks=("ihp130",), tail_l=(11,), k=(1.5, 3, 6, 12, 24))
-@family(pdks=("ihp130",), tail_l=(20,), k=(1.5, 2.5, 6, 12, 24))
-@family(pdks=("ihp130",), tail_l=(28,), k=(1.25, 2, 5, 10, 20))
-@family(pdks=("lf150",), tail_l=(4,), k=(1, 2, 5, 24))
-@family(pdks=("lf150",), tail_l=(13,), k=(1, 2))
-@family(pdks=("lf150",), tail_l=(23,), k=(1, 2, 5, 16))
-@family(pdks=("lf150",), tail_l=(34,), k=(1, 1.5, 5, 10))
-@family(pdks=("tower180",), tail_l=(3,), k=(2.5, 4, 10, 20, 40))
-@family(pdks=("tower180",), tail_l=(9,), k=(1.5, 3, 6, 12, 24))
-@family(pdks=("tower180",), tail_l=(15,), k=(1.5, 2.5, 6, 12, 24))
-@family(pdks=("tower180",), tail_l=(21,), k=(1.25, 2.5, 5, 10, 20))
-def base_strongarm(tail_l: int, k: float) -> Params:
+@grid
+def base_strongarm(pdk: Pdk) -> dict[str, Params]:
+    """The ADC's comparators (flow.adc.sweep: TSMC65's COMP_GRID, elsewhere the PDK's StrongARM
+    ladder at its longest tail), where the base StrongARM is the more frugal topology: each PDK's
+    tails (its delays: 0.5, 1, 1.5 and 2 ns at 0.5 mV) and widths (its noise levels: 200, 150, 100,
+    70 and 50 uV, where its noise floor reaches them), each point by its tail's length in minimum
+    lengths and its width factor (``tail_l=14, k=3``); TSMC28 at TSMC65's physical sizes (three of
+    its 40 nm units to one of 120 nm, the tail 840 nm long)."""
+    ladders = {
+        Pdk.TSMC65: {14: (3, 6, 12, 32, 64)},
+        Pdk.TSMC28: {28: (18, 36, 72, 192)},
+        Pdk.TPSC65: {6: (2, 4, 8, 16, 32), 16: (2,), 26: (2,), 36: (2, 4, 8, 16, 40)},
+        Pdk.IHP130: {
+            4: (2.5, 4, 10, 20, 40),
+            11: (1.5, 3, 6, 12, 24),
+            20: (1.5, 2.5, 6, 12, 24),
+            28: (1.25, 2, 5, 10, 20),
+        },
+        Pdk.LF150: {4: (1, 2, 5, 24), 13: (1, 2), 23: (1, 2, 5, 16), 34: (1, 1.5, 5, 10)},
+        Pdk.TOWER180: {
+            3: (2.5, 4, 10, 20, 40),
+            9: (1.5, 3, 6, 12, 24),
+            15: (1.5, 2.5, 6, 12, 24),
+            21: (1.25, 2.5, 5, 10, 20),
+        },
+    }
+    return {
+        f"tail_l={tail_l}, k={k}": widen(_base_strongarm(tail_l, k))
+        for tail_l, factors in ladders[pdk].items()
+        for k in factors
+    }
+
+
+def _base_strongarm(tail_l: int, k: float) -> Params:
     """The StrongARM at the short-channel sizes with every width times ``k`` but its tail, 4 k units
     wide and ``tail_l`` minimum lengths long: the tail's length sets the delay, ``k`` the noise."""
     base = Params()
@@ -98,13 +109,23 @@ def base_strongarm(tail_l: int, k: float) -> Params:
     return Params(latch=Latch.STRONGARM, **sizes, tail_w=round(4 * k), tail_l=tail_l)
 
 
-# each PDK's C_TAIL/C_P (its delays) and widths (its noise levels), where the dynamic bias is the
-# more frugal family
-@family(pdks=("tsmc65",), ratio=(3.5, 2.75, 2.25), k=(0.75, 1.5, 3, 6, 12))
-@family(pdks=("tpsc65",), ratio=(3.5,), k=(1, 2, 4, 8))
-@family(pdks=("tpsc65",), ratio=(2.75,), k=(0.75, 2, 4, 8))
-@family(pdks=("lf150",), ratio=(6,), k=(0.75, 2.5))
-def dynamic_bias(ratio: float, k: float) -> Params:
+@grid
+def dynamic_bias(pdk: Pdk) -> dict[str, Params]:
+    """Each PDK's C_TAIL/C_P (its delays) and widths (its noise levels), where the dynamic bias is the
+    more frugal topology, each point by its ratio and width factor (``ratio=3.5, k=2``)."""
+    ladders = {
+        Pdk.TSMC65: {3.5: (0.75, 1.5, 3, 6, 12), 2.75: (0.75, 1.5, 3, 6, 12), 2.25: (0.75, 1.5, 3, 6, 12)},
+        Pdk.TPSC65: {3.5: (1, 2, 4, 8), 2.75: (0.75, 2, 4, 8)},
+        Pdk.LF150: {6: (0.75, 2.5)},
+    }
+    return {
+        f"ratio={ratio}, k={k}": widen(_dynamic_bias(ratio, k))
+        for ratio, factors in ladders.get(pdk, {}).items()
+        for k in factors
+    }
+
+
+def _dynamic_bias(ratio: float, k: float) -> Params:
     """The dynamic-bias double tail (the modified double tail's latch, the input pair's tail a
     minimum-length switch onto C_TAIL): a unit per 60 fF of C_P (input pair 64, tail switch 4, latch
     16, reset 4, no device under 4) times ``k``, C_TAIL ``ratio`` times C_P, every device at the

@@ -47,7 +47,7 @@ def test_a_named_instance_is_laid_out_by_its_floorplan_or_alignss(tmp_path: Path
         ("tsmc65", "comp_frida1", None),
     ]
     with pytest.raises(FileNotFoundError, match="no hand-written floorplan"):
-        layout.layout_named(tmp_path, "dynamic", sweep.dynamic_bias(ratio=3.5, k=2))
+        layout.layout_named(tmp_path, "dynamic", sweep._dynamic_bias(ratio=3.5, k=2))
 
 
 def test_every_family_is_placed_by_a_hand_written_floorplan() -> None:
@@ -58,9 +58,9 @@ def test_every_family_is_placed_by_a_hand_written_floorplan() -> None:
     }
     assert all((layout.FLOORPLANS / f"comp_{name}.json").exists() for name in structures)
     for params, name in (
-        (sweep.dynamic_bias(ratio=3.5, k=2), "dynamic_bias"),
-        (sweep.dynamic_bias(ratio=2.25, k=12), "dynamic_bias"),
-        (sweep.base_strongarm(tail_l=14, k=32), "strongarm"),
+        (sweep._dynamic_bias(ratio=3.5, k=2), "dynamic_bias"),
+        (sweep._dynamic_bias(ratio=2.25, k=12), "dynamic_bias"),
+        (sweep.base_strongarm.spaces("tsmc65")["tail_l=14, k=32"].base, "strongarm"),
     ):
         assert [case for case, structure in structures.items() if structure == layout._structure(params)] == [name]
     fp = json.loads((layout.FLOORPLANS / "comp_dynamic_bias.json").read_text())

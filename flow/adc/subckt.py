@@ -21,11 +21,12 @@ from functools import cache
 
 import hdl21 as h
 from hdl21.primitives import MosType
+from pydantic import PositiveInt
 
 from flow import comp, samp
 from flow.circuit.ports import module_from_ports, port_connections
 
-from ..caparray import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights, is_valid_caparray_config
+from ..caparray import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights
 from ..capdriver import CapDriver, CapDriverParams, Cells
 
 
@@ -34,15 +35,15 @@ class AdcParams:
     """ADC parameters."""
 
     # Top-level ADC parameter
-    adc_bits = h.Param(dtype=int, desc="Nominal normalized ADC resolution", default=12)
+    adc_bits = h.Param(dtype=PositiveInt, desc="Nominal normalized ADC resolution", default=12)
     # Component parameters
     cdac = h.Param(
         dtype=CapArrayConfig,
         desc="CDAC parameters",
         default=CapArrayConfig(n_dac=11, n_extra=5),
     )
-    samp = h.Param(dtype=samp.Params, desc="Sampler parameters", default=samp.Params())
-    comp = h.Param(dtype=comp.Params, desc="Comparator parameters", default=comp.Params())
+    samp = h.Param(dtype=samp.Params, desc="Sampler parameters", default=samp.FRIDA1)
+    comp = h.Param(dtype=comp.Params, desc="Comparator parameters", default=comp.FRIDA1)
 
 
 @cache
@@ -90,16 +91,6 @@ def adc_stages(param: AdcParams) -> int:
     return len(get_caparray_weights(param.cdac))
 
 
-def is_valid_adc_params(param: AdcParams) -> bool:
-    """Check resolution, component parameters, and one capacitor a side per stage."""
-    if param.adc_bits <= 0 or param.cdac.n_dac <= 0 or param.cdac.n_extra < 0:
-        return False
-    if not is_valid_caparray_config(param.cdac):
-        return False
-    # every comparator and sampler their parameter classes admit build
-    return adc_stages(param) == param.cdac.n_dac + param.cdac.n_extra
-
-
 # Keep the driver hierarchy fresh when this ADC is requested after compilation.
 @h.generator(enable_cache=False)
 def Adc(p: AdcParams) -> h.Module:
@@ -112,9 +103,6 @@ def Adc(p: AdcParams) -> h.Module:
     the fabricated, hardened netlist; at any other count the same RTL is
     synthesized for it (``flow.adc.digital``).
     """
-    if not is_valid_adc_params(p):
-        raise ValueError(f"Invalid ADC params: {p}")
-
     stages = adc_stages(p)
     Adc = module_from_ports("Adc", adc_nets(stages).signals)
     # The IP adapter imports this module; import here after it is defined.

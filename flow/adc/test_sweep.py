@@ -1,6 +1,6 @@
-"""The ADC's design space (``flow.adc.sweep``): the plain product of the comparator grid, the
-samplers, the arrays, the resolutions and the capacitance scales, every component its block
-sweep's instance."""
+"""The ADC's design space (``flow.adc.sweep``, the grid ``converters``): the plain product of the
+comparator grid, the samplers, the arrays, the resolutions and the capacitance scales, every
+component its block sweep's instance."""
 
 from flow import comp
 from flow.adc import sweep
@@ -10,8 +10,12 @@ from flow.caparray.subckt import RedunStrat, get_caparray_weights
 from flow.sweep.runner import design_space, digest
 
 
+def _instances(pdk: str) -> list:
+    return [params for _label, params in sweep.converters.instances(pdk)]
+
+
 def test_the_design_space_is_the_plain_product() -> None:
-    adcs = sweep.instances("tsmc65")
+    adcs = _instances("tsmc65")
     assert sweep.COMPARATORS == sweep.COMP_GRID and len(sweep.SAMPLER_STEPS) == 5
     assert len(adcs) == len(sweep.COMPARATORS) * 5 * (10 * 3 * 2 + 1) == 6_100
     assert len({digest(adc) for adc in adcs}) == len(adcs)
@@ -31,11 +35,11 @@ def test_the_design_space_is_the_plain_product() -> None:
 def test_elsewhere_each_array_takes_the_pdks_strongarm_ladder_and_the_widest_switch() -> None:
     arrays = list(ADC_ARRAYS.values())
     for pdk in ("tsmc28", "ihp130", "tower180", "lf150", "tpsc65"):
-        adcs = sweep.instances(pdk)
+        adcs = _instances(pdk)
         ladder = [params for _label, params in comp.base_strongarm.instances(pdk)]
         longest = max(params.tail_l for params in ladder)
-        assert sweep.comparators(pdk) == [params for params in ladder if params.tail_l == longest]
-        assert len(sweep.samplers(pdk)) == 1 and sweep.samplers(pdk)[0].mos_w == 160
+        assert list(sweep.comparators(pdk).values()) == [params for params in ladder if params.tail_l == longest]
+        assert [samp.mos_w for samp in sweep.samplers(pdk).values()] == [160]
         assert len(adcs) == len(sweep.comparators(pdk)) * len(arrays) in (244, 305)
         assert {adc.cdac for adc in adcs} == set(arrays)
 
@@ -62,10 +66,10 @@ def test_frida1s_converter_is_one_of_the_product() -> None:
     assert sweep.FRIDA1_ARRAY.n_dac == RADIX17.n_dac == CASES["radix17"].n_dac
     assert get_caparray_weights(sweep.FRIDA1_ARRAY) == get_caparray_weights(RADIX17)
     assert sweep.FRIDA1_ARRAY.cap_scale == 2 and "12b_msb_redist5_x1" not in ADC_ARRAYS
-    frida1 = [adc for adc in sweep.instances("tsmc65") if adc.cdac == sweep.FRIDA1_ARRAY]
+    frida1 = [adc for adc in _instances("tsmc65") if adc.cdac == sweep.FRIDA1_ARRAY]
     assert len(frida1) == len(sweep.COMPARATORS) * len(sweep.SAMPLER_STEPS) == 100
     assert all(adc.adc_bits == sweep.FRIDA1_BITS and len(get_caparray_weights(adc.cdac)) + 1 == 17 for adc in frida1)
-    assert (sweep.TGATE, comp.frida1()) in {(adc.samp, adc.comp) for adc in frida1}
+    assert (sweep.TGATE, comp.FRIDA1) in {(adc.samp, adc.comp) for adc in frida1}
 
 
 def test_every_component_is_its_block_sweeps_instance() -> None:
@@ -74,10 +78,10 @@ def test_every_component_is_its_block_sweeps_instance() -> None:
     assert all(digest(params) in comparators for params in sweep.COMPARATORS)
     samplers = set(design_space("samp", "tsmc65"))
     assert [digest(samp) for samp in sweep.SAMPLER_STEPS] == [
-        "0208193e4ead",  # FRIDA-1's transmission gate
-        "b2cc08f9747c",  # bootstrapped, doubled boost capacitor (32 minimum widths)
-        "9c9f7a31d4a4",  # bootstrapped, 64, boosted alike
-        "4cdbd50b7bca",  # 112
-        "a24997a98572",  # 160
+        "2e79aff2a06f",  # FRIDA-1's transmission gate
+        "f4bf3438c025",  # bootstrapped, doubled boost capacitor (32 minimum widths)
+        "b2e58e7c8a85",  # bootstrapped, 64, boosted alike
+        "9078be2cb02f",  # 112
+        "b43e51f5eb7c",  # 160
     ]
     assert all(digest(samp) in samplers and not samp.dummy for samp in sweep.SAMPLER_STEPS)

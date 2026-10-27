@@ -9,6 +9,7 @@ import hdl21 as h
 import pytest
 from hdl21.prefix import f
 from klayout import db
+from pydantic import ValidationError
 
 from flow.layout.pdkproc import in_pdk
 
@@ -35,7 +36,6 @@ from .subckt import (
     RedunStrat,
     _calc_weight_partitions,
     get_caparray_weights,
-    is_valid_caparray_config,
     is_valid_caparray_params,
     switched_capacitance_f,
     tolerance_units,
@@ -130,11 +130,14 @@ def test_cdac_and_weight_strategies() -> None:
         128, 64, 32, 16, 8, 4, 2, 1,
     ]  # fmt: skip
     # binary has no extra cycles and every other scheme at least one
-    assert not is_valid_caparray_config(CapArrayConfig(n_dac=8, n_extra=2, redun_strat=RedunStrat.BINARY))
+    with pytest.raises(ValidationError):
+        CapArrayConfig(n_dac=8, n_extra=2, redun_strat=RedunStrat.BINARY)
     for scheme in (RedunStrat.MSB_SPLIT, RedunStrat.LSB_SPLIT, RedunStrat.MSB_REDIST):
-        assert not is_valid_caparray_config(CapArrayConfig(n_dac=8, n_extra=0, redun_strat=scheme))
+        with pytest.raises(ValidationError):
+            CapArrayConfig(n_dac=8, n_extra=0, redun_strat=scheme)
         assert len(get_caparray_weights(CapArrayConfig(n_dac=9, n_extra=6, redun_strat=scheme))) == 15
-    assert not is_valid_caparray_config(CapArrayConfig(cap_scale=0))
+    with pytest.raises(ValidationError):
+        CapArrayConfig(cap_scale=0)
     # the names archived measurements store, read back as the same members
     assert RedunStrat["SUBRDX2_OVLY"] is RedunStrat.MSB_REDIST and RedunStrat["RDX2"] is RedunStrat.BINARY
     assert list(RedunStrat) == [RedunStrat.BINARY, RedunStrat.MSB_SPLIT, RedunStrat.LSB_SPLIT, RedunStrat.MSB_REDIST]
@@ -171,20 +174,19 @@ def test_every_scheme_redistributes_the_binary_weight() -> None:
     for n_dac in range(2, 16):
         for extra in range(1, 7):
             for scheme in (RedunStrat.MSB_SPLIT, RedunStrat.LSB_SPLIT, RedunStrat.MSB_REDIST):
-                config = CapArrayConfig(n_dac=n_dac, n_extra=extra, redun_strat=scheme)
-                if not is_valid_caparray_config(config):
+                try:
+                    config = CapArrayConfig(n_dac=n_dac, n_extra=extra, redun_strat=scheme)
+                except ValidationError:  # no array of the scheme has these
                     continue
                 weights = get_caparray_weights(config)
                 # the binary total, falling, no negative tolerance: every code reached
                 assert sum(weights) == 2**n_dac - 1 and len(weights) == n_dac + extra
                 assert weights == sorted(weights, reverse=True) and min(tolerance_units(weights)) >= 0
     # every scheme reaches 1 to 6 extra cycles from 9 to 13 steps
-    assert all(
-        is_valid_caparray_config(CapArrayConfig(n_dac=n_dac, n_extra=extra, redun_strat=scheme))
-        for n_dac in range(9, 14)
-        for extra in range(1, 7)
-        for scheme in (RedunStrat.MSB_SPLIT, RedunStrat.LSB_SPLIT, RedunStrat.MSB_REDIST)
-    )
+    for n_dac in range(9, 14):
+        for extra in range(1, 7):
+            for scheme in (RedunStrat.MSB_SPLIT, RedunStrat.LSB_SPLIT, RedunStrat.MSB_REDIST):
+                CapArrayConfig(n_dac=n_dac, n_extra=extra, redun_strat=scheme)  # an array, not refused
     # where the tolerance falls: the split MSBs' stages, the split LSBs' stages, the overlay's
     assert tolerance_units(SCHEMES[RedunStrat.MSB_SPLIT, 9, 1]) == [256, 128] + [0] * 8
     assert tolerance_units(SCHEMES[RedunStrat.LSB_SPLIT, 9, 1]) == [0] * 7 + [2, 1, 0]

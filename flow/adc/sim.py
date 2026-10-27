@@ -22,7 +22,7 @@ from flow.adc.sequences import (
     symbol256_init8_samp16_comp11110000_logic00001111,
     symbol256_init8_samp16_comp11110000_logic11000011,
 )
-from flow.adc.subckt import Adc, AdcNets, AdcParams, adc_nets, adc_stages, is_valid_adc_params
+from flow.adc.subckt import Adc, AdcNets, AdcParams, adc_nets, adc_stages
 from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.circuit.ports import testbench_from_ports
 
@@ -119,8 +119,6 @@ def is_valid_adc_tb_params(params: AdcTbParams) -> bool:
     PEX file existence, cell contents, and signoff require the selected file and
     are checked by the caller. This predicate only examines parameter values.
     """
-    if not is_valid_adc_params(params.dut):
-        return False
     nets = adc_nets(adc_stages(params.dut))
     # the extracted views are FRIDA's, 16 stages
     if params.view != "hdl21gen" and adc_stages(params.dut) != 16:
