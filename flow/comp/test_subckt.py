@@ -8,7 +8,7 @@ from hdl21.primitives import MosType
 from flow import pipeline
 from flow.circuit.devices import CAP_L, fingers
 
-from .params import LATCHES, Bias, Latch, Params, State, valid
+from .params import Bias, Latch, Params, valid
 from .subckt import netlist
 
 
@@ -102,18 +102,23 @@ def test_comp_output_srlatch_handles_both_reset_polarities() -> None:
 
 
 def test_signaled_latch_devices_take_the_opposite_input_drain() -> None:
-    """In every latch, each signaled device pair is driven alike, so none works against another."""
+    """In every latch, each signaled device pair (gated by neither clock) is driven alike, the
+    opposite input drain, so none works against another."""
 
-    pairs = {"outer_on": "Mouter_on", "inner_on": "Minner_on", "outer_init": "Mouter_init", "inner_init": "Minner_init"}
-    for latch, wiring in LATCHES.items():
+    for latch in Latch:
         if latch == Latch.TRIPLE_TAIL:
             continue  # its later stages are fixed, its devices driven by the second stage
         netlist.Cache.reset()
         m = netlist(Params(latch=latch))
-        for key, device in pairs.items():
-            if wiring[key] == State.SIGNAL:
-                assert getattr(m, f"{device}_p").conns["g"] is m.input_p_drain, (latch, key)
-                assert getattr(m, f"{device}_n").conns["g"] is m.input_n_drain, (latch, key)
+        signaled = [
+            device
+            for device in ("Mouter_on", "Minner_on", "Mouter_init", "Minner_init")
+            if hasattr(m, f"{device}_p") and getattr(m, f"{device}_p").conns["g"] not in (m.clk, m.clkb)
+        ]
+        for device in signaled:
+            assert getattr(m, f"{device}_p").conns["g"] is m.input_p_drain, (latch, device)
+            assert getattr(m, f"{device}_n").conns["g"] is m.input_n_drain, (latch, device)
+        assert signaled or latch is Latch.STRONGARM, latch  # every double tail signals a pair
 
 
 def test_double_tail_shares_one_clocked_tail() -> None:

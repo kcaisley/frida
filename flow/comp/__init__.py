@@ -16,7 +16,7 @@ from .analysis import (
     analyze_timing,
     metrics,
 )
-from .params import FRIDA1, LATCHES, Bias, Latch, OutputStage, Params, Stages, State, TbParams, valid
+from .params import FRIDA1, Bias, Latch, OutputStage, Params, TbParams, valid
 from .plots import (
     plot_delay_supply_large,
     plot_delay_supply_small,
@@ -58,7 +58,6 @@ from .types import (
 
 __all__ = [
     "FRIDA1",
-    "LATCHES",
     "AnalysisClockCheck",
     "AnalysisCommonMode",
     "AnalysisDecisions",
@@ -74,8 +73,6 @@ __all__ = [
     "Nets",
     "OutputStage",
     "Params",
-    "Stages",
-    "State",
     "TbParams",
     "analysis",
     "analyze_clock_check",

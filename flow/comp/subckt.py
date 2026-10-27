@@ -1,9 +1,9 @@
 """The comparator's circuit: its nets (``Nets``) and its generator (``netlist``), the module
 ``Comp`` of the design ``Params``.
 
-It builds NMOS or PMOS input pairs on a switched or dynamic (capacitor) tail, single-stage
-(StrongARM), double- and triple-tail latches with their on, init and reset devices clocked,
-signaled or omitted, and a static output stage that holds each decision.
+It builds NMOS or PMOS input pairs on a switched or dynamic (capacitor) tail, each latch of
+``Latch`` (the StrongARM, the double tails and the triple tail), and a static output stage that
+holds each decision.
 """
 
 import hdl21 as h
@@ -12,7 +12,7 @@ from hdl21.primitives import MosType
 from flow.circuit.devices import Inverter, LogicCellParams, Nand2, Nor2, logic_pair, mos, mos_cap
 from flow.circuit.ports import module_from_ports
 
-from .params import LATCHES, Bias, OutputStage, Params, Stages, State, valid
+from .params import Bias, Latch, OutputStage, Params, valid
 
 
 @h.bundle
@@ -46,7 +46,7 @@ def netlist(param: Params) -> h.Module:
     _build_preamp(Comp, param)
 
     # Build latch
-    if LATCHES[param.latch]["stages"] == Stages.TRIPLE:
+    if param.latch is Latch.TRIPLE_TAIL:
         _build_triple_tail(Comp, param)
     else:
         _build_latch(Comp, param)
@@ -103,7 +103,7 @@ def _build_preamp(module, param: Params):
     # tie (a gate on a rail by metal alone breaks TPSC65's rules, and an ESD event on the rail
     # would land on the gate oxide): a diode-connected device of the input pair's type biases the
     # gate of one of the other type, whose drain is the held net, as a library tie cell does.
-    if LATCHES[param.latch]["stages"] == Stages.TRIPLE:
+    if param.latch is Latch.TRIPLE_TAIL:
         module.cas_p = h.Signal()
         module.cas_n = h.Signal()
         module.cas_gate, module.tie_bias = h.Signal(), h.Signal()
@@ -180,11 +180,26 @@ def _build_preamp(module, param: Params):
 
 
 def _build_latch(module, param: Params):
-    """Generate cross coupled latch connected to preamp.
+    """The latch after the input pair, its cross-coupled pair and, by the latch (every one but the
+    triple tail, ``_build_triple_tail``):
 
-    Supports either a single Strong-ARM style stage, or a
-    double stage with two tails.
+    - StrongARM: one stage, stacked on the input pair (its on pair's sources the pair's drains), its
+      inner init devices clocked;
+    - double tail (Schinkel): a second stage on the opposite rails, one clocked tail (the outer on
+      device) under both halves, its inner init devices driven by the input pair's drains;
+    - self-timed double tail: an outer on and an outer init device per half instead of the tail,
+      all driven by the input pair's drains, as its inner init devices;
+    - modified double tail (van Elzakker): no tail, inner on devices driven by the input pair's
+      drains between the cross pair and the latch nodes, its inner init devices clocked;
+    - self-timed modified double tail: the modified latch, its inner init devices driven by the
+      input pair's drains.
     """
+    latch = param.latch
+    stacked = latch is Latch.STRONGARM
+    shared_tail = latch is Latch.DOUBLE_TAIL
+    self_timed_outer = latch is Latch.DOUBLE_TAIL_SELF_TIMED
+    inner_on = latch in (Latch.DOUBLE_TAIL_MODIFIED, Latch.DOUBLE_TAIL_MODIFIED_SELF_TIMED)
+    signaled_init = latch in (Latch.DOUBLE_TAIL, Latch.DOUBLE_TAIL_SELF_TIMED, Latch.DOUBLE_TAIL_MODIFIED_SELF_TIMED)
     # This is a convenient
     opposite = {
         module.vdd: module.vss,
@@ -197,9 +212,7 @@ def _build_latch(module, param: Params):
     preamp_init_rail = module.vdd if param.input_pair == MosType.NMOS else module.vss
 
     # In a single stage, the late pre-charges to same rail as the preamp, in double stage it's opposite
-    latch_init_rail = (
-        preamp_init_rail if LATCHES[param.latch]["stages"] == Stages.SINGLE else opposite[preamp_init_rail]
-    )
+    latch_init_rail = preamp_init_rail if stacked else opposite[preamp_init_rail]
     # And the rail when comparison is on, is then the opposite of the precharge init
     latch_on_rail = opposite[latch_init_rail]
 
@@ -241,16 +254,15 @@ def _build_latch(module, param: Params):
     )(d=module.latch_n, g=module.latch_p, s=latch_init_rail, b=latch_init_rail)
 
     # --- Minner_init: inner init (reset) devices ---
-    # When signaled: gates driven by preamp outputs (cross-coupled)
-    # When clocked: gates driven by latch_clk
+    # Driven by the input pair's drains (signaled_init), else clocked by latch_clk.
     # Every signaled latch device takes the opposite input pair's drain (the drain
     # of the inp device drives the latch_p side): the first drain to move releases
     # its init device and turns on its on device together, and latch_p ends high
     # when inp > inn.
-    if LATCHES[param.latch]["inner_init"] == State.SIGNAL:
+    if signaled_init:
         init_inner_gate_p = module.input_p_drain
         init_inner_gate_n = module.input_n_drain
-    if LATCHES[param.latch]["inner_init"] == State.CLOCK:
+    else:
         init_inner_gate_p = latch_clk
         init_inner_gate_n = latch_clk
 
@@ -261,54 +273,47 @@ def _build_latch(module, param: Params):
         d=module.latch_n, g=init_inner_gate_n, s=latch_init_rail, b=latch_init_rail
     )
 
-    # --- Minner_on: inner on (current steering) devices ---
-    # Only valid in double stage mode. Drains connect to latch_p/latch_n,
-    # sources introduce midp/midn nodes.
-    if LATCHES[param.latch]["inner_on"] != State.OMIT:
+    # --- Minner_on: inner on (current steering) devices, driven by the input pair's drains ---
+    # The modified double tails' alone. Drains connect to latch_p/latch_n, sources introduce
+    # midp/midn nodes.
+    if inner_on:
         module.midp = h.Signal()
         module.midn = h.Signal()
-
-        if LATCHES[param.latch]["inner_on"] == State.SIGNAL:
-            inner_on_gate_p = module.input_p_drain
-            inner_on_gate_n = module.input_n_drain
-        elif LATCHES[param.latch]["inner_on"] == State.CLOCK:
-            inner_on_gate_p = latch_clk
-            inner_on_gate_n = latch_clk
-
         module.Minner_on_p = mos(
             tp=latch_on_type,
             vth=param.vth,
             w=param.latch_on_w,
             l=param.latch_on_l,
-        )(d=module.latch_p, g=inner_on_gate_p, s=module.midp, b=latch_on_rail)
+        )(d=module.latch_p, g=module.input_p_drain, s=module.midp, b=latch_on_rail)
         module.Minner_on_n = mos(
             tp=latch_on_type,
             vth=param.vth,
             w=param.latch_on_w,
             l=param.latch_on_l,
-        )(d=module.latch_n, g=inner_on_gate_n, s=module.midn, b=latch_on_rail)
+        )(d=module.latch_n, g=module.input_n_drain, s=module.midn, b=latch_on_rail)
 
     # --- Mcross_on: cross-coupled inverter pair, on side ---
     # Drains connect to midp/midn if inner_on devices exist, otherwise latch_p/latch_n.
-    # Sources connect to outerp/outern if outer_on devices exist, otherwise on_rail.
-    cross_on_drain_p = module.midp if LATCHES[param.latch]["inner_on"] != State.OMIT else module.latch_p
-    cross_on_drain_n = module.midn if LATCHES[param.latch]["inner_on"] != State.OMIT else module.latch_n
+    # Sources connect to the outer on devices' nodes where they exist, otherwise on_rail.
+    cross_on_drain_p = module.midp if inner_on else module.latch_p
+    cross_on_drain_n = module.midn if inner_on else module.latch_n
 
-    # If single stage, cross-coupled latch outer driven directly from preamp
-    if LATCHES[param.latch]["stages"] == Stages.SINGLE:
+    # The StrongARM: its cross-coupled pair driven directly from the input pair
+    if stacked:
         cross_on_src_p = module.input_n_drain
         cross_on_src_n = module.input_p_drain
-    # Double stage with outer on: intermediate node to outer devices
-    elif LATCHES[param.latch]["tail_shared"]:
+    # The double tail: one node to the shared tail
+    elif shared_tail:
         module.outer = h.Signal()
         cross_on_src_p = module.outer
         cross_on_src_n = module.outer
-    elif LATCHES[param.latch]["outer_on"] != State.OMIT:
+    # The self-timed double tail: a node to each half's outer devices
+    elif self_timed_outer:
         module.outerp = h.Signal()
         module.outern = h.Signal()
         cross_on_src_p = module.outerp
         cross_on_src_n = module.outern
-    # Double stage without outer on: connect directly to on rail
+    # The modified double tails: directly to the on rail
     else:
         cross_on_src_p = latch_on_rail
         cross_on_src_n = latch_on_rail
@@ -326,59 +331,44 @@ def _build_latch(module, param: Params):
         l=param.latch_on_l,
     )(d=cross_on_drain_n, g=module.latch_p, s=cross_on_src_n, b=latch_on_rail)
 
-    # --- Mouter_on: outer on (currently steering) devices ---
-    # Only available in double stage mode. A shared tail is one device of the
-    # pair's combined width feeding both halves.
-    if LATCHES[param.latch]["tail_shared"]:
+    # --- Mouter_on: outer on (current steering) devices ---
+    # The double tail's shared tail, one clocked device of the pair's combined width feeding both
+    # halves; the self-timed double tail's one per half, driven by the input pair's drains.
+    if shared_tail:
         module.Mouter_on = mos(
             tp=latch_on_type,
             vth=param.vth,
             w=2 * param.latch_on_w,
             l=param.latch_on_l,
         )(d=module.outer, g=latch_clk, s=latch_on_rail, b=latch_on_rail)
-    elif LATCHES[param.latch]["outer_on"] != State.OMIT:
-        if LATCHES[param.latch]["outer_on"] == State.SIGNAL:
-            outer_on_gate_p = module.input_p_drain
-            outer_on_gate_n = module.input_n_drain
-        elif LATCHES[param.latch]["outer_on"] == State.CLOCK:
-            outer_on_gate_p = latch_clk
-            outer_on_gate_n = latch_clk
-
+    elif self_timed_outer:
         module.Mouter_on_p = mos(
             tp=latch_on_type,
             vth=param.vth,
             w=param.latch_on_w,
             l=param.latch_on_l,
-        )(d=module.outerp, g=outer_on_gate_p, s=latch_on_rail, b=latch_on_rail)
+        )(d=module.outerp, g=module.input_p_drain, s=latch_on_rail, b=latch_on_rail)
         module.Mouter_on_n = mos(
             tp=latch_on_type,
             vth=param.vth,
             w=param.latch_on_w,
             l=param.latch_on_l,
-        )(d=module.outern, g=outer_on_gate_n, s=latch_on_rail, b=latch_on_rail)
+        )(d=module.outern, g=module.input_n_drain, s=latch_on_rail, b=latch_on_rail)
 
-    # --- Mouter_init: outer init (reset) devices ---
-    # Requires outer_on devices to exist (for outerp/outern nodes).
-    if LATCHES[param.latch]["outer_init"] != State.OMIT:
-        if LATCHES[param.latch]["outer_init"] == State.SIGNAL:
-            outer_init_gate_p = module.input_p_drain
-            outer_init_gate_n = module.input_n_drain
-        elif LATCHES[param.latch]["outer_init"] == State.CLOCK:
-            outer_init_gate_p = latch_clk
-            outer_init_gate_n = latch_clk
-
+        # --- Mouter_init: outer init (reset) devices on the outer on devices' nodes, driven by
+        # the input pair's drains ---
         module.Mouter_init_p = mos(
             tp=latch_init_type,
             vth=param.vth,
             w=param.rst_w,
             l=param.rst_l,
-        )(d=module.outerp, g=outer_init_gate_p, s=latch_init_rail, b=latch_init_rail)
+        )(d=module.outerp, g=module.input_p_drain, s=latch_init_rail, b=latch_init_rail)
         module.Mouter_init_n = mos(
             tp=latch_init_type,
             vth=param.vth,
             w=param.rst_w,
             l=param.rst_l,
-        )(d=module.outern, g=outer_init_gate_n, s=latch_init_rail, b=latch_init_rail)
+        )(d=module.outern, g=module.input_n_drain, s=latch_init_rail, b=latch_init_rail)
 
 
 # fmt: on
@@ -490,9 +480,8 @@ def _build_output_srlatch(module, param: Params, latch_p, latch_n):
     preamp_resets_high = param.input_pair == MosType.NMOS
     # The latch nodes reset with the preamp in a StrongARM and a triple tail's last
     # stage, and to the opposite rail in a double tail.
-    inner_resets_high = (
-        preamp_resets_high if LATCHES[param.latch]["stages"] != Stages.DOUBLE else not preamp_resets_high
-    )
+    double = param.latch not in (Latch.STRONGARM, Latch.TRIPLE_TAIL)
+    inner_resets_high = not preamp_resets_high if double else preamp_resets_high
 
     if inner_resets_high:
         # decision_p/n are low between comparisons. Cross-coupled NOR gates
@@ -595,9 +584,9 @@ def _build_output_stdcells(module, param: Params, latch_p, latch_n):
     module.Xdecision_p = Inverter(LogicCellParams(drive=1))(A=latch_n, Y=module.decision_p, **supplies)
     module.Xdecision_n = Inverter(LogicCellParams(drive=1))(A=latch_p, Y=module.decision_n, **supplies)
     preamp_resets_high = param.input_pair == MosType.NMOS
-    inner_resets_high = (
-        preamp_resets_high if LATCHES[param.latch]["stages"] != Stages.DOUBLE else not preamp_resets_high
-    )
+    # the latch nodes reset with the preamp but in a double tail
+    double = param.latch not in (Latch.STRONGARM, Latch.TRIPLE_TAIL)
+    inner_resets_high = not preamp_resets_high if double else preamp_resets_high
     gate, drive = (Nor2, 2) if inner_resets_high else (Nand2, 1)
     module.Xsr_p = gate(LogicCellParams(drive=drive))(A=module.decision_n, B=module.sr_n, Y=module.sr_p, **supplies)
     module.Xsr_n = gate(LogicCellParams(drive=drive))(A=module.decision_p, B=module.sr_p, Y=module.sr_n, **supplies)

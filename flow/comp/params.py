@@ -24,7 +24,8 @@ from flow.pipeline import Choice, Int, knob
 
 
 class Latch(Enum):
-    """The comparator's latch, its stages after the input pair: each a row of ``LATCHES``."""
+    """The comparator's latch, its stages after the input pair: each a topology of its own, which the
+    generator builds (``flow.comp.subckt``); a latch from a paper is one more member."""
 
     STRONGARM = auto()  # one stage: the cross-coupled pair stacked on the input pair
     DOUBLE_TAIL = auto()  # Schinkel: a second stage with its own clocked tail, shared by both halves
@@ -34,82 +35,14 @@ class Latch(Enum):
     TRIPLE_TAIL = auto()  # a cascoded input pair, a regenerating second stage and a clocked latch
 
 
-class Stages(Enum):
-    SINGLE = auto()
-    DOUBLE = auto()
-    TRIPLE = auto()
-
-
 class Bias(Enum):
     DYNAMIC = auto()
     SWITCHED = auto()
 
 
-class State(Enum):
-    CLOCK = auto()
-    SIGNAL = auto()
-    OMIT = auto()
-
-
 class OutputStage(Enum):
     TRANSISTORS = auto()  # decision inverters, SR latch and buffers drawn transistor by transistor
     STDCELLS = auto()  # the same stage as generic logic cells, mapped to a library by the PDK
-
-
-# Each latch's devices (flow.comp.subckt): its stages, its four latch device pairs each clocked,
-# signaled or omitted (the on devices toward the evaluation rail, outer and inner; the init devices
-# toward the reset rail, outer and inner), and whether one clocked outer on device, the tail, feeds
-# both halves. A latch from a paper is one more row.
-LATCHES: dict[Latch, dict[str, Any]] = {
-    Latch.STRONGARM: {
-        "stages": Stages.SINGLE,
-        "outer_on": State.OMIT,
-        "inner_on": State.OMIT,
-        "outer_init": State.OMIT,
-        "inner_init": State.CLOCK,
-        "tail_shared": False,
-    },
-    Latch.DOUBLE_TAIL: {
-        "stages": Stages.DOUBLE,
-        "outer_on": State.CLOCK,
-        "inner_on": State.OMIT,
-        "outer_init": State.OMIT,
-        "inner_init": State.SIGNAL,
-        "tail_shared": True,
-    },
-    Latch.DOUBLE_TAIL_SELF_TIMED: {
-        "stages": Stages.DOUBLE,
-        "outer_on": State.SIGNAL,
-        "inner_on": State.OMIT,
-        "outer_init": State.SIGNAL,
-        "inner_init": State.SIGNAL,
-        "tail_shared": False,
-    },
-    Latch.DOUBLE_TAIL_MODIFIED: {
-        "stages": Stages.DOUBLE,
-        "outer_on": State.OMIT,
-        "inner_on": State.SIGNAL,
-        "outer_init": State.OMIT,
-        "inner_init": State.CLOCK,
-        "tail_shared": False,
-    },
-    Latch.DOUBLE_TAIL_MODIFIED_SELF_TIMED: {
-        "stages": Stages.DOUBLE,
-        "outer_on": State.OMIT,
-        "inner_on": State.SIGNAL,
-        "outer_init": State.OMIT,
-        "inner_init": State.SIGNAL,
-        "tail_shared": False,
-    },
-    Latch.TRIPLE_TAIL: {
-        "stages": Stages.TRIPLE,
-        "outer_on": State.OMIT,
-        "inner_on": State.OMIT,
-        "outer_init": State.OMIT,
-        "inner_init": State.CLOCK,
-        "tail_shared": False,
-    },
-}
 
 
 # where not every size decides within the evaluation (EVALUATION_S) in a PDK, what does: the longest
@@ -129,7 +62,7 @@ LONGEST = {"tail_l": 64, "latch_l": 32}
 
 @h.paramclass
 class Params:
-    """The comparator: its latch (``LATCHES``), input pair and bias, any combination of them, and its
+    """The comparator: its latch (``Latch``), input pair and bias, any combination of them, and its
     device sizes as multiples of the PDK's unit width and minimum length (w = 10: ten unit widths),
     so that one design ports across PDKs. A knob's domain (``pipeline.knob``) is what an
     optimization may give it; a parameter without one is held."""
