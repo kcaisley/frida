@@ -99,6 +99,7 @@ def MomCap(params: MomCapParams) -> h.Module:
         f" + {GRADIENT}*({params.x_um:.9g}*{GRADIENT_X} + {params.y_um:.9g}*{GRADIENT_Y})/{direction})"
     )
     MomCap.cap = C(c=h.Literal(value))(p=MomCap.PLUS, n=MomCap.MINUS)
+    MomCap.props["c"] = c  # its nominal value, for what reads the netlist unsimulated (its area)
     MomCap.drawn = h.Signal()
     MomCap.probe = Vdc(dc=h.Literal(f"{value}/1e-15"))(p=MomCap.drawn, n=MomCap.BULK)
     return MomCap

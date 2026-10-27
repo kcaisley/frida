@@ -86,9 +86,7 @@ def netlist(params: Params) -> h.Module:
             ("diff", getattr(Cdac, f"dac_botplate_{side}_diff"), dac.diff_f, getattr(dac, f"diff_{side}_um")),
         ):
             for stage, plate in enumerate(plates):
-                _drive(
-                    Cdac, f"drv_{kind}_{side}_{stage}", state[stage], bottom[stage], strengths[stage], kind == "diff"
-                )
+                _drive(Cdac, f"x{kind}_{side}_{stage}", state[stage], bottom[stage], strengths[stage], kind == "diff")
                 # an ideal array has no difference plates: its drivers run unloaded
                 if plate > 0:
                     x_um, y_um = placed[stage] if placed else (0.0, 0.0)

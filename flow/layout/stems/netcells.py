@@ -20,7 +20,7 @@ from pathlib import Path
 import mosline
 import rowcell
 import tech as _tech
-from paths import ACCESS_JSON, STD_GDS  # noqa: F401  (STD_GDS: re-exported to the tool scripts)
+from paths import ACCESS_JSON, STD_GDS
 from tech import EDGE_CUTS, EDGE_PAD, MODELS, STD_FILL, STD_FILL_W, STD_SUPPLY, STD_TEXT_LAYERS, V1, V1_PAIR, XPITCH
 
 W_PER_FINGER = mosline.w_per_finger()  # the bound PDK's netlists give w per finger with nf
@@ -220,7 +220,9 @@ def parse(src: str | Path) -> tuple[str, list[str], list[Inst]]:
             )
         elif f[0][0] in "Xx":
             cell = f[-1]
-            insts.append(Inst(f[0], cell, dict(zip(ACCESS[cell]["pins"], f[1:-1], strict=True))))
+            # a library cell the rows do not draw (no access points): by its width alone (``widths``)
+            pins = ACCESS[cell]["pins"] if cell in ACCESS else ()
+            insts.append(Inst(f[0], cell, dict(zip(pins, f[1:-1], strict=bool(pins)))))
     return name, ports, insts
 
 
@@ -319,10 +321,28 @@ def cell_of(inst: Inst, grid: int = XPITCH) -> rowcell.Cell:
     return mos_cell(inst, grid) if inst.kind == "mos" else std_abstract(inst)
 
 
-def widths(src: str | Path) -> dict[str, int]:
-    """Each instance's row cell width (nm): what a floorplan places for it."""
+_OUTLINES: dict[str, int] = {}
 
-    return {inst.name: cell_of(inst).width for inst in parse(src)[2]}
+
+def _outline(cell: str) -> int:
+    """A library cell's own width (nm), its boundary's: one the row cells have no access points for."""
+    if cell not in _OUTLINES:
+        import klayout.db as kdb
+
+        gds = kdb.Layout()
+        gds.read(str(STD_GDS))
+        _OUTLINES[cell] = kdb.Region(gds.cell(cell).begin_shapes_rec(gds.layer(*_tech.LAYERS["BND"]))).bbox().width()
+    return _OUTLINES[cell]
+
+
+def widths(src: str | Path) -> dict[str, int]:
+    """Each instance's row cell width (nm): what a floorplan places for it; a library cell the rows
+    do not draw (no access points), its own width."""
+
+    return {
+        inst.name: cell_of(inst).width if inst.kind == "mos" or inst.kind in ACCESS else _outline(inst.kind)
+        for inst in parse(src)[2]
+    }
 
 
 def area(src: str | Path) -> float:

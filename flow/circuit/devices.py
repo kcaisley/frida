@@ -129,19 +129,25 @@ Inverter, Nor2, Nand2 = (
 )
 
 
+def _net(signal) -> str:
+    """A connection's net as the netlists name it: a bus bit as its bus and index (``state_3``)."""
+    return f"{signal.parent.name}_{signal.index}" if isinstance(signal, h.Slice) else signal.name
+
+
 def instance_lines(module: h.Module) -> list[str]:
     """A compiled module's instances as the flat SPICE lines ``write_netlist`` writes: a capacitor's
-    value, a MOS's total width and finger count, a logic cell's wrapper as its library cell; a custom
+    value (a Monte Carlo's expression: its module's nominal ``c``), a MOS's total width and finger count, a logic cell's wrapper as its library cell; a custom
     child cell (a module of its own devices) as its own lines, each name followed by the child's
     (``Mdiff_p@Xcomp``: unique, and still a MOS line by its first letter)."""
 
     nm = lambda value: round(float(value) * 1e9)
     lines = []
     for name, inst in module.instances.items():
-        conns = {port: sig.name for port, sig in inst.conns.items()}
+        conns = {port: _net(sig) for port, sig in inst.conns.items()}
         call = inst.of
         if isinstance(call, h.PrimitiveCall) and call.prim is C:
-            lines.append(f"{name} {conns['p']} {conns['n']} {float(call.params.c) * 1e15:g}f")
+            c = module.props["c"] if isinstance(call.params.c, h.Literal) else float(call.params.c)
+            lines.append(f"{name} {conns['p']} {conns['n']} {c * 1e15:g}f")
         elif isinstance(call, h.ExternalModuleCall):
             q = call.params
             # the PDK's name for the finger count; none where m carries the fingers (LF150, w per finger)
