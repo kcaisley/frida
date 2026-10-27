@@ -159,6 +159,7 @@ jobs:
           flow/caparray/test_sim.py
           flow/caparray/test_sizing.py
           flow/cdac/test_analysis.py
+          flow/cdac/test_layout.py
           flow/cdac/test_model.py
           flow/cdac/test_sim.py
           flow/cdac/test_subckt.py

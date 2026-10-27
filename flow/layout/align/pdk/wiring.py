@@ -31,6 +31,8 @@ class Wiring(_Fabric):
             grid = CenterLineGrid()
             for centre in sorted(centres):
                 grid.addCenterLine(centre, width)
+            if len(centres) == 1:  # a grid is its lines' period: one more past the only one
+                grid.addCenterLine(max(centres) + width, width)
             index = {centre: k for k, centre in enumerate(sorted(centres))}
             gen = self.addGen(Wire(f"wire_{metal}_{direction}_{width}", metal, direction, clg=grid, spg=self.nm))
             generators[(metal, direction, width)] = (gen, index)
