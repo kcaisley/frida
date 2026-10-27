@@ -49,8 +49,13 @@ def test_a_record_scores_by_the_problems_costs_and_bounds() -> None:
     assert screened["noise_v"] == 0.0
     _, unresolved = runner.score(PROBLEM, {"valid": True, "metrics": {**metrics, "noise_v": math.nan}}, better)
     assert unresolved["noise_v"] == 1.0
-    _, late = runner.score(PROBLEM, {"valid": True, "metrics": {**metrics, "decides_in_time": False}}, better)
+    late_value, late = runner.score(PROBLEM, {"valid": True, "metrics": {**metrics, "decides_in_time": False}}, better)
     assert late["decides_in_time"] == 1.0 and late["layout_area_um2"] == pytest.approx(math.log(300 / 400))
+    # a comparator that never decides (its delay, noise unmeasured, its energy tiny) never outranks
+    # one that meets every bound, for a tool ranking by the objective alone
+    broken = {"energy_0p5mv_j": 1e-15, "layout_area_um2": 100.0, "noise_v": None, "decides_in_time": False}
+    broken_value, _ = runner.score(PROBLEM, {"valid": True, "metrics": broken}, better)
+    assert broken_value == late_value == runner.INFEASIBLE + 1.0 and broken_value > value
     # an area without a floorplan stays unmeasurable through the record's JSON (NaN written as null)
     stored = {"valid": True, "metrics": {**metrics, "layout_area_um2": None}, "unmeasurable": ["layout_area_um2"]}
     assert runner.unmeasurable({**metrics, "layout_area_um2": math.nan}) == ["layout_area_um2"]
@@ -59,4 +64,7 @@ def test_a_record_scores_by_the_problems_costs_and_bounds() -> None:
     gated = {"valid": True, "metrics": {"layout_area_um2": 401.0}, "estimated": ["layout_area_um2"]}
     assert runner.score(PROBLEM, gated, better)[1]["layout_area_um2"] == pytest.approx(1 + math.log(401 / 400))
     # a design the block does not admit: every bound violated, without metrics
-    assert runner.score(PROBLEM, {"valid": False, "metrics": {}}, better) == (0.0, dict.fromkeys(PROBLEM.bound, 1.0))
+    assert runner.score(PROBLEM, {"valid": False, "metrics": {}}, better) == (
+        runner.INFEASIBLE + len(PROBLEM.bound),
+        dict.fromkeys(PROBLEM.bound, 1.0),
+    )

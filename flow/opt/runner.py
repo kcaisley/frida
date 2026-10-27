@@ -49,6 +49,9 @@ ALIGN_TIMEOUT_S = 600
 # the largest share of a layout its devices' gates cover: at most 0.24 over the 714 comparator layouts
 # of the sweeps (2026-10-26), so a design whose gates over it exceed the area bound cannot meet it
 DENSITY = 0.25
+# the objective of a design that misses a bound, plus its violations: above any cost that meets them
+# (a cost is a sum of logs, -30 to +10 for a comparator)
+INFEASIBLE = 100.0
 
 
 def study_dir(block: str, pdk: str) -> Path:
@@ -233,10 +236,15 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
 def score(
     problem: pipeline.Problem, record: dict[str, Any], better: dict[str, pipeline.Better]
 ) -> tuple[float, dict[str, float]]:
-    """A record's objective and constraints under ``problem``: an invalid design every bound
-    violated, its objective 0 (the sampler ranks infeasible trials by their violations)."""
+    """A record's objective and constraints under ``problem``. A design that misses a bound (an
+    invalid one misses every bound) scores INFEASIBLE plus its violations, above every design that
+    meets them: its cost alone leaves out what it was never measured on (a comparator that never
+    decides costs only its tiny energy), and a tool that ranks by the objective alone (Optuna
+    Dashboard's best trial) would take it for the best. The sampler ranks infeasible trials by their
+    violations, whatever their objective."""
     if not record["valid"]:
-        return 0.0, {name: 1.0 for name in problem.bound}
+        violations = {name: 1.0 for name in problem.bound}
+        return INFEASIBLE + sum(violations.values()), violations
     metrics = measured(record)
     value = pipeline.objective(problem, metrics)
     violations = pipeline.violations(problem, metrics, better)
@@ -245,7 +253,10 @@ def score(
     for name in record.get("estimated", ()):
         if name in violations:
             violations[name] = 1.0 + max(violations[name], 0.0)
-    return (value if math.isfinite(value) else 0.0), violations
+    broken = sum(v for v in violations.values() if v > 0)
+    if broken > 0:
+        return INFEASIBLE + broken, violations
+    return value, violations
 
 
 def warm_start(study: Any, block: str, pdk: str, problem: pipeline.Problem, cls: Any) -> int:
@@ -282,7 +293,7 @@ def warm_start(study: Any, block: str, pdk: str, problem: pipeline.Problem, cls:
             params=params,
             distributions={name: dists[name] for name in params},
             value=value,
-            constraints=constraints,
+            system_attrs={"constraints": [constraints[name] for name in problem.bound]},
             user_attrs={"id": record["id"], "metrics": record["metrics"]},
         )
         study.add_trial(trial)
@@ -309,7 +320,12 @@ def optimize(block: str, pdk: str, label: str, budget: int, workers: int) -> Pat
     folder.mkdir(parents=True, exist_ok=True)
     database = folder / f"{label}.db"
     sampler = optuna.samplers.TPESampler(
-        multivariate=True, group=True, constant_liar=True, n_startup_trials=max(10, workers), seed=0
+        multivariate=True,
+        group=True,
+        constant_liar=True,
+        n_startup_trials=max(10, workers),
+        seed=0,
+        constraints_func=_constraints,
     )
     study = optuna.create_study(
         storage=f"sqlite:///{database}", study_name=label, direction="minimize", sampler=sampler, load_if_exists=True
@@ -345,8 +361,7 @@ def optimize(block: str, pdk: str, label: str, budget: int, workers: int) -> Pat
                 print(f"[{trial.number}] failed: {traceback.format_exc(limit=3)[-600:]}", file=log, flush=True)
                 continue
             value, constraints = score(problem, record, better)
-            for name, violation in constraints.items():
-                trial.set_constraint(name, violation)
+            trial.set_user_attr("constraints", [constraints[name] for name in problem.bound])
             trial.set_user_attr("id", record["id"])
             trial.set_user_attr("metrics", record["metrics"])
             study.tell(trial, value)
@@ -366,6 +381,13 @@ def optimize(block: str, pdk: str, label: str, budget: int, workers: int) -> Pat
     pool.shutdown()
     log.close()
     return database
+
+
+def _constraints(trial: Any) -> list[float]:
+    """A completed trial's constraints, its problem's bounds in order (the runner sets them before
+    telling it), stored as one list: the form Optuna Dashboard reads (it ignores Optuna 5's named
+    ``constraints:<name>``)."""
+    return trial.user_attrs["constraints"]
 
 
 def _pool(workers: int) -> ProcessPoolExecutor:
