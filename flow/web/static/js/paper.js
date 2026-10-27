@@ -37,10 +37,11 @@ const FONTS = {
     paper: { family: "CMU Serif, Computer Modern Roman, Latin Modern Roman, DejaVu Serif, serif", tick: 10 * PT, axis: 10 * PT, title: 12 * PT, legend: 8.33 * PT },
 };
 export const PAPERS = {
-    light: { paper: "#fff", ink: "#000", spine: "#4C566A", major: "#D8DEE9", minor: "#E5E9F0", legend: "rgba(236, 239, 244, 0.9)", hover: "#ECEFF4" },
+    light: { paper: "#fafafa", ink: "#000", spine: "#4C566A", major: "#D8DEE9", minor: "#E5E9F0", legend: "rgba(236, 239, 244, 0.9)", hover: "#ECEFF4" },
     dark: { paper: "#2F343E", ink: "#DCE0E5", spine: "#A9AFBC", major: "rgba(220, 224, 229, 0.13)", minor: "rgba(220, 224, 229, 0.06)", legend: "rgba(59, 65, 77, 0.92)", hover: "#3B414D" },
 };
-PAPERS.paper = PAPERS.light;
+// on screen the panels' colour, a saved figure on white
+PAPERS.paper = { ...PAPERS.light, paper: "#fff" };
 
 export function currentTheme() {
     return document.documentElement.dataset.theme === "light" ? "light" : "dark";
@@ -296,7 +297,7 @@ export function paperLayout(title, xTitle, yTitle, logX, logY, legendCount, mode
     return layout;
 }
 
-const TICK_KEYS = ["tickmode", "tick0", "dtick", "tickvals", "ticktext", "tickformat", "hoverformat", "exponentformat", "minor"];
+export const TICK_KEYS = ["tickmode", "tick0", "dtick", "tickvals", "ticktext", "tickformat", "hoverformat", "exponentformat", "minor"];
 
 // the ticks paperLayout fitted, refitted to a zoomed or panned range and restored on a reset
 export function keepTicks(element) {

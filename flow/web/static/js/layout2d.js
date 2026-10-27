@@ -5,7 +5,7 @@
 // page may mark boxes on the layout (a check's violations: the "markers" event) and offer the
 // shown layout's GDS (its layout entry's ``gds``).
 
-import { h, icon, select } from "./icons.js";
+import { h, icon, select, titled } from "./icons.js";
 import { hatchTile, isVisible, layerColor, layerStyle, reportLayers, rgba, sortLayers } from "./layers.js";
 import { fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
 
@@ -149,10 +149,8 @@ export class LayoutPanel {
         this.toolbar.replaceChildren();
         if (!this.config.tiled && shown.length > 1) {
             this.toolbar.append(
-                h(
-                    "label.field",
-                    {},
-                    h("span", {}, "Series"),
+                titled(
+                    "Series",
                     select(
                         shown.map((item) => ({ value: item.key, label: `${item.case} · ${item.pdk}${layoutsFor(item, this.config.generator) ? "" : " (none)"}` })),
                         focus?.key,
@@ -163,10 +161,8 @@ export class LayoutPanel {
         }
         if (gens.length) {
             this.toolbar.append(
-                h(
-                    "label.field",
-                    {},
-                    h("span", {}, "Generator"),
+                titled(
+                    "Generator",
                     select(gens.map((generator) => ({ value: generator, label: generator })), this.config.generator, (value) => {
                         this.config.generator = value;
                         this.refresh(true);

@@ -16,7 +16,7 @@ from .analysis import (
     analyze_timing,
     metrics,
 )
-from .params import FRIDA1, Bias, OutputStage, Params, Stages, State, TbParams, valid
+from .params import FRIDA1, Bias, Latch, OutputStage, Params, TbParams
 from .plots import (
     plot_delay_supply_large,
     plot_delay_supply_small,
@@ -31,7 +31,6 @@ from .sim import simulate, testbench
 from .subckt import Nets, netlist
 from .sweep import (
     base_strongarm,
-    c040,
     double_tail,
     double_tail_modified,
     double_tail_modified_self_timed,
@@ -39,7 +38,7 @@ from .sweep import (
     dynamic_bias,
     frida1,
     record,
-    reference,
+    topologies,
     runs,
     strongarm,
     triple_tail,
@@ -70,11 +69,10 @@ __all__ = [
     "AnalysisScurve",
     "AnalysisTiming",
     "Bias",
+    "Latch",
     "Nets",
     "OutputStage",
     "Params",
-    "Stages",
-    "State",
     "TbParams",
     "analysis",
     "analyze_clock_check",
@@ -88,7 +86,6 @@ __all__ = [
     "analyze_scurve",
     "analyze_timing",
     "base_strongarm",
-    "c040",
     "double_tail",
     "double_tail_modified",
     "double_tail_modified_self_timed",
@@ -108,7 +105,6 @@ __all__ = [
     "plot_scurve_unresolved",
     "plots",
     "record",
-    "reference",
     "runs",
     "sim",
     "simulate",
@@ -116,7 +112,7 @@ __all__ = [
     "subckt",
     "sweep",
     "testbench",
+    "topologies",
     "triple_tail",
     "types",
-    "valid",
 ]

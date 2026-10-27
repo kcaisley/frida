@@ -17,6 +17,21 @@ export function on(event, callback) {
     return () => listeners.get(event).delete(callback);
 }
 
+// the page's bar (app.js): the shown state's controls, in the toolbar of the panel that hosts them
+let bar = { mode: null, nodes: [] };
+
+export function setBar(mode, nodes) {
+    bar = { mode, nodes };
+    emit("bar", bar);
+}
+
+// ``slot`` holds the bar while the shown state is one of ``modes``; returns the unsubscriber
+export function hostBar(slot, modes) {
+    const render = ({ mode, nodes }) => modes.includes(mode) && slot.replaceChildren(...nodes);
+    render(bar);
+    return on("bar", render);
+}
+
 export function emit(event, payload) {
     for (const callback of listeners.get(event) || []) {
         try {

@@ -98,9 +98,8 @@ def is_valid_adc_params(param: AdcParams) -> bool:
         return False
     if adc_stages(param) != param.cdac.n_dac + param.cdac.n_extra:
         return False
-    if param.samp.mos_w <= 0 or param.samp.mos_l <= 0:
-        return False
-    return comp.valid(param.comp)
+    # every comparator its parameter class admits builds: the sampler's sizes alone to check
+    return not (param.samp.mos_w <= 0 or param.samp.mos_l <= 0)
 
 
 # Keep the driver hierarchy fresh when this ADC is requested after compilation.
@@ -134,13 +133,13 @@ def Adc(p: AdcParams) -> h.Module:
     # The generated comparator consumes both clock polarities, whereas the
     # synthesized digital block exposes only ``clk_comp``. Generate its true
     # complement locally instead of borrowing an unrelated sampling clock.
-    Adc.MP_clk_comp_b = h.Mos(tp=MosType.PMOS, vth=p.comp.rst_vth, w=10, l=1)(
+    Adc.MP_clk_comp_b = h.Mos(tp=MosType.PMOS, vth=p.comp.vth, w=10, l=1)(
         d=Adc.clk_comp_b,
         g=Adc.clk_comp,
         s=Adc.vdd_a,
         b=Adc.vdd_a,
     )
-    Adc.MN_clk_comp_b = h.Mos(tp=MosType.NMOS, vth=p.comp.rst_vth, w=10, l=1)(
+    Adc.MN_clk_comp_b = h.Mos(tp=MosType.NMOS, vth=p.comp.vth, w=10, l=1)(
         d=Adc.clk_comp_b,
         g=Adc.clk_comp,
         s=Adc.vss_a,

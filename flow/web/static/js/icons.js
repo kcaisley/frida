@@ -78,6 +78,13 @@ export function select(options, value, onChange, attributes = {}) {
     return element;
 }
 
+// a dropdown that names itself: each option reads "title: label" (the shown one too), no label beside it
+export function titled(title, element) {
+    for (const option of element.options) option.textContent = `${title}: ${option.textContent}`;
+    element.title ||= title;
+    return element;
+}
+
 export function seg(options, value, onChange) {
     const element = h("div.seg");
     for (const option of options) {

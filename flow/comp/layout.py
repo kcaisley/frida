@@ -12,7 +12,7 @@ Tools: ``CICPY`` (cicpy 0.3, with ``compile``), ``LAYGO_CLIENT`` (the hosted lay
 client, needs internet), ``ALIGN_HOME`` (an ALIGN install); Calibre, Assura or KLayout as each
 PDK's signoff provider (``pdk/<pdk>/signoff.py``) uses them.
 
-    uv run python -m flow layout comp --instance c040
+    uv run python -m flow layout comp --instance frida1
 """
 
 from __future__ import annotations
@@ -35,9 +35,8 @@ from flow.layout.signoff import row_signoff
 
 from .params import (
     STRUCTURE,
-    TOPOLOGIES,
-    TOPOLOGY_SIZES,
     Bias,
+    Latch,
     OutputStage,
     Params,
 )
@@ -50,18 +49,18 @@ BUILD: dict[str, Callable[..., Path]] = {"cic": cic_build, "laygo": laygo_build,
 
 # where the ports leave the block, as in both comparator floorplans (circuit knowledge, not placement)
 ESCAPE = {"up": ["inp", "inn"], "down": ["clk", "clkb", "outp", "outn"]}
-# the structures with a hand-written floorplan (design/layout/comp_<name>.json): the six topologies,
-# and the dynamic-bias double tail (the modified double tail's latch, the input pair's tail switched
-# onto C_TAIL, with C_P: flow.comp.sweep's dynamic_bias)
+# the structures with a hand-written floorplan (design/layout/comp_<name>.json): each latch (its
+# floorplan named after it, comp_strongarm.json), and the dynamic-bias double tail (the modified double
+# tail's latch, the input pair's tail switched onto C_TAIL, with C_P: flow.comp.sweep's dynamic_bias)
 FLOORPLAN_CASES = {
-    **TOPOLOGIES,
-    "dynamic_bias": {**TOPOLOGIES["double_tail_modified"], "preamp_bias": Bias.DYNAMIC, "preamp_c_ff": 60},
+    **{latch.name.lower(): {"latch": latch} for latch in Latch},
+    "dynamic_bias": {"latch": Latch.DOUBLE_TAIL_MODIFIED, "bias": Bias.DYNAMIC},
 }
 
 
 def _structure(comp: Params) -> tuple[object, ...]:
-    """The comparator's devices and wiring (``STRUCTURE``), C_P by whether it is there, not its size."""
-    return tuple(bool(comp.preamp_c_ff) if key == "preamp_c_ff" else getattr(comp, key) for key in STRUCTURE)
+    """The comparator's devices and wiring (``STRUCTURE``)."""
+    return tuple(getattr(comp, key) for key in STRUCTURE)
 
 
 def write_netlist(params: Params, path: Path, pdk, constant_from=None) -> Path:
@@ -91,7 +90,7 @@ def layout_floorplan(out_dir: Path, pdk: str, comp: Params) -> tuple[Path, Path]
         (
             path
             for name, structure in FLOORPLAN_CASES.items()
-            if _structure(Params(**structure, **TOPOLOGY_SIZES)) == _structure(comp)
+            if _structure(Params(**structure)) == _structure(comp)
             and (path := FLOORPLANS / f"comp_{name}.json").exists()
         ),
         None,

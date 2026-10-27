@@ -5,8 +5,9 @@ its ``params.py``, its circuit in ``subckt.py``, its testbench and simulator run
 simulator's raw output becomes a ``Meas`` here (``read``: every saved signal on the simulator's own
 time axis), the block's ``analysis.py`` turns measurements into ``Analysis`` results and metrics,
 its ``plots.py`` into ``Plot`` specs, and its ``sweep.py`` into the ``Record`` of an instance.
-Its ``sweep.py`` also gives its design space: families of instances (``@family``, each the cartesian
-product of its axes) and named instances (``@named``).
+Its ``sweep.py`` also gives its design space: grids (``@grid``: spaces, each a design with some of
+its parameters widened, ``widen``), named instances (``@named``), and, in a block not yet on grids,
+families (``@family``); its ``opt.py`` its problems, each with the space it searches.
 
 ``Meas`` also stays the base of the measurement types of the blocks not yet migrated (the ADC's,
 the CDAC's), which add their own per-row arrays to it.
@@ -20,12 +21,31 @@ from abc import ABC
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime
+from enum import Enum, auto
 from inspect import signature
 from pathlib import Path
 from types import UnionType
-from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
+from typing import Any, Literal, Union, cast, get_args, get_origin, get_type_hints
 
 import numpy as np
+
+
+class Pdk(Enum):
+    """The PDKs a block is built in. A member's name in lower case is its package and folder
+    (``Pdk.TSMC65``: ``pdk.tsmc65``, ``pdk/tsmc65``), the string records, paths and the command line
+    keep (``pdk_of`` reads one back)."""
+
+    TSMC65 = auto()
+    TSMC28 = auto()
+    IHP130 = auto()
+    TOWER180 = auto()
+    LF150 = auto()
+    TPSC65 = auto()
+
+
+def pdk_of(pdk: str | Pdk) -> Pdk:
+    """A PDK's member, from its folder's name (``"tsmc65"``) or the member itself."""
+    return pdk if isinstance(pdk, Pdk) else Pdk[pdk.upper()]
 
 
 class Params(ABC):
@@ -114,10 +134,11 @@ def named(build: Callable[[], Any] | None = None, *, swept: bool = True) -> Any:
 
 
 def design(sweep: Any, pdk: str) -> Iterator[tuple[str, Any]]:
-    """A block's design space in ``pdk`` before its PDK's validity (``params.valid``): each family's
-    instances and each swept named instance of its sweep module, labelled, in source order."""
+    """A block's design space in ``pdk`` (before a block's ``params.valid``, where it has one): each
+    grid's and family's instances and each swept named instance of its sweep module, labelled, in
+    source order."""
     for value in vars(sweep).values():
-        if isinstance(value, Family):
+        if isinstance(value, (Grid, Family)):
             yield from value.instances(pdk)
         elif isinstance(value, Named) and value.swept:
             yield value.name, value()
@@ -126,6 +147,320 @@ def design(sweep: Any, pdk: str) -> Iterator[tuple[str, Any]]:
 def names(sweep: Any) -> dict[str, Named]:
     """A block's named instances, swept or not, by name."""
     return {value.name: value for value in vars(sweep).values() if isinstance(value, Named)}
+
+
+# ---- spaces: a design with some of its parameters widened, for a grid (a block's sweep.py, @grid)
+# or a search (a problem's space, its opt.py)
+
+
+@dataclass(frozen=True)
+class Steps:
+    """A number's range, ``low`` to ``high``: a grid takes ``n`` points across it (evenly, or evenly in
+    log where ``log``; whole numbers for a whole-number parameter, each once), a search any value in
+    it (on a log scale where ``log``). ``when``: where it applies, a member of an enumeration the
+    design holds (``Bias.DYNAMIC``) or a test of the design; elsewhere the parameter keeps its base
+    value."""
+
+    low: float
+    high: float
+    n: int = 2
+    log: bool = False
+    when: Any = None
+
+
+@dataclass(frozen=True)
+class Values:
+    """These values of a parameter: a grid takes each, a search chooses among them. ``when`` as for
+    ``Steps``."""
+
+    values: tuple[Any, ...]
+    when: Any = None
+
+
+type Widened = Steps | Values
+
+
+# A space's parameters are set by attribute on a space typed as its Params (``widen``), so these
+# return Any: a range assigned to a parameter of whole numbers is not a type error
+def steps(low: float, high: float, n: int = 2, *, log: bool = False, when: Any = None) -> Any:
+    """A number's range (``Steps``)."""
+    return Steps(low, high, n, log, when)
+
+
+def values(*choices: Any, when: Any = None) -> Any:
+    """These values (``Values``)."""
+    return Values(tuple(choices), when)
+
+
+def every(dtype: type, *, when: Any = None) -> Any:
+    """Every member of an enumeration (False and True for a flag)."""
+    return Values(tuple(dtype) if issubclass(dtype, Enum) else (False, True), when)
+
+
+def holds(when: Any, design: Any) -> bool:
+    """Whether a widened parameter applies to ``design``: always, where the design holds the member
+    ``when`` names, or where the test ``when`` passes."""
+    if when is None:
+        return True
+    if isinstance(when, Enum):
+        return any(value is when for value in design.__dict__.values())
+    return bool(when(design))
+
+
+def grid_values(base: Any, name: str, widened: Widened) -> tuple[Any, ...]:
+    """The values a grid gives a widened parameter of ``base``."""
+    if isinstance(widened, Values):
+        return widened.values
+    if widened.n <= 1:
+        points = [widened.low]
+    elif widened.log:
+        points = list(np.geomspace(widened.low, widened.high, widened.n))
+    else:
+        points = list(np.linspace(widened.low, widened.high, widened.n))
+    value = getattr(base, name)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return tuple(dict.fromkeys(round(float(point)) for point in points))
+    return tuple(float(point) for point in points)
+
+
+class Space:
+    """A design (``base``, a block's ``Params``) with some of its parameters widened, each set by
+    attribute (``widen``): ``steps`` or ``values`` (``every``) widen it, a bare value holds it there;
+    every parameter not set is held at the base's value. Each is checked as it is set, by the
+    parameter class: a name it does not have, or a value it does not take (a bare one, each of
+    ``values``, the ends of ``steps``), raises there."""
+
+    __slots__ = ("base", "widened")
+    base: Any
+    widened: dict[str, Widened]
+
+    def __init__(self, base: Any) -> None:
+        object.__setattr__(self, "base", base)
+        object.__setattr__(self, "widened", {})
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        cls = type(self.base)
+        if name not in cls.__params__:
+            raise AttributeError(f"{cls.__name__} has no parameter {name}")
+        if isinstance(value, (Steps, Values)):
+            ends = (
+                value.values
+                if isinstance(value, Values)
+                else grid_values(self.base, name, Steps(value.low, value.high))
+            )
+            for end in ends:
+                cls(**{**self.base.__dict__, name: end})
+            self.widened[name] = value
+        else:
+            object.__setattr__(self, "base", cls(**{**self.base.__dict__, name: value}))
+            self.widened.pop(name, None)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.base, name)
+
+    def points(self) -> Iterator[tuple[dict[str, Any], Any]]:
+        """The space as a grid: every combination of its widened parameters' grid values (one whose
+        ``when`` fails for the rest keeps its base value), each with the values it varies (those
+        widened to more than one) and the design."""
+        cls = type(self.base)
+        plain = {name: widened for name, widened in self.widened.items() if widened.when is None}
+        conditional = {name: widened for name, widened in self.widened.items() if widened.when is not None}
+        varies = {name for name, widened in self.widened.items() if len(grid_values(self.base, name, widened)) > 1}
+        for combination in itertools.product(*(grid_values(self.base, n, w) for n, w in plain.items())):
+            chosen = dict(zip(plain, combination, strict=True))
+            design = cls(**{**self.base.__dict__, **chosen})
+            active = {name: widened for name, widened in conditional.items() if holds(widened.when, design)}
+            for more in itertools.product(*(grid_values(self.base, n, w) for n, w in active.items())):
+                extra = dict(zip(active, more, strict=True))
+                shown = {name: value for name, value in {**chosen, **extra}.items() if name in varies}
+                yield shown, cls(**{**design.__dict__, **extra})
+
+
+def widen[P](base: P) -> P:
+    """A space of ``base`` (a block's ``Params``) to widen by attribute: ``space = widen(Params())``,
+    then ``space.diffpair_w = steps(32, 512, n=3, log=True)``. Typed as the Params it widens, so that
+    an editor completes the parameters' names; it is a ``Space``."""
+    return cast(P, Space(base))
+
+
+def shown(value: Any) -> str:
+    """A value as a label gives it: a member by its name, a number briefly."""
+    if isinstance(value, Enum):
+        return value.name
+    return f"{value:g}" if isinstance(value, float) else str(value)
+
+
+@dataclass(frozen=True)
+class Grid:
+    """A grid of a block's design space (``@grid``): ``build`` (given the PDK, where it takes one)
+    gives a space or several (``widen``; their union), in the PDKs ``pdks`` names (None: every PDK); its
+    instances every point of each, labelled ``name(parameter=value, ...)`` by the values that vary."""
+
+    build: Callable[..., Any]
+    pdks: tuple[Pdk, ...] | None = None
+
+    @property
+    def name(self) -> str:
+        return getattr(self.build, "__name__", "")
+
+    def spaces(self, pdk: str | Pdk) -> tuple[Space, ...]:
+        built = self.build(pdk_of(pdk)) if "pdk" in signature(self.build).parameters else self.build()
+        return (built,) if isinstance(built, Space) else tuple(built)
+
+    def instances(self, pdk: str | Pdk) -> Iterator[tuple[str, Any]]:
+        """Each instance in ``pdk`` with its label."""
+        if self.pdks is not None and pdk_of(pdk) not in self.pdks:
+            return
+        for space in self.spaces(pdk):
+            for varied, design in space.points():
+                yield f"{self.name}({', '.join(f'{name}={shown(value)}' for name, value in varied.items())})", design
+
+
+def grid(build: Callable[..., Any] | None = None, *, pdks: Sequence[Pdk] | None = None) -> Any:
+    """Make a function (of the PDK, a ``Pdk``, where it takes one) returning a space or several, a grid
+    of a block's design space: ``@grid``, or ``@grid(pdks=(Pdk.TSMC65, ...))`` in those PDKs alone."""
+    entry = tuple(pdks) if pdks is not None else None
+    if build is None:
+        return lambda function: Grid(function, entry)
+    return Grid(build, entry)
+
+
+# ---- metrics, evaluation levels and problems (a block's types.py, sweep.py and opt.py)
+
+
+class Metrics:
+    """A block's metrics (a frozen dataclass deriving this, in its types.py): each field one number
+    or flag, named with its unit, declared with ``metric`` (which way is better)."""
+
+
+type Better = Literal["lower", "higher", "true", "none"]
+
+
+def metric(desc: str, better: Better, default: Any = float("nan")) -> Any:
+    """A field of a ``Metrics`` dataclass: what it is and which way is better ("lower", "higher",
+    "true" for a flag that must hold, "none" for a number only reported, a signed offset)."""
+    return field(default=default, metadata={"desc": desc, "better": better})
+
+
+def betters(cls: Any) -> dict[str, Better]:
+    """Each metric of a ``Metrics`` dataclass and which way is better."""
+    return {f.name: f.metadata["better"] for f in fields(cls) if "better" in f.metadata}
+
+
+# the metrics every sweep and optimization record carries beside the block's own (the runner's
+# geometry of the compiled circuit, the layout step's area), and which way is better
+GEOMETRY: dict[str, Better] = {
+    "child_cells": "lower",
+    "devices": "lower",
+    "device_area_um2": "lower",
+    "layout_area_um2": "lower",
+}
+
+
+class Level(Enum):
+    """How much of an instance's characterization to run: a quick screen (no transient noise), the
+    runs a search needs, or all of them. Each level's runs include the lower levels'."""
+
+    SCREEN = 1
+    SEARCH = 2
+    FULL = 3
+
+
+@dataclass(frozen=True)
+class Problem:
+    """What an optimization of a block minimizes and what it must meet, by metric name: ``cost``, a
+    product of factors, each a weight (the factor metric^w, in the metric's unit) or a weight and a
+    scale (the factor (1 + (metric / scale)^2)^w, without unit, which stays near 1 below the scale);
+    ``bound``, each a limit on the side its metric's ``better`` names (a flag: True, it must hold);
+    ``space``, the designs it searches (``widen``: a design, its searched parameters widened, every
+    other held)."""
+
+    cost: Mapping[str, float | tuple[float, float]]
+    bound: Mapping[str, float | bool]
+    space: Any = None
+
+
+class ProblemFamily(Family):
+    """Problems of a block (its opt.py's ``@problem``): a function of a few knobs returning a
+    ``Problem``, expanded like a family of instances; a function that takes ``pdk`` is given the
+    PDK as well (a ``Pdk``), which its label leaves out (``adc(bits=12)``)."""
+
+    def instances(self, pdk: str | Pdk) -> Iterator[tuple[str, Any]]:
+        takes_pdk = "pdk" in signature(self.build).parameters
+        pdk = pdk_of(pdk)
+        folder = pdk.name.lower()  # the family's entries name PDKs by their folders
+        for axes, pdks in zip(self.axes, self.pdks, strict=True):
+            if pdks is not None and folder not in pdks:
+                continue
+            values = [axis if isinstance(axis, Sequence) else axis(folder) for axis in axes.values()]
+            for combination in itertools.product(*values):
+                knobs = dict(zip(axes, combination, strict=True))
+                label = ", ".join(f"{knob}={value}" for knob, value in knobs.items())
+                yield f"{self.name}({label})", self.build(**knobs, **({"pdk": pdk} if takes_pdk else {}))
+
+
+def problem(*, pdks: Sequence[Pdk] | None = None, **axes: Axis) -> Callable[[Callable[..., Problem]], ProblemFamily]:
+    """Make a function of a few named knobs returning a ``Problem`` a family of problems over ``axes``
+    (in the ``pdks`` named, else in every PDK): ``adc(bits=12)`` is one."""
+    entry = tuple(pdk.name.lower() for pdk in pdks) if pdks is not None else None
+    return lambda build: ProblemFamily(build, (axes,), (entry,))
+
+
+def problems(opt: Any, pdk: str) -> dict[str, Problem]:
+    """A block's problems in ``pdk`` by label (``adc(bits=12)``), from its opt module."""
+    return {
+        label: built
+        for value in vars(opt).values()
+        if isinstance(value, ProblemFamily)
+        for label, built in value.instances(pdk)
+    }
+
+
+def objective(problem: Problem, metrics: Mapping[str, Any]) -> float:
+    """The problem's cost of an instance's metrics, in its factors' units (a comparator's J um^2):
+    the product of its factors, each factor of a metric not measured (absent, None) or not a positive
+    number left out (its bound, if any, says so). Summed as logs, so that no factor under- or
+    overflows on its way."""
+    total = 0.0
+    for name, weight in problem.cost.items():
+        value = metrics.get(name)
+        if value is None or not np.isfinite(float(value)) or float(value) <= 0:
+            continue
+        if isinstance(weight, tuple):
+            total += weight[0] * float(np.log1p((float(value) / weight[1]) ** 2))
+        else:
+            total += weight * float(np.log(float(value)))
+    return float(np.exp(total))
+
+
+def cost_unit(problem: Problem) -> str:
+    """The unit of the problem's cost as a metric name's suffix (``j_um2``): each plain factor's metric
+    unit (its name's last word), where every such factor has the weight 1; else none."""
+    plain = {name: weight for name, weight in problem.cost.items() if not isinstance(weight, tuple)}
+    if any(weight != 1 for weight in plain.values()):
+        return ""
+    return "_".join(name.rsplit("_", 1)[-1] for name in plain)
+
+
+def violations(problem: Problem, metrics: Mapping[str, Any], better: Mapping[str, Better]) -> dict[str, float]:
+    """Each bound's violation, at most 0 where it is met: log(value / limit) for a "lower" metric
+    (-10, met by far, at zero), log(limit / value) for a "higher" one, 0 or 1 for a flag; 0 where the
+    metric was not measured (absent), 1 where it was measured and is not a number (beyond what the
+    bench resolves)."""
+    result = {}
+    for name, limit in problem.bound.items():
+        value = metrics.get(name)
+        if value is None:
+            result[name] = 0.0
+        elif better[name] == "true":
+            result[name] = 0.0 if bool(value) is bool(limit) else 1.0
+        elif not np.isfinite(float(value)):
+            result[name] = 1.0
+        elif better[name] == "lower":
+            result[name] = float(np.log(float(value) / float(limit))) if float(value) > 0 else -10.0
+        else:
+            result[name] = float(np.log(float(limit) / float(value))) if float(value) > 0 else 1.0
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,7 +702,7 @@ class Plot:
 class Record:
     """What one instance's characterization gives."""
 
-    metrics: dict[str, float]
+    metrics: dict[str, Any]  # numbers, flags, None where a level did not measure one
     details: list[Plot] = field(default_factory=list)
     # label -> the run whose measurement the viewer shows (the runner writes it, then its path)
     waves: dict[str, str] = field(default_factory=dict)

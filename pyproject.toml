@@ -35,6 +35,7 @@ dependencies = [
     "pyusb>=1.3.1",
     "ruff>=0.16.1",
     "pre-commit>=4.6.2",
+    "optuna>=4.0",
 ]
 
 [dependency-groups]
@@ -128,22 +129,12 @@ known-first-party = ["flow", "pdk"]
 root_packages = ["flow"]
 
 [[tool.importlinter.contracts]]
-name = "comp: each stage imports only the stages below it"
+# every migrated block (flow/test_pipeline.py holds the containers to them); a layer in parentheses
+# is a file a block may not have
+name = "each block's stages import only the stages below them"
 type = "layers"
-containers = ["flow.comp"]
-layers = ["model", "sweep", "plots", "analysis", "types", "sim | layout", "subckt", "params"]
-
-[[tool.importlinter.contracts]]
-name = "samp: each stage imports only the stages below it"
-type = "layers"
-containers = ["flow.samp"]
-layers = ["model", "sweep", "plots", "analysis", "types", "sim | layout", "subckt", "params"]
-
-[[tool.importlinter.contracts]]
-name = "cdac: each stage imports only the stages below it"
-type = "layers"
-containers = ["flow.cdac"]
-layers = ["model", "sweep", "plots", "analysis", "types", "sim", "subckt", "params"]
+containers = ["flow.cdac", "flow.comp", "flow.samp"]
+layers = ["(model) | (opt)", "sweep", "plots", "analysis", "types", "sim | (layout)", "subckt", "params"]
 
 [[tool.importlinter.contracts]]
 name = "the pipeline's base knows no block"

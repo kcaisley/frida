@@ -1,10 +1,12 @@
-"""The pipeline contract (docs/pipeline.md), checked on every block that follows it (``MIGRATED``):
-its stage files, the names each may define, their signatures, and that its pure stages hold no
-helpers and do no file I/O. Reads no data and runs no simulator: a pre-commit hook and CI run it.
+"""The pipeline contract (docs/pipeline.md), checked on every block that follows it (``MIGRATED``:
+every block with a sweep, a new one too, unless ``NOT_MIGRATED`` names it): its stage files, the
+names each may define, their signatures, and that its pure stages hold no helpers and do no file
+I/O. Reads no data and runs no simulator: a pre-commit hook and CI run it.
 
 The import order of the stages is checked by import-linter (``[tool.importlinter]`` in
-pyproject.toml), ``from flow.<block> import ...`` outside a block by Ruff (ICN003).
-``KNOWN_VIOLATIONS`` may only shrink.
+pyproject.toml: one contract over every migrated block, held to them here), ``from flow.<block>
+import ...`` outside a block by Ruff (ICN003), the stages' types by ty over ``typed()`` (CI), their
+netlists by ``flow/test_netlists.py``. ``KNOWN_VIOLATIONS`` and ``NOT_MIGRATED`` may only shrink.
 """
 
 from __future__ import annotations
@@ -13,8 +15,11 @@ import ast
 import dataclasses
 import enum
 import importlib
+import importlib.util
 import inspect
+import itertools
 import re
+import tomllib
 import types
 import typing
 from collections.abc import Sequence
@@ -24,8 +29,16 @@ import hdl21 as h
 import pytest
 
 from flow import pipeline
+from flow.sweep.runner import sweep_blocks
 
-MIGRATED = ("comp", "samp", "cdac")
+ROOT = Path(__file__).resolve().parents[1]
+# The blocks not on the pipeline yet; every other block with a sweep follows it, a new one too.
+# Entries may be removed (a block migrated), never added.
+NOT_MIGRATED = (
+    *("adc", "bias", "caparray", "capdriver", "clkgen", "cml", "csa", "delay", "disc", "follower"),
+    *("idac", "latch", "lvshift", "moscap", "mosfet", "ota", "pi", "ringamp", "schmitt"),
+)
+MIGRATED = tuple(block for block in sweep_blocks() if block not in NOT_MIGRATED)
 STAGES = ("params", "subckt", "sim", "types", "analysis", "plots", "sweep")
 PURE = ("types", "analysis", "plots")  # no helpers, no file I/O
 # Known violations, as "<block>.<stage>: <problem>"; entries may be removed, never added.
@@ -75,11 +88,12 @@ def _members(annotation) -> tuple[object, ...]:
     return (annotation,)
 
 
-def _is(annotation, base: type) -> bool:
-    """``annotation`` is a ``base`` (a subclass), or a sequence of them."""
+def _is(annotation, base: type, *, optional: bool = False) -> bool:
+    """``annotation`` is a ``base`` (a subclass), or a sequence of them; ``optional``, or None."""
     if typing.get_origin(annotation) in (Sequence, list, tuple):
         return all(_is(arg, base) for arg in typing.get_args(annotation) if arg is not Ellipsis)
-    return all(isinstance(member, type) and issubclass(member, base) for member in _members(annotation))
+    members = [member for member in _members(annotation) if not (optional and member is type(None))]
+    return all(isinstance(member, type) and issubclass(member, base) for member in members)
 
 
 def _camel(name: str) -> str:
@@ -144,8 +158,16 @@ def _problems(block: str) -> set[str]:
     if list(_hints(defined.get("simulate", lambda: None)).values()) != [TbParams, Path, Path]:
         problem("sim", "simulate does not take TbParams and a run directory and return the raw file's Path")
 
-    # types.py: Analysis<Thing> dataclasses deriving pipeline.Analysis, data only (properties allowed)
+    # types.py: Analysis<Thing> dataclasses deriving pipeline.Analysis, and at most the block's
+    # Metrics deriving pipeline.Metrics (each field declared with its better-direction), data only
+    # (properties allowed)
     for name, value in _defined(stage["types"]).items():
+        if name == "Metrics" and isinstance(value, type) and issubclass(value, pipeline.Metrics):
+            if not dataclasses.is_dataclass(value) or set(pipeline.betters(value)) != {
+                f.name for f in dataclasses.fields(value)
+            }:
+                problem("types", "Metrics is not a dataclass whose every field is a pipeline.metric")
+            continue
         if not (
             re.fullmatch(r"Analysis[A-Z]\w+", name) and isinstance(value, type) and issubclass(value, pipeline.Analysis)
         ):
@@ -161,10 +183,12 @@ def _problems(block: str) -> set[str]:
     for name, value in _defined(stage["analysis"]).items():
         if name == "metrics":
             hints = _hints(value)
-            if hints.pop("return") != dict[str, float] or not all(
-                _is(hint, pipeline.Analysis) for hint in hints.values()
+            result = hints.pop("return")
+            typed = isinstance(result, type) and issubclass(result, pipeline.Metrics)
+            if not (result == dict[str, float] or typed) or not all(
+                _is(hint, pipeline.Analysis, optional=True) for hint in hints.values()
             ):
-                problem("analysis", "metrics does not take Analysis results and return dict[str, float]")
+                problem("analysis", "metrics does not take Analysis results and return Metrics or dict[str, float]")
             continue
         if not name.startswith("analyze_") or not inspect.isfunction(value):
             problem("analysis", f"{name} is not an analyze_<thing> function or metrics")
@@ -205,18 +229,21 @@ def _problems(block: str) -> set[str]:
         "runs": [str, Params, dict[str, TbParams]],
         "record": [dict[str, pipeline.Meas], pipeline.Record],
     }
+    # runs may take the evaluation level (pipeline.Level), the third of its arguments
+    leveled = {"runs": [str, Params, pipeline.Level, dict[str, TbParams]]}
     for name, signature in expected.items():
-        if name not in sweep or list(_hints(sweep[name]).values()) != signature:
+        hints = list(_hints(sweep[name]).values()) if name in sweep else None
+        if hints not in (signature, leveled.get(name)):
             problem("sweep", f"{name} is missing or does not have the signature {signature}")
     for name, value in sweep.items():
         if name in expected:
             continue
         if UPPER.fullmatch(name):
             problem("sweep", f"module constant {name}: a knob's values belong to its family")
-        elif (
-            not isinstance(value, (pipeline.Family, pipeline.Named)) or _hints(value.build).get("return") is not Params
-        ):
-            problem("sweep", f"{name} is not a family, a named instance (of Params), runs or record")
+        elif not isinstance(value, (pipeline.Grid, pipeline.Family, pipeline.Named)) or _hints(value.build).get(
+            "return"
+        ) not in (Params, list[Params]):
+            problem("sweep", f"{name} is not a grid, a family, a named instance (of Params), runs or record")
 
     # the side files beside the stages: their own names only, and no module constant (a block's
     # constants live in params.py, a testbench's in sim.py)
@@ -264,7 +291,97 @@ def _problems(block: str) -> set[str]:
                 callee = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
                 if callee in io_calls or callee.startswith(("read_", "write_")):
                     problem(name, f"calls {callee}: file I/O")
+    if (folder / "opt.py").is_file():
+        problems |= _optimizable(block, Params, stage)
     return problems
+
+
+def _optimizable(block: str, Params, stage: dict) -> set[str]:
+    """The contract of a block with problems (its opt.py, ``python -m flow opt``): opt.py gives
+    problems alone, each naming metrics, bounding only those with a direction, and searching a space
+    of the block's ``Params`` (``Problem.space``: ``pipeline.widen``) in which every combination of
+    its choices builds and a range that does not apply (``when``) leaves the circuit as it is; its
+    metrics are typed (``types.Metrics``)."""
+
+    problems: set[str] = set()
+    problem = lambda where, text: problems.add(f"{block}.{where}: {text}")
+    opt = _module(block, "opt")
+    metrics_class = getattr(stage["types"], "Metrics", None)
+    if metrics_class is None:
+        problem("types", "no Metrics: a block with problems types its metrics")
+        return problems
+    for name, value in _defined(opt).items():
+        if not isinstance(value, pipeline.ProblemFamily):
+            problem("opt", f"{name} is not a @problem")
+    better = {**pipeline.betters(metrics_class), **pipeline.GEOMETRY}
+    netlist = stage["subckt"].netlist
+
+    def built(design) -> list[tuple[str, str]]:
+        netlist.Cache.reset()
+        return [(n, repr(i.of.params)) for n, i in netlist(design).instances.items()]
+
+    from flow.sweep.runner import PDKS
+
+    for pdk in PDKS:
+        installed = importlib.util.find_spec(f"pdk.{pdk}.hdl21") is not None
+        for label, made in (pipeline.problems(opt, pdk) if installed else {}).items():
+            for name in [*made.cost, *made.bound]:
+                if name not in better:
+                    problem("opt", f"{label} names {name}, not a metric")
+            for name, limit in made.bound.items():
+                if better.get(name) == "none" or (better.get(name) == "true") != isinstance(limit, bool):
+                    problem("opt", f"{label} bounds {name} against its direction")
+            space = made.space
+            if not isinstance(space, pipeline.Space) or not isinstance(space.base, Params):
+                problem("opt", f"{label} searches no space of its Params (Problem.space: pipeline.widen)")
+                continue
+            # every combination of the space's choices builds
+            choices = {
+                name: widened.values
+                for name, widened in space.widened.items()
+                if isinstance(widened, pipeline.Values) and widened.when is None
+            }
+            designs = []
+            for combination in itertools.product(*choices.values()):
+                design = Params(**{**space.base.__dict__, **dict(zip(choices, combination, strict=True))})
+                try:
+                    built(design)
+                    designs.append(design)
+                except Exception as error:  # noqa: BLE001 - the contract reports what does not build
+                    problem("opt", f"{label}: the choices {combination} do not build ({type(error).__name__})")
+            # a range that does not apply to a design leaves its circuit as it is
+            for name, widened in space.widened.items():
+                design = next((d for d in designs if widened.when and not pipeline.holds(widened.when, d)), None)
+                if design is None:
+                    continue
+                other = widened.values[-1] if isinstance(widened, pipeline.Values) else round(widened.high)
+                if built(design) != built(Params(**{**design.__dict__, name: other})):
+                    problem("opt", f"{label}: {name} changes the circuit where it does not apply")
+    return problems
+
+
+def typed() -> list[str]:
+    """The files ty checks for the pipeline (CI): every migrated block's stages and its opt.py."""
+    return [
+        f"flow/{block}/{stage}.py"
+        for block in MIGRATED
+        for stage in (*STAGES, "opt")
+        if (ROOT / "flow" / block / f"{stage}.py").is_file()
+    ]
+
+
+def test_the_blocks_not_migrated_are_blocks() -> None:
+    """Every name ``NOT_MIGRATED`` gives is a block with a sweep: one migrated or gone leaves it."""
+    assert set(NOT_MIGRATED) <= set(sweep_blocks())
+
+
+def test_one_import_contract_orders_every_migrated_block() -> None:
+    """import-linter's layers contract covers exactly the migrated blocks, a block's own files
+    (model.py, opt.py, layout.py) optional in it."""
+    contracts = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["importlinter"]["contracts"]
+    layers = [contract for contract in contracts if contract["type"] == "layers"]
+    assert len(layers) == 1
+    assert sorted(layers[0]["containers"]) == sorted(f"flow.{block}" for block in MIGRATED)
 
 
 @pytest.mark.parametrize("block", MIGRATED)

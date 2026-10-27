@@ -74,7 +74,7 @@ def test_the_server_answers_data_from_the_export_and_the_rest_from_static() -> N
     assert Path(handler.translate_path("/data/../../../etc/passwd")).is_relative_to(DATA_DIR)
 
 
-@pytest.mark.parametrize("page", ["index.html", "js/compile.js"])
+@pytest.mark.parametrize("page", ["index.html", "js/editor.js"])
 def test_the_pages_load_only_pinned_library_versions(page: str) -> None:
     urls = re.findall(r"https://[^\"' )]+", (STATIC_DIR / page).read_text())
     assert urls

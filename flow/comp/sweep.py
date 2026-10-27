@@ -1,17 +1,17 @@
-"""The comparator's design space (docs/pipeline.md): its families, each the cartesian product of its
-knobs (``@family``), and its named instances (``@named``); the testbench runs that characterize one
-instance (``runs``) and the record they make (``record``). The runner keeps, in each PDK, what
-``params.valid`` admits there; readme.md says why the space is what it is."""
+"""The comparator's design space (docs/pipeline.md): its grid (``@grid``: a design with some of its
+parameters widened, ``widen``, every point of it), the ADC's comparators (``@family``, until the ADC is on
+grids) and its named instances (``@named``); the testbench runs that characterize one instance
+(``runs``) and the record they make (``record``); readme.md says why the space is what it is."""
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 from dataclasses import replace
 
 import hdl21 as h
-from hdl21.primitives import MosType
 
-from flow.pipeline import Meas, Record, family, named
+from flow.pipeline import Level, Meas, Record, every, family, grid, named, steps, widen
 
 from .analysis import (
     analyze_clock_check,
@@ -38,12 +38,9 @@ from .params import (
     SCURVE_V,
     SMALL_V,
     SUPPLY_SWEEP,
-    TOPOLOGIES,
-    TOPOLOGY_SIZES,
     Bias,
+    Latch,
     Params,
-    Stages,
-    State,
     TbParams,
 )
 from .plots import (
@@ -58,16 +55,23 @@ from .plots import (
 )
 
 
-@family(pdks=("tsmc65", "tsmc28"), topology=("strongarm", "double_tail"))
-def reference(topology: str) -> Params:
-    """A topology at the characterization's short-channel sizes."""
-    return Params(**TOPOLOGIES[topology], **TOPOLOGY_SIZES)
+@grid
+def topologies() -> Params:
+    """Every latch with either tail at the characterization's sizes, the input pair 32 to 512 units
+    wide, and with a dynamic bias C_P 30 or 120 fF: how the topologies compare as they widen."""
+    space = widen(Params())
+    space.latch = every(Latch)
+    space.bias = every(Bias)
+    space.diffpair_w = steps(32, 512, n=3, log=True)
+    space.preamp_c_ff = steps(30, 120, n=2, log=True, when=Bias.DYNAMIC)
+    return space
 
 
-# each PDK's tails (its delays: 0.5, 1, 1.5 and 2 ns at 0.5 mV) and widths (its noise levels: 200,
-# 150, 100, 70 and 50 uV, where its noise floor reaches them), where the base StrongARM is the more
-# frugal family; TSMC28 at TSMC65's physical sizes (three of its 40 nm units to one of 120 nm, the
-# tail 840 nm long)
+# The ADC's comparators (flow.adc.sweep: TSMC65's COMP_GRID, elsewhere the PDK's StrongARM ladder at
+# its longest tail), until the ADC is ported to grids: each PDK's tails (its delays: 0.5, 1, 1.5 and
+# 2 ns at 0.5 mV) and widths (its noise levels: 200, 150, 100, 70 and 50 uV, where its noise floor
+# reaches them), where the base StrongARM is the more frugal family; TSMC28 at TSMC65's physical
+# sizes (three of its 40 nm units to one of 120 nm, the tail 840 nm long)
 @family(pdks=("tsmc65",), tail_l=(14,), k=(3, 6, 12, 32, 64))
 @family(pdks=("tsmc28",), tail_l=(28,), k=(18, 36, 72, 192))
 @family(pdks=("tpsc65",), tail_l=(6,), k=(2, 4, 8, 16, 32))
@@ -88,9 +92,10 @@ def reference(topology: str) -> Params:
 def base_strongarm(tail_l: int, k: float) -> Params:
     """The StrongARM at the short-channel sizes with every width times ``k`` but its tail, 4 k units
     wide and ``tail_l`` minimum lengths long: the tail's length sets the delay, ``k`` the noise."""
+    base = Params()
     widths = ("diffpair_w", "rst_w", "latch_on_w", "latch_init_w", "srlatch_n_w", "srlatch_p_w")
-    sizes = {name: round(k * TOPOLOGY_SIZES[name]) for name in widths}
-    return Params(**TOPOLOGIES["strongarm"], **{**TOPOLOGY_SIZES, **sizes, "tail_w": round(4 * k), "tail_l": tail_l})
+    sizes = {name: round(k * getattr(base, name)) for name in widths}
+    return Params(latch=Latch.STRONGARM, **sizes, tail_w=round(4 * k), tail_l=tail_l)
 
 
 # each PDK's C_TAIL/C_P (its delays) and widths (its noise levels), where the dynamic bias is the
@@ -116,15 +121,13 @@ def dynamic_bias(ratio: float, k: float) -> Params:
     sizes = {name: max(4, round(k * units)) for name, units in unit.items()}
     c_p = round(60 * k)
     return Params(
-        **{**TOPOLOGIES["double_tail_modified"], "preamp_bias": Bias.DYNAMIC},
-        **{
-            **TOPOLOGY_SIZES,
-            **sizes,
-            "diffpair_l": 1,
-            "tail_l": 1,
-            "preamp_c_ff": c_p,
-            "bias_c_ff": round(ratio * c_p),
-        },
+        latch=Latch.DOUBLE_TAIL_MODIFIED,
+        bias=Bias.DYNAMIC,
+        **sizes,
+        diffpair_l=1,
+        tail_l=1,
+        preamp_c_ff=c_p,
+        bias_c_ff=round(ratio * c_p),
     )
 
 
@@ -135,74 +138,50 @@ def frida1() -> Params:
 
 
 @named(swept=False)
-def c040() -> Params:
-    """The example double tail of the retired size sweep (its topology 40 at its half sizes)."""
-    return Params(
-        comp_stages=Stages.DOUBLE,
-        preamp_diff_xtors=MosType.NMOS,
-        preamp_bias=Bias.SWITCHED,
-        latch_inner_on_xtors=State.CLOCK,
-        latch_outer_on_xtors=State.CLOCK,
-        latch_inner_init_xtors=State.SIGNAL,
-        latch_outer_init_xtors=State.OMIT,
-        diffpair_w=19,
-        diffpair_l=5,
-        tail_w=3,
-        tail_l=13,
-        rst_w=4,
-        rst_l=1,
-        latch_on_w=13,
-        latch_on_l=6,
-        latch_init_w=17,
-        latch_init_l=17,
-        srlatch_n_w=2,
-        srlatch_p_w=4,
-    )
-
-
-@named(swept=False)
 def strongarm() -> Params:
-    """The StrongARM at the characterization's sizes (``reference``'s ``x1``)."""
-    return Params(**TOPOLOGIES["strongarm"], **TOPOLOGY_SIZES)
+    """The StrongARM at the characterization's sizes."""
+    return Params(latch=Latch.STRONGARM)
 
 
 @named(swept=False)
 def double_tail() -> Params:
-    """The double tail at the characterization's sizes (``reference``'s ``x1``)."""
-    return Params(**TOPOLOGIES["double_tail"], **TOPOLOGY_SIZES)
+    """The double tail at the characterization's sizes."""
+    return Params(latch=Latch.DOUBLE_TAIL)
 
 
 @named(swept=False)
 def triple_tail() -> Params:
     """The triple tail at the characterization's sizes."""
-    return Params(**TOPOLOGIES["triple_tail"], **TOPOLOGY_SIZES)
+    return Params(latch=Latch.TRIPLE_TAIL)
 
 
 @named(swept=False)
 def double_tail_self_timed() -> Params:
     """The self-timed double tail at the characterization's sizes."""
-    return Params(**TOPOLOGIES["double_tail_self_timed"], **TOPOLOGY_SIZES)
+    return Params(latch=Latch.DOUBLE_TAIL_SELF_TIMED)
 
 
 @named(swept=False)
 def double_tail_modified() -> Params:
     """The modified double tail at the characterization's sizes."""
-    return Params(**TOPOLOGIES["double_tail_modified"], **TOPOLOGY_SIZES)
+    return Params(latch=Latch.DOUBLE_TAIL_MODIFIED)
 
 
 @named(swept=False)
 def double_tail_modified_self_timed() -> Params:
     """The self-timed modified double tail at the characterization's sizes."""
-    return Params(**TOPOLOGIES["double_tail_modified_self_timed"], **TOPOLOGY_SIZES)
+    return Params(latch=Latch.DOUBLE_TAIL_MODIFIED_SELF_TIMED)
 
 
-def runs(pdk: str, params: Params) -> dict[str, TbParams]:
-    """The testbench runs that characterize ``params`` in ``pdk``, by name (each run's folder): the
+def runs(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
+    """The testbench runs that characterize ``params`` in ``pdk`` at ``level``, by name (each run's
+    folder), the quick ones first. ``Level.SCREEN``, no transient noise (about 25 s): the
     noise-free decisions over the input at the clock and at twice it (``metastability``,
     ``metastability_check``: the delay near metastability, and whether the comparator decides in
     time), three decisions at the small and the large input (delay, energy), one onto a DAC-like
-    source (kickback), the transient-noise S-curve at each common mode (noise, offset), and both
-    inputs at each supply."""
+    source (kickback), and both inputs at each supply. ``Level.SEARCH`` adds the transient-noise
+    S-curve at the nominal common mode (noise, offset); ``Level.FULL`` the S-curves at the other
+    common modes."""
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
     # the nominal run: the supply, its common mode; each run changes what it measures
@@ -224,16 +203,6 @@ def runs(pdk: str, params: Params) -> dict[str, TbParams]:
             source_capacitance_f=KICKBACK_SOURCE[1],
         ),
     }
-    for fraction in CM_SWEEP:
-        benches[f"scurve_cm{round(fraction * 24)}"] = replace(
-            nominal,
-            vin_cm_values_v=(round(fraction * supply, 4),),
-            vin_diff_values_v=SCURVE_V,
-            conversions=SCURVE_DECISIONS,
-            input_order="shuffled",
-            noise=True,
-            waveform_sample_interval_s=NOISE_STROBE_S,
-        )
     for factor in SUPPLY_SWEEP:
         vdd = factor * supply
         benches[f"supply_{round(factor * 100)}"] = TbParams(
@@ -244,13 +213,25 @@ def runs(pdk: str, params: Params) -> dict[str, TbParams]:
             vin_diff_values_v=(SMALL_V, LARGE_V),
             conversions=2,
         )
+    fractions = {Level.SCREEN: (), Level.SEARCH: (NOMINAL_CM,), Level.FULL: CM_SWEEP}[level]
+    for fraction in sorted(fractions, key=lambda fraction: fraction != NOMINAL_CM):
+        benches[f"scurve_cm{round(fraction * 24)}"] = replace(
+            nominal,
+            vin_cm_values_v=(round(fraction * supply, 4),),
+            vin_diff_values_v=SCURVE_V,
+            conversions=SCURVE_DECISIONS,
+            input_order="shuffled",
+            noise=True,
+            waveform_sample_interval_s=NOISE_STROBE_S,
+        )
     return benches
 
 
 def record(measurements: dict[str, Meas]) -> Record:
-    """The record of one instance from its runs' measurements (``runs``): the metrics
-    (``analysis.metrics``) and the plots of its condition sweeps; a comparator that does not decide
-    within the clock raises."""
+    """The record of one instance from the measurements of the runs of any level (``runs``): the
+    metrics (``analysis.metrics``: None where its runs did not run) and the plots of its condition
+    sweeps. A comparator that does not decide within the clock is recorded so
+    (``decides_in_time``), not raised: an optimization learns from it."""
 
     decisions = {name: analyze_decisions(meas) for name, meas in measurements.items()}
     delays = {
@@ -276,37 +257,38 @@ def record(measurements: dict[str, Meas]) -> Record:
         decisions=[decisions["metastability"], decisions["metastability_check"]],
         metastability=[metastability["metastability"], metastability["metastability_check"]],
     )
-    if not clock.decides_in_time:
-        raise RuntimeError(
-            f"no decision within the {clock.evaluation_s * 1e9:g} ns evaluation: {'; '.join(clock.reasons)}"
-        )
-    offsets = [analyze_offset_noise([decisions[f"scurve_cm{round(fraction * 24)}"]]) for fraction in CM_SWEEP]
-    nominal = offsets[CM_SWEEP.index(NOMINAL_CM)]
-    scurve = analyze_scurve([decisions[f"scurve_cm{round(NOMINAL_CM * 24)}"]])
+    scurves = [f"scurve_cm{round(fraction * 24)}" for fraction in CM_SWEEP]
+    offsets = [analyze_offset_noise([decisions[name]]) for name in scurves if name in measurements]
+    nominal_run = f"scurve_cm{round(NOMINAL_CM * 24)}"
+    nominal = analyze_offset_noise([decisions[nominal_run]]) if nominal_run in measurements else None
+    scurve = analyze_scurve([decisions[nominal_run]]) if nominal_run in measurements else None
     supply = [delays[f"supply_{round(factor * 100)}"] for factor in SUPPLY_SWEEP]
     plots = [
         plot_metastability(metastability["metastability"]),
-        plot_noise_cm(offsets),
-        plot_offset_cm(offsets),
         plot_delay_supply_small(supply),
         plot_delay_supply_large(supply),
         plot_energy_supply(analyze_power([measurements[f"supply_{round(factor * 100)}"] for factor in SUPPLY_SWEEP])),
-        plot_scurve(scurve),
     ]
-    if scurve.total_unresolved_fraction > 0:
-        plots.append(plot_scurve_unresolved(scurve))
+    if offsets:
+        plots[1:1] = [plot_noise_cm(offsets), plot_offset_cm(offsets)]
+    if scurve is not None:
+        plots.append(plot_scurve(scurve))
+        if scurve.total_unresolved_fraction > 0:
+            plots.append(plot_scurve_unresolved(scurve))
+    values = metrics(
+        small=delays["small"],
+        large=delays["large"],
+        metastability=metastability["metastability"],
+        power=analyze_power([measurements["small"], measurements["large"]]),
+        kickback=analyze_kickback(measurements["kickback"]),
+        supply=supply,
+        clock=clock,
+        offsets=offsets,
+        nominal=nominal,
+        scurve=scurve,
+    )
     return Record(
-        metrics=metrics(
-            small=delays["small"],
-            large=delays["large"],
-            metastability=metastability["metastability"],
-            power=analyze_power([measurements["small"], measurements["large"]]),
-            kickback=analyze_kickback(measurements["kickback"]),
-            offsets=offsets,
-            nominal=nominal,
-            scurve=scurve,
-            supply=supply,
-        ),
+        metrics=dataclasses.asdict(values),
         details=plots,
         # the runs the viewer shows the waveforms of, by label
         waves={

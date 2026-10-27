@@ -13,7 +13,8 @@ from typing import Any, Literal
 
 import numpy as np
 
-from flow.pipeline import Analysis, MeasInfo, Wave
+from flow import pipeline
+from flow.pipeline import Analysis, MeasInfo, Wave, metric
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -172,3 +173,28 @@ class AnalysisSamplingNoise(Analysis):
     vin_diff_v: np.ndarray
     decision_probability: np.ndarray
     trial_count: np.ndarray
+
+
+@dataclass(frozen=True, kw_only=True)
+class Metrics(pipeline.Metrics):
+    """A comparator's numbers (``analysis.metrics``): the delays and energy at 0.5 mV and 100 mV, the
+    0.1 mV delay and regeneration time constant, the kickback, the slowest small-input delay over the
+    supply and whether it decides within the clock, all from the screen's runs (``Level.SCREEN``);
+    the nominal common mode's noise and offset (None unless valid), the fraction of its decisions
+    unresolved (``Level.SEARCH``); the largest valid noise over the common mode (``Level.FULL``).
+    None where the runs of a level that measures it did not run."""
+
+    delay_0p5mv_s: float = metric("Delay at 0.5 mV, the slowest of its decisions", "lower")
+    delay_100mv_s: float = metric("Delay at 100 mV, the slowest of its decisions", "lower")
+    delay_0p1mv_s: float = metric("Delay at 0.1 mV", "lower")
+    regeneration_tau_s: float = metric("Regeneration time constant", "lower")
+    energy_0p5mv_j: float = metric("Energy per decision at 0.5 mV, the clock's drivers included", "lower")
+    energy_100mv_j: float = metric("Energy per decision at 100 mV, the clock's drivers included", "lower")
+    kickback_v: float = metric("Largest excursion of either input over a decision", "lower")
+    kickback_diff_v: float = metric("Largest excursion of the input difference over a decision", "lower")
+    delay_max_supply_s: float = metric("Slowest 0.5 mV delay over the supply", "lower")
+    decides_in_time: bool | None = metric("Decides within the clock", "true", None)
+    noise_v: float | None = metric("Input-referred noise at the nominal common mode", "lower", None)
+    offset_v: float | None = metric("Systematic offset at the nominal common mode", "none", None)
+    unresolved_fraction: float | None = metric("Fraction of the S-curve's decisions unresolved", "lower", None)
+    noise_max_v: float | None = metric("Largest valid noise over the common mode", "lower", None)

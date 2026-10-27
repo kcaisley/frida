@@ -81,10 +81,10 @@ def labelled_space(block: str, pdk: str) -> dict:
     from flow import pipeline
 
     sweep = import_module(f"flow.{block}.sweep")
-    valid = import_module(f"flow.{block}.params").valid
+    valid = getattr(import_module(f"flow.{block}.params"), "valid", None)
     space: dict = {}
     for label, params in pipeline.design(sweep, pdk):
-        if valid(params, pdk):
+        if valid is None or valid(params, pdk):
             space.setdefault(digest(params), (label, params))
     return space
 
@@ -112,7 +112,8 @@ def select(block: str, pdk: str, names: list[str]) -> dict:
                 f"no instance {name!r} of {block} in {pdk}: a name ({', '.join(named)}), a label as "
                 "the run's records hold it, or a digest"
             )
-        if import_module(f"flow.{block}.params").valid(params, pdk):
+        valid = getattr(import_module(f"flow.{block}.params"), "valid", None)
+        if valid is None or valid(params, pdk):
             picked.setdefault(digest(params), (label, params))
         else:
             print(f"{name}: not valid in {pdk}, left out")
@@ -418,7 +419,7 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
     if entry.get("w_um"):
         area = entry["w_um"] * entry["h_um"]
         record["metrics"]["layout_area_um2"] = area
-        gate = record["metrics"].get("gate_area_um2")
+        gate = record["metrics"].get("device_area_um2")
         record["metrics"]["density"] = gate / area if gate else None
     write_record(instance_dir / "instance.json", record)
     return entry
@@ -508,6 +509,7 @@ def instance_views(block: str, ident: str, record: dict, data_dir: Path) -> dict
 def table(blocks: list[str], workers: int) -> None:
     """The viewer's table of each block's newest run, and one detail file per instance."""
 
+    from flow import pipeline
     from flow.web.export import BLOCKS
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -572,10 +574,12 @@ def table(blocks: list[str], workers: int) -> None:
                 }
                 path = DATA_DIR / block / f"{row['id']}.json"
                 path.write_text(json.dumps(_json(instance), separators=(",", ":")))
-            # the parameters that tell instances apart, then every metric
+            # the parameters that tell instances apart, then every metric: the design's size together
+            # first (child cells, devices, device and layout area), the rest by name
             names = sorted({name for row in rows for name in row["params"]})
             varying = [name for name in names if len({json.dumps(row["params"].get(name)) for row in rows}) > 1]
-            metrics = sorted({name for row in rows for name in row["metrics"]})
+            present = {name for row in rows for name in row["metrics"]}
+            metrics = [name for name in dict.fromkeys([*pipeline.GEOMETRY, *sorted(present)]) if name in present]
             for row in rows:
                 row["params"] = {name: row["params"].get(name) for name in varying}
             title = BLOCKS.get(block, block)
@@ -592,7 +596,8 @@ def table(blocks: list[str], workers: int) -> None:
             for stale in (DATA_DIR / block).iterdir():
                 if stale.name.split(".", 1)[0] not in views:
                     shutil.rmtree(stale) if stale.is_dir() else stale.unlink()
-            catalog[block] = {"title": title, "run": run_name, "instances": len(rows)}
+            # its optimizations' tables (flow.opt.runner.table, ``searches``) kept
+            catalog[block] = {**catalog.get(block, {}), "title": title, "run": run_name, "instances": len(rows)}
             laid_out = sum(1 for record, _future in views.values() if (record.get("layout") or {}).get("gds"))
             details = len({detail["name"] for record in records for detail in record["details"]})
             print(f"{block}: {len(rows)} instances, {len(metrics)} metrics, {details} details, {laid_out} layouts")

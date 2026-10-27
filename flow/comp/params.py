@@ -1,5 +1,5 @@
-"""The comparator's parameters: its design (``Params``), one run of its testbench (``TbParams``),
-which designs the generator builds (``valid``), and the testbench every comparator is tested on.
+"""The comparator's parameters: its design (``Params``, every one of which builds), one run of its
+testbench (``TbParams``), and the testbench every comparator is tested on.
 
 Every comparator is tested the same way, so that comparators compare: the clock (``RESET_S`` of
 reset, then ``EVALUATION_S`` of evaluation), the inputs driven through ``SOURCE_RESISTANCE_OHM`` onto
@@ -13,30 +13,30 @@ shuffled passes), kickback onto a DAC-like source (``KICKBACK_SOURCE``), over th
 import math
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any
 
 import hdl21 as h
 import numpy as np
 from hdl21.primitives import MosType, MosVth
+from pydantic import PositiveInt
 
 from flow import pipeline
 
 
-class Stages(Enum):
-    SINGLE = auto()
-    DOUBLE = auto()
-    TRIPLE = auto()
+class Latch(Enum):
+    """The comparator's latch, its stages after the input pair: each a topology of its own, which the
+    generator builds (``flow.comp.subckt``); a latch from a paper is one more member."""
+
+    STRONGARM = auto()  # one stage: the cross-coupled pair stacked on the input pair
+    DOUBLE_TAIL = auto()  # Schinkel: a second stage with its own clocked tail, shared by both halves
+    DOUBLE_TAIL_SELF_TIMED = auto()  # the double tail's latch released by the input pair's drains
+    DOUBLE_TAIL_MODIFIED = auto()  # van Elzakker: signaled inner on devices, a clocked reset
+    DOUBLE_TAIL_MODIFIED_SELF_TIMED = auto()  # the modified latch with signaled inner init devices
+    TRIPLE_TAIL = auto()  # a cascoded input pair, a regenerating second stage and a clocked latch
 
 
 class Bias(Enum):
     DYNAMIC = auto()
     SWITCHED = auto()
-
-
-class State(Enum):
-    CLOCK = auto()
-    SIGNAL = auto()
-    OMIT = auto()
 
 
 class OutputStage(Enum):
@@ -46,184 +46,52 @@ class OutputStage(Enum):
 
 @h.paramclass
 class Params:
-    """Comparator parameters.
+    """The comparator: its latch, input pair and bias, any combination of them, and its device sizes
+    as positive multiples of the PDK's unit width and minimum length (w = 10: ten unit widths), so
+    that one design ports across PDKs. Every Params the class admits builds; the defaults are the
+    characterization's short-channel sizes, at which ``Params(latch=...)`` is a topology's reference.
+    What a grid or a search varies is a space of it (``pipeline.vary``: sweep.py, opt.py)."""
 
-    Device sizing uses multiplier-based scaling:
-    - w: Width multiplier (w=10 means 10×Wmin, e.g., 1.2µm for a 65nm node)
-    - l: Length multiplier (l=1 means 1×Lmin, e.g., 60nm for a 65nm node)
-
-    This approach allows the same design to be portable across PDKs.
-    """
-
-    # Topology parameters
-    comp_stages = h.Param(dtype=Stages, desc="Comparator stages", default=Stages.SINGLE)
-
-    preamp_diff_xtors = h.Param(
-        dtype=MosType,
-        desc="Input diff pair type (NMOS or PMOS)",
-        default=MosType.NMOS,
+    latch = h.Param(dtype=Latch, desc="Latch topology", default=Latch.STRONGARM)
+    input_pair = h.Param(dtype=MosType, desc="Input pair type (NMOS or PMOS)", default=MosType.NMOS)
+    bias = h.Param(
+        dtype=Bias,
+        desc="The input pair's tail: a clocked switch, or a switch onto C_TAIL (dynamic bias)",
+        default=Bias.SWITCHED,
     )
-    preamp_bias = h.Param(dtype=Bias, desc="Biasing type", default=Bias.SWITCHED)
-
-    # Latch transistor pairs — each can be clocked, signaled, or omitted
-    latch_outer_on_xtors = h.Param(dtype=State, desc="Outer on devices", default=State.OMIT)
-    latch_inner_on_xtors = h.Param(dtype=State, desc="Inner on  devices", default=State.OMIT)
-    latch_outer_init_xtors = h.Param(dtype=State, desc="Outer init devices", default=State.OMIT)
-    latch_inner_init_xtors = h.Param(dtype=State, desc="Inner init devices", default=State.CLOCK)
-    output_stage = h.Param(dtype=OutputStage, desc="Output stage implementation", default=OutputStage.TRANSISTORS)
-    latch_tail_shared = h.Param(
-        dtype=bool, desc="One clocked outer tail shared by both latch halves (double tail)", default=False
+    output_stage = h.Param(
+        dtype=OutputStage,
+        desc="Output stage implementation (a view: layout draws both)",
+        default=OutputStage.TRANSISTORS,
     )
 
-    # Device sizing (multipliers of Wmin/Lmin)
-    diffpair_w = h.Param(dtype=int, desc="Diff pair width multiplier", default=32)
-    diffpair_l = h.Param(dtype=int, desc="Diff pair length multiplier", default=4)
-    diffpair_vth = h.Param(dtype=MosVth, desc="Diff pair Vth", default=MosVth.LOW)
+    # device sizes, in unit widths and minimum lengths
+    diffpair_w = h.Param(dtype=PositiveInt, desc="Diff pair width multiplier", default=32)
+    diffpair_l = h.Param(dtype=PositiveInt, desc="Diff pair length multiplier", default=2)
+    tail_w = h.Param(dtype=PositiveInt, desc="Tail width multiplier", default=16)
+    tail_l = h.Param(dtype=PositiveInt, desc="Tail length multiplier", default=2)
+    rst_w = h.Param(dtype=PositiveInt, desc="Reset device width multiplier", default=8)
+    rst_l = h.Param(dtype=PositiveInt, desc="Reset device length multiplier", default=1)
+    latch_on_w = h.Param(dtype=PositiveInt, desc="Latch evaluation-side width multiplier", default=8)
+    latch_on_l = h.Param(dtype=PositiveInt, desc="Latch evaluation-side length multiplier", default=1)
+    latch_init_w = h.Param(dtype=PositiveInt, desc="Latch precharge-side width multiplier", default=8)
+    latch_init_l = h.Param(dtype=PositiveInt, desc="Latch precharge-side length multiplier", default=1)
+    srlatch_n_w = h.Param(dtype=PositiveInt, desc="Output SR-latch NMOS width multiplier", default=4)
+    srlatch_p_w = h.Param(dtype=PositiveInt, desc="Output SR-latch PMOS width multiplier", default=8)
+    vth = h.Param(dtype=MosVth, desc="Every device's Vth", default=MosVth.LOW)
 
-    tail_w = h.Param(dtype=int, desc="Tail width multiplier", default=4)
-    tail_l = h.Param(dtype=int, desc="Tail length multiplier", default=16)
-    tail_vth = h.Param(dtype=MosVth, desc="Tail Vth", default=MosVth.LOW)
-
-    rst_w = h.Param(dtype=int, desc="Reset device width multiplier", default=8)
-    rst_l = h.Param(dtype=int, desc="Reset device length multiplier", default=1)
-    rst_vth = h.Param(dtype=MosVth, desc="Reset Vth", default=MosVth.LOW)
-
-    latch_on_w = h.Param(dtype=int, desc="Latch evaluation-side width multiplier", default=4)
-    latch_on_l = h.Param(dtype=int, desc="Latch evaluation-side length multiplier", default=1)
-    latch_init_w = h.Param(dtype=int, desc="Latch precharge-side width multiplier", default=4)
-    latch_init_l = h.Param(dtype=int, desc="Latch precharge-side length multiplier", default=1)
-    latch_vth = h.Param(dtype=MosVth, desc="Latch Vth", default=MosVth.LOW)
-
-    srlatch_n_w = h.Param(
-        dtype=int,
-        desc="Output SR-latch NMOS width multiplier",
-        default=4,
-    )
-    srlatch_p_w = h.Param(
-        dtype=int,
-        desc="Output SR-latch PMOS width multiplier",
-        default=8,
-    )
-
-    # Added after the first sweeps: at their defaults each instance is as before (flow.sweep leaves
-    # them out of an instance's identity there)
+    # the dynamic bias's capacitors, MOS capacitors of nominal capacitance (unused with a switched tail)
     preamp_c_ff = h.Param(
-        dtype=int,
-        desc="MOS capacitance on each input-pair drain to its evaluation rail (nominal fF; 0: the devices' own alone)",
-        default=0,
+        dtype=PositiveInt,
+        desc="Dynamic bias: C_P, the MOS capacitance on each input-pair drain to its evaluation rail (fF)",
+        default=60,
     )
-    latch_tail_w = h.Param(
-        dtype=int,
-        desc="Width multiplier of the clocked latch tail (a double tail's shared tail, a triple tail's "
-        "second-stage tail), both halves together; 0: twice latch_on_w",
-        default=0,
-    )
-    bias_c_ff = h.Param(dtype=int, desc="Dynamic bias: the tail's MOS capacitance (nominal fF)", default=100)
+    bias_c_ff = h.Param(dtype=PositiveInt, desc="Dynamic bias: C_TAIL, the tail's MOS capacitance (fF)", default=100)
 
 
 # the parameters that make a comparator's devices and their wiring (a hand-written floorplan's
-# case is found by them: flow.comp.layout.layout_floorplan); an explicit C_P adds two capacitors
-STRUCTURE = (
-    "comp_stages",
-    "preamp_diff_xtors",
-    "preamp_bias",
-    "latch_outer_on_xtors",
-    "latch_inner_on_xtors",
-    "latch_outer_init_xtors",
-    "latch_inner_init_xtors",
-    "latch_tail_shared",
-    "preamp_c_ff",
-)
-
-
-# where not every size decides within the evaluation (EVALUATION_S) in a PDK, what does: the longest
-# latch devices (``latch_l``: latch_on_l and latch_init_l) and tail (``tail_l``), in minimum lengths,
-# and the dynamic bias's range of C_TAIL over C_P (``ratio``: bias_c_ff over preamp_c_ff; None, no
-# dynamic bias)
-LIMITS: dict[str, dict[str, Any]] = {
-    "tsmc28": {"tail_l": 32, "ratio": (0, 3)},
-    "tpsc65": {"latch_l": 1, "ratio": (2.5, math.inf)},
-    "ihp130": {"latch_l": 1, "tail_l": 34, "ratio": None},
-    "lf150": {"latch_l": 1, "tail_l": 34, "ratio": (5, math.inf)},
-    "tower180": {"latch_l": 1, "ratio": (0, 5)},
-}
-
-
-def valid(param: Params, pdk: str | None = None) -> bool:
-    """Whether the comparator can be built (``_valid_structure``) and, given its PDK, decides within
-    the evaluation there (``LIMITS``)."""
-    if not _valid_structure(param):
-        return False
-    limits = LIMITS.get(pdk or "", {})
-    ratio = limits.get("ratio", (0, math.inf))
-    return (
-        max(param.latch_on_l, param.latch_init_l) <= limits.get("latch_l", math.inf)
-        and param.tail_l <= limits.get("tail_l", math.inf)
-        and (
-            param.preamp_bias != Bias.DYNAMIC
-            or (ratio is not None and ratio[0] <= param.bias_c_ff / max(param.preamp_c_ff, 1) <= ratio[1])
-        )
-    )
-
-
-def _valid_structure(param: Params) -> bool:
-    """Check if this topology combination is valid.
-
-    Inner init devices must always exist (CLOCK or SIGNAL, never OMIT).
-
-    Single stage: Both kinds of on devices plus outer init devices must be OMIT.
-
-    Double stage: at least one on device pair must exist, and at least
-    one of the four device pairs must be signaled (not just clocked). A shared
-    tail is one clocked outer on device, so it excludes outer init devices.
-
-    Triple stage (triple tail): its second and third stages are fixed, so the
-    latch device options keep their defaults.
-    """
-    if param.srlatch_n_w <= 0 or param.srlatch_p_w <= 0:
-        return False
-
-    if param.preamp_c_ff < 0 or param.latch_tail_w < 0 or param.bias_c_ff <= 0:
-        return False
-
-    if param.latch_inner_init_xtors == State.OMIT:
-        return False
-
-    if param.latch_tail_shared and (
-        param.comp_stages != Stages.DOUBLE
-        or param.latch_outer_on_xtors != State.CLOCK
-        or param.latch_outer_init_xtors != State.OMIT
-    ):
-        return False
-
-    if param.comp_stages == Stages.TRIPLE:
-        return (
-            param.latch_inner_init_xtors == State.CLOCK
-            and param.latch_outer_on_xtors == State.OMIT
-            and param.latch_inner_on_xtors == State.OMIT
-            and param.latch_outer_init_xtors == State.OMIT
-        )
-
-    if param.comp_stages == Stages.SINGLE:
-        return (
-            param.latch_outer_on_xtors == State.OMIT
-            and param.latch_inner_on_xtors == State.OMIT
-            and param.latch_outer_init_xtors == State.OMIT
-        )
-    # outer_init requires outer_on (needs outerp/outern nodes)
-    if param.latch_outer_init_xtors != State.OMIT and param.latch_outer_on_xtors == State.OMIT:
-        return False
-
-    if param.comp_stages == Stages.DOUBLE:
-        has_on = param.latch_outer_on_xtors != State.OMIT or param.latch_inner_on_xtors != State.OMIT
-        has_signal = State.SIGNAL in (
-            param.latch_outer_on_xtors,
-            param.latch_inner_on_xtors,
-            param.latch_outer_init_xtors,
-            param.latch_inner_init_xtors,
-        )
-        return has_on and has_signal
-    return False
+# case is found by them: flow.comp.layout.layout_floorplan); a dynamic bias adds its capacitors
+STRUCTURE = ("latch", "input_pair", "bias")
 
 
 pipeline.Params.register(Params)
@@ -242,54 +110,10 @@ FRIDA1 = Params(
     rst_l=1,
     latch_on_l=6,
     latch_init_l=17,
-    preamp_diff_xtors=MosType.NMOS,
-    preamp_bias=Bias.SWITCHED,
-    comp_stages=Stages.SINGLE,
-    latch_inner_init_xtors=State.CLOCK,
+    latch=Latch.STRONGARM,
+    input_pair=MosType.NMOS,
+    bias=Bias.SWITCHED,
 )  # the fabricated FRIDA-1 comparator: single stage, NMOS input, switched tail
-# The characterization's six topologies (StrongARM, triple tail, double tail, and the self-timed
-# and modified double tails), NMOS input with a switched tail, and the shared short-channel sizing
-# they are compared at (flow.comp.sweep builds on both)
-TOPOLOGIES = {
-    "strongarm": {"comp_stages": Stages.SINGLE},
-    "triple_tail": {"comp_stages": Stages.TRIPLE},
-    "double_tail": {
-        "comp_stages": Stages.DOUBLE,
-        "latch_inner_init_xtors": State.SIGNAL,
-        "latch_outer_on_xtors": State.CLOCK,
-        "latch_tail_shared": True,
-    },
-    "double_tail_self_timed": {
-        "comp_stages": Stages.DOUBLE,
-        "latch_inner_init_xtors": State.SIGNAL,
-        "latch_outer_on_xtors": State.SIGNAL,
-        "latch_outer_init_xtors": State.SIGNAL,
-    },
-    "double_tail_modified": {
-        "comp_stages": Stages.DOUBLE,
-        "latch_inner_on_xtors": State.SIGNAL,
-        "latch_inner_init_xtors": State.CLOCK,
-    },
-    "double_tail_modified_self_timed": {
-        "comp_stages": Stages.DOUBLE,
-        "latch_inner_on_xtors": State.SIGNAL,
-        "latch_inner_init_xtors": State.SIGNAL,
-    },
-}
-TOPOLOGY_SIZES = {
-    "diffpair_w": 32,
-    "diffpair_l": 2,
-    "tail_w": 16,
-    "tail_l": 2,
-    "rst_w": 8,
-    "rst_l": 1,
-    "latch_on_w": 8,
-    "latch_on_l": 1,
-    "latch_init_w": 8,
-    "latch_init_l": 1,
-    "srlatch_n_w": 4,
-    "srlatch_p_w": 8,
-}
 
 
 # The clock: 1 ns of reset, then 4 ns of evaluation (a comparator that needs longer is too slow for
@@ -299,6 +123,11 @@ RESET_S = 1e-9
 EVALUATION_S = 4e-9
 CHECK_CLOCK_S = (2 * RESET_S, 2 * EVALUATION_S)
 TRANSITION_S = 20e-12  # the clock's and the input's edges
+# the clock drivers' taper (TbParams.clock_fanout): fanout 4 a stage, the last stage's input at least
+# half the clocked gates (fanout 2: a fanout of 4 or more into the comparator is too slow an edge);
+# their energy is the comparator's, their area is not (the converter's digital control drives it)
+CLOCK_FANOUT = 4.0
+CLOCK_LAST_FANOUT = 2.0
 # Spectre's output and its largest step: 2 ps for the noise-free runs (their delays within 0.1 % of a
 # 1 ps step's), 10 ps for the transient-noise S-curves (whose noise up to 25 GHz bounds the step to
 # 20 ps already). On Spectre's own steps (``waveform_sample_interval_s=None``) the delays came
@@ -329,13 +158,31 @@ SMALL_V, LARGE_V = 0.5e-3, 100e-3
 # no input steps by more than twice the next one (the source settles within the reset)
 METASTABILITY_V = (0.1e-3, 0.3e-3, 1e-3, 3e-3, 10e-3, 30e-3, 100e-3)
 METASTABILITY_RUN_V = tuple(v for value in METASTABILITY_V for v in (-value, value))
-# the S-curve: 0 and 16 magnitudes from 25 uV to 3 mV a side (33 points finest at the centre),
-# reading 50 uV to 1.5 mV of noise; SCURVE_DECISIONS at each, a pass through every input at a time
-# in a fresh random order (input_order "shuffled"), so that noise slower than a pass moves every
-# input alike: one reading's noise scatters by about 4 % (one sigma) between noise seeds
-SCURVE_UV = (25, 50, 75, 100, 125, 150, 200, 250, 300, 400, 500, 700, 1000, 1400, 2000, 3000)
+# the S-curve: 0 and 16 magnitudes from 5 uV to 3 mV a side (33 points, log-spaced, finest at the
+# centre), reading 10 uV to 1.5 mV of noise: 15 points within 2 sigma of a 37 uV comparator (a 14-bit
+# converter's quantization noise), 29 of a 560 uV one (10 bits), the span wide enough for 1 mV of
+# offset; SCURVE_DECISIONS at each, a pass through every input at a time in a fresh random order
+# (input_order "shuffled"), so that noise slower than a pass moves every input alike: one reading's
+# noise scatters by about 4 % (one sigma) between noise seeds
+SCURVE_UV = (5, 10, 15, 20, 25, 35, 50, 75, 100, 150, 200, 300, 500, 1000, 2000, 3000)
 SCURVE_V = (*(-round(uv * 1e-6, 9) for uv in reversed(SCURVE_UV)), 0.0, *(round(uv * 1e-6, 9) for uv in SCURVE_UV))
 SCURVE_DECISIONS = 80
+
+# The optimization's problems (flow.comp.opt): a comparator for a converter of each resolution. Its
+# noise at most the converter's quantization noise (LSB / sqrt(12), every noise source about equal
+# to it), the LSB twice the full scale over 2^bits, the full scale ADC_FULL_SCALE of the supply (the
+# converter's arrays reach at least 80 % of the reference: flow.adc.sweep); its layout within a
+# square of AREA_SIDE_UM a side, the same in every PDK (a denser PDK fits more in it); its delay at
+# 0.5 mV within DECISION_S (the converter allows about 2 ns a decision), deciding within the clock.
+# Its cost, in J um^2: energy x area^AREA_WEIGHT x (1 + (noise / LSB-noise)^2)^NOISE_WEIGHT, the
+# last factor the converter's noise power over its quantization noise alone, near 1 where it no
+# longer gains from a quieter comparator; a design that only scales settles at noise / LSB-noise =
+# 1 / sqrt(NOISE_WEIGHT / (1 + AREA_WEIGHT) - 1), 0.71 here.
+ADC_FULL_SCALE = 0.8
+AREA_SIDE_UM = {10: 15.0, 12: 20.0, 14: 63.0}
+DECISION_S = 2e-9
+AREA_WEIGHT = 1.0
+NOISE_WEIGHT = 6.0
 INPUT_ORDERS = ("blocked", "shuffled")
 
 
@@ -363,6 +210,12 @@ class TbParams(pipeline.TbParams):
     source_resistance_ohm: float = SOURCE_RESISTANCE_OHM
     source_capacitance_f: float = SOURCE_CAPACITANCE_F
     output_load_f: float = 10e-15
+    # the clock's drivers (flow.comp.sim.testbench): each clock an inverter chain from a unit
+    # inverter, on the comparator's supply, tapering by clock_fanout a stage to a last stage whose
+    # input is clock_last_fanout times smaller than the clocked gates; None, ideal sources (the
+    # clock's energy then not counted)
+    clock_fanout: float | None = CLOCK_FANOUT
+    clock_last_fanout: float = CLOCK_LAST_FANOUT
     waveform_sample_interval_s: float | None = STROBE_S
     # TODO: matching a building-block Monte Carlo result to a higher-level run
     # by seed and iteration alone is not valid; the two runs draw independent
@@ -391,6 +244,10 @@ class TbParams(pipeline.TbParams):
         ):
             if not math.isfinite(float(getattr(self, name))) or float(getattr(self, name)) <= 0.0:
                 raise ValueError(f"comparator {name} must be finite and positive")
+        if self.clock_fanout is not None and not (
+            float(self.clock_fanout) > 1.0 and float(self.clock_last_fanout) > 0.0
+        ):
+            raise ValueError("comparator clock fanouts must be positive, the taper's above 1")
         if self.waveform_sample_interval_s is not None and not float(self.waveform_sample_interval_s) > 0.0:
             raise ValueError("comparator waveform_sample_interval_s must be positive or None")
         if float(self.transition_time_s) >= min(float(self.reset_time_s), float(self.evaluation_time_s)):

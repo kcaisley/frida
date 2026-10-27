@@ -79,7 +79,7 @@ def characterize(run_dir: Path, pdk: str, moscap: MosCapParams) -> Record:
 
     cv = analyze_moscap_cv(measurements)
     at = (SUPPLY_SWEEP if decap else BIAS_SWEEP).index(nominal)
-    area = geometry(MosCap(moscap), pdk)["gate_area_um2"]
+    area = geometry(MosCap(moscap), pdk)["device_area_um2"]
     bias_label = "Supply (V)" if decap else "Gate plate over channel plate (V)"
     return Record(
         metrics={

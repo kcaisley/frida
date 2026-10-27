@@ -124,7 +124,7 @@ html[data-theme="light"] {
     --hud-line: rgba(36, 37, 41, 0.18);
     --layout-grid: rgba(36, 37, 41, 0.05);
     --layout-ink: #242529;
-    --scene-bg: #f0f0f1;
+    --scene-bg: #fafafa;
     --plot-paper: #fafafa;
 }
 
@@ -252,36 +252,78 @@ select {
 }
 
 /* the Library: the blocks with a sweep, folding to a strip on the left */
+/* the Library, as the stage's regions: a region's head (its one tab, the fold), a body with a panel's
+   toolbar and the list */
 .library {
     flex: none;
     width: 172px;
     display: flex;
     flex-direction: column;
     min-height: 0;
-    background: var(--bg-panel);
+    background: var(--bg-main);
     border-right: 4px solid var(--bg-main);
 }
 
 .library-head {
-    flex: none;
-    display: flex;
     align-items: center;
-    height: 28px;
-    padding: 0 4px 0 12px;
-    background: var(--bg-header);
-    border-bottom: 1px solid var(--border-subtle);
+    padding-right: 4px;
 }
 
-.library-title {
+.library-head .grow {
     flex: 1;
-    color: var(--fg-bright);
-    font: 500 var(--fs-12) var(--font-sans);
+}
+
+.library-main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-top: none;
 }
 
 .library-body {
     flex: 1;
     min-height: 0;
     overflow: auto;
+}
+
+/* a text box in the bar's buttons' style: its icon, then the text, in one rounded box */
+.search-field {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    height: 26px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-input);
+    color: var(--fg-muted);
+}
+
+.search-field > span {
+    display: flex;
+}
+
+.search-field:focus-within {
+    border-color: var(--accent-bright);
+}
+
+.search-field input[type="search"] {
+    flex: 1;
+    min-width: 0;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: var(--fs-12);
+}
+
+.search-field input[type="search"]:focus-visible {
+    outline: none;
 }
 
 .library-strip {
@@ -298,7 +340,7 @@ select {
 }
 
 .library.collapsed .library-title,
-.library.collapsed .library-body {
+.library.collapsed .library-main {
     display: none;
 }
 
@@ -307,8 +349,9 @@ select {
     display: block;
     flex: 1;
     padding: 10px 0;
-    border: 0;
-    background: none;
+    border: 1px solid var(--border-subtle);
+    border-top: none;
+    background: var(--bg-panel);
     color: var(--fg-muted);
     font: 500 var(--fs-12) var(--font-sans);
     letter-spacing: 0.04em;
@@ -330,45 +373,13 @@ select {
     flex-direction: column;
 }
 
-/* over the stage: the block, its filters and marks, and the states' buttons */
-.topbar {
-    flex: none;
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 4px 8px;
-    min-height: 38px;
-    padding: 4px 8px;
-    background: var(--bg-header);
-    border-bottom: 4px solid var(--bg-main);
-}
-
-.topbar .grow {
-    flex: 1;
-}
-
-.bar-title {
-    color: var(--fg-bright);
-    font-size: var(--fs-13);
-}
-
-.bar-count {
-    font-size: var(--fs-11);
-}
-
-.bar-sep {
-    width: 1px;
-    height: 16px;
-    background: var(--border);
+/* the page's bar (app.js) in the shown state's first panel toolbar: its items join the toolbar's row */
+.bar-slot {
+    display: contents;
 }
 
 .bar-marks {
     color: var(--sem-warn);
-    font-size: var(--fs-12);
-}
-
-.bar-hint {
-    font-size: var(--fs-11);
 }
 
 .bar-group {
@@ -1228,23 +1239,33 @@ table.grid.instances td.name {
 
 .trace-name {
     display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 0;
+    align-items: center;
+    gap: 6px;
     padding: 0 6px 0 9px;
     border-left: 3px solid transparent;
     border-bottom: 1px solid var(--border-subtle);
 }
 
-.trace-name .line {
+/* its name over its value at the cursor */
+.trace-name .trace-id {
+    flex: 1;
     display: flex;
-    align-items: center;
-    gap: 4px;
+    flex-direction: column;
     min-width: 0;
 }
 
+/* its maximum over its minimum, on the right */
+.trace-name .trace-range {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    color: var(--fg-muted);
+    font-size: var(--fs-10);
+    line-height: 1.3;
+}
+
 .trace-name .label {
-    flex: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1253,25 +1274,10 @@ table.grid.instances td.name {
 }
 
 .trace-name .value {
-    flex: none;
+    min-height: 1.3em;
     color: var(--fg-bright);
     font-size: var(--fs-11);
     white-space: nowrap;
-}
-
-.trace-name .range {
-    overflow: hidden;
-    color: var(--fg-muted);
-    font-size: var(--fs-10);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.trace-name .icon-btn {
-    height: 16px;
-    min-width: 16px;
-    padding: 0 4px;
-    font-size: var(--fs-10);
 }
 
 /* plot */
@@ -1460,7 +1466,7 @@ table.grid.instances td.name {
     position: absolute;
     inset: 0;
     overflow: hidden;
-    background: var(--paper);
+    background: var(--plot-paper);
     cursor: grab;
 }
 
@@ -1709,6 +1715,11 @@ table.tgrid th.pad {
 
 table.tgrid td.failed {
     color: var(--sem-error);
+}
+
+/* an instance shown but out of the running: an optimization's design that missed a bound */
+table.tgrid td.dim {
+    color: var(--fg-muted);
 }
 
 /* the PDK's dot, its marker in the scatter */
@@ -2176,9 +2187,16 @@ html[data-theme="dark"] .sheet {
     background: var(--plot-paper);
 }
 
-html[data-theme="dark"] .sheet .page svg > rect:first-of-type {
-    fill: var(--plot-paper);
+/* the schematic's own white page transparent, and its white symbols on the sheet's colour: no white
+   box on the panel in either theme */
+.sheet .page svg > rect:first-of-type {
+    fill: none;
     stroke: none;
+}
+
+.sheet .page svg [fill="white"],
+.sheet .page svg .gatebubble {
+    fill: var(--plot-paper);
 }
 
 html[data-theme="dark"] .sheet .page svg,
@@ -2190,11 +2208,6 @@ html[data-theme="dark"] .sheet .page svg rect {
 
 html[data-theme="dark"] .sheet .page svg text {
     fill: var(--ink-1);
-}
-
-html[data-theme="dark"] .sheet .page svg [fill="white"],
-html[data-theme="dark"] .sheet .page svg .gatebubble {
-    fill: var(--plot-paper);
 }
 
 html[data-theme="dark"] .sheet .page svg [fill="black"],
