@@ -257,12 +257,17 @@ function build() {
     element.library = h(
         "aside.library",
         {},
-        h("div.library-head", {}, h("span.library-title", {}, "Library"), element.fold),
-        // its own toolbar: a filter box in the bar's style
-        h("div.library-tools", {}, h("label.search-field", { title: "Show the blocks whose name or title has this text" }, h("span", { html: icon("filter", 13) }), element.filter)),
+        // as the stage's regions: a head with its one tab (and the fold), a panel's toolbar (the filter
+        // box) and its list in the region's body
+        h("div.region-head.single.library-head", {}, h("button.region-tab.on.library-title", { tabindex: "-1" }, "Library"), h("span.grow"), element.fold),
         // folded: the strip's name, a button too
         h("button.library-strip", { title: "Show the Library", onclick: () => setCollapsed(false) }, "Library"),
-        h("div.library-body", {}, element.blocks),
+        h(
+            "div.library-main",
+            {},
+            h("div.panel-toolbar.library-tools", {}, h("label.search-field", { title: "Show the blocks whose name or title has this text" }, h("span", { html: icon("filter", 13) }), element.filter)),
+            h("div.library-body", {}, element.blocks),
+        ),
     );
     element.sweeps = h("div.stage-host");
     element.view = h("div.stage-host");

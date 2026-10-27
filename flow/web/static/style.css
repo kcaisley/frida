@@ -252,44 +252,41 @@ select {
 }
 
 /* the Library: the blocks with a sweep, folding to a strip on the left */
+/* the Library, as the stage's regions: a region's head (its one tab, the fold), a body with a panel's
+   toolbar and the list */
 .library {
     flex: none;
     width: 172px;
     display: flex;
     flex-direction: column;
     min-height: 0;
-    background: var(--bg-panel);
+    background: var(--bg-main);
     border-right: 4px solid var(--bg-main);
 }
 
 .library-head {
-    flex: none;
-    display: flex;
     align-items: center;
-    height: 28px;
-    padding: 0 4px 0 12px;
-    background: var(--bg-header);
-    border-bottom: 1px solid var(--border-subtle);
+    padding-right: 4px;
 }
 
-.library-title {
+.library-head .grow {
     flex: 1;
-    color: var(--fg-bright);
-    font: 500 var(--fs-12) var(--font-sans);
+}
+
+.library-main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+    border-top: none;
 }
 
 .library-body {
     flex: 1;
     min-height: 0;
     overflow: auto;
-}
-
-/* the Library's toolbar, under its head: the filter box */
-.library-tools {
-    flex: none;
-    display: flex;
-    padding: 4px 6px;
-    border-bottom: 1px solid var(--border-subtle);
 }
 
 /* a text box in the bar's buttons' style: its icon, then the text, in one rounded box */
@@ -343,8 +340,7 @@ select {
 }
 
 .library.collapsed .library-title,
-.library.collapsed .library-tools,
-.library.collapsed .library-body {
+.library.collapsed .library-main {
     display: none;
 }
 
@@ -353,8 +349,9 @@ select {
     display: block;
     flex: 1;
     padding: 10px 0;
-    border: 0;
-    background: none;
+    border: 1px solid var(--border-subtle);
+    border-top: none;
+    background: var(--bg-panel);
     color: var(--fg-muted);
     font: 500 var(--fs-12) var(--font-sans);
     letter-spacing: 0.04em;
