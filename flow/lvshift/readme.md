@@ -9,7 +9,7 @@
 | Analysis | ✓ | [analysis.py](analysis.py) | `MeasLvShift`; `analyze_lvshift_switching` (rise and fall delay where every edge of that direction was followed, edges followed, output levels, energy per period from both supplies, idle current before an input's ramp). All three switch from a 0.5 V input supply in TSMC65 and tpsc65 (0.45 V in TSMC28, 0.7 V in ihp130, 0.53–0.9 V in the 1.8 V PDKs); below it the cross-coupled pair wins and the input pair only draws contention current. |
 | Plots | ✓ | [plots.py](plots.py) | One panel per case: delay and energy versus input supply, delay and idle current versus output supply, waveforms at the nominal supplies; one figure set per PDK. Run by `python -m flow lvshift.characterization_study`. |
 | Analysis tests | ✓ | [test_analysis.py](test_analysis.py) | A synthetic shifter of known delay and currents, and one that fails to switch; every plot renders. |
-| Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows with cIcCreator, laygo and ALIGN from hand-written floorplans (`design/layout/lvshift_*.json`). |
+| Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows by ALIGN from hand-written floorplans (`design/layout/lvshift_*.json`). |
 | Layout tests | ✓ | [test_layout.py](test_layout.py) | Target registry; every floorplan places each netlist device once and escapes every connected port; every PDK writes every case. |
 | Layout runner | ✓ | [layout.py](layout.py) | Three cases in all six PDKs, all 54 layouts DRC clean and LVS correct; vddl routed as a signal (the row cells' wells sit on vdd). |
 | DRC runner | ✓ | [layout.py](layout.py) | gdscheck and the PDK's DRC for every layout (`row_signoff`). |

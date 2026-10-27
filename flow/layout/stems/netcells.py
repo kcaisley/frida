@@ -3,8 +3,8 @@
 Reads a flat SPICE netlist (MOS lines with w and nf, w total or per finger as the PDK writes
 it: mosline.py; X lines naming a library standard cell) and draws every instance as a fixed cell
 with its nets already named: transistors through rowcell.mos, standard cells as the library cell
-plus the VIA1 / M2 pin bars at their access points (stdcell_access.py). laygo and cIcCreator place and route
-these cells; ALIGN draws the same cells through its own PDK. The PDK's layout directory
+plus the VIA1 / M2 pin bars at their access points (stdcell_access.py). ALIGN draws the same cells
+through its own PDK (flow/layout/align), and post.py finishes its layouts with these. The PDK's layout directory
 (``tech``, ``paths``) goes on the path ahead of this one.
 
     netlist = parse("build/layout/netlists/comp_frida1_stdcells.sp")
@@ -320,7 +320,7 @@ def cell_of(inst: Inst, grid: int = XPITCH) -> rowcell.Cell:
 
 
 def widths(src: str | Path) -> dict[str, int]:
-    """Each instance's row cell width (nm): what cIcCreator and laygo place for it."""
+    """Each instance's row cell width (nm): what a floorplan places for it."""
 
     return {inst.name: cell_of(inst).width for inst in parse(src)[2]}
 

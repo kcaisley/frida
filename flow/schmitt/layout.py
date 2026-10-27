@@ -1,9 +1,9 @@
-"""Schmitt trigger layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
+"""Schmitt trigger layouts in standard-cell rows: netlist, floorplan, ALIGN build and signoff per PDK.
 
-A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator, laygo,
-ALIGN) from its hand-written floorplan (``design/layout/schmitt_*.json``), each checked with DRC and
-LVS. Cases: the inverting trigger with normal and with stronger feedback, and the buffer. The runner
-is the comparator's (``flow.comp.layout``).
+A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
+(``design/layout/schmitt_*.json``), each checked with DRC and LVS. Cases: the inverting trigger with
+normal and with stronger feedback, and the buffer. The runner is the comparator's
+(``flow.comp.layout``).
 
     uv run python -m flow schmitt.layout_inv
 """
@@ -26,7 +26,7 @@ def _netlists(params: SchmittParams, pdk: str, out_dir: Path, name: str) -> Path
 
 
 def _schmitt(run_dir: Path, pdk: str, case: str) -> Path:
-    """A trigger case: its netlist into ``run_dir/netlist/``, then the three tools as its floorplan
+    """A trigger case: its netlist into ``run_dir/netlist/``, then ALIGN as its floorplan
     places it."""
 
     name = f"schmitt_{case}"

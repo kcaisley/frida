@@ -13,9 +13,9 @@ The sampling switch is the second block on the [pipeline](../../docs/pipeline.md
 | Analysis | ✓ | [analysis.py](analysis.py), [types.py](types.py) | From the runs' measurements: `analyze_track` (the track phase's time constant from its 1/e to its 1/e^2 point, the on-resistance into the load, the bandwidth, the track error), `analyze_hold` (pedestal, droop, input feedthrough); `metrics`, the record's numbers. In TSMC65 into 1 pF (run 20261026_010439): FRIDA-1's transmission gate 130–550 Ω (highest at mid-supply), the NMOS switch from 140 Ω to open above 0.7 V, the bootstrapped one 140–230 Ω at 32 units and 30–45 Ω at 160; pedestals within ±0.7 mV for the transmission gates, −2 mV for the NMOS switches at 32 units, growing with the width (−10 mV at 160). |
 | Plots | ✓ | [plots.py](plots.py) | `Plot` specs of a record's sweeps: the on-resistance, track error, pedestal and feedthrough over the input level, the on-resistance and pedestal over the supply. The viewer draws a record's; `python -m flow plot samp [FIGURE ...] --from <run>` draws any with matplotlib. |
 | Analysis tests | ✓ | [test_analysis.py](test_analysis.py), [test_sim.py](test_sim.py), [test_plots.py](test_plots.py) | An ideal RC sampler of known time constant, pedestal and feedthrough through the analyses, the metrics and the record; the testbench and its saves; every figure drawn. |
-| Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows with cIcCreator, laygo and ALIGN (`flow/layout`) from hand-written floorplans (`design/layout/samp_*.json`). |
+| Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows by ALIGN (`flow/layout`) from hand-written floorplans (`design/layout/samp_*.json`). |
 | Layout tests | ✓ | [test_layout.py](test_layout.py) | Every named instance has a floorplan; every size placed by its case's; every floorplan places each netlist device once and escapes the ports the netlist connects. |
-| Layout runner | ✓ | [layout.py](layout.py) | `python -m flow layout samp --instance NAME [--auto] [--pdk P]`: a named switch in the PDKs with cIcCreator, laygo and ALIGN, from its hand-written floorplan or ALIGN's placement; the four in all six PDKs, all 66 layouts DRC clean and LVS correct. `python -m flow layout samp`: the newest run's instances by ALIGN, each by the floorplan of its case of the same structure (`layout_floorplan`). |
+| Layout runner | ✓ | [layout.py](layout.py) | `python -m flow layout samp --instance NAME [--auto] [--pdk P]`: a named switch in the PDKs by ALIGN, from its hand-written floorplan or on its own (the four in all six PDKs, laid out then also by cIcCreator and laygo, both since removed: all 66 layouts DRC clean and LVS correct). `python -m flow layout samp`: the newest run's instances by ALIGN, each by the floorplan of its case of the same structure (`layout_floorplan`). |
 | DRC runner | ✓ | [layout.py](layout.py) | gdscheck and the PDK's DRC for every layout (`row_signoff`). |
 | LVS runner | ✓ | [layout.py](layout.py) | The PDK's LVS for every layout against the netlist the build placed. |
 | PEX runner | ✗ | - | No standalone sampler runner. |
@@ -26,7 +26,7 @@ The sampling switch is the second block on the [pipeline](../../docs/pipeline.md
 ```sh
 uv run python -m flow run samp [--pdk P] [--instance I]          # characterize, into build/sweep/samp/<run>
 uv run python -m flow layout samp                                 # lay out the newest run's instances
-uv run python -m flow layout samp --instance frida1 [--auto]      # a named switch by all three tools
+uv run python -m flow layout samp --instance frida1 [--auto]      # a named switch by ALIGN
 uv run python -m flow table samp                                  # the viewer's table
 uv run python -m flow plot samp [FIGURE ...] --from DIR           # a run's figures
 ```

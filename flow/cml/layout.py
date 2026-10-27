@@ -1,9 +1,8 @@
-"""Cml layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
+"""Cml layouts in standard-cell rows: netlist, floorplan, ALIGN build and signoff per PDK.
 
-A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator, laygo,
-ALIGN) from its hand-written floorplan (``design/layout/cml_*.json``), each checked with DRC
-and LVS. Cases: NMOS- and PMOS-input buffers, a latch, a divide-by-two, and an XOR. The runner is the
-comparator's (``flow.comp.layout``).
+A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
+(``design/layout/cml_*.json``), each checked with DRC and LVS. Cases: NMOS- and PMOS-input buffers,
+a latch, a divide-by-two, and an XOR. The runner is the comparator's (``flow.comp.layout``).
 
     uv run python -m flow cml.layout_buffer
 """
@@ -26,7 +25,7 @@ def _netlists(params: CmlParams, pdk: str, out_dir: Path, name: str) -> Path:
 
 
 def _cml(run_dir: Path, pdk: str, case: str) -> Path:
-    """A CML case: its netlist into ``run_dir/netlist/``, then the three tools as its floorplan
+    """A CML case: its netlist into ``run_dir/netlist/``, then ALIGN as its floorplan
     places it."""
 
     name = f"cml_{case}"

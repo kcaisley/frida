@@ -1,8 +1,7 @@
 """Fringe MOM capacitor cells drawn from the PDK's ``tech`` values, as stems rectangles.
 
 The same cell model as the row cells (``rowcell.Cell`` of ``Rect``), in integer nanometres, so
-capacitors are drawn by the engine the ALIGN, cIcCreator and laygo flows draw their transistor
-cells with. The values come from the PDK's ``tech`` (``RULES``, ``LAYERS``, ``MFG_GRID``,
+capacitors are drawn by the engine the ALIGN flow draws its transistor cells with. The values come from the PDK's ``tech`` (``RULES``, ``LAYERS``, ``MFG_GRID``,
 ``MOM_LAYERS``), read when a function is called; a PDK names no capacitor device. Two families:
 
 - test structures (``mom_geometry``, ``mom_unit``): the three FMOM styles, ``difference`` (a ring

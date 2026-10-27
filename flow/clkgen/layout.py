@@ -1,9 +1,8 @@
-"""Clock generator layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
+"""Clock generator layouts in standard-cell rows: netlist, floorplan, ALIGN build and signoff per PDK.
 
-A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator, laygo,
-ALIGN) from its hand-written floorplan (``design/layout/clkgen_*.json``), each checked with DRC
-and LVS. Cases: non-overlapping clocks, a rising-edge pulse, and a clock gate. The runner is the
-comparator's (``flow.comp.layout``).
+A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
+(``design/layout/clkgen_*.json``), each checked with DRC and LVS. Cases: non-overlapping clocks, a
+rising-edge pulse, and a clock gate. The runner is the comparator's (``flow.comp.layout``).
 
     uv run python -m flow clkgen.layout_nonoverlap
 """
@@ -26,7 +25,7 @@ def _netlists(params: ClkgenParams, pdk: str, out_dir: Path, name: str) -> Path:
 
 
 def _clkgen(run_dir: Path, pdk: str, case: str) -> Path:
-    """A clock generator case: its netlist into ``run_dir/netlist/``, then the three tools as its floorplan
+    """A clock generator case: its netlist into ``run_dir/netlist/``, then ALIGN as its floorplan
     places it."""
 
     name = f"clkgen_{case}"

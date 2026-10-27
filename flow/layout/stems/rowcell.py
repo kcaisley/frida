@@ -27,7 +27,7 @@ own M2 track. The M1 rails are the supply pins (rails connect by abutment, like 
 optional M2 straps over them (``m2``) are off by default, so supply vias are left to the block
 level.
 
-``mos()`` returns plain rectangles, so every generator (ALIGN on juno, laygo, cic) can
+``mos()`` returns plain rectangles, so a generator (ALIGN's, flow/layout/align/pdk/mos.py) can
 draw the same cells without sharing a geometry library.
 """
 

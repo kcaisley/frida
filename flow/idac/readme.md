@@ -9,7 +9,7 @@
 | Analysis | ✓ | [analysis.py](analysis.py) | `MeasIdac`; `analyze_idac_output` (current, output resistance, 5 % compliance range), `analyze_idac_steering` (on-off ratio, current lost between the states: under 0.01 % for the steered units). At 10 µA two NMOS units give about 20 µA in every PDK. |
 | Plots | ✓ | [plots.py](plots.py) | One panel per case: the output characteristic at the nominal bias, current and output resistance versus reference current, on and off current of the switched units; one figure set per PDK. Run by `python -m flow idac.characterization_study`. |
 | Analysis tests | ✓ | [test_analysis.py](test_analysis.py) | Synthetic sweeps of known current, resistance, knee and leakage; every plot renders. |
-| Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows with cIcCreator, laygo and ALIGN from hand-written floorplans (`design/layout/idac_*.json`). |
+| Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows by ALIGN from hand-written floorplans (`design/layout/idac_*.json`). |
 | Layout tests | ✓ | [test_layout.py](test_layout.py) | Target registry; every floorplan places each netlist device once and escapes every connected port; every PDK writes every case. |
 | Layout runner | ✓ | [layout.py](layout.py) | Four cases in all six PDKs, all 72 layouts DRC clean and LVS correct. |
 | DRC runner | ✓ | [layout.py](layout.py) | gdscheck and the PDK's DRC for every layout (`row_signoff`). |

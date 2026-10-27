@@ -1,11 +1,10 @@
-"""Sampler layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
+"""Sampler layouts in standard-cell rows: netlist, floorplan, ALIGN build and signoff per PDK.
 
 ``layout_named`` lays out one named instance (``flow.samp.sweep``'s ``@named``: the characterization's
-four switches) in the PDKs with all three tools (cIcCreator, laygo, ALIGN), each checked with DRC
-and LVS: from its hand-written floorplan (``design/layout/samp_<name>.json``), or, ``auto``, laid
-out by ALIGN on its own from the netlist (ALIGN's placement then the floorplan of cIcCreator and
-laygo). ``layout_netlist`` and ``layout_floorplan`` give the sweep's layout step
-(``flow.sweep.runner.layout``, ALIGN alone) an instance's netlists: every size of a switch is placed
+four switches) in the PDKs by ALIGN, each checked with DRC and LVS: from its hand-written floorplan
+(``design/layout/samp_<name>.json``), or, ``auto``, by ALIGN on its own from the netlist.
+``layout_netlist`` and ``layout_floorplan`` give the sweep's layout step
+(``flow.sweep.runner.layout``) an instance's netlists: every size of a switch is placed
 by the floorplan of its structure (``params.STRUCTURE``: its switch type and dummies), named after
 the switch type (the transmission gate's after FRIDA-1, the one with dummies ``tgate_dummy``). The
 runner is the comparator's (``flow.comp.layout``).
@@ -61,8 +60,8 @@ def layout_floorplan(out_dir: Path, pdk: str, samp: Params) -> tuple[Path, Path]
 
 
 def _samp(run_dir: Path, pdk: str, name: str, params: Params, floorplan: Path | None) -> Path:
-    """A switch: its netlist into ``run_dir/netlist/``, then the three tools as its floorplan (or,
-    without one, ALIGN's placement) places it."""
+    """A switch: its netlist into ``run_dir/netlist/``, then ALIGN as its floorplan places it (or,
+    without one, on its own)."""
 
     logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
     netlist_path = write_netlist(params, run_dir / "netlist" / f"{name}.sp", logic)
@@ -70,7 +69,7 @@ def _samp(run_dir: Path, pdk: str, name: str, params: Params, floorplan: Path | 
 
 
 def layout_named(run_dir: Path, name: str, params: Params, *, auto: bool = False, pdks: tuple[str, ...] = PDKS) -> Path:
-    """The named instance ``name`` in each of ``pdks`` with the three tools, into ``run_dir/<pdk>/``:
+    """The named instance ``name`` in each of ``pdks`` by ALIGN, into ``run_dir/<pdk>/``:
     from its hand-written floorplan, or ``auto`` from ALIGN's placement."""
 
     floorplan = None if auto else FLOORPLANS / f"samp_{name}.json"

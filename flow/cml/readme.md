@@ -9,7 +9,7 @@
 | Analysis | ✓ | [analysis.py](analysis.py) | `MeasCml`; `analyze_cml_switching` (single-ended swing, output common mode, delay from the driving input, the share of instants where the output holds its function's value, supply current). In TSMC65 at 30 µA: the buffers work to 40 GHz, the XOR to 6.7 GHz, the latch to 5 GHz, the divider from 2 to 3.3 GHz (at 1 GHz it free-runs: a CML divider's input band has a floor). The sizes are slow in the 130–180 nm PDKs: the latch works only to 1–2 GHz there, the divider not at all at 30 µA. |
 | Plots | ✓ | [plots.py](plots.py) | One panel per case: swing and delay versus frequency, swing and current versus tail current, the waveforms at the nominal clock; one figure set per PDK. Run by `python -m flow cml.characterization_study`. |
 | Analysis tests | ✓ | [test_analysis.py](test_analysis.py) | Ideal buffer, XOR and divider records of known swing and delay, and an inverted one; every plot renders. |
-| Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows with cIcCreator, laygo and ALIGN from hand-written floorplans (`design/layout/cml_*.json`). |
+| Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows by ALIGN from hand-written floorplans (`design/layout/cml_*.json`). |
 | Layout tests | ✓ | [test_layout.py](test_layout.py) | Target registry; every floorplan places each netlist device once and escapes every connected port; every PDK writes every case. |
 | Layout runner | ✓ | [layout.py](layout.py) | Five cases in all six PDKs, all 90 layouts DRC clean and LVS correct. |
 | DRC runner | ✓ | [layout.py](layout.py) | gdscheck and the PDK's DRC for every layout (`row_signoff`). |

@@ -1,5 +1,7 @@
 # Layout-generator comparison: FRIDA-1 comparator in TSMC65
 
+> The cIcCreator and laygo flows were removed on 2026-10-27: ALIGN draws every layout. This comparison is kept as the record of why.
+
 This evaluation covers the first-generation prototypes (`gen_comp.py`, `tsmc65_post.py`, the
 1.5 um laygo rows), since removed. The current flows place row cells of the standard-cell row
 height in all three tools: see `pdk/tsmc65/layout/README.md` in the private PDK submodule.

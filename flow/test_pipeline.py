@@ -46,7 +46,7 @@ KNOWN_VIOLATIONS: set[str] = {
     # the layout runner's shared constants, which 16 blocks still import from comp/layout.py
     *(
         f"comp.layout: module constant {name} outside params.py and sim.py"
-        for name in ("BUILD", "ESCAPE", "FLOORPLANS", "FLOORPLAN_CASES", "PDKS", "ROOT")
+        for name in ("ESCAPE", "FLOORPLANS", "FLOORPLAN_CASES", "PDKS", "ROOT")
     ),
 }
 # beside the stages: layout.py (its layout_<thing> functions and write_netlist) and model.py (Model)

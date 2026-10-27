@@ -1,4 +1,4 @@
-"""The sampler's layout hooks: its named instances by their floorplans with the three tools, and the
+"""The sampler's layout hooks: its named instances by their floorplans with ALIGN, and the
 sweep's instances by the floorplan of their structure."""
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ def _named(case: str) -> Params:
 
 def test_a_named_instance_is_laid_out_by_its_floorplan_or_aligns(tmp_path: Path, monkeypatch) -> None:
     """``python -m flow layout samp --instance NAME [--auto]``: the characterization's four switches,
-    each by its hand-written floorplan; the three tools in each PDK asked for."""
+    each by its hand-written floorplan; ALIGN in each PDK asked for."""
     public = {
         name
         for name, value in vars(layout).items()

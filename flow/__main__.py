@@ -11,7 +11,7 @@ named instances (its ``sweep.py``):
 
 An instance ``I`` is a named instance, an instance's label (``grid(name, parameter=value, ...)``) or its
 digest. ``layout`` without ``--instance`` lays out the newest run's instances by ALIGN into their
-records; with it, each named instance by all three tools from its hand-written floorplan (or, with
+records; with it, each named instance by ALIGN from its hand-written floorplan (or, with
 ``--auto``, from ALIGN's placement) into ``build/layout/<block>/<name>/``. ``plot`` draws a sweep
 run's records' figures, or the figures of a directory of captures.
 
@@ -108,7 +108,7 @@ def parser() -> argparse.ArgumentParser:
     commands = verbs.add_subparsers(dest="verb", required=True)
     for verb, workers, text in (
         ("run", 36, "characterize the block's instances in a fresh run"),
-        ("layout", 28, "lay out the newest run's instances, or named instances by all three tools"),
+        ("layout", 28, "lay out the newest run's instances, or named instances, by ALIGN"),
         ("table", 16, "export the newest runs as the viewer's tables"),
         ("plot", 0, "draw a sweep run's or captures' figures"),
     ):

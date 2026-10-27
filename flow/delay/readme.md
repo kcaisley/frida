@@ -9,9 +9,9 @@
 | Analysis | ✓ | [analysis.py](analysis.py) | `MeasDelay`; `analyze_delay_oscillation`, `analyze_delay_propagation` (50 % rise and fall delay, 10–90 % output transitions, energy per input cycle). At the core supply: `ring5` 9.6 GHz in TSMC65, 24.9 GHz in TSMC28, 3.2–6.3 GHz in the others; `chain4` 40 ps in TSMC65 (18–105 ps across the PDKs). |
 | Plots | ✓ | [plots.py](plots.py) | One panel per case: ring frequency with energy per cycle versus supply, and with tuning gain versus control; delay line delay with energy versus supply, and with output transitions versus control; one figure set per PDK. Run by `python -m flow delay.characterization_study`. |
 | Analysis tests | ✓ | [test_analysis.py](test_analysis.py) | Synthetic records of known frequency, delay, and current; every plot renders. |
-| Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows with cIcCreator, laygo and ALIGN from hand-written floorplans (`design/layout/delay_*.json`). |
+| Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows by ALIGN from hand-written floorplans (`design/layout/delay_*.json`). |
 | Layout tests | ✓ | [test_layout.py](test_layout.py) | Target registry; every floorplan places each netlist device once and escapes ports the netlist connects; every PDK writes every case. |
-| Layout runner | ✓ | [layout.py](layout.py) | Seven cases in all six PDKs: 124 of 126 layouts DRC clean and LVS correct. ALIGN's detailed router leaves a net open in `ring4_tail` (tower180) and `ring5_starved` (tpsc65); cIcCreator and laygo are clean there. |
+| Layout runner | ✓ | [layout.py](layout.py) | Seven cases in all six PDKs (124 of 126 layouts DRC clean and LVS correct with cIcCreator, laygo and ALIGN, the first two since removed). ALIGN's detailed router leaves a net open in `ring4_tail` (tower180) and `ring5_starved` (tpsc65). |
 | DRC runner | ✓ | [layout.py](layout.py) | gdscheck and the PDK's DRC for every layout (`row_signoff`). |
 | LVS runner | ✓ | [layout.py](layout.py) | The PDK's LVS for every layout against the netlist the build placed. |
 | PEX runner | ✗ | - | No extraction. |

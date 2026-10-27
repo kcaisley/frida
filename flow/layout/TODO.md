@@ -1,5 +1,7 @@
 # Layout TODO
 
+> The cIcCreator and laygo flows were removed on 2026-10-27 (ALIGN draws every layout); their entries below are history.
+
 Progress tracker for the layout flows and the PDK submodules. Tick items as they land.
 
 ## One PDK description, one geometry library

@@ -37,7 +37,7 @@ python -m flow plot <block> [FIGURE ...] --from DIR [--from DIR ...] [--backend 
 python -m flow opt <block> --problem P [--pdk P] [--budget N] [--workers N] [--best N]
 ```
 
-`run` characterizes the design space (or the instances picked: a name, a label or a digest) into a fresh `build/sweep/<block>/<run>`; the sweep runner (`flow.sweep.runner`) simulates each of an instance's `runs`, reads each and hands the measurements to `record`. `layout` lays out the newest run's instances by ALIGN, or named instances by all three tools. `table` exports the viewer's tables. `plot` draws a sweep run's records' figures, or the figures of a directory of captures: each `plot_<thing>` whose result an analysis of the block gives from a sequence of captures, for each board and channel. A block not on the pipeline keeps `python -m flow <block>.<target>` until it moves; the CLI takes a verb as its first word, a target otherwise.
+`run` characterizes the design space (or the instances picked: a name, a label or a digest) into a fresh `build/sweep/<block>/<run>`; the sweep runner (`flow.sweep.runner`) simulates each of an instance's `runs`, reads each and hands the measurements to `record`. `layout` lays out the newest run's instances, or named instances, by ALIGN. `table` exports the viewer's tables. `plot` draws a sweep run's records' figures, or the figures of a directory of captures: each `plot_<thing>` whose result an analysis of the block gives from a sequence of captures, for each board and channel. A block not on the pipeline keeps `python -m flow <block>.<target>` until it moves; the CLI takes a verb as its first word, a target otherwise.
 
 ## Figures
 

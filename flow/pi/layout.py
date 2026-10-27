@@ -1,9 +1,8 @@
-"""Phase interpolator layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
+"""Phase interpolator layouts in standard-cell rows: netlist, floorplan, ALIGN build and signoff per PDK.
 
-A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator, laygo,
-ALIGN) from its hand-written floorplan (``design/layout/pi_*.json``), each checked with DRC and LVS.
-Cases: CMOS and CML interpolators at equal and three-to-one weights. The runner is the comparator's
-(``flow.comp.layout``).
+A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
+(``design/layout/pi_*.json``), each checked with DRC and LVS. Cases: CMOS and CML interpolators at
+equal and three-to-one weights. The runner is the comparator's (``flow.comp.layout``).
 
     uv run python -m flow pi.layout_cmos_half
 """
@@ -26,7 +25,7 @@ def _netlists(params: PiParams, pdk: str, out_dir: Path, name: str) -> Path:
 
 
 def _pi(run_dir: Path, pdk: str, case: str) -> Path:
-    """A phase interpolator case: its netlist into ``run_dir/netlist/``, then the three tools as its floorplan
+    """A phase interpolator case: its netlist into ``run_dir/netlist/``, then ALIGN as its floorplan
     places it."""
 
     name = f"pi_{case}"

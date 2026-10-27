@@ -1,16 +1,14 @@
-"""Comparator layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
+"""Comparator layouts in standard-cell rows: netlist, floorplan, ALIGN build and signoff per PDK.
 
-``layout_named`` lays out one named instance (``flow.comp.sweep``'s ``@named``) in the PDKs with all
-three tools (cIcCreator, laygo, ALIGN), each checked with DRC and LVS: from its hand-written
-floorplan (``design/layout/comp_<name>.json``), or, ``auto``, laid out by ALIGN on its own from the
-transistor netlist with its library cells recognized (ALIGN's placement then the floorplan of
-cIcCreator and laygo). Every (pdk, tool) runs whatever the others do; it raises at the end when any
-failed (``failures.json``). ``layout_netlist`` and ``layout_floorplan`` give the sweep's layout step
-(``flow.sweep.runner.layout``, ALIGN alone) an instance's netlists.
+``layout_named`` lays out one named instance (``flow.comp.sweep``'s ``@named``) in the PDKs by
+ALIGN, each checked with DRC and LVS: from its hand-written floorplan
+(``design/layout/comp_<name>.json``), or, ``auto``, by ALIGN on its own from the transistor netlist
+with its library cells recognized. Every PDK runs whatever the others do; it raises at the end when
+any failed (``failures.json``). ``layout_netlist`` and ``layout_floorplan`` give the sweep's layout
+step (``flow.sweep.runner.layout``) an instance's netlists.
 
-Tools: ``CICPY`` (cicpy 0.3, with ``compile``), ``LAYGO_CLIENT`` (the hosted laygo server's
-client, needs internet), ``ALIGN_HOME`` (an ALIGN install); Calibre, Assura or KLayout as each
-PDK's signoff provider (``pdk/<pdk>/signoff.py``) uses them.
+Tools: ``ALIGN_HOME`` (an ALIGN install); Calibre, Assura or KLayout as each PDK's signoff provider
+(``pdk/<pdk>/signoff.py``) uses them.
 
     uv run python -m flow layout comp --instance frida1
 """
@@ -27,9 +25,6 @@ from klayout import db
 
 from flow.circuit import devices
 from flow.layout.align.build import build as align_build
-from flow.layout.cic.build import build as cic_build
-from flow.layout.floorplan import align_floorplan
-from flow.layout.laygo.build import build as laygo_build
 from flow.layout.pdkproc import in_pdk
 from flow.layout.signoff import row_signoff
 
@@ -45,7 +40,6 @@ from .subckt import Nets, netlist
 ROOT = Path(__file__).resolve().parents[2]
 FLOORPLANS = ROOT / "design" / "layout"
 PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
-BUILD: dict[str, Callable[..., Path]] = {"cic": cic_build, "laygo": laygo_build, "align": align_build}
 
 # where the ports leave the block, as in both comparator floorplans (circuit knowledge, not placement)
 ESCAPE = {"up": ["inp", "inn"], "down": ["clk", "clkb", "outp", "outn"]}
@@ -134,45 +128,27 @@ def _finish(run_dir: Path, summary: dict[str, dict[str, Any]], failures: dict[st
 
 
 def _run(run_dir: Path, pdk: str, name: str, netlist: Path, floorplan: Path | None) -> Path:
-    """One design in one PDK, the three tools into ``run_dir/<tool>/``, each signed off in
-    ``run_dir/<tool>/signoff/``. Without a floorplan, ALIGN runs on its own first (it derives its
-    constraints, places and routes) and its placement becomes the floorplan of cIcCreator and laygo
-    (``run_dir/floorplan/``); with one, all three tools place as it says."""
+    """One design in one PDK by ALIGN into ``run_dir/align/``, signed off in
+    ``run_dir/align/signoff/``: placed as its hand-written floorplan says, or, without one, by ALIGN
+    on its own (it derives its constraints, places and routes)."""
 
     summary: dict[str, dict[str, Any]] = {}
     failures: dict[str, str] = {}
-    tools = list(BUILD)
-    if floorplan is None:
-        tools = ["align", *(t for t in tools if t != "align")]
-    for tool in tools:
-        out = run_dir / tool
-        entry: dict[str, Any] = {}
-        summary[f"{pdk}/{tool}"] = entry
-        if floorplan is None and tool != "align":
-            try:
-                floorplan = align_floorplan(
-                    run_dir / "align" / name, netlist, pdk, run_dir / "floorplan", name=name, escape=ESCAPE
-                )
-            except Exception as error:  # noqa: BLE001 - ALIGN's placement is the others' floorplan
-                failures[f"{pdk}/floorplan"] = repr(error)
-                del summary[f"{pdk}/{tool}"]
-                break
-        try:
-            if tool == "align":  # named as the design, also without a floorplan
-                gds = BUILD[tool](pdk, floorplan, netlist, out, name=name)
-            else:
-                assert floorplan is not None  # given, or from ALIGN's placement above
-                gds = BUILD[tool](pdk, floorplan, netlist, out)
-            entry.update(gds=str(gds), cell_um=_cell_um(gds))
-            check = row_signoff(pdk, gds, netlist, floorplan, out / "signoff")  # ALIGN on its own: no floorplan yet
-            entry.update(drc_violations=check.drc_violations, lvs_correct=check.lvs_correct)
-            if check.drc_violations or not check.lvs_correct:
-                failures[f"{pdk}/{tool}"] = f"DRC {check.drc_violations} violations, LVS correct {check.lvs_correct}"
-        except Exception as error:  # noqa: BLE001 - report every independent tool failure
-            entry["error"] = failures[f"{pdk}/{tool}"] = repr(error)
-            drc = out / "signoff" / "drc_violations.json"
-            if drc.exists():  # DRC ran before the failure
-                entry["drc_violations"] = sum(json.loads(drc.read_text())["violations"].values())
+    out = run_dir / "align"
+    entry: dict[str, Any] = {}
+    summary[f"{pdk}/align"] = entry
+    try:
+        gds = align_build(pdk, floorplan, netlist, out, name=name)  # named as the design
+        entry.update(gds=str(gds), cell_um=_cell_um(gds))
+        check = row_signoff(pdk, gds, netlist, floorplan, out / "signoff")
+        entry.update(drc_violations=check.drc_violations, lvs_correct=check.lvs_correct)
+        if check.drc_violations or not check.lvs_correct:
+            failures[f"{pdk}/align"] = f"DRC {check.drc_violations} violations, LVS correct {check.lvs_correct}"
+    except Exception as error:  # noqa: BLE001 - report the failure with every other PDK's
+        entry["error"] = failures[f"{pdk}/align"] = repr(error)
+        drc = out / "signoff" / "drc_violations.json"
+        if drc.exists():  # DRC ran before the failure
+            entry["drc_violations"] = sum(json.loads(drc.read_text())["violations"].values())
     return _finish(run_dir, summary, failures)
 
 
@@ -211,7 +187,7 @@ def _all_pdks(run_dir: Path, case: Callable[..., Path], *args: Any, pdks: tuple[
 
 
 def layout_named(run_dir: Path, name: str, params: Params, *, auto: bool = False, pdks: tuple[str, ...] = PDKS) -> Path:
-    """The named instance ``name`` in each of ``pdks`` with the three tools, into ``run_dir/<pdk>/``:
+    """The named instance ``name`` in each of ``pdks`` by ALIGN, into ``run_dir/<pdk>/``:
     from its hand-written floorplan, or ``auto`` from ALIGN's placement."""
 
     floorplan = None if auto else FLOORPLANS / f"comp_{name}.json"

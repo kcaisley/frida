@@ -11,7 +11,7 @@ from flow.comp.layout import FLOORPLANS, ROOT, _all_pdks, _run
 
 def mos_inv() -> Path:
     """One NMOS and one PMOS row cell from each PDK's hand-written netlist (``mos_inv.sp``), by the
-    floorplan ``design/layout/mos_inv.json``, with the three tools in every PDK."""
+    floorplan ``design/layout/mos_inv.json``, by ALIGN in every PDK."""
     return _all_pdks(
         new_run("layout", "mos_inv"),
         lambda run_dir, pdk: _run(

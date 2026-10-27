@@ -9,7 +9,7 @@
 | Analysis | ✓ | [analysis.py](analysis.py) | `MeasPi`; `analyze_pi_phase` (delay and phase behind A, swing, duty cycle, supply current), `analyze_pi_linearity` (slope against phase B's weight share, intrinsic delay, INL, fitted to 90°). In TSMC65: slopes 0.55 (CMOS) and 0.68 (CML) for equal weights (ideal 0.5), 0.19 and 0.23 for 3:1 (ideal 0.25), INL at most 3.2°; across the PDKs the equal-weight slopes span 0.41–0.71. Beyond quadrature a 3:1 interpolator follows A alone. |
 | Plots | ✓ | [plots.py](plots.py) | One panel per case: transfer and INL versus spacing, phase and swing versus frequency, waveforms at quadrature; one figure set per PDK. Run by `python -m flow pi.characterization_study`. |
 | Analysis tests | ✓ | [test_analysis.py](test_analysis.py) | A linear weighted mix of two slewed phases; every plot renders. |
-| Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows with cIcCreator, laygo and ALIGN from hand-written floorplans (`design/layout/pi_*.json`). |
+| Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows by ALIGN from hand-written floorplans (`design/layout/pi_*.json`). |
 | Layout tests | ✓ | [test_layout.py](test_layout.py) | Target registry; every floorplan places each netlist device once and escapes every connected port; every PDK writes every case. |
 | Layout runner | ✓ | [layout.py](layout.py) | Four cases in all six PDKs, all 72 layouts DRC clean and LVS correct. |
 | DRC runner | ✓ | [layout.py](layout.py) | gdscheck and the PDK's DRC for every layout (`row_signoff`). |

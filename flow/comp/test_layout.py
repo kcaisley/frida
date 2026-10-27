@@ -17,7 +17,7 @@ from . import layout, sweep
 
 def test_a_named_instance_is_laid_out_by_its_floorplan_or_alignss(tmp_path: Path, monkeypatch) -> None:
     """``python -m flow layout comp --instance NAME [--auto]``: every named instance of the sweep has a
-    hand-written floorplan; the three tools in each PDK asked for, from it or from ALIGN's."""
+    hand-written floorplan; ALIGN in each PDK asked for, from it or on its own."""
     public = {
         name
         for name, value in vars(layout).items()
@@ -79,38 +79,33 @@ def _gds(path: Path) -> Path:
     return path
 
 
-def test_one_failing_tool_does_not_stop_the_others(tmp_path: Path, monkeypatch) -> None:
-    def broken(pdk, fp, netlist, out):
+def test_a_layout_records_its_cell_and_signoff_and_a_failure_its_drc(tmp_path: Path, monkeypatch) -> None:
+    """ALIGN's layout of a design in one PDK: its GDS, size and signoff in the summary; a failed one
+    (as after DRC ran) its error and the violations DRC found, in ``failures.json``."""
+
+    monkeypatch.setattr(layout, "align_build", lambda pdk, fp, netlist, out, name=None: _gds(out / "align.gds"))
+    monkeypatch.setattr(
+        layout, "row_signoff", lambda pdk, gds, netlist, fp, run_dir: RowSignoff(run_dir / "r.json", 0, run_dir, True)
+    )
+    layout._run(tmp_path / "ok", "tsmc65", "mos_inv", tmp_path / "n.sp", tmp_path / "fp.json")
+    assert json.loads((tmp_path / "ok" / "summary.json").read_text())["tsmc65/align"] == {
+        "gds": str(tmp_path / "ok" / "align" / "align.gds"),
+        "cell_um": [2.0, 1.0],
+        "drc_violations": 0,
+        "lvs_correct": True,
+    }
+
+    def broken(pdk, fp, netlist, out, name=None):
         report = out / "signoff" / "drc_violations.json"  # as if DRC ran before the failure
         report.parent.mkdir(parents=True)
         report.write_text('{"violations": {"spacing": 3}}')
         raise RuntimeError("router gave up")
 
-    builds = {
-        "cic": lambda pdk, fp, netlist, out: _gds(out / "cic.gds"),
-        "laygo": broken,
-        "align": lambda pdk, fp, netlist, out, name=None: _gds(out / "align.gds"),
-    }
-    monkeypatch.setattr(layout, "BUILD", builds)
-
-    def signoff(pdk, gds, netlist, floorplan, run_dir):
-        report = run_dir / "drc_violations.json"
-        return RowSignoff(report, 2 if gds.name == "align.gds" else 0, report, True)
-
-    monkeypatch.setattr(layout, "row_signoff", signoff)
-    with pytest.raises(RuntimeError, match="2 layouts failed"):
-        layout._run(tmp_path, "tsmc65", "mos_inv", tmp_path / "n.sp", tmp_path / "fp.json")
-    summary = json.loads((tmp_path / "summary.json").read_text())
-    failures = json.loads((tmp_path / "failures.json").read_text())
-    assert summary["tsmc65/cic"] == {
-        "gds": str(tmp_path / "cic" / "cic.gds"),
-        "cell_um": [2.0, 1.0],
-        "drc_violations": 0,
-        "lvs_correct": True,
-    }
-    assert summary["tsmc65/laygo"]["drc_violations"] == 3
-    assert set(failures) == {"tsmc65/laygo", "tsmc65/align"}
-    assert "router gave up" in failures["tsmc65/laygo"] and failures["tsmc65/align"].startswith("DRC 2 violations")
+    monkeypatch.setattr(layout, "align_build", broken)
+    with pytest.raises(RuntimeError, match="1 layouts failed"):
+        layout._run(tmp_path / "bad", "tsmc65", "mos_inv", tmp_path / "n.sp", tmp_path / "fp.json")
+    assert json.loads((tmp_path / "bad" / "summary.json").read_text())["tsmc65/align"]["drc_violations"] == 3
+    assert "router gave up" in json.loads((tmp_path / "bad" / "failures.json").read_text())["tsmc65/align"]
 
 
 def test_all_pdks_merges_summaries_and_failures(tmp_path: Path) -> None:
@@ -121,6 +116,6 @@ def test_all_pdks_merges_summaries_and_failures(tmp_path: Path) -> None:
         return layout._finish(run_dir, {f"{pdk}/{name}": {"drc_violations": 0}}, {})
 
     with pytest.raises(RuntimeError, match="1 layouts failed"):
-        layout._all_pdks(tmp_path, case, "cic")
-    assert set(json.loads((tmp_path / "summary.json").read_text())) == {f"{pdk}/cic" for pdk in layout.PDKS}
-    assert json.loads((tmp_path / "failures.json").read_text()) == {"ihp130/cic": "x"}
+        layout._all_pdks(tmp_path, case, "align")
+    assert set(json.loads((tmp_path / "summary.json").read_text())) == {f"{pdk}/align" for pdk in layout.PDKS}
+    assert json.loads((tmp_path / "failures.json").read_text()) == {"ihp130/align": "x"}

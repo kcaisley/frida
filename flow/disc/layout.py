@@ -1,9 +1,8 @@
-"""Discriminator layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
+"""Discriminator layouts in standard-cell rows: netlist, floorplan, ALIGN build and signoff per PDK.
 
-A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator, laygo,
-ALIGN) from its hand-written floorplan (``design/layout/disc_*.json``), each checked with DRC and
-LVS. Cases: NMOS and PMOS input pairs, each
-with a current-mirror load and with hysteresis. The runner is the comparator's
+A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
+(``design/layout/disc_*.json``), each checked with DRC and LVS. Cases: NMOS and PMOS input pairs,
+each with a current-mirror load and with hysteresis. The runner is the comparator's
 (``flow.comp.layout``).
 
     uv run python -m flow disc.layout_nmos
@@ -27,8 +26,8 @@ def _netlists(params: DiscParams, pdk: str, out_dir: Path, name: str) -> Path:
 
 
 def _disc(run_dir: Path, pdk: str, case: str) -> Path:
-    """A discriminator case: its netlist into ``run_dir/netlist/``, then the three tools as its
-    floorplan places it."""
+    """A discriminator case: its netlist into ``run_dir/netlist/``, then ALIGN as its
+floorplan places it."""
 
     name = f"disc_{case}"
     netlist = _netlists(CASES[case], pdk, run_dir / "netlist", name)

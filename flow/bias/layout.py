@@ -1,8 +1,7 @@
-"""Cascode bias generator layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
+"""Cascode bias generator layouts in standard-cell rows: netlist, floorplan, ALIGN build and signoff per PDK.
 
-A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator, laygo,
-ALIGN) from its hand-written floorplan (``design/layout/bias_*.json``), each checked with DRC and
-LVS. Cases: wide-swing and margin
+A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
+(``design/layout/bias_*.json``), each checked with DRC and LVS. Cases: wide-swing and margin
 cascode-gate diodes. The runner is the comparator's (``flow.comp.layout``).
 
     uv run python -m flow bias.layout_wide
@@ -26,8 +25,8 @@ def _netlists(params: BiasParams, pdk: str, out_dir: Path, name: str) -> Path:
 
 
 def _bias(run_dir: Path, pdk: str, case: str) -> Path:
-    """A generator case: its netlist into ``run_dir/netlist/``, then the three tools as its
-    floorplan places it."""
+    """A generator case: its netlist into ``run_dir/netlist/``, then ALIGN as its
+floorplan places it."""
 
     name = f"bias_{case}"
     netlist = _netlists(CASES[case], pdk, run_dir / "netlist", name)

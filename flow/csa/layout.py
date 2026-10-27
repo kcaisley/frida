@@ -1,10 +1,10 @@
-"""Charge-sensitive amplifier layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
+"""Charge-sensitive amplifier layouts in standard-cell rows: netlist, floorplan, ALIGN build and signoff per PDK.
 
-A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator, laygo,
-ALIGN) from its hand-written floorplan (``design/layout/csa_*.json``), each checked with DRC and
-LVS. Cases: NMOS and PMOS input with Krummenacher feedback, NMOS input with continuous and with
-reset feedback. The row cells draw MOS only: the layout's netlist leaves the feedback capacitor
-out. The runner is the comparator's (``flow.comp.layout``).
+A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
+(``design/layout/csa_*.json``), each checked with DRC and LVS. Cases: NMOS and PMOS input with
+Krummenacher feedback, NMOS input with continuous and with reset feedback. The row cells draw MOS
+only: the layout's netlist leaves the feedback capacitor out. The runner is the comparator's
+(``flow.comp.layout``).
 
     uv run python -m flow csa.layout_krum
 """
@@ -31,8 +31,8 @@ def _netlists(params: CsaParams, pdk: str, out_dir: Path, name: str) -> Path:
 
 
 def _csa(run_dir: Path, pdk: str, case: str) -> Path:
-    """An amplifier case: its netlist into ``run_dir/netlist/``, then the three tools as its
-    floorplan places it."""
+    """An amplifier case: its netlist into ``run_dir/netlist/``, then ALIGN as its
+floorplan places it."""
 
     name = f"csa_{case}"
     netlist = _netlists(CASES[case], pdk, run_dir / "netlist", name)

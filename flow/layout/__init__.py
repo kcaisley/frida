@@ -1,1 +1,1 @@
-"""Layout flows: the row cells (stems), the cIcCreator, laygo and ALIGN drivers, signoff, gdsdiff."""
+"""Layout flows: the row cells (stems), the ALIGN driver, signoff, extraction, gdsdiff."""

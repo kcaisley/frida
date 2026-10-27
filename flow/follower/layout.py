@@ -1,9 +1,9 @@
-"""Follower layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
+"""Follower layouts in standard-cell rows: netlist, floorplan, ALIGN build and signoff per PDK.
 
-A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator, laygo,
-ALIGN) from its hand-written floorplan (``design/layout/follower_*.json``), each checked with DRC
-and LVS. Cases: NMOS and PMOS source followers, and NMOS and PMOS flipped voltage followers. The runner is the
-comparator's (``flow.comp.layout``).
+A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
+(``design/layout/follower_*.json``), each checked with DRC and LVS. Cases: NMOS and PMOS source
+followers, and NMOS and PMOS flipped voltage followers. The runner is the comparator's
+(``flow.comp.layout``).
 
     uv run python -m flow follower.layout_source
 """
@@ -26,7 +26,7 @@ def _netlists(params: FollowerParams, pdk: str, out_dir: Path, name: str) -> Pat
 
 
 def _follower(run_dir: Path, pdk: str, case: str) -> Path:
-    """A follower case: its netlist into ``run_dir/netlist/``, then the three tools as its floorplan
+    """A follower case: its netlist into ``run_dir/netlist/``, then ALIGN as its floorplan
     places it."""
 
     name = f"follower_{case}"

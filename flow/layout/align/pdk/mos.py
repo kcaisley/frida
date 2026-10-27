@@ -1,8 +1,8 @@
 # ruff: noqa  -- adapted from ALIGN's Bulk65nm mock PDK (star imports, ALIGN style)
 """Row-cell MOS primitives for ALIGN: one transistor or a matched pair per cell, one or more standard-cell rows tall.
 
-The geometry is the stems engine's (flow/layout/stems/rowcell.py, shared with the laygo and
-cIcCreator flows; pairs such as ALIGN's DP, CMC and CCP are ``rowcell.mos_row``), drawn with
+The geometry is the stems engine's (flow/layout/stems/rowcell.py; pairs such as ALIGN's DP, CMC
+and CCP are ``rowcell.mos_row``), drawn with
 the PDK's ``tech`` (this generated PDK directory's ``stems.json`` says where it is): VSS rail
 and P+ tap at the bottom, VDD rail and N+ tap at the top, so NMOS, PMOS and the library's
 standard cells abut in any order and supplies connect by abutment. Each primitive asks the

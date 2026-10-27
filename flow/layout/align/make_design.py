@@ -14,8 +14,7 @@ merged, library primitives, arrays) and its symmetry detection; only the supplie
 Identical parallel devices must be merged for the symmetry search, which pairs every neighbour
 of a net uniquely.
 
-Run bound to a PDK (flow/layout/pdkproc.py); flow/layout/align/build.py and
-flow/layout/floorplan.py call ``make_design``.
+Run bound to a PDK (flow/layout/pdkproc.py); flow/layout/align/build.py calls ``make_design``.
 """
 
 from __future__ import annotations
@@ -54,7 +53,7 @@ def _nf(line: str) -> str:
 def _used_ports(src: str) -> str:
     """The netlist with the ports no instance connects left out of its .subckt line: a block's
     unused options leave ports dangling, which ALIGN places at the origin as terminals with no pin
-    and then routes around (cIcCreator and laygo leave them out too; LVS compares the connected ones)."""
+    and then routes around (LVS compares the connected ones)."""
 
     lines = src.splitlines()
     used = {net for line in lines if line[:1] in "Mm" for net in line.split()[1:5]}  # drain, gate, source, bulk

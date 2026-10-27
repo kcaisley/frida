@@ -1,9 +1,9 @@
-"""Ring amplifier layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
+"""Ring amplifier layouts in standard-cell rows: netlist, floorplan, ALIGN build and signoff per PDK.
 
-A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator, laygo,
-ALIGN) from its hand-written floorplan (``design/layout/ringamp_*.json``), each checked with DRC and
-LVS. Cases: the single-ended ring amplifier and one with a stronger output stage. The runner is the
-comparator's (``flow.comp.layout``).
+A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
+(``design/layout/ringamp_*.json``), each checked with DRC and LVS. Cases: the single-ended ring
+amplifier and one with a stronger output stage. The runner is the comparator's
+(``flow.comp.layout``).
 
     uv run python -m flow ringamp.layout_se
 """
@@ -26,7 +26,7 @@ def _netlists(params: RingampParams, pdk: str, out_dir: Path, name: str) -> Path
 
 
 def _ringamp(run_dir: Path, pdk: str, case: str) -> Path:
-    """A ring amplifier case: its netlist into ``run_dir/netlist/``, then the three tools as its floorplan
+    """A ring amplifier case: its netlist into ``run_dir/netlist/``, then ALIGN as its floorplan
     places it."""
 
     name = f"ringamp_{case}"

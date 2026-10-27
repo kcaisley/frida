@@ -1,8 +1,8 @@
-"""Current source layouts in standard-cell rows: netlist, floorplan, build and signoff per PDK and tool.
+"""Current source layouts in standard-cell rows: netlist, floorplan, ALIGN build and signoff per PDK.
 
-A ``*_all_pdks`` function lays out one case in all six PDKs with all three tools (cIcCreator, laygo,
-ALIGN) from its hand-written floorplan (``design/layout/idac_*.json``), each checked with DRC
-and LVS. Cases: switched NMOS units, a cascoded steered PMOS unit, steered NMOS units, and a PMOS bias mirror. The runner is the
+A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
+(``design/layout/idac_*.json``), each checked with DRC and LVS. Cases: switched NMOS units, a
+cascoded steered PMOS unit, steered NMOS units, and a PMOS bias mirror. The runner is the
 comparator's (``flow.comp.layout``).
 
     uv run python -m flow idac.layout_nmos_switched
@@ -26,7 +26,7 @@ def _netlists(params: IdacParams, pdk: str, out_dir: Path, name: str) -> Path:
 
 
 def _idac(run_dir: Path, pdk: str, case: str) -> Path:
-    """A current source case: its netlist into ``run_dir/netlist/``, then the three tools as its floorplan
+    """A current source case: its netlist into ``run_dir/netlist/``, then ALIGN as its floorplan
     places it."""
 
     name = f"idac_{case}"
