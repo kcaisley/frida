@@ -81,3 +81,12 @@ def test_a_record_scores_by_the_problems_costs_and_bounds() -> None:
         runner.INFEASIBLE,
         dict.fromkeys(PROBLEM.bound, 1.0),
     )
+
+
+def test_a_search_offers_named_values_by_their_names() -> None:
+    """A choice among named values (``values`` of a mapping) is offered and answered by name."""
+    space = pipeline.widen(comp.Params())
+    space.diffpair_w = pipeline.values({"small": 32, "large": 512})
+    named = pipeline.Problem(cost={"energy_0p5mv_j": 1.0}, bound={}, space=space)
+    assert runner.distributions(named)["diffpair_w"].choices == ("small", "large")
+    assert runner.suggest(optuna.trial.FixedTrial({"diffpair_w": "large"}), named).diffpair_w == 512

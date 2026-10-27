@@ -103,15 +103,16 @@ def searched(problem: pipeline.Problem) -> pipeline.Space:
 
 
 def distributions(problem: pipeline.Problem) -> dict[str, Any]:
-    """Each widened parameter's Optuna distribution: a choice among its values (by their names), or
-    its range, of whole numbers where the space's base gives one."""
+    """Each widened parameter's Optuna distribution: a choice among its values (by their names: a
+    member's, or the name a mapping of values gives), or its range, of whole numbers where the
+    space's base gives one."""
     import optuna
 
     space = searched(problem)
     result: dict[str, Any] = {}
     for name, widened in space.widened.items():
         if isinstance(widened, pipeline.Values):
-            result[name] = optuna.distributions.CategoricalDistribution([_name(value) for value in widened.values])
+            result[name] = optuna.distributions.CategoricalDistribution(list(widened.labels()))
         elif isinstance(getattr(space.base, name), int):
             result[name] = optuna.distributions.IntDistribution(
                 round(widened.low), round(widened.high), log=widened.log
@@ -119,10 +120,6 @@ def distributions(problem: pipeline.Problem) -> dict[str, Any]:
         else:
             result[name] = optuna.distributions.FloatDistribution(widened.low, widened.high, log=widened.log)
     return result
-
-
-def _name(value: Any) -> Any:
-    return value.name if isinstance(value, Enum) else value
 
 
 def suggest(trial: Any, problem: pipeline.Problem) -> Any:
@@ -138,7 +135,7 @@ def suggest(trial: Any, problem: pipeline.Problem) -> Any:
     for name, widened in space.widened.items():
         if isinstance(widened, pipeline.Values):
             picked = trial.suggest_categorical(name, dists[name].choices)
-            values[name] = next(value for value in widened.values if _name(value) == picked)
+            values[name] = widened.values[widened.labels().index(picked)]
     chosen = cls(**{**space.base.__dict__, **values})
     for name, widened in space.widened.items():
         if isinstance(widened, pipeline.Steps) and pipeline.holds(widened.when, chosen):

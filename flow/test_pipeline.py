@@ -449,3 +449,32 @@ def test_a_stage_with_the_wrong_signature_does_not_import() -> None:
         pipeline.plot(figure)
     with pytest.raises(TypeError, match="positionally"):
         pipeline.analysis(positional_prior)
+
+
+@h.paramclass
+class _Knobs:
+    """A design of two whole numbers, for the grids' own tests."""
+
+    width = h.Param(dtype=int, desc="a width", default=1)
+    length = h.Param(dtype=int, desc="a length", default=1)
+
+
+def test_a_grid_labels_named_values_and_named_spaces_by_their_names() -> None:
+    """``values`` of a mapping labels each point by its value's name; a grid of spaces by name labels
+    each point by its space's name too, and gives the spaces by name."""
+
+    @pipeline.grid
+    def ladder() -> dict[str, _Knobs]:
+        short, long = pipeline.widen(_Knobs()), pipeline.widen(_Knobs(length=4))
+        short.width = pipeline.values({"narrow": 2, "wide": 8})
+        return {"short": short, "long": long}
+
+    labels = dict(ladder.instances(pipeline.Pdk.TSMC65))
+    assert set(labels) == {"ladder(short, width=narrow)", "ladder(short, width=wide)", "ladder(long)"}
+    assert labels["ladder(short, width=wide)"] == _Knobs(width=8)
+    assert labels["ladder(long)"] == _Knobs(length=4)
+    assert ladder.spaces(pipeline.Pdk.TSMC65)["long"].base == _Knobs(length=4)
+    # a grid of unnamed spaces keeps its labels, and gives the spaces by place
+    plain = pipeline.grid(lambda: [ladder.spaces(pipeline.Pdk.TSMC65)["short"]])
+    assert {label.split("(", 1)[1] for label, _ in plain.instances("tsmc65")} == {"width=narrow)", "width=wide)"}
+    assert set(plain.spaces("tsmc65")) == {"0"}

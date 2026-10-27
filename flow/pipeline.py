@@ -171,10 +171,18 @@ class Steps:
 @dataclass(frozen=True)
 class Values:
     """These values of a parameter: a grid takes each, a search chooses among them. ``when`` as for
-    ``Steps``."""
+    ``Steps``. ``names``, where they have them (``values({"frida1": comp.FRIDA1, ...})``): a grid
+    labels a point by the value's name, a search offers the names."""
 
     values: tuple[Any, ...]
     when: Any = None
+    names: tuple[str, ...] | None = None
+
+    def labels(self) -> tuple[Any, ...]:
+        """Each value as a label or a choice gives it: its name, a member's name, or itself."""
+        if self.names is not None:
+            return self.names
+        return tuple(value.name if isinstance(value, Enum) else value for value in self.values)
 
 
 type Widened = Steps | Values
@@ -188,7 +196,9 @@ def steps(low: float, high: float, n: int = 2, *, log: bool = False, when: Any =
 
 
 def values(*choices: Any, when: Any = None) -> Any:
-    """These values (``Values``)."""
+    """These values (``Values``); one mapping, these values by name."""
+    if len(choices) == 1 and isinstance(choices[0], Mapping):
+        return Values(tuple(choices[0].values()), when, tuple(choices[0]))
     return Values(tuple(choices), when)
 
 
@@ -261,18 +271,26 @@ class Space:
     def points(self) -> Iterator[tuple[dict[str, Any], Any]]:
         """The space as a grid: every combination of its widened parameters' grid values (one whose
         ``when`` fails for the rest keeps its base value), each with the values it varies (those
-        widened to more than one) and the design."""
+        widened to more than one; a named value by its name) and the design."""
         cls = type(self.base)
         plain = {name: widened for name, widened in self.widened.items() if widened.when is None}
         conditional = {name: widened for name, widened in self.widened.items() if widened.when is not None}
         varies = {name for name, widened in self.widened.items() if len(grid_values(self.base, name, widened)) > 1}
-        for combination in itertools.product(*(grid_values(self.base, n, w) for n, w in plain.items())):
-            chosen = dict(zip(plain, combination, strict=True))
+
+        def labelled(name: str, widened: Widened) -> list[tuple[Any, Any]]:
+            # each grid value with its label: a named value's name, else the value
+            points = grid_values(self.base, name, widened)
+            return list(zip(points, widened.labels() if isinstance(widened, Values) else points, strict=True))
+
+        for combination in itertools.product(*(labelled(n, w) for n, w in plain.items())):
+            chosen = {name: value for name, (value, _label) in zip(plain, combination, strict=True)}
+            labels = {name: label for name, (_value, label) in zip(plain, combination, strict=True)}
             design = cls(**{**self.base.__dict__, **chosen})
             active = {name: widened for name, widened in conditional.items() if holds(widened.when, design)}
-            for more in itertools.product(*(grid_values(self.base, n, w) for n, w in active.items())):
-                extra = dict(zip(active, more, strict=True))
-                shown = {name: value for name, value in {**chosen, **extra}.items() if name in varies}
+            for more in itertools.product(*(labelled(n, w) for n, w in active.items())):
+                extra = {name: value for name, (value, _label) in zip(active, more, strict=True)}
+                labels.update({name: label for name, (_value, label) in zip(active, more, strict=True)})
+                shown = {name: label for name, label in labels.items() if name in varies}
                 yield shown, cls(**{**design.__dict__, **extra})
 
 
@@ -293,8 +311,10 @@ def shown(value: Any) -> str:
 @dataclass(frozen=True)
 class Grid:
     """A grid of a block's design space (``@grid``): ``build`` (given the PDK, where it takes one)
-    gives a space or several (``widen``; their union), in the PDKs ``pdks`` names (None: every PDK); its
-    instances every point of each, labelled ``name(parameter=value, ...)`` by the values that vary."""
+    gives a space or several (``widen``; their union), or several by name (a mapping), in the PDKs
+    ``pdks`` names (None: every PDK); its instances every point of each, labelled by the values that
+    vary, ``name(parameter=value, ...)``, and by the space's name where it has one,
+    ``name(space, parameter=value, ...)``."""
 
     build: Callable[..., Any]
     pdks: tuple[Pdk, ...] | None = None
@@ -303,22 +323,34 @@ class Grid:
     def name(self) -> str:
         return getattr(self.build, "__name__", "")
 
-    def spaces(self, pdk: str | Pdk) -> tuple[Space, ...]:
-        built = self.build(pdk_of(pdk)) if "pdk" in signature(self.build).parameters else self.build()
-        return (built,) if isinstance(built, Space) else tuple(built)
+    def built(self, pdk: str | Pdk) -> Any:
+        """What ``build`` gives in ``pdk``: a space, several, or several by name."""
+        return self.build(pdk_of(pdk)) if "pdk" in signature(self.build).parameters else self.build()
+
+    def spaces(self, pdk: str | Pdk) -> dict[str, Space]:
+        """The grid's spaces in ``pdk`` by name: their names, where ``build`` names them, else their
+        places ("0", "1", ...)."""
+        built = self.built(pdk)
+        if isinstance(built, Mapping):
+            return dict(built)
+        return {str(place): space for place, space in enumerate((built,) if isinstance(built, Space) else built)}
 
     def instances(self, pdk: str | Pdk) -> Iterator[tuple[str, Any]]:
         """Each instance in ``pdk`` with its label."""
         if self.pdks is not None and pdk_of(pdk) not in self.pdks:
             return
-        for space in self.spaces(pdk):
+        named = isinstance(self.built(pdk), Mapping)
+        for title, space in self.spaces(pdk).items():
             for varied, design in space.points():
-                yield f"{self.name}({', '.join(f'{name}={shown(value)}' for name, value in varied.items())})", design
+                words = [title] if named else []
+                words += [f"{name}={shown(value)}" for name, value in varied.items()]
+                yield f"{self.name}({', '.join(words)})", design
 
 
 def grid(build: Callable[..., Any] | None = None, *, pdks: Sequence[Pdk] | None = None) -> Any:
-    """Make a function (of the PDK, a ``Pdk``, where it takes one) returning a space or several, a grid
-    of a block's design space: ``@grid``, or ``@grid(pdks=(Pdk.TSMC65, ...))`` in those PDKs alone."""
+    """Make a function (of the PDK, a ``Pdk``, where it takes one) returning a space, several, or
+    several by name, a grid of a block's design space: ``@grid``, or ``@grid(pdks=(Pdk.TSMC65, ...))``
+    in those PDKs alone."""
     entry = tuple(pdks) if pdks is not None else None
     if build is None:
         return lambda function: Grid(function, entry)
