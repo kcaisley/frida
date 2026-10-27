@@ -3,9 +3,11 @@
 Each PDK provides ``pdk/<pdk>/signoff.py`` with keyword functions ``run_drc`` (gdscheck where
 installed, then the PDK's DRC; writes ``<run_dir>/drc_violations.json`` and raises unless clean),
 ``run_lvs`` (whether LVS is correct, and its report) and, where the PDK has extraction,
-``run_pex`` (against a schematic) and ``run_layout_pex`` (a primitive's test structure by its own net
-names, ``calibre_pex.py``). The provider picks the checker it has (Calibre, Assura or KLayout). ``row_signoff``
-checks a standard-cell row layout (flow/layout) with DRC and LVS.
+``run_pex`` (against a schematic) and ``run_layout_pex`` (a layout by its own net names with the
+kit's extractor, ``calibre_pex.py``). The provider picks the checker it has (Calibre, Assura or
+KLayout). ``run_layout_pex`` here extracts by FasterCap through KLayout-PEX (``flow.layout.kpex``)
+unless asked for the kit's (``Extractor.CALIBRE``, its manual check). ``row_signoff`` checks a
+standard-cell row layout (flow/layout) with DRC and LVS.
 """
 
 from __future__ import annotations
@@ -19,6 +21,8 @@ from typing import Any, Literal
 
 from klayout import db
 
+from flow.layout import kpex
+from flow.layout.kpex import Extractor
 from flow.layout.pdkproc import in_pdk, pdk_value
 
 
@@ -115,15 +119,25 @@ def run_pex(params: SignoffParams, run_dir: Path) -> Path:
     )
 
 
-def run_layout_pex(technology: str, gds_path: Path, layout_top: str, output_stem: str, run_dir: Path) -> Path:
-    """Dispatch a layout-only extraction (3D, by the layout's own net names, nothing compared).
+def run_layout_pex(
+    technology: str,
+    gds_path: Path,
+    layout_top: str,
+    output_stem: str,
+    run_dir: Path,
+    extractor: Extractor = Extractor.KLAYOUT,
+) -> Path:
+    """A layout-only extraction (3D, by the layout's own net names, nothing compared): FasterCap
+    through KLayout-PEX (``flow.layout.kpex``), or the kit's extractor (``Extractor.CALIBRE``).
 
-    For primitives' test structures: plain metal with labelled terminals has no device to
+    For primitives' test structures and arrays: plain metal with labelled terminals has no device to
     recognize and no schematic. Returns the extracted Spectre netlist.
     """
 
     if not gds_path.is_file():
         raise FileNotFoundError(gds_path)
+    if extractor is Extractor.KLAYOUT:
+        return kpex.run_layout_pex(technology, gds_path, layout_top, output_stem, run_dir)
     provider = _provider(technology)
     if not callable(getattr(provider, "run_layout_pex", None)):
         raise TypeError(f"pdk.{technology}.signoff has no layout-only extraction (run_layout_pex)")

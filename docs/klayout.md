@@ -34,3 +34,12 @@
   - But once you create a layout and create a cells, and insert the geometry to the shape list of the cells, it now exists in the layout.
   - However, if you now declare a higher level cell, and instance the original cell twice within it, when you go to open the layout, it will show the top level hierarchy cells, and the two instance of it
 - Concepts like pins and named instances are not part of the GDS and OASIS specification and that still is the basis of the program. It's possible to emulate those features (and others like net information) with user properties, but the interpretation of those is strongly dependent on the tools reading these files.
+
+## Extraction: KLayout-PEX and FasterCap
+
+A layout extracted by its own net names (`flow.layout.signoff.run_layout_pex`: the MOM test structures, the ADC arrays) goes to FasterCap through KLayout-PEX (`flow/layout/kpex.py`) by default; `Extractor.CALIBRE` asks for the kit's own extractor instead (Calibre's xACT, or Quantus in LF150), which stays the manual check of it.
+
+- The stack: each PDK's `pdk/<pdk>/kpex/stack.json` (private), its conductors' heights and thicknesses and the planar dielectrics of its kit's typical interconnect corner, read from the kit's ICT file (`python -m flow.layout.kpex stack <ict> PO=poly M1=metal1 ...`; a conductor without a height sits in the dielectric before it, its top at theirs). The layers, vias and pin labels are the PDK's layout tech's (`LAYERS`, `RULES`, `PIN_TEXT`).
+- The model: kpex holds one dielectric between two metals, so each metal level gets its own as a film around the metal filling the level (the slabs' mean by thickness: the field between neighbours runs along them) and the via level above it another (the slabs in series: the field between levels crosses them).
+- The run: kpex's own Python (`KPEX_HOME`, `-P` so that this folder's `kpex.py` does not shadow its protobuf package) runs `kpex_extract.py`: KLayout joins the conductors through the vias and names the nets by the labels, kpex builds FasterCap's model, FasterCap (`FASTERCAP`) solves it at a tolerance of 0.005 and a mesh refinement of 0.1, Galerkin's scheme. FasterCap's Maxwell matrix leaves each net's capacitance to infinity in its row sum: that goes to ground, as an extractor whose substrate is an infinite plane counts it.
+- The netlist: Spectre capacitors between the nets by their labels, ground `0`, as the kits' extractors write theirs, so `flow.momcap.pex.pair_capacitances` and `flow.caparray.pex.parse_caparray_pex` read either.

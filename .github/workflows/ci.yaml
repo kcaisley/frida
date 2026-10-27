@@ -140,6 +140,7 @@ jobs:
           flow/opt/test_runner.py
           flow/layout/test_floorplan.py
           flow/layout/test_lint.py
+          flow/layout/test_kpex.py
           flow/layout/test_mosline.py
           flow/layout/test_pdkproc.py
           flow/layout/test_signoff.py
