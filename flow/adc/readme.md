@@ -55,6 +55,13 @@ weights the converter learns from its ramps (`enob_drawn_design_bits`, `_extract
 - The extraction's weights recover most of the loss over all comparators and samplers (medians
   within 0.44 bit at 10 bits, 0.22 at 12 and 0.12 at 14).
 
+LF150, run 20261027_074628 (244 converters, 13 min): the arrays whose extraction leaves a gap no
+calibration recovers (`flow/cdac`: binary and the LSB split, 6.7–8.2 LSB at 14 bits) stay short of
+their nominal ENOB once calibrated (14 bits binary 11.73 against 12.71, 12 bits 10.53–10.69 against
+11.56–11.68), where the extraction's weights decode the same draw better (14 bits binary 12.32): the
+learned weights fail where a code is several LSB wide. MSB redistribution and the MSB split calibrate
+to within 0.2 bit of their nominal ENOB, or above it.
+
 ## Redundancy schemes
 
 An array's extra conversion cycles never add capacitance: each scheme redistributes the binary
