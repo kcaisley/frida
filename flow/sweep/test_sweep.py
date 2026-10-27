@@ -21,13 +21,22 @@ def test_parameters_flatten_to_one_row() -> None:
     assert all(isinstance(value, (bool, int, float, str)) or value is None for value in flat.values())
 
 
-def test_geometry_counts_the_compiled_devices_and_their_gate_area() -> None:
+def test_geometry_counts_the_compiled_devices_and_their_area() -> None:
+    """A leaf (transistors alone) has devices and no child cells; with its output stage as library
+    cells the comparator has those for child cells, and their transistors are not its devices."""
     logic = pytest.importorskip("pdk.tsmc65.hdl21").pdk_logic
+    comp.netlist.Cache.reset()
     module = comp.netlist(comp.Params())
     h.pdk.compile(module, logic)
     totals = geometry(module, "tsmc65")
-    assert totals["devices"] == len(comp.netlist(comp.Params()).instances) or totals["devices"] > 0
-    assert 0 < totals["gate_area_um2"] < 100 and totals["cells"] == 0
+    assert totals["devices"] == len(module.instances) and "child_cells" not in totals
+    assert 0 < totals["device_area_um2"] < 100
+    comp.netlist.Cache.reset()
+    cells = comp.netlist(comp.Params(output_stage=comp.OutputStage.STDCELLS))
+    h.pdk.compile(cells, logic)
+    hierarchy = geometry(cells, "tsmc65")
+    assert hierarchy["child_cells"] == 8 and hierarchy["devices"] < totals["devices"]
+    comp.netlist.Cache.reset()
 
 
 def test_every_sweep_module_keeps_the_contract() -> None:

@@ -65,11 +65,11 @@ class Origin(Enum):
 
 
 class Stage(Enum):
-    """How far a design's evaluation went: rejected by its gates' area alone, by the screen's runs (no
+    """How far a design's evaluation went: rejected by its devices' area alone, by the screen's runs (no
     noise; these two pre-filter it), through the search's runs (the full benchmark, the S-curve's
     noise too), or not admitted by the block at all."""
 
-    GATE_AREA = auto()
+    DEVICE_AREA = auto()
     QUICK_CHECK = auto()
     FULL_BENCHMARK = auto()
     INVALID = auto()
@@ -81,11 +81,11 @@ def stage(record: dict[str, Any]) -> Stage:
         return Stage.INVALID
     if record["level"] >= pipeline.Level.SEARCH.value:
         return Stage.FULL_BENCHMARK
-    return Stage.QUICK_CHECK if record["level"] == pipeline.Level.SCREEN.value else Stage.GATE_AREA
+    return Stage.QUICK_CHECK if record["level"] == pipeline.Level.SCREEN.value else Stage.DEVICE_AREA
 
 
 def shown(member: Enum) -> str:
-    """A member as the viewer shows it: its name in words (``Stage.GATE_AREA``: gate area)."""
+    """A member as the viewer shows it: its name in words (``Stage.DEVICE_AREA``: device area)."""
     return member.name.lower().replace("_", " ")
 
 
@@ -258,9 +258,9 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
         bounded = "layout_area_um2" in problem.bound
         # no layout has its gates cover more than DENSITY of it: where the gates over DENSITY exceed
         # the area bound, the design is out without simulating, its area estimated so
-        if bounded and extra["gate_area_um2"] / DENSITY > problem.bound["layout_area_um2"]:
+        if bounded and extra["device_area_um2"] / DENSITY > problem.bound["layout_area_um2"]:
             record.update(
-                metrics={**extra, "layout_area_um2": extra["gate_area_um2"] / DENSITY}, estimated=["layout_area_um2"]
+                metrics={**extra, "layout_area_um2": extra["device_area_um2"] / DENSITY}, estimated=["layout_area_um2"]
             )
             record["seconds"] = round(time.time() - start, 1)
             write_record(path, record)
@@ -544,8 +544,10 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
         record = json.loads((folder / "instance.json").read_text())
         value, violations = score(problem, record, better)
         missed = [bound for bound, violation in violations.items() if violation > 0]
-        metrics = measured(record)
-        metrics.update({key: v for key, v in record.get("metrics_full", {}).items() if metrics.get(key) is None})
+        # the metrics the block measures today (a record made before keeps ones since retired)
+        metrics = {key: value for key, value in measured(record).items() if key in better}
+        full = record.get("metrics_full", {})
+        metrics.update({key: v for key, v in full.items() if key in better and metrics.get(key) is None})
         reached = stage(record)
         # a design that missed a bound is shown greyed (``dim``): one the full benchmark rejected at
         # its cost from what was measured, where each plain factor was; one rejected before it
@@ -618,7 +620,10 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
     for row in rows:
         row["params"] = {key: row["params"].get(key) for key in params}
     every = {key for row in rows for key in row["metrics"]}
-    metrics = [key for key in dict.fromkeys([cost, *problem.cost, *problem.bound, *sorted(every)]) if key in every]
+    # the cost, the problem's other metrics, the design's size together (child cells, devices, device
+    # and layout area, the problem's or not), then the rest
+    named = [key for key in [*problem.cost, *problem.bound] if key not in pipeline.GEOMETRY]
+    metrics = [key for key in dict.fromkeys([cost, *named, *pipeline.GEOMETRY, *sorted(every)]) if key in every]
     feasible = sum(1 for row in rows if row["status"]["feasible"])
     title = f"{BLOCKS.get(block, block)}, {label} in {pdk}"
     run = f"{len(study.trials)} trials, {len(rows)} designs, {feasible} feasible"

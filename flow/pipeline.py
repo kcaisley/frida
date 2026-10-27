@@ -233,9 +233,9 @@ def betters(cls: Any) -> dict[str, Better]:
 # the metrics every sweep and optimization record carries beside the block's own (the runner's
 # geometry of the compiled circuit, the layout step's area), and which way is better
 GEOMETRY: dict[str, Better] = {
+    "child_cells": "lower",
     "devices": "lower",
-    "gate_area_um2": "lower",
-    "cells": "lower",
+    "device_area_um2": "lower",
     "layout_area_um2": "lower",
 }
 

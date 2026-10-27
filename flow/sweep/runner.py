@@ -418,7 +418,7 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
     if entry.get("w_um"):
         area = entry["w_um"] * entry["h_um"]
         record["metrics"]["layout_area_um2"] = area
-        gate = record["metrics"].get("gate_area_um2")
+        gate = record["metrics"].get("device_area_um2")
         record["metrics"]["density"] = gate / area if gate else None
     write_record(instance_dir / "instance.json", record)
     return entry
@@ -508,6 +508,7 @@ def instance_views(block: str, ident: str, record: dict, data_dir: Path) -> dict
 def table(blocks: list[str], workers: int) -> None:
     """The viewer's table of each block's newest run, and one detail file per instance."""
 
+    from flow import pipeline
     from flow.web.export import BLOCKS
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -572,10 +573,12 @@ def table(blocks: list[str], workers: int) -> None:
                 }
                 path = DATA_DIR / block / f"{row['id']}.json"
                 path.write_text(json.dumps(_json(instance), separators=(",", ":")))
-            # the parameters that tell instances apart, then every metric
+            # the parameters that tell instances apart, then every metric: the design's size together
+            # first (child cells, devices, device and layout area), the rest by name
             names = sorted({name for row in rows for name in row["params"]})
             varying = [name for name in names if len({json.dumps(row["params"].get(name)) for row in rows}) > 1]
-            metrics = sorted({name for row in rows for name in row["metrics"]})
+            present = {name for row in rows for name in row["metrics"]}
+            metrics = [name for name in dict.fromkeys([*pipeline.GEOMETRY, *sorted(present)]) if name in present]
             for row in rows:
                 row["params"] = {name: row["params"].get(name) for name in varying}
             title = BLOCKS.get(block, block)

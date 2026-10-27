@@ -82,26 +82,37 @@ def flat_params(params, prefix: str = "") -> dict[str, float | int | str | bool 
 
 
 def geometry(module: h.Module, pdk: str) -> dict[str, float]:
-    """A compiled module's device count, total gate area (W L, um2) and standard-cell count."""
+    """A compiled module's size: where it has any, its child cells, the cells directly in it, custom (a
+    submodule: a comparator, a sampling switch) or standard (a library cell), none in a leaf
+    (primitives alone); its devices, every primitive through its hierarchy (transistors, capacitors,
+    resistors; a library cell's own are not in its netlist); and its device area, its transistors'
+    total W L (um2)."""
 
     xtors = {m.name for m in import_module(f"pdk.{pdk}.hdl21.primitives.prim_dicts").xtors.values()}
     # a library cell by its name: older wrappers name their domain otherwise (IHP130's "ihp")
     library = set(import_module(f"pdk.{pdk}.hdl21.cells").CELLS)
-    totals = {"devices": 0.0, "gate_area_um2": 0.0, "cells": 0.0}
+    totals = {"child_cells": 0.0, "devices": 0.0, "device_area_um2": 0.0}
 
-    def walk(module: h.Module, multiplier: float) -> None:
+    def walk(module: h.Module, top: bool) -> None:
         for instance in module.instances.values():
             target = instance.of
-            if isinstance(target, h.Module):
-                walk(target, multiplier)
-            elif isinstance(target, h.ExternalModuleCall) and target.module.name in xtors:
-                params = target.params
-                count = multiplier * float(getattr(params, "m", 1) or 1)
-                width, length = float(getattr(params, "w", math.nan)), float(getattr(params, "l", math.nan))
-                totals["devices"] += count
-                totals["gate_area_um2"] += count * width * length * 1e12
-            elif isinstance(target, h.ExternalModuleCall) and target.module.name in library:
-                totals["cells"] += multiplier
+            if isinstance(target, h.Module) or (
+                isinstance(target, h.ExternalModuleCall) and target.module.name in library
+            ):
+                totals["child_cells"] += top
+                if isinstance(target, h.Module):
+                    walk(target, False)
+                continue
+            count = float(getattr(target.params, "m", 1) or 1)
+            totals["devices"] += count
+            if isinstance(target, h.ExternalModuleCall) and target.module.name in xtors:
+                width, length = (
+                    float(getattr(target.params, "w", math.nan)),
+                    float(getattr(target.params, "l", math.nan)),
+                )
+                totals["device_area_um2"] += count * width * length * 1e12
 
-    walk(module, 1.0)
+    walk(module, True)
+    if not totals["child_cells"]:
+        del totals["child_cells"]
     return totals
