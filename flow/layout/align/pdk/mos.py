@@ -14,6 +14,11 @@ The supply pins are the M2 straps over the rails; the design leaves vdd/vss unro
 ALIGN's connectivity check bins every metal by its centre line (M1 vertical, M2
 horizontal) and needs each via on such a line, hence the M1 stubs under the rail vias.
 Its grid DRC does not apply to these off-grid cells (Calibre signs off), so it is off.
+
+The cell is drawn with ALIGN's layout API (``RowCanvas``): its metals as wires on centre-line
+grids, its contacts and vias as vias, its other layers as regions, all on the nanometre grid;
+the comparators' layouts are mask- and label-identical to those of the cells' rectangles added
+as terminals (2026-10-28, two a PDK in all six).
 """
 
 import json
@@ -23,7 +28,8 @@ import sys
 from pathlib import Path
 
 from align.cell_fabric import transformation
-from align.cell_fabric.generators import Region, Via
+from align.cell_fabric.generators import Region, Via, Wire
+from align.cell_fabric.grid import CenterLineGrid, SingleGrid
 from align.primitive.default.canvas import DefaultCanvas
 from align.schema.constraint import OffsetsScalings, PlaceOnGrid
 
@@ -63,11 +69,23 @@ def row_constraints():
     ]
 
 
+# the row cells' cut layers and metals, by ALIGN's names: a cut is a via, a metal a wire
+CUTS = ("V0", "V1", "V2")
+METALS = ("M1", "M2", "M3")
+
+
 class RowCanvas(DefaultCanvas):
-    """Canvas that takes plain rowcell rectangles."""
+    """A canvas that draws a stems row cell (``rowcell.Cell``) with ALIGN's generators on the
+    nanometre grid: each metal rectangle a wire on a centre-line grid of its layer, direction and
+    width, each contact and via a via of its size, every other layer (diffusion, poly, implants,
+    wells, the boundary) a region. The canvas's generators are ALIGN's for each layer as before
+    (its routing metals' wires, a via for the contacts, a region for each other layer), so ALIGN
+    merges, names and checks each layer's shapes as it would a row cell's: a metal or a cut of an
+    odd size, which no centre-line grid holds exactly, is the one shape added as it is."""
 
     def __init__(self, pdk):
         super().__init__(pdk)
+        self.nm = SingleGrid(pitch=1)
         for layer in (
             "Active",
             "Poly",
@@ -78,7 +96,7 @@ class RowCanvas(DefaultCanvas):
             "Slvt",
             *_STEMS.get("extra", {}).values(),
         ):
-            self.addGen(Region(layer.lower(), layer, h_grid=self.m2.clg, v_grid=self.m1.clg))
+            self.addGen(Region(layer.lower(), layer, h_grid=self.nm, v_grid=self.nm))
         self.addGen(
             Via(
                 "v0",
@@ -103,18 +121,69 @@ class RowCanvas(DefaultCanvas):
         if self.bbox is None:
             super().computeBbox()
 
+    def _generator(self, name, make):
+        if name not in self.generators:
+            self.addGen(make(name))
+        return self.generators[name]
+
     def draw(self, rects, net_map=lambda n: n):
+        shapes = []
         for r in rects:
             net = r.term if r.term else net_map(r.net)
             pin = r.kind == "pin" and net is not None and ":" not in net
-            self.terminals.append(
-                {
-                    "netName": net,
-                    "layer": LAYERS[r.layer],
-                    "rect": [r.x0, r.y0, r.x1, r.y1],
-                    "netType": "pin" if pin else "blockage" if r.kind == "blockage" else "drawing",
-                }
+            kind = "pin" if pin else "blockage" if r.kind == "blockage" else "drawing"
+            shapes.append((LAYERS[r.layer], net, r.x0, r.y0, r.x1, r.y1, kind))
+        # each metal's wires: a centre-line grid per layer, direction and width, holding every
+        # centre line its rectangles of that width run on (two at least: a grid is its lines' period)
+        lines = {}
+        for layer, _net, x0, y0, x1, y1, _kind in shapes:
+            if layer in METALS and _even(x0, y0, x1, y1):
+                _layer, direction, width, centre = _line(x0, y0, x1, y1, layer)
+                lines.setdefault((layer, direction, width), set()).add(centre)
+        wires = {}
+        for (layer, direction, width), centres in lines.items():
+            grid = CenterLineGrid()
+            for centre in sorted(centres):
+                grid.addCenterLine(centre, width)
+            if len(centres) == 1:
+                grid.addCenterLine(max(centres) + width, width)
+            gen = self._generator(
+                f"row_{layer}_{direction}_{width}", lambda n: Wire(n, layer, direction, clg=grid, spg=self.nm)
             )
+            wires[(layer, direction, width)] = (gen, {centre: k for k, centre in enumerate(sorted(centres))})
+        for layer, net, x0, y0, x1, y1, kind in shapes:
+            if layer in METALS and _even(x0, y0, x1, y1):
+                _layer, direction, width, centre = _line(x0, y0, x1, y1, layer)
+                gen, index = wires[(layer, direction, width)]
+                lo, hi = (y0, y1) if direction == "v" else (x0, x1)
+                self.addWire(gen, net, index[centre], lo, hi, netType=kind)
+            elif layer in CUTS and kind == "drawing" and (x1 - x0) % 2 == 0 and (y1 - y0) % 2 == 0:
+                gen = self._generator(
+                    f"cut_{layer}_{x1 - x0}_{y1 - y0}",
+                    lambda n: Via(n, layer, h_clg=self.nm, v_clg=self.nm, WidthX=x1 - x0, WidthY=y1 - y0),
+                )
+                self.addVia(gen, net, (x0 + x1) // 2, (y0 + y1) // 2)
+            elif layer in METALS or layer in CUTS:
+                # an odd size: on no centre-line grid exactly, the shape as it is
+                self.terminals.append({"netName": net, "layer": layer, "rect": [x0, y0, x1, y1], "netType": kind})
+            else:
+                region = self._generator(f"row_{layer}", lambda n: Region(n, layer, h_grid=self.nm, v_grid=self.nm))
+                self.transform_and_add(region.segment(net, x0, y0, x1, y1, netType=kind))
+
+
+def _line(x0, y0, x1, y1, layer=None):
+    """A metal rectangle as a wire: (its layer, its direction, its width, its centre line)."""
+    vertical = y1 - y0 >= x1 - x0
+    return (
+        (layer, "v" if vertical else "h", x1 - x0, (x0 + x1) // 2)
+        if vertical
+        else (layer, "h", y1 - y0, (y0 + y1) // 2)
+    )
+
+
+def _even(x0, y0, x1, y1):
+    """A metal rectangle whose width across is even: a wire on a centre-line grid draws it exactly."""
+    return (x1 - x0 if y1 - y0 >= x1 - x0 else y1 - y0) % 2 == 0
 
 
 def _reach_two_tracks(cell) -> None:
