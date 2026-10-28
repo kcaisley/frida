@@ -1,9 +1,9 @@
-"""Unsilicided poly resistor row cells, drawn by the stems engine from a PDK's values.
+"""Unsilicided poly resistor row cells, drawn with ALIGN's layout API from a PDK's values.
 
-``PolyResUnit`` names a resistor (PDK, body width and length in nm); the stems resistor cell
-(``flow/layout/stems/rescell.py``) draws it one standard-cell row tall with both rails (two rows
-sharing their VDD rail where the PDK's resistor needs it), so it abuts the transistor and standard
-cells of a row, and gives its resistance from the PDK's model
+``PolyResUnit`` names a resistor (PDK, body width and length in nm); the resistor row cell
+(``flow/layout/stems/rescell.py``, drawn by the ALIGN PDK's ``ResUnit``) is one standard-cell row
+tall with both rails (two rows sharing their VDD rail where the PDK's resistor needs it), so it
+abuts the transistor and standard cells of a row, and gives its resistance from the PDK's model
 (``tech.RES``). ``polyres_signoff`` draws one resistor in every PDK that has one, runs its DRC and,
 where the PDK names its LVS source line (``RES["cdl"]``), LVS against it, the resistance included
 where the deck compares it.
@@ -18,7 +18,8 @@ from pathlib import Path
 
 from klayout import db
 
-from flow.layout.pdkproc import in_pdk, pdk_value
+from flow.layout.align.run import Drawing, draw, drawn_only
+from flow.layout.pdkproc import access_points, in_pdk, pdk_value
 
 # the PDKs with a poly resistor row cell (tech.RES)
 PDKS = ("tsmc65", "tsmc28", "tower180", "tpsc65", "ihp130", "lf150")
@@ -37,11 +38,16 @@ def polyres_layout(unit: PolyResUnit) -> tuple[db.Layout, dict]:
     """Draw one resistor row cell; returns the layout and the cell's top name, drawn width and
     length (nm, a short body lengthened to its markers' area) and modelled resistance (ohm)."""
 
+    pdk = unit.technology
+    info = in_pdk(pdk, "rescell", "res_info", unit.w_nm, unit.l_nm)
+    access_points(pdk)  # the ALIGN PDK's standard cells read them at import
     with tempfile.TemporaryDirectory() as scratch:
-        path = str(Path(scratch) / "res.gds")
-        info = in_pdk(unit.technology, "rescell", "res_gds", path, unit.w_nm, unit.l_nm)
+        pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, Path(scratch) / "pdk")
+        arguments = {"w": unit.w_nm, "l": unit.l_nm}
+        (gds,) = draw(pdk_dir, [Drawing("ResUnit", "unit", arguments, Path(scratch) / "res.gds", info["top"])])
         layout = db.Layout()
-        layout.read(path)
+        layout.read(str(gds))
+    drawn_only(layout, set(pdk_value(pdk, "tech", "LAYERS").values()))
     return layout, info
 
 

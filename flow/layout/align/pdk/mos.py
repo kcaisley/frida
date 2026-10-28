@@ -57,6 +57,7 @@ LAYERS = {
     "VTP": "Slvt",
     "BND": "Boundary",
     **_STEMS.get("extra", {}),  # the PDK's own markers on spare ALIGN layers (make_pdk.py)
+    **_STEMS.get("annotations", {}),  # the resistor's markers, each on a layer of its own (make_pdk.py)
 }
 X_GRID = 2 * XPITCH  # two M3 pitches: symmetric pairs need widths of equal parity on the placement grid
 

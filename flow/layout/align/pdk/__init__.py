@@ -5,5 +5,5 @@ from .cap import CapGenerator
 from .mom import ArrayWiring, DifferenceUnit, MomUnit
 from .wiring import Wiring
 from .mos import MOSGenerator
-from .res import ResGenerator
+from .res import ResGenerator, ResUnit
 from .stdcell import RingGenerator, generator_class

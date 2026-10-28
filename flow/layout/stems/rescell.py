@@ -246,20 +246,10 @@ def _island(spec: dict, w: int, l: int, plus: str, minus: str, vss: str) -> Cell
     return cell
 
 
-def res_gds(path: str, w: int, l: int) -> dict:
-    """Write one resistor row cell to a GDS file, its pins labelled as the row cells' (``PIN_TEXT``); returns
-    its name, drawn length and modelled resistance."""
+def res_info(w: int, l: int) -> dict:
+    """One resistor row cell's name, drawn width and length (nm, a short body lengthened to its
+    markers' area) and modelled resistance (ohm); ALIGN draws the cell (``pdk/res.py``'s ``ResUnit``)."""
 
-    from klayout import db as kdb
-
-    cell = res(w, l)
-    layout = kdb.Layout()
-    layout.dbu = tech.DBU
-    kc = rowcell.to_klayout(cell, layout, kdb)
-    for net, rects in cell.pins.items():
-        for r in rects:
-            layer = tech.PIN_TEXT.get(r.layer) or tech.LAYERS.get(f"{r.layer}.PIN") or tech.LAYERS[r.layer]
-            kc.shapes(layout.layer(*layer)).insert(kdb.Text(net, kdb.Trans((r.x0 + r.x1) // 2, (r.y0 + r.y1) // 2)))
-    layout.write(path)
-    drawn_w, drawn_l = (int(part[1:]) for part in cell.name.split("_")[1:])
-    return {"top": cell.name, "w": drawn_w, "l": drawn_l, "r": res_value(drawn_w, drawn_l)}
+    name = res(w, l).name
+    drawn_w, drawn_l = (int(part[1:]) for part in name.split("_")[1:])
+    return {"top": name, "w": drawn_w, "l": drawn_l, "r": res_value(drawn_w, drawn_l)}
