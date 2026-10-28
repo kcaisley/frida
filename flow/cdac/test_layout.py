@@ -1,13 +1,22 @@
 """The CDAC layout's planning, which needs no PDK: each net its own track, in the order of its
-columns from the channel's start; the spacing test between two shapes; the unit grid's rows."""
+columns from the channel's start; the spacing test between two shapes; the unit grid's rows; a
+supply's pin jogging off its strap."""
 
 from itertools import pairwise
 
 from klayout import db
 
-from .layout import _gap, _rows, _tracks
+from .layout import _clearance, _gap, _rows, _supply_pin, _tracks
 
 G = {"clearance": 600, "track": 200}
+# a thin M4 under a thick top via (its column metal's width and space, its cut's enclosures)
+RULE = {
+    "M4": {"width": 100, "space": 100, "length": 500},
+    "M5": {"width": 400, "space": 400},
+    "V3": {"cut": 100, "space": 100, "along": 50, "across": 0},
+    "V4": {"cut": 360, "space": 340, "along": 80, "across": 20},
+}
+GEO = {"grid": 5, "end_V3": 100, "end_V4": 260}
 
 
 def test_each_net_has_its_track_in_the_order_of_its_columns():
@@ -44,3 +53,18 @@ def test_the_unit_grid_holds_each_stage_whole_over_its_own_column():
     assert placed == dict(enumerate(weights))
     assert len(set(columns.values())) == len(weights)
     assert [row[0][0] for row in rows[:5]] == [0, 0, 0, 0, 0]  # the heaviest stage's whole rows first
+
+
+def test_a_supply_pin_jogs_off_its_strap_where_the_column_above_it_is_taken():
+    """vdd's and vss's straps closer at each end of a bank than two thick-via landings: vdd's pin on
+    the left, its column jogged along M4 clear of a state's column beside the strap; vss's on the
+    right, the two columns a bank apart."""
+    strap = lambda x: db.Box(x - 50, 0, x + 50, 4000)
+    state = db.Box(400, -(10**6), 800, -100)
+    pins = {"straps": {"vdd": [strap(200), strap(9200)], "vss": [strap(0), strap(9400)]}, "columns": [state], "m4": []}
+    vdd = _supply_pin(pins["straps"]["vdd"], -1, pins, RULE, GEO)
+    vss = _supply_pin(pins["straps"]["vss"][::-1], -1, pins, RULE, GEO)
+    assert vdd["strap_x"] == 200 and vdd["x"] < 200 and vdd["clear"] >= 0
+    assert _clearance(vdd["column"], [state], RULE, "M5") >= 0
+    assert vss["strap_x"] == vss["x"] == 9400 and vss["clear"] >= 0
+    assert pins["columns"] == [state, vdd["column"], vss["column"]] and pins["m4"] == [vdd["m4"], vss["m4"]]

@@ -257,6 +257,21 @@ class _Wires:
         self.pad(f"M{low}", net, x, y, f"V{low}", vertical[0], spread[low])
         self.pad(f"M{high}", net, x, y, f"V{high - 1}", vertical[1], spread[high - 1])
 
+    def jog(self, net: str, x0: int, x1: int, y: int) -> None:
+        """Vias from an M3 strap at x0 up to an M5 column at x1, both at y: the via-3 cuts at x0, the
+        via-4 cuts at x1, their M4 landing drawn from one to the other; ``stack`` from M3 to M5 where
+        x0 is x1."""
+        count, step, spread = _cuts(self.rule, self.g, 3, 5, 1)
+        for n, x in ((3, x0), (4, x1)):
+            for k in range(count[n]):
+                self.cut(f"V{n}", net, x, y + round((k - (count[n] - 1) / 2) * step[n]))
+        across, along = _landing(self.rule, self.g, "M4", ("V3", "V4"))
+        along += max(spread[3], spread[4])
+        lo, hi = sorted((x0, x1))
+        self.parts["landings"].append(["M4", net, lo - across, y - along, hi + across, y + along])
+        self.pad("M3", net, x0, y, "V3", True, spread[3])
+        self.pad("M5", net, x1, y, "V4", True, spread[4])
+
     def column(
         self, net: str, x: int, y0: int, y1: int, ends: tuple[str | None, str | None], metal: str = "M3"
     ) -> None:
@@ -278,10 +293,14 @@ class _Wires:
 
     def to_pin(self, net: str, pin: dict[str, Any], track: int) -> None:
         """An M5 column from a track to a bank's pin (the bank draws nothing above M3), down a via
-        stack: onto an M2 bar (V2, V3, V4) or into an M3 strap past its end (V3, V4)."""
+        stack: onto an M2 bar (V2, V3, V4) or into an M3 strap past its end (V3, V4, along M4 where the
+        column jogs off the strap)."""
         x, y = pin["x"], pin["y"]
         self.column(net, x, track, y, ("V4", "V4"), "M5")
-        self.stack(net, x, y, 2 if pin["kind"] == "bar" else 3, 5, vertical=(pin["kind"] != "bar", True))
+        if pin["kind"] == "bar":
+            self.stack(net, x, y, 2, 5, vertical=(False, True))
+        else:
+            self.jog(net, pin["strap_x"], x, y)
         for b in pin.get("extension", ()):  # the bar drawn on to the via-2 past its end, or off it
             self.parts["landings"].append(["M2", net, b.left, b.bottom, b.right, b.top])
 
@@ -507,25 +526,49 @@ def _dogleg(
 
 def _strap_pin(strap: db.Box, toward: int, pins: dict[str, Any], rule: dict, g: dict) -> dict[str, Any]:
     """A pin on an M3 supply strap: its via-3 inside the strap's end facing ``toward``, its M5 column
-    (from its pad) and how clear of the columns placed that keeps (``clear``)."""
+    (from its pad) over the strap where that keeps clear of the columns and the M4 placed, else at
+    the nearest x that does along an M4 jog (``_Wires.jog``) reaching no other strap (a strap's
+    neighbours can be closer than two landings: the PDK's thick top via); how clear it keeps
+    (``clear``; the column over the strap where none does)."""
+    grid = g["grid"]
     end = strap.top if toward > 0 else strap.bottom
-    x = (strap.left + strap.right) // 2 // g["grid"] * g["grid"]
+    sx = (strap.left + strap.right) // 2 // grid * grid
     y = end - toward * g["end_V3"]
-    half = _up(max(rule["M5"]["width"], rule["V4"]["cut"] + 2 * rule["V4"]["across"]) // 2, g["grid"])
+    half = _up(max(rule["M5"]["width"], rule["V4"]["cut"] + 2 * rule["V4"]["across"]) // 2, grid)
     back = y - toward * g["end_V4"]
-    column = db.Box(x - half, min(back, y + toward * 10**6), x + half, max(back, y + toward * 10**6))
-    clear = _clearance(column, pins["columns"], rule, "M5")
-    return {"kind": "strap", "x": x, "y": y, "column": column, "clear": clear}
+    across, along = _landing(rule, g, "M4", ("V3", "V4"))
+    _, _, spread = _cuts(rule, g, 3, 5, 1)
+    along += max(spread[3], spread[4])
+    reach = across + rule["M4"]["space"]
+    # the straps a jog may not reach: all but those its landing over the strap already covers
+    others = [
+        s
+        for straps in pins["straps"].values()
+        for s in straps
+        if s != strap and not (s.left < sx + reach and sx - reach < s.right)
+    ]
+    first = None
+    for x in [sx, *(sx + sign * k * half for k in range(1, 40) for sign in (-1, 1))]:
+        lo, hi = min(sx, x), max(sx, x)
+        if any(s.left < hi + reach and lo - reach < s.right for s in others):
+            continue
+        column = db.Box(x - half, min(back, y + toward * 10**6), x + half, max(back, y + toward * 10**6))
+        m4 = db.Box(lo - across, y - along, hi + across, y + along)
+        clear = min(_clearance(column, pins["columns"], rule, "M5"), _clearance(m4, pins["m4"], rule, "M4"))
+        pin = {"kind": "strap", "x": x, "strap_x": sx, "y": y, "column": column, "m4": m4, "clear": clear}
+        first = first or pin
+        if clear >= 0:
+            return pin
+    return first
 
 
 def _supply_pin(straps: list[db.Box], toward: int, pins: dict[str, Any], rule: dict, g: dict) -> dict[str, Any]:
-    """A supply's pin on the first of its ``straps`` whose column keeps clear of those placed (else
-    on the first); its column joins the bank's."""
-    pin = next(
-        (pin for pin in (_strap_pin(strap, toward, pins, rule, g) for strap in straps) if pin["clear"] >= 0),
-        None,
-    ) or _strap_pin(straps[0], toward, pins, rule, g)
+    """A supply's pin on the first of its ``straps`` whose pin keeps clear of those placed, jogging
+    where it must (``_strap_pin``; else on the first); its column and its M4 join the bank's."""
+    candidates = [_strap_pin(strap, toward, pins, rule, g) for strap in straps]
+    pin = next((pin for pin in candidates if pin["clear"] >= 0), candidates[0])
     pins["columns"].append(pin["column"])
+    pins["m4"].append(pin["m4"])
     return pin
 
 
