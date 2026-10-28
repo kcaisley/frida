@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from flow.analysis.plots import NORD_BLUE, NORD_RED, PLOT_STYLE, save_figure, style_grid
-from flow.capdriver.analysis import AnalysisCapdriverDrive
+from flow.cdac.capdriver.analysis import AnalysisCapdriverDrive
 
 
 @mpl.rc_context(PLOT_STYLE)

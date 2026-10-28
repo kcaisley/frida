@@ -17,13 +17,13 @@ import pdk
 from . import test_spectre
 
 
-@pytest.mark.parametrize("block", ("adc", "caparray"))
+@pytest.mark.parametrize("block", ("adc", "cdac.caparray"))
 def test_targets_and_python_contract(block):
     module = importlib.import_module(f"flow.{block}.sim")
     targets = importlib.import_module(f"flow.{block}.targets")
     # the simulation targets: each runs the sim function of its name (the block prefix dropped)
     runs = {
-        name: getattr(module, name, None) or getattr(module, f"{block}_{name}", None)
+        name: getattr(module, name, None) or getattr(module, f"{block.rpartition('.')[2]}_{name}", None)
         for name, value in vars(targets).items()
         if inspect.isfunction(value) and value.__module__ == targets.__name__ and not name.startswith("_")
     }
@@ -82,7 +82,7 @@ def capture_sim(monkeypatch):
 
 @pytest.mark.parametrize(
     "block,target,short_stop,full_stop,threads",
-    (("caparray", "frida1_transfer_curve", 200.1e-9, 2048 * 200e-9 + 2047 * 100e-12, 4),),
+    (("cdac.caparray", "frida1_transfer_curve", 200.1e-9, 2048 * 200e-9 + 2047 * 100e-12, 4),),
 )
 @pytest.mark.parametrize("check", (False, True))
 def test_block_simulation_recipe(block, target, short_stop, full_stop, threads, check, capture_sim, tmp_path):

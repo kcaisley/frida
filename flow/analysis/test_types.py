@@ -29,7 +29,7 @@ from flow.analysis.types import (
     check_identity,
     measurement_identity,
 )
-from flow.caparray.subckt import RedunStrat
+from flow.cdac.caparray.subckt import RedunStrat
 from flow.scans.params import AdcScanParams
 
 

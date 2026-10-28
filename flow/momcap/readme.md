@@ -13,7 +13,7 @@
 
 ## The model the generators use
 
-`tech.MOM_MODEL[style, layers]` holds rows (spacing nm, slope fF/µm, intercept fF): in each PDK, each extracted spacing's own length fit; the CDAC (`flow.caparray.layout.mom_array_params`) interpolates them in 1/s at the spacing it draws. α/s + β summarises the trend but misses individual spacings by up to a tenth (the extraction's spacing-dependent width bias), so the generator uses the measured rows. A PDK that calibrates its production unit itself (`tech.MOM_FITS`, which its LVS deck checks) keeps that calibration.
+`tech.MOM_MODEL[style, layers]` holds rows (spacing nm, slope fF/µm, intercept fF): in each PDK, each extracted spacing's own length fit; the CDAC (`flow.cdac.caparray.layout.mom_array_params`) interpolates them in 1/s at the spacing it draws. α/s + β summarises the trend but misses individual spacings by up to a tenth (the extraction's spacing-dependent width bias), so the generator uses the measured rows. A PDK that calibrates its production unit itself (`tech.MOM_FITS`, which its LVS deck checks) keeps that calibration.
 
 ## Results (run 20261018_acc1)
 

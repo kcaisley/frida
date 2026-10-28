@@ -39,7 +39,7 @@ from flow.analysis.types import (
     MeasCdac,
     MeasInfo,
 )
-from flow.caparray import CapArrayConfig, get_caparray_weights
+from flow.cdac.caparray import CapArrayConfig, get_caparray_weights
 from flow.scans.params import AdcScanParams
 from flow.scans.scan_cdac import _build_cdac_params
 

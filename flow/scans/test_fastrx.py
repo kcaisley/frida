@@ -78,7 +78,7 @@ from flow.analysis.plots import (
     plot_adc_noise_sweep,
 )
 from flow.analysis.types import MeasAdc, MeasInfo
-from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
+from flow.cdac.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.scans import scan_adc, scan_adc_noctl
 from flow.scans.fastrx import convert_fastrx_words_to_adc, program_comp_delay, select_fastrx_capture_settings
 from flow.scans.params import AdcScanParams, build_adc_variants, load_board_map, validate_params

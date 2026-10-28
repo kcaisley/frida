@@ -6,7 +6,7 @@ resolution, no difference plate where there is no coarse/fine split.
 
 The design is an ADC array with the drivers that switch it, wired as the ADC wires them
 (``flow.adc.subckt``): each side's main and difference driver of the array's stages
-(``flow.capdriver``), its plates ideal capacitors at the array's extracted values, its top plate's
+(``flow.cdac.capdriver``), its plates ideal capacitors at the array's extracted values, its top plate's
 other load to ground (``Params.dac``); ``adc_bits`` is the converter's resolution, whose half LSB
 the settling is measured to.
 
@@ -28,7 +28,7 @@ import numpy as np
 from pydantic import PositiveInt
 
 from flow import pipeline
-from flow.capdriver.subckt import CapDriverParams
+from flow.cdac.capdriver.subckt import CapDriverParams
 
 # each top plate's DC path in the testbench: to mid-supply, so slow that a window loses nothing
 BLEED_OHM = 1e12
@@ -68,7 +68,7 @@ class _Dac:
     )
     parasitic_f = h.Param(dtype=float, desc="Each top plate's other load, to ground (F)", default=250e-15)
     # the coarse/fine split: each stage's weight in coarse units of this weight, its rest in
-    # difference fingers (``flow.caparray.layout``); None, no split: every stage in ring units of the
+    # difference fingers (``flow.cdac.caparray.layout``); None, no split: every stage in ring units of the
     # array's unit capacitance, no difference plates (``flow.cdac.layout.layout_units``)
     split = h.Param(
         dtype=int | None,

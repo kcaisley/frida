@@ -16,8 +16,8 @@ import numpy as np
 
 from flow.analysis import calc
 from flow.analysis.types import Analysis, Meas
-from flow.caparray.sim import CapArrayTbParams
-from flow.caparray.subckt import CapArrayConfig, get_caparray_weights
+from flow.cdac.caparray.sim import CapArrayTbParams
+from flow.cdac.caparray.subckt import CapArrayConfig, get_caparray_weights
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

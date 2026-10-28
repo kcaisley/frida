@@ -21,7 +21,7 @@ from flow.adc.sequences import AdcSequence
 from flow.analysis import calc
 from flow.analysis.io import write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo, Wave
-from flow.caparray import get_caparray_weights
+from flow.cdac.caparray import get_caparray_weights
 from flow.scans.fastrx import (
     convert_fastrx_words_to_adc,
     program_comp_delay,

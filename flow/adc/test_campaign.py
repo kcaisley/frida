@@ -23,7 +23,7 @@ from flow.adc.campaign import (
 from flow.adc.figures import FIGURES, _extracted, enob_ladder
 from flow.adc.subckt import AdcParams
 from flow.analysis.adc import analyze_adc_dynamic
-from flow.caparray.subckt import CapArrayConfig, RedunStrat
+from flow.cdac.caparray.subckt import CapArrayConfig, RedunStrat
 
 
 def test_the_campaign_has_every_capture_the_figures_read() -> None:

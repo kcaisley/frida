@@ -26,7 +26,7 @@ from flow.adc.sim import AdcTbParams
 from flow.analysis import calc
 from flow.analysis.io import read_measurement, write_measurement
 from flow.analysis.types import MeasCdac, MeasInfo, Wave
-from flow.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
+from flow.cdac.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.scans.fastrx import (
     convert_fastrx_words_to_comp,
     program_comp_delay,

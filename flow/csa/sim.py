@@ -29,8 +29,8 @@ from hdl21.primitives import C, Idc, MosType, Vdc, Vpulse
 from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
 from flow.analysis.io import write_measurement
-from flow.circuit.ports import testbench_from_ports
 from flow.circuit.devices import mos as _mos
+from flow.circuit.ports import testbench_from_ports
 
 from .subckt import CASES, Csa, CsaNets, CsaParams, Feedback
 

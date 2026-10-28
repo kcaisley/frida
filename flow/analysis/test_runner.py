@@ -29,7 +29,7 @@ from flow.analysis.types import (
     AnalysisAdcOperatingConditions,
     AnalysisAdcTimingSummary,
 )
-from flow.caparray import targets as caparray_targets
+from flow.cdac.caparray import targets as caparray_targets
 
 
 def test_root_api_exposes_domain_analyses_not_campaign_combiners() -> None:
@@ -76,7 +76,7 @@ STUDIES = {
             "cml",
             "pi",
             "clkgen",
-            "capdriver",
+            "cdac.capdriver",
             "csa",
             "disc",
             "schmitt",

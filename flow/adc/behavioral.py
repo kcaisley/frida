@@ -29,7 +29,7 @@ from flow import comp as comparator
 from flow import samp as sampler
 from flow.adc.sequences import AdcSequence
 from flow.adc.sim import AdcTbParams
-from flow.caparray.subckt import CapArrayConfig, CapArrayParams, get_caparray_weights, unit_capacitance_f
+from flow.cdac.caparray.subckt import CapArrayConfig, CapArrayParams, get_caparray_weights, unit_capacitance_f
 
 # Rough 65-nm LVT device constants for the estimates drawn from HDL21 sizing.
 W_MIN_UM = 0.12
@@ -206,13 +206,6 @@ def calc_ideal_capacitances(cdac: CapArrayConfig) -> tuple[np.ndarray, np.ndarra
         main_f.append(sum(unit_f * (array.coarse_weight + chunk) / 2 + tail_f for chunk in chunks))
         diff_f.append(sum(unit_f * (array.coarse_weight - chunk) / 2 + tail_f for chunk in chunks))
     return np.asarray(main_f), np.asarray(diff_f)
-
-
-def calc_capacitor_mismatch(capacitance_f: np.ndarray, *, unit_mismatch: float, rng: np.random.Generator) -> np.ndarray:
-    """Draw Pelgrom mismatch: sigma_C = unit_mismatch * sqrt(C * 1 fF) for every capacitor."""
-
-    capacitance_f = np.asarray(capacitance_f, dtype=np.float64)
-    return capacitance_f + rng.normal(0.0, unit_mismatch * np.sqrt(capacitance_f * 1e-15))
 
 
 def calc_sequence_times(tb: AdcTbParams, decisions: int) -> tuple[np.ndarray, np.ndarray]:

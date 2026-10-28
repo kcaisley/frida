@@ -7,8 +7,8 @@ from pathlib import Path
 from flow import new_run
 from flow.analysis.io import read_measurements
 from flow.analysis.studies import BASE_PATH
-from flow.capdriver.analysis import MeasCapdriver, analyze_capdriver_drive
-from flow.capdriver.plots import plot_capdriver_load, plot_capdriver_supply
+from flow.cdac.capdriver.analysis import MeasCapdriver, analyze_capdriver_drive
+from flow.cdac.capdriver.plots import plot_capdriver_load, plot_capdriver_supply
 from flow.comp.layout import PDKS
 from flow.sweep import runner as sweep_runner
 
@@ -34,9 +34,9 @@ def layout_frida1() -> Path:
 
 def sweep() -> None:
     """The capacitor driver's sweep in a fresh run, every PDK: characterized, laid out, tabulated."""
-    sweep_runner.run(["capdriver"], sweep_runner.PDKS, 36)
-    sweep_runner.layout(["capdriver"], 28)
-    sweep_runner.table(["capdriver"], 16)
+    sweep_runner.run(["cdac.capdriver"], sweep_runner.PDKS, 36)
+    sweep_runner.layout(["cdac.capdriver"], 28)
+    sweep_runner.table(["cdac.capdriver"], 16)
 
 
 # ---- studies: figures of archived runs, into build/analysis/<block>/<timestamp>

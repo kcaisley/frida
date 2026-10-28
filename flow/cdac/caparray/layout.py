@@ -1,6 +1,6 @@
 """The FRIDA unit-length CDAC's layout: a process-independent generator and the named targets.
 
-Electrical weights come from :mod:`flow.caparray.subckt`; this module holds only dimensionless
+Electrical weights come from :mod:`flow.cdac.caparray.subckt`; this module holds only dimensionless
 topology choices (the weight family, the stack, the units' order). The cells are drawn by the stems
 engine (``flow/layout/stems/capcell.py``, in a process bound to the PDK, ``in_pdk``), which derives
 every dimension from the PDK's metal and via rules (``pdk.<tech>.layout.tech``: ``RULES``,
@@ -14,7 +14,7 @@ the coarse weight is a unary element, a lighter one a length-scaled binary eleme
 2018); the coarse weight is the split between them. A unary element keeps a difference finger of
 the tail alone, or (``unary_length``) is one main finger and no difference finger. The ADC study's
 arrays draw unary rows so, tie their edge dummies' fingers to the top plate, and take their split
-and step from ``flow.caparray.sizing``, each to an outline about twice as tall as wide
+and step from ``flow.cdac.caparray.sizing``, each to an outline about twice as tall as wide
 (``outline_um``). A unit stacks its fingers on the PDK's top three MOM metals unless a target says
 otherwise (``STACKED_METALS``).
 
@@ -22,11 +22,11 @@ otherwise (``STACKED_METALS``).
 the spacing the generator draws, or the calibrated ``tech.MOM_FITS``): the same lengths the
 generator draws, at the capacitance the model gives them. The helpers take the array they
 work on; each named target declares its arrays (FRIDA's ``RADIX17``, the ADC study's
-``ADC_ARRAYS``) and its stack (``flow.caparray.targets`` runs them). The production targets
+``ADC_ARRAYS``) and its stack (``flow.cdac.caparray.targets`` runs them). The production targets
 build an array, sign it off (DRC, LVS against that netlist, 3D extraction) and tabulate its
 extracted capacitances (``pex.py``); ``caparray_all_pdks`` draws the array in every PDK and runs
 its DRC, ``caparray_extract_all_pdks`` extracts it where the PDK can and compares it with the
-model; ``flow.caparray.sizing`` sizes and extracts each ADC array in TSMC65.
+model; ``flow.cdac.caparray.sizing`` sizes and extracts each ADC array in TSMC65.
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ class UnitLengthCapFamilyParams:
     side_access_tracks: int = 5
     # the length (nm) a unit of weight adds to the main finger and takes from the difference
     # finger: the unit capacitance is twice it times the fingers' capacitance per length. None:
-    # two tracks, the production arrays' step; ``flow.caparray.sizing`` sizes an ADC array's
+    # two tracks, the production arrays' step; ``flow.cdac.caparray.sizing`` sizes an ADC array's
     weight_step: int | None = None
     # the edge dummies' fingers joined to the ring, on the top plate, rather than floating: the
     # same pattern beside the outermost units, without the load (an extraction lumps a floating
@@ -82,7 +82,7 @@ class UnitLengthCapFamilyParams:
     # coarse weight in units (the fit's slope over its length, its intercept once), and no
     # difference finger, so nothing of it opposes its step (Harpe's unary elements, C' = 0); its
     # ring and length every row's. None: the unary rows keep a difference finger of the tail.
-    # ``flow.caparray.sizing`` sets it for the ADC arrays; FRIDA's production arrays keep None
+    # ``flow.cdac.caparray.sizing`` sets it for the ADC arrays; FRIDA's production arrays keep None
     unary_length: int | None = None
     # the shield's strip under the inner fingers (the bottom plates, driven: the strip only spares
     # their drivers the substrate's load). False: the mesh's holes span both gaps and the finger,

@@ -1,6 +1,6 @@
 """The ADC study's arrays sized through their extraction: each array's split and capacitance.
 
-Every unit of an array is a row of the same length (``flow.caparray.layout``): a chunk of the
+Every unit of an array is a row of the same length (``flow.cdac.caparray.layout``): a chunk of the
 coarse weight is a unary row, one main finger of the coarse weight in units and no difference
 finger, and a lighter chunk a length-scaled binary row, its main and difference fingers about the
 coarse weight (Harpe, JSSC 2018: N_b = log2 of the coarse weight binary bits, the rest unary). A
@@ -15,7 +15,7 @@ Two constraints size every array, both on its own extracted top plate:
 
 - its full scale at least ``MIN_FULL_SCALE`` of the reference;
 - its sampled noise, both sides' kT/C, no more than its quantization noise at that full scale
-  (``flow.caparray.subckt.total_capacitance_f``).
+  (``flow.cdac.caparray.subckt.total_capacitance_f``).
 
 Every array's outline (one side's; the converter's two sit side by side) is drawn about ``ASPECT``
 times as tall as wide, so that the pair is about square: the strips' pitch is the technology's, and
@@ -31,7 +31,7 @@ capacitance lets it be. From ``EXACT_UNARY_BITS`` (14 bits) the splits are power
 unary rows keep a difference finger of the tail, so that the tens of unary rows of a stage weigh
 exactly the coarse weight each.
 
-The capacitances are the PDK's FMOM model's (``RowModel``, from ``flow.caparray.layout``'s
+The capacitances are the PDK's FMOM model's (``RowModel``, from ``flow.cdac.caparray.layout``'s
 geometry and ``_mom_fit``) corrected by each array's own extraction (``calibrated``): its binary
 unit (exact by the strips' difference, whatever the fit), its unary row (one finger, its ends not
 cancelled: its length is corrected to the coarse weight in binary units, at each split by the
@@ -163,7 +163,7 @@ class RowModel:
 
     def outline_um(self, rows: int, coarse: int, step_nm: float) -> tuple[float, float]:
         """The array's outline (width, height): its rows and two edge dummies, as
-        ``flow.caparray.layout.outline_um`` draws it."""
+        ``flow.cdac.caparray.layout.outline_um`` draws it."""
         width = (rows + 1) * self.pitch_um + self.outer_width_um + self.side_um
         return width, self.row_um(coarse, step_nm) + self.bar_um
 
@@ -669,7 +669,7 @@ def extract_adc_arrays(
     (``seed``: those of the same family, a holding one copied in rather than drawn again): each pass
     sizes every array from its extractions (``resolution_minimums``, ``design``) and extracts those no extraction holds for
     (``_holding``), into ``<name>/<pdk>/3l_pass<k>``, until none is left; each array's holding
-    extraction is then its ``<name>/<pdk>/3l`` (``flow.caparray.model.CapArrayModel`` reads it),
+    extraction is then its ``<name>/<pdk>/3l`` (``flow.cdac.caparray.model.CapArrayModel`` reads it),
     the others stay as passes. Writes ``summary.json``:
     each resolution's least switched capacitance and what sets it, each array's design, its
     extraction against both constraints, and its passes."""

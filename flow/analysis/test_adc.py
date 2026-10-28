@@ -38,7 +38,7 @@ from flow.analysis.types import (
     MeasInfo,
     Wave,
 )
-from flow.caparray import CapArrayConfig
+from flow.cdac.caparray import CapArrayConfig
 from flow.scans.params import AdcScanParams
 
 timing_sequences = tuple(

@@ -8,7 +8,7 @@ import hdl21 as h
 import pytest
 from pydantic import ValidationError
 
-from flow.caparray import CapArrayConfig, RedunStrat
+from flow.cdac.caparray import CapArrayConfig, RedunStrat
 
 from .subckt import Adc, AdcParams
 

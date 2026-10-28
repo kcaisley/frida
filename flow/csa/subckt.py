@@ -28,9 +28,9 @@ import hdl21 as h
 from hdl21.prefix import f
 from hdl21.primitives import C, MosType, MosVth
 
-from flow.circuit.ports import module_from_ports
 from flow.circuit.devices import mos as _mos
 from flow.circuit.devices import write_netlist as _write_netlist
+from flow.circuit.ports import module_from_ports
 
 
 class Feedback(Enum):

@@ -4,13 +4,13 @@ from pathlib import Path
 
 
 def test_removed_workflow_globals_and_pin_adapters_do_not_return() -> None:
-    repository = Path(__file__).resolve().parents[2]
+    repository = Path(__file__).resolve().parents[3]
     sources = "\n".join(
         (repository / path).read_text(encoding="utf-8")
         for path in (
             "flow/adc/layout.py",
             "flow/adc/laygen.py",
-            "flow/caparray/layout.py",
+            "flow/cdac/caparray/layout.py",
         )
     )
     for removed in (

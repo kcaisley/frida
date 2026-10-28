@@ -22,14 +22,14 @@ fingers' tails and the ring's coupling to the shield load the top plate too). At
 the converter's sampled noise, both sides' kT/C on the whole top plate, is 1/``cap_scale`` of its
 quantization noise (``total_capacitance_f``); its switched capacitance is the switched share of
 that top plate (``switched_capacitance_f``), and the unit that over the total weight
-(``unit_capacitance_f``). ``flow.caparray.layout`` sizes each ADC array at the full scale its own
+(``unit_capacitance_f``). ``flow.cdac.caparray.layout`` sizes each ADC array at the full scale its own
 extraction measures; a netlist without a layout is an ideal array, all of its top plate switched,
 at a 1 V reference.
 
 ``weights`` and ``driver_strengths`` are FRIDA-1's fabricated arrays' alone (lab scans, FRIDA-1's
 layout checks, decoding archived captures): the design space never sets them. Its arrays' weights
 are their scheme's, and their drivers are derived from their extracted plates
-(``flow.capdriver.model.driver_strengths``).
+(``flow.cdac.capdriver.model.driver_strengths``).
 """
 
 from enum import Enum
@@ -80,7 +80,7 @@ class CapArrayConfig:
     driver_strengths = h.Param(
         dtype=tuple[int, ...] | None,
         desc="FRIDA-1's fabricated C0-first drive bands (1, 2 or 4); None: derived from the array's plates "
-        "(flow.capdriver.model.driver_strengths). The design space never sets it",
+        "(flow.cdac.capdriver.model.driver_strengths). The design space never sets it",
         default=None,
     )
     weights = h.Param(
@@ -230,7 +230,7 @@ class CapArrayParams:
     unary_rows = h.Param(
         dtype=bool,
         desc="Each chunk of the coarse weight a unary row: one main finger of the coarse weight in units, no "
-        "difference finger (flow.caparray.layout.UnitLengthCapFamilyParams.unary_length)",
+        "difference finger (flow.cdac.caparray.layout.UnitLengthCapFamilyParams.unary_length)",
         default=False,
     )
 

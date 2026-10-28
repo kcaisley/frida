@@ -15,7 +15,6 @@ from flow.adc.behavioral import (
     SalogicBehavioralParams,
     SampBehavioralParams,
     build_continuous_sequence,
-    calc_capacitor_mismatch,
     calc_ideal_capacitances,
     calc_redundancy_margins,
     calc_strongarm_noise,
@@ -28,7 +27,8 @@ from flow.adc.sequences import symbol160_init4_samp20_comp11110000_logic00001111
 from flow.adc.sim import AdcTbParams
 from flow.adc.subckt import AdcParams
 from flow.analysis.plots import plot_adc_redundancy
-from flow.caparray.subckt import CapArrayConfig, RedunStrat, get_caparray_weights, unit_capacitance_f
+from flow.cdac.caparray.model import calc_capacitor_mismatch
+from flow.cdac.caparray.subckt import CapArrayConfig, RedunStrat, get_caparray_weights, unit_capacitance_f
 
 
 def test_redundancy_calculator(tmp_path: Path) -> None:

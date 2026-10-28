@@ -2,8 +2,8 @@
 
 from types import SimpleNamespace
 
-from flow.caparray.subckt import CapArrayConfig
-from flow.capdriver import model
+from flow.cdac.caparray.subckt import CapArrayConfig
+from flow.cdac.capdriver import model
 
 
 def test_the_drivers_scale_with_their_plates(monkeypatch):

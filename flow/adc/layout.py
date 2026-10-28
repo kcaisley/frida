@@ -11,8 +11,8 @@ from typing import Literal
 import hdl21 as h
 from klayout import db
 
-from flow.caparray.layout import CapArrayLayout, CapArrayLayoutParams, UnitLengthCapFamilyParams, mom_array_params
-from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights
+from flow.cdac.caparray.layout import CapArrayLayout, CapArrayLayoutParams, UnitLengthCapFamilyParams, mom_array_params
+from flow.cdac.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights
 from flow.layout.gdsdiff import gds_diff
 from flow.layout.signoff import SignoffParams, run_signoff
 from flow.util.netlist import omit_subcircuit, replace_subcircuit

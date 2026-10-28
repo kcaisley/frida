@@ -179,7 +179,7 @@ def capdriver_characterization(run_dir: Path, *, check: bool = False) -> Path:
     """
 
     from flow.analysis.types import MeasInfo
-    from flow.capdriver.analysis import MeasCapdriver
+    from flow.cdac.capdriver.analysis import MeasCapdriver
     from flow.circuit.results import read_transient_wave
     from flow.comp.layout import PDKS
 

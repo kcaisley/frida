@@ -19,8 +19,8 @@ import numpy as np
 
 from flow.analysis import calc
 from flow.analysis.types import Analysis, Meas, measurement_identity
-from flow.capdriver.sim import CapdriverTbParams
-from flow.capdriver.subckt import CapDriverParams
+from flow.cdac.capdriver.sim import CapdriverTbParams
+from flow.cdac.capdriver.subckt import CapDriverParams
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

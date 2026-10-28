@@ -4,9 +4,9 @@ component its block sweep's instance."""
 
 from flow import comp
 from flow.adc import sweep
-from flow.caparray.layout import ADC_ARRAYS, RADIX17
-from flow.caparray.sim import CASES
-from flow.caparray.subckt import RedunStrat, get_caparray_weights
+from flow.cdac.caparray.layout import ADC_ARRAYS, RADIX17
+from flow.cdac.caparray.sim import CASES
+from flow.cdac.caparray.subckt import RedunStrat, get_caparray_weights
 from flow.sweep.runner import design_space, digest
 
 

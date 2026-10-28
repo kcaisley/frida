@@ -597,7 +597,7 @@ def test_every_shield_tab_reaches_the_shield(tmp_path: Path, shield_layer: int, 
 
 
 def test_manifest_tracks_dynamic_array(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("flow.caparray.layout._calc_unit_geometry", _geometry)
+    monkeypatch.setattr("flow.cdac.caparray.layout._calc_unit_geometry", _geometry)
     manifest = _layout_manifest(_params((129, 64, 1)))
     assert manifest["physical_chunk_count"] == 5
     assert manifest["edge_dummy_count"] == 2
@@ -634,7 +634,7 @@ def test_reviewed_landings_and_bent_topplate(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("pdk", ("tsmc28", "tower180", "ihp130", "lf150", "tpsc65"))
 def test_array_sizing_reads_the_fmom_model_at_the_drawn_gap(pdk: str) -> None:
-    from flow.caparray.layout import _calc_unit_geometry, mom_array_params
+    from flow.cdac.caparray.layout import _calc_unit_geometry, mom_array_params
     from flow.layout.pdkproc import pdk_value
 
     mom = pdk_value(pdk, "tech", "MOM_LAYERS")

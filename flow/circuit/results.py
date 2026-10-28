@@ -22,8 +22,8 @@ from flow.analysis.types import (
     MeasInfo,
     Wave,
 )
-from flow.caparray import get_caparray_weights
-from flow.caparray.subckt import CapArrayParams
+from flow.cdac.caparray import get_caparray_weights
+from flow.cdac.caparray.subckt import CapArrayParams
 
 # Spectre strobe timestamps can jitter by sub-femtoseconds around a 10 ps grid.
 _RAW_STEP_RTOL = 1e-3

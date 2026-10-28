@@ -24,10 +24,9 @@ from hdl21.primitives import MosType
 from pydantic import PositiveInt
 
 from flow import comp, samp
+from flow.cdac.caparray import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights
+from flow.cdac.capdriver import CapDriver, CapDriverParams, Cells
 from flow.circuit.ports import module_from_ports, port_connections
-
-from ..caparray import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights
-from ..capdriver import CapDriver, CapDriverParams, Cells
 
 
 @h.paramclass

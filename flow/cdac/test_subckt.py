@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from flow import cdac
-from flow.capdriver.subckt import CapDriverParams
+from flow.cdac.capdriver.subckt import CapDriverParams
 from flow.sweep import flat_params
 
 from .params import _Dac

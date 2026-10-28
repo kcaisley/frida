@@ -12,7 +12,7 @@ from yaml import safe_load
 from flow.adc import AdcParams
 from flow.adc.sequences import AdcSequence
 from flow.adc.sim import AdcTbParams as _AdcTbParams
-from flow.caparray import CapArrayConfig, RedunStrat
+from flow.cdac.caparray import CapArrayConfig, RedunStrat
 from flow.scans.fastrx import FastRxCapture
 
 

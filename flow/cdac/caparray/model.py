@@ -1,8 +1,8 @@
 """The capacitor array's behavioral model: each stage's main and difference capacitance and the
 top plate's other load, from the 3D extraction of the same ``CapArrayConfig`` laid out in the PDK
-at its split and capacitance (``python -m flow caparray.layout_extract_adc_arrays`` sizes each ADC
-array through its extraction, ``flow.caparray.sizing``, and writes one table per array, named by
-``flow.caparray.layout.array_name``). A unary stage has no difference plate (0).
+at its split and capacitance (``python -m flow cdac.caparray.layout_extract_adc_arrays`` sizes each ADC
+array through its extraction, ``flow.cdac.caparray.sizing``, and writes one table per array, named by
+``flow.cdac.caparray.layout.array_name``). A unary stage has no difference plate (0).
 
     model = CapArrayModel.of("tsmc65", CapArrayConfig(n_dac=11, n_extra=5, cap_scale=2))
     main_f, diff_f = model.draw(unit_mismatch=0.001, rng=rng)
@@ -20,7 +20,6 @@ from pathlib import Path
 
 import numpy as np
 
-from flow.adc.behavioral import calc_capacitor_mismatch
 from flow.sweep.runner import ROOT
 
 from .layout import array_name, plate_centroids_um
@@ -29,6 +28,13 @@ from .subckt import CapArrayConfig, get_caparray_weights
 EXTRACTIONS = ROOT / "build/layout/caparray/extract_adc_arrays"
 # Random part of Harpe's measured unit-length DAC linearity (JSSC 2018, 65 nm): 0.10 %·sqrt(fF)
 UNIT_MISMATCH_HARPE = 0.0010
+
+
+def calc_capacitor_mismatch(capacitance_f: np.ndarray, *, unit_mismatch: float, rng: np.random.Generator) -> np.ndarray:
+    """Draw Pelgrom mismatch: sigma_C = unit_mismatch * sqrt(C * 1 fF) for every capacitor."""
+
+    capacitance_f = np.asarray(capacitance_f, dtype=np.float64)
+    return capacitance_f + rng.normal(0.0, unit_mismatch * np.sqrt(capacitance_f * 1e-15))
 
 
 @dataclass(frozen=True)
@@ -43,7 +49,7 @@ class CapArrayModel:
     table: Path  # the extraction's capacitance table (``read_extracted_calibration`` reads it)
     outline_um: tuple[float, float] = (0.0, 0.0)  # the drawn array's boundary (width, height), one side's
     # each stage's main and difference plate centroid (x, y um) from the array's centre (empty where
-    # its extraction kept no manifest; ``flow.caparray.layout.plate_centroids_um``)
+    # its extraction kept no manifest; ``flow.cdac.caparray.layout.plate_centroids_um``)
     main_xy_um: tuple[tuple[float, float], ...] = ()
     diff_xy_um: tuple[tuple[float, float], ...] = ()
 
@@ -54,7 +60,7 @@ class CapArrayModel:
         tables = sorted(EXTRACTIONS.glob(f"*/{name}/{pdk}/{layers}l/capacitance_table.json")) if name else []
         if not tables:
             raise LookupError(
-                f"no {layers}-metal extraction of {params} in {pdk}: run python -m flow caparray.layout_extract_adc_arrays"
+                f"no {layers}-metal extraction of {params} in {pdk}: run python -m flow cdac.caparray.layout_extract_adc_arrays"
             )
         extracted = json.loads(tables[-1].read_text())
         main_f = np.asarray(extracted["main_by_stage_ff"]) * 1e-15

@@ -26,7 +26,7 @@ def _netlists(params: BiasParams, pdk: str, out_dir: Path, name: str) -> Path:
 
 def _bias(run_dir: Path, pdk: str, case: str) -> Path:
     """A generator case: its netlist into ``run_dir/netlist/``, then ALIGN as its
-floorplan places it."""
+    floorplan places it."""
 
     name = f"bias_{case}"
     netlist = _netlists(CASES[case], pdk, run_dir / "netlist", name)

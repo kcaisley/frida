@@ -1,12 +1,12 @@
 """The CDAC's design space (docs/pipeline.md): the array of every converter of ``flow.adc.sweep``
 with its drivers, at that converter's resolution (``adc_array``, a grid of each PDK's arrays by name:
-every ADC array, ``flow.caparray.layout.ADC_ARRAYS``, sized through its extraction in the PDK, at
+every ADC array, ``flow.cdac.caparray.layout.ADC_ARRAYS``, sized through its extraction in the PDK, at
 one bit more than its DAC's steps, the free first comparison: 61 instances a PDK), and each with no
 coarse/fine split (``adc_units``: every stage in unit capacitors); the testbench runs that
 characterize one instance (``runs``) and the record they make (``record``).
 
 The drivers are the generic cells the ADC model stands in with, derived from the array's plates
-(``flow.capdriver.model.driver_strengths``: each stage's drive scaled with its plate to settle in
+(``flow.cdac.capdriver.model.driver_strengths``: each stage's drive scaled with its plate to settle in
 about 1 ns). Each instance switches every stage alone, both ways (``flow.cdac.sim``): its settling
 to half an LSB, its drivers' delay and the time constant the behavioral ADC settles it with, by
 stage. One Spectre run, a few minutes beside other jobs, in a window the drivers' characterization
@@ -21,11 +21,11 @@ from dataclasses import replace
 
 import hdl21 as h
 
-from flow.caparray.layout import ADC_ARRAYS
-from flow.caparray.model import CapArrayModel
-from flow.caparray.subckt import get_caparray_weights
-from flow.capdriver.model import CapDriverModel, driver_strengths
-from flow.capdriver.subckt import CapDriverParams, Cells, stage_strengths
+from flow.cdac.caparray.layout import ADC_ARRAYS
+from flow.cdac.caparray.model import CapArrayModel
+from flow.cdac.caparray.subckt import get_caparray_weights
+from flow.cdac.capdriver.model import CapDriverModel, driver_strengths
+from flow.cdac.capdriver.subckt import CapDriverParams, Cells, stage_strengths
 from flow.pipeline import Meas, Pdk, Record, grid, widen
 
 from .analysis import analyze_mismatch, analyze_settling, metrics
@@ -108,7 +108,7 @@ def _adc_array(pdk: str, array: str) -> Params:
 def _window_s(pdk: str, params: Params, vdd: float) -> float:
     """A window the slowest stage settles in within its first half: twice each plate's driver
     delay and its RC settling to half an LSB from its plate's step (the drivers' characterization,
-    ``flow.capdriver.model``, where it exists; else 10 kOhm over the weight and 1 ns), at least 1 ns,
+    ``flow.cdac.capdriver.model``, where it exists; else 10 kOhm over the weight and 1 ns), at least 1 ns,
     rounded up to 0.1 ns."""
     dac = params.dac
     load = sum(dac.main_f) + sum(dac.diff_f) + dac.parasitic_f

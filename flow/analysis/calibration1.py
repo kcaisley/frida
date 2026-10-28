@@ -22,7 +22,7 @@ from flow.analysis.types import (
     check_identity,
     measurement_identity,
 )
-from flow.caparray import get_caparray_weights
+from flow.cdac.caparray import get_caparray_weights
 
 
 def analyze_adc_calibration1(

@@ -40,6 +40,10 @@ def _qualified_type(value_type: type) -> str:
 
 def _resolve_type(name: str) -> type:
     module_name, qualname = name.split(":", 1)
+    # a measurement written before the capacitor array and its drivers became parts of the CDAC
+    # block (flow.caparray, flow.capdriver: now flow.cdac.caparray, flow.cdac.capdriver)
+    if module_name.split(".")[:2] in (["flow", "caparray"], ["flow", "capdriver"]):
+        module_name = f"flow.cdac.{module_name.removeprefix('flow.')}"
     value = importlib.import_module(module_name)
     for part in qualname.split("."):
         value = getattr(value, part)

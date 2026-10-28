@@ -23,8 +23,8 @@ from flow.adc.sequences import AdcSequence
 from flow.adc.sim import AdcTbParams
 from flow.adc.subckt import AdcParams
 from flow.analysis import types as analysis_types
-from flow.caparray.sim import CapArrayTbParams
-from flow.caparray.subckt import CapArrayConfig, CapArrayParams
+from flow.cdac.caparray.sim import CapArrayTbParams
+from flow.cdac.caparray.subckt import CapArrayConfig, CapArrayParams
 from flow.scans.params import AdcScanParams
 
 ANALYSIS_DIR = Path(__file__).resolve().parent
@@ -32,7 +32,7 @@ ANALYSIS_DIR = Path(__file__).resolve().parent
 # folder (flow/<block>/analysis.py and plots.py) under the same contract. The blocks on the pipeline
 # (flow/test_pipeline.py: MIGRATED) follow its contract instead (docs/pipeline.md).
 BLOCKS = (
-    "caparray",
+    "cdac.caparray",
     "momcap",
     "delay",
     "latch",
@@ -45,7 +45,7 @@ BLOCKS = (
     "clkgen",
     "lvshift",
     "ringamp",
-    "capdriver",
+    "cdac.capdriver",
     "csa",
     "disc",
     "schmitt",
@@ -147,7 +147,9 @@ def _contract_problems() -> set[str]:
     for module_name in CONTRACT_MODULES:
         for name, function in _public_functions(module_name):
             label = f"{module_name}.{name}"
-            if not re.fullmatch(rf"analyze_(adc|comp|cdac|{'|'.join(BLOCKS)})_\w+", name):
+            if not re.fullmatch(
+                rf"analyze_(adc|comp|cdac|{'|'.join(block.rpartition('.')[2] for block in BLOCKS)})_\w+", name
+            ):
                 problems.add(f"{label}: public function is not analyze_<block>_*")
                 continue
             parameters = list(inspect.signature(function).parameters.values())
@@ -407,7 +409,9 @@ def test_only_types_io_and_calc_define_helpers_or_classes(module_path: Path) -> 
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("_")
     }
     # a block's analysis module holds its own Meas* and Analysis* result types, nothing else
-    block_types = module_path.stem == "analysis" and module_path.parent.name in BLOCKS
+    block_types = module_path.stem == "analysis" and module_path.parent.name in {
+        block.rpartition(".")[2] for block in BLOCKS
+    }
     problems |= {
         f"{node.name} (class)"
         for node in ast.walk(tree)
@@ -476,7 +480,7 @@ def test_plots_and_studies_define_only_their_public_kinds_of_function(module_nam
     pattern = (
         PUBLIC_FUNCTION_NAMES[module_name]
         if module_name in PUBLIC_FUNCTION_NAMES
-        else rf"plot_{module_name.split('.')[1]}_\w+"
+        else rf"plot_{module_name.split('.')[-2]}_\w+"
     )
     unexpected = {
         node.name

@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from flow import cdac
-from flow.capdriver.subckt import CapDriverParams
+from flow.cdac.capdriver.subckt import CapDriverParams
 from flow.pipeline import Meas, MeasInfo
 
 from .params import _Dac

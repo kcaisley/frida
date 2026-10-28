@@ -16,8 +16,8 @@ from flow.analysis.types import (
     AnalysisCdacCapMismatch,
     MeasCdac,
 )
-from flow.caparray.analysis import MeasCapArrayTran, analyze_caparray_transfer, analyze_caparray_weights
-from flow.caparray.plots import plot_caparray_error, plot_caparray_transfer, plot_caparray_weights
+from flow.cdac.caparray.analysis import MeasCapArrayTran, analyze_caparray_transfer, analyze_caparray_weights
+from flow.cdac.caparray.plots import plot_caparray_error, plot_caparray_transfer, plot_caparray_weights
 from flow.sweep import runner as sweep_runner
 
 from . import layout, sim
@@ -70,14 +70,15 @@ def layout_extract_all_pdks() -> Path:
     return layout.caparray_extract_all_pdks(new_run("layout", "caparray", "extract_all_pdks"))
 
 
-def layout_extract_adc_arrays(pdk: str = "tsmc65") -> Path:
+def layout_extract_adc_arrays() -> Path:
     """Each ADC array (``layout.ADC_ARRAYS``: 10, 12 and 14 bits, binary and three schemes with 2, 4
     and 6 extra cycles, at one and two of its resolution's least capacitance, and FRIDA-1's array
-    at 12 bits and two) at three metals in ``pdk``, its split and capacitance sized through its
-    extraction (``flow.caparray.sizing``), 16 at a time."""
+    at 12 bits and two) at three metals in TSMC65, its split and capacitance sized through its
+    extraction (``flow.cdac.caparray.sizing``), 16 at a time; another PDK's by
+    ``sizing.extract_adc_arrays(run_dir, pdk=...)``."""
     from . import sizing
 
-    return sizing.extract_adc_arrays(new_run("layout", "caparray", "extract_adc_arrays"), pdk=pdk)
+    return sizing.extract_adc_arrays(new_run("layout", "caparray", "extract_adc_arrays"), pdk="tsmc65")
 
 
 def layout_window_check() -> Path:
@@ -87,9 +88,9 @@ def layout_window_check() -> Path:
 
 def sweep() -> None:
     """The capacitor array's sweep in a fresh run, every PDK: characterized, laid out, tabulated."""
-    sweep_runner.run(["caparray"], sweep_runner.PDKS, 36)
-    sweep_runner.layout(["caparray"], 28)
-    sweep_runner.table(["caparray"], 16)
+    sweep_runner.run(["cdac.caparray"], sweep_runner.PDKS, 36)
+    sweep_runner.layout(["cdac.caparray"], 28)
+    sweep_runner.table(["cdac.caparray"], 16)
 
 
 # ---- studies: figures of archived runs, into build/analysis/<block>/<timestamp>

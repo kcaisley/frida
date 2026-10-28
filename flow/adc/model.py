@@ -6,8 +6,8 @@ generator takes (``AdcParams``), switched by the SAR loop of ``flow.adc.behavior
     model.capture(tb, path)  # a MeasAdc, as a SPICE capture of the same AdcTbParams writes one
 
 The blocks: the comparator (``flow.comp.model``), the sampling switch (``flow.samp.model``), the
-capacitor array (``flow.caparray.model``) and its drivers (``flow.capdriver.model``, derived from the
-array's plates: ``flow.capdriver.model.driver_strengths``), each from its own characterization or
+capacitor array (``flow.cdac.caparray.model``) and its drivers (``flow.cdac.capdriver.model``, derived from the
+array's plates: ``flow.cdac.capdriver.model.driver_strengths``), each from its own characterization or
 extraction in the PDK; the DAC's settling, stage by stage, from the SPICE characterization of the
 array with its drivers (``flow.cdac.model``, of the converter's array at its resolution,
 ``cdac.adc_array``, by the array's name: ``python -m flow run cdac`` runs it ahead), or, where there is none, estimated
@@ -46,11 +46,11 @@ from flow.adc.sim import AdcTbParams
 from flow.adc.subckt import AdcParams
 from flow.analysis.io import write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
-from flow.caparray.layout import array_name
-from flow.caparray.model import CapArrayModel
-from flow.caparray.subckt import get_caparray_weights
-from flow.capdriver.model import CapDriverModel, driver_strengths, stage_drivers
-from flow.capdriver.subckt import CapDriverParams, Cells
+from flow.cdac.caparray.layout import array_name
+from flow.cdac.caparray.model import CapArrayModel
+from flow.cdac.caparray.subckt import get_caparray_weights
+from flow.cdac.capdriver.model import CapDriverModel, driver_strengths, stage_drivers
+from flow.cdac.capdriver.subckt import CapDriverParams, Cells
 from flow.pipeline import Space
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 from flow.scans.scan_behavioral import build_adc_interface_wave, calc_source_value
@@ -110,7 +110,7 @@ class AdcModel:
     @classmethod
     def of(cls, pdk: str, params: AdcParams, *, simulate: bool = True) -> AdcModel:
         array = CapArrayModel.of(pdk, params.cdac)
-        # the drivers the array's plates call for (flow.capdriver.model.driver_strengths)
+        # the drivers the array's plates call for (flow.cdac.capdriver.model.driver_strengths)
         strengths = driver_strengths(pdk, params.cdac, array, simulate=simulate)
         driver = CapDriverParams(n_stages=len(array.main_f), strengths=strengths, cells=Cells.GENERIC)
         # the DAC's characterization, of the converter's array at its resolution (n_dac + 1 bits), is

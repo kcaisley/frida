@@ -6,7 +6,7 @@ from dataclasses import replace
 import hdl21 as h
 import pytest
 
-from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
+from flow.cdac.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
 
 from .subckt import (
     GENERIC_STRENGTHS,

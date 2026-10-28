@@ -42,7 +42,7 @@ def GENERATOR(params: CapdriverLoad) -> h.Module:
     return CapDriver(params.driver)
 
 
-# the characterization's drivers (flow.capdriver.subckt.CASES): a stage of each strength
+# the characterization's drivers (flow.cdac.capdriver.subckt.CASES): a stage of each strength
 DRIVERS = [{"n_stages": case.n_stages, "strengths": case.strengths} for case in CASES.values()]
 # the load on each stage: a CDAC stage's bottom plate
 LOADS_F = (10e-15, 30e-15, 100e-15, 300e-15, 1e-12)
@@ -64,7 +64,7 @@ def _measure(run_dir: Path, tb: CapdriverTbParams):
     """One Spectre run of the driver's testbench, as a measurement."""
 
     from flow.analysis.types import MeasInfo
-    from flow.capdriver.analysis import MeasCapdriver
+    from flow.cdac.capdriver.analysis import MeasCapdriver
     from flow.circuit.results import read_transient_wave
 
     raw = _run_capdriver_sim(run_dir, tb)
@@ -95,7 +95,7 @@ def _measure(run_dir: Path, tb: CapdriverTbParams):
 
 def characterize(run_dir: Path, pdk: str, load: CapdriverLoad) -> Record:
     from flow.analysis.io import write_measurement
-    from flow.capdriver.analysis import analyze_capdriver_drive
+    from flow.cdac.capdriver.analysis import analyze_capdriver_drive
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
 
@@ -121,7 +121,7 @@ def characterize(run_dir: Path, pdk: str, load: CapdriverLoad) -> Record:
     ]
     path = run_dir / "supply_100" / "result.h5"
     write_measurement(path, nominal)
-    waves = {"nominal": str(path.relative_to(Path(__file__).resolve().parents[2]))}
+    waves = {"nominal": str(path.relative_to(Path(__file__).resolve().parents[3]))}
 
     over_supply = analyze_capdriver_drive(supplies)
     over_load = analyze_capdriver_drive(loads)

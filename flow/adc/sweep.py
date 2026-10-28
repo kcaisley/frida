@@ -5,14 +5,14 @@ in TSMC65 the full product below, in the other PDKs a smaller one.
 Every converter samples on its top plates, makes one free comparison before any capacitor switches
 and fires the comparator again after the last one switches: an N-bit converter has an N-1-step DAC
 (``adc_bits = n_dac + 1``) and n_dac + n_extra + 1 decisions. Its arrays are the ADC study's
-(``flow.caparray.layout.ADC_ARRAYS``: three-metal unit-length arrays, each sized through its 3-D
-extraction in each PDK, ``flow.caparray.sizing``). Every
+(``flow.cdac.caparray.layout.ADC_ARRAYS``: three-metal unit-length arrays, each sized through its 3-D
+extraction in each PDK, ``flow.cdac.caparray.sizing``). Every
 array's full scale is at least 80 % of the reference and its sampled noise at most its quantization
 noise there: each resolution's least switched capacitance is the larger of the two constraints'
 for its most demanding array, and each array switches one or two times it (``cap_scale``) at the
 split between its length-scaled binary and unary rows that keeps both with its outline nearest
 twice as tall as wide (one side's array: the two side by side make about a square). Its
-drivers are derived from its extracted plates (``flow.capdriver.model.driver_strengths``), each stage
+drivers are derived from its extracted plates (``flow.cdac.capdriver.model.driver_strengths``), each stage
 sized to settle in about 1 ns.
 
 The product, nothing pruned:
@@ -25,7 +25,7 @@ The product, nothing pruned:
   quarter, a seventh and a tenth of the gate's resistance; none with half-size dummy switches, as
   FRIDA-1's;
 - the arrays, 10 at each resolution and scale: binary, and each scheme
-  (``flow.caparray.subckt.RedunStrat``: the MSBs split, the LSBs split, FRIDA's MSB redistribution)
+  (``flow.cdac.caparray.subckt.RedunStrat``: the MSBs split, the LSBs split, FRIDA's MSB redistribution)
   with 2, 4 and 6 extra cycles, every one of the binary total weight;
 - the resolutions, 10, 12 and 14 bits;
 - the switched capacitance, one and two times the resolution's least (``cap_scale``);
@@ -51,8 +51,8 @@ from pathlib import Path
 import hdl21 as h
 
 from flow import comp, samp
-from flow.caparray.layout import ADC_ARRAYS, ADC_BITS, FRIDA1_ADC_ARRAY, adc_arrays
-from flow.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
+from flow.cdac.caparray.layout import ADC_ARRAYS, ADC_BITS, FRIDA1_ADC_ARRAY, adc_arrays
+from flow.cdac.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
 from flow.pipeline import Pdk, Record, grid, values, widen
 
 from .subckt import AdcParams
@@ -92,7 +92,7 @@ FRIDA1_ARRAY = FRIDA1_ADC_ARRAY
 
 def arrays(bits: int, cap_scale: int = 1) -> list[CapArrayConfig]:
     """A ``bits`` converter's 10 arrays at ``cap_scale``: binary, and each scheme with 2, 4 and 6
-    extra cycles (``flow.caparray.layout.adc_arrays``)."""
+    extra cycles (``flow.cdac.caparray.layout.adc_arrays``)."""
     return adc_arrays(bits, cap_scale)
 
 

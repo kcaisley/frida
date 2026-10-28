@@ -8,9 +8,9 @@ import numpy as np
 import pytest
 
 from flow.analysis.types import MeasInfo, Wave
-from flow.caparray.analysis import MeasCapArrayTran, analyze_caparray_transfer, analyze_caparray_weights
-from flow.caparray.plots import plot_caparray_error, plot_caparray_transfer, plot_caparray_weights
-from flow.caparray.sim import CapArrayConfig, CapArrayTbParams, RedunStrat
+from flow.cdac.caparray.analysis import MeasCapArrayTran, analyze_caparray_transfer, analyze_caparray_weights
+from flow.cdac.caparray.plots import plot_caparray_error, plot_caparray_transfer, plot_caparray_weights
+from flow.cdac.caparray.sim import CapArrayConfig, CapArrayTbParams, RedunStrat
 
 CDAC = CapArrayConfig(n_dac=3, n_extra=0, redun_strat=RedunStrat.BINARY)  # weights 4, 2, 1
 

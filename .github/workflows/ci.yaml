@@ -156,16 +156,16 @@ jobs:
           flow/samp/test_analysis.py
           flow/samp/test_plots.py
           flow/samp/test_layout.py
-          flow/caparray/test_sim.py
-          flow/caparray/test_sizing.py
+          flow/cdac/caparray/test_sim.py
+          flow/cdac/caparray/test_sizing.py
           flow/cdac/test_analysis.py
           flow/cdac/test_layout.py
           flow/cdac/test_model.py
           flow/cdac/test_sim.py
           flow/cdac/test_subckt.py
-          flow/capdriver/test_model.py
+          flow/cdac/capdriver/test_model.py
           flow/adc/test_statistics.py
-          flow/capdriver/test_subckt.py
+          flow/cdac/capdriver/test_subckt.py
           flow/circuit/test_sim.py
           flow/circuit/test_remote.py
           flow/circuit/test_spectre.py

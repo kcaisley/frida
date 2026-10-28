@@ -12,9 +12,9 @@ from pathlib import Path
 
 import hdl21 as h
 
-from flow.circuit.ports import module_from_ports
 from flow.circuit.devices import Inverter, LogicCellParams, Nand2, Nor2
 from flow.circuit.devices import write_netlist as _write_netlist
+from flow.circuit.ports import module_from_ports
 from flow.latch.subckt import LatchParams, _build_latch
 
 

@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # The blocks not on the pipeline yet; every other block with a sweep follows it, a new one too.
 # Entries may be removed (a block migrated), never added.
 NOT_MIGRATED = (
-    *("adc", "bias", "caparray", "capdriver", "clkgen", "cml", "csa", "delay", "disc", "follower"),
+    *("adc", "bias", "cdac.caparray", "cdac.capdriver", "clkgen", "cml", "csa", "delay", "disc", "follower"),
     *("idac", "latch", "lvshift", "moscap", "mosfet", "ota", "pi", "ringamp", "schmitt"),
 )
 MIGRATED = tuple(block for block in sweep_blocks() if block not in NOT_MIGRATED)

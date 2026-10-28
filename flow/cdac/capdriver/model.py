@@ -1,5 +1,5 @@
 """The capacitor driver's behavioral model: each stage's drive resistance and energy, from the
-characterization of a driver of that stage's strength (``flow.capdriver.sweep``, looked up by
+characterization of a driver of that stage's strength (``flow.cdac.capdriver.sweep``, looked up by
 ``flow.sweep.lookup``).
 
     model = CapDriverModel.of("tsmc65", strength=4, load_f=300e-15)
@@ -109,7 +109,7 @@ class CapDriverModel:
 def _metrics(pdk: str, strength: int, cload: float, simulate: bool) -> dict:
     """The characterization's metrics of one strength at one load (read once a process)."""
     params = sweep.driver_load({"n_stages": 1, "strengths": (strength,)}, cload)
-    return characterized("capdriver", pdk, params, simulate=simulate)["metrics"]
+    return characterized("cdac.capdriver", pdk, params, simulate=simulate)["metrics"]
 
 
 def stage_drivers(pdk: str, params: CapDriverParams, loads_f, *, simulate: bool = True) -> tuple[CapDriverModel, ...]:
@@ -168,14 +168,14 @@ def derive_strengths(
 def driver_strengths(
     pdk: str, config, array=None, *, cells: Cells = Cells.GENERIC, simulate: bool = False
 ) -> tuple[int, ...] | None:
-    """The drives of an array's stages (``config``, a ``flow.caparray.subckt.CapArrayConfig``):
+    """The drives of an array's stages (``config``, a ``flow.cdac.caparray.subckt.CapArrayConfig``):
     FRIDA-1's fabricated bands where it sets them, the clocked XORs' defaults (None) for those
     cells, else derived from its extracted plates (``array``, its ``CapArrayModel`` where given;
     ``derive_strengths``) for its n_dac + 1 bit converter."""
     if config.driver_strengths is not None or cells != Cells.GENERIC:
         return config.driver_strengths
     if array is None:
-        from flow.caparray.model import CapArrayModel
+        from flow.cdac.caparray.model import CapArrayModel
 
         array = CapArrayModel.of(pdk, config)
     return derive_strengths(pdk, array.main_f, array.diff_f, array.parasitic_f, config.n_dac + 1, simulate=simulate)

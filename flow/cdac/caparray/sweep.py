@@ -1,7 +1,7 @@
 """The capacitor array's design space (``flow.sweep``): the characterization's five arrays at six
 unit capacitances, in every PDK.
 
-Each instance as the characterization runs it (``flow.caparray.sim``): every stage's main bottom
+Each instance as the characterization runs it (``flow.cdac.caparray.sim``): every stage's main bottom
 plate driven by a code's bit and its difference plate by the complement, into 100 fF on the top
 plate, at the PDK's own supply. Each stage toggled alone after an all-zero code (its weight on the
 top plate) and the packed ramp over the DAC resolution's codes (the transfer and its error against
@@ -25,7 +25,7 @@ from .sim import CASES, CapArrayTbParams, _run_caparray_sim, caparray_measuremen
 from .subckt import CapArray, CapArrayParams, get_caparray_weights, is_valid_caparray_params
 
 GENERATOR = CapArray
-# the characterization's arrays (flow.caparray.sim.CASES): FRIDA-1's two fabricated flavours (MSB
+# the characterization's arrays (flow.cdac.caparray.sim.CASES): FRIDA-1's two fabricated flavours (MSB
 # redistribution, radix 2 on repeated coarse units), 11-bit binary, the MSB and LSB splits with 5
 ARRAYS = list(CASES.values())
 # the unit capacitor from a quarter to eight times 1 fF, against the 100 fF load
@@ -40,7 +40,7 @@ def instances(pdk: str) -> list[CapArrayParams]:
 
 def characterize(run_dir: Path, pdk: str, array: CapArrayParams) -> Record:
     from flow.analysis.io import write_measurement
-    from flow.caparray.analysis import analyze_caparray_transfer, analyze_caparray_weights
+    from flow.cdac.caparray.analysis import analyze_caparray_transfer, analyze_caparray_weights
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
     cdac = array.cdac
@@ -64,7 +64,7 @@ def characterize(run_dir: Path, pdk: str, array: CapArrayParams) -> Record:
         path = run_dir / sweep / "result.h5"
         write_measurement(path, measurements[sweep])
         waves[{"stage": "each stage alone", "ramp": "code ramp"}[sweep]] = str(
-            path.relative_to(Path(__file__).resolve().parents[2])
+            path.relative_to(Path(__file__).resolve().parents[3])
         )
 
     weights = analyze_caparray_weights(measurements["stage"])

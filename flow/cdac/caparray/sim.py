@@ -171,7 +171,7 @@ def caparray_measurement(raw_path: Path, params: CapArrayTbParams, readbacks: di
     grid; ``readbacks`` (its PDK, case and sweep) join the run's own."""
 
     from flow.analysis.types import MeasInfo, Wave
-    from flow.caparray.analysis import MeasCapArrayTran
+    from flow.cdac.caparray.analysis import MeasCapArrayTran
     from flow.circuit.results import read_raw_transient
 
     result = read_raw_transient(raw_path)

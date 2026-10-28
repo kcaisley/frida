@@ -38,7 +38,7 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-BLOCKS = ("adc", "comp", "samp", "caparray")
+BLOCKS = ("adc", "comp", "samp", "cdac.caparray")
 
 
 def _ssh(host: str, script: str) -> str:
@@ -139,11 +139,19 @@ def _worker_script(remote_dir: str, block: str, target: str, setup: str | None) 
             "free -h",
             'if pgrep -u "$(id -u)" -x spectre; then echo "Existing user Spectre jobs: review resources first"; exit 1; fi',
             "uv sync --frozen --dev",
-            f"uv run --frozen pytest flow/{block}/test_sim.py",
+            f"uv run --frozen pytest flow/{block.replace('.', '/')}/test_sim.py",
             f"uv run --frozen pytest -m spectre {shlex.quote(node)} --junitxml=build/remote/preflight.xml",
             f"uv run --frozen python -c {shlex.quote(gate)}",
             shlex.join(
-                ["uv", "run", "--frozen", "python", "-m", "flow", f"{block}.{target.removeprefix(block + '_')}"]
+                [
+                    "uv",
+                    "run",
+                    "--frozen",
+                    "python",
+                    "-m",
+                    "flow",
+                    f"{block}.{target.removeprefix(block.rpartition('.')[2] + '_')}",
+                ]
             ),
             "",
         ]

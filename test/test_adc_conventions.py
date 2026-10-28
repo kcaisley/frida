@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from flow.adc.sim import AdcTbParams
-from flow.caparray import get_caparray_weights
+from flow.cdac.caparray import get_caparray_weights
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 
 

@@ -15,20 +15,20 @@ Digital lint, simulation, synthesis, and implementation use their stock tools di
 
 ## Layouts
 
-Capacitor layouts are generated only as arrays; the standalone unit-capacitor layout exporter has been removed. The process-independent capacitor-array block is `flow.caparray` (formerly `flow.cdac`). `CapArrayConfig` holds electrical sizing; `CapArray(CapArrayParams(...))` generates the passive main/diff network, and `CapArrayLayout(CapArrayLayoutParams(...))` generates its layout. The separate `flow.capdriver.CapDriver` generates generic standard-cell XOR drivers and requires PDK compilation. `DrivenCapArray(CapArrayConfig(...))` retains the simplified integrated simulation wrapper, with inversion tied low. Existing `cdac` parameter fields and CDAC measurement names remain unchanged; the HDF5 reader migrates saved parameter type names from the old module.
+Capacitor layouts are generated only as arrays; the standalone unit-capacitor layout exporter has been removed. The process-independent capacitor-array block is `flow.cdac.caparray` (formerly `flow.cdac`). `CapArrayConfig` holds electrical sizing; `CapArray(CapArrayParams(...))` generates the passive main/diff network, and `CapArrayLayout(CapArrayLayoutParams(...))` generates its layout. The separate `flow.cdac.capdriver.CapDriver` generates generic standard-cell XOR drivers and requires PDK compilation. `DrivenCapArray(CapArrayConfig(...))` retains the simplified integrated simulation wrapper, with inversion tied low. Existing `cdac` parameter fields and CDAC measurement names remain unchanged; the HDF5 reader migrates saved parameter type names from the old module.
 
 The process-independent FRIDA capacitor-array runners are:
 
 ```bash
-uv run python -m flow caparray.layout_1layer_radix17
-uv run python -m flow caparray.layout_2layer_radix17
-uv run python -m flow caparray.layout_3layer_radix17
-uv run python -m flow caparray.layout_extract_adc_arrays
+uv run python -m flow cdac.caparray.layout_1layer_radix17
+uv run python -m flow cdac.caparray.layout_2layer_radix17
+uv run python -m flow cdac.caparray.layout_3layer_radix17
+uv run python -m flow cdac.caparray.layout_extract_adc_arrays
 ```
 
-Each target declares its arrays and stack: FRIDA's array is `RADIX17`, and `caparray.layout_extract_adc_arrays` (`flow.caparray.sizing.extract_adc_arrays`) sizes and extracts the ADC study's arrays (`ADC_ARRAYS`: 10, 12 and 14 bits, binary and the MSB split, LSB split and MSB redistribution with 2, 4 and 6 extra cycles, at one and two of the resolution's least switched capacitance, and FRIDA-1's array at 12 bits and two: 61) at three metals in TSMC65, 16 at a time: each pass sizes every array's split and step from its newest extraction (full scale at least 80 % of the reference, sampled noise at most the quantization noise) and extracts those that moved, until none does, each array's holding pass then its capacitance table under `<name>/tsmc65/3l/` (`array_name`, e.g. `12b_msb_redist5_x2`). The helpers they call take the array as an argument.
+Each target declares its arrays and stack: FRIDA's array is `RADIX17`, and `cdac.caparray.layout_extract_adc_arrays` (`flow.cdac.caparray.sizing.extract_adc_arrays`) sizes and extracts the ADC study's arrays (`ADC_ARRAYS`: 10, 12 and 14 bits, binary and the MSB split, LSB split and MSB redistribution with 2, 4 and 6 extra cycles, at one and two of the resolution's least switched capacitance, and FRIDA-1's array at 12 bits and two: 61) at three metals in TSMC65, 16 at a time: each pass sizes every array's split and step from its newest extraction (full scale at least 80 % of the reference, sampled noise at most the quantization noise) and extracts those that moved, until none does, each array's holding pass then its capacitance table under `<name>/tsmc65/3l/` (`array_name`, e.g. `12b_msb_redist5_x2`). The helpers they call take the array as an argument.
 
-Each target visibly constructs its electrical `CapArrayConfig`, unit family, and metal stack. The generator derives every physical distance from the selected PDK, builds the complete `1..coarse_weight` unit family, partitions arbitrary positive electrical weights through the shared netlist decomposition, and adds routing, shield taps, connection stacks, and pins. A named target always runs `gdscheck`, foundry Calibre DRC/LVS, and xACT PEX. Results are written to `build/layout/caparray/<name>/<timestamp>/` (`caparray.layout_<name>`).
+Each target visibly constructs its electrical `CapArrayConfig`, unit family, and metal stack. The generator derives every physical distance from the selected PDK, builds the complete `1..coarse_weight` unit family, partitions arbitrary positive electrical weights through the shared netlist decomposition, and adds routing, shield taps, connection stacks, and pins. A named target always runs `gdscheck`, foundry Calibre DRC/LVS, and xACT PEX. Results are written to `build/layout/caparray/<name>/<timestamp>/` (`cdac.caparray.layout_<name>`).
 
 FRIDA-2/CDAC targets now use the shared `ringfmom.cdl` ideal/LVS model and three recognition purposes, with a read-only foundry LVS include and explicit 3D xACT extraction. See `pdk/tsmc65/calibre/ringfmom.md` in the TSMC65 submodule for model limits, diagnostics, and PEX double-counting protection. Nominal C uses the same affine fit as LVS: 0.165L + 0.037, 0.357L + 0.070, and 0.546L + 0.127 for one, two, and three active layers (C in fF, full inner-finger L in um, 0.52 to 170 um). Each physical main/diff finger receives one intercept, including every coarse chunk and minimum-length tail; it is not a single offset per electrical net. This replaces generic `unit_cap` sizing only for these generated ringfmom arrays; historical FRIDA-1 and generic HDL21 sizing are unchanged. LVS measures geometry independently and its 5% tolerance is unchanged. Every finger of the production arrays and of three long-finger arrays (to 170 um), extracted in xACT 3D, agrees with it within 2%; this is in-sample agreement, not independent qualification. New PEX remains gated on LVS; simulation targets still pin the previously reviewed extraction timestamps.
 
@@ -98,7 +98,7 @@ uv run python -m flow adc.frida1_transfer_curve
 
 
 # First standalone block-level simulations
-uv run python -m flow caparray.frida1_transfer_curve
+uv run python -m flow cdac.caparray.frida1_transfer_curve
 ```
 
 The extracted fixed-input rate sweep groups the one-layer and two-layer radix-17 and radix-20 ADCs beneath one timestamped run. Each flavor has its own named subdirectory containing the 2, 6, and 10 MS/s results. Independent cases run concurrently within a fixed worker budget, while retaining one coherent campaign directory.

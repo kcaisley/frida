@@ -136,7 +136,7 @@ def test_a_floorplan_is_chosen_by_the_instances_structure() -> None:
     buffered = LvShiftParams(input_inverter=True, buffers=True, **lvshift.SIZES[0])
     assert runner.hand_floorplan("lvshift", buffered).name == "lvshift_buffered.json"
     assert runner.hand_floorplan("lvshift", LvShiftParams(buffers=True)) is None
-    assert runner.hand_floorplan("capdriver", object()) is None  # no structure named
+    assert runner.hand_floorplan("cdac.capdriver", object()) is None  # no structure named
 
 
 def test_the_table_has_a_row_per_instance_and_a_file_each(tmp_path: Path, monkeypatch) -> None:

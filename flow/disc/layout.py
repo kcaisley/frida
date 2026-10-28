@@ -27,7 +27,7 @@ def _netlists(params: DiscParams, pdk: str, out_dir: Path, name: str) -> Path:
 
 def _disc(run_dir: Path, pdk: str, case: str) -> Path:
     """A discriminator case: its netlist into ``run_dir/netlist/``, then ALIGN as its
-floorplan places it."""
+    floorplan places it."""
 
     name = f"disc_{case}"
     netlist = _netlists(CASES[case], pdk, run_dir / "netlist", name)

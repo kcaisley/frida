@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from flow.analysis.plots import NORD_BLUE, NORD_DARK, NORD_RED, PLOT_STYLE, save_figure, style_grid
-from flow.caparray.analysis import AnalysisCaparrayTransfer, AnalysisCaparrayWeights
+from flow.cdac.caparray.analysis import AnalysisCaparrayTransfer, AnalysisCaparrayWeights
 
 
 @mpl.rc_context(PLOT_STYLE)

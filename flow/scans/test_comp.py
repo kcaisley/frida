@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from flow.adc.sim import AdcTbParams
-from flow.caparray import get_caparray_weights
+from flow.cdac.caparray import get_caparray_weights
 from flow.scans.fastrx import (
     FastRxCapture,
     convert_fastrx_words_to_comp,

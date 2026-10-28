@@ -35,7 +35,6 @@ from flow.adc.behavioral import (
     SalogicBehavioralParams,
     SampBehavioralParams,
     build_continuous_sequence,
-    calc_capacitor_mismatch,
     calc_ideal_capacitances,
     cdac,
     comp,
@@ -47,8 +46,9 @@ from flow.adc.sim import AdcTbParams
 from flow.adc.subckt import AdcNets, AdcParams
 from flow.analysis.io import write_analysis, write_measurement
 from flow.analysis.types import MeasAdc, MeasCdac, MeasInfo, Wave
-from flow.caparray import get_caparray_weights
-from flow.caparray.subckt import CapArrayConfig, RedunStrat
+from flow.cdac.caparray import get_caparray_weights
+from flow.cdac.caparray.model import calc_capacitor_mismatch
+from flow.cdac.caparray.subckt import CapArrayConfig, RedunStrat
 from flow.scans.params import AdcScanParams
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 

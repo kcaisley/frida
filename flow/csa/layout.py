@@ -32,7 +32,7 @@ def _netlists(params: CsaParams, pdk: str, out_dir: Path, name: str) -> Path:
 
 def _csa(run_dir: Path, pdk: str, case: str) -> Path:
     """An amplifier case: its netlist into ``run_dir/netlist/``, then ALIGN as its
-floorplan places it."""
+    floorplan places it."""
 
     name = f"csa_{case}"
     netlist = _netlists(CASES[case], pdk, run_dir / "netlist", name)

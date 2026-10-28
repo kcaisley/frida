@@ -16,7 +16,7 @@ from flow.util.netlist import _subcircuit_span, subcircuit_ports
 
 from .subckt import driver_ports
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 # Flatten the canonical declaration, retaining the historical supply spelling.
 DRIVER_PORTS = driver_ports(16)
 LAYOUT_NAMES = {DRIVER_PORTS["vdd"].name: "vdd_dac", DRIVER_PORTS["vss"].name: "vss_dac"}

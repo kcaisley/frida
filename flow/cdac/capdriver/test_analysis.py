@@ -8,10 +8,10 @@ import numpy as np
 import pytest
 
 from flow.analysis.types import MeasInfo, Wave
-from flow.capdriver.analysis import MeasCapdriver, analyze_capdriver_drive
-from flow.capdriver.plots import plot_capdriver_load, plot_capdriver_supply
-from flow.capdriver.sim import CapdriverTbParams
-from flow.capdriver.subckt import CASES
+from flow.cdac.capdriver.analysis import MeasCapdriver, analyze_capdriver_drive
+from flow.cdac.capdriver.plots import plot_capdriver_load, plot_capdriver_supply
+from flow.cdac.capdriver.sim import CapdriverTbParams
+from flow.cdac.capdriver.subckt import CASES
 
 
 def _rc(load: float, *, resistance: float = 2e3, lag: float = 50e-12, vdd: float = 1.2) -> MeasCapdriver:

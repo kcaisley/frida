@@ -12,7 +12,7 @@ import pytest
 from flow.adc.sim import AdcTbParams
 from flow.analysis.calibration1 import analyze_adc_calibration1
 from flow.analysis.types import AnalysisCdacCapMismatch, Identity, MeasCdac
-from flow.caparray import get_caparray_weights
+from flow.cdac.caparray import get_caparray_weights
 from flow.scans.params import AdcScanParams
 
 

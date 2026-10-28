@@ -30,8 +30,8 @@ from pathlib import Path
 
 from flow.adc import targets as adc
 from flow.bias import targets as bias
-from flow.caparray import targets as caparray
-from flow.capdriver import targets as capdriver
+from flow.cdac.caparray import targets as caparray
+from flow.cdac.capdriver import targets as capdriver
 from flow.clkgen import targets as clkgen
 from flow.cml import targets as cml
 from flow.csa import targets as csa
@@ -56,8 +56,8 @@ from flow.web import targets as web
 BLOCKS = {
     "adc": adc,
     "bias": bias,
-    "caparray": caparray,
-    "capdriver": capdriver,
+    "cdac.caparray": caparray,
+    "cdac.capdriver": capdriver,
     "clkgen": clkgen,
     "cml": cml,
     "csa": csa,
@@ -211,7 +211,7 @@ def main() -> None:
     if sys.argv[1] in VERBS:
         verb(sys.argv[1:])
         return
-    block, _, name = sys.argv[1].partition(".")
+    block, _, name = sys.argv[1].rpartition(".")
     module = BLOCKS.get(block)
     if module is None or name not in targets(module):
         raise SystemExit(f"no target {sys.argv[1]}: python -m flow lists them")

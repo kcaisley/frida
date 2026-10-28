@@ -17,7 +17,7 @@ from dataclasses import replace
 import hdl21 as h
 from hdl21.primitives import C
 
-from flow.capdriver.subckt import PARALLEL_DRIVE, pre_driver, stage_strengths
+from flow.cdac.capdriver.subckt import PARALLEL_DRIVE, pre_driver, stage_strengths
 from flow.circuit.cells import cell
 from flow.circuit.ports import module_from_ports
 from flow.momcap.subckt import mom_cap

@@ -1,4 +1,4 @@
-"""The CDAC's layout: each side's array (``flow.caparray.layout``, ALIGN's capacitor generators)
+"""The CDAC's layout: each side's array (``flow.cdac.caparray.layout``, ALIGN's capacitor generators)
 with its drivers, the main plates' below it and the difference plates' above it, each bank two
 rows of the library's cells placed and routed by ALIGN in the order the stages sit in the array
 (``layout_bank``), a channel between bank and array wiring each driver to its bus, and the two
@@ -25,7 +25,7 @@ from typing import Any
 import hdl21 as h
 from klayout import db
 
-from flow.caparray.layout import (
+from flow.cdac.caparray.layout import (
     ADC_ARRAYS,
     CapArrayLayout,
     CapArrayLayoutParams,
@@ -35,8 +35,8 @@ from flow.caparray.layout import (
     caparray_spec,
     mom_array_params,
 )
-from flow.caparray.model import EXTRACTIONS
-from flow.caparray.subckt import CapArrayParams
+from flow.cdac.caparray.model import EXTRACTIONS
+from flow.cdac.caparray.subckt import CapArrayParams
 from flow.circuit.devices import instance_lines
 from flow.layout.align.build import build
 from flow.layout.align.run import Drawing, draw, drawn_only
@@ -1038,7 +1038,7 @@ def _shield_tap_ys(layout: db.Layout, grid: db.Cell) -> list[int]:
 
 
 def _unit_array_params(unit: CapArrayLayoutParams) -> CapArrayParams:
-    """The all-unit array's netlist parameters (``flow.caparray.subckt.CapArray``) for LVS: every
+    """The all-unit array's netlist parameters (``flow.cdac.caparray.subckt.CapArray``) for LVS: every
     unit one finger of the unit length, at the PDK's FMOM model there (its slope over the length,
     its intercept once), not the production arrays' logical unit of two weight steps."""
     g = _calc_unit_geometry(unit)

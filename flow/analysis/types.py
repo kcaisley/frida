@@ -62,8 +62,8 @@ if TYPE_CHECKING:
     from flow.adc.sequences import AdcSequence
     from flow.adc.sim import AdcTbParams
     from flow.adc.subckt import AdcParams
-    from flow.caparray.sim import CapArrayTbParams
-    from flow.caparray.subckt import CapArrayConfig, CapArrayParams
+    from flow.cdac.caparray.sim import CapArrayTbParams
+    from flow.cdac.caparray.subckt import CapArrayConfig, CapArrayParams
     from flow.scans.params import AdcScanParams
 
 
@@ -137,7 +137,7 @@ class MeasAdc(Meas):
         count is therefore the capacitor count plus one.
         """
 
-        from flow.caparray import get_caparray_weights
+        from flow.cdac.caparray import get_caparray_weights
 
         return np.asarray([2 * weight for weight in get_caparray_weights(self.dut.cdac)] + [1], dtype=np.int64)
 

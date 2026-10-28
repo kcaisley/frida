@@ -9,7 +9,7 @@ from klayout import db
 
 from flow.adc import sweep
 from flow.adc.assembly import assemble_blocks
-from flow.caparray.subckt import RedunStrat
+from flow.cdac.caparray.subckt import RedunStrat
 from flow.sweep.runner import ROOT
 from flow.web.export import export_layout
 
