@@ -1,6 +1,6 @@
-The CDAC's drivers, a part of the [CDAC block](../readme.md): their cells, strengths and characterization (the block's sweep `cdac.capdriver`, which the CDAC's driver sizing reads).
-
 # Status
+
+The CDAC's drivers, a part of the [CDAC block](../readme.md): their cells, strengths and characterization (the block's sweep `cdac.capdriver`, which the CDAC's driver sizing reads).
 
 | Feature | Status | File | Notes |
 |---|---|---|---|

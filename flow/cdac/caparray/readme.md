@@ -1,6 +1,6 @@
-The CDAC's capacitor array, a part of the [CDAC block](../readme.md): its weights, its layout generator and its extractions (the block's characterization sweep `cdac.caparray`).
-
 # Status
+
+The CDAC's capacitor array, a part of the [CDAC block](../readme.md): its weights, its layout generator and its extractions (the block's characterization sweep `cdac.caparray`).
 
 | Feature | Status | File | Notes |
 |---|---|---|---|
