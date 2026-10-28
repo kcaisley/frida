@@ -1,0 +1,72 @@
+{
+ "_comment": "Dynamic-bias strongarm (flow.comp.layout FLOORPLAN_CASES): comp_strongarm.json's rows with the dynamic bias's devices as comp_dynamic_bias.json places them about the modified double tail's: C_TAIL split over two rows on top, C_P and the cap node's charging switch split cross-quad over two rows below the input pair, no tail reset. Netlist: the sweep's (flow.comp.layout.layout_floorplan, standard-cell output stage).",
+ "split": {
+  "Mcap_tail": 2,
+  "Mcap_p": 2,
+  "Mcap_n": 2,
+  "Mcross_init_p": 2,
+  "Mcross_init_n": 2
+ },
+ "escape": {
+  "up": [
+   "inp",
+   "inn"
+  ],
+  "down": [
+   "clk",
+   "clkb",
+   "outp",
+   "outn"
+  ]
+ },
+ "rows": [
+  [
+   "Mcap_tail_a"
+  ],
+  [
+   "Mcap_tail_b"
+  ],
+  [
+   "Mdiff_p",
+   "Mtail",
+   "Mdiff_n"
+  ],
+  [
+   "Mcap_p_a",
+   "Mbias",
+   "Mcap_n_a"
+  ],
+  [
+   "Mcap_n_b",
+   "Mcap_p_b"
+  ],
+  [
+   "Mcross_on_p",
+   "Mcross_on_n"
+  ],
+  [
+   "Mrst_p",
+   "Mrst_n"
+  ],
+  [
+   "Minner_init_p",
+   "Mcross_init_p_a",
+   "Mcross_init_n_a",
+   "Minner_init_n"
+  ],
+  [
+   "Mcross_init_n_b",
+   "Mcross_init_p_b"
+  ],
+  [
+   "Xbuf2_outp",
+   "Xbuf1_outp",
+   "Xsr_p",
+   "Xdecision_n",
+   "Xdecision_p",
+   "Xsr_n",
+   "Xbuf1_outn",
+   "Xbuf2_outn"
+  ]
+ ]
+}

@@ -49,6 +49,12 @@ ESCAPE = {"up": ["inp", "inn"], "down": ["clk", "clkb", "outp", "outn"]}
 FLOORPLAN_CASES = {
     **{latch.name.lower(): {"latch": latch} for latch in Latch},
     "dynamic_bias": {"latch": Latch.DOUBLE_TAIL_MODIFIED, "bias": Bias.DYNAMIC},
+    # every other latch with the dynamic bias: its own rows with the bias's as dynamic_bias places them
+    **{
+        f"{latch.name.lower()}_dynamic_bias": {"latch": latch, "bias": Bias.DYNAMIC}
+        for latch in Latch
+        if latch != Latch.DOUBLE_TAIL_MODIFIED
+    },
 }
 
 
