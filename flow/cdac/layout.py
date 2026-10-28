@@ -122,6 +122,13 @@ def _rules(pdk: str, pdk_dir: Path) -> dict[str, dict[str, int]]:
                 "pitch": max(metal["Pitch"], width + space),
                 "length": max(metal.get("MinL") or 0, math.ceil(rule.get("area", 0) / width)),
             }
+            # (above width, space): the wide-metal space, at any run; (above width, cuts): the vias a
+            # wide landing asks of the via below it
+            parallel = rule.get("parallel_space", ())
+            if parallel:
+                out[f"M{n}"]["wide"] = tuple((above, space) for space, above, _run in parallel)
+            if rule.get("wide_vias"):
+                out[f"M{n}"]["wide_vias"] = rule["wide_vias"]
         if via:
             rule = rules.get(f"V{n}", {})
             enclosure = rule.get("enclosure", (via.get("VencA_L", 0), via.get("VencP_L", 0), 0))
@@ -131,7 +138,13 @@ def _rules(pdk: str, pdk_dir: Path) -> dict[str, dict[str, int]]:
                 "along": max(enclosure[0], via.get("VencA_L", 0), via.get("VencA_H", 0)),
                 "across": enclosure[1],
             }
+    out["grid"] = {"size": pdk_value(pdk, "tech", "MFG_GRID")}
     return out
+
+
+def _up(value: int, grid: int) -> int:
+    """``value`` rounded up to the manufacturing ``grid``."""
+    return -(-value // grid) * grid
 
 
 def _labels(layout: db.Layout, cell: db.Cell) -> list[tuple[str, int, int, tuple[int, int]]]:
@@ -160,14 +173,16 @@ def _shape_at(layout: db.Layout, cell: db.Cell, layer: tuple[int, int], x: int, 
 def _geometry(rule: dict[str, dict[str, int]]) -> dict[str, int]:
     """The channels' spacings (nm): a via's reach past its cut along a wire (``end``), the widest
     landing, the clearance a channel keeps from a block and the track pitch."""
-    end = {via: rule[via]["cut"] // 2 + rule[via]["along"] for via in ("V1", "V2", "V3", "V4")}
+    grid = rule["grid"]["size"]
+    end = {via: _up(rule[via]["cut"] // 2 + rule[via]["along"], grid) for via in ("V1", "V2", "V3", "V4")}
     landing = 2 * max(end.values())
     return {
         **{f"end_{via}": value for via, value in end.items()},
+        "grid": grid,
         "landing": landing,
-        "clearance": 2 * max(rule[f"M{n}"]["pitch"] for n in range(1, 6)) + landing,
-        "track": max(rule["M4"]["pitch"], landing + rule["M4"]["space"]),
-        "column": max(rule["M3"]["pitch"], landing + rule["M3"]["space"]),
+        "clearance": _up(2 * max(rule[f"M{n}"]["pitch"] for n in range(1, 6)) + landing, grid),
+        "track": _up(max(rule["M4"]["pitch"], landing + rule["M4"]["space"]), grid),
+        "column": _up(max(rule["M3"]["pitch"], landing + rule["M3"]["space"]), grid),
     }
 
 
@@ -179,6 +194,24 @@ def _tracks(nets: list[dict[str, Any]], start: int, direction: int, g: dict[str,
     order = sorted(nets, key=lambda n: n["near_x"])
     tracks = {n["name"]: start + direction * (g["clearance"] + k * g["track"]) for k, n in enumerate(order)}
     return tracks, start + direction * (2 * g["clearance"] + (len(order) - 1) * g["track"])
+
+
+def _cuts(rule: dict, g: dict, low: int, high: int, cuts: int) -> tuple[dict[int, int], dict[int, int], dict[int, int]]:
+    """A via stack's cuts from M``low`` to M``high``, by via level: how many (``cuts``, or as many as
+    the landing above asks where it is wide), how far apart (the cuts asked for a pitch of the
+    stack's, a wide landing's at their own via's pitch, as near as the rule wants them), and how far
+    the outermost lies from the stack's centre."""
+    pitch = _up(max(rule[f"V{n}"]["cut"] + rule[f"V{n}"]["space"] for n in range(low, high)), 2 * g["grid"])
+    count, step = {}, {}
+    for n in range(low, high):
+        count[n], step[n] = cuts, pitch
+        wide = rule[f"M{n + 1}"].get("wide_vias")
+        if wide and n + 1 < high:
+            across, _ = _landing(rule, g, f"M{n + 1}", (f"V{n}", f"V{n + 1}"))
+            if 2 * across > wide[0] and wide[1] > cuts:
+                count[n] = wide[1]
+                step[n] = _up(rule[f"V{n}"]["cut"] + rule[f"V{n}"]["space"], 2 * g["grid"])
+    return count, step, {n: round((count[n] - 1) / 2 * step[n]) for n in count}
 
 
 class _Wires:
@@ -194,24 +227,35 @@ class _Wires:
     def cut(self, via: str, net: str, x: int, y: int) -> None:
         self.parts["cuts"].append([via, net, x, y, self.rule[via]["cut"]])
 
-    def stack(self, net: str, x: int, y: int, low: int, high: int, cuts: int = 1) -> None:
+    def pad(self, metal: str, net: str, x: int, y: int, via: str, vertical: bool, spread: int = 0) -> None:
+        """``metal``'s pad over a ``via`` at (x, y) on a wire running ``vertical``ly or across: the
+        cut and its side enclosure across the wire, its end enclosure along it, ``spread`` more in y
+        (a column of cuts). A wire as wide as its cut has no side enclosure of its own."""
+        across = max(
+            self.rule[metal]["width"] // 2, _up(self.rule[via]["cut"] // 2 + self.rule[via]["across"], self.g["grid"])
+        )
+        along = self.g[f"end_{via}"]
+        half_x, half_y = (across, along + spread) if vertical else (along, across + spread)
+        self.parts["landings"].append([metal, net, x - half_x, y - half_y, x + half_x, y + half_y])
+
+    def stack(
+        self, net: str, x: int, y: int, low: int, high: int, cuts: int = 1, vertical: tuple[bool, bool] = (False, True)
+    ) -> None:
         """Vias from M``low`` to M``high`` at (x, y), ``cuts`` of each in a column a via pitch apart,
         each metal between a landing: its vias' cuts and their side enclosures across, their end
-        enclosures along y, its minimum area."""
-        pitch = max(self.rule[f"V{n}"]["cut"] + self.rule[f"V{n}"]["space"] for n in range(low, high))
-        offsets = [round((k - (cuts - 1) / 2) * pitch) for k in range(cuts)]
+        enclosures along y, its minimum area; the end metals a pad each, on wires running
+        ``vertical``ly or across (an M2 bar across, an M5 column up, by default)."""
+        count, step, spread = _cuts(self.rule, self.g, low, high, cuts)
         for n in range(low, high):
-            for offset in offsets:
-                self.cut(f"V{n}", net, x, y + offset)
+            for k in range(count[n]):
+                self.cut(f"V{n}", net, x, y + round((k - (count[n] - 1) / 2) * step[n]))
         for n in range(low + 1, high):
             vias = (f"V{n - 1}", f"V{n}")
-            across = max(
-                self.rule[f"M{n}"]["width"] // 2,
-                *(self.rule[via]["cut"] // 2 + self.rule[via]["across"] for via in vias),
-            )
-            area = self.rule[f"M{n}"]["length"] * self.rule[f"M{n}"]["width"]  # the metal's minimum area
-            along = max(*(self.g[f"end_{via}"] for via in vias), -(-area // (4 * across))) + offsets[-1]
+            across, along = _landing(self.rule, self.g, f"M{n}", vias)
+            along += max(spread[n - 1], spread[n])
             self.parts["landings"].append([f"M{n}", net, x - across, y - along, x + across, y + along])
+        self.pad(f"M{low}", net, x, y, f"V{low}", vertical[0], spread[low])
+        self.pad(f"M{high}", net, x, y, f"V{high - 1}", vertical[1], spread[high - 1])
 
     def column(
         self, net: str, x: int, y0: int, y1: int, ends: tuple[str | None, str | None], metal: str = "M3"
@@ -227,17 +271,18 @@ class _Wires:
         lo, hi = sorted((x0, x1))
         reach = max(self.g[f"end_{via0}"], self.g[f"end_{via1}"])
         self.segment("M4", net, lo - reach, y, hi + reach, y)
-        self.cut(via0, net, x0, y)
-        self.cut(via1, net, x1, y)
+        for x, via in ((x0, via0), (x1, via1)):
+            self.cut(via, net, x, y)
+            self.pad("M4", net, x, y, via, False)
+            self.pad("M3" if via == "V3" else "M5", net, x, y, via, True)
 
     def to_pin(self, net: str, pin: dict[str, Any], track: int) -> None:
         """An M5 column from a track to a bank's pin (the bank draws nothing above M3), down a via
         stack: onto an M2 bar (V2, V3, V4) or into an M3 strap past its end (V3, V4)."""
         x, y = pin["x"], pin["y"]
         self.column(net, x, track, y, ("V4", "V4"), "M5")
-        self.stack(net, x, y, 2 if pin["kind"] == "bar" else 3, 5)
-        if pin.get("extension") is not None:  # the bar drawn on to the via-2 past its end
-            b = pin["extension"]
+        self.stack(net, x, y, 2 if pin["kind"] == "bar" else 3, 5, vertical=(pin["kind"] != "bar", True))
+        for b in pin.get("extension", ()):  # the bar drawn on to the via-2 past its end, or off it
             self.parts["landings"].append(["M2", net, b.left, b.bottom, b.right, b.top])
 
     def out_of_array(self, net: str, x: int, inside: int, exit_y: int, route: int) -> None:
@@ -248,9 +293,11 @@ class _Wires:
         sign = 1 if exit_y >= inside else -1
         # two cuts a via: the array's buses beside are wide plates (a lone via near one is refused)
         low, high = min(route, 3), max(route, 3)
-        pitch = max(self.rule[f"V{n}"]["cut"] + self.rule[f"V{n}"]["space"] for n in range(low, high))
+        pitch = _up(
+            max(self.rule[f"V{n}"]["cut"] + self.rule[f"V{n}"]["space"] for n in range(low, high)), 2 * self.g["grid"]
+        )
         self.segment(f"M{route}", net, x, inside, x, exit_y + sign * (self.g[f"end_{leave}"] + pitch // 2))
-        self.stack(net, x, exit_y, low, high, cuts=2)
+        self.stack(net, x, exit_y, low, high, cuts=2, vertical=(True, True))
 
 
 def _pins(layout: db.Layout, cell: db.Cell, dx: int, dy: int, layers: dict[str, tuple[int, int]]) -> dict[str, Any]:
@@ -288,63 +335,198 @@ def _pins(layout: db.Layout, cell: db.Cell, dx: int, dy: int, layers: dict[str, 
 def _landing(rule: dict, g: dict, metal: str, vias: tuple[str, str]) -> tuple[int, int]:
     """A via stack's landing on ``metal`` between its ``vias``: half across (x: the cuts and their
     side enclosure, the metal's width) and half along (y: their end enclosure, the metal's area)."""
-    across = max(rule[metal]["width"] // 2, *(rule[via]["cut"] // 2 + rule[via]["across"] for via in vias))
+    grid = g["grid"]
+    across = _up(max(rule[metal]["width"] // 2, *(rule[via]["cut"] // 2 + rule[via]["across"] for via in vias)), grid)
     area = rule[metal]["length"] * rule[metal]["width"]
-    return across, max(*(g[f"end_{via}"] for via in vias), -(-area // (4 * across)))
+    return across, _up(max(*(g[f"end_{via}"] for via in vias), -(-area // (4 * across))), grid)
+
+
+def _spacing(rule: dict, layer: str, a: db.Box, b: db.Box) -> int:
+    """The space ``layer`` asks between two shapes: the widest class's (the PDK's parallel-run rules,
+    taken at any run) either is wider than, else its space."""
+    width = max(min(a.width(), a.height()), min(b.width(), b.height()))
+    return max([rule[layer]["space"], *(space for above, space in rule[layer].get("wide", ()) if width > above)])
+
+
+def _clearance(box: db.Box, obstacles: list[db.Box], rule: dict, layer: str, wide: bool = True) -> int:
+    """How much more than its space ``box`` keeps from the nearest of ``obstacles`` (negative: too
+    close), each at the space the pair asks (``wide``: by their widths; else the plain space)."""
+    space = lambda other: _spacing(rule, layer, box, other) if wide else rule[layer]["space"]
+    return min((_gap(box, other, space(other)) - space(other) for other in obstacles), default=10**6)
+
+
+def _touching(box: db.Box, same: list[db.Box], space: int, join: bool = True) -> int:
+    """-1 where ``box`` comes within ``space`` of a shape of its own net without joining it (two
+    shapes of one net are spaced as any two; ``join``: overlapping joins them, else, as two cuts,
+    only the same cut does), else 0."""
+    for other in same:
+        if box == other or (join and box.overlaps(other)):
+            continue
+        dx = max(other.left - box.right, box.left - other.right)
+        dy = max(other.bottom - box.top, box.bottom - other.top)
+        if dx < space and dy < space:
+            return -1
+    return 0
+
+
+def _stack(x: int, y: int, toward: int, rule: dict, g: dict) -> dict[str, db.Box]:
+    """A bar pin's stack at (x, y): its via-2 cut and M2 pad, its M3 and M4 landings, its M5
+    column out ``toward`` the bank's edge from its pad's far end."""
+    grid, cut = g["grid"], rule["V2"]["cut"] // 2
+    a2 = max(rule["M2"]["width"] // 2, _up(cut + rule["V2"]["across"], grid))
+    a3, l3 = _landing(rule, g, "M3", ("V2", "V3"))
+    a4, l4 = _landing(rule, g, "M4", ("V3", "V4"))
+    _, _, spread = _cuts(rule, g, 2, 5, 1)
+    l3, l4 = l3 + max(spread[2], spread[3]), l4 + max(spread[3], spread[4])
+    half = _up(max(rule["M5"]["width"], rule["V4"]["cut"] + 2 * rule["V4"]["across"]) // 2, grid)
+    back = y - toward * g["end_V4"]
+    return {
+        "v2": db.Box(x - cut, y - cut, x + cut, y + cut),
+        "m2": db.Box(x - g["end_V2"], y - a2, x + g["end_V2"], y + a2),
+        "m3": db.Box(x - a3, y - l3, x + a3, y + l3),
+        "m4": db.Box(x - a4, y - l4, x + a4, y + l4),
+        "m5": db.Box(x - half, min(back, y + toward * 10**6), x + half, max(back, y + toward * 10**6)),
+    }
+
+
+def _stack_clear(
+    stack: dict[str, db.Box], m2: list[db.Box], pins: dict[str, Any], rule: dict, own: dict[str, list[db.Box]]
+) -> int:
+    """How clear a bar pin's stack (``_stack``) and its M2 pieces ``m2`` keep: of the bank's other
+    M2 and M3 (its ``own`` net's apart: joined or a space away), of the landings and columns already
+    placed (another stack's landings twice a space away: its vias a different net's via space), its
+    via-2 of the bank's others."""
+    double = lambda box, metal: box.enlarged(rule[metal]["space"], rule[metal]["space"])
+    return min(
+        _clearance(stack["m3"], own["keep3"], rule, "M3"),
+        _touching(stack["m3"], own["same3"], rule["M3"]["space"]),
+        _clearance(double(stack["m3"], "M3"), pins["landings"], rule, "M3", wide=False),
+        _clearance(double(stack["m4"], "M4"), pins["m4"], rule, "M4", wide=False),
+        _clearance(stack["m5"], pins["columns"], rule, "M5"),
+        _touching(stack["v2"], own["v2"], rule["V2"]["space"], join=False),
+        *(_clearance(piece, own["others"], rule, "M2") for piece in m2),
+    )
+
+
+def _place(stack: dict[str, db.Box], m2: list[db.Box], pins: dict[str, Any]) -> None:
+    """A placed stack's shapes join the bank's, for the stacks after it."""
+    pins["landings"].append(stack["m3"])
+    pins["m4"].append(stack["m4"])
+    pins["columns"].append(stack["m5"])
+    pins["m2"] += m2
+    pins["v2"].append(stack["v2"])
 
 
 def _bar_pin(bar: db.Box, toward: int, pins: dict[str, Any], rule: dict, g: dict) -> dict[str, Any]:
     """A pin on an M2 bar: an M5 column (the bank draws nothing above M3) from the bar out toward
     the bank's edge in ``toward``, down a via-2, via-3 and via-4 on the bar, or just past its end
-    with the bar drawn on to it. Its x: the one whose M3 landing keeps farthest from the bank's
-    other M3 (but what a via-2 joins to this bar) and the landings already placed, whose M4 landing
-    and column keep from those already placed, and whose bar extension keeps from the bank's other
-    M2, each at least a space clear. The landings and the column join the bank's own."""
+    with the bar drawn on to it. Its x: one whose stack keeps clear (``_stack_clear``: at least a
+    space, up to a margin the more the better), then on the bar, then nearest its middle; where
+    there is none, a dogleg off the bar (``_dogleg``). Its shapes join the bank's own."""
     cuts = [cut for cut in pins["v2"] if cut.overlaps(bar)]
-    keep3 = [box for box in pins["m3"] if not any(box.overlaps(cut) for cut in cuts)]
-    others = [box for box in pins["m2"] if not box.overlaps(bar)]
-    y = (bar.bottom + bar.top) // 2
-    a3, l3 = _landing(rule, g, "M3", ("V2", "V3"))
-    a4, l4 = _landing(rule, g, "M4", ("V3", "V4"))
-    half = max(rule["M5"]["width"], rule["V4"]["cut"] + 2 * rule["V4"]["across"]) // 2
+    own = {
+        "keep3": [box for box in pins["m3"] if not any(box.overlaps(cut) for cut in cuts)],
+        "same3": [box for box in pins["m3"] if any(box.overlaps(cut) for cut in cuts)],
+        "v2": [
+            cut for cut in pins["v2"] if cut.overlaps(bar.enlarged(4 * rule["M2"]["pitch"], 4 * rule["M2"]["pitch"]))
+        ],
+        "others": [box for box in pins["m2"] if not box.overlaps(bar)],
+    }
+    y = (bar.bottom + bar.top) // 2 // g["grid"] * g["grid"]
     reach = g["end_V2"]
-    gap_of = lambda box, obstacles, metal: min(
-        (_gap(box, other, rule[metal]["space"]) - rule[metal]["space"] for other in obstacles), default=10**6
-    )
-    best, gap, best_extension = None, -1, None
-    for x in range(bar.left - 2 * rule["M2"]["pitch"], bar.right + 2 * rule["M2"]["pitch"] + 1, 5):
-        column = db.Box(x - half, min(y, y + toward * 10**6), x + half, max(y, y + toward * 10**6))
-        # the bar drawn on past its end to hold the via-2, where it lies beyond
-        extension = None
+    # clearance past a margin buys nothing: then a landing on the bar itself, nearest its middle
+    # (its ends left to the stacks of the bars beside it)
+    margin = 2 * rule["M3"]["pitch"]
+    best, best_key = None, None
+    start = (bar.left - 2 * rule["M2"]["pitch"]) // g["grid"] * g["grid"]
+    for x in range(start, bar.right + 2 * rule["M2"]["pitch"] + 1, g["grid"]):
+        stack = _stack(x, y, toward, rule, g)
+        # the bar drawn on past its end to hold the via-2, where it lies beyond; the pad where it
+        # stands out of the bar
+        m2 = []
         if x - reach < bar.left or x + reach > bar.right:
-            extension = db.Box(min(bar.left, x - reach), bar.bottom, max(bar.right, x + reach), bar.top)
-        # another stack's landings twice a space away: its vias a different net's via space
-        double = lambda box, metal: box.enlarged(rule[metal]["space"], rule[metal]["space"])
-        clear = min(
-            gap_of(db.Box(x - a3, y - l3, x + a3, y + l3), keep3, "M3"),
-            gap_of(double(db.Box(x - a3, y - l3, x + a3, y + l3), "M3"), pins["landings"], "M3"),
-            gap_of(double(db.Box(x - a4, y - l4, x + a4, y + l4), "M4"), pins["m4"], "M4"),
-            gap_of(column, pins["columns"], "M5"),
-            gap_of(extension, others, "M2") if extension else 10**6,
-        )
-        # a landing on the bar itself before one past its end, at an equal margin
-        if clear > gap or (clear == gap and extension is None and best_extension is not None):
-            best, gap, best_extension = x, clear, extension
-    if gap < 0:
-        raise RuntimeError(f"no place on or by the bar {bar} keeps its landings clear of the bank's M3")
-    pins["landings"].append(db.Box(best - a3, y - l3, best + a3, y + l3))
-    pins["m4"].append(db.Box(best - a4, y - l4, best + a4, y + l4))
-    pins["columns"].append(db.Box(best - half, min(y, y + toward * 10**6), best + half, max(y, y + toward * 10**6)))
-    if best_extension is not None:
-        pins["m2"].append(best_extension)
-    return {"kind": "bar", "x": best, "y": y, "extension": best_extension}
+            m2.append(db.Box(min(bar.left, x - reach), bar.bottom, max(bar.right, x + reach), bar.top))
+        if not bar.contains(stack["m2"].p1) or not bar.contains(stack["m2"].p2):
+            m2.append(stack["m2"])
+        clear = _stack_clear(stack, m2, pins, rule, own)
+        key = (min(clear, margin), not m2, -abs(2 * x - bar.left - bar.right))
+        if best_key is None or key > best_key:
+            best, best_key = (x, y, stack, m2), key
+    if best_key is None or best_key[0] < 0:
+        # another net's M3 over the bar and its ends: a dogleg on M2 off the bar, out of the row of
+        # bars, to a landing between that M3
+        best = _dogleg(bar, toward, pins, rule, g, own)
+    x, y, stack, m2 = best
+    _place(stack, m2, pins)
+    return {"kind": "bar", "x": x, "y": y, "extension": m2}
 
 
-def _strap_pin(strap: db.Box, toward: int, g: dict, depth: int = 0) -> dict[str, Any]:
-    """A pin on an M3 supply strap: its via-3 inside the strap's end facing ``toward``, ``depth``
-    further in (the bank's two straps side by side: their vias one above the other)."""
+def _dogleg(
+    bar: db.Box, toward: int, pins: dict[str, Any], rule: dict, g: dict, own: dict[str, list[db.Box]]
+) -> tuple[int, int, dict[str, db.Box], list[db.Box]]:
+    """A via-2 off the M2 bar ``bar`` where none on or by it keeps clear (``_bar_pin``): a stub of M2
+    from the bar across (in y) and a run along (in x) to the via, the run as wide as the via's
+    enclosure asks, the whole stack clear (``_stack_clear``). The shortest such: its x, its y, its
+    stack and its two pieces."""
+    pitch, grid = rule["M2"]["pitch"], g["grid"]
+    width = 2 * _up(max(rule["M2"]["width"], rule["V2"]["cut"] + 2 * rule["V2"]["across"]) // 2, grid)
+    reach = g["end_V2"]
+    y_bar = (bar.bottom + bar.top) // 2 // grid * grid
+    near = bar.enlarged(6 * pitch, 11 * pitch)
+    local = {key: [box for box in boxes if box.overlaps(near)] for key, boxes in own.items()}
+    nearby = {key: [box for box in pins[key] if box.overlaps(near)] for key in ("landings", "m4", "columns")}
+    best, best_key = None, None
+    step = max(grid, rule["M2"]["width"] // 4 // grid * grid)
+    # as far as past a row's other bars (a one-row bank's outputs beside its states)
+    for dy in range(-8 * pitch // step * step, 8 * pitch + 1, step):
+        y = y_bar + dy
+        if bar.bottom <= y <= bar.top:
+            continue
+        for x in range((bar.left - 2 * pitch) // grid * grid, bar.right + 2 * pitch + 1, step):
+            # the stub nearest the via, or from the bar's middle (clear of the bars beside it)
+            middle = (bar.left + bar.right) // 2 // grid * grid
+            for stub_x in {min(max(x, bar.left + width // 2), bar.right - width // 2), middle}:
+                stub = db.Box(
+                    stub_x - width // 2, min(y, y_bar) - width // 2, stub_x + width // 2, max(y, y_bar) + width // 2
+                )
+                run = db.Box(min(x, stub_x) - reach, y - width // 2, max(x, stub_x) + reach, y + width // 2)
+                stack = _stack(x, y, toward, rule, g)
+                # the run joins its bar or keeps a space from it (no notch between them)
+                clear = min(
+                    _stack_clear(stack, [stub, run, stack["m2"]], nearby, rule, local),
+                    _touching(run, [bar], _spacing(rule, "M2", run, bar)),
+                )
+                # clear of everything, then the shortest dogleg
+                key = (clear >= 0, -abs(dy) - abs(x - stub_x), clear)
+                if best_key is None or key > best_key:
+                    best, best_key = (x, y, stack, [stub, run, stack["m2"]]), key
+    if best is None or not best_key[0]:
+        raise RuntimeError(f"no place on, by or off the bar {bar} keeps its landings clear of the bank's M3")
+    return best
+
+
+def _strap_pin(strap: db.Box, toward: int, pins: dict[str, Any], rule: dict, g: dict) -> dict[str, Any]:
+    """A pin on an M3 supply strap: its via-3 inside the strap's end facing ``toward``, its M5 column
+    (from its pad) and how clear of the columns placed that keeps (``clear``)."""
     end = strap.top if toward > 0 else strap.bottom
-    return {"kind": "strap", "x": (strap.left + strap.right) // 2, "y": end - toward * (g["end_V3"] + depth)}
+    x = (strap.left + strap.right) // 2 // g["grid"] * g["grid"]
+    y = end - toward * g["end_V3"]
+    half = _up(max(rule["M5"]["width"], rule["V4"]["cut"] + 2 * rule["V4"]["across"]) // 2, g["grid"])
+    back = y - toward * g["end_V4"]
+    column = db.Box(x - half, min(back, y + toward * 10**6), x + half, max(back, y + toward * 10**6))
+    clear = _clearance(column, pins["columns"], rule, "M5")
+    return {"kind": "strap", "x": x, "y": y, "column": column, "clear": clear}
+
+
+def _supply_pin(straps: list[db.Box], toward: int, pins: dict[str, Any], rule: dict, g: dict) -> dict[str, Any]:
+    """A supply's pin on the first of its ``straps`` whose column keeps clear of those placed (else
+    on the first); its column joins the bank's."""
+    pin = next(
+        (pin for pin in (_strap_pin(strap, toward, pins, rule, g) for strap in straps) if pin["clear"] >= 0),
+        None,
+    ) or _strap_pin(straps[0], toward, pins, rule, g)
+    pins["columns"].append(pin["column"])
+    return pin
 
 
 def _gap(a: db.Box, b: db.Box, space: int) -> int:
@@ -411,15 +593,20 @@ def layout_side(out_dir: Path, pdk: str, array: str, params: Params, side: str) 
             shield = [{"name": "vss_dac", "near_x": right, "far_x": 0, "tap": (nm(tap[0]), nm(tap[1]))}]
         _, far = _tracks(nets + shield, exit_y, direction, g)
         dy = far - bank_nm(outline.top if direction < 0 else outline.bottom)
-        dx = (array_box.left + array_box.right) // 2 - bank_nm((outline.left + outline.right) // 2)
+        dy = dy // g["grid"] * g["grid"] if direction < 0 else _up(dy, g["grid"])
+        dx = (
+            ((array_box.left + array_box.right) // 2 - bank_nm((outline.left + outline.right) // 2))
+            // g["grid"]
+            * g["grid"]
+        )
         pins = _pins(bank, cell, dx, dy, {"M2": layers["M2"], "M3": layers["M3"], "V2": layers["V2"]})
+        # the shield's strap first (its column where the strap is), the outputs' about it
+        for n in shield:
+            n["pin"] = _supply_pin(pins["straps"]["vss"][::-1], -direction, pins, rule, g)
+            n["far_x"] = n["pin"]["x"]
         for n in nets:
             pin = _bar_pin(pins["bars"][n["name"]], -direction, pins, rule, g)
             n["far_x"], n["pin"] = pin["x"], pin
-        for n in shield:
-            strap = pins["straps"]["vss"][-1]
-            n["far_x"] = (strap.left + strap.right) // 2
-            n["pin"] = _strap_pin(strap, -direction, g)
         tracks, far2 = _tracks(nets + shield, exit_y, direction, g)
         if far2 != far:
             raise RuntimeError("the channel's tracks moved once the bank was placed")
@@ -432,7 +619,11 @@ def layout_side(out_dir: Path, pdk: str, array: str, params: Params, side: str) 
                 wires.out_of_array(name, x, inside, exit_y, route)
                 # from past the exit's farther cut (its vias a pair: ``out_of_array``)
                 half = (
-                    max(rule[f"V{k}"]["cut"] + rule[f"V{k}"]["space"] for k in range(min(route, 3), max(route, 3))) // 2
+                    _up(
+                        max(rule[f"V{k}"]["cut"] + rule[f"V{k}"]["space"] for k in range(min(route, 3), max(route, 3))),
+                        2 * g["grid"],
+                    )
+                    // 2
                 )
                 wires.column(name, x, exit_y - direction * half, track, ("V3" if route == 4 else "V2", "V3"))
             wires.track(name, x, "V3", n["far_x"], "V4", track)
@@ -443,7 +634,7 @@ def layout_side(out_dir: Path, pdk: str, array: str, params: Params, side: str) 
             # the tap's route metal on to the right side's column, onto M3 there, down to the track
             wires.segment(f"M{route}", name, tx, ty, x + g[f"end_V{min(route, 3)}"], ty)
             if route != 3:
-                wires.stack(name, x, ty, min(route, 3), max(route, 3))
+                wires.stack(name, x, ty, min(route, 3), max(route, 3), vertical=(route > 3, route < 3))
             wires.column(name, x, ty, track, ("V3" if route == 4 else "V2" if route < 3 else None, "V3"))
             wires.track(name, x, "V3", n["far_x"], "V4", track)
             wires.to_pin(name, n["pin"], track)
@@ -488,13 +679,14 @@ def _side_columns(
     for bank in banks.values():
         direction, pins = bank["direction"], bank["pins"]
         nets = []
-        for name in joined:
+        # the states first, then each supply on a strap whose column keeps clear of theirs (vdd's
+        # from the left, vss's from the right: their columns a bank apart)
+        for name in sorted(joined, key=lambda name: name not in pins["bars"]):
             if name in pins["bars"]:
                 pin = _bar_pin(pins["bars"][name], direction, pins, rule, g)
             else:
-                # the vdd strap's vias a landing and a space deeper than the vss strap's beside it
-                depth = 2 * g["landing"] if name == "vdd" else 0
-                pin = _strap_pin(pins["straps"][name][0], direction, g, depth)
+                straps = pins["straps"][name]
+                pin = _supply_pin(straps if name == "vdd" else straps[::-1], direction, pins, rule, g)
             nets.append({"name": name, "near_x": pin["x"], "far_x": side_x[name], "pin": pin})
         tracks, _ = _tracks(nets, bank["far_edge"], direction, g)
         for n in nets:
@@ -770,9 +962,9 @@ def layout_units(out_dir: Path, pdk: str, array: str, params: Params, side: str)
         x = column * pitch + x_local
         taps = [r * row_pitch + bus_y for r, first, count in segments[stage]]
         for y in taps:  # two cuts: the bus beside is a wide plate
-            wires.stack(name, x, y, 3, 4, cuts=2)
+            wires.stack(name, x, y, 3, 4, cuts=2, vertical=(True, False))
         # the line from past its topmost pair's upper cut
-        pair = (rule["V3"]["cut"] + rule["V3"]["space"]) // 2
+        pair = _up(rule["V3"]["cut"] + rule["V3"]["space"], 2 * geo["grid"]) // 2
         nets.append({"name": name, "near_x": x, "top": max(taps) + pair})
     # the shield: every row's tap (the middle one at its right) joined by a route-metal strap there
     right = array_box.right - g["ring_width"] // 2
@@ -788,15 +980,19 @@ def layout_units(out_dir: Path, pdk: str, array: str, params: Params, side: str)
     for n in nets + shield:
         n["far_x"] = 0
     _, far = _tracks(nets + shield, exit_y, -1, geo)
-    dy = far - bank_nm(outline.top)
-    dx = (array_box.left + array_box.right) // 2 - bank_nm((outline.left + outline.right) // 2)
+    dy = (far - bank_nm(outline.top)) // geo["grid"] * geo["grid"]
+    dx = (
+        ((array_box.left + array_box.right) // 2 - bank_nm((outline.left + outline.right) // 2))
+        // geo["grid"]
+        * geo["grid"]
+    )
     pins = _pins(bank, cell, dx, dy, {key: info["layers"][key] for key in ("M2", "M3", "V2")})
+    for n in shield:
+        n["pin"] = _supply_pin(pins["straps"]["vss"][::-1], 1, pins, rule, geo)
+        n["far_x"] = n["pin"]["x"]
     for n in nets:
         pin = _bar_pin(pins["bars"][n["name"]], 1, pins, rule, geo)
         n["far_x"], n["pin"] = pin["x"], pin
-    for n in shield:
-        strap = pins["straps"]["vss"][-1]
-        n["far_x"], n["pin"] = (strap.left + strap.right) // 2, _strap_pin(strap, 1, geo)
     tracks, _ = _tracks(nets + shield, exit_y, -1, geo)
     for n in nets:
         wires.column(n["name"], n["near_x"], n["top"], tracks[n["name"]], ("V3", "V3"))
@@ -806,7 +1002,7 @@ def layout_units(out_dir: Path, pdk: str, array: str, params: Params, side: str)
         tx, ty = n["tap"]
         x = n["near_x"]
         wires.segment(f"M{route}", n["name"], tx, ty, x + geo["end_V3"], ty)
-        wires.stack(n["name"], x, ty, 3, route)
+        wires.stack(n["name"], x, ty, 3, route, vertical=(True, False))
         wires.column(n["name"], x, ty, tracks[n["name"]], ("V3", "V3"))
         wires.track(n["name"], x, "V3", n["far_x"], "V4", tracks[n["name"]])
         wires.to_pin(n["name"], n["pin"], tracks[n["name"]])
