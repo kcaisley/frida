@@ -483,9 +483,29 @@ def layout(blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS) -> 
             print(f"[{done}/{len(jobs)}] {path.relative_to(SWEEP_DIR)}: {status} in {entry['seconds']} s", flush=True)
 
 
+def _block_netlist(block: str, ident: str, record: dict, data_dir: Path) -> Path | None:
+    """An instance laid out by no one: its block's own netlist after its PDK's compile (a pipeline
+    block's ``netlist`` and ``Nets``, ``flow.circuit.devices.write_netlist``), else None."""
+
+    from flow.circuit import devices
+
+    module = import_module(f"flow.{block}")
+    if not hasattr(module, "Nets") or record["error"] is not None:
+        return None
+    try:
+        params = instance_params(block, record["pdk"], ident.split("__")[-1])
+        pdk = import_module(f"pdk.{record['pdk']}.hdl21").pdk_logic
+        path = data_dir / block / ident / f"{block}.sp"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return devices.write_netlist(params, path, pdk, generator=module.netlist, nets=module.Nets)
+    except Exception:  # noqa: BLE001 - the page shows no netlist rather than no page
+        return None
+
+
 def instance_views(block: str, ident: str, record: dict, data_dir: Path) -> dict:
     """An instance's views for its page, under ``data_dir/<block>/`` (``build/web/data/sweep``): its layout
-    flattened onto the PDK's generic layers (``flow.web.export``), its schematic and netlist, and
+    flattened onto the PDK's generic layers (``flow.web.export``), its schematic and netlist (its
+    layout's, else its block's: ``_block_netlist``), and
     the index of its waveforms (``<ident>/traces.json``, as the waveform panel reads one); the
     files written, by kind."""
 
@@ -497,12 +517,13 @@ def instance_views(block: str, ident: str, record: dict, data_dir: Path) -> dict
     if entry.get("gds"):
         files["file"] = f"sweep/{block}/{ident}.layout.json"
         export_layout(str(ROOT / entry["gds"]), record["pdk"], str(data_dir.parent / files["file"]))
-    if entry.get("netlist"):
+    netlist = ROOT / entry["netlist"] if entry.get("netlist") else _block_netlist(block, ident, record, data_dir)
+    if netlist is not None:
         files["netlist_file"] = f"sweep/{block}/{ident}.netlist.sp"
-        (data_dir.parent / files["netlist_file"]).write_text((ROOT / entry["netlist"]).read_text())
+        (data_dir.parent / files["netlist_file"]).write_text(netlist.read_text())
         try:
             files["schematic"] = f"sweep/{block}/{ident}.schematic.svg"
-            export_schematic(str(ROOT / entry["netlist"]), str(data_dir.parent / files["schematic"]))
+            export_schematic(str(netlist), str(data_dir.parent / files["schematic"]))
         except Exception:  # noqa: BLE001 - the netlist stays readable without its drawing
             del files["schematic"]
     waves = []

@@ -134,16 +134,18 @@ def _net(signal) -> str:
     return f"{signal.parent.name}_{signal.index}" if isinstance(signal, h.Slice) else signal.name
 
 
-def instance_lines(module: h.Module) -> list[str]:
+def instance_lines(module: h.Module, outer: dict[str, str] | None = None, suffix: str = "") -> list[str]:
     """A compiled module's instances as the flat SPICE lines ``write_netlist`` writes: a capacitor's
     value (a Monte Carlo's expression: its module's nominal ``c``), a MOS's total width and finger count, a logic cell's wrapper as its library cell; a custom
     child cell (a module of its own devices) as its own lines, each name followed by the child's
-    (``Mdiff_p@Xcomp``: unique, and still a MOS line by its first letter)."""
+    (``Mdiff_p@Xcomp``: unique, and still a MOS line by its first letter); a child's ports on the
+    nets its parent connects them to (``outer``), its own nets named after it too (``suffix``)."""
 
     nm = lambda value: round(float(value) * 1e9)
+    local = lambda net: (outer or {}).get(net) or (f"{net}@{suffix}" if suffix else net)
     lines = []
     for name, inst in module.instances.items():
-        conns = {port: _net(sig) for port, sig in inst.conns.items()}
+        conns = {port: local(_net(sig)) for port, sig in inst.conns.items()}
         call = inst.of
         if isinstance(call, h.PrimitiveCall) and call.prim is C:
             c = module.props["c"] if isinstance(call.params.c, h.Literal) else float(call.params.c)
@@ -165,7 +167,8 @@ def instance_lines(module: h.Module) -> list[str]:
             pins = [outer[sig.name] for sig in (cell.conns[p.name] for p in cell.of.module.port_list)]
             lines.append(f"{name} {' '.join(pins)} {cell.of.module.name}")
         else:  # a custom child cell
-            for line in instance_lines(call):
+            ports = {port.name: conns[port.name] for port in call.ports.values() if port.name in conns}
+            for line in instance_lines(call, ports, name):
                 first, rest = line.split(" ", 1)
                 lines.append(f"{first}@{name} {rest}")
     return lines
