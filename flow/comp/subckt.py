@@ -26,7 +26,9 @@ class Nets:
     input_p_drain, input_n_drain = (h.Signal(props=h.Properties(inner={"save": True})) for _ in range(2))
 
 
-@h.generator
+# a fresh module every call: the PDK compile rewrites its devices in place, and a run's bench
+# and its area each compile one
+@h.generator(enable_cache=False)
 def netlist(param: Params) -> h.Module:
     """
     Comparator generator.

@@ -24,7 +24,9 @@ class Nets:
     vss = h.Ground(direction=h.PortDir.INOUT)
 
 
-@h.generator
+# a fresh module every call: the PDK compile rewrites its devices in place, and a run's bench
+# and its area each compile one
+@h.generator(enable_cache=False)
 def netlist(param: Params) -> h.Module:
     """The sampling switch: an NMOS, a PMOS or both (a transmission gate) between ``din`` and
     ``dout``, tracking while ``clk`` is high; a bootstrap drives the NMOS gate from its boosted node,
