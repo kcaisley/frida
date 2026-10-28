@@ -424,7 +424,25 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
     if results:
         entry.update((clean or laid_out or results)[0])
         entry["attempts"] = len(results)
-    if not attempts:
+    if hasattr(hooks, "layout_instance"):  # a block drawn by its own generator (the CDAC): no ALIGN run
+        try:
+            gds = hooks.layout_instance(out / "drawn", pdk, params, record["label"].partition("(")[2].rstrip(")"))
+            layout = db.Layout()
+            layout.read(str(gds))
+            box = max(layout.top_cells(), key=lambda cell: cell.bbox().area()).dbbox()
+            results.append(
+                {
+                    "error": None,
+                    "floorplan": None,
+                    "gds": str(gds.resolve().relative_to(ROOT)),
+                    "w_um": box.width(),
+                    "h_um": box.height(),
+                }
+            )
+        except Exception:  # noqa: BLE001 - every instance reports its own failure
+            results.append({"error": traceback.format_exc(limit=6)[-4000:]})
+        entry.update(results[0], attempts=1)
+    elif not attempts:
         return {"error": "no floorplan and no layout netlist", "seconds": 0.0}
     entry["seconds"] = round(time.time() - start, 1)
     record["layout"] = entry
@@ -444,7 +462,7 @@ def layout(blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS) -> 
     jobs = []
     for block in blocks:
         hooks = layout_hooks(block)
-        own = hasattr(hooks, "layout_netlist") or hasattr(hooks, "layout_floorplan")
+        own = any(hasattr(hooks, name) for name in ("layout_netlist", "layout_floorplan", "layout_instance"))
         for path in sorted(newest_run(block).glob("*/*/instance.json")):
             record = json.loads(path.read_text())
             if record["pdk"] not in pdks:
@@ -457,7 +475,8 @@ def layout(blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS) -> 
             if not own and hand_floorplan(block, params) is None:
                 continue
             entry = record.get("layout") or {}
-            done = (
+            drawn = hasattr(hooks, "layout_instance")  # drawn, not signed off: done once drawn
+            done = (entry.get("gds") and not entry.get("error") and drawn) or (
                 entry.get("gds")
                 and not entry.get("error")
                 and entry.get("drc_violations") == 0

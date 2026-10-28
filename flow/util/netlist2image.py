@@ -285,11 +285,72 @@ def label(name, x, y, side):
     ]
 
 
+def render_cells(netlist: Path, out: Path) -> None:
+    """A netlist of library cells and capacitors drawn as chains (``out``, SVG): each chain a row
+    from its first cell's input to its capacitor, a cell a box of its name over its library cell, a
+    capacitor its value, every net shared with another row (a top plate, a supply) a label."""
+    cells = []  # (name, nets, kind): a cell's pins in its order, a capacitor's two plates
+    for line in netlist.read_text().splitlines():
+        f = line.split()
+        if not f or f[0].startswith((".", "*", "+")):
+            continue
+        if f[0][0] in "xX":
+            cells.append((f[0], [n.lower() for n in f[1:-1]], f[-1]))
+        elif f[0][0] in "cC" or "@c" in f[0].lower():
+            cells.append((f[0], [n.lower() for n in f[1:3]], f[3] if len(f) > 3 else "C"))
+    signal = lambda nets: [n for n in nets if n.lower() not in SUPPLY and not n.startswith(("vdd", "vss"))]
+    # a chain: cells joined through nets only they share (a cell's input its first signal pin, its output its second)
+    users: dict[str, list[int]] = defaultdict(list)
+    for k, (_n, nets, _kind) in enumerate(cells):
+        for net in set(signal(nets)):
+            users[net].append(k)
+    group = list(range(len(cells)))
+    find = lambda k: k if group[k] == k else find(group[k])
+    for net, ks in users.items():
+        if len(ks) <= 6:  # a top plate or a bus is a label, not a link
+            for k in ks[1:]:
+                group[find(k)] = find(ks[0])
+    rows: dict[int, list[int]] = defaultdict(list)
+    for k in range(len(cells)):
+        rows[find(k)].append(k)
+    box_w, box_h, gap, row_h = 120, 34, 30, 60
+    width = 40 + max(len(ks) for ks in rows.values()) * (box_w + gap) + 120
+    height = 40 + len(rows) * row_h
+    svg = []
+    for r, ks in enumerate(rows.values()):
+        y = 30 + r * row_h
+        shared = sorted({n for k in ks for n in signal(cells[k][1]) if len(users[n]) > 6})
+        for c, k in enumerate(ks):
+            name, nets, kind = cells[k]
+            x = 20 + c * (box_w + gap)
+            if c:
+                svg.append(f'<path d="M{x - gap},{y + box_h / 2} H{x}" stroke="#000"/>')
+            svg.append(f'<rect x="{x}" y="{y}" width="{box_w}" height="{box_h}" fill="#fff" stroke="#000"/>')
+            svg.append(
+                f'<text x="{x + box_w / 2}" y="{y + 14}" text-anchor="middle" font-size="10">{name.split("@")[-1] if name.lower().startswith("cap@") else name.split("@")[0]}</text>'
+            )
+            svg.append(
+                f'<text x="{x + box_w / 2}" y="{y + 27}" text-anchor="middle" font-size="10" fill="#555">{kind}</text>'
+            )
+        if shared:
+            x = 20 + len(ks) * (box_w + gap)
+            svg.append(
+                f'<text x="{x}" y="{y + box_h / 2 + 4}" font-size="10" fill="#1f5fa8">{", ".join(shared)}</text>'
+            )
+    out.write_text(
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
+        f'font-family="sans-serif">' + "".join(svg).replace("<text", '<text fill="#000"', 0) + "</svg>"
+    )
+
+
 def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN) -> dict[int, list[str]]:
     """Draw ``netlist`` into ``out`` (SVG), by ALIGN's constraints (``const_path``, a
     ``.const.json``) where given; the stacks drawn, each its devices."""
     skin = Skin(skin_path)
     ports, devs = parse(netlist)
+    if not devs:  # cells and capacitors alone (a CDAC, its array, its drivers): their chains instead
+        render_cells(netlist, out)
+        return {}
     pairs, axis, sym_nets = symmetry(devs, const_path)
     stage = stages(ports, devs, sym_nets)
     row, nrows = levels(devs, stage)

@@ -764,6 +764,18 @@ def _name_pins(layout: db.Layout, top: db.Cell, side: str) -> None:
             top.shapes(index).insert(db.Text(rename.get(name, name), text.trans))
 
 
+def layout_instance(out_dir: Path, pdk: str, params: Params, array: str) -> Path:
+    """A sweep instance's CDAC (``layout_cdac``) as ``out_dir/<top>.gds``: ``params``, the ADC array
+    ``array`` its space names, for the sweep's layout step and the viewer."""
+    layout = layout_cdac(out_dir, pdk, array, params)
+    top = max(layout.top_cells(), key=lambda cell: cell.bbox().area())
+    path = out_dir / f"{top.name}.gds"
+    save = db.SaveLayoutOptions()
+    save.add_cell(top.cell_index())
+    layout.write(str(path), save)
+    return path
+
+
 def layout_cdac(out_dir: Path, pdk: str, array: str, params: Params) -> db.Layout:
     """The CDAC ``params`` (the ADC array ``array``): its P side (``layout_side``, or with no split
     ``layout_units``) and its N side mirrored to the P side's right, their supplies joined by a
