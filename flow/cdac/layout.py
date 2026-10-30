@@ -853,12 +853,13 @@ def _unit_params(pdk: str, array: str, unit_f: float) -> CapArrayLayoutParams:
 
 
 def _fits(base: CapArrayLayoutParams, family: UnitLengthCapFamilyParams, step: int) -> bool:
-    """The ``family`` at weight step ``step`` is tall enough for its shield and its plate's access."""
+    """The ``family`` at weight step ``step`` is tall enough for its shield, its plate's access and
+    its unary finger inside the ring (``MomUnit.unit``'s own check)."""
     try:
-        _calc_unit_geometry(replace(base, family=replace(family, weight_step=step)))
+        g = _calc_unit_geometry(replace(base, family=replace(family, weight_step=step)))
     except ValueError:
         return False
-    return True
+    return (family.unary_length or 0) <= g.outer_height - 2 * (g.ring_width + g.end_gap)
 
 
 def _rows(weights: list[int], per_row: int) -> tuple[list[list[tuple[int, int, int]]], dict[int, int]]:
