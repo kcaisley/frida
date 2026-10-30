@@ -940,7 +940,7 @@ def _unit_grid(out_dir: Path, pdk: str, array: str, params: Params, side: str) -
     # each row as an array of its own (``ArrayWiring`` over its units), its buses a segment a stage
     specs = []
     for r, segments in enumerate(rows):
-        # a row's pieces at their columns, tied dummies between them and at its ends
+        # a row's pieces at their columns, fillers between them (no edge dummies)
         order = [0] * (per_row + 2 * dummies)
         groups = []
         for stage, first, count in segments:
@@ -954,7 +954,10 @@ def _unit_grid(out_dir: Path, pdk: str, array: str, params: Params, side: str) -
                 "groups": groups,
             }
         )
-    plan = in_pdk(pdk, "capcell", "caparray_plan", specs[0])
+    # every row's units (a partial row's gaps its fillers)
+    plan = in_pdk(
+        pdk, "capcell", "caparray_plan", {**specs[0], "order": sorted({w for s in specs for w in s["order"]})}
+    )
     access_points(pdk)
     with tempfile.TemporaryDirectory() as scratch:
         work = Path(scratch)
@@ -1008,15 +1011,16 @@ def _unit_grid(out_dir: Path, pdk: str, array: str, params: Params, side: str) -
 
 def layout_units(out_dir: Path, pdk: str, array: str, params: Params, side: str) -> tuple[db.Layout, dict[str, Any]]:
     """One ``side`` of a CDAC with no split: its unit grid (``_unit_grid``), a line a stage under the
-    rows (on M3, below the route metal) joining the stage's bus segments down to the main drivers'
-    bank below (no difference plates: no difference drivers), through a channel as ``layout_side``'s;
+    rows (on the metal below the route metal, up onto M3 past the array where it is lower) joining
+    the stage's bus segments down to the main drivers' bank below (no difference plates: no difference drivers), through a channel as ``layout_side``'s;
     the rows' shield taps joined on the right, down to the bank's ground; the bank's supplies out to
     a column each on the left. Its layout, and its supplies' columns (x) and lowest ends (y), nm."""
     layout, info = _unit_grid(out_dir, pdk, array, params, side)
     g, rule, geo, unit = info["geometry"], info["rule"], info["geo"], info["unit"]
     route = unit.route_layer
-    if route != 4:
-        raise ValueError(f"{pdk}'s stages' lines would run on M{route - 1}: only M3 (below an M4 route) is drawn")
+    lines = route - 1  # the stages' lines' metal, below the route metal (``_unit_grid`` keeps one)
+    if lines > 3:
+        raise ValueError(f"{pdk}'s stages' lines would run on M{lines}: the channel's columns are M3")
     grid = layout.cell(f"units_{array}_{side}")
     box = grid.bbox()
     nm = lambda value: round(value * layout.dbu * 1000)
@@ -1039,9 +1043,9 @@ def layout_units(out_dir: Path, pdk: str, array: str, params: Params, side: str)
         x = column * pitch + x_local
         taps = [r * row_pitch + bus_y for r, first, count in segments[stage]]
         for y in taps:  # two cuts: the bus beside is a wide plate
-            wires.stack(name, x, y, 3, 4, cuts=2, vertical=(True, False))
+            wires.stack(name, x, y, lines, route, cuts=2, vertical=(True, False))
         # the line from past its topmost pair's upper cut
-        pair = _up(rule["V3"]["cut"] + rule["V3"]["space"], 2 * geo["grid"]) // 2
+        pair = _up(rule[f"V{lines}"]["cut"] + rule[f"V{lines}"]["space"], 2 * geo["grid"]) // 2
         nets.append({"name": name, "near_x": x, "top": max(taps) + pair})
     # the shield: every row's tap (the middle one at its right) joined by a route-metal strap there
     right = array_box.right - g["ring_width"] // 2
@@ -1072,14 +1076,20 @@ def layout_units(out_dir: Path, pdk: str, array: str, params: Params, side: str)
         n["far_x"], n["pin"] = pin["x"], pin
     tracks, _ = _tracks(nets + shield, exit_y, -1, geo)
     for n in nets:
-        wires.column(n["name"], n["near_x"], n["top"], tracks[n["name"]], ("V3", "V3"))
+        if lines == 3:
+            wires.column(n["name"], n["near_x"], n["top"], tracks[n["name"]], ("V3", "V3"))
+        else:  # down on its own metal past the array, up onto M3 there, on to the track
+            wires.column(n["name"], n["near_x"], n["top"], exit_y, (f"V{lines}", f"V{lines}"), f"M{lines}")
+            wires.stack(n["name"], n["near_x"], exit_y, lines, 3, vertical=(True, True))
+            wires.column(n["name"], n["near_x"], exit_y, tracks[n["name"]], (f"V{3 - 1}", "V3"))
         wires.track(n["name"], n["near_x"], "V3", n["far_x"], "V4", tracks[n["name"]])
         wires.to_pin(n["name"], n["pin"], tracks[n["name"]])
     for n in shield:
         tx, ty = n["tap"]
         x = n["near_x"]
         wires.segment(f"M{route}", n["name"], tx, ty, x + geo["end_V3"], ty)
-        wires.stack(n["name"], x, ty, 3, route, vertical=(True, False))
+        if route != 3:
+            wires.stack(n["name"], x, ty, min(3, route), max(3, route), vertical=(True, False))
         wires.column(n["name"], x, ty, tracks[n["name"]], ("V3", "V3"))
         wires.track(n["name"], x, "V3", n["far_x"], "V4", tracks[n["name"]])
         wires.to_pin(n["name"], n["pin"], tracks[n["name"]])

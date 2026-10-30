@@ -254,8 +254,12 @@ def caparray_plan(spec: dict) -> dict:
     route, shield, active = spec["route"], spec["shield"], tuple(spec["active"])
     g = difference_geometry(spec["family"], route, shield, active)
     coarse = spec["family"]["coarse_weight"]
-    tied = spec["family"].get("tied_dummies", False)
     unary = spec["family"].get("unary_length")
+    # a dummy's fingers joined to its ring leave holes a gap wide: tied only where the PDK's metals
+    # allow holes that narrow (a floating finger leaves none)
+    tied = spec["family"].get("tied_dummies", False) and all(
+        g["gap"] >= _rules(f"M{metal}").get("hole_width", 0) for metal in active
+    )
     suffix = "_".join(f"m{layer}" for layer in active)
     units = {}
     for weight in sorted(set(spec["order"]) | set(range(1, coarse + 1))):
