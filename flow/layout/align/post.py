@@ -316,6 +316,41 @@ def supply_straps(layout: kdb.Layout, top: kdb.Cell) -> int:
     return placed
 
 
+def single_cuts(layout: kdb.Layout, top: kdb.Cell) -> int:
+    """A legal cut wherever a via layer's shapes make none (ALIGN's off-grid router drops a cut at
+    each of two wires of one net meeting a column a fraction of a track apart, or one cut stretched
+    across both): where cuts overlap the first alone, a cut longer than the PDK's (``RULES``) its
+    square at its lower left. The metals above and below cover the whole of it, so the net stays
+    joined. Returns the shapes changed."""
+    import tech as _tech
+
+    changed = 0
+    for n in range(1, 8):
+        layer, size = LAYERS.get(f"V{n}"), getattr(_tech, "RULES", {}).get(f"V{n}", {}).get("cut")
+        if not layer:
+            continue
+        shapes = top.shapes(layout.layer(*layer))
+        cuts = [s for s in shapes.each() if not s.is_text()]
+        for cluster in kdb.Region([s.bbox() for s in cuts]).merged().each():
+            inside = [s for s in cuts if cluster.bbox().contains(s.bbox().center())]
+            for extra in inside[1:]:
+                shapes.erase(extra)
+                changed += 1
+            box = inside[0].bbox() if inside else None
+            if (
+                size
+                and box
+                and inside[0].is_box()
+                and box.width() >= size
+                and box.height() >= size
+                and box.width() != box.height()
+            ):
+                shapes.erase(inside[0])
+                shapes.insert(kdb.Box(box.left, box.bottom, box.left + size, box.bottom + size))
+                changed += 1
+    return changed
+
+
 def post(
     src: str | Path,
     dst: str | Path,
@@ -374,6 +409,7 @@ def post(
             or (info.layer, info.datatype) == (235, 5)
         ):
             layout.clear_layer(li)
+    n_cuts = single_cuts(layout, top)
     netcells.close_wells(layout, kdb, top)
     for c in list(layout.top_cells()):  # an unused helper (the filler copy when no row needed fill)
         if c.cell_index() != top.cell_index():
@@ -388,6 +424,7 @@ def post(
             shapes.insert(text)
     layout.write(dst)
     print(
-        f"{n_std} standard cells, {n_fill} row gaps filled, {n_straps} supply straps, {n_ties} row-end ties{ring_info}"
+        f"{n_std} standard cells, {n_fill} row gaps filled, {n_straps} supply straps, {n_ties} row-end ties"
+        f"{f', {n_cuts} cuts made single' if n_cuts else ''}{ring_info}"
     )
     return Path(dst)
