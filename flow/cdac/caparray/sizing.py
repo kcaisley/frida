@@ -579,12 +579,13 @@ def _all_extractions(pdk: str) -> list[Path]:
 
 def layout_params(name: str, cdac: CapArrayConfig, choice: Design, pdk: str) -> CapArrayLayoutParams:
     """The array drawn at its design: its unary rows one finger (or, unary_length 0, a main and a
-    difference finger of the tail), its edge dummies tied."""
+    difference finger of the tail), no edge dummies (the top plate's whole load its own)."""
     params = _stacked(pdk, cdac, name, LAYERS)
     family = replace(
         params.family,
         coarse_weight=choice.coarse_weight,
         weight_step=choice.weight_step,
+        edge_dummy_units=0,
         tied_dummies=True,
         unary_length=choice.unary_length or None,
     )
@@ -636,10 +637,10 @@ def _meets(entry: dict[str, Any], cdac: CapArrayConfig) -> bool:
 
 
 def _extract_job(
-    work: Path, name: str, cdac: CapArrayConfig, choice: Design, reference: float, pdk: str
+    work: Path, name: str, cdac: CapArrayConfig, choice: Design, reference: float, pdk: str, extractor=None
 ) -> dict[str, Any]:
     start = time.monotonic()
-    result = extract_array(work, pdk, layout_params(name, cdac, choice, pdk))
+    result = extract_array(work, pdk, layout_params(name, cdac, choice, pdk), extractor)
     return {**result, **measured(work, cdac, reference), "seconds": time.monotonic() - start}
 
 
@@ -663,6 +664,7 @@ def extract_adc_arrays(
     arrays: dict[str, CapArrayConfig] | None = None,
     workers: int = 16,
     seed: bool = True,
+    extractor=None,
 ) -> Path:
     """Size and extract the ADC study's arrays (``ADC_ARRAYS``, or ``arrays`` of them) at three
     metals in ``pdk``, ``workers`` at a time, from the newest earlier run's extractions of them
@@ -672,7 +674,8 @@ def extract_adc_arrays(
     extraction is then its ``<name>/<pdk>/3l`` (``flow.cdac.caparray.model.CapArrayModel`` reads it),
     the others stay as passes. Writes ``summary.json``:
     each resolution's least switched capacitance and what sets it, each array's design, its
-    extraction against both constraints, and its passes."""
+    extraction against both constraints, and its passes. ``extractor``: the PDK's default, or
+    another (``flow.layout.signoff.Extractor``)."""
 
     from concurrent.futures import ProcessPoolExecutor, as_completed
     from multiprocessing import get_context
@@ -690,7 +693,9 @@ def extract_adc_arrays(
         works = [
             work
             for work in (extractions(name, pdk) if seed else [])
-            if work.parent.parent.parent != run_dir and _drawn(work)[0]["unit_family"].get("tied_dummies")
+            if work.parent.parent.parent != run_dir
+            and _drawn(work)[0]["unit_family"].get("tied_dummies")
+            and _drawn(work)[0]["unit_family"].get("edge_dummy_units", 1) == 0  # drawn as now: no dummies
         ]
         for work in works:
             entry = {**measured(work, cdac, reference), "seeded_from": str(work.relative_to(work.parents[3]))}
@@ -725,6 +730,7 @@ def extract_adc_arrays(
                     todo[name],
                     reference,
                     pdk,
+                    extractor,
                 ): name
                 for name in order
             }

@@ -640,7 +640,7 @@ def caparray_all_pdks(run_dir: Path) -> Path:
     return _draw_all_pdks(run_dir, RADIX17, "radix17")
 
 
-def extract_array(work: Path, pdk: str, params: CapArrayLayoutParams) -> dict[str, Any]:
+def extract_array(work: Path, pdk: str, params: CapArrayLayoutParams, extractor=None) -> dict[str, Any]:
     """Draw and extract one array in ``work`` (3D, layout only, by its own net names): its
     capacitance table, and its stages' effective capacitance (main less difference) against the
     model's and against its own weights in its mean unit (the extracted unit: the effective total
@@ -652,7 +652,11 @@ def extract_array(work: Path, pdk: str, params: CapArrayLayoutParams) -> dict[st
     gds = work / f"{params.top_cell}.gds"
     CapArrayLayout(params).write(str(gds))
     (work / "geometry_manifest.json").write_text(json.dumps(_layout_manifest(params), indent=2) + "\n")
-    netlist = run_layout_pex(pdk, gds, params.top_cell, params.top_cell, work)
+    # the PDK's default extractor, or ``extractor`` (the kit's for a whole array: FasterCap's mesh
+    # outgrows memory there)
+    netlist = run_layout_pex(
+        pdk, gds, params.top_cell, params.top_cell, work, **({"extractor": extractor} if extractor else {})
+    )
     weights = get_caparray_weights(params.cdac)
     extracted = parse_caparray_pex(netlist, stage_count=len(weights))
     write_capacitance_table(work, extracted)

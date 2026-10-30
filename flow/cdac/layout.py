@@ -852,7 +852,9 @@ def _unit_params(pdk: str, array: str, unit_f: float) -> CapArrayLayoutParams:
     # a tall probe of the family: its spacing, tail and grid (none of which its height sets)
     probe = replace(
         base,
-        family=UnitLengthCapFamilyParams(coarse_weight=1, weight_step=20000, tied_dummies=True, shield_strip=False),
+        family=UnitLengthCapFamilyParams(
+            coarse_weight=1, weight_step=20000, edge_dummy_units=0, tied_dummies=True, shield_strip=False
+        ),
     )
     g = _calc_unit_geometry(probe)
     slope, intercept = _mom_fit(probe, g.gap)  # fF/um, fF
