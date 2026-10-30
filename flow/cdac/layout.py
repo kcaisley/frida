@@ -491,17 +491,17 @@ def _dogleg(
     width = 2 * _up(max(rule["M2"]["width"], rule["V2"]["cut"] + 2 * rule["V2"]["across"]) // 2, grid)
     reach = g["end_V2"]
     y_bar = (bar.bottom + bar.top) // 2 // grid * grid
-    near = bar.enlarged(6 * pitch, 11 * pitch)
+    near = bar.enlarged(12 * pitch, 15 * pitch)
     local = {key: [box for box in boxes if box.overlaps(near)] for key, boxes in own.items()}
     nearby = {key: [box for box in pins[key] if box.overlaps(near)] for key in ("landings", "m4", "columns")}
     best, best_key = None, None
     step = max(grid, rule["M2"]["width"] // 4 // grid * grid)
     # as far as past a row's other bars (a one-row bank's outputs beside its states)
-    for dy in range(-8 * pitch // step * step, 8 * pitch + 1, step):
+    for dy in range(-12 * pitch // step * step, 12 * pitch + 1, step):
         y = y_bar + dy
         if bar.bottom <= y <= bar.top:
             continue
-        for x in range((bar.left - 2 * pitch) // grid * grid, bar.right + 2 * pitch + 1, step):
+        for x in range((bar.left - 8 * pitch) // grid * grid, bar.right + 8 * pitch + 1, step):
             # the stub nearest the via, or from the bar's middle (clear of the bars beside it)
             middle = (bar.left + bar.right) // 2 // grid * grid
             for stub_x in {min(max(x, bar.left + width // 2), bar.right - width // 2), middle}:
@@ -564,9 +564,11 @@ def _strap_pin(strap: db.Box, toward: int, pins: dict[str, Any], rule: dict, g: 
 
 def _supply_pin(straps: list[db.Box], toward: int, pins: dict[str, Any], rule: dict, g: dict) -> dict[str, Any]:
     """A supply's pin on the first of its ``straps`` whose pin keeps clear of those placed, jogging
-    where it must (``_strap_pin``; else on the first); its column and its M4 join the bank's."""
+    where it must (``_strap_pin``; none: an error); its column and its M4 join the bank's."""
     candidates = [_strap_pin(strap, toward, pins, rule, g) for strap in straps]
-    pin = next((pin for pin in candidates if pin["clear"] >= 0), candidates[0])
+    pin = next((pin for pin in candidates if pin["clear"] >= 0), None)
+    if pin is None:  # a column on another net's would join them
+        raise RuntimeError(f"no strap of {straps} keeps a supply's column clear of the bank's")
     pins["columns"].append(pin["column"])
     pins["m4"].append(pin["m4"])
     return pin
@@ -711,6 +713,22 @@ def layout_side(out_dir: Path, pdk: str, array: str, params: Params, side: str) 
     return result, {"columns": side_x, "lowest": ends}
 
 
+def _joined_pins(
+    order: list[str], pins: dict[str, Any], direction: int, side_x: dict[str, int], rule: dict, g: dict
+) -> list[dict[str, Any]]:
+    """A bank's pins of the nets ``order`` names (a state's on its bar, a supply's on a strap), in
+    that order, each net with its pin and its two ends' x (``_side_columns``)."""
+    nets = []
+    for name in order:
+        if name in pins["bars"]:
+            pin = _bar_pin(pins["bars"][name], direction, pins, rule, g)
+        else:
+            straps = pins["straps"][name]
+            pin = _supply_pin(straps if name == "vdd" else straps[::-1], direction, pins, rule, g)
+        nets.append({"name": name, "near_x": pin["x"], "far_x": side_x[name], "pin": pin})
+    return nets
+
+
 def _side_columns(
     wires: _Wires, banks: dict[str, dict[str, Any]], joined: list[str], left: int, rule: dict, g: dict
 ) -> tuple[dict[str, int], dict[str, int]]:
@@ -721,16 +739,17 @@ def _side_columns(
     ends: dict[str, list[int]] = {}
     for bank in banks.values():
         direction, pins = bank["direction"], bank["pins"]
-        nets = []
         # the states first, then each supply on a strap whose column keeps clear of theirs (vdd's
-        # from the left, vss's from the right: their columns a bank apart)
-        for name in sorted(joined, key=lambda name: name not in pins["bars"]):
-            if name in pins["bars"]:
-                pin = _bar_pin(pins["bars"][name], direction, pins, rule, g)
-            else:
-                straps = pins["straps"][name]
-                pin = _supply_pin(straps if name == "vdd" else straps[::-1], direction, pins, rule, g)
-            nets.append({"name": name, "near_x": pin["x"], "far_x": side_x[name], "pin": pin})
+        # from the left, vss's from the right: their columns a bank apart); where a dense bank's
+        # states leave a supply no strap, the supplies first
+        states_first = sorted(joined, key=lambda name: name not in pins["bars"])
+        placed = {key: list(value) for key, value in pins.items() if isinstance(value, list)}
+        try:
+            nets = _joined_pins(states_first, pins, direction, side_x, rule, g)
+        except RuntimeError:
+            for key, value in placed.items():
+                pins[key][:] = value
+            nets = _joined_pins(states_first[::-1], pins, direction, side_x, rule, g)
         tracks, _ = _tracks(nets, bank["far_edge"], direction, g)
         for n in nets:
             wires.track(n["name"], n["near_x"], "V4", side_x[n["name"]], "V3", tracks[n["name"]])
