@@ -330,24 +330,25 @@ def single_cuts(layout: kdb.Layout, top: kdb.Cell) -> int:
         if not layer:
             continue
         shapes = top.shapes(layout.layer(*layer))
-        cuts = [s for s in shapes.each() if not s.is_text()]
-        for cluster in kdb.Region([s.bbox() for s in cuts]).merged().each():
-            inside = [s for s in cuts if cluster.bbox().contains(s.bbox().center())]
-            for extra in inside[1:]:
-                shapes.erase(extra)
+        # every cut's box first, the shapes erased only once all are decided (an erased shape's
+        # handle is no longer valid)
+        cuts = [(s, s.bbox(), s.is_box()) for s in shapes.each() if not s.is_text()]
+        erase, insert = [], []
+        for cluster in kdb.Region([box for _, box, _ in cuts]).merged().each():
+            inside = [c for c in cuts if cluster.bbox().contains(c[1].center())]
+            erase += [shape for shape, _, _ in inside[1:]]
+            changed += len(inside) - 1
+            if not inside:
+                continue
+            first, box, is_box = inside[0]
+            if size and is_box and box.width() >= size and box.height() >= size and box.width() != box.height():
+                erase.append(first)
+                insert.append(kdb.Box(box.left, box.bottom, box.left + size, box.bottom + size))
                 changed += 1
-            box = inside[0].bbox() if inside else None
-            if (
-                size
-                and box
-                and inside[0].is_box()
-                and box.width() >= size
-                and box.height() >= size
-                and box.width() != box.height()
-            ):
-                shapes.erase(inside[0])
-                shapes.insert(kdb.Box(box.left, box.bottom, box.left + size, box.bottom + size))
-                changed += 1
+        for shape in erase:
+            shapes.erase(shape)
+        for box in insert:
+            shapes.insert(box)
     return changed
 
 
