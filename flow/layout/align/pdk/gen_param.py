@@ -20,7 +20,7 @@ _SPEC.loader.exec_module(_ALIGN)
 
 # the PDK's own generators a netlist names (``Generator(name=...)``): ALIGN's generic primitives, each
 # drawn by its class's ``generate(ports, netlist_parameters)`` from its subcircuit's parameters
-_generic = ("MomUnit", "CdacUnit")
+_generic = ("MomUnit", "CdacArray")
 
 
 def gen_param(subckt, primitives, pdk_dir):
