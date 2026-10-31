@@ -71,6 +71,11 @@ class _Fabric(DefaultCanvas):
             for term in data["terminals"]
             if term.get("netType") == "pin" and term["layer"] not in self.rd.skip_layers
         ]
+        if getattr(self, "primitive", False):
+            # placed by ALIGN: its outline on the placement grid (height a whole M2 pitch, width M3's)
+            x0, y0, x1, y1 = data["bbox"]
+            h, w = self.pdk["M2"]["Pitch"], self.pdk["M3"]["Pitch"]
+            data["bbox"] = [x0, y0, x0 + -(-(x1 - x0) // w) * w, y0 + -(-(y1 - y0) // h) * h]
         return data
 
 
@@ -80,7 +85,8 @@ class MomUnit(_Fabric):
     def generate(self, ports, netlist_parameters, netlistdir=None):
         """ALIGN's generic-primitive entry: the unit its netlist parameters name."""
         p = netlist_parameters
-        self.unit(p["style"], int(p["layers"]), int(p["length"]), int(p.get("diff_length", 0)), int(p.get("space", 0)))
+        self.primitive = True
+        self.unit(str(p["style"]).lower(), int(p["layers"]), int(p["length"]), int(p.get("diff_length", 0)), int(p.get("space", 0)))
 
     def unit(self, style, layers, length, diff_length=0, space=0):
         """``length`` the inner finger's (``ring``), the main finger's (``difference``) or the strips'

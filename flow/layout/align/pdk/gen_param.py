@@ -18,8 +18,26 @@ _ALIGN = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_ALIGN)
 
 
+# the PDK's own generators a netlist names (``Generator(name=...)``): ALIGN's generic primitives, each
+# drawn by its class's ``generate(ports, netlist_parameters)`` from its subcircuit's parameters
+_generic = ("MomUnit", "CdacUnit")
+
+
 def gen_param(subckt, primitives, pdk_dir):
-    name, generator = subckt.name, subckt.generator["name"]
+    named = [c.name for c in subckt.constraints if type(c).__name__ == "Generator"]  # Generator(name=...)
+    name = subckt.name
+    generator = (subckt.generator["name"] if "name" in subckt.generator else "") or (named[0] if named else "")
+    kind = next((g for g in _generic if g.upper() == generator.upper()), None)
+    if kind:
+        values = {k.lower(): v for k, v in (subckt.elements[0].parameters if subckt.elements else {}).items()}
+        parameters = {"ports": list(subckt.pins), "values": values, "real_inst_type": kind}
+        primitives[name] = {
+            "primitive": "generic",
+            "parameters": parameters,
+            "abstract_template_name": name,
+            "concrete_template_name": name,
+        }
+        return True
     if get_generator(generator, pdk_dir) and generator.upper() not in ("NMOS", "PMOS", "MOS", "CAP", "RES"):
         from pdk.stdcell import CELLS, INDEX_BASE, generator_class  # a standard cell, see stdcell.RingGenerator
 
