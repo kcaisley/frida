@@ -343,7 +343,7 @@ export function mountInstances(host, { block, instances, onRemove, onView }) {
         // an instance with figures and no waveforms (a behavioral ADC): its figures and, where it
         // has one, the layout of its blocks
         const own = instance.layout;
-        const figures = (instance.details || []).some((detail) => detail.figure || detail.paths?.length) && !Object.keys(instance.waves || {}).length && (!own || own.blocks);
+        const figures = (instance.details || []).some((detail) => detail.figure || detail.paths?.length) && !Object.keys(instance.waves || {}).length && (!own || own.blocks || !own.file);
         if (figures) {
             root = own?.file ? layout.split("row", [selection, plots, shapes()], "view.figures", [20, 50, 30]) : layout.split("row", [selection, plots], "view.figures.alone", [20, 80]);
         } else {

@@ -30,6 +30,7 @@ from importlib import import_module
 from importlib.util import find_spec
 from multiprocessing import get_context
 from pathlib import Path
+from types import SimpleNamespace
 
 from flow.sweep import flat_params
 
@@ -364,10 +365,11 @@ def case_floorplan(block: str, out_dir: Path, pdk: str, params) -> tuple[Path, P
 
 def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
     """ALIGN's layout of one instance and its signoff, into ``instance_dir/layout``; the record's
-    layout entry (also written into its ``instance.json``). ALIGN places by the instance's
-    hand-written floorplan where it has one (a minute or two, the same rows the floorplan's other
-    tools draw); without one, or where that fails, ALIGN derives its constraints and places and
-    routes on its own (ten minutes or more, and its router fails on some IHP130 designs)."""
+    layout entry (also written into its ``instance.json``). ALIGN places by the block's floorplan
+    where it gives one (its layout_floorplan hook: an ALIGN Floorplan constraint, generated from
+    the devices or a fabricated design's own; a minute or two); without one, or where that fails,
+    ALIGN derives its constraints and places and routes on its own (ten minutes or more, and its
+    router fails on some IHP130 designs)."""
 
     import os
 
@@ -504,18 +506,24 @@ def layout(blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS) -> 
 
 def _block_netlist(block: str, ident: str, record: dict, data_dir: Path) -> Path | None:
     """An instance laid out by no one: its block's own netlist after its PDK's compile (a pipeline
-    block's ``netlist`` and ``Nets``, ``flow.circuit.devices.write_netlist``), else None."""
+    block's ``netlist`` and ``Nets``, or the generator and parameters a characterization's
+    ``view_netlist(params)`` names; ``flow.circuit.devices.write_netlist``), else None."""
 
     from flow.circuit import devices
 
     module = import_module(f"flow.{block}")
-    if not hasattr(module, "Nets") or record["error"] is not None:
+    viewed = hasattr(module, "view_netlist")  # a characterization's circuit: (generator, its params)
+    if not (hasattr(module, "Nets") or viewed) or record["error"] is not None:
         return None
     try:
         params = instance_params(block, record["pdk"], ident.split("__")[-1])
         pdk = import_module(f"pdk.{record['pdk']}.hdl21").pdk_logic
         path = data_dir / block / ident / f"{block}.sp"
         path.parent.mkdir(parents=True, exist_ok=True)
+        if viewed:
+            generator, inner = module.view_netlist(params)
+            ports = SimpleNamespace(signals=generator(inner).ports)
+            return devices.write_netlist(inner, path, pdk, generator=generator, nets=ports)
         return devices.write_netlist(params, path, pdk, generator=module.netlist, nets=module.Nets)
     except Exception:  # noqa: BLE001 - the page shows no netlist rather than no page
         return None
@@ -621,7 +629,8 @@ def table(blocks: list[str], workers: int) -> None:
                     "params": record["params"],
                     "details": record["details"],
                     "waves": record["waves"],
-                    "layout": {**entry, **files} if entry else None,
+                    # an instance laid out by no one keeps its netlist's views (no gds: no layout)
+                    "layout": {**(entry or {}), **files} if entry or files else None,
                     "error": record["error"],
                 }
                 path = DATA_DIR / block / f"{row['id']}.json"

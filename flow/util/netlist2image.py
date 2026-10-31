@@ -294,10 +294,10 @@ def render_cells(netlist: Path, out: Path) -> None:
         f = line.split()
         if not f or f[0].startswith((".", "*", "+")):
             continue
-        if f[0][0] in "xX":
-            cells.append((f[0], [n.lower() for n in f[1:-1]], f[-1]))
-        elif f[0][0] in "cC" or "@c" in f[0].lower():
+        if f[0][0] in "cC" or "@c" in f[0].lower():
             cells.append((f[0], [n.lower() for n in f[1:3]], f[3] if len(f) > 3 else "C"))
+        elif len(f) > 2 and "=" not in line:  # a cell instance (named as it was, x-prefixed or not)
+            cells.append((f[0], [n.lower() for n in f[1:-1]], f[-1]))
     signal = lambda nets: [n for n in nets if n.lower() not in SUPPLY and not n.startswith(("vdd", "vss"))]
     # a chain: cells joined through nets only they share (a cell's input its first signal pin, its output its second)
     users: dict[str, list[int]] = defaultdict(list)

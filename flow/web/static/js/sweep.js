@@ -1081,13 +1081,15 @@ export class SelectionPanel {
         const instances = this.instances;
         const value = (instance, key) => {
             const layout = instance.layout;
-            if (!layout) return key === "placed" ? "none" : "—";
+            // none, or only its netlist's views (a characterization laid out by no one)
+            if (!layout || (!layout.gds && !layout.error && !layout.blocks)) return key === "placed" ? "none" : "—";
             if (layout.error) return key === "placed" ? "ALIGN failed" : "—";
             if (key === "w") return Number.isFinite(layout.w_um) ? layout.w_um.toFixed(3) : "—";
             if (key === "h") return Number.isFinite(layout.h_um) ? layout.h_um.toFixed(3) : "—";
             // the blocks' own layouts side by side (a behavioral ADC): nothing routed or signed off
             if (layout.blocks) return key === "placed" ? "blocks, unconnected" : "none";
-            if (key === "placed") return layout.floorplan ? "by floorplan" : "ALIGN alone";
+            // a block drawn by its own generator (the CDAC: under layout/drawn/), not placed by ALIGN
+            if (key === "placed") return (layout.gds || "").includes("/layout/drawn/") ? "by its generator" : layout.floorplan ? "by floorplan" : "ALIGN alone";
             if (key === "drc") return layout.drc_violations === null || layout.drc_violations === undefined ? "—" : layout.drc_violations ? `${layout.drc_violations} violations` : "clean";
             if (key === "lvs") return layout.lvs_correct === null || layout.lvs_correct === undefined ? "—" : layout.lvs_correct ? "correct" : "incorrect";
             return "—";
