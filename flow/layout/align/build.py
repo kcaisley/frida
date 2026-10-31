@@ -42,6 +42,32 @@ def _align_gds(work: Path, name: str) -> Path:
     return found[0]
 
 
+def route_shorts(work: Path, name: str) -> dict[tuple[str, str], int]:
+    """Where ALIGN's routes join two nets (its placed-and-routed ``3_pnr/<NAME>_0.json``: a wire or
+    cut of one net touching another's on its own or the adjacent layer; the off-grid router lays
+    one net's wire over another's now and then): the shapes touching, by the pair of nets. Empty
+    where none do, or where ALIGN wrote no such file."""
+
+    import itertools
+
+    found = sorted(work.rglob(f"3_pnr/{name.upper()}_0.json"))
+    if not found:
+        return {}
+    terminals = [t for t in json.loads(found[0].read_text()).get("terminals", []) if t.get("netName")]
+    stack = [f"{kind}{n}" for n in range(1, 10) for kind in ("M", "V")]
+    shorts: dict[tuple[str, str], int] = {}
+    for a, b in itertools.combinations(terminals, 2):
+        if a["netName"] == b["netName"] or a["layer"] not in stack or b["layer"] not in stack:
+            continue
+        if abs(stack.index(a["layer"]) - stack.index(b["layer"])) > 1:
+            continue
+        (ax0, ay0, ax1, ay1), (bx0, by0, bx1, by1) = a["rect"], b["rect"]
+        if ax0 <= bx1 and bx0 <= ax1 and ay0 <= by1 and by0 <= ay1:
+            pair = tuple(sorted((a["netName"], b["netName"])))
+            shorts[pair] = shorts.get(pair, 0) + 1
+    return shorts
+
+
 def build(
     pdk: str,
     floorplan: Path | None,

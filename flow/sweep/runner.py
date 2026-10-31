@@ -376,6 +376,7 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
     from klayout import db
 
     from flow.layout.align.build import build as align_build
+    from flow.layout.align.build import route_shorts
     from flow.layout.signoff import row_signoff
 
     # an attempt that has not placed and routed in half an hour fails (ALIGN's placer can search
@@ -403,7 +404,13 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
             if netlist is None:
                 netlist = hooks.layout_netlist(out / "netlist", pdk, params)
             work = out / ("align_floorplan" if floorplan else "align")
-            gds = align_build(pdk, floorplan, netlist, work, name=netlist.stem)
+            # ALIGN's route varies run to run: one that joins two nets is routed again (twice at most)
+            for _ in range(3):
+                gds = align_build(pdk, floorplan, netlist, work, name=netlist.stem)
+                shorts = route_shorts(work, netlist.stem)
+                if not shorts:
+                    break
+            result["route_shorts"] = {"/".join(pair): n for pair, n in shorts.items()} or None
             layout = db.Layout()
             layout.read(str(gds))
             box = max(layout.top_cells(), key=lambda cell: cell.bbox().area()).dbbox()
