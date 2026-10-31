@@ -405,8 +405,8 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
                 netlist = hooks.layout_netlist(out / "netlist", pdk, params)
             work = out / ("align_floorplan" if floorplan else "align")
             # ALIGN's route varies run to run: one that joins two nets is routed again (twice at most)
-            for _ in range(3):
-                gds = align_build(pdk, floorplan, netlist, work, name=netlist.stem)
+            for seed in range(3):  # each try another placement (ALIGN's placer seed)
+                gds = align_build(pdk, floorplan, netlist, work, name=netlist.stem, seed=seed)
                 shorts = route_shorts(work, netlist.stem)
                 if not shorts:
                     break

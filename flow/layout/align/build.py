@@ -77,11 +77,12 @@ def build(
     name: str | None = None,
     post: PostOptions = PLAIN,
     symmetric: bool = True,
+    seed: int = 0,
 ) -> Path:
     """Lay out ``netlist`` in ``pdk`` with ALIGN, placed as ``floorplan`` says (None: by ALIGN, with
     its symmetry search unless ``symmetric`` is False); returns the GDS ``out_dir/<name>/<name>.gds``
     (``<name>``: given, else the floorplan's, else the netlist's). ALIGN's work directory,
-    ``out_dir/<name>``, keeps its placement and constraints."""
+    ``out_dir/<name>``, keeps its placement and constraints. ``seed``: the placer's random seed."""
 
     # the library cells the netlist names, its own subcircuits' names among them (none of the library's)
     access_points(pdk, sorted({line.split()[-1] for line in netlist.read_text().splitlines() if line[:1] in "Xx"}))
@@ -103,7 +104,7 @@ def build(
     dense = {"STEMS_STD_DENSE": "1"} if floorplan else {}  # post.py as the generators drew the cells
 
     def attempt(router: str | None) -> Path:
-        run_align(design, pdk_dir, work, router=router)
+        run_align(design, pdk_dir, work, router=router, seed=seed)
         return in_pdk(
             pdk,
             "flow.layout.align.post",

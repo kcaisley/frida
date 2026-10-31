@@ -70,6 +70,7 @@ def run_align(
     *,
     router: str | None = None,
     flow_stop: str | None = None,
+    seed: int = 0,
 ) -> Path:
     """Run ALIGN on ``design_dir`` (``<name>.sp``, ``<name>.const.json``) with ``pdk_dir`` in
     ``work``; returns ``work``.
@@ -89,7 +90,11 @@ def run_align(
     env.pop("STEMS_STD_DENSE", None)
     if floorplanned:
         env["STEMS_STD_DENSE"] = "1"  # standard cells in rows of their own
-    args = [*(["--router", router] if router else []), *(["--flow_stop", flow_stop] if flow_stop else [])]
+    args = [
+        *(["--router", router] if router else []),
+        *(["--flow_stop", flow_stop] if flow_stop else []),
+        *(["--seed", str(seed)] if seed else []),  # the placer's random seed (ALIGN's default 0)
+    ]
     _schematic2layout(design_dir, pdk_dir, work, args, env)
     return work
 
