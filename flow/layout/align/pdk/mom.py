@@ -86,7 +86,13 @@ class MomUnit(_Fabric):
         """ALIGN's generic-primitive entry: the unit its netlist parameters name."""
         p = netlist_parameters
         self.primitive = True
-        self.unit(str(p["style"]).lower(), int(p["layers"]), int(p["length"]), int(p.get("diff_length", 0)), int(p.get("space", 0)))
+        self.unit(
+            str(p["style"]).lower(),
+            int(p["layers"]),
+            int(p["length"]),
+            int(p.get("diff_length", 0)),
+            int(p.get("space", 0)),
+        )
 
     def unit(self, style, layers, length, diff_length=0, space=0):
         """``length`` the inner finger's (``ring``), the main finger's (``difference``) or the strips'
@@ -401,8 +407,15 @@ class CdacArray(ArrayWiring):
             u = units[name]
             self.pushTr(transformation.Transformation(oX=x))
             self.unit(
-                g, spec["route"], spec["shield"], spec["active"], u["weight"], u["tied"], u["unary_length"],
-                plan["strip"], plan["marks"],
+                g,
+                spec["route"],
+                spec["shield"],
+                spec["active"],
+                u["weight"],
+                u["tied"],
+                u["unary_length"],
+                plan["strip"],
+                plan["marks"],
             )
             self.popTr()
         return self.wiring(g, spec)

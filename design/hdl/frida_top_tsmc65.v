@@ -71,8 +71,8 @@ module frida_top #(
         .PAD_N (seq_init_n_PAD),
         .O     (seq_init),
         .EN_B  (1'b0)             // Enable active
-`ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),          // Connected to I/O power rail
+`ifdef USE_POWER_PINS,
+        .VDDPST(vdd_io),          // Connected to I/O power rail
         .VSSPST(vss_io),          // Connected to I/O ground rail
         .VDD   (vdd_io),          // Connected to I/O supply
         .VSS   (vss_io)           // Connected to I/O supply
@@ -84,8 +84,8 @@ module frida_top #(
         .PAD_N (seq_samp_n_PAD),
         .O     (seq_samp),
         .EN_B  (1'b0)             // Enable active
-`ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),          // Connected to I/O power rail
+`ifdef USE_POWER_PINS,
+        .VDDPST(vdd_io),          // Connected to I/O power rail
         .VSSPST(vss_io),          // Connected to I/O ground rail
         .VDD   (vdd_io),          // Connected to I/O supply
         .VSS   (vss_io)           // Connected to I/O supply
@@ -97,8 +97,8 @@ module frida_top #(
         .PAD_N (seq_cmp_n_PAD),
         .O     (seq_cmp),
         .EN_B  (1'b0)            // Enable active
-`ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),         // Connected to I/O power rail
+`ifdef USE_POWER_PINS,
+        .VDDPST(vdd_io),         // Connected to I/O power rail
         .VSSPST(vss_io),         // Connected to I/O ground rail
         .VDD   (vdd_io),         // Connected to I/O supply
         .VSS   (vss_io)          // Connected to I/O supply
@@ -110,8 +110,8 @@ module frida_top #(
         .PAD_N (seq_logic_n_PAD),
         .O     (seq_logic),
         .EN_B  (1'b0)              // Enable active
-`ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),           // Connected to I/O power rail
+`ifdef USE_POWER_PINS,
+        .VDDPST(vdd_io),           // Connected to I/O power rail
         .VSSPST(vss_io),           // Connected to I/O ground rail
         .VDD   (vdd_io),           // Connected to I/O supply
         .VSS   (vss_io)            // Connected to I/O supply
@@ -128,8 +128,8 @@ module frida_top #(
         .DS    (1'b1),          // Drive strength control
         .Z_h   (),              // Not used
         .UD_B  (1'b0)           // Pull down control, matching SPICE top tie-off
-`ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),        // Connected to I/O power rail
+`ifdef USE_POWER_PINS,
+        .VDDPST(vdd_io),        // Connected to I/O power rail
         .VSSPST(vss_io),        // Connected to I/O ground rail
         .VDD   (vdd_io),        // Connected to I/O supply
         .VSS   (vss_io)         // Connected to I/O supply
@@ -145,8 +145,8 @@ module frida_top #(
         .DS    (1'b1),
         .Z_h   (),
         .UD_B  (1'b0)
-`ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),       // Connected to I/O power rail
+`ifdef USE_POWER_PINS,
+        .VDDPST(vdd_io),       // Connected to I/O power rail
         .VSSPST(vss_io),       // Connected to I/O ground rail
         .VDD   (vdd_io),       // Connected to I/O supply
         .VSS   (vss_io)        // Connected to I/O supply
@@ -162,8 +162,8 @@ module frida_top #(
         .DS    (1'b1),
         .Z_h   (),
         .UD_B  (1'b0)
-`ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),       // Connected to I/O power rail
+`ifdef USE_POWER_PINS,
+        .VDDPST(vdd_io),       // Connected to I/O power rail
         .VSSPST(vss_io),       // Connected to I/O ground rail
         .VDD   (vdd_io),       // Connected to I/O supply
         .VSS   (vss_io)        // Connected to I/O supply
@@ -179,8 +179,8 @@ module frida_top #(
         .DS    (1'b1),
         .Z_h   (),
         .UD_B  (1'b0)
-`ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),        // Connected to I/O power rail
+`ifdef USE_POWER_PINS,
+        .VDDPST(vdd_io),        // Connected to I/O power rail
         .VSSPST(vss_io),        // Connected to I/O ground rail
         .VDD   (vdd_io),        // Connected to I/O supply
         .VSS   (vss_io)         // Connected to I/O supply
@@ -191,16 +191,16 @@ module frida_top #(
         .PAD   (rst_b_PAD),
         .A     (1'b0),
         .Z     (reset_b),
-        .OUT_EN(1'b0),          // Output disabled (input mode)
+        .OUT_EN(1'b0),       // Output disabled (input mode)
         .PEN   (1'b1),
         .DS    (1'b1),
         .Z_h   (),
         .UD_B  (1'b0)
-`ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),        // Connected to I/O power rail
-        .VSSPST(vss_io),        // Connected to I/O ground rail
-        .VDD   (vdd_io),        // Connected to I/O supply
-        .VSS   (vss_io)         // Connected to I/O supply
+`ifdef USE_POWER_PINS,
+        .VDDPST(vdd_io),     // Connected to I/O power rail
+        .VSSPST(vss_io),     // Connected to I/O ground rail
+        .VDD   (vdd_io),     // Connected to I/O supply
+        .VSS   (vss_io)      // Connected to I/O supply
 `endif
     );
 
@@ -209,8 +209,8 @@ module frida_top #(
         .PAD   (vin_p_PAD),
         .I     (1'b0),       // Not used for input pads
         .O     (vin_p)       // Output to core
-`ifdef USE_POWER_PINS
-        ,.VDD   (vdd_a_PAD),  // Connected to analog power PAD
+`ifdef USE_POWER_PINS,
+        .VDD   (vdd_a_PAD),  // Connected to analog power PAD
         .VSS   (vss_a_PAD),  // Connected to analog ground PAD
         .VDDPST(vdd_a),      // Connected to internal analog power rail
         .VSSPST(vss_a)       // Connected to internal analog ground rail
@@ -221,8 +221,8 @@ module frida_top #(
         .PAD   (vin_n_PAD),
         .I     (1'b0),       // Not used for input pads
         .O     (vin_n)       // Output to core
-`ifdef USE_POWER_PINS
-        ,.VDD   (vdd_a_PAD),  // Connected to analog power PAD
+`ifdef USE_POWER_PINS,
+        .VDD   (vdd_a_PAD),  // Connected to analog power PAD
         .VSS   (vss_a_PAD),  // Connected to analog ground PAD
         .VDDPST(vdd_a),      // Connected to internal analog power rail
         .VSSPST(vss_a)       // Connected to internal analog ground rail
@@ -236,8 +236,8 @@ module frida_top #(
         .I     (comp_out),
         .EN_B  (1'b0),            // Enable active
         .DS    (3'b111)           // Drive strength control, matching SPICE top tie-off
-`ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),          // Connected to I/O power rail
+`ifdef USE_POWER_PINS,
+        .VDDPST(vdd_io),          // Connected to I/O power rail
         .VSSPST(vss_io),          // Connected to I/O ground rail
         .VDD   (vdd_io),          // Connected to I/O supply
         .VSS   (vss_io)           // Connected to I/O supply
@@ -249,8 +249,8 @@ module frida_top #(
         .PAD   (passive_reserved_0_PAD),
         .I     (1'b0),                    // Tied off
         .O     ()                         // Left unconnected
-`ifdef USE_POWER_PINS
-        ,.VDD   (vdd_io_PAD),              // Connected to I/O power PAD
+`ifdef USE_POWER_PINS,
+        .VDD   (vdd_io_PAD),              // Connected to I/O power PAD
         .VSS   (vss_io_PAD),              // Connected to I/O ground PAD
         .VDDPST(vdd_io),                  // Connected to I/O power rail
         .VSSPST(vss_io)                   // Connected to I/O ground rail
@@ -266,8 +266,8 @@ module frida_top #(
         .DS    (1'b0),                 // Drive strength control
         .Z_h   (),                     // Left unconnected
         .UD_B  (1'b0)                  // Pull down
-`ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),               // Connected to I/O power rail
+`ifdef USE_POWER_PINS,
+        .VDDPST(vdd_io),               // Connected to I/O power rail
         .VSSPST(vss_io),               // Connected to I/O ground rail
         .VDD   (vdd_io),               // Connected to I/O supply
         .VSS   (vss_io)                // Connected to I/O supply
@@ -283,8 +283,8 @@ module frida_top #(
         .DS    (1'b0),                 // Drive strength control
         .Z_h   (),                     // Left unconnected
         .UD_B  (1'b0)                  // Pull down
-`ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),               // Connected to I/O power rail
+`ifdef USE_POWER_PINS,
+        .VDDPST(vdd_io),               // Connected to I/O power rail
         .VSSPST(vss_io),               // Connected to I/O ground rail
         .VDD   (vdd_io),               // Connected to I/O supply
         .VSS   (vss_io)                // Connected to I/O supply
@@ -380,8 +380,7 @@ module frida_top #(
         .spi_cs_b (spi_cs_b),
         .reset_b  (reset_b),
         .comp_out (comp_out)
-`ifdef USE_POWER_PINS
-        ,
+`ifdef USE_POWER_PINS,
         .vin_p    (vin_p),
         .vin_n    (vin_n),
         .vdd_a    (vdd_a),
