@@ -1,7 +1,7 @@
 """The comparator's optimization problems (``python -m flow opt comp --problem "adc(bits=12)"``): the
 least energy, area and noise of a comparator for a converter of each resolution, within its
 bounds (``params.ADC_FULL_SCALE`` and the constants after it), over its space (``widen``). The
-first runs search NMOS input pairs alone: the hand-written floorplans that give the layout area in
+first runs search NMOS input pairs alone: the generated floorplans that give the layout area in
 a minute (``layout.layout_floorplan``) are NMOS ones, and a design without one cannot meet the
 area bound.
 """

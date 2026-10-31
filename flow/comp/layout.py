@@ -1,8 +1,8 @@
 """Comparator layouts in standard-cell rows: netlist, floorplan, ALIGN build and signoff per PDK.
 
 ``layout_named`` lays out one named instance (``flow.comp.sweep``'s ``@named``) in the PDKs by
-ALIGN, each checked with DRC and LVS: from its hand-written floorplan
-(``design/layout/comp_<name>.json``), or, ``auto``, by ALIGN on its own from the transistor netlist
+ALIGN, each checked with DRC and LVS: from its floorplan, generated from its devices by their
+roles (FRIDA-1's as fabricated, ``design/layout/comp_frida1.json``), or, ``auto``, by ALIGN on its own from the transistor netlist
 with its library cells recognized. Every PDK runs whatever the others do; it raises at the end when
 any failed (``failures.json``). ``layout_netlist`` and ``layout_floorplan`` give the sweep's layout
 step (``flow.sweep.runner.layout``) an instance's netlists.
@@ -29,7 +29,6 @@ from flow.layout.pdkproc import in_pdk
 from flow.layout.signoff import row_signoff
 
 from .params import (
-    STRUCTURE,
     Bias,
     Latch,
     OutputStage,
@@ -43,24 +42,16 @@ PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
 
 # where the ports leave the block, as in both comparator floorplans (circuit knowledge, not placement)
 ESCAPE = {"up": ["inp", "inn"], "down": ["clk", "clkb", "outp", "outn"]}
-# the structures with a hand-written floorplan (design/layout/comp_<name>.json): each latch (its
-# floorplan named after it, comp_strongarm.json), and the dynamic-bias double tail (the modified double
-# tail's latch, the input pair's tail switched onto C_TAIL, with C_P: flow.comp.sweep's dynamic_bias)
-FLOORPLAN_CASES = {
-    **{latch.name.lower(): {"latch": latch} for latch in Latch},
-    "dynamic_bias": {"latch": Latch.DOUBLE_TAIL_MODIFIED, "bias": Bias.DYNAMIC},
-    # every other latch with the dynamic bias: its own rows with the bias's as dynamic_bias places them
-    **{
-        f"{latch.name.lower()}_dynamic_bias": {"latch": latch, "bias": Bias.DYNAMIC}
-        for latch in Latch
-        if latch != Latch.DOUBLE_TAIL_MODIFIED
-    },
-}
-
-
-def _structure(comp: Params) -> tuple[object, ...]:
-    """The comparator's devices and wiring (``STRUCTURE``)."""
-    return tuple(getattr(comp, key) for key in STRUCTURE)
+# the rows of every comparator, top first, generated from its devices by their roles (ALIGN's
+# Floorplan constraint, make_design.py): the tail capacitor, the input pair, the bias capacitor and
+# its switch, the triple tail's ties, the reset and the latch (a StrongARM's latch above its reset),
+# its init pair split cross-quad over two rows, the standard-cell output stage. A device in no rule
+# leaves the instance to ALIGN's own placement. The large devices split in two (netlist halves _a/_b).
+SPLIT = ("Mcap_tail", "Mcap_p", "Mcap_n", "Mcross_init_p", "Mcross_init_n")
+_RESET = [["Mrst_p", "Mtail_reset", "Mrst_n"]]
+_MIDDLE = [["Mmid_cross_p", "Mtail2", "Mmid_cross_n"], ["Mmid_in_p", "Mtail3", "Mmid_in_n"]]
+_ON = [["Mouter_on_p", "Mcross_on_p", "Minner_on_p", "Mouter_on", "Minner_on_n", "Mcross_on_n", "Mouter_on_n"]]
+_OUTPUT = ["Xbuf2_outp", "Xbuf1_outp", "Xsr_p", "Xdecision_n", "Xdecision_p", "Xsr_n", "Xbuf1_outn", "Xbuf2_outn"]
 
 
 def write_netlist(params: Params, path: Path, pdk, constant_from=None) -> Path:
@@ -82,24 +73,45 @@ def layout_netlist(out_dir: Path, pdk: str, comp: Params) -> Path:
 
 
 def layout_floorplan(out_dir: Path, pdk: str, comp: Params) -> tuple[Path, Path] | None:
-    """The hand-written floorplan of the instance's structure (``FLOORPLAN_CASES``:
-    ``design/layout/comp_<name>.json``) with the netlist it places, the standard-cell output stage's;
-    None where it has none."""
+    """The instance's floorplan, generated from its devices (``_floorplan``), written beside the
+    netlist it places (the standard-cell output stage's); None where a device fits no row."""
 
-    floorplan = next(
-        (
-            path
-            for name, structure in FLOORPLAN_CASES.items()
-            if _structure(Params(**structure)) == _structure(comp)
-            and (path := FLOORPLANS / f"comp_{name}.json").exists()
-        ),
-        None,
-    )
-    if floorplan is None:
-        return None
     logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
     stdcells = Params(**{**comp.__dict__, "output_stage": OutputStage.STDCELLS})
-    return write_netlist(stdcells, out_dir / f"{floorplan.stem}.sp", logic), floorplan
+    name = f"comp_{comp.latch.name.lower()}{'_dynamic_bias' if comp.bias == Bias.DYNAMIC else ''}"
+    netlist = write_netlist(stdcells, out_dir / f"{name}.sp", logic)
+    devices = {f[0] for f in map(str.split, netlist.read_text().splitlines()) if f and f[0][0] in "MmXx"}
+    floorplan = _floorplan(devices, comp.latch == Latch.STRONGARM)
+    if floorplan is None:
+        return None
+    path = out_dir / f"{name}.json"
+    path.write_text(json.dumps(floorplan, indent=1) + "\n")
+    return netlist, path
+
+
+def _floorplan(names: set[str], strongarm: bool) -> dict | None:
+    """A comparator's rows by its devices' roles (the rules above) from its devices' ``names``, its
+    split, its escape; None where a device falls in no row."""
+    split = {device: 2 for device in SPLIT if device in names}
+    placed = lambda n: n in names or (n[-2:] in ("_a", "_b") and n[:-2] in split)
+    order = [
+        ["Mcap_tail_a"],
+        ["Mcap_tail_b"],
+        ["Mcas_p", "Mdiff_p", "Mtail", "Mdiff_n", "Mcas_n"],
+        ["Mcap_p_a", "Mbias", "Mcap_n_a"],
+        ["Mcap_n_b", "Mcap_p_b"],
+        ["Mtie_bias"],
+        ["Mtie"],
+        *(_ON + _RESET if strongarm else _RESET + _MIDDLE + _ON),
+        ["Mouter_init_p", "Minner_init_p", "Mcross_init_p_a", "Mcross_init_n_a", "Minner_init_n", "Mouter_init_n"],
+        ["Mcross_init_n_b", "Mcross_init_p_b"],
+        _OUTPUT,
+    ]
+    rows = [row for row in ([n for n in row if placed(n)] for row in order) if row]
+    covered = {n[:-2] if n[-2:] in ("_a", "_b") and n[:-2] in split else n for row in rows for n in row}
+    if names - covered:
+        return None
+    return {"split": split, "escape": ESCAPE, "rows": rows}
 
 
 def _netlists(params: Params, pdk: str, out_dir: Path, name: str) -> tuple[Path, Path]:
@@ -135,7 +147,7 @@ def _finish(run_dir: Path, summary: dict[str, dict[str, Any]], failures: dict[st
 
 def _run(run_dir: Path, pdk: str, name: str, netlist: Path, floorplan: Path | None) -> Path:
     """One design in one PDK by ALIGN into ``run_dir/align/``, signed off in
-    ``run_dir/align/signoff/``: placed as its hand-written floorplan says, or, without one, by ALIGN
+    ``run_dir/align/signoff/``: placed as its floorplan says, or, without one, by ALIGN
     on its own (it derives its constraints, places and routes)."""
 
     summary: dict[str, dict[str, Any]] = {}
@@ -159,7 +171,7 @@ def _run(run_dir: Path, pdk: str, name: str, netlist: Path, floorplan: Path | No
 
 
 def _comp(run_dir: Path, pdk: str, name: str, params: Params, floorplan: Path | None) -> Path:
-    """A comparator: its netlists into ``run_dir/netlist/``, then ``_run``. A hand-written floorplan
+    """A comparator: its netlists into ``run_dir/netlist/``, then ``_run``. A floorplan
     places the generator's standard-cell netlist (it names those cells). Without one, the
     transistor netlist with the library cells it contains recognized (flow/layout/stdcells.py):
     logic is always the PDK's library cells."""
@@ -193,10 +205,20 @@ def _all_pdks(run_dir: Path, case: Callable[..., Path], *args: Any, pdks: tuple[
 
 
 def layout_named(run_dir: Path, name: str, params: Params, *, auto: bool = False, pdks: tuple[str, ...] = PDKS) -> Path:
-    """The named instance ``name`` in each of ``pdks`` by ALIGN, into ``run_dir/<pdk>/``:
-    from its hand-written floorplan, or ``auto`` from ALIGN's placement."""
+    """The named instance ``name`` in each of ``pdks`` by ALIGN, into ``run_dir/<pdk>/``: from its
+    generated floorplan (FRIDA-1 from its own, as fabricated), or ``auto`` from ALIGN's placement."""
 
-    floorplan = None if auto else FLOORPLANS / f"comp_{name}.json"
-    if floorplan is not None and not floorplan.exists():
-        raise FileNotFoundError(f"{floorplan}: no hand-written floorplan of {name}; lay it out from ALIGN's (auto)")
+    floorplan = None
+    if not auto:  # FRIDA-1's floorplan as fabricated; every other its generated one
+        floorplan = FLOORPLANS / f"comp_{name}.json"
+        if not floorplan.exists():
+            stdcells = Params(**{**params.__dict__, "output_stage": OutputStage.STDCELLS})
+            generated = _floorplan(set(netlist(stdcells).instances), params.latch == Latch.STRONGARM)
+            if generated is None:
+                raise ValueError(
+                    f"{name}: a device fits no row of the generated floorplan; lay it out from ALIGN's (auto)"
+                )
+            floorplan = run_dir / f"comp_{name}.json"
+            floorplan.parent.mkdir(parents=True, exist_ok=True)
+            floorplan.write_text(json.dumps(generated, indent=1) + "\n")
     return _all_pdks(run_dir, _comp, f"comp_{name}", params, floorplan, pdks=pdks)

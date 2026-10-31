@@ -16,8 +16,9 @@ from . import layout, sweep
 
 
 def test_a_named_instance_is_laid_out_by_its_floorplan_or_alignss(tmp_path: Path, monkeypatch) -> None:
-    """``python -m flow layout comp --instance NAME [--auto]``: every named instance of the sweep has a
-    hand-written floorplan; ALIGN in each PDK asked for, from it or on its own."""
+    """``python -m flow layout comp --instance NAME [--auto]``: FRIDA-1 from its own floorplan, as
+    fabricated, every other named instance from one generated from its devices; ALIGN in each PDK
+    asked for, from it or on its own."""
     public = {
         name
         for name, value in vars(layout).items()
@@ -35,39 +36,34 @@ def test_a_named_instance_is_laid_out_by_its_floorplan_or_alignss(tmp_path: Path
         "double_tail_modified",
         "double_tail_modified_self_timed",
     }
-    assert all((layout.FLOORPLANS / f"comp_{name}.json").exists() for name in named)
+    assert sorted(path.name for path in layout.FLOORPLANS.glob("comp_*.json")) == ["comp_frida1.json"]
     calls = []
     monkeypatch.setattr(layout, "_comp", lambda run_dir, pdk, *args: calls.append((pdk, *args)) or run_dir)
     monkeypatch.setattr(layout, "_finish", lambda run_dir, summary, failures: run_dir)
     layout.layout_named(tmp_path, "frida1", named["frida1"](), pdks=("tsmc65", "ihp130"))
     layout.layout_named(tmp_path, "frida1", named["frida1"](), auto=True, pdks=("tsmc65",))
+    layout.layout_named(tmp_path, "dynamic", sweep._dynamic_bias(ratio=3.5, k=2), pdks=("tsmc65",))
     assert [(pdk, name, floorplan.name if floorplan else None) for pdk, name, _params, floorplan in calls] == [
         ("tsmc65", "comp_frida1", "comp_frida1.json"),
         ("ihp130", "comp_frida1", "comp_frida1.json"),
         ("tsmc65", "comp_frida1", None),
+        ("tsmc65", "comp_dynamic", "comp_dynamic.json"),
     ]
-    with pytest.raises(FileNotFoundError, match="no hand-written floorplan"):
-        layout.layout_named(tmp_path, "dynamic", sweep._dynamic_bias(ratio=3.5, k=2))
 
 
-def test_every_family_is_placed_by_a_hand_written_floorplan() -> None:
-    """The sweep's layout step (``layout_floorplan``) finds each family's floorplan by its structure,
-    C_P by whether it is there: the dynamic bias's, with its capacitors, at any size."""
-    structures = {
-        name: layout._structure(layout.Params(**structure)) for name, structure in layout.FLOORPLAN_CASES.items()
-    }
-    assert all((layout.FLOORPLANS / f"comp_{name}.json").exists() for name in structures)
-    for params, name in (
-        (sweep._dynamic_bias(ratio=3.5, k=2), "dynamic_bias"),
-        (sweep._dynamic_bias(ratio=2.25, k=12), "dynamic_bias"),
-        (sweep.base_strongarm.spaces("tsmc65")["tail_l=14, k=32"].base, "strongarm"),
-    ):
-        assert [case for case, structure in structures.items() if structure == layout._structure(params)] == [name]
-    fp = json.loads((layout.FLOORPLANS / "comp_dynamic_bias.json").read_text())
-    assert len(fp["rows"]) % 2 == 0  # as every comparator floorplan: the top row meets the edge as theirs do
-    assert {"Mcap_tail_a", "Mcap_tail_b", "Mcap_p_a", "Mcap_n_b", "Mbias"} <= {
-        cell for row in fp["rows"] for cell in row
-    }
+def test_every_comparator_has_a_floorplan_generated_from_its_devices() -> None:
+    """The sweep's layout step (``layout_floorplan``) generates each instance's rows from its
+    devices' roles, every device in one, the large ones split in two; the dynamic bias's capacitors
+    on rows of their own, an even count of rows as every comparator's (its top row meets the edge)."""
+    for latch in layout.Latch:
+        for bias in (layout.Bias.SWITCHED, layout.Bias.DYNAMIC):
+            params = layout.Params(latch=latch, bias=bias, output_stage=layout.OutputStage.STDCELLS)
+            fp = layout._floorplan(set(layout.netlist(params).instances), latch == layout.Latch.STRONGARM)
+            assert fp is not None and len(fp["rows"]) % 2 == 0
+            assert {"Mcross_init_p_a", "Mcross_init_p_b"} <= {cell for row in fp["rows"] for cell in row}
+            if bias == layout.Bias.DYNAMIC:
+                assert {"Mcap_tail", "Mcap_p", "Mcap_n"} <= set(fp["split"])
+                assert fp["rows"][:2] == [["Mcap_tail_a"], ["Mcap_tail_b"]]
 
 
 def _gds(path: Path) -> Path:

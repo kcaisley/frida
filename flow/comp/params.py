@@ -89,7 +89,7 @@ class Params:
     bias_c_ff = h.Param(dtype=PositiveInt, desc="Dynamic bias: C_TAIL, the tail's MOS capacitance (fF)", default=100)
 
 
-# the parameters that make a comparator's devices and their wiring (a hand-written floorplan's
+# the parameters that make a comparator's devices and their wiring (a floorplan's
 # case is found by them: flow.comp.layout.layout_floorplan); a dynamic bias adds its capacitors
 STRUCTURE = ("latch", "input_pair", "bias")
 
