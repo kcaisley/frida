@@ -3,7 +3,12 @@ with its drivers, the main plates' below it and the difference plates' above it,
 rows of the library's cells placed and routed by ALIGN in the order the stages sit in the array
 (``layout_bank``), a channel between bank and array wiring each driver to its bus, and the two
 banks' states and supplies joined beside them (``layout_side``); both sides, the N side mirrored
-(``layout_cdac``).
+(``layout_cdac``). Where the array routes above M3 (``_stacks``), each side stacks its drivers under
+the array instead (``layout_stacked``): both banks in one block of abutting rows placed and routed by
+ALIGN (``layout_drivers``) inside the array's footprint, below it in z, the array's size the CDAC's;
+the block's outputs out on M3 columns and along M2 tracks in a band below it (the main plates) and one
+above it (the difference plates and the states), up M3 risers to the buses (``_Channel``), the
+array's shield onto the block's ground straps beneath it, and the two sides' rails joined between them.
 
 A channel runs one horizontal M4 track a net. Its two ends climb to the tracks on different metals,
 so no net's column meets another's: from the array, M3 (out of the array on its route metal, onto
@@ -18,6 +23,7 @@ from __future__ import annotations
 import json
 import math
 import tempfile
+from collections import Counter
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
@@ -801,7 +807,7 @@ def layout_cdac(out_dir: Path, pdk: str, array: str, params: Params) -> db.Layou
     track each under both."""
     units = params.dac.split is None
     name = f"cdac_units_{array}" if units else f"cdac_{array}"
-    builder = layout_units if units else layout_side
+    builder = layout_units if units else layout_stacked if _stacks(pdk, array) else layout_side
     sides = {side: builder(out_dir / side, pdk, array, params, side) for side in ("p", "n")}
     layout = db.Layout()
     layout.dbu = sides["p"][0].dbu
@@ -824,6 +830,16 @@ def layout_cdac(out_dir: Path, pdk: str, array: str, params: Params) -> db.Layou
     offset = boxes["p"][2] + g["clearance"] + boxes["n"][2]
     top.insert(db.CellInstArray(cells["p"].cell_index(), db.Trans()))
     top.insert(db.DCellInstArray(cells["n"].cell_index(), db.DTrans(db.DTrans.M90, db.DVector(offset / 1000, 0))))
+    if "rails" in sides["p"][1]:
+        # the driver blocks' rails continue across the gap between the sides: one supply net each
+        rail = layout.layer(*pdk_value(pdk, "tech", "LAYERS")["M1"])
+        for y0, y1 in sides["p"][1]["rails"]:
+            top.shapes(rail).insert(
+                db.DBox(sides["p"][1]["right"] / 1000, y0 / 1000, (offset - sides["n"][1]["right"]) / 1000, y1 / 1000)
+            )
+        drawn_only(layout, set(pdk_value(pdk, "tech", "LAYERS").values()))
+        _name_pins(layout, top, "")
+        return layout
     # the supplies: from each side's column down to a track under both
     wires = _Wires(rule, g)
     bottom = min(boxes["p"][1], boxes["n"][1])
@@ -1131,3 +1147,383 @@ def _unit_array_params(unit: CapArrayLayoutParams) -> CapArrayParams:
     g = _calc_unit_geometry(unit)
     slope, intercept = _mom_fit(unit, g.gap)
     return replace(mom_array_params(unit), unit_cap=(slope * unit.family.unary_length / 1000 + intercept) * 1e-15)
+
+
+def _stacks(pdk: str, array: str) -> bool:
+    """Whether the CDAC stacks its drivers under the array (``layout_stacked``): where the array
+    routes above M3, the channels under it free."""
+    return _array_params(pdk, array).route_layer > 3
+
+
+# --- the stacked CDAC: both banks of a side in one ALIGN block under the array (below it in z) ---
+
+
+def layout_drivers(out_dir: Path, pdk: str, params: Params, side: str) -> tuple[Path, Path]:
+    """One ``side``'s drivers, main and difference, in one block of abutting rows of the library's
+    cells, placed and routed by ALIGN (``flow.layout.align``): top first, the difference outputs
+    (their plates' buses at the array's top), the inverters before every output, the main outputs
+    (their buses at the bottom), each row in the order the stages sit in the array. Its GDS and
+    ALIGN's placed and routed block (its terminals by net)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    lines, chains = [], {}
+    for kind in ("main", "diff"):
+        path, chains[kind] = _bank_netlist(pdk, params, kind, side, out_dir / f"drivers_{kind}.sp")
+        lines += [line for line in path.read_text().splitlines() if line[:1] in "xX"]
+    name = f"drivers_{side}"
+    nets = sorted({net for line in lines for net in line.split()[1:-1] if not net.startswith("x")})
+    netlist_path = out_dir / f"{name}.sp"
+    netlist_path.write_text(f".subckt {name} {' '.join(nets)}\n" + "\n".join(lines) + f"\n.ends {name}\n")
+    outputs = {kind: [cell for chain in chains[kind] for cell in chain if "_out" in cell] for kind in chains}
+    earlier = [cell for kind in ("main", "diff") for chain in chains[kind] for cell in chain if "_out" not in cell]
+    rows = [outputs["diff"], earlier, outputs["main"]]
+    floorplan = out_dir / f"{name}.json"
+    floorplan.write_text(json.dumps({"rows": [row for row in rows if row], "symmetric": False}))
+    gds = build(pdk, floorplan, netlist_path, out_dir, name=name)
+    (pnr,) = (out_dir / name / "3_pnr").glob(f"{name.upper()}_0.json")
+    return gds, pnr
+
+
+class _Channel:
+    """The wires between a driver block under the array and the array's buses: each output out of
+    the block on an M3 column (a column of its own, clear of the block's wires), along an M2 track in
+    a band beside the block (left-edge order, each exit's track nearer the block where another net
+    rises in its column), up an M3 riser to its bus, onto it by V3. Every wire drawn by ALIGN's
+    ``Wiring`` (``_Wires``)."""
+
+    def __init__(self, wires: _Wires, rule: dict, g: dict, obstacles: dict[str, list], phase: int) -> None:
+        self.wires, self.rule, self.g = wires, rule, g
+        self.shapes = obstacles  # layer -> [(box, net)], the block's and those drawn so far
+        self.pitch = rule["M3"]["pitch"]
+        self.track_pitch = rule["M2"]["pitch"]
+        self.phase = phase  # the block's M3 columns' centre, modulo the pitch
+
+    def clear(self, layer: str, box: db.Box, net: str, merge: bool = False) -> bool:
+        """``box`` on ``layer`` a space from every other net's shape, and from its own net's unless
+        touching it edge-aligned (no jog)."""
+        for other, owner in self.shapes[layer]:
+            # the wide-metal space where either shape is wider than a width class (any run, to be safe)
+            wide = min(max(box.width(), box.height()), min(box.width(), box.height()))
+            wider = max(wide, min(other.width(), other.height()))
+            space = max(
+                [self.rule[layer]["space"]] + [s for above, s in self.rule[layer].get("wide", ()) if wider > above]
+            )
+            apart = (
+                box.right + space <= other.left
+                or box.left >= other.right + space
+                or box.top + space <= other.bottom
+                or box.bottom >= other.top + space
+            )
+            touching = box.touches(other)
+            aligned = (box.left == other.left and box.right == other.right) or (
+                box.bottom == other.bottom and box.top == other.top
+            )
+            if not apart and not (owner == net and (merge or (touching and aligned))):
+                return False
+        return True
+
+    def _vline(self, x: int, y0: int, y1: int) -> db.Box:
+        half, reach = self.rule["M3"]["width"] // 2, self.g["end_V2"]
+        return db.Box(x - half, min(y0, y1) - reach, x + half, max(y0, y1) + reach)
+
+    def exit(self, net: str, bars: list[db.Box], edge: int) -> tuple[int, int]:
+        """The column (x) a net leaves its bar by toward ``edge`` (y), and the bar's centre (y): the
+        nearest free column of the block's grid within three pitches of the bar, the bar drawn on to
+        it where it lies past the bar's end; reserved."""
+        reach = self.g["end_V2"]
+        for bar in bars:
+            y = (bar.bottom + bar.top) // 2
+            middle = (bar.left + bar.right) // 2
+            first = (bar.left - 3 * self.pitch - self.phase) // self.pitch * self.pitch + self.phase
+            columns = range(first, bar.right + 3 * self.pitch + 1, self.pitch)
+            for x in sorted(columns, key=lambda c: abs(c - middle)):
+                extension = None
+                if x - reach < bar.left or x + reach > bar.right:
+                    extension = db.Box(min(bar.left, x - reach), bar.bottom, max(bar.right, x + reach), bar.top)
+                    if not self.clear("M2", extension, net):
+                        continue
+                column = self._vline(x, y, edge)
+                if not self.clear("M3", column, net):
+                    continue
+                if extension:
+                    self.wires.parts["landings"].append(
+                        ["M2", net, extension.left, extension.bottom, extension.right, extension.top]
+                    )
+                    self.shapes["M2"].append((extension, net))
+                self.shapes["M3"].append((column, net))
+                return x, y
+        raise RuntimeError(f"no free column out of the driver block for {net}")
+
+    def band(self, jobs: list[dict[str, Any]], edge: int, direction: int) -> int:
+        """Each job's track in the band from ``edge`` growing in ``direction`` (left-edge, a free
+        track between two runs; an exit before any riser in its column), then its wires: exit
+        column, track, riser, its bus's cuts. The band's track count."""
+        before = {
+            j["net"]: {a["net"] for a in jobs if a is not j and abs(a["x"] - j["to_x"]) < self.pitch} for j in jobs
+        }
+        track: dict[str, int] = {}
+        k = 0
+        while len(track) < len(jobs):
+            if k > 4 * len(jobs):
+                raise RuntimeError(
+                    "cyclic channel constraints: " + ", ".join(j["net"] for j in jobs if j["net"] not in track)
+                )
+            right = None
+            ready = [
+                j for j in jobs if j["net"] not in track and all(track.get(p, k) < k - 1 for p in before[j["net"]])
+            ]
+            for j in sorted(ready, key=lambda j: min(j["x"], j["to_x"])):
+                lo, hi = sorted((j["x"], j["to_x"]))
+                if right is None or lo - 2 * self.pitch > right:
+                    track[j["net"]] = k
+                    right = hi
+            k += 1
+        for j in jobs:
+            self._draw(j, edge + direction * (2 * self.track_pitch + track[j["net"]] * self.track_pitch))
+        return k
+
+    def _draw(self, j: dict[str, Any], ty: int) -> None:
+        w, net, rule, g = self.wires, j["net"], self.rule, self.g
+        x, y, tx, to_y = j["x"], j["y"], j["to_x"], j["to_y"]
+        w.column(net, x, y, ty, ("V2", "V2"))
+        for cx, cy in ((x, y), (x, ty), (tx, ty)):
+            w.cut("V2", net, cx, cy)
+            w.pad("M2", net, cx, cy, "V2", False)
+            w.pad("M3", net, cx, cy, "V2", True)
+        lo, hi = sorted((x, tx))
+        lo, hi = lo - g["end_V2"], hi + g["end_V2"]
+        short = rule["M2"]["length"] - (hi - lo)
+        if short > 0:
+            lo, hi = lo - _up(short // 2 + 1, g["grid"]), hi + _up(short // 2 + 1, g["grid"])
+        w.segment("M2", net, lo, ty, hi, ty)
+        self.shapes["M2"].append((db.Box(lo, ty - rule["M2"]["width"] // 2, hi, ty + rule["M2"]["width"] // 2), net))
+        cuts = j.get("cuts", ())
+        far = to_y if not cuts else (max(cuts) if to_y > ty else min(cuts))
+        riser = db.Box(
+            tx - rule["M3"]["width"] // 2,
+            min(ty, far) - g["end_V3"],
+            tx + rule["M3"]["width"] // 2,
+            max(ty, far) + g["end_V3"],
+        )
+        hit = [owner for box, owner in self.shapes["M3"] if owner != net and not self._apart(riser, box, "M3")]
+        if hit:
+            raise RuntimeError(f"{net}'s riser at x={tx} meets {sorted(set(hit))[:2]}")
+        w.column(net, tx, ty, far, ("V2", "V3" if cuts else None))
+        self.shapes["M3"].append((riser, net))
+        for cy in cuts:
+            w.cut("V3", net, tx, cy)
+            w.pad("M3", net, tx, cy, "V3", True)
+        j["label"] = (tx, (ty + far) // 2)
+
+    def _apart(self, a: db.Box, b: db.Box, layer: str) -> bool:
+        s = self.rule[layer]["space"]
+        return a.right + s <= b.left or a.left >= b.right + s or a.top + s <= b.bottom or a.bottom >= b.top + s
+
+
+def _bus_cuts(bus: db.Box, y: int, rule: dict, g: dict) -> tuple[int, ...]:
+    """The V3 cuts onto a bus at y: two a cut pitch apart where the bus holds them, else one."""
+    step = _up(rule["V3"]["cut"] + rule["V3"]["space"], 2 * g["grid"])
+    reach = g["end_V3"]
+    if bus.height() >= step + 2 * reach:
+        y = min(max(y, bus.bottom + reach + step // 2), bus.top - reach - step // 2)
+        return (y - step // 2, y + step // 2)
+    return ((bus.bottom + bus.top) // 2,)
+
+
+def layout_stacked(out_dir: Path, pdk: str, array: str, params: Params, side: str) -> tuple[db.Layout, dict[str, Any]]:
+    """One ``side`` of the CDAC ``params`` (the ADC array ``array``) with its drivers under the
+    array, below it in z (``layout_drivers``: one ALIGN block inside the array's footprint), wired to
+    the array's buses through a band of channel tracks below the block (the main plates', whose
+    buses run along the array's bottom) and one above (the difference plates' and the states', up
+    to the array's top edge); the array's shield onto the block's ground straps beneath it. Its
+    layout, and the block's rails at its right edge (``layout_cdac`` joins the sides' there)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    array_params = _array_params(pdk, array)
+    route = array_params.route_layer
+    if route <= 3:
+        raise ValueError(f"{array} in {pdk} routes on M{route}: the channels under it need M2 and M3 free")
+    layout = CapArrayLayout(array_params)
+    top = layout.cell(array_params.top_cell)
+    nm = lambda value, unit=layout.dbu: round(value * unit * 1000)
+    layers = pdk_value(pdk, "tech", "LAYERS")
+    box = top.bbox()
+    array_box = db.Box(nm(box.left), nm(box.bottom), nm(box.right), nm(box.top))
+    pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, out_dir / "pdk")
+    rule = _rules(pdk, pdk_dir)
+    g = _geometry(rule)
+    wires = _Wires(rule, g)
+    labels = [(text, nm(x), nm(y)) for text, x, y, _ in _labels(layout, top)]
+    buses = {}
+    for text, x, y in labels:
+        if text.startswith("cap_botplate_"):
+            bus = _shape_at(
+                layout, top, layers[f"M{route}"], round(x / layout.dbu / 1000), round(y / layout.dbu / 1000)
+            )
+            buses[text] = (x, y, db.Box(nm(bus.left), nm(bus.bottom), nm(bus.right), nm(bus.top)))
+    gds, pnr_path = layout_drivers(out_dir / "drivers", pdk, params, side)
+    block = db.Layout()
+    block.read(str(gds))
+    cell = max(block.top_cells(), key=lambda c: c.bbox().area())
+    pnr = json.loads(pnr_path.read_text())
+    width, height = pnr["bbox"][2] - pnr["bbox"][0], pnr["bbox"][3] - pnr["bbox"][1]
+    pitch, track_pitch = rule["M3"]["pitch"], rule["M2"]["pitch"]
+    dx = ((array_box.left + array_box.right) // 2 - width // 2) // pitch * pitch
+
+    texts = [
+        (shape.text_string.lower(), db.Point(nm(shape.text.x, block.dbu), nm(shape.text.y, block.dbu)))
+        for index in block.layer_indexes()
+        for shape in cell.shapes(index).each()
+        if shape.is_text()
+    ]
+
+    def frame(dy: int) -> dict[str, list]:
+        """The block's M2 and M3 shapes placed at (dx, dy), each named after the terminal it holds."""
+        named = [
+            (db.Box(*t["rect"]).moved(dx, dy), t["netName"].lower(), t["layer"])
+            for t in pnr["terminals"]
+            if t.get("netName") and t["layer"] in ("M2", "M3")
+        ]
+        shapes: dict[str, list] = {}
+        for metal in ("M2", "M3"):
+            region = db.Region(cell.begin_shapes_rec(block.layer(*layers[metal]))).merged()
+            shapes[metal] = []
+            for polygon in region.each():
+                b = polygon.bbox()
+                placed = db.Box(
+                    nm(b.left, block.dbu) + dx,
+                    nm(b.bottom, block.dbu) + dy,
+                    nm(b.right, block.dbu) + dx,
+                    nm(b.top, block.dbu) + dy,
+                )
+                net = next((n for r, n, layer in named if layer == metal and r.overlaps(placed)), None)
+                # the straps the block's post-processing added carry a label, not a terminal
+                net = net or next((n for n, p in texts if placed.contains(p.moved(dx, dy))), "?")
+                shapes[metal].append((placed, net))
+        return shapes
+
+    def bars(dy: int, net: str) -> list[db.Box]:
+        return [
+            db.Box(*t["rect"]).moved(dx, dy)
+            for t in pnr["terminals"]
+            if t["layer"] == "M2" and t.get("netName", "").lower() == net
+        ]
+
+    stages = range(params.dac.driver.n_stages)
+    main = {s: buses[f"cap_botplate_main<{s}>"] for s in stages if f"cap_botplate_main<{s}>" in buses}
+    diff = {s: buses[f"cap_botplate_diff<{s}>"] for s in stages if f"cap_botplate_diff<{s}>" in buses}
+    # the block as low as the band under it lets it sit: a first pass counts the band's tracks
+    base = max((y for _x, y, _bus in main.values()), default=array_box.bottom) + 2 * track_pitch
+    # a first place high enough for any band, then the lowest the band found lets it sit
+    dy = _up(base + 2 * track_pitch + (2 * len(main) + 2) * track_pitch, pitch)
+    for _attempt in range(3):
+        shapes = frame(dy)
+        phase = Counter(((b.left + b.right) // 2) % pitch for b, _ in shapes["M3"]).most_common(1)
+        channel = _Channel(_Wires(rule, g), rule, g, shapes, phase[0][0] if phase else pitch // 2)
+        below = []
+        for s, (x, y, bus) in sorted(main.items()):
+            net = f"dac_botplate_{side}_{s}"
+            ex, ey = channel.exit(net, bars(dy, net), dy)
+            below.append({"net": net, "x": ex, "y": ey, "to_x": x, "to_y": y, "cuts": _bus_cuts(bus, y, rule, g)})
+        n_below = channel.band(below, dy, -1)
+        want = _up(base + 2 * track_pitch + (n_below + 1) * track_pitch, pitch)
+        if want == dy:
+            break
+        dy = want
+    else:
+        raise RuntimeError("the driver block's place under the array did not settle")
+    wires = channel.wires
+    edge = dy + height
+    above = []
+    for s, (x, y, bus) in sorted(diff.items()):
+        net = f"dac_botplate_{side}_diff_{s}"
+        ex, ey = channel.exit(net, bars(dy, net), edge)
+        above.append({"net": net, "x": ex, "y": ey, "to_x": x, "to_y": y, "cuts": _bus_cuts(bus, y, rule, g)})
+    for s in stages:
+        net = f"dac_state_{side}_{s}"
+        x = (diff.get(s) or main[s])[0] + pitch
+        ex, ey = channel.exit(net, bars(dy, net), edge)
+        above.append({"net": net, "x": ex, "y": ey, "to_x": x, "to_y": array_box.top})
+    n_above = channel.band(above, edge, 1)
+    lowest_diff = min((y for _x, y, _bus in diff.values()), default=array_box.top)
+    if edge + 2 * track_pitch + n_above * track_pitch > lowest_diff - 2 * track_pitch:
+        raise RuntimeError(f"{n_above} tracks above the driver block run into the difference buses")
+    # the shield onto the block's ground straps where it covers them
+    shield_at = next(((x, y) for text, x, y in labels if text == "cap_shieldplate"), None)
+    if shield_at is not None:
+        shield = db.Region(top.begin_shapes_rec(layout.layer(*layers[f"M{array_params.shield_layer}"]))).merged()
+        at = db.Point(round(shield_at[0] / layout.dbu / 1000), round(shield_at[1] / layout.dbu / 1000))
+        # the shield's sheet: of the shapes about its label, the largest
+        polygon = max((p for p in shield.each() if p.bbox().contains(at)), key=lambda p: p.area())
+        region = db.Region(polygon).transformed(db.ICplxTrans(layout.dbu * 1000))
+        step = _up(rule["V3"]["cut"] + rule["V3"]["space"], 2 * g["grid"])
+        # where a cut sits on the shield with its enclosure, along the shield's wire either way
+        half, across, along = rule["V3"]["cut"] // 2, rule["V3"]["across"], g["end_V3"]
+
+        local = region
+
+        def on_shield(x: int, y: int) -> bool:
+            return any(
+                (db.Region(db.Box(x - ax, y - ay, x + ax, y + ay)) - local).is_empty()
+                for ax, ay in ((half + across, along), (along, half + across))
+            )
+
+        joined = 0
+        for strap, net in channel.shapes["M3"]:
+            if net != "vss" or strap.height() < 2 * strap.width():
+                continue
+            x = (strap.left + strap.right) // 2
+            last = None
+            local = region & db.Region(strap.enlarged(2 * step, 0))
+            coarse = _up(rule["M3"]["pitch"] // 4, g["grid"])  # candidate places a quarter pitch apart
+            # two cuts a place along the shield's wire (a lone cut on a short bar of it is refused), at
+            # the strap or beside it on a pad of M3 the strap's own
+            for cy in range(strap.bottom + along, strap.top - along - step + 1, coarse):
+                if last is not None and cy - last < 4 * step:
+                    continue
+                for cx in sorted(range(x - step, x + step + 1, coarse), key=lambda c: abs(c - x)):
+                    if not (on_shield(cx, cy) and on_shield(cx, cy + step)):
+                        continue
+                    pad = db.Box(
+                        min(strap.left, cx - half - across),
+                        cy - half - along,
+                        max(strap.right, cx + half + across),
+                        cy + step + half + along,
+                    )
+                    if cx != x and not channel.clear("M3", pad, "vss", merge=True):
+                        continue
+                    if cx != x:
+                        wires.parts["landings"].append(["M3", "vss", pad.left, pad.bottom, pad.right, pad.top])
+                        channel.shapes["M3"].append((pad, "vss"))
+                    wires.cut("V3", "vss", cx, cy)
+                    wires.cut("V3", "vss", cx, cy + step)
+                    joined += 1
+                    last = cy + step
+                    break
+        if not joined:
+            raise RuntimeError("the array's shield covers none of the driver block's ground straps")
+    result = db.Layout()
+    result.dbu = layout.dbu
+    combined = result.create_cell(f"cdac_{array}_{side}")
+    combined.copy_tree(top)
+    placed = result.create_cell(f"drivers_{side}")
+    placed.copy_tree(cell)
+    combined.insert(db.DCellInstArray(placed.cell_index(), db.DTrans(dx / 1000, dy / 1000)))
+    with tempfile.TemporaryDirectory() as scratch:
+        (wired,) = draw(
+            pdk_dir, [Drawing("Wiring", "wires", wires.parts, Path(scratch) / "wiring.gds", f"wiring_{side}")]
+        )
+        result.read(str(wired))
+    combined.insert(db.CellInstArray(result.cell(f"wiring_{side}").cell_index(), db.Trans()))
+    label_layer = result.layer(*layers["M3.PIN"])
+    for j in below + above:
+        combined.shapes(label_layer).insert(db.DText(j["net"], db.DTrans(j["label"][0] / 1000, j["label"][1] / 1000)))
+    drawn_only(result, set(layers.values()))
+    _name_pins(result, combined, side)
+    right = dx + width
+    rails = sorted(
+        {
+            (t["rect"][1] + dy, t["rect"][3] + dy)
+            for t in pnr["terminals"]
+            if t["layer"] == "M1" and t.get("netName", "").lower() in ("vdd", "vss") and t["rect"][2] == width
+        }
+    )
+    return result, {"right": right, "rails": rails}

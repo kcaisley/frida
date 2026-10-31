@@ -1,12 +1,12 @@
 """The CDAC layout's planning, which needs no PDK: each net its own track, in the order of its
 columns from the channel's start; the spacing test between two shapes; the unit grid's rows; a
-supply's pin jogging off its strap."""
+supply's pin jogging off its strap; a stacked side's channel under the array."""
 
 from itertools import pairwise
 
 from klayout import db
 
-from .layout import _clearance, _gap, _rows, _supply_pin, _tracks
+from .layout import _Channel, _clearance, _gap, _rows, _supply_pin, _tracks, _Wires
 
 G = {"clearance": 600, "track": 200}
 # a thin M4 under a thick top via (its column metal's width and space, its cut's enclosures)
@@ -68,3 +68,24 @@ def test_a_supply_pin_jogs_off_its_strap_where_the_column_above_it_is_taken():
     assert _clearance(vdd["column"], [state], RULE, "M5") >= 0
     assert vss["strap_x"] == vss["x"] == 9400 and vss["clear"] >= 0
     assert pins["columns"] == [state, vdd["column"], vss["column"]] and pins["m4"] == [vdd["m4"], vss["m4"]]
+
+
+def test_a_channel_puts_an_exit_nearer_the_block_than_a_riser_in_its_column():
+    """Under the array: an output leaving the block in the column another net rises in takes a
+    track nearer the block (its exit ends there, the riser starts beyond), a free track between."""
+    rule = {
+        "M2": {"width": 100, "space": 100, "pitch": 200, "length": 500},
+        "M3": {"width": 100, "space": 100, "pitch": 200},
+        "V2": {"cut": 100, "space": 100, "along": 40, "across": 0},
+        "V3": {"cut": 100, "space": 100, "along": 40, "across": 0},
+    }
+    g = {"grid": 5, "end_V2": 90, "end_V3": 90}
+    channel = _Channel(_Wires(rule, g), rule, g, {"M2": [], "M3": []}, phase=50)
+    jobs = [
+        {"net": "a", "x": 1050, "y": 500, "to_x": 3050, "to_y": -3000},
+        {"net": "b", "x": 3050, "y": 500, "to_x": 5050, "to_y": -3000},
+    ]
+    assert channel.band(jobs, 0, -1) == 3
+    # b's exit is a's riser's column: b on the first track, a two further
+    tracks = {seg[1]: seg[3] for seg in channel.wires.parts["segments"] if seg[0] == "M2"}
+    assert tracks == {"b": -400, "a": -800}
