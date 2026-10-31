@@ -352,6 +352,67 @@ def single_cuts(layout: kdb.Layout, top: kdb.Cell) -> int:
     return changed
 
 
+def _holder(polygons: list, box: kdb.Box) -> int | None:
+    """The index of the polygon holding the centre of ``box``, if any."""
+    c = box.center()
+    return next((i for i, p in enumerate(polygons) if p.bbox().contains(c) and p.inside(c)), None)
+
+
+def close_cuts(layout: kdb.Layout, top: kdb.Cell) -> int:
+    """Two cuts of a via layer closer than its space (``RULES``) on one net: ALIGN's off-grid router
+    drops a cut at each of two parallel wires of a net a fraction of a track apart, where one metal
+    polygon (the same net) holds both cuts. The gap between their pads on the other metal, where
+    they run side by side, is filled (no wider than that metal's space, over no other shape), and
+    the second cut goes; the net stays joined through the filled metal. Returns the cuts removed."""
+    import tech as _tech
+
+    rules = getattr(_tech, "RULES", {})
+    removed = 0
+    for n in range(1, 8):
+        via, below, above = LAYERS.get(f"V{n}"), LAYERS.get(f"M{n}"), LAYERS.get(f"M{n + 1}")
+        space = rules.get(f"V{n}", {}).get("space")
+        if not (via and below and above and space):
+            continue
+        cut_shapes = top.shapes(layout.layer(*via))
+        cuts = sorted(((c, c.bbox()) for c in cut_shapes.each() if not c.is_text()), key=lambda c: c[1].left)
+        metals = {
+            m: (layout.layer(*LAYERS[m]), kdb.Region(top.shapes(layout.layer(*LAYERS[m]))).merged())
+            for m in (f"M{n}", f"M{n + 1}")
+        }
+        polys = {m: list(region.each()) for m, (_, region) in metals.items()}
+
+        gone: set[int] = set()
+        for i, (_, a) in enumerate(cuts):
+            for j in range(i + 1, len(cuts)):
+                b = cuts[j][1]
+                if b.left >= a.right + space:  # sorted by left edge: none further on is closer
+                    break
+                if i in gone or j in gone or a.overlaps(b) or not a.enlarged(space - 1, space - 1).overlaps(b):
+                    continue
+                # the same net on one metal; the other's pads joined across their gap
+                for same, other in ((f"M{n}", f"M{n + 1}"), (f"M{n + 1}", f"M{n}")):
+                    if _holder(polys[same], a) is None or _holder(polys[same], a) != _holder(polys[same], b):
+                        continue
+                    pa, pb = _holder(polys[other], a), _holder(polys[other], b)
+                    if pa is None or pb is None:
+                        continue
+                    if pa != pb:
+                        gap = rules.get(other, {}).get("space", 0)
+                        pads = kdb.Region(polys[other][pa]) + kdb.Region(polys[other][pb])
+                        fill = pads.sized(gap // 2).sized(-(gap // 2)) - pads
+                        fill &= kdb.Region(polys[other][pa].bbox() + polys[other][pb].bbox())
+                        others = metals[other][1] - pads
+                        if fill.is_empty() or not (fill & others.sized(gap - 1)).is_empty():
+                            continue
+                        top.shapes(metals[other][0]).insert(fill)
+                    gone.add(j)
+                    break
+        for j in sorted(gone, reverse=True):
+            cut_shapes.erase(cuts[j][0])
+        removed += len(gone)
+    return removed
+
+
 def post(
     src: str | Path,
     dst: str | Path,
@@ -410,7 +471,7 @@ def post(
             or (info.layer, info.datatype) == (235, 5)
         ):
             layout.clear_layer(li)
-    n_cuts = single_cuts(layout, top)
+    n_cuts = single_cuts(layout, top) + close_cuts(layout, top)
     netcells.close_wells(layout, kdb, top)
     for c in list(layout.top_cells()):  # an unused helper (the filler copy when no row needed fill)
         if c.cell_index() != top.cell_index():

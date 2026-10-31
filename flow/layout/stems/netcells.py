@@ -408,12 +408,28 @@ def _lib_cell(layout, kdb, std_lib, name):
 def close_wells(layout, kdb, top) -> None:
     """Close the N-well gaps and notches of a flat ``top`` no wider than the well space (NW_SPACE):
     a row padded by a filler narrower than it leaves a notch between a PMOS cell's well and the
-    row end's (a library profile, EDGE_TIE)."""
+    row end's (a library profile, EDGE_TIE). A lone well box below the PDK's NW_AREA (a tap band past a
+    narrow NMOS-only block) is widened to it. The PDK's PMOS gate marker (GATE_MARK) is closed alike
+    where it gives its space."""
     li = layout.layer(*_tech.LAYERS["NW"])
     half = _tech.NW_SPACE // 2
     nw = kdb.Region(top.shapes(li)).sized(half).sized(-half).merged()
+    area = getattr(_tech, "NW_AREA", 0)  # a lone well smaller than this is widened about its centre
+    for poly in list(nw.each()) if area else ():
+        box = poly.bbox()
+        if poly.is_box() and box.area() < area:
+            grow = -(-(-(-area // box.height()) - box.width()) // 10) * 5  # per side, on the 5 nm grid
+            nw.insert(box.enlarged(grow, 0))
+    nw.merge()
     top.shapes(li).clear()
     top.shapes(li).insert(nw)
+    mark = getattr(_tech, "GATE_MARK", None)
+    if mark and mark.get("space"):  # the PMOS gate marker's notches too (between rows' cells)
+        mi = layout.layer(*_tech.LAYERS[mark["layer"]])
+        half = mark["space"] // 2
+        region = kdb.Region(top.shapes(mi)).sized(half).sized(-half).merged()
+        top.shapes(mi).clear()
+        top.shapes(mi).insert(region)
 
 
 def draw(layout, kdb, cell: rowcell.Cell, inst: Inst | None = None, std_lib=None):
