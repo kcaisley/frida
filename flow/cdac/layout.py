@@ -291,7 +291,12 @@ class _Wires:
         (V3 to an M3 column, V4 to an M5 one)."""
         lo, hi = sorted((x0, x1))
         reach = max(self.g[f"end_{via0}"], self.g[f"end_{via1}"])
-        self.segment("M4", net, lo - reach, y, hi + reach, y)
+        lo, hi = lo - reach, hi + reach
+        short = self.rule["M4"].get("length", 0) - (hi - lo)  # a short track drawn to the minimum area
+        if short > 0:
+            pad = _up(-(-short // 2), self.g["grid"])
+            lo, hi = lo - pad, hi + pad
+        self.segment("M4", net, lo, y, hi, y)
         for x, via in ((x0, via0), (x1, via1)):
             self.cut(via, net, x, y)
             self.pad("M4", net, x, y, via, False)
