@@ -320,10 +320,12 @@ def single_cuts(layout: kdb.Layout, top: kdb.Cell) -> int:
     """A legal cut wherever a via layer's shapes make none (ALIGN's off-grid router drops a cut at
     each of two wires of one net meeting a column a fraction of a track apart, or one cut stretched
     across both): where cuts overlap the first alone, a cut longer than the PDK's (``RULES``) its
-    square at its lower left. The metals above and below cover the whole of it, so the net stays
+    square at its lower left, in a PDK that takes square cuts alone (``SQUARE_CUTS``; others take the
+    router's bar cuts as they are). The metals above and below cover the whole of it, so the net stays
     joined. Returns the shapes changed."""
     import tech as _tech
 
+    square = getattr(_tech, "SQUARE_CUTS", False)
     changed = 0
     for n in range(1, 8):
         layer, size = LAYERS.get(f"V{n}"), getattr(_tech, "RULES", {}).get(f"V{n}", {}).get("cut")
@@ -341,7 +343,14 @@ def single_cuts(layout: kdb.Layout, top: kdb.Cell) -> int:
             if not inside:
                 continue
             first, box, is_box = inside[0]
-            if size and is_box and box.width() >= size and box.height() >= size and box.width() != box.height():
+            if (
+                square
+                and size
+                and is_box
+                and box.width() >= size
+                and box.height() >= size
+                and box.width() != box.height()
+            ):
                 erase.append(first)
                 insert.append(kdb.Box(box.left, box.bottom, box.left + size, box.bottom + size))
                 changed += 1
