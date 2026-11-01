@@ -505,6 +505,8 @@ def layout(blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS) -> 
             status = (
                 "failed"
                 if entry["error"]
+                else f"{entry['w_um']:.1f} x {entry['h_um']:.1f} um, drawn"
+                if "drc_violations" not in entry  # a block drawn by its own generator: not signed off here
                 else f"{entry['w_um']:.1f} x {entry['h_um']:.1f} um, DRC {entry['drc_violations']}, LVS {entry['lvs_correct']}"
                 f"{'' if entry.get('floorplan') else ', ALIGN alone'}"
             )

@@ -808,7 +808,15 @@ def layout_cdac(out_dir: Path, pdk: str, array: str, params: Params) -> db.Layou
     units = params.dac.split is None
     name = f"cdac_units_{array}" if units else f"cdac_{array}"
     builder = layout_units if units else layout_stacked if _stacks(pdk, array) else layout_side
-    sides = {side: builder(out_dir / side, pdk, array, params, side) for side in ("p", "n")}
+    try:
+        sides = {side: builder(out_dir / side, pdk, array, params, side) for side in ("p", "n")}
+    except RuntimeError as error:
+        if builder is not layout_stacked:
+            raise
+        # an array too small to hold the stacked block's bands (or its shield over none of the block's
+        # ground): the banks beside it instead
+        print(f"{array}: drivers beside the array, not under it ({error})")
+        sides = {side: layout_side(out_dir / side, pdk, array, params, side) for side in ("p", "n")}
     layout = db.Layout()
     layout.dbu = sides["p"][0].dbu
     top = layout.create_cell(name)
@@ -1196,6 +1204,7 @@ class _Channel:
         self.pitch = rule["M3"]["pitch"]
         self.track_pitch = rule["M2"]["pitch"]
         self.phase = phase  # the block's M3 columns' centre, modulo the pitch
+        self.risers: set[int] = set()  # the columns the band's nets rise in to their buses
 
     def clear(self, layer: str, box: db.Box, net: str, merge: bool = False) -> bool:
         """``box`` on ``layer`` a space from every other net's shape, and from its own net's unless
@@ -1235,7 +1244,9 @@ class _Channel:
             middle = (bar.left + bar.right) // 2
             first = (bar.left - 3 * self.pitch - self.phase) // self.pitch * self.pitch + self.phase
             columns = range(first, bar.right + 3 * self.pitch + 1, self.pitch)
-            for x in sorted(columns, key=lambda c: abs(c - middle)):
+            # columns no riser of the band takes first (an exit there must keep nearer the block)
+            taken = lambda c: any(abs(c - r) < self.pitch for r in self.risers)
+            for x in sorted(columns, key=lambda c: (taken(c), abs(c - middle))):
                 extension = None
                 if x - reach < bar.left or x + reach > bar.right:
                     extension = db.Box(min(bar.left, x - reach), bar.bottom, max(bar.right, x + reach), bar.top)
@@ -1360,11 +1371,14 @@ def layout_stacked(out_dir: Path, pdk: str, array: str, params: Params, side: st
             )
             buses[text] = (x, y, db.Box(nm(bus.left), nm(bus.bottom), nm(bus.right), nm(bus.top)))
     gds, pnr_path = layout_drivers(out_dir / "drivers", pdk, params, side)
+    pnr = json.loads(pnr_path.read_text())
+    width, height = pnr["bbox"][2] - pnr["bbox"][0], pnr["bbox"][3] - pnr["bbox"][1]
+    if width > array_box.width() - 2 * g["clearance"]:
+        # (more rows of fewer cells: ALIGN's placer finds no placement for such a floorplan)
+        raise RuntimeError(f"the driver block ({width} nm) is wider than the array ({array_box.width()} nm)")
     block = db.Layout()
     block.read(str(gds))
     cell = max(block.top_cells(), key=lambda c: c.bbox().area())
-    pnr = json.loads(pnr_path.read_text())
-    width, height = pnr["bbox"][2] - pnr["bbox"][0], pnr["bbox"][3] - pnr["bbox"][1]
     pitch, track_pitch = rule["M3"]["pitch"], rule["M2"]["pitch"]
     dx = ((array_box.left + array_box.right) // 2 - width // 2) // pitch * pitch
 
@@ -1419,6 +1433,7 @@ def layout_stacked(out_dir: Path, pdk: str, array: str, params: Params, side: st
         phase = Counter(((b.left + b.right) // 2) % pitch for b, _ in shapes["M3"]).most_common(1)
         channel = _Channel(_Wires(rule, g), rule, g, shapes, phase[0][0] if phase else pitch // 2)
         below = []
+        channel.risers = {x for x, _y, _bus in main.values()}
         for s, (x, y, bus) in sorted(main.items()):
             net = f"dac_botplate_{side}_{s}"
             ex, ey = channel.exit(net, bars(dy, net), dy)
@@ -1433,6 +1448,7 @@ def layout_stacked(out_dir: Path, pdk: str, array: str, params: Params, side: st
     wires = channel.wires
     edge = dy + height
     above = []
+    channel.risers = {x for x, _y, _bus in diff.values()} | {(diff.get(s) or main[s])[0] + pitch for s in stages}
     for s, (x, y, bus) in sorted(diff.items()):
         net = f"dac_botplate_{side}_diff_{s}"
         ex, ey = channel.exit(net, bars(dy, net), edge)
