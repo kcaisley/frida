@@ -1166,7 +1166,7 @@ def _stacks(pdk: str, array: str) -> bool:
 # --- the stacked CDAC: both banks of a side in one ALIGN block under the array (below it in z) ---
 
 
-def layout_drivers(out_dir: Path, pdk: str, params: Params, side: str) -> tuple[Path, Path]:
+def layout_drivers(out_dir: Path, pdk: str, params: Params, side: str, halves: bool = False) -> tuple[Path, Path]:
     """One ``side``'s drivers, main and difference, in one block of abutting rows of the library's
     cells, placed and routed by ALIGN (``flow.layout.align``): top first, the difference outputs
     (their plates' buses at the array's top), the inverters before every output, the main outputs
@@ -1184,6 +1184,9 @@ def layout_drivers(out_dir: Path, pdk: str, params: Params, side: str) -> tuple[
     outputs = {kind: [cell for chain in chains[kind] for cell in chain if "_out" in cell] for kind in chains}
     earlier = [cell for kind in ("main", "diff") for chain in chains[kind] for cell in chain if "_out" not in cell]
     rows = [outputs["diff"], earlier, outputs["main"]]
+    if halves:  # the output rows (the wide cells) each in two: a block about two thirds as wide
+        half = lambda cells: [cells[: len(cells) // 2], cells[len(cells) // 2 :]]
+        rows = [*half(outputs["diff"]), earlier, *half(outputs["main"])]
     floorplan = out_dir / f"{name}.json"
     floorplan.write_text(json.dumps({"rows": [row for row in rows if row], "symmetric": False}))
     gds = build(pdk, floorplan, netlist_path, out_dir, name=name)
@@ -1370,11 +1373,15 @@ def layout_stacked(out_dir: Path, pdk: str, array: str, params: Params, side: st
                 layout, top, layers[f"M{route}"], round(x / layout.dbu / 1000), round(y / layout.dbu / 1000)
             )
             buses[text] = (x, y, db.Box(nm(bus.left), nm(bus.bottom), nm(bus.right), nm(bus.top)))
-    gds, pnr_path = layout_drivers(out_dir / "drivers", pdk, params, side)
-    pnr = json.loads(pnr_path.read_text())
-    width, height = pnr["bbox"][2] - pnr["bbox"][0], pnr["bbox"][3] - pnr["bbox"][1]
-    if width > array_box.width() - 2 * g["clearance"]:
-        # (more rows of fewer cells: ALIGN's placer finds no placement for such a floorplan)
+    # three rows; where that is wider than the array, the output rows halved (five rows: ALIGN's
+    # placer finds no placement for six)
+    for halves in (False, True):
+        gds, pnr_path = layout_drivers(out_dir / ("drivers_halved" if halves else "drivers"), pdk, params, side, halves)
+        pnr = json.loads(pnr_path.read_text())
+        width, height = pnr["bbox"][2] - pnr["bbox"][0], pnr["bbox"][3] - pnr["bbox"][1]
+        if width <= array_box.width() - 2 * g["clearance"]:
+            break
+    else:
         raise RuntimeError(f"the driver block ({width} nm) is wider than the array ({array_box.width()} nm)")
     block = db.Layout()
     block.read(str(gds))
