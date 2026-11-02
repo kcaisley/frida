@@ -6,7 +6,7 @@ I/O. Reads no data and runs no simulator: a pre-commit hook and CI run it.
 The import order of the stages is checked by import-linter (``[tool.importlinter]`` in
 pyproject.toml: one contract over every migrated block, held to them here), ``from flow.<block>
 import ...`` outside a block by Ruff (ICN003), the stages' types by ty over ``typed()`` (CI), their
-netlists by ``flow/test_netlists.py``. ``KNOWN_VIOLATIONS`` and ``NOT_MIGRATED`` may only shrink.
+netlists by ``flow/netlist_hashes.py`` (by hand). ``KNOWN_VIOLATIONS`` and ``NOT_MIGRATED`` may only shrink.
 """
 
 from __future__ import annotations

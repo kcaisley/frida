@@ -51,7 +51,7 @@ Pre-commit and CI hold a migrated block to this. A migrated block is every block
 - import-linter (`[tool.importlinter]` in `pyproject.toml`): one contract orders every migrated block's stages (`model.py`, `opt.py` and `layout.py` optional in it; `flow/test_pipeline.py` holds its containers to the migrated blocks), and `flow.pipeline` imports no block.
 - Ruff ICN003: outside the block, `from flow import comp` and `comp.Params`, never `from flow.comp import Params`; inside it the stages import each other relatively.
 - ty on the base module and every migrated block's stage files and `opt.py` (`typed()` in `flow/test_pipeline.py` lists them for CI).
-- [`flow/test_netlists.py`](../flow/test_netlists.py): a block that records its netlists (`flow/<block>/netlists.json`, `uv run python -m flow.test_netlists <block>`) makes the same circuits for every instance its code makes (its design space, every combination of its searched choices, every value of each enumeration it holds), before any PDK compile and, in each installed PDK, after it; a block without a record is skipped.
+- [`flow/netlist_hashes.py`](../flow/netlist_hashes.py): every instance's netlist as a hash (its structure before any PDK compile and, in each installed PDK, after it), recorded and compared by hand while the netlists still change (`uv run python -m flow.netlist_hashes record|compare <block>`, records in `build/netlists/`); not a test.
 - A block with an `opt.py` (`flow/test_pipeline.py`): each problem searches a space of the block's `Params`, in which every combination of the choices builds and a range that does not apply (`when`) leaves the circuit unchanged; its metrics are typed, and its problems name metrics and bound only those with a direction.
 
 ## Optimizing a block

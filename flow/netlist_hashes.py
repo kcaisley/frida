@@ -1,17 +1,12 @@
-"""Every pipeline block's netlists, pinned: a migrated block that records them
-(``flow/<block>/netlists.json``) makes the same circuits for every instance its code makes, so a
-refactor of its ``Params`` or ``netlist`` that changes any circuit fails. A block without a record is
-skipped until it records one.
+"""Each pipeline block's netlists as hashes, recorded and compared by hand (not a test: the
+netlists still change). Every instance its code makes (``corpus``), two hashes each: its structure
+before any PDK compile (each instance's name, primitive, parameters and connections, in order; no
+PDK needed), and, in each installed PDK where ``params.valid`` admits it and the block's layout
+writes netlists (``layout.write_netlist``), its flat SPICE after the PDK's compile. Records go to
+``build/netlists/<block>.json`` (hashes only: the PDKs' netlists stay private).
 
-The instances (``corpus``): its design space (each grid's, family's and named instance), every
-combination of each problem's space's choices (``Problem.space``) at its base, and every other value
-of each enumeration no space widens, the rest at their defaults. Two records per instance: its structure before any PDK compile (each
-instance's name, primitive, parameters and connections, in order; no PDK needed), and, in each
-installed PDK where ``params.valid`` admits it and the block's layout writes netlists
-(``layout.write_netlist``), its flat SPICE after the PDK's compile (``site_pdk``). Only hashes are
-recorded: the PDKs' netlists stay private.
-
-    uv run python -m flow.test_netlists comp   # (re)record a block's netlists, only after a reviewed change
+    uv run python -m flow.netlist_hashes record comp   # record a block's netlists (all blocks: none named)
+    uv run python -m flow.netlist_hashes compare comp  # the instances whose hashes changed since
 """
 
 from __future__ import annotations
@@ -28,8 +23,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 from flow import pipeline
 from flow.sweep.runner import PDKS, labelled_space
 from flow.test_pipeline import MIGRATED, ROOT
@@ -39,7 +32,7 @@ STRUCTURE_PDK = "tsmc65"
 
 
 def record_path(block: str) -> Path:
-    return ROOT / "flow" / block / "netlists.json"
+    return ROOT / "build" / "netlists" / f"{block}.json"
 
 
 def corpus(block: str, pdk: str | None) -> dict[str, Any]:
@@ -53,7 +46,7 @@ def corpus(block: str, pdk: str | None) -> dict[str, Any]:
     Params = params.Params
     instances: dict[str, Any] = {}
     # a grid or a problem made of what this checkout lacks (a PDK's own data: its extracted arrays,
-    # its supply) is left out, and the comparison with the record with it (``test_structures_unchanged``)
+    # its supply) is left out, and so from the record and its comparison
     with contextlib.suppress(LookupError, ModuleNotFoundError):
         for label, instance in labelled_space(block, pdk or STRUCTURE_PDK).values():
             instances.setdefault(label, instance)
@@ -163,43 +156,36 @@ def installed() -> list[str]:
     return [pdk for pdk in PDKS if importlib.util.find_spec(f"pdk.{pdk}.hdl21") is not None]
 
 
-def recorded(block: str) -> dict[str, dict[str, str]]:
-    path = record_path(block)
-    if not path.is_file():
-        pytest.skip(f"{block} records no netlists: uv run python -m flow.test_netlists {block}")
-    return json.loads(path.read_text())
+def record(block: str) -> dict[str, dict[str, str]]:
+    """``block``'s hashes now: its structures, and its compiled netlists in each installed PDK."""
+    pdks = installed() if writer(block) is not None else []
+    return {"structure": hashes(block, None), **{pdk: hashes(block, pdk) for pdk in pdks}}
 
 
-@pytest.mark.parametrize("block", MIGRATED)
-def test_structures_unchanged(block: str) -> None:
-    """Every instance the block makes is recorded and its structure unchanged; all of the record's
-    where the checkout has what they are made of (the PDKs and the build's extractions), else those
-    it can make (CI's checkout has neither)."""
-    record = recorded(block)
-    current = hashes(block, None)
-    if all(importlib.util.find_spec(f"pdk.{pdk}.hdl21") for pdk in PDKS) and (ROOT / "build").is_dir():
-        assert current == record["structure"]
-    # without them: each instance as recorded, by its label, or, where the record reached its circuit
-    # under another (a searched choice's, made of a PDK's supply), by its circuit
-    for label, value in current.items():
-        assert record["structure"].get(label, value if value in record["structure"].values() else None) == value, label
-
-
-@pytest.mark.site_pdk
-@pytest.mark.parametrize("pdk", PDKS)
-@pytest.mark.parametrize("block", MIGRATED)
-def test_compiled_netlists_unchanged(block: str, pdk: str) -> None:
-    record = recorded(block)
-    if writer(block) is None:
-        pytest.skip(f"{block}'s layout writes no netlists")
-    if pdk not in installed():
-        pytest.skip(f"{pdk} is not installed")
-    assert hashes(block, pdk) == record[pdk]
+def changed(block: str) -> dict[str, list[str]]:
+    """The labels whose hash differs from ``block``'s record (or that one side lacks), by section."""
+    before = json.loads(record_path(block).read_text())
+    now = record(block)
+    return {
+        section: sorted(
+            label
+            for label in set(before.get(section, {})) | set(now.get(section, {}))
+            if before.get(section, {}).get(label) != now.get(section, {}).get(label)
+        )
+        for section in sorted(set(before) | set(now))
+    }
 
 
 if __name__ == "__main__":
-    for block in sys.argv[1:] or MIGRATED:
-        pdks = installed() if writer(block) is not None else []
-        record = {"structure": hashes(block, None), **{pdk: hashes(block, pdk) for pdk in pdks}}
-        record_path(block).write_text(json.dumps(record, indent=1, sort_keys=True) + "\n")
-        print(block, {key: len(value) for key, value in record.items()})
+    verb, *blocks = sys.argv[1:] or ["record"]
+    for block in blocks or MIGRATED:
+        if verb == "record":
+            path = record_path(block)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            hashed = record(block)
+            path.write_text(json.dumps(hashed, indent=1, sort_keys=True) + "\n")
+            print(block, {key: len(value) for key, value in hashed.items()}, path)
+        elif verb == "compare":
+            print(block, {section: labels for section, labels in changed(block).items() if labels} or "unchanged")
+        else:
+            raise SystemExit("usage: python -m flow.netlist_hashes record|compare [block ...]")

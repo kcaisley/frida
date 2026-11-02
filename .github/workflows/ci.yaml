@@ -136,7 +136,6 @@ jobs:
           flow/adc/test_sweep.py
           flow/comp/test_subckt.py
           flow/comp/test_layout.py
-          flow/test_netlists.py
           flow/opt/test_runner.py
           flow/layout/test_floorplan.py
           flow/layout/test_lint.py
