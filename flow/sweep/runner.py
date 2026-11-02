@@ -5,7 +5,7 @@ the SHA-1 of its flat parameters (``digest``), as ``flow.sweep.lookup`` keys the
 
 ``run``: every block's instances (each PDK's grids and named instances) characterized, one process each,
 at most ``workers`` at once; each writes ``instance.json`` (its id, parameters, metrics, details,
-waves, its run time or error) in ``build/sweep/<block>/<run>/<pdk>/<digest>/``. ``layout``: ALIGN
+waves, its run time or error) in ``build/<block>/<run>/<pdk>/<digest>/``. ``layout``: ALIGN
 places and routes each instance of the newest run whose block gives a layout netlist or a
 floorplan, signoff checks it, and its area joins the record. ``table``: each block's newest run in
 each PDK (a run of some PDKs alone keeps the others' from the run before) as the viewer's table
@@ -20,6 +20,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import time
 import traceback
@@ -35,7 +36,8 @@ from types import SimpleNamespace
 from flow.sweep import flat_params
 
 ROOT = Path(__file__).resolve().parents[2]
-SWEEP_DIR = ROOT / "build/sweep"
+RUNS_DIR = ROOT / "build"  # a block's runs: build/<block>/<run>/
+RUN_STAMP = re.compile(r"\d{8}_\d{6}")  # a run's name (new_run, run)
 DATA_DIR = ROOT / "build/web/data/sweep"
 FLOORPLANS = ROOT / "design/layout"
 PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
@@ -257,7 +259,7 @@ def run(
     ranked, runs = [], {}
     for block in blocks:
         rank = getattr(import_module(f"flow.{block}.sweep"), "cost", None)
-        runs[block] = newest_run(block) if failed else SWEEP_DIR / block / stamp
+        runs[block] = newest_run(block) if failed else RUNS_DIR / block / stamp
         for pdk in pdks:
             if names:
                 space = select(block, pdk, names)
@@ -301,27 +303,36 @@ def run(
                 failed += record["error"] is not None
                 status = "failed" if record["error"] else "ok"
                 print(
-                    f"[{done}/{len(jobs)}] {path.relative_to(SWEEP_DIR)}: {status} in {record['seconds']} s", flush=True
+                    f"[{done}/{len(jobs)}] {path.relative_to(RUNS_DIR)}: {status} in {record['seconds']} s", flush=True
                 )
     print(f"{len(jobs) - failed} instances characterized, {failed} failed: {', '.join(map(str, runs.values()))}")
     return runs
 
 
+def _runs(block: str) -> list[Path]:
+    """The block's runs: the timestamp-named directories in ``build/<block>/`` (its other outputs
+    there are not runs)."""
+    folder = RUNS_DIR / block
+    return (
+        [path for path in folder.iterdir() if path.is_dir() and RUN_STAMP.fullmatch(path.name)]
+        if folder.is_dir()
+        else []
+    )
+
+
 def newest_run(block: str, pdk: str | None = None) -> Path:
     """The block's newest run; with ``pdk``, the newest that ran in that PDK (a run of some PDKs
     alone leaves each other PDK's newest records in the run before)."""
-    runs = sorted(
-        path for path in (SWEEP_DIR / block).iterdir() if path.is_dir() and (pdk is None or (path / pdk).is_dir())
-    )
+    runs = sorted(path for path in _runs(block) if pdk is None or (path / pdk).is_dir())
     if not runs:
-        raise FileNotFoundError(f"no sweep run of {block}{f' in {pdk}' if pdk else ''} in {SWEEP_DIR / block}")
+        raise FileNotFoundError(f"no sweep run of {block}{f' in {pdk}' if pdk else ''} in {RUNS_DIR / block}")
     return runs[-1]
 
 
 def pdk_runs(block: str) -> dict[str, Path]:
     """Each PDK's newest run of the block (``newest_run``), the PDKs in name order."""
     runs = {}
-    for run in sorted((path for path in (SWEEP_DIR / block).iterdir() if path.is_dir()), reverse=True):
+    for run in sorted(_runs(block), reverse=True):
         for pdk in run.iterdir():
             if pdk.is_dir():
                 runs.setdefault(pdk.name, run)
@@ -478,7 +489,7 @@ def layout(blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS) -> 
                 continue
             params = design_space(block, record["pdk"]).get(path.parent.name)
             if params is None:
-                print(f"{path.parent.relative_to(SWEEP_DIR)}: not in the design space any more, not laid out")
+                print(f"{path.parent.relative_to(RUNS_DIR)}: not in the design space any more, not laid out")
                 continue
             # a block drawn otherwise (the capacitor array) or of standard cells alone has nothing to place
             if not own and hand_floorplan(block, params) is None:
@@ -510,7 +521,7 @@ def layout(blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS) -> 
                 else f"{entry['w_um']:.1f} x {entry['h_um']:.1f} um, DRC {entry['drc_violations']}, LVS {entry['lvs_correct']}"
                 f"{'' if entry.get('floorplan') else ', ALIGN alone'}"
             )
-            print(f"[{done}/{len(jobs)}] {path.relative_to(SWEEP_DIR)}: {status} in {entry['seconds']} s", flush=True)
+            print(f"[{done}/{len(jobs)}] {path.relative_to(RUNS_DIR)}: {status} in {entry['seconds']} s", flush=True)
 
 
 def _block_netlist(block: str, ident: str, record: dict, data_dir: Path) -> Path | None:
@@ -591,7 +602,7 @@ def table(blocks: list[str], workers: int) -> None:
             # each PDK's newest run: a run of some PDKs alone keeps the others' rows from the run before
             runs = pdk_runs(block)
             if not runs:
-                raise FileNotFoundError(f"no sweep run of {block} in {SWEEP_DIR / block}")
+                raise FileNotFoundError(f"no sweep run of {block} in {RUNS_DIR / block}")
             paths = sorted(
                 (path for pdk, run in runs.items() for path in (run / pdk).glob("*/instance.json")),
                 key=lambda path: path.parts[-3:],  # by PDK, then digest

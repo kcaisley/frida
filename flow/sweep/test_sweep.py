@@ -171,7 +171,7 @@ def test_the_table_has_a_row_per_instance_and_a_file_each(tmp_path: Path, monkey
             "seconds": 1.0,
         }
         path.write_text(json.dumps(runner._json(record)))
-    monkeypatch.setattr(runner, "SWEEP_DIR", tmp_path / "sweep")
+    monkeypatch.setattr(runner, "RUNS_DIR", tmp_path / "sweep")
     monkeypatch.setattr(runner, "DATA_DIR", tmp_path / "web/data/sweep")
     # an instance file of an earlier run's, under an older id
     (tmp_path / "web/data/sweep/toy").mkdir(parents=True)
@@ -216,7 +216,7 @@ def test_a_run_of_some_pdks_keeps_the_others_from_the_run_before(tmp_path: Path,
             "seconds": 1.0,
         }
         path.write_text(json.dumps(record))
-    monkeypatch.setattr(runner, "SWEEP_DIR", tmp_path / "sweep")
+    monkeypatch.setattr(runner, "RUNS_DIR", tmp_path / "sweep")
     monkeypatch.setattr(runner, "DATA_DIR", tmp_path / "web/data/sweep")
     assert runner.newest_run("toy").name == runner.newest_run("toy", "tsmc65").name == "20261021_000000"
     assert runner.newest_run("toy", "ihp130").name == "20261020_000000"

@@ -22,7 +22,7 @@ from flow.cdac.caparray.model import CapArrayModel
 from flow.cdac.caparray.subckt import CapArrayConfig, get_caparray_weights
 from flow.cdac.capdriver.model import driver_strengths
 from flow.cdac.capdriver.subckt import PARALLEL_DRIVE, CapDriverParams, Cells, pre_driver, stage_strengths
-from flow.sweep.runner import ROOT, SWEEP_DIR, digest, instance_params, write_record
+from flow.sweep.runner import ROOT, RUNS_DIR, digest, instance_params, write_record
 
 from .subckt import AdcParams
 
@@ -50,13 +50,13 @@ def sweep_gds(block: str, pdk: str, params) -> Path:
     """The layout of the instance of ``block``'s sweep with exactly these parameters (its digest),
     newest run first."""
     ident = digest(params)
-    for path in sorted((SWEEP_DIR / block).glob(f"*/{pdk}/{ident}/instance.json"), reverse=True):
+    for path in sorted((RUNS_DIR / block).glob(f"*/{pdk}/{ident}/instance.json"), reverse=True):
         record = json.loads(path.read_text())
         gds = (record.get("layout") or {}).get("gds")
         if gds and (ROOT / gds).exists():
             return ROOT / gds
     raise FileNotFoundError(
-        f"no laid-out instance of the {block} sweep in {pdk} with these parameters under {SWEEP_DIR / block}: "
+        f"no laid-out instance of the {block} sweep in {pdk} with these parameters under {RUNS_DIR / block}: "
         f"run python -m flow {block}.sweep ({params})"
     )
 
@@ -174,7 +174,7 @@ def assemble_blocks(pdk: str, params: AdcParams, out_dir: Path) -> dict:
 
 
 def layout_run(run_dir: Path) -> None:
-    """Each characterized instance of an ADC sweep run (``build/sweep/adc/<run>``) given its
+    """Each characterized instance of an ADC sweep run (``build/adc/<run>``) given its
     blocks' layout entry in its ``instance.json``, which the viewer's table exports."""
     for path in sorted(run_dir.glob("*/*/instance.json")):
         record = json.loads(path.read_text())

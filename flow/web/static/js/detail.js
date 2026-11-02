@@ -178,7 +178,7 @@ class PlotsPanel {
                 .map((instance, index) => ({ instance, index, detail: (instance.details || []).find((detail) => detail.name === name) }))
                 .filter((entry) => entry.detail);
             const first = entries[0].detail;
-            // a figure the analysis plots drew (an SVG under build/sweep/): shown as it is, side by side;
+            // a figure the analysis plots drew (an SVG under a block's run, build/<block>/): shown as it is, side by side;
             // clicked, over the page
             if (first.figure) {
                 this.plots.append(

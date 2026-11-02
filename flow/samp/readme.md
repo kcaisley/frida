@@ -24,7 +24,7 @@ The sampling switch is the second block on the [pipeline](../../docs/pipeline.md
 ## How to run
 
 ```sh
-uv run python -m flow run samp [--pdk P] [--instance I]          # characterize, into build/sweep/samp/<run>
+uv run python -m flow run samp [--pdk P] [--instance I]          # characterize, into build/samp/<run>
 uv run python -m flow layout samp                                 # lay out the newest run's instances
 uv run python -m flow layout samp --instance frida1 [--auto]      # a named switch by ALIGN
 uv run python -m flow table samp                                  # the viewer's table

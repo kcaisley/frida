@@ -25,7 +25,7 @@ The comparator is the first block on the [pipeline](../../docs/pipeline.md): `pa
 ## How to run
 
 ```sh
-uv run python -m flow run comp [--pdk P] [--instance I]          # characterize, into build/sweep/comp/<run>
+uv run python -m flow run comp [--pdk P] [--instance I]          # characterize, into build/comp/<run>
 uv run python -m flow layout comp                                 # lay out the newest run's instances
 uv run python -m flow layout comp --instance frida1 [--auto]      # a named instance by ALIGN
 uv run python -m flow table comp                                  # the viewer's table

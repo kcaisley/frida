@@ -416,7 +416,7 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
     with (package / "types.py").open("a") as stream:
         stream.write("\n\nclass Extra:\n    pass\n")
     with (package / "sweep.py").open("a") as stream:
-        stream.write('\n\nSIZES = ("x1", "x2")\nARCHIVE = "build/sweep/badblock/20260101_000000"\n')
+        stream.write('\n\nSIZES = ("x1", "x2")\nARCHIVE = "build/badblock/20260101_000000"\n')
     (package / "targets.py").write_text('"""Old targets."""\n')
     import flow
 

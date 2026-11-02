@@ -1,7 +1,7 @@
 """The viewer's server: ``/`` from ``flow/web/static``, ``/data/`` from ``build/web/data``,
 ``/api/wave?path=<measurement>&record=<n>`` with one record of a cached measurement's waveforms
 (read from its HDF5 file, under ``build/``), ``/api/figure?path=<svg>`` with an instance's
-figure (an SVG under ``build/sweep/``, drawn by its analysis plots) and ``/api/gds?path=<gds>``
+figure (an SVG under a block's run, ``build/<block>/``, drawn by its analysis plots) and ``/api/gds?path=<gds>``
 with a layout's GDS (under ``build/``) as a download. The layout compiler (``compile.html``) has
 ``/api/compile/...`` (``flow/web/jobs.py``) and its jobs' files under ``/data/compile/``.
 ``python -m flow web.serve`` serves it; on a remote machine, forward the port
@@ -22,7 +22,6 @@ from flow.web.export import DATA_DIR, read_wave
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 BUILD_DIR = Path(__file__).resolve().parents[2] / "build"
-FIGURES_DIR = BUILD_DIR / "sweep"
 MAX_BODY = 1 << 20  # bytes of a POST body
 
 
@@ -33,9 +32,9 @@ def wave_body(path: str, record: int) -> bytes:
 
 
 def figure_body(path: str) -> bytes:
-    """An instance's SVG figure: only an ``.svg`` under ``build/sweep/``."""
-    figure = (FIGURES_DIR.parent.parent / path).resolve()
-    if figure.suffix != ".svg" or not figure.is_relative_to(FIGURES_DIR.resolve()):
+    """An instance's SVG figure: only an ``.svg`` under ``build/`` (a block's run, ``build/<block>/``)."""
+    figure = (BUILD_DIR.parent / path).resolve()
+    if figure.suffix != ".svg" or not figure.is_relative_to(BUILD_DIR.resolve()):
         raise ValueError(f"not a sweep figure: {path}")
     return figure.read_bytes()
 

@@ -5,7 +5,7 @@
 The record (an ``instance.json``: its metrics and condition sweeps) of the block's instance whose
 parameters equal ``params`` in ``pdk``: an instance is its parameters, so it is found by their
 digest (``flow.sweep.runner.digest``): in the block's newest sweep run in that PDK
-(``build/sweep/<block>/<run>/<pdk>/<digest>/``; a run of some PDKs alone leaves the others' in the
+(``build/<block>/<run>/<pdk>/<digest>/``; a run of some PDKs alone leaves the others' in the
 run before) where it ran there, else in
 ``build/models/<block>/<pdk>/<digest>/``, characterized there once, on demand, by the block's
 ``sweep.characterize`` in a process of its own, as the sweep runs an instance. The same parameters

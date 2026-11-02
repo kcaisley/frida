@@ -4,7 +4,7 @@ each instance characterized at its nominal point and over its conditions, and la
 An instance is its parameters (the block generator's parameter class), nothing else: no name. Its
 id is ``<pdk>__<digest>``, the digest the first 12 hex digits of the SHA-1 of its flat parameters
 (``flat_params`` as canonical JSON: ``flow.sweep.runner.digest``), and it runs in
-``build/sweep/<block>/<run>/<pdk>/<digest>/``; the behavioral models look a characterization up by
+``build/<block>/<run>/<pdk>/<digest>/``; the behavioral models look a characterization up by
 the same digest (``flow.sweep.lookup``), so a model's parameters find the sweep's instance.
 
 A block takes part with a module ``flow/<block>/sweep.py``:

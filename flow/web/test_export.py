@@ -128,7 +128,7 @@ def test_a_pipeline_measurement_is_one_record_on_the_simulators_axis(tmp_path: P
         v={"clk": time_s * 1e10},
         i={"vdd": np.ones(5)},
     )
-    path = write_measurement(tmp_path / "build/sweep/comp/run/tsmc65/abc/small/result.h5", meas)
+    path = write_measurement(tmp_path / "build/comp/run/tsmc65/abc/small/result.h5", meas)
     entry = wave_entry(path, meas, root=tmp_path)
     assert entry is not None and entry["records"] == 1 and entry["samples"] == 4 and entry["v"] == ["clk"]
     wave = read_wave(str(path.relative_to(tmp_path)), root=tmp_path)
