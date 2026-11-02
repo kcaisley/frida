@@ -32,8 +32,7 @@ from align.cell_fabric.grid import CenterLineGrid, SingleGrid, UncoloredCenterLi
 from align.cell_fabric.pdk import Pdk
 from align.primitive.default.canvas import DefaultCanvas
 
-_STEMS = json.loads((Path(__file__).resolve().parent / "stems.json").read_text())  # written by make_pdk.py
-sys.path[:0] = [_STEMS["layout"], _STEMS["stems"]]  # the PDK's tech and paths, then the engine
+from ._pdk import DATA, STEMS as _STEMS  # the PDK's layout directory (its tech, stems.json) and the engine
 import capcell
 
 
@@ -48,7 +47,7 @@ class _Fabric(DefaultCanvas):
     cells' (``mos.py``): no via-induced short check (a unit's metals run both ways), no DRC."""
 
     def __init__(self, pdk=None):
-        super().__init__(pdk or Pdk().load(Path(__file__).resolve().parent / "layers.json"))
+        super().__init__(pdk or Pdk().load(DATA / "layers.json"))
         self.nm = SingleGrid(pitch=1)
         self.layer_stack = []
         self._regions = {}
@@ -378,53 +377,3 @@ class ArrayWiring(DifferenceUnit):
         self.rect("Boundary", None, 0, 0, output_right, g["outer_height"] - ring + g["via_landing"])
         self.computeBbox()
         return self
-
-
-class CdacArray(ArrayWiring):
-    """One side of a CDAC's array as one ALIGN generic primitive: every unit at its place in the
-    row (``capcell.caparray_plan``) and the row's own wiring (``ArrayWiring``), flat. Its netlist
-    names the array (``array=<name>``) whose spec ``cdac_arrays.json`` beside the PDK holds
-    (``flow.cdac.layout`` writes it); its pins are the stages' buses, the top plate and the shield
-    (each unit's plates join a bus through their vias, so they carry no net of their own)."""
-
-    def addGen(self, gen):
-        """A generator a unit before this one registered (the same grids): that one again."""
-        return self.generators.get(gen.nm) or super().addGen(gen)
-
-    def generate(self, ports, netlist_parameters, netlistdir=None):
-        """ALIGN's generic-primitive entry."""
-        self.primitive = True
-        specs = json.loads((Path(__file__).resolve().parent / "cdac_arrays.json").read_text())
-        self.array(specs[str(netlist_parameters["array"]).lower()])
-
-    def array(self, spec):
-        from align.cell_fabric import transformation
-
-        plan = capcell.caparray_plan(spec)
-        g, units = plan["geometry"], {u["name"]: u for u in plan["units"]}
-        self._topplate = spec["topplate"]
-        for name, x in plan["placements"]:
-            u = units[name]
-            self.pushTr(transformation.Transformation(oX=x))
-            self.unit(
-                g,
-                spec["route"],
-                spec["shield"],
-                spec["active"],
-                u["weight"],
-                u["tied"],
-                u["unary_length"],
-                plan["strip"],
-                plan["marks"],
-            )
-            self.popTr()
-        return self.wiring(g, spec)
-
-    def gen_data(self, **kwargs):
-        data = super().gen_data(**kwargs)
-        rename = {"TOP": self._topplate, "MAIN": None, "DIFF": None}
-        for term in data["terminals"]:
-            if term.get("netName") in rename:
-                term["netName"] = rename[term["netName"]]
-        data["terminals"] = [t for t in data["terminals"] if t.get("netName") or t.get("netType") != "pin"]
-        return data

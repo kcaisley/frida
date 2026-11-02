@@ -45,6 +45,7 @@ from flow.cdac.caparray.model import EXTRACTIONS
 from flow.cdac.caparray.subckt import CapArrayParams
 from flow.circuit.devices import instance_lines
 from flow.layout.align.build import build
+from flow.layout.align.package import pdk_dir as align_pdk_dir
 from flow.layout.align.run import Drawing, draw, drawn_only
 from flow.layout.pdkproc import access_points, in_pdk, pdk_value
 
@@ -608,7 +609,7 @@ def layout_side(out_dir: Path, pdk: str, array: str, params: Params, side: str) 
     route_layer = layers[f"M{route}"]
     box = top.bbox()
     array_box = db.Box(nm(box.left), nm(box.bottom), nm(box.right), nm(box.top))
-    pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, out_dir / "pdk")
+    pdk_dir = align_pdk_dir(pdk)
     rule = _rules(pdk, pdk_dir)
     g = _geometry(rule)
     wires = _Wires(rule, g)
@@ -836,7 +837,7 @@ def layout_cdac(out_dir: Path, pdk: str, array: str, params: Params) -> db.Layou
             round(b.bottom * layout.dbu * 1000),
             round(b.right * layout.dbu * 1000),
         )
-    pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, out_dir / "pdk")
+    pdk_dir = align_pdk_dir(pdk)
     rule = _rules(pdk, pdk_dir)
     g = _geometry(rule)
     # the N side mirrored about x = 0, its left edge a clearance past the P side's right
@@ -963,7 +964,7 @@ def _unit_grid(out_dir: Path, pdk: str, array: str, params: Params, side: str) -
     rows, columns = _rows(weights, per_row)
     dummies = unit.family.edge_dummy_units
     layers = pdk_value(pdk, "tech", "LAYERS")
-    pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, out_dir / "pdk")
+    pdk_dir = align_pdk_dir(pdk)
     rule = _rules(pdk, pdk_dir)
     geo = _geometry(rule)
     # each row as an array of its own (``ArrayWiring`` over its units), its buses a segment a stage
@@ -1366,7 +1367,7 @@ def layout_stacked(out_dir: Path, pdk: str, array: str, params: Params, side: st
     layers = pdk_value(pdk, "tech", "LAYERS")
     box = top.bbox()
     array_box = db.Box(nm(box.left), nm(box.bottom), nm(box.right), nm(box.top))
-    pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, out_dir / "pdk")
+    pdk_dir = align_pdk_dir(pdk)
     rule = _rules(pdk, pdk_dir)
     g = _geometry(rule)
     wires = _Wires(rule, g)

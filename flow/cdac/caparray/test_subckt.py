@@ -1,6 +1,7 @@
 """Software-only tests for the CDAC electrical and physical generators."""
 
 import json
+import shutil
 from dataclasses import asdict, replace
 from itertools import pairwise
 from pathlib import Path
@@ -12,6 +13,7 @@ from hdl21.prefix import f
 from klayout import db
 from pydantic import ValidationError
 
+from flow.layout.align.package import pdk_dir as align_pdk_dir
 from flow.layout.align.run import drawn_only
 from flow.layout.pdkproc import in_pdk
 
@@ -137,7 +139,19 @@ def _generate(tmp_path: Path, params: CapArrayLayoutParams) -> db.Layout:
     its layers the synthetic ones), as ``CapArrayLayout`` draws a PDK's."""
     spec = caparray_spec(params)
     plan = in_pdk("tsmc65", __name__, "synthetic", "caparray_plan", spec)
-    pdk_dir = in_pdk("tsmc65", "flow.layout.align.make_pdk", "build", "tsmc65", tmp_path / "pdk")
+    # TSMC65's ALIGN files copied (its tech where it is), the package hook pointed back at frida's
+    source = align_pdk_dir("tsmc65")
+    pdk_dir = tmp_path / "layout"
+    pdk_dir.mkdir(exist_ok=True)
+    for name in ("layers.json", "models.sp", "stems.json", "gen_param.py"):
+        shutil.copy(source / name, pdk_dir / name)
+    hook = Path(__file__).resolve().parents[3] / "flow/layout/align/package.py"
+    (pdk_dir / "__init__.py").write_text(
+        "import importlib.util as u\n"
+        f"s = u.spec_from_file_location('frida_align_package', {str(hook)!r})\n"
+        "m = u.module_from_spec(s)\ns.loader.exec_module(m)\n"
+        f"__getattr__ = m.exports(__import__('pathlib').Path(__file__).resolve().parent, {str(source)!r})\n"
+    )
     _synthetic_align(pdk_dir)
     layout = draw_caparray(pdk_dir, spec, plan, tmp_path)
     drawn_only(layout, set(_rules().LAYERS.values()))

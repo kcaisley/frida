@@ -1,4 +1,4 @@
-"""Draw generators of a generated ALIGN PDK to GDS, in ALIGN's own Python (``run.draw`` starts
+"""Draw generators of an ALIGN PDK (a PDK's layout directory) to GDS, in ALIGN's own Python (``run.draw`` starts
 it): for each cell, ``<generator>().<method>(**arguments)`` of the PDK package, written as the top
 cell ``top`` by ALIGN's writer (cell_fabric's ``writeGDS``).
 

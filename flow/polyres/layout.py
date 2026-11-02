@@ -18,6 +18,7 @@ from pathlib import Path
 
 from klayout import db
 
+from flow.layout.align.package import pdk_dir as align_pdk_dir
 from flow.layout.align.run import Drawing, draw, drawn_only
 from flow.layout.pdkproc import access_points, in_pdk, pdk_value
 
@@ -42,7 +43,7 @@ def polyres_layout(unit: PolyResUnit) -> tuple[db.Layout, dict]:
     info = in_pdk(pdk, "rescell", "res_info", unit.w_nm, unit.l_nm)
     access_points(pdk)  # the ALIGN PDK's standard cells read them at import
     with tempfile.TemporaryDirectory() as scratch:
-        pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, Path(scratch) / "pdk")
+        pdk_dir = align_pdk_dir(pdk)
         arguments = {"w": unit.w_nm, "l": unit.l_nm}
         (gds,) = draw(pdk_dir, [Drawing("ResUnit", "unit", arguments, Path(scratch) / "res.gds", info["top"])])
         layout = db.Layout()

@@ -33,8 +33,7 @@ from align.cell_fabric.grid import CenterLineGrid, SingleGrid
 from align.primitive.default.canvas import DefaultCanvas
 from align.schema.constraint import OffsetsScalings, PlaceOnGrid
 
-_STEMS = json.loads((Path(__file__).resolve().parent / "stems.json").read_text())  # written by make_pdk.py
-sys.path[:0] = [_STEMS["layout"], _STEMS["stems"]]  # the PDK's tech and paths, then the engine
+from ._pdk import DATA, STEMS as _STEMS  # the PDK's layout directory (its tech, stems.json) and the engine
 import rowcell
 import tech
 from tech import BAR_END, M2_EDGE, M2_SPACE, XPITCH

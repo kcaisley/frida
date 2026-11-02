@@ -25,6 +25,7 @@ from pathlib import Path
 
 from align.cell_fabric import Pdk, transformation
 
+from ._pdk import DATA
 from .mos import X_GRID, RowCanvas, rowcell
 from paths import ACCESS_JSON  # noqa: E402  (on the path through .mos)
 import tech  # noqa: E402
@@ -44,7 +45,7 @@ class StdCellGenerator(RowCanvas):
     cell = None
 
     def __init__(self, *args, **kwargs):
-        super().__init__(Pdk().load(Path(__file__).resolve().parent / "layers.json"))
+        super().__init__(Pdk().load(DATA / "layers.json"))
 
     def generate(self, ports, netlist_parameters=None, netlistdir=None, **kwargs):
         data = ACCESS[self.cell]

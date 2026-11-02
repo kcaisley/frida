@@ -43,6 +43,7 @@ import numpy as np
 from hdl21.prefix import f
 from klayout import db
 
+from flow.layout.align.package import pdk_dir as align_pdk_dir
 from flow.layout.align.run import Drawing, draw, drawn_only
 from flow.layout.pdkproc import access_points, in_pdk, pdk_value
 from flow.layout.signoff import SignoffParams, run_signoff
@@ -292,9 +293,7 @@ def CapArrayLayout(params: CapArrayLayoutParams) -> db.Layout:
     plan = in_pdk(params.technology, "capcell", "caparray_plan", spec)
     access_points(params.technology)  # the ALIGN PDK's standard cells read them at import
     with tempfile.TemporaryDirectory() as scratch:
-        pdk_dir = in_pdk(
-            params.technology, "flow.layout.align.make_pdk", "build", params.technology, Path(scratch) / "pdk"
-        )
+        pdk_dir = align_pdk_dir(params.technology)
         layout = draw_caparray(pdk_dir, spec, plan, Path(scratch))
     drawn_only(layout, set(pdk_value(params.technology, "tech", "LAYERS").values()))
     return layout

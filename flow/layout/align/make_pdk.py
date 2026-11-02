@@ -1,7 +1,6 @@
-"""An ALIGN PDK directory for a PDK's row cells: generic generators plus the PDK's numbers.
-
-Copies flow/layout/align/pdk (the generators: rowcell MOS primitives and standard cells; the
-capacitor and resistor generators ALIGN asks for raise) and writes, from the PDK's ``tech``:
+"""A PDK's layout directory (``pdk/<pdk>/layout``) as ALIGN's PDK: the files ALIGN reads there,
+written from the PDK's ``tech`` and committed with it (its ``__init__.py`` and ``gen_param.py`` hand
+ALIGN frida's generators, ``package.py``; ``test_make_pdk.py`` checks the files are current):
 
 * layers.json: layers_base.json (PDK-neutral placeholders) with the GDS layers, routing pitches
   (M2 tracks PITCH, M1/M3 XPITCH), widths, cuts and spacings replaced, and the metals and cuts
@@ -12,26 +11,25 @@ capacitor and resistor generators ALIGN asks for raise) and writes, from the PDK
   ALIGN's spare layers (Rvt, Hvt, Pb) carry the PDK's own row-cell markers (its PO_MARK,
   GATE_MARK, VT_MARKS, RAIL_MARKS and PO_DUMMY_LAYER).
 
-Run bound to a PDK (flow/layout/pdkproc.py); flow/layout/align/build.py and
-flow/layout/floorplan.py call ``build``.
+Run bound to a PDK (flow/layout/pdkproc.py), once a PDK and whenever its ``tech`` or these templates change:
+``in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk)``; commit the files with the PDK.
 """
 
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 
 
-def build(pdk: str, out: Path) -> Path:
-    layout_dir = ROOT / "pdk" / pdk / "layout"
+def build(pdk: str, out: Path | None = None) -> Path:
+    """Write ``pdk``'s ALIGN files into ``out`` (default: its layout directory); returns ``out``."""
+    out = Path(out) if out else ROOT / "pdk" / pdk / "layout"
+    out.mkdir(parents=True, exist_ok=True)
     import tech as t  # the PDK this process is bound to
 
-    # overwrite in place (parallel builds of one PDK may run this at once)
-    shutil.copytree(HERE / "pdk", out, ignore=shutil.ignore_patterns("__pycache__"), dirs_exist_ok=True)
     base = json.loads((HERE / "layers_base.json").read_text())
     abstract = iter(range(20, 100))
 
@@ -134,8 +132,6 @@ def build(pdk: str, out: Path) -> Path:
     (out / "stems.json").write_text(
         json.dumps(
             {
-                "layout": str(layout_dir),
-                "stems": str(ROOT / "flow/layout/stems"),
                 "extra": extra,
                 "annotations": annotations,
             }

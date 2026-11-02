@@ -112,7 +112,7 @@ class Drawing:
 
 
 def draw(pdk_dir: Path, drawings: list[Drawing]) -> list[Path]:
-    """Draw generators of the generated ALIGN PDK ``pdk_dir`` (``make_pdk.py``), each to its GDS,
+    """Draw generators of the ALIGN PDK ``pdk_dir`` (a PDK's layout directory, ``package.py``), each to its GDS,
     in one run of ALIGN's own Python (``draw.py``). ALIGN's abstract layers and pin purpose stay
     in the files, as ALIGN writes them (``post.py``'s rule, ``abstract``, says which they are)."""
 

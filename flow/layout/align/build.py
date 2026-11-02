@@ -15,6 +15,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from flow.layout.align.package import pdk_dir as align_pdk_dir
 from flow.layout.align.run import run_align
 from flow.layout.pdkproc import access_points, in_pdk, pdk_value
 
@@ -88,7 +89,7 @@ def build(
     access_points(pdk, sorted({line.split()[-1] for line in netlist.read_text().splitlines() if line[:1] in "Xx"}))
     name = name or (floorplan.stem if floorplan else netlist.stem)
     # ALIGN imports the PDK directory as a package named after it: the generated one is called pdk
-    pdk_dir = in_pdk(pdk, "flow.layout.align.make_pdk", "build", pdk, out_dir / "pdk")
+    pdk_dir = align_pdk_dir(pdk)
     design = in_pdk(
         pdk,
         "flow.layout.align.make_design",

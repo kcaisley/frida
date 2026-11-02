@@ -15,6 +15,7 @@ from pathlib import Path
 from align.cell_fabric import transformation
 from align.cell_fabric.pdk import Pdk
 
+from ._pdk import DATA
 from .mos import RowCanvas, rowcell
 import rescell
 
@@ -23,7 +24,7 @@ class ResUnit(RowCanvas):
     """One resistor row cell (``rescell.res``) on the row-cell canvas."""
 
     def __init__(self, pdk=None):
-        super().__init__(pdk or Pdk().load(Path(__file__).resolve().parent / "layers.json"))
+        super().__init__(pdk or Pdk().load(DATA / "layers.json"))
 
     def unit(self, w, l):
         """A body ``w`` wide and ``l`` long (nm, lengthened to its markers' area)."""
