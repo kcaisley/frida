@@ -1,7 +1,9 @@
 """The pipeline contract (docs/pipeline.md), checked on every block that follows it (``MIGRATED``:
 every block with a sweep, a new one too, unless ``NOT_MIGRATED`` names it): its stage files, the
-names each may define, their signatures, and that its pure stages hold no helpers and do no file
-I/O. Reads no data and runs no simulator: a pre-commit hook and CI run it.
+names each may define, their signatures (an analysis's prior optional as ``X | None = None``), that
+its pure stages do no file I/O (their private helpers pure functions too), and that it states its
+layout one way at most: its ALIGN placement in subckt.py or its own layout.py, not both. Reads no
+data and runs no simulator: a pre-commit hook and CI run it.
 
 The import order of the stages is checked by import-linter (``[tool.importlinter]`` in
 pyproject.toml: one contract over every migrated block, held to them here), ``from flow.<block>
@@ -40,16 +42,18 @@ NOT_MIGRATED = (
 )
 MIGRATED = tuple(block for block in sweep_blocks() if block not in NOT_MIGRATED)
 STAGES = ("params", "subckt", "sim", "types", "analysis", "plots", "sweep")
-PURE = ("types", "analysis", "plots")  # no helpers, no file I/O
+PURE = ("types", "analysis", "plots")  # no file I/O; a private helper there is a pure function too
 # Known violations, as "<block>.<stage>: <problem>"; entries may be removed, never added.
 KNOWN_VIOLATIONS: set[str] = set()
-# beside the stages: model.py (Model); no layout.py (a block's generator states its layout:
-# flow.layout.step lays it out)
-SIDE = {"model": r"Model"}
+# beside the stages: model.py (Model), and layout.py (lay_out) in a block assembled by its own
+# OpenROAD flow (the ADC; later the SAR logic) instead of the shared step (flow.layout.step: its
+# generator's ALIGN placement, flow.layout.hdl21align.place); never both
+SIDE = {"model": r"Model", "layout": r"lay_out"}
 # a block's folder: the stages and its model (the eight a designer writes), opt.py where it is
-# optimized, and nothing else but its package's __init__.py, its readme.md and a test_<file>.py a file
+# optimized, layout.py where it lays itself out, and nothing else but its package's __init__.py,
+# its readme.md and a test_<file>.py a file
 FILES = (*STAGES, "model")
-OPTIONAL = ("opt",)
+OPTIONAL = ("opt", "layout")
 
 UPPER = re.compile(r"[A-Z][A-Z0-9_]*")
 RUN_ID = re.compile(r"\d{8}_\d{6}")
@@ -88,27 +92,51 @@ def _members(annotation) -> tuple[object, ...]:
 
 
 def _is(annotation, base: type, *, optional: bool = False) -> bool:
-    """``annotation`` is a ``base`` (a subclass), or a sequence of them; ``optional``, or None."""
-    if typing.get_origin(annotation) in (Sequence, list, tuple):
+    """``annotation`` is a ``base`` (a subclass, a union of them), or a sequence of them;
+    ``optional``, or None as well (beside at least one of them)."""
+    sequences = (Sequence, list, tuple)
+    if typing.get_origin(annotation) in sequences:
         return all(_is(arg, base) for arg in typing.get_args(annotation) if arg is not Ellipsis)
     members = [member for member in _members(annotation) if not (optional and member is type(None))]
-    return all(isinstance(member, type) and issubclass(member, base) for member in members)
+    return bool(members) and all(
+        _is(member, base)
+        if typing.get_origin(member) in sequences
+        else isinstance(member, type) and issubclass(member, base)
+        for member in members
+    )
 
 
 def _camel(name: str) -> str:
     return "".join(part.capitalize() for part in name.split("_"))
 
 
+def _places(module) -> bool:
+    """Whether a block's subckt.py states its layout for ALIGN: it calls ``place`` of
+    ``flow.layout.hdl21align`` (imported from it, or through the module), in ``netlist`` or a
+    helper of it. Read from its source: no PDK, no build of the circuit."""
+    tree = _tree(module)
+    called = {"flow.layout.hdl21align.place"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "flow.layout.hdl21align":
+            called |= {alias.asname or alias.name for alias in node.names if alias.name == "place"}
+        elif isinstance(node, ast.ImportFrom) and node.module == "flow.layout":
+            called |= {f"{alias.asname or alias.name}.place" for alias in node.names if alias.name == "hdl21align"}
+        elif isinstance(node, ast.Import):
+            called |= {
+                f"{alias.asname}.place"
+                for alias in node.names
+                if alias.name == "flow.layout.hdl21align" and alias.asname
+            }
+    return any(isinstance(node, ast.Call) and ast.unparse(node.func) in called for node in ast.walk(tree))
+
+
 def _problems(block: str) -> set[str]:
     problems: set[str] = set()
     folder = Path(importlib.import_module(f"flow.{block}").__file__).parent
-    # its files: FILES, OPTIONAL, __init__.py, readme.md, test_<file>.py; a layout.py or targets.py
-    # named for what replaced it
+    # its files: FILES, OPTIONAL, __init__.py, readme.md, test_<file>.py; a targets.py named for
+    # what replaced it
     known = {*FILES, *OPTIONAL}
-    replaced = {
-        "layout": "a layout.py; its generator states its layout (flow.layout.step)",
-        "targets": "a block on the pipeline has no targets.py: the CLI's verbs run it",
-    }
+    replaced = {"targets": "a block on the pipeline has no targets.py: the CLI's verbs run it"}
     for path in sorted(p for p in folder.iterdir() if p.is_file()):
         stem = path.stem
         if path.name in ("__init__.py", "readme.md") or path.suffix == ".py" and stem in known:
@@ -218,9 +246,19 @@ def _problems(block: str) -> set[str]:
             _is(hints[positional[0].name], pipeline.Meas) or _is(hints[positional[0].name], pipeline.Analysis)
         ):
             problem("analysis", f"{name} does not take one measurement (Meas, or the trials as an Analysis)")
+        # each prior by keyword, a result, or an optional one (a result or None, None unless given)
         for parameter in parameters[len(positional) :]:
-            if parameter.kind is not parameter.KEYWORD_ONLY or not _is(hints[parameter.name], pipeline.Analysis):
-                problem("analysis", f"{name}: {parameter.name} is not a keyword-only prior Analysis result")
+            hint = hints[parameter.name]
+            optional = parameter.default is None
+            if (
+                parameter.kind is not parameter.KEYWORD_ONLY
+                or optional != (type(None) in _members(hint))
+                or not _is(hint, pipeline.Analysis, optional=optional)
+            ):
+                problem(
+                    "analysis",
+                    f"{name}: {parameter.name} is not a keyword-only prior Analysis result (optional: X | None = None)",
+                )
         if not (isinstance(result, type) and issubclass(result, pipeline.Analysis)) or result.__name__ != (
             "Analysis" + _camel(name.removeprefix("analyze_"))
         ):
@@ -273,6 +311,16 @@ def _problems(block: str) -> set[str]:
             elif not re.fullmatch(allowed, defined_name):
                 problem(name, f"{defined_name} is not one of {name}.py's names ({allowed})")
 
+    # its layout, stated one way: its generator's ALIGN placement (subckt.py calls place: the shared
+    # step lays it out) or its own flow (layout.py: lay_out(params, pdk, run_dir) -> the GDS's Path,
+    # which the shared signoff checks and extracts), not both; neither: ALIGN places it alone
+    if (folder / "layout.py").is_file():
+        if _places(stage["subckt"]):
+            problem("layout", "a layout.py beside a subckt.py that places its instances for ALIGN: one or the other")
+        entry = getattr(_module(block, "layout"), "lay_out", None)
+        if not callable(entry) or list(_hints(entry).values()) != [Params, str, Path, Path]:
+            problem("layout", "lay_out does not take the block's Params, a PDK and a run directory and return a Path")
+
     # the block runs from the one entry point (``python -m flow <verb> <block>``): no targets of its
     # own (above); and its code names no run and no input under build/ (a run is a verb's argument)
     for path in sorted(folder.glob("*.py")):
@@ -285,7 +333,8 @@ def _problems(block: str) -> set[str]:
         ):
             problem(path.stem, "names a path under build/")
 
-    # no nested functions anywhere; in the pure stages no private helpers and no file I/O
+    # no nested functions anywhere; in the pure stages no file I/O, in their private helpers (``_``)
+    # either: a pure stage's helper is a pure function
     io_calls = {"open", "write_text", "write_bytes", "read_text", "read_bytes", "savetxt", "save", "savez", "to_csv"}
     io_modules = {"csv", "json", "yaml", "pickle", "h5py", "subprocess", "shutil", "flow.analysis.io"}
     for name in STAGES:
@@ -293,8 +342,6 @@ def _problems(block: str) -> set[str]:
         for function in (node for node in tree.body if isinstance(node, ast.FunctionDef)):
             if any(isinstance(node, ast.FunctionDef) and node is not function for node in ast.walk(function)):
                 problem(name, f"{function.name} defines a function inside it")
-            if name in PURE and function.name.startswith("_"):
-                problem(name, f"private helper {function.name}")
         if name not in PURE:
             continue
         for node in ast.walk(tree):
@@ -376,11 +423,12 @@ def _optimizable(block: str, Params, stage: dict) -> set[str]:
 
 
 def typed() -> list[str]:
-    """The files ty checks for the pipeline (CI): every migrated block's stages and its opt.py."""
+    """The files ty checks for the pipeline (CI): every migrated block's stages, its opt.py and its
+    layout.py."""
     return [
         f"flow/{block}/{stage}.py"
         for block in MIGRATED
-        for stage in (*STAGES, "opt")
+        for stage in (*STAGES, *OPTIONAL)
         if (ROOT / "flow" / block / f"{stage}.py").is_file()
     ]
 
@@ -391,8 +439,8 @@ def test_the_blocks_not_migrated_are_blocks() -> None:
 
 
 def test_one_import_contract_orders_every_migrated_block() -> None:
-    """import-linter's layers contract covers exactly the migrated blocks, a block's opt.py optional
-    in it."""
+    """import-linter's layers contract covers exactly the migrated blocks, a block's opt.py and
+    layout.py optional in it."""
     contracts = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["importlinter"]["contracts"]
     layers = [contract for contract in contracts if contract["type"] == "layers"]
     assert len(layers) == 1
@@ -423,8 +471,16 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
         stream.write("\n\ndef summarize(meas: Meas) -> AnalysisTiming:\n    return meas\n")
     with (package / "analysis.py").open("a") as stream:
         stream.write("\n\ndef analyze_extra(meas: Meas) -> AnalysisTiming:\n    return meas\n")
+        # a prior that may be None without defaulting to it, and one that defaults to None as a result
+        # alone (@analysis refuses both, so these are left undeclared to import)
+        for name, prior in (("unset", "AnalysisTiming | None"), ("plain", "AnalysisTiming = None")):
+            stream.write(
+                f"\n\ndef analyze_{name}(meas: Meas, *, timing: {prior}) -> AnalysisTiming:\n    return meas\n"
+            )
+        stream.write("\n\ndef _outer() -> None:\n    def inner() -> None:\n        pass\n")
     (package / "model.py").write_text('"""A model."""\n\nLIMIT = 3\n\n\nclass Model:\n    pass\n')
     with (package / "plots.py").open("a") as stream:
+        # a private helper, which reads a file: a pure stage's helper is a pure function
         stream.write("\n\ndef _helper() -> None:\n    open('x')\n")
     with (package / "types.py").open("a") as stream:
         stream.write("\n\nclass Extra:\n    pass\n")
@@ -432,23 +488,67 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
         stream.write('\n\nSIZES = ("x1", "x2")\nARCHIVE = "build/badblock/20260101_000000"\n')
     (package / "targets.py").write_text('"""Old targets."""\n')
     (package / "helpers.py").write_text('"""Helpers."""\n')
-    (package / "test_layout.py").write_text('"""Layout tests."""\n')
+    (package / "test_helpers.py").write_text('"""Helper tests."""\n')
+    # a layout.py beside the comparator's subckt.py, which places its instances for ALIGN
+    (package / "layout.py").write_text('"""Its own layout."""\n\nGAP_UM = 2.0\n\n\ndef assemble() -> None:\n    pass\n')
     import flow
 
     monkeypatch.setattr(flow, "__path__", [*flow.__path__, str(tmp_path / "flow")])
     problems = _problems("badblock")
     assert "badblock.analysis: summarize is not an analyze_<thing> function or metrics" in problems
     assert "badblock.analysis: analyze_extra is not declared with @analysis" in problems
+    for name in ("unset", "plain"):
+        assert (
+            f"badblock.analysis: analyze_{name}: timing is not a keyword-only prior Analysis result "
+            "(optional: X | None = None)"
+        ) in problems
+    assert "badblock.analysis: _outer defines a function inside it" in problems
     assert "badblock.model: module constant LIMIT outside params.py and sim.py" in problems
-    assert "badblock.plots: private helper _helper" in problems
-    assert "badblock.plots: calls open: file I/O" in problems
+    # the helper's file I/O alone, not the helper
+    assert {problem for problem in problems if problem.startswith("badblock.plots:")} == {
+        "badblock.plots: calls open: file I/O"
+    }
     assert "badblock.types: Extra is not an Analysis<Thing> deriving pipeline.Analysis" in problems
     assert "badblock.sweep: module constant SIZES: a parameter's values belong to its grid" in problems
     assert {"badblock.targets: a block on the pipeline has no targets.py: the CLI's verbs run it"} <= problems
     files = sorted({*FILES, *OPTIONAL})
     assert f"badblock.helpers: helpers.py is none of the block files {files}" in problems
-    assert f"badblock.test_layout: test_layout.py is none of the block files {files}" in problems
+    assert f"badblock.test_helpers: test_helpers.py is none of the block files {files}" in problems
     assert {"badblock.sweep: names a run (20260101_000000)", "badblock.sweep: names a path under build/"} <= problems
+    assert {
+        "badblock.layout: a layout.py beside a subckt.py that places its instances for ALIGN: one or the other",
+        "badblock.layout: lay_out does not take the block's Params, a PDK and a run directory and return a Path",
+        "badblock.layout: module constant GAP_UM outside params.py and sim.py",
+        "badblock.layout: assemble is not one of layout.py's names (lay_out)",
+    } <= problems
+
+
+def test_the_contract_admits_what_it_allows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The CDAC's files (its generator places nothing for ALIGN) with what the contract admits beside
+    them: a layout.py of its own (``lay_out``), a private pure helper in each pure stage, and an
+    analysis with an optional prior (``X | None = None``)."""
+    package = tmp_path / "flow" / "goodblock"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    source = Path(importlib.import_module("flow.cdac").__file__).parent
+    for name in FILES:
+        (package / f"{name}.py").write_text((source / f"{name}.py").read_text())
+    for name in PURE:
+        with (package / f"{name}.py").open("a") as stream:
+            stream.write("\n\ndef _twice(value: float) -> float:\n    return 2 * value\n")
+    analysis = (package / "analysis.py").read_text()
+    plain = "def analyze_mismatch(meas: Meas) -> AnalysisMismatch:"
+    optional = "def analyze_mismatch(meas: Meas, *, settling: AnalysisSettling | None = None) -> AnalysisMismatch:"
+    assert plain in analysis
+    (package / "analysis.py").write_text(analysis.replace(plain, optional))
+    (package / "layout.py").write_text(
+        '"""Its own layout."""\n\nfrom pathlib import Path\n\nfrom .params import Params\n\n\n'
+        'def lay_out(params: Params, pdk: str, run_dir: Path) -> Path:\n    return run_dir / "block.gds"\n'
+    )
+    import flow
+
+    monkeypatch.setattr(flow, "__path__", [*flow.__path__, str(tmp_path / "flow")])
+    assert _problems("goodblock") == set()
 
 
 def test_a_stage_with_the_wrong_signature_does_not_import() -> None:
@@ -469,6 +569,42 @@ def test_a_stage_with_the_wrong_signature_does_not_import() -> None:
         pipeline.plot(figure)
     with pytest.raises(TypeError, match="positionally"):
         pipeline.analysis(positional_prior)
+
+
+def test_an_analysis_may_take_an_optional_prior(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A prior an analysis does without where it was not measured is ``X | None = None`` (a result,
+    a sequence of them, or None); a prior that may be None without defaulting to it, a None default
+    on a result alone, a None alone and a figure's optional input are refused."""
+    monkeypatch.setattr(pipeline, "STAGE_FUNCTIONS", {})  # this test's functions declared here alone
+
+    def optional(meas: pipeline.Meas, *, prior: pipeline.Analysis | None = None) -> pipeline.Analysis:
+        raise NotImplementedError
+
+    def optional_trials(meas: pipeline.Meas, *, trials: Sequence[pipeline.Analysis] | None = None) -> pipeline.Analysis:
+        raise NotImplementedError
+
+    def unset(meas: pipeline.Meas, *, prior: pipeline.Analysis | None) -> pipeline.Analysis:
+        raise NotImplementedError
+
+    def plain(meas: pipeline.Meas, *, prior: pipeline.Analysis = None) -> pipeline.Analysis:  # ty: ignore[invalid-parameter-default]
+        raise NotImplementedError
+
+    def nothing(meas: pipeline.Meas, *, prior: None = None) -> pipeline.Analysis:
+        raise NotImplementedError
+
+    def figure(result: pipeline.Analysis | None = None) -> pipeline.Plot:
+        raise NotImplementedError
+
+    for function in (optional, optional_trials):
+        assert pipeline.analysis(function) is function
+        assert pipeline.STAGE_FUNCTIONS[function] == "analysis"
+    for function in (unset, plain):
+        with pytest.raises(TypeError, match=r"optional prior only as X \| None = None"):
+            pipeline.analysis(function)
+    with pytest.raises(TypeError, match="not an Analysis result by keyword"):
+        pipeline.analysis(nothing)
+    with pytest.raises(TypeError, match="not an Analysis result"):
+        pipeline.plot(figure)
 
 
 @h.paramclass

@@ -713,19 +713,28 @@ class Record:
 STAGE_FUNCTIONS: dict[Callable[..., Any], str] = {}
 
 
-def annotation_is(annotation: Any, base: type) -> bool:
-    """``annotation`` names ``base`` (a subclass, a union of them) or a sequence of them."""
+def annotation_is(annotation: Any, base: type, *, optional: bool = False) -> bool:
+    """``annotation`` names ``base`` (a subclass, a union of them) or a sequence of them; with
+    ``optional``, or None as well (``X | None``: None beside at least one of them)."""
     if get_origin(annotation) in (Sequence, list, tuple):
         return all(annotation_is(arg, base) for arg in get_args(annotation) if arg is not Ellipsis)
     if isinstance(annotation, UnionType) or get_origin(annotation) is Union:
-        return all(annotation_is(arg, base) for arg in get_args(annotation))
+        members = [arg for arg in get_args(annotation) if not (optional and arg is type(None))]
+        return bool(members) and all(annotation_is(arg, base) for arg in members)
     return isinstance(annotation, type) and issubclass(annotation, base)
+
+
+def _admits_none(annotation: Any) -> bool:
+    """``annotation`` is None, or a union with None among its members (``X | None``)."""
+    union = isinstance(annotation, UnionType) or get_origin(annotation) is Union
+    return annotation is type(None) or union and type(None) in get_args(annotation)
 
 
 def _stage(function: Callable[..., Any], kind: Literal["analysis", "plot"]) -> None:
     """Check ``function`` as a stage of ``kind``, or raise TypeError: an analysis takes one
-    measurement or result (or a sequence) and earlier results by keyword and returns an
-    ``Analysis``; a plot takes results and returns a ``Plot``."""
+    measurement or result (or a sequence) and earlier results by keyword (one it does without where
+    that was not measured optional, ``X | None = None``) and returns an ``Analysis``; a plot takes
+    results and returns a ``Plot``."""
     hints = get_type_hints(function)
     result = hints.pop("return", None)
     parameters = list(signature(function).parameters.values())
@@ -745,7 +754,12 @@ def _stage(function: Callable[..., Any], kind: Literal["analysis", "plot"]) -> N
         priors = parameters
     for parameter in priors:
         keyword = parameter.kind is parameter.KEYWORD_ONLY or kind == "plot"
-        if not keyword or not annotation_is(hints.get(parameter.name), Analysis):
+        hint = hints.get(parameter.name)
+        # an analysis's optional prior: a result or None, None unless given (X | None = None)
+        optional = kind == "analysis" and parameter.default is None
+        if kind == "analysis" and optional != _admits_none(hint):
+            raise TypeError(f"{where}: {parameter.name} is an optional prior only as X | None = None")
+        if not keyword or not annotation_is(hint, Analysis, optional=optional):
             raise TypeError(
                 f"{where}: {parameter.name} is not an Analysis result{' by keyword' * (kind == 'analysis')}"
             )
@@ -753,7 +767,8 @@ def _stage(function: Callable[..., Any], kind: Literal["analysis", "plot"]) -> N
 
 
 def analysis[F: Callable[..., Analysis]](function: F) -> F:
-    """An analysis of a block's ``analysis.py``: measurement (or results) in, one ``Analysis`` out."""
+    """An analysis of a block's ``analysis.py``: measurement (or results) in, one ``Analysis`` out;
+    a prior result it does without where that was not measured is optional, ``X | None = None``."""
     _stage(function, "analysis")
     return function
 

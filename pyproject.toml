@@ -175,11 +175,12 @@ root_packages = ["flow"]
 
 [[tool.importlinter.contracts]]
 # every migrated block (flow/test_pipeline.py holds the containers to them); a layer in parentheses
-# is a file a block may not have
+# is a file a block may not have; model, opt and layout side by side at the top, none importing
+# another, and none imported by a stage
 name = "each block's stages import only the stages below them"
 type = "layers"
 containers = ["flow.capdac", "flow.cdac", "flow.comp", "flow.samp"]
-layers = ["model | (opt)", "sweep", "plots", "analysis", "types", "sim", "subckt", "params"]
+layers = ["model | (opt) | (layout)", "sweep", "plots", "analysis", "types", "sim", "subckt", "params"]
 
 [[tool.importlinter.contracts]]
 name = "the pipeline's base knows no block"
