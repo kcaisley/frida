@@ -144,6 +144,13 @@ jobs:
           flow/layout/test_stdcells.py
           test/test_pdk_agnostic.py
           flow/samp/test_subckt.py
+          flow/capdac/test_analysis.py
+          flow/layout/test_step.py
+          flow/layout/test_hdl21align.py
+          flow/layout/devices/test_devices.py
+          flow/layout/devices/momcap/test_netlist.py
+          flow/util/test_netlist2image.py
+          flow/web/test_page.py
           flow/comp/test_sim.py
           flow/comp/test_analysis.py
           flow/comp/test_plots.py
