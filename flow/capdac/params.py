@@ -65,6 +65,11 @@ class Params:
         dtype=Redundancy, desc="The scheme that spends the extra cycles", default=Redundancy.MSB_REDIST
     )
     extra = h.Param(dtype=NonNegativeInt, desc="Extra conversion cycles (none for BINARY)", default=5)
+    weights = h.Param(
+        dtype=tuple[PositiveInt, ...] | None,
+        desc="Each stage's weight in units, C0 first, where an array's are its own (a fabricated one's); None: its redundancy's",
+        default=None,
+    )
     scale = h.Param(dtype=PositiveInt, desc="Each side's capacitance in kT/C minimums", default=2)
     weight_impl = h.Param(dtype=WeightImpl, desc="How each stage's weight is built", default=WeightImpl.DIFFERENCE_CAPS)
     coarse_weight = h.Param(dtype=PositiveInt, desc="The weight of a coarse increment, in units", default=64)
@@ -95,6 +100,8 @@ class Params:
             raise ValueError(
                 f"a {self.redundancy.name} array of {self.bits} bits spends {least} to {most} extra cycles"
             )
+        if self.weights is not None:
+            _weights(self)  # an array's own weights checked as it is made
 
 
 pipeline.Params.register(Params)
@@ -132,9 +139,12 @@ def _weights(params: Params) -> tuple[int, ...]:
     """Each stage's weight in units, C0 first: one a binary step and an extra cycle, summing to the
     binary array's 2^(N-1) - 1, never rising, and redundant: no stage outweighs the stages after it
     by more than a unit, so each decision's error is recovered later. ``Params`` admits only the
-    arrays that build so; this checks they do."""
+    arrays that build so; this checks they do. An array's own ``weights`` (a fabricated one's) may
+    spend more than the binary total."""
     steps = params.bits - 1
     match params.redundancy:
+        case _ if params.weights is not None:
+            weights = list(params.weights)
         case Redundancy.BINARY:
             weights = _binary(steps)
         case Redundancy.MSB_SPLIT:
@@ -146,7 +156,7 @@ def _weights(params: Params) -> tuple[int, ...]:
     later = [sum(weights[stage + 1 :]) for stage in range(len(weights))]
     if (
         len(weights) != steps + params.extra
-        or sum(weights) != 2**steps - 1
+        or (params.weights is None and sum(weights) != 2**steps - 1)
         or min(weights) < 1
         or any(a < b for a, b in pairwise(weights))
         or any(weight > rest + 1 for weight, rest in zip(weights, later, strict=True))
