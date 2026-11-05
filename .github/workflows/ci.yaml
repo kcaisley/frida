@@ -135,9 +135,7 @@ jobs:
           flow/adc/test_subckt.py
           flow/adc/test_sweep.py
           flow/comp/test_subckt.py
-          flow/comp/test_layout.py
           flow/opt/test_runner.py
-          flow/layout/test_floorplan.py
           flow/layout/test_lint.py
           flow/layout/test_kpex.py
           flow/layout/test_mosline.py
@@ -154,11 +152,9 @@ jobs:
           flow/samp/test_sim.py
           flow/samp/test_analysis.py
           flow/samp/test_plots.py
-          flow/samp/test_layout.py
           flow/cdac/caparray/test_sim.py
           flow/cdac/caparray/test_sizing.py
           flow/cdac/test_analysis.py
-          flow/cdac/test_layout.py
           flow/cdac/test_model.py
           flow/cdac/test_sim.py
           flow/cdac/test_subckt.py

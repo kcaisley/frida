@@ -33,7 +33,7 @@ def test_ty_checks_the_capacitor_blocks(python_hooks):
 
 
 def test_ty_hdl21_boundary_covers_renamed_blocks():
-    config = tomllib.loads((Path(__file__).resolve().parents[1] / "ty.toml").read_text())
+    config = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["tool"]["ty"]
     includes = {
         pattern
         for override in config["overrides"]

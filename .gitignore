@@ -78,3 +78,5 @@ _autosave-*
 
 # LibreOffice
 .~lock.*
+# ALIGN's log directory, where ALIGN runs from the checkout's root
+/LOG/
