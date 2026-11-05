@@ -20,7 +20,7 @@ The comparator is the first block on the [pipeline](../../docs/pipeline.md): `pa
 | DRC runner | ✓ | [flow/layout/step.py](../layout/step.py) | gdscheck (and the PDK's Calibre where asked) for every layout, by the shared layout step's signoff. |
 | LVS runner | ✓ | [flow/layout/step.py](../layout/step.py) | KLayout's LVS (and the PDK's Calibre where asked) of every layout against the LVS netlist compiled from the module. |
 | PEX runner | ✗ | - | No comparator extraction. |
-| Behavioral model | ✓ | [model.py](model.py) | `comp.model.Model.of(pdk, comp.Params)`: the characterization's noise and offset over the common mode, its delay over the input (0.1-100 mV, extrapolated below by its regeneration time constant) and its energy (`flow.sweep.lookup`); `decide()` for the SAR loop. |
+| Behavioral model | ✓ | [model.py](model.py), [test_model.py](test_model.py) | `comp.model.Model.of(pdk, comp.Params)`: the characterization's noise and offset over the common mode, its delay over the input (0.1-100 mV, extrapolated below by its regeneration time constant) and its energy (`flow.sweep.lookup`); `decide()` for the SAR loop. The behavioral ADC runs the model's physics: `Model.Behavioral` (what `behavioral()` gives at a common mode) and `Model.compare`, the decision with its noise and offset, late where the input is too small to regenerate in time (the SR latch then holds its last decision); where no noise is given, `Model.strongarm_noise` estimates a StrongARM's from its sizing (the rough device constants in `params.py`). |
 
 ## How to run
 

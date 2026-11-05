@@ -8,6 +8,9 @@ the comparator's own), and the stimuli the characterization takes: the delay ove
 (``METASTABILITY_RUN_V``), a transient-noise S-curve (``SCURVE_V``, ``SCURVE_DECISIONS`` a point in
 shuffled passes), kickback onto a DAC-like source (``KICKBACK_SOURCE``), over the common mode
 (``CM_SWEEP``) and the supply (``SUPPLY_SWEEP``).
+
+The behavioral model (``flow.comp.model``) estimates a StrongARM's noise from its sizing with the
+rough device constants here (``W_MIN_UM`` to ``COX_F_PER_UM2``).
 """
 
 import math
@@ -172,6 +175,14 @@ METASTABILITY_RUN_V = tuple(v for value in METASTABILITY_V for v in (-value, val
 SCURVE_UV = (5, 10, 15, 20, 25, 35, 50, 75, 100, 150, 200, 300, 500, 1000, 2000, 3000)
 SCURVE_V = (*(-round(uv * 1e-6, 9) for uv in reversed(SCURVE_UV)), 0.0, *(round(uv * 1e-6, 9) for uv in SCURVE_UV))
 SCURVE_DECISIONS = 80
+
+# Rough 65-nm device constants, for the behavioral model's noise estimate from a StrongARM's sizing
+# (flow.comp.model.Model.strongarm_noise): the width and the length one size unit stands for, the
+# drain junction capacitance per width and the gate capacitance per area
+W_MIN_UM = 0.12
+L_MIN_UM = 0.06
+JUNCTION_F_PER_UM = 0.8e-15
+COX_F_PER_UM2 = 14e-15
 
 # The optimization's problems (flow.comp.opt): a comparator for a converter of each resolution. Its
 # noise at most the converter's quantization noise (LSB / sqrt(12), every noise source about equal

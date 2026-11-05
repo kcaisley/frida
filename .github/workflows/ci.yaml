@@ -154,11 +154,13 @@ jobs:
           flow/comp/test_sim.py
           flow/comp/test_analysis.py
           flow/comp/test_plots.py
+          flow/comp/test_model.py
           flow/test_pipeline.py
           flow/test_plot.py
           flow/samp/test_sim.py
           flow/samp/test_analysis.py
           flow/samp/test_plots.py
+          flow/samp/test_model.py
           flow/cdac/caparray/test_sim.py
           flow/cdac/caparray/test_sizing.py
           flow/cdac/test_analysis.py

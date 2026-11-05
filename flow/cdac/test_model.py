@@ -5,7 +5,9 @@ from typing import Any
 
 import numpy as np
 
-from flow.adc.behavioral import CompBehavioralParams, SampBehavioralParams, calc_ideal_capacitances
+import flow.comp.model as comp_model
+import flow.samp.model as samp_model
+from flow.adc.behavioral import calc_ideal_capacitances
 from flow.adc.sim import AdcTbParams
 
 from . import model as cdac_model
@@ -50,8 +52,8 @@ def test_the_adc_settles_each_stage_by_its_characterization_and_falls_back_to_rc
     blocks: dict[str, Any] = {
         "pdk": "none",
         "params": TB.dut,
-        "comp": SimpleNamespace(behavioral=lambda vin_cm_v: CompBehavioralParams()),
-        "samp": SimpleNamespace(behavioral=lambda load_f: SampBehavioralParams()),
+        "comp": SimpleNamespace(behavioral=lambda vin_cm_v: comp_model.Model.Behavioral()),
+        "samp": SimpleNamespace(behavioral=lambda load_f: samp_model.Model.Behavioral()),
         "cdac": SimpleNamespace(
             draw=lambda unit_mismatch, rng: (main_f, diff_f),
             parasitic_f=0.0,

@@ -6,6 +6,9 @@ CDAC it samples onto) at a ``PERIOD_S`` clock (``TRACK_S`` tracking, ``TRANSITIO
 input stepping a twelfth of the supply once a period, ``PERIODS`` periods, Spectre's output every
 ``STROBE_S``; over the input level (``VIN_SWEEP``, fractions of the supply) and over the supply
 (``SUPPLY_SWEEP``, fractions of its own) at mid-supply input (``NOMINAL_VIN``).
+
+The behavioral model (``flow.samp.model``) derives the switch's triode conductances from its sizing
+with the rough device constants here (``W_MIN_UM`` to ``PMOS_K_A_PER_V2``).
 """
 
 import math
@@ -70,6 +73,13 @@ NOMINAL_VIN = 0.5
 WAVE_VIN = (VIN_SWEEP[0], NOMINAL_VIN, VIN_SWEEP[-1])
 # the supply over 90 to 120 % of its own, at mid-supply input
 SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
+# Rough 65-nm device constants, for the behavioral model's triode conductances from the switch's
+# sizing where none is given (flow.samp.model.Model.conductances): the width and the length one size
+# unit stands for, and each device type's k'
+W_MIN_UM = 0.12
+L_MIN_UM = 0.06
+NMOS_K_A_PER_V2 = 300e-6
+PMOS_K_A_PER_V2 = 100e-6
 
 
 @dataclass(frozen=True, kw_only=True)

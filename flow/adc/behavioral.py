@@ -1,11 +1,11 @@
 """Behavioral FRIDA SAR ADC built from four blocks driven by HDL21 parameters.
 
-``samp``, ``comp``, ``salogic`` and ``cdac`` model the sampler, the
-comparator, the SAR logic, and the capacitor array with its drivers. Each
-takes its own behavioral parameters and can run alone; ``convert_behavioral``
-wires them into the ADC loop of ``AdcTbParams``. Stage and decision counts
-come from the CDAC configuration, and every time from the programmed SEQ rows
-and symbol rate, so resolution and speed are free parameters.
+The sampler and the comparator are their blocks' models (``flow.samp.model.Model.sample`` and
+``flow.comp.model.Model.compare``, each with its physics as ``Model.Behavioral``); ``salogic``
+and ``cdac`` model the SAR logic and the capacitor array with its drivers. Each takes its own
+behavioral parameters and can run alone; ``convert_behavioral`` wires them into the ADC loop of
+``AdcTbParams``. Stage and decision counts come from the CDAC configuration, and every time from
+the programmed SEQ rows and symbol rate, so resolution and speed are free parameters.
 
 The SAR logic is a stage counter and a branch select: INIT loads the A state,
 then each LOGIC edge writes the counted stage, ``1 - B`` on the P side and
@@ -23,74 +23,12 @@ from dataclasses import dataclass
 
 import hdl21 as h
 import numpy as np
-from hdl21.primitives import MosType
 
-from flow import comp as comparator
-from flow import samp as sampler
+import flow.comp.model as comp_model
+import flow.samp.model as samp_model
 from flow.adc.sequences import AdcSequence
 from flow.adc.sim import AdcTbParams
 from flow.cdac.caparray.subckt import CapArrayConfig, CapArrayParams, get_caparray_weights, unit_capacitance_f
-
-# Rough 65-nm LVT device constants for the estimates drawn from HDL21 sizing.
-W_MIN_UM = 0.12
-L_MIN_UM = 0.06
-NMOS_K_A_PER_V2 = 300e-6
-PMOS_K_A_PER_V2 = 100e-6
-JUNCTION_F_PER_UM = 0.8e-15
-COX_F_PER_UM2 = 14e-15
-BOLTZMANN_J_PER_K = 1.380649e-23
-
-
-@h.paramclass
-class SampBehavioralParams:
-    """Top-plate sampler physics beyond its HDL21 ``samp.Params``.
-
-    Its on-resistance follows the triode conductances of the two devices,
-    ``n * (V_gate - v - V_tn) + p * (v - V_tp)``, and peaks near mid-supply.
-    None conductances come from the ``samp.Params`` sizing; zero for both makes
-    the switch ideal.
-    """
-
-    noise_v = h.Param(dtype=float, desc="RMS differential noise of each held sample", default=0.0)
-    n_conductance_s_per_v = h.Param(
-        dtype=float | None, desc="NMOS triode conductance per volt of overdrive; None derives it", default=None
-    )
-    p_conductance_s_per_v = h.Param(
-        dtype=float | None, desc="PMOS triode conductance per volt of overdrive; None derives it", default=None
-    )
-    n_threshold_v = h.Param(dtype=float, desc="NMOS threshold voltage", default=0.35)
-    p_threshold_v = h.Param(dtype=float, desc="PMOS threshold magnitude", default=0.35)
-    jitter_s = h.Param(dtype=float, desc="RMS aperture jitter, common to both sides", default=0.0)
-    ron_table_v = h.Param(
-        dtype=tuple[float, ...] | None,
-        desc="Input levels of a measured on-resistance curve (flow.samp.model); None uses the conductances",
-        default=None,
-    )
-    ron_table_ohm = h.Param(
-        dtype=tuple[float, ...] | None, desc="The on-resistance at each of ron_table_v", default=None
-    )
-
-
-@h.paramclass
-class CompBehavioralParams:
-    """Comparator physics beyond its HDL21 ``comp.Params``; energy is pinned per decision."""
-
-    noise_v = h.Param(
-        dtype=float | None,
-        desc="Input-referred RMS noise per decision; None estimates it from the comp.Params sizing",
-        default=0.0,
-    )
-    offset_v = h.Param(dtype=float, desc="Input-referred offset", default=0.0)
-    decision_energy_j = h.Param(dtype=float, desc="Supply energy per decision", default=0.0)
-    static_power_w = h.Param(dtype=float, desc="Static supply power", default=0.0)
-    delay_table_v = h.Param(
-        dtype=tuple[float, ...] | None,
-        desc="Ascending input magnitudes of a measured clock-to-decision delay (flow.comp.model); None never late",
-        default=None,
-    )
-    delay_table_s = h.Param(
-        dtype=tuple[float, ...] | None, desc="The clock-to-decision delay at each of delay_table_v", default=None
-    )
 
 
 @h.paramclass
@@ -139,8 +77,8 @@ class AdcBehavioralParams:
     """One HDL21 testbench configuration plus the block physics it does not describe."""
 
     tb = h.Param(dtype=AdcTbParams, desc="ADC stimulus and digital configuration", default=AdcTbParams())
-    samp = h.Param(dtype=SampBehavioralParams, desc="Sampler", default=SampBehavioralParams())
-    comp = h.Param(dtype=CompBehavioralParams, desc="Comparator", default=CompBehavioralParams())
+    samp = h.Param(dtype=samp_model.Model.Behavioral, desc="Sampler", default=samp_model.Model.Behavioral())
+    comp = h.Param(dtype=comp_model.Model.Behavioral, desc="Comparator", default=comp_model.Model.Behavioral())
     cdac = h.Param(dtype=CdacBehavioralParams, desc="Capacitor array and drivers", default=CdacBehavioralParams())
     salogic = h.Param(dtype=SalogicBehavioralParams, desc="SAR logic", default=SalogicBehavioralParams())
     seed = h.Param(dtype=int, desc="Noise random seed", default=0)
@@ -241,140 +179,6 @@ def calc_decision_windows(tb: AdcTbParams, decisions: int) -> np.ndarray:
     # symbols from each rise to every end, the next conversion's ends a whole conversion later
     after = (ends[None, :] - rises[:, None] - 1) % len(comp) + 1
     return np.min(after, axis=1) * symbol_s
-
-
-def calc_switch_conductances(hw: sampler.Params, params: SampBehavioralParams) -> tuple[float, float]:
-    """Return the NMOS and PMOS triode conductances per volt of overdrive.
-
-    Unset values are ``k' * W / L`` of the ``samp.Params`` devices; a switch
-    type without a device contributes zero. ``mos_vth`` is not used: the
-    thresholds are behavioral parameters.
-    """
-
-    aspect = hw.mos_w * W_MIN_UM / (hw.mos_l * L_MIN_UM)
-    nmos = (sampler.SwitchType.NMOS, sampler.SwitchType.TGATE, sampler.SwitchType.BOOTSTRAP)
-    n_s = NMOS_K_A_PER_V2 * aspect if hw.switch_type in nmos else 0.0
-    p_s = PMOS_K_A_PER_V2 * aspect if hw.switch_type in (sampler.SwitchType.PMOS, sampler.SwitchType.TGATE) else 0.0
-    return (
-        n_s if params.n_conductance_s_per_v is None else params.n_conductance_s_per_v,
-        p_s if params.p_conductance_s_per_v is None else params.p_conductance_s_per_v,
-    )
-
-
-def calc_switch_resistance(
-    hw: sampler.Params, params: SampBehavioralParams, vin_v: np.ndarray, gate_v: float
-) -> np.ndarray:
-    """Return the sampler on-resistance at each input voltage; zero for an ideal switch. A measured
-    curve (``ron_table_v``, ``ron_table_ohm``) is interpolated, held flat past its ends."""
-
-    if params.ron_table_v is not None:
-        return np.interp(vin_v, np.asarray(params.ron_table_v), np.asarray(params.ron_table_ohm))
-    n_s, p_s = calc_switch_conductances(hw, params)
-    if n_s == 0 and p_s == 0:
-        return np.zeros_like(vin_v)
-    conductance = n_s * np.maximum(gate_v - vin_v - params.n_threshold_v, 0.0)
-    conductance += p_s * np.maximum(vin_v - params.p_threshold_v, 0.0)
-    return 1.0 / np.maximum(conductance, 1e-12)
-
-
-def calc_strongarm_noise(
-    hw: comparator.Params, vin_cm_v: float, *, vth_v: float = 0.3, gamma: float = 1.0, temperature_k: float = 300.0
-) -> float:
-    """Estimate the StrongARM input-referred RMS noise, Razavi (SSC Magazine 2015) eq. (15).
-
-    ``sigma^2 = r * (4 k T gamma / C_PQ + r * k T / (2 C_PQ))`` with
-    ``r = (V_GS - V_TH) / V_TH``. ``C_PQ`` is the diffusion of the input-pair
-    drain, latch-NMOS source, and reset device at each P/Q node plus the
-    latch NMOS gate. Only ``diffpair_w``, ``latch_on_w``, ``latch_on_l`` and
-    ``rst_w`` enter; the other sizes, the tail, the SR latch, and the Vth
-    flavors are not used. Against the SPICE comparator candidate sweep the
-    estimate runs a median 4.4 times high, so it ranks sizings loosely
-    rather than predicting noise.
-    """
-
-    if hw.latch != comparator.Latch.STRONGARM or hw.input_pair != MosType.NMOS:
-        raise ValueError("the StrongARM noise estimate needs a single-stage NMOS-input comparator")
-    diff_w = hw.diffpair_w * W_MIN_UM
-    latch_w, latch_l = hw.latch_on_w * W_MIN_UM, hw.latch_on_l * L_MIN_UM
-    c_pq = JUNCTION_F_PER_UM * (diff_w + latch_w + hw.rst_w * W_MIN_UM) + 2 / 3 * latch_w * latch_l * COX_F_PER_UM2
-    ratio = (vin_cm_v - vth_v) / vth_v
-    kt = BOLTZMANN_J_PER_K * temperature_k
-    return float(np.sqrt(ratio * (4 * kt * gamma / c_pq + ratio * kt / (2 * c_pq))))
-
-
-def samp(
-    hw: sampler.Params,
-    params: SampBehavioralParams,
-    vin: dict[str, np.ndarray],
-    slope: dict[str, np.ndarray],
-    *,
-    load_f: dict[str, float],
-    gate_v: float,
-    rng: np.random.Generator,
-) -> dict[str, np.ndarray]:
-    """Hold each side's input through its input-dependent RC, with half the noise power per side.
-
-    A first-order track lags a moving input by its time constant, so the held
-    value is ``v - R(v) * C * dv/dt``; aperture jitter shifts both sides'
-    sampling instant by one common random time. The hold window is long
-    against the time constant, so the previous sample's residue is not modeled.
-    """
-
-    count = len(vin["p"])
-    jitter_s = rng.normal(0.0, params.jitter_s, count) if params.jitter_s else 0.0
-    held = {}
-    for side in ("p", "n"):
-        tau_s = calc_switch_resistance(hw, params, vin[side], gate_v) * load_f[side]
-        noise = rng.normal(0.0, params.noise_v / np.sqrt(2.0), count) if params.noise_v else 0.0
-        held[side] = vin[side] + (jitter_s - tau_s) * slope[side] + noise
-    return held
-
-
-def comp(
-    hw: comparator.Params,
-    params: CompBehavioralParams,
-    vin_diff_v: np.ndarray,
-    rng: np.random.Generator,
-    *,
-    vin_cm_v: float,
-    window_s: float | None = None,
-    held: np.ndarray | None = None,
-) -> np.ndarray:
-    """Return 1 where the noisy differential input exceeds the offset.
-
-    Unset noise comes from ``calc_strongarm_noise`` of ``hw`` at ``vin_cm_v``;
-    otherwise ``hw`` and ``vin_cm_v`` are not used. With a measured delay curve
-    and a ``window_s`` (the time until the comparator resets or its output is
-    read), a decision whose input is too small to regenerate in time is late:
-    the comparator's SR latch still holds its last decision, ``held``.
-    """
-
-    noise_v = calc_strongarm_noise(hw, vin_cm_v) if params.noise_v is None else params.noise_v
-    noise = rng.normal(0.0, noise_v, len(vin_diff_v)) if noise_v else 0.0
-    overdrive_v = vin_diff_v + noise - params.offset_v
-    decided = (overdrive_v > 0).astype(np.int64)
-    if params.delay_table_v is None or window_s is None or held is None:
-        return decided
-    return np.where(calc_comp_delay(params, overdrive_v) > window_s, held, decided)
-
-
-def calc_comp_delay(params: CompBehavioralParams, overdrive_v: np.ndarray) -> np.ndarray:
-    """Return the clock-to-decision delay at each input, from the measured curve.
-
-    The delay is interpolated over ln|v|; below the smallest measured input it
-    grows by the regeneration time constant of the two smallest points,
-    ``tau * ln(v_min / |v|)``, the latch's exponential growth; above the largest
-    it holds. A zero input never decides.
-    """
-
-    table_v = np.asarray(params.delay_table_v, dtype=np.float64)
-    table_s = np.asarray(params.delay_table_s, dtype=np.float64)
-    tau_s = (table_s[0] - table_s[1]) / np.log(table_v[1] / table_v[0])
-    magnitude = np.abs(overdrive_v)
-    with np.errstate(divide="ignore"):
-        log_v = np.log(magnitude)
-    inside = np.interp(log_v, np.log(table_v), table_s)
-    return np.where(magnitude < table_v[0], table_s[0] + tau_s * (np.log(table_v[0]) - log_v), inside)
 
 
 def salogic(tb: AdcTbParams, state: dict[str, np.ndarray], stage: int, decided: np.ndarray):
@@ -479,7 +283,7 @@ def convert_behavioral(
         for side, (main_f, diff_f) in caps.items()
     }
     vref_v, diffcaps = float(tb.vdd_dac.dc), int(tb.dac_diffcaps)
-    top = samp(
+    top = samp_model.Model.sample(
         tb.dut.samp,
         params.samp,
         {"p": vin_cm_v + vin_diff_v / 2, "n": vin_cm_v - vin_diff_v / 2},
@@ -535,7 +339,7 @@ def convert_behavioral(
                 seen = seen - step * np.exp(-elapsed_s / tau_s)
                 unsettled.append((start_s, tau_s, step))
         steps = unsettled
-        decided = comp(
+        decided = comp_model.Model.compare(
             tb.dut.comp, params.comp, seen, rng, vin_cm_v=vin_cm_v, window_s=float(windows_s[decision]), held=held
         )
         bout[:, decision] = decided

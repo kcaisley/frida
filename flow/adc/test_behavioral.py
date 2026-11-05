@@ -6,22 +6,16 @@ import numpy as np
 import pytest
 from hdl21.prefix import G
 
-from flow import comp
-from flow import samp as sampler
+import flow.comp.model as comp_model
+import flow.samp.model as samp_model
 from flow.adc.behavioral import (
     AdcBehavioralParams,
     CdacBehavioralParams,
-    CompBehavioralParams,
     SalogicBehavioralParams,
-    SampBehavioralParams,
     build_continuous_sequence,
     calc_ideal_capacitances,
     calc_redundancy_margins,
-    calc_strongarm_noise,
-    calc_switch_conductances,
-    calc_switch_resistance,
     convert_behavioral,
-    samp,
 )
 from flow.adc.sequences import symbol160_init4_samp20_comp11110000_logic00001111
 from flow.adc.sim import AdcTbParams
@@ -183,24 +177,6 @@ def test_static_bottom_plates_draw_no_reference_charge() -> None:
     np.testing.assert_allclose(convert_behavioral(params, np.full(8, 0.1)).energy_j["vdd_dac"], 0.0, atol=1e-30)
 
 
-def test_sampler_resistance_peaks_at_mid_supply_and_delays_the_track() -> None:
-    switch = SampBehavioralParams(n_conductance_s_per_v=10e-3, p_conductance_s_per_v=10e-3)
-    resistance = calc_switch_resistance(sampler.Params(), switch, np.asarray([0.1, 0.6, 1.1]), 1.2)
-    assert resistance[1] > resistance[0] and resistance[1] > resistance[2]
-    held = samp(
-        sampler.Params(),
-        switch,
-        {"p": np.asarray([0.6]), "n": np.asarray([0.6])},
-        {"p": np.asarray([1e6]), "n": np.asarray([0.0])},
-        load_f={"p": 1e-12, "n": 1e-12},
-        gate_v=1.2,
-        rng=np.random.default_rng(0),
-    )
-    # A 1 V/us slope lags by R * C = resistance[1] * 1 pF.
-    assert held["p"][0] == pytest.approx(0.6 - 1e6 * resistance[1] * 1e-12)
-    assert held["n"][0] == pytest.approx(0.6)
-
-
 def test_differential_caps_double_their_weight_without_diffcaps() -> None:
     # With dac_diffcaps=0 the diff plates move with the main plates, so each
     # step is (main + diff) instead of (main - diff): a small input resolves
@@ -212,43 +188,12 @@ def test_differential_caps_double_their_weight_without_diffcaps() -> None:
     assert abs(common[0] - code_weights.sum() / 2) < abs(differential[0] - code_weights.sum() / 2)
 
 
-def test_sampler_jitter_shifts_both_sides_by_one_common_time() -> None:
-    held = samp(
-        sampler.Params(),
-        SampBehavioralParams(n_conductance_s_per_v=0.0, p_conductance_s_per_v=0.0, jitter_s=1e-9),
-        {"p": np.full(20000, 0.6), "n": np.full(20000, 0.6)},
-        {"p": np.full(20000, 1e6), "n": np.full(20000, -1e6)},
-        load_f={"p": 1e-12, "n": 1e-12},
-        gate_v=1.2,
-        rng=np.random.default_rng(0),
-    )
-    # 1 V/us times 1 ns RMS: 1 mV per side, perfectly anticorrelated across sides.
-    assert np.std(held["p"]) == pytest.approx(1e-3, rel=0.03)
-    np.testing.assert_allclose(held["p"] - 0.6, -(held["n"] - 0.6))
-
-
-def test_sampler_conductances_follow_the_hdl21_switch_sizing() -> None:
-    switch = SampBehavioralParams()
-    # 32 x 0.12 um over 60 nm: W/L of 64.
-    assert calc_switch_conductances(sampler.Params(), switch) == pytest.approx((300e-6 * 64, 100e-6 * 64))
-    assert calc_switch_conductances(
-        sampler.Params(switch_type=sampler.SwitchType.NMOS, mos_l=2), switch
-    ) == pytest.approx((300e-6 * 32, 0.0))
-
-
-def test_strongarm_noise_falls_with_larger_pq_capacitance() -> None:
-    small = calc_strongarm_noise(comp.Params(), 0.7)
-    large = calc_strongarm_noise(comp.Params(diffpair_w=64, rst_w=16), 0.7)
-    assert 1e-3 < small < 5e-3
-    assert large < small
-
-
 def reference_codes(vin_v: float, conversions: int = 400, **reference) -> np.ndarray:
     """The output codes at a DC input with the reference's departure (``CdacBehavioralParams``'s
     ``reference_*``) the only impairment."""
     params = AdcBehavioralParams(
         tb=TB,
-        comp=CompBehavioralParams(noise_v=0.0),
+        comp=comp_model.Model.Behavioral(noise_v=0.0),
         cdac=CdacBehavioralParams(**reference),
         seed=3,
     )
@@ -316,7 +261,7 @@ def test_a_drawn_arrays_exact_transfer_is_the_noise_free_converters() -> None:
             for index, kind in enumerate(("main", "diff"))
         }
     )
-    params = AdcBehavioralParams(tb=tb, comp=CompBehavioralParams(noise_v=0.0), cdac=cdac)
+    params = AdcBehavioralParams(tb=tb, comp=comp_model.Model.Behavioral(noise_v=0.0), cdac=cdac)
     code_max = (1 << tb.dut.adc_bits) - 1
     full_scale_v, lsb_v = full_scale_and_lsb()
     vin_v = np.linspace(-full_scale_v, full_scale_v, 20_011)
@@ -337,7 +282,7 @@ def test_the_reference_noise_leaves_the_other_sources_draws_alike() -> None:
 
     def bout(**reference) -> np.ndarray:
         params = AdcBehavioralParams(
-            tb=TB, comp=CompBehavioralParams(noise_v=lsb_v), cdac=CdacBehavioralParams(**reference), seed=3
+            tb=TB, comp=comp_model.Model.Behavioral(noise_v=lsb_v), cdac=CdacBehavioralParams(**reference), seed=3
         )
         return convert_behavioral(params, np.full(200, 0.33 * lsb_v)).bout
 
@@ -354,12 +299,12 @@ def test_the_model_quiets_each_source_alone_and_scales_the_settling() -> None:
         pdk="none",
         params=TB.dut,
         comp=SimpleNamespace(
-            behavioral=lambda vin_cm_v: CompBehavioralParams(
+            behavioral=lambda vin_cm_v: comp_model.Model.Behavioral(
                 noise_v=1e-4, delay_table_v=(1e-6, 1e-3), delay_table_s=(200e-12, 50e-12)
             )
         ),
         samp=SimpleNamespace(
-            behavioral=lambda load_f: SampBehavioralParams(
+            behavioral=lambda load_f: samp_model.Model.Behavioral(
                 noise_v=1e-4, jitter_s=2e-12, ron_table_v=(0.2, 1.0), ron_table_ohm=(100.0, 300.0)
             )
         ),
@@ -393,7 +338,7 @@ def test_the_model_quiets_each_source_alone_and_scales_the_settling() -> None:
     sampler = model.behavioral(TB, quiet=("sampler",)).samp
     assert sampler.ron_table_v is None and sampler.n_conductance_s_per_v == sampler.p_conductance_s_per_v == 0.0
     assert sampler.noise_v == 1e-4 and sampler.jitter_s == 2e-12
-    resistance = calc_switch_resistance(TB.dut.samp, sampler, np.asarray([0.2, 0.6, 1.0]), 1.2)
+    resistance = samp_model.Model.resistance(TB.dut.samp, sampler, np.asarray([0.2, 0.6, 1.0]), 1.2)
     assert not np.any(resistance)
     quiet = model.behavioral(TB, quiet=("sampling",)).samp
     assert quiet.noise_v == quiet.jitter_s == 0.0 and quiet.ron_table_v == (0.2, 1.0)

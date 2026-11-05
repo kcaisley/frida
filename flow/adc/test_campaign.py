@@ -8,8 +8,11 @@ from types import SimpleNamespace
 import hdl21 as h
 import numpy as np
 import pytest
+from scipy import constants
 
-from flow.adc.behavioral import BOLTZMANN_J_PER_K, CompBehavioralParams, SampBehavioralParams, calc_ideal_capacitances
+import flow.comp.model as comp_model
+import flow.samp.model as samp_model
+from flow.adc.behavioral import calc_ideal_capacitances
 from flow.adc.campaign import (
     FIN_CYCLES,
     FIN_RATES_HZ,
@@ -103,14 +106,14 @@ def _stub_model(table: Path, params: AdcParams):
         pdk="none",
         params=params,
         comp=SimpleNamespace(
-            behavioral=lambda vin_cm_v: CompBehavioralParams(
+            behavioral=lambda vin_cm_v: comp_model.Model.Behavioral(
                 noise_v=100e-6, delay_table_v=(1e-6, 1e-3), delay_table_s=(2e-9, 0.6e-9)
             )
         ),
         # an on-resistance twice as high at mid-supply as at the rails: a tracking error that distorts
         samp=SimpleNamespace(
-            behavioral=lambda load_f: SampBehavioralParams(
-                noise_v=float(np.sqrt(2 * BOLTZMANN_J_PER_K * 300 / load_f)),
+            behavioral=lambda load_f: samp_model.Model.Behavioral(
+                noise_v=float(np.sqrt(2 * constants.k * 300 / load_f)),
                 jitter_s=2e-12,
                 ron_table_v=(0.2, 0.7, 1.2),
                 # on the 12-bit array's 0.54 pF at its 204 aF unit, a time constant of 0.4-0.8 ns

@@ -27,19 +27,17 @@ import hdl21 as h
 import numpy as np
 from hdl21.prefix import G
 
+import flow.comp.model as comp_model
+import flow.samp.model as samp_model
 from flow import comp as comparator
 from flow.adc.behavioral import (
     AdcBehavioralParams,
     CdacBehavioralParams,
-    CompBehavioralParams,
     SalogicBehavioralParams,
-    SampBehavioralParams,
     build_continuous_sequence,
     calc_ideal_capacitances,
     cdac,
-    comp,
     convert_behavioral,
-    samp,
 )
 from flow.adc.sequences import AdcSequence, symbol160_init4_samp20_comp11110000_logic00001111
 from flow.adc.sim import AdcTbParams
@@ -157,18 +155,18 @@ UNIT_MISMATCH = 0.0085
 # M6/M7 fingers): DNL_max 0.21 LSB with C_tot 250 fF and a 125-aF LSB implies
 # roughly 0.05-0.15 %·sqrt(fF); 0.10 % is that rough midpoint.
 UNIT_MISMATCH_HARPE = 0.0010
-SAMP = SampBehavioralParams(
+SAMP = samp_model.Model.Behavioral(
     # kT/C of the 1209.8-fF top-plate load on each side, sqrt(2 kT / C) = 82.7 uV
     # differential at 300 K; the PEX run holds 81.5 uV (docs/cdac_pex.md).
     noise_v=float(np.sqrt(2 * 1.380649e-23 * 300.0 / TOTAL_LOAD_F)),
     # ASSUMED 2-ps RMS aperture jitter of the on-chip sampling clock.
     jitter_s=2e-12,
     # Triode conductances come from the TB's samp.Params sizing (rough 65-nm
-    # k' of 300 and 100 uA/V^2, calc_switch_conductances).
+    # k' of 300 and 100 uA/V^2, flow.samp.model.Model.conductances).
     n_threshold_v=0.3,
     p_threshold_v=0.3,
 )
-COMP = CompBehavioralParams(
+COMP = comp_model.Model.Behavioral(
     # Simulated comparator input noise from the design notes (docs/literature.md:
     # "130 uV, 30 uW, 2-3 ns"). The 0.36-0.47 mV board S-curve calibrations in
     # map_board.yaml include the external pad and source path, and the best
@@ -362,8 +360,8 @@ def frida2_noise_sources(run_dir: Path) -> None:
 
     tb = AdcTbParams(**{**TB.__dict__, "conversions": 100_000, "vin_diff": h.Vdc.Params(dc=0.05)})
     base = build_frida2_params(tb, seed=0)
-    quiet_samp = SampBehavioralParams(**{**SAMP.__dict__, "noise_v": 0.0, "jitter_s": 0.0})
-    quiet_comp = CompBehavioralParams(**{**COMP.__dict__, "noise_v": 0.0})
+    quiet_samp = samp_model.Model.Behavioral(**{**SAMP.__dict__, "noise_v": 0.0, "jitter_s": 0.0})
+    quiet_comp = comp_model.Model.Behavioral(**{**COMP.__dict__, "noise_v": 0.0})
     reference = CdacBehavioralParams(**{**base.cdac.__dict__, "reference_noise_v": 100e-6})
     # A source alone below one LSB leaves a DC input on one code, so the
     # reference noise is shown on top of the baseline sources instead.
@@ -438,7 +436,7 @@ def frida2_cdac_ab(run_dir: Path) -> None:
         info = MeasInfo(
             backend="behavioral",
             timestamp_utc=datetime.now().astimezone(),
-            instruments={"model": f"{comp.__module__}.{comp.__name__}"},
+            instruments={"model": f"{comp_model.__name__}.{comp_model.Model.compare.__qualname__}"},
             readbacks={"cap_table": str(CAP_TABLE), "unit_mismatch": mismatch, "seed": seed},
         )
 
@@ -458,7 +456,9 @@ def frida2_cdac_ab(run_dir: Path) -> None:
             trial_index=np.arange(len(vin_diff_v)),
             vin_diff_v=vin_diff_v,
             vin_cm_v=np.full(len(vin_diff_v), vin_cm_v),
-            decision=comp(TB.dut.comp, params.comp, vin_diff_v, rng, vin_cm_v=vin_cm_v).astype(np.uint8),
+            decision=comp_model.Model.compare(TB.dut.comp, params.comp, vin_diff_v, rng, vin_cm_v=vin_cm_v).astype(
+                np.uint8
+            ),
         )
         write_analysis(draw_dir / "comparator.h5", comparator_decisions)
 
@@ -496,7 +496,7 @@ def frida2_cdac_ab(run_dir: Path) -> None:
                         transition_v = params.comp.offset_v - step_v
                         grid = transition_v + np.linspace(-4 * sigma_v, 4 * sigma_v, 41)
                         vin_diff_v = np.repeat(grid, trials)
-                        held = samp(
+                        held = samp_model.Model.sample(
                             TB.dut.samp,
                             params.samp,
                             {"p": vin_cm_v + vin_diff_v / 2, "n": vin_cm_v - vin_diff_v / 2},
@@ -505,7 +505,7 @@ def frida2_cdac_ab(run_dir: Path) -> None:
                             gate_v=float(tb.vdd_d.dc),
                             rng=rng,
                         )
-                        decision = comp(
+                        decision = comp_model.Model.compare(
                             TB.dut.comp, params.comp, held["p"] - held["n"] + step_v, rng, vin_cm_v=vin_cm_v
                         )
                         point = AdcScanParams(
@@ -627,7 +627,7 @@ def frida2_comparator(run_dir: Path) -> None:
         conversions=400,
     )
     vin_diff_v = np.repeat(np.asarray(tb.vin_diff_values_v, dtype=np.float64), tb.conversions)
-    decision = comp(tb.params, COMP, vin_diff_v, np.random.default_rng(0), vin_cm_v=0.7)
+    decision = comp_model.Model.compare(tb.params, COMP, vin_diff_v, np.random.default_rng(0), vin_cm_v=0.7)
     measurement = comparator.AnalysisDecisions(
         group=None,
         index=None,
@@ -635,7 +635,7 @@ def frida2_comparator(run_dir: Path) -> None:
         info=MeasInfo(
             backend="behavioral",
             timestamp_utc=datetime.now().astimezone(),
-            instruments={"model": f"{comp.__module__}.{comp.__name__}"},
+            instruments={"model": f"{comp_model.__name__}.{comp_model.Model.compare.__qualname__}"},
         ),
         param=tb,
         trial_index=np.arange(len(vin_diff_v)),

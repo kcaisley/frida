@@ -19,7 +19,7 @@ The sampling switch is the second block on the [pipeline](../../docs/pipeline.md
 | DRC runner | ✓ | [step.py](../layout/step.py) | gdscheck and the PDK's DRC for every layout (`row_signoff`). |
 | LVS runner | ✓ | [step.py](../layout/step.py) | The PDK's LVS for every layout against the netlist the build placed. |
 | PEX runner | ✗ | - | No standalone sampler runner. |
-| Behavioral model | ✓ | [model.py](model.py) | `samp.model.Model.of(pdk, samp.Params)`: the characterized on-resistance over the input level (the tracking lag `R(v) C dv/dt`), kT/C of the ADC's load, an assumed 2 ps jitter. |
+| Behavioral model | ✓ | [model.py](model.py), [test_model.py](test_model.py) | `samp.model.Model.of(pdk, samp.Params)`: the characterized on-resistance over the input level (the tracking lag `R(v) C dv/dt`), kT/C of the ADC's load, an assumed 2 ps jitter. The behavioral ADC runs the model's physics: `Model.Behavioral` (what `behavioral()` gives for a load) and `Model.sample`, each side held through its input-dependent RC with its noise and one jitter for both; `Model.resistance`, the measured curve or, without one, the triode conductances of the switch's sizing (`Model.conductances`, from the rough device constants in `params.py`). |
 
 ## How to run
 
