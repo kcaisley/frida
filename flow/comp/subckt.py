@@ -102,7 +102,7 @@ def _place(module: h.Module, param: Params) -> None:
         place(module, placed)
 
 
-def _entry(module: h.Module, parts: dict, name: str | tuple[str, int]):
+def _entry(module: h.Module, parts: dict[str, tuple[Half, ...]], name: str | tuple[str, int]):
     """A row's entry: the instance ``name`` of ``module``, or a split one's half ``(name, index)``;
     None where the comparator has no such device."""
     if isinstance(name, tuple):

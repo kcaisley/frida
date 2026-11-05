@@ -2,8 +2,6 @@
 placement (``flow.layout.hdl21align``): complete for every instance of its space, and, for the
 structures FRIDA lays out, its rows top first."""
 
-import importlib
-
 import hdl21 as h
 import pytest
 from pydantic import ValidationError
@@ -57,7 +55,7 @@ def _module(params):
 
 @pytest.mark.parametrize("pdk", ("tsmc65", "ihp130", "tsmc28", "tower180", "lf150", "tpsc65"))
 def test_every_instance_states_a_complete_placement_or_none(pdk: str) -> None:
-    h.pdk.set_default(importlib.import_module(f"pdk.{pdk}.hdl21").pdk_logic)
+    h.pdk.set_default(pytest.importorskip(f"pdk.{pdk}.hdl21").pdk_logic)  # a PDK-free checkout (CI) has none
     for instance in sweep.scaled.instances(pdk) if hasattr(sweep.scaled, "instances") else []:
         params = instance[1] if isinstance(instance, tuple) else instance.params
         pnr = pnr_input(_module(params))
@@ -65,7 +63,7 @@ def test_every_instance_states_a_complete_placement_or_none(pdk: str) -> None:
 
 
 def test_the_named_structures_rows() -> None:
-    h.pdk.set_default(importlib.import_module("pdk.tsmc65.hdl21").pdk_logic)
+    h.pdk.set_default(pytest.importorskip("pdk.tsmc65.hdl21").pdk_logic)
     named = pipeline.names(sweep)
     rows = {name: module_plan(pnr_input(_module(named[name]())))["rows"] for name in named}
     assert rows == {
