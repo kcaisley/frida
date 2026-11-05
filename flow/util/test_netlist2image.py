@@ -132,3 +132,82 @@ def test_cml_xor_breaks_a_wire_where_the_other_output_crosses(tmp_path: Path) ->
     wires = [e.get("d") for e in ET.parse(svg).getroot().findall("{http://www.w3.org/2000/svg}path")]
     broken = [d for d in wires if " M" in d]
     assert len(broken) >= 2
+
+
+def test_a_block_of_inverters_and_capacitor_units_draws_its_chains(tmp_path: Path) -> None:
+    """A block's top of cells (no transistor): each chain from its input's flag through NOT gates,
+    their supplies drawn, to its stage's pieces as one capacitor (×N) on the top plate's bus."""
+    netlist = tmp_path / "block.sp"
+    netlist.write_text(
+        ".subckt inv_2n2p1f A Y VDD VSS\n"
+        "mn Y A VSS VSS nmos w=240n l=100n nf=1\n"
+        "mp Y A VDD VDD pmos w=240n l=100n nf=1\n"
+        ".ends inv_2n2p1f\n"
+        ".subckt unit_a INNER TOP SHIELD\n"
+        "X0 INNER TOP SHIELD fmomcap style=ring length=4230\n"
+        ".ends unit_a\n"
+        ".subckt block in0 in1 top vdd vss\n"
+        "Xi0 in0 n0 vdd vss inv_2n2p1f\n"
+        "Xi1 n0 plate0 vdd vss inv_2n2p1f\n"
+        "Xc0 plate0 top vss unit_a\n"
+        "Xc1 plate0 top vss unit_a\n"
+        "Xi2 in1 plate1 vdd vss inv_2n2p1f\n"
+        "Xc2 plate1 top vss unit_a\n"
+        ".ends block\n"
+    )
+    out = tmp_path / "block.svg"
+    render(netlist, out)
+    svg = out.read_text()
+    assert svg.count("M8,2 L30,15 L8,28 Z") == 3  # three NOT gates
+    assert "×2" in svg and "Xc2" in svg  # stage 0's two pieces as one, stage 1's alone
+    assert ">top<" in svg and "4.23 µm" in svg  # the top plate's flag, the pieces' length
+    assert svg.count("M2,0 H14 M8,0 V10") == 3  # each gate's vdd
+    assert svg.count("Wn/Wp 0.24/0.24") == 3  # each gate's widths, in um
+
+
+def test_a_top_of_subcircuits_draws_what_they_hold(tmp_path: Path) -> None:
+    """Instances of subcircuits that are not cells (a side, a driver) stand as what they hold, two
+    levels down: ports by position (a bus bit), their own nets and names scoped by the instance, an
+    inverter and a device called with its parameters (fmomcap) kept whole; drawn as a column per top
+    plate, each chain as many gates as its driver holds inverters."""
+    from flow.util.netlist2image import _expanded, _subcircuits
+
+    text = (
+        ".subckt inv A Y VDD VSS\n"
+        "mn Y A VSS VSS nmos w=240n l=100n nf=1\n"
+        "mp Y A VDD VDD pmos w=480n l=100n nf=1\n"
+        ".ends inv\n"
+        ".subckt buf a y vdd vss\n"
+        "Xinv0 a n0 vdd vss inv\n"
+        "Xinv1 n0 y vdd vss inv\n"
+        ".ends buf\n"
+        ".subckt side state_1 state_0 vdac vdd vss\n"
+        "Xdrive_0 state_0 main_0 vdd vss buf\n"
+        "Xdrive_1 state_1 main_1 vdd vss inv\n"
+        "Xc_0_0 main_0 vdac vss fmomcap c=2f style=ring layers=3 length=4230\n"
+        "Xc_0_1 main_0 vdac vss fmomcap c=2f style=ring layers=3 length=4230\n"
+        "Xc_1_0 main_1 vdac vss fmomcap c=1f style=ring layers=3 length=2030\n"
+        ".ends side\n"
+        ".subckt top st_p_1 st_p_0 st_n_1 st_n_0 vdac_p vdac_n vdd vss\n"
+        "Xside_p st_p_1 st_p_0 vdac_p vdd vss side\n"
+        "Xside_n st_n_1 st_n_0 vdac_n vdd vss side\n"
+        ".ends top\n"
+    )
+    subs = _subcircuits(text)
+    defs = {name.lower(): (ports, elements) for name, ports, elements in subs[:-1]}
+    flat = {f[0]: f[1:] for f in _expanded(subs[-1][2], defs)}
+    assert len(flat) == 2 * (2 + 1 + 3)
+    assert flat["Xside_p.drive_0.inv0"][:2] == ["st_p_0", "side_p.drive_0.n0"]  # bit 0 by position
+    assert flat["Xside_p.drive_0.inv1"][:2] == ["side_p.drive_0.n0", "side_p.main_0"]
+    assert flat["Xside_n.drive_1"] == ["st_n_1", "side_n.main_1", "vdd", "vss", "inv"]  # a cell stays whole
+    assert flat["Xside_n.c_1_0"] == ["side_n.main_1", "vdac_n", "vss", "fmomcap",
+                                     "c=1f", "style=ring", "layers=3", "length=2030"]  # fmt: skip
+    netlist = tmp_path / "top.sp"
+    netlist.write_text(text)
+    out = tmp_path / "top.svg"
+    render(netlist, out)
+    svg = out.read_text()
+    assert svg.count("M8,2 L30,15 L8,28 Z") == 2 * (2 + 1)  # per side: the buffer's two gates, the inverter
+    assert all(f">{net}<" in svg for net in ("st_p_0", "st_p_1", "st_n_0", "st_n_1", "vdac_p", "vdac_n"))
+    assert svg.count('class="nodelabel">×2<') == 2  # each side's stage 0, its two pieces as one
+    assert ">Xside_p.c_1_0<" in svg and "4.23 µm" in svg and "2.03 µm" in svg

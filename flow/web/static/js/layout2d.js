@@ -20,9 +20,9 @@ export function layoutFocus(generator) {
     return series().find((item) => layoutsFor(item, generator)) || focus;
 }
 
-// the row-cell tools first, then any other variant a block's layouts come in (metal layers, units)
+// ALIGN's layouts first, then any other variant a block's layouts come in (metal layers, units)
 export function generators() {
-    const order = ["cic", "laygo", "align"];
+    const order = ["align"];
     const present = [...new Set((state.block?.layouts || []).map((layout) => layout.generator))];
     return [...order.filter((generator) => present.includes(generator)), ...present.filter((generator) => !order.includes(generator)).sort()];
 }

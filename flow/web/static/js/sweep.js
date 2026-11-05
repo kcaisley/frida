@@ -115,6 +115,8 @@ function buildFields(table) {
 }
 
 function fieldOf(key) {
+    // no key (a table with no numeric axis: one laid-out instance, no metrics yet) names no field
+    if (key == null) return null;
     return view.fields.find((field) => field.key === key) || null;
 }
 

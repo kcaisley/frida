@@ -285,7 +285,269 @@ def label(name, x, y, side):
     ]
 
 
-def render_cells(netlist: Path, out: Path) -> None:
+GATE_SKIN = SKIN.with_name("style.svg")  # the digital skin: its logic gates in Circuitikz's geometry
+ROW, GATE_PITCH, CAP_W = 100, 110, 150
+
+
+def _subcircuits(text: str) -> list[tuple[str, list[str], list[list[str]]]]:
+    """A netlist's subcircuits in order: each one's name, ports and element lines (continuations
+    joined, comments and directives dropped)."""
+    lines: list[str] = []
+    for raw in text.splitlines():
+        if raw.startswith("+") and lines:
+            lines[-1] += " " + raw[1:].strip()
+        elif raw.strip() and not raw.lstrip().startswith("*"):
+            lines.append(raw.strip())
+    found, current = [], None
+    for line in lines:
+        f = line.split()
+        if f[0].lower() == ".subckt":
+            current = (f[1], f[2:], [])
+            found.append(current)
+        elif f[0].lower().startswith(".ends"):
+            current = None
+        elif current is not None and not f[0].startswith("."):
+            current[2].append(f)
+    return found
+
+
+def _supply(net: str) -> bool:
+    net = net.lower()
+    return net in SUPPLY or net.startswith(("vdd", "vss", "gnd", "vcc"))
+
+
+def _cell(name: str, nets: list[str], ports: list[str], elements: list[list[str]]) -> dict | None:
+    """What an instance of a defined subcircuit is drawn as: an inverter (its two transistors share
+    their gate and their drain), a capacitor unit (a port ``TOP``: each other plate a capacitor to
+    it, ``SHIELD`` on the shield), else None."""
+    by_port = dict(zip((port.lower() for port in ports), nets, strict=False))
+    mos = [f for f in elements if f[0][0] in "Mm" and len(f) > 5]
+    if len(mos) == 2 and len(elements) == 2:
+        (d1, g1, s1, _b1, m1), (d2, g2, s2, _b2, m2) = (tuple(x.lower() for x in f[1:6]) for f in mos)
+        kinds = {polarity(m1) or "n": s1, polarity(m2) or "n": s2}
+        if g1 == g2 and d1 == d2 and set(kinds) == {"n", "p"}:
+            net = lambda port: by_port.get(port, port)
+            widths = {polarity(f[5].lower()) or "n": _width_um(f) for f in mos}
+            fingers = max(int(float(dict(a.split("=", 1) for a in f if "=" in a).get("nf", 1))) for f in mos)
+            return {
+                "kind": "not",
+                "name": name,
+                "a": net(g1),
+                "y": net(d1),
+                "vdd": net(kinds["p"]),
+                "vss": net(kinds["n"]),
+                "size": f"Wn/Wp {widths['n']:g}/{widths['p']:g}" + (f" ×{fingers}" if fingers > 1 else ""),
+            }
+    if "top" in by_port:
+        # each plate's finger length as its unit states it (a strip's difference plate: diff_length)
+        params = {k.lower(): v for f in elements for k, _, v in (a.partition("=") for a in f if "=" in a)}
+        lengths = {}
+        for port, net in by_port.items():
+            value = params.get("diff_length" if port == "diff" else "length")
+            lengths[net] = float(value) if value else None
+        plates = [by_port[p] for p in by_port if p not in ("top", "shield", "bulk", "b")]
+        return {"kind": "cap", "name": name, "plates": plates, "top": by_port["top"],
+                "shield": by_port.get("shield"), "lengths": lengths}  # fmt: skip
+    return None
+
+
+def _device(name: str, nets: list[str], model: str, element: list[str]) -> dict | None:
+    """A MOM unit called as its style's device (``fmomcap``, ``flow.layout.devices.momcap``): drawn
+    as a capacitor unit, as its subcircuit was (``_cell``); None for another model."""
+    from flow.layout.devices.momcap.geometry import DEVICES, PINS
+
+    style = next((style for style, device in DEVICES.items() if device == model.lower()), None)
+    if style is None:
+        return None
+    params = dict(a.split("=", 1) for a in element if "=" in a)
+    return _cell(
+        name, nets, list(PINS[style]), [["Xc0", *PINS[style], model, *(f"{k}={v}" for k, v in params.items())]]
+    )
+
+
+def _width_um(element: list[str]) -> float:
+    """A MOS line's total width in um (``w=240n``: 0.24)."""
+    value = dict(a.split("=", 1) for a in element if "=" in a)["w"].lower()
+    scale = {"n": 1e-3, "u": 1.0, "p": 1e-6}.get(value[-1], None)
+    return round(float(value[:-1]) * scale if scale else float(value) * 1e6, 4)
+
+
+# the NOT gate's triangle in the digital skin (style.svg): its back at x 8, its tip at x 30, 13 above
+# and below its axis; a supply stub leaves its slope where it is this far along
+_NOT_BACK, _NOT_TIP, _NOT_HALF, _STUB = 8, 30, 13, 14
+
+
+def _gate_edge(dx: float) -> float:
+    """How far above (or below) the NOT gate's axis its triangle's edge is, ``dx`` from its left."""
+    return _NOT_HALF * (_NOT_TIP - dx) / (_NOT_TIP - _NOT_BACK)
+
+
+def _expanded(elements: list[list[str]], defs: dict, net=None, scope: str = "") -> list[list[str]]:
+    """``elements`` with each instance of a subcircuit that is not a cell (``_cell``: an inverter, a
+    capacitor unit) in its place as its own elements, all the way down (a driver: its chain of
+    inverters): its ports the instance's nets, its own nets ``<instance>.<net>``, each instance's
+    name its type's letter then ``<instance>.``. An element that is not an instance, at any depth,
+    stays as it is (``render_cells`` draws none)."""
+    net = net or (lambda name: name)
+    found: list[list[str]] = []
+    for f in elements:
+        plain = [x for x in f[1:] if "=" not in x]
+        named = f[0][0] + scope + f[0][1:]
+        if f[0][0] not in "Xx" or not plain:
+            found.append(f)
+            continue
+        model, nets = plain[-1], [net(x) for x in plain[:-1]]
+        sub = defs.get(model.lower())
+        if sub is None or _cell(named, nets, *sub) is not None:
+            found.append([named, *nets, model, *(x for x in f[1:] if "=" in x)])
+            continue
+        ports, inner = sub
+        where = dict(zip((port.lower() for port in ports), nets, strict=False))
+        inside = f"{scope}{f[0][1:]}."
+        found += _expanded(
+            inner, defs, lambda name, where=where, inside=inside: where.get(name.lower(), inside + name), inside
+        )
+    return found
+
+
+def render_cells(netlist: Path, out: Path) -> bool:
+    """A netlist of cells drawn as its signal chains (``out``, SVG) in the Circuitikz skin: each
+    chain a row from its input's port flag through its inverters (the digital skin's NOT gate, its
+    drive over it, its supplies a vdd symbol above and a ground below) to the capacitors on its last
+    net: a stage's parallel pieces one capacitor, ×N, their shield to ground, their top plate a bus
+    on the right with its port flag at the top. The top subcircuit's instances of other subcircuits
+    (a driver, its chain of inverters) are drawn as what they hold (``_expanded``). False (nothing
+    written) where the cells are not inverters and capacitor units."""
+    subs = _subcircuits(netlist.read_text())
+    if not subs:
+        return False
+    top_name, _top_ports, top = subs[-1]
+    defs = {name.lower(): (ports, elements) for name, ports, elements in subs[:-1]}
+    gates, caps = [], []
+    for f in _expanded(top, defs):
+        if f[0][0] not in "Xx":
+            return False
+        model = next(x for x in reversed(f[1:]) if "=" not in x)
+        nets = [x for x in f[1:] if "=" not in x][:-1]
+        if model.lower() in defs:
+            found = _cell(f[0], nets, *defs[model.lower()])
+        else:  # a first-class device called with its parameters (a MOM unit, fmomcap): its pins' own
+            found = _device(f[0], nets, model, f)
+        if found is None:
+            return False
+        found["cell"] = model
+        (gates if found["kind"] == "not" else caps).append(found)
+    if not caps:
+        return False
+    # a chain: from a net no gate drives, gate after gate, branching where a net feeds several
+    driven = {gate["y"] for gate in gates}
+    starts = sorted({gate["a"] for gate in gates if gate["a"] not in driven})
+    chains: list[tuple[str, list[dict]]] = []
+
+    def follow(net: str, path: list[dict], start: str) -> None:
+        nexts = [gate for gate in gates if gate["a"] == net]
+        if not nexts:
+            chains.append((start, path))
+        for gate in nexts:
+            follow(gate["y"], [*path, gate], start)
+
+    for start in starts:
+        follow(start, [], start)
+    # each chain's capacitors: the branches (a piece's plate) on its last net, by top plate
+    rows = []
+    for start, path in chains:
+        end = path[-1]["y"] if path else start
+        branches = [(cap, plate) for cap in caps for plate in cap["plates"] if plate == end]
+        for top_net in sorted({cap["top"] for cap, _ in branches}):
+            pieces = [{**cap, "length": cap["lengths"].get(end)} for cap, _ in branches if cap["top"] == top_net]
+            rows.append((start, path, end, top_net, pieces))
+    if not rows:
+        return False
+    # a column per top plate (a CDAC's two sides beside each other), in the netlist's order
+    tops = list(dict.fromkeys(cap["top"] for cap in caps))
+    # a stage's chains together (its input's), the longest first: a strip's main, then its difference
+    rows.sort(key=lambda row: (tops.index(row[3]), _natural(row[0]), -len(row[1]), _natural(row[2])))
+
+    skin, gate_skin = Skin(SKIN), Skin(GATE_SKIN)
+    depth = max(len(path) for _s, path, *_ in rows)
+    x_in = 20 + 8 * max(len(row[0]) for row in rows)
+    # a gate's pitch: its drive's label (over it, from 20 in) clear of the next gate's, 7 a character
+    pitch = max(GATE_PITCH, 30 + 7 * max(len(gate["size"]) for _s, path, *_ in rows for gate in path or [{"size": ""}]))
+    x_cap = x_in + 40 + 30 + depth * pitch + 40
+    x_bus = x_cap + CAP_W
+    column = x_bus + 120 + 8 * max(len(top) for top in tops)
+    svg: list[str] = []
+    buses: dict[str, list[float]] = defaultdict(list)
+    bottom = 0.0
+    for start, path, end, top_net, pieces in rows:
+        dx = tops.index(top_net) * column
+        y = 60.0 + ROW * len(buses[top_net])
+        svg.append(f'<g transform="translate({dx:g},0)">')
+        svg.append(skin.draw("inputExt", x_in, y - 4, ref=start))
+        x = x_in + 40
+        for k, gate in enumerate(path):
+            gx = x_in + 70 + k * pitch
+            svg.append(f'<path d="M{x:g},{y:g} H{gx:g}"/>')
+            svg.append(gate_skin.draw("not", gx, y - 15))
+            svg.append(f'<text x="{gx + 20:g}" y="{y - 18:g}">{gate["size"]}</text>')
+            # its supplies: a stub from the triangle's edge up to vdd, one down to ground
+            edge, sx = _gate_edge(_STUB), gx + _STUB
+            svg.append(f'<path d="M{sx:g},{y - edge:g} V{y - 30:g}"/>')
+            svg += supply(skin, "vdd", sx, y - 30)
+            svg.append(f'<text x="{sx + 12:g}" y="{y - 36:g}">{gate["vdd"]}</text>')
+            svg.append(f'<path d="M{sx:g},{y + edge:g} V{y + 30:g}"/>')
+            svg += supply(skin, "vss", sx, y + 30)
+            x = gx + 42
+        # the stage's net to its capacitor: its name over the wire
+        svg.append(f'<path d="M{x:g},{y:g} H{x_cap:g}"/>')
+        svg.append(f'<text x="{(x + x_cap) / 2:g}" y="{y - 5:g}" class="nodelabel">{end}</text>')
+        svg.append(_capacitor(x_cap, y, pieces))
+        svg.append(f'<path d="M{x_cap + 26:g},{y:g} H{x_bus:g}"/>')
+        svg.append(f'<circle cx="{x_bus:g}" cy="{y:g}" r="2.5" class="splitjoinBody"/>')
+        svg.append("</g>")
+        buses[top_net].append(y)
+    for top_net, ys in buses.items():
+        # the bus's port flag at its top, over the first row
+        dx, y_flag = tops.index(top_net) * column, ys[0] - 40
+        svg.append(f'<path d="M{dx + x_bus + 20:g},{y_flag:g} H{dx + x_bus:g} V{ys[-1]:g}"/>')
+        svg.append(skin.draw("outputExt", dx + x_bus + 20, y_flag - 4, ref=top_net))
+        bottom = max(bottom, ys[-1] + 50)
+    width, height = column * len(tops), bottom + 30
+    out.write_text(
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:g}" height="{height:g}" viewBox="0 0 {width:g} {height:g}">'
+        f'{skin.style}<rect width="100%" height="100%" fill="white" stroke="none"/>'
+        f'<text x="20" y="24">{top_name}</text>' + "".join(svg) + "</svg>"
+    )
+    return True
+
+
+def _natural(text: str) -> list:
+    """``main_p_10`` after ``main_p_9``."""
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", text)]
+
+
+def _capacitor(x: float, y: float, pieces: list[dict]) -> str:
+    """A capacitor at (x, y) from its plate's lead to its top plate's (26 wide): ×N for a stage's
+    parallel pieces, their length under it, their shield to ground."""
+    lengths = sorted({piece["length"] for piece in pieces if piece["length"]})
+    size = " + ".join(f"{length / 1000:g}" for length in lengths) + " µm" if lengths else ""
+    count = f"×{len(pieces)}" if len(pieces) > 1 else pieces[0]["name"]
+    parts = [
+        f'<path d="M{x:g},{y:g} H{x + 10:g} M{x + 10:g},{y - 10:g} V{y + 10:g} M{x + 16:g},{y - 10:g} V{y + 10:g} M{x + 16:g},{y:g} H{x + 26:g}"/>',
+        f'<text x="{x + 13:g}" y="{y - 15:g}" class="nodelabel">{count}</text>',
+    ]
+    if size:
+        parts.append(f'<text x="{x + 34:g}" y="{y + 16:g}">{size}</text>')
+    if any(piece["shield"] for piece in pieces):
+        # the shield under the plates, to ground
+        parts.append(
+            f'<path d="M{x + 6:g},{y + 14:g} H{x + 20:g} M{x + 13:g},{y + 14:g} V{y + 22:g}" stroke-dasharray="2 2"/>'
+        )
+        parts += supply(Skin(SKIN), "vss", x + 13, y + 22)
+    return "".join(parts)
+
+
+def _render_boxes(netlist: Path, out: Path) -> None:
     """A netlist of library cells and capacitors drawn as chains (``out``, SVG): each chain a row
     from its first cell's input to its capacitor, a cell a box of its name over its library cell, a
     capacitor its value, every net shared with another row (a top plate, a supply) a label."""
@@ -347,9 +609,16 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN) ->
     """Draw ``netlist`` into ``out`` (SVG), by ALIGN's constraints (``const_path``, a
     ``.const.json``) where given; the stacks drawn, each its devices."""
     skin = Skin(skin_path)
+    # a block of cells (its top subcircuit holds no transistor: a CDAC, its drivers and capacitors):
+    # its signal chains, or plain boxes where its cells are not inverters and capacitor units
+    subs = _subcircuits(netlist.read_text())
+    if subs and not any(f[0][0] in "Mm" for f in subs[-1][2]):
+        if not render_cells(netlist, out):
+            _render_boxes(netlist, out)
+        return {}
     ports, devs = parse(netlist)
-    if not devs:  # cells and capacitors alone (a CDAC, its array, its drivers): their chains instead
-        render_cells(netlist, out)
+    if not devs:  # cells and capacitors alone, outside a subcircuit: their chains
+        _render_boxes(netlist, out)
         return {}
     pairs, axis, sym_nets = symmetry(devs, const_path)
     stage = stages(ports, devs, sym_nets)

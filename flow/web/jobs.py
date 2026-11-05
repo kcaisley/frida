@@ -49,7 +49,7 @@ def manifest(pdk: str) -> dict:
 def _unavailable(pdk: str) -> str | None:
     """Why the compiler cannot lay out in ``pdk`` here, or None."""
 
-    from flow.layout.align.run import ALIGN_HOME
+    from flow.layout.run import ALIGN_HOME
 
     if not (ROOT / "pdk" / pdk / "layout/tech.py").is_file():
         return "its PDK submodule is not checked out"

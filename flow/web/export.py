@@ -25,9 +25,9 @@ BLOCKS = {
     "comp": "Comparator",
     "samp": "Sampling switch",
     "cdac.caparray": "Capacitor array",
-    "momcap": "MOM capacitor",
     "cdac.capdriver": "Capacitor driver",
     "cdac": "CDAC (array and drivers)",
+    "capdac": "Capacitive DAC",
     "latch": "Latches and flip-flops",
     "delay": "Delay lines and rings",
     "clkgen": "Clock generator",
@@ -42,8 +42,6 @@ BLOCKS = {
     "disc": "Discriminator",
     "idac": "Current source",
     "bias": "Cascode bias",
-    "moscap": "MOS capacitor",
-    "mosfet": "MOSFET",
 }
 # 2-D records longer than this are thinned to it for the browser (every k-th sample)
 MAX_SAMPLES = 1600
