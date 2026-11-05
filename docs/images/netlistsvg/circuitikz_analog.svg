@@ -52,23 +52,23 @@ text { fill: #000; stroke: none; font: 10px "FRIDA Latin Modern Mono", "Latin Mo
   <g s:x="48" s:y="64" s:pid="D" s:position="bottom"/>
   <g s:x="48" s:y="0" s:pid="S" s:position="top"/>
 </g>
-<g s:type="vcc" s:width="32" s:height="16" transform="translate(20,185)">
+<g s:type="vcc" s:width="16" s:height="10" transform="translate(20,185)">
   <s:alias val="vcc"/>
   <s:alias val="vdd"/>
-  <path d="M4,0 H28 M16,0 V16" class="symbol $cell_id"/>
-  <g s:x="16" s:y="16" s:pid="A" s:position="bottom"/>
+  <path d="M2,0 H14 M8,0 V10" class="symbol $cell_id"/>
+  <g s:x="8" s:y="10" s:pid="A" s:position="bottom"/>
 </g>
-<g s:type="vee" s:width="32" s:height="16" transform="translate(90,185)">
+<g s:type="vee" s:width="16" s:height="10" transform="translate(90,185)">
   <s:alias val="vee"/>
   <s:alias val="vss"/>
-  <path d="M16,0 V16 M4,16 H28" class="symbol $cell_id"/>
-  <g s:x="16" s:y="0" s:pid="A" s:position="top"/>
+  <path d="M8,0 V10 M2,10 H14" class="symbol $cell_id"/>
+  <g s:x="8" s:y="0" s:pid="A" s:position="top"/>
 </g>
-<g s:type="gnd" s:width="32" s:height="16" transform="translate(160,185)">
+<g s:type="gnd" s:width="16" s:height="10" transform="translate(160,185)">
   <s:alias val="gnd"/>
   <s:alias val="ground"/>
-  <path d="M16,0 V8 M4,8 H28 M8,12 H24 M12,16 H20" class="symbol $cell_id"/>
-  <g s:x="16" s:y="0" s:pid="A" s:position="top"/>
+  <path d="M8,0 V4 M2,4 H14 M4.5,7 H11.5 M6.5,10 H9.5" class="symbol $cell_id"/>
+  <g s:x="8" s:y="0" s:pid="A" s:position="top"/>
 </g>
 <g s:type="voltage_source" s:width="96" s:height="64" transform="translate(230,185)">
   <s:alias val="v"/>
