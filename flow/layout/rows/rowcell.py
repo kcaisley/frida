@@ -27,7 +27,7 @@ own M2 track. The M1 rails are the supply pins (rails connect by abutment, like 
 optional M2 straps over them (``m2``) are off by default, so supply vias are left to the block
 level.
 
-``mos()`` returns plain rectangles, so a generator (ALIGN's, flow/layout/align/pdk/mos.py) can
+``mos()`` returns plain rectangles, so a generator (ALIGN's, flow/layout/primitives/mos.py) can
 draw the same cells without sharing a geometry library.
 """
 
@@ -36,7 +36,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 import tech as _tech  # optional values, with the defaults below
-from tech import (  # the PDK's values: its stems directory goes on the path ahead of this one
+from tech import (  # the PDK's values: its layout directory goes on the path ahead of this one
     BAR_END,
     CO,
     CO_GATE,
@@ -786,6 +786,179 @@ def mos_array(
             c.add("V1", cx - V1_H, far_y - V1_H, cx + V1_H, far_y + V1_H, far)
     for net, y, xa, xb in crossings:
         c.add("M2", xa - BAR_END, y - M2_HW, xb + BAR_END, y + M2_HW, net)
+    return c
+
+
+def inverter_outlines(cases: list[tuple[int, int, int, int]]) -> list[tuple[int, int]]:
+    """Each complementary inverter's cell width (nm), ``inverter``'s for its (l, wn, wp, nf), and
+    how far (nm) its gate pad's M1 stays from the cell's left edge: what a link jogging on M1 at
+    that edge, from the cell before it, has to clear."""
+    out = []
+    for l, wn, wp, nf in cases:
+        cell = inverter("INV", l, wn, wp, nf, outline=True)
+        out.append((cell.width, min(r.x0 for r in cell.rects if r.layer == "M1" and r.net == "A")))
+    return out
+
+
+def inverter(
+    name: str,
+    l: int,
+    wn: int,
+    wp: int,
+    nf: int,
+    a: str = "A",
+    y: str = "Y",
+    grid: int = XPITCH,
+    vss: str = "vss",
+    vdd: str = "vdd",
+    outline: bool = False,
+    wide_input: bool = False,
+) -> Cell:
+    """A complementary inverter in one row cell, as a library cell has it: the NMOS hugging the VSS
+    rail, the PMOS the VDD rail, on the standard cells' implant, well and VT profile (``std_pad``'s,
+    split at ``STD_NW``), so it abuts the row cells and the library's cells alike. ``nf`` fingers of
+    ``wn`` and ``wp`` (nm, each at most the gap between the diffusions allows), gate length ``l``.
+
+    The gates are shared poly lines across both diffusions, joined by a poly bar in the gap between
+    them and contacted there over each source strip it crosses, whose source contacts stop short of
+    the gate pad. Strips alternate S D S D ... from the left: a source strip runs in M1 to its own rail,
+    a drain strip in M1 from the NMOS contacts up to the PMOS contacts across the gap. Pins on M2:
+    ``a`` on the track nearest the gate contact, ``y`` on the track below, across the drain strips.
+    The gate contacts are joined by ``a``'s bar, so no stretch of poly between contacts grows with
+    the fingers. ``wide_input``: ``a``'s bar across the whole cell (its M2 edge space kept), so a
+    router reaches the input from more tracks above, the cell's width as without. ``outline``: the
+    cell's width and its gate pads' M1 alone, as planned (what a chain needs to know of it, without
+    drawing its contacts)."""
+
+    assert nf >= 1, f"{name}: no fingers"
+    p = _cpp(l)
+    strips = [i * p for i in range(nf + 1)]
+    seq = _pins(nf, "S")
+    gates = [x + p // 2 for x in strips[:-1]]
+    # the library cells' diffusion bands (LOGIC_OD: the NMOS's (lowest bottom, top), the PMOS's
+    # (bottom, highest top)), each device grown from the side facing the other, as theirs
+    (n_lo, ny1), (py0, p_hi) = _tech.LOGIC_OD["n"], _tech.LOGIC_OD["p"]
+    ny0, py1 = ny1 - wn, py0 + wp
+    assert ny0 >= n_lo and py1 <= p_hi, f"{name}: fingers of {wn}/{wp} nm exceed the logic diffusion bands"
+    # the poly bar keeps the analog cells' poly-to-diffusion space (their gate head to their
+    # diffusion's furthest edge) from both diffusions
+    po_od = GATE_TRACK["n"] - PO_HEAD - OD_LIMIT["n"][1]
+    gc = _on_grid((ny1 + py0) // 2)
+    assert ny1 <= STD_NW <= py0 and py0 - ny1 >= 2 * (PO_HEAD + po_od), f"{name}: no room between the diffusions"
+    pitch = getattr(_tech, "PITCH", 200)
+    ya = round(gc / pitch) * pitch  # the input's M2 track, through the gate pad
+    yy = ya - pitch  # the output's, below it, across the drain strips
+    pad = (min(gc - GATE_PAD, ya - BAR_END), max(gc + GATE_PAD, ya + BAR_END))
+    gap = max(M1_SPACE, getattr(_tech, "LINE_END", 0))
+    # the gate pad's M1 meets the M1 area, widened about its contact (its height is the gap's)
+    pad_hw = max(M1_HW, _up(-(-M1_AREA // (pad[1] - pad[0])), 2 * MFG_GRID) // 2)
+    assert p - pad_hw - M1_HW >= M1_SPACE, f"{name}: the gate pad crowds the first drain strip"
+
+    def contacts(pol: str, net: str) -> list[int]:
+        """A strip's contact centres on its diffusion; a source strip's away from the gate pad."""
+        if pol == "n":
+            top = ny1 - CO_OD_SIDE
+            if net == vss:
+                top = min(top, pad[0] - gap - M1_CO_END)
+            return list(range(ny0 + CO_OD_END + CO // 2, top - CO // 2 + 1, CO_PITCH))
+        bot = py0 + CO_OD_SIDE
+        if net == vdd:
+            bot = max(bot, pad[1] + gap + M1_CO_END)
+        return list(range(py1 - CO_OD_END - CO // 2, bot + CO // 2 - 1, -CO_PITCH))
+
+    # the outline: the diffusions keep EDGE to the sides, the M2 bars M2_EDGE; dummy poly PO_EDGE
+    od_x = (strips[0] - _od_ext(l), strips[-1] + _od_ext(l))
+    drains = [x for x, pin in zip(strips, seq) if pin == "D"]
+    # the gate contacted over every source strip the poly bar crosses (all but a closing one): no
+    # stretch of poly between contacts longer than two strips, however many fingers
+    taps = [x for x, pin in zip(strips[:-1], seq) if pin == "S"]
+    bar_a = (strips[0] - BAR_END, max(taps[-1] + BAR_END, strips[0] - BAR_END + M2_MIN_LEN))
+    lo_y = min(drains) - BAR_END
+    bar_y = (lo_y, max(max(drains) + BAR_END, lo_y + M2_MIN_LEN))
+    dummies = []
+    if PO_DUMMY:
+        for edge, out in ((strips[0] + _gate_off(l), -1), (strips[-1] - _gate_off(l), 1)):
+            pos = edge
+            for sp, w in PO_DUMMY[_long(l)]:
+                x0 = pos + out * sp
+                x0, x1 = min(x0, x0 + out * w), max(x0, x0 + out * w)
+                pos = x0 if out < 0 else x1
+                dummies.append((x0, x1))
+    lo = min(od_x[0] - EDGE, bar_a[0] - M2_EDGE, bar_y[0] - M2_EDGE, *(d[0] - PO_EDGE for d in dummies))
+    hi = max(od_x[1] + EDGE, bar_a[1] + M2_EDGE, bar_y[1] + M2_EDGE, *(d[1] + PO_EDGE for d in dummies))
+    width = _up(hi - lo, grid)
+    sh = _on_grid((width - (hi - lo)) // 2) - lo
+    if wide_input:
+        bar_a = (M2_EDGE - sh, width - M2_EDGE - sh)
+    c = Cell(name, width)
+    if outline:
+        for tx in taps:
+            c.add("M1", tx + sh - pad_hw, pad[0], tx + sh + pad_hw, pad[1], a)
+        return c
+
+    # rails, taps and the standard cells' profile across the whole cell
+    for yr, net in ((0, vss), (H, vdd)):
+        c.add("M1", 0, yr - RAIL, width, yr + RAIL, net, "pin" if net else "drawing")
+        if RAIL_OD:
+            c.add("OD", 0, yr - TAP_OD, width, yr + TAP_OD)
+        for x in range(TAP_PITCH // 2, width - M1_HW, TAP_PITCH):
+            if RAIL_TAPS:
+                c.add("CO", x - CO // 2, yr - CO // 2, x + CO // 2, yr + CO // 2, net)
+                c.add("M1", x - M1_HW, yr - RAIL, x + M1_HW, yr + RAIL, net, "stub")
+    c.add(RAIL_IMPLANTS[0], -IMP_OH, -PP_TAP, width + IMP_OH, PP_TAP)
+    c.add(RAIL_IMPLANTS[1], -IMP_OH, NP_TAP, width + IMP_OH, 2 * H - NP_TAP)
+    for layer, half in RAIL_MARKS:
+        for yr in (0, H):
+            c.add(layer, -IMP_OH, yr - half, width + IMP_OH, yr + half)
+    c.add("NP", 0, PP_TAP, width, STD_NW)
+    c.add("PP", 0, STD_NW, width, NP_TAP)
+    c.add("NW", 0, STD_NW, width, NW_TOP)
+    c.add("NW", -NW_OH, NW_N, width + NW_OH, NW_TOP)
+    for layer in VT["n"]:
+        c.add(layer, 0, VT_BAND[0], width, STD_NW)
+    for layer in VT["p"]:
+        c.add(layer, 0, STD_NW, width, VT_BAND[1])
+    c.add("BND", 0, 0, width, H)
+
+    # diffusions, strips and their contacts
+    c.add("OD", od_x[0] + sh, ny0, od_x[1] + sh, ny1)
+    c.add("OD", od_x[0] + sh, py0, od_x[1] + sh, py1)
+    for x, pin in zip(strips, seq):
+        x += sh
+        cn, cp = contacts("n", vss if pin == "S" else y), contacts("p", vdd if pin == "S" else y)
+        assert cn and cp, f"{name}: no room for the S/D contacts"
+        for cys, net in ((cn, vss if pin == "S" else y), (cp, vdd if pin == "S" else y)):
+            for cy in cys:
+                c.add("CO", x - CO // 2, cy - CO // 2, x + CO // 2, cy + CO // 2, net)
+        if pin == "S":  # each source in M1 to its own rail
+            c.add("M1", x - M1_HW, 0, x + M1_HW, max(cn) + CO // 2 + M1_CO_END, vss)
+            c.add("M1", x - M1_HW, min(cp) - CO // 2 - M1_CO_END, x + M1_HW, H, vdd)
+        else:  # a drain across the gap, from the NMOS contacts to the PMOS contacts
+            c.add("M1", x - M1_HW, min(cn) - CO // 2 - M1_CO_END, x + M1_HW, max(cp) + CO // 2 + M1_CO_END, y)
+            c.add("V1", x - V1_H, yy - V1_H, x + V1_H, yy + V1_H, y)
+
+    # gates: poly across both diffusions, the bar in the gap out to the contact over the first strip
+    cx = strips[0] + sh
+    for gx in gates:
+        c.add("PO", gx + sh - l // 2, ny0 - PO_ENDCAP, gx + sh + l // 2, py1 + PO_ENDCAP)
+    c.add("PO", cx - PO_BAR_END, gc - PO_HEAD, max(gates) + sh + l // 2, gc + PO_HEAD)
+    for tx in taps:
+        tx += sh
+        c.add("CO", tx - CO // 2, gc - CO // 2, tx + CO // 2, gc + CO // 2, a)
+        c.add("M1", tx - pad_hw, pad[0], tx + pad_hw, pad[1], a)
+        c.add("V1", tx - V1_H, ya - V1_H, tx + V1_H, ya + V1_H, a)
+    for x0, x1 in dummies:  # as tall as the gates
+        c.add(PO_DUMMY_LAYER, x0 + sh, ny0 - PO_ENDCAP, x1 + sh, py1 + PO_ENDCAP)
+    po = [r for r in c.rects if r.layer in ("PO", PO_DUMMY_LAYER)]
+    for is_long, layer in PO_MARK.items():
+        if _long(l) == is_long:
+            c.add(layer, min(r.x0 for r in po), min(r.y0 for r in po), max(r.x1 for r in po), max(r.y1 for r in po))
+    if GATE_MARK:  # the library's marker over its PMOS half
+        c.add(GATE_MARK["layer"], 0, STD_NW, width, GATE_MARK["top"])
+
+    # the pins: the input bar through the gate pad, the output bar across the drain strips
+    c.add("M2", bar_a[0] + sh, ya - M2_HW, bar_a[1] + sh, ya + M2_HW, a, "pin")
+    c.add("M2", bar_y[0] + sh, yy - M2_HW, bar_y[1] + sh, yy + M2_HW, y, "pin")
     return c
 
 

@@ -1,6 +1,6 @@
 # ruff: noqa  -- an ALIGN PDK generator (ALIGN style), run in ALIGN's own Python
-"""The poly resistor with ALIGN's layout API: ``ResUnit`` draws the stems resistor row cell
-(``flow/layout/stems/rescell.py``: its body, heads, contacts, implant, markers and pins, from the
+"""The poly resistor with ALIGN's layout API: ``ResUnit`` draws the resistor row cell
+(``flow/layout/rows/rescell.py``: its body, heads, contacts, implant, markers and pins, from the
 PDK's ``tech.RES``) on the row-cell canvas (``mos.RowCanvas``: metals as wires, contacts and vias
 as vias, the other layers as regions, the markers on their own layers, ``make_pdk.py``).
 

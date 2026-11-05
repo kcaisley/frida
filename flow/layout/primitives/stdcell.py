@@ -8,7 +8,7 @@ real cell (the library GDS, ``paths.STD_GDS``) into the abstract after place and
 
 The cell is wrapped for free placement (``iso`` in the access table): pads on both sides
 carry the standard cells' implant and well profile up to the outline (``rowcell.std_pad``),
-so analog row cells and standard cells abut in any order. With STEMS_STD_DENSE set (a
+so analog row cells and standard cells abut in any order. With ROWS_STD_DENSE set (a
 floorplan that keeps standard cells in rows of their own) the dense wrapper is used:
 the library filler on the left to the placement grid. Like the
 analog row cells, standard cells are placed on the two-row grid, flipped on odd rows.
@@ -51,7 +51,7 @@ class StdCellGenerator(RowCanvas):
         data = ACCESS[self.cell]
         assert len(ports) == len(data["pins"]), f"{self.cell}: ports {ports} vs {data['pins']}"
         net = dict(zip(data["pins"], ports))
-        frame = data if os.environ.get("STEMS_STD_DENSE") else data["iso"]
+        frame = data if os.environ.get("ROWS_STD_DENSE") else data["iso"]
         w = frame["padded"]  # dense: library fillers complete the placement grid, see align/post.py
         c = rowcell.Cell(self.cell, w)
         vdd, vss = STD_SUPPLY

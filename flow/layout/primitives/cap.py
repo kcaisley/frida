@@ -3,4 +3,4 @@
 
 class CapGenerator:
     def __init__(self, *args, **kwargs):
-        raise NotImplementedError("the row-cell ALIGN PDK (flow/layout/align/pdk) draws no capacitors")
+        raise NotImplementedError("the row-cell ALIGN PDK (flow/layout/primitives) draws no capacitors")

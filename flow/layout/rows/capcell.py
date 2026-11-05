@@ -1,9 +1,9 @@
 """Fringe MOM capacitors' geometry from the PDK's ``tech`` values (``RULES``, ``LAYERS``,
 ``MFG_GRID``, ``MOM_LAYERS``), read when a function is called, in integer nanometres; a PDK names
-no capacitor device. ALIGN's generators (``flow/layout/align/pdk/mom.py``) draw them:
+no capacitor device. ALIGN's generators (``flow/layout/primitives/mom.py``) draw them:
 
 - test structures (``mom_geometry``): the dimensions of the three FMOM styles on the top 1-3
-  ``MOM_LAYERS`` (``MomUnit``). Their extraction (``flow.momcap``) gives the PDK's capacitance model;
+  ``MOM_LAYERS`` (``MomUnit``). Their extraction (``flow.layout.devices.momcap``) gives the PDK's capacitance model;
 - the CDAC (``difference_geometry``, ``caparray_plan``): difference units of a weight family over a
   shield mesh, with two-cut access landings down to the route metal, side by side sharing their
   ring walls (``DifferenceUnit``), and the array's buses, top-plate stack and shield taps
@@ -32,6 +32,14 @@ def _rules(layer: str) -> dict:
 
 # ---------------------------------------------------------------------------------------------
 # test structures
+
+
+def mom_marks(layers: int) -> list[str]:
+    """The PDK's MOM recognition layers a unit on its top ``layers`` metals draws: where its LVS
+    reads such a unit as a device (``tech.MOM_RECOGNIZED_LAYERS``), none elsewhere (plain metal)."""
+    if layers not in getattr(tech, "MOM_RECOGNIZED_LAYERS", ()):
+        return []
+    return [name for name in ("MOM_RECOG", "MOM_RECOG_INNER", "MOM_RECOG_SHIELD") if tech.LAYERS.get(name)]
 
 
 def mom_geometry(layers: int, space: int = 0) -> dict:
@@ -80,9 +88,54 @@ def mom_geometry(layers: int, space: int = 0) -> dict:
         "end_gap": _snap(end_gap, grid),
         "via_cut": via_cut,
         "via_end": via_end,
-        # a finger holds its via column at the end
-        "min_length": _snap(max(width, via_cut + 2 * via_end), grid),
+        # a finger holds its via column at the end and meets its metals' minimum area
+        "min_length": _snap(
+            max(width, via_cut + 2 * via_end, -(-max(rule.get("area", 0) for rule in rules) // width)), grid
+        ),
     }
+
+
+def mom_access(layers: int, space: int = 0) -> dict:
+    """An array unit's access to its inner plates (nm), on the shield's metal inside the ring: a
+    strip under each inner finger as wide as it, the cut between them, the strip's spacing to the
+    shield ring alongside and at its end (both the finger's own, ``mom_geometry``, where the access
+    metal allows them), and the strip's least length (its cut's end enclosures, its metal's area)."""
+
+    g = mom_geometry(layers, space)
+    metal, width = g["shield"], g["width"]
+    rule, via = tech.RULES[f"M{metal}"], tech.RULES.get(f"V{metal}", {})
+    if "enclosure" not in via:
+        raise ValueError(f"the PDK has no V{metal} enclosure rule (layout/tech.py RULES)")
+    cut, (end, side) = via["cut"], via["enclosure"][:2]
+    if width < max(rule["width"], cut + 2 * side):
+        raise ValueError(f"a {width} nm finger is too narrow for its M{metal} access and its V{metal} cut")
+    beside = max([rule["space"], *(gap for gap, above, _run in rule.get("parallel_space", ()) if width > above)])
+    at_end = max([rule["space"], *(gap for gap, below, _ext in rule.get("end_of_line", ()) if width < below)])
+    if g["space"] < beside or g["end_gap"] < at_end:
+        raise ValueError(f"the ring's spacing is below M{metal}'s: no access strip fits inside it")
+    return {
+        "metal": metal,
+        "via_cut": cut,
+        "via_end": end,
+        "min_length": _snap(max(cut + 2 * end, -(-rule.get("area", 0) // width)), g["grid"]),
+    }
+
+
+def mom_channel(layers: int, space: int = 0) -> dict:
+    """An array unit's channels (nm) on the shield's metal (``MomUnit._channels``): its bar's height,
+    so that the shortest bar (a lone piece at the array's edge: from a spacing past the edge's wall
+    to half a spacing short of its other wall's centre) meets the metal's area; the spacing beside a
+    bar that tall (``wide``) and at its ends (``space``)."""
+
+    g, a = mom_geometry(layers, space), mom_access(layers, space)
+    rule, w = tech.RULES[f"M{a['metal']}"], g["width"]
+    outer = 3 * w + 2 * g["space"]
+    shortest = (outer - w // 2 - rule["space"] // 2) - (w + rule["space"])
+    bar = _snap(max(a["via_cut"] + 2 * a["via_end"], -(-rule.get("area", 0) // shortest)), 2 * g["grid"])
+    if any(bar < below for _gap, below, _ext in rule.get("end_of_line", ())):
+        raise ValueError(f"a {bar} nm bar meets M{a['metal']}'s line-end rule: no channel fits a unit")
+    wide = max([rule["space"], *(gap for gap, above, _run in rule.get("parallel_space", ()) if bar > above)])
+    return {**a, "space": rule["space"], "wide": wide, "bar": bar, "area": rule.get("area", 0)}
 
 
 # ---------------------------------------------------------------------------------------------

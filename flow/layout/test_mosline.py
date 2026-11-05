@@ -1,10 +1,10 @@
-"""A netlist's MOS widths in both PDK conventions (``flow/layout/stems/mosline.py``), without a PDK."""
+"""A netlist's MOS widths in both PDK conventions (``flow/layout/rows/mosline.py``), without a PDK."""
 
 from __future__ import annotations
 
 import pytest
 
-from flow.layout.stems import mosline
+from flow.layout.rows import mosline
 
 # the same device, 8 fingers of 500 nm, as each convention writes it
 TOTAL = "Mpair d g s b nch w=4000n l=180n nf=8 m=1"

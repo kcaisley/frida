@@ -1,4 +1,4 @@
-"""Tests for the row designs' cells and finishing steps (flow/layout/stems/netcells.py)."""
+"""Tests for the row designs' cells and finishing steps (flow/layout/rows/netcells.py)."""
 
 import pytest
 

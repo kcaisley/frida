@@ -214,9 +214,20 @@ def technology(pdk: str) -> tuple[dict, dict]:
     return kpex, joins
 
 
-def run_layout_pex(pdk: str, gds_path: Path, layout_top: str, output_stem: str, run_dir: Path) -> Path:
-    """Extract ``layout_top`` of ``gds_path`` in ``pdk`` by FasterCap, in ``run_dir/kpex/``: the
-    Spectre netlist of its nets' capacitances (``<output_stem>.pex.netlist``)."""
+def run_layout_pex(
+    pdk: str,
+    gds_path: Path,
+    layout_top: str,
+    output_stem: str,
+    run_dir: Path,
+    tolerance: float = TOLERANCE,
+    texts: list[tuple[str, int, int, str]] = (),
+) -> Path:
+    """Extract ``layout_top`` of ``gds_path`` in ``pdk`` by FasterCap to its relative ``tolerance``
+    (``TOLERANCE``: a unit's, the arrays' ratios; looser for a block's parasitics), in
+    ``run_dir/kpex/``: the Spectre netlist of its nets' capacitances (``<output_stem>.pex.netlist``).
+    ``texts``: labels to add, (conductor, x, y in database units, name), for nets the layout leaves
+    unlabelled."""
 
     work = (run_dir / "kpex").resolve()
     work.mkdir(parents=True, exist_ok=True)
@@ -231,7 +242,8 @@ def run_layout_pex(pdk: str, gds_path: Path, layout_top: str, output_stem: str, 
         "out_dir": str(work),
         "netlist": str(netlist),
         "fastercap": str(FASTERCAP),
-        "tolerance": TOLERANCE,
+        "tolerance": tolerance,
+        "texts": [list(text) for text in texts],
         "mesh": MESH,
         "galerkin": True,
         "k_void": K_VOID,

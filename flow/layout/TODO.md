@@ -16,7 +16,7 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
   - [x] laygo: both comparators in all four PDKs (with each design's templates)
   - [x] ALIGN: both comparators in tsmc65, ihp130, tower180, and tsmc65 frida1 with the guard ring
     (tsmc28 fails, see below)
-  - [x] standard-cell access points (`build/layout/stems/*_access.json`)
+  - [x] standard-cell access points (`build/layout/rows/*_access.json`)
   - [x] caparray: the three tsmc65 targets (GDS and geometry manifest); no other PDK generates one
 - [x] 1. Rule deck into `tech.py`: per-layer table for all metals and vias, layer map, DBU and grid;
   `rule_deck()` callers (caparray, ringfmom, tsmc65 signoff) read it; stems constants defined from it.
@@ -136,7 +136,7 @@ Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`
 - [x] Row routers (cIcCreator's `rowroute`, laygo's script): an M2 piece keeps the M2 space to a
   separate piece of its own net too, and laygo's branches to pins on the next, half-pitch pin track
   (tower180: a pin bar stretched to a trunk ran within 200 nm of the same net's pin on the next track).
-- [x] ALIGN's MOS primitives as ALIGN chooses them (`align/pdk/mos.py`, 2026-10-15): the array
+- [x] ALIGN's MOS primitives as ALIGN chooses them (`primitives/mos.py`, 2026-10-15): the array
   (`x_cells`, `y_cells`, ALIGN's own variants in `gen_param.py`) and the pattern (common centroid,
   interdigitated, ratio, non common centroid, `exact_patterns`), each unit's device as ALIGN's mock
   generator assigns it, drawn by the row-cell engine (`rowcell.mos_array`: any finger order of one

@@ -4,7 +4,7 @@ Reads a flat SPICE netlist (MOS lines with w and nf, w total or per finger as th
 it: mosline.py; X lines naming a library standard cell) and draws every instance as a fixed cell
 with its nets already named: transistors through rowcell.mos, standard cells as the library cell
 plus the VIA1 / M2 pin bars at their access points (stdcell_access.py). ALIGN draws the same cells
-through its own PDK (flow/layout/align), and post.py finishes its layouts with these. The PDK's layout directory
+through its own PDK (flow/layout), and post.py finishes its layouts with these. The PDK's layout directory
 (``tech``, ``paths``) goes on the path ahead of this one.
 
     netlist = parse("build/layout/netlists/comp_frida1_stdcells.sp")
@@ -72,7 +72,7 @@ def align_access(frame: dict) -> tuple[dict[str, tuple], list[tuple[int, int, in
     it (the pin ALIGN routes to, touching the pad), and a keep-out on the track on the other side,
     which the pad touches (wires there must end an M2 space past it). The sides are chosen so that
     no bar comes near another pin's metal or keep-out. ``{pin: (pad, bar)}``, ``(None, None)`` for
-    a pin with no free side (align/pdk/stdcell.py lifts it to an M3 stub, with keep-outs along the
+    a pin with no free side (primitives/stdcell.py lifts it to an M3 stub, with keep-outs along the
     whole bar on both tracks), and the keep-outs. Pins on the M2 tracks get ``(None, bar)``: their
     bar, longer where it reaches a second M3 grid point that way. align/post.py removes the keep-outs
     again and draws the pads of the pins between the tracks."""
@@ -154,54 +154,10 @@ class Inst:
         return "p" if self.model.lower() == MODELS["p"].lower() else "n"
 
 
-def split(src: str, parts: dict[str, int]) -> str:
-    """``mosline.split`` in the bound PDK's width convention: a floorplan's ``split``."""
-    return mosline.split(src, parts, W_PER_FINGER)
-
-
 def per_finger(src: str) -> str:
     """``mosline.per_finger`` in the bound PDK's width convention: each MOS width per finger and
     all its fingers in nf (as ALIGN reads ``w`` and ``nf``)."""
     return mosline.per_finger(src, W_PER_FINGER)
-
-
-def floorplan_netlist(floorplan: str | Path, pdk: str, netlist: str | Path | None = None) -> tuple[str, str]:
-    """A floorplan's design name (its file name) and its netlist for ``pdk``, with its ``split``
-    applied. The netlist is ``netlist`` where given (a runner's own), else the floorplan's
-    ``netlist`` path with ``{pdk}`` filled in."""
-
-    floorplan = Path(floorplan)
-    fp = json.loads(floorplan.read_text())
-    path = Path(netlist) if netlist else floorplan.parent / fp["netlist"].format(pdk=pdk)
-    src = path.read_text()
-    check_groups(fp, {f[0] for f in map(str.split, src.splitlines()) if f and f[0][0] in "MmXx"})
-    return floorplan.stem, split(src, fp.get("split", {}))
-
-
-def check_groups(fp: dict, devices: set[str]) -> None:
-    """Check a floorplan's ``groups`` (ALIGN's primitives, ``<kind>_<n>`` -> devices): every
-    device is in the netlist (``devices``: its instance names) and in one group only, and a
-    group's devices sit in one row or, split, each part in one row. No ``groups``: valid."""
-
-    parts = fp.get("split", {})
-    row_of = {cell: k for k, row in enumerate(fp["rows"]) for cell in row}
-    owner: dict[str, str] = {}
-    for group, members in fp.get("groups", {}).items():
-        for dev in members:
-            if dev not in devices:
-                raise ValueError(f"group {group}: {dev} is not in the netlist")
-            if dev in owner:
-                raise ValueError(f"{dev} is in groups {owner[dev]} and {group}")
-            owner[dev] = group
-        n = {parts.get(dev, 1) for dev in members}
-        if len(n) != 1:
-            raise ValueError(f"group {group}: its devices are split into different numbers of parts")
-        n = n.pop()
-        for k in range(n):
-            cells = [dev if n == 1 else f"{dev}_{chr(ord('a') + k)}" for dev in members]
-            rows = {row_of.get(cell) for cell in cells}
-            if None in rows or len(rows) != 1:
-                raise ValueError(f"group {group}: {', '.join(cells)} are not placed in one row")
 
 
 def parse(src: str | Path) -> tuple[str, list[str], list[Inst]]:

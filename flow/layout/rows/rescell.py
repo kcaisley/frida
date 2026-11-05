@@ -13,9 +13,6 @@ bottom), the resistor runs along the row at mid height:
 The body's width ``w`` is across the row. The PDK's resistor is ``tech.RES``:
 
     model      its device (the LVS and simulation model name)
-    sheet      sheet resistance of the body (ohm / square)
-    dw         the model's width reduction (nm)
-    end        both ends' resistance times the width (ohm um)
     width      narrowest body (nm)
     length     shortest body (nm, optional)
     markers    {layer: (along, across)}: the silicide block and markers over the body, past its
@@ -31,7 +28,6 @@ The body's width ``w`` is across the row. The PDK's resistor is ``tech.RES``:
     rows       2 where the resistor needs two rows (optional)
     bulk       True where the model has a third terminal, the substrate (optional)
     sim_model  the simulation library's name for it, where that differs from the LVS name (optional)
-    lvs_sheet  the sheet resistance the LVS deck compares, where it is not the model's (optional)
     frame_markers  region layers over the whole row frame, the rails' marks dropped (optional)
     rows       0: an island of its own (``island``) where the PDK confines the resistor to a region
                the rails cannot share (optional)
@@ -39,7 +35,7 @@ The body's width ``w`` is across the row. The PDK's resistor is ``tech.RES``:
                (ohm), w and l (um) (optional: where LVS of it is verified), and cdl_stub, a
                subcircuit the source must define for it
 
-``res_value`` is the resistance the model gives a drawn body.
+Its resistance is the kit's polyres table's (``flow.layout.devices.polyres``), measured on its model.
 """
 
 from __future__ import annotations
@@ -52,14 +48,6 @@ from tech import PITCH
 
 def _up(value: int, grid: int) -> int:
     return -(-value // grid) * grid
-
-
-def res_value(w: int, l: int) -> float:
-    """The model's resistance (ohm) of a body ``w`` wide and ``l`` long (nm)."""
-
-    res = tech.RES
-    width_um = (w - res["dw"]) / 1000
-    return res["sheet"] * l / (w - res["dw"]) + res["end"] / width_um
 
 
 def res_length(w: int, l: int) -> int:
@@ -247,9 +235,10 @@ def _island(spec: dict, w: int, l: int, plus: str, minus: str, vss: str) -> Cell
 
 
 def res_info(w: int, l: int) -> dict:
-    """One resistor row cell's name, drawn width and length (nm, a short body lengthened to its
-    markers' area) and modelled resistance (ohm); ALIGN draws the cell (``pdk/res.py``'s ``ResUnit``)."""
+    """One resistor row cell's name and drawn width and length (nm, a short body lengthened to its
+    markers' area); ALIGN draws the cell (``primitives/res.py``'s ``ResUnit``). Its resistance is
+    the kit's polyres table's (``flow.layout.devices.polyres``)."""
 
     name = res(w, l).name
     drawn_w, drawn_l = (int(part[1:]) for part in name.split("_")[1:])
-    return {"top": name, "w": drawn_w, "l": drawn_l, "r": res_value(drawn_w, drawn_l)}
+    return {"top": name, "w": drawn_w, "l": drawn_l}

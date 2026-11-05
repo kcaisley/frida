@@ -4,7 +4,7 @@ ALIGN cannot run in frida's environment (it needs ``pydantic<2`` and its compile
 router): it runs from its own install, ``ALIGN_HOME`` (default
 /local/kcaisley/tools/ALIGN-public), with that install's Python, as a subprocess. Its
 ``LD_LIBRARY_PATH`` starts with the directory of the install's ``libOsiCbc.so.3`` (under
-``_skbuild``). A design with a Floorplan constraint runs with ``STEMS_STD_DENSE=1``: the
+``_skbuild``). A design with a Floorplan constraint runs with ``ROWS_STD_DENSE=1``: the
 generators in the PDK directory (align/pdk) then draw standard cells for rows of their own.
 """
 
@@ -14,11 +14,38 @@ import json
 import os
 import signal
 import subprocess
+import sys
+import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 ALIGN_HOME = Path(os.environ.get("ALIGN_HOME", "/local/kcaisley/tools/ALIGN-public"))
+# ALIGN's output on the terminal as well as in its log, as it runs (``python -m flow layout`` sets it
+# for the instances it lays out one at a time; a sweep's parallel layouts keep it in their logs)
+ECHO = False
+# the placer's annealing steps for a design with a floorplan (ALIGN's default 10000): it anneals only
+# where the floorplan leaves it a choice, and found its first placement within one step on the capdac
+FLOORPLAN_SA_ITERATIONS = 100
+
+
+def align_env() -> dict[str, str]:
+    """The environment ALIGN's Python runs in: this one, the install's placer library first on
+    ``LD_LIBRARY_PATH``."""
+    lib = next((ALIGN_HOME / "_skbuild").rglob("libOsiCbc.so.3"), None)
+    if lib is None:
+        raise FileNotFoundError(f"no libOsiCbc.so.3 under {ALIGN_HOME / '_skbuild'}: is ALIGN built (ALIGN_HOME)?")
+    env = dict(os.environ)
+    env["LD_LIBRARY_PATH"] = os.pathsep.join(filter(None, (str(lib.parent), env.get("LD_LIBRARY_PATH"))))
+    return env
+
+
+def _echo(stream, out) -> None:
+    for line in stream:
+        out.write(line)
+        out.flush()
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def _schematic2layout(design_dir: Path, pdk_dir: Path, work: Path, args: list[str], env: dict[str, str]) -> None:
@@ -47,10 +74,21 @@ def _schematic2layout(design_dir: Path, pdk_dir: Path, work: Path, args: list[st
     limit = float(os.environ["ALIGN_TIMEOUT"]) if os.environ.get("ALIGN_TIMEOUT") else None
     with log.open("w") as out:
         process = subprocess.Popen(
-            command, cwd=work, env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True
+            command,
+            cwd=work,
+            env=env,
+            stdout=subprocess.PIPE if ECHO else out,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            text=ECHO,
         )
+        echo = threading.Thread(target=_echo, args=(process.stdout, out), daemon=True) if ECHO else None
+        if echo:  # each line to the log and the terminal as ALIGN writes it
+            echo.start()
         try:
             process.wait(timeout=limit)
+            if echo:
+                echo.join(timeout=10)  # its last lines, before the log closes
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait()
@@ -82,18 +120,17 @@ def run_align(
     design_dir, pdk_dir, work = design_dir.resolve(), pdk_dir.resolve(), work.resolve()
     name = design_dir.name
     floorplanned = '"Floorplan"' in (design_dir / f"{name}.const.json").read_text()
-    lib = next((ALIGN_HOME / "_skbuild").rglob("libOsiCbc.so.3"), None)
-    if lib is None:
-        raise FileNotFoundError(f"no libOsiCbc.so.3 under {ALIGN_HOME / '_skbuild'}: is ALIGN built (ALIGN_HOME)?")
-    env = dict(os.environ)
-    env["LD_LIBRARY_PATH"] = os.pathsep.join(filter(None, (str(lib.parent), env.get("LD_LIBRARY_PATH"))))
-    env.pop("STEMS_STD_DENSE", None)
+    env = align_env()
+    env.pop("ROWS_STD_DENSE", None)
     if floorplanned:
-        env["STEMS_STD_DENSE"] = "1"  # standard cells in rows of their own
+        env["ROWS_STD_DENSE"] = "1"  # standard cells in rows of their own
     args = [
         *(["--router", router] if router else []),
         *(["--flow_stop", flow_stop] if flow_stop else []),
         *(["--seed", str(seed)] if seed else []),  # the placer's random seed (ALIGN's default 0)
+        # a floorplan states the placement: where it leaves the placer a choice (blocks over others,
+        # Stackup, in no order against them) a short anneal suffices, not ALIGN's 10000 steps
+        *(["--placer_sa_iterations", str(FLOORPLAN_SA_ITERATIONS)] if floorplanned else []),
     ]
     _schematic2layout(design_dir, pdk_dir, work, args, env)
     return work

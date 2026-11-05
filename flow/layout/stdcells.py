@@ -10,7 +10,7 @@ transistors' common prefix (``Mbuf1_outp_n``, ``Mbuf1_outp_p`` -> ``Xbuf1_outp``
 
 It works on SPICE text: the netlist (one flat subcircuit) and the library's subcircuits, their
 MOS ``w`` the total width of the fingers or, with ``w_per_finger`` (the PDK's convention,
-``stems/mosline.py``), one finger's.
+``rows/mosline.py``), one finger's.
 """
 
 from __future__ import annotations

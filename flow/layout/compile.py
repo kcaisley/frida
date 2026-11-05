@@ -5,11 +5,11 @@ tools only, its progress in ``status.json`` as it goes.
 
 The job directory holds ``request.json`` (the netlist as written, the PDK, the style). The stages:
 the netlist check (``flow.layout.lint``) and its schematic (``flow.util.netlist2image``); ALIGN on
-its own (``flow.layout.align.build``, no floorplan: constraints, primitives, placement, routing,
+its own (``flow.layout.build``, no floorplan: constraints, primitives, placement, routing,
 followed in its log, then the GDS its post step finishes); DRC by gdscheck, with its own full deck
 of an open PDK (``GDSCHECK_PROCESSES``, about a second) or else the repo's precheck; LVS by the PDK's KLayout deck
 (``pdk.<pdk>.klayout.lvs``, or the approximate ``klayout_lvs``) against the netlist with its
-library cells (``pdk/<pdk>/netlist/lvs_source.py``); and the viewer's layout (``flow.web.export``).
+library cells (``lvs_source``, the kit's ``netlist/lvs.py`` rules); and the viewer's layout (``flow.web.export``).
 No commercial tool runs. DRC violations and an LVS mismatch are findings, not failures: the job
 fails only when a stage cannot run. SIGTERM cancels it and every process it started.
 """
@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import signal
 import subprocess
 import sys
@@ -29,6 +28,8 @@ import traceback
 from importlib import import_module
 from importlib.util import find_spec
 from pathlib import Path
+
+from flow.layout.signoff import GDSCHECK_PROCESSES, _gdscheck_runs, _lvs_findings, _markers
 
 ROOT = Path(__file__).resolve().parents[2]
 STAGES = (
@@ -51,23 +52,7 @@ ALIGN_MARKS = (
     ("gds", ("router ended", "OUTPUT json at")),
 )
 PERCENT = re.compile(r"\.\.\.\.\. (\d+) %")
-# gdscheck's built-in decks of the open PDKs, by frida's PDK name (``gdscheck list-suites -p <process>``)
-GDSCHECK_PROCESSES = {"ihp130": "ihp-sg13g2"}
-MAX_BOXES = 200  # markers kept per rule
 TIMEOUT_S = 1800  # ALIGN's placer can search for hours on its own
-
-
-def _gdscheck_runs(pdk: str) -> list[tuple[str, str]]:
-    """The gdscheck runs (process, suite) that check a layout in ``pdk``: gdscheck's own full deck of
-    an open PDK (``GDSCHECK_PROCESSES``; its geometry and antenna suites, not density, which a block
-    alone fails), else the repo's precheck (``pdk/<pdk>/gdscheck/pdk.yml``); none without gdscheck."""
-
-    if not shutil.which("gdscheck"):
-        return []
-    if pdk in GDSCHECK_PROCESSES:
-        return [(GDSCHECK_PROCESSES[pdk], "core"), (GDSCHECK_PROCESSES[pdk], "antenna")]
-    deck = ROOT / "pdk" / pdk / "gdscheck/pdk.yml"
-    return [(str(deck), "precheck")] if deck.is_file() else []
 
 
 def checks(pdk: str) -> dict:
@@ -222,47 +207,6 @@ def _watch_align(log: Path, status: Status, stop: threading.Event) -> None:
                 status.set("placement", "running", f"ALIGN: placement {percents[-1]} %", int(percents[-1]) / 100)
 
 
-def _markers(report: Path, top: str) -> dict[str, dict]:
-    """A KLayout report database's violations per rule: count, description and their boxes (µm,
-    in the top cell, through each item's cell references)."""
-
-    from klayout import db, rdb  # db binds the geometry types the report's values return
-
-    del db
-    database = rdb.ReportDatabase("")
-    database.load(str(report))
-    rules: dict[str, dict] = {}
-    for item in database.each_item():
-        category = database.category_by_id(item.category_id())
-        entry = rules.setdefault(category.path(), {"count": 0, "description": category.description, "boxes": []})
-        entry["count"] += 1
-        if len(entry["boxes"]) >= MAX_BOXES:
-            continue
-        cell = database.cell_by_id(item.cell_id())
-        trans = None
-        if cell is not None and cell.name() != top:
-            reference = next(iter(cell.each_reference()), None)
-            trans = reference.trans() if reference is not None else None
-        for value in item.each_value():
-            box = None
-            if value.is_box():
-                box = value.box()
-            elif value.is_polygon():
-                box = value.polygon().bbox()
-            elif value.is_edge():
-                box = value.edge().bbox()
-            elif value.is_edge_pair():
-                box = value.edge_pair().bbox()
-            elif value.is_path():
-                box = value.path().bbox()
-            if box is None:
-                continue
-            if trans is not None:
-                box = box.transformed(trans)
-            entry["boxes"].append([round(box.left, 4), round(box.bottom, 4), round(box.right, 4), round(box.top, 4)])
-    return rules
-
-
 def _drc(pdk: str, gds: Path, top: str, run_dir: Path) -> list[dict]:
     """gdscheck's runs (``_gdscheck_runs``): one diagnostic per violated rule."""
 
@@ -296,31 +240,37 @@ def _violation(engine: str, rule: str, entry: dict) -> dict:
     }
 
 
-def _lvs_findings(report: Path) -> list[str]:
-    """The mismatched nets, devices and pins of a KLayout LVS database, as lines."""
+_SI = {"f": 1e-15, "p": 1e-12, "n": 1e-9, "u": 1e-6, "m": 1e-3, "k": 1e3}
 
-    from klayout import db
 
-    lvs = db.LayoutVsSchematic()
-    lvs.read(str(report))
-    xref = lvs.xref()
-    match = db.NetlistCrossReference.Match
-    lines = []
+def _si(text: str) -> float:
+    """A SPICE number (``0.48u``, ``480n``, ``4.8e-7``)."""
+    text = text.lower().strip("'")
+    return float(text[:-1]) * _SI[text[-1]] if text[-1:] in _SI else float(text)
 
-    def name(thing) -> str:
-        return thing.expanded_name() if thing is not None else "(none)"
 
-    for circuit in xref.each_circuit_pair():
-        for pair in xref.each_net_pair(circuit):
-            if pair.status() != match:
-                lines.append(f"net {name(pair.first())} (layout) / {name(pair.second())} (netlist): {pair.status()}")
-        for pair in xref.each_device_pair(circuit):
-            if pair.status() != match:
-                lines.append(f"device {name(pair.first())} (layout) / {name(pair.second())} (netlist): {pair.status()}")
-        for pair in xref.each_pin_pair(circuit):
-            if pair.status() != match:
-                lines.append(f"pin {name(pair.first())} (layout) / {name(pair.second())} (netlist): {pair.status()}")
-    return lines
+def lvs_source(pdk: str, netlist: Path, dst: Path) -> Path:
+    """The LVS source of a netlist from elsewhere (run bound to ``pdk``): each MOS line as the kit's
+    deck reads it (``pdk/<pdk>/netlist/lvs.py``'s ``mos``, of the device's total width, ``w`` times
+    ``m``; as written where the kit has no rule), after the library text of the cells it calls
+    (the kit's ``library``)."""
+    kit = import_module(f"pdk.{pdk}.netlist.lvs")
+    rule = getattr(kit, "mos", None)
+    lines, cells = [], set()
+    for line in Path(netlist).read_text().splitlines():
+        f = line.split()
+        if f and f[0][0] in "Xx":
+            cells.add(f[-1])
+        if f and f[0][0] in "Mm" and len(f) >= 6 and rule is not None:
+            p = {k.lower(): v for k, _, v in (field.partition("=") for field in f[6:])}
+            device = rule(f[5], _si(p["w"]) * _si(p.get("m", "1")), _si(p["l"]))
+            if device is not None:
+                model, values = device
+                line = " ".join([*f[:5], model, *(f"{k}={round(v * 1e6, 6):g}u" for k, v in values.items())])
+        lines.append(line)
+    Path(dst).parent.mkdir(parents=True, exist_ok=True)
+    Path(dst).write_text(kit.library(cells, set()).rstrip("\n") + "\n" + "\n".join(lines) + "\n")
+    return Path(dst)
 
 
 def _lvs(
@@ -333,7 +283,7 @@ def _lvs(
 
     run_dir.mkdir(parents=True, exist_ok=True)
     source = run_dir / "source.cdl"
-    in_pdk(pdk, f"pdk.{pdk}.netlist.lvs_source", "lvs_source", netlist, source)
+    in_pdk(pdk, "flow.layout.compile", "lvs_source", pdk, netlist, source)
     extra = Path(f"{gds}.extra.sp")
     if extra.exists():
         add_post_devices(pdk, source, extra, cell)
@@ -409,7 +359,7 @@ def run(job_dir: Path) -> None:
                 )
         status.set("check", "done")
 
-        from flow.layout.align.build import build
+        from flow.layout.build import build
 
         os.environ.setdefault("ALIGN_TIMEOUT", str(TIMEOUT_S))
         status.set("constraints", "running", "ALIGN: its PDK and design directories")
@@ -419,7 +369,7 @@ def run(job_dir: Path) -> None:
         )
         watcher.start()
         try:
-            gds = build(pdk, None, netlist, job_dir / "align", name=cell, symmetric=style == "symmetric")
+            gds = build(pdk, netlist, job_dir / "align", name=cell, symmetric=style == "symmetric")
         except Exception as error:  # noqa: BLE001 - ALIGN's failure is the job's finding
             stop.set()
             watcher.join()

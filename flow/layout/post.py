@@ -21,8 +21,8 @@
   ``sub_net`` (a port of its own); ``out.gds.extra.sp`` says so for the LVS source
   (``flow.layout.signoff.add_post_devices``).
 
-Run bound to a PDK (flow/layout/pdkproc.py), with ``STEMS_STD_DENSE`` set as for the ALIGN run;
-flow/layout/align/build.py calls ``post``.
+Run bound to a PDK (flow/layout/pdkproc.py), with ``ROWS_STD_DENSE`` set as for the ALIGN run;
+flow/layout/build.py calls ``post``.
 """
 
 from __future__ import annotations
@@ -83,7 +83,7 @@ def insert_stdcells(layout: kdb.Layout, lib_path: str) -> int:
         if not m or cell.name.endswith("_lib"):
             continue
         name = LIB_NAME[m.group(1).upper()]
-        frame = ACCESS[name] if os.environ.get("STEMS_STD_DENSE") else ACCESS[name]["iso"]
+        frame = ACCESS[name] if os.environ.get("ROWS_STD_DENSE") else ACCESS[name]["iso"]
         views, keep = netcells.align_access(frame)
         keep = set(keep)  # the router's keep-outs (stdcell.py), not metal
         m2 = cell.shapes(layout.layer(*LAYERS["M2"]))
@@ -92,7 +92,7 @@ def insert_stdcells(layout: kdb.Layout, lib_path: str) -> int:
         for pad, bar in views.values():  # the via pads the abstract left out (they would block their bars)
             if pad and bar:
                 m2.insert(kdb.Box(*pad))
-        if not os.environ.get("STEMS_STD_DENSE"):  # isolated wrapper: pads drawn by the generator (stdcell.py)
+        if not os.environ.get("ROWS_STD_DENSE"):  # isolated wrapper: pads drawn by the generator (stdcell.py)
             cell.insert(kdb.CellInstArray(real(name).cell_index(), kdb.Trans(ACCESS[name]["iso"]["offset"], 0)))
         else:  # dense: FILL1 on the left
             off = ACCESS[name]["offset"]
@@ -316,6 +316,120 @@ def supply_straps(layout: kdb.Layout, top: kdb.Cell) -> int:
     return placed
 
 
+def _unit_layers(cell_name: str, units: dict[str, int]) -> int | None:
+    """The plate metals of a MOM unit's cell (``units``: each unit's primitive, upper case, to its
+    ``layers``; ALIGN names a cell after its primitive, ``<NAME>_<n>...``); None for another cell."""
+    name = cell_name.upper()
+    found = [unit for unit in units if name == unit or name.startswith(f"{unit}_")]
+    return units[max(found, key=len)] if found else None  # the longest: fmomcap_2f44_1 before fmomcap_2f4
+
+
+def mom_shields(layout: kdb.Layout, top: kdb.Cell, units: dict[str, int]) -> list[tuple[int, kdb.Region]]:
+    """Before flattening: the shields of the MOM array units placed in ``top`` (``units``: each
+    unit's primitive to its plate metals, ALIGN's record of them, ``flow.layout.build._mom_units``), each on the
+    metal below their plates: its shapes there that no cut up joins to a plate (a channel's bar is
+    a plate's), merged, one polygon to an array of abutting units."""
+    import tech as _tech
+
+    cells: dict[int, list[int]] = {}
+    for cell in layout.each_cell():
+        layers = _unit_layers(cell.name, units)
+        if layers:
+            cells.setdefault(_tech.MOM_LAYERS[-layers] - 1, []).append(cell.cell_index())
+
+    def gather(name: str, within: list[int]) -> kdb.Region:
+        it = top.begin_shapes_rec(layout.layer(*LAYERS[name]))
+        it.unselect_all_cells()
+        it.select_cells(within)
+        return kdb.Region(it).merged()
+
+    return [(metal, gather(f"M{metal}", ids).not_interacting(gather(f"V{metal}", ids))) for metal, ids in cells.items()]
+
+
+def shield_ties(layout: kdb.Layout, top: kdb.Cell, shields: list[tuple[int, kdb.Region]], per_shield: int = 2) -> int:
+    """Tie each MOM shield (``mom_shields``) to VSS where it lies over a row's VSS rail: a stack of
+    cuts from the rail up to the shield, a pad on every metal between, on the M3 grid, where every
+    pad keeps its metal's space from other metal and every cut its cut space; ``per_shield`` stacks
+    a shield, from its lower left. Returns the stacks drawn."""
+    import tech as _tech
+
+    if not shields:  # a design without MOM arrays
+        return 0
+    li = lambda name: layout.layer(*LAYERS[name])
+    top_metal = max(metal for metal, _ in shields)
+    metals = {k: kdb.Region(top.begin_shapes_rec(li(f"M{k}"))).merged() for k in range(1, top_metal + 1)}
+    cuts = {k: kdb.Region(top.begin_shapes_rec(li(f"V{k}"))).merged() for k in range(1, top_metal)}
+    b = kdb.Region(top.begin_shapes_rec(li("BND"))).merged().bbox()
+    rails = kdb.Region()
+    for k in range(b.bottom // rowcell.H, b.top // rowcell.H + 1):
+        if k % 2 == 0:  # VSS lines are the even ones
+            rails.insert(kdb.Box(b.left, k * rowcell.H - rowcell.RAIL, b.right, k * rowcell.H + rowcell.RAIL))
+    rails &= metals[1]
+
+    def pad(k: int, x: int, y: int) -> kdb.Box:
+        rule, cut_below = _tech.RULES[f"M{k}"], _tech.RULES[f"V{k - 1}"]
+        cut_above = _tech.RULES[f"V{k}"]
+        width = max(rule["width"], max(c["cut"] + 2 * c["enclosure"][1] for c in (cut_below, cut_above)))
+        end = max(c["cut"] + 2 * c["enclosure"][0] for c in (cut_below, cut_above))
+        length = max(end, -(-rule.get("area", 0) // width))
+        length += length % 2
+        width += width % 2
+        w, h = (length, width) if k % 2 == 0 else (width, length)  # along the metal's direction
+        return kdb.Box(x - w // 2, y - h // 2, x + w // 2, y + h // 2)
+
+    def stack(x: int, y: int, metal: int, shield: kdb.Region) -> list[tuple[str, kdb.Box]] | None:
+        shapes = []
+        for k in range(1, metal):
+            rule = _tech.RULES[f"V{k}"]
+            half = rule["cut"] // 2
+            # on the wide rail EDGE_CUTS cuts a pair apart (as the supply straps), else one
+            xs = [x + (2 * i - (EDGE_CUTS - 1)) * V1_PAIR // 2 for i in range(EDGE_CUTS)] if k == 1 else [x]
+            for cx in xs:
+                cut = kdb.Box(cx - half, y - half, cx + half, y + half)
+                if not (cuts[k] & kdb.Region(cut).sized(rule["space"])).is_empty():
+                    return None
+                shapes.append((f"V{k}", cut))
+        rail_cuts = [box for name, box in shapes if name == "V1"]
+        highest = shapes[-1][1]
+        end = _tech.RULES[f"V{metal - 1}"]["enclosure"][0]
+        if any(not (kdb.Region(c) - metals[1]).is_empty() for c in rail_cuts):
+            return None
+        # the top cut enclosed by the shield by its end enclosure on two opposite sides (sized with
+        # three arguments: two would read as a size and a sizing mode)
+        if all(not (kdb.Region(highest).sized(dx, dy, 2) - shield).is_empty() for dx, dy in ((end, 0), (0, end))):
+            return None
+        for k in range(2, metal):
+            box = (
+                kdb.Box(x - EDGE_PAD[0], y - EDGE_PAD[1], x + EDGE_PAD[0], y + EDGE_PAD[1]) if k == 2 else pad(k, x, y)
+            )
+            if not (metals[k] & kdb.Region(box).sized(_tech.RULES[f"M{k}"]["space"])).is_empty():
+                return None
+            shapes.append((f"M{k}", box))
+        return shapes
+
+    drawn = 0
+    for metal, shield in shields:
+        for piece in shield.each():
+            region, placed = kdb.Region(piece), 0
+            for spot in (region & rails).each():
+                box = spot.bbox()
+                y = box.center().y
+                x0 = -(-box.left // XPITCH) * XPITCH
+                for x in range(x0, box.right + 1, XPITCH):
+                    shapes = stack(x, y, metal, region)
+                    if shapes is None:
+                        continue
+                    for name, shape in shapes:
+                        top.shapes(li(name)).insert(shape)
+                        (cuts[int(name[1:])] if name[0] == "V" else metals[int(name[1:])]).insert(shape)
+                    placed += 1
+                    break
+                if placed >= per_shield:
+                    break
+            drawn += placed
+    return drawn
+
+
 def single_cuts(layout: kdb.Layout, top: kdb.Cell) -> int:
     """A legal cut wherever a via layer's shapes make none (ALIGN's off-grid router drops a cut at
     each of two wires of one net meeting a column a fraction of a track apart, or one cut stretched
@@ -429,19 +543,22 @@ def post(
     ring: bool = False,
     ring_net: str = "vdd",
     sub_net: str = "vsub",
+    mom_units: dict[str, int] | None = None,
 ) -> Path:
-    """Finish ALIGN's GDS ``src`` into ``dst`` (and ``<dst>.extra.sp``); returns ``dst``."""
+    """Finish ALIGN's GDS ``src`` into ``dst`` (and ``<dst>.extra.sp``); returns ``dst``. ``mom_units``:
+    the MOM units the netlist defines, their shields tied to ground (``mom_shields``)."""
 
     src, dst, lib = str(src), str(dst), LIB
     layout = kdb.Layout()
     layout.read(src)
     top = layout.top_cell()
     n_std = insert_stdcells(layout, lib)
+    shields = mom_shields(layout, top, mom_units or {})  # before flattening: by the units' cells
     # rows holding standard cells, from the abstracts' placement
     std_rows = set()
     for inst in top.each_inst():
         m = STD.match(inst.cell.name)
-        if m and os.environ.get("STEMS_STD_DENSE"):  # dense wrappers only
+        if m and os.environ.get("ROWS_STD_DENSE"):  # dense wrappers only
             std_rows.add(round(inst.bbox().center().y / rowcell.H - 0.5))
     fills = {}
     for name, _ in netcells.STD_FILLS:
@@ -458,6 +575,7 @@ def post(
     for g in filled:
         bridge(layout, top, g, block)
     n_straps = supply_straps(layout, top)
+    n_shield = shield_ties(layout, top, shields)
     ring_info = ""
     if ring:
         import ringcell  # the PDK's guard ring
@@ -491,11 +609,18 @@ def post(
         polygons = kdb.Region(shapes).merged().snapped(GRID, GRID)
         shapes.clear()
         shapes.insert(polygons)
-        for text in texts:
+        for text in texts:  # a net's label lower case, as the netlist names it (ALIGN writes it upper)
+            text.string = text.string.lower()
             shapes.insert(text)
     layout.write(dst)
-    print(
-        f"{n_std} standard cells, {n_fill} row gaps filled, {n_straps} supply straps, {n_ties} row-end ties"
-        f"{f', {n_cuts} cuts made single' if n_cuts else ''}{ring_info}"
-    )
+    done = {
+        "standard cells": n_std,
+        "row gaps filled": n_fill,
+        "supply straps": n_straps,
+        "row-end ties": n_ties,
+        **({"shield ties": n_shield} if shields else {}),
+        "cuts made single": n_cuts,
+        **({"guard ring": ring_info.removeprefix(", guard ring ")} if ring else {}),
+    }
+    Path(dst + ".post.json").write_text(json.dumps(done, indent=1) + "\n")
     return Path(dst)

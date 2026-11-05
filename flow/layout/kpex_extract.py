@@ -5,8 +5,9 @@ klayout_pex alone.
     <kpex python> kpex_extract.py <spec.json>
 
 The spec holds the GDS, its top cell, kpex's technology (a JSON file), each conductor's GDS pairs
-and its labels', the vias that join the conductors, FasterCap's executable and settings, and the
-netlist to write. The layout's nets are found by KLayout (each conductor joined to itself, each via
+and its labels', the vias that join the conductors, the texts to add (a net the layout leaves
+unlabelled: its conductor, a point on it and its name), FasterCap's executable and settings, and
+the netlist to write. The layout's nets are found by KLayout (each conductor joined to itself, each via
 to the conductors above and below it, each label naming the net under it), kpex turns them into
 FasterCap's model, and FasterCap's Maxwell matrix becomes a Spectre netlist of capacitors between the
 nets by their labels, a net's capacitance to infinity (its row sum) to ground, ``0``, as an
@@ -30,6 +31,11 @@ def nets(spec: dict) -> kdb.LayoutToNetlist:
     layout = kdb.Layout()
     layout.read(spec["gds"])
     top = layout.cell(spec["top"])
+    # the nets the layout leaves unlabelled, labelled as the router named them: each text on its
+    # conductor's first label layer, at a point of one of the net's own shapes
+    for conductor, x, y, text in spec.get("texts", []):
+        layer, datatype = spec["labels"][conductor][0]
+        top.shapes(layout.layer(layer, datatype)).insert(kdb.Text(text, kdb.Trans(x, y)))
     l2n = kdb.LayoutToNetlist(kdb.RecursiveShapeIterator(layout, top, []))
     regions = {}
     for name, pairs in spec["layers"].items():

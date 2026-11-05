@@ -1,4 +1,4 @@
-"""Tests for ALIGN's post step (flow/layout/align/post.py)."""
+"""Tests for ALIGN's post step (flow/layout/post.py)."""
 
 import pytest
 
@@ -17,7 +17,7 @@ def site_gap_fill() -> tuple[int, bool]:
     import rowcell
     from tech import LAYERS, STD_FILLS
 
-    from flow.layout.align import post
+    from flow.layout import post
 
     site = min(w for _, w in STD_FILLS) // 2
     layout = kdb.Layout()

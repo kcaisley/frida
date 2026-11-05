@@ -1,9 +1,9 @@
 # ruff: noqa  -- adapted from ALIGN's Bulk65nm mock PDK (star imports, ALIGN style)
 """Row-cell MOS primitives for ALIGN: one transistor or a matched pair per cell, one or more standard-cell rows tall.
 
-The geometry is the stems engine's (flow/layout/stems/rowcell.py; pairs such as ALIGN's DP, CMC
+The geometry is the row engine's (flow/layout/rows/rowcell.py; pairs such as ALIGN's DP, CMC
 and CCP are ``rowcell.mos_row``), drawn with
-the PDK's ``tech`` (this generated PDK directory's ``stems.json`` says where it is): VSS rail
+the PDK's ``tech`` (this generated PDK directory's ``rows.json`` says where it is): VSS rail
 and P+ tap at the bottom, VDD rail and N+ tap at the top, so NMOS, PMOS and the library's
 standard cells abut in any order and supplies connect by abutment. Each primitive asks the
 placer for standard-cell rows (``PlaceOnGrid``: y on a two-row pitch, flipped on the odd
@@ -31,9 +31,10 @@ from align.cell_fabric import transformation
 from align.cell_fabric.generators import Region, Via, Wire
 from align.cell_fabric.grid import CenterLineGrid, SingleGrid
 from align.primitive.default.canvas import DefaultCanvas
+from align.cell_fabric.pdk import Pdk
 from align.schema.constraint import OffsetsScalings, PlaceOnGrid
 
-from ._pdk import DATA, STEMS as _STEMS  # the PDK's layout directory (its tech, stems.json) and the engine
+from ._pdk import DATA, ROWS as _ROWS  # the PDK's layout directory (its tech, rows.json) and the engine
 import rowcell
 import tech
 from tech import BAR_END, M2_EDGE, M2_SPACE, XPITCH
@@ -55,8 +56,8 @@ LAYERS = {
     "VTN": "Lvt",
     "VTP": "Slvt",
     "BND": "Boundary",
-    **_STEMS.get("extra", {}),  # the PDK's own markers on spare ALIGN layers (make_pdk.py)
-    **_STEMS.get("annotations", {}),  # the resistor's markers, each on a layer of its own (make_pdk.py)
+    **_ROWS.get("extra", {}),  # the PDK's own markers on spare ALIGN layers (make_pdk.py)
+    **_ROWS.get("annotations", {}),  # the resistor's markers, each on a layer of its own (make_pdk.py)
 }
 X_GRID = 2 * XPITCH  # two M3 pitches: symmetric pairs need widths of equal parity on the placement grid
 
@@ -75,7 +76,7 @@ METALS = ("M1", "M2", "M3")
 
 
 class RowCanvas(DefaultCanvas):
-    """A canvas that draws a stems row cell (``rowcell.Cell``) with ALIGN's generators on the
+    """A canvas that draws a row cell (``rowcell.Cell``) with ALIGN's generators on the
     nanometre grid: each metal rectangle a wire on a centre-line grid of its layer, direction and
     width, each contact and via a via of its size, every other layer (diffusion, poly, implants,
     wells, the boundary) a region. The canvas's generators are ALIGN's for each layer as before
@@ -94,7 +95,7 @@ class RowCanvas(DefaultCanvas):
             "Nwell",
             "Lvt",
             "Slvt",
-            *_STEMS.get("extra", {}).values(),
+            *_ROWS.get("extra", {}).values(),
         ):
             self.addGen(Region(layer.lower(), layer, h_grid=self.nm, v_grid=self.nm))
         self.addGen(
@@ -107,7 +108,7 @@ class RowCanvas(DefaultCanvas):
                 WidthY=self.pdk["V0"]["WidthY"],
             )
         )
-        self.metadata = {"constraints": [] if os.environ.get("STEMS_NO_GRID") else row_constraints()}
+        self.metadata = {"constraints": [] if os.environ.get("ROWS_NO_GRID") else row_constraints()}
 
     def gen_data(self, *, run_drc=True, **kwargs):
         # ALIGN's grid DRC does not apply to these off-grid cells (Calibre signs off); keep an
@@ -214,7 +215,7 @@ def _reach_two_tracks(cell) -> None:
 
 
 def _rows(cell) -> int:
-    """The rows a stems cell spans (its boundary)."""
+    """The rows a row cell spans (its boundary)."""
     return max(r.y1 for r in cell.rects if r.layer == "BND") // rowcell.H
 
 
@@ -223,7 +224,7 @@ class MOSGenerator(RowCanvas):
     chooses the array, ``x_cells`` units per row and ``y_cells`` rows, and the pattern (single
     device, common centroid, interdigitated, ratio, non common centroid, or the Generator
     constraint's ``exact_patterns``); each unit takes its device as the mock generator's
-    ``_addMOSArray`` does. The units' fingers are drawn as stems row cells (``rowcell.mos_grid``),
+    ``_addMOSArray`` does. The units' fingers are drawn as row cells (``rowcell.mos_grid``),
     one row cell per array row, neighbouring units of a device merged into one run."""
 
     def __init__(self, pdk, height, fin, gate, gateDummy, shared_diff, stack, bodyswitch, **kwargs):
@@ -312,3 +313,32 @@ class MOSGenerator(RowCanvas):
         _reach_two_tracks(cell)
         self.draw(cell.rects)
         self.bbox = transformation.Rect(0, 0, cell.width, _rows(cell) * rowcell.H)
+
+
+class CmosInverter(RowCanvas):
+    """A complementary inverter in one row cell (``rowcell.inverter``), a generic primitive: its
+    subcircuit holds its NMOS and PMOS (the netlist's own devices, so LVS sees them) under a
+    ``Generator`` annotation; ``gen_param.py`` reads its fingers from them (``wn``, ``wp`` per
+    finger, ``nf``, ``l``, in nm), and the annotation's parameters (``wide_input``). Pins A, Y,
+    VDD, VSS."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(Pdk().load(DATA / "layers.json"))
+
+    def generate(self, ports, netlist_parameters, netlistdir=None):
+        p = netlist_parameters
+        names = {str(port).upper(): port for port in ports}
+        cell = rowcell.inverter(
+            "INV",
+            int(p["l"]),
+            int(p["wn"]),
+            int(p["wp"]),
+            int(p["nf"]),
+            a=names["A"],
+            y=names["Y"],
+            vss=names["VSS"],
+            vdd=names["VDD"],
+            wide_input=bool(int(p.get("wide_input", 0))),
+        )
+        self.draw(cell.rects)
+        self.bbox = transformation.Rect(0, 0, cell.width, rowcell.H)

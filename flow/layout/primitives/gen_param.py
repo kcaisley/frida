@@ -2,7 +2,7 @@
 """ALIGN's ``gen_param`` for the row-cell PDK: ALIGN's own, its Bulk65nm mock PDK's (loaded from the
 ALIGN install), sizes every primitive and lists its arrays (``x_cells`` x ``y_cells``), with two
 additions: a standard cell is one fixed primitive (stdcell.py, through ALIGN's guard-ring path),
-and where a floorplan fixes the rows (``STEMS_STD_DENSE``) a primitive is one row."""
+and where a floorplan fixes the rows (``ROWS_STD_DENSE``) a primitive is one row."""
 
 import importlib.util
 import os
@@ -20,7 +20,22 @@ _SPEC.loader.exec_module(_ALIGN)
 
 # the PDK's own generators a netlist names (``Generator(name=...)``): ALIGN's generic primitives, each
 # drawn by its class's ``generate(ports, netlist_parameters)`` from its subcircuit's parameters
-_generic = ("MomUnit",)
+_generic = ("MomUnit", "CmosInverter")
+
+
+def _inverter_values(subckt):
+    """A complementary inverter's drawing from its own devices (mos.CmosInverter): the NMOS is the
+    one whose source is VSS; widths per finger (make_design.py writes them so), in nm."""
+    import mosline
+
+    values = {}
+    for e in subckt.elements:
+        q = {k.lower(): str(v) for k, v in e.parameters.items()}
+        side = "n" if str(e.pins.get("S", "")).upper() == "VSS" else "p"
+        values[f"w{side}"] = mosline.nm(q["w"])
+        values["nf"] = int(float(q.get("nf", 1)))
+        values["l"] = mosline.nm(q["l"])
+    return values
 
 
 def gen_param(subckt, primitives, pdk_dir):
@@ -29,7 +44,13 @@ def gen_param(subckt, primitives, pdk_dir):
     generator = (subckt.generator["name"] if "name" in subckt.generator else "") or (named[0] if named else "")
     kind = next((g for g in _generic if g.upper() == generator.upper()), None)
     if kind:
-        values = {k.lower(): v for k, v in (subckt.elements[0].parameters if subckt.elements else {}).items()}
+        if kind == "CmosInverter":
+            values = _inverter_values(subckt)
+            for c in subckt.constraints:  # the annotation's own parameters (Generator(parameters=...))
+                if type(c).__name__ == "Generator":
+                    values.update({k.lower(): v for k, v in (c.parameters or {}).items()})
+        else:
+            values = {k.lower(): v for k, v in (subckt.elements[0].parameters if subckt.elements else {}).items()}
         parameters = {"ports": list(subckt.pins), "values": values, "real_inst_type": kind}
         primitives[name] = {
             "primitive": "generic",
@@ -51,7 +72,7 @@ def gen_param(subckt, primitives, pdk_dir):
         return True
     before = set(primitives)
     done = _ALIGN.gen_param(subckt, primitives, pdk_dir)
-    if os.environ.get("STEMS_STD_DENSE"):  # one row: the floorplan's row holds the primitive
+    if os.environ.get("ROWS_STD_DENSE"):  # one row: the floorplan's row holds the primitive
         added = [k for k in primitives if k not in before and "y_cells" in primitives[k]]
         for k in added:
             p = primitives[k]

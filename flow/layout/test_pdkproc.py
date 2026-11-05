@@ -14,7 +14,7 @@ def test_each_pdk_gets_its_own_tech_in_one_test_process() -> None:
     first, second = PDKS[:2]
     for pdk in (first, second, first):
         assert pdk_value(pdk, "tech", "__file__") == str(ROOT / "pdk" / pdk / "layout" / "tech.py")
-        assert pdk_value(pdk, "rowcell", "__file__") == str(ROOT / "flow" / "layout" / "stems" / "rowcell.py")
+        assert pdk_value(pdk, "rowcell", "__file__") == str(ROOT / "flow" / "layout" / "rows" / "rowcell.py")
     assert "tech" not in sys.modules  # the test process itself stays unbound
 
 

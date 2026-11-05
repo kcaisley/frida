@@ -1,5 +1,5 @@
 """The layout compiler's netlist check (``flow/web/static/compile.html``): whether a SPICE netlist is
-one the ALIGN row flow lays out (``flow/layout/align/build.py``), its diagnostics by line, and its
+one the ALIGN row flow lays out (``flow/layout/build.py``), its diagnostics by line, and its
 statistics; ``normalize`` writes the netlist the flow builds from.
 
 The subset: one ``.subckt`` with ``vdd`` and ``vss`` among its ports, of MOS lines (``M name d g s
@@ -58,7 +58,7 @@ class Result:
 def pdk_manifest() -> dict:
     """What a netlist may use in the PDK this process is bound to (``flow.layout.pdkproc.in_pdk``):
     its row transistors' models by polarity, its library cells with their pins, and whether its
-    netlists give a MOS's ``w`` per finger (``stems/mosline.py``)."""
+    netlists give a MOS's ``w`` per finger (``rows/mosline.py``)."""
 
     import mosline
     import tech
