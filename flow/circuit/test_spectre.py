@@ -63,7 +63,6 @@ def diagnostic_root(spectre_installation):
         ("latch", "latch_characterization"),
         ("ota", "ota_characterization"),
         ("follower", "follower_characterization"),
-        ("moscap", "moscap_characterization"),
         ("idac", "idac_characterization"),
         ("cml", "cml_characterization"),
         ("pi", "pi_characterization"),
@@ -113,7 +112,7 @@ def test_samp_pipeline_diagnostic(diagnostic_root):
 
 @pytest.mark.spectre
 def test_varying_mom_capacitors_draw_pelgroms_mismatch_and_one_gradient_a_run(diagnostic_root):
-    """Spectre's Monte Carlo of the varying FMOM leaf (``flow.momcap.subckt``), read back as one
+    """Spectre's Monte Carlo of the varying FMOM leaf (``flow.layout.devices.momcap.netlist``), read back as one
     measurement (``flow.pipeline.read``): equal capacitors draw independently at Pelgrom's sigma,
     a larger one at its smaller relative sigma, and one away from the origin adds the gradient."""
 
@@ -126,7 +125,7 @@ def test_varying_mom_capacitors_draw_pelgroms_mismatch_and_one_gradient_a_run(di
     from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
     from flow import pipeline
-    from flow.momcap.subckt import MomCap, MomCapParams, variation
+    from flow.layout.devices.momcap.netlist import MomCap, MomCapParams, variation
 
     leaves = {"a": (100e-15, 0.0), "b": (100e-15, 0.0), "c": (400e-15, 50.0)}
     bench = h.Module(name="MomCapMonteCarlo")

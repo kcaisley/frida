@@ -1,8 +1,8 @@
 """Each pipeline block's netlists as hashes, recorded and compared by hand (not a test: the
 netlists still change). Every instance its code makes (``corpus``), two hashes each: its structure
 before any PDK compile (each instance's name, primitive, parameters and connections, in order; no
-PDK needed), and, in each installed PDK where ``params.valid`` admits it and the block's layout
-writes netlists (``layout.write_netlist``), its flat SPICE after the PDK's compile. Records go to
+PDK needed), and, in each installed PDK where ``params.valid`` admits it, its netlist compiled
+there as hdl21 and vlsir write it (``flow.layout.step.block_netlist``). Records go to
 ``build/netlists/<block>.json`` (hashes only: the PDKs' netlists stay private).
 
     uv run python -m flow.netlist_hashes record comp   # record a block's netlists (all blocks: none named)
@@ -120,19 +120,12 @@ def structure(block: str, instance: Any) -> str:
         manager.default, manager.modules = previous
 
 
-def writer(block: str):
-    """The block's layout's ``write_netlist`` (its flat SPICE after a PDK's compile), if it has one."""
-    if importlib.util.find_spec(f"flow.{block}.layout") is None:
-        return None
-    return getattr(importlib.import_module(f"flow.{block}.layout"), "write_netlist", None)
-
-
 def compiled(block: str, instance: Any, pdk: str) -> str:
-    """The block's flat SPICE after ``pdk``'s compile."""
+    """The block's netlist compiled in ``pdk``, as hdl21 and vlsir write it (``flow.layout.step.block_netlist``)."""
+    from flow.layout.step import block_netlist
 
-    logic = importlib.import_module(f"pdk.{pdk}.hdl21").pdk_logic
     with tempfile.TemporaryDirectory() as folder:
-        return writer(block)(instance, Path(folder) / f"{block}.sp", logic).read_text()
+        return block_netlist(block, instance, pdk, Path(folder) / f"{block}.cdl").read_text()
 
 
 def digest(text: str) -> str:
@@ -158,7 +151,7 @@ def installed() -> list[str]:
 
 def record(block: str) -> dict[str, dict[str, str]]:
     """``block``'s hashes now: its structures, and its compiled netlists in each installed PDK."""
-    pdks = installed() if writer(block) is not None else []
+    pdks = installed()
     return {"structure": hashes(block, None), **{pdk: hashes(block, pdk) for pdk in pdks}}
 
 
