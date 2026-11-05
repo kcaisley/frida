@@ -5,9 +5,7 @@ Every switch is characterized the same way, so that switches compare: into ``LOA
 CDAC it samples onto) at a ``PERIOD_S`` clock (``TRACK_S`` tracking, ``TRANSITION_S`` edges), its
 input stepping a twelfth of the supply once a period, ``PERIODS`` periods, Spectre's output every
 ``STROBE_S``; over the input level (``VIN_SWEEP``, fractions of the supply) and over the supply
-(``SUPPLY_SWEEP``, fractions of its own) at mid-supply input (``NOMINAL_VIN``). ``STRUCTURE`` names
-the parameters that make the circuit's devices and their wiring (a hand-written floorplan's case is
-found by them: ``flow.samp.layout``).
+(``SUPPLY_SWEEP``, fractions of its own) at mid-supply input (``NOMINAL_VIN``).
 """
 
 import math
@@ -56,8 +54,6 @@ class Params:
 pipeline.Params.register(Params)
 
 
-# the parameters that make a switch's devices and their wiring
-STRUCTURE = ("switch_type", "dummy")
 FRIDA1 = Params()  # the fabricated FRIDA-1 sampler: transmission gate, 32 units each
 
 # the bench: 1 pF at a 10 ns clock (5 ns tracking), 50 ps edges, six periods, a sample every 5 ps

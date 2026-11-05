@@ -1,4 +1,5 @@
-"""Software-only structural tests for the comparator's circuit (``netlist``)."""
+"""Software-only structural tests for the comparator's circuit (``netlist``), and its layout: the
+placement it states (every latch and bias, as laid out, a row each device by its role)."""
 
 import itertools
 
@@ -7,9 +8,12 @@ from hdl21.primitives import MosType
 from pydantic import ValidationError
 
 from flow import pipeline
-from flow.circuit.devices import CAP_L, fingers
+from flow.circuit.devices import fingers
+from flow.layout.devices.moscap.netlist import CAP_L
+from flow.layout.hdl21align import issues, module_plan, pnr_input
 
-from .params import Bias, Latch, Params
+from . import subckt, sweep
+from .params import Bias, Latch, Params, layout_view
 from .subckt import netlist
 
 
@@ -175,25 +179,33 @@ def test_triple_tail_stages() -> None:
     assert m.Msr_p_p_decision.conns["d"] is m.sr_p_stack
 
 
+def _align_netlist(params: Params, tmp_path) -> str:
+    """The comparator's netlist in ALIGN's context in TSMC65 (``flow.circuit.netlists``)."""
+    from flow.circuit.netlists import Context, compile_block, package, write
+
+    from .subckt import Nets
+
+    block = compile_block(netlist, params, "tsmc65", "comp", Nets)
+    return write(package(block, Context.ALIGN), tmp_path / "comp.sp").read_text()
+
+
 def test_devices_fit_the_pdk_rows_in_whole_units(tmp_path) -> None:
     """With TSMC65 active, analog devices take an even finger count within the row limit and
     the output stage's gates one count per NMOS/PMOS pair within the logic limits; every
     width written is a whole number of 120 nm units."""
 
     pdk = pytest.importorskip("pdk.tsmc65.hdl21.pdk_logic")
-    from .layout import write_netlist
     from .params import FRIDA1
 
     limits = pdk.MOS_FINGER_UNITS
-    text = write_netlist(FRIDA1, tmp_path / "comp.sp", pdk).read_text()
     devices = {}
-    for line in text.splitlines():
+    for line in _align_netlist(FRIDA1, tmp_path).splitlines():
         f = line.split()
-        if f[0].startswith("M"):
+        if f and f[0].startswith("M"):
             p = dict(kv.split("=") for kv in f[6:])
-            w, nf = int(p["w"].removesuffix("n")), int(p["nf"])
-            assert w % (120 * nf) == 0, line
-            devices[f[0]] = (f[5][0], w // 120 // nf, nf, f[2])
+            w, nf = int(p["w"].removesuffix("n")), int(p["nf"])  # ALIGN's: w a finger's
+            assert w % 120 == 0, line
+            devices[f[0]] = (f[5][0], w // 120, nf, f[2])
     for name, (pol, units, nf, _gate) in devices.items():
         if name.startswith(("Mdecision", "Msr", "Mbuf")):
             assert units <= limits["logic_n" if pol == "n" else "logic_p"], name
@@ -207,15 +219,11 @@ def test_devices_fit_the_pdk_rows_in_whole_units(tmp_path) -> None:
 def test_standard_cell_output_stage(tmp_path) -> None:
     """The output stage as generic logic cells, written as the PDK's library cells by its compile."""
 
-    pdk = pytest.importorskip("pdk.tsmc65.hdl21.pdk_logic")
     cells = pytest.importorskip("pdk.tsmc65.hdl21.stdcells")._LOGIC  # (generic cell, drive) -> library cell
-    from .layout import write_netlist
     from .params import FRIDA1, OutputStage
 
     params = Params(**{**FRIDA1.__dict__, "output_stage": OutputStage.STDCELLS})
-    lines = {
-        line.split()[0]: line.split() for line in write_netlist(params, tmp_path / "c.sp", pdk).read_text().splitlines()
-    }
+    lines = {line.split()[0]: line.split() for line in _align_netlist(params, tmp_path).splitlines() if line.split()}
     assert lines["Xdecision_p"][1:] == ["latch_n", "decision_p", "vdd", "vss", cells["inverter", 1].name]
     assert lines["Xsr_p"][1:] == ["decision_n", "sr_n", "sr_p", "vdd", "vss", cells["nor2", 2].name]
     assert lines["Xbuf2_outn"][-1] == cells["inverter", 8].name
@@ -231,11 +239,13 @@ def test_the_dynamic_bias_capacitors() -> None:
     assert not hasattr(netlist(Params(preamp_c_ff=240)), "Mcap_p")
     module = netlist(Params(bias=Bias.DYNAMIC, preamp_c_ff=240, bias_c_ff=320))
     # an NMOS against ground, its gate the input pair's drain (precharged high), as wide as the
-    # active PDK's gate capacitance per unit device makes 240 fF at CAP_L (fingered); without a
-    # PDK, a unit device holds 0.1 fF
-    import hdl21 as h
+    # active PDK's measured gate capacitance makes 240 fF at CAP_L (fingered); without a PDK, a
+    # unit device holds 0.1 fF per minimum length
 
-    density = getattr(h.pdk.default(), "MOS_CAP_FF", None) or {"n": 0.1, "p": 0.1}
+    from flow.layout.devices.device import active_pdk
+    from flow.layout.devices.moscap.table import density as gate_density
+
+    density = gate_density(active_pdk())
     cap = module.Mcap_p
     assert cap.conns["g"] is module.input_p_drain and cap.conns["d"] is cap.conns["s"] is cap.conns["b"] is module.vss
     assert cap.of.params.tp == MosType.NMOS and float(cap.of.params.l) == CAP_L
@@ -248,3 +258,36 @@ def test_the_dynamic_bias_capacitors() -> None:
     assert float(tail.of.params.w) == pytest.approx(320 / (density["p"] * CAP_L), rel=0.05)
     default = netlist(Params(bias=Bias.DYNAMIC)).Mcap_tail
     assert float(default.of.params.w) == pytest.approx(100 / (density["p"] * CAP_L), rel=0.05)
+
+
+def test_the_named_instances() -> None:
+    """``python -m flow layout comp --instance NAME [--auto]`` lays out these, each by the shared
+    layout step (``flow.layout.step.layout_one``) as its generator places it, or by ALIGN alone."""
+    assert set(pipeline.names(sweep)) == {
+        "frida1",
+        "strongarm",
+        "double_tail",
+        "triple_tail",
+        "double_tail_self_timed",
+        "double_tail_modified",
+        "double_tail_modified_self_timed",
+    }
+
+
+def test_every_comparator_states_its_rows() -> None:
+    """Every latch and bias, as laid out (``layout_view``: the output stage the PDK's library cells),
+    places each device in a row by its role (``issues`` finds nothing): an even count of rows (its
+    top row meets the edge), the cross-coupled init pair split cross-quad over two; the dynamic
+    bias's capacitors split, on rows of their own above the input pair. Drawn transistor by
+    transistor, the output stage fits no row, and the comparator states nothing: ALIGN places it."""
+    for latch in Latch:
+        for bias in (Bias.SWITCHED, Bias.DYNAMIC):
+            pnr = pnr_input(subckt.netlist(layout_view(Params(latch=latch, bias=bias))))
+            assert pnr is not None and issues(pnr) == []
+            fp = module_plan(pnr)
+            assert len(fp["rows"]) % 2 == 0
+            assert {"Mcross_init_p_a", "Mcross_init_p_b"} <= {cell for row in fp["rows"] for cell in row}
+            if bias == Bias.DYNAMIC:
+                assert {"Mcap_tail", "Mcap_p", "Mcap_n"} <= set(fp["split"])
+                assert fp["rows"][:2] == [["Mcap_tail_a"], ["Mcap_tail_b"]]
+    assert pnr_input(subckt.netlist(Params())) is None

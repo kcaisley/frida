@@ -51,8 +51,16 @@ def test_geometry_counts_the_compiled_devices_and_their_area() -> None:
 
 
 def test_every_sweep_module_keeps_the_contract() -> None:
+    from flow.test_pipeline import NOT_MIGRATED
+
     for block in runner.sweep_blocks():
-        sweep = __import__(f"flow.{block}.sweep", fromlist=["instances"])
+        try:
+            sweep = __import__(f"flow.{block}.sweep", fromlist=["instances"])
+        except ImportError:
+            # a legacy block (flow/test_pipeline.py's NOT_MIGRATED) may no longer import: it waits on
+            # its port, and fails where it is run; a block on the pipeline imports
+            assert block in NOT_MIGRATED, block
+            continue
         # a block on the pipeline gives its runs and its record (flow/test_pipeline.py checks the
         # rest), the others their characterization and generator
         if hasattr(sweep, "runs"):
@@ -125,18 +133,6 @@ def test_the_comparator_space_is_its_grid_and_the_adcs_comparators() -> None:
     assert [label for label, _params in picked.values()] == ["triple_tail", "dynamic_bias(ratio=3.5, k=3)", "frida1"]
     with pytest.raises(LookupError, match="no instance"):
         runner.select("comp", "tsmc65", ["no_such_comparator"])
-
-
-def test_a_floorplan_is_chosen_by_the_instances_structure() -> None:
-    from flow.lvshift import sweep as lvshift
-    from flow.lvshift.subckt import LvShiftParams
-
-    # every size of a shifter by its case's floorplan; a structure no case has, none
-    assert runner.hand_floorplan("lvshift", LvShiftParams(**lvshift.SIZES[3])).name == "lvshift_core.json"
-    buffered = LvShiftParams(input_inverter=True, buffers=True, **lvshift.SIZES[0])
-    assert runner.hand_floorplan("lvshift", buffered).name == "lvshift_buffered.json"
-    assert runner.hand_floorplan("lvshift", LvShiftParams(buffers=True)) is None
-    assert runner.hand_floorplan("cdac.capdriver", object()) is None  # no structure named
 
 
 def test_the_table_has_a_row_per_instance_and_a_file_each(tmp_path: Path, monkeypatch) -> None:

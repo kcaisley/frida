@@ -33,12 +33,10 @@ ANALYSIS_DIR = Path(__file__).resolve().parent
 # (flow/test_pipeline.py: MIGRATED) follow its contract instead (docs/pipeline.md).
 BLOCKS = (
     "cdac.caparray",
-    "momcap",
     "delay",
     "latch",
     "ota",
     "follower",
-    "moscap",
     "idac",
     "cml",
     "pi",
@@ -50,7 +48,6 @@ BLOCKS = (
     "disc",
     "schmitt",
     "bias",
-    "mosfet",
 )
 BLOCK_ANALYSES = tuple(f"flow.{block}.analysis" for block in BLOCKS)
 BLOCK_PLOTS = tuple(f"flow.{block}.plots" for block in BLOCKS)

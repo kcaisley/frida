@@ -9,8 +9,9 @@ primitives; the PDK's compile makes them its devices.
 import hdl21 as h
 from hdl21.primitives import MosType
 
-from flow.circuit.devices import mos
 from flow.circuit.ports import module_from_ports
+from flow.layout.devices.mosfet.netlist import mos
+from flow.layout.hdl21align import halves, place, row, rows
 
 from .params import Params, SwitchType
 
@@ -85,4 +86,23 @@ def netlist(param: Params) -> h.Module:
                 d=Samp.dout, g=Samp.clk, s=Samp.dout, b=Samp.vdd
             )
 
+    # where ALIGN puts each device (flow.layout.hdl21align), rows top first, for the structures
+    # FRIDA lays out (the others ALIGN places on its own): the bootstrap's boost above its switch,
+    # a transmission gate's PMOS above its NMOS (each beside its dummy), an NMOS switch in two halves
+    plain, tgate = not param.dummy, param.switch_type is SwitchType.TGATE
+    if bootstrap and plain:
+        placed = rows(
+            row(Samp.Mpre, Samp.Mgate, Samp.Mtg_p),
+            row(Samp.Mcap),
+            row(Samp.Mgate_cas, Samp.Mgate_off, Samp.Mbot),
+            row(Samp.MN, Samp.Mtg_n),
+        )
+    elif tgate:
+        placed = rows(row(Samp.MP, getattr(Samp, "MP_dummy", None)), row(Samp.MN, getattr(Samp, "MN_dummy", None)))
+    elif param.switch_type is SwitchType.NMOS and plain:
+        first, second = halves(Samp.MN)
+        placed = rows(row(first), row(second))
+    else:
+        return Samp
+    place(Samp, placed, symmetric=False)
     return Samp

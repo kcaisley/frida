@@ -1,8 +1,17 @@
-"""The sampling switch's generator (``netlist``), and the designs its parameters refuse."""
+"""The sampling switch's generator (``netlist``), the designs its parameters refuse, and its
+placement (``flow.layout.hdl21align``): complete for every instance of its space, and, for the
+structures FRIDA lays out, its rows top first."""
 
+import importlib
+
+import hdl21 as h
 import pytest
 from pydantic import ValidationError
 
+from flow import pipeline
+from flow.layout.hdl21align import issues, module_plan, pnr_input
+
+from . import sweep
 from .params import Params, SwitchType
 from .subckt import netlist
 
@@ -39,3 +48,29 @@ def test_the_parameters_refuse_what_does_not_build() -> None:
         with pytest.raises(ValidationError):
             Params(**fields)
     assert Params(dummy=True, mos_w=2).mos_w == 2
+
+
+def _module(params):
+    netlist.Cache.reset()
+    return netlist(params)
+
+
+@pytest.mark.parametrize("pdk", ("tsmc65", "ihp130", "tsmc28", "tower180", "lf150", "tpsc65"))
+def test_every_instance_states_a_complete_placement_or_none(pdk: str) -> None:
+    h.pdk.set_default(importlib.import_module(f"pdk.{pdk}.hdl21").pdk_logic)
+    for instance in sweep.scaled.instances(pdk) if hasattr(sweep.scaled, "instances") else []:
+        params = instance[1] if isinstance(instance, tuple) else instance.params
+        pnr = pnr_input(_module(params))
+        assert pnr is None or issues(pnr) == []
+
+
+def test_the_named_structures_rows() -> None:
+    h.pdk.set_default(importlib.import_module("pdk.tsmc65.hdl21").pdk_logic)
+    named = pipeline.names(sweep)
+    rows = {name: module_plan(pnr_input(_module(named[name]())))["rows"] for name in named}
+    assert rows == {
+        "frida1": [["Mp"], ["Mn"]],
+        "tgate_dummy": [["Mp", "Mp_dummy"], ["Mn", "Mn_dummy"]],
+        "nmos": [["Mn_a"], ["Mn_b"]],
+        "bootstrap": [["Mpre", "Mgate", "Mtg_p"], ["Mcap"], ["Mgate_cas", "Mgate_off", "Mbot"], ["Mn", "Mtg_n"]],
+    }

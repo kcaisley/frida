@@ -36,21 +36,20 @@ ROOT = Path(__file__).resolve().parents[1]
 # Entries may be removed (a block migrated), never added.
 NOT_MIGRATED = (
     *("adc", "bias", "cdac.caparray", "cdac.capdriver", "clkgen", "cml", "csa", "delay", "disc", "follower"),
-    *("idac", "latch", "lvshift", "moscap", "mosfet", "ota", "pi", "ringamp", "schmitt"),
+    *("idac", "latch", "lvshift", "ota", "pi", "ringamp", "schmitt"),
 )
 MIGRATED = tuple(block for block in sweep_blocks() if block not in NOT_MIGRATED)
 STAGES = ("params", "subckt", "sim", "types", "analysis", "plots", "sweep")
 PURE = ("types", "analysis", "plots")  # no helpers, no file I/O
 # Known violations, as "<block>.<stage>: <problem>"; entries may be removed, never added.
-KNOWN_VIOLATIONS: set[str] = {
-    # the layout runner's shared constants, which 16 blocks still import from comp/layout.py
-    *(
-        f"comp.layout: module constant {name} outside params.py and sim.py"
-        for name in ("ESCAPE", "FLOORPLANS", "SPLIT", "PDKS", "ROOT")
-    ),
-}
-# beside the stages: layout.py (its layout_<thing> functions and write_netlist) and model.py (Model)
-SIDE = {"layout": r"layout_\w+|write_netlist", "model": r"Model"}
+KNOWN_VIOLATIONS: set[str] = set()
+# beside the stages: model.py (Model); no layout.py (a block's generator states its layout:
+# flow.layout.step lays it out)
+SIDE = {"model": r"Model"}
+# a block's folder: the stages and its model (the eight a designer writes), opt.py where it is
+# optimized, and nothing else but its package's __init__.py, its readme.md and a test_<file>.py a file
+FILES = (*STAGES, "model")
+OPTIONAL = ("opt",)
 
 UPPER = re.compile(r"[A-Z][A-Z0-9_]*")
 RUN_ID = re.compile(r"\d{8}_\d{6}")
@@ -103,7 +102,21 @@ def _camel(name: str) -> str:
 def _problems(block: str) -> set[str]:
     problems: set[str] = set()
     folder = Path(importlib.import_module(f"flow.{block}").__file__).parent
-    missing = [stage for stage in STAGES if not (folder / f"{stage}.py").is_file()]
+    # its files: FILES, OPTIONAL, __init__.py, readme.md, test_<file>.py; a layout.py or targets.py
+    # named for what replaced it
+    known = {*FILES, *OPTIONAL}
+    replaced = {
+        "layout": "a layout.py; its generator states its layout (flow.layout.step)",
+        "targets": "a block on the pipeline has no targets.py: the CLI's verbs run it",
+    }
+    for path in sorted(p for p in folder.iterdir() if p.is_file()):
+        stem = path.stem
+        if path.name in ("__init__.py", "readme.md") or path.suffix == ".py" and stem in known:
+            continue
+        if path.suffix == ".py" and stem.startswith("test_") and stem.removeprefix("test_") in known:
+            continue
+        problems.add(f"{block}.{stem}: {replaced.get(stem, f'{path.name} is none of the block files {sorted(known)}')}")
+    missing = [stage for stage in FILES if not (folder / f"{stage}.py").is_file()]
     problems |= {f"{block}.{stage}: missing" for stage in missing}
     if missing:
         return problems
@@ -115,7 +128,8 @@ def _problems(block: str) -> set[str]:
         problems.add(f"{block}.{where}: {text}")
 
     # params.py: the design (Params, an hdl21 paramclass registered as a pipeline.Params), one run
-    # (TbParams: a frozen dataclass with its pdk and design), valid(params), enums and constants
+    # (TbParams: a frozen dataclass with its pdk and design), valid(params), layout_view(params)
+    # (the design as the shared layout step draws it), enums and constants
     if Params is None or not h.isparamclass(Params) or not issubclass(Params, pipeline.Params):
         problem("params", "Params is not an hdl21 paramclass registered as a pipeline.Params")
     if TbParams is None or not issubclass(TbParams, pipeline.TbParams) or not dataclasses.is_dataclass(TbParams):
@@ -128,11 +142,12 @@ def _problems(block: str) -> set[str]:
         allowed = (
             name in ("Params", "TbParams")
             or (name == "valid" and _hints(value).get("return") is bool)
+            or (name == "layout_view" and list(_hints(value).values()) == [Params, Params])
             or (isinstance(value, type) and issubclass(value, enum.Enum))
             or (UPPER.fullmatch(name) and not callable(value))
         )
         if not allowed:
-            problem("params", f"{name} is not Params, TbParams, valid, an enum or a constant")
+            problem("params", f"{name} is not Params, TbParams, valid, layout_view, an enum or a constant")
 
     # subckt.py: the nets (Nets, an hdl21 bundle) and the generator netlist(params) -> h.Module
     defined = _defined(stage["subckt"])
@@ -259,9 +274,7 @@ def _problems(block: str) -> set[str]:
                 problem(name, f"{defined_name} is not one of {name}.py's names ({allowed})")
 
     # the block runs from the one entry point (``python -m flow <verb> <block>``): no targets of its
-    # own; and its code names no run and no input under build/ (a run is a verb's argument)
-    if (folder / "targets.py").exists():
-        problem("targets", "a block on the pipeline has no targets.py: the CLI's verbs run it")
+    # own (above); and its code names no run and no input under build/ (a run is a verb's argument)
     for path in sorted(folder.glob("*.py")):
         text = path.read_text()
         if RUN_ID.search(text):
@@ -378,8 +391,8 @@ def test_the_blocks_not_migrated_are_blocks() -> None:
 
 
 def test_one_import_contract_orders_every_migrated_block() -> None:
-    """import-linter's layers contract covers exactly the migrated blocks, a block's own files
-    (model.py, opt.py, layout.py) optional in it."""
+    """import-linter's layers contract covers exactly the migrated blocks, a block's opt.py optional
+    in it."""
     contracts = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["importlinter"]["contracts"]
     layers = [contract for contract in contracts if contract["type"] == "layers"]
     assert len(layers) == 1
@@ -418,6 +431,8 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
     with (package / "sweep.py").open("a") as stream:
         stream.write('\n\nSIZES = ("x1", "x2")\nARCHIVE = "build/badblock/20260101_000000"\n')
     (package / "targets.py").write_text('"""Old targets."""\n')
+    (package / "helpers.py").write_text('"""Helpers."""\n')
+    (package / "test_layout.py").write_text('"""Layout tests."""\n')
     import flow
 
     monkeypatch.setattr(flow, "__path__", [*flow.__path__, str(tmp_path / "flow")])
@@ -430,6 +445,9 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
     assert "badblock.types: Extra is not an Analysis<Thing> deriving pipeline.Analysis" in problems
     assert "badblock.sweep: module constant SIZES: a parameter's values belong to its grid" in problems
     assert {"badblock.targets: a block on the pipeline has no targets.py: the CLI's verbs run it"} <= problems
+    files = sorted({*FILES, *OPTIONAL})
+    assert f"badblock.helpers: helpers.py is none of the block files {files}" in problems
+    assert f"badblock.test_layout: test_layout.py is none of the block files {files}" in problems
     assert {"badblock.sweep: names a run (20260101_000000)", "badblock.sweep: names a path under build/"} <= problems
 
 

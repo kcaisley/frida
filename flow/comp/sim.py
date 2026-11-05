@@ -17,8 +17,10 @@ import hdl21.sim as hs
 from hdl21.primitives import C, MosType, R, Vdc, Vpulse, Vpwl
 from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
-from flow.circuit.devices import mos
 from flow.circuit.ports import testbench_from_ports
+from flow.layout.devices.device import active_pdk
+from flow.layout.devices.moscap.table import density as gate_density
+from flow.layout.devices.mosfet.netlist import mos
 
 from .params import CHARGE_METER, CHARGE_METER_F, TbParams
 from .subckt import Nets, netlist
@@ -112,7 +114,7 @@ def _clock_chains(tb: TbParams) -> tuple[dict[str, list[float]], tuple[int, int]
     """Each clock's inverter chain (``TbParams.clock_fanout``), by its port: the stages' sizes in unit
     inverters, first to last, as many stages on both clocks; and the unit inverter's NMOS and PMOS
     widths, the active PDK's logic fingers. The last stage's input is ``clock_last_fanout`` times
-    smaller than the clocked gates (their area times the PDK's gate capacitance per unit device),
+    smaller than the clocked gates (their area times the PDK's measured gate capacitance, ``flow.layout.devices.moscap``),
     the stages before it shrinking by at most ``clock_fanout`` each to one unit inverter. No chains
     without a fanout."""
 
@@ -121,7 +123,7 @@ def _clock_chains(tb: TbParams) -> tuple[dict[str, list[float]], tuple[int, int]
     unit = (int(fingers["logic_n"]), int(fingers["logic_p"]))
     if tb.clock_fanout is None:
         return {}, unit
-    density = getattr(pdk, "MOS_CAP_FF", None) or {"n": 0.1, "p": 0.1}
+    density = gate_density(active_pdk())
     load = {"clk": 0.0, "clkb": 0.0}
     # a fresh module: an earlier run's compile turned the cached one's devices into the PDK's
     netlist.Cache.reset()

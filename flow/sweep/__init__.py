@@ -18,14 +18,6 @@ A block takes part with a module ``flow/<block>/sweep.py``:
 - ``GENERATOR``: the block's generator, whose compiled devices give the geometry metrics.
 - ``characterize(run_dir, pdk, params) -> Record``: simulate the instance in ``run_dir``, in
   under five minutes.
-- ``layout_netlist(run_dir, pdk, params) -> Path`` (optional): the netlist ALIGN lays out on its
-  own, where the instance has no hand-written floorplan or ALIGN fails by it.
-- ``layout_floorplan(run_dir, pdk, params) -> (netlist, floorplan)`` (optional): the netlist ALIGN
-  places by a hand-written floorplan, and that floorplan.
-- ``STRUCTURE`` (optional, without ``layout_floorplan``): the parameters that make the circuit's
-  devices and their wiring. An instance is placed by the floorplan of the block's named case
-  (``subckt.CASES``) of the same structure, ``design/layout/<block>_<case>.json``, with the block's
-  ``write_netlist`` (``flow.sweep.runner.hand_floorplan``), where both exist.
 
 A ``Record`` (``flow.pipeline.Record``) holds the instance's scalar ``metrics`` (each name ends in
 its unit, as the analyses' fields do: ``_s``, ``_j``, ``_v``, ``_w``, ``_um2``), its ``details``
@@ -34,8 +26,8 @@ drawn by the analysis plots) and ``waves`` (measurement files under ``build/`` h
 waveforms, by label). A block gives its design space as grids and named instances
 (``flow.pipeline.grid``, ``named``; a block not yet typed so, its ``params.valid(params, pdk)``
 keeps what works in a PDK); a block on the pipeline (docs/pipeline.md) gives ``runs`` and
-``record``, another ``characterize`` and ``GENERATOR`` (the ADC's behavioral model); its
-``layout.py`` gives the layout hooks.
+``record``, another ``characterize`` and ``GENERATOR`` (the ADC's behavioral model). Its layout
+is its generator's to state; the shared layout step lays it out (``flow.layout.step``).
 
     uv run python -m flow run comp        # one block on the pipeline (layout comp, table comp)
     uv run python -m flow sweep.run       # every block (sweep.missing, sweep.layout, sweep.tables)
@@ -89,7 +81,12 @@ def geometry(module: h.Module, pdk: str) -> dict[str, float]:
     and library cell's own footprint, unplaced: the row cell the layout flows draw for it
     (``netcells.area``, in a process bound to ``pdk``; an ideal element has none)."""
 
-    from flow.circuit.devices import instance_lines
+    from io import StringIO
+
+    import vlsirtools
+    from hdl21.flatten import flatten
+
+    from flow.circuit.netlists import Block, Context, package
     from flow.layout.pdkproc import access_points, in_pdk
 
     # a library cell by its name: older wrappers name their domain otherwise (IHP130's "ihp")
@@ -111,8 +108,11 @@ def geometry(module: h.Module, pdk: str) -> dict[str, float]:
     walk(module, True)
     if not totals["child_cells"]:
         del totals["child_cells"]
-    lines = instance_lines(module)
-    if any(line[0] in "Xx" for line in lines):
+    # every device once, flat (hdl21's flatten), as vlsir writes it before the LVS deck's rules
+    out = StringIO()
+    vlsirtools.netlist(package(Block(flatten(module), pdk, module.name, []), Context.LVS), out, fmt="cdl")
+    text = out.getvalue()
+    if any(line[:1] in "Xx" for line in text.splitlines()):
         access_points(pdk)  # the library cells' footprints, written the first time a PDK needs them
-    totals["device_area_um2"] = in_pdk(pdk, "netcells", "area", "\n".join(lines))
+    totals["device_area_um2"] = in_pdk(pdk, "netcells", "area", text)
     return totals

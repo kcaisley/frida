@@ -43,7 +43,7 @@ from typing import Any
 
 from flow import pipeline
 from flow.sweep import flat_params
-from flow.sweep.runner import ROOT, digest, write_record
+from flow.sweep.runner import ROOT, write_record
 
 OPT_DIR = ROOT / "build/opt"
 # an ALIGN layout in the loop that has not placed and routed in ten minutes fails (its placer can
@@ -146,15 +146,12 @@ def suggest(trial: Any, problem: pipeline.Problem) -> Any:
 
 
 def identity(block: str, pdk: str, params: Any) -> str:
-    """The design's identity: the first 16 hex digits of the SHA-256 of its compiled netlist in
-    ``pdk`` (its layout hook's ``write_netlist``), else of its parameters."""
+    """The design's identity: the first 16 hex digits of the SHA-256 of its netlist compiled in
+    ``pdk`` (``flow.layout.step.block_netlist``)."""
+    from flow.layout.step import block_netlist
 
-    write_netlist = getattr(import_module(f"flow.{block}.layout"), "write_netlist", None)
-    if write_netlist is None:
-        return digest(flat_params(params))
-    logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
     with tempfile.TemporaryDirectory() as folder:
-        text = write_netlist(params, Path(folder) / "design.sp", logic).read_text()
+        text = block_netlist(block, params, pdk, Path(folder) / "design.cdl").read_text()
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
@@ -171,20 +168,19 @@ def betters(block: str) -> dict[str, pipeline.Better]:
 
 
 def layout_area(block: str, pdk: str, params: Any, out: Path) -> float:
-    """The design's layout area (um^2) by its structure's hand-written floorplan (ALIGN placing and
-    routing, no signoff); NaN without a floorplan."""
+    """The design's layout area (um^2) as its generator places it (``flow.layout.step.inputs``,
+    ALIGN placing and routing, no signoff); NaN where it states no placement."""
 
     from klayout import db
 
-    from flow.layout.align.build import build as align_build
-    from flow.sweep.runner import case_floorplan
+    from flow.layout.build import build_design
+    from flow.layout.step import inputs
 
     os.environ["ALIGN_TIMEOUT"] = str(ALIGN_TIMEOUT_S)
-    planned = case_floorplan(block, out / "netlist", pdk, params)
-    if planned is None:
+    input_dir, cells, _source, placed = inputs(block, out, pdk, block, params)
+    if not placed:
         return math.nan
-    netlist, floorplan = planned
-    gds = align_build(pdk, floorplan, netlist, out / "align_floorplan", name=netlist.stem)
+    gds = build_design(pdk, input_dir, cells, out / "align", placed=True)
     layout = db.Layout()
     layout.read(str(gds))
     box = max(layout.top_cells(), key=lambda cell: cell.bbox().area()).dbbox()

@@ -1,7 +1,7 @@
 # Comparator layouts
 
 Circuit-specific inputs of the comparator layout flows, besides the generator itself. The flows themselves are circuit-agnostic:
-the tool drivers are in `flow/layout/{cic,laygo,align}`, the row cells they all draw in `flow/layout/stems`,
+the ALIGN driver is in `flow/layout`, the row cells it draws in `flow/layout/rows`,
 and each PDK's values in `pdk/<tech>/layout` (e.g. `pdk/tsmc65/layout/README.md`, in the private PDK submodule).
 Everything they produce goes to `build/layout/comp/<target>/<timestamp>/`.
 
@@ -10,8 +10,7 @@ Everything they produce goes to `build/layout/comp/<target>/<timestamp>/`.
   runner passes its own), the devices split into equal parts for a cross-quad (`split`), the edge
   each port leaves at (`escape`), and ALIGN's primitive of each device (`groups`, ALIGN's library
   names: `DP_NMOS_B_0`, `CCP_PMOS_0`, ...). The design takes the floorplan's name. A floorplan
-  from ALIGN's placement (for cIcCreator and laygo; ALIGN itself places on its own there) says
-  `"symmetric": false` (its rows are not mirrored).
+  whose rows are not mirrored says `"symmetric": false`.
 - `mos_inv.json`, `pdk/<pdk>/layout/netlists/mos_inv.sp` — the single-device test: one NMOS and one PMOS
   row cell (an inverter), each in a row of its own, hand-written per PDK.
 - `comparison.md` — notes from evaluating cIcCreator, laygo and ALIGN.
@@ -55,10 +54,10 @@ library (its own `basic_template.sp` and `user_template.sp`): groups such as `DP
 `CCP_*` or `CMB_*`, and single devices (`NMOS_S`, `PMOS_4T`, ...); its logic templates (`INV`,
 `INV_B`, `STAGE2_INV`) and its transmission gate (`TGATE`, an NMOS and a PMOS in one primitive) are off (`DoNotUseLib`, by the names ALIGN gives them). ALIGN chooses each group's array (units per row, rows) and pattern:
 common centroid, interdigitated, ratio, or a Generator constraint's `exact_patterns`.
-`align/pdk/mos.py` assigns the units' devices as ALIGN's own mock generator does and draws them
+`primitives/mos.py` assigns the units' devices as ALIGN's own mock generator does and draws them
 with the row-cell engine (`rowcell.mos_grid`). Two gate nets whose gates interleave need a second
 gate track (`GATE_SPARE` in the PDK's `tech.py`, set in tsmc28); elsewhere such a pair is drawn side
-by side. Library cells stay leaves (`align/pdk/stdcell.py`). ALIGN's grouping,
+by side. Library cells stay leaves (`primitives/stdcell.py`). ALIGN's grouping,
 `1_topology`'s `GroupBlocks`, becomes the floorplan's `groups`; with a floorplan, ALIGN keeps every
 device a primitive of its own: a device the floorplan's `groups` do not name is kept out of
 ALIGN's matching (`DoNotIdentify`), which would otherwise pair devices by their connections alone.

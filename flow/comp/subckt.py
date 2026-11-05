@@ -9,8 +9,11 @@ holds each decision.
 import hdl21 as h
 from hdl21.primitives import MosType
 
-from flow.circuit.devices import Inverter, LogicCellParams, Nand2, Nor2, logic_pair, mos, mos_cap
+from flow.circuit.devices import Inverter, LogicCellParams, Nand2, Nor2, logic_pair
 from flow.circuit.ports import module_from_ports
+from flow.layout.devices.moscap.netlist import mos_cap
+from flow.layout.devices.mosfet.netlist import mos
+from flow.layout.hdl21align import Half, halves, place, row, rows
 
 from .params import Bias, Latch, OutputStage, Params
 
@@ -56,7 +59,55 @@ def netlist(param: Params) -> h.Module:
     else:
         _build_output_srlatch(Comp, param, Comp.latch_p, Comp.latch_n)
 
+    _place(Comp, param)
     return Comp
+
+
+def _place(module: h.Module, param: Params) -> None:
+    """The comparator's rows, top first, by its devices' roles, each row mirrored about the
+    centre (a half's devices on its side): the tail capacitor, the input pair (its cascodes
+    outside), the bias capacitor and its switch, the triple tail's ties, the reset and the latch (a
+    StrongARM's latch above its reset), its init pair split cross-quad over two rows, the
+    standard-cell output stage. The large devices are split in two, each half (``(name, index)``)
+    in its own row. A device in no rule (the output stage drawn transistor by transistor) states
+    nothing: ALIGN places the comparator on its own."""
+    split = ("Mcap_tail", "Mcap_p", "Mcap_n", "Mcross_init_p", "Mcross_init_n")
+    parts = {name: halves(module.instances[name]) for name in split if name in module.instances}
+    reset = [["Mrst_p", "Mtail_reset", "Mrst_n"]]
+    middle = [["Mmid_cross_p", "Mtail2", "Mmid_cross_n"], ["Mmid_in_p", "Mtail3", "Mmid_in_n"]]
+    on = [["Mouter_on_p", "Mcross_on_p", "Minner_on_p", "Mouter_on", "Minner_on_n", "Mcross_on_n", "Mouter_on_n"]]
+    order = [
+        [("Mcap_tail", 0)],
+        [("Mcap_tail", 1)],
+        ["Mcas_p", "Mdiff_p", "Mtail", "Mdiff_n", "Mcas_n"],
+        [("Mcap_p", 0), "Mbias", ("Mcap_n", 0)],
+        [("Mcap_n", 1), ("Mcap_p", 1)],
+        ["Mtie_bias"],
+        ["Mtie"],
+        *(on + reset if param.latch is Latch.STRONGARM else reset + middle + on),
+        [
+            "Mouter_init_p",
+            "Minner_init_p",
+            ("Mcross_init_p", 0),
+            ("Mcross_init_n", 0),
+            "Minner_init_n",
+            "Mouter_init_n",
+        ],
+        [("Mcross_init_n", 1), ("Mcross_init_p", 1)],
+        ["Xbuf2_outp", "Xbuf1_outp", "Xsr_p", "Xdecision_n", "Xdecision_p", "Xsr_n", "Xbuf1_outn", "Xbuf2_outn"],
+    ]
+    placed = rows(*(row(*(_entry(module, parts, name) for name in names)) for names in order))
+    covered = {id(e.instance if isinstance(e, Half) else e) for r in placed.rows for e in r.instances}
+    if all(id(instance) in covered for instance in module.instances.values()):
+        place(module, placed)
+
+
+def _entry(module: h.Module, parts: dict, name: str | tuple[str, int]):
+    """A row's entry: the instance ``name`` of ``module``, or a split one's half ``(name, index)``;
+    None where the comparator has no such device."""
+    if isinstance(name, tuple):
+        return parts[name[0]][name[1]] if name[0] in parts else None
+    return module.instances.get(name)
 
 
 def _build_preamp(module, param: Params):

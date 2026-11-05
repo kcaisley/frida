@@ -31,7 +31,6 @@ from importlib import import_module
 from importlib.util import find_spec
 from multiprocessing import get_context
 from pathlib import Path
-from types import SimpleNamespace
 
 from flow.sweep import flat_params
 
@@ -39,7 +38,6 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNS_DIR = ROOT / "build"  # a block's runs: build/<block>/<run>/
 RUN_STAMP = re.compile(r"\d{8}_\d{6}")  # a run's name (new_run, run)
 DATA_DIR = ROOT / "build/web/data/sweep"
-FLOORPLANS = ROOT / "design/layout"
 PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
 
 
@@ -178,6 +176,7 @@ def characterize(block: str, run_dir: Path, pdk: str, params) -> tuple[dict, lis
 
     from flow import pipeline
     from flow.analysis.io import write_measurement
+    from flow.layout.devices.device import resolve
     from flow.sweep import geometry
 
     h.pdk.set_default(import_module(f"pdk.{pdk}").pdk_logic)
@@ -194,23 +193,15 @@ def characterize(block: str, run_dir: Path, pdk: str, params) -> tuple[dict, lis
             label: str(write_measurement(run_dir / name / "result.h5", measurements[name]).relative_to(ROOT))
             for label, name in result.waves.items()
         }
+        # the circuit as drawn: its requests the PDK's devices (a generator that makes none: as it is)
         module = import_module(f"flow.{block}.subckt").netlist(params)
+        resolve(module, pdk)
     else:
         result = sweep.characterize(run_dir, pdk, params)
         module = sweep.GENERATOR(params)
     h.pdk.compile(module)
     metrics = {**geometry(module, pdk), **result.metrics}
     return metrics, [dataclasses.asdict(detail) for detail in result.details], result.waves
-
-
-def layout_hooks(block: str):
-    """The module giving the block's layout netlists (``layout_netlist``, ``layout_floorplan``): its
-    ``layout`` module on the pipeline, else its sweep."""
-
-    sweep = import_module(f"flow.{block}.sweep")
-    if hasattr(sweep, "runs"):
-        return import_module(f"flow.{block}.layout")
-    return sweep
 
 
 def instance_batch(jobs: list[tuple]) -> list[dict]:
@@ -311,13 +302,15 @@ def run(
 
 def _runs(block: str) -> list[Path]:
     """The block's runs: the timestamp-named directories in ``build/<block>/`` (its other outputs
-    there are not runs)."""
-    folder = RUNS_DIR / block
-    return (
-        [path for path in folder.iterdir() if path.is_dir() and RUN_STAMP.fullmatch(path.name)]
-        if folder.is_dir()
-        else []
-    )
+    there are not runs); a block not yet characterized, its layout runs (``python -m flow layout``,
+    ``build/<block>/layout/``), whose instances carry their layouts alone."""
+
+    def stamped(folder: Path) -> list[Path]:
+        if not folder.is_dir():
+            return []
+        return [path for path in folder.iterdir() if path.is_dir() and RUN_STAMP.fullmatch(path.name)]
+
+    return stamped(RUNS_DIR / block) or stamped(RUNS_DIR / block / "layout")
 
 
 def newest_run(block: str, pdk: str | None = None) -> Path:
@@ -339,131 +332,27 @@ def pdk_runs(block: str) -> dict[str, Path]:
     return dict(sorted(runs.items()))
 
 
-def hand_floorplan(block: str, params, cases: dict | None = None) -> Path | None:
-    """The hand-written floorplan an instance is placed by: that of the first of the block's named
-    cases (``cases``, else its subckt's ``CASES``) whose structure is the instance's (the values of
-    the parameters its sweep's ``STRUCTURE`` names: those that make its devices and their wiring,
-    not their sizes) and that has one, ``design/layout/<block>_<case>.json``; None where the block
-    names no structure or no such case has a floorplan."""
-
-    structure = getattr(import_module(f"flow.{block}.sweep"), "STRUCTURE", None)
-    if structure is None:
-        return None
-    if cases is None:
-        cases = getattr(import_module(f"flow.{block}.subckt"), "CASES", {})
-    for name, case in cases.items():
-        floorplan = FLOORPLANS / f"{block}_{name}.json"
-        if all(getattr(case, field) == getattr(params, field) for field in structure) and floorplan.exists():
-            return floorplan
-    return None
-
-
-def case_floorplan(block: str, out_dir: Path, pdk: str, params) -> tuple[Path, Path] | None:
-    """The instance's hand-written floorplan (``hand_floorplan``) with the netlist its layout
-    runner places by it (``write_netlist`` of the block's subckt, at the instance's sizes); None
-    without one. A sweep module may give its own (``layout_floorplan``)."""
-
-    hooks = layout_hooks(block)
-    if hasattr(hooks, "layout_floorplan"):
-        return hooks.layout_floorplan(out_dir, pdk, params)
-    floorplan = hand_floorplan(block, params)
-    write_netlist = getattr(import_module(f"flow.{block}.subckt"), "write_netlist", None)
-    if floorplan is None or write_netlist is None:
-        return None
-    logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
-    return write_netlist(params, out_dir / f"{floorplan.stem}.sp", logic), floorplan
-
-
-def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
-    """ALIGN's layout of one instance and its signoff, into ``instance_dir/layout``; the record's
-    layout entry (also written into its ``instance.json``). ALIGN places by the block's floorplan
-    where it gives one (its layout_floorplan hook: an ALIGN Floorplan constraint, generated from
-    the devices or a fabricated design's own; a minute or two); without one, or where that fails,
-    ALIGN derives its constraints and places and routes on its own (ten minutes or more, and its
-    router fails on some IHP130 designs)."""
+def layout_job(block: str, instance_dir: Path, pdk: str, pex: bool = True) -> dict:
+    """ALIGN's layout of one instance and its signoff, into ``instance_dir/layout``, by the shared
+    layout step (``_module_layouts``); the record's layout entry (also written into its
+    ``instance.json``); ``pex``: each layout extracted (KLayout-PEX)."""
 
     import os
-
-    from klayout import db
-
-    from flow.layout.align.build import build as align_build
-    from flow.layout.align.build import route_shorts
-    from flow.layout.signoff import row_signoff
 
     # an attempt that has not placed and routed in half an hour fails (ALIGN's placer can search
     # for hours on the larger sizings); the next attempt, if any, follows
     os.environ.setdefault("ALIGN_TIMEOUT", "1800")
     record = json.loads((instance_dir / "instance.json").read_text())
-    hooks = layout_hooks(block)
     params = instance_params(block, pdk, instance_dir.name)
-    out = instance_dir / "layout"
-    entry: dict = {"error": None}
     start = time.time()
-    attempts = []
-    try:
-        planned = case_floorplan(block, out / "netlist", pdk, params)
-        if planned is not None:
-            attempts.append(planned)
-    except Exception:  # noqa: BLE001 - ALIGN on its own instead
-        entry["floorplan_error"] = traceback.format_exc(limit=4)[-2000:]
-    if hasattr(hooks, "layout_netlist"):
-        attempts.append((None, None))
-    results = []  # each attempt's entry; the first clean one is kept, else the first laid out
-    for netlist, floorplan in attempts:
-        result: dict = {"error": None}
-        try:
-            if netlist is None:
-                netlist = hooks.layout_netlist(out / "netlist", pdk, params)
-            work = out / ("align_floorplan" if floorplan else "align")
-            # ALIGN's route varies run to run: one that joins two nets is routed again (twice at most)
-            for seed in range(3):  # each try another placement (ALIGN's placer seed)
-                gds = align_build(pdk, floorplan, netlist, work, name=netlist.stem, seed=seed)
-                shorts = route_shorts(work, netlist.stem)
-                if not shorts:
-                    break
-            result["route_shorts"] = {"/".join(pair): n for pair, n in shorts.items()} or None
-            layout = db.Layout()
-            layout.read(str(gds))
-            box = max(layout.top_cells(), key=lambda cell: cell.bbox().area()).dbbox()
-            result.update(
-                floorplan=str(floorplan.relative_to(ROOT)) if floorplan else None,
-                gds=str(gds.relative_to(ROOT)),
-                netlist=str(netlist.relative_to(ROOT)),
-                w_um=box.width(),
-                h_um=box.height(),
-            )
-            check = row_signoff(pdk, gds, netlist, floorplan, work / "signoff")
-            result.update(drc_violations=check.drc_violations, lvs_correct=check.lvs_correct)
-        except Exception:  # noqa: BLE001 - every instance reports its own failure
-            result["error"] = traceback.format_exc(limit=6)[-4000:]
-        results.append(result)
-        if result["error"] is None and result["drc_violations"] == 0 and result["lvs_correct"]:
-            break
+    results = _module_layouts(block, instance_dir / "layout", pdk, params, pex)
     clean = [r for r in results if r["error"] is None and r["drc_violations"] == 0 and r["lvs_correct"]]
-    laid_out = [r for r in results if r["error"] is None]
-    if results:
-        entry.update((clean or laid_out or results)[0])
-        entry["attempts"] = len(results)
-    if hasattr(hooks, "layout_instance"):  # a block drawn by its own generator (the CDAC): no ALIGN run
-        try:
-            gds = hooks.layout_instance(out / "drawn", pdk, params, record["label"].partition("(")[2].rstrip(")"))
-            layout = db.Layout()
-            layout.read(str(gds))
-            box = max(layout.top_cells(), key=lambda cell: cell.bbox().area()).dbbox()
-            results.append(
-                {
-                    "error": None,
-                    "floorplan": None,
-                    "gds": str(gds.resolve().relative_to(ROOT)),
-                    "w_um": box.width(),
-                    "h_um": box.height(),
-                }
-            )
-        except Exception:  # noqa: BLE001 - every instance reports its own failure
-            results.append({"error": traceback.format_exc(limit=6)[-4000:]})
-        entry.update(results[0], attempts=1)
-    elif not attempts:
-        return {"error": "no floorplan and no layout netlist", "seconds": 0.0}
+    entry = {**(clean or [r for r in results if r["error"] is None] or results)[0], "attempts": len(results)}
+    return _layout_record(record, instance_dir, entry, start)
+
+
+def _layout_record(record: dict, instance_dir: Path, entry: dict, start: float) -> dict:
+    """The layout entry, its seconds and the record's area metrics, written into ``instance.json``."""
     entry["seconds"] = round(time.time() - start, 1)
     record["layout"] = entry
     if entry.get("w_um"):
@@ -475,14 +364,59 @@ def layout_job(block: str, instance_dir: Path, pdk: str) -> dict:
     return entry
 
 
-def layout(blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS) -> None:
+def _module_layouts(block: str, out: Path, pdk: str, params, pex: bool = True) -> list[dict]:
+    """The shared step's layout of an instance (``flow.layout.step.layout_one``, in
+    ``out/align_floorplan``): as its generator places it, by ALIGN on its own only where the
+    generator states nothing (no second attempt by ALIGN alone: a generator's placement is the
+    intent, and ALIGN's own search on a large array runs for hours); routed again, its placer's seed
+    another, where ALIGN's route joins two nets and its placer annealed (twice at most: a placement
+    the generator states whole is enumerated, the same whatever the seed). Its entry, as
+    ``layout_job``'s, in a list."""
+    from flow.layout.build import annealed, route_shorts
+    from flow.layout.step import layout_one
+
+    work = out / "align_floorplan"
+    result: dict = {"error": None, "floorplan": "generator"}
+    try:
+        for seed in range(3):
+            try:
+                layout_one(block, work, pdk, block, params, seed=seed, pex=pex)
+            except RuntimeError:  # a failed signoff: in its summary
+                pass
+            # the layout kept (by the PDK's router, or the other one where LVS matched only there)
+            kept = json.loads((work / "summary.json").read_text())[f"{pdk}/align"].get("gds")
+            routed = Path(kept).parents[1] if kept else work / "align"
+            shorts = route_shorts(routed, block)
+            if not shorts or not annealed(routed):
+                break
+        summary = json.loads((work / "summary.json").read_text())[f"{pdk}/align"]
+        if summary.get("error"):
+            raise RuntimeError(summary["error"])
+        w, h_um = summary["cell_um"]
+        result.update(
+            route_shorts={"/".join(pair): n for pair, n in shorts.items()} or None,
+            gds=str(Path(summary["gds"]).resolve().relative_to(ROOT)),
+            netlist=str((work / "netlist" / f"{block}.cdl").relative_to(ROOT)),
+            w_um=w,
+            h_um=h_um,
+            router=summary.get("router"),
+            drc_violations=summary.get("drc_violations"),
+            lvs_correct=summary.get("lvs_correct"),
+            pex=summary.get("pex"),
+        )
+    except Exception:  # noqa: BLE001 - every instance reports its own failure
+        result["error"] = traceback.format_exc(limit=6)[-4000:]
+    return [result]
+
+
+def layout(
+    blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS, pex: bool = True, redo: bool = False
+) -> None:
     """Lay out every characterized instance of the newest runs of ``blocks`` in ``pdks`` not yet laid
-    out DRC clean and LVS correct."""
+    out DRC clean and LVS correct (``redo``: every one), each extracted where ``pex``."""
 
     jobs = []
     for block in blocks:
-        hooks = layout_hooks(block)
-        own = any(hasattr(hooks, name) for name in ("layout_netlist", "layout_floorplan", "layout_instance"))
         for path in sorted(newest_run(block).glob("*/*/instance.json")):
             record = json.loads(path.read_text())
             if record["pdk"] not in pdks:
@@ -491,24 +425,20 @@ def layout(blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS) -> 
             if params is None:
                 print(f"{path.parent.relative_to(RUNS_DIR)}: not in the design space any more, not laid out")
                 continue
-            # a block drawn otherwise (the capacitor array) or of standard cells alone has nothing to place
-            if not own and hand_floorplan(block, params) is None:
-                continue
             entry = record.get("layout") or {}
-            drawn = hasattr(hooks, "layout_instance")  # drawn, not signed off: done once drawn
-            done = (entry.get("gds") and not entry.get("error") and drawn) or (
+            done = (
                 entry.get("gds")
                 and not entry.get("error")
                 and entry.get("drc_violations") == 0
                 and entry.get("lvs_correct")
             )
-            if record["error"] is None and not done:
-                jobs.append((block, path.parent, record["pdk"]))
+            if record["error"] is None and (redo or not done):
+                jobs.append((block, path.parent, record["pdk"], pex))
     print(f"{len(jobs)} layouts on {workers} workers")
     with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=1) as pool:
         futures = {pool.submit(layout_job, *job): job for job in jobs}
         for done, future in enumerate(as_completed(futures), 1):
-            _block, path, _pdk = futures[future]
+            _block, path, _pdk, _pex = futures[future]
             try:
                 entry = future.result()
             except Exception as error:  # noqa: BLE001 - a worker that died
@@ -516,8 +446,6 @@ def layout(blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS) -> 
             status = (
                 "failed"
                 if entry["error"]
-                else f"{entry['w_um']:.1f} x {entry['h_um']:.1f} um, drawn"
-                if "drc_violations" not in entry  # a block drawn by its own generator: not signed off here
                 else f"{entry['w_um']:.1f} x {entry['h_um']:.1f} um, DRC {entry['drc_violations']}, LVS {entry['lvs_correct']}"
                 f"{'' if entry.get('floorplan') else ', ALIGN alone'}"
             )
@@ -525,26 +453,16 @@ def layout(blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS) -> 
 
 
 def _block_netlist(block: str, ident: str, record: dict, data_dir: Path) -> Path | None:
-    """An instance laid out by no one: its block's own netlist after its PDK's compile (a pipeline
-    block's ``netlist`` and ``Nets``, or the generator and parameters a characterization's
-    ``view_netlist(params)`` names; ``flow.circuit.devices.write_netlist``), else None."""
+    """An instance laid out by no one: its block's netlist compiled in its PDK
+    (``flow.layout.step.block_netlist``), else None."""
 
-    from flow.circuit import devices
+    from flow.layout.step import block_netlist
 
-    module = import_module(f"flow.{block}")
-    viewed = hasattr(module, "view_netlist")  # a characterization's circuit: (generator, its params)
-    if not (hasattr(module, "Nets") or viewed) or record["error"] is not None:
+    if record["error"] is not None:
         return None
     try:
         params = instance_params(block, record["pdk"], ident.split("__")[-1])
-        pdk = import_module(f"pdk.{record['pdk']}.hdl21").pdk_logic
-        path = data_dir / block / ident / f"{block}.sp"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if viewed:
-            generator, inner = module.view_netlist(params)
-            ports = SimpleNamespace(signals=generator(inner).ports)
-            return devices.write_netlist(inner, path, pdk, generator=generator, nets=ports)
-        return devices.write_netlist(params, path, pdk, generator=module.netlist, nets=module.Nets)
+        return block_netlist(block, params, record["pdk"], data_dir / block / ident / f"{block}.cdl")
     except Exception:  # noqa: BLE001 - the page shows no netlist rather than no page
         return None
 

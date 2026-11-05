@@ -71,7 +71,6 @@ STUDIES = {
             "latch",
             "ota",
             "follower",
-            "moscap",
             "idac",
             "cml",
             "pi",
@@ -83,8 +82,6 @@ STUDIES = {
             "bias",
             "lvshift",
             "ringamp",
-            "momcap",
-            "mosfet",
         )
     },
 }
