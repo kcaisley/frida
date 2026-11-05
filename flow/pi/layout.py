@@ -2,7 +2,7 @@
 
 A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
 (``design/layout/pi_*.json``), each checked with DRC and LVS. Cases: CMOS and CML interpolators at
-equal and three-to-one weights. The runner is the comparator's (``flow.comp.layout``).
+equal and three-to-one weights. The runner is the shared layout step's (``flow.layout.step``).
 
     uv run python -m flow pi.layout_cmos_half
 """
@@ -12,7 +12,7 @@ from __future__ import annotations
 from importlib import import_module
 from pathlib import Path
 
-from flow.comp.layout import FLOORPLANS, _all_pdks, _finish, _run
+from flow.layout.step import FLOORPLANS, all_pdks, finish, signed_off
 
 from .subckt import CASES, PiParams, write_netlist
 
@@ -30,26 +30,26 @@ def _pi(run_dir: Path, pdk: str, case: str) -> Path:
 
     name = f"pi_{case}"
     netlist = _netlists(CASES[case], pdk, run_dir / "netlist", name)
-    return _run(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
+    return signed_off(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
 
 
 # ---- each case in all six PDKs
 
 
 def pi_cmos_half_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _pi, "cmos_half")
+    return all_pdks(run_dir, _pi, "cmos_half")
 
 
 def pi_cmos_quarter_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _pi, "cmos_quarter")
+    return all_pdks(run_dir, _pi, "cmos_quarter")
 
 
 def pi_cml_half_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _pi, "cml_half")
+    return all_pdks(run_dir, _pi, "cml_half")
 
 
 def pi_cml_quarter_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _pi, "cml_quarter")
+    return all_pdks(run_dir, _pi, "cml_quarter")
 
 
 ALL_PDKS = (pi_cmos_half_all_pdks, pi_cmos_quarter_all_pdks, pi_cml_half_all_pdks, pi_cml_quarter_all_pdks)
@@ -64,4 +64,4 @@ def all_pi_layouts(run_dir: Path) -> Path:
             target(run_dir / target.__name__)
         except Exception as error:  # noqa: BLE001 - run every case
             failures[target.__name__] = repr(error)
-    return _finish(run_dir, {}, failures)
+    return finish(run_dir, {}, failures)

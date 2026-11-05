@@ -9,7 +9,6 @@ import numpy as np
 from flow import new_run
 from flow.analysis.io import read_measurements
 from flow.analysis.studies import BASE_PATH
-from flow.comp.layout import PDKS
 from flow.follower.analysis import (
     MeasFollower,
     MeasFollowerStep,
@@ -24,6 +23,7 @@ from flow.follower.plots import (
     plot_follower_slew,
     plot_follower_transfer,
 )
+from flow.layout.step import PDKS
 from flow.sweep import runner as sweep_runner
 
 from . import layout, sim

@@ -5,8 +5,8 @@ Each stage of each side drives its main plate with a buffer of its state and its
 with the complement: a chain of the generic inverters (``flow.circuit.cells``) whose last stage has
 the stage's drive (``dac.driver.strengths``: 1 to 16, or k inverters of 16 in parallel after a
 pre-driver for 16 k), one inverter before it on the main side, none on the difference side (two
-where a pre-driver is needed). Its plates are FMOM capacitors (``flow.momcap``) at the array's
-extracted values, varying with a run's Monte Carlo (``flow.momcap.subckt.variation``) at their
+where a pre-driver is needed). Its plates are FMOM capacitors (``flow.layout.devices.momcap``) at the array's
+extracted values, varying with a run's Monte Carlo (``flow.layout.devices.momcap.netlist.variation``) at their
 centroids on the die, ``cmain_<side>_<stage>`` and ``cdiff_<side>_<stage>`` (each one's probe
 ``drawn`` reads its value back); its top plate carries the array's other load to ground. A CDAC
 with no difference plates (no coarse/fine split, ``Params.dac.split``) has main drivers only.
@@ -20,7 +20,7 @@ from hdl21.primitives import C
 from flow.cdac.capdriver.subckt import PARALLEL_DRIVE, pre_driver, stage_strengths
 from flow.circuit.cells import cell
 from flow.circuit.ports import module_from_ports
-from flow.momcap.subckt import mom_cap
+from flow.layout.devices.momcap.netlist import mom_cap
 
 from .params import Params
 

@@ -9,7 +9,7 @@ from flow.analysis.io import read_measurement
 from flow.analysis.studies import BASE_PATH
 from flow.clkgen.analysis import MeasClkgen, analyze_clkgen_timing
 from flow.clkgen.plots import plot_clkgen_frequency, plot_clkgen_supply, plot_clkgen_waveforms
-from flow.comp.layout import PDKS
+from flow.layout.step import PDKS
 from flow.sweep import runner as sweep_runner
 
 from . import layout, sim

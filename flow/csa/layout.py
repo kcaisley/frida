@@ -4,7 +4,7 @@ A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its ha
 (``design/layout/csa_*.json``), each checked with DRC and LVS. Cases: NMOS and PMOS input with
 Krummenacher feedback, NMOS input with continuous and with reset feedback. The row cells draw MOS
 only: the layout's netlist leaves the feedback capacitor out. The runner is the comparator's
-(``flow.comp.layout``).
+(``flow.layout.step``).
 
     uv run python -m flow csa.layout_krum
 """
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from hdl21.prefix import f
 
-from flow.comp.layout import FLOORPLANS, _all_pdks, _finish, _run
+from flow.layout.step import FLOORPLANS, all_pdks, finish, signed_off
 
 from .subckt import CASES, CsaParams, write_netlist
 
@@ -36,7 +36,7 @@ def _csa(run_dir: Path, pdk: str, case: str) -> Path:
 
     name = f"csa_{case}"
     netlist = _netlists(CASES[case], pdk, run_dir / "netlist", name)
-    return _run(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
+    return signed_off(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
 
 
 # ---- each case in all six PDKs
@@ -44,22 +44,22 @@ def _csa(run_dir: Path, pdk: str, case: str) -> Path:
 
 def csa_krum_all_pdks(run_dir: Path) -> Path:
     """NMOS input, Krummenacher feedback."""
-    return _all_pdks(run_dir, _csa, "krum")
+    return all_pdks(run_dir, _csa, "krum")
 
 
 def csa_krum_pmos_all_pdks(run_dir: Path) -> Path:
     """PMOS input, Krummenacher feedback."""
-    return _all_pdks(run_dir, _csa, "krum_pmos")
+    return all_pdks(run_dir, _csa, "krum_pmos")
 
 
 def csa_continuous_all_pdks(run_dir: Path) -> Path:
     """NMOS input, continuous feedback."""
-    return _all_pdks(run_dir, _csa, "continuous")
+    return all_pdks(run_dir, _csa, "continuous")
 
 
 def csa_reset_all_pdks(run_dir: Path) -> Path:
     """NMOS input, reset feedback."""
-    return _all_pdks(run_dir, _csa, "reset")
+    return all_pdks(run_dir, _csa, "reset")
 
 
 ALL_PDKS = (
@@ -79,4 +79,4 @@ def all_csa_layouts(run_dir: Path) -> Path:
             target(run_dir / target.__name__)
         except Exception as error:  # noqa: BLE001 - run every case
             failures[target.__name__] = repr(error)
-    return _finish(run_dir, {}, failures)
+    return finish(run_dir, {}, failures)

@@ -7,7 +7,7 @@ from pathlib import Path
 from flow import new_run
 from flow.analysis.io import read_measurement
 from flow.analysis.studies import BASE_PATH
-from flow.comp.layout import PDKS
+from flow.layout.step import PDKS
 from flow.pi.analysis import MeasPi, analyze_pi_linearity, analyze_pi_phase
 from flow.pi.plots import plot_pi_frequency, plot_pi_transfer, plot_pi_waveforms
 from flow.sweep import runner as sweep_runner

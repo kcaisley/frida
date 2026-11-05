@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from flow.comp.layout import FLOORPLANS, PDKS
+from flow.layout.step import FLOORPLANS, PDKS
 from flow.ota import layout, targets
 from flow.ota.subckt import CASES, write_netlist
 

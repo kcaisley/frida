@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from flow.comp.layout import FLOORPLANS, PDKS
 from flow.disc import layout, targets
 from flow.disc.subckt import CASES
+from flow.layout.step import FLOORPLANS, PDKS
 
 
 def test_targets_lay_out_every_case_in_every_pdk() -> None:

@@ -13,9 +13,9 @@ from hdl21.prefix import f
 from klayout import db
 from pydantic import ValidationError
 
-from flow.layout.align.package import pdk_dir as align_pdk_dir
-from flow.layout.align.run import drawn_only
+from flow.layout.package import pdk_dir as align_pdk_dir
 from flow.layout.pdkproc import in_pdk
+from flow.layout.run import drawn_only
 
 from .layout import (
     ADC_ARRAYS,
@@ -79,7 +79,7 @@ def _rules(*, pitch: int = 200, eol_threshold: int = 120) -> SimpleNamespace:
 
 
 def synthetic(function: str, *args, rules: dict | None = None, **kwargs):
-    """Call a stems ``capcell`` function on the synthetic PDK (in a process bound to a real one):
+    """Call a row-engine ``capcell`` function on the synthetic PDK (in a process bound to a real one):
     ``rules`` overrides ``{"M4": {"area": ...}}`` and ``pitch`` / ``eol_threshold`` its metals."""
 
     import capcell
@@ -143,9 +143,9 @@ def _generate(tmp_path: Path, params: CapArrayLayoutParams) -> db.Layout:
     source = align_pdk_dir("tsmc65")
     pdk_dir = tmp_path / "layout"
     pdk_dir.mkdir(exist_ok=True)
-    for name in ("layers.json", "models.sp", "stems.json", "gen_param.py"):
+    for name in ("layers.json", "models.sp", "rows.json", "gen_param.py"):
         shutil.copy(source / name, pdk_dir / name)
-    hook = Path(__file__).resolve().parents[3] / "flow/layout/align/package.py"
+    hook = Path(__file__).resolve().parents[3] / "flow/layout/package.py"
     (pdk_dir / "__init__.py").write_text(
         "import importlib.util as u\n"
         f"s = u.spec_from_file_location('frida_align_package', {str(hook)!r})\n"

@@ -7,7 +7,7 @@ from pathlib import Path
 from flow import new_run
 from flow.analysis.io import read_measurement
 from flow.analysis.studies import BASE_PATH
-from flow.comp.layout import PDKS
+from flow.layout.step import PDKS
 from flow.ringamp.analysis import MeasRingamp, analyze_ringamp_settling, analyze_ringamp_transfer
 from flow.ringamp.plots import plot_ringamp_deadzone, plot_ringamp_step, plot_ringamp_transfer, plot_ringamp_waveforms
 from flow.sweep import runner as sweep_runner

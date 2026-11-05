@@ -7,9 +7,9 @@ from pathlib import Path
 from flow import new_run
 from flow.analysis.io import read_measurement
 from flow.analysis.studies import BASE_PATH
-from flow.comp.layout import PDKS
 from flow.idac.analysis import MeasIdac, analyze_idac_output, analyze_idac_steering
 from flow.idac.plots import plot_idac_bias, plot_idac_iv, plot_idac_steering
+from flow.layout.step import PDKS
 from flow.sweep import runner as sweep_runner
 
 from . import layout, sim

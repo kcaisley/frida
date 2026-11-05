@@ -2,7 +2,7 @@
 
 A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
 (``design/layout/clkgen_*.json``), each checked with DRC and LVS. Cases: non-overlapping clocks, a
-rising-edge pulse, and a clock gate. The runner is the comparator's (``flow.comp.layout``).
+rising-edge pulse, and a clock gate. The runner is the shared layout step's (``flow.layout.step``).
 
     uv run python -m flow clkgen.layout_nonoverlap
 """
@@ -12,7 +12,7 @@ from __future__ import annotations
 from importlib import import_module
 from pathlib import Path
 
-from flow.comp.layout import FLOORPLANS, _all_pdks, _finish, _run
+from flow.layout.step import FLOORPLANS, all_pdks, finish, signed_off
 
 from .subckt import CASES, ClkgenParams, write_netlist
 
@@ -30,7 +30,7 @@ def _clkgen(run_dir: Path, pdk: str, case: str) -> Path:
 
     name = f"clkgen_{case}"
     netlist = _netlists(CASES[case], pdk, run_dir / "netlist", name)
-    return _run(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
+    return signed_off(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
 
 
 # ---- each case in all six PDKs
@@ -38,17 +38,17 @@ def _clkgen(run_dir: Path, pdk: str, case: str) -> Path:
 
 def clkgen_nonoverlap_all_pdks(run_dir: Path) -> Path:
     """Non-overlapping clocks."""
-    return _all_pdks(run_dir, _clkgen, "nonoverlap")
+    return all_pdks(run_dir, _clkgen, "nonoverlap")
 
 
 def clkgen_pulse_all_pdks(run_dir: Path) -> Path:
     """Rising-edge pulse."""
-    return _all_pdks(run_dir, _clkgen, "pulse")
+    return all_pdks(run_dir, _clkgen, "pulse")
 
 
 def clkgen_gate_all_pdks(run_dir: Path) -> Path:
     """Clock gate."""
-    return _all_pdks(run_dir, _clkgen, "gate")
+    return all_pdks(run_dir, _clkgen, "gate")
 
 
 ALL_PDKS = (clkgen_nonoverlap_all_pdks, clkgen_pulse_all_pdks, clkgen_gate_all_pdks)
@@ -63,4 +63,4 @@ def all_clkgen_layouts(run_dir: Path) -> Path:
             target(run_dir / target.__name__)
         except Exception as error:  # noqa: BLE001 - run every case
             failures[target.__name__] = repr(error)
-    return _finish(run_dir, {}, failures)
+    return finish(run_dir, {}, failures)

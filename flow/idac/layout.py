@@ -3,7 +3,7 @@
 A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
 (``design/layout/idac_*.json``), each checked with DRC and LVS. Cases: switched NMOS units, a
 cascoded steered PMOS unit, steered NMOS units, and a PMOS bias mirror. The runner is the
-comparator's (``flow.comp.layout``).
+comparator's (``flow.layout.step``).
 
     uv run python -m flow idac.layout_nmos_switched
 """
@@ -13,7 +13,7 @@ from __future__ import annotations
 from importlib import import_module
 from pathlib import Path
 
-from flow.comp.layout import FLOORPLANS, _all_pdks, _finish, _run
+from flow.layout.step import FLOORPLANS, all_pdks, finish, signed_off
 
 from .subckt import CASES, IdacParams, write_netlist
 
@@ -31,7 +31,7 @@ def _idac(run_dir: Path, pdk: str, case: str) -> Path:
 
     name = f"idac_{case}"
     netlist = _netlists(CASES[case], pdk, run_dir / "netlist", name)
-    return _run(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
+    return signed_off(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
 
 
 # ---- each case in all six PDKs
@@ -39,22 +39,22 @@ def _idac(run_dir: Path, pdk: str, case: str) -> Path:
 
 def idac_nmos_switched_all_pdks(run_dir: Path) -> Path:
     """Two switched NMOS units."""
-    return _all_pdks(run_dir, _idac, "nmos_switched")
+    return all_pdks(run_dir, _idac, "nmos_switched")
 
 
 def idac_pmos_steer_cas_all_pdks(run_dir: Path) -> Path:
     """Cascoded steered PMOS unit."""
-    return _all_pdks(run_dir, _idac, "pmos_steer_cas")
+    return all_pdks(run_dir, _idac, "pmos_steer_cas")
 
 
 def idac_nmos_steer_all_pdks(run_dir: Path) -> Path:
     """Four steered NMOS units."""
-    return _all_pdks(run_dir, _idac, "nmos_steer")
+    return all_pdks(run_dir, _idac, "nmos_steer")
 
 
 def idac_pmos_mirror_all_pdks(run_dir: Path) -> Path:
     """PMOS bias mirror."""
-    return _all_pdks(run_dir, _idac, "pmos_mirror")
+    return all_pdks(run_dir, _idac, "pmos_mirror")
 
 
 ALL_PDKS = (
@@ -74,4 +74,4 @@ def all_idac_layouts(run_dir: Path) -> Path:
             target(run_dir / target.__name__)
         except Exception as error:  # noqa: BLE001 - run every case
             failures[target.__name__] = repr(error)
-    return _finish(run_dir, {}, failures)
+    return finish(run_dir, {}, failures)

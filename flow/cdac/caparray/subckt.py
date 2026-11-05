@@ -39,8 +39,8 @@ import hdl21 as h
 from hdl21.prefix import f
 
 from flow.circuit.ports import module_from_ports
-from flow.momcap.subckt import PORTS as MOM_PORTS
-from flow.momcap.subckt import MomCap, MomCapParams
+from flow.layout.devices.momcap.netlist import PORTS as MOM_PORTS
+from flow.layout.devices.momcap.netlist import MomCap, MomCapParams
 
 
 class RedunStrat(Enum):

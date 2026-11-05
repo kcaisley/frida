@@ -3,7 +3,7 @@
 A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
 (``design/layout/ringamp_*.json``), each checked with DRC and LVS. Cases: the single-ended ring
 amplifier and one with a stronger output stage. The runner is the comparator's
-(``flow.comp.layout``).
+(``flow.layout.step``).
 
     uv run python -m flow ringamp.layout_se
 """
@@ -13,7 +13,7 @@ from __future__ import annotations
 from importlib import import_module
 from pathlib import Path
 
-from flow.comp.layout import FLOORPLANS, _all_pdks, _finish, _run
+from flow.layout.step import FLOORPLANS, all_pdks, finish, signed_off
 
 from .subckt import CASES, RingampParams, write_netlist
 
@@ -31,18 +31,18 @@ def _ringamp(run_dir: Path, pdk: str, case: str) -> Path:
 
     name = f"ringamp_{case}"
     netlist = _netlists(CASES[case], pdk, run_dir / "netlist", name)
-    return _run(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
+    return signed_off(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
 
 
 # ---- each case in all six PDKs
 
 
 def ringamp_se_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _ringamp, "se")
+    return all_pdks(run_dir, _ringamp, "se")
 
 
 def ringamp_se_strong_all_pdks(run_dir: Path) -> Path:
-    return _all_pdks(run_dir, _ringamp, "se_strong")
+    return all_pdks(run_dir, _ringamp, "se_strong")
 
 
 ALL_PDKS = (ringamp_se_all_pdks, ringamp_se_strong_all_pdks)
@@ -57,4 +57,4 @@ def all_ringamp_layouts(run_dir: Path) -> Path:
             target(run_dir / target.__name__)
         except Exception as error:  # noqa: BLE001 - run every case
             failures[target.__name__] = repr(error)
-    return _finish(run_dir, {}, failures)
+    return finish(run_dir, {}, failures)

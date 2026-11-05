@@ -235,7 +235,7 @@ def caparray_characterization(run_dir: Path, *, check: bool = False) -> Path:
     measurement.
     """
 
-    from flow.comp.layout import PDKS
+    from flow.layout.step import PDKS
 
     run_dir.mkdir(parents=True, exist_ok=True)
     jobs = {}

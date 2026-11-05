@@ -7,7 +7,7 @@ from pathlib import Path
 from flow import new_run
 from flow.analysis.io import read_measurement
 from flow.analysis.studies import BASE_PATH
-from flow.comp.layout import PDKS
+from flow.layout.step import PDKS
 from flow.lvshift.analysis import MeasLvShift, analyze_lvshift_switching
 from flow.lvshift.plots import plot_lvshift_vdd, plot_lvshift_vddl, plot_lvshift_waveforms
 from flow.sweep import runner as sweep_runner

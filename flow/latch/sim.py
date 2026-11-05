@@ -278,8 +278,8 @@ def latch_characterization(run_dir: Path, *, check: bool = False) -> Path:
 
     from flow.analysis.types import MeasInfo, Wave
     from flow.circuit.results import read_raw_transient
-    from flow.comp.layout import PDKS
     from flow.latch.analysis import MeasLatch
+    from flow.layout.step import PDKS
 
     run_dir.mkdir(parents=True, exist_ok=True)
     jobs = {}

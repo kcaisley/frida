@@ -1,11 +1,11 @@
 """The FRIDA unit-length CDAC's layout: a process-independent generator and the named targets.
 
 Electrical weights come from :mod:`flow.cdac.caparray.subckt`; this module holds only dimensionless
-topology choices (the weight family, the stack, the units' order). The cells are drawn by the stems
-engine (``flow/layout/stems/capcell.py``, in a process bound to the PDK, ``in_pdk``), which derives
+topology choices (the weight family, the stack, the units' order). The cells are drawn by the row
+engine (``flow/layout/rows/capcell.py``, in a process bound to the PDK, ``in_pdk``), which derives
 every dimension from the PDK's metal and via rules (``pdk.<tech>.layout.tech``: ``RULES``,
 ``MFG_GRID``) and draws on its layers (``LAYERS``), as it draws the analog row cells. Each unit is a
-difference FMOM (``flow.momcap``): a ring around a main and a difference finger, over a shield
+difference FMOM (``flow.layout.devices.momcap``): a ring around a main and a difference finger, over a shield
 mesh, the arrays' units side by side sharing their ring walls. A chunk of weight w lengthens its
 main finger and shortens its difference finger by w weight steps: its capacitance is the two
 strips' difference, so a unit far below the smallest drawable capacitor is two long strips a few
@@ -43,9 +43,9 @@ import numpy as np
 from hdl21.prefix import f
 from klayout import db
 
-from flow.layout.align.package import pdk_dir as align_pdk_dir
-from flow.layout.align.run import Drawing, draw, drawn_only
+from flow.layout.package import pdk_dir as align_pdk_dir
 from flow.layout.pdkproc import access_points, in_pdk, pdk_value
+from flow.layout.run import Drawing, draw, drawn_only
 from flow.layout.signoff import SignoffParams, run_signoff
 
 from .pex import parse_caparray_pex, write_capacitance_table

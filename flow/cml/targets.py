@@ -9,7 +9,7 @@ from flow.analysis.io import read_measurement
 from flow.analysis.studies import BASE_PATH
 from flow.cml.analysis import MeasCml, analyze_cml_switching
 from flow.cml.plots import plot_cml_frequency, plot_cml_tail, plot_cml_waveforms
-from flow.comp.layout import PDKS
+from flow.layout.step import PDKS
 from flow.sweep import runner as sweep_runner
 
 from . import layout, sim

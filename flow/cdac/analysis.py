@@ -85,7 +85,7 @@ def analyze_settling(meas: Meas) -> AnalysisSettling:
 
 @analysis
 def analyze_mismatch(meas: Meas) -> AnalysisMismatch:
-    """Each Monte Carlo run's drawn plates (a probe's fF each, ``flow.momcap``) and the static
+    """Each Monte Carlo run's drawn plates (a probe's fF each, ``flow.layout.devices.momcap``) and the static
     linearity they give: the DAC alone, the converter with its design weights, and what no
     calibration recovers (``AnalysisMismatch``)."""
 

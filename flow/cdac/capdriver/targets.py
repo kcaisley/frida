@@ -9,7 +9,7 @@ from flow.analysis.io import read_measurements
 from flow.analysis.studies import BASE_PATH
 from flow.cdac.capdriver.analysis import MeasCapdriver, analyze_capdriver_drive
 from flow.cdac.capdriver.plots import plot_capdriver_load, plot_capdriver_supply
-from flow.comp.layout import PDKS
+from flow.layout.step import PDKS
 from flow.sweep import runner as sweep_runner
 
 from . import layout, sim

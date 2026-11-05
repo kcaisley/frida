@@ -3,7 +3,7 @@
 A ``*_all_pdks`` function lays out one case in all six PDKs by ALIGN from its hand-written floorplan
 (``design/layout/follower_*.json``), each checked with DRC and LVS. Cases: NMOS and PMOS source
 followers, and NMOS and PMOS flipped voltage followers. The runner is the comparator's
-(``flow.comp.layout``).
+(``flow.layout.step``).
 
     uv run python -m flow follower.layout_source
 """
@@ -13,7 +13,7 @@ from __future__ import annotations
 from importlib import import_module
 from pathlib import Path
 
-from flow.comp.layout import FLOORPLANS, _all_pdks, _finish, _run
+from flow.layout.step import FLOORPLANS, all_pdks, finish, signed_off
 
 from .subckt import CASES, FollowerParams, write_netlist
 
@@ -31,7 +31,7 @@ def _follower(run_dir: Path, pdk: str, case: str) -> Path:
 
     name = f"follower_{case}"
     netlist = _netlists(CASES[case], pdk, run_dir / "netlist", name)
-    return _run(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
+    return signed_off(run_dir, pdk, name, netlist, FLOORPLANS / f"{name}.json")
 
 
 # ---- each case in all six PDKs
@@ -39,22 +39,22 @@ def _follower(run_dir: Path, pdk: str, case: str) -> Path:
 
 def follower_source_all_pdks(run_dir: Path) -> Path:
     """NMOS source follower."""
-    return _all_pdks(run_dir, _follower, "source")
+    return all_pdks(run_dir, _follower, "source")
 
 
 def follower_source_pmos_all_pdks(run_dir: Path) -> Path:
     """PMOS source follower."""
-    return _all_pdks(run_dir, _follower, "source_pmos")
+    return all_pdks(run_dir, _follower, "source_pmos")
 
 
 def follower_flipped_all_pdks(run_dir: Path) -> Path:
     """NMOS flipped voltage follower."""
-    return _all_pdks(run_dir, _follower, "flipped")
+    return all_pdks(run_dir, _follower, "flipped")
 
 
 def follower_flipped_pmos_all_pdks(run_dir: Path) -> Path:
     """PMOS flipped voltage follower with an output sink."""
-    return _all_pdks(run_dir, _follower, "flipped_pmos")
+    return all_pdks(run_dir, _follower, "flipped_pmos")
 
 
 ALL_PDKS = (
@@ -74,4 +74,4 @@ def all_follower_layouts(run_dir: Path) -> Path:
             target(run_dir / target.__name__)
         except Exception as error:  # noqa: BLE001 - run every case
             failures[target.__name__] = repr(error)
-    return _finish(run_dir, {}, failures)
+    return finish(run_dir, {}, failures)

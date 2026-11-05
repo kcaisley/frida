@@ -7,9 +7,9 @@ from pathlib import Path
 from flow import new_run
 from flow.analysis.io import read_measurements
 from flow.analysis.studies import BASE_PATH
-from flow.comp.layout import PDKS
 from flow.csa.analysis import MeasCsa, MeasCsaNoise, analyze_csa_noise, analyze_csa_pulse
 from flow.csa.plots import plot_csa_charge, plot_csa_noise, plot_csa_pulse
+from flow.layout.step import PDKS
 from flow.sweep import runner as sweep_runner
 
 from . import layout, sim

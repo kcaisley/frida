@@ -6,11 +6,11 @@ complement), and bleeds both top plates to mid-supply. ``simulate`` runs it in S
 the nets ``Nets`` marks to save (both top plates, the P side's states and main bottom plates, a
 bit per stage), every ``TbParams.waveform_sample_interval_s``, Spectre's step bounded to it; or,
 for a Monte Carlo run (``TbParams.mc_runs``), each run's operating point with every plate's probe
-(``flow.momcap``: its drawn value in fF), Spectre's runs a plot each. A Monte Carlo run's testbench
+(``flow.layout.devices.momcap``: its drawn value in fF), Spectre's runs a plot each. A Monte Carlo run's testbench
 holds the plates alone, as the netlist names and places them: its operating point reads nothing
 else, and without the drivers it is linear, solved at once in every PDK (with them, each run
 re-evaluates the drivers' models and, in some PDKs, converges only by gmin stepping: minutes a
-condition). Every run sets the plates' variation (``flow.momcap.subckt.variation``), none where the
+condition). Every run sets the plates' variation (``flow.layout.devices.momcap.netlist.variation``), none where the
 testbench gives none.
 """
 
@@ -23,7 +23,7 @@ from hdl21.primitives import R, Vdc, Vpulse
 from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
 from flow.circuit.ports import testbench_from_ports
-from flow.momcap.subckt import mom_cap, variation
+from flow.layout.devices.momcap.netlist import mom_cap, variation
 
 from .params import BLEED_OHM, ERRPRESET, TOLERANCES, TbParams
 from .subckt import Nets, netlist

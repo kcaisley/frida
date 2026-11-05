@@ -13,9 +13,9 @@ from pathlib import Path
 import hdl21 as h
 from hdl21.primitives import MosType, MosVth
 
-from flow.circuit.devices import mos as _mos
 from flow.circuit.devices import write_netlist as _write_netlist
 from flow.circuit.ports import module_from_ports
+from flow.layout.devices.mosfet.netlist import mos as _mos
 
 
 class Switch(Enum):

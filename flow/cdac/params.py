@@ -38,7 +38,7 @@ TRANSITION_S = 30e-12
 SAMPLES_PER_WINDOW = 2000
 TOLERANCES = {"reltol": 1e-4, "vabstol": 1e-9, "iabstol": 1e-15}
 ERRPRESET = "moderate"
-# the Monte Carlo of the plates (flow.momcap.subckt.variation), test conditions a chip has one
+# the Monte Carlo of the plates (flow.layout.devices.momcap.netlist.variation), test conditions a chip has one
 # realization of: Pelgrom's coefficient from Harpe's unit-length MOM (0.1 %·sqrt(fF), JSSC 2018) to
 # about Tripathi and Murmann's lateral MOM (0.85 %, TCAS-I 2014), as fractions, and a process
 # gradient of 10 to 100 ppm/mm (oxide-thickness gradients, US5952952), per um; MC_RUNS draws a

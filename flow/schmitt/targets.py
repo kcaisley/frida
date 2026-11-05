@@ -7,7 +7,7 @@ from pathlib import Path
 from flow import new_run
 from flow.analysis.io import read_measurements
 from flow.analysis.studies import BASE_PATH
-from flow.comp.layout import PDKS
+from flow.layout.step import PDKS
 from flow.schmitt.analysis import MeasSchmitt, analyze_schmitt_delay, analyze_schmitt_trip
 from flow.schmitt.plots import plot_schmitt_supply, plot_schmitt_transfer
 from flow.sweep import runner as sweep_runner

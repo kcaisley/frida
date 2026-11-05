@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from flow.comp.layout import FLOORPLANS, PDKS
 from flow.delay import layout, targets
 from flow.delay.subckt import CASES, write_netlist
+from flow.layout.step import FLOORPLANS, PDKS
 
 
 def test_targets_lay_out_every_case_in_every_pdk() -> None:

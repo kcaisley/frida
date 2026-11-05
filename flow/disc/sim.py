@@ -24,8 +24,8 @@ from hdl21.primitives import C, Idc, MosType, Vdc, Vpulse
 from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
 from flow.analysis.io import write_measurement
-from flow.circuit.devices import mos as _mos
 from flow.circuit.ports import testbench_from_ports
+from flow.layout.devices.mosfet.netlist import mos as _mos
 
 from .subckt import CASES, Disc, DiscNets, DiscParams
 
@@ -222,8 +222,8 @@ def disc_characterization(run_dir: Path, *, check: bool = False) -> Path:
 
     from flow.analysis.types import MeasInfo
     from flow.circuit.results import read_transient_wave
-    from flow.comp.layout import PDKS
     from flow.disc.analysis import MeasDisc
+    from flow.layout.step import PDKS
 
     run_dir.mkdir(parents=True, exist_ok=True)
     jobs = {}
