@@ -17,7 +17,7 @@ One submodule per process (`tsmc65`, `tsmc28`, `tower180`, `ihp130`, `lf150`, `t
 | `tests/` | the PDK's tests | |
 
 `pdk.<tech>` itself registers the HDL21 PDK and re-exports `hdl21.pdk_logic`. The layout
-generators (cIcCreator, laygo, ALIGN) have no files here: their drivers in `flow/layout/<tool>/`
-know no PDK and generate each tool's technology (`.tech`, `layers.json`, template YAML) from
-`layout/tech.py` into `build/`. Only the standard tools (KLayout, OpenROAD, Calibre, gdscheck)
+generator is ALIGN: its driver in `flow/layout/align/` knows no PDK, and each kit's `layout/` is
+ALIGN's PDK package, its `layers.json`, `models.sp` and `stems.json` written from `layout/tech.py`
+by `flow/layout/align/make_pdk.py` and committed with it. Only the standard tools (KLayout, OpenROAD, Calibre, gdscheck)
 keep their own rule files. The superproject holds no PDK's numbers, layouts or cell names.
