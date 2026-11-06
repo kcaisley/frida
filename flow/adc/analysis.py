@@ -132,7 +132,7 @@ from flow.analysis.types import AnalysisCdacCapMismatch, MeasAdc, MeasCdac
 from flow.cdac.caparray import get_caparray_weights
 from flow.pipeline import Identity, analysis, check_identity, measurement_identity
 
-from .params import INPUT_NOISE_LEVELS, LADDER, NOMINAL_RATE_HZ, PELGROM_AXIS, UNIT_MISMATCH
+from .params import LADDER, NOMINAL_RATE_HZ, PELGROM_AXIS, UNIT_MISMATCH
 from .sim import AdcSequence
 from .subckt import AdcNets, calc_side_capacitances
 from .types import (
@@ -1555,17 +1555,16 @@ def analyze_timing_summary(
 
 
 @analysis
-def analyze_input_noise(measurement: MeasAdc) -> AnalysisInputNoise:
-    """The output code's noise over the input: a staircase capture's DC levels (V, differential) and
-    the output code's standard deviation at each (LSB), ``INPUT_NOISE_LEVELS`` of them."""
+def analyze_input_noise(measurements: Sequence[MeasAdc]) -> AnalysisInputNoise:
+    """The output code's noise over the input: the DC levels (V, differential) of a staircase capture
+    (the record's, ``INPUT_NOISE_LEVELS`` of them) or of a lab study's DC steps (a capture each), and
+    the output code's standard deviation at each (LSB)."""
 
-    vin_v = np.asarray(measurement.vin_diff_v, dtype=np.float64)
-    dout = np.asarray(measurement.dout, dtype=np.float64)
+    identity = measurement_identity(measurements)
+    vin_v = np.concatenate([np.asarray(measurement.vin_diff_v, dtype=np.float64) for measurement in measurements])
+    dout = np.concatenate([np.asarray(measurement.dout, dtype=np.float64) for measurement in measurements])
     levels = np.unique(np.round(vin_v, 9))
-    if len(levels) != INPUT_NOISE_LEVELS:
-        raise ValueError(f"noise_input holds {len(levels)} input levels, not {INPUT_NOISE_LEVELS}")
     sigma = np.array([np.std(dout[np.isclose(vin_v, level, rtol=0.0, atol=1e-9)]) for level in levels])
-    identity = measurement.identity
     return AnalysisInputNoise(
         group=identity.group, index=identity.index, dut=identity.dut, level_v=levels, sigma_lsb=sigma
     )

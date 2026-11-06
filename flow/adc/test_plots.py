@@ -1,5 +1,5 @@
-"""The ADC's figures (``flow.adc.plots``): the record's details in the viewer's order, each a Plot spec
-of analysis results, its values to six significant digits."""
+"""The ADC's figures (``flow.adc.plots``): the record's details in the viewer's order, then those only
+the lab studies draw, each a Plot spec of analysis results, its values to six significant digits."""
 
 from __future__ import annotations
 
@@ -22,9 +22,11 @@ from flow.adc.analysis import (
     analyze_decision_paths,
     analyze_dynamic,
     analyze_energy,
+    analyze_input_noise,
     analyze_mismatch_prediction,
     analyze_power,
     analyze_ramp,
+    analyze_transfer,
 )
 from flow.adc.params import FINAL_DECISIONS, PELGROM_AXIS, UNIT_MISMATCH
 from flow.adc.test_analysis import adc_measurement, adc_ramp_measurement, tone_codes
@@ -71,12 +73,18 @@ FIGURES = (
     "reference_noise",
     "reference_r_out",
 )
+# the figures only the lab studies draw (flow.adc.targets, the scans' tests), after the record's
+LAB_FIGURES = (
+    "transfer",
+    "ramp_transfer",
+)
 
 
 def test_the_figures_are_the_records_in_the_viewers_order() -> None:
-    """Each figure is a ``@plot`` of its own name, written in the order the viewer shows them."""
+    """Each figure is a ``@plot`` of its own name: the record's first, written in the order the viewer
+    shows them, then those only the lab studies draw."""
     functions = [(name, value) for name, value in vars(plots).items() if name.startswith("plot_")]
-    assert tuple(name.removeprefix("plot_") for name, _ in functions) == FIGURES
+    assert tuple(name.removeprefix("plot_") for name, _ in functions) == FIGURES + LAB_FIGURES
     for name, function in functions:
         assert inspect.isfunction(function) and pipeline.STAGE_FUNCTIONS.get(function) == "plot", name
         assert f'"{name.removeprefix("plot_")}",' in inspect.getsource(function), name
@@ -370,3 +378,43 @@ def test_the_reference_figures_show_the_loss_over_their_grids() -> None:
     r_out = plots.plot_reference_r_out(reference)
     assert r_out.x == [1.0, 10.0] and r_out.series == {"ENOB loss": [0.01, 0.2]}
     assert r_out.x_label == "Reference output resistance (Ω)"
+
+
+def test_dc_steps_draw_their_transfer_and_noise_over_the_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A lab study's DC steps (a capture a level, as one staircase capture too): the mean code over the
+    input, and the codes' spread there on the record's noise figure; drawn on the analysis plots'
+    canvas."""
+    levels = np.linspace(-0.6, 0.6, 16)
+    codes = [[2 * step, 2 * step, 2 * step + 1, 2 * step + 2] for step in range(16)]
+    steps = [adc_measurement(code, vin_diff_v=level) for code, level in zip(codes, levels, strict=True)]
+    transfer = plots.plot_transfer(analyze_transfer(steps))
+    assert transfer.x == [float(f"{level:.6g}") for level in levels] and transfer.y_ticks == "code"
+    assert transfer.series == {"Mean code": [2 * step + 0.75 for step in range(16)]}
+    noise = plots.plot_noise_input(analyze_input_noise(steps))
+    assert noise.name == "noise_input" and noise.x == transfer.x
+    assert noise.series["Noise"] == [float(f"{np.std([0, 0, 1, 2]):.6g}")] * 16
+    # one staircase capture holding the same conversions: the same figure
+    staircase = adc_measurement(np.concatenate(codes), vin_diff_v=np.repeat(levels, 4))
+    assert plots.plot_noise_input(analyze_input_noise([staircase])) == noise
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    for figure in (transfer, noise):
+        (png, _pdf) = render(figure, tmp_path / figure.name)
+        assert plt.imread(png).shape[:2] == (2700, 4800)
+
+
+def test_a_ramps_transfer_is_drawn_by_its_weights(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A ramp's reconstructed transfer, each decoding a figure named by its weights, its codes ticked
+    as codes; drawn on the analysis plots' canvas."""
+    measurement = adc_ramp_measurement()
+    design = analyze_ramp(measurement)
+    calibrated = analyze_ramp(
+        measurement, calibration=calibration_of(measurement, AnalysisCalibration1, "calibration1")
+    )
+    figure = plots.plot_ramp_transfer(design)
+    assert (figure.name, figure.y_ticks) == ("ramp_transfer", "code")
+    assert figure.x == [float(f"{value:.6g}") for value in design.transfer_vin_diff_v]
+    assert figure.series == {"Design weights": [float(f"{value:.6g}") for value in design.transfer_mean_dout]}
+    assert list(plots.plot_ramp_transfer(calibrated).series) == ["Calibration 1"]
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    (png, _pdf) = render(figure, tmp_path / "ramp_transfer")
+    assert plt.imread(png).shape[:2] == (2700, 4800)

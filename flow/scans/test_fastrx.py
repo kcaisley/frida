@@ -66,13 +66,13 @@ from flow.analysis.io import (
     write_measurement,
 )
 from flow.analysis.plots import (
-    plot_adc_code_distribution,
     plot_adc_comp_out_edge_eye,
     plot_adc_fastrx_scope_comparison,
     plot_adc_noise_sweep,
 )
 from flow.analysis.types import MeasAdc, MeasInfo
 from flow.cdac.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
+from flow.plot import render
 from flow.scans import scan_adc, scan_adc_noctl
 from flow.scans.fastrx import convert_fastrx_words_to_adc, program_comp_delay, select_fastrx_capture_settings
 from flow.scans.params import AdcScanParams, build_adc_variants, load_board_map, validate_params
@@ -557,11 +557,8 @@ def test_physical_fastrx_matches_scope(
                 scope_analysis,
                 output_path=run_dir / f"{stem}_scope",
             )
-            plot_adc_code_distribution(
-                [measurement],
-                adc.analyze_code_distribution([measurement]),
-                output_path=run_dir / f"{stem}_hist",
-            )
+            # the codes the point's conversions end on at its one input (the ADC's spec)
+            render(adc.plot_trajectory_codes(adc.analyze_decision_paths(measurement)), run_dir / f"{stem}_hist")
 
             summary_rows.append(
                 {

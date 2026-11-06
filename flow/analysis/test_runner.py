@@ -246,14 +246,14 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
         "plot_adc_cdac_settling",
         "plot_waveforms",
         "plot_adc_noise_sweep",
-        "plot_adc_code_distribution",
     ):
         monkeypatch.setattr(adc_targets, name, plot)
     monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
 
     artifacts = study(monkeypatch, adc_targets, "sequence_study", output_dir)
     flavor_count = 7
-    assert len(artifacts) == 2 * 16 + 1 + 6 * case_count + clock_count + 2 * flavor_count
+    # a case's three decision-path figures (its codes among them), its CDAC settling and timing summary
+    assert len(artifacts) == 2 * 16 + 1 + 5 * case_count + clock_count + 2 * flavor_count
     assert len([path for path in artifacts if path.name.endswith("_trajectory_codes.pdf")]) == case_count
     assert len([path for path in artifacts if path.name.endswith("_sequence_enob.pdf")]) == 16
     assert len(set(selected_cases)) == case_count
@@ -396,10 +396,10 @@ def test_adc_calibration_runner_combines_three_common_results(
     monkeypatch.setattr(adc_targets, "analyze_calibration3", lambda _m, *, ramp: calibration("calibration3"))
     plotted = []
     monkeypatch.setattr(
-        adc_targets, "plot_adc_ramp_transfer", lambda analysis, **_kwargs: plotted.append(analysis) or ()
+        adc_targets, "plot_ramp_transfer", lambda ramp: plotted.append(ramp) or Plot("", "", "", "", [], {})
     )
     # the ramp's figures and the weights are the record's specs, each decoding's or calibration's
-    # own, drawn by flow.plot.render
+    # own, drawn by flow.plot.render; its transfer a spec too, each decoding a figure
     rendered = []
     monkeypatch.setattr(adc_targets, "render", lambda plot, stem: rendered.append((plot, stem.name)) or ())
     output_dir = tmp_path / "output"
@@ -415,11 +415,17 @@ def test_adc_calibration_runner_combines_three_common_results(
         "fit",
         (received["by_path"][next(path for path in received["by_path"] if path.name == "adc00.h5")],),
     )
-    assert [ramp.decoding for ramp in plotted[-1]] == [
+    assert [ramp.decoding for ramp in plotted] == [
         "uncalibrated_dout",
         "calibration1",
         "calibration2",
         "calibration3",
+    ]
+    assert [stem for _plot, stem in rendered if "ramp_transfer" in stem] == [
+        "adc00_calibration_ramp_transfer_design",
+        "adc00_calibration_ramp_transfer_calibration1",
+        "adc00_calibration_ramp_transfer_calibration2",
+        "adc00_calibration_ramp_transfer_calibration3",
     ]
     assert [(plot.name, *plot.series) for plot, stem in rendered if stem.startswith("adc00_calibration_inl")] == [
         ("inl", "Design weights"),
@@ -432,7 +438,8 @@ def test_adc_calibration_runner_combines_three_common_results(
         ("Weight error found by calibration 2", "Calibration 2"),
         ("Weight error found by calibration 3", "Calibration 3"),
     ]
-    assert len(rendered) == 3 + 3 * 4
+    # the three weights' figures, and each of the four decodings' transfer, code density, INL and DNL
+    assert len(rendered) == 3 + 4 * 4
     assert not list(output_dir.iterdir())
 
 
@@ -505,16 +512,19 @@ def test_adc_transfer_curve_loads_pinned_directory_without_reconstructing_grid(
         )
     monkeypatch.setattr(adc_targets, "read_measurement", measurements.__getitem__)
     monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(adc_targets, "analyze_transfer", lambda measurements: measurements)
-    monkeypatch.setattr(
-        adc_targets,
-        "plot_adc_transfer",
-        lambda _measurements, _analysis, *, output_path: (output_path.with_suffix(".png"),),
-    )
+    analyzed = []
+    monkeypatch.setattr(adc_targets, "analyze_transfer", lambda measurements: analyzed.append(measurements))
+    monkeypatch.setattr(adc_targets, "analyze_input_noise", lambda measurements: analyzed.append(measurements))
+    monkeypatch.setattr(adc_targets, "plot_transfer", lambda _transfer: Plot("transfer", "", "", "", [], {}))
+    monkeypatch.setattr(adc_targets, "plot_noise_input", lambda _noise: Plot("noise_input", "", "", "", [], {}))
+    monkeypatch.setattr(adc_targets, "render", lambda _plot, stem: (stem.with_suffix(".png"),))
 
+    # the mean code over the input and the record's noise over it, of the same DC steps
     assert study(monkeypatch, adc_targets, "transfer_curve_study", tmp_path / "output") == (
         tmp_path / "output/adc00_transfer_curve.png",
+        tmp_path / "output/adc00_noise_input.png",
     )
+    assert len(analyzed) == 2 and analyzed[0] == analyzed[1]
 
 
 def test_adc_ramp_runner_rejects_wrong_measurement_type(

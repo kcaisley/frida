@@ -1108,69 +1108,6 @@ def plot_adc_fastrx_scope_comparison(
 
 
 @mpl.rc_context(PLOT_STYLE)
-def plot_adc_transfer(
-    msmt_list: Sequence[MeasAdc],
-    analysis: adc.AnalysisTransfer,
-    *,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Plot individual ADC conversions and the mean static transfer."""
-
-    fig, ax = plt.subplots()
-    inputs = np.concatenate([msmt.vin_diff_v for msmt in msmt_list])
-    dout = np.concatenate([msmt.dout for msmt in msmt_list])
-    ax.scatter(inputs * 1e3, dout, label="Conversions")
-    ax.errorbar(
-        analysis.vin_diff_v * 1e3,
-        analysis.mean_dout,
-        yerr=analysis.std_dout,
-        marker="o",
-        capsize=2,
-        label="Mean ± 1σ",
-    )
-    ax.set_xlabel("Differential input (mV)")
-    ax.set_ylabel("ADC output (LSB)")
-    ax.set_title("ADC static transfer")
-    style_grid(ax)
-    ax.legend()
-    style_info_box(ax, style_measurement_group_text(msmt_list), location="lower right")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_adc_ramp_transfer(
-    analyses: Sequence[adc.AnalysisRamp],
-    *,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Plot the phase-reconstructed ramp transfer of every decoding of one capture."""
-
-    analysis = analyses[0]
-    fig, ax = plt.subplots()
-    for curve in analyses:
-        ax.plot(
-            curve.transfer_vin_diff_v * 1e3,
-            curve.transfer_mean_dout,
-            label=curve.label,
-        )
-    ax.set_xlabel("Inferred differential input (mV)")
-    ax.set_ylabel("Mean ADC output (LSB)")
-    ax.set_title("ADC ramp transfer")
-    style_grid(ax)
-    ax.legend()
-    style_info_box(
-        ax,
-        (
-            *style_instance_text(analysis),
-            f"Sample rate: {analysis.sample_rate_hz / 1e6:.6g} MS/s",
-            f"Ramp: {analysis.ramp_frequency_hz:.6g} Hz",
-        ),
-        location="lower right",
-    )
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
 def plot_adc_sampling_noise(
     analyses: Sequence[adc.AnalysisSamplingNoise],
     *,
@@ -1212,37 +1149,6 @@ def plot_adc_sampling_noise(
     fig.supxlabel("VDAC_P − VDAC_N, relative to each design's mean (µV)")
     fig.supylabel("Fraction of conversions per 25 µV bin")
     fig.suptitle("Sampling-level variation · 1 ns after SAMP falls")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_adc_code_distribution(
-    msmt_list: Sequence[MeasAdc],
-    analysis: adc.AnalysisCodeDistribution,
-    *,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Plot code histograms and standard deviation at static input points."""
-
-    fig, axes = plt.subplots(2, 1)
-    for index, vin_diff_v in enumerate(analysis.vin_diff_v):
-        active = analysis.count[index] > 0
-        axes[0].step(
-            analysis.code[active],
-            analysis.count[index, active],
-            where="mid",
-            label=f"{vin_diff_v * 1e3:g} mV",
-        )
-    axes[0].set_xlabel("Output code")
-    axes[0].set_ylabel("Count")
-    axes[0].legend(ncols=2)
-    axes[1].plot(analysis.vin_diff_v * 1e3, analysis.std_dout, marker="o")
-    axes[1].set_xlabel("Differential input (mV)")
-    axes[1].set_ylabel("Standard deviation (LSB)")
-    for ax in axes:
-        style_grid(ax)
-    style_info_box(axes[1], style_measurement_group_text(msmt_list))
-    fig.suptitle("ADC output-code distribution")
     return save_figure(fig, output_path)
 
 

@@ -26,14 +26,11 @@ from flow.analysis.io import (
 )
 from flow.analysis.plots import (
     plot_adc_cdac_settling,
-    plot_adc_code_distribution,
     plot_adc_interferer,
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
-    plot_adc_ramp_transfer,
     plot_adc_sequence_chip_overview,
     plot_adc_sequence_enob,
-    plot_adc_transfer,
     plot_waveforms,
     style_measurement_text,
 )
@@ -54,11 +51,11 @@ from .analysis import (
     analyze_calibration2,
     analyze_calibration3,
     analyze_cdac_settling,
-    analyze_code_distribution,
     analyze_code_spectrum,
     analyze_decision_paths,
     analyze_dynamic,
     analyze_energy,
+    analyze_input_noise,
     analyze_interferer,
     analyze_noise,
     analyze_operating_conditions,
@@ -79,13 +76,16 @@ from .plots import (
     plot_enob_rate,
     plot_inl,
     plot_inl_calibrated,
+    plot_noise_input,
     plot_noise_spectrum,
     plot_power_rate,
+    plot_ramp_transfer,
     plot_spectrum_low,
     plot_spectrum_nyquist,
     plot_trajectory,
     plot_trajectory_codes,
     plot_trajectory_final,
+    plot_transfer,
 )
 from .types import AnalysisCalibration, AnalysisDecisionPaths, AnalysisRamp
 
@@ -200,10 +200,16 @@ def _ramp_figures(ramp: AnalysisRamp, output_dir: Path, stem: str) -> list[Path]
         "inl": plot_inl(ramp) if design else plot_inl_calibrated(ramp),
         "dnl": plot_dnl(ramp) if design else plot_dnl_calibrated(ramp),
     }
-    decoding = "design" if design else ramp.decoding
     return [
-        path for name, figure in figures.items() for path in render(figure, output_dir / f"{stem}_{name}_{decoding}")
+        path
+        for name, figure in figures.items()
+        for path in render(figure, output_dir / f"{stem}_{name}_{_decoding(ramp)}")
     ]
+
+
+def _decoding(ramp: AnalysisRamp) -> str:
+    """A ramp's decoding as its figures' files name it: ``design``, or the weights' method."""
+    return "design" if ramp.decoding == "uncalibrated_dout" else ramp.decoding
 
 
 def _path_figures(paths: AnalysisDecisionPaths, output_dir: Path, stem: str) -> list[Path]:
@@ -229,7 +235,9 @@ def transfer_curve_study() -> tuple[Path, ...]:
     Coverage: the archived ADC00 campaign only; its selected directory is
     currently absent locally. Each settled DC step supplies a known voltage,
     including inputs beyond either rail. No voltage reconstruction or fit,
-    calibration acquisition, or internal SPICE waveforms are used.
+    calibration acquisition, or internal SPICE waveforms are used. Each ADC
+    gets its mean code over the input (``adc<NN>_transfer_curve``) and the
+    record's output-code noise over the input (``adc<NN>_noise_input``).
     """
     output_dir = new_run("analysis", "adc")
     meas_read_dir = BASE_PATH / "build/scan_adc/20260818_135848"
@@ -244,12 +252,10 @@ def transfer_curve_study() -> tuple[Path, ...]:
         groups.setdefault(measurement.index, []).append(measurement)
     artifacts = []
     for adc_index, measurements in sorted(groups.items(), key=lambda item: item[0] or 0):
+        stem = f"adc{adc_index or 0:02d}"
+        artifacts.extend(render(plot_transfer(analyze_transfer(measurements)), output_dir / f"{stem}_transfer_curve"))
         artifacts.extend(
-            plot_adc_transfer(
-                measurements,
-                analyze_transfer(measurements),
-                output_path=output_dir / f"adc{adc_index or 0:02d}_transfer_curve",
-            )
+            render(plot_noise_input(analyze_input_noise(measurements)), output_dir / f"{stem}_noise_input")
         )
     return tuple(artifacts)
 
@@ -659,7 +665,13 @@ def calibration_study() -> tuple[Path, ...]:
     stem = f"adc{adc_index:02d}"
     return (
         *_weight_figures(calibrations, output_dir, f"{stem}_calibration_weights"),
-        *plot_adc_ramp_transfer(ramps, output_path=output_dir / f"{stem}_calibration_transfer"),
+        *(
+            path
+            for ramp in ramps
+            for path in render(
+                plot_ramp_transfer(ramp), output_dir / f"{stem}_calibration_ramp_transfer_{_decoding(ramp)}"
+            )
+        ),
         *(path for ramp in ramps for path in _ramp_figures(ramp, output_dir, f"{stem}_calibration")),
     )
 
@@ -758,19 +770,13 @@ def sequence_study() -> tuple[Path, ...]:
                 if not isinstance(measurement, MeasAdc):
                     raise TypeError(f"expected MeasAdc: {path}")
                 case = f"{flavor}_{timing}"
+                # the decision paths, and the codes the case's conversions end on at its one input
                 artifacts.extend(_path_figures(analyze_decision_paths(measurement), output_dir, f"spice_{case}"))
                 artifacts.extend(
                     plot_adc_cdac_settling(
                         measurement,
                         analyze_cdac_settling(measurement),
                         output_path=output_dir / f"spice_{case}_cdac_settling",
-                    )
-                )
-                artifacts.extend(
-                    plot_adc_code_distribution(
-                        (measurement,),
-                        analyze_code_distribution((measurement,)),
-                        output_path=output_dir / f"spice_{case}_codes",
                     )
                 )
                 closure = analyze_timing_closure(measurement)

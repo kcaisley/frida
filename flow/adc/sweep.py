@@ -439,7 +439,9 @@ def record(captures: dict[str, MeasAdc]) -> Record:
     paths = analyze_decision_paths(captures["trajectory"])
     noise = captures["noise"]
     spectrum = analyze_code_spectrum(noise, calibration=_extracted(noise))
-    input_noise = analyze_input_noise(captures["noise_input"])
+    input_noise = analyze_input_noise([captures["noise_input"]])
+    if len(input_noise.level_v) != INPUT_NOISE_LEVELS:
+        raise ValueError(f"noise_input holds {len(input_noise.level_v)} input levels, not {INPUT_NOISE_LEVELS}")
     hsu = analyze_hsu(
         [captures[f"hsu_{kind}r{index}"] for kind in ("", "reference_") for index in range(len(RATES_HZ))]
     )

@@ -1,13 +1,14 @@
-"""The ADC's figures as ``Plot`` specs (``flow.pipeline.Plot``), each from analysis results alone: a
-characterization's details, which the viewer shows in the order they are written here (the record's,
-``flow.adc.sweep.record``). Each is one curve (one series, or one family of decision paths), so
-instances compared on one plot stay readable; what a second curve would add is a figure of its own.
-The decision-path density is its paths, each distinct one with how many conversions took it
-(``Plot.paths``): the whole conversion, its last decisions, and where the conversions at one input
-end. Every value is written to six significant digits, as the viewer's other exports. The same
-specs draw the lab captures: a study (``flow.adc.targets``, a scan's test) renders those of its
-captures' results with ``flow.plot.render``, a figure a decoding, calibration or capture, each named
-by its weights or its rate; ``flow.analysis.plots`` keeps only the lab figures no spec draws.
+"""The ADC's figures as ``Plot`` specs (``flow.pipeline.Plot``), each from analysis results alone:
+first a characterization's details, which the viewer shows in the order they are written here (the
+record's, ``flow.adc.sweep.record``), then the figures only the lab studies draw. Each is one curve
+(one series, or one family of decision paths), or one map, so instances compared on one plot stay
+readable; what a second curve would add is a figure of its own. The decision-path density is its
+paths, each distinct one with how many conversions took it (``Plot.paths``): the whole conversion,
+its last decisions, and where the conversions at one input end. Every value is written to six
+significant digits, as the viewer's other exports. The same specs draw the lab captures: a study
+(``flow.adc.targets``, a scan's test) renders those of its captures' results with
+``flow.plot.render``, a figure a decoding, calibration, capture or group of captures, each named by
+its weights, its rate or its sequence.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from .types import (
     AnalysisRamp,
     AnalysisRedundancy,
     AnalysisReference,
+    AnalysisTransfer,
 )
 
 
@@ -219,7 +221,7 @@ def plot_noise_spectrum(spectrum: AnalysisCodeSpectrum) -> Plot:
 
 @plot
 def plot_noise_input(noise: AnalysisInputNoise) -> Plot:
-    """The output code's noise over the input."""
+    """The output code's noise over the input: the record's staircase, or a lab study's DC steps."""
     return _plot(
         "noise_input",
         "Output noise over the input",
@@ -480,6 +482,41 @@ def plot_reference_r_out(reference: AnalysisReference) -> Plot:
         reference.r_out_ohm,
         {"ENOB loss": reference.r_out_loss_bits},
         x_log=True,
+    )
+
+
+# ---- the lab studies' figures (flow.adc.targets, the scans' tests), none of them the record's: each
+# from the results of its captures, one curve each as the record's
+
+
+@plot
+def plot_transfer(transfer: AnalysisTransfer) -> Plot:
+    """The static transfer of DC steps: the mean output code at each differential input (the codes'
+    spread there is ``plot_noise_input``'s)."""
+    return _plot(
+        "transfer",
+        "Static transfer",
+        "Differential input (V)",
+        "Mean output code (LSB)",
+        transfer.vin_diff_v,
+        {"Mean code": transfer.mean_dout},
+        y_ticks="code",
+    )
+
+
+@plot
+def plot_ramp_transfer(ramp: AnalysisRamp) -> Plot:
+    """A ramp's transfer as its phase reconstructs it (``analyze_ramp``): the mean output code at
+    each inferred input, named by the weights that decoded it (each decoding a figure, as the ramp's
+    linearity)."""
+    return _plot(
+        "ramp_transfer",
+        "Ramp transfer",
+        "Inferred differential input (V)",
+        "Mean output code (LSB)",
+        ramp.transfer_vin_diff_v,
+        {_decoding_label(ramp.decoding): ramp.transfer_mean_dout},
+        y_ticks="code",
     )
 
 

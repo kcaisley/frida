@@ -64,6 +64,7 @@ from .plots import (
     plot_noise_input,
     plot_noise_spectrum,
     plot_power_rate,
+    plot_ramp_transfer,
     plot_redundancy,
     plot_reference_noise,
     plot_reference_r_out,
@@ -72,6 +73,7 @@ from .plots import (
     plot_trajectory,
     plot_trajectory_codes,
     plot_trajectory_final,
+    plot_transfer,
 )
 from .sim import simulate, testbench
 from .subckt import Adc, AdcNets
@@ -197,6 +199,7 @@ __all__ = [
     "plot_noise_input",
     "plot_noise_spectrum",
     "plot_power_rate",
+    "plot_ramp_transfer",
     "plot_redundancy",
     "plot_reference_noise",
     "plot_reference_r_out",
@@ -205,6 +208,7 @@ __all__ = [
     "plot_trajectory",
     "plot_trajectory_codes",
     "plot_trajectory_final",
+    "plot_transfer",
     "plots",
     "sim",
     "simulate",

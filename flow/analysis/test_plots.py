@@ -17,7 +17,7 @@ import flow.analysis.plots as analysis_plots
 from flow import adc, comp
 from flow.adc.plots import plot_power_rate
 from flow.adc.sim import symbol160_init4_samp20_comp11111100_logic11000011
-from flow.adc.test_analysis import adc_cdac_settling_measurement, adc_measurement, adc_ramp_measurement, tone_codes
+from flow.adc.test_analysis import adc_cdac_settling_measurement, adc_measurement, tone_codes
 from flow.analysis.adc import analyze_adc_comp_out_edge_eye, analyze_adc_comparator_edge_eye
 from flow.analysis.plots import (
     CURVE_COLORS,
@@ -35,7 +35,6 @@ from flow.analysis.plots import (
     SPINE_COLOR,
     TEXT_COLOR,
     plot_adc_cdac_settling,
-    plot_adc_code_distribution,
     plot_adc_comp_out_edge_eye,
     plot_adc_comparator_edge_eye,
     plot_adc_comparator_response,
@@ -44,8 +43,6 @@ from flow.analysis.plots import (
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
     plot_adc_power_waveform,
-    plot_adc_ramp_transfer,
-    plot_adc_transfer,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
     plot_comp_common_mode_campaign,
@@ -805,50 +802,6 @@ def test_cdac_pex_expectation_includes_recorded_topplate_parasitic() -> None:
     )
     with pytest.raises(ValueError, match="inconsistent"):
         plot_cdac_cap_mismatch([measurement, inconsistent], analysis, output_path=Path("unused"))
-
-
-def test_adc_transfer_and_noise_plots(tmp_path: Path) -> None:
-    """The static transfer and the code distribution (the ramp's linearity is the ADC's specs':
-    flow/adc/test_plots.py)."""
-    msmt = adc_measurement(
-        np.repeat(np.arange(16), 8),
-        vin_diff_v=np.repeat(np.linspace(-0.6, 0.6, 16), 8),
-        internal=True,
-    )
-    outputs = (
-        plot_adc_transfer(
-            [msmt],
-            adc.analyze_transfer([msmt]),
-            output_path=tmp_path / "transfer",
-        ),
-        plot_adc_code_distribution(
-            [msmt],
-            adc.analyze_code_distribution([msmt]),
-            output_path=tmp_path / "noise",
-        ),
-    )
-    for paths in outputs:
-        assert_plot_formats(paths)
-
-
-def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
-    """Keep ramp plotters independent of measurements and CDAC fitting (the code density, INL, DNL
-    and weights are the ADC's specs: flow/adc/test_plots.py)."""
-
-    nominal = adc.analyze_ramp(adc_ramp_measurement())
-    calibrated = replace(
-        nominal,
-        decoding="calibration1",
-        label="CDAC S-curve weights",
-        transfer_mean_dout=nominal.transfer_mean_dout + 1.0,
-    )
-    ramps = (nominal, calibrated)
-    paths = plot_adc_ramp_transfer(ramps, output_path=tmp_path / "ramp_transfer")
-    assert_plot_formats(paths)
-    svg = read_svg(paths)
-    assert "Ideal weights" in svg
-    assert "CDAC S-curve weights" in svg
-    assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
 
 
 def test_interferer_plot_of_code_spectra(tmp_path: Path) -> None:
