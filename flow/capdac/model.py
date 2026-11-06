@@ -4,7 +4,7 @@ same ``Params`` in the PDK (``flow.capdac.sweep``, looked up by ``flow.sweep.loo
 
     model = capdac.model.Model.of("tsmc65", capdac.Params(bits=10, redundancy=Redundancy.BINARY, extra=0))
 
-The behavioral ADC (``flow.adc.behavioral``) starts each stage's step its driver's delay after the
+The behavioral ADC (``flow.adc.model``) starts each stage's step its driver's delay after the
 LOGIC edge and settles it as one exponential; with this model's time constants a step comes within
 half an LSB exactly when the testbench's does. A characterization missing from the sweep's newest
 run is simulated on first use (``simulate=True``) and kept under the build's models.

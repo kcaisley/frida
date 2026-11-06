@@ -25,7 +25,7 @@ class AnalysisSettling(Analysis):
     plates, fitted to the steps); ``ideal_step_v`` the step the design's weights give at that gain,
     ``full_scale_v`` the converter's, ``lsb_v`` its LSB.
 
-    The behavioral ADC (``flow.adc.behavioral``) starts each stage's step its driver's delay after
+    The behavioral ADC (``flow.adc.model``) starts each stage's step its driver's delay after
     the edge and settles it as one exponential: ``tau_s`` is the time constant that brings the
     measured step within half an LSB exactly when SPICE does, (settling - delay) / ln(|step| / half
     an LSB), in each stage's slower direction (0 for a step that never leaves the tolerance). A
