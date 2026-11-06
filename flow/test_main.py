@@ -113,4 +113,6 @@ def test_the_layout_verb_takes_a_block_with_a_params_a_subckt_and_a_sweep(monkey
     monkeypatch.setattr(sys, "argv", ["flow", "layout", "capdac", "--list", "--pdk", "tsmc65"])
     cli.main()
     listed = capsys.readouterr().out.splitlines()
-    assert len(listed) == 120 and listed[0].startswith("tsmc65 ")
+    # the grid's 120 arrays and FRIDA-1's, by name
+    assert len(listed) == 121 and listed[0].startswith("tsmc65 ")
+    assert listed[-1].split()[2] == "frida1"

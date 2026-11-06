@@ -1,9 +1,11 @@
-"""The capacitive DAC's design space: every array of the ADC study, one grid; the testbench runs that
-characterize one instance (``runs``) and the record they make (``record``).
+"""The capacitive DAC's design space: every array of the ADC study, one grid, and FRIDA-1's array by
+name (``frida1``); the testbench runs that characterize one instance (``runs``) and the record they
+make (``record``).
 
 At 10, 12 and 14 bits, at one and two kT/C minimums of switched capacitance, each with its weights
 built both ways (``WeightImpl``): the binary array, and each redundant scheme with 2, 4 and 6 extra
-cycles. 2 x 3 x 2 binary arrays and 3 x 3 x 3 x 2 x 2 redundant ones, 120 in all.
+cycles. 2 x 3 x 2 binary arrays and 3 x 3 x 3 x 2 x 2 redundant ones, 120 in all; and FRIDA-1's
+fabricated array, whose 5 extra cycles the grid leaves out: 121 instances.
 
 Each instance is the array as the PDK draws it, its drivers sized to settle each stage within its
 ``settle_ps`` (``flow.capdac.sim``): every stage switched alone, both ways, in a window four times
@@ -19,7 +21,7 @@ from dataclasses import replace
 
 import hdl21 as h
 
-from flow.pipeline import Meas, Record, every, grid, values, widen
+from flow.pipeline import Meas, Record, every, grid, named, values, widen
 
 from .analysis import analyze_mismatch, analyze_settling, metrics
 from .params import Params, Redundancy, TbParams, WeightImpl
@@ -46,6 +48,13 @@ def arrays() -> dict[str, Params]:
         space.scale = values(1, 2)
         space.weight_impl = every(WeightImpl)
     return {"binary": binary, "redundant": redundant}
+
+
+@named
+def frida1() -> Params:
+    """FRIDA-1's fabricated array (the defaults): 12 bits in 16 stages, MSB redistribution with 5
+    extra cycles, at twice the minimum capacitance."""
+    return Params()
 
 
 def runs(pdk: str, params: Params) -> dict[str, TbParams]:

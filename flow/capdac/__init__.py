@@ -30,7 +30,7 @@ from .plots import (
 )
 from .sim import simulate, testbench
 from .subckt import Nets, netlist
-from .sweep import arrays, record, runs
+from .sweep import arrays, frida1, record, runs
 from .types import (
     AnalysisCapMismatch,
     AnalysisMismatch,
@@ -58,6 +58,7 @@ __all__ = [
     "analyze_settling",
     "analyze_transition",
     "arrays",
+    "frida1",
     "metrics",
     "model",
     "netlist",
