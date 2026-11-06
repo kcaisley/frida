@@ -11,11 +11,14 @@
 //       fit each axis's ticks
 //     x, y: each axis's kind, a Detail's x_ticks / y_ticks: "integer", "code", "step", "real", or
 //       null to infer it (see fitAxis)
-//     xLabels, yLabels: the axis's categories by name (a Detail's x_labels), its values their
-//       indices 0, 1, 2, ...: then it is ticked at each by its name (labelTicks), its kind unused
+//     xLabels, yLabels: the axis's categories by name (a Detail's x_labels, y_labels), its values
+//       their indices 0, 1, 2, ...: then it is ticked at each by its name (labelTicks), its kind
+//       unused
 //   returns the Plotly layout.
 // keepTicks(element): call once after Plotly.newPlot or Plotly.react; refits the ticks paperLayout
 //   fitted when the plot is zoomed or panned, and restores them when it is reset.
+// thinLabels(element): after Plotly.newPlot, names every k-th category of an axis whose categories
+//   lie closer than a label's height (each still ticked); returns Plotly's promise, or null.
 // DENSITY: a map's colours (a heatmap's colorscale), plots.py's DENSITY_COLOR_MAP.
 // paperColorBar(title, log, values, mode = currentTheme()): a map's colour bar, as matplotlib draws
 //   it beside the plot (its title along it, ticks inside); log: `values` are the map's log10, the bar
@@ -33,7 +36,8 @@
 // - degrees (a "(deg)" or "(°)" title): 15, 30, 45, 90 or 180 degree steps where the range is wide;
 // - real: Plotly's own steps;
 // - labels (xLabels, yLabels): each category's index, by its name, nothing between; level where the
-//   names fit, angled where they would collide (Plotly's automatic angles).
+//   names fit, angled where they would collide (Plotly's automatic angles), every k-th named where
+//   even angled they would overlap (thinLabels).
 
 const PT = 4 / 3; // px per point
 const FONTS = {
@@ -354,6 +358,25 @@ export function paperColorBar(title, log, values, mode = currentTheme()) {
 export const TICK_KEYS = ["tickmode", "tick0", "dtick", "tickvals", "ticktext", "tickformat", "hoverformat", "exponentformat", "minor"];
 
 // the ticks paperLayout fitted, refitted to a zoomed or panned range and restored on a reset
+// an axis of categories (xLabels, yLabels) closer than a label's height (its names drawn angled, one
+// over the next, on a narrow plot): every category still ticked, every k-th named (each named in
+// its hover)
+export function thinLabels(element) {
+    const fitted = FITTED.get(element?.layout);
+    const full = element?._fullLayout;
+    if (!fitted || !full) return null;
+    const update = {};
+    for (const key of ["x", "y"]) {
+        const entry = fitted[key];
+        if (!entry || entry.kind !== "labels") continue;
+        const names = entry.ticks.ticktext || [];
+        const spacing = full[`${key}axis`]._length / Math.max(1, names.length);
+        const every = Math.ceil(((full[`${key}axis`].tickfont?.size || 12) + 2) / spacing);
+        if (every > 1) update[`${key}axis.ticktext`] = names.map((name, index) => (index % every ? "" : name));
+    }
+    return Object.keys(update).length ? Plotly.relayout(element, update) : null;
+}
+
 export function keepTicks(element) {
     if (!element || element.dataset.paperTicks) return;
     element.dataset.paperTicks = "1";

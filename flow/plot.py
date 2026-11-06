@@ -23,7 +23,7 @@ import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.colors import LogNorm
 from matplotlib.figure import Figure
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import FixedLocator, MaxNLocator
 
 from flow.analysis.plots import CURVE_COLORS, DENSITY_COLOR_MAP, PLOT_STYLE, SPINE_COLOR, save_figure, style_grid
 from flow.pipeline import Analysis, Heatmap, Plot
@@ -47,10 +47,12 @@ def scaled(label: str, values: Sequence[float]) -> tuple[str, float]:
 def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
     """``plot`` drawn into ``output_path`` (a stem; each enabled format of ``save_figure``): its
     heatmap under everything, in the density colours beside its colour bar (by decade where it
-    asks); each series over x (NaN or None where a point failed: a gap), the histogram's as step
-    outlines, the decision paths as step lines weighted by how many records took each; its bands
-    shaded behind the curves and its markers dashed over them, in the spine's grey, each labelled at
-    the plot's edge; log axes, categories and whole-number ticks where the spec asks."""
+    asks); each series over x (NaN or None where a point failed: a gap), a few points marked and a
+    long series (over 100 points: a spectrum, a code axis, a waveform) a plain line, as the viewer
+    draws them, the histogram's as step outlines, the decision paths as step lines weighted by how
+    many records took each; its bands shaded behind the curves and its markers dashed over them, in
+    the spine's grey, each labelled at the plot's edge; log axes, categories on either axis (each
+    ticked by its name, nothing between) and whole-number ticks where the spec asks."""
 
     if plot.figure is not None:
         raise ValueError(f"{plot.name} is a drawn figure ({plot.figure}), not a spec to render")
@@ -66,7 +68,7 @@ def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
         x_values = [*plot.x, *(heatmap.x if heatmap else ())]
         y_values = [*(v for y in (*series.values(), *paths) for v in y.tolist()), *(heatmap.y if heatmap else ())]
         x_label, x_factor = (plot.x_label, 1.0) if plot.x_labels is not None else scaled(plot.x_label, x_values)
-        y_label, y_factor = scaled(plot.y_label, y_values)
+        y_label, y_factor = (plot.y_label, 1.0) if plot.y_labels is not None else scaled(plot.y_label, y_values)
         x = np.asarray(plot.x, dtype=np.float64) * x_factor
         if heatmap is not None:
             _heatmap(fig, ax, heatmap, x_factor, y_factor)
@@ -80,19 +82,30 @@ def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
                 alpha=0.15 + 0.85 * path["count"] / heaviest,
                 linewidth=0.5 + 1.5 * path["count"] / heaviest,
             )
+        dense = len(x) > 100
         for index, (label, y) in enumerate(series.items()):
             color = CURVE_COLORS[index % len(CURVE_COLORS)]
             if plot.histogram:
                 ax.step(x, y * y_factor, where="mid", color=color, label=label)
             else:
-                ax.plot(x, y * y_factor, marker="o", color=color, label=label)
+                ax.plot(x, y * y_factor, marker=None if dense else "o", color=color, label=label)
         _guides(ax, plot, x_factor, y_factor)
         ax.set_xscale("log" if plot.x_log else "linear")
         ax.set_yscale("log" if plot.y_log else "linear")
         if plot.x_labels is not None:
-            ax.set_xticks(range(len(plot.x_labels)), plot.x_labels, rotation=45 if len(plot.x_labels) > 6 else 0)
-        for axis, ticks in ((ax.xaxis, plot.x_ticks if plot.x_labels is None else None), (ax.yaxis, plot.y_ticks)):
-            if ticks in ("integer", "code", "step"):
+            # angled where they would collide, each name ending at its tick
+            angled = {"rotation": 45, "ha": "right", "rotation_mode": "anchor"} if len(plot.x_labels) > 6 else {}
+            ax.set_xticks(range(len(plot.x_labels)), plot.x_labels, **angled)
+        if plot.y_labels is not None:
+            ax.set_yticks(range(len(plot.y_labels)), plot.y_labels)
+        for axis, ticks, labels in (
+            (ax.xaxis, plot.x_ticks, plot.x_labels),
+            (ax.yaxis, plot.y_ticks, plot.y_labels),
+        ):
+            if labels is not None:
+                # categories: each ticked by its name, nothing between (style_grid keeps a set locator)
+                axis.set_minor_locator(FixedLocator([]))
+            elif ticks in ("integer", "code", "step"):
                 axis.set_major_locator(MaxNLocator(integer=True))
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)

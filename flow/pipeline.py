@@ -735,6 +735,9 @@ class Plot:
     # x is categories, not a quantity: x the indices 0, 1, 2, ... and these their names, the ticks
     # (the viewer ticks each category by its name, angled where they would collide; x_ticks unused)
     x_labels: list[str] | None = None
+    # y is categories (a map's rows: a rate, a signal): y the indices 0, 1, 2, ..., bottom first, and
+    # these their names, the ticks (a map's row j between the edges j - 0.5 and j + 0.5; y_ticks unused)
+    y_labels: list[str] | None = None
     # the series are a histogram: each y the count in the bin one unit wide centred on its x (an
     # output code), drawn as a step outline without markers or fill, so compared instances overlay
     histogram: bool = False
@@ -751,9 +754,10 @@ class Plot:
 
     def to_json(self) -> dict[str, Any]:
         """The spec as a record keeps it and the viewer reads it (``dataclasses.asdict``, NaN as it
-        is: the writers make it null), its markers, bands and heatmap only where it has any."""
+        is: the writers make it null), its y categories, markers, bands and heatmap only where it has
+        any."""
         spec = asdict(self)
-        for name in ("x_markers", "y_markers", "x_bands", "heatmap"):
+        for name in ("y_labels", "x_markers", "y_markers", "x_bands", "heatmap"):
             if not spec[name]:
                 del spec[name]
         return spec
@@ -761,7 +765,8 @@ class Plot:
     @classmethod
     def from_json(cls, spec: Mapping[str, Any]) -> Plot:
         """A spec from its JSON (``to_json``: a record's detail), its markers, bands and heatmap
-        their types again (a null, where a point failed or a cell is empty, stays None)."""
+        their types again (a null, where a point failed or a cell is empty, stays None; a missing
+        key its default)."""
         given = dict(spec)
         heatmap = given.pop("heatmap", None)
         return cls(

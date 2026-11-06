@@ -16,7 +16,7 @@ import { h } from "./icons.js";
 import { LayersPanel, rgba } from "./layers.js";
 import { Layout3DPanel } from "./layout3d.js";
 import { LayoutPanel } from "./layout2d.js";
-import { currentTheme, DENSITY, keepTicks, PAPERS, paperColorBar, paperLayout, tone } from "./paper.js";
+import { currentTheme, DENSITY, keepTicks, PAPERS, paperColorBar, paperLayout, thinLabels, tone } from "./paper.js";
 import { SchematicPanel } from "./panels.js";
 import { Layout } from "./regions.js";
 import { COLORS, DASHES, emit, on, state } from "./store.js";
@@ -83,11 +83,15 @@ function pathTraces(detail, x, y, color, meta) {
 
 // a detail's map (its heatmap: the cells' edges on x and y, a row of values a row of cells) under its
 // curves, in the density colours beside its colour bar (by decade where it asks, hovered with the
-// value itself); an empty cell (null, by decade one at or under 0 too) shows the paper
-function heatmapTrace(heatmap, x, y, theme) {
+// value itself); an empty cell (null, by decade one at or under 0 too) shows the paper. On an axis of
+// categories (names: the detail's x_labels, y_labels) a cell is a category, hovered by its name.
+function heatmapTrace(heatmap, x, y, theme, names = {}) {
     const z = unitScale(heatmap.label, heatmap.z.flat());
     const values = heatmap.z.map((row) => row.map((value) => (value === null ? null : value * z.factor)));
     const shown = heatmap.log ? values.map((row) => row.map((value) => (value > 0 ? Math.log10(value) : null))) : values;
+    // a cell's place: its category's name, or its centre in the axis's prefixed unit
+    const at = (edges, factor, labels, index) => labels?.[index] ?? Number(((edges[index] + edges[index + 1]) * factor * 0.5).toPrecision(4));
+    const named = names.x || names.y;
     return {
         type: "heatmap",
         x: heatmap.x.map((value) => value * x.factor),
@@ -98,7 +102,12 @@ function heatmapTrace(heatmap, x, y, theme) {
         colorbar: paperColorBar(z.label, heatmap.log, shown.flat(), theme),
         hoverongaps: false,
         showlegend: false,
-        hovertemplate: `${x.label}: %{x}<br>${y.label}: %{y}<br>${z.label}: %{customdata:.4~g}<extra></extra>`,
+        ...(named
+            ? {
+                  text: heatmap.z.map((row, j) => row.map((_, i) => `${x.label}: ${at(heatmap.x, x.factor, names.x, i)}<br>${y.label}: ${at(heatmap.y, y.factor, names.y, j)}`)),
+                  hovertemplate: `%{text}<br>${z.label}: %{customdata:.4~g}<extra></extra>`,
+              }
+            : { hovertemplate: `${x.label}: %{x}<br>${y.label}: %{y}<br>${z.label}: %{customdata:.4~g}<extra></extra>` }),
     };
 }
 
@@ -316,8 +325,12 @@ class PlotsPanel {
         // SI prefixes from the values plotted (a map's cell edges among them), not the markers
         const xs = entries.flatMap(({ detail }) => [...detail.x, ...(detail.heatmap?.x || [])]);
         const ys = entries.flatMap(({ detail }) => [...Object.values(detail.series).flat(), ...(detail.paths || []).flatMap((path) => path.y), ...(detail.heatmap?.y || [])]);
-        const x = unitScale(first.x_label, xs);
-        const y = unitScale(first.y_label, ys);
+        // categories on x or y (their indices, by name: first.x_labels, first.y_labels): ticked and
+        // hovered by name, never scaled
+        const categories = first.x_labels?.length ? first.x_labels : null;
+        const rows = first.y_labels?.length ? first.y_labels : null;
+        const x = categories ? { label: first.x_label, factor: 1 } : unitScale(first.x_label, xs);
+        const y = rows ? { label: first.y_label, factor: 1 } : unitScale(first.y_label, ys);
         // a condition sweep's few points marked; a long series (a code axis, a spectrum) a thin line;
         // a histogram (one bin a code) its outline, steps centred on the bins, so compared ones overlay
         const dense = entries.some(({ detail }) => detail.x.length > 100);
@@ -326,13 +339,11 @@ class PlotsPanel {
         // where an instance has several, a series a dash, keyed under the plot in the spine's grey
         const seriesNames = [...new Set(entries.flatMap(({ detail }) => Object.keys(detail.series)))];
         const dashed = compare && entries.some(({ detail }) => Object.keys(detail.series).length > 1);
-        // categories on x (their indices, by name: first.x_labels): ticked and hovered by name
-        const categories = first.x_labels?.length ? first.x_labels : null;
         const traces = [];
         for (const { instance, index, detail } of entries) {
             const meta = compare ? instance.id : undefined;
             // a map under the curves, kept when its instance's curves are hidden
-            if (detail.heatmap) traces.push(heatmapTrace(detail.heatmap, x, y, theme));
+            if (detail.heatmap) traces.push(heatmapTrace(detail.heatmap, x, y, theme, { x: categories, y: rows }));
             if (detail.paths?.length) traces.push(...pathTraces(detail, x, y, colorOf(compare ? index : 0, theme), meta));
             for (const [series, values] of Object.entries(detail.series)) {
                 const j = seriesNames.indexOf(series);
@@ -361,7 +372,7 @@ class PlotsPanel {
         if (shapes.length) traces.push(guideTrace(shapes));
         const legendEntries = traces.filter((trace) => trace.showlegend !== false).length;
         // the axes ticked for what they hold: the detail's hints (whole codes, steps) where it has them
-        const layout = paperLayout(title ?? first.title, x.label, y.label, first.x_log, first.y_log, legendEntries > 1 ? legendEntries : 0, theme, { traces, x: first.x_ticks ?? null, y: first.y_ticks ?? null, xLabels: categories });
+        const layout = paperLayout(title ?? first.title, x.label, y.label, first.x_log, first.y_log, legendEntries > 1 ? legendEntries : 0, theme, { traces, x: first.x_ticks ?? null, y: first.y_ticks ?? null, xLabels: categories, yLabels: rows });
         layout.title.font.size = 13;
         if (color) layout.title.font.color = color;
         layout.margin = { l: 64, r: 12, t: 34, b: 46 };
@@ -371,10 +382,12 @@ class PlotsPanel {
         if (dashed) layout.legend.itemclick = layout.legend.itemdoubleclick = false;
         const element = h("div.plot");
         host.append(element);
-        Plotly.newPlot(element, traces, layout, { displayModeBar: false }).then(() => {
-            keepTicks(element);
-            fitLegend(element);
-        });
+        Plotly.newPlot(element, traces, layout, { displayModeBar: false })
+            .then(() => {
+                keepTicks(element);
+                return thinLabels(element);
+            })
+            .then(() => fitLegend(element));
     }
 
     // an instance's curves, and the markers and bands of its own, hidden or shown in every plot (its

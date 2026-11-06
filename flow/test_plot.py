@@ -132,9 +132,9 @@ def test_a_heatmap_holds_a_row_of_values_for_each_row_of_cells() -> None:
 
 
 def test_a_spec_reads_back_from_its_json() -> None:
-    # without markers, bands or a map: its JSON is its fields as they were, none of theirs
+    # without y categories, markers, bands or a map: its JSON is its fields as they were, none of theirs
     bare = Plot("noise", "Noise", "Input (V)", "Noise (V)", [0.1, 0.2], {"Noise": [1e-4, 2e-4]})
-    overlays = {"x_markers", "y_markers", "x_bands", "heatmap"}
+    overlays = {"y_labels", "x_markers", "y_markers", "x_bands", "heatmap"}
     assert set(bare.to_json()) == {field.name for field in fields(Plot)} - overlays
     assert Plot.from_json(json.loads(json.dumps(bare.to_json()))) == bare
     full = Plot(
@@ -152,6 +152,51 @@ def test_a_spec_reads_back_from_its_json() -> None:
     spec = json.loads(json.dumps(full.to_json()))
     assert spec["heatmap"]["z"] == [[3.0], [4.0]] and spec["y_markers"] == [{"at": 1.0, "label": ""}]
     assert Plot.from_json(spec) == full
+
+
+def test_categories_on_both_axes_tick_a_maps_cells_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A map over categories on x and y (sequences, rates; signals over time): each column and row a
+    category, ticked by its name at its index with nothing between, the axis not scaled; the y
+    categories in the spec's JSON where it has them."""
+    plot = Plot(
+        name="rows",
+        title="ENOB by sequence and rate",
+        x_label="Sequence",
+        y_label="Symbol rate",
+        x=[],
+        series={},
+        x_labels=["11110000/00001111", "11111000/10000111"],
+        y_labels=["320 MBd", "960 MBd", "1600 MBd"],
+        heatmap=Heatmap(
+            x=[-0.5, 0.5, 1.5],
+            y=[-0.5, 0.5, 1.5, 2.5],
+            z=[[9.1, 9.0], [8.8, 8.1], [7.5, 2.0]],
+            label="ENOB (bits)",
+        ),
+    )
+    ax = drawn(plot, monkeypatch).axes[0]
+    assert list(ax.get_yticks()) == [0, 1, 2] and [label.get_text() for label in ax.get_yticklabels()] == [
+        "320 MBd",
+        "960 MBd",
+        "1600 MBd",
+    ]
+    assert list(ax.get_xticks()) == [0, 1] and ax.get_xticklabels()[1].get_text() == "11111000/10000111"
+    assert len(ax.get_xticks(minor=True)) == len(ax.get_yticks(minor=True)) == 0
+    assert ax.get_ylim() == pytest.approx((-0.5, 2.5)) and ax.get_ylabel() == "Symbol rate"
+    spec = json.loads(json.dumps(plot.to_json()))
+    assert spec["y_labels"] == ["320 MBd", "960 MBd", "1600 MBd"] and Plot.from_json(spec) == plot
+
+
+def test_a_long_series_is_a_line_and_a_short_one_marked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """As the viewer draws them: a condition sweep's few points marked, a series of more than 100
+    (a spectrum, a code axis, a waveform) a plain line."""
+    x = [float(value) for value in range(101)]
+    (line,) = drawn(Plot("long", "Long", "Time (s)", "Power (W)", x, {"Power": x}), monkeypatch).axes[0].lines
+    assert line.get_marker() == "None"
+    (line,) = (
+        drawn(Plot("short", "Short", "Time (s)", "Power (W)", x[:100], {"Power": x[:100]}), monkeypatch).axes[0].lines
+    )
+    assert line.get_marker() == "o"
 
 
 def test_a_records_map_draws_from_its_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
