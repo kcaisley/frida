@@ -1,9 +1,13 @@
 """The ADC's parameters: its design (``Params``, every combination of which builds) and one generated
 testbench (``TbParams``: the view it simulates, its stimulus, its supplies and its sequencer rows,
-by default the default recipe's, ``sim.symbol256_init8_samp16_comp11110000_logic00001111``); and the
+by default the default recipe's, ``sim.symbol256_init8_samp16_comp11110000_logic00001111``); the
 behavioral model's constants (``flow.adc.model``): its testbench's common mode, the reference it
 converts on (``Reference``), what it can quiet, the CDAC draw it calibrates on, and the reference
-study's decoupling, budget and grids (``REFERENCE_*``).
+study's decoupling, budget and grids (``REFERENCE_*``); and the campaign's
+(``flow.adc.sweep.campaign``): its rates, input frequencies and conversion counts, the mismatch
+study's coefficients, the levels of the noise over the input, the Hsu study's quiet sources, the
+ENOB ladder (``LADDER``, its captures ``LADDER_NAMES``) and one capture (``Capture``: its testbench
+and the model's knobs).
 """
 
 from dataclasses import dataclass
@@ -191,3 +195,69 @@ REFERENCE_R_OUT_OHM = np.logspace(-1, 5, 13)
 REFERENCE_HALVINGS = 5
 # what the reference's study silences or makes ideal in the converter (of ``QUIET``)
 REFERENCE_QUIET = ("sampler", "sampling", "comparator")
+
+# The campaign (``flow.adc.sweep.campaign``): every capture the record needs.
+# 1 to 10 MS/s in 1 MS/s steps, the rates the ADC is meant to run at, then on to 100 MS/s: where
+# the DAC's settling or the comparator's delay starts to cost codes, and whether redundancy recovers
+# them
+RATES_HZ = tuple(rate * 1e6 for rate in (*range(1, 11), 12, 15, 20, 25, 30, 40, 50, 60, 80, 100))
+FIN_RATES_HZ = (2e6, 6e6, 10e6)
+# odd cycle counts in 8,192 conversions, coprime with it, from 0.4 % to 49 % of the rate
+FIN_CYCLES = (31, 101, 257, 509, 1021, 1531, 2039, 3067, 4013)
+SINE_CONVERSIONS = 8_192
+RAMP_CONVERSIONS = 1 << 19
+NOMINAL_RATE_HZ = 10e6
+# Harpe's unit-length MOM mismatch (0.10 %·sqrt(fF)): the predicted mismatch statistics' coefficient
+UNIT_MISMATCH = 0.0010
+# the mismatch study's Pelgrom coefficients: Harpe's 0.10 % (JSSC 2018, unit-length MOM, 65 nm)
+# and Tripathi and Murmann's 0.85 % (TCAS-I 2014, single-layer lateral MOM), around and between
+MISMATCH_COEFFICIENTS = (0.0005, 0.0010, 0.0020, 0.0040, 0.0085)
+# draws a coefficient where the campaign is asked for the Monte Carlo (``mismatch_draws``); none by
+# default: the figures predict the mismatch's statistics from the capacitances instead
+MISMATCH_DRAWS = 0
+VALIDATION_DRAWS = 25
+MISMATCH_CONVERSIONS = 1 << 16
+# the noise over the input: this many DC levels over +-INPUT_NOISE_SPAN of the full scale, each held
+# for INPUT_NOISE_CONVERSIONS conversions
+INPUT_NOISE_LEVELS = 9
+INPUT_NOISE_SPAN = 0.9
+INPUT_NOISE_CONVERSIONS = 512
+# the Hsu study's noise switched off, the comparator's delay kept (or, for the reference, ideal)
+HSU_QUIET = ("sampling", "comparator_noise")
+HSU_REFERENCE_QUIET = ("sampling", "comparator")
+# the ENOB ladder: the nominal rate's sine converted with the model's impairments added one at a
+# time, each step (its key in the metrics, its label, the sources it keeps quiet, as
+# ``Model.behavioral``'s, and its settling's scale) the last one with one more: the tracking
+# error of the sampler's on-resistance, its kT/C noise and aperture jitter, the DAC's settling (with
+# its drivers' delay), the comparator's delay (a late decision holds the last bit) and its noise,
+# on an ideal reference (the reference study, Model.reference_requirements, varies it). The last step is the
+# converter as the sine at the nominal rate has it.
+LADDER = (
+    ("quantization", "Quantization", ("sampler", "sampling", "comparator"), 0.0),
+    ("sampler", "+ Sampling error", ("sampling", "comparator"), 0.0),
+    ("sampling_noise", "+ Sampling noise", ("comparator",), 0.0),
+    ("settling", "+ DAC settling", ("comparator",), 1.0),
+    ("comparator_timing", "+ Comp. timing", ("comparator_noise",), 1.0),
+    ("comparator_noise", "+ Comp. noise", (), 1.0),
+)
+
+# the ENOB ladder's captures by name, a step each (``LADDER``), quantization alone first: the last,
+# every impairment on, is the sine at the nominal rate (``rate_10``)
+LADDER_NAMES = (*(f"ladder_{step}" for step in range(len(LADDER) - 1)), f"rate_{NOMINAL_RATE_HZ / 1e6:g}")
+
+
+@dataclass(frozen=True)
+class Capture:
+    """One capture: its testbench, its capacitor draw (``seed``, at ``unit_mismatch``; or the CDAC's
+    SPICE draw, ``drawn``), its noise seed, whether it has noise at all, the sources it silences
+    otherwise (``quiet``, as ``Model.behavioral``'s) and its DAC settling time constants' scale
+    (1: the array's own, 0: ideal settling, the Hsu study's reference)."""
+
+    tb: TbParams
+    seed: int = 0
+    noise_seed: int | None = None
+    unit_mismatch: float = 0.0
+    noise_free: bool = False  # no sampling or comparator noise: the capacitors' nonlinearity alone
+    quiet: tuple[str, ...] = ()
+    tau_scale: float = 1.0
+    drawn: bool = False

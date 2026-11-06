@@ -80,13 +80,13 @@ import flow.cdac.model as cdac_model
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
 from flow import cdac as cdac_block  # the CDAC block; ``cdac`` here is the behavioral array's switching
-from flow.adc.campaign import NOMINAL_RATE_HZ, Capture
 from flow.adc.figures import FIGURES, dynamic_enob
 from flow.adc.params import (
     DECAP_COVERAGE,
     DRAWN_PERCENTILE,
     DRAWN_RUN,
     IDEAL_REFERENCE,
+    NOMINAL_RATE_HZ,
     QUIET,
     REFERENCE_HALVINGS,
     REFERENCE_NOISE_V,
@@ -94,6 +94,7 @@ from flow.adc.params import (
     REFERENCE_R_OUT_OHM,
     REFERENCE_SHARE,
     VIN_CM_FRACTION,
+    Capture,
     Params,
     Reference,
     TbParams,

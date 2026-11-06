@@ -1,9 +1,25 @@
 """The ADC's design space (``flow.adc.sweep``, the grid ``converters``): the plain product of the
 comparator grid, the samplers, the arrays, the resolutions and the capacitance scales, every
-component its block sweep's instance."""
+component its block sweep's instance; and its campaign (``campaign``), every capture the figures
+read, for any testbench builder."""
+
+from dataclasses import replace
+from itertools import pairwise
+
+import hdl21 as h
 
 from flow import comp
 from flow.adc import sweep
+from flow.adc.figures import FIGURES
+from flow.adc.params import (
+    FIN_CYCLES,
+    FIN_RATES_HZ,
+    LADDER,
+    LADDER_NAMES,
+    MISMATCH_COEFFICIENTS,
+    RATES_HZ,
+    VALIDATION_DRAWS,
+)
 from flow.cdac.caparray.layout import ADC_ARRAYS, RADIX17
 from flow.cdac.caparray.sim import CASES
 from flow.cdac.caparray.subckt import RedunStrat, get_caparray_weights
@@ -85,3 +101,64 @@ def test_every_component_is_its_block_sweeps_instance() -> None:
         "b43e51f5eb7c",  # 160
     ]
     assert all(digest(samp) in samplers and not samp.dummy for samp in sweep.SAMPLER_STEPS)
+
+
+def test_the_campaign_has_every_capture_the_figures_read() -> None:
+    def tb(*, conversions, rate_hz, vin_diff):
+        return {"conversions": conversions, "rate_hz": rate_hz, "vin_diff": vin_diff}
+
+    captures = sweep.campaign(tb, 0.7)
+    names = set(captures)
+    assert {"ramp_train", "ramp_check", "trajectory", "noise"} <= names
+    assert sum(name.startswith("rate_") for name in names) == len(RATES_HZ)
+    assert sum(name.startswith("fin_") for name in names) == len(FIN_RATES_HZ) * len(FIN_CYCLES)
+    assert sum(name.startswith("dc_") for name in names) == 33
+    # both ramps on the CDAC's SPICE draw, independent noise: the calibration's training and check;
+    # the nominal rate's sine on it too, its testbench and seeds the nominal sine's
+    train, check = captures["ramp_train"], captures["ramp_check"]
+    assert train.drawn and check.drawn and train.unit_mismatch == check.unit_mismatch == 0.0
+    assert train.noise_seed != check.noise_seed
+    drawn, nominal = captures["drawn_sine"], captures["rate_10"]
+    assert drawn.drawn and not nominal.drawn and drawn.tb == nominal.tb and drawn.noise_seed == nominal.noise_seed
+    # sines at -0.5 dBFS of the full scale, DC inputs across it
+    assert abs(captures["rate_10"].tb["vin_diff"].vamp - 0.7 * 10 ** (-0.5 / 20)) < 1e-9
+    assert isinstance(captures["dc_00"].tb["vin_diff"], h.Vdc.Params)
+    assert captures["dc_00"].tb["vin_diff"].dc == -0.7 and captures["dc_32"].tb["vin_diff"].dc == 0.7
+    assert next(iter(FIGURES)) == "redundancy" and {"noise_input", "hsu_rate"} <= set(FIGURES)
+    # what a fabricated instance can show: its settling is its own, only its rate varies
+    assert not {"hsu_map", "hsu_fastest"} & set(FIGURES)
+    # the noise over the input, and Hsu's study: every rate at the array's own settling, and at each
+    # rate a reference with ideal timing at the same rate
+    assert "noise_input" in names
+    hsu = [name for name in names if name.startswith("hsu_r") and not name.startswith("hsu_reference")]
+    references = [name for name in names if name.startswith("hsu_reference_r")]
+    assert len(hsu) == len(references) == len(RATES_HZ)
+    for index, rate in enumerate(RATES_HZ):
+        reference, own = captures[f"hsu_reference_r{index}"], captures[f"hsu_r{index}"]
+        assert reference.tb["rate_hz"] == rate == own.tb["rate_hz"]
+        assert reference.tau_scale == 0.0 and "comparator" in reference.quiet
+        assert own.tau_scale == 1.0 and "comparator" not in own.quiet
+    # the ENOB ladder: the 10 MS/s sine, quantization alone first, one impairment more a step, the
+    # last rate_10 itself
+    names = LADDER_NAMES
+    assert len(names) == len(LADDER) and names[-1] == "rate_10" and "enob_ladder" in FIGURES
+    steps = [captures[name] for name in names]
+    assert all(replace(step, quiet=(), tau_scale=1.0) == captures["rate_10"] for step in steps)
+    assert steps[0].tau_scale == 0.0 and {"sampler", "sampling", "comparator"} <= set(steps[0].quiet)
+    assert steps[-1].quiet == () and steps[-1].tau_scale == 1.0
+    # each step adds one impairment: the timing of the comparator ("comparator" made it ideal,
+    # "comparator_noise" keeps its delay), else one source less quiet or the settling on
+    for before, after in pairwise(steps):
+        timing = "comparator" in before.quiet and "comparator_noise" in after.quiet
+        quieter = set(before.quiet) - set(after.quiet) - ({"comparator"} if timing else set())
+        settled = after.tau_scale != before.tau_scale
+        assert int(timing) + len(quieter) + int(settled) == 1 and set(after.quiet) - {"comparator_noise"} <= set(
+            before.quiet
+        )
+    # the mismatch is predicted, not drawn: the Monte Carlo that checks it only where asked for
+    assert not any(name.startswith("mc_") for name in names)
+    assert {"mismatch_weight_sigma", "mismatch_transition_sigma", "mismatch_margin"} <= set(FIGURES)
+    drawn = sweep.campaign(tb, 0.7, mismatch_draws=VALIDATION_DRAWS)
+    studies = [capture for name, capture in drawn.items() if name.startswith("mc_")]
+    assert len(studies) == len(MISMATCH_COEFFICIENTS) * VALIDATION_DRAWS and all(c.noise_free for c in studies)
+    assert {c.unit_mismatch for c in studies} == set(MISMATCH_COEFFICIENTS)

@@ -1,8 +1,8 @@
 """The ADC's analyses, software only: each conversion and waveform analysis on built captures
 (``adc_measurement`` and its kin, which flow/analysis's tests share), the analyses on an ADC other
-than FRIDA, the three calibrations, the redundancy of a SAR's weights (each scheme's at every
-resolution), and the predicted mismatch statistics, which agree with exact draws of the same
-arrays."""
+than FRIDA, the three calibrations, the ENOB ladder of the campaign (on a model of ideal blocks of
+known impairments), the redundancy of a SAR's weights (each scheme's at every resolution), and the
+predicted mismatch statistics, which agree with exact draws of the same arrays."""
 
 from __future__ import annotations
 
@@ -17,7 +17,10 @@ from typing import cast
 import hdl21 as h
 import numpy as np
 import pytest
+from scipy import constants
 
+import flow.comp.model as comp_model
+import flow.samp.model as samp_model
 from flow import adc, comp
 from flow.adc.analysis import (
     _decode,
@@ -48,9 +51,12 @@ from flow.adc.analysis import (
     analyze_timing_closure,
     analyze_transfer,
 )
+from flow.adc.figures import _extracted, enob_ladder
 from flow.adc.model import AdcBehavioralParams, CdacBehavioralParams
-from flow.adc.params import Params, TbParams
+from flow.adc.params import LADDER, LADDER_NAMES, Params, TbParams
 from flow.adc.sim import SEQUENCES, AdcSequence
+from flow.adc.subckt import calc_ideal_capacitances
+from flow.adc.sweep import campaign
 from flow.adc.types import AnalysisMismatch
 from flow.analysis.calc import calc_drawn_linearity, calc_paths
 from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_decisions, analyze_cdac_transition
@@ -2132,3 +2138,110 @@ def test_threshold_calibration_uses_common_weight_plot(
     assert tuple(path.suffix for path in plot_paths) == (".pdf",)
     assert plot_paths[0].is_file()
     assert plot_paths[0].stat().st_size > 0
+
+
+# ---- the ENOB ladder: the campaign's ladder captures on a model of ideal blocks of known impairments
+
+
+def _stub_model(table: Path, params: Params):
+    """An ADC model of ideal blocks of known impairments, the array's ideal capacitances in an
+    extraction's table, at a 1.2 V supply (no PDK)."""
+    from flow.adc import model
+
+    class Stub(model.Model):
+        supply_v = 1.2
+
+    main_f, diff_f = calc_ideal_capacitances(params.cdac)
+    rows = (f"{i},{m * 1e15:.6f},{d * 1e15:.6f},{(m - d) * 1e15:.6f}\n" for i, (m, d) in enumerate(zip(main_f, diff_f)))
+    table.write_text("stage,main_ff,diff_ff,effective_ff\n" + "".join(rows))
+    load_f = float(np.sum(main_f) + np.sum(diff_f))
+    return Stub(
+        pdk="none",
+        params=params,
+        comp=SimpleNamespace(
+            behavioral=lambda vin_cm_v: comp_model.Model.Behavioral(
+                noise_v=100e-6, delay_table_v=(1e-6, 1e-3), delay_table_s=(2e-9, 0.6e-9)
+            )
+        ),
+        # an on-resistance twice as high at mid-supply as at the rails: a tracking error that distorts
+        samp=SimpleNamespace(
+            behavioral=lambda load_f: samp_model.Model.Behavioral(
+                noise_v=float(np.sqrt(2 * constants.k * 300 / load_f)),
+                jitter_s=2e-12,
+                ron_table_v=(0.2, 0.7, 1.2),
+                # on the 12-bit array's 0.54 pF at its 204 aF unit, a time constant of 0.4-0.8 ns
+                ron_table_ohm=(750.0, 1500.0, 750.0),
+            )
+        ),
+        cdac=SimpleNamespace(
+            draw=lambda unit_mismatch, rng: (main_f, diff_f),
+            parasitic_f=0.0,
+            main_f=main_f,
+            diff_f=diff_f,
+            load_f=load_f,
+            table=table,
+        ),
+        drivers=tuple(SimpleNamespace(resistance_ohm=1.0, intrinsic_delay_s=20e-12, energy_j=0.0) for _ in main_f),
+        settling=SimpleNamespace(tau_s=(0.35e-9,) * len(main_f), delay_s=(50e-12,) * len(main_f)),
+    )
+
+
+def _capture(model, declared):
+    """The model's capture of one declared capture, its sources and settling as declared."""
+    return model.capture(
+        declared.tb,
+        None,
+        seed=declared.seed,
+        noise_seed=declared.noise_seed,
+        unit_mismatch=declared.unit_mismatch,
+        quiet=declared.quiet,
+        tau_scale=declared.tau_scale,
+    )
+
+
+@pytest.mark.parametrize(
+    "cdac",
+    [CapArrayConfig(n_dac=11, n_extra=0, redun_strat=RedunStrat.BINARY), CapArrayConfig()],
+    ids=["binary", "msb_redist"],
+)
+def test_the_ladder_starts_at_quantization_and_ends_on_enob_bits(tmp_path: Path, cdac: CapArrayConfig) -> None:
+    params = Params(adc_bits=12, cdac=cdac)
+    model = _stub_model(tmp_path / "table.csv", params)
+    plan = campaign(model.tb, model.full_scale_v, params.adc_bits)
+    captures = {name: _capture(model, plan[name]) for name in LADDER_NAMES}
+    ladder = enob_ladder(captures)
+    assert ladder is not None and len(ladder) == len(LADDER)
+    # quantization alone reads the design resolution: the extracted weights' codes unrounded (whole
+    # codes would quantize a second time) and the -0.5 dBFS sine's SNDR referred to full scale
+    assert ladder[0] == pytest.approx(params.adc_bits, abs=0.02)
+    # the sampler's input-dependent on-resistance distorts the held sine
+    assert ladder[1] < ladder[0] - 0.5
+    # every impairment on is the 10 MS/s sine as enob_bits decodes it (the extracted weights), and
+    # the last step's sources and settling capture it again, decision for decision
+    rate = captures["rate_10"]
+    assert ladder[-1] == analyze_dynamic(rate, calibration=_extracted(rate)).spectral_enob_fs_bits
+    _, _, quiet, tau_scale = LADDER[-1]
+    again = _capture(model, replace(plan["rate_10"], quiet=quiet, tau_scale=tau_scale))
+    np.testing.assert_array_equal(again.bout, rate.bout)
+    assert enob_ladder({**captures, "rate_10": again})[-1] == ladder[-1]
+    # without the ladder's captures (a SPICE campaign), no ladder
+    assert enob_ladder({"rate_10": rate}) is None
+
+
+@pytest.mark.parametrize("adc_bits", [10, 12])
+def test_the_ladders_quantization_reads_the_design_resolution(tmp_path: Path, adc_bits: int) -> None:
+    """Quantization alone (a binary array, as the sweep's binary instances) reads the design
+    resolution: the ladder refers the -0.5 dBFS sine's SNDR to full scale, where at the sine's own
+    amplitude it reads half a dB less."""
+    params = Params(
+        adc_bits=adc_bits, cdac=CapArrayConfig(n_dac=adc_bits - 1, n_extra=0, redun_strat=RedunStrat.BINARY)
+    )
+    model = _stub_model(tmp_path / "table.csv", params)
+    plan = campaign(model.tb, model.full_scale_v, params.adc_bits)
+    captures = {name: _capture(model, plan[name]) for name in LADDER_NAMES}
+    ladder = enob_ladder(captures)
+    assert ladder is not None
+    assert ladder[0] == pytest.approx(adc_bits, abs=0.02)
+    quantization = captures[LADDER_NAMES[0]]
+    at_amplitude = analyze_dynamic(quantization, calibration=_extracted(quantization)).spectral_enob_bits
+    assert at_amplitude == pytest.approx(adc_bits - 0.5 / 6.02, abs=0.02)

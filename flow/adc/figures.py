@@ -1,4 +1,4 @@
-"""An ADC campaign's figures and metrics from its captures (``flow.adc.campaign``): ``MeasAdc``
+"""An ADC campaign's figures and metrics from its captures (``flow.adc.sweep.campaign``): ``MeasAdc``
 alone, so a SPICE campaign and the behavioral model's take the same path.
 
 Every capture is decoded with the design weights and with the "extracted" weights of its
@@ -39,11 +39,13 @@ from .analysis import (
     analyze_code_spectrum,
     analyze_decision_paths,
     analyze_dynamic,
+    analyze_hsu,
+    analyze_input_noise,
     analyze_mismatch,
     analyze_power,
     analyze_ramp,
 )
-from .campaign import LADDER, NOMINAL_RATE_HZ, UNIT_MISMATCH, hsu_errors, input_noise, ladder_names
+from .params import LADDER, LADDER_NAMES, NOMINAL_RATE_HZ, RATES_HZ, UNIT_MISMATCH
 
 # the figures, in the order the viewer shows them: name -> title. Each is one curve (one series, or
 # one family of decision paths), so instances compared on one plot stay readable; what a second
@@ -158,11 +160,11 @@ def dynamic_enob(measurement: MeasAdc) -> float:
 
 
 def enob_ladder(captures: dict[str, MeasAdc]) -> np.ndarray | None:
-    """The ENOB ladder (``flow.adc.campaign.LADDER``): each step's spectral ENOB referred to full
+    """The ENOB ladder (``flow.adc.params.LADDER``): each step's spectral ENOB referred to full
     scale, decoded as ``enob_bits`` is (the extracted weights, unrounded), quantization alone first
     (the design resolution) and the converter as ``enob_bits`` measures it last; None where the
     campaign has no ladder."""
-    names = ladder_names()
+    names = LADDER_NAMES
     if not all(name in captures for name in names):
         return None
     return np.asarray([dynamic_enob(captures[name]) for name in names])
@@ -323,7 +325,8 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
         x_log=True,
         y_log=True,
     )
-    levels_v, sigma_lsb = input_noise(captures)
+    input_noise = analyze_input_noise(captures["noise_input"])
+    levels_v, sigma_lsb = input_noise.level_v, input_noise.sigma_lsb
     add("noise_input", "Differential input (V)", "Output noise (LSB rms)", levels_v, {"Noise": sigma_lsb})
     rate_hz = [d.sample_rate_hz for d in dynamics]
 
@@ -374,7 +377,10 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
         )
     # Hsu's study (A. H. T. Chang, MIT PhD thesis 2013, sec. 3.3.3): every code centre once, noise-free, at each
     # rate with the array's own settling; the integrated |code - ideal timing's|
-    hsu_rates, hsu = hsu_errors(captures)
+    study = analyze_hsu(
+        [captures[f"hsu_{kind}r{index}"] for kind in ("", "reference_") for index in range(len(RATES_HZ))]
+    )
+    hsu_rates, hsu = study.rate_hz, study.integrated_error_lsb
     add("hsu_rate", "Conversion rate (Hz)", "Integrated error (LSB)", hsu_rates, {"Integrated error": hsu})
     # the fastest rate before the integrated error first passes a code in 1024 (Hsu's zero, less the
     # rare metastable decision at a code centre), counting up from the slowest; NaN where even the

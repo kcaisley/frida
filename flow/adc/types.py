@@ -2,7 +2,8 @@
 linearity, its ramp and code statistics, its noise and the noise's spectrum, an interferer and the
 operating conditions, its dynamic performance and power, its internal waveforms and timing closure,
 the weights a calibration gives (``AnalysisCalibration``, the extracted weights' type; each
-calibration's own type a subclass of it), and an array's predicted mismatch.
+calibration's own type a subclass of it), the noise over the input, Hsu's integrated error over the
+rate, and an array's predicted mismatch.
 """
 
 from __future__ import annotations
@@ -827,6 +828,24 @@ class AnalysisTimingSummary(Analysis):
     timing_passed: int
     minimum_logic_setup_s: float
     minimum_cdac_setup_s: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisInputNoise(Analysis):
+    """The output code's noise over the input: a staircase capture's DC levels (V, differential) and
+    the output code's standard deviation at each (LSB)."""
+
+    level_v: np.ndarray
+    sigma_lsb: np.ndarray
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisHsu(Analysis):
+    """Hsu's study: at each conversion rate (Hz) the integrated error sum_k |code_k - reference_k|
+    (LSB) of a ramp through every code centre against the same inputs at ideal timing."""
+
+    rate_hz: np.ndarray
+    integrated_error_lsb: np.ndarray
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

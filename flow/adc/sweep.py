@@ -39,22 +39,45 @@ bootstrapped switch (``samplers``): 244 to 305 converters a PDK. The design spac
 (``converters``, docs/pipeline.md): one space per resolution, its arrays, comparators and samplers
 values by name.
 
-Each instance runs the campaign of ``flow.adc.campaign`` and draws its figures
+Each instance runs the campaign (``campaign``: every capture its record needs) and draws its figures
 (``flow.adc.figures``) for the viewer; its captures stay in memory, so its run is its record.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import hdl21 as h
+import numpy as np
 
 from flow import comp, samp
 from flow.cdac.caparray.layout import ADC_ARRAYS, ADC_BITS, FRIDA1_ADC_ARRAY, adc_arrays
 from flow.cdac.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
 from flow.pipeline import Pdk, Record, grid, values, widen
 
-from .params import Params
+from .params import (
+    FIN_CYCLES,
+    FIN_RATES_HZ,
+    HSU_QUIET,
+    HSU_REFERENCE_QUIET,
+    INPUT_NOISE_CONVERSIONS,
+    INPUT_NOISE_LEVELS,
+    INPUT_NOISE_SPAN,
+    LADDER,
+    LADDER_NAMES,
+    MISMATCH_COEFFICIENTS,
+    MISMATCH_CONVERSIONS,
+    MISMATCH_DRAWS,
+    NOMINAL_RATE_HZ,
+    RAMP_CONVERSIONS,
+    RATES_HZ,
+    SINE_CONVERSIONS,
+    Capture,
+    Params,
+    TbParams,
+)
 
 # The comparator grid: five levels of input-referred noise (rows, at the nominal common mode) by
 # four of delay (columns, at 0.5 mV), each cell the characterized TSMC65 comparator of least energy
@@ -139,6 +162,170 @@ def converters(pdk: Pdk) -> dict[str, Params]:
     return spaces
 
 
+def campaign(
+    tb: Callable[..., TbParams], full_scale_v: float, bits: int = 12, *, mismatch_draws: int = MISMATCH_DRAWS
+) -> dict[str, Capture]:
+    """Every capture of the campaign, by name, for a ``bits`` ADC whose differential full scale is
+    +-``full_scale_v``, each a testbench from ``tb`` (``tb(conversions=, rate_hz=, vin_diff=)``);
+    ``mismatch_draws`` capacitor draws a Pelgrom coefficient for the Monte Carlo that checks the
+    predicted mismatch (``VALIDATION_DRAWS``), none by default.
+
+    The captures are what the record needs, as testbench parameters (``TbParams``) from a builder,
+    the same for a SPICE run of ``sim.testbench`` and for the behavioral model (``flow.adc.model``),
+    each of which turns one into a ``MeasAdc``.
+
+    - ``ramp_train`` and ``ramp_check``: eight full-scale sawtooth periods on the CDAC's SPICE draw
+      (``Model.drawn``: its Monte Carlo's middle condition, the draw at the 90th percentile of what
+      no calibration recovers), independent noise: the code density, INL and DNL, and the
+      calibrations learned from the training ramp and checked on the other.
+    - ``drawn_sine``: the nominal rate's sine on that draw: its ENOB before and after the
+      calibration.
+    - ``rate_<MS/s>``: a -0.5 dBFS sine near fs/8 at ten rates, 1 to 10 MS/s: ENOB and power over
+      the rate.
+    - ``fin_<MS/s>_<cycles>``: the sine at nine input frequencies up to Nyquist at 2, 6 and 10 MS/s.
+    - ``dc_<n>``: 33 DC inputs across the full scale: the energy a conversion takes over the input.
+    - ``trajectory``: 0 V at 10 MS/s, on the first decision's threshold: the redundant decision
+      paths.
+    - ``noise``: 50 mV at 10 MS/s: the output-code noise spectrum (the behavioral model repeats it
+      with one noise source at a time).
+    - ``noise_input``: nine DC inputs evenly over +-90 % of the full scale at 10 MS/s, 512
+      conversions each, in one staircase: the output-code noise over the input
+      (``analyze_input_noise``).
+    - ``hsu_r<rate>``: every ideal code centre once (a ramp of one LSB a conversion), at each rate
+      of ``RATES_HZ`` with the array's own settling, noiseless but with the comparator's delay (a
+      late decision holds the last bit); and ``hsu_reference_r<rate>``, the same inputs at each rate
+      with ideal settling and an ideal comparator: the integrated error of each against its rate's
+      reference (``analyze_hsu``) over the rate shows how fast the instance converts before the time
+      a decision has costs codes, after A. H. T. Chang's thesis (MIT 2013, pp. 77-84): redundancy
+      recovers settling errors, not a late comparator's. The rate is all a fabricated converter lets
+      one vary, so the study keeps to it. The reference at the same rate takes off what every array
+      shares there (the ramp's input moves while it is sampled, more the faster the rate).
+    - ``ladder_<step>``: the ``rate_10`` sine with the behavioral model's impairments added one at a
+      time (``LADDER``), from quantization alone (a perfect track-and-hold, no noise, ideal settling
+      and an ideal comparator, decoded as ``rate_10`` is) to the converter as ``rate_10`` has it,
+      whose capture is the last step's (``LADDER_NAMES``): what each impairment costs in ENOB where
+      it is added (errors add in power, so a source costs fewer bits after larger ones: the order
+      matters).
+    - ``mc_<A_C %>_<draw>``, only where ``mismatch_draws`` asks for them (the figures predict the
+      mismatch from the capacitances, ``flow.adc.analysis.analyze_mismatch``; the draws check it):
+      noise-free ramps (four periods, 16 hits a code at 12 bits, at least 8 at any), at each Pelgrom
+      coefficient from 0.05 to 0.85 %·sqrt(fF) (a SPICE run draws them with the PDK's Monte Carlo).
+    """
+
+    amplitude_v = full_scale_v * 10 ** (-0.5 / 20)
+    # a sawtooth slightly past the full scale, eight periods in the ramp; at least 64 hits a code
+    # (14 bits double the ramp: calibration 3 fits its thresholds from the late branches' hits)
+    ramp_conversions = max(RAMP_CONVERSIONS, 64 << bits)
+    period_s = ramp_conversions / 8 / NOMINAL_RATE_HZ
+    edge_v = 1.05 * full_scale_v
+    ramp = h.Vpwl.Params(wave=f"0 {-edge_v:.6g} {period_s:.6g} {edge_v:.6g}")
+    captures = {
+        role: Capture(
+            tb(conversions=ramp_conversions, rate_hz=NOMINAL_RATE_HZ, vin_diff=ramp),
+            seed=1,
+            noise_seed=noise_seed,
+            drawn=True,
+        )
+        for role, noise_seed in (("ramp_train", 1), ("ramp_check", 1001))
+    }
+
+    for rate in RATES_HZ:
+        captures[f"rate_{rate / 1e6:g}"] = Capture(
+            tb(conversions=SINE_CONVERSIONS, rate_hz=rate, vin_diff=_sine(amplitude_v, rate, 1021))
+        )
+    # the ladder's steps but the last, which is the nominal rate's sine itself: its testbench and
+    # seeds, fewer impairments
+    nominal = captures[LADDER_NAMES[-1]]
+    # the nominal rate's sine on the draw the ramps calibrate on
+    captures["drawn_sine"] = replace(nominal, drawn=True)
+    for step, (_, _, quiet, tau_scale) in enumerate(LADDER[:-1]):
+        captures[f"ladder_{step}"] = replace(nominal, quiet=quiet, tau_scale=tau_scale)
+    for rate in FIN_RATES_HZ:
+        for cycles in FIN_CYCLES:
+            captures[f"fin_{rate / 1e6:g}_{cycles}"] = Capture(
+                tb(conversions=SINE_CONVERSIONS, rate_hz=rate, vin_diff=_sine(amplitude_v, rate, cycles))
+            )
+    for index, vin_v in enumerate(np.linspace(-full_scale_v, full_scale_v, 33)):
+        captures[f"dc_{index:02d}"] = Capture(
+            tb(conversions=2_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=round(float(vin_v), 6)))
+        )
+    captures["trajectory"] = Capture(tb(conversions=2_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.0)))
+    captures["noise"] = Capture(tb(conversions=100_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.05)))
+    captures["noise_input"] = Capture(
+        tb(
+            conversions=INPUT_NOISE_LEVELS * INPUT_NOISE_CONVERSIONS,
+            rate_hz=NOMINAL_RATE_HZ,
+            vin_diff=_staircase(INPUT_NOISE_SPAN * full_scale_v, 2 * full_scale_v / (1 << bits)),
+        ),
+        noise_seed=2001,
+    )
+    for rate_index, rate in enumerate(RATES_HZ):
+        captures[f"hsu_r{rate_index}"] = Capture(
+            tb(conversions=(1 << bits) + 1, rate_hz=rate, vin_diff=_code_ramp(full_scale_v, bits, rate)),
+            quiet=HSU_QUIET,
+        )
+        captures[f"hsu_reference_r{rate_index}"] = Capture(
+            tb(conversions=(1 << bits) + 1, rate_hz=rate, vin_diff=_code_ramp(full_scale_v, bits, rate)),
+            quiet=HSU_REFERENCE_QUIET,
+            tau_scale=0.0,
+        )
+    # at least 8 hits a code over the four periods (14 bits double the ramp)
+    mismatch_conversions = max(MISMATCH_CONVERSIONS, 8 << bits)
+    mismatch_period_s = mismatch_conversions / 4 / NOMINAL_RATE_HZ
+    mismatch_ramp = h.Vpwl.Params(wave=f"0 {-edge_v:.6g} {mismatch_period_s:.6g} {edge_v:.6g}")
+    mismatch_tb = tb(conversions=mismatch_conversions, rate_hz=NOMINAL_RATE_HZ, vin_diff=mismatch_ramp)
+    for coefficient in MISMATCH_COEFFICIENTS:
+        for draw in range(mismatch_draws):
+            captures[f"mc_{coefficient * 100:g}_{draw:02d}"] = Capture(
+                mismatch_tb, seed=100 + draw, unit_mismatch=coefficient, noise_free=True
+            )
+    return captures
+
+
+def _sine(amplitude_v: float, rate_hz: float, cycles: int) -> h.Vsin.Params:
+    """A sine of ``amplitude_v`` peak making ``cycles`` periods in the campaign's sine captures at
+    ``rate_hz``."""
+    return h.Vsin.Params(voff=0.0, vamp=amplitude_v, freq=cycles * rate_hz / SINE_CONVERSIONS)
+
+
+def _staircase(span_v: float, lsb_v: float) -> h.Vpwl.Params:
+    """``INPUT_NOISE_LEVELS`` DC levels about evenly over +-``span_v``, each at an ideal code's
+    centre (a noise under an LSB reads differently at a code's edge and at its centre, so every
+    level sits alike), each held for ``INPUT_NOISE_CONVERSIONS`` conversions at the nominal rate:
+    every step falls half a conversion from the samples, in 1 ns."""
+
+    levels = (np.floor(np.linspace(-span_v, span_v, INPUT_NOISE_LEVELS) / lsb_v) + 0.5) * lsb_v
+    period_s = 1 / NOMINAL_RATE_HZ
+    points = [(0.0, levels[0])]
+    for index in range(1, INPUT_NOISE_LEVELS):
+        step_s = (index * INPUT_NOISE_CONVERSIONS - 0.5) * period_s
+        points += [(step_s - 0.5e-9, levels[index - 1]), (step_s + 0.5e-9, levels[index])]
+    # back to the first level after the last conversion, so the wave repeats without a jump at the
+    # first one (the sampler's slope there spans the repeat)
+    end_s = INPUT_NOISE_LEVELS * INPUT_NOISE_CONVERSIONS * period_s
+    points += [(end_s - 0.5 * period_s - 0.5e-9, levels[-1]), (end_s - 0.5 * period_s + 0.5e-9, levels[0])]
+    points.append((end_s, levels[0]))
+    return h.Vpwl.Params(wave=" ".join(f"{time:.9g} {value:.6g}" for time, value in points))
+
+
+def _code_ramp(full_scale_v: float, bits: int, rate_hz: float) -> h.Vpwl.Params:
+    """A ramp through every ideal code centre, (k + 0.5 - 2^(bits-1)) LSB with the LSB
+    2 full_scale_v / 2^bits, one a conversion at ``rate_hz``: conversion k + 1 samples code k's
+    centre. Conversion 0 is a dummy a code below: the wave repeats there, in the last half
+    conversion, so its slope (which the sampler tracks) is not the ramp's."""
+
+    lsb_v = 2 * full_scale_v / (1 << bits)
+    first_v = (0.5 - (1 << (bits - 1))) * lsb_v - lsb_v  # the dummy's input, a code below code 0
+    period_s = 1 / rate_hz
+    top_s = ((1 << bits) + 0.5) * period_s  # half a conversion past the last
+    points = (
+        (0.0, first_v),
+        (top_s, first_v + ((1 << bits) + 0.5) * lsb_v),
+        (((1 << bits) + 1) * period_s, first_v),
+    )
+    return h.Vpwl.Params(wave=" ".join(f"{time:.9g} {value:.9g}" for time, value in points))
+
+
 def AdcBlocks(params: Params) -> h.Module:
     """The ADC's analog blocks for the geometry metrics: the comparator, and a sampler and a
     capacitor array a side (the SAR logic is the fixed digital netlist)."""
@@ -175,7 +362,6 @@ def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
     """The campaign's captures, converted and kept in memory, and the metrics and figures they
     give (``flow.adc.figures``): the viewer shows the figures (the record's details) and no
     waveform of an ADC instance, so no capture is written (a run is its ``instance.json``)."""
-    from .campaign import campaign, ladder_names
     from .figures import adc_figures
     from .model import Model
 
@@ -198,7 +384,7 @@ def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
         captures[name] = model.capture(plan["noise"].tb, None, quiet=quiet)
     metrics, details = adc_figures(captures)
     # the reference buffer's requirements this converter sets, apart from its own ENOB
-    reference_metrics, reference_details = model.reference_requirements(plan[ladder_names()[-1]])
+    reference_metrics, reference_details = model.reference_requirements(plan[LADDER_NAMES[-1]])
     metrics |= reference_metrics | {
         "stages": float(model.stages),  # the switched capacitors a side
         "decisions": float(model.stages + 1),  # a conversion's comparator decisions

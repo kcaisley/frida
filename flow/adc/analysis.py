@@ -14,6 +14,8 @@ capture's parameters, never from literals.
 - The calibrations, each decision's weight: from the CDAC's S-curves (``analyze_calibration1``), a
   least-squares fit to a known ramp (``analyze_calibration2``) and Hsu's slow-ramp thresholds
   (``analyze_calibration3``).
+- The campaign's studies: the output code's noise over the input (``analyze_input_noise``) and Hsu's
+  integrated error over the rate (``analyze_hsu``).
 - An array's capacitor mismatch: ``analyze_mismatch`` takes a behavioral capture to its array's
   mismatch as statistics rather than draws (``AnalysisMismatch``), from which ``_dnl_quantile``,
   ``_inl_quantile``, ``_missing_codes_quantile`` and ``_margin_over_sigma`` predict at a Pelgrom
@@ -125,6 +127,7 @@ from flow.analysis.types import AnalysisCdacCapMismatch, MeasAdc, MeasCdac
 from flow.cdac.caparray import get_caparray_weights
 from flow.pipeline import Identity, analysis, check_identity, measurement_identity
 
+from .params import INPUT_NOISE_LEVELS
 from .sim import AdcSequence
 from .subckt import AdcNets, calc_side_capacitances
 from .types import (
@@ -139,6 +142,8 @@ from .types import (
     AnalysisDecisionPaths,
     AnalysisDynamic,
     AnalysisEndpointNonlinearity,
+    AnalysisHsu,
+    AnalysisInputNoise,
     AnalysisInterferer,
     AnalysisMismatch,
     AnalysisNoise,
@@ -1530,6 +1535,58 @@ def analyze_timing_summary(
         timing_passed=int(np.count_nonzero(closure.passed)),
         minimum_logic_setup_s=float(calc.ymin(logic_setup_s)) if len(logic_setup_s) else math.nan,
         minimum_cdac_setup_s=float(calc.ymin(cdac_setup_s)) if len(cdac_setup_s) else math.nan,
+    )
+
+
+# =============================================================================
+# The campaign's studies: the noise over the input and Hsu's integrated error
+# =============================================================================
+
+
+@analysis
+def analyze_input_noise(measurement: MeasAdc) -> AnalysisInputNoise:
+    """The output code's noise over the input: a staircase capture's DC levels (V, differential) and
+    the output code's standard deviation at each (LSB), ``INPUT_NOISE_LEVELS`` of them."""
+
+    vin_v = np.asarray(measurement.vin_diff_v, dtype=np.float64)
+    dout = np.asarray(measurement.dout, dtype=np.float64)
+    levels = np.unique(np.round(vin_v, 9))
+    if len(levels) != INPUT_NOISE_LEVELS:
+        raise ValueError(f"noise_input holds {len(levels)} input levels, not {INPUT_NOISE_LEVELS}")
+    sigma = np.array([np.std(dout[np.isclose(vin_v, level, rtol=0.0, atol=1e-9)]) for level in levels])
+    identity = measurement.identity
+    return AnalysisInputNoise(
+        group=identity.group, index=identity.index, dut=identity.dut, level_v=levels, sigma_lsb=sigma
+    )
+
+
+@analysis
+def analyze_hsu(measurements: Sequence[MeasAdc]) -> AnalysisHsu:
+    """Hsu's study: at each rate the integrated error sum_k |code_k - reference_k| (LSB) over every
+    code centre, the codes decoded with the design weights. ``measurements`` are the ramps through
+    every code centre at the array's own settling, one a rate, then their references at ideal timing
+    in the same order (the same inputs at the same rate); each ramp's first conversion, a dummy a
+    code below, is left out."""
+
+    identity = measurement_identity(measurements)
+    count = len(measurements) // 2
+    captures, references = measurements[:count], measurements[count:]
+    if len(measurements) != 2 * count or any(
+        capture.sample_rate_hz != reference.sample_rate_hz
+        for capture, reference in zip(captures, references, strict=True)
+    ):
+        raise ValueError("the Hsu study takes each rate's ramp and then its reference at the same rate")
+    errors = np.empty(count)
+    for index, (capture, reference) in enumerate(zip(captures, references, strict=True)):
+        codes = np.asarray(capture.dout, dtype=np.int64)[1:]
+        ideal = np.asarray(reference.dout, dtype=np.int64)[1:]
+        errors[index] = float(np.sum(np.abs(codes - ideal)))
+    return AnalysisHsu(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        rate_hz=np.asarray([capture.sample_rate_hz for capture in captures]),
+        integrated_error_lsb=errors,
     )
 
 
