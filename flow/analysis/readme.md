@@ -30,7 +30,7 @@ flowchart TB
         ramp_out --> ramp_specs["adc.plot_code_density / plot_inl / plot_dnl (each decoding; _calibrated for weights other than the design's)"]
         noise_out --> noise_plots["adc.plot_noise_rate / plot_noise_enob_rate / plot_codes_rate (one sequence's captures in rate order)"]
         code_spectrum_out --> code_spectrum_plots["adc.plot_noise_spectrum (input-referred; its white floor, lines and their split marked)"]
-        interferer_out --> interferer_plot["plot_adc_interferer (list)"]
+        interferer_out --> interferer_plot["adc.plot_interferer / plot_interferer_lines (each ADC's)"]
         conditions_out --> sequence_map["adc.analyze_sequence_map (one ADC's conditions, or a chip's)"] --> sequence_map_out["adc.AnalysisSequenceMap"]
         sequence_map_out --> sequence_plots["adc.plot_sequence_enob / _plausible / _shift (maps over sequence and rate)"]
         paths_out --> paths_plots["adc.plot_trajectory / _final / _codes (the distinct paths, each with its conversions; the codes they end on)"]

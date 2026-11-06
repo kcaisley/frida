@@ -17,7 +17,7 @@ import flow.analysis.plots as analysis_plots
 from flow import adc, comp
 from flow.adc.plots import plot_power_rate
 from flow.adc.sim import symbol160_init4_samp20_comp11111100_logic11000011
-from flow.adc.test_analysis import adc_cdac_settling_measurement, adc_measurement, tone_codes
+from flow.adc.test_analysis import adc_cdac_settling_measurement, adc_measurement
 from flow.analysis.adc import analyze_adc_comp_out_edge_eye, analyze_adc_comparator_edge_eye
 from flow.analysis.plots import (
     CURVE_COLORS,
@@ -35,7 +35,6 @@ from flow.analysis.plots import (
     plot_adc_comp_out_edge_eye,
     plot_adc_comparator_edge_eye,
     plot_adc_comparator_response,
-    plot_adc_interferer,
     plot_adc_power_waveform,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
@@ -789,19 +788,6 @@ def test_cdac_pex_expectation_includes_recorded_topplate_parasitic() -> None:
     )
     with pytest.raises(ValueError, match="inconsistent"):
         plot_cdac_cap_mismatch([measurement, inconsistent], analysis, output_path=Path("unused"))
-
-
-def test_interferer_plot_of_code_spectra(tmp_path: Path) -> None:
-    """The alias search over three rates' code spectra and a stuck capture (the spectra themselves
-    are the ADC's spec: flow/adc/test_plots.py)."""
-    measurements = [
-        adc_measurement(tone_codes(rate, tone_hz=8.15e6, count=16_384, seed=index), sample_rate_hz=rate, observed_adc=2)
-        for index, rate in enumerate((2.0e6, 6.0e6, 10.0e6))
-    ]
-    stuck = adc_measurement(np.full(16_384, 2_000), sample_rate_hz=2.0e6, logic_phase_delay_symbols=1, observed_adc=2)
-    spectra = [adc.analyze_code_spectrum(measurement) for measurement in (*measurements, stuck)]
-    interferer = adc.analyze_interferer([*measurements, stuck], spectra=spectra)
-    assert_plot_formats(plot_adc_interferer([interferer], title="Interferer", output_path=tmp_path / "interferer"))
 
 
 def test_power_rate_of_each_adc(tmp_path: Path) -> None:

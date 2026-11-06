@@ -25,7 +25,6 @@ from flow.analysis.io import (
 )
 from flow.analysis.plots import (
     plot_adc_cdac_settling,
-    plot_adc_interferer,
     plot_waveforms,
     style_measurement_text,
 )
@@ -72,6 +71,8 @@ from .plots import (
     plot_enob_rate,
     plot_inl,
     plot_inl_calibrated,
+    plot_interferer,
+    plot_interferer_lines,
     plot_noise_enob_rate,
     plot_noise_input,
     plot_noise_rate,
@@ -823,9 +824,13 @@ def interferer_study() -> tuple[Path, ...]:
     Without the interferer, that search settles on slow drift near DC. Each
     4of8 capture's code spectrum is a figure of its own (``<run>_adc<NN>_<rate>msps_code_spectrum``:
     the record's, its white floor, its lines and the split of its variance
-    into lines and broadband noise marked), beside each run's alias search.
+    into lines and broadband noise marked), and so is each ADC's alias search:
+    its score over the candidate frequency, the best marked
+    (``<run>_adc<NN>_interferer``), and the strongest line at each rate
+    (``<run>_adc<NN>_interferer_lines``).
     """
     output_dir = new_run("analysis", "adc")
+    # the deck's test labels, by run
     runs = {
         "Test #4": "20261008_204141_adc_sequence_static",
         "Test #12: amp supplies unplugged": "20261009_105940_adc_sequence_static",
@@ -836,7 +841,7 @@ def interferer_study() -> tuple[Path, ...]:
     shown = dict(SEQUENCES)["symbol160_init4_samp20_comp11110000_logic10000111"]
     output_dir.mkdir(parents=True, exist_ok=True)
     artifacts: list[Path] = []
-    for run, folder in runs.items():
+    for folder in runs.values():
         stem = folder.removesuffix("_adc_sequence_static")
         measurements_by_adc: dict[int, list[MeasAdc]] = {}
         for path in sorted((BASE_PATH / "build/scan_adc" / folder).glob("[0-9][0-9][0-9][0-9]_capture.h5")):
@@ -844,7 +849,6 @@ def interferer_study() -> tuple[Path, ...]:
             if not isinstance(measurement, MeasAdc):
                 raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
             measurements_by_adc.setdefault(measurement.param.observed_adc, []).append(measurement)
-        interferers = []
         for adc_index, measurements in sorted(measurements_by_adc.items()):
             spectra = [analyze_code_spectrum(measurement) for measurement in measurements]
             # Search one recipe, whose three rates were captured minutes apart: over
@@ -854,8 +858,9 @@ def interferer_study() -> tuple[Path, ...]:
             interferer = analyze_interferer(
                 [measurements[index] for index in selected], spectra=[spectra[index] for index in selected]
             )
-            interferers.append(interferer)
             artifacts.append(write_analysis(output_dir / f"{stem}_adc{adc_index:02d}_interferer.h5", interferer))
+            for figure in (plot_interferer(interferer), plot_interferer_lines(interferer)):
+                artifacts.extend(render(figure, output_dir / f"{stem}_adc{adc_index:02d}_{figure.name}"))
             for index in selected:
                 # A decimal point would read as a file suffix; write 0.3125 as 0p3125.
                 rate = f"{spectra[index].sample_rate_hz / 1e6:g}".replace(".", "p")
@@ -865,13 +870,6 @@ def interferer_study() -> tuple[Path, ...]:
                         output_dir / f"{stem}_adc{adc_index:02d}_{rate}msps_code_spectrum",
                     )
                 )
-        artifacts.extend(
-            plot_adc_interferer(
-                interferers,
-                title=f"Interferer frequency from its aliases · {run}",
-                output_path=output_dir / f"{stem}_interferer",
-            )
-        )
     return tuple(artifacts)
 
 

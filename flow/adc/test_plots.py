@@ -23,6 +23,7 @@ from flow.adc.analysis import (
     analyze_dynamic,
     analyze_energy,
     analyze_input_noise,
+    analyze_interferer,
     analyze_mismatch_prediction,
     analyze_noise,
     analyze_power,
@@ -86,6 +87,8 @@ LAB_FIGURES = (
     "noise_rate",
     "noise_enob_rate",
     "codes_rate",
+    "interferer",
+    "interferer_lines",
 )
 
 
@@ -528,3 +531,32 @@ def test_the_codes_over_the_rate_are_each_captures_shares(tmp_path: Path, monkey
     monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
     (png, _pdf) = render(codes, tmp_path / "codes_rate")
     assert plt.imread(png).shape[:2] == (2700, 4800)
+
+
+def test_the_interferer_search_marks_its_frequency_and_each_rates_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interferer at 8.15 MHz folded at 2, 6 and 10 MS/s, a stuck capture left out: each candidate's
+    score, thinned to 2000 points that keep its peak in its place, the best candidate marked; the
+    strongest line at each rate; drawn on the analysis plots' canvas."""
+    measurements = [
+        adc_measurement(tone_codes(rate, tone_hz=8.15e6, count=16_384, seed=index), sample_rate_hz=rate, observed_adc=2)
+        for index, rate in enumerate((2.0e6, 6.0e6, 10.0e6))
+    ]
+    stuck = adc_measurement(np.full(16_384, 2_000), sample_rate_hz=2.0e6, logic_phase_delay_symbols=1, observed_adc=2)
+    spectra = [analyze_code_spectrum(measurement) for measurement in (*measurements, stuck)]
+    interferer = analyze_interferer([*measurements, stuck], spectra=spectra)
+    figure = plots.plot_interferer(interferer)
+    (score,) = figure.series.values()
+    assert len(figure.x) == 2000 < len(interferer.candidate_frequency_hz)
+    assert max(score) == float(f"{np.max(interferer.score_db):.6g}")
+    assert figure.x[score.index(max(score))] == pytest.approx(interferer.frequency_hz, rel=1e-5)
+    (found,) = figure.x_markers
+    assert found.at == pytest.approx(8.15e6, rel=1e-3) and found.label == f"{interferer.frequency_hz / 1e6:.3f} MHz"
+    lines = plots.plot_interferer_lines(interferer)
+    assert lines.x == [2e6, 6e6, 10e6]
+    assert lines.series == {"Strongest line": [float(f"{value:.6g}") for value in interferer.observed_peak_hz]}
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    for drawn_figure in (figure, lines):
+        (png, _pdf) = render(drawn_figure, tmp_path / drawn_figure.name)
+        assert plt.imread(png).shape[:2] == (2700, 4800)

@@ -692,8 +692,9 @@ def test_adc_code_noise(amp_enable: bool) -> None:
     scan goes to ``build/scan_adc/<timestamp>_adc_sequence_static``; beside the
     captures it draws each 4of8 capture's code spectrum (the ADC's record
     figure, ``flow.adc.plots``: its white floor, its lines and the split of
-    its variance into lines and broadband noise marked) and the alias search
-    for one interferer. Select one case, for example::
+    its variance into lines and broadband noise marked) and each ADC's alias
+    search for one interferer (its score over the candidate frequency and the
+    strongest line at each rate). Select one case, for example::
 
         uv run pytest -q -s -m hw flow/scans/test_noise.py -k amp_off
 
@@ -702,7 +703,6 @@ def test_adc_code_noise(amp_enable: bool) -> None:
     from flow import adc
     from flow.adc.sim import SEQUENCES, AdcSequence
     from flow.analysis.io import read_measurement
-    from flow.analysis.plots import plot_adc_interferer
     from flow.analysis.types import MeasAdc
     from flow.plot import render
     from flow.scans import runner
@@ -717,7 +717,6 @@ def test_adc_code_noise(amp_enable: bool) -> None:
         lost_frames[path.name] = int(measurement.info.readbacks.get("fastrx_lost_count", -1))
         if AdcSequence.from_tb_params(measurement.tb) == shown:
             measurements_by_adc.setdefault(measurement.param.observed_adc, []).append(measurement)
-    title = f"amplifier {'enabled' if amp_enable else 'powered down'}, no scope · {run_dir.name[:15]}"
     shown_spectra = []
     interferers = []
     for adc_index, measurements in sorted(measurements_by_adc.items()):
@@ -731,9 +730,9 @@ def test_adc_code_noise(amp_enable: bool) -> None:
             )
             rate = f"{spectrum.sample_rate_hz / 1e6:g}".replace(".", "p")
             render(adc.plot_noise_spectrum(spectrum), run_dir / f"adc{adc_index:02d}_{rate}msps_code_spectrum")
-    plot_adc_interferer(
-        interferers, title=f"Interferer frequency from its aliases · {title}", output_path=run_dir / "interferer"
-    )
+    for interferer in interferers:
+        for figure in (adc.plot_interferer(interferer), adc.plot_interferer_lines(interferer)):
+            render(figure, run_dir / f"adc{interferer.index:02d}_{figure.name}")
     print(f"Scan and figures: {run_dir}")
     assert shown_spectra, "the scan holds no 4of8 captures"
     assert all(lost == 0 for lost in lost_frames.values()), f"FastRX lost frames: {lost_frames}"

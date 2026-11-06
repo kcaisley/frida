@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from itertools import pairwise
 from typing import Any
 
 import numpy as np
@@ -31,6 +32,7 @@ from .types import (
     AnalysisEnergy,
     AnalysisHsu,
     AnalysisInputNoise,
+    AnalysisInterferer,
     AnalysisLadder,
     AnalysisMismatchPrediction,
     AnalysisNoise,
@@ -620,6 +622,39 @@ def plot_codes_rate(noises: Sequence[AnalysisNoise]) -> Plot:
     )
 
 
+@plot
+def plot_interferer(interferer: AnalysisInterferer) -> Plot:
+    """How well each candidate frequency of one interferer explains the code spectra's lines at every
+    rate (``analyze_interferer``: its aliases' height over each spectrum's floor, summed over the
+    rates), the best candidate marked; its many candidates thinned to the highest of each of 2000
+    runs of them (``_peaks``), so a line keeps its peak."""
+    frequency_hz, score_db = _peaks(interferer.candidate_frequency_hz, interferer.score_db)
+    found_hz = interferer.frequency_hz
+    return _plot(
+        "interferer",
+        "Interferer frequency from its aliases",
+        "Candidate frequency (Hz)",
+        "Lines over the floor, summed over the rates (dB)",
+        frequency_hz,
+        {"Score": score_db},
+        x_markers=[Marker(_six(found_hz), f"{found_hz / 1e6:.3f} MHz")],
+    )
+
+
+@plot
+def plot_interferer_lines(interferer: AnalysisInterferer) -> Plot:
+    """The strongest line of the code spectra at each rate (``analyze_interferer``'s observed peak, the
+    median over a rate's captures): where the interferer's alias lands at that rate."""
+    return _plot(
+        "interferer_lines",
+        "Strongest code-spectrum line at each rate",
+        "Conversion rate (Hz)",
+        "Line frequency (Hz)",
+        interferer.sample_rate_hz,
+        {"Strongest line": interferer.observed_peak_hz},
+    )
+
+
 def _plot(name: str, title: str, x_label: str, y_label: str, x, series: dict[str, Any], **options: Any) -> Plot:
     """A figure's spec, its values to six significant digits, as the viewer's other exports."""
     return Plot(
@@ -680,6 +715,16 @@ def _log_binned(frequency_hz: np.ndarray, density: np.ndarray, bins: int = 300) 
     power = np.bincount(index[inside], weights=density[inside] ** 2, minlength=bins)
     populated = counts > 0
     return np.sqrt(edges[:-1] * edges[1:])[populated].tolist(), np.sqrt(power[populated] / counts[populated]).tolist()
+
+
+def _peaks(x: np.ndarray, y: np.ndarray, runs: int = 2000) -> tuple[list[float], list[float]]:
+    """A long curve thinned to its highest point in each of ``runs`` equal runs of its points (every
+    point where it has no more), so a narrow peak keeps its height and place."""
+    if len(x) <= runs:
+        return np.asarray(x).tolist(), np.asarray(y).tolist()
+    edges = np.linspace(0, len(x), runs + 1).astype(np.int64)
+    picks = [start + int(np.argmax(y[start:stop])) for start, stop in pairwise(edges)]
+    return np.asarray(x)[picks].tolist(), np.asarray(y)[picks].tolist()
 
 
 def _family(estimates: np.ndarray, first: int) -> list[dict[str, Any]]:

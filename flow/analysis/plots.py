@@ -1140,52 +1140,6 @@ def plot_adc_sampling_noise(
 
 
 @mpl.rc_context(PLOT_STYLE)
-def plot_adc_interferer(
-    interferers: Sequence[adc.AnalysisInterferer],
-    *,
-    output_path: Path,
-    title: str,
-) -> tuple[Path, ...]:
-    """Show how each rate folds candidate frequencies, and which candidate fits every rate.
-
-    The upper panel draws the first result's fold for each rate with its
-    observed line (dotted); the lower panel draws every result's score.
-    """
-
-    if not interferers:
-        raise ValueError("interferer plots show at least one result")
-    fig, (ax_fold, ax_score) = plt.subplots(2, 1, sharex=True)
-    first = interferers[0]
-    candidate_mhz = first.candidate_frequency_hz / 1e6
-    for rate, folded, observed in zip(
-        first.sample_rate_hz, first.folded_frequency_hz, first.observed_peak_hz, strict=True
-    ):
-        (line,) = ax_fold.plot(candidate_mhz, folded / 1e6, label=f"{rate / 1e6:g} MSPS")
-        ax_fold.axhline(
-            observed / 1e6,
-            linestyle=":",
-            color=line.get_color(),
-            label=f"seen at {observed / 1e3:.0f} kHz",
-        )
-    ax_fold.axvline(first.frequency_hz / 1e6, linestyle="--", color=mpl.rcParams["axes.edgecolor"])
-    ax_fold.set_ylabel("Apparent frequency (MHz)")
-    ax_fold.legend(loc="upper right", ncols=2)
-    for interferer in interferers:
-        ax_score.plot(
-            interferer.candidate_frequency_hz / 1e6,
-            interferer.score_db,
-            label=f"ADC{interferer.index:02d}: {interferer.frequency_hz / 1e6:.3f} MHz",
-        )
-    ax_score.set_xlabel("Candidate true frequency (MHz)")
-    ax_score.set_ylabel("Lines above floor,\nsummed over rates (dB)")
-    ax_score.legend(loc="upper right")
-    for ax in (ax_fold, ax_score):
-        style_grid(ax)
-    fig.suptitle(title)
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
 def plot_adc_cdac_settling(
     msmt: MeasAdc,
     analysis: adc.AnalysisCdacSettling,
