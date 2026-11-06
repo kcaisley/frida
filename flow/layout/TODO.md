@@ -1,13 +1,13 @@
 # Layout TODO
 
-> The cIcCreator and laygo flows were removed on 2026-10-27 (ALIGN draws every layout); their entries below are history.
+> The cIcCreator and laygo flows were removed on 2026-10-27 (ALIGN draws every layout), and later the legacy caparray generator with the legacy DAC (the converter's DAC is `flow/capdac`); their entries below are history.
 
 Progress tracker for the layout flows and the PDK submodules. Tick items as they land.
 
 ## One PDK description, one geometry library
 
 Goal: each PDK describes its layout once, as data in `pdk/<tech>/layout/tech.py`; every generator
-(stems, the caparray, later ones) is generic code in `flow/` drawing `klayout.db` shapes from it.
+(stems, capdac, later ones) is generic code in `flow/` drawing `klayout.db` shapes from it.
 `pdk/<tech>/layout/layout.py` and the DSL's generic-layer/rule-deck machinery go away.
 
 - [x] 0. Reference GDS of every generated structure, before any change (`build/layout/reference/A`;

@@ -27,40 +27,6 @@
 - [ ] Investigate a new comparator with lower kickback, shorter metastability time, and better input-referred offset.
 - [ ] Continue using OpenROAD to generate a comparator layout from discrete transistors represented by LEF files.
 
-## `caparray`
-
-- study the capacitnace density, shielding, and do a literature review on the error of different momcap structures (and in different pdks?)
-- study the coarse-fine issue, and how to implement the fine weights to size array capacitnace based on sampling noise, instead of mismatch
-- study the impact of switching strategy on power consumption, circuit complexity, and common mode over time
-- regarding the previous, the initial values of the single-side switching matter, since they control common mode.
-- we haven't yet really properly measured our capacitor mismatches, or at the system level characterized their impact on INL DNL
-- regarding the previous points, we could take it one step further and also create node specific mismatch models allowing us to evaluate this with spice
-- [ ] Rename the `cdac` block to caparray, and break out the driver sizing strategy into it's own `capdriver` generator.
-- [ ] Verify/investigate the cdac's 800 pF of capacitance per branch
-  - [ ] Original unit and capacitance definition need confirmation: documented full-ADC node loads are approximately 0.50–1.21 pF per side; total node loading differs from effective switched capacitance.
-  - [x] Check the capacitance with the new layer connected.
-    - [ ] Corrected one-, two-, and three-layer extractions are tabulated in the [reviewed interface results](cdac_pex.md#reviewed-interface-revision-2026-09-05).
-  - [x] Determine whether half of the ADCs really had only a single capacitance layer.
-    - [ ] Confirmed at layout/LVS/PEX level: the historical nominal two-layer variants have disconnected upper plates. See the [historical connectivity checks](cdac_pex.md#five-design-radix-17-comparison-2026-09-03).
-- [ ] Understand why the input range is attenuated so much and quantify the parasitic capacitance.
-  - [x] Quantify main, differential, effective switched, and shunt capacitances for historical and corrected arrays.
-  - [ ] Measure or simulate calibrated transfer gain and usable input range to complete the attenuation comparison.
-    - [ ] Larger first DAC corrections support reduced attenuation; they do not establish the full-scale transfer range.
-- [x] Generate reviewed one-, two-, and three-layer CDAC layouts, verify connectivity with negative LVS tests, and assemble/extract the three corrected full-ADC variants.
-  - [ ] All three full-ADC variants pass the configured DRC checks and raw LVS, with xACT PEX results. See the [full-ADC verification record](cdac_pex.md#c0-first-full-adc-restart-2026-09-05).
-- [x] Implement and use conversion-path and CDAC-settling analysis following comparator, logic, driver, and top-plate signals.
-- [ ] Study how the CDAC initialization values affect ADC operation. The current value is `16'h5555`, but the reason for using it is not yet well understood.
-  - [ ] Map common mode versus differential input versus initialization state. Assuming an externally applied 600 mV common mode, determine how best to keep the comparator near its 700 mV optimum across all input conditions.
-
-## `capdriver`
-
-- basic expression for how to size the drivers based on capacitance
-- [ ] Create this new netlist generator, which in frida-1 was actually just an assembled layout and netlist
-- [ ] In the top level frida-1 and frida-2 netlist generator, this can just be a fixed gate netlist
-- [ ] Ensure fixed netlist is pulled from build, since it's composed of stdcells
-- [ ] We don't need a testbench generator for it / spice runner
-- [ ] But we do need a layout DRC, LVS runner on the fixed netlist and GDS.
-
 ## `seqgen`
 
 - we've done some work on finding the optimal sequence, looks like giving comp more time helps, but only if it also has enough time to reset and if the salogic and cdac can update in time.
@@ -90,6 +56,14 @@
 
 - we haven't really answered the question if syncrhonous operation is necessary. If having all adcs synchronized is necessary to minimize false
 - we haven't really demonstrate that redundancy itself is helping us reduce errors (improve enob). Maybe just fewer cycles (12 for 12bit) would be ideal because it gives more time to each comparator decision? And also relaxes clock speed requirements.
+- we haven't yet really properly measured our capacitor mismatches, or at the system level characterized their impact on INL DNL
+- regarding the previous points, we could take it one step further and also create node specific mismatch models allowing us to evaluate this with spice
+- [ ] Understand why the input range is attenuated so much and quantify the parasitic capacitance.
+  - [x] Quantify main, differential, effective switched, and shunt capacitances for the fabricated arrays.
+  - [ ] Measure or simulate calibrated transfer gain and usable input range to complete the attenuation comparison.
+    - [ ] Larger first DAC corrections support reduced attenuation; they do not establish the full-scale transfer range.
+- [ ] Study how the CDAC initialization values affect ADC operation. The current value is `16'h5555`, but the reason for using it is not yet well understood.
+  - [ ] Map common mode versus differential input versus initialization state. Assuming an externally applied 600 mV common mode, determine how best to keep the comparator near its 700 mV optimum across all input conditions.
 
 ## Lab setup
 
@@ -107,8 +81,8 @@
   - [ ] The baseline uses 100 ns active conversion timing within 160 ns records; it is not continuous 10 MS/s operation. Results: `build/sim/adc/comparison/20260905_194921/results/`.
 - [x] Add the all-channel density figure and caption to the thesis typography test document.
   - [ ] Figure-placement work in `docs/thesis/test.tex`, not a completed thesis chapter.
-- [x] Document corrected CDAC geometry, extraction results, and the held sampling-noise comparison.
-  - [ ] Technical material is in [the CDAC report](cdac_pex.md).
+- [x] Document the fabricated arrays' extraction results and the held sampling-noise comparison.
+  - [ ] Technical material is in [the FRIDA-1 extraction record](cdac_pex.md).
 - [ ] Develop the existing thesis outline into chapter prose using the completed measurement, extraction, and noise-analysis material.
   - [ ] The chapter structure is in `docs/outline.tex`; it currently contains headings only.
 
