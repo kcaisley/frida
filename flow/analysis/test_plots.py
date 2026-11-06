@@ -15,6 +15,7 @@ from matplotlib.ticker import FixedLocator
 
 import flow.analysis.plots as analysis_plots
 from flow import adc, comp
+from flow.adc.plots import plot_power_rate
 from flow.adc.sim import symbol160_init4_samp20_comp11111100_logic11000011
 from flow.adc.test_analysis import adc_cdac_settling_measurement, adc_measurement, adc_ramp_measurement, tone_codes
 from flow.analysis.adc import analyze_adc_comp_out_edge_eye, analyze_adc_comparator_edge_eye
@@ -42,7 +43,6 @@ from flow.analysis.plots import (
     plot_adc_noise_distribution_grid,
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
-    plot_adc_power_sweep,
     plot_adc_power_waveform,
     plot_adc_ramp_transfer,
     plot_adc_transfer,
@@ -64,6 +64,7 @@ from flow.analysis.types import (
     Wave,
 )
 from flow.comp.test_analysis import decisions_at
+from flow.plot import render
 from flow.scans.scan_cdac import _build_cdac_params
 from flow.scans.scan_comp import _build_comp_params
 
@@ -899,34 +900,13 @@ def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
     assert "input-referred noise (lsb rms)" in dynamic_svg
     assert "input-referred noise (mv rms)" in dynamic_svg
     assert "conversion interval (ns)" in dynamic_svg
-    power_outputs = [
-        plot_adc_power_sweep(
-            (measurement,),
-            [adc.analyze_power(measurement)],
-            output_path=tmp_path / f"power_adc{measurement.param.observed_adc:02d}",
-        )
-        for measurement in measurements
-    ]
-    for power_paths in power_outputs:
+    # each ADC's supply power over its rate, the ADC's spec: every rail's active power together
+    for measurement in measurements:
+        figure = plot_power_rate([adc.analyze_power(measurement)])
+        assert figure.x == [measurement.sample_rate_hz] and figure.series == {"Total": [74.4e-6]}
+        power_paths = render(figure, tmp_path / f"power_adc{measurement.param.observed_adc:02d}")
         assert_plot_formats(power_paths)
-    for power_paths in power_outputs:
-        power_svg = read_svg(power_paths)
-        assert "static and dynamic supply power" in power_svg
-        component_labels = (
-            "Digital static",
-            "DAC static",
-            "Analog static",
-            "Digital dynamic",
-            "DAC dynamic",
-            "Analog dynamic",
-        )
-        assert [power_svg.index(label) for label in component_labels] == sorted(
-            power_svg.index(label) for label in component_labels
-        )
-        assert [power_svg.rindex(label) for label in component_labels] == sorted(
-            power_svg.rindex(label) for label in component_labels
-        )
-        assert "Total:" not in power_svg
+        assert "Supply power over the conversion rate" in read_svg(power_paths)
 
 
 def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> None:
@@ -979,11 +959,9 @@ def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> No
     assert measurement.wave is not None
     analysis = [adc.analyze_power(measurement)]
 
-    rate_paths = plot_adc_power_sweep(
-        (measurement,),
-        analysis,
-        output_path=tmp_path / "spice_ideal_power_vs_conversion_rate",
-    )
+    rate = plot_power_rate(analysis)
+    assert rate.series == {"Total": [float(f"{analysis[0].total_power_w:.6g}")]}
+    rate_paths = render(rate, tmp_path / "spice_ideal_power_vs_conversion_rate")
     waveform_paths = plot_adc_power_waveform(
         adc.analyze_power_waveform(measurement, power=analysis[0]),
         output_path=tmp_path / "spice_ideal_10msps_supply_power",

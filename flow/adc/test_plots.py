@@ -21,7 +21,9 @@ from flow.adc.analysis import (
     analyze_code_spectrum,
     analyze_decision_paths,
     analyze_dynamic,
+    analyze_energy,
     analyze_mismatch_prediction,
+    analyze_power,
     analyze_ramp,
 )
 from flow.adc.params import FINAL_DECISIONS, PELGROM_AXIS, UNIT_MISMATCH
@@ -302,6 +304,30 @@ def test_a_sine_sweep_draws_its_enob_and_spectra_at_its_own_rate(
     for figure in (fin, low):
         (png, _pdf) = render(figure, tmp_path / figure.name)
         assert plt.imread(png).shape[:2] == (2700, 4800)
+
+
+def test_the_energy_figures_draw_every_rail_and_the_dacs_over_the_input() -> None:
+    """The energy a conversion takes over a DC input (a lab study's captures, their supplies read
+    back), every rail's and the DAC's: each rail's dynamic power at the active rate and its static
+    power at the sample rate."""
+    captures = []
+    for index, level_v in enumerate((-0.25, 0.0, 0.25)):
+        readbacks = {}
+        for rail, active_w in (("vdd_a", 2e-6), ("vdd_d", 4e-6), ("vdd_dac", 6e-6)):
+            # the DAC's power grows with the input, the other rails' stays
+            active_w *= 1 + index * (rail == "vdd_dac")
+            readbacks[f"{rail}_active_average_power_w"] = active_w
+            readbacks[f"{rail}_static_average_power_w"] = active_w / 4
+        captures.append(adc_measurement([2048] * 8, vin_diff_v=level_v, readbacks=readbacks))
+    energy = analyze_energy(captures, power=[analyze_power(capture) for capture in captures])
+    total = plots.plot_energy_input(energy)
+    dac = plots.plot_energy_dac_input(energy)
+    assert total.x == dac.x == [-0.25, 0.0, 0.25]
+    np.testing.assert_allclose(total.series["Total"], energy.total_energy_j, rtol=1e-5)
+    np.testing.assert_allclose(dac.series["VDD_DAC"], energy.vdd_dac_energy_j, rtol=1e-5)
+    # the DAC's grows with the input here, the others stay
+    assert dac.series["VDD_DAC"][0] < dac.series["VDD_DAC"][1] < dac.series["VDD_DAC"][2]
+    assert total.y_label == dac.y_label == "Energy per conversion (J)"
 
 
 def test_the_mismatch_figures_are_at_harpes_matching() -> None:

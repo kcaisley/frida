@@ -27,11 +27,9 @@ from flow.analysis.io import (
 from flow.analysis.plots import (
     plot_adc_cdac_settling,
     plot_adc_code_distribution,
-    plot_adc_conversion_energy,
     plot_adc_interferer,
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
-    plot_adc_power_sweep,
     plot_adc_ramp_transfer,
     plot_adc_sequence_chip_overview,
     plot_adc_sequence_enob,
@@ -60,6 +58,7 @@ from .analysis import (
     analyze_code_spectrum,
     analyze_decision_paths,
     analyze_dynamic,
+    analyze_energy,
     analyze_interferer,
     analyze_noise,
     analyze_operating_conditions,
@@ -74,11 +73,14 @@ from .plots import (
     plot_code_density,
     plot_dnl,
     plot_dnl_calibrated,
+    plot_energy_dac_input,
+    plot_energy_input,
     plot_enob_fin,
     plot_enob_rate,
     plot_inl,
     plot_inl_calibrated,
     plot_noise_spectrum,
+    plot_power_rate,
     plot_spectrum_low,
     plot_spectrum_nyquist,
     plot_trajectory,
@@ -310,7 +312,8 @@ def behavioral_energy_study() -> tuple[Path, ...]:
     Inputs are 129 behavioral MeasAdc DC captures across the full scale, 2,000
     conversions each, with the PEX capacitances and the default alternating
     A-state. The model computes VDD_DAC; the comparator and logic rails use
-    PEX-measured energy per conversion, so they are flat in input.
+    PEX-measured energy per conversion, so they are flat in input. The
+    record's two figures: every rail's energy, and the DAC's (VDD_DAC) alone.
     """
     output_dir = new_run("analysis", "adc")
     read_dir = BASE_PATH / "build/scan_behavioral/20261010_232352_frida2_energy_vs_input"
@@ -320,10 +323,12 @@ def behavioral_energy_study() -> tuple[Path, ...]:
         if not isinstance(measurement, MeasAdc):
             raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
         measurements.append(measurement)
-    return plot_adc_conversion_energy(
-        measurements,
-        [analyze_power(measurement) for measurement in measurements],
-        output_path=output_dir / "frida2_3layer_behavioral_energy_vs_input",
+    # the captures in input order, the figures' x
+    measurements.sort(key=lambda measurement: calc.average(measurement.vin_diff_v))
+    energy = analyze_energy(measurements, power=[analyze_power(measurement) for measurement in measurements])
+    return (
+        *render(plot_energy_input(energy), output_dir / "frida2_3layer_behavioral_energy_vs_input"),
+        *render(plot_energy_dac_input(energy), output_dir / "frida2_3layer_behavioral_dac_energy_vs_input"),
     )
 
 
@@ -333,8 +338,8 @@ def behavioral_sample_rate_study() -> tuple[Path, ...]:
     Inputs are nine behavioral MeasAdc sine captures (-0.5 dBFS, 8,192
     conversions) with the 160-symbol recipe at 0.2-6.4 GBd, i.e. 1.25-40 MS/s.
     VDD_DAC charge is computed; comparator, logic, and driver energies and
-    leakage are fitted to the FRIDA-2 three-layer PEX transient. Each rail's
-    static and dynamic power are drawn as one band. ENOB, the record's (the
+    leakage are fitted to the FRIDA-2 three-layer PEX transient. The supply
+    power is the record's, every rail's together. ENOB, the record's (the
     spectral ENOB referred to full scale, ``flow.adc.plots``), uses the
     PEX-extracted weights and is limited by the assumed 0.2-ns CDAC settling
     time constant at high rates.
@@ -347,14 +352,11 @@ def behavioral_sample_rate_study() -> tuple[Path, ...]:
         if not isinstance(measurement, MeasAdc):
             raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
         measurements.append(measurement)
+    powers = sorted(
+        (analyze_power(measurement) for measurement in measurements), key=lambda power: power.sample_rate_hz
+    )
     return (
-        *plot_adc_power_sweep(
-            measurements,
-            [analyze_power(measurement) for measurement in measurements],
-            output_path=output_dir / "frida2_3layer_behavioral_power_vs_rate",
-            rate_axis="sampling",
-            merge_static=True,
-        ),
+        *render(plot_power_rate(powers), output_dir / "frida2_3layer_behavioral_power_vs_rate"),
         *render(
             plot_enob_rate(
                 sorted(
@@ -1004,13 +1006,14 @@ def sample_rate_study() -> tuple[Path, ...]:
 
 
 def power_study() -> tuple[Path, ...]:
-    """Plot three-rail power from instrumented fixed-input MeasAdc captures.
+    """Plot the supply power from instrumented fixed-input MeasAdc captures over the rate.
 
     Coverage: ADC00/01 50/100-mV DC at 600-mV common mode over actual
     0.3125--6.25 MSPS, plus ADC00 50-mV/700-mV-common reference points.
     Requires active and baseline voltage/current or power readbacks from the
-    three Keithley supplies. Manual-supply runs and PEX are not selected;
-    internal SPICE waveforms are unnecessary.
+    three Keithley supplies, summed into the record's supply power over the
+    rate. Manual-supply runs and PEX are not selected; internal SPICE
+    waveforms are unnecessary.
     """
     output_dir = new_run("analysis", "adc")
     meas_read_dirs = tuple(
@@ -1039,12 +1042,13 @@ def power_study() -> tuple[Path, ...]:
             key = (measurement.index, float(params.vin_diff.dc), float(params.vin_cm.dc), sequence)
             groups.setdefault(key, []).append(measurement)
         for index, ((adc_index, input_v, common_v, _sequence), measurements) in enumerate(groups.items()):
+            powers = sorted(
+                (analyze_power(measurement) for measurement in measurements), key=lambda power: power.sample_rate_hz
+            )
             artifacts.extend(
-                plot_adc_power_sweep(
-                    measurements,
-                    [analyze_power(measurement) for measurement in measurements],
-                    rate_axis="sampling",
-                    output_path=output_dir
+                render(
+                    plot_power_rate(powers),
+                    output_dir
                     / f"{meas_read_dir.name}_adc{adc_index or 0:02d}_{input_v * 1e3:g}mv_{common_v * 1e3:g}cm_{index}_power",
                 )
             )

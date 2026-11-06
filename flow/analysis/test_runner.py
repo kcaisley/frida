@@ -741,12 +741,14 @@ def test_power_study_selects_instrumented_dc_measurements(tmp_path, monkeypatch)
     monkeypatch.setattr(adc_targets, "read_measurement", measurements.__getitem__)
     group_sizes = []
 
-    def plot(values, analyses, *, output_path, rate_axis):
-        assert rate_axis == "sampling"
-        group_sizes.append(len(values))
-        np.testing.assert_allclose([analysis.total_power_w for analysis in analyses], np.full(len(values), 6e-6))
-        return (output_path.with_suffix(".pdf"),)
+    def plot_power_rate(powers):
+        # the record's supply power over the rate: each group's captures, in rate order
+        group_sizes.append(len(powers))
+        assert [power.sample_rate_hz for power in powers] == sorted(power.sample_rate_hz for power in powers)
+        np.testing.assert_allclose([power.total_power_w for power in powers], np.full(len(powers), 6e-6))
+        return Plot("power_rate", "", "", "", [], {})
 
-    monkeypatch.setattr(adc_targets, "plot_adc_power_sweep", plot)
+    monkeypatch.setattr(adc_targets, "plot_power_rate", plot_power_rate)
+    monkeypatch.setattr(adc_targets, "render", lambda _plot, stem: (stem.with_suffix(".pdf"),))
     assert len(study(monkeypatch, adc_targets, "power_study", tmp_path / "output")) == 6
     assert group_sizes == [4, 1] * 3

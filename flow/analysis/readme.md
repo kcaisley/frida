@@ -32,7 +32,10 @@ flowchart TB
         interferer_out --> interferer_plot["plot_adc_interferer (list)"]
         conditions_out --> sequence_plots["plot_adc_sequence_enob / plot_adc_sequence_chip_overview (list)"]
         paths_out --> paths_plots["adc.plot_trajectory / _final / _codes (the distinct paths, each with its conversions; the codes they end on)"]
-        power_out --> power_plot["plot_adc_power_sweep (list)"]
+        power_out --> power_plot["adc.plot_power_rate (list)"]
+        adc --> energy["adc.analyze_energy (+ power)"] --> energy_out["adc.AnalysisEnergy"]
+        power_out --> energy
+        energy_out --> energy_plots["adc.plot_energy_input / _dac_input"]
     end
 
     subgraph adc_external[ADC with scope waveforms]
