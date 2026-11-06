@@ -5,20 +5,23 @@ design and its area, from the SPICE characterization of the same ``Params`` in t
 characterized, as designed (``Model.design``).
 
     model = capdac.Model.of("tsmc65", capdac.Params(bits=10, redundancy=capdac.Redundancy.BINARY, extra=0))
-    dac = model.behavioral(1.2)  # the behavioral ADC's DAC, at a 1.2 V reference
+    dac = model.behavioral()  # the behavioral ADC's DAC: the drawn array's plates and settling
 
 The behavioral ADC (``flow.adc.model``) starts each stage's step its driver's delay after the
 LOGIC edge and settles it as one exponential; with this model's time constants a step comes within
 half an LSB exactly when the testbench's does. A characterization missing from the sweep's newest
-run is simulated on first use (``simulate=True``) and kept under the build's models.
+run is simulated on first use (``simulate=True``) and kept under the build's models. The array's
+plates are the design's at the reference the netlist draws them for, the PDK's typical supply, at
+which the characterization runs (``Model.reference_v``); the converter's reference only switches
+them (``Model.switch``).
 
 ``Model.drawn`` gives one of the characterization's Monte Carlo draws, the plates a converter on the
 array calibrates on (``flow.adc.model``): of one condition, the run at a percentile of what no
 calibration recovers.
 
 The switching is the model's own physics, which the behavioral ADC runs: ``Model.Behavioral``, the
-DAC beyond its ``Params`` (what ``behavioral`` gives at a reference: each side's plates, the top
-plate's other load, each stage's delay and time constant; and the reference's departures from
+DAC beyond its ``Params`` (what ``behavioral`` gives: each side's plates, the top plate's other
+load, each stage's delay and time constant; and the reference's departures from
 ideal, which the converter's reference study sets), and ``Model.switch``, a side's top-plate step,
 the charge it draws from the reference and its bottom plates' transitions as its states change
 (``Model.switch_stage`` where one stage alone switches). ``Model.weights`` and ``Model.plates`` are
@@ -43,13 +46,24 @@ from .analysis import analyze_mismatch
 from .params import Params, _design_plates, _weights
 
 
+def _supply_v(pdk: str) -> float:
+    """The PDK's typical supply: the reference at which the netlist draws an array's plates
+    (``flow.capdac.subckt``) and the characterization runs (``flow.capdac.sweep.runs``)."""
+    site = importlib.import_module(f"pdk.{pdk}.hdl21.site")
+    return float(site.install.supply_voltage(h.pdk.Corner.TYP))
+
+
 @dataclass(frozen=True)
 class Model:
     """One capacitive DAC's per-stage settling, C0 first, and its drawn array's gain against its
-    design and its area, as its SPICE characterization and its layout measured them."""
+    design and its area, as its SPICE characterization and its layout measured them, its plates
+    designed at ``reference_v``."""
 
     pdk: str
     params: Params
+    # the reference its plates are designed for: the PDK's typical supply, at which the netlist
+    # draws them and the characterization runs (a design's own, ``Model.design``)
+    reference_v: float
     settling_s: tuple[float, ...]  # from the state's edge to within half an LSB, the slower direction
     delay_s: tuple[float, ...]  # its driver's delay, from the state's edge to its bottom plate's 50 %
     tau_s: tuple[float, ...]  # (settling - delay) / ln(|step| / half an LSB)
@@ -100,6 +114,7 @@ class Model:
         return cls(
             pdk=pdk,
             params=params,
+            reference_v=_supply_v(pdk),
             settling_s=tuple(detail(record, "settling_stage")["series"]["settling"]),
             delay_s=tuple(stages["delay"]),
             tau_s=tuple(stages["time constant"]),
@@ -114,11 +129,11 @@ class Model:
         its plates alone (gain 1) and not laid out (no area); each stage's drivers without delay and
         of the time constant ``flow.capdac.subckt`` sizes them for, which settles its step to half an
         LSB in ``settle_ps`` over ``settle_margin``: ln(2^(N+1) w / W) time constants for a stage of
-        weight w of the total W. Its LSB at the reference ``reference_v``; where None, the PDK's
-        typical supply, at which the netlist draws the plates and the characterization runs."""
+        weight w of the total W. Its plates are designed at the reference ``reference_v`` and its
+        LSB is at it; where None, the PDK's typical supply, at which the netlist draws the plates and
+        the characterization runs."""
         if reference_v is None:
-            site = importlib.import_module(f"pdk.{pdk}.hdl21.site")
-            reference_v = float(site.install.supply_voltage(h.pdk.Corner.TYP))
+            reference_v = _supply_v(pdk)
         weights = _weights(params)
         settling_s = params.settle_ps * 1e-12 / params.settle_margin
         main_f, diff_f = _design_plates(params, reference_v)
@@ -126,6 +141,7 @@ class Model:
         return cls(
             pdk=pdk,
             params=params,
+            reference_v=reference_v,
             settling_s=(settling_s,) * len(weights),
             delay_s=(0.0,) * len(weights),
             tau_s=tuple(settling_s / math.log(2 ** (params.bits + 1) * weight / sum(weights)) for weight in weights),
@@ -156,17 +172,17 @@ class Model:
 
     def behavioral(
         self,
-        reference_v: float,
         plates: tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]] | None = None,
     ) -> Model.Behavioral:
-        """The behavioral ADC's DAC at the reference ``reference_v``: each side's plates, the design's
-        (``Model.plates``) or ``plates``, (main, difference) for the P side then the N side (a Monte
-        Carlo draw: ``Model.drawn``, ``Model.draw``); each top plate's load beyond the design's
-        plates, the parasitic at which they give the drawn array's gain; each stage's delay and time
-        constant, ``settling_tau_s`` the slowest's. The drivers' energy is not characterized: none.
-        The reference is ideal: the converter sets its departures (``reference_*``) and scales the
-        time constants."""
-        main_f, diff_f = Model.plates(self.params, reference_v)
+        """The behavioral ADC's DAC: each side's plates, the design's at the reference they are
+        drawn for (``Model.plates`` at ``reference_v``, whatever reference the converter switches
+        them to) or ``plates``, (main, difference) for the P side then the N side (a Monte Carlo
+        draw: ``Model.drawn``, ``Model.draw``); each top plate's load beyond the design's plates, the
+        parasitic at which they give the drawn array's gain; each stage's delay and time constant,
+        ``settling_tau_s`` the slowest's. The drivers' energy is not characterized: none. The
+        reference is ideal: the converter sets its departures (``reference_*``) and scales the time
+        constants."""
+        main_f, diff_f = Model.plates(self.params, self.reference_v)
         (main_p, diff_p), (main_n, diff_n) = ((main_f, diff_f), (main_f, diff_f)) if plates is None else plates
         return Model.Behavioral(
             main_p_f=tuple(map(float, main_p)),
