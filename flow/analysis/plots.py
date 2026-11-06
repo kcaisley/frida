@@ -1,4 +1,7 @@
-"""Plots of typed FRIDA measurements and analysis results."""
+"""Plots of typed FRIDA measurements and analysis results, with matplotlib: the lab figures no
+block's spec draws yet (the comparator's views, the CDAC's, the serializer's and FastRX's, the
+scope's traces, spectra and histograms, the ADC's mismatch nonlinearity), and the plot style the
+specs are drawn in (``flow.plot.render``: PLOT_STYLE, the colours, ``style_grid``, ``save_figure``)."""
 
 from __future__ import annotations
 
