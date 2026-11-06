@@ -389,6 +389,20 @@ def test_the_model_composes_its_dacs_characterization_or_else_its_design(monkeyp
     assert designed.cdac == capdac.Model.design("tsmc65", TB.dut.cdac) and designed.drawn is None
     assert designed.cdac.gain == 1.0 and designed.cdac.settling_meas is None
 
+    # a record whose kept settling run (or Monte Carlo) cannot be read converts as designed too
+    def unreadable(cls, *args, **kwargs):
+        raise FileNotFoundError("build/capdac/run/tsmc65/digest/settling/result.h5")
+
+    monkeypatch.setattr(capdac.Model, "of", classmethod(unreadable))
+    monkeypatch.setattr(capdac.Model, "drawn", classmethod(unreadable))
+    with pytest.warns(UserWarning) as warned:
+        unread = Model.of("tsmc65", TB.dut)
+    assert [str(warning.message).split(" (")[0] for warning in warned] == [
+        "the DAC is not characterized",
+        "the DAC's Monte Carlo is not characterized",
+    ]
+    assert unread.cdac == designed.cdac and unread.drawn is None
+
 
 def test_an_error_of_the_quantization_noise_costs_an_ideal_quantizer_half_a_bit() -> None:
     assert _enob_floor(12, 12.0) == pytest.approx(11.5)

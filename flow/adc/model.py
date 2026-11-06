@@ -162,10 +162,11 @@ class Model:
     @classmethod
     def of(cls, pdk: str, params: Params, *, simulate: bool = True) -> Model:
         # the DAC's characterization is looked up, never run here (minutes of SPICE an array, which
-        # every converter on the array would wait for); where there is none, the DAC as designed
+        # every converter on the array would wait for); where there is none, or the settling run its
+        # record keeps cannot be read (OSError, as for its Monte Carlo below), the DAC as designed
         try:
             dac = capdac.Model.of(pdk, params.cdac, simulate=False)
-        except (KeyError, LookupError, RuntimeError) as error:
+        except (KeyError, LookupError, OSError, RuntimeError) as error:
             warnings.warn(f"the DAC is not characterized ({error}); it converts as designed instead", stacklevel=2)
             dac = capdac.Model.design(pdk, params.cdac)
         try:
