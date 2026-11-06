@@ -22,11 +22,12 @@ import math
 import numpy as np
 from scipy.optimize import lsq_linear
 
+from flow.adc.types import AnalysisCalibration2, AnalysisRamp
 from flow.analysis import calc
-from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc, check_identity
+from flow.analysis.types import MeasAdc, check_identity
 
 
-def analyze_adc_calibration2(measurement: MeasAdc, *, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibration:
+def analyze_adc_calibration2(measurement: MeasAdc, *, ramp: AnalysisRamp) -> AnalysisCalibration2:
     """Fit every BOUT coefficient from complete known-ramp cycles.
 
     The ramp phase supplies the ideal fractional code. Only the ramp's
@@ -126,7 +127,7 @@ def analyze_adc_calibration2(measurement: MeasAdc, *, ramp: AnalysisAdcRamp) -> 
         residual = output_intercept_lsb + output_gain * (decisions @ normalized_weights) - ideal_dout
         inner_validation_rmse.append(calc.rms(residual[score_mask]))
 
-    return AnalysisAdcCalibration(
+    return AnalysisCalibration2(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,

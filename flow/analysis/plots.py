@@ -26,31 +26,15 @@ from matplotlib.patches import Patch
 from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator, NullLocator, StrMethodFormatter
 from scipy.special import ndtr
 
-from flow import comp
+from flow import adc, comp
 from flow.adc.sim import AdcSequence
 from flow.analysis import calc
 from flow.analysis.types import (
     Analysis,
-    AnalysisAdcCalibration,
-    AnalysisAdcCdacSettling,
-    AnalysisAdcCodeDensityNonlinearity,
-    AnalysisAdcCodeDistribution,
-    AnalysisAdcCodeSpectrum,
     AnalysisAdcComparatorEdgeEye,
     AnalysisAdcComparatorResponse,
     AnalysisAdcCompOutEdgeEye,
-    AnalysisAdcDecisionPaths,
-    AnalysisAdcDynamic,
-    AnalysisAdcEndpointNonlinearity,
-    AnalysisAdcInterferer,
-    AnalysisAdcNoise,
-    AnalysisAdcOperatingConditions,
-    AnalysisAdcPower,
-    AnalysisAdcPowerWaveform,
-    AnalysisAdcRamp,
-    AnalysisAdcSamplingNoise,
     AnalysisAdcScopeBits,
-    AnalysisAdcTransfer,
     AnalysisCdacCapMismatch,
     AnalysisScope,
     Meas,
@@ -1157,7 +1141,7 @@ def plot_adc_fastrx_scope_comparison(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_transfer(
     msmt_list: Sequence[MeasAdc],
-    analysis: AnalysisAdcTransfer,
+    analysis: adc.AnalysisTransfer,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -1186,7 +1170,7 @@ def plot_adc_transfer(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_ramp_transfer(
-    analyses: Sequence[AnalysisAdcRamp],
+    analyses: Sequence[adc.AnalysisRamp],
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -1219,7 +1203,7 @@ def plot_adc_ramp_transfer(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_ramp_histogram(
-    analyses: Sequence[AnalysisAdcRamp],
+    analyses: Sequence[adc.AnalysisRamp],
     *,
     output_path: Path,
     msmt: MeasAdc | None = None,
@@ -1271,8 +1255,8 @@ def plot_adc_ramp_histogram(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_ramp_weights(
-    nominal: AnalysisAdcRamp,
-    measured: AnalysisAdcRamp,
+    nominal: adc.AnalysisRamp,
+    measured: adc.AnalysisRamp,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -1317,7 +1301,7 @@ def plot_adc_ramp_weights(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_calibration_weights(
-    analysis_list: Sequence[AnalysisAdcCalibration],
+    analysis_list: Sequence[adc.AnalysisCalibration],
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -1378,7 +1362,7 @@ def plot_adc_calibration_weights(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_static_nonlinearity(
     msmt: MeasAdc,
-    analysis: AnalysisAdcEndpointNonlinearity | AnalysisAdcCodeDensityNonlinearity,
+    analysis: adc.AnalysisEndpointNonlinearity | adc.AnalysisCodeDensityNonlinearity,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -1395,14 +1379,14 @@ def plot_adc_static_nonlinearity(
     for ax in axes:
         style_grid(ax)
     style_info_box(axes[0], style_measurement_text(msmt))
-    method = "endpoint" if isinstance(analysis, AnalysisAdcEndpointNonlinearity) else "code-density"
+    method = "endpoint" if isinstance(analysis, adc.AnalysisEndpointNonlinearity) else "code-density"
     fig.suptitle(f"ADC {method} nonlinearity")
     return save_figure(fig, output_path)
 
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_ramp_nonlinearity(
-    analyses: Sequence[AnalysisAdcRamp],
+    analyses: Sequence[adc.AnalysisRamp],
     *,
     output_path: Path,
     msmt: MeasAdc | None = None,
@@ -1477,7 +1461,7 @@ def plot_adc_ramp_nonlinearity(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_sampling_noise(
-    analyses: Sequence[AnalysisAdcSamplingNoise],
+    analyses: Sequence[adc.AnalysisSamplingNoise],
     *,
     labels: Sequence[str],
     output_path: Path,
@@ -1523,7 +1507,7 @@ def plot_adc_sampling_noise(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_code_distribution(
     msmt_list: Sequence[MeasAdc],
-    analysis: AnalysisAdcCodeDistribution,
+    analysis: adc.AnalysisCodeDistribution,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -1554,7 +1538,7 @@ def plot_adc_code_distribution(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_noise_sweep(
     msmt_list: Sequence[MeasAdc],
-    analyses: Sequence[AnalysisAdcNoise],
+    analyses: Sequence[adc.AnalysisNoise],
     *,
     output_path: Path,
     rate_axis: Literal["active", "sampling"] = "active",
@@ -1714,7 +1698,7 @@ def plot_adc_noise_sweep(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_noise_distribution_sweep(
     msmt_list: Sequence[MeasAdc],
-    analyses: Sequence[AnalysisAdcNoise],
+    analyses: Sequence[adc.AnalysisNoise],
     *,
     output_path: Path,
     rate_axis: Literal["active", "sampling"] = "active",
@@ -1785,7 +1769,7 @@ def plot_adc_noise_distribution_sweep(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_sequence_enob(
-    conditions: AnalysisAdcOperatingConditions,
+    conditions: adc.AnalysisOperatingConditions,
     *,
     sequences: Sequence[AdcSequence],
     adc_label: str,
@@ -1851,7 +1835,7 @@ def plot_adc_sequence_enob(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_sequence_chip_overview(
-    conditions: Sequence[AnalysisAdcOperatingConditions],
+    conditions: Sequence[adc.AnalysisOperatingConditions],
     *,
     sequences: Sequence[AdcSequence],
     title: str,
@@ -1904,13 +1888,13 @@ def plot_adc_sequence_chip_overview(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_noise_distribution_grid(
     msmt_list: Sequence[MeasAdc],
-    analyses: Sequence[AnalysisAdcNoise],
+    analyses: Sequence[adc.AnalysisNoise],
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
     """Plot rate-indexed code densities for every ADC channel in one grid."""
 
-    groups_by_adc: dict[int, list[AnalysisAdcNoise]] = {}
+    groups_by_adc: dict[int, list[adc.AnalysisNoise]] = {}
     for analysis in analyses:
         if analysis.index is None:
             raise ValueError("ADC noise-distribution grid requires results of observed ADC channels")
@@ -2122,7 +2106,7 @@ def plot_adc_noise_distribution_grid(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_code_spectrum(
-    spectra: Sequence[AnalysisAdcCodeSpectrum],
+    spectra: Sequence[adc.AnalysisCodeSpectrum],
     *,
     output_path: Path,
     title: str,
@@ -2181,7 +2165,7 @@ def plot_adc_code_spectrum(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_code_noise(
     msmt: MeasAdc,
-    spectrum: AnalysisAdcCodeSpectrum,
+    spectrum: adc.AnalysisCodeSpectrum,
     *,
     output_path: Path,
     title: str,
@@ -2256,7 +2240,7 @@ def plot_adc_code_noise(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_interferer(
-    interferers: Sequence[AnalysisAdcInterferer],
+    interferers: Sequence[adc.AnalysisInterferer],
     *,
     output_path: Path,
     title: str,
@@ -2303,7 +2287,7 @@ def plot_adc_interferer(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_dynamic(
     msmt: MeasAdc,
-    analysis: AnalysisAdcDynamic,
+    analysis: adc.AnalysisDynamic,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -2338,7 +2322,7 @@ def plot_adc_dynamic(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_dynamic_sweep(
     msmt_list: Sequence[MeasAdc],
-    analyses: Sequence[AnalysisAdcDynamic],
+    analyses: Sequence[adc.AnalysisDynamic],
     *,
     output_path: Path,
     x_axis: Literal["input_frequency", "sample_rate"] = "input_frequency",
@@ -2381,7 +2365,7 @@ def plot_adc_dynamic_sweep(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_power_sweep(
     msmt_list: Sequence[MeasAdc],
-    analyses: Sequence[AnalysisAdcPower],
+    analyses: Sequence[adc.AnalysisPower],
     *,
     output_path: Path,
     rate_axis: Literal["active", "sampling"] = "active",
@@ -2454,7 +2438,7 @@ def plot_adc_power_sweep(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_conversion_energy(
     msmt_list: Sequence[MeasAdc],
-    analyses: Sequence[AnalysisAdcPower],
+    analyses: Sequence[adc.AnalysisPower],
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -2496,7 +2480,7 @@ def plot_adc_conversion_energy(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_cdac_settling(
     msmt: MeasAdc,
-    analysis: AnalysisAdcCdacSettling,
+    analysis: adc.AnalysisCdacSettling,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -2609,7 +2593,7 @@ def plot_adc_cdac_settling(
 
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_power_waveform(
-    analysis: AnalysisAdcPowerWaveform,
+    analysis: adc.AnalysisPowerWaveform,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:
@@ -2674,7 +2658,7 @@ def plot_adc_power_waveform(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_decision_paths(
     msmt: MeasAdc,
-    analysis: AnalysisAdcDecisionPaths,
+    analysis: adc.AnalysisDecisionPaths,
     *,
     output_path: Path,
     selection: Literal["single", "same_dout", "all"] = "single",
@@ -2724,7 +2708,7 @@ def plot_adc_decision_paths(
 @mpl.rc_context(PLOT_STYLE)
 def plot_adc_decision_path_density(
     msmt: MeasAdc,
-    analysis: AnalysisAdcDecisionPaths,
+    analysis: adc.AnalysisDecisionPaths,
     *,
     output_path: Path,
 ) -> tuple[Path, ...]:

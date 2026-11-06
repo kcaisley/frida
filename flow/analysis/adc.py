@@ -17,32 +17,35 @@ from scipy.optimize import minimize_scalar
 from scipy.special import erfc
 
 from flow import comp
+from flow.adc.analysis import _decode
 from flow.adc.sim import AdcSequence
 from flow.adc.subckt import AdcNets
+from flow.adc.types import (
+    AnalysisCalibration,
+    AnalysisCdacSettling,
+    AnalysisCodeDensityNonlinearity,
+    AnalysisCodeDistribution,
+    AnalysisCodeSpectrum,
+    AnalysisDecisionPaths,
+    AnalysisDynamic,
+    AnalysisEndpointNonlinearity,
+    AnalysisInterferer,
+    AnalysisNoise,
+    AnalysisOperatingConditions,
+    AnalysisPower,
+    AnalysisPowerWaveform,
+    AnalysisRamp,
+    AnalysisSamplingNoise,
+    AnalysisTimingClosure,
+    AnalysisTimingSummary,
+    AnalysisTransfer,
+)
 from flow.analysis import calc
 from flow.analysis.types import (
-    AnalysisAdcCalibration,
-    AnalysisAdcCdacSettling,
-    AnalysisAdcCodeDensityNonlinearity,
-    AnalysisAdcCodeDistribution,
-    AnalysisAdcCodeSpectrum,
     AnalysisAdcComparatorEdgeEye,
     AnalysisAdcComparatorResponse,
     AnalysisAdcCompOutEdgeEye,
-    AnalysisAdcDecisionPaths,
-    AnalysisAdcDynamic,
-    AnalysisAdcEndpointNonlinearity,
-    AnalysisAdcInterferer,
-    AnalysisAdcNoise,
-    AnalysisAdcOperatingConditions,
-    AnalysisAdcPower,
-    AnalysisAdcPowerWaveform,
-    AnalysisAdcRamp,
-    AnalysisAdcSamplingNoise,
     AnalysisAdcScopeBits,
-    AnalysisAdcTimingClosure,
-    AnalysisAdcTimingSummary,
-    AnalysisAdcTransfer,
     Identity,
     MeasAdc,
     check_identity,
@@ -244,16 +247,14 @@ def analyze_adc_scope_bits(measurement: MeasAdc) -> AnalysisAdcScopeBits:
 # =============================================================================
 
 
-def analyze_adc_dynamic(
-    measurement: MeasAdc, *, calibration: AnalysisAdcCalibration | None = None
-) -> AnalysisAdcDynamic:
+def analyze_adc_dynamic(measurement: MeasAdc, *, calibration: AnalysisCalibration | None = None) -> AnalysisDynamic:
     """Fit one sine acquisition and calculate time- and frequency-domain metrics.
 
     A calibration decodes the stored BOUT decisions to fractional codes in
     place of the stored nominal DOUT. They are not rounded: whole codes would
     quantize the converter's output a second time and cost about 0.5 bit. To
     grade whole N-bit codes, as an output word would carry them, analyze the
-    measurement with its DOUT replaced by ``calibration.decode_bout(bout)``.
+    measurement with its DOUT replaced by ``_decode(bout, calibration)``.
     """
 
     source = measurement.tb.vin_diff
@@ -262,7 +263,7 @@ def analyze_adc_dynamic(
     if calibration is not None:
         check_identity(calibration, measurement.identity, name="calibration")
     measured_dout = np.asarray(
-        measurement.dout if calibration is None else calibration.decode_bout(measurement.bout, rounded=False),
+        measurement.dout if calibration is None else _decode(measurement.bout, calibration, rounded=False),
         dtype=np.float64,
     )
     sample_count = len(measured_dout)
@@ -349,7 +350,7 @@ def analyze_adc_dynamic(
     # exceeds that two-sided limit with probability erfc(3/sqrt(2)) ~= 0.27%.
     tail_sigma = 3.0
     identity = measurement.identity
-    return AnalysisAdcDynamic(
+    return AnalysisDynamic(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -383,8 +384,8 @@ def analyze_adc_dynamic(
 def analyze_adc_transfer(
     measurements: Sequence[MeasAdc],
     *,
-    calibration: AnalysisAdcCalibration | None = None,
-) -> AnalysisAdcTransfer:
+    calibration: AnalysisCalibration | None = None,
+) -> AnalysisTransfer:
     """Pool conversions by input and calculate transfer statistics.
 
     With a calibration, DOUT is decoded transiently from the stored BOUT.
@@ -396,14 +397,14 @@ def analyze_adc_transfer(
     inputs = np.concatenate([measurement.vin_diff_v for measurement in measurements])
     dout = np.concatenate(
         [
-            measurement.dout if calibration is None else calibration.decode_bout(measurement.bout)
+            measurement.dout if calibration is None else _decode(measurement.bout, calibration)
             for measurement in measurements
         ]
     ).astype(np.float64)
     if not len(dout):
         raise ValueError("ADC transfer analysis requires at least one conversion")
     unique_inputs, inverse = np.unique(inputs, return_inverse=True)
-    return AnalysisAdcTransfer(
+    return AnalysisTransfer(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -417,14 +418,14 @@ def analyze_adc_transfer(
 def analyze_adc_endpoint_nonlinearity(
     measurement: MeasAdc,
     *,
-    calibration: AnalysisAdcCalibration | None = None,
-) -> AnalysisAdcEndpointNonlinearity:
+    calibration: AnalysisCalibration | None = None,
+) -> AnalysisEndpointNonlinearity:
     """Calculate endpoint INL and DNL from code transitions of a stepped input."""
 
     if calibration is not None:
         check_identity(calibration, measurement.identity, name="calibration")
     decoded_dout = np.asarray(
-        measurement.dout if calibration is None else calibration.decode_bout(measurement.bout),
+        measurement.dout if calibration is None else _decode(measurement.bout, calibration),
         dtype=np.float64,
     )
     unique_inputs, inverse = np.unique(measurement.vin_diff_v, return_inverse=True)
@@ -450,7 +451,7 @@ def analyze_adc_endpoint_nonlinearity(
     observed = set(np.rint(decoded_dout).astype(np.int64))
     active = range(int(calc.ymin(transition_code)), int(calc.ymax(transition_code)) + 2)
     identity = measurement.identity
-    return AnalysisAdcEndpointNonlinearity(
+    return AnalysisEndpointNonlinearity(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -466,9 +467,9 @@ def analyze_adc_endpoint_nonlinearity(
 def analyze_adc_code_density_nonlinearity(
     measurement: MeasAdc,
     *,
-    ramp: AnalysisAdcRamp | None = None,
-    calibration: AnalysisAdcCalibration | None = None,
-) -> AnalysisAdcCodeDensityNonlinearity:
+    ramp: AnalysisRamp | None = None,
+    calibration: AnalysisCalibration | None = None,
+) -> AnalysisCodeDensityNonlinearity:
     """Calculate code-density INL and DNL from a uniformly distributed input.
 
     With a ramp result, only its ``retained`` conversions (away from each
@@ -478,7 +479,7 @@ def analyze_adc_code_density_nonlinearity(
 
     if calibration is not None:
         check_identity(calibration, measurement.identity, name="calibration")
-    decoded_dout = measurement.dout if calibration is None else calibration.decode_bout(measurement.bout)
+    decoded_dout = measurement.dout if calibration is None else _decode(measurement.bout, calibration)
     sample_count = len(decoded_dout)
     if ramp is not None:
         check_identity(ramp, measurement.identity, name="ramp")
@@ -494,7 +495,7 @@ def analyze_adc_code_density_nonlinearity(
     ideal_count = calc.average(active_counts)
     dnl = calc.dnl(active_counts, ideal_count=ideal_count)
     identity = measurement.identity
-    return AnalysisAdcCodeDensityNonlinearity(
+    return AnalysisCodeDensityNonlinearity(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -511,8 +512,8 @@ def analyze_adc_code_density_nonlinearity(
 def analyze_adc_ramp(
     measurement: MeasAdc,
     *,
-    calibration: AnalysisAdcCalibration | None = None,
-) -> AnalysisAdcRamp:
+    calibration: AnalysisCalibration | None = None,
+) -> AnalysisRamp:
     """Recover the nominal or calibrated transfer and linearity of one repeated ramp.
 
     The PWL source and sample rate give the nominal ramp period in
@@ -639,14 +640,14 @@ def analyze_adc_ramp(
     transfer_vin_diff_v = vin_diff_min_v + (
         (np.arange(number_codes, dtype=np.float64) + 0.5) / number_codes * (vin_diff_max_v - vin_diff_min_v)
     )
-    decoded = nominal_decoded if calibration is None else calibration.decode_bout(measurement.bout)
+    decoded = nominal_decoded if calibration is None else _decode(measurement.bout, calibration)
     counts = np.bincount(decoded[retained], minlength=number_codes).astype(np.int64)
     # Clipped end codes stay in the histogram but not in linearity.
     active_counts = counts[1:code_max]
     ideal_count = calc.average(active_counts)
     dnl = calc.dnl(active_counts, ideal_count=ideal_count)
     transfer_sum = np.bincount(transfer_bin[retained], weights=decoded[retained], minlength=number_codes)
-    return AnalysisAdcRamp(
+    return AnalysisRamp(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -674,8 +675,8 @@ def analyze_adc_ramp(
 def analyze_adc_code_distribution(
     measurements: Sequence[MeasAdc],
     *,
-    calibration: AnalysisAdcCalibration | None = None,
-) -> AnalysisAdcCodeDistribution:
+    calibration: AnalysisCalibration | None = None,
+) -> AnalysisCodeDistribution:
     """Pool conversions by input and histogram their output codes."""
 
     identity = measurement_identity(measurements)
@@ -684,7 +685,7 @@ def analyze_adc_code_distribution(
     inputs = np.concatenate([measurement.vin_diff_v for measurement in measurements])
     dout = np.concatenate(
         [
-            measurement.dout if calibration is None else calibration.decode_bout(measurement.bout)
+            measurement.dout if calibration is None else _decode(measurement.bout, calibration)
             for measurement in measurements
         ]
     )
@@ -697,7 +698,7 @@ def analyze_adc_code_distribution(
         if not len(valid):
             raise ValueError(f"input point {unique_inputs[index]:g} V has no valid ADC codes")
         count[index] = np.bincount(valid, minlength=number_codes)
-    return AnalysisAdcCodeDistribution(
+    return AnalysisCodeDistribution(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -707,7 +708,7 @@ def analyze_adc_code_distribution(
     )
 
 
-def analyze_adc_noise(measurement: MeasAdc) -> AnalysisAdcNoise:
+def analyze_adc_noise(measurement: MeasAdc) -> AnalysisNoise:
     """Histogram one fixed-input capture and record its timing coordinates.
 
     The readout of a physical capture is valid only with a valid scope/FastRX
@@ -735,7 +736,7 @@ def analyze_adc_noise(measurement: MeasAdc) -> AnalysisAdcNoise:
         and int(readbacks.get("fastrx_lost_count", -1)) == 0
     )
     identity = measurement.identity
-    return AnalysisAdcNoise(
+    return AnalysisNoise(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -758,8 +759,8 @@ def analyze_adc_noise(measurement: MeasAdc) -> AnalysisAdcNoise:
 def analyze_adc_code_spectrum(
     measurement: MeasAdc,
     *,
-    calibration: AnalysisAdcCalibration | None = None,
-) -> AnalysisAdcCodeSpectrum:
+    calibration: AnalysisCalibration | None = None,
+) -> AnalysisCodeSpectrum:
     """Treat one fixed-input capture's output codes as a waveform sampled at the conversion rate.
 
     The Welch density of the mean-free codes separates periodic interference,
@@ -772,7 +773,7 @@ def analyze_adc_code_spectrum(
     if calibration is not None:
         check_identity(calibration, measurement.identity, name="calibration")
     codes = np.asarray(
-        measurement.dout if calibration is None else calibration.decode_bout(measurement.bout, rounded=False),
+        measurement.dout if calibration is None else _decode(measurement.bout, calibration, rounded=False),
         dtype=np.float64,
     )
     if len(codes) < 4:
@@ -804,7 +805,7 @@ def analyze_adc_code_spectrum(
     keep = line_mask[np.clip(np.rint(record_hz / frequency_hz[1]).astype(np.int64), 0, len(psd) - 1)]
     narrowband = np.fft.irfft(np.where(keep, np.fft.rfft(centered), 0.0), len(codes))
     identity = measurement.identity
-    return AnalysisAdcCodeSpectrum(
+    return AnalysisCodeSpectrum(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -825,8 +826,8 @@ def analyze_adc_code_spectrum(
 def analyze_adc_interferer(
     measurements: Sequence[MeasAdc],
     *,
-    spectra: Sequence[AnalysisAdcCodeSpectrum],
-) -> AnalysisAdcInterferer:
+    spectra: Sequence[AnalysisCodeSpectrum],
+) -> AnalysisInterferer:
     """Unfold one interferer's aliases at several conversion rates to its true frequency.
 
     Every candidate frequency is folded into each rate's first Nyquist zone
@@ -868,7 +869,7 @@ def analyze_adc_interferer(
             axis=0,
         )
         observed_hz.append(float(np.median([spectrum.peak_frequency_hz for spectrum in at_rate])))
-    return AnalysisAdcInterferer(
+    return AnalysisInterferer(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -883,8 +884,8 @@ def analyze_adc_interferer(
 def analyze_adc_operating_conditions(
     measurements: Sequence[MeasAdc],
     *,
-    noise: Sequence[AnalysisAdcNoise],
-) -> AnalysisAdcOperatingConditions:
+    noise: Sequence[AnalysisNoise],
+) -> AnalysisOperatingConditions:
     """Judge which sequence and symbol-rate settings of one ADC give plausible codes.
 
     Each measurement is matched to the noise result with the same sequence
@@ -894,7 +895,7 @@ def analyze_adc_operating_conditions(
 
     identity = measurement_identity(measurements)
     check_identity(noise, identity, name="noise")
-    by_coordinates: dict[tuple[AdcSequence, float], AnalysisAdcNoise] = {}
+    by_coordinates: dict[tuple[AdcSequence, float], AnalysisNoise] = {}
     for result in noise:
         key = (result.sequence, result.symbol_rate_hz)
         if key in by_coordinates:
@@ -924,7 +925,7 @@ def analyze_adc_operating_conditions(
         [row.distinct_code_count <= 1 or row.modal_fraction >= 0.995 or row.std_dout < 0.1 for row in rows]
     )
     mean_shift_dout = mean_dout - reference_mean_dout
-    return AnalysisAdcOperatingConditions(
+    return AnalysisOperatingConditions(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -940,7 +941,7 @@ def analyze_adc_operating_conditions(
     )
 
 
-def analyze_adc_decision_paths(measurement: MeasAdc) -> AnalysisAdcDecisionPaths:
+def analyze_adc_decision_paths(measurement: MeasAdc) -> AnalysisDecisionPaths:
     """Reconstruct running SAR estimates from every captured decision record."""
 
     weights = measurement.nominal_bout_weights.astype(np.float64)
@@ -957,7 +958,7 @@ def analyze_adc_decision_paths(measurement: MeasAdc) -> AnalysisAdcDecisionPaths
     paths[:, 0] = normalized_code_max / 2.0
     paths[:, 1:] = (decided + 0.5 * remaining) * normalized_code_max / raw_code_max
     identity = measurement.identity
-    return AnalysisAdcDecisionPaths(
+    return AnalysisDecisionPaths(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -974,7 +975,7 @@ def analyze_adc_decision_paths(measurement: MeasAdc) -> AnalysisAdcDecisionPaths
 # =============================================================================
 
 
-def analyze_adc_sampling_noise(measurement: MeasAdc) -> AnalysisAdcSamplingNoise:
+def analyze_adc_sampling_noise(measurement: MeasAdc) -> AnalysisSamplingNoise:
     """Sample P/N voltages exactly 1 ns after the first SEQ_SAMP falling edge.
 
     Interpolate saved samples at that instant for every conversion, including
@@ -1006,7 +1007,7 @@ def analyze_adc_sampling_noise(measurement: MeasAdc) -> AnalysisAdcSamplingNoise
     if calc.peakToPeak(inputs) > 1e-9:
         raise ValueError("sampling noise analysis requires the same input across conversions")
     identity = measurement.identity
-    return AnalysisAdcSamplingNoise(
+    return AnalysisSamplingNoise(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -1019,7 +1020,7 @@ def analyze_adc_sampling_noise(measurement: MeasAdc) -> AnalysisAdcSamplingNoise
     )
 
 
-def analyze_adc_cdac_settling(measurement: MeasAdc) -> AnalysisAdcCdacSettling:
+def analyze_adc_cdac_settling(measurement: MeasAdc) -> AnalysisCdacSettling:
     """Align the first, middle, and last CDAC stages and measure final-value settling."""
 
     wave = measurement.wave
@@ -1189,7 +1190,7 @@ def analyze_adc_cdac_settling(measurement: MeasAdc) -> AnalysisAdcCdacSettling:
         )
 
     identity = measurement.identity
-    return AnalysisAdcCdacSettling(
+    return AnalysisCdacSettling(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -1211,7 +1212,7 @@ def analyze_adc_cdac_settling(measurement: MeasAdc) -> AnalysisAdcCdacSettling:
 # =============================================================================
 
 
-def analyze_adc_power(measurement: MeasAdc) -> AnalysisAdcPower:
+def analyze_adc_power(measurement: MeasAdc) -> AnalysisPower:
     """Separate one capture's active power into static-baseline and incremental parts.
 
     New captures provide a configured-idle ``static_average_power_w`` for each
@@ -1293,7 +1294,7 @@ def analyze_adc_power(measurement: MeasAdc) -> AnalysisAdcPower:
         static_w.append(min(static_power_w, active_power_w))
         active_w.append(active_power_w)
     identity = measurement.identity
-    return AnalysisAdcPower(
+    return AnalysisPower(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -1308,7 +1309,7 @@ def analyze_adc_power(measurement: MeasAdc) -> AnalysisAdcPower:
     )
 
 
-def analyze_adc_power_waveform(measurement: MeasAdc, *, power: AnalysisAdcPower) -> AnalysisAdcPowerWaveform:
+def analyze_adc_power_waveform(measurement: MeasAdc, *, power: AnalysisPower) -> AnalysisPowerWaveform:
     """Select and align one simulated conversion for detailed power plotting.
 
     ``power`` supplies the static and active rail averages of the same capture.
@@ -1348,7 +1349,7 @@ def analyze_adc_power_waveform(measurement: MeasAdc, *, power: AnalysisAdcPower)
         wave.i[rail][0][displayed] * float(getattr(measurement.tb, rail).dc) for rail in ("vdd_a", "vdd_d", "vdd_dac")
     ]
     identity = measurement.identity
-    return AnalysisAdcPowerWaveform(
+    return AnalysisPowerWaveform(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -1530,7 +1531,7 @@ def analyze_adc_comparator_response(measurement: MeasAdc) -> AnalysisAdcComparat
     )
 
 
-def analyze_adc_timing_closure(measurement: MeasAdc) -> AnalysisAdcTimingClosure:
+def analyze_adc_timing_closure(measurement: MeasAdc) -> AnalysisTimingClosure:
     """Check internal resolution -> held SR decision -> SAR/CDAC using /wave.
 
     Internal tendency is latch_p - latch_n just before the observed comparator
@@ -1684,7 +1685,7 @@ def analyze_adc_timing_closure(measurement: MeasAdc) -> AnalysisAdcTimingClosure
                 )
             )
     identity = measurement.identity
-    return AnalysisAdcTimingClosure(
+    return AnalysisTimingClosure(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
@@ -1720,8 +1721,8 @@ def analyze_adc_timing_closure(measurement: MeasAdc) -> AnalysisAdcTimingClosure
 def analyze_adc_timing_summary(
     measurement: MeasAdc,
     *,
-    closure: AnalysisAdcTimingClosure,
-) -> AnalysisAdcTimingSummary:
+    closure: AnalysisTimingClosure,
+) -> AnalysisTimingSummary:
     """Summarize setup and comparator-reset margins of one simulated case."""
 
     check_identity(closure, measurement.identity, name="timing closure")
@@ -1737,7 +1738,7 @@ def analyze_adc_timing_summary(
     cdac_setup_s = closure.cdac_setup_s[ordinary]
     cdac_setup_s = cdac_setup_s[np.isfinite(cdac_setup_s)]
     identity: Identity = measurement.identity
-    return AnalysisAdcTimingSummary(
+    return AnalysisTimingSummary(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,

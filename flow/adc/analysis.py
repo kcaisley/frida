@@ -106,7 +106,28 @@ from flow.analysis.types import MeasAdc
 from flow.pipeline import analysis
 
 from .subckt import calc_side_capacitances
-from .types import AnalysisMismatch
+from .types import AnalysisCalibration, AnalysisMismatch
+
+
+def _decode(bout: np.ndarray, calibration: AnalysisCalibration, *, rounded: bool = True) -> np.ndarray:
+    """Stored BOUT decisions decoded with ``calibration``'s weights, clipped to its code range.
+
+    The stored DAQ codes are never replaced; calibrated codes exist only in the analysis that
+    requests them. ``rounded`` gives whole codes, what an N-bit output word would carry and what
+    the histogram analyses count. ``rounded=False`` keeps the fractional codes the dynamic and
+    code-spectrum analyses take: rounding them would quantize the converter's output a second
+    time, about 0.5 bit of ENOB.
+    """
+
+    decisions = np.asarray(bout)
+    if decisions.ndim != 2 or decisions.shape[1] != len(calibration.calibrated_weights):
+        raise ValueError("calibrated ADC decoding requires one BOUT column per calibrated weight")
+    if np.any((decisions != 0) & (decisions != 1)):
+        raise ValueError("calibrated ADC decoding requires binary BOUT values")
+    fractional = np.clip(
+        decisions.astype(np.float64) @ calibration.calibrated_weights, 0.0, float(calibration.code_max)
+    )
+    return fractional if not rounded else np.rint(fractional).astype(np.int64)
 
 
 @analysis

@@ -18,17 +18,12 @@ import pytest
 
 import flow
 import flow.analysis as analysis_api
+from flow import adc
 from flow.adc import targets as adc_targets
 from flow.adc.sim import SEQUENCES
 from flow.analysis.adc import analyze_adc_ramp
 from flow.analysis.io import read_analysis
 from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
-from flow.analysis.types import (
-    AnalysisAdcCalibration,
-    AnalysisAdcCodeDensityNonlinearity,
-    AnalysisAdcOperatingConditions,
-    AnalysisAdcTimingSummary,
-)
 from flow.cdac.caparray import targets as caparray_targets
 
 
@@ -155,11 +150,11 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     physical_dir = tmp_path / "build/scan_adc/20260926_172920_adc_sequence_static"
     physical_dir.mkdir(parents=True)
     physical_captures = {}
-    for adc in range(16):
+    for adc_index in range(16):
         for baud_mbd in (320, 960, 1600):
             path = physical_dir / f"{len(physical_captures):04d}_capture.h5"
             path.touch()
-            physical_captures[path] = adc, baud_mbd
+            physical_captures[path] = adc_index, baud_mbd
     (physical_dir / "scope_diagnostic.h5").touch()
     output_dir.mkdir()
     # Neither output files nor another acquisition directory can override inputs.
@@ -188,13 +183,13 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
 
     def load(path):
         if path in physical_captures:
-            adc, baud_mbd = physical_captures[path]
+            adc_index, baud_mbd = physical_captures[path]
             return dataclasses.replace(
                 physical,
-                index=adc,
+                index=adc_index,
                 param=dataclasses.replace(
                     physical.param,
-                    observed_adc=adc,
+                    observed_adc=adc_index,
                     tb=dataclasses.replace(physical.param.tb, symbol_rate=baud_mbd * 1e6),
                 ),
                 info=dataclasses.replace(
@@ -234,9 +229,9 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     def plot(*args, output_path, **kwargs):
         if output_path.name == "all_adc_sequence_overview":
             assert len(args[0]) == 16
-            assert all(isinstance(result, AnalysisAdcOperatingConditions) for result in args[0])
+            assert all(isinstance(result, adc.AnalysisOperatingConditions) for result in args[0])
         if output_path.name.startswith("adc") and output_path.name.endswith("_sequence_enob"):
-            assert isinstance(args[0], AnalysisAdcOperatingConditions)
+            assert isinstance(args[0], adc.AnalysisOperatingConditions)
             assert len(args[0].symbol_rate_hz) == 3
         return (output_path.with_suffix(".pdf"),)
 
@@ -261,10 +256,10 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     assert not [path for path in output_dir.iterdir() if path.suffix in {".csv", ".json", ".txt", ".tex", ".md"}]
     operating = sorted(output_dir.glob("*_operating_conditions.h5"))
     assert len(operating) == 16 + flavor_count
-    assert all(isinstance(read_analysis(path), AnalysisAdcOperatingConditions) for path in operating)
+    assert all(isinstance(read_analysis(path), adc.AnalysisOperatingConditions) for path in operating)
     summaries = sorted(output_dir.glob("*_timing_summary.h5"))
     assert len(summaries) == case_count
-    assert all(isinstance(read_analysis(path), AnalysisAdcTimingSummary) for path in summaries)
+    assert all(isinstance(read_analysis(path), adc.AnalysisTimingSummary) for path in summaries)
 
 
 def install_cdac_inputs(
@@ -359,11 +354,11 @@ def test_adc_calibration_runner_combines_three_common_results(
     nominal_weight = nominal_ramp.weights.astype(np.float64)
     nominal_weight *= 4095.0 / np.sum(nominal_weight)
 
-    def calibration(method) -> AnalysisAdcCalibration:
+    def calibration(method) -> adc.AnalysisCalibration:
         weight = nominal_weight.copy()
         weight[0] *= {"calibration1": 1.01, "calibration2": 0.99, "calibration3": 1.02}[method]
         weight *= 4095.0 / np.sum(weight)
-        return AnalysisAdcCalibration(
+        return adc.AnalysisCalibration(
             group=measurement.group,
             index=measurement.index,
             dut=measurement.dut,
@@ -559,7 +554,7 @@ def test_ramp_study_uses_the_ramp_wrap_exclusion_and_no_cdac_measurements(tmp_pa
     plotted = []
 
     def plot(measurement, analysis, *, output_path):
-        if isinstance(analysis, AnalysisAdcCodeDensityNonlinearity):
+        if isinstance(analysis, adc.AnalysisCodeDensityNonlinearity):
             assert analysis.retained_sample_count < analysis.sample_count
             plotted.append(measurement.index)
         return (output_path.with_suffix(".pdf"),)

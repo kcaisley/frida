@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from flow import adc
+from flow.adc.analysis import _decode
 from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.analysis.adc import (
     analyze_adc_cdac_settling,
@@ -31,12 +32,7 @@ from flow.analysis.adc import (
     analyze_adc_scope_bits,
     analyze_adc_transfer,
 )
-from flow.analysis.types import (
-    AnalysisAdcCalibration,
-    MeasAdc,
-    MeasInfo,
-    Wave,
-)
+from flow.analysis.types import MeasAdc, MeasInfo, Wave
 from flow.cdac.caparray import CapArrayConfig
 from flow.scans.params import AdcScanParams
 
@@ -553,7 +549,7 @@ def test_dynamic_analysis_separates_noise_and_harmonics() -> None:
 
 def sar_sine_measurement(
     adc_bits: int, cdac: CapArrayConfig, *, spread: float
-) -> tuple[MeasAdc, AnalysisAdcCalibration]:
+) -> tuple[MeasAdc, adc.AnalysisCalibration]:
     """An ideal SAR converting a coherent -0.5 dBFS sine (8,192 conversions): no noise, no
     distortion, its capacitors off their design values by a fixed draw of relative sigma
     ``spread``, and the calibration that knows those weights (a perfect extraction). Its stored
@@ -588,7 +584,7 @@ def sar_sine_measurement(
         param=AdcScanParams(tb=tb),
         bout=bout,
     )
-    calibration = AnalysisAdcCalibration(
+    calibration = adc.AnalysisCalibration(
         group=measurement.group,
         index=measurement.index,
         dut=dut,
@@ -623,13 +619,13 @@ def test_an_ideal_quantizer_reads_its_resolution_referred_to_full_scale(adc_bits
 
     # capacitors off their design values: its own weights put each code between whole ones
     measurement, calibration = sar_sine_measurement(adc_bits, cdac, spread=0.003)
-    fractional = calibration.decode_bout(measurement.bout, rounded=False)
+    fractional = _decode(measurement.bout, calibration, rounded=False)
     assert np.std(fractional - np.rint(fractional)) > 0.2
     calibrated = analyze_adc_dynamic(measurement, calibration=calibration)
     np.testing.assert_array_equal(calibrated.measured_dout, fractional)
     assert calibrated.spectral_enob_fs_bits == pytest.approx(adc_bits, abs=0.02)
     # whole codes, as an N-bit output word carries them, quantize a second time
-    whole = analyze_adc_dynamic(replace(measurement, dout=calibration.decode_bout(measurement.bout)))
+    whole = analyze_adc_dynamic(replace(measurement, dout=_decode(measurement.bout, calibration)))
     assert whole.spectral_enob_fs_bits < adc_bits - 0.3
 
 
@@ -708,7 +704,7 @@ def test_ramp_analysis_redecodes_with_common_calibration_weights() -> None:
     calibrated = nominal.copy()
     calibrated[:2] *= (1.02, 0.97)
     calibrated *= 4095.0 / np.sum(calibrated)
-    calibration = AnalysisAdcCalibration(
+    calibration = adc.AnalysisCalibration(
         group=7,
         index=0,
         dut=measurement.dut,
@@ -733,7 +729,7 @@ def test_ramp_analysis_redecodes_with_common_calibration_weights() -> None:
     assert analysis.count.sum() == uncalibrated.count.sum() == analysis.retained_sample_count
     assert not np.array_equal(uncalibrated.weights, analysis.weights)
     assert analysis.weights[0] == pytest.approx(calibrated[0])
-    decoded = calibration.decode_bout(measurement.bout)
+    decoded = _decode(measurement.bout, calibration)
     distribution = analyze_adc_code_distribution([measurement], calibration=calibration)
     nonlinearity = analyze_adc_code_density_nonlinearity(measurement, calibration=calibration)
     assert distribution.count.sum() == len(decoded)
@@ -1319,7 +1315,6 @@ def adc_timing_measurement() -> MeasAdc:
 def test_adc_timing_closure_uses_typed_wave_records_and_preserves_codes(tmp_path) -> None:
     from flow.analysis.adc import analyze_adc_timing_closure
     from flow.analysis.io import read_measurement, write_measurement
-    from flow.analysis.types import AnalysisAdcTimingClosure
 
     measurement = adc_timing_measurement()
     path = tmp_path / "measurement.h5"
@@ -1328,7 +1323,7 @@ def test_adc_timing_closure_uses_typed_wave_records_and_preserves_codes(tmp_path
     assert isinstance(loaded, MeasAdc)
     before = loaded.bout.copy()
     result = analyze_adc_timing_closure(loaded)
-    assert isinstance(result, AnalysisAdcTimingClosure)
+    assert isinstance(result, adc.AnalysisTimingClosure)
     assert np.all(result.passed)
     np.testing.assert_array_equal(result.decision_index, np.arange(17))
     assert result.required_logic_setup_s == result.required_cdac_setup_s == 200e-12
@@ -1526,7 +1521,7 @@ def test_code_spectrum_decodes_bout_with_a_calibration() -> None:
     calibrated = nominal.copy()
     calibrated[:2] *= (1.02, 0.97)
     calibrated *= 4095.0 / np.sum(calibrated)
-    calibration = AnalysisAdcCalibration(
+    calibration = adc.AnalysisCalibration(
         group=7,
         index=0,
         dut=measurement.dut,
@@ -1547,7 +1542,7 @@ def test_code_spectrum_decodes_bout_with_a_calibration() -> None:
 
     assert plain.decoding == "uncalibrated_dout"
     assert decoded.decoding == "calibration1"
-    codes = calibration.decode_bout(measurement.bout, rounded=False)
+    codes = _decode(measurement.bout, calibration, rounded=False)
     assert decoded.mean_dout == pytest.approx(float(np.mean(codes)))
     assert decoded.mean_dout != pytest.approx(plain.mean_dout)
 

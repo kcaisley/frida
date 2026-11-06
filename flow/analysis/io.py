@@ -12,14 +12,17 @@ from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import h5py
 import numpy as np
 from hdl21.prefix import Prefix, Prefixed
 
 from flow.analysis import calc
-from flow.analysis.types import Analysis, AnalysisAdcCalibration, Meas, MeasAdc, MeasInfo
+from flow.analysis.types import Analysis, Meas, MeasAdc, MeasInfo
+
+if TYPE_CHECKING:
+    from flow import adc
 
 
 def _dataclass_fields(value) -> tuple[Any, ...]:
@@ -298,7 +301,7 @@ def read_analysis(path: Path) -> Analysis:
     return analysis
 
 
-def read_extracted_calibration(path: Path, measurement: MeasAdc) -> AnalysisAdcCalibration:
+def read_extracted_calibration(path: Path, measurement: MeasAdc) -> adc.AnalysisCalibration:
     """Read a PEX per-stage capacitance table as BOUT weights for ``measurement``.
 
     The extracted effective (main - diff) capacitances are the best estimate
@@ -308,6 +311,8 @@ def read_extracted_calibration(path: Path, measurement: MeasAdc) -> AnalysisAdcC
     extracted capacitances, as in calibration 1. The weights are normalized to
     the inclusive output range and carry the measurement's identity.
     """
+
+    from flow import adc  # in here: flow.adc.model imports this module
 
     with Path(path).open(newline="") as table:
         effective_ff = np.asarray([float(row["effective_ff"]) for row in csv.DictReader(table)], dtype=np.float64)
@@ -321,7 +326,7 @@ def read_extracted_calibration(path: Path, measurement: MeasAdc) -> AnalysisAdcC
     calibrated_weight = np.append(extracted_cap_weight, nominal_bout_weight[-1] * scale)
     calibrated_weight *= code_max / np.sum(calibrated_weight)
     identity = measurement.identity
-    return AnalysisAdcCalibration(
+    return adc.AnalysisCalibration(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,

@@ -18,7 +18,6 @@ from flow import adc, comp, samp
 from flow.analysis.io import interpolate_wave_records, read_measurement, write_measurement
 from flow.analysis.types import (
     Analysis,
-    AnalysisAdcTransfer,
     Identity,
     Meas,
     MeasAdc,
@@ -388,7 +387,7 @@ def test_identity_helpers_reject_mixed_inputs_and_mismatched_priors() -> None:
     assert measurement_identity([nominal, nominal]) == Identity(11, 2, nominal.dut)
     with pytest.raises(ValueError, match="share one group, index, and DUT"):
         measurement_identity([nominal, other])
-    result = AnalysisAdcTransfer(
+    result = adc.AnalysisTransfer(
         group=1,
         index=0,
         dut=nominal.dut,

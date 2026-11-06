@@ -15,13 +15,8 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from flow.analysis.types import (
-    AnalysisAdcCalibration,
-    AnalysisCdacCapMismatch,
-    MeasCdac,
-    check_identity,
-    measurement_identity,
-)
+from flow.adc.types import AnalysisCalibration1
+from flow.analysis.types import AnalysisCdacCapMismatch, MeasCdac, check_identity, measurement_identity
 from flow.cdac.caparray import get_caparray_weights
 
 
@@ -29,7 +24,7 @@ def analyze_adc_calibration1(
     measurements: Sequence[MeasCdac],
     *,
     cap_mismatch: AnalysisCdacCapMismatch,
-) -> AnalysisAdcCalibration:
+) -> AnalysisCalibration1:
     """Extract normalized BOUT weights from physical CDAC S-curves.
 
     Each capacitor's weight comes from the direction selected by its
@@ -85,7 +80,7 @@ def analyze_adc_calibration1(
     nominal_weight = nominal_bout_weight * code_max / np.sum(nominal_bout_weight)
     calibrated_weight = np.concatenate((hybrid_cap_weight, [terminal_weight]))
     calibrated_weight *= code_max / np.sum(calibrated_weight)
-    return AnalysisAdcCalibration(
+    return AnalysisCalibration1(
         group=identity.group,
         index=identity.index,
         dut=tb.dut,

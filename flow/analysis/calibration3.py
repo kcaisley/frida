@@ -27,11 +27,12 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.special import log_ndtr, ndtr
 
+from flow.adc.types import AnalysisCalibration3, AnalysisRamp
 from flow.analysis import calc
-from flow.analysis.types import AnalysisAdcCalibration, AnalysisAdcRamp, MeasAdc, check_identity
+from flow.analysis.types import MeasAdc, check_identity
 
 
-def analyze_adc_calibration3(measurement: MeasAdc, *, ramp: AnalysisAdcRamp) -> AnalysisAdcCalibration:
+def analyze_adc_calibration3(measurement: MeasAdc, *, ramp: AnalysisRamp) -> AnalysisCalibration3:
     """Extract Hsu prefix thresholds and validate a conservative BOUT decoder.
 
     Complete even-numbered ramp cycles are the calibration set.  They are split
@@ -242,7 +243,7 @@ def analyze_adc_calibration3(measurement: MeasAdc, *, ramp: AnalysisAdcRamp) -> 
 
     measured = np.zeros(decision_count, dtype=np.bool_)
     measured[:selected_measured_step_count] = True
-    return AnalysisAdcCalibration(
+    return AnalysisCalibration3(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
