@@ -136,42 +136,27 @@ def frida2_sequence() -> Path:
 
 
 def layout_frida1_1layer_radix17() -> Path:
-    """FRIDA-1's one-metal radix-17 ADC, its array regenerated, signed off and extracted (TSMC65)."""
+    """FRIDA-1's one-metal radix-17 ADC as fabricated, signed off and extracted (TSMC65)."""
     return layout.frida1_1layer_radix17(_unmade("layout", "adc", "frida1_1layer_radix17"))
 
 
 def layout_frida1_1layer_radix20() -> Path:
-    """FRIDA-1's one-metal radix-20 ADC, its array regenerated, signed off and extracted (TSMC65)."""
+    """FRIDA-1's one-metal radix-20 ADC as fabricated, signed off and extracted (TSMC65)."""
     return layout.frida1_1layer_radix20(_unmade("layout", "adc", "frida1_1layer_radix20"))
 
 
 def layout_frida1_2layer_radix17() -> Path:
-    """FRIDA-1's two-metal radix-17 ADC, its array regenerated, signed off and extracted (TSMC65)."""
+    """FRIDA-1's two-metal radix-17 ADC as fabricated, signed off and extracted (TSMC65)."""
     return layout.frida1_2layer_radix17(_unmade("layout", "adc", "frida1_2layer_radix17"))
 
 
 def layout_frida1_2layer_radix20() -> Path:
-    """FRIDA-1's two-metal radix-20 ADC, its array regenerated, signed off and extracted (TSMC65)."""
+    """FRIDA-1's two-metal radix-20 ADC as fabricated, signed off and extracted (TSMC65)."""
     return layout.frida1_2layer_radix20(_unmade("layout", "adc", "frida1_2layer_radix20"))
 
 
-def layout_frida2_1layer_radix17() -> Path:
-    """FRIDA-2's ADC with the one-metal radix-17 array, signed off and extracted (TSMC65)."""
-    return layout.frida2_1layer_radix17(_unmade("layout", "adc", "frida2_1layer_radix17"))
-
-
-def layout_frida2_2layer_radix17() -> Path:
-    """FRIDA-2's ADC with the two-metal radix-17 array, signed off and extracted (TSMC65)."""
-    return layout.frida2_2layer_radix17(_unmade("layout", "adc", "frida2_2layer_radix17"))
-
-
-def layout_frida2_3layer_radix17() -> Path:
-    """FRIDA-2's ADC with the three-metal radix-17 array, signed off and extracted (TSMC65)."""
-    return layout.frida2_3layer_radix17(_unmade("layout", "adc", "frida2_3layer_radix17"))
-
-
 def layout_all() -> Path:
-    """Every ADC layout above, each into its own directory of one run."""
+    """FRIDA-1's four layouts above, each into its own directory of one run."""
     return layout.all_adcs(new_run("layout", "adc", "all"))
 
 

@@ -1,128 +1,24 @@
-"""The ADC's layouts (``flow.adc.layout``): the strict block replacement FRIDA-2's are assembled with
-(``AdcLayout``); the FRIDA layouts' netlist preparation (a test that needs the TSMC65 kit skips
-without it); and the sweep's blocks side by side, from the blocks' layouts under build/ (the DAC's
-one side twice, the second mirrored): one top cell, each block labelled where the viewer's export
-finds it, nothing signed off (skipped where the blocks are not laid out)."""
+"""The ADC's layouts (``flow.adc.layout``): the FRIDA-1 layouts' netlist preparation (each flavor's
+source netlist with its capacitor array's frozen LVS source swapped in, and without it); and the
+sweep's blocks side by side, from the blocks' layouts under build/ (the DAC's one side twice, the
+second mirrored): one top cell, each block labelled where the viewer's export finds it, nothing
+signed off (skipped where the blocks are not laid out)."""
 
-import io
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
-import hdl21 as h
 import pytest
-from hdl21.prefix import f
 from klayout import db
 
 from flow import capdac
-from flow.cdac.caparray.layout import CapArrayLayoutParams, UnitLengthCapFamilyParams
-from flow.cdac.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
 from flow.sweep.runner import ROOT
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
 from flow.web.export import export_layout
 
-from . import sweep
-from .layout import AdcLayout, AdcLayoutParams, assemble_blocks, is_valid_adc_layout_params
+from . import layout, sweep
+from .layout import assemble_blocks
 
-
-def _layout(*, top: str, block: str, pin_x: int = 50, boundary_right: int = 100) -> db.Layout:
-    layout = db.Layout()
-    layout.dbu = 0.001
-    parent = layout.create_cell(top)
-    child = layout.create_cell(block)
-    pin = layout.layer(db.LayerInfo(201, 0))
-    boundary = layout.layer(db.LayerInfo(200, 0))
-    child.shapes(pin).insert(db.Box(pin_x - 5, 0, pin_x + 5, 10))
-    child.shapes(pin).insert(db.Text("cap_topplate", db.Trans(pin_x, 5)))
-    child.shapes(boundary).insert(db.Box(0, 0, boundary_right, 100))
-    parent.insert(db.CellInstArray(child.cell_index(), db.Trans(1000, 2000)))
-    parent.insert(db.CellInstArray(child.cell_index(), db.Trans(db.Trans.M90, 3000, 2000)))
-    return layout
-
-
-def _replacement(*, pin_x: int = 50, boundary_right: int = 100) -> db.Layout:
-    layout = db.Layout()
-    layout.dbu = 0.001
-    cell = layout.create_cell("replacement")
-    pin = layout.layer(db.LayerInfo(201, 0))
-    boundary = layout.layer(db.LayerInfo(200, 0))
-    cell.shapes(pin).insert(db.Box(pin_x - 5, 0, pin_x + 5, 10))
-    cell.shapes(pin).insert(db.Text("cap_topplate", db.Trans(pin_x, 5)))
-    cell.shapes(boundary).insert(db.Box(0, 0, boundary_right, 100))
-    return layout
-
-
-def test_adc_layout_ignores_unreferenced_unit_library_cells() -> None:
-    replacement = _replacement()
-    replacement.create_cell("unused_unit")
-
-    result = AdcLayout(
-        AdcLayoutParams("adc"),
-        template=_layout(top="adc", block="placeholder"),
-        replacements={"placeholder": replacement},
-    )
-
-    assert [instance.cell.name for instance in result.cell("adc").each_inst()] == ["replacement", "replacement"]
-
-
-def test_adc_layout_replaces_compatible_blocks_and_preserves_transforms() -> None:
-    result = AdcLayout(
-        AdcLayoutParams("adc"),
-        template=_layout(top="adc", block="placeholder"),
-        replacements={"placeholder": _replacement()},
-    )
-    instances = list(result.cell("adc").each_inst())
-    assert [instance.cell.name for instance in instances] == ["replacement", "replacement"]
-    assert tuple(instance.trans for instance in instances) == (
-        db.Trans(1000, 2000),
-        db.Trans(db.Trans.M90, 3000, 2000),
-    )
-    assert result.cell("placeholder") is None
-
-
-def test_adc_layout_rejects_boundary_changes() -> None:
-    with pytest.raises(ValueError, match="pin-and-boundary compatible"):
-        AdcLayout(
-            AdcLayoutParams("adc"),
-            template=_layout(top="adc", block="placeholder"),
-            replacements={"placeholder": _replacement(boundary_right=105)},
-        )
-
-
-def test_adc_layout_allows_annotation_locations_layers_and_duplicates() -> None:
-    replacement = _replacement(pin_x=55)
-    cell = replacement.top_cell()
-    old_pin = replacement.layer(201, 0)
-    new_pin = replacement.layer(202, 0)
-    cell.shapes(new_pin).insert(cell.shapes(old_pin))
-    cell.shapes(old_pin).clear()
-    cell.shapes(new_pin).insert(db.Text("cap_topplate", db.Trans(60, 5)))
-    result = AdcLayout(
-        AdcLayoutParams("adc"),
-        template=_layout(top="adc", block="placeholder"),
-        replacements={"placeholder": replacement},
-    )
-    assert result.cell("replacement") is not None
-
-
-def test_adc_layout_rejects_changed_terminal_names() -> None:
-    replacement = _replacement()
-    cell = replacement.top_cell()
-    cell.shapes(replacement.layer(201, 0)).insert(db.Text("wrong_net", db.Trans(50, 5)))
-    with pytest.raises(ValueError, match="pin-and-boundary compatible"):
-        AdcLayout(
-            AdcLayoutParams("adc"),
-            template=_layout(top="adc", block="placeholder"),
-            replacements={"placeholder": replacement},
-        )
-
-
-def test_adc_layout_params_require_a_top_cell() -> None:
-    assert is_valid_adc_layout_params(AdcLayoutParams("adc"))
-    assert not is_valid_adc_layout_params(AdcLayoutParams(""))
-
-
-# the FRIDA layouts' netlists
+# the FRIDA-1 layouts' netlists
 
 
 def test_replace_subcircuit_renames_block_calls_and_top() -> None:
@@ -147,105 +43,44 @@ def test_omit_subcircuit_removes_multiline_calls() -> None:
     assert "Xkeep a b real" in result
 
 
-def test_historical_mom_source_translates_pin15_to_stage_c0() -> None:
-    signoff = pytest.importorskip("pdk.tsmc65.calibre.signoff")  # the kit's MOM device for LVS
-    params = CapArrayParams(
-        cdac=CapArrayConfig(n_dac=2, n_extra=0, weights=(64, 1)),
-        unit_cap=0.8 * f,
-        active_layers=(6,),
-        unit_models=(signoff.mom_lvs_device(6, 5),),
-    )
-    module = CapArray(params)
-    module.name = "caparray"
-    netlist = io.StringIO()
-    h.netlist(module, netlist, fmt="spice")
-    reference = (
+def test_a_frida1_flavor_takes_its_frozen_array_by_pin_name(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # a two-stage stand-in of a flavor's inputs: its source netlist, the array's frozen LVS source
+    # and its pins to the fabricated macro's (stage C0 is the macro's last pin)
+    inputs = tmp_path / "build" / "frida-1"
+    inputs.mkdir(parents=True)
+    (inputs / "adc_flavor.src.net").write_text(
         ".subckt old_cap cap_botplate_diff<1> cap_botplate_diff<0>\n"
         "+ cap_botplate_main<1> cap_botplate_main<0> cap_shieldplate cap_topplate\n"
-        ".ends old_cap\n.subckt old_adc top vss\n"
-        "Xcap diff_first diff_last main_first main_last vss top old_cap\n.ends old_adc\n"
+        ".ends old_cap\n.subckt adc_flavor top vss\n"
+        "Xcap diff_first diff_last main_first main_last vss top old_cap\nXkeep top vss real\n.ends adc_flavor\n"
     )
-    mapping = {name: name for name in module.ports}
-    mapping.update(
-        {
-            f"cap_botplate_{kind}<{stage}>": f"cap_botplate_{kind}<{1 - stage}>"
-            for kind in ("main", "diff")
-            for stage in range(2)
-        }
+    (inputs / "old_cap.lvs.cdl").write_text(
+        ".SUBCKT unit PLUS MINUS BULK\n.ENDS\n"
+        ".SUBCKT old_cap cap_topplate cap_shieldplate cap_botplate_main<0> cap_botplate_main<1>\n"
+        "+ cap_botplate_diff<0> cap_botplate_diff<1>\n"
+        "xmain_0 cap_topplate cap_botplate_main<0> cap_shieldplate unit\n.ENDS\n"
     )
-    legacy = replace_subcircuit(
-        reference,
-        old_top="old_adc",
-        new_top="adc",
-        old_block="old_cap",
-        new_block=netlist.getvalue(),
-        pin_map=mapping,
-    )
-    assert "Xcap top vss main_first main_last diff_first diff_last caparray" in legacy
-    assert module.main_0_0_m6.conns["MINUS"].name == "cap_botplate_main<0>"
+    pins = {"cap_topplate": "cap_topplate", "cap_shieldplate": "cap_shieldplate"}
+    pins |= {
+        f"cap_botplate_{kind}<{stage}>": f"cap_botplate_{kind}<{1 - stage}>"
+        for kind in ("main", "diff")
+        for stage in (0, 1)
+    }
+    (inputs / "old_cap.pins.json").write_text(json.dumps(pins))
+    monkeypatch.setattr(layout, "ROOT", tmp_path)
 
+    lvs, pex = layout._frida1_sources(tmp_path, flavor="adc_flavor", cap_cell="old_cap")
 
-@pytest.mark.parametrize("active,shield", [((6,), 5), ((6, 7), 5), ((5, 6, 7), 4)])
-def test_frida2_runner_uses_c0_first_paired_template_source(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, active: tuple[int, ...], shield: int
-) -> None:
-    from flow.adc import layout
-
-    # the runner's signoff options and ring-MOM library, and the MOM fits the array follows: the kit's
-    pytest.importorskip("pdk.tsmc65.calibre.signoff")
-    fits = pytest.importorskip("pdk.tsmc65.layout.tech").MOM_FITS
-    reference = (
-        ".subckt caparray_2layer_radix17 cap_botplate_diff<1> cap_botplate_diff<0>\n"
-        "+ cap_botplate_main<1> cap_botplate_main<0> cap_shieldplate cap_topplate\n"
-        ".ends caparray_2layer_radix17\n.subckt adc_12b_17step top vss\n"
-        "Xcap diff_first diff_last main_first main_last vss top caparray_2layer_radix17\n"
-        ".ends adc_12b_17step\n"
-    )
-    read_text = Path.read_text
-    monkeypatch.setattr(
-        Path,
-        "read_text",
-        lambda path, **kwargs: reference if path.name == "frida-2-template-c0.cdl" else read_text(path, **kwargs),
-    )
-    # Exercise netlist orchestration without reading or modifying a real template.
-    monkeypatch.setattr(layout.db, "Layout", lambda: SimpleNamespace(read=lambda _path: None))
-    monkeypatch.setattr(layout, "CapArrayLayout", lambda _params: None)
-    monkeypatch.setattr(layout, "AdcLayout", lambda _params, **kwargs: None)
-    monkeypatch.setattr(layout, "_write_top", lambda *_args: None)
-    monkeypatch.setattr(layout, "run_signoff", lambda *_args: None)
-    arrays = []
-
-    def generate_array(params):
-        module = CapArray(params)
-        arrays.append(module)
-        return module
-
-    monkeypatch.setattr(layout, "CapArray", generate_array)
-    result = layout._run_frida2(
-        tmp_path / "run",
-        target_name="frida2_test",
-        params=CapArrayLayoutParams(
-            cdac=CapArrayConfig(n_dac=2, n_extra=0, weights=(64, 1)),
-            family=UnitLengthCapFamilyParams(),
-            technology="tsmc65",
-            route_layer=4,
-            shield_layer=shield,
-            active_layers=active,
-            top_cell="new_caparray",
-        ),
-    )
-    source = (result / "source.lvs.cdl").read_text()
-    assert "Xcap top vss main_last main_first diff_last diff_first new_caparray" in source
-    assert (result / "source.ideal.cdl").read_text() == source
-    assert "ringfmom.cdl" in source
-    assert f"ringfmom_{len(active)}layer" in source
-    slope, intercept = fits["difference", len(active)]
-    assert float(arrays[0].main_0_0.of.params.c) == pytest.approx((slope * 51.72 + intercept) * 1e-15, abs=1e-27)
-    assert float(arrays[0].diff_0_0.of.params.c) == pytest.approx((slope * 0.52 + intercept) * 1e-15, abs=1e-27)
-    assert (result / "ringfmom.cdl").is_file()
-    conductive = (result / "source.pex.cdl").read_text()
-    assert "Xcap" not in conductive
-    assert "ringfmom" not in conductive
+    source = lvs.read_text()
+    # stage C0 (the frozen array's first plate) on the macro's last pin (<1>, the call's first
+    # argument of each kind), the top renamed
+    assert "Xcap top vss main_first main_last diff_first diff_last old_cap" in source
+    assert "xmain_0 cap_topplate cap_botplate_main<0>" in source
+    assert ".subckt adc_12b_17step top vss" in source.lower()
+    conductive = pex.read_text()
+    assert "Xcap" not in conductive and "old_cap" not in conductive
+    assert "Xkeep top vss real" in conductive
+    assert ".subckt adc_12b_17step top vss" in conductive
 
 
 # the sweep's blocks side by side
