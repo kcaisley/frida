@@ -89,9 +89,9 @@ at 14 bits the switch costs 1.1 bits into its 9.3 pF arrays (nominal ENOB 11.7�
 ## Redundancy schemes
 
 An array's extra conversion cycles never add capacitance: each scheme redistributes the binary
-DAC's 2^n_dac − 1 units (`capdac.Redundancy`). `MSB_SPLIT` splits the n_extra most
+DAC's 2^(bits−1) − 1 units (`capdac.Redundancy`). `MSB_SPLIT` splits the `extra` most
 significant binary weights into halves, which gives the free first comparison and the decisions
-after it their tolerance; `LSB_SPLIT` splits the n_extra least significant weights of at least 2
+after it their tolerance; `LSB_SPLIT` splits the `extra` least significant weights of at least 2
 (2, 4, ...), a tolerance only at the LSB end, the LSB itself kept whole (a half-unit LSB would add a
 code level, not tolerance, and leave the integer codes); `MSB_REDIST` is FRIDA's paired overlay, a
 run of paired powers of two taken from the MSB and added from the third stage on, its tolerance
