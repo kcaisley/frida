@@ -61,7 +61,7 @@ def test_scalar_adapter_rejects_ambiguous_bus_and_scalar_names():
 
 
 @pytest.mark.parametrize("block", ("adc", "comp", "samp"))
-def test_generated_save_maps_reference_existing_nets_and_source_terminals(block):
+def test_generated_save_maps_reference_existing_nets_and_source_terminals(block, monkeypatch):
     from importlib import import_module
 
     sim = import_module(f"flow.{block}.sim")
@@ -69,6 +69,11 @@ def test_generated_save_maps_reference_existing_nets_and_source_terminals(block)
         stages = import_module(f"flow.{block}")
         tb, saved = stages.testbench(stages.TbParams()), dict.fromkeys(stages.sim.SAVES)
     else:  # the ADC: its testbench of the generated view and the observations it saves
+        # TSMC65 bound for this test, as the runner binds it before it builds the testbench
+        logic = pytest.importorskip("pdk.tsmc65.hdl21").pdk_logic  # a PDK-free checkout has none
+        manager = import_module("hdl21.pdk.pdk")._mgr
+        monkeypatch.setattr(manager, "default", manager.default)
+        h.pdk.set_default(logic)
         tb = sim.testbench(import_module(f"flow.{block}.params").TbParams())
         saved = sim.adc_signal_names(tb, "hdl21gen")
     assert block in ("comp", "samp") or len(set(saved.values())) == len(saved)

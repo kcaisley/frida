@@ -1,5 +1,8 @@
-"""Software-only checks for the native HDL21 ADC simulation interface."""
+"""Software-only checks for the native HDL21 ADC simulation interface. A test that builds the
+generated view's testbench binds TSMC65 (``tsmc65``), as ``sim.simulate`` does; a PDK-free checkout
+skips it."""
 
+import importlib
 import inspect
 import json
 from dataclasses import fields
@@ -31,6 +34,15 @@ duty_sequences = tuple(
     if name.startswith(("symbol160_init4_samp20_", "symbol256_init4_samp20_"))
     and name != "symbol160_init4_samp20_comp11111100_logic00000010"
 )
+
+
+@pytest.fixture
+def tsmc65(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TSMC65 the active PDK for one test, as ``sim.simulate`` binds it; the PDK before it after."""
+    logic = pytest.importorskip("pdk.tsmc65.hdl21").pdk_logic  # a PDK-free checkout has none
+    manager = importlib.import_module("hdl21.pdk.pdk")._mgr
+    monkeypatch.setattr(manager, "default", manager.default)
+    h.pdk.set_default(logic)
 
 
 @pytest.mark.parametrize("fault", ("ideal_capacitor", "changed_pex"))
@@ -113,7 +125,9 @@ def test_invalid_params_fail_before_testbench_generation_or_run(overrides, monke
 
 
 @pytest.mark.parametrize("view", ("frida1", "hdl21gen"))
-def test_adc_testbench_generates_each_view(view: str) -> None:
+def test_adc_testbench_generates_each_view(view: str, request: pytest.FixtureRequest) -> None:
+    if view == "hdl21gen":
+        request.getfixturevalue("tsmc65")
     tb = sim.testbench(
         TbParams(view=view, conversions=1, pex_cell="adc_12b_17step" if view == "frida1" else ""),
         pex_netlist=PEX_FIXTURES.get(view),
@@ -125,7 +139,7 @@ def test_adc_testbench_generates_each_view(view: str) -> None:
     assert tb.vin_p is not None
 
 
-def test_adc_transfer_staircase_has_151_codes() -> None:
+def test_adc_transfer_staircase_has_151_codes(tsmc65) -> None:
     params = TbParams(
         symbol_rate=1.6e9,
         conversions=151,
@@ -156,7 +170,7 @@ def test_adc_transfer_sweep_must_match_conversion_count() -> None:
 
 
 @pytest.mark.parametrize("start,stop,step,count", ((-0.75, 0.75, 0.01, 151), (1, -1, -0.1, 21), (0, 0, 1, 1)))
-def test_sweep_validation_agrees_with_generated_waveform(start, stop, step, count):
+def test_sweep_validation_agrees_with_generated_waveform(tsmc65, start, stop, step, count):
     params = TbParams(conversions=count, vin_diff=hs.LinearSweep(start=start, stop=stop, step=step))
     assert sim.is_valid_adc_tb_params(params) is True
     wave = sim.testbench(params).vvin_diff.of.params.wave
@@ -232,7 +246,7 @@ def test_c0_rename_preserves_the_physical_initialization_voltages() -> None:
             assert float(getattr(new, f"v{bus}_{stage}").of.params.dc) == pytest.approx(1.2 * state)
 
 
-def test_all_adc_views_expose_the_same_analysis_waveforms():
+def test_all_adc_views_expose_the_same_analysis_waveforms(tsmc65):
     observations = []
     for view in ("hdl21gen", "frida1", "frida2"):
         pex = PEX_FIXTURES.get(view)
@@ -286,18 +300,18 @@ def test_supply_noise_testbench_repeats_independent_rail_networks() -> None:
 
 
 @pytest.fixture
-def captured_executor(monkeypatch):
+def captured_executor(monkeypatch, tsmc65):
     from types import SimpleNamespace
 
     from flow.analysis import io
     from flow.circuit import results
-    from pdk import tsmc65
+    from pdk import tsmc65 as kit
     from pdk.tsmc65.hdl21 import site
 
     captured = {}
     monkeypatch.setattr(h.pdk, "set_default", lambda *_: None)
     monkeypatch.setattr(h.pdk, "compile", lambda *_: None)
-    monkeypatch.setattr(tsmc65, "pdk_logic", object())
+    monkeypatch.setattr(kit, "pdk_logic", object())
     monkeypatch.setattr(site, "STANDARD_CELL_SPICE_NETLISTS", (Path("/cells/regular.spi"), Path("/cells/driver.spi")))
     monkeypatch.setattr(
         site,
@@ -306,6 +320,8 @@ def captured_executor(monkeypatch):
             include=lambda *_: h.Literal("models"),
             include_pre_simulation=lambda: h.Literal("pre"),
             include_stdcell=lambda: hs.Include(path=Path("/cells/driver.spi")),
+            # the generated ADC's DAC takes its reference from the PDK's typical supply
+            supply_voltage=site.install.supply_voltage,
         ),
     )
     monkeypatch.setattr(
@@ -550,7 +566,7 @@ def test_rows_accept_whitespace_and_validate_lengths():
 
 @pytest.mark.parametrize("name,sequence", sim.SEQUENCES)
 @pytest.mark.parametrize("symbol_rate", (0.32e9, 0.96e9, 1.6e9))
-def test_voltage_sources_and_serializer_consume_identical_rows(name, sequence, symbol_rate):
+def test_voltage_sources_and_serializer_consume_identical_rows(tsmc65, name, sequence, symbol_rate):
     params = TbParams(
         view="hdl21gen",
         symbol_rate=symbol_rate,
