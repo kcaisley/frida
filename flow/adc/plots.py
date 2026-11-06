@@ -201,26 +201,26 @@ def plot_noise_spectrum(spectrum: AnalysisCodeSpectrum) -> Plot:
     """The output code's noise density at a fixed input, referred to the input through the capture's
     LSB (the unit a probe's spectrum shares) and averaged in power over log-spaced bins; its white
     floor (the density's median) marked, the variance's split (total = lines ⊕ broadband) in the
-    floor's label, and the bins standing clearly above the floor (lines: an interferer, a wandering
-    hump) shaded at their full resolution. A stuck capture (one code) has no floor: no curve on the
-    log axes, and neither floor nor lines."""
+    title, and the bins standing clearly above the floor (lines: an interferer, a wandering hump)
+    shaded at their full resolution. A stuck capture (one code) has no floor: no curve on the log
+    axes, and neither floor nor lines."""
     frequency_hz, density = _log_binned(spectrum.frequency_hz, spectrum.asd_v_per_sqrt_hz)
     half_bin_hz = spectrum.bin_hz / 2
     floor_v = math.sqrt(spectrum.white_floor_lsb2_per_hz) * spectrum.input_lsb_v
     split = (
-        f"White floor; total {spectrum.total_rms_lsb:.2f} = lines {spectrum.narrowband_rms_lsb:.2f}"
-        f" ⊕ broadband {spectrum.broadband_rms_lsb:.2f} LSB rms"
+        f": {spectrum.total_rms_lsb:.2f} LSB rms = lines {spectrum.narrowband_rms_lsb:.2f}"
+        f" ⊕ white {spectrum.broadband_rms_lsb:.2f}"
     )
     return _plot(
         "noise_spectrum",
-        "Output-code noise density",
+        f"Output-code noise{split if spectrum.spectrum_valid else ''}",
         "Frequency (Hz)",
         "Input-referred noise (V/√Hz)",
         frequency_hz,
         {"Output code": density},
         x_log=True,
         y_log=True,
-        y_markers=[Marker(_six(floor_v), split)] if spectrum.spectrum_valid else [],
+        y_markers=[Marker(_six(floor_v), "White floor")] if spectrum.spectrum_valid else [],
         x_bands=[
             Band(_six(spectrum.frequency_hz[first] - half_bin_hz), _six(spectrum.frequency_hz[last] + half_bin_hz))
             for first, last in _runs(spectrum.line_mask)
@@ -638,7 +638,7 @@ def plot_interferer(interferer: AnalysisInterferer) -> Plot:
         "interferer",
         "Interferer frequency from its aliases",
         "Candidate frequency (Hz)",
-        "Lines over the floor, summed over the rates (dB)",
+        "Lines over floor, summed (dB)",
         frequency_hz,
         {"Score": score_db},
         x_markers=[Marker(_six(found_hz), f"{found_hz / 1e6:.3f} MHz")],

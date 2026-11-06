@@ -283,8 +283,8 @@ def test_a_code_spectrum_is_input_referred_with_its_floor_and_lines(
 ) -> None:
     """A fixed-input capture's code spectrum in V/√Hz through its LSB, on log axes: an interferer
     folded to its alias (8.15 MHz at 2, 6 and 10 MS/s: 150 kHz, 2.15 MHz, 1.85 MHz) shaded among
-    its lines, the white floor marked with the variance's split; a stuck capture has neither;
-    drawn by both renderers' rules on the analysis plots' canvas."""
+    its lines, the white floor marked and the variance's split in the title; a stuck capture has
+    neither; drawn by both renderers' rules on the analysis plots' canvas."""
     for rate_hz, alias_hz in ((2.0e6, 150e3), (6.0e6, 2.15e6), (10.0e6, 1.85e6)):
         capture = adc_measurement(tone_codes(rate_hz, tone_hz=8.15e6, count=16_384), sample_rate_hz=rate_hz)
         spectrum = analyze_code_spectrum(capture)
@@ -297,9 +297,10 @@ def test_a_code_spectrum_is_input_referred_with_its_floor_and_lines(
         assert any(band.low <= alias_hz <= band.high for band in figure.x_bands), (rate_hz, figure.x_bands)
         (floor,) = figure.y_markers
         assert floor.at == pytest.approx(math.sqrt(spectrum.white_floor_lsb2_per_hz) * spectrum.input_lsb_v, rel=1e-5)
-        assert floor.label == (
-            f"White floor; total {spectrum.total_rms_lsb:.2f} = lines {spectrum.narrowband_rms_lsb:.2f}"
-            f" ⊕ broadband {spectrum.broadband_rms_lsb:.2f} LSB rms"
+        assert floor.label == "White floor"
+        assert figure.title == (
+            f"Output-code noise: {spectrum.total_rms_lsb:.2f} LSB rms = lines {spectrum.narrowband_rms_lsb:.2f}"
+            f" ⊕ white {spectrum.broadband_rms_lsb:.2f}"
         )
     monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
     (png, _pdf) = render(figure, tmp_path / "noise_spectrum")
@@ -307,7 +308,7 @@ def test_a_code_spectrum_is_input_referred_with_its_floor_and_lines(
     stuck = plots.plot_noise_spectrum(
         analyze_code_spectrum(adc_measurement(np.full(16_384, 2_000), sample_rate_hz=2.0e6))
     )
-    assert stuck.y_markers == [] and stuck.x_bands == []
+    assert stuck.y_markers == [] and stuck.x_bands == [] and stuck.title == "Output-code noise"
     # nothing to draw on the log axes, as matplotlib says
     with pytest.warns(UserWarning, match="no positive values"):
         assert render(stuck, tmp_path / "stuck")
