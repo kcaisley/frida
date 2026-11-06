@@ -495,7 +495,7 @@ def plot_reference_r_out(reference: AnalysisReference) -> Plot:
 
 
 # ---- the lab studies' figures (flow.adc.targets, the scans' tests), none of them the record's: each
-# from the results of its captures, one curve each as the record's
+# from the results of its captures, one curve or one map as the record's
 
 
 @plot
@@ -699,19 +699,19 @@ def plot_cdac_settling_last(settling: AnalysisCdacSettling) -> Plot:
 @plot
 def plot_power_analog(waveform: AnalysisPowerWaveform) -> Plot:
     """The analog supply's (VDD_A's) power over one simulated conversion, as ``_power`` draws a rail's."""
-    return _power(waveform, 0, "power_analog", "VDD_A")
+    return _power("power_analog", waveform, 0, "VDD_A")
 
 
 @plot
 def plot_power_digital(waveform: AnalysisPowerWaveform) -> Plot:
     """The digital supply's (VDD_D's) power over one simulated conversion."""
-    return _power(waveform, 1, "power_digital", "VDD_D")
+    return _power("power_digital", waveform, 1, "VDD_D")
 
 
 @plot
 def plot_power_dac(waveform: AnalysisPowerWaveform) -> Plot:
     """The DAC reference's (VDD_DAC's) power over one simulated conversion."""
-    return _power(waveform, 2, "power_dac", "VDD_DAC")
+    return _power("power_dac", waveform, 2, "VDD_DAC")
 
 
 @plot
@@ -809,7 +809,7 @@ def _peaks(x: np.ndarray, y: np.ndarray, runs: int = 2000) -> tuple[list[float],
     return np.asarray(x)[picks].tolist(), np.asarray(y)[picks].tolist()
 
 
-def _power(waveform: AnalysisPowerWaveform, rail: int, name: str, supply: str) -> Plot:
+def _power(name: str, waveform: AnalysisPowerWaveform, rail: int, supply: str) -> Plot:
     """One rail's instantaneous power from INIT's rise over one conversion (``analyze_power_waveform``,
     its ``rail``-th: VDD_A, VDD_D, VDD_DAC), its static and active averages marked and the sampling
     phase (SAMP high) shaded; the rest of the timing is ``plot_sequencer``'s."""

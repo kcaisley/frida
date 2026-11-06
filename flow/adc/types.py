@@ -1,6 +1,7 @@
 """The ADC's analysis results (``flow.adc.analysis``), pure data: a capture's transfer and
-linearity, its ramp and code statistics, its noise and the noise's spectrum, an interferer and the
-operating conditions, its dynamic performance and power, its internal waveforms and timing closure,
+linearity, its ramp and code statistics, its noise and the noise's spectrum, an interferer, the
+operating conditions and their maps over sequence and rate (one ADC's or a chip's), the sequence its
+testbench programs, its dynamic performance and power, its internal waveforms and timing closure,
 the weights a calibration gives (``AnalysisCalibration``, the extracted weights' type; each
 calibration's own type a subclass of it); the campaign's studies: the noise over the input and at a
 fixed input, Hsu's integrated error over the rate, the ENOB ladder, the energy over the input and the

@@ -6,8 +6,9 @@ capture's parameters, never from literals.
 - A capture's conversions: its static transfer, endpoint and code-density linearity, a repeated
   ramp's transfer and linearity (``analyze_ramp``), the codes at static inputs, a fixed input's
   noise and the noise's spectrum, an interferer unfolded from several rates, the plausible
-  operating conditions over sequence and rate, a sine's dynamic performance, the decision paths and
-  the supply power. Where an analysis takes a calibration, its weights decode the stored decisions
+  operating conditions over sequence and rate and their maps (``analyze_sequence_map``: one ADC's,
+  or a chip's together), the sequence its testbench programs (``analyze_sequencer``), a sine's
+  dynamic performance, the decision paths and the supply power. Where an analysis takes a calibration, its weights decode the stored decisions
   in place of the stored codes (``_decode``).
 - A simulation's internal waveforms: the held voltages after sampling, the CDAC's settling, one
   conversion's rail power, and the timing closure of every decision with its summary.
