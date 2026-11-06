@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Sequence
 from pathlib import Path
 
 import hdl21 as h
@@ -25,7 +26,6 @@ from flow.analysis.io import (
     write_analysis,
 )
 from flow.analysis.plots import (
-    plot_adc_calibration_weights,
     plot_adc_cdac_settling,
     plot_adc_code_distribution,
     plot_adc_code_noise,
@@ -75,8 +75,15 @@ from .analysis import (
     analyze_timing_summary,
     analyze_transfer,
 )
-from .plots import plot_code_density, plot_dnl, plot_dnl_calibrated, plot_inl, plot_inl_calibrated
-from .types import AnalysisRamp
+from .plots import (
+    plot_calibration_weights,
+    plot_code_density,
+    plot_dnl,
+    plot_dnl_calibrated,
+    plot_inl,
+    plot_inl_calibrated,
+)
+from .types import AnalysisCalibration, AnalysisRamp
 
 
 def _sim_run(target: str) -> Path:
@@ -192,6 +199,16 @@ def _ramp_figures(ramp: AnalysisRamp, output_dir: Path, stem: str) -> list[Path]
     decoding = "design" if design else ramp.decoding
     return [
         path for name, figure in figures.items() for path in render(figure, output_dir / f"{stem}_{name}_{decoding}")
+    ]
+
+
+def _weight_figures(calibrations: Sequence[AnalysisCalibration], output_dir: Path, stem: str) -> list[Path]:
+    """Each calibration's weights' error against the design's, as the record draws the extracted
+    array's, into ``<stem>_<method>``."""
+    return [
+        path
+        for calibration in calibrations
+        for path in render(plot_calibration_weights(calibration), output_dir / f"{stem}_{calibration.method}")
     ]
 
 
@@ -410,9 +427,7 @@ def behavioral_calibration_study() -> tuple[Path, ...]:
             analyze_ramp(check, calibration=calibration) for calibration in (extracted, *learned)
         ]
         stem = f"frida2_3layer_behavioral_{train_path.stem.removesuffix('_train')}"
-        artifacts.extend(
-            plot_adc_calibration_weights((extracted, *learned), output_path=output_dir / f"{stem}_weights")
-        )
+        artifacts.extend(_weight_figures((extracted, *learned), output_dir, f"{stem}_weights"))
         for ramp in ramps:
             artifacts.extend(_ramp_figures(ramp, output_dir, stem))
     return tuple(artifacts)
@@ -444,7 +459,7 @@ def behavioral_architecture_study() -> tuple[Path, ...]:
             stem = f"{variant_dir.name}_{train_path.stem.removesuffix('_train')}"
             for ramp in ramps:
                 artifacts.extend(_ramp_figures(ramp, output_dir, stem))
-            artifacts.extend(plot_adc_calibration_weights(learned, output_path=output_dir / f"{stem}_weights"))
+            artifacts.extend(_weight_figures(learned, output_dir, f"{stem}_weights"))
     return tuple(artifacts)
 
 
@@ -633,7 +648,7 @@ def calibration_study() -> tuple[Path, ...]:
 
     stem = f"adc{adc_index:02d}"
     return (
-        *plot_adc_calibration_weights(calibrations, output_path=output_dir / f"{stem}_calibration_weights"),
+        *_weight_figures(calibrations, output_dir, f"{stem}_calibration_weights"),
         *plot_adc_ramp_transfer(ramps, output_path=output_dir / f"{stem}_calibration_transfer"),
         *(path for ramp in ramps for path in _ramp_figures(ramp, output_dir, f"{stem}_calibration")),
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import inspect
 import math
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -18,7 +19,13 @@ from flow.adc import plots
 from flow.adc.analysis import _mismatch_statistics, analyze_decision_paths, analyze_mismatch_prediction, analyze_ramp
 from flow.adc.params import FINAL_DECISIONS, PELGROM_AXIS, UNIT_MISMATCH
 from flow.adc.test_analysis import adc_measurement, adc_ramp_measurement
-from flow.adc.types import AnalysisCalibration, AnalysisCalibration2, AnalysisMismatch, AnalysisReference
+from flow.adc.types import (
+    AnalysisCalibration,
+    AnalysisCalibration1,
+    AnalysisCalibration2,
+    AnalysisMismatch,
+    AnalysisReference,
+)
 from flow.analysis.types import MeasAdc
 from flow.plot import render
 
@@ -136,6 +143,32 @@ def test_each_decoding_a_lab_study_compares_is_drawn_by_its_weights(
         assert [path.suffix for path in paths] == [".png", ".svg", ".pdf"]
         assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
         assert function(decoded[1]).y_label.split(" (")[0] in paths[1].read_text()
+
+
+def test_the_weight_figure_names_its_weights_and_shades_those_not_measured() -> None:
+    """The weights' error against the design's, the extracted array's (the record's) or a
+    calibration's (a lab study's), each named by its weights; the decisions whose weight was not
+    measured (the terminal one, a calibration's unresolved ones) shaded, the first band labelled."""
+    measurement = adc_ramp_measurement()
+    extracted = calibration_of(measurement, AnalysisCalibration, "extracted")
+    mask = np.ones(len(extracted.nominal_weights), dtype=np.bool_)
+    mask[-1] = False
+    last = len(mask) - 1
+    figure = plots.plot_calibration_weights(replace(extracted, measured_weight_mask=mask))
+    assert figure.title == "Weight error of the extracted array" and list(figure.series) == ["Extracted weights"]
+    assert figure.x == [float(decision) for decision in range(last + 1)] and figure.x_ticks == "step"
+    assert figure.x_bands == [pipeline.Band(last - 0.5, last + 0.5, "Not measured")]
+    # the first two decisions' weights off the design's, one up and one down
+    (error,) = figure.series.values()
+    assert error[0] > 0 > error[1]
+    mask[5:8] = False
+    calibration1 = replace(calibration_of(measurement, AnalysisCalibration1, "calibration1"), measured_weight_mask=mask)
+    calibrated = plots.plot_calibration_weights(calibration1)
+    assert calibrated.title == "Weight error found by calibration 1" and list(calibrated.series) == ["Calibration 1"]
+    assert [(band.low, band.high, band.label) for band in calibrated.x_bands] == [
+        (4.5, 7.5, "Not measured"),
+        (last - 0.5, last + 0.5, ""),
+    ]
 
 
 def test_the_decision_paths_are_drawn_weighted_by_their_conversions() -> None:

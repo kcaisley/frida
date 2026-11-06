@@ -51,7 +51,6 @@ from flow.analysis.plots import (
     plot_adc_power_sweep,
     plot_adc_power_waveform,
     plot_adc_ramp_transfer,
-    plot_adc_ramp_weights,
     plot_adc_transfer,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
@@ -838,8 +837,8 @@ def test_adc_transfer_and_noise_plots(tmp_path: Path) -> None:
 
 
 def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
-    """Keep ramp plotters independent of measurements and CDAC fitting (the code density, INL and
-    DNL are the ADC's specs: flow/adc/test_plots.py)."""
+    """Keep ramp plotters independent of measurements and CDAC fitting (the code density, INL, DNL
+    and weights are the ADC's specs: flow/adc/test_plots.py)."""
 
     nominal = adc.analyze_ramp(adc_ramp_measurement())
     calibrated = replace(
@@ -849,20 +848,12 @@ def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
         transfer_mean_dout=nominal.transfer_mean_dout + 1.0,
     )
     ramps = (nominal, calibrated)
-    outputs = (
-        plot_adc_ramp_transfer(ramps, output_path=tmp_path / "ramp_transfer"),
-        plot_adc_ramp_weights(nominal, calibrated, output_path=tmp_path / "ramp_weights"),
-    )
-    for paths in outputs:
-        assert_plot_formats(paths)
-        svg = read_svg(paths)
-        if "weights" in paths[0].stem:
-            assert "Ideal" in svg
-            assert "Direction-matched measured" in svg
-        else:
-            assert "Ideal weights" in svg
-            assert "CDAC S-curve weights" in svg
-        assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
+    paths = plot_adc_ramp_transfer(ramps, output_path=tmp_path / "ramp_transfer")
+    assert_plot_formats(paths)
+    svg = read_svg(paths)
+    assert "Ideal weights" in svg
+    assert "CDAC S-curve weights" in svg
+    assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
 
 
 def test_code_noise_spectrum_and_interferer_plots(tmp_path: Path) -> None:

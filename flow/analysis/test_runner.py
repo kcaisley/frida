@@ -389,9 +389,11 @@ def test_adc_calibration_runner_combines_three_common_results(
     monkeypatch.setattr(adc_targets, "analyze_calibration2", lambda _m, *, ramp: calibration("calibration2"))
     monkeypatch.setattr(adc_targets, "analyze_calibration3", lambda _m, *, ramp: calibration("calibration3"))
     plotted = []
-    for name in ("plot_adc_calibration_weights", "plot_adc_ramp_transfer"):
-        monkeypatch.setattr(adc_targets, name, lambda analysis, **_kwargs: plotted.append(analysis) or ())
-    # the ramp's figures are the record's specs, each decoding's own, drawn by flow.plot.render
+    monkeypatch.setattr(
+        adc_targets, "plot_adc_ramp_transfer", lambda analysis, **_kwargs: plotted.append(analysis) or ()
+    )
+    # the ramp's figures and the weights are the record's specs, each decoding's or calibration's
+    # own, drawn by flow.plot.render
     rendered = []
     monkeypatch.setattr(adc_targets, "render", lambda plot, stem: rendered.append((plot, stem.name)) or ())
     output_dir = tmp_path / "output"
@@ -419,7 +421,12 @@ def test_adc_calibration_runner_combines_three_common_results(
         ("inl_calibrated", "Calibration 2"),
         ("inl_calibrated", "Calibration 3"),
     ]
-    assert len(rendered) == 3 * 4
+    assert [(plot.title, *plot.series) for plot, stem in rendered if plot.name == "calibration_weights"] == [
+        ("Weight error found by calibration 1", "Calibration 1"),
+        ("Weight error found by calibration 2", "Calibration 2"),
+        ("Weight error found by calibration 3", "Calibration 3"),
+    ]
+    assert len(rendered) == 3 + 3 * 4
     assert not list(output_dir.iterdir())
 
 

@@ -24,7 +24,7 @@ flowchart TB
         adc --> power["adc.analyze_power"] --> power_out["adc.AnalysisPower"]
         dynamic_out --> dynamic_plot["plot_adc_dynamic / plot_adc_dynamic_sweep (list)"]
         transfer_out --> transfer_plot["plot_adc_transfer"]
-        ramp_out --> ramp_plots["plot_adc_ramp_transfer / _weights"]
+        ramp_out --> ramp_plots["plot_adc_ramp_transfer"]
         ramp_out --> ramp_specs["adc.plot_code_density / plot_inl / plot_dnl (each decoding; _calibrated for weights other than the design's)"]
         distribution_out --> distribution_plot["plot_adc_code_distribution"]
         noise_out --> noise_plots["plot_adc_noise_sweep / _distribution_sweep / _distribution_grid (lists)"]
@@ -80,7 +80,7 @@ flowchart TB
         cal_adc["MeasAdc"]
         cal_adc --> cal2["adc.analyze_calibration2 (+ ramp)"] --> cal_out
         cal_adc --> cal3["adc.analyze_calibration3 (+ ramp)"] --> cal_out
-        cal_out --> cal_weights_plot["plot_adc_calibration_weights (list)"]
+        cal_out --> cal_weights_plot["adc.plot_calibration_weights (each calibration; the unmeasured decisions shaded)"]
         cal_out --> redundancy["adc.analyze_redundancy"] --> redundancy_out["adc.AnalysisRedundancy"] --> redundancy_plot["adc.plot_redundancy"]
         cal_out --> calibrated["dynamic / transfer / ramp / code density / distribution (+ calibration)"]
     end
@@ -196,7 +196,7 @@ Consolidated acquisition directories can contain both DC and sine measurements. 
 
 Internal comparator/SAR/CDAC plots and seven clock plots require a simulated `MeasAdc` and its saved internal nets. The physical sequence sweep uses the stored codes and readout checks of the physical `MeasAdc` captures. Outputs are flat. Physical captures and PEX cases go through the same per-capture noise analysis and the same operating-condition analysis. The operating-condition analysis matches each capture to its noise result by sequence and symbol rate; its reference code is the median mean code over every sequence at the lowest symbol rate, and a capture is shifted when its mean leaves that reference by more than five times the median code noise there (at least four codes). The PEX subset covers seven of the 29 physical recipes at 1600 MBd. Saved patterns and decoded samples remain unchanged. Fixed-input ENOB is explicitly noise-equivalent; spectral ENOB is shown separately. A fixed-input capture's codes are also a waveform sampled at the conversion rate: `adc.analyze_code_spectrum` splits their variance into lines above the median white floor and the broadband remainder, and keeps the line-only code sequence. With a calibration result it decodes the stored BOUT with that calibration's weights instead of using DOUT, and records the decoding; `adc.analyze_interferer` unfolds one interferer's aliases at several rates to its true frequency. Search one recipe whose rates were captured close in time: a drifting interferer smears across a long campaign, and a fixed line then wins. Low spread alone does not establish correct conversion or a working sequence.
 
-Reusable plotting functions need not all appear in these selected studies. `plot_adc_dynamic` is retained for individual spectral checks in the rate study. `plot_adc_noise_distribution_grid` requires an all-ADC comparison dataset; `plot_adc_sampling_noise` is a separate internal held-voltage noise study; `plot_adc_power_waveform` requires simulated rail-current traces. `plot_adc_decision_paths` is the line alternative to the retained trajectory density, and selects one conversion, one final code, or all of them for display. `plot_adc_ramp_weights` is the older alternative to the common calibration-weight comparison. Measurement-versus-simulation and cross-channel comparisons pass several results to the same plotter. Their functions and tests remain; removing unused imports is not a reason to delete them.
+Reusable plotting functions need not all appear in these selected studies. `plot_adc_dynamic` is retained for individual spectral checks in the rate study. `plot_adc_noise_distribution_grid` requires an all-ADC comparison dataset; `plot_adc_sampling_noise` is a separate internal held-voltage noise study; `plot_adc_power_waveform` requires simulated rail-current traces. `plot_adc_decision_paths` is the line alternative to the retained trajectory density, and selects one conversion, one final code, or all of them for display. Measurement-versus-simulation and cross-channel comparisons pass several results to the same plotter. Their functions and tests remain; removing unused imports is not a reason to delete them.
 
 Simulated waveforms use the same `Wave` as scope captures. ADC comparator internals use the `comp.` scope, for example `comp.latch_p`, and buses one key per bit, for example `dac_botplate_n_diff[15]`. Derived input differences are calculated from the saved P/N voltages.
 

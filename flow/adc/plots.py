@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from flow.pipeline import Plot, plot
+from flow.pipeline import Band, Plot, plot
 
 from .params import FINAL_DECISIONS, LADDER, MAX_PATHS
 from .types import (
@@ -339,15 +339,26 @@ def plot_energy_dac_input(energy: AnalysisEnergy) -> Plot:
 
 @plot
 def plot_calibration_weights(calibration: AnalysisCalibration) -> Plot:
-    """The extracted array's weights' error against the design's, a decision each."""
+    """The weights' error against the design's, a decision each: the extracted array's (the
+    record's) or a calibration's (a lab study's), named by its weights; the decisions whose weight
+    was not measured but kept at the design's ratios shaded (the terminal decision, a calibration's
+    unresolved tail)."""
+    label = _decoding_label(calibration.method)
+    unmeasured = _runs(~np.asarray(calibration.measured_weight_mask, dtype=bool))
     return _plot(
         "calibration_weights",
-        "Weight error of the extracted array",
+        "Weight error of the extracted array"
+        if calibration.method == "extracted"
+        else f"Weight error found by {label.lower()}",
         "Decision (B0 first)",
         "Weight error (%)",
         range(len(calibration.nominal_weights)),
-        {"Extracted weights": 100.0 * (calibration.calibrated_weights / calibration.nominal_weights - 1.0)},
+        {label: 100.0 * (calibration.calibrated_weights / calibration.nominal_weights - 1.0)},
         x_ticks="step",
+        x_bands=[
+            Band(first - 0.5, last + 0.5, "Not measured" if index == 0 else "")
+            for index, (first, last) in enumerate(unmeasured)
+        ],
     )
 
 
@@ -484,6 +495,12 @@ def _decoding_label(decoding: str) -> str:
     if decoding == "extracted":
         return "Extracted weights"
     return f"Calibration {decoding.removeprefix('calibration')}"
+
+
+def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
+    """The first and the last index of each run of True in ``mask``, in order."""
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], np.asarray(mask, dtype=np.int8), [0]))))
+    return [(int(start), int(stop) - 1) for start, stop in zip(edges[::2], edges[1::2], strict=True)]
 
 
 def _log_binned(frequency_hz: np.ndarray, density: np.ndarray, bins: int = 300) -> tuple[list[float], list[float]]:

@@ -54,14 +54,13 @@ from flow.adc.analysis import (
 )
 from flow.adc.model import AdcBehavioralParams, CdacBehavioralParams
 from flow.adc.params import LADDER, LADDER_NAMES, Params, TbParams
-from flow.adc.plots import plot_redundancy
+from flow.adc.plots import plot_calibration_weights, plot_redundancy
 from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.adc.subckt import calc_ideal_capacitances
 from flow.adc.sweep import _extracted, _ladder, campaign
 from flow.adc.types import AnalysisMismatch, AnalysisRedundancy
 from flow.analysis.calc import calc_drawn_linearity, calc_paths
 from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_decisions, analyze_cdac_transition
-from flow.analysis.plots import plot_adc_calibration_weights
 from flow.analysis.test_cdac import comparator_offset
 from flow.analysis.types import (
     AnalysisCdacCapMismatch,
@@ -2159,13 +2158,18 @@ def test_threshold_calibration_uses_common_weight_plot(
     threshold_analysis,
     tmp_path,
 ) -> None:
-    """Render calibration 3 through the method-independent plotting API."""
+    """Render calibration 3 on the record's weight figure (the extracted array's there), named by
+    it, its unresolved tail (kept at the design's ratios) shaded."""
 
     result, _, _ = threshold_analysis
-    plot_paths = plot_adc_calibration_weights(
-        (result,),
-        output_path=tmp_path / "direct_threshold_calibration",
-    )
+    figure = plot_calibration_weights(result)
+    assert list(figure.series) == ["Calibration 3"] and figure.title == "Weight error found by calibration 3"
+    measured = int(np.count_nonzero(result.measured_weight_mask))
+    decisions = len(result.nominal_weights)
+    assert [(band.low, band.high, band.label) for band in figure.x_bands] == [
+        (measured - 0.5, decisions - 0.5, "Not measured")
+    ]
+    plot_paths = render(figure, tmp_path / "direct_threshold_calibration")
     assert tuple(path.suffix for path in plot_paths) == (".pdf",)
     assert plot_paths[0].is_file()
     assert plot_paths[0].stat().st_size > 0
