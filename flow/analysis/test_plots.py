@@ -14,24 +14,10 @@ from matplotlib import colors as mcolors
 from matplotlib.ticker import FixedLocator
 
 import flow.analysis.plots as analysis_plots
-from flow import comp
+from flow import adc, comp
 from flow.adc.sim import symbol160_init4_samp20_comp11111100_logic11000011
-from flow.analysis.adc import (
-    analyze_adc_cdac_settling,
-    analyze_adc_code_density_nonlinearity,
-    analyze_adc_code_distribution,
-    analyze_adc_code_spectrum,
-    analyze_adc_comp_out_edge_eye,
-    analyze_adc_comparator_edge_eye,
-    analyze_adc_decision_paths,
-    analyze_adc_dynamic,
-    analyze_adc_interferer,
-    analyze_adc_noise,
-    analyze_adc_power,
-    analyze_adc_power_waveform,
-    analyze_adc_ramp,
-    analyze_adc_transfer,
-)
+from flow.adc.test_analysis import adc_cdac_settling_measurement, adc_measurement, adc_ramp_measurement, tone_codes
+from flow.analysis.adc import analyze_adc_comp_out_edge_eye, analyze_adc_comparator_edge_eye
 from flow.analysis.plots import (
     CURVE_COLORS,
     DENSITY_COLOR_MAP,
@@ -81,7 +67,6 @@ from flow.analysis.plots import (
     style_grid,
     style_measurement_text,
 )
-from flow.analysis.test_adc import adc_cdac_settling_measurement, adc_measurement, adc_ramp_measurement, tone_codes
 from flow.analysis.test_types import cdac_physical
 from flow.analysis.types import (
     AnalysisCdacCapMismatch,
@@ -222,8 +207,8 @@ def test_serdes_symbol_eye_folds_nonconstant_contexts(tmp_path: Path, monkeypatc
 def test_adc_comparator_response_plot_overlays_histograms_and_counts_held_decisions(
     tmp_path: Path, monkeypatch
 ) -> None:
+    from flow.adc.test_analysis import adc_timing_measurement
     from flow.analysis.adc import analyze_adc_comparator_response
-    from flow.analysis.test_adc import adc_timing_measurement
 
     figures = []
     save_figure = analysis_plots.save_figure
@@ -256,7 +241,7 @@ def test_adc_comparator_response_plot_overlays_histograms_and_counts_held_decisi
 
 
 def test_adc_comparator_edge_eye_uses_every_conversion_and_absolute_xc(tmp_path, monkeypatch) -> None:
-    from flow.analysis.test_adc import adc_timing_measurement
+    from flow.adc.test_analysis import adc_timing_measurement
 
     measurement = adc_timing_measurement()
     assert measurement.wave is not None
@@ -329,10 +314,9 @@ def test_adc_comparator_response_uses_per_decision_sample_fractions(tmp_path, mo
 
 
 def test_sampling_noise_histogram_has_common_voltage_bins_and_axes(tmp_path, monkeypatch) -> None:
-    from flow.analysis.adc import analyze_adc_sampling_noise
-    from flow.analysis.test_adc import adc_sampling_measurement
+    from flow.adc.test_analysis import adc_sampling_measurement
 
-    analysis = analyze_adc_sampling_noise(adc_sampling_measurement())
+    analysis = adc.analyze_sampling_noise(adc_sampling_measurement())
     shifted = replace(analysis, held_p_v=analysis.held_p_v + 0.01)
     captured = []
 
@@ -499,7 +483,7 @@ def test_cdac_settling_plot_separates_saved_bit_cycles_and_uses_millivolts(tmp_p
             symbol_rate=1.6e9,
         ),
     )
-    analysis = replace(analyze_adc_cdac_settling(measurement), active_conversion_rate_hz=10e6)
+    analysis = replace(adc.analyze_cdac_settling(measurement), active_conversion_rate_hz=10e6)
     save = analysis_plots.save_figure
 
     def check_dotted_nodes(fig, output_path):
@@ -841,17 +825,17 @@ def test_adc_transfer_noise_and_linearity_plots(tmp_path: Path) -> None:
     outputs = (
         plot_adc_transfer(
             [msmt],
-            analyze_adc_transfer([msmt]),
+            adc.analyze_transfer([msmt]),
             output_path=tmp_path / "transfer",
         ),
         plot_adc_code_distribution(
             [msmt],
-            analyze_adc_code_distribution([msmt]),
+            adc.analyze_code_distribution([msmt]),
             output_path=tmp_path / "noise",
         ),
         plot_adc_static_nonlinearity(
             msmt,
-            analyze_adc_code_density_nonlinearity(msmt),
+            adc.analyze_code_density_nonlinearity(msmt),
             output_path=tmp_path / "nonlin",
         ),
     )
@@ -862,7 +846,7 @@ def test_adc_transfer_noise_and_linearity_plots(tmp_path: Path) -> None:
 def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
     """Keep ramp plotters independent of measurements and CDAC fitting."""
 
-    nominal = analyze_adc_ramp(adc_ramp_measurement())
+    nominal = adc.analyze_ramp(adc_ramp_measurement())
     calibrated = replace(
         nominal,
         decoding="calibration1",
@@ -897,7 +881,7 @@ def test_code_noise_spectrum_and_interferer_plots(tmp_path: Path) -> None:
         for index, rate in enumerate((2.0e6, 6.0e6, 10.0e6))
     ]
     stuck = adc_measurement(np.full(16_384, 2_000), sample_rate_hz=2.0e6, logic_phase_delay_symbols=1, observed_adc=2)
-    spectra = [analyze_adc_code_spectrum(measurement) for measurement in (*measurements, stuck)]
+    spectra = [adc.analyze_code_spectrum(measurement) for measurement in (*measurements, stuck)]
 
     assert_plot_formats(
         plot_adc_code_noise(measurements[0], spectra[0], title="Code noise", output_path=tmp_path / "code_noise")
@@ -905,7 +889,7 @@ def test_code_noise_spectrum_and_interferer_plots(tmp_path: Path) -> None:
     assert_plot_formats(plot_adc_code_spectrum(spectra, title="Code spectra", output_path=tmp_path / "code_spectra"))
     with pytest.raises(ValueError, match="name every spectrum"):
         plot_adc_code_spectrum(spectra, labels=["one"], title="Code spectra", output_path=tmp_path / "bad")
-    interferer = analyze_adc_interferer([*measurements, stuck], spectra=spectra)
+    interferer = adc.analyze_interferer([*measurements, stuck], spectra=spectra)
     assert_plot_formats(plot_adc_interferer([interferer], title="Interferer", output_path=tmp_path / "interferer"))
 
 
@@ -923,8 +907,8 @@ def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:
                 logic_phase_delay_symbols=index,
             )
         )
-    dynamic = analyze_adc_dynamic(measurements[0])
-    sweep = [analyze_adc_dynamic(measurement) for measurement in measurements]
+    dynamic = adc.analyze_dynamic(measurements[0])
+    sweep = [adc.analyze_dynamic(measurement) for measurement in measurements]
     assert_plot_formats(
         plot_adc_dynamic(
             measurements[0],
@@ -940,7 +924,7 @@ def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:
         )
     )
 
-    decisions = analyze_adc_decision_paths(measurements[0])
+    decisions = adc.analyze_decision_paths(measurements[0])
     paths = plot_adc_decision_paths(
         measurements[0],
         decisions,
@@ -982,7 +966,7 @@ def test_decision_path_density_holds_each_discrete_estimate(
     """Do not invent linearly interpolated SAR estimates between decisions."""
 
     msmt = adc_measurement([100, 101, 102])
-    analysis = analyze_adc_decision_paths(msmt)
+    analysis = adc.analyze_decision_paths(msmt)
     original_histogram2d = np.histogram2d
     sampled_estimates = []
     rendered_polygons = []
@@ -1064,7 +1048,7 @@ def test_decision_path_density_marks_unresolved_code_dispersion(
     """Report an all-one-code capture as unresolved rather than noiseless."""
 
     measurement = adc_measurement([2_048] * 10)
-    analysis = analyze_adc_decision_paths(measurement)
+    analysis = adc.analyze_decision_paths(measurement)
     captured = {}
 
     def save(fig, output_path):
@@ -1111,7 +1095,7 @@ def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
     # Results from different ADCs share one plotter instead of a comparison type.
     dynamic_paths = plot_adc_noise_sweep(
         measurements,
-        [analyze_adc_noise(measurement) for measurement in measurements],
+        [adc.analyze_noise(measurement) for measurement in measurements],
         series_labels=("ADC00", "ADC01"),
         output_path=tmp_path / "dynamic_rate",
     )
@@ -1126,7 +1110,7 @@ def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
     power_outputs = [
         plot_adc_power_sweep(
             (measurement,),
-            [analyze_adc_power(measurement)],
+            [adc.analyze_power(measurement)],
             output_path=tmp_path / f"power_adc{measurement.param.observed_adc:02d}",
         )
         for measurement in measurements
@@ -1201,7 +1185,7 @@ def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> No
         ),
     )
     assert measurement.wave is not None
-    analysis = [analyze_adc_power(measurement)]
+    analysis = [adc.analyze_power(measurement)]
 
     rate_paths = plot_adc_power_sweep(
         (measurement,),
@@ -1209,7 +1193,7 @@ def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> No
         output_path=tmp_path / "spice_ideal_power_vs_conversion_rate",
     )
     waveform_paths = plot_adc_power_waveform(
-        analyze_adc_power_waveform(measurement, power=analysis[0]),
+        adc.analyze_power_waveform(measurement, power=analysis[0]),
         output_path=tmp_path / "spice_ideal_10msps_supply_power",
     )
 
@@ -1242,7 +1226,7 @@ def test_noise_sweep_plot_uses_stable_timing_colors(tmp_path: Path) -> None:
     ]
     paths = plot_adc_noise_sweep(
         measurements,
-        [analyze_adc_noise(measurement) for measurement in measurements],
+        [adc.analyze_noise(measurement) for measurement in measurements],
         output_path=tmp_path / "noise_sweep",
     )
     assert_plot_formats(paths)
@@ -1271,7 +1255,7 @@ def test_noise_distribution_sweep_uses_one_count_scale(tmp_path: Path) -> None:
     ]
     paths = plot_adc_noise_distribution_sweep(
         measurements,
-        [analyze_adc_noise(measurement) for measurement in measurements],
+        [adc.analyze_noise(measurement) for measurement in measurements],
         output_path=tmp_path / "noise_distributions",
     )
 
@@ -1318,7 +1302,7 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
         for adc_index in range(16)
     )
     measurements = [measurement for group in measurement_groups for measurement in group]
-    analyses = [analyze_adc_noise(measurement) for measurement in measurements]
+    analyses = [adc.analyze_noise(measurement) for measurement in measurements]
     captured = {}
 
     def save(fig, output_path):
@@ -1453,7 +1437,7 @@ def test_noise_distribution_grid_shares_axes_across_all_adcs(
 
 def test_rate_distributions_keep_rare_distant_codes_and_actual_rates(tmp_path, monkeypatch):
     measurements = [adc_measurement([100] * 1000 + [1000], sample_rate_hz=1e6)]
-    analysis = [analyze_adc_noise(measurement) for measurement in measurements]
+    analysis = [adc.analyze_noise(measurement) for measurement in measurements]
     figures = []
     monkeypatch.setattr(analysis_plots, "save_figure", lambda fig, output_path: figures.append(fig) or ())
     plot_adc_noise_distribution_sweep(measurements, analysis, rate_axis="sampling", output_path=tmp_path / "codes")
@@ -1467,7 +1451,7 @@ def test_rate_distributions_keep_rare_distant_codes_and_actual_rates(tmp_path, m
 
 def test_noise_rate_plot_keeps_distinct_sequence_labels_and_large_spreads(tmp_path, monkeypatch):
     measurements = [adc_measurement([0, 100], sample_rate_hz=1e6), adc_measurement([100, 101], sample_rate_hz=2e6)]
-    analysis = [analyze_adc_noise(measurement) for measurement in measurements]
+    analysis = [adc.analyze_noise(measurement) for measurement in measurements]
     figures = []
     monkeypatch.setattr(analysis_plots, "save_figure", lambda fig, output_path: figures.append(fig) or ())
     plot_adc_noise_sweep(

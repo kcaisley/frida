@@ -21,19 +21,18 @@ import flow.analysis as analysis_api
 from flow import adc
 from flow.adc import targets as adc_targets
 from flow.adc.sim import SEQUENCES
-from flow.analysis.adc import analyze_adc_ramp
+from flow.adc.test_analysis import adc_measurement, adc_ramp_measurement
 from flow.analysis.io import read_analysis
-from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement
 from flow.cdac.caparray import targets as caparray_targets
 
 
 def test_root_api_exposes_domain_analyses_not_campaign_combiners() -> None:
-    """Keep the package root focused on reusable measurement analyses."""
+    """Keep the package root focused on reusable measurement analyses: the ADC's are its block's
+    (``adc.analyze_ramp``), re-exported by none."""
 
-    assert hasattr(analysis_api, "analyze_adc_code_distribution")
-    assert hasattr(analysis_api, "analyze_adc_code_density_nonlinearity")
-    assert hasattr(analysis_api, "analyze_adc_ramp")
     assert hasattr(analysis_api, "analyze_cdac_cap_mismatch")
+    assert not hasattr(analysis_api, "analyze_adc_ramp")
+    assert not hasattr(analysis_api, "analyze_adc_code_distribution")
     assert not hasattr(analysis_api, "combine_adc_noise_comparison")
     assert not hasattr(analysis_api, "classify_comp_common_mode_validity")
     assert not hasattr(analysis_api, "analyze_adc_noise_sweep")
@@ -163,7 +162,7 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     clock_count = 7
     selected_cases = []
 
-    from flow.analysis.test_adc import adc_timing_measurement
+    from flow.adc.test_analysis import adc_timing_measurement
 
     physical = adc_measurement(np.tile([100, 101], 50_000), observed_adc=0)
     historical_sequence = dataclasses.replace(sequence, logic="00010000" + sequence.logic[8:])
@@ -223,8 +222,8 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     monkeypatch.setattr(
         adc_targets, "read_measurement_param", lambda path: SimpleNamespace(observed_adc=physical_captures[path][0])
     )
-    monkeypatch.setattr(adc_targets, "analyze_adc_decision_paths", lambda *args, **kwargs: object())
-    monkeypatch.setattr(adc_targets, "analyze_adc_cdac_settling", lambda *args: object())
+    monkeypatch.setattr(adc_targets, "analyze_decision_paths", lambda *args, **kwargs: object())
+    monkeypatch.setattr(adc_targets, "analyze_cdac_settling", lambda *args: object())
 
     def plot(*args, output_path, **kwargs):
         if output_path.name == "all_adc_sequence_overview":
@@ -350,7 +349,7 @@ def test_adc_calibration_runner_combines_three_common_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     measurement = adc_ramp_measurement(cycles=8)
-    nominal_ramp = analyze_adc_ramp(measurement)
+    nominal_ramp = adc.analyze_ramp(measurement)
     nominal_weight = nominal_ramp.weights.astype(np.float64)
     nominal_weight *= 4095.0 / np.sum(nominal_weight)
 
@@ -386,9 +385,9 @@ def test_adc_calibration_runner_combines_three_common_results(
         received["calibration1"] = (measurements, cap_mismatch)
         return calibration("calibration1")
 
-    monkeypatch.setattr(adc_targets, "analyze_adc_calibration1", calibration1)
-    monkeypatch.setattr(adc_targets, "analyze_adc_calibration2", lambda _m, *, ramp: calibration("calibration2"))
-    monkeypatch.setattr(adc_targets, "analyze_adc_calibration3", lambda _m, *, ramp: calibration("calibration3"))
+    monkeypatch.setattr(adc_targets, "analyze_calibration1", calibration1)
+    monkeypatch.setattr(adc_targets, "analyze_calibration2", lambda _m, *, ramp: calibration("calibration2"))
+    monkeypatch.setattr(adc_targets, "analyze_calibration3", lambda _m, *, ramp: calibration("calibration3"))
     plotted = []
     for name in (
         "plot_adc_calibration_weights",
@@ -488,7 +487,7 @@ def test_adc_transfer_curve_loads_pinned_directory_without_reconstructing_grid(
         )
     monkeypatch.setattr(adc_targets, "read_measurement", measurements.__getitem__)
     monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
-    monkeypatch.setattr(adc_targets, "analyze_adc_transfer", lambda measurements: measurements)
+    monkeypatch.setattr(adc_targets, "analyze_transfer", lambda measurements: measurements)
     monkeypatch.setattr(
         adc_targets,
         "plot_adc_transfer",
@@ -641,7 +640,7 @@ def test_sample_rate_study_separates_sequences_inputs_and_spectral_data(tmp_path
         assert isinstance(value.param.tb.vin_diff, h.Vsin.Params)
         return SimpleNamespace(sample_rate_hz=value.sample_rate_hz)
 
-    monkeypatch.setattr(adc_targets, "analyze_adc_dynamic", analyze_dynamic)
+    monkeypatch.setattr(adc_targets, "analyze_dynamic", analyze_dynamic)
     spectra = []
 
     def dynamic_plot(values, analyses, *, output_path, x_axis):

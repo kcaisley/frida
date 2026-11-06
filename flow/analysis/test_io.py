@@ -146,24 +146,12 @@ def analysis_results():
     """Return one constructed instance of many analysis result types, nested records included."""
 
     from flow import comp
-    from flow.analysis.adc import (
-        analyze_adc_code_density_nonlinearity,
-        analyze_adc_decision_paths,
-        analyze_adc_dynamic,
-        analyze_adc_noise,
-        analyze_adc_operating_conditions,
-        analyze_adc_power,
-        analyze_adc_ramp,
-        analyze_adc_timing_closure,
-        analyze_adc_timing_summary,
-        analyze_adc_transfer,
-    )
-    from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement, adc_timing_measurement
+    from flow.adc.test_analysis import adc_measurement, adc_ramp_measurement, adc_timing_measurement
     from flow.analysis.test_cdac import _curve, transition_of
     from flow.comp.test_analysis import decisions_at
 
     ramp_measurement = adc_ramp_measurement()
-    ramp = analyze_adc_ramp(ramp_measurement)
+    ramp = adc.analyze_ramp(ramp_measurement)
     sample_rate_hz = 100_000.0
     time_s = np.arange(2_048) / sample_rate_hz
     sine = adc_measurement(
@@ -181,20 +169,20 @@ def analysis_results():
     )
     noise_measurement = adc_measurement([100, 101, 100, 102], observed_adc=2)
     timing = adc_timing_measurement()
-    closure = analyze_adc_timing_closure(timing)
+    closure = adc.analyze_timing_closure(timing)
     comparator = decisions_at()
     offset = comp.analyze_offset_noise([comparator])
     return (
         ramp,
-        analyze_adc_code_density_nonlinearity(ramp_measurement, ramp=ramp),
-        analyze_adc_dynamic(sine),
-        analyze_adc_transfer([sine]),
-        analyze_adc_power(power),
-        analyze_adc_noise(noise_measurement),
-        analyze_adc_operating_conditions([noise_measurement], noise=[analyze_adc_noise(noise_measurement)]),
-        analyze_adc_decision_paths(noise_measurement),
+        adc.analyze_code_density_nonlinearity(ramp_measurement, ramp=ramp),
+        adc.analyze_dynamic(sine),
+        adc.analyze_transfer([sine]),
+        adc.analyze_power(power),
+        adc.analyze_noise(noise_measurement),
+        adc.analyze_operating_conditions([noise_measurement], noise=[adc.analyze_noise(noise_measurement)]),
+        adc.analyze_decision_paths(noise_measurement),
         closure,
-        analyze_adc_timing_summary(timing, closure=closure),
+        adc.analyze_timing_summary(timing, closure=closure),
         offset,
         comp.analyze_common_mode([comparator]),
         transition_of(_curve("n", "1to0", 0, 2e-3)),
@@ -238,8 +226,8 @@ def test_analysis_reader_rejects_measurement_files(tmp_path: Path) -> None:
 
 
 def test_extracted_calibration_reads_pex_effective_weights(tmp_path: Path) -> None:
+    from flow.adc.test_analysis import adc_measurement
     from flow.analysis.io import read_extracted_calibration
-    from flow.analysis.test_adc import adc_measurement
 
     measurement = adc_measurement([0, 1, 2], readbacks={})
     nominal = measurement.nominal_bout_weights.astype(float)

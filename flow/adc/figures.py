@@ -24,15 +24,6 @@ from pathlib import Path
 
 import numpy as np
 
-from flow.analysis.adc import (
-    analyze_adc_code_spectrum,
-    analyze_adc_decision_paths,
-    analyze_adc_dynamic,
-    analyze_adc_power,
-    analyze_adc_ramp,
-)
-from flow.analysis.calibration2 import analyze_adc_calibration2
-from flow.analysis.calibration3 import analyze_adc_calibration3
 from flow.analysis.io import read_extracted_calibration
 from flow.analysis.types import MeasAdc
 from flow.pipeline import Plot
@@ -43,7 +34,14 @@ from .analysis import (
     _margin_over_sigma,
     _missing_codes_quantile,
     _redundancy_margins,
+    analyze_calibration2,
+    analyze_calibration3,
+    analyze_code_spectrum,
+    analyze_decision_paths,
+    analyze_dynamic,
     analyze_mismatch,
+    analyze_power,
+    analyze_ramp,
 )
 from .campaign import LADDER, NOMINAL_RATE_HZ, UNIT_MISMATCH, hsu_errors, input_noise, ladder_names
 
@@ -96,7 +94,7 @@ def _path_details(trajectory: MeasAdc) -> list[Plot]:
     its last decisions (where noise splits them), and the histogram of the codes they end on, a
     bin a code (its mean and spread in the curve's name)."""
 
-    analysis = analyze_adc_decision_paths(trajectory)
+    analysis = analyze_decision_paths(trajectory)
     estimates = np.round(np.asarray(analysis.estimate_dout, dtype=np.float64), 6)
     steps = estimates.shape[1]
 
@@ -156,7 +154,7 @@ def _extracted(measurement: MeasAdc):
 def dynamic_enob(measurement: MeasAdc) -> float:
     """A sine capture's spectral ENOB referred to full scale, decoded as ``enob_bits`` is (the
     extracted weights, unrounded)."""
-    return analyze_adc_dynamic(measurement, calibration=_extracted(measurement)).spectral_enob_fs_bits
+    return analyze_dynamic(measurement, calibration=_extracted(measurement)).spectral_enob_fs_bits
 
 
 def enob_ladder(captures: dict[str, MeasAdc]) -> np.ndarray | None:
@@ -215,9 +213,9 @@ def _mismatch_study(captures: dict[str, MeasAdc]) -> tuple[np.ndarray, dict[str,
     for name, measurement in sorted(captures.items()):
         if not name.startswith("mc_"):
             continue
-        design = analyze_adc_ramp(measurement)
-        calibration = analyze_adc_calibration2(measurement, ramp=design)
-        ramps = {"Design weights": design, "Calibration 2": analyze_adc_ramp(measurement, calibration=calibration)}
+        design = analyze_ramp(measurement)
+        calibration = analyze_calibration2(measurement, ramp=design)
+        ramps = {"Design weights": design, "Calibration 2": analyze_ramp(measurement, calibration=calibration)}
         coefficient = float(measurement.info.readbacks["unit_mismatch"])
         rows.setdefault(coefficient, []).append(
             {
@@ -262,24 +260,24 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
     check, train = captures["ramp_check"], captures["ramp_train"]
     extracted = _extracted(check)
     ramps = {
-        "Design weights": analyze_adc_ramp(check),
-        "Extracted weights": analyze_adc_ramp(check, calibration=extracted),
+        "Design weights": analyze_ramp(check),
+        "Extracted weights": analyze_ramp(check, calibration=extracted),
     }
     rates = sorted((m for n, m in captures.items() if n.startswith("rate_")), key=lambda m: float(m.tb.symbol_rate))
-    dynamics = [analyze_adc_dynamic(m, calibration=_extracted(m)) for m in rates]
-    powers = [analyze_adc_power(m) for m in rates]
+    dynamics = [analyze_dynamic(m, calibration=_extracted(m)) for m in rates]
+    powers = [analyze_power(m) for m in rates]
     fins = [m for n, m in captures.items() if n.startswith("fin_")]
-    fin_dynamics = [analyze_adc_dynamic(m, calibration=_extracted(m)) for m in fins]
+    fin_dynamics = [analyze_dynamic(m, calibration=_extracted(m)) for m in fins]
     dcs = [m for n, m in sorted(captures.items()) if n.startswith("dc_")]
-    train_ramp = analyze_adc_ramp(train)
-    learned = {"Calibration 2": analyze_adc_calibration2(train, ramp=train_ramp)}
+    train_ramp = analyze_ramp(train)
+    learned = {"Calibration 2": analyze_calibration2(train, ramp=train_ramp)}
     # calibration 3 fits a threshold in every late branch, and a ramp can hold too few hits there to
     # bracket one; then it is left out (``calibration3_fitted`` says so) rather than failing the rest
     try:
-        learned["Calibration 3"] = analyze_adc_calibration3(train, ramp=train_ramp)
+        learned["Calibration 3"] = analyze_calibration3(train, ramp=train_ramp)
     except ValueError:
         pass
-    decoded = ramps | {label: analyze_adc_ramp(check, calibration=c) for label, c in learned.items()}
+    decoded = ramps | {label: analyze_ramp(check, calibration=c) for label, c in learned.items()}
     # each stage's error tolerance: the design's weights and the extracted array's
     redundancy = {
         "Design weights": _redundancy_margins(extracted.nominal_weights),
@@ -316,7 +314,7 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
     ):
         add(name, "Output code", f"{values.upper()} (LSB)", *_by_code({label: decoded[label]}, values), x_ticks="code")
     details += _path_details(captures["trajectory"])
-    spectrum = analyze_adc_code_spectrum(captures["noise"], calibration=_extracted(captures["noise"]))
+    spectrum = analyze_code_spectrum(captures["noise"], calibration=_extracted(captures["noise"]))
     add(
         "noise_spectrum",
         "Frequency (Hz)",
@@ -393,7 +391,7 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
         x_log=True,
         y_log=True,
     )
-    dc_powers = [analyze_adc_power(m) for m in dcs]
+    dc_powers = [analyze_power(m) for m in dcs]
     energy = {
         label: [
             getattr(p, f"{rail}_dynamic_power_w") / p.active_conversion_rate_hz
@@ -466,7 +464,7 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
     # and the best calibration learned from the drawn training ramp
     drawn = (
         {
-            f"enob_drawn_{name}_bits": analyze_adc_dynamic(
+            f"enob_drawn_{name}_bits": analyze_dynamic(
                 captures["drawn_sine"], calibration=decoding
             ).spectral_enob_fs_bits
             for name, decoding in (

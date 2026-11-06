@@ -91,7 +91,7 @@ COMP = comp_model.Model.Behavioral(
     # physical fixed-input code noise (about 0.2-0.3 LSB) bounds the comparator
     # near 100 uV. Offsets only shift the transfer and are left out.
     noise_v=130e-6,
-    # analyze_adc_power on the FRIDA-2 three-layer PEX transient
+    # adc.analyze_power on the FRIDA-2 three-layer PEX transient
     # frida-20260906_124442_994752 .../frida2_3layer_radix17/original
     # (10 MS/s active): 27.07 uW over 17 decisions per 100-ns conversion.
     decision_energy_j=27.071e-6 / 10e6 / 17,

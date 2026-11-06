@@ -9,7 +9,7 @@ Fixed 50 mV / 700 mV perfboard input, ADC00-03, seven 160-symbol sequences at
 
 Each run gets the standard sequence-ENOB overview and noise-distribution grid;
 one extra figure overlays the three runs' code spectra (comp11110000_logic10000111)
-per rate. These runs have no scope records, so analyze_adc_noise cannot confirm
+per rate. These runs have no scope records, so adc.analyze_noise cannot confirm
 a readout by the scope/FastRX bit comparison; here a capture counts as a valid
 readout when FastRX lost no frames. Regenerate from the repository root (needs the scans under build/):
 
@@ -23,9 +23,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
+from flow import adc
 from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.analysis import calc
-from flow.analysis.adc import analyze_adc_noise, analyze_adc_operating_conditions
 from flow.analysis.io import read_measurement, read_measurement_param, write_analysis
 from flow.analysis.plots import (
     PLOT_STYLE,
@@ -67,12 +67,12 @@ for run, folder in RUNS.items():
         # Scope-less captures: accept the readout when FastRX lost no frames.
         noise = [
             dataclasses.replace(
-                analyze_adc_noise(measurement),
+                adc.analyze_noise(measurement),
                 readout_valid=int(measurement.info.readbacks.get("fastrx_lost_count", -1)) == 0,
             )
             for measurement in measurements
         ]
-        result = analyze_adc_operating_conditions(measurements, noise=noise)
+        result = adc.analyze_operating_conditions(measurements, noise=noise)
         conditions.append(result)
         write_analysis(run_out / f"adc{adc_index:02d}_operating_conditions.h5", result)
         all_measurements.extend(measurements)
@@ -103,7 +103,7 @@ with mpl.rc_context(PLOT_STYLE):
     for ax, rate in zip(axes, rates):
         for run in RUNS:
             frequency_hz, asd, _ = spectra[run][rate][0]
-            stds = ", ".join(f"{spectra[run][rate][adc][2]:.2f}" for adc in sorted(spectra[run][rate]))
+            stds = ", ".join(f"{spectra[run][rate][channel][2]:.2f}" for channel in sorted(spectra[run][rate]))
             ax.semilogy(frequency_hz / 1e6, asd, label=f"{run} (ADC00–03 std {stds} LSB)")
         ax.set_xlim(0, rate / 2e6)
         ax.set_title(f"{rate / 1e6:g} MSPS")

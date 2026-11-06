@@ -12,6 +12,7 @@ from scipy import constants
 
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
+from flow.adc.analysis import analyze_dynamic
 from flow.adc.campaign import (
     FIN_CYCLES,
     FIN_RATES_HZ,
@@ -25,7 +26,6 @@ from flow.adc.campaign import (
 from flow.adc.figures import FIGURES, _extracted, enob_ladder
 from flow.adc.params import Params
 from flow.adc.subckt import calc_ideal_capacitances
-from flow.analysis.adc import analyze_adc_dynamic
 from flow.cdac.caparray.subckt import CapArrayConfig, RedunStrat
 
 
@@ -166,7 +166,7 @@ def test_the_ladder_starts_at_quantization_and_ends_on_enob_bits(tmp_path: Path,
     # every impairment on is the 10 MS/s sine as enob_bits decodes it (the extracted weights), and
     # the last step's sources and settling capture it again, decision for decision
     rate = captures["rate_10"]
-    assert ladder[-1] == analyze_adc_dynamic(rate, calibration=_extracted(rate)).spectral_enob_fs_bits
+    assert ladder[-1] == analyze_dynamic(rate, calibration=_extracted(rate)).spectral_enob_fs_bits
     _, _, quiet, tau_scale = LADDER[-1]
     again = _capture(model, replace(plan["rate_10"], quiet=quiet, tau_scale=tau_scale))
     np.testing.assert_array_equal(again.bout, rate.bout)
@@ -190,5 +190,5 @@ def test_the_ladders_quantization_reads_the_design_resolution(tmp_path: Path, ad
     assert ladder is not None
     assert ladder[0] == pytest.approx(adc_bits, abs=0.02)
     quantization = captures[ladder_names()[0]]
-    at_amplitude = analyze_adc_dynamic(quantization, calibration=_extracted(quantization)).spectral_enob_bits
+    at_amplitude = analyze_dynamic(quantization, calibration=_extracted(quantization)).spectral_enob_bits
     assert at_amplitude == pytest.approx(adc_bits - 0.5 / 6.02, abs=0.02)

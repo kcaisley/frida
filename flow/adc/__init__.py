@@ -5,9 +5,33 @@ Exports:
 - Params: ADC parameters (every combination they admit builds)
 - TbParams: the parameters of one generated testbench
 - Adc: Full ADC generator (composes digital + analog)
-- the analysis results (``flow.adc.types``): ``adc.AnalysisRamp``, ``adc.AnalysisDynamic``, ...
+- the analyses (``flow.adc.analysis``): ``adc.analyze_ramp``, ``adc.analyze_dynamic``, ...
+- their results (``flow.adc.types``): ``adc.AnalysisRamp``, ``adc.AnalysisDynamic``, ...
 """
 
+from .analysis import (
+    analyze_calibration1,
+    analyze_calibration2,
+    analyze_calibration3,
+    analyze_cdac_settling,
+    analyze_code_density_nonlinearity,
+    analyze_code_distribution,
+    analyze_code_spectrum,
+    analyze_decision_paths,
+    analyze_dynamic,
+    analyze_endpoint_nonlinearity,
+    analyze_interferer,
+    analyze_mismatch,
+    analyze_noise,
+    analyze_operating_conditions,
+    analyze_power,
+    analyze_power_waveform,
+    analyze_ramp,
+    analyze_sampling_noise,
+    analyze_timing_closure,
+    analyze_timing_summary,
+    analyze_transfer,
+)
 from .params import Params, TbParams
 from .subckt import Adc
 from .types import (
@@ -61,4 +85,25 @@ __all__ = [
     "AnalysisTransfer",
     "Params",
     "TbParams",
+    "analyze_calibration1",
+    "analyze_calibration2",
+    "analyze_calibration3",
+    "analyze_cdac_settling",
+    "analyze_code_density_nonlinearity",
+    "analyze_code_distribution",
+    "analyze_code_spectrum",
+    "analyze_decision_paths",
+    "analyze_dynamic",
+    "analyze_endpoint_nonlinearity",
+    "analyze_interferer",
+    "analyze_mismatch",
+    "analyze_noise",
+    "analyze_operating_conditions",
+    "analyze_power",
+    "analyze_power_waveform",
+    "analyze_ramp",
+    "analyze_sampling_noise",
+    "analyze_timing_closure",
+    "analyze_timing_summary",
+    "analyze_transfer",
 ]

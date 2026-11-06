@@ -698,8 +698,8 @@ def test_adc_code_noise(amp_enable: bool) -> None:
 
     Pin the run directory in ``flow.analysis.runner`` before formal analysis.
     """
+    from flow import adc
     from flow.adc.sim import SEQUENCES, AdcSequence
-    from flow.analysis.adc import analyze_adc_code_spectrum, analyze_adc_interferer
     from flow.analysis.io import read_measurement
     from flow.analysis.plots import plot_adc_code_noise, plot_adc_code_spectrum, plot_adc_interferer
     from flow.analysis.types import MeasAdc
@@ -719,9 +719,9 @@ def test_adc_code_noise(amp_enable: bool) -> None:
     shown_spectra = []
     interferers = []
     for adc_index, measurements in sorted(measurements_by_adc.items()):
-        spectra = [analyze_adc_code_spectrum(measurement) for measurement in measurements]
+        spectra = [adc.analyze_code_spectrum(measurement) for measurement in measurements]
         shown_spectra.extend(spectra)
-        interferers.append(analyze_adc_interferer(measurements, spectra=spectra))
+        interferers.append(adc.analyze_interferer(measurements, spectra=spectra))
         slowest = int(np.argmin([spectrum.sample_rate_hz for spectrum in spectra]))
         plot_adc_code_noise(
             measurements[slowest],

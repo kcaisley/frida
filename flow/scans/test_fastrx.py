@@ -60,12 +60,7 @@ from flow.adc.sim import (
     symbol160_init4_samp20_comp11111100_logic11000011,
     symbol256_init8_samp16_comp11110000_logic11000011,
 )
-from flow.analysis.adc import (
-    analyze_adc_code_distribution,
-    analyze_adc_comp_out_edge_eye,
-    analyze_adc_noise,
-    analyze_adc_scope_bits,
-)
+from flow.analysis.adc import analyze_adc_comp_out_edge_eye, analyze_adc_scope_bits
 from flow.analysis.io import (
     read_measurement,
     write_measurement,
@@ -564,7 +559,7 @@ def test_physical_fastrx_matches_scope(
             )
             plot_adc_code_distribution(
                 [measurement],
-                analyze_adc_code_distribution([measurement]),
+                adc.analyze_code_distribution([measurement]),
                 output_path=run_dir / f"{stem}_hist",
             )
 
@@ -592,7 +587,7 @@ def test_physical_fastrx_matches_scope(
 
         plot_adc_noise_sweep(
             measurements,
-            [analyze_adc_noise(measurement) for measurement in measurements],
+            [adc.analyze_noise(measurement) for measurement in measurements],
             output_path=run_dir / "decision_variation_vs_conversion_rate",
         )
 

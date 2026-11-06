@@ -15,12 +15,5 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flow.adc.sim import SEQUENCES
-
 # the repository: every study's input directories are named under it
 BASE_PATH = Path(__file__).resolve().parents[2]
-
-# the 256-symbol recipe's logic timings at comparator timing 11110000 (the sample-rate study's LOGIC n/8)
-timing_sequences = tuple(
-    sequence for name, sequence in SEQUENCES if name.startswith("symbol256_init8_samp16_comp11110000_")
-)

@@ -46,7 +46,7 @@ repos:
         name: analysis contract conformance
         entry: uv run pytest -q -p no:cacheprovider flow/analysis/test_conformance.py
         language: system
-        files: ^flow/(analysis|adc|caparray|comp|samp|scans)/.*\.py$
+        files: ^flow/(analysis|caparray|comp|samp|scans)/.*\.py$
         pass_filenames: false
 
       - id: rumdl-markdown

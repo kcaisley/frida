@@ -17,25 +17,6 @@ from flow.adc.sim import (
     symbol256_init8_samp16_comp11110000_logic11000011,
 )
 from flow.analysis import calc
-from flow.analysis.adc import (
-    analyze_adc_cdac_settling,
-    analyze_adc_code_density_nonlinearity,
-    analyze_adc_code_distribution,
-    analyze_adc_code_spectrum,
-    analyze_adc_decision_paths,
-    analyze_adc_dynamic,
-    analyze_adc_interferer,
-    analyze_adc_noise,
-    analyze_adc_operating_conditions,
-    analyze_adc_power,
-    analyze_adc_ramp,
-    analyze_adc_timing_closure,
-    analyze_adc_timing_summary,
-    analyze_adc_transfer,
-)
-from flow.analysis.calibration1 import analyze_adc_calibration1
-from flow.analysis.calibration2 import analyze_adc_calibration2
-from flow.analysis.calibration3 import analyze_adc_calibration3
 from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_decisions, analyze_cdac_transition
 from flow.analysis.io import (
     read_analysis,
@@ -68,7 +49,7 @@ from flow.analysis.plots import (
     plot_waveforms,
     style_measurement_text,
 )
-from flow.analysis.studies import BASE_PATH, timing_sequences
+from flow.analysis.studies import BASE_PATH
 from flow.analysis.types import (
     AnalysisCdacCapMismatch,
     MeasAdc,
@@ -78,6 +59,25 @@ from flow.scans.params import load_board_map
 from flow.sweep import runner as sweep_runner
 
 from . import layout, sim
+from .analysis import (
+    analyze_calibration1,
+    analyze_calibration2,
+    analyze_calibration3,
+    analyze_cdac_settling,
+    analyze_code_density_nonlinearity,
+    analyze_code_distribution,
+    analyze_code_spectrum,
+    analyze_decision_paths,
+    analyze_dynamic,
+    analyze_interferer,
+    analyze_noise,
+    analyze_operating_conditions,
+    analyze_power,
+    analyze_ramp,
+    analyze_timing_closure,
+    analyze_timing_summary,
+    analyze_transfer,
+)
 
 
 def _sim_run(target: str) -> Path:
@@ -203,7 +203,7 @@ def transfer_curve_study() -> tuple[Path, ...]:
         artifacts.extend(
             plot_adc_transfer(
                 measurements,
-                analyze_adc_transfer(measurements),
+                analyze_transfer(measurements),
                 output_path=output_dir / f"adc{adc_index or 0:02d}_transfer_curve",
             )
         )
@@ -233,15 +233,15 @@ def ramp_nonlinearity_study() -> tuple[Path, ...]:
         artifacts.extend(
             plot_adc_code_distribution(
                 (measurement,),
-                analyze_adc_code_distribution((measurement,)),
+                analyze_code_distribution((measurement,)),
                 output_path=output_dir / f"{stem}_code_density",
             )
         )
-        ramp = analyze_adc_ramp(measurement)
+        ramp = analyze_ramp(measurement)
         artifacts.extend(
             plot_adc_static_nonlinearity(
                 measurement,
-                analyze_adc_code_density_nonlinearity(measurement, ramp=ramp),
+                analyze_code_density_nonlinearity(measurement, ramp=ramp),
                 output_path=output_dir / f"{stem}_inl_dnl",
             )
         )
@@ -268,7 +268,7 @@ def behavioral_nonlinearity_study() -> tuple[Path, ...]:
         if not isinstance(measurement, MeasAdc):
             raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
         extracted = read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
-        ramps = (analyze_adc_ramp(measurement), analyze_adc_ramp(measurement, calibration=extracted))
+        ramps = (analyze_ramp(measurement), analyze_ramp(measurement, calibration=extracted))
         stem = f"frida2_3layer_behavioral_{path.stem}"
         artifacts.extend(
             plot_adc_ramp_histogram(ramps, output_path=output_dir / f"{stem}_code_density", msmt=measurement)
@@ -297,7 +297,7 @@ def behavioral_energy_study() -> tuple[Path, ...]:
         measurements.append(measurement)
     return plot_adc_conversion_energy(
         measurements,
-        [analyze_adc_power(measurement) for measurement in measurements],
+        [analyze_power(measurement) for measurement in measurements],
         output_path=output_dir / "frida2_3layer_behavioral_energy_vs_input",
     )
 
@@ -323,7 +323,7 @@ def behavioral_sample_rate_study() -> tuple[Path, ...]:
     return (
         *plot_adc_power_sweep(
             measurements,
-            [analyze_adc_power(measurement) for measurement in measurements],
+            [analyze_power(measurement) for measurement in measurements],
             output_path=output_dir / "frida2_3layer_behavioral_power_vs_rate",
             rate_axis="sampling",
             merge_static=True,
@@ -331,7 +331,7 @@ def behavioral_sample_rate_study() -> tuple[Path, ...]:
         *plot_adc_dynamic_sweep(
             measurements,
             [
-                analyze_adc_dynamic(
+                analyze_dynamic(
                     measurement,
                     calibration=read_extracted_calibration(
                         Path(str(measurement.info.readbacks["cap_table"])), measurement
@@ -357,7 +357,7 @@ def behavioral_trajectory_study() -> tuple[Path, ...]:
     measurement = read_measurement(path)
     if not isinstance(measurement, MeasAdc):
         raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
-    paths = analyze_adc_decision_paths(measurement)
+    paths = analyze_decision_paths(measurement)
     return plot_adc_decision_path_density(
         measurement, paths, output_path=output_dir / "frida2_3layer_behavioral_trajectory_density"
     )
@@ -382,7 +382,7 @@ def behavioral_calibration_study() -> tuple[Path, ...]:
         train, check = read_measurement(train_path), read_measurement(check_path)
         if not isinstance(train, MeasAdc) or not isinstance(check, MeasAdc):
             raise TypeError(f"{train_path} and {check_path} must both contain MeasAdc")
-        train_ramp = analyze_adc_ramp(train)
+        train_ramp = analyze_ramp(train)
         # Calibration 1 learns from the same draw's CDAC A-to-B switching curves.
         draw_dir = cdac_dir / train_path.stem.removesuffix("_train")
         comparator = read_analysis(draw_dir / "comparator.h5")
@@ -402,13 +402,13 @@ def behavioral_calibration_study() -> tuple[Path, ...]:
             curves, transitions=transitions, comparator=comp.analyze_offset_noise([comparator])
         )
         learned = (
-            analyze_adc_calibration1(curves, cap_mismatch=cap_mismatch),
-            analyze_adc_calibration2(train, ramp=train_ramp),
-            analyze_adc_calibration3(train, ramp=train_ramp),
+            analyze_calibration1(curves, cap_mismatch=cap_mismatch),
+            analyze_calibration2(train, ramp=train_ramp),
+            analyze_calibration3(train, ramp=train_ramp),
         )
         extracted = read_extracted_calibration(Path(str(check.info.readbacks["cap_table"])), check)
-        ramps = [analyze_adc_ramp(check)] + [
-            analyze_adc_ramp(check, calibration=calibration) for calibration in (extracted, *learned)
+        ramps = [analyze_ramp(check)] + [
+            analyze_ramp(check, calibration=calibration) for calibration in (extracted, *learned)
         ]
         stem = f"frida2_3layer_behavioral_{train_path.stem.removesuffix('_train')}"
         artifacts.extend(
@@ -442,14 +442,12 @@ def behavioral_architecture_study() -> tuple[Path, ...]:
             train, check = read_measurement(train_path), read_measurement(check_path)
             if not isinstance(train, MeasAdc) or not isinstance(check, MeasAdc):
                 raise TypeError(f"{train_path} and {check_path} must both contain MeasAdc")
-            train_ramp = analyze_adc_ramp(train)
+            train_ramp = analyze_ramp(train)
             learned = (
-                analyze_adc_calibration2(train, ramp=train_ramp),
-                analyze_adc_calibration3(train, ramp=train_ramp),
+                analyze_calibration2(train, ramp=train_ramp),
+                analyze_calibration3(train, ramp=train_ramp),
             )
-            ramps = [analyze_adc_ramp(check)] + [
-                analyze_adc_ramp(check, calibration=calibration) for calibration in learned
-            ]
+            ramps = [analyze_ramp(check)] + [analyze_ramp(check, calibration=calibration) for calibration in learned]
             stem = f"{variant_dir.name}_{train_path.stem.removesuffix('_train')}"
             artifacts.extend(plot_adc_ramp_nonlinearity(ramps, output_path=output_dir / f"{stem}_inl_dnl", msmt=check))
             artifacts.extend(plot_adc_calibration_weights(learned, output_path=output_dir / f"{stem}_weights"))
@@ -478,7 +476,7 @@ def behavioral_noise_spectrum_study() -> tuple[Path, ...]:
         if not isinstance(measurement, MeasAdc):
             raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
         calibration = read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
-        spectra.append(analyze_adc_code_spectrum(measurement, calibration=calibration))
+        spectra.append(analyze_code_spectrum(measurement, calibration=calibration))
     return plot_adc_code_spectrum(
         spectra,
         labels=tuple(labels.values()),
@@ -504,7 +502,7 @@ def behavioral_input_frequency_study() -> tuple[Path, ...]:
             raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
         calibration = read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
         measurements.append(measurement)
-        dynamics.append(analyze_adc_dynamic(measurement, calibration=calibration))
+        dynamics.append(analyze_dynamic(measurement, calibration=calibration))
     artifacts = list(
         plot_adc_dynamic_sweep(
             measurements,
@@ -631,13 +629,13 @@ def calibration_study() -> tuple[Path, ...]:
             comparator=comp.analyze_offset_noise(comparator_measurements),
         )
 
-    nominal_ramp = analyze_adc_ramp(measurement)
+    nominal_ramp = analyze_ramp(measurement)
     calibrations = (
-        analyze_adc_calibration1(cdac_measurements[adc_index], cap_mismatch=cap_mismatch[adc_index]),
-        analyze_adc_calibration2(measurement, ramp=nominal_ramp),
-        analyze_adc_calibration3(measurement, ramp=nominal_ramp),
+        analyze_calibration1(cdac_measurements[adc_index], cap_mismatch=cap_mismatch[adc_index]),
+        analyze_calibration2(measurement, ramp=nominal_ramp),
+        analyze_calibration3(measurement, ramp=nominal_ramp),
     )
-    ramps = (nominal_ramp, *(analyze_adc_ramp(measurement, calibration=calibration) for calibration in calibrations))
+    ramps = (nominal_ramp, *(analyze_ramp(measurement, calibration=calibration) for calibration in calibrations))
 
     stem = f"adc{adc_index:02d}"
     return (
@@ -683,8 +681,8 @@ def sequence_study() -> tuple[Path, ...]:
             if not isinstance(measurement, MeasAdc):
                 raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
             measurements.append(measurement)
-        result = analyze_adc_operating_conditions(
-            measurements, noise=[analyze_adc_noise(measurement) for measurement in measurements]
+        result = analyze_operating_conditions(
+            measurements, noise=[analyze_noise(measurement) for measurement in measurements]
         )
         del measurements
         conditions.append(result)
@@ -745,29 +743,29 @@ def sequence_study() -> tuple[Path, ...]:
                 artifacts.extend(
                     plot_adc_decision_path_density(
                         measurement,
-                        analyze_adc_decision_paths(measurement),
+                        analyze_decision_paths(measurement),
                         output_path=output_dir / f"spice_{case}_trajectory",
                     )
                 )
                 artifacts.extend(
                     plot_adc_cdac_settling(
                         measurement,
-                        analyze_adc_cdac_settling(measurement),
+                        analyze_cdac_settling(measurement),
                         output_path=output_dir / f"spice_{case}_cdac_settling",
                     )
                 )
                 artifacts.extend(
                     plot_adc_code_distribution(
                         (measurement,),
-                        analyze_adc_code_distribution((measurement,)),
+                        analyze_code_distribution((measurement,)),
                         output_path=output_dir / f"spice_{case}_codes",
                     )
                 )
-                closure = analyze_adc_timing_closure(measurement)
+                closure = analyze_timing_closure(measurement)
                 artifacts.append(
                     write_analysis(
                         output_dir / f"{case}_timing_summary.h5",
-                        analyze_adc_timing_summary(measurement, closure=closure),
+                        analyze_timing_summary(measurement, closure=closure),
                     )
                 )
                 if flavor == sequence_plot_flavor and measurement.wave is not None:
@@ -795,11 +793,11 @@ def sequence_study() -> tuple[Path, ...]:
                         )
                 print(f"Rendered PEX case {case}", flush=True)
                 measurements.append(measurement)
-            noise = [analyze_adc_noise(measurement) for measurement in measurements]
+            noise = [analyze_noise(measurement) for measurement in measurements]
             artifacts.append(
                 write_analysis(
                     output_dir / f"spice_{flavor}_operating_conditions.h5",
-                    analyze_adc_operating_conditions(measurements, noise=noise),
+                    analyze_operating_conditions(measurements, noise=noise),
                 )
             )
             artifacts.extend(
@@ -852,12 +850,12 @@ def interferer_study() -> tuple[Path, ...]:
         shown_spectra = []
         interferers = []
         for adc_index, measurements in sorted(measurements_by_adc.items()):
-            spectra = [analyze_adc_code_spectrum(measurement) for measurement in measurements]
+            spectra = [analyze_code_spectrum(measurement) for measurement in measurements]
             # Search one recipe, whose three rates were captured minutes apart: over
             # all recipes, the drifting interferer smears and a fixed 7.143-MHz line
             # (2856 kHz at 10 MSPS) wins instead.
             selected = [index for index, spectrum in enumerate(spectra) if spectrum.sequence == shown]
-            interferer = analyze_adc_interferer(
+            interferer = analyze_interferer(
                 [measurements[index] for index in selected], spectra=[spectra[index] for index in selected]
             )
             interferers.append(interferer)
@@ -925,11 +923,13 @@ def sample_rate_study() -> tuple[Path, ...]:
     sine_read_dir = BASE_PATH / "build/scan_adc/20260730_215145_complete"
     selected_sequences = (symbol256_init8_samp16_comp11110000_logic11000011,)
 
-    # Give selected library recipes the same INIT reference as acquired rows.
+    # Give selected library recipes the same INIT reference as acquired rows, each labelled by its
+    # LOGIC timing among the 256-symbol recipe's at comparator timing 11110000 (LOGIC n/8)
+    timings = [sequence for name, sequence in SEQUENCES if name.startswith("symbol256_init8_samp16_comp11110000_")]
     sequence_labels = {}
     for sequence in selected_sequences:
         relative_sequence = sequence.relative_to_init()
-        sequence_labels[relative_sequence] = f"LOGIC {timing_sequences.index(sequence) + 1}/8"
+        sequence_labels[relative_sequence] = f"LOGIC {timings.index(sequence) + 1}/8"
 
     # Select and compare DC sweeps without changing their saved acquisition phase.
     artifacts = []
@@ -958,7 +958,7 @@ def sample_rate_study() -> tuple[Path, ...]:
                 sequence_labels[AdcSequence.from_tb_params(measurement.tb).relative_to_init()]
                 for measurement in measurements
             ]
-            noise = [analyze_adc_noise(measurement) for measurement in measurements]
+            noise = [analyze_noise(measurement) for measurement in measurements]
             stem = f"{meas_read_dir.name}_adc{adc_index or 0:02d}_{input_v * 1e3:g}mv_{common_v * 1e3:g}cm"
             artifacts.extend(
                 plot_adc_noise_sweep(
@@ -999,7 +999,7 @@ def sample_rate_study() -> tuple[Path, ...]:
         sine_groups.setdefault((measurement.index, sequence), []).append(measurement)
     for (adc_index, sequence), measurements in sine_groups.items():
         sequence_name = sequence_labels[sequence].split()[-1].replace("/", "of")
-        dynamic = [analyze_adc_dynamic(measurement) for measurement in measurements]
+        dynamic = [analyze_dynamic(measurement) for measurement in measurements]
         stem = f"adc{adc_index or 0:02d}_logic{sequence_name}"
         artifacts.extend(
             plot_adc_dynamic_sweep(
@@ -1062,7 +1062,7 @@ def power_study() -> tuple[Path, ...]:
             artifacts.extend(
                 plot_adc_power_sweep(
                     measurements,
-                    [analyze_adc_power(measurement) for measurement in measurements],
+                    [analyze_power(measurement) for measurement in measurements],
                     rate_axis="sampling",
                     output_path=output_dir
                     / f"{meas_read_dir.name}_adc{adc_index or 0:02d}_{input_v * 1e3:g}mv_{common_v * 1e3:g}cm_{index}_power",

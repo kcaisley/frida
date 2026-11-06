@@ -20,7 +20,6 @@ import numpy as np
 import pytest
 
 from flow import adc
-from flow.adc.sim import AdcSequence
 from flow.analysis import types as analysis_types
 from flow.cdac.caparray.sim import CapArrayTbParams
 from flow.cdac.caparray.subckt import CapArrayConfig, CapArrayParams
@@ -50,11 +49,12 @@ BLOCKS = (
 )
 BLOCK_ANALYSES = tuple(f"flow.{block}.analysis" for block in BLOCKS)
 BLOCK_PLOTS = tuple(f"flow.{block}.plots" for block in BLOCKS)
-CONTRACT_MODULES = ("adc", "cdac", "calibration1", "calibration2", "calibration3", *BLOCK_ANALYSES)
+# the ADC's own analyses are its block's (flow/adc/analysis.py); its comparator and scope views stay
+# here (adc.py)
+CONTRACT_MODULES = ("adc", "cdac", *BLOCK_ANALYSES)
 PURE_MODULES = (*CONTRACT_MODULES, "calc")
 # Names that annotations in flow.analysis.types refer to only under TYPE_CHECKING.
 TYPE_NAMESPACE = {
-    "AdcSequence": AdcSequence,
     "adc": adc,
     "CapArrayTbParams": CapArrayTbParams,
     "CapArrayConfig": CapArrayConfig,
