@@ -135,12 +135,11 @@ class Model:
     def design(cls, pdk: str, params: Params, *, reference_v: float | None = None) -> Model:
         """``params`` as designed, where it is not characterized in ``pdk``: its top plates loaded by
         its plates alone (gain 1), not laid out (no area) and no measurement kept; each stage's
-        drivers without delay and
-        of the time constant ``flow.capdac.subckt`` sizes them for, which settles its step to half an
-        LSB in ``settle_ps`` over ``settle_margin``: ln(2^(N+1) w / W) time constants for a stage of
-        weight w of the total W. Its plates are designed at the reference ``reference_v`` and its
-        LSB is at it; where None, the PDK's typical supply, at which the netlist draws the plates and
-        the characterization runs."""
+        drivers without delay and of the time constant ``flow.capdac.subckt`` sizes them for, which
+        settles its step to half an LSB in ``settle_ps`` over ``settle_margin``: ln(2^(N+1) w / W)
+        time constants for a stage of weight w of the total W. Its plates are designed at the
+        reference ``reference_v`` and its LSB is at it; where None, the PDK's typical supply, at which
+        the netlist draws the plates and the characterization runs."""
         if reference_v is None:
             reference_v = _supply_v(pdk)
         weights = _weights(params)

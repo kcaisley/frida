@@ -46,9 +46,8 @@ not part of the converter's ENOB (its front end's, on an ideal reference).
 
 - The decoupling the reference node has: decap cells over ``DECAP_COVERAGE`` of the converter's
   footprint (taken as its DAC's two sides', each side's layout with its drivers), the supplies
-  shared, at the PDK's decap density
-  (``DECAP_FF_PER_UM2`` in its ``pdk_logic``), rounded to one significant figure
-  (``ref_decap_f``).
+  shared, at the PDK's decap density (``DECAP_FF_PER_UM2`` in its ``pdk_logic``), rounded to one
+  significant figure (``ref_decap_f``).
 - Kickback: each switch draws its charge from that capacitance and the buffer restores it through
   its output resistance, so the dip left at the next comparison is a code-dependent error: the
   largest output resistance the converter tolerates (``ref_r_max_ohm``), and the ENOB it loses over
