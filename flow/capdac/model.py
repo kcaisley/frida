@@ -17,7 +17,9 @@ them (``Model.switch``).
 
 ``Model.drawn`` gives one of the characterization's Monte Carlo draws, the plates a converter on the
 array calibrates on (``flow.adc.model``): of one condition, the run at a percentile of what no
-calibration recovers.
+calibration recovers. ``Model.settling_meas`` is the measurement its settling run keeps, whose
+steps, each stage's as measured, are the weights a converter on the array decodes with as its
+extracted ones (``flow.analysis.io.read_extracted_calibration``).
 
 The switching is the model's own physics, which the behavioral ADC runs: ``Model.Behavioral``, the
 DAC beyond its ``Params`` (what ``behavioral`` gives: each side's plates, the top plate's other
@@ -34,6 +36,7 @@ from __future__ import annotations
 import importlib
 import math
 from dataclasses import dataclass
+from pathlib import Path
 
 import hdl21 as h
 import numpy as np
@@ -70,6 +73,9 @@ class Model:
     lsb_v: float
     gain: float  # the drawn steps against the design's: its plates over its top plate's whole load
     area_um2: float  # one side's layout, its drivers with it; NaN where it is not laid out
+    # the measurement its settling run keeps, each stage's step as measured; None where none is kept
+    # (a design's, ``Model.design``)
+    settling_meas: Path | None = None
 
     @h.paramclass
     class Behavioral:
@@ -111,6 +117,7 @@ class Model:
         stages = detail(record, "model_stage")["series"]
         # a record the layout step has not reached has no area
         area = metrics.get("layout_area_um2")
+        kept = record.get("waves") or {}
         return cls(
             pdk=pdk,
             params=params,
@@ -121,12 +128,14 @@ class Model:
             lsb_v=metrics["lsb_v"],
             gain=metrics["gain"],
             area_um2=math.nan if area is None else float(area),
+            settling_meas=ROOT / kept["settling"] if "settling" in kept else None,
         )
 
     @classmethod
     def design(cls, pdk: str, params: Params, *, reference_v: float | None = None) -> Model:
         """``params`` as designed, where it is not characterized in ``pdk``: its top plates loaded by
-        its plates alone (gain 1) and not laid out (no area); each stage's drivers without delay and
+        its plates alone (gain 1), not laid out (no area) and no measurement kept; each stage's
+        drivers without delay and
         of the time constant ``flow.capdac.subckt`` sizes them for, which settles its step to half an
         LSB in ``settle_ps`` over ``settle_margin``: ln(2^(N+1) w / W) time constants for a stage of
         weight w of the total W. Its plates are designed at the reference ``reference_v`` and its

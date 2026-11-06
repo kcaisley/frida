@@ -143,7 +143,8 @@ def test_a_record_gives_the_drawn_gain_area_and_settling(monkeypatch: pytest.Mon
     """``Model.of`` on a stand-in record in a PDK of a 0.9 V supply: its plates are the design's at
     that supply, at which the netlist draws them and the characterization runs; the gain is those
     plates over the drawn top plate's whole load, so the rest of it is the parasitic; a Monte Carlo
-    draw's plates replace the design's, the parasitic stays."""
+    draw's plates replace the design's, the parasitic stays. The measurement its settling run keeps
+    is found under the repository, as the record names it."""
     params = Params(bits=10, redundancy=Redundancy.BINARY, extra=0)
     stages = len(Model.weights(params))
     record = {
@@ -153,11 +154,13 @@ def test_a_record_gives_the_drawn_gain_area_and_settling(monkeypatch: pytest.Mon
             {"name": "settling_stage", "series": {"settling": [300e-12] * stages}},
             {"name": "model_stage", "series": {"delay": [50e-12] * stages, "time constant": [40e-12] * stages}},
         ],
+        "waves": {"settling": "build/capdac/run/tsmc65/digest/settling/result.h5"},
     }
     monkeypatch.setattr(capdac_model, "characterized", lambda block, pdk, params, simulate=True: record)
     monkeypatch.setattr(capdac_model, "_supply_v", lambda pdk: 0.9)
     model = Model.of("tsmc65", params)
     assert (model.gain, model.area_um2, model.lsb_v, model.reference_v) == (0.8, 1234.0, 1.5e-3, 0.9)
+    assert model.settling_meas == capdac_model.ROOT / "build/capdac/run/tsmc65/digest/settling/result.h5"
     dac = model.behavioral()
     main_f, diff_f = Model.plates(params, 0.9)
     plates_f = float(main_f.sum() + diff_f.sum())
@@ -169,9 +172,11 @@ def test_a_record_gives_the_drawn_gain_area_and_settling(monkeypatch: pytest.Mon
     drawn = model.behavioral(((1.01 * main_f, diff_f), (main_f, 0.99 * diff_f)))
     assert drawn.main_p_f == tuple(1.01 * main_f) and drawn.diff_n_f == tuple(0.99 * diff_f)
     assert drawn.parasitic_f == dac.parasitic_f
-    # a record the layout step has not reached has no area
+    # a record the layout step has not reached has no area, one that keeps no run no measurement
     del record["metrics"]["layout_area_um2"]
     assert math.isnan(Model.of("tsmc65", params).area_um2)
+    del record["waves"]
+    assert Model.of("tsmc65", params).settling_meas is None
 
 
 def test_a_design_without_a_record_settles_as_its_drivers_are_sized() -> None:
@@ -183,6 +188,7 @@ def test_a_design_without_a_record_settles_as_its_drivers_are_sized() -> None:
     model = Model.design("tsmc65", params, reference_v=1.0)
     weights = np.asarray(Model.weights(params), dtype=np.float64)
     assert model.gain == 1.0 and math.isnan(model.area_um2) and model.delay_s == (0.0,) * len(weights)
+    assert model.settling_meas is None
     assert model.reference_v == 1.0
     np.testing.assert_allclose(model.settling_s, 400e-12, rtol=1e-12)
     np.testing.assert_allclose(np.asarray(model.tau_s) * np.log(2**11 * weights / 511), 400e-12, rtol=1e-12)
