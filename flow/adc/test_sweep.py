@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from flow import capdac, comp, samp
-from flow.adc import plots, sim, sweep, targets
+from flow.adc import plots, sim, subckt, sweep, targets
 from flow.adc.params import (
     FIN_CYCLES,
     FIN_RATES_HZ,
@@ -32,6 +32,8 @@ from flow.adc.params import (
     RESOLUTIONS,
     VALIDATION_DRAWS,
 )
+from flow.cdac.caparray.layout import ADC_ARRAYS
+from flow.cdac.caparray.subckt import get_caparray_weights
 from flow.pipeline import Pdk
 from flow.sweep.runner import design_space, digest
 
@@ -141,6 +143,26 @@ def test_frida1s_converter_is_one_of_the_product() -> None:
     assert len(frida1) == len(_values("tsmc65", "comp")) * len(_values("tsmc65", "samp")) == 100
     assert all(adc.adc_bits == FRIDA1_BITS and len(capdac.Model.weights(adc.cdac)) + 1 == 17 for adc in frida1)
     assert (samp.FRIDA1, comp.FRIDA1) in {(adc.samp, adc.comp) for adc in frida1}
+
+
+def test_each_swept_array_bridges_to_the_legacy_array_of_its_name() -> None:
+    """The netlist, the model's characterization and the layout build on the legacy array of the
+    converter's DAC (``subckt._legacy_array``), its extraction found by the legacy array's name: each
+    swept array's is the legacy ADC array of the name it is swept by (``ADC_ARRAYS``), of the same
+    weights and scale, so the model reads that array's extraction and the netlist draws it. An
+    array of its own weights (the board's radix-2.0 flavor) keeps them, at FRIDA-1's two minimums."""
+    names = set()
+    for bits in RESOLUTIONS:
+        for name, cdac in sweep._arrays(Pdk.TSMC65, bits).items():
+            legacy = subckt._legacy_array(cdac)
+            assert legacy == ADC_ARRAYS[name]
+            assert get_caparray_weights(legacy) == list(capdac.Model.weights(cdac))
+            names.add(name)
+    assert names == set(ADC_ARRAYS)
+    radix20 = (768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)
+    legacy = subckt._legacy_array(capdac.Params(weights=radix20))
+    assert (legacy.weights, legacy.cap_scale) == (radix20, 2)
+    assert tuple(get_caparray_weights(legacy)) == radix20
 
 
 def test_every_component_is_its_block_sweeps_instance() -> None:
