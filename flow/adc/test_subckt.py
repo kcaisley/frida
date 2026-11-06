@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from flow import capdac
 
 from .params import Params
-from .subckt import Adc, digital_net_aliases
+from .subckt import Adc, _legacy_array, digital_net_aliases
 
 
 def test_adc():
@@ -21,9 +21,8 @@ def test_adc():
 
 
 def test_invalid_adc_params_are_refused_when_made():
-    """A resolution or an array no converter has, a converter of another resolution than its
-    array's, or an array its netlist's legacy array cannot be (unit capacitors, another coarse
-    weight): refused by the parameters' types (a comparator or a sampler of a zero size likewise,
+    """A resolution or an array no converter has, or a converter of another resolution than its
+    array's: refused by the parameters' types (a comparator or a sampler of a zero size likewise,
     flow/comp and flow/samp's test_subckt.py)."""
     for make in (
         lambda: Params(adc_bits=0),
@@ -32,11 +31,24 @@ def test_invalid_adc_params_are_refused_when_made():
         lambda: capdac.Params(extra=-1),
         lambda: capdac.Params(weights=(1,) * 15),
         lambda: Params(adc_bits=10),
-        lambda: Params(cdac=capdac.Params(weight_impl=capdac.WeightImpl.UNIT_CAPS)),
-        lambda: Params(cdac=capdac.Params(coarse_weight=32)),
     ):
         with pytest.raises(ValidationError):
             make()
+
+
+def test_the_netlist_refuses_an_array_its_legacy_array_cannot_be():
+    """Any array of capdac's is a converter's: its model and its blocks' geometry are capdac's. The
+    netlist builds on the legacy array of the same weights (``_legacy_array``) until it moves to
+    ``capdac.netlist``, which keeps an array's own weights (the board's radix-2.0 flavor) at its
+    scale, and refuses where it builds what that array cannot be: unit capacitors, another coarse
+    weight."""
+    radix20 = (768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)
+    legacy = _legacy_array(capdac.Params(weights=radix20))
+    assert (legacy.n_dac, legacy.n_extra, legacy.redun_strat.name, legacy.cap_scale) == (11, 5, "MSB_REDIST", 2)
+    assert legacy.weights == radix20
+    for cdac in (capdac.Params(weight_impl=capdac.WeightImpl.UNIT_CAPS), capdac.Params(coarse_weight=32)):
+        with pytest.raises(ValueError, match="legacy"):
+            Adc(Params(cdac=cdac))
 
 
 def test_adc_takes_a_sixteen_stage_array_of_another_resolution():

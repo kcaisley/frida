@@ -1,8 +1,9 @@
-"""The ADC's design space (``flow.adc.sweep``, the grid ``converters``): the plain product of the
-comparator grid, the samplers, the arrays, the resolutions and the capacitance scales, every
-component its block sweep's instance; its campaign (``campaign``), every capture the figures read,
-for any testbench builder; and its named Spectre runs, each the testbenches it builds and runs side
-by side (the simulator replaced), with the CLI's targets of them (``flow.adc.targets``)."""
+"""The ADC's design space (``flow.adc.sweep``, the grid ``converters``, in TSMC65 alone): the plain
+product of the comparator grid, the samplers, the arrays (both weight builds), the resolutions and
+the capacitance scales, every component its block sweep's instance; its campaign (``campaign``),
+every capture the figures read, for any testbench builder; and its named Spectre runs, each the
+testbenches it builds and runs side by side (the simulator replaced), with the CLI's targets of them
+(``flow.adc.targets``)."""
 
 import importlib.util
 import inspect
@@ -19,7 +20,7 @@ import numpy as np
 import pytest
 
 from flow import capdac, comp, samp
-from flow.adc import plots, sim, subckt, sweep, targets
+from flow.adc import plots, sim, sweep, targets
 from flow.adc.params import (
     FIN_CYCLES,
     FIN_RATES_HZ,
@@ -32,8 +33,6 @@ from flow.adc.params import (
     RESOLUTIONS,
     VALIDATION_DRAWS,
 )
-from flow.cdac.caparray.layout import ADC_ARRAYS
-from flow.cdac.caparray.subckt import get_caparray_weights
 from flow.pipeline import Pdk
 from flow.sweep.runner import design_space, digest
 
@@ -63,10 +62,9 @@ def _instances(pdk: str) -> list:
 
 
 def _swept_arrays() -> list[capdac.Params]:
-    """The arrays the converters take: capdac's grid of difference capacitors (its unit capacitors
-    left out) and FRIDA-1's array."""
-    grid = [cdac for _label, cdac in capdac.arrays.instances("tsmc65")]
-    return [cdac for cdac in grid if cdac.weight_impl is capdac.WeightImpl.DIFFERENCE_CAPS] + [capdac.frida1()]
+    """The arrays the converters take: capdac's design space, its grid (both weight builds) and
+    FRIDA-1's array."""
+    return [cdac for _label, cdac in capdac.arrays.instances("tsmc65")] + [capdac.frida1()]
 
 
 def _values(pdk: str, parameter: str) -> tuple[Any, ...]:
@@ -81,7 +79,7 @@ def test_the_design_space_is_the_plain_product() -> None:
     adcs = _instances("tsmc65")
     comparators, samplers = _values("tsmc65", "comp"), _values("tsmc65", "samp")
     assert len(samplers) == 5
-    assert len(adcs) == len(comparators) * 5 * (10 * 3 * 2 + 1) == 6_100
+    assert len(adcs) == len(comparators) * 5 * (10 * 3 * 2 * 2 + 1) == 12_100
     assert len({digest(adc) for adc in adcs}) == len(adcs)
     arrays = _swept_arrays()
     for adc in adcs:
@@ -96,16 +94,21 @@ def test_the_design_space_is_the_plain_product() -> None:
     }
 
 
-def test_elsewhere_each_array_takes_the_pdks_strongarm_ladder_and_the_widest_switch() -> None:
+def test_elsewhere_no_converter_until_the_dac_is_characterized_there() -> None:
+    """A converter's DAC is capdac's record, which TSMC65 alone has: the grid gives no other PDK an
+    instance. Their spaces stay as they will be swept: each array with the PDK's StrongARM ladder at
+    its longest tail and the widest bootstrapped switch."""
     arrays = _swept_arrays()
+    assert sweep.converters.pdks == (Pdk.TSMC65,)
     for pdk in ("tsmc28", "ihp130", "tower180", "lf150", "tpsc65"):
-        adcs = _instances(pdk)
+        assert not _instances(pdk)
         ladder = [params for _label, params in comp.base_strongarm.instances(pdk)]
         longest = max(params.tail_l for params in ladder)
         assert list(_values(pdk, "comp")) == [params for params in ladder if params.tail_l == longest]
         assert [samp.mos_w for samp in _values(pdk, "samp")] == [160]
-        assert len(adcs) == len(_values(pdk, "comp")) * len(arrays) in (244, 305)
-        assert {adc.cdac for adc in adcs} == set(arrays)
+        spaced = [cdac for space in sweep.converters.spaces(pdk).values() for cdac in space.widened["cdac"].values]
+        assert len(spaced) == len(arrays) and set(spaced) == set(arrays)
+        assert len(_values(pdk, "comp")) * len(arrays) in (484, 605)
 
 
 def test_each_resolution_takes_binary_and_three_schemes_with_two_four_and_six_extra_cycles() -> None:
@@ -120,16 +123,31 @@ def test_each_resolution_takes_binary_and_three_schemes_with_two_four_and_six_ex
         named = sweep._arrays(Pdk.TSMC65, bits)
         count += len(named)
         arrays = [cdac for cdac in named.values() if cdac != FRIDA1_ARRAY]
-        # one minimum's arrays, then two minimums', each binary and then each scheme
-        assert [(cdac.scale, cdac.redundancy, cdac.extra) for cdac in arrays] == [
-            (scale, scheme, extra) for scale in (1, 2) for scheme, extra in schemes
+        # the difference capacitors' arrays, then the unit capacitors': one minimum's, then two
+        # minimums', each binary and then each scheme
+        assert [(cdac.weight_impl, cdac.scale, cdac.redundancy, cdac.extra) for cdac in arrays] == [
+            (build, scale, scheme, extra)
+            for build in (capdac.WeightImpl.DIFFERENCE_CAPS, capdac.WeightImpl.UNIT_CAPS)
+            for scale in (1, 2)
+            for scheme, extra in schemes
         ]
         assert {sum(capdac.Model.weights(cdac)) for cdac in arrays} == {2 ** (bits - 1) - 1}
-        assert all(cdac.bits == bits and cdac.weight_impl is capdac.WeightImpl.DIFFERENCE_CAPS for cdac in arrays)
-        # named as the legacy extractions name them
-        assert list(named)[:2] == [f"{bits}b_binary_x1", f"{bits}b_msb_split2_x1"]
-        assert list(named)[len(schemes)] == f"{bits}b_binary_x2"
-    assert count == 61
+        assert all(cdac.bits == bits for cdac in arrays)
+        # the difference capacitors named as the legacy extractions name them, the unit capacitors
+        # the same with _unit
+        names = list(named)
+        assert names[:2] == [f"{bits}b_binary_x1", f"{bits}b_msb_split2_x1"]
+        assert names[len(schemes)] == f"{bits}b_binary_x2"
+        assert names[2 * len(schemes) : 2 * len(schemes) + 2] == [
+            f"{bits}b_binary_x1_unit",
+            f"{bits}b_msb_split2_x1_unit",
+        ]
+        unit = [cdac.weight_impl is capdac.WeightImpl.UNIT_CAPS for cdac in named.values()]
+        assert [name.endswith("_unit") for name in names] == unit
+        assert [name.removesuffix("_unit") for name, is_unit in zip(names, unit, strict=True) if is_unit] == [
+            name for name, is_unit in zip(names, unit, strict=True) if not is_unit and named[name] != FRIDA1_ARRAY
+        ]
+    assert count == 121
 
 
 def test_frida1s_converter_is_one_of_the_product() -> None:
@@ -145,24 +163,13 @@ def test_frida1s_converter_is_one_of_the_product() -> None:
     assert (samp.FRIDA1, comp.FRIDA1) in {(adc.samp, adc.comp) for adc in frida1}
 
 
-def test_each_swept_array_bridges_to_the_legacy_array_of_its_name() -> None:
-    """The netlist, the model's characterization and the layout build on the legacy array of the
-    converter's DAC (``subckt._legacy_array``), its extraction found by the legacy array's name: each
-    swept array's is the legacy ADC array of the name it is swept by (``ADC_ARRAYS``), of the same
-    weights and scale, so the model reads that array's extraction and the netlist draws it. An
-    array of its own weights (the board's radix-2.0 flavor) keeps them, at FRIDA-1's two minimums."""
-    names = set()
-    for bits in RESOLUTIONS:
-        for name, cdac in sweep._arrays(Pdk.TSMC65, bits).items():
-            legacy = subckt._legacy_array(cdac)
-            assert legacy == ADC_ARRAYS[name]
-            assert get_caparray_weights(legacy) == list(capdac.Model.weights(cdac))
-            names.add(name)
-    assert names == set(ADC_ARRAYS)
-    radix20 = (768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)
-    legacy = subckt._legacy_array(capdac.Params(weights=radix20))
-    assert (legacy.weights, legacy.cap_scale) == (radix20, 2)
-    assert tuple(get_caparray_weights(legacy)) == radix20
+def test_each_swept_array_is_an_instance_of_the_dacs_design_space() -> None:
+    """The model reads a converter's DAC from capdac's characterization of the same parameters,
+    found by their digest: every array the converters take, of either weight build and FRIDA-1's, is
+    an instance of capdac's design space in the PDK, and every instance of it is swept."""
+    dacs = design_space("capdac", "tsmc65")
+    assert all(digest(adc.cdac) in dacs for adc in _instances("tsmc65"))
+    assert {digest(cdac) for cdac in _swept_arrays()} == set(dacs) and len(dacs) == 121
 
 
 def test_every_component_is_its_block_sweeps_instance() -> None:

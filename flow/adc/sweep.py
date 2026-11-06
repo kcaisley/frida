@@ -1,17 +1,18 @@
 """The ADC's design space (``flow.sweep``), by the behavioral model (``flow.adc.model``) of its
 characterized blocks: the plain product of its components, each converter given by its parameters;
-in TSMC65 the full product below, in the other PDKs a smaller one.
+in TSMC65 alone, the one PDK its DAC is characterized in (``flow.capdac.sweep``).
 
 Every converter samples on its top plates, makes one free comparison before any capacitor switches
 and fires the comparator again after the last one switches: an N-bit converter has an N-1-step DAC
-(``adc_bits`` is its array's ``bits``) and N + extra decisions. Its arrays are capdac's
-(``capdac.arrays``: difference capacitors in long strips, at one and two kT/C minimums of switched
-capacitance, ``capdac.Params.scale``), labelled by the names the legacy extractions give them
-(``_array_name``). Until the behavioral model composes capdac's records, each converter reads the
-legacy characterization of the same array (``flow.adc.subckt._legacy_array``): its three-metal
-unit-length array sized through its 3-D extraction in each PDK (``flow.cdac.caparray.sizing``), its
-full scale at least 80 % of the reference, and its drivers derived from its extracted plates
-(``flow.cdac.capdriver.model.driver_strengths``), each stage sized to settle in about 1 ns.
+(``adc_bits`` is its array's ``bits``) and N + extra decisions. Its arrays are capdac's, every one
+of its design space (``capdac.arrays`` and ``capdac.frida1``): each at one and two kT/C minimums of
+switched capacitance (``capdac.Params.scale``, at a full scale of the reference: the full scale its
+plates give is the record's ``full_scale_over_reference``), its weights built both ways
+(``capdac.WeightImpl``: difference capacitors in long strips, or unit capacitors), its drivers
+sized to settle each stage to half an LSB within 1 ns (``capdac.Params.settle_ps``). The
+difference capacitors are labelled by the names the legacy extractions gave them, the unit
+capacitors by the same with ``_unit`` (``_array_name``). Each converter's DAC is capdac's
+characterization of the same array, found by its digest.
 
 The product, nothing pruned:
 
@@ -22,20 +23,21 @@ The product, nothing pruned:
   160 minimum widths (``samp.boost_ladder``, each boosted alike), about a half, a
   quarter, a seventh and a tenth of the gate's resistance; none with half-size dummy switches, as
   FRIDA-1's;
-- the arrays, 10 at each resolution and scale: binary, and each scheme
+- the arrays, 10 at each resolution, scale and weight build: binary, and each scheme
   (``capdac.Redundancy``: the MSBs split, the LSBs split, FRIDA's MSB redistribution)
   with 2, 4 and 6 extra cycles, every one of the binary total weight;
 - the resolutions, 10, 12 and 14 bits;
 - the switched capacitance, one and two times the resolution's least (``capdac.Params.scale``);
+- the weight builds, difference and unit capacitors (``capdac.WeightImpl``);
 - and FRIDA-1's array (``capdac.frida1``: 12 bits on MSB redistribution with 5 extra cycles, 17
-  decisions) at two times the 12-bit least, near its drawn size.
+  decisions, its difference capacitors) at two times the 12-bit least, near its drawn size.
 
-20 x 5 x (10 x 3 x 2 + 1) = 6,100 converters in TSMC65. In the other PDKs, where the arrays and
-the blocks are the same study's but the comparator grid is the PDK's own (``flow.comp.sweep``), each
-array with the PDK's StrongARM noise ladder at about FRIDA-1's speed (``_comparators``) and the widest
-bootstrapped switch (``_samplers``): 244 to 305 converters a PDK. The design space is a grid
-(``converters``, docs/pipeline.md): one space per resolution, its arrays, comparators and samplers
-values by name.
+20 x 5 x (10 x 3 x 2 x 2 + 1) = 12,100 converters in TSMC65. The other PDKs have none until capdac
+is characterized there; their spaces stay: the arrays and the blocks the same study's but the
+comparator grid the PDK's own (``flow.comp.sweep``), each array with the PDK's StrongARM noise
+ladder at about FRIDA-1's speed (``_comparators``) and the widest bootstrapped switch
+(``_samplers``), 484 to 605 converters a PDK. The design space is a grid (``converters``,
+docs/pipeline.md): one space per resolution, its arrays, comparators and samplers values by name.
 
 Each instance runs the campaign (``campaign``: every capture its record needs) and records its
 metrics and figures (``record``: the analyses of ``flow.adc.analysis``, the figures of
@@ -146,23 +148,21 @@ from .types import AnalysisCalibration, AnalysisLadder
 
 def _array_name(cdac: capdac.Params) -> str:
     """An array's name, by its converter's resolution, scheme and scale, as the legacy extractions
-    name it: ``12b_binary_x1``, ``12b_msb_redist5_x2`` (FRIDA-1's), ``14b_lsb_split6_x2``."""
-    return f"{cdac.bits}b_{cdac.redundancy.name.lower()}{cdac.extra or ''}_x{cdac.scale}"
+    name the difference capacitors': ``12b_binary_x1``, ``12b_msb_redist5_x2`` (FRIDA-1's),
+    ``14b_lsb_split6_x2``; unit capacitors' the same with ``_unit``, ``12b_binary_x1_unit``."""
+    unit = "_unit" if cdac.weight_impl is capdac.WeightImpl.UNIT_CAPS else ""
+    return f"{cdac.bits}b_{cdac.redundancy.name.lower()}{cdac.extra or ''}_x{cdac.scale}{unit}"
 
 
 def _arrays(pdk: Pdk, bits: int) -> dict[str, capdac.Params]:
-    """A ``bits`` converter's arrays by name (``_array_name``): capdac's grid of difference
-    capacitors (``capdac.arrays``) at ``bits``, at one then two kT/C minimums, each the binary array
-    and then each scheme with 2, 4 and 6 extra cycles; at FRIDA-1's resolution its array last
-    (``FRIDA1_ARRAY``, ``capdac.frida1``)."""
-    schemes = list(capdac.Redundancy)
+    """A ``bits`` converter's arrays by name (``_array_name``): capdac's grid (``capdac.arrays``) at
+    ``bits``, its difference capacitors and then its unit capacitors, each at one then two kT/C
+    minimums, each the binary array and then each scheme with 2, 4 and 6 extra cycles; at FRIDA-1's
+    resolution its array last (``FRIDA1_ARRAY``, ``capdac.frida1``)."""
+    schemes, builds = list(capdac.Redundancy), list(capdac.WeightImpl)
     swept = sorted(
-        (
-            cdac
-            for _label, cdac in capdac.arrays.instances(pdk)
-            if cdac.bits == bits and cdac.weight_impl is capdac.WeightImpl.DIFFERENCE_CAPS
-        ),
-        key=lambda cdac: (cdac.scale, schemes.index(cdac.redundancy), cdac.extra),
+        (cdac for _label, cdac in capdac.arrays.instances(pdk) if cdac.bits == bits),
+        key=lambda cdac: (builds.index(cdac.weight_impl), cdac.scale, schemes.index(cdac.redundancy), cdac.extra),
     )
     frida1 = [FRIDA1_ARRAY] if FRIDA1_ARRAY.bits == bits else []
     return {_array_name(cdac): cdac for cdac in swept + frida1}
@@ -215,12 +215,14 @@ def _samplers(pdk: str) -> dict[str, samp.Params]:
     return dict([list(ladder.items())[-1]])
 
 
-@grid
+# in TSMC65 alone until capdac is characterized elsewhere: a converter's DAC is its record
+@grid(pdks=(Pdk.TSMC65,))
 def converters(pdk: Pdk) -> dict[str, Params]:
-    """Every comparator with every sampler and ADC array (``_arrays``: each resolution's arrays at
-    both scales, and FRIDA-1's), one space per resolution, each array at its resolution (``adc_bits``
-    its ``bits``): in TSMC65 the full product, elsewhere the PDK's smaller one (``_comparators``,
-    ``_samplers``). A converter is labelled by its resolution and its parts' names,
+    """Every comparator with every sampler and ADC array (``_arrays``: each resolution's arrays,
+    both weight builds at both scales, and FRIDA-1's), one space per resolution, each array at its
+    resolution (``adc_bits`` its ``bits``): in TSMC65 the full product; the other PDKs' spaces the
+    smaller one (``_comparators``, ``_samplers``), which the grid leaves out. A converter is
+    labelled by its resolution and its parts' names,
     ``converters(12b, cdac=12b_binary_x1, comp=200uV_2ns, samp=frida1)``."""
     folder = pdk.name.lower()
     spaces = {}

@@ -35,19 +35,12 @@ class Params:
     comp = h.Param(dtype=comp.Params, desc="Comparator parameters", default=comp.FRIDA1)
 
     def __post_init__(self) -> None:
-        # the converter resolves what its array is sized and weighted for
+        # the converter resolves what its array is sized and weighted for; any array of capdac's is
+        # one, its model and its blocks' geometry capdac's (its Spectre netlist, flow.adc.subckt.Adc,
+        # builds on the legacy array of the same weights until it moves to capdac.netlist, and
+        # refuses there what that array cannot be)
         if self.adc_bits != self.cdac.bits:
             raise ValueError(f"a {self.adc_bits}-bit converter takes a {self.adc_bits}-bit array, not {self.cdac.bits}")
-        # its netlist, its model's characterization and its layout build on the legacy array of the
-        # same weights (flow.adc.subckt._legacy_array), which has no unit capacitors and whose
-        # netlist builds at capdac's default coarse weight: refused as made until the netlist moves
-        # to capdac.netlist, not where the generator first builds it
-        if self.cdac.weight_impl is not capdac.WeightImpl.DIFFERENCE_CAPS:
-            raise ValueError(f"the converter's legacy array has no build of unit capacitors: {self.cdac}")
-        if self.cdac.coarse_weight != 64:
-            raise ValueError(
-                f"the converter's legacy array builds at a coarse weight of 64, not {self.cdac.coarse_weight}"
-            )
 
 
 pipeline.Params.register(Params)

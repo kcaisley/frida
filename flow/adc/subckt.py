@@ -10,7 +10,7 @@ Creates a complete SAR ADC by composing:
 Architecture:
     Adc (HDL21 generator)
     ├── Xadc_digital (ExternalModule: FRIDA's hardened netlist at 16 stages, synthesized otherwise)
-    ├── Xcaparray_p / Xcaparray_n (HDL21 CapArray)
+    ├── Xcaparray_p / Xcaparray_n (HDL21 CapArray, the legacy array of the converter's DAC)
     ├── Xcapdriver_{p,n}_{main,diff} (HDL21 CapDriver)
     ├── Xsamp_p (HDL21 Samp)
     ├── Xsamp_n (HDL21 Samp)
@@ -33,12 +33,14 @@ Register 0 drives C0, as in the RTL. The netlist is cached beside the blocks' ch
 
 The converter's DAC is a ``capdac.Params``; until the netlist moves to ``capdac.netlist``, its
 arrays and drivers are the legacy generators' (``flow.cdac.caparray``, ``flow.cdac.capdriver``) of the
-same array (``_legacy_array``), which the sweep's layout of the blocks still reads. One side's
-plates as a behavioral DAC (``flow.adc.model``) gives them: ``calc_side_capacitances``, the plates
-capdac designs at the testbench's DAC supply (``capdac.Model.plates``) where it gives none.
+same array (``_legacy_array``), which refuses what that array cannot be: unit capacitors, another
+coarse weight. One side's plates as a behavioral DAC (``flow.adc.model``) gives them:
+``calc_side_capacitances``, the plates capdac designs at the testbench's DAC supply
+(``capdac.Model.plates``) where it gives none.
 
-The ADC's analog blocks alone (``AdcBlocks``: the comparator, and a sampler and an array a side),
-whose geometry the sweep's records give (``flow.adc.sweep.GENERATOR``).
+The ADC's analog blocks alone (``AdcBlocks``: the comparator, and a sampler and a side of the DAC
+a side, capdac's, its drivers with it), whose geometry the sweep's records give
+(``flow.adc.sweep.GENERATOR``).
 
 The hardened ADC/digital interfaces and the canonical-to-physical net bindings of the extracted
 views (``adc_pex``, ``adc_port_aliases``, ``frida1_net_aliases``, ``frida2_net_aliases``): physical
@@ -65,6 +67,7 @@ from flow.adc.params import Params, TbParams
 from flow.cdac.caparray import CapArray, CapArrayConfig, CapArrayParams, RedunStrat
 from flow.cdac.capdriver import CapDriver, CapDriverParams, Cells
 from flow.circuit.ports import module_from_ports, port_connections
+from flow.layout.devices.device import active_pdk, resolve
 from flow.sweep.lookup import MODELS_DIR
 from flow.util.netlist import normalize_bus_pin, subcircuit_ports
 
@@ -137,13 +140,13 @@ def adc_stages(param: Params) -> int:
 
 
 def _legacy_array(cdac: capdac.Params) -> CapArrayConfig:
-    """The legacy array (``flow.cdac.caparray``) of the converter's DAC, which its netlist and the
-    layout build on until they move to capdac: the DAC's N - 1 binary steps, its extra cycles, its
-    scheme by name, its capacitance in kT/C minimums and an array's own weights. The legacy array
-    has no build of unit capacitors. It takes no coarse weight: the netlist (``Adc``, ``AdcBlocks``)
-    builds it at ``CapArrayParams``' default of 64 units, the one ``cdac.coarse_weight`` must hold
-    (capdac's default), and the layout ``assemble_blocks`` reads was drawn at the split its own
-    sizing chose (``flow.cdac.caparray.sizing``)."""
+    """The legacy array (``flow.cdac.caparray``) of the converter's DAC, which its netlist (``Adc``)
+    and the blocks' layout (``flow.adc.layout.assemble_blocks``) build on until they move to capdac:
+    the DAC's N - 1 binary steps, its extra cycles, its scheme by name, its capacitance in kT/C
+    minimums and an array's own weights. The legacy array has no build of unit capacitors. It takes
+    no coarse weight: the netlist builds it at ``CapArrayParams``' default of 64 units, the one
+    ``cdac.coarse_weight`` must hold (capdac's default), and the layout ``assemble_blocks`` reads was
+    drawn at the split its own sizing chose (``flow.cdac.caparray.sizing``)."""
     if cdac.weight_impl is not capdac.WeightImpl.DIFFERENCE_CAPS:
         raise ValueError(f"the legacy array has no build of unit capacitors: {cdac}")
     if cdac.coarse_weight != 64:
@@ -264,13 +267,20 @@ def Adc(p: Params) -> h.Module:
 
 
 def AdcBlocks(params: Params) -> h.Module:
-    """The ADC's analog blocks for the geometry metrics: the comparator, and a sampler and a
-    capacitor array a side (the SAR logic is the fixed digital netlist)."""
+    """The ADC's analog blocks for the geometry metrics: the comparator, and a sampler and a side of
+    its DAC a side (``capdac.netlist``: its capacitors and their drivers, its requests resolved to
+    the active PDK's devices, the PDK the sweep binds; the SAR logic is the fixed digital netlist).
+    Both sides are the one array, resolved once."""
+    pdk = active_pdk()
+    if pdk is None:
+        raise RuntimeError("the DAC's devices are the active PDK's, and none is set")
     blocks = h.Module(name="AdcBlocks")
     _place(blocks, comp.netlist(params.comp), "comp")
+    dac = capdac.netlist(params.cdac)
+    resolve(dac, pdk)
     for side in ("p", "n"):
         _place(blocks, samp.netlist(params.samp), f"samp_{side}")
-        _place(blocks, CapArray(CapArrayParams(cdac=_legacy_array(params.cdac))), f"cap_{side}")
+        _place(blocks, dac, f"cap_{side}")
     return blocks
 
 
