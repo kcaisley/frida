@@ -10,7 +10,7 @@ import hdl21 as h
 from yaml import safe_load
 
 from flow.adc import AdcParams
-from flow.adc.sequences import AdcSequence
+from flow.adc.sim import AdcSequence
 from flow.adc.sim import AdcTbParams as _AdcTbParams
 from flow.cdac.caparray import CapArrayConfig, RedunStrat
 from flow.scans.fastrx import FastRxCapture

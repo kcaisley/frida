@@ -11,10 +11,9 @@ import h5py
 import numpy as np
 import pytest
 
-from flow.adc.sim import AdcTbParams
+from flow.adc.sim import AdcTbParams, build_adc_interface_wave
 from flow.analysis.io import _read_native, write_measurement
 from flow.scans.scan_adc import scope_records_to_adc_wave
-from flow.scans.scan_behavioral import build_adc_interface_wave
 from flow.scans.scope import ScopeConns
 
 

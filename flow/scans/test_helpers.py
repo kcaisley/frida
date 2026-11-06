@@ -10,15 +10,15 @@ import numpy as np
 import pytest
 from bitarray import bitarray
 
-from flow.adc.sequences import (
+from flow.adc.sim import (
     SEQUENCES,
     AdcSequence,
+    AdcTbParams,
     symbol160_init4_samp20_comp11110000_logic00001111,
     symbol160_init4_samp20_comp11111100_logic11000011,
     symbol256_init8_samp16_comp11110000_logic00001111,
     symbol256_init8_samp16_comp11110000_logic11000011,
 )
-from flow.adc.sim import AdcTbParams
 from flow.analysis.plots import plot_waveforms
 from flow.analysis.types import Wave
 from flow.scans import fastrx, scan_adc, scan_adc_noctl, scope, seqgen

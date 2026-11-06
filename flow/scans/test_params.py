@@ -6,8 +6,7 @@ import hdl21 as h
 import pytest
 from hdl21.prefix import m
 
-from flow.adc.sequences import SEQUENCES, symbol256_init8_samp16_comp11110000_logic00001111
-from flow.adc.sim import AdcTbParams
+from flow.adc.sim import SEQUENCES, AdcTbParams, symbol256_init8_samp16_comp11110000_logic00001111
 from flow.scans.params import (
     AdcScanParams,
     build_adc_variants,
@@ -133,7 +132,7 @@ def test_validation_rejects_invalid_configuration_relationships() -> None:
 
 
 def test_variants_use_selected_sequence_to_set_conversion_rate():
-    from flow.adc.sequences import (
+    from flow.adc.sim import (
         symbol256_init8_samp16_comp11110000_logic11000011,
         symbol256_init8_samp16_comp11111100_logic00000010,
     )

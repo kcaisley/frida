@@ -698,7 +698,7 @@ def test_adc_code_noise(amp_enable: bool) -> None:
 
     Pin the run directory in ``flow.analysis.runner`` before formal analysis.
     """
-    from flow.adc.sequences import SEQUENCES, AdcSequence
+    from flow.adc.sim import SEQUENCES, AdcSequence
     from flow.analysis.adc import analyze_adc_code_spectrum, analyze_adc_interferer
     from flow.analysis.io import read_measurement
     from flow.analysis.plots import plot_adc_code_noise, plot_adc_code_spectrum, plot_adc_interferer

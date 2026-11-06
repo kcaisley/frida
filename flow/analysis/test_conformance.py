@@ -19,8 +19,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from flow.adc.sequences import AdcSequence
-from flow.adc.sim import AdcTbParams
+from flow.adc.sim import AdcSequence, AdcTbParams
 from flow.adc.subckt import AdcParams
 from flow.analysis import types as analysis_types
 from flow.cdac.caparray.sim import CapArrayTbParams

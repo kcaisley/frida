@@ -38,11 +38,9 @@ from flow.adc.behavioral import (
     AdcBehavioralParams,
     CdacBehavioralParams,
     SalogicBehavioralParams,
-    build_continuous_sequence,
     convert_behavioral,
 )
-from flow.adc.sequences import AdcSequence
-from flow.adc.sim import AdcTbParams
+from flow.adc.sim import AdcSequence, AdcTbParams, build_adc_interface_wave, calc_source_value
 from flow.adc.subckt import AdcParams
 from flow.analysis.io import write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
@@ -53,7 +51,6 @@ from flow.cdac.capdriver.model import CapDriverModel, driver_strengths, stage_dr
 from flow.cdac.capdriver.subckt import CapDriverParams, Cells
 from flow.pipeline import Space
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
-from flow.scans.scan_behavioral import build_adc_interface_wave, calc_source_value
 
 
 @cache
@@ -192,7 +189,7 @@ class AdcModel:
     def tb(self, *, conversions: int, rate_hz: float, vin_diff) -> AdcTbParams:
         """The testbench of ``conversions`` at ``rate_hz`` with the continuous sequence (8 symbols a
         decision), an alternating A state and the PDK's supply on every rail."""
-        sequence = build_continuous_sequence(self.stages)
+        sequence = AdcSequence.continuous(self.stages)
         supply = h.Vdc.Params(dc=round(self.supply_v, 4))
         return AdcTbParams(
             dut=self.params,

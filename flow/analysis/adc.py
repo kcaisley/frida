@@ -17,7 +17,7 @@ from scipy.optimize import minimize_scalar
 from scipy.special import erfc
 
 from flow import comp
-from flow.adc.sequences import AdcSequence
+from flow.adc.sim import AdcSequence
 from flow.adc.subckt import AdcNets
 from flow.analysis import calc
 from flow.analysis.types import (

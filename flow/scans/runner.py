@@ -19,7 +19,7 @@ from pathlib import Path
 
 import hdl21 as h
 
-from flow.adc.sequences import (
+from flow.adc.sim import (
     SEQUENCES,
     AdcSequence,
     symbol256_init8_samp16_comp11110000_logic00001111,

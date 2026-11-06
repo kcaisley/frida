@@ -14,7 +14,7 @@ import hdl21 as h
 import numpy as np
 from bitarray import bitarray
 
-from flow.adc.sequences import AdcSequence
+from flow.adc.sim import AdcSequence
 from flow.analysis.adc import analyze_adc_scope_bits
 from flow.analysis.io import write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo

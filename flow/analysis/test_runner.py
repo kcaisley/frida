@@ -19,7 +19,7 @@ import pytest
 import flow
 import flow.analysis as analysis_api
 from flow.adc import targets as adc_targets
-from flow.adc.sequences import SEQUENCES
+from flow.adc.sim import SEQUENCES
 from flow.analysis.adc import analyze_adc_ramp
 from flow.analysis.io import read_analysis
 from flow.analysis.test_adc import adc_measurement, adc_ramp_measurement

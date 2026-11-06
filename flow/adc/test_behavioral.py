@@ -12,13 +12,11 @@ from flow.adc.behavioral import (
     AdcBehavioralParams,
     CdacBehavioralParams,
     SalogicBehavioralParams,
-    build_continuous_sequence,
     calc_ideal_capacitances,
     calc_redundancy_margins,
     convert_behavioral,
 )
-from flow.adc.sequences import symbol160_init4_samp20_comp11110000_logic00001111
-from flow.adc.sim import AdcTbParams
+from flow.adc.sim import AdcSequence, AdcTbParams, symbol160_init4_samp20_comp11110000_logic00001111
 from flow.adc.subckt import AdcParams
 from flow.analysis.plots import plot_adc_redundancy
 from flow.cdac.caparray.model import calc_capacitor_mismatch
@@ -113,10 +111,6 @@ def with_tb(**fields) -> AdcBehavioralParams:
     return AdcBehavioralParams(tb=AdcTbParams(**{**TB.__dict__, **fields}))
 
 
-def test_continuous_sequence_reproduces_the_catalog_recipe() -> None:
-    assert build_continuous_sequence(16) == symbol160_init4_samp20_comp11110000_logic00001111
-
-
 def test_ideal_capacitances_reproduce_the_generated_weights() -> None:
     main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac)
     np.testing.assert_allclose((main_f - diff_f) / unit_capacitance_f(TB.dut.cdac), get_caparray_weights(TB.dut.cdac))
@@ -161,7 +155,7 @@ def test_other_resolutions_convert_and_scale_logic_energy(n_dac: int, n_extra: i
             dac_astate_n=(0, 1) * (stages // 2) + (0,) * (stages % 2),
             dac_bstate_p=(0,) * stages,
             dac_bstate_n=(0,) * stages,
-            **build_continuous_sequence(stages).as_tb_fields(),
+            **AdcSequence.continuous(stages).as_tb_fields(),
         ),
         salogic=SalogicBehavioralParams(clock_energy_j=1e-15),
     )

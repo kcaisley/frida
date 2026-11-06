@@ -53,14 +53,14 @@ from bitarray import bitarray
 from yaml import safe_load
 
 from flow.adc import AdcParams
-from flow.adc.sequences import (
+from flow.adc.sim import (
     SEQUENCES,
     AdcSequence,
+    AdcTbParams,
     symbol160_init4_samp20_comp11110000_logic00001111,
     symbol160_init4_samp20_comp11111100_logic11000011,
     symbol256_init8_samp16_comp11110000_logic11000011,
 )
-from flow.adc.sim import AdcTbParams
 from flow.analysis.adc import (
     analyze_adc_code_distribution,
     analyze_adc_comp_out_edge_eye,

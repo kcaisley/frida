@@ -11,7 +11,7 @@ import numpy as np
 
 from flow import comp, new_run
 from flow.adc.assembly import layout_run
-from flow.adc.sequences import (
+from flow.adc.sim import (
     SEQUENCES,
     AdcSequence,
     symbol256_init8_samp16_comp11110000_logic11000011,

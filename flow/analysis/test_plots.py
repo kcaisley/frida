@@ -15,7 +15,7 @@ from matplotlib.ticker import FixedLocator
 
 import flow.analysis.plots as analysis_plots
 from flow import comp
-from flow.adc.sequences import symbol160_init4_samp20_comp11111100_logic11000011
+from flow.adc.sim import symbol160_init4_samp20_comp11111100_logic11000011
 from flow.analysis.adc import (
     analyze_adc_cdac_settling,
     analyze_adc_code_density_nonlinearity,

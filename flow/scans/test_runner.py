@@ -9,7 +9,7 @@ from pathlib import Path
 import hdl21 as h
 import pytest
 
-from flow.adc.sequences import SEQUENCES
+from flow.adc.sim import SEQUENCES
 from flow.scans import runner
 
 timing_sequences = tuple(

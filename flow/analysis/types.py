@@ -59,8 +59,7 @@ __all__ = [
 ]
 
 if TYPE_CHECKING:
-    from flow.adc.sequences import AdcSequence
-    from flow.adc.sim import AdcTbParams
+    from flow.adc.sim import AdcSequence, AdcTbParams
     from flow.adc.subckt import AdcParams
     from flow.cdac.caparray.sim import CapArrayTbParams
     from flow.cdac.caparray.subckt import CapArrayConfig, CapArrayParams
@@ -106,7 +105,7 @@ class MeasAdc(Meas):
     def active_conversion_rate_hz(self) -> float:
         """Return the nominal conversion rate excluding idle padding."""
 
-        from flow.adc.sequences import AdcSequence
+        from flow.adc.sim import AdcSequence
 
         return float(self.tb.symbol_rate) / AdcSequence.from_tb_params(self.tb).conversion_symbols
 
@@ -114,7 +113,7 @@ class MeasAdc(Meas):
     def logic_phase_delay_symbols(self) -> float:
         """Return the COMP-to-LOGIC delay relative to mid-decision, in symbols."""
 
-        from flow.adc.sequences import AdcSequence
+        from flow.adc.sim import AdcSequence
 
         interval, delay = AdcSequence.from_tb_params(self.tb).logic_timing
         return delay - interval / 2
@@ -123,7 +122,7 @@ class MeasAdc(Meas):
     def comparator_time_percent(self) -> float:
         """Return the COMP-to-LOGIC delay as a percentage of the decision interval."""
 
-        from flow.adc.sequences import AdcSequence
+        from flow.adc.sim import AdcSequence
 
         interval, delay = AdcSequence.from_tb_params(self.tb).logic_timing
         return 100.0 * delay / interval
@@ -171,7 +170,7 @@ class MeasAdc(Meas):
     def symbols_per_decision(self) -> int:
         """Return the symbol spacing of the INIT-relative COMP rises, one per decision."""
 
-        from flow.adc.sequences import AdcSequence
+        from flow.adc.sim import AdcSequence
 
         comp = np.fromiter((bit == "1" for bit in AdcSequence.from_tb_params(self.tb).relative_to_init().comp), bool)
         spacing = np.diff(np.flatnonzero(comp & ~np.roll(comp, 1)))

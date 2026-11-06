@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from flow.adc.sequences import SEQUENCES, AdcSequence
+from flow.adc.sim import SEQUENCES, AdcSequence
 
 if TYPE_CHECKING:
     from flow.scans.params import AdcScanParams

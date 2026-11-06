@@ -14,7 +14,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
-from flow.adc.sequences import SEQUENCES, AdcSequence
+from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.analysis import calc
 from flow.analysis.io import read_measurement
 from flow.analysis.plots import PLOT_STYLE, save_figure, style_grid

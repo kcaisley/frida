@@ -26,8 +26,7 @@ import numpy as np
 
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
-from flow.adc.sequences import AdcSequence
-from flow.adc.sim import AdcTbParams
+from flow.adc.sim import AdcSequence, AdcTbParams
 from flow.cdac.caparray.subckt import CapArrayConfig, CapArrayParams, get_caparray_weights, unit_capacitance_f
 
 
@@ -416,19 +415,3 @@ def convert_behavioral(
             "vdd_dac": 4 * stages * params.cdac.driver_static_w,
         },
     )
-
-
-def build_continuous_sequence(stages: int) -> AdcSequence:
-    """Return the continuous recipe for ``stages`` capacitors: INIT 4, SAMP 20, one 8-symbol word per decision.
-
-    COMP is high for the first four symbols of each word, LOGIC for the last
-    four, and one LOGIC pulse inside INIT loads the A state. For 16 stages it
-    equals ``symbol160_init4_samp20_comp11110000_logic00001111``.
-    """
-
-    symbols = 24 + 8 * (stages + 1)
-    init = "1" * 4 + "0" * (symbols - 4)
-    samp = "0" * 4 + "1" * 20 + "0" * (symbols - 24)
-    comp = "0" * 24 + "11110000" * (stages + 1)
-    logic = "0011110000000000000000000000" + "11110000" * stages + "0000"
-    return AdcSequence(init=init, samp=samp, comp=comp, logic=logic[:symbols])

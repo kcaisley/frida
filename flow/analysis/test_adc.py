@@ -12,8 +12,7 @@ import numpy as np
 import pytest
 
 from flow.adc import AdcParams
-from flow.adc.sequences import SEQUENCES, AdcSequence
-from flow.adc.sim import AdcTbParams
+from flow.adc.sim import SEQUENCES, AdcSequence, AdcTbParams
 from flow.analysis.adc import (
     analyze_adc_cdac_settling,
     analyze_adc_code_density_nonlinearity,

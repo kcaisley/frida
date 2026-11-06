@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -34,105 +33,25 @@ from flow.adc.behavioral import (
     AdcBehavioralParams,
     CdacBehavioralParams,
     SalogicBehavioralParams,
-    build_continuous_sequence,
     calc_ideal_capacitances,
     cdac,
     convert_behavioral,
 )
-from flow.adc.sequences import AdcSequence, symbol160_init4_samp20_comp11110000_logic00001111
-from flow.adc.sim import AdcTbParams
-from flow.adc.subckt import AdcNets, AdcParams
+from flow.adc.sim import (
+    AdcSequence,
+    AdcTbParams,
+    build_adc_interface_wave,
+    calc_source_value,
+    symbol160_init4_samp20_comp11110000_logic00001111,
+)
+from flow.adc.subckt import AdcParams
 from flow.analysis.io import write_analysis, write_measurement
-from flow.analysis.types import MeasAdc, MeasCdac, MeasInfo, Wave
+from flow.analysis.types import MeasAdc, MeasCdac, MeasInfo
 from flow.cdac.caparray import get_caparray_weights
 from flow.cdac.caparray.model import calc_capacitor_mismatch
 from flow.cdac.caparray.subckt import CapArrayConfig, RedunStrat
 from flow.scans.params import AdcScanParams
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
-
-
-def calc_pwl_value(source: h.Vpwl.Params, time_s: np.ndarray) -> np.ndarray:
-    """Evaluate a PWL source that repeats after its last time point."""
-
-    if isinstance(source.wave, str):
-        values = np.asarray([float(value) for value in source.wave.split()], dtype=np.float64)
-        pwl_time_s, pwl_value_v = values[0::2], values[1::2]
-    else:
-        pwl_time_s = np.asarray([float(time) for time, _value in source.wave.points], dtype=np.float64)
-        pwl_value_v = np.asarray([float(value) for _time, value in source.wave.points], dtype=np.float64)
-    period_s = pwl_time_s[-1] - pwl_time_s[0]
-    return np.interp(pwl_time_s[0] + np.mod(time_s - pwl_time_s[0], period_s), pwl_time_s, pwl_value_v)
-
-
-def calc_source_value(source, time_s: np.ndarray) -> np.ndarray:
-    """Evaluate a DC, sine, or repeating PWL differential source."""
-
-    if isinstance(source, h.Vpwl.Params):
-        return calc_pwl_value(source, time_s)
-    if isinstance(source, h.Vsin.Params):
-        return float(source.voff) + float(source.vamp) * np.sin(
-            2.0 * np.pi * float(source.freq) * time_s + np.deg2rad(float(source.phase or 0.0))
-        )
-    return np.full_like(time_s, float(source.dc), dtype=np.float64)
-
-
-def build_adc_interface_wave(
-    params: AdcTbParams,
-    bout: Sequence[int],
-    *,
-    conversion_index: int = 0,
-    samples_per_symbol: int = 4,
-) -> Wave:
-    """Build one dense behavioral ADC-interface waveform from test parameters."""
-
-    if samples_per_symbol <= 0:
-        raise ValueError("samples_per_symbol must be positive")
-    bout_array = np.asarray(bout, dtype=np.uint8)
-    if bout_array.ndim != 1 or np.any((bout_array != 0) & (bout_array != 1)):
-        raise ValueError("Bout must be one binary decision vector")
-
-    sequence_length = len(params.seq_init_pattern)
-
-    def sampled_pattern(name: str) -> np.ndarray:
-        pattern = getattr(params, f"seq_{name}_pattern")
-        return np.repeat(
-            np.fromiter((int(bit) for bit in pattern), dtype=np.uint8),
-            samples_per_symbol,
-        )
-
-    seq_comp = sampled_pattern("comp")
-    seq_logic = sampled_pattern("logic")
-    comp_symbols = seq_comp.reshape(sequence_length, samples_per_symbol)[:, 0]
-    falling_symbols = np.flatnonzero((comp_symbols[:-1] == 1) & (comp_symbols[1:] == 0)) + 1
-    if len(falling_symbols) < len(bout_array):
-        raise ValueError(
-            f"sequencer has {len(falling_symbols)} comparator decisions, but Bout contains {len(bout_array)} bits"
-        )
-    comp_out_symbols = np.zeros(sequence_length, dtype=np.uint8)
-    state = 0
-    decision_index = 0
-    for symbol in range(sequence_length):
-        if decision_index < len(bout_array) and symbol == falling_symbols[decision_index]:
-            state = int(bout_array[decision_index])
-            decision_index += 1
-        comp_out_symbols[symbol] = state
-
-    symbol_period_s = 1.0 / float(params.symbol_rate)
-    time_s = np.arange(sequence_length * samples_per_symbol, dtype=np.float64)
-    time_s *= symbol_period_s / samples_per_symbol
-    vin_diff_v = calc_source_value(params.vin_diff, time_s + conversion_index * sequence_length * symbol_period_s)
-    logic_high_v = float(params.vdd_d.dc)
-    return Wave(
-        record_index=np.asarray([conversion_index], dtype=np.int64),
-        time_s=time_s,
-        v={
-            "vin_diff": vin_diff_v[None, :],
-            AdcNets.seq_comp.name: (logic_high_v * seq_comp)[None, :],
-            AdcNets.seq_logic.name: (logic_high_v * seq_logic)[None, :],
-            AdcNets.comp_out.name: (logic_high_v * np.repeat(comp_out_symbols, samples_per_symbol))[None, :],
-        },
-    )
-
 
 # FRIDA-2 three-layer configuration with the 160-symbol continuous recipe.
 TB = AdcTbParams(
@@ -583,7 +502,7 @@ def architecture_variants(run_dir: Path) -> None:
                     "dac_astate_n": alternating,
                     "dac_bstate_p": (0,) * stages,
                     "dac_bstate_n": (0,) * stages,
-                    **build_continuous_sequence(stages).as_tb_fields(),
+                    **AdcSequence.continuous(stages).as_tb_fields(),
                 }
             )
             for seed, mismatch in cases:

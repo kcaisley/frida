@@ -49,8 +49,7 @@ import numpy as np
 import pytest
 from yaml import safe_load
 
-from flow.adc.sequences import SEQUENCES, AdcSequence
-from flow.adc.sim import AdcTbParams
+from flow.adc.sim import SEQUENCES, AdcSequence, AdcTbParams
 from flow.analysis import calc
 from flow.analysis.io import write_analysis
 from flow.analysis.plots import plot_serdes_output_word_grid, plot_serdes_symbol_eye_grid, plot_waveforms

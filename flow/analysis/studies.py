@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flow.adc.sequences import SEQUENCES
+from flow.adc.sim import SEQUENCES
 
 # the repository: every study's input directories are named under it
 BASE_PATH = Path(__file__).resolve().parents[2]

@@ -167,7 +167,7 @@ $(IMAGES_DIR)/%.pdf: $(IMAGES_DIR)/%.tex FORCE
 	$(render_debug_preview)
 	@echo "Created $@"
 
-$(SEQUENCE_TEX) &: $(SEQUENCE_DIR)/render.py ../flow/adc/sequences.py
+$(SEQUENCE_TEX) &: $(SEQUENCE_DIR)/render.py ../flow/adc/sim.py
 	uv run python $(SEQUENCE_DIR)/render.py
 
 $(SEQUENCE_DIR)/%.pdf: $(SEQUENCE_DIR)/%.tex FORCE

@@ -23,7 +23,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
-from flow.adc.sequences import SEQUENCES, AdcSequence
+from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.analysis import calc
 from flow.analysis.adc import analyze_adc_noise, analyze_adc_operating_conditions
 from flow.analysis.io import read_measurement, read_measurement_param, write_analysis

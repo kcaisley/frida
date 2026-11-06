@@ -27,7 +27,7 @@ from matplotlib.ticker import AutoMinorLocator, MaxNLocator, MultipleLocator, Nu
 from scipy.special import ndtr
 
 from flow import comp
-from flow.adc.sequences import AdcSequence
+from flow.adc.sim import AdcSequence
 from flow.analysis import calc
 from flow.analysis.types import (
     Analysis,
@@ -1839,7 +1839,7 @@ def plot_adc_sequence_enob(
     axes[1].axhspan(-conditions.shift_limit_dout, conditions.shift_limit_dout, color=SPINE_COLOR, alpha=0.15)
     axes[1].set_yscale("symlog", linthresh=1.0)
     axes[1].set_ylabel(f"Mean code − {symbol_rates_hz[0] / 1e6:g} MBd reference (LSB)")
-    axes[1].set_xlabel("Catalogue sequence index (flow/adc/sequences.py)")
+    axes[1].set_xlabel("Catalogue sequence index (flow/adc/sim.py)")
     axes[1].set_xlim(0.5, len(sequence_index) + 0.5)
     axes[1].xaxis.set_major_locator(MultipleLocator(5))
     axes[1].xaxis.set_minor_locator(MultipleLocator(1))
@@ -1891,7 +1891,7 @@ def plot_adc_sequence_chip_overview(
     axes[0].legend(ncols=3)
     axes[1].set_ylabel(f"Plausible ADCs of {adc_count}")
     axes[1].set_ylim(-0.5, adc_count + 0.5)
-    axes[1].set_xlabel("Catalogue sequence index (flow/adc/sequences.py)")
+    axes[1].set_xlabel("Catalogue sequence index (flow/adc/sim.py)")
     axes[1].set_xlim(0.5, len(sequence_index) + 0.5)
     axes[1].xaxis.set_major_locator(MultipleLocator(5))
     axes[1].xaxis.set_minor_locator(MultipleLocator(1))
