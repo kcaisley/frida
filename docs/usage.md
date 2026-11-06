@@ -15,7 +15,7 @@ Digital lint, simulation, synthesis, and implementation use their stock tools di
 
 ## Layouts
 
-Capacitor layouts are generated only as arrays; the standalone unit-capacitor layout exporter has been removed. The process-independent capacitor-array block is `flow.cdac.caparray` (formerly `flow.cdac`). `CapArrayConfig` holds electrical sizing; `CapArray(CapArrayParams(...))` generates the passive main/diff network, and `CapArrayLayout(CapArrayLayoutParams(...))` generates its layout. The separate `flow.cdac.capdriver.CapDriver` generates generic standard-cell XOR drivers and requires PDK compilation. `DrivenCapArray(CapArrayConfig(...))` retains the simplified integrated simulation wrapper, with inversion tied low. Existing `cdac` parameter fields and CDAC measurement names remain unchanged; the HDF5 reader migrates saved parameter type names from the old module.
+Capacitor layouts are generated only as arrays; the standalone unit-capacitor layout exporter has been removed. The process-independent capacitor-array block is `flow.cdac.caparray` (formerly `flow.cdac`). `CapArrayConfig` holds electrical sizing; `CapArray(CapArrayParams(...))` generates the passive main/diff network, and `CapArrayLayout(CapArrayLayoutParams(...))` generates its layout. The separate `flow.cdac.capdriver.CapDriver` generates generic standard-cell XOR drivers and requires PDK compilation. `DrivenCapArray(CapArrayConfig(...))` retains the simplified integrated simulation wrapper, with inversion tied low. Existing `cdac` parameter fields and CDAC measurement names remain unchanged.
 
 The process-independent FRIDA capacitor-array runners are:
 
