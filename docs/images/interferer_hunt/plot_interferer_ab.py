@@ -8,7 +8,8 @@ Fixed 50 mV / 700 mV perfboard input, ADC00-03, seven 160-symbol sequences at
     C  supplies connected, amplifier disabled (AMP_EN=0)   20261009_110933
 
 Each run gets the chip's maps over sequence and rate (the ADCs' median ENOB, how many are
-plausible, how far the mean code moves) and the noise-distribution grid;
+plausible, how far the mean code moves) and each ADC's codes over the rate for the
+spectra's sequence (comp11110000_logic10000111);
 one extra figure overlays the three runs' code spectra (comp11110000_logic10000111)
 per rate. These runs have no scope records, so adc.analyze_noise cannot confirm
 a readout by the scope/FastRX bit comparison; here a capture counts as a valid
@@ -28,12 +29,7 @@ from flow import adc
 from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.analysis import calc
 from flow.analysis.io import read_measurement, read_measurement_param, write_analysis
-from flow.analysis.plots import (
-    PLOT_STYLE,
-    plot_adc_noise_distribution_grid,
-    save_figure,
-    style_grid,
-)
+from flow.analysis.plots import PLOT_STYLE, save_figure, style_grid
 from flow.plot import render
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -55,7 +51,7 @@ for run, folder in RUNS.items():
     paths_by_adc: dict[int, list[Path]] = {}
     for path in paths:
         paths_by_adc.setdefault(read_measurement_param(path).observed_adc, []).append(path)
-    conditions, all_measurements, all_noise = [], [], []
+    conditions, all_noise = [], []
     for adc_index, adc_paths in sorted(paths_by_adc.items()):
         measurements = [read_measurement(path) for path in adc_paths]
         # Scope-less captures: accept the readout when FastRX lost no frames.
@@ -69,7 +65,6 @@ for run, folder in RUNS.items():
         result = adc.analyze_operating_conditions(measurements, noise=noise)
         conditions.append(result)
         write_analysis(run_out / f"adc{adc_index:02d}_operating_conditions.h5", result)
-        all_measurements.extend(measurements)
         all_noise.extend(noise)
         for measurement in measurements:
             if AdcSequence.from_tb_params(measurement.param.tb) != SPECTRUM_SEQUENCE:
@@ -90,7 +85,13 @@ for run, folder in RUNS.items():
         adc.plot_sequence_shift(sequences),
     ):
         render(figure, run_out / f"all_adc_{figure.name}")
-    plot_adc_noise_distribution_grid(all_measurements, all_noise, output_path=run_out / "adc_noise_distribution_grid")
+    # each ADC's codes over the rate, the spectra's sequence (one capture a rate)
+    for adc_index in sorted({noise.index for noise in all_noise}):
+        shown = sorted(
+            (noise for noise in all_noise if noise.index == adc_index and noise.sequence == SPECTRUM_SEQUENCE),
+            key=lambda noise: noise.sample_rate_hz,
+        )
+        render(adc.plot_codes_rate(shown), run_out / f"adc{adc_index:02d}_codes_rate")
     print(f"{run}: {len(paths)} captures -> {run_out}")
 
 rates = sorted(next(iter(spectra.values())))

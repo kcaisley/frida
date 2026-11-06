@@ -23,11 +23,8 @@ from flow.analysis.plots import (
     CURVE_COLORS,
     DENSITY_COLOR_MAP,
     GRID_MAJOR_COLOR,
-    INFO_BOX_FONT_SIZE,
     LEGEND_FACE_COLOR,
     NORD_BLUE,
-    NORD_GREEN,
-    NORD_LIGHT_BLUE,
     NORD_ORANGE,
     NORD_YELLOW,
     PLOT_STYLE,
@@ -39,9 +36,6 @@ from flow.analysis.plots import (
     plot_adc_comparator_edge_eye,
     plot_adc_comparator_response,
     plot_adc_interferer,
-    plot_adc_noise_distribution_grid,
-    plot_adc_noise_distribution_sweep,
-    plot_adc_noise_sweep,
     plot_adc_power_waveform,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
@@ -50,7 +44,6 @@ from flow.analysis.plots import (
     plot_serdes_output_word_grid,
     plot_serdes_symbol_eye_grid,
     plot_waveforms,
-    style_adc_code_dispersion_lsb,
     style_grid,
     style_measurement_text,
 )
@@ -429,12 +422,6 @@ def test_save_figure_preserves_explicit_layout_across_formats(tmp_path: Path) ->
 
     assert_plot_formats(paths)
     np.testing.assert_allclose(axis.get_position().bounds, expected_position)
-
-
-def test_code_dispersion_text_distinguishes_single_bin_and_small_spread() -> None:
-    assert style_adc_code_dispersion_lsb(0.0, single_code=True) == "<1.0"
-    assert style_adc_code_dispersion_lsb(0.0063245, single_code=False) == "0.0063"
-    assert style_adc_code_dispersion_lsb(0.68, single_code=False) == "0.7"
 
 
 def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -> None:
@@ -817,7 +804,9 @@ def test_interferer_plot_of_code_spectra(tmp_path: Path) -> None:
     assert_plot_formats(plot_adc_interferer([interferer], title="Interferer", output_path=tmp_path / "interferer"))
 
 
-def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
+def test_power_rate_of_each_adc(tmp_path: Path) -> None:
+    """Each ADC's supply power over its rate, the ADC's spec, from its captures' supply readbacks (its
+    noise over the rate is the noise spec's: flow/adc/test_plots.py)."""
     measurements = []
     for adc_index, sample_rate_hz in ((0, 100_000.0), (1, 200_000.0)):
         time_s = np.arange(4_096) / sample_rate_hz
@@ -838,21 +827,6 @@ def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:
             )
         )
 
-    # Results from different ADCs share one plotter instead of a comparison type.
-    dynamic_paths = plot_adc_noise_sweep(
-        measurements,
-        [adc.analyze_noise(measurement) for measurement in measurements],
-        series_labels=("ADC00", "ADC01"),
-        output_path=tmp_path / "dynamic_rate",
-    )
-    assert_plot_formats(dynamic_paths)
-    assert plt.imread(dynamic_paths[0]).shape[:2] == (2700, 4800)
-    dynamic_svg = read_svg(dynamic_paths).lower()
-    assert "snr (db)" in dynamic_svg
-    assert "enob (bit)" in dynamic_svg
-    assert "input-referred noise (lsb rms)" in dynamic_svg
-    assert "input-referred noise (mv rms)" in dynamic_svg
-    assert "conversion interval (ns)" in dynamic_svg
     # each ADC's supply power over its rate, the ADC's spec: every rail's active power together
     for measurement in measurements:
         figure = plot_power_rate([adc.analyze_power(measurement)])
@@ -936,258 +910,3 @@ def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> No
     assert "LOGIC" in waveform_svg
     for tick in ("0", "125", "250", "375", "500", "625"):
         assert f"<!-- {tick} -->" in waveform_svg
-
-
-def test_noise_sweep_plot_uses_stable_timing_colors(tmp_path: Path) -> None:
-    measurements = [
-        adc_measurement(
-            [100, 100, 100, 100] if offset == -3 else [100, 101, 99, 100],
-            sample_rate_hz=1.0e6,
-            logic_phase_delay_symbols=offset,
-        )
-        for offset in range(-3, 4)
-    ]
-    paths = plot_adc_noise_sweep(
-        measurements,
-        [adc.analyze_noise(measurement) for measurement in measurements],
-        output_path=tmp_path / "noise_sweep",
-    )
-    assert_plot_formats(paths)
-    assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
-    svg = read_svg(paths).lower()
-    assert "snr (db)" in svg
-    assert "enob (bit)" in svg
-    assert "input-referred noise (lsb rms)" in svg
-    assert "input-referred noise (mv rms)" in svg
-    assert "as % of decision cycle" in svg
-    assert "logic offsets:" not in svg
-    assert "#eceff4" in svg
-    for color in ("#d08770", "#a3be8c", "#b48ead", "#ebcb8b", "#bf616a", "#88c0d0"):
-        assert color in svg
-
-
-def test_noise_distribution_sweep_uses_one_count_scale(tmp_path: Path) -> None:
-    measurements = [
-        adc_measurement(
-            [100, 100, 101, 101, 101, 102],
-            sample_rate_hz=sample_rate_hz,
-            observed_adc=0,
-            logic_phase_delay_symbols=2,
-        )
-        for sample_rate_hz in (1.0e6, 2.0e6, 3.0e6)
-    ]
-    paths = plot_adc_noise_distribution_sweep(
-        measurements,
-        [adc.analyze_noise(measurement) for measurement in measurements],
-        output_path=tmp_path / "noise_distributions",
-    )
-
-    assert_plot_formats(paths)
-    assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
-    svg = read_svg(paths)
-    assert "ADC fixed-input output-code distributions" in svg
-    assert "ADC: 00" in svg
-    assert "CDAC init: h'5555" in svg
-    assert "Global histogram scale" not in svg
-    assert "Mean ±1σ" in svg
-
-
-@pytest.mark.parametrize(
-    ("code_center", "expected_y_limits"),
-    ((2048, (2010.0, 2100.0)), (2200, (2160.0, 2250.0))),
-)
-def test_noise_distribution_grid_shares_axes_across_all_adcs(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    code_center: int,
-    expected_y_limits: tuple[float, float],
-) -> None:
-    measurement_groups = tuple(
-        tuple(
-            adc_measurement(
-                (
-                    [code_center + adc_index] * 5
-                    if adc_index == 0 and rate_hz == 10.0e6
-                    else [
-                        code_center - 2 + adc_index,
-                        code_center - 1 + adc_index,
-                        code_center + adc_index,
-                        code_center + adc_index,
-                        code_center + 1 + adc_index,
-                    ]
-                ),
-                sample_rate_hz=rate_hz / 1.6,
-                observed_adc=adc_index,
-                logic_phase_delay_symbols=2,
-            )
-            for rate_hz in (2.0e6, 6.0e6, 10.0e6)
-        )
-        for adc_index in range(16)
-    )
-    measurements = [measurement for group in measurement_groups for measurement in group]
-    analyses = [adc.analyze_noise(measurement) for measurement in measurements]
-    captured = {}
-
-    def save(fig, output_path):
-        captured["figure"] = fig
-        captured["output_path"] = output_path
-        return ()
-
-    monkeypatch.setattr(analysis_plots, "save_figure", save)
-    paths = plot_adc_noise_distribution_grid(
-        measurements,
-        analyses,
-        output_path=tmp_path / "noise_distribution_grid",
-    )
-
-    assert paths == ()
-    assert captured["output_path"] == tmp_path / "noise_distribution_grid"
-    figure = captured["figure"]
-    axes = figure.axes[:16]
-    np.testing.assert_allclose(figure.get_size_inches(), (9.6, 5.4))
-    assert len(figure.axes) == 17
-    assert figure._suptitle.get_text() == "Code density vs sampling rate for fixed input"
-    assert figure._suptitle.get_position()[0] == 0.5
-    assert figure._suptitle.get_horizontalalignment() == "center"
-    assert all(not ax.get_title() for ax in axes)
-    assert all(ax.get_facecolor()[:3] == mcolors.to_rgb(NORD_LIGHT_BLUE) for ax in axes)
-    assert len({ax.get_xlim() for ax in axes}) == 1
-    assert len({ax.get_ylim() for ax in axes}) == 1
-    assert axes[0].get_ylim() == expected_y_limits
-    assert all(tuple(ax.get_xticks()) == (2.0, 6.0, 10.0) for ax in axes)
-    assert len({tuple(ax.get_yticks()) for ax in axes}) == 1
-    assert all(np.allclose(np.diff(ax.get_yticks()), 25.0) for ax in axes)
-    assert all(not ax.get_xlabel() and not ax.get_ylabel() for ax in axes)
-    assert all(len(ax.patches) > 0 and len(ax.lines) >= 6 for ax in axes)
-    assert all(any(line.get_linestyle() == ":" for line in ax.lines) for ax in axes)
-    assert all(not ax.texts for ax in axes)
-    assert all(len(ax.artists) == 1 for ax in axes)
-    for adc_index, ax in enumerate(axes):
-        group = sorted(
-            (analysis for analysis in analyses if analysis.index == adc_index),
-            key=lambda analysis: analysis.active_conversion_rate_hz,
-        )
-        means = np.asarray([analysis.mean_dout for analysis in group])
-        standard_deviations = np.asarray([analysis.std_dout for analysis in group])
-        counts = np.asarray([analysis.count for analysis in group])
-        summary_box = ax.artists[0]
-        summary_texts = tuple(text_area.get_children()[0] for text_area in summary_box.get_child().get_children())
-        dispersion_range_text = (
-            "σ:"
-            f"{'<1.0' if np.count_nonzero(counts[0]) == 1 else f'{standard_deviations[0]:.1f}'}→"
-            f"{'<1.0' if np.count_nonzero(counts[-1]) == 1 else f'{standard_deviations[-1]:.1f}'} LSB"
-        )
-        assert tuple(text.get_text() for text in summary_texts) == (
-            f"ADC:{adc_index:02d}",
-            f"μ:{means[0]:.0f}→{means[-1]:.0f}",
-            dispersion_range_text,
-        )
-        assert tuple(text.get_color() for text in summary_texts) == (
-            TEXT_COLOR,
-            NORD_ORANGE,
-            NORD_GREEN,
-        )
-        assert all(text.get_fontsize() == INFO_BOX_FONT_SIZE for text in summary_texts)
-        expected_location = 3 if float(np.mean(means)) > float(np.mean(expected_y_limits)) else 2
-        assert summary_box.loc == expected_location
-        assert summary_box.pad == mpl.rcParamsDefault["legend.borderpad"]
-        assert type(summary_box.patch.get_boxstyle()).__name__ == "Round"
-        assert summary_box.patch.get_boxstyle().pad == mpl.rcParamsDefault["legend.borderpad"]
-    assert not figure.legends
-    assert len(figure.artists) == 1
-    np.testing.assert_allclose(figure.axes[-1].get_position().bounds, (0.84, 0.10, 0.02, 0.45))
-    legend_box = figure.artists[0]
-    legend_children = legend_box.get_child().get_children()
-    legend_rows = legend_children[0].get_children()
-    legend_texts = tuple(row.get_children()[0].get_children()[0] for row in legend_rows)
-    legend_handles = tuple(row.get_children()[1].get_children()[0] for row in legend_rows)
-    assert tuple(text.get_text() for text in legend_texts) == (
-        "Gaussian fit",
-        "Average (μ)",
-        "Dispersion (σ)",
-    )
-    system_info = legend_children[1].get_children()[0]
-    system_info_text = system_info.get_text()
-    assert "ADCs: 00-15" in system_info_text
-    assert "Board: 07" in system_info_text
-    assert "CDAC init: h'5555" in system_info_text
-    assert "N: 5" in system_info_text
-    assert legend_box.pad == mpl.rcParamsDefault["legend.borderpad"]
-    assert type(legend_box.patch.get_boxstyle()).__name__ == "Round"
-    assert legend_box.patch.get_boxstyle().pad == mpl.rcParamsDefault["legend.borderpad"]
-    mean_line = axes[1].lines[-1]
-    lower_deviation_line = axes[1].lines[-3]
-    upper_deviation_line = axes[1].lines[-2]
-    adc01 = sorted(
-        (analysis for analysis in analyses if analysis.index == 1), key=lambda a: a.active_conversion_rate_hz
-    )
-    adc01_mean = np.asarray([analysis.mean_dout for analysis in adc01])
-    adc01_std = np.asarray([analysis.std_dout for analysis in adc01])
-    adc01_rate_msps = np.asarray([analysis.active_conversion_rate_hz for analysis in adc01]) / 1e6
-    np.testing.assert_allclose(mean_line.get_ydata(), adc01_mean)
-    np.testing.assert_allclose(lower_deviation_line.get_ydata(), adc01_mean - adc01_std)
-    np.testing.assert_allclose(upper_deviation_line.get_ydata(), adc01_mean + adc01_std)
-    assert np.all(mean_line.get_xdata() < adc01_rate_msps)
-    assert np.all(lower_deviation_line.get_xdata() < adc01_rate_msps)
-    assert mean_line.get_marker() == lower_deviation_line.get_marker() == upper_deviation_line.get_marker() == "None"
-    assert (
-        mean_line.get_linestyle() == lower_deviation_line.get_linestyle() == upper_deviation_line.get_linestyle() == ":"
-    )
-    assert (
-        mean_line.get_linewidth() == lower_deviation_line.get_linewidth() == upper_deviation_line.get_linewidth() == 1.0
-    )
-    zero_sigma_baseline = axes[0].lines[2]
-    zero_sigma_impulse = axes[0].lines[3]
-    np.testing.assert_allclose(zero_sigma_baseline.get_xdata(), (10.0, 10.0))
-    np.testing.assert_allclose(zero_sigma_baseline.get_ydata(), expected_y_limits)
-    np.testing.assert_allclose(zero_sigma_impulse.get_xdata(), (10.0, 8.0))
-    np.testing.assert_allclose(zero_sigma_impulse.get_ydata(), (code_center, code_center))
-    assert zero_sigma_baseline.get_linestyle() == zero_sigma_impulse.get_linestyle() == ":"
-    assert figure._supxlabel.get_text() == "Conversion rate (MSPS)"
-    assert figure._supylabel.get_text() == "Output code (LSB)"
-    assert all(text.get_fontsize() == 10.0 for text in (*legend_texts, system_info))
-    assert legend_handles[1].get_marker() == legend_handles[2].get_marker() == "None"
-    assert all(handle.get_linestyle() == ":" for handle in legend_handles)
-    figure.canvas.draw()
-    renderer = figure.canvas.get_renderer()
-    assert len({round(text.get_window_extent(renderer).x0, 6) for text in legend_texts}) == 1
-    assert all(
-        text.get_window_extent(renderer).x1 < handle.get_window_extent(renderer).x0
-        for text, handle in zip(legend_texts, legend_handles, strict=True)
-    )
-    plt.close(figure)
-
-
-def test_rate_distributions_keep_rare_distant_codes_and_actual_rates(tmp_path, monkeypatch):
-    measurements = [adc_measurement([100] * 1000 + [1000], sample_rate_hz=1e6)]
-    analysis = [adc.analyze_noise(measurement) for measurement in measurements]
-    figures = []
-    monkeypatch.setattr(analysis_plots, "save_figure", lambda fig, output_path: figures.append(fig) or ())
-    plot_adc_noise_distribution_sweep(measurements, analysis, rate_axis="sampling", output_path=tmp_path / "codes")
-    ax = figures[0].axes[0]
-    assert ax.get_ylim()[0] <= 100
-    assert ax.get_ylim()[1] >= 1000
-    assert ax.get_xlabel() == "Repetition rate (MHz)"
-    np.testing.assert_allclose(ax.lines[0].get_xdata(), [1.0])
-    plt.close(figures[0])
-
-
-def test_noise_rate_plot_keeps_distinct_sequence_labels_and_large_spreads(tmp_path, monkeypatch):
-    measurements = [adc_measurement([0, 100], sample_rate_hz=1e6), adc_measurement([100, 101], sample_rate_hz=2e6)]
-    analysis = [adc.analyze_noise(measurement) for measurement in measurements]
-    figures = []
-    monkeypatch.setattr(analysis_plots, "save_figure", lambda fig, output_path: figures.append(fig) or ())
-    plot_adc_noise_sweep(
-        measurements,
-        analysis,
-        rate_axis="sampling",
-        series_labels=("short SAMP", "long SAMP"),
-        output_path=tmp_path / "noise",
-    )
-    ax = figures[0].axes[0]
-    assert [line.get_label() for line in ax.lines] == ["short SAMP", "long SAMP"]
-    assert max(ax.get_ylim()) > 50
-    assert ax.get_xlabel() == "Repetition rate (MHz)"
-    period_axis = next(axis for axis in figures[0].axes if axis.get_xlabel() == "Repetition interval (ns)")
-    assert period_axis.get_xticklabels()[0].get_text() == "1e+03"
-    plt.close(figures[0])

@@ -68,7 +68,6 @@ from flow.analysis.io import (
 from flow.analysis.plots import (
     plot_adc_comp_out_edge_eye,
     plot_adc_fastrx_scope_comparison,
-    plot_adc_noise_sweep,
 )
 from flow.analysis.types import MeasAdc, MeasInfo
 from flow.cdac.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
@@ -582,11 +581,15 @@ def test_physical_fastrx_matches_scope(
                 }
             )
 
-        plot_adc_noise_sweep(
-            measurements,
-            [adc.analyze_noise(measurement) for measurement in measurements],
-            output_path=run_dir / "decision_variation_vs_conversion_rate",
-        )
+        # each COMP-to-LOGIC timing's points in rate order: their noise and noise-equivalent ENOB
+        noises = [adc.analyze_noise(measurement) for measurement in measurements]
+        for percent in sorted({noise.comparator_time_percent for noise in noises}):
+            timing = sorted(
+                (noise for noise in noises if noise.comparator_time_percent == percent),
+                key=lambda noise: noise.sample_rate_hz,
+            )
+            for figure in (adc.plot_noise_rate(timing), adc.plot_noise_enob_rate(timing)):
+                render(figure, run_dir / f"decision_variation_{percent:g}pct_{figure.name}")
 
         mismatched_points = [row for row in summary_rows if row["bit_mismatches"]]
         if mismatched_points:

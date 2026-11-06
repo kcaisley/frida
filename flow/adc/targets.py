@@ -26,8 +26,6 @@ from flow.analysis.io import (
 from flow.analysis.plots import (
     plot_adc_cdac_settling,
     plot_adc_interferer,
-    plot_adc_noise_distribution_sweep,
-    plot_adc_noise_sweep,
     plot_waveforms,
     style_measurement_text,
 )
@@ -65,6 +63,7 @@ from .analysis import (
 from .plots import (
     plot_calibration_weights,
     plot_code_density,
+    plot_codes_rate,
     plot_dnl,
     plot_dnl_calibrated,
     plot_energy_dac_input,
@@ -73,7 +72,9 @@ from .plots import (
     plot_enob_rate,
     plot_inl,
     plot_inl_calibrated,
+    plot_noise_enob_rate,
     plot_noise_input,
+    plot_noise_rate,
     plot_noise_spectrum,
     plot_power_rate,
     plot_ramp_transfer,
@@ -883,10 +884,12 @@ def sample_rate_study() -> tuple[Path, ...]:
     explicit selection after validating additional patterns in the sequence study.
     Actual rates are 0.3125--6.25 MSPS (formerly labelled 0.5--10 active MSPS);
     an actual 10-MSPS sweep of accepted new patterns still needs acquisition.
-    DC panels show noise-equivalent resolution; the sines show the record's
-    ENOB over the rate (the spectral ENOB referred to full scale) and the
-    spectra at the sweep's two ends. Inputs are MeasAdc; no PEX or internal
-    waveforms are required.
+    Each DC sweep's captures of one LOGIC timing, in rate order, give its
+    noise, noise-equivalent ENOB and codes over the rate
+    (``<stem>_logic<n>of8_noise_rate``, ``_noise_enob_rate``, ``_codes_rate``);
+    the sines show the record's ENOB over the rate (the spectral ENOB referred
+    to full scale) and the spectra at the sweep's two ends. Inputs are MeasAdc;
+    no PEX or internal waveforms are required.
     """
     output_dir = new_run("analysis", "adc")
     dc_read_dirs = tuple(
@@ -937,25 +940,15 @@ def sample_rate_study() -> tuple[Path, ...]:
             ]
             noise = [analyze_noise(measurement) for measurement in measurements]
             stem = f"{meas_read_dir.name}_adc{adc_index or 0:02d}_{input_v * 1e3:g}mv_{common_v * 1e3:g}cm"
-            artifacts.extend(
-                plot_adc_noise_sweep(
-                    measurements,
-                    noise,
-                    series_labels=labels,
-                    rate_axis="sampling",
-                    output_path=output_dir / f"{stem}_noise_vs_rate",
-                )
-            )
             for label in dict.fromkeys(labels):
-                selected = [index for index, name in enumerate(labels) if name == label]
-                artifacts.extend(
-                    plot_adc_noise_distribution_sweep(
-                        [measurements[index] for index in selected],
-                        [noise[index] for index in selected],
-                        rate_axis="sampling",
-                        output_path=output_dir / f"{stem}_logic{label.split()[-1].replace('/', 'of')}_distributions",
-                    )
+                # one LOGIC timing's captures in rate order, a figure each quantity
+                selected = sorted(
+                    (noise[index] for index, name in enumerate(labels) if name == label),
+                    key=lambda result: result.sample_rate_hz,
                 )
+                timing = f"{stem}_logic{label.split()[-1].replace('/', 'of')}"
+                for figure in (plot_noise_rate(selected), plot_noise_enob_rate(selected), plot_codes_rate(selected)):
+                    artifacts.extend(render(figure, output_dir / f"{timing}_{figure.name}"))
 
     # Spectral results use the acquired sine, separately from DC noise estimates.
     paths = sorted(sine_read_dir.glob("[0-9][0-9][0-9][0-9]_*.h5"))

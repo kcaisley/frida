@@ -24,6 +24,7 @@ from flow.adc.analysis import (
     analyze_energy,
     analyze_input_noise,
     analyze_mismatch_prediction,
+    analyze_noise,
     analyze_power,
     analyze_ramp,
     analyze_sequence_map,
@@ -82,6 +83,9 @@ LAB_FIGURES = (
     "sequence_enob",
     "sequence_plausible",
     "sequence_shift",
+    "noise_rate",
+    "noise_enob_rate",
+    "codes_rate",
 )
 
 
@@ -465,3 +469,62 @@ def test_sequences_sharing_a_decision_word_are_numbered() -> None:
         f"1: {plots._sequence_label(base)}",
         f"2: {plots._sequence_label(base)}",
     ]
+
+
+def test_a_fixed_inputs_noise_and_enob_over_the_rate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One sequence's fixed-input captures over the rate: their noise referred to the input (a large
+    spread kept, a constant code none) and its noise-equivalent ENOB, named by the sequence where
+    the captures share one; drawn on the analysis plots' canvas."""
+    noises = [
+        analyze_noise(adc_measurement(codes, sample_rate_hz=rate))
+        for codes, rate in (([100, 101, 99, 100], 1.0e6), ([0, 100], 2.0e6), ([100] * 4, 3.0e6))
+    ]
+    noise = plots.plot_noise_rate(noises)
+    name = f"Sequence {plots._sequence_label(noises[0].sequence)}"
+    assert noise.x == [1e6, 2e6, 3e6] and list(noise.series) == [name]
+    lsb = noises[0].input_lsb_v
+    values = noise.series[name]
+    assert values[:2] == [float(f"{np.std([100, 101, 99, 100]) * lsb:.6g}"), float(f"{50 * lsb:.6g}")]
+    assert math.isnan(values[2]) and noise.y_label == "Input-referred noise, rms (V)"
+    enob = plots.plot_noise_enob_rate(noises)
+    assert enob.series[name][:2] == [float(f"{result.enob_bits:.6g}") for result in noises[:2]]
+    assert math.isnan(enob.series[name][2])
+    # another LOGIC timing among them: no one sequence to name
+    other = analyze_noise(adc_measurement([100, 101], sample_rate_hz=4.0e6, logic_phase_delay_symbols=1))
+    assert list(plots.plot_noise_rate([*noises, other]).series) == ["Fixed input"]
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    for figure in (noise, enob):
+        (png, _pdf) = render(figure, tmp_path / figure.name)
+        assert plt.imread(png).shape[:2] == (2700, 4800)
+
+
+def test_the_codes_over_the_rate_are_each_captures_shares(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fixed input's codes over the rate: a column a capture, reaching halfway to its neighbours,
+    each code's share of its conversions, by decade, two empty codes either side of the codes any
+    capture reaches, a rare far one kept; the mean code over it; each ADC on its own codes; drawn on
+    the analysis plots' canvas."""
+    noises = [
+        analyze_noise(adc_measurement([100, 100, 101, 101, 101, 102], sample_rate_hz=rate))
+        for rate in (1.0e6, 2.0e6, 3.0e6)
+    ]
+    codes = plots.plot_codes_rate(noises)
+    assert codes.heatmap is not None and codes.heatmap.log and codes.y_ticks == "code"
+    assert codes.heatmap.label == "Share of conversions"
+    assert codes.heatmap.x == [0.5e6, 1.5e6, 2.5e6, 3.5e6]
+    assert codes.heatmap.y == [code - 0.5 for code in range(98, 106)]
+    column = [row[0] for row in codes.heatmap.z]
+    assert column[2:5] == [float(f"{2 / 6:.6g}"), 0.5, float(f"{1 / 6:.6g}")]
+    assert all(math.isnan(share) for share in column[:2] + column[5:])
+    assert codes.series == {"Mean code": [float(f"{605 / 6:.6g}")] * 3}
+    rare = plots.plot_codes_rate([analyze_noise(adc_measurement([100] * 1000 + [1000], sample_rate_hz=1.0e6))])
+    assert rare.heatmap is not None and (rare.heatmap.y[0], rare.heatmap.y[-1]) == (97.5, 1002.5)
+    assert rare.heatmap.x == [0.9e6, 1.1e6]
+    # every conversion on one code: one cell holds them all; another ADC's map on its own codes
+    one = plots.plot_codes_rate([analyze_noise(adc_measurement([2200] * 5, sample_rate_hz=1.0e6, observed_adc=1))])
+    assert one.heatmap is not None and one.heatmap.y[0] == 2197.5
+    assert [share for row in one.heatmap.z for share in row if not math.isnan(share)] == [1.0]
+    with pytest.raises(ValueError, match="rate order"):
+        plots.plot_codes_rate(list(reversed(noises)))
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    (png, _pdf) = render(codes, tmp_path / "codes_rate")
+    assert plt.imread(png).shape[:2] == (2700, 4800)

@@ -670,21 +670,19 @@ def test_sample_rate_study_separates_sequences_inputs_and_spectral_data(tmp_path
     monkeypatch.setattr(adc_targets, "read_measurement", measurements.__getitem__)
     calls = []
 
-    def noise_plot(values, analyses, *, output_path, rate_axis, series_labels=()):
-        assert rate_axis == "sampling"
-        assert len(analyses) == len(values)
-        assert all(m.param.observed_adc == 1 for m in values)
-        assert all(isinstance(m.param.tb.vin_diff, h.Vdc.Params) for m in values)
-        if series_labels:
-            assert set(series_labels) == {"LOGIC 6/8"}
-        else:
-            assert len({m.param.tb.seq_logic_pattern for m in values}) == 2
-        assert len(values) == 2
-        calls.append(output_path)
-        return (output_path.with_suffix(".pdf"),)
+    def noise_figure(name):
+        def figure(noises):
+            # one LOGIC timing's DC captures of ADC 1, in rate order, whatever their INIT phase
+            assert [noise.index for noise in noises] == [1, 1]
+            assert [noise.sample_rate_hz for noise in noises] == [0.5e6, 1e6]
+            assert len({noise.sequence.relative_to_init() for noise in noises}) == 1
+            calls.append(name)
+            return Plot(name, "", "", "", [], {})
 
-    monkeypatch.setattr(adc_targets, "plot_adc_noise_sweep", noise_plot)
-    monkeypatch.setattr(adc_targets, "plot_adc_noise_distribution_sweep", noise_plot)
+        return figure
+
+    for name in ("noise_rate", "noise_enob_rate", "codes_rate"):
+        monkeypatch.setattr(adc_targets, f"plot_{name}", noise_figure(name))
 
     def analyze_dynamic(value):
         assert isinstance(value.param.tb.vin_diff, h.Vsin.Params)
@@ -703,7 +701,9 @@ def test_sample_rate_study_separates_sequences_inputs_and_spectral_data(tmp_path
     monkeypatch.setattr(adc_targets, "plot_spectrum_low", lambda _dynamic: Plot("spectrum_low", "", "", "", [], {}))
     monkeypatch.setattr(adc_targets, "render", lambda _plot, stem: (stem.with_suffix(".pdf"),))
     artifacts = study(monkeypatch, adc_targets, "sample_rate_study", tmp_path / "output")
-    assert len(calls) == 6
+    # each DC sweep's one LOGIC timing: its noise, noise-equivalent ENOB and codes over the rate
+    assert calls == ["noise_rate", "noise_enob_rate", "codes_rate"] * 3
+    assert "20260801_194930_adc01_50mv_700cm_logic6of8_codes_rate.pdf" in {path.name for path in artifacts}
     assert sweeps == [2]
     # the sweep's ENOB, and the spectra at its two ends
     assert sorted(path.name for path in artifacts if "spectral" in path.name or "spectrum" in path.name) == [
@@ -711,7 +711,7 @@ def test_sample_rate_study_separates_sequences_inputs_and_spectral_data(tmp_path
         "adc01_logic6of8_1msps_spectrum.pdf",
         "adc01_logic6of8_spectral_vs_rate.pdf",
     ]
-    assert len(artifacts) == 9
+    assert len(artifacts) == 12
 
 
 def test_power_study_selects_instrumented_dc_measurements(tmp_path, monkeypatch):

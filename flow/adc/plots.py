@@ -33,6 +33,7 @@ from .types import (
     AnalysisInputNoise,
     AnalysisLadder,
     AnalysisMismatchPrediction,
+    AnalysisNoise,
     AnalysisPower,
     AnalysisRamp,
     AnalysisRedundancy,
@@ -558,6 +559,67 @@ def plot_sequence_shift(sequences: AnalysisSequenceMap) -> Plot:
     )
 
 
+@plot
+def plot_noise_rate(noises: Sequence[AnalysisNoise]) -> Plot:
+    """A fixed input's output-code noise over the conversion rate (the captures of one sequence, in
+    rate order), referred to the input through each capture's LSB; none where the code stays
+    constant (its noise under what the codes resolve)."""
+    return _plot(
+        "noise_rate",
+        "Fixed-input noise over the conversion rate",
+        "Conversion rate (Hz)",
+        "Input-referred noise, rms (V)",
+        [noise.sample_rate_hz for noise in noises],
+        {_sequences_label(noises): [noise.input_referred_noise_rms_v for noise in noises]},
+    )
+
+
+@plot
+def plot_noise_enob_rate(noises: Sequence[AnalysisNoise]) -> Plot:
+    """The noise-equivalent ENOB of those captures (a full-scale sine's, with the fixed input's noise
+    alone), as ``plot_noise_rate`` takes them."""
+    return _plot(
+        "noise_enob_rate",
+        "Noise-equivalent ENOB over the conversion rate",
+        "Conversion rate (Hz)",
+        "ENOB (bits)",
+        [noise.sample_rate_hz for noise in noises],
+        {_sequences_label(noises): [noise.enob_bits for noise in noises]},
+    )
+
+
+@plot
+def plot_codes_rate(noises: Sequence[AnalysisNoise]) -> Plot:
+    """A fixed input's output codes over the conversion rate (the captures of one sequence, in rate
+    order, one at a rate): each code's share of a capture's conversions, a column a capture reaching
+    halfway to its neighbours, by decade, from two codes under the lowest any capture reaches to two
+    over the highest; the mean code over it."""
+    rates = np.asarray([noise.sample_rate_hz for noise in noises], dtype=np.float64)
+    if np.any(np.diff(rates) <= 0) or len({len(noise.code) for noise in noises}) != 1:
+        raise ValueError("the codes over the rate take captures of one resolution in rate order, one at a rate")
+    counts = np.asarray([noise.count for noise in noises], dtype=np.float64)
+    shares = counts / counts.sum(axis=1, keepdims=True)
+    populated = np.flatnonzero(counts.sum(axis=0) > 0)
+    first, last = max(int(populated[0]) - 2, 0), min(int(populated[-1]) + 2, counts.shape[1] - 1)
+    codes = np.asarray(noises[0].code[first : last + 1], dtype=np.float64)
+    return _plot(
+        "codes_rate",
+        "Fixed-input output codes over the conversion rate",
+        "Conversion rate (Hz)",
+        "Output code (LSB)",
+        rates,
+        {"Mean code": [noise.mean_dout for noise in noises]},
+        y_ticks="code",
+        heatmap=Heatmap(
+            x=[_six(edge) for edge in _cells(rates)],
+            y=[*(code - 0.5 for code in codes.tolist()), float(codes[-1]) + 0.5],
+            z=[[_six(share) if share > 0 else math.nan for share in row] for row in shares[:, first : last + 1].T],
+            label="Share of conversions",
+            log=True,
+        ),
+    )
+
+
 def _plot(name: str, title: str, x_label: str, y_label: str, x, series: dict[str, Any], **options: Any) -> Plot:
     """A figure's spec, its values to six significant digits, as the viewer's other exports."""
     return Plot(
@@ -663,6 +725,23 @@ def _sequence_map(name: str, title: str, sequences: AnalysisSequenceMap, values:
             label=label,
         ),
     )
+
+
+def _sequences_label(noises: Sequence[AnalysisNoise]) -> str:
+    """A curve's name: the captures' sequence by its decision word (``_sequence_label``), where they
+    share one (at any INIT phase), or else ``Fixed input``."""
+    words = {_sequence_label(noise.sequence) for noise in noises}
+    return f"Sequence {words.pop()}" if len(words) == 1 else "Fixed input"
+
+
+def _cells(centres: np.ndarray) -> list[float]:
+    """The edges of cells around ascending ``centres``: halfway between neighbours, the outer ones as
+    far out as their inner half-gap (a tenth of a lone centre either side), none below 0."""
+    if len(centres) == 1:
+        return [0.9 * float(centres[0]), 1.1 * float(centres[0])]
+    middles = (centres[1:] + centres[:-1]) / 2
+    low = max(float(2 * centres[0] - middles[0]), 0.0)
+    return [low, *middles.tolist(), float(2 * centres[-1] - middles[-1])]
 
 
 def _sequence_labels(sequences: Sequence[AdcSequence]) -> list[str]:
