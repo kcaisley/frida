@@ -108,7 +108,7 @@ pipeline.Params.register(Params)
 
 
 # ---- the array's arithmetic: its stages' weights and plates (subckt.py builds them; a run's
-# TbParams reads their design capacitances)
+# TbParams and the model, model.py, read their design capacitances)
 
 
 def _binary(steps: int) -> list[int]:
@@ -189,6 +189,18 @@ def _plates(params: Params, piece: int) -> tuple[float, float]:
     return (params.coarse_weight + piece) / 2, (params.coarse_weight - piece) / 2
 
 
+def _design_plates(params: Params, reference_v: float) -> tuple[np.ndarray, np.ndarray]:
+    """Each stage's main and difference plates as designed (F, C0 first) at the reference
+    ``reference_v``: its pieces' units of the unit capacitance, each side's switched capacitance
+    over the total weight; a unit capacitor's all main."""
+    weights = _weights(params)
+    unit_f = _switched_f(params, reference_v) / sum(weights)
+    plates = [[_plates(params, piece) for piece in _pieces(params, weight)] for weight in weights]
+    main_f = np.asarray([unit_f * sum(main for main, _ in stage) for stage in plates])
+    diff_f = np.asarray([unit_f * sum(diff for _, diff in stage) for stage in plates])
+    return main_f, diff_f
+
+
 @dataclass(frozen=True, kw_only=True)
 class TbParams(pipeline.TbParams):
     """One run of the capacitive DAC's testbench (``flow.capdac.sim.testbench``): the array ``params``
@@ -243,25 +255,16 @@ class TbParams(pipeline.TbParams):
         (``flow.adc.model.Model.tb``)."""
         return tuple(stage % 2 for stage in range(self.stages))
 
-    def _plate_f(self, which: int) -> np.ndarray:
-        unit_f = _switched_f(self.params, self.vdd) / sum(self.weights)
-        return np.asarray(
-            [
-                unit_f * sum(_plates(self.params, piece)[which] for piece in _pieces(self.params, weight))
-                for weight in self.weights
-            ]
-        )
-
     @property
     def main_f(self) -> np.ndarray:
         """Each stage's main plates as designed (F, C0 first): its pieces' units of the unit
         capacitance (each side's switched capacitance over the total weight)."""
-        return self._plate_f(0)
+        return _design_plates(self.params, self.vdd)[0]
 
     @property
     def diff_f(self) -> np.ndarray:
         """Each stage's difference plates as designed (F, C0 first); none of unit capacitors."""
-        return self._plate_f(1)
+        return _design_plates(self.params, self.vdd)[1]
 
     @property
     def load_f(self) -> float:
