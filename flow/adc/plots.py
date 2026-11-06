@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from flow.pipeline import Band, Plot, plot
+from flow.pipeline import Band, Marker, Plot, plot
 
 from .params import FINAL_DECISIONS, LADDER, MAX_PATHS
 from .types import (
@@ -185,17 +185,33 @@ def plot_trajectory_codes(paths: AnalysisDecisionPaths) -> Plot:
 
 @plot
 def plot_noise_spectrum(spectrum: AnalysisCodeSpectrum) -> Plot:
-    """The output code's noise density at a fixed input, averaged in power over log-spaced bins."""
-    frequency_hz, density = _log_binned(spectrum.frequency_hz, spectrum.asd_lsb_per_sqrt_hz)
+    """The output code's noise density at a fixed input, referred to the input through the capture's
+    LSB (the unit a probe's spectrum shares) and averaged in power over log-spaced bins; its white
+    floor (the density's median) marked, the variance's split (total = lines ⊕ broadband) in the
+    floor's label, and the bins standing clearly above the floor (lines: an interferer, a wandering
+    hump) shaded at their full resolution. A stuck capture (one code) has no floor: no curve on the
+    log axes, and neither floor nor lines."""
+    frequency_hz, density = _log_binned(spectrum.frequency_hz, spectrum.asd_v_per_sqrt_hz)
+    half_bin_hz = spectrum.bin_hz / 2
+    floor_v = math.sqrt(spectrum.white_floor_lsb2_per_hz) * spectrum.input_lsb_v
+    split = (
+        f"White floor; total {spectrum.total_rms_lsb:.2f} = lines {spectrum.narrowband_rms_lsb:.2f}"
+        f" ⊕ broadband {spectrum.broadband_rms_lsb:.2f} LSB rms"
+    )
     return _plot(
         "noise_spectrum",
         "Output-code noise density",
         "Frequency (Hz)",
-        "Noise density (LSB/sqrt(Hz))",
+        "Input-referred noise (V/√Hz)",
         frequency_hz,
-        {"Total ADC": density},
+        {"Output code": density},
         x_log=True,
         y_log=True,
+        y_markers=[Marker(_six(floor_v), split)] if spectrum.spectrum_valid else [],
+        x_bands=[
+            Band(_six(spectrum.frequency_hz[first] - half_bin_hz), _six(spectrum.frequency_hz[last] + half_bin_hz))
+            for first, last in _runs(spectrum.line_mask)
+        ],
     )
 
 
@@ -470,10 +486,15 @@ def _plot(name: str, title: str, x_label: str, y_label: str, x, series: dict[str
         title=title,
         x_label=x_label,
         y_label=y_label,
-        x=[float(f"{value:.6g}") for value in x],
-        series={label: [float(f"{value:.6g}") for value in ys] for label, ys in series.items()},
+        x=[_six(value) for value in x],
+        series={label: [_six(value) for value in ys] for label, ys in series.items()},
         **options,
     )
+
+
+def _six(value: float) -> float:
+    """``value`` to six significant digits (a spec's numbers, as the viewer's other exports)."""
+    return float(f"{value:.6g}")
 
 
 def _by_code(
@@ -506,16 +527,18 @@ def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
 
 
 def _log_binned(frequency_hz: np.ndarray, density: np.ndarray, bins: int = 300) -> tuple[list[float], list[float]]:
-    """A density averaged in power over log-spaced frequency bins (a 50k-bin spectrum is more than a
-    plot can show): the bins' geometric centres, NaN where a bin is empty."""
+    """A density averaged in power over log-spaced frequency bins (a spectrum's thousands of bins
+    are more than a plot can show): the populated bins' geometric centres and values. A log bin no
+    bin of the spectrum falls in (near DC, where they are finer than the spectrum's) is left out,
+    not a gap, so the curve stays joined there in both renderers."""
     positive = frequency_hz > 0
     edges = np.geomspace(frequency_hz[positive].min(), frequency_hz.max() * (1 + 1e-9), bins + 1)
     index = np.digitize(frequency_hz, edges) - 1
     inside = positive & (index >= 0) & (index < bins)
     counts = np.bincount(index[inside], minlength=bins)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        binned = np.sqrt(np.bincount(index[inside], weights=density[inside] ** 2, minlength=bins) / counts)
-    return np.sqrt(edges[:-1] * edges[1:]).tolist(), binned.tolist()
+    power = np.bincount(index[inside], weights=density[inside] ** 2, minlength=bins)
+    populated = counts > 0
+    return np.sqrt(edges[:-1] * edges[1:])[populated].tolist(), np.sqrt(power[populated] / counts[populated]).tolist()
 
 
 def _family(estimates: np.ndarray, first: int) -> list[dict[str, Any]]:

@@ -690,9 +690,10 @@ def test_adc_code_noise(amp_enable: bool) -> None:
     2/6/10 MSPS, 100,000 conversions, 50 mV / 700 mV manual input) with no
     scope records, so no probe ground or scope supply touches the board. The
     scan goes to ``build/scan_adc/<timestamp>_adc_sequence_static``; beside the
-    captures it plots each ADC's lines-versus-broadband split at 2 MSPS, the
-    four ADCs' code spectra per rate, and the alias search for one interferer,
-    all for the 4of8 recipe. Select one case, for example::
+    captures it draws each 4of8 capture's code spectrum (the ADC's record
+    figure, ``flow.adc.plots``: its white floor, its lines and the split of
+    its variance into lines and broadband noise marked) and the alias search
+    for one interferer. Select one case, for example::
 
         uv run pytest -q -s -m hw flow/scans/test_noise.py -k amp_off
 
@@ -701,8 +702,9 @@ def test_adc_code_noise(amp_enable: bool) -> None:
     from flow import adc
     from flow.adc.sim import SEQUENCES, AdcSequence
     from flow.analysis.io import read_measurement
-    from flow.analysis.plots import plot_adc_code_noise, plot_adc_code_spectrum, plot_adc_interferer
+    from flow.analysis.plots import plot_adc_interferer
     from flow.analysis.types import MeasAdc
+    from flow.plot import render
     from flow.scans import runner
 
     run_dir = runner.adc_sequence_static(capture_scope=False, amp_enable=amp_enable)
@@ -722,21 +724,13 @@ def test_adc_code_noise(amp_enable: bool) -> None:
         spectra = [adc.analyze_code_spectrum(measurement) for measurement in measurements]
         shown_spectra.extend(spectra)
         interferers.append(adc.analyze_interferer(measurements, spectra=spectra))
-        slowest = int(np.argmin([spectrum.sample_rate_hz for spectrum in spectra]))
-        plot_adc_code_noise(
-            measurements[slowest],
-            spectra[slowest],
-            title=f"ADC{adc_index:02d} code noise, {spectra[slowest].sample_rate_hz / 1e6:g} MSPS, 4of8 · {title}",
-            output_path=run_dir / f"adc{adc_index:02d}_code_noise",
-        )
         for spectrum in spectra:
             print(
                 f"ADC{adc_index:02d} {spectrum.sample_rate_hz / 1e6:4g} MSPS: {spectrum.total_rms_lsb:.2f} LSB = "
                 f"{spectrum.narrowband_rms_lsb:.2f} lines ⊕ {spectrum.broadband_rms_lsb:.2f} broadband"
             )
-    plot_adc_code_spectrum(
-        shown_spectra, title=f"Output-code spectra, 4of8 · {title}", output_path=run_dir / "code_spectra"
-    )
+            rate = f"{spectrum.sample_rate_hz / 1e6:g}".replace(".", "p")
+            render(adc.plot_noise_spectrum(spectrum), run_dir / f"adc{adc_index:02d}_{rate}msps_code_spectrum")
     plot_adc_interferer(
         interferers, title=f"Interferer frequency from its aliases · {title}", output_path=run_dir / "interferer"
     )

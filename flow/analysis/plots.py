@@ -67,8 +67,8 @@ NORD_YELLOW = "#EBCB8B"
 NORD_TEAL = "#8FBCBB"
 NORD_LIGHT_BLUE = "#81A1C1"
 NORD_DARK = "#4C566A"
-# Every amplitude-spectral-density plot shares this range in nV/√Hz, so probe
-# and input-referred ADC code spectra read on one scale.
+# The scope's amplitude-spectral-density plots share this range in nV/√Hz (the
+# ADC's input-referred code spectra are its spec, flow.adc.plots, on their own data).
 SPECTRAL_DENSITY_LIMITS_NV = (1.0, 1.0e5)
 # The per-decade RMS panels below them share this range in µV.
 DECADE_RMS_LIMITS_UV = (0.1, 1.0e4)
@@ -1812,140 +1812,6 @@ def plot_adc_noise_distribution_grid(
     fig.add_artist(legend_box)
     fig.supxlabel("Conversion rate (MSPS)")
     fig.supylabel("Output code (LSB)", x=0.01)
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_adc_code_spectrum(
-    spectra: Sequence[adc.AnalysisCodeSpectrum],
-    *,
-    output_path: Path,
-    title: str,
-    labels: Sequence[str] | None = None,
-) -> tuple[Path, ...]:
-    """Overlay output-code noise spectra, one panel per conversion rate.
-
-    Spectra are referred to the ADC input in nV/√Hz through each capture's LSB.
-    ``labels`` names each spectrum in the legend, by default its ADC channel.
-    Each legend entry splits the code variance into its narrowband lines and
-    its broadband floor, total = narrowband ⊕ broadband, and gives the total
-    in µV. A shared calibrated decoding is named in the legend title. A stuck capture has
-    no floor and draws no visible line on the logarithmic axis.
-    """
-
-    if not spectra:
-        raise ValueError("code-spectrum plots show at least one spectrum")
-    names = labels if labels is not None else [f"ADC{spectrum.index:02d}" for spectrum in spectra]
-    if len(names) != len(spectra):
-        raise ValueError("code-spectrum labels must name every spectrum")
-    rates = sorted({spectrum.sample_rate_hz for spectrum in spectra})
-    fig, axes = plt.subplots(len(rates), 1, squeeze=False)
-    for ax, rate in zip(axes[:, 0], rates, strict=True):
-        for name, spectrum in zip(names, spectra, strict=True):
-            if spectrum.sample_rate_hz != rate:
-                continue
-            ax.semilogy(
-                spectrum.frequency_hz / 1e6,
-                spectrum.asd_v_per_sqrt_hz * 1e9,
-                label=(
-                    f"{name}: {spectrum.total_rms_lsb:.2f} = {spectrum.narrowband_rms_lsb:.2f} ⊕ "
-                    f"{spectrum.broadband_rms_lsb:.2f} LSB ({spectrum.total_rms_lsb * spectrum.input_lsb_v * 1e6:.0f} µV)"
-                    if spectrum.spectrum_valid
-                    else f"{name}: constant code"
-                ),
-            )
-        ax.set_xlim(0.0, rate / 2e6)
-        ax.set_ylim(*SPECTRAL_DENSITY_LIMITS_NV)
-        ax.set_ylabel("Input ASD (nV/√Hz)")
-        decodings = {spectrum.decoding for spectrum in spectra}
-        ax.legend(
-            title=f"{rate / 1e6:g} MSPS: total = narrowband ⊕ broadband"
-            + (
-                f", decoded with {next(iter(decodings))}"
-                if decodings != {"uncalibrated_dout"} and len(decodings) == 1
-                else ""
-            ),
-            loc="best",
-        )
-        style_grid(ax)
-    axes[-1, 0].set_xlabel("Frequency, 0 to Nyquist (MHz)")
-    fig.suptitle(title)
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_adc_code_noise(
-    msmt: MeasAdc,
-    spectrum: adc.AnalysisCodeSpectrum,
-    *,
-    output_path: Path,
-    title: str,
-) -> tuple[Path, ...]:
-    """Split one fixed-input capture's code noise into interference lines and a broadband floor.
-
-    The panels show the first 200 conversions with the narrowband part alone,
-    the code spectrum with its floor and shaded line bins, and the RMS noise
-    integrated from DC, against the floor's straight-line build-up.
-    """
-
-    shown = min(len(msmt.dout), 200)
-    time_us = np.arange(shown) / spectrum.sample_rate_hz * 1e6
-    frequency_mhz = spectrum.frequency_hz / 1e6
-    floor_asd = math.sqrt(spectrum.white_floor_lsb2_per_hz)
-    nv_per_lsb = spectrum.input_lsb_v * 1e9
-    fig, (ax_time, ax_asd, ax_cumulative) = plt.subplots(3, 1)
-    ax_time.step(
-        time_us,
-        msmt.dout[:shown] - spectrum.mean_dout,
-        where="mid",
-        label=f"Code − mean ({spectrum.total_rms_lsb:.2f} LSB RMS)",
-    )
-    ax_time.plot(
-        time_us,
-        spectrum.narrowband_dout[:shown],
-        label=f"Lines only ({spectrum.narrowband_rms_lsb:.2f} LSB RMS)",
-    )
-    ax_time.set_xlabel("Time (µs)")
-    ax_time.set_ylabel("Code (LSB)")
-    ax_time.legend(loc="upper right")
-    ax_asd.semilogy(frequency_mhz, spectrum.asd_v_per_sqrt_hz * 1e9, label="Code spectrum, input-referred")
-    ax_asd.axhline(
-        floor_asd * nv_per_lsb, linestyle="--", color=mpl.rcParams["axes.edgecolor"], label="White floor (median)"
-    )
-    ax_asd.fill_between(
-        frequency_mhz,
-        floor_asd * nv_per_lsb,
-        spectrum.asd_v_per_sqrt_hz * 1e9,
-        where=spectrum.line_mask,
-        label=f"Lines above floor ({spectrum.narrowband_rms_lsb:.2f} LSB RMS)",
-    )
-    ax_asd.set_xlim(0.0, spectrum.sample_rate_hz / 2e6)
-    ax_asd.set_ylim(*SPECTRAL_DENSITY_LIMITS_NV)
-    ax_asd.set_xlabel("Frequency (MHz)")
-    ax_asd.set_ylabel("Input ASD (nV/√Hz)")
-    ax_asd.legend(loc="upper right")
-    ax_cumulative.plot(frequency_mhz, spectrum.cumulative_rms_lsb, label="Measured, DC to f")
-    ax_cumulative.plot(
-        frequency_mhz,
-        floor_asd * np.sqrt(spectrum.frequency_hz),
-        linestyle="--",
-        label="White floor alone",
-    )
-    ax_cumulative.set_xlim(0.0, spectrum.sample_rate_hz / 2e6)
-    ax_cumulative.set_ylim(0.0, None)
-    ax_cumulative.set_xlabel("Frequency (MHz)")
-    ax_cumulative.set_ylabel("Cumulative (LSB RMS)")
-    ax_cumulative.legend(
-        loc="lower right",
-        title=(
-            f"{spectrum.total_rms_lsb:.2f}² = {spectrum.narrowband_rms_lsb:.2f}² + "
-            f"{spectrum.broadband_rms_lsb:.2f}² (lines + broadband)"
-        ),
-    )
-    for ax in (ax_time, ax_asd, ax_cumulative):
-        style_grid(ax)
-    style_info_box(ax_cumulative, style_measurement_text(msmt), location="upper left")
-    fig.suptitle(title)
     return save_figure(fig, output_path)
 
 

@@ -35,8 +35,6 @@ from flow.analysis.plots import (
     TEXT_COLOR,
     plot_adc_cdac_settling,
     plot_adc_code_distribution,
-    plot_adc_code_noise,
-    plot_adc_code_spectrum,
     plot_adc_comp_out_edge_eye,
     plot_adc_comparator_edge_eye,
     plot_adc_comparator_response,
@@ -854,20 +852,15 @@ def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
     assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
 
 
-def test_code_noise_spectrum_and_interferer_plots(tmp_path: Path) -> None:
+def test_interferer_plot_of_code_spectra(tmp_path: Path) -> None:
+    """The alias search over three rates' code spectra and a stuck capture (the spectra themselves
+    are the ADC's spec: flow/adc/test_plots.py)."""
     measurements = [
         adc_measurement(tone_codes(rate, tone_hz=8.15e6, count=16_384, seed=index), sample_rate_hz=rate, observed_adc=2)
         for index, rate in enumerate((2.0e6, 6.0e6, 10.0e6))
     ]
     stuck = adc_measurement(np.full(16_384, 2_000), sample_rate_hz=2.0e6, logic_phase_delay_symbols=1, observed_adc=2)
     spectra = [adc.analyze_code_spectrum(measurement) for measurement in (*measurements, stuck)]
-
-    assert_plot_formats(
-        plot_adc_code_noise(measurements[0], spectra[0], title="Code noise", output_path=tmp_path / "code_noise")
-    )
-    assert_plot_formats(plot_adc_code_spectrum(spectra, title="Code spectra", output_path=tmp_path / "code_spectra"))
-    with pytest.raises(ValueError, match="name every spectrum"):
-        plot_adc_code_spectrum(spectra, labels=["one"], title="Code spectra", output_path=tmp_path / "bad")
     interferer = adc.analyze_interferer([*measurements, stuck], spectra=spectra)
     assert_plot_formats(plot_adc_interferer([interferer], title="Interferer", output_path=tmp_path / "interferer"))
 

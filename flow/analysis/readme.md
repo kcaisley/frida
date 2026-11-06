@@ -28,7 +28,7 @@ flowchart TB
         ramp_out --> ramp_specs["adc.plot_code_density / plot_inl / plot_dnl (each decoding; _calibrated for weights other than the design's)"]
         distribution_out --> distribution_plot["plot_adc_code_distribution"]
         noise_out --> noise_plots["plot_adc_noise_sweep / _distribution_sweep / _distribution_grid (lists)"]
-        code_spectrum_out --> code_spectrum_plots["plot_adc_code_noise / plot_adc_code_spectrum (list)"]
+        code_spectrum_out --> code_spectrum_plots["adc.plot_noise_spectrum (input-referred; its white floor, lines and their split marked)"]
         interferer_out --> interferer_plot["plot_adc_interferer (list)"]
         conditions_out --> sequence_plots["plot_adc_sequence_enob / plot_adc_sequence_chip_overview (list)"]
         paths_out --> paths_plots["adc.plot_trajectory / _final / _codes (the distinct paths, each with its conversions; the codes they end on)"]
@@ -188,7 +188,7 @@ All analysis studies end in `_study`, are targets in the block's `targets.py` (`
 | `adc_ramp_nonlinearity_study` | ADC00--03 uniform sawtooth, code-density INL/DNL without absolute voltage reconstruction. |
 | `adc_calibration_study` | ADC00 ramp and CDAC A-state threshold acquisitions; all three calibration methods. |
 | `adc_sequence_study` | Corrected 160-symbol sweep: 29 continuous recipes × 16 ADCs × 2/6/10 MSPS, with per-ADC and chip PDFs. Includes seven PEX flavors × seven matching recipes at 1600 MBd. Per-ADC and per-flavor operating-condition results and per-case timing summaries are saved as analysis HDF5 files. |
-| `adc_interferer_study` | 8 Oct re-run and 9 Oct amplifier-supply A/B/C/D runs (ADC00--03, seven recipes, 2/6/10 MSPS): code spectra, lines-versus-broadband split of ADC00, and per-ADC alias search over the 4of8 captures. |
+| `adc_interferer_study` | 8 Oct re-run and 9 Oct amplifier-supply A/B/C/D runs (ADC00--03, seven recipes, 2/6/10 MSPS): each 4of8 capture's code spectrum (its floor, lines and lines-versus-broadband split marked), and per-ADC alias search over the 4of8 captures. |
 | `adc_sample_rate_study` | ADC00/01 DC and sine sweeps plus ADC00's 800-mV control; only the historical INIT8/SAMP16 control pattern is selected, at 0.3125--6.25 actual MSPS. |
 | `adc_power_study` | Instrumented ADC00/01 fixed-input rate sweeps and ADC00 reference points, with three supply readbacks. |
 

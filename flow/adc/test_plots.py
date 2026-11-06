@@ -16,9 +16,15 @@ import pytest
 import flow.analysis.plots as analysis_plots
 from flow import pipeline
 from flow.adc import plots
-from flow.adc.analysis import _mismatch_statistics, analyze_decision_paths, analyze_mismatch_prediction, analyze_ramp
+from flow.adc.analysis import (
+    _mismatch_statistics,
+    analyze_code_spectrum,
+    analyze_decision_paths,
+    analyze_mismatch_prediction,
+    analyze_ramp,
+)
 from flow.adc.params import FINAL_DECISIONS, PELGROM_AXIS, UNIT_MISMATCH
-from flow.adc.test_analysis import adc_measurement, adc_ramp_measurement
+from flow.adc.test_analysis import adc_measurement, adc_ramp_measurement, tone_codes
 from flow.adc.types import (
     AnalysisCalibration,
     AnalysisCalibration1,
@@ -227,6 +233,41 @@ def test_a_capture_on_one_code_spreads_under_a_code() -> None:
     ((label, counts),) = plots.plot_trajectory_codes(paths).series.items()
     assert label == "Conversions (mean 2048.00, one code: σ under 1 LSB)"
     assert counts == [0.0, 0.0, 10.0, 0.0, 0.0]
+
+
+def test_a_code_spectrum_is_input_referred_with_its_floor_and_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fixed-input capture's code spectrum in V/√Hz through its LSB, on log axes: an interferer
+    folded to its alias (8.15 MHz at 2, 6 and 10 MS/s: 150 kHz, 2.15 MHz, 1.85 MHz) shaded among
+    its lines, the white floor marked with the variance's split; a stuck capture has neither;
+    drawn by both renderers' rules on the analysis plots' canvas."""
+    for rate_hz, alias_hz in ((2.0e6, 150e3), (6.0e6, 2.15e6), (10.0e6, 1.85e6)):
+        capture = adc_measurement(tone_codes(rate_hz, tone_hz=8.15e6, count=16_384), sample_rate_hz=rate_hz)
+        spectrum = analyze_code_spectrum(capture)
+        figure = plots.plot_noise_spectrum(spectrum)
+        assert (figure.x_log, figure.y_log, figure.y_label) == (True, True, "Input-referred noise (V/√Hz)")
+        # the LSB density, log-binned, through the capture's LSB
+        (density,) = figure.series.values()
+        _, lsb_density = plots._log_binned(spectrum.frequency_hz, spectrum.asd_lsb_per_sqrt_hz)
+        np.testing.assert_allclose(density, np.asarray(lsb_density) * spectrum.input_lsb_v, rtol=1e-5)
+        assert any(band.low <= alias_hz <= band.high for band in figure.x_bands), (rate_hz, figure.x_bands)
+        (floor,) = figure.y_markers
+        assert floor.at == pytest.approx(math.sqrt(spectrum.white_floor_lsb2_per_hz) * spectrum.input_lsb_v, rel=1e-5)
+        assert floor.label == (
+            f"White floor; total {spectrum.total_rms_lsb:.2f} = lines {spectrum.narrowband_rms_lsb:.2f}"
+            f" ⊕ broadband {spectrum.broadband_rms_lsb:.2f} LSB rms"
+        )
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    (png, _pdf) = render(figure, tmp_path / "noise_spectrum")
+    assert plt.imread(png).shape[:2] == (2700, 4800)
+    stuck = plots.plot_noise_spectrum(
+        analyze_code_spectrum(adc_measurement(np.full(16_384, 2_000), sample_rate_hz=2.0e6))
+    )
+    assert stuck.y_markers == [] and stuck.x_bands == []
+    # nothing to draw on the log axes, as matplotlib says
+    with pytest.warns(UserWarning, match="no positive values"):
+        assert render(stuck, tmp_path / "stuck")
 
 
 def test_the_mismatch_figures_are_at_harpes_matching() -> None:
