@@ -2,7 +2,6 @@
 generated view's testbench binds TSMC65 (``tsmc65``), as ``sim.simulate`` does; a PDK-free checkout
 skips it."""
 
-import importlib
 import inspect
 import json
 from dataclasses import fields
@@ -34,15 +33,6 @@ duty_sequences = tuple(
     if name.startswith(("symbol160_init4_samp20_", "symbol256_init4_samp20_"))
     and name != "symbol160_init4_samp20_comp11111100_logic00000010"
 )
-
-
-@pytest.fixture
-def tsmc65(monkeypatch: pytest.MonkeyPatch) -> None:
-    """TSMC65 the active PDK for one test, as ``sim.simulate`` binds it; the PDK before it after."""
-    logic = pytest.importorskip("pdk.tsmc65.hdl21").pdk_logic  # a PDK-free checkout has none
-    manager = importlib.import_module("hdl21.pdk.pdk")._mgr
-    monkeypatch.setattr(manager, "default", manager.default)
-    h.pdk.set_default(logic)
 
 
 @pytest.mark.parametrize("fault", ("ideal_capacitor", "changed_pex"))

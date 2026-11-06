@@ -1,9 +1,7 @@
 """Software-only tests for VLSIR-to-FRIDA result conversion."""
 
-import importlib
 from pathlib import Path
 
-import hdl21 as h
 import numpy as np
 import pytest
 from vlsirtools.spice.sim_data import TranResult
@@ -285,14 +283,10 @@ def test_extracted_waveforms_cover_every_dac_stage_and_comparator_nodes(view):
     assert names["comp.input_n_drain"].endswith("XXLATCH/MMM2_d")
 
 
-def test_generated_adc_map_covers_all_sixteen_capacitor_stages(monkeypatch):
+def test_generated_adc_map_covers_all_sixteen_capacitor_stages(tsmc65):
     """Every stage's state and both its bottom plates, which are the plates of the generated ADC's
-    DAC's sides (``generated_net_aliases``)."""
-    # TSMC65 bound for this test, as the runner binds it before it builds the testbench
-    logic = pytest.importorskip("pdk.tsmc65.hdl21").pdk_logic  # a PDK-free checkout has none
-    manager = importlib.import_module("hdl21.pdk.pdk")._mgr
-    monkeypatch.setattr(manager, "default", manager.default)
-    h.pdk.set_default(logic)
+    DAC's sides (``generated_net_aliases``); TSMC65 bound, as the runner binds it before it builds
+    the testbench."""
     names = _adc_names("hdl21gen")
     for side in ("p", "n"):
         for stage in range(16):

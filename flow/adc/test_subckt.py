@@ -1,8 +1,7 @@
 """Software-only tests for the ADC generator. Its DAC's sides are capdac's, resolved to the active
-PDK's devices, so a test that builds the ADC binds TSMC65 (``tsmc65``) and a PDK-free checkout (CI)
-skips it."""
+PDK's devices, so a test that builds the ADC binds TSMC65 (``tsmc65``, ``flow/conftest.py``) and a
+PDK-free checkout (CI) skips it."""
 
-import importlib
 import importlib.util
 import io
 import shutil
@@ -16,15 +15,6 @@ from flow import capdac
 
 from .params import Params
 from .subckt import Adc, AdcNets, adc_digital, digital_net_aliases, generated_net_aliases
-
-
-@pytest.fixture
-def tsmc65(monkeypatch: pytest.MonkeyPatch) -> None:
-    """TSMC65 the active PDK for one test, as the runners bind it; the PDK before it after."""
-    logic = pytest.importorskip("pdk.tsmc65.hdl21").pdk_logic  # a PDK-free checkout (CI) has none
-    manager = importlib.import_module("hdl21.pdk.pdk")._mgr
-    monkeypatch.setattr(manager, "default", manager.default)
-    h.pdk.set_default(logic)
 
 
 def _loads(module: h.Module, signal: h.Signal) -> set[str]:
