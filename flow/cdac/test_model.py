@@ -1,5 +1,4 @@
-"""The CDAC model from its characterization record, and the Monte Carlo draw a converter calibrates
-on."""
+"""The CDAC model from its characterization record, and its Monte Carlo draw at a percentile."""
 
 from typing import Any
 
