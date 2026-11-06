@@ -50,11 +50,8 @@ from flow.analysis.plots import (
     plot_adc_noise_sweep,
     plot_adc_power_sweep,
     plot_adc_power_waveform,
-    plot_adc_ramp_histogram,
-    plot_adc_ramp_nonlinearity,
     plot_adc_ramp_transfer,
     plot_adc_ramp_weights,
-    plot_adc_static_nonlinearity,
     plot_adc_transfer,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
@@ -816,7 +813,9 @@ def test_cdac_pex_expectation_includes_recorded_topplate_parasitic() -> None:
         plot_cdac_cap_mismatch([measurement, inconsistent], analysis, output_path=Path("unused"))
 
 
-def test_adc_transfer_noise_and_linearity_plots(tmp_path: Path) -> None:
+def test_adc_transfer_and_noise_plots(tmp_path: Path) -> None:
+    """The static transfer and the code distribution (the ramp's linearity is the ADC's specs':
+    flow/adc/test_plots.py)."""
     msmt = adc_measurement(
         np.repeat(np.arange(16), 8),
         vin_diff_v=np.repeat(np.linspace(-0.6, 0.6, 16), 8),
@@ -833,18 +832,14 @@ def test_adc_transfer_noise_and_linearity_plots(tmp_path: Path) -> None:
             adc.analyze_code_distribution([msmt]),
             output_path=tmp_path / "noise",
         ),
-        plot_adc_static_nonlinearity(
-            msmt,
-            adc.analyze_code_density_nonlinearity(msmt),
-            output_path=tmp_path / "nonlin",
-        ),
     )
     for paths in outputs:
         assert_plot_formats(paths)
 
 
 def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
-    """Keep ramp plotters independent of measurements and CDAC fitting."""
+    """Keep ramp plotters independent of measurements and CDAC fitting (the code density, INL and
+    DNL are the ADC's specs: flow/adc/test_plots.py)."""
 
     nominal = adc.analyze_ramp(adc_ramp_measurement())
     calibrated = replace(
@@ -856,9 +851,7 @@ def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
     ramps = (nominal, calibrated)
     outputs = (
         plot_adc_ramp_transfer(ramps, output_path=tmp_path / "ramp_transfer"),
-        plot_adc_ramp_histogram(ramps, output_path=tmp_path / "ramp_histogram"),
         plot_adc_ramp_weights(nominal, calibrated, output_path=tmp_path / "ramp_weights"),
-        plot_adc_ramp_nonlinearity(ramps, output_path=tmp_path / "ramp_nonlinearity"),
     )
     for paths in outputs:
         assert_plot_formats(paths)
@@ -870,9 +863,6 @@ def test_adc_ramp_plots_render_completed_analysis(tmp_path: Path) -> None:
             assert "Ideal weights" in svg
             assert "CDAC S-curve weights" in svg
         assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
-    histogram_svg = read_svg(outputs[1])
-    assert "Relative code width (count / ideal)" in histogram_svg
-    assert "missing codes" not in histogram_svg
 
 
 def test_code_noise_spectrum_and_interferer_plots(tmp_path: Path) -> None:

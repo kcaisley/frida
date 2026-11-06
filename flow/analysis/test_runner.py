@@ -389,13 +389,11 @@ def test_adc_calibration_runner_combines_three_common_results(
     monkeypatch.setattr(adc_targets, "analyze_calibration2", lambda _m, *, ramp: calibration("calibration2"))
     monkeypatch.setattr(adc_targets, "analyze_calibration3", lambda _m, *, ramp: calibration("calibration3"))
     plotted = []
-    for name in (
-        "plot_adc_calibration_weights",
-        "plot_adc_ramp_transfer",
-        "plot_adc_ramp_histogram",
-        "plot_adc_ramp_nonlinearity",
-    ):
+    for name in ("plot_adc_calibration_weights", "plot_adc_ramp_transfer"):
         monkeypatch.setattr(adc_targets, name, lambda analysis, **_kwargs: plotted.append(analysis) or ())
+    # the ramp's figures are the record's specs, each decoding's own, drawn by flow.plot.render
+    rendered = []
+    monkeypatch.setattr(adc_targets, "render", lambda plot, stem: rendered.append((plot, stem.name)) or ())
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
@@ -415,6 +413,13 @@ def test_adc_calibration_runner_combines_three_common_results(
         "calibration2",
         "calibration3",
     ]
+    assert [(plot.name, *plot.series) for plot, stem in rendered if stem.startswith("adc00_calibration_inl")] == [
+        ("inl", "Design weights"),
+        ("inl_calibrated", "Calibration 1"),
+        ("inl_calibrated", "Calibration 2"),
+        ("inl_calibrated", "Calibration 3"),
+    ]
+    assert len(rendered) == 3 * 4
     assert not list(output_dir.iterdir())
 
 
@@ -550,18 +555,26 @@ def test_ramp_study_uses_the_ramp_wrap_exclusion_and_no_cdac_measurements(tmp_pa
         measurements[path] = adc_ramp_measurement(observed_adc=adc_index)
     monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
     monkeypatch.setattr(adc_targets, "read_measurement", measurements.__getitem__)
-    plotted = []
+    graded = []
+    inl = adc_targets.plot_inl
 
-    def plot(measurement, analysis, *, output_path):
-        if isinstance(analysis, adc.AnalysisCodeDensityNonlinearity):
-            assert analysis.retained_sample_count < analysis.sample_count
-            plotted.append(measurement.index)
-        return (output_path.with_suffix(".pdf"),)
+    def plot_inl(ramp):
+        # the linearity of the conversions away from each wrap
+        assert ramp.retained_sample_count < ramp.sample_count
+        graded.append(ramp.index)
+        return inl(ramp)
 
-    monkeypatch.setattr(adc_targets, "plot_adc_code_distribution", plot)
-    monkeypatch.setattr(adc_targets, "plot_adc_static_nonlinearity", plot)
-    assert len(study(monkeypatch, adc_targets, "ramp_nonlinearity_study", tmp_path / "output")) == 8
-    assert plotted == [0, 1, 2, 3]
+    monkeypatch.setattr(adc_targets, "plot_inl", plot_inl)
+    monkeypatch.setattr(adc_targets, "render", lambda plot, stem: (stem.with_suffix(".pdf"),))
+    artifacts = study(monkeypatch, adc_targets, "ramp_nonlinearity_study", tmp_path / "output")
+    # each ADC's code density, INL and DNL with the design weights
+    assert [path.name for path in artifacts[:3]] == [
+        "adc00_0000_code_density_design.pdf",
+        "adc00_0000_inl_design.pdf",
+        "adc00_0000_dnl_design.pdf",
+    ]
+    assert len(artifacts) == 12
+    assert graded == [0, 1, 2, 3]
 
 
 def test_sample_rate_study_separates_sequences_inputs_and_spectral_data(tmp_path, monkeypatch):

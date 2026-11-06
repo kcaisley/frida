@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 import os
 from collections.abc import Mapping, Sequence
-from itertools import pairwise
 from pathlib import Path
 from typing import Literal
 
@@ -1172,58 +1171,6 @@ def plot_adc_ramp_transfer(
 
 
 @mpl.rc_context(PLOT_STYLE)
-def plot_adc_ramp_histogram(
-    analyses: Sequence[adc.AnalysisRamp],
-    *,
-    output_path: Path,
-    msmt: MeasAdc | None = None,
-) -> tuple[Path, ...]:
-    """Plot overlaid code-density histograms of every decoding of one capture.
-
-    ``msmt``, when given, replaces the channel line with its setup context.
-    """
-
-    analysis = analyses[0]
-    fig, ax = plt.subplots()
-    number_bins = 128
-    first_code = int(analysis.code[0]) + 1
-    last_code = int(analysis.code[-1])
-    bin_edges = np.linspace(first_code, last_code, number_bins + 1, dtype=np.int64)
-    bin_edges = np.unique(bin_edges)
-    # Center the ideal flat density; widen the fixed +/-25 % band symmetrically
-    # when any bin deviates further, so no bin is clipped.
-    half_range = 0.25
-    for curve, color in zip(analyses, CURVE_COLORS, strict=False):
-        average_count = np.asarray([calc.average(curve.count[lower:upper]) for lower, upper in pairwise(bin_edges)])
-        relative_width = average_count / curve.ideal_count
-        half_range = max(half_range, 1.1 * float(np.max(np.abs(relative_width - 1.0))))
-        ax.stairs(
-            relative_width,
-            bin_edges,
-            baseline=None,
-            fill=False,
-            color=color,
-            label=curve.label,
-        )
-    ax.axhline(1.0, color=SPINE_COLOR)
-    ax.set_ylim(1.0 - half_range, 1.0 + half_range)
-    ax.set_xlabel("Output code")
-    ax.set_ylabel("Relative code width (count / ideal)")
-    ax.set_title("ADC ramp code density")
-    style_grid(ax)
-    ax.legend(ncols=2, loc="upper right")
-    style_info_box(
-        ax,
-        (
-            *(style_instance_text(analysis) if msmt is None else style_measurement_text(msmt)),
-            f"Ramp: {analysis.ramp_frequency_hz:.6g} Hz",
-        ),
-        location="lower right",
-    )
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
 def plot_adc_ramp_weights(
     nominal: adc.AnalysisRamp,
     measured: adc.AnalysisRamp,
@@ -1326,106 +1273,6 @@ def plot_adc_calibration_weights(
         style_grid(ax)
     style_info_box(axes[1], style_instance_text(analysis_list[0]))
     fig.suptitle("ADC digital calibration weights")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_adc_static_nonlinearity(
-    msmt: MeasAdc,
-    analysis: adc.AnalysisEndpointNonlinearity | adc.AnalysisCodeDensityNonlinearity,
-    *,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Plot static ADC DNL and INL from one completed analysis."""
-
-    fig, axes = plt.subplots(2, 1, sharex=True)
-    axes[0].plot(analysis.code, analysis.dnl)
-    axes[1].plot(analysis.code, analysis.inl)
-    axes[0].axhline(0.0, color=SPINE_COLOR)
-    axes[0].set_ylabel("DNL (LSB)")
-    axes[1].axhline(0.0, color=SPINE_COLOR)
-    axes[1].set_ylabel("INL (LSB)")
-    axes[1].set_xlabel("Output code")
-    for ax in axes:
-        style_grid(ax)
-    style_info_box(axes[0], style_measurement_text(msmt))
-    method = "endpoint" if isinstance(analysis, adc.AnalysisEndpointNonlinearity) else "code-density"
-    fig.suptitle(f"ADC {method} nonlinearity")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_adc_ramp_nonlinearity(
-    analyses: Sequence[adc.AnalysisRamp],
-    *,
-    output_path: Path,
-    msmt: MeasAdc | None = None,
-    stacked: bool = False,
-) -> tuple[Path, ...]:
-    """Plot ramp DNL and INL of every decoding of one capture.
-
-    Decodings overlay in one DNL and one INL panel, or with ``stacked`` get
-    one row each (DNL left, INL right, shared axes) labeled with their peak
-    errors, so several calibrations stay comparable. ``msmt``, when given,
-    replaces the channel line with its setup context.
-    """
-
-    analysis = analyses[0]
-    if stacked:
-        fig, grid = plt.subplots(
-            len(analyses), 2, sharex=True, sharey="col", squeeze=False, figsize=(12.0, 1.7 * len(analyses) + 1.6)
-        )
-        for row, (curve, color) in enumerate(zip(analyses, CURVE_COLORS, strict=False)):
-            dnl_ax, inl_ax = grid[row]
-            dnl_ax.plot(curve.linearity_code, curve.dnl, color=color, linewidth=0.6)
-            inl_ax.plot(curve.linearity_code, curve.inl, color=color, linewidth=0.8)
-            for ax in (dnl_ax, inl_ax):
-                ax.axhline(0.0, color=SPINE_COLOR)
-                style_grid(ax)
-            inl_ax.text(
-                0.99,
-                0.92,
-                f"{curve.label}: |INL| ≤ {curve.maximum_abs_inl:.2f}, |DNL| ≤ {curve.maximum_abs_dnl:.2f} LSB",
-                transform=inl_ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=INFO_BOX_FONT_SIZE,
-                bbox={"facecolor": "white", "edgecolor": SPINE_COLOR, "alpha": 0.85, "boxstyle": "round,pad=0.25"},
-            )
-            dnl_ax.set_ylabel("LSB")
-        grid[0, 0].set_title("DNL")
-        grid[0, 1].set_title("INL")
-        grid[-1, 0].set_xlabel("Output code")
-        grid[-1, 1].set_xlabel("Output code")
-        caption_ax = info_ax = None
-    else:
-        fig, axes = plt.subplots(2, 1, sharex=True)
-        for curve in analyses:
-            axes[0].plot(curve.linearity_code, curve.dnl, label=curve.label)
-            axes[1].plot(curve.linearity_code, curve.inl, label=curve.label)
-        axes[0].axhline(0.0, color=SPINE_COLOR)
-        axes[0].set_ylabel("DNL (LSB)")
-        axes[1].axhline(0.0, color=SPINE_COLOR)
-        axes[1].set_ylabel("INL (LSB)")
-        axes[1].set_xlabel("Output code")
-        for ax in axes:
-            style_grid(ax)
-        axes[0].legend(loc="upper right")
-        caption_ax, info_ax = axes
-    ramp_line = f"Ramp: {analysis.ramp_frequency_hz:.6g} Hz"
-    setup = (*(style_instance_text(analysis) if msmt is None else style_measurement_text(msmt)), ramp_line)
-    if info_ax is not None and msmt is None:
-        style_info_box(info_ax, setup)
-    else:
-        # The full setup is too tall for a box over the traces; a two-line
-        # caption under the title, or below the stacked grid, keeps panels free.
-        half = (len(setup) + 1) // 2
-        caption = "\n".join(("  ·  ".join(setup[:half]), "  ·  ".join(setup[half:])))
-        if caption_ax is not None:
-            caption_ax.set_title(caption, fontsize=INFO_BOX_FONT_SIZE)
-        else:
-            fig.supxlabel(caption, fontsize=INFO_BOX_FONT_SIZE)
-    fig.suptitle("ADC ramp nonlinearity")
     return save_figure(fig, output_path)
 
 

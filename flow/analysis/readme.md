@@ -24,9 +24,8 @@ flowchart TB
         adc --> power["adc.analyze_power"] --> power_out["adc.AnalysisPower"]
         dynamic_out --> dynamic_plot["plot_adc_dynamic / plot_adc_dynamic_sweep (list)"]
         transfer_out --> transfer_plot["plot_adc_transfer"]
-        endpoint_out --> static_nonlinearity_plot["plot_adc_static_nonlinearity"]
-        density_out --> static_nonlinearity_plot
-        ramp_out --> ramp_plots["plot_adc_ramp_transfer / _histogram / _weights / _nonlinearity"]
+        ramp_out --> ramp_plots["plot_adc_ramp_transfer / _weights"]
+        ramp_out --> ramp_specs["adc.plot_code_density / plot_inl / plot_dnl (each decoding; _calibrated for weights other than the design's)"]
         distribution_out --> distribution_plot["plot_adc_code_distribution"]
         noise_out --> noise_plots["plot_adc_noise_sweep / _distribution_sweep / _distribution_grid (lists)"]
         code_spectrum_out --> code_spectrum_plots["plot_adc_code_noise / plot_adc_code_spectrum (list)"]

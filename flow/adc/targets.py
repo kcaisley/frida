@@ -38,12 +38,9 @@ from flow.analysis.plots import (
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
     plot_adc_power_sweep,
-    plot_adc_ramp_histogram,
-    plot_adc_ramp_nonlinearity,
     plot_adc_ramp_transfer,
     plot_adc_sequence_chip_overview,
     plot_adc_sequence_enob,
-    plot_adc_static_nonlinearity,
     plot_adc_transfer,
     plot_waveforms,
     style_measurement_text,
@@ -54,6 +51,7 @@ from flow.analysis.types import (
     MeasAdc,
     MeasCdac,
 )
+from flow.plot import render
 from flow.scans.params import load_board_map
 from flow.sweep import runner as sweep_runner
 
@@ -64,7 +62,6 @@ from .analysis import (
     analyze_calibration2,
     analyze_calibration3,
     analyze_cdac_settling,
-    analyze_code_density_nonlinearity,
     analyze_code_distribution,
     analyze_code_spectrum,
     analyze_decision_paths,
@@ -78,6 +75,8 @@ from .analysis import (
     analyze_timing_summary,
     analyze_transfer,
 )
+from .plots import plot_code_density, plot_dnl, plot_dnl_calibrated, plot_inl, plot_inl_calibrated
+from .types import AnalysisRamp
 
 
 def _sim_run(target: str) -> Path:
@@ -176,7 +175,24 @@ def sweep() -> None:
     sweep_runner.table(["adc"], 16)
 
 
-# ---- studies: figures of archived runs, into build/analysis/<block>/<timestamp>
+# ---- studies: figures of archived runs, into build/analysis/<block>/<timestamp>; the figures the
+# record has too are its specs (flow.adc.plots), drawn by flow.plot.render, one curve a figure
+
+
+def _ramp_figures(ramp: AnalysisRamp, output_dir: Path, stem: str) -> list[Path]:
+    """One decoding of a ramp drawn as the record draws it: its code density, INL and DNL (the design
+    weights' figures, or the calibrated ones for any other weights), each into
+    ``<stem>_<figure>_<decoding>``, the decoding ``design`` or the weights' method."""
+    design = ramp.decoding == "uncalibrated_dout"
+    figures = {
+        "code_density": plot_code_density(ramp),
+        "inl": plot_inl(ramp) if design else plot_inl_calibrated(ramp),
+        "dnl": plot_dnl(ramp) if design else plot_dnl_calibrated(ramp),
+    }
+    decoding = "design" if design else ramp.decoding
+    return [
+        path for name, figure in figures.items() for path in render(figure, output_dir / f"{stem}_{name}_{decoding}")
+    ]
 
 
 def transfer_curve_study() -> tuple[Path, ...]:
@@ -215,9 +231,10 @@ def ramp_nonlinearity_study() -> tuple[Path, ...]:
 
     Inputs are MeasAdc acquisitions, with uniform ramp occupancy assumed.
     Absolute input voltage is unused. Conversions next to each ramp wrap and
-    saturated endpoint bins are excluded from linearity; the full histogram
-    stays visible. No CDAC calibration data or internal SPICE waveforms are
-    required.
+    the saturated end codes are excluded from the linearity and from the
+    code density, which shows the codes the ramp grades (the ramp's figures,
+    ``_ramp_figures``). No CDAC calibration data or internal SPICE waveforms
+    are required.
     """
     output_dir = new_run("analysis", "adc")
     meas_read_dir = BASE_PATH / "build/scan_adc/20260812_011910"
@@ -230,21 +247,7 @@ def ramp_nonlinearity_study() -> tuple[Path, ...]:
         if not isinstance(measurement, MeasAdc):
             raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
         stem = f"adc{measurement.index or 0:02d}_{path.name.split('_', 1)[0]}"
-        artifacts.extend(
-            plot_adc_code_distribution(
-                (measurement,),
-                analyze_code_distribution((measurement,)),
-                output_path=output_dir / f"{stem}_code_density",
-            )
-        )
-        ramp = analyze_ramp(measurement)
-        artifacts.extend(
-            plot_adc_static_nonlinearity(
-                measurement,
-                analyze_code_density_nonlinearity(measurement, ramp=ramp),
-                output_path=output_dir / f"{stem}_inl_dnl",
-            )
-        )
+        artifacts.extend(_ramp_figures(analyze_ramp(measurement), output_dir, stem))
     return tuple(artifacts)
 
 
@@ -256,9 +259,10 @@ def behavioral_nonlinearity_study() -> tuple[Path, ...]:
     eight full-scale sawtooth periods, switching the reviewed three-layer PEX
     capacitances. Seed 0 has no random capacitor mismatch; seeds 1--4 are
     Monte Carlo draws with Harpe (0.10 %·sqrt(fF)) and Tripathi
-    (0.85 %·sqrt(fF)) unit mismatch. Each INL/DNL and code-density plot shows
-    the capture decoded with the ideal design weights and with the
-    PEX-extracted weights, the best estimate before mismatch.
+    (0.85 %·sqrt(fF)) unit mismatch. Each capture is decoded with the ideal
+    design weights and with the PEX-extracted weights, the best estimate
+    before mismatch, and each decoding gets its code-density, INL and DNL
+    figures.
     """
     output_dir = new_run("analysis", "adc")
     read_dir = BASE_PATH / "build/scan_behavioral/20261010_114121_frida2_ramp_code_density"
@@ -268,14 +272,9 @@ def behavioral_nonlinearity_study() -> tuple[Path, ...]:
         if not isinstance(measurement, MeasAdc):
             raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
         extracted = read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
-        ramps = (analyze_ramp(measurement), analyze_ramp(measurement, calibration=extracted))
         stem = f"frida2_3layer_behavioral_{path.stem}"
-        artifacts.extend(
-            plot_adc_ramp_histogram(ramps, output_path=output_dir / f"{stem}_code_density", msmt=measurement)
-        )
-        artifacts.extend(
-            plot_adc_ramp_nonlinearity(ramps, output_path=output_dir / f"{stem}_inl_dnl", msmt=measurement)
-        )
+        for ramp in (analyze_ramp(measurement), analyze_ramp(measurement, calibration=extracted)):
+            artifacts.extend(_ramp_figures(ramp, output_dir, stem))
     return tuple(artifacts)
 
 
@@ -414,14 +413,8 @@ def behavioral_calibration_study() -> tuple[Path, ...]:
         artifacts.extend(
             plot_adc_calibration_weights((extracted, *learned), output_path=output_dir / f"{stem}_weights")
         )
-        artifacts.extend(
-            plot_adc_ramp_nonlinearity(
-                ramps, output_path=output_dir / f"{stem}_calibrated_inl_dnl", msmt=check, stacked=True
-            )
-        )
-        artifacts.extend(
-            plot_adc_ramp_histogram(ramps, output_path=output_dir / f"{stem}_calibrated_code_density", msmt=check)
-        )
+        for ramp in ramps:
+            artifacts.extend(_ramp_figures(ramp, output_dir, stem))
     return tuple(artifacts)
 
 
@@ -449,7 +442,8 @@ def behavioral_architecture_study() -> tuple[Path, ...]:
             )
             ramps = [analyze_ramp(check)] + [analyze_ramp(check, calibration=calibration) for calibration in learned]
             stem = f"{variant_dir.name}_{train_path.stem.removesuffix('_train')}"
-            artifacts.extend(plot_adc_ramp_nonlinearity(ramps, output_path=output_dir / f"{stem}_inl_dnl", msmt=check))
+            for ramp in ramps:
+                artifacts.extend(_ramp_figures(ramp, output_dir, stem))
             artifacts.extend(plot_adc_calibration_weights(learned, output_path=output_dir / f"{stem}_weights"))
     return tuple(artifacts)
 
@@ -641,8 +635,7 @@ def calibration_study() -> tuple[Path, ...]:
     return (
         *plot_adc_calibration_weights(calibrations, output_path=output_dir / f"{stem}_calibration_weights"),
         *plot_adc_ramp_transfer(ramps, output_path=output_dir / f"{stem}_calibration_transfer"),
-        *plot_adc_ramp_histogram(ramps, output_path=output_dir / f"{stem}_calibration_code_density"),
-        *plot_adc_ramp_nonlinearity(ramps, output_path=output_dir / f"{stem}_calibration_inl_dnl"),
+        *(path for ramp in ramps for path in _ramp_figures(ramp, output_dir, f"{stem}_calibration")),
     )
 
 

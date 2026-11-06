@@ -52,7 +52,8 @@ def plot_redundancy(redundancy: AnalysisRedundancy) -> Plot:
 
 @plot
 def plot_code_density(ramp: AnalysisRamp) -> Plot:
-    """The ramp's code density with the design weights: a histogram, a bin a code (a step outline,
+    """The ramp's code density, named by the weights that decoded it (the record's: the design
+    weights; a lab study's: each decoding it compares): a histogram, a bin a code (a step outline,
     so compared instances overlay)."""
     code = np.asarray(ramp.code, dtype=np.int64)
     graded = (code >= ramp.linearity_code.min()) & (code <= ramp.linearity_code.max())
@@ -61,7 +62,7 @@ def plot_code_density(ramp: AnalysisRamp) -> Plot:
         "Ramp code density",
         "Output code",
         "Code width (count / ideal)",
-        *_by_code("Design weights", ramp, code[graded], ramp.count[graded] / ramp.ideal_count),
+        *_by_code(_decoding_label(ramp.decoding), ramp, code[graded], ramp.count[graded] / ramp.ideal_count),
         x_ticks="code",
         histogram=True,
     )
@@ -69,52 +70,53 @@ def plot_code_density(ramp: AnalysisRamp) -> Plot:
 
 @plot
 def plot_inl(ramp: AnalysisRamp) -> Plot:
-    """The ramp's INL with the design weights."""
+    """The ramp's INL with the design weights (decoded otherwise: ``plot_inl_calibrated``)."""
     return _plot(
         "inl",
         "Ramp INL, design weights",
         "Output code",
         "INL (LSB)",
-        *_by_code("Design weights", ramp, ramp.linearity_code, ramp.inl),
+        *_by_code(_decoding_label(ramp.decoding), ramp, ramp.linearity_code, ramp.inl),
         x_ticks="code",
     )
 
 
 @plot
 def plot_inl_calibrated(ramp: AnalysisRamp) -> Plot:
-    """The ramp's INL decoded by a calibration (the record's: the one that grades it best)."""
+    """The ramp's INL decoded by other weights than the design's, named by them (the record's: the
+    calibration that grades it best; a lab study's: the extracted weights and each calibration)."""
     return _plot(
         "inl_calibrated",
         "Ramp INL, calibrated",
         "Output code",
         "INL (LSB)",
-        *_by_code(_calibration_label(ramp), ramp, ramp.linearity_code, ramp.inl),
+        *_by_code(_decoding_label(ramp.decoding), ramp, ramp.linearity_code, ramp.inl),
         x_ticks="code",
     )
 
 
 @plot
 def plot_dnl(ramp: AnalysisRamp) -> Plot:
-    """The ramp's DNL with the design weights."""
+    """The ramp's DNL with the design weights (decoded otherwise: ``plot_dnl_calibrated``)."""
     return _plot(
         "dnl",
         "Ramp DNL, design weights",
         "Output code",
         "DNL (LSB)",
-        *_by_code("Design weights", ramp, ramp.linearity_code, ramp.dnl),
+        *_by_code(_decoding_label(ramp.decoding), ramp, ramp.linearity_code, ramp.dnl),
         x_ticks="code",
     )
 
 
 @plot
 def plot_dnl_calibrated(ramp: AnalysisRamp) -> Plot:
-    """The ramp's DNL decoded by a calibration (the record's: the one that grades it best)."""
+    """The ramp's DNL decoded by other weights than the design's, as ``plot_inl_calibrated``."""
     return _plot(
         "dnl_calibrated",
         "Ramp DNL, calibrated",
         "Output code",
         "DNL (LSB)",
-        *_by_code(_calibration_label(ramp), ramp, ramp.linearity_code, ramp.dnl),
+        *_by_code(_decoding_label(ramp.decoding), ramp, ramp.linearity_code, ramp.dnl),
         x_ticks="code",
     )
 
@@ -473,9 +475,15 @@ def _by_code(
     return axis.astype(float).tolist(), {label: column.tolist()}
 
 
-def _calibration_label(ramp: AnalysisRamp) -> str:
-    """The name of the calibration that decoded ``ramp`` (``Calibration 2``)."""
-    return f"Calibration {ramp.decoding.removeprefix('calibration')}"
+def _decoding_label(decoding: str) -> str:
+    """The name of the weights a decoding stands for (``AnalysisRamp.decoding``,
+    ``AnalysisCalibration.method``): the design's, the extracted array's or a calibration's
+    (``Calibration 2``)."""
+    if decoding == "uncalibrated_dout":
+        return "Design weights"
+    if decoding == "extracted":
+        return "Extracted weights"
+    return f"Calibration {decoding.removeprefix('calibration')}"
 
 
 def _log_binned(frequency_hz: np.ndarray, density: np.ndarray, bins: int = 300) -> tuple[list[float], list[float]]:

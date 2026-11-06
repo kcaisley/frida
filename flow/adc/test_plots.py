@@ -5,15 +5,22 @@ from __future__ import annotations
 
 import inspect
 import math
+from pathlib import Path
+from typing import Literal
 
+import matplotlib.pyplot as plt
 import numpy as np
+import pytest
 
+import flow.analysis.plots as analysis_plots
 from flow import pipeline
 from flow.adc import plots
 from flow.adc.analysis import _mismatch_statistics, analyze_decision_paths, analyze_mismatch_prediction, analyze_ramp
 from flow.adc.params import FINAL_DECISIONS, PELGROM_AXIS, UNIT_MISMATCH
 from flow.adc.test_analysis import adc_measurement, adc_ramp_measurement
-from flow.adc.types import AnalysisCalibration2, AnalysisMismatch, AnalysisReference
+from flow.adc.types import AnalysisCalibration, AnalysisCalibration2, AnalysisMismatch, AnalysisReference
+from flow.analysis.types import MeasAdc
+from flow.plot import render
 
 # the viewer's details of a characterization, in its order (every record's, the ladder's and the
 # reference driver's where the record has them)
@@ -58,21 +65,24 @@ def test_the_figures_are_the_records_in_the_viewers_order() -> None:
         assert f'"{name.removeprefix("plot_")}",' in inspect.getsource(function), name
 
 
-def test_a_ramps_figures_grade_its_codes_without_the_clipped_ends() -> None:
-    """The code density, INL and DNL of a ramp over the codes it grades, the clipped end codes left
-    out; the calibrated ones name their calibration."""
-    measurement = adc_ramp_measurement()
+def calibration_of(
+    measurement: MeasAdc,
+    kind: type[AnalysisCalibration],
+    method: Literal["extracted", "calibration1", "calibration2", "calibration3"],
+) -> AnalysisCalibration:
+    """Weights a little off the design's in a ramp's first two decisions, as ``method`` learns them
+    (the extracted array's: the ``AnalysisCalibration`` itself)."""
     design = analyze_ramp(measurement)
     nominal = design.weights * 4095.0 / np.sum(design.weights)
     calibrated_weights = nominal.copy()
     calibrated_weights[:2] *= (1.02, 0.97)
     calibrated_weights *= 4095.0 / np.sum(calibrated_weights)
-    calibration = AnalysisCalibration2(
+    return kind(
         group=measurement.group,
         index=measurement.index,
         dut=measurement.dut,
-        method="calibration2",
-        label="Cal. 2: least-squares fit to a known ramp",
+        method=method,
+        label=f"{method}: weights learned",
         code_max=4095,
         nominal_weights=nominal,
         calibrated_weights=calibrated_weights,
@@ -82,7 +92,14 @@ def test_a_ramps_figures_grade_its_codes_without_the_clipped_ends() -> None:
         output_gain=1.0,
         output_offset_lsb=0.0,
     )
-    decoded = analyze_ramp(measurement, calibration=calibration)
+
+
+def test_a_ramps_figures_grade_its_codes_without_the_clipped_ends() -> None:
+    """The code density, INL and DNL of a ramp over the codes it grades, the clipped end codes left
+    out; the calibrated ones name their calibration."""
+    measurement = adc_ramp_measurement()
+    design = analyze_ramp(measurement)
+    decoded = analyze_ramp(measurement, calibration=calibration_of(measurement, AnalysisCalibration2, "calibration2"))
     density = plots.plot_code_density(design)
     assert density.histogram and density.x_ticks == "code"
     assert density.x == [float(code) for code in range(1, 4095)]
@@ -92,6 +109,33 @@ def test_a_ramps_figures_grade_its_codes_without_the_clipped_ends() -> None:
     assert list(plots.plot_inl_calibrated(decoded).series) == ["Calibration 2"]
     assert list(plots.plot_dnl_calibrated(decoded).series) == ["Calibration 2"]
     assert plots.plot_dnl(design).y_label == "DNL (LSB)"
+
+
+def test_each_decoding_a_lab_study_compares_is_drawn_by_its_weights(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lab study draws each decoding of one ramp on the record's figures: the design weights', the
+    extracted array's and each calibration's, each a figure of its own named by its weights (the
+    code density as the code widths over the ideal), on the analysis plots' canvas."""
+    measurement = adc_ramp_measurement()
+    decoded = [
+        analyze_ramp(measurement, calibration=calibration_of(measurement, AnalysisCalibration, method))
+        for method in ("extracted", "calibration1", "calibration3")
+    ]
+    names = [["Extracted weights"], ["Calibration 1"], ["Calibration 3"]]
+    for function in (plots.plot_code_density, plots.plot_inl_calibrated, plots.plot_dnl_calibrated):
+        assert [list(function(ramp).series) for ramp in decoded] == names
+    density = plots.plot_code_density(decoded[0])
+    assert density.y_label == "Code width (count / ideal)" and density.histogram
+    (widths,) = density.series.values()
+    assert np.nanmean(widths) == pytest.approx(1.0, rel=1e-3)
+    for name in ("PLOT_PNGS", "PLOT_SVGS"):
+        monkeypatch.setattr(analysis_plots, name, True)
+    for function in (plots.plot_code_density, plots.plot_inl_calibrated, plots.plot_dnl_calibrated):
+        paths = render(function(decoded[1]), tmp_path / function.__name__)
+        assert [path.suffix for path in paths] == [".png", ".svg", ".pdf"]
+        assert plt.imread(paths[0]).shape[:2] == (2700, 4800)
+        assert function(decoded[1]).y_label.split(" (")[0] in paths[1].read_text()
 
 
 def test_the_decision_paths_are_drawn_weighted_by_their_conversions() -> None:
