@@ -22,8 +22,9 @@ def test_adc():
 
 
 def test_invalid_adc_params_are_refused_when_made():
-    """A resolution or an array no converter has, or a converter of another resolution than its
-    array's: refused by the parameters' types (a comparator or a sampler of a zero size likewise,
+    """A resolution or an array no converter has, a converter of another resolution than its
+    array's, or an array its netlist's legacy array cannot be (unit capacitors, another coarse
+    weight): refused by the parameters' types (a comparator or a sampler of a zero size likewise,
     flow/comp and flow/samp's test_subckt.py)."""
     for make in (
         lambda: Params(adc_bits=0),
@@ -32,6 +33,8 @@ def test_invalid_adc_params_are_refused_when_made():
         lambda: capdac.Params(extra=-1),
         lambda: capdac.Params(weights=(1,) * 15),
         lambda: Params(adc_bits=10),
+        lambda: Params(cdac=capdac.Params(weight_impl=capdac.WeightImpl.UNIT_CAPS)),
+        lambda: Params(cdac=capdac.Params(coarse_weight=32)),
     ):
         with pytest.raises(ValidationError):
             make()
