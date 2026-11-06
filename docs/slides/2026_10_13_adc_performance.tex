@@ -28,7 +28,7 @@
     \toprule
     Array & FRIDA-2 three-layer, radix 1.7: 16 capacitors, 17 decisions, 12-bit output \\
     Capacitances & PEX table, with Pelgrom mismatch $\sigma_C = A\sqrt{C\cdot\mathrm{fF}}$ \\
-    Mismatch & Pelgrom model; coefficient $A = 0.85\,\%$ (Tripathi) or $0.10\,\%$ (Harpe) \\
+    Mismatch & Pelgrom model; coefficient $A = 0.85\,\%$ (Tripathi) or an assumed $0.10\,\%$ \\
     Noise & kT/C (1210\,fF), comparator 130\,\textmu V, 2\,ps aperture jitter (assumed) \\
     Settling & single pole, $\tau = 0.2$\,ns (assumed) \\
     Energy & logic, drivers and comparator fitted to the SPICE PEX transient \\
@@ -48,11 +48,11 @@
   \slidesource{Behavioral held-out ramp, 10\,MS/s, draw 1; $A$ from Tripathi \& Murmann (2014)}
 \end{frame}
 
-\begin{frame}{INL and DNL: Pelgrom mismatch, Harpe coefficient}
+\begin{frame}{INL and DNL: Pelgrom mismatch, assumed coefficient}
   \plotfig[0.74]{01_inl_dnl_harpe}
   \par\smallskip
   {\small $A = 0.10\,\%\sqrt{\mathrm{fF}}$. The ideal-weight sawtooth is systematic, from the PEX capacitor ratios; PEX-extracted weights remove it.}
-  \slidesource{Behavioral held-out ramp, 10\,MS/s, draw 1; $A$ estimated from Harpe's unit-length DAC (2018)}
+  \slidesource{Behavioral held-out ramp, 10\,MS/s, draw 1; assumed $A = 0.10\,\%\sqrt{\mathrm{fF}}$}
 \end{frame}
 
 \begin{frame}{Code density: Pelgrom mismatch, two coefficients}
@@ -64,7 +64,7 @@
     \end{column}
     \begin{column}{0.49\linewidth}
       \centering
-      {\small $A = 0.10\,\%\sqrt{\mathrm{fF}}$ (Harpe)}\par
+      {\small assumed $A = 0.10\,\%\sqrt{\mathrm{fF}}$}\par
       \includegraphics[width=\linewidth]{\figpath/01_code_density_harpe.pdf}
     \end{column}
   \end{columns}
