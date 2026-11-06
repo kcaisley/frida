@@ -276,7 +276,11 @@ def test_extracted_calibration_reads_a_capacitive_dacs_measured_steps(tmp_path: 
 
     calibration = io.read_extracted_calibration(path, measurement)
 
-    assert read == [path] and calibration.method == "extracted" and calibration.label == "Measured-step weights"
+    assert calibration.method == "extracted" and calibration.label == "Measured-step weights"
+    # read and analyzed once a process, however many captures decode with it
+    again = io.read_extracted_calibration(path, measurement)
+    np.testing.assert_array_equal(again.calibrated_weights, calibration.calibrated_weights)
+    assert read == [path]
     assert calibration.identity == measurement.identity
     assert np.sum(calibration.calibrated_weights) == pytest.approx(measurement.code_max)
     ratio = calibration.calibrated_weights / (nominal * measurement.code_max / np.sum(nominal))

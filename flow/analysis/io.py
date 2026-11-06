@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -312,7 +313,7 @@ def read_extracted_calibration(path: Path, measurement: MeasAdc) -> adc.Analysis
     the inclusive output range and carry the measurement's identity.
     """
 
-    from flow import adc, capdac  # in here: flow.adc.model and flow.capdac.model import this module
+    from flow import adc  # in here: flow.adc.model imports this module
 
     nominal_bout_weight = measurement.nominal_bout_weights.astype(np.float64)
     nominal_cap_weight = nominal_bout_weight[:-1]
@@ -321,9 +322,7 @@ def read_extracted_calibration(path: Path, measurement: MeasAdc) -> adc.Analysis
     if path == Path():
         effective, label = nominal_cap_weight / 2, "Design weights, nothing extracted"
     elif path.suffix == ".h5":
-        # each stage's step in its slower direction, whose sign is that direction's
-        settling = capdac.analyze_settling(read_measurement(path))
-        effective, label = np.abs(settling.step_v), "Measured-step weights"
+        effective, label = _measured_steps(path), "Measured-step weights"
     else:
         with path.open(newline="") as table:
             effective = np.asarray([float(row["effective_ff"]) for row in csv.DictReader(table)], dtype=np.float64)
@@ -352,6 +351,19 @@ def read_extracted_calibration(path: Path, measurement: MeasAdc) -> adc.Analysis
         output_gain=1.0,
         output_offset_lsb=0.0,
     )
+
+
+@cache
+def _measured_steps(path: Path) -> np.ndarray:
+    """Each stage's step a capacitive DAC's kept settling measurement holds (V, C0 first), as
+    ``capdac.analyze_settling`` measures it, in its slower direction: its magnitude, whose sign is
+    that direction's. Read once a process: every capture of a converter on the array decodes with
+    it."""
+    from flow import capdac  # in here: flow.capdac.model imports this module
+
+    steps = np.abs(capdac.analyze_settling(read_measurement(path)).step_v)
+    steps.flags.writeable = False
+    return steps
 
 
 def interpolate_wave_records(
