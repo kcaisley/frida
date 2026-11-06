@@ -220,6 +220,4 @@ Internal resolution uses a 0.3 V differential threshold; SR and digital states u
 
 The comparator-response and timing-closure analyses pair each COMP rise with its LOGIC rise inline; the strict variant that rejects incomplete conversions belongs to simulator conversion in `flow/circuit/results.py`. `AdcSequence.logic_timing` backs the `MeasAdc` sequence properties. `calc.py` retains generic numerical primitives; `adc/sim.py` holds the sequence definitions. `plot_waveforms` draws selected nets of one `Wave` record, relative to a chosen time origin.
 
-Sampler transient conversion and caparray extraction conversion remain explicit `NotImplementedError` prototypes. The latter will describe nominal/extracted capacitances and Monte Carlo variation, rather than transient waveforms.
-
 The noise and dynamic result field `logic_phase_delay_symbols` is a derived display metric relative to half a decision interval; it is calculated from row edges, not supplied to acquisition or simulation. The reader has no compatibility paths: files written before the `Meas` base class were converted in place once, and future measurement directories are recollected.

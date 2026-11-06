@@ -1,4 +1,4 @@
-"""Convert circuit simulation or extraction results into typed FRIDA measurements."""
+"""Convert circuit simulation results into typed FRIDA measurements."""
 
 from __future__ import annotations
 
@@ -18,11 +18,9 @@ from flow.analysis import calc
 from flow.analysis.io import interpolate_wave_records
 from flow.analysis.types import (
     MeasAdc,
-    MeasCapArray,
     MeasInfo,
     Wave,
 )
-from flow.cdac.caparray.subckt import CapArrayParams
 
 # Spectre strobe timestamps can jitter by sub-femtoseconds around a 10 ps grid.
 _RAW_STEP_RTOL = 1e-3
@@ -286,21 +284,3 @@ def convert_raw_adc_to_measurement(
             i=current_records,
         ),
     )
-
-
-def convert_netlist_caparray_to_measurement(
-    *,
-    netlist_path: Path,
-    params: CapArrayParams,
-    net_names: Mapping[str, str],
-    device_names: Mapping[str, str],
-) -> MeasCapArray:
-    """Reserved Calibre xACT .pex.netlist adapter, not a transient-waveform decoder.
-
-    ``net_names`` and ``device_names`` map raw netlist identifiers to analysis
-    aliases. An empty mapping selects no identifiers from that category.
-    The future contract will pair design capacitances with extracted values
-    and support per-capacitor Monte Carlo samples and their variation. Its
-    measurement type must describe capacitance data, not MeasCdac waveforms.
-    """
-    raise NotImplementedError("caparray nominal/extracted capacitance and Monte Carlo conversion is not implemented")

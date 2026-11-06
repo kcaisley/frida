@@ -5,7 +5,7 @@ plates step through a sequence of packed codes, each held for a dwell. Every fig
 plate in the middle of a code's dwell. Toggling one stage alone after an all-zero code moves the
 top plate by that stage's share of the supply (its capacitance over the whole array's and the
 load's); the packed ramp gives the code-to-voltage transfer and its nonlinearity. The extracted
-array's capacitances are ``MeasCapArray``'s (reserved, ``flow.analysis.types``).
+array's capacitances are its PEX tables' (``pex.py``).
 """
 
 from __future__ import annotations

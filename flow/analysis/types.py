@@ -25,7 +25,6 @@ __all__ = [
     "Identity",
     "Meas",
     "MeasAdc",
-    "MeasCapArray",
     "MeasCdac",
     "MeasInfo",
     "Wave",
@@ -35,8 +34,6 @@ __all__ = [
 
 if TYPE_CHECKING:
     from flow import adc, capdac
-    from flow.cdac.caparray.sim import CapArrayTbParams
-    from flow.cdac.caparray.subckt import CapArrayParams
     from flow.scans.params import AdcScanParams
 
 
@@ -162,7 +159,7 @@ class MeasCdac(Meas):
     """
 
     dut: capdac.Params
-    param: AdcScanParams | adc.TbParams | CapArrayTbParams
+    param: AdcScanParams | adc.TbParams
     trial_index: np.ndarray
     dac_state_p: np.ndarray
     dac_state_n: np.ndarray
@@ -203,18 +200,6 @@ class MeasCdac(Meas):
         if not np.isfinite(topplate_parasitic_weight) or topplate_parasitic_weight < 0.0:
             raise ValueError("CDAC top-plate parasitic expectation must be finite and non-negative")
         return weights / (np.sum(total_weights) + topplate_parasitic_weight)
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class MeasCapArray(Meas):
-    """Reserved capacitance-extraction result; its data payload is not defined yet.
-
-    The converter remains unimplemented until nominal/extracted and Monte
-    Carlo capacitance fields are specified.
-    """
-
-    dut: CapArrayParams
-    param: CapArrayParams
 
 
 # =============================================================================

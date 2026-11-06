@@ -21,8 +21,6 @@ import pytest
 
 from flow import adc, capdac
 from flow.analysis import types as analysis_types
-from flow.cdac.caparray.sim import CapArrayTbParams
-from flow.cdac.caparray.subckt import CapArrayParams
 from flow.scans.params import AdcScanParams
 
 ANALYSIS_DIR = Path(__file__).resolve().parent
@@ -57,8 +55,6 @@ PURE_MODULES = (*CONTRACT_MODULES, "calc")
 TYPE_NAMESPACE = {
     "adc": adc,
     "capdac": capdac,
-    "CapArrayTbParams": CapArrayTbParams,
-    "CapArrayParams": CapArrayParams,
     "AdcScanParams": AdcScanParams,
 }
 
