@@ -14,13 +14,17 @@ capture's parameters, never from literals.
 - The calibrations, each decision's weight: from the CDAC's S-curves (``analyze_calibration1``), a
   least-squares fit to a known ramp (``analyze_calibration2``) and Hsu's slow-ramp thresholds
   (``analyze_calibration3``).
-- The campaign's studies: the output code's noise over the input (``analyze_input_noise``) and Hsu's
-  integrated error over the rate (``analyze_hsu``).
+- The campaign's studies: the output code's noise over the input (``analyze_input_noise``) and at a
+  fixed input (``analyze_noise_rms``), Hsu's integrated error over the rate (``analyze_hsu``), the
+  ENOB ladder (``analyze_ladder``), the energy over the input (``analyze_energy``) and the
+  redundancy of a calibration's weights (``analyze_redundancy``); and the record's numbers
+  (``metrics``).
 - An array's capacitor mismatch: ``analyze_mismatch`` takes a behavioral capture to its array's
   mismatch as statistics rather than draws (``AnalysisMismatch``), from which ``_dnl_quantile``,
   ``_inl_quantile``, ``_missing_codes_quantile`` and ``_margin_over_sigma`` predict at a Pelgrom
-  coefficient; the redundancy of a SAR's weights (``_redundancy_margins``, after Ogawa et al.)
-  grades each stage's error tolerance.
+  coefficient (``analyze_mismatch_prediction``: at Harpe's matching and over the coefficients the
+  figures draw), and which drawn arrays check (``analyze_mismatch_draws``); the redundancy of a
+  SAR's weights (``_redundancy_margins``, after Ogawa et al.) grades each stage's error tolerance.
 
 Capacitor mismatch as statistics rather than draws: what a Pelgrom coefficient costs a capacitor
 array's DNL, INL and codes, from its capacitances alone, to first order in the mismatch.
@@ -114,6 +118,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from functools import partial
+from itertools import takewhile
 
 import hdl21 as h
 import numpy as np
@@ -127,7 +132,7 @@ from flow.analysis.types import AnalysisCdacCapMismatch, MeasAdc, MeasCdac
 from flow.cdac.caparray import get_caparray_weights
 from flow.pipeline import Identity, analysis, check_identity, measurement_identity
 
-from .params import INPUT_NOISE_LEVELS
+from .params import INPUT_NOISE_LEVELS, LADDER, NOMINAL_RATE_HZ, PELGROM_AXIS, UNIT_MISMATCH
 from .sim import AdcSequence
 from .subckt import AdcNets, calc_side_capacitances
 from .types import (
@@ -142,15 +147,21 @@ from .types import (
     AnalysisDecisionPaths,
     AnalysisDynamic,
     AnalysisEndpointNonlinearity,
+    AnalysisEnergy,
     AnalysisHsu,
     AnalysisInputNoise,
     AnalysisInterferer,
+    AnalysisLadder,
     AnalysisMismatch,
+    AnalysisMismatchDraws,
+    AnalysisMismatchPrediction,
     AnalysisNoise,
+    AnalysisNoiseRms,
     AnalysisOperatingConditions,
     AnalysisPower,
     AnalysisPowerWaveform,
     AnalysisRamp,
+    AnalysisRedundancy,
     AnalysisSamplingNoise,
     AnalysisTimingClosure,
     AnalysisTimingSummary,
@@ -1539,7 +1550,7 @@ def analyze_timing_summary(
 
 
 # =============================================================================
-# The campaign's studies: the noise over the input and Hsu's integrated error
+# The campaign's studies: its noise, Hsu's integrated error, the ENOB ladder, energy, redundancy
 # =============================================================================
 
 
@@ -1581,12 +1592,93 @@ def analyze_hsu(measurements: Sequence[MeasAdc]) -> AnalysisHsu:
         codes = np.asarray(capture.dout, dtype=np.int64)[1:]
         ideal = np.asarray(reference.dout, dtype=np.int64)[1:]
         errors[index] = float(np.sum(np.abs(codes - ideal)))
+    rates = np.asarray([capture.sample_rate_hz for capture in captures])
+    # the fastest rate before the integrated error first passes a code in 1024 (Hsu's zero, less the
+    # rare metastable decision at a code centre), counting up from the slowest; NaN where even the
+    # slowest does
+    tolerance = max(1.0, len(references[0].dout) / 1024)
+    failing = np.flatnonzero(errors > tolerance)
+    fastest = rates[-1] if not len(failing) else rates[failing[0] - 1] if failing[0] else math.nan
     return AnalysisHsu(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
-        rate_hz=np.asarray([capture.sample_rate_hz for capture in captures]),
+        rate_hz=rates,
         integrated_error_lsb=errors,
+        error_free_rate_hz=float(fastest),
+    )
+
+
+@analysis
+def analyze_noise_rms(measurement: MeasAdc) -> AnalysisNoiseRms:
+    """A fixed-input capture's output-code noise: its codes' standard deviation (LSB)."""
+
+    identity = measurement.identity
+    return AnalysisNoiseRms(
+        group=identity.group, index=identity.index, dut=identity.dut, rms_lsb=float(np.std(measurement.dout))
+    )
+
+
+@analysis
+def analyze_ladder(dynamics: Sequence[AnalysisDynamic]) -> AnalysisLadder:
+    """The ENOB ladder (``LADDER``) from its steps' sines, quantization alone first (``LADDER_NAMES``'
+    captures, each decoded as the record's ``enob_bits`` is): each step's spectral ENOB referred to
+    full scale."""
+
+    identity = measurement_identity(dynamics)
+    if len(dynamics) != len(LADDER):
+        raise ValueError(f"the ENOB ladder takes one sine a step, {len(LADDER)}, not {len(dynamics)}")
+    return AnalysisLadder(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        enob_bits=np.asarray([dynamic.spectral_enob_fs_bits for dynamic in dynamics]),
+    )
+
+
+@analysis
+def analyze_energy(measurements: Sequence[MeasAdc], *, power: Sequence[AnalysisPower]) -> AnalysisEnergy:
+    """The energy a conversion takes over the input: each DC capture's input (V, differential: its
+    conversions' mean) and each rail's energy per conversion from the capture's power (``power``, one
+    a capture), its dynamic power at the active rate and its static power at the sample rate."""
+
+    identity = measurement_identity(measurements)
+    if len(power) != len(measurements):
+        raise ValueError("the energy over the input takes one power result a capture")
+    for measurement, result in zip(measurements, power, strict=True):
+        check_identity(result, measurement.identity, name="power")
+    energy = {
+        rail: np.asarray(
+            [
+                getattr(result, f"{rail}_dynamic_power_w") / result.active_conversion_rate_hz
+                + getattr(result, f"{rail}_static_power_w") / result.sample_rate_hz
+                for result in power
+            ]
+        )
+        for rail in ("vdd_a", "vdd_d", "vdd_dac")
+    }
+    return AnalysisEnergy(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        vin_diff_v=np.asarray([float(np.mean(measurement.vin_diff_v)) for measurement in measurements]),
+        vdd_a_energy_j=energy["vdd_a"],
+        vdd_d_energy_j=energy["vdd_d"],
+        vdd_dac_energy_j=energy["vdd_dac"],
+    )
+
+
+@analysis
+def analyze_redundancy(calibration: AnalysisCalibration) -> AnalysisRedundancy:
+    """Each stage's error tolerance (``_redundancy_margins``, after Ogawa et al.) with the design
+    weights and with ``calibration``'s."""
+
+    return AnalysisRedundancy(
+        group=calibration.group,
+        index=calibration.index,
+        dut=calibration.dut,
+        design_pct=_redundancy_margins(calibration.nominal_weights),
+        calibrated_pct=_redundancy_margins(calibration.calibrated_weights),
     )
 
 
@@ -2102,6 +2194,59 @@ def analyze_mismatch(meas: MeasAdc) -> AnalysisMismatch:
     return AnalysisMismatch(group=meas.group, index=meas.index, dut=meas.dut, **statistics)
 
 
+@analysis
+def analyze_mismatch_prediction(mismatch: AnalysisMismatch) -> AnalysisMismatchPrediction:
+    """What an array's mismatch statistics predict at Harpe's matching (``UNIT_MISMATCH``): each
+    stage's weight sigma, the DNL sigma at its transition and its margin over its sigma; and over the
+    Pelgrom coefficients ``PELGROM_AXIS``, the worst DNL's and INL's 95th percentiles, decoded with
+    the design weights."""
+
+    return AnalysisMismatchPrediction(
+        group=mismatch.group,
+        index=mismatch.index,
+        dut=mismatch.dut,
+        unit_mismatch=UNIT_MISMATCH,
+        weight_sigma_lsb=UNIT_MISMATCH * mismatch.weight_sigma,
+        transition_sigma_lsb=UNIT_MISMATCH * mismatch.transition_sigma,
+        margin_over_sigma=_margin_over_sigma(mismatch, UNIT_MISMATCH),
+        coefficient=PELGROM_AXIS,
+        dnl_p95_lsb=np.asarray([_dnl_quantile(mismatch, coefficient) for coefficient in PELGROM_AXIS]),
+        inl_p95_lsb=np.asarray([_inl_quantile(mismatch, coefficient) for coefficient in PELGROM_AXIS]),
+    )
+
+
+@analysis
+def analyze_mismatch_draws(measurements: Sequence[MeasAdc], *, ramps: Sequence[AnalysisRamp]) -> AnalysisMismatchDraws:
+    """The Monte Carlo check of the predicted mismatch: the drawn arrays' ramps (behavioral captures,
+    each its draw's, at its Pelgrom coefficient: the ``unit_mismatch`` readback) and their ramp
+    analyses decoded with the design weights (``ramps``, one a capture), each one's worst |DNL| and
+    |INL| and missing codes by coefficient and draw. The draws are each their own instance (a seed
+    each), the result their design's."""
+
+    if len(ramps) != len(measurements) or not measurements:
+        raise ValueError("the mismatch draws take one ramp analysis a capture, at least one")
+    for measurement, ramp in zip(measurements, ramps, strict=True):
+        check_identity(ramp, measurement.identity, name="ramp")
+    dut = measurements[0].dut
+    if any(measurement.dut != dut for measurement in measurements):
+        raise ValueError("the mismatch draws are of one design")
+    rows: dict[float, list[tuple[float, float, float]]] = {}
+    for measurement, ramp in zip(measurements, ramps, strict=True):
+        coefficient = float(measurement.info.readbacks["unit_mismatch"])
+        rows.setdefault(coefficient, []).append((ramp.maximum_abs_dnl, ramp.maximum_abs_inl, float(ramp.missing_codes)))
+    coefficients = np.asarray(sorted(rows))
+    columns = [np.asarray([[draw[column] for draw in rows[c]] for c in coefficients]) for column in range(3)]
+    return AnalysisMismatchDraws(
+        group=None,
+        index=None,
+        dut=dut,
+        coefficient=coefficients,
+        dnl_lsb=columns[0],
+        inl_lsb=columns[1],
+        missing_codes=columns[2],
+    )
+
+
 def _mismatch_statistics(
     main_f, diff_f, parasitic_f: float, weights, code_max: int, *, diffcaps: bool = True
 ) -> dict[str, np.ndarray]:
@@ -2361,3 +2506,135 @@ def _redundancy_margins(weights) -> np.ndarray:
     # 2026-10-21 this was (sum_{j=k+1}^{M-1} w_j - w_k) / sum_{j=k}^{M-1} w_j for k < M-1: without
     # the w_{M-1} term every stage read w_{M-1} low, so binary weights went negative toward the LSB
     return (remaining - 2 * values + values[-1]) / remaining * 100
+
+
+# =============================================================================
+# The record's numbers
+# =============================================================================
+
+
+def metrics(
+    *,
+    dynamics: Sequence[AnalysisDynamic],
+    powers: Sequence[AnalysisPower],
+    fins: Sequence[AnalysisDynamic],
+    ramp: AnalysisRamp,
+    extracted: AnalysisRamp,
+    calibrated: AnalysisRamp,
+    noise: AnalysisNoiseRms,
+    input_noise: AnalysisInputNoise,
+    hsu: AnalysisHsu,
+    redundancy: AnalysisRedundancy,
+    mismatch: AnalysisMismatch,
+    noise_sampling: AnalysisNoiseRms | None = None,
+    noise_comparator: AnalysisNoiseRms | None = None,
+    calibration3: AnalysisCalibration3 | None = None,
+    drawn_design: AnalysisDynamic | None = None,
+    drawn_extracted: AnalysisDynamic | None = None,
+    drawn_calibrated: AnalysisDynamic | None = None,
+    ladder: AnalysisLadder | None = None,
+    draws: AnalysisMismatchDraws | None = None,
+) -> dict[str, float]:
+    """The record's numbers from its campaign's results: the sines over the rate (``dynamics``,
+    slowest first, the extracted weights' codes) and their power, the nominal rate's sines over the
+    input frequency (``fins``, lowest first), the check ramp decoded with the design weights, the
+    extracted weights and the calibration that grades it best (``calibrated``), the noise capture's
+    output-code noise (with one source alone, where the campaign has it), the noise over the input,
+    Hsu's study, the redundancy of the extracted weights, the array's predicted mismatch; whether
+    calibration 3 fitted (``calibration3``), the nominal rate's sine on the CDAC's SPICE draw decoded
+    with the design weights, the nominal extraction's and the best calibration's, the ENOB ladder and
+    the Monte Carlo's check of the mismatch, where the campaign holds them. Every ENOB is the
+    spectral one referred to full scale (an ideal N-bit quantizer reads N); the SNDR is the test
+    sine's own, at -0.5 dBFS."""
+
+    dynamic, power = next(
+        (d, p) for d, p in zip(dynamics, powers, strict=True) if round(d.sample_rate_hz) == round(NOMINAL_RATE_HZ)
+    )
+    power_w = sum(
+        getattr(power, f"{rail}_{kind}_power_w")
+        for rail in ("vdd_a", "vdd_d", "vdd_dac")
+        for kind in ("static", "dynamic")
+    )
+    sigma_lsb = input_noise.sigma_lsb
+    # the redundant stages' margins over their sigma (the others have none to lose)
+    margins = _margin_over_sigma(mismatch, UNIT_MISMATCH)[np.abs(mismatch.margin_lsb) > 1e-9]
+    values = {
+        "enob_bits": dynamic.spectral_enob_fs_bits,
+        "sndr_db": dynamic.spectral_sndr_db,
+        "sfdr_db": dynamic.spectral_sfdr_db,
+        "enob_nyquist_bits": fins[-1].spectral_enob_fs_bits,
+        "enob_low_fin_bits": fins[0].spectral_enob_fs_bits,
+        "inl_max_lsb": ramp.maximum_abs_inl,
+        "dnl_max_lsb": ramp.maximum_abs_dnl,
+        "inl_max_extracted_lsb": extracted.maximum_abs_inl,
+        "inl_max_calibrated_lsb": calibrated.maximum_abs_inl,
+        "dnl_max_calibrated_lsb": calibrated.maximum_abs_dnl,
+        "missing_codes": float(ramp.missing_codes),
+        "power_w": power_w,
+        "energy_per_conversion_j": power_w / dynamic.sample_rate_hz,
+        "fom_walden_j": power_w / (2**dynamic.spectral_enob_fs_bits * dynamic.sample_rate_hz),
+        "fom_schreier_db": dynamic.spectral_sndr_db + 10 * math.log10(dynamic.sample_rate_hz / 2 / power_w),
+        "noise_rms_lsb": noise.rms_lsb,
+        # each noise source alone (the noise capture with only it on), where the campaign has them
+        **{
+            f"noise_{source}_rms_lsb": result.rms_lsb
+            for source, result in (("sampling", noise_sampling), ("comparator", noise_comparator))
+            if result is not None
+        },
+        # the output-code noise at the input's ends and at mid-scale
+        "noise_input_edge_lsb": float(max(sigma_lsb[0], sigma_lsb[-1])),
+        "noise_input_mid_lsb": float(sigma_lsb[len(sigma_lsb) // 2]),
+        # Hsu's study at the array's own settling: the fastest error-free rate, and the error at 10 MS/s
+        "error_free_rate_max_hz": float(hsu.error_free_rate_hz),
+        "integrated_error_nominal_lsb": float(
+            hsu.integrated_error_lsb[np.flatnonzero(hsu.rate_hz == NOMINAL_RATE_HZ)[0]]
+        ),
+        # the fastest rate before the ENOB first falls a bit below the slowest rate's: past it the
+        # comparator or the DAC runs out of time (the sampler's distortion slopes off more gently)
+        "rate_max_hz": list(
+            takewhile(lambda d: d.spectral_enob_fs_bits >= dynamics[0].spectral_enob_fs_bits - 1.0, dynamics)
+        )[-1].sample_rate_hz,
+        "redundancy_first_pct": float(redundancy.design_pct[0]),
+        "redundancy_first_extracted_pct": float(redundancy.calibrated_pct[0]),
+        "calibration3_fitted": float(calibration3 is not None),
+        # the calibration the calibrated metrics use
+        "calibration_best": float(calibrated.decoding.removeprefix("calibration")),
+        # the nominal rate's sine on the CDAC's SPICE draw the ramps calibrate on, decoded with the
+        # design weights (as it comes), the nominal extraction's (its systematic error calibrated,
+        # not the draw's) and the best calibration learned from the drawn training ramp
+        **{
+            f"enob_drawn_{name}_bits": result.spectral_enob_fs_bits
+            for name, result in (
+                ("design", drawn_design),
+                ("extracted", drawn_extracted),
+                ("calibrated", drawn_calibrated),
+            )
+            if result is not None
+        },
+        # predicted at Harpe's matching (0.10 %·sqrt(fF)), decoded with the design weights: the
+        # array's own layout error and the mismatch's 95th percentile; the largest DNL and INL sigma
+        # of any code; the smallest margin of a redundant stage over its sigma (NaN without one)
+        "mismatch_dnl_p95_lsb": _dnl_quantile(mismatch, UNIT_MISMATCH),
+        "mismatch_inl_p95_lsb": _inl_quantile(mismatch, UNIT_MISMATCH),
+        "mismatch_missing_codes_p95": _missing_codes_quantile(mismatch, UNIT_MISMATCH),
+        "dnl_sigma_max_lsb": UNIT_MISMATCH * float(np.max(mismatch.dnl_sigma)),
+        "inl_sigma_max_lsb": UNIT_MISMATCH * float(np.max(mismatch.inl_sigma)),
+        "min_margin_over_sigma": float(np.min(margins)) if len(margins) else math.nan,
+    }
+    # the ladder's first step, and what each impairment after it costs where it is added (the
+    # losses add up to the quantization's ENOB less enob_bits)
+    if ladder is not None:
+        enob = ladder.enob_bits
+        values["enob_quantization_bits"] = float(enob[0])
+        for (key, _, _, _), before, after in zip(LADDER[1:], enob[:-1], enob[1:], strict=True):
+            values[f"enob_loss_{key}_bits"] = float(before - after)
+    # the Monte Carlo's check, where the campaign drew it: its 95th percentiles at Harpe's matching
+    if draws is not None:
+        index = int(np.argmin(np.abs(draws.coefficient - UNIT_MISMATCH)))
+        for drawn, column in (
+            (draws.dnl_lsb, "dnl_p95_lsb"),
+            (draws.inl_lsb, "inl_p95_lsb"),
+            (draws.missing_codes, "missing_codes_p95"),
+        ):
+            values[f"mismatch_mc_{column}"] = float(np.percentile(drawn[index], 95))
+    return values

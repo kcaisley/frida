@@ -42,6 +42,7 @@ from flow.adc.analysis import (
     analyze_endpoint_nonlinearity,
     analyze_interferer,
     analyze_mismatch,
+    analyze_mismatch_draws,
     analyze_noise,
     analyze_operating_conditions,
     analyze_power,
@@ -51,12 +52,11 @@ from flow.adc.analysis import (
     analyze_timing_closure,
     analyze_transfer,
 )
-from flow.adc.figures import _extracted, enob_ladder
 from flow.adc.model import AdcBehavioralParams, CdacBehavioralParams
 from flow.adc.params import LADDER, LADDER_NAMES, Params, TbParams
 from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.adc.subckt import calc_ideal_capacitances
-from flow.adc.sweep import campaign
+from flow.adc.sweep import _extracted, _ladder, campaign
 from flow.adc.types import AnalysisMismatch
 from flow.analysis.calc import calc_drawn_linearity, calc_paths
 from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_decisions, analyze_cdac_transition
@@ -272,6 +272,25 @@ def test_a_captures_mismatch_is_its_nominal_arrays_statistics() -> None:
     expected = _statistics(main_f, _weights(main_f / UNIT_F))
     for name in ("weight_sigma", "transition_sigma", "margin_lsb", "dnl_sigma", "inl_sigma", "width_codes"):
         np.testing.assert_array_equal(getattr(mismatch, name), getattr(expected, name))
+
+
+def test_the_mismatch_draws_gather_each_ramp_by_its_coefficient() -> None:
+    """The Monte Carlo check of the predicted mismatch: each drawn ramp's worst |DNL| and |INL| and
+    missing codes, a row a Pelgrom coefficient (ascending) and a column a draw, under their design."""
+    base = adc_ramp_measurement()
+    draws = [
+        replace(base, group=100 + draw, info=replace(base.info, readbacks={"unit_mismatch": coefficient}))
+        for coefficient in (0.002, 0.001)
+        for draw in range(2)
+    ]
+    ramps = [analyze_ramp(measurement) for measurement in draws]
+    result = analyze_mismatch_draws(draws, ramps=ramps)
+    assert result.coefficient.tolist() == [0.001, 0.002]
+    assert result.dnl_lsb.shape == result.inl_lsb.shape == result.missing_codes.shape == (2, 2)
+    assert (result.group, result.index, result.dut) == (None, None, base.dut)
+    np.testing.assert_array_equal(result.inl_lsb[0], [ramps[2].maximum_abs_inl, ramps[3].maximum_abs_inl])
+    with pytest.raises(ValueError, match="one ramp analysis a capture"):
+        analyze_mismatch_draws(draws, ramps=ramps[:1])
 
 
 # ---- the conversion and waveform analyses, on built captures
@@ -2209,8 +2228,9 @@ def test_the_ladder_starts_at_quantization_and_ends_on_enob_bits(tmp_path: Path,
     model = _stub_model(tmp_path / "table.csv", params)
     plan = campaign(model.tb, model.full_scale_v, params.adc_bits)
     captures = {name: _capture(model, plan[name]) for name in LADDER_NAMES}
-    ladder = enob_ladder(captures)
-    assert ladder is not None and len(ladder) == len(LADDER)
+    result = _ladder(captures)
+    assert result is not None and len(result.enob_bits) == len(LADDER)
+    ladder = result.enob_bits
     # quantization alone reads the design resolution: the extracted weights' codes unrounded (whole
     # codes would quantize a second time) and the -0.5 dBFS sine's SNDR referred to full scale
     assert ladder[0] == pytest.approx(params.adc_bits, abs=0.02)
@@ -2223,9 +2243,10 @@ def test_the_ladder_starts_at_quantization_and_ends_on_enob_bits(tmp_path: Path,
     _, _, quiet, tau_scale = LADDER[-1]
     again = _capture(model, replace(plan["rate_10"], quiet=quiet, tau_scale=tau_scale))
     np.testing.assert_array_equal(again.bout, rate.bout)
-    assert enob_ladder({**captures, "rate_10": again})[-1] == ladder[-1]
+    repeated = _ladder({**captures, "rate_10": again})
+    assert repeated is not None and repeated.enob_bits[-1] == ladder[-1]
     # without the ladder's captures (a SPICE campaign), no ladder
-    assert enob_ladder({"rate_10": rate}) is None
+    assert _ladder({"rate_10": rate}) is None
 
 
 @pytest.mark.parametrize("adc_bits", [10, 12])
@@ -2239,9 +2260,9 @@ def test_the_ladders_quantization_reads_the_design_resolution(tmp_path: Path, ad
     model = _stub_model(tmp_path / "table.csv", params)
     plan = campaign(model.tb, model.full_scale_v, params.adc_bits)
     captures = {name: _capture(model, plan[name]) for name in LADDER_NAMES}
-    ladder = enob_ladder(captures)
+    ladder = _ladder(captures)
     assert ladder is not None
-    assert ladder[0] == pytest.approx(adc_bits, abs=0.02)
+    assert ladder.enob_bits[0] == pytest.approx(adc_bits, abs=0.02)
     quantization = captures[LADDER_NAMES[0]]
     at_amplitude = analyze_dynamic(quantization, calibration=_extracted(quantization)).spectral_enob_bits
     assert at_amplitude == pytest.approx(adc_bits - 0.5 / 6.02, abs=0.02)

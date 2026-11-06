@@ -7,7 +7,8 @@ study's decoupling, budget and grids (``REFERENCE_*``); and the campaign's
 (``flow.adc.sweep.campaign``): its rates, input frequencies and conversion counts, the mismatch
 study's coefficients, the levels of the noise over the input, the Hsu study's quiet sources, the
 ENOB ladder (``LADDER``, its captures ``LADDER_NAMES``) and one capture (``Capture``: its testbench
-and the model's knobs).
+and the model's knobs); and the record's figures' (``flow.adc.plots``): the decision paths drawn and
+the Pelgrom coefficients the predicted mismatch is drawn over.
 """
 
 from dataclasses import dataclass
@@ -195,6 +196,13 @@ REFERENCE_R_OUT_OHM = np.logspace(-1, 5, 13)
 REFERENCE_HALVINGS = 5
 # what the reference's study silences or makes ideal in the converter (of ``QUIET``)
 REFERENCE_QUIET = ("sampler", "sampling", "comparator")
+
+# The record's figures (``flow.adc.plots``): the decision paths drawn, the last decisions' zoom and at
+# most this many distinct paths a plot; and the predicted mismatch's Pelgrom coefficients, 0.02 to
+# 1 %·sqrt(fF), as fractions
+FINAL_DECISIONS = 6
+MAX_PATHS = 400
+PELGROM_AXIS = np.geomspace(0.0002, 0.01, 41)
 
 # The campaign (``flow.adc.sweep.campaign``): every capture the record needs.
 # 1 to 10 MS/s in 1 MS/s steps, the rates the ADC is meant to run at, then on to 100 MS/s: where

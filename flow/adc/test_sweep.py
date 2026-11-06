@@ -3,14 +3,14 @@ comparator grid, the samplers, the arrays, the resolutions and the capacitance s
 component its block sweep's instance; and its campaign (``campaign``), every capture the figures
 read, for any testbench builder."""
 
+import inspect
 from dataclasses import replace
 from itertools import pairwise
 
 import hdl21 as h
 
 from flow import comp
-from flow.adc import sweep
-from flow.adc.figures import FIGURES
+from flow.adc import plots, sweep
 from flow.adc.params import (
     FIN_CYCLES,
     FIN_RATES_HZ,
@@ -24,6 +24,13 @@ from flow.cdac.caparray.layout import ADC_ARRAYS, RADIX17
 from flow.cdac.caparray.sim import CASES
 from flow.cdac.caparray.subckt import RedunStrat, get_caparray_weights
 from flow.sweep.runner import design_space, digest
+
+# the record's figures by name, in the viewer's order: the plots module's
+FIGURES = [
+    name.removeprefix("plot_")
+    for name, value in vars(plots).items()
+    if name.startswith("plot_") and inspect.isfunction(value)
+]
 
 
 def _instances(pdk: str) -> list:

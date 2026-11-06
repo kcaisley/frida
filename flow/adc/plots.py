@@ -1,0 +1,509 @@
+"""The ADC's figures as ``Plot`` specs (``flow.pipeline.Plot``), each from analysis results alone: a
+characterization's details, which the viewer shows in the order they are written here (the record's,
+``flow.adc.sweep.record``). Each is one curve (one series, or one family of decision paths), so
+instances compared on one plot stay readable; what a second curve would add is a figure of its own.
+The decision-path density is its paths, each distinct one with how many conversions took it
+(``Plot.paths``): the whole conversion, its last decisions, and where the conversions at one input
+end. Every value is written to six significant digits, as the viewer's other exports; the
+``flow.analysis.plots`` figures draw the same analyses for the paper.
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Sequence
+from typing import Any
+
+import numpy as np
+
+from flow.pipeline import Plot, plot
+
+from .params import FINAL_DECISIONS, LADDER, MAX_PATHS
+from .types import (
+    AnalysisCalibration,
+    AnalysisCodeSpectrum,
+    AnalysisDecisionPaths,
+    AnalysisDynamic,
+    AnalysisEnergy,
+    AnalysisHsu,
+    AnalysisInputNoise,
+    AnalysisLadder,
+    AnalysisMismatchPrediction,
+    AnalysisPower,
+    AnalysisRamp,
+    AnalysisRedundancy,
+    AnalysisReference,
+)
+
+
+@plot
+def plot_redundancy(redundancy: AnalysisRedundancy) -> Plot:
+    """Each stage's error tolerance with the design weights."""
+    return _plot(
+        "redundancy",
+        "Error tolerance by stage",
+        "Conversion stage (C0 first)",
+        "Error tolerance (%)",
+        range(len(redundancy.design_pct)),
+        {"Design weights": redundancy.design_pct},
+        x_ticks="step",
+    )
+
+
+@plot
+def plot_code_density(ramp: AnalysisRamp) -> Plot:
+    """The ramp's code density with the design weights: a histogram, a bin a code (a step outline,
+    so compared instances overlay)."""
+    code = np.asarray(ramp.code, dtype=np.int64)
+    graded = (code >= ramp.linearity_code.min()) & (code <= ramp.linearity_code.max())
+    return _plot(
+        "code_density",
+        "Ramp code density",
+        "Output code",
+        "Code width (count / ideal)",
+        *_by_code("Design weights", ramp, code[graded], ramp.count[graded] / ramp.ideal_count),
+        x_ticks="code",
+        histogram=True,
+    )
+
+
+@plot
+def plot_inl(ramp: AnalysisRamp) -> Plot:
+    """The ramp's INL with the design weights."""
+    return _plot(
+        "inl",
+        "Ramp INL, design weights",
+        "Output code",
+        "INL (LSB)",
+        *_by_code("Design weights", ramp, ramp.linearity_code, ramp.inl),
+        x_ticks="code",
+    )
+
+
+@plot
+def plot_inl_calibrated(ramp: AnalysisRamp) -> Plot:
+    """The ramp's INL decoded by a calibration (the record's: the one that grades it best)."""
+    return _plot(
+        "inl_calibrated",
+        "Ramp INL, calibrated",
+        "Output code",
+        "INL (LSB)",
+        *_by_code(_calibration_label(ramp), ramp, ramp.linearity_code, ramp.inl),
+        x_ticks="code",
+    )
+
+
+@plot
+def plot_dnl(ramp: AnalysisRamp) -> Plot:
+    """The ramp's DNL with the design weights."""
+    return _plot(
+        "dnl",
+        "Ramp DNL, design weights",
+        "Output code",
+        "DNL (LSB)",
+        *_by_code("Design weights", ramp, ramp.linearity_code, ramp.dnl),
+        x_ticks="code",
+    )
+
+
+@plot
+def plot_dnl_calibrated(ramp: AnalysisRamp) -> Plot:
+    """The ramp's DNL decoded by a calibration (the record's: the one that grades it best)."""
+    return _plot(
+        "dnl_calibrated",
+        "Ramp DNL, calibrated",
+        "Output code",
+        "DNL (LSB)",
+        *_by_code(_calibration_label(ramp), ramp, ramp.linearity_code, ramp.dnl),
+        x_ticks="code",
+    )
+
+
+@plot
+def plot_trajectory(paths: AnalysisDecisionPaths) -> Plot:
+    """The decision paths at one input, over the whole conversion: every distinct path of running
+    code estimates, with how many conversions took it."""
+    estimates = np.round(np.asarray(paths.estimate_dout, dtype=np.float64), 6)
+    steps = estimates.shape[1]
+    # decisions are steps, the estimates codes: whole-number ticks on both
+    return Plot(
+        "trajectory",
+        "Decision paths at one input",
+        "Decisions made",
+        "Code estimate (LSB)",
+        list(range(steps)),
+        {},
+        paths=_family(estimates, 0),
+        x_ticks="step",
+        y_ticks="code",
+    )
+
+
+@plot
+def plot_trajectory_final(paths: AnalysisDecisionPaths) -> Plot:
+    """The decision paths over the last decisions (``FINAL_DECISIONS``), where noise splits them."""
+    estimates = np.round(np.asarray(paths.estimate_dout, dtype=np.float64), 6)
+    steps = estimates.shape[1]
+    first = max(steps - 1 - FINAL_DECISIONS, 0)
+    return Plot(
+        "trajectory_final",
+        "Decision paths: the last decisions",
+        "Decisions made",
+        "Code estimate (LSB)",
+        list(range(first, steps)),
+        {},
+        paths=_family(estimates, first),
+        x_ticks="step",
+        y_ticks="code",
+    )
+
+
+@plot
+def plot_trajectory_codes(paths: AnalysisDecisionPaths) -> Plot:
+    """The histogram of the codes the decision paths end on, a bin a code and two empty ones either
+    side (the outline closes on the axis), their mean and spread in the curve's name."""
+    final = np.asarray(paths.final_dout, dtype=np.float64)
+    mean, sigma = float(np.mean(final)), float(np.std(final))
+    codes = np.arange(math.floor(final.min()) - 2, math.ceil(final.max()) + 3)
+    counts = np.array([np.count_nonzero(final == code) for code in codes], dtype=np.float64)
+    return Plot(
+        "trajectory_codes",
+        "Output codes at one input",
+        "Output code",
+        "Conversions",
+        [float(code) for code in codes],
+        {f"Conversions (mean {mean:.2f}, σ {sigma:.2f} LSB)": [float(count) for count in counts]},
+        x_ticks="code",
+        y_ticks="integer",
+        histogram=True,
+    )
+
+
+@plot
+def plot_noise_spectrum(spectrum: AnalysisCodeSpectrum) -> Plot:
+    """The output code's noise density at a fixed input, averaged in power over log-spaced bins."""
+    frequency_hz, density = _log_binned(spectrum.frequency_hz, spectrum.asd_lsb_per_sqrt_hz)
+    return _plot(
+        "noise_spectrum",
+        "Output-code noise density",
+        "Frequency (Hz)",
+        "Noise density (LSB/sqrt(Hz))",
+        frequency_hz,
+        {"Total ADC": density},
+        x_log=True,
+        y_log=True,
+    )
+
+
+@plot
+def plot_noise_input(noise: AnalysisInputNoise) -> Plot:
+    """The output code's noise over the input."""
+    return _plot(
+        "noise_input",
+        "Output noise over the input",
+        "Differential input (V)",
+        "Output noise (LSB rms)",
+        noise.level_v,
+        {"Noise": noise.sigma_lsb},
+    )
+
+
+@plot
+def plot_enob_rate(dynamics: Sequence[AnalysisDynamic]) -> Plot:
+    """The ENOB over the conversion rate (its sines in rate order). Every ENOB here is the spectral
+    one referred to full scale (an ideal N-bit quantizer reads N, whatever the sine's amplitude),
+    none where the output no longer follows the input (SNDR under 1.76 dB): a point there would only
+    stretch the axis."""
+    return _plot(
+        "enob_rate",
+        "ENOB over the conversion rate",
+        "Conversion rate (Hz)",
+        "ENOB (bits)",
+        [dynamic.sample_rate_hz for dynamic in dynamics],
+        {"ENOB": [_enob(dynamic) for dynamic in dynamics]},
+        x_log=True,
+    )
+
+
+@plot
+def plot_enob_fin(dynamics: Sequence[AnalysisDynamic]) -> Plot:
+    """The ENOB over the input frequency at the nominal rate (its sines in frequency order), as
+    ``plot_enob_rate`` gives it."""
+    return _plot(
+        "enob_fin",
+        "ENOB over the input frequency at 10 MS/s",
+        "Input frequency / conversion rate",
+        "ENOB (bits)",
+        [dynamic.input_frequency_hz / dynamic.sample_rate_hz for dynamic in dynamics],
+        {"ENOB": [_enob(dynamic) for dynamic in dynamics]},
+    )
+
+
+@plot
+def plot_enob_ladder(ladder: AnalysisLadder) -> Plot:
+    """The ENOB ladder: the nominal rate's sine with one impairment more a step, ticked by their
+    names (``LADDER``)."""
+    return _plot(
+        "enob_ladder",
+        "ENOB as impairments are added",
+        "Impairment added",
+        "ENOB (bits)",
+        range(len(LADDER)),
+        {"ENOB": ladder.enob_bits},
+        x_labels=[label for _, label, _, _ in LADDER],
+    )
+
+
+@plot
+def plot_spectrum_low(dynamic: AnalysisDynamic) -> Plot:
+    """The spectrum of the nominal rate's sine at its lowest input frequency."""
+    return _plot(
+        "spectrum_low",
+        "Spectrum at 10 MS/s, low input frequency",
+        "Frequency (Hz)",
+        "Power (dBFS)",
+        dynamic.spectrum_frequency_hz,
+        {f"{dynamic.input_frequency_hz / 1e6:.3g} MHz input": dynamic.spectrum_dbfs},
+    )
+
+
+@plot
+def plot_spectrum_nyquist(dynamic: AnalysisDynamic) -> Plot:
+    """The spectrum of the nominal rate's sine at its highest input frequency, near Nyquist."""
+    return _plot(
+        "spectrum_nyquist",
+        "Spectrum at 10 MS/s, input near Nyquist",
+        "Frequency (Hz)",
+        "Power (dBFS)",
+        dynamic.spectrum_frequency_hz,
+        {f"{dynamic.input_frequency_hz / 1e6:.3g} MHz input": dynamic.spectrum_dbfs},
+    )
+
+
+@plot
+def plot_hsu_rate(hsu: AnalysisHsu) -> Plot:
+    """Hsu's study (A. H. T. Chang, MIT PhD thesis 2013, sec. 3.3.3): every code centre once,
+    noise-free, at each rate with the array's own settling; the integrated |code - ideal timing's|."""
+    return _plot(
+        "hsu_rate",
+        "Integrated error over the conversion rate",
+        "Conversion rate (Hz)",
+        "Integrated error (LSB)",
+        hsu.rate_hz,
+        {"Integrated error": hsu.integrated_error_lsb},
+    )
+
+
+@plot
+def plot_power_rate(powers: Sequence[AnalysisPower]) -> Plot:
+    """The supply power over the conversion rate (its captures in rate order)."""
+    return _plot(
+        "power_rate",
+        "Supply power over the conversion rate",
+        "Conversion rate (Hz)",
+        "Supply power (W)",
+        [power.sample_rate_hz for power in powers],
+        {"Total": [power.total_power_w for power in powers]},
+        x_log=True,
+        y_log=True,
+    )
+
+
+@plot
+def plot_energy_input(energy: AnalysisEnergy) -> Plot:
+    """The energy a conversion takes over the input, every rail."""
+    return _plot(
+        "energy_input",
+        "Energy per conversion over the input",
+        "Differential input (V)",
+        "Energy per conversion (J)",
+        energy.vin_diff_v,
+        {"Total": energy.total_energy_j},
+    )
+
+
+@plot
+def plot_energy_dac_input(energy: AnalysisEnergy) -> Plot:
+    """The DAC reference's (VDD_DAC's) share of it."""
+    return _plot(
+        "energy_dac_input",
+        "DAC energy per conversion over the input",
+        "Differential input (V)",
+        "Energy per conversion (J)",
+        energy.vin_diff_v,
+        {"VDD_DAC": energy.vdd_dac_energy_j},
+    )
+
+
+@plot
+def plot_calibration_weights(calibration: AnalysisCalibration) -> Plot:
+    """The extracted array's weights' error against the design's, a decision each."""
+    return _plot(
+        "calibration_weights",
+        "Weight error of the extracted array",
+        "Decision (B0 first)",
+        "Weight error (%)",
+        range(len(calibration.nominal_weights)),
+        {"Extracted weights": 100.0 * (calibration.calibrated_weights / calibration.nominal_weights - 1.0)},
+        x_ticks="step",
+    )
+
+
+@plot
+def plot_mismatch_weight_sigma(prediction: AnalysisMismatchPrediction) -> Plot:
+    """Each stage's capacitor weight sigma at Harpe's matching."""
+    return _plot(
+        "mismatch_weight_sigma",
+        "Capacitor weight σ by stage",
+        "Conversion stage (C0 first)",
+        "Weight σ (LSB)",
+        range(len(prediction.weight_sigma_lsb)),
+        {_matching_label(prediction): prediction.weight_sigma_lsb},
+        x_ticks="step",
+    )
+
+
+@plot
+def plot_mismatch_transition_sigma(prediction: AnalysisMismatchPrediction) -> Plot:
+    """The DNL sigma at each stage's transition at Harpe's matching."""
+    return _plot(
+        "mismatch_transition_sigma",
+        "DNL σ at each stage's transition",
+        "Conversion stage (C0 first)",
+        "DNL σ (LSB)",
+        range(len(prediction.transition_sigma_lsb)),
+        {_matching_label(prediction): prediction.transition_sigma_lsb},
+        x_ticks="step",
+    )
+
+
+@plot
+def plot_mismatch_margin(prediction: AnalysisMismatchPrediction) -> Plot:
+    """Each stage's redundancy margin over its mismatch sigma at Harpe's matching."""
+    return _plot(
+        "mismatch_margin",
+        "Redundancy margin over its mismatch σ by stage",
+        "Conversion stage (C0 first)",
+        "Margin / σ",
+        range(len(prediction.margin_over_sigma)),
+        {_matching_label(prediction): prediction.margin_over_sigma},
+        x_ticks="step",
+    )
+
+
+@plot
+def plot_mismatch_dnl(prediction: AnalysisMismatchPrediction) -> Plot:
+    """The worst DNL one converter in twenty sees over the matching, decoded with the design weights."""
+    return _plot(
+        "mismatch_dnl",
+        "Worst DNL over the Pelgrom coefficient (predicted 95th percentile)",
+        "Pelgrom coefficient A_C (%·sqrt(fF))",
+        "Max |DNL| (LSB)",
+        prediction.coefficient * 100,
+        {"Design weights, 95th percentile": prediction.dnl_p95_lsb},
+        x_log=True,
+    )
+
+
+@plot
+def plot_mismatch_inl(prediction: AnalysisMismatchPrediction) -> Plot:
+    """The worst INL one converter in twenty sees over the matching, decoded with the design weights."""
+    return _plot(
+        "mismatch_inl",
+        "Worst INL over the Pelgrom coefficient (predicted 95th percentile)",
+        "Pelgrom coefficient A_C (%·sqrt(fF))",
+        "Max |INL| (LSB)",
+        prediction.coefficient * 100,
+        {"Design weights, 95th percentile": prediction.inl_p95_lsb},
+        x_log=True,
+    )
+
+
+@plot
+def plot_reference_noise(reference: AnalysisReference) -> Plot:
+    """The ENOB the converter loses to its reference's white noise, its sampler and comparator ideal."""
+    return _plot(
+        "reference_noise",
+        "ENOB lost to the reference's noise, sampler and comparator ideal",
+        "Reference noise (V RMS)",
+        "ENOB loss (bits)",
+        reference.noise_v,
+        {"ENOB loss": reference.noise_loss_bits},
+        x_log=True,
+    )
+
+
+@plot
+def plot_reference_r_out(reference: AnalysisReference) -> Plot:
+    """The ENOB the converter loses to its reference driver's output resistance at its decoupling,
+    its sampler and comparator ideal (the record draws it where the converter has decoupling)."""
+    return _plot(
+        "reference_r_out",
+        "ENOB lost to the reference driver's resistance at its decoupling, sampler and comparator ideal",
+        "Reference output resistance (Ω)",
+        "ENOB loss (bits)",
+        reference.r_out_ohm,
+        {"ENOB loss": reference.r_out_loss_bits},
+        x_log=True,
+    )
+
+
+def _plot(name: str, title: str, x_label: str, y_label: str, x, series: dict[str, Any], **options: Any) -> Plot:
+    """A figure's spec, its values to six significant digits, as the viewer's other exports."""
+    return Plot(
+        name=name,
+        title=title,
+        x_label=x_label,
+        y_label=y_label,
+        x=[float(f"{value:.6g}") for value in x],
+        series={label: [float(f"{value:.6g}") for value in ys] for label, ys in series.items()},
+        **options,
+    )
+
+
+def _by_code(
+    label: str, ramp: AnalysisRamp, code: np.ndarray, values: np.ndarray
+) -> tuple[list[float], dict[str, list[float]]]:
+    """``values`` at each ``code`` over the codes the ramp grades (its linearity codes, the clipped
+    end codes left out as the linearity leaves them), NaN where it has none: the axis and the one
+    series ``label``."""
+    axis = np.arange(int(np.min(ramp.linearity_code)), int(np.max(ramp.linearity_code)) + 1)
+    column = np.full(len(axis), np.nan)
+    column[np.asarray(code, dtype=np.int64) - axis[0]] = values
+    return axis.astype(float).tolist(), {label: column.tolist()}
+
+
+def _calibration_label(ramp: AnalysisRamp) -> str:
+    """The name of the calibration that decoded ``ramp`` (``Calibration 2``)."""
+    return f"Calibration {ramp.decoding.removeprefix('calibration')}"
+
+
+def _log_binned(frequency_hz: np.ndarray, density: np.ndarray, bins: int = 300) -> tuple[list[float], list[float]]:
+    """A density averaged in power over log-spaced frequency bins (a 50k-bin spectrum is more than a
+    plot can show): the bins' geometric centres, NaN where a bin is empty."""
+    positive = frequency_hz > 0
+    edges = np.geomspace(frequency_hz[positive].min(), frequency_hz.max() * (1 + 1e-9), bins + 1)
+    index = np.digitize(frequency_hz, edges) - 1
+    inside = positive & (index >= 0) & (index < bins)
+    counts = np.bincount(index[inside], minlength=bins)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        binned = np.sqrt(np.bincount(index[inside], weights=density[inside] ** 2, minlength=bins) / counts)
+    return np.sqrt(edges[:-1] * edges[1:]).tolist(), binned.tolist()
+
+
+def _family(estimates: np.ndarray, first: int) -> list[dict[str, Any]]:
+    """The distinct paths of running estimates from decision ``first`` on, each with how many
+    conversions took it, the most taken first (at most ``MAX_PATHS``)."""
+    unique, counts = np.unique(estimates[:, first:], axis=0, return_counts=True)
+    order = np.argsort(-counts, kind="stable")[:MAX_PATHS]
+    return [{"y": [float(f"{y:.6g}") for y in unique[i]], "count": int(counts[i])} for i in order]
+
+
+def _enob(dynamic: AnalysisDynamic) -> float:
+    """A sine's spectral ENOB referred to full scale, NaN where its SNDR is under 1.76 dB."""
+    return dynamic.spectral_enob_fs_bits if dynamic.spectral_sndr_db > 1.76 else math.nan
+
+
+def _matching_label(prediction: AnalysisMismatchPrediction) -> str:
+    """The predictions' series name: the Pelgrom coefficient they are at."""
+    return f"A_C {prediction.unit_mismatch * 100:g} %·sqrt(fF)"

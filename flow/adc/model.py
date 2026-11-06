@@ -80,7 +80,7 @@ import flow.cdac.model as cdac_model
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
 from flow import cdac as cdac_block  # the CDAC block; ``cdac`` here is the behavioral array's switching
-from flow.adc.figures import FIGURES, dynamic_enob
+from flow.adc.analysis import analyze_dynamic
 from flow.adc.params import (
     DECAP_COVERAGE,
     DRAWN_PERCENTILE,
@@ -101,14 +101,15 @@ from flow.adc.params import (
 )
 from flow.adc.sim import AdcSequence, build_adc_interface_wave, calc_source_value
 from flow.adc.subckt import calc_side_capacitances
-from flow.analysis.io import write_measurement
+from flow.adc.types import AnalysisReference
+from flow.analysis.io import read_extracted_calibration, write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
 from flow.cdac.caparray.layout import array_name
 from flow.cdac.caparray.model import CapArrayModel
 from flow.cdac.caparray.subckt import get_caparray_weights
 from flow.cdac.capdriver.model import CapDriverModel, driver_strengths, stage_drivers
 from flow.cdac.capdriver.subckt import CapDriverParams, Cells
-from flow.pipeline import Plot, Space
+from flow.pipeline import Space
 
 
 @cache
@@ -479,7 +480,7 @@ class Model:
             "metastable_input_lsb": late_v / (2 * self.full_scale_v / 2**self.params.adc_bits),
         }
 
-    def reference_requirements(self, capture: Capture) -> tuple[dict[str, float], list[Plot]]:
+    def reference_requirements(self, capture: Capture) -> AnalysisReference:
         """The reference's requirements for this converter at ``capture`` (the nominal rate's sine),
         and the ENOB it loses over each."""
 
@@ -494,7 +495,7 @@ class Model:
                 tau_scale=capture.tau_scale,
                 reference=reference,
             )
-            return dynamic_enob(measurement)
+            return _enob(measurement)
 
         enob_bits = enob(IDEAL_REFERENCE)
         budget_bits = enob_bits - _enob_floor(self.params.adc_bits, enob_bits, REFERENCE_SHARE)
@@ -517,31 +518,33 @@ class Model:
                 low, high = (middle, high) if loss(make(middle)) <= budget_bits else (low, middle)
             return losses, low
 
-        def plot(name: str, x_label: str, x: np.ndarray, losses: list[float]) -> Plot:
-            return Plot(
-                name=name,
-                title=FIGURES[name],
-                x_label=x_label,
-                y_label="ENOB loss (bits)",
-                x=[float(f"{value:.6g}") for value in x],
-                series={"ENOB loss": [float(f"{value:.6g}") for value in losses]},
-                x_log=True,
-            )
-
         decap_f = self.decoupling_f
         noise_losses, noise_max_v = tolerated(lambda noise_v: Reference(noise_v=noise_v), REFERENCE_NOISE_V)
-        details = [plot("reference_noise", "Reference noise (V RMS)", REFERENCE_NOISE_V, noise_losses)]
-        r_max_ohm = math.nan
+        # the driver's resistance only where the node has decoupling to restore
+        r_out_ohm, r_losses, r_max_ohm = np.zeros(0), [], math.nan
         if decap_f > 0:
+            r_out_ohm = REFERENCE_R_OUT_OHM
             r_losses, r_max_ohm = tolerated(lambda r_ohm: Reference(r_ohm=r_ohm, c_f=decap_f), REFERENCE_R_OUT_OHM)
-            details.append(plot("reference_r_out", "Reference output resistance (Ω)", REFERENCE_R_OUT_OHM, r_losses))
-        metrics = {
-            "ref_decap_f": decap_f,
-            "ref_r_max_ohm": r_max_ohm,
-            "ref_noise_max_v": noise_max_v,
-            "ref_enob_loss_max_bits": budget_bits,
-        }
-        return metrics, details
+        return AnalysisReference(
+            group=None,
+            index=None,
+            dut=self.params,
+            decap_f=decap_f,
+            noise_v=REFERENCE_NOISE_V,
+            noise_loss_bits=np.asarray(noise_losses, dtype=np.float64),
+            r_out_ohm=r_out_ohm,
+            r_out_loss_bits=np.asarray(r_losses, dtype=np.float64),
+            noise_max_v=noise_max_v,
+            r_max_ohm=r_max_ohm,
+            enob_loss_max_bits=budget_bits,
+        )
+
+
+def _enob(measurement: MeasAdc) -> float:
+    """A sine capture's spectral ENOB referred to full scale, decoded as the record's ``enob_bits``
+    is (the extracted weights of its ``cap_table`` readback, unrounded)."""
+    extracted = read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
+    return analyze_dynamic(measurement, calibration=extracted).spectral_enob_fs_bits
 
 
 def _enob_floor(bits: int, enob_bits: float, share: float = 1.0) -> float:

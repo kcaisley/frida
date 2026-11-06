@@ -2,8 +2,10 @@
 linearity, its ramp and code statistics, its noise and the noise's spectrum, an interferer and the
 operating conditions, its dynamic performance and power, its internal waveforms and timing closure,
 the weights a calibration gives (``AnalysisCalibration``, the extracted weights' type; each
-calibration's own type a subclass of it), the noise over the input, Hsu's integrated error over the
-rate, and an array's predicted mismatch.
+calibration's own type a subclass of it); the campaign's studies: the noise over the input and at a
+fixed input, Hsu's integrated error over the rate, the ENOB ladder, the energy over the input and the
+redundancy of the weights; an array's predicted mismatch, its predictions and their Monte Carlo
+check; and the reference's requirements.
 """
 
 from __future__ import annotations
@@ -842,10 +844,53 @@ class AnalysisInputNoise(Analysis):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisHsu(Analysis):
     """Hsu's study: at each conversion rate (Hz) the integrated error sum_k |code_k - reference_k|
-    (LSB) of a ramp through every code centre against the same inputs at ideal timing."""
+    (LSB) of a ramp through every code centre against the same inputs at ideal timing, and the
+    fastest rate before the error first passes a code in 1024 (NaN where even the slowest does)."""
 
     rate_hz: np.ndarray
     integrated_error_lsb: np.ndarray
+    error_free_rate_hz: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisNoiseRms(Analysis):
+    """A fixed-input capture's output-code noise: its codes' standard deviation (LSB)."""
+
+    rms_lsb: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisLadder(Analysis):
+    """The ENOB ladder (``flow.adc.params.LADDER``): each step's spectral ENOB referred to full scale
+    (bits), quantization alone first and the converter as it is last."""
+
+    enob_bits: np.ndarray
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisEnergy(Analysis):
+    """The energy a conversion takes over the input: each DC capture's input (V, differential) and
+    each rail's energy per conversion (J)."""
+
+    vin_diff_v: np.ndarray
+    vdd_a_energy_j: np.ndarray
+    vdd_d_energy_j: np.ndarray
+    vdd_dac_energy_j: np.ndarray
+
+    @property
+    def total_energy_j(self) -> np.ndarray:
+        """Every rail's energy per conversion together."""
+
+        return np.sum([self.vdd_a_energy_j, self.vdd_d_energy_j, self.vdd_dac_energy_j], axis=0)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisRedundancy(Analysis):
+    """Each stage's error tolerance (Ogawa et al.), a percentage of the residue range left at it (C0
+    first): with the design weights and with a calibration's."""
+
+    design_pct: np.ndarray
+    calibrated_pct: np.ndarray
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -870,3 +915,49 @@ class AnalysisMismatch(Analysis):
     width_sigma: np.ndarray
     width_dnl_sigma: np.ndarray  # the same as DNL: the mean width and the gain taken off
     width_codes: np.ndarray
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisMismatchPrediction(Analysis):
+    """What an array's mismatch statistics (``AnalysisMismatch``) predict at a Pelgrom coefficient
+    ``unit_mismatch``: each stage's weight sigma and the DNL sigma at its transition (LSB) and its
+    redundancy margin over its sigma; and over the coefficients ``coefficient``, the worst DNL's and
+    INL's 95th percentiles (LSB), decoded with the design weights."""
+
+    unit_mismatch: float
+    weight_sigma_lsb: np.ndarray
+    transition_sigma_lsb: np.ndarray
+    margin_over_sigma: np.ndarray
+    coefficient: np.ndarray
+    dnl_p95_lsb: np.ndarray
+    inl_p95_lsb: np.ndarray
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisMismatchDraws(Analysis):
+    """The Monte Carlo check of the predicted mismatch: each drawn array's worst |DNL| and |INL|
+    (LSB) and its missing codes, decoded with the design weights, a row a Pelgrom coefficient
+    (``coefficient``, ascending) and a column a draw."""
+
+    coefficient: np.ndarray
+    dnl_lsb: np.ndarray
+    inl_lsb: np.ndarray
+    missing_codes: np.ndarray
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisReference(Analysis):
+    """The reference's requirements a converter sets (``flow.adc.model.Model.reference_requirements``):
+    its decoupling (F), the ENOB it loses (bits) over the white noise at the reference node (V RMS)
+    and over its driver's output resistance (ohm; neither grid nor losses where it has no
+    decoupling), the largest of each within the ENOB loss ``enob_loss_max_bits`` its share of the
+    quantization noise allows (NaN where even the grid's first point costs more)."""
+
+    decap_f: float
+    noise_v: np.ndarray
+    noise_loss_bits: np.ndarray
+    r_out_ohm: np.ndarray
+    r_out_loss_bits: np.ndarray
+    noise_max_v: float
+    r_max_ohm: float
+    enob_loss_max_bits: float

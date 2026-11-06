@@ -39,8 +39,9 @@ bootstrapped switch (``samplers``): 244 to 305 converters a PDK. The design spac
 (``converters``, docs/pipeline.md): one space per resolution, its arrays, comparators and samplers
 values by name.
 
-Each instance runs the campaign (``campaign``: every capture its record needs) and draws its figures
-(``flow.adc.figures``) for the viewer; its captures stay in memory, so its run is its record.
+Each instance runs the campaign (``campaign``: every capture its record needs) and records its
+metrics and figures (``record``: the analyses of ``flow.adc.analysis``, the figures of
+``flow.adc.plots``) for the viewer; its captures stay in memory, so its run is its record.
 """
 
 from __future__ import annotations
@@ -53,10 +54,31 @@ import hdl21 as h
 import numpy as np
 
 from flow import comp, samp
+from flow.analysis.io import read_extracted_calibration
+from flow.analysis.types import MeasAdc
 from flow.cdac.caparray.layout import ADC_ARRAYS, ADC_BITS, FRIDA1_ADC_ARRAY, adc_arrays
 from flow.cdac.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
 from flow.pipeline import Pdk, Record, grid, values, widen
 
+from .analysis import (
+    analyze_calibration2,
+    analyze_calibration3,
+    analyze_code_spectrum,
+    analyze_decision_paths,
+    analyze_dynamic,
+    analyze_energy,
+    analyze_hsu,
+    analyze_input_noise,
+    analyze_ladder,
+    analyze_mismatch,
+    analyze_mismatch_draws,
+    analyze_mismatch_prediction,
+    analyze_noise_rms,
+    analyze_power,
+    analyze_ramp,
+    analyze_redundancy,
+    metrics,
+)
 from .params import (
     FIN_CYCLES,
     FIN_RATES_HZ,
@@ -78,6 +100,37 @@ from .params import (
     Params,
     TbParams,
 )
+from .plots import (
+    plot_calibration_weights,
+    plot_code_density,
+    plot_dnl,
+    plot_dnl_calibrated,
+    plot_energy_dac_input,
+    plot_energy_input,
+    plot_enob_fin,
+    plot_enob_ladder,
+    plot_enob_rate,
+    plot_hsu_rate,
+    plot_inl,
+    plot_inl_calibrated,
+    plot_mismatch_dnl,
+    plot_mismatch_inl,
+    plot_mismatch_margin,
+    plot_mismatch_transition_sigma,
+    plot_mismatch_weight_sigma,
+    plot_noise_input,
+    plot_noise_spectrum,
+    plot_power_rate,
+    plot_redundancy,
+    plot_reference_noise,
+    plot_reference_r_out,
+    plot_spectrum_low,
+    plot_spectrum_nyquist,
+    plot_trajectory,
+    plot_trajectory_codes,
+    plot_trajectory_final,
+)
+from .types import AnalysisCalibration, AnalysisLadder
 
 # The comparator grid: five levels of input-referred noise (rows, at the nominal common mode) by
 # four of delay (columns, at 0.5 mV), each cell the characterized TSMC65 comparator of least energy
@@ -358,11 +411,140 @@ def cost(pdk: str, params: Params) -> float:
     return 2.0**params.adc_bits * (params.cdac.n_dac + params.cdac.n_extra + 1)
 
 
+def record(captures: dict[str, MeasAdc]) -> Record:
+    """The record of an instance's campaign (``campaign``) from its captures by name, ``MeasAdc``
+    alone, so a SPICE campaign and the behavioral model's take the same path: the metrics
+    (``analysis.metrics``) and the figures (``flow.adc.plots``, the viewer's details, in its order).
+    Every capture is decoded with the design weights and with the "extracted" weights of its
+    ``cap_table`` readback (a PEX table, or the behavioral model's extraction, ``_extracted``); the
+    calibrations learn from the training ramp and are checked on the other, and the one that grades
+    the check ramp best decodes the calibrated figures and metrics (calibration 3 keeps the design
+    weights where its validation finds no measured weight that helps). Capacitor mismatch is
+    predicted rather than drawn (``analyze_mismatch``, from the nominal array's capacitances); where
+    the campaign also holds the Monte Carlo ramps that check it (``mc_*``,
+    ``campaign(mismatch_draws=...)``), their 95th percentiles at Harpe's matching are reported
+    beside the predictions. ``noise_sampling`` and ``noise_comparator`` (the noise capture with one
+    source) add each source's rms noise where present, the ``ladder_*`` captures the ENOB ladder,
+    ``drawn_sine`` the ENOB on the CDAC's SPICE draw."""
+
+    check, train = captures["ramp_check"], captures["ramp_train"]
+    extracted = _extracted(check)
+    design = analyze_ramp(check)
+    extracted_ramp = analyze_ramp(check, calibration=extracted)
+    rates = sorted((m for n, m in captures.items() if n.startswith("rate_")), key=lambda m: float(m.tb.symbol_rate))
+    dynamics = [analyze_dynamic(m, calibration=_extracted(m)) for m in rates]
+    powers = [analyze_power(m) for m in rates]
+    fins = [analyze_dynamic(m, calibration=_extracted(m)) for n, m in captures.items() if n.startswith("fin_")]
+    at_nominal = sorted(
+        (d for d in fins if round(d.sample_rate_hz) == round(NOMINAL_RATE_HZ)), key=lambda d: d.input_frequency_hz
+    )
+    dcs = [m for n, m in sorted(captures.items()) if n.startswith("dc_")]
+    train_ramp = analyze_ramp(train)
+    learned: dict[str, AnalysisCalibration] = {"Calibration 2": analyze_calibration2(train, ramp=train_ramp)}
+    # calibration 3 fits a threshold in every late branch, and a ramp can hold too few hits there to
+    # bracket one; then it is left out (``calibration3_fitted`` says so) rather than failing the rest
+    calibration3 = None
+    try:
+        calibration3 = learned["Calibration 3"] = analyze_calibration3(train, ramp=train_ramp)
+    except ValueError:
+        pass
+    decoded = {label: analyze_ramp(check, calibration=calibration) for label, calibration in learned.items()}
+    best = min(learned, key=lambda label: decoded[label].maximum_abs_inl)
+    calibrated = decoded[best]
+    redundancy = analyze_redundancy(extracted)
+    paths = analyze_decision_paths(captures["trajectory"])
+    noise = captures["noise"]
+    spectrum = analyze_code_spectrum(noise, calibration=_extracted(noise))
+    input_noise = analyze_input_noise(captures["noise_input"])
+    hsu = analyze_hsu(
+        [captures[f"hsu_{kind}r{index}"] for kind in ("", "reference_") for index in range(len(RATES_HZ))]
+    )
+    energy = analyze_energy(dcs, power=[analyze_power(m) for m in dcs])
+    ladder = _ladder(captures)
+    # the mismatch, predicted from the nominal array (a capture without a draw)
+    mismatch = analyze_mismatch(noise)
+    prediction = analyze_mismatch_prediction(mismatch)
+    details = [
+        plot_redundancy(redundancy),
+        plot_code_density(design),
+        plot_inl(design),
+        plot_inl_calibrated(calibrated),
+        plot_dnl(design),
+        plot_dnl_calibrated(calibrated),
+        plot_trajectory(paths),
+        plot_trajectory_final(paths),
+        plot_trajectory_codes(paths),
+        plot_noise_spectrum(spectrum),
+        plot_noise_input(input_noise),
+        plot_enob_rate(dynamics),
+        plot_enob_fin(at_nominal),
+        *([plot_enob_ladder(ladder)] if ladder is not None else []),
+        plot_spectrum_low(at_nominal[0]),
+        plot_spectrum_nyquist(at_nominal[-1]),
+        plot_hsu_rate(hsu),
+        plot_power_rate(powers),
+        plot_energy_input(energy),
+        plot_energy_dac_input(energy),
+        plot_calibration_weights(extracted),
+        plot_mismatch_weight_sigma(prediction),
+        plot_mismatch_transition_sigma(prediction),
+        plot_mismatch_margin(prediction),
+        plot_mismatch_dnl(prediction),
+        plot_mismatch_inl(prediction),
+    ]
+    drawn = {}
+    if "drawn_sine" in captures:
+        sine = captures["drawn_sine"]
+        drawn = {
+            "drawn_design": analyze_dynamic(sine),
+            "drawn_extracted": analyze_dynamic(sine, calibration=_extracted(sine)),
+            "drawn_calibrated": analyze_dynamic(sine, calibration=learned[best]),
+        }
+    draws = [m for n, m in sorted(captures.items()) if n.startswith("mc_")]
+    numbers = metrics(
+        dynamics=dynamics,
+        powers=powers,
+        fins=at_nominal,
+        ramp=design,
+        extracted=extracted_ramp,
+        calibrated=calibrated,
+        noise=analyze_noise_rms(noise),
+        input_noise=input_noise,
+        hsu=hsu,
+        redundancy=redundancy,
+        mismatch=mismatch,
+        noise_sampling=analyze_noise_rms(captures["noise_sampling"]) if "noise_sampling" in captures else None,
+        noise_comparator=analyze_noise_rms(captures["noise_comparator"]) if "noise_comparator" in captures else None,
+        calibration3=calibration3,
+        ladder=ladder,
+        draws=analyze_mismatch_draws(draws, ramps=[analyze_ramp(m) for m in draws]) if draws else None,
+        **drawn,
+    )
+    return Record(metrics=numbers, details=details)
+
+
+def _extracted(measurement: MeasAdc) -> AnalysisCalibration:
+    """A capture's "extracted" weights: the extraction its ``cap_table`` readback names (a PEX table,
+    or the behavioral model's extraction)."""
+    return read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
+
+
+def _ladder(captures: dict[str, MeasAdc]) -> AnalysisLadder | None:
+    """The ENOB ladder (``LADDER``) of a campaign's captures, each step decoded as ``enob_bits`` is
+    (the extracted weights, unrounded); None where the campaign has no ladder (a SPICE one)."""
+    if not all(name in captures for name in LADDER_NAMES):
+        return None
+    return analyze_ladder(
+        [analyze_dynamic(captures[name], calibration=_extracted(captures[name])) for name in LADDER_NAMES]
+    )
+
+
 def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
-    """The campaign's captures, converted and kept in memory, and the metrics and figures they
-    give (``flow.adc.figures``): the viewer shows the figures (the record's details) and no
-    waveform of an ADC instance, so no capture is written (a run is its ``instance.json``)."""
-    from .figures import adc_figures
+    """The campaign's captures, converted and kept in memory, and their record (``record``), with
+    the reference's requirements the converter sets (``Model.reference_requirements``, apart from
+    its own ENOB: its metrics ``ref_*`` and its figures) and the model's own metrics: the viewer
+    shows the figures (the record's details) and no waveform of an ADC instance, so no capture is
+    written (a run is its ``instance.json``)."""
     from .model import Model
 
     model = Model.of(pdk, params)
@@ -382,10 +564,14 @@ def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
     # the behavioral model alone can keep one noise source at a time
     for name, quiet in (("noise_sampling", ("comparator",)), ("noise_comparator", ("sampling",))):
         captures[name] = model.capture(plan["noise"].tb, None, quiet=quiet)
-    metrics, details = adc_figures(captures)
+    recorded = record(captures)
     # the reference buffer's requirements this converter sets, apart from its own ENOB
-    reference_metrics, reference_details = model.reference_requirements(plan[LADDER_NAMES[-1]])
-    metrics |= reference_metrics | {
+    reference = model.reference_requirements(plan[LADDER_NAMES[-1]])
+    numbers = recorded.metrics | {
+        "ref_decap_f": reference.decap_f,
+        "ref_r_max_ohm": reference.r_max_ohm,
+        "ref_noise_max_v": reference.noise_max_v,
+        "ref_enob_loss_max_bits": reference.enob_loss_max_bits,
         "stages": float(model.stages),  # the switched capacitors a side
         "decisions": float(model.stages + 1),  # a conversion's comparator decisions
         "full_scale_v": model.full_scale_v,
@@ -394,4 +580,8 @@ def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
         "comp_delay_s": model.comp.delay_s,
         **model.metastability(),
     }
-    return Record(metrics=metrics, details=details + reference_details)
+    details = [*recorded.details, plot_reference_noise(reference)]
+    # the driver's resistance only where the reference node has decoupling to restore
+    if reference.decap_f > 0:
+        details.append(plot_reference_r_out(reference))
+    return Record(metrics=numbers, details=details)

@@ -21,6 +21,7 @@ from flow.adc.model import (
     convert_behavioral,
 )
 from flow.adc.params import DECAP_COVERAGE, REFERENCE_QUIET, REFERENCE_SHARE, Params, Reference, TbParams
+from flow.adc.plots import plot_reference_noise, plot_reference_r_out
 from flow.adc.sim import AdcSequence, symbol160_init4_samp20_comp11110000_logic00001111
 from flow.adc.subckt import calc_ideal_capacitances
 from flow.cdac.caparray.model import calc_capacitor_mismatch
@@ -293,7 +294,7 @@ def test_each_requirement_is_where_its_loss_reaches_its_share_of_the_quantizatio
         error = (ref.noise_v / 100e-6) ** 2 + (ref.r_ohm * ref.c_f / 1e-9) ** 2
         return bits - 0.5 * math.log2(2.0 ** (2 * (bits - enob_bits)) + error / lsb2)
 
-    monkeypatch.setattr("flow.adc.model.dynamic_enob", measured)
+    monkeypatch.setattr("flow.adc.model._enob", measured)
     capture = SimpleNamespace(tb=None, seed=0, noise_seed=0, unit_mismatch=0.0, quiet=(), tau_scale=1.0)
     quiets = set()
 
@@ -303,16 +304,17 @@ def test_each_requirement_is_where_its_loss_reaches_its_share_of_the_quantizatio
 
     # a stand-in model: its resolution, its capture and its decoupling
     model = SimpleNamespace(params=SimpleNamespace(adc_bits=bits), capture=converted, decoupling_f=1e-12)
-    metrics, details = Model.reference_requirements(model, capture)
+    reference = Model.reference_requirements(model, capture)
     # every point on the DAC alone: the sampler and the comparator ideal
     assert quiets == {REFERENCE_QUIET}
     # the error may reach REFERENCE_SHARE of the quantization noise power: (x / x0)^2 = REFERENCE_SHARE / 12
     within = math.sqrt(REFERENCE_SHARE * lsb2)
-    assert metrics["ref_noise_max_v"] == pytest.approx(100e-6 * within, rel=0.05)
-    assert metrics["ref_noise_max_v"] <= 100e-6 * within
-    assert metrics["ref_r_max_ohm"] == pytest.approx(1e3 * within, rel=0.05)
-    assert metrics["ref_decap_f"] == 1e-12
-    assert metrics["ref_enob_loss_max_bits"] == pytest.approx(enob_bits - _enob_floor(bits, enob_bits, REFERENCE_SHARE))
+    assert reference.noise_max_v == pytest.approx(100e-6 * within, rel=0.05)
+    assert reference.noise_max_v <= 100e-6 * within
+    assert reference.r_max_ohm == pytest.approx(1e3 * within, rel=0.05)
+    assert reference.decap_f == 1e-12
+    assert reference.enob_loss_max_bits == pytest.approx(enob_bits - _enob_floor(bits, enob_bits, REFERENCE_SHARE))
+    details = [plot_reference_noise(reference), plot_reference_r_out(reference)]
     assert [plot.name for plot in details] == ["reference_noise", "reference_r_out"]
     losses = details[0].series["ENOB loss"]
     assert losses == sorted(losses) and losses[0] == pytest.approx(0.0, abs=1e-3)
