@@ -371,8 +371,8 @@ def test_the_energy_figures_draw_every_rail_and_the_dacs_over_the_input() -> Non
     assert total.y_label == dac.y_label == "Energy per conversion (J)"
 
 
-def test_the_mismatch_figures_are_at_harpes_matching() -> None:
-    """The predicted mismatch by stage at Harpe's matching, and the worst DNL and INL over the
+def test_the_mismatch_figures_are_at_the_assumed_matching() -> None:
+    """The predicted mismatch by stage at the assumed matching, and the worst DNL and INL over the
     Pelgrom coefficient."""
     main_f = np.array([16, 8, 4, 2, 1], dtype=np.float64) * 0.2e-15
     weights = np.asarray([2 * value for value in (16, 8, 4, 2, 1)] + [1], dtype=np.float64)

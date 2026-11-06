@@ -26,6 +26,7 @@ import hdl21 as h
 import numpy as np
 from hdl21.prefix import G
 
+import flow.adc.params as adc_params
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
 from flow import adc, capdac
@@ -59,10 +60,6 @@ TOTAL_LOAD_F = 1209.8e-15
 # Relative mismatch of a 1-fF capacitor, A_C = 0.85 %·sqrt(fF), measured for
 # single-layer lateral MOM capacitors by Tripathi and Murmann (TCAS-I 2014).
 UNIT_MISMATCH = 0.0085
-# Random part of Harpe's measured unit-length DAC linearity (JSSC 2018, 65 nm,
-# M6/M7 fingers): DNL_max 0.21 LSB with C_tot 250 fF and a 125-aF LSB implies
-# roughly 0.05-0.15 %·sqrt(fF); 0.10 % is that rough midpoint.
-UNIT_MISMATCH_HARPE = 0.0010
 SAMP = samp_model.Model.Behavioral(
     # kT/C of the 1209.8-fF top-plate load on each side, sqrt(2 kT / C) = 82.7 uV
     # differential at 300 K; the PEX run holds 81.5 uV (docs/cdac_pex.md).
@@ -202,14 +199,14 @@ def frida2_ramp_code_density(run_dir: Path) -> None:
     """Eight full-scale sawtooth periods, 1,000,000 conversions, twice per capacitor draw.
 
     Seed 0 has no random capacitor mismatch; seeds 1-4 are drawn at the
-    Harpe-derived and the Tripathi-Murmann unit mismatch. Each draw is
+    assumed (``adc_params.UNIT_MISMATCH``) and the Tripathi-Murmann unit mismatch. Each draw is
     captured once for calibration training and once more, with the same
     capacitors and independent noise, as a held-out check.
     """
 
     tb = adc.TbParams(**{**TB.__dict__, "conversions": 1_000_000, "vin_diff": h.Vpwl.Params(wave="0 -0.8 0.0125 0.8")})
     cases = [(0, 0.0)] + [
-        (seed, mismatch) for mismatch in (UNIT_MISMATCH_HARPE, UNIT_MISMATCH) for seed in (1, 2, 3, 4)
+        (seed, mismatch) for mismatch in (adc_params.UNIT_MISMATCH, UNIT_MISMATCH) for seed in (1, 2, 3, 4)
     ]
     for seed, mismatch in cases:
         for role, noise_seed in (("train", seed), ("check", seed + 1000)):
@@ -333,7 +330,7 @@ def frida2_cdac_ab(run_dir: Path) -> None:
     vin_cm_v = 0.8
     trials = 200
     cases = [(0, 0.0)] + [
-        (seed, mismatch) for mismatch in (UNIT_MISMATCH_HARPE, UNIT_MISMATCH) for seed in (1, 2, 3, 4)
+        (seed, mismatch) for mismatch in (adc_params.UNIT_MISMATCH, UNIT_MISMATCH) for seed in (1, 2, 3, 4)
     ]
     for seed, mismatch in cases:
         draw_dir = run_dir / f"seed{seed:02d}_ac{round(mismatch * 1e4):03d}"
@@ -471,7 +468,13 @@ def architecture_variants(run_dir: Path) -> None:
         "redundant": capdac.Params(),
         "binary": capdac.Params(redundancy=capdac.Redundancy.BINARY, extra=0),
     }
-    cases = [(0, 0.0), (1, UNIT_MISMATCH_HARPE), (2, UNIT_MISMATCH_HARPE), (1, UNIT_MISMATCH), (2, UNIT_MISMATCH)]
+    cases = [
+        (0, 0.0),
+        (1, adc_params.UNIT_MISMATCH),
+        (2, adc_params.UNIT_MISMATCH),
+        (1, UNIT_MISMATCH),
+        (2, UNIT_MISMATCH),
+    ]
     for weighting, cdac_config in configs.items():
         weights = np.asarray(capdac.Model.weights(cdac_config), dtype=np.float64)
         stages = len(weights)

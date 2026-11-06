@@ -11,8 +11,8 @@ Each instance is the array as the PDK draws it, its drivers sized to settle each
 ``settle_ps`` (``flow.capdac.sim``): every stage switched alone, both ways, in a window four times
 that (a stage that misses it by up to twice still settles in its window's first half): its settling
 to half an LSB, its drivers' delay and the time constant the behavioral ADC settles it with, by
-stage; and its plates' Monte Carlo at three Pelgrom coefficients, from Harpe's unit-length MOM
-(0.1 %·sqrt(fF), JSSC 2018) to about Tripathi and Murmann's lateral MOM (0.85 %, TCAS-I 2014).
+stage; and its plates' Monte Carlo at three Pelgrom coefficients, from an assumed 0.1 %·sqrt(fF)
+to about Tripathi and Murmann's lateral MOM (0.85 %, TCAS-I 2014).
 """
 
 import importlib

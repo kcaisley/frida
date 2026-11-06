@@ -227,10 +227,11 @@ FIN_CYCLES = (31, 101, 257, 509, 1021, 1531, 2039, 3067, 4013)
 SINE_CONVERSIONS = 8_192
 RAMP_CONVERSIONS = 1 << 19
 NOMINAL_RATE_HZ = 10e6
-# Harpe's unit-length MOM mismatch (0.10 %·sqrt(fF)): the predicted mismatch statistics' coefficient
+# the predicted mismatch statistics' Pelgrom coefficient, 0.10 %·sqrt(fF): an assumed matching of a unit
+# capacitor, not a measured one
 UNIT_MISMATCH = 0.0010
-# the mismatch study's Pelgrom coefficients: Harpe's 0.10 % (JSSC 2018, unit-length MOM, 65 nm)
-# and Tripathi and Murmann's 0.85 % (TCAS-I 2014, single-layer lateral MOM), around and between
+# the mismatch study's Pelgrom coefficients: the assumed 0.10 % and Tripathi and Murmann's 0.85 %
+# (TCAS-I 2014, single-layer lateral MOM), around and between
 MISMATCH_COEFFICIENTS = (0.0005, 0.0010, 0.0020, 0.0040, 0.0085)
 # draws a coefficient where the campaign is asked for the Monte Carlo (``mismatch_draws``); none by
 # default: the figures predict the mismatch's statistics from the capacitances instead

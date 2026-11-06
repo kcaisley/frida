@@ -397,7 +397,7 @@ def plot_calibration_weights(calibration: AnalysisCalibration) -> Plot:
 
 @plot
 def plot_mismatch_weight_sigma(prediction: AnalysisMismatchPrediction) -> Plot:
-    """Each stage's capacitor weight sigma at Harpe's matching."""
+    """Each stage's capacitor weight sigma at the assumed matching (``UNIT_MISMATCH``)."""
     return _plot(
         "mismatch_weight_sigma",
         "Capacitor weight σ by stage",
@@ -411,7 +411,7 @@ def plot_mismatch_weight_sigma(prediction: AnalysisMismatchPrediction) -> Plot:
 
 @plot
 def plot_mismatch_transition_sigma(prediction: AnalysisMismatchPrediction) -> Plot:
-    """The DNL sigma at each stage's transition at Harpe's matching."""
+    """The DNL sigma at each stage's transition at the assumed matching."""
     return _plot(
         "mismatch_transition_sigma",
         "DNL σ at each stage's transition",
@@ -425,7 +425,7 @@ def plot_mismatch_transition_sigma(prediction: AnalysisMismatchPrediction) -> Pl
 
 @plot
 def plot_mismatch_margin(prediction: AnalysisMismatchPrediction) -> Plot:
-    """Each stage's redundancy margin over its mismatch sigma at Harpe's matching."""
+    """Each stage's redundancy margin over its mismatch sigma at the assumed matching."""
     return _plot(
         "mismatch_margin",
         "Redundancy margin over its mismatch σ by stage",

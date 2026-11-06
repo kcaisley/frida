@@ -276,8 +276,8 @@ def behavioral_nonlinearity_study() -> tuple[Path, ...]:
     ``flow.scans.scan_behavioral``: 1,000,000 conversions each at 10 MS/s over
     eight full-scale sawtooth periods, switching the reviewed three-layer PEX
     capacitances. Seed 0 has no random capacitor mismatch; seeds 1--4 are
-    Monte Carlo draws with Harpe (0.10 %·sqrt(fF)) and Tripathi
-    (0.85 %·sqrt(fF)) unit mismatch. Each capture is decoded with the ideal
+    Monte Carlo draws with an assumed 0.10 %·sqrt(fF) and Tripathi
+    and Murmann's 0.85 %·sqrt(fF) unit mismatch. Each capture is decoded with the ideal
     design weights and with the PEX-extracted weights, the best estimate
     before mismatch, and each decoding gets its code-density, INL and DNL
     figures.

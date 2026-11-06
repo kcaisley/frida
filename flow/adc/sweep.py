@@ -423,7 +423,7 @@ def record(captures: dict[str, MeasAdc]) -> Record:
     and metrics (calibration 3 keeps the design weights where its validation finds no measured
     weight that helps). Capacitor mismatch is predicted rather than drawn (``analyze_mismatch``,
     from the nominal array's capacitances); where the campaign also holds the Monte Carlo ramps that
-    check it (``mc_*``, ``campaign(mismatch_draws=...)``), their 95th percentiles at Harpe's
+    check it (``mc_*``, ``campaign(mismatch_draws=...)``), their 95th percentiles at the assumed
     matching are reported beside the predictions. ``noise_sampling`` and ``noise_comparator`` (the
     noise capture with one source) add each source's rms noise where present, the ``ladder_*``
     captures the ENOB ladder, ``drawn_sine`` the ENOB on the DAC's SPICE draw."""

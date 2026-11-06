@@ -23,7 +23,7 @@ capture's parameters, never from literals.
 - An array's capacitor mismatch: ``analyze_mismatch`` takes a behavioral capture to its array's
   mismatch as statistics rather than draws (``AnalysisMismatch``), from which ``_dnl_quantile``,
   ``_inl_quantile``, ``_missing_codes_quantile`` and ``_margin_over_sigma`` predict at a Pelgrom
-  coefficient (``analyze_mismatch_prediction``: at Harpe's matching and over the coefficients the
+  coefficient (``analyze_mismatch_prediction``: at the assumed matching and over the coefficients the
   figures draw), and which drawn arrays check (``analyze_mismatch_draws``); the redundancy of a
   SAR's weights (``_redundancy_margins``, after Ogawa et al.) grades each stage's error tolerance.
 
@@ -2331,7 +2331,7 @@ def analyze_mismatch(meas: MeasAdc) -> AnalysisMismatch:
 
 @analysis
 def analyze_mismatch_prediction(mismatch: AnalysisMismatch) -> AnalysisMismatchPrediction:
-    """What an array's mismatch statistics predict at Harpe's matching (``UNIT_MISMATCH``): each
+    """What an array's mismatch statistics predict at the assumed matching (``UNIT_MISMATCH``): each
     stage's weight sigma, the DNL sigma at its transition and its margin over its sigma; and over the
     Pelgrom coefficients ``PELGROM_AXIS``, the worst DNL's and INL's 95th percentiles, decoded with
     the design weights."""
@@ -2746,7 +2746,7 @@ def metrics(
             )
             if result is not None
         },
-        # predicted at Harpe's matching (0.10 %·sqrt(fF)), decoded with the design weights: the
+        # predicted at the assumed matching (``UNIT_MISMATCH``), decoded with the design weights: the
         # array's own layout error and the mismatch's 95th percentile; the largest DNL and INL sigma
         # of any code; the smallest margin of a redundant stage over its sigma (NaN without one)
         "mismatch_dnl_p95_lsb": _dnl_quantile(mismatch, UNIT_MISMATCH),
@@ -2763,7 +2763,7 @@ def metrics(
         values["enob_quantization_bits"] = float(enob[0])
         for (key, _, _, _), before, after in zip(LADDER[1:], enob[:-1], enob[1:], strict=True):
             values[f"enob_loss_{key}_bits"] = float(before - after)
-    # the Monte Carlo's check, where the campaign drew it: its 95th percentiles at Harpe's matching
+    # the Monte Carlo's check, where the campaign drew it: its 95th percentiles at the assumed matching
     if draws is not None:
         index = int(np.argmin(np.abs(draws.coefficient - UNIT_MISMATCH)))
         for drawn, column in (
