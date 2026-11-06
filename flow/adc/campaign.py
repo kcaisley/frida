@@ -3,7 +3,7 @@
 model (``flow.adc.model``), each of which turns one into a ``MeasAdc``.
 
 - ``ramp_train`` and ``ramp_check``: eight full-scale sawtooth periods on the CDAC's SPICE draw
-  (``AdcModel.drawn``: its Monte Carlo's middle condition, the draw at the 90th percentile of what
+  (``Model.drawn``: its Monte Carlo's middle condition, the draw at the 90th percentile of what
   no calibration recovers), independent noise: the code density, INL and DNL, and the calibrations
   learned from the training ramp and checked on the other.
 - ``drawn_sine``: the nominal rate's sine on that draw: its ENOB before and after the calibration.
@@ -77,10 +77,10 @@ HSU_QUIET = ("sampling", "comparator_noise")
 HSU_REFERENCE_QUIET = ("sampling", "comparator")
 # the ENOB ladder: the nominal rate's sine converted with the model's impairments added one at a
 # time, each step (its key in the metrics, its label, the sources it keeps quiet, as
-# ``AdcModel.behavioral``'s, and its settling's scale) the last one with one more: the tracking
+# ``Model.behavioral``'s, and its settling's scale) the last one with one more: the tracking
 # error of the sampler's on-resistance, its kT/C noise and aperture jitter, the DAC's settling (with
 # its drivers' delay), the comparator's delay (a late decision holds the last bit) and its noise,
-# on an ideal reference (the reference study, flow.adc.reference, varies it). The last step is the
+# on an ideal reference (the reference study, Model.reference_requirements, varies it). The last step is the
 # converter as the sine at the nominal rate has it.
 LADDER = (
     ("quantization", "Quantization", ("sampler", "sampling", "comparator"), 0.0),
@@ -96,7 +96,7 @@ LADDER = (
 class Capture:
     """One capture: its testbench, its capacitor draw (``seed``, at ``unit_mismatch``; or the CDAC's
     SPICE draw, ``drawn``), its noise seed, whether it has noise at all, the sources it silences
-    otherwise (``quiet``, as ``AdcModel.behavioral``'s) and its DAC settling time constants' scale
+    otherwise (``quiet``, as ``Model.behavioral``'s) and its DAC settling time constants' scale
     (1: the array's own, 0: ideal settling, the Hsu study's reference)."""
 
     tb: TbParams

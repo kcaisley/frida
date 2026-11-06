@@ -1,10 +1,16 @@
 """The ADC's parameters: its design (``Params``, every combination of which builds) and one generated
 testbench (``TbParams``: the view it simulates, its stimulus, its supplies and its sequencer rows,
-by default the default recipe's, ``sim.symbol256_init8_samp16_comp11110000_logic00001111``).
+by default the default recipe's, ``sim.symbol256_init8_samp16_comp11110000_logic00001111``); and the
+behavioral model's constants (``flow.adc.model``): its testbench's common mode, the reference it
+converts on (``Reference``), what it can quiet, the CDAC draw it calibrates on, and the reference
+study's decoupling, budget and grids (``REFERENCE_*``).
 """
+
+from dataclasses import dataclass
 
 import hdl21 as h
 import hdl21.sim as hs
+import numpy as np
 from hdl21.prefix import G, m
 from pydantic import PositiveInt
 
@@ -144,3 +150,44 @@ class TbParams:
     # mismatch. Netlisting does not consume these fields yet.
     mc_seed = h.Param(dtype=int | None, desc="Spectre Monte Carlo seed; None for nominal", default=None)
     mc_index = h.Param(dtype=int | None, desc="Spectre Monte Carlo iteration; None for nominal", default=None)
+
+
+# FRIDA's input common mode at TSMC65's 1.2 V supply, scaled with the PDK's supply elsewhere
+VIN_CM_FRACTION = 0.700 / 1.2
+
+
+@dataclass(frozen=True)
+class Reference:
+    """The DAC's reference (VDD_DAC) as its buffer would supply it: a driver of output resistance
+    ``r_ohm`` onto a decoupling capacitance ``c_f`` (each switch draws its charge from the
+    capacitance, the driver restores it with R C: a code-dependent dip at the next comparison), and
+    white noise ``noise_v`` RMS at the node at each decision. Zero is ideal: no dip without both,
+    no noise."""
+
+    r_ohm: float = 0.0
+    c_f: float = 0.0
+    noise_v: float = 0.0
+
+
+IDEAL_REFERENCE = Reference()
+# what ``flow.adc.model.Model.behavioral``'s ``quiet`` silences or makes ideal
+QUIET = frozenset({"sampler", "sampling", "comparator", "comparator_noise"})
+# the array a converter calibrates on (``flow.adc.model.Model.drawn``): of its CDAC's Monte Carlo
+# (``flow.cdac``), the middle condition's draw (0.5 %·sqrt(fF), 50 ppm/mm) at the 90th percentile
+# of what no calibration recovers
+DRAWN_RUN = "mc_a5_g50"
+DRAWN_PERCENTILE = 90.0
+
+# The reference study (``flow.adc.model.Model.reference_requirements``): the share of the
+# converter's footprint its layout fills with decap cells (front-end-of-line area under the routing)
+DECAP_COVERAGE = 0.30
+# the share of the quantization noise power each of the two may add (together all of it)
+REFERENCE_SHARE = 0.5
+# the figures' grids, two points a decade: the white noise at the node (V RMS) and the driver's
+# output resistance (ohm)
+REFERENCE_NOISE_V = np.logspace(-6, -2, 9)
+REFERENCE_R_OUT_OHM = np.logspace(-1, 5, 13)
+# halvings of a grid step in the bisection (to about 4 % of the value)
+REFERENCE_HALVINGS = 5
+# what the reference's study silences or makes ideal in the converter (of ``QUIET``)
+REFERENCE_QUIET = ("sampler", "sampling", "comparator")

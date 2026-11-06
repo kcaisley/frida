@@ -93,16 +93,16 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
 def _stub_model(table: Path, params: Params):
     """An ADC model of ideal blocks of known impairments, the array's ideal capacitances in an
     extraction's table, at a 1.2 V supply (no PDK)."""
-    from flow.adc.model import AdcModel
+    from flow.adc import model
 
-    class Model(AdcModel):
+    class Stub(model.Model):
         supply_v = 1.2
 
     main_f, diff_f = calc_ideal_capacitances(params.cdac)
     rows = (f"{i},{m * 1e15:.6f},{d * 1e15:.6f},{(m - d) * 1e15:.6f}\n" for i, (m, d) in enumerate(zip(main_f, diff_f)))
     table.write_text("stage,main_ff,diff_ff,effective_ff\n" + "".join(rows))
     load_f = float(np.sum(main_f) + np.sum(diff_f))
-    return Model(
+    return Stub(
         pdk="none",
         params=params,
         comp=SimpleNamespace(

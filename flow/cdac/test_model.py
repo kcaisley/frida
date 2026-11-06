@@ -44,7 +44,7 @@ def test_the_model_reads_its_record_by_its_parameters(monkeypatch):
 
 
 def test_the_adc_settles_each_stage_by_its_characterization_and_falls_back_to_rc():
-    from flow.adc.model import AdcModel
+    import flow.adc.model as adc_model
 
     main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac)
     stages = len(main_f)
@@ -63,13 +63,13 @@ def test_the_adc_settles_each_stage_by_its_characterization_and_falls_back_to_rc
         ),
         "drivers": tuple(SimpleNamespace(resistance_ohm=1.0, intrinsic_delay_s=20e-12, energy_j=0.0) for _ in main_f),
     }
-    spice = AdcModel(**blocks, settling=settling)
+    spice = adc_model.Model(**blocks, settling=settling)
     assert spice.stage_tau_s == settling.tau_s and spice.settling_tau_s == settling.tau_s[-1]
     cdac = spice.behavioral(TB, quiet=("comparator",), tau_scale=2.0).cdac
     np.testing.assert_allclose(cdac.stage_tau_s, 2 * np.asarray(settling.tau_s))
     assert cdac.stage_delay_s == settling.delay_s  # the delay does not scale
     assert not any(spice.behavioral(TB, quiet=("comparator",), tau_scale=0.0).cdac.stage_delay_s)
-    rc = AdcModel(**blocks)
+    rc = adc_model.Model(**blocks)
     assert rc.stage_delay_s == (20e-12,) * stages
     assert rc.stage_tau_s != spice.stage_tau_s
 

@@ -45,7 +45,6 @@ Each instance runs the campaign of ``flow.adc.campaign`` and draws its figures
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import hdl21 as h
@@ -140,30 +139,6 @@ def converters(pdk: Pdk) -> dict[str, Params]:
     return spaces
 
 
-def _metastability(model) -> dict[str, float]:
-    """The comparator's regeneration time constant, the time a decision has at the nominal rate
-    (the shortest of its sequence's windows), and the input below which it is late there, in LSB:
-    the measured delay extrapolated by the time constant, V0 * exp(-(window - t0) / tau)."""
-    from .campaign import NOMINAL_RATE_HZ
-    from .model import calc_decision_windows
-
-    tb = model.tb(conversions=1, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.0))
-    window_s = float(min(calc_decision_windows(tb, model.stages + 1)))
-    tau_s = model.comp.regeneration_tau_s
-    # a delay curve that does not grow as the input falls (a fast latch measured above its
-    # regeneration) has no time constant to extrapolate: no input is known to be late
-    late_v = (
-        model.comp.delay_table_v[0] * math.exp(-(window_s - model.comp.delay_table_s[0]) / tau_s)
-        if tau_s > 0
-        else math.nan
-    )
-    return {
-        "comp_regeneration_tau_s": tau_s,
-        "decision_window_s": window_s,
-        "metastable_input_lsb": late_v / (2 * model.full_scale_v / 2**model.params.adc_bits),
-    }
-
-
 def AdcBlocks(params: Params) -> h.Module:
     """The ADC's analog blocks for the geometry metrics: the comparator, and a sampler and a
     capacitor array a side (the SAR logic is the fixed digital netlist)."""
@@ -202,10 +177,9 @@ def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
     waveform of an ADC instance, so no capture is written (a run is its ``instance.json``)."""
     from .campaign import campaign, ladder_names
     from .figures import adc_figures
-    from .model import AdcModel
-    from .reference import requirements
+    from .model import Model
 
-    model = AdcModel.of(pdk, params)
+    model = Model.of(pdk, params)
     plan = campaign(model.tb, model.full_scale_v, params.adc_bits)
     captures = {}
     for name, capture in plan.items():
@@ -224,7 +198,7 @@ def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
         captures[name] = model.capture(plan["noise"].tb, None, quiet=quiet)
     metrics, details = adc_figures(captures)
     # the reference buffer's requirements this converter sets, apart from its own ENOB
-    reference_metrics, reference_details = requirements(model, plan[ladder_names()[-1]])
+    reference_metrics, reference_details = model.reference_requirements(plan[ladder_names()[-1]])
     metrics |= reference_metrics | {
         "stages": float(model.stages),  # the switched capacitors a side
         "decisions": float(model.stages + 1),  # a conversion's comparator decisions
@@ -232,6 +206,6 @@ def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
         "settling_tau_s": model.settling_tau_s,
         "comp_noise_v": model.comp.noise_v,
         "comp_delay_s": model.comp.delay_s,
-        **_metastability(model),
+        **model.metastability(),
     }
     return Record(metrics=metrics, details=details + reference_details)
