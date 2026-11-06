@@ -2,21 +2,20 @@
 
 import inspect
 import json
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import fields
 from io import StringIO
 from pathlib import Path
-from threading import Barrier
 
 import hdl21 as h
 import hdl21.sim as hs
 import numpy as np
 import pytest
 
+from flow.cdac.caparray import CapArrayConfig
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
 from flow.util.netlist import subcircuit_ports
 
-from . import sim, targets
+from . import sim
 from .params import Params, TbParams
 
 PEX_FIXTURES = {view: Path(__file__).parent / "fixtures" / f"{view}_ports.scs" for view in ("frida1", "frida2")}
@@ -70,7 +69,7 @@ def test_adc_testbench_parameters_are_simulation_only() -> None:
         {"view": "unknown"},
         {"view": "frida2", "pex_cell": ""},
         {"pex_cell": "adc_12b_17step"},
-        {"dut": Params(cdac=sim.CapArrayConfig(n_extra=4))},
+        {"dut": Params(cdac=CapArrayConfig(n_extra=4))},
         {"conversions": 0},
         {"symbol_rate": 0},
         {"symbol_rate": h.Literal("rate")},
@@ -284,148 +283,6 @@ def test_supply_noise_testbench_repeats_independent_rail_networks() -> None:
     assert tb.vvdd_d.conns["p"] is tb.vdd_d_source
     assert tb.vvdd_dac.conns["p"] is tb.vdd_dac_source
     assert text.count("noisevec=") == 1
-
-
-@pytest.mark.parametrize("family,count", (("frida1", 4), ("frida2", 3)))
-@pytest.mark.parametrize("check", (False, True))
-def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
-    calls = []
-    started = Barrier(count)
-
-    def pool(*, max_workers, mp_context):
-        assert max_workers == count
-        assert mp_context.get_start_method() == "spawn"
-        return ThreadPoolExecutor(max_workers=max_workers)
-
-    def capture(params, directory, **options):
-        calls.append((directory, params, options))
-        started.wait(timeout=10)
-        return directory / "netlist.raw", {}
-
-    monkeypatch.setattr(sim, "ProcessPoolExecutor", pool)
-    from flow.analysis import io
-    from flow.circuit import results
-
-    monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
-    monkeypatch.setattr(results, "convert_raw_adc_to_measurement", lambda *args, **kwargs: object())
-    monkeypatch.setattr(io, "write_measurement", lambda *args: None)
-    monkeypatch.setattr(sim, "simulate", capture)
-    root = tmp_path / "campaign"
-    assert getattr(sim, f"{family}_sequence")(root, check=check) == root
-    timing_count = 7
-    assert len(calls) == timing_count * count
-    assert len({directory for directory, *_ in calls}) == timing_count * count
-    assert len({directory.parent.name for directory, *_ in calls}) == count
-    assert len({directory.name for directory, *_ in calls}) == timing_count
-    for directory, params, options in calls:
-        flavor = directory.parent.name
-        assert directory.parent.parent == root
-        assert params.conversions == (1 if check else 100)
-        assert params.pex_cell == "adc_12b_17step"
-        assert params.view == ("frida2" if family == "frida2" else "frida1")
-        assert float(params.symbol_rate) == 1.6e9
-        assert float(params.vin_diff.dc) == 0.05
-        assert float(params.vin_cm.dc) == pytest.approx(0.7)
-        assert options["check"] == check
-        assert options["noise"] is True
-        assert options["pex_netlist"].name == f"{flavor}.pex.netlist"
-        assert options["pex_netlist"].parent.name.startswith("20260905_")
-        assert options.get("expected_disconnect", False) == (family == "frida1" and "2layer" in flavor)
-        assert sum(sim.get_caparray_weights(params.dut.cdac)) == (2303 if "radix20" in flavor else 2047)
-        comp = np.fromiter(map(int, params.seq_comp_pattern), dtype=int)
-        logic = np.fromiter(map(int, params.seq_logic_pattern), dtype=int)
-        assert len(comp) == len(logic) == len(params.seq_init_pattern) == len(params.seq_samp_pattern) == 160
-        assert len(comp) / float(params.symbol_rate) == pytest.approx(100e-9)
-        comp_rises = np.flatnonzero(np.diff(comp) == 1) + 1
-        comp_falls = np.flatnonzero(np.diff(np.r_[comp, 0]) == -1) + 1
-        np.testing.assert_array_equal(comp_rises, 24 + 8 * np.arange(17))
-        comp_word = directory.name.split("_comp", 1)[1].split("_logic", 1)[0]
-        np.testing.assert_array_equal(comp_falls, comp_rises + comp_word.count("1"))
-        np.testing.assert_array_equal(
-            np.flatnonzero(np.fromiter(map(int, params.seq_init_pattern), dtype=int)), np.arange(4)
-        )
-        np.testing.assert_array_equal(
-            np.flatnonzero(np.fromiter(map(int, params.seq_samp_pattern), dtype=int)), np.arange(4, 24)
-        )
-        assert sim.testbench(params, pex_netlist=PEX_FIXTURES[family]).name == f"AdcTb_{family}"
-
-
-@pytest.mark.parametrize("family,count", (("frida1", 4), ("frida2", 3)))
-def test_concurrent_campaign_propagates_case_failure(family, count, tmp_path, monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        sim, "ProcessPoolExecutor", lambda **kwargs: ThreadPoolExecutor(max_workers=kwargs["max_workers"])
-    )
-
-    def fail_one(_params, directory, *_args, **_kwargs):
-        calls.append(directory)
-        if "1layer_radix17" in directory.parent.name:
-            raise RuntimeError("simulator failed")
-        return directory / "netlist.raw", {}
-
-    monkeypatch.setattr(sim, "simulate", fail_one)
-    with pytest.raises(RuntimeError, match="simulator failed"):
-        getattr(sim, f"{family}_sequence")(tmp_path)
-    assert len(calls) == 7 * count
-
-
-@pytest.mark.parametrize(
-    "target,count,workers",
-    (
-        ("hdl21_sample_rate", 3, 3),
-        ("frida1_sample_rate", 12, 4),
-        ("frida1_supply_noise", 15, 4),
-        ("hdl21_transfer_curve", 1, None),
-        ("frida1_transfer_curve", 1, None),
-    ),
-)
-@pytest.mark.parametrize("check", (False, True))
-def test_other_campaign_recipes(target, count, workers, check, tmp_path, monkeypatch):
-    calls = []
-
-    def pool(*, max_workers, mp_context):
-        assert max_workers == workers
-        assert mp_context.get_start_method() == "spawn"
-        return ThreadPoolExecutor(max_workers=max_workers)
-
-    def capture(params, directory, **options):
-        calls.append((directory, params, options))
-        return directory / "netlist.raw", {}
-
-    monkeypatch.setattr(sim, "ProcessPoolExecutor", pool)
-    from flow.analysis import io
-    from flow.circuit import results
-
-    monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
-    monkeypatch.setattr(results, "convert_raw_adc_to_measurement", lambda *args, **kwargs: object())
-    monkeypatch.setattr(io, "write_measurement", lambda *args: None)
-    monkeypatch.setattr(sim, "simulate", capture)
-    assert getattr(sim, target)(tmp_path, check=check) == tmp_path
-    assert len(calls) == count
-    assert len({directory for directory, *_ in calls}) == count
-    for directory, params, options in calls:
-        assert options["check"] == check
-        assert params.view == ("hdl21gen" if target.startswith("hdl21") else "frida1")
-        if "transfer_curve" in target:
-            assert params.conversions == 151
-            assert params.vin_diff == hs.LinearSweep(start=-0.75, stop=0.75, step=0.01)
-            assert not options.get("noise", False)
-        else:
-            assert params.conversions == (1 if check else 100)
-            assert float(params.vin_diff.dc) == 0.05
-        if "supply_noise" in target:
-            assert params.supply_series_resistance_ohm == 1.0
-            assert params.supply_series_inductance_h == 1e-9
-            assert params.supply_decoupling_capacitance_f == 1e-12
-            assert params.supply_noise_bandwidth_hz == 25e9
-            assert set(params.supply_noise_rms_v) <= {0.0, 1e-3}
-            # Preserve the original supply recipe; do not enable device noise
-            # as an incidental effect of consolidating the executors.
-            assert not options.get("noise", False)
-        elif "fixed_input_noise" in target:
-            assert options["noise"] is True
-    if "vs_rate" in target:
-        assert {float(params.symbol_rate) for _, params, _ in calls} == {320e6, 960e6, 1.6e9}
 
 
 @pytest.fixture
@@ -662,22 +519,9 @@ def test_historical_lvs_exception_is_narrow(view, target, warning, accepted, cap
             sim.simulate(params, tmp_path / "run", **kwargs)
 
 
-def test_adc_targets_list_only_experiment_targets_in_family_order():
-    names = [
-        name
-        for name, value in vars(targets).items()
-        if inspect.isfunction(value) and value.__module__ == targets.__name__ and hasattr(sim, name)
-    ]
-    assert names == [
-        "hdl21_sample_rate",
-        "hdl21_transfer_curve",
-        "frida1_sequence",
-        "frida1_sample_rate",
-        "frida1_transfer_curve",
-        "frida1_supply_noise",
-        "frida2_sequence",
-    ]
-    assert all(not inspect.signature(getattr(targets, name)).parameters for name in names)
+def test_sim_holds_no_private_function_and_no_main():
+    """The executor is ``simulate`` itself, and the named runs that call it are the sweep's
+    (``flow.adc.sweep``): no flavor-specific private wrapper, no command line of its own."""
     functions = [
         name
         for name, value in vars(sim).items()
@@ -685,85 +529,6 @@ def test_adc_targets_list_only_experiment_targets_in_family_order():
     ]
     assert functions == []
     assert not hasattr(sim, "main")
-
-
-def test_target_runs_full_experiment(tmp_path, monkeypatch):
-    calls = []
-
-    def frida2_sequence(directory, **options):
-        calls.append((directory, options))
-
-    def new_run(*parts):
-        run_dir = (tmp_path / "build").joinpath(*parts, "20260101_000000")
-        run_dir.mkdir(parents=True)
-        return run_dir
-
-    monkeypatch.setattr(sim, "frida2_sequence", frida2_sequence)
-    monkeypatch.setattr(targets, "new_run", new_run)
-    targets.frida2_sequence()
-    directory, options = calls[0]
-    assert directory == tmp_path / "build/sim/adc/20260101_000000_frida2_sequence"
-    assert directory.is_dir()
-    assert not (tmp_path / "build/sim/adc/20260101_000000").exists()
-    assert options == {}
-
-
-def test_all_campaign_patterns_are_preserved(monkeypatch, tmp_path):
-    """Independent literal expectations cover every clock of all 49 configurations."""
-    from concurrent.futures import Future
-
-    expected = {
-        "symbol160_init4_samp20_comp11110000_logic00001111": ("11110000", "00001111", "00001111", "00000000"),
-        "symbol160_init4_samp20_comp11110000_logic10000111": ("11110000", "00000111", "10000111", "10000000"),
-        "symbol160_init4_samp20_comp11111000_logic10000111": ("11111000", "00000111", "10000111", "10000000"),
-        "symbol160_init4_samp20_comp11111000_logic11000011": ("11111000", "00000011", "11000011", "11000000"),
-        "symbol160_init4_samp20_comp11111100_logic11000011": ("11111100", "00000011", "11000011", "11000000"),
-        "symbol160_init4_samp20_comp11111100_logic11100001": ("11111100", "00000001", "11100001", "11100000"),
-        "symbol160_init4_samp20_comp11111110_logic11100001": ("11111110", "00000001", "11100001", "11100000"),
-    }
-    cases = []
-
-    class CaptureExecutor:
-        def __init__(self, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            pass
-
-        def submit(self, function, params, directory, **kwargs):
-            cases.append((directory, params))
-            future = Future()
-            future.set_result((directory / "netlist.raw", {}))
-            return future
-
-    from flow.analysis import io
-    from flow.circuit import results
-
-    monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
-    monkeypatch.setattr(results, "convert_raw_adc_to_measurement", lambda *args, **kwargs: object())
-    monkeypatch.setattr(io, "write_measurement", lambda *args: None)
-    monkeypatch.setattr(sim, "ProcessPoolExecutor", CaptureExecutor)
-    sim.frida1_sequence(tmp_path)
-    sim.frida2_sequence(tmp_path)
-    assert len(cases) == len({path for path, _ in cases}) == 49
-    for path, params in cases:
-        comp_word, first_logic, logic_word, last_logic = expected[path.name]
-        expected_rows = (
-            "1111" + "0" * 156,
-            "0000" + "1" * 20 + "0" * 136,
-            "0" * 24 + comp_word * 17,
-            "001111" + "0" * 18 + first_logic + logic_word * 15 + last_logic,
-        )
-        assert (
-            params.seq_init_pattern,
-            params.seq_samp_pattern,
-            params.seq_comp_pattern,
-            params.seq_logic_pattern,
-        ) == expected_rows
-        assert float(params.symbol_rate) == 1.6e9
 
 
 # the sequencer's rows: simulator, serializer and saved-data timing

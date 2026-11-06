@@ -17,9 +17,9 @@ sized to settle in about 1 ns.
 
 The product, nothing pruned:
 
-- the comparators of the comparator grid (``COMP_GRID``: five noise levels by four
+- the comparators of the comparator grid (``_comparators``: five noise levels by four
   delays, FRIDA-1's StrongARM among them at its fabricated sizes);
-- the samplers (``SAMPLER_STEPS``), an on-resistance ladder: FRIDA-1's transmission gate (32
+- the samplers (``_samplers``), an on-resistance ladder: FRIDA-1's transmission gate (32
   minimum widths, minimum length) the worst, then the bootstrapped NMOS switch at 32, 64, 112 and
   160 minimum widths (``samp.boost_ladder``, each boosted alike), about a half, a
   quarter, a seventh and a tenth of the gate's resistance; none with half-size dummy switches, as
@@ -34,30 +34,41 @@ The product, nothing pruned:
 
 20 x 5 x (10 x 3 x 2 + 1) = 6,100 converters in TSMC65. In the other PDKs, where the arrays and
 the blocks are the same study's but the comparator grid is the PDK's own (``flow.comp.sweep``), each
-array with the PDK's StrongARM noise ladder at about FRIDA-1's speed (``comparators``) and the widest
-bootstrapped switch (``samplers``): 244 to 305 converters a PDK. The design space is a grid
+array with the PDK's StrongARM noise ladder at about FRIDA-1's speed (``_comparators``) and the widest
+bootstrapped switch (``_samplers``): 244 to 305 converters a PDK. The design space is a grid
 (``converters``, docs/pipeline.md): one space per resolution, its arrays, comparators and samplers
 values by name.
 
 Each instance runs the campaign (``campaign``: every capture its record needs) and records its
 metrics and figures (``record``: the analyses of ``flow.adc.analysis``, the figures of
-``flow.adc.plots``) for the viewer; its captures stay in memory, so its run is its record.
+``flow.adc.plots``) for the viewer; its captures stay in memory, so its run is its record. Its
+geometry metrics are those of its analog blocks (``GENERATOR``, ``flow.adc.subckt.AdcBlocks``).
+
+The named Spectre runs (``hdl21_sample_rate`` to ``frida2_sequence``, the CLI's ``python -m flow
+adc.<name>``, ``flow.adc.targets``): the generated or an extracted converter's testbenches
+(``sim.testbench``), simulated side by side (``sim.simulate``), each run's measurement written
+beside it (``result.h5``).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
+from itertools import product
+from multiprocessing import get_context
 from pathlib import Path
 
 import hdl21 as h
+import hdl21.sim as hs
 import numpy as np
+from hdl21.prefix import G
 
 from flow import comp, samp
 from flow.analysis.io import read_extracted_calibration
 from flow.analysis.types import MeasAdc
-from flow.cdac.caparray.layout import ADC_ARRAYS, ADC_BITS, FRIDA1_ADC_ARRAY, adc_arrays
-from flow.cdac.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
+from flow.cdac.caparray.layout import ADC_ARRAYS, adc_arrays
+from flow.cdac.caparray.subckt import CapArrayConfig
 from flow.pipeline import Pdk, Record, grid, values, widen
 
 from .analysis import (
@@ -95,6 +106,7 @@ from .params import (
     NOMINAL_RATE_HZ,
     RAMP_CONVERSIONS,
     RATES_HZ,
+    RESOLUTIONS,
     SINE_CONVERSIONS,
     Capture,
     Params,
@@ -130,69 +142,61 @@ from .plots import (
     plot_trajectory_codes,
     plot_trajectory_final,
 )
+from .sim import SEQUENCES, simulate, symbol256_init8_samp16_comp11110000_logic11000011
+from .subckt import AdcBlocks
 from .types import AnalysisCalibration, AnalysisLadder
 
-# The comparator grid: five levels of input-referred noise (rows, at the nominal common mode) by
-# four of delay (columns, at 0.5 mV), each cell the characterized TSMC65 comparator of least energy
-# per decision within 15 % of the noise and 20 % of the delay (flow/comp/readme.md), FRIDA-1's at
-# 200 uV and 2 ns; each from the comparator's grids by name (comp.base_strongarm, comp.dynamic_bias)
-GRID_NOISE_V = (200e-6, 150e-6, 100e-6, 70e-6, 50e-6)
-GRID_DELAY_S = (0.5e-9, 1.0e-9, 1.5e-9, 2.0e-9)
-_STRONGARM = {name: space.base for name, space in comp.base_strongarm.spaces(Pdk.TSMC65).items()}
-_DYNAMIC = {name: space.base for name, space in comp.dynamic_bias.spaces(Pdk.TSMC65).items()}
-COMP_GRID = (
-    # 0.5 ns                       1 ns                           1.5 ns                          2 ns
-    _STRONGARM["tail_l=14, k=3"],  _DYNAMIC["ratio=3.5, k=0.75"], _DYNAMIC["ratio=2.75, k=0.75"], comp.FRIDA1,  # 200 uV
-    _STRONGARM["tail_l=14, k=6"],  _DYNAMIC["ratio=3.5, k=1.5"],  _DYNAMIC["ratio=2.75, k=1.5"],  _DYNAMIC["ratio=2.25, k=1.5"],  # 150 uV
-    _STRONGARM["tail_l=14, k=12"], _DYNAMIC["ratio=3.5, k=3"],    _DYNAMIC["ratio=2.75, k=3"],    _DYNAMIC["ratio=2.25, k=3"],  # 100 uV
-    _STRONGARM["tail_l=14, k=32"], _DYNAMIC["ratio=3.5, k=6"],    _DYNAMIC["ratio=2.75, k=6"],    _DYNAMIC["ratio=2.25, k=6"],  # 70 uV
-    _STRONGARM["tail_l=14, k=64"], _DYNAMIC["ratio=3.5, k=12"],   _DYNAMIC["ratio=2.75, k=12"],   _DYNAMIC["ratio=2.25, k=12"],  # 50 uV
-)  # fmt: skip
-# each cell's noise and delay, in COMP_GRID's order (the noise outer)
-COMP_GRID_TARGETS = tuple((noise, delay) for noise in GRID_NOISE_V for delay in GRID_DELAY_S)
-# FRIDA-1's comparator, then each quieter at about its speed (the grid's 2 ns column)
-COMP_NOISE_STEPS = COMP_GRID[len(GRID_DELAY_S) - 1 :: len(GRID_DELAY_S)]
-COMPARATORS: tuple[comp.Params, ...] = COMP_GRID
-# the samplers, an on-resistance ladder: FRIDA-1's transmission gate (32 minimum widths, minimum
-# length) the worst, then the bootstrapped NMOS switch's rungs (samp.boost_ladder: 32 minimum widths
-# with the doubled boost capacitor, then 64, 112 and 160, boosted alike); none with dummy switches
-TGATE = samp.FRIDA1
-SAMPLER_STEPS = (TGATE, *(space.base for space in samp.boost_ladder.spaces(Pdk.TSMC65).values()))
-RESOLUTIONS = ADC_BITS  # 10, 12 and 14 bits
-# FRIDA-1's converter: its array (12 bits in 16 stages, MSB redistribution with 5 extra cycles) at
-# two of the 12-bit least switched capacitance
-FRIDA1_BITS = 12
-FRIDA1_ARRAY = FRIDA1_ADC_ARRAY
 
-
-def arrays(bits: int, cap_scale: int = 1) -> list[CapArrayConfig]:
+def _arrays(bits: int, cap_scale: int = 1) -> list[CapArrayConfig]:
     """A ``bits`` converter's 10 arrays at ``cap_scale``: binary, and each scheme with 2, 4 and 6
     extra cycles (``flow.cdac.caparray.layout.adc_arrays``)."""
     return adc_arrays(bits, cap_scale)
 
 
-def comparators(pdk: str) -> dict[str, comp.Params]:
-    """The comparators of ``pdk``'s converters by name: TSMC65's grid (``COMP_GRID``, by noise and
-    delay, ``200uV_2ns``); elsewhere the PDK's StrongARM noise ladder at its longest tail (its
-    comparator grid's, ``comp.base_strongarm``: 200 to 50 uV where its noise floor reaches them,
-    about 2 ns at 0.5 mV, FRIDA-1's speed), by its width factor (``k2.5``)."""
+def _comparators(pdk: str) -> dict[str, comp.Params]:
+    """The comparators of ``pdk``'s converters by name: TSMC65's grid, by noise and delay
+    (``200uV_2ns``); elsewhere the PDK's StrongARM noise ladder at its longest tail (its comparator
+    grid's, ``comp.base_strongarm``: 200 to 50 uV where its noise floor reaches them, about 2 ns at
+    0.5 mV, FRIDA-1's speed), by its width factor (``k2.5``).
+
+    TSMC65's grid: five levels of input-referred noise (rows, at the nominal common mode) by four of
+    delay (columns, at 0.5 mV), each cell the characterized comparator of least energy per decision
+    within 15 % of the noise and 20 % of the delay (flow/comp/readme.md), FRIDA-1's at 200 uV and
+    2 ns; each from the comparator's grids by name (``comp.base_strongarm``, ``comp.dynamic_bias``)."""
     if pdk == "tsmc65":
+        noise_v = (200e-6, 150e-6, 100e-6, 70e-6, 50e-6)
+        delay_s = (0.5e-9, 1.0e-9, 1.5e-9, 2.0e-9)
+        strongarm = {name: space.base for name, space in comp.base_strongarm.spaces(Pdk.TSMC65).items()}
+        dynamic = {name: space.base for name, space in comp.dynamic_bias.spaces(Pdk.TSMC65).items()}
+        cells = (
+            # 0.5 ns                      1 ns                          1.5 ns                         2 ns
+            strongarm["tail_l=14, k=3"],  dynamic["ratio=3.5, k=0.75"], dynamic["ratio=2.75, k=0.75"], comp.FRIDA1,  # 200 uV
+            strongarm["tail_l=14, k=6"],  dynamic["ratio=3.5, k=1.5"],  dynamic["ratio=2.75, k=1.5"],  dynamic["ratio=2.25, k=1.5"],  # 150 uV
+            strongarm["tail_l=14, k=12"], dynamic["ratio=3.5, k=3"],    dynamic["ratio=2.75, k=3"],    dynamic["ratio=2.25, k=3"],  # 100 uV
+            strongarm["tail_l=14, k=32"], dynamic["ratio=3.5, k=6"],    dynamic["ratio=2.75, k=6"],    dynamic["ratio=2.25, k=6"],  # 70 uV
+            strongarm["tail_l=14, k=64"], dynamic["ratio=3.5, k=12"],   dynamic["ratio=2.75, k=12"],   dynamic["ratio=2.25, k=12"],  # 50 uV
+        )  # fmt: skip
+        # each cell's noise and delay, in the cells' order (the noise outer)
+        targets = [(noise, delay) for noise in noise_v for delay in delay_s]
         return {
             f"{noise * 1e6:g}uV_{delay * 1e9:g}ns": params
-            for (noise, delay), params in zip(COMP_GRID_TARGETS, COMP_GRID, strict=True)
+            for (noise, delay), params in zip(targets, cells, strict=True)
         }
     ladder = {name: space.base for name, space in comp.base_strongarm.spaces(pdk).items()}
     longest = max(params.tail_l for params in ladder.values())
     return {f"k{name.rsplit('k=', 1)[1]}": params for name, params in ladder.items() if params.tail_l == longest}
 
 
-def samplers(pdk: str) -> dict[str, samp.Params]:
-    """The samplers of ``pdk``'s converters by name: TSMC65's ladder (``SAMPLER_STEPS``: FRIDA-1's
-    transmission gate, ``frida1``, then ``samp.boost_ladder``'s rungs by name); elsewhere the
-    bootstrapped switch's widest rung alone, so the array and the comparator set the converter."""
+def _samplers(pdk: str) -> dict[str, samp.Params]:
+    """The samplers of ``pdk``'s converters by name: TSMC65's, an on-resistance ladder: FRIDA-1's
+    transmission gate (32 minimum widths, minimum length; ``frida1``) the worst, then the
+    bootstrapped NMOS switch's rungs (``samp.boost_ladder``, by name: 32 minimum widths with the
+    doubled boost capacitor, then 64, 112 and 160, boosted alike), none with dummy switches;
+    elsewhere the bootstrapped switch's widest rung alone, so the array and the comparator set the
+    converter."""
     ladder = {f"boost_{name}": space.base for name, space in samp.boost_ladder.spaces(pdk).items()}
     if pdk == "tsmc65":
-        return {"frida1": TGATE, **ladder}
+        return {"frida1": samp.FRIDA1, **ladder}
     return dict([list(ladder.items())[-1]])
 
 
@@ -201,7 +205,7 @@ def converters(pdk: Pdk) -> dict[str, Params]:
     """Every comparator with every sampler and ADC array (``ADC_ARRAYS``: each resolution's arrays
     at both scales, and FRIDA-1's), one space per resolution, each array at its resolution
     (``adc_bits = n_dac + 1``): in TSMC65 the full product, elsewhere the PDK's smaller one
-    (``comparators``, ``samplers``), each array sized through its extraction there. A converter is
+    (``_comparators``, ``_samplers``), each array sized through its extraction there. A converter is
     labelled by its resolution and its parts' names, ``converters(12b, cdac=12b_binary_x1,
     comp=200uV_2ns, samp=frida1)``."""
     folder = pdk.name.lower()
@@ -209,8 +213,8 @@ def converters(pdk: Pdk) -> dict[str, Params]:
     for bits in RESOLUTIONS:
         space = widen(Params(adc_bits=bits, comp=comp.FRIDA1, samp=samp.FRIDA1))
         space.cdac = values({name: cdac for name, cdac in ADC_ARRAYS.items() if cdac.n_dac + 1 == bits})
-        space.comp = values(comparators(folder))
-        space.samp = values(samplers(folder))
+        space.comp = values(_comparators(folder))
+        space.samp = values(_samplers(folder))
         spaces[f"{bits}b"] = space
     return spaces
 
@@ -377,26 +381,6 @@ def _code_ramp(full_scale_v: float, bits: int, rate_hz: float) -> h.Vpwl.Params:
         (((1 << bits) + 1) * period_s, first_v),
     )
     return h.Vpwl.Params(wave=" ".join(f"{time:.9g} {value:.9g}" for time, value in points))
-
-
-def AdcBlocks(params: Params) -> h.Module:
-    """The ADC's analog blocks for the geometry metrics: the comparator, and a sampler and a
-    capacitor array a side (the SAR logic is the fixed digital netlist)."""
-    blocks = h.Module(name="AdcBlocks")
-
-    def place(module: h.Module, name: str) -> None:
-        # each port on a signal of its own: the compile wants every port connected
-        connections = {
-            port: blocks.add(h.Signal(width=signal.width), name=f"{name}_{port}")
-            for port, signal in module.ports.items()
-        }
-        blocks.add(module(**connections), name=name)
-
-    place(comp.netlist(params.comp), "comp")
-    for side in ("p", "n"):
-        place(samp.netlist(params.samp), f"samp_{side}")
-        place(CapArray(CapArrayParams(cdac=params.cdac)), f"cap_{side}")
-    return blocks
 
 
 GENERATOR = AdcBlocks
@@ -585,3 +569,350 @@ def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
     if reference.decap_f > 0:
         details.append(plot_reference_r_out(reference))
     return Record(metrics=numbers, details=details)
+
+
+# The named Spectre runs (``python -m flow adc.<name>``, ``flow.adc.targets``): each a set of
+# testbenches of the generated or an extracted converter, simulated side by side in fresh processes
+# (``sim.simulate``), each measurement written beside its run
+
+
+def hdl21_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
+    """Run the generated ADC at 2, 6, and 10 MS/s with 50 mV input."""
+
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+
+    with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
+        futures = []
+        for rate, symbol_rate in ((2, 0.32 * G), (6, 0.96 * G), (10, 1.6 * G)):
+            params = TbParams(
+                view="hdl21gen",
+                symbol_rate=symbol_rate,
+                conversions=1 if check else 100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
+            )
+            futures.append(
+                (
+                    executor.submit(
+                        simulate,
+                        params,
+                        run_dir / f"{float(symbol_rate) / 1e6:g}mbd",
+                        noise=True,
+                        check=check,
+                    ),
+                    params,
+                )
+            )
+        for future, params in futures:
+            raw_path, signal_names = future.result()
+            if not check:
+                measurement = convert_raw_adc_to_measurement(
+                    read_raw_transient(raw_path),
+                    params=params,
+                    raw_path=raw_path,
+                    signal_names=signal_names,
+                )
+                write_measurement(raw_path.parent / "result.h5", measurement)
+    return run_dir
+
+
+def hdl21_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
+    """Run the generated ADC from -750 mV to +750 mV in 10 mV steps."""
+
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+
+    params = TbParams(
+        view="hdl21gen",
+        symbol_rate=1.6 * G,
+        conversions=151,
+        vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
+        **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
+    )
+    raw_path, signal_names = simulate(
+        params,
+        run_dir,
+        check=check,
+    )
+    if not check:
+        measurement = convert_raw_adc_to_measurement(
+            read_raw_transient(raw_path),
+            params=params,
+            raw_path=raw_path,
+            signal_names=signal_names,
+        )
+        write_measurement(run_dir / "result.h5", measurement)
+    return run_dir
+
+
+def frida1_sequence(run_dir: Path, *, check: bool = False) -> Path:
+    """Compare seven continuous timing recipes on four historical flavors."""
+
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+
+    root = Path(__file__).resolve().parents[2] / "build/layout/adc"
+    with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
+        futures = []
+        for layers in (1, 2):
+            for (radix, cdac), timing in product(
+                (
+                    (17, CapArrayConfig()),
+                    (20, CapArrayConfig(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
+                ),
+                # COMP      LOGIC at fall  LOGIC +1 symbol
+                # 11110000  00001111       10000111
+                # 11111000  10000111       11000011
+                # 11111100  11000011       11100001
+                # 11111110  11100001       (excluded)
+                (
+                    "symbol160_init4_samp20_comp11110000_logic00001111",
+                    "symbol160_init4_samp20_comp11110000_logic10000111",
+                    "symbol160_init4_samp20_comp11111000_logic10000111",
+                    "symbol160_init4_samp20_comp11111000_logic11000011",
+                    "symbol160_init4_samp20_comp11111100_logic11000011",
+                    "symbol160_init4_samp20_comp11111100_logic11100001",
+                    "symbol160_init4_samp20_comp11111110_logic11100001",
+                ),
+            ):
+                target = f"frida1_{layers}layer_radix{radix}"
+                pex = root / target / "20260905_171235" / f"{target}.pex.netlist"
+                params = TbParams(
+                    view="frida1",
+                    pex_cell="adc_12b_17step",
+                    dut=Params(adc_bits=12, cdac=cdac),
+                    symbol_rate=1.6 * G,
+                    conversions=1 if check else 100,
+                    vin_diff=h.Vdc.Params(dc=0.05),
+                    **dict(SEQUENCES)[timing].as_tb_fields(),
+                )
+                futures.append(
+                    (
+                        executor.submit(
+                            simulate,
+                            params,
+                            run_dir / target / timing,
+                            pex_netlist=pex,
+                            noise=True,
+                            check=check,
+                            expected_disconnect=layers == 2,
+                        ),
+                        params,
+                    )
+                )
+        for future, params in futures:
+            raw_path, signal_names = future.result()
+            if not check:
+                measurement = convert_raw_adc_to_measurement(
+                    read_raw_transient(raw_path),
+                    params=params,
+                    raw_path=raw_path,
+                    signal_names=signal_names,
+                )
+                write_measurement(raw_path.parent / "result.h5", measurement)
+    return run_dir
+
+
+def frida1_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
+    """Run the four original PEX flavors at 2, 6, and 10 MS/s."""
+
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+    from pdk.tsmc65.hdl21 import site
+
+    with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
+        futures = []
+        for layers in (1, 2):
+            for radix, cdac in (
+                (17, CapArrayConfig()),
+                (20, CapArrayConfig(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
+            ):
+                cell = f"adc_{layers}layer_radix{radix}"
+                pex = (
+                    site.ADC_PEX_NETLIST
+                    if cell == "adc_1layer_radix17"
+                    else site.ADC_PEX_NETLIST.parent / cell / f"{cell}.pex.netlist"
+                )
+                for rate, symbol_rate in ((2, 0.32 * G), (6, 0.96 * G), (10, 1.6 * G)):
+                    params = TbParams(
+                        view="frida1",
+                        pex_cell=cell,
+                        dut=Params(adc_bits=12, cdac=cdac),
+                        symbol_rate=symbol_rate,
+                        conversions=1 if check else 100,
+                        vin_diff=h.Vdc.Params(dc=0.05),
+                        **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
+                    )
+                    futures.append(
+                        (
+                            executor.submit(
+                                simulate,
+                                params,
+                                run_dir / cell / f"{float(symbol_rate) / 1e6:g}mbd",
+                                pex_netlist=pex,
+                                noise=True,
+                                check=check,
+                            ),
+                            params,
+                        )
+                    )
+        for future, params in futures:
+            raw_path, signal_names = future.result()
+            if not check:
+                measurement = convert_raw_adc_to_measurement(
+                    read_raw_transient(raw_path),
+                    params=params,
+                    raw_path=raw_path,
+                    signal_names=signal_names,
+                )
+                write_measurement(raw_path.parent / "result.h5", measurement)
+    return run_dir
+
+
+def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
+    """Run the original extracted ADC from -750 mV to +750 mV in 10 mV steps."""
+
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+    from pdk.tsmc65.hdl21 import site
+
+    params = TbParams(
+        view="frida1",
+        symbol_rate=1.6 * G,
+        conversions=151,
+        vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
+        **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
+    )
+    raw_path, signal_names = simulate(
+        params,
+        run_dir,
+        pex_netlist=site.ADC_PEX_NETLIST,
+        check=check,
+    )
+    if not check:
+        measurement = convert_raw_adc_to_measurement(
+            read_raw_transient(raw_path),
+            params=params,
+            raw_path=raw_path,
+            signal_names=signal_names,
+        )
+        write_measurement(run_dir / "result.h5", measurement)
+    return run_dir
+
+
+def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
+    """Run the 15 original extracted-ADC rate/supply-noise combinations."""
+
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+    from pdk.tsmc65.hdl21 import site
+
+    noise_rms_v = 1e-3
+    with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
+        futures = []
+        for rate, symbol_rate in ((2, 0.32 * G), (6, 0.96 * G), (10, 1.6 * G)):
+            for name, rail_noise in (
+                ("none", (0.0, 0.0, 0.0)),
+                ("vdda", (noise_rms_v, 0.0, 0.0)),
+                ("vddd", (0.0, noise_rms_v, 0.0)),
+                ("vddac", (0.0, 0.0, noise_rms_v)),
+                ("all", (noise_rms_v, noise_rms_v, noise_rms_v)),
+            ):
+                params = TbParams(
+                    view="frida1",
+                    symbol_rate=symbol_rate,
+                    conversions=1 if check else 100,
+                    vin_diff=h.Vdc.Params(dc=0.05),
+                    **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
+                    supply_series_resistance_ohm=1.0,
+                    supply_series_inductance_h=1e-9,
+                    supply_decoupling_capacitance_f=1e-12,
+                    supply_noise_rms_v=rail_noise,
+                    supply_noise_bandwidth_hz=25e9,
+                )
+                futures.append(
+                    (
+                        executor.submit(
+                            simulate,
+                            params,
+                            run_dir / f"{float(symbol_rate) / 1e6:g}mbd_{name}",
+                            pex_netlist=site.ADC_PEX_NETLIST,
+                            check=check,
+                        ),
+                        params,
+                    )
+                )
+        for future, params in futures:
+            raw_path, signal_names = future.result()
+            if not check:
+                measurement = convert_raw_adc_to_measurement(
+                    read_raw_transient(raw_path),
+                    params=params,
+                    raw_path=raw_path,
+                    signal_names=signal_names,
+                )
+                write_measurement(raw_path.parent / "result.h5", measurement)
+    return run_dir
+
+
+def frida2_sequence(run_dir: Path, *, check: bool = False) -> Path:
+    """Compare named continuous timing recipes on three radix-17 stacks."""
+
+    from flow.analysis.io import write_measurement
+    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+
+    root = Path(__file__).resolve().parents[2] / "build/layout/adc"
+    with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
+        futures = []
+        for (layers, stamp), timing in product(
+            ((1, "20260905_193440"), (2, "20260905_193629"), (3, "20260905_193816")),
+            # COMP      LOGIC at fall  LOGIC +1 symbol
+            # 11110000  00001111       10000111
+            # 11111000  10000111       11000011
+            # 11111100  11000011       11100001
+            # 11111110  11100001       (excluded)
+            (
+                "symbol160_init4_samp20_comp11110000_logic00001111",
+                "symbol160_init4_samp20_comp11110000_logic10000111",
+                "symbol160_init4_samp20_comp11111000_logic10000111",
+                "symbol160_init4_samp20_comp11111000_logic11000011",
+                "symbol160_init4_samp20_comp11111100_logic11000011",
+                "symbol160_init4_samp20_comp11111100_logic11100001",
+                "symbol160_init4_samp20_comp11111110_logic11100001",
+            ),
+        ):
+            target = f"frida2_{layers}layer_radix17"
+            params = TbParams(
+                view="frida2",
+                pex_cell="adc_12b_17step",
+                dut=Params(adc_bits=12, cdac=CapArrayConfig()),
+                symbol_rate=1.6 * G,
+                conversions=1 if check else 100,
+                vin_diff=h.Vdc.Params(dc=0.05),
+                **dict(SEQUENCES)[timing].as_tb_fields(),
+            )
+            futures.append(
+                (
+                    executor.submit(
+                        simulate,
+                        params,
+                        run_dir / target / timing,
+                        pex_netlist=root / target / stamp / f"{target}.pex.netlist",
+                        noise=True,
+                        check=check,
+                    ),
+                    params,
+                )
+            )
+        for future, params in futures:
+            raw_path, signal_names = future.result()
+            if not check:
+                measurement = convert_raw_adc_to_measurement(
+                    read_raw_transient(raw_path),
+                    params=params,
+                    raw_path=raw_path,
+                    signal_names=signal_names,
+                )
+                write_measurement(raw_path.parent / "result.h5", measurement)
+    return run_dir

@@ -112,8 +112,11 @@ def _snapshot_files(root: Path, inputs: list[str], pdk: str) -> list[str]:
 
 def _worker_script(remote_dir: str, block: str, target: str, setup: str | None) -> str:
     """Only shell plumbing: experiment/diagnostic definitions stay in the runners/tests. ``target``
-    is the simulation function in ``flow.<block>.sim``; its flow target drops the block prefix."""
+    is the simulation function in ``flow.<block>.sim`` (the ADC's: ``flow.adc.sweep``, its tests in
+    test_sweep.py); its flow target drops the block prefix."""
     node = f"flow/circuit/test_spectre.py::test_target_diagnostic[{block}-{target}]"
+    folder = block.replace(".", "/")
+    focused = f"flow/{folder}/test_sim.py" + (f" flow/{folder}/test_sweep.py" if block == "adc" else "")
     # pytest succeeds on skipped tests; require a real passing diagnostic before a campaign.
     gate = (
         "import xml.etree.ElementTree as E; "
@@ -139,7 +142,7 @@ def _worker_script(remote_dir: str, block: str, target: str, setup: str | None) 
             "free -h",
             'if pgrep -u "$(id -u)" -x spectre; then echo "Existing user Spectre jobs: review resources first"; exit 1; fi',
             "uv sync --frozen --dev",
-            f"uv run --frozen pytest flow/{block.replace('.', '/')}/test_sim.py",
+            f"uv run --frozen pytest {focused}",
             f"uv run --frozen pytest -m spectre {shlex.quote(node)} --junitxml=build/remote/preflight.xml",
             f"uv run --frozen python -c {shlex.quote(gate)}",
             shlex.join(
@@ -179,11 +182,11 @@ def launch(
     root: Path = ROOT,
 ) -> Path:
     """Snapshot, diagnose, run detached and collect automatically: ``target`` (a simulation function
-    of ``flow.<block>.sim``) on the trusted SSH ``host`` (FTD: juno or jupiter) in a fresh snapshot
-    under ``work_root`` (an existing absolute worker directory), after sourcing ``setup`` (an
-    absolute shell environment script on the worker); ``pdk`` names the PDK submodule to include
-    (not a foundry model installation), ``inputs`` repository-relative build inputs. The local
-    campaign directory."""
+    of ``flow.<block>.sim``, the ADC's of ``flow.adc.sweep``) on the trusted SSH ``host`` (FTD: juno
+    or jupiter) in a fresh snapshot under ``work_root`` (an existing absolute worker directory),
+    after sourcing ``setup`` (an absolute shell environment script on the worker); ``pdk`` names
+    the PDK submodule to include (not a foundry model installation), ``inputs`` repository-relative
+    build inputs. The local campaign directory."""
 
     _check_worker(host, work_root, setup)
     if block not in BLOCKS:

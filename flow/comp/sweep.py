@@ -69,7 +69,7 @@ def topologies() -> Params:
 
 @grid
 def base_strongarm(pdk: Pdk) -> dict[str, Params]:
-    """The ADC's comparators (flow.adc.sweep: TSMC65's COMP_GRID, elsewhere the PDK's StrongARM
+    """The ADC's comparators (flow.adc.sweep: TSMC65's comparator grid, elsewhere the PDK's StrongARM
     ladder at its longest tail), where the base StrongARM is the more frugal topology: each PDK's
     tails (its delays: 0.5, 1, 1.5 and 2 ns at 0.5 mV) and widths (its noise levels: 200, 150, 100,
     70 and 50 uV, where its noise floor reaches them), each point by its tail's length in minimum

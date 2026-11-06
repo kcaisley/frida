@@ -1,6 +1,7 @@
 """The ADC's parameters: its design (``Params``, every combination of which builds) and one generated
 testbench (``TbParams``: the view it simulates, its stimulus, its supplies and its sequencer rows,
 by default the default recipe's, ``sim.symbol256_init8_samp16_comp11110000_logic00001111``); the
+design space's resolutions and FRIDA-1's converter in it (``RESOLUTIONS``, ``FRIDA1_*``); the
 behavioral model's constants (``flow.adc.model``): its testbench's common mode, the reference it
 converts on (``Reference``), what it can quiet, the CDAC draw it calibrates on, and the reference
 study's decoupling, budget and grids (``REFERENCE_*``); and the campaign's
@@ -21,6 +22,7 @@ from pydantic import PositiveInt
 
 from flow import comp, pipeline, samp
 from flow.cdac.caparray import CapArrayConfig, RedunStrat
+from flow.cdac.caparray.layout import ADC_BITS, FRIDA1_ADC_ARRAY
 
 
 @h.paramclass
@@ -40,6 +42,13 @@ class Params:
 
 
 pipeline.Params.register(Params)
+
+# The design space's resolutions (``flow.adc.sweep.converters``: a space each); FRIDA-1's converter:
+# its array (12 bits in 16 stages, MSB redistribution with 5 extra cycles) at two of the 12-bit least
+# switched capacitance
+RESOLUTIONS = ADC_BITS  # 10, 12 and 14 bits
+FRIDA1_BITS = 12
+FRIDA1_ARRAY = FRIDA1_ADC_ARRAY
 
 
 @h.paramclass

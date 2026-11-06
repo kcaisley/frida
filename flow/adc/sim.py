@@ -1,5 +1,5 @@
-"""ADC testbench and named Spectre simulation targets, with the sequencer rows and the stimulus that
-drive them.
+"""ADC testbench and its Spectre run (``simulate``; the named runs that use them are
+``flow.adc.sweep``'s), with the sequencer rows and the stimulus that drive them.
 
 The sequencer's four rows (``AdcSequence``) and the complete named four-channel catalogue
 (``SEQUENCES``): names describe period length, INIT/SAMP widths, and recurring SAR words relative
@@ -19,21 +19,19 @@ import json
 import math
 import re
 from collections.abc import Sequence
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, fields
-from itertools import pairwise, product
-from multiprocessing import get_context
+from itertools import pairwise
 from pathlib import Path
 from typing import Protocol
 
 import hdl21 as h
 import hdl21.sim as hs
 import numpy as np
-from hdl21.prefix import G, p
+from hdl21.prefix import p
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
 from flow import comp
-from flow.adc.params import Params, TbParams
+from flow.adc.params import TbParams
 from flow.adc.subckt import (
     Adc,
     AdcNets,
@@ -45,7 +43,7 @@ from flow.adc.subckt import (
     frida1_net_aliases,
     frida2_net_aliases,
 )
-from flow.cdac.caparray import CapArrayConfig, get_caparray_weights
+from flow.cdac.caparray import get_caparray_weights
 from flow.circuit.ports import testbench_from_ports
 from flow.pipeline import Wave
 
@@ -1337,7 +1335,7 @@ def simulate(
     concurrently. This executor owns the shared mechanics: generate/compile the
     testbench, validate extracted interfaces, build the Spectre simulation, run
     short diagnostics or the full simulation, and return the raw path and probe bindings.
-    Flavor/rate sweeps and campaign selection belong in the named targets below,
+    Flavor/rate sweeps and campaign selection belong in the named runs (``flow.adc.sweep``),
     not in additional flavor-specific wrappers.
     """
 
@@ -1498,345 +1496,3 @@ def simulate(
     (run_dir / "input.json").write_text(json.dumps(metadata, indent=2) + "\n")
     simulation.run(options)
     return run_dir / "netlist.raw", signal_names
-
-
-def hdl21_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the generated ADC at 2, 6, and 10 MS/s with 50 mV input."""
-
-    from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
-
-    with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
-        futures = []
-        for rate, symbol_rate in ((2, 0.32 * G), (6, 0.96 * G), (10, 1.6 * G)):
-            params = TbParams(
-                view="hdl21gen",
-                symbol_rate=symbol_rate,
-                conversions=1 if check else 100,
-                vin_diff=h.Vdc.Params(dc=0.05),
-                **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
-            )
-            futures.append(
-                (
-                    executor.submit(
-                        simulate,
-                        params,
-                        run_dir / f"{float(symbol_rate) / 1e6:g}mbd",
-                        noise=True,
-                        check=check,
-                    ),
-                    params,
-                )
-            )
-        for future, params in futures:
-            raw_path, signal_names = future.result()
-            if not check:
-                measurement = convert_raw_adc_to_measurement(
-                    read_raw_transient(raw_path),
-                    params=params,
-                    raw_path=raw_path,
-                    signal_names=signal_names,
-                )
-                write_measurement(raw_path.parent / "result.h5", measurement)
-    return run_dir
-
-
-def hdl21_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the generated ADC from -750 mV to +750 mV in 10 mV steps."""
-
-    from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
-
-    params = TbParams(
-        view="hdl21gen",
-        symbol_rate=1.6 * G,
-        conversions=151,
-        vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
-        **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
-    )
-    raw_path, signal_names = simulate(
-        params,
-        run_dir,
-        check=check,
-    )
-    if not check:
-        measurement = convert_raw_adc_to_measurement(
-            read_raw_transient(raw_path),
-            params=params,
-            raw_path=raw_path,
-            signal_names=signal_names,
-        )
-        write_measurement(run_dir / "result.h5", measurement)
-    return run_dir
-
-
-def frida1_sequence(run_dir: Path, *, check: bool = False) -> Path:
-    """Compare seven continuous timing recipes on four historical flavors."""
-
-    from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
-
-    root = Path(__file__).resolve().parents[2] / "build/layout/adc"
-    with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
-        futures = []
-        for layers in (1, 2):
-            for (radix, cdac), timing in product(
-                (
-                    (17, CapArrayConfig()),
-                    (20, CapArrayConfig(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
-                ),
-                # COMP      LOGIC at fall  LOGIC +1 symbol
-                # 11110000  00001111       10000111
-                # 11111000  10000111       11000011
-                # 11111100  11000011       11100001
-                # 11111110  11100001       (excluded)
-                (
-                    "symbol160_init4_samp20_comp11110000_logic00001111",
-                    "symbol160_init4_samp20_comp11110000_logic10000111",
-                    "symbol160_init4_samp20_comp11111000_logic10000111",
-                    "symbol160_init4_samp20_comp11111000_logic11000011",
-                    "symbol160_init4_samp20_comp11111100_logic11000011",
-                    "symbol160_init4_samp20_comp11111100_logic11100001",
-                    "symbol160_init4_samp20_comp11111110_logic11100001",
-                ),
-            ):
-                target = f"frida1_{layers}layer_radix{radix}"
-                pex = root / target / "20260905_171235" / f"{target}.pex.netlist"
-                params = TbParams(
-                    view="frida1",
-                    pex_cell="adc_12b_17step",
-                    dut=Params(adc_bits=12, cdac=cdac),
-                    symbol_rate=1.6 * G,
-                    conversions=1 if check else 100,
-                    vin_diff=h.Vdc.Params(dc=0.05),
-                    **dict(SEQUENCES)[timing].as_tb_fields(),
-                )
-                futures.append(
-                    (
-                        executor.submit(
-                            simulate,
-                            params,
-                            run_dir / target / timing,
-                            pex_netlist=pex,
-                            noise=True,
-                            check=check,
-                            expected_disconnect=layers == 2,
-                        ),
-                        params,
-                    )
-                )
-        for future, params in futures:
-            raw_path, signal_names = future.result()
-            if not check:
-                measurement = convert_raw_adc_to_measurement(
-                    read_raw_transient(raw_path),
-                    params=params,
-                    raw_path=raw_path,
-                    signal_names=signal_names,
-                )
-                write_measurement(raw_path.parent / "result.h5", measurement)
-    return run_dir
-
-
-def frida1_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the four original PEX flavors at 2, 6, and 10 MS/s."""
-
-    from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
-    from pdk.tsmc65.hdl21 import site
-
-    with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
-        futures = []
-        for layers in (1, 2):
-            for radix, cdac in (
-                (17, CapArrayConfig()),
-                (20, CapArrayConfig(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
-            ):
-                cell = f"adc_{layers}layer_radix{radix}"
-                pex = (
-                    site.ADC_PEX_NETLIST
-                    if cell == "adc_1layer_radix17"
-                    else site.ADC_PEX_NETLIST.parent / cell / f"{cell}.pex.netlist"
-                )
-                for rate, symbol_rate in ((2, 0.32 * G), (6, 0.96 * G), (10, 1.6 * G)):
-                    params = TbParams(
-                        view="frida1",
-                        pex_cell=cell,
-                        dut=Params(adc_bits=12, cdac=cdac),
-                        symbol_rate=symbol_rate,
-                        conversions=1 if check else 100,
-                        vin_diff=h.Vdc.Params(dc=0.05),
-                        **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
-                    )
-                    futures.append(
-                        (
-                            executor.submit(
-                                simulate,
-                                params,
-                                run_dir / cell / f"{float(symbol_rate) / 1e6:g}mbd",
-                                pex_netlist=pex,
-                                noise=True,
-                                check=check,
-                            ),
-                            params,
-                        )
-                    )
-        for future, params in futures:
-            raw_path, signal_names = future.result()
-            if not check:
-                measurement = convert_raw_adc_to_measurement(
-                    read_raw_transient(raw_path),
-                    params=params,
-                    raw_path=raw_path,
-                    signal_names=signal_names,
-                )
-                write_measurement(raw_path.parent / "result.h5", measurement)
-    return run_dir
-
-
-def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the original extracted ADC from -750 mV to +750 mV in 10 mV steps."""
-
-    from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
-    from pdk.tsmc65.hdl21 import site
-
-    params = TbParams(
-        view="frida1",
-        symbol_rate=1.6 * G,
-        conversions=151,
-        vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
-        **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
-    )
-    raw_path, signal_names = simulate(
-        params,
-        run_dir,
-        pex_netlist=site.ADC_PEX_NETLIST,
-        check=check,
-    )
-    if not check:
-        measurement = convert_raw_adc_to_measurement(
-            read_raw_transient(raw_path),
-            params=params,
-            raw_path=raw_path,
-            signal_names=signal_names,
-        )
-        write_measurement(run_dir / "result.h5", measurement)
-    return run_dir
-
-
-def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the 15 original extracted-ADC rate/supply-noise combinations."""
-
-    from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
-    from pdk.tsmc65.hdl21 import site
-
-    noise_rms_v = 1e-3
-    with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
-        futures = []
-        for rate, symbol_rate in ((2, 0.32 * G), (6, 0.96 * G), (10, 1.6 * G)):
-            for name, rail_noise in (
-                ("none", (0.0, 0.0, 0.0)),
-                ("vdda", (noise_rms_v, 0.0, 0.0)),
-                ("vddd", (0.0, noise_rms_v, 0.0)),
-                ("vddac", (0.0, 0.0, noise_rms_v)),
-                ("all", (noise_rms_v, noise_rms_v, noise_rms_v)),
-            ):
-                params = TbParams(
-                    view="frida1",
-                    symbol_rate=symbol_rate,
-                    conversions=1 if check else 100,
-                    vin_diff=h.Vdc.Params(dc=0.05),
-                    **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
-                    supply_series_resistance_ohm=1.0,
-                    supply_series_inductance_h=1e-9,
-                    supply_decoupling_capacitance_f=1e-12,
-                    supply_noise_rms_v=rail_noise,
-                    supply_noise_bandwidth_hz=25e9,
-                )
-                futures.append(
-                    (
-                        executor.submit(
-                            simulate,
-                            params,
-                            run_dir / f"{float(symbol_rate) / 1e6:g}mbd_{name}",
-                            pex_netlist=site.ADC_PEX_NETLIST,
-                            check=check,
-                        ),
-                        params,
-                    )
-                )
-        for future, params in futures:
-            raw_path, signal_names = future.result()
-            if not check:
-                measurement = convert_raw_adc_to_measurement(
-                    read_raw_transient(raw_path),
-                    params=params,
-                    raw_path=raw_path,
-                    signal_names=signal_names,
-                )
-                write_measurement(raw_path.parent / "result.h5", measurement)
-    return run_dir
-
-
-def frida2_sequence(run_dir: Path, *, check: bool = False) -> Path:
-    """Compare named continuous timing recipes on three radix-17 stacks."""
-
-    from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
-
-    root = Path(__file__).resolve().parents[2] / "build/layout/adc"
-    with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
-        futures = []
-        for (layers, stamp), timing in product(
-            ((1, "20260905_193440"), (2, "20260905_193629"), (3, "20260905_193816")),
-            # COMP      LOGIC at fall  LOGIC +1 symbol
-            # 11110000  00001111       10000111
-            # 11111000  10000111       11000011
-            # 11111100  11000011       11100001
-            # 11111110  11100001       (excluded)
-            (
-                "symbol160_init4_samp20_comp11110000_logic00001111",
-                "symbol160_init4_samp20_comp11110000_logic10000111",
-                "symbol160_init4_samp20_comp11111000_logic10000111",
-                "symbol160_init4_samp20_comp11111000_logic11000011",
-                "symbol160_init4_samp20_comp11111100_logic11000011",
-                "symbol160_init4_samp20_comp11111100_logic11100001",
-                "symbol160_init4_samp20_comp11111110_logic11100001",
-            ),
-        ):
-            target = f"frida2_{layers}layer_radix17"
-            params = TbParams(
-                view="frida2",
-                pex_cell="adc_12b_17step",
-                dut=Params(adc_bits=12, cdac=CapArrayConfig()),
-                symbol_rate=1.6 * G,
-                conversions=1 if check else 100,
-                vin_diff=h.Vdc.Params(dc=0.05),
-                **dict(SEQUENCES)[timing].as_tb_fields(),
-            )
-            futures.append(
-                (
-                    executor.submit(
-                        simulate,
-                        params,
-                        run_dir / target / timing,
-                        pex_netlist=root / target / stamp / f"{target}.pex.netlist",
-                        noise=True,
-                        check=check,
-                    ),
-                    params,
-                )
-            )
-        for future, params in futures:
-            raw_path, signal_names = future.result()
-            if not check:
-                measurement = convert_raw_adc_to_measurement(
-                    read_raw_transient(raw_path),
-                    params=params,
-                    raw_path=raw_path,
-                    signal_names=signal_names,
-                )
-                write_measurement(raw_path.parent / "result.h5", measurement)
-    return run_dir

@@ -19,9 +19,11 @@ from . import test_spectre
 
 @pytest.mark.parametrize("block", ("adc", "cdac.caparray"))
 def test_targets_and_python_contract(block):
-    module = importlib.import_module(f"flow.{block}.sim")
+    # a block's named runs are its sim's; the ADC's are its sweep's, beside its sim
+    stages = ("sim", "sweep") if block == "adc" else ("sim",)
+    module = importlib.import_module(f"flow.{block}.{stages[-1]}")
     targets = importlib.import_module(f"flow.{block}.targets")
-    # the simulation targets: each runs the sim function of its name (the block prefix dropped)
+    # the simulation targets: each runs the function of its name there (the block prefix dropped)
     runs = {
         name: getattr(module, name, None) or getattr(module, f"{block.rpartition('.')[2]}_{name}", None)
         for name, value in vars(targets).items()
@@ -36,9 +38,11 @@ def test_targets_and_python_contract(block):
         assert list(signature.parameters) == ["run_dir", "check"]
         assert signature.parameters["check"].default is False
         assert signature.parameters["check"].kind is inspect.Parameter.KEYWORD_ONLY
-    assert not hasattr(module, "main")
-    assert "netlist_only" not in inspect.getsource(module)
-    assert not any(name.startswith("frida65") for name in vars(module))
+    for stage in stages:
+        source = importlib.import_module(f"flow.{block}.{stage}")
+        assert not hasattr(source, "main")
+        assert "netlist_only" not in inspect.getsource(source)
+        assert not any(name.startswith("frida65") for name in vars(source))
 
 
 @pytest.fixture

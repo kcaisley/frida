@@ -35,6 +35,9 @@ The plates the arrays have: ``calc_ideal_capacitances``, the ideal capacitances 
 generates, and ``calc_side_capacitances``, one side's as a behavioral DAC (``flow.adc.model``) gives
 them, ideal where it gives none.
 
+The ADC's analog blocks alone (``AdcBlocks``: the comparator, and a sampler and an array a side),
+whose geometry the sweep's records give (``flow.adc.sweep.GENERATOR``).
+
 The hardened ADC/digital interfaces and the canonical-to-physical net bindings of the extracted
 views (``adc_pex``, ``adc_port_aliases``, ``frida1_net_aliases``, ``frida2_net_aliases``): physical
 names are relative to the selected ADC instance. Save statements and raw readers add that instance
@@ -235,6 +238,26 @@ def Adc(p: Params) -> h.Module:
     )
 
     return Adc
+
+
+def AdcBlocks(params: Params) -> h.Module:
+    """The ADC's analog blocks for the geometry metrics: the comparator, and a sampler and a
+    capacitor array a side (the SAR logic is the fixed digital netlist)."""
+    blocks = h.Module(name="AdcBlocks")
+    _place(blocks, comp.netlist(params.comp), "comp")
+    for side in ("p", "n"):
+        _place(blocks, samp.netlist(params.samp), f"samp_{side}")
+        _place(blocks, CapArray(CapArrayParams(cdac=params.cdac)), f"cap_{side}")
+    return blocks
+
+
+def _place(blocks: h.Module, module: h.Module, name: str) -> None:
+    """``module`` instantiated in ``blocks`` as ``name``, each port on a signal of its own: the
+    compile wants every port connected."""
+    connections = {
+        port: blocks.add(h.Signal(width=signal.width), name=f"{name}_{port}") for port, signal in module.ports.items()
+    }
+    blocks.add(module(**connections), name=name)
 
 
 # The arrays' plates: the capacitances CapArray generates, and one side's as the behavioral DAC

@@ -73,7 +73,8 @@ def diagnostic_root(spectre_installation):
     ids=lambda value: value,
 )
 def test_target_diagnostic(block, target, diagnostic_root):
-    runner = getattr(importlib.import_module(f"flow.{block}.sim"), target)
+    # a block's named runs are its sim's; the ADC's are its sweep's
+    runner = getattr(importlib.import_module(f"flow.{block}.{'sweep' if block == 'adc' else 'sim'}"), target)
     run_dir = diagnostic_root / block / target
     assert runner(run_dir, check=True) == run_dir
     assert list(run_dir.rglob("netlist.scs")), f"no generated decks beneath {run_dir}"

@@ -58,7 +58,8 @@ from flow.analysis.types import (
 from flow.scans.params import load_board_map
 from flow.sweep import runner as sweep_runner
 
-from . import layout, sim
+from . import layout
+from . import sweep as adc_sweep  # the module; ``sweep`` is this file's sweep target
 from .analysis import (
     analyze_calibration1,
     analyze_calibration2,
@@ -95,37 +96,37 @@ def _unmade(*parts: str) -> Path:
 
 def hdl21_sample_rate() -> Path:
     """The generated ADC at 2, 6 and 10 MS/s with a 50 mV input, in TSMC65."""
-    return sim.hdl21_sample_rate(_sim_run("hdl21_sample_rate"))
+    return adc_sweep.hdl21_sample_rate(_sim_run("hdl21_sample_rate"))
 
 
 def hdl21_transfer_curve() -> Path:
     """The generated ADC's transfer curve from -750 mV to +750 mV in 10 mV steps, in TSMC65."""
-    return sim.hdl21_transfer_curve(_sim_run("hdl21_transfer_curve"))
+    return adc_sweep.hdl21_transfer_curve(_sim_run("hdl21_transfer_curve"))
 
 
 def frida1_sequence() -> Path:
     """Seven continuous timing recipes on FRIDA-1's four extracted ADC flavors."""
-    return sim.frida1_sequence(_sim_run("frida1_sequence"))
+    return adc_sweep.frida1_sequence(_sim_run("frida1_sequence"))
 
 
 def frida1_sample_rate() -> Path:
     """FRIDA-1's four extracted ADC flavors at 2, 6 and 10 MS/s."""
-    return sim.frida1_sample_rate(_sim_run("frida1_sample_rate"))
+    return adc_sweep.frida1_sample_rate(_sim_run("frida1_sample_rate"))
 
 
 def frida1_transfer_curve() -> Path:
     """FRIDA-1's extracted ADC from -750 mV to +750 mV in 10 mV steps."""
-    return sim.frida1_transfer_curve(_sim_run("frida1_transfer_curve"))
+    return adc_sweep.frida1_transfer_curve(_sim_run("frida1_transfer_curve"))
 
 
 def frida1_supply_noise() -> Path:
     """FRIDA-1's extracted ADC at its 15 rate and supply-noise combinations."""
-    return sim.frida1_supply_noise(_sim_run("frida1_supply_noise"))
+    return adc_sweep.frida1_supply_noise(_sim_run("frida1_supply_noise"))
 
 
 def frida2_sequence() -> Path:
     """Named continuous timing recipes on FRIDA-2's three radix-17 stacks."""
-    return sim.frida2_sequence(_sim_run("frida2_sequence"))
+    return adc_sweep.frida2_sequence(_sim_run("frida2_sequence"))
 
 
 def layout_frida1_1layer_radix17() -> Path:
