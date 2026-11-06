@@ -13,8 +13,9 @@ half an LSB exactly when the testbench's does. A characterization missing from t
 run is simulated on first use (``simulate=True``) and kept under the build's models. The array's
 plates are the design's at the reference the netlist draws them for, the PDK's typical supply, at
 which the characterization runs (``Model.reference_v``), each stage's main plate drawn so that its
-step is the one measured (``Model.step_v``: a unit drawn other than designed, at the PDK's
-smallest, moves its stage's step); the converter's reference only switches them (``Model.switch``).
+step, at the top plate's load the drawn gain gives, is the one measured (``Model.step_v``: a unit
+drawn other than designed, at the PDK's smallest, moves its stage's step and the full scale); the
+converter's reference only switches them (``Model.switch``).
 
 ``Model.drawn`` gives one of the characterization's Monte Carlo draws, the plates a converter on the
 array calibrates on (``flow.adc.model``): of one condition, the run at a percentile of what no
@@ -192,23 +193,23 @@ class Model:
         """The behavioral ADC's DAC: each side's plates as drawn, (main, difference) for the P side
         then the N side: the design's at the reference they are drawn for (``Model.plates`` at
         ``reference_v``, whatever reference the converter switches them to), or ``plates`` drawn
-        about them (a Monte Carlo draw: ``Model.drawn``, ``Model.draw`` of the design's), each
-        stage's main plate taking the excess of its measured step over its design's (``step_v``):
-        the switched plates' total stays the design's, and with it the top plate's load, the gain and
-        the full scale, each stage's share of it its share of the measured steps, so the plates give
-        the steps a converter's extracted weights are; each top plate's load beyond the design's
-        plates, the parasitic at which they give the drawn array's gain; each stage's delay and time
-        constant, ``settling_tau_s`` the slowest's. The drivers' energy is not characterized: none.
-        The reference is ideal: the converter sets its departures (``reference_*``) and scales the
-        time constants."""
+        about them (a Monte Carlo draw: ``Model.drawn``, ``Model.draw`` of the design's), each top
+        plate's whole load the design's plates over the drawn gain (the least-squares fit of the
+        steps, which the heavy stages, drawn as designed, set), each stage's main plate taking the
+        excess of its measured step over its design's at that load (``step_v``, each side half of
+        the differential step): the plates give the measured steps, so their full scale is half the
+        steps' sum and their weights are the extracted ones a converter decodes with; the rest of the
+        load the parasitic. Each stage's delay and time constant, ``settling_tau_s`` the slowest's.
+        The drivers' energy is not characterized: none. The reference is ideal: the converter sets
+        its departures (``reference_*``) and scales the time constants."""
         main_f, diff_f = Model.plates(self.params, self.reference_v)
-        switched_f = main_f - diff_f
-        # the measured steps' shares of the design's switched plates, less the design's own: none as
-        # designed
+        design_f = float(main_f.sum() + diff_f.sum())
+        # each stage's switched plate whose step at the load the gain gives is its measured one (each
+        # side's half), less the design's: none as designed
         excess_f = (
-            np.zeros_like(switched_f)
+            np.zeros_like(main_f)
             if self.step_v is None
-            else np.asarray(self.step_v) / sum(self.step_v) * switched_f.sum() - switched_f
+            else np.asarray(self.step_v) / 2 * design_f / self.gain / self.reference_v - (main_f - diff_f)
         )
         (main_p, diff_p), (main_n, diff_n) = ((main_f, diff_f), (main_f, diff_f)) if plates is None else plates
         return Model.Behavioral(
@@ -216,8 +217,9 @@ class Model:
             diff_p_f=tuple(map(float, diff_p)),
             main_n_f=tuple(map(float, np.asarray(main_n) + excess_f)),
             diff_n_f=tuple(map(float, diff_n)),
-            # the gain is the design's plates over the whole load: the rest of it is the parasitic
-            parasitic_f=float(main_f.sum() + diff_f.sum()) * (1 / self.gain - 1),
+            # the gain is the design's plates over the whole load: the rest of it, beside the plates
+            # as drawn, is the parasitic
+            parasitic_f=design_f * (1 / self.gain - 1) - float(excess_f.sum()),
             settling_tau_s=max(self.tau_s),
             stage_tau_s=self.tau_s,
             stage_delay_s=self.delay_s,

@@ -273,23 +273,25 @@ def test_the_model_switches_its_dacs_design_plates_as_characterized() -> None:
 
 def test_the_model_converts_on_its_dacs_array_as_drawn() -> None:
     """A DAC whose measured steps are not its design's (a unit drawn other than designed, at the
-    PDK's smallest): each stage's share of the switched plates the conversion switches is its share
-    of the measured steps, the decoding's extracted weights, while the top plate's load and the full
-    scale stay the design's at the drawn gain; a Pelgrom draw is of the design's plates, as the DAC's
-    Monte Carlo draws them, and drawn so too."""
-    weights = np.asarray(capdac.Model.weights(TB.dut.cdac), dtype=np.float64)
-    steps = 1e-4 * weights
-    steps[-1] *= 3.0  # the last stage drawn three times as heavy, the first 2 % light
+    PDK's smallest): its top plate's load is the design's plates at the drawn gain, and each stage's
+    switched plate gives its measured step at that load (each side half the differential step), so
+    the steps the conversion switches are the decoding's extracted weights and the full scale is
+    half their sum; a Pelgrom draw is of the design's plates, as the DAC's Monte Carlo draws them,
+    and drawn so too."""
+    main_f, diff_f = capdac.Model.plates(TB.dut.cdac, 1.2)
+    plates_f = float(np.sum(main_f + diff_f))
+    # the design's steps at a gain of 0.8, the last stage drawn three times as heavy, the first 2 %
+    # light
+    steps = 2 * 1.2 * 0.8 * (main_f - diff_f) / plates_f
+    steps[-1] *= 3.0
     steps[0] *= 0.98
     model = _stand_in(replace(_dac(TB.dut, gain=0.8), step_v=tuple(steps)))
-    main_f, diff_f = capdac.Model.plates(TB.dut.cdac, 1.2)
     dac = model.behavioral(TB).cdac
     switched = np.asarray(dac.main_p_f) - np.asarray(dac.diff_p_f)
-    np.testing.assert_allclose(switched / switched.sum(), steps / steps.sum(), rtol=1e-12)
     assert dac.main_n_f == dac.main_p_f and dac.diff_p_f == dac.diff_n_f == tuple(diff_f)
-    assert model.load_f == pytest.approx(float(np.sum(main_f + diff_f)) / 0.8, rel=1e-12)
-    design_scale = float(np.sum(main_f - diff_f) / np.sum(main_f + diff_f))
-    assert model.full_scale_v == pytest.approx(1.2 * 0.8 * design_scale, rel=1e-12)
+    assert model.load_f == pytest.approx(plates_f / 0.8, rel=1e-12)
+    np.testing.assert_allclose(2 * 1.2 * switched / model.load_f, steps, rtol=1e-12)
+    assert model.full_scale_v == pytest.approx(steps.sum() / 2, rel=1e-12)
     rng = np.random.default_rng(7)
     expected = [capdac.Model.draw(plate, pelgrom=0.01, rng=rng) for _side in "pn" for plate in (main_f, diff_f)]
     seeded = model.behavioral(TB, seed=7, unit_mismatch=0.01).cdac

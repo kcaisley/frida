@@ -142,17 +142,19 @@ def test_the_behavioral_defaults_are_ideal() -> None:
 
 def test_a_record_gives_the_drawn_gain_area_and_settling(monkeypatch: pytest.MonkeyPatch) -> None:
     """``Model.of`` on a stand-in record in a PDK of a 0.9 V supply: its plates are the design's at
-    that supply, at which the netlist draws them and the characterization runs, each stage's main
-    plate drawn so that its share of the switched plates is its share of the measured steps (their
-    total the design's); the gain is the design's plates over the drawn top plate's whole load, so
-    the rest of it is the parasitic; a Monte Carlo draw of the design's plates is drawn so too, the
-    parasitic stays. The measurement its settling run keeps is found under the repository, as the
-    record names it, and read once: each stage's step its magnitude."""
+    that supply, at which the netlist draws them and the characterization runs; the gain is the
+    design's plates over the drawn top plate's whole load, and each stage's main plate is drawn so
+    that its step at that load is the one measured, the rest of the load the parasitic: the plates'
+    full scale is half the measured steps' sum. A Monte Carlo draw of the design's plates is drawn
+    so too, the parasitic stays. The measurement its settling run keeps is found under the
+    repository, as the record names it, and read once: each stage's step its magnitude."""
     params = Params(bits=10, redundancy=Redundancy.BINARY, extra=0)
     stages = len(Model.weights(params))
-    # the steps as measured: the design's at some gain, stage 2's 2 % large; each in its slower
-    # direction, every other one falling
-    steps = 0.7e-3 * np.asarray(Model.weights(params), dtype=np.float64)
+    main_f, diff_f = Model.plates(params, 0.9)
+    plates_f = float(main_f.sum() + diff_f.sum())
+    # the steps as measured (differential, both sides switching): the design's at the gain, stage
+    # 2's 2 % large; each in its slower direction, every other one falling
+    steps = 2 * 0.9 * 0.8 * (main_f - diff_f) / plates_f
     steps[2] *= 1.02
     read = []
     monkeypatch.setattr(capdac_model, "read_measurement", lambda path: read.append(path) or "settling")
@@ -178,20 +180,25 @@ def test_a_record_gives_the_drawn_gain_area_and_settling(monkeypatch: pytest.Mon
     assert read == [model.settling_meas]
     np.testing.assert_allclose(model.step_v, steps, rtol=1e-15)
     dac = model.behavioral()
-    main_f, diff_f = Model.plates(params, 0.9)
-    plates_f = float(main_f.sum() + diff_f.sum())
-    assert plates_f / (plates_f + dac.parasitic_f) == pytest.approx(0.8, rel=1e-12)
-    # the plates as drawn: the switched plates' total the design's, each stage's share the measured
-    # step's; the difference plates the design's
+    # the plates as drawn: each top plate's load the design's plates over the gain, each stage's
+    # single-sided step at it half its measured one, so stage 2's main plate alone departs from the
+    # design's, and the full scale is half the steps' sum; the difference plates the design's
     main_p = np.asarray(dac.main_p_f)
+    load_f = float(main_p.sum() + diff_f.sum()) + dac.parasitic_f
+    assert load_f == pytest.approx(plates_f / 0.8, rel=1e-12)
     assert dac.main_n_f == dac.main_p_f and dac.diff_p_f == dac.diff_n_f == tuple(diff_f)
-    assert float(main_p.sum() + diff_f.sum()) == pytest.approx(plates_f, rel=1e-12)
-    np.testing.assert_allclose((main_p - diff_f) / float((main_f - diff_f).sum()), steps / steps.sum(), rtol=1e-12)
+    np.testing.assert_allclose(0.9 * (main_p - diff_f) / load_f, steps / 2, rtol=1e-12)
+    excess = main_p - main_f
+    assert excess[2] == pytest.approx(0.02 * (main_f - diff_f)[2], rel=1e-9)
+    assert np.all(np.abs(np.delete(excess, 2)) <= 1e-12 * main_f.max())
+    assert 0.9 * float((main_p - diff_f).sum()) / load_f == pytest.approx(steps.sum() / 2, rel=1e-12)
     assert dac.stage_delay_s == (50e-12,) * stages and dac.stage_tau_s == (40e-12,) * stages
     assert dac.settling_tau_s == 40e-12 and dac.driver_energy_j == 0.0
     # a draw of the design's plates is drawn so too, and keeps the drawn gain
     drawn = model.behavioral(((1.01 * main_f, diff_f), (main_f, 0.99 * diff_f)))
-    np.testing.assert_allclose(np.asarray(drawn.main_p_f) - 1.01 * main_f, main_p - main_f, rtol=1e-9, atol=1e-30)
+    np.testing.assert_allclose(
+        np.asarray(drawn.main_p_f) - 1.01 * main_f, excess, rtol=1e-9, atol=1e-12 * float(main_f.max())
+    )
     assert drawn.main_n_f == dac.main_n_f and drawn.diff_n_f == tuple(0.99 * diff_f)
     assert drawn.parasitic_f == dac.parasitic_f
     # a record the layout step has not reached has no area, one that keeps no run no measurement:

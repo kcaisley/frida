@@ -11,17 +11,18 @@ the PDK, looked up by the same parameters its netlist generator takes. The DAC's
 never run here (minutes of SPICE an array, which every converter on the array would wait for:
 ``python -m flow run capdac`` runs it ahead); where there is none, the DAC converts as designed
 (``capdac.Model.design``), with a warning. Its plates are the array as drawn: its design's at the
-reference they are drawn for, each stage's main plate drawn so that its step is the one measured
-(``capdac.Model.behavioral``), loaded by the rest of the drawn top plate (its measured gain), so the
-"extracted" weights a capture decodes with, those measured steps, are the plates' own; each stage's
-step starts its driver's delay after the LOGIC edge and settles with its own time constant, as
-measured; and the converter calibrates on one of its Monte Carlo draws (``Model.drawn``). Its
-drivers' energy is not characterized (its settling run saves no supply current): they draw none
-here, which the record states. The SAR logic is the fixed digital netlist built by OpenROAD: it is
-not characterized, so its energies are the ones fitted to the FRIDA-2 three-layer PEX transient
-(``_SALOGIC``). The DAC's reference is ideal here, the front end's own characterization; a
-``Reference`` (driver resistance, decoupling capacitance, noise) is what the reference study
-(``Model.reference_requirements``, below) varies to find the reference buffer's requirements.
+reference they are drawn for, its top plate loaded as its measured gain gives, each stage's main
+plate drawn so that its step at that load is the one measured (``capdac.Model.behavioral``), so
+its full scale is the measured steps' and the "extracted" weights a capture decodes with, those
+steps, are the plates' own; each stage's step starts its driver's delay after the LOGIC edge and
+settles with its own time constant, as measured; and the converter calibrates on one of its Monte
+Carlo draws (``Model.drawn``). Its drivers' energy is not characterized (its settling run saves no
+supply current): they draw none here, which the record states. The SAR logic is the fixed digital
+netlist built by OpenROAD: it is not characterized, so its energies are the ones fitted to the
+FRIDA-2 three-layer PEX transient (``_SALOGIC``). The DAC's reference is ideal here, the front
+end's own characterization; a ``Reference`` (driver resistance, decoupling capacitance, noise) is
+what the reference study (``Model.reference_requirements``, below) varies to find the reference
+buffer's requirements.
 
 The SAR loop (``convert_behavioral``) runs four blocks driven by HDL21 parameters. The sampler, the
 comparator and the capacitor array with its drivers are their blocks' models
@@ -193,15 +194,16 @@ class Model:
 
     @property
     def load_f(self) -> float:
-        """Each top plate's whole load: its DAC's plates and the rest of the drawn top plate (the
-        parasitic at which they give the measured gain)."""
+        """Each top plate's whole load: its DAC's design plates over the measured gain, the plates as
+        drawn and the parasitic beside them (``capdac.Model.behavioral``)."""
         dac = self.cdac.behavioral()
         return float(np.sum(dac.main_p_f) + np.sum(dac.diff_p_f)) + dac.parasitic_f
 
     @property
     def full_scale_v(self) -> float:
         """The differential full scale (+-): the reference across the switched plates' share of the
-        top plate, main less difference with the difference plates in use."""
+        top plate, main less difference with the difference plates in use; half the sum of the
+        DAC's measured steps where its characterization keeps them."""
         dac = self.cdac.behavioral()
         effective = float(np.sum(dac.main_p_f) - np.sum(dac.diff_p_f))
         return self.supply_v * effective / self.load_f
