@@ -49,13 +49,17 @@ def test_an_array_of_its_own_weights_keeps_them() -> None:
 def test_the_plates_main_less_difference_are_the_weights(params: Params, weight_impl: WeightImpl) -> None:
     """Each stage's main less difference plates is its weight's share of the side's switched
     capacitance: scale times 24 kT / LSB^2 at a full scale of the reference (26 fF at 10 bits and
-    1 V, one minimum). Unit capacitors have no difference plates. A run's plates are these at its
-    supply."""
+    1 V, one minimum). Their sum, the top plate's load that sets the full scale, is a strip's whole
+    coarse weight for each of the stage's pieces, a unit capacitor's its own weight. Unit
+    capacitors have no difference plates. A run's plates are these at its supply."""
     params = Params(**{**params.__dict__, "weight_impl": weight_impl})
     main_f, diff_f = Model.plates(params, 1.2)
     weights = np.asarray(Model.weights(params), dtype=np.float64)
     switched_f = params.scale * 24 * Boltzmann * 300.0 / (2 * 1.2 / 2**params.bits) ** 2
     np.testing.assert_allclose(main_f - diff_f, switched_f * weights / weights.sum(), rtol=1e-12)
+    pieces = np.ceil(weights / params.coarse_weight)
+    whole = pieces * params.coarse_weight if weight_impl is WeightImpl.DIFFERENCE_CAPS else weights
+    np.testing.assert_allclose(main_f + diff_f, switched_f * whole / weights.sum(), rtol=1e-12)
     assert np.all(diff_f >= 0) and np.all(main_f > diff_f)
     if weight_impl is WeightImpl.UNIT_CAPS:
         assert not diff_f.any()
@@ -64,6 +68,14 @@ def test_the_plates_main_less_difference_are_the_weights(params: Params, weight_
     np.testing.assert_array_equal(diff_f, tb.diff_f)
     one = Model.plates(Params(bits=10, redundancy=Redundancy.BINARY, extra=0, scale=1), 1.0)
     assert float((one[0] - one[1]).sum()) == pytest.approx(26.06e-15, rel=1e-3)
+
+
+def test_frida1s_design_switches_78_percent_of_its_top_plate() -> None:
+    """FRIDA-1's array as designed at 1.2 V: its switched plates, main less difference, 78.0 % of
+    every plate on the top plate (its full scale over the reference), 742 fF a side."""
+    main_f, diff_f = Model.plates(frida1(), 1.2)
+    assert float((main_f - diff_f).sum() / (main_f + diff_f).sum()) == pytest.approx(0.78011, abs=1e-5)
+    assert float((main_f + diff_f).sum()) == pytest.approx(742.3e-15, rel=1e-4)
 
 
 def test_a_draw_follows_pelgroms_area_scaling() -> None:
