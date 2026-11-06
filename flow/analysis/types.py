@@ -159,7 +159,7 @@ class MeasAdc(Meas):
         cdac = getattr(self.param, "cdac", None)
         if cdac is None:
             return float(tb.vdd_dac.dc) / self.code_max
-        from flow.adc.behavioral import calc_side_capacitances
+        from flow.adc.subckt import calc_side_capacitances
 
         main_f, diff_f = calc_side_capacitances(cdac, tb, "p")
         effective_f = np.sum(main_f) + (-1 if tb.dac_diffcaps else 1) * np.sum(diff_f)

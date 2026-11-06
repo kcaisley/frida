@@ -31,6 +31,10 @@ output pins), constants on its tie cells and ports that only alias another net b
 Register 0 drives C0, as in the RTL. The netlist is cached beside the blocks' characterizations
 (``flow.sweep.lookup.MODELS_DIR``), under ``adc_digital/``.
 
+The plates the arrays have: ``calc_ideal_capacitances``, the ideal capacitances ``CapArray``
+generates, and ``calc_side_capacitances``, one side's as a behavioral DAC (``flow.adc.model``) gives
+them, ideal where it gives none.
+
 The hardened ADC/digital interfaces and the canonical-to-physical net bindings of the extracted
 views (``adc_pex``, ``adc_port_aliases``, ``frida1_net_aliases``, ``frida2_net_aliases``): physical
 names are relative to the selected ADC instance. Save statements and raw readers add that instance
@@ -48,11 +52,12 @@ from functools import cache
 from pathlib import Path
 
 import hdl21 as h
+import numpy as np
 from hdl21.primitives import MosType
 
 from flow import comp, samp
-from flow.adc.params import Params
-from flow.cdac.caparray import CapArray, CapArrayParams, get_caparray_weights
+from flow.adc.params import Params, TbParams
+from flow.cdac.caparray import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights, unit_capacitance_f
 from flow.cdac.capdriver import CapDriver, CapDriverParams, Cells
 from flow.circuit.ports import module_from_ports, port_connections
 from flow.sweep.lookup import MODELS_DIR
@@ -230,6 +235,43 @@ def Adc(p: Params) -> h.Module:
     )
 
     return Adc
+
+
+# The arrays' plates: the capacitances CapArray generates, and one side's as the behavioral DAC
+# (``flow.adc.model``) gives them
+
+
+def calc_ideal_capacitances(cdac: CapArrayConfig) -> tuple[np.ndarray, np.ndarray]:
+    """Return the ideal C0-first main and diff capacitances that ``CapArray`` generates at the
+    config's unit capacitance (``unit_capacitance_f``).
+
+    Each weight is split into coarse chunks; a chunk adds
+    ``unit * (coarse +/- chunk) / 2 + tail`` to the main and diff plates.
+    """
+    array = CapArrayParams(cdac=cdac)
+    unit_f = unit_capacitance_f(cdac)
+    tail_f = unit_f / 2 if array.tail_cap is None else float(array.tail_cap)
+    main_f, diff_f = [], []
+    for weight in get_caparray_weights(cdac):
+        chunks = [array.coarse_weight] * (weight // array.coarse_weight)
+        if weight % array.coarse_weight:
+            chunks.append(weight % array.coarse_weight)
+        main_f.append(sum(unit_f * (array.coarse_weight + chunk) / 2 + tail_f for chunk in chunks))
+        diff_f.append(sum(unit_f * (array.coarse_weight - chunk) / 2 + tail_f for chunk in chunks))
+    return np.asarray(main_f), np.asarray(diff_f)
+
+
+def calc_side_capacitances(behavioral: object, tb: TbParams, side: str) -> tuple[np.ndarray, np.ndarray]:
+    """Return one side's main and diff capacitances, ideal where not given: ``behavioral`` is the
+    behavioral DAC (``flow.adc.model.CdacBehavioralParams``), read by attribute."""
+
+    ideal_main_f, ideal_diff_f = calc_ideal_capacitances(tb.dut.cdac)
+    main = getattr(behavioral, f"main_{side}_f")
+    diff = getattr(behavioral, f"diff_{side}_f")
+    return (
+        ideal_main_f if main is None else np.asarray(main),
+        ideal_diff_f if diff is None else np.asarray(diff),
+    )
 
 
 # The digital block: its netlist at a stage count and its pins bound to the canonical nets

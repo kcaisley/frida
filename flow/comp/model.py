@@ -12,7 +12,7 @@ slowest response. A comparator whose nominal S-curve gives no fit has no noise a
 than 1 % of its decisions unresolved at the characterization's clock (1 ns reset, 4 ns evaluation),
 or no monotonic transition within the +-3 mV the S-curve spans.
 
-The decision is the model's own physics, which the behavioral ADC (``flow.adc.behavioral``) runs:
+The decision is the model's own physics, which the behavioral ADC (``flow.adc.model``) runs:
 ``Model.Behavioral``, the comparator beyond its ``Params`` (what ``behavioral`` gives at a common
 mode: its noise, offset, energy and delay curve), and ``Model.compare``, the decision with that
 noise and offset, late where the input is too small to regenerate in time; where no noise is

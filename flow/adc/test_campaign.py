@@ -12,7 +12,6 @@ from scipy import constants
 
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
-from flow.adc.behavioral import calc_ideal_capacitances
 from flow.adc.campaign import (
     FIN_CYCLES,
     FIN_RATES_HZ,
@@ -25,6 +24,7 @@ from flow.adc.campaign import (
 )
 from flow.adc.figures import FIGURES, _extracted, enob_ladder
 from flow.adc.params import Params
+from flow.adc.subckt import calc_ideal_capacitances
 from flow.analysis.adc import analyze_adc_dynamic
 from flow.cdac.caparray.subckt import CapArrayConfig, RedunStrat
 

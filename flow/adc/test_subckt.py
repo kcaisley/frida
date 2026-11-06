@@ -5,13 +5,14 @@ import shutil
 from pathlib import Path
 
 import hdl21 as h
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from flow.cdac.caparray import CapArrayConfig, RedunStrat
+from flow.cdac.caparray import CapArrayConfig, RedunStrat, get_caparray_weights, unit_capacitance_f
 
 from .params import Params
-from .subckt import Adc, digital_net_aliases
+from .subckt import Adc, calc_ideal_capacitances, digital_net_aliases
 
 
 def test_adc():
@@ -36,6 +37,12 @@ def test_invalid_adc_params_are_refused_when_made():
 def test_adc_accepts_a_binary_array_with_sixteen_physical_stages():
     params = Params(cdac=CapArrayConfig(n_dac=16, n_extra=0, redun_strat=RedunStrat.BINARY))
     assert Adc(params).dac_state_p.width == 16
+
+
+def test_ideal_capacitances_reproduce_the_generated_weights() -> None:
+    cdac = CapArrayConfig()
+    main_f, diff_f = calc_ideal_capacitances(cdac)
+    np.testing.assert_allclose((main_f - diff_f) / unit_capacitance_f(cdac), get_caparray_weights(cdac))
 
 
 def _tsmc65_cells() -> bool:

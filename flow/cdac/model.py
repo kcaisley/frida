@@ -4,7 +4,7 @@ delay and the time constant that reproduces it, from the SPICE characterization 
 
     model = cdac.model.Model.of("tsmc65", cdac.adc_array.spaces("tsmc65")["12b_msb_redist3_x2"].base)
 
-The behavioral ADC (``flow.adc.behavioral``) starts each stage's step its driver's delay after the
+The behavioral ADC (``flow.adc.model``) starts each stage's step its driver's delay after the
 LOGIC edge and settles it as one exponential; with this model's time constants a step comes within
 half an LSB exactly when the testbench's does. A characterization missing from the sweep's newest
 run is simulated on first use (``simulate=True``) and kept under the build's models.

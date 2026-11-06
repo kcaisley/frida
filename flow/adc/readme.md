@@ -94,7 +94,7 @@ code level, not tolerance, and leave the integer codes); `MSB_REDIST` is FRIDA's
 run of paired powers of two taken from the MSB and added from the third stage on, its tolerance
 spread over the whole chain. Every one of the design space's arrays keeps a non-negative redundancy
 margin at every stage, and an ideal SAR on its weights converts every code to itself
-([test_behavioral.py](test_behavioral.py)).
+([test_analysis.py](test_analysis.py)).
 
 ## Simulation acquisition families
 

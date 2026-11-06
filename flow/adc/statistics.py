@@ -42,7 +42,7 @@ and takes each code's width as the sum of its paths', linear in every plate's er
 transition sigma is the largest of the codes whose width starts at its decision.
 
 **Redundancy margin.** Stage k tolerates a wrong decision within q_k (Ogawa et al.,
-``calc_redundancy_margins``): a wrong 1 there takes b_k, and the 0s after it give back
+``flow.adc.analysis._redundancy_margins``): a wrong 1 there takes b_k, and the 0s after it give back
 sum_{j>k} a_j, so q_k moves with exactly those steps' errors. Its sigma is theirs, and q_k / sigma
 says how many sigma of mismatch would close the margin (a negative margin is a gap: missing codes).
 
@@ -93,7 +93,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.special import ndtr
 
-from flow.adc.behavioral import calc_redundancy_margins
+from flow.adc.analysis import _redundancy_margins
 from flow.analysis import calc
 from flow.analysis.calc import calc_paths
 
@@ -244,7 +244,7 @@ class MismatchStatistics:
         weight_sigma = lsb_per_farad * np.sqrt((main + diff) * FEMTO)
         remaining = np.cumsum(weights[::-1])[::-1]
         # Ogawa's margin is in the decoder's weights, a step's half: in output LSB
-        margin_lsb = (calc_redundancy_margins(weights) / 100 * remaining)[:stages] / 2 * code_max / np.sum(weights)
+        margin_lsb = (_redundancy_margins(weights) / 100 * remaining)[:stages] / 2 * code_max / np.sum(weights)
         # a wrong 1 at stage k (its n step taken) is undone by 0s after it (p steps): the margin is
         # sum_{j>k} a_j - b_k (and the mirror), its error that of those steps
         later = np.triu(np.ones((stages, stages), dtype=np.int64), 1)

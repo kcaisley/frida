@@ -8,7 +8,7 @@ import numpy as np
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
 from flow import adc
-from flow.adc.behavioral import calc_ideal_capacitances
+from flow.adc.subckt import calc_ideal_capacitances
 
 from . import model as cdac_model
 from .test_subckt import PARAMS

@@ -8,7 +8,7 @@ The characterization's on-resistance over the input level (into 1 pF, the gate a
 sets the tracking lag of each side, ``R(v) C dv/dt``; the held kT/C noise follows from the load
 the ADC puts on it, and the aperture jitter is assumed (the clock is not characterized).
 
-The held voltage is the model's own physics, which the behavioral ADC (``flow.adc.behavioral``)
+The held voltage is the model's own physics, which the behavioral ADC (``flow.adc.model``)
 runs: ``Model.Behavioral``, the switch beyond its ``Params`` (what ``behavioral`` gives for a load:
 its noise, jitter and on-resistance curve), and ``Model.sample``, each side held through its
 input-dependent RC; ``Model.resistance`` is that on-resistance, the measured curve or, without

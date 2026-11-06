@@ -19,7 +19,7 @@ class AnalysisSettling(Analysis):
     stays within ``tolerance_v`` (half an LSB) of its final value; NaN where an edge is missing.
     ``ideal_step_v`` is the step the capacitances alone give, ``full_scale_v`` the converter's.
 
-    The behavioral ADC (``flow.adc.behavioral``) starts each stage's step its driver's delay after
+    The behavioral ADC (``flow.adc.model``) starts each stage's step its driver's delay after
     the edge and settles it as one exponential: ``tau_s`` is the time constant that brings the
     measured step within half an LSB exactly when SPICE does, (settling - delay) / ln(|step| / half
     an LSB), in each stage's slower direction (0 for a step that never leaves the tolerance). A

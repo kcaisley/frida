@@ -24,7 +24,6 @@ from pathlib import Path
 
 import numpy as np
 
-from flow.adc.behavioral import calc_redundancy_margins
 from flow.analysis.adc import (
     analyze_adc_code_spectrum,
     analyze_adc_decision_paths,
@@ -38,9 +37,10 @@ from flow.analysis.io import read_extracted_calibration
 from flow.analysis.types import MeasAdc
 from flow.pipeline import Plot
 
-from .behavioral import calc_side_capacitances
+from .analysis import _redundancy_margins
 from .campaign import LADDER, NOMINAL_RATE_HZ, UNIT_MISMATCH, hsu_errors, input_noise, ladder_names
 from .statistics import MismatchStatistics
+from .subckt import calc_side_capacitances
 
 # the figures, in the order the viewer shows them: name -> title. Each is one curve (one series, or
 # one family of decision paths), so instances compared on one plot stay readable; what a second
@@ -292,8 +292,8 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
     decoded = ramps | {label: analyze_adc_ramp(check, calibration=c) for label, c in learned.items()}
     # each stage's error tolerance: the design's weights and the extracted array's
     redundancy = {
-        "Design weights": calc_redundancy_margins(extracted.nominal_weights),
-        "Extracted weights": calc_redundancy_margins(extracted.calibrated_weights),
+        "Design weights": _redundancy_margins(extracted.nominal_weights),
+        "Extracted weights": _redundancy_margins(extracted.calibrated_weights),
     }
     # the decodings a ramp is graded by: the design weights (the converter as it comes) and the
     # calibration that grades the check ramp best (calibration 3 keeps the design weights where its

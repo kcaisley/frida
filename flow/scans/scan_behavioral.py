@@ -6,7 +6,7 @@ Run from /local/frida:
     uv run python -m flow.scans.scan_behavioral <target>
 
 Each target builds HDL21 ``adc.TbParams`` exactly as a SPICE target would and
-converts them with ``flow.adc.behavioral``, writing one ``MeasAdc`` per case
+converts them with ``flow.adc.model``, writing one ``MeasAdc`` per case
 beneath ``build/scan_behavioral/<timestamp>_<target>/``. The stored DOUT is
 the nominal design-weight decoding the FPGA performs. The model switches the
 reviewed three-layer PEX main and diff capacitances; the sampler,
@@ -30,11 +30,10 @@ import flow.comp.model as comp_model
 import flow.samp.model as samp_model
 from flow import adc
 from flow import comp as comparator
-from flow.adc.behavioral import (
+from flow.adc.model import (
     AdcBehavioralParams,
     CdacBehavioralParams,
     SalogicBehavioralParams,
-    calc_ideal_capacitances,
     cdac,
     convert_behavioral,
 )
@@ -44,6 +43,7 @@ from flow.adc.sim import (
     calc_source_value,
     symbol160_init4_samp20_comp11110000_logic00001111,
 )
+from flow.adc.subckt import calc_ideal_capacitances
 from flow.analysis.io import write_analysis, write_measurement
 from flow.analysis.types import MeasAdc, MeasCdac, MeasInfo
 from flow.cdac.caparray import get_caparray_weights

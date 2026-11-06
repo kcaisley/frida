@@ -144,8 +144,8 @@ def _metastability(model) -> dict[str, float]:
     """The comparator's regeneration time constant, the time a decision has at the nominal rate
     (the shortest of its sequence's windows), and the input below which it is late there, in LSB:
     the measured delay extrapolated by the time constant, V0 * exp(-(window - t0) / tau)."""
-    from .behavioral import calc_decision_windows
     from .campaign import NOMINAL_RATE_HZ
+    from .model import calc_decision_windows
 
     tb = model.tb(conversions=1, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.0))
     window_s = float(min(calc_decision_windows(tb, model.stages + 1)))
