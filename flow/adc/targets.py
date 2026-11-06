@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import hdl21 as h
-import matplotlib as mpl
 
 from flow import comp, new_run
 from flow.adc.sim import (
@@ -22,10 +21,6 @@ from flow.analysis.io import (
     read_measurement,
     read_measurement_param,
     write_analysis,
-)
-from flow.analysis.plots import (
-    plot_waveforms,
-    style_measurement_text,
 )
 from flow.analysis.studies import BASE_PATH
 from flow.analysis.types import (
@@ -54,6 +49,7 @@ from .analysis import (
     analyze_power,
     analyze_ramp,
     analyze_sequence_map,
+    analyze_sequencer,
     analyze_timing_closure,
     analyze_timing_summary,
     analyze_transfer,
@@ -84,6 +80,7 @@ from .plots import (
     plot_sequence_enob,
     plot_sequence_plausible,
     plot_sequence_shift,
+    plot_sequencer,
     plot_spectrum_low,
     plot_spectrum_nyquist,
     plot_trajectory,
@@ -778,29 +775,11 @@ def sequence_study() -> tuple[Path, ...]:
                         analyze_timing_summary(measurement, closure=closure),
                     )
                 )
-                if flavor == sequence_plot_flavor and measurement.wave is not None:
-                    # Show the second saved conversion from its INIT rise.
-                    wave = measurement.wave
-                    init_rise_s = calc.cross(wave.v["seq_init"][1], wave.time_s, 0.6, edge="rising", initial_high=True)
-                    if not len(init_rise_s):
-                        raise ValueError(f"{case} has no INIT rise in its second record")
-                    with mpl.rc_context({"axes.xmargin": 0.0}):
-                        artifacts.extend(
-                            plot_waveforms(
-                                wave,
-                                record=1,
-                                time_origin_s=float(init_rise_s[0]),
-                                signals={
-                                    "seq_init": "INIT",
-                                    "seq_samp": "SAMP",
-                                    "seq_comp": "COMP",
-                                    "seq_logic": "LOGIC",
-                                },
-                                title=timing.replace("_", " "),
-                                setup_lines=style_measurement_text(measurement),
-                                output_path=output_dir / f"sequence_{timing}",
-                            )
-                        )
+                if flavor == sequence_plot_flavor:
+                    # the timing's clock diagram: its programmed sequence over one period
+                    artifacts.extend(
+                        render(plot_sequencer(analyze_sequencer(measurement)), output_dir / f"sequence_{timing}")
+                    )
                 print(f"Rendered PEX case {case}", flush=True)
                 measurements.append(measurement)
             noise = [analyze_noise(measurement) for measurement in measurements]

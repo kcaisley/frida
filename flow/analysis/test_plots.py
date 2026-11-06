@@ -34,7 +34,6 @@ from flow.analysis.plots import (
     plot_adc_comp_out_edge_eye,
     plot_adc_comparator_edge_eye,
     plot_adc_comparator_response,
-    plot_adc_power_waveform,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
     plot_comp_common_mode_campaign,
@@ -48,7 +47,6 @@ from flow.analysis.plots import (
 from flow.analysis.test_types import cdac_physical
 from flow.analysis.types import (
     AnalysisCdacCapMismatch,
-    MeasAdc,
     Wave,
 )
 from flow.comp.test_analysis import decisions_at
@@ -734,79 +732,3 @@ def test_power_rate_of_each_adc(tmp_path: Path) -> None:
         power_paths = render(figure, tmp_path / f"power_adc{measurement.param.observed_adc:02d}")
         assert_plot_formats(power_paths)
         assert "Supply power over the conversion rate" in read_svg(power_paths)
-
-
-def test_spice_power_rate_and_instantaneous_waveform_plots(tmp_path: Path) -> None:
-    readbacks = {
-        "vdd_a_active_average_power_w": 12.0e-6,
-        "vdd_d_active_average_power_w": 24.0e-6,
-        "vdd_dac_active_average_power_w": 36.0e-6,
-    }
-    measurement = adc_measurement(
-        [100, 101, 102],
-        readbacks=readbacks,
-        internal=True,
-        waveform_sample_count=201,
-    )
-    assert measurement.wave is not None
-    assert isinstance(measurement, MeasAdc)
-    time_s = measurement.wave.time_s
-    seq_init_v = np.zeros_like(measurement.wave.v["seq_init"])
-    seq_init_v[0, (time_s >= 25.0e-9) & (time_s <= 50.0e-9)] = 1.2
-    seq_samp_v = np.zeros_like(seq_init_v)
-    seq_samp_v[0, (time_s >= 75.0e-9) & (time_s <= 100.0e-9)] = 1.2
-    seq_comp_v = np.zeros_like(seq_init_v)
-    seq_comp_v[0, (time_s >= 125.0e-9) & (time_s <= 150.0e-9)] = 1.2
-    seq_logic_v = np.zeros_like(seq_init_v)
-    seq_logic_v[0, (time_s >= 175.0e-9) & (time_s <= 200.0e-9)] = 1.2
-    active_stop_s = 650.0e-9
-    currents = {}
-    for rail, static_current_a, active_current_a in (
-        ("vdd_a", 2.0e-6, 10.0e-6),
-        ("vdd_d", 4.0e-6, 20.0e-6),
-        ("vdd_dac", 6.0e-6, 30.0e-6),
-    ):
-        current_a = np.full_like(seq_init_v, active_current_a)
-        current_a[0, time_s > active_stop_s] = static_current_a
-        currents[rail] = current_a
-    measurement = replace(
-        measurement,
-        wave=replace(
-            measurement.wave,
-            i=currents,
-            v={
-                **measurement.wave.v,
-                "seq_init": seq_init_v,
-                "seq_samp": seq_samp_v,
-                "seq_comp": seq_comp_v,
-                "seq_logic": seq_logic_v,
-            },
-        ),
-    )
-    assert measurement.wave is not None
-    analysis = [adc.analyze_power(measurement)]
-
-    rate = plot_power_rate(analysis)
-    assert rate.series == {"Total": [float(f"{analysis[0].total_power_w:.6g}")]}
-    rate_paths = render(rate, tmp_path / "spice_ideal_power_vs_conversion_rate")
-    waveform_paths = plot_adc_power_waveform(
-        adc.analyze_power_waveform(measurement, power=analysis[0]),
-        output_path=tmp_path / "spice_ideal_10msps_supply_power",
-    )
-
-    assert rate_paths[0].name == "spice_ideal_power_vs_conversion_rate.png"
-    assert_plot_formats(rate_paths)
-    assert_plot_formats(waveform_paths)
-    waveform_svg = read_svg(waveform_paths)
-    assert "Analog (µW)" in waveform_svg
-    assert "Digital (µW)" in waveform_svg
-    assert "DAC (µW)" in waveform_svg
-    assert "Static average" in waveform_svg
-    assert "Active average" in waveform_svg
-    assert "Sequencer" in waveform_svg
-    assert "INIT" in waveform_svg
-    assert "SAMP" in waveform_svg
-    assert "COMP" in waveform_svg
-    assert "LOGIC" in waveform_svg
-    for tick in ("0", "125", "250", "375", "500", "625"):
-        assert f"<!-- {tick} -->" in waveform_svg

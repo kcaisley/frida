@@ -506,6 +506,16 @@ class AnalysisSequenceMap(Analysis):
     shift_dout: np.ndarray
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisSequencer(Analysis):
+    """A capture's sequence as its testbench programs it, over one period from INIT's rise: each of
+    the sequencer's outputs, INIT, SAMP, COMP and LOGIC (a row each, in that order), high or low at
+    each symbol, at the capture's symbol rate."""
+
+    symbol_rate_hz: float
+    high: np.ndarray
+
+
 @dataclass(frozen=True, slots=True)
 class AnalysisDynamic(Analysis):
     """Sine-fit, residual, spectrum, and dynamic ADC figures of merit.

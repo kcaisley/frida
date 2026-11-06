@@ -20,11 +20,10 @@ from matplotlib.patches import Patch
 from matplotlib.ticker import AutoMinorLocator, NullLocator, StrMethodFormatter
 from scipy.special import ndtr
 
-from flow import adc, comp
+from flow import comp
 from flow.adc.sim import AdcSequence
 from flow.analysis import calc
 from flow.analysis.types import (
-    Analysis,
     AnalysisAdcComparatorEdgeEye,
     AnalysisAdcComparatorResponse,
     AnalysisAdcCompOutEdgeEye,
@@ -213,12 +212,6 @@ def style_info_box(
     box.patch.set_alpha(mpl.rcParams["legend.framealpha"])
     box.patch.set_linewidth(mpl.rcParams["legend.linewidth"])
     ax.add_artist(box)
-
-
-def style_instance_text(analysis: Analysis) -> tuple[str, ...]:
-    """Name the ADC channel or Monte Carlo iteration a result belongs to."""
-
-    return () if analysis.index is None else (f"ADC: {analysis.index:02d}",)
 
 
 def style_measurement_group_text(msmt_list: Sequence[Meas | comp.AnalysisDecisions]) -> tuple[str, ...]:
@@ -1090,70 +1083,6 @@ def plot_adc_fastrx_scope_comparison(
     )
     style_info_box(axes[0], setup_lines)
     fig.suptitle("ADC scope and FastRX decision comparison")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_adc_power_waveform(
-    analysis: adc.AnalysisPowerWaveform,
-    *,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Plot instantaneous rail power and sequencer timing for one conversion."""
-
-    scale, unit = style_time_units(np.asarray((0.0, analysis.active_duration_s)))
-    scaled_time = analysis.time_s * scale
-    linear_threshold_uw = 1.0
-    power_limit_uw = 2.0e3
-    first_tick_decade = int(np.ceil(np.log10(linear_threshold_uw)))
-    last_tick_decade = int(np.floor(np.log10(power_limit_uw)))
-    positive_ticks = 10.0 ** np.arange(first_tick_decade, last_tick_decade + 1)
-    power_ticks = np.concatenate((-positive_ticks[::-1], np.asarray([0.0]), positive_ticks))
-    fig, axes = plt.subplots(
-        4,
-        1,
-        sharex=True,
-        gridspec_kw={"height_ratios": (1.0, 1.0, 1.0, 0.8)},
-    )
-    rail_labels = ("Analog", "Digital", "DAC")
-    rail_power_w = (analysis.analog_power_w, analysis.digital_power_w, analysis.dac_power_w)
-    for index, (ax, label, power_w, color) in enumerate(
-        zip(axes[:3], rail_labels, rail_power_w, CURVE_COLORS[:3], strict=True)
-    ):
-        instantaneous_power_uw = power_w * 1e6
-        static_power_uw = analysis.static_power_w[index] * 1e6
-        active_power_uw = analysis.active_power_w[index] * 1e6
-        ax.plot(scaled_time, instantaneous_power_uw, color=color, label="Instantaneous")
-        ax.axhline(static_power_uw, color=NORD_DARK, linestyle=":", label="Static average")
-        ax.axhline(active_power_uw, color=NORD_ORANGE, linestyle="--", label="Active average")
-        ax.set_ylabel(f"{label} (µW)")
-        ax.set_yscale("symlog", linthresh=linear_threshold_uw, linscale=0.6)
-        ax.set_yticks(power_ticks)
-        ax.set_ylim(-power_limit_uw, power_limit_uw)
-        style_grid(ax)
-        ax.legend(ncols=3)
-
-    timing_ax = axes[3]
-    timing_labels = ("INIT", "SAMP", "COMP", "LOGIC")
-    timing_states = (analysis.init_high, analysis.samp_high, analysis.comp_high, analysis.logic_high)
-    for row, (label, high, color) in enumerate(zip(timing_labels, timing_states, CURVE_COLORS, strict=False)):
-        timing_ax.step(scaled_time, row + 0.72 * high, where="post", color=color)
-    timing_ax.set_yticks(np.arange(len(timing_labels)) + 0.36, labels=timing_labels)
-    timing_ax.set_ylim(-0.15, len(timing_labels) - 0.05)
-    timing_ax.set_ylabel("Sequencer")
-    timing_ax.set_xlabel(f"Time ({unit})")
-    display_duration_scaled = analysis.active_duration_s * scale
-    display_margin_scaled = 0.02 * display_duration_scaled
-    timing_ax.set_xlim(-display_margin_scaled, display_duration_scaled + display_margin_scaled)
-    timing_ax.set_xticks(np.linspace(0.0, display_duration_scaled, 6))
-    style_grid(timing_ax)
-
-    setup_lines = [
-        *style_instance_text(analysis),
-        f"Conversion: {analysis.active_conversion_rate_hz / 1e6:g} MSPS",
-    ]
-    style_info_box(axes[0], setup_lines)
-    fig.suptitle("ADC instantaneous supply power")
     return save_figure(fig, output_path)
 
 

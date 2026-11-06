@@ -28,13 +28,15 @@ from flow.adc.analysis import (
     analyze_mismatch_prediction,
     analyze_noise,
     analyze_power,
+    analyze_power_waveform,
     analyze_ramp,
     analyze_sampling_noise,
     analyze_sequence_map,
+    analyze_sequencer,
     analyze_transfer,
 )
 from flow.adc.params import FINAL_DECISIONS, PELGROM_AXIS, UNIT_MISMATCH
-from flow.adc.sim import SEQUENCES
+from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.adc.test_analysis import (
     adc_cdac_settling_measurement,
     adc_conditions,
@@ -103,6 +105,10 @@ LAB_FIGURES = (
     "cdac_settling_first",
     "cdac_settling_middle",
     "cdac_settling_last",
+    "power_analog",
+    "power_digital",
+    "power_dac",
+    "sequencer",
 )
 
 
@@ -618,3 +624,70 @@ def test_the_cdac_settles_at_its_first_middle_and_last_stage(tmp_path: Path, mon
     monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
     (png, _pdf) = render(figures[0], tmp_path / "cdac_settling_first")
     assert plt.imread(png).shape[:2] == (2700, 4800)
+
+
+def _spice_power_measurement() -> MeasAdc:
+    """A simulated conversion with its sequencer's outputs (INIT 25-50 ns, SAMP 75-100 ns, COMP
+    125-150 ns, LOGIC 175-200 ns) and every rail's current, active until 650 ns."""
+    readbacks = {
+        "vdd_a_active_average_power_w": 12.0e-6,
+        "vdd_d_active_average_power_w": 24.0e-6,
+        "vdd_dac_active_average_power_w": 36.0e-6,
+    }
+    measurement = adc_measurement([100, 101, 102], readbacks=readbacks, internal=True, waveform_sample_count=201)
+    assert measurement.wave is not None
+    time_s = measurement.wave.time_s
+    levels = {}
+    for name, (start_s, stop_s) in {
+        "seq_init": (25e-9, 50e-9),
+        "seq_samp": (75e-9, 100e-9),
+        "seq_comp": (125e-9, 150e-9),
+        "seq_logic": (175e-9, 200e-9),
+    }.items():
+        levels[name] = np.zeros_like(measurement.wave.v["seq_init"])
+        levels[name][0, (time_s >= start_s) & (time_s <= stop_s)] = 1.2
+    currents = {}
+    for rail, static_a, active_a in (
+        ("vdd_a", 2.0e-6, 10.0e-6),
+        ("vdd_d", 4.0e-6, 20.0e-6),
+        ("vdd_dac", 6.0e-6, 30.0e-6),
+    ):
+        currents[rail] = np.full_like(levels["seq_init"], active_a)
+        currents[rail][0, time_s > 650e-9] = static_a
+    return replace(measurement, wave=replace(measurement.wave, i=currents, v={**measurement.wave.v, **levels}))
+
+
+def test_a_simulated_conversions_rail_power_and_its_sequencer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """One simulated conversion: the supply power over the rate; each rail's instantaneous power from
+    INIT's rise, a figure each, its static and active averages marked and the sampling phase shaded;
+    the capture's programmed sequencer outputs as a map, INIT on top, a cell a symbol; drawn on the
+    analysis plots' canvas."""
+    measurement = _spice_power_measurement()
+    power = analyze_power(measurement)
+    assert plots.plot_power_rate([power]).series == {"Total": [float(f"{power.total_power_w:.6g}")]}
+    waveform = analyze_power_waveform(measurement, power=power)
+    figures = [plots.plot_power_analog(waveform), plots.plot_power_digital(waveform), plots.plot_power_dac(waveform)]
+    assert [figure.title for figure in figures] == [
+        f"{supply} power over one conversion" for supply in ("VDD_A", "VDD_D", "VDD_DAC")
+    ]
+    samp = [(waveform.time_s[first], waveform.time_s[last]) for first, last in plots._runs(waveform.samp_high)]
+    for rail, figure in enumerate(figures):
+        assert figure.x == [float(f"{value:.6g}") for value in waveform.time_s]
+        assert list(figure.series.values()) == [[float(f"{value:.6g}") for value in waveform.rail_power_w[rail]]]
+        assert [(marker.at, marker.label) for marker in figure.y_markers] == [
+            (float(f"{waveform.static_power_w[rail]:.6g}"), "Static average"),
+            (float(f"{waveform.active_power_w[rail]:.6g}"), "Active average"),
+        ]
+        assert [band.label for band in figure.x_bands] == ["SAMP"]
+        assert [(band.low, band.high) for band in figure.x_bands] == pytest.approx(samp)
+    sequencer = analyze_sequencer(measurement)
+    diagram = plots.plot_sequencer(sequencer)
+    sequence = AdcSequence.from_tb_params(measurement.tb).relative_to_init()
+    assert diagram.y_labels == ["LOGIC", "COMP", "SAMP", "INIT"] and diagram.heatmap is not None
+    assert diagram.heatmap.z[3] == [1.0 if bit == "1" else 0.0 for bit in sequence.init]
+    assert diagram.heatmap.z[0] == [1.0 if bit == "1" else 0.0 for bit in sequence.logic]
+    assert diagram.heatmap.x[-1] == pytest.approx(len(sequence.init) / float(measurement.tb.symbol_rate))
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    for figure in (figures[0], diagram):
+        (png, _pdf) = render(figure, tmp_path / figure.name)
+        assert plt.imread(png).shape[:2] == (2700, 4800)

@@ -206,7 +206,7 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
         selected_cases.append("/".join(path.parts[-3:]))
         measurement = adc_timing_measurement()
         assert measurement.wave is not None
-        # The sequence clock figure shows the second saved conversion.
+        # two saved conversions, as the PEX runs keep them
         measurement = dataclasses.replace(
             measurement,
             wave=dataclasses.replace(
@@ -248,19 +248,13 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
         "analyze_sequence_map",
         lambda conditions: maps.append(len(conditions)) or analyze_sequence_map(conditions),
     )
-
-    def plot(*args, output_path, **kwargs):
-        return (output_path.with_suffix(".pdf"),)
-
-    for name in ("plot_waveforms",):
-        monkeypatch.setattr(adc_targets, name, plot)
     monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
 
     artifacts = study(monkeypatch, adc_targets, "sequence_study", output_dir)
     flavor_count = 7
     # each ADC's operating conditions and its three maps, the chip's maps; a case's three
     # decision-path figures (its codes among them), its CDAC settling at three stages and its timing
-    # summary; each flavor's operating conditions and maps
+    # summary; a timing's clock diagram (one flavor's); each flavor's operating conditions and maps
     assert len(artifacts) == 4 * 16 + 3 + 7 * case_count + clock_count + 4 * flavor_count
     assert len([path for path in artifacts if path.name.endswith("_trajectory_codes.pdf")]) == case_count
     assert maps == [1] * 16 + [16] + [1] * flavor_count
@@ -277,6 +271,8 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
         ]
     )
     assert len(enob["spice_frida2_3layer_radix17_sequence_enob"].y_labels) == 1
+    clocks = [plot for plot, stem in rendered if stem.startswith("sequence_")]
+    assert len(clocks) == clock_count and all(plot.y_labels == ["LOGIC", "COMP", "SAMP", "INIT"] for plot in clocks)
     assert len(set(selected_cases)) == case_count
     # Runners save figures and analysis HDF5 only: no CSV, JSON, text, or TeX reports.
     assert not [path for path in output_dir.iterdir() if path.suffix in {".csv", ".json", ".txt", ".tex", ".md"}]

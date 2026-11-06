@@ -38,11 +38,13 @@ from .types import (
     AnalysisMismatchPrediction,
     AnalysisNoise,
     AnalysisPower,
+    AnalysisPowerWaveform,
     AnalysisRamp,
     AnalysisRedundancy,
     AnalysisReference,
     AnalysisSamplingNoise,
     AnalysisSequenceMap,
+    AnalysisSequencer,
     AnalysisTransfer,
 )
 
@@ -694,6 +696,47 @@ def plot_cdac_settling_last(settling: AnalysisCdacSettling) -> Plot:
     return _settling("cdac_settling_last", settling, 2)
 
 
+@plot
+def plot_power_analog(waveform: AnalysisPowerWaveform) -> Plot:
+    """The analog supply's (VDD_A's) power over one simulated conversion, as ``_power`` draws a rail's."""
+    return _power(waveform, 0, "power_analog", "VDD_A")
+
+
+@plot
+def plot_power_digital(waveform: AnalysisPowerWaveform) -> Plot:
+    """The digital supply's (VDD_D's) power over one simulated conversion."""
+    return _power(waveform, 1, "power_digital", "VDD_D")
+
+
+@plot
+def plot_power_dac(waveform: AnalysisPowerWaveform) -> Plot:
+    """The DAC reference's (VDD_DAC's) power over one simulated conversion."""
+    return _power(waveform, 2, "power_dac", "VDD_DAC")
+
+
+@plot
+def plot_sequencer(sequencer: AnalysisSequencer) -> Plot:
+    """The sequencer's outputs over one period from INIT's rise (``analyze_sequencer``), a row each
+    with INIT on top and a cell a symbol, high where it is 1: a capture's timing diagram."""
+    period_s = 1.0 / sequencer.symbol_rate_hz
+    symbols = sequencer.high.shape[1]
+    return Plot(
+        "sequencer",
+        "Sequencer outputs over one period",
+        "Time from INIT's rise (s)",
+        "Sequencer output",
+        [],
+        {},
+        y_labels=["LOGIC", "COMP", "SAMP", "INIT"],
+        heatmap=Heatmap(
+            x=[_six(symbol * period_s) for symbol in range(symbols + 1)],
+            y=[row - 0.5 for row in range(5)],
+            z=[[1.0 if high else 0.0 for high in sequencer.high[row]] for row in (3, 2, 1, 0)],
+            label="High",
+        ),
+    )
+
+
 def _plot(name: str, title: str, x_label: str, y_label: str, x, series: dict[str, Any], **options: Any) -> Plot:
     """A figure's spec, its values to six significant digits, as the viewer's other exports."""
     return Plot(
@@ -764,6 +807,30 @@ def _peaks(x: np.ndarray, y: np.ndarray, runs: int = 2000) -> tuple[list[float],
     edges = np.linspace(0, len(x), runs + 1).astype(np.int64)
     picks = [start + int(np.argmax(y[start:stop])) for start, stop in pairwise(edges)]
     return np.asarray(x)[picks].tolist(), np.asarray(y)[picks].tolist()
+
+
+def _power(waveform: AnalysisPowerWaveform, rail: int, name: str, supply: str) -> Plot:
+    """One rail's instantaneous power from INIT's rise over one conversion (``analyze_power_waveform``,
+    its ``rail``-th: VDD_A, VDD_D, VDD_DAC), its static and active averages marked and the sampling
+    phase (SAMP high) shaded; the rest of the timing is ``plot_sequencer``'s."""
+    time_s = np.asarray(waveform.time_s, dtype=np.float64)
+    phases = [
+        Band(_six(time_s[first]), _six(time_s[last]), "SAMP")
+        for first, last in _runs(np.asarray(waveform.samp_high, dtype=np.bool_))
+    ]
+    return _plot(
+        name,
+        f"{supply} power over one conversion",
+        "Time from INIT's rise (s)",
+        "Power (W)",
+        time_s,
+        {supply: waveform.rail_power_w[rail]},
+        y_markers=[
+            Marker(_six(waveform.static_power_w[rail]), "Static average"),
+            Marker(_six(waveform.active_power_w[rail]), "Active average"),
+        ],
+        x_bands=phases,
+    )
 
 
 def _settling(name: str, settling: AnalysisCdacSettling, position: int) -> Plot:

@@ -164,6 +164,7 @@ from .types import (
     AnalysisRedundancy,
     AnalysisSamplingNoise,
     AnalysisSequenceMap,
+    AnalysisSequencer,
     AnalysisTimingClosure,
     AnalysisTimingSummary,
     AnalysisTransfer,
@@ -917,6 +918,24 @@ def analyze_sequence_map(conditions: Sequence[AnalysisOperatingConditions]) -> A
         plausible_count=np.where(measured.any(axis=0), plausible.sum(axis=0), np.nan),
         enob_bits=enob_bits,
         shift_dout=shift_dout,
+    )
+
+
+@analysis
+def analyze_sequencer(measurement: MeasAdc) -> AnalysisSequencer:
+    """A capture's sequence as its testbench programs it (``AdcSequence``: the sequencer's four rows),
+    from INIT's rise, as levels a symbol: the timing the capture ran, a physical one or a simulated
+    one alike."""
+
+    sequence = AdcSequence.from_tb_params(measurement.tb).relative_to_init()
+    rows = (sequence.init, sequence.samp, sequence.comp, sequence.logic)
+    identity = measurement.identity
+    return AnalysisSequencer(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        symbol_rate_hz=float(measurement.tb.symbol_rate),
+        high=np.asarray([[bit == "1" for bit in row] for row in rows], dtype=np.bool_),
     )
 
 
