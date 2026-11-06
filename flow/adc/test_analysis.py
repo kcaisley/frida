@@ -2299,8 +2299,9 @@ def test_the_ladder_starts_at_quantization_and_ends_on_enob_bits(tmp_path: Path,
     result = _ladder(captures)
     assert result is not None and len(result.enob_bits) == len(LADDER)
     ladder = result.enob_bits
-    # quantization alone reads the design resolution: the extracted weights' codes unrounded (whole
-    # codes would quantize a second time) and the -0.5 dBFS sine's SNDR referred to full scale
+    # quantization alone reads the resolution the array's steps give, here the design's (the stub's
+    # plates are its design's, every code kept): the extracted weights' codes unrounded (whole codes
+    # would quantize a second time) and the -0.5 dBFS sine's SNDR referred to full scale
     assert ladder[0] == pytest.approx(params.adc_bits, abs=0.02)
     # the sampler's input-dependent on-resistance distorts the held sine
     assert ladder[1] < ladder[0] - 0.5
