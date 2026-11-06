@@ -55,11 +55,10 @@ from flow.adc.analysis import (
     analyze_timing_closure,
     analyze_transfer,
 )
-from flow.adc.model import AdcBehavioralParams, CdacBehavioralParams
+from flow.adc.model import AdcBehavioralParams
 from flow.adc.params import LADDER, LADDER_NAMES, Params, TbParams
 from flow.adc.plots import plot_calibration_weights, plot_redundancy
 from flow.adc.sim import SEQUENCES, AdcSequence
-from flow.adc.subckt import calc_ideal_capacitances
 from flow.adc.sweep import _extracted, _ladder, campaign
 from flow.adc.types import AnalysisMismatch, AnalysisRedundancy
 from flow.analysis.calc import calc_drawn_linearity, calc_paths
@@ -71,7 +70,6 @@ from flow.analysis.types import (
     Wave,
 )
 from flow.capdac.test_analysis import comparator_offset
-from flow.cdac.caparray.model import calc_capacitor_mismatch
 from flow.plot import render
 from flow.scans.params import AdcScanParams
 from flow.scans.scan_cdac import _build_cdac_params
@@ -187,7 +185,7 @@ def _draws(main_f, unit_mismatch, count, seed=0):
     diff_f = np.zeros_like(main_f)
     dnl, inl = [], []
     for _ in range(count):
-        sides = [(calc_capacitor_mismatch(main_f, unit_mismatch=unit_mismatch, rng=rng), diff_f) for _ in "pn"]
+        sides = [(capdac.Model.draw(main_f, pelgrom=unit_mismatch, rng=rng), diff_f) for _ in "pn"]
         d, i, _missing = calc_drawn_linearity(
             sides, PARASITIC_F, _weights(main_f / UNIT_F), CODE_MAX, nominal=(main_f, diff_f)
         )
@@ -264,7 +262,7 @@ def test_a_captures_mismatch_is_its_nominal_arrays_statistics() -> None:
     # an 8-bit binary converter: seven capacitors and the free first comparison
     main_f = np.array([64, 32, 16, 8, 4, 2, 1], dtype=np.float64) * UNIT_F
     design = Params(adc_bits=8, cdac=capdac.Params(bits=8, redundancy=capdac.Redundancy.BINARY, extra=0))
-    cdac = CdacBehavioralParams(main_p_f=tuple(main_f), diff_p_f=(0.0,) * 7, parasitic_f=PARASITIC_F)
+    cdac = capdac.Model.Behavioral(main_p_f=tuple(main_f), diff_p_f=(0.0,) * 7, parasitic_f=PARASITIC_F)
     meas = MeasAdc(
         group=3,
         index=0,
@@ -2235,7 +2233,7 @@ def _stub_model(table: Path, params: Params):
     class Stub(model.Model):
         supply_v = 1.2
 
-    main_f, diff_f = calc_ideal_capacitances(params.cdac, 1.2)
+    main_f, diff_f = capdac.Model.plates(params.cdac, 1.2)
     rows = (f"{i},{m * 1e15:.6f},{d * 1e15:.6f},{(m - d) * 1e15:.6f}\n" for i, (m, d) in enumerate(zip(main_f, diff_f)))
     table.write_text("stage,main_ff,diff_ff,effective_ff\n" + "".join(rows))
     load_f = float(np.sum(main_f) + np.sum(diff_f))

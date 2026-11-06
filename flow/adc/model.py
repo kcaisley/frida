@@ -19,11 +19,11 @@ PEX transient (``_SALOGIC``). The DAC's reference is ideal here, the front end's
 a ``Reference`` (driver resistance, decoupling capacitance, noise) is what the reference study
 (``Model.reference_requirements``, below) varies to find the reference buffer's requirements.
 
-The SAR loop (``convert_behavioral``) runs four blocks driven by HDL21 parameters. The sampler and
-the comparator are their blocks' models (``flow.samp.model.Model.sample`` and
-``flow.comp.model.Model.compare``, each with its physics as ``Model.Behavioral``); ``salogic``
-and ``cdac`` model the SAR logic and the capacitor array with its drivers. Each takes its own
-behavioral parameters and can run alone; ``convert_behavioral`` wires them into the ADC loop of
+The SAR loop (``convert_behavioral``) runs four blocks driven by HDL21 parameters. The sampler, the
+comparator and the capacitor array with its drivers are their blocks' models
+(``flow.samp.model.Model.sample``, ``flow.comp.model.Model.compare`` and ``capdac.Model.switch``,
+each with its physics as ``Model.Behavioral``); ``salogic`` models the SAR logic. Each takes its
+own behavioral parameters and can run alone; ``convert_behavioral`` wires them into the ADC loop of
 ``TbParams``. Stage and decision counts come from the CDAC configuration, and every time from
 the programmed SEQ rows and symbol rate, so resolution and speed are free parameters.
 
@@ -121,38 +121,6 @@ def _cdac_arrays(pdk: str) -> dict[str, Space]:
 
 
 @h.paramclass
-class CdacBehavioralParams:
-    """Capacitor array per side and its drivers; None capacitances are ideal."""
-
-    main_p_f = h.Param(dtype=tuple[float, ...] | None, desc="C0-first P main capacitances", default=None)
-    diff_p_f = h.Param(dtype=tuple[float, ...] | None, desc="C0-first P diff capacitances", default=None)
-    main_n_f = h.Param(dtype=tuple[float, ...] | None, desc="C0-first N main capacitances", default=None)
-    diff_n_f = h.Param(dtype=tuple[float, ...] | None, desc="C0-first N diff capacitances", default=None)
-    parasitic_f = h.Param(dtype=float, desc="Top-plate capacitance to ground per side", default=0.0)
-    settling_tau_s = h.Param(dtype=float, desc="Single-pole top-plate settling time constant; 0 is ideal", default=0.0)
-    stage_tau_s = h.Param(
-        dtype=tuple[float, ...] | None,
-        desc="C0-first settling time constant after each stage switches; None uses settling_tau_s",
-        default=None,
-    )
-    stage_delay_s = h.Param(
-        dtype=tuple[float, ...] | None,
-        desc="C0-first delay from the LOGIC edge to each stage's plates starting to move; None is 0",
-        default=None,
-    )
-    driver_energy_j = h.Param(dtype=float, desc="Driver energy per bottom-plate transition", default=0.0)
-    driver_static_w = h.Param(dtype=float, desc="Static power per bottom-plate driver", default=0.0)
-    # the reference (VDD_DAC) as a driver of output resistance reference_r_ohm onto a decoupling
-    # capacitance reference_c_f, with white noise reference_noise_v at the node; the defaults are an
-    # ideal reference (the front end's own characterization), the reference study sets them
-    reference_r_ohm = h.Param(dtype=float, desc="Reference driver's output resistance; 0 is ideal", default=0.0)
-    reference_c_f = h.Param(dtype=float, desc="Reference node's decoupling capacitance; 0 is ideal", default=0.0)
-    reference_noise_v = h.Param(
-        dtype=float, desc="RMS reference noise at each decision, coupled by the plates held at it", default=0.0
-    )
-
-
-@h.paramclass
 class SalogicBehavioralParams:
     """SAR stage counter and branch select; energy is pinned per action and register."""
 
@@ -168,7 +136,7 @@ class AdcBehavioralParams:
     tb = h.Param(dtype=TbParams, desc="ADC stimulus and digital configuration", default=TbParams())
     samp = h.Param(dtype=samp_model.Model.Behavioral, desc="Sampler", default=samp_model.Model.Behavioral())
     comp = h.Param(dtype=comp_model.Model.Behavioral, desc="Comparator", default=comp_model.Model.Behavioral())
-    cdac = h.Param(dtype=CdacBehavioralParams, desc="Capacitor array and drivers", default=CdacBehavioralParams())
+    cdac = h.Param(dtype=capdac.Model.Behavioral, desc="Capacitor array and drivers", default=capdac.Model.Behavioral())
     salogic = h.Param(dtype=SalogicBehavioralParams, desc="SAR logic", default=SalogicBehavioralParams())
     seed = h.Param(dtype=int, desc="Noise random seed", default=0)
 
@@ -369,7 +337,7 @@ class Model:
             tb=tb,
             samp=samp,
             comp=comp,
-            cdac=CdacBehavioralParams(
+            cdac=capdac.Model.Behavioral(
                 **plates,
                 parasitic_f=self.cdac.parasitic_f,
                 settling_tau_s=self.settling_tau_s * tau_scale,
@@ -604,51 +572,6 @@ def salogic(tb: TbParams, state: dict[str, np.ndarray], stage: int, decided: np.
     return after
 
 
-def cdac(
-    params: CdacBehavioralParams, tb: TbParams, side: str, before: np.ndarray, after: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return one side's floating top-plate step, VDD_DAC charge, and bottom-plate transitions."""
-
-    main_f, diff_f = calc_side_capacitances(params, tb, side)
-    vref_v = float(tb.vdd_dac.dc)
-    diffcaps = int(tb.dac_diffcaps)
-    total_f = np.sum(main_f) + np.sum(diff_f) + params.parasitic_f
-    main_step = vref_v * (after - before)
-    diff_after = after ^ diffcaps
-    diff_step = vref_v * (diff_after - (before ^ diffcaps))
-    top_step = (main_step @ main_f + diff_step @ diff_f) / total_f
-    charge = (after * (main_step - top_step[:, None])) @ main_f + (
-        diff_after * (diff_step - top_step[:, None])
-    ) @ diff_f
-    transitions = 2 * np.sum(after != before, axis=1)
-    return top_step, charge, transitions
-
-
-def cdac_stage(
-    main_f: np.ndarray,
-    diff_f: np.ndarray,
-    total_f: float,
-    vref_v: float,
-    diffcaps: int,
-    stage: int,
-    before: np.ndarray,
-    after: np.ndarray,
-    at_vref_f: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """``cdac`` where one stage alone switches, from ``before`` to ``after`` (its column): the same
-    top-plate step, VDD_DAC charge and transitions in one column's work, ``at_vref_f`` the
-    capacitance whose bottom plates sit at the reference after the switch (main and difference)."""
-
-    main_step = vref_v * (after - before)
-    diff_after = after ^ diffcaps
-    diff_step = vref_v * (diff_after - (before ^ diffcaps))
-    top_step = (main_step * main_f[stage] + diff_step * diff_f[stage]) / total_f
-    # cdac's charge: the switching stage's own term, less the top-plate step across every plate at
-    # the reference
-    charge = after * main_step * main_f[stage] + diff_after * diff_step * diff_f[stage] - top_step * at_vref_f
-    return top_step, charge, 2 * (after != before)
-
-
 def convert_behavioral(
     params: AdcBehavioralParams, vin_diff_v: np.ndarray, vin_diff_slope_v_per_s: np.ndarray | None = None
 ) -> BehavioralConversions:
@@ -676,10 +599,8 @@ def convert_behavioral(
     vin_cm_v = float(tb.vin_cm.dc)
     slope = np.zeros(conversions) if vin_diff_slope_v_per_s is None else np.asarray(vin_diff_slope_v_per_s)
     caps = {side: calc_side_capacitances(params.cdac, tb, side) for side in ("p", "n")}
-    load_f = {
-        side: float(np.sum(main_f) + np.sum(diff_f)) + params.cdac.parasitic_f
-        for side, (main_f, diff_f) in caps.items()
-    }
+    parasitic_f = params.cdac.parasitic_f
+    load_f = {side: float(np.sum(main_f) + np.sum(diff_f)) + parasitic_f for side, (main_f, diff_f) in caps.items()}
     vref_v, diffcaps = float(tb.vdd_dac.dc), int(tb.dac_diffcaps)
     top = samp_model.Model.sample(
         tb.dut.samp,
@@ -755,8 +676,8 @@ def convert_behavioral(
                 at_main_f[side] += (target - before) * main_f[decision]
                 at_diff_f[side] += ((target ^ diffcaps) - (before ^ diffcaps)) * diff_f[decision]
                 at_vref_f = at_main_f[side] + at_diff_f[side]
-                top_step, charge, toggled = cdac_stage(
-                    main_f, diff_f, load_f[side], vref_v, diffcaps, decision, before, target, at_vref_f
+                top_step, charge, toggled = capdac.Model.switch_stage(
+                    main_f, diff_f, parasitic_f, vref_v, diffcaps, decision, before, target, at_vref_f
                 )
                 top[side] = top[side] + top_step
                 dac_charge += charge
@@ -767,7 +688,10 @@ def convert_behavioral(
         else:
             after = salogic(tb, state, decision, decided)
             for side in ("p", "n"):
-                top_step, charge, toggled = cdac(params.cdac, tb, side, state[side], after[side])
+                main_f, diff_f = caps[side]
+                top_step, charge, toggled = capdac.Model.switch(
+                    main_f, diff_f, parasitic_f, vref_v, diffcaps, state[side], after[side]
+                )
                 top[side] = top[side] + top_step
                 dac_charge += charge
                 step_charge += charge
@@ -788,8 +712,10 @@ def convert_behavioral(
     for side in ("p", "n"):
         previous_state = np.roll(state[side], 1, axis=0)
         init_state = np.broadcast_to(initial[side], (conversions, stages))
-        top_step, charge, toggled = cdac(params.cdac, tb, side, previous_state, init_state)
         main_f, diff_f = caps[side]
+        top_step, charge, toggled = capdac.Model.switch(
+            main_f, diff_f, parasitic_f, vref_v, diffcaps, previous_state, init_state
+        )
         at_vref_f = init_state @ main_f + (init_state ^ diffcaps) @ diff_f
         dac_charge += charge - at_vref_f * (sampled[side] - (np.roll(top[side], 1) + top_step))
         transitions += toggled

@@ -30,23 +30,16 @@ import flow.comp.model as comp_model
 import flow.samp.model as samp_model
 from flow import adc, capdac
 from flow import comp as comparator
-from flow.adc.model import (
-    AdcBehavioralParams,
-    CdacBehavioralParams,
-    SalogicBehavioralParams,
-    cdac,
-    convert_behavioral,
-)
+from flow.adc.model import AdcBehavioralParams, SalogicBehavioralParams, convert_behavioral
 from flow.adc.sim import (
     AdcSequence,
     build_adc_interface_wave,
     calc_source_value,
     symbol160_init4_samp20_comp11110000_logic00001111,
 )
-from flow.adc.subckt import calc_ideal_capacitances
+from flow.adc.subckt import calc_side_capacitances
 from flow.analysis.io import write_analysis, write_measurement
 from flow.analysis.types import MeasAdc, MeasCdac, MeasInfo
-from flow.cdac.caparray.model import calc_capacitor_mismatch
 from flow.scans.params import AdcScanParams
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 
@@ -131,13 +124,13 @@ def build_frida2_params(
     plates = {}
     for side in ("p", "n"):
         for kind, nominal in (("main", main_f), ("diff", diff_f)):
-            drawn = calc_capacitor_mismatch(nominal, unit_mismatch=unit_mismatch, rng=rng) if unit_mismatch else nominal
+            drawn = capdac.Model.draw(nominal, pelgrom=unit_mismatch, rng=rng) if unit_mismatch else nominal
             plates[f"{kind}_{side}_f"] = tuple(float(value) for value in drawn)
     return AdcBehavioralParams(
         tb=tb,
         samp=SAMP,
         comp=COMP,
-        cdac=CdacBehavioralParams(
+        cdac=capdac.Model.Behavioral(
             **plates,
             parasitic_f=TOTAL_LOAD_F - float(np.sum(main_f + diff_f)),
             settling_tau_s=SETTLING_TAU_S,
@@ -278,7 +271,7 @@ def frida2_noise_sources(run_dir: Path) -> None:
     base = build_frida2_params(tb, seed=0)
     quiet_samp = samp_model.Model.Behavioral(**{**SAMP.__dict__, "noise_v": 0.0, "jitter_s": 0.0})
     quiet_comp = comp_model.Model.Behavioral(**{**COMP.__dict__, "noise_v": 0.0})
-    reference = CdacBehavioralParams(**{**base.cdac.__dict__, "reference_noise_v": 100e-6})
+    reference = capdac.Model.Behavioral(**{**base.cdac.__dict__, "reference_noise_v": 100e-6})
     # A source alone below one LSB leaves a DC input on one code, so the
     # reference noise is shown on top of the baseline sources instead.
     cases = {
@@ -400,10 +393,13 @@ def frida2_cdac_ab(run_dir: Path) -> None:
                         )
                         step_v = 0.0
                         for plate in ("p", "n"):
-                            top_step, _charge, _toggles = cdac(
-                                params.cdac,
-                                tb,
-                                plate,
+                            main_f, diff_f = calc_side_capacitances(params.cdac, tb, plate)
+                            top_step, _charge, _toggles = capdac.Model.switch(
+                                main_f,
+                                diff_f,
+                                params.cdac.parasitic_f,
+                                float(tb.vdd_dac.dc),
+                                int(tb.dac_diffcaps),
                                 np.asarray([before[plate]]),
                                 np.asarray([after[plate]]),
                             )
@@ -481,7 +477,7 @@ def architecture_variants(run_dir: Path) -> None:
         weights = np.asarray(capdac.Model.weights(cdac_config), dtype=np.float64)
         stages = len(weights)
         alternating = tuple(index % 2 for index in range(stages))
-        ideal_main_f, ideal_diff_f = calc_ideal_capacitances(cdac_config, float(TB.vdd_dac.dc))
+        ideal_main_f, ideal_diff_f = capdac.Model.plates(cdac_config, float(TB.vdd_dac.dc))
         for style in ("unitlength", "unitelement"):
             if style == "unitlength":
                 scale = array_f / float(np.sum(ideal_main_f + ideal_diff_f))
@@ -509,17 +505,13 @@ def architecture_variants(run_dir: Path) -> None:
                     plates = {}
                     for side in ("p", "n"):
                         for kind, nominal in (("main", main_f), ("diff", diff_f)):
-                            drawn = (
-                                calc_capacitor_mismatch(nominal, unit_mismatch=mismatch, rng=rng)
-                                if mismatch
-                                else nominal
-                            )
+                            drawn = capdac.Model.draw(nominal, pelgrom=mismatch, rng=rng) if mismatch else nominal
                             plates[f"{kind}_{side}_f"] = tuple(float(value) for value in drawn)
                     params = AdcBehavioralParams(
                         tb=tb,
                         samp=SAMP,
                         comp=COMP,
-                        cdac=CdacBehavioralParams(
+                        cdac=capdac.Model.Behavioral(
                             **plates,
                             parasitic_f=parasitic_f,
                             settling_tau_s=SETTLING_TAU_S,

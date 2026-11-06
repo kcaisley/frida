@@ -298,7 +298,7 @@ def calc_ideal_capacitances(cdac: capdac.Params, reference_v: float) -> tuple[np
 
 def calc_side_capacitances(behavioral: object, tb: TbParams, side: str) -> tuple[np.ndarray, np.ndarray]:
     """Return one side's main and diff capacitances, as designed at the testbench's DAC supply where
-    not given: ``behavioral`` is the behavioral DAC (``flow.adc.model.CdacBehavioralParams``), read by
+    not given: ``behavioral`` is the behavioral DAC (``capdac.Model.Behavioral``), read by
     attribute."""
 
     ideal_main_f, ideal_diff_f = calc_ideal_capacitances(tb.dut.cdac, float(tb.vdd_dac.dc))

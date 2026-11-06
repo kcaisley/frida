@@ -15,7 +15,6 @@ import flow.samp.model as samp_model
 from flow import capdac
 from flow.adc.model import (
     AdcBehavioralParams,
-    CdacBehavioralParams,
     Model,
     SalogicBehavioralParams,
     _enob_floor,
@@ -24,8 +23,6 @@ from flow.adc.model import (
 from flow.adc.params import DECAP_COVERAGE, REFERENCE_QUIET, REFERENCE_SHARE, Params, Reference, TbParams
 from flow.adc.plots import plot_reference_noise, plot_reference_r_out
 from flow.adc.sim import AdcSequence, symbol160_init4_samp20_comp11110000_logic00001111
-from flow.adc.subckt import calc_ideal_capacitances
-from flow.cdac.caparray.model import calc_capacitor_mismatch
 
 TB = TbParams(
     dut=Params(adc_bits=12, cdac=capdac.Params()),
@@ -38,17 +35,9 @@ def with_tb(**fields) -> AdcBehavioralParams:
     return AdcBehavioralParams(tb=TbParams(**{**TB.__dict__, **fields}))
 
 
-def test_capacitor_mismatch_follows_pelgrom_area_scaling() -> None:
-    draws = calc_capacitor_mismatch(
-        np.tile([100e-15, 1e-15], (20000, 1)), unit_mismatch=0.01, rng=np.random.default_rng(0)
-    )
-    # sigma_C = 1 % * sqrt(C * 1 fF): 0.1 fF for 100 fF and 0.01 fF for 1 fF.
-    np.testing.assert_allclose(np.std(draws / 1e-15, axis=0), [0.1, 0.01], rtol=0.03)
-
-
 def ideal_codes(params: AdcBehavioralParams, points: int = 2001) -> tuple[np.ndarray, np.ndarray]:
     tb = params.tb
-    main_f, diff_f = calc_ideal_capacitances(tb.dut.cdac, float(tb.vdd_dac.dc))
+    main_f, diff_f = capdac.Model.plates(tb.dut.cdac, float(tb.vdd_dac.dc))
     full_scale_v = float(tb.vdd_dac.dc) * np.sum(main_f - diff_f) / np.sum(main_f + diff_f)
     vin_v = np.linspace(-full_scale_v, full_scale_v, points)
     code_weights = np.append(2 * np.asarray(capdac.Model.weights(tb.dut.cdac)), 1)
@@ -105,12 +94,12 @@ def test_differential_caps_double_their_weight_without_diffcaps() -> None:
 
 
 def reference_codes(vin_v: float, conversions: int = 400, **reference) -> np.ndarray:
-    """The output codes at a DC input with the reference's departure (``CdacBehavioralParams``'s
+    """The output codes at a DC input with the reference's departure (``capdac.Model.Behavioral``'s
     ``reference_*``) the only impairment."""
     params = AdcBehavioralParams(
         tb=TB,
         comp=comp_model.Model.Behavioral(noise_v=0.0),
-        cdac=CdacBehavioralParams(**reference),
+        cdac=capdac.Model.Behavioral(**reference),
         seed=3,
     )
     code_weights = np.append(2 * np.asarray(capdac.Model.weights(TB.dut.cdac)), 1)
@@ -119,7 +108,7 @@ def reference_codes(vin_v: float, conversions: int = 400, **reference) -> np.nda
 
 
 def full_scale_and_lsb() -> tuple[float, float]:
-    main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac, float(TB.vdd_dac.dc))
+    main_f, diff_f = capdac.Model.plates(TB.dut.cdac, float(TB.vdd_dac.dc))
     full_scale_v = float(TB.vdd_dac.dc) * np.sum(main_f - diff_f) / np.sum(main_f + diff_f)
     return full_scale_v, 2 * full_scale_v / (1 << TB.dut.adc_bits)
 
@@ -162,15 +151,12 @@ def test_a_drawn_arrays_exact_transfer_is_the_noise_free_converters() -> None:
     astate = (0, 1) * (stages // 2) + (0,) * (stages % 2)
     tb = TbParams(**{**TB.__dict__, "dac_astate_p": astate, "dac_astate_n": astate})
     rng = np.random.default_rng(5)
-    main_f, diff_f = calc_ideal_capacitances(tb.dut.cdac, float(tb.vdd_dac.dc))
+    main_f, diff_f = capdac.Model.plates(tb.dut.cdac, float(tb.vdd_dac.dc))
     drawn = {
-        side: (
-            calc_capacitor_mismatch(main_f, unit_mismatch=0.01, rng=rng),
-            calc_capacitor_mismatch(diff_f, unit_mismatch=0.01, rng=rng),
-        )
+        side: (capdac.Model.draw(main_f, pelgrom=0.01, rng=rng), capdac.Model.draw(diff_f, pelgrom=0.01, rng=rng))
         for side in ("p", "n")
     }
-    cdac = CdacBehavioralParams(
+    cdac = capdac.Model.Behavioral(
         **{
             f"{kind}_{side}_f": tuple(drawn[side][index])
             for side in drawn
@@ -200,7 +186,7 @@ def test_the_reference_noise_leaves_the_other_sources_draws_alike() -> None:
 
     def bout(**reference) -> np.ndarray:
         params = AdcBehavioralParams(
-            tb=TB, comp=comp_model.Model.Behavioral(noise_v=lsb_v), cdac=CdacBehavioralParams(**reference), seed=3
+            tb=TB, comp=comp_model.Model.Behavioral(noise_v=lsb_v), cdac=capdac.Model.Behavioral(**reference), seed=3
         )
         return convert_behavioral(params, np.full(200, 0.33 * lsb_v)).bout
 
@@ -208,7 +194,7 @@ def test_the_reference_noise_leaves_the_other_sources_draws_alike() -> None:
 
 
 def test_the_model_quiets_each_source_alone_and_scales_the_settling() -> None:
-    main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac, float(TB.vdd_dac.dc))
+    main_f, diff_f = capdac.Model.plates(TB.dut.cdac, float(TB.vdd_dac.dc))
     model = Model(
         pdk="none",
         params=TB.dut,
