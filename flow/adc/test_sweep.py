@@ -1,12 +1,14 @@
 """The ADC's design space (``flow.adc.sweep``, the grid ``converters``, in TSMC65 alone): the plain
 product of the comparator grid, the samplers, the arrays (both weight builds), the resolutions and
 the capacitance scales, every component its block sweep's instance; its campaign (``campaign``),
-every capture the figures read, for any testbench builder; and its named Spectre runs, each the
-testbenches it builds and runs side by side (the simulator replaced), with the CLI's targets of them
+every capture the figures read, for any testbench builder; the model's own metrics its record adds
+(``characterize``, on a stand-in model); and its named Spectre runs, each the testbenches it builds
+and runs side by side (the simulator replaced), with the CLI's targets of them
 (``flow.adc.targets``)."""
 
 import importlib.util
 import inspect
+import math
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from itertools import pairwise
@@ -246,6 +248,73 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
     studies = [capture for name, capture in drawn.items() if name.startswith("mc_")]
     assert len(studies) == len(MISMATCH_COEFFICIENTS) * VALIDATION_DRAWS and all(c.noise_free for c in studies)
     assert {c.unit_mismatch for c in studies} == set(MISMATCH_COEFFICIENTS)
+
+
+def test_the_record_holds_the_models_own_metrics_beside_the_campaigns(monkeypatch, tmp_path) -> None:
+    """``characterize`` on a stand-in model (known blocks, a DAC whose last stage is drawn twice as
+    heavy as designed) and a campaign of short captures: the campaign's record and the reference's
+    requirements, and the model's own metrics: the DAC's full scale, half its measured steps' sum,
+    and that over the reference, its drivers' energy (none: not characterized), its stages and
+    decisions, its slowest settling, the comparator's noise and delay and the late-decision input."""
+    from flow.adc.model import Model
+    from flow.adc.params import Capture
+    from flow.adc.test_model import TB, _dac, _stand_in
+    from flow.adc.types import AnalysisReference
+    from flow.pipeline import Record
+
+    main_f, diff_f = capdac.Model.plates(TB.dut.cdac, 1.2)
+    steps = 2 * 1.2 * 0.8 * (main_f - diff_f) / float(np.sum(main_f + diff_f))  # the design's at a gain of 0.8
+    steps[-1] *= 2.0
+    model = _stand_in(replace(_dac(TB.dut, gain=0.8), step_v=tuple(steps)))
+    # the comparator's own numbers, which the record reports and the metastability reads
+    model.comp.noise_v, model.comp.delay_s, model.comp.regeneration_tau_s = 1e-4, 300e-12, 20e-12
+    model.comp.delay_table_v, model.comp.delay_table_s = (1e-6, 1e-3), (200e-12, 50e-12)
+    planned, converted = {}, []
+
+    def campaign(tb, full_scale_v, bits):
+        planned.update(full_scale_v=full_scale_v, bits=bits)
+        short = Capture(tb=tb(conversions=4, rate_hz=10e6, vin_diff=h.Vdc.Params(dc=0.0)))
+        return {"noise": short, LADDER_NAMES[-1]: short}
+
+    reference = AnalysisReference(
+        group=None,
+        index=None,
+        dut=TB.dut,
+        decap_f=2e-12,
+        noise_v=np.asarray([1e-4, 1e-3]),
+        noise_loss_bits=np.asarray([0.0, 0.4]),
+        r_out_ohm=np.asarray([1.0, 10.0]),
+        r_out_loss_bits=np.asarray([0.0, 0.2]),
+        noise_max_v=5e-4,
+        r_max_ohm=8.0,
+        enob_loss_max_bits=0.1,
+    )
+    monkeypatch.setattr(Model, "of", classmethod(lambda cls, pdk, params, *, simulate=True: model))
+    monkeypatch.setattr(Model, "reference_requirements", lambda self, capture: reference)
+    monkeypatch.setattr(sweep, "campaign", campaign)
+    monkeypatch.setattr(
+        sweep, "record", lambda captures: converted.extend(captures) or Record(metrics={"enob_bits": 11.0}, details=[])
+    )
+    result = sweep.characterize(tmp_path, "tsmc65", TB.dut)
+    metrics = result.metrics
+    assert planned == {"full_scale_v": model.full_scale_v, "bits": 12}
+    assert sorted(converted) == ["noise", "noise_comparator", "noise_sampling", LADDER_NAMES[-1]]
+    assert metrics["enob_bits"] == 11.0
+    assert metrics["full_scale_v"] == pytest.approx(steps.sum() / 2, rel=1e-12)
+    assert metrics["full_scale_over_reference"] == pytest.approx(steps.sum() / 2 / 1.2, rel=1e-12)
+    assert metrics["dac_driver_energy_j"] == 0.0
+    assert (metrics["stages"], metrics["decisions"]) == (16.0, 17.0)
+    assert metrics["settling_tau_s"] == max(model.cdac.tau_s)
+    assert (metrics["comp_noise_v"], metrics["comp_delay_s"]) == (1e-4, 300e-12)
+    assert metrics["comp_regeneration_tau_s"] == 20e-12
+    lsb_v = 2 * metrics["full_scale_v"] / 2**12
+    assert metrics["metastable_input_lsb"] * lsb_v == pytest.approx(
+        1e-6 * math.exp(-(metrics["decision_window_s"] - 200e-12) / 20e-12), rel=1e-9
+    )
+    assert (metrics["ref_decap_f"], metrics["ref_r_max_ohm"]) == (2e-12, 8.0)
+    assert (metrics["ref_noise_max_v"], metrics["ref_enob_loss_max_bits"]) == (5e-4, 0.1)
+    # the reference's figures after the record's, the driver's resistance where there is decoupling
+    assert [detail.name for detail in result.details] == ["reference_noise", "reference_r_out"]
 
 
 # the named Spectre runs and their CLI targets
