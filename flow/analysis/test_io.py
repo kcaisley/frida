@@ -254,3 +254,36 @@ def test_extracted_calibration_reads_pex_effective_weights(tmp_path: Path) -> No
     assert ratio[3] / ratio[0] == pytest.approx(1.02)
     np.testing.assert_allclose(np.delete(ratio[:-1], 3), ratio[0])
     assert calibration.measured_weight_mask.tolist() == [True] * 16 + [False]
+
+
+def test_extracted_calibration_reads_a_capacitive_dacs_measured_steps(tmp_path: Path, monkeypatch) -> None:
+    """The settling measurement a capacitive DAC's characterization keeps (``flow.capdac``): each
+    stage's step as measured, its slower direction's (a falling one negative), in proportion to its
+    effective capacitance; nothing extracted (no path), the design's own weights, none measured."""
+    from flow import capdac
+    from flow.adc.test_analysis import adc_measurement
+    from flow.analysis import io
+
+    measurement = adc_measurement([0, 1, 2], readbacks={})
+    nominal = measurement.nominal_bout_weights.astype(float)
+    # the steps in volts: the design's at some gain, stage 3 2 % large, every other stage falling
+    steps = 0.37e-3 * nominal[:-1] * np.where(np.arange(len(nominal) - 1) % 2, -1.0, 1.0)
+    steps[3] *= 1.02
+    path = tmp_path / "settling" / "result.h5"
+    read = []
+    monkeypatch.setattr(io, "read_measurement", lambda source: read.append(source) or "settling")
+    monkeypatch.setattr(capdac, "analyze_settling", lambda meas: SimpleNamespace(step_v=steps) if meas else None)
+
+    calibration = io.read_extracted_calibration(path, measurement)
+
+    assert read == [path] and calibration.method == "extracted" and calibration.label == "Measured-step weights"
+    assert calibration.identity == measurement.identity
+    assert np.sum(calibration.calibrated_weights) == pytest.approx(measurement.code_max)
+    ratio = calibration.calibrated_weights / (nominal * measurement.code_max / np.sum(nominal))
+    assert ratio[3] / ratio[0] == pytest.approx(1.02)
+    np.testing.assert_allclose(np.delete(ratio[:-1], 3), ratio[0])
+    assert calibration.measured_weight_mask.tolist() == [True] * 16 + [False]
+
+    design = io.read_extracted_calibration(Path(""), measurement)
+    np.testing.assert_allclose(design.calibrated_weights, design.nominal_weights)
+    assert not design.measured_weight_mask.any()
