@@ -40,12 +40,12 @@ def test_invalid_adc_params_are_refused_when_made():
             make()
 
 
-def test_adc_accepts_any_array_with_sixteen_physical_stages():
+def test_adc_takes_a_sixteen_stage_array_of_another_resolution():
     params = Params(adc_bits=14, cdac=capdac.Params(bits=14, redundancy=capdac.Redundancy.LSB_SPLIT, extra=3))
     assert Adc(params).dac_state_p.width == 16
 
 
-def test_ideal_capacitances_reproduce_the_generated_weights() -> None:
+def test_the_ideal_plates_main_less_diff_are_the_weights() -> None:
     cdac = capdac.Params()
     main_f, diff_f = calc_ideal_capacitances(cdac, 1.2)
     weights = capdac.Model.weights(cdac)
