@@ -28,8 +28,6 @@ from flow.analysis.plots import (
     plot_adc_cdac_settling,
     plot_adc_code_distribution,
     plot_adc_conversion_energy,
-    plot_adc_dynamic,
-    plot_adc_dynamic_sweep,
     plot_adc_interferer,
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
@@ -76,9 +74,13 @@ from .plots import (
     plot_code_density,
     plot_dnl,
     plot_dnl_calibrated,
+    plot_enob_fin,
+    plot_enob_rate,
     plot_inl,
     plot_inl_calibrated,
     plot_noise_spectrum,
+    plot_spectrum_low,
+    plot_spectrum_nyquist,
     plot_trajectory,
     plot_trajectory_codes,
     plot_trajectory_final,
@@ -332,8 +334,10 @@ def behavioral_sample_rate_study() -> tuple[Path, ...]:
     conversions) with the 160-symbol recipe at 0.2-6.4 GBd, i.e. 1.25-40 MS/s.
     VDD_DAC charge is computed; comparator, logic, and driver energies and
     leakage are fitted to the FRIDA-2 three-layer PEX transient. Each rail's
-    static and dynamic power are drawn as one band. ENOB uses the PEX-extracted weights and
-    is limited by the assumed 0.2-ns CDAC settling time constant at high rates.
+    static and dynamic power are drawn as one band. ENOB, the record's (the
+    spectral ENOB referred to full scale, ``flow.adc.plots``), uses the
+    PEX-extracted weights and is limited by the assumed 0.2-ns CDAC settling
+    time constant at high rates.
     """
     output_dir = new_run("analysis", "adc")
     read_dir = BASE_PATH / "build/scan_behavioral/20261010_232349_frida2_sample_rate"
@@ -351,19 +355,22 @@ def behavioral_sample_rate_study() -> tuple[Path, ...]:
             rate_axis="sampling",
             merge_static=True,
         ),
-        *plot_adc_dynamic_sweep(
-            measurements,
-            [
-                analyze_dynamic(
-                    measurement,
-                    calibration=read_extracted_calibration(
-                        Path(str(measurement.info.readbacks["cap_table"])), measurement
+        *render(
+            plot_enob_rate(
+                sorted(
+                    (
+                        analyze_dynamic(
+                            measurement,
+                            calibration=read_extracted_calibration(
+                                Path(str(measurement.info.readbacks["cap_table"])), measurement
+                            ),
+                        )
+                        for measurement in measurements
                     ),
+                    key=lambda dynamic: dynamic.sample_rate_hz,
                 )
-                for measurement in measurements
-            ],
-            output_path=output_dir / "frida2_3layer_behavioral_enob_vs_rate",
-            x_axis="sample_rate",
+            ),
+            output_dir / "frida2_3layer_behavioral_enob_vs_rate",
         ),
     )
 
@@ -495,40 +502,41 @@ def behavioral_noise_spectrum_study() -> tuple[Path, ...]:
 
 
 def behavioral_input_frequency_study() -> tuple[Path, ...]:
-    """Plot spectral ENOB and SNDR versus input frequency at 2, 6, and 10 MS/s.
+    """Plot spectral ENOB versus input frequency at 2, 6, and 10 MS/s, a figure a rate.
 
     Inputs are 27 behavioral MeasAdc sine captures (-0.5 dBFS, nine input
     frequencies up to Nyquist per rate, 8,192 conversions) with every noise
     source, the input-dependent sampler, and the PEX-extracted decoding. The
-    10-MS/s captures nearest DC and Nyquist also get their own spectra.
+    ENOB is the record's (referred to full scale, over the input frequency
+    relative to the rate). The 10-MS/s captures nearest DC and Nyquist also
+    get their own spectra.
     """
     output_dir = new_run("analysis", "adc")
     read_dir = BASE_PATH / "build/scan_behavioral/20261010_114623_frida2_input_frequency"
-    measurements, dynamics = [], []
+    dynamics = []
     for path in sorted(read_dir.glob("[0-9][0-9][0-9][0-9]mbd_[0-9][0-9][0-9][0-9]cycles.h5")):
         measurement = read_measurement(path)
         if not isinstance(measurement, MeasAdc):
             raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
         calibration = read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
-        measurements.append(measurement)
         dynamics.append(analyze_dynamic(measurement, calibration=calibration))
-    artifacts = list(
-        plot_adc_dynamic_sweep(
-            measurements,
-            dynamics,
-            output_path=output_dir / "frida2_3layer_behavioral_enob_vs_input_frequency",
-            x_axis="input_frequency",
+    artifacts = []
+    for rate_hz in sorted({round(dynamic.sample_rate_hz) for dynamic in dynamics}):
+        at_rate = sorted(
+            (dynamic for dynamic in dynamics if round(dynamic.sample_rate_hz) == rate_hz),
+            key=lambda dynamic: dynamic.input_frequency_hz,
         )
-    )
-    at_10_msps = [index for index, dynamic in enumerate(dynamics) if round(dynamic.sample_rate_hz) == 10_000_000]
-    for label, index in (("low", at_10_msps[0]), ("nyquist", at_10_msps[-1])):
-        artifacts.extend(
-            plot_adc_dynamic(
-                measurements[index],
-                dynamics[index],
-                output_path=output_dir / f"frida2_3layer_behavioral_10msps_{label}_spectrum",
+        stem = f"frida2_3layer_behavioral_enob_vs_input_frequency_{rate_hz / 1e6:g}msps".replace(".", "p")
+        artifacts.extend(render(plot_enob_fin(at_rate), output_dir / stem))
+        if rate_hz == 10_000_000:
+            artifacts.extend(
+                render(plot_spectrum_low(at_rate[0]), output_dir / "frida2_3layer_behavioral_10msps_low_spectrum")
             )
-        )
+            artifacts.extend(
+                render(
+                    plot_spectrum_nyquist(at_rate[-1]), output_dir / "frida2_3layer_behavioral_10msps_nyquist_spectrum"
+                )
+            )
     return tuple(artifacts)
 
 
@@ -889,8 +897,10 @@ def sample_rate_study() -> tuple[Path, ...]:
     explicit selection after validating additional patterns in the sequence study.
     Actual rates are 0.3125--6.25 MSPS (formerly labelled 0.5--10 active MSPS);
     an actual 10-MSPS sweep of accepted new patterns still needs acquisition.
-    DC panels show noise-equivalent resolution; sine panels show spectral
-    ENOB/SNDR. Inputs are MeasAdc; no PEX or internal waveforms are required.
+    DC panels show noise-equivalent resolution; the sines show the record's
+    ENOB over the rate (the spectral ENOB referred to full scale) and the
+    spectra at the sweep's two ends. Inputs are MeasAdc; no PEX or internal
+    waveforms are required.
     """
     output_dir = new_run("analysis", "adc")
     dc_read_dirs = tuple(
@@ -980,27 +990,16 @@ def sample_rate_study() -> tuple[Path, ...]:
         sine_groups.setdefault((measurement.index, sequence), []).append(measurement)
     for (adc_index, sequence), measurements in sine_groups.items():
         sequence_name = sequence_labels[sequence].split()[-1].replace("/", "of")
-        dynamic = [analyze_dynamic(measurement) for measurement in measurements]
-        stem = f"adc{adc_index or 0:02d}_logic{sequence_name}"
-        artifacts.extend(
-            plot_adc_dynamic_sweep(
-                measurements,
-                dynamic,
-                x_axis="sample_rate",
-                output_path=output_dir / f"{stem}_spectral_vs_rate",
-            )
+        dynamic = sorted(
+            (analyze_dynamic(measurement) for measurement in measurements), key=lambda result: result.sample_rate_hz
         )
-        # Retain individual spectral checks at the ends of the selected sweep.
-        rates = [result.sample_rate_hz for result in dynamic]
-        for index in dict.fromkeys((rates.index(min(rates)), rates.index(max(rates)))):
-            artifacts.extend(
-                plot_adc_dynamic(
-                    measurements[index],
-                    dynamic[index],
-                    # A decimal point would read as a file suffix; write 0.3125 as 0p3125.
-                    output_path=output_dir / f"{stem}_{f'{rates[index] / 1e6:g}'.replace('.', 'p')}msps_spectrum",
-                )
-            )
+        stem = f"adc{adc_index or 0:02d}_logic{sequence_name}"
+        artifacts.extend(render(plot_enob_rate(dynamic), output_dir / f"{stem}_spectral_vs_rate"))
+        # Retain individual spectral checks at the ends of the selected sweep (its sine far below Nyquist).
+        for result in dynamic[:1] + dynamic[1:][-1:]:
+            # A decimal point would read as a file suffix; write 0.3125 as 0p3125.
+            rate = f"{result.sample_rate_hz / 1e6:g}".replace(".", "p")
+            artifacts.extend(render(plot_spectrum_low(result), output_dir / f"{stem}_{rate}msps_spectrum"))
     return tuple(artifacts)
 
 

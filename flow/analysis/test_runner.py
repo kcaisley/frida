@@ -667,19 +667,26 @@ def test_sample_rate_study_separates_sequences_inputs_and_spectral_data(tmp_path
         return SimpleNamespace(sample_rate_hz=value.sample_rate_hz)
 
     monkeypatch.setattr(adc_targets, "analyze_dynamic", analyze_dynamic)
-    spectra = []
+    sweeps = []
 
-    def dynamic_plot(values, analyses, *, output_path, x_axis):
-        assert len(values) == len(analyses) == 2
-        assert x_axis == "sample_rate"
-        spectra.append(output_path)
-        return (output_path.with_suffix(".pdf"),)
+    def enob_rate(dynamics):
+        # the record's ENOB over the rate, its sines in rate order
+        assert [dynamic.sample_rate_hz for dynamic in dynamics] == sorted(d.sample_rate_hz for d in dynamics)
+        sweeps.append(len(dynamics))
+        return Plot("enob_rate", "", "", "", [], {})
 
-    monkeypatch.setattr(adc_targets, "plot_adc_dynamic_sweep", dynamic_plot)
-    monkeypatch.setattr(adc_targets, "plot_adc_dynamic", lambda *args, output_path: (output_path.with_suffix(".pdf"),))
+    monkeypatch.setattr(adc_targets, "plot_enob_rate", enob_rate)
+    monkeypatch.setattr(adc_targets, "plot_spectrum_low", lambda _dynamic: Plot("spectrum_low", "", "", "", [], {}))
+    monkeypatch.setattr(adc_targets, "render", lambda _plot, stem: (stem.with_suffix(".pdf"),))
     artifacts = study(monkeypatch, adc_targets, "sample_rate_study", tmp_path / "output")
     assert len(calls) == 6
-    assert len(spectra) == 1
+    assert sweeps == [2]
+    # the sweep's ENOB, and the spectra at its two ends
+    assert sorted(path.name for path in artifacts if "spectral" in path.name or "spectrum" in path.name) == [
+        "adc01_logic6of8_0p5msps_spectrum.pdf",
+        "adc01_logic6of8_1msps_spectrum.pdf",
+        "adc01_logic6of8_spectral_vs_rate.pdf",
+    ]
     assert len(artifacts) == 9
 
 

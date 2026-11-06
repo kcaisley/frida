@@ -247,11 +247,11 @@ def plot_enob_rate(dynamics: Sequence[AnalysisDynamic]) -> Plot:
 
 @plot
 def plot_enob_fin(dynamics: Sequence[AnalysisDynamic]) -> Plot:
-    """The ENOB over the input frequency at the nominal rate (its sines in frequency order), as
-    ``plot_enob_rate`` gives it."""
+    """The ENOB over the input frequency at one rate (its sines in frequency order; the record's:
+    the nominal rate), as ``plot_enob_rate`` gives it."""
     return _plot(
         "enob_fin",
-        "ENOB over the input frequency at 10 MS/s",
+        f"ENOB over the input frequency at {_rate(dynamics[0].sample_rate_hz)}",
         "Input frequency / conversion rate",
         "ENOB (bits)",
         [dynamic.input_frequency_hz / dynamic.sample_rate_hz for dynamic in dynamics],
@@ -276,10 +276,11 @@ def plot_enob_ladder(ladder: AnalysisLadder) -> Plot:
 
 @plot
 def plot_spectrum_low(dynamic: AnalysisDynamic) -> Plot:
-    """The spectrum of the nominal rate's sine at its lowest input frequency."""
+    """The spectrum of a sine at a low input frequency (the record's: the nominal rate's lowest),
+    its rate in the title."""
     return _plot(
         "spectrum_low",
-        "Spectrum at 10 MS/s, low input frequency",
+        f"Spectrum at {_rate(dynamic.sample_rate_hz)}, low input frequency",
         "Frequency (Hz)",
         "Power (dBFS)",
         dynamic.spectrum_frequency_hz,
@@ -289,10 +290,11 @@ def plot_spectrum_low(dynamic: AnalysisDynamic) -> Plot:
 
 @plot
 def plot_spectrum_nyquist(dynamic: AnalysisDynamic) -> Plot:
-    """The spectrum of the nominal rate's sine at its highest input frequency, near Nyquist."""
+    """The spectrum of a sine near Nyquist (the record's: the nominal rate's highest input
+    frequency), its rate in the title."""
     return _plot(
         "spectrum_nyquist",
-        "Spectrum at 10 MS/s, input near Nyquist",
+        f"Spectrum at {_rate(dynamic.sample_rate_hz)}, input near Nyquist",
         "Frequency (Hz)",
         "Power (dBFS)",
         dynamic.spectrum_frequency_hz,
@@ -547,6 +549,11 @@ def _family(estimates: np.ndarray, first: int) -> list[dict[str, Any]]:
     unique, counts = np.unique(estimates[:, first:], axis=0, return_counts=True)
     order = np.argsort(-counts, kind="stable")[:MAX_PATHS]
     return [{"y": [float(f"{y:.6g}") for y in unique[i]], "count": int(counts[i])} for i in order]
+
+
+def _rate(rate_hz: float) -> str:
+    """A conversion rate as a title names it: ``10 MS/s``, ``0.3125 MS/s``."""
+    return f"{rate_hz / 1e6:g} MS/s"
 
 
 def _enob(dynamic: AnalysisDynamic) -> float:

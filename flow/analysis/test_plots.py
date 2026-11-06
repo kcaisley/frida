@@ -38,8 +38,6 @@ from flow.analysis.plots import (
     plot_adc_comp_out_edge_eye,
     plot_adc_comparator_edge_eye,
     plot_adc_comparator_response,
-    plot_adc_dynamic,
-    plot_adc_dynamic_sweep,
     plot_adc_interferer,
     plot_adc_noise_distribution_grid,
     plot_adc_noise_distribution_sweep,
@@ -863,40 +861,6 @@ def test_interferer_plot_of_code_spectra(tmp_path: Path) -> None:
     spectra = [adc.analyze_code_spectrum(measurement) for measurement in (*measurements, stuck)]
     interferer = adc.analyze_interferer([*measurements, stuck], spectra=spectra)
     assert_plot_formats(plot_adc_interferer([interferer], title="Interferer", output_path=tmp_path / "interferer"))
-
-
-def test_dynamic_and_dynamic_sweep_plots(tmp_path: Path) -> None:
-    """The dynamic figures (the decision paths and their density are the ADC's specs:
-    flow/adc/test_plots.py)."""
-    measurements = []
-    for index, frequency_hz in enumerate((1_000.0, 8_000.0)):
-        sample_rate_hz = 100_000.0
-        time_s = np.arange(4_096) / sample_rate_hz
-        samples = np.rint(2_048.0 + 1_200.0 * np.sin(2.0 * np.pi * frequency_hz * time_s + 0.2))
-        measurements.append(
-            adc_measurement(
-                samples,
-                sample_rate_hz=sample_rate_hz,
-                input_frequency_hz=frequency_hz,
-                logic_phase_delay_symbols=index,
-            )
-        )
-    dynamic = adc.analyze_dynamic(measurements[0])
-    sweep = [adc.analyze_dynamic(measurement) for measurement in measurements]
-    assert_plot_formats(
-        plot_adc_dynamic(
-            measurements[0],
-            dynamic,
-            output_path=tmp_path / "dynamic",
-        )
-    )
-    assert_plot_formats(
-        plot_adc_dynamic_sweep(
-            measurements,
-            sweep,
-            output_path=tmp_path / "sweep",
-        )
-    )
 
 
 def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:

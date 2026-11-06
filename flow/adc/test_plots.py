@@ -20,6 +20,7 @@ from flow.adc.analysis import (
     _mismatch_statistics,
     analyze_code_spectrum,
     analyze_decision_paths,
+    analyze_dynamic,
     analyze_mismatch_prediction,
     analyze_ramp,
 )
@@ -268,6 +269,39 @@ def test_a_code_spectrum_is_input_referred_with_its_floor_and_lines(
     # nothing to draw on the log axes, as matplotlib says
     with pytest.warns(UserWarning, match="no positive values"):
         assert render(stuck, tmp_path / "stuck")
+
+
+def test_a_sine_sweep_draws_its_enob_and_spectra_at_its_own_rate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two sines at 100 kS/s, 1 and 8 kHz (a lab study's sweep, not the record's 10 MS/s): the ENOB
+    over the input frequency and the spectra name their own rate; every ENOB is referred to full
+    scale; drawn on the analysis plots' canvas."""
+    dynamics = []
+    for index, frequency_hz in enumerate((1_000.0, 8_000.0)):
+        time_s = np.arange(4_096) / 100_000.0
+        samples = np.rint(2_048.0 + 1_200.0 * np.sin(2.0 * np.pi * frequency_hz * time_s + 0.2))
+        dynamics.append(
+            analyze_dynamic(
+                adc_measurement(
+                    samples, sample_rate_hz=100_000.0, input_frequency_hz=frequency_hz, logic_phase_delay_symbols=index
+                )
+            )
+        )
+    enob = [float(f"{dynamic.spectral_enob_fs_bits:.6g}") for dynamic in dynamics]
+    fin = plots.plot_enob_fin(dynamics)
+    assert fin.title == "ENOB over the input frequency at 0.1 MS/s"
+    assert (fin.x, fin.series) == ([0.01, 0.08], {"ENOB": enob})
+    # a -4.6 dBFS sine: its ENOB referred to full scale, above the one at its own amplitude
+    assert enob[0] > dynamics[0].spectral_enob_bits + 0.7
+    low = plots.plot_spectrum_low(dynamics[0])
+    assert low.title == "Spectrum at 0.1 MS/s, low input frequency" and list(low.series) == ["0.001 MHz input"]
+    assert low.x[-1] == pytest.approx(50_000.0, rel=1e-3) and low.y_label == "Power (dBFS)"
+    assert plots.plot_spectrum_nyquist(dynamics[1]).title == "Spectrum at 0.1 MS/s, input near Nyquist"
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    for figure in (fin, low):
+        (png, _pdf) = render(figure, tmp_path / figure.name)
+        assert plt.imread(png).shape[:2] == (2700, 4800)
 
 
 def test_the_mismatch_figures_are_at_harpes_matching() -> None:
