@@ -14,11 +14,10 @@ import hdl21 as h
 import numpy as np
 from bitarray import bitarray
 
-from flow import seqgen
+from flow import capdac, seqgen
 from flow.adc.sim import AdcSequence
 from flow.analysis.io import write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
-from flow.cdac.caparray import get_caparray_weights
 from flow.scans.fastrx import (
     convert_fastrx_words_to_adc,
     program_comp_delay,
@@ -191,7 +190,7 @@ def scan(
                 daq["gpio0"]["RST_B"] = 1
                 daq["gpio0"].write()
 
-                cap_weights = get_caparray_weights(params.dut.cdac)
+                cap_weights = capdac.Model.weights(params.dut.cdac)
                 code_weights = convert_dac_caps_to_adc_weights(cap_weights)
                 sequence_words = len(params.seq_init_pattern) // 8
                 symbol_rate_bps = float(params.symbol_rate)

@@ -31,9 +31,12 @@ output pins), constants on its tie cells and ports that only alias another net b
 Register 0 drives C0, as in the RTL. The netlist is cached beside the blocks' characterizations
 (``flow.sweep.lookup.MODELS_DIR``), under ``adc_digital/``.
 
-The plates the arrays have: ``calc_ideal_capacitances``, the ideal capacitances ``CapArray``
-generates, and ``calc_side_capacitances``, one side's as a behavioral DAC (``flow.adc.model``) gives
-them, ideal where it gives none.
+The converter's DAC is a ``capdac.Params``; until the netlist moves to ``capdac.netlist``, its
+arrays and drivers are the legacy generators' (``flow.cdac.caparray``, ``flow.cdac.capdriver``) of the
+same array (``_legacy_array``), which the behavioral model's characterization and the layout read
+too. The plates the arrays have: ``calc_ideal_capacitances``, the plates capdac designs at a reference
+(``capdac.Model.plates``), and ``calc_side_capacitances``, one side's as a behavioral DAC
+(``flow.adc.model``) gives them, the designed ones where it gives none.
 
 The ADC's analog blocks alone (``AdcBlocks``: the comparator, and a sampler and an array a side),
 whose geometry the sweep's records give (``flow.adc.sweep.GENERATOR``).
@@ -58,9 +61,9 @@ import hdl21 as h
 import numpy as np
 from hdl21.primitives import MosType
 
-from flow import comp, samp
+from flow import capdac, comp, samp
 from flow.adc.params import Params, TbParams
-from flow.cdac.caparray import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights, unit_capacitance_f
+from flow.cdac.caparray import CapArray, CapArrayConfig, CapArrayParams, RedunStrat
 from flow.cdac.capdriver import CapDriver, CapDriverParams, Cells
 from flow.circuit.ports import module_from_ports, port_connections
 from flow.sweep.lookup import MODELS_DIR
@@ -131,7 +134,24 @@ AdcNets = adc_nets(16)
 
 def adc_stages(param: Params) -> int:
     """The capacitors a side, each switched by one decision (one more decision resolves the last)."""
-    return len(get_caparray_weights(param.cdac))
+    return len(capdac.Model.weights(param.cdac))
+
+
+def _legacy_array(cdac: capdac.Params) -> CapArrayConfig:
+    """The legacy array (``flow.cdac.caparray``) of the converter's DAC, which its netlist, the
+    behavioral model's characterization and the layout build on until they move to capdac: the DAC's
+    N - 1 binary steps, its extra cycles, its scheme by name, its capacitance in kT/C minimums and an
+    array's own weights. The legacy generator builds difference capacitors in increments of 64 units
+    alone (``CapArrayParams.coarse_weight``)."""
+    if cdac.weight_impl is not capdac.WeightImpl.DIFFERENCE_CAPS or cdac.coarse_weight != 64:
+        raise ValueError(f"the legacy array builds difference capacitors in increments of 64 units, not {cdac}")
+    return CapArrayConfig(
+        n_dac=cdac.bits - 1,
+        n_extra=cdac.extra,
+        redun_strat=RedunStrat[cdac.redundancy.name],
+        cap_scale=cdac.scale,
+        weights=cdac.weights,
+    )
 
 
 # Keep the driver hierarchy fresh when this ADC is requested after compilation.
@@ -173,9 +193,9 @@ def Adc(p: Params) -> h.Module:
     )
 
     # Identical passive arrays share their definition; each ADC gets fresh drivers.
-    array = CapArray(CapArrayParams(cdac=p.cdac))
+    array = CapArray(CapArrayParams(cdac=_legacy_array(p.cdac)))
     # FRIDA-1's drivers: its library clock XORs, one per stage in its drive band
-    driver = CapDriver(CapDriverParams(n_stages=stages, strengths=p.cdac.driver_strengths, cells=Cells.CLOCK_XOR))
+    driver = CapDriver(CapDriverParams(n_stages=stages, strengths=None, cells=Cells.CLOCK_XOR))
     sampler = samp.netlist(p.samp)
     for side, vin, top, main_state, diff_state, main_invert, diff_invert, main_bot, diff_bot, clk, clk_b in (
         (
@@ -247,7 +267,7 @@ def AdcBlocks(params: Params) -> h.Module:
     _place(blocks, comp.netlist(params.comp), "comp")
     for side in ("p", "n"):
         _place(blocks, samp.netlist(params.samp), f"samp_{side}")
-        _place(blocks, CapArray(CapArrayParams(cdac=params.cdac)), f"cap_{side}")
+        _place(blocks, CapArray(CapArrayParams(cdac=_legacy_array(params.cdac))), f"cap_{side}")
     return blocks
 
 
@@ -260,35 +280,23 @@ def _place(blocks: h.Module, module: h.Module, name: str) -> None:
     blocks.add(module(**connections), name=name)
 
 
-# The arrays' plates: the capacitances CapArray generates, and one side's as the behavioral DAC
+# The arrays' plates: as capdac designs them, and one side's as the behavioral DAC
 # (``flow.adc.model``) gives them
 
 
-def calc_ideal_capacitances(cdac: CapArrayConfig) -> tuple[np.ndarray, np.ndarray]:
-    """Return the ideal C0-first main and diff capacitances that ``CapArray`` generates at the
-    config's unit capacitance (``unit_capacitance_f``).
-
-    Each weight is split into coarse chunks; a chunk adds
-    ``unit * (coarse +/- chunk) / 2 + tail`` to the main and diff plates.
-    """
-    array = CapArrayParams(cdac=cdac)
-    unit_f = unit_capacitance_f(cdac)
-    tail_f = unit_f / 2 if array.tail_cap is None else float(array.tail_cap)
-    main_f, diff_f = [], []
-    for weight in get_caparray_weights(cdac):
-        chunks = [array.coarse_weight] * (weight // array.coarse_weight)
-        if weight % array.coarse_weight:
-            chunks.append(weight % array.coarse_weight)
-        main_f.append(sum(unit_f * (array.coarse_weight + chunk) / 2 + tail_f for chunk in chunks))
-        diff_f.append(sum(unit_f * (array.coarse_weight - chunk) / 2 + tail_f for chunk in chunks))
-    return np.asarray(main_f), np.asarray(diff_f)
+def calc_ideal_capacitances(cdac: capdac.Params, reference_v: float) -> tuple[np.ndarray, np.ndarray]:
+    """Return the C0-first main and diff capacitances of ``cdac`` as designed at the reference
+    ``reference_v`` (``capdac.Model.plates``): each side ``scale`` kT/C minimums at a full scale of
+    the reference, a stage's main less its diff plates its weight in units."""
+    return capdac.Model.plates(cdac, reference_v)
 
 
 def calc_side_capacitances(behavioral: object, tb: TbParams, side: str) -> tuple[np.ndarray, np.ndarray]:
-    """Return one side's main and diff capacitances, ideal where not given: ``behavioral`` is the
-    behavioral DAC (``flow.adc.model.CdacBehavioralParams``), read by attribute."""
+    """Return one side's main and diff capacitances, as designed at the testbench's DAC supply where
+    not given: ``behavioral`` is the behavioral DAC (``flow.adc.model.CdacBehavioralParams``), read by
+    attribute."""
 
-    ideal_main_f, ideal_diff_f = calc_ideal_capacitances(tb.dut.cdac)
+    ideal_main_f, ideal_diff_f = calc_ideal_capacitances(tb.dut.cdac, float(tb.vdd_dac.dc))
     main = getattr(behavioral, f"main_{side}_f")
     diff = getattr(behavioral, f"diff_{side}_f")
     return (

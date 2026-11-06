@@ -9,8 +9,7 @@ import hdl21 as h
 import numpy as np
 import pytest
 
-from flow import adc
-from flow.cdac.caparray import get_caparray_weights
+from flow import adc, capdac
 from flow.scans.fastrx import (
     FastRxCapture,
     convert_fastrx_words_to_comp,
@@ -101,7 +100,7 @@ def test_comparator_balanced_track_params_encode_expected_point() -> None:
         assert set(tb.seq_samp_pattern) == {"1"}
         assert "1" not in tb.seq_init_pattern
         assert "1" not in tb.seq_logic_pattern
-        weights = tuple(get_caparray_weights(tb.dut.cdac))
+        weights = capdac.Model.weights(tb.dut.cdac)
         expected = _convert_dac_rail_percent_to_codes(50.0, weights)[0]
         assert tb.dac_astate_p == tuple(int(bit) for bit in expected)
         assert tb.dac_astate_p == tb.dac_bstate_p == tb.dac_astate_n == tb.dac_bstate_n

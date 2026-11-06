@@ -46,7 +46,7 @@ def test_the_model_reads_its_record_by_its_parameters(monkeypatch):
 def test_the_adc_settles_each_stage_by_its_characterization_and_falls_back_to_rc():
     import flow.adc.model as adc_model
 
-    main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac)
+    main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac, float(TB.vdd_dac.dc))
     stages = len(main_f)
     settling: Any = SimpleNamespace(tau_s=tuple(1e-10 * (k + 1) for k in range(stages)), delay_s=(30e-12,) * stages)
     blocks: dict[str, Any] = {

@@ -10,7 +10,8 @@ FRIDA-2's template (``frida-2-template-c0.gds`` and ``.cdl``).
 
 The blocks side by side, until OpenROAD and ALIGN place and route them together: the comparator and
 the samplers as their sweeps laid them out (ALIGN), the capacitor arrays as drawn for the
-extraction the behavioral model reads (``flow.cdac.caparray.model``), and the generic-cell drivers
+extraction the behavioral model reads (``flow.cdac.caparray.model``, the legacy array of the
+converter's ``capdac.Params``: ``flow.adc.subckt._legacy_array``), and the generic-cell drivers
 (``flow.cdac.capdriver``) as their library's standard cells in rows, a stage a row, unrouted and
 unlabelled. Each block is outlined and labelled on the boundary layer, which the viewer shows.
 Nothing is connected, so nothing is signed off.
@@ -43,6 +44,7 @@ from flow.sweep.runner import ROOT, RUNS_DIR, digest, instance_params, write_rec
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
 
 from .params import Params
+from .subckt import _legacy_array
 
 # ---- block replacement: compatible prebuilt blocks swapped into a template (FRIDA-2's), the
 # assembled layout's connectivity verified by LVS
@@ -599,15 +601,17 @@ def assemble_blocks(pdk: str, params: Params, out_dir: Path) -> dict:
     layout.dbu = tech.DBU
     top = layout.create_cell("adc_blocks")
     boundary = layout.layer(*tech.LAYERS["BND"])
+    # the arrays and drivers of the converter's legacy array
+    legacy = _legacy_array(params.cdac)
     sources = {
         "comp": sweep_gds("comp", pdk, params.comp),
         "samp": sweep_gds("samp", pdk, params.samp),
-        "cap": caparray_gds(pdk, params.cdac),
+        "cap": caparray_gds(pdk, legacy),
     }
     cells = {block: _copied(layout, gds) for block, gds in sources.items()}
     standard = import_module(f"pdk.{pdk}.layout.paths").STD_GDS
     if standard.exists():
-        cells["drv"] = _driver(layout, pdk, params.cdac, boundary)
+        cells["drv"] = _driver(layout, pdk, legacy, boundary)
         sources["drv"] = standard
     blocks, x = [], 0.0
     for name, block in _ROW:

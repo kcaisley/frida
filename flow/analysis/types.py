@@ -34,9 +34,9 @@ __all__ = [
 ]
 
 if TYPE_CHECKING:
-    from flow import adc
+    from flow import adc, capdac
     from flow.cdac.caparray.sim import CapArrayTbParams
-    from flow.cdac.caparray.subckt import CapArrayConfig, CapArrayParams
+    from flow.cdac.caparray.subckt import CapArrayParams
     from flow.scans.params import AdcScanParams
 
 
@@ -110,9 +110,9 @@ class MeasAdc(Meas):
         count is therefore the capacitor count plus one.
         """
 
-        from flow.cdac.caparray import get_caparray_weights
+        from flow import capdac
 
-        return np.asarray([2 * weight for weight in get_caparray_weights(self.dut.cdac)] + [1], dtype=np.int64)
+        return np.asarray([2 * weight for weight in capdac.Model.weights(self.dut.cdac)] + [1], dtype=np.int64)
 
     @property
     def code_max(self) -> int:
@@ -161,7 +161,7 @@ class MeasCdac(Meas):
     Every DAC-state array has one column per capacitor, C0 first.
     """
 
-    dut: CapArrayConfig
+    dut: capdac.Params
     param: AdcScanParams | adc.TbParams | CapArrayTbParams
     trial_index: np.ndarray
     dac_state_p: np.ndarray
@@ -184,7 +184,9 @@ class MeasCdac(Meas):
         the design record of the fabricated CDAC flavor on that channel.
         """
 
-        weights = np.asarray(self.dut.weights, dtype=np.float64)
+        from flow import capdac
+
+        weights = np.asarray(capdac.Model.weights(self.dut), dtype=np.float64)
         total_weights = 65.0 * np.ceil(weights / 64.0)
         if "cdac_topplate_parasitic_weight" in self.info.readbacks:
             topplate_parasitic_weight = float(self.info.readbacks["cdac_topplate_parasitic_weight"])

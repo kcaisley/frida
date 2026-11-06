@@ -9,9 +9,8 @@ from typing import Any
 import hdl21 as h
 from yaml import safe_load
 
-from flow import adc
+from flow import adc, capdac
 from flow.adc.sim import AdcSequence
-from flow.cdac.caparray import CapArrayConfig, RedunStrat
 from flow.scans.fastrx import FastRxCapture
 
 
@@ -191,14 +190,9 @@ def build_adc_variants(
     variants = []
     for adc_index in adc_indices:
         flavor = board_map["adc_channels"][adc_index]
+        # FRIDA-1's array (capdac's defaults) with the flavor's fabricated weights
         dut = adc.Params(
-            adc_bits=12,
-            cdac=CapArrayConfig(
-                n_dac=11,
-                n_extra=5,
-                redun_strat=RedunStrat.MSB_REDIST,
-                weights=tuple(board_map["adc_flavors"][flavor]["cdac_weights"]),
-            ),
+            adc_bits=12, cdac=capdac.Params(weights=tuple(board_map["adc_flavors"][flavor]["cdac_weights"]))
         )
         active_adc_mask = tuple(int(index == adc_index) for index in reversed(range(16)))
         for sequence in sequences:

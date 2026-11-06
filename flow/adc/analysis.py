@@ -130,7 +130,6 @@ from flow import capdac, comp
 from flow.analysis import calc
 from flow.analysis.calc import calc_paths
 from flow.analysis.types import MeasAdc, MeasCdac
-from flow.cdac.caparray import get_caparray_weights
 from flow.pipeline import Identity, analysis, check_identity, measurement_identity
 
 from .params import CDAC_SETTLING_TOLERANCE_V, LADDER, NOMINAL_RATE_HZ, PELGROM_AXIS, UNIT_MISMATCH
@@ -982,7 +981,7 @@ def analyze_switching(measurement: MeasCdac) -> capdac.AnalysisSwitching:
 
     params = measurement.param
     tb = measurement.tb
-    stages = len(get_caparray_weights(params.tb.dut.cdac))
+    stages = len(capdac.Model.weights(params.tb.dut.cdac))
     expected = np.asarray(measurement.expected_effective_fraction, dtype=np.float64)
     identity = measurement.identity
     return capdac.AnalysisSwitching(
@@ -1847,7 +1846,7 @@ def analyze_calibration1(
     tb = measurements[0].tb
     # Every switched capacitor contributes twice its unit weight (both CDAC
     # sides move), and the terminal comparison adds one unit.
-    nominal_bout_weight = np.asarray([2 * weight for weight in get_caparray_weights(tb.dut.cdac)] + [1], float)
+    nominal_bout_weight = np.asarray([2 * weight for weight in capdac.Model.weights(tb.dut.cdac)] + [1], float)
     nominal_cap_weight = nominal_bout_weight[:-1]
     initial_p = np.asarray(tb.dac_astate_p, dtype=np.int64)
     initial_n = np.asarray(tb.dac_astate_n, dtype=np.int64)

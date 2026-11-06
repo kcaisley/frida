@@ -30,7 +30,7 @@ import numpy as np
 from hdl21.prefix import p
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
-from flow import comp
+from flow import capdac, comp
 from flow.adc.params import TbParams
 from flow.adc.subckt import (
     Adc,
@@ -43,7 +43,6 @@ from flow.adc.subckt import (
     frida1_net_aliases,
     frida2_net_aliases,
 )
-from flow.cdac.caparray import get_caparray_weights
 from flow.circuit.ports import testbench_from_ports
 from flow.pipeline import Wave
 
@@ -1355,7 +1354,7 @@ def simulate(
         "view": tb.view,
         "conversions": tb.conversions,
         "symbol_rate_hz": float(tb.symbol_rate),
-        "weights": get_caparray_weights(tb.dut.cdac),
+        "weights": list(capdac.Model.weights(tb.dut.cdac)),
         "spectre_threads": spectre_threads,
         "check": check,
         "transient_noise": noise and not check,

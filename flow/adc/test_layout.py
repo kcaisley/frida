@@ -14,8 +14,9 @@ import pytest
 from hdl21.prefix import f
 from klayout import db
 
+from flow import capdac
 from flow.cdac.caparray.layout import CapArrayLayoutParams, UnitLengthCapFamilyParams
-from flow.cdac.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams, RedunStrat
+from flow.cdac.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
 from flow.sweep.runner import ROOT
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
 from flow.web.export import export_layout
@@ -257,7 +258,7 @@ def test_the_blocks_sit_side_by_side_in_one_labelled_cell(tmp_path: Path) -> Non
     params = next(
         p
         for label, p in sweep.converters.instances("tsmc65")
-        if p.cdac.n_extra == 4 and p.cdac.redun_strat == RedunStrat.MSB_REDIST and "comp=200uV_1ns" in label
+        if p.cdac.extra == 4 and p.cdac.redundancy is capdac.Redundancy.MSB_REDIST and "comp=200uV_1ns" in label
     )
     try:
         entry = assemble_blocks("tsmc65", params, tmp_path)

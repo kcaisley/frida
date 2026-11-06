@@ -52,7 +52,7 @@ from basil.HL.tektronix_oscilloscope import response_value
 from bitarray import bitarray
 from yaml import safe_load
 
-from flow import adc, comp, seqgen
+from flow import adc, capdac, comp, seqgen
 from flow.adc.sim import (
     SEQUENCES,
     AdcSequence,
@@ -65,7 +65,6 @@ from flow.analysis.io import (
     write_measurement,
 )
 from flow.analysis.types import MeasAdc, MeasInfo
-from flow.cdac.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.plot import render
 from flow.scans import scan_adc, scan_adc_noctl
 from flow.scans.fastrx import convert_fastrx_words_to_adc, program_comp_delay, select_fastrx_capture_settings
@@ -152,15 +151,7 @@ def test_physical_fastrx_matches_scope(
     capture_profiles = board["fastrx_capture_settings"]
     flavor_name = board_map["adc_channels"][ADC_INDEX]
     cap_weights = tuple(board_map["adc_flavors"][flavor_name]["cdac_weights"])
-    dut_params = adc.Params(
-        adc_bits=12,
-        cdac=CapArrayConfig(
-            n_dac=11,
-            n_extra=5,
-            redun_strat=RedunStrat.MSB_REDIST,
-            weights=cap_weights,
-        ),
-    )
+    dut_params = adc.Params(adc_bits=12, cdac=capdac.Params(weights=cap_weights))
     active_adc_mask = tuple(int(index == ADC_INDEX) for index in reversed(range(16)))
     base_params = AdcScanParams(
         tb=adc.TbParams(
@@ -361,7 +352,7 @@ def test_physical_fastrx_matches_scope(
         scope.set_trigger_level(0.0, channel=scope_conns.channels["seq_logic"])
         scope.set_trigger_mode("NORMAL")
 
-        cap_weights = get_caparray_weights(base_params.tb.dut.cdac)
+        cap_weights = capdac.Model.weights(base_params.tb.dut.cdac)
         code_weights = convert_dac_caps_to_adc_weights(cap_weights)
         data_size = int(daq["fastrx0"].get_size())
         if data_size != len(code_weights):

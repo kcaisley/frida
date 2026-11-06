@@ -12,6 +12,7 @@ from hdl21.prefix import G
 
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
+from flow import capdac
 from flow.adc.model import (
     AdcBehavioralParams,
     CdacBehavioralParams,
@@ -25,10 +26,9 @@ from flow.adc.plots import plot_reference_noise, plot_reference_r_out
 from flow.adc.sim import AdcSequence, symbol160_init4_samp20_comp11110000_logic00001111
 from flow.adc.subckt import calc_ideal_capacitances
 from flow.cdac.caparray.model import calc_capacitor_mismatch
-from flow.cdac.caparray.subckt import CapArrayConfig, get_caparray_weights
 
 TB = TbParams(
-    dut=Params(adc_bits=12, cdac=CapArrayConfig()),
+    dut=Params(adc_bits=12, cdac=capdac.Params()),
     symbol_rate=1.6 * G,
     **symbol160_init4_samp20_comp11110000_logic00001111.as_tb_fields(),
 )
@@ -48,10 +48,10 @@ def test_capacitor_mismatch_follows_pelgrom_area_scaling() -> None:
 
 def ideal_codes(params: AdcBehavioralParams, points: int = 2001) -> tuple[np.ndarray, np.ndarray]:
     tb = params.tb
-    main_f, diff_f = calc_ideal_capacitances(tb.dut.cdac)
+    main_f, diff_f = calc_ideal_capacitances(tb.dut.cdac, float(tb.vdd_dac.dc))
     full_scale_v = float(tb.vdd_dac.dc) * np.sum(main_f - diff_f) / np.sum(main_f + diff_f)
     vin_v = np.linspace(-full_scale_v, full_scale_v, points)
-    code_weights = np.append(2 * np.asarray(get_caparray_weights(tb.dut.cdac)), 1)
+    code_weights = np.append(2 * np.asarray(capdac.Model.weights(tb.dut.cdac)), 1)
     code_max = (1 << tb.dut.adc_bits) - 1
     bout = convert_behavioral(params, vin_v).bout
     code = np.rint((bout @ code_weights) * code_max / code_weights.sum())
@@ -65,13 +65,13 @@ def test_ideal_transfer_is_independent_of_the_initial_state(astate) -> None:
     assert np.max(np.abs(code - ideal_code)) <= 1
 
 
-@pytest.mark.parametrize("n_dac, n_extra", [(9, 3), (13, 6)])
-def test_other_resolutions_convert_and_scale_logic_energy(n_dac: int, n_extra: int) -> None:
-    cdac = CapArrayConfig(n_dac=n_dac, n_extra=n_extra)
-    stages = len(get_caparray_weights(cdac))
+@pytest.mark.parametrize("bits, extra", [(10, 3), (14, 6)])
+def test_other_resolutions_convert_and_scale_logic_energy(bits: int, extra: int) -> None:
+    cdac = capdac.Params(bits=bits, extra=extra)
+    stages = len(capdac.Model.weights(cdac))
     params = AdcBehavioralParams(
         tb=TbParams(
-            dut=Params(adc_bits=n_dac + 1, cdac=cdac),
+            dut=Params(adc_bits=bits, cdac=cdac),
             symbol_rate=1.6 * G,
             dac_astate_p=(0, 1) * (stages // 2) + (0,) * (stages % 2),
             dac_astate_n=(0, 1) * (stages // 2) + (0,) * (stages % 2),
@@ -98,7 +98,7 @@ def test_differential_caps_double_their_weight_without_diffcaps() -> None:
     # step is (main + diff) instead of (main - diff): a small input resolves
     # to a code nearer mid-scale.
     vin_v = np.asarray([0.2])
-    code_weights = np.append(2 * np.asarray(get_caparray_weights(TB.dut.cdac)), 1)
+    code_weights = np.append(2 * np.asarray(capdac.Model.weights(TB.dut.cdac)), 1)
     differential = convert_behavioral(with_tb(dac_diffcaps=1), vin_v).bout @ code_weights
     common = convert_behavioral(with_tb(dac_diffcaps=0), vin_v).bout @ code_weights
     assert abs(common[0] - code_weights.sum() / 2) < abs(differential[0] - code_weights.sum() / 2)
@@ -113,13 +113,13 @@ def reference_codes(vin_v: float, conversions: int = 400, **reference) -> np.nda
         cdac=CdacBehavioralParams(**reference),
         seed=3,
     )
-    code_weights = np.append(2 * np.asarray(get_caparray_weights(TB.dut.cdac)), 1)
+    code_weights = np.append(2 * np.asarray(capdac.Model.weights(TB.dut.cdac)), 1)
     bout = convert_behavioral(params, np.full(conversions, vin_v)).bout
     return (bout @ code_weights) * ((1 << TB.dut.adc_bits) - 1) / code_weights.sum()
 
 
 def full_scale_and_lsb() -> tuple[float, float]:
-    main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac)
+    main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac, float(TB.vdd_dac.dc))
     full_scale_v = float(TB.vdd_dac.dc) * np.sum(main_f - diff_f) / np.sum(main_f + diff_f)
     return full_scale_v, 2 * full_scale_v / (1 << TB.dut.adc_bits)
 
@@ -158,11 +158,11 @@ def test_a_drawn_arrays_exact_transfer_is_the_noise_free_converters() -> None:
     held at 1 moves the other side's capacitor."""
     from flow.analysis.calc import calc_decision_steps, calc_paths
 
-    stages = len(get_caparray_weights(TB.dut.cdac))
+    stages = len(capdac.Model.weights(TB.dut.cdac))
     astate = (0, 1) * (stages // 2) + (0,) * (stages % 2)
     tb = TbParams(**{**TB.__dict__, "dac_astate_p": astate, "dac_astate_n": astate})
     rng = np.random.default_rng(5)
-    main_f, diff_f = calc_ideal_capacitances(tb.dut.cdac)
+    main_f, diff_f = calc_ideal_capacitances(tb.dut.cdac, float(tb.vdd_dac.dc))
     drawn = {
         side: (
             calc_capacitor_mismatch(main_f, unit_mismatch=0.01, rng=rng),
@@ -180,9 +180,11 @@ def test_a_drawn_arrays_exact_transfer_is_the_noise_free_converters() -> None:
     params = AdcBehavioralParams(tb=tb, comp=comp_model.Model.Behavioral(noise_v=0.0), cdac=cdac)
     code_max = (1 << tb.dut.adc_bits) - 1
     full_scale_v, lsb_v = full_scale_and_lsb()
-    vin_v = np.linspace(-full_scale_v, full_scale_v, 20_011)
+    # an even count: no input on the first threshold, 0 V, a tie the comparator (overdrive > 0) and
+    # the paths (an input on a threshold above it) break apart
+    vin_v = np.linspace(-full_scale_v, full_scale_v, 20_010)
     bout = convert_behavioral(params, vin_v).bout
-    weights = np.append(2 * np.asarray(get_caparray_weights(tb.dut.cdac), dtype=np.float64), 1.0)
+    weights = np.append(2 * np.asarray(capdac.Model.weights(tb.dut.cdac), dtype=np.float64), 1.0)
     a, b = calc_decision_steps(
         (drawn["p"], drawn["n"]), 0.0, code_max, diffcaps=bool(tb.dac_diffcaps), nominal=(main_f, diff_f), astate=astate
     )
@@ -206,7 +208,7 @@ def test_the_reference_noise_leaves_the_other_sources_draws_alike() -> None:
 
 
 def test_the_model_quiets_each_source_alone_and_scales_the_settling() -> None:
-    main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac)
+    main_f, diff_f = calc_ideal_capacitances(TB.dut.cdac, float(TB.vdd_dac.dc))
     model = Model(
         pdk="none",
         params=TB.dut,

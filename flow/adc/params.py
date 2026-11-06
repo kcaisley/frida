@@ -20,9 +20,7 @@ import numpy as np
 from hdl21.prefix import G, m
 from pydantic import PositiveInt
 
-from flow import comp, pipeline, samp
-from flow.cdac.caparray import CapArrayConfig, RedunStrat
-from flow.cdac.caparray.layout import ADC_BITS, FRIDA1_ADC_ARRAY
+from flow import capdac, comp, pipeline, samp
 
 
 @h.paramclass
@@ -32,23 +30,24 @@ class Params:
     # Top-level ADC parameter
     adc_bits = h.Param(dtype=PositiveInt, desc="Nominal normalized ADC resolution", default=12)
     # Component parameters
-    cdac = h.Param(
-        dtype=CapArrayConfig,
-        desc="CDAC parameters",
-        default=CapArrayConfig(n_dac=11, n_extra=5),
-    )
+    cdac = h.Param(dtype=capdac.Params, desc="CDAC parameters", default=capdac.Params())
     samp = h.Param(dtype=samp.Params, desc="Sampler parameters", default=samp.FRIDA1)
     comp = h.Param(dtype=comp.Params, desc="Comparator parameters", default=comp.FRIDA1)
+
+    def __post_init__(self) -> None:
+        # the converter resolves what its array is sized and weighted for
+        if self.adc_bits != self.cdac.bits:
+            raise ValueError(f"a {self.adc_bits}-bit converter takes a {self.adc_bits}-bit array, not {self.cdac.bits}")
 
 
 pipeline.Params.register(Params)
 
 # The design space's resolutions (``flow.adc.sweep.converters``: a space each); FRIDA-1's converter:
-# its array (12 bits in 16 stages, MSB redistribution with 5 extra cycles) at two of the 12-bit least
-# switched capacitance
-RESOLUTIONS = ADC_BITS  # 10, 12 and 14 bits
+# its array (``capdac.frida1``: 12 bits in 16 stages, MSB redistribution with 5 extra cycles, at two
+# of the 12-bit least switched capacitance; capdac's defaults)
+RESOLUTIONS = (10, 12, 14)
 FRIDA1_BITS = 12
-FRIDA1_ARRAY = FRIDA1_ADC_ARRAY
+FRIDA1_ARRAY = capdac.frida1()
 
 
 @h.paramclass
@@ -64,13 +63,7 @@ class TbParams:
         desc="Calibre-extracted cell; empty selects adc_1layer_radix17 for frida1",
         default="",
     )
-    dut = h.Param(
-        dtype=Params,
-        desc="ADC DUT parameters",
-        default=Params(
-            cdac=CapArrayConfig(n_dac=11, n_extra=5, redun_strat=RedunStrat.MSB_REDIST),
-        ),
-    )
+    dut = h.Param(dtype=Params, desc="ADC DUT parameters", default=Params())
     symbol_rate = h.Param(dtype=h.Scalar, desc="DDR symbol rate", default=1.6 * G)
     conversions = h.Param(dtype=int, desc="Number of conversions", default=10_000)
     en_init = h.Param(dtype=int, desc="Enable initialization clock", default=1)

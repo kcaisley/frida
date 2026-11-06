@@ -21,11 +21,10 @@ import numpy as np
 from bitarray import bitarray
 from pyvisa.errors import VisaIOError
 
-from flow import adc
+from flow import adc, capdac
 from flow.analysis import calc
 from flow.analysis.io import read_measurement, write_measurement
 from flow.analysis.types import MeasCdac, MeasInfo, Wave
-from flow.cdac.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.scans.fastrx import (
     convert_fastrx_words_to_comp,
     program_comp_delay,
@@ -266,7 +265,7 @@ def _predict_cdac_step_v(params: AdcScanParams) -> float:
 
     if params.campaign != "cdac_ab" or params.cdac_element is None:
         raise ValueError("CDAC step prediction requires a selected cdac_ab element")
-    weights = get_caparray_weights(params.tb.dut.cdac)
+    weights = capdac.Model.weights(params.tb.dut.cdac)
     total_weights = [65 * math.ceil(weight / 64) for weight in weights]
     switched_weight = weights[params.cdac_element] if params.tb.dac_diffcaps else total_weights[params.cdac_element]
     topplate_parasitic_weight = 0.0
@@ -422,15 +421,8 @@ def _build_cdac_params(
     board_map = load_board_map()
     flavor = board_map["adc_channels"][adc_index]
     cap_weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
-    dut = adc.Params(
-        adc_bits=12,
-        cdac=CapArrayConfig(
-            n_dac=11,
-            n_extra=5,
-            redun_strat=RedunStrat.MSB_REDIST,
-            weights=cap_weights,
-        ),
-    )
+    # FRIDA-1's array (capdac's defaults) with the flavor's fabricated weights
+    dut = adc.Params(adc_bits=12, cdac=capdac.Params(weights=cap_weights))
     if direction == "1to0":
         a_p = [1] * 16
         a_n = [1] * 16
@@ -907,7 +899,7 @@ def scan(
         sleep(si570_settle_s)
         set_pll_divider(daq["gpio2"], pll_divider_n)
         data_size = int(daq["fastrx0"].get_size())
-        expected_data_size = len(get_caparray_weights(first.tb.dut.cdac)) + 1
+        expected_data_size = len(capdac.Model.weights(first.tb.dut.cdac)) + 1
         if data_size != expected_data_size:
             raise RuntimeError(f"FastRX DATA_SIZE={data_size}, expected {expected_data_size} from the configured CDAC")
 

@@ -72,7 +72,6 @@ from flow.analysis.types import (
 )
 from flow.capdac.test_analysis import comparator_offset
 from flow.cdac.caparray.model import calc_capacitor_mismatch
-from flow.cdac.caparray.subckt import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.plot import render
 from flow.scans.params import AdcScanParams
 from flow.scans.scan_cdac import _build_cdac_params
@@ -101,27 +100,24 @@ def test_redundancy_calculator(tmp_path: Path) -> None:
 
 
 def test_14_bit_weight_comparison(tmp_path: Path) -> None:
-    binary = tuple(2**bit for bit in range(13, -1, -1))
-    redistributed_18 = tuple(
-        get_caparray_weights(CapArrayConfig(n_dac=14, n_extra=4, redun_strat=RedunStrat.MSB_REDIST))
-    )
-    redistributed_20 = tuple(
-        get_caparray_weights(CapArrayConfig(n_dac=14, n_extra=6, redun_strat=RedunStrat.MSB_REDIST))
-    )
-    assert tuple(map(len, (binary, redistributed_18, redistributed_20))) == (14, 18, 20)
-    assert tuple(map(sum, (binary, redistributed_18, redistributed_20))) == (16383,) * 3
+    # a 14-bit converter's 13-step DAC: binary, and MSB redistribution with 4 and 6 extra cycles
+    binary = tuple(2**bit for bit in range(12, -1, -1))
+    redistributed_17 = capdac.Model.weights(capdac.Params(bits=14, redundancy=capdac.Redundancy.MSB_REDIST, extra=4))
+    redistributed_19 = capdac.Model.weights(capdac.Params(bits=14, redundancy=capdac.Redundancy.MSB_REDIST, extra=6))
+    assert tuple(map(len, (binary, redistributed_17, redistributed_19))) == (13, 17, 19)
+    assert tuple(map(sum, (binary, redistributed_17, redistributed_19))) == (8191,) * 3
     binary_margin = _redundancy_margins(binary)
-    redistributed_18_margin = _redundancy_margins(redistributed_18)
-    redistributed_20_margin = _redundancy_margins(redistributed_20)
+    redistributed_17_margin = _redundancy_margins(redistributed_17)
+    redistributed_19_margin = _redundancy_margins(redistributed_19)
     assert np.allclose(binary_margin, 0.0)
-    assert np.all(redistributed_18_margin[:14] > 0)
-    assert np.all(redistributed_20_margin[:16] > 0)
+    assert np.all(redistributed_17_margin[:13] > 0)
+    assert np.all(redistributed_19_margin[:15] > 0)
 
     # each array its own figure (one curve a plot: compared, they overlay as instances)
     for name, margin in (
         ("binary", binary_margin),
-        ("redistributed_18", redistributed_18_margin),
-        ("redistributed_20", redistributed_20_margin),
+        ("redistributed_17", redistributed_17_margin),
+        ("redistributed_19", redistributed_19_margin),
     ):
         figure = plot_redundancy(redundancy_of(margin))
         assert figure.x == [float(stage) for stage in range(len(margin))] and figure.x_ticks == "step"
@@ -130,7 +126,7 @@ def test_14_bit_weight_comparison(tmp_path: Path) -> None:
         assert path.read_bytes().startswith(b"%PDF")
 
 
-def ideal_sar_codes(weights: list[int]) -> tuple[np.ndarray, np.ndarray]:
+def ideal_sar_codes(weights: tuple[int, ...]) -> tuple[np.ndarray, np.ndarray]:
     """Every code's centre converted by an ideal top-plate SAR on ``weights``: the free first
     comparison, each capacitor's step both ways, the comparison after the last; the codes it gives."""
     codes = np.arange(2 * sum(weights) + 2)
@@ -147,19 +143,20 @@ def ideal_sar_codes(weights: list[int]) -> tuple[np.ndarray, np.ndarray]:
 def test_every_scheme_reaches_every_code(bits: int) -> None:
     # the decisions' weights of an N-bit converter on its N-1-step DAC: each capacitor's step both
     # ways, then the comparison after the last one switches
-    arrays = [CapArrayConfig(n_dac=bits - 1, n_extra=0, redun_strat=RedunStrat.BINARY)] + [
-        CapArrayConfig(n_dac=bits - 1, n_extra=extra, redun_strat=scheme)
-        for scheme in (RedunStrat.MSB_SPLIT, RedunStrat.LSB_SPLIT, RedunStrat.MSB_REDIST)
+    arrays = [capdac.Params(bits=bits, redundancy=capdac.Redundancy.BINARY, extra=0)] + [
+        capdac.Params(bits=bits, redundancy=scheme, extra=extra)
+        for scheme in (capdac.Redundancy.MSB_SPLIT, capdac.Redundancy.LSB_SPLIT, capdac.Redundancy.MSB_REDIST)
         for extra in range(1, 7)
     ]
     for cdac in arrays:
-        weights = get_caparray_weights(cdac)
+        weights = capdac.Model.weights(cdac)
         assert sum(weights) == 2 ** (bits - 1) - 1  # every scheme the binary total
         margins = _redundancy_margins((*(2 * weight for weight in weights), 1))
         # no stage's error band is lost (a negative margin would be missing codes); the split MSBs
         # and the redistribution give the free first comparison its tolerance, the split LSBs none
         assert np.all(margins >= 0.0), (bits, cdac)
-        assert (margins[0] > 0.0) == (cdac.redun_strat in (RedunStrat.MSB_SPLIT, RedunStrat.MSB_REDIST)), cdac
+        first_tolerates = cdac.redundancy in (capdac.Redundancy.MSB_SPLIT, capdac.Redundancy.MSB_REDIST)
+        assert (margins[0] > 0.0) == first_tolerates, cdac
         # and an ideal SAR on the weights converts every code to itself
         codes, found = ideal_sar_codes(weights)
         assert len(codes) == 2**bits and np.array_equal(codes, found), cdac
@@ -264,9 +261,10 @@ def test_a_captures_mismatch_is_its_nominal_arrays_statistics() -> None:
     """``analyze_mismatch`` of a behavioral capture: the statistics of its P side's plates (the
     capture's own, a nominal array), its top plate's other load, its design weights and its code
     range, under the capture's identity."""
-    main_f = np.array([16, 8, 4, 2, 1], dtype=np.float64) * UNIT_F
-    design = Params(adc_bits=6, cdac=CapArrayConfig(n_dac=5, n_extra=0, redun_strat=RedunStrat.BINARY))
-    cdac = CdacBehavioralParams(main_p_f=tuple(main_f), diff_p_f=(0.0,) * 5, parasitic_f=PARASITIC_F)
+    # an 8-bit binary converter: seven capacitors and the free first comparison
+    main_f = np.array([64, 32, 16, 8, 4, 2, 1], dtype=np.float64) * UNIT_F
+    design = Params(adc_bits=8, cdac=capdac.Params(bits=8, redundancy=capdac.Redundancy.BINARY, extra=0))
+    cdac = CdacBehavioralParams(main_p_f=tuple(main_f), diff_p_f=(0.0,) * 7, parasitic_f=PARASITIC_F)
     meas = MeasAdc(
         group=3,
         index=0,
@@ -274,16 +272,16 @@ def test_a_captures_mismatch_is_its_nominal_arrays_statistics() -> None:
         info=MeasInfo(backend="behavioral", timestamp_utc=datetime(2026, 1, 1, tzinfo=UTC)),
         param=AdcBehavioralParams(tb=TbParams(dut=design), cdac=cdac),
         conversion_index=np.arange(1),
-        bout=np.zeros((1, 6), dtype=np.uint8),
+        bout=np.zeros((1, 8), dtype=np.uint8),
         dout_raw=np.zeros(1, dtype=np.int64),
         dout=np.zeros(1, dtype=np.int64),
         vin_diff_v=np.zeros(1),
     )
     mismatch = analyze_mismatch(meas)
     assert mismatch.identity == meas.identity
-    expected = _statistics(main_f, _weights(main_f / UNIT_F))
+    expected = _mismatch_statistics(main_f, np.zeros_like(main_f), PARASITIC_F, _weights(main_f / UNIT_F), 255)
     for name in ("weight_sigma", "transition_sigma", "margin_lsb", "dnl_sigma", "inl_sigma", "width_codes"):
-        np.testing.assert_array_equal(getattr(mismatch, name), getattr(expected, name))
+        np.testing.assert_array_equal(getattr(mismatch, name), expected[name])
 
 
 def test_the_mismatch_draws_gather_each_ramp_by_its_coefficient() -> None:
@@ -723,7 +721,7 @@ def test_dynamic_analysis_separates_noise_and_harmonics() -> None:
 
 
 def sar_sine_measurement(
-    adc_bits: int, cdac: CapArrayConfig, *, spread: float
+    adc_bits: int, cdac: capdac.Params, *, spread: float
 ) -> tuple[MeasAdc, adc.AnalysisCalibration]:
     """An ideal SAR converting a coherent -0.5 dBFS sine (8,192 conversions): no noise, no
     distortion, its capacitors off their design values by a fixed draw of relative sigma
@@ -778,9 +776,9 @@ def sar_sine_measurement(
 
 
 @pytest.mark.parametrize(
-    ("adc_bits", "cdac"), [(10, CapArrayConfig(n_dac=9, n_extra=3)), (12, CapArrayConfig())], ids=["10b", "12b"]
+    ("adc_bits", "cdac"), [(10, capdac.Params(bits=10, extra=3)), (12, capdac.Params())], ids=["10b", "12b"]
 )
-def test_an_ideal_quantizer_reads_its_resolution_referred_to_full_scale(adc_bits: int, cdac: CapArrayConfig) -> None:
+def test_an_ideal_quantizer_reads_its_resolution_referred_to_full_scale(adc_bits: int, cdac: capdac.Params) -> None:
     """Quantization alone is the design resolution: decoded unrounded and referred to full scale."""
 
     # an ideal N-bit quantizer: the design weights, whole codes
@@ -912,7 +910,8 @@ def test_ramp_analysis_redecodes_with_common_calibration_weights() -> None:
     with pytest.raises(ValueError, match="does not match"):
         analyze_ramp(measurement, calibration=replace(calibration, index=1))
     with pytest.raises(ValueError, match="does not match"):
-        analyze_ramp(measurement, calibration=replace(calibration, dut=replace(measurement.dut, adc_bits=10)))
+        other = replace(measurement.dut, adc_bits=10, cdac=capdac.Params(bits=10, extra=3))
+        analyze_ramp(measurement, calibration=replace(calibration, dut=other))
 
     # Code-density nonlinearity reuses the ramp's single wrap-exclusion mask.
     ramp = analyze_ramp(measurement)
@@ -1051,10 +1050,7 @@ def test_decision_paths_normalize_redundant_raw_weights() -> None:
             msmt.param,
             tb=replace(
                 msmt.param.tb,
-                dut=adc.Params(
-                    adc_bits=12,
-                    cdac=CapArrayConfig(n_dac=11, n_extra=5, weights=weights),
-                ),
+                dut=adc.Params(adc_bits=12, cdac=capdac.Params(weights=weights)),
             ),
         ),
     )
@@ -1733,7 +1729,7 @@ CAPACITOR_WEIGHTS = (192, 128, 80, 48, 32, 16, 12, 8, 4, 2, 1, 1)
 
 
 def small_adc() -> adc.Params:
-    return adc.Params(adc_bits=10, cdac=CapArrayConfig(n_dac=9, n_extra=3, weights=CAPACITOR_WEIGHTS))
+    return adc.Params(adc_bits=10, cdac=capdac.Params(bits=10, extra=3, weights=CAPACITOR_WEIGHTS))
 
 
 def small_scan_params(conversions: int, vin_diff) -> AdcScanParams:
@@ -1790,7 +1786,7 @@ def small_ramp(cycles: int = 8, samples_per_cycle: int = 2_048) -> MeasAdc:
 
 
 def test_small_adc_is_a_different_architecture() -> None:
-    assert len(get_caparray_weights(small_adc().cdac)) == 12
+    assert len(capdac.Model.weights(small_adc().cdac)) == 12
     assert small_adc().adc_bits == 10
 
 
@@ -1908,7 +1904,7 @@ def test_calibration1_public_analysis_returns_common_weights() -> None:
         observed_adc=0,
         active_adc_mask=tuple(int(index == 0) for index in reversed(range(16))),
     )
-    nominal_cap_weight = 2.0 * np.asarray(get_caparray_weights(params.tb.dut.cdac), dtype=np.float64)
+    nominal_cap_weight = 2.0 * np.asarray(capdac.Model.weights(params.tb.dut.cdac), dtype=np.float64)
     element_count = len(nominal_cap_weight)
     measured = np.repeat((nominal_cap_weight / 2.0)[None, :, None], 2, axis=0)
     measured = np.repeat(measured, 2, axis=2)
@@ -1962,7 +1958,7 @@ def test_calibration1_selects_p_and_n_directions_from_each_a_state() -> None:
         observed_adc=0,
         active_adc_mask=tuple(int(index == 0) for index in reversed(range(16))),
     )
-    nominal_cap_weight = np.asarray(get_caparray_weights(params.tb.dut.cdac), dtype=np.float64)
+    nominal_cap_weight = np.asarray(capdac.Model.weights(params.tb.dut.cdac), dtype=np.float64)
     by_direction = np.empty((2, 16, 2))
     # Selected movements are each nominal half-weight; unselected ones are
     # deliberately wrong or NaN so a wrong selection would be visible.
@@ -2239,7 +2235,7 @@ def _stub_model(table: Path, params: Params):
     class Stub(model.Model):
         supply_v = 1.2
 
-    main_f, diff_f = calc_ideal_capacitances(params.cdac)
+    main_f, diff_f = calc_ideal_capacitances(params.cdac, 1.2)
     rows = (f"{i},{m * 1e15:.6f},{d * 1e15:.6f},{(m - d) * 1e15:.6f}\n" for i, (m, d) in enumerate(zip(main_f, diff_f)))
     table.write_text("stage,main_ff,diff_ff,effective_ff\n" + "".join(rows))
     load_f = float(np.sum(main_f) + np.sum(diff_f))
@@ -2257,7 +2253,7 @@ def _stub_model(table: Path, params: Params):
                 noise_v=float(np.sqrt(2 * constants.k * 300 / load_f)),
                 jitter_s=2e-12,
                 ron_table_v=(0.2, 0.7, 1.2),
-                # on the 12-bit array's 0.54 pF at its 204 aF unit, a time constant of 0.4-0.8 ns
+                # on the 12-bit array's 0.74 pF at its 283 aF unit, a time constant of 0.6-1.1 ns
                 ron_table_ohm=(750.0, 1500.0, 750.0),
             )
         ),
@@ -2289,10 +2285,10 @@ def _capture(model, declared):
 
 @pytest.mark.parametrize(
     "cdac",
-    [CapArrayConfig(n_dac=11, n_extra=0, redun_strat=RedunStrat.BINARY), CapArrayConfig()],
+    [capdac.Params(redundancy=capdac.Redundancy.BINARY, extra=0), capdac.Params()],
     ids=["binary", "msb_redist"],
 )
-def test_the_ladder_starts_at_quantization_and_ends_on_enob_bits(tmp_path: Path, cdac: CapArrayConfig) -> None:
+def test_the_ladder_starts_at_quantization_and_ends_on_enob_bits(tmp_path: Path, cdac: capdac.Params) -> None:
     params = Params(adc_bits=12, cdac=cdac)
     model = _stub_model(tmp_path / "table.csv", params)
     plan = campaign(model.tb, model.full_scale_v, params.adc_bits)
@@ -2323,9 +2319,7 @@ def test_the_ladders_quantization_reads_the_design_resolution(tmp_path: Path, ad
     """Quantization alone (a binary array, as the sweep's binary instances) reads the design
     resolution: the ladder refers the -0.5 dBFS sine's SNDR to full scale, where at the sine's own
     amplitude it reads half a dB less."""
-    params = Params(
-        adc_bits=adc_bits, cdac=CapArrayConfig(n_dac=adc_bits - 1, n_extra=0, redun_strat=RedunStrat.BINARY)
-    )
+    params = Params(adc_bits=adc_bits, cdac=capdac.Params(bits=adc_bits, redundancy=capdac.Redundancy.BINARY, extra=0))
     model = _stub_model(tmp_path / "table.csv", params)
     plan = campaign(model.tb, model.full_scale_v, params.adc_bits)
     captures = {name: _capture(model, plan[name]) for name in LADDER_NAMES}

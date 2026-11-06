@@ -28,7 +28,7 @@ from hdl21.prefix import G
 
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
-from flow import adc
+from flow import adc, capdac
 from flow import comp as comparator
 from flow.adc.model import (
     AdcBehavioralParams,
@@ -46,9 +46,7 @@ from flow.adc.sim import (
 from flow.adc.subckt import calc_ideal_capacitances
 from flow.analysis.io import write_analysis, write_measurement
 from flow.analysis.types import MeasAdc, MeasCdac, MeasInfo
-from flow.cdac.caparray import get_caparray_weights
 from flow.cdac.caparray.model import calc_capacitor_mismatch
-from flow.cdac.caparray.subckt import CapArrayConfig, RedunStrat
 from flow.scans.params import AdcScanParams
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 
@@ -56,7 +54,7 @@ from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 TB = adc.TbParams(
     view="frida2",
     pex_cell="adc_12b_17step",
-    dut=adc.Params(adc_bits=12, cdac=CapArrayConfig()),
+    dut=adc.Params(adc_bits=12, cdac=capdac.Params()),
     symbol_rate=1.6 * G,
     vin_cm=h.Vdc.Params(dc=0.700),
     **symbol160_init4_samp20_comp11110000_logic00001111.as_tb_fields(),
@@ -174,7 +172,7 @@ def capture_behavioral(
         calc_source_value(tb.vin_diff, time_s + 0.5e-12) - calc_source_value(tb.vin_diff, time_s - 0.5e-12)
     ) / 1e-12
     result = convert_behavioral(params, vin_diff_v, slope)
-    code_weights = np.asarray(convert_dac_caps_to_adc_weights(get_caparray_weights(tb.dut.cdac)), dtype=np.int64)
+    code_weights = np.asarray(convert_dac_caps_to_adc_weights(capdac.Model.weights(tb.dut.cdac)), dtype=np.int64)
     dout_raw = result.bout.astype(np.int64) @ code_weights
     dout = np.rint(dout_raw * ((1 << tb.dut.adc_bits) - 1) / code_weights.sum()).astype(np.int64)
     # Active power averages one conversion window, as for SPICE captures.
@@ -465,24 +463,25 @@ def architecture_variants(run_dir: Path) -> None:
     rough logic energies, with ideal (not extracted) capacitor values. The
     redundant arrays have 16 capacitors and 17 decisions; the binary arrays 11
     capacitors and 12 decisions, run with a recipe of their own length at the
-    same 1.6-GBd symbol rate. A unit-length stage is a main/diff pair sized like
-    CapArray; a unit-element stage is one plain capacitor. Each draw has an
-    eight-period ramp for calibration training and a held-out repeat.
+    same 1.6-GBd symbol rate. A unit-length stage is a main/diff pair sized as
+    capdac designs it (``capdac.Model.plates``); a unit-element stage is one
+    plain capacitor. Each draw has an eight-period ramp for calibration
+    training and a held-out repeat.
     """
 
     with CAP_TABLE.open(newline="") as table:
         array_f = sum(float(row["main_ff"]) + float(row["diff_ff"]) for row in csv.DictReader(table)) * 1e-15
     parasitic_f = TOTAL_LOAD_F - array_f
     configs = {
-        "redundant": CapArrayConfig(),
-        "binary": CapArrayConfig(n_dac=11, n_extra=0, redun_strat=RedunStrat.BINARY),
+        "redundant": capdac.Params(),
+        "binary": capdac.Params(redundancy=capdac.Redundancy.BINARY, extra=0),
     }
     cases = [(0, 0.0), (1, UNIT_MISMATCH_HARPE), (2, UNIT_MISMATCH_HARPE), (1, UNIT_MISMATCH), (2, UNIT_MISMATCH)]
     for weighting, cdac_config in configs.items():
-        weights = np.asarray(get_caparray_weights(cdac_config), dtype=np.float64)
+        weights = np.asarray(capdac.Model.weights(cdac_config), dtype=np.float64)
         stages = len(weights)
         alternating = tuple(index % 2 for index in range(stages))
-        ideal_main_f, ideal_diff_f = calc_ideal_capacitances(cdac_config)
+        ideal_main_f, ideal_diff_f = calc_ideal_capacitances(cdac_config, float(TB.vdd_dac.dc))
         for style in ("unitlength", "unitelement"):
             if style == "unitlength":
                 scale = array_f / float(np.sum(ideal_main_f + ideal_diff_f))

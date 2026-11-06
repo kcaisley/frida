@@ -11,7 +11,7 @@ import hdl21.sim as hs
 import numpy as np
 import pytest
 
-from flow.cdac.caparray import CapArrayConfig
+from flow import capdac
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
 from flow.util.netlist import subcircuit_ports
 
@@ -69,7 +69,7 @@ def test_adc_testbench_parameters_are_simulation_only() -> None:
         {"view": "unknown"},
         {"view": "frida2", "pex_cell": ""},
         {"pex_cell": "adc_12b_17step"},
-        {"dut": Params(cdac=CapArrayConfig(n_extra=4))},
+        {"dut": Params(cdac=capdac.Params(extra=4))},
         {"conversions": 0},
         {"symbol_rate": 0},
         {"symbol_rate": h.Literal("rate")},

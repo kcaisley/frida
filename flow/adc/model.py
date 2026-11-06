@@ -11,7 +11,9 @@ array's plates: ``flow.cdac.capdriver.model.driver_strengths``), each from its o
 extraction in the PDK; the DAC's settling, stage by stage, from the SPICE characterization of the
 array with its drivers (``flow.cdac.model``, of the converter's array at its resolution,
 ``cdac.adc_array``, by the array's name: ``python -m flow run cdac`` runs it ahead), or, where there is none, estimated
-from the drivers' resistance and delay with a warning. The SAR logic is the fixed digital netlist built by
+from the drivers' resistance and delay with a warning. The converter's DAC is a ``capdac.Params``;
+these legacy characterizations are of the same array (``flow.adc.subckt._legacy_array``) until the
+model composes capdac's own. The SAR logic is the fixed digital netlist built by
 OpenROAD: it is not characterized, so its energies are the ones fitted to the FRIDA-2 three-layer
 PEX transient (``_SALOGIC``). The DAC's reference is ideal here, the front end's own characterization;
 a ``Reference`` (driver resistance, decoupling capacitance, noise) is what the reference study
@@ -79,6 +81,7 @@ import numpy as np
 import flow.cdac.model as cdac_model
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
+from flow import capdac
 from flow import cdac as cdac_block  # the CDAC block; ``cdac`` here is the behavioral array's switching
 from flow.adc.analysis import analyze_dynamic
 from flow.adc.params import (
@@ -100,13 +103,12 @@ from flow.adc.params import (
     TbParams,
 )
 from flow.adc.sim import AdcSequence, build_adc_interface_wave, calc_source_value
-from flow.adc.subckt import calc_side_capacitances
+from flow.adc.subckt import _legacy_array, calc_side_capacitances
 from flow.adc.types import AnalysisReference
 from flow.analysis.io import read_extracted_calibration, write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
 from flow.cdac.caparray.layout import array_name
 from flow.cdac.caparray.model import CapArrayModel
-from flow.cdac.caparray.subckt import get_caparray_weights
 from flow.cdac.capdriver.model import CapDriverModel, driver_strengths, stage_drivers
 from flow.cdac.capdriver.subckt import CapDriverParams, Cells
 from flow.pipeline import Space
@@ -202,15 +204,16 @@ class Model:
 
     @classmethod
     def of(cls, pdk: str, params: Params, *, simulate: bool = True) -> Model:
-        array = CapArrayModel.of(pdk, params.cdac)
+        # the legacy characterizations of the converter's array
+        legacy = _legacy_array(params.cdac)
+        array = CapArrayModel.of(pdk, legacy)
         # the drivers the array's plates call for (flow.cdac.capdriver.model.driver_strengths)
-        strengths = driver_strengths(pdk, params.cdac, array, simulate=simulate)
+        strengths = driver_strengths(pdk, legacy, array, simulate=simulate)
         driver = CapDriverParams(n_stages=len(array.main_f), strengths=strengths, cells=Cells.GENERIC)
-        # the DAC's characterization, of the converter's array at its resolution (n_dac + 1 bits), is
-        # looked up, never run here (minutes of SPICE an array, which every converter on the array
-        # would wait for)
+        # the DAC's characterization, of the converter's array at its resolution, is looked up, never
+        # run here (minutes of SPICE an array, which every converter on the array would wait for)
         try:
-            dac = _cdac_arrays(pdk)[array_name(params.cdac)].base
+            dac = _cdac_arrays(pdk)[array_name(legacy)].base
             if dac.adc_bits != params.adc_bits:
                 raise LookupError(
                     f"the CDAC is characterized at {dac.adc_bits} bits, the converter has {params.adc_bits}"
@@ -242,7 +245,7 @@ class Model:
 
     @property
     def stages(self) -> int:
-        return len(get_caparray_weights(self.params.cdac))
+        return len(capdac.Model.weights(self.params.cdac))
 
     @property
     def supply_v(self) -> float:
@@ -420,7 +423,7 @@ class Model:
         ) / 1e-12
         result = convert_behavioral(params, vin_diff_v, slope)
         # each capacitor's decision weighs twice its weight (both sides move), the last decision one
-        code_weights = np.asarray([2 * weight for weight in get_caparray_weights(tb.dut.cdac)] + [1], dtype=np.int64)
+        code_weights = np.asarray([2 * weight for weight in capdac.Model.weights(tb.dut.cdac)] + [1], dtype=np.int64)
         dout_raw = result.bout.astype(np.int64) @ code_weights
         dout = np.rint(dout_raw * ((1 << tb.dut.adc_bits) - 1) / code_weights.sum()).astype(np.int64)
         # active power averages one conversion window, as for SPICE captures
@@ -658,7 +661,7 @@ def convert_behavioral(
     tb = params.tb
     vin_diff_v = np.asarray(vin_diff_v, dtype=np.float64)
     conversions = len(vin_diff_v)
-    stages = len(get_caparray_weights(tb.dut.cdac))
+    stages = len(capdac.Model.weights(tb.dut.cdac))
     comp_s, logic_s = _sequence_times(tb, stages + 1)
     windows_s = calc_decision_windows(tb, stages + 1)
     stage_tau_s = params.cdac.stage_tau_s or (params.cdac.settling_tau_s,) * stages

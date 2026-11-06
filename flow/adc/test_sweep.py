@@ -18,7 +18,7 @@ import hdl21.sim as hs
 import numpy as np
 import pytest
 
-from flow import comp, samp
+from flow import capdac, comp, samp
 from flow.adc import plots, sim, sweep, targets
 from flow.adc.params import (
     FIN_CYCLES,
@@ -32,9 +32,7 @@ from flow.adc.params import (
     RESOLUTIONS,
     VALIDATION_DRAWS,
 )
-from flow.cdac.caparray.layout import ADC_ARRAYS, RADIX17
-from flow.cdac.caparray.sim import CASES
-from flow.cdac.caparray.subckt import RedunStrat, get_caparray_weights
+from flow.pipeline import Pdk
 from flow.sweep.runner import design_space, digest
 
 PEX_FIXTURES = {view: Path(__file__).parent / "fixtures" / f"{view}_ports.scs" for view in ("frida1", "frida2")}
@@ -62,6 +60,13 @@ def _instances(pdk: str) -> list:
     return [params for _label, params in sweep.converters.instances(pdk)]
 
 
+def _swept_arrays() -> list[capdac.Params]:
+    """The arrays the converters take: capdac's grid of difference capacitors (its unit capacitors
+    left out) and FRIDA-1's array."""
+    grid = [cdac for _label, cdac in capdac.arrays.instances("tsmc65")]
+    return [cdac for cdac in grid if cdac.weight_impl is capdac.WeightImpl.DIFFERENCE_CAPS] + [capdac.frida1()]
+
+
 def _values(pdk: str, parameter: str) -> tuple[Any, ...]:
     """The values the grid gives a converter's ``parameter`` (its comparators, its samplers) in
     ``pdk``, in order: every resolution's space gives the same."""
@@ -76,12 +81,12 @@ def test_the_design_space_is_the_plain_product() -> None:
     assert len(samplers) == 5
     assert len(adcs) == len(comparators) * 5 * (10 * 3 * 2 + 1) == 6_100
     assert len({digest(adc) for adc in adcs}) == len(adcs)
-    arrays = list(ADC_ARRAYS.values())
+    arrays = _swept_arrays()
     for adc in adcs:
         # the free first comparison and the one after the last capacitor: an N-1-step DAC
-        assert adc.adc_bits == adc.cdac.n_dac + 1 and adc.adc_bits in (10, 12, 14)
-        assert adc.cdac in arrays  # sized through its extraction
-        assert adc.cdac.weights is None and adc.cdac.driver_strengths is None  # FRIDA-1's fabricated fields
+        assert adc.adc_bits == adc.cdac.bits and adc.adc_bits in (10, 12, 14)
+        assert adc.cdac in arrays
+        assert adc.cdac.weights is None  # a fabricated array's own field: the design space never sets it
         assert adc.samp in samplers and adc.comp in comparators
     # every array of every resolution and scale with every comparator and sampler
     assert {(adc.comp, adc.samp, adc.cdac) for adc in adcs} == {
@@ -90,7 +95,7 @@ def test_the_design_space_is_the_plain_product() -> None:
 
 
 def test_elsewhere_each_array_takes_the_pdks_strongarm_ladder_and_the_widest_switch() -> None:
-    arrays = list(ADC_ARRAYS.values())
+    arrays = _swept_arrays()
     for pdk in ("tsmc28", "ihp130", "tower180", "lf150", "tpsc65"):
         adcs = _instances(pdk)
         ladder = [params for _label, params in comp.base_strongarm.instances(pdk)]
@@ -103,29 +108,38 @@ def test_elsewhere_each_array_takes_the_pdks_strongarm_ladder_and_the_widest_swi
 
 def test_each_resolution_takes_binary_and_three_schemes_with_two_four_and_six_extra_cycles() -> None:
     assert RESOLUTIONS == (10, 12, 14)
+    schemes = [(capdac.Redundancy.BINARY, 0)] + [
+        (scheme, extra)
+        for scheme in (capdac.Redundancy.MSB_SPLIT, capdac.Redundancy.LSB_SPLIT, capdac.Redundancy.MSB_REDIST)
+        for extra in (2, 4, 6)
+    ]
+    count = 0
     for bits in RESOLUTIONS:
-        for scale in (1, 2):
-            arrays = sweep._arrays(bits, scale)
-            assert [(cdac.redun_strat, cdac.n_extra) for cdac in arrays] == [(RedunStrat.BINARY, 0)] + [
-                (scheme, extra)
-                for scheme in (RedunStrat.MSB_SPLIT, RedunStrat.LSB_SPLIT, RedunStrat.MSB_REDIST)
-                for extra in (2, 4, 6)
-            ]
-            assert {sum(get_caparray_weights(cdac)) for cdac in arrays} == {2 ** (bits - 1) - 1}
-            assert all(cdac.cap_scale == scale for cdac in arrays)
-    assert len(ADC_ARRAYS) == 61
+        named = sweep._arrays(Pdk.TSMC65, bits)
+        count += len(named)
+        arrays = [cdac for cdac in named.values() if cdac != FRIDA1_ARRAY]
+        # one minimum's arrays, then two minimums', each binary and then each scheme
+        assert [(cdac.scale, cdac.redundancy, cdac.extra) for cdac in arrays] == [
+            (scale, scheme, extra) for scale in (1, 2) for scheme, extra in schemes
+        ]
+        assert {sum(capdac.Model.weights(cdac)) for cdac in arrays} == {2 ** (bits - 1) - 1}
+        assert all(cdac.bits == bits and cdac.weight_impl is capdac.WeightImpl.DIFFERENCE_CAPS for cdac in arrays)
+        # named as the legacy extractions name them
+        assert list(named)[:2] == [f"{bits}b_binary_x1", f"{bits}b_msb_split2_x1"]
+        assert list(named)[len(schemes)] == f"{bits}b_binary_x2"
+    assert count == 61
 
 
 def test_frida1s_converter_is_one_of_the_product() -> None:
-    # FRIDA-1's array: the characterization's radix-1.7 case, 16 stages, 17 decisions at 12 bits, at
-    # two of the 12-bit least capacitance (its drawn size is near it)
-    assert FRIDA1_ARRAY == ADC_ARRAYS["12b_msb_redist5_x2"]
-    assert FRIDA1_ARRAY.n_dac == RADIX17.n_dac == CASES["radix17"].n_dac
-    assert get_caparray_weights(FRIDA1_ARRAY) == get_caparray_weights(RADIX17)
-    assert FRIDA1_ARRAY.cap_scale == 2 and "12b_msb_redist5_x1" not in ADC_ARRAYS
+    # FRIDA-1's array: capdac's frida1 (its defaults), 16 stages, 17 decisions at 12 bits, at two of
+    # the 12-bit least capacitance (its drawn size is near it)
+    arrays = sweep._arrays(Pdk.TSMC65, FRIDA1_BITS)
+    assert FRIDA1_ARRAY == capdac.frida1() == capdac.Params() == arrays["12b_msb_redist5_x2"]
+    assert list(arrays)[-1] == "12b_msb_redist5_x2" and "12b_msb_redist5_x1" not in arrays
+    assert FRIDA1_ARRAY.bits == FRIDA1_BITS and FRIDA1_ARRAY.extra == 5 and FRIDA1_ARRAY.scale == 2
     frida1 = [adc for adc in _instances("tsmc65") if adc.cdac == FRIDA1_ARRAY]
     assert len(frida1) == len(_values("tsmc65", "comp")) * len(_values("tsmc65", "samp")) == 100
-    assert all(adc.adc_bits == FRIDA1_BITS and len(get_caparray_weights(adc.cdac)) + 1 == 17 for adc in frida1)
+    assert all(adc.adc_bits == FRIDA1_BITS and len(capdac.Model.weights(adc.cdac)) + 1 == 17 for adc in frida1)
     assert (samp.FRIDA1, comp.FRIDA1) in {(adc.samp, adc.comp) for adc in frida1}
 
 
@@ -253,7 +267,7 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
         assert options["pex_netlist"].name == f"{flavor}.pex.netlist"
         assert options["pex_netlist"].parent.name.startswith("20260905_")
         assert options.get("expected_disconnect", False) == (family == "frida1" and "2layer" in flavor)
-        assert sum(get_caparray_weights(params.dut.cdac)) == (2303 if "radix20" in flavor else 2047)
+        assert sum(capdac.Model.weights(params.dut.cdac)) == (2303 if "radix20" in flavor else 2047)
         comp = np.fromiter(map(int, params.seq_comp_pattern), dtype=int)
         logic = np.fromiter(map(int, params.seq_logic_pattern), dtype=int)
         assert len(comp) == len(logic) == len(params.seq_init_pattern) == len(params.seq_samp_pattern) == 160

@@ -1,7 +1,6 @@
 """Software-only tests of the generic driver and capacitor-array integration."""
 
 import io
-from dataclasses import replace
 
 import hdl21 as h
 import pytest
@@ -17,6 +16,7 @@ from .subckt import (
     ClockXor,
     ClockXorParams,
     pre_driver,
+    stage_strengths,
 )
 
 PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
@@ -164,20 +164,19 @@ def test_invalid_driver_configuration(kwargs):
         CapDriver(CapDriverParams(**kwargs))
 
 
-def test_adc_passes_custom_bands_to_all_four_drivers():
+def test_adc_drives_all_four_drivers_in_frida1s_bands():
+    """The converter's four drivers are FRIDA-1's clock XORs in its drive bands (the default bands,
+    ``stage_strengths``): its DAC (``capdac.Params``) names no drives of its own."""
     from flow import adc
     from flow.adc.subckt import Adc
 
-    params = adc.Params(cdac=CapArrayConfig(driver_strengths=(1, 2, 4, 1) * 4))
-    module = Adc(params)
+    module = Adc(adc.Params())
+    bands = stage_strengths(CapDriverParams(n_stages=16, cells=CLOCK_XOR))
+    assert bands == (4, 4, 2, 2) + (1,) * 12
     for side in ("p", "n"):
         for kind in ("main", "diff"):
             driver = module.instances[f"xcapdriver_{side}_{kind}"].of
-            assert (
-                tuple(inst.of.params.drive_band for inst in driver.instances.values()) == params.cdac.driver_strengths
-            )
-    with pytest.raises(ValueError):
-        Adc(replace(params, cdac=replace(params.cdac, driver_strengths=(3,) * 16)))
+            assert tuple(inst.of.params.drive_band for inst in driver.instances.values()) == bands
 
 
 def test_passive_array_has_no_driver_dependency():

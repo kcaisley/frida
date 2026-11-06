@@ -12,7 +12,7 @@ import hdl21 as h
 import numpy as np
 from vlsirtools.spice.sim_data import TranResult
 
-from flow import adc
+from flow import adc, capdac
 from flow.adc.subckt import AdcNets
 from flow.analysis import calc
 from flow.analysis.io import interpolate_wave_records
@@ -22,7 +22,6 @@ from flow.analysis.types import (
     MeasInfo,
     Wave,
 )
-from flow.cdac.caparray import get_caparray_weights
 from flow.cdac.caparray.subckt import CapArrayParams
 
 # Spectre strobe timestamps can jitter by sub-femtoseconds around a 10 ps grid.
@@ -175,7 +174,7 @@ def convert_raw_adc_to_measurement(
     times_s, signals, currents = _conversion_inputs(
         result, signal_names, params.waveform_sample_interval_s, supply_rails=supply_rails
     )
-    code_weights = np.asarray([2 * weight for weight in get_caparray_weights(params.dut.cdac)] + [1], dtype=np.int64)
+    code_weights = np.asarray([2 * weight for weight in capdac.Model.weights(params.dut.cdac)] + [1], dtype=np.int64)
     threshold_v = float(params.vdd_d.dc) / 2
     starts, comp_times, logic_times = _adc_decision_times(
         times_s,

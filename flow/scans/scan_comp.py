@@ -20,11 +20,10 @@ import numpy as np
 from bitarray import bitarray
 from pyvisa.errors import VisaIOError
 
-from flow import adc, comp
+from flow import adc, capdac, comp
 from flow.analysis import calc
 from flow.analysis.io import read_analysis, write_analysis
 from flow.analysis.types import MeasInfo, Wave
-from flow.cdac.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.scans.fastrx import (
     convert_fastrx_words_to_comp,
     program_comp_delay,
@@ -105,15 +104,8 @@ def _build_comp_params(
     board_map = load_board_map()
     flavor = board_map["adc_channels"][adc_index]
     cap_weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
-    dut = adc.Params(
-        adc_bits=12,
-        cdac=CapArrayConfig(
-            n_dac=11,
-            n_extra=5,
-            redun_strat=RedunStrat.MSB_REDIST,
-            weights=cap_weights,
-        ),
-    )
+    # FRIDA-1's array (capdac's defaults) with the flavor's fabricated weights
+    dut = adc.Params(adc_bits=12, cdac=capdac.Params(weights=cap_weights))
     if dac_state_p is None:
         from flow.scans.scan_cdac import _convert_dac_rail_percent_to_codes
 
@@ -571,7 +563,7 @@ def scan(
         sleep(si570_settle_s)
         set_pll_divider(daq["gpio2"], pll_divider_n)
         data_size = int(daq["fastrx0"].get_size())
-        expected_data_size = len(get_caparray_weights(first.tb.dut.cdac)) + 1
+        expected_data_size = len(capdac.Model.weights(first.tb.dut.cdac)) + 1
         if data_size != expected_data_size:
             raise RuntimeError(f"FastRX DATA_SIZE={data_size}, expected {expected_data_size} from the configured CDAC")
 

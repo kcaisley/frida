@@ -17,11 +17,11 @@ import numpy as np
 from bitarray import bitarray
 from pyvisa.errors import VisaIOError
 
+from flow import capdac
 from flow.adc.sim import AdcSequence
 from flow.analysis import calc
 from flow.analysis.io import write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo, Wave
-from flow.cdac.caparray import get_caparray_weights
 from flow.scans.fastrx import (
     convert_fastrx_words_to_adc,
     program_comp_delay,
@@ -933,7 +933,7 @@ def scan(
                 # Program raw 64-bit sequencer memory through Basil's public
                 # seq_gen API. test_seqgen.py exercises the hardware readback;
                 # test_helpers.py checks the software-only memory packing.
-                cap_weights = get_caparray_weights(params.dut.cdac)
+                cap_weights = capdac.Model.weights(params.dut.cdac)
                 code_weights = convert_dac_caps_to_adc_weights(cap_weights)
                 sequence_words = len(params.seq_init_pattern) // 8
                 sequencer_memory = build_fastrx_capture_pattern(

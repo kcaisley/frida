@@ -19,10 +19,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from flow import adc
+from flow import adc, capdac
 from flow.analysis import types as analysis_types
 from flow.cdac.caparray.sim import CapArrayTbParams
-from flow.cdac.caparray.subckt import CapArrayConfig, CapArrayParams
+from flow.cdac.caparray.subckt import CapArrayParams
 from flow.scans.params import AdcScanParams
 
 ANALYSIS_DIR = Path(__file__).resolve().parent
@@ -56,8 +56,8 @@ PURE_MODULES = (*CONTRACT_MODULES, "calc")
 # Names that annotations in flow.analysis.types refer to only under TYPE_CHECKING.
 TYPE_NAMESPACE = {
     "adc": adc,
+    "capdac": capdac,
     "CapArrayTbParams": CapArrayTbParams,
-    "CapArrayConfig": CapArrayConfig,
     "CapArrayParams": CapArrayParams,
     "AdcScanParams": AdcScanParams,
 }

@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 import flow.analysis.io as analysis_io
-from flow import adc, comp, samp
+from flow import adc, capdac, comp, samp
 from flow.analysis.io import interpolate_wave_records, read_measurement, write_measurement
 from flow.analysis.types import (
     Analysis,
@@ -27,7 +27,6 @@ from flow.analysis.types import (
     check_identity,
     measurement_identity,
 )
-from flow.cdac.caparray.subckt import RedunStrat
 from flow.scans.params import AdcScanParams
 
 
@@ -314,23 +313,22 @@ def test_native_enum_reader_rejects_non_enum_type(tmp_path: Path) -> None:
 
 
 def test_parameter_reader_applies_defaults_added_after_capture(tmp_path: Path) -> None:
-    """Keep files readable when parameter classes gain fields with defaults."""
+    """Keep files readable when parameter classes gain fields with defaults, and ignore a stored
+    field its class no longer has."""
 
     path = write_measurement(tmp_path / "older.h5", adc_physical())
     with h5py.File(path, "a") as stored:
         for cdac in (stored["measurement/param/tb/dut/cdac"], stored["measurement/dut/cdac"]):
-            for name in ("cap_scale", "driver_strengths"):
+            # an archived capture: before the array gained its weights' build and its settling, and
+            # with a field since removed
+            for name in ("weight_impl", "coarse_weight", "settle_ps", "settle_margin"):
                 del cdac[name]
-            # an archived capture: the scheme under its old name, and a field since removed
-            attrs = dict(cdac["redun_strat"].attrs)
-            del cdac["redun_strat"]
-            cdac.create_dataset("redun_strat", data="SUBRDX2_OVLY").attrs.update(attrs)
             cdac.create_dataset("split_strat", data="NO_SPLIT")
 
     loaded = read_measurement(path)
-    assert loaded.dut.cdac.cap_scale == 1
-    assert loaded.dut.cdac.driver_strengths is None
-    assert loaded.dut.cdac.redun_strat is RedunStrat.MSB_REDIST
+    assert loaded.dut.cdac.weight_impl is capdac.WeightImpl.DIFFERENCE_CAPS
+    assert (loaded.dut.cdac.coarse_weight, loaded.dut.cdac.settle_ps, loaded.dut.cdac.settle_margin) == (64, 1000, 2)
+    assert loaded.dut == loaded.param.tb.dut == adc_physical().dut
 
 
 def test_reader_rejects_a_missing_required_field(tmp_path: Path) -> None:
@@ -400,4 +398,5 @@ def test_identity_helpers_reject_mixed_inputs_and_mismatched_priors() -> None:
     with pytest.raises(ValueError, match="group 1/11"):
         check_identity(result, nominal.identity, name="prior")
     with pytest.raises(ValueError, match="DUT params different"):
-        check_identity(result, Identity(1, 0, replace(nominal.dut, adc_bits=10)), name="prior")
+        other_dut = replace(nominal.dut, adc_bits=10, cdac=capdac.Params(bits=10, extra=3))
+        check_identity(result, Identity(1, 0, other_dut), name="prior")

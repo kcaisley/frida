@@ -4,16 +4,14 @@ in TSMC65 the full product below, in the other PDKs a smaller one.
 
 Every converter samples on its top plates, makes one free comparison before any capacitor switches
 and fires the comparator again after the last one switches: an N-bit converter has an N-1-step DAC
-(``adc_bits = n_dac + 1``) and n_dac + n_extra + 1 decisions. Its arrays are the ADC study's
-(``flow.cdac.caparray.layout.ADC_ARRAYS``: three-metal unit-length arrays, each sized through its 3-D
-extraction in each PDK, ``flow.cdac.caparray.sizing``). Every
-array's full scale is at least 80 % of the reference and its sampled noise at most its quantization
-noise there: each resolution's least switched capacitance is the larger of the two constraints'
-for its most demanding array, and each array switches one or two times it (``cap_scale``) at the
-split between its length-scaled binary and unary rows that keeps both with its outline nearest
-twice as tall as wide (one side's array: the two side by side make about a square). Its
-drivers are derived from its extracted plates (``flow.cdac.capdriver.model.driver_strengths``), each stage
-sized to settle in about 1 ns.
+(``adc_bits`` is its array's ``bits``) and N + extra decisions. Its arrays are capdac's
+(``capdac.arrays``: difference capacitors in long strips, at one and two kT/C minimums of switched
+capacitance, ``capdac.Params.scale``), labelled by the names the legacy extractions give them
+(``_array_name``). Until the behavioral model composes capdac's records, each converter reads the
+legacy characterization of the same array (``flow.adc.subckt._legacy_array``): its three-metal
+unit-length array sized through its 3-D extraction in each PDK (``flow.cdac.caparray.sizing``), its
+full scale at least 80 % of the reference, and its drivers derived from its extracted plates
+(``flow.cdac.capdriver.model.driver_strengths``), each stage sized to settle in about 1 ns.
 
 The product, nothing pruned:
 
@@ -25,11 +23,11 @@ The product, nothing pruned:
   quarter, a seventh and a tenth of the gate's resistance; none with half-size dummy switches, as
   FRIDA-1's;
 - the arrays, 10 at each resolution and scale: binary, and each scheme
-  (``flow.cdac.caparray.subckt.RedunStrat``: the MSBs split, the LSBs split, FRIDA's MSB redistribution)
+  (``capdac.Redundancy``: the MSBs split, the LSBs split, FRIDA's MSB redistribution)
   with 2, 4 and 6 extra cycles, every one of the binary total weight;
 - the resolutions, 10, 12 and 14 bits;
-- the switched capacitance, one and two times the resolution's least (``cap_scale``);
-- and FRIDA-1's array (``RADIX17``: 12 bits on MSB redistribution with 5 extra cycles, 17
+- the switched capacitance, one and two times the resolution's least (``capdac.Params.scale``);
+- and FRIDA-1's array (``capdac.frida1``: 12 bits on MSB redistribution with 5 extra cycles, 17
   decisions) at two times the 12-bit least, near its drawn size.
 
 20 x 5 x (10 x 3 x 2 + 1) = 6,100 converters in TSMC65. In the other PDKs, where the arrays and
@@ -64,11 +62,9 @@ import hdl21.sim as hs
 import numpy as np
 from hdl21.prefix import G
 
-from flow import comp, samp
+from flow import capdac, comp, samp
 from flow.analysis.io import read_extracted_calibration
 from flow.analysis.types import MeasAdc
-from flow.cdac.caparray.layout import ADC_ARRAYS, adc_arrays
-from flow.cdac.caparray.subckt import CapArrayConfig
 from flow.pipeline import Pdk, Record, grid, values, widen
 
 from .analysis import (
@@ -93,6 +89,7 @@ from .analysis import (
 from .params import (
     FIN_CYCLES,
     FIN_RATES_HZ,
+    FRIDA1_ARRAY,
     HSU_QUIET,
     HSU_REFERENCE_QUIET,
     INPUT_NOISE_CONVERSIONS,
@@ -147,10 +144,28 @@ from .subckt import AdcBlocks
 from .types import AnalysisCalibration, AnalysisLadder
 
 
-def _arrays(bits: int, cap_scale: int = 1) -> list[CapArrayConfig]:
-    """A ``bits`` converter's 10 arrays at ``cap_scale``: binary, and each scheme with 2, 4 and 6
-    extra cycles (``flow.cdac.caparray.layout.adc_arrays``)."""
-    return adc_arrays(bits, cap_scale)
+def _array_name(cdac: capdac.Params) -> str:
+    """An array's name, by its converter's resolution, scheme and scale, as the legacy extractions
+    name it: ``12b_binary_x1``, ``12b_msb_redist5_x2`` (FRIDA-1's), ``14b_lsb_split6_x2``."""
+    return f"{cdac.bits}b_{cdac.redundancy.name.lower()}{cdac.extra or ''}_x{cdac.scale}"
+
+
+def _arrays(pdk: Pdk, bits: int) -> dict[str, capdac.Params]:
+    """A ``bits`` converter's arrays by name (``_array_name``): capdac's grid of difference
+    capacitors (``capdac.arrays``) at ``bits``, at one then two kT/C minimums, each the binary array
+    and then each scheme with 2, 4 and 6 extra cycles; at FRIDA-1's resolution its array last
+    (``FRIDA1_ARRAY``, ``capdac.frida1``)."""
+    schemes = list(capdac.Redundancy)
+    swept = sorted(
+        (
+            cdac
+            for _label, cdac in capdac.arrays.instances(pdk)
+            if cdac.bits == bits and cdac.weight_impl is capdac.WeightImpl.DIFFERENCE_CAPS
+        ),
+        key=lambda cdac: (cdac.scale, schemes.index(cdac.redundancy), cdac.extra),
+    )
+    frida1 = [FRIDA1_ARRAY] if FRIDA1_ARRAY.bits == bits else []
+    return {_array_name(cdac): cdac for cdac in swept + frida1}
 
 
 def _comparators(pdk: str) -> dict[str, comp.Params]:
@@ -202,17 +217,17 @@ def _samplers(pdk: str) -> dict[str, samp.Params]:
 
 @grid
 def converters(pdk: Pdk) -> dict[str, Params]:
-    """Every comparator with every sampler and ADC array (``ADC_ARRAYS``: each resolution's arrays
-    at both scales, and FRIDA-1's), one space per resolution, each array at its resolution
-    (``adc_bits = n_dac + 1``): in TSMC65 the full product, elsewhere the PDK's smaller one
-    (``_comparators``, ``_samplers``), each array sized through its extraction there. A converter is
-    labelled by its resolution and its parts' names, ``converters(12b, cdac=12b_binary_x1,
-    comp=200uV_2ns, samp=frida1)``."""
+    """Every comparator with every sampler and ADC array (``_arrays``: each resolution's arrays at
+    both scales, and FRIDA-1's), one space per resolution, each array at its resolution (``adc_bits``
+    its ``bits``): in TSMC65 the full product, elsewhere the PDK's smaller one (``_comparators``,
+    ``_samplers``). A converter is labelled by its resolution and its parts' names,
+    ``converters(12b, cdac=12b_binary_x1, comp=200uV_2ns, samp=frida1)``."""
     folder = pdk.name.lower()
     spaces = {}
     for bits in RESOLUTIONS:
-        space = widen(Params(adc_bits=bits, comp=comp.FRIDA1, samp=samp.FRIDA1))
-        space.cdac = values({name: cdac for name, cdac in ADC_ARRAYS.items() if cdac.n_dac + 1 == bits})
+        arrays = _arrays(pdk, bits)
+        space = widen(Params(adc_bits=bits, cdac=next(iter(arrays.values())), comp=comp.FRIDA1, samp=samp.FRIDA1))
+        space.cdac = values(arrays)
         space.comp = values(_comparators(folder))
         space.samp = values(_samplers(folder))
         spaces[f"{bits}b"] = space
@@ -392,7 +407,7 @@ tasks_per_worker = 10
 def cost(pdk: str, params: Params) -> float:
     """An instance's relative run time, for the runner's longest-first order: its conversions grow
     with the codes, each conversion with its decisions."""
-    return 2.0**params.adc_bits * (params.cdac.n_dac + params.cdac.n_extra + 1)
+    return 2.0**params.adc_bits * (params.cdac.bits + params.cdac.extra)
 
 
 def record(captures: dict[str, MeasAdc]) -> Record:
@@ -660,8 +675,8 @@ def frida1_sequence(run_dir: Path, *, check: bool = False) -> Path:
         for layers in (1, 2):
             for (radix, cdac), timing in product(
                 (
-                    (17, CapArrayConfig()),
-                    (20, CapArrayConfig(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
+                    (17, capdac.Params()),
+                    (20, capdac.Params(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
                 ),
                 # COMP      LOGIC at fall  LOGIC +1 symbol
                 # 11110000  00001111       10000111
@@ -727,8 +742,8 @@ def frida1_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
         futures = []
         for layers in (1, 2):
             for radix, cdac in (
-                (17, CapArrayConfig()),
-                (20, CapArrayConfig(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
+                (17, capdac.Params()),
+                (20, capdac.Params(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
             ):
                 cell = f"adc_{layers}layer_radix{radix}"
                 pex = (
@@ -888,7 +903,7 @@ def frida2_sequence(run_dir: Path, *, check: bool = False) -> Path:
             params = TbParams(
                 view="frida2",
                 pex_cell="adc_12b_17step",
-                dut=Params(adc_bits=12, cdac=CapArrayConfig()),
+                dut=Params(adc_bits=12, cdac=capdac.Params()),
                 symbol_rate=1.6 * G,
                 conversions=1 if check else 100,
                 vin_diff=h.Vdc.Params(dc=0.05),

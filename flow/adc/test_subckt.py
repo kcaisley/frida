@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from flow.cdac.caparray import CapArrayConfig, RedunStrat, get_caparray_weights, unit_capacitance_f
+from flow import capdac
 
 from .params import Params
 from .subckt import Adc, calc_ideal_capacitances, digital_net_aliases
@@ -22,27 +22,31 @@ def test_adc():
 
 
 def test_invalid_adc_params_are_refused_when_made():
-    """A resolution or an array no converter has: refused by the parameters' types (a comparator or
-    a sampler of a zero size likewise, flow/comp and flow/samp's test_subckt.py)."""
+    """A resolution or an array no converter has, or a converter of another resolution than its
+    array's: refused by the parameters' types (a comparator or a sampler of a zero size likewise,
+    flow/comp and flow/samp's test_subckt.py)."""
     for make in (
         lambda: Params(adc_bits=0),
-        lambda: CapArrayConfig(n_dac=0, n_extra=16),
-        lambda: CapArrayConfig(n_dac=17, n_extra=-1),
-        lambda: CapArrayConfig(weights=(1,) * 15),
+        lambda: capdac.Params(bits=7),
+        lambda: capdac.Params(bits=15),
+        lambda: capdac.Params(extra=-1),
+        lambda: capdac.Params(weights=(1,) * 15),
+        lambda: Params(adc_bits=10),
     ):
         with pytest.raises(ValidationError):
             make()
 
 
-def test_adc_accepts_a_binary_array_with_sixteen_physical_stages():
-    params = Params(cdac=CapArrayConfig(n_dac=16, n_extra=0, redun_strat=RedunStrat.BINARY))
+def test_adc_accepts_any_array_with_sixteen_physical_stages():
+    params = Params(adc_bits=14, cdac=capdac.Params(bits=14, redundancy=capdac.Redundancy.LSB_SPLIT, extra=3))
     assert Adc(params).dac_state_p.width == 16
 
 
 def test_ideal_capacitances_reproduce_the_generated_weights() -> None:
-    cdac = CapArrayConfig()
-    main_f, diff_f = calc_ideal_capacitances(cdac)
-    np.testing.assert_allclose((main_f - diff_f) / unit_capacitance_f(cdac), get_caparray_weights(cdac))
+    cdac = capdac.Params()
+    main_f, diff_f = calc_ideal_capacitances(cdac, 1.2)
+    weights = capdac.Model.weights(cdac)
+    np.testing.assert_allclose((main_f - diff_f) * sum(weights) / np.sum(main_f - diff_f), weights)
 
 
 def _tsmc65_cells() -> bool:
@@ -55,12 +59,12 @@ def _tsmc65_cells() -> bool:
 @pytest.mark.skipif(
     shutil.which("yosys") is None or not _tsmc65_cells(), reason="synthesizing the digital block needs yosys and TSMC65"
 )
-@pytest.mark.parametrize(("n_dac", "n_extra"), ((11, 0), (9, 2), (11, 6)))
-def test_adc_at_any_stage_count_binds_a_synthesized_digital_block_c0_first(n_dac, n_extra):
+@pytest.mark.parametrize(("bits", "extra"), ((12, 0), (10, 2), (12, 6)))
+def test_adc_at_any_stage_count_binds_a_synthesized_digital_block_c0_first(bits, extra):
     """Any array: the digital block synthesized for its stage count, register 0 on C0."""
-    stages = n_dac + n_extra
-    strategy = RedunStrat.MSB_REDIST if n_extra else RedunStrat.BINARY
-    module = Adc(Params(cdac=CapArrayConfig(n_dac=n_dac, n_extra=n_extra, redun_strat=strategy)))
+    stages = bits - 1 + extra
+    redundancy = capdac.Redundancy.MSB_REDIST if extra else capdac.Redundancy.BINARY
+    module = Adc(Params(adc_bits=bits, cdac=capdac.Params(bits=bits, redundancy=redundancy, extra=extra)))
     assert module.dac_state_p.width == stages
     assert module.xdigital.of.module.name == f"adc_digital_n{stages}"
     for stage in range(stages):
