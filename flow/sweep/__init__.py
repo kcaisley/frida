@@ -41,20 +41,26 @@ from importlib import import_module
 
 import hdl21 as h
 
-# Parameters a block's class gained after its instances ran, by name (in a nested class too), with
-# the value every earlier instance has: a flat row leaves them out at that value, so the earlier
-# instances keep their rows and digests (flow.sweep.runner.digest) and are found as before.
-ADDED_DEFAULTS: dict[str, object] = {"split": 0, "weights": None}  # the CDAC's split, an array's own weights
+# Parameters a class gained after its instances ran, by the class (its module and name, a nested
+# one too) and the parameter, with the value every earlier instance has: a flat row leaves them out
+# at that value, so the earlier instances keep their rows and digests (flow.sweep.runner.digest) and
+# are found as before. Only that class's: another class's parameter of the same name, which its
+# instances always held, stays in their rows.
+ADDED_DEFAULTS: dict[tuple[str, str], object] = {
+    ("flow.cdac.params._Dac", "split"): 0,  # the legacy CDAC's coarse/fine split
+    ("flow.capdac.params.Params", "weights"): None,  # an array's own weights (a fabricated one's)
+}
 
 
 def flat_params(params, prefix: str = "") -> dict[str, float | int | str | bool | None]:
     """A parameter class as one flat row: nested classes by dotted names, enumerations by name,
-    sizes as numbers; a parameter added later (``ADDED_DEFAULTS``) only where it differs from its
-    default."""
+    sizes as numbers; a parameter its class gained later (``ADDED_DEFAULTS``) only where it differs
+    from its default."""
 
     flat = {}
+    owner = f"{type(params).__module__}.{type(params).__qualname__}"
     for name, value in vars(params).items():
-        if name in ADDED_DEFAULTS and value == ADDED_DEFAULTS[name]:
+        if (owner, name) in ADDED_DEFAULTS and value == ADDED_DEFAULTS[owner, name]:
             continue
         key = f"{prefix}{name}"
         if dataclasses.is_dataclass(value) and not isinstance(value, type):

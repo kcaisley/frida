@@ -12,8 +12,34 @@ from pathlib import Path
 import hdl21 as h
 import pytest
 
-from flow import comp
-from flow.sweep import flat_params, geometry, runner
+from flow import capdac, comp
+from flow.sweep import ADDED_DEFAULTS, flat_params, geometry, runner
+
+
+def test_a_parameter_its_class_gained_later_leaves_only_that_classs_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A parameter added to one class after its instances ran is left out of its rows at the value
+    they all had, so their digests hold; another class's parameter of the same name, which its
+    instances always held, stays in theirs (the converter's legacy array kept its own weights when
+    capdac gained them)."""
+
+    @h.paramclass
+    class Gained:
+        weights = h.Param(dtype=tuple[int, ...] | None, desc="added later", default=None)
+
+    @h.paramclass
+    class Always:
+        weights = h.Param(dtype=tuple[int, ...] | None, desc="held from the start", default=None)
+
+    @h.paramclass
+    class Both:
+        gained = h.Param(dtype=Gained, desc="", default=Gained())
+        always = h.Param(dtype=Always, desc="", default=Always())
+
+    monkeypatch.setitem(ADDED_DEFAULTS, (f"{__name__}.{Gained.__qualname__}", "weights"), None)
+    assert flat_params(Both()) == {"always.weights": None}
+    assert flat_params(Both(gained=Gained(weights=(2, 1)))) == {"gained.weights": "2, 1", "always.weights": None}
+    # capdac's 120 records were keyed before it gained its weights
+    assert "weights" not in flat_params(capdac.Params())
 
 
 def test_parameters_flatten_to_one_row() -> None:
