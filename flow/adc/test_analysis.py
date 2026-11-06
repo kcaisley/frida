@@ -1,12 +1,28 @@
-"""The ADC's analyses: the redundancy of a SAR's weights, each scheme's at every resolution."""
+"""The ADC's analyses: the redundancy of a SAR's weights, each scheme's at every resolution, and the
+predicted mismatch statistics, which agree with exact draws of the same arrays."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from flow.adc.analysis import _redundancy_margins
+from flow.adc.analysis import (
+    _dnl_quantile,
+    _inl_quantile,
+    _margin_over_sigma,
+    _mismatch_statistics,
+    _missing_codes_expected,
+    _redundancy_margins,
+    analyze_mismatch,
+)
+from flow.adc.model import AdcBehavioralParams, CdacBehavioralParams
+from flow.adc.params import Params, TbParams
+from flow.adc.types import AnalysisMismatch
+from flow.analysis.calc import calc_drawn_linearity, calc_paths
 from flow.analysis.plots import plot_adc_redundancy
+from flow.analysis.types import MeasAdc, MeasInfo
+from flow.cdac.caparray.model import calc_capacitor_mismatch
 from flow.cdac.caparray.subckt import CapArrayConfig, RedunStrat, get_caparray_weights
 
 
@@ -85,3 +101,124 @@ def test_every_scheme_reaches_every_code(bits: int) -> None:
         # and an ideal SAR on the weights converts every code to itself
         codes, found = ideal_sar_codes(weights)
         assert len(codes) == 2**bits and np.array_equal(codes, found), cdac
+
+
+UNIT_F = 1e-15
+CODE_MAX = 63  # six bits: five capacitors and the free first comparison
+PARASITIC_F = 30e-15
+
+
+def _weights(caps) -> np.ndarray:
+    return np.r_[2 * np.asarray(caps, dtype=np.float64), 1.0]
+
+
+def _statistics(main_f, weights) -> AnalysisMismatch:
+    """The predicted statistics of one side's nominal array, no difference plates."""
+    return AnalysisMismatch(
+        group=None,
+        index=None,
+        dut=None,
+        **_mismatch_statistics(main_f, np.zeros_like(main_f), PARASITIC_F, weights, CODE_MAX),
+    )
+
+
+def _draws(main_f, unit_mismatch, count, seed=0):
+    """Each draw's DNL and INL by code, worst |DNL| and |INL|: both sides drawn, no difference plates."""
+    rng = np.random.default_rng(seed)
+    diff_f = np.zeros_like(main_f)
+    dnl, inl = [], []
+    for _ in range(count):
+        sides = [(calc_capacitor_mismatch(main_f, unit_mismatch=unit_mismatch, rng=rng), diff_f) for _ in "pn"]
+        d, i, _missing = calc_drawn_linearity(
+            sides, PARASITIC_F, _weights(main_f / UNIT_F), CODE_MAX, nominal=(main_f, diff_f)
+        )
+        dnl.append(d)
+        inl.append(i)
+    return np.asarray(dnl), np.asarray(inl)
+
+
+def test_a_binary_array_converts_one_lsb_a_code() -> None:
+    caps = np.array([16, 8, 4, 2, 1], dtype=np.float64)
+    steps = caps * (CODE_MAX + 1) / (2 * caps.sum())
+    paths = calc_paths(steps, steps, _weights(caps), CODE_MAX)
+    assert np.array_equal(paths.code, np.arange(CODE_MAX + 1))
+    # a code is the last step wide: one unit of 2 sum(C) / 2^bits
+    assert np.allclose(np.diff(paths.lower[1:]), (CODE_MAX + 1) / (2 * caps.sum()))
+
+
+def test_binary_statistics_match_brute_force_draws() -> None:
+    main_f = np.array([16, 8, 4, 2, 1], dtype=np.float64) * UNIT_F
+    unit_mismatch = 0.01
+    statistics = _statistics(main_f, _weights(main_f / UNIT_F))
+    # each stage's step: A sqrt(C 1 fF) in the LSB's capacitance, 2 sum(C) / 2^bits
+    lsb_f = 2 * main_f.sum() / (CODE_MAX + 1)
+    assert np.allclose(statistics.weight_sigma * unit_mismatch, unit_mismatch * np.sqrt(main_f * UNIT_F) / lsb_f)
+    assert np.allclose(statistics.dnl_mean, 0.0, atol=1e-9) and np.allclose(statistics.inl_mean, 0.0, atol=1e-9)
+    assert np.all(statistics.margin_lsb == 0.0)
+
+    dnl, inl = _draws(main_f, unit_mismatch, 3000)
+    # every code's sigma, and the worst code's 95th percentile, within a few percent
+    assert np.allclose(np.std(dnl, axis=0), unit_mismatch * statistics.dnl_sigma, rtol=0.06)
+    assert np.allclose(np.std(inl, axis=0)[1:-1], unit_mismatch * statistics.inl_sigma[1:-1], rtol=0.06)
+    worst_dnl = np.percentile(np.max(np.abs(dnl), axis=1), 95)
+    worst_inl = np.percentile(np.max(np.abs(inl), axis=1), 95)
+    assert abs(_dnl_quantile(statistics, unit_mismatch) / worst_dnl - 1) < 0.08
+    # the worst INL's half-sum leaves out the codes a comparator before the last one starts, whose
+    # INL also carries the later steps of one side: about a tenth low on so short an array
+    assert -0.15 < _inl_quantile(statistics, unit_mismatch) / worst_inl - 1 < 0.02
+    # the MSB transition spans every capacitor: the largest DNL sigma, from stage 0
+    assert np.isclose(statistics.transition_sigma[0], np.max(statistics.dnl_sigma))
+
+
+def test_redundant_statistics_match_brute_force_draws() -> None:
+    # a sub-radix-2 array with every margin at least zero, its weights summing to the code range
+    caps = np.array([13, 8, 5, 3, 1, 1], dtype=np.float64)
+    main_f = caps * UNIT_F
+    unit_mismatch = 0.01
+    statistics = _statistics(main_f, _weights(caps))
+    assert np.all(statistics.margin_lsb >= 0.0) and statistics.margin_lsb[0] > 0.0
+    assert np.all(_margin_over_sigma(statistics, unit_mismatch)[statistics.margin_lsb > 0] > 0.0)
+    dnl, inl = _draws(main_f, unit_mismatch, 3000, seed=1)
+    worst_dnl = np.percentile(np.max(np.abs(dnl), axis=1), 95)
+    worst_inl = np.percentile(np.max(np.abs(inl), axis=1), 95)
+    assert abs(_dnl_quantile(statistics, unit_mismatch) / worst_dnl - 1) < 0.10
+    assert abs(_inl_quantile(statistics, unit_mismatch) / worst_inl - 1) < 0.15
+
+
+def test_the_predictions_grow_with_the_mismatch() -> None:
+    main_f = np.array([16, 8, 4, 2, 1], dtype=np.float64) * UNIT_F
+    statistics = _statistics(main_f, _weights(main_f / UNIT_F))
+    coefficients = (0.001, 0.01, 0.1)
+    dnl = [_dnl_quantile(statistics, a) for a in coefficients]
+    inl = [_inl_quantile(statistics, a) for a in coefficients]
+    assert dnl == sorted(dnl) and inl == sorted(inl)
+    # tenfold the coefficient, tenfold the worst INL of an array without its own error
+    assert np.isclose(inl[1] / inl[0], 10.0, rtol=0.02)
+    # missing codes only once the mismatch is a large part of an LSB
+    assert _missing_codes_expected(statistics, 0.001) < 1e-6 < _missing_codes_expected(statistics, 0.1)
+
+
+def test_a_captures_mismatch_is_its_nominal_arrays_statistics() -> None:
+    """``analyze_mismatch`` of a behavioral capture: the statistics of its P side's plates (the
+    capture's own, a nominal array), its top plate's other load, its design weights and its code
+    range, under the capture's identity."""
+    main_f = np.array([16, 8, 4, 2, 1], dtype=np.float64) * UNIT_F
+    design = Params(adc_bits=6, cdac=CapArrayConfig(n_dac=5, n_extra=0, redun_strat=RedunStrat.BINARY))
+    cdac = CdacBehavioralParams(main_p_f=tuple(main_f), diff_p_f=(0.0,) * 5, parasitic_f=PARASITIC_F)
+    meas = MeasAdc(
+        group=3,
+        index=0,
+        dut=design,
+        info=MeasInfo(backend="behavioral", timestamp_utc=datetime(2026, 1, 1, tzinfo=UTC)),
+        param=AdcBehavioralParams(tb=TbParams(dut=design), cdac=cdac),
+        conversion_index=np.arange(1),
+        bout=np.zeros((1, 6), dtype=np.uint8),
+        dout_raw=np.zeros(1, dtype=np.int64),
+        dout=np.zeros(1, dtype=np.int64),
+        vin_diff_v=np.zeros(1),
+    )
+    mismatch = analyze_mismatch(meas)
+    assert mismatch.identity == meas.identity
+    expected = _statistics(main_f, _weights(main_f / UNIT_F))
+    for name in ("weight_sigma", "transition_sigma", "margin_lsb", "dnl_sigma", "inl_sigma", "width_codes"):
+        np.testing.assert_array_equal(getattr(mismatch, name), getattr(expected, name))

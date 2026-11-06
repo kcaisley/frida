@@ -9,11 +9,11 @@ x, named series, drawn like every block's), from the same analyses the paper's f
 many conversions took it (``Plot.paths``): the whole conversion, its last decisions, and where
 the conversions at one input end.
 
-Capacitor mismatch is predicted rather than drawn (``flow.adc.statistics``): from the nominal
-array's capacitances, each stage's weight sigma, each code's DNL and INL sigma and the 95th
-percentile of the worst DNL and INL over a continuous Pelgrom coefficient. Where the campaign also
-holds the Monte Carlo ramps that check it (``mc_*``, ``campaign(mismatch_draws=...)``), their 95th
-percentiles at Harpe's matching are reported beside the predictions.
+Capacitor mismatch is predicted rather than drawn (``flow.adc.analysis.analyze_mismatch``): from
+the nominal array's capacitances, each stage's weight sigma, each code's DNL and INL sigma and the
+95th percentile of the worst DNL and INL over a continuous Pelgrom coefficient. Where the campaign
+also holds the Monte Carlo ramps that check it (``mc_*``, ``campaign(mismatch_draws=...)``), their
+95th percentiles at Harpe's matching are reported beside the predictions.
 """
 
 from __future__ import annotations
@@ -37,10 +37,15 @@ from flow.analysis.io import read_extracted_calibration
 from flow.analysis.types import MeasAdc
 from flow.pipeline import Plot
 
-from .analysis import _redundancy_margins
+from .analysis import (
+    _dnl_quantile,
+    _inl_quantile,
+    _margin_over_sigma,
+    _missing_codes_quantile,
+    _redundancy_margins,
+    analyze_mismatch,
+)
 from .campaign import LADDER, NOMINAL_RATE_HZ, UNIT_MISMATCH, hsu_errors, input_noise, ladder_names
-from .statistics import MismatchStatistics
-from .subckt import calc_side_capacitances
 
 # the figures, in the order the viewer shows them: name -> title. Each is one curve (one series, or
 # one family of decision paths), so instances compared on one plot stay readable; what a second
@@ -202,21 +207,6 @@ def _log_binned(frequency_hz: np.ndarray, densities: dict[str, np.ndarray], bins
     return np.sqrt(edges[:-1] * edges[1:]).tolist(), series
 
 
-def _mismatch_statistics(measurement: MeasAdc) -> MismatchStatistics:
-    """The predicted mismatch statistics of a behavioral capture's array: its nominal capacitances
-    (a capture without a draw), top-plate load, design weights and code range."""
-    cdac = measurement.param.cdac
-    main_f, diff_f = calc_side_capacitances(cdac, measurement.tb, "p")
-    return MismatchStatistics.of(
-        main_f,
-        diff_f,
-        cdac.parasitic_f,
-        measurement.nominal_bout_weights,
-        measurement.code_max,
-        diffcaps=bool(measurement.tb.dac_diffcaps),
-    )
-
-
 def _mismatch_study(captures: dict[str, MeasAdc]) -> tuple[np.ndarray, dict[str, dict[str, np.ndarray]]]:
     """Each Monte Carlo ramp's worst DNL and INL and missing codes by decoding, as arrays of shape
     (Pelgrom coefficients, draws): the check on the predicted statistics, where the campaign was
@@ -300,7 +290,7 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
     # validation finds no measured weight that helps)
     best = min(learned, key=lambda label: decoded[label].maximum_abs_inl)
     # the mismatch, predicted from the nominal array (a capture without a draw)
-    statistics = _mismatch_statistics(captures["noise"])
+    statistics = analyze_mismatch(captures["noise"])
     add(
         "redundancy",
         "Conversion stage (C0 first)",
@@ -436,19 +426,19 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
     for name, y_label, values in (
         ("mismatch_weight_sigma", "Weight σ (LSB)", UNIT_MISMATCH * statistics.weight_sigma),
         ("mismatch_transition_sigma", "DNL σ (LSB)", UNIT_MISMATCH * statistics.transition_sigma),
-        ("mismatch_margin", "Margin / σ", statistics.margin_over_sigma(UNIT_MISMATCH)),
+        ("mismatch_margin", "Margin / σ", _margin_over_sigma(statistics, UNIT_MISMATCH)),
     ):
         add(name, "Conversion stage (C0 first)", y_label, stages, {harpe: values}, x_ticks="step")
     for name, y_label, quantile in (
-        ("mismatch_dnl", "Max |DNL| (LSB)", statistics.dnl_quantile),
-        ("mismatch_inl", "Max |INL| (LSB)", statistics.inl_quantile),
+        ("mismatch_dnl", "Max |DNL| (LSB)", _dnl_quantile),
+        ("mismatch_inl", "Max |INL| (LSB)", _inl_quantile),
     ):
         add(
             name,
             "Pelgrom coefficient A_C (%·sqrt(fF))",
             y_label,
             PELGROM_AXIS * 100,
-            {"Design weights, 95th percentile": [quantile(coefficient) for coefficient in PELGROM_AXIS]},
+            {"Design weights, 95th percentile": [quantile(statistics, coefficient) for coefficient in PELGROM_AXIS]},
             x_log=True,
         )
 
@@ -464,7 +454,7 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
     noise = captures["noise"]
     noise_lsb = float(np.std(noise.dout))
     # the redundant stages' margins over their sigma (the others have none to lose)
-    margins = statistics.margin_over_sigma(UNIT_MISMATCH)[np.abs(statistics.margin_lsb) > 1e-9]
+    margins = _margin_over_sigma(statistics, UNIT_MISMATCH)[np.abs(statistics.margin_lsb) > 1e-9]
     # each noise source alone (the noise capture with only it on), where the campaign has them
     by_source = {
         f"noise_{source}_rms_lsb": float(np.std(captures[f"noise_{source}"].dout))
@@ -527,9 +517,9 @@ def adc_figures(captures: dict[str, MeasAdc]) -> tuple[dict[str, float], list[Pl
         # predicted at Harpe's matching (0.10 %·sqrt(fF)), decoded with the design weights: the
         # array's own layout error and the mismatch's 95th percentile; the largest DNL and INL sigma
         # of any code; the smallest margin of a redundant stage over its sigma (NaN without one)
-        "mismatch_dnl_p95_lsb": statistics.dnl_quantile(UNIT_MISMATCH),
-        "mismatch_inl_p95_lsb": statistics.inl_quantile(UNIT_MISMATCH),
-        "mismatch_missing_codes_p95": statistics.missing_codes_quantile(UNIT_MISMATCH),
+        "mismatch_dnl_p95_lsb": _dnl_quantile(statistics, UNIT_MISMATCH),
+        "mismatch_inl_p95_lsb": _inl_quantile(statistics, UNIT_MISMATCH),
+        "mismatch_missing_codes_p95": _missing_codes_quantile(statistics, UNIT_MISMATCH),
         "dnl_sigma_max_lsb": UNIT_MISMATCH * float(np.max(statistics.dnl_sigma)),
         "inl_sigma_max_lsb": UNIT_MISMATCH * float(np.max(statistics.inl_sigma)),
         "min_margin_over_sigma": float(np.min(margins)) if len(margins) else math.nan,

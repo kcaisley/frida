@@ -31,9 +31,9 @@ model (``flow.adc.model``), each of which turns one into a ``MeasAdc``.
   capture is the last step's (``ladder_names``): what each impairment costs in ENOB where it is
   added (errors add in power, so a source costs fewer bits after larger ones: the order matters).
 - ``mc_<A_C %>_<draw>``, only where ``mismatch_draws`` asks for them (the figures predict the
-  mismatch from the capacitances, ``flow.adc.statistics``; the draws check it): noise-free ramps
-  (four periods, 16 hits a code at 12 bits, at least 8 at any), at each Pelgrom coefficient from
-  0.05 to 0.85 %·sqrt(fF) (a SPICE run draws them with the PDK's Monte Carlo).
+  mismatch from the capacitances, ``flow.adc.analysis.analyze_mismatch``; the draws check it):
+  noise-free ramps (four periods, 16 hits a code at 12 bits, at least 8 at any), at each Pelgrom
+  coefficient from 0.05 to 0.85 %·sqrt(fF) (a SPICE run draws them with the PDK's Monte Carlo).
 """
 
 from __future__ import annotations

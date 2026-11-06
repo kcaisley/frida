@@ -169,7 +169,6 @@ jobs:
           flow/cdac/test_sim.py
           flow/cdac/test_subckt.py
           flow/cdac/capdriver/test_model.py
-          flow/adc/test_statistics.py
           flow/cdac/capdriver/test_subckt.py
           flow/circuit/test_sim.py
           flow/circuit/test_remote.py
