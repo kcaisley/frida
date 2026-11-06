@@ -68,6 +68,9 @@ def test_adc_testbench_parameters_are_simulation_only() -> None:
     assert sim.is_valid_adc_tb_params(params) is True
     assert params.view == "hdl21gen"
     assert params.pex_cell == ""
+    # FRIDA-1's extracted view switches its difference plates either way
+    frida1 = TbParams(view="frida1", pex_cell="adc_12b_17step")
+    assert sim.is_valid_adc_tb_params(TbParams(**{**frida1.__dict__, "dac_diffcaps": 0})) is True
     assert float(params.vin_cm.dc) == pytest.approx(0.7)
     assert not hasattr(params, "temperature_c")
     assert not hasattr(params, "board_id")
@@ -81,6 +84,8 @@ def test_adc_testbench_parameters_are_simulation_only() -> None:
         {"view": "unknown"},
         {"view": "frida2", "pex_cell": ""},
         {"pex_cell": "adc_12b_17step"},
+        # the generated ADC wires its subtraction in: no run of it adds the difference plates
+        {"dac_diffcaps": 0},
         {"dut": Params(cdac=capdac.Params(extra=4))},
         {"conversions": 0},
         {"symbol_rate": 0},

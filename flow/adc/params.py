@@ -76,7 +76,7 @@ class TbParams:
     dac_mode = h.Param(dtype=int, desc="Select comparator-driven DAC mode", default=1)
     dac_diffcaps = h.Param(
         dtype=int,
-        desc="Enable differential capacitor controls (no effect in the generated ADC, which wires them in)",
+        desc="Enable differential capacitor controls (the generated ADC wires them in: a run of it takes 1)",
         default=1,
     )
     dac_astate_p = h.Param(dtype=tuple[int, ...], desc="C0-first positive DAC A state", default=(0, 1) * 8)

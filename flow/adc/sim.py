@@ -991,6 +991,10 @@ def is_valid_adc_tb_params(params: TbParams) -> bool:
         return False
     if params.view == "hdl21gen" and params.pex_cell:
         return False
+    # the generated ADC wires the subtraction in (its difference plates switch opposite the main
+    # ones): a run of it at dac_diffcaps 0 would be decoded and analyzed as adding them
+    if params.view == "hdl21gen" and not params.dac_diffcaps:
+        return False
     if params.conversions <= 0:
         return False
     try:

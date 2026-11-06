@@ -1459,9 +1459,12 @@ def analyze_timing_closure(measurement: MeasAdc) -> AnalysisTimingClosure:
     Every decision that switches a capacitor also requires the expected SAR
     state and driven bottom plates, plus top-plate settling, before the next
     observed comparator rise. Bottom-plate targets follow the programmed
-    main/diff inversion; top-plate references are the final saved values
-    before the next COMP, not a DC-accuracy guarantee. Only observed samples
-    are used; this does not modify or re-decode DAQ codes.
+    main/diff inversion (the generated ADC's is wired in, so a run of it is at
+    dac_diffcaps 1); an array of unit capacitors has no difference plates, and
+    none is saved, so its main plates alone are checked. Top-plate references
+    are the final saved values before the next COMP, not a DC-accuracy
+    guarantee. Only observed samples are used; this does not modify or
+    re-decode DAQ codes.
     """
 
     # Setup margins of 200 ps cover the standard-cell flip-flop setup time
@@ -1481,6 +1484,8 @@ def analyze_timing_closure(measurement: MeasAdc) -> AnalysisTimingClosure:
     digital_supply = float(params.vdd_d.dc)
     dac_supply = float(params.vdd_dac.dc)
     capacitors = len(measurement.nominal_bout_weights) - 1
+    # an array of unit capacitors has no difference plates to save: its main plates alone
+    differences = params.dut.cdac.weight_impl is not capdac.WeightImpl.UNIT_CAPS
     buses = (
         AdcNets.dac_state_p,
         AdcNets.dac_state_n,
@@ -1488,8 +1493,7 @@ def analyze_timing_closure(measurement: MeasAdc) -> AnalysisTimingClosure:
         AdcNets.dac_state_n_diff,
         AdcNets.dac_botplate_p,
         AdcNets.dac_botplate_n,
-        AdcNets.dac_botplate_p_diff,
-        AdcNets.dac_botplate_n_diff,
+        *((AdcNets.dac_botplate_p_diff, AdcNets.dac_botplate_n_diff) if differences else ()),
     )
     required = (
         {
@@ -1583,6 +1587,8 @@ def analyze_timing_closure(measurement: MeasAdc) -> AnalysisTimingClosure:
                         state_net = getattr(AdcNets, f"dac_state_{side}{suffix}")
                         values = signals[f"{state_net.name}[{decision}]"][update]
                         settled &= values >= 0.7 * digital_supply if state else values <= 0.3 * digital_supply
+                        if diff and not differences:
+                            continue
                         bottom_net = getattr(AdcNets, f"dac_botplate_{side}{suffix}")
                         values = signals[f"{bottom_net.name}[{decision}]"][update]
                         bottom_target = (bool(state) ^ (diff and bool(params.dac_diffcaps))) * dac_supply

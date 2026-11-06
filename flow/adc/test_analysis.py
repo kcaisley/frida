@@ -1630,6 +1630,25 @@ def test_adc_timing_closure_requires_saved_internals() -> None:
         analyze_timing_closure(replace(measurement, wave=replace(measurement.wave, v=signals)))
 
 
+def test_adc_timing_closure_checks_the_plates_a_unit_capacitor_array_has() -> None:
+    """An array of unit capacitors has no difference plates, so a capture of it saves none: its
+    states and main plates alone are checked. A difference-capacitor array still needs all four."""
+    measurement = adc_timing_measurement()
+    assert measurement.wave is not None
+    unit = adc.Params(cdac=capdac.Params(weight_impl=capdac.WeightImpl.UNIT_CAPS))
+    # the capture's signals but its difference plates, as a unit-capacitor array's saves them
+    differences = ("dac_botplate_p_diff[", "dac_botplate_n_diff[")
+    wave = replace(
+        measurement.wave,
+        v={name: values for name, values in measurement.wave.v.items() if not name.startswith(differences)},
+    )
+    tb = adc.TbParams(**{**measurement.param.__dict__, "dut": unit})
+    result = analyze_timing_closure(replace(measurement, dut=unit, param=tb, wave=wave))
+    assert np.all(result.passed[:16]) and np.all(result.cdac_ready[:16])
+    with pytest.raises(ValueError, match="dac_botplate_p_diff"):
+        analyze_timing_closure(replace(measurement, wave=wave))
+
+
 def test_adc_timing_closure_preserves_saved_conversion_indices() -> None:
     measurement = adc_timing_measurement()
     assert measurement.wave is not None
