@@ -6,8 +6,8 @@
 | Netlist tests | ✓ | [test_subckt.py](test_subckt.py) | Hierarchy, interfaces, and stage conventions. |
 | Testbench generator | ✓ | [sim.py](sim.py) | Generated ADC and extracted FRIDA-1/2 views. |
 | Simulation runners | ✓ | [sim.py](sim.py) | Named timing and noise campaigns; require explicit PDK/extraction inputs. |
-| Layout generator | ✓ | [laygen.py](laygen.py) | Assembles replacement blocks in a fixed template, not a new full-ADC layout. |
-| Layout tests | ✓ | [test_layout.py](test_layout.py), [test_signoff.py](test_signoff.py) | Assembly compatibility and runner contracts. |
+| Layout generator | ✓ | [layout.py](layout.py) | Assembles replacement blocks in a fixed template, not a new full-ADC layout. |
+| Layout tests | ✓ | [test_layout.py](test_layout.py) | Assembly compatibility and runner contracts. |
 | Layout runner | ✓ | [layout.py](layout.py) | Historical FRIDA-1 and replacement-array FRIDA-2 targets. |
 | DRC runner | ✓ | [layout.py](layout.py) | Shared/PDK dispatch with explicit exclusions; not unqualified signoff. |
 | LVS runner | ✓ | [layout.py](layout.py) | Some historical variants explicitly expect a disconnected-MOM mismatch. |

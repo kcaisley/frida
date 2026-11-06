@@ -10,7 +10,6 @@ import matplotlib as mpl
 import numpy as np
 
 from flow import comp, new_run
-from flow.adc.assembly import layout_run
 from flow.adc.sim import (
     SEQUENCES,
     AdcSequence,
@@ -171,9 +170,9 @@ def layout_all() -> Path:
 
 def sweep() -> None:
     """The ADC's sweep in a fresh run, every PDK: characterized, its blocks' layouts placed side by
-    side (``flow.adc.assembly``: nothing routed yet), tabulated."""
+    side (``flow.adc.layout.layout_run``: nothing routed yet), tabulated."""
     sweep_runner.run(["adc"], sweep_runner.PDKS, 50)
-    layout_run(sweep_runner.newest_run("adc"))
+    layout.layout_run(sweep_runner.newest_run("adc"))
     sweep_runner.table(["adc"], 16)
 
 

@@ -9,7 +9,6 @@ def test_removed_workflow_globals_and_pin_adapters_do_not_return() -> None:
         (repository / path).read_text(encoding="utf-8")
         for path in (
             "flow/adc/layout.py",
-            "flow/adc/laygen.py",
             "flow/cdac/caparray/layout.py",
         )
     )
