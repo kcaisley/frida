@@ -8,13 +8,11 @@ The FRIDA layouts read their fabricated inputs under build/, not in the reposito
 (``frida-1.gds``) and its four flavors' source netlists (``frida-1/<flavor>.src.net``), and
 FRIDA-2's template (``frida-2-template-c0.gds`` and ``.cdl``).
 
-The blocks side by side, until OpenROAD and ALIGN place and route them together: the comparator and
-the samplers as their sweeps laid them out (ALIGN), the capacitor arrays as drawn for the
-extraction the behavioral model reads (``flow.cdac.caparray.model``, the legacy array of the
-converter's ``capdac.Params``: ``flow.adc.subckt._legacy_array``), and the generic-cell drivers
-(``flow.cdac.capdriver``) as their library's standard cells in rows, a stage a row, unrouted and
-unlabelled. Each block is outlined and labelled on the boundary layer, which the viewer shows.
-Nothing is connected, so nothing is signed off.
+The blocks side by side, until OpenROAD and ALIGN place and route them together: the comparator,
+the samplers and each side of the DAC as their sweeps laid them out (ALIGN): one side of capdac's
+array of the converter's ``capdac.Params``, its drivers with it, as the behavioral model reads its
+characterization, the N side its mirror image. Each block is outlined and labelled on the boundary
+layer, which the viewer shows. Nothing is connected, so nothing is signed off.
 
     entry = assemble_blocks("tsmc65", params, run_dir / "layout")  # the record's layout entry
 """
@@ -34,17 +32,13 @@ import hdl21 as h
 from klayout import db
 
 from flow.cdac.caparray.layout import CapArrayLayout, CapArrayLayoutParams, UnitLengthCapFamilyParams, mom_array_params
-from flow.cdac.caparray.model import CapArrayModel
 from flow.cdac.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights
-from flow.cdac.capdriver.model import driver_strengths
-from flow.cdac.capdriver.subckt import PARALLEL_DRIVE, CapDriverParams, Cells, pre_driver, stage_strengths
 from flow.layout.gdsdiff import gds_diff
 from flow.layout.signoff import SignoffParams, run_signoff
 from flow.sweep.runner import ROOT, RUNS_DIR, digest, instance_params, write_record
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
 
 from .params import Params
-from .subckt import _legacy_array
 
 # ---- block replacement: compatible prebuilt blocks swapped into a template (FRIDA-2's), the
 # assembled layout's connectivity verified by LVS
@@ -500,17 +494,15 @@ def all_adcs(run_dir: Path) -> Path:
 # ---- the sweep's blocks side by side, unconnected, for the viewer
 
 _GAP_UM = 4.0  # between neighbouring blocks
-# left to right: (instance, block); each side's array, its main and difference drivers, its sampler
+# left to right: (instance, block, mirrored); each side's DAC, its drivers with it, then its sampler;
+# the N side's DAC the P side's mirror image about the vertical axis, each side's seam (its last
+# stage) toward the comparator
 _ROW = (
-    ("cap_p", "cap"),
-    ("drv_p_main", "drv"),
-    ("drv_p_diff", "drv"),
-    ("samp_p", "samp"),
-    ("comp", "comp"),
-    ("samp_n", "samp"),
-    ("drv_n_diff", "drv"),
-    ("drv_n_main", "drv"),
-    ("cap_n", "cap"),
+    ("cap_p", "cap", False),
+    ("samp_p", "samp", False),
+    ("comp", "comp", False),
+    ("samp_n", "samp", False),
+    ("cap_n", "cap", True),
 )
 
 
@@ -534,15 +526,6 @@ def sweep_gds(block: str, pdk: str, params) -> Path:
     )
 
 
-def caparray_gds(pdk: str, cdac: CapArrayConfig) -> Path:
-    """The array drawn for the extraction the behavioral model reads."""
-    table = CapArrayModel.of(pdk, cdac).table  # a LookupError where the array is not extracted
-    gds = next(table.parent.glob("caparray_*.gds"), None)
-    if gds is None:
-        raise FileNotFoundError(f"no array GDS beside {table}")
-    return gds
-
-
 def _copied(layout: db.Layout, gds: Path) -> db.Cell:
     """The GDS's top cell (the one named as the file, else the largest) copied into ``layout``."""
     source = db.Layout()
@@ -553,79 +536,37 @@ def _copied(layout: db.Layout, gds: Path) -> db.Cell:
     return cell
 
 
-def _driver(layout: db.Layout, pdk: str, cdac: CapArrayConfig, boundary: int) -> db.Cell:
-    """One side's main or difference driver: each stage's XOR and buffers (the drives its plates
-    call for, ``flow.cdac.capdriver.model.driver_strengths``), C0's row at the bottom, every other row
-    flipped so the rails abut."""
-    library = db.Layout()
-    library.read(str(import_module(f"pdk.{pdk}.layout.paths").STD_GDS))
-    generic = import_module(f"pdk.{pdk}.hdl21.cells").GENERIC
-    params = CapDriverParams(
-        n_stages=len(get_caparray_weights(cdac)), strengths=driver_strengths(pdk, cdac), cells=Cells.GENERIC
-    )
-    driver = layout.create_cell("capdriver")
-    cells: dict[str, db.Cell] = {}
-    y = 0.0
-    for row, strength in enumerate(stage_strengths(params)):
-        x, height = 0.0, 0.0
-        if strength > PARALLEL_DRIVE:
-            # a pre-driver and k buffers of 16
-            buffers = (f"buf_x{pre_driver(strength)}", *(f"buf_x{PARALLEL_DRIVE}",) * (strength // PARALLEL_DRIVE))
-        else:
-            buffers = (f"buf_x{strength}",) if strength > 1 else ()
-        for name in ("xor2_x1", *buffers):
-            cell_name = generic[name][0]
-            if cell_name not in cells:
-                cells[cell_name] = layout.create_cell(cell_name)
-                cells[cell_name].copy_tree(library.cell(cell_name))
-                for layer in layout.layer_indexes():  # its pin names and notices: unrouted, they only crowd the view
-                    cells[cell_name].shapes(layer).clear(db.Shapes.STexts)
-            cell = cells[cell_name]
-            box = cell.dbbox_per_layer(boundary)  # the cell's placement boundary
-            if row % 2:  # mirrored about the x axis, its top edge on the row's bottom
-                place = db.DTrans(db.DTrans.M0, x - box.left, y + box.top)
-            else:
-                place = db.DTrans(x - box.left, y - box.bottom)
-            driver.insert(db.DCellInstArray(cell.cell_index(), place))
-            x, height = x + box.width(), max(height, box.height())
-        y += height
-    return driver
-
-
 def assemble_blocks(pdk: str, params: Params, out_dir: Path) -> dict:
     """The ADC's blocks in a row, unconnected, into ``out_dir/adc_blocks.gds``; its layout entry
-    (as ``flow.sweep.runner.layout_job`` gives one, unsigned) with each block's place and source.
-    The drivers are left out where the PDK's standard-cell GDS is not installed."""
+    (as ``flow.sweep.runner.layout_job`` gives one, unsigned) with each block's place, orientation
+    and source: each block as its sweep laid it out, the DAC's one side (capdac's, its drivers with
+    it) twice, the second mirrored."""
     tech = import_module(f"pdk.{pdk}.layout.tech")
     layout = db.Layout()
     layout.dbu = tech.DBU
     top = layout.create_cell("adc_blocks")
     boundary = layout.layer(*tech.LAYERS["BND"])
-    # the arrays and drivers of the converter's legacy array
-    legacy = _legacy_array(params.cdac)
     sources = {
         "comp": sweep_gds("comp", pdk, params.comp),
         "samp": sweep_gds("samp", pdk, params.samp),
-        "cap": caparray_gds(pdk, legacy),
+        "cap": sweep_gds("capdac", pdk, params.cdac),
     }
     cells = {block: _copied(layout, gds) for block, gds in sources.items()}
-    standard = import_module(f"pdk.{pdk}.layout.paths").STD_GDS
-    if standard.exists():
-        cells["drv"] = _driver(layout, pdk, legacy, boundary)
-        sources["drv"] = standard
     blocks, x = [], 0.0
-    for name, block in _ROW:
-        if block not in cells:
-            continue
-        box = cells[block].dbbox()
-        placed = box.moved(x - box.left, -box.center().y)  # centred on the row
-        top.insert(db.DCellInstArray(cells[block].cell_index(), db.DTrans(x - box.left, -box.center().y)))
+    for name, block, mirrored in _ROW:
+        # mirrored about the vertical axis, then moved: its left edge at x, centred on the row
+        orientation = db.DTrans(db.DTrans.M90 if mirrored else db.DTrans.R0, 0.0, 0.0)
+        box = cells[block].dbbox().transformed(orientation)
+        shift = db.DTrans(x - box.left, -box.center().y)
+        placed = box.transformed(shift)
+        top.insert(db.DCellInstArray(cells[block].cell_index(), shift * orientation))
         top.shapes(boundary).insert(placed)
         top.shapes(boundary).insert(db.DText(name, placed.center().x, placed.top + 1.0))
         blocks.append(
             {
                 "name": name,
                 "source": _path(sources[block]),
+                "mirrored": mirrored,
                 "x_um": round(placed.left, 3),
                 "y_um": round(placed.bottom, 3),
                 "w_um": round(placed.width(), 3),

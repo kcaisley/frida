@@ -141,12 +141,11 @@ def adc_stages(param: Params) -> int:
 
 def _legacy_array(cdac: capdac.Params) -> CapArrayConfig:
     """The legacy array (``flow.cdac.caparray``) of the converter's DAC, which its netlist (``Adc``)
-    and the blocks' layout (``flow.adc.layout.assemble_blocks``) build on until they move to capdac:
-    the DAC's N - 1 binary steps, its extra cycles, its scheme by name, its capacitance in kT/C
-    minimums and an array's own weights. The legacy array has no build of unit capacitors. It takes
-    no coarse weight: the netlist builds it at ``CapArrayParams``' default of 64 units, the one
-    ``cdac.coarse_weight`` must hold (capdac's default), and the layout ``assemble_blocks`` reads was
-    drawn at the split its own sizing chose (``flow.cdac.caparray.sizing``)."""
+    builds on until it moves to ``capdac.netlist``: the DAC's N - 1 binary steps, its extra cycles,
+    its scheme by name, its capacitance in kT/C minimums and an array's own weights. The legacy array
+    has no build of unit capacitors. It takes no coarse weight: the netlist builds it at
+    ``CapArrayParams``' default of 64 units, the one ``cdac.coarse_weight`` must hold (capdac's
+    default)."""
     if cdac.weight_impl is not capdac.WeightImpl.DIFFERENCE_CAPS:
         raise ValueError(f"the legacy array has no build of unit capacitors: {cdac}")
     if cdac.coarse_weight != 64:

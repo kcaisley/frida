@@ -1,8 +1,8 @@
 """The ADC's layouts (``flow.adc.layout``): the strict block replacement FRIDA-2's are assembled with
 (``AdcLayout``); the FRIDA layouts' netlist preparation (a test that needs the TSMC65 kit skips
-without it); and the sweep's blocks side by side, from the blocks' layouts under build/: one top
-cell, each block labelled where the viewer's export finds it, nothing signed off (skipped where the
-blocks are not laid out)."""
+without it); and the sweep's blocks side by side, from the blocks' layouts under build/ (the DAC's
+one side twice, the second mirrored): one top cell, each block labelled where the viewer's export
+finds it, nothing signed off (skipped where the blocks are not laid out)."""
 
 import io
 import json
@@ -267,8 +267,14 @@ def test_the_blocks_sit_side_by_side_in_one_labelled_cell(tmp_path: Path) -> Non
 
     assert entry["error"] is None and entry["drc_violations"] is None and entry["lvs_correct"] is None
     names = [block["name"] for block in entry["blocks"]]
-    assert {"comp", "samp_p", "samp_n", "cap_p", "cap_n"} <= set(names)
+    assert names == ["cap_p", "samp_p", "comp", "samp_n", "cap_n"]
     assert all((ROOT / block["source"]).exists() for block in entry["blocks"])
+    # each side of the DAC capdac's layout of the converter's array, its drivers with it, the N side
+    # the P side's mirror image
+    cap_p, cap_n = entry["blocks"][0], entry["blocks"][-1]
+    assert cap_p["source"] == cap_n["source"] and "/capdac/" in cap_p["source"]
+    assert (cap_p["mirrored"], cap_n["mirrored"]) == (False, True)
+    assert (cap_p["w_um"], cap_p["h_um"]) == (cap_n["w_um"], cap_n["h_um"])
     # in a row, apart, inside the cell's extent
     lefts = [block["x_um"] for block in entry["blocks"]]
     assert lefts == sorted(lefts)
