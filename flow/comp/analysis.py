@@ -307,7 +307,7 @@ def analyze_offset_noise(decisions: Sequence[AnalysisDecisions]) -> AnalysisOffs
     """Pool decision sweeps at one input common mode and fit offset and input noise.
 
     The same S-curve fit locates a CDAC switching curve's transition, from its trials
-    (``flow.analysis.cdac.analyze_cdac_decisions``). Trials a simulation marks unresolved (the
+    (``capdac.analyze_decisions``). Trials a simulation marks unresolved (the
     latch still undecided when the decision was read: the output holds the previous one) are left
     out; where more than 1 % of them are, the comparator is too slow for its clock and the fit is
     ``unresolved``.

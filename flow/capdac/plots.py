@@ -1,17 +1,20 @@
 """The capacitive DAC's figures as ``Plot`` specs (``flow.pipeline.Plot``), each from analysis
 results alone: a characterization's settling and the behavioral model's step by stage (the record's
-plots, which ``flow.capdac.model`` reads back), and the plates' Monte Carlo: the 95th percentile of
-the converter's INL, of what no calibration recovers and of the DAC's INL over Pelgrom's
-coefficient, and the DAC's INL and DNL by code at the middle condition. The viewer draws them from
-their JSON, ``flow.plot.render`` with matplotlib."""
+plots, which ``flow.capdac.model`` reads back), the plates' Monte Carlo: the 95th percentile of the
+converter's INL, of what no calibration recovers and of the DAC's INL over Pelgrom's coefficient,
+and the DAC's INL and DNL by code at the middle condition; and the bench's capacitance of each stage
+from its switching curves (``analyze_cap_mismatch``), one curve a quantity, so compared converters
+overlay as instances. The viewer draws them from their JSON, ``flow.plot.render`` with matplotlib."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
+import numpy as np
+
 from flow.pipeline import Plot, plot
 
-from .types import AnalysisMismatch, AnalysisSettling
+from .types import AnalysisCapMismatch, AnalysisMismatch, AnalysisSettling
 
 
 @plot
@@ -110,4 +113,76 @@ def plot_dac_dnl(mismatch: AnalysisMismatch) -> Plot:
         x=list(range(len(mismatch.dac_dnl_curve_lsb))),
         series={"DNL": [float(v) for v in mismatch.dac_dnl_curve_lsb]},
         x_ticks="code",
+    )
+
+
+@plot
+def plot_fraction_stage(cap_mismatch: AnalysisCapMismatch) -> Plot:
+    """Each stage's effective fraction of its side's capacitance, P's and N's mean, from its
+    switching curves (``analyze_cap_mismatch``)."""
+    return _by_stage(
+        "fraction_stage", "Effective fraction by stage (P and N mean)", "Effective fraction", cap_mismatch.fraction
+    )
+
+
+@plot
+def plot_fraction_error_stage(cap_mismatch: AnalysisCapMismatch) -> Plot:
+    """Each stage's effective fraction (P's and N's mean) less the design's expectation (its weights
+    over its total and the top plate's parasitic)."""
+    return _by_stage(
+        "fraction_error_stage",
+        "Effective fraction less the design's by stage",
+        "Effective fraction less the design's",
+        cap_mismatch.fraction_error,
+    )
+
+
+@plot
+def plot_asymmetry_stage(cap_mismatch: AnalysisCapMismatch) -> Plot:
+    """Each stage's effective fraction, P's less N's."""
+    return _by_stage(
+        "asymmetry_stage",
+        "Effective fraction, P less N, by stage",
+        "P less N effective fraction",
+        cap_mismatch.asymmetry,
+    )
+
+
+@plot
+def plot_separation_stage(cap_mismatch: AnalysisCapMismatch) -> Plot:
+    """Each stage's difference plates, P's and N's together (twice their fraction's mean): how far
+    apart its two modes put its weight."""
+    return _by_stage(
+        "separation_stage",
+        "Difference plates by stage (P and N together)",
+        "Difference fraction, P plus N",
+        cap_mismatch.separation,
+    )
+
+
+@plot
+def plot_main_stage(cap_mismatch: AnalysisCapMismatch) -> Plot:
+    """Each stage's main plate's fraction, P's and N's mean."""
+    return _by_stage("main_stage", "Main plate's fraction by stage (P and N mean)", "Main fraction", cap_mismatch.main)
+
+
+@plot
+def plot_bias_stage(cap_mismatch: AnalysisCapMismatch) -> Plot:
+    """Each stage's switching-direction bias as the converter switches it (main and difference
+    plates against each other): half its 1-to-0 less its 0-to-1 fraction, P's and N's mean."""
+    return _by_stage(
+        "bias_stage", "Switching-direction bias by stage (P and N mean)", "Direction bias (fraction)", cap_mismatch.bias
+    )
+
+
+def _by_stage(name: str, title: str, y_label: str, values: np.ndarray) -> Plot:
+    """One fraction of each stage (C0, the MSB, first), NaN where its curves gave none."""
+    return Plot(
+        name=name,
+        title=title,
+        x_label="Stage (C0, the MSB, first)",
+        y_label=y_label,
+        x=[float(stage) for stage in range(len(values))],
+        series={y_label: [float(value) for value in values]},
+        x_ticks="step",
     )

@@ -21,7 +21,7 @@ from scipy import constants
 
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
-from flow import adc, comp
+from flow import adc, capdac, comp
 from flow.adc.analysis import (
     _decode,
     _dnl_quantile,
@@ -51,6 +51,7 @@ from flow.adc.analysis import (
     analyze_ramp,
     analyze_sampling_noise,
     analyze_sequence_map,
+    analyze_switching,
     analyze_timing_closure,
     analyze_transfer,
 )
@@ -62,16 +63,14 @@ from flow.adc.subckt import calc_ideal_capacitances
 from flow.adc.sweep import _extracted, _ladder, campaign
 from flow.adc.types import AnalysisMismatch, AnalysisRedundancy
 from flow.analysis.calc import calc_drawn_linearity, calc_paths
-from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_decisions, analyze_cdac_transition
-from flow.analysis.test_cdac import comparator_offset
 from flow.analysis.types import (
-    AnalysisCdacCapMismatch,
     Identity,
     MeasAdc,
     MeasCdac,
     MeasInfo,
     Wave,
 )
+from flow.capdac.test_analysis import comparator_offset
 from flow.cdac.caparray.model import calc_capacitor_mismatch
 from flow.cdac.caparray.subckt import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.plot import render
@@ -1864,11 +1863,12 @@ def test_cdac_mismatch_and_calibration1_use_the_measured_capacitor_count() -> No
                 wave=None,
             )
         )
-    transition = analyze_cdac_transition(
-        measurements, offset=comp.analyze_offset_noise([analyze_cdac_decisions(measurements)])
+    switching = [analyze_switching(measurement) for measurement in measurements]
+    transition = capdac.analyze_transition(
+        switching, offset=comp.analyze_offset_noise([capdac.analyze_decisions(switching)])
     )
-    mismatch = analyze_cdac_cap_mismatch(
-        measurements, transitions=[transition], comparator=comparator_offset(measurements[0], 0.0)
+    mismatch = capdac.analyze_cap_mismatch(
+        switching, transitions=[transition], comparator=comparator_offset(measurements[0], 0.0)
     )
     assert mismatch.effective_fraction.shape == (2, 12)
     assert mismatch.effective_fraction_by_direction[0, 11, 1] == pytest.approx(-transition_v / 1.2)
@@ -1877,7 +1877,7 @@ def test_cdac_mismatch_and_calibration1_use_the_measured_capacitor_count() -> No
     nominal = np.asarray(CAPACITOR_WEIGHTS, dtype=np.float64)
     by_direction = np.repeat(np.repeat(nominal[None, :, None], 2, axis=0), 2, axis=2)
     nan = np.full((2, 12), np.nan)
-    cap_mismatch = AnalysisCdacCapMismatch(
+    cap_mismatch = capdac.AnalysisCapMismatch(
         group=1,
         index=5,
         dut=tb.dut.cdac,
@@ -1886,6 +1886,7 @@ def test_cdac_mismatch_and_calibration1_use_the_measured_capacitor_count() -> No
         effective_fraction=nan,
         effective_fraction_by_direction=by_direction,
         direction_bias=np.full((2, 12, 2), np.nan),
+        expected_fraction=np.full(12, np.nan),
     )
     fake = cast(
         MeasCdac,
@@ -1917,9 +1918,9 @@ def test_calibration1_public_analysis_returns_common_weights() -> None:
         SimpleNamespace(param=params, tb=params.tb, identity=identity, trial_index=np.arange(100)),
     )
 
-    def cap_mismatch(by_direction: np.ndarray) -> AnalysisCdacCapMismatch:
+    def cap_mismatch(by_direction: np.ndarray) -> capdac.AnalysisCapMismatch:
         nan = np.full((2, element_count), np.nan)
-        return AnalysisCdacCapMismatch(
+        return capdac.AnalysisCapMismatch(
             group=0,
             index=0,
             dut=params.tb.dut.cdac,
@@ -1928,6 +1929,7 @@ def test_calibration1_public_analysis_returns_common_weights() -> None:
             effective_fraction=nan,
             effective_fraction_by_direction=by_direction,
             direction_bias=np.full((2, element_count, 2), np.nan),
+            expected_fraction=np.full(element_count, np.nan),
         )
 
     result = analyze_calibration1((measurement,), cap_mismatch=cap_mismatch(measured))
@@ -1970,7 +1972,7 @@ def test_calibration1_selects_p_and_n_directions_from_each_a_state() -> None:
         by_direction[1, element, 1 - a_n[element]] = nominal_cap_weight[element]
         by_direction[1, element, a_n[element]] = 100.0 * nominal_cap_weight[element]
     nan = np.full((2, 16), np.nan)
-    cap_mismatch = AnalysisCdacCapMismatch(
+    cap_mismatch = capdac.AnalysisCapMismatch(
         group=0,
         index=0,
         dut=params.tb.dut.cdac,
@@ -1979,6 +1981,7 @@ def test_calibration1_selects_p_and_n_directions_from_each_a_state() -> None:
         effective_fraction=nan,
         effective_fraction_by_direction=by_direction,
         direction_bias=np.full((2, 16, 2), np.nan),
+        expected_fraction=np.full(16, np.nan),
     )
     measurement = cast(
         MeasCdac,

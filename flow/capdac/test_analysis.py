@@ -1,14 +1,20 @@
 """The capacitive DAC's analyses on synthetic data: RC steps of known delay, time constant, amplitude
-and gain (``analyze_settling``), and Monte Carlo draws of known plates (``analyze_mismatch``)."""
+and gain (``analyze_settling``), Monte Carlo draws of known plates (``analyze_mismatch``), and the
+bench's A-to-B switching curves of known transitions as a converter captures them (``MeasCdac``,
+each point as ``adc.analyze_switching`` gives it: ``analyze_transition``, ``analyze_cap_mismatch``)."""
 
 import math
+from dataclasses import replace
 from datetime import UTC, datetime
 
+import hdl21 as h
 import numpy as np
 import pytest
 
-from flow import capdac
+from flow import adc, capdac, comp
+from flow.analysis.types import MeasCdac, Wave
 from flow.pipeline import Meas, MeasInfo
+from flow.scans.scan_cdac import _build_cdac_params
 
 # an 8-bit binary array of unit capacitors: seven stages, 64 to 1 units
 PARAMS = capdac.Params(bits=8, redundancy=capdac.Redundancy.BINARY, extra=0, weight_impl=capdac.WeightImpl.UNIT_CAPS)
@@ -170,3 +176,356 @@ def test_nominal_draws_are_ideal_and_a_heavy_msb_leaves_a_gap_no_calibration_rec
     # one LSB and no weight recovers it
     assert result.gap_lsb[1] > 0.1 and result.dac_dnl_lsb[1] > 0.1
     assert result.dac_inl_curve_lsb.shape == (2**7,)
+
+
+# ---- the bench's switching curves (flow/analysis/test_cdac.py until their analyses moved here)
+
+
+def switched(points: list[MeasCdac]) -> list[capdac.AnalysisSwitching]:
+    """Each captured point of a switching curve as the CDAC sees it (``adc.analyze_switching``)."""
+    return [adc.analyze_switching(point) for point in points]
+
+
+def transition_of(curve: list[MeasCdac]):
+    """Fit one switching curve the way the runner does: S-curve fit, then CDAC placement."""
+
+    points = switched(curve)
+    return capdac.analyze_transition(points, offset=comp.analyze_offset_noise([capdac.analyze_decisions(points)]))
+
+
+def cap_mismatch_of(measurements: list[MeasCdac], comparator: comp.AnalysisOffsetNoise):
+    """Fit every curve of one ADC, preferring its fine sweep stage, then decompose (as the runner does)."""
+
+    curves: dict[tuple[object, ...], list[MeasCdac]] = {}
+    for measurement in measurements:
+        params = measurement.param
+        curves.setdefault(
+            (params.cdac_side, params.cdac_element, params.cdac_direction, params.tb.dac_diffcaps), []
+        ).append(measurement)
+    transitions = [
+        transition_of([point for point in curve if point.param.sweep_stage == "fine"] or curve)
+        for curve in curves.values()
+    ]
+    return capdac.analyze_cap_mismatch(switched(measurements), transitions=transitions, comparator=comparator)
+
+
+def comparator_offset(measurement: MeasCdac, offset_v: float, *, index: int | None = None) -> comp.AnalysisOffsetNoise:
+    """Return a valid comparator characterization of the measured ADC's comparator."""
+
+    return comp.AnalysisOffsetNoise(
+        group=measurement.group,
+        index=measurement.index if index is None else index,
+        dut=measurement.param.tb.dut.comp,
+        vin_cm_v=0.8,
+        vin_diff_v=np.asarray([offset_v - 1e-3, offset_v, offset_v + 1e-3]),
+        decision_probability=np.asarray([0.0, 0.5, 1.0]),
+        trial_count=np.asarray([100, 100, 100]),
+        offset_v=offset_v,
+        noise_sigma_v=5e-4,
+        decision_polarity=1,
+        validity="valid",
+    )
+
+
+def test_cap_mismatch_recovers_main_diff_and_direction_pairs() -> None:
+    comparator_offset_v = 8.0e-3
+    expected_mode_weights = {0: 0.20, 1: 0.10}
+    measurements = []
+    for direction in ("1to0", "0to1"):
+        for diffcaps, normalized_weight in expected_mode_weights.items():
+            direction_sign = 1.0 if direction == "0to1" else -1.0
+            transition_v = comparator_offset_v - direction_sign * normalized_weight * 1.2
+            for input_index, probability in enumerate((0.0, 0.5, 1.0)):
+                vin_diff_v = transition_v + (input_index - 1) * 10e-3
+                params = _build_cdac_params(
+                    adc_index=0,
+                    side="p",
+                    element=15,
+                    direction=direction,
+                    dac_diffcaps=diffcaps,
+                    vin_diff_v=vin_diff_v,
+                    conversions=100,
+                    sweep_stage="fine",
+                )
+                ones = round(100 * probability)
+                decisions = np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8)))
+                before_p = np.tile(params.tb.dac_astate_p, (100, 1))
+                before_n = np.tile(params.tb.dac_astate_n, (100, 1))
+                after_p = np.tile(params.tb.dac_bstate_p, (100, 1))
+                after_n = np.tile(params.tb.dac_bstate_n, (100, 1))
+                measurements.append(
+                    MeasCdac(
+                        group=params.board_id,
+                        index=params.observed_adc,
+                        dut=params.tb.dut.cdac,
+                        info=MeasInfo(backend="physical", timestamp_utc=datetime(2026, 8, 4, tzinfo=UTC)),
+                        param=params,
+                        trial_index=np.arange(100),
+                        dac_state_p=after_p,
+                        dac_state_n=after_n,
+                        vin_diff_v=np.full(100, vin_diff_v),
+                        decision=decisions,
+                        dac_state_before_p=before_p,
+                        dac_state_before_n=before_n,
+                        vin_cm_v=np.full(100, 0.8),
+                        fastrx_word=np.asarray(
+                            [(1 << 28) | (frame << 17) | int(decision) for frame, decision in enumerate(decisions)],
+                            dtype=np.uint32,
+                        ),
+                        fastrx_frame=np.arange(100, dtype=np.uint32),
+                        wave=Wave(
+                            record_index=np.asarray([0], dtype=np.int64),
+                            time_s=np.asarray([0.0, 1e-9]),
+                            v={
+                                "vin_diff": np.asarray([[vin_diff_v, vin_diff_v]]),
+                                "seq_comp": np.asarray([[0.0, 1.2]]),
+                                "comp_out": np.asarray([[0.0, 1.2]]),
+                            },
+                        ),
+                    )
+                )
+            base = measurements[-1]
+            coarse_v = transition_v + 20e-3
+            coarse_params = replace(
+                base.param,
+                sweep_stage="coarse",
+                tb=replace(base.param.tb, vin_diff=h.Vdc.Params(dc=coarse_v)),
+            )
+            measurements.append(
+                replace(
+                    base,
+                    param=coarse_params,
+                    vin_diff_v=np.full(100, coarse_v),
+                    decision=np.zeros(100, dtype=np.uint8),
+                    fastrx_word=np.asarray(
+                        [(1 << 28) | (frame << 17) for frame in range(100)],
+                        dtype=np.uint32,
+                    ),
+                    wave=replace(base.wave, v={**base.wave.v, "vin_diff": np.asarray([[coarse_v, coarse_v]])}),
+                )
+            )
+
+    result = cap_mismatch_of(measurements, comparator_offset(measurements[0], comparator_offset_v))
+
+    assert (result.group, result.index) == (0, 0)
+    assert result.dut == measurements[0].dut
+    assert result.effective_fraction[0, 15] == pytest.approx(0.10)
+    np.testing.assert_allclose(result.effective_fraction_by_direction[0, 15], (0.10, 0.10))
+    assert result.main_fraction[0, 15] == pytest.approx(0.15)
+    assert result.diff_fraction[0, 15] == pytest.approx(0.05)
+    np.testing.assert_allclose(result.direction_bias[0, 15], 0.0, atol=1e-15)
+    assert np.all(np.isnan(result.main_fraction[1]))
+
+
+def test_cap_mismatch_retains_side_asymmetry_and_direction_bias() -> None:
+    comparator_offset_v = -6e-3
+    measurements = []
+    expected = {
+        "p": {0: (0.20, 0.02), 1: (0.10, 0.01)},
+        "n": {0: (0.18, 0.015), 1: (0.12, -0.005)},
+    }
+    for side in ("p", "n"):
+        side_sign = 1.0 if side == "p" else -1.0
+        for direction_index, direction in enumerate(("1to0", "0to1")):
+            direction_sign = 1.0 if direction == "0to1" else -1.0
+            for diffcaps in (0, 1):
+                mean_weight, bias = expected[side][diffcaps]
+                oriented_weight = mean_weight + (bias if direction_index == 0 else -bias)
+                signed_step = side_sign * direction_sign * oriented_weight
+                transition_v = comparator_offset_v - signed_step * 1.2
+                for input_index, probability in enumerate((0.0, 0.5, 1.0)):
+                    vin_diff_v = transition_v + (input_index - 1) * 10e-3
+                    params = _build_cdac_params(
+                        adc_index=0,
+                        side=side,
+                        element=15,
+                        direction=direction,
+                        dac_diffcaps=diffcaps,
+                        vin_diff_v=vin_diff_v,
+                        conversions=100,
+                        sweep_stage="coarse",
+                    )
+                    ones = round(100 * probability)
+                    decisions = np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8)))
+                    before_p = np.tile(params.tb.dac_astate_p, (100, 1))
+                    before_n = np.tile(params.tb.dac_astate_n, (100, 1))
+                    after_p = np.tile(params.tb.dac_bstate_p, (100, 1))
+                    after_n = np.tile(params.tb.dac_bstate_n, (100, 1))
+                    measurements.append(
+                        MeasCdac(
+                            group=params.board_id,
+                            index=params.observed_adc,
+                            dut=params.tb.dut.cdac,
+                            info=MeasInfo(backend="physical", timestamp_utc=datetime(2026, 8, 4, tzinfo=UTC)),
+                            param=params,
+                            trial_index=np.arange(100),
+                            dac_state_p=after_p,
+                            dac_state_n=after_n,
+                            vin_diff_v=np.full(100, vin_diff_v),
+                            decision=decisions,
+                            dac_state_before_p=before_p,
+                            dac_state_before_n=before_n,
+                            vin_cm_v=np.full(100, 0.8),
+                            fastrx_word=np.asarray(
+                                [(1 << 28) | (frame << 17) | int(decision) for frame, decision in enumerate(decisions)],
+                                dtype=np.uint32,
+                            ),
+                            fastrx_frame=np.arange(100, dtype=np.uint32),
+                            wave=Wave(
+                                record_index=np.asarray([0], dtype=np.int64),
+                                time_s=np.asarray([0.0, 1e-9]),
+                                v={
+                                    "vin_diff": np.asarray([[vin_diff_v, vin_diff_v]]),
+                                    "seq_comp": np.asarray([[0.0, 1.2]]),
+                                    "comp_out": np.asarray([[0.0, 1.2]]),
+                                },
+                            ),
+                        )
+                    )
+
+    for vin_diff_v in (-20e-3, 0.0, 20e-3):
+        params = _build_cdac_params(
+            adc_index=0,
+            side="p",
+            element=14,
+            direction="1to0",
+            dac_diffcaps=0,
+            vin_diff_v=vin_diff_v,
+            conversions=100,
+            sweep_stage="coarse",
+        )
+        base = measurements[0]
+        measurements.append(
+            replace(
+                base,
+                param=params,
+                dac_state_p=np.tile(params.tb.dac_bstate_p, (100, 1)),
+                dac_state_n=np.tile(params.tb.dac_bstate_n, (100, 1)),
+                vin_diff_v=np.full(100, vin_diff_v),
+                decision=np.ones(100, dtype=np.uint8),
+                dac_state_before_p=np.tile(params.tb.dac_astate_p, (100, 1)),
+                dac_state_before_n=np.tile(params.tb.dac_astate_n, (100, 1)),
+                wave=replace(base.wave, v={**base.wave.v, "vin_diff": np.asarray([[vin_diff_v, vin_diff_v]])}),
+            )
+        )
+
+    result = cap_mismatch_of(measurements, comparator_offset(measurements[0], comparator_offset_v))
+
+    assert result.effective_fraction[0, 15] == pytest.approx(0.10)
+    assert result.effective_fraction[1, 15] == pytest.approx(0.12)
+    np.testing.assert_allclose(result.effective_fraction_by_direction[0, 15], (0.11, 0.09))
+    np.testing.assert_allclose(result.effective_fraction_by_direction[1, 15], (0.115, 0.125))
+    assert result.main_fraction[0, 15] == pytest.approx(0.15)
+    assert result.main_fraction[1, 15] == pytest.approx(0.15)
+    assert result.diff_fraction[0, 15] == pytest.approx(0.05)
+    assert result.diff_fraction[1, 15] == pytest.approx(0.03)
+    np.testing.assert_allclose(result.direction_bias[0, 15], (0.02, 0.01))
+    np.testing.assert_allclose(result.direction_bias[1, 15], (0.015, -0.005))
+    assert np.isnan(result.main_fraction[0, 14])
+    assert np.isnan(result.diff_fraction[0, 14])
+    assert np.isnan(result.direction_bias[0, 14, 0])
+
+
+def _curve(side: str, direction: str, diffcaps: int, transition_v: float) -> list[MeasCdac]:
+    measurements = []
+    for input_index, probability in enumerate((0.0, 0.5, 1.0)):
+        vin_diff_v = transition_v + (input_index - 1) * 10e-3
+        params = _build_cdac_params(
+            adc_index=0,
+            side=side,
+            element=15,
+            direction=direction,
+            dac_diffcaps=diffcaps,
+            vin_diff_v=vin_diff_v,
+            conversions=100,
+            sweep_stage="fine",
+        )
+        ones = round(100 * probability)
+        decisions = np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8)))
+        measurements.append(
+            MeasCdac(
+                group=params.board_id,
+                index=params.observed_adc,
+                dut=params.tb.dut.cdac,
+                info=MeasInfo(backend="physical", timestamp_utc=datetime(2026, 8, 4, tzinfo=UTC)),
+                param=params,
+                trial_index=np.arange(100),
+                dac_state_p=np.tile(params.tb.dac_bstate_p, (100, 1)),
+                dac_state_n=np.tile(params.tb.dac_bstate_n, (100, 1)),
+                vin_diff_v=np.full(100, vin_diff_v),
+                decision=decisions,
+                wave=None,
+            )
+        )
+    return measurements
+
+
+def test_a_transition_records_its_curves_coordinates_and_rejects_mixed_curves() -> None:
+    curve = _curve("p", "0to1", 1, 4e-3)
+    transition = transition_of(curve)
+    assert (transition.side, transition.element, transition.direction, transition.diffcaps) == ("p", 15, "0to1", 1)
+    assert transition.valid
+    assert transition.transition_v == pytest.approx(4e-3)
+    with pytest.raises(ValueError, match="not made from these measurements"):
+        capdac.analyze_transition(
+            switched(curve),
+            offset=comp.analyze_offset_noise([capdac.analyze_decisions(switched(_curve("p", "0to1", 1, 9e-3)))]),
+        )
+    with pytest.raises(ValueError, match="exactly one switching curve"):
+        mixed = [*curve, *_curve("n", "0to1", 1, 4e-3)]
+        capdac.analyze_transition(
+            switched(mixed), offset=comp.analyze_offset_noise([capdac.analyze_decisions(switched(mixed))])
+        )
+
+
+def test_cap_mismatch_rejects_mismatched_or_missing_prior_results() -> None:
+    curve = _curve("p", "0to1", 1, 4e-3)
+    transition = transition_of(curve)
+    with pytest.raises(ValueError, match="comparator offset"):
+        capdac.analyze_cap_mismatch(
+            switched(curve), transitions=[transition], comparator=comparator_offset(curve[0], 0.0, index=3)
+        )
+    with pytest.raises(ValueError, match="exactly one fit per measured switching curve"):
+        capdac.analyze_cap_mismatch(
+            switched([*curve, *_curve("n", "0to1", 1, 4e-3)]),
+            transitions=[transition],
+            comparator=comparator_offset(curve[0], 0.0),
+        )
+
+
+def test_the_points_of_one_converter_share_the_designs_expectation() -> None:
+    """Each point carries the design's expectation of each stage's effective fraction (with the top
+    plate's parasitic the capture recorded), which the decomposition carries for the error from it;
+    points that disagree on it are not decomposed together."""
+    readbacks = {"cdac_topplate_parasitic_weight": 100.0}
+    curve = [replace(point, info=replace(point.info, readbacks=readbacks)) for point in _curve("p", "0to1", 1, 4e-3)]
+    weights = np.asarray(curve[0].param.tb.dut.cdac.weights, dtype=np.float64)
+    expected = weights / (np.sum(65.0 * np.ceil(weights / 64.0)) + 100.0)
+    np.testing.assert_allclose(adc.analyze_switching(curve[0]).expected_fraction, expected)
+    result = capdac.analyze_cap_mismatch(
+        switched(curve), transitions=[transition_of(curve)], comparator=comparator_offset(curve[0], 0.0)
+    )
+    np.testing.assert_allclose(result.expected_fraction, expected)
+    np.testing.assert_allclose(result.fraction_error, result.fraction - expected, equal_nan=True)
+    other = replace(curve[-1], info=replace(curve[-1].info, readbacks={"cdac_topplate_parasitic_weight": 200.0}))
+    inconsistent = [*curve[:-1], other]
+    with pytest.raises(ValueError, match="inconsistent"):
+        capdac.analyze_cap_mismatch(
+            switched(inconsistent),
+            transitions=[transition_of(inconsistent)],
+            comparator=comparator_offset(curve[0], 0.0),
+        )
+
+
+def test_a_point_without_a_recorded_common_mode_takes_its_testbenchs() -> None:
+    """The converter fills the DAQ's missing common mode from the testbench, as the comparator's
+    decisions need one; the comparator's design is the identity of its offset."""
+    point = _curve("n", "1to0", 0, 2e-3)[0]
+    assert point.vin_cm_v is None
+    switching = adc.analyze_switching(point)
+    np.testing.assert_array_equal(switching.vin_cm_v, np.full(100, float(point.tb.vin_cm.dc)))
+    assert (switching.side, switching.stage, switching.direction, switching.diffcaps) == ("n", 15, "1to0", 0)
+    assert switching.stages == 16 and switching.comparator == point.param.tb.dut.comp
+    decisions = capdac.analyze_decisions([switching])
+    assert decisions.param == point.param and decisions.info == point.info
+    np.testing.assert_array_equal(decisions.vin_diff_v, point.vin_diff_v)

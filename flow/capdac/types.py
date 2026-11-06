@@ -1,13 +1,17 @@
-"""The capacitive DAC's analysis results (``flow.capdac.analysis``), pure data."""
+"""The capacitive DAC's analysis results (``flow.capdac.analysis``), pure data: a simulation's
+settling and its plates' Monte Carlo, and the bench's switching curves (``AnalysisSwitching``, a
+converter's capture as the CDAC sees it), each curve's transition (``AnalysisTransition``) and each
+stage's capacitance from them (``AnalysisCapMismatch``)."""
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Any, Literal
 
 import numpy as np
 
-from flow.pipeline import Analysis
+from flow.pipeline import Analysis, MeasInfo
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -137,3 +141,99 @@ class AnalysisMismatch(Analysis):
     def gap_p95_lsb(self) -> float:
         """What no calibration recovers, its 95th percentile over the runs."""
         return float(np.nanpercentile(self.gap_lsb, 95))
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisSwitching(Analysis):
+    """One point of a stage's switching curve on the bench as the CDAC sees it, where its lab
+    analyses meet a converter's captures (``adc.analyze_switching`` gives it), as a converter's
+    conversions meet the comparator's: the trials at one input (each one's input, common mode and
+    decision; ``info`` and ``param`` the capture's), the stage that switches (``side``: ``p`` or
+    ``n``; ``stage``, C0 first; ``direction``: ``1to0`` or ``0to1``), its difference plate switching
+    with its main plate (``diffcaps`` 0) or against it (1), the scan's ``campaign``, the reference the
+    plates switch to (``vdd_dac_v``), the array's ``stages``, the design's expectation of each stage's
+    effective fraction (``expected_fraction``: its weight over the array's total and its top plate's
+    parasitic; NaN where the array has no weights of its own) and the design of the comparator that
+    decided (``comparator``: its characterization's identity)."""
+
+    info: MeasInfo
+    param: Any
+    campaign: str
+    side: str | None
+    stage: int | None
+    direction: str | None
+    diffcaps: int
+    trial_index: np.ndarray
+    vin_diff_v: np.ndarray
+    vin_cm_v: np.ndarray
+    decision: np.ndarray
+    vdd_dac_v: float
+    stages: int
+    expected_fraction: np.ndarray
+    comparator: Any
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisTransition(Analysis):
+    """The comparator's decision transition of one switching curve: its stage (side, element,
+    direction and mode), its curve (each input's probability of a high decision and its trials) and
+    its 50 % point (``transition_v``; NaN unless ``valid``)."""
+
+    side: Literal["p", "n"]
+    element: int
+    direction: Literal["1to0", "0to1"]
+    diffcaps: int
+    vin_diff_v: np.ndarray
+    decision_probability: np.ndarray
+    trial_count: np.ndarray
+    transition_v: float
+    valid: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisCapMismatch(Analysis):
+    """Each stage's capacitance as a fraction of its side's total (C/Ctotal), from its switching
+    curves: a row a side (P, N), a column a stage (C0 first). Its main and difference plates'
+    fractions, its effective fraction (main less difference, as the converter switches them) and
+    that by direction (``1to0``, ``0to1``), each mode's direction bias (half the difference of the
+    directions: main and difference together, then against each other), and the design's
+    expectation of the effective fraction (``expected_fraction``, a stage each)."""
+
+    main_fraction: np.ndarray
+    diff_fraction: np.ndarray
+    effective_fraction: np.ndarray
+    effective_fraction_by_direction: np.ndarray
+    direction_bias: np.ndarray
+    expected_fraction: np.ndarray
+
+    @property
+    def fraction(self) -> np.ndarray:
+        """Each stage's effective fraction, P's and N's mean (what the converter's decision weighs)."""
+        return (self.effective_fraction[0] + self.effective_fraction[1]) / 2.0
+
+    @property
+    def fraction_error(self) -> np.ndarray:
+        """Each stage's effective fraction (P's and N's mean) less the design's expectation."""
+        return self.fraction - self.expected_fraction
+
+    @property
+    def asymmetry(self) -> np.ndarray:
+        """Each stage's effective fraction, P's less N's."""
+        return self.effective_fraction[0] - self.effective_fraction[1]
+
+    @property
+    def separation(self) -> np.ndarray:
+        """Each stage's difference plates, P's and N's together: the mean of the sides' main-plus-
+        difference less main-less-difference fractions."""
+        return self.diff_fraction[0] + self.diff_fraction[1]
+
+    @property
+    def main(self) -> np.ndarray:
+        """Each stage's main plate's fraction, P's and N's mean."""
+        return (self.main_fraction[0] + self.main_fraction[1]) / 2.0
+
+    @property
+    def bias(self) -> np.ndarray:
+        """Each stage's direction bias as the converter switches it (main and difference plates
+        against each other), P's and N's mean."""
+        return (self.direction_bias[0, :, 1] + self.direction_bias[1, :, 1]) / 2.0

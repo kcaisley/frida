@@ -70,16 +70,17 @@ flowchart TB
         decisions["comp.AnalysisDecisions (a capture's, or comp.analyze_decisions of a run)"] --> offset["comp.analyze_offset_noise"] --> offset_out["comp.AnalysisOffsetNoise (one common mode)"]
         decisions --> common_mode["comp.analyze_common_mode (+ offsets)"] --> common_mode_out["comp.AnalysisCommonMode"]
         offset_out --> common_mode
-        cdac_ext["MeasCdac (one curve)"] --> cdac_decisions["analyze_cdac_decisions"] --> decisions
-        cdac_ext --> transition["analyze_cdac_transition (+ its curve's offset)"] --> transition_out["AnalysisCdacTransition"]
+        cdac_ext["MeasCdac (a point of a switching curve)"] --> switching["adc.analyze_switching"] --> switching_out["capdac.AnalysisSwitching"]
+        switching_out --> cdac_decisions["capdac.analyze_decisions (one curve)"] --> decisions
+        switching_out --> transition["capdac.analyze_transition (one curve, + its offset)"] --> transition_out["capdac.AnalysisTransition"]
         offset_out --> transition
-        cdac_adc["MeasCdac (one ADC)"] --> mismatch["analyze_cdac_cap_mismatch (+ transitions, comparator offset)"] --> mismatch_out["AnalysisCdacCapMismatch"]
+        switching_out --> mismatch["capdac.analyze_cap_mismatch (one ADC, + transitions, comparator offset)"] --> mismatch_out["capdac.AnalysisCapMismatch"]
         transition_out --> mismatch
         offset_out --> mismatch
         offset_out --> offset_plots["comp.plot_offset_noise (its offset marked, its noise shaded)"]
         common_mode_out --> common_mode_plot["comp.plot_noise_cm / _offset_cm (the record's own), comp.plot_common_mode_scurves (a map)"]
         decisions --> sampling_noise["comp.analyze_sampling_noise"] --> sampling_noise_out["comp.AnalysisSamplingNoise"] --> sampling_noise_plot["comp.plot_sampling_offset / _noise (a category a curve), comp.plot_sampling_noise_scurves (a map)"]
-        mismatch_out --> mismatch_plot["plot_cdac_cap_mismatch / plot_cdac_cap_mismatch_comparison (list)"]
+        mismatch_out --> mismatch_plot["capdac.plot_fraction_stage / _fraction_error_stage / _asymmetry_stage / _separation_stage / _main_stage / _bias_stage"]
     end
 
     subgraph calibration[ADC calibration]
@@ -119,7 +120,7 @@ Arrows show inputs, analyses, and plotters; plotters return artifact paths. `adc
 
 The rules:
 
-- Every public function in `cdac.py` is named `analyze_<block>_<thing>`, takes exactly one positional `Meas*` or `Sequence[Meas*]`, takes earlier results only as keyword-only `Analysis*` arguments, and returns one `Analysis*` result. There are no threshold or setting arguments and no `ALL_CAPS` module constants.
+- Every public function of a building block's analysis module (`BLOCKS` below) is named `analyze_<block>_<thing>`, takes exactly one positional `Meas*` or `Sequence[Meas*]`, takes earlier results only as keyword-only `Analysis*` arguments, and returns one `Analysis*` result. There are no threshold or setting arguments and no `ALL_CAPS` module constants.
 - Architecture facts (resolution, capacitor and decision counts, symbols per decision) are derived from the measurement parameters. Numerical method settings and portable heuristics are written inline at their point of use with a comment.
 - A pass/fail or validity judgment is a field of the result, next to the quantity it judges.
 - An analysis never calls another public analysis, and a result never contains another result. Runners run each stage and pass flat lists of results into the next one.
@@ -131,7 +132,7 @@ The rules:
 
 ### Building blocks
 
-The building blocks (`samp`, `caparray`, `delay`, `latch`, `ota`, `follower`, `moscap`, `idac`, `cml`, `pi`, `clkgen`, `lvshift`, `ringamp`) keep their analysis next to their generator: `flow/<block>/analysis.py` holds the block's `Meas<Block>` and `Analysis<Block>*` types and its `analyze_<block>_*` functions, `flow/<block>/plots.py` its `plot_<block>_*` architecture comparisons (one panel per named case, shared axes, twin-axis figures). The contract above holds for both, with one difference: a block's analysis module may define its own `Meas*` and `Analysis*` dataclasses, and nothing else. The study that runs them is the `<block>.characterization_study` target in `flow/<block>/targets.py`, reading the pinned run of `flow.<block>.sim`'s `<block>_characterization` campaign (one shared testbench per block, run in all six PDKs at TT and 25 °C about each PDK's own core supply, no Monte Carlo or extraction, each campaign one to five minutes on 16 workers and all eleven about 27); each study writes one figure set per PDK, `build/analysis/<block>/<timestamp>/<pdk>/`. `BLOCKS` in `test_conformance.py` lists the blocks it checks. The comparator follows the [block pipeline](../../docs/pipeline.md) instead (`flow/test_pipeline.py` checks it): its results, its analyses, and the decisions lab captures and simulations share (`comp.AnalysisDecisions`, with the offset, noise and common-mode analyses that take them) live in `flow/comp`. The CDAC's measurements (`MeasCdac`) and their transition and capacitor-mismatch analyses stay here, in `types.py` and `cdac.py`; a switching curve's S-curve fit is the comparator's, of the curve's decisions (`analyze_cdac_decisions`).
+The building blocks (`samp`, `caparray`, `delay`, `latch`, `ota`, `follower`, `moscap`, `idac`, `cml`, `pi`, `clkgen`, `lvshift`, `ringamp`) keep their analysis next to their generator: `flow/<block>/analysis.py` holds the block's `Meas<Block>` and `Analysis<Block>*` types and its `analyze_<block>_*` functions, `flow/<block>/plots.py` its `plot_<block>_*` architecture comparisons (one panel per named case, shared axes, twin-axis figures). The contract above holds for both, with one difference: a block's analysis module may define its own `Meas*` and `Analysis*` dataclasses, and nothing else. The study that runs them is the `<block>.characterization_study` target in `flow/<block>/targets.py`, reading the pinned run of `flow.<block>.sim`'s `<block>_characterization` campaign (one shared testbench per block, run in all six PDKs at TT and 25 °C about each PDK's own core supply, no Monte Carlo or extraction, each campaign one to five minutes on 16 workers and all eleven about 27); each study writes one figure set per PDK, `build/analysis/<block>/<timestamp>/<pdk>/`. `BLOCKS` in `test_conformance.py` lists the blocks it checks. The comparator follows the [block pipeline](../../docs/pipeline.md) instead (`flow/test_pipeline.py` checks it): its results, its analyses, and the decisions lab captures and simulations share (`comp.AnalysisDecisions`, with the offset, noise and common-mode analyses that take them) live in `flow/comp`, and so do its views of a converter's captures. The CDAC's measurements (`MeasCdac`) stay here, in `types.py`; their transition and capacitor-mismatch analyses are the CDAC's (`flow/capdac`), each point as the converter gives it (`adc.analyze_switching`), and a switching curve's S-curve fit is the comparator's, of the curve's decisions (`capdac.analyze_decisions`).
 
 ## Calculator functions explain
 

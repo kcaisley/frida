@@ -1,8 +1,9 @@
 """Plots of typed FRIDA measurements and analysis results, with matplotlib: the lab figures no
-block's spec draws yet (the CDAC's, the scope's traces, spectra and histograms, the ADC's mismatch
+block's spec draws yet (the scope's traces, spectra and histograms, the ADC's mismatch
 nonlinearity; the comparator's are its specs, ``flow.comp.plots``, the serializer's eyes and the
-scope's decode against FastRX's the sequencer's, ``flow.seqgen.plots``), and the plot style the specs
-are drawn in (``flow.plot.render``: PLOT_STYLE, the colours, ``style_grid``, ``save_figure``)."""
+scope's decode against FastRX's the sequencer's, ``flow.seqgen.plots``, the CDAC's capacitance
+from its switching curves its own, ``flow.capdac.plots``), and the plot style the specs are drawn in
+(``flow.plot.render``: PLOT_STYLE, the colours, ``style_grid``, ``save_figure``)."""
 
 from __future__ import annotations
 
@@ -20,15 +21,9 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.offsetbox import AnchoredOffsetbox, TextArea, VPacker
 from matplotlib.ticker import AutoMinorLocator, NullLocator, StrMethodFormatter
 
-from flow import comp
-from flow.adc.sim import AdcSequence
 from flow.analysis import calc
 from flow.analysis.types import (
-    AnalysisCdacCapMismatch,
     AnalysisScope,
-    Meas,
-    MeasAdc,
-    MeasCdac,
     Wave,
 )
 
@@ -209,27 +204,6 @@ def style_info_box(
     ax.add_artist(box)
 
 
-def style_measurement_group_text(msmt_list: Sequence[Meas | comp.AnalysisDecisions]) -> tuple[str, ...]:
-    """Return only setup lines shared by every measurement in a group."""
-
-    # rcParams cannot derive display text from typed measurement metadata.
-    if not msmt_list:
-        return ()
-    shared = list(style_measurement_text(msmt_list[0]))
-    for msmt in msmt_list[1:]:
-        current = set(style_measurement_text(msmt))
-        shared = [line for line in shared if line in current]
-    adc_indices = sorted(
-        {int(adc_index) for msmt in msmt_list if (adc_index := getattr(msmt.param, "observed_adc", None)) is not None}
-    )
-    shared = [line for line in shared if not line.startswith(("ADC: ", "ADCs: "))]
-    if len(adc_indices) == 1:
-        shared.insert(0, f"ADC: {adc_indices[0]:02d}")
-    elif adc_indices:
-        shared.insert(0, "ADCs: " + ", ".join(f"{adc_index:02d}" for adc_index in adc_indices))
-    return tuple(shared)
-
-
 def style_time_units(time_s: np.ndarray) -> tuple[float, str]:
     # rcParams cannot choose a readable unit from the plotted data extent.
     maximum = float(calc.ymax(np.abs(time_s)))
@@ -367,50 +341,6 @@ def plot_waveforms(
     return save_figure(fig, output_path)
 
 
-def style_measurement_text(msmt: Meas | comp.AnalysisDecisions) -> tuple[str, ...]:
-    """Format concise plot context persisted with one measurement."""
-
-    tb = msmt.tb
-    lines: tuple[str, ...] = ()
-    adc_index = getattr(msmt.param, "observed_adc", None)
-    if adc_index is not None:
-        lines += (f"ADC: {adc_index:02d}",)
-    elif msmt.info.backend != "physical" and isinstance(msmt, (MeasAdc, comp.AnalysisDecisions)):
-        lines += ("Source: Sim" if msmt.info.backend == "behavioral" else f"Source: {msmt.info.backend.upper()}",)
-    mismatch = msmt.info.readbacks.get("unit_mismatch") if msmt.info.readbacks else None
-    if msmt.info.backend == "behavioral" and mismatch is not None:
-        # Pelgrom coefficients from Tripathi (JSSC 2014) and Harpe's unit-length DAC.
-        source = {0.0085: " (Tripathi)", 0.0010: " (Harpe)"}.get(round(float(mismatch), 6), "")
-        lines += (
-            f"Pelgrom mismatch: A = {float(mismatch) * 100:g} %·√fF{source}"
-            if mismatch
-            else "Capacitor mismatch: none",
-        )
-        if mismatch and msmt.group is not None:
-            lines += (f"Mismatch draw: {msmt.group}",)
-    board_id = getattr(msmt.param, "board_id", None)
-    if board_id is not None:
-        lines += (f"Board: {board_id:02d}",)
-    for field_name, label in (("vin_cm", "Vcm"), ("vin_diff", "Vdiff")):
-        dc_v = getattr(getattr(tb, field_name, None), "dc", None)
-        if dc_v is not None:
-            lines += (f"{label}: {float(dc_v) * 1e3:g} mV",)
-    # A standalone block testbench has no SAR sequence or CDAC state.
-    if not hasattr(tb, "seq_init_pattern"):
-        return lines
-    sequence = AdcSequence.from_tb_params(tb)
-    if isinstance(msmt, MeasAdc):
-        lines += (f"Conversion: {float(tb.symbol_rate) / sequence.conversion_symbols / 1e6:g} MSPS",)
-    lines += (f"Repetition: {len(sequence.init) / float(tb.symbol_rate) * 1e9:g} ns",)
-    init_p = int("".join(str(int(bit)) for bit in tb.dac_astate_p), 2)
-    init_n = int("".join(str(int(bit)) for bit in tb.dac_astate_n), 2)
-    if init_p == init_n:
-        lines += (f"CDAC init: h'{init_p:04X}",)
-    else:
-        lines += (f"CDAC init: P h'{init_p:04X}, N h'{init_n:04X}",)
-    return lines
-
-
 @mpl.rc_context(PLOT_STYLE)
 def plot_spectrum(
     scopes: Sequence[AnalysisScope],
@@ -544,152 +474,4 @@ def plot_histogram(
     ax.legend(loc="upper left")
     style_grid(ax)
     fig.suptitle(title)
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_cdac_cap_mismatch(
-    msmt_list: Sequence[MeasCdac],
-    analysis: AnalysisCdacCapMismatch,
-    *,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Plot one ADC's normalized A-to-B main/diff weights and diagnostics."""
-
-    stages = np.arange(analysis.effective_fraction.shape[1])
-    expected_effective = msmt_list[0].expected_effective_fraction
-    if any(not np.array_equal(msmt.expected_effective_fraction, expected_effective) for msmt in msmt_list):
-        raise ValueError("CDAC measurements contain inconsistent ideal/PEX expectations")
-    fig, axes_grid = plt.subplots(2, 3, sharex=True)
-    axes = axes_grid.ravel()
-    for side, label, color in ((0, "P", CURVE_COLORS[0]), (1, "N", CURVE_COLORS[1])):
-        axes[0].plot(
-            stages,
-            analysis.effective_fraction[side],
-            "o-",
-            color=color,
-            label=label,
-        )
-        axes[1].plot(
-            stages,
-            analysis.effective_fraction[side] - expected_effective,
-            "o-",
-            color=color,
-            label=label,
-        )
-        axes[3].plot(stages, analysis.main_fraction[side], "o-", color=color, label=f"{label} main")
-        axes[3].plot(
-            stages,
-            analysis.diff_fraction[side],
-            "s--",
-            color=color,
-            label=f"{label} diff",
-        )
-        axes[4].plot(
-            stages,
-            analysis.direction_bias[side, :, 0],
-            marker="o",
-            linestyle="-" if side == 0 else "--",
-            color=color,
-            label=f"{label}, main+diff",
-        )
-        axes[4].plot(
-            stages,
-            analysis.direction_bias[side, :, 1],
-            marker="s",
-            linestyle="-" if side == 0 else "--",
-            color=color,
-            label=f"{label}, main−diff",
-        )
-        axes[5].plot(
-            stages,
-            2.0 * analysis.diff_fraction[side],
-            "o-",
-            color=color,
-            label=label,
-        )
-    axes[0].plot(stages, expected_effective, "k--", label="Ideal/PEX")
-    axes[2].plot(
-        stages,
-        analysis.effective_fraction[0] - analysis.effective_fraction[1],
-        "o-",
-        color=NORD_PURPLE,
-        label="P−N",
-    )
-    panel_titles = (
-        "Effective fraction",
-        "Residual from ideal/PEX",
-        "P−N effective asymmetry",
-        "Main and differential fractions",
-        "Switching-direction bias",
-        "Differential-capacitor separation",
-    )
-    ylabels = ("C/Ctotal", "Residual", "P−N", "C/Ctotal", "Half-difference", "Separation")
-    tick_positions = stages[::3]
-    tick_labels = tuple(f"C{stage}" for stage in tick_positions)
-    for ax, title, ylabel in zip(axes, panel_titles, ylabels, strict=True):
-        ax.set_title(title)
-        ax.set_ylabel(ylabel)
-        ax.set_xticks(tick_positions, tick_labels)
-        style_grid(ax)
-        ax.legend()
-    style_info_box(axes[2], style_measurement_group_text(msmt_list), location="lower right")
-    fig.supxlabel("Conversion stage")
-    fig.suptitle("A-to-B CDAC capacitance")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_cdac_cap_mismatch_comparison(
-    msmt_list2d: Sequence[Sequence[MeasCdac]],
-    analysis_list: Sequence[AnalysisCdacCapMismatch],
-    *,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare normalized A-to-B CDAC extraction across ADC channels."""
-
-    fig, axes_grid = plt.subplots(2, 2, sharex=True)
-    axes = axes_grid.ravel()
-    aligned = sorted(zip(msmt_list2d, analysis_list, strict=True), key=lambda item: item[1].index or 0)
-    stages = np.arange(analysis_list[0].effective_fraction.shape[1])
-    for group, analysis in aligned:
-        expected = group[0].expected_effective_fraction
-        effective_mean = (analysis.effective_fraction[0] + analysis.effective_fraction[1]) / 2.0
-        diffcap_separation_mean = analysis.diff_fraction[0] + analysis.diff_fraction[1]
-        label = f"ADC{analysis.index:02d}" if analysis.index is not None else "Nominal"
-        color = CURVE_COLORS[(analysis.index or 0) % len(CURVE_COLORS)]
-        axes[0].plot(stages, effective_mean, "o-", color=color, label=label)
-        axes[1].plot(stages, effective_mean - expected, "o-", color=color, label=label)
-        axes[2].plot(
-            stages,
-            analysis.effective_fraction[0] - analysis.effective_fraction[1],
-            "o-",
-            color=color,
-            label=label,
-        )
-        axes[3].plot(stages, diffcap_separation_mean, "o-", color=color, label=label)
-
-    panel_titles = (
-        "Mean P/N effective fraction",
-        "Residual from ideal/PEX",
-        "P−N effective asymmetry",
-        "Mean P/N diffcap separation",
-    )
-    ylabels = ("Fraction", "Residual", "Asymmetry", "Separation")
-    tick_positions = stages[::3]
-    tick_labels = tuple(f"C{stage}" for stage in tick_positions)
-    for ax, title, ylabel in zip(axes, panel_titles, ylabels, strict=True):
-        ax.axhline(0.0, color=SPINE_COLOR)
-        ax.set_title(title)
-        ax.set_ylabel(ylabel)
-        ax.set_xticks(tick_positions, tick_labels)
-        style_grid(ax)
-    axes[0].legend()
-    style_info_box(
-        axes[3],
-        style_measurement_group_text(tuple(msmt for group in msmt_list2d for msmt in group)),
-        location="lower right",
-    )
-    fig.supxlabel("Conversion stage")
-    fig.suptitle("A-to-B CDAC comparison")
     return save_figure(fig, output_path)

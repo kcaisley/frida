@@ -145,9 +145,9 @@ def test_spectre_reader_uses_raw_to_alias_map_and_preserves_all_samples(tmp_path
 def analysis_results():
     """Return one constructed instance of many analysis result types, nested records included."""
 
-    from flow import comp
+    from flow import capdac, comp
     from flow.adc.test_analysis import adc_measurement, adc_ramp_measurement, adc_timing_measurement
-    from flow.analysis.test_cdac import _curve, transition_of
+    from flow.capdac.test_analysis import _curve, comparator_offset, switched, transition_of
     from flow.comp.test_analysis import decisions_at
 
     ramp_measurement = adc_ramp_measurement()
@@ -172,6 +172,7 @@ def analysis_results():
     closure = adc.analyze_timing_closure(timing)
     comparator = decisions_at()
     offset = comp.analyze_offset_noise([comparator])
+    curve = _curve("n", "1to0", 0, 2e-3)
     return (
         ramp,
         adc.analyze_code_density_nonlinearity(ramp_measurement, ramp=ramp),
@@ -185,7 +186,10 @@ def analysis_results():
         adc.analyze_timing_summary(timing, closure=closure),
         offset,
         comp.analyze_common_mode([comparator]),
-        transition_of(_curve("n", "1to0", 0, 2e-3)),
+        transition_of(curve),
+        capdac.analyze_cap_mismatch(
+            switched(curve), transitions=[transition_of(curve)], comparator=comparator_offset(curve[0], 0.0)
+        ),
     )
 
 

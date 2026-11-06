@@ -4,20 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flow import comp, new_run
-from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_decisions, analyze_cdac_transition
+from flow import adc, capdac, comp, new_run
 from flow.analysis.io import read_analysis, read_measurement
-from flow.analysis.plots import (
-    plot_cdac_cap_mismatch,
-    plot_cdac_cap_mismatch_comparison,
-)
 from flow.analysis.studies import BASE_PATH
-from flow.analysis.types import (
-    AnalysisCdacCapMismatch,
-    MeasCdac,
-)
+from flow.analysis.types import MeasCdac
 from flow.cdac.caparray.analysis import MeasCapArrayTran, analyze_caparray_transfer, analyze_caparray_weights
 from flow.cdac.caparray.plots import plot_caparray_error, plot_caparray_transfer, plot_caparray_weights
+from flow.plot import render
 from flow.sweep import runner as sweep_runner
 
 from . import layout, sim
@@ -97,7 +90,10 @@ def sweep() -> None:
 
 
 def system_cap_mismatch_study() -> tuple[Path, ...]:
-    """Extract and plot ADC00–ADC03 capacitor mismatch from A-to-B transitions."""
+    """Extract ADC00–ADC03 capacitor mismatch from A-to-B transitions (capdac's analyses, each point
+    as ``adc.analyze_switching`` gives it) and draw each ADC's stages (capdac's specs: the effective
+    fraction, its error from the design's, the P/N asymmetry, the difference plates, the main plates
+    and the direction bias), ``adc<NN>_<figure>``."""
     output_dir = new_run("analysis", "cdac")
 
     # Comparator characterizations: the reviewed 800-mV campaigns behind the
@@ -155,8 +151,7 @@ def system_cap_mismatch_study() -> tuple[Path, ...]:
                 ):
                     raise ValueError(f"CDAC campaign contains an incomplete or mixed-session curve {curve_key}")
         selected_curves.update(grouped_in_run)
-    cdac_measurements: dict[int, list[MeasCdac]] = {}
-    cap_mismatch: dict[int, AnalysisCdacCapMismatch] = {}
+    cap_mismatch: dict[int, capdac.AnalysisCapMismatch] = {}
     for adc_index in sorted({curve_key[0] for curve_key in selected_curves}):
         comparator_measurements = []
         for path in sorted(comparator_read_dirs[adc_index].glob(f"*adc{adc_index:02d}*.h5")):
@@ -165,39 +160,41 @@ def system_cap_mismatch_study() -> tuple[Path, ...]:
                 raise TypeError(f"{path} contains {type(comparator_point).__name__}, expected comp.AnalysisDecisions")
             comparator_measurements.append(comparator_point)
         transitions = []
-        cdac_measurements[adc_index] = []
+        switching = []
         for curve_key in sorted(key for key in selected_curves if key[0] == adc_index):
             curve = selected_curves[curve_key]
-            cdac_measurements[adc_index].extend(curve)
-            # Fit the fine sweep stage where the curve has one.
-            fit_points = [point for point in curve if point.param.sweep_stage == "fine"] or curve
+            # each point as the CDAC sees it; the curve's fit from its fine sweep stage where it has one
+            points = [adc.analyze_switching(point) for point in curve]
+            switching.extend(points)
+            fit_points = [
+                point
+                for point, measurement in zip(points, curve, strict=True)
+                if measurement.param.sweep_stage == "fine"
+            ] or points
             transitions.append(
-                analyze_cdac_transition(
-                    fit_points, offset=comp.analyze_offset_noise([analyze_cdac_decisions(fit_points)])
+                capdac.analyze_transition(
+                    fit_points, offset=comp.analyze_offset_noise([capdac.analyze_decisions(fit_points)])
                 )
             )
-        cap_mismatch[adc_index] = analyze_cdac_cap_mismatch(
-            cdac_measurements[adc_index],
+        cap_mismatch[adc_index] = capdac.analyze_cap_mismatch(
+            switching,
             transitions=transitions,
             comparator=comp.analyze_offset_noise(comparator_measurements),
         )
-    artifacts = []
-    for adc_index, analysis in cap_mismatch.items():
-        artifacts.extend(
-            plot_cdac_cap_mismatch(
-                cdac_measurements[adc_index],
-                analysis,
-                output_path=output_dir / f"adc{adc_index:02d}_cdac_cap_mismatch",
-            )
-        )
-    artifacts.extend(
-        plot_cdac_cap_mismatch_comparison(
-            list(cdac_measurements.values()),
-            list(cap_mismatch.values()),
-            output_path=output_dir / "adc00_adc03_cdac_cap_mismatch_comparison",
-        )
+    figures = (
+        capdac.plot_fraction_stage,
+        capdac.plot_fraction_error_stage,
+        capdac.plot_asymmetry_stage,
+        capdac.plot_separation_stage,
+        capdac.plot_main_stage,
+        capdac.plot_bias_stage,
     )
-    return tuple(artifacts)
+    return tuple(
+        path
+        for adc_index, analysis in cap_mismatch.items()
+        for figure in figures
+        for path in render(figure(analysis), output_dir / f"adc{adc_index:02d}_{figure.__name__.removeprefix('plot_')}")
+    )
 
 
 def characterization_study() -> tuple[Path, ...]:

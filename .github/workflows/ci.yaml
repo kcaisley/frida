@@ -156,6 +156,7 @@ jobs:
           test/test_pdk_agnostic.py
           flow/samp/test_subckt.py
           flow/capdac/test_analysis.py
+          flow/capdac/test_plots.py
           flow/layout/test_step.py
           flow/layout/test_hdl21align.py
           flow/layout/devices/test_devices.py

@@ -50,8 +50,8 @@ BLOCKS = (
 BLOCK_ANALYSES = tuple(f"flow.{block}.analysis" for block in BLOCKS)
 BLOCK_PLOTS = tuple(f"flow.{block}.plots" for block in BLOCKS)
 # the ADC's own analyses are its block's (flow/adc/analysis.py), its comparator views the comparator's
-# (flow/comp), its scope decode the sequencer's (flow/seqgen)
-CONTRACT_MODULES = ("cdac", *BLOCK_ANALYSES)
+# (flow/comp), its scope decode the sequencer's (flow/seqgen), its CDAC curves the CDAC's (flow/capdac)
+CONTRACT_MODULES = BLOCK_ANALYSES
 PURE_MODULES = (*CONTRACT_MODULES, "calc")
 # Names that annotations in flow.analysis.types refer to only under TYPE_CHECKING.
 TYPE_NAMESPACE = {
@@ -174,8 +174,8 @@ def _contract_problems() -> set[str]:
             if not _is_analysis(result):
                 problems.add(f"{label}: does not return an Analysis subclass")
                 continue
-            # its own result type, or another block's of the same thing (the CDAC's switching curves
-            # as the comparator's decisions: analyze_cdac_decisions -> comp.AnalysisDecisions)
+            # its own result type, or another block's of the same thing (as the CDAC's switching
+            # curves are the comparator's decisions: capdac.analyze_decisions -> comp.AnalysisDecisions)
             own = typing.cast(type, result).__name__.removeprefix("Analysis")
             thing = name.removeprefix("analyze_")
             if not (

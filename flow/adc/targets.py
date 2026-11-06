@@ -7,14 +7,13 @@ from pathlib import Path
 
 import hdl21 as h
 
-from flow import comp, new_run
+from flow import capdac, comp, new_run
 from flow.adc.sim import (
     SEQUENCES,
     AdcSequence,
     symbol256_init8_samp16_comp11110000_logic11000011,
 )
 from flow.analysis import calc
-from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_decisions, analyze_cdac_transition
 from flow.analysis.io import (
     read_analysis,
     read_extracted_calibration,
@@ -23,11 +22,7 @@ from flow.analysis.io import (
     write_analysis,
 )
 from flow.analysis.studies import BASE_PATH
-from flow.analysis.types import (
-    AnalysisCdacCapMismatch,
-    MeasAdc,
-    MeasCdac,
-)
+from flow.analysis.types import MeasAdc, MeasCdac
 from flow.plot import render
 from flow.sweep import runner as sweep_runner
 
@@ -50,6 +45,7 @@ from .analysis import (
     analyze_ramp,
     analyze_sequence_map,
     analyze_sequencer,
+    analyze_switching,
     analyze_timing_closure,
     analyze_timing_summary,
     analyze_transfer,
@@ -439,12 +435,14 @@ def behavioral_calibration_study() -> tuple[Path, ...]:
             if not isinstance(curve, MeasCdac):
                 raise TypeError(f"{draw_dir} must hold one comp.AnalysisDecisions and MeasCdac switching curves")
             curves.append(curve)
+        # each curve as the CDAC sees it, its transition from its S-curve fit (capdac's analyses)
+        switching = [analyze_switching(curve) for curve in curves]
         transitions = [
-            analyze_cdac_transition([curve], offset=comp.analyze_offset_noise([analyze_cdac_decisions([curve])]))
-            for curve in curves
+            capdac.analyze_transition([point], offset=comp.analyze_offset_noise([capdac.analyze_decisions([point])]))
+            for point in switching
         ]
-        cap_mismatch = analyze_cdac_cap_mismatch(
-            curves, transitions=transitions, comparator=comp.analyze_offset_noise([comparator])
+        cap_mismatch = capdac.analyze_cap_mismatch(
+            switching, transitions=transitions, comparator=comp.analyze_offset_noise([comparator])
         )
         learned = (
             analyze_calibration1(curves, cap_mismatch=cap_mismatch),
@@ -636,7 +634,7 @@ def calibration_study() -> tuple[Path, ...]:
                     raise ValueError(f"CDAC campaign contains an incomplete or mixed-session curve {curve_key}")
         selected_curves.update(grouped_in_run)
     cdac_measurements: dict[int, list[MeasCdac]] = {}
-    cap_mismatch: dict[int, AnalysisCdacCapMismatch] = {}
+    cap_mismatch: dict[int, capdac.AnalysisCapMismatch] = {}
     for adc_index in sorted({curve_key[0] for curve_key in selected_curves}):
         comparator_measurements = []
         for path in sorted(comparator_read_dirs[adc_index].glob(f"*adc{adc_index:02d}*.h5")):
@@ -645,19 +643,26 @@ def calibration_study() -> tuple[Path, ...]:
                 raise TypeError(f"{path} contains {type(comparator_point).__name__}, expected comp.AnalysisDecisions")
             comparator_measurements.append(comparator_point)
         transitions = []
+        switching = []
         cdac_measurements[adc_index] = []
         for curve_key in sorted(key for key in selected_curves if key[0] == adc_index):
             curve = selected_curves[curve_key]
             cdac_measurements[adc_index].extend(curve)
-            # Fit the fine sweep stage where the curve has one.
-            fit_points = [point for point in curve if point.param.sweep_stage == "fine"] or curve
+            # each point as the CDAC sees it; the curve's fit from its fine sweep stage where it has one
+            points = [analyze_switching(point) for point in curve]
+            switching.extend(points)
+            fit_points = [
+                point
+                for point, measurement in zip(points, curve, strict=True)
+                if measurement.param.sweep_stage == "fine"
+            ] or points
             transitions.append(
-                analyze_cdac_transition(
-                    fit_points, offset=comp.analyze_offset_noise([analyze_cdac_decisions(fit_points)])
+                capdac.analyze_transition(
+                    fit_points, offset=comp.analyze_offset_noise([capdac.analyze_decisions(fit_points)])
                 )
             )
-        cap_mismatch[adc_index] = analyze_cdac_cap_mismatch(
-            cdac_measurements[adc_index],
+        cap_mismatch[adc_index] = capdac.analyze_cap_mismatch(
+            switching,
             transitions=transitions,
             comparator=comp.analyze_offset_noise(comparator_measurements),
         )

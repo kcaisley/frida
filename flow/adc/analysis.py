@@ -126,10 +126,10 @@ import numpy as np
 from scipy.optimize import lsq_linear, minimize, minimize_scalar
 from scipy.special import erfc, log_ndtr, ndtr
 
-from flow import comp
+from flow import capdac, comp
 from flow.analysis import calc
 from flow.analysis.calc import calc_paths
-from flow.analysis.types import AnalysisCdacCapMismatch, MeasAdc, MeasCdac
+from flow.analysis.types import MeasAdc, MeasCdac
 from flow.cdac.caparray import get_caparray_weights
 from flow.pipeline import Identity, analysis, check_identity, measurement_identity
 
@@ -972,6 +972,45 @@ def analyze_conversions(measurement: MeasAdc) -> comp.AnalysisConversions:
 
 
 @analysis
+def analyze_switching(measurement: MeasCdac) -> capdac.AnalysisSwitching:
+    """A capture of one point of a CDAC stage's switching curve as the CDAC sees it
+    (``capdac.AnalysisSwitching``), which its lab analyses take (``capdac.analyze_decisions``,
+    ``analyze_transition``, ``analyze_cap_mismatch``): the stage that switches and how, the trials
+    (the common mode from the testbench where the DAQ did not record it), the reference, the array's
+    stages and the design's expectation of each stage's effective fraction (the capture's,
+    ``MeasCdac.expected_effective_fraction``), and the design of the comparator that decided."""
+
+    params = measurement.param
+    tb = measurement.tb
+    stages = len(get_caparray_weights(params.tb.dut.cdac))
+    expected = np.asarray(measurement.expected_effective_fraction, dtype=np.float64)
+    identity = measurement.identity
+    return capdac.AnalysisSwitching(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        info=measurement.info,
+        param=params,
+        campaign=params.campaign,
+        side=params.cdac_side,
+        stage=params.cdac_element,
+        direction=params.cdac_direction,
+        diffcaps=int(params.tb.dac_diffcaps),
+        trial_index=np.asarray(measurement.trial_index),
+        vin_diff_v=np.asarray(measurement.vin_diff_v, dtype=np.float64),
+        vin_cm_v=np.full(len(measurement.decision), float(tb.vin_cm.dc))
+        if measurement.vin_cm_v is None
+        else np.asarray(measurement.vin_cm_v, dtype=np.float64),
+        decision=np.asarray(measurement.decision),
+        vdd_dac_v=float(tb.vdd_dac.dc),
+        stages=stages,
+        # an array without weights of its own (a behavioral one) has no expectation: NaN a stage
+        expected_fraction=np.broadcast_to(expected, (stages,)).copy(),
+        comparator=params.tb.dut.comp,
+    )
+
+
+@analysis
 def analyze_decision_paths(measurement: MeasAdc) -> AnalysisDecisionPaths:
     """Reconstruct running SAR estimates from every captured decision record."""
 
@@ -1782,7 +1821,7 @@ def analyze_redundancy(calibration: AnalysisCalibration) -> AnalysisRedundancy:
 def analyze_calibration1(
     measurements: Sequence[MeasCdac],
     *,
-    cap_mismatch: AnalysisCdacCapMismatch,
+    cap_mismatch: capdac.AnalysisCapMismatch,
 ) -> AnalysisCalibration1:
     """Extract normalized BOUT weights from physical CDAC S-curves.
 

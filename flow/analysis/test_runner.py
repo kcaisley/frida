@@ -28,10 +28,11 @@ from flow.pipeline import Plot
 
 
 def test_root_api_exposes_domain_analyses_not_campaign_combiners() -> None:
-    """Keep the package root focused on reusable measurement analyses: the ADC's are its block's
-    (``adc.analyze_ramp``), re-exported by none."""
+    """Keep the package root to its readers and writers: the analyses are the blocks' (the ADC's,
+    ``adc.analyze_ramp``; the CDAC's, ``capdac.analyze_cap_mismatch``), re-exported by none."""
 
-    assert hasattr(analysis_api, "analyze_cdac_cap_mismatch")
+    assert hasattr(analysis_api, "read_analysis")
+    assert not hasattr(analysis_api, "analyze_cdac_cap_mismatch")
     assert not hasattr(analysis_api, "analyze_adc_ramp")
     assert not hasattr(analysis_api, "analyze_adc_code_distribution")
     assert not hasattr(analysis_api, "combine_adc_noise_comparison")
@@ -284,6 +285,24 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     assert all(isinstance(read_analysis(path), adc.AnalysisTimingSummary) for path in summaries)
 
 
+# capdac's figures of an ADC's cap mismatch, as the caparray study draws them
+CAP_MISMATCH_FIGURES = (
+    "fraction_stage",
+    "fraction_error_stage",
+    "asymmetry_stage",
+    "separation_stage",
+    "main_stage",
+    "bias_stage",
+)
+
+
+def fake_figure(name: str):
+    """A figure function named ``name`` whose spec is its name and the result's converter."""
+    figure = lambda result: (name, result.index)
+    figure.__name__ = name
+    return figure
+
+
 def install_cdac_inputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, module, adc_indices=(0, 1)
 ) -> dict[str, Any]:
@@ -338,7 +357,7 @@ def install_cdac_inputs(
     received: dict[str, Any] = {"mismatch": {}}
 
     def offset_noise(groups):
-        # a curve's fit takes its decisions (analyze_cdac_decisions: here the points), the
+        # a curve's fit takes its decisions (capdac.analyze_decisions: here the points), the
         # comparator's its captures
         return ("fit", tuple(point for group in groups for point in (group if isinstance(group, list) else [group])))
 
@@ -360,9 +379,21 @@ def install_cdac_inputs(
     )
     monkeypatch.setattr(module, "read_measurement", by_path.__getitem__)
     monkeypatch.setattr(module, "read_analysis", by_path.__getitem__)
-    monkeypatch.setattr(module, "analyze_cdac_decisions", list)
-    monkeypatch.setattr(module, "analyze_cdac_transition", transition)
-    monkeypatch.setattr(module, "analyze_cdac_cap_mismatch", cap_mismatch)
+    # each point as the CDAC sees it: the point itself (adc.analyze_switching)
+    if hasattr(module, "analyze_switching"):
+        monkeypatch.setattr(module, "analyze_switching", lambda point: point)
+    else:
+        monkeypatch.setattr(module, "adc", SimpleNamespace(analyze_switching=lambda point: point))
+    monkeypatch.setattr(
+        module,
+        "capdac",
+        SimpleNamespace(
+            analyze_decisions=list,
+            analyze_transition=transition,
+            analyze_cap_mismatch=cap_mismatch,
+            **{f"plot_{name}": fake_figure(f"plot_{name}") for name in CAP_MISMATCH_FIGURES},
+        ),
+    )
     received["by_path"] = by_path
     return received
 
@@ -467,17 +498,13 @@ def test_cdac_runner_replaces_whole_curves_and_uses_each_adc_comparator(
     """Never concatenate analog points from two acquisition sessions."""
 
     received = install_cdac_inputs(tmp_path, monkeypatch, module=caparray_targets, adc_indices=(0, 1))
-    monkeypatch.setattr(caparray_targets, "plot_cdac_cap_mismatch", lambda *_args, output_path: (output_path,))
-    monkeypatch.setattr(
-        caparray_targets, "plot_cdac_cap_mismatch_comparison", lambda *_args, output_path: (output_path,)
-    )
+    monkeypatch.setattr(caparray_targets, "render", lambda _plot, stem: (stem,))
 
     artifacts = study(monkeypatch, caparray_targets, "system_cap_mismatch_study", tmp_path / "output")
 
+    # each ADC's own figures (capdac's specs): the legacy comparison of the ADCs is theirs compared
     assert [path.name for path in artifacts] == [
-        "adc00_cdac_cap_mismatch",
-        "adc01_cdac_cap_mismatch",
-        "adc00_adc03_cdac_cap_mismatch_comparison",
+        f"adc{adc_index:02d}_{name}" for adc_index in (0, 1) for name in CAP_MISMATCH_FIGURES
     ]
     adc00 = received["mismatch"][0]
     replaced_curve = [

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import pairwise
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -21,8 +21,6 @@ from flow.pipeline import (  # the shared base, used here and re-exported for th
 
 __all__ = [
     "Analysis",
-    "AnalysisCdacCapMismatch",
-    "AnalysisCdacTransition",
     "AnalysisScope",
     "Identity",
     "Meas",
@@ -308,35 +306,3 @@ class AnalysisScope(Analysis):
         """Return each trace's total RMS from its lowest bin to the acquisition bandwidth."""
 
         return {name: float(np.sqrt(np.sum(np.square(rms_v)))) for name, rms_v in self.decade_rms_v.items()}
-
-
-# ADC analyses
-
-
-# CDAC analyses
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisCdacTransition(Analysis):
-    """Comparator decision transition of one CDAC element switching curve."""
-
-    side: Literal["p", "n"]
-    element: int
-    direction: Literal["1to0", "0to1"]
-    diffcaps: int
-    vin_diff_v: np.ndarray
-    decision_probability: np.ndarray
-    trial_count: np.ndarray
-    transition_v: float
-    valid: bool
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisCdacCapMismatch(Analysis):
-    """Normalized main, difference, and effective capacitance of every CDAC element."""
-
-    main_fraction: np.ndarray
-    diff_fraction: np.ndarray
-    effective_fraction: np.ndarray
-    effective_fraction_by_direction: np.ndarray
-    direction_bias: np.ndarray

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 
 import matplotlib as mpl
@@ -28,18 +27,10 @@ from flow.analysis.plots import (
     SPECTRUM_COLOR_MAP,
     SPINE_COLOR,
     TEXT_COLOR,
-    plot_cdac_cap_mismatch,
-    plot_cdac_cap_mismatch_comparison,
     plot_waveforms,
     style_grid,
-    style_measurement_text,
-)
-from flow.analysis.test_types import cdac_physical
-from flow.analysis.types import (
-    AnalysisCdacCapMismatch,
 )
 from flow.plot import render
-from flow.scans.scan_cdac import _build_cdac_params
 
 
 def assert_plot_formats(paths: tuple[Path, ...]) -> None:
@@ -147,7 +138,7 @@ def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -
         msmt.wave,
         signals={"vin_p": "vin_p", "dac_botplate_p[0]": "dac_botplate_p[0]", "i(vdd_a)": "VDD_A current"},
         title="ADC waveforms",
-        setup_lines=style_measurement_text(msmt),
+        setup_lines=("Source: SPICE",),
         output_path=tmp_path / "wave",
     )
     assert_plot_formats(paths)
@@ -156,109 +147,8 @@ def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -
     assert "dac_botplate_p[0]" in svg
     assert "VDD_A current (A)" in svg
     assert "Time (" in svg
+    # the setup lines a caller gives, in the information box
     assert "Source: SPICE" in svg
-    assert "Conversion: 1.6 MSPS" in svg
-    assert "Repetition: 1000 ns" in svg
-    assert "CDAC init: h'5555" in svg
-    assert "Datetime:" not in svg
-    assert "LOGIC offset:" not in svg
-
-
-def test_cdac_ab_plots_are_separate_per_adc(tmp_path: Path) -> None:
-    params = _build_cdac_params(
-        adc_index=0,
-        side="p",
-        element=0,
-        direction="1to0",
-        dac_diffcaps=0,
-        vin_diff_v=0.3,
-        conversions=1,
-        sweep_stage="fixed",
-    )
-    cdac_measurement = replace(
-        cdac_physical(), group=params.board_id, index=params.observed_adc, dut=params.tb.dut.cdac, param=params
-    )
-    cdac_analysis = AnalysisCdacCapMismatch(
-        group=0,
-        index=0,
-        dut=cdac_measurement.dut,
-        main_fraction=np.full((2, 16), 0.02),
-        diff_fraction=np.full((2, 16), 0.005),
-        effective_fraction=np.full((2, 16), 0.015),
-        effective_fraction_by_direction=np.full((2, 16, 2), 0.015),
-        direction_bias=np.zeros((2, 16, 2)),
-    )
-    cdac_paths = plot_cdac_cap_mismatch(
-        [cdac_measurement],
-        cdac_analysis,
-        output_path=tmp_path / "cdac_ab",
-    )
-    assert cdac_paths[0].is_file()
-    assert plt.imread(cdac_paths[0]).shape[:2] == (2700, 4800)
-
-    comparison_groups = []
-    comparison_analyses = []
-    for adc_index in range(4):
-        adc_params = _build_cdac_params(
-            adc_index=adc_index,
-            side="p",
-            element=0,
-            direction="1to0",
-            dac_diffcaps=0,
-            vin_diff_v=0.3,
-            conversions=1,
-            sweep_stage="fixed",
-        )
-        comparison_groups.append([replace(cdac_measurement, param=adc_params)])
-        comparison_analyses.append(replace(cdac_analysis, index=adc_index))
-    comparison_paths = plot_cdac_cap_mismatch_comparison(
-        comparison_groups,
-        comparison_analyses,
-        output_path=tmp_path / "cdac_ab_comparison",
-    )
-    assert comparison_paths[0].is_file()
-    assert plt.imread(comparison_paths[0]).shape[:2] == (2700, 4800)
-
-
-def test_cdac_pex_expectation_includes_recorded_topplate_parasitic() -> None:
-    params = _build_cdac_params(
-        adc_index=0,
-        side="p",
-        element=0,
-        direction="1to0",
-        dac_diffcaps=0,
-        vin_diff_v=0.3,
-        conversions=1,
-        sweep_stage="fixed",
-    )
-    base = replace(
-        cdac_physical(), group=params.board_id, index=params.observed_adc, dut=params.tb.dut.cdac, param=params
-    )
-    measurement = replace(
-        base,
-        info=replace(base.info, readbacks={"cdac_topplate_parasitic_weight": 100.0}),
-    )
-    weights = np.asarray(params.tb.dut.cdac.weights, dtype=np.float64)
-    expected = weights / (np.sum(65.0 * np.ceil(weights / 64.0)) + 100.0)
-    np.testing.assert_allclose(measurement.expected_effective_fraction, expected)
-
-    # Measurements of one ADC that disagree on the expectation cannot share one plot.
-    inconsistent = replace(
-        measurement,
-        info=replace(measurement.info, readbacks={"cdac_topplate_parasitic_weight": 200.0}),
-    )
-    analysis = AnalysisCdacCapMismatch(
-        group=None,
-        index=None,
-        dut=measurement.dut,
-        main_fraction=np.zeros((2, 16)),
-        diff_fraction=np.zeros((2, 16)),
-        effective_fraction=np.zeros((2, 16)),
-        effective_fraction_by_direction=np.zeros((2, 16, 2)),
-        direction_bias=np.zeros((2, 16, 2)),
-    )
-    with pytest.raises(ValueError, match="inconsistent"):
-        plot_cdac_cap_mismatch([measurement, inconsistent], analysis, output_path=Path("unused"))
 
 
 def test_power_rate_of_each_adc(tmp_path: Path) -> None:
