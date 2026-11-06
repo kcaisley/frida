@@ -10,19 +10,27 @@ from datetime import UTC, datetime
 
 import numpy as np
 import pytest
+from basil.HL.tektronix_oscilloscope import CapturedWaveform, XScale, YScale
 
-from flow.pipeline import Meas, MeasInfo, Plot
+from flow import adc
+from flow.adc.sim import symbol160_init4_samp20_comp11111100_logic11000011
+from flow.adc.test_analysis import adc_measurement, adc_timing_measurement
+from flow.analysis.types import MeasAdc
+from flow.pipeline import Meas, MeasInfo, Plot, Wave
 
-from . import plots
+from . import analysis, plots
 from .analysis import (
     analyze_clock_check,
     analyze_common_mode,
     analyze_decisions,
     analyze_delay,
+    analyze_edge_eye,
     analyze_kickback,
     analyze_metastability,
     analyze_offset_noise,
     analyze_power,
+    analyze_response,
+    analyze_scope_edges,
     analyze_scurve,
     analyze_timing,
     metrics,
@@ -210,24 +218,21 @@ def test_the_metrics_are_the_records_keys() -> None:
     meas = run(tb)
     decisions = analyze_decisions(meas)
     delay = analyze_delay(meas, decisions=decisions, timing=analyze_timing(meas, decisions=decisions))
-    fit = analyze_offset_noise(
-        [
-            replace(
-                decisions_at(),
-                trial_index=np.arange(30),
-                vin_diff_v=np.repeat([-1e-3, 0.0, 1e-3], 10),
-                vin_cm_v=np.full(30, 0.6),
-                decision=np.repeat([0, 1, 1], 10).astype(np.uint8) * (np.arange(30) % 2 | (np.arange(30) >= 20)),
-            )
-        ]
+    curve = replace(
+        decisions_at(),
+        trial_index=np.arange(30),
+        vin_diff_v=np.repeat([-1e-3, 0.0, 1e-3], 10),
+        vin_cm_v=np.full(30, 0.6),
+        decision=np.repeat([0, 1, 1], 10).astype(np.uint8) * (np.arange(30) % 2 | (np.arange(30) >= 20)),
     )
+    fit = analyze_offset_noise([curve])
     values = metrics(
         small=delay,
         large=delay,
         metastability=analyze_metastability(meas, delay=delay),
         power=analyze_power([meas, meas]),
         kickback=analyze_kickback(meas),
-        offsets=[fit],
+        common_mode=analyze_common_mode([curve]),
         nominal=fit,
         scurve=analyze_scurve([decisions]),
         supply=[delay],
@@ -506,3 +511,197 @@ def test_common_mode_context_classifies_only_exercised_stuck_outputs() -> None:
         analyze_common_mode([replace(valid[0], vin_cm_v=np.linspace(0.6, 0.7, 100))])
     with pytest.raises(ValueError, match="one input common mode"):
         analyze_offset_noise([*valid, *stuck_low])
+
+
+def scope_records(captures: int = 4) -> list[MeasAdc]:
+    """A converter's scope records as the bench takes them (``scan_adc``'s paired COMP and COMP_OUT
+    captures, at 320 MBd): ``captures`` records of one conversion, COMP high six symbols of each
+    decision, COMP_OUT toggling 5 ns after each rise but at B3, which it holds; each capture a
+    little later than the one before."""
+    sequence = symbol160_init4_samp20_comp11111100_logic11000011
+    rate = 320e6
+    step_s = 0.1e-9
+    time_s = np.arange(-20e-9, 600e-9, step_s)
+    scale = XScale(step_s, float(time_s[0]), "s")
+    edge_symbols = [index for index, bit in enumerate(sequence.comp) if bit == "1" and sequence.comp[index - 1] == "0"]
+    records = []
+    for capture_index in range(captures):
+        edge_s = np.asarray(edge_symbols) / rate + capture_index * 0.03e-9
+        comp_v = np.full(len(time_s), -0.2)
+        out_v = np.full(len(time_s), -0.2)
+        output_high = False
+        for decision, edge in enumerate(edge_s):
+            comp_v[(time_s >= edge) & (time_s < edge + 6 / rate)] = 0.2
+            if decision != 3:
+                output_high = not output_high
+                ramp = np.clip((time_s - edge - 5e-9 - capture_index * 0.02e-9) / 1e-9, 0, 1)
+                out_v += (0.4 if output_high else -0.4) * ramp
+        records.append(
+            {
+                channel: CapturedWaveform(channel, np.rint(values * 1000).astype(int), values, scale, YScale(0.2, -0.2))
+                for channel, values in ((3, comp_v), (2, out_v))
+            }
+        )
+    base = adc_measurement([2048], observed_adc=1)
+    params = replace(base.param, tb=replace(base.param.tb, symbol_rate=rate, **sequence.as_tb_fields()))
+    return [
+        replace(
+            base,
+            param=params,
+            wave=Wave(
+                record_index=np.asarray([0]),
+                time_s=time_s,
+                v={
+                    "seq_comp": np.asarray(record[3].data)[None, :],
+                    "seq_logic": np.zeros((1, len(time_s))),
+                    "comp_out": np.asarray(record[2].data)[None, :],
+                },
+            ),
+        )
+        for record in records
+    ]
+
+
+def test_the_scope_edges_time_each_decision_and_fold_comp_out_at_its_rise() -> None:
+    edges = analyze_scope_edges([adc.analyze_conversions(record) for record in scope_records()])
+    bounds = edges.delay_bounds_s
+    assert bounds[0] == pytest.approx(5.5e-9, abs=0.1e-9)
+    assert bounds[1] == pytest.approx(5.56e-9, abs=0.1e-9)
+    # B3 holds COMP_OUT: no transition to time in any record
+    assert edges.unchanged[3] == 4
+    assert np.count_nonzero(np.isfinite(edges.delays_s[:, 3])) == 0
+    period_s = 8 / 320e6
+    assert edges.decision_period_s == pytest.approx(period_s)
+    assert edges.conversion_rate_hz == pytest.approx(320e6 / 160)
+    # COMP is high six symbols of each decision, from each rise
+    assert edges.clock_high_s == pytest.approx(6 / 320e6, abs=0.2e-9)
+    np.testing.assert_allclose(edges.rise_s, np.arange(17) * period_s, atol=0.2e-9)
+    np.testing.assert_allclose(edges.fall_s - edges.rise_s, 6 / 320e6, atol=0.2e-9)
+    # the maps: each record (or decision) once in every time cell inside the records, over COMP_OUT's range
+    assert edges.eye_share.shape == (len(edges.voltage_v) - 1, len(edges.eye_time_s) - 1)
+    np.testing.assert_allclose(np.nansum(edges.eye_share, axis=0), 1.0)
+    np.testing.assert_allclose(np.nansum(edges.timing_share, axis=0), 1.0)
+    assert edges.voltage_v[0] < -0.2 and edges.voltage_v[-1] > 0.2
+    assert edges.eye_time_s[0] == pytest.approx(-0.2 * period_s) and edges.eye_time_s[-1] == pytest.approx(period_s)
+    # each decision's delays a column: B3's empty, the others' shares one in all
+    assert edges.response_share.shape == (48, 17)
+    assert np.all(np.isnan(edges.response_share[:, 3])) and math.isnan(edges.response_median_s[3])
+    np.testing.assert_allclose(np.nansum(np.delete(edges.response_share, 3, axis=1), axis=0), 1.0)
+    assert edges.response_s[0] == pytest.approx(bounds[0]) and edges.response_s[-1] == pytest.approx(bounds[1])
+
+
+def test_the_scope_edges_take_one_sequence_and_rate() -> None:
+    records = scope_records(2)
+    faster = replace(records[1], param=replace(records[1].param, tb=replace(records[1].param.tb, symbol_rate=640e6)))
+    with pytest.raises(ValueError, match="one sequence and symbol rate"):
+        analyze_scope_edges([adc.analyze_conversions(records[0]), adc.analyze_conversions(faster)])
+
+
+def repeated(measurement: MeasAdc, conversions: int = 2) -> MeasAdc:
+    """A simulated capture's one conversion saved ``conversions`` times."""
+    wave = measurement.wave
+    assert wave is not None
+    return replace(
+        measurement,
+        param=replace(measurement.param, conversions=conversions),
+        conversion_index=np.arange(conversions),
+        bout=np.repeat(measurement.bout, conversions, axis=0),
+        dout_raw=np.repeat(measurement.dout_raw, conversions),
+        dout=np.repeat(measurement.dout, conversions),
+        vin_diff_v=np.repeat(measurement.vin_diff_v, conversions),
+        fastrx_word=np.repeat(measurement.fastrx_word, conversions) if measurement.fastrx_word is not None else None,
+        wave=replace(
+            wave,
+            record_index=np.arange(conversions),
+            v={name: np.repeat(values, conversions, axis=0) for name, values in wave.v.items()},
+        ),
+    )
+
+
+def test_the_edge_eye_folds_every_conversion_and_takes_the_xc_latchs_magnitude() -> None:
+    eye = analyze_edge_eye(adc.analyze_conversions(repeated(adc_timing_measurement())))
+    assert eye.records == 2
+    period_s = 2e-9
+    assert eye.decision_period_s == pytest.approx(period_s)
+    np.testing.assert_allclose(eye.decision_edge_s, np.arange(17) * period_s, atol=20e-12)
+    # the clock is high 0.8 ns of each decision
+    assert eye.clock_high_s == pytest.approx(0.8e-9, abs=20e-12)
+    np.testing.assert_allclose(eye.fall_s - eye.decision_edge_s, 0.8e-9, atol=20e-12)
+    # the eye from 0.1 periods before each rise to 1.1 after, the conversion to a period after its last
+    assert eye.eye_time_s[0] == pytest.approx(-0.2e-9) and eye.eye_time_s[-1] == pytest.approx(2.2e-9)
+    assert eye.timing_time_s[-1] > eye.decision_edge_s[-1] + 0.99 * period_s
+    # every decision of both conversions in each eye cell (34 of them), every conversion in each conversion cell
+    for share in (eye.sr_eye, eye.xc_eye):
+        np.testing.assert_allclose(np.nansum(share, axis=0), 1.0)
+    for share in (eye.sr_timing, eye.xc_timing):
+        assert np.nanmax(np.nansum(share, axis=0)) == pytest.approx(1.0)
+    # |P - N| is never below zero: no cell under 0 V holds anything
+    below = (eye.voltage_v[1:] <= 0) & (eye.voltage_v[:-1] < 0)
+    assert np.all(np.isnan(eye.xc_eye[below])) and np.all(np.isnan(eye.xc_timing[below]))
+    assert eye.supply_v == pytest.approx(1.2)
+
+
+def test_the_response_counts_held_decisions_and_maps_each_decisions_timed_ones() -> None:
+    response = analyze_response(adc.analyze_conversions(adc_timing_measurement()))
+    assert len(np.unique(response.decision_index)) == 17
+    second = response.decision_index == 1
+    assert np.count_nonzero(response.sr_held[second]) == 1
+    assert np.count_nonzero(np.isfinite(response.sr_response_s[second])) == 0
+    # each decision's timed responses one in all, a held decision's column empty
+    assert response.sr_share.shape == (48, 17)
+    assert np.all(np.isnan(response.sr_share[:, 1])) and math.isnan(response.sr_median_s[1])
+    timed = np.isfinite(response.sr_median_s)
+    np.testing.assert_allclose(np.nansum(response.sr_share[:, timed], axis=0), 1.0)
+    np.testing.assert_allclose(response.xc_median_s, response.internal_response_s, equal_nan=True)
+
+
+def test_a_decisions_shares_are_of_its_own_timed_responses() -> None:
+    """Four responses timed of one decision's forty, and forty timed four times each: each cell the
+    same share of its decision's timed ones."""
+    values = np.array([1.0, 1.1, 1.2, 1.3]) * 1e-9
+    decision = np.zeros(40, dtype=int)
+    sparse = analysis._per_decision("xc", decision, np.r_[values, np.full(36, np.nan)], 1)
+    dense = analysis._per_decision("sr", decision, np.repeat(values, 10), 1)
+    np.testing.assert_allclose(sparse["xc_share"], dense["sr_share"], equal_nan=True)
+    assert np.nansum(sparse["xc_share"]) == pytest.approx(1.0)
+    assert np.count_nonzero(np.isfinite(sparse["xc_share"])) == 4
+    # none timed: no cells, the median NaN
+    empty = analysis._per_decision("xc", decision, np.full(40, np.nan), 1)
+    assert empty["xc_s"].size == 0 and empty["xc_share"].shape == (0, 1) and math.isnan(empty["xc_median_s"][0])
+
+
+def test_a_records_analyses_ignore_a_high_clock_at_its_boundary() -> None:
+    measurement = adc_timing_measurement()
+    assert measurement.wave is not None
+    clock = measurement.wave.v["clk_comp"].copy()
+    clock[0, 0] = 1.2  # Tail of the preceding conversion, not a new COMP edge.
+    measurement = replace(measurement, wave=replace(measurement.wave, v={**measurement.wave.v, "clk_comp": clock}))
+    np.testing.assert_array_equal(adc.analyze_timing_closure(measurement).decision_index, np.arange(17))
+    conversions = adc.analyze_conversions(measurement)
+    np.testing.assert_array_equal(analyze_response(conversions).decision_index, np.arange(17))
+    np.testing.assert_allclose(analyze_edge_eye(conversions).decision_edge_s, np.arange(17) * 2e-9, atol=20e-12)
+
+
+def test_the_response_requires_both_xc_rails_and_times_one_sr_output() -> None:
+    measurement = adc_timing_measurement()
+    assert measurement.wave is not None
+    time = measurement.wave.time_s
+    signals = {name: values.copy() for name, values in measurement.wave.v.items()}
+    glitch = (time >= 1.5e-9) & (time < 1.6e-9)
+    signals["comp.latch_p"][0, glitch] = 0.5
+    signals["comp_out_p"][0, glitch] = 0.5
+    not_low_enough = (time >= 5e-9) & (time < 5.8e-9)
+    signals["comp.latch_p"][0, not_low_enough] = 0.7
+    weak_midpoint_decision = (time >= 7.25e-9) & (time < 7.8e-9)
+    signals["comp.latch_p"][0, weak_midpoint_decision] = 0.7
+    signals["comp.latch_n"][0, weak_midpoint_decision] = 0.55
+    del signals["comp_out_n"]
+    result = analyze_response(adc.analyze_conversions(replace(measurement, wave=replace(measurement.wave, v=signals))))
+
+    np.testing.assert_array_equal(result.decision_index, np.arange(17))
+    assert result.internal_response_s[0] == pytest.approx(0.595e-9, abs=11e-12)
+    assert result.sr_response_s[0] == pytest.approx(0.595e-9, abs=11e-12)
+    assert result.sr_held[1] and np.isnan(result.sr_response_s[1])
+    assert np.isnan(result.internal_response_s[2])
+    assert np.isfinite(result.sr_response_s[2])
+    assert np.isfinite(result.internal_response_s[3])

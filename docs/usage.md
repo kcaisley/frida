@@ -130,7 +130,7 @@ uv run python -m flow run comp --missing                         # the newest ru
 uv run python -m flow layout comp                                # the newest run's instances by ALIGN
 uv run python -m flow table comp
 uv run python -m flow plot comp noise_cm --from build/comp/<run> --pdk tsmc65   # records' figures (PDF)
-uv run python -m flow plot comp common_mode --from build/scan_comp/<run>             # captures' figures
+uv run python -m flow plot comp noise_cm offset_cm --from build/scan_comp/<run>      # captures' figures
 ```
 
 An instance is picked by name, by its label (`family(knob=value, ...)`, as the run's records hold it) or by its digest. `plot` draws with matplotlib, or with `--backend web` writes each figure's spec as the JSON the viewer draws. For another selection of blocks, PDKs or workers, call `flow.sweep.runner`'s `run`, `layout` and `table` from Python. A run of some PDKs alone replaces only those: the table and the behavioral models' lookup (`flow.sweep.lookup`) take each PDK's newest run of the block.

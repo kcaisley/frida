@@ -7,6 +7,13 @@ and input) by ``analyze_decisions``; a lab capture is its trials already. The of
 common-mode and S-curve analyses take those trials, for both. Waveforms are read by the
 testbench's net names (``clk``, ``latch_p``, ``latch_n``, ``outp``, ``outn``, ``inp``, ``inn``;
 supply current ``vdd``), each trial's on the raw time points of its own cycle: nothing is resampled.
+
+The comparator inside a converter is read from the converter's captures, each as the comparator
+sees it (``AnalysisConversions``: ``adc.analyze_conversions``), each decision at its clock's rise:
+the bench's scope records of COMP and COMP_OUT (``analyze_scope_edges``), and a simulation's saved
+internal nets (``analyze_edge_eye``, ``analyze_response``: ``clk_comp``, ``comp_out_p``,
+``comp.latch_p``, ``comp.latch_n``, ``seq_init``). Their maps sample each record at the centre of
+each time cell (``_share``).
 """
 
 from __future__ import annotations
@@ -26,13 +33,17 @@ from .params import CHARGE_METER, CHARGE_METER_F
 from .types import (
     AnalysisClockCheck,
     AnalysisCommonMode,
+    AnalysisConversions,
     AnalysisDecisions,
     AnalysisDelay,
+    AnalysisEdgeEye,
     AnalysisKickback,
     AnalysisMetastability,
     AnalysisOffsetNoise,
     AnalysisPower,
+    AnalysisResponse,
     AnalysisSamplingNoise,
+    AnalysisScopeEdges,
     AnalysisScurve,
     AnalysisTiming,
     Metrics,
@@ -555,6 +566,342 @@ def analyze_sampling_noise(decisions: Sequence[AnalysisDecisions]) -> AnalysisSa
     )
 
 
+@analysis
+def analyze_scope_edges(conversions: Sequence[AnalysisConversions]) -> AnalysisScopeEdges:
+    """The comparator's output edges in a converter's scope records (the bench's: ``seq_comp``,
+    COMP, and ``comp_out``, COMP_OUT): each decision's COMP rise, COMP_OUT's crossing after it and
+    the rise's jitter, COMP_OUT's maps folded per decision and over the conversion, where COMP is
+    high, and each decision's delays as a map.
+
+    Every scope record of every capture is one capture of one complete conversion; the captures
+    share one sequence and symbol rate, whose clock rises are evenly spaced.
+    """
+
+    identity = measurement_identity(conversions)
+    first = conversions[0]
+    if any(item.sequence != first.sequence or item.symbol_rate_hz != first.symbol_rate_hz for item in conversions):
+        raise ValueError("comparator eye measurements must share one sequence and symbol rate")
+    decisions = first.decisions
+    decision_period_s = first.decision_period_s
+    if not math.isfinite(decision_period_s):
+        raise ValueError(f"sequence must contain {decisions} equally spaced COMP rising edges")
+
+    time_s = None
+    comp_records = []
+    comp_out_records = []
+    for item in conversions:
+        wave = item.wave
+        if wave is None:
+            raise ValueError("comparator eye requires scope waveform records")
+        if time_s is None:
+            time_s = wave.time_s
+        elif not np.array_equal(time_s, wave.time_s):
+            raise ValueError("comparator eye scope records must share one time axis")
+        comp_records.extend(wave.v["seq_comp"])
+        comp_out_records.extend(wave.v["comp_out"])
+    assert time_s is not None
+
+    capture_count = len(comp_records)
+    clock_edges_s = np.empty((capture_count, decisions))
+    clock_falls_s = np.empty((capture_count, decisions))
+    delays_s = np.full((capture_count, decisions), np.nan)
+    jitter_s = np.empty((capture_count, decisions))
+    unchanged = np.zeros(decisions, dtype=np.int64)
+    multiple = np.zeros(decisions, dtype=np.int64)
+    unsettled = np.zeros(decisions, dtype=np.int64)
+    for capture_index, (comp_v, comp_out_v) in enumerate(zip(comp_records, comp_out_records, strict=True)):
+        # Take logic levels from the 5th/95th percentiles, which ignore edge
+        # overshoot, and require at least 50 mV of swing to call it a logic signal.
+        comp_low, comp_high = np.percentile(comp_v, (5, 95))
+        out_low, out_high = np.percentile(comp_out_v, (5, 95))
+        if comp_high - comp_low < 0.05 or out_high - out_low < 0.05:
+            raise ValueError(f"capture {capture_index} lacks a valid COMP or COMP_OUT swing")
+        comp_level = float((comp_low + comp_high) / 2)
+        out_level = float((out_low + out_high) / 2)
+        clock_edges = calc.cross(comp_v, time_s, comp_level, edge="rising")
+        clock_edges = clock_edges[clock_edges >= 0][:decisions]
+        # Allow 20% of a decision period of edge jitter before rejecting the record.
+        if len(clock_edges) != decisions or np.any(
+            np.abs(np.diff(clock_edges) - decision_period_s) > 0.2 * decision_period_s
+        ):
+            raise ValueError(f"capture {capture_index} does not contain one complete {decisions}-decision conversion")
+        clock_edges_s[capture_index] = clock_edges
+        clock_falls_s[capture_index] = _falls(
+            clock_edges, calc.cross(comp_v, time_s, comp_level, edge="falling"), decision_period_s
+        )
+        jitter_s[capture_index] = clock_edges - clock_edges[0] - np.arange(decisions) * decision_period_s
+        rising_edges = calc.cross(comp_out_v, time_s, out_level, edge="rising")
+        output_edges = calc.cross(comp_out_v, time_s, out_level, edge="either")
+        for decision, clock_edge in enumerate(clock_edges):
+            matching = output_edges[(output_edges >= clock_edge) & (output_edges < clock_edge + decision_period_s)]
+            if len(matching) == 1:
+                rising = bool(np.any(rising_edges == matching[0]))
+                final_index = min(np.searchsorted(time_s, clock_edge + decision_period_s), len(time_s)) - 1
+                final_valid = comp_out_v[final_index] >= out_level if rising else comp_out_v[final_index] <= out_level
+                if final_valid:
+                    delays_s[capture_index, decision] = matching[0] - clock_edge
+                else:
+                    unsettled[decision] += 1
+            elif len(matching) == 0:
+                unchanged[decision] += 1
+            else:
+                multiple[decision] += 1
+
+    # COMP_OUT's maps over its range and a twentieth of it either side: every decision folded at
+    # its COMP rise, 0.2 periods before it to a period after, in 96 cells, and every record from
+    # its B0 rise over the conversion, 32 cells a period
+    records = np.asarray(comp_out_records)
+    low, high = float(np.min(records)), float(np.max(records))
+    voltage_v = np.linspace(low - 0.05 * (high - low), high + 0.05 * (high - low), 65)
+    eye_time_s = np.linspace(-0.2 * decision_period_s, decision_period_s, 97)
+    timing_time_s = np.linspace(-0.2 * decision_period_s, decisions * decision_period_s, 32 * decisions + 7)
+    return AnalysisScopeEdges(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        clock_edges_s=clock_edges_s,
+        delays_s=delays_s,
+        jitter_s=jitter_s,
+        unchanged=unchanged,
+        multiple=multiple,
+        unsettled=unsettled,
+        decision_period_s=decision_period_s,
+        conversion_rate_hz=first.conversion_rate_hz,
+        voltage_v=voltage_v,
+        eye_time_s=eye_time_s,
+        eye_share=_share(_folded(records, time_s, clock_edges_s, eye_time_s), voltage_v),
+        timing_time_s=timing_time_s,
+        timing_share=_share(_folded(records, time_s, clock_edges_s[:, :1], timing_time_s), voltage_v),
+        clock_high_s=_median(clock_falls_s - clock_edges_s),
+        rise_s=np.asarray([_median(column) for column in (clock_edges_s - clock_edges_s[:, :1]).T]),
+        fall_s=np.asarray([_median(column) for column in (clock_falls_s - clock_edges_s[:, :1]).T]),
+        **_per_decision("response", np.tile(np.arange(decisions), capture_count), delays_s.ravel(), decisions),
+    )
+
+
+@analysis
+def analyze_edge_eye(conversions: AnalysisConversions) -> AnalysisEdgeEye:
+    """A simulated converter's comparator over each saved conversion, each from its record's INIT
+    rise with one clock rise a decision: its SR latch's positive output and its regenerative
+    latch's |P - N| as maps, folded at every decision's clock rise (-0.1 to 1.1 periods) and over
+    the conversion from B0's (0.2 periods before it to a period after the last), in the supply's
+    range; where the clock is high."""
+
+    wave = conversions.wave
+    if wave is None:
+        raise ValueError("this analysis requires waveform records")
+    required = {"seq_init", "clk_comp", "comp.latch_p", "comp.latch_n", "comp_out_p"}
+    if missing := required - wave.v.keys():
+        raise ValueError(f"ADC edge eye requires saved canonical nets: {sorted(missing)}")
+    time = wave.time_s
+    threshold = conversions.vdd_d_v / 2
+    decisions = conversions.decisions
+    record_edges = []
+    record_falls = []
+    for record in range(len(wave.record_index)):
+        init_edges = calc.cross(wave.v["seq_init"][record], time, threshold, edge="rising", initial_high=True)
+        if not len(init_edges):
+            raise ValueError(f"conversion {record} has no INIT rise")
+        stop = init_edges[1] if len(init_edges) > 1 else time[-1]
+        clock_edges = calc.cross(wave.v["clk_comp"][record], time, threshold, edge="rising")
+        clock_edges = clock_edges[(clock_edges >= init_edges[0]) & (clock_edges < stop)]
+        if len(clock_edges) != decisions:
+            raise ValueError(f"conversion {record} has {len(clock_edges)} COMP rises; expected {decisions}")
+        record_edges.append(clock_edges)
+        record_falls.append(calc.cross(wave.v["clk_comp"][record], time, threshold, edge="falling"))
+    record_edges = np.asarray(record_edges)
+    period_s = float(np.median(np.diff(record_edges, axis=1)))
+    decision_edge_s = np.median(record_edges - record_edges[:, :1], axis=0)
+    falls_s = np.asarray(
+        [_falls(edges, falls, period_s) for edges, falls in zip(record_edges, record_falls, strict=True)]
+    )
+    supply_v = max(conversions.vdd_a_v, conversions.vdd_d_v)
+    # each map in 64 cells of the supply's range and a tenth of it either side; the eye in 96
+    # cells, the conversion in 32 a period
+    voltage_v = np.linspace(-0.1 * supply_v, 1.1 * supply_v, 65)
+    eye_time_s = np.linspace(-0.1 * period_s, 1.1 * period_s, 97)
+    span_s = float(decision_edge_s[-1]) + 1.2 * period_s
+    timing_time_s = np.linspace(
+        -0.2 * period_s, float(decision_edge_s[-1]) + period_s, round(32 * span_s / period_s) + 1
+    )
+    traces = {
+        "sr": wave.v["comp_out_p"],
+        "xc": np.abs(wave.v["comp.latch_p"] - wave.v["comp.latch_n"]),
+    }
+    identity = conversions.identity
+    return AnalysisEdgeEye(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        decision_period_s=period_s,
+        decision_edge_s=decision_edge_s,
+        fall_s=np.asarray([_median(column) for column in (falls_s - record_edges[:, :1]).T]),
+        clock_high_s=_median(falls_s - record_edges),
+        supply_v=supply_v,
+        records=len(record_edges),
+        voltage_v=voltage_v,
+        eye_time_s=eye_time_s,
+        timing_time_s=timing_time_s,
+        **{
+            f"{name}_eye": _share(_folded(values, time, record_edges, eye_time_s), voltage_v)
+            for name, values in traces.items()
+        },
+        **{
+            f"{name}_timing": _share(_folded(values, time, record_edges[:, :1], timing_time_s), voltage_v)
+            for name, values in traces.items()
+        },
+    )
+
+
+@analysis
+def analyze_response(conversions: AnalysisConversions) -> AnalysisResponse:
+    """A simulated converter's comparator, each decision's midpoint-valid XC and single-ended SR
+    response after its clock's rise; both as maps over the decisions.
+
+    One XC node must fall below 50% of VDD and the other remain above 50% before COMP reset. The
+    positive buffered SR output must enter the matching half-rail band before the next COMP rise.
+    Both must remain valid through the end of their windows. Already-held SR states are counted
+    separately.
+    """
+
+    wave = conversions.wave
+    if wave is None:
+        raise ValueError("this analysis requires waveform records")
+    required = {"seq_init", "seq_logic", "clk_comp", "comp.latch_p", "comp.latch_n", "comp_out_p"}
+    if missing := required - wave.v.keys():
+        raise ValueError(f"ADC comparator response requires saved canonical nets: {sorted(missing)}")
+    time = wave.time_s
+    analog_supply = conversions.vdd_a_v
+    digital_supply = conversions.vdd_d_v
+    decisions = conversions.decisions
+    rows = []
+    for record, conversion in enumerate(wave.record_index):
+        signals = {name: values[record] for name, values in wave.v.items() if name in required}
+        # One conversion starts at the record's INIT rise and holds one COMP rise per decision.
+        init_edges = calc.cross(signals["seq_init"], time, digital_supply / 2, edge="rising", initial_high=True)
+        comp_edges = calc.cross(signals["clk_comp"], time, digital_supply / 2, edge="rising")
+        if not len(init_edges):
+            raise ValueError(f"record {record} has no INIT rise")
+        stop = init_edges[1] if len(init_edges) > 1 else time[-1]
+        comp_indices = np.flatnonzero((comp_edges >= init_edges[0]) & (comp_edges < stop))
+        if len(comp_indices) != decisions:
+            raise ValueError(f"record {record} has {len(comp_indices)} COMP rises; expected {decisions}")
+        following = np.r_[comp_edges, np.nan][comp_indices + 1]
+        resets = calc.cross(signals["clk_comp"], time, digital_supply / 2, edge="falling")
+        latch_p, latch_n = signals["comp.latch_p"], signals["comp.latch_n"]
+        sr_p = signals["comp_out_p"]
+        for decision, (start, next_comp) in enumerate(zip(comp_edges[comp_indices], following, strict=True)):
+            stop = next_comp if np.isfinite(next_comp) else time[-1]
+            reset_edges = resets[(resets > start) & (resets < stop)]
+            reset = float(reset_edges[0]) if len(reset_edges) == 1 else math.nan
+            evaluation = (time >= start) & (time < reset)
+            internal_delay = math.nan
+            sr_delay = math.nan
+            held = False
+            if np.any(evaluation):
+                last = np.flatnonzero(evaluation)[-1]
+                final_p = float(latch_p[last])
+                final_n = float(latch_n[last])
+                midpoint = 0.5 * analog_supply
+                if final_p != final_n:
+                    target = 1 if final_p > final_n else -1
+                    high, low = (latch_p, latch_n) if target > 0 else (latch_n, latch_p)
+                    valid = (high[evaluation] >= midpoint) & (low[evaluation] <= midpoint)
+                    stable = calc.settlingTime(valid, time[evaluation])
+                    if np.isfinite(stable):
+                        internal_delay = max(0.0, stable - start)
+                    # Time the observed SR state even if the XC pair did not
+                    # settle across the midpoint before COMP reset.
+                    output = (time >= start) & (time < stop)
+                    valid = sr_p[output] >= midpoint if target > 0 else sr_p[output] <= midpoint
+                    stable = calc.settlingTime(valid, time[output])
+                    if np.isfinite(stable):
+                        held = bool(np.all(valid))
+                        if not held:
+                            sr_delay = max(0.0, stable - start)
+            rows.append((int(conversion), decision, internal_delay, sr_delay, held))
+    decision_index = np.asarray([row[1] for row in rows])
+    internal_response_s = np.asarray([row[2] for row in rows])
+    sr_response_s = np.asarray([row[3] for row in rows])
+    identity = conversions.identity
+    return AnalysisResponse(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        conversion_index=np.asarray([row[0] for row in rows]),
+        decision_index=decision_index,
+        internal_response_s=internal_response_s,
+        sr_response_s=sr_response_s,
+        sr_held=np.asarray([row[4] for row in rows]),
+        sample_interval_s=float(calc.ymax(np.diff(time))),
+        conversion_rate_hz=conversions.conversion_rate_hz,
+        **_per_decision("xc", decision_index, internal_response_s, decisions),
+        **_per_decision("sr", decision_index, sr_response_s, decisions),
+    )
+
+
+def _falls(rises: np.ndarray, falls: np.ndarray, period_s: float) -> np.ndarray:
+    """Each of ``rises``' fall: the first of the ascending ``falls`` after it, NaN where none comes
+    within ``period_s``."""
+    found = np.r_[falls, np.nan][np.searchsorted(falls, rises, side="right")]
+    return np.where(found - rises < period_s, found, np.nan)
+
+
+def _median(values: np.ndarray) -> float:
+    """The median of the finite ``values``, NaN where there are none."""
+    finite = np.asarray(values, dtype=np.float64)
+    finite = finite[np.isfinite(finite)]
+    return float(np.median(finite)) if len(finite) else math.nan
+
+
+def _folded(records: np.ndarray, time_s: np.ndarray, origins_s: np.ndarray, edges_s: np.ndarray) -> np.ndarray:
+    """Each record (a row of ``records`` on ``time_s``) at the centre of each time cell (``edges_s``,
+    from an origin) from each of its origins (a row of ``origins_s`` each): a row an origin, in
+    order, NaN outside its record."""
+    centres_s = (edges_s[:-1] + edges_s[1:]) / 2
+    return np.asarray(
+        [
+            np.interp(origin + centres_s, time_s, row, left=np.nan, right=np.nan)
+            for row, origins in zip(records, origins_s, strict=True)
+            for origin in origins
+        ]
+    )
+
+
+def _share(traces: np.ndarray, voltage_v: np.ndarray) -> np.ndarray:
+    """Each column of ``traces`` (a row a trace, a column a time cell) counted in the voltage's
+    cells (``voltage_v``: their edges, ``calc.histogram2D``): a row a voltage cell, each cell's share
+    of the traces, NaN where none passes it."""
+    columns = traces.shape[1]
+    column = np.broadcast_to(np.arange(columns, dtype=np.float64), traces.shape)
+    inside = np.isfinite(traces)
+    counts, _, _ = calc.histogram2D(column[inside], traces[inside], bins=(np.arange(columns + 1) - 0.5, voltage_v))
+    share = counts.T / len(traces)
+    return np.where(share > 0, share, np.nan)
+
+
+def _per_decision(name: str, decision: np.ndarray, times_s: np.ndarray, decisions: int) -> dict[str, np.ndarray]:
+    """Each decision's ``times_s`` over 48 cells across every finite one (0.05 ns either side of a
+    single value; none where none is finite), by ``name``: the cells' edges (``<name>_s``), each
+    cell's share of its decision's finite times (``<name>_share``: a row a cell, a column a
+    decision, NaN where none) and each decision's median (``<name>_median_s``)."""
+    finite = np.isfinite(times_s)
+    by_decision = [times_s[finite & (decision == index)] for index in range(decisions)]
+    median_s = np.asarray([_median(values) for values in by_decision])
+    if not np.any(finite):
+        return {f"{name}_s": np.zeros(0), f"{name}_share": np.zeros((0, decisions)), f"{name}_median_s": median_s}
+    lower, upper = float(np.min(times_s[finite])), float(np.max(times_s[finite]))
+    if lower == upper:
+        lower, upper = lower - 0.05e-9, upper + 0.05e-9
+    edges_s = np.linspace(lower, upper, 49)
+    share = np.full((48, decisions), np.nan)
+    for index, values in enumerate(by_decision):
+        if len(values):
+            counts, _ = np.histogram(values, bins=edges_s)
+            share[:, index] = np.where(counts > 0, counts / len(values), np.nan)
+    return {f"{name}_s": edges_s, f"{name}_share": share, f"{name}_median_s": median_s}
+
+
 def metrics(
     *,
     small: AnalysisDelay,
@@ -564,7 +911,7 @@ def metrics(
     kickback: AnalysisKickback,
     supply: Sequence[AnalysisDelay],
     clock: AnalysisClockCheck | None = None,
-    offsets: Sequence[AnalysisOffsetNoise] = (),
+    common_mode: AnalysisCommonMode | None = None,
     nominal: AnalysisOffsetNoise | None = None,
     scurve: AnalysisScurve | None = None,
 ) -> Metrics:
@@ -573,10 +920,19 @@ def metrics(
     the 0.1 mV delay and the regeneration time constant, kickback, the slowest small-input delay over
     the supply (NaN where one did not resolve) and whether it decides within the clock (``clock``);
     where the S-curves ran, the nominal common mode's noise and offset (NaN unless valid), the
-    fraction of its decisions unresolved, and the largest valid noise over the common mode (only
-    from all four common modes)."""
+    fraction of its decisions unresolved, and the largest valid noise over the common mode
+    (``common_mode``: only from more than one common mode)."""
 
-    valid = [fit for fit in offsets if fit.validity == "valid"]
+    valid = (
+        []
+        if common_mode is None
+        else [
+            float(noise)
+            for noise, validity in zip(common_mode.noise_sigma_v, common_mode.validity, strict=True)
+            if validity == "valid"
+        ]
+    )
+    over_common_mode = common_mode is not None and len(common_mode.vin_cm_v) > 1
     measured = nominal is not None
     return Metrics(
         delay_0p5mv_s=float(np.nanmax(small.delay_s)),
@@ -592,5 +948,5 @@ def metrics(
         noise_v=(nominal.noise_sigma_v if nominal.validity == "valid" else math.nan) if measured else None,
         offset_v=(nominal.offset_v if nominal.validity == "valid" else math.nan) if measured else None,
         unresolved_fraction=scurve.total_unresolved_fraction if scurve is not None else None,
-        noise_max_v=max((fit.noise_sigma_v for fit in valid), default=math.nan) if len(offsets) > 1 else None,
+        noise_max_v=max(valid, default=math.nan) if over_common_mode else None,
     )

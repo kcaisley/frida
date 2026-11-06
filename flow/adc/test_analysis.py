@@ -37,6 +37,7 @@ from flow.adc.analysis import (
     analyze_code_density_nonlinearity,
     analyze_code_distribution,
     analyze_code_spectrum,
+    analyze_conversions,
     analyze_decision_paths,
     analyze_dynamic,
     analyze_endpoint_nonlinearity,
@@ -2331,3 +2332,24 @@ def test_the_ladders_quantization_reads_the_design_resolution(tmp_path: Path, ad
     quantization = captures[LADDER_NAMES[0]]
     at_amplitude = analyze_dynamic(quantization, calibration=_extracted(quantization)).spectral_enob_bits
     assert at_amplitude == pytest.approx(adc_bits - 0.5 / 6.02, abs=0.02)
+
+
+def test_a_capture_as_its_comparator_sees_it() -> None:
+    """A capture's conversions for the comparator's analyses (``comp.AnalysisConversions``): its
+    records, its 17 decisions and the spacing its sequence programs, its sequence and rates, its
+    supplies; a sequence whose clock rises are not evenly spaced has no programmed spacing."""
+    measurement = adc_timing_measurement()
+    conversions = analyze_conversions(measurement)
+    assert isinstance(conversions, comp.AnalysisConversions)
+    assert conversions.wave is measurement.wave and conversions.identity == measurement.identity
+    tb = measurement.tb
+    assert conversions.sequence == (tb.seq_init_pattern, tb.seq_samp_pattern, tb.seq_comp_pattern, tb.seq_logic_pattern)
+    assert conversions.decisions == 17
+    assert conversions.symbol_rate_hz == float(tb.symbol_rate)
+    assert conversions.decision_period_s == pytest.approx(measurement.symbols_per_decision / float(tb.symbol_rate))
+    assert conversions.conversion_rate_hz == measurement.active_conversion_rate_hz
+    assert (conversions.vdd_a_v, conversions.vdd_d_v) == (float(tb.vdd_a.dc), float(tb.vdd_d.dc))
+    uneven = replace(measurement, param=replace(tb, seq_comp_pattern="1" + tb.seq_comp_pattern[1:]))
+    with pytest.raises(ValueError, match="equally spaced"):
+        _ = uneven.symbols_per_decision
+    assert math.isnan(analyze_conversions(uneven).decision_period_s)

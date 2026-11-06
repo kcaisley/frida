@@ -52,7 +52,7 @@ from basil.HL.tektronix_oscilloscope import response_value
 from bitarray import bitarray
 from yaml import safe_load
 
-from flow import adc
+from flow import adc, comp
 from flow.adc.sim import (
     SEQUENCES,
     AdcSequence,
@@ -60,15 +60,12 @@ from flow.adc.sim import (
     symbol160_init4_samp20_comp11111100_logic11000011,
     symbol256_init8_samp16_comp11110000_logic11000011,
 )
-from flow.analysis.adc import analyze_adc_comp_out_edge_eye, analyze_adc_scope_bits
+from flow.analysis.adc import analyze_adc_scope_bits
 from flow.analysis.io import (
     read_measurement,
     write_measurement,
 )
-from flow.analysis.plots import (
-    plot_adc_comp_out_edge_eye,
-    plot_adc_fastrx_scope_comparison,
-)
+from flow.analysis.plots import plot_adc_fastrx_scope_comparison
 from flow.analysis.types import MeasAdc, MeasInfo
 from flow.cdac.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.plot import render
@@ -924,12 +921,14 @@ def test_adc_comp_out_edge_eye(linux_gpib_interface: None) -> None:
         f"LOGIC {aligned.logic[first_comp : first_comp + 8]} (B1 word)\n"
         f"{symbol_rate_bps / 1e6:g} MBd; ADC01; FRIDA-1 1-layer radix20; Scope measurement"
     )
-    analysis = analyze_adc_comp_out_edge_eye(measurements)
-    paths = plot_adc_comp_out_edge_eye(
-        analysis,
-        output_path=run_dir / "msmt_adc01_2msps_comp",
-        context=context,
-    )
+    print(context)
+    analysis = comp.analyze_scope_edges([adc.analyze_conversions(measurement) for measurement in measurements])
+    # the comparator's output folded per decision, over the conversion, and its delays (comp's specs)
+    paths = [
+        path
+        for figure in (comp.plot_scope_eye, comp.plot_scope_timing, comp.plot_scope_response)
+        for path in render(figure(analysis), run_dir / f"msmt_adc01_2msps_{figure.__name__.removeprefix('plot_')}")
+    ]
     bounds_s = analysis.delay_bounds_s
     print(f"Observed COMP_OUT delay bounds: {bounds_s[0] * 1e9:.3f}..{bounds_s[1] * 1e9:.3f} ns")
     for path in paths:

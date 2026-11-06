@@ -44,7 +44,7 @@ flowchart TB
     subgraph adc_external[ADC with scope waveforms]
         direction LR
         adc_ext["MeasAdc with scope wave"] --> scope_bits["analyze_adc_scope_bits"] --> scope_bits_out["AnalysisAdcScopeBits"] --> scope_bits_plot["plot_adc_fastrx_scope_comparison"]
-        adc_ext --> comp_out_eye["analyze_adc_comp_out_edge_eye"] --> comp_out_eye_out["AnalysisAdcCompOutEdgeEye"] --> comp_out_eye_plot["plot_adc_comp_out_edge_eye"]
+        adc_ext --> comp_out_conversions["adc.analyze_conversions"] --> comp_out_conversions_out["comp.AnalysisConversions"] --> comp_out_eye["comp.analyze_scope_edges (list)"] --> comp_out_eye_out["comp.AnalysisScopeEdges"] --> comp_out_eye_plot["comp.plot_scope_eye / _timing / _response (COMP_OUT folded per decision and over the conversion; its delays)"]
     end
 
     subgraph adc_internal[ADC with simulated internal nets]
@@ -53,15 +53,16 @@ flowchart TB
         adc_int --> sampling["adc.analyze_sampling_noise"] --> sampling_out["adc.AnalysisSamplingNoise"]
         adc_int --> settling["adc.analyze_cdac_settling"] --> settling_out["adc.AnalysisCdacSettling"]
         adc_int --> power_wave["adc.analyze_power_waveform"] --> power_wave_out["adc.AnalysisPowerWaveform"]
-        adc_int --> response["analyze_adc_comparator_response"] --> response_out["AnalysisAdcComparatorResponse"]
+        adc_int --> conversions["adc.analyze_conversions"] --> conversions_out["comp.AnalysisConversions"]
+        conversions_out --> response["comp.analyze_response"] --> response_out["comp.AnalysisResponse"]
         adc_int --> closure["adc.analyze_timing_closure"] --> closure_out["adc.AnalysisTimingClosure"]
         adc_int --> summary["adc.analyze_timing_summary (+ closure)"] --> summary_out["adc.AnalysisTimingSummary"]
         closure_out --> summary
-        adc_int --> comparator_eye["analyze_adc_comparator_edge_eye"] --> comparator_eye_out["AnalysisAdcComparatorEdgeEye"] --> comparator_eye_plot["plot_adc_comparator_edge_eye"]
+        conversions_out --> comparator_eye["comp.analyze_edge_eye"] --> comparator_eye_out["comp.AnalysisEdgeEye"] --> comparator_eye_plot["comp.plot_sr_eye / _xc_eye / _sr_timing / _xc_timing (each latch folded per decision and over the conversion)"]
         sampling_out --> sampling_plot["adc.plot_sampling_noise (25 µV bins)"]
         settling_out --> settling_plot["adc.plot_cdac_settling_first / _middle / _last (each conversion's top-plate settling)"]
         power_wave_out --> power_wave_plot["adc.plot_power_analog / _digital / _dac (each rail's)"]
-        response_out --> response_plot["plot_adc_comparator_response"]
+        response_out --> response_plot["comp.plot_sr_response / _xc_response (each decision's, as a map)"]
     end
 
     subgraph comparator[Comparator and CDAC decisions]
@@ -75,8 +76,9 @@ flowchart TB
         cdac_adc["MeasCdac (one ADC)"] --> mismatch["analyze_cdac_cap_mismatch (+ transitions, comparator offset)"] --> mismatch_out["AnalysisCdacCapMismatch"]
         transition_out --> mismatch
         offset_out --> mismatch
-        offset_out --> offset_plots["plot_comp_offset_noise / plot_comp_sampling_campaign"]
-        common_mode_out --> common_mode_plot["plot_comp_common_mode_campaign"]
+        offset_out --> offset_plots["comp.plot_offset_noise (its offset marked, its noise shaded)"]
+        common_mode_out --> common_mode_plot["comp.plot_noise_cm / _offset_cm (the record's own), comp.plot_common_mode_scurves (a map)"]
+        decisions --> sampling_noise["comp.analyze_sampling_noise"] --> sampling_noise_out["comp.AnalysisSamplingNoise"] --> sampling_noise_plot["comp.plot_sampling_offset / _noise (a category a curve), comp.plot_sampling_noise_scurves (a map)"]
         mismatch_out --> mismatch_plot["plot_cdac_cap_mismatch / plot_cdac_cap_mismatch_comparison (list)"]
     end
 

@@ -14,11 +14,9 @@ from matplotlib import colors as mcolors
 from matplotlib.ticker import FixedLocator
 
 import flow.analysis.plots as analysis_plots
-from flow import adc, comp
+from flow import adc
 from flow.adc.plots import plot_power_rate
-from flow.adc.sim import symbol160_init4_samp20_comp11111100_logic11000011
 from flow.adc.test_analysis import adc_measurement
-from flow.analysis.adc import analyze_adc_comp_out_edge_eye, analyze_adc_comparator_edge_eye
 from flow.analysis.plots import (
     CURVE_COLORS,
     DENSITY_COLOR_MAP,
@@ -31,13 +29,8 @@ from flow.analysis.plots import (
     SPECTRUM_COLOR_MAP,
     SPINE_COLOR,
     TEXT_COLOR,
-    plot_adc_comp_out_edge_eye,
-    plot_adc_comparator_edge_eye,
-    plot_adc_comparator_response,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
-    plot_comp_common_mode_campaign,
-    plot_comp_sampling_campaign,
     plot_serdes_output_word_grid,
     plot_serdes_symbol_eye_grid,
     plot_waveforms,
@@ -47,71 +40,9 @@ from flow.analysis.plots import (
 from flow.analysis.test_types import cdac_physical
 from flow.analysis.types import (
     AnalysisCdacCapMismatch,
-    Wave,
 )
-from flow.comp.test_analysis import decisions_at
 from flow.plot import render
 from flow.scans.scan_cdac import _build_cdac_params
-from flow.scans.scan_comp import _build_comp_params
-
-
-def test_adc_comp_out_edge_eye_uses_paired_basil_captures(tmp_path: Path) -> None:
-    sequence = symbol160_init4_samp20_comp11111100_logic11000011
-    rate = 320e6
-    step_s = 0.1e-9
-    time_s = np.arange(-20e-9, 600e-9, step_s)
-    scale = XScale(step_s, float(time_s[0]), "s")
-    edge_symbols = [index for index, bit in enumerate(sequence.comp) if bit == "1" and sequence.comp[index - 1] == "0"]
-    captures = []
-    for capture_index in range(4):
-        edge_s = np.asarray(edge_symbols) / rate + capture_index * 0.03e-9
-        comp_v = np.full(len(time_s), -0.2)
-        out_v = np.full(len(time_s), -0.2)
-        output_high = False
-        for decision, edge in enumerate(edge_s):
-            comp_v[(time_s >= edge) & (time_s < edge + 6 / rate)] = 0.2
-            if decision != 3:
-                output_high = not output_high
-                ramp = np.clip((time_s - edge - 5e-9 - capture_index * 0.02e-9) / 1e-9, 0, 1)
-                out_v += (0.4 if output_high else -0.4) * ramp
-        captures.append(
-            {
-                channel: CapturedWaveform(channel, np.rint(values * 1000).astype(int), values, scale, YScale(0.2, -0.2))
-                for channel, values in ((3, comp_v), (2, out_v))
-            }
-        )
-    base = adc_measurement([2048], observed_adc=1)
-    params = replace(base.param, tb=replace(base.param.tb, symbol_rate=rate, **sequence.as_tb_fields()))
-    measurements = [
-        replace(
-            base,
-            param=params,
-            wave=Wave(
-                record_index=np.asarray([0]),
-                time_s=time_s,
-                v={
-                    "seq_comp": np.asarray(capture[3].data)[None, :],
-                    "seq_logic": np.zeros((1, len(time_s))),
-                    "comp_out": np.asarray(capture[2].data)[None, :],
-                },
-            ),
-        )
-        for capture in captures
-    ]
-    analysis = analyze_adc_comp_out_edge_eye(measurements)
-    paths = plot_adc_comp_out_edge_eye(analysis, output_path=tmp_path / "comparator")
-    bounds = analysis.delay_bounds_s
-    assert bounds[0] == pytest.approx(5.5e-9, abs=0.1e-9)
-    assert bounds[1] == pytest.approx(5.56e-9, abs=0.1e-9)
-    assert all(path.exists() for path in paths)
-    assert analysis.unchanged[3] == 4
-    assert np.count_nonzero(np.isfinite(analysis.delays_s[:, 3])) == 0
-    assert (tmp_path / "comparator_timing.pdf").exists()
-    assert (tmp_path / "comparator_decision_eye.pdf").exists()
-    assert not (tmp_path / "comparator_clock_jitter.pdf").exists()
-    assert (tmp_path / "comparator_response_histogram.pdf").exists()
-    assert not (tmp_path / "comparator_delay_density.pdf").exists()
-    assert not (tmp_path / "comparator.pdf").exists()
 
 
 def test_serdes_output_word_grid_keeps_each_eight_symbol_pattern(tmp_path: Path, monkeypatch) -> None:
@@ -179,115 +110,6 @@ def test_serdes_symbol_eye_folds_nonconstant_contexts(tmp_path: Path, monkeypatc
     assert all("256 symbols" in axis.get_title() for axis in figures[0].axes)
     assert all("geometric center eye height" in axis.get_title() for axis in figures[0].axes)
     assert all("1000 mV" in axis.get_title() for axis in figures[0].axes)
-
-
-def test_adc_comparator_response_plot_overlays_histograms_and_counts_held_decisions(
-    tmp_path: Path, monkeypatch
-) -> None:
-    from flow.adc.test_analysis import adc_timing_measurement
-    from flow.analysis.adc import analyze_adc_comparator_response
-
-    figures = []
-    save_figure = analysis_plots.save_figure
-
-    def capture(fig, output_path, **kwargs):
-        figures.append(fig)
-        return save_figure(fig, output_path, **kwargs)
-
-    monkeypatch.setattr(analysis_plots, "save_figure", capture)
-    analysis = analyze_adc_comparator_response(adc_timing_measurement())
-    paths = plot_adc_comparator_response(
-        analysis,
-        output_path=tmp_path / "response",
-    )
-    assert all(path.exists() for path in paths)
-    assert len(np.unique(analysis.decision_index)) == 17
-    second_decision = analysis.decision_index == 1
-    assert np.count_nonzero(analysis.sr_held[second_decision]) == 1
-    assert np.count_nonzero(np.isfinite(analysis.sr_response_s[second_decision])) == 0
-    bars = figures[0].axes[0].patches
-    left_edges = [
-        {
-            round(bar.get_x(), 6)
-            for bar in bars
-            if bar.get_width() > 0 and np.allclose(bar.get_facecolor()[:3], mcolors.to_rgb(color))
-        }
-        for color in CURVE_COLORS[:2]
-    ]
-    assert left_edges[0] & left_edges[1]
-
-
-def test_adc_comparator_edge_eye_uses_every_conversion_and_absolute_xc(tmp_path, monkeypatch) -> None:
-    from flow.adc.test_analysis import adc_timing_measurement
-
-    measurement = adc_timing_measurement()
-    assert measurement.wave is not None
-    wave = measurement.wave
-    assert wave is not None
-    repeated = replace(
-        measurement,
-        param=replace(measurement.param, conversions=2),
-        conversion_index=np.arange(2),
-        bout=np.repeat(measurement.bout, 2, axis=0),
-        dout_raw=np.repeat(measurement.dout_raw, 2),
-        dout=np.repeat(measurement.dout, 2),
-        vin_diff_v=np.repeat(measurement.vin_diff_v, 2),
-        fastrx_word=np.repeat(measurement.fastrx_word, 2) if measurement.fastrx_word is not None else None,
-        wave=replace(
-            wave, record_index=np.arange(2), v={name: np.repeat(values, 2, axis=0) for name, values in wave.v.items()}
-        ),
-    )
-    figures = []
-    save_figure = analysis_plots.save_figure
-
-    def capture(fig, output_path, **kwargs):
-        figures.append(fig)
-        return save_figure(fig, output_path, **kwargs)
-
-    monkeypatch.setattr(analysis_plots, "save_figure", capture)
-    paths = plot_adc_comparator_edge_eye(analyze_adc_comparator_edge_eye(repeated), output_path=tmp_path / "pex_eye")
-    assert all(path.exists() for path in paths)
-    assert [len(collection.get_segments()) for collection in figures[0].axes[0].collections] == [2] * 3
-    assert [len(collection.get_segments()) for collection in figures[1].axes[0].collections] == [34] * 3
-    assert all(np.all(segment[:, 1] >= 0) for segment in figures[1].axes[0].collections[2].get_segments())
-    assert figures[1].axes[0].get_xlim() == pytest.approx((-0.2, 2.2))
-    assert figures[1].axes[0].collections[0].get_segments()[0][-1, 0] > 2.0
-    assert [line.get_label() for line in figures[0].axes[0].lines] == [
-        "Comparator clock",
-        "SR-latch P",
-        "XC-latch |P−N|",
-    ]
-    assert [line.get_color() for line in figures[0].axes[0].lines] == list(CURVE_COLORS[:3])
-
-
-def test_adc_comparator_response_uses_per_decision_sample_fractions(tmp_path, monkeypatch) -> None:
-    from flow.analysis.types import AnalysisAdcComparatorResponse
-
-    values = np.array([1.0, 1.1, 1.2, 1.3]) * 1e-9
-    captured = []
-    monkeypatch.setattr(analysis_plots, "save_figure", lambda fig, path, **_kwargs: captured.append(fig) or (path,))
-    analysis = AnalysisAdcComparatorResponse(
-        group=None,
-        index=None,
-        dut=None,
-        conversion_index=np.arange(40),
-        decision_index=np.zeros(40, dtype=int),
-        internal_response_s=np.r_[values, np.full(36, np.nan)],
-        sr_response_s=np.repeat(values, 10),
-        sr_held=np.zeros(40, dtype=bool),
-        sample_interval_s=10e-12,
-        conversion_rate_hz=10e6,
-    )
-    try:
-        plot_adc_comparator_response(analysis, output_path=tmp_path / "response")
-        ax = captured[0].axes[0]
-        widths = [bar.get_width() for bar in ax.patches]
-        assert len(widths) == 8
-        assert widths[:4] == pytest.approx(widths[4:])
-        assert [bar.get_x() for bar in ax.patches] == [0.0] * 8
-    finally:
-        for fig in captured:
-            plt.close(fig)
 
 
 def assert_plot_formats(paths: tuple[Path, ...]) -> None:
@@ -412,48 +234,7 @@ def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -
     assert "LOGIC offset:" not in svg
 
 
-def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Path) -> None:
-    comparator_groups = []
-    comparator_analyses = []
-    for vin_cm_v in (0.6, 0.8):
-        group = []
-        for vin_diff_v, ones in ((-1e-3, 100), (0.0, 50), (1e-3, 0)):
-            base = decisions_at()
-            params = _build_comp_params(
-                adc_index=0,
-                campaign="comp_common_mode",
-                sampling_mode="track",
-                sweep_stage="fixed",
-                vin_cm_v=vin_cm_v,
-                vin_diff_v=vin_diff_v,
-                conversions=100,
-            )
-            group.append(
-                comp.AnalysisDecisions(
-                    group=params.board_id,
-                    index=params.observed_adc,
-                    dut=params.tb.dut.comp,
-                    info=replace(base.info, backend="physical"),
-                    param=params,
-                    trial_index=np.arange(100),
-                    vin_diff_v=np.full(100, vin_diff_v),
-                    vin_cm_v=np.full(100, vin_cm_v),
-                    decision=np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8))),
-                    wave=None,
-                )
-            )
-        comparator_groups.append(group)
-        comparator_analyses.append(comp.analyze_offset_noise(group))
-    comparator_measurements = [measurement for group in comparator_groups for measurement in group]
-    comparator_paths = plot_comp_common_mode_campaign(
-        comparator_measurements,
-        comparator_analyses,
-        comp.analyze_common_mode(comparator_measurements),
-        output_path=tmp_path / "comp_campaign",
-    )
-    assert comparator_paths[0].is_file()
-    assert plt.imread(comparator_paths[0]).shape[:2] == (2700, 4800)
-
+def test_cdac_ab_plots_are_separate_per_adc(tmp_path: Path) -> None:
     params = _build_cdac_params(
         adc_index=0,
         side="p",
@@ -507,158 +288,6 @@ def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Pa
     )
     assert comparison_paths[0].is_file()
     assert plt.imread(comparison_paths[0]).shape[:2] == (2700, 4800)
-
-
-def test_comparator_common_mode_crop_and_sampling_noise_layout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    figures = []
-
-    def capture_figure(fig, *_args, **_kwargs):
-        figures.append(fig)
-        return ()
-
-    monkeypatch.setattr(analysis_plots, "save_figure", capture_figure)
-
-    def group(
-        campaign: str,
-        mode: str,
-        vin_cm_v: float,
-        *,
-        center_v: float = 0.0,
-        coupling_percent: float | None = None,
-    ):
-        measurements = []
-        for vin_diff_v, ones in (
-            (center_v - 1.0e-3, 0),
-            (center_v, 50),
-            (center_v + 1.0e-3, 100),
-        ):
-            base = decisions_at()
-            params = _build_comp_params(
-                adc_index=0,
-                campaign=campaign,
-                sampling_mode=mode,
-                sweep_stage="fixed",
-                vin_cm_v=vin_cm_v,
-                vin_diff_v=vin_diff_v,
-                conversions=100,
-                requested_dac_rail_percent=coupling_percent,
-            )
-            measurements.append(
-                comp.AnalysisDecisions(
-                    group=params.board_id,
-                    index=params.observed_adc,
-                    dut=params.tb.dut.comp,
-                    info=replace(base.info, backend="physical"),
-                    param=params,
-                    trial_index=np.arange(100),
-                    vin_diff_v=np.full(100, vin_diff_v),
-                    vin_cm_v=np.full(100, vin_cm_v),
-                    decision=np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8))),
-                    wave=None,
-                )
-            )
-        return measurements
-
-    common_groups = [
-        group("comp_common_mode", "track", vin_cm_v, center_v=10.0e-3) for vin_cm_v in (0.6, 0.7, 0.8, 1.0)
-    ]
-    common_measurements = [measurement for values in common_groups for measurement in values]
-    common_offsets = [comp.analyze_offset_noise(values) for values in common_groups]
-    plot_comp_common_mode_campaign(
-        common_measurements,
-        common_offsets,
-        comp.analyze_common_mode(common_measurements),
-        output_path=Path("unused_common"),
-    )
-    common_figure = figures[-1]
-    assert [ax.get_title() for ax in common_figure.axes] == [
-        "Comparator S-curve (CDF)",
-        "Gaussian fit of μ (threshold) and σ (noise)",
-    ]
-    assert common_figure.axes[0].get_xlim() == pytest.approx((0.0, 25.0))
-    assert common_figure.axes[0].get_xlabel() == "Differential input (mV)"
-    assert common_figure.axes[1].get_ylim() == pytest.approx((0.0, 25.0))
-    assert [
-        line.get_label() for line in common_figure.axes[0].get_lines() if line.get_label().startswith("Vin_cm")
-    ] == [
-        "Vin_cm = 0.6 V",
-        "Vin_cm = 0.7 V",
-        "Vin_cm = 0.8 V",
-        "Vin_cm = 1 V",
-    ]
-    # Plotters never drop data: the 0.6 V common mode below the old crop stays visible.
-    assert common_figure.axes[1].get_xticks() == pytest.approx((0.6, 0.7, 0.8, 1.0))
-    assert common_figure.axes[1].get_xlim() == pytest.approx((0.55, 1.05))
-    assert common_figure.axes[1].get_xlabel() == "Common-mode input (V)"
-    assert common_figure.axes[1].get_ylabel() == "Input error (mV)"
-    common_fit_lines = [line for line in common_figure.axes[0].get_lines() if line.get_label().startswith("Vin_cm")]
-    assert len(common_figure.axes[0].collections) == 4
-    assert all(len(line.get_xdata()) == 1_001 for line in common_fit_lines)
-    expected_common_mode_colors = [
-        SPECTRUM_COLOR_MAP((vin_cm_v - 0.6) / (1.0 - 0.6)) for vin_cm_v in (0.6, 0.7, 0.8, 1.0)
-    ]
-    for line, expected_color in zip(common_fit_lines, expected_common_mode_colors, strict=True):
-        np.testing.assert_allclose(mcolors.to_rgba(line.get_color()), expected_color)
-    for violin, expected_color in zip(
-        common_figure.axes[1].collections,
-        expected_common_mode_colors,
-        strict=True,
-    ):
-        np.testing.assert_allclose(violin.get_facecolor()[0, :3], expected_color[:3], atol=0.01)
-        assert violin.get_facecolor()[0, 3] == pytest.approx(1.0)
-
-    sampling_groups = [
-        group(
-            "comp_sampling_noise",
-            mode,
-            0.7,
-            center_v=10.0e-3 + coupling_percent * 5.0e-6 + (0.2e-3 if mode == "hold" else 0.0),
-            coupling_percent=coupling_percent,
-        )
-        for coupling_percent in (0.0, 25.0, 50.0, 75.0, 100.0)
-        for mode in ("track", "hold")
-    ]
-    plot_comp_sampling_campaign(
-        sampling_groups,
-        [comp.analyze_offset_noise(values) for values in sampling_groups],
-        output_path=Path("unused_sampling"),
-    )
-    sampling_figure = figures[-1]
-    assert [ax.get_title() for ax in sampling_figure.axes] == [
-        "Comparator S-curves (CDF)",
-        "Gaussian fit of μ (threshold) and σ (noise)",
-    ]
-    assert sampling_figure.axes[0].get_xlim() == pytest.approx((0.0, 25.0))
-    curve_labels = [text.get_text() for text in sampling_figure.axes[0].get_legend().get_texts()]
-    assert curve_labels == [
-        "P/N = 0/100%",
-        "P/N = 25/75%",
-        "P/N = 50/50%",
-        "P/N = 75/25%",
-        "P/N = 100/0%",
-    ]
-    sampling_fit_lines = [line for line in sampling_figure.axes[0].get_lines() if len(line.get_xdata()) == 1_001]
-    assert len(sampling_fit_lines) == 10
-    assert len(sampling_figure.axes[0].collections) == 10
-    assert all(len(line.get_xdata()) == 1_001 for line in sampling_fit_lines)
-    distribution_ax = sampling_figure.axes[1]
-    assert distribution_ax.get_xlim() == pytest.approx((-8.0, 108.0))
-    assert distribution_ax.get_ylim() == pytest.approx((0.0, 25.0))
-    assert distribution_ax.get_xticks() == pytest.approx((0.0, 25.0, 50.0, 75.0, 100.0))
-    assert distribution_ax.get_xlabel() == "VDAC coupling (P/N % of VDD_DAC)"
-    assert distribution_ax.get_ylabel() == "Input error (mV)"
-    distribution_labels = [text.get_text() for text in distribution_ax.get_legend().get_texts()]
-    assert distribution_labels == ["Track", "Hold"]
-    assert len(distribution_ax.collections) == 10
-    assert not distribution_ax.texts
-    assert sampling_figure._suptitle.get_text() == (
-        "Comparator threshold and input-referred noise versus VDAC coupling"
-    )
-
-    for fig in figures:
-        plt.close(fig)
 
 
 def test_cdac_pex_expectation_includes_recorded_topplate_parasitic() -> None:

@@ -941,6 +941,37 @@ def analyze_sequencer(measurement: MeasAdc) -> AnalysisSequencer:
 
 
 @analysis
+def analyze_conversions(measurement: MeasAdc) -> comp.AnalysisConversions:
+    """A capture as its comparator sees it (``comp.AnalysisConversions``), which the comparator's
+    analyses of a converter take (``comp.analyze_scope_edges``, ``comp.analyze_edge_eye``,
+    ``comp.analyze_response``): its records, its decisions and the spacing its sequence programs for
+    them, its sequence and symbol rate, its conversion rate without idle symbols and its supplies;
+    a physical capture or a simulated one alike."""
+
+    tb = measurement.tb
+    symbol_rate_hz = float(tb.symbol_rate)
+    try:
+        decision_period_s = measurement.symbols_per_decision / symbol_rate_hz
+    except ValueError:
+        # clock rises not evenly spaced: a simulation's analyses time each from its records
+        decision_period_s = math.nan
+    identity = measurement.identity
+    return comp.AnalysisConversions(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        wave=measurement.wave,
+        sequence=(tb.seq_init_pattern, tb.seq_samp_pattern, tb.seq_comp_pattern, tb.seq_logic_pattern),
+        symbol_rate_hz=symbol_rate_hz,
+        decisions=len(measurement.nominal_bout_weights),
+        decision_period_s=decision_period_s,
+        conversion_rate_hz=measurement.active_conversion_rate_hz,
+        vdd_a_v=float(tb.vdd_a.dc),
+        vdd_d_v=float(tb.vdd_d.dc),
+    )
+
+
+@analysis
 def analyze_decision_paths(measurement: MeasAdc) -> AnalysisDecisionPaths:
     """Reconstruct running SAR estimates from every captured decision record."""
 

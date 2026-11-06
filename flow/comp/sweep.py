@@ -15,6 +15,7 @@ from flow.pipeline import Level, Meas, Pdk, Record, every, grid, named, steps, w
 
 from .analysis import (
     analyze_clock_check,
+    analyze_common_mode,
     analyze_decisions,
     analyze_delay,
     analyze_kickback,
@@ -278,8 +279,10 @@ def record(measurements: dict[str, Meas]) -> Record:
         decisions=[decisions["metastability"], decisions["metastability_check"]],
         metastability=[metastability["metastability"], metastability["metastability_check"]],
     )
-    scurves = [f"scurve_cm{round(fraction * 24)}" for fraction in CM_SWEEP]
-    offsets = [analyze_offset_noise([decisions[name]]) for name in scurves if name in measurements]
+    names = [f"scurve_cm{round(fraction * 24)}" for fraction in CM_SWEEP]
+    scurves = [decisions[name] for name in names if name in measurements]
+    # each S-curve's fit over the common mode, as a lab campaign's captures give it
+    common_mode = analyze_common_mode(scurves) if scurves else None
     nominal_run = f"scurve_cm{round(NOMINAL_CM * 24)}"
     nominal = analyze_offset_noise([decisions[nominal_run]]) if nominal_run in measurements else None
     scurve = analyze_scurve([decisions[nominal_run]]) if nominal_run in measurements else None
@@ -290,8 +293,8 @@ def record(measurements: dict[str, Meas]) -> Record:
         plot_delay_supply_large(supply),
         plot_energy_supply(analyze_power([measurements[f"supply_{round(factor * 100)}"] for factor in SUPPLY_SWEEP])),
     ]
-    if offsets:
-        plots[1:1] = [plot_noise_cm(offsets), plot_offset_cm(offsets)]
+    if common_mode is not None:
+        plots[1:1] = [plot_noise_cm(common_mode), plot_offset_cm(common_mode)]
     if scurve is not None:
         plots.append(plot_scurve(scurve))
         if scurve.total_unresolved_fraction > 0:
@@ -304,7 +307,7 @@ def record(measurements: dict[str, Meas]) -> Record:
         kickback=analyze_kickback(measurements["kickback"]),
         supply=supply,
         clock=clock,
-        offsets=offsets,
+        common_mode=common_mode,
         nominal=nominal,
         scurve=scurve,
     )

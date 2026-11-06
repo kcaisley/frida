@@ -4,6 +4,13 @@
 input, decision and whether the latch had decided, read from a simulation (``analyze_decisions``)
 or captured on the bench (``flow.scans``); the offset, noise and common-mode analyses take it, for
 both.
+
+The comparator inside a converter is seen through the converter's captures, each as its comparator
+sees it (``AnalysisConversions``, which the converter gives): its output at the scope, COMP_OUT,
+against its clock COMP on the bench (``AnalysisScopeEdges``), and in a simulation its SR latch's
+output and its regenerative latch (XC) over each decision (``AnalysisEdgeEye``,
+``AnalysisResponse``). Their maps are each cell's share of what was folded into it, NaN where
+nothing was (a map's empty cell).
 """
 
 from __future__ import annotations
@@ -173,6 +180,142 @@ class AnalysisSamplingNoise(Analysis):
     vin_diff_v: np.ndarray
     decision_probability: np.ndarray
     trial_count: np.ndarray
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisConversions(Analysis):
+    """A converter's capture as its comparator sees it (``adc.analyze_conversions``), where the
+    comparator's analyses of a converter meet its captures, as a CDAC's switching curves meet them
+    in ``AnalysisDecisions``: each record of ``wave`` one conversion (a scope's ``seq_comp`` and
+    ``comp_out``; a simulation's ``clk_comp``, ``comp_out_p``, ``comp.latch_p``, ``comp.latch_n``,
+    ``seq_init``, ``seq_logic``), its ``decisions`` (a clock rise each), the ``sequence`` its
+    testbench programs (INIT, SAMP, COMP and LOGIC's patterns) at ``symbol_rate_hz``, the decisions'
+    spacing it programs (``decision_period_s``; NaN where its clock rises are not evenly spaced), its
+    conversion rate without idle symbols, and its analog and digital supplies."""
+
+    wave: Wave | None
+    sequence: tuple[str, str, str, str]
+    symbol_rate_hz: float
+    decisions: int
+    decision_period_s: float
+    conversion_rate_hz: float
+    vdd_a_v: float
+    vdd_d_v: float
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisScopeEdges(Analysis):
+    """The comparator's output edges in a converter's scope records (the bench's): its clock COMP
+    and its output COMP_OUT as the scope sees them, past the pads, the board and the probes; one
+    sequence and symbol rate, every record one complete conversion.
+
+    Rows of ``clock_edges_s``, ``delays_s`` and ``jitter_s`` are records, columns the decisions of
+    one conversion (B0 first): each COMP rise; the time from it to COMP_OUT's one crossing of its
+    midpoint within the decision (NaN where it has none, ``unchanged``, more than one,
+    ``multiple``, or ends the decision on the other side, ``unsettled``: counts per decision); the
+    rise's distance from its place in the period after B0's.
+
+    COMP_OUT as maps over the voltage's cells (``voltage_v``: their edges): every decision of every
+    record folded at its COMP rise (``eye_share``, on ``eye_time_s``: the cells' edges from the
+    rise), and every record from its B0 rise over the conversion (``timing_share``, on
+    ``timing_time_s``), each cell's share of the decisions or the records. COMP is high from its
+    rise for ``clock_high_s`` (the median), and over the conversion from each decision's
+    ``rise_s`` to its ``fall_s`` after B0's rise (medians over the records). ``response_share``:
+    each decision's delays (a column each) over cells of ``response_s`` (their edges), each cell's
+    share of that decision's timed transitions, and their median, ``response_median_s``.
+    """
+
+    clock_edges_s: np.ndarray
+    delays_s: np.ndarray
+    jitter_s: np.ndarray
+    unchanged: np.ndarray
+    multiple: np.ndarray
+    unsettled: np.ndarray
+    decision_period_s: float
+    conversion_rate_hz: float
+    voltage_v: np.ndarray
+    eye_time_s: np.ndarray
+    eye_share: np.ndarray
+    timing_time_s: np.ndarray
+    timing_share: np.ndarray
+    clock_high_s: float
+    rise_s: np.ndarray
+    fall_s: np.ndarray
+    response_s: np.ndarray
+    response_share: np.ndarray
+    response_median_s: np.ndarray
+
+    @property
+    def decision_count(self) -> int:
+        return self.clock_edges_s.shape[1]
+
+    @property
+    def records(self) -> int:
+        return self.clock_edges_s.shape[0]
+
+    @property
+    def delay_bounds_s(self) -> tuple[float, float]:
+        valid = self.delays_s[np.isfinite(self.delays_s)]
+        return float(valid.min()), float(valid.max())
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisEdgeEye(Analysis):
+    """A simulated converter's comparator over each of its saved conversions (a SPICE capture's
+    internal nets): its SR latch's positive output (``sr_*``) and its regenerative latch's
+    magnitude |P - N| (``xc_*``), as maps over the voltage's cells (``voltage_v``: their edges,
+    -0.1 to 1.1 of the supply ``supply_v``). ``*_eye``: every decision of every conversion folded at
+    its clock's rise (on ``eye_time_s``, the cells' edges from it, -0.1 to 1.1 decision periods);
+    ``*_timing``: every conversion from B0's clock rise to a period after its last decision's (on
+    ``timing_time_s``); each cell's share of the decisions or the conversions.
+
+    ``decision_edge_s`` is each decision's clock rise after B0's, ``fall_s`` its fall (medians over
+    the conversions), ``clock_high_s`` how long the clock is high from a rise (the median), and
+    ``decision_period_s`` the median spacing of the rises.
+    """
+
+    decision_period_s: float
+    decision_edge_s: np.ndarray
+    fall_s: np.ndarray
+    clock_high_s: float
+    supply_v: float
+    records: int
+    voltage_v: np.ndarray
+    eye_time_s: np.ndarray
+    timing_time_s: np.ndarray
+    sr_eye: np.ndarray
+    xc_eye: np.ndarray
+    sr_timing: np.ndarray
+    xc_timing: np.ndarray
+
+
+@dataclass(frozen=True, slots=True)
+class AnalysisResponse(Analysis):
+    """A simulated converter's comparator: each decision's response from its clock's rise, valid at
+    half the supply (NaN where it did not settle in its window): its regenerative latch's
+    (``internal_response_s``: one of its XC nodes below half the analog supply and the other above
+    it before the clock resets) and its SR latch's positive output's (``sr_response_s``: in the half
+    of the rail the XC latch's final polarity asks for, before the next clock rise). An SR output
+    already holding that state at the rise is ``sr_held``, not a response of zero.
+
+    Each as a map over the decisions (a column each, B0 first): ``xc_share`` and ``sr_share`` each
+    decision's responses over cells of ``xc_s`` and ``sr_s`` (their edges), each cell's share of the
+    decision's timed responses; ``xc_median_s`` and ``sr_median_s`` their medians (NaN: none).
+    """
+
+    conversion_index: np.ndarray
+    decision_index: np.ndarray
+    internal_response_s: np.ndarray
+    sr_response_s: np.ndarray
+    sr_held: np.ndarray
+    sample_interval_s: float
+    conversion_rate_hz: float
+    xc_s: np.ndarray
+    xc_share: np.ndarray
+    xc_median_s: np.ndarray
+    sr_s: np.ndarray
+    sr_share: np.ndarray
+    sr_median_s: np.ndarray
 
 
 @dataclass(frozen=True, kw_only=True)

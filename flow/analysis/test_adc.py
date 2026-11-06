@@ -1,6 +1,6 @@
-"""Software-only tests of the ADC's comparator and scope views (``flow.analysis.adc``); the
-converter's own analyses are tested with its block (``flow/adc/test_analysis.py``), whose capture
-builders these take."""
+"""Software-only tests of the ADC's scope view (``flow.analysis.adc``); the converter's own analyses
+are tested with its block (``flow/adc/test_analysis.py``), whose capture builders these take, the
+comparator's views of its captures with the comparator's (``flow/comp/test_analysis.py``)."""
 
 from __future__ import annotations
 
@@ -9,9 +9,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from flow import adc
-from flow.adc.test_analysis import adc_measurement, adc_timing_measurement
-from flow.analysis.adc import analyze_adc_comparator_response, analyze_adc_scope_bits
+from flow.adc.test_analysis import adc_measurement
+from flow.analysis.adc import analyze_adc_scope_bits
 from flow.analysis.types import MeasAdc
 
 
@@ -109,43 +108,3 @@ def test_scope_wave_decode_matches_fastrx_with_normal_and_inverted_probe(
         wave=replace(normal.wave, record_index=np.array([1])),
     )
     assert analyze_adc_scope_bits(later).mismatch_count == 0
-
-
-def test_adc_record_analyses_ignore_high_comp_at_record_boundary() -> None:
-    measurement = adc_timing_measurement()
-    assert measurement.wave is not None
-    clock = measurement.wave.v["clk_comp"].copy()
-    clock[0, 0] = 1.2  # Tail of the preceding conversion, not a new COMP edge.
-    voltage = {**measurement.wave.v, "clk_comp": clock}
-    measurement = replace(measurement, wave=replace(measurement.wave, v=voltage))
-    assert measurement.wave is not None
-
-    timing = adc.analyze_timing_closure(measurement)
-    response = analyze_adc_comparator_response(measurement)
-    np.testing.assert_array_equal(timing.decision_index, np.arange(17))
-    np.testing.assert_array_equal(response.decision_index, np.arange(17))
-
-
-def test_adc_comparator_response_requires_both_xc_rails_and_times_one_sr_output() -> None:
-    measurement = adc_timing_measurement()
-    assert measurement.wave is not None
-    time = measurement.wave.time_s
-    signals = {name: values.copy() for name, values in measurement.wave.v.items()}
-    glitch = (time >= 1.5e-9) & (time < 1.6e-9)
-    signals["comp.latch_p"][0, glitch] = 0.5
-    signals["comp_out_p"][0, glitch] = 0.5
-    not_low_enough = (time >= 5e-9) & (time < 5.8e-9)
-    signals["comp.latch_p"][0, not_low_enough] = 0.7
-    weak_midpoint_decision = (time >= 7.25e-9) & (time < 7.8e-9)
-    signals["comp.latch_p"][0, weak_midpoint_decision] = 0.7
-    signals["comp.latch_n"][0, weak_midpoint_decision] = 0.55
-    del signals["comp_out_n"]
-    result = analyze_adc_comparator_response(replace(measurement, wave=replace(measurement.wave, v=signals)))
-
-    np.testing.assert_array_equal(result.decision_index, np.arange(17))
-    assert result.internal_response_s[0] == pytest.approx(0.595e-9, abs=11e-12)
-    assert result.sr_response_s[0] == pytest.approx(0.595e-9, abs=11e-12)
-    assert result.sr_held[1] and np.isnan(result.sr_response_s[1])
-    assert np.isnan(result.internal_response_s[2])
-    assert np.isfinite(result.sr_response_s[2])
-    assert np.isfinite(result.internal_response_s[3])

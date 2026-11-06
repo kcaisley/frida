@@ -3,7 +3,7 @@ with matplotlib in the style of the analysis plots (``flow.analysis.plots``, ``r
 as the JSON the viewer draws with Plotly; from a sweep run's records or from captures
 (``figures``).
 
-    paths = render(comp.plot_noise_cm(offsets), Path("build/analysis/comp/noise_cm"))
+    paths = render(comp.plot_noise_cm(common_mode), Path("build/analysis/comp/noise_cm"))
 """
 
 from __future__ import annotations

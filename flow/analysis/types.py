@@ -21,9 +21,6 @@ from flow.pipeline import (  # the shared base, used here and re-exported for th
 
 __all__ = [
     "Analysis",
-    "AnalysisAdcCompOutEdgeEye",
-    "AnalysisAdcComparatorEdgeEye",
-    "AnalysisAdcComparatorResponse",
     "AnalysisAdcScopeBits",
     "AnalysisCdacCapMismatch",
     "AnalysisCdacTransition",
@@ -352,84 +349,6 @@ class AnalysisAdcScopeBits(Analysis):
         """Return the FastRX decisions in acquisition order."""
 
         return "".join("1" if bit else "0" for bit in self.fastrx_bits)
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisAdcComparatorResponse(Analysis):
-    """Per-decision rail-valid response times relative to COMP rising edges.
-
-    NaN marks a response that did not settle in the observed window. An SR
-    output that remained valid from the clock edge is marked as held instead
-    of being assigned a zero response time. The final XC rail polarity sets
-    the target SR state, including decisions where the XC rails did not settle
-    across the midpoint before COMP reset.
-    """
-
-    conversion_index: np.ndarray
-    decision_index: np.ndarray
-    internal_response_s: np.ndarray
-    sr_response_s: np.ndarray
-    sr_held: np.ndarray
-    sample_interval_s: float
-    conversion_rate_hz: float
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisAdcComparatorEdgeEye(Analysis):
-    """Simulated comparator traces aligned per conversion and folded per decision.
-
-    The first axis of ``aligned_v`` and ``eye_v`` is the trace: comparator
-    clock, positive SR-latch output, and XC-latch ``|P-N|``. ``aligned_v``
-    rows are conversions on ``aligned_time_s``, relative to B0's COMP rise;
-    ``eye_v`` rows are every conversion's decisions in order on ``eye_phase``,
-    in decision periods. ``decision_edge_s`` is each decision's median COMP
-    rise after B0. NaN lies outside a record.
-    """
-
-    decision_period_s: float
-    decision_edge_s: np.ndarray
-    supply_v: float
-    aligned_time_s: np.ndarray
-    aligned_v: np.ndarray
-    eye_phase: np.ndarray
-    eye_v: np.ndarray
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisAdcCompOutEdgeEye(Analysis):
-    """Scope waveforms and measured COMP-to-COMP_OUT timing for one sequence.
-
-    Rows of ``clock_edges_s``, ``delays_s``, and ``jitter_s`` are captures;
-    columns are the decisions of one conversion. ``aligned_*`` rows are
-    captures on ``aligned_time_s``, relative to each capture's B0 COMP rise.
-    ``eye_*`` rows are every capture's decisions in order, folded on
-    ``eye_phase``, in decision periods from each COMP rise. NaN lies outside
-    a capture.
-    """
-
-    aligned_time_s: np.ndarray
-    aligned_comp_v: np.ndarray
-    aligned_comp_out_v: np.ndarray
-    eye_phase: np.ndarray
-    eye_comp_v: np.ndarray
-    eye_comp_out_v: np.ndarray
-    clock_edges_s: np.ndarray
-    delays_s: np.ndarray
-    jitter_s: np.ndarray
-    unchanged: np.ndarray
-    multiple: np.ndarray
-    unsettled: np.ndarray
-    decision_period_s: float
-    conversion_rate_hz: float
-
-    @property
-    def decision_count(self) -> int:
-        return self.clock_edges_s.shape[1]
-
-    @property
-    def delay_bounds_s(self) -> tuple[float, float]:
-        valid = self.delays_s[np.isfinite(self.delays_s)]
-        return float(valid.min()), float(valid.max())
 
 
 # CDAC analyses
