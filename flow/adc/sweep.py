@@ -543,9 +543,10 @@ def _ladder(captures: dict[str, MeasAdc]) -> AnalysisLadder | None:
 def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
     """The campaign's captures, converted and kept in memory, and their record (``record``), with
     the reference's requirements the converter sets (``Model.reference_requirements``, apart from
-    its own ENOB: its metrics ``ref_*`` and its figures) and the model's own metrics: the viewer
-    shows the figures (the record's details) and no waveform of an ADC instance, so no capture is
-    written (a run is its ``instance.json``)."""
+    its own ENOB: its metrics ``ref_*`` and its figures) and the model's own metrics (among them its
+    DAC's full scale over the reference, and the energy its drivers draw, none: it is not
+    characterized): the viewer shows the figures (the record's details) and no waveform of an ADC
+    instance, so no capture is written (a run is its ``instance.json``)."""
     from .model import Model
 
     model = Model.of(pdk, params)
@@ -576,7 +577,13 @@ def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
         "stages": float(model.stages),  # the switched capacitors a side
         "decisions": float(model.stages + 1),  # a conversion's comparator decisions
         "full_scale_v": model.full_scale_v,
+        # the DAC's full scale over its reference: its plates are sized for a full scale of the
+        # reference, so their quantization noise over the sampled kT/C is the scale times this
+        "full_scale_over_reference": model.full_scale_v / model.supply_v,
         "settling_tau_s": model.settling_tau_s,
+        # the energy the DAC's drivers draw a bottom-plate transition: none, as its characterization
+        # saves no supply current to measure it by
+        "dac_driver_energy_j": model.cdac.behavioral().driver_energy_j,
         "comp_noise_v": model.comp.noise_v,
         "comp_delay_s": model.comp.delay_s,
         **model.metastability(),

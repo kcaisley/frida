@@ -189,10 +189,11 @@ class Reference:
 IDEAL_REFERENCE = Reference()
 # what ``flow.adc.model.Model.behavioral``'s ``quiet`` silences or makes ideal
 QUIET = frozenset({"sampler", "sampling", "comparator", "comparator_noise"})
-# the array a converter calibrates on (``flow.adc.model.Model.drawn``): of its CDAC's Monte Carlo
-# (``flow.cdac``), the middle condition's draw (0.5 %·sqrt(fF), 50 ppm/mm) at the 90th percentile
-# of what no calibration recovers
-DRAWN_RUN = "mc_a5_g50"
+# the array a converter calibrates on (``flow.adc.model.Model.drawn``): of its DAC's Monte Carlo
+# (``flow.capdac.sweep.runs``), the middle condition's draw (0.5 %·sqrt(fF); no gradient, as its
+# plates stand at no place until the layout places them) at the 90th percentile of what no
+# calibration recovers
+DRAWN_RUN = "mc_a5"
 DRAWN_PERCENTILE = 90.0
 
 # The reference study (``flow.adc.model.Model.reference_requirements``): the share of the

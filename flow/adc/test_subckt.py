@@ -5,14 +5,13 @@ import shutil
 from pathlib import Path
 
 import hdl21 as h
-import numpy as np
 import pytest
 from pydantic import ValidationError
 
 from flow import capdac
 
 from .params import Params
-from .subckt import Adc, calc_ideal_capacitances, digital_net_aliases
+from .subckt import Adc, digital_net_aliases
 
 
 def test_adc():
@@ -43,13 +42,6 @@ def test_invalid_adc_params_are_refused_when_made():
 def test_adc_takes_a_sixteen_stage_array_of_another_resolution():
     params = Params(adc_bits=14, cdac=capdac.Params(bits=14, redundancy=capdac.Redundancy.LSB_SPLIT, extra=3))
     assert Adc(params).dac_state_p.width == 16
-
-
-def test_the_ideal_plates_main_less_diff_are_the_weights() -> None:
-    cdac = capdac.Params()
-    main_f, diff_f = calc_ideal_capacitances(cdac, 1.2)
-    weights = capdac.Model.weights(cdac)
-    np.testing.assert_allclose((main_f - diff_f) * sum(weights) / np.sum(main_f - diff_f), weights)
 
 
 def _tsmc65_cells() -> bool:

@@ -5,18 +5,20 @@ generator takes (``Params``), switched by its SAR loop (``convert_behavioral``, 
     tb = model.tb(conversions=8192, rate_hz=10e6, vin_diff=h.Vsin.Params(...))
     model.capture(tb, path)  # a MeasAdc, as a SPICE capture of the same TbParams writes one
 
-The blocks: the comparator (``flow.comp.model``), the sampling switch (``flow.samp.model``), the
-capacitor array (``flow.cdac.caparray.model``) and its drivers (``flow.cdac.capdriver.model``, derived from the
-array's plates: ``flow.cdac.capdriver.model.driver_strengths``), each from its own characterization or
-extraction in the PDK; the DAC's settling, stage by stage, from the SPICE characterization of the
-array with its drivers (``flow.cdac.model``, of the converter's array at its resolution,
-``cdac.adc_array``, by the array's name: ``python -m flow run cdac`` runs it ahead), or, where there is none, estimated
-from the drivers' resistance and delay with a warning. The converter's DAC is a ``capdac.Params``;
-these legacy characterizations are of the same array (``flow.adc.subckt._legacy_array``) until the
-model composes capdac's own. The SAR logic is the fixed digital netlist built by
-OpenROAD: it is not characterized, so its energies are the ones fitted to the FRIDA-2 three-layer
-PEX transient (``_SALOGIC``). The DAC's reference is ideal here, the front end's own characterization;
-a ``Reference`` (driver resistance, decoupling capacitance, noise) is what the reference study
+The blocks: the comparator (``flow.comp.model``), the sampling switch (``flow.samp.model``) and the
+capacitive DAC with its drivers (``flow.capdac.model``), each from its own SPICE characterization in
+the PDK, looked up by the same parameters its netlist generator takes. The DAC's is looked up and
+never run here (minutes of SPICE an array, which every converter on the array would wait for:
+``python -m flow run capdac`` runs it ahead); where there is none, the DAC converts as designed
+(``capdac.Model.design``), with a warning. Its plates are its design's at the reference they are
+drawn for, loaded by the rest of the drawn top plate (its measured gain); each stage's step starts
+its driver's delay after the LOGIC edge and settles with its own time constant, as measured; and
+the converter calibrates on one of its Monte Carlo draws (``Model.drawn``). Its drivers' energy is
+not characterized (its settling run saves no supply current): they draw none here, which the
+record states. The SAR logic is the fixed digital netlist built by OpenROAD: it is not
+characterized, so its energies are the ones fitted to the FRIDA-2 three-layer PEX transient
+(``_SALOGIC``). The DAC's reference is ideal here, the front end's own characterization; a
+``Reference`` (driver resistance, decoupling capacitance, noise) is what the reference study
 (``Model.reference_requirements``, below) varies to find the reference buffer's requirements.
 
 The SAR loop (``convert_behavioral``) runs four blocks driven by HDL21 parameters. The sampler, the
@@ -43,7 +45,8 @@ converter's metrics ``ref_*``, so the reference buffer is specified by the conve
 not part of the converter's ENOB (its front end's, on an ideal reference).
 
 - The decoupling the reference node has: decap cells over ``DECAP_COVERAGE`` of the converter's
-  footprint (taken as its two capacitor arrays'), the supplies shared, at the PDK's decap density
+  footprint (taken as its DAC's two sides', each side's layout with its drivers), the supplies
+  shared, at the PDK's decap density
   (``DECAP_FF_PER_UM2`` in its ``pdk_logic``), rounded to one significant figure
   (``ref_decap_f``).
 - Kickback: each switch draws its charge from that capacitance and the buffer restores it through
@@ -72,17 +75,14 @@ import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from functools import cache
 from pathlib import Path
 
 import hdl21 as h
 import numpy as np
 
-import flow.cdac.model as cdac_model
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
 from flow import capdac
-from flow import cdac as cdac_block  # the CDAC block; ``cdac`` here is the behavioral array's switching
 from flow.adc.analysis import analyze_dynamic
 from flow.adc.params import (
     DECAP_COVERAGE,
@@ -103,21 +103,10 @@ from flow.adc.params import (
     TbParams,
 )
 from flow.adc.sim import AdcSequence, build_adc_interface_wave, calc_source_value
-from flow.adc.subckt import _legacy_array, calc_side_capacitances
+from flow.adc.subckt import calc_side_capacitances
 from flow.adc.types import AnalysisReference
 from flow.analysis.io import read_extracted_calibration, write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
-from flow.cdac.caparray.layout import array_name
-from flow.cdac.caparray.model import CapArrayModel
-from flow.cdac.capdriver.model import CapDriverModel, driver_strengths, stage_drivers
-from flow.cdac.capdriver.subckt import CapDriverParams, Cells
-from flow.pipeline import Space
-
-
-@cache
-def _cdac_arrays(pdk: str) -> dict[str, Space]:
-    """The PDK's CDACs by their arrays' names (``cdac.adc_array``), built once a process."""
-    return cdac_block.adc_array.spaces(pdk)
 
 
 @h.paramclass
@@ -157,45 +146,29 @@ _SALOGIC = SalogicBehavioralParams(clock_energy_j=25.5e-15, write_energy_j=31.9e
 
 @dataclass(frozen=True)
 class Model:
-    """A SAR ADC's blocks, as their characterizations and extractions measured them."""
+    """A SAR ADC's blocks, as their characterizations measured them."""
 
     pdk: str
     params: Params
     comp: comp_model.Model
     samp: samp_model.Model
-    cdac: CapArrayModel
-    drivers: tuple[CapDriverModel, ...]
-    settling: cdac_model.Model | None = None  # the DAC's SPICE settling by stage; None: the RC estimate
-    # the plates the converter calibrates on, (main, diff) for the P side then the N side: its CDAC's
+    cdac: capdac.Model  # its DAC, its drivers with it: as characterized, else as designed
+    # the plates the converter calibrates on, (main, diff) for the P side then the N side: its DAC's
     # Monte Carlo draw (DRAWN_RUN at DRAWN_PERCENTILE, drawn in SPICE); None where none is characterized
     drawn: tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]] | None = None
 
     @classmethod
     def of(cls, pdk: str, params: Params, *, simulate: bool = True) -> Model:
-        # the legacy characterizations of the converter's array
-        legacy = _legacy_array(params.cdac)
-        array = CapArrayModel.of(pdk, legacy)
-        # the drivers the array's plates call for (flow.cdac.capdriver.model.driver_strengths)
-        strengths = driver_strengths(pdk, legacy, array, simulate=simulate)
-        driver = CapDriverParams(n_stages=len(array.main_f), strengths=strengths, cells=Cells.GENERIC)
-        # the DAC's characterization, of the converter's array at its resolution, is looked up, never
-        # run here (minutes of SPICE an array, which every converter on the array would wait for)
+        # the DAC's characterization is looked up, never run here (minutes of SPICE an array, which
+        # every converter on the array would wait for); where there is none, the DAC as designed
         try:
-            dac = _cdac_arrays(pdk)[array_name(legacy)].base
-            if dac.adc_bits != params.adc_bits:
-                raise LookupError(
-                    f"the CDAC is characterized at {dac.adc_bits} bits, the converter has {params.adc_bits}"
-                )
-            settling = cdac_model.Model.of(pdk, dac, simulate=False)
+            dac = capdac.Model.of(pdk, params.cdac, simulate=False)
         except (KeyError, LookupError, RuntimeError) as error:
-            warnings.warn(
-                f"the DAC's settling is not characterized ({error}); it settles by the RC estimate instead",
-                stacklevel=2,
-            )
-            dac, settling = None, None
+            warnings.warn(f"the DAC is not characterized ({error}); it converts as designed instead", stacklevel=2)
+            dac = capdac.Model.design(pdk, params.cdac)
         try:
-            drawn = cdac_model.Model.drawn(pdk, dac, DRAWN_RUN, DRAWN_PERCENTILE) if dac is not None else None
-        except (KeyError, LookupError, OSError) as error:
+            drawn = capdac.Model.drawn(pdk, params.cdac, DRAWN_RUN, DRAWN_PERCENTILE)
+        except (KeyError, LookupError, OSError, RuntimeError) as error:
             warnings.warn(
                 f"the DAC's Monte Carlo is not characterized ({error}); its draws convert nominal", stacklevel=2
             )
@@ -205,9 +178,7 @@ class Model:
             params=params,
             comp=comp_model.Model.of(pdk, params.comp, simulate=simulate),
             samp=samp_model.Model.of(pdk, params.samp, simulate=simulate),
-            cdac=array,
-            drivers=stage_drivers(pdk, driver, np.maximum(array.main_f, array.diff_f), simulate=simulate),
-            settling=settling,
+            cdac=dac,
             drawn=drawn,
         )
 
@@ -220,33 +191,32 @@ class Model:
         return importlib.import_module(f"pdk.{self.pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
 
     @property
+    def load_f(self) -> float:
+        """Each top plate's whole load: its DAC's plates and the rest of the drawn top plate (the
+        parasitic at which they give the measured gain)."""
+        dac = self.cdac.behavioral()
+        return float(np.sum(dac.main_p_f) + np.sum(dac.diff_p_f)) + dac.parasitic_f
+
+    @property
     def full_scale_v(self) -> float:
         """The differential full scale (+-): the reference across the switched plates' share of the
         top plate, main less difference with the difference plates in use."""
-        effective = float(np.sum(self.cdac.main_f) - np.sum(self.cdac.diff_f))
-        return self.supply_v * effective / self.cdac.load_f
+        dac = self.cdac.behavioral()
+        effective = float(np.sum(dac.main_p_f) - np.sum(dac.diff_p_f))
+        return self.supply_v * effective / self.load_f
 
     @property
     def stage_tau_s(self) -> tuple[float, ...]:
         """Each stage's top-plate settling time constant, C0 first: the one that brings its step
-        within half an LSB when SPICE does (``flow.cdac.model``); without that characterization, its
-        driver through its plate in series with the rest of the load, the slower of its main and
-        difference plates."""
-        if self.settling is not None:
-            return self.settling.tau_s
-        load = self.cdac.load_f
-        return tuple(
-            max(driver.resistance_ohm * plate * (load - plate) / load for plate in (main, diff))
-            for driver, main, diff in zip(self.drivers, self.cdac.main_f, self.cdac.diff_f, strict=True)
-        )
+        within half an LSB when SPICE does (``flow.capdac.model``); as designed, the one its drivers
+        are sized for."""
+        return self.cdac.tau_s
 
     @property
     def stage_delay_s(self) -> tuple[float, ...]:
         """Each stage's delay from the LOGIC edge until its step starts, C0 first: its driver's delay
-        to 50 % in SPICE (``flow.cdac.model``); without it, its driver's intrinsic delay."""
-        if self.settling is not None:
-            return self.settling.delay_s
-        return tuple(driver.intrinsic_delay_s for driver in self.drivers)
+        to 50 % in SPICE (``flow.capdac.model``); none as designed."""
+        return self.cdac.delay_s
 
     @property
     def settling_tau_s(self) -> float:
@@ -255,8 +225,9 @@ class Model:
 
     @property
     def decoupling_f(self) -> float:
-        """The reference node's decoupling: decap cells over ``DECAP_COVERAGE`` of the two arrays'
-        footprint at the PDK's density, to one significant figure; NaN where the PDK gives none."""
+        """The reference node's decoupling: decap cells over ``DECAP_COVERAGE`` of the footprint of the
+        DAC's two sides (each side's layout, its drivers with it) at the PDK's density, to one
+        significant figure; NaN where the PDK gives none or the DAC is not laid out."""
         density = getattr(importlib.import_module(f"pdk.{self.pdk}.hdl21").pdk_logic, "DECAP_FF_PER_UM2", math.nan)
         capacitance_f = DECAP_COVERAGE * 2 * self.cdac.area_um2 * density * 1e-15
         return float(f"{capacitance_f:.0e}") if capacitance_f > 0 else math.nan
@@ -293,26 +264,34 @@ class Model:
         reference: Reference | None = None,
         drawn: bool = False,
     ) -> AdcBehavioralParams:
-        """The behavioral ADC: the CDAC's SPICE draw where ``drawn`` (``Model.drawn``; nominal
-        where there is none), else one capacitor draw from ``seed`` (none where ``unit_mismatch`` is 0);
-        ``quiet`` silences the "sampling" noise (kT/C and the aperture jitter) or the comparator's
-        noise alone ("comparator_noise": its delay stays, so a late decision
-        still holds the last bit), or makes the "comparator" ideal (no noise, never late) or the
-        "sampler" a perfect track-and-hold (no on-resistance, so no tracking error: its noise is
-        "sampling"'s). Each stage's step starts its delay after the LOGIC edge (the SAR register's
-        clock-to-output is not modeled) and settles with the stage's time constant, times
+        """The behavioral ADC: the DAC's SPICE draw where ``drawn`` (``Model.drawn``; nominal where
+        there is none), else one Pelgrom draw of its plates from ``seed``, the P side then the N side,
+        each its main then its difference plates (none where ``unit_mismatch`` is 0, which takes
+        nothing from the seed's stream); ``quiet`` silences the "sampling" noise (kT/C and the
+        aperture jitter) or the comparator's noise alone ("comparator_noise": its delay stays, so a
+        late decision still holds the last bit), or makes the "comparator" ideal (no noise, never
+        late) or the "sampler" a perfect track-and-hold (no on-resistance, so no tracking error: its
+        noise is "sampling"'s). Each stage's step starts its delay after the LOGIC edge (the SAR
+        register's clock-to-output is not modeled) and settles with the stage's time constant, times
         ``tau_scale`` (0: ideal, every step whole at once)."""
         if unknown := set(quiet) - QUIET:
             raise ValueError(f"nothing to quiet by {sorted(unknown)}: expected some of {sorted(QUIET)}")
         rng = np.random.default_rng(seed)
-        plates = {}
-        for index, side in enumerate(("p", "n")):
-            if drawn:
-                main, diff = self.drawn[index] if self.drawn is not None else (self.cdac.main_f, self.cdac.diff_f)
-            else:
-                main, diff = self.cdac.draw(unit_mismatch=unit_mismatch, rng=rng)
-            plates |= {f"main_{side}_f": tuple(map(float, main)), f"diff_{side}_f": tuple(map(float, diff))}
-        samp = self.samp.behavioral(load_f=self.cdac.load_f)
+        nominal = self.cdac.behavioral()
+        plates = (np.asarray(nominal.main_p_f), np.asarray(nominal.diff_p_f))
+        if drawn:
+            sides = self.drawn if self.drawn is not None else (plates, plates)
+        elif unit_mismatch:
+            # the P side's main and difference plates, then the N side's
+            main_p, diff_p, main_n, diff_n = (
+                capdac.Model.draw(plate_f, pelgrom=unit_mismatch, rng=rng) for plate_f in (*plates, *plates)
+            )
+            sides = ((main_p, diff_p), (main_n, diff_n))
+        else:
+            sides = (plates, plates)
+        # the plates the DAC switches, at the parasitic of its drawn gain, its delays and time constants
+        dac = self.cdac.behavioral(sides)
+        samp = self.samp.behavioral(load_f=self.load_f)
         comp = self.comp.behavioral(vin_cm_v=float(tb.vin_cm.dc))
         if "sampling" in quiet:
             samp = type(samp)(**{**samp.__dict__, "noise_v": 0.0, "jitter_s": 0.0})
@@ -337,17 +316,18 @@ class Model:
             tb=tb,
             samp=samp,
             comp=comp,
+            # its drivers draw no energy: capdac does not characterize it
             cdac=capdac.Model.Behavioral(
-                **plates,
-                parasitic_f=self.cdac.parasitic_f,
-                settling_tau_s=self.settling_tau_s * tau_scale,
-                stage_tau_s=tuple(tau_s * tau_scale for tau_s in self.stage_tau_s),
-                # ideal settling: the drivers' delay goes too
-                stage_delay_s=tuple(delay_s if tau_scale else 0.0 for delay_s in self.stage_delay_s),
-                driver_energy_j=float(np.mean([driver.energy_j for driver in self.drivers])),
-                reference_r_ohm=(reference or IDEAL_REFERENCE).r_ohm,
-                reference_c_f=(reference or IDEAL_REFERENCE).c_f,
-                reference_noise_v=(reference or IDEAL_REFERENCE).noise_v,
+                **{
+                    **dac.__dict__,
+                    "settling_tau_s": self.settling_tau_s * tau_scale,
+                    "stage_tau_s": tuple(tau_s * tau_scale for tau_s in self.stage_tau_s),
+                    # ideal settling: the drivers' delay goes too
+                    "stage_delay_s": tuple(delay_s if tau_scale else 0.0 for delay_s in self.stage_delay_s),
+                    "reference_r_ohm": (reference or IDEAL_REFERENCE).r_ohm,
+                    "reference_c_f": (reference or IDEAL_REFERENCE).c_f,
+                    "reference_noise_v": (reference or IDEAL_REFERENCE).noise_v,
+                }
             ),
             salogic=_SALOGIC,
             seed=seed,
@@ -367,8 +347,10 @@ class Model:
         drawn: bool = False,
     ) -> MeasAdc:
         """Convert every conversion of ``tb`` and write the MeasAdc with its supply power to ``path``
-        (kept in memory alone where it is None); its ``cap_table`` readback is the array's
-        extraction, the decoding's "extracted" weights. ``quiet``, ``tau_scale``, ``reference`` and
+        (kept in memory alone where it is None); its ``cap_table`` readback names the decoding's
+        "extracted" weights: the measurement the DAC's characterization keeps of its settling run,
+        each stage's step as measured (``flow.analysis.io.read_extracted_calibration``), none where
+        the DAC is designed alone (its design weights). ``quiet``, ``tau_scale``, ``reference`` and
         ``drawn``: as ``behavioral``'s."""
 
         params = self.behavioral(
@@ -397,7 +379,7 @@ class Model:
         # active power averages one conversion window, as for SPICE captures
         active_rate_hz = float(tb.symbol_rate) / AdcSequence.from_tb_params(tb).conversion_symbols
         readbacks: dict[str, str | int | float | bool] = {
-            "cap_table": str(self.cdac.table),
+            "cap_table": str(self.cdac.settling_meas or ""),
             "unit_mismatch": unit_mismatch,
             "drawn": bool(drawn and self.drawn is not None),
             "tau_scale": tau_scale,

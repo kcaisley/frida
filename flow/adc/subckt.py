@@ -33,10 +33,9 @@ Register 0 drives C0, as in the RTL. The netlist is cached beside the blocks' ch
 
 The converter's DAC is a ``capdac.Params``; until the netlist moves to ``capdac.netlist``, its
 arrays and drivers are the legacy generators' (``flow.cdac.caparray``, ``flow.cdac.capdriver``) of the
-same array (``_legacy_array``), which the behavioral model's characterization and the layout read
-too. The plates the arrays have: ``calc_ideal_capacitances``, the plates capdac designs at a reference
-(``capdac.Model.plates``), and ``calc_side_capacitances``, one side's as a behavioral DAC
-(``flow.adc.model``) gives them, the designed ones where it gives none.
+same array (``_legacy_array``), which the sweep's layout of the blocks still reads. One side's
+plates as a behavioral DAC (``flow.adc.model``) gives them: ``calc_side_capacitances``, the plates
+capdac designs at the testbench's DAC supply (``capdac.Model.plates``) where it gives none.
 
 The ADC's analog blocks alone (``AdcBlocks``: the comparator, and a sampler and an array a side),
 whose geometry the sweep's records give (``flow.adc.sweep.GENERATOR``).
@@ -138,14 +137,13 @@ def adc_stages(param: Params) -> int:
 
 
 def _legacy_array(cdac: capdac.Params) -> CapArrayConfig:
-    """The legacy array (``flow.cdac.caparray``) of the converter's DAC, which its netlist, the
-    behavioral model's characterization and the layout build on until they move to capdac: the DAC's
-    N - 1 binary steps, its extra cycles, its scheme by name, its capacitance in kT/C minimums and an
-    array's own weights. The legacy array has no build of unit capacitors. It takes no coarse weight:
-    the netlist (``Adc``, ``AdcBlocks``) builds it at ``CapArrayParams``' default of 64 units, the
-    one ``cdac.coarse_weight`` must hold (capdac's default), and the extraction and layout the model
-    and ``assemble_blocks`` read were drawn at the split their own sizing chose
-    (``flow.cdac.caparray.sizing``)."""
+    """The legacy array (``flow.cdac.caparray``) of the converter's DAC, which its netlist and the
+    layout build on until they move to capdac: the DAC's N - 1 binary steps, its extra cycles, its
+    scheme by name, its capacitance in kT/C minimums and an array's own weights. The legacy array
+    has no build of unit capacitors. It takes no coarse weight: the netlist (``Adc``, ``AdcBlocks``)
+    builds it at ``CapArrayParams``' default of 64 units, the one ``cdac.coarse_weight`` must hold
+    (capdac's default), and the layout ``assemble_blocks`` reads was drawn at the split its own
+    sizing chose (``flow.cdac.caparray.sizing``)."""
     if cdac.weight_impl is not capdac.WeightImpl.DIFFERENCE_CAPS:
         raise ValueError(f"the legacy array has no build of unit capacitors: {cdac}")
     if cdac.coarse_weight != 64:
@@ -285,23 +283,15 @@ def _place(blocks: h.Module, module: h.Module, name: str) -> None:
     blocks.add(module(**connections), name=name)
 
 
-# The arrays' plates: as capdac designs them, and one side's as the behavioral DAC
-# (``flow.adc.model``) gives them
-
-
-def calc_ideal_capacitances(cdac: capdac.Params, reference_v: float) -> tuple[np.ndarray, np.ndarray]:
-    """Return the C0-first main and diff capacitances of ``cdac`` as designed at the reference
-    ``reference_v`` (``capdac.Model.plates``): each side ``scale`` kT/C minimums at a full scale of
-    the reference, a stage's main less its diff plates its weight in units."""
-    return capdac.Model.plates(cdac, reference_v)
+# One side's plates as the behavioral DAC (``flow.adc.model``) gives them
 
 
 def calc_side_capacitances(behavioral: object, tb: TbParams, side: str) -> tuple[np.ndarray, np.ndarray]:
-    """Return one side's main and diff capacitances, as designed at the testbench's DAC supply where
-    not given: ``behavioral`` is the behavioral DAC (``capdac.Model.Behavioral``), read by
-    attribute."""
+    """Return one side's main and diff capacitances, as capdac designs them at the testbench's DAC
+    supply where not given (``capdac.Model.plates``): ``behavioral`` is the behavioral DAC
+    (``capdac.Model.Behavioral``), read by attribute."""
 
-    ideal_main_f, ideal_diff_f = calc_ideal_capacitances(tb.dut.cdac, float(tb.vdd_dac.dc))
+    ideal_main_f, ideal_diff_f = capdac.Model.plates(tb.dut.cdac, float(tb.vdd_dac.dc))
     main = getattr(behavioral, f"main_{side}_f")
     diff = getattr(behavioral, f"diff_{side}_f")
     return (

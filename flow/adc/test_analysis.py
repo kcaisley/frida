@@ -2226,8 +2226,9 @@ def test_threshold_calibration_uses_common_weight_plot(
 
 
 def _stub_model(table: Path, params: Params):
-    """An ADC model of ideal blocks of known impairments, the array's ideal capacitances in an
-    extraction's table, at a 1.2 V supply (no PDK)."""
+    """An ADC model of ideal blocks of known impairments at a 1.2 V supply (no PDK): its DAC's plates
+    as designed there and a table of them as its extraction, each stage's step 50 ps late and
+    settling with 0.35 ns."""
     from flow.adc import model
 
     class Stub(model.Model):
@@ -2236,7 +2237,8 @@ def _stub_model(table: Path, params: Params):
     main_f, diff_f = capdac.Model.plates(params.cdac, 1.2)
     rows = (f"{i},{m * 1e15:.6f},{d * 1e15:.6f},{(m - d) * 1e15:.6f}\n" for i, (m, d) in enumerate(zip(main_f, diff_f)))
     table.write_text("stage,main_ff,diff_ff,effective_ff\n" + "".join(rows))
-    load_f = float(np.sum(main_f) + np.sum(diff_f))
+    stages = len(main_f)
+    full_scale_v = 1.2 * float(np.sum(main_f - diff_f) / np.sum(main_f + diff_f))
     return Stub(
         pdk="none",
         params=params,
@@ -2255,16 +2257,19 @@ def _stub_model(table: Path, params: Params):
                 ron_table_ohm=(750.0, 1500.0, 750.0),
             )
         ),
-        cdac=SimpleNamespace(
-            draw=lambda unit_mismatch, rng: (main_f, diff_f),
-            parasitic_f=0.0,
-            main_f=main_f,
-            diff_f=diff_f,
-            load_f=load_f,
-            table=table,
+        # its extracted weights the table's (``flow.analysis.io.read_extracted_calibration``)
+        cdac=capdac.Model(
+            pdk="none",
+            params=params.cdac,
+            reference_v=1.2,
+            settling_s=(1e-9,) * stages,
+            delay_s=(50e-12,) * stages,
+            tau_s=(0.35e-9,) * stages,
+            lsb_v=2 * full_scale_v / 2**params.adc_bits,
+            gain=1.0,
+            area_um2=math.nan,
+            settling_meas=table,
         ),
-        drivers=tuple(SimpleNamespace(resistance_ohm=1.0, intrinsic_delay_s=20e-12, energy_j=0.0) for _ in main_f),
-        settling=SimpleNamespace(tau_s=(0.35e-9,) * len(main_f), delay_s=(50e-12,) * len(main_f)),
     )
 
 
