@@ -54,13 +54,14 @@ from flow.adc.analysis import (
 )
 from flow.adc.model import AdcBehavioralParams, CdacBehavioralParams
 from flow.adc.params import LADDER, LADDER_NAMES, Params, TbParams
+from flow.adc.plots import plot_redundancy
 from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.adc.subckt import calc_ideal_capacitances
 from flow.adc.sweep import _extracted, _ladder, campaign
-from flow.adc.types import AnalysisMismatch
+from flow.adc.types import AnalysisMismatch, AnalysisRedundancy
 from flow.analysis.calc import calc_drawn_linearity, calc_paths
 from flow.analysis.cdac import analyze_cdac_cap_mismatch, analyze_cdac_decisions, analyze_cdac_transition
-from flow.analysis.plots import plot_adc_calibration_weights, plot_adc_redundancy
+from flow.analysis.plots import plot_adc_calibration_weights
 from flow.analysis.test_cdac import comparator_offset
 from flow.analysis.types import (
     AnalysisCdacCapMismatch,
@@ -72,8 +73,15 @@ from flow.analysis.types import (
 )
 from flow.cdac.caparray.model import calc_capacitor_mismatch
 from flow.cdac.caparray.subckt import CapArrayConfig, RedunStrat, get_caparray_weights
+from flow.plot import render
 from flow.scans.params import AdcScanParams
 from flow.scans.scan_cdac import _build_cdac_params
+
+
+def redundancy_of(margins: np.ndarray) -> AnalysisRedundancy:
+    """A redundancy result of bare margins (``_redundancy_margins``), as ``analyze_redundancy`` gives
+    one, the design's and the calibration's the same."""
+    return AnalysisRedundancy(group=None, index=None, dut=None, design_pct=margins, calibrated_pct=margins)
 
 
 def test_redundancy_calculator(tmp_path: Path) -> None:
@@ -85,7 +93,10 @@ def test_redundancy_calculator(tmp_path: Path) -> None:
     assert _redundancy_margins((8, 4, 2, 1, 1)).tolist() == pytest.approx((6.25, 12.5, 25.0, 50.0, 0.0))
     with pytest.raises(ValueError, match="positive SAR weights"):
         _redundancy_margins((4, 0, 1))
-    (path,) = plot_adc_redundancy(margins, output_path=tmp_path / "single")
+    # drawn by the redundancy figure, a point a stage
+    figure = plot_redundancy(redundancy_of(margins))
+    assert figure.x == [0.0, 1.0, 2.0, 3.0] and figure.series == {"Design weights": [30.0, 16.6667, 0.0, 0.0]}
+    (path,) = render(figure, tmp_path / "single")
     assert path.read_bytes().startswith(b"%PDF")
 
 
@@ -106,16 +117,17 @@ def test_14_bit_weight_comparison(tmp_path: Path) -> None:
     assert np.all(redistributed_18_margin[:14] > 0)
     assert np.all(redistributed_20_margin[:16] > 0)
 
-    (path,) = plot_adc_redundancy(
-        {
-            "14-bit binary": binary_margin,
-            "14-bit redistributed (18 stages)": redistributed_18_margin,
-            "14-bit redistributed (20 stages)": redistributed_20_margin,
-        },
-        output_path=tmp_path / "redundancy",
-    )
-    assert path.name == "redundancy.pdf"
-    assert path.read_bytes().startswith(b"%PDF")
+    # each array its own figure (one curve a plot: compared, they overlay as instances)
+    for name, margin in (
+        ("binary", binary_margin),
+        ("redistributed_18", redistributed_18_margin),
+        ("redistributed_20", redistributed_20_margin),
+    ):
+        figure = plot_redundancy(redundancy_of(margin))
+        assert figure.x == [float(stage) for stage in range(len(margin))] and figure.x_ticks == "step"
+        (path,) = render(figure, tmp_path / f"redundancy_{name}")
+        assert path.name == f"redundancy_{name}.pdf"
+        assert path.read_bytes().startswith(b"%PDF")
 
 
 def ideal_sar_codes(weights: list[int]) -> tuple[np.ndarray, np.ndarray]:
