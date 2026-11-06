@@ -2,7 +2,7 @@
 
 | Feature | Status | File | Notes |
 |---|---|---|---|
-| Netlist generator | ✓ | [subckt.py](subckt.py), [digital.py](digital.py) | Any stage count: FRIDA's hardened 16-stage digital block, or the same RTL synthesized for the array's count (yosys onto the TSMC65 LVT cells, no placement or clock tree; C0 on register 0); the extracted views stay 16. Driver/array separation remains partial. |
+| Netlist generator | ✓ | [subckt.py](subckt.py) | Any stage count: FRIDA's hardened 16-stage digital block, or the same RTL synthesized for the array's count (yosys onto the TSMC65 LVT cells, no placement or clock tree; C0 on register 0); the extracted views stay 16, their ports and observations bound to the canonical nets in the same file. Driver/array separation remains partial. |
 | Netlist tests | ✓ | [test_subckt.py](test_subckt.py) | Hierarchy, interfaces, and stage conventions. |
 | Testbench generator | ✓ | [sim.py](sim.py) | Generated ADC and extracted FRIDA-1/2 views. |
 | Simulation runners | ✓ | [sim.py](sim.py) | Named timing and noise campaigns; require explicit PDK/extraction inputs. |

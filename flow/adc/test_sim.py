@@ -219,6 +219,32 @@ def test_c0_rename_preserves_the_physical_initialization_voltages() -> None:
             assert float(getattr(new, f"v{bus}_{stage}").of.params.dc) == pytest.approx(1.2 * state)
 
 
+def test_all_adc_views_expose_the_same_analysis_waveforms():
+    observations = []
+    for view in ("hdl21gen", "frida1", "frida2"):
+        pex = PEX_FIXTURES.get(view)
+        tb = sim.AdcTb(sim.AdcTbParams(view=view, pex_cell="adc_12b_17step" if pex else ""), pex_netlist=pex)
+        observations.append(set(sim.adc_signal_names(tb, view).values()))
+    assert observations[0] == observations[1] == observations[2]
+    for side in ("p", "n"):
+        for kind in ("", "_diff"):
+            for stage in range(16):
+                assert f"dac_botplate_{side}{kind}[{stage}]" in observations[0]
+
+
+@pytest.mark.parametrize("fault", ("missing", "duplicate"))
+def test_pex_observations_reject_incomplete_or_ambiguous_bindings(monkeypatch, fault):
+    tb = sim.AdcTb(sim.AdcTbParams(view="frida2", pex_cell="adc_12b_17step"), pex_netlist=PEX_FIXTURES["frida2"])
+    aliases = sim.frida2_net_aliases()
+    if fault == "missing":
+        del aliases[sim.AdcNets.vdac_p]
+    else:
+        aliases[sim.AdcNets.vdac_p] = aliases[sim.AdcNets.vdac_n]
+    monkeypatch.setattr(sim, "frida2_net_aliases", lambda: aliases)
+    with pytest.raises((KeyError, ValueError)):
+        sim.adc_signal_names(tb, "frida2")
+
+
 def test_supply_noise_testbench_repeats_independent_rail_networks() -> None:
     params = sim.AdcTbParams(
         view="frida1",

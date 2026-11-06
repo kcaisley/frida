@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from flow.cdac.caparray import CapArrayConfig, RedunStrat
 
-from .subckt import Adc, AdcParams
+from .subckt import Adc, AdcParams, digital_net_aliases
 
 
 def test_adc():
@@ -82,6 +82,13 @@ def test_adc_digital_port_order_matches_spice_subckt():
     hdl21_ports = [port.name for port in module.xdigital.of.module.port_list]
 
     assert hdl21_ports == spice_ports
+
+
+@pytest.mark.parametrize("pin", ("seq_typo", "dac_state_p_main[16]", "dac_state_p_main"))
+def test_digital_binding_rejects_unknown_pins_and_incompatible_widths(pin):
+    module = h.ExternalModule(name="bad_digital", port_list=[h.Inout(name=pin)])
+    with pytest.raises((KeyError, ValueError)):
+        digital_net_aliases(module)
 
 
 def test_adc_uses_comparator_clock_complement_and_separate_dac_supply():

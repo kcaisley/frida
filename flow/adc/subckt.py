@@ -15,9 +15,37 @@ Architecture:
     ├── Xsamp_p (HDL21 Samp)
     ├── Xsamp_n (HDL21 Samp)
     └── Xcomp (HDL21 comp.netlist)
+
+The digital block (``design/hdl/adc_digital.v``) at any number of stages is a SPICE netlist of the
+PDK's standard cells:
+
+    path, cell = digital_netlist(12)  # adc_digital/tsmc65/n12/adc_digital_n12.sp under MODELS_DIR
+
+FRIDA's 16 stages are the hardened OpenROAD netlist (``design/spice/adc_digital.sp``: placed,
+clock-tree buffered and routed, from an earlier RTL that switched register 15 first). Any other
+count is synthesized from the RTL at ``N_STAGES`` with yosys (on the PATH: the OSS CAD suite)
+onto the PDK's standard cells, without placement or clock tree: flip-flops by ``dfflibmap``, the
+logic by ABC into generic gates, each bound to the smallest cell of its function in the PDK's
+generic map (``pdk.<pdk>.hdl21.cells.GENERIC``; ABC's own Liberty mapping misreads some libraries'
+output pins), constants on its tie cells and ports that only alias another net behind its buffer.
+Register 0 drives C0, as in the RTL. The netlist is cached beside the blocks' characterizations
+(``flow.sweep.lookup.MODELS_DIR``), under ``adc_digital/``.
+
+The hardened ADC/digital interfaces and the canonical-to-physical net bindings of the extracted
+views (``adc_pex``, ``adc_port_aliases``, ``frida1_net_aliases``, ``frida2_net_aliases``): physical
+names are relative to the selected ADC instance. Save statements and raw readers add that instance
+path; these bindings never rename the IP itself.
 """
 
+import gzip
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
 from functools import cache
+from pathlib import Path
 
 import hdl21 as h
 from hdl21.primitives import MosType
@@ -27,6 +55,30 @@ from flow import comp, samp
 from flow.cdac.caparray import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights
 from flow.cdac.capdriver import CapDriver, CapDriverParams, Cells
 from flow.circuit.ports import module_from_ports, port_connections
+from flow.sweep.lookup import MODELS_DIR
+from flow.util.netlist import normalize_bus_pin, subcircuit_ports
+
+# the digital block: its netlist at FRIDA's 16 stages, its RTL and its synthesis cache
+_ROOT = Path(__file__).resolve().parents[2]
+_HARDENED = _ROOT / "design/spice/adc_digital.sp"
+_SOURCES = tuple(
+    _ROOT / "design/hdl" / name
+    for name in ("cells_tsmc65.v", "clkgate.v", "sampdriver.v", "salogic.v", "adc_digital.v")
+)
+_CACHE = MODELS_DIR / "adc_digital"
+# yosys's generic gates -> the generic function whose smallest cell the PDK's map gives it; the
+# generic pins are yosys's ports (A, B, S in, Y out; mux2's Y = S ? B : A, as $_MUX_'s)
+_GATES = {
+    "$_BUF_": "buf",
+    "$_NOT_": "inv",
+    "$_AND_": "and2",
+    "$_NAND_": "nand2",
+    "$_OR_": "or2",
+    "$_NOR_": "nor2",
+    "$_XOR_": "xor2",
+    "$_XNOR_": "xnor2",
+    "$_MUX_": "mux2",
+}
 
 
 @h.paramclass
@@ -100,13 +152,10 @@ def Adc(p: AdcParams) -> h.Module:
 
     Its stage count follows the array: at FRIDA's 16 the digital block is
     the fabricated, hardened netlist; at any other count the same RTL is
-    synthesized for it (``flow.adc.digital``).
+    synthesized for it (``digital_netlist``).
     """
     stages = adc_stages(p)
     Adc = module_from_ports("Adc", adc_nets(stages).signals)
-    # The IP adapter imports this module; import here after it is defined.
-    from .ip import adc_digital, digital_net_aliases
-
     digital = adc_digital(stages)
     Adc.xdigital = digital()(
         **{
@@ -197,3 +246,490 @@ def Adc(p: AdcParams) -> h.Module:
     )
 
     return Adc
+
+
+# The digital block: its netlist at a stage count and its pins bound to the canonical nets
+
+
+def digital_cell(stages: int) -> str:
+    """The digital block's subcircuit name: FRIDA's at 16 stages, a synthesized one otherwise."""
+    return "adc_digital" if stages == 16 else f"adc_digital_n{stages}"
+
+
+def digital_netlist(stages: int, pdk: str = "tsmc65") -> tuple[Path, str]:
+    """The digital block's SPICE netlist at ``stages`` and its subcircuit name, synthesized on
+    first use."""
+    if stages == 16:
+        return _HARDENED, digital_cell(stages)
+    if pdk != "tsmc65":
+        raise ValueError(f"the digital block is synthesized onto TSMC65's cells only, not {pdk}'s")
+    if stages < 2:
+        raise ValueError(f"the digital block needs at least two stages, not {stages}")
+    cell = digital_cell(stages)
+    path = _CACHE / pdk / f"n{stages}" / f"{cell}.sp"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # another process may synthesize the same count: each writes its own and renames it in
+        with tempfile.TemporaryDirectory(dir=path.parent) as work:
+            text = _synthesize(stages, cell, Path(work))
+            (Path(work) / path.name).write_text(text)
+            os.replace(Path(work) / path.name, path)
+    return path, cell
+
+
+def adc_digital(stages: int = 16) -> h.ExternalModule:
+    """The digital block at ``stages`` (``digital_netlist``) with its netlist's exact scalar pin
+    order."""
+    path, cell = digital_netlist(stages)
+    return h.ExternalModule(
+        name=cell, port_list=[h.Inout(name=pin) for pin in subcircuit_ports(path.read_text(), cell)]
+    )
+
+
+def digital_net_aliases(module: h.ExternalModule, nets=AdcNets) -> dict[h.Signal | h.Slice, str]:
+    """Bind every digital pin to its canonical ADC net (``nets``: ``adc_nets`` of its stage count).
+    FRIDA's hardened netlist predates the C0-first RTL: its physical bit 15 is C0. A synthesized
+    netlist follows the RTL: its bit 0 is."""
+    reversed_bits = module.name == digital_cell(16)
+    renamed = {
+        nets.seq_logic: "seq_update",
+        nets.dac_state_p: "dac_state_p_main",
+        nets.dac_state_n: "dac_state_n_main",
+    }
+    by_physical_name = {renamed.get(net, net.name): net for net in nets.signals.values()}
+    aliases = {}
+    for pin in module.port_list:
+        if match := re.fullmatch(r"(.+)\[(\d+)\]", pin.name):
+            net = by_physical_name[match[1]]
+            index = net.width - 1 - int(match[2]) if reversed_bits else int(match[2])
+            if not 0 <= index < net.width:
+                raise ValueError(f"Digital pin {pin.name} exceeds canonical width {net.width}")
+            canonical = net[index]
+        else:
+            canonical = by_physical_name[pin.name]
+            if canonical.width != pin.width:
+                raise ValueError(f"Digital pin width differs from {canonical.name}")
+        if canonical in aliases:
+            raise ValueError(f"Duplicate digital binding for {canonical}")
+        aliases[canonical] = pin.name
+    return aliases
+
+
+def _library_cell(library, function: str) -> tuple[str, dict[str, str]]:
+    """The smallest cell of a generic function in the PDK's map, and its pin for each generic pin."""
+    drives = sorted(int(name.rsplit("_x", 1)[1]) for name in library.GENERIC if name.rsplit("_x", 1)[0] == function)
+    target, pins, _high, _low = library.GENERIC[f"{function}_x{drives[0]}"]
+    return target, {generic: pin for pin, generic in pins.items()}
+
+
+def _synthesize(stages: int, cell: str, work: Path) -> str:
+    from pdk.tsmc65.hdl21 import cells as library
+    from pdk.tsmc65.hdl21.site import STANDARD_CELL_SPICE_NETLISTS
+    from pdk.tsmc65.layout.paths import STD_LIBERTY
+
+    if shutil.which("yosys") is None:
+        raise FileNotFoundError("yosys is not on the PATH (the OSS CAD suite's bin)")
+    liberty = work / "cells.lib"
+    with gzip.open(STD_LIBERTY, "rb") as compressed:
+        liberty.write_bytes(compressed.read())
+    gates = work / "gates.v"
+    maps = {gate: _library_cell(library, function) for gate, function in _GATES.items()}
+    gates.write_text(
+        "".join(
+            f"module \\{gate} ({', '.join(port for port in ports if port not in ('VDD', 'VSS'))});\n"
+            + "".join(
+                f"  {'output' if port == 'Y' else 'input'} {port};\n" for port in ports if port not in ("VDD", "VSS")
+            )
+            + f"  {target} _TECHMAP_REPLACE_ ("
+            + ", ".join(f".{pin}({port})" for port, pin in ports.items() if port not in ("VDD", "VSS"))
+            + ");\n"
+            + "endmodule\n"
+            for gate, (target, ports) in maps.items()
+        )
+    )
+    tie_high, high = _library_cell(library, "tiehi")
+    tie_low, low = _library_cell(library, "tielo")
+    buffer, buffer_pins = _library_cell(library, "buf")
+    script = work / "synth.ys"
+    script.write_text(
+        "\n".join(
+            (
+                f"read_liberty -lib {liberty}",
+                f"read_verilog -sv {' '.join(str(source) for source in _SOURCES)}",
+                f"chparam -set N_STAGES {stages} adc_digital",
+                "hierarchy -check -top adc_digital",
+                "synth -top adc_digital -flatten",
+                f"dfflibmap -liberty {liberty}",
+                "abc -g AND,NAND,OR,NOR,XOR,XNOR,MUX",
+                f"techmap -map {gates}",
+                "opt_clean -purge",
+                f"hilomap -singleton -hicell {tie_high} {high['Y']} -locell {tie_low} {low['Y']}",
+                f"insbuf -buf {buffer} {buffer_pins['A']} {buffer_pins['Y']}",
+                "opt_clean -purge",
+                "check -assert",
+                f"write_json {work / 'netlist.json'}",
+            )
+        )
+    )
+    subprocess.run(["yosys", "-q", "-l", str(work / "yosys.log"), str(script)], check=True, capture_output=True)
+    module = json.loads((work / "netlist.json").read_text())["modules"]["adc_digital"]
+    pin_order = {}
+    for netlist in STANDARD_CELL_SPICE_NETLISTS:
+        for line in Path(netlist).read_text(errors="replace").splitlines():
+            words = line.split()
+            if len(words) > 2 and words[0].lower() == ".subckt":
+                pin_order.setdefault(words[1], words[2:])
+    # each bit's node: a port bit by its name, as OpenROAD writes them; an inner net by its id
+    nodes: dict[int, str] = {}
+    ports = []
+    for name, port in module["ports"].items():
+        for index, bit in enumerate(port["bits"]):
+            node = name if len(port["bits"]) == 1 else f"{name}[{index}]"
+            if not isinstance(bit, int) or bit in nodes:
+                raise ValueError(f"{cell} port bit {node} is a constant or aliases {nodes.get(bit)}")
+            nodes[bit] = node
+            ports.append(node)
+    lines = [f"* {cell}: design/hdl/adc_digital.v at N_STAGES={stages}, synthesized by flow.adc.subckt", ""]
+    lines.append(f".SUBCKT {cell} {' '.join(ports)} vdd_d vss_d")
+    unconnected = 0
+    for index, instance in enumerate(module["cells"].values()):
+        connections = []
+        for pin in pin_order[instance["type"]]:
+            if pin == "VDD":
+                connections.append("vdd_d")
+            elif pin == "VSS":
+                connections.append("vss_d")
+            elif pin in instance["connections"]:
+                (bit,) = instance["connections"][pin]
+                if not isinstance(bit, int):
+                    raise ValueError(f"{cell}: {instance['type']} pin {pin} is tied to {bit!r}, not a tie cell")
+                connections.append(nodes.setdefault(bit, f"n{bit}"))
+            else:  # an output nothing reads (a flip-flop's QN)
+                unconnected += 1
+                connections.append(f"nc{unconnected}")
+        lines.append(f"X{index} {' '.join(connections)} {instance['type']}")
+    lines += [f".ENDS {cell}", ""]
+    return "\n".join(lines)
+
+
+# The extracted views (frida1, frida2): their positional ports and the observations' RC terminals
+
+
+def adc_pex(netlist_path: Path, cell: str) -> h.ExternalModule:
+    """Declare the selected extraction from its actual positional header."""
+    pins = [normalize_bus_pin(pin) for pin in subcircuit_ports(netlist_path.read_text(), cell)]
+    if len(pins) != len(set(pins)):
+        raise ValueError(f"Duplicate external pins in {cell}")
+    return h.ExternalModule(name=cell, port_list=[h.Inout(name=pin) for pin in pins])
+
+
+def adc_port_aliases(view: str) -> dict[h.Signal | h.Slice, str]:
+    """Canonical ADC ports -> scalar PEX pins, with C0 first in Python."""
+    if view not in {"frida1", "frida2"}:
+        raise ValueError(f"Unsupported ADC IP view {view!r}")
+    renamed = {AdcNets.seq_logic: "seq_update"}
+    aliases = {}
+    for net in AdcNets.signals.values():
+        if net.vis != h.Visibility.PORT or net in (AdcNets.dac_state_p, AdcNets.dac_state_n):
+            continue
+        if net.width == 1:
+            aliases[net] = renamed.get(net, net.name)
+        else:
+            for bit in range(net.width):
+                physical = net.width - 1 - bit if view == "frida1" else bit
+                aliases[net[bit]] = f"{net.name}_{physical}"
+    return aliases
+
+
+def frida1_net_aliases() -> dict[h.Signal | h.Slice, str]:
+    """Canonical ADC/comparator observations -> exact FRIDA-1 RC terminals."""
+    return {
+        AdcNets.vdac_p: "N_VDAC_P_XXsampswitch_p/MM0_d",
+        AdcNets.vdac_n: "N_VDAC_N_XXsampswitch_n/MM0_d",
+        AdcNets.clk_samp_p: "N_CLK_SAMP_P_XXsampswitch_p/MM0_g",
+        AdcNets.clk_samp_p_b: "N_CLK_SAMP_P_B_XXsampswitch_p/MM1_g",
+        AdcNets.clk_samp_n: "N_CLK_SAMP_N_XXsampswitch_n/MM0_g",
+        AdcNets.clk_samp_n_b: "N_CLK_SAMP_N_B_XXsampswitch_n/MM1_g",
+        AdcNets.clk_comp: "N_CLK_COMP_XXcomp/XXLATCH/MMM0_g",
+        AdcNets.comp_out_p: "N_COMP_OUT_P_XXcomp/XXI3/XXI46/MM_u2_1_d",
+        AdcNets.comp_out_n: "N_COMP_OUT_N_XXcomp/XXI3/XXI47/MM_u2_1_d",
+        comp.Nets.latch_p: "N_XXCOMP/COMP_P_XXcomp/XXLATCH/MMM4_d",
+        comp.Nets.latch_n: "N_XXCOMP/COMP_N_XXcomp/XXLATCH/MMM3_d",
+        comp.Nets.input_p_drain: "N_XXCOMP/XXLATCH/NET031_XXcomp/XXLATCH/MMM1_d",
+        comp.Nets.input_n_drain: "N_XXCOMP/XXLATCH/NET037_XXcomp/XXLATCH/MMM2_d",
+        AdcNets.dac_state_p[0]: "N_DAC_STATE_P_MAIN<15>_XXcapdriver_p_main/XXxor15_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p[0]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<15>_XXcapdriver_p_main/XXxor15_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[0]: "N_DAC_STATE_P_DIFF<15>_XXcapdriver_p_diff/XXxor15_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p_diff[0]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<15>_XXcapdriver_p_diff/XXxor15_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[0]: "N_DAC_STATE_N_MAIN<15>_XXcapdriver_n_main/XXxor15_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n[0]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<15>_XXcapdriver_n_main/XXxor15_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[0]: "N_DAC_STATE_N_DIFF<15>_XXcapdriver_n_diff/XXxor15_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n_diff[0]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<15>_XXcapdriver_n_diff/XXxor15_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[1]: "N_DAC_STATE_P_MAIN<14>_XXcapdriver_p_main/XXxor14_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p[1]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<14>_XXcapdriver_p_main/XXxor14_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[1]: "N_DAC_STATE_P_DIFF<14>_XXcapdriver_p_diff/XXxor14_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p_diff[1]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<14>_XXcapdriver_p_diff/XXxor14_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[1]: "N_DAC_STATE_N_MAIN<14>_XXcapdriver_n_main/XXxor14_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n[1]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<14>_XXcapdriver_n_main/XXxor14_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[1]: "N_DAC_STATE_N_DIFF<14>_XXcapdriver_n_diff/XXxor14_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n_diff[1]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<14>_XXcapdriver_n_diff/XXxor14_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[2]: "N_DAC_STATE_P_MAIN<13>_XXcapdriver_p_main/XXxor13/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p[2]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<13>_XXcapdriver_p_main/XXxor13/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[2]: "N_DAC_STATE_P_DIFF<13>_XXcapdriver_p_diff/XXxor13/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p_diff[2]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<13>_XXcapdriver_p_diff/XXxor13/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[2]: "N_DAC_STATE_N_MAIN<13>_XXcapdriver_n_main/XXxor13/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n[2]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<13>_XXcapdriver_n_main/XXxor13/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[2]: "N_DAC_STATE_N_DIFF<13>_XXcapdriver_n_diff/XXxor13/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n_diff[2]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<13>_XXcapdriver_n_diff/XXxor13/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[3]: "N_DAC_STATE_P_MAIN<12>_XXcapdriver_p_main/XXxor12/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p[3]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<12>_XXcapdriver_p_main/XXxor12/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[3]: "N_DAC_STATE_P_DIFF<12>_XXcapdriver_p_diff/XXxor12/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p_diff[3]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<12>_XXcapdriver_p_diff/XXxor12/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[3]: "N_DAC_STATE_N_MAIN<12>_XXcapdriver_n_main/XXxor12/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n[3]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<12>_XXcapdriver_n_main/XXxor12/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[3]: "N_DAC_STATE_N_DIFF<12>_XXcapdriver_n_diff/XXxor12/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n_diff[3]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<12>_XXcapdriver_n_diff/XXxor12/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[4]: "N_DAC_STATE_P_MAIN<11>_XXcapdriver_p_main/XXxor11/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[4]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<11>_XXcapdriver_p_main/XXxor11/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[4]: "N_DAC_STATE_P_DIFF<11>_XXcapdriver_p_diff/XXxor11/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[4]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<11>_XXcapdriver_p_diff/XXxor11/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[4]: "N_DAC_STATE_N_MAIN<11>_XXcapdriver_n_main/XXxor11/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[4]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<11>_XXcapdriver_n_main/XXxor11/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[4]: "N_DAC_STATE_N_DIFF<11>_XXcapdriver_n_diff/XXxor11/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[4]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<11>_XXcapdriver_n_diff/XXxor11/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[5]: "N_DAC_STATE_P_MAIN<10>_XXcapdriver_p_main/XXxor10/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[5]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<10>_XXcapdriver_p_main/XXxor10/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[5]: "N_DAC_STATE_P_DIFF<10>_XXcapdriver_p_diff/XXxor10/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[5]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<10>_XXcapdriver_p_diff/XXxor10/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[5]: "N_DAC_STATE_N_MAIN<10>_XXcapdriver_n_main/XXxor10/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[5]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<10>_XXcapdriver_n_main/XXxor10/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[5]: "N_DAC_STATE_N_DIFF<10>_XXcapdriver_n_diff/XXxor10/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[5]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<10>_XXcapdriver_n_diff/XXxor10/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[6]: "N_DAC_STATE_P_MAIN<9>_XXcapdriver_p_main/XXxor9/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[6]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<9>_XXcapdriver_p_main/XXxor9/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[6]: "N_DAC_STATE_P_DIFF<9>_XXcapdriver_p_diff/XXxor9/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[6]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<9>_XXcapdriver_p_diff/XXxor9/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[6]: "N_DAC_STATE_N_MAIN<9>_XXcapdriver_n_main/XXxor9/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[6]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<9>_XXcapdriver_n_main/XXxor9/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[6]: "N_DAC_STATE_N_DIFF<9>_XXcapdriver_n_diff/XXxor9/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[6]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<9>_XXcapdriver_n_diff/XXxor9/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[7]: "N_DAC_STATE_P_MAIN<8>_XXcapdriver_p_main/XXxor8/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[7]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<8>_XXcapdriver_p_main/XXxor8/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[7]: "N_DAC_STATE_P_DIFF<8>_XXcapdriver_p_diff/XXxor8/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[7]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<8>_XXcapdriver_p_diff/XXxor8/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[7]: "N_DAC_STATE_N_MAIN<8>_XXcapdriver_n_main/XXxor8/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[7]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<8>_XXcapdriver_n_main/XXxor8/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[7]: "N_DAC_STATE_N_DIFF<8>_XXcapdriver_n_diff/XXxor8/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[7]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<8>_XXcapdriver_n_diff/XXxor8/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[8]: "N_DAC_STATE_P_MAIN<7>_XXcapdriver_p_main/XXxor7/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[8]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<7>_XXcapdriver_p_main/XXxor7/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[8]: "N_DAC_STATE_P_DIFF<7>_XXcapdriver_p_diff/XXxor7/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[8]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<7>_XXcapdriver_p_diff/XXxor7/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[8]: "N_DAC_STATE_N_MAIN<7>_XXcapdriver_n_main/XXxor7/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[8]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<7>_XXcapdriver_n_main/XXxor7/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[8]: "N_DAC_STATE_N_DIFF<7>_XXcapdriver_n_diff/XXxor7/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[8]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<7>_XXcapdriver_n_diff/XXxor7/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[9]: "N_DAC_STATE_P_MAIN<6>_XXcapdriver_p_main/XXxor6/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[9]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<6>_XXcapdriver_p_main/XXxor6/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[9]: "N_DAC_STATE_P_DIFF<6>_XXcapdriver_p_diff/XXxor6/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[9]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<6>_XXcapdriver_p_diff/XXxor6/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[9]: "N_DAC_STATE_N_MAIN<6>_XXcapdriver_n_main/XXxor6/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[9]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<6>_XXcapdriver_n_main/XXxor6/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[9]: "N_DAC_STATE_N_DIFF<6>_XXcapdriver_n_diff/XXxor6/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[9]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<6>_XXcapdriver_n_diff/XXxor6/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[10]: "N_DAC_STATE_P_MAIN<5>_XXcapdriver_p_main/XXxor5/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[10]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<5>_XXcapdriver_p_main/XXxor5/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[10]: "N_DAC_STATE_P_DIFF<5>_XXcapdriver_p_diff/XXxor5/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[10]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<5>_XXcapdriver_p_diff/XXxor5/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[10]: "N_DAC_STATE_N_MAIN<5>_XXcapdriver_n_main/XXxor5/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[10]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<5>_XXcapdriver_n_main/XXxor5/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[10]: "N_DAC_STATE_N_DIFF<5>_XXcapdriver_n_diff/XXxor5/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[10]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<5>_XXcapdriver_n_diff/XXxor5/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[11]: "N_DAC_STATE_P_MAIN<4>_XXcapdriver_p_main/XXxor4/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[11]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<4>_XXcapdriver_p_main/XXxor4/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[11]: "N_DAC_STATE_P_DIFF<4>_XXcapdriver_p_diff/XXxor4/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[11]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<4>_XXcapdriver_p_diff/XXxor4/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[11]: "N_DAC_STATE_N_MAIN<4>_XXcapdriver_n_main/XXxor4/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[11]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<4>_XXcapdriver_n_main/XXxor4/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[11]: "N_DAC_STATE_N_DIFF<4>_XXcapdriver_n_diff/XXxor4/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[11]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<4>_XXcapdriver_n_diff/XXxor4/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[12]: "N_DAC_STATE_P_MAIN<3>_XXcapdriver_p_main/XXxor3/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[12]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<3>_XXcapdriver_p_main/XXxor3/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[12]: "N_DAC_STATE_P_DIFF<3>_XXcapdriver_p_diff/XXxor3/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[12]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<3>_XXcapdriver_p_diff/XXxor3/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[12]: "N_DAC_STATE_N_MAIN<3>_XXcapdriver_n_main/XXxor3/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[12]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<3>_XXcapdriver_n_main/XXxor3/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[12]: "N_DAC_STATE_N_DIFF<3>_XXcapdriver_n_diff/XXxor3/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[12]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<3>_XXcapdriver_n_diff/XXxor3/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[13]: "N_DAC_STATE_P_MAIN<2>_XXcapdriver_p_main/XXxor2/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[13]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<2>_XXcapdriver_p_main/XXxor2/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[13]: "N_DAC_STATE_P_DIFF<2>_XXcapdriver_p_diff/XXxor2/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[13]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<2>_XXcapdriver_p_diff/XXxor2/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[13]: "N_DAC_STATE_N_MAIN<2>_XXcapdriver_n_main/XXxor2/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[13]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<2>_XXcapdriver_n_main/XXxor2/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[13]: "N_DAC_STATE_N_DIFF<2>_XXcapdriver_n_diff/XXxor2/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[13]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<2>_XXcapdriver_n_diff/XXxor2/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[14]: "N_DAC_STATE_P_MAIN<1>_XXcapdriver_p_main/XXxor1/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[14]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<1>_XXcapdriver_p_main/XXxor1/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[14]: "N_DAC_STATE_P_DIFF<1>_XXcapdriver_p_diff/XXxor1/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[14]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<1>_XXcapdriver_p_diff/XXxor1/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[14]: "N_DAC_STATE_N_MAIN<1>_XXcapdriver_n_main/XXxor1/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[14]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<1>_XXcapdriver_n_main/XXxor1/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[14]: "N_DAC_STATE_N_DIFF<1>_XXcapdriver_n_diff/XXxor1/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[14]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<1>_XXcapdriver_n_diff/XXxor1/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[15]: "N_DAC_STATE_P_MAIN<0>_XXcapdriver_p_main/XXxor0/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[15]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<0>_XXcapdriver_p_main/XXxor0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[15]: "N_DAC_STATE_P_DIFF<0>_XXcapdriver_p_diff/XXxor0/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[15]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<0>_XXcapdriver_p_diff/XXxor0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[15]: "N_DAC_STATE_N_MAIN<0>_XXcapdriver_n_main/XXxor0/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[15]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<0>_XXcapdriver_n_main/XXxor0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[15]: "N_DAC_STATE_N_DIFF<0>_XXcapdriver_n_diff/XXxor0/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[15]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<0>_XXcapdriver_n_diff/XXxor0/MMM_u4_1-M_u3_d",
+    }
+
+
+def frida2_net_aliases() -> dict[h.Signal | h.Slice, str]:
+    """Canonical ADC/comparator observations -> exact FRIDA-2 RC terminals."""
+    return {
+        AdcNets.vdac_p: "N_VDAC_P_XXsampswitch_p/MM0_d",
+        AdcNets.vdac_n: "N_VDAC_N_XXsampswitch_n/MM0_d",
+        AdcNets.clk_samp_p: "N_CLK_SAMP_P_XXsampswitch_p/MM0_g",
+        AdcNets.clk_samp_p_b: "N_CLK_SAMP_P_B_XXsampswitch_p/MM1_g",
+        AdcNets.clk_samp_n: "N_CLK_SAMP_N_XXsampswitch_n/MM0_g",
+        AdcNets.clk_samp_n_b: "N_CLK_SAMP_N_B_XXsampswitch_n/MM1_g",
+        AdcNets.clk_comp: "N_CLK_COMP_XXcomp/XXLATCH/MMM0_g",
+        AdcNets.comp_out_p: "N_COMP_OUT_P_XXcomp/XXI3/XXI46/MM_u2_1_d",
+        AdcNets.comp_out_n: "N_COMP_OUT_N_XXcomp/XXI3/XXI47/MM_u2_1_d",
+        comp.Nets.latch_p: "N_XXCOMP/COMP_P_XXcomp/XXLATCH/MMM4_d",
+        comp.Nets.latch_n: "N_XXCOMP/COMP_N_XXcomp/XXLATCH/MMM3_d",
+        comp.Nets.input_p_drain: "N_XXCOMP/XXLATCH/NET031_XXcomp/XXLATCH/MMM1_d",
+        comp.Nets.input_n_drain: "N_XXCOMP/XXLATCH/NET037_XXcomp/XXLATCH/MMM2_d",
+        AdcNets.dac_state_p[0]: "N_DAC_STATE_P_MAIN<0>_XXcapdriver_p_main/XXxor15_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p[0]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<0>_XXcapdriver_p_main/XXxor15_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[0]: "N_DAC_STATE_P_DIFF<0>_XXcapdriver_p_diff/XXxor15_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p_diff[0]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<0>_XXcapdriver_p_diff/XXxor15_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[0]: "N_DAC_STATE_N_MAIN<0>_XXcapdriver_n_main/XXxor15_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n[0]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<0>_XXcapdriver_n_main/XXxor15_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[0]: "N_DAC_STATE_N_DIFF<0>_XXcapdriver_n_diff/XXxor15_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n_diff[0]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<0>_XXcapdriver_n_diff/XXxor15_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[1]: "N_DAC_STATE_P_MAIN<1>_XXcapdriver_p_main/XXxor14_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p[1]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<1>_XXcapdriver_p_main/XXxor14_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[1]: "N_DAC_STATE_P_DIFF<1>_XXcapdriver_p_diff/XXxor14_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p_diff[1]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<1>_XXcapdriver_p_diff/XXxor14_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[1]: "N_DAC_STATE_N_MAIN<1>_XXcapdriver_n_main/XXxor14_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n[1]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<1>_XXcapdriver_n_main/XXxor14_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[1]: "N_DAC_STATE_N_DIFF<1>_XXcapdriver_n_diff/XXxor14_0/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n_diff[1]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<1>_XXcapdriver_n_diff/XXxor14_0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[2]: "N_DAC_STATE_P_MAIN<2>_XXcapdriver_p_main/XXxor13/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p[2]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<2>_XXcapdriver_p_main/XXxor13/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[2]: "N_DAC_STATE_P_DIFF<2>_XXcapdriver_p_diff/XXxor13/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p_diff[2]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<2>_XXcapdriver_p_diff/XXxor13/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[2]: "N_DAC_STATE_N_MAIN<2>_XXcapdriver_n_main/XXxor13/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n[2]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<2>_XXcapdriver_n_main/XXxor13/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[2]: "N_DAC_STATE_N_DIFF<2>_XXcapdriver_n_diff/XXxor13/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n_diff[2]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<2>_XXcapdriver_n_diff/XXxor13/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[3]: "N_DAC_STATE_P_MAIN<3>_XXcapdriver_p_main/XXxor12/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p[3]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<3>_XXcapdriver_p_main/XXxor12/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[3]: "N_DAC_STATE_P_DIFF<3>_XXcapdriver_p_diff/XXxor12/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_p_diff[3]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<3>_XXcapdriver_p_diff/XXxor12/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[3]: "N_DAC_STATE_N_MAIN<3>_XXcapdriver_n_main/XXxor12/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n[3]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<3>_XXcapdriver_n_main/XXxor12/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[3]: "N_DAC_STATE_N_DIFF<3>_XXcapdriver_n_diff/XXxor12/MMM_u2_1-M_u3_g",
+        AdcNets.dac_botplate_n_diff[3]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<3>_XXcapdriver_n_diff/XXxor12/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[4]: "N_DAC_STATE_P_MAIN<4>_XXcapdriver_p_main/XXxor11/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[4]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<4>_XXcapdriver_p_main/XXxor11/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[4]: "N_DAC_STATE_P_DIFF<4>_XXcapdriver_p_diff/XXxor11/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[4]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<4>_XXcapdriver_p_diff/XXxor11/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[4]: "N_DAC_STATE_N_MAIN<4>_XXcapdriver_n_main/XXxor11/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[4]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<4>_XXcapdriver_n_main/XXxor11/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[4]: "N_DAC_STATE_N_DIFF<4>_XXcapdriver_n_diff/XXxor11/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[4]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<4>_XXcapdriver_n_diff/XXxor11/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[5]: "N_DAC_STATE_P_MAIN<5>_XXcapdriver_p_main/XXxor10/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[5]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<5>_XXcapdriver_p_main/XXxor10/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[5]: "N_DAC_STATE_P_DIFF<5>_XXcapdriver_p_diff/XXxor10/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[5]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<5>_XXcapdriver_p_diff/XXxor10/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[5]: "N_DAC_STATE_N_MAIN<5>_XXcapdriver_n_main/XXxor10/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[5]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<5>_XXcapdriver_n_main/XXxor10/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[5]: "N_DAC_STATE_N_DIFF<5>_XXcapdriver_n_diff/XXxor10/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[5]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<5>_XXcapdriver_n_diff/XXxor10/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[6]: "N_DAC_STATE_P_MAIN<6>_XXcapdriver_p_main/XXxor9/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[6]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<6>_XXcapdriver_p_main/XXxor9/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[6]: "N_DAC_STATE_P_DIFF<6>_XXcapdriver_p_diff/XXxor9/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[6]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<6>_XXcapdriver_p_diff/XXxor9/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[6]: "N_DAC_STATE_N_MAIN<6>_XXcapdriver_n_main/XXxor9/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[6]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<6>_XXcapdriver_n_main/XXxor9/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[6]: "N_DAC_STATE_N_DIFF<6>_XXcapdriver_n_diff/XXxor9/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[6]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<6>_XXcapdriver_n_diff/XXxor9/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[7]: "N_DAC_STATE_P_MAIN<7>_XXcapdriver_p_main/XXxor8/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[7]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<7>_XXcapdriver_p_main/XXxor8/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[7]: "N_DAC_STATE_P_DIFF<7>_XXcapdriver_p_diff/XXxor8/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[7]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<7>_XXcapdriver_p_diff/XXxor8/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[7]: "N_DAC_STATE_N_MAIN<7>_XXcapdriver_n_main/XXxor8/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[7]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<7>_XXcapdriver_n_main/XXxor8/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[7]: "N_DAC_STATE_N_DIFF<7>_XXcapdriver_n_diff/XXxor8/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[7]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<7>_XXcapdriver_n_diff/XXxor8/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[8]: "N_DAC_STATE_P_MAIN<8>_XXcapdriver_p_main/XXxor7/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[8]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<8>_XXcapdriver_p_main/XXxor7/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[8]: "N_DAC_STATE_P_DIFF<8>_XXcapdriver_p_diff/XXxor7/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[8]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<8>_XXcapdriver_p_diff/XXxor7/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[8]: "N_DAC_STATE_N_MAIN<8>_XXcapdriver_n_main/XXxor7/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[8]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<8>_XXcapdriver_n_main/XXxor7/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[8]: "N_DAC_STATE_N_DIFF<8>_XXcapdriver_n_diff/XXxor7/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[8]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<8>_XXcapdriver_n_diff/XXxor7/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[9]: "N_DAC_STATE_P_MAIN<9>_XXcapdriver_p_main/XXxor6/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[9]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<9>_XXcapdriver_p_main/XXxor6/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[9]: "N_DAC_STATE_P_DIFF<9>_XXcapdriver_p_diff/XXxor6/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[9]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<9>_XXcapdriver_p_diff/XXxor6/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[9]: "N_DAC_STATE_N_MAIN<9>_XXcapdriver_n_main/XXxor6/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[9]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<9>_XXcapdriver_n_main/XXxor6/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[9]: "N_DAC_STATE_N_DIFF<9>_XXcapdriver_n_diff/XXxor6/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[9]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<9>_XXcapdriver_n_diff/XXxor6/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[10]: "N_DAC_STATE_P_MAIN<10>_XXcapdriver_p_main/XXxor5/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[10]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<10>_XXcapdriver_p_main/XXxor5/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[10]: "N_DAC_STATE_P_DIFF<10>_XXcapdriver_p_diff/XXxor5/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[10]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<10>_XXcapdriver_p_diff/XXxor5/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[10]: "N_DAC_STATE_N_MAIN<10>_XXcapdriver_n_main/XXxor5/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[10]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<10>_XXcapdriver_n_main/XXxor5/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[10]: "N_DAC_STATE_N_DIFF<10>_XXcapdriver_n_diff/XXxor5/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[10]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<10>_XXcapdriver_n_diff/XXxor5/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[11]: "N_DAC_STATE_P_MAIN<11>_XXcapdriver_p_main/XXxor4/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[11]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<11>_XXcapdriver_p_main/XXxor4/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[11]: "N_DAC_STATE_P_DIFF<11>_XXcapdriver_p_diff/XXxor4/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[11]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<11>_XXcapdriver_p_diff/XXxor4/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[11]: "N_DAC_STATE_N_MAIN<11>_XXcapdriver_n_main/XXxor4/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[11]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<11>_XXcapdriver_n_main/XXxor4/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[11]: "N_DAC_STATE_N_DIFF<11>_XXcapdriver_n_diff/XXxor4/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[11]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<11>_XXcapdriver_n_diff/XXxor4/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[12]: "N_DAC_STATE_P_MAIN<12>_XXcapdriver_p_main/XXxor3/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[12]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<12>_XXcapdriver_p_main/XXxor3/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[12]: "N_DAC_STATE_P_DIFF<12>_XXcapdriver_p_diff/XXxor3/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[12]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<12>_XXcapdriver_p_diff/XXxor3/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[12]: "N_DAC_STATE_N_MAIN<12>_XXcapdriver_n_main/XXxor3/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[12]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<12>_XXcapdriver_n_main/XXxor3/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[12]: "N_DAC_STATE_N_DIFF<12>_XXcapdriver_n_diff/XXxor3/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[12]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<12>_XXcapdriver_n_diff/XXxor3/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[13]: "N_DAC_STATE_P_MAIN<13>_XXcapdriver_p_main/XXxor2/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[13]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<13>_XXcapdriver_p_main/XXxor2/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[13]: "N_DAC_STATE_P_DIFF<13>_XXcapdriver_p_diff/XXxor2/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[13]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<13>_XXcapdriver_p_diff/XXxor2/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[13]: "N_DAC_STATE_N_MAIN<13>_XXcapdriver_n_main/XXxor2/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[13]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<13>_XXcapdriver_n_main/XXxor2/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[13]: "N_DAC_STATE_N_DIFF<13>_XXcapdriver_n_diff/XXxor2/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[13]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<13>_XXcapdriver_n_diff/XXxor2/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[14]: "N_DAC_STATE_P_MAIN<14>_XXcapdriver_p_main/XXxor1/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[14]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<14>_XXcapdriver_p_main/XXxor1/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[14]: "N_DAC_STATE_P_DIFF<14>_XXcapdriver_p_diff/XXxor1/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[14]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<14>_XXcapdriver_p_diff/XXxor1/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[14]: "N_DAC_STATE_N_MAIN<14>_XXcapdriver_n_main/XXxor1/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[14]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<14>_XXcapdriver_n_main/XXxor1/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[14]: "N_DAC_STATE_N_DIFF<14>_XXcapdriver_n_diff/XXxor1/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[14]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<14>_XXcapdriver_n_diff/XXxor1/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p[15]: "N_DAC_STATE_P_MAIN<15>_XXcapdriver_p_main/XXxor0/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p[15]: "N_DAC_DRIVE_BOTPLATE_MAIN_P<15>_XXcapdriver_p_main/XXxor0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_p_diff[15]: "N_DAC_STATE_P_DIFF<15>_XXcapdriver_p_diff/XXxor0/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_p_diff[15]: "N_DAC_DRIVE_BOTPLATE_DIFF_P<15>_XXcapdriver_p_diff/XXxor0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n[15]: "N_DAC_STATE_N_MAIN<15>_XXcapdriver_n_main/XXxor0/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n[15]: "N_DAC_DRIVE_BOTPLATE_MAIN_N<15>_XXcapdriver_n_main/XXxor0/MMM_u4_1-M_u3_d",
+        AdcNets.dac_state_n_diff[15]: "N_DAC_STATE_N_DIFF<15>_XXcapdriver_n_diff/XXxor0/MMM_u2-M_u3_g",
+        AdcNets.dac_botplate_n_diff[15]: "N_DAC_DRIVE_BOTPLATE_DIFF_N<15>_XXcapdriver_n_diff/XXxor0/MMM_u4_1-M_u3_d",
+    }
