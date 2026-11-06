@@ -417,16 +417,16 @@ def record(captures: dict[str, MeasAdc]) -> Record:
     alone, so a SPICE campaign and the behavioral model's take the same path: the metrics
     (``analysis.metrics``) and the figures (``flow.adc.plots``, the viewer's details, in its order).
     Every capture is decoded with the design weights and with the "extracted" weights of its
-    ``cap_table`` readback (a PEX table, or the behavioral model's extraction, ``_extracted``); the
-    calibrations learn from the training ramp and are checked on the other, and the one that grades
-    the check ramp best decodes the calibrated figures and metrics (calibration 3 keeps the design
-    weights where its validation finds no measured weight that helps). Capacitor mismatch is
-    predicted rather than drawn (``analyze_mismatch``, from the nominal array's capacitances); where
-    the campaign also holds the Monte Carlo ramps that check it (``mc_*``,
-    ``campaign(mismatch_draws=...)``), their 95th percentiles at Harpe's matching are reported
-    beside the predictions. ``noise_sampling`` and ``noise_comparator`` (the noise capture with one
-    source) add each source's rms noise where present, the ``ladder_*`` captures the ENOB ladder,
-    ``drawn_sine`` the ENOB on the CDAC's SPICE draw."""
+    ``cap_table`` readback (``_extracted``: a PEX table, or the DAC's steps as its characterization
+    measured them, or none, the design's own); the calibrations learn from the training ramp and are
+    checked on the other, and the one that grades the check ramp best decodes the calibrated figures
+    and metrics (calibration 3 keeps the design weights where its validation finds no measured
+    weight that helps). Capacitor mismatch is predicted rather than drawn (``analyze_mismatch``,
+    from the nominal array's capacitances); where the campaign also holds the Monte Carlo ramps that
+    check it (``mc_*``, ``campaign(mismatch_draws=...)``), their 95th percentiles at Harpe's
+    matching are reported beside the predictions. ``noise_sampling`` and ``noise_comparator`` (the
+    noise capture with one source) add each source's rms noise where present, the ``ladder_*``
+    captures the ENOB ladder, ``drawn_sine`` the ENOB on the DAC's SPICE draw."""
 
     check, train = captures["ramp_check"], captures["ramp_train"]
     extracted = _extracted(check)
@@ -527,8 +527,10 @@ def record(captures: dict[str, MeasAdc]) -> Record:
 
 
 def _extracted(measurement: MeasAdc) -> AnalysisCalibration:
-    """A capture's "extracted" weights: the extraction its ``cap_table`` readback names (a PEX table,
-    or the behavioral model's extraction)."""
+    """A capture's "extracted" weights: what its ``cap_table`` readback names (a PEX table; a
+    behavioral capture's, the settling measurement its DAC's characterization keeps, each stage's
+    step as measured; none, a DAC designed alone: the design's weights,
+    ``flow.analysis.io.read_extracted_calibration``)."""
     return read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
 
 

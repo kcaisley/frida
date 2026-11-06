@@ -43,7 +43,7 @@ plate) and C_p every plate of the side and the top plate's other load. The LSB i
 from the nominal steps and only scales a side's gain.
 
 Pelgrom's mismatch draws every plate independently, sigma_C = A sqrt(C 1 fF)
-(``calc_capacitor_mismatch``), so a side's step k varies by
+(``capdac.Model.draw``), so a side's step k varies by
 
     sigma_k = A sqrt((main_k + diff_k) 1 fF) 2^bits / (2 sum(c))   [LSB]
 
