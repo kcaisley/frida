@@ -158,6 +158,14 @@ banned-from = [
     "flow.cdac.analysis",
     "flow.cdac.plots",
     "flow.cdac.sweep",
+    "flow.capdac",
+    "flow.capdac.params",
+    "flow.capdac.subckt",
+    "flow.capdac.sim",
+    "flow.capdac.types",
+    "flow.capdac.analysis",
+    "flow.capdac.plots",
+    "flow.capdac.sweep",
 ]
 
 [tool.ruff.lint.isort]
@@ -185,7 +193,7 @@ layers = ["model | (opt) | (layout)", "sweep", "plots", "analysis", "types", "si
 name = "the pipeline's base knows no block"
 type = "forbidden"
 source_modules = ["flow.pipeline"]
-forbidden_modules = ["flow.comp", "flow.samp", "flow.adc", "flow.cdac", "flow.sweep"]
+forbidden_modules = ["flow.comp", "flow.samp", "flow.adc", "flow.cdac", "flow.capdac", "flow.sweep"]
 
 [tool.pytest.ini_options]
 testpaths = ["flow", "pdk", "test"]
