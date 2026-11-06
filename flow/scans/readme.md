@@ -126,7 +126,8 @@ These functions are not Basil APIs. They implement design-specific packing, tran
 | `scope_records_to_adc_wave()` | `scan_adc.py` | Convert aligned triggered scope records into the dense external ADC waveform section. |
 | `adc.analyze_dynamic()` | `flow/adc/analysis.py` | Perform a four-parameter sine fit plus FFT analysis and report residual RMS, SNR, SNDR, THD, SFDR, and ENOB. |
 | `adc.analyze_transfer()` / `adc.analyze_endpoint_nonlinearity()` / `adc.analyze_code_density_nonlinearity()` / `adc.analyze_code_distribution()` | `flow/adc/analysis.py` | Calculate typed static transfer, INL/DNL, and fixed-input code-distribution results. |
-| `plot_adc_*()` / `plot_comp_*()` | `flow/analysis/plots.py` | Render typed measurements and their corresponding typed analysis results without loading files or recalculating metrics. |
+| `adc.plot_*()` + `flow.plot.render()` | `flow/adc/plots.py`, `flow/plot.py` | The ADC's figure specs, the ones its records show, drawn with matplotlib from analysis results: code density, INL/DNL, weights, decision paths, code spectrum, ENOB, spectra, power and energy. |
+| `plot_adc_*()` / `plot_comp_*()` | `flow/analysis/plots.py` | Render typed measurements and their corresponding typed analysis results without loading files or recalculating metrics (the lab figures no spec draws). |
 | `select_pll_configuration()` | `plldrp.py` | Calculate a legal Si570 frequency and PLL divider for a requested symbol rate without hardware I/O. |
 | `set_pll_divider()` | `plldrp.py` | Perform the GPIO2 request/acknowledge transaction and verify PLL lock and active-divider readback. |
 | `calc.cross()` | `flow/analysis/calc.py` | Interpolate waveform threshold crossings directly from signal and time arrays; this is generic analysis, not scope control. |

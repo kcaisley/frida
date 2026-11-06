@@ -4,8 +4,10 @@ characterization's details, which the viewer shows in the order they are written
 instances compared on one plot stay readable; what a second curve would add is a figure of its own.
 The decision-path density is its paths, each distinct one with how many conversions took it
 (``Plot.paths``): the whole conversion, its last decisions, and where the conversions at one input
-end. Every value is written to six significant digits, as the viewer's other exports; the
-``flow.analysis.plots`` figures draw the same analyses for the paper.
+end. Every value is written to six significant digits, as the viewer's other exports. The same
+specs draw the lab captures: a study (``flow.adc.targets``, a scan's test) renders those of its
+captures' results with ``flow.plot.render``, a figure a decoding, calibration or capture, each named
+by its weights or its rate; ``flow.analysis.plots`` keeps only the lab figures no spec draws.
 """
 
 from __future__ import annotations
