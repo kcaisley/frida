@@ -43,10 +43,9 @@ from flow.analysis.types import MeasAdc, MeasCdac, MeasInfo
 from flow.scans.params import AdcScanParams
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 
-# FRIDA-2 three-layer configuration with the 160-symbol continuous recipe.
+# FRIDA-2 three-layer configuration with the 160-symbol continuous recipe, as the generated
+# converter (FRIDA-2 is generated: it has no extracted view).
 TB = adc.TbParams(
-    view="frida2",
-    pex_cell="adc_12b_17step",
     dut=adc.Params(adc_bits=12, cdac=capdac.Params()),
     symbol_rate=1.6 * G,
     vin_cm=h.Vdc.Params(dc=0.700),

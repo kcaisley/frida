@@ -258,25 +258,22 @@ def _adc_names(view):
     return adc_signal_names(testbench(params, pex_netlist=path), view)
 
 
-def test_frida2_rc_waveforms_use_device_terminal_nodes() -> None:
-    names = {alias: raw for raw, alias in _adc_names("frida2").items()}
-    legacy = {alias: raw for raw, alias in _adc_names("frida1").items()}
+def test_frida1_rc_waveforms_use_device_terminal_nodes() -> None:
+    names = {alias: raw for raw, alias in _adc_names("frida1").items()}
     assert names["vdac_p"] == "xtop.xadc.N_VDAC_P_XXsampswitch_p/MM0_d"
-    assert names["dac_state_p[0]"].startswith("xtop.xadc.N_DAC_STATE_P_MAIN<0>_")
-    assert legacy["dac_state_p[0]"].startswith("xtop.xadc.N_DAC_STATE_P_MAIN<15>_")
-    assert names["dac_state_p[0]"].split("/", 1)[1] == legacy["dac_state_p[0]"].split("/", 1)[1]
+    # the fabricated macro is C15 first
+    assert names["dac_state_p[0]"].startswith("xtop.xadc.N_DAC_STATE_P_MAIN<15>_")
 
 
-@pytest.mark.parametrize("view", ("frida1", "frida2"))
-def test_extracted_waveforms_cover_every_dac_stage_and_comparator_nodes(view):
-    names = {alias: raw for raw, alias in _adc_names(view).items()}
+def test_extracted_waveforms_cover_every_dac_stage_and_comparator_nodes():
+    names = {alias: raw for raw, alias in _adc_names("frida1").items()}
     assert len(names) == len(set(names.values()))
     for side in ("p", "n"):
         for kind in ("", "_diff"):
             for stage in range(16):
                 for family in ("state", "botplate"):
                     node = names[f"dac_{family}_{side}{kind}[{stage}]"]
-                    assert f"<{stage if view == 'frida2' else 15 - stage}>_" in node
+                    assert f"<{15 - stage}>_" in node
     assert names["comp.latch_p"].endswith("XXLATCH/MMM4_d")
     assert names["comp.latch_n"].endswith("XXLATCH/MMM3_d")
     assert names["comp.input_p_drain"].endswith("XXLATCH/MMM1_d")

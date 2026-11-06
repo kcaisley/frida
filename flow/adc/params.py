@@ -59,7 +59,7 @@ class TbParams:
     waveform_sample_interval_s = h.Param(
         dtype=float, desc="Maximum raw step and stored waveform spacing", default=10e-12
     )
-    view = h.Param(dtype=str, desc="ADC implementation: frida1, frida2, or hdl21gen", default="hdl21gen")
+    view = h.Param(dtype=str, desc="ADC implementation: frida1 (its extraction) or hdl21gen", default="hdl21gen")
     pex_cell = h.Param(
         dtype=str,
         desc="Calibre-extracted cell; empty selects adc_1layer_radix17 for frida1",

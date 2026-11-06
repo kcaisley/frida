@@ -20,7 +20,7 @@ from flow.util.netlist import subcircuit_ports
 from . import sim
 from .params import Params, TbParams
 
-PEX_FIXTURES = {view: Path(__file__).parent / "fixtures" / f"{view}_ports.scs" for view in ("frida1", "frida2")}
+PEX_FIXTURES = {"frida1": Path(__file__).parent / "fixtures" / "frida1_ports.scs"}
 PEX_PINS = {view: subcircuit_ports(path.read_text(), "adc_12b_17step") for view, path in PEX_FIXTURES.items()}
 
 timing_sequences = tuple(
@@ -45,7 +45,7 @@ def test_extracted_simulation_rejects_double_counting_and_changed_signed_input(t
     monkeypatch.setattr(h.pdk, "compile", lambda *_: pytest.fail("invalid PEX reached simulation compilation"))
     with pytest.raises(ValueError, match="double-count" if fault == "ideal_capacitor" else "PEX content differs"):
         sim.simulate(
-            TbParams(view="frida2", pex_cell="adc_12b_17step"),
+            TbParams(view="frida1", pex_cell="adc_12b_17step"),
             tmp_path / "simulation",
             pex_netlist=path,
             check=True,
@@ -72,7 +72,7 @@ def test_adc_testbench_parameters_are_simulation_only() -> None:
     "overrides",
     (
         {"view": "unknown"},
-        {"view": "frida2", "pex_cell": ""},
+        {"view": "frida2", "pex_cell": "adc_12b_17step"},  # retired: FRIDA-2 is generated
         {"pex_cell": "adc_12b_17step"},
         # the generated ADC wires its subtraction in: no run of it adds the difference plates
         {"dac_diffcaps": 0},
@@ -180,26 +180,25 @@ def test_sweep_validation_agrees_with_generated_waveform(tsmc65, start, stop, st
     assert len(wave.points) == 2 * count
 
 
-@pytest.mark.parametrize("view", ("frida1", "frida2"))
-def test_extracted_adc_keeps_calibre_port_order(view) -> None:
-    tb = sim.testbench(TbParams(view=view, pex_cell="adc_12b_17step"), pex_netlist=PEX_FIXTURES[view])
+def test_extracted_adc_keeps_calibre_port_order() -> None:
+    tb = sim.testbench(TbParams(view="frida1", pex_cell="adc_12b_17step"), pex_netlist=PEX_FIXTURES["frida1"])
     names = tuple(port.name for port in tb.xadc.of.module.port_list)
-    assert names == PEX_PINS[view]
+    assert names == PEX_PINS["frida1"]
     assert len(names) == 84
 
 
 def test_pex_header_reordering_changes_instance_order_without_swapping_nets(tmp_path):
-    pins = list(PEX_PINS["frida2"])
+    pins = list(PEX_PINS["frida1"])
     pins[0], pins[1] = pins[1], pins[0]
     path = tmp_path / "reordered.scs"
     path.write_text(f"subckt adc_12b_17step ({' '.join(pins)})\nends adc_12b_17step\n")
-    tb = sim.testbench(TbParams(view="frida2", pex_cell="adc_12b_17step"), pex_netlist=path)
+    tb = sim.testbench(TbParams(view="frida1", pex_cell="adc_12b_17step"), pex_netlist=path)
     assert tuple(tb.xadc.of.module.ports) == tuple(pins)
     assert tb.xadc.conns["vin_p"] is tb.vin_p
     assert tb.xadc.conns["vdd_a"] is tb.vdd_a
     path.write_text(path.read_text().replace("dac_astate_p_0", "dac_astate_p<1>"))
     with pytest.raises(ValueError, match="Duplicate external pins"):
-        sim.testbench(TbParams(view="frida2", pex_cell="adc_12b_17step"), pex_netlist=path)
+        sim.testbench(TbParams(view="frida1", pex_cell="adc_12b_17step"), pex_netlist=path)
 
 
 @pytest.mark.parametrize(
@@ -229,33 +228,27 @@ def test_pex_cell_rejects_unknown_and_generated_views() -> None:
         sim.testbench(TbParams(view="hdl21gen", pex_cell="adc_1layer_radix17", conversions=1))
 
 
-def test_c0_rename_preserves_the_physical_initialization_voltages() -> None:
+def test_the_fabricated_bus_order_preserves_the_physical_initialization_voltages() -> None:
+    # FRIDA-1's macro is C15 first: its pin <15 - stage> carries stage's state
     for bus in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"):
         pattern = tuple(int(stage in (0, 3, 8, 14)) for stage in range(16))
-        old = sim.testbench(
+        tb = sim.testbench(
             TbParams(view="frida1", pex_cell="adc_12b_17step", **{bus: pattern}),
             pex_netlist=PEX_FIXTURES["frida1"],
         )
-        new = sim.testbench(
-            TbParams(view="frida2", pex_cell="adc_12b_17step", **{bus: pattern}),
-            pex_netlist=PEX_FIXTURES["frida2"],
-        )
         for stage, state in enumerate(pattern):
-            assert float(getattr(old, f"v{bus}_{stage}").of.params.dc) == pytest.approx(1.2 * state)
-            old_net = old.xadc.conns[f"{bus}_{15 - stage}"]
-            new_net = new.xadc.conns[f"{bus}_{stage}"]
-            assert old_net.parent is old.namespace[bus] and old_net.index == stage
-            assert new_net.parent is new.namespace[bus] and new_net.index == stage
-            assert float(getattr(new, f"v{bus}_{stage}").of.params.dc) == pytest.approx(1.2 * state)
+            assert float(getattr(tb, f"v{bus}_{stage}").of.params.dc) == pytest.approx(1.2 * state)
+            net = tb.xadc.conns[f"{bus}_{15 - stage}"]
+            assert net.parent is tb.namespace[bus] and net.index == stage
 
 
 def test_all_adc_views_expose_the_same_analysis_waveforms(tsmc65):
     observations = []
-    for view in ("hdl21gen", "frida1", "frida2"):
+    for view in ("hdl21gen", "frida1"):
         pex = PEX_FIXTURES.get(view)
         tb = sim.testbench(TbParams(view=view, pex_cell="adc_12b_17step" if pex else ""), pex_netlist=pex)
         observations.append(set(sim.adc_signal_names(tb, view).values()))
-    assert observations[0] == observations[1] == observations[2]
+    assert observations[0] == observations[1]
     for side in ("p", "n"):
         for kind in ("", "_diff"):
             for stage in range(16):
@@ -264,15 +257,15 @@ def test_all_adc_views_expose_the_same_analysis_waveforms(tsmc65):
 
 @pytest.mark.parametrize("fault", ("missing", "duplicate"))
 def test_pex_observations_reject_incomplete_or_ambiguous_bindings(monkeypatch, fault):
-    tb = sim.testbench(TbParams(view="frida2", pex_cell="adc_12b_17step"), pex_netlist=PEX_FIXTURES["frida2"])
-    aliases = sim.frida2_net_aliases()
+    tb = sim.testbench(TbParams(view="frida1", pex_cell="adc_12b_17step"), pex_netlist=PEX_FIXTURES["frida1"])
+    aliases = sim.frida1_net_aliases()
     if fault == "missing":
         del aliases[sim.AdcNets.vdac_p]
     else:
         aliases[sim.AdcNets.vdac_p] = aliases[sim.AdcNets.vdac_n]
-    monkeypatch.setattr(sim, "frida2_net_aliases", lambda: aliases)
+    monkeypatch.setattr(sim, "frida1_net_aliases", lambda: aliases)
     with pytest.raises((KeyError, ValueError)):
-        sim.adc_signal_names(tb, "frida2")
+        sim.adc_signal_names(tb, "frida1")
 
 
 def test_supply_noise_testbench_repeats_independent_rail_networks() -> None:
@@ -354,8 +347,8 @@ def captured_executor(monkeypatch, tsmc65):
 
 @pytest.fixture
 def pex_input(tmp_path):
-    pex = tmp_path / "frida2_2layer_radix17.pex.netlist"
-    ports = " ".join(PEX_PINS["frida2"])
+    pex = tmp_path / "frida1_1layer_radix17.pex.netlist"
+    ports = " ".join(PEX_PINS["frida1"])
     pex.write_text(f"subckt adc_12b_17step ({ports})\ninternal\nends adc_12b_17step\n")
     (tmp_path / "signoff_summary.json").write_text(
         json.dumps(
@@ -386,12 +379,9 @@ def test_logic_capture_saves_tail_without_changing_noise_bandwidth(check, captur
         assert "converted" not in captured_executor
 
 
-@pytest.mark.parametrize("view,threads", (("hdl21gen", 8), ("frida2", 8), ("frida1", 6)))
+@pytest.mark.parametrize("view,threads", (("hdl21gen", 8), ("frida1", 6)))
 @pytest.mark.parametrize("check", (False, True))
 def test_single_executor_modes(view, threads, check, captured_executor, pex_input, tmp_path):
-    if view == "frida1":
-        ports = " ".join(PEX_PINS["frida1"])
-        pex_input.write_text(f"subckt adc_12b_17step ({ports})\ninternal\nends adc_12b_17step\n")
     params = TbParams(
         view=view,
         pex_cell="" if view == "hdl21gen" else "adc_12b_17step",
@@ -478,7 +468,7 @@ def test_executor_rejects_bad_pex(fault, message, captured_executor, pex_input, 
         (tmp_path / "signoff_summary.json").write_text(json.dumps(summary))
     with pytest.raises(ValueError, match=message):
         sim.simulate(
-            TbParams(view="frida2", pex_cell="adc_12b_17step"),
+            TbParams(view="frida1", pex_cell="adc_12b_17step"),
             tmp_path / "run",
             pex_netlist=pex_input,
             check=True,
@@ -489,7 +479,7 @@ def test_executor_rejects_bad_pex(fault, message, captured_executor, pex_input, 
 def test_missing_configured_pex_fails(captured_executor, tmp_path):
     with pytest.raises(FileNotFoundError):
         sim.simulate(
-            TbParams(view="frida2", pex_cell="adc_12b_17step"),
+            TbParams(view="frida1", pex_cell="adc_12b_17step"),
             tmp_path / "run",
             pex_netlist=tmp_path / "missing.pex.netlist",
             check=True,
@@ -504,21 +494,17 @@ def test_diagnostic_simulator_error_propagates(captured_executor, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "view,target,warning,accepted",
+    "target,warning,accepted",
     (
-        ("frida1", "frida1_2layer_radix17", "expected LVS mismatch: disconnected historical MOM layer", True),
-        ("frida1", "frida1_2layer_radix20", "expected LVS mismatch: disconnected historical MOM layer", True),
-        ("frida1", "frida1_1layer_radix17", "expected LVS mismatch: disconnected historical MOM layer", False),
-        ("frida2", "frida2_2layer_radix17", "expected LVS mismatch: disconnected historical MOM layer", False),
-        ("frida1", "frida1_2layer_radix17", "unrelated mismatch", False),
+        ("frida1_2layer_radix17", "expected LVS mismatch: disconnected historical MOM layer", True),
+        ("frida1_2layer_radix20", "expected LVS mismatch: disconnected historical MOM layer", True),
+        ("frida1_1layer_radix17", "expected LVS mismatch: disconnected historical MOM layer", False),
+        ("frida1_2layer_radix17", "unrelated mismatch", False),
     ),
 )
-def test_historical_lvs_exception_is_narrow(view, target, warning, accepted, captured_executor, pex_input, tmp_path):
+def test_historical_lvs_exception_is_narrow(target, warning, accepted, captured_executor, pex_input, tmp_path):
     renamed = pex_input.with_name(f"{target}.pex.netlist")
     pex_input.rename(renamed)
-    if view == "frida1":
-        ports = " ".join(PEX_PINS["frida1"])
-        renamed.write_text(f"subckt adc_12b_17step ({ports})\ninternal\nends adc_12b_17step\n")
     (tmp_path / "signoff_summary.json").write_text(
         json.dumps(
             {
@@ -529,7 +515,7 @@ def test_historical_lvs_exception_is_narrow(view, target, warning, accepted, cap
         )
     )
     kwargs = {"pex_netlist": renamed, "expected_disconnect": True, "check": True}
-    params = TbParams(view=view, pex_cell="adc_12b_17step")
+    params = TbParams(view="frida1", pex_cell="adc_12b_17step")
     if accepted:
         sim.simulate(params, tmp_path / "run", **kwargs)
         assert captured_executor["options"]

@@ -3,7 +3,7 @@
 Allow roughly one hour for the full suite on asiclab003 (host/load dependent).
 Run it occasionally or after broad simulation-flow changes, not after every edit.
 For routine changes, select affected blocks/experiments with pytest's -k option,
-for example: uv run pytest -m spectre -k 'adc-frida2_sequence'.
+for example: uv run pytest -m spectre -k 'adc-frida1_sequence'.
 The short simulated durations do not imply short wall-clock runtimes.
 """
 
@@ -56,7 +56,6 @@ def diagnostic_root(spectre_installation):
         ("adc", "frida1_sample_rate"),
         ("adc", "frida1_transfer_curve"),
         ("adc", "frida1_supply_noise"),
-        ("adc", "frida2_sequence"),
         ("cdac.caparray", "frida1_transfer_curve"),
         ("cdac.caparray", "caparray_characterization"),
         ("delay", "delay_characterization"),

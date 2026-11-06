@@ -130,11 +130,6 @@ def frida1_supply_noise() -> Path:
     return adc_sweep.frida1_supply_noise(_sim_run("frida1_supply_noise"))
 
 
-def frida2_sequence() -> Path:
-    """Named continuous timing recipes on FRIDA-2's three radix-17 stacks."""
-    return adc_sweep.frida2_sequence(_sim_run("frida2_sequence"))
-
-
 def layout_frida1_1layer_radix17() -> Path:
     """FRIDA-1's one-metal radix-17 ADC as fabricated, signed off and extracted (TSMC65)."""
     return layout.frida1_1layer_radix17(_unmade("layout", "adc", "frida1_1layer_radix17"))

@@ -44,7 +44,7 @@ metrics and figures (``record``: the analyses of ``flow.adc.analysis``, the figu
 ``flow.adc.plots``) for the viewer; its captures stay in memory, so its run is its record. Its
 geometry metrics are those of its analog blocks (``GENERATOR``, ``flow.adc.subckt.AdcBlocks``).
 
-The named Spectre runs (``hdl21_sample_rate`` to ``frida2_sequence``, the CLI's ``python -m flow
+The named Spectre runs (``hdl21_sample_rate`` to ``frida1_supply_noise``, the CLI's ``python -m flow
 adc.<name>``, ``flow.adc.targets``): the generated or an extracted converter's testbenches
 (``sim.testbench``), simulated side by side (``sim.simulate``), each run's measurement written
 beside it (``result.h5``).
@@ -871,68 +871,6 @@ def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
                         params,
                     )
                 )
-        for future, params in futures:
-            raw_path, signal_names = future.result()
-            if not check:
-                measurement = convert_raw_adc_to_measurement(
-                    read_raw_transient(raw_path),
-                    params=params,
-                    raw_path=raw_path,
-                    signal_names=signal_names,
-                )
-                write_measurement(raw_path.parent / "result.h5", measurement)
-    return run_dir
-
-
-def frida2_sequence(run_dir: Path, *, check: bool = False) -> Path:
-    """Compare named continuous timing recipes on three radix-17 stacks."""
-
-    from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
-
-    root = Path(__file__).resolve().parents[2] / "build/layout/adc"
-    with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
-        futures = []
-        for (layers, stamp), timing in product(
-            ((1, "20260905_193440"), (2, "20260905_193629"), (3, "20260905_193816")),
-            # COMP      LOGIC at fall  LOGIC +1 symbol
-            # 11110000  00001111       10000111
-            # 11111000  10000111       11000011
-            # 11111100  11000011       11100001
-            # 11111110  11100001       (excluded)
-            (
-                "symbol160_init4_samp20_comp11110000_logic00001111",
-                "symbol160_init4_samp20_comp11110000_logic10000111",
-                "symbol160_init4_samp20_comp11111000_logic10000111",
-                "symbol160_init4_samp20_comp11111000_logic11000011",
-                "symbol160_init4_samp20_comp11111100_logic11000011",
-                "symbol160_init4_samp20_comp11111100_logic11100001",
-                "symbol160_init4_samp20_comp11111110_logic11100001",
-            ),
-        ):
-            target = f"frida2_{layers}layer_radix17"
-            params = TbParams(
-                view="frida2",
-                pex_cell="adc_12b_17step",
-                dut=Params(adc_bits=12, cdac=capdac.Params()),
-                symbol_rate=1.6 * G,
-                conversions=1 if check else 100,
-                vin_diff=h.Vdc.Params(dc=0.05),
-                **dict(SEQUENCES)[timing].as_tb_fields(),
-            )
-            futures.append(
-                (
-                    executor.submit(
-                        simulate,
-                        params,
-                        run_dir / target / timing,
-                        pex_netlist=root / target / stamp / f"{target}.pex.netlist",
-                        noise=True,
-                        check=check,
-                    ),
-                    params,
-                )
-            )
         for future, params in futures:
             raw_path, signal_names = future.result()
             if not check:

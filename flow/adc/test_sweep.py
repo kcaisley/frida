@@ -38,7 +38,7 @@ from flow.adc.params import (
 from flow.pipeline import Pdk
 from flow.sweep.runner import design_space, digest
 
-PEX_FIXTURES = {view: Path(__file__).parent / "fixtures" / f"{view}_ports.scs" for view in ("frida1", "frida2")}
+PEX_FIXTURES = {"frida1": Path(__file__).parent / "fixtures" / "frida1_ports.scs"}
 
 # the record's figures by name, in the viewer's order: the plots module's
 FIGURES = [
@@ -320,9 +320,9 @@ def test_the_record_holds_the_models_own_metrics_beside_the_campaigns(monkeypatc
 # the named Spectre runs and their CLI targets
 
 
-@pytest.mark.parametrize("family,count", (("frida1", 4), ("frida2", 3)))
 @pytest.mark.parametrize("check", (False, True))
-def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
+def test_fixed_input_campaigns(check, tmp_path, monkeypatch):
+    count = 4  # FRIDA-1's flavors
     calls = []
     started = Barrier(count)
 
@@ -345,7 +345,7 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
     monkeypatch.setattr(io, "write_measurement", lambda *args: None)
     monkeypatch.setattr(sweep, "simulate", capture)
     root = tmp_path / "campaign"
-    assert getattr(sweep, f"{family}_sequence")(root, check=check) == root
+    assert sweep.frida1_sequence(root, check=check) == root
     timing_count = 7
     assert len(calls) == timing_count * count
     assert len({directory for directory, *_ in calls}) == timing_count * count
@@ -356,7 +356,7 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
         assert directory.parent.parent == root
         assert params.conversions == (1 if check else 100)
         assert params.pex_cell == "adc_12b_17step"
-        assert params.view == ("frida2" if family == "frida2" else "frida1")
+        assert params.view == "frida1"
         assert float(params.symbol_rate) == 1.6e9
         assert float(params.vin_diff.dc) == 0.05
         assert float(params.vin_cm.dc) == pytest.approx(0.7)
@@ -364,7 +364,7 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
         assert options["noise"] is True
         assert options["pex_netlist"].name == f"{flavor}.pex.netlist"
         assert options["pex_netlist"].parent.name.startswith("20260905_")
-        assert options.get("expected_disconnect", False) == (family == "frida1" and "2layer" in flavor)
+        assert options.get("expected_disconnect", False) == ("2layer" in flavor)
         assert sum(capdac.Model.weights(params.dut.cdac)) == (2303 if "radix20" in flavor else 2047)
         comp = np.fromiter(map(int, params.seq_comp_pattern), dtype=int)
         logic = np.fromiter(map(int, params.seq_logic_pattern), dtype=int)
@@ -381,11 +381,10 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
         np.testing.assert_array_equal(
             np.flatnonzero(np.fromiter(map(int, params.seq_samp_pattern), dtype=int)), np.arange(4, 24)
         )
-        assert sim.testbench(params, pex_netlist=PEX_FIXTURES[family]).name == f"AdcTb_{family}"
+        assert sim.testbench(params, pex_netlist=PEX_FIXTURES["frida1"]).name == "AdcTb_frida1"
 
 
-@pytest.mark.parametrize("family,count", (("frida1", 4), ("frida2", 3)))
-def test_concurrent_campaign_propagates_case_failure(family, count, tmp_path, monkeypatch):
+def test_concurrent_campaign_propagates_case_failure(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(
         sweep, "ProcessPoolExecutor", lambda **kwargs: ThreadPoolExecutor(max_workers=kwargs["max_workers"])
@@ -399,8 +398,8 @@ def test_concurrent_campaign_propagates_case_failure(family, count, tmp_path, mo
 
     monkeypatch.setattr(sweep, "simulate", fail_one)
     with pytest.raises(RuntimeError, match="simulator failed"):
-        getattr(sweep, f"{family}_sequence")(tmp_path)
-    assert len(calls) == 7 * count
+        sweep.frida1_sequence(tmp_path)
+    assert len(calls) == 7 * 4
 
 
 @pytest.mark.parametrize(
@@ -475,7 +474,6 @@ def test_adc_targets_list_only_experiment_targets_in_family_order():
         "frida1_sample_rate",
         "frida1_transfer_curve",
         "frida1_supply_noise",
-        "frida2_sequence",
     ]
     assert all(not inspect.signature(getattr(targets, name)).parameters for name in names)
     assert not hasattr(sweep, "main")
@@ -484,7 +482,7 @@ def test_adc_targets_list_only_experiment_targets_in_family_order():
 def test_target_runs_full_experiment(tmp_path, monkeypatch):
     calls = []
 
-    def frida2_sequence(directory, **options):
+    def frida1_sequence(directory, **options):
         calls.append((directory, options))
 
     def new_run(*parts):
@@ -492,18 +490,18 @@ def test_target_runs_full_experiment(tmp_path, monkeypatch):
         run_dir.mkdir(parents=True)
         return run_dir
 
-    monkeypatch.setattr(sweep, "frida2_sequence", frida2_sequence)
+    monkeypatch.setattr(sweep, "frida1_sequence", frida1_sequence)
     monkeypatch.setattr(targets, "new_run", new_run)
-    targets.frida2_sequence()
+    targets.frida1_sequence()
     directory, options = calls[0]
-    assert directory == tmp_path / "build/sim/adc/20260101_000000_frida2_sequence"
+    assert directory == tmp_path / "build/sim/adc/20260101_000000_frida1_sequence"
     assert directory.is_dir()
     assert not (tmp_path / "build/sim/adc/20260101_000000").exists()
     assert options == {}
 
 
 def test_all_campaign_patterns_are_preserved(monkeypatch, tmp_path):
-    """Independent literal expectations cover every clock of all 49 configurations."""
+    """Independent literal expectations cover every clock of all 28 configurations."""
     from concurrent.futures import Future
 
     expected = {
@@ -541,8 +539,7 @@ def test_all_campaign_patterns_are_preserved(monkeypatch, tmp_path):
     monkeypatch.setattr(io, "write_measurement", lambda *args: None)
     monkeypatch.setattr(sweep, "ProcessPoolExecutor", CaptureExecutor)
     sweep.frida1_sequence(tmp_path)
-    sweep.frida2_sequence(tmp_path)
-    assert len(cases) == len({path for path, _ in cases}) == 49
+    assert len(cases) == len({path for path, _ in cases}) == 28
     for path, params in cases:
         comp_word, first_logic, logic_word, last_logic = expected[path.name]
         expected_rows = (

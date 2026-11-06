@@ -31,7 +31,7 @@ def test_targets_and_python_contract(block):
     }
     names = [name for name, function in runs.items() if function is not None]
     assert names
-    assert names == sorted(names, key=lambda name: (not name.startswith("hdl21"), name.startswith("frida2")))
+    assert names == sorted(names, key=lambda name: not name.startswith("hdl21"))
     for name in names:
         assert not inspect.signature(getattr(targets, name)).parameters
         signature = inspect.signature(runs[name])
@@ -142,7 +142,7 @@ def test_missing_installation_skips_but_missing_collateral_fails(monkeypatch, tm
 def test_spectre_marker_is_opt_in():
     import subprocess
 
-    for selection, expected in (([], "22 deselected"), (["-m", "spectre"], "22 tests collected")):
+    for selection, expected in (([], "21 deselected"), (["-m", "spectre"], "21 tests collected")):
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "--collect-only", "-q", str(test_spectre.__file__), *selection],
             capture_output=True,

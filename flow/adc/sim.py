@@ -41,7 +41,6 @@ from flow.adc.subckt import (
     adc_stages,
     digital_netlist,
     frida1_net_aliases,
-    frida2_net_aliases,
     generated_net_aliases,
 )
 from flow.circuit.ports import testbench_from_ports
@@ -980,14 +979,12 @@ def is_valid_adc_tb_params(params: TbParams) -> bool:
     are checked by the caller. This predicate only examines parameter values.
     """
     nets = adc_nets(adc_stages(params.dut))
-    # the extracted views are FRIDA's, 16 stages
+    # the extracted view is FRIDA-1's, 16 stages
     if params.view != "hdl21gen" and adc_stages(params.dut) != 16:
         return False
     if not math.isfinite(params.waveform_sample_interval_s) or params.waveform_sample_interval_s <= 0:
         return False
-    if params.view not in {"frida1", "frida2", "hdl21gen"}:
-        return False
-    if params.view == "frida2" and params.pex_cell != "adc_12b_17step":
+    if params.view not in {"frida1", "hdl21gen"}:
         return False
     if params.view == "hdl21gen" and params.pex_cell:
         return False
@@ -1208,16 +1205,12 @@ def adc_signal_names(tb: h.Module, view: str, *, save_supply_voltages: bool = Fa
     ADC's (``adc_nets`` of its stage count). The generated ADC holds its nets itself but for its
     bottom plates, which are its DAC's sides' (``generated_net_aliases``; a plate its array has none
     of, a unit capacitor's difference plate, is not saved); an extracted view's are RC terminals of
-    its extraction (``frida1_net_aliases``, ``frida2_net_aliases``)."""
-    if view not in {"hdl21gen", "frida1", "frida2"}:
+    its extraction (``frida1_net_aliases``)."""
+    if view not in {"hdl21gen", "frida1"}:
         raise ValueError(f"Unsupported ADC view {view!r}")
     generated = view == "hdl21gen"
     aliases: Mapping[h.Signal | h.Slice, str | None] = (
-        generated_net_aliases(tb.xadc.of, nets)
-        if generated
-        else frida1_net_aliases()
-        if view == "frida1"
-        else frida2_net_aliases()
+        generated_net_aliases(tb.xadc.of, nets) if generated else frida1_net_aliases()
     )
     names = {"time": "time"}
     for schema, prefix in ((nets, ""), (comp.Nets, "comp.")):
