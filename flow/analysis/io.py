@@ -302,8 +302,9 @@ def read_extracted_calibration(path: Path, measurement: MeasAdc) -> adc.Analysis
     """Read the extraction ``path`` names as BOUT weights for ``measurement``: a PEX per-stage
     capacitance table (CSV, its ``effective_ff`` column), or the settling measurement a capacitive
     DAC's characterization keeps (``flow.capdac``, HDF5: each stage's differential step as measured,
-    which is in proportion to its effective capacitance, ``capdac.analyze_settling``). No path (an
-    empty one, ``Path()``: a DAC as designed, nothing extracted) gives the design's own weights.
+    which is in proportion to its effective capacitance, ``capdac.Model.measured_steps``, the steps
+    the behavioral DAC's plates give). No path (an empty one, ``Path()``: a DAC as designed, nothing
+    extracted) gives the design's own weights.
 
     The extracted effective (main - diff) capacitances are the best estimate
     of the CDAC weights before random mismatch. Each switched capacitor
@@ -355,13 +356,12 @@ def read_extracted_calibration(path: Path, measurement: MeasAdc) -> adc.Analysis
 
 @cache
 def _measured_steps(path: Path) -> np.ndarray:
-    """Each stage's step a capacitive DAC's kept settling measurement holds (V, C0 first), as
-    ``capdac.analyze_settling`` measures it, in its slower direction: its magnitude, whose sign is
-    that direction's. Read once a process: every capture of a converter on the array decodes with
-    it."""
+    """Each stage's step a capacitive DAC's kept settling measurement holds (V, C0 first, its
+    magnitude: ``capdac.Model.measured_steps``), read once a process: every capture of a converter
+    on the array decodes with it."""
     from flow import capdac  # in here: flow.capdac.model imports this module
 
-    steps = np.abs(capdac.analyze_settling(read_measurement(path)).step_v)
+    steps = capdac.Model.measured_steps(path)
     steps.flags.writeable = False
     return steps
 

@@ -1,8 +1,8 @@
 """The capacitive DAC's behavioral model: each stage's settling to half the converter's LSB, its
-drivers' delay and the time constant that reproduces it, and the drawn array's gain against its
-design and its area, from the SPICE characterization of the same ``Params`` in the PDK
-(``flow.capdac.sweep``, looked up by ``flow.sweep.lookup``) and its layout; a design that is not
-characterized, as designed (``Model.design``).
+drivers' delay and the time constant that reproduces it, each stage's step as drawn, and the
+drawn array's gain against its design and its area, from the SPICE characterization of the same
+``Params`` in the PDK (``flow.capdac.sweep``, looked up by ``flow.sweep.lookup``) and its layout; a
+design that is not characterized, as designed (``Model.design``).
 
     model = capdac.Model.of("tsmc65", capdac.Params(bits=10, redundancy=capdac.Redundancy.BINARY, extra=0))
     dac = model.behavioral()  # the behavioral ADC's DAC: the drawn array's plates and settling
@@ -12,14 +12,16 @@ LOGIC edge and settles it as one exponential; with this model's time constants a
 half an LSB exactly when the testbench's does. A characterization missing from the sweep's newest
 run is simulated on first use (``simulate=True``) and kept under the build's models. The array's
 plates are the design's at the reference the netlist draws them for, the PDK's typical supply, at
-which the characterization runs (``Model.reference_v``); the converter's reference only switches
-them (``Model.switch``).
+which the characterization runs (``Model.reference_v``), each stage's main plate drawn so that its
+step is the one measured (``Model.step_v``: a unit drawn other than designed, at the PDK's
+smallest, moves its stage's step); the converter's reference only switches them (``Model.switch``).
 
 ``Model.drawn`` gives one of the characterization's Monte Carlo draws, the plates a converter on the
 array calibrates on (``flow.adc.model``): of one condition, the run at a percentile of what no
 calibration recovers. ``Model.settling_meas`` is the measurement its settling run keeps, whose
-steps, each stage's as measured, are the weights a converter on the array decodes with as its
-extracted ones (``flow.analysis.io.read_extracted_calibration``).
+steps, each stage's as measured (``Model.measured_steps``, ``Model.step_v``), are the weights a
+converter on the array decodes with as its extracted ones
+(``flow.analysis.io.read_extracted_calibration``): the steps its plates give.
 
 The switching is the model's own physics, which the behavioral ADC runs: ``Model.Behavioral``, the
 DAC beyond its ``Params`` (what ``behavioral`` gives: each side's plates, the top plate's other
@@ -45,7 +47,7 @@ from flow.analysis.io import read_measurement
 from flow.sweep.lookup import characterized, detail
 from flow.sweep.runner import ROOT
 
-from .analysis import analyze_mismatch
+from .analysis import analyze_mismatch, analyze_settling
 from .params import Params, _design_plates, _weights
 
 
@@ -58,9 +60,9 @@ def _supply_v(pdk: str) -> float:
 
 @dataclass(frozen=True)
 class Model:
-    """One capacitive DAC's per-stage settling, C0 first, and its drawn array's gain against its
-    design and its area, as its SPICE characterization and its layout measured them, its plates
-    designed at ``reference_v``."""
+    """One capacitive DAC's per-stage settling and step, C0 first, and its drawn array's gain
+    against its design and its area, as its SPICE characterization and its layout measured them, its
+    plates designed at ``reference_v``."""
 
     pdk: str
     params: Params
@@ -76,6 +78,9 @@ class Model:
     # the measurement its settling run keeps, each stage's step as measured; None where none is kept
     # (a design's, ``Model.design``)
     settling_meas: Path | None = None
+    # each stage's step in it (V, its slower direction's magnitude, ``Model.measured_steps``); None
+    # where none is kept: the design's
+    step_v: tuple[float, ...] | None = None
 
     @h.paramclass
     class Behavioral:
@@ -118,6 +123,7 @@ class Model:
         # a record the layout step has not reached has no area
         area = metrics.get("layout_area_um2")
         kept = record.get("waves") or {}
+        settling_meas = ROOT / kept["settling"] if "settling" in kept else None
         return cls(
             pdk=pdk,
             params=params,
@@ -128,7 +134,8 @@ class Model:
             lsb_v=metrics["lsb_v"],
             gain=metrics["gain"],
             area_um2=math.nan if area is None else float(area),
-            settling_meas=ROOT / kept["settling"] if "settling" in kept else None,
+            settling_meas=settling_meas,
+            step_v=None if settling_meas is None else tuple(map(float, Model.measured_steps(settling_meas))),
         )
 
     @classmethod
@@ -182,20 +189,32 @@ class Model:
         self,
         plates: tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]] | None = None,
     ) -> Model.Behavioral:
-        """The behavioral ADC's DAC: each side's plates, the design's at the reference they are
-        drawn for (``Model.plates`` at ``reference_v``, whatever reference the converter switches
-        them to) or ``plates``, (main, difference) for the P side then the N side (a Monte Carlo
-        draw: ``Model.drawn``, ``Model.draw``); each top plate's load beyond the design's plates, the
-        parasitic at which they give the drawn array's gain; each stage's delay and time constant,
-        ``settling_tau_s`` the slowest's. The drivers' energy is not characterized: none. The
-        reference is ideal: the converter sets its departures (``reference_*``) and scales the time
-        constants."""
+        """The behavioral ADC's DAC: each side's plates as drawn, (main, difference) for the P side
+        then the N side: the design's at the reference they are drawn for (``Model.plates`` at
+        ``reference_v``, whatever reference the converter switches them to), or ``plates`` drawn
+        about them (a Monte Carlo draw: ``Model.drawn``, ``Model.draw`` of the design's), each
+        stage's main plate taking the excess of its measured step over its design's (``step_v``):
+        the switched plates' total stays the design's, and with it the top plate's load, the gain and
+        the full scale, each stage's share of it its share of the measured steps, so the plates give
+        the steps a converter's extracted weights are; each top plate's load beyond the design's
+        plates, the parasitic at which they give the drawn array's gain; each stage's delay and time
+        constant, ``settling_tau_s`` the slowest's. The drivers' energy is not characterized: none.
+        The reference is ideal: the converter sets its departures (``reference_*``) and scales the
+        time constants."""
         main_f, diff_f = Model.plates(self.params, self.reference_v)
+        switched_f = main_f - diff_f
+        # the measured steps' shares of the design's switched plates, less the design's own: none as
+        # designed
+        excess_f = (
+            np.zeros_like(switched_f)
+            if self.step_v is None
+            else np.asarray(self.step_v) / sum(self.step_v) * switched_f.sum() - switched_f
+        )
         (main_p, diff_p), (main_n, diff_n) = ((main_f, diff_f), (main_f, diff_f)) if plates is None else plates
         return Model.Behavioral(
-            main_p_f=tuple(map(float, main_p)),
+            main_p_f=tuple(map(float, np.asarray(main_p) + excess_f)),
             diff_p_f=tuple(map(float, diff_p)),
-            main_n_f=tuple(map(float, main_n)),
+            main_n_f=tuple(map(float, np.asarray(main_n) + excess_f)),
             diff_n_f=tuple(map(float, diff_n)),
             # the gain is the design's plates over the whole load: the rest of it is the parasitic
             parasitic_f=float(main_f.sum() + diff_f.sum()) * (1 / self.gain - 1),
@@ -203,6 +222,15 @@ class Model:
             stage_tau_s=self.tau_s,
             stage_delay_s=self.delay_s,
         )
+
+    @staticmethod
+    def measured_steps(path: Path) -> np.ndarray:
+        """Each stage's step the settling measurement ``path`` holds (V, C0 first, one that
+        ``Model.settling_meas`` names), as ``analyze_settling`` measures it, in its slower direction:
+        its magnitude, whose sign is that direction's. In proportion to its plates' switched
+        capacitance as drawn: the steps the behavioral DAC's plates give (``behavioral``), and a
+        converter's extracted weights (``flow.analysis.io.read_extracted_calibration``)."""
+        return np.abs(analyze_settling(read_measurement(path)).step_v)
 
     @staticmethod
     def weights(params: Params) -> tuple[int, ...]:

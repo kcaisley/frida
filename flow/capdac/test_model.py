@@ -5,6 +5,7 @@ gives that ADC (``Model.behavioral``) from a record (``Model.of``, on a stand-in
 alone (``Model.design``)."""
 
 import math
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -141,12 +142,25 @@ def test_the_behavioral_defaults_are_ideal() -> None:
 
 def test_a_record_gives_the_drawn_gain_area_and_settling(monkeypatch: pytest.MonkeyPatch) -> None:
     """``Model.of`` on a stand-in record in a PDK of a 0.9 V supply: its plates are the design's at
-    that supply, at which the netlist draws them and the characterization runs; the gain is those
-    plates over the drawn top plate's whole load, so the rest of it is the parasitic; a Monte Carlo
-    draw's plates replace the design's, the parasitic stays. The measurement its settling run keeps
-    is found under the repository, as the record names it."""
+    that supply, at which the netlist draws them and the characterization runs, each stage's main
+    plate drawn so that its share of the switched plates is its share of the measured steps (their
+    total the design's); the gain is the design's plates over the drawn top plate's whole load, so
+    the rest of it is the parasitic; a Monte Carlo draw of the design's plates is drawn so too, the
+    parasitic stays. The measurement its settling run keeps is found under the repository, as the
+    record names it, and read once: each stage's step its magnitude."""
     params = Params(bits=10, redundancy=Redundancy.BINARY, extra=0)
     stages = len(Model.weights(params))
+    # the steps as measured: the design's at some gain, stage 2's 2 % large; each in its slower
+    # direction, every other one falling
+    steps = 0.7e-3 * np.asarray(Model.weights(params), dtype=np.float64)
+    steps[2] *= 1.02
+    read = []
+    monkeypatch.setattr(capdac_model, "read_measurement", lambda path: read.append(path) or "settling")
+    monkeypatch.setattr(
+        capdac_model,
+        "analyze_settling",
+        lambda meas: SimpleNamespace(step_v=steps * np.where(np.arange(stages) % 2, -1.0, 1.0)),
+    )
     record = {
         "block": "capdac",
         "metrics": {"lsb_v": 1.5e-3, "gain": 0.8, "layout_area_um2": 1234.0},
@@ -161,22 +175,33 @@ def test_a_record_gives_the_drawn_gain_area_and_settling(monkeypatch: pytest.Mon
     model = Model.of("tsmc65", params)
     assert (model.gain, model.area_um2, model.lsb_v, model.reference_v) == (0.8, 1234.0, 1.5e-3, 0.9)
     assert model.settling_meas == capdac_model.ROOT / "build/capdac/run/tsmc65/digest/settling/result.h5"
+    assert read == [model.settling_meas]
+    np.testing.assert_allclose(model.step_v, steps, rtol=1e-15)
     dac = model.behavioral()
     main_f, diff_f = Model.plates(params, 0.9)
     plates_f = float(main_f.sum() + diff_f.sum())
     assert plates_f / (plates_f + dac.parasitic_f) == pytest.approx(0.8, rel=1e-12)
-    assert dac.main_p_f == dac.main_n_f == tuple(main_f) and dac.diff_n_f == tuple(diff_f)
+    # the plates as drawn: the switched plates' total the design's, each stage's share the measured
+    # step's; the difference plates the design's
+    main_p = np.asarray(dac.main_p_f)
+    assert dac.main_n_f == dac.main_p_f and dac.diff_p_f == dac.diff_n_f == tuple(diff_f)
+    assert float(main_p.sum() + diff_f.sum()) == pytest.approx(plates_f, rel=1e-12)
+    np.testing.assert_allclose((main_p - diff_f) / float((main_f - diff_f).sum()), steps / steps.sum(), rtol=1e-12)
     assert dac.stage_delay_s == (50e-12,) * stages and dac.stage_tau_s == (40e-12,) * stages
     assert dac.settling_tau_s == 40e-12 and dac.driver_energy_j == 0.0
-    # a draw of the drawn plates keeps the drawn gain
+    # a draw of the design's plates is drawn so too, and keeps the drawn gain
     drawn = model.behavioral(((1.01 * main_f, diff_f), (main_f, 0.99 * diff_f)))
-    assert drawn.main_p_f == tuple(1.01 * main_f) and drawn.diff_n_f == tuple(0.99 * diff_f)
+    np.testing.assert_allclose(np.asarray(drawn.main_p_f) - 1.01 * main_f, main_p - main_f, rtol=1e-9, atol=1e-30)
+    assert drawn.main_n_f == dac.main_n_f and drawn.diff_n_f == tuple(0.99 * diff_f)
     assert drawn.parasitic_f == dac.parasitic_f
-    # a record the layout step has not reached has no area, one that keeps no run no measurement
+    # a record the layout step has not reached has no area, one that keeps no run no measurement:
+    # its plates the design's
     del record["metrics"]["layout_area_um2"]
     assert math.isnan(Model.of("tsmc65", params).area_um2)
     del record["waves"]
-    assert Model.of("tsmc65", params).settling_meas is None
+    kept_none = Model.of("tsmc65", params)
+    assert kept_none.settling_meas is None and kept_none.step_v is None
+    assert kept_none.behavioral().main_p_f == tuple(main_f)
 
 
 def test_a_design_without_a_record_settles_as_its_drivers_are_sized() -> None:
@@ -188,7 +213,7 @@ def test_a_design_without_a_record_settles_as_its_drivers_are_sized() -> None:
     model = Model.design("tsmc65", params, reference_v=1.0)
     weights = np.asarray(Model.weights(params), dtype=np.float64)
     assert model.gain == 1.0 and math.isnan(model.area_um2) and model.delay_s == (0.0,) * len(weights)
-    assert model.settling_meas is None
+    assert model.settling_meas is None and model.step_v is None
     assert model.reference_v == 1.0
     np.testing.assert_allclose(model.settling_s, 400e-12, rtol=1e-12)
     np.testing.assert_allclose(np.asarray(model.tau_s) * np.log(2**11 * weights / 511), 400e-12, rtol=1e-12)

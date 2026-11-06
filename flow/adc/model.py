@@ -10,13 +10,15 @@ capacitive DAC with its drivers (``flow.capdac.model``), each from its own SPICE
 the PDK, looked up by the same parameters its netlist generator takes. The DAC's is looked up and
 never run here (minutes of SPICE an array, which every converter on the array would wait for:
 ``python -m flow run capdac`` runs it ahead); where there is none, the DAC converts as designed
-(``capdac.Model.design``), with a warning. Its plates are its design's at the reference they are
-drawn for, loaded by the rest of the drawn top plate (its measured gain); each stage's step starts
-its driver's delay after the LOGIC edge and settles with its own time constant, as measured; and
-the converter calibrates on one of its Monte Carlo draws (``Model.drawn``). Its drivers' energy is
-not characterized (its settling run saves no supply current): they draw none here, which the
-record states. The SAR logic is the fixed digital netlist built by OpenROAD: it is not
-characterized, so its energies are the ones fitted to the FRIDA-2 three-layer PEX transient
+(``capdac.Model.design``), with a warning. Its plates are the array as drawn: its design's at the
+reference they are drawn for, each stage's main plate drawn so that its step is the one measured
+(``capdac.Model.behavioral``), loaded by the rest of the drawn top plate (its measured gain), so the
+"extracted" weights a capture decodes with, those measured steps, are the plates' own; each stage's
+step starts its driver's delay after the LOGIC edge and settles with its own time constant, as
+measured; and the converter calibrates on one of its Monte Carlo draws (``Model.drawn``). Its
+drivers' energy is not characterized (its settling run saves no supply current): they draw none
+here, which the record states. The SAR logic is the fixed digital netlist built by OpenROAD: it is
+not characterized, so its energies are the ones fitted to the FRIDA-2 three-layer PEX transient
 (``_SALOGIC``). The DAC's reference is ideal here, the front end's own characterization; a
 ``Reference`` (driver resistance, decoupling capacitance, noise) is what the reference study
 (``Model.reference_requirements``, below) varies to find the reference buffer's requirements.
@@ -264,9 +266,10 @@ class Model:
         drawn: bool = False,
     ) -> AdcBehavioralParams:
         """The behavioral ADC: the DAC's SPICE draw where ``drawn`` (``Model.drawn``; nominal where
-        there is none), else one Pelgrom draw of its plates from ``seed``, the P side then the N side,
-        each its main then its difference plates (none where ``unit_mismatch`` is 0, which takes
-        nothing from the seed's stream); ``quiet`` silences the "sampling" noise (kT/C and the
+        there is none), else one Pelgrom draw of its design's plates from ``seed``, as its Monte Carlo
+        draws them, the P side then the N side, each its main then its difference plates (none where
+        ``unit_mismatch`` is 0, which takes nothing from the seed's stream), each the array as drawn
+        about it (``capdac.Model.behavioral``); ``quiet`` silences the "sampling" noise (kT/C and the
         aperture jitter) or the comparator's noise alone ("comparator_noise": its delay stays, so a
         late decision still holds the last bit), or makes the "comparator" ideal (no noise, never
         late) or the "sampler" a perfect track-and-hold (no on-resistance, so no tracking error: its
@@ -276,19 +279,19 @@ class Model:
         if unknown := set(quiet) - QUIET:
             raise ValueError(f"nothing to quiet by {sorted(unknown)}: expected some of {sorted(QUIET)}")
         rng = np.random.default_rng(seed)
-        nominal = self.cdac.behavioral()
-        plates = (np.asarray(nominal.main_p_f), np.asarray(nominal.diff_p_f))
+        sides = None  # the design's plates
         if drawn:
-            sides = self.drawn if self.drawn is not None else (plates, plates)
+            sides = self.drawn
         elif unit_mismatch:
-            # the P side's main and difference plates, then the N side's
+            # the design's plates drawn, as the DAC's Monte Carlo draws them: the P side's main and
+            # difference plates, then the N side's
+            plates = capdac.Model.plates(self.params.cdac, self.cdac.reference_v)
             main_p, diff_p, main_n, diff_n = (
                 capdac.Model.draw(plate_f, pelgrom=unit_mismatch, rng=rng) for plate_f in (*plates, *plates)
             )
             sides = ((main_p, diff_p), (main_n, diff_n))
-        else:
-            sides = (plates, plates)
-        # the plates the DAC switches, at the parasitic of its drawn gain, its delays and time constants
+        # the plates the DAC switches, the array as drawn about them, at the parasitic of its drawn
+        # gain, its delays and time constants
         dac = self.cdac.behavioral(sides)
         samp = self.samp.behavioral(load_f=self.load_f)
         comp = self.comp.behavioral(vin_cm_v=float(tb.vin_cm.dc))

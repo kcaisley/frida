@@ -258,9 +258,10 @@ def test_extracted_calibration_reads_pex_effective_weights(tmp_path: Path) -> No
 
 def test_extracted_calibration_reads_a_capacitive_dacs_measured_steps(tmp_path: Path, monkeypatch) -> None:
     """The settling measurement a capacitive DAC's characterization keeps (``flow.capdac``): each
-    stage's step as measured, its slower direction's (a falling one negative), in proportion to its
-    effective capacitance; nothing extracted (no path), the design's own weights, none measured."""
-    from flow import capdac
+    stage's step as measured (``capdac.Model.measured_steps``), its slower direction's (a falling one
+    negative), in proportion to its effective capacitance; nothing extracted (no path), the design's
+    own weights, none measured."""
+    import flow.capdac.model as capdac_model
     from flow.adc.test_analysis import adc_measurement
     from flow.analysis import io
 
@@ -271,8 +272,8 @@ def test_extracted_calibration_reads_a_capacitive_dacs_measured_steps(tmp_path: 
     steps[3] *= 1.02
     path = tmp_path / "settling" / "result.h5"
     read = []
-    monkeypatch.setattr(io, "read_measurement", lambda source: read.append(source) or "settling")
-    monkeypatch.setattr(capdac, "analyze_settling", lambda meas: SimpleNamespace(step_v=steps) if meas else None)
+    monkeypatch.setattr(capdac_model, "read_measurement", lambda source: read.append(source) or "settling")
+    monkeypatch.setattr(capdac_model, "analyze_settling", lambda meas: SimpleNamespace(step_v=steps) if meas else None)
 
     calibration = io.read_extracted_calibration(path, measurement)
 
