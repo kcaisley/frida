@@ -7,21 +7,21 @@ flowchart TB
     subgraph shared_adc[ADC from any source]
         direction LR
         adc["MeasAdc"]
-        adc --> dynamic["analyze_adc_dynamic"] --> dynamic_out["AnalysisAdcDynamic"]
-        adc --> transfer["analyze_adc_transfer"] --> transfer_out["AnalysisAdcTransfer"]
-        adc --> endpoint["analyze_adc_endpoint_nonlinearity"] --> endpoint_out["AnalysisAdcEndpointNonlinearity"]
-        adc --> ramp["analyze_adc_ramp"] --> ramp_out["AnalysisAdcRamp"]
-        adc --> density["analyze_adc_code_density_nonlinearity (+ ramp)"] --> density_out["AnalysisAdcCodeDensityNonlinearity"]
+        adc --> dynamic["adc.analyze_dynamic"] --> dynamic_out["adc.AnalysisDynamic"]
+        adc --> transfer["adc.analyze_transfer"] --> transfer_out["adc.AnalysisTransfer"]
+        adc --> endpoint["adc.analyze_endpoint_nonlinearity"] --> endpoint_out["adc.AnalysisEndpointNonlinearity"]
+        adc --> ramp["adc.analyze_ramp"] --> ramp_out["adc.AnalysisRamp"]
+        adc --> density["adc.analyze_code_density_nonlinearity (+ ramp)"] --> density_out["adc.AnalysisCodeDensityNonlinearity"]
         ramp_out --> density
-        adc --> distribution["analyze_adc_code_distribution"] --> distribution_out["AnalysisAdcCodeDistribution"]
-        adc --> noise["analyze_adc_noise"] --> noise_out["AnalysisAdcNoise"]
-        adc --> code_spectrum["analyze_adc_code_spectrum (+ calibration)"] --> code_spectrum_out["AnalysisAdcCodeSpectrum"]
-        adc --> interferer["analyze_adc_interferer (+ code spectra)"] --> interferer_out["AnalysisAdcInterferer"]
+        adc --> distribution["adc.analyze_code_distribution"] --> distribution_out["adc.AnalysisCodeDistribution"]
+        adc --> noise["adc.analyze_noise"] --> noise_out["adc.AnalysisNoise"]
+        adc --> code_spectrum["adc.analyze_code_spectrum (+ calibration)"] --> code_spectrum_out["adc.AnalysisCodeSpectrum"]
+        adc --> interferer["adc.analyze_interferer (+ code spectra)"] --> interferer_out["adc.AnalysisInterferer"]
         code_spectrum_out --> interferer
-        adc --> conditions["analyze_adc_operating_conditions (+ noise)"] --> conditions_out["AnalysisAdcOperatingConditions"]
+        adc --> conditions["adc.analyze_operating_conditions (+ noise)"] --> conditions_out["adc.AnalysisOperatingConditions"]
         noise_out --> conditions
-        adc --> paths["analyze_adc_decision_paths"] --> paths_out["AnalysisAdcDecisionPaths"]
-        adc --> power["analyze_adc_power"] --> power_out["AnalysisAdcPower"]
+        adc --> paths["adc.analyze_decision_paths"] --> paths_out["adc.AnalysisDecisionPaths"]
+        adc --> power["adc.analyze_power"] --> power_out["adc.AnalysisPower"]
         dynamic_out --> dynamic_plot["plot_adc_dynamic / plot_adc_dynamic_sweep (list)"]
         transfer_out --> transfer_plot["plot_adc_transfer"]
         endpoint_out --> static_nonlinearity_plot["plot_adc_static_nonlinearity"]
@@ -45,12 +45,12 @@ flowchart TB
     subgraph adc_internal[ADC with simulated internal nets]
         direction LR
         adc_int["MeasAdc with internal nets"]
-        adc_int --> sampling["analyze_adc_sampling_noise"] --> sampling_out["AnalysisAdcSamplingNoise"]
-        adc_int --> settling["analyze_adc_cdac_settling"] --> settling_out["AnalysisAdcCdacSettling"]
-        adc_int --> power_wave["analyze_adc_power_waveform"] --> power_wave_out["AnalysisAdcPowerWaveform"]
+        adc_int --> sampling["adc.analyze_sampling_noise"] --> sampling_out["adc.AnalysisSamplingNoise"]
+        adc_int --> settling["adc.analyze_cdac_settling"] --> settling_out["adc.AnalysisCdacSettling"]
+        adc_int --> power_wave["adc.analyze_power_waveform"] --> power_wave_out["adc.AnalysisPowerWaveform"]
         adc_int --> response["analyze_adc_comparator_response"] --> response_out["AnalysisAdcComparatorResponse"]
-        adc_int --> closure["analyze_adc_timing_closure"] --> closure_out["AnalysisAdcTimingClosure"]
-        adc_int --> summary["analyze_adc_timing_summary (+ closure)"] --> summary_out["AnalysisAdcTimingSummary"]
+        adc_int --> closure["adc.analyze_timing_closure"] --> closure_out["adc.AnalysisTimingClosure"]
+        adc_int --> summary["adc.analyze_timing_summary (+ closure)"] --> summary_out["adc.AnalysisTimingSummary"]
         closure_out --> summary
         adc_int --> comparator_eye["analyze_adc_comparator_edge_eye"] --> comparator_eye_out["AnalysisAdcComparatorEdgeEye"] --> comparator_eye_plot["plot_adc_comparator_edge_eye"]
         sampling_out --> sampling_plot["plot_adc_sampling_noise"]
@@ -77,10 +77,10 @@ flowchart TB
 
     subgraph calibration[ADC calibration]
         direction LR
-        cal_cdac["MeasCdac"] --> cal1["analyze_adc_calibration1 (+ cap mismatch)"] --> cal_out["AnalysisAdcCalibration"]
+        cal_cdac["MeasCdac"] --> cal1["adc.analyze_calibration1 (+ cap mismatch)"] --> cal_out["adc.AnalysisCalibration1 / 2 / 3"]
         cal_adc["MeasAdc"]
-        cal_adc --> cal2["analyze_adc_calibration2 (+ ramp)"] --> cal_out
-        cal_adc --> cal3["analyze_adc_calibration3 (+ ramp)"] --> cal_out
+        cal_adc --> cal2["adc.analyze_calibration2 (+ ramp)"] --> cal_out
+        cal_adc --> cal3["adc.analyze_calibration3 (+ ramp)"] --> cal_out
         cal_out --> cal_weights_plot["plot_adc_calibration_weights (list)"]
         cal_out --> calibrated["dynamic / transfer / ramp / code density / distribution (+ calibration)"]
     end
@@ -161,9 +161,9 @@ Tests should exercise each analyzer using the same concrete measurement types us
 
 ## ADC dynamic metrics and ENOB
 
-A calibration decodes the stored BOUT decisions with its weights (`AnalysisAdcCalibration.decode_bout`), which gives a fractional code. The dynamic analysis (`analyze_adc_dynamic`) and the code spectrum (`analyze_adc_code_spectrum`) keep that fraction: rounding it to a whole code quantizes the converter's output a second time, about 0.5 bit of ENOB for a converter near its resolution. The histogram analyses (ramp code density, DNL and INL, code distribution, transfer and endpoint nonlinearity) count whole codes and decode rounded, the `decode_bout` default. To grade whole N-bit codes dynamically, as an output word would carry them, analyze the measurement with its DOUT replaced by the rounded decode, `replace(measurement, dout=calibration.decode_bout(measurement.bout))`; the analysis contract keeps the choice out of the analysis's arguments. Without a calibration, the stored DOUT is analyzed as it is.
+A calibration decodes the stored BOUT decisions with its weights (`adc.AnalysisCalibration`'s `calibrated_weights`, in the analyses that take it), which gives a fractional code. The dynamic analysis (`adc.analyze_dynamic`) and the code spectrum (`adc.analyze_code_spectrum`) keep that fraction: rounding it to a whole code quantizes the converter's output a second time, about 0.5 bit of ENOB for a converter near its resolution. The histogram analyses (ramp code density, DNL and INL, code distribution, transfer and endpoint nonlinearity) count whole codes and decode rounded. To grade whole N-bit codes dynamically, as an output word would carry them, analyze the measurement with its DOUT replaced by the rounded decode, `replace(measurement, dout=_decode(measurement.bout, calibration))` (the analyses' own decoding, `flow/adc/analysis.py`'s `_decode`, rounded unless asked not to); the analysis contract keeps the choice out of the analysis's arguments. Without a calibration, the stored DOUT is analyzed as it is.
 
-`AnalysisAdcDynamic` reports three ENOBs, all from (SNDR - 1.76 dB) / 6.02 dB:
+`adc.AnalysisDynamic` reports three ENOBs, all from (SNDR - 1.76 dB) / 6.02 dB:
 
 | Field | SNDR from | Reference | An ideal N-bit quantizer, -0.5 dBFS sine |
 | --- | --- | --- | --- |
@@ -171,7 +171,7 @@ A calibration decodes the stored BOUT decisions with its weights (`AnalysisAdcCa
 | `spectral_enob_fs_bits` | the same spectrum | full scale: SNDR - `amplitude_dbfs`, the fitted amplitude against the code range (IEEE Std 1241's ENOB) | N |
 | `enob_bits` | the time-domain sine-fit residual | the test sine's amplitude | N - 0.08 |
 
-`spectral_enob_fs_bits` measures the noise and distortion against a full-scale sine, so it does not see a converter whose gain fell; `amplitude_dbfs` does. The ADC flow (`flow/adc/figures.py`: `enob_bits`, the `enob_*` metrics, the ENOB plots and the ENOB ladder) reports `spectral_enob_fs_bits` of the extracted weights' fractional codes, so quantization alone reads the design resolution. The fixed-input `AnalysisAdcNoise.enob_bits` is noise-equivalent and already refers to a full-scale sine.
+`spectral_enob_fs_bits` measures the noise and distortion against a full-scale sine, so it does not see a converter whose gain fell; `amplitude_dbfs` does. The ADC flow (`flow/adc/analysis.py`'s `metrics` and `flow/adc/plots.py`: `enob_bits`, the `enob_*` metrics, the ENOB plots and the ENOB ladder) reports `spectral_enob_fs_bits` of the extracted weights' fractional codes, so quantization alone reads the design resolution. The fixed-input `adc.AnalysisNoise.enob_bits` is noise-equivalent and already refers to a full-scale sine.
 
 The lab studies keep `spectral_enob_bits`. FRIDA-1's lab sines are analyzed without a calibration (`adc.sample_rate_study`), so their ENOB is unchanged, bit for bit. The behavioral FRIDA-2 studies that decode with the extracted weights (`adc.behavioral_sample_rate_study`, `adc.behavioral_input_frequency_study`) read higher since the codes stopped being rounded (2026-10-22). On saved behavioral sines at 10 MS/s the gain was 0.2 to 0.28 bit at 10 bits, 0.1 to 0.19 at 11, 0.03 to 0.11 at 12 and at most 0.02 at 13 to 15 bits. Referred to full scale, a -0.5 dBFS sine adds 0.08 bit more.
 
@@ -195,21 +195,21 @@ All analysis studies end in `_study`, are targets in the block's `targets.py` (`
 
 Consolidated acquisition directories can contain both DC and sine measurements. The sample-rate study selects DC and sine by their typed stimulus for the respective panels; the power study selects instrumented DC. A reviewed mixed rate directory can therefore be pinned in both rate-study input selections. No saved campaign is renamed or automatically selected.
 
-Internal comparator/SAR/CDAC plots and seven clock plots require a simulated `MeasAdc` and its saved internal nets. The physical sequence sweep uses the stored codes and readout checks of the physical `MeasAdc` captures. Outputs are flat. Physical captures and PEX cases go through the same per-capture noise analysis and the same operating-condition analysis. The operating-condition analysis matches each capture to its noise result by sequence and symbol rate; its reference code is the median mean code over every sequence at the lowest symbol rate, and a capture is shifted when its mean leaves that reference by more than five times the median code noise there (at least four codes). The PEX subset covers seven of the 29 physical recipes at 1600 MBd. Saved patterns and decoded samples remain unchanged. Fixed-input ENOB is explicitly noise-equivalent; spectral ENOB is shown separately. A fixed-input capture's codes are also a waveform sampled at the conversion rate: `analyze_adc_code_spectrum` splits their variance into lines above the median white floor and the broadband remainder, and keeps the line-only code sequence. With a calibration result it decodes the stored BOUT with that calibration's weights instead of using DOUT, and records the decoding; `analyze_adc_interferer` unfolds one interferer's aliases at several rates to its true frequency. Search one recipe whose rates were captured close in time: a drifting interferer smears across a long campaign, and a fixed line then wins. Low spread alone does not establish correct conversion or a working sequence.
+Internal comparator/SAR/CDAC plots and seven clock plots require a simulated `MeasAdc` and its saved internal nets. The physical sequence sweep uses the stored codes and readout checks of the physical `MeasAdc` captures. Outputs are flat. Physical captures and PEX cases go through the same per-capture noise analysis and the same operating-condition analysis. The operating-condition analysis matches each capture to its noise result by sequence and symbol rate; its reference code is the median mean code over every sequence at the lowest symbol rate, and a capture is shifted when its mean leaves that reference by more than five times the median code noise there (at least four codes). The PEX subset covers seven of the 29 physical recipes at 1600 MBd. Saved patterns and decoded samples remain unchanged. Fixed-input ENOB is explicitly noise-equivalent; spectral ENOB is shown separately. A fixed-input capture's codes are also a waveform sampled at the conversion rate: `adc.analyze_code_spectrum` splits their variance into lines above the median white floor and the broadband remainder, and keeps the line-only code sequence. With a calibration result it decodes the stored BOUT with that calibration's weights instead of using DOUT, and records the decoding; `adc.analyze_interferer` unfolds one interferer's aliases at several rates to its true frequency. Search one recipe whose rates were captured close in time: a drifting interferer smears across a long campaign, and a fixed line then wins. Low spread alone does not establish correct conversion or a working sequence.
 
 Reusable plotting functions need not all appear in these selected studies. `plot_adc_dynamic` is retained for individual spectral checks in the rate study. `plot_adc_noise_distribution_grid` requires an all-ADC comparison dataset; `plot_adc_sampling_noise` is a separate internal held-voltage noise study; `plot_adc_power_waveform` requires simulated rail-current traces. `plot_adc_decision_paths` is the line alternative to the retained trajectory density, and selects one conversion, one final code, or all of them for display. `plot_adc_ramp_weights` is the older alternative to the common calibration-weight comparison. Measurement-versus-simulation and cross-channel comparisons pass several results to the same plotter. Their functions and tests remain; removing unused imports is not a reason to delete them.
 
 Simulated waveforms use the same `Wave` as scope captures. ADC comparator internals use the `comp.` scope, for example `comp.latch_p`, and buses one key per bit, for example `dac_botplate_n_diff[15]`. Derived input differences are calculated from the saved P/N voltages.
 
-Each target in `adc/sim.py` invokes conversion and HDF5 writing (the comparator's runs are read by `flow.pipeline.read`, which converts nothing). Simulation workers return raw-file locations and bindings or run metadata. `circuit.results.read_raw_transient` loads a VLSIR `TranResult`; converters map its raw variable names to the canonical names selected by the save bindings. The converter rejects missing/unmapped traces and raw time gaps larger than the requested waveform spacing. It neither adds fictitious timing detail nor reads old waveform formats as a fallback. Rebuild old simulation HDF5 files from raw results with an explicitly appropriate sample interval, or rerun simulations when their saved samples are too coarse for the intended timing measurement.
+Each named run in `adc/sweep.py` invokes conversion and HDF5 writing (the comparator's runs are read by `flow.pipeline.read`, which converts nothing). Simulation workers return raw-file locations and bindings or run metadata. `circuit.results.read_raw_transient` loads a VLSIR `TranResult`; converters map its raw variable names to the canonical names selected by the save bindings. The converter rejects missing/unmapped traces and raw time gaps larger than the requested waveform spacing. It neither adds fictitious timing detail nor reads old waveform formats as a fallback. Rebuild old simulation HDF5 files from raw results with an explicitly appropriate sample interval, or rerun simulations when their saved samples are too coarse for the intended timing measurement.
 
 Both simulator `maxstep` and `strobeperiod` default to 10 ps through `waveform_sample_interval_s` on the testbench parameters. The HDF5 record spacing uses the same setting. This is a configurable numerical resolution, not a validated claim of transistor-level timing accuracy. ADC records retain every complete decoded conversion, all mapped traces, and a next-cycle tail for B16. The record indices identify the retained population.
 
-Ordinary analyses and plots consume the saved measurement without redecoding or replacing its DAQ codes. `analyze_adc_timing_closure(MeasAdc)` on a simulation returns `AnalysisAdcTimingClosure`: one row per saved conversion and decision, including internal resolution time, SR agreement at LOGIC, and LOGIC-to-CDAC settling time. The setup requirements are 200 ps before LOGIC and before the next observed COMP, written inline and recorded in the result. A repeated SR value is valid; a late polarity reversal, weak resolution, wrong SR/state value, or insufficient margin fails the corresponding check. Missing observations produce NaN times and cannot pass. The final decision retains its SR observation but has no SAR/CDAC update, so that check is inapplicable; the decision and capacitor counts come from the DUT's CDAC.
+Ordinary analyses and plots consume the saved measurement without redecoding or replacing its DAQ codes. `adc.analyze_timing_closure(MeasAdc)` on a simulation returns `adc.AnalysisTimingClosure`: one row per saved conversion and decision, including internal resolution time, SR agreement at LOGIC, and LOGIC-to-CDAC settling time. The setup requirements are 200 ps before LOGIC and before the next observed COMP, written inline and recorded in the result. A repeated SR value is valid; a late polarity reversal, weak resolution, wrong SR/state value, or insufficient margin fails the corresponding check. Missing observations produce NaN times and cannot pass. The final decision retains its SR observation but has no SAR/CDAC update, so that check is inapplicable; the decision and capacitor counts come from the DUT's CDAC.
 
 Internal resolution uses a 0.3 V differential threshold; SR and digital states use 30%/70% rail limits. CDAC settling uses a 1 mV tolerance: bottom plates must reach the programmed rail, while top plates must remain within tolerance of their last saved value before COMP. This measures settling in the observed interval, not accuracy against a separately solved DC target. Reported times are limited by the saved sample spacing. The typed timing-closure result can be regenerated from the source HDF5 measurement.
 
-The comparator-response and timing-closure analyses pair each COMP rise with its LOGIC rise inline; the strict variant that rejects incomplete conversions belongs to simulator conversion in `flow/circuit/results.py`. `AdcSequence.logic_timing` backs the `MeasAdc` sequence properties. `calc.py` retains generic numerical primitives; `adc/sequences.py` retains the sequence definitions. `plot_waveforms` draws selected nets of one `Wave` record, relative to a chosen time origin.
+The comparator-response and timing-closure analyses pair each COMP rise with its LOGIC rise inline; the strict variant that rejects incomplete conversions belongs to simulator conversion in `flow/circuit/results.py`. `AdcSequence.logic_timing` backs the `MeasAdc` sequence properties. `calc.py` retains generic numerical primitives; `adc/sim.py` holds the sequence definitions. `plot_waveforms` draws selected nets of one `Wave` record, relative to a chosen time origin.
 
 Sampler transient conversion and caparray extraction conversion remain explicit `NotImplementedError` prototypes. The latter will describe nominal/extracted capacitances and Monte Carlo variation, rather than transient waveforms.
 

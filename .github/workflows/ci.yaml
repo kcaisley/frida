@@ -66,7 +66,12 @@ jobs:
       - name: Run Ty
         run: >-
           uv run ty check
+          flow/adc/analysis.py
+          flow/adc/params.py
+          flow/adc/plots.py
           flow/adc/subckt.py
+          flow/adc/sweep.py
+          flow/adc/types.py
           flow/opt/runner.py
           flow/pipeline.py
           flow/plot.py
@@ -131,6 +136,7 @@ jobs:
         run: >-
           uv run pytest
           flow/adc/test_analysis.py
+          flow/adc/test_layout.py
           flow/adc/test_model.py
           flow/adc/test_params.py
           flow/adc/test_plots.py

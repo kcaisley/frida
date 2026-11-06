@@ -1,14 +1,15 @@
-"""
-ADC generator module for FRIDA.
+"""The SAR ADC, laid out in the pipeline's stage files (docs/pipeline.md) but not yet on the pipeline
+(``NOT_MIGRATED``, flow/test_pipeline.py): its parameters, circuit, testbench, analyses and plots,
+each in its own stage module, their names re-exported here (``from flow import adc`` then
+``adc.Params``, ``adc.analyze_ramp``, ``adc.AnalysisRamp``, ``adc.plot_inl``).
 
-Exports:
-- Params: ADC parameters (every combination they admit builds)
-- TbParams: the parameters of one generated testbench
-- Adc: Full ADC generator (composes digital + analog)
-- the analyses (``flow.adc.analysis``): ``adc.analyze_ramp``, ``adc.analyze_dynamic``, ...
-- their results (``flow.adc.types``): ``adc.AnalysisRamp``, ``adc.AnalysisDynamic``, ...
-"""
+Its design space (``flow.adc.sweep``), behavioral model (``flow.adc.model``), layouts
+(``flow.adc.layout``) and command-line targets (``flow.adc.targets``) are not imported here. The
+sweep's characterization imports the model, which imports the other blocks' models: through a
+module that refers to this package (``flow.analysis.types`` does), a block's own stages would reach
+its model, against the stage order import-linter holds the migrated blocks to."""
 
+from . import params, subckt, sim, types, analysis, plots  # noqa: I001 - the pipeline's order
 from .analysis import (
     analyze_calibration1,
     analyze_calibration2,
@@ -39,9 +40,41 @@ from .analysis import (
     analyze_timing_closure,
     analyze_timing_summary,
     analyze_transfer,
+    metrics,
 )
 from .params import Params, TbParams
-from .subckt import Adc
+from .plots import (
+    plot_calibration_weights,
+    plot_code_density,
+    plot_dnl,
+    plot_dnl_calibrated,
+    plot_energy_dac_input,
+    plot_energy_input,
+    plot_enob_fin,
+    plot_enob_ladder,
+    plot_enob_rate,
+    plot_hsu_rate,
+    plot_inl,
+    plot_inl_calibrated,
+    plot_mismatch_dnl,
+    plot_mismatch_inl,
+    plot_mismatch_margin,
+    plot_mismatch_transition_sigma,
+    plot_mismatch_weight_sigma,
+    plot_noise_input,
+    plot_noise_spectrum,
+    plot_power_rate,
+    plot_redundancy,
+    plot_reference_noise,
+    plot_reference_r_out,
+    plot_spectrum_low,
+    plot_spectrum_nyquist,
+    plot_trajectory,
+    plot_trajectory_codes,
+    plot_trajectory_final,
+)
+from .sim import simulate, testbench
+from .subckt import Adc, AdcNets
 from .types import (
     AnalysisCalibration,
     AnalysisCalibration1,
@@ -78,6 +111,7 @@ from .types import (
 
 __all__ = [
     "Adc",
+    "AdcNets",
     "AnalysisCalibration",
     "AnalysisCalibration1",
     "AnalysisCalibration2",
@@ -111,6 +145,7 @@ __all__ = [
     "AnalysisTransfer",
     "Params",
     "TbParams",
+    "analysis",
     "analyze_calibration1",
     "analyze_calibration2",
     "analyze_calibration3",
@@ -140,4 +175,40 @@ __all__ = [
     "analyze_timing_closure",
     "analyze_timing_summary",
     "analyze_transfer",
+    "metrics",
+    "params",
+    "plot_calibration_weights",
+    "plot_code_density",
+    "plot_dnl",
+    "plot_dnl_calibrated",
+    "plot_energy_dac_input",
+    "plot_energy_input",
+    "plot_enob_fin",
+    "plot_enob_ladder",
+    "plot_enob_rate",
+    "plot_hsu_rate",
+    "plot_inl",
+    "plot_inl_calibrated",
+    "plot_mismatch_dnl",
+    "plot_mismatch_inl",
+    "plot_mismatch_margin",
+    "plot_mismatch_transition_sigma",
+    "plot_mismatch_weight_sigma",
+    "plot_noise_input",
+    "plot_noise_spectrum",
+    "plot_power_rate",
+    "plot_redundancy",
+    "plot_reference_noise",
+    "plot_reference_r_out",
+    "plot_spectrum_low",
+    "plot_spectrum_nyquist",
+    "plot_trajectory",
+    "plot_trajectory_codes",
+    "plot_trajectory_final",
+    "plots",
+    "sim",
+    "simulate",
+    "subckt",
+    "testbench",
+    "types",
 ]

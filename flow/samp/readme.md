@@ -35,7 +35,7 @@ uv run python -m flow plot samp [FIGURE ...] --from DIR           # a run's figu
 
 - `scaled`: each switch 8 to 128 units wide, a quarter to four times FRIDA-1's (`scaled(tgate, mos_w=32, dummy=False)` is FRIDA-1's transmission gate; `tgate` with and without half-size dummies, `nmos`, and the bootstrapped switch by width, `scaled(bootstrap_w64)`, its boost capacitor half the switch and its helpers an eighth, none under 4 units, the finest PDK's minimum width).
 - `long_channel`: each switch at twice its length.
-- `boost_ladder`: the bootstrapped switch as an on-resistance ladder, the ADC study's samplers (`flow.adc.sweep.SAMPLER_STEPS`), each rung by its width: `boost_ladder(w32)` with the doubled boost capacitor, then `w64`, `w112` and `w160`, the boost capacitor as wide as the switch and the helpers an eighth, so every rung is boosted alike.
+- `boost_ladder`: the bootstrapped switch as an on-resistance ladder, the ADC study's samplers (`flow.adc.sweep._samplers`), each rung by its width: `boost_ladder(w32)` with the doubled boost capacitor, then `w64`, `w112` and `w160`, the boost capacitor as wide as the switch and the helpers an eighth, so every rung is boosted alike.
 - `frida1`, `tgate_dummy`, `nmos`, `bootstrap`: the four switches by name, for their layouts (each its hand-written floorplan), not swept apart from their points in `scaled`.
 
 The bootstrap keeps every PMOS body on vdd (the row cells' wells): the boosted node's junctions leak toward vdd while sampling. Its cascoded gate pull-down is a stack of two clocked devices (a gate on a rail has no route in the row cells).

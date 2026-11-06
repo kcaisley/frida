@@ -2,7 +2,7 @@
 #
 # Unlike the Basil map_*.yaml files, this file does not describe a transport
 # or register interface. It lists the chip's ADC channel variants, then maps
-# the board_id stored in AdcTbParams to fixed board conditions, measured
+# the board_id stored in AdcScanParams to fixed board conditions, measured
 # external-stimulus calibration, and comparator timing model needed by the
 # physical scan backend.
 

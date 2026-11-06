@@ -36,7 +36,7 @@
     \bottomrule
   \end{tabular}
   }
-  \slidesource{\texttt{flow/adc/behavioral.py}; \texttt{flow/scans/scan\_behavioral.py}}
+  \slidesource{\texttt{flow/adc/model.py}; \texttt{flow/scans/scan\_behavioral.py}}
 \end{frame}
 
 \section[Linearity]{Static linearity}
@@ -147,7 +147,7 @@
   }
   \par\medskip
   {\small All three are digital foreground calibrations: they learn BOUT weights once and leave the analog ADC unchanged.}
-  \slidesource{\texttt{flow/analysis/calibration1.py}, \texttt{calibration2.py}, \texttt{calibration3.py}}
+  \slidesource{\texttt{flow/adc/analysis.py}: \texttt{analyze\_calibration1}, \texttt{2}, \texttt{3}}
 \end{frame}
 
 \begin{frame}{Comparing the calibration methods}

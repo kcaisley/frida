@@ -2,7 +2,7 @@
 
 ## Campaign interface
 
-Each circuit-level simulation module owns its reviewed campaigns in `flow/<module>/sim.py`, where `<module>` is `adc`, `comp`, `caparray`, or `samp`, and its targets in `flow/<module>/targets.py`. Run a named target with:
+Each circuit-level simulation module owns its reviewed campaigns in `flow/<module>/sim.py` (the ADC's in `flow/adc/sweep.py`), where `<module>` is `adc`, `comp`, `caparray`, or `samp`, and its targets in `flow/<module>/targets.py`. Run a named target with:
 
 ```bash
 uv run python -m flow <module>.<target>

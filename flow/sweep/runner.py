@@ -80,7 +80,7 @@ def design_space(block: str, pdk: str) -> dict:
 
 def _valid(block: str):
     """The block's ``params.valid`` (which designs build in a PDK), where it has one: a block whose
-    parameter classes admit only what builds, or without a params module (the ADC's), has none."""
+    parameter classes admit only what builds (the ADC's), or without a params module, has none."""
     if find_spec(f"flow.{block}.params") is None:
         return None
     return getattr(import_module(f"flow.{block}.params"), "valid", None)

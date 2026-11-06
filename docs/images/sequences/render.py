@@ -22,7 +22,7 @@ from flow.adc import sim
 PRE_SYMBOLS = 4  # Show the end of the preceding period.
 EXTRA_SYMBOLS = 8  # Show the beginning of the following period.
 OUT = Path(__file__).resolve().parent
-# The seven timings used by frida1_sequence and frida2_sequence in flow/adc/sim.py.
+# The seven timings used by frida1_sequence and frida2_sequence in flow/adc/sweep.py.
 PEX_NAMES = (
     "symbol160_init4_samp20_comp11110000_logic00001111",
     "symbol160_init4_samp20_comp11110000_logic10000111",
