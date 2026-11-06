@@ -8,7 +8,6 @@ as the JSON the viewer draws with Plotly; from a sweep run's records or from cap
 
 from __future__ import annotations
 
-import dataclasses
 import inspect
 import json
 import math
@@ -21,10 +20,13 @@ from typing import Any
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.axes import Axes
+from matplotlib.colors import LogNorm
+from matplotlib.figure import Figure
 from matplotlib.ticker import MaxNLocator
 
-from flow.analysis.plots import CURVE_COLORS, PLOT_STYLE, SPINE_COLOR, save_figure, style_grid
-from flow.pipeline import Analysis, Plot
+from flow.analysis.plots import CURVE_COLORS, DENSITY_COLOR_MAP, PLOT_STYLE, SPINE_COLOR, save_figure, style_grid
+from flow.pipeline import Analysis, Heatmap, Plot
 
 # the units an axis label ends in that take an SI prefix, as the viewer scales them (detail.js)
 SCALABLE = ("s", "V", "A", "J", "W", "F", "Hz", "Ω", "C", "V/C", "V/√Hz")
@@ -43,10 +45,12 @@ def scaled(label: str, values: Sequence[float]) -> tuple[str, float]:
 
 
 def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
-    """``plot`` drawn into ``output_path`` (a stem; each enabled format of ``save_figure``): each
-    series over x (NaN or None where a point failed: a gap), the histogram's as step outlines, the
-    decision paths as step lines weighted by how many records took each, log axes, categories and
-    whole-number ticks where the spec asks."""
+    """``plot`` drawn into ``output_path`` (a stem; each enabled format of ``save_figure``): its
+    heatmap under everything, in the density colours beside its colour bar (by decade where it
+    asks); each series over x (NaN or None where a point failed: a gap), the histogram's as step
+    outlines, the decision paths as step lines weighted by how many records took each; its bands
+    shaded behind the curves and its markers dashed over them, in the spine's grey, each labelled at
+    the plot's edge; log axes, categories and whole-number ticks where the spec asks."""
 
     if plot.figure is not None:
         raise ValueError(f"{plot.name} is a drawn figure ({plot.figure}), not a spec to render")
@@ -57,9 +61,15 @@ def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
             for label, values in plot.series.items()
         }
         paths = [np.asarray(path["y"], dtype=np.float64) for path in plot.paths]
-        x_label, x_factor = (plot.x_label, 1.0) if plot.x_labels is not None else scaled(plot.x_label, plot.x)
-        y_label, y_factor = scaled(plot.y_label, [v for y in (*series.values(), *paths) for v in y.tolist()])
+        heatmap = plot.heatmap
+        # the SI prefixes from the values drawn (a map's cell edges among them), not the markers
+        x_values = [*plot.x, *(heatmap.x if heatmap else ())]
+        y_values = [*(v for y in (*series.values(), *paths) for v in y.tolist()), *(heatmap.y if heatmap else ())]
+        x_label, x_factor = (plot.x_label, 1.0) if plot.x_labels is not None else scaled(plot.x_label, x_values)
+        y_label, y_factor = scaled(plot.y_label, y_values)
         x = np.asarray(plot.x, dtype=np.float64) * x_factor
+        if heatmap is not None:
+            _heatmap(fig, ax, heatmap, x_factor, y_factor)
         heaviest = max((path["count"] for path in plot.paths), default=1)
         for path, y in zip(plot.paths, paths, strict=True):
             ax.step(
@@ -76,6 +86,7 @@ def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
                 ax.step(x, y * y_factor, where="mid", color=color, label=label)
             else:
                 ax.plot(x, y * y_factor, marker="o", color=color, label=label)
+        _guides(ax, plot, x_factor, y_factor)
         ax.set_xscale("log" if plot.x_log else "linear")
         ax.set_yscale("log" if plot.y_log else "linear")
         if plot.x_labels is not None:
@@ -90,6 +101,77 @@ def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
         if len(plot.series) > 1:
             ax.legend(title=plot.legend_title)
         return save_figure(fig, Path(output_path))
+
+
+def _heatmap(fig: Figure, ax: Axes, heatmap: Heatmap, x_factor: float, y_factor: float) -> None:
+    """``heatmap`` on its cells' edges in the density colours, its colour bar beside the plot (by
+    decade on a log scale, its label's SI prefix from the values), an empty cell (NaN or None, on a
+    log scale one at or under 0 as well) the paper."""
+    z = np.asarray([[math.nan if value is None else value for value in row] for row in heatmap.z], dtype=np.float64)
+    label, factor = scaled(heatmap.label, z.ravel().tolist())
+    z = z * factor
+    if heatmap.log:
+        with np.errstate(invalid="ignore"):
+            z[~(z > 0)] = math.nan
+    mesh = ax.pcolormesh(
+        np.asarray(heatmap.x, dtype=np.float64) * x_factor,
+        np.asarray(heatmap.y, dtype=np.float64) * y_factor,
+        np.ma.masked_invalid(z),
+        cmap=DENSITY_COLOR_MAP,
+        norm=LogNorm() if heatmap.log and np.isfinite(z).any() else None,
+        shading="flat",
+        rasterized=True,
+    )
+    fig.colorbar(mesh, ax=ax, label=label)
+
+
+def _guides(ax: Axes, plot: Plot, x_factor: float, y_factor: float) -> None:
+    """``plot``'s bands shaded behind its curves (over the grid, under a map) and its markers dashed
+    over them, in the spine's grey, each labelled at the plot's edge: a band's at its top, an x
+    marker's along it at the top, a y marker's over it at the right. One with no place on its axis
+    (not a number, or not positive on a log axis) is left out."""
+    # x in data and y in the axes' height (a label at its top), or the other way round (at its right)
+    along_x, along_y = ax.get_xaxis_transform(), ax.get_yaxis_transform()
+    for band in plot.x_bands:
+        low, high = _place(band.low, x_factor, plot.x_log), _place(band.high, x_factor, plot.x_log)
+        if math.isnan(low) or math.isnan(high):
+            continue
+        ax.axvspan(low, high, color=SPINE_COLOR, alpha=0.15, linewidth=0, zorder=0.8)
+        if band.label:
+            middle = math.sqrt(low * high) if plot.x_log else (low + high) / 2
+            ax.text(middle, 0.98, band.label, transform=along_x, ha="center", va="top", color=SPINE_COLOR, size="small")
+    for marker in plot.x_markers:
+        at = _place(marker.at, x_factor, plot.x_log)
+        if math.isnan(at):
+            continue
+        ax.axvline(at, color=SPINE_COLOR, linestyle="--", linewidth=0.8, zorder=2.5)
+        if marker.label:
+            ax.text(
+                at,
+                0.98,
+                marker.label,
+                transform=along_x,
+                rotation=90,
+                ha="right",
+                va="top",
+                color=SPINE_COLOR,
+                size="small",
+            )
+    for marker in plot.y_markers:
+        at = _place(marker.at, y_factor, plot.y_log)
+        if math.isnan(at):
+            continue
+        ax.axhline(at, color=SPINE_COLOR, linestyle="--", linewidth=0.8, zorder=2.5)
+        if marker.label:
+            ax.text(0.99, at, marker.label, transform=along_y, ha="right", va="bottom", color=SPINE_COLOR, size="small")
+
+
+def _place(value: float | None, factor: float, log: bool) -> float:
+    """A marker's or a band edge's place on its axis, in the axis's prefixed unit: NaN where it has
+    none (not a number, or not positive on a log axis)."""
+    if value is None or not math.isfinite(value) or (log and value <= 0):
+        return math.nan
+    return value * factor
 
 
 def _finite(value):
@@ -165,7 +247,7 @@ def figures(
         if backend == "web":
             stem.parent.mkdir(parents=True, exist_ok=True)
             path = stem.with_suffix(".json")
-            path.write_text(json.dumps(_finite(dataclasses.asdict(plot))))
+            path.write_text(json.dumps(_finite(plot.to_json())))
             written.append(path)
         else:
             written.extend(render(plot, stem))
@@ -180,7 +262,7 @@ def figures(
                 continue
             for detail in record["details"]:
                 if not names or detail["name"] in names:
-                    emit(Plot(**detail), Path(record["pdk"], path.parent.name, detail["name"]))
+                    emit(Plot.from_json(detail), Path(record["pdk"], path.parent.name, detail["name"]))
         return written
 
     available = resolvable(block)

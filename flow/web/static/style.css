@@ -2864,3 +2864,25 @@ a.icon-btn {
     border-radius: 2px;
 }
 
+/* a map per instance (they do not overlay), side by side under the detail's title, each titled by
+ * its instance in its colour */
+.detail-plots .map-card {
+    margin: 0;
+    padding: 6px 8px 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--plot-paper);
+}
+
+.detail-plots .map-card figcaption {
+    padding-bottom: 4px;
+    color: var(--ink-1);
+    font-size: var(--fs-12);
+}
+
+.map-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 8px;
+}
+

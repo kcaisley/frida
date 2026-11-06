@@ -15,7 +15,6 @@ metrics) and one file per instance (its details, waves, layout and schematic).
 
 from __future__ import annotations
 
-import dataclasses
 import hashlib
 import json
 import math
@@ -201,7 +200,7 @@ def characterize(block: str, run_dir: Path, pdk: str, params) -> tuple[dict, lis
         module = sweep.GENERATOR(params)
     h.pdk.compile(module)
     metrics = {**geometry(module, pdk), **result.metrics}
-    return metrics, [dataclasses.asdict(detail) for detail in result.details], result.waves
+    return metrics, [detail.to_json() for detail in result.details], result.waves
 
 
 def instance_batch(jobs: list[tuple]) -> list[dict]:

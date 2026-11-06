@@ -19,7 +19,7 @@ import itertools
 import re
 from abc import ABC
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, datetime
 from enum import Enum, auto
 from inspect import signature
@@ -661,11 +661,57 @@ def read(raw: Path, tb: TbParams) -> Meas:
     )
 
 
+@dataclass(frozen=True)
+class Marker:
+    """A labelled line across a plot at one value of an axis, in the axis's unit: in
+    ``Plot.x_markers`` at an x (the bandwidth, Nyquist, a tone), in ``Plot.y_markers`` at a y (a
+    noise floor, a detection limit). Drawn dashed over the curves, its label along it at the top (an
+    x's) or over it at the right (a y's)."""
+
+    at: float
+    label: str = ""  # none drawn where empty
+
+
+@dataclass(frozen=True)
+class Band:
+    """A labelled range of x shaded behind the curves (``Plot.x_bands``: a line's bins, a decade),
+    in x's unit, its label at the top."""
+
+    low: float
+    high: float
+    label: str = ""
+
+
+@dataclass(frozen=True)
+class Heatmap:
+    """A map over a plot's x and y (``Plot.heatmap``): a value in each cell of a grid (an eye's
+    samples, the conversions through each code estimate at each decision, the codes at each input),
+    drawn under the curves in the density colours beside its colour bar. ``x`` and ``y`` are the
+    cells' edges in the axes' units, one more than the cells (as ``calc.histogram2D`` gives them);
+    ``z`` a row of values for each row of cells (``z[j][i]`` the cell from ``y[j]`` to ``y[j + 1]``
+    and from ``x[i]`` to ``x[i + 1]``: a 2-D histogram's counts transposed), NaN where a cell holds
+    nothing (the paper shows)."""
+
+    x: list[float]
+    y: list[float]
+    z: list[list[float]]
+    label: str  # the colour bar's title, with its unit where it has one: "Conversions"
+    log: bool = False  # the colours by decade (counts over decades): a cell at or under 0 holds nothing
+
+    def __post_init__(self) -> None:
+        columns, rows = len(self.x) - 1, len(self.y) - 1
+        if columns < 1 or rows < 1 or len(self.z) != rows or any(len(row) != columns for row in self.z):
+            raise ValueError(
+                f"a heatmap on {len(self.x)} x and {len(self.y)} y edges holds {rows} rows of {columns} values, "
+                f"not {len(self.z)} rows of {sorted({len(row) for row in self.z})}"
+            )
+
+
 @dataclass
 class Plot:
     """One figure, backend-neutral: each series' y over the shared x, drawn by the viewer (Plotly,
-    from its JSON) or by ``flow.plot.render`` (matplotlib). A record's plots are its condition
-    sweeps."""
+    from its JSON, ``to_json``) or by ``flow.plot.render`` (matplotlib), each with what it marks,
+    shades or maps alike. A record's plots are its condition sweeps."""
 
     name: str  # stable key, the same for every instance of a block
     title: str
@@ -694,6 +740,37 @@ class Plot:
     histogram: bool = False
     # the legend's title, where the series are values of one quantity (the common modes)
     legend_title: str | None = None
+    # labelled lines across the plot (``Marker``: at an x, a bandwidth or a tone; at a y, a floor)
+    # and labelled ranges of x shaded behind the curves (``Band``: a line's bins)
+    x_markers: list[Marker] = field(default_factory=list)
+    y_markers: list[Marker] = field(default_factory=list)
+    x_bands: list[Band] = field(default_factory=list)
+    # a map over x and y (``Heatmap``: an eye, a decision-path density), x and series empty or
+    # curves over it
+    heatmap: Heatmap | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        """The spec as a record keeps it and the viewer reads it (``dataclasses.asdict``, NaN as it
+        is: the writers make it null), its markers, bands and heatmap only where it has any."""
+        spec = asdict(self)
+        for name in ("x_markers", "y_markers", "x_bands", "heatmap"):
+            if not spec[name]:
+                del spec[name]
+        return spec
+
+    @classmethod
+    def from_json(cls, spec: Mapping[str, Any]) -> Plot:
+        """A spec from its JSON (``to_json``: a record's detail), its markers, bands and heatmap
+        their types again (a null, where a point failed or a cell is empty, stays None)."""
+        given = dict(spec)
+        heatmap = given.pop("heatmap", None)
+        return cls(
+            **{name: value for name, value in given.items() if name not in ("x_markers", "y_markers", "x_bands")},
+            x_markers=[Marker(**marker) for marker in given.get("x_markers", ())],
+            y_markers=[Marker(**marker) for marker in given.get("y_markers", ())],
+            x_bands=[Band(**band) for band in given.get("x_bands", ())],
+            heatmap=Heatmap(**heatmap) if heatmap else None,
+        )
 
 
 @dataclass

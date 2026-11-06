@@ -16,6 +16,10 @@
 //   returns the Plotly layout.
 // keepTicks(element): call once after Plotly.newPlot or Plotly.react; refits the ticks paperLayout
 //   fitted when the plot is zoomed or panned, and restores them when it is reset.
+// DENSITY: a map's colours (a heatmap's colorscale), plots.py's DENSITY_COLOR_MAP.
+// paperColorBar(title, log, values, mode = currentTheme()): a map's colour bar, as matplotlib draws
+//   it beside the plot (its title along it, ticks inside); log: `values` are the map's log10, the bar
+//   ticked at their decades and labelled as the log axes are.
 //
 // The ticks (fitAxis): every step a 1, 2 or 5 times a power of ten, counted from 0 (so 0 is a tick
 // wherever it is in range), about six on an axis.
@@ -295,6 +299,56 @@ export function paperLayout(title, xTitle, yTitle, logX, logY, legendCount, mode
     }
     FITTED.set(layout, fitted);
     return layout;
+}
+
+// ---- maps ----------------------------------------------------------------------------------------
+
+// flow/analysis/plots.py's DENSITY_COLOR_MAP at its three corners (a blue two fifths of the way to
+// orange, orange, yellow), linear between them as it is (flow/test_plot.py holds them to it)
+export const DENSITY = [
+    [0, "#8C8394"],
+    [0.375, "#D08770"],
+    [1, "#EBCB8B"],
+];
+
+// a colour bar's ticks on a log scale, at the log10 of the values over [low, high] (log10 too): the
+// decades (every second or more past 7), 1, 2 and 5 of each up to 2.5 of them, plain steps under
+// 0.8, each labelled as a log axis labels it
+function logBarTicks(low, high) {
+    const decades = high - low;
+    let values = [];
+    if (decades < 0.8) {
+        const step = niceStep((10 ** high - 10 ** low) / 5);
+        for (let value = Math.ceil(10 ** low / step) * step; value <= 10 ** high * (1 + 1e-9); value += step) values.push(Number(value.toPrecision(6)));
+    } else if (decades <= 2.5) {
+        for (let exponent = Math.floor(low); exponent <= Math.ceil(high); exponent++) {
+            for (const mantissa of [1, 2, 5]) values.push(Number((mantissa * 10 ** exponent).toPrecision(6)));
+        }
+    } else {
+        const every = decades <= 7 ? 1 : Math.ceil(decades / 7);
+        for (let exponent = Math.ceil(low / every) * every; exponent <= high + 1e-9; exponent += every) values.push(10 ** exponent);
+    }
+    values = values.filter((value) => Math.log10(value) >= low - 1e-9 && Math.log10(value) <= high + 1e-9);
+    return { tickmode: "array", tickvals: values.map(Math.log10), ticktext: values.map(logLabel) };
+}
+
+export function paperColorBar(title, log, values, mode = currentTheme()) {
+    const colors = PAPERS[mode];
+    const fonts = mode === "paper" ? FONTS.paper : FONTS.screen;
+    const bar = {
+        title: { text: title, side: "right", font: { size: fonts.axis, color: colors.ink } },
+        thickness: 12,
+        outlinewidth: 0.8 * PT,
+        outlinecolor: colors.spine,
+        ticks: "inside",
+        ticklen: 2.5 * PT,
+        tickwidth: 0.8,
+        tickcolor: colors.ink,
+        tickfont: { size: fonts.tick, color: colors.ink },
+        exponentformat: "power",
+    };
+    const [low, high] = extent(values.filter(Number.isFinite));
+    return log && Number.isFinite(low) ? { ...bar, ...logBarTicks(low, high) } : bar;
 }
 
 export const TICK_KEYS = ["tickmode", "tick0", "dtick", "tickvals", "ticktext", "tickformat", "hoverformat", "exponentformat", "minor"];

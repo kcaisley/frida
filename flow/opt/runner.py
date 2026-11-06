@@ -22,7 +22,6 @@ every evaluation already made, rescored under its problem.
 
 from __future__ import annotations
 
-import dataclasses
 import hashlib
 import json
 import math
@@ -207,7 +206,7 @@ def kept(result: pipeline.Record, measurements: dict[str, pipeline.Meas], run_di
     from flow.analysis.io import write_measurement
 
     return {
-        "details": [dataclasses.asdict(detail) for detail in result.details],
+        "details": [detail.to_json() for detail in result.details],
         "waves": {
             label: str(write_measurement(run_dir / name / "result.h5", measurements[name]).relative_to(ROOT))
             for label, name in result.waves.items()

@@ -45,6 +45,8 @@ python -m flow opt <block> --problem P [--pdk P] [--budget N] [--workers N] [--b
 
 `plots.py` returns specs only. The viewer draws a record's from their JSON with Plotly; `flow.plot.render(plot, path)` draws any with matplotlib in the analysis plots' style.
 
+A spec (`flow.pipeline.Plot`) holds curves over x (series, or a family of counted paths), a map over x and y (`Heatmap`: a value in each cell, its cells' edges as `calc.histogram2D` gives them, by decade where it asks), labelled lines at values of x or y (`Marker` in `x_markers` and `y_markers`: a bandwidth, Nyquist, a tone; a floor, a limit) and labelled ranges of x shaded behind the curves (`Band` in `x_bands`: a line's bins, a decade). Both renderers draw each alike: the map in the density colours beside its colour bar, the markers dashed and the bands shaded in the spine's grey, each labelled inside the plot at its edge. What a figure needs beyond these is added to `Plot` and to both renderers once, never drawn for one figure alone. A record keeps a spec as its JSON (`Plot.to_json`, read back by `Plot.from_json`), its markers, bands and map only where it has any.
+
 ## Checks
 
 Pre-commit and CI hold a migrated block to this. A migrated block is every block with a `sweep.py`, a new one too, unless `NOT_MIGRATED` in `flow/test_pipeline.py` names it (that list only shrinks), and no check names a block: each finds the migrated ones itself.

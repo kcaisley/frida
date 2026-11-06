@@ -2,19 +2,21 @@
 // bar's View (one) or Compare (two or more); nothing here loads before.
 //
 // View: the instance's column on the left (its parameters, metrics and layout: sweep.js's
-// SelectionPanel), its condition sweeps (Analyses, each plot scaled to its own data) and waveforms
-// beside it, its layout, 3D and layers and its schematic and netlist on the right: the shared panels
-// read a one-instance block from the store, as they read any other.
+// SelectionPanel), its condition sweeps (Analyses, each plot scaled to its own data: curves, a map,
+// markers and bands, as flow/plot.py draws a spec) and waveforms beside it, its layout, 3D and
+// layers and its schematic and netlist on the right: the shared panels read a one-instance block
+// from the store, as they read any other.
 //
 // Compare: their columns side by side, each under its colour, and their condition sweeps stacked,
 // an instance a colour under one key (an instance clicked in it hides or shows its curves in every
-// plot), a detail's several series a dash each; no layout, schematic or waveforms.
+// plot), a detail's several series a dash each, its maps side by side, a marker or band only some
+// instances have in each one's colour; no layout, schematic or waveforms.
 
 import { h } from "./icons.js";
-import { LayersPanel } from "./layers.js";
+import { LayersPanel, rgba } from "./layers.js";
 import { Layout3DPanel } from "./layout3d.js";
 import { LayoutPanel } from "./layout2d.js";
-import { currentTheme, keepTicks, PAPERS, paperLayout, tone } from "./paper.js";
+import { currentTheme, DENSITY, keepTicks, PAPERS, paperColorBar, paperLayout, tone } from "./paper.js";
 import { SchematicPanel } from "./panels.js";
 import { Layout } from "./regions.js";
 import { COLORS, DASHES, emit, on, state } from "./store.js";
@@ -77,6 +79,94 @@ function pathTraces(detail, x, y, color, meta) {
             showlegend: false,
             hovertemplate: `${level.paths} path${level.paths > 1 ? "s" : ""}, ${level.count} of ${total} conversions<extra></extra>`,
         }));
+}
+
+// a detail's map (its heatmap: the cells' edges on x and y, a row of values a row of cells) under its
+// curves, in the density colours beside its colour bar (by decade where it asks, hovered with the
+// value itself); an empty cell (null, by decade one at or under 0 too) shows the paper
+function heatmapTrace(heatmap, x, y, theme) {
+    const z = unitScale(heatmap.label, heatmap.z.flat());
+    const values = heatmap.z.map((row) => row.map((value) => (value === null ? null : value * z.factor)));
+    const shown = heatmap.log ? values.map((row) => row.map((value) => (value > 0 ? Math.log10(value) : null))) : values;
+    return {
+        type: "heatmap",
+        x: heatmap.x.map((value) => value * x.factor),
+        y: heatmap.y.map((value) => value * y.factor),
+        z: shown,
+        customdata: values,
+        colorscale: DENSITY,
+        colorbar: paperColorBar(z.label, heatmap.log, shown.flat(), theme),
+        hoverongaps: false,
+        showlegend: false,
+        hovertemplate: `${x.label}: %{x}<br>${y.label}: %{y}<br>${z.label}: %{customdata:.4~g}<extra></extra>`,
+    };
+}
+
+// a value's place on an axis in its prefixed unit: NaN where it has none (not a number, or not
+// positive on a log axis)
+function place(value, factor, log) {
+    return value === null || value === undefined || !Number.isFinite(value) || (log && value <= 0) ? NaN : value * factor;
+}
+
+// one marker (a labelled line at an x or a y: kind "x" or "y") or band (a labelled range of x shaded
+// behind the curves: "band") as a shape of the plot, its label on it: a line dashed over the curves,
+// its label along it at the top (an x's) or over it at the right (a y's); a band over the grid and
+// under the curves, its label at its top. Null where it has no place on its axis.
+function guideShape(kind, guide, x, y, color, logX, logY) {
+    const label = guide.label ? { text: guide.label, font: { size: 11, color } } : null;
+    if (kind === "band") {
+        const [low, high] = [place(guide.low, x.factor, logX), place(guide.high, x.factor, logX)];
+        if (Number.isNaN(low) || Number.isNaN(high)) return null;
+        const band = { type: "rect", xref: "x", yref: "paper", x0: low, x1: high, y0: 0, y1: 1, fillcolor: rgba(color, 0.15), line: { width: 0 }, layer: "between" };
+        return label ? { ...band, label: { ...label, textposition: "top center" } } : band;
+    }
+    const at = kind === "x" ? place(guide.at, x.factor, logX) : place(guide.at, y.factor, logY);
+    if (Number.isNaN(at)) return null;
+    const across = kind === "x" ? { xref: "x", yref: "paper", x0: at, x1: at, y0: 0, y1: 1 } : { xref: "paper", yref: "y", x0: 0, x1: 1, y0: at, y1: at };
+    const line = { type: "line", ...across, line: { color, width: 1, dash: "dash" }, layer: "above" };
+    // at the line's far end (the top, the right), along it and ending there: inside the plot (a
+    // vertical line's label is centred on its end otherwise, half outside)
+    return label ? { ...line, label: { ...label, textposition: "end", xanchor: "right" } } : line;
+}
+
+// the entries' markers (detail.x_markers, y_markers) and bands (x_bands) as the plot's shapes, in the
+// spine's grey; compared, one every instance has drawn once, grey, another in its instance's colour,
+// named by its id (hidden with its curves)
+function guideShapes(entries, x, y, theme, logX, logY) {
+    const found = new Map();
+    for (const entry of entries) {
+        const { detail } = entry;
+        for (const [kind, guides] of [
+            ["band", detail.x_bands],
+            ["x", detail.x_markers],
+            ["y", detail.y_markers],
+        ]) {
+            for (const guide of guides || []) {
+                const key = JSON.stringify([kind, guide]);
+                if (!found.has(key)) found.set(key, { kind, guide, owners: [] });
+                found.get(key).owners.push(entry);
+            }
+        }
+    }
+    const shapes = [];
+    for (const { kind, guide, owners } of found.values()) {
+        const shared = !page.compare || owners.length === entries.length;
+        for (const owner of shared ? [null] : owners) {
+            const shape = guideShape(kind, guide, x, y, owner ? colorOf(owner.index, theme) : PAPERS[theme].spine, logX, logY);
+            if (shape && owner) shape.name = owner.instance.id;
+            if (shape) shapes.push(shape);
+        }
+    }
+    return shapes;
+}
+
+// the places of a plot's markers and bands (its shapes) as a trace that draws nothing: its axes
+// range over them as over the data, with the data's margin (a line at the data's edge keeps its
+// label in view, as matplotlib's do), and are ticked for them
+function guideTrace(shapes) {
+    const xs = shapes.filter((shape) => shape.xref === "x").flatMap((shape) => [shape.x0, shape.x1]);
+    const ys = shapes.filter((shape) => shape.yref === "y").flatMap((shape) => [shape.y0, shape.y1]);
+    return { type: "scatter", mode: "none", x: [...xs, ...ys.map(() => null)], y: [...xs.map(() => null), ...ys], hoverinfo: "skip", showlegend: false };
 }
 
 // what a plot's x tick labels take below a level row of them: none level, more where its category
@@ -150,7 +240,6 @@ class PlotsPanel {
 
     render() {
         const theme = currentTheme();
-        const colors = PAPERS[theme];
         const compare = page.compare;
         this.plots.querySelectorAll(".plot").forEach((plot) => Plotly.purge(plot));
         this.plots.replaceChildren();
@@ -204,65 +293,92 @@ class PlotsPanel {
                 );
                 continue;
             }
-            // SI prefixes from the values plotted
-            const xs = entries.flatMap(({ detail }) => detail.x);
-            const ys = entries.flatMap(({ detail }) => [...Object.values(detail.series).flat(), ...(detail.paths || []).flatMap((path) => path.y)]);
-            const x = unitScale(first.x_label, xs);
-            const y = unitScale(first.y_label, ys);
-            // a condition sweep's few points marked; a long series (a code axis, a spectrum) a thin line;
-            // a histogram (one bin a code) its outline, steps centred on the bins, so compared ones overlay
-            const dense = entries.some(({ detail }) => detail.x.length > 100);
-            const histogram = Boolean(first.histogram);
-            // alone, a series a colour; compared, an instance a colour (the key over the plots) and,
-            // where an instance has several, a series a dash, keyed under the plot in the spine's grey
-            const seriesNames = [...new Set(entries.flatMap(({ detail }) => Object.keys(detail.series)))];
-            const dashed = compare && entries.some(({ detail }) => Object.keys(detail.series).length > 1);
-            // categories on x (their indices, by name: first.x_labels): ticked and hovered by name
-            const categories = first.x_labels?.length ? first.x_labels : null;
-            const traces = [];
-            for (const { instance, index, detail } of entries) {
-                const meta = compare ? instance.id : undefined;
-                if (detail.paths?.length) traces.push(...pathTraces(detail, x, y, colorOf(compare ? index : 0, theme), meta));
-                for (const [series, values] of Object.entries(detail.series)) {
-                    const j = seriesNames.indexOf(series);
-                    traces.push({
-                        type: "scatter",
-                        mode: dense || histogram ? "lines" : "lines+markers",
-                        name: compare ? (seriesNames.length > 1 ? `${labelOf(index)} · ${series}` : labelOf(index)) : series,
-                        meta,
-                        showlegend: !compare,
-                        x: detail.x.map((value) => (value === null ? null : value * x.factor)),
-                        y: values.map((value) => (value === null ? null : value * y.factor)),
-                        line: { color: colorOf(compare ? index : j, theme), width: dense ? 1.2 : 2, dash: dashed ? DASHES[j % DASHES.length] : "solid", ...(histogram ? { shape: "hvh" } : {}) },
-                        marker: { size: 6 },
-                        ...(categories ? { text: detail.x.map((value) => categories[value] ?? ""), hovertemplate: "%{text}: %{y}" } : {}),
-                    });
-                }
+            // maps do not overlay: compared, each instance's map a plot of its own, side by side under
+            // the detail's title, each named in its instance's colour
+            if (compare && entries.some(({ detail }) => detail.heatmap)) {
+                const row = h("div.map-row");
+                this.plots.append(h("figure.map-card", {}, h("figcaption", {}, first.title), row));
+                for (const entry of entries) this.plot(row, [entry], { title: labelOf(entry.index), color: colorOf(entry.index, theme) });
+                continue;
             }
-            if (dashed) {
-                seriesNames.forEach((series, j) =>
-                    traces.push({ type: "scatter", mode: "lines", name: series, x: [null], y: [null], hoverinfo: "skip", line: { color: colors.spine, width: 2, dash: DASHES[j % DASHES.length] } }),
-                );
-            }
-            for (const trace of traces) if (this.hidden.has(trace.meta)) trace.visible = false;
-            const legendEntries = traces.filter((trace) => trace.showlegend !== false).length;
-            // the axes ticked for what they hold: the detail's hints (whole codes, steps) where it has them
-            const layout = paperLayout(first.title, x.label, y.label, first.x_log, first.y_log, legendEntries > 1 ? legendEntries : 0, theme, { traces, x: first.x_ticks ?? null, y: first.y_ticks ?? null, xLabels: categories });
-            layout.title.font.size = 13;
-            layout.margin = { l: 64, r: 12, t: 34, b: 46 };
-            layout.legend.font = { size: 11, color: colors.ink };
-            // the compared series' key names dashes: nothing to toggle
-            if (dashed) layout.legend.itemclick = layout.legend.itemdoubleclick = false;
-            const element = h("div.plot");
-            this.plots.append(element);
-            Plotly.newPlot(element, traces, layout, { displayModeBar: false }).then(() => {
-                keepTicks(element);
-                fitLegend(element);
-            });
+            this.plot(this.plots, entries);
         }
     }
 
-    // an instance's curves (its maps and figures stay) hidden or shown in every plot
+    // a plot of one detail under host: its entries' map, curves (one instance's, or the compared
+    // ones' overlaid), markers and bands, each axis scaled to what it draws; a compared map's titled
+    // by its instance (title, in its colour) in place of the detail's
+    plot(host, entries, { title = null, color = null } = {}) {
+        const theme = currentTheme();
+        const colors = PAPERS[theme];
+        const compare = page.compare;
+        const first = entries[0].detail;
+        // SI prefixes from the values plotted (a map's cell edges among them), not the markers
+        const xs = entries.flatMap(({ detail }) => [...detail.x, ...(detail.heatmap?.x || [])]);
+        const ys = entries.flatMap(({ detail }) => [...Object.values(detail.series).flat(), ...(detail.paths || []).flatMap((path) => path.y), ...(detail.heatmap?.y || [])]);
+        const x = unitScale(first.x_label, xs);
+        const y = unitScale(first.y_label, ys);
+        // a condition sweep's few points marked; a long series (a code axis, a spectrum) a thin line;
+        // a histogram (one bin a code) its outline, steps centred on the bins, so compared ones overlay
+        const dense = entries.some(({ detail }) => detail.x.length > 100);
+        const histogram = Boolean(first.histogram);
+        // alone, a series a colour; compared, an instance a colour (the key over the plots) and,
+        // where an instance has several, a series a dash, keyed under the plot in the spine's grey
+        const seriesNames = [...new Set(entries.flatMap(({ detail }) => Object.keys(detail.series)))];
+        const dashed = compare && entries.some(({ detail }) => Object.keys(detail.series).length > 1);
+        // categories on x (their indices, by name: first.x_labels): ticked and hovered by name
+        const categories = first.x_labels?.length ? first.x_labels : null;
+        const traces = [];
+        for (const { instance, index, detail } of entries) {
+            const meta = compare ? instance.id : undefined;
+            // a map under the curves, kept when its instance's curves are hidden
+            if (detail.heatmap) traces.push(heatmapTrace(detail.heatmap, x, y, theme));
+            if (detail.paths?.length) traces.push(...pathTraces(detail, x, y, colorOf(compare ? index : 0, theme), meta));
+            for (const [series, values] of Object.entries(detail.series)) {
+                const j = seriesNames.indexOf(series);
+                traces.push({
+                    type: "scatter",
+                    mode: dense || histogram ? "lines" : "lines+markers",
+                    name: compare ? (seriesNames.length > 1 ? `${labelOf(index)} · ${series}` : labelOf(index)) : series,
+                    meta,
+                    showlegend: !compare,
+                    x: detail.x.map((value) => (value === null ? null : value * x.factor)),
+                    y: values.map((value) => (value === null ? null : value * y.factor)),
+                    line: { color: colorOf(compare ? index : j, theme), width: dense ? 1.2 : 2, dash: dashed ? DASHES[j % DASHES.length] : "solid", ...(histogram ? { shape: "hvh" } : {}) },
+                    marker: { size: 6 },
+                    ...(categories ? { text: detail.x.map((value) => categories[value] ?? ""), hovertemplate: "%{text}: %{y}" } : {}),
+                });
+            }
+        }
+        if (dashed) {
+            seriesNames.forEach((series, j) =>
+                traces.push({ type: "scatter", mode: "lines", name: series, x: [null], y: [null], hoverinfo: "skip", line: { color: colors.spine, width: 2, dash: DASHES[j % DASHES.length] } }),
+            );
+        }
+        for (const trace of traces) if (this.hidden.has(trace.meta)) trace.visible = false;
+        const shapes = guideShapes(entries, x, y, theme, first.x_log, first.y_log);
+        for (const shape of shapes) if (this.hidden.has(shape.name)) shape.visible = false;
+        if (shapes.length) traces.push(guideTrace(shapes));
+        const legendEntries = traces.filter((trace) => trace.showlegend !== false).length;
+        // the axes ticked for what they hold: the detail's hints (whole codes, steps) where it has them
+        const layout = paperLayout(title ?? first.title, x.label, y.label, first.x_log, first.y_log, legendEntries > 1 ? legendEntries : 0, theme, { traces, x: first.x_ticks ?? null, y: first.y_ticks ?? null, xLabels: categories });
+        layout.title.font.size = 13;
+        if (color) layout.title.font.color = color;
+        layout.margin = { l: 64, r: 12, t: 34, b: 46 };
+        layout.legend.font = { size: 11, color: colors.ink };
+        layout.shapes = shapes;
+        // the compared series' key names dashes: nothing to toggle
+        if (dashed) layout.legend.itemclick = layout.legend.itemdoubleclick = false;
+        const element = h("div.plot");
+        host.append(element);
+        Plotly.newPlot(element, traces, layout, { displayModeBar: false }).then(() => {
+            keepTicks(element);
+            fitLegend(element);
+        });
+    }
+
+    // an instance's curves, and the markers and bands of its own, hidden or shown in every plot (its
+    // maps and figures stay)
     toggle(id, item) {
         const hidden = !this.hidden.delete(id);
         if (hidden) this.hidden.add(id);
@@ -270,6 +386,8 @@ class PlotsPanel {
         for (const element of this.plots.querySelectorAll(".plot")) {
             const indices = (element.data || []).flatMap((trace, index) => (trace.meta === id ? [index] : []));
             if (indices.length) Plotly.restyle(element, { visible: !hidden }, indices);
+            const shapes = Object.fromEntries((element.layout?.shapes || []).flatMap((shape, index) => (shape.name === id ? [[`shapes[${index}].visible`, !hidden]] : [])));
+            if (Object.keys(shapes).length) Plotly.relayout(element, shapes);
         }
     }
 }
@@ -343,7 +461,7 @@ export function mountInstances(host, { block, instances, onRemove, onView }) {
         // an instance with figures and no waveforms (a behavioral ADC): its figures and, where it
         // has one, the layout of its blocks
         const own = instance.layout;
-        const figures = (instance.details || []).some((detail) => detail.figure || detail.paths?.length) && !Object.keys(instance.waves || {}).length && (!own || own.blocks || !own.file);
+        const figures = (instance.details || []).some((detail) => detail.figure || detail.paths?.length || detail.heatmap) && !Object.keys(instance.waves || {}).length && (!own || own.blocks || !own.file);
         if (figures) {
             root = own?.file ? layout.split("row", [selection, plots, shapes()], "view.figures", [20, 50, 30]) : layout.split("row", [selection, plots], "view.figures.alone", [20, 80]);
         } else {
