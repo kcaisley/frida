@@ -1,5 +1,7 @@
 # Caparray capacitance comparison
 
+A record of the legacy capacitor-array block and of FRIDA-2's template-swapped ADC, both retired: the converter's DAC is `flow/capdac` now, FRIDA-2 is generated whole, and the code named below is gone. FRIDA-1's four extracted flavors stay (`flow.adc.layout`'s `frida1_*` targets, the cap array's LVS source frozen under `build/frida-1/`). The runs under `build/` it cites are history.
+
 ## Held sampling-noise comparison (2026-09-06)
 
 The seven completed September 5 runs are collected beneath `build/sim/adc/comparison/20260905_194921/results/`. Their executed transient statements all contain `isnoisy=yes`, `noisefmin=62500`, `noisefmax=25G`, and `noiseseed=1`. Each contains 100 conversions at 50 mV differential input and 700 mV common mode, with 100 ns active conversion timing and 160 ns records.
@@ -26,7 +28,7 @@ Outputs are in `build/analysis/adc/20260906_112220/`: `adc_sampling_noise.pdf`, 
 
 The FRIDA-2 runners now read the paired `build/frida-2-template-c0.gds` and `build/frida-2-template-c0.cdl`. The annotation-only migration and before/after conductive LVS checks are recorded beneath `build/layout/adc/template_annotations/20260905_190843/`. Original files were preserved. Geometry and instance placements did not change during renaming.
 
-Assembly checks the terminal-name set, database unit, and footprint, leaving electrical connectivity to full-chip LVS. Marker coordinates/layers and all generated caparray polygons are instead pinned by the ordinary regression test in `pdk/tsmc65/tests/test_cdac_layout.py`. Its baseline comes from the human-reviewed, signed-off September 5 arrays, not the historical template.
+Assembly checks the terminal-name set, database unit, and footprint, leaving electrical connectivity to full-chip LVS. Marker coordinates/layers and all generated caparray polygons were instead pinned by the legacy array generator's regression test, its baseline the human-reviewed, signed-off September 5 arrays, not the historical template.
 
 All three assembled FRIDA-2 variants pass raw MOM-aware LVS, the configured DRC checks with zero errors, and xACT PEX:
 
@@ -34,7 +36,7 @@ All three assembled FRIDA-2 variants pass raw MOM-aware LVS, the configured DRC 
 - `build/layout/adc/frida2_2layer_radix17/20260905_193629/`
 - `build/layout/adc/frida2_3layer_radix17/20260905_193816/`
 
-The simulation view `frida2` uses the renamed C0-first PEX ports and source nets. `frida65a` retains the fabricated FRIDA-1 namespace and its explicit 15-first mapping. Both are checked against actual PEX headers and device terminal names before simulation. The four historical inputs remain the September 5 17:12 extractions; their two-layer raw LVS warnings represent the known disconnected upper plates, not a repaired model of fabricated silicon.
+The simulation view `frida2` (retired) used the renamed C0-first PEX ports and source nets. `frida65a` retains the fabricated FRIDA-1 namespace and its explicit 15-first mapping. Both are checked against actual PEX headers and device terminal names before simulation. The four historical inputs remain the September 5 17:12 extractions; their two-layer raw LVS warnings represent the known disconnected upper plates, not a repaired model of fabricated silicon.
 
 The restart retains 100 conversions per flavor, 50 mV differential input, 700 mV common mode, 1.2 V supplies, and transient noise. The active conversion is 100 ns within the intentionally retained 160 ns padded record. All sixteen main/diff state and driver nodes on both branches are saved, together with the comparator cross-coupled nodes and both input-pair drains. Additional traces are stored in HDF5 `wave/internal_v/`; the existing plotter-facing traces stay in `wave/`. `info/readbacks/signal_map_json` records their exact PEX node names. No initial-state voltages or physical connections are changed by renaming.
 
@@ -42,7 +44,7 @@ The `frida1_sequence` and `frida2_sequence` family runners launch independent fl
 
 ## Shared HDL21 source (2026-09-05)
 
-`flow.cdac.caparray.subckt.CapArray` now generates both the ideal and LVS capacitor arrays. Both views have the same physical chunk/layer instances and the same ordered 34-port interface: topplate, shield, main C0..C15, diff C0..C15. The handwritten CDAC and ADC LVS circuit builders have been removed. Only the leaf view changes: `flow.momcap.subckt.MomCap` contains an ideal capacitor with an unused shield terminal; `pdk.tsmc65.calibre.signoff.mom_lvs_device` supplies the three-terminal recognition model for Calibre.
+The legacy array generator (`CapArray`) generated both the ideal and LVS capacitor arrays. Both views have the same physical chunk/layer instances and the same ordered 34-port interface: topplate, shield, main C0..C15, diff C0..C15. The handwritten CDAC and ADC LVS circuit builders have been removed. Only the leaf view changes: `flow.momcap.subckt.MomCap` contains an ideal capacitor with an unused shield terminal; `pdk.tsmc65.calibre.signoff.mom_lvs_device` supplies the three-terminal recognition model for Calibre.
 
 `CapArrayConfig.unit_cap` retains its meaning as the complete stack's logical unit capacitance. Its ideal value is divided equally over the selected layers, preserving the requested main/diff/effective totals. This is an ideal model convention, not a claim of equal physical layer contributions. LVS checks connectivity; the current recognition deck does not compare numerical capacitance. PEX remains the source of actual capacitance and shunt loading.
 
@@ -198,4 +200,4 @@ DAC_DRIVE_BOTPLATE_MAIN_P<15>  VDAC_P
 
 but it is not sufficient for the complete table, because the report can omit smaller logical pair couplings. The full PEX netlist should be parsed and summed.
 
-The calculation is automated by `flow.cdac.caparray.pex`. Historical ADC extraction must call `parse_adc_caparray_pex(..., stage_count=16, pin_order="frida1_legacy")`; newly generated arrays use the default direct stage order. Both return arrays indexed C0 through C15.
+The legacy array block's PEX reader automated the calculation, FRIDA-1's extraction in its legacy pin order and generated arrays in the direct stage order, both indexed C0 through C15; it was retired with the block.

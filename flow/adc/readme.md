@@ -42,9 +42,12 @@ redundancy can raise it; where the comparator's delay does, it cannot.
 
 ## Mismatch and calibration
 
+These runs converted the legacy CDAC block's arrays, since retired (the DAC is capdac's now); their
+records are history.
+
 Run 20261027_021329 (2026-10-27: the 6,100 converters on 20 workers in 4 h 46 min beside other
 jobs) converts each converter's sine on its CDAC's drawn array, the Monte Carlo draw at the 90th
-percentile of what no calibration recovers at 0.5 %·√fF and 50 ppm/mm (`flow/cdac`), and decodes it
+percentile of what no calibration recovers at 0.5 %·√fF and 50 ppm/mm (the legacy block's), and decodes it
 three ways: with the design weights, with the extraction's (the nominal array's) and with the
 weights the converter learns from its ramps (`enob_drawn_design_bits`, `_extracted_bits`,
 `_calibrated_bits`). With the quietest comparator and the widest switch, where the array limits:
@@ -54,12 +57,12 @@ weights the converter learns from its ramps (`enob_drawn_design_bits`, `_extract
 - Calibrated, every array comes within 0.3 bit of its nominal ENOB at every resolution, binary
   included (14 bits: 12.76–13.23, above the nominal where the extraction's own error had cost it).
   A code a fraction of an LSB too wide costs little noise power, so the ENOB hides what the INL and
-  missing codes show: the CDAC's gap (`flow/cdac`) is where the schemes differ.
+  missing codes show: the CDAC's gap, what no calibration recovers, is where the schemes differ.
 - The extraction's weights recover most of the loss over all comparators and samplers (medians
   within 0.44 bit at 10 bits, 0.22 at 12 and 0.12 at 14).
 
 LF150, run 20261027_074628 (244 converters, 13 min): the arrays whose extraction leaves a gap no
-calibration recovers (`flow/cdac`: binary and the LSB split, 6.7–8.2 LSB at 14 bits) stay short of
+calibration recovers (binary and the LSB split, 6.7–8.2 LSB at 14 bits) stay short of
 their nominal ENOB once calibrated (14 bits binary 11.73 against 12.71, 12 bits 10.53–10.69 against
 11.56–11.68), where the extraction's weights decode the same draw better (14 bits binary 12.32): the
 learned weights fail where a code is several LSB wide. MSB redistribution and the MSB split calibrate
