@@ -19,9 +19,10 @@ from typing import Any
 
 import numpy as np
 
-from flow.pipeline import Band, Marker, Plot, plot
+from flow.pipeline import Band, Heatmap, Marker, Plot, plot
 
 from .params import FINAL_DECISIONS, LADDER, MAX_PATHS
+from .sim import AdcSequence
 from .types import (
     AnalysisCalibration,
     AnalysisCodeSpectrum,
@@ -36,6 +37,7 @@ from .types import (
     AnalysisRamp,
     AnalysisRedundancy,
     AnalysisReference,
+    AnalysisSequenceMap,
     AnalysisTransfer,
 )
 
@@ -520,6 +522,42 @@ def plot_ramp_transfer(ramp: AnalysisRamp) -> Plot:
     )
 
 
+@plot
+def plot_sequence_enob(sequences: AnalysisSequenceMap) -> Plot:
+    """A fixed input's noise-equivalent ENOB over sequence and symbol rate (``AnalysisSequenceMap``):
+    one ADC's where its codes are plausible, a chip's median where three quarters of its ADCs' are;
+    every other cell empty."""
+    return _sequence_map(
+        "sequence_enob", "Noise-equivalent ENOB by sequence and rate", sequences, sequences.enob_bits, "ENOB (bits)"
+    )
+
+
+@plot
+def plot_sequence_plausible(sequences: AnalysisSequenceMap) -> Plot:
+    """How many of the ADCs give plausible codes at each sequence and symbol rate (one ADC: 1 or 0):
+    a code not constant, its mean near the reference, its readout valid."""
+    return _sequence_map(
+        "sequence_plausible",
+        "ADCs with plausible codes by sequence and rate",
+        sequences,
+        sequences.plausible_count,
+        f"Plausible ADCs (of {sequences.adc_count})",
+    )
+
+
+@plot
+def plot_sequence_shift(sequences: AnalysisSequenceMap) -> Plot:
+    """How far the mean code moves from its reference (each ADC's median over every sequence at the
+    slowest rate) at each sequence and symbol rate: the ADCs' median."""
+    return _sequence_map(
+        "sequence_shift",
+        "Mean-code shift by sequence and rate",
+        sequences,
+        sequences.shift_dout,
+        "|Mean code − reference| (LSB)",
+    )
+
+
 def _plot(name: str, title: str, x_label: str, y_label: str, x, series: dict[str, Any], **options: Any) -> Plot:
     """A figure's spec, its values to six significant digits, as the viewer's other exports."""
     return Plot(
@@ -603,3 +641,48 @@ def _enob(dynamic: AnalysisDynamic) -> float:
 def _matching_label(prediction: AnalysisMismatchPrediction) -> str:
     """The predictions' series name: the Pelgrom coefficient they are at."""
     return f"A_C {prediction.unit_mismatch * 100:g} %·sqrt(fF)"
+
+
+def _sequence_map(name: str, title: str, sequences: AnalysisSequenceMap, values: np.ndarray, label: str) -> Plot:
+    """A map over sequence (a column each, named by its decision word) and symbol rate (a row each,
+    the slowest at the bottom), its values to six significant digits."""
+    columns, rows = len(sequences.sequence), len(sequences.symbol_rate_hz)
+    return Plot(
+        name,
+        title,
+        "Sequence (COMP / LOGIC decision word)",
+        "Symbol rate",
+        [],
+        {},
+        x_labels=_sequence_labels(sequences.sequence),
+        y_labels=[f"{rate / 1e6:g} MBd" for rate in sequences.symbol_rate_hz],
+        heatmap=Heatmap(
+            x=[index - 0.5 for index in range(columns + 1)],
+            y=[index - 0.5 for index in range(rows + 1)],
+            z=[[_six(value) for value in row] for row in np.asarray(values, dtype=np.float64)],
+            label=label,
+        ),
+    )
+
+
+def _sequence_labels(sequences: Sequence[AdcSequence]) -> list[str]:
+    """Each sequence by its decision word (``_sequence_label``); where two share one (another period,
+    INIT or SAMP), each numbered as well."""
+    labels = [_sequence_label(sequence) for sequence in sequences]
+    if len(set(labels)) < len(labels):
+        return [f"{index + 1}: {label}" for index, label in enumerate(labels)]
+    return labels
+
+
+def _sequence_label(sequence: AdcSequence) -> str:
+    """A sequence by its decision word: COMP's and LOGIC's symbols from its second COMP rise after
+    INIT to its third (the first decision has no update before it), ``11110000/00001111``, as the
+    catalogue names it (``comp11110000_logic00001111``, flow/adc/sim.py)."""
+    relative = sequence.relative_to_init()
+    comp = relative.comp
+    rises = [index for index in range(1, len(comp)) if comp[index] == "1" and comp[index - 1] == "0"]
+    if len(rises) < 2:
+        return f"{comp}/{relative.logic}"
+    start = rises[1]
+    stop = rises[2] if len(rises) > 2 else start + 8
+    return f"{comp[start:stop]}/{relative.logic[start:stop]}"

@@ -26,10 +26,12 @@ from flow.adc.analysis import (
     analyze_mismatch_prediction,
     analyze_power,
     analyze_ramp,
+    analyze_sequence_map,
     analyze_transfer,
 )
 from flow.adc.params import FINAL_DECISIONS, PELGROM_AXIS, UNIT_MISMATCH
-from flow.adc.test_analysis import adc_measurement, adc_ramp_measurement, tone_codes
+from flow.adc.sim import SEQUENCES
+from flow.adc.test_analysis import adc_conditions, adc_measurement, adc_ramp_measurement, timing_sequences, tone_codes
 from flow.adc.types import (
     AnalysisCalibration,
     AnalysisCalibration1,
@@ -77,6 +79,9 @@ FIGURES = (
 LAB_FIGURES = (
     "transfer",
     "ramp_transfer",
+    "sequence_enob",
+    "sequence_plausible",
+    "sequence_shift",
 )
 
 
@@ -418,3 +423,45 @@ def test_a_ramps_transfer_is_drawn_by_its_weights(tmp_path: Path, monkeypatch: p
     monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
     (png, _pdf) = render(figure, tmp_path / "ramp_transfer")
     assert plt.imread(png).shape[:2] == (2700, 4800)
+
+
+def test_the_sequence_maps_name_each_sequence_by_its_decision_word(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The operating conditions over sequence and rate as three maps, a column a sequence named by its
+    COMP and LOGIC decision word (as the catalogue names it) and a row a symbol rate; the ENOB empty
+    where the codes are not plausible; drawn on the analysis plots' canvas."""
+    conditions = adc_conditions(3, {(1, 1): [1000] * 100})
+    sequences = analyze_sequence_map([conditions])
+    words = [
+        name.split("_comp")[1].replace("_logic", "/")
+        for name, sequence in SEQUENCES
+        if sequence in timing_sequences[:4]
+    ]
+    for function, label in (
+        (plots.plot_sequence_enob, "ENOB (bits)"),
+        (plots.plot_sequence_plausible, "Plausible ADCs (of 1)"),
+        (plots.plot_sequence_shift, "|Mean code − reference| (LSB)"),
+    ):
+        figure = function(sequences)
+        assert (figure.x, figure.series, figure.x_labels, figure.y_labels) == ([], {}, words, ["256 MBd", "512 MBd"])
+        assert figure.heatmap is not None and figure.heatmap.label == label
+        assert figure.heatmap.x == [-0.5, 0.5, 1.5, 2.5, 3.5] and figure.heatmap.y == [-0.5, 0.5, 1.5]
+    enob = plots.plot_sequence_enob(sequences).heatmap
+    assert enob is not None and math.isnan(enob.z[1][1]) and enob.z[0][1] == float(f"{sequences.enob_bits[0, 1]:.6g}")
+    plausible = plots.plot_sequence_plausible(sequences).heatmap
+    assert plausible is not None and plausible.z == [[1.0, 1.0, 1.0, 1.0], [1.0, 0.0, 1.0, 1.0]]
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    (png, _pdf) = render(plots.plot_sequence_enob(sequences), tmp_path / "sequence_enob")
+    assert plt.imread(png).shape[:2] == (2700, 4800)
+
+
+def test_sequences_sharing_a_decision_word_are_numbered() -> None:
+    """Two sequences of one decision word (another INIT phase, period or sampling) are told apart by
+    their places."""
+    base = timing_sequences[0]
+    longer = base.__class__(*(row + "0" * 8 for row in (base.init, base.samp, base.comp, base.logic)))
+    assert plots._sequence_labels([base, longer]) == [
+        f"1: {plots._sequence_label(base)}",
+        f"2: {plots._sequence_label(base)}",
+    ]

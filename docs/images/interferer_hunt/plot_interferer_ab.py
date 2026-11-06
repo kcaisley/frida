@@ -7,7 +7,8 @@ Fixed 50 mV / 700 mV perfboard input, ADC00-03, seven 160-symbol sequences at
     B  supplies connected, amplifier enabled (AMP_EN=1)    20261009_110638
     C  supplies connected, amplifier disabled (AMP_EN=0)   20261009_110933
 
-Each run gets the standard sequence-ENOB overview and noise-distribution grid;
+Each run gets the chip's maps over sequence and rate (the ADCs' median ENOB, how many are
+plausible, how far the mean code moves) and the noise-distribution grid;
 one extra figure overlays the three runs' code spectra (comp11110000_logic10000111)
 per rate. These runs have no scope records, so adc.analyze_noise cannot confirm
 a readout by the scope/FastRX bit comparison; here a capture counts as a valid
@@ -30,10 +31,10 @@ from flow.analysis.io import read_measurement, read_measurement_param, write_ana
 from flow.analysis.plots import (
     PLOT_STYLE,
     plot_adc_noise_distribution_grid,
-    plot_adc_sequence_chip_overview,
     save_figure,
     style_grid,
 )
+from flow.plot import render
 
 ROOT = Path(__file__).resolve().parents[3]
 # Figures go to the original result directory; the PDFs beside this script are copies.
@@ -44,14 +45,7 @@ RUNS = {
     "B: amp supplies on, enabled": "20261009_110638_adc_sequence_static",
     "C: amp supplies on, disabled": "20261009_110933_adc_sequence_static",
 }
-# Overview titles use the interferer-hunt deck's test numbers.
-TEST_TITLES = {
-    "A: amp supplies off": "test #12, amplifier supply unplugged",
-    "B: amp supplies on, enabled": "test #13, amplifier supply on, enabled",
-    "C: amp supplies on, disabled": "test #14, amplifier supply on, disabled",
-}
 SPECTRUM_SEQUENCE = dict(SEQUENCES)["symbol160_init4_samp20_comp11110000_logic10000111"]
-catalogue = tuple(sequence for name, sequence in SEQUENCES if name.startswith("symbol160_init4_samp20_"))
 
 # {run: {rate: {adc: (frequency_hz, asd_lsb_per_sqrt_hz, std_lsb)}}}
 spectra: dict[str, dict[float, dict[int, tuple[np.ndarray, np.ndarray, float]]]] = {}
@@ -88,12 +82,14 @@ for run, folder in RUNS.items():
                 np.sqrt(psd),
                 float(codes.std()),
             )
-    plot_adc_sequence_chip_overview(
-        conditions,
-        sequences=catalogue,
-        title=f"{len(conditions)} ADCs · fixed 50 mV input · {TEST_TITLES[run]}",
-        output_path=run_out / "all_adc_sequence_overview",
-    )
+    # the run's ADCs together (the deck's tests #12 to #14 are A to C), a figure each map
+    sequences = adc.analyze_sequence_map(conditions)
+    for figure in (
+        adc.plot_sequence_enob(sequences),
+        adc.plot_sequence_plausible(sequences),
+        adc.plot_sequence_shift(sequences),
+    ):
+        render(figure, run_out / f"all_adc_{figure.name}")
     plot_adc_noise_distribution_grid(all_measurements, all_noise, output_path=run_out / "adc_noise_distribution_grid")
     print(f"{run}: {len(paths)} captures -> {run_out}")
 

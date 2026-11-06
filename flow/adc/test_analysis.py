@@ -49,6 +49,7 @@ from flow.adc.analysis import (
     analyze_power_waveform,
     analyze_ramp,
     analyze_sampling_noise,
+    analyze_sequence_map,
     analyze_timing_closure,
     analyze_transfer,
 )
@@ -1405,6 +1406,54 @@ def test_operating_conditions_judge_constant_shifted_and_readout_rows() -> None:
     np.testing.assert_array_equal(result.plausible, (True, True, True, True, False, False))
     with pytest.raises(ValueError, match="no noise result matches"):
         analyze_operating_conditions(measurements, noise=noise[:-1])
+
+
+def adc_conditions(observed_adc: int, codes: Mapping[tuple[int, int], Sequence[int]]):
+    """One ADC's operating conditions over ``timing_sequences`` and two rates (1 and 2 MS/s): the
+    codes of each (rate, sequence) captured, a code noisy about 1001 where ``codes`` has none."""
+    measurements = []
+    for rate_index, sample_rate_hz in enumerate((1.0e6, 2.0e6)):
+        for sequence_index, sequence in enumerate(timing_sequences[:4]):
+            dout = codes.get((rate_index, sequence_index), [1000, 1001, 1002, 1001] * 25)
+            if not len(dout):
+                continue
+            base = adc_measurement(dout, sample_rate_hz=sample_rate_hz, observed_adc=observed_adc)
+            measurements.append(
+                replace(base, param=replace(base.param, tb=replace(base.param.tb, **sequence.as_tb_fields())))
+            )
+    return analyze_operating_conditions(
+        measurements, noise=[analyze_noise(measurement) for measurement in measurements]
+    )
+
+
+def test_a_sequence_map_takes_the_median_of_three_quarters_of_the_adcs() -> None:
+    """One ADC's operating conditions as maps (a row a rate, a column a sequence): its ENOB where its
+    codes are plausible, plausible 1 or 0, the distance of its mean code from its reference; a chip's
+    ADCs together: how many are plausible, the median ENOB only where three quarters of them are, a
+    cell none measured empty."""
+    noisy = [1000, 1001, 1002, 1001] * 25
+    # ADC 3: a constant code (rate 2, sequence 1) and a shifted one (rate 2, sequence 2); the fourth
+    # sequence not captured; ADC 4: every code plausible, its fourth sequence at rate 1 alone
+    first = adc_conditions(3, {(1, 1): [1000] * 100, (1, 2): [1100, 1101, 1102, 1101] * 25, (0, 3): [], (1, 3): []})
+    second = adc_conditions(4, {(0, 1): [1002, 1003, 1004, 1003] * 25, (1, 3): []})
+    one = analyze_sequence_map([first])
+    assert (one.group, one.index, one.adc_count) == (7, 3, 1)
+    assert one.sequence == timing_sequences[:3] and one.symbol_rate_hz.tolist() == [256e6, 512e6]
+    np.testing.assert_array_equal(one.plausible_count, [[1, 1, 1], [1, 0, 0]])
+    enob = analyze_noise(adc_measurement(noisy)).enob_bits
+    np.testing.assert_allclose(one.enob_bits, [[enob, enob, enob], [enob, np.nan, np.nan]])
+    np.testing.assert_allclose(one.shift_dout, [[0.0, 0.0, 0.0], [0.0, 1.0, 100.0]])
+    chip = analyze_sequence_map([first, second])
+    # the ADCs' shared identity: the board, no channel
+    assert (chip.group, chip.index, chip.adc_count) == (7, None, 2)
+    assert chip.sequence == timing_sequences[:4]
+    np.testing.assert_array_equal(chip.plausible_count, [[2, 2, 2, 1], [2, 1, 1, np.nan]])
+    # both plausible: their median; one of two: under three quarters, none
+    np.testing.assert_allclose(chip.enob_bits, [[enob, enob, enob, np.nan], [enob, np.nan, np.nan, np.nan]])
+    # ADC 4's second sequence at rate 1 two codes above its reference: the median of 0 and 2
+    assert chip.shift_dout[0, 1] == pytest.approx(1.0) and np.isnan(chip.shift_dout[1, 3])
+    with pytest.raises(ValueError, match="at least one ADC"):
+        analyze_sequence_map([])
 
 
 @pytest.mark.parametrize(

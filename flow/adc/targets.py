@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -29,8 +28,6 @@ from flow.analysis.plots import (
     plot_adc_interferer,
     plot_adc_noise_distribution_sweep,
     plot_adc_noise_sweep,
-    plot_adc_sequence_chip_overview,
-    plot_adc_sequence_enob,
     plot_waveforms,
     style_measurement_text,
 )
@@ -41,7 +38,6 @@ from flow.analysis.types import (
     MeasCdac,
 )
 from flow.plot import render
-from flow.scans.params import load_board_map
 from flow.sweep import runner as sweep_runner
 
 from . import layout
@@ -61,6 +57,7 @@ from .analysis import (
     analyze_operating_conditions,
     analyze_power,
     analyze_ramp,
+    analyze_sequence_map,
     analyze_timing_closure,
     analyze_timing_summary,
     analyze_transfer,
@@ -80,6 +77,9 @@ from .plots import (
     plot_noise_spectrum,
     plot_power_rate,
     plot_ramp_transfer,
+    plot_sequence_enob,
+    plot_sequence_plausible,
+    plot_sequence_shift,
     plot_spectrum_low,
     plot_spectrum_nyquist,
     plot_trajectory,
@@ -87,7 +87,7 @@ from .plots import (
     plot_trajectory_final,
     plot_transfer,
 )
-from .types import AnalysisCalibration, AnalysisDecisionPaths, AnalysisRamp
+from .types import AnalysisCalibration, AnalysisDecisionPaths, AnalysisRamp, AnalysisSequenceMap
 
 
 def _sim_run(target: str) -> Path:
@@ -216,6 +216,13 @@ def _path_figures(paths: AnalysisDecisionPaths, output_dir: Path, stem: str) -> 
     """The decision paths at one input as the record draws them: over the whole conversion, over the
     last decisions and the codes they end on, each into ``<stem>_<figure>``."""
     figures = (plot_trajectory(paths), plot_trajectory_final(paths), plot_trajectory_codes(paths))
+    return [path for figure in figures for path in render(figure, output_dir / f"{stem}_{figure.name}")]
+
+
+def _sequence_figures(sequences: AnalysisSequenceMap, output_dir: Path, stem: str) -> list[Path]:
+    """Operating conditions over sequence and symbol rate as their maps: the ENOB, how many ADCs give
+    plausible codes and how far the mean code moves, each into ``<stem>_<figure>``."""
+    figures = (plot_sequence_enob(sequences), plot_sequence_plausible(sequences), plot_sequence_shift(sequences))
     return [path for figure in figures for path in render(figure, output_dir / f"{stem}_{figure.name}")]
 
 
@@ -685,17 +692,15 @@ def sequence_study() -> tuple[Path, ...]:
     Physical and PEX captures go through the same per-capture noise analysis
     and per-ADC (or per-flavor) operating-condition analysis; PEX cases also
     get timing closure. Operating-condition and timing-summary results are
-    saved as analysis HDF5 files beside the figures.
+    saved as analysis HDF5 files beside the figures. Each ADC, the chip's 16
+    ADCs together and each PEX flavor get the maps over sequence and rate
+    (``<adcNN|all_adc|spice_flavor>_sequence_enob``, ``_plausible``,
+    ``_shift``): the noise-equivalent ENOB, a sequence a column named by its
+    decision word, in the order the captures hold them.
     """
     output_dir = new_run("analysis", "adc")
     read_dir = BASE_PATH / "build/scan_adc/20260926_172920_adc_sequence_static"
     paths = sorted(read_dir.glob("[0-9][0-9][0-9][0-9]_capture.h5"))
-    # The pinned physical captures predate the wider INIT-associated LOGIC pulse.
-    catalogue = tuple(
-        dataclasses.replace(sequence, logic="00010000" + sequence.logic[8:])
-        for name, sequence in SEQUENCES
-        if name.startswith("symbol160_init4_samp20_")
-    )
     paths_by_adc: dict[int, list[Path]] = {}
     for path in paths:
         paths_by_adc.setdefault(read_measurement_param(path).observed_adc, []).append(path)
@@ -703,7 +708,6 @@ def sequence_study() -> tuple[Path, ...]:
     output_dir.mkdir(parents=True, exist_ok=True)
     artifacts: list[Path] = []
     conditions = []
-    board_map = load_board_map()
     for adc_index, adc_paths in sorted(paths_by_adc.items()):
         measurements = []
         for path in adc_paths:
@@ -717,26 +721,9 @@ def sequence_study() -> tuple[Path, ...]:
         del measurements
         conditions.append(result)
         artifacts.append(write_analysis(output_dir / f"adc{adc_index:02d}_operating_conditions.h5", result))
-        layers = board_map["adc_layers"]
-        artifacts.extend(
-            plot_adc_sequence_enob(
-                result,
-                sequences=catalogue,
-                adc_label=(
-                    f"ADC{adc_index:02d} · {board_map['adc_channels'][adc_index]}"
-                    + (f" · {layers[adc_index]} layer" if adc_index in layers else "")
-                ),
-                output_path=output_dir / f"adc{adc_index:02d}_sequence_enob",
-            )
-        )
-    artifacts.extend(
-        plot_adc_sequence_chip_overview(
-            conditions,
-            sequences=catalogue,
-            title=f"{len(conditions)} ADCs · fixed 50 mV input · continuous 160-symbol sequence comparison",
-            output_path=output_dir / "all_adc_sequence_overview",
-        )
-    )
+        artifacts.extend(_sequence_figures(analyze_sequence_map([result]), output_dir, f"adc{adc_index:02d}"))
+    # the chip: a cell's median ENOB where three quarters of the ADCs are plausible there
+    artifacts.extend(_sequence_figures(analyze_sequence_map(conditions), output_dir, "all_adc"))
 
     timings = (
         "symbol160_init4_samp20_comp11110000_logic00001111",
@@ -812,20 +799,11 @@ def sequence_study() -> tuple[Path, ...]:
                 print(f"Rendered PEX case {case}", flush=True)
                 measurements.append(measurement)
             noise = [analyze_noise(measurement) for measurement in measurements]
-            artifacts.append(
-                write_analysis(
-                    output_dir / f"spice_{flavor}_operating_conditions.h5",
-                    analyze_operating_conditions(measurements, noise=noise),
-                )
-            )
+            flavor_conditions = analyze_operating_conditions(measurements, noise=noise)
+            artifacts.append(write_analysis(output_dir / f"spice_{flavor}_operating_conditions.h5", flavor_conditions))
+            # the flavor's timings at its one rate, as the chip's maps
             artifacts.extend(
-                plot_adc_noise_sweep(
-                    measurements,
-                    noise,
-                    series_labels=timings,
-                    rate_axis="sampling",
-                    output_path=output_dir / f"spice_{flavor}_sequence_noise",
-                )
+                _sequence_figures(analyze_sequence_map([flavor_conditions]), output_dir, f"spice_{flavor}")
             )
             del measurements, noise
     return tuple(artifacts)

@@ -163,6 +163,7 @@ from .types import (
     AnalysisRamp,
     AnalysisRedundancy,
     AnalysisSamplingNoise,
+    AnalysisSequenceMap,
     AnalysisTimingClosure,
     AnalysisTimingSummary,
     AnalysisTransfer,
@@ -874,6 +875,48 @@ def analyze_operating_conditions(
         constant=constant,
         shifted=np.abs(mean_shift_dout) > shift_limit_dout,
         readout_valid=np.asarray([row.readout_valid for row in rows]),
+    )
+
+
+@analysis
+def analyze_sequence_map(conditions: Sequence[AnalysisOperatingConditions]) -> AnalysisSequenceMap:
+    """One ADC's operating conditions, or a chip's ADCs' (each ``analyze_operating_conditions``), as
+    maps over sequence and symbol rate (``AnalysisSequenceMap``): a cell's ENOB is the median of the
+    plausible ADCs' where at least three quarters of the ADCs are plausible there."""
+
+    if not conditions:
+        raise ValueError("a sequence map needs the operating conditions of at least one ADC")
+    sequences = tuple(dict.fromkeys(sequence for result in conditions for sequence in result.sequence))
+    rates = np.unique(np.concatenate([np.asarray(result.symbol_rate_hz, dtype=np.float64) for result in conditions]))
+    column = {sequence: index for index, sequence in enumerate(sequences)}
+    shape = (len(conditions), len(rates), len(sequences))
+    enob, shift = np.full(shape, np.nan), np.full(shape, np.nan)
+    plausible, measured = np.zeros(shape, dtype=np.bool_), np.zeros(shape, dtype=np.bool_)
+    for adc, result in enumerate(conditions):
+        for row, (sequence, rate) in enumerate(zip(result.sequence, result.symbol_rate_hz, strict=True)):
+            cell = (adc, int(np.searchsorted(rates, rate)), column[sequence])
+            enob[cell], shift[cell] = result.enob_bits[row], abs(result.mean_shift_dout[row])
+            plausible[cell], measured[cell] = result.plausible[row], True
+    least = math.ceil(0.75 * len(conditions))
+    enob_bits, shift_dout = np.full(shape[1:], np.nan), np.full(shape[1:], np.nan)
+    for row, col in np.ndindex(*shape[1:]):
+        good = enob[plausible[:, row, col], row, col]
+        if len(good) >= least:
+            enob_bits[row, col] = float(np.median(good))
+        if measured[:, row, col].any():
+            shift_dout[row, col] = float(np.median(shift[measured[:, row, col], row, col]))
+    identities = [result.identity for result in conditions]
+    first = identities[0]
+    return AnalysisSequenceMap(
+        group=first.group if all(identity.group == first.group for identity in identities) else None,
+        index=first.index if all(identity.index == first.index for identity in identities) else None,
+        dut=first.dut if all(identity.dut == first.dut for identity in identities) else None,
+        sequence=sequences,
+        symbol_rate_hz=rates,
+        adc_count=len(conditions),
+        plausible_count=np.where(measured.any(axis=0), plausible.sum(axis=0), np.nan),
+        enob_bits=enob_bits,
+        shift_dout=shift_dout,
     )
 
 

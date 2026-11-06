@@ -229,33 +229,47 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     for name in ("plot_trajectory", "plot_trajectory_final", "plot_trajectory_codes"):
         figure = Plot(name.removeprefix("plot_"), "", "", "", [], {})
         monkeypatch.setattr(adc_targets, name, lambda _paths, figure=figure: figure)
-    monkeypatch.setattr(adc_targets, "render", lambda _plot, stem: (stem.with_suffix(".pdf"),))
+    rendered = []
+    monkeypatch.setattr(
+        adc_targets, "render", lambda plot, stem: rendered.append((plot, stem.name)) or (stem.with_suffix(".pdf"),)
+    )
+    # the maps over sequence and rate: each ADC's, the chip's and each PEX flavor's
+    maps = []
+    analyze_sequence_map = adc_targets.analyze_sequence_map
+    monkeypatch.setattr(
+        adc_targets,
+        "analyze_sequence_map",
+        lambda conditions: maps.append(len(conditions)) or analyze_sequence_map(conditions),
+    )
 
     def plot(*args, output_path, **kwargs):
-        if output_path.name == "all_adc_sequence_overview":
-            assert len(args[0]) == 16
-            assert all(isinstance(result, adc.AnalysisOperatingConditions) for result in args[0])
-        if output_path.name.startswith("adc") and output_path.name.endswith("_sequence_enob"):
-            assert isinstance(args[0], adc.AnalysisOperatingConditions)
-            assert len(args[0].symbol_rate_hz) == 3
         return (output_path.with_suffix(".pdf"),)
 
-    for name in (
-        "plot_adc_sequence_chip_overview",
-        "plot_adc_sequence_enob",
-        "plot_adc_cdac_settling",
-        "plot_waveforms",
-        "plot_adc_noise_sweep",
-    ):
+    for name in ("plot_adc_cdac_settling", "plot_waveforms"):
         monkeypatch.setattr(adc_targets, name, plot)
     monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
 
     artifacts = study(monkeypatch, adc_targets, "sequence_study", output_dir)
     flavor_count = 7
-    # a case's three decision-path figures (its codes among them), its CDAC settling and timing summary
-    assert len(artifacts) == 2 * 16 + 1 + 5 * case_count + clock_count + 2 * flavor_count
+    # each ADC's operating conditions and its three maps, the chip's maps; a case's three
+    # decision-path figures (its codes among them), its CDAC settling and timing summary; each
+    # flavor's operating conditions and maps
+    assert len(artifacts) == 4 * 16 + 3 + 5 * case_count + clock_count + 4 * flavor_count
     assert len([path for path in artifacts if path.name.endswith("_trajectory_codes.pdf")]) == case_count
-    assert len([path for path in artifacts if path.name.endswith("_sequence_enob.pdf")]) == 16
+    assert maps == [1] * 16 + [16] + [1] * flavor_count
+    enob = {stem: plot for plot, stem in rendered if stem.endswith("_sequence_enob")}
+    assert len(enob) == 16 + 1 + flavor_count
+    # an ADC's three rates, the flavors' one
+    assert (
+        enob["adc00_sequence_enob"].y_labels
+        == enob["all_adc_sequence_enob"].y_labels
+        == [
+            "320 MBd",
+            "960 MBd",
+            "1600 MBd",
+        ]
+    )
+    assert len(enob["spice_frida2_3layer_radix17_sequence_enob"].y_labels) == 1
     assert len(set(selected_cases)) == case_count
     # Runners save figures and analysis HDF5 only: no CSV, JSON, text, or TeX reports.
     assert not [path for path in output_dir.iterdir() if path.suffix in {".csv", ".json", ".txt", ".tex", ".md"}]

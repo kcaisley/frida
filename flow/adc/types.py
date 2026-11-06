@@ -488,6 +488,24 @@ class AnalysisOperatingConditions(Analysis):
         return ~self.constant & ~self.shifted & self.readout_valid & np.isfinite(self.enob_bits)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisSequenceMap(Analysis):
+    """Operating conditions over sequence and symbol rate (``AnalysisOperatingConditions``) as maps,
+    of one ADC or of a chip's ADCs at once: a row a symbol rate (slowest first), a column a sequence
+    (in the order the conditions first hold them). In each cell, how many of the ADCs give
+    plausible codes there; the median noise-equivalent ENOB of those, where at least three quarters
+    of the ADCs do (one ADC's ENOB where its codes are plausible; NaN elsewhere); and the median
+    distance of the ADCs' mean code from each one's reference (LSB). A cell no ADC measured is NaN
+    in each. Its identity is what the ADCs share (None where they differ)."""
+
+    sequence: tuple[AdcSequence, ...]
+    symbol_rate_hz: np.ndarray
+    adc_count: int
+    plausible_count: np.ndarray
+    enob_bits: np.ndarray
+    shift_dout: np.ndarray
+
+
 @dataclass(frozen=True, slots=True)
 class AnalysisDynamic(Analysis):
     """Sine-fit, residual, spectrum, and dynamic ADC figures of merit.
