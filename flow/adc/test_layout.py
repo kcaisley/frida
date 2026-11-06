@@ -252,7 +252,7 @@ def test_frida2_runner_uses_c0_first_paired_template_source(
 
 
 def test_the_blocks_sit_side_by_side_in_one_labelled_cell(tmp_path: Path) -> None:
-    pytest.importorskip("pdk.tsmc65.layout.tech")  # the kit's layers and standard cells
+    tech = pytest.importorskip("pdk.tsmc65.layout.tech")  # the kit's layers and standard cells
     # the first converter of the sweep with MSB redistribution of 4 extra cycles and the second
     # comparator of the grid (200 uV, 1 ns)
     params = next(
@@ -287,6 +287,19 @@ def test_the_blocks_sit_side_by_side_in_one_labelled_cell(tmp_path: Path) -> Non
     layout = db.Layout()
     layout.read(str(gds))
     assert [cell.name for cell in layout.top_cells()] == ["adc_blocks"]
+    # as written: the DAC's two sides one cell, the P side as drawn and the N side mirrored about the
+    # vertical axis (x to -x, not about the horizontal), each of its shapes the P side's reflected
+    (top,) = layout.top_cells()
+    sides = sorted(
+        (inst for inst in top.each_inst() if inst.cell.name == Path(cap_p["source"]).stem),
+        key=lambda inst: inst.bbox().left,
+    )
+    assert [inst.trans.rot for inst in sides] == [db.Trans.R0.rot, db.Trans.M90.rot]
+    p_box, n_box = (inst.bbox() for inst in sides)
+    metal = db.Region(top.begin_shapes_rec(layout.find_layer(*tech.LAYERS["M2"])))
+    p_side, n_side = metal & db.Region(p_box), metal & db.Region(n_box)
+    assert not p_side.is_empty()
+    assert (p_side.transformed(db.Trans(db.Trans.M90, n_box.left + p_box.right, 0)) ^ n_side).is_empty()
     # the viewer's export: the labels on the boundary layer, which it shows
     exported = export_layout(str(gds), "tsmc65", str(tmp_path / "adc_blocks.layout.json"))
     assert {"M1", "OD", "PO", "BND"} <= set(exported["layers"])
