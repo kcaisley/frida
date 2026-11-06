@@ -132,7 +132,7 @@ from flow.analysis.types import AnalysisCdacCapMismatch, MeasAdc, MeasCdac
 from flow.cdac.caparray import get_caparray_weights
 from flow.pipeline import Identity, analysis, check_identity, measurement_identity
 
-from .params import LADDER, NOMINAL_RATE_HZ, PELGROM_AXIS, UNIT_MISMATCH
+from .params import CDAC_SETTLING_TOLERANCE_V, LADDER, NOMINAL_RATE_HZ, PELGROM_AXIS, UNIT_MISMATCH
 from .sim import AdcSequence
 from .subckt import AdcNets, calc_side_capacitances
 from .types import (
@@ -1013,8 +1013,6 @@ def analyze_cdac_settling(measurement: MeasAdc) -> AnalysisCdacSettling:
     capacitors = len(measurement.nominal_bout_weights) - 1
     decisions = capacitors + 1
     stage_cycles = tuple((stage, stage) for stage in dict.fromkeys((0, (capacitors - 1) // 2, capacitors - 1)))
-    # A 1 mV band is well below one LSB of the CDAC reference.
-    settling_tolerance_v = 1e-3
     cycle_windows = []
     for record_index, conversion_index in enumerate(wave.record_index):
         comp_rising_s = np.asarray(
@@ -1141,7 +1139,7 @@ def analyze_cdac_settling(measurement: MeasAdc) -> AnalysisCdacSettling:
                 wave.v[f"vdac_{side}"][record_index], time_s, logic_s, evaluation_stop_s
             )
             settled_at_s = calc.settlingTime(
-                evaluation_v, evaluation_s, final=float(static_v), absolute_tolerance=settling_tolerance_v
+                evaluation_v, evaluation_s, final=float(static_v), absolute_tolerance=CDAC_SETTLING_TOLERANCE_V
             )
             durations.append(settled_at_s - logic_s if math.isfinite(settled_at_s) else math.nan)
         stage_indices.append(stage_index)

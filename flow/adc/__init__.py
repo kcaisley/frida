@@ -46,6 +46,9 @@ from .analysis import (
 from .params import Params, TbParams
 from .plots import (
     plot_calibration_weights,
+    plot_cdac_settling_first,
+    plot_cdac_settling_last,
+    plot_cdac_settling_middle,
     plot_code_density,
     plot_codes_rate,
     plot_dnl,
@@ -193,6 +196,9 @@ __all__ = [
     "metrics",
     "params",
     "plot_calibration_weights",
+    "plot_cdac_settling_first",
+    "plot_cdac_settling_last",
+    "plot_cdac_settling_middle",
     "plot_code_density",
     "plot_codes_rate",
     "plot_dnl",

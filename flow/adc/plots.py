@@ -22,10 +22,11 @@ import numpy as np
 
 from flow.pipeline import Band, Heatmap, Marker, Plot, plot
 
-from .params import FINAL_DECISIONS, LADDER, MAX_PATHS
+from .params import CDAC_SETTLING_TOLERANCE_V, FINAL_DECISIONS, LADDER, MAX_PATHS
 from .sim import AdcSequence
 from .types import (
     AnalysisCalibration,
+    AnalysisCdacSettling,
     AnalysisCodeSpectrum,
     AnalysisDecisionPaths,
     AnalysisDynamic,
@@ -674,6 +675,25 @@ def plot_sampling_noise(sampling: AnalysisSamplingNoise) -> Plot:
     )
 
 
+@plot
+def plot_cdac_settling_first(settling: AnalysisCdacSettling) -> Plot:
+    """The top plates' settling after the first stage's update (``analyze_cdac_settling``), as
+    ``_settling`` draws a stage's."""
+    return _settling("cdac_settling_first", settling, 0)
+
+
+@plot
+def plot_cdac_settling_middle(settling: AnalysisCdacSettling) -> Plot:
+    """The top plates' settling after the middle stage's update."""
+    return _settling("cdac_settling_middle", settling, 1)
+
+
+@plot
+def plot_cdac_settling_last(settling: AnalysisCdacSettling) -> Plot:
+    """The top plates' settling after the last stage's update."""
+    return _settling("cdac_settling_last", settling, 2)
+
+
 def _plot(name: str, title: str, x_label: str, y_label: str, x, series: dict[str, Any], **options: Any) -> Plot:
     """A figure's spec, its values to six significant digits, as the viewer's other exports."""
     return Plot(
@@ -744,6 +764,33 @@ def _peaks(x: np.ndarray, y: np.ndarray, runs: int = 2000) -> tuple[list[float],
     edges = np.linspace(0, len(x), runs + 1).astype(np.int64)
     picks = [start + int(np.argmax(y[start:stop])) for start, stop in pairwise(edges)]
     return np.asarray(x)[picks].tolist(), np.asarray(y)[picks].tolist()
+
+
+def _settling(name: str, settling: AnalysisCdacSettling, position: int) -> Plot:
+    """The top plates' settling at the stage the analysis aligns in ``position`` (0, 1 and 2: its
+    first, middle and last), each conversion's |VDAC_P - VDAC_N - their settled difference| a path
+    over the time from the stage's comparator clock, on a log axis (an exponential settling a
+    straight line there), the band a plate settles to marked. Drawn down to a thousandth of the
+    band: below it the plates are settled far within it, and where the difference crosses its
+    settled value it would dip without end."""
+    stages = list(dict.fromkeys(int(stage) for stage in settling.stage_index))
+    stage = stages[min(position, len(stages) - 1)]
+    rows = np.asarray(settling.stage_index) == stage
+    error = np.abs(
+        np.asarray(settling.vdac_p_settling_error_v)[rows] - np.asarray(settling.vdac_n_settling_error_v)[rows]
+    )
+    floor_v = CDAC_SETTLING_TOLERANCE_V / 1000
+    return Plot(
+        name,
+        f"Top-plate settling of C{stage}'s update",
+        "Time from the comparator clock (s)",
+        "Differential settling error (V)",
+        [_six(value) for value in settling.time_s],
+        {},
+        paths=[{"y": [_six(value) if value >= floor_v else math.nan for value in row], "count": 1} for row in error],
+        y_log=True,
+        y_markers=[Marker(CDAC_SETTLING_TOLERANCE_V, f"{CDAC_SETTLING_TOLERANCE_V * 1e3:g} mV: a plate settled")],
+    )
 
 
 def _histogram(values: np.ndarray, width: float) -> tuple[list[float], list[float]]:

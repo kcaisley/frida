@@ -18,6 +18,7 @@ from flow import pipeline
 from flow.adc import plots
 from flow.adc.analysis import (
     _mismatch_statistics,
+    analyze_cdac_settling,
     analyze_code_spectrum,
     analyze_decision_paths,
     analyze_dynamic,
@@ -35,6 +36,7 @@ from flow.adc.analysis import (
 from flow.adc.params import FINAL_DECISIONS, PELGROM_AXIS, UNIT_MISMATCH
 from flow.adc.sim import SEQUENCES
 from flow.adc.test_analysis import (
+    adc_cdac_settling_measurement,
     adc_conditions,
     adc_measurement,
     adc_ramp_measurement,
@@ -98,6 +100,9 @@ LAB_FIGURES = (
     "interferer",
     "interferer_lines",
     "sampling_noise",
+    "cdac_settling_first",
+    "cdac_settling_middle",
+    "cdac_settling_last",
 )
 
 
@@ -586,4 +591,30 @@ def test_the_held_voltage_is_a_histogram_of_25_uv_bins(tmp_path: Path, monkeypat
     assert (offset.x, offset.series) == (figure.x, figure.series)
     monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
     (png, _pdf) = render(figure, tmp_path / "sampling_noise")
+    assert plt.imread(png).shape[:2] == (2700, 4800)
+
+
+def test_the_cdac_settles_at_its_first_middle_and_last_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The top plates' settling at the three stages the analysis aligns (C0, C7 and C15 of a 16-stage
+    array), each conversion's differential error against its settled value a path on a log axis,
+    down to a thousandth of the band a plate settles to, which is marked; drawn on the analysis
+    plots' canvas."""
+    settling = analyze_cdac_settling(adc_cdac_settling_measurement())
+    figures = [
+        plots.plot_cdac_settling_first(settling),
+        plots.plot_cdac_settling_middle(settling),
+        plots.plot_cdac_settling_last(settling),
+    ]
+    assert [figure.title for figure in figures] == [f"Top-plate settling of C{stage}'s update" for stage in (0, 7, 15)]
+    for figure, stage in zip(figures, (0, 7, 15), strict=True):
+        rows = settling.stage_index == stage
+        error = np.abs(settling.vdac_p_settling_error_v[rows] - settling.vdac_n_settling_error_v[rows])
+        assert figure.y_log and figure.series == {} and len(figure.paths) == np.count_nonzero(rows)
+        assert figure.x == [float(f"{value:.6g}") for value in settling.time_s]
+        np.testing.assert_allclose(
+            [path["y"] for path in figure.paths], np.where(error >= 1e-6, error, np.nan), rtol=1e-5, atol=0
+        )
+        assert [marker.at for marker in figure.y_markers] == [1e-3]
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    (png, _pdf) = render(figures[0], tmp_path / "cdac_settling_first")
     assert plt.imread(png).shape[:2] == (2700, 4800)

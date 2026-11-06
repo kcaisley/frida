@@ -212,6 +212,9 @@ REFERENCE_QUIET = ("sampler", "sampling", "comparator")
 FINAL_DECISIONS = 6
 MAX_PATHS = 400
 PELGROM_AXIS = np.geomspace(0.0002, 0.01, 41)
+# A top plate has settled (``flow.adc.analysis.analyze_cdac_settling``) once it stays within this of
+# its final value, well under an LSB of the reference; its figures mark it
+CDAC_SETTLING_TOLERANCE_V = 1e-3
 
 # The campaign (``flow.adc.sweep.campaign``): every capture the record needs.
 # 1 to 10 MS/s in 1 MS/s steps, the rates the ADC is meant to run at, then on to 100 MS/s: where

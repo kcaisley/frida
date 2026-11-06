@@ -226,7 +226,14 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     monkeypatch.setattr(adc_targets, "analyze_decision_paths", lambda *args, **kwargs: object())
     monkeypatch.setattr(adc_targets, "analyze_cdac_settling", lambda *args: object())
     # the decision paths are the record's three specs, drawn by flow.plot.render
-    for name in ("plot_trajectory", "plot_trajectory_final", "plot_trajectory_codes"):
+    for name in (
+        "plot_trajectory",
+        "plot_trajectory_final",
+        "plot_trajectory_codes",
+        "plot_cdac_settling_first",
+        "plot_cdac_settling_middle",
+        "plot_cdac_settling_last",
+    ):
         figure = Plot(name.removeprefix("plot_"), "", "", "", [], {})
         monkeypatch.setattr(adc_targets, name, lambda _paths, figure=figure: figure)
     rendered = []
@@ -245,16 +252,16 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     def plot(*args, output_path, **kwargs):
         return (output_path.with_suffix(".pdf"),)
 
-    for name in ("plot_adc_cdac_settling", "plot_waveforms"):
+    for name in ("plot_waveforms",):
         monkeypatch.setattr(adc_targets, name, plot)
     monkeypatch.setattr(adc_targets, "BASE_PATH", tmp_path)
 
     artifacts = study(monkeypatch, adc_targets, "sequence_study", output_dir)
     flavor_count = 7
     # each ADC's operating conditions and its three maps, the chip's maps; a case's three
-    # decision-path figures (its codes among them), its CDAC settling and timing summary; each
-    # flavor's operating conditions and maps
-    assert len(artifacts) == 4 * 16 + 3 + 5 * case_count + clock_count + 4 * flavor_count
+    # decision-path figures (its codes among them), its CDAC settling at three stages and its timing
+    # summary; each flavor's operating conditions and maps
+    assert len(artifacts) == 4 * 16 + 3 + 7 * case_count + clock_count + 4 * flavor_count
     assert len([path for path in artifacts if path.name.endswith("_trajectory_codes.pdf")]) == case_count
     assert maps == [1] * 16 + [16] + [1] * flavor_count
     enob = {stem: plot for plot, stem in rendered if stem.endswith("_sequence_enob")}

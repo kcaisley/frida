@@ -58,7 +58,7 @@ flowchart TB
         closure_out --> summary
         adc_int --> comparator_eye["analyze_adc_comparator_edge_eye"] --> comparator_eye_out["AnalysisAdcComparatorEdgeEye"] --> comparator_eye_plot["plot_adc_comparator_edge_eye"]
         sampling_out --> sampling_plot["adc.plot_sampling_noise (25 µV bins)"]
-        settling_out --> settling_plot["plot_adc_cdac_settling"]
+        settling_out --> settling_plot["adc.plot_cdac_settling_first / _middle / _last (each conversion's top-plate settling)"]
         power_wave_out --> power_wave_plot["plot_adc_power_waveform"]
         response_out --> response_plot["plot_adc_comparator_response"]
     end

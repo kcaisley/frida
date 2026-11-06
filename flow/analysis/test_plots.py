@@ -17,7 +17,7 @@ import flow.analysis.plots as analysis_plots
 from flow import adc, comp
 from flow.adc.plots import plot_power_rate
 from flow.adc.sim import symbol160_init4_samp20_comp11111100_logic11000011
-from flow.adc.test_analysis import adc_cdac_settling_measurement, adc_measurement
+from flow.adc.test_analysis import adc_measurement
 from flow.analysis.adc import analyze_adc_comp_out_edge_eye, analyze_adc_comparator_edge_eye
 from flow.analysis.plots import (
     CURVE_COLORS,
@@ -31,7 +31,6 @@ from flow.analysis.plots import (
     SPECTRUM_COLOR_MAP,
     SPINE_COLOR,
     TEXT_COLOR,
-    plot_adc_cdac_settling,
     plot_adc_comp_out_edge_eye,
     plot_adc_comparator_edge_eye,
     plot_adc_comparator_response,
@@ -413,59 +412,6 @@ def test_waveform_plot_uses_typed_signal_names_and_scaled_time(tmp_path: Path) -
     assert "CDAC init: h'5555" in svg
     assert "Datetime:" not in svg
     assert "LOGIC offset:" not in svg
-
-
-def test_cdac_settling_plot_separates_saved_bit_cycles_and_uses_millivolts(tmp_path: Path, monkeypatch) -> None:
-    measurement = adc_cdac_settling_measurement()
-    measurement = replace(
-        measurement,
-        param=replace(
-            measurement.param,
-            pex_cell="adc_1layer_radix17",
-            symbol_rate=1.6e9,
-        ),
-    )
-    analysis = replace(adc.analyze_cdac_settling(measurement), active_conversion_rate_hz=10e6)
-    save = analysis_plots.save_figure
-
-    def check_dotted_nodes(fig, output_path):
-        for column, ax in enumerate(fig.axes[:3]):
-            dotted = [line for line in ax.lines if line.get_linestyle() == ":"]
-            assert [line.get_color() for line in dotted] == [NORD_BLUE, NORD_ORANGE]
-            assert analysis.comp_latch_p_v is not None and analysis.comp_latch_n_v is not None
-            np.testing.assert_allclose(dotted[0].get_ydata(), analysis.comp_latch_p_v[column])
-            np.testing.assert_allclose(dotted[1].get_ydata(), analysis.comp_latch_n_v[column])
-        return save(fig, output_path)
-
-    monkeypatch.setattr(analysis_plots, "save_figure", check_dotted_nodes)
-
-    paths = plot_adc_cdac_settling(
-        measurement,
-        analysis,
-        output_path=tmp_path / "cdac_settling",
-    )
-
-    assert_plot_formats(paths)
-    svg = read_svg(paths)
-    assert "C0 (cycle 0)" in svg
-    assert "C7 (cycle 7)" in svg
-    assert "C15 (cycle 15)" in svg
-    assert "VDAC residual (mV)" in svg
-    assert "internal_p" in svg
-    assert "internal_n" in svg
-    for label in (
-        "clk_comp",
-        "out_p",
-        "out_n",
-        "clk_logic",
-        "state_p",
-        "state_n",
-        "bot_p",
-        "bot_n",
-        "top_p",
-        "top_n",
-    ):
-        assert label in svg
 
 
 def test_comparator_campaign_and_cdac_ab_plots_are_separate_per_adc(tmp_path: Path) -> None:

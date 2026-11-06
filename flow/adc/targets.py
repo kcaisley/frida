@@ -24,7 +24,6 @@ from flow.analysis.io import (
     write_analysis,
 )
 from flow.analysis.plots import (
-    plot_adc_cdac_settling,
     plot_waveforms,
     style_measurement_text,
 )
@@ -61,6 +60,9 @@ from .analysis import (
 )
 from .plots import (
     plot_calibration_weights,
+    plot_cdac_settling_first,
+    plot_cdac_settling_last,
+    plot_cdac_settling_middle,
     plot_code_density,
     plot_codes_rate,
     plot_dnl,
@@ -761,13 +763,14 @@ def sequence_study() -> tuple[Path, ...]:
                 case = f"{flavor}_{timing}"
                 # the decision paths, and the codes the case's conversions end on at its one input
                 artifacts.extend(_path_figures(analyze_decision_paths(measurement), output_dir, f"spice_{case}"))
-                artifacts.extend(
-                    plot_adc_cdac_settling(
-                        measurement,
-                        analyze_cdac_settling(measurement),
-                        output_path=output_dir / f"spice_{case}_cdac_settling",
-                    )
-                )
+                # the top plates' settling at the first, middle and last stage, a figure each
+                settling = analyze_cdac_settling(measurement)
+                for figure in (
+                    plot_cdac_settling_first(settling),
+                    plot_cdac_settling_middle(settling),
+                    plot_cdac_settling_last(settling),
+                ):
+                    artifacts.extend(render(figure, output_dir / f"spice_{case}_{figure.name}"))
                 closure = analyze_timing_closure(measurement)
                 artifacts.append(
                     write_analysis(
