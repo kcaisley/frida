@@ -36,8 +36,8 @@ from pathlib import Path
 # each block's targets module, imported when it is listed or run: a block that no longer imports
 # (one not yet ported to the shared layout step) fails alone, when it is run
 BLOCKS = (
-    *("adc", "bias", "cdac.caparray", "cdac.capdriver", "clkgen", "cml", "csa", "delay", "disc", "follower"),
-    *("idac", "latch", "layout", "lvshift", "ota", "pi", "ringamp", "schmitt", "sweep", "web"),
+    *("adc", "bias", "clkgen", "cml", "csa", "delay", "disc", "follower", "idac", "latch", "layout"),
+    *("lvshift", "ota", "pi", "ringamp", "schmitt", "sweep", "web"),
 )
 
 

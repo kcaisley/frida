@@ -10,21 +10,21 @@ repos:
         entry: uvx --from ruff==0.16.6 ruff check --fix
         language: system
         types: [python]
-        files: ^flow/((analysis|scans|adc|capdac|cdac|comp|samp|seqgen|circuit|sweep|web|layout)/.*|[^/]+)\.py$
+        files: ^flow/((analysis|scans|adc|capdac|comp|samp|seqgen|circuit|sweep|web|layout)/.*|[^/]+)\.py$
       - id: ruff-format
         name: ruff format
         entry: uvx --from ruff==0.16.6 ruff format
         language: system
         types: [python]
-        files: ^flow/((analysis|scans|adc|capdac|cdac|comp|samp|seqgen|circuit|sweep|web|layout)/.*|[^/]+)\.py$
+        files: ^flow/((analysis|scans|adc|capdac|comp|samp|seqgen|circuit|sweep|web|layout)/.*|[^/]+)\.py$
 
       - id: ty-flow
         name: ty flow type check
         entry: >-
-          uv run ty check flow/analysis flow/scans flow/adc flow/cdac/caparray flow/cdac/capdriver flow/cdac flow/comp
+          uv run ty check flow/analysis flow/scans flow/adc flow/capdac flow/comp
           flow/samp flow/circuit flow/pipeline.py flow/plot.py
         language: system
-        files: ^flow/((analysis|scans|adc|cdac|comp|samp|circuit)/.*|pipeline|plot)\.py$
+        files: ^flow/((analysis|scans|adc|capdac|comp|samp|circuit)/.*|pipeline|plot)\.py$
         pass_filenames: false
 
       # the block pipeline (docs/pipeline.md): its contract on every migrated block, and its stages' order
@@ -32,7 +32,7 @@ repos:
         name: block pipeline contract
         entry: uv run pytest -q -p no:cacheprovider flow/test_pipeline.py
         language: system
-        files: ^flow/([^/]+\.py|(comp|cdac)/.*\.py)$
+        files: ^flow/([^/]+\.py|(capdac|comp)/.*\.py)$
         pass_filenames: false
 
       - id: import-linter
@@ -46,7 +46,7 @@ repos:
         name: analysis contract conformance
         entry: uv run pytest -q -p no:cacheprovider flow/analysis/test_conformance.py
         language: system
-        files: ^flow/(analysis|caparray|comp|samp|scans)/.*\.py$
+        files: ^flow/(analysis|capdac|comp|samp|scans)/.*\.py$
         pass_filenames: false
 
       - id: rumdl-markdown

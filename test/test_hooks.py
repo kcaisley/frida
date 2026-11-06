@@ -1,4 +1,4 @@
-"""Keep Python hook coverage aligned with the capacitor block packages (the array, its drivers and the CDAC)."""
+"""Keep Python hook coverage aligned with the capacitor DAC's package (capdac)."""
 
 import re
 import shlex
@@ -16,23 +16,22 @@ def python_hooks():
 
 
 @pytest.mark.parametrize("hook_id", ["ruff-lint", "ruff-format", "ty-flow"])
-@pytest.mark.parametrize("block", ["cdac/caparray", "cdac/capdriver", "cdac"])
-def test_python_hooks_cover_capacitor_blocks(python_hooks, hook_id, block):
+def test_python_hooks_cover_the_capacitor_dac(python_hooks, hook_id):
     pattern = python_hooks[hook_id]["files"]
-    assert re.search(pattern, f"flow/{block}/subckt.py")
-    assert re.search(pattern, f"flow/{block}/test_subckt.py")
-    assert not re.search(pattern, f"flow/{block}/readme.md")
-    assert not re.search(pattern, f"flow/{block.split('/')[0]}_other/subckt.py")
+    assert re.search(pattern, "flow/capdac/subckt.py")
+    assert re.search(pattern, "flow/capdac/test_subckt.py")
+    assert not re.search(pattern, "flow/capdac/readme.md")
+    assert not re.search(pattern, "flow/capdac_other/subckt.py")
 
 
-def test_ty_checks_the_capacitor_blocks(python_hooks):
+def test_ty_checks_the_capacitor_dac(python_hooks):
     hook = python_hooks["ty-flow"]
     command = shlex.split(hook["entry"])
-    assert {"flow/cdac/caparray", "flow/cdac/capdriver", "flow/cdac"} <= set(command)
+    assert "flow/capdac" in command
     assert hook["pass_filenames"] is False
 
 
-def test_ty_hdl21_boundary_covers_renamed_blocks():
+def test_ty_hdl21_boundary_covers_the_capacitor_dac():
     config = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["tool"]["ty"]
     includes = {
         pattern
@@ -40,4 +39,4 @@ def test_ty_hdl21_boundary_covers_renamed_blocks():
         if "hdl21.**" in override.get("analysis", {}).get("replace-imports-with-any", [])
         for pattern in override["include"]
     }
-    assert {"flow/cdac/caparray/**", "flow/cdac/capdriver/**", "flow/cdac/**"} <= includes
+    assert "flow/capdac/**" in includes

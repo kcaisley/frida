@@ -28,7 +28,6 @@ ANALYSIS_DIR = Path(__file__).resolve().parent
 # folder (flow/<block>/analysis.py and plots.py) under the same contract. The blocks on the pipeline
 # (flow/test_pipeline.py: MIGRATED) follow its contract instead (docs/pipeline.md).
 BLOCKS = (
-    "cdac.caparray",
     "delay",
     "latch",
     "ota",
@@ -39,7 +38,6 @@ BLOCKS = (
     "clkgen",
     "lvshift",
     "ringamp",
-    "cdac.capdriver",
     "csa",
     "disc",
     "schmitt",

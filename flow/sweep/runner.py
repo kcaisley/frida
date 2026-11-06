@@ -42,7 +42,7 @@ PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
 
 def sweep_blocks() -> list[str]:
     """Every block with a ``sweep.py``, in name order: a part of a block by its dotted name
-    (``cdac.caparray``, ``flow/cdac/caparray``)."""
+    (``<block>.<part>``, ``flow/<block>/<part>``)."""
     flow = ROOT / "flow"
     return sorted(
         ".".join(path.parent.relative_to(flow).parts) for path in (*flow.glob("*/sweep.py"), *flow.glob("*/*/sweep.py"))

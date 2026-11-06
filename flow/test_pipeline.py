@@ -37,8 +37,8 @@ ROOT = Path(__file__).resolve().parents[1]
 # The blocks not on the pipeline yet; every other block with a sweep follows it, a new one too.
 # Entries may be removed (a block migrated), never added.
 NOT_MIGRATED = (
-    *("adc", "bias", "cdac.caparray", "cdac.capdriver", "clkgen", "cml", "csa", "delay", "disc", "follower"),
-    *("idac", "latch", "lvshift", "ota", "pi", "ringamp", "schmitt"),
+    *("adc", "bias", "clkgen", "cml", "csa", "delay", "disc", "follower", "idac", "latch", "lvshift", "ota"),
+    *("pi", "ringamp", "schmitt"),
 )
 MIGRATED = tuple(block for block in sweep_blocks() if block not in NOT_MIGRATED)
 STAGES = ("params", "subckt", "sim", "types", "analysis", "plots", "sweep")
@@ -524,15 +524,21 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
 
 
 def test_the_contract_admits_what_it_allows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The CDAC's files (its generator places nothing for ALIGN) with what the contract admits beside
-    them: a layout.py of its own (``lay_out``), a private pure helper in each pure stage, and an
-    analysis with an optional prior (``X | None = None``)."""
+    """capdac's files, its generator a stand-in that places nothing for ALIGN, with what the contract
+    admits beside them: a layout.py of its own (``lay_out``), a private pure helper in each pure
+    stage, and an analysis with an optional prior (``X | None = None``)."""
     package = tmp_path / "flow" / "goodblock"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text("")
-    source = Path(importlib.import_module("flow.cdac").__file__).parent
+    source = Path(importlib.import_module("flow.capdac").__file__).parent
     for name in FILES:
         (package / f"{name}.py").write_text((source / f"{name}.py").read_text())
+    # capdac's generator places its instances for ALIGN; this one leaves them to ALIGN
+    (package / "subckt.py").write_text(
+        '"""A generator that places nothing."""\n\nimport hdl21 as h\n\nfrom .params import Params\n\n\n'
+        "@h.bundle\nclass Nets:\n    top = h.Signal()\n\n\n"
+        "@h.generator\ndef netlist(params: Params) -> h.Module:\n    return h.Module()\n"
+    )
     for name in PURE:
         with (package / f"{name}.py").open("a") as stream:
             stream.write("\n\ndef _twice(value: float) -> float:\n    return 2 * value\n")

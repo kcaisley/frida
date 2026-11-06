@@ -38,7 +38,7 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-BLOCKS = ("adc", "comp", "samp", "cdac.caparray")
+BLOCKS = ("adc", "comp", "samp")
 
 
 def _ssh(host: str, script: str) -> str:

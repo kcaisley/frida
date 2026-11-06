@@ -3,7 +3,7 @@
 straight segment (a metal, its net, its centre line's ends, its width) as a wire on a centre-line
 grid of that metal and width, each cut as a via on the nanometre grid, each landing (a via's
 metal past a wire's end) as a region. The route itself, which segment goes where, is the caller's
-(``flow.cdac.layout``: a driver bank's outputs to an array's buses).
+(a driver bank's outputs to an array's buses, say).
 
     Wiring().wires(segments=[["M3", "a", 100, 0, 100, 2000, 100]], cuts=[["V3", "a", 100, 2000, 100]])
 """

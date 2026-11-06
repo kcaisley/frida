@@ -669,6 +669,114 @@ def calibration_study() -> tuple[Path, ...]:
     )
 
 
+def system_cap_mismatch_study() -> tuple[Path, ...]:
+    """Extract ADC00–ADC03 capacitor mismatch from A-to-B transitions (capdac's analyses, each point
+    as ``analyze_switching`` gives it) and draw each ADC's stages (capdac's specs: the effective
+    fraction, its error from the design's, the P/N asymmetry, the difference plates, the main plates
+    and the direction bias), ``adc<NN>_<figure>``."""
+    output_dir = new_run("analysis", "adc")
+
+    # Comparator characterizations: the reviewed 800-mV campaigns behind the
+    # board inventory's accepted comparator calibration, with every coarse and
+    # fine trial. Each one is the reference point of its ADC's CDAC steps.
+    comparator_read_dirs = {
+        0: BASE_PATH / "build/scan_comp/20260804_051653",
+        1: BASE_PATH / "build/scan_comp/20260804_053759",
+        2: BASE_PATH / "build/scan_comp/20260804_051653",
+        3: BASE_PATH / "build/scan_comp/20260804_054953",
+    }
+    # CDAC A-to-B runs, in acquisition order. Each later run atomically replaces
+    # every point of the same ADC, side, element, direction, and diffcaps curve;
+    # physical points from distinct acquisition sessions are never combined.
+    selected_curves: dict[tuple[int, str, int, str, int], list[MeasCdac]] = {}
+    for run_name in ("20260804_171234", "20260804_193030", "20260804_193631"):
+        grouped_in_run: dict[tuple[int, str, int, str, int], list[MeasCdac]] = {}
+        for path in sorted((BASE_PATH / "build/scan_cdac" / run_name).glob("*.h5")):
+            cdac_point = read_measurement(path)
+            if not isinstance(cdac_point, MeasCdac):
+                raise TypeError(f"{path} contains {type(cdac_point).__name__}, expected MeasCdac")
+            params = cdac_point.param
+            if params.campaign != "cdac_ab":
+                raise ValueError("CDAC campaign contains a point outside campaign='cdac_ab'")
+            readbacks = cdac_point.info.readbacks
+            if int(readbacks.get("fastrx_lost_count", 0)) or int(readbacks.get("spi_mismatches", 0)):
+                raise ValueError("CDAC campaign contains a corrupt physical capture")
+            if (
+                params.observed_adc is None
+                or params.cdac_side is None
+                or params.cdac_element is None
+                or params.cdac_direction is None
+            ):
+                raise ValueError("CDAC measurement is missing its ADC, side, element, or direction")
+            curve_key = (
+                params.observed_adc,
+                params.cdac_side,
+                params.cdac_element,
+                params.cdac_direction,
+                params.tb.dac_diffcaps,
+            )
+            grouped_in_run.setdefault(curve_key, []).append(cdac_point)
+        for curve_key, curve in grouped_in_run.items():
+            physical = [point for point in curve if point.info.backend == "physical"]
+            if physical:
+                session_ids = {point.info.readbacks.get("acquisition_session_id") for point in physical}
+                completed = [point for point in physical if point.info.readbacks.get("curve_complete") is True]
+                latest_timestamp = max(point.info.timestamp_utc for point in physical)
+                if (
+                    len(physical) != len(curve)
+                    or None in session_ids
+                    or len(session_ids) != 1
+                    or len(completed) != 1
+                    or completed[0].info.timestamp_utc != latest_timestamp
+                ):
+                    raise ValueError(f"CDAC campaign contains an incomplete or mixed-session curve {curve_key}")
+        selected_curves.update(grouped_in_run)
+    cap_mismatch: dict[int, capdac.AnalysisCapMismatch] = {}
+    for adc_index in sorted({curve_key[0] for curve_key in selected_curves}):
+        comparator_measurements = []
+        for path in sorted(comparator_read_dirs[adc_index].glob(f"*adc{adc_index:02d}*.h5")):
+            comparator_point = read_analysis(path)
+            if not isinstance(comparator_point, comp.AnalysisDecisions):
+                raise TypeError(f"{path} contains {type(comparator_point).__name__}, expected comp.AnalysisDecisions")
+            comparator_measurements.append(comparator_point)
+        transitions = []
+        switching = []
+        for curve_key in sorted(key for key in selected_curves if key[0] == adc_index):
+            curve = selected_curves[curve_key]
+            # each point as the CDAC sees it; the curve's fit from its fine sweep stage where it has one
+            points = [analyze_switching(point) for point in curve]
+            switching.extend(points)
+            fit_points = [
+                point
+                for point, measurement in zip(points, curve, strict=True)
+                if measurement.param.sweep_stage == "fine"
+            ] or points
+            transitions.append(
+                capdac.analyze_transition(
+                    fit_points, offset=comp.analyze_offset_noise([capdac.analyze_decisions(fit_points)])
+                )
+            )
+        cap_mismatch[adc_index] = capdac.analyze_cap_mismatch(
+            switching,
+            transitions=transitions,
+            comparator=comp.analyze_offset_noise(comparator_measurements),
+        )
+    figures = (
+        capdac.plot_fraction_stage,
+        capdac.plot_fraction_error_stage,
+        capdac.plot_asymmetry_stage,
+        capdac.plot_separation_stage,
+        capdac.plot_main_stage,
+        capdac.plot_bias_stage,
+    )
+    return tuple(
+        path
+        for adc_index, analysis in cap_mismatch.items()
+        for figure in figures
+        for path in render(figure(analysis), output_dir / f"adc{adc_index:02d}_{figure.__name__.removeprefix('plot_')}")
+    )
+
+
 def sequence_study() -> tuple[Path, ...]:
     """Compare 29 continuous recipes on 16 ADCs at 2/6/10 MSPS and selected PEX cases.
 

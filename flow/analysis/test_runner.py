@@ -23,7 +23,6 @@ from flow.adc import targets as adc_targets
 from flow.adc.sim import SEQUENCES
 from flow.adc.test_analysis import adc_measurement, adc_ramp_measurement
 from flow.analysis.io import read_analysis
-from flow.cdac.caparray import targets as caparray_targets
 from flow.pipeline import Plot
 
 
@@ -58,8 +57,8 @@ STUDIES = {
         "behavioral_architecture_study",
         "behavioral_noise_spectrum_study",
         "behavioral_input_frequency_study",
+        "system_cap_mismatch_study",
     },
-    caparray_targets: {"system_cap_mismatch_study", "characterization_study"},
     **{
         import_module(f"flow.{block}.targets"): {"characterization_study"}
         for block in (
@@ -71,7 +70,6 @@ STUDIES = {
             "cml",
             "pi",
             "clkgen",
-            "cdac.capdriver",
             "csa",
             "disc",
             "schmitt",
@@ -285,7 +283,7 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     assert all(isinstance(read_analysis(path), adc.AnalysisTimingSummary) for path in summaries)
 
 
-# capdac's figures of an ADC's cap mismatch, as the caparray study draws them
+# capdac's figures of an ADC's cap mismatch, as the ADC's study draws them
 CAP_MISMATCH_FIGURES = (
     "fraction_stage",
     "fraction_error_stage",
@@ -497,10 +495,10 @@ def test_cdac_runner_replaces_whole_curves_and_uses_each_adc_comparator(
 ) -> None:
     """Never concatenate analog points from two acquisition sessions."""
 
-    received = install_cdac_inputs(tmp_path, monkeypatch, module=caparray_targets, adc_indices=(0, 1))
-    monkeypatch.setattr(caparray_targets, "render", lambda _plot, stem: (stem,))
+    received = install_cdac_inputs(tmp_path, monkeypatch, module=adc_targets, adc_indices=(0, 1))
+    monkeypatch.setattr(adc_targets, "render", lambda _plot, stem: (stem,))
 
-    artifacts = study(monkeypatch, caparray_targets, "system_cap_mismatch_study", tmp_path / "output")
+    artifacts = study(monkeypatch, adc_targets, "system_cap_mismatch_study", tmp_path / "output")
 
     # each ADC's own figures (capdac's specs): the legacy comparison of the ADCs is theirs compared
     assert [path.name for path in artifacts] == [

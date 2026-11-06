@@ -56,8 +56,6 @@ def diagnostic_root(spectre_installation):
         ("adc", "frida1_sample_rate"),
         ("adc", "frida1_transfer_curve"),
         ("adc", "frida1_supply_noise"),
-        ("cdac.caparray", "frida1_transfer_curve"),
-        ("cdac.caparray", "caparray_characterization"),
         ("delay", "delay_characterization"),
         ("latch", "latch_characterization"),
         ("ota", "ota_characterization"),

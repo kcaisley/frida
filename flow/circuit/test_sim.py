@@ -3,33 +3,24 @@
 import importlib
 import inspect
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 
-import hdl21 as h
-import hdl21.sim as hs
 import pytest
-from vlsirtools.spice import ResultFormat
-from vlsirtools.spice.sim_data import AnalysisType
-
-import pdk
 
 from . import test_spectre
 
 
-@pytest.mark.parametrize("block", ("adc", "cdac.caparray"))
-def test_targets_and_python_contract(block):
-    # a block's named runs are its sim's; the ADC's are its sweep's, beside its sim
-    stages = ("sim", "sweep") if block == "adc" else ("sim",)
-    module = importlib.import_module(f"flow.{block}.{stages[-1]}")
-    targets = importlib.import_module(f"flow.{block}.targets")
-    # the simulation targets: each runs the function of its name there (the block prefix dropped)
+def test_targets_and_python_contract():
+    # the ADC's named runs are its sweep's, beside its sim
+    sweep = importlib.import_module("flow.adc.sweep")
+    targets = importlib.import_module("flow.adc.targets")
+    # the simulation targets: each runs the function of its name there
     runs = {
-        name: getattr(module, name, None) or getattr(module, f"{block.rpartition('.')[2]}_{name}", None)
+        name: getattr(sweep, name)
         for name, value in vars(targets).items()
-        if inspect.isfunction(value) and value.__module__ == targets.__name__ and not name.startswith("_")
+        if inspect.isfunction(value) and value.__module__ == targets.__name__ and hasattr(sweep, name)
     }
-    names = [name for name, function in runs.items() if function is not None]
+    names = list(runs)
     assert names
     assert names == sorted(names, key=lambda name: not name.startswith("hdl21"))
     for name in names:
@@ -38,76 +29,11 @@ def test_targets_and_python_contract(block):
         assert list(signature.parameters) == ["run_dir", "check"]
         assert signature.parameters["check"].default is False
         assert signature.parameters["check"].kind is inspect.Parameter.KEYWORD_ONLY
-    for stage in stages:
-        source = importlib.import_module(f"flow.{block}.{stage}")
+    for stage in ("sim", "sweep"):
+        source = importlib.import_module(f"flow.adc.{stage}")
         assert not hasattr(source, "main")
         assert "netlist_only" not in inspect.getsource(source)
         assert not any(name.startswith("frida65") for name in vars(source))
-
-
-@pytest.fixture
-def capture_sim(monkeypatch):
-    """Replace site dependencies and execution, keeping real testbench generators."""
-
-    site = SimpleNamespace(
-        install=SimpleNamespace(
-            include=lambda *_: h.Literal("models"),
-            include_pre_simulation=lambda: h.Literal("pre"),
-            include_stdcell=lambda: hs.Include(path=Path("/cells/driver.spi")),
-        )
-    )
-    # the logic's unit device sizes the comparator's geometry readbacks
-    fake_tsmc65 = SimpleNamespace(site=site, pdk_logic=SimpleNamespace(default_xtor_size={"core": (120e-9, 60e-9)}))
-    monkeypatch.setattr(pdk, "tsmc65", fake_tsmc65, raising=False)
-    monkeypatch.setitem(sys.modules, "pdk.tsmc65", fake_tsmc65)
-    monkeypatch.setitem(sys.modules, "pdk.tsmc65.hdl21", SimpleNamespace(site=site))
-    monkeypatch.setitem(sys.modules, "pdk.tsmc65.hdl21.site", site)
-    monkeypatch.setattr(h.pdk, "set_default", lambda *_: None)
-    monkeypatch.setattr(h.pdk, "compile", lambda *_: None)
-    captured = {}
-
-    def build(**kwargs):
-        captured.update(kwargs)
-
-        def run(options):
-            captured["options"] = options
-            if captured.get("fail"):
-                raise RuntimeError("simulator/license failure")
-            return {AnalysisType.TRAN: SimpleNamespace(data={})}
-
-        return SimpleNamespace(run=run)
-
-    monkeypatch.setattr(hs, "Sim", build)
-    from flow.circuit import results
-
-    monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
-    return captured
-
-
-@pytest.mark.parametrize(
-    "block,target,short_stop,full_stop,threads",
-    (("cdac.caparray", "frida1_transfer_curve", 200.1e-9, 2048 * 200e-9 + 2047 * 100e-12, 4),),
-)
-@pytest.mark.parametrize("check", (False, True))
-def test_block_simulation_recipe(block, target, short_stop, full_stop, threads, check, capture_sim, tmp_path):
-    runner = getattr(importlib.import_module(f"flow.{block}.sim"), target)
-    assert runner(tmp_path, check=check) == tmp_path
-    tran = next(attr for attr in capture_sim["attrs"] if isinstance(attr, hs.Tran))
-    assert float(tran.tstop) == pytest.approx(short_stop if check else full_stop)
-    assert not tran.noise
-    assert float(tran.options["strobeperiod"]) == pytest.approx(100e-12)
-    assert tran.options["strobeoutput"].text == "strobeonly"
-    options = capture_sim["options"]
-    assert options.fmt == (ResultFormat.NONE if check else ResultFormat.SIM_DATA)
-    assert f"+mt={threads}" in options.simulator_args
-    assert ("-ahdllint=warn" in options.simulator_args) == check
-    assert options.rundir == tmp_path
-    literals = "\n".join(attr.text for attr in capture_sim["attrs"] if isinstance(attr, h.Literal))
-    assert ("static_erc" in literals) == check
-    assert ("dyn_nodecap" in literals) == check
-    capture_sim["fail"] = True
-    with pytest.raises(RuntimeError, match="simulator/license failure"):
-        runner(tmp_path / "failure", check=check)
 
 
 def test_missing_spectre_skips_before_pdk_import(monkeypatch):
@@ -142,7 +68,7 @@ def test_missing_installation_skips_but_missing_collateral_fails(monkeypatch, tm
 def test_spectre_marker_is_opt_in():
     import subprocess
 
-    for selection, expected in (([], "21 deselected"), (["-m", "spectre"], "21 tests collected")):
+    for selection, expected in (([], "19 deselected"), (["-m", "spectre"], "19 tests collected")):
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "--collect-only", "-q", str(test_spectre.__file__), *selection],
             capture_output=True,

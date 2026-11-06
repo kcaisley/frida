@@ -47,7 +47,6 @@ import hdl21 as h
 # are found as before. Only that class's: another class's parameter of the same name, which its
 # instances always held, stays in their rows.
 ADDED_DEFAULTS: dict[tuple[str, str], object] = {
-    ("flow.cdac.params._Dac", "split"): 0,  # the legacy CDAC's coarse/fine split
     ("flow.capdac.params.Params", "weights"): None,  # an array's own weights (a fabricated one's)
 }
 

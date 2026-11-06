@@ -1120,7 +1120,7 @@ def spectrumMeas(
 
 
 # ---- a CDAC's static transfer in a SAR loop: every decision path some input takes, from the steps
-# its capacitors give, and what a drawn array's paths and control words give (flow.cdac, flow.adc)
+# its capacitors give, and what a drawn array's paths and control words give (flow.capdac, flow.adc)
 
 
 @dataclass(frozen=True)
