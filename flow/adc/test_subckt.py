@@ -1,6 +1,10 @@
-"""Software-only tests for the ADC generator."""
+"""Software-only tests for the ADC generator. Its DAC's sides are capdac's, resolved to the active
+PDK's devices, so a test that builds the ADC binds TSMC65 (``tsmc65``) and a PDK-free checkout (CI)
+skips it."""
 
+import importlib
 import importlib.util
+import io
 import shutil
 from pathlib import Path
 
@@ -11,13 +15,53 @@ from pydantic import ValidationError
 from flow import capdac
 
 from .params import Params
-from .subckt import Adc, _legacy_array, digital_net_aliases
+from .subckt import Adc, AdcNets, adc_digital, digital_net_aliases, generated_net_aliases
 
 
-def test_adc():
+@pytest.fixture
+def tsmc65(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TSMC65 the active PDK for one test, as the runners bind it; the PDK before it after."""
+    logic = pytest.importorskip("pdk.tsmc65.hdl21").pdk_logic  # a PDK-free checkout (CI) has none
+    manager = importlib.import_module("hdl21.pdk.pdk")._mgr
+    monkeypatch.setattr(manager, "default", manager.default)
+    h.pdk.set_default(logic)
+
+
+def _loads(module: h.Module, signal: h.Signal) -> set[str]:
+    """The instances of ``module`` connected to ``signal`` or a bit of it."""
+    return {
+        name
+        for name, instance in module.instances.items()
+        for net in instance.conns.values()
+        if net is signal or (isinstance(net, h.Slice) and net.parent is signal)
+    }
+
+
+def _inversions(chain: h.Module) -> int:
+    """How many inverters a driver's chain holds from its input to its output, each a complementary
+    pair between the rails on the one before it."""
+    node, count = chain.A, 0
+    while node is not chain.Y:
+        (cell,) = (instance for instance in chain.instances.values() if instance.conns["A"] is node)
+        inverter = cell.of
+        assert inverter.mn0.conns == {"d": inverter.Y, "g": inverter.A, "s": inverter.VSS, "b": inverter.VSS}
+        assert inverter.mp0.conns == {"d": inverter.Y, "g": inverter.A, "s": inverter.VDD, "b": inverter.VDD}
+        assert (cell.conns["VDD"], cell.conns["VSS"]) == (chain.VDD, chain.VSS)
+        node, count = cell.conns["Y"], count + 1
+    return count
+
+
+def test_adc(tsmc65):
     """Verify ADC generator produces a valid module."""
     m = Adc(Params())
     assert m is not None
+
+
+def test_the_adc_needs_a_pdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Its DAC's devices are the active PDK's: with none, it says so."""
+    monkeypatch.setattr("flow.adc.subckt.active_pdk", lambda: None)
+    with pytest.raises(RuntimeError, match="active PDK"):
+        Adc(Params())
 
 
 def test_invalid_adc_params_are_refused_when_made():
@@ -36,22 +80,24 @@ def test_invalid_adc_params_are_refused_when_made():
             make()
 
 
-def test_the_netlist_refuses_an_array_its_legacy_array_cannot_be():
-    """Any array of capdac's is a converter's: its model and its blocks' geometry are capdac's. The
-    netlist builds on the legacy array of the same weights (``_legacy_array``) until it moves to
-    ``capdac.netlist``, which keeps an array's own weights (the board's radix-2.0 flavor) at its
-    scale, and refuses where it builds what that array cannot be: unit capacitors, another coarse
-    weight."""
-    radix20 = (768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)
-    legacy = _legacy_array(capdac.Params(weights=radix20))
-    assert (legacy.n_dac, legacy.n_extra, legacy.redun_strat.name, legacy.cap_scale) == (11, 5, "MSB_REDIST", 2)
-    assert legacy.weights == radix20
-    for cdac in (capdac.Params(weight_impl=capdac.WeightImpl.UNIT_CAPS), capdac.Params(coarse_weight=32)):
-        with pytest.raises(ValueError, match="legacy"):
-            Adc(Params(cdac=cdac))
+@pytest.mark.parametrize(
+    "cdac",
+    (
+        capdac.Params(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1)),
+        capdac.Params(weight_impl=capdac.WeightImpl.UNIT_CAPS),
+        capdac.Params(coarse_weight=32),
+    ),
+    ids=("radix20", "unit_caps", "coarse32"),
+)
+def test_the_netlist_builds_any_array_of_capdacs(tsmc65, cdac):
+    """Its DAC's sides are capdac's array of the converter's, whatever its weights and build: an
+    array's own weights (the board's radix-2.0 flavor), unit capacitors, another coarse weight."""
+    module = Adc(Params(cdac=cdac))
+    assert module.xdac_p.of.name == capdac.netlist(cdac).name
+    assert module.xdac_p.of.dac_state.width == len(capdac.Model.weights(cdac)) == module.dac_state_p.width
 
 
-def test_adc_takes_a_sixteen_stage_array_of_another_resolution():
+def test_adc_takes_a_sixteen_stage_array_of_another_resolution(tsmc65):
     params = Params(adc_bits=14, cdac=capdac.Params(bits=14, redundancy=capdac.Redundancy.LSB_SPLIT, extra=3))
     assert Adc(params).dac_state_p.width == 16
 
@@ -67,7 +113,7 @@ def _tsmc65_cells() -> bool:
     shutil.which("yosys") is None or not _tsmc65_cells(), reason="synthesizing the digital block needs yosys and TSMC65"
 )
 @pytest.mark.parametrize(("bits", "extra"), ((12, 0), (10, 2), (12, 6)))
-def test_adc_at_any_stage_count_binds_a_synthesized_digital_block_c0_first(bits, extra):
+def test_adc_at_any_stage_count_binds_a_synthesized_digital_block_c0_first(tsmc65, bits, extra):
     """Any array: the digital block synthesized for its stage count, register 0 on C0."""
     stages = bits - 1 + extra
     redundancy = capdac.Redundancy.MSB_REDIST if extra else capdac.Redundancy.BINARY
@@ -78,14 +124,14 @@ def test_adc_at_any_stage_count_binds_a_synthesized_digital_block_c0_first(bits,
         for port, signal in (("dac_astate_p", module.dac_astate_p), ("dac_state_n_main", module.dac_state_n)):
             connection = module.xdigital.conns[f"{port}[{stage}]"]
             assert connection.index == stage and connection.parent is signal
-    assert sum(name.startswith("xcapdriver_") for name in module.instances) == 4
+    assert sum(name.startswith("xdac_") for name in module.instances) == 2
 
 
-def test_adc_hierarchy_exports_without_duplicate_cell_names():
+def test_adc_hierarchy_exports_without_duplicate_cell_names(tsmc65):
     """Both sides share one array definition, fresh for each top-level build."""
     module = Adc(Params())
-    assert module.xcaparray_p.of is module.xcaparray_n.of
-    assert module.xcapdriver_p_main.of is not Adc(Params()).xcapdriver_p_main.of
+    assert module.xdac_p.of is module.xdac_n.of
+    assert module.xdac_p.of is not Adc(Params()).xdac_p.of
     package = h.to_proto(module)
     names = [cell.name for cell in package.modules]
     assert len(names) == len(set(names))
@@ -97,8 +143,7 @@ def test_adc_digital_port_order_matches_spice_subckt():
     declaration = next(line for line in netlist.read_text().splitlines() if line.startswith(".SUBCKT adc_digital "))
     spice_ports = declaration.split()[2:]
 
-    module = Adc(Params())
-    hdl21_ports = [port.name for port in module.xdigital.of.module.port_list]
+    hdl21_ports = [port.name for port in adc_digital(16).port_list]
 
     assert hdl21_ports == spice_ports
 
@@ -110,8 +155,9 @@ def test_digital_binding_rejects_unknown_pins_and_incompatible_widths(pin):
         digital_net_aliases(module)
 
 
-def test_adc_uses_comparator_clock_complement_and_separate_dac_supply():
-    """Connect comparator and CDAC power domains without borrowing sampler timing."""
+def test_adc_uses_comparator_clock_complement_and_separate_dac_supply(tsmc65):
+    """Connect comparator and CDAC power domains without borrowing sampler timing: the DAC's
+    sides, their drivers and their capacitors' shields, on the DAC's own supply."""
     module = Adc(Params())
 
     assert module.xdigital.conns["comp_out"] is module.comp_out
@@ -119,14 +165,12 @@ def test_adc_uses_comparator_clock_complement_and_separate_dac_supply():
     assert module.MP_clk_comp_b.conns["g"] is module.clk_comp
     assert module.MN_clk_comp_b.conns["g"] is module.clk_comp
     for side in ("p", "n"):
-        assert module.instances[f"xcaparray_{side}"].conns["cap_shieldplate"] is module.vss_a
-        for kind in ("main", "diff"):
-            driver = module.instances[f"xcapdriver_{side}_{kind}"]
-            assert driver.conns["vdd"] is module.vdd_dac
-            assert driver.conns["vss"] is module.vss_dac
+        dac = module.instances[f"xdac_{side}"]
+        assert dac.conns["vdd"] is module.vdd_dac
+        assert dac.conns["vss"] is module.vss_dac
 
 
-def test_adc_translates_the_legacy_digital_bus_only_at_its_boundary():
+def test_adc_translates_the_legacy_digital_bus_only_at_its_boundary(tsmc65):
     """Connect legacy physical bit 15 to canonical stage C0."""
 
     module = Adc(Params())
@@ -145,22 +189,92 @@ def test_adc_translates_the_legacy_digital_bus_only_at_its_boundary():
             assert connection.parent is signal
 
 
-def test_adc_bottom_plates_connect_passive_arrays_to_digital_controlled_drivers():
+def test_each_side_of_the_dac_takes_the_digital_blocks_states_of_its_side(tsmc65):
+    """Each side's stages switch on the digital block's states of that side, C0 on its C0; its
+    difference states and inversion controls drive nothing (the polarity is wired in)."""
     module = Adc(Params())
-    assert sum(name.startswith("xcapdriver_") for name in module.instances) == 4
-    assert sum(name.startswith("xcaparray_") for name in module.instances) == 2
     for side in ("p", "n"):
-        array = module.instances[f"xcaparray_{side}"]
-        assert array.conns["cap_topplate"] is module.namespace[f"vdac_{side}"]
+        states = module.namespace[f"dac_state_{side}"]
+        assert module.instances[f"xdac_{side}"].conns["dac_state"] is states
+        assert _loads(module, states) == {"xdigital", f"xdac_{side}"}
+        for stage in range(16):
+            connection = module.xdigital.conns[f"dac_state_{side}_main[{15 - stage}]"]
+            assert connection.parent is states and connection.index == stage
+        for unused in (f"dac_state_{side}_diff", f"dac_invert_{side}_main", f"dac_invert_{side}_diff"):
+            assert _loads(module, module.namespace[unused]) == {"xdigital"}
+    assert _loads(module, module.dac_diffcaps) == {"xdigital"}
+
+
+def test_the_comparator_and_samplers_sit_on_their_sides_top_plates(tsmc65):
+    """Each side's top plate: its DAC side's, its sampler's output and one comparator input."""
+    module = Adc(Params())
+    for side, comparator_input in (("p", "inp"), ("n", "inn")):
+        top = module.namespace[f"vdac_{side}"]
+        assert module.instances[f"xdac_{side}"].conns["vdac"] is top
+        assert module.instances[f"xsamp_{side}"].conns["dout"] is top
+        assert module.instances[f"xsamp_{side}"].conns["din"] is module.namespace[f"vin_{side}"]
+        assert module.xcomp.conns[comparator_input] is top
+        assert _loads(module, top) == {f"xdac_{side}", f"xsamp_{side}", "xcomp"}
+
+
+@pytest.mark.parametrize("impl", list(capdac.WeightImpl), ids=lambda impl: impl.name.lower())
+def test_no_xor_or_capdriver_cell_remains(tsmc65, impl):
+    """The DAC is capdac's capacitors and inverter chains alone: no clock XOR, no legacy driver or
+    array, in the hierarchy or in its netlist compiled in the PDK."""
+    module = Adc(Params(cdac=capdac.Params(weight_impl=impl)))
+    names = set()
+
+    def walk(parent: h.Module) -> None:
+        for instance in parent.instances.values():
+            target = instance.of
+            names.add(target.module.name if isinstance(target, h.ExternalModuleCall) else target.name)
+            if isinstance(target, h.Module):
+                walk(target)
+
+    walk(module)
+    h.pdk.compile(module)
+    text = io.StringIO()
+    h.netlist(module, text, fmt="spectre")
+    for name in (*names, text.getvalue()):
+        assert not any(cell in name.lower() for cell in ("xor", "capdriver", "caparray")), name
+
+
+@pytest.mark.parametrize(
+    "cdac",
+    (
+        capdac.Params(),
+        capdac.Params(bits=14, redundancy=capdac.Redundancy.LSB_SPLIT, extra=4),
+        capdac.Params(weight_impl=capdac.WeightImpl.UNIT_CAPS),
+    ),
+    ids=("frida1", "14b_lsb_split4_x2", "unit_caps"),
+)
+def test_every_main_chain_is_non_inverting_and_every_difference_chain_inverting(tsmc65, cdac):
+    """The polarity is fixed in each side's drivers: an even count of inverters drives each stage's
+    main plates from its state, an odd count its difference plates (difference capacitors alone)."""
+    module = Adc(Params(adc_bits=cdac.bits, cdac=cdac))
+    for side in ("p", "n"):
+        dac = module.instances[f"xdac_{side}"].of
+        for stage in range(len(capdac.Model.weights(cdac))):
+            main = dac.instances[f"drive_main_{stage}"]
+            assert main.conns["A"] == dac.dac_state[stage] and main.conns["Y"] is dac.namespace[f"main_{stage}"]
+            assert _inversions(main.of) % 2 == 0
+            diff = dac.instances.get(f"drive_diff_{stage}")
+            assert (diff is None) == (cdac.weight_impl is capdac.WeightImpl.UNIT_CAPS)
+            if diff is not None:
+                assert diff.conns["A"] == dac.dac_state[stage] and diff.conns["Y"] is dac.namespace[f"diff_{stage}"]
+                assert _inversions(diff.of) % 2 == 1
+
+
+@pytest.mark.parametrize("impl", list(capdac.WeightImpl), ids=lambda impl: impl.name.lower())
+def test_the_bottom_plates_are_the_sides_own(tsmc65, impl):
+    """The generated ADC holds no bottom plates of its own: the canonical ones are its sides'
+    plates, a unit-capacitor array's main plates alone."""
+    unit = impl is capdac.WeightImpl.UNIT_CAPS
+    module = Adc(Params(cdac=capdac.Params(weight_impl=impl)))
+    aliases = generated_net_aliases(module)
+    for side in ("p", "n"):
         for kind, suffix in (("main", ""), ("diff", "_diff")):
-            driver = module.instances[f"xcapdriver_{side}_{kind}"]
-            bottom = module.namespace[f"dac_botplate_{side}{suffix}"]
-            assert driver.conns["dac_drive"] is bottom
-            assert driver.conns["dac_state"] is module.namespace[f"dac_state_{side}{suffix}"]
-            assert driver.conns["dac_drive_invert"] is module.namespace[f"dac_invert_{side}_{kind}"]
+            assert f"dac_botplate_{side}{suffix}" not in module.namespace
             for stage in range(16):
-                assert array.conns[f"cap_botplate_{kind}<{stage}>"] == bottom[stage]
-                assert (
-                    module.xdigital.conns[f"dac_state_{side}_{kind}[{15 - stage}]"] == driver.conns["dac_state"][stage]
-                )
-            assert module.xdigital.conns[f"dac_invert_{side}_{kind}"] is driver.conns["dac_drive_invert"]
+                plate = None if unit and kind == "diff" else f"xdac_{side}.{kind}_{stage}"
+                assert aliases[getattr(AdcNets, f"dac_botplate_{side}{suffix}")[stage]] == plate

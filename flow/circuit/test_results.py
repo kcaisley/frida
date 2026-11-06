@@ -286,6 +286,8 @@ def test_extracted_waveforms_cover_every_dac_stage_and_comparator_nodes(view):
 
 
 def test_generated_adc_map_covers_all_sixteen_capacitor_stages(monkeypatch):
+    """Every stage's state and both its bottom plates, which are the plates of the generated ADC's
+    DAC's sides (``generated_net_aliases``)."""
     # TSMC65 bound for this test, as the runner binds it before it builds the testbench
     logic = pytest.importorskip("pdk.tsmc65.hdl21").pdk_logic  # a PDK-free checkout has none
     manager = importlib.import_module("hdl21.pdk.pdk")._mgr
@@ -295,7 +297,8 @@ def test_generated_adc_map_covers_all_sixteen_capacitor_stages(monkeypatch):
     for side in ("p", "n"):
         for stage in range(16):
             assert names[f"xtop.xadc.dac_state_{side}_{stage}"] == f"dac_state_{side}[{stage}]"
-            assert names[f"xtop.xadc.dac_botplate_{side}_{stage}"] == f"dac_botplate_{side}[{stage}]"
+            assert names[f"xtop.xadc.xdac_{side}.main_{stage}"] == f"dac_botplate_{side}[{stage}]"
+            assert names[f"xtop.xadc.xdac_{side}.diff_{stage}"] == f"dac_botplate_{side}_diff[{stage}]"
     assert not any("c16_" in alias for alias in names.values())
 
 

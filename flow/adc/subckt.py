@@ -3,18 +3,17 @@ ADC generator for FRIDA.
 
 Creates a complete SAR ADC by composing:
 - Digital control block (ExternalModule from synthesized netlist)
-- 2x passive capacitor arrays and 4x capacitor drivers
+- 2x capacitive DAC sides (capdac's: each side's capacitors and the drivers of their bottom plates)
 - 2x Sampling switches
 - 1x Comparator
 
 Architecture:
     Adc (HDL21 generator)
-    ├── Xadc_digital (ExternalModule: FRIDA's hardened netlist at 16 stages, synthesized otherwise)
-    ├── Xcaparray_p / Xcaparray_n (HDL21 CapArray, the legacy array of the converter's DAC)
-    ├── Xcapdriver_{p,n}_{main,diff} (HDL21 CapDriver)
-    ├── Xsamp_p (HDL21 Samp)
-    ├── Xsamp_n (HDL21 Samp)
-    └── Xcomp (HDL21 comp.netlist)
+    ├── xdigital (ExternalModule: FRIDA's hardened netlist at 16 stages, synthesized otherwise)
+    ├── xdac_p / xdac_n (capdac.netlist: one side of the DAC each, its devices the active PDK's)
+    ├── xsamp_p (HDL21 Samp)
+    ├── xsamp_n (HDL21 Samp)
+    └── xcomp (HDL21 comp.netlist)
 
 The digital block (``design/hdl/adc_digital.v``) at any number of stages is a SPICE netlist of the
 PDK's standard cells:
@@ -31,10 +30,17 @@ output pins), constants on its tie cells and ports that only alias another net b
 Register 0 drives C0, as in the RTL. The netlist is cached beside the blocks' characterizations
 (``flow.sweep.lookup.MODELS_DIR``), under ``adc_digital/``.
 
-The converter's DAC is a ``capdac.Params``; until the netlist moves to ``capdac.netlist``, its
-arrays and drivers are the legacy generators' (``flow.cdac.caparray``, ``flow.cdac.capdriver``) of the
-same array (``_legacy_array``), which refuses what that array cannot be: unit capacitors, another
-coarse weight. One side's plates as a behavioral DAC (``flow.adc.model``) gives them:
+The converter's DAC is capdac's (``capdac.Params``): two of its sides, one module
+(``capdac.netlist``) whose requests are resolved to the active PDK's devices, so the generated ADC
+needs a PDK. Each side's states are the digital block's of that side, its top plate the one that
+side's sampler holds and the comparator reads, and its supply the DAC's (``vdd_dac``, ``vss_dac``,
+which also shield its capacitors). Its polarity is fixed: each stage's main plates follow its state
+and its difference plates the complement (capdac's main chains do not invert, its difference chains
+do), so the subtraction is wired in. The digital block's difference states and inversion controls
+(``dac_state_<side>_diff``, ``dac_invert_<side>_<kind>``) drive nothing, and ``dac_diffcaps`` keeps
+its pin with no effect: FRIDA-1's extracted view, its lab scans and the behavioral model keep its
+other mode, the difference plates switching with the main ones. The bottom plates lie inside the
+sides (``generated_net_aliases``). One side's plates as a behavioral DAC (``flow.adc.model``) gives them:
 ``calc_side_capacitances``, the plates capdac designs at the testbench's DAC supply
 (``capdac.Model.plates``) where it gives none.
 
@@ -64,8 +70,6 @@ from hdl21.primitives import MosType
 
 from flow import capdac, comp, samp
 from flow.adc.params import Params, TbParams
-from flow.cdac.caparray import CapArray, CapArrayConfig, CapArrayParams, RedunStrat
-from flow.cdac.capdriver import CapDriver, CapDriverParams, Cells
 from flow.circuit.ports import module_from_ports, port_connections
 from flow.layout.devices.device import active_pdk, resolve
 from flow.sweep.lookup import MODELS_DIR
@@ -139,45 +143,41 @@ def adc_stages(param: Params) -> int:
     return len(capdac.Model.weights(param.cdac))
 
 
-def _legacy_array(cdac: capdac.Params) -> CapArrayConfig:
-    """The legacy array (``flow.cdac.caparray``) of the converter's DAC, which its netlist (``Adc``)
-    builds on until it moves to ``capdac.netlist``: the DAC's N - 1 binary steps, its extra cycles,
-    its scheme by name, its capacitance in kT/C minimums and an array's own weights. The legacy array
-    has no build of unit capacitors. It takes no coarse weight: the netlist builds it at
-    ``CapArrayParams``' default of 64 units, the one ``cdac.coarse_weight`` must hold (capdac's
-    default)."""
-    if cdac.weight_impl is not capdac.WeightImpl.DIFFERENCE_CAPS:
-        raise ValueError(f"the legacy array has no build of unit capacitors: {cdac}")
-    if cdac.coarse_weight != 64:
-        raise ValueError(f"the legacy netlist builds at a coarse weight of 64, not {cdac.coarse_weight}")
-    return CapArrayConfig(
-        n_dac=cdac.bits - 1,
-        n_extra=cdac.extra,
-        redun_strat=RedunStrat[cdac.redundancy.name],
-        cap_scale=cdac.scale,
-        weights=cdac.weights,
-    )
-
-
-# Keep the driver hierarchy fresh when this ADC is requested after compilation.
+# A fresh ADC every call: its DAC's requests are resolved to the active PDK's devices in place.
 @h.generator(enable_cache=False)
 def Adc(p: Params) -> h.Module:
     """
     SAR ADC generator.
 
-    Composes digital control with analog blocks (CDAC, sampler, comparator).
+    Composes digital control with analog blocks (the DAC's two sides, the samplers, the comparator).
 
     Its stage count follows the array: at FRIDA's 16 the digital block is
     the fabricated, hardened netlist; at any other count the same RTL is
     synthesized for it (``digital_netlist``).
+
+    The DAC's two sides are capdac's array, one module (``capdac.netlist``) resolved once to the
+    active PDK's devices: ``xdac_p`` switched by the digital block's P states (``dac_state_p``) on
+    the P top plate, ``xdac_n`` by its N states on the N top plate, both between ``vdd_dac`` and
+    ``vss_dac``. Its polarity is fixed, the difference plates switching opposite the main ones, so
+    ``dac_diffcaps`` has no effect here and the digital block's inversion controls drive nothing.
+    The canonical bottom plates are the sides' own (``generated_net_aliases``), not the ADC's nets.
     """
+    pdk = active_pdk()
+    if pdk is None:
+        raise RuntimeError("the ADC's DAC is capdac's, its devices the active PDK's, and none is set")
     stages = adc_stages(p)
-    Adc = module_from_ports("Adc", adc_nets(stages).signals)
+    nets = adc_nets(stages)
+    # every canonical net but the bottom plates, which are the DAC's sides' own
+    plates = {
+        net.name
+        for net in (nets.dac_botplate_p, nets.dac_botplate_n, nets.dac_botplate_p_diff, nets.dac_botplate_n_diff)
+    }
+    Adc = module_from_ports("Adc", {name: net for name, net in nets.signals.items() if name not in plates})
     digital = adc_digital(stages)
     Adc.xdigital = digital()(
         **{
             physical: Adc.namespace[net.parent.name][net.index] if isinstance(net, h.Slice) else Adc.namespace[net.name]
-            for net, physical in digital_net_aliases(digital, adc_nets(stages)).items()
+            for net, physical in digital_net_aliases(digital, nets).items()
         }
     )
 
@@ -197,52 +197,15 @@ def Adc(p: Params) -> h.Module:
         b=Adc.vss_a,
     )
 
-    # Identical passive arrays share their definition; each ADC gets fresh drivers.
-    array = CapArray(CapArrayParams(cdac=_legacy_array(p.cdac)))
-    # FRIDA-1's drivers: its library clock XORs, one per stage in its drive band
-    driver = CapDriver(CapDriverParams(n_stages=stages, strengths=None, cells=Cells.CLOCK_XOR))
+    # both sides one array, resolved once
+    dac = capdac.netlist(p.cdac)
+    resolve(dac, pdk)
     sampler = samp.netlist(p.samp)
-    for side, vin, top, main_state, diff_state, main_invert, diff_invert, main_bot, diff_bot, clk, clk_b in (
-        (
-            "p",
-            Adc.vin_p,
-            Adc.vdac_p,
-            Adc.dac_state_p,
-            Adc.dac_state_p_diff,
-            Adc.dac_invert_p_main,
-            Adc.dac_invert_p_diff,
-            Adc.dac_botplate_p,
-            Adc.dac_botplate_p_diff,
-            Adc.clk_samp_p,
-            Adc.clk_samp_p_b,
-        ),
-        (
-            "n",
-            Adc.vin_n,
-            Adc.vdac_n,
-            Adc.dac_state_n,
-            Adc.dac_state_n_diff,
-            Adc.dac_invert_n_main,
-            Adc.dac_invert_n_diff,
-            Adc.dac_botplate_n,
-            Adc.dac_botplate_n_diff,
-            Adc.clk_samp_n,
-            Adc.clk_samp_n_b,
-        ),
+    for side, vin, top, state, clk, clk_b in (
+        ("p", Adc.vin_p, Adc.vdac_p, Adc.dac_state_p, Adc.clk_samp_p, Adc.clk_samp_p_b),
+        ("n", Adc.vin_n, Adc.vdac_n, Adc.dac_state_n, Adc.clk_samp_n, Adc.clk_samp_n_b),
     ):
-        for kind, state, invert, bottom in (
-            ("main", main_state, main_invert, main_bot),
-            ("diff", diff_state, diff_invert, diff_bot),
-        ):
-            Adc.add(
-                driver(dac_state=state, dac_drive=bottom, dac_drive_invert=invert, vdd=Adc.vdd_dac, vss=Adc.vss_dac),
-                name=f"xcapdriver_{side}_{kind}",
-            )
-        array_connections = {array.cap_topplate.name: top, array.cap_shieldplate.name: Adc.vss_a}
-        for kind, bottom in (("main", main_bot), ("diff", diff_bot)):
-            for stage in range(bottom.width):
-                array_connections[array.ports[f"cap_botplate_{kind}<{stage}>"].name] = bottom[stage]
-        Adc.add(array(**array_connections), name=f"xcaparray_{side}")
+        Adc.add(dac(dac_state=state, vdac=top, vdd=Adc.vdd_dac, vss=Adc.vss_dac), name=f"xdac_{side}")
         Adc.add(sampler(din=vin, dout=top, clk=clk, clk_b=clk_b, vdd=Adc.vdd_a, vss=Adc.vss_a), name=f"xsamp_{side}")
 
     # Instantiate comparator
@@ -263,6 +226,25 @@ def Adc(p: Params) -> h.Module:
     )
 
     return Adc
+
+
+def generated_net_aliases(adc: h.Module, nets=AdcNets) -> dict[h.Signal | h.Slice, str | None]:
+    """The generated ADC's (``adc``, an ``Adc``) canonical bottom plates (``nets``' ``dac_botplate``
+    buses, ``adc_nets`` of its stage count), which lie inside its DAC's sides: each side's main and
+    difference plates, capdac's ``main_<stage>`` and ``diff_<stage>`` (``capdac.netlist``), relative
+    to the ADC instance (``xdac_p.main_0``); None where the side has no such plate (unit capacitors
+    have no difference plates)."""
+    aliases: dict[h.Signal | h.Slice, str | None] = {}
+    for side in ("p", "n"):
+        dac = adc.instances[f"xdac_{side}"]
+        for kind, bus in (
+            ("main", getattr(nets, f"dac_botplate_{side}")),
+            ("diff", getattr(nets, f"dac_botplate_{side}_diff")),
+        ):
+            for stage in range(bus.width):
+                plate = f"{kind}_{stage}"
+                aliases[bus[stage]] = f"{dac.name}.{plate}" if plate in dac.of.namespace else None
+    return aliases
 
 
 def AdcBlocks(params: Params) -> h.Module:

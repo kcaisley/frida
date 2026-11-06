@@ -36,9 +36,8 @@ class Params:
 
     def __post_init__(self) -> None:
         # the converter resolves what its array is sized and weighted for; any array of capdac's is
-        # one, its model and its blocks' geometry capdac's (its Spectre netlist, flow.adc.subckt.Adc,
-        # builds on the legacy array of the same weights until it moves to capdac.netlist, and
-        # refuses there what that array cannot be)
+        # one, its model, its blocks' geometry and its netlist (flow.adc.subckt.Adc: two of the
+        # array's sides) capdac's
         if self.adc_bits != self.cdac.bits:
             raise ValueError(f"a {self.adc_bits}-bit converter takes a {self.adc_bits}-bit array, not {self.cdac.bits}")
 
@@ -75,7 +74,11 @@ class TbParams:
     en_comp = h.Param(dtype=int, desc="Enable comparator clock", default=1)
     en_update = h.Param(dtype=int, desc="Enable DAC-update clock", default=1)
     dac_mode = h.Param(dtype=int, desc="Select comparator-driven DAC mode", default=1)
-    dac_diffcaps = h.Param(dtype=int, desc="Enable differential capacitor controls", default=1)
+    dac_diffcaps = h.Param(
+        dtype=int,
+        desc="Enable differential capacitor controls (no effect in the generated ADC, which wires them in)",
+        default=1,
+    )
     dac_astate_p = h.Param(dtype=tuple[int, ...], desc="C0-first positive DAC A state", default=(0, 1) * 8)
     dac_bstate_p = h.Param(dtype=tuple[int, ...], desc="C0-first positive DAC B state", default=(0,) * 16)
     dac_astate_n = h.Param(dtype=tuple[int, ...], desc="C0-first negative DAC A state", default=(0, 1) * 8)

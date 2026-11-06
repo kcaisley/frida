@@ -18,7 +18,7 @@ import hashlib
 import json
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from itertools import pairwise
 from pathlib import Path
@@ -42,6 +42,7 @@ from flow.adc.subckt import (
     digital_netlist,
     frida1_net_aliases,
     frida2_net_aliases,
+    generated_net_aliases,
 )
 from flow.circuit.ports import testbench_from_ports
 from flow.pipeline import Wave
@@ -1200,10 +1201,20 @@ def testbench(params: TbParams, *, pex_netlist: Path | None = None) -> h.Module:
 
 def adc_signal_names(tb: h.Module, view: str, *, save_supply_voltages: bool = False, nets=AdcNets) -> dict[str, str]:
     """Resolve canonical observations once for both Save and raw conversion; ``nets`` are the
-    ADC's (``adc_nets`` of its stage count)."""
+    ADC's (``adc_nets`` of its stage count). The generated ADC holds its nets itself but for its
+    bottom plates, which are its DAC's sides' (``generated_net_aliases``; a plate its array has none
+    of, a unit capacitor's difference plate, is not saved); an extracted view's are RC terminals of
+    its extraction (``frida1_net_aliases``, ``frida2_net_aliases``)."""
     if view not in {"hdl21gen", "frida1", "frida2"}:
         raise ValueError(f"Unsupported ADC view {view!r}")
-    aliases = frida1_net_aliases() if view == "frida1" else frida2_net_aliases() if view == "frida2" else {}
+    generated = view == "hdl21gen"
+    aliases: Mapping[h.Signal | h.Slice, str | None] = (
+        generated_net_aliases(tb.xadc.of, nets)
+        if generated
+        else frida1_net_aliases()
+        if view == "frida1"
+        else frida2_net_aliases()
+    )
     names = {"time": "time"}
     for schema, prefix in ((nets, ""), (comp.Nets, "comp.")):
         for net in schema.signals.values():
@@ -1211,7 +1222,10 @@ def adc_signal_names(tb: h.Module, view: str, *, save_supply_voltages: bool = Fa
                 continue
             testbench_net = schema is nets and net.vis == h.Visibility.PORT and net.width == 1
             path = "xtop" if testbench_net else f"xtop.{tb.xadc.name}"
-            if view == "hdl21gen" or testbench_net:
+            bits = [net] if net.width == 1 else [net[stage] for stage in range(net.width)]
+            # by its own name, the testbench's or the generated ADC's, where no alias binds it
+            named = testbench_net or (generated and not any(bit in aliases for bit in bits))
+            if named:
                 scope = tb if testbench_net else tb.xadc.of
                 if schema is comp.Nets:
                     path += f".{scope.xcomp.name}"
@@ -1219,12 +1233,13 @@ def adc_signal_names(tb: h.Module, view: str, *, save_supply_voltages: bool = Fa
                 actual = scope.namespace[net.name]
                 if actual.width != net.width:
                     raise ValueError(f"Generated width differs from canonical net {net.name}")
-            for stage in range(net.width):
-                canonical = net if net.width == 1 else net[stage]
-                if view != "hdl21gen" and not testbench_net:
-                    raw = f"{path}.{aliases[canonical]}"
-                else:
+            for stage, canonical in enumerate(bits):
+                if named:
                     raw = f"{path}.{actual.name}" + (f"_{stage}" if net.width > 1 else "")
+                elif (alias := aliases[canonical]) is not None:
+                    raw = f"{path}.{alias}"
+                else:
+                    continue  # a plate the generated ADC's array has none of
                 label = f"{prefix}{net.name}" + (f"[{stage}]" if net.width > 1 else "")
                 if raw in names or label in names.values():
                     raise ValueError(f"Duplicate probe binding: {raw} -> {label}")
@@ -1415,12 +1430,12 @@ def simulate(
     if pex_netlist is not None:
         attrs.append(hs.Include(path=pex_netlist))
     else:
-        driver_cells = site.install.include_stdcell()
-        attrs.append(driver_cells)
-        # The digital netlist also needs the regular-Vth library; do not
-        # include the driver library twice when it is shared with digital.
+        # the digital block's standard cells (the generated ADC's only ones: its DAC's drivers are
+        # the PDK's transistors), the library the site includes and the regular-Vth one, each once
+        library_cells = site.install.include_stdcell()
+        attrs.append(library_cells)
         standard_cells = (
-            *(path for path in site.STANDARD_CELL_SPICE_NETLISTS if path != driver_cells.path),
+            *(path for path in site.STANDARD_CELL_SPICE_NETLISTS if path != library_cells.path),
             digital_netlist(adc_stages(tb.dut))[0],
         )
         attrs.append(

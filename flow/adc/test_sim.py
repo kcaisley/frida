@@ -139,6 +139,14 @@ def test_adc_testbench_generates_each_view(view: str, request: pytest.FixtureReq
     assert tb.vin_p is not None
 
 
+def test_each_generated_testbench_holds_a_fresh_adc(tsmc65) -> None:
+    """The ADC's DAC is resolved to the PDK's devices in place, and a compile swaps a hierarchy's
+    devices in place: each testbench holds its own ADC and DAC, so neither touches another's."""
+    first, second = sim.testbench(TbParams()), sim.testbench(TbParams())
+    assert first.xadc.of is not second.xadc.of
+    assert first.xadc.of.xdac_p.of is not second.xadc.of.xdac_p.of
+
+
 def test_adc_transfer_staircase_has_151_codes(tsmc65) -> None:
     params = TbParams(
         symbol_rate=1.6e9,

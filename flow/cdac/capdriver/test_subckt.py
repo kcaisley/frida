@@ -112,33 +112,16 @@ def test_public_driver_api_isolates_pdk_compilation():
     assert {cell.of.module.domain for cell in previous[1].xor_0.of.instances.values()} == {"tower180"}
 
 
-@pytest.mark.parametrize("kind", ["driver", "adc", "adc_tb"])
-def test_public_api_returns_unmodified_hierarchy_after_mutation(kind):
+def test_public_api_returns_unmodified_hierarchy_after_mutation():
     """Exercise production hierarchy isolation even in CI without private PDKs."""
-    from flow import adc
-    from flow.adc.sim import testbench
-    from flow.adc.subckt import Adc
-
-    cases = {
-        "driver": (CapDriver, CapDriverParams(n_stages=3, cells=CLOCK_XOR), ()),
-        "adc": (Adc, adc.Params(), ("xcapdriver_p_main",)),
-        "adc_tb": (testbench, adc.TbParams(view="hdl21gen"), ("xadc", "xcapdriver_p_main")),
-    }
-    generator, params, path = cases[kind]
-    first = generator(params)
-    driver = first
-    for name in path:
-        driver = driver.instances[name].of
+    params = CapDriverParams(n_stages=3, cells=CLOCK_XOR)
+    driver = CapDriver(params)
     # Model the in-place replacement performed by a PDK walker.
     replacement = h.Module(name="compiled_xor")
     for name in ClockXor.ports:
         replacement.add(h.Inout(name=name))
     driver.xor_0.of = replacement
-    second = generator(params)
-    second_driver = second
-    for name in path:
-        second_driver = second_driver.instances[name].of
-    assert second is not first
+    second_driver = CapDriver(params)
     assert second_driver is not driver
     assert second_driver.xor_0.of.module is ClockXor
 
@@ -164,19 +147,9 @@ def test_invalid_driver_configuration(kwargs):
         CapDriver(CapDriverParams(**kwargs))
 
 
-def test_adc_drives_all_four_drivers_in_frida1s_bands():
-    """The converter's four drivers are FRIDA-1's clock XORs in its drive bands (the default bands,
-    ``stage_strengths``): its DAC (``capdac.Params``) names no drives of its own."""
-    from flow import adc
-    from flow.adc.subckt import Adc
-
-    module = Adc(adc.Params())
-    bands = stage_strengths(CapDriverParams(n_stages=16, cells=CLOCK_XOR))
-    assert bands == (4, 4, 2, 2) + (1,) * 12
-    for side in ("p", "n"):
-        for kind in ("main", "diff"):
-            driver = module.instances[f"xcapdriver_{side}_{kind}"].of
-            assert tuple(inst.of.params.drive_band for inst in driver.instances.values()) == bands
+def test_frida1s_drive_bands_are_the_default():
+    """FRIDA-1's 16 stages in its clock XORs' drive bands (the default bands, ``stage_strengths``)."""
+    assert stage_strengths(CapDriverParams(n_stages=16, cells=CLOCK_XOR)) == (4, 4, 2, 2) + (1,) * 12
 
 
 def test_passive_array_has_no_driver_dependency():
