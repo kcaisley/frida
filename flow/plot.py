@@ -23,7 +23,7 @@ import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.colors import LogNorm
 from matplotlib.figure import Figure
-from matplotlib.ticker import FixedLocator, MaxNLocator
+from matplotlib.ticker import FixedLocator, LogLocator, MaxNLocator, NullFormatter
 
 from flow.analysis.plots import CURVE_COLORS, DENSITY_COLOR_MAP, PLOT_STYLE, SPINE_COLOR, save_figure, style_grid
 from flow.pipeline import Analysis, Heatmap, Plot
@@ -51,8 +51,9 @@ def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
     long series (over 100 points: a spectrum, a code axis, a waveform) a plain line, as the viewer
     draws them, the histogram's as step outlines, the decision paths as step lines weighted by how
     many records took each; its bands shaded behind the curves and its markers dashed over them, in
-    the spine's grey, each labelled at the plot's edge; log axes, categories on either axis (each
-    ticked by its name, nothing between) and whole-number ticks where the spec asks."""
+    the spine's grey, each labelled at the plot's edge; log axes ticked as the viewer ticks them,
+    categories on either axis (each ticked by its name, nothing between) and whole-number ticks
+    where the spec asks."""
 
     if plot.figure is not None:
         raise ValueError(f"{plot.name} is a drawn figure ({plot.figure}), not a spec to render")
@@ -89,9 +90,16 @@ def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
                 ax.step(x, y * y_factor, where="mid", color=color, label=label)
             else:
                 ax.plot(x, y * y_factor, marker=None if dense else "o", color=color, label=label)
-        _guides(ax, plot, x_factor, y_factor)
+        # the data's x (a map's cell edges among them), where a band's label stays inside the plot
+        x_drawn = np.asarray([*plot.x, *(heatmap.x if heatmap else ())], dtype=np.float64) * x_factor
+        x_drawn = x_drawn[np.isfinite(x_drawn) & ((x_drawn > 0) if plot.x_log else True)]
+        x_extent = (float(x_drawn.min()), float(x_drawn.max())) if x_drawn.size else (math.nan, math.nan)
+        _guides(ax, plot, x_factor, y_factor, x_extent)
         ax.set_xscale("log" if plot.x_log else "linear")
         ax.set_yscale("log" if plot.y_log else "linear")
+        for axis, log, names in ((ax.xaxis, plot.x_log, plot.x_labels), (ax.yaxis, plot.y_log, plot.y_labels)):
+            if log and names is None:
+                _log_ticks(axis)
         if plot.x_labels is not None:
             # angled where they would collide, each name ending at its tick
             angled = {"rotation": 45, "ha": "right", "rotation_mode": "anchor"} if len(plot.x_labels) > 6 else {}
@@ -138,11 +146,12 @@ def _heatmap(fig: Figure, ax: Axes, heatmap: Heatmap, x_factor: float, y_factor:
     fig.colorbar(mesh, ax=ax, label=label)
 
 
-def _guides(ax: Axes, plot: Plot, x_factor: float, y_factor: float) -> None:
+def _guides(ax: Axes, plot: Plot, x_factor: float, y_factor: float, x_extent: tuple[float, float]) -> None:
     """``plot``'s bands shaded behind its curves (over the grid, under a map) and its markers dashed
-    over them, in the spine's grey, each labelled at the plot's edge: a band's at its top, an x
-    marker's along it at the top, a y marker's over it at the right. One with no place on its axis
-    (not a number, or not positive on a log axis) is left out."""
+    over them, in the spine's grey, each labelled at the plot's edge: a band's at its top (at its
+    outer edge where it lies at the end of the data's x, ``x_extent``), an x marker's along it at
+    the top, a y marker's over it at the right. One with no place on its axis (not a number, or not
+    positive on a log axis) is left out."""
     # x in data and y in the axes' height (a label at its top), or the other way round (at its right)
     along_x, along_y = ax.get_xaxis_transform(), ax.get_yaxis_transform()
     for band in plot.x_bands:
@@ -151,8 +160,9 @@ def _guides(ax: Axes, plot: Plot, x_factor: float, y_factor: float) -> None:
             continue
         ax.axvspan(low, high, color=SPINE_COLOR, alpha=0.15, linewidth=0, zorder=0.8)
         if band.label:
-            middle = math.sqrt(low * high) if plot.x_log else (low + high) / 2
-            ax.text(middle, 0.98, band.label, transform=along_x, ha="center", va="top", color=SPINE_COLOR, size="small")
+            side = _band_side(low, high, x_extent, plot.x_log)
+            at = {"left": low, "right": high}.get(side, math.sqrt(low * high) if plot.x_log else (low + high) / 2)
+            ax.text(at, 0.98, band.label, transform=along_x, ha=side, va="top", color=SPINE_COLOR, size="small")
     for marker in plot.x_markers:
         at = _place(marker.at, x_factor, plot.x_log)
         if math.isnan(at):
@@ -177,6 +187,68 @@ def _guides(ax: Axes, plot: Plot, x_factor: float, y_factor: float) -> None:
         ax.axhline(at, color=SPINE_COLOR, linestyle="--", linewidth=0.8, zorder=2.5)
         if marker.label:
             ax.text(0.99, at, marker.label, transform=along_y, ha="right", va="bottom", color=SPINE_COLOR, size="small")
+
+
+def _band_side(low: float, high: float, extent: tuple[float, float], log: bool) -> str:
+    """Where a band's label sits along it (detail.js ``bandSide``): at its outer edge and inside it
+    ("left", "right") where the band's middle lies in the first or last fifth of the data's x (a
+    centred label there would run off the plot), "center" otherwise."""
+    first, last = (math.log10(value) if log else value for value in extent)
+    middle = (math.log10(low * high) / 2) if log else (low + high) / 2
+    if not last - first > 0:
+        return "center"
+    share = (middle - first) / (last - first)
+    return "right" if share >= 0.8 else "left" if share <= 0.2 else "center"
+
+
+def _log_ticks(axis) -> None:
+    """A log axis ticked over its view as the viewer ticks one (paper.js ``fitAxis``): under 0.8
+    decades linear steps of 1, 2 or 5 times a power of ten, each labelled in full; to 2.5 decades
+    1, 2 and 5 of each decade; beyond, the decades (every second or more past 7), plainly where they
+    all read so (0.001 to 10000) and as powers of ten otherwise; the digits between ticked, unlabelled."""
+    low, high = sorted(axis.get_view_interval())
+    if not (low > 0 and high > low):
+        return
+    decades = math.log10(high / low)
+    if decades < 0.8:
+        step = _nice((high - low) / 5)
+        ticks = [k * step for k in range(math.ceil(low / step), math.floor(high / step) + 1)]
+        labels = [f"{tick:.6g}" for tick in ticks]
+    elif decades <= 2.5:
+        ticks = [
+            float(f"{mantissa * 10.0**exponent:.6g}")
+            for exponent in range(math.floor(math.log10(low)), math.ceil(math.log10(high)) + 1)
+            for mantissa in (1, 2, 5)
+        ]
+        ticks = [tick for tick in ticks if low <= tick <= high]
+        labels = [_log_label(tick) for tick in ticks]
+    else:
+        every = 1 if decades <= 7 else math.ceil(decades / 7)
+        first, last = math.ceil(math.log10(low) - 1e-9), math.floor(math.log10(high) + 1e-9)
+        exponents = [e for e in range(math.ceil(first / every) * every, last + 1, every)]
+        plain = first >= -3 and last <= 4
+        ticks = [10.0**exponent for exponent in exponents]
+        labels = [_log_label(10.0**e) if plain or e in (0, 1) else f"$10^{{{e}}}$" for e in exponents]
+    axis.set_major_locator(FixedLocator(ticks))
+    axis.set_ticklabels(labels)
+    axis.set_minor_locator(LogLocator(base=10, subs=tuple(range(1, 10)), numticks=100))
+    axis.set_minor_formatter(NullFormatter())
+
+
+def _nice(rough: float) -> float:
+    """The smallest 1, 2 or 5 times a power of ten at least ``rough`` (paper.js ``niceStep``)."""
+    power = 10.0 ** math.floor(math.log10(rough))
+    return next(m * power for m in (1, 2, 5, 10) if m * power >= rough * (1 - 1e-9))
+
+
+def _log_label(value: float) -> str:
+    """A positive tick as the viewer labels it (paper.js ``logLabel``): plain from 0.001 to 99999,
+    a mantissa times a power of ten beyond."""
+    exponent = math.floor(math.log10(value) + 1e-9)
+    if -3 <= exponent <= 4:
+        return f"{value:.6g}"
+    mantissa = float(f"{value / 10.0**exponent:.3g}")
+    return f"$10^{{{exponent}}}$" if mantissa == 1 else f"${mantissa:g}{{\\times}}10^{{{exponent}}}$"
 
 
 def _place(value: float | None, factor: float, log: bool) -> float:

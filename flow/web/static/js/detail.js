@@ -117,17 +117,30 @@ function place(value, factor, log) {
     return value === null || value === undefined || !Number.isFinite(value) || (log && value <= 0) ? NaN : value * factor;
 }
 
+// where a band's label sits along it (plot.py's _band_side): at its outer edge and inside it ("left",
+// "right") where the band's middle lies in the first or last fifth of the data's x, `extent` (a
+// centred label there would run off the plot), "center" otherwise
+function bandSide(low, high, extent, log) {
+    const at = (value) => (log ? Math.log10(value) : value);
+    const [first, last] = extent.map(at);
+    if (!(last - first > 0)) return "center";
+    const share = ((at(low) + at(high)) / 2 - first) / (last - first);
+    return share >= 0.8 ? "right" : share <= 0.2 ? "left" : "center";
+}
+
 // one marker (a labelled line at an x or a y: kind "x" or "y") or band (a labelled range of x shaded
 // behind the curves: "band") as a shape of the plot, its label on it: a line dashed over the curves,
 // its label along it at the top (an x's) or over it at the right (a y's); a band over the grid and
-// under the curves, its label at its top. Null where it has no place on its axis.
-function guideShape(kind, guide, x, y, color, logX, logY) {
+// under the curves, its label at its top (at its outer edge at the end of the data's x, `extent`).
+// Null where it has no place on its axis.
+function guideShape(kind, guide, x, y, color, logX, logY, extent) {
     const label = guide.label ? { text: guide.label, font: { size: 11, color } } : null;
     if (kind === "band") {
         const [low, high] = [place(guide.low, x.factor, logX), place(guide.high, x.factor, logX)];
         if (Number.isNaN(low) || Number.isNaN(high)) return null;
         const band = { type: "rect", xref: "x", yref: "paper", x0: low, x1: high, y0: 0, y1: 1, fillcolor: rgba(color, 0.15), line: { width: 0 }, layer: "between" };
-        return label ? { ...band, label: { ...label, textposition: "top center" } } : band;
+        const side = bandSide(low, high, extent, logX);
+        return label ? { ...band, label: { ...label, textposition: `top ${side}`, xanchor: side } } : band;
     }
     const at = kind === "x" ? place(guide.at, x.factor, logX) : place(guide.at, y.factor, logY);
     if (Number.isNaN(at)) return null;
@@ -140,8 +153,8 @@ function guideShape(kind, guide, x, y, color, logX, logY) {
 
 // the entries' markers (detail.x_markers, y_markers) and bands (x_bands) as the plot's shapes, in the
 // spine's grey; compared, one every instance has drawn once, grey, another in its instance's colour,
-// named by its id (hidden with its curves)
-function guideShapes(entries, x, y, theme, logX, logY) {
+// named by its id (hidden with its curves); `extent` the data's x, where a band's label stays inside
+function guideShapes(entries, x, y, theme, logX, logY, extent) {
     const found = new Map();
     for (const entry of entries) {
         const { detail } = entry;
@@ -161,7 +174,7 @@ function guideShapes(entries, x, y, theme, logX, logY) {
     for (const { kind, guide, owners } of found.values()) {
         const shared = !page.compare || owners.length === entries.length;
         for (const owner of shared ? [null] : owners) {
-            const shape = guideShape(kind, guide, x, y, owner ? colorOf(owner.index, theme) : PAPERS[theme].spine, logX, logY);
+            const shape = guideShape(kind, guide, x, y, owner ? colorOf(owner.index, theme) : PAPERS[theme].spine, logX, logY, extent);
             if (shape && owner) shape.name = owner.instance.id;
             if (shape) shapes.push(shape);
         }
@@ -367,7 +380,14 @@ class PlotsPanel {
             );
         }
         for (const trace of traces) if (this.hidden.has(trace.meta)) trace.visible = false;
-        const shapes = guideShapes(entries, x, y, theme, first.x_log, first.y_log);
+        // the data's x in its prefixed unit (positive on a log axis): where a band's label stays inside
+        let [xLow, xHigh] = [Infinity, -Infinity];
+        for (const value of xs) {
+            if (value === null || !Number.isFinite(value) || (first.x_log && value <= 0)) continue;
+            xLow = Math.min(xLow, value * x.factor);
+            xHigh = Math.max(xHigh, value * x.factor);
+        }
+        const shapes = guideShapes(entries, x, y, theme, first.x_log, first.y_log, [xLow, xHigh]);
         for (const shape of shapes) if (this.hidden.has(shape.name)) shape.visible = false;
         if (shapes.length) traces.push(guideTrace(shapes));
         const legendEntries = traces.filter((trace) => trace.showlegend !== false).length;

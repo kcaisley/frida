@@ -126,6 +126,38 @@ def test_markers_and_bands_on_a_log_axis(monkeypatch: pytest.MonkeyPatch) -> Non
     assert labels == {"Two decades": pytest.approx(10.0), "Corner": pytest.approx(20.0), "Floor": pytest.approx(0.99)}
 
 
+def test_a_log_axis_ticks_as_the_viewer_and_a_band_at_the_end_labels_inside(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Log ticks by paper.js fitAxis's rules: within a decade linear steps labelled in full, to 2.5
+    decades 1, 2 and 5 of each, beyond them the decades, plainly from 0.001 to 10000 and as powers of
+    ten past it (every second past 7); a band in the last fifth of the data's x labelled at its outer
+    edge, inside the plot (detail.js bandSide)."""
+
+    def ticks(axis) -> list[str]:
+        return [label.get_text() for label in axis.get_ticklabels()]
+
+    def spec(x: list[float], y: list[float], **overlays) -> Plot:
+        return Plot(
+            name="s", title="", x_label="Frequency (Hz)", y_label="Noise (V/√Hz)", x=x, series={"n": y}, **overlays
+        )
+
+    narrow = spec(
+        [1e3, 1e4, 1e5, 1e6, 5e6],
+        [1.0e-7, 1.2e-7, 1.6e-7, 1.3e-7, 1.25e-7],
+        x_log=True,
+        y_log=True,
+        x_bands=[Band(4e6, 5e6, "Last")],
+    )
+    ax = drawn(narrow, monkeypatch).axes[0]
+    assert (ticks(ax.xaxis), ticks(ax.yaxis)) == (["0.001", "0.01", "0.1", "1"], ["100", "120", "140", "160"])
+    (label,) = ax.texts
+    assert (label.get_position()[0], label.get_horizontalalignment()) == (pytest.approx(5.0), "right")
+    two = drawn(spec([1, 2, 3], [1e-9, 1e-8, 1e-7], y_log=True), monkeypatch).axes[0]
+    assert ticks(two.yaxis) == ["1", "2", "5", "10", "20", "50", "100"]
+    wide = drawn(spec([1, 2, 3], [1e-21, 1e-15, 1e-10], y_log=True), monkeypatch).axes[0]
+    # 1e-9 to 100 pV/√Hz: past 0.001 to 10000, so powers of ten, 1 and 10 plainly as the viewer has them
+    assert ticks(wide.yaxis) == [*(f"$10^{{{e}}}$" for e in (-8, -6, -4, -2)), "1", "$10^{2}$"]
+
+
 def test_a_heatmap_holds_a_row_of_values_for_each_row_of_cells() -> None:
     with pytest.raises(ValueError, match="holds 2 rows of 3 values"):
         Heatmap(x=[0.0, 1.0, 2.0, 3.0], y=[0.0, 1.0, 2.0], z=[[1.0, 2.0, 3.0]], label="Conversions")
