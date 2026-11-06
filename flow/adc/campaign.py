@@ -1,5 +1,5 @@
 """An ADC's characterization campaign: every capture its figures need, as testbench parameters
-(``TbParams``) from a builder, the same for a SPICE run of ``AdcTb`` and for the behavioral
+(``TbParams``) from a builder, the same for a SPICE run of ``sim.testbench`` and for the behavioral
 model (``flow.adc.model``), each of which turns one into a ``MeasAdc``.
 
 - ``ramp_train`` and ``ramp_check``: eight full-scale sawtooth periods on the CDAC's SPICE draw

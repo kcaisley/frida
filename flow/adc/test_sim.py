@@ -43,9 +43,9 @@ def test_extracted_simulation_rejects_double_counting_and_changed_signed_input(t
     )
     monkeypatch.setattr(h.pdk, "compile", lambda *_: pytest.fail("invalid PEX reached simulation compilation"))
     with pytest.raises(ValueError, match="double-count" if fault == "ideal_capacitor" else "PEX content differs"):
-        sim._run_adc_sim(
-            tmp_path / "simulation",
+        sim.simulate(
             TbParams(view="frida2", pex_cell="adc_12b_17step"),
+            tmp_path / "simulation",
             pex_netlist=path,
             check=True,
         )
@@ -106,16 +106,16 @@ def test_invalid_params_fail_before_testbench_generation_or_run(overrides, monke
     assert sim.is_valid_adc_tb_params(params) is False
     monkeypatch.setattr(sim, "testbench_from_ports", lambda *a, **kw: pytest.fail("invalid params reached generation"))
     with pytest.raises(ValueError, match="Invalid ADC testbench params"):
-        sim.AdcTb(params)
-    monkeypatch.setattr(sim, "AdcTb", lambda *a, **kw: pytest.fail("runner passed invalid params to AdcTb"))
+        sim.testbench(params)
+    monkeypatch.setattr(sim, "testbench", lambda *a, **kw: pytest.fail("runner passed invalid params to testbench"))
     with pytest.raises(ValueError, match="Invalid ADC testbench params"):
-        sim._run_adc_sim(tmp_path / "run", params)
+        sim.simulate(params, tmp_path / "run")
     assert not (tmp_path / "run").exists()
 
 
 @pytest.mark.parametrize("view", ("frida1", "hdl21gen"))
 def test_adc_testbench_generates_each_view(view: str) -> None:
-    tb = sim.AdcTb(
+    tb = sim.testbench(
         TbParams(view=view, conversions=1, pex_cell="adc_12b_17step" if view == "frida1" else ""),
         pex_netlist=PEX_FIXTURES.get(view),
     )
@@ -132,7 +132,7 @@ def test_adc_transfer_staircase_has_151_codes() -> None:
         conversions=151,
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
     )
-    tb = sim.AdcTb(params)
+    tb = sim.testbench(params)
     wave = tb.vvin_diff.of.params.wave
 
     assert isinstance(wave, h.Pwl)
@@ -153,20 +153,20 @@ def test_adc_transfer_sweep_must_match_conversion_count() -> None:
 
     assert sim.is_valid_adc_tb_params(params) is False
     with pytest.raises(ValueError, match="Invalid ADC testbench params"):
-        sim.AdcTb(params)
+        sim.testbench(params)
 
 
 @pytest.mark.parametrize("start,stop,step,count", ((-0.75, 0.75, 0.01, 151), (1, -1, -0.1, 21), (0, 0, 1, 1)))
 def test_sweep_validation_agrees_with_generated_waveform(start, stop, step, count):
     params = TbParams(conversions=count, vin_diff=hs.LinearSweep(start=start, stop=stop, step=step))
     assert sim.is_valid_adc_tb_params(params) is True
-    wave = sim.AdcTb(params).vvin_diff.of.params.wave
+    wave = sim.testbench(params).vvin_diff.of.params.wave
     assert len(wave.points) == 2 * count
 
 
 @pytest.mark.parametrize("view", ("frida1", "frida2"))
 def test_extracted_adc_keeps_calibre_port_order(view) -> None:
-    tb = sim.AdcTb(TbParams(view=view, pex_cell="adc_12b_17step"), pex_netlist=PEX_FIXTURES[view])
+    tb = sim.testbench(TbParams(view=view, pex_cell="adc_12b_17step"), pex_netlist=PEX_FIXTURES[view])
     names = tuple(port.name for port in tb.xadc.of.module.port_list)
     assert names == PEX_PINS[view]
     assert len(names) == 84
@@ -177,13 +177,13 @@ def test_pex_header_reordering_changes_instance_order_without_swapping_nets(tmp_
     pins[0], pins[1] = pins[1], pins[0]
     path = tmp_path / "reordered.scs"
     path.write_text(f"subckt adc_12b_17step ({' '.join(pins)})\nends adc_12b_17step\n")
-    tb = sim.AdcTb(TbParams(view="frida2", pex_cell="adc_12b_17step"), pex_netlist=path)
+    tb = sim.testbench(TbParams(view="frida2", pex_cell="adc_12b_17step"), pex_netlist=path)
     assert tuple(tb.xadc.of.module.ports) == tuple(pins)
     assert tb.xadc.conns["vin_p"] is tb.vin_p
     assert tb.xadc.conns["vdd_a"] is tb.vdd_a
     path.write_text(path.read_text().replace("dac_astate_p_0", "dac_astate_p<1>"))
     with pytest.raises(ValueError, match="Duplicate external pins"):
-        sim.AdcTb(TbParams(view="frida2", pex_cell="adc_12b_17step"), pex_netlist=path)
+        sim.testbench(TbParams(view="frida2", pex_cell="adc_12b_17step"), pex_netlist=path)
 
 
 @pytest.mark.parametrize(
@@ -199,26 +199,28 @@ def test_pex_header_reordering_changes_instance_order_without_swapping_nets(tmp_
 def test_extracted_adc_selects_requested_pex_cell(pex_cell: str, tmp_path) -> None:
     path = tmp_path / "input.scs"
     path.write_text(PEX_FIXTURES["frida1"].read_text().replace("adc_12b_17step", pex_cell))
-    tb = sim.AdcTb(TbParams(view="frida1", pex_cell=pex_cell, conversions=1), pex_netlist=path)
+    tb = sim.testbench(TbParams(view="frida1", pex_cell=pex_cell, conversions=1), pex_netlist=path)
 
     assert tb.xadc.of.module.name == pex_cell
 
 
 def test_pex_cell_rejects_unknown_and_generated_views() -> None:
     with pytest.raises(ValueError, match="no .subckt adc_unknown"):
-        sim.AdcTb(TbParams(view="frida1", pex_cell="adc_unknown", conversions=1), pex_netlist=PEX_FIXTURES["frida1"])
+        sim.testbench(
+            TbParams(view="frida1", pex_cell="adc_unknown", conversions=1), pex_netlist=PEX_FIXTURES["frida1"]
+        )
     with pytest.raises(ValueError, match="Invalid ADC testbench params"):
-        sim.AdcTb(TbParams(view="hdl21gen", pex_cell="adc_1layer_radix17", conversions=1))
+        sim.testbench(TbParams(view="hdl21gen", pex_cell="adc_1layer_radix17", conversions=1))
 
 
 def test_c0_rename_preserves_the_physical_initialization_voltages() -> None:
     for bus in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"):
         pattern = tuple(int(stage in (0, 3, 8, 14)) for stage in range(16))
-        old = sim.AdcTb(
+        old = sim.testbench(
             TbParams(view="frida1", pex_cell="adc_12b_17step", **{bus: pattern}),
             pex_netlist=PEX_FIXTURES["frida1"],
         )
-        new = sim.AdcTb(
+        new = sim.testbench(
             TbParams(view="frida2", pex_cell="adc_12b_17step", **{bus: pattern}),
             pex_netlist=PEX_FIXTURES["frida2"],
         )
@@ -235,7 +237,7 @@ def test_all_adc_views_expose_the_same_analysis_waveforms():
     observations = []
     for view in ("hdl21gen", "frida1", "frida2"):
         pex = PEX_FIXTURES.get(view)
-        tb = sim.AdcTb(TbParams(view=view, pex_cell="adc_12b_17step" if pex else ""), pex_netlist=pex)
+        tb = sim.testbench(TbParams(view=view, pex_cell="adc_12b_17step" if pex else ""), pex_netlist=pex)
         observations.append(set(sim.adc_signal_names(tb, view).values()))
     assert observations[0] == observations[1] == observations[2]
     for side in ("p", "n"):
@@ -246,7 +248,7 @@ def test_all_adc_views_expose_the_same_analysis_waveforms():
 
 @pytest.mark.parametrize("fault", ("missing", "duplicate"))
 def test_pex_observations_reject_incomplete_or_ambiguous_bindings(monkeypatch, fault):
-    tb = sim.AdcTb(TbParams(view="frida2", pex_cell="adc_12b_17step"), pex_netlist=PEX_FIXTURES["frida2"])
+    tb = sim.testbench(TbParams(view="frida2", pex_cell="adc_12b_17step"), pex_netlist=PEX_FIXTURES["frida2"])
     aliases = sim.frida2_net_aliases()
     if fault == "missing":
         del aliases[sim.AdcNets.vdac_p]
@@ -268,7 +270,7 @@ def test_supply_noise_testbench_repeats_independent_rail_networks() -> None:
         supply_noise_rms_v=(1e-3, 0.0, 0.0),
         supply_noise_bandwidth_hz=25e9,
     )
-    tb = sim.AdcTb(params, pex_netlist=PEX_FIXTURES["frida1"])
+    tb = sim.testbench(params, pex_netlist=PEX_FIXTURES["frida1"])
     netlist = StringIO()
 
     h.netlist(tb, netlist, fmt="spectre")
@@ -295,7 +297,7 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
         assert mp_context.get_start_method() == "spawn"
         return ThreadPoolExecutor(max_workers=max_workers)
 
-    def capture(directory, params, **options):
+    def capture(params, directory, **options):
         calls.append((directory, params, options))
         started.wait(timeout=10)
         return directory / "netlist.raw", {}
@@ -307,7 +309,7 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
     monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
     monkeypatch.setattr(results, "convert_raw_adc_to_measurement", lambda *args, **kwargs: object())
     monkeypatch.setattr(io, "write_measurement", lambda *args: None)
-    monkeypatch.setattr(sim, "_run_adc_sim", capture)
+    monkeypatch.setattr(sim, "simulate", capture)
     root = tmp_path / "campaign"
     assert getattr(sim, f"{family}_sequence")(root, check=check) == root
     timing_count = 7
@@ -345,7 +347,7 @@ def test_fixed_input_campaigns(family, count, check, tmp_path, monkeypatch):
         np.testing.assert_array_equal(
             np.flatnonzero(np.fromiter(map(int, params.seq_samp_pattern), dtype=int)), np.arange(4, 24)
         )
-        assert sim.AdcTb(params, pex_netlist=PEX_FIXTURES[family]).name == f"AdcTb_{family}"
+        assert sim.testbench(params, pex_netlist=PEX_FIXTURES[family]).name == f"AdcTb_{family}"
 
 
 @pytest.mark.parametrize("family,count", (("frida1", 4), ("frida2", 3)))
@@ -355,13 +357,13 @@ def test_concurrent_campaign_propagates_case_failure(family, count, tmp_path, mo
         sim, "ProcessPoolExecutor", lambda **kwargs: ThreadPoolExecutor(max_workers=kwargs["max_workers"])
     )
 
-    def fail_one(directory, *_args, **_kwargs):
+    def fail_one(_params, directory, *_args, **_kwargs):
         calls.append(directory)
         if "1layer_radix17" in directory.parent.name:
             raise RuntimeError("simulator failed")
         return directory / "netlist.raw", {}
 
-    monkeypatch.setattr(sim, "_run_adc_sim", fail_one)
+    monkeypatch.setattr(sim, "simulate", fail_one)
     with pytest.raises(RuntimeError, match="simulator failed"):
         getattr(sim, f"{family}_sequence")(tmp_path)
     assert len(calls) == 7 * count
@@ -386,7 +388,7 @@ def test_other_campaign_recipes(target, count, workers, check, tmp_path, monkeyp
         assert mp_context.get_start_method() == "spawn"
         return ThreadPoolExecutor(max_workers=max_workers)
 
-    def capture(directory, params, **options):
+    def capture(params, directory, **options):
         calls.append((directory, params, options))
         return directory / "netlist.raw", {}
 
@@ -397,7 +399,7 @@ def test_other_campaign_recipes(target, count, workers, check, tmp_path, monkeyp
     monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
     monkeypatch.setattr(results, "convert_raw_adc_to_measurement", lambda *args, **kwargs: object())
     monkeypatch.setattr(io, "write_measurement", lambda *args: None)
-    monkeypatch.setattr(sim, "_run_adc_sim", capture)
+    monkeypatch.setattr(sim, "simulate", capture)
     assert getattr(sim, target)(tmp_path, check=check) == tmp_path
     assert len(calls) == count
     assert len({directory for directory, *_ in calls}) == count
@@ -500,7 +502,7 @@ def test_logic_capture_saves_tail_without_changing_noise_bandwidth(check, captur
         seq_comp_pattern="0" * 24 + "11111110" * 17,
         seq_logic_pattern="0001" + "0" * 20 + "00000001" * 16 + "0" * 8,
     )
-    sim._run_adc_sim(tmp_path / "run", params, noise=True, check=check)
+    sim.simulate(params, tmp_path / "run", noise=True, check=check)
     tran = next(attr for attr in captured_executor["attrs"] if isinstance(attr, hs.Tran))
     assert float(tran.tstop) == pytest.approx(100e-9 if check else 10e-6 + 15.625e-9, abs=1e-15)
     if not check:
@@ -520,9 +522,9 @@ def test_single_executor_modes(view, threads, check, captured_executor, pex_inpu
         conversions=100,
     )
     root = tmp_path / "run"
-    sim._run_adc_sim(
-        root,
+    sim.simulate(
         params,
+        root,
         pex_netlist=None if view == "hdl21gen" else pex_input,
         noise=True,
         check=check,
@@ -565,7 +567,7 @@ def test_transfer_executor_enforces_waveform_resolution(check, captured_executor
         conversions=151,
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
     )
-    sim._run_adc_sim(tmp_path / "run", params, check=check)
+    sim.simulate(params, tmp_path / "run", check=check)
     tran = next(attr for attr in captured_executor["attrs"] if isinstance(attr, hs.Tran))
     assert not tran.noise
     assert float(tran.options["strobeperiod"]) == pytest.approx(params.waveform_sample_interval_s, abs=1e-18)
@@ -599,9 +601,9 @@ def test_executor_rejects_bad_pex(fault, message, captured_executor, pex_input, 
             summary["pex_netlist"] = "wrong.pex.netlist"
         (tmp_path / "signoff_summary.json").write_text(json.dumps(summary))
     with pytest.raises(ValueError, match=message):
-        sim._run_adc_sim(
-            tmp_path / "run",
+        sim.simulate(
             TbParams(view="frida2", pex_cell="adc_12b_17step"),
+            tmp_path / "run",
             pex_netlist=pex_input,
             check=True,
         )
@@ -610,9 +612,9 @@ def test_executor_rejects_bad_pex(fault, message, captured_executor, pex_input, 
 
 def test_missing_configured_pex_fails(captured_executor, tmp_path):
     with pytest.raises(FileNotFoundError):
-        sim._run_adc_sim(
-            tmp_path / "run",
+        sim.simulate(
             TbParams(view="frida2", pex_cell="adc_12b_17step"),
+            tmp_path / "run",
             pex_netlist=tmp_path / "missing.pex.netlist",
             check=True,
         )
@@ -622,7 +624,7 @@ def test_missing_configured_pex_fails(captured_executor, tmp_path):
 def test_diagnostic_simulator_error_propagates(captured_executor, tmp_path):
     captured_executor["fail"] = True
     with pytest.raises(RuntimeError, match="simulator/license failure"):
-        sim._run_adc_sim(tmp_path / "run", TbParams(), check=True)
+        sim.simulate(TbParams(), tmp_path / "run", check=True)
 
 
 @pytest.mark.parametrize(
@@ -653,11 +655,11 @@ def test_historical_lvs_exception_is_narrow(view, target, warning, accepted, cap
     kwargs = {"pex_netlist": renamed, "expected_disconnect": True, "check": True}
     params = TbParams(view=view, pex_cell="adc_12b_17step")
     if accepted:
-        sim._run_adc_sim(tmp_path / "run", params, **kwargs)
+        sim.simulate(params, tmp_path / "run", **kwargs)
         assert captured_executor["options"]
     else:
         with pytest.raises(ValueError, match="unaccepted LVS"):
-            sim._run_adc_sim(tmp_path / "run", params, **kwargs)
+            sim.simulate(params, tmp_path / "run", **kwargs)
 
 
 def test_adc_targets_list_only_experiment_targets_in_family_order():
@@ -681,7 +683,7 @@ def test_adc_targets_list_only_experiment_targets_in_family_order():
         for name, value in vars(sim).items()
         if inspect.isfunction(value) and value.__module__ == sim.__name__ and name.startswith("_")
     ]
-    assert functions == ["_run_adc_sim"]
+    assert functions == []
     assert not hasattr(sim, "main")
 
 
@@ -731,7 +733,7 @@ def test_all_campaign_patterns_are_preserved(monkeypatch, tmp_path):
         def __exit__(self, *args):
             pass
 
-        def submit(self, function, directory, params, **kwargs):
+        def submit(self, function, params, directory, **kwargs):
             cases.append((directory, params))
             future = Future()
             future.set_result((directory / "netlist.raw", {}))
@@ -792,7 +794,7 @@ def test_voltage_sources_and_serializer_consume_identical_rows(name, sequence, s
         seq_comp_pattern=sequence.comp,
         seq_logic_pattern=sequence.logic,
     )
-    tb = sim.AdcTb(params)
+    tb = sim.testbench(params)
     word_count = len(sequence.init) // 8
     memory = convert_params_to_seqgen_fmt(params, "0" * word_count)
     assert len(memory) == word_count * 8

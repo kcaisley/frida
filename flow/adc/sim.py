@@ -1066,7 +1066,7 @@ def is_valid_adc_tb_params(params: TbParams) -> bool:
 
 
 # Generated DUTs are compiled in place and must not survive in a cached testbench.
-def AdcTb(params: TbParams, *, pex_netlist: Path | None = None) -> h.Module:
+def testbench(params: TbParams, *, pex_netlist: Path | None = None) -> h.Module:
     """Generate a complete ADC testbench for the selected DUT view."""
 
     if not is_valid_adc_tb_params(params):
@@ -1321,9 +1321,9 @@ def build_adc_interface_wave(
     )
 
 
-def _run_adc_sim(
+def simulate(
+    tb: TbParams,
     run_dir: Path,
-    params: TbParams,
     *,
     pex_netlist: Path | None = None,
     noise: bool = False,
@@ -1341,29 +1341,29 @@ def _run_adc_sim(
     not in additional flavor-specific wrappers.
     """
 
-    if not is_valid_adc_tb_params(params):
-        raise ValueError(f"Invalid ADC testbench params: {params}")
-    nets = adc_nets(adc_stages(params.dut))
+    if not is_valid_adc_tb_params(tb):
+        raise ValueError(f"Invalid ADC testbench params: {tb}")
+    nets = adc_nets(adc_stages(tb.dut))
 
     from pdk import tsmc65
     from pdk.tsmc65.hdl21 import site
 
     # Fixed budgets paired with the target pools: four x six or three x eight.
-    spectre_threads = 6 if params.view == "frida1" else 8
-    if (params.view != "hdl21gen") != (pex_netlist is not None):
+    spectre_threads = 6 if tb.view == "frida1" else 8
+    if (tb.view != "hdl21gen") != (pex_netlist is not None):
         raise ValueError("extracted views require a PEX input; HDL21 must not have one")
     metadata = {
         "target": run_dir.name,
-        "view": params.view,
-        "conversions": params.conversions,
-        "symbol_rate_hz": float(params.symbol_rate),
-        "weights": get_caparray_weights(params.dut.cdac),
+        "view": tb.view,
+        "conversions": tb.conversions,
+        "symbol_rate_hz": float(tb.symbol_rate),
+        "weights": get_caparray_weights(tb.dut.cdac),
         "spectre_threads": spectre_threads,
         "check": check,
         "transient_noise": noise and not check,
         "expected_historical_disconnect": expected_disconnect,
         "sequencer": {
-            net.name.removeprefix("seq_"): {"pattern": getattr(params, f"{net.name}_pattern")}
+            net.name.removeprefix("seq_"): {"pattern": getattr(tb, f"{net.name}_pattern")}
             for net in nets.signals.values()
             if net.vis == h.Visibility.PORT and net.usage == h.Usage.CLOCK
         },
@@ -1374,12 +1374,12 @@ def _run_adc_sim(
         from pdk.tsmc65.calibre.ringfmom import validate_extracted_netlist
 
         validate_extracted_netlist(pex_netlist.read_text())
-        if params.pex_cell == "adc_12b_17step":
+        if tb.pex_cell == "adc_12b_17step":
             summary_path = pex_netlist.parent / "signoff_summary.json"
             summary = json.loads(summary_path.read_text())
             known_disconnect = (
                 expected_disconnect
-                and params.view == "frida1"
+                and tb.view == "frida1"
                 and pex_netlist.stem in ("frida1_2layer_radix17.pex", "frida1_2layer_radix20.pex")
                 and summary.get("warnings") == ["expected LVS mismatch: disconnected historical MOM layer"]
             )
@@ -1398,10 +1398,10 @@ def _run_adc_sim(
         )
 
     h.pdk.set_default(tsmc65.pdk_logic)
-    tb = AdcTb(params, pex_netlist=pex_netlist)
-    h.pdk.compile(tb)
+    bench = testbench(tb, pex_netlist=pex_netlist)
+    h.pdk.compile(bench)
     signal_names = adc_signal_names(
-        tb, params.view, save_supply_voltages=bool(params.supply_series_resistance_ohm), nets=nets
+        bench, tb.view, save_supply_voltages=bool(tb.supply_series_resistance_ohm), nets=nets
     )
     if pex_netlist is not None:
         text = pex_netlist.read_text().replace("\\\n", " ")
@@ -1424,7 +1424,7 @@ def _run_adc_sim(
         # include the driver library twice when it is shared with digital.
         standard_cells = (
             *(path for path in site.STANDARD_CELL_SPICE_NETLISTS if path != driver_cells.path),
-            digital_netlist(adc_stages(params.dut))[0],
+            digital_netlist(adc_stages(tb.dut))[0],
         )
         attrs.append(
             h.Literal(
@@ -1440,23 +1440,23 @@ def _run_adc_sim(
     attrs.extend(
         (hs.Options(name="temp", value=25.0), hs.Options(name="save", value="selected"), hs.Save(save_targets))
     )
-    tstop_s = 100e-9 if check else params.conversions * len(params.seq_init_pattern) / float(params.symbol_rate)
+    tstop_s = 100e-9 if check else tb.conversions * len(tb.seq_init_pattern) / float(tb.symbol_rate)
     if not check:
-        first_comp_symbol = params.seq_comp_pattern.index("01") + 1
+        first_comp_symbol = tb.seq_comp_pattern.index("01") + 1
         # Save the next B0 edge plus a symbol of margin, without completing
         # or decoding an extra conversion. The original noise bandwidth stays fixed.
-        tstop_s += (first_comp_symbol + 1) / float(params.symbol_rate)
+        tstop_s += (first_comp_symbol + 1) / float(tb.symbol_rate)
     metadata["final_decision_time_reference"] = "next_init_seq_logic_rising_threshold"
     tran_options = {
-        "strobeperiod": params.waveform_sample_interval_s,
-        "maxstep": params.waveform_sample_interval_s,
+        "strobeperiod": tb.waveform_sample_interval_s,
+        "maxstep": tb.waveform_sample_interval_s,
         "strobeoutput": "strobeonly",
     }
     # Preserve the supply experiment's frequency settings without silently
     # enabling device transient noise, which its previous runner did not enable.
-    if not check and (noise or any(params.supply_noise_rms_v) or params.supply_series_resistance_ohm):
+    if not check and (noise or any(tb.supply_noise_rms_v) or tb.supply_series_resistance_ohm):
         tran_options.update(
-            noisefmin=1.0 / (params.conversions * len(params.seq_init_pattern) / float(params.symbol_rate)),
+            noisefmin=1.0 / (tb.conversions * len(tb.seq_init_pattern) / float(tb.symbol_rate)),
             noisefmax="25G",
             noiseseed=1,
         )
@@ -1478,7 +1478,7 @@ def _run_adc_sim(
             )
         )
     attrs.append(hs.Tran(tstop=tstop_s, name="tran", noise=noise and not check, options=tran_options))
-    simulation = hs.Sim(tb=tb, attrs=attrs)
+    simulation = hs.Sim(tb=bench, attrs=attrs)
     options = SimOptions(
         simulator=SupportedSimulators.SPECTRE,
         fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
@@ -1519,9 +1519,9 @@ def hdl21_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
             futures.append(
                 (
                     executor.submit(
-                        _run_adc_sim,
-                        run_dir / f"{float(symbol_rate) / 1e6:g}mbd",
+                        simulate,
                         params,
+                        run_dir / f"{float(symbol_rate) / 1e6:g}mbd",
                         noise=True,
                         check=check,
                     ),
@@ -1554,9 +1554,9 @@ def hdl21_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
         **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
     )
-    raw_path, signal_names = _run_adc_sim(
-        run_dir,
+    raw_path, signal_names = simulate(
         params,
+        run_dir,
         check=check,
     )
     if not check:
@@ -1614,9 +1614,9 @@ def frida1_sequence(run_dir: Path, *, check: bool = False) -> Path:
                 futures.append(
                     (
                         executor.submit(
-                            _run_adc_sim,
-                            run_dir / target / timing,
+                            simulate,
                             params,
+                            run_dir / target / timing,
                             pex_netlist=pex,
                             noise=True,
                             check=check,
@@ -1671,9 +1671,9 @@ def frida1_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
                     futures.append(
                         (
                             executor.submit(
-                                _run_adc_sim,
-                                run_dir / cell / f"{float(symbol_rate) / 1e6:g}mbd",
+                                simulate,
                                 params,
+                                run_dir / cell / f"{float(symbol_rate) / 1e6:g}mbd",
                                 pex_netlist=pex,
                                 noise=True,
                                 check=check,
@@ -1708,9 +1708,9 @@ def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
         **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
     )
-    raw_path, signal_names = _run_adc_sim(
-        run_dir,
+    raw_path, signal_names = simulate(
         params,
+        run_dir,
         pex_netlist=site.ADC_PEX_NETLIST,
         check=check,
     )
@@ -1758,9 +1758,9 @@ def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
                 futures.append(
                     (
                         executor.submit(
-                            _run_adc_sim,
-                            run_dir / f"{float(symbol_rate) / 1e6:g}mbd_{name}",
+                            simulate,
                             params,
+                            run_dir / f"{float(symbol_rate) / 1e6:g}mbd_{name}",
                             pex_netlist=site.ADC_PEX_NETLIST,
                             check=check,
                         ),
@@ -1819,9 +1819,9 @@ def frida2_sequence(run_dir: Path, *, check: bool = False) -> Path:
             futures.append(
                 (
                     executor.submit(
-                        _run_adc_sim,
-                        run_dir / target / timing,
+                        simulate,
                         params,
+                        run_dir / target / timing,
                         pex_netlist=root / target / stamp / f"{target}.pex.netlist",
                         noise=True,
                         check=check,

@@ -116,13 +116,13 @@ def test_public_driver_api_isolates_pdk_compilation():
 def test_public_api_returns_unmodified_hierarchy_after_mutation(kind):
     """Exercise production hierarchy isolation even in CI without private PDKs."""
     from flow import adc
-    from flow.adc.sim import AdcTb
+    from flow.adc.sim import testbench
     from flow.adc.subckt import Adc
 
     cases = {
         "driver": (CapDriver, CapDriverParams(n_stages=3, cells=CLOCK_XOR), ()),
         "adc": (Adc, adc.Params(), ("xcapdriver_p_main",)),
-        "adc_tb": (AdcTb, adc.TbParams(view="hdl21gen"), ("xadc", "xcapdriver_p_main")),
+        "adc_tb": (testbench, adc.TbParams(view="hdl21gen"), ("xadc", "xcapdriver_p_main")),
     }
     generator, params, path = cases[kind]
     first = generator(params)

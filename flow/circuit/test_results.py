@@ -249,13 +249,13 @@ def test_adc_continuous_records_require_next_init_logic(tmp_path: Path) -> None:
 
 
 def _adc_names(view):
-    from flow.adc.sim import AdcTb, adc_signal_names
+    from flow.adc.sim import adc_signal_names, testbench
 
     path = None if view == "hdl21gen" else Path(__file__).resolve().parents[1] / "adc/fixtures" / f"{view}_ports.scs"
     params = adc.TbParams(
         waveform_sample_interval_s=50e-12, view=view, pex_cell="" if view == "hdl21gen" else "adc_12b_17step"
     )
-    return adc_signal_names(AdcTb(params, pex_netlist=path), view)
+    return adc_signal_names(testbench(params, pex_netlist=path), view)
 
 
 def test_frida2_rc_waveforms_use_device_terminal_nodes() -> None:

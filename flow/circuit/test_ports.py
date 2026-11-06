@@ -69,7 +69,7 @@ def test_generated_save_maps_reference_existing_nets_and_source_terminals(block)
         stages = import_module(f"flow.{block}")
         tb, saved = stages.testbench(stages.TbParams()), dict.fromkeys(stages.sim.SAVES)
     else:  # the ADC: its testbench of the generated view and the observations it saves
-        tb = sim.AdcTb(import_module(f"flow.{block}.params").TbParams())
+        tb = sim.testbench(import_module(f"flow.{block}.params").TbParams())
         saved = sim.adc_signal_names(tb, "hdl21gen")
     assert block in ("comp", "samp") or len(set(saved.values())) == len(saved)
     for raw in saved:
