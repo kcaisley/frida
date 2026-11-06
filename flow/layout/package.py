@@ -17,10 +17,8 @@ ROOT = Path(__file__).resolve().parents[2]
 GENERATORS = Path(__file__).resolve().parent / "primitives"
 # what ALIGN asks the package for: its generator classes by name and the standard cells' class lookup
 EXPORTS = (
-    "ArrayWiring",
     "CapGenerator",
     "CmosInverter",
-    "DifferenceUnit",
     "MOSGenerator",
     "MomUnit",
     "ResGenerator",

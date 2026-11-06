@@ -2,7 +2,7 @@
 from align.primitive.default.via import ViaArrayGenerator
 
 from .cap import CapGenerator
-from .mom import ArrayWiring, DifferenceUnit, MomUnit
+from .mom import MomUnit
 from .models import pdk_models
 from .wiring import Wiring
 from .mos import CmosInverter, MOSGenerator
