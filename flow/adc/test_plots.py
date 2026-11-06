@@ -28,12 +28,20 @@ from flow.adc.analysis import (
     analyze_noise,
     analyze_power,
     analyze_ramp,
+    analyze_sampling_noise,
     analyze_sequence_map,
     analyze_transfer,
 )
 from flow.adc.params import FINAL_DECISIONS, PELGROM_AXIS, UNIT_MISMATCH
 from flow.adc.sim import SEQUENCES
-from flow.adc.test_analysis import adc_conditions, adc_measurement, adc_ramp_measurement, timing_sequences, tone_codes
+from flow.adc.test_analysis import (
+    adc_conditions,
+    adc_measurement,
+    adc_ramp_measurement,
+    adc_sampling_measurement,
+    timing_sequences,
+    tone_codes,
+)
 from flow.adc.types import (
     AnalysisCalibration,
     AnalysisCalibration1,
@@ -89,6 +97,7 @@ LAB_FIGURES = (
     "codes_rate",
     "interferer",
     "interferer_lines",
+    "sampling_noise",
 )
 
 
@@ -560,3 +569,21 @@ def test_the_interferer_search_marks_its_frequency_and_each_rates_line(
     for drawn_figure in (figure, lines):
         (png, _pdf) = render(drawn_figure, tmp_path / drawn_figure.name)
         assert plt.imread(png).shape[:2] == (2700, 4800)
+
+
+def test_the_held_voltage_is_a_histogram_of_25_uv_bins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The held differential voltage about its mean: bins 25 µV wide on its multiples, their shares
+    summing to one, an empty bin either side; another design's offset makes no difference; its
+    spread and count named; drawn on the analysis plots' canvas."""
+    sampling = analyze_sampling_noise(adc_sampling_measurement())
+    figure = plots.plot_sampling_noise(sampling)
+    assert figure.histogram and figure.x_label == "VDAC_P − VDAC_N about its mean (V)"
+    np.testing.assert_allclose(np.diff(figure.x), 25e-6)
+    ((label, shares),) = figure.series.items()
+    assert label == f"σ {sampling.sigma_v * 1e6:.1f} µV, {len(sampling.held_diff_v)} conversions"
+    assert sum(shares) == pytest.approx(1.0, abs=1e-5) and shares[0] == shares[-1] == 0.0
+    offset = plots.plot_sampling_noise(replace(sampling, held_p_v=sampling.held_p_v + 0.01))
+    assert (offset.x, offset.series) == (figure.x, figure.series)
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    (png, _pdf) = render(figure, tmp_path / "sampling_noise")
+    assert plt.imread(png).shape[:2] == (2700, 4800)

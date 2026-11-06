@@ -738,8 +738,9 @@ class Plot:
     # y is categories (a map's rows: a rate, a signal): y the indices 0, 1, 2, ..., bottom first, and
     # these their names, the ticks (a map's row j between the edges j - 0.5 and j + 0.5; y_ticks unused)
     y_labels: list[str] | None = None
-    # the series are a histogram: each y the count in the bin one unit wide centred on its x (an
-    # output code), drawn as a step outline without markers or fill, so compared instances overlay
+    # the series are a histogram: each y the count (or share) in its bin, centred on its x and as
+    # wide as x's even step (an output code; a voltage's 25 µV), drawn as a step outline without
+    # markers or fill, so compared instances overlay
     histogram: bool = False
     # the legend's title, where the series are values of one quantity (the common modes)
     legend_title: str | None = None

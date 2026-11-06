@@ -293,38 +293,6 @@ def test_adc_comparator_response_uses_per_decision_sample_fractions(tmp_path, mo
             plt.close(fig)
 
 
-def test_sampling_noise_histogram_has_common_voltage_bins_and_axes(tmp_path, monkeypatch) -> None:
-    from flow.adc.test_analysis import adc_sampling_measurement
-
-    analysis = adc.analyze_sampling_noise(adc_sampling_measurement())
-    shifted = replace(analysis, held_p_v=analysis.held_p_v + 0.01)
-    captured = []
-
-    def capture(fig, output_path):
-        captured.append(fig)
-        return (output_path.with_suffix(".pdf"),)
-
-    monkeypatch.setattr(analysis_plots, "save_figure", capture)
-    analysis_plots.plot_adc_sampling_noise(
-        [analysis, shifted, analysis, analysis, analysis, analysis, analysis],
-        labels=[f"Design {index}" for index in range(7)],
-        output_path=tmp_path / "sampling",
-    )
-    fig = captured[0]
-    axes = [ax for ax in fig.axes if ax.get_visible()]
-    assert len(axes) == 7
-    assert len({ax.get_xlim() for ax in axes}) == len({ax.get_ylim() for ax in axes}) == 1
-    for ax in axes:
-        assert sum(patch.get_height() for patch in ax.patches) == pytest.approx(1.0)
-        assert all(patch.get_width() == pytest.approx(25.0) for patch in ax.patches)
-    assert [patch.get_height() for patch in axes[0].patches] == [patch.get_height() for patch in axes[1].patches]
-    assert "µV" in fig._supxlabel.get_text()
-    assert "LSB" not in fig._supxlabel.get_text()
-    assert "1 ns after SAMP falls" in fig._suptitle.get_text()
-    assert "before the first comparator" not in fig._suptitle.get_text()
-    plt.close(fig)
-
-
 def assert_plot_formats(paths: tuple[Path, ...]) -> None:
     assert tuple(path.suffix for path in paths) == (".png", ".svg", ".pdf")
     for path in paths:

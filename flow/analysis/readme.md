@@ -57,7 +57,7 @@ flowchart TB
         adc_int --> summary["adc.analyze_timing_summary (+ closure)"] --> summary_out["adc.AnalysisTimingSummary"]
         closure_out --> summary
         adc_int --> comparator_eye["analyze_adc_comparator_edge_eye"] --> comparator_eye_out["AnalysisAdcComparatorEdgeEye"] --> comparator_eye_plot["plot_adc_comparator_edge_eye"]
-        sampling_out --> sampling_plot["plot_adc_sampling_noise"]
+        sampling_out --> sampling_plot["adc.plot_sampling_noise (25 µV bins)"]
         settling_out --> settling_plot["plot_adc_cdac_settling"]
         power_wave_out --> power_wave_plot["plot_adc_power_waveform"]
         response_out --> response_plot["plot_adc_comparator_response"]
@@ -201,7 +201,7 @@ Consolidated acquisition directories can contain both DC and sine measurements. 
 
 Internal comparator/SAR/CDAC plots and seven clock plots require a simulated `MeasAdc` and its saved internal nets. The physical sequence sweep uses the stored codes and readout checks of the physical `MeasAdc` captures. Outputs are flat. Physical captures and PEX cases go through the same per-capture noise analysis and the same operating-condition analysis. The operating-condition analysis matches each capture to its noise result by sequence and symbol rate; its reference code is the median mean code over every sequence at the lowest symbol rate, and a capture is shifted when its mean leaves that reference by more than five times the median code noise there (at least four codes). The PEX subset covers seven of the 29 physical recipes at 1600 MBd. Saved patterns and decoded samples remain unchanged. Fixed-input ENOB is explicitly noise-equivalent; spectral ENOB is shown separately. A fixed-input capture's codes are also a waveform sampled at the conversion rate: `adc.analyze_code_spectrum` splits their variance into lines above the median white floor and the broadband remainder, and keeps the line-only code sequence. With a calibration result it decodes the stored BOUT with that calibration's weights instead of using DOUT, and records the decoding; `adc.analyze_interferer` unfolds one interferer's aliases at several rates to its true frequency. Search one recipe whose rates were captured close in time: a drifting interferer smears across a long campaign, and a fixed line then wins. Low spread alone does not establish correct conversion or a working sequence.
 
-Reusable plotting functions need not all appear in these selected studies. `plot_adc_sampling_noise` is a separate internal held-voltage noise study; `plot_adc_power_waveform` requires simulated rail-current traces. Measurement-versus-simulation and cross-channel comparisons pass several results to the same plotter. Their functions and tests remain; removing unused imports is not a reason to delete them.
+Reusable plotting functions need not all appear in these selected studies. `plot_adc_power_waveform` requires simulated rail-current traces. Measurement-versus-simulation and cross-channel comparisons pass several results to the same plotter. Their functions and tests remain; removing unused imports is not a reason to delete them.
 
 Simulated waveforms use the same `Wave` as scope captures. ADC comparator internals use the `comp.` scope, for example `comp.latch_p`, and buses one key per bit, for example `dac_botplate_n_diff[15]`. Derived input differences are calculated from the saved P/N voltages.
 

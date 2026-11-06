@@ -40,6 +40,7 @@ from .types import (
     AnalysisRamp,
     AnalysisRedundancy,
     AnalysisReference,
+    AnalysisSamplingNoise,
     AnalysisSequenceMap,
     AnalysisTransfer,
 )
@@ -655,6 +656,24 @@ def plot_interferer_lines(interferer: AnalysisInterferer) -> Plot:
     )
 
 
+@plot
+def plot_sampling_noise(sampling: AnalysisSamplingNoise) -> Plot:
+    """The held differential voltage 1 ns after SAMP falls, about its mean (``analyze_sampling_noise``:
+    not kT/C alone, the comparator may already act), a histogram of 25 µV bins, every capture's
+    alike so compared ones overlay; its spread (the sample's) and its count in the curve's name."""
+    error_v = np.asarray(sampling.held_diff_v, dtype=np.float64) - float(np.mean(sampling.held_diff_v))
+    centres_v, shares = _histogram(error_v, 25e-6)
+    return _plot(
+        "sampling_noise",
+        "Held voltage 1 ns after SAMP falls",
+        "VDAC_P − VDAC_N about its mean (V)",
+        "Share of conversions",
+        centres_v,
+        {f"σ {sampling.sigma_v * 1e6:.1f} µV, {len(error_v)} conversions": shares},
+        histogram=True,
+    )
+
+
 def _plot(name: str, title: str, x_label: str, y_label: str, x, series: dict[str, Any], **options: Any) -> Plot:
     """A figure's spec, its values to six significant digits, as the viewer's other exports."""
     return Plot(
@@ -725,6 +744,16 @@ def _peaks(x: np.ndarray, y: np.ndarray, runs: int = 2000) -> tuple[list[float],
     edges = np.linspace(0, len(x), runs + 1).astype(np.int64)
     picks = [start + int(np.argmax(y[start:stop])) for start, stop in pairwise(edges)]
     return np.asarray(x)[picks].tolist(), np.asarray(y)[picks].tolist()
+
+
+def _histogram(values: np.ndarray, width: float) -> tuple[list[float], list[float]]:
+    """``values`` counted in bins ``width`` wide on its multiples, each bin's share of them, an empty
+    bin either side (the outline closes on the axis): the bins' centres and shares."""
+    low = math.floor(float(np.min(values)) / width) - 1
+    high = math.floor(float(np.max(values)) / width) + 1
+    edges = np.arange(low, high + 2) * width
+    counts, _ = np.histogram(values, bins=edges)
+    return ((edges[:-1] + edges[1:]) / 2).tolist(), (counts / len(values)).tolist()
 
 
 def _family(estimates: np.ndarray, first: int) -> list[dict[str, Any]]:

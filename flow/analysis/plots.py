@@ -18,7 +18,7 @@ from matplotlib.colors import LinearSegmentedColormap, LogNorm
 from matplotlib.lines import Line2D
 from matplotlib.offsetbox import AnchoredOffsetbox, TextArea, VPacker
 from matplotlib.patches import Patch
-from matplotlib.ticker import AutoMinorLocator, MaxNLocator, NullLocator, StrMethodFormatter
+from matplotlib.ticker import AutoMinorLocator, NullLocator, StrMethodFormatter
 from scipy.special import ndtr
 
 from flow import adc, comp
@@ -1091,51 +1091,6 @@ def plot_adc_fastrx_scope_comparison(
     )
     style_info_box(axes[0], setup_lines)
     fig.suptitle("ADC scope and FastRX decision comparison")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_adc_sampling_noise(
-    analyses: Sequence[adc.AnalysisSamplingNoise],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare mean-centered held voltages using common microvolt bins and axes."""
-
-    if not analyses or len(analyses) != len(labels):
-        raise ValueError("sampling noise requires one label per analysis")
-    errors_uv = [(item.held_diff_v - calc.average(item.held_diff_v)) * 1e6 for item in analyses]
-    limit_uv = max(25.0, np.ceil(max(calc.ymax(np.abs(values)) for values in errors_uv) / 25.0) * 25.0)
-    bins_uv = np.arange(-limit_uv, limit_uv + 25.0, 25.0)
-    columns = min(4, len(analyses))
-    rows = (len(analyses) + columns - 1) // columns
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    if rows > 2:
-        fig.set_size_inches(9.6, 2.7 * rows)
-    for index, (analysis, label, error_uv) in enumerate(zip(analyses, labels, errors_uv, strict=True)):
-        ax = axes.flat[index]
-        ax.hist(
-            error_uv,
-            bins=bins_uv,
-            weights=np.full(len(error_uv), 1.0 / len(error_uv)),
-            color=CURVE_COLORS[index % len(CURVE_COLORS)],
-            edgecolor=SPINE_COLOR,
-            linewidth=0.4,
-            alpha=0.85,
-        )
-        ax.set_title(label, fontsize=9)
-        ax.set_xlim(-limit_uv, limit_uv)
-        ax.xaxis.set_major_locator(MaxNLocator(5))
-        if index + columns >= len(analyses):
-            ax.tick_params(labelbottom=True)
-        style_grid(ax)
-        style_info_box(ax, (f"SD = {analysis.sigma_v * 1e6:.1f} µV", f"N = {len(error_uv)}"))
-    for ax in axes.flat[len(analyses) :]:
-        ax.set_visible(False)
-    fig.supxlabel("VDAC_P − VDAC_N, relative to each design's mean (µV)")
-    fig.supylabel("Fraction of conversions per 25 µV bin")
-    fig.suptitle("Sampling-level variation · 1 ns after SAMP falls")
     return save_figure(fig, output_path)
 
 
