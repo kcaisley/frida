@@ -163,18 +163,20 @@ def plot_trajectory_final(paths: AnalysisDecisionPaths) -> Plot:
 @plot
 def plot_trajectory_codes(paths: AnalysisDecisionPaths) -> Plot:
     """The histogram of the codes the decision paths end on, a bin a code and two empty ones either
-    side (the outline closes on the axis), their mean and spread in the curve's name."""
+    side (the outline closes on the axis), their mean and spread in the curve's name: on one code
+    alone, a spread under a code, which the codes cannot resolve (not none)."""
     final = np.asarray(paths.final_dout, dtype=np.float64)
     mean, sigma = float(np.mean(final)), float(np.std(final))
     codes = np.arange(math.floor(final.min()) - 2, math.ceil(final.max()) + 3)
     counts = np.array([np.count_nonzero(final == code) for code in codes], dtype=np.float64)
+    spread = "one code: σ under 1 LSB" if np.count_nonzero(counts) == 1 else f"σ {sigma:.2f} LSB"
     return Plot(
         "trajectory_codes",
         "Output codes at one input",
         "Output code",
         "Conversions",
         [float(code) for code in codes],
-        {f"Conversions (mean {mean:.2f}, σ {sigma:.2f} LSB)": [float(count) for count in counts]},
+        {f"Conversions (mean {mean:.2f}, {spread})": [float(count) for count in counts]},
         x_ticks="code",
         y_ticks="integer",
         histogram=True,

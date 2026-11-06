@@ -31,7 +31,6 @@ from flow.analysis.plots import (
     plot_adc_code_noise,
     plot_adc_code_spectrum,
     plot_adc_conversion_energy,
-    plot_adc_decision_path_density,
     plot_adc_dynamic,
     plot_adc_dynamic_sweep,
     plot_adc_interferer,
@@ -82,8 +81,11 @@ from .plots import (
     plot_dnl_calibrated,
     plot_inl,
     plot_inl_calibrated,
+    plot_trajectory,
+    plot_trajectory_codes,
+    plot_trajectory_final,
 )
-from .types import AnalysisCalibration, AnalysisRamp
+from .types import AnalysisCalibration, AnalysisDecisionPaths, AnalysisRamp
 
 
 def _sim_run(target: str) -> Path:
@@ -200,6 +202,13 @@ def _ramp_figures(ramp: AnalysisRamp, output_dir: Path, stem: str) -> list[Path]
     return [
         path for name, figure in figures.items() for path in render(figure, output_dir / f"{stem}_{name}_{decoding}")
     ]
+
+
+def _path_figures(paths: AnalysisDecisionPaths, output_dir: Path, stem: str) -> list[Path]:
+    """The decision paths at one input as the record draws them: over the whole conversion, over the
+    last decisions and the codes they end on, each into ``<stem>_<figure>``."""
+    figures = (plot_trajectory(paths), plot_trajectory_final(paths), plot_trajectory_codes(paths))
+    return [path for figure in figures for path in render(figure, output_dir / f"{stem}_{figure.name}")]
 
 
 def _weight_figures(calibrations: Sequence[AnalysisCalibration], output_dir: Path, stem: str) -> list[Path]:
@@ -366,17 +375,16 @@ def behavioral_trajectory_study() -> tuple[Path, ...]:
 
     The input is one behavioral MeasAdc: 2,000 conversions at 10 MS/s of a 0-V
     input, on the C0 threshold, with every noise source. B0 goes either way,
-    and the later redundant stages bring both branches to the same codes.
+    and the later redundant stages bring both branches to the same codes: the
+    distinct paths, each weighted by its conversions, over the whole
+    conversion and over its last decisions, and the codes they end on.
     """
     output_dir = new_run("analysis", "adc")
     path = BASE_PATH / "build/scan_behavioral/20261010_114637_frida2_trajectory/trajectory_0mv.h5"
     measurement = read_measurement(path)
     if not isinstance(measurement, MeasAdc):
         raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
-    paths = analyze_decision_paths(measurement)
-    return plot_adc_decision_path_density(
-        measurement, paths, output_path=output_dir / "frida2_3layer_behavioral_trajectory_density"
-    )
+    return tuple(_path_figures(analyze_decision_paths(measurement), output_dir, "frida2_3layer_behavioral"))
 
 
 def behavioral_calibration_study() -> tuple[Path, ...]:
@@ -748,13 +756,7 @@ def sequence_study() -> tuple[Path, ...]:
                 if not isinstance(measurement, MeasAdc):
                     raise TypeError(f"expected MeasAdc: {path}")
                 case = f"{flavor}_{timing}"
-                artifacts.extend(
-                    plot_adc_decision_path_density(
-                        measurement,
-                        analyze_decision_paths(measurement),
-                        output_path=output_dir / f"spice_{case}_trajectory",
-                    )
-                )
+                artifacts.extend(_path_figures(analyze_decision_paths(measurement), output_dir, f"spice_{case}"))
                 artifacts.extend(
                     plot_adc_cdac_settling(
                         measurement,

@@ -40,8 +40,6 @@ from flow.analysis.plots import (
     plot_adc_comp_out_edge_eye,
     plot_adc_comparator_edge_eye,
     plot_adc_comparator_response,
-    plot_adc_decision_path_density,
-    plot_adc_decision_paths,
     plot_adc_dynamic,
     plot_adc_dynamic_sweep,
     plot_adc_interferer,
@@ -874,7 +872,9 @@ def test_code_noise_spectrum_and_interferer_plots(tmp_path: Path) -> None:
     assert_plot_formats(plot_adc_interferer([interferer], title="Interferer", output_path=tmp_path / "interferer"))
 
 
-def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:
+def test_dynamic_and_dynamic_sweep_plots(tmp_path: Path) -> None:
+    """The dynamic figures (the decision paths and their density are the ADC's specs:
+    flow/adc/test_plots.py)."""
     measurements = []
     for index, frequency_hz in enumerate((1_000.0, 8_000.0)):
         sample_rate_hz = 100_000.0
@@ -904,152 +904,6 @@ def test_dynamic_sweep_and_decision_path_plots(tmp_path: Path) -> None:
             output_path=tmp_path / "sweep",
         )
     )
-
-    decisions = adc.analyze_decision_paths(measurements[0])
-    paths = plot_adc_decision_paths(
-        measurements[0],
-        decisions,
-        output_path=tmp_path / "decisions",
-    )
-    assert_plot_formats(paths)
-    decision_svg = read_svg(paths)
-    assert "ADC decision paths" in decision_svg
-    assert GRID_MAJOR_COLOR.lower() not in decision_svg.lower()
-
-    all_decisions = decisions
-    density_paths = plot_adc_decision_path_density(
-        measurements[0],
-        all_decisions,
-        output_path=tmp_path / "decision_density",
-    )
-    assert_plot_formats(density_paths)
-    density_svg = read_svg(density_paths)
-    assert "decision-path density" in density_svg
-    assert "Full trajectory" in density_svg
-    assert "Final trajectory" in density_svg
-    assert "Code density" in density_svg
-    assert "Successive approximation code (LSB)" in density_svg
-    assert "Running estimate (LSB)" not in density_svg
-    assert "N:" in density_svg
-    assert "μ:" in density_svg
-    assert "σ:" in density_svg
-    assert "Count / N" in density_svg
-    assert "Conversions per path" in density_svg
-    assert GRID_MAJOR_COLOR.lower() not in density_svg.lower()
-    assert analysis_plots.GRID_MINOR_COLOR.lower() not in density_svg.lower()
-    assert plt.imread(density_paths[0]).shape[:2] == (2700, 4800)
-
-
-def test_decision_path_density_holds_each_discrete_estimate(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Do not invent linearly interpolated SAR estimates between decisions."""
-
-    msmt = adc_measurement([100, 101, 102])
-    analysis = adc.analyze_decision_paths(msmt)
-    original_histogram2d = np.histogram2d
-    sampled_estimates = []
-    rendered_polygons = []
-
-    def record_histogram2d(x, y, *args, **kwargs):
-        sampled_estimates.append(np.asarray(y))
-        return original_histogram2d(x, y, *args, **kwargs)
-
-    original_poly_collection = analysis_plots.PolyCollection
-
-    def record_poly_collection(vertices, *args, **kwargs):
-        rendered_polygons.extend(np.asarray(vertices, dtype=np.float64))
-        return original_poly_collection(vertices, *args, **kwargs)
-
-    monkeypatch.setattr(np, "histogram2d", record_histogram2d)
-    monkeypatch.setattr(analysis_plots, "PolyCollection", record_poly_collection)
-    captured = {}
-
-    def save(fig, output_path):
-        captured["figure"] = fig
-        captured["output_path"] = output_path
-        return ()
-
-    monkeypatch.setattr(analysis_plots, "save_figure", save)
-    plot_adc_decision_path_density(
-        msmt,
-        analysis,
-        output_path=tmp_path / "held_decision_density",
-    )
-
-    figure = captured["figure"]
-    assert captured["output_path"] == tmp_path / "held_decision_density"
-    assert all(ax.get_facecolor()[:3] == mcolors.to_rgb(NORD_LIGHT_BLUE) for ax in figure.axes[:3])
-    info_boxes = (figure.axes[0].artists[0], figure.axes[2].artists[0])
-    assert all(box.get_child().get_children()[0].get_fontsize() == INFO_BOX_FONT_SIZE for box in info_boxes)
-    assert all(type(box.patch.get_boxstyle()).__name__ == "Round" for box in info_boxes)
-
-    sampled = sampled_estimates[0].reshape(len(analysis.estimate_dout), -1)
-    expected = np.repeat(analysis.estimate_dout, 8, axis=1)
-    np.testing.assert_array_equal(sampled, expected)
-
-    # The largest jump in one representative path must be connected at the
-    # exact integer decision boundary and at its true endpoint values.
-    cycle = int(np.argmax(np.abs(np.diff(analysis.estimate_dout[0])))) + 1
-    previous = analysis.estimate_dout[0, cycle - 1]
-    current = analysis.estimate_dout[0, cycle]
-    previous_box_code = np.floor(previous + 0.5)
-    current_box_code = np.floor(current + 0.5)
-    lower_edge = min(previous_box_code, current_box_code) - 0.5
-    upper_edge = max(previous_box_code, current_box_code) + 0.5
-    expected_segment = np.asarray(
-        (
-            (float(cycle) - 0.05, lower_edge),
-            (float(cycle) + 0.05, lower_edge),
-            (float(cycle) + 0.05, upper_edge),
-            (float(cycle) - 0.05, upper_edge),
-        )
-    )
-    assert abs(current - previous) > 1
-    assert any(np.allclose(segment, expected_segment) for segment in rendered_polygons)
-
-    # A sparse 64-LSB branch must remain visible in the final-path panel and
-    # histogram, even when almost every capture lands on the other code.
-    outlier_paths = analysis.estimate_dout.copy()
-    outlier_paths[:, -1] = (2240, 2240, 2304)
-    outlier_analysis = replace(
-        analysis, estimate_dout=outlier_paths, final_dout=np.asarray([2240, 2240, 2304], dtype=np.int64)
-    )
-    plot_adc_decision_path_density(msmt, outlier_analysis, output_path=tmp_path / "outlier_density")
-    for ax in captured["figure"].axes[1:3]:
-        lower, upper = ax.get_ylim()
-        assert lower < 2240 and upper > 2304
-
-
-def test_decision_path_density_marks_unresolved_code_dispersion(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Report an all-one-code capture as unresolved rather than noiseless."""
-
-    measurement = adc_measurement([2_048] * 10)
-    analysis = adc.analyze_decision_paths(measurement)
-    captured = {}
-
-    def save(fig, output_path):
-        captured["figure"] = fig
-        captured["output_path"] = output_path
-        return ()
-
-    monkeypatch.setattr(analysis_plots, "save_figure", save)
-    plot_adc_decision_path_density(
-        measurement,
-        analysis,
-        output_path=tmp_path / "unresolved_decision_density",
-    )
-
-    figure = captured["figure"]
-    statistics_box = figure.axes[2].artists[0]
-    statistics_text = statistics_box.get_child().get_children()[0].get_text()
-    assert captured["output_path"] == tmp_path / "unresolved_decision_density"
-    assert statistics_text == "μ: 0\nσ: <1.0 LSB"
-    plt.close(figure)
 
 
 def test_noise_rate_and_power_sweep_plots(tmp_path: Path) -> None:

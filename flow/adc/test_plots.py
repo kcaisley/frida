@@ -28,6 +28,7 @@ from flow.adc.types import (
 )
 from flow.analysis.types import MeasAdc
 from flow.plot import render
+from flow.test_plot import drawn
 
 # the viewer's details of a characterization, in its order (every record's, the ladder's and the
 # reference driver's where the record has them)
@@ -191,6 +192,41 @@ def test_the_decision_paths_are_drawn_weighted_by_their_conversions() -> None:
     ((label, counts),) = codes.series.items()
     assert counts == [0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 0.0]
     assert label == f"Conversions (mean {np.mean([5, 5, 3]):.2f}, σ {np.std([5, 5, 3]):.2f} LSB)"
+
+
+def test_the_decision_paths_hold_each_estimate_and_keep_a_rare_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A path is a conversion's running estimates as they are, held from one decision to the next
+    (drawn as steps: no estimate made up between decisions); a branch one conversion in three takes,
+    64 codes off, stays among the last decisions' paths and the codes they end on; drawn on the
+    analysis plots' canvas."""
+    paths = analyze_decision_paths(adc_measurement([100, 101, 102]))
+    estimates = {tuple(float(f"{y:.6g}") for y in row) for row in np.asarray(paths.estimate_dout, dtype=np.float64)}
+    whole = plots.plot_trajectory(paths)
+    assert {tuple(path["y"]) for path in whole.paths} == estimates
+    monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
+    (png, _pdf) = render(whole, tmp_path / "trajectory")
+    assert plt.imread(png).shape[:2] == (2700, 4800)
+    # drawn (saving nothing from here on) as steps held through each decision
+    assert all(line.get_drawstyle() == "steps-post" for line in drawn(whole, monkeypatch).axes[0].lines)
+    branched = paths.estimate_dout.copy()
+    branched[:, -1] = (2240, 2240, 2304)
+    rare = replace(paths, estimate_dout=branched, final_dout=np.asarray([2240, 2240, 2304], dtype=np.int64))
+    assert {path["y"][-1] for path in plots.plot_trajectory_final(rare).paths} == {2240.0, 2304.0}
+    codes = plots.plot_trajectory_codes(rare)
+    (counts,) = codes.series.values()
+    assert codes.x[0] < 2240 and codes.x[-1] > 2304
+    assert (counts[codes.x.index(2240.0)], counts[codes.x.index(2304.0)]) == (2.0, 1.0)
+
+
+def test_a_capture_on_one_code_spreads_under_a_code() -> None:
+    """Every conversion on one code: a spread under a code, which the codes cannot resolve, not
+    none."""
+    paths = analyze_decision_paths(adc_measurement([2_048] * 10))
+    ((label, counts),) = plots.plot_trajectory_codes(paths).series.items()
+    assert label == "Conversions (mean 2048.00, one code: σ under 1 LSB)"
+    assert counts == [0.0, 0.0, 10.0, 0.0, 0.0]
 
 
 def test_the_mismatch_figures_are_at_harpes_matching() -> None:

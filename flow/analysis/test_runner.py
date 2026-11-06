@@ -24,6 +24,7 @@ from flow.adc.sim import SEQUENCES
 from flow.adc.test_analysis import adc_measurement, adc_ramp_measurement
 from flow.analysis.io import read_analysis
 from flow.cdac.caparray import targets as caparray_targets
+from flow.pipeline import Plot
 
 
 def test_root_api_exposes_domain_analyses_not_campaign_combiners() -> None:
@@ -224,6 +225,11 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     )
     monkeypatch.setattr(adc_targets, "analyze_decision_paths", lambda *args, **kwargs: object())
     monkeypatch.setattr(adc_targets, "analyze_cdac_settling", lambda *args: object())
+    # the decision paths are the record's three specs, drawn by flow.plot.render
+    for name in ("plot_trajectory", "plot_trajectory_final", "plot_trajectory_codes"):
+        figure = Plot(name.removeprefix("plot_"), "", "", "", [], {})
+        monkeypatch.setattr(adc_targets, name, lambda _paths, figure=figure: figure)
+    monkeypatch.setattr(adc_targets, "render", lambda _plot, stem: (stem.with_suffix(".pdf"),))
 
     def plot(*args, output_path, **kwargs):
         if output_path.name == "all_adc_sequence_overview":
@@ -237,7 +243,6 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
     for name in (
         "plot_adc_sequence_chip_overview",
         "plot_adc_sequence_enob",
-        "plot_adc_decision_path_density",
         "plot_adc_cdac_settling",
         "plot_waveforms",
         "plot_adc_noise_sweep",
@@ -248,7 +253,8 @@ def test_sequence_plots_stored_measurements_without_redecoding(tmp_path: Path, m
 
     artifacts = study(monkeypatch, adc_targets, "sequence_study", output_dir)
     flavor_count = 7
-    assert len(artifacts) == 2 * 16 + 1 + 4 * case_count + clock_count + 2 * flavor_count
+    assert len(artifacts) == 2 * 16 + 1 + 6 * case_count + clock_count + 2 * flavor_count
+    assert len([path for path in artifacts if path.name.endswith("_trajectory_codes.pdf")]) == case_count
     assert len([path for path in artifacts if path.name.endswith("_sequence_enob.pdf")]) == 16
     assert len(set(selected_cases)) == case_count
     # Runners save figures and analysis HDF5 only: no CSV, JSON, text, or TeX reports.
