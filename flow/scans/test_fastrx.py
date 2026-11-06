@@ -52,11 +52,10 @@ from basil.HL.tektronix_oscilloscope import response_value
 from bitarray import bitarray
 from yaml import safe_load
 
-from flow.adc import AdcParams
+from flow import adc
 from flow.adc.sim import (
     SEQUENCES,
     AdcSequence,
-    AdcTbParams,
     symbol160_init4_samp20_comp11110000_logic00001111,
     symbol160_init4_samp20_comp11111100_logic11000011,
     symbol256_init8_samp16_comp11110000_logic11000011,
@@ -164,7 +163,7 @@ def test_physical_fastrx_matches_scope(
     capture_profiles = board["fastrx_capture_settings"]
     flavor_name = board_map["adc_channels"][ADC_INDEX]
     cap_weights = tuple(board_map["adc_flavors"][flavor_name]["cdac_weights"])
-    dut_params = AdcParams(
+    dut_params = adc.Params(
         adc_bits=12,
         cdac=CapArrayConfig(
             n_dac=11,
@@ -175,7 +174,7 @@ def test_physical_fastrx_matches_scope(
     )
     active_adc_mask = tuple(int(index == ADC_INDEX) for index in reversed(range(16)))
     base_params = AdcScanParams(
-        tb=AdcTbParams(
+        tb=adc.TbParams(
             view="frida1",
             dut=dut_params,
             conversions=conversions,
@@ -733,7 +732,7 @@ def test_adc_scan_boundary_capture(sequence: AdcSequence, symbol_rate: float, li
 def test_fastrx_captures_exact_internal_17_bit_pattern(sequence: AdcSequence, boundary_case: bool) -> None:
     """Hardware: capture every test bit in order with contiguous frame IDs."""
 
-    params = AdcTbParams(
+    params = adc.TbParams(
         seq_init_pattern=sequence.init,
         seq_samp_pattern=sequence.samp,
         seq_comp_pattern=sequence.comp,

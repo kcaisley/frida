@@ -9,7 +9,7 @@ import hdl21 as h
 import numpy as np
 import pytest
 
-from flow.adc.sim import AdcTbParams
+from flow import adc
 from flow.analysis.types import MeasCdac, MeasInfo, Wave
 from flow.scans.fastrx import FastRxCapture, select_fastrx_capture_settings
 from flow.scans.params import AdcScanParams, load_board_map, validate_params
@@ -505,6 +505,6 @@ def test_cdac_preflight_rejects_supply_and_fixed_io_before_hardware(tmp_path) ->
 
 
 def test_cdac_scan_axis_validation_rejects_incomplete_params() -> None:
-    params = AdcScanParams(tb=AdcTbParams(view="frida1"), campaign="cdac_ab", sampling_mode="hold")
+    params = AdcScanParams(tb=adc.TbParams(view="frida1"), campaign="cdac_ab", sampling_mode="hold")
     with pytest.raises(ValueError, match="requires side, element, and direction"):
         validate_params(params)

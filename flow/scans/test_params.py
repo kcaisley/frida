@@ -6,7 +6,8 @@ import hdl21 as h
 import pytest
 from hdl21.prefix import m
 
-from flow.adc.sim import SEQUENCES, AdcTbParams, symbol256_init8_samp16_comp11110000_logic00001111
+from flow import adc
+from flow.adc.sim import SEQUENCES, symbol256_init8_samp16_comp11110000_logic00001111
 from flow.scans.params import (
     AdcScanParams,
     build_adc_variants,
@@ -20,7 +21,7 @@ timing_sequences = tuple(
 
 
 def test_default_params_are_valid_and_immutable() -> None:
-    params = AdcScanParams(tb=AdcTbParams(view="frida1"))
+    params = AdcScanParams(tb=adc.TbParams(view="frida1"))
 
     validate_params(params)
     assert isinstance(params.tb.vin_diff, h.Vdc.Params)
@@ -38,7 +39,7 @@ def test_analog_input_preserves_hdl21_source_type() -> None:
         h.Vpwl.Params(wave="0 -100m 1m 100m"),
     )
 
-    params = [AdcTbParams(vin_diff=source) for source in inputs]
+    params = [adc.TbParams(vin_diff=source) for source in inputs]
 
     assert [type(item.vin_diff) for item in params] == [type(source) for source in inputs]
 
@@ -100,13 +101,13 @@ def test_build_adc_variants_covers_adc00_through_adc03_ramp() -> None:
 
 
 def test_convert_conversion_rate_to_baud_uses_conversion_duration() -> None:
-    params = AdcTbParams()
+    params = adc.TbParams()
     assert convert_conversion_rate_to_baud(params, 1e6) == 160e6
 
     inactive = "0" * len(params.seq_init_pattern)
     with pytest.raises(ValueError, match="one INIT rising edge"):
         convert_conversion_rate_to_baud(
-            AdcTbParams(
+            adc.TbParams(
                 seq_init_pattern=inactive,
                 seq_samp_pattern=inactive,
                 seq_comp_pattern=inactive,
@@ -119,9 +120,9 @@ def test_convert_conversion_rate_to_baud_uses_conversion_duration() -> None:
 
 
 def test_validation_rejects_invalid_configuration_relationships() -> None:
-    incomplete_measurement = AdcScanParams(tb=AdcTbParams(view="frida1"), board_id=0)
-    invalid_bus = AdcScanParams(tb=AdcTbParams(view="frida1", dac_astate_p=(0,) * 15 + (2,)))
-    unequal_patterns = AdcScanParams(tb=AdcTbParams(view="frida1", seq_logic_pattern="01"))
+    incomplete_measurement = AdcScanParams(tb=adc.TbParams(view="frida1"), board_id=0)
+    invalid_bus = AdcScanParams(tb=adc.TbParams(view="frida1", dac_astate_p=(0,) * 15 + (2,)))
+    unequal_patterns = AdcScanParams(tb=adc.TbParams(view="frida1", seq_logic_pattern="01"))
 
     with pytest.raises(ValueError, match="must be set together"):
         validate_params(incomplete_measurement)

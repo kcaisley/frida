@@ -11,8 +11,8 @@ import hdl21 as h
 import numpy as np
 import pytest
 
-from flow.adc import AdcParams
-from flow.adc.sim import SEQUENCES, AdcSequence, AdcTbParams
+from flow import adc
+from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.analysis.adc import (
     analyze_adc_cdac_settling,
     analyze_adc_code_density_nonlinearity,
@@ -168,7 +168,7 @@ def adc_measurement(
     vin_diff_array = np.asarray(vin_diff_v, dtype=np.float64)
     if vin_diff_array.ndim == 0:
         vin_diff_array = np.full(len(dout), vin_diff_array.item())
-    template = AdcTbParams()
+    template = adc.TbParams()
     measurement_selection = {}
     if observed_adc is not None:
         measurement_selection = {
@@ -176,7 +176,7 @@ def adc_measurement(
             "observed_adc": observed_adc,
             "active_adc_mask": tuple(int(index == observed_adc) for index in reversed(range(16))),
         }
-    tb_params = AdcTbParams(
+    tb_params = adc.TbParams(
         conversions=len(dout),
         symbol_rate=sample_rate_hz * len(template.seq_init_pattern),
         vin_diff=h.Vsin.Params(voff=0.0, vamp=0.5, freq=input_frequency_hz),
@@ -347,7 +347,7 @@ def adc_ramp_measurement(*, cycles: int = 4, observed_adc: int = 0, start_offset
     base = adc_measurement(np.zeros(sample_count, dtype=np.int64), observed_adc=observed_adc)
     assert isinstance(base, MeasAdc)
     params = AdcScanParams(
-        tb=AdcTbParams(
+        tb=adc.TbParams(
             dut=base.param.tb.dut,
             conversions=sample_count,
             symbol_rate=base.param.tb.symbol_rate,
@@ -561,7 +561,7 @@ def sar_sine_measurement(
 
     code_max = (1 << adc_bits) - 1
     sample_rate_hz, count, cycles = 10.0e6, 8_192, 1_021
-    dut = AdcParams(adc_bits=adc_bits, cdac=cdac)
+    dut = adc.Params(adc_bits=adc_bits, cdac=cdac)
     template = adc_measurement([0], sample_rate_hz=sample_rate_hz, input_frequency_hz=sample_rate_hz * cycles / count)
     nominal = replace(template, dut=dut).nominal_bout_weights
     capacitors = 1.0 + spread * np.random.default_rng(1).standard_normal(len(nominal) - 1)
@@ -575,7 +575,7 @@ def sar_sine_measurement(
         bout[:, decision] = sine > dac
         dac += np.where(sine > dac, weight, -weight) / 2
     dout = bout.astype(np.int64) @ nominal
-    tb = AdcTbParams(
+    tb = adc.TbParams(
         dut=dut,
         conversions=count,
         symbol_rate=template.tb.symbol_rate,
@@ -880,7 +880,7 @@ def test_decision_paths_normalize_redundant_raw_weights() -> None:
             msmt.param,
             tb=replace(
                 msmt.param.tb,
-                dut=AdcParams(
+                dut=adc.Params(
                     adc_bits=12,
                     cdac=CapArrayConfig(n_dac=11, n_extra=5, weights=weights),
                 ),

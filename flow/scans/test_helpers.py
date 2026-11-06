@@ -10,10 +10,10 @@ import numpy as np
 import pytest
 from bitarray import bitarray
 
+from flow import adc
 from flow.adc.sim import (
     SEQUENCES,
     AdcSequence,
-    AdcTbParams,
     symbol160_init4_samp20_comp11110000_logic00001111,
     symbol160_init4_samp20_comp11111100_logic11000011,
     symbol256_init8_samp16_comp11110000_logic00001111,
@@ -119,7 +119,7 @@ def spi_params(**overrides) -> AdcScanParams:
             scan_config[name] = value
         else:
             tb_config[name] = value
-    return AdcScanParams(tb=AdcTbParams(**tb_config), **scan_config)
+    return AdcScanParams(tb=adc.TbParams(**tb_config), **scan_config)
 
 
 def unpack_spi_payload(payload: bytes) -> bitarray:
@@ -159,7 +159,7 @@ def test_scope_wave_plots_raw_aligned_acquisition(tmp_path) -> None:
 def test_convert_params_to_seqgen_fmt_packs_serializer_lanes() -> None:
     """Verify critical 64-bit lane ordering, control placement, and zero padding."""
     sequence = symbol160_init4_samp20_comp11111100_logic11000011
-    params = AdcTbParams(**sequence.as_tb_fields())
+    params = adc.TbParams(**sequence.as_tb_fields())
     capture = "0110" + "0" * 16
     memory = seqgen.convert_params_to_seqgen_fmt(params, capture)
     assert len(memory) == 160
@@ -173,7 +173,7 @@ def test_convert_params_to_seqgen_fmt_packs_serializer_lanes() -> None:
 
 
 def test_convert_params_to_seqgen_fmt_rejects_invalid_capture() -> None:
-    params = AdcTbParams(**symbol160_init4_samp20_comp11111100_logic11000011.as_tb_fields())
+    params = adc.TbParams(**symbol160_init4_samp20_comp11111100_logic11000011.as_tb_fields())
     with pytest.raises(TypeError, match="binary string"):
         seqgen.convert_params_to_seqgen_fmt(params, [0] * 20)  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError, match="must contain 20"):
@@ -194,7 +194,7 @@ def test_convert_params_to_seqgen_fmt_rejects_invalid_capture() -> None:
     ],
 )
 def test_fastrx_pattern_preserves_controls_and_wraps_receive(row: AdcSequence, start: int) -> None:
-    params = AdcTbParams(
+    params = adc.TbParams(
         seq_init_pattern=row.init,
         seq_samp_pattern=row.samp,
         seq_comp_pattern=row.comp,
@@ -394,9 +394,9 @@ def test_convert_params_to_spi_fmt_places_fields_and_reverses_for_transmission(c
     assert logical[16:32][::-1].to01() == "".join(str(bit) for bit in params.tb.dac_astate_n)
     assert logical[0:16][::-1].to01() == "".join(str(bit) for bit in params.tb.dac_bstate_n)
 
-    for adc in range(16):
-        base = 64 + 7 * adc
-        expected = "1011001" if adc in (3, 9) else "0000000"
+    for adc_index in range(16):
+        base = 64 + 7 * adc_index
+        expected = "1011001" if adc_index in (3, 9) else "0000000"
         assert logical[base : base + 7].to01() == expected
 
     assert logical[176:180][::-1].to01() == "0011"
@@ -565,7 +565,7 @@ def test_adc_noctl_abort_opens_only_the_fpga_map(monkeypatch, tmp_path) -> None:
 @pytest.mark.parametrize("symbol_rate", (320e6, 960e6, 1600e6))
 def test_adc_receive_alignment_keeps_control_rows_fixed(name, sequence, symbol_rate):
     params = AdcScanParams(
-        tb=AdcTbParams(symbol_rate=symbol_rate, **sequence.as_tb_fields()),
+        tb=adc.TbParams(symbol_rate=symbol_rate, **sequence.as_tb_fields()),
         fastrx_capture=fastrx.FastRxCapture(62, 7),
     )
     settings = fastrx.select_fastrx_capture_settings(params)
@@ -590,7 +590,7 @@ def test_parse_pwl_wave_accepts_spice_suffixes_and_rejects_time_reversal() -> No
 
 def test_fastrx_settings_require_exact_characterization():
     name, sequence = SEQUENCES[0]
-    params = AdcScanParams(tb=AdcTbParams(symbol_rate=320e6, **sequence.as_tb_fields()))
+    params = AdcScanParams(tb=adc.TbParams(symbol_rate=320e6, **sequence.as_tb_fields()))
     profile = {"sequence": name, "symbol_rate_bps": 320e6, "comp_delay_taps": 33, "rx_sen_start_word": 6}
     with pytest.raises(ValueError, match="characterized"):
         fastrx.select_fastrx_capture_settings(params)
@@ -610,7 +610,7 @@ def test_fastrx_timing_profiles_cover_every_catalogue_sequence() -> None:
     profiles = load_board_map()["boards"][0]["fastrx_capture_settings"]
     for _name, sequence in SEQUENCES:
         for baud in (320e6, 960e6, 1600e6):
-            params = AdcScanParams(tb=AdcTbParams(symbol_rate=baud, **sequence.as_tb_fields()))
+            params = AdcScanParams(tb=adc.TbParams(symbol_rate=baud, **sequence.as_tb_fields()))
             capture = fastrx.select_fastrx_capture_settings(params, profiles)
             assert 0 <= capture.comp_delay_taps <= 62
             assert capture.rx_sen_start_word < len(sequence.init) // 8

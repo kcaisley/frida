@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from yaml import safe_load
 
-from flow.adc.sim import AdcTbParams
+from flow import adc
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
 MAP_PATH = Path(__file__).resolve().parent / "map_fpga.yaml"
@@ -25,7 +25,7 @@ pytestmark = pytest.mark.hw
 
 def test_seq_gen_memory_and_register_readback() -> None:
     """Hardware: write and read back seq_gen memory and control registers."""
-    params = AdcTbParams()
+    params = adc.TbParams()
     sequence_words = len(params.seq_init_pattern) // 8
     rx_sen_pattern = "0" * 5 + "1" * 17 + "0" * (sequence_words - 22)
     memory = convert_params_to_seqgen_fmt(params, rx_sen_pattern)

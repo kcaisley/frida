@@ -1,5 +1,5 @@
 """An ADC's characterization campaign: every capture its figures need, as testbench parameters
-(``AdcTbParams``) from a builder, the same for a SPICE run of ``AdcTb`` and for the behavioral
+(``TbParams``) from a builder, the same for a SPICE run of ``AdcTb`` and for the behavioral
 model (``flow.adc.model``), each of which turns one into a ``MeasAdc``.
 
 - ``ramp_train`` and ``ramp_check``: eight full-scale sawtooth periods on the CDAC's SPICE draw
@@ -44,7 +44,7 @@ from dataclasses import dataclass, replace
 import hdl21 as h
 import numpy as np
 
-from flow.adc.sim import AdcTbParams
+from flow.adc.params import TbParams
 from flow.analysis.types import MeasAdc
 
 # 1 to 10 MS/s in 1 MS/s steps, the rates the ADC is meant to run at, then on to 100 MS/s: where
@@ -99,7 +99,7 @@ class Capture:
     otherwise (``quiet``, as ``AdcModel.behavioral``'s) and its DAC settling time constants' scale
     (1: the array's own, 0: ideal settling, the Hsu study's reference)."""
 
-    tb: AdcTbParams
+    tb: TbParams
     seed: int = 0
     noise_seed: int | None = None
     unit_mismatch: float = 0.0
@@ -109,7 +109,7 @@ class Capture:
     drawn: bool = False
 
 
-Builder = Callable[..., AdcTbParams]  # (conversions=, rate_hz=, vin_diff=) -> AdcTbParams
+Builder = Callable[..., TbParams]  # (conversions=, rate_hz=, vin_diff=) -> TbParams
 
 
 def campaign(

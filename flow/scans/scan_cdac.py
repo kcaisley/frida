@@ -21,8 +21,7 @@ import numpy as np
 from bitarray import bitarray
 from pyvisa.errors import VisaIOError
 
-from flow.adc import AdcParams
-from flow.adc.sim import AdcTbParams
+from flow import adc
 from flow.analysis import calc
 from flow.analysis.io import read_measurement, write_measurement
 from flow.analysis.types import MeasCdac, MeasInfo, Wave
@@ -423,7 +422,7 @@ def _build_cdac_params(
     board_map = load_board_map()
     flavor = board_map["adc_channels"][adc_index]
     cap_weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
-    dut = AdcParams(
+    dut = adc.Params(
         adc_bits=12,
         cdac=CapArrayConfig(
             n_dac=11,
@@ -449,7 +448,7 @@ def _build_cdac_params(
 
     symbol_rate_bps = 1.6e9
     params = AdcScanParams(
-        tb=AdcTbParams(
+        tb=adc.TbParams(
             view="frida1",
             dut=dut,
             symbol_rate=symbol_rate_bps,

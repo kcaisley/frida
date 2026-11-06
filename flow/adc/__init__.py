@@ -2,16 +2,16 @@
 ADC generator module for FRIDA.
 
 Exports:
+- Params: ADC parameters (every combination they admit builds)
+- TbParams: the parameters of one generated testbench
 - Adc: Full ADC generator (composes digital + analog)
-- AdcParams: ADC parameters (every combination they admit builds)
 """
 
-from .subckt import (
-    Adc,
-    AdcParams,
-)
+from .params import Params, TbParams
+from .subckt import Adc
 
 __all__ = [
     "Adc",
-    "AdcParams",
+    "Params",
+    "TbParams",
 ]

@@ -16,8 +16,8 @@ from flow.adc.behavioral import (
     calc_redundancy_margins,
     convert_behavioral,
 )
-from flow.adc.sim import AdcSequence, AdcTbParams, symbol160_init4_samp20_comp11110000_logic00001111
-from flow.adc.subckt import AdcParams
+from flow.adc.params import Params, TbParams
+from flow.adc.sim import AdcSequence, symbol160_init4_samp20_comp11110000_logic00001111
 from flow.analysis.plots import plot_adc_redundancy
 from flow.cdac.caparray.model import calc_capacitor_mismatch
 from flow.cdac.caparray.subckt import CapArrayConfig, RedunStrat, get_caparray_weights, unit_capacitance_f
@@ -100,15 +100,15 @@ def test_every_scheme_reaches_every_code(bits: int) -> None:
         assert len(codes) == 2**bits and np.array_equal(codes, found), cdac
 
 
-TB = AdcTbParams(
-    dut=AdcParams(adc_bits=12, cdac=CapArrayConfig()),
+TB = TbParams(
+    dut=Params(adc_bits=12, cdac=CapArrayConfig()),
     symbol_rate=1.6 * G,
     **symbol160_init4_samp20_comp11110000_logic00001111.as_tb_fields(),
 )
 
 
 def with_tb(**fields) -> AdcBehavioralParams:
-    return AdcBehavioralParams(tb=AdcTbParams(**{**TB.__dict__, **fields}))
+    return AdcBehavioralParams(tb=TbParams(**{**TB.__dict__, **fields}))
 
 
 def test_ideal_capacitances_reproduce_the_generated_weights() -> None:
@@ -148,8 +148,8 @@ def test_other_resolutions_convert_and_scale_logic_energy(n_dac: int, n_extra: i
     cdac = CapArrayConfig(n_dac=n_dac, n_extra=n_extra)
     stages = len(get_caparray_weights(cdac))
     params = AdcBehavioralParams(
-        tb=AdcTbParams(
-            dut=AdcParams(adc_bits=n_dac + 1, cdac=cdac),
+        tb=TbParams(
+            dut=Params(adc_bits=n_dac + 1, cdac=cdac),
             symbol_rate=1.6 * G,
             dac_astate_p=(0, 1) * (stages // 2) + (0,) * (stages % 2),
             dac_astate_n=(0, 1) * (stages // 2) + (0,) * (stages % 2),
@@ -238,7 +238,7 @@ def test_a_drawn_arrays_exact_transfer_is_the_noise_free_converters() -> None:
 
     stages = len(get_caparray_weights(TB.dut.cdac))
     astate = (0, 1) * (stages // 2) + (0,) * (stages % 2)
-    tb = AdcTbParams(**{**TB.__dict__, "dac_astate_p": astate, "dac_astate_n": astate})
+    tb = TbParams(**{**TB.__dict__, "dac_astate_p": astate, "dac_astate_n": astate})
     rng = np.random.default_rng(5)
     main_f, diff_f = calc_ideal_capacitances(tb.dut.cdac)
     drawn = {

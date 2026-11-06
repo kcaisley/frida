@@ -5,7 +5,7 @@ Run from /local/frida:
     uv run python -m flow.scans.scan_behavioral            # list targets
     uv run python -m flow.scans.scan_behavioral <target>
 
-Each target builds HDL21 ``AdcTbParams`` exactly as a SPICE target would and
+Each target builds HDL21 ``adc.TbParams`` exactly as a SPICE target would and
 converts them with ``flow.adc.behavioral``, writing one ``MeasAdc`` per case
 beneath ``build/scan_behavioral/<timestamp>_<target>/``. The stored DOUT is
 the nominal design-weight decoding the FPGA performs. The model switches the
@@ -28,6 +28,7 @@ from hdl21.prefix import G
 
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
+from flow import adc
 from flow import comp as comparator
 from flow.adc.behavioral import (
     AdcBehavioralParams,
@@ -39,12 +40,10 @@ from flow.adc.behavioral import (
 )
 from flow.adc.sim import (
     AdcSequence,
-    AdcTbParams,
     build_adc_interface_wave,
     calc_source_value,
     symbol160_init4_samp20_comp11110000_logic00001111,
 )
-from flow.adc.subckt import AdcParams
 from flow.analysis.io import write_analysis, write_measurement
 from flow.analysis.types import MeasAdc, MeasCdac, MeasInfo
 from flow.cdac.caparray import get_caparray_weights
@@ -54,10 +53,10 @@ from flow.scans.params import AdcScanParams
 from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 
 # FRIDA-2 three-layer configuration with the 160-symbol continuous recipe.
-TB = AdcTbParams(
+TB = adc.TbParams(
     view="frida2",
     pex_cell="adc_12b_17step",
-    dut=AdcParams(adc_bits=12, cdac=CapArrayConfig()),
+    dut=adc.Params(adc_bits=12, cdac=CapArrayConfig()),
     symbol_rate=1.6 * G,
     vin_cm=h.Vdc.Params(dc=0.700),
     **symbol160_init4_samp20_comp11110000_logic00001111.as_tb_fields(),
@@ -122,7 +121,7 @@ SCAN_OUTDIR = Path(__file__).resolve().parents[2] / "build" / "scan_behavioral"
 
 
 def build_frida2_params(
-    tb: AdcTbParams, *, seed: int, unit_mismatch: float = 0.0, noise_seed: int | None = None
+    tb: adc.TbParams, *, seed: int, unit_mismatch: float = 0.0, noise_seed: int | None = None
 ) -> AdcBehavioralParams:
     """Return FRIDA-2 three-layer block parameters, with a capacitor mismatch draw when ``unit_mismatch`` > 0."""
 
@@ -218,7 +217,7 @@ def frida2_ramp_code_density(run_dir: Path) -> None:
     capacitors and independent noise, as a held-out check.
     """
 
-    tb = AdcTbParams(**{**TB.__dict__, "conversions": 1_000_000, "vin_diff": h.Vpwl.Params(wave="0 -0.8 0.0125 0.8")})
+    tb = adc.TbParams(**{**TB.__dict__, "conversions": 1_000_000, "vin_diff": h.Vpwl.Params(wave="0 -0.8 0.0125 0.8")})
     cases = [(0, 0.0)] + [
         (seed, mismatch) for mismatch in (UNIT_MISMATCH_HARPE, UNIT_MISMATCH) for seed in (1, 2, 3, 4)
     ]
@@ -239,7 +238,7 @@ def frida2_energy_vs_input(run_dir: Path) -> None:
     full_scale_v = 0.765
     params, paths = [], []
     for index, vin_v in enumerate(np.linspace(-full_scale_v, full_scale_v, 129)):
-        tb = AdcTbParams(**{**TB.__dict__, "conversions": 2_000, "vin_diff": h.Vdc.Params(dc=float(vin_v))})
+        tb = adc.TbParams(**{**TB.__dict__, "conversions": 2_000, "vin_diff": h.Vdc.Params(dc=float(vin_v))})
         params.append(build_frida2_params(tb, seed=0))
         paths.append(run_dir / f"{index:03d}_vin{1e3 * vin_v:+04.0f}mv.h5")
     with ProcessPoolExecutor(max_workers=12) as executor:
@@ -256,7 +255,7 @@ def frida2_sample_rate(run_dir: Path) -> None:
         sample_rate_hz = symbol_rate_gbd * 1e9 / len(TB.seq_init_pattern)
         # 1,021 cycles in 8,192 conversions: coprime and near fs / 8.
         frequency_hz = 1_021 * sample_rate_hz / conversions
-        tb = AdcTbParams(
+        tb = adc.TbParams(
             **{
                 **TB.__dict__,
                 "symbol_rate": symbol_rate_gbd * G,
@@ -277,7 +276,7 @@ def frida2_noise_sources(run_dir: Path) -> None:
     DC input.
     """
 
-    tb = AdcTbParams(**{**TB.__dict__, "conversions": 100_000, "vin_diff": h.Vdc.Params(dc=0.05)})
+    tb = adc.TbParams(**{**TB.__dict__, "conversions": 100_000, "vin_diff": h.Vdc.Params(dc=0.05)})
     base = build_frida2_params(tb, seed=0)
     quiet_samp = samp_model.Model.Behavioral(**{**SAMP.__dict__, "noise_v": 0.0, "jitter_s": 0.0})
     quiet_comp = comp_model.Model.Behavioral(**{**COMP.__dict__, "noise_v": 0.0})
@@ -306,7 +305,7 @@ def frida2_input_frequency(run_dir: Path) -> None:
         sample_rate_hz = symbol_rate_gbd * 1e9 / len(TB.seq_init_pattern)
         for count in cycles:
             frequency_hz = count * sample_rate_hz / conversions
-            tb = AdcTbParams(
+            tb = adc.TbParams(
                 **{
                     **TB.__dict__,
                     "symbol_rate": symbol_rate_gbd * G,
@@ -326,7 +325,7 @@ def frida2_trajectory(run_dir: Path) -> None:
     must recover whichever direction it takes.
     """
 
-    tb = AdcTbParams(**{**TB.__dict__, "conversions": 2_000, "vin_diff": h.Vdc.Params(dc=0.0)})
+    tb = adc.TbParams(**{**TB.__dict__, "conversions": 2_000, "vin_diff": h.Vdc.Params(dc=0.0)})
     print(f"Saved {capture_behavioral(build_frida2_params(tb, seed=0), run_dir / 'trajectory_0mv.h5')}")
 
 
@@ -389,7 +388,7 @@ def frida2_cdac_ab(run_dir: Path) -> None:
                         before = {"p": [start] * stages, "n": [start] * stages}
                         after = {"p": list(before["p"]), "n": list(before["n"])}
                         after[side][element] = 1 - start
-                        tb = AdcTbParams(
+                        tb = adc.TbParams(
                             **{
                                 **TB.__dict__,
                                 "dac_mode": 0,
@@ -428,7 +427,7 @@ def frida2_cdac_ab(run_dir: Path) -> None:
                             TB.dut.comp, params.comp, held["p"] - held["n"] + step_v, rng, vin_cm_v=vin_cm_v
                         )
                         point = AdcScanParams(
-                            tb=AdcTbParams(**{**tb.__dict__, "vin_diff": h.Vdc.Params(dc=float(transition_v))}),
+                            tb=adc.TbParams(**{**tb.__dict__, "vin_diff": h.Vdc.Params(dc=float(transition_v))}),
                             campaign="cdac_ab",
                             sampling_mode="hold",
                             sweep_stage="fine",
@@ -492,10 +491,10 @@ def architecture_variants(run_dir: Path) -> None:
                 main_f, diff_f = weights * array_f / float(np.sum(weights)), np.zeros(stages)
             # Each array's own differential full scale; a ramp 5 % beyond it reaches every code.
             full_scale_v = float(TB.vdd_dac.dc) * float(np.sum(main_f - diff_f)) / TOTAL_LOAD_F
-            tb = AdcTbParams(
+            tb = adc.TbParams(
                 **{
                     **TB.__dict__,
-                    "dut": AdcParams(adc_bits=12, cdac=cdac_config),
+                    "dut": adc.Params(adc_bits=12, cdac=cdac_config),
                     "conversions": 1_000_000,
                     "vin_diff": h.Vpwl.Params(wave=f"0 {-1.05 * full_scale_v:.4f} 0.0125 {1.05 * full_scale_v:.4f}"),
                     "dac_astate_p": alternating,

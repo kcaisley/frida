@@ -16,9 +16,7 @@ import hdl21 as h
 import numpy as np
 import pytest
 
-from flow import comp
-from flow.adc import AdcParams
-from flow.adc.sim import AdcTbParams
+from flow import adc, comp
 from flow.analysis.adc import (
     analyze_adc_code_density_nonlinearity,
     analyze_adc_code_distribution,
@@ -46,14 +44,14 @@ from flow.scans.scan_cdac import _build_cdac_params
 CAPACITOR_WEIGHTS = (192, 128, 80, 48, 32, 16, 12, 8, 4, 2, 1, 1)
 
 
-def small_adc() -> AdcParams:
-    return AdcParams(adc_bits=10, cdac=CapArrayConfig(n_dac=9, n_extra=3, weights=CAPACITOR_WEIGHTS))
+def small_adc() -> adc.Params:
+    return adc.Params(adc_bits=10, cdac=CapArrayConfig(n_dac=9, n_extra=3, weights=CAPACITOR_WEIGHTS))
 
 
 def small_scan_params(conversions: int, vin_diff) -> AdcScanParams:
-    template = AdcTbParams()
+    template = adc.TbParams()
     return AdcScanParams(
-        tb=AdcTbParams(
+        tb=adc.TbParams(
             dut=small_adc(),
             conversions=conversions,
             symbol_rate=1.0e6 * len(template.seq_init_pattern),

@@ -7,13 +7,13 @@ import numpy as np
 
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
+from flow import adc
 from flow.adc.behavioral import calc_ideal_capacitances
-from flow.adc.sim import AdcTbParams
 
 from . import model as cdac_model
 from .test_subckt import PARAMS
 
-TB = AdcTbParams()
+TB = adc.TbParams()
 
 
 def _record(stages: int) -> dict[str, Any]:

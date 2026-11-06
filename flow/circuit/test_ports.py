@@ -68,10 +68,9 @@ def test_generated_save_maps_reference_existing_nets_and_source_terminals(block)
     if block in ("comp", "samp"):  # on the pipeline: its testbench and the raw names it saves
         stages = import_module(f"flow.{block}")
         tb, saved = stages.testbench(stages.TbParams()), dict.fromkeys(stages.sim.SAVES)
-    else:
-        name = block.capitalize()
-        tb = getattr(sim, f"{name}Tb")(getattr(sim, f"{name}TbParams")())
-        saved = sim.adc_signal_names(tb, "hdl21gen") if block == "adc" else getattr(sim, f"{block}_signal_names")()
+    else:  # the ADC: its testbench of the generated view and the observations it saves
+        tb = sim.AdcTb(import_module(f"flow.{block}.params").TbParams())
+        saved = sim.adc_signal_names(tb, "hdl21gen")
     assert block in ("comp", "samp") or len(set(saved.values())) == len(saved)
     for raw in saved:
         if raw == "time":

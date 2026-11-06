@@ -19,8 +19,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from flow.adc.sim import AdcSequence, AdcTbParams
-from flow.adc.subckt import AdcParams
+from flow import adc
+from flow.adc.sim import AdcSequence
 from flow.analysis import types as analysis_types
 from flow.cdac.caparray.sim import CapArrayTbParams
 from flow.cdac.caparray.subckt import CapArrayConfig, CapArrayParams
@@ -55,8 +55,7 @@ PURE_MODULES = (*CONTRACT_MODULES, "calc")
 # Names that annotations in flow.analysis.types refer to only under TYPE_CHECKING.
 TYPE_NAMESPACE = {
     "AdcSequence": AdcSequence,
-    "AdcTbParams": AdcTbParams,
-    "AdcParams": AdcParams,
+    "adc": adc,
     "CapArrayTbParams": CapArrayTbParams,
     "CapArrayConfig": CapArrayConfig,
     "CapArrayParams": CapArrayParams,

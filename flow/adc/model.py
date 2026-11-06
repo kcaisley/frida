@@ -1,9 +1,9 @@
 """The ADC's behavioral model: its blocks' models, each built from the same parameters its netlist
-generator takes (``AdcParams``), switched by the SAR loop of ``flow.adc.behavioral``.
+generator takes (``Params``), switched by the SAR loop of ``flow.adc.behavioral``.
 
-    model = AdcModel.of("tsmc65", AdcParams(adc_bits=12, cdac=..., samp=..., comp=...))
+    model = AdcModel.of("tsmc65", Params(adc_bits=12, cdac=..., samp=..., comp=...))
     tb = model.tb(conversions=8192, rate_hz=10e6, vin_diff=h.Vsin.Params(...))
-    model.capture(tb, path)  # a MeasAdc, as a SPICE capture of the same AdcTbParams writes one
+    model.capture(tb, path)  # a MeasAdc, as a SPICE capture of the same TbParams writes one
 
 The blocks: the comparator (``flow.comp.model``), the sampling switch (``flow.samp.model``), the
 capacitor array (``flow.cdac.caparray.model``) and its drivers (``flow.cdac.capdriver.model``, derived from the
@@ -40,8 +40,8 @@ from flow.adc.behavioral import (
     SalogicBehavioralParams,
     convert_behavioral,
 )
-from flow.adc.sim import AdcSequence, AdcTbParams, build_adc_interface_wave, calc_source_value
-from flow.adc.subckt import AdcParams
+from flow.adc.params import Params, TbParams
+from flow.adc.sim import AdcSequence, build_adc_interface_wave, calc_source_value
 from flow.analysis.io import write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
 from flow.cdac.caparray.layout import array_name
@@ -94,7 +94,7 @@ class AdcModel:
     """A SAR ADC's blocks, as their characterizations and extractions measured them."""
 
     pdk: str
-    params: AdcParams
+    params: Params
     comp: comp_model.Model
     samp: samp_model.Model
     cdac: CapArrayModel
@@ -105,7 +105,7 @@ class AdcModel:
     drawn: tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]] | None = None
 
     @classmethod
-    def of(cls, pdk: str, params: AdcParams, *, simulate: bool = True) -> AdcModel:
+    def of(cls, pdk: str, params: Params, *, simulate: bool = True) -> AdcModel:
         array = CapArrayModel.of(pdk, params.cdac)
         # the drivers the array's plates call for (flow.cdac.capdriver.model.driver_strengths)
         strengths = driver_strengths(pdk, params.cdac, array, simulate=simulate)
@@ -186,12 +186,12 @@ class AdcModel:
         """The slowest stage's settling time constant."""
         return max(self.stage_tau_s)
 
-    def tb(self, *, conversions: int, rate_hz: float, vin_diff) -> AdcTbParams:
+    def tb(self, *, conversions: int, rate_hz: float, vin_diff) -> TbParams:
         """The testbench of ``conversions`` at ``rate_hz`` with the continuous sequence (8 symbols a
         decision), an alternating A state and the PDK's supply on every rail."""
         sequence = AdcSequence.continuous(self.stages)
         supply = h.Vdc.Params(dc=round(self.supply_v, 4))
-        return AdcTbParams(
+        return TbParams(
             dut=self.params,
             symbol_rate=rate_hz * len(sequence.init),
             conversions=conversions,
@@ -209,7 +209,7 @@ class AdcModel:
 
     def behavioral(
         self,
-        tb: AdcTbParams,
+        tb: TbParams,
         *,
         seed: int = 0,
         unit_mismatch: float = 0.0,
@@ -280,7 +280,7 @@ class AdcModel:
 
     def capture(
         self,
-        tb: AdcTbParams,
+        tb: TbParams,
         path: Path | None,
         *,
         seed: int = 0,

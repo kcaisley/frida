@@ -12,7 +12,7 @@ import hdl21 as h
 import numpy as np
 from vlsirtools.spice.sim_data import TranResult
 
-from flow.adc.sim import AdcTbParams
+from flow import adc
 from flow.adc.subckt import AdcNets
 from flow.analysis import calc
 from flow.analysis.io import interpolate_wave_records
@@ -165,7 +165,7 @@ def _validate_adc_conversion(logic_times: np.ndarray) -> np.ndarray:
 def convert_raw_adc_to_measurement(
     result: TranResult,
     *,
-    params: AdcTbParams,
+    params: adc.TbParams,
     raw_path: Path,
     signal_names: Mapping[str, str],
 ) -> MeasAdc:

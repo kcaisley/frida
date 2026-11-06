@@ -49,10 +49,10 @@ from pathlib import Path
 
 import hdl21 as h
 from hdl21.primitives import MosType
-from pydantic import PositiveInt
 
 from flow import comp, samp
-from flow.cdac.caparray import CapArray, CapArrayConfig, CapArrayParams, get_caparray_weights
+from flow.adc.params import Params
+from flow.cdac.caparray import CapArray, CapArrayParams, get_caparray_weights
 from flow.cdac.capdriver import CapDriver, CapDriverParams, Cells
 from flow.circuit.ports import module_from_ports, port_connections
 from flow.sweep.lookup import MODELS_DIR
@@ -79,22 +79,6 @@ _GATES = {
     "$_XNOR_": "xnor2",
     "$_MUX_": "mux2",
 }
-
-
-@h.paramclass
-class AdcParams:
-    """ADC parameters."""
-
-    # Top-level ADC parameter
-    adc_bits = h.Param(dtype=PositiveInt, desc="Nominal normalized ADC resolution", default=12)
-    # Component parameters
-    cdac = h.Param(
-        dtype=CapArrayConfig,
-        desc="CDAC parameters",
-        default=CapArrayConfig(n_dac=11, n_extra=5),
-    )
-    samp = h.Param(dtype=samp.Params, desc="Sampler parameters", default=samp.FRIDA1)
-    comp = h.Param(dtype=comp.Params, desc="Comparator parameters", default=comp.FRIDA1)
 
 
 @cache
@@ -137,14 +121,14 @@ def adc_nets(stages: int):
 AdcNets = adc_nets(16)
 
 
-def adc_stages(param: AdcParams) -> int:
+def adc_stages(param: Params) -> int:
     """The capacitors a side, each switched by one decision (one more decision resolves the last)."""
     return len(get_caparray_weights(param.cdac))
 
 
 # Keep the driver hierarchy fresh when this ADC is requested after compilation.
 @h.generator(enable_cache=False)
-def Adc(p: AdcParams) -> h.Module:
+def Adc(p: Params) -> h.Module:
     """
     SAR ADC generator.
 

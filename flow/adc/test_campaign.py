@@ -24,7 +24,7 @@ from flow.adc.campaign import (
     ladder_names,
 )
 from flow.adc.figures import FIGURES, _extracted, enob_ladder
-from flow.adc.subckt import AdcParams
+from flow.adc.params import Params
 from flow.analysis.adc import analyze_adc_dynamic
 from flow.cdac.caparray.subckt import CapArrayConfig, RedunStrat
 
@@ -90,7 +90,7 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
     assert {c.unit_mismatch for c in studies} == set(MISMATCH_COEFFICIENTS)
 
 
-def _stub_model(table: Path, params: AdcParams):
+def _stub_model(table: Path, params: Params):
     """An ADC model of ideal blocks of known impairments, the array's ideal capacitances in an
     extraction's table, at a 1.2 V supply (no PDK)."""
     from flow.adc.model import AdcModel
@@ -152,7 +152,7 @@ def _capture(model, declared):
     ids=["binary", "msb_redist"],
 )
 def test_the_ladder_starts_at_quantization_and_ends_on_enob_bits(tmp_path: Path, cdac: CapArrayConfig) -> None:
-    params = AdcParams(adc_bits=12, cdac=cdac)
+    params = Params(adc_bits=12, cdac=cdac)
     model = _stub_model(tmp_path / "table.csv", params)
     plan = campaign(model.tb, model.full_scale_v, params.adc_bits)
     captures = {name: _capture(model, plan[name]) for name in ladder_names()}
@@ -180,7 +180,7 @@ def test_the_ladders_quantization_reads_the_design_resolution(tmp_path: Path, ad
     """Quantization alone (a binary array, as the sweep's binary instances) reads the design
     resolution: the ladder refers the -0.5 dBFS sine's SNDR to full scale, where at the sine's own
     amplitude it reads half a dB less."""
-    params = AdcParams(
+    params = Params(
         adc_bits=adc_bits, cdac=CapArrayConfig(n_dac=adc_bits - 1, n_extra=0, redun_strat=RedunStrat.BINARY)
     )
     model = _stub_model(tmp_path / "table.csv", params)

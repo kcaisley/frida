@@ -24,7 +24,7 @@ from flow.cdac.capdriver.model import driver_strengths
 from flow.cdac.capdriver.subckt import PARALLEL_DRIVE, CapDriverParams, Cells, pre_driver, stage_strengths
 from flow.sweep.runner import ROOT, RUNS_DIR, digest, instance_params, write_record
 
-from .subckt import AdcParams
+from .params import Params
 
 GAP_UM = 4.0  # between neighbouring blocks
 # left to right: (instance, block); each side's array, its main and difference drivers, its sampler
@@ -119,7 +119,7 @@ def _driver(layout: db.Layout, pdk: str, cdac: CapArrayConfig, boundary: int) ->
     return driver
 
 
-def assemble_blocks(pdk: str, params: AdcParams, out_dir: Path) -> dict:
+def assemble_blocks(pdk: str, params: Params, out_dir: Path) -> dict:
     """The ADC's blocks in a row, unconnected, into ``out_dir/adc_blocks.gds``; its layout entry
     (as ``flow.sweep.runner.layout_job`` gives one, unsigned) with each block's place and source.
     The drivers are left out where the PDK's standard-cell GDS is not installed."""

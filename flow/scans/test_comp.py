@@ -9,7 +9,7 @@ import hdl21 as h
 import numpy as np
 import pytest
 
-from flow.adc.sim import AdcTbParams
+from flow import adc
 from flow.cdac.caparray import get_caparray_weights
 from flow.scans.fastrx import (
     FastRxCapture,
@@ -231,10 +231,10 @@ def test_default_comparator_campaign_cardinality_selection_and_point_uniqueness(
     ("params", "message"),
     (
         (
-            AdcScanParams(tb=AdcTbParams(view="frida1"), campaign="comp_sampling_noise"),
+            AdcScanParams(tb=adc.TbParams(view="frida1"), campaign="comp_sampling_noise"),
             "requested_dac_rail_percent",
         ),
-        (AdcScanParams(tb=AdcTbParams(view="frida1"), settling_time_s=-1.0), "non-negative"),
+        (AdcScanParams(tb=adc.TbParams(view="frida1"), settling_time_s=-1.0), "non-negative"),
     ),
 )
 def test_comparator_scan_axis_validation_rejects_incomplete_params(

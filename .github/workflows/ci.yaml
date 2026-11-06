@@ -131,6 +131,7 @@ jobs:
         run: >-
           uv run pytest
           flow/adc/test_behavioral.py
+          flow/adc/test_params.py
           flow/adc/test_reference.py
           flow/adc/test_subckt.py
           flow/adc/test_sweep.py

@@ -9,9 +9,8 @@ from typing import Any
 import hdl21 as h
 from yaml import safe_load
 
-from flow.adc import AdcParams
+from flow import adc
 from flow.adc.sim import AdcSequence
-from flow.adc.sim import AdcTbParams as _AdcTbParams
 from flow.cdac.caparray import CapArrayConfig, RedunStrat
 from flow.scans.fastrx import FastRxCapture
 
@@ -21,9 +20,9 @@ class AdcScanParams:
     """Physical conditions wrapped around one ADC testbench configuration."""
 
     tb = h.Param(
-        dtype=_AdcTbParams,
+        dtype=adc.TbParams,
         desc="ADC stimulus and digital configuration",
-        default=_AdcTbParams(view="frida1"),
+        default=adc.TbParams(view="frida1"),
     )
     fastrx_capture = h.Param(
         dtype=FastRxCapture | None, desc="Combined comparator delay and FastRX SEN start word", default=None
@@ -162,7 +161,7 @@ def load_board_map() -> dict[str, Any]:
     return safe_load((Path(__file__).resolve().parent / "map_board.yaml").read_text())
 
 
-def convert_conversion_rate_to_baud(params: _AdcTbParams, conversion_rate_hz: float) -> float:
+def convert_conversion_rate_to_baud(params: adc.TbParams, conversion_rate_hz: float) -> float:
     """Convert the byte-rounded INIT-to-final-COMP rate into its serializer rate."""
 
     if not math.isfinite(conversion_rate_hz) or conversion_rate_hz <= 0.0:
@@ -192,7 +191,7 @@ def build_adc_variants(
     variants = []
     for adc_index in adc_indices:
         flavor = board_map["adc_channels"][adc_index]
-        dut = AdcParams(
+        dut = adc.Params(
             adc_bits=12,
             cdac=CapArrayConfig(
                 n_dac=11,
@@ -205,7 +204,7 @@ def build_adc_variants(
         for sequence in sequences:
             for conversion_rate in active_conversion_rates_hz:
                 params = AdcScanParams(
-                    tb=_AdcTbParams(
+                    tb=adc.TbParams(
                         view="frida1",
                         dut=dut,
                         symbol_rate=float(conversion_rate) * sequence.conversion_symbols,

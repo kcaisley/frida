@@ -5,7 +5,7 @@ import numpy as np
 from cocotb.clock import Clock
 from cocotb.triggers import FallingEdge, Timer
 
-from flow.adc.sim import AdcTbParams
+from flow import adc
 from flow.scans.fastrx import convert_fastrx_words_to_adc
 from flow.scans.seqgen import build_fastrx_capture_pattern
 
@@ -49,7 +49,7 @@ async def capture_frames(dut):
         dut.rst.value = 0
         await Timer(100, unit="ns")
         row = "".join(f"{word + 1:08b}" for word in range(words))
-        params = AdcTbParams(seq_init_pattern=row, seq_samp_pattern=row, seq_comp_pattern=row, seq_logic_pattern=row)
+        params = adc.TbParams(seq_init_pattern=row, seq_samp_pattern=row, seq_comp_pattern=row, seq_logic_pattern=row)
         program = build_fastrx_capture_pattern(params, start, 17)
         bits = [int(x) for x in "10110001011100101"]
         # Use the spare sequencer test-data lane as a deterministic COMP_OUT stream.

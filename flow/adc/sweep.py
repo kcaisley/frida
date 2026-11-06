@@ -55,7 +55,7 @@ from flow.cdac.caparray.layout import ADC_ARRAYS, ADC_BITS, FRIDA1_ADC_ARRAY, ad
 from flow.cdac.caparray.subckt import CapArray, CapArrayConfig, CapArrayParams
 from flow.pipeline import Pdk, Record, grid, values, widen
 
-from .subckt import AdcParams
+from .params import Params
 
 # The comparator grid: five levels of input-referred noise (rows, at the nominal common mode) by
 # four of delay (columns, at 0.5 mV), each cell the characterized TSMC65 comparator of least energy
@@ -122,7 +122,7 @@ def samplers(pdk: str) -> dict[str, samp.Params]:
 
 
 @grid
-def converters(pdk: Pdk) -> dict[str, AdcParams]:
+def converters(pdk: Pdk) -> dict[str, Params]:
     """Every comparator with every sampler and ADC array (``ADC_ARRAYS``: each resolution's arrays
     at both scales, and FRIDA-1's), one space per resolution, each array at its resolution
     (``adc_bits = n_dac + 1``): in TSMC65 the full product, elsewhere the PDK's smaller one
@@ -132,7 +132,7 @@ def converters(pdk: Pdk) -> dict[str, AdcParams]:
     folder = pdk.name.lower()
     spaces = {}
     for bits in RESOLUTIONS:
-        space = widen(AdcParams(adc_bits=bits, comp=comp.FRIDA1, samp=samp.FRIDA1))
+        space = widen(Params(adc_bits=bits, comp=comp.FRIDA1, samp=samp.FRIDA1))
         space.cdac = values({name: cdac for name, cdac in ADC_ARRAYS.items() if cdac.n_dac + 1 == bits})
         space.comp = values(comparators(folder))
         space.samp = values(samplers(folder))
@@ -164,7 +164,7 @@ def _metastability(model) -> dict[str, float]:
     }
 
 
-def AdcBlocks(params: AdcParams) -> h.Module:
+def AdcBlocks(params: Params) -> h.Module:
     """The ADC's analog blocks for the geometry metrics: the comparator, and a sampler and a
     capacitor array a side (the SAR logic is the fixed digital netlist)."""
     blocks = h.Module(name="AdcBlocks")
@@ -190,13 +190,13 @@ GENERATOR = AdcBlocks
 tasks_per_worker = 10
 
 
-def cost(pdk: str, params: AdcParams) -> float:
+def cost(pdk: str, params: Params) -> float:
     """An instance's relative run time, for the runner's longest-first order: its conversions grow
     with the codes, each conversion with its decisions."""
     return 2.0**params.adc_bits * (params.cdac.n_dac + params.cdac.n_extra + 1)
 
 
-def characterize(run_dir: Path, pdk: str, params: AdcParams) -> Record:
+def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
     """The campaign's captures, converted and kept in memory, and the metrics and figures they
     give (``flow.adc.figures``): the viewer shows the figures (the record's details) and no
     waveform of an ADC instance, so no capture is written (a run is its ``instance.json``)."""

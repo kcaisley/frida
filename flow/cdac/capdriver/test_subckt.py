@@ -115,13 +115,14 @@ def test_public_driver_api_isolates_pdk_compilation():
 @pytest.mark.parametrize("kind", ["driver", "adc", "adc_tb"])
 def test_public_api_returns_unmodified_hierarchy_after_mutation(kind):
     """Exercise production hierarchy isolation even in CI without private PDKs."""
-    from flow.adc.sim import AdcTb, AdcTbParams
-    from flow.adc.subckt import Adc, AdcParams
+    from flow import adc
+    from flow.adc.sim import AdcTb
+    from flow.adc.subckt import Adc
 
     cases = {
         "driver": (CapDriver, CapDriverParams(n_stages=3, cells=CLOCK_XOR), ()),
-        "adc": (Adc, AdcParams(), ("xcapdriver_p_main",)),
-        "adc_tb": (AdcTb, AdcTbParams(view="hdl21gen"), ("xadc", "xcapdriver_p_main")),
+        "adc": (Adc, adc.Params(), ("xcapdriver_p_main",)),
+        "adc_tb": (AdcTb, adc.TbParams(view="hdl21gen"), ("xadc", "xcapdriver_p_main")),
     }
     generator, params, path = cases[kind]
     first = generator(params)
@@ -164,9 +165,10 @@ def test_invalid_driver_configuration(kwargs):
 
 
 def test_adc_passes_custom_bands_to_all_four_drivers():
-    from flow.adc.subckt import Adc, AdcParams
+    from flow import adc
+    from flow.adc.subckt import Adc
 
-    params = AdcParams(cdac=CapArrayConfig(driver_strengths=(1, 2, 4, 1) * 4))
+    params = adc.Params(cdac=CapArrayConfig(driver_strengths=(1, 2, 4, 1) * 4))
     module = Adc(params)
     for side in ("p", "n"):
         for kind in ("main", "diff"):

@@ -9,7 +9,7 @@ from typing import cast
 import numpy as np
 import pytest
 
-from flow.adc.sim import AdcTbParams
+from flow import adc
 from flow.analysis.calibration1 import analyze_adc_calibration1
 from flow.analysis.types import AnalysisCdacCapMismatch, Identity, MeasCdac
 from flow.cdac.caparray import get_caparray_weights
@@ -18,7 +18,7 @@ from flow.scans.params import AdcScanParams
 
 def test_calibration1_public_analysis_returns_common_weights() -> None:
     params = AdcScanParams(
-        tb=AdcTbParams(),
+        tb=adc.TbParams(),
         board_id=0,
         observed_adc=0,
         active_adc_mask=tuple(int(index == 0) for index in reversed(range(16))),
@@ -71,7 +71,7 @@ def test_calibration1_selects_p_and_n_directions_from_each_a_state() -> None:
     a_p = (0, 1) * 8
     a_n = (0, 0, 1, 1) * 4
     params = AdcScanParams(
-        tb=AdcTbParams(dac_astate_p=a_p, dac_astate_n=a_n),
+        tb=adc.TbParams(dac_astate_p=a_p, dac_astate_n=a_n),
         board_id=0,
         observed_adc=0,
         active_adc_mask=tuple(int(index == 0) for index in reversed(range(16))),

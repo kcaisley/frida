@@ -14,8 +14,7 @@ import numpy as np
 import pytest
 
 import flow.analysis.io as analysis_io
-from flow import comp, samp
-from flow.adc.sim import AdcTbParams
+from flow import adc, comp, samp
 from flow.analysis.io import interpolate_wave_records, read_measurement, write_measurement
 from flow.analysis.types import (
     Analysis,
@@ -63,7 +62,7 @@ def wave(names: tuple[str, ...], currents: tuple[str, ...] = (), records: int = 
 
 def physical_scan_params() -> AdcScanParams:
     return AdcScanParams(
-        tb=AdcTbParams(conversions=2),
+        tb=adc.TbParams(conversions=2),
         board_id=4,
         observed_adc=9,
         active_adc_mask=tuple(int(index == 9) for index in reversed(range(16))),
@@ -89,7 +88,7 @@ def adc_physical() -> MeasAdc:
 
 
 def adc_spice() -> MeasAdc:
-    params = AdcTbParams(conversions=1, mc_seed=11, mc_index=2)
+    params = adc.TbParams(conversions=1, mc_seed=11, mc_index=2)
     return MeasAdc(
         group=params.mc_seed,
         index=params.mc_index,
@@ -379,7 +378,7 @@ def test_analysis_base_holds_only_identity_fields_without_defaults() -> None:
 
 
 def test_monte_carlo_parameters_default_to_nominal() -> None:
-    assert (AdcTbParams().mc_seed, AdcTbParams().mc_index) == (None, None)
+    assert (adc.TbParams().mc_seed, adc.TbParams().mc_index) == (None, None)
     assert (comp.TbParams().mc_seed, comp.TbParams().mc_index) == (None, None)
 
 

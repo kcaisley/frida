@@ -59,8 +59,8 @@ __all__ = [
 ]
 
 if TYPE_CHECKING:
-    from flow.adc.sim import AdcSequence, AdcTbParams
-    from flow.adc.subckt import AdcParams
+    from flow import adc
+    from flow.adc.sim import AdcSequence
     from flow.cdac.caparray.sim import CapArrayTbParams
     from flow.cdac.caparray.subckt import CapArrayConfig, CapArrayParams
     from flow.scans.params import AdcScanParams
@@ -86,8 +86,8 @@ class MeasAdc(Meas):
     calculated from all decisions rather than from a BOUT slice.
     """
 
-    dut: AdcParams
-    param: AdcScanParams | AdcTbParams
+    dut: adc.Params
+    param: AdcScanParams | adc.TbParams
     conversion_index: np.ndarray
     bout: np.ndarray
     dout_raw: np.ndarray
@@ -188,7 +188,7 @@ class MeasCdac(Meas):
     """
 
     dut: CapArrayConfig
-    param: AdcScanParams | AdcTbParams | CapArrayTbParams
+    param: AdcScanParams | adc.TbParams | CapArrayTbParams
     trial_index: np.ndarray
     dac_state_p: np.ndarray
     dac_state_n: np.ndarray

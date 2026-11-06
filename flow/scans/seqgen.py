@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from array import array
 
-from flow.adc.sim import AdcTbParams
+from flow import adc
 
 
-def convert_params_to_seqgen_fmt(params: AdcTbParams, rx_sen_pattern: str) -> array[int]:
+def convert_params_to_seqgen_fmt(params: adc.TbParams, rx_sen_pattern: str) -> array[int]:
     """Pack four serializer lanes and a caller-defined RX_SEN word pattern.
 
     The four ``seq_*_pattern`` fields contain one bit per serialized symbol.
@@ -57,7 +57,7 @@ def convert_params_to_seqgen_fmt(params: AdcTbParams, rx_sen_pattern: str) -> ar
     return memory
 
 
-def build_fastrx_capture_pattern(params: AdcTbParams, rx_sen_start_word: int, data_size: int) -> array[int]:
+def build_fastrx_capture_pattern(params: adc.TbParams, rx_sen_start_word: int, data_size: int) -> array[int]:
     """Pack one unchanged control period with RX_SEN at the calibrated start.
 
     The receive window wraps modulo the period; FastRX follows RX_SEN across

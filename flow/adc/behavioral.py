@@ -4,7 +4,7 @@ The sampler and the comparator are their blocks' models (``flow.samp.model.Model
 ``flow.comp.model.Model.compare``, each with its physics as ``Model.Behavioral``); ``salogic``
 and ``cdac`` model the SAR logic and the capacitor array with its drivers. Each takes its own
 behavioral parameters and can run alone; ``convert_behavioral`` wires them into the ADC loop of
-``AdcTbParams``. Stage and decision counts come from the CDAC configuration, and every time from
+``TbParams``. Stage and decision counts come from the CDAC configuration, and every time from
 the programmed SEQ rows and symbol rate, so resolution and speed are free parameters.
 
 The SAR logic is a stage counter and a branch select: INIT loads the A state,
@@ -26,7 +26,8 @@ import numpy as np
 
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
-from flow.adc.sim import AdcSequence, AdcTbParams
+from flow.adc.params import TbParams
+from flow.adc.sim import AdcSequence
 from flow.cdac.caparray.subckt import CapArrayConfig, CapArrayParams, get_caparray_weights, unit_capacitance_f
 
 
@@ -75,7 +76,7 @@ class SalogicBehavioralParams:
 class AdcBehavioralParams:
     """One HDL21 testbench configuration plus the block physics it does not describe."""
 
-    tb = h.Param(dtype=AdcTbParams, desc="ADC stimulus and digital configuration", default=AdcTbParams())
+    tb = h.Param(dtype=TbParams, desc="ADC stimulus and digital configuration", default=TbParams())
     samp = h.Param(dtype=samp_model.Model.Behavioral, desc="Sampler", default=samp_model.Model.Behavioral())
     comp = h.Param(dtype=comp_model.Model.Behavioral, desc="Comparator", default=comp_model.Model.Behavioral())
     cdac = h.Param(dtype=CdacBehavioralParams, desc="Capacitor array and drivers", default=CdacBehavioralParams())
@@ -145,7 +146,7 @@ def calc_ideal_capacitances(cdac: CapArrayConfig) -> tuple[np.ndarray, np.ndarra
     return np.asarray(main_f), np.asarray(diff_f)
 
 
-def calc_sequence_times(tb: AdcTbParams, decisions: int) -> tuple[np.ndarray, np.ndarray]:
+def calc_sequence_times(tb: TbParams, decisions: int) -> tuple[np.ndarray, np.ndarray]:
     """Return COMP and post-INIT LOGIC rising times relative to the INIT rise."""
 
     sequence = AdcSequence.from_tb_params(tb).relative_to_init()
@@ -163,7 +164,7 @@ def calc_sequence_times(tb: AdcTbParams, decisions: int) -> tuple[np.ndarray, np
     return comp_s, logic_s[: decisions - 1]
 
 
-def calc_decision_windows(tb: AdcTbParams, decisions: int) -> np.ndarray:
+def calc_decision_windows(tb: TbParams, decisions: int) -> np.ndarray:
     """Return, for each COMP rise, the time until the comparator resets (COMP falls) or the SAR
     logic reads it (LOGIC rises), whichever comes first, wrapping into the next conversion."""
 
@@ -180,7 +181,7 @@ def calc_decision_windows(tb: AdcTbParams, decisions: int) -> np.ndarray:
     return np.min(after, axis=1) * symbol_s
 
 
-def salogic(tb: AdcTbParams, state: dict[str, np.ndarray], stage: int, decided: np.ndarray):
+def salogic(tb: TbParams, state: dict[str, np.ndarray], stage: int, decided: np.ndarray):
     """Write the counted stage from the decision, or reload the B state; return the new state."""
 
     after = {}
@@ -194,7 +195,7 @@ def salogic(tb: AdcTbParams, state: dict[str, np.ndarray], stage: int, decided: 
 
 
 def cdac(
-    params: CdacBehavioralParams, tb: AdcTbParams, side: str, before: np.ndarray, after: np.ndarray
+    params: CdacBehavioralParams, tb: TbParams, side: str, before: np.ndarray, after: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return one side's floating top-plate step, VDD_DAC charge, and bottom-plate transitions."""
 
@@ -238,7 +239,7 @@ def cdac_stage(
     return top_step, charge, 2 * (after != before)
 
 
-def calc_side_capacitances(params: CdacBehavioralParams, tb: AdcTbParams, side: str) -> tuple[np.ndarray, np.ndarray]:
+def calc_side_capacitances(params: CdacBehavioralParams, tb: TbParams, side: str) -> tuple[np.ndarray, np.ndarray]:
     """Return one side's main and diff capacitances, ideal where not given."""
 
     ideal_main_f, ideal_diff_f = calc_ideal_capacitances(tb.dut.cdac)

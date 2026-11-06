@@ -8,7 +8,7 @@ import hdl21 as h
 import numpy as np
 import pytest
 
-from flow.adc.sim import AdcTbParams
+from flow import adc
 from flow.analysis.adc import analyze_adc_ramp
 from flow.analysis.calibration3 import analyze_adc_calibration3
 from flow.analysis.plots import plot_adc_calibration_weights
@@ -63,7 +63,7 @@ def _threshold_ramp_measurement(
     base = adc_measurement(np.zeros(len(vin_diff_v), dtype=np.int64), observed_adc=0)
     assert isinstance(base, MeasAdc)
     params = AdcScanParams(
-        tb=AdcTbParams(
+        tb=adc.TbParams(
             dut=base.param.tb.dut,
             conversions=len(vin_diff_v),
             symbol_rate=base.param.tb.symbol_rate,

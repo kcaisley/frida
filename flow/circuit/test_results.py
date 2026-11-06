@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from vlsirtools.spice.sim_data import TranResult
 
-from flow.adc.sim import AdcTbParams
+from flow import adc
 from flow.adc.subckt import AdcNets
 from flow.analysis.io import read_measurement, write_measurement
 from flow.analysis.types import MeasAdc
@@ -84,7 +84,7 @@ def test_adc_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
     raw_path = tmp_path / "netlist.raw"
     raw_path.touch()
 
-    params = AdcTbParams(waveform_sample_interval_s=50e-12, conversions=2)
+    params = adc.TbParams(waveform_sample_interval_s=50e-12, conversions=2)
     h5_path = tmp_path / "adc.h5"
     expected = convert_raw_adc_to_measurement(
         TranResult("tran", values, {}),
@@ -154,7 +154,7 @@ def test_adc_capture_uses_logic_threshold_not_early_fraction_or_later_sample(
     raw_path.touch()
     result = convert_raw_adc_to_measurement(
         TranResult("tran", values, {}),
-        params=AdcTbParams(waveform_sample_interval_s=50e-12, conversions=1),
+        params=adc.TbParams(waveform_sample_interval_s=50e-12, conversions=1),
         raw_path=raw_path,
         signal_names={name: "time" if name == "time" else name for name in values},
     )
@@ -186,7 +186,7 @@ def test_adc_logic_capture_includes_last_conversion_tail(tmp_path: Path) -> None
         values["comp_out"][end] = 0.3
     result = convert_raw_adc_to_measurement(
         TranResult("tran", values, {}),
-        params=AdcTbParams(waveform_sample_interval_s=50e-12, conversions=2),
+        params=adc.TbParams(waveform_sample_interval_s=50e-12, conversions=2),
         raw_path=tmp_path / "original.raw",
         signal_names={name: "time" if name == "time" else name for name in values},
     )
@@ -200,7 +200,7 @@ def test_adc_logic_capture_includes_last_conversion_tail(tmp_path: Path) -> None
     # Next COMP is unnecessary for production decode once next INIT LOGIC is saved.
     truncated = convert_raw_adc_to_measurement(
         TranResult("tran", {name: value[:8400] for name, value in values.items()}, {}),
-        params=AdcTbParams(waveform_sample_interval_s=50e-12, conversions=2),
+        params=adc.TbParams(waveform_sample_interval_s=50e-12, conversions=2),
         raw_path=tmp_path / "truncated.raw",
         signal_names={name: "time" if name == "time" else name for name in values},
     )
@@ -209,7 +209,7 @@ def test_adc_logic_capture_includes_last_conversion_tail(tmp_path: Path) -> None
 
 def test_adc_continuous_records_require_next_init_logic(tmp_path: Path) -> None:
     """Sample B16 at next INIT LOGIC and exclude the final unavailable capture."""
-    params = AdcTbParams(
+    params = adc.TbParams(
         waveform_sample_interval_s=50e-12,
         conversions=2,
         symbol_rate=1.6e9,
@@ -249,10 +249,10 @@ def test_adc_continuous_records_require_next_init_logic(tmp_path: Path) -> None:
 
 
 def _adc_names(view):
-    from flow.adc.sim import AdcTb, AdcTbParams, adc_signal_names
+    from flow.adc.sim import AdcTb, adc_signal_names
 
     path = None if view == "hdl21gen" else Path(__file__).resolve().parents[1] / "adc/fixtures" / f"{view}_ports.scs"
-    params = AdcTbParams(
+    params = adc.TbParams(
         waveform_sample_interval_s=50e-12, view=view, pex_cell="" if view == "hdl21gen" else "adc_12b_17step"
     )
     return adc_signal_names(AdcTb(params, pex_netlist=path), view)
@@ -312,7 +312,7 @@ def test_converters_reject_invalid_transients_before_decoding(tmp_path, fault):
     result = TranResult("tran", data, {})
     with pytest.raises(ValueError, match="Invalid transient"):
         convert_raw_adc_to_measurement(
-            result, params=AdcTbParams(), raw_path=tmp_path / "unused.raw", signal_names=names
+            result, params=adc.TbParams(), raw_path=tmp_path / "unused.raw", signal_names=names
         )
 
 

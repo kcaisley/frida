@@ -49,7 +49,8 @@ import numpy as np
 import pytest
 from yaml import safe_load
 
-from flow.adc.sim import SEQUENCES, AdcSequence, AdcTbParams
+from flow import adc
+from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.analysis import calc
 from flow.analysis.io import write_analysis
 from flow.analysis.plots import plot_serdes_output_word_grid, plot_serdes_symbol_eye_grid, plot_waveforms
@@ -259,7 +260,7 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
         daq["gpio0"]["RST_B"] = 1
         daq["gpio0"].write()
 
-        params = AdcTbParams(
+        params = adc.TbParams(
             seq_init_pattern=SEQ_PATTERNS["INIT"].replace(" ", ""),
             seq_samp_pattern=SEQ_PATTERNS["SAMP"].replace(" ", ""),
             seq_comp_pattern=SEQ_PATTERNS["COMP"].replace(" ", ""),
@@ -474,7 +475,7 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
     edge_tolerance_s = 0.25e-9
     run_dir = OUTPUT_DIR / time.strftime("%Y%m%d_%H%M%S") / name
     run_dir.mkdir(parents=True, exist_ok=False)
-    params = AdcTbParams(
+    params = adc.TbParams(
         seq_init_pattern=sequence.init,
         seq_samp_pattern=sequence.samp,
         seq_comp_pattern=sequence.comp,
@@ -742,7 +743,7 @@ def test_serdes_output_words() -> None:
                 # Quiet first/last RAM words keep COMP from toggling while idle.
                 word = "1" * high_symbols + "0" * (8 - high_symbols)
                 pattern = "0" * 8 + word * 30 + "0" * 8
-                params = AdcTbParams(
+                params = adc.TbParams(
                     symbol_rate=symbol_rate_bps,
                     seq_init_pattern="0" * 256,
                     seq_samp_pattern="0" * 256,
@@ -872,7 +873,7 @@ def test_serdes_symbol_eye() -> None:
             daq["si570"].frequency_change(si570_frequency_hz / 1e6)
             time.sleep(SI570_SETTLE_TIME_S)
             set_pll_divider(daq["gpio2"], divider_n)
-            params = AdcTbParams(
+            params = adc.TbParams(
                 symbol_rate=symbol_rate_bps,
                 seq_init_pattern="1" * 8 + "0" * 248,
                 seq_samp_pattern="0" * 256,

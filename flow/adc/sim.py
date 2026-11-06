@@ -29,14 +29,14 @@ from typing import Protocol
 import hdl21 as h
 import hdl21.sim as hs
 import numpy as np
-from hdl21.prefix import G, m, p
+from hdl21.prefix import G, p
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
 from flow import comp
+from flow.adc.params import Params, TbParams
 from flow.adc.subckt import (
     Adc,
     AdcNets,
-    AdcParams,
     adc_nets,
     adc_pex,
     adc_port_aliases,
@@ -45,7 +45,7 @@ from flow.adc.subckt import (
     frida1_net_aliases,
     frida2_net_aliases,
 )
-from flow.cdac.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
+from flow.cdac.caparray import CapArrayConfig, get_caparray_weights
 from flow.circuit.ports import testbench_from_ports
 from flow.pipeline import Wave
 
@@ -975,93 +975,7 @@ SEQUENCES = (
 )
 
 
-@h.paramclass
-class AdcTbParams:
-    """Parameters which determine one generated ADC testbench."""
-
-    waveform_sample_interval_s = h.Param(
-        dtype=float, desc="Maximum raw step and stored waveform spacing", default=10e-12
-    )
-    view = h.Param(dtype=str, desc="ADC implementation: frida1, frida2, or hdl21gen", default="hdl21gen")
-    pex_cell = h.Param(
-        dtype=str,
-        desc="Calibre-extracted cell; empty selects adc_1layer_radix17 for frida1",
-        default="",
-    )
-    dut = h.Param(
-        dtype=AdcParams,
-        desc="ADC DUT parameters",
-        default=AdcParams(
-            cdac=CapArrayConfig(n_dac=11, n_extra=5, redun_strat=RedunStrat.MSB_REDIST),
-        ),
-    )
-    symbol_rate = h.Param(dtype=h.Scalar, desc="DDR symbol rate", default=1.6 * G)
-    conversions = h.Param(dtype=int, desc="Number of conversions", default=10_000)
-    en_init = h.Param(dtype=int, desc="Enable initialization clock", default=1)
-    en_samp_p = h.Param(dtype=int, desc="Enable positive sampling clock", default=1)
-    en_samp_n = h.Param(dtype=int, desc="Enable negative sampling clock", default=1)
-    en_comp = h.Param(dtype=int, desc="Enable comparator clock", default=1)
-    en_update = h.Param(dtype=int, desc="Enable DAC-update clock", default=1)
-    dac_mode = h.Param(dtype=int, desc="Select comparator-driven DAC mode", default=1)
-    dac_diffcaps = h.Param(dtype=int, desc="Enable differential capacitor controls", default=1)
-    dac_astate_p = h.Param(dtype=tuple[int, ...], desc="C0-first positive DAC A state", default=(0, 1) * 8)
-    dac_bstate_p = h.Param(dtype=tuple[int, ...], desc="C0-first positive DAC B state", default=(0,) * 16)
-    dac_astate_n = h.Param(dtype=tuple[int, ...], desc="C0-first negative DAC A state", default=(0, 1) * 8)
-    dac_bstate_n = h.Param(dtype=tuple[int, ...], desc="C0-first negative DAC B state", default=(0,) * 16)
-    vdd_a = h.Param(dtype=h.Vdc.Params, desc="Analog supply", default=h.Vdc.Params(dc=1200 * m))
-    vdd_d = h.Param(dtype=h.Vdc.Params, desc="Digital supply", default=h.Vdc.Params(dc=1200 * m))
-    vdd_dac = h.Param(dtype=h.Vdc.Params, desc="DAC supply", default=h.Vdc.Params(dc=1200 * m))
-    supply_series_resistance_ohm = h.Param(
-        dtype=float,
-        desc="Lumped bond-wire and chip-level PDN series resistance per supply rail",
-        default=0.0,
-    )
-    supply_series_inductance_h = h.Param(
-        dtype=float,
-        desc="Lumped bond-wire and chip-level PDN series inductance per supply rail",
-        default=0.0,
-    )
-    supply_decoupling_capacitance_f = h.Param(
-        dtype=float,
-        desc="Local chip-level decoupling capacitance per supply rail",
-        default=0.0,
-    )
-    supply_noise_rms_v = h.Param(
-        dtype=tuple[float, ...],
-        desc="Added RMS noise on VDD_A, VDD_D, and VDD_DAC",
-        default=(0.0, 0.0, 0.0),
-    )
-    supply_noise_bandwidth_hz = h.Param(
-        dtype=float,
-        desc="Flat bandwidth over which each added supply-noise RMS value is defined",
-        default=25.0e9,
-    )
-    vin_cm = h.Param(dtype=h.Vdc.Params, desc="Input common mode", default=h.Vdc.Params(dc=700 * m))
-    vin_diff = h.Param(
-        dtype=h.Vdc.Params | h.Vsin.Params | h.Vpwl.Params | hs.LinearSweep,
-        desc="Differential input stimulus",
-        default=h.Vdc.Params(dc=0.0),
-    )
-    seq_init_pattern = h.Param(
-        dtype=str, desc="INIT sequence", default=symbol256_init8_samp16_comp11110000_logic00001111.init
-    )
-    seq_samp_pattern = h.Param(
-        dtype=str, desc="SAMP sequence", default=symbol256_init8_samp16_comp11110000_logic00001111.samp
-    )
-    seq_comp_pattern = h.Param(
-        dtype=str, desc="COMP sequence", default=symbol256_init8_samp16_comp11110000_logic00001111.comp
-    )
-    seq_logic_pattern = h.Param(
-        dtype=str, desc="LOGIC sequence", default=symbol256_init8_samp16_comp11110000_logic00001111.logic
-    )
-    # TODO: matching a building-block Monte Carlo result to a higher-level run
-    # by seed and iteration alone is not valid; the two runs draw independent
-    # mismatch. Netlisting does not consume these fields yet.
-    mc_seed = h.Param(dtype=int | None, desc="Spectre Monte Carlo seed; None for nominal", default=None)
-    mc_index = h.Param(dtype=int | None, desc="Spectre Monte Carlo iteration; None for nominal", default=None)
-
-
-def is_valid_adc_tb_params(params: AdcTbParams) -> bool:
+def is_valid_adc_tb_params(params: TbParams) -> bool:
     """Check DUT, view, supplies, sequencer rows, and sweep length before generation.
 
     PEX file existence, cell contents, and signoff require the selected file and
@@ -1152,7 +1066,7 @@ def is_valid_adc_tb_params(params: AdcTbParams) -> bool:
 
 
 # Generated DUTs are compiled in place and must not survive in a cached testbench.
-def AdcTb(params: AdcTbParams, *, pex_netlist: Path | None = None) -> h.Module:
+def AdcTb(params: TbParams, *, pex_netlist: Path | None = None) -> h.Module:
     """Generate a complete ADC testbench for the selected DUT view."""
 
     if not is_valid_adc_tb_params(params):
@@ -1352,7 +1266,7 @@ def calc_source_value(source, time_s: np.ndarray) -> np.ndarray:
 
 
 def build_adc_interface_wave(
-    params: AdcTbParams,
+    params: TbParams,
     bout: Sequence[int],
     *,
     conversion_index: int = 0,
@@ -1409,7 +1323,7 @@ def build_adc_interface_wave(
 
 def _run_adc_sim(
     run_dir: Path,
-    params: AdcTbParams,
+    params: TbParams,
     *,
     pex_netlist: Path | None = None,
     noise: bool = False,
@@ -1595,7 +1509,7 @@ def hdl21_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
     with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
         futures = []
         for rate, symbol_rate in ((2, 0.32 * G), (6, 0.96 * G), (10, 1.6 * G)):
-            params = AdcTbParams(
+            params = TbParams(
                 view="hdl21gen",
                 symbol_rate=symbol_rate,
                 conversions=1 if check else 100,
@@ -1633,7 +1547,7 @@ def hdl21_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
     from flow.analysis.io import write_measurement
     from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
 
-    params = AdcTbParams(
+    params = TbParams(
         view="hdl21gen",
         symbol_rate=1.6 * G,
         conversions=151,
@@ -1688,10 +1602,10 @@ def frida1_sequence(run_dir: Path, *, check: bool = False) -> Path:
             ):
                 target = f"frida1_{layers}layer_radix{radix}"
                 pex = root / target / "20260905_171235" / f"{target}.pex.netlist"
-                params = AdcTbParams(
+                params = TbParams(
                     view="frida1",
                     pex_cell="adc_12b_17step",
-                    dut=AdcParams(adc_bits=12, cdac=cdac),
+                    dut=Params(adc_bits=12, cdac=cdac),
                     symbol_rate=1.6 * G,
                     conversions=1 if check else 100,
                     vin_diff=h.Vdc.Params(dc=0.05),
@@ -1745,10 +1659,10 @@ def frida1_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
                     else site.ADC_PEX_NETLIST.parent / cell / f"{cell}.pex.netlist"
                 )
                 for rate, symbol_rate in ((2, 0.32 * G), (6, 0.96 * G), (10, 1.6 * G)):
-                    params = AdcTbParams(
+                    params = TbParams(
                         view="frida1",
                         pex_cell=cell,
-                        dut=AdcParams(adc_bits=12, cdac=cdac),
+                        dut=Params(adc_bits=12, cdac=cdac),
                         symbol_rate=symbol_rate,
                         conversions=1 if check else 100,
                         vin_diff=h.Vdc.Params(dc=0.05),
@@ -1787,7 +1701,7 @@ def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
     from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
     from pdk.tsmc65.hdl21 import site
 
-    params = AdcTbParams(
+    params = TbParams(
         view="frida1",
         symbol_rate=1.6 * G,
         conversions=151,
@@ -1829,7 +1743,7 @@ def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
                 ("vddac", (0.0, 0.0, noise_rms_v)),
                 ("all", (noise_rms_v, noise_rms_v, noise_rms_v)),
             ):
-                params = AdcTbParams(
+                params = TbParams(
                     view="frida1",
                     symbol_rate=symbol_rate,
                     conversions=1 if check else 100,
@@ -1893,10 +1807,10 @@ def frida2_sequence(run_dir: Path, *, check: bool = False) -> Path:
             ),
         ):
             target = f"frida2_{layers}layer_radix17"
-            params = AdcTbParams(
+            params = TbParams(
                 view="frida2",
                 pex_cell="adc_12b_17step",
-                dut=AdcParams(adc_bits=12, cdac=CapArrayConfig()),
+                dut=Params(adc_bits=12, cdac=CapArrayConfig()),
                 symbol_rate=1.6 * G,
                 conversions=1 if check else 100,
                 vin_diff=h.Vdc.Params(dc=0.05),
