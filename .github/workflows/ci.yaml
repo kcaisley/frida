@@ -76,6 +76,9 @@ jobs:
           flow/pipeline.py
           flow/plot.py
           flow/scans/plldrp.py
+          flow/seqgen/analysis.py
+          flow/seqgen/plots.py
+          flow/seqgen/types.py
           $(uv run python -c "from flow.test_pipeline import typed; print(*typed())")
 
   ruff:
@@ -169,6 +172,8 @@ jobs:
           flow/samp/test_analysis.py
           flow/samp/test_plots.py
           flow/samp/test_model.py
+          flow/seqgen/test_analysis.py
+          flow/seqgen/test_plots.py
           flow/cdac/caparray/test_sim.py
           flow/cdac/caparray/test_sizing.py
           flow/cdac/test_analysis.py

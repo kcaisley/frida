@@ -9,7 +9,6 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-from basil.HL.tektronix_oscilloscope import CapturedWaveform, XScale, YScale
 from matplotlib import colors as mcolors
 from matplotlib.ticker import FixedLocator
 
@@ -31,8 +30,6 @@ from flow.analysis.plots import (
     TEXT_COLOR,
     plot_cdac_cap_mismatch,
     plot_cdac_cap_mismatch_comparison,
-    plot_serdes_output_word_grid,
-    plot_serdes_symbol_eye_grid,
     plot_waveforms,
     style_grid,
     style_measurement_text,
@@ -43,73 +40,6 @@ from flow.analysis.types import (
 )
 from flow.plot import render
 from flow.scans.scan_cdac import _build_cdac_params
-
-
-def test_serdes_output_word_grid_keeps_each_eight_symbol_pattern(tmp_path: Path, monkeypatch) -> None:
-    figures = []
-    save_figure = analysis_plots.save_figure
-
-    def capture(fig, output_path, **kwargs):
-        figures.append(fig)
-        return save_figure(fig, output_path, **kwargs)
-
-    monkeypatch.setattr(analysis_plots, "save_figure", capture)
-    samples_in_symbols = np.arange(-20, 1300) / 10
-    captures = {}
-    for rate_mbd in (320, 960, 1600):
-        time_s = samples_in_symbols / (rate_mbd * 1e6)
-        scale = XScale(float(time_s[1] - time_s[0]), float(time_s[0]), "s")
-        for high_symbols in range(1, 8):
-            high = np.mod(np.floor(samples_in_symbols).astype(int), 8) < high_symbols
-            voltage = np.where(high, 0.5, -0.5)
-            captures[(rate_mbd, high_symbols)] = [
-                {3: CapturedWaveform(3, np.rint(voltage * 1000).astype(int), voltage, scale, YScale(0.2, -0.2))}
-            ]
-    paths = plot_serdes_output_word_grid(captures, output_channel=3, output_path=tmp_path / "words")
-    assert all(path.is_file() for path in paths)
-    assert len(figures[0].axes) == 28
-    assert [ax.get_title() for ax in figures[0].axes if ax.get_title()] == [f"{high} of 8" for high in range(1, 8)]
-
-
-def test_serdes_symbol_eye_folds_nonconstant_contexts(tmp_path: Path, monkeypatch) -> None:
-    from flow.scans.test_serdes import SERDES_EYE_PATTERN
-
-    figures = []
-    save_figure = analysis_plots.save_figure
-
-    def capture(fig, output_path, **kwargs):
-        figures.append(fig)
-        return save_figure(fig, output_path, **kwargs)
-
-    monkeypatch.setattr(analysis_plots, "save_figure", capture)
-    samples_in_symbols = np.arange(-20, 2600) / 10
-    bit_index = np.mod(np.floor(samples_in_symbols).astype(int), 256)
-    marker = np.where((samples_in_symbols >= 0) & (bit_index < 8), 0.5, -0.5)
-    output = np.where(np.fromiter((SERDES_EYE_PATTERN[index] == "1" for index in bit_index), bool), 0.5, -0.5)
-    captures = {}
-    for rate_mbd in (320, 960, 1600):
-        time_s = samples_in_symbols / (rate_mbd * 1e6)
-        scale = XScale(float(time_s[1] - time_s[0]), float(time_s[0]), "s")
-        captures[rate_mbd] = [
-            {
-                channel: CapturedWaveform(
-                    channel, np.rint(voltage * 1000).astype(int), voltage, scale, YScale(0.2, -0.2)
-                )
-                for channel, voltage in ((1, marker), (3, output))
-            }
-        ]
-    paths = plot_serdes_symbol_eye_grid(
-        captures,
-        marker_channel=1,
-        output_channel=3,
-        pattern=SERDES_EYE_PATTERN,
-        output_path=tmp_path / "symbol_eye",
-    )
-    assert all(path.is_file() for path in paths)
-    assert len(figures[0].axes) == 3
-    assert all("256 symbols" in axis.get_title() for axis in figures[0].axes)
-    assert all("geometric center eye height" in axis.get_title() for axis in figures[0].axes)
-    assert all("1000 mV" in axis.get_title() for axis in figures[0].axes)
 
 
 def assert_plot_formats(paths: tuple[Path, ...]) -> None:

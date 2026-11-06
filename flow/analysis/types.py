@@ -21,7 +21,6 @@ from flow.pipeline import (  # the shared base, used here and re-exported for th
 
 __all__ = [
     "Analysis",
-    "AnalysisAdcScopeBits",
     "AnalysisCdacCapMismatch",
     "AnalysisCdacTransition",
     "AnalysisScope",
@@ -312,43 +311,6 @@ class AnalysisScope(Analysis):
 
 
 # ADC analyses
-
-
-@dataclass(frozen=True, slots=True)
-class AnalysisAdcScopeBits(Analysis):
-    """One scope-decoded conversion aligned with its corresponding FastRX word."""
-
-    scope_bits: np.ndarray
-    fastrx_bits: np.ndarray
-    comp_threshold_v: float
-    comp_out_threshold_v: float
-    comp_edge_times_s: np.ndarray
-    sample_times_s: np.ndarray
-    sample_values_v: np.ndarray
-
-    @property
-    def mismatch_mask(self) -> np.ndarray:
-        """Return one flag for each disagreement between both decoders."""
-
-        return self.scope_bits != self.fastrx_bits
-
-    @property
-    def mismatch_count(self) -> int:
-        """Return the number of scope/FastRX bit disagreements."""
-
-        return int(np.count_nonzero(self.mismatch_mask))
-
-    @property
-    def scope_bit_string(self) -> str:
-        """Return the scope decisions in acquisition order."""
-
-        return "".join("1" if bit else "0" for bit in self.scope_bits)
-
-    @property
-    def fastrx_bit_string(self) -> str:
-        """Return the FastRX decisions in acquisition order."""
-
-        return "".join("1" if bit else "0" for bit in self.fastrx_bits)
 
 
 # CDAC analyses

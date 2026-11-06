@@ -42,6 +42,7 @@ import json
 import os
 import time
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from statistics import fmean
 
@@ -49,11 +50,13 @@ import numpy as np
 import pytest
 from yaml import safe_load
 
-from flow import adc
+from flow import adc, seqgen
 from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.analysis import calc
 from flow.analysis.io import write_analysis
-from flow.analysis.plots import plot_serdes_output_word_grid, plot_serdes_symbol_eye_grid, plot_waveforms
+from flow.analysis.plots import plot_waveforms
+from flow.pipeline import MeasInfo
+from flow.plot import render
 from flow.scans.plldrp import (
     calculate_pll_frequency,
     select_pll_configuration,
@@ -770,24 +773,24 @@ def test_serdes_output_words() -> None:
                     captured = scope.get_waveforms((comp_channel,))
                     if comp_channel not in captured:
                         raise RuntimeError(f"scope omitted COMP channel {comp_channel}")
-                    captures.append(captured)
-                    write_analysis(
-                        case_dir / f"capture_{capture_index:03d}.h5",
-                        scope_analysis(
-                            captured,
-                            scope_conns,
-                            name=case_dir.name,
-                            bandwidth_hz=SCOPE_BANDWIDTH_HZ,
-                        ),
+                    # the record with the sequence it played (seqgen's capture)
+                    capture = seqgen.AnalysisCapture(
+                        group=None,
+                        index=None,
+                        dut=None,
+                        info=MeasInfo(backend="physical", timestamp_utc=datetime.now().astimezone()),
+                        param=params,
+                        wave=scope_wave(captured, scope_conns),
                     )
-                captures_by_case[(int(symbol_rate_bps / 1e6), high_symbols)] = captures
+                    captures.append(capture)
+                    write_analysis(case_dir / f"capture_{capture_index:03d}.h5", capture)
+                captures_by_case[case_dir.name] = captures
         if not resume_dir:
-            for path in plot_serdes_output_word_grid(
-                captures_by_case,
-                output_channel=comp_channel,
-                output_path=run_dir / "msmt_fpga_serdes_output_words_grid",
-            ):
-                print(f"Saved serializer output-word result: {path}")
+            # each word at each rate its own figure (seqgen's spec)
+            for name, captures in captures_by_case.items():
+                word = seqgen.analyze_word(captures)
+                for path in render(seqgen.plot_word(word), run_dir / f"msmt_fpga_serdes_word_{name}"):
+                    print(f"Saved serializer output-word result: {path}")
     finally:
         try:
             if seq is not None:
@@ -824,7 +827,7 @@ def test_serdes_symbol_eye() -> None:
     symbol_rates_bps = (320e6, 960e6, 1600e6)
     captures_per_rate = 64
     scope_conns = ScopeConns(ch1="seq_init", ch3="seq_comp")  # clock hookup
-    marker_channel, output_channel = scope_conns.channels["seq_init"], scope_conns.channels["seq_comp"]
+    marker_channel = scope_conns.channels["seq_init"]  # the trigger; the output is found by its net
     run_dir = OUTPUT_DIR / time.strftime("%Y%m%d_%H%M%S") / "symbol_eye"
     run_dir.mkdir(parents=True, exist_ok=False)
     config = safe_load(MAP_PATH.read_text())
@@ -904,20 +907,23 @@ def test_serdes_symbol_eye() -> None:
                     raise RuntimeError(
                         f"scope returned channels {sorted(captured)}, expected {sorted(scope_conns.channels.values())}"
                     )
-                captures.append(captured)
-                write_analysis(
-                    case_dir / f"capture_{capture_index:03d}.h5",
-                    scope_analysis(captured, scope_conns, name=case_dir.name, bandwidth_hz=SCOPE_BANDWIDTH_HZ),
+                # the record with the sequence it played (seqgen's capture)
+                capture = seqgen.AnalysisCapture(
+                    group=None,
+                    index=None,
+                    dut=None,
+                    info=MeasInfo(backend="physical", timestamp_utc=datetime.now().astimezone()),
+                    param=params,
+                    wave=scope_wave(captured, scope_conns),
                 )
-            captures_by_rate[int(symbol_rate_bps / 1e6)] = captures
-        for path in plot_serdes_symbol_eye_grid(
-            captures_by_rate,
-            marker_channel=marker_channel,
-            output_channel=output_channel,
-            pattern=pattern,
-            output_path=run_dir / "msmt_fpga_serdes_symbol_eye",
-        ):
-            print(f"Saved serializer symbol eye: {path}")
+                captures.append(capture)
+                write_analysis(case_dir / f"capture_{capture_index:03d}.h5", capture)
+            captures_by_rate[case_dir.name] = captures
+        # each rate's eye its own figure (seqgen's spec)
+        for name, captures in captures_by_rate.items():
+            eye = seqgen.analyze_symbol_eye(captures)
+            for path in render(seqgen.plot_symbol_eye(eye), run_dir / f"msmt_fpga_serdes_symbol_eye_{name}"):
+                print(f"Saved serializer symbol eye: {path}")
     finally:
         try:
             if seq is not None:

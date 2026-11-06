@@ -10,13 +10,13 @@ repos:
         entry: uvx --from ruff==0.16.6 ruff check --fix
         language: system
         types: [python]
-        files: ^flow/((analysis|scans|adc|cdac|comp|samp|circuit|sweep|web|layout)/.*|[^/]+)\.py$
+        files: ^flow/((analysis|scans|adc|cdac|comp|samp|seqgen|circuit|sweep|web|layout)/.*|[^/]+)\.py$
       - id: ruff-format
         name: ruff format
         entry: uvx --from ruff==0.16.6 ruff format
         language: system
         types: [python]
-        files: ^flow/((analysis|scans|adc|cdac|comp|samp|circuit|sweep|web|layout)/.*|[^/]+)\.py$
+        files: ^flow/((analysis|scans|adc|cdac|comp|samp|seqgen|circuit|sweep|web|layout)/.*|[^/]+)\.py$
 
       - id: ty-flow
         name: ty flow type check

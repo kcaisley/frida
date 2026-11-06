@@ -49,9 +49,9 @@ BLOCKS = (
 )
 BLOCK_ANALYSES = tuple(f"flow.{block}.analysis" for block in BLOCKS)
 BLOCK_PLOTS = tuple(f"flow.{block}.plots" for block in BLOCKS)
-# the ADC's own analyses are its block's (flow/adc/analysis.py); its comparator and scope views stay
-# here (adc.py)
-CONTRACT_MODULES = ("adc", "cdac", *BLOCK_ANALYSES)
+# the ADC's own analyses are its block's (flow/adc/analysis.py), its comparator views the comparator's
+# (flow/comp), its scope decode the sequencer's (flow/seqgen)
+CONTRACT_MODULES = ("cdac", *BLOCK_ANALYSES)
 PURE_MODULES = (*CONTRACT_MODULES, "calc")
 # Names that annotations in flow.analysis.types refer to only under TYPE_CHECKING.
 TYPE_NAMESPACE = {

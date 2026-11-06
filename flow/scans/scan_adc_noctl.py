@@ -14,8 +14,8 @@ import hdl21 as h
 import numpy as np
 from bitarray import bitarray
 
+from flow import seqgen
 from flow.adc.sim import AdcSequence
-from flow.analysis.adc import analyze_adc_scope_bits
 from flow.analysis.io import write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
 from flow.cdac.caparray import get_caparray_weights
@@ -416,7 +416,7 @@ def scan(
                 scope_readbacks = {}
                 if capture_scope:
                     try:
-                        comparison = analyze_adc_scope_bits(measurement)
+                        comparison = seqgen.analyze_scope_bits(measurement)
                         scope_readbacks = {
                             "scope_fastrx_comparison_valid": True,
                             "scope_fastrx_bit_mismatches": comparison.mismatch_count,

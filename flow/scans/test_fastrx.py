@@ -52,7 +52,7 @@ from basil.HL.tektronix_oscilloscope import response_value
 from bitarray import bitarray
 from yaml import safe_load
 
-from flow import adc, comp
+from flow import adc, comp, seqgen
 from flow.adc.sim import (
     SEQUENCES,
     AdcSequence,
@@ -60,12 +60,10 @@ from flow.adc.sim import (
     symbol160_init4_samp20_comp11111100_logic11000011,
     symbol256_init8_samp16_comp11110000_logic11000011,
 )
-from flow.analysis.adc import analyze_adc_scope_bits
 from flow.analysis.io import (
     read_measurement,
     write_measurement,
 )
-from flow.analysis.plots import plot_adc_fastrx_scope_comparison
 from flow.analysis.types import MeasAdc, MeasInfo
 from flow.cdac.caparray import CapArrayConfig, RedunStrat, get_caparray_weights
 from flow.plot import render
@@ -530,7 +528,7 @@ def test_physical_fastrx_matches_scope(
                 fastrx_word=fastrx_words,
                 wave=scope_records_to_adc_wave([waveforms], [0], scope_conns),
             )
-            scope_analysis = analyze_adc_scope_bits(measurement)
+            scope_analysis = seqgen.analyze_scope_bits(measurement)
             measurement = dataclasses.replace(
                 measurement,
                 info=dataclasses.replace(
@@ -548,11 +546,9 @@ def test_physical_fastrx_matches_scope(
             h5_path = run_dir / f"{stem}.h5"
             write_measurement(h5_path, measurement)
             measurements.append(measurement)
-            plot_adc_fastrx_scope_comparison(
-                measurement,
-                scope_analysis,
-                output_path=run_dir / f"{stem}_scope",
-            )
+            # COMP_OUT with each decision's decode, and both decoders' decisions (seqgen's specs)
+            for figure in (seqgen.plot_scope_samples, seqgen.plot_scope_bits):
+                render(figure(scope_analysis), run_dir / f"{stem}_{figure.__name__.removeprefix('plot_')}")
             # the codes the point's conversions end on at its one input (the ADC's spec)
             render(adc.plot_trajectory_codes(adc.analyze_decision_paths(measurement)), run_dir / f"{stem}_hist")
 
@@ -699,8 +695,9 @@ def test_adc_scan_boundary_capture(sequence: AdcSequence, symbol_rate: float, li
         assert measurement.info.readbacks["fastrx_lost_count"] == 0
     instrumented = measurements[0]
     assert isinstance(instrumented, MeasAdc)
-    comparison = analyze_adc_scope_bits(instrumented)
-    plot_adc_fastrx_scope_comparison(instrumented, comparison, output_path=run_dir / "scope_comparison")
+    comparison = seqgen.analyze_scope_bits(instrumented)
+    for figure in (seqgen.plot_scope_samples, seqgen.plot_scope_bits):
+        render(figure(comparison), run_dir / f"{figure.__name__.removeprefix('plot_')}")
     print(f"scope={comparison.scope_bit_string}, FastRX={comparison.fastrx_bit_string}; {run_dir}")
     assert comparison.mismatch_count == 0
 

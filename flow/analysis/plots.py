@@ -1,8 +1,8 @@
 """Plots of typed FRIDA measurements and analysis results, with matplotlib: the lab figures no
-block's spec draws yet (the CDAC's, the serializer's and FastRX's, the scope's traces, spectra and
-histograms, the ADC's mismatch nonlinearity; the comparator's are its specs, ``flow.comp.plots``),
-and the plot style the specs are drawn in (``flow.plot.render``: PLOT_STYLE, the colours,
-``style_grid``, ``save_figure``)."""
+block's spec draws yet (the CDAC's, the scope's traces, spectra and histograms, the ADC's mismatch
+nonlinearity; the comparator's are its specs, ``flow.comp.plots``, the serializer's eyes and the
+scope's decode against FastRX's the sequencer's, ``flow.seqgen.plots``), and the plot style the specs
+are drawn in (``flow.plot.render``: PLOT_STYLE, the colours, ``style_grid``, ``save_figure``)."""
 
 from __future__ import annotations
 
@@ -15,10 +15,8 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
-from basil.HL.tektronix_oscilloscope import CapturedWaveform
 from cycler import cycler
-from matplotlib.collections import LineCollection
-from matplotlib.colors import LinearSegmentedColormap, LogNorm
+from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.offsetbox import AnchoredOffsetbox, TextArea, VPacker
 from matplotlib.ticker import AutoMinorLocator, NullLocator, StrMethodFormatter
 
@@ -26,7 +24,6 @@ from flow import comp
 from flow.adc.sim import AdcSequence
 from flow.analysis import calc
 from flow.analysis.types import (
-    AnalysisAdcScopeBits,
     AnalysisCdacCapMismatch,
     AnalysisScope,
     Meas,
@@ -34,7 +31,6 @@ from flow.analysis.types import (
     MeasCdac,
     Wave,
 )
-from flow.scans.scope import ScopeConns, scope_wave
 
 PLOT_PNGS = False
 PLOT_SVGS = False
@@ -416,195 +412,6 @@ def style_measurement_text(msmt: Meas | comp.AnalysisDecisions) -> tuple[str, ..
 
 
 @mpl.rc_context(PLOT_STYLE)
-def plot_serdes_output_word_grid(
-    captures_by_case: Mapping[tuple[int, int], Sequence[Mapping[int, CapturedWaveform]]],
-    *,
-    output_channel: int,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Show 1..7-of-8 serializer words at three baud rates over their full period."""
-
-    rates_mbd = (320, 960, 1600)
-    high_counts = range(1, 8)
-    if set(captures_by_case) != {(rate, high) for rate in rates_mbd for high in high_counts}:
-        raise ValueError("word grid requires 1..7-of-8 captures at 320, 960, and 1600 MBd")
-    output_path = Path(output_path)
-    fig = plt.figure(figsize=(18, 9))
-    grid = fig.add_gridspec(4, 7, height_ratios=(0.35, 1, 1, 1))
-    axes = np.empty((3, 7), dtype=object)
-    for column, high_symbols in enumerate(high_counts):
-        icon_ax = fig.add_subplot(grid[0, column])
-        icon_ax.plot(
-            (-0.2, 0, 0, high_symbols, high_symbols, 8.2),
-            (0, 0, 1, 1, 0, 0),
-        )
-        icon_ax.set_xlim(-0.2, 8.2)
-        icon_ax.set_ylim(-0.2, 1.2)
-        icon_ax.set_axis_off()
-        icon_ax.set_title(f"{high_symbols} of 8", fontsize=10)
-        for row, rate_mbd in enumerate(rates_mbd):
-            shared = axes[0, 0] if row or column else None
-            ax = fig.add_subplot(grid[row + 1, column], sharex=shared, sharey=shared)
-            axes[row, column] = ax
-            captures = captures_by_case[(rate_mbd, high_symbols)]
-            if not captures:
-                raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 has no captures")
-            unit_interval_s = 1.0 / (rate_mbd * 1e6)
-            segments = []
-            for capture_index, capture in enumerate(captures):
-                wave = scope_wave(capture, ScopeConns(**{f"ch{output_channel}": "seq_comp"}))
-                time_s = wave.time_s
-                voltage_v = wave.v["seq_comp"][0]
-                low_v, high_v = np.percentile(voltage_v, (5, 95))
-                if high_v - low_v < 0.05:
-                    raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 capture {capture_index} has no swing")
-                rises = calc.cross(voltage_v, time_s, float((low_v + high_v) / 2), edge="rising")
-                if not len(rises):
-                    raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 capture {capture_index} has no rise")
-                origin_s = calc.xmin(np.abs(rises), rises)
-                # Skip the trigger word after idle and the final idle word.
-                word_origins = origin_s + 8 * np.arange(1, 30) * unit_interval_s
-                # Keep complete words only, in symbol positions from each word origin.
-                segments.extend(
-                    np.column_stack(((time_s[selected] - origin) / unit_interval_s, voltage_v[selected]))
-                    for origin in word_origins
-                    if time_s[0] <= origin - 0.2 * unit_interval_s
-                    and origin + 8.2 * unit_interval_s <= time_s[-1]
-                    and np.any(
-                        selected := (time_s >= origin - 0.2 * unit_interval_s)
-                        & (time_s <= origin + 8.2 * unit_interval_s)
-                    )
-                )
-            if not segments:
-                raise ValueError(f"{rate_mbd} MBd, {high_symbols} of 8 has no complete words")
-            handle = ax.plot([], [])[0]
-            ax.add_collection(
-                LineCollection(segments, colors=(handle.get_color(),), alpha=0.45, linewidths=0.6, rasterized=True)
-            )
-            ax.set_xlim(-0.2, 8.2)
-            ax.set_ylim(-0.85, 0.85)
-            ax.set_xticks(range(9))
-            ax.set_yticks((-0.5, 0.0, 0.5))
-            ax.tick_params(labelbottom=row == 2, labelleft=column == 0)
-            if row == 2:
-                ax.set_xlabel("Symbol position")
-            if column == 0:
-                ax.set_ylabel(f"{rate_mbd} MBd\nOutput (V)")
-            style_grid(ax)
-            ax.minorticks_off()
-            ax.grid(False, which="minor")
-    fig.suptitle("FPGA sequencer and serializer output: eight-symbol words")
-    metadata = {
-        "Title": "FPGA sequencer and serializer output: eight-symbol words",
-        "Subject": "1..7 high symbols of 8; 320, 960, 1600 MBd; oscilloscope measurement",
-        "Keywords": "Oscilloscope measurement",
-    }
-    return save_figure(fig, output_path, pdf_metadata=metadata)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_serdes_symbol_eye_grid(
-    captures_by_rate: Mapping[int, Sequence[Mapping[int, CapturedWaveform]]],
-    *,
-    marker_channel: int,
-    output_channel: int,
-    pattern: str,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Fold a complete 256-bit serializer pattern into three symbol eyes."""
-
-    rates_mbd = (320, 960, 1600)
-    if set(captures_by_rate) != set(rates_mbd) or len(pattern) != 256 or set(pattern) != {"0", "1"}:
-        raise ValueError("symbol eye requires three rates and one binary 256-bit pattern")
-    words = {(pattern + pattern)[index : index + 8] for index in range(256)}
-    if len(words) != 254 or words & {"00000000", "11111111"}:
-        raise ValueError("symbol eye pattern must contain every nonconstant eight-bit word")
-    anchor_bit = next(
-        index for index in range(256) if pattern[index - 1] == "0" and pattern[index : index + 4] == "1111"
-    )
-    output_path = Path(output_path)
-    fig, axes = plt.subplots(3, 1, figsize=(11, 8), sharex=True, sharey=True)
-    for ax, rate_mbd in zip(axes, rates_mbd, strict=True):
-        captures = captures_by_rate[rate_mbd]
-        if not captures:
-            raise ValueError(f"{rate_mbd} MBd has no captures")
-        unit_interval_s = 1.0 / (rate_mbd * 1e6)
-        phases = []
-        voltages = []
-        eyes = []
-        folded_symbols = 0
-        for capture_index, capture in enumerate(captures):
-            wave = scope_wave(
-                capture, ScopeConns(**{f"ch{marker_channel}": "seq_init", f"ch{output_channel}": "seq_comp"})
-            )
-            time_s = wave.time_s
-            marker_v, output_v = wave.v["seq_init"][0], wave.v["seq_comp"][0]
-            marker_low, marker_high = np.percentile(marker_v, (0.1, 99.9))
-            output_low, output_high = np.percentile(output_v, (5, 95))
-            if marker_high - marker_low < 0.05 or output_high - output_low < 0.05:
-                raise ValueError(f"{rate_mbd} MBd capture {capture_index} lacks a valid swing")
-            marker_edges = calc.cross(marker_v, time_s, float((marker_low + marker_high) / 2), edge="rising")
-            output_edges = calc.cross(output_v, time_s, float((output_low + output_high) / 2), edge="rising")
-            if not len(marker_edges) or not len(output_edges):
-                raise ValueError(f"{rate_mbd} MBd capture {capture_index} lacks a trigger or output rise")
-            marker_origin_s = calc.xmin(np.abs(marker_edges), marker_edges)
-            anchor_expected_s = marker_origin_s + anchor_bit * unit_interval_s
-            anchor_edge_s = calc.xmin(np.abs(output_edges - anchor_expected_s), output_edges)
-            if abs(anchor_edge_s - anchor_expected_s) > unit_interval_s:
-                raise ValueError(f"{rate_mbd} MBd capture {capture_index} cannot align the output word")
-            output_origin_s = anchor_edge_s - anchor_bit * unit_interval_s
-            start_s = output_origin_s - 0.5 * unit_interval_s
-            stop_s = start_s + (len(pattern) + 1) * unit_interval_s
-            eye = calc.eyeDiagram(
-                output_v, start_s, stop_s, 2 * unit_interval_s, axis=time_s, trigger_period=unit_interval_s
-            )
-            separators = np.flatnonzero(np.isnan(eye[:, 0]))
-            # The acquisition edges and final trigger can leave incomplete windows.
-            for first, last in zip(np.r_[0, separators + 1], np.r_[separators, len(eye)], strict=True):
-                trace = eye[first:last]
-                if (
-                    not len(trace)
-                    or not np.isclose(trace[0, 0], 0, atol=1e-9 * unit_interval_s, rtol=0)
-                    or not np.isclose(trace[-1, 0], 2 * unit_interval_s, atol=1e-9 * unit_interval_s, rtol=0)
-                ):
-                    continue
-                eyes.append(trace)
-                phases.append(trace[:, 0] / unit_interval_s - 0.5)
-                voltages.append(trace[:, 1])
-                folded_symbols += 1
-        if not eyes:
-            raise ValueError(f"{rate_mbd} MBd captures contain no complete symbol eyes")
-        folded = np.vstack([part for eye in eyes for part in (eye, np.full((1, 2), np.nan))][:-1])
-        samples = np.concatenate(voltages)
-        low_v, high_v = np.percentile(samples, (5, 95))
-        opening_v = calc.eyeHeightAtXY(folded, unit_interval_s, float((low_v + high_v) / 2))
-        ax.hist2d(
-            np.concatenate(phases),
-            samples,
-            bins=(140, 160),
-            range=((-0.5, 1.5), (-0.8, 0.8)),
-            weights=np.full(sum(map(len, phases)), 1 / folded_symbols),
-            norm=LogNorm(vmin=1 / folded_symbols),
-            cmap=DENSITY_COLOR_MAP,
-        )
-        ax.set_xlim(-0.5, 1.5)
-        ax.set_ylim(-0.8, 0.8)
-        ax.set_ylabel(f"{rate_mbd} MBd\nOutput (V)")
-        ax.set_title(f"{folded_symbols:,} symbols; geometric center eye height: {opening_v * 1e3:.0f} mV")
-        style_grid(ax)
-        ax.minorticks_off()
-        ax.grid(False, which="minor")
-    axes[-1].set_xlabel("Time from symbol boundary (UI)")
-    fig.suptitle("FPGA sequencer and serializer output: all 254 nonconstant eight-bit contexts")
-    metadata = {
-        "Title": "FPGA sequencer and serializer output: all 254 nonconstant eight-bit contexts",
-        "Subject": "256-bit pattern excluding constant words; 320, 960, 1600 MBd; oscilloscope measurement",
-        "Keywords": "Oscilloscope measurement",
-    }
-    return save_figure(fig, output_path, pdf_metadata=metadata)
-
-
-@mpl.rc_context(PLOT_STYLE)
 def plot_spectrum(
     scopes: Sequence[AnalysisScope],
     *,
@@ -737,108 +544,6 @@ def plot_histogram(
     ax.legend(loc="upper left")
     style_grid(ax)
     fig.suptitle(title)
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_adc_fastrx_scope_comparison(
-    msmt: MeasAdc,
-    analysis: AnalysisAdcScopeBits,
-    *,
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Plot CH2--CH4 and aligned Scope/FastRX decision streams."""
-
-    wave = msmt.wave
-    if wave is None:
-        raise ValueError("scope/FastRX comparison plot requires a captured scope waveform")
-    params = msmt.param.tb
-    decision_period_s = 8.0 / float(params.symbol_rate)
-    edge_times_s = analysis.comp_edge_times_s
-    sample_times_s = analysis.sample_times_s
-    decision_end_times_s = np.concatenate((edge_times_s[1:], [edge_times_s[-1] + decision_period_s]))
-    decision_widths_s = decision_end_times_s - edge_times_s
-
-    time_s = wave.time_s
-    scale, unit = style_time_units(time_s)
-    scaled_time = time_s * scale
-    scaled_edges = edge_times_s * scale
-    scaled_ends = decision_end_times_s * scale
-    scaled_widths = decision_widths_s * scale
-    scaled_samples = sample_times_s * scale
-    display_start_s = max(float(time_s[0]), float(edge_times_s[0] - 4.0 * decision_period_s))
-    display_end_s = min(float(time_s[-1]), float(decision_end_times_s[-1]))
-
-    fig, axes = plt.subplots(
-        4,
-        1,
-        sharex=True,
-        gridspec_kw={"height_ratios": (1.0, 1.0, 1.35, 1.25)},
-    )
-    waveform_rows = (
-        ("COMP", wave.v["seq_comp"][0]),
-        ("LOGIC", wave.v["seq_logic"][0]),
-        ("COMP_OUT", wave.v["comp_out"][0]),
-    )
-    for ax, (label, values), color in zip(axes[:3], waveform_rows, CURVE_COLORS, strict=False):
-        ax.plot(scaled_time, values, color=color)
-        for edge in scaled_edges:
-            ax.axvline(edge, color=SPINE_COLOR, alpha=0.18)
-        ax.set_ylabel(f"{label} (V)")
-        style_grid(ax)
-
-    axes[2].scatter(
-        scaled_samples,
-        analysis.sample_values_v,
-        marker="o",
-        color=CURVE_COLORS[3],
-        edgecolor=PLOT_FACE_COLOR,
-        linewidth=0.5,
-        zorder=5,
-        label="Scope decode sample",
-    )
-    axes[2].legend()
-
-    scope_values = analysis.scope_bits.astype(np.uint8)
-    fastrx_values = analysis.fastrx_bits.astype(np.uint8)
-    mismatches = analysis.mismatch_mask
-    decision_ax = axes[3]
-    for decision_index, (start, end, width) in enumerate(zip(scaled_edges, scaled_ends, scaled_widths, strict=True)):
-        for y, values in ((1.0, scope_values), (0.0, fastrx_values)):
-            bit = int(values[decision_index])
-            decision_ax.barh(
-                y,
-                width,
-                left=start,
-                height=0.56,
-                align="center",
-                color=NORD_GREEN if bit else NORD_BLUE,
-                edgecolor=NORD_RED if mismatches[decision_index] else PLOT_FACE_COLOR,
-                linewidth=1.5 if mismatches[decision_index] else 0.8,
-            )
-            decision_ax.text(
-                start + width / 2.0,
-                y,
-                str(bit),
-                ha="center",
-                va="center",
-                fontweight="bold",
-            )
-    decision_ax.set_yticks((1.0, 0.0), labels=("Scope decode", "FastRX decode"))
-    decision_ax.set_ylim(-0.6, 1.6)
-    decision_ax.set_ylabel("Decision stream")
-    decision_ax.set_xlabel(f"Time ({unit})")
-    decision_ax.set_title("Decoded decision streams")
-    style_grid(decision_ax)
-
-    axes[0].set_xlim(display_start_s * scale, display_end_s * scale)
-    setup_lines = (
-        *(line for line in style_measurement_text(msmt) if line.startswith("ADC:")),
-        f"Symbol rate: {float(params.symbol_rate) / 1e6:g} MBd",
-        f"Sequence: {len(params.seq_comp_pattern)} symbols",
-    )
-    style_info_box(axes[0], setup_lines)
-    fig.suptitle("ADC scope and FastRX decision comparison")
     return save_figure(fig, output_path)
 
 
