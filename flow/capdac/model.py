@@ -7,7 +7,7 @@ design that is not characterized, as designed (``Model.design``).
     model = capdac.Model.of("tsmc65", capdac.Params(bits=10, redundancy=capdac.Redundancy.BINARY, extra=0))
     dac = model.behavioral()  # the behavioral ADC's DAC: the drawn array's plates and settling
 
-The behavioral ADC (``flow.adc.model``) starts each stage's step its driver's delay after the
+The behavioral ADC (``flow.adc.sim``) starts each stage's step its driver's delay after the
 LOGIC edge and settles it as one exponential; with this model's time constants a step comes within
 half an LSB exactly when the testbench's does. A characterization missing from the sweep's newest
 run is simulated on first use (``simulate=True``) and kept under the build's models. The array's
@@ -18,7 +18,7 @@ drawn other than designed, at the PDK's smallest, moves its stage's step and the
 converter's reference only switches them (``Model.switch``).
 
 ``Model.drawn`` gives one of the characterization's Monte Carlo draws, the plates a converter on the
-array calibrates on (``flow.adc.model``): of one condition, the run at a percentile of what no
+array calibrates on (``flow.adc.sim``): of one condition, the run at a percentile of what no
 calibration recovers. ``Model.settling_meas`` is the measurement its settling run keeps, whose
 steps, each stage's as measured (``Model.measured_steps``, ``Model.step_v``), are the weights a
 converter on the array decodes with as its extracted ones

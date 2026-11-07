@@ -116,7 +116,7 @@ python -m flow run adc --pdk tsmc65 --missing --instance frida1_1layer_radix17 -
 
 The circuit runs are TSMC65's (the ADC's Spectre runs take its kit's includes; in another PDK `--level circuit` runs FULL's), and each extraction they simulate is checked before the first of them runs: a fabricated converter's layout must be signed off first. Each run's folder in the instance's keeps its deck, log, `input.json` and `names.json`; the raw output is removed once read.
 
-Signal selection lives in `sim.py` (`_probes`) as explicit SPICE-name → analysis-alias maps per top. The same map drives Spectre saves and the decode (`names.json`, beside the raw file). Both views save every capacitor stage, C0 first (C0–C15 at FRIDA's 16); the last decision (B16 at 16 stages) has no capacitor of its own. The generated ADC's bottom plates are its DAC's sides' nets (`xdac_p.main_<stage>`, `xdac_p.diff_<stage>`; `subckt._generated_aliases`), a unit-capacitor array's main plates alone. Original saved traces, including the next-cycle tail, are embedded in `result.h5` alongside resampled records.
+Signal selection lives in `sim.py` (`_probes`) as explicit SPICE-name → analysis-alias maps per top. The same map drives Spectre saves and the decode (`names.json`, beside the raw file). Both views save every capacitor stage, C0 first (C0–C15 at FRIDA's 16); the last decision (B16 at 16 stages) has no capacitor of its own. The generated ADC's bottom plates are its DAC's sides' nets (`xdac_p.main_<stage>`, `xdac_p.diff_<stage>`; `subckt._generated_aliases`), a unit-capacitor array's main plates alone. The record keeps `spice_rate_10`'s measurement as `result.h5` (its saved traces, the next-cycle tail with them, beside the resampled records), the viewer's waves.
 
 ## Lab studies
 

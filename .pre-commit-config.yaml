@@ -32,7 +32,7 @@ repos:
         name: block pipeline contract
         entry: uv run pytest -q -p no:cacheprovider flow/test_pipeline.py
         language: system
-        files: ^flow/([^/]+\.py|(capdac|comp)/.*\.py)$
+        files: ^flow/([^/]+\.py|(adc|capdac|comp|samp)/.*\.py)$
         pass_filenames: false
 
       - id: import-linter

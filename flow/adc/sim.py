@@ -734,7 +734,7 @@ def _bit_value(source: h.Vbit.Params, time_s: np.ndarray) -> np.ndarray:
     """A bit source (a sequencer line) as the behavioral converter sees it: each symbol's level,
     ``val1`` for a 1 and ``val0`` for a 0, from its start (``delay``) a ``period`` each, its edges
     ideal (the converter's own times are the symbols' boundaries, ``_sequence_times``); repeated from
-    the start forever (``rptstart`` 1, ``rpttimes`` < 0), else its last symbol held; ``val0``
+    the start forever (``rptstart`` 1, ``rpttimes`` < 0; another repetition is refused); ``val0``
     before it starts."""
     bits = np.fromiter((bit == "1" for bit in source.data), dtype=bool)
     # a symbol's boundary on a sample (k periods, to rounding) is the next symbol's

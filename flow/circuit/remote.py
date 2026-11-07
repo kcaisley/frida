@@ -180,8 +180,9 @@ def launch(
 ) -> Path:
     """Snapshot, diagnose, run detached and collect automatically: the circuit simulator's runs of
     ``instances`` of ``block`` (named instances or digests, ``python -m flow run <block> --level
-    circuit``) on the trusted SSH ``host`` (FTD: juno or jupiter) in a fresh snapshot under ``work_root`` (an existing absolute worker directory),
-    after sourcing ``setup`` (an absolute shell environment script on the worker); ``pdk`` names
+    circuit``) on the trusted SSH ``host`` in a fresh snapshot under ``work_root`` (an existing
+    absolute worker directory), after sourcing ``setup`` (an absolute shell environment script on
+    the worker); ``pdk`` names
     the PDK submodule to include (not a foundry model installation), ``inputs`` repository-relative
     build inputs. The local campaign directory."""
 

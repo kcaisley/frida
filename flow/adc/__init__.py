@@ -1,13 +1,14 @@
-"""The SAR ADC, laid out in the pipeline's stage files (docs/pipeline.md) but not yet on the pipeline
-(``NOT_MIGRATED``, flow/test_pipeline.py): its parameters, circuit, testbench, analyses and plots,
-each in its own stage module, their names re-exported here (``from flow import adc`` then
-``adc.Params``, ``adc.analyze_ramp``, ``adc.AnalysisRamp``, ``adc.plot_inl``).
+"""The SAR ADC, a block on the pipeline (docs/pipeline.md, flow/test_pipeline.py): its parameters,
+circuit, testbench, analyses and plots, each in its own stage module, their names re-exported here
+(``from flow import adc`` then ``adc.Params``, ``adc.analyze_ramp``, ``adc.AnalysisRamp``,
+``adc.plot_inl``).
 
 Its design space (``flow.adc.sweep``), behavioral model (``flow.adc.model``) and own layout flow
 (``flow.adc.layout``) are not imported here (its lab studies are its figures of captures,
-``python -m flow plot adc <figure> --from <runs>``): its runs' behavioral converter (``flow.adc.sim``) imports the other blocks' models, and through a module that
-refers to this package (``flow.analysis.types`` does), a block's own stages would reach the stages
-above them, against the stage order import-linter holds the migrated blocks to."""
+``python -m flow plot adc <figure> --from <runs>``): its runs' behavioral converter
+(``flow.adc.sim``) imports the other blocks' models, and through a module that refers to this
+package (``flow.analysis.types`` does), a block's own stages would reach the stages above them,
+against the stage order import-linter holds the migrated blocks to."""
 
 from . import params, subckt, sim, types, analysis, plots  # noqa: I001 - the pipeline's order
 from .analysis import (

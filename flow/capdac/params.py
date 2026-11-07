@@ -252,7 +252,7 @@ class TbParams(pipeline.TbParams):
     @property
     def astate(self) -> tuple[int, ...]:
         """Each stage's state before it switches: the converter's A state, alternating from 0
-        (``flow.adc.model.Model.tb``)."""
+        (``flow.adc.sim._Converter.tb``)."""
         return tuple(stage % 2 for stage in range(self.stages))
 
     @property
@@ -275,7 +275,7 @@ class TbParams(pipeline.TbParams):
     @property
     def full_scale_v(self) -> float:
         """The differential full scale (+-): the reference across the switched plates' share of the
-        top plate, main less difference (as ``flow.adc.model.Model.full_scale_v``)."""
+        top plate, main less difference (as ``flow.adc.sim._Converter.full_scale_v``)."""
         return self.vdd * float(self.main_f.sum() - self.diff_f.sum()) / self.load_f
 
     @property
