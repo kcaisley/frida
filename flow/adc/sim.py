@@ -344,8 +344,7 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
     noise, check = tb.transient_noise, tb.check
     fabricated = tb.params.fabricated is not None
 
-    from pdk import tsmc65
-    from pdk.tsmc65.hdl21 import site
+    from pdk.tsmc65.hdl21 import pdk_logic, site
 
     # Fixed budgets paired with the named runs' pools: four x six or three x eight.
     spectre_threads = 6 if fabricated else 8
@@ -383,7 +382,7 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
             pex_sha256=hashlib.sha256(pex_netlist.read_bytes()).hexdigest(),
         )
 
-    h.pdk.set_default(tsmc65.pdk_logic)
+    h.pdk.set_default(pdk_logic)
     bench = testbench(tb)
     h.pdk.compile(bench)
     signal_names = _probes(bench, tb)
