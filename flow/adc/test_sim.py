@@ -1,12 +1,16 @@
-"""Software-only checks for the native HDL21 ADC simulation interface. A test that builds the
-generated view's testbench binds TSMC65 (``tsmc65``), as ``sim.simulate`` does; a PDK-free checkout
-skips it."""
+"""Software-only checks of the ADC's runs (``flow.adc.sim``): the testbench of each top, the Spectre
+run's mechanics (Spectre not run), the probes, the reader and the raw decode, and the behavioral
+converter (its SAR loop and the stimulus it sees). A test that builds the generated view's
+testbench binds TSMC65 (``tsmc65``), as ``sim.simulate`` does; a PDK-free checkout skips it. A
+fabricated converter's extraction is the fixture header (``extraction``), or a signed-off layout's
+entry stood in for ``flow.sweep.lookup.laid_out``."""
 
 import inspect
 import json
 from dataclasses import fields, replace
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import hdl21 as h
 import hdl21.sim as hs
@@ -14,6 +18,7 @@ import numpy as np
 import pytest
 from vlsirtools.spice.sim_data import TranResult
 
+import flow.comp.model as comp_model
 from flow import capdac
 from flow.analysis.io import read_measurement, write_measurement
 from flow.analysis.types import MeasAdc
@@ -22,7 +27,7 @@ from flow.scans.seqgen import convert_params_to_seqgen_fmt
 from flow.util.netlist import subcircuit_ports
 
 from . import sim
-from .params import Extraction, Fabricated, Params, Recipe, Simulator, TbParams
+from .params import Extraction, Fabricated, Params, Probes, Recipe, Simulator, TbParams
 from .subckt import Nets
 
 PEX_FIXTURES = {"frida1": Path(__file__).parent / "fixtures" / "frida1_ports.scs"}
@@ -30,6 +35,24 @@ PEX_PINS = {view: subcircuit_ports(path.read_text(), "adc_12b_17step") for view,
 
 # the recipes of the catalogue (``Recipe``, the historical samp24 one left out of it, last)
 CATALOGUE = tuple(Recipe)[:-1]
+
+
+def _entry(path: Path, *, lvs_correct: bool = True, warnings: tuple[str, ...] = (), sha256=None) -> dict:
+    """A layout entry signed off by its own ``lay_out`` (``flow.layout.step.lay_out_one``'s) whose
+    extraction is ``path``."""
+    return {
+        "gds": "unused.gds",
+        "signoff": "lay_out",
+        "lvs_correct": lvs_correct,
+        "warnings": list(warnings),
+        "pex": {"netlist": str(path), "sha256": sha256},
+    }
+
+
+@pytest.fixture
+def extraction(monkeypatch):
+    """Every fabricated converter's extraction the fixture header, its cell ``adc_12b_17step``."""
+    monkeypatch.setattr(sim, "_extraction", lambda tb: (PEX_FIXTURES["frida1"], "adc_12b_17step"))
 
 
 def _gen(params: Params | None = None, **fields) -> TbParams:
@@ -51,12 +74,10 @@ def _frida1(
 def test_extracted_simulation_rejects_double_counting_and_changed_signed_input(tmp_path, monkeypatch, fault):
     path = tmp_path / "adc.pex.netlist"
     path.write_text("X0 (a b s) ringfmom_3layer c=1f\n" if fault == "ideal_capacitor" else "C0 (a b) capacitor c=1f\n")
-    (tmp_path / "signoff_summary.json").write_text(
-        json.dumps({"lvs_correct": True, "pex_netlist": path.name, "pex_sha256": "not-the-current-content"})
-    )
+    monkeypatch.setattr(sim.lookup, "laid_out", lambda *_: _entry(path, sha256="not-the-current-content"))
     monkeypatch.setattr(h.pdk, "compile", lambda *_: pytest.fail("invalid PEX reached simulation compilation"))
-    with pytest.raises(ValueError, match="double-count" if fault == "ideal_capacitor" else "PEX content differs"):
-        sim.simulate(_frida1(check=True), tmp_path / "simulation", pex_netlist=path)
+    with pytest.raises(ValueError, match="double-count" if fault == "ideal_capacitor" else "PEX content"):
+        sim.simulate(_frida1(check=True), tmp_path / "simulation")
 
 
 def test_adc_testbench_parameters_are_simulation_only() -> None:
@@ -150,13 +171,10 @@ def test_a_run_its_top_cannot_convert_fails_before_testbench_generation_or_run(p
 
 
 @pytest.mark.parametrize("view", ("frida1", "hdl21gen"))
-def test_adc_testbench_generates_each_view(view: str, request: pytest.FixtureRequest) -> None:
+def test_adc_testbench_generates_each_view(view: str, request: pytest.FixtureRequest, extraction) -> None:
     if view == "hdl21gen":
         request.getfixturevalue("tsmc65")
-    tb = sim.testbench(
-        _frida1(conversions=1) if view == "frida1" else _gen(conversions=1),
-        pex_netlist=PEX_FIXTURES.get(view),
-    )
+    tb = sim.testbench(_frida1(conversions=1) if view == "frida1" else _gen(conversions=1))
 
     assert isinstance(tb, h.Module)
     assert tb.xadc is not None
@@ -200,25 +218,26 @@ def test_sweep_validation_agrees_with_generated_waveform(tsmc65, start, stop, st
     assert len(wave.points) == 2 * count
 
 
-def test_extracted_adc_keeps_calibre_port_order() -> None:
-    tb = sim.testbench(_frida1(), pex_netlist=PEX_FIXTURES["frida1"])
+def test_extracted_adc_keeps_calibre_port_order(extraction) -> None:
+    tb = sim.testbench(_frida1())
     names = tuple(port.name for port in tb.xadc.of.module.port_list)
     assert names == PEX_PINS["frida1"]
     assert len(names) == 84
 
 
-def test_pex_header_reordering_changes_instance_order_without_swapping_nets(tmp_path):
+def test_pex_header_reordering_changes_instance_order_without_swapping_nets(tmp_path, monkeypatch):
     pins = list(PEX_PINS["frida1"])
     pins[0], pins[1] = pins[1], pins[0]
     path = tmp_path / "reordered.scs"
     path.write_text(f"subckt adc_12b_17step ({' '.join(pins)})\nends adc_12b_17step\n")
-    tb = sim.testbench(_frida1(), pex_netlist=path)
+    monkeypatch.setattr(sim, "_extraction", lambda tb: (path, "adc_12b_17step"))
+    tb = sim.testbench(_frida1())
     assert tuple(tb.xadc.of.module.ports) == tuple(pins)
     assert tb.xadc.conns["vin_p"] is tb.vin_p
     assert tb.xadc.conns["vdd_a"] is tb.vdd_a
     path.write_text(path.read_text().replace("dac_astate_p_0", "dac_astate_p<1>"))
     with pytest.raises(ValueError, match="Duplicate external pins"):
-        sim.testbench(_frida1(), pex_netlist=path)
+        sim.testbench(_frida1())
 
 
 @pytest.mark.parametrize(
@@ -231,39 +250,56 @@ def test_pex_header_reordering_changes_instance_order_without_swapping_nets(tmp_
         (Fabricated.FRIDA1_2LAYER_RADIX20, Extraction.SIGNOFF, "adc_12b_17step"),
     ),
 )
-def test_extracted_adc_selects_its_extractions_cell(fabricated, extraction, pex_cell: str, tmp_path) -> None:
-    path = tmp_path / "input.scs"
+def test_extracted_adc_selects_its_extractions_cell(
+    fabricated, extraction, pex_cell: str, tmp_path, monkeypatch
+) -> None:
+    """The tape-out's extraction of a flavor is the kit's (``site.FRIDA1``), its cell the flavor's;
+    the signoff's is its layout's (``laid_out``), its cell its layout's top."""
+    site = pytest.importorskip("pdk.tsmc65.hdl21.site")
+    monkeypatch.setattr(site, "FRIDA1", tmp_path)
+    path = tmp_path / (f"{pex_cell}.pex.netlist" if extraction is Extraction.TAPEOUT else "signed.pex.netlist")
     path.write_text(PEX_FIXTURES["frida1"].read_text().replace("adc_12b_17step", pex_cell))
-    tb = sim.testbench(_frida1(fabricated, extraction, conversions=1), pex_netlist=path)
+    monkeypatch.setattr(sim.lookup, "laid_out", lambda *_: _entry(path))
+    tb = _frida1(fabricated, extraction, conversions=1)
 
-    assert tb.xadc.of.module.name == pex_cell
+    assert sim._extraction(tb) == (path, pex_cell)
+    assert sim.testbench(tb).xadc.of.module.name == pex_cell
 
 
-def test_an_extraction_without_its_cell_is_refused() -> None:
+def test_an_extraction_without_its_cell_is_refused(monkeypatch) -> None:
+    monkeypatch.setattr(sim, "_extraction", lambda tb: (PEX_FIXTURES["frida1"], "adc_1layer_radix17"))
     with pytest.raises(ValueError, match="no .subckt adc_1layer_radix17"):
-        sim.testbench(_frida1(extraction=Extraction.TAPEOUT, conversions=1), pex_netlist=PEX_FIXTURES["frida1"])
+        sim.testbench(_frida1(extraction=Extraction.TAPEOUT, conversions=1))
 
 
-def test_the_fabricated_bus_order_preserves_the_physical_initialization_voltages() -> None:
+def test_a_generated_converter_has_no_extraction() -> None:
+    with pytest.raises(ValueError, match="no extraction"):
+        sim._extraction(_gen())
+
+
+def test_a_fabricated_converters_behavioral_testbench_holds_its_black_box() -> None:
+    """Outside Spectre its top is its netlist's black box (``subckt._fabricated``): no extraction."""
+    tb = TbParams(pdk="tsmc65", params=Fabricated.FRIDA1_2LAYER_RADIX20.params, conversions=1)
+    bench = sim.testbench(tb)
+    assert bench.xadc.of.module.name == "adc_12b_17step"
+    assert tuple(port.name for port in bench.xadc.of.module.port_list) == PEX_PINS["frida1"]
+
+
+def test_the_fabricated_bus_order_preserves_the_physical_initialization_voltages(extraction) -> None:
     # FRIDA-1's macro is C15 first: its pin <15 - stage> carries stage's state
     for bus in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"):
         pattern = tuple(int(stage in (0, 3, 8, 14)) for stage in range(16))
-        tb = sim.testbench(
-            _frida1(**{bus: pattern}),
-            pex_netlist=PEX_FIXTURES["frida1"],
-        )
+        tb = sim.testbench(_frida1(**{bus: pattern}))
         for stage, state in enumerate(pattern):
             assert float(getattr(tb, f"v{bus}_{stage}").of.params.dc) == pytest.approx(1.2 * state)
             net = tb.xadc.conns[f"{bus}_{15 - stage}"]
             assert net.parent is tb.namespace[bus] and net.index == stage
 
 
-def test_all_adc_views_expose_the_same_analysis_waveforms(tsmc65):
+def test_all_adc_views_expose_the_same_analysis_waveforms(tsmc65, extraction):
     observations = []
-    for view in ("hdl21gen", "frida1"):
-        pex = PEX_FIXTURES.get(view)
-        tb = sim.testbench(_frida1() if pex else _gen(), pex_netlist=pex)
-        observations.append(set(sim.adc_signal_names(tb, view).values()))
+    for params in (_gen(), _frida1()):
+        observations.append(set(sim._probes(sim.testbench(params), params).values()))
     assert observations[0] == observations[1]
     for side in ("p", "n"):
         for kind in ("", "_diff"):
@@ -272,8 +308,8 @@ def test_all_adc_views_expose_the_same_analysis_waveforms(tsmc65):
 
 
 @pytest.mark.parametrize("fault", ("missing", "duplicate"))
-def test_pex_observations_reject_incomplete_or_ambiguous_bindings(monkeypatch, fault):
-    tb = sim.testbench(_frida1(), pex_netlist=PEX_FIXTURES["frida1"])
+def test_pex_observations_reject_incomplete_or_ambiguous_bindings(monkeypatch, fault, extraction):
+    tb = sim.testbench(_frida1())
     aliases = sim._frida1_terminals()
     if fault == "missing":
         del aliases[sim.Nets.vdac_p]
@@ -281,10 +317,10 @@ def test_pex_observations_reject_incomplete_or_ambiguous_bindings(monkeypatch, f
         aliases[sim.Nets.vdac_p] = aliases[sim.Nets.vdac_n]
     monkeypatch.setattr(sim, "_frida1_terminals", lambda: aliases)
     with pytest.raises((KeyError, ValueError)):
-        sim.adc_signal_names(tb, "frida1")
+        sim._probes(tb, _frida1())
 
 
-def test_supply_noise_testbench_repeats_independent_rail_networks() -> None:
+def test_supply_noise_testbench_repeats_independent_rail_networks(extraction) -> None:
     params = _frida1(
         conversions=1,
         supply_series_resistance_ohm=1.0,
@@ -293,7 +329,7 @@ def test_supply_noise_testbench_repeats_independent_rail_networks() -> None:
         supply_noise_rms_v=(1e-3, 0.0, 0.0),
         supply_noise_bandwidth_hz=25e9,
     )
-    tb = sim.testbench(params, pex_netlist=PEX_FIXTURES["frida1"])
+    tb = sim.testbench(params)
     netlist = StringIO()
 
     h.netlist(tb, netlist, fmt="spectre")
@@ -335,7 +371,7 @@ def captured_executor(monkeypatch, tsmc65):
     )
     monkeypatch.setattr(
         sim,
-        "adc_signal_names",
+        "_probes",
         lambda *args, **kwargs: {"time": "time_s", "xtop.comp_out": "comp_out_v", "xtop.xadc.internal": "internal_v"},
     )
     monkeypatch.setattr(sim, "_decode", lambda *args, **kwargs: captured.update(converted=kwargs))
@@ -357,19 +393,12 @@ def captured_executor(monkeypatch, tsmc65):
 
 
 @pytest.fixture
-def pex_input(tmp_path):
+def pex_input(tmp_path, monkeypatch):
+    """A signed-off extraction (the layout's entry, ``laid_out``'s, stood in for)."""
     pex = tmp_path / "frida1_1layer_radix17.pex.netlist"
     ports = " ".join(PEX_PINS["frida1"])
     pex.write_text(f"subckt adc_12b_17step ({ports})\ninternal\nends adc_12b_17step\n")
-    (tmp_path / "signoff_summary.json").write_text(
-        json.dumps(
-            {
-                "lvs_correct": True,
-                "pex_netlist": str(pex),
-                "warnings": [],
-            }
-        )
-    )
+    monkeypatch.setattr(sim.lookup, "laid_out", lambda *_: _entry(pex))
     return pex
 
 
@@ -396,7 +425,7 @@ def test_logic_capture_saves_tail_without_changing_noise_bandwidth(check, captur
 def test_single_executor_modes(view, threads, check, captured_executor, pex_input, tmp_path):
     params = (_gen if view == "hdl21gen" else _frida1)(conversions=100, transient_noise=True, check=check)
     root = tmp_path / "run"
-    sim.simulate(params, root, pex_netlist=None if view == "hdl21gen" else pex_input)
+    sim.simulate(params, root)
     captured = captured_executor
     tran = next(attr for attr in captured["attrs"] if isinstance(attr, hs.Tran))
     assert tran.noise == (not check)
@@ -421,6 +450,11 @@ def test_single_executor_modes(view, threads, check, captured_executor, pex_inpu
     assert "models" in literals and "pre" in literals
     assert "converted" not in captured and "hdf5" not in captured
     metadata = json.loads((root / "input.json").read_text())
+    assert json.loads((root / "names.json").read_text()) == {
+        "time": "time_s",
+        "xtop.comp_out": "comp_out_v",
+        "xtop.xadc.internal": "internal_v",
+    }
     assert metadata["spectre_threads"] == threads
     assert metadata["transient_noise"] == (not check)
     if view != "hdl21gen":
@@ -448,31 +482,29 @@ def test_transfer_executor_enforces_waveform_resolution(check, captured_executor
         ("nodes", "PEX waveform nodes missing"),
         ("header", "no .subckt adc_12b_17step"),
         ("lvs", "unaccepted LVS result"),
-        ("wrong_file", "PEX input differs"),
+        ("changed", "PEX content"),
     ),
 )
-def test_executor_rejects_bad_pex(fault, message, captured_executor, pex_input, tmp_path):
+def test_executor_rejects_bad_pex(fault, message, captured_executor, pex_input, tmp_path, monkeypatch):
     if fault == "ports":
         pex_input.write_text(pex_input.read_text().replace("vdd_a vin_p", "vdd_typo vin_p"))
     elif fault == "nodes":
         pex_input.write_text(pex_input.read_text().replace("\ninternal\n", "\n"))
     elif fault == "header":
         pex_input.write_text("subckt other ()\nends other\n")
+    elif fault == "lvs":
+        monkeypatch.setattr(sim.lookup, "laid_out", lambda *_: _entry(pex_input, lvs_correct=False))
     else:
-        summary = json.loads((tmp_path / "signoff_summary.json").read_text())
-        if fault == "lvs":
-            summary["lvs_correct"] = False
-        else:
-            summary["pex_netlist"] = "wrong.pex.netlist"
-        (tmp_path / "signoff_summary.json").write_text(json.dumps(summary))
+        monkeypatch.setattr(sim.lookup, "laid_out", lambda *_: _entry(pex_input, sha256="0" * 64))
     with pytest.raises(ValueError, match=message):
-        sim.simulate(_frida1(check=True), tmp_path / "run", pex_netlist=pex_input)
+        sim.simulate(_frida1(check=True), tmp_path / "run")
     assert "options" not in captured_executor
 
 
-def test_missing_configured_pex_fails(captured_executor, tmp_path):
+def test_missing_configured_pex_fails(captured_executor, tmp_path, monkeypatch):
+    monkeypatch.setattr(sim.lookup, "laid_out", lambda *_: _entry(tmp_path / "missing.pex.netlist"))
     with pytest.raises(FileNotFoundError):
-        sim.simulate(_frida1(check=True), tmp_path / "run", pex_netlist=tmp_path / "missing.pex.netlist")
+        sim.simulate(_frida1(check=True), tmp_path / "run")
     assert "options" not in captured_executor
 
 
@@ -491,39 +523,55 @@ def test_diagnostic_simulator_error_propagates(captured_executor, tmp_path):
         ("frida1_2layer_radix17", "unrelated mismatch", False),
     ),
 )
-def test_historical_lvs_exception_is_narrow(target, warning, accepted, captured_executor, pex_input, tmp_path):
+def test_historical_lvs_exception_is_narrow(
+    target, warning, accepted, captured_executor, pex_input, tmp_path, monkeypatch
+):
     renamed = pex_input.with_name(f"{target}.pex.netlist")
     pex_input.rename(renamed)
-    (tmp_path / "signoff_summary.json").write_text(
-        json.dumps(
-            {
-                "lvs_correct": False,
-                "pex_netlist": f"/worker/{renamed.name}",
-                "warnings": [warning],
-            }
-        )
-    )
+    monkeypatch.setattr(sim.lookup, "laid_out", lambda *_: _entry(renamed, lvs_correct=False, warnings=(warning,)))
     # the two-layer flavors' signoff keeps the historical disconnect (TbParams.expected_disconnect)
-    kwargs = {"pex_netlist": renamed}
     params = _frida1(Fabricated[target.upper()], check=True)
     if accepted:
-        sim.simulate(params, tmp_path / "run", **kwargs)
+        sim.simulate(params, tmp_path / "run")
         assert captured_executor["options"]
     else:
         with pytest.raises(ValueError, match="unaccepted LVS"):
-            sim.simulate(params, tmp_path / "run", **kwargs)
+            sim.simulate(params, tmp_path / "run")
 
 
 def test_sim_holds_no_private_wrapper_and_no_main():
-    """The executor is ``simulate`` itself, and the named runs that call it are the sweep's
+    """The executor is ``simulate`` itself, and the runs that call it are the sweep's
     (``flow.adc.sweep``): no flavor-specific private wrapper, no command line of its own; its private
-    functions decode a run's raw output (``_decode``)."""
+    functions find a run's top and probes, decode a run's raw output (``_decode``) and make up the
+    behavioral converter."""
     functions = [
         name
         for name, value in vars(sim).items()
-        if inspect.isfunction(value) and value.__module__ == sim.__name__ and name.startswith("_")
+        if callable(value)
+        and getattr(value, "__module__", None) == sim.__name__
+        and name.startswith("_")
+        and not isinstance(value, type)
     ]
-    assert sorted(functions) == ["_complete", "_decision_times", "_decode", "_pex_cell", "_runnable", "_view"]
+    assert sorted(functions) == [
+        "_bit_value",
+        "_capture",
+        "_complete",
+        "_convert",
+        "_converter",
+        "_decision_times",
+        "_decision_windows",
+        "_decode",
+        "_extraction",
+        "_interface_wave",
+        "_probes",
+        "_pwl_value",
+        "_rising",
+        "_runnable",
+        "_salogic",
+        "_sequence_times",
+        "_signed_off",
+        "_source_value",
+    ]
     assert not hasattr(sim, "main")
 
 
@@ -789,19 +837,18 @@ def test_adc_continuous_records_require_next_init_logic(tmp_path: Path) -> None:
 
 
 def _adc_names(view):
-    path = None if view == "hdl21gen" else Path(__file__).parent / "fixtures" / f"{view}_ports.scs"
     params = (_gen if view == "hdl21gen" else _frida1)(waveform_sample_interval_s=50e-12)
-    return sim.adc_signal_names(sim.testbench(params, pex_netlist=path), view)
+    return sim._probes(sim.testbench(params), params)
 
 
-def test_frida1_rc_waveforms_use_device_terminal_nodes() -> None:
+def test_frida1_rc_waveforms_use_device_terminal_nodes(extraction) -> None:
     names = {alias: raw for raw, alias in _adc_names("frida1").items()}
     assert names["vdac_p"] == "xtop.xadc.N_VDAC_P_XXsampswitch_p/MM0_d"
     # the fabricated macro is C15 first
     assert names["dac_state_p[0]"].startswith("xtop.xadc.N_DAC_STATE_P_MAIN<15>_")
 
 
-def test_extracted_waveforms_cover_every_dac_stage_and_comparator_nodes():
+def test_extracted_waveforms_cover_every_dac_stage_and_comparator_nodes(extraction):
     names = {alias: raw for raw, alias in _adc_names("frida1").items()}
     assert len(names) == len(set(names.values()))
     for side in ("p", "n"):
@@ -818,7 +865,7 @@ def test_extracted_waveforms_cover_every_dac_stage_and_comparator_nodes():
 
 def test_generated_adc_map_covers_all_sixteen_capacitor_stages(tsmc65):
     """Every stage's state and both its bottom plates, which are the plates of the generated ADC's
-    DAC's sides (``generated_net_aliases``); TSMC65 bound, as the runner binds it before it builds
+    DAC's sides (``subckt._generated_aliases``); TSMC65 bound, as the runner binds it before it builds
     the testbench."""
     names = _adc_names("hdl21gen")
     for side in ("p", "n"):
@@ -853,7 +900,6 @@ def test_converters_reject_invalid_transients_before_decoding(tmp_path, fault):
 
 def test_conversion_bodies_contain_no_inline_raises():
     import ast
-    import inspect
 
     source = inspect.getsource(sim._decode)
     assert not any(isinstance(node, ast.Raise) for node in ast.walk(ast.parse(source)))
@@ -866,3 +912,262 @@ def test_adc_conversion_requires_one_complete_record():
     times[0, -1] = np.nan
     with pytest.raises(ValueError, match="No complete ADC conversions"):
         sim._complete(times)
+
+
+# The behavioral converter's SAR loop (``sim._convert``) on its blocks' physics, at FRIDA-1's array and
+# its continuous recipe at 1.6 GBd
+
+_TB = TbParams(pdk="tsmc65", params=Params(adc_bits=12, cdac=capdac.Params())).sequenced(
+    Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111.rows, symbol_rate=1.6e9
+)
+
+
+def _with_tb(**fields) -> sim._Behavioral:
+    return sim._Behavioral(tb=TbParams(**{**_TB.__dict__, **fields}))
+
+
+def _ideal_codes(params: sim._Behavioral, points: int = 2001) -> tuple[np.ndarray, np.ndarray]:
+    tb = params.tb
+    main_f, diff_f = capdac.Model.plates(tb.params.cdac, float(tb.vdd_dac.dc))
+    full_scale_v = float(tb.vdd_dac.dc) * np.sum(main_f - diff_f) / np.sum(main_f + diff_f)
+    vin_v = np.linspace(-full_scale_v, full_scale_v, points)
+    code_weights = np.append(2 * np.asarray(capdac.Model.weights(tb.params.cdac)), 1)
+    code_max = (1 << tb.params.adc_bits) - 1
+    bout = sim._convert(params, vin_v).bout
+    code = np.rint((bout @ code_weights) * code_max / code_weights.sum())
+    ideal_code = np.clip(np.floor((vin_v / full_scale_v + 1) / 2 * (code_max + 1)), 0, code_max)
+    return code, ideal_code
+
+
+@pytest.mark.parametrize("astate", [(0, 1) * 8, (0,) * 16, (1,) * 16, (1, 1, 0, 0) * 4])
+def test_ideal_transfer_is_independent_of_the_initial_state(astate) -> None:
+    code, ideal_code = _ideal_codes(_with_tb(dac_astate_p=astate, dac_astate_n=astate))
+    assert np.max(np.abs(code - ideal_code)) <= 1
+
+
+@pytest.mark.parametrize("bits, extra", [(10, 3), (14, 6)])
+def test_other_resolutions_convert_and_scale_logic_energy(bits: int, extra: int) -> None:
+    cdac = capdac.Params(bits=bits, extra=extra)
+    stages = len(capdac.Model.weights(cdac))
+    params = sim._Behavioral(
+        tb=TbParams(
+            pdk="tsmc65",
+            params=Params(adc_bits=bits, cdac=cdac),
+            dac_astate_p=(0, 1) * (stages // 2) + (0,) * (stages % 2),
+            dac_astate_n=(0, 1) * (stages // 2) + (0,) * (stages % 2),
+            dac_bstate_p=(0,) * stages,
+            dac_bstate_n=(0,) * stages,
+        ).continuous(stages),
+        salogic=sim._Salogic(clock_energy_j=1e-15),
+    )
+    code, ideal_code = _ideal_codes(params, points=501)
+    assert np.max(np.abs(code - ideal_code)) <= 1
+    # Every one of the 3 * stages registers is clocked on all stages + 1 LOGIC edges.
+    result = sim._convert(params, np.zeros(4))
+    np.testing.assert_allclose(result.energy_j["vdd_d"], 3 * stages * (stages + 1) * 1e-15)
+
+
+def test_static_bottom_plates_draw_no_reference_charge() -> None:
+    params = _with_tb(dac_mode=0, dac_bstate_p=_TB.dac_astate_p, dac_bstate_n=_TB.dac_astate_n)
+    np.testing.assert_allclose(sim._convert(params, np.full(8, 0.1)).energy_j["vdd_dac"], 0.0, atol=1e-30)
+
+
+def test_differential_caps_double_their_weight_without_diffcaps() -> None:
+    # With dac_diffcaps=0 the diff plates move with the main plates, so each
+    # step is (main + diff) instead of (main - diff): a small input resolves
+    # to a code nearer mid-scale.
+    vin_v = np.asarray([0.2])
+    code_weights = np.append(2 * np.asarray(capdac.Model.weights(_TB.params.cdac)), 1)
+    differential = sim._convert(_with_tb(dac_diffcaps=1), vin_v).bout @ code_weights
+    common = sim._convert(_with_tb(dac_diffcaps=0), vin_v).bout @ code_weights
+    assert abs(common[0] - code_weights.sum() / 2) < abs(differential[0] - code_weights.sum() / 2)
+
+
+def reference_codes(vin_v: float, conversions: int = 400, **reference) -> np.ndarray:
+    """The output codes at a DC input with the reference's departure (``capdac.Model.Behavioral``'s
+    ``reference_*``) the only impairment."""
+    params = sim._Behavioral(
+        tb=_TB,
+        comp=comp_model.Model.Behavioral(noise_v=0.0),
+        cdac=capdac.Model.Behavioral(**reference),
+        seed=3,
+    )
+    code_weights = np.append(2 * np.asarray(capdac.Model.weights(_TB.params.cdac)), 1)
+    bout = sim._convert(params, np.full(conversions, vin_v)).bout
+    return (bout @ code_weights) * ((1 << _TB.params.adc_bits) - 1) / code_weights.sum()
+
+
+def _full_scale_and_lsb() -> tuple[float, float]:
+    main_f, diff_f = capdac.Model.plates(_TB.params.cdac, float(_TB.vdd_dac.dc))
+    full_scale_v = float(_TB.vdd_dac.dc) * np.sum(main_f - diff_f) / np.sum(main_f + diff_f)
+    return full_scale_v, 2 * full_scale_v / (1 << _TB.params.adc_bits)
+
+
+def test_reference_noise_cancels_at_mid_scale_and_grows_toward_the_ends() -> None:
+    full_scale_v, lsb_v = _full_scale_and_lsb()
+    # off the first threshold by a third of an LSB: noiseless, every conversion gives one code
+    middle, near_top, near_bottom = 0.33 * lsb_v, 0.9 * full_scale_v, -0.9 * full_scale_v
+    assert np.std(reference_codes(near_top)) == 0.0
+    # 2 mV at the reference: the sides' plates at it differ by about vin / VDD_DAC near the ends
+    sigma = {
+        vin: float(np.std(reference_codes(vin, reference_noise_v=2e-3))) for vin in (middle, near_top, near_bottom)
+    }
+    assert sigma[middle] < 0.3
+    assert sigma[near_top] > 1.0 and sigma[near_bottom] > 1.0
+
+
+def test_the_reference_kickback_needs_both_a_slow_driver_and_a_small_decap() -> None:
+    full_scale_v, _ = _full_scale_and_lsb()
+    vin_v = 0.6 * full_scale_v
+    ideal = reference_codes(vin_v, 50)
+    # 10 pF of decoupling behind 1 kohm: the dip (a switch's charge over 10 pF) has not recovered
+    # by the next comparison, so the code moves; a strong driver (1 ohm) restores it in time
+    slow = reference_codes(vin_v, 50, reference_r_ohm=1e3, reference_c_f=10e-12)
+    fast = reference_codes(vin_v, 50, reference_r_ohm=1.0, reference_c_f=10e-12)
+    assert abs(float(np.mean(slow)) - float(np.mean(ideal))) >= 1.0
+    assert np.array_equal(fast, ideal)
+    # either part alone is an ideal reference
+    assert np.array_equal(reference_codes(vin_v, 50, reference_r_ohm=1e3), ideal)
+    assert np.array_equal(reference_codes(vin_v, 50, reference_c_f=10e-12), ideal)
+
+
+def test_a_drawn_arrays_exact_transfer_is_the_noise_free_converters() -> None:
+    """The decision paths of a drawn array (``calc_paths``, with each stage's A state) give the
+    decisions the behavioral converter makes, ideal sampler and comparator, at every input: a stage
+    held at 1 moves the other side's capacitor."""
+    from flow.analysis.calc import calc_decision_steps, calc_paths
+
+    stages = len(capdac.Model.weights(_TB.params.cdac))
+    astate = (0, 1) * (stages // 2) + (0,) * (stages % 2)
+    tb = TbParams(**{**_TB.__dict__, "dac_astate_p": astate, "dac_astate_n": astate})
+    rng = np.random.default_rng(5)
+    main_f, diff_f = capdac.Model.plates(tb.params.cdac, float(tb.vdd_dac.dc))
+    drawn = {
+        side: (capdac.Model.draw(main_f, pelgrom=0.01, rng=rng), capdac.Model.draw(diff_f, pelgrom=0.01, rng=rng))
+        for side in ("p", "n")
+    }
+    cdac = capdac.Model.Behavioral(
+        **{
+            f"{kind}_{side}_f": tuple(drawn[side][index])
+            for side in drawn
+            for index, kind in enumerate(("main", "diff"))
+        }
+    )
+    params = sim._Behavioral(tb=tb, comp=comp_model.Model.Behavioral(noise_v=0.0), cdac=cdac)
+    code_max = (1 << tb.params.adc_bits) - 1
+    full_scale_v, lsb_v = _full_scale_and_lsb()
+    # an even count: no input on the first threshold, 0 V, a tie the comparator (overdrive > 0) and
+    # the paths (an input on a threshold above it) break apart
+    vin_v = np.linspace(-full_scale_v, full_scale_v, 20_010)
+    bout = sim._convert(params, vin_v).bout
+    weights = np.append(2 * np.asarray(capdac.Model.weights(tb.params.cdac), dtype=np.float64), 1.0)
+    a, b = calc_decision_steps(
+        (drawn["p"], drawn["n"]), 0.0, code_max, diffcaps=bool(tb.dac_diffcaps), nominal=(main_f, diff_f), astate=astate
+    )
+    paths = calc_paths(a, b, weights, code_max)
+    exact = paths.decisions[np.searchsorted(paths.lower, vin_v / lsb_v, side="right") - 1]
+    assert np.array_equal(exact, bout)
+
+
+def test_the_reference_noise_leaves_the_other_sources_draws_alike() -> None:
+    """The reference's noise draws from a stream of its own: a negligible one changes no decision
+    the comparator's noise makes."""
+    _, lsb_v = _full_scale_and_lsb()
+
+    def bout(**reference) -> np.ndarray:
+        params = sim._Behavioral(
+            tb=_TB, comp=comp_model.Model.Behavioral(noise_v=lsb_v), cdac=capdac.Model.Behavioral(**reference), seed=3
+        )
+        return sim._convert(params, np.full(200, 0.33 * lsb_v)).bout
+
+    assert np.array_equal(bout(reference_noise_v=1e-12), bout())
+
+
+# A run's raw output read back (``sim.read``), the probes a codes-only run saves, and the stimulus as
+# the behavioral converter sees it
+
+
+def test_a_behavioral_run_writes_its_capture_and_read_reads_it_back(tmp_path, monkeypatch) -> None:
+    """``simulate`` of a behavioral run writes the converter's conversions (``capture.h5``) with the
+    converter's numbers among its readbacks; ``read`` returns that measurement, arrays as written."""
+    from flow.adc.test_analysis import adc_measurement
+
+    measurement = adc_measurement([1, 2047, 4095], internal=True)
+    converter = SimpleNamespace(capture=lambda tb, path: measurement, numbers=lambda: {"full_scale_v": 0.9})
+    monkeypatch.setattr(sim, "_converter", lambda pdk, params: converter)
+    tb = TbParams(pdk="tsmc65", params=Params(), conversions=1)
+    raw = sim.simulate(tb, tmp_path / "run")
+    assert raw == tmp_path / "run" / "capture.h5" and raw.is_file()
+    read = sim.read(raw, tb)
+    assert isinstance(read, MeasAdc)
+    np.testing.assert_array_equal(read.bout, measurement.bout)
+    np.testing.assert_array_equal(read.dout, measurement.dout)
+    assert read.info.readbacks["full_scale_v"] == 0.9
+    assert {key: read.info.readbacks[key] for key in measurement.info.readbacks} == measurement.info.readbacks
+
+
+def test_read_decodes_a_spectre_run_by_the_probes_it_left(tmp_path, monkeypatch) -> None:
+    """A Spectre run's raw file is decoded through the probes' map beside it (``names.json``)."""
+    raw = tmp_path / "netlist.raw"
+    raw.touch()
+    (tmp_path / "names.json").write_text(json.dumps({"time": "time", "xtop.comp_out": "comp_out"}))
+    seen = {}
+    monkeypatch.setattr(sim, "read_raw_transient", lambda path: seen.setdefault("raw", path))
+    monkeypatch.setattr(sim, "_decode", lambda result, **kwargs: seen.update(kwargs) or "decoded")
+    tb = _gen()
+    assert sim.read(raw, tb) == "decoded"
+    assert seen["raw"] == raw and seen["params"] is tb and seen["raw_path"] == raw
+    assert seen["signal_names"] == {"time": "time", "xtop.comp_out": "comp_out"}
+
+
+def test_a_codes_only_run_saves_what_its_conversions_need(tsmc65, extraction) -> None:
+    """``Probes.CODES``: the sequencer's lines, the comparator's output, the input and the supplies'
+    currents, the same raw names as with every node probed; what the decode reads."""
+    for params in (_gen(), _frida1()):
+        nodes = sim._probes(sim.testbench(params), params)
+        codes = sim._probes(sim.testbench(replace(params, probes=Probes.CODES)), replace(params, probes=Probes.CODES))
+        assert set(codes.values()) == {
+            "time",
+            *(f"seq_{line}" for line in ("init", "samp", "comp", "logic")),
+            "comp_out",
+            "vin_p",
+            "vin_n",
+            "i(vdd_a)",
+            "i(vdd_d)",
+            "i(vdd_dac)",
+        }
+        assert all(nodes[raw] == label for raw, label in codes.items())
+
+
+def test_a_spectre_run_of_the_adc_is_tsmc65s(tmp_path) -> None:
+    with pytest.raises(ValueError, match="TSMC65's alone"):
+        sim.simulate(replace(_gen(), pdk="ihp130"), tmp_path / "run")
+    assert not (tmp_path / "run").exists()
+
+
+@pytest.mark.parametrize("recipe", CATALOGUE[:3] + CATALOGUE[-3:], ids=lambda recipe: recipe.name.lower())
+def test_a_sequencer_line_reads_as_its_rows_bits(recipe) -> None:
+    """A line (``h.Vbit``) as the behavioral converter sees it: each symbol its row's bit, between
+    ground and the digital supply, at the symbol's start and anywhere inside it, repeated."""
+    tb = _gen().sequenced(recipe.rows, symbol_rate=0.96e9)
+    period_s = 1 / 0.96e9
+    for line, row in zip((tb.seq_init, tb.seq_samp, tb.seq_comp, tb.seq_logic), recipe.rows, strict=True):
+        bits = 1.2 * np.fromiter(map(int, row), dtype=float)
+        symbols = np.arange(2 * len(row))
+        for offset in (0.0, 0.25, 0.999):
+            value = sim._source_value(line, (symbols + offset) * period_s)
+            np.testing.assert_array_equal(value, np.tile(bits, 2))
+    assert sim._source_value(tb.seq_init, np.asarray([-period_s]))[0] == 0.0
+
+
+def test_the_behavioral_interface_record_is_one_complete_conversion() -> None:
+    params = TbParams(pdk="tsmc65", params=Params(), conversions=1)
+    wave = sim._interface_wave(params, [1] * 17, samples_per_symbol=2)
+
+    assert wave.record_index.tolist() == [0]
+    assert wave.v["vin_diff"].shape == (1, 2 * len(params.seq_init.data))
+    assert wave.v["seq_comp"].shape == wave.v["vin_diff"].shape
+    np.testing.assert_array_equal(
+        wave.v["seq_comp"][0], 1.2 * np.repeat(np.fromiter(map(int, params.seq_comp.data), dtype=float), 2)
+    )
+    assert np.count_nonzero(np.diff(wave.v["comp_out"][0])) <= 1

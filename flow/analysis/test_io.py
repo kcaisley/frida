@@ -12,7 +12,6 @@ import numpy as np
 import pytest
 
 from flow import adc
-from flow.adc.sim import build_adc_interface_wave
 from flow.analysis.io import _read_native, write_measurement
 from flow.scans.scan_adc import scope_records_to_adc_wave
 from flow.scans.scope import ScopeConns
@@ -113,16 +112,6 @@ def test_scope_records_build_dense_adc_external_wave(with_input: bool) -> None:
         assert "vin_diff" not in wave.v
         np.testing.assert_allclose(wave.v["seq_init"][1], [0.2, 0.1, 0.0])
     np.testing.assert_allclose(wave.v["comp_out"][1], [1.2, 1.2, 0.0])
-
-
-def test_behavioral_adapter_builds_one_complete_interface_record() -> None:
-    params = adc.TbParams(pdk="tsmc65", params=adc.Params(), conversions=1)
-    wave = build_adc_interface_wave(params, [1] * 17, samples_per_symbol=2)
-
-    assert wave.record_index.tolist() == [0]
-    assert wave.v["vin_diff"].shape == (1, 2 * len(params.seq_init.data))
-    assert wave.v["seq_comp"].shape == wave.v["vin_diff"].shape
-    assert np.count_nonzero(np.diff(wave.v["comp_out"][0])) <= 1
 
 
 def test_spectre_reader_uses_raw_to_alias_map_and_preserves_all_samples(tmp_path, monkeypatch):

@@ -72,8 +72,9 @@ def test_generated_save_maps_reference_existing_nets_and_source_terminals(block,
         # TSMC65 bound for this test, as the runner binds it before it builds the testbench
         request.getfixturevalue("tsmc65")
         params = import_module(f"flow.{block}.params")
-        tb = sim.testbench(params.TbParams(pdk="tsmc65", params=params.Params(), simulator=params.Simulator.SPECTRE))
-        saved = sim.adc_signal_names(tb, "hdl21gen")
+        run = params.TbParams(pdk="tsmc65", params=params.Params(), simulator=params.Simulator.SPECTRE)
+        tb = sim.testbench(run)
+        saved = sim._probes(tb, run)
     assert block in ("comp", "samp") or len(set(saved.values())) == len(saved)
     for raw in saved:
         if raw == "time":

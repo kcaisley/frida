@@ -212,10 +212,9 @@ Scope/FastRX verification at 1600 MBd does not validate 960 MBd automatically. B
 
 The target function owns the complete parameter recipe. ADC targets iterate their flat list and pass one configuration plus its lifecycle position to the acquisition module; comparator and CDAC targets pass their complete lists. Each run writes one typed HDF5 measurement per parameter variant below a fresh timestamped `build/scan_adc/`, `build/scan_comp/`, or `build/scan_cdac/` directory. The individual scan modules are libraries and do not provide command-line entry points.
 
-Behavioral and SPICE-backed scans use the same acquisition schema. The ADC Spectre flow exposes one fixed-input noise campaign for each DUT view:
+Behavioral and SPICE-backed runs write the same measurement schema. The ADC Spectre flow exposes one fixed-input noise campaign for each DUT view:
 
 ```bash
-uv run python -m flow.scans.scan_behavioral
 uv run python -m flow adc.hdl21_sample_rate
 uv run python -m flow adc.frida1_sample_rate
 ```

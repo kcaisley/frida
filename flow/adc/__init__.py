@@ -95,7 +95,7 @@ from .plots import (
     plot_trajectory_final,
     plot_transfer,
 )
-from .sim import simulate, testbench
+from .sim import read, simulate, testbench
 from .subckt import Nets, netlist
 from .types import (
     AnalysisCalibration,
@@ -260,6 +260,7 @@ __all__ = [
     "plot_trajectory_final",
     "plot_transfer",
     "plots",
+    "read",
     "sim",
     "simulate",
     "subckt",

@@ -55,9 +55,9 @@ from flow.adc.analysis import (
     analyze_timing_closure,
     analyze_transfer,
 )
-from flow.adc.model import AdcBehavioralParams
 from flow.adc.params import LADDER, LADDER_NAMES, Params, Recipe, TbParams
 from flow.adc.plots import plot_calibration_weights, plot_redundancy
+from flow.adc.sim import _Behavioral
 from flow.adc.sweep import _extracted, _ladder, campaign
 from flow.adc.types import AnalysisMismatch, AnalysisRedundancy
 from flow.analysis.calc import calc_drawn_linearity, calc_paths
@@ -267,7 +267,7 @@ def test_a_captures_mismatch_is_its_nominal_arrays_statistics() -> None:
         index=0,
         dut=design,
         info=MeasInfo(backend="behavioral", timestamp_utc=datetime(2026, 1, 1, tzinfo=UTC)),
-        param=AdcBehavioralParams(tb=_tb(design), cdac=cdac),
+        param=_Behavioral(tb=_tb(design), cdac=cdac),
         conversion_index=np.arange(1),
         bout=np.zeros((1, 8), dtype=np.uint8),
         dout_raw=np.zeros(1, dtype=np.int64),

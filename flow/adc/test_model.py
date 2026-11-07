@@ -1,5 +1,5 @@
-"""The ADC's behavioral model: the SAR loop of its blocks (``convert_behavioral``), the model on
-stand-in blocks and a stand-in characterization of its DAC (``Model.behavioral``, ``Model.capture``),
+"""The ADC's behavioral model (its SAR loop is ``flow.adc.sim``'s, ``flow/adc/test_sim.py``): the model
+on stand-in blocks and a stand-in characterization of its DAC (``Model.behavioral``, ``Model.capture``),
 the DAC's characterization it composes or its design where there is none (``Model.of``), and the
 reference buffer's requirements it sets (``Model.reference_requirements``)."""
 
@@ -16,13 +16,7 @@ import flow.capdac.model as capdac_model
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
 from flow import capdac
-from flow.adc.model import (
-    AdcBehavioralParams,
-    Model,
-    SalogicBehavioralParams,
-    _enob_floor,
-    convert_behavioral,
-)
+from flow.adc.model import Model, _enob_floor
 from flow.adc.params import (
     DECAP_COVERAGE,
     DRAWN_PERCENTILE,
@@ -39,167 +33,6 @@ from flow.adc.plots import plot_reference_noise, plot_reference_r_out
 TB = TbParams(pdk="tsmc65", params=Params(adc_bits=12, cdac=capdac.Params())).sequenced(
     Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111.rows, symbol_rate=1.6e9
 )
-
-
-def with_tb(**fields) -> AdcBehavioralParams:
-    return AdcBehavioralParams(tb=TbParams(**{**TB.__dict__, **fields}))
-
-
-def ideal_codes(params: AdcBehavioralParams, points: int = 2001) -> tuple[np.ndarray, np.ndarray]:
-    tb = params.tb
-    main_f, diff_f = capdac.Model.plates(tb.params.cdac, float(tb.vdd_dac.dc))
-    full_scale_v = float(tb.vdd_dac.dc) * np.sum(main_f - diff_f) / np.sum(main_f + diff_f)
-    vin_v = np.linspace(-full_scale_v, full_scale_v, points)
-    code_weights = np.append(2 * np.asarray(capdac.Model.weights(tb.params.cdac)), 1)
-    code_max = (1 << tb.params.adc_bits) - 1
-    bout = convert_behavioral(params, vin_v).bout
-    code = np.rint((bout @ code_weights) * code_max / code_weights.sum())
-    ideal_code = np.clip(np.floor((vin_v / full_scale_v + 1) / 2 * (code_max + 1)), 0, code_max)
-    return code, ideal_code
-
-
-@pytest.mark.parametrize("astate", [(0, 1) * 8, (0,) * 16, (1,) * 16, (1, 1, 0, 0) * 4])
-def test_ideal_transfer_is_independent_of_the_initial_state(astate) -> None:
-    code, ideal_code = ideal_codes(with_tb(dac_astate_p=astate, dac_astate_n=astate))
-    assert np.max(np.abs(code - ideal_code)) <= 1
-
-
-@pytest.mark.parametrize("bits, extra", [(10, 3), (14, 6)])
-def test_other_resolutions_convert_and_scale_logic_energy(bits: int, extra: int) -> None:
-    cdac = capdac.Params(bits=bits, extra=extra)
-    stages = len(capdac.Model.weights(cdac))
-    params = AdcBehavioralParams(
-        tb=TbParams(
-            pdk="tsmc65",
-            params=Params(adc_bits=bits, cdac=cdac),
-            dac_astate_p=(0, 1) * (stages // 2) + (0,) * (stages % 2),
-            dac_astate_n=(0, 1) * (stages // 2) + (0,) * (stages % 2),
-            dac_bstate_p=(0,) * stages,
-            dac_bstate_n=(0,) * stages,
-        ).continuous(stages),
-        salogic=SalogicBehavioralParams(clock_energy_j=1e-15),
-    )
-    code, ideal_code = ideal_codes(params, points=501)
-    assert np.max(np.abs(code - ideal_code)) <= 1
-    # Every one of the 3 * stages registers is clocked on all stages + 1 LOGIC edges.
-    result = convert_behavioral(params, np.zeros(4))
-    np.testing.assert_allclose(result.energy_j["vdd_d"], 3 * stages * (stages + 1) * 1e-15)
-
-
-def test_static_bottom_plates_draw_no_reference_charge() -> None:
-    params = with_tb(dac_mode=0, dac_bstate_p=TB.dac_astate_p, dac_bstate_n=TB.dac_astate_n)
-    np.testing.assert_allclose(convert_behavioral(params, np.full(8, 0.1)).energy_j["vdd_dac"], 0.0, atol=1e-30)
-
-
-def test_differential_caps_double_their_weight_without_diffcaps() -> None:
-    # With dac_diffcaps=0 the diff plates move with the main plates, so each
-    # step is (main + diff) instead of (main - diff): a small input resolves
-    # to a code nearer mid-scale.
-    vin_v = np.asarray([0.2])
-    code_weights = np.append(2 * np.asarray(capdac.Model.weights(TB.params.cdac)), 1)
-    differential = convert_behavioral(with_tb(dac_diffcaps=1), vin_v).bout @ code_weights
-    common = convert_behavioral(with_tb(dac_diffcaps=0), vin_v).bout @ code_weights
-    assert abs(common[0] - code_weights.sum() / 2) < abs(differential[0] - code_weights.sum() / 2)
-
-
-def reference_codes(vin_v: float, conversions: int = 400, **reference) -> np.ndarray:
-    """The output codes at a DC input with the reference's departure (``capdac.Model.Behavioral``'s
-    ``reference_*``) the only impairment."""
-    params = AdcBehavioralParams(
-        tb=TB,
-        comp=comp_model.Model.Behavioral(noise_v=0.0),
-        cdac=capdac.Model.Behavioral(**reference),
-        seed=3,
-    )
-    code_weights = np.append(2 * np.asarray(capdac.Model.weights(TB.params.cdac)), 1)
-    bout = convert_behavioral(params, np.full(conversions, vin_v)).bout
-    return (bout @ code_weights) * ((1 << TB.params.adc_bits) - 1) / code_weights.sum()
-
-
-def full_scale_and_lsb() -> tuple[float, float]:
-    main_f, diff_f = capdac.Model.plates(TB.params.cdac, float(TB.vdd_dac.dc))
-    full_scale_v = float(TB.vdd_dac.dc) * np.sum(main_f - diff_f) / np.sum(main_f + diff_f)
-    return full_scale_v, 2 * full_scale_v / (1 << TB.params.adc_bits)
-
-
-def test_reference_noise_cancels_at_mid_scale_and_grows_toward_the_ends() -> None:
-    full_scale_v, lsb_v = full_scale_and_lsb()
-    # off the first threshold by a third of an LSB: noiseless, every conversion gives one code
-    middle, near_top, near_bottom = 0.33 * lsb_v, 0.9 * full_scale_v, -0.9 * full_scale_v
-    assert np.std(reference_codes(near_top)) == 0.0
-    # 2 mV at the reference: the sides' plates at it differ by about vin / VDD_DAC near the ends
-    sigma = {
-        vin: float(np.std(reference_codes(vin, reference_noise_v=2e-3))) for vin in (middle, near_top, near_bottom)
-    }
-    assert sigma[middle] < 0.3
-    assert sigma[near_top] > 1.0 and sigma[near_bottom] > 1.0
-
-
-def test_the_reference_kickback_needs_both_a_slow_driver_and_a_small_decap() -> None:
-    full_scale_v, _ = full_scale_and_lsb()
-    vin_v = 0.6 * full_scale_v
-    ideal = reference_codes(vin_v, 50)
-    # 10 pF of decoupling behind 1 kohm: the dip (a switch's charge over 10 pF) has not recovered
-    # by the next comparison, so the code moves; a strong driver (1 ohm) restores it in time
-    slow = reference_codes(vin_v, 50, reference_r_ohm=1e3, reference_c_f=10e-12)
-    fast = reference_codes(vin_v, 50, reference_r_ohm=1.0, reference_c_f=10e-12)
-    assert abs(float(np.mean(slow)) - float(np.mean(ideal))) >= 1.0
-    assert np.array_equal(fast, ideal)
-    # either part alone is an ideal reference
-    assert np.array_equal(reference_codes(vin_v, 50, reference_r_ohm=1e3), ideal)
-    assert np.array_equal(reference_codes(vin_v, 50, reference_c_f=10e-12), ideal)
-
-
-def test_a_drawn_arrays_exact_transfer_is_the_noise_free_converters() -> None:
-    """The decision paths of a drawn array (``calc_paths``, with each stage's A state) give the
-    decisions the behavioral converter makes, ideal sampler and comparator, at every input: a stage
-    held at 1 moves the other side's capacitor."""
-    from flow.analysis.calc import calc_decision_steps, calc_paths
-
-    stages = len(capdac.Model.weights(TB.params.cdac))
-    astate = (0, 1) * (stages // 2) + (0,) * (stages % 2)
-    tb = TbParams(**{**TB.__dict__, "dac_astate_p": astate, "dac_astate_n": astate})
-    rng = np.random.default_rng(5)
-    main_f, diff_f = capdac.Model.plates(tb.params.cdac, float(tb.vdd_dac.dc))
-    drawn = {
-        side: (capdac.Model.draw(main_f, pelgrom=0.01, rng=rng), capdac.Model.draw(diff_f, pelgrom=0.01, rng=rng))
-        for side in ("p", "n")
-    }
-    cdac = capdac.Model.Behavioral(
-        **{
-            f"{kind}_{side}_f": tuple(drawn[side][index])
-            for side in drawn
-            for index, kind in enumerate(("main", "diff"))
-        }
-    )
-    params = AdcBehavioralParams(tb=tb, comp=comp_model.Model.Behavioral(noise_v=0.0), cdac=cdac)
-    code_max = (1 << tb.params.adc_bits) - 1
-    full_scale_v, lsb_v = full_scale_and_lsb()
-    # an even count: no input on the first threshold, 0 V, a tie the comparator (overdrive > 0) and
-    # the paths (an input on a threshold above it) break apart
-    vin_v = np.linspace(-full_scale_v, full_scale_v, 20_010)
-    bout = convert_behavioral(params, vin_v).bout
-    weights = np.append(2 * np.asarray(capdac.Model.weights(tb.params.cdac), dtype=np.float64), 1.0)
-    a, b = calc_decision_steps(
-        (drawn["p"], drawn["n"]), 0.0, code_max, diffcaps=bool(tb.dac_diffcaps), nominal=(main_f, diff_f), astate=astate
-    )
-    paths = calc_paths(a, b, weights, code_max)
-    exact = paths.decisions[np.searchsorted(paths.lower, vin_v / lsb_v, side="right") - 1]
-    assert np.array_equal(exact, bout)
-
-
-def test_the_reference_noise_leaves_the_other_sources_draws_alike() -> None:
-    """The reference's noise draws from a stream of its own: a negligible one changes no decision
-    the comparator's noise makes."""
-    _, lsb_v = full_scale_and_lsb()
-
-    def bout(**reference) -> np.ndarray:
-        params = AdcBehavioralParams(
-            tb=TB, comp=comp_model.Model.Behavioral(noise_v=lsb_v), cdac=capdac.Model.Behavioral(**reference), seed=3
-        )
-        return convert_behavioral(params, np.full(200, 0.33 * lsb_v)).bout
-
-    assert np.array_equal(bout(reference_noise_v=1e-12), bout())
 
 
 def _dac(params: Params, *, gain: float = 1.0, settling_meas: Path | None = None) -> capdac.Model:

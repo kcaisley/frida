@@ -339,16 +339,15 @@ def test_fixed_input_campaigns(check, tmp_path, monkeypatch):
     def capture(params, directory, **options):
         calls.append((directory, params, options))
         started.wait(timeout=10)
-        return directory / "netlist.raw", {}
+        return directory / "netlist.raw"
 
     monkeypatch.setattr(sweep, "ProcessPoolExecutor", pool)
     from flow.analysis import io
-    from flow.circuit import results
 
-    monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
-    monkeypatch.setattr(sim, "_decode", lambda *args, **kwargs: object())
+    monkeypatch.setattr(sweep, "read", lambda raw, tb: object())
     monkeypatch.setattr(io, "write_measurement", lambda *args: None)
     monkeypatch.setattr(sweep, "simulate", capture)
+    monkeypatch.setattr(sim, "_extraction", lambda tb: (PEX_FIXTURES["frida1"], "adc_12b_17step"))
     root = tmp_path / "campaign"
     assert sweep.frida1_sequence(root, check=check) == root
     timing_count = 7
@@ -367,8 +366,8 @@ def test_fixed_input_campaigns(check, tmp_path, monkeypatch):
         assert float(params.vin_cm.dc) == pytest.approx(0.7)
         assert params.check == check
         assert params.transient_noise is True
-        assert options["pex_netlist"].name == f"{flavor}.pex.netlist"
-        assert options["pex_netlist"].parent.name.startswith("20260905_")
+        # its extraction its layout's signoff, which the run finds itself (``sim._extraction``)
+        assert options == {}
         assert params.expected_disconnect == ("2layer" in flavor)
         assert sum(capdac.Model.weights(params.params.cdac)) == (2303 if "radix20" in flavor else 2047)
         comp = np.fromiter(map(int, params.seq_comp.data), dtype=int)
@@ -386,7 +385,7 @@ def test_fixed_input_campaigns(check, tmp_path, monkeypatch):
         np.testing.assert_array_equal(
             np.flatnonzero(np.fromiter(map(int, params.seq_samp.data), dtype=int)), np.arange(4, 24)
         )
-        assert sim.testbench(params, pex_netlist=PEX_FIXTURES["frida1"]).name == "AdcTb_frida1"
+        assert sim.testbench(params).name == "AdcTb_frida1"
 
 
 def test_concurrent_campaign_propagates_case_failure(tmp_path, monkeypatch):
@@ -399,7 +398,7 @@ def test_concurrent_campaign_propagates_case_failure(tmp_path, monkeypatch):
         calls.append(directory)
         if "1layer_radix17" in directory.parent.name:
             raise RuntimeError("simulator failed")
-        return directory / "netlist.raw", {}
+        return directory / "netlist.raw"
 
     monkeypatch.setattr(sweep, "simulate", fail_one)
     with pytest.raises(RuntimeError, match="simulator failed"):
@@ -428,14 +427,12 @@ def test_other_campaign_recipes(target, count, workers, check, tmp_path, monkeyp
 
     def capture(params, directory, **options):
         calls.append((directory, params, options))
-        return directory / "netlist.raw", {}
+        return directory / "netlist.raw"
 
     monkeypatch.setattr(sweep, "ProcessPoolExecutor", pool)
     from flow.analysis import io
-    from flow.circuit import results
 
-    monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
-    monkeypatch.setattr(sim, "_decode", lambda *args, **kwargs: object())
+    monkeypatch.setattr(sweep, "read", lambda raw, tb: object())
     monkeypatch.setattr(io, "write_measurement", lambda *args: None)
     monkeypatch.setattr(sweep, "simulate", capture)
     assert getattr(sweep, target)(tmp_path, check=check) == tmp_path
@@ -533,14 +530,12 @@ def test_all_campaign_patterns_are_preserved(monkeypatch, tmp_path):
         def submit(self, function, params, directory, **kwargs):
             cases.append((directory, params))
             future = Future()
-            future.set_result((directory / "netlist.raw", {}))
+            future.set_result(directory / "netlist.raw")
             return future
 
     from flow.analysis import io
-    from flow.circuit import results
 
-    monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
-    monkeypatch.setattr(sim, "_decode", lambda *args, **kwargs: object())
+    monkeypatch.setattr(sweep, "read", lambda raw, tb: object())
     monkeypatch.setattr(io, "write_measurement", lambda *args: None)
     monkeypatch.setattr(sweep, "ProcessPoolExecutor", CaptureExecutor)
     sweep.frida1_sequence(tmp_path)
