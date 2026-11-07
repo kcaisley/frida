@@ -96,7 +96,7 @@ from .plots import (
     plot_transfer,
 )
 from .sim import simulate, testbench
-from .subckt import Adc, AdcNets
+from .subckt import Nets, netlist
 from .types import (
     AnalysisCalibration,
     AnalysisCalibration1,
@@ -134,8 +134,6 @@ from .types import (
 )
 
 __all__ = [
-    "Adc",
-    "AdcNets",
     "AnalysisCalibration",
     "AnalysisCalibration1",
     "AnalysisCalibration2",
@@ -171,6 +169,7 @@ __all__ = [
     "AnalysisTransfer",
     "Extraction",
     "Fabricated",
+    "Nets",
     "Params",
     "Probes",
     "Quiet",
@@ -212,6 +211,7 @@ __all__ = [
     "analyze_timing_summary",
     "analyze_transfer",
     "metrics",
+    "netlist",
     "params",
     "plot_calibration_weights",
     "plot_cdac_settling_first",

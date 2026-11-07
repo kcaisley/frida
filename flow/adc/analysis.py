@@ -133,7 +133,7 @@ from flow.analysis.types import MeasAdc, MeasCdac
 from flow.pipeline import Identity, analysis, check_identity, measurement_identity
 
 from .params import CDAC_SETTLING_TOLERANCE_V, LADDER, NOMINAL_RATE_HZ, PELGROM_AXIS, UNIT_MISMATCH
-from .subckt import AdcNets
+from .subckt import Nets
 from .types import (
     AnalysisCalibration,
     AnalysisCalibration1,
@@ -1059,18 +1059,18 @@ def analyze_sampling_noise(measurement: MeasAdc) -> AnalysisSamplingNoise:
     starts, stops, held_p, held_n, inputs = [], [], [], [], []
     for row in range(len(wave.record_index)):
         sample_time = (
-            calc.cross(wave.v[AdcNets.seq_samp.name][row], wave.time_s, threshold, edge="falling", occurrence=1) + 1e-9
+            calc.cross(wave.v[Nets.seq_samp.name][row], wave.time_s, threshold, edge="falling", occurrence=1) + 1e-9
         )
         if not math.isfinite(sample_time):
             raise ValueError("sampling noise requires a SAMP falling edge")
-        input_trace = wave.v[AdcNets.vin_p.name][row] - wave.v[AdcNets.vin_n.name][row]
+        input_trace = wave.v[Nets.vin_p.name][row] - wave.v[Nets.vin_n.name][row]
         # A 1 nV peak-to-peak bound distinguishes a DC input from numerical noise.
         if calc.peakToPeak(input_trace) > 1e-9:
             raise ValueError("sampling noise analysis requires a fixed differential input")
         starts.append(sample_time)
         stops.append(sample_time)
-        held_p.append(calc.value(wave.v[AdcNets.vdac_p.name][row], wave.time_s, sample_time, extrapolate=False))
-        held_n.append(calc.value(wave.v[AdcNets.vdac_n.name][row], wave.time_s, sample_time, extrapolate=False))
+        held_p.append(calc.value(wave.v[Nets.vdac_p.name][row], wave.time_s, sample_time, extrapolate=False))
+        held_n.append(calc.value(wave.v[Nets.vdac_n.name][row], wave.time_s, sample_time, extrapolate=False))
         inputs.append(calc.value(input_trace, wave.time_s, sample_time, extrapolate=False))
     if calc.peakToPeak(inputs) > 1e-9:
         raise ValueError("sampling noise analysis requires the same input across conversions")
@@ -1103,13 +1103,13 @@ def analyze_cdac_settling(measurement: MeasAdc) -> AnalysisCdacSettling:
     cycle_windows = []
     for record_index, conversion_index in enumerate(wave.record_index):
         comp_rising_s = np.asarray(
-            calc.cross(wave.v[AdcNets.clk_comp.name][record_index], time_s, threshold_v, edge="rising")
+            calc.cross(wave.v[Nets.clk_comp.name][record_index], time_s, threshold_v, edge="rising")
         )
         comp_falling_s = np.asarray(
-            calc.cross(wave.v[AdcNets.clk_comp.name][record_index], time_s, threshold_v, edge="falling")
+            calc.cross(wave.v[Nets.clk_comp.name][record_index], time_s, threshold_v, edge="falling")
         )
         logic_rising_s = np.asarray(
-            calc.cross(wave.v[AdcNets.seq_logic.name][record_index], time_s, threshold_v, edge="rising")
+            calc.cross(wave.v[Nets.seq_logic.name][record_index], time_s, threshold_v, edge="rising")
         )
         period_s = len(measurement.tb.seq_init.data) / float(measurement.tb.symbol_rate)
         comp_rising_s = comp_rising_s[comp_rising_s < period_s]
@@ -1128,8 +1128,8 @@ def analyze_cdac_settling(measurement: MeasAdc) -> AnalysisCdacSettling:
             elif (
                 cycle == capacitors
                 and not len(falling_s)
-                and wave.v[AdcNets.clk_comp.name][record_index, -1] >= threshold_v
-                and wave.v[AdcNets.seq_comp.name][record_index, -1] >= threshold_v
+                and wave.v[Nets.clk_comp.name][record_index, -1] >= threshold_v
+                and wave.v[Nets.seq_comp.name][record_index, -1] >= threshold_v
             ):
                 # Back-to-back records end during the final comparison.
                 # Show only saved samples; do not invent its later reset edge.
@@ -1215,8 +1215,8 @@ def analyze_cdac_settling(measurement: MeasAdc) -> AnalysisCdacSettling:
         )
         if np.count_nonzero(settling_reference) < 2:
             raise ValueError(f"ADC CDAC stage C{stage_index} has fewer than two settled-reference samples")
-        p_static_v = np.median(wave.v[AdcNets.vdac_p.name][record_index, settling_reference])
-        n_static_v = np.median(wave.v[AdcNets.vdac_n.name][record_index, settling_reference])
+        p_static_v = np.median(wave.v[Nets.vdac_p.name][record_index, settling_reference])
+        n_static_v = np.median(wave.v[Nets.vdac_n.name][record_index, settling_reference])
         evaluation_stop_s = logic_s + 0.95 * (next_comp_s - logic_s)
         for side, static_v, durations in (
             ("p", p_static_v, vdac_p_settling_s),
@@ -1250,10 +1250,10 @@ def analyze_cdac_settling(measurement: MeasAdc) -> AnalysisCdacSettling:
                     calc.value(wave.v[f"{signal}_{side}[{stage_index}]"][record_index], time_s, sample_time_s)
                 )
         aligned["vdac_p_settling_error_v"].append(
-            calc.value(wave.v[AdcNets.vdac_p.name][record_index], time_s, sample_time_s) - p_static_v
+            calc.value(wave.v[Nets.vdac_p.name][record_index], time_s, sample_time_s) - p_static_v
         )
         aligned["vdac_n_settling_error_v"].append(
-            calc.value(wave.v[AdcNets.vdac_n.name][record_index], time_s, sample_time_s) - n_static_v
+            calc.value(wave.v[Nets.vdac_n.name][record_index], time_s, sample_time_s) - n_static_v
         )
 
     identity = measurement.identity
@@ -1302,7 +1302,7 @@ def analyze_power(measurement: MeasAdc) -> AnalysisPower:
     if wave is not None:
         waveform_time_s = wave.time_s
         init_rising_s = calc.cross(
-            wave.v[AdcNets.seq_init.name][0],
+            wave.v[Nets.seq_init.name][0],
             waveform_time_s,
             0.5 * float(tb.vdd_d.dc),
             edge="rising",
@@ -1397,7 +1397,7 @@ def analyze_power_waveform(measurement: MeasAdc, *, power: AnalysisPower) -> Ana
     time_s = wave.time_s
     threshold_v = 0.5 * float(measurement.tb.vdd_d.dc)
     active_start_s = calc.cross(
-        wave.v[AdcNets.seq_init.name][0],
+        wave.v[Nets.seq_init.name][0],
         time_s,
         threshold_v,
         edge="rising",
@@ -1431,10 +1431,10 @@ def analyze_power_waveform(measurement: MeasAdc, *, power: AnalysisPower) -> Ana
             [
                 values[0, displayed] > threshold_v
                 for values in (
-                    wave.v[AdcNets.seq_init.name],
-                    wave.v[AdcNets.seq_samp.name],
-                    wave.v[AdcNets.seq_comp.name],
-                    wave.v[AdcNets.seq_logic.name],
+                    wave.v[Nets.seq_init.name],
+                    wave.v[Nets.seq_samp.name],
+                    wave.v[Nets.seq_comp.name],
+                    wave.v[Nets.seq_logic.name],
                 )
             ],
             dtype=np.bool_,
@@ -1485,25 +1485,25 @@ def analyze_timing_closure(measurement: MeasAdc) -> AnalysisTimingClosure:
     # an array of unit capacitors has no difference plates to save: its main plates alone
     differences = params.params.cdac.weight_impl is not capdac.WeightImpl.UNIT_CAPS
     buses = (
-        AdcNets.dac_state_p,
-        AdcNets.dac_state_n,
-        AdcNets.dac_state_p_diff,
-        AdcNets.dac_state_n_diff,
-        AdcNets.dac_botplate_p,
-        AdcNets.dac_botplate_n,
-        *((AdcNets.dac_botplate_p_diff, AdcNets.dac_botplate_n_diff) if differences else ()),
+        Nets.dac_state_p,
+        Nets.dac_state_n,
+        Nets.dac_state_p_diff,
+        Nets.dac_state_n_diff,
+        Nets.dac_botplate_p,
+        Nets.dac_botplate_n,
+        *((Nets.dac_botplate_p_diff, Nets.dac_botplate_n_diff) if differences else ()),
     )
     required = (
         {
             net.name
             for net in (
-                AdcNets.seq_init,
-                AdcNets.seq_logic,
-                AdcNets.clk_comp,
-                AdcNets.comp_out_p,
-                AdcNets.comp_out_n,
-                AdcNets.vdac_p,
-                AdcNets.vdac_n,
+                Nets.seq_init,
+                Nets.seq_logic,
+                Nets.clk_comp,
+                Nets.comp_out_p,
+                Nets.comp_out_n,
+                Nets.vdac_p,
+                Nets.vdac_n,
             )
         }
         | {f"comp.{net.name}" for net in (comp.Nets.latch_p, comp.Nets.latch_n)}
@@ -1516,9 +1516,9 @@ def analyze_timing_closure(measurement: MeasAdc) -> AnalysisTimingClosure:
         signals = {name: values[record] for name, values in wave.v.items()}
         # One conversion starts at the record's INIT rise and holds one COMP rise per decision.
         threshold_v = digital_supply / 2
-        init_edges = calc.cross(signals[AdcNets.seq_init.name], time, threshold_v, edge="rising", initial_high=True)
-        comp_edges = calc.cross(signals[AdcNets.clk_comp.name], time, threshold_v, edge="rising")
-        logic_edges = calc.cross(signals[AdcNets.seq_logic.name], time, threshold_v, edge="rising", initial_high=True)
+        init_edges = calc.cross(signals[Nets.seq_init.name], time, threshold_v, edge="rising", initial_high=True)
+        comp_edges = calc.cross(signals[Nets.clk_comp.name], time, threshold_v, edge="rising")
+        logic_edges = calc.cross(signals[Nets.seq_logic.name], time, threshold_v, edge="rising", initial_high=True)
         if not len(init_edges):
             raise ValueError(f"record {record} has no INIT rise")
         conversion_stop = init_edges[1] if len(init_edges) > 1 else time[-1]
@@ -1539,9 +1539,9 @@ def analyze_timing_closure(measurement: MeasAdc) -> AnalysisTimingClosure:
             ):
                 when = math.nan
             logic.append(when)
-        resets = calc.cross(signals[AdcNets.clk_comp.name], time, threshold_v, edge="falling")
+        resets = calc.cross(signals[Nets.clk_comp.name], time, threshold_v, edge="falling")
         internal = signals[f"comp.{comp.Nets.latch_p.name}"] - signals[f"comp.{comp.Nets.latch_n.name}"]
-        sr_p, sr_n = signals[AdcNets.comp_out_p.name], signals[AdcNets.comp_out_n.name]
+        sr_p, sr_n = signals[Nets.comp_out_p.name], signals[Nets.comp_out_n.name]
         for decision, (start, logic_time, next_comp) in enumerate(
             zip(comp_edges[comp_indices], logic, following, strict=True)
         ):
@@ -1574,7 +1574,7 @@ def analyze_timing_closure(measurement: MeasAdc) -> AnalysisTimingClosure:
             if decision < capacitors and np.isfinite(next_comp) and np.isfinite(logic_time):
                 update = (time >= logic_time) & (time < next_comp)
                 settled = np.ones(np.count_nonzero(update), dtype=bool)
-                for net in (AdcNets.vdac_p, AdcNets.vdac_n):
+                for net in (Nets.vdac_p, Nets.vdac_n):
                     values = signals[net.name][update]
                     if len(values):
                         settled &= np.abs(values - values[-1]) <= cdac_tolerance_v
@@ -1582,12 +1582,12 @@ def analyze_timing_closure(measurement: MeasAdc) -> AnalysisTimingClosure:
                     state = positive if params.dac_mode else getattr(params, f"dac_bstate_{side}")[decision]
                     for diff in (False, True):
                         suffix = "_diff" if diff else ""
-                        state_net = getattr(AdcNets, f"dac_state_{side}{suffix}")
+                        state_net = getattr(Nets, f"dac_state_{side}{suffix}")
                         values = signals[f"{state_net.name}[{decision}]"][update]
                         settled &= values >= 0.7 * digital_supply if state else values <= 0.3 * digital_supply
                         if diff and not differences:
                             continue
-                        bottom_net = getattr(AdcNets, f"dac_botplate_{side}{suffix}")
+                        bottom_net = getattr(Nets, f"dac_botplate_{side}{suffix}")
                         values = signals[f"{bottom_net.name}[{decision}]"][update]
                         bottom_target = (bool(state) ^ (diff and bool(params.dac_diffcaps))) * dac_supply
                         settled &= np.abs(values - bottom_target) <= cdac_tolerance_v

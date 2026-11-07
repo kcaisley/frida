@@ -42,7 +42,7 @@ docs/pipeline.md): one space per resolution, its arrays, comparators and sampler
 Each instance runs the campaign (``campaign``: every capture its record needs) and records its
 metrics and figures (``record``: the analyses of ``flow.adc.analysis``, the figures of
 ``flow.adc.plots``) for the viewer; its captures stay in memory, so its run is its record. Its
-geometry metrics are those of its analog blocks (``GENERATOR``, ``flow.adc.subckt.AdcBlocks``).
+geometry metrics are those of its analog blocks (``GENERATOR``, ``_blocks``).
 
 The named Spectre runs (``hdl21_sample_rate`` to ``frida1_supply_noise``, the CLI's ``python -m flow
 adc.<name>``, ``flow.adc.targets``): the generated or an extracted converter's testbenches
@@ -66,6 +66,7 @@ import numpy as np
 from flow import capdac, comp, samp
 from flow.analysis.io import read_cap_table
 from flow.analysis.types import MeasAdc
+from flow.layout.devices.device import active_pdk, resolve
 from flow.pipeline import Pdk, Record, grid, named, values, widen
 
 from .analysis import (
@@ -146,7 +147,6 @@ from .plots import (
     plot_trajectory_final,
 )
 from .sim import simulate
-from .subckt import AdcBlocks
 from .types import AnalysisCalibration, AnalysisLadder
 
 
@@ -443,7 +443,33 @@ def _code_ramp(full_scale_v: float, bits: int, rate_hz: float) -> h.Vpwl.Params:
     return h.Vpwl.Params(wave=" ".join(f"{time:.9g} {value:.9g}" for time, value in points))
 
 
-GENERATOR = AdcBlocks
+def _blocks(params: Params) -> h.Module:
+    """The converter's analog blocks for the geometry metrics until the record takes its netlist's:
+    the comparator, and a sampler and a side of its DAC a side (``capdac.netlist``: its capacitors
+    and their drivers, its requests resolved to the active PDK's devices). The netlist's own
+    (``flow.adc.subckt.netlist``) cannot be measured yet: its comparator clock's inverter has a
+    finger wider than a row cell draws, and its digital block (or a fabricated converter's black box)
+    is an external cell with no footprint of the library's."""
+    pdk = active_pdk()
+    if pdk is None:
+        raise RuntimeError("the DAC's devices are the active PDK's, and none is set")
+    blocks = h.Module(name="AdcBlocks")
+    parts = [(comp.netlist(params.comp), "comp")]
+    dac = capdac.netlist(params.cdac)
+    resolve(dac, pdk)
+    for side in ("p", "n"):
+        parts += [(samp.netlist(params.samp), f"samp_{side}"), (dac, f"cap_{side}")]
+    for module, name in parts:
+        # each port on a signal of its own: the compile wants every port connected
+        connections = {
+            port: blocks.add(h.Signal(width=signal.width), name=f"{name}_{port}")
+            for port, signal in module.ports.items()
+        }
+        blocks.add(module(**connections), name=name)
+    return blocks
+
+
+GENERATOR = _blocks
 # a converter is characterized in Python alone (the behavioral model on its blocks' records, no
 # circuit compiled), so a worker process runs this many as one task
 tasks_per_worker = 10

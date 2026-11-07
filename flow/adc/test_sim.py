@@ -23,7 +23,7 @@ from flow.util.netlist import subcircuit_ports
 
 from . import sim
 from .params import Extraction, Fabricated, Params, Recipe, Simulator, TbParams
-from .subckt import AdcNets
+from .subckt import Nets
 
 PEX_FIXTURES = {"frida1": Path(__file__).parent / "fixtures" / "frida1_ports.scs"}
 PEX_PINS = {view: subcircuit_ports(path.read_text(), "adc_12b_17step") for view, path in PEX_FIXTURES.items()}
@@ -274,12 +274,12 @@ def test_all_adc_views_expose_the_same_analysis_waveforms(tsmc65):
 @pytest.mark.parametrize("fault", ("missing", "duplicate"))
 def test_pex_observations_reject_incomplete_or_ambiguous_bindings(monkeypatch, fault):
     tb = sim.testbench(_frida1(), pex_netlist=PEX_FIXTURES["frida1"])
-    aliases = sim.frida1_net_aliases()
+    aliases = sim._frida1_terminals()
     if fault == "missing":
-        del aliases[sim.AdcNets.vdac_p]
+        del aliases[sim.Nets.vdac_p]
     else:
-        aliases[sim.AdcNets.vdac_p] = aliases[sim.AdcNets.vdac_n]
-    monkeypatch.setattr(sim, "frida1_net_aliases", lambda: aliases)
+        aliases[sim.Nets.vdac_p] = aliases[sim.Nets.vdac_n]
+    monkeypatch.setattr(sim, "_frida1_terminals", lambda: aliases)
     with pytest.raises((KeyError, ValueError)):
         sim.adc_signal_names(tb, "frida1")
 
@@ -591,7 +591,7 @@ def test_adc_waveform_conversion_writes_shared_hdf5(tmp_path: Path) -> None:
         )
         comp_out_v[(times_s >= transition_s) & (times_s < stop_s)] = 1.2 * int(bit)
 
-    raw_wave_names = waveform_net_names(AdcNets) | {"i(vdd_a)", "i(vdd_d)", "i(vdd_dac)"}
+    raw_wave_names = waveform_net_names(Nets) | {"i(vdd_a)", "i(vdd_d)", "i(vdd_dac)"}
     values = {name: np.zeros_like(times_s) for name in raw_wave_names}
     values.update(
         {
@@ -673,7 +673,7 @@ def test_adc_capture_uses_logic_threshold_not_early_fraction_or_later_sample(
 ) -> None:
     ticks = np.arange(4001)
     times_s = ticks * 0.05e-9
-    names = waveform_net_names(AdcNets) | {"i(vdd_a)", "i(vdd_d)", "i(vdd_dac)"}
+    names = waveform_net_names(Nets) | {"i(vdd_a)", "i(vdd_d)", "i(vdd_dac)"}
     values = {name: np.zeros_like(times_s) for name in names}
     values["time"] = times_s
     values["seq_init"][20:40] = 1.2
@@ -705,7 +705,7 @@ def test_adc_capture_uses_logic_threshold_not_early_fraction_or_later_sample(
 def test_adc_logic_capture_includes_last_conversion_tail(tmp_path: Path) -> None:
     (tmp_path / "original.raw").touch()
     times = np.arange(8626) * 25e-12
-    names = waveform_net_names(AdcNets) | {"i(vdd_a)", "i(vdd_d)", "i(vdd_dac)"}
+    names = waveform_net_names(Nets) | {"i(vdd_a)", "i(vdd_d)", "i(vdd_dac)"}
     values = {name: np.zeros_like(times) for name in names}
     values["time"] = times
     for cycle in range(3):
@@ -760,7 +760,7 @@ def test_adc_continuous_records_require_next_init_logic(tmp_path: Path) -> None:
     )
     ticks = np.arange(16_001)
     times_s = ticks * 12.5e-12
-    raw_names = waveform_net_names(AdcNets) | {"i(vdd_a)", "i(vdd_d)", "i(vdd_dac)"}
+    raw_names = waveform_net_names(Nets) | {"i(vdd_a)", "i(vdd_d)", "i(vdd_dac)"}
     values = {name: np.zeros_like(times_s) for name in raw_names}
     values["time"] = times_s
     for name in ("init", "samp", "comp", "logic"):

@@ -108,7 +108,7 @@ class Params:
 
     def __post_init__(self) -> None:
         # the converter resolves what its array is sized and weighted for; any array of capdac's is
-        # one, its model, its blocks' geometry and its netlist (flow.adc.subckt.Adc: two of the
+        # one, its model, its blocks' geometry and its netlist (flow.adc.subckt.netlist: two of the
         # array's sides) capdac's
         if self.adc_bits != self.cdac.bits:
             raise ValueError(f"a {self.adc_bits}-bit converter takes a {self.adc_bits}-bit array, not {self.cdac.bits}")
@@ -942,7 +942,7 @@ _recipes = {
     ),
 }
 
-# the sequencer's four lines, the ADC's clock inputs (``flow.adc.subckt.AdcNets``), in the rows' order
+# the sequencer's four lines, the ADC's clock inputs (``flow.adc.subckt.Nets``), in the rows' order
 _lines = ("seq_init", "seq_samp", "seq_comp", "seq_logic")
 
 

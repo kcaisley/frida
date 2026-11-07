@@ -26,14 +26,14 @@ from vlsirtools.spice.sim_data import TranResult
 from flow import capdac, comp
 from flow.adc.params import Extraction, Probes, Simulator, TbParams
 from flow.adc.subckt import (
-    Adc,
-    AdcNets,
-    adc_nets,
-    adc_pex,
-    adc_port_aliases,
-    digital_netlist,
-    frida1_net_aliases,
-    generated_net_aliases,
+    Nets,
+    _digital_netlist,
+    _frida1_ports,
+    _frida1_terminals,
+    _generated_aliases,
+    _nets,
+    _pex,
+    netlist,
 )
 from flow.analysis import calc
 from flow.analysis.io import interpolate_wave_records
@@ -86,11 +86,11 @@ def testbench(params: TbParams, *, pex_netlist: Path | None = None) -> h.Module:
         raise ValueError("extracted views require a PEX input; HDL21 must not have one")
 
     view = _view(params)
-    nets = adc_nets(params.stages)
+    nets = _nets(params.stages)
     if pex_netlist is None:
         ports = {name: net for name, net in nets.signals.items() if net.vis == h.Visibility.PORT}
     else:
-        aliases = adc_port_aliases(view)
+        aliases = _frida1_ports()
         selected = {net.parent if isinstance(net, h.Slice) else net for net in aliases}
         ports = {name: net for name, net in nets.signals.items() if net in selected}
     tb, connections = testbench_from_ports(f"AdcTb_{view}", ports)
@@ -181,9 +181,9 @@ def testbench(params: TbParams, *, pex_netlist: Path | None = None) -> h.Module:
                 )
 
     if pex_netlist is None:
-        tb.xadc = Adc(params.params)(**connections)
+        tb.xadc = netlist(params.params)(**connections)
     else:
-        module = adc_pex(pex_netlist, _pex_cell(params))
+        module = _pex(pex_netlist, _pex_cell(params))
         pex_connections = {
             physical: connections[net.parent.name][net.index] if isinstance(net, h.Slice) else connections[net.name]
             for net, physical in aliases.items()
@@ -197,17 +197,17 @@ def testbench(params: TbParams, *, pex_netlist: Path | None = None) -> h.Module:
     return tb
 
 
-def adc_signal_names(tb: h.Module, view: str, *, save_supply_voltages: bool = False, nets=AdcNets) -> dict[str, str]:
+def adc_signal_names(tb: h.Module, view: str, *, save_supply_voltages: bool = False, nets=Nets) -> dict[str, str]:
     """Resolve canonical observations once for both Save and raw conversion; ``nets`` are the
     ADC's (``adc_nets`` of its stage count). The generated ADC holds its nets itself but for its
-    bottom plates, which are its DAC's sides' (``generated_net_aliases``; a plate its array has none
+    bottom plates, which are its DAC's sides' (``subckt._generated_aliases``; a plate its array has none
     of, a unit capacitor's difference plate, is not saved); an extracted view's are RC terminals of
-    its extraction (``frida1_net_aliases``)."""
+    its extraction (``subckt._frida1_terminals``)."""
     if view not in {"hdl21gen", "frida1"}:
         raise ValueError(f"Unsupported ADC view {view!r}")
     generated = view == "hdl21gen"
     aliases: Mapping[h.Signal | h.Slice, str | None] = (
-        generated_net_aliases(tb.xadc.of, nets) if generated else frida1_net_aliases()
+        _generated_aliases(tb.xadc.of, nets) if generated else _frida1_terminals()
     )
     names = {"time": "time"}
     for schema, prefix in ((nets, ""), (comp.Nets, "comp.")):
@@ -317,9 +317,9 @@ def build_adc_interface_wave(
         time_s=time_s,
         v={
             "vin_diff": vin_diff_v[None, :],
-            AdcNets.seq_comp.name: (logic_high_v * seq_comp)[None, :],
-            AdcNets.seq_logic.name: (logic_high_v * seq_logic)[None, :],
-            AdcNets.comp_out.name: (logic_high_v * np.repeat(comp_out_symbols, samples_per_symbol))[None, :],
+            Nets.seq_comp.name: (logic_high_v * seq_comp)[None, :],
+            Nets.seq_logic.name: (logic_high_v * seq_logic)[None, :],
+            Nets.comp_out.name: (logic_high_v * np.repeat(comp_out_symbols, samples_per_symbol))[None, :],
         },
     )
 
@@ -349,7 +349,7 @@ def simulate(
         raise ValueError("a Spectre run saves every probed node: Probes.CODES is not yet netlisted")
     if not _runnable(tb):
         raise ValueError(f"Invalid ADC testbench params: {tb}")
-    nets = adc_nets(tb.stages)
+    nets = _nets(tb.stages)
     noise, check, expected_disconnect = tb.transient_noise, tb.check, tb.expected_disconnect
     view = _view(tb)
 
@@ -431,7 +431,7 @@ def simulate(
         attrs.append(library_cells)
         standard_cells = (
             *(path for path in site.STANDARD_CELL_SPICE_NETLISTS if path != library_cells.path),
-            digital_netlist(tb.stages)[0],
+            _digital_netlist(tb.stages)[0],
         )
         attrs.append(
             h.Literal(
@@ -582,7 +582,7 @@ def _decode(
 ) -> MeasAdc:
     """Map a VLSIR transient to canonical ADC records and decode LOGIC observations once."""
 
-    supply_rails = tuple(net.name for net in AdcNets.signals.values() if net.usage == h.Usage.POWER)
+    supply_rails = tuple(net.name for net in Nets.signals.values() if net.usage == h.Usage.POWER)
     times_s, signals, currents = _conversion_inputs(
         result, signal_names, params.waveform_sample_interval_s, supply_rails=supply_rails
     )
@@ -590,9 +590,9 @@ def _decode(
     threshold_v = float(params.vdd_d.dc) / 2
     starts, comp_times, logic_times = _decision_times(
         times_s,
-        signals[AdcNets.seq_init.name],
-        signals[AdcNets.seq_comp.name],
-        signals[AdcNets.seq_logic.name],
+        signals[Nets.seq_init.name],
+        signals[Nets.seq_comp.name],
+        signals[Nets.seq_logic.name],
         params.conversions,
         threshold_v,
         decisions=len(code_weights),
@@ -605,7 +605,7 @@ def _decode(
     final_sample_times_s = logic_times[valid, -1]
     sample_times_s = logic_times[valid]
     bout = (
-        calc.value(signals[AdcNets.comp_out.name], times_s, sample_times_s.ravel()).reshape(sample_times_s.shape)
+        calc.value(signals[Nets.comp_out.name], times_s, sample_times_s.ravel()).reshape(sample_times_s.shape)
         > threshold_v
     ).astype(np.uint8)
     dout_raw = bout.astype(np.int64) @ code_weights
@@ -613,7 +613,7 @@ def _decode(
     conversion_start_indices = np.searchsorted(times_s, starts[valid], side="right")
     conversion_start_indices[starts[valid] == times_s[0]] = 0
     conversion_starts_s = times_s[conversion_start_indices]
-    vin_diff_v = calc.value(signals[AdcNets.vin_p.name] - signals[AdcNets.vin_n.name], times_s, comp_edge_times_s[:, 0])
+    vin_diff_v = calc.value(signals[Nets.vin_p.name] - signals[Nets.vin_n.name], times_s, comp_edge_times_s[:, 0])
     complete_conversions = len(conversion_start_indices)
     params = dataclasses.replace(params, conversions=complete_conversions)
 
