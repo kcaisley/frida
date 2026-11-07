@@ -1162,9 +1162,6 @@ class TbParams(pipeline.TbParams):
                 raise ValueError("a staircase input's start, stop and step are finite, its step not 0")
             if start != stop and (stop > start) != (step > 0):
                 raise ValueError("a staircase input steps towards its stop")
-            # inclusive staircase endpoints: one level a conversion
-            if not math.isclose((stop - start) / step, self.conversions - 1, rel_tol=0.0, abs_tol=1e-9):
-                raise ValueError("a staircase input holds one level a conversion")
             if len(rows[0]) / symbol_rate <= float(100 * p):
                 raise ValueError("a staircase input's conversion is longer than its 100 ps step")
 

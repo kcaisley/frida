@@ -155,7 +155,6 @@ def _rows(**changed: str) -> tuple[str, ...]:
         lambda: _gen(vin_diff=hs.LinearSweep(start=0, stop=1, step=0)),
         lambda: _gen(vin_diff=hs.LinearSweep(start=0, stop=1, step=-0.1)),
         lambda: _gen(conversions=1, vin_diff=hs.LinearSweep(start=0, stop=1e-12, step=-1)),
-        lambda: _gen(conversions=4, vin_diff=hs.LinearSweep(start=0, stop=1, step=0.3)),
         lambda: _gen(conversions=2, vin_diff=hs.LinearSweep(start=0, stop=1, step=1)).sequenced(symbol_rate=1e15),
     ),
 )
@@ -223,8 +222,16 @@ def test_adc_transfer_staircase_has_151_codes(tsmc65) -> None:
 
 
 def test_adc_transfer_sweep_must_match_conversion_count() -> None:
-    with pytest.raises(ValueError, match="one level a conversion"):
-        _gen(conversions=2, vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01))
+    """A staircase of other than a level a conversion is refused where its testbench is built; a run
+    decoded to its complete conversions alone (``_decode``) holds the staircase it ran."""
+    tb = _gen(conversions=2, vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01))
+    assert not sim._runnable(tb)
+    # nor a step that does not reach its stop in whole levels
+    assert not sim._runnable(_gen(conversions=4, vin_diff=hs.LinearSweep(start=0, stop=1, step=0.3)))
+    with pytest.raises(ValueError, match="Invalid ADC testbench params"):
+        sim.testbench(tb)
+    ramp = _gen(conversions=151, vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01))
+    assert sim._runnable(ramp) and replace(ramp, conversions=150).conversions == 150
 
 
 @pytest.mark.parametrize("start,stop,step,count", ((-0.75, 0.75, 0.01, 151), (1, -1, -0.1, 21), (0, 0, 1, 1)))

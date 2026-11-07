@@ -105,9 +105,15 @@ from flow.sweep import lookup
 
 def _runnable(tb: TbParams) -> bool:
     """Whether ``tb``'s top runs it (its values ``TbParams`` checks itself): one COMP pulse a
-    decision, a decision a stage and the last; and the generated converter, which wires the
-    subtraction in (its difference plates switch opposite the main ones), at ``dac_diffcaps`` 1: a
-    run of it at 0 would be decoded and analyzed as adding them."""
+    decision, a decision a stage and the last; a staircase input (``hs.LinearSweep``) a level a
+    conversion, its endpoints inclusive (checked here, where it is built, not on ``TbParams``: a
+    decoded run keeps its complete conversions alone, ``_decode``); and the generated converter, which
+    wires the subtraction in (its difference plates switch opposite the main ones), at
+    ``dac_diffcaps`` 1: a run of it at 0 would be decoded and analyzed as adding them."""
+    if isinstance(tb.vin_diff, hs.LinearSweep):
+        start, stop, step = (float(value) for value in (tb.vin_diff.start, tb.vin_diff.stop, tb.vin_diff.step))
+        if not math.isclose((stop - start) / step, tb.conversions - 1, rel_tol=0.0, abs_tol=1e-9):
+            return False
     comp_row = tb.seq_comp.data
     pulses = sum(
         bit == "1" and before == "0" for before, bit in zip(comp_row[-1] + comp_row[:-1], comp_row, strict=True)
