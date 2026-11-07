@@ -177,7 +177,7 @@ exclude_type_checking_imports = true
 # another, and none imported by a stage
 name = "each block's stages import only the stages below them"
 type = "layers"
-containers = ["flow.capdac", "flow.comp", "flow.samp"]
+containers = ["flow.adc", "flow.capdac", "flow.comp", "flow.samp"]
 layers = ["model | (opt) | (layout)", "sweep", "plots", "analysis", "types", "sim", "subckt", "params"]
 
 [[tool.importlinter.contracts]]
