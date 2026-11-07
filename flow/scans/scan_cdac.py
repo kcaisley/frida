@@ -633,7 +633,7 @@ def scan(
     first = queue[0]
     static_signature = (
         first.board_id,
-        float(first.tb.symbol_rate),
+        1.0 / float(first.tb.seq_init.period),
         float(first.tb.vdd_a.dc),
         float(first.tb.vdd_d.dc),
         float(first.tb.vdd_dac.dc),
@@ -642,7 +642,7 @@ def scan(
     if any(
         (
             params.board_id,
-            float(params.tb.symbol_rate),
+            1.0 / float(params.tb.seq_init.period),
             float(params.tb.vdd_a.dc),
             float(params.tb.vdd_d.dc),
             float(params.tb.vdd_dac.dc),
@@ -877,7 +877,8 @@ def scan(
         daq["gpio0"]["RST_B"] = 1
         daq["gpio0"].write()
 
-        symbol_rate_bps = float(first.tb.symbol_rate)
+        # the serializer's clock from the sequencer's lines, as the other scans program it
+        symbol_rate_bps = 1.0 / float(first.tb.seq_init.period)
         si570_frequency_hz, pll_divider_n = select_pll_configuration(symbol_rate_bps)
         sequencer_frequency_hz, serializer_frequency_hz = calculate_pll_frequency(
             pll_divider_n,
