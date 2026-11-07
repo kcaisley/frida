@@ -400,6 +400,13 @@ def _gathered(analyses: Sequence[Any], kind: type, composer: _Composer) -> list[
     return [value for value, _parts in composer.values(kinds[0], [], split=False)]
 
 
+def _is(item: Any, kinds: tuple[type, ...]) -> bool:
+    """Whether a capture is of one of ``kinds``: of a block's measurement type or a subtype, but of
+    a simulation's plain waves (``pipeline.Meas``) only as itself, since a block's measurement (a
+    lab capture, ``MeasAdc``) holds no waves those analyses read."""
+    return any(type(item) is kind if kind is pipeline.Meas else isinstance(item, kind) for kind in kinds)
+
+
 class _Composer:
     """A channel's results by type, each made from its captures as the block's analyses chain them
     (``figures``): a capture of that kind, or the analysis that gives it, its input and its priors
@@ -426,9 +433,7 @@ class _Composer:
         self, kinds: tuple[type, ...], many: bool, inputs: Sequence[Any], *, split: bool
     ) -> list[tuple[Any, tuple[str, ...]]]:
         """``values`` of a parameter of ``kinds`` (a sequence of them where ``many``)."""
-        captured = [item for item in inputs if isinstance(item, kinds)] or [
-            item for item in self.channel if isinstance(item, kinds)
-        ]
+        captured = [item for item in inputs if _is(item, kinds)] or [item for item in self.channel if _is(item, kinds)]
         if captured:
             return [(captured, ())] if many else [(item, (_stem(item),)) for item in captured]
         # a result made of these inputs while it is being made (a cycle of priors): none

@@ -475,7 +475,8 @@ def analyze_ramp(
     tb = measurement.tb
     source = tb.vin_diff
     if not isinstance(source, h.Vpwl.Params):
-        raise TypeError("ADC ramp analysis requires a PWL differential-input source")
+        # a capture of another input (not a wrong argument): ``flow plot --from`` passes it by
+        raise ValueError("ADC ramp analysis requires a PWL differential-input source")  # noqa: TRY004
     # The PWL source repeats after its last time point.
     if isinstance(source.wave, str):
         pwl_values = np.asarray([float(value) for value in source.wave.split()], dtype=np.float64)
@@ -2161,7 +2162,8 @@ def analyze_calibration3(measurement: MeasAdc, *, ramp: AnalysisRamp) -> Analysi
     """
 
     if not isinstance(measurement.tb.vin_diff, h.Vpwl.Params):
-        raise TypeError("ADC threshold calibration requires a PWL differential-input source")
+        # a capture of another input (not a wrong argument): ``flow plot --from`` passes it by
+        raise ValueError("ADC threshold calibration requires a PWL differential-input source")  # noqa: TRY004
     identity = measurement.identity
     check_identity(ramp, identity, name="ramp")
     if ramp.sample_count != len(measurement.bout):
@@ -2436,6 +2438,8 @@ def _decode(bout: np.ndarray, calibration: AnalysisCalibration, *, rounded: bool
 def analyze_mismatch(meas: MeasAdc) -> AnalysisMismatch:
     """The predicted mismatch statistics of a behavioral capture's array: its nominal capacitances
     (a capture without a draw), top-plate load, design weights and code range."""
+    if meas.info.backend != "behavioral":
+        raise ValueError("the mismatch statistics take a behavioral capture: its array's capacitances")
     # a behavioral capture's parameters, its converter's (``flow.adc.sim``'s): its DAC as it switched
     behavioral: Any = meas.param
     cdac = behavioral.cdac

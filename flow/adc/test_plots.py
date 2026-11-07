@@ -783,6 +783,27 @@ def test_a_chips_sequence_maps_are_each_adcs_and_its_adcs_together(tmp_path: Pat
     assert board["title"] == plots.plot_sequence_enob(analyze_sequence_map([adc_conditions(0, {})])).title
 
 
+def test_every_figure_of_a_lab_tree_with_ramps_and_fixed_inputs(tmp_path: Path, capsys) -> None:
+    """Every figure of a board's lab captures, a ramp and a fixed input's rate sweep: each analysis
+    takes the captures of its kind and says why it draws nothing from the others; none of the
+    simulation's analyses (of plain waves, ``pipeline.Meas``) is given a lab capture."""
+    from flow import plot
+
+    physical = [
+        replace(capture, info=replace(capture.info, backend="physical"))
+        for capture in (
+            adc_ramp_measurement(),
+            *(_captured([1000, 1001, 1002, 1001] * 25, rate=rate, rows=timing_sequences[0]) for rate in (1e6, 2e6)),
+        )
+    ]
+    paths = plot.figures("adc", [_written(tmp_path / "run", physical)], backend="web", out_dir=tmp_path / "out")
+    drawn = {path.stem.split("_board")[0] for path in paths}
+    assert {"ramp_transfer", "inl", "noise_rate", "codes_rate"} <= drawn
+    printed = capsys.readouterr().out
+    assert "analyze_ramp: ADC ramp analysis requires a PWL differential-input source" in printed
+    assert "analyze_mismatch: the mismatch statistics take a behavioral capture" in printed
+
+
 def test_a_ramps_calibrations_and_its_codes_decoded_by_each(tmp_path: Path, capsys) -> None:
     """A ramp's calibrations, a figure each (the analyses giving one of ``AnalysisCalibration``'s
     kinds: calibration 1 wants the DAC's curves, calibration 3 a noisy ramp, so this one's draws
