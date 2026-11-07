@@ -28,6 +28,7 @@ import math
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
 from itertools import pairwise
+from typing import Any
 
 import hdl21 as h
 import hdl21.sim as hs
@@ -82,7 +83,7 @@ class Fabricated(Enum):
         return Params(**_fabricated_parts(self), fabricated=self)
 
 
-def _fabricated_parts(member: Fabricated) -> dict:
+def _fabricated_parts(member: Fabricated) -> dict[str, Any]:
     """A fabricated converter's parts: what its ``Params`` holds besides ``fabricated``."""
     return {
         "adc_bits": FRIDA1_BITS,
@@ -1164,7 +1165,7 @@ class TbParams(pipeline.TbParams):
     @property
     def rows(self) -> tuple[str, str, str, str]:
         """The sequencer's rows its four lines play: INIT, SAMP, COMP and LOGIC."""
-        return tuple(getattr(self, name).data for name in _lines)  # ty: ignore[invalid-return-type]
+        return tuple(getattr(self, name).data for name in _lines)
 
     def sequenced(
         self, rows: tuple[str, str, str, str] | None = None, *, symbol_rate: float | None = None

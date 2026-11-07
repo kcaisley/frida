@@ -121,6 +121,7 @@ import math
 from collections.abc import Sequence
 from functools import partial
 from itertools import takewhile
+from typing import Any
 
 import hdl21 as h
 import numpy as np
@@ -988,7 +989,9 @@ def analyze_switching(measurement: MeasCdac) -> capdac.AnalysisSwitching:
     stages and the design's expectation of each stage's effective fraction (the capture's,
     ``MeasCdac.expected_effective_fraction``), and the design of the comparator that decided."""
 
-    params = measurement.param
+    # a lab capture's scan parameters (``flow.scans.params.AdcScanParams``: its campaign, the stage it
+    # switches and its testbench), which this stage does not import
+    params: Any = measurement.param
     tb = measurement.tb
     stages = len(capdac.Model.weights(params.tb.params.cdac))
     expected = np.asarray(measurement.expected_effective_fraction, dtype=np.float64)
@@ -2370,7 +2373,9 @@ def _decode(bout: np.ndarray, calibration: AnalysisCalibration, *, rounded: bool
 def analyze_mismatch(meas: MeasAdc) -> AnalysisMismatch:
     """The predicted mismatch statistics of a behavioral capture's array: its nominal capacitances
     (a capture without a draw), top-plate load, design weights and code range."""
-    cdac = meas.param.cdac
+    # a behavioral capture's parameters, its converter's (``flow.adc.sim``'s): its DAC as it switched
+    behavioral: Any = meas.param
+    cdac = behavioral.cdac
     main_f, diff_f = capdac.Model.plates_f(cdac, "p", meas.tb.params.cdac, float(meas.tb.vdd_dac.dc))
     statistics = _mismatch_statistics(
         main_f,
