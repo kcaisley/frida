@@ -289,7 +289,13 @@ def test_each_levels_runs_hold_the_level_below(monkeypatch, params) -> None:
     noise run; each level after it every run of the level below, unchanged; CIRCUIT the circuit
     simulator's runs (``spice_*``) beside FULL's, every other run behavioral."""
     monkeypatch.setattr(sweep, "_converter", lambda pdk, found: _stand_in(found))
+    checked = []
+    monkeypatch.setattr(sweep, "_checked", checked.append)
     levels = [sweep.runs("tsmc65", params, level) for level in Level]
+    # each extraction the circuit runs simulate checked once, before any run
+    fabricated = params.fabricated is not None
+    assert {tb.extraction for tb in checked} == ({Extraction.TAPEOUT, Extraction.SIGNOFF} if fabricated else set())
+    assert len(checked) == len({tb.extraction for tb in checked})
     assert set(levels[0]) == {"ramp_train", "ramp_check", "rate_10", "noise"}
     for below, above in pairwise(levels):
         assert set(below) < set(above) and all(above[name] == tb for name, tb in below.items())
@@ -297,6 +303,29 @@ def test_each_levels_runs_hold_the_level_below(monkeypatch, params) -> None:
     assert circuit and all(name.startswith("spice_") for name in circuit)
     assert {levels[-1][name].simulator for name in circuit} == {Simulator.SPECTRE}
     assert {tb.simulator for name, tb in levels[-1].items() if name not in circuit} == {Simulator.BEHAVIORAL}
+
+
+@pytest.mark.parametrize("pdk", ["ihp130", "tsmc28"])
+def test_a_pdk_without_the_adcs_spectre_runs_has_no_circuit_runs(monkeypatch, pdk) -> None:
+    """Outside TSMC65 (the ADC's Spectre runs take its kit's includes) CIRCUIT's runs are FULL's: none
+    raises after the behavioral runs before it."""
+    monkeypatch.setattr(sweep, "_converter", lambda pdk, found: _stand_in(found))
+    assert sweep._spice(pdk, Params()) == {}
+    assert sweep.runs(pdk, Params(), Level.CIRCUIT) == sweep.runs(pdk, Params(), Level.FULL)
+
+
+def test_a_circuit_level_without_its_layouts_signoff_is_refused_before_any_run(monkeypatch) -> None:
+    """A fabricated converter's CIRCUIT runs, its layout never signed off: ``runs`` raises, before the
+    runner simulates the first of them."""
+    pytest.importorskip("pdk.tsmc65.hdl21.site")
+
+    def unlaid(*_):
+        raise LookupError("no standing layout")
+
+    monkeypatch.setattr(sweep, "_converter", lambda pdk, found: _stand_in(found))
+    monkeypatch.setattr(sim.lookup, "laid_out", unlaid)
+    with pytest.raises(LookupError, match="no standing layout"):
+        sweep.runs("tsmc65", Fabricated.FRIDA1_1LAYER_RADIX17.params, Level.CIRCUIT)
 
 
 def test_a_screen_record_measures_what_its_runs_ran(tmp_path: Path) -> None:

@@ -70,9 +70,9 @@ The `spectre` group is excluded by default and requires no custom pytest flag. I
 The ADC's Spectre runs are its circuit level: each instance's `spice_*` runs (`flow/adc/sweep.py`'s `runs` at `--level circuit`), recorded with its behavioral ones in its sweep run's record, a candidate's and FRIDA-1's extractions' under the same names. Other blocks' simulation targets create a fresh run beneath `build/sim/<block>/<target>/<YYYYMMDD_HHMMSS>/`:
 
 ```bash
-# FRIDA-1's sizing generated (the old hdl21_* campaigns), then its four extractions (frida1_*)
-uv run python -m flow run adc --missing --instance frida1 --level circuit
-uv run python -m flow run adc --missing --instance frida1_1layer_radix17 --instance frida1_1layer_radix20 --instance frida1_2layer_radix17 --instance frida1_2layer_radix20 --level circuit
+# FRIDA-1's sizing generated, then its four fabricated converters on their extractions
+uv run python -m flow run adc --pdk tsmc65 --missing --instance frida1 --level circuit
+uv run python -m flow run adc --pdk tsmc65 --missing --instance frida1_1layer_radix17 --instance frida1_1layer_radix20 --instance frida1_2layer_radix17 --instance frida1_2layer_radix20 --level circuit
 ```
 
 The ADC's runs are read by its own reader (`flow.adc.sim.read`: a Spectre run's transient decoded as conversions, a behavioral run's capture as written); the comparator's and the sampler's runs are read as measurements on the simulator's own time axis (`flow.pipeline.read`, [pipeline](pipeline.md)). A lab study names its accepted runs on the command line (`python -m flow plot adc <figure> --from <run>`, [flow/adc/readme.md](../flow/adc/readme.md)).

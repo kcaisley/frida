@@ -153,6 +153,22 @@ def _signed_off(tb: TbParams, path: Path) -> None:
         raise ValueError(f"PEX content of {path} differs from the signed-off input")
 
 
+def _checked(tb: TbParams) -> Path:
+    """The extraction a fabricated converter's Spectre run ``tb`` simulates (``_extraction``), refused
+    unless it stands: its file there and not empty, as the kit's check of an extracted netlist
+    passes it, and a signoff's as its layout signed it (``_signed_off``). The sweep checks each of a
+    level's circuit runs so before the first runs (``flow.adc.sweep.runs``), and each run again."""
+    path, _cell = _extraction(tb)
+    if not path.is_file() or not path.stat().st_size:
+        raise FileNotFoundError(path)
+    from pdk.tsmc65.calibre.ringfmom import validate_extracted_netlist
+
+    validate_extracted_netlist(path.read_text())
+    if tb.extraction is Extraction.SIGNOFF:
+        _signed_off(tb, path)
+    return path
+
+
 def testbench(tb: TbParams) -> h.Module:
     """The testbench of the run ``tb``: its supplies (each behind its supply network and with its
     noise where ``tb`` gives them), its differential input about its common mode, its sequencer's
@@ -343,6 +359,8 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
     nets = _nets(tb.stages)
     noise, check = tb.transient_noise, tb.check
     fabricated = tb.params.fabricated is not None
+    # its extraction checked before anything is built
+    pex_netlist = _checked(tb) if fabricated else None
 
     from pdk.tsmc65.hdl21 import pdk_logic, site
 
@@ -367,16 +385,7 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
             if net.vis == h.Visibility.PORT and net.usage == h.Usage.CLOCK
         },
     }
-    pex_netlist = None
-    if fabricated:
-        pex_netlist, _cell = _extraction(tb)
-        if not pex_netlist.is_file() or not pex_netlist.stat().st_size:
-            raise FileNotFoundError(pex_netlist)
-        from pdk.tsmc65.calibre.ringfmom import validate_extracted_netlist
-
-        validate_extracted_netlist(pex_netlist.read_text())
-        if tb.extraction is Extraction.SIGNOFF:
-            _signed_off(tb, pex_netlist)
+    if pex_netlist is not None:
         metadata.update(
             pex_netlist=str(pex_netlist),
             pex_sha256=hashlib.sha256(pex_netlist.read_bytes()).hexdigest(),

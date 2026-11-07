@@ -88,6 +88,7 @@ def _frida1(
 
 @pytest.mark.parametrize("fault", ("ideal_capacitor", "changed_pex"))
 def test_extracted_simulation_rejects_double_counting_and_changed_signed_input(tmp_path, monkeypatch, fault):
+    pytest.importorskip("pdk.tsmc65.calibre.ringfmom")  # the kit's check of an extracted netlist
     path = tmp_path / "adc.pex.netlist"
     path.write_text("X0 (a b s) ringfmom_3layer c=1f\n" if fault == "ideal_capacitor" else "C0 (a b) capacitor c=1f\n")
     monkeypatch.setattr(sim.lookup, "laid_out", lambda *_: _entry(path, sha256="not-the-current-content"))
@@ -571,6 +572,7 @@ def test_sim_holds_no_private_wrapper_and_no_main():
     assert sorted(functions) == [
         "_bit_value",
         "_capture",
+        "_checked",
         "_complete",
         "_convert",
         "_converter",

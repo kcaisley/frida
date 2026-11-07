@@ -107,14 +107,14 @@ python -m flow run adc --pdk tsmc65 --workers 36
 python -m flow layout adc --pdk tsmc65            # each instance's blocks side by side (DRC alone)
 python -m flow table adc
 # a candidate in Spectre, the same spice_* metrics as FRIDA-1's extractions
-python -m flow run adc --missing --instance '<label or digest>' --level circuit
+python -m flow run adc --pdk tsmc65 --missing --instance '<label or digest>' --level circuit
 # FRIDA-1's fabricated layouts: Calibre DRC, LVS and PEX (their signoff runs then find them)
 python -m flow layout adc --pdk tsmc65 --instance frida1_1layer_radix17 --instance frida1_1layer_radix20 --instance frida1_2layer_radix17 --instance frida1_2layer_radix20
 # FRIDA-1's extractions in Spectre, added to the newest run's records
-python -m flow run adc --missing --instance frida1_1layer_radix17 --instance frida1_1layer_radix20 --instance frida1_2layer_radix17 --instance frida1_2layer_radix20 --level circuit
+python -m flow run adc --pdk tsmc65 --missing --instance frida1_1layer_radix17 --instance frida1_1layer_radix20 --instance frida1_2layer_radix17 --instance frida1_2layer_radix20 --level circuit
 ```
 
-The circuit runs replace the six named Spectre campaigns: `hdl21_sample_rate` and `hdl21_transfer_curve` are `frida1`'s `spice_rate_<2|6|10>` and `spice_ramp`; `frida1_sample_rate` each fabricated converter's `spice_rate_*` (its tape-out's extraction); `frida1_transfer_curve` and `frida1_supply_noise` the one-layer radix-17 converter's `spice_ramp` and `spice_supply_<rate>_<rail>`; `frida1_sequence` each fabricated converter's `spice_sequence_<comp>_<logic>` (its layout's signoff extraction). Each run's folder in the instance's keeps its deck, log, `input.json` and `names.json`; the raw output is removed once read.
+The circuit runs are TSMC65's (the ADC's Spectre runs take its kit's includes; in another PDK `--level circuit` runs FULL's), and each extraction they simulate is checked before the first of them runs: a fabricated converter's layout must be signed off first. Each run's folder in the instance's keeps its deck, log, `input.json` and `names.json`; the raw output is removed once read.
 
 Signal selection lives in `sim.py` (`_probes`) as explicit SPICE-name → analysis-alias maps per top. The same map drives Spectre saves and the decode (`names.json`, beside the raw file). Both views save every capacitor stage, C0 first (C0–C15 at FRIDA's 16); the last decision (B16 at 16 stages) has no capacitor of its own. The generated ADC's bottom plates are its DAC's sides' nets (`xdac_p.main_<stage>`, `xdac_p.diff_<stage>`; `subckt._generated_aliases`), a unit-capacitor array's main plates alone. Original saved traces, including the next-cycle tail, are embedded in `result.h5` alongside resampled records.
 

@@ -164,7 +164,7 @@ from .plots import (
     plot_trajectory_final,
     plot_transfer,
 )
-from .sim import _Converter, _converter
+from .sim import _checked, _Converter, _converter
 from .types import AnalysisCalibration, AnalysisLadder
 
 
@@ -303,7 +303,8 @@ def runs(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbPar
     - ``Level.SEARCH``: every rate, the input frequencies, the DC inputs, the decision paths, the
       noise over the input, Hsu's study and the noise of each source alone;
     - ``Level.FULL``: the ENOB ladder, the sine on the DAC's SPICE draw and the reference study;
-    - ``Level.CIRCUIT``: the circuit simulator's runs.
+    - ``Level.CIRCUIT``: the circuit simulator's runs, in TSMC65 (its kit's includes; elsewhere none:
+      FULL's runs), each extraction they simulate checked first (``sim._checked``).
 
     The behavioral runs (``_campaign``):
 
@@ -348,7 +349,13 @@ def runs(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbPar
     converter = _converter(pdk, params)
     found = _campaign(converter, level)
     if level is Level.CIRCUIT:
-        found |= _spice(pdk, params)
+        spice = _spice(pdk, params)
+        # each extraction the circuit runs simulate refused now, where it is missing or its layout's
+        # signoff does not stand behind it, not after the runs before it (``sim._checked``)
+        extractions = {tb.extraction: tb for tb in spice.values() if tb.extraction is not None}
+        for tb in extractions.values():
+            _checked(tb)
+        found |= spice
     return found
 
 
@@ -467,8 +474,12 @@ def _spice(pdk: str, params: Params) -> dict[str, TbParams]:
       radix-17 flavor's also ``spice_ramp`` and ``spice_supply_<rate>_<none|vdda|vddd|vddac|all>``,
       each rail (or all) behind 1 ohm, 1 nH and 1 pF with 1 mV rms of noise in 25 GHz; and each
       flavor's ``spice_sequence_<comp>_<logic>``, at 1.6 GBd on its layout's signoff extraction
-      (``Extraction.SIGNOFF``), the seven continuous 160-symbol timings."""
+      (``Extraction.SIGNOFF``), the seven continuous 160-symbol timings.
 
+    None outside TSMC65: the ADC's Spectre runs take its kit's includes (``sim.simulate``)."""
+
+    if pdk != "tsmc65":
+        return {}
     fabricated = params.fabricated
     extraction = Extraction.TAPEOUT if fabricated is not None else None
     noisy: dict[str, Any] = {"conversions": 100, "vin_diff": h.Vdc.Params(dc=0.05), "transient_noise": True}
