@@ -1,4 +1,6 @@
-"""The ADC's targets (``python -m flow adc.<target>``)."""
+"""The ADC's lab and extraction studies (``python -m flow adc.<study>``), until they become the
+block's analyses and figures. Its runs and layouts are the CLI's verbs: ``python -m flow run adc``
+(``--instance frida1 --level circuit`` for the circuit simulator's), ``python -m flow layout adc``."""
 
 from __future__ import annotations
 
@@ -19,10 +21,8 @@ from flow.analysis.io import (
 from flow.analysis.studies import BASE_PATH
 from flow.analysis.types import MeasAdc, MeasCdac
 from flow.plot import render
-from flow.sweep import runner as sweep_runner
 
-from . import layout
-from . import sweep as adc_sweep  # the module; ``sweep`` is this file's sweep target
+from . import sweep as adc_sweep  # its ``_extracted``, the record's decoding
 from .analysis import (
     analyze_calibration1,
     analyze_calibration2,
@@ -80,86 +80,6 @@ from .plots import (
     plot_transfer,
 )
 from .types import AnalysisCalibration, AnalysisDecisionPaths, AnalysisRamp, AnalysisSequenceMap
-
-
-def _sim_run(target: str) -> Path:
-    """``build/sim/adc/<stamp>_<target>``, made: where the ADC's simulations have always gone."""
-    run_dir = new_run("sim", "adc")
-    return run_dir.rename(run_dir.with_name(f"{run_dir.name}_{target}"))
-
-
-def _unmade(*parts: str) -> Path:
-    """A fresh run directory's path, not made: the ADC layouts make their own (and refuse an existing one)."""
-    run_dir = new_run(*parts)
-    run_dir.rmdir()
-    return run_dir
-
-
-def hdl21_sample_rate() -> Path:
-    """The generated ADC at 2, 6 and 10 MS/s with a 50 mV input, in TSMC65."""
-    return adc_sweep.hdl21_sample_rate(_sim_run("hdl21_sample_rate"))
-
-
-def hdl21_transfer_curve() -> Path:
-    """The generated ADC's transfer curve from -750 mV to +750 mV in 10 mV steps, in TSMC65."""
-    return adc_sweep.hdl21_transfer_curve(_sim_run("hdl21_transfer_curve"))
-
-
-def frida1_sequence() -> Path:
-    """Seven continuous timing recipes on FRIDA-1's four extracted ADC flavors."""
-    return adc_sweep.frida1_sequence(_sim_run("frida1_sequence"))
-
-
-def frida1_sample_rate() -> Path:
-    """FRIDA-1's four extracted ADC flavors at 2, 6 and 10 MS/s."""
-    return adc_sweep.frida1_sample_rate(_sim_run("frida1_sample_rate"))
-
-
-def frida1_transfer_curve() -> Path:
-    """FRIDA-1's extracted ADC from -750 mV to +750 mV in 10 mV steps."""
-    return adc_sweep.frida1_transfer_curve(_sim_run("frida1_transfer_curve"))
-
-
-def frida1_supply_noise() -> Path:
-    """FRIDA-1's extracted ADC at its 15 rate and supply-noise combinations."""
-    return adc_sweep.frida1_supply_noise(_sim_run("frida1_supply_noise"))
-
-
-def layout_frida1_1layer_radix17() -> Path:
-    """FRIDA-1's one-metal radix-17 ADC as fabricated, signed off and extracted (TSMC65)."""
-    return layout.frida1_1layer_radix17(_unmade("layout", "adc", "frida1_1layer_radix17"))
-
-
-def layout_frida1_1layer_radix20() -> Path:
-    """FRIDA-1's one-metal radix-20 ADC as fabricated, signed off and extracted (TSMC65)."""
-    return layout.frida1_1layer_radix20(_unmade("layout", "adc", "frida1_1layer_radix20"))
-
-
-def layout_frida1_2layer_radix17() -> Path:
-    """FRIDA-1's two-metal radix-17 ADC as fabricated, signed off and extracted (TSMC65)."""
-    return layout.frida1_2layer_radix17(_unmade("layout", "adc", "frida1_2layer_radix17"))
-
-
-def layout_frida1_2layer_radix20() -> Path:
-    """FRIDA-1's two-metal radix-20 ADC as fabricated, signed off and extracted (TSMC65)."""
-    return layout.frida1_2layer_radix20(_unmade("layout", "adc", "frida1_2layer_radix20"))
-
-
-def layout_all() -> Path:
-    """FRIDA-1's four layouts above, each into its own directory of one run."""
-    return layout.all_adcs(new_run("layout", "adc", "all"))
-
-
-def sweep() -> None:
-    """The ADC's sweep in a fresh run, every PDK: characterized, its blocks' layouts placed side by
-    side (``flow.adc.layout.layout_run``: nothing routed yet), tabulated."""
-    sweep_runner.run(["adc"], sweep_runner.PDKS, 50)
-    layout.layout_run(sweep_runner.newest_run("adc"))
-    sweep_runner.table(["adc"], 16)
-
-
-# ---- studies: figures of archived runs, into build/analysis/<block>/<timestamp>; the figures the
-# record has too are its specs (flow.adc.plots), drawn by flow.plot.render, one curve a figure
 
 
 def _ramp_figures(ramp: AnalysisRamp, output_dir: Path, stem: str) -> list[Path]:

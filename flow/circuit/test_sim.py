@@ -10,25 +10,12 @@ import pytest
 from . import test_spectre
 
 
-def test_targets_and_python_contract():
-    # the ADC's named runs are its sweep's, beside its sim
+def test_the_adcs_circuit_runs_are_its_sweeps():
+    # the ADC's circuit simulator's runs are its sweep's runs at the circuit level, no targets of them
     sweep = importlib.import_module("flow.adc.sweep")
     targets = importlib.import_module("flow.adc.targets")
-    # the simulation targets: each runs the function of its name there
-    runs = {
-        name: getattr(sweep, name)
-        for name, value in vars(targets).items()
-        if inspect.isfunction(value) and value.__module__ == targets.__name__ and hasattr(sweep, name)
-    }
-    names = list(runs)
-    assert names
-    assert names == sorted(names, key=lambda name: not name.startswith("hdl21"))
-    for name in names:
-        assert not inspect.signature(getattr(targets, name)).parameters
-        signature = inspect.signature(runs[name])
-        assert list(signature.parameters) == ["run_dir", "check"]
-        assert signature.parameters["check"].default is False
-        assert signature.parameters["check"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert "level" in inspect.signature(sweep.runs).parameters
+    assert not any(name.startswith(("hdl21_", "frida1_")) for name in vars(targets))
     for stage in ("sim", "sweep"):
         source = importlib.import_module(f"flow.adc.{stage}")
         assert not hasattr(source, "main")
@@ -68,7 +55,7 @@ def test_missing_installation_skips_but_missing_collateral_fails(monkeypatch, tm
 def test_spectre_marker_is_opt_in():
     import subprocess
 
-    for selection, expected in (([], "19 deselected"), (["-m", "spectre"], "19 tests collected")):
+    for selection, expected in (([], "13 deselected"), (["-m", "spectre"], "13 tests collected")):
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "--collect-only", "-q", str(test_spectre.__file__), *selection],
             capture_output=True,

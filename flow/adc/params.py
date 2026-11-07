@@ -3,10 +3,10 @@ fabricated converters, ``Fabricated``, each one of them, ``valid`` only in TSMC6
 (``TbParams``: its PDK and design, which simulator converts it and on which top, its stimulus, its
 supplies, the sequencer's four lines as ``h.Vbit`` sources playing a recipe's rows, ``Recipe``, and
 the behavioral converter's knobs); the design space's resolutions and FRIDA-1's converter in it
-(``RESOLUTIONS``, ``FRIDA1_*``); the behavioral model's constants (``flow.adc.model``): its
+(``RESOLUTIONS``, ``FRIDA1_*``); the behavioral converter's constants (``flow.adc.sim``'s): its
 testbench's common mode, what it can quiet (``Quiet``), the CDAC draw it calibrates on, and the
 reference study's decoupling, budget and grids (``REFERENCE_*``); and the campaign's
-(``flow.adc.sweep.campaign``): its rates, input frequencies and conversion counts, the mismatch
+(``flow.adc.sweep.runs``): its rates, input frequencies and conversion counts, the mismatch
 study's coefficients, the levels of the noise over the input, the Hsu study's quiet sources and the
 ENOB ladder (``LADDER``, its captures ``LADDER_NAMES``); and the record's figures'
 (``flow.adc.plots``): the decision paths drawn and the Pelgrom coefficients the predicted mismatch is
@@ -137,7 +137,7 @@ FRIDA1_ARRAY = capdac.frida1()
 
 
 class Simulator(Enum):
-    """What converts a run: the behavioral converter (``flow.adc.model``), or Spectre on the
+    """What converts a run: the behavioral converter (``flow.adc.sim``'s), or Spectre on the
     netlist of its top (``flow.adc.sim.simulate``)."""
 
     BEHAVIORAL = auto()
@@ -1001,7 +1001,7 @@ class TbParams(pipeline.TbParams):
     the generated netlist, or a fabricated converter's ``extraction``, which such a run requires;
     Spectre with transient noise where ``transient_noise``, its short static and dynamic checks alone
     where ``check``), its stimulus, supplies and sequencer lines, and the behavioral converter's knobs
-    (``flow.adc.model``: its capacitors drawn from ``mismatch_seed`` at ``unit_mismatch``, or its
+    (``flow.adc.sim``'s: its capacitors drawn from ``mismatch_seed`` at ``unit_mismatch``, or its
     DAC's SPICE draw where ``drawn``; its noise seed, the mismatch seed where None; what it keeps
     ``quiet``; its settling time constants' scale, 1 its array's own, 0 ideal; the reference as a
     driver of output resistance ``reference_r_ohm`` onto a decoupling ``reference_c_f`` with white
@@ -1263,24 +1263,23 @@ class TbParams(pipeline.TbParams):
 VIN_CM_FRACTION = 0.700 / 1.2
 
 
-# the array a converter calibrates on (``flow.adc.model.Model.drawn``): of its DAC's Monte Carlo
+# the array a converter calibrates on (``flow.adc.sim``'s converter, its ``drawn``): of its DAC's Monte Carlo
 # (``flow.capdac.sweep.runs``), the middle condition's draw (0.5 %·sqrt(fF); no gradient, as its
 # plates stand at no place until the layout places them) at the 90th percentile of what no
 # calibration recovers
 DRAWN_RUN = "mc_a5"
 DRAWN_PERCENTILE = 90.0
 
-# The reference study (``flow.adc.model.Model.reference_requirements``): the share of the
-# converter's footprint its layout fills with decap cells (front-end-of-line area under the routing)
+# The reference study (the ``ref_*`` runs of ``flow.adc.sweep.runs``, ``analyze_reference``): the
+# share of the converter's footprint its layout fills with decap cells (front-end-of-line area under
+# the routing)
 DECAP_COVERAGE = 0.30
 # the share of the quantization noise power each of the two may add (together all of it)
 REFERENCE_SHARE = 0.5
-# the figures' grids, two points a decade: the white noise at the node (V RMS) and the driver's
-# output resistance (ohm)
+# its runs' grids, two points a decade, each requirement interpolated between them: the white
+# noise at the node (V RMS) and the driver's output resistance (ohm)
 REFERENCE_NOISE_V = np.logspace(-6, -2, 9)
 REFERENCE_R_OUT_OHM = np.logspace(-1, 5, 13)
-# halvings of a grid step in the bisection (to about 4 % of the value)
-REFERENCE_HALVINGS = 5
 # what the reference's study silences or makes ideal in the converter
 REFERENCE_QUIET = frozenset({Quiet.SAMPLER, Quiet.SAMPLING, Quiet.COMPARATOR})
 
@@ -1294,7 +1293,7 @@ PELGROM_AXIS = np.geomspace(0.0002, 0.01, 41)
 # its final value, well under an LSB of the reference; its figures mark it
 CDAC_SETTLING_TOLERANCE_V = 1e-3
 
-# The campaign (``flow.adc.sweep.campaign``): every capture the record needs.
+# The campaign (``flow.adc.sweep.runs``): every run the record needs.
 # 1 to 10 MS/s in 1 MS/s steps, the rates the ADC is meant to run at, then on to 100 MS/s: where
 # the DAC's settling or the comparator's delay starts to cost codes, and whether redundancy recovers
 # them
@@ -1329,7 +1328,7 @@ HSU_REFERENCE_QUIET = frozenset({Quiet.SAMPLING, Quiet.COMPARATOR})
 # its settling's scale) the last one with one more: the tracking
 # error of the sampler's on-resistance, its kT/C noise and aperture jitter, the DAC's settling (with
 # its drivers' delay), the comparator's delay (a late decision holds the last bit) and its noise,
-# on an ideal reference (the reference study, Model.reference_requirements, varies it). The last step is the
+# on an ideal reference (the reference study, the ``ref_*`` runs, varies it). The last step is the
 # converter as the sine at the nominal rate has it.
 LADDER = (
     ("quantization", "Quantization", frozenset({Quiet.SAMPLER, Quiet.SAMPLING, Quiet.COMPARATOR}), 0.0),

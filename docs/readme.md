@@ -49,7 +49,7 @@ The timing waveform uses `tikz-timing` and shows the first two and final two bit
 
 ## ADC sequencer timing
 
-From the repository root, generate and render the seven 160-symbol sequences used by the `frida1_sequence` PEX simulations:
+From the repository root, generate and render the seven 160-symbol sequences used by the fabricated converters' `spice_sequence_*` PEX runs (`flow/adc/sweep.py`):
 
 ```bash
 make -C docs sequences

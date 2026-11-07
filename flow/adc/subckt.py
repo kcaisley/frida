@@ -64,6 +64,7 @@ from flow import capdac, comp, samp
 from flow.adc.params import Params
 from flow.circuit.ports import module_from_ports, port_connections
 from flow.layout.devices.device import active_pdk, resolve
+from flow.layout.devices.mosfet.netlist import mos
 from flow.sweep.lookup import MODELS_DIR
 from flow.util.netlist import normalize_bus_pin, subcircuit_ports
 
@@ -176,13 +177,14 @@ def netlist(param: Params) -> h.Module:
     # The generated comparator consumes both clock polarities, whereas the
     # synthesized digital block exposes only ``clk_comp``. Generate its true
     # complement locally instead of borrowing an unrelated sampling clock.
-    Adc.MP_clk_comp_b = h.Mos(tp=MosType.PMOS, vth=param.comp.vth, w=10, l=1)(
+    # fingered as an analog device of the row cells (``mos``), as the comparator's own
+    Adc.MP_clk_comp_b = mos(tp=MosType.PMOS, vth=param.comp.vth, w=10, l=1)(
         d=Adc.clk_comp_b,
         g=Adc.clk_comp,
         s=Adc.vdd_a,
         b=Adc.vdd_a,
     )
-    Adc.MN_clk_comp_b = h.Mos(tp=MosType.NMOS, vth=param.comp.vth, w=10, l=1)(
+    Adc.MN_clk_comp_b = mos(tp=MosType.NMOS, vth=param.comp.vth, w=10, l=1)(
         d=Adc.clk_comp_b,
         g=Adc.clk_comp,
         s=Adc.vss_a,

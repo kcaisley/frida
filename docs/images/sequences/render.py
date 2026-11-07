@@ -22,7 +22,7 @@ from flow.adc.params import Recipe
 PRE_SYMBOLS = 4  # Show the end of the preceding period.
 EXTRA_SYMBOLS = 8  # Show the beginning of the following period.
 OUT = Path(__file__).resolve().parent
-# The seven timings used by frida1_sequence in flow/adc/sweep.py.
+# The seven timings of the fabricated converters' spice_sequence_* runs in flow/adc/sweep.py.
 PEX_RECIPES = (
     Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111,
     Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC10000111,

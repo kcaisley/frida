@@ -1,4 +1,4 @@
-"""The ADC's design space (``flow.sweep``), by the behavioral model (``flow.adc.model``) of its
+"""The ADC's design space (``flow.sweep``), by the behavioral converter (``flow.adc.sim``) of its
 characterized blocks: the plain product of its components, each converter given by its parameters;
 in TSMC65 alone, the one PDK its DAC is characterized in (``flow.capdac.sweep``).
 
@@ -39,25 +39,25 @@ ladder at about FRIDA-1's speed (``_comparators``) and the widest bootstrapped s
 (``_samplers``), 484 to 605 converters a PDK. The design space is a grid (``converters``,
 docs/pipeline.md): one space per resolution, its arrays, comparators and samplers values by name.
 
-Each instance runs the campaign (``campaign``: every capture its record needs) and records its
-metrics and figures (``record``: the analyses of ``flow.adc.analysis``, the figures of
-``flow.adc.plots``) for the viewer; its captures stay in memory, so its run is its record. Its
-geometry metrics are those of its analog blocks (``GENERATOR``, ``_blocks``).
+FRIDA-1 is in it twice: as a generated design (``frida1``, its sizing, which the grid also reaches)
+and as its four fabricated converters (``frida1_<layers>layer_radix<radix>``, ``Fabricated``),
+whose behavioral characterization is FRIDA-1's sizing alike and whose circuit runs simulate their
+extractions.
 
-The named Spectre runs (``hdl21_sample_rate`` to ``frida1_supply_noise``, the CLI's ``python -m flow
-adc.<name>``, ``flow.adc.targets``): the generated or an extracted converter's testbenches
-(``sim.testbench``), simulated side by side (``sim.simulate``), each run's measurement written
-beside it (``result.h5``).
+Each instance's runs (``runs``) at a level (``flow.pipeline.Level``) are the behavioral campaign's,
+the cheapest first, and at ``Level.CIRCUIT`` the circuit simulator's as well (``spice_*``, Spectre:
+a candidate's netlist, a fabricated converter's extraction); its record (``record``) holds the
+metrics and figures of whatever runs it has (the analyses of ``flow.adc.analysis``, the figures of
+``flow.adc.plots``), each metric None where its runs did not run, the circuit runs' under the same
+names for a candidate and a fabricated converter, so the two line up in one table.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
-from itertools import product
-from multiprocessing import get_context
 from pathlib import Path
+from typing import Any
 
 import hdl21 as h
 import hdl21.sim as hs
@@ -66,14 +66,14 @@ import numpy as np
 from flow import capdac, comp, samp
 from flow.analysis.io import read_cap_table
 from flow.analysis.types import MeasAdc
-from flow.layout.devices.device import active_pdk, resolve
-from flow.pipeline import Pdk, Record, grid, named, values, widen
+from flow.pipeline import Level, Meas, Pdk, Plot, Record, grid, named, values, widen
 
 from .analysis import (
     _extracted_calibration,
     analyze_calibration2,
     analyze_calibration3,
     analyze_code_spectrum,
+    analyze_converter,
     analyze_decision_paths,
     analyze_dynamic,
     analyze_energy,
@@ -83,10 +83,15 @@ from .analysis import (
     analyze_mismatch,
     analyze_mismatch_draws,
     analyze_mismatch_prediction,
+    analyze_noise,
     analyze_noise_rms,
+    analyze_operating_conditions,
     analyze_power,
     analyze_ramp,
     analyze_redundancy,
+    analyze_reference,
+    analyze_sequence_map,
+    analyze_transfer,
     metrics,
 )
 from .params import (
@@ -106,11 +111,15 @@ from .params import (
     NOMINAL_RATE_HZ,
     RAMP_CONVERSIONS,
     RATES_HZ,
+    REFERENCE_NOISE_V,
+    REFERENCE_QUIET,
+    REFERENCE_R_OUT_OHM,
     RESOLUTIONS,
     SINE_CONVERSIONS,
     Extraction,
     Fabricated,
     Params,
+    Probes,
     Quiet,
     Recipe,
     Simulator,
@@ -119,6 +128,7 @@ from .params import (
 from .plots import (
     plot_calibration_weights,
     plot_code_density,
+    plot_codes_rate,
     plot_dnl,
     plot_dnl_calibrated,
     plot_energy_dac_input,
@@ -134,19 +144,25 @@ from .plots import (
     plot_mismatch_margin,
     plot_mismatch_transition_sigma,
     plot_mismatch_weight_sigma,
+    plot_noise_enob_rate,
     plot_noise_input,
+    plot_noise_rate,
     plot_noise_spectrum,
     plot_power_rate,
     plot_redundancy,
     plot_reference_noise,
     plot_reference_r_out,
+    plot_sequence_enob,
+    plot_sequence_plausible,
+    plot_sequence_shift,
     plot_spectrum_low,
     plot_spectrum_nyquist,
     plot_trajectory,
     plot_trajectory_codes,
     plot_trajectory_final,
+    plot_transfer,
 )
-from .sim import read, simulate
+from .sim import _Converter, _converter
 from .types import AnalysisCalibration, AnalysisLadder
 
 
@@ -275,32 +291,32 @@ def frida1_2layer_radix20() -> Params:
     return Fabricated.FRIDA1_2LAYER_RADIX20.params
 
 
-def campaign(
-    tb: Callable[..., TbParams], full_scale_v: float, bits: int = 12, *, mismatch_draws: int = MISMATCH_DRAWS
-) -> dict[str, TbParams]:
-    """Every capture of the campaign, by name, for a ``bits`` ADC whose differential full scale is
-    +-``full_scale_v``, each a testbench from ``tb`` (``tb(conversions=, rate_hz=, vin_diff=)``);
-    ``mismatch_draws`` capacitor draws a Pelgrom coefficient for the Monte Carlo that checks the
-    predicted mismatch (``VALIDATION_DRAWS``), none by default.
+def runs(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
+    """The runs that characterize ``params`` in ``pdk`` at ``level``, by name, each behavioral (its
+    converter, ``flow.adc.sim``'s, of the blocks' characterizations), and at ``Level.CIRCUIT`` the
+    circuit simulator's as well (``_spice``). Each level holds the one below it:
 
-    The captures are what the record needs, as testbench parameters (``TbParams``) from a builder,
-    the same for a SPICE run of ``sim.testbench`` and for the behavioral model (``flow.adc.model``),
-    each of which turns one into a ``MeasAdc``.
+    - ``Level.SCREEN``: ``ramp_train`` and ``ramp_check``, ``rate_10`` and ``noise``: the linearity,
+      the calibrations, the ENOB and power at the nominal rate and the output-code noise;
+    - ``Level.SEARCH``: every rate, the input frequencies, the DC inputs, the decision paths, the
+      noise over the input, Hsu's study and the noise of each source alone;
+    - ``Level.FULL``: the ENOB ladder, the sine on the DAC's SPICE draw and the reference study;
+    - ``Level.CIRCUIT``: the circuit simulator's runs.
+
+    The behavioral runs (``_campaign``):
 
     - ``ramp_train`` and ``ramp_check``: eight full-scale sawtooth periods on the CDAC's SPICE draw
-      (``Model.drawn``: its Monte Carlo's middle condition, the draw at the 90th percentile of what
-      no calibration recovers), independent noise: the code density, INL and DNL, and the
-      calibrations learned from the training ramp and checked on the other.
-    - ``drawn_sine``: the nominal rate's sine on that draw: its ENOB before and after the
-      calibration.
-    - ``rate_<MS/s>``: a -0.5 dBFS sine near fs/8 at ten rates, 1 to 10 MS/s: ENOB and power over
+      (its Monte Carlo's middle condition, the draw at the 90th percentile of what no calibration
+      recovers), independent noise: the code density, INL and DNL, and the calibrations learned from
+      the training ramp and checked on the other.
+    - ``rate_<MS/s>``: a -0.5 dBFS sine near fs/8 at each rate of ``RATES_HZ``: ENOB and power over
       the rate.
+    - ``noise``: 50 mV at 10 MS/s: the output-code noise spectrum; ``noise_sampling`` and
+      ``noise_comparator`` the same with one noise source alone.
     - ``fin_<MS/s>_<cycles>``: the sine at nine input frequencies up to Nyquist at 2, 6 and 10 MS/s.
     - ``dc_<n>``: 33 DC inputs across the full scale: the energy a conversion takes over the input.
     - ``trajectory``: 0 V at 10 MS/s, on the first decision's threshold: the redundant decision
       paths.
-    - ``noise``: 50 mV at 10 MS/s: the output-code noise spectrum (the behavioral model repeats it
-      with one noise source at a time).
     - ``noise_input``: nine DC inputs evenly over +-90 % of the full scale at 10 MS/s, 512
       conversions each, in one staircase: the output-code noise over the input
       (``analyze_input_noise``).
@@ -310,21 +326,37 @@ def campaign(
       with ideal settling and an ideal comparator: the integrated error of each against its rate's
       reference (``analyze_hsu``) over the rate shows how fast the instance converts before the time
       a decision has costs codes, after A. H. T. Chang's thesis (MIT 2013, pp. 77-84): redundancy
-      recovers settling errors, not a late comparator's. The rate is all a fabricated converter lets
-      one vary, so the study keeps to it. The reference at the same rate takes off what every array
-      shares there (the ramp's input moves while it is sampled, more the faster the rate).
-    - ``ladder_<step>``: the ``rate_10`` sine with the behavioral model's impairments added one at a
-      time (``LADDER``), from quantization alone (a perfect track-and-hold, no noise, ideal settling
-      and an ideal comparator, decoded as ``rate_10`` is) to the converter as ``rate_10`` has it,
-      whose capture is the last step's (``LADDER_NAMES``): what each impairment costs in ENOB where
-      it is added (errors add in power, so a source costs fewer bits after larger ones: the order
-      matters).
-    - ``mc_<A_C %>_<draw>``, only where ``mismatch_draws`` asks for them (the figures predict the
-      mismatch from the capacitances, ``flow.adc.analysis.analyze_mismatch``; the draws check it):
-      noise-free ramps (four periods, 16 hits a code at 12 bits, at least 8 at any), at each Pelgrom
-      coefficient from 0.05 to 0.85 %·sqrt(fF) (a SPICE run draws them with the PDK's Monte Carlo).
+      recovers settling errors, not a late comparator's. The reference at the same rate takes off
+      what every array shares there (the ramp's input moves while it is sampled, more the faster the
+      rate).
+    - ``ladder_<step>``: the ``rate_10`` sine with the behavioral converter's impairments added one
+      at a time (``LADDER``), from quantization alone (a perfect track-and-hold, no noise, ideal
+      settling and an ideal comparator, decoded as ``rate_10`` is) to the converter as ``rate_10``
+      has it, whose run is the last step's (``LADDER_NAMES``): what each impairment costs in ENOB
+      where it is added (errors add in power, so a source costs fewer bits after larger ones: the
+      order matters).
+    - ``drawn_sine``: the nominal rate's sine on the DAC's draw: its ENOB before and after the
+      calibration.
+    - ``ref_ideal``, ``ref_noise_<k>`` and ``ref_r_<k>``: the nominal rate's sine on its own draw
+      with the sampler and the comparator ideal (``REFERENCE_QUIET``), on an ideal reference and at
+      each point of the reference's noise grid (``REFERENCE_NOISE_V``) and, where the converter has
+      decoupling, of its driver's resistance onto it (``REFERENCE_R_OUT_OHM``): the reference
+      buffer's requirements this converter sets (``analyze_reference``).
     """
+    converter = _converter(pdk, params)
+    found = _campaign(converter, level)
+    if level is Level.CIRCUIT:
+        found |= _spice(pdk, params)
+    return found
 
+
+def _campaign(converter: _Converter, level: Level, *, mismatch_draws: int = MISMATCH_DRAWS) -> dict[str, TbParams]:
+    """The behavioral runs of ``converter`` at ``level`` (``runs``); ``mismatch_draws`` capacitor
+    draws a Pelgrom coefficient (``mc_<A_C %>_<draw>``) for the Monte Carlo that checks the predicted
+    mismatch (``VALIDATION_DRAWS``), none by default: noise-free ramps (four periods, 16 hits a code
+    at 12 bits, at least 8 at any) at each coefficient from 0.05 to 0.85 %·sqrt(fF)."""
+
+    tb, full_scale_v, bits = converter.tb, converter.full_scale_v, converter.params.adc_bits
     amplitude_v = full_scale_v * 10 ** (-0.5 / 20)
     # a sawtooth slightly past the full scale, eight periods in the ramp; at least 64 hits a code
     # (14 bits double the ramp: calibration 3 fits its thresholds from the late branches' hits)
@@ -332,7 +364,7 @@ def campaign(
     period_s = ramp_conversions / 8 / NOMINAL_RATE_HZ
     edge_v = 1.05 * full_scale_v
     ramp = h.Vpwl.Params(wave=f"0 {-edge_v:.6g} {period_s:.6g} {edge_v:.6g}")
-    captures = {
+    found = {
         role: replace(
             tb(conversions=ramp_conversions, rate_hz=NOMINAL_RATE_HZ, vin_diff=ramp),
             mismatch_seed=1,
@@ -341,30 +373,33 @@ def campaign(
         )
         for role, noise_seed in (("ramp_train", 1), ("ramp_check", 1001))
     }
+    sines = {
+        f"rate_{rate / 1e6:g}": tb(conversions=SINE_CONVERSIONS, rate_hz=rate, vin_diff=_sine(amplitude_v, rate, 1021))
+        for rate in RATES_HZ
+    }
+    # the sine at the nominal rate, the ladder's last step
+    nominal = sines[LADDER_NAMES[-1]]
+    found[LADDER_NAMES[-1]] = nominal
+    noise = tb(conversions=100_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.05))
+    found["noise"] = noise
+    if level is Level.SCREEN:
+        return found
 
-    for rate in RATES_HZ:
-        captures[f"rate_{rate / 1e6:g}"] = tb(
-            conversions=SINE_CONVERSIONS, rate_hz=rate, vin_diff=_sine(amplitude_v, rate, 1021)
-        )
-    # the ladder's steps but the last, which is the nominal rate's sine itself: its testbench and
-    # seeds, fewer impairments
-    nominal = captures[LADDER_NAMES[-1]]
-    # the nominal rate's sine on the draw the ramps calibrate on
-    captures["drawn_sine"] = replace(nominal, drawn=True)
-    for step, (_, _, quiet, tau_scale) in enumerate(LADDER[:-1]):
-        captures[f"ladder_{step}"] = replace(nominal, quiet=quiet, tau_scale=tau_scale)
+    found |= sines
+    # the behavioral converter alone can keep one noise source at a time
+    for name, quiet in (("noise_sampling", Quiet.COMPARATOR), ("noise_comparator", Quiet.SAMPLING)):
+        found[name] = replace(noise, quiet=frozenset({quiet}))
     for rate in FIN_RATES_HZ:
         for cycles in FIN_CYCLES:
-            captures[f"fin_{rate / 1e6:g}_{cycles}"] = tb(
+            found[f"fin_{rate / 1e6:g}_{cycles}"] = tb(
                 conversions=SINE_CONVERSIONS, rate_hz=rate, vin_diff=_sine(amplitude_v, rate, cycles)
             )
     for index, vin_v in enumerate(np.linspace(-full_scale_v, full_scale_v, 33)):
-        captures[f"dc_{index:02d}"] = tb(
+        found[f"dc_{index:02d}"] = tb(
             conversions=2_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=round(float(vin_v), 6))
         )
-    captures["trajectory"] = tb(conversions=2_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.0))
-    captures["noise"] = tb(conversions=100_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.05))
-    captures["noise_input"] = replace(
+    found["trajectory"] = tb(conversions=2_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.0))
+    found["noise_input"] = replace(
         tb(
             conversions=INPUT_NOISE_LEVELS * INPUT_NOISE_CONVERSIONS,
             rate_hz=NOMINAL_RATE_HZ,
@@ -373,15 +408,34 @@ def campaign(
         noise_seed=2001,
     )
     for rate_index, rate in enumerate(RATES_HZ):
-        captures[f"hsu_r{rate_index}"] = replace(
+        found[f"hsu_r{rate_index}"] = replace(
             tb(conversions=(1 << bits) + 1, rate_hz=rate, vin_diff=_code_ramp(full_scale_v, bits, rate)),
             quiet=HSU_QUIET,
         )
-        captures[f"hsu_reference_r{rate_index}"] = replace(
+        found[f"hsu_reference_r{rate_index}"] = replace(
             tb(conversions=(1 << bits) + 1, rate_hz=rate, vin_diff=_code_ramp(full_scale_v, bits, rate)),
             quiet=HSU_REFERENCE_QUIET,
             tau_scale=0.0,
         )
+    if level is Level.SEARCH:
+        return found
+
+    # the ladder's steps but the last, which is the nominal rate's sine itself: its testbench and
+    # seeds, fewer impairments
+    for step, (_, _, quiet, tau_scale) in enumerate(LADDER[:-1]):
+        found[f"ladder_{step}"] = replace(nominal, quiet=quiet, tau_scale=tau_scale)
+    # the nominal rate's sine on the draw the ramps calibrate on
+    found["drawn_sine"] = replace(nominal, drawn=True)
+    # the reference study: the nominal sine, its own draw, sampler and comparator ideal, on each
+    # reference; the driver's resistance only where the node has decoupling to restore
+    ideal = replace(nominal, quiet=REFERENCE_QUIET, drawn=False)
+    found["ref_ideal"] = ideal
+    for index, noise_v in enumerate(REFERENCE_NOISE_V):
+        found[f"ref_noise_{index}"] = replace(ideal, reference_noise_v=float(noise_v))
+    decap_f = converter.decoupling_f
+    if decap_f > 0:
+        for index, r_ohm in enumerate(REFERENCE_R_OUT_OHM):
+            found[f"ref_r_{index:02d}"] = replace(ideal, reference_r_ohm=float(r_ohm), reference_c_f=decap_f)
     # at least 8 hits a code over the four periods (14 bits double the ramp)
     mismatch_conversions = max(MISMATCH_CONVERSIONS, 8 << bits)
     mismatch_period_s = mismatch_conversions / 4 / NOMINAL_RATE_HZ
@@ -390,13 +444,99 @@ def campaign(
     for coefficient in MISMATCH_COEFFICIENTS:
         for draw in range(mismatch_draws):
             # noise-free: the capacitors' nonlinearity alone
-            captures[f"mc_{coefficient * 100:g}_{draw:02d}"] = replace(
+            found[f"mc_{coefficient * 100:g}_{draw:02d}"] = replace(
                 mismatch_tb,
                 mismatch_seed=100 + draw,
                 unit_mismatch=coefficient,
                 quiet=frozenset({Quiet.SAMPLING, Quiet.COMPARATOR}),
             )
-    return captures
+    return found
+
+
+def _spice(pdk: str, params: Params) -> dict[str, TbParams]:
+    """The circuit simulator's runs of ``params`` (Spectre), each 100 conversions of a 50 mV input
+    with transient noise unless it says otherwise, on FRIDA-1's 256-symbol recipe (a generated design
+    of other than its 16 stages: its continuous one), each saving the codes and supplies alone but
+    ``spice_rate_10``, which saves the nodes the viewer shows (``Probes``):
+
+    - ``spice_rate_<2|6|10>``: at 0.32, 0.96 and 1.6 GBd;
+    - ``spice_ramp``: -0.75 to 0.75 V in 10 mV steps, a conversion each, no noise, at 1.6 GBd;
+    - a fabricated converter's on its tape-out's extraction (``Extraction.TAPEOUT``), and the one-layer
+      radix-17 flavor's also ``spice_ramp`` and ``spice_supply_<rate>_<none|vdda|vddd|vddac|all>``,
+      each rail (or all) behind 1 ohm, 1 nH and 1 pF with 1 mV rms of noise in 25 GHz; and each
+      flavor's ``spice_sequence_<comp>_<logic>``, at 1.6 GBd on its layout's signoff extraction
+      (``Extraction.SIGNOFF``), the seven continuous 160-symbol timings."""
+
+    fabricated = params.fabricated
+    extraction = Extraction.TAPEOUT if fabricated is not None else None
+    noisy: dict[str, Any] = {"conversions": 100, "vin_diff": h.Vdc.Params(dc=0.05), "transient_noise": True}
+    rates = (("2", 0.32e9), ("6", 0.96e9), ("10", 1.6e9))
+    found = {
+        f"spice_rate_{rate}": _spice_run(
+            pdk,
+            params,
+            symbol_rate,
+            extraction=extraction,
+            probes=Probes.NODES if rate == "10" else Probes.CODES,
+            **noisy,
+        )
+        for rate, symbol_rate in rates
+    }
+    ramp: dict[str, Any] = {"conversions": 151, "vin_diff": hs.LinearSweep(start=-0.75, stop=0.75, step=0.01)}
+    if fabricated is None:
+        found["spice_ramp"] = _spice_run(pdk, params, 1.6e9, probes=Probes.CODES, **ramp)
+        return found
+    if fabricated is Fabricated.FRIDA1_1LAYER_RADIX17:
+        found["spice_ramp"] = _spice_run(pdk, params, 1.6e9, extraction=extraction, probes=Probes.CODES, **ramp)
+        noise_rms_v = 1e-3
+        rails = (
+            ("none", (0.0, 0.0, 0.0)),
+            ("vdda", (noise_rms_v, 0.0, 0.0)),
+            ("vddd", (0.0, noise_rms_v, 0.0)),
+            ("vddac", (0.0, 0.0, noise_rms_v)),
+            ("all", (noise_rms_v, noise_rms_v, noise_rms_v)),
+        )
+        for rate, symbol_rate in rates:
+            for rail, rail_noise in rails:
+                found[f"spice_supply_{rate}_{rail}"] = _spice_run(
+                    pdk,
+                    params,
+                    symbol_rate,
+                    extraction=extraction,
+                    probes=Probes.CODES,
+                    conversions=100,
+                    vin_diff=h.Vdc.Params(dc=0.05),
+                    supply_series_resistance_ohm=1.0,
+                    supply_series_inductance_h=1e-9,
+                    supply_decoupling_capacitance_f=1e-12,
+                    supply_noise_rms_v=rail_noise,
+                    supply_noise_bandwidth_hz=25e9,
+                )
+    # COMP      LOGIC at fall  LOGIC +1 symbol
+    # 11110000  00001111       10000111
+    # 11111000  10000111       11000011
+    # 11111100  11000011       11100001
+    # 11111110  11100001       (excluded)
+    for timing in (
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111,
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC10000111,
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11111000_LOGIC10000111,
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11111000_LOGIC11000011,
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11000011,
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11100001,
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11111110_LOGIC11100001,
+    ):
+        # named by its COMP and LOGIC words, symbol160_init4_samp20_<comp>_<logic>
+        name = timing.name.lower().split("_", 3)[-1]
+        found[f"spice_sequence_{name}"] = TbParams(
+            pdk=pdk,
+            params=params,
+            simulator=Simulator.SPECTRE,
+            extraction=Extraction.SIGNOFF,
+            probes=Probes.CODES,
+            **noisy,
+        ).sequenced(timing.rows, symbol_rate=1.6e9)
+    return found
 
 
 def _sine(amplitude_v: float, rate_hz: float, cycles: int) -> h.Vsin.Params:
@@ -443,64 +583,36 @@ def _code_ramp(full_scale_v: float, bits: int, rate_hz: float) -> h.Vpwl.Params:
     return h.Vpwl.Params(wave=" ".join(f"{time:.9g} {value:.9g}" for time, value in points))
 
 
-def _blocks(params: Params) -> h.Module:
-    """The converter's analog blocks for the geometry metrics until the record takes its netlist's:
-    the comparator, and a sampler and a side of its DAC a side (``capdac.netlist``: its capacitors
-    and their drivers, its requests resolved to the active PDK's devices). The netlist's own
-    (``flow.adc.subckt.netlist``) cannot be measured yet: its comparator clock's inverter has a
-    finger wider than a row cell draws, and its digital block (or a fabricated converter's black box)
-    is an external cell with no footprint of the library's."""
-    pdk = active_pdk()
-    if pdk is None:
-        raise RuntimeError("the DAC's devices are the active PDK's, and none is set")
-    blocks = h.Module(name="AdcBlocks")
-    parts = [(comp.netlist(params.comp), "comp")]
-    dac = capdac.netlist(params.cdac)
-    resolve(dac, pdk)
-    for side in ("p", "n"):
-        parts += [(samp.netlist(params.samp), f"samp_{side}"), (dac, f"cap_{side}")]
-    for module, name in parts:
-        # each port on a signal of its own: the compile wants every port connected
-        connections = {
-            port: blocks.add(h.Signal(width=signal.width), name=f"{name}_{port}")
-            for port, signal in module.ports.items()
-        }
-        blocks.add(module(**connections), name=name)
-    return blocks
+def record(measurements: dict[str, Meas]) -> Record:
+    """The record of an instance from the measurements of its runs at any level (``runs``), each a
+    ``MeasAdc``: the metrics (``analysis.metrics``, None where its runs did not run) and the
+    figures (``flow.adc.plots``, the viewer's details, in its order) of whatever runs it has, a
+    SPICE run's and a behavioral run's alike. Every capture is decoded with the design weights and
+    with the "extracted" weights of its ``cap_table`` readback (``_extracted``: a PEX table, or the
+    DAC's steps as its characterization measured them, or none, the design's own); the
+    calibrations learn from the training ramp and are checked on the other, and the one that grades
+    the check ramp best decodes the calibrated figures and metrics (calibration 3 keeps the design
+    weights where its validation finds no measured weight that helps). Capacitor mismatch is
+    predicted rather than drawn (``analyze_mismatch``, from the nominal array's capacitances); where
+    the runs also hold the Monte Carlo ramps that check it (``mc_*``), their 95th percentiles at the
+    assumed matching are reported beside the predictions. The converter's own numbers come from its
+    behavioral runs' readbacks (``analyze_converter``), the reference's requirements from its
+    ``ref_*`` runs (``analyze_reference``). The circuit simulator's runs (``spice_*``) add the noise,
+    codes and power over the rate, the transfer curve, the noise behind each supply and the
+    sequence map, each figure named ``spice_<figure>``; the viewer shows ``spice_rate_10``'s waves."""
 
+    captures = _captures(measurements)
+    spice = {name: m for name, m in captures.items() if name.startswith("spice_")}
+    captures = {name: m for name, m in captures.items() if not name.startswith("spice_")}
+    results: dict[str, Any] = {}
+    details: list[Plot] = []
 
-GENERATOR = _blocks
-# a converter is characterized in Python alone (the behavioral model on its blocks' records, no
-# circuit compiled), so a worker process runs this many as one task
-tasks_per_worker = 10
-
-
-def cost(pdk: str, params: Params) -> float:
-    """An instance's relative run time, for the runner's longest-first order: its conversions grow
-    with the codes, each conversion with its decisions."""
-    return 2.0**params.adc_bits * (params.cdac.bits + params.cdac.extra)
-
-
-def record(captures: dict[str, MeasAdc]) -> Record:
-    """The record of an instance's campaign (``campaign``) from its captures by name, ``MeasAdc``
-    alone, so a SPICE campaign and the behavioral model's take the same path: the metrics
-    (``analysis.metrics``) and the figures (``flow.adc.plots``, the viewer's details, in its order).
-    Every capture is decoded with the design weights and with the "extracted" weights of its
-    ``cap_table`` readback (``_extracted``: a PEX table, or the DAC's steps as its characterization
-    measured them, or none, the design's own); the calibrations learn from the training ramp and are
-    checked on the other, and the one that grades the check ramp best decodes the calibrated figures
-    and metrics (calibration 3 keeps the design weights where its validation finds no measured
-    weight that helps). Capacitor mismatch is predicted rather than drawn (``analyze_mismatch``,
-    from the nominal array's capacitances); where the campaign also holds the Monte Carlo ramps that
-    check it (``mc_*``, ``campaign(mismatch_draws=...)``), their 95th percentiles at the assumed
-    matching are reported beside the predictions. ``noise_sampling`` and ``noise_comparator`` (the
-    noise capture with one source) add each source's rms noise where present, the ``ladder_*``
-    captures the ENOB ladder, ``drawn_sine`` the ENOB on the DAC's SPICE draw."""
-
-    check, train = captures["ramp_check"], captures["ramp_train"]
-    extracted = _extracted(check)
-    design = analyze_ramp(check)
-    extracted_ramp = analyze_ramp(check, calibration=extracted)
+    check, train = captures.get("ramp_check"), captures.get("ramp_train")
+    extracted = _extracted(check) if check else None
+    design = analyze_ramp(check) if check else None
+    if check:
+        results["ramp"] = design
+        results["extracted"] = analyze_ramp(check, calibration=extracted)
     rates = sorted((m for n, m in captures.items() if n.startswith("rate_")), key=lambda m: float(m.tb.symbol_rate))
     dynamics = [analyze_dynamic(m, calibration=_extracted(m)) for m in rates]
     powers = [analyze_power(m) for m in rates]
@@ -509,90 +621,185 @@ def record(captures: dict[str, MeasAdc]) -> Record:
         (d for d in fins if round(d.sample_rate_hz) == round(NOMINAL_RATE_HZ)), key=lambda d: d.input_frequency_hz
     )
     dcs = [m for n, m in sorted(captures.items()) if n.startswith("dc_")]
-    train_ramp = analyze_ramp(train)
-    learned: dict[str, AnalysisCalibration] = {"Calibration 2": analyze_calibration2(train, ramp=train_ramp)}
-    # calibration 3 fits a threshold in every late branch, and a ramp can hold too few hits there to
-    # bracket one; then it is left out (``calibration3_fitted`` says so) rather than failing the rest
-    calibration3 = None
-    try:
-        calibration3 = learned["Calibration 3"] = analyze_calibration3(train, ramp=train_ramp)
-    except ValueError:
-        pass
-    decoded = {label: analyze_ramp(check, calibration=calibration) for label, calibration in learned.items()}
-    best = min(learned, key=lambda label: decoded[label].maximum_abs_inl)
-    calibrated = decoded[best]
-    redundancy = analyze_redundancy(extracted)
-    paths = analyze_decision_paths(captures["trajectory"])
-    noise = captures["noise"]
-    spectrum = analyze_code_spectrum(noise, calibration=_extracted(noise))
-    input_noise = analyze_input_noise([captures["noise_input"]])
-    if len(input_noise.level_v) != INPUT_NOISE_LEVELS:
+    learned: dict[str, AnalysisCalibration] = {}
+    calibrated = best = None
+    if train and check:
+        train_ramp = analyze_ramp(train)
+        learned["Calibration 2"] = analyze_calibration2(train, ramp=train_ramp)
+        # calibration 3 fits a threshold in every late branch, and a ramp can hold too few hits there
+        # to bracket one; then it is left out (``calibration3_fitted`` says so) rather than failing
+        # the rest
+        try:
+            results["calibration3"] = learned["Calibration 3"] = analyze_calibration3(train, ramp=train_ramp)
+        except ValueError:
+            pass
+        decoded = {label: analyze_ramp(check, calibration=calibration) for label, calibration in learned.items()}
+        best = min(learned, key=lambda label: decoded[label].maximum_abs_inl)
+        calibrated = results["calibrated"] = decoded[best]
+    redundancy = analyze_redundancy(extracted) if extracted else None
+    paths = analyze_decision_paths(captures["trajectory"]) if "trajectory" in captures else None
+    noise = captures.get("noise")
+    spectrum = analyze_code_spectrum(noise, calibration=_extracted(noise)) if noise else None
+    input_noise = analyze_input_noise([captures["noise_input"]]) if "noise_input" in captures else None
+    if input_noise is not None and len(input_noise.level_v) != INPUT_NOISE_LEVELS:
         raise ValueError(f"noise_input holds {len(input_noise.level_v)} input levels, not {INPUT_NOISE_LEVELS}")
-    hsu = analyze_hsu(
-        [captures[f"hsu_{kind}r{index}"] for kind in ("", "reference_") for index in range(len(RATES_HZ))]
-    )
-    energy = analyze_energy(dcs, power=[analyze_power(m) for m in dcs])
+    hsu_names = [f"hsu_{kind}r{index}" for kind in ("", "reference_") for index in range(len(RATES_HZ))]
+    hsu = analyze_hsu([captures[name] for name in hsu_names]) if all(n in captures for n in hsu_names) else None
+    energy = analyze_energy(dcs, power=[analyze_power(m) for m in dcs]) if dcs else None
     ladder = _ladder(captures)
     # the mismatch, predicted from the nominal array (a capture without a draw)
-    mismatch = analyze_mismatch(noise)
-    prediction = analyze_mismatch_prediction(mismatch)
-    details = [
-        plot_redundancy(redundancy),
-        plot_code_density(design),
-        plot_inl(design),
-        plot_inl_calibrated(calibrated),
-        plot_dnl(design),
-        plot_dnl_calibrated(calibrated),
-        plot_trajectory(paths),
-        plot_trajectory_final(paths),
-        plot_trajectory_codes(paths),
-        plot_noise_spectrum(spectrum),
-        plot_noise_input(input_noise),
-        plot_enob_rate(dynamics),
-        plot_enob_fin(at_nominal),
-        *([plot_enob_ladder(ladder)] if ladder is not None else []),
-        plot_spectrum_low(at_nominal[0]),
-        plot_spectrum_nyquist(at_nominal[-1]),
-        plot_hsu_rate(hsu),
-        plot_power_rate(powers),
-        plot_energy_input(energy),
-        plot_energy_dac_input(energy),
-        plot_calibration_weights(extracted),
-        plot_mismatch_weight_sigma(prediction),
-        plot_mismatch_transition_sigma(prediction),
-        plot_mismatch_margin(prediction),
-        plot_mismatch_dnl(prediction),
-        plot_mismatch_inl(prediction),
+    mismatch = analyze_mismatch(noise) if noise else None
+    prediction = analyze_mismatch_prediction(mismatch) if mismatch else None
+    reference_runs = [m for n, m in captures.items() if n.startswith("ref_")]
+    reference = analyze_reference(reference_runs, calibration=_extracted(reference_runs[0])) if reference_runs else None
+    figures: list[tuple[Any, tuple[Callable[..., Plot], ...]]] = [
+        (redundancy, (plot_redundancy,)),
+        (design, (plot_code_density, plot_inl)),
+        (calibrated, (plot_inl_calibrated,)),
+        (design, (plot_dnl,)),
+        (calibrated, (plot_dnl_calibrated,)),
+        (paths, (plot_trajectory, plot_trajectory_final, plot_trajectory_codes)),
+        (spectrum, (plot_noise_spectrum,)),
+        (input_noise, (plot_noise_input,)),
     ]
-    drawn = {}
+    for result, plots in figures:
+        if result is not None:
+            details.extend(figure(result) for figure in plots)
+    if dynamics:
+        details.append(plot_enob_rate(dynamics))
+    if at_nominal:
+        details.append(plot_enob_fin(at_nominal))
+    if ladder is not None:
+        details.append(plot_enob_ladder(ladder))
+    if at_nominal:
+        details += [plot_spectrum_low(at_nominal[0]), plot_spectrum_nyquist(at_nominal[-1])]
+    if hsu is not None:
+        details.append(plot_hsu_rate(hsu))
+    if powers:
+        details.append(plot_power_rate(powers))
+    if energy is not None:
+        details += [plot_energy_input(energy), plot_energy_dac_input(energy)]
+    if extracted is not None:
+        details.append(plot_calibration_weights(extracted))
+    if prediction is not None:
+        details += [
+            plot_mismatch_weight_sigma(prediction),
+            plot_mismatch_transition_sigma(prediction),
+            plot_mismatch_margin(prediction),
+            plot_mismatch_dnl(prediction),
+            plot_mismatch_inl(prediction),
+        ]
+    if reference is not None:
+        details.append(plot_reference_noise(reference))
+        # the driver's resistance only where the reference node has decoupling to restore
+        if len(reference.r_out_ohm):
+            details.append(plot_reference_r_out(reference))
     if "drawn_sine" in captures:
         sine = captures["drawn_sine"]
-        drawn = {
-            "drawn_design": analyze_dynamic(sine),
-            "drawn_extracted": analyze_dynamic(sine, calibration=_extracted(sine)),
-            "drawn_calibrated": analyze_dynamic(sine, calibration=learned[best]),
-        }
+        results["drawn_design"] = analyze_dynamic(sine)
+        results["drawn_extracted"] = analyze_dynamic(sine, calibration=_extracted(sine))
+        if best is not None:
+            results["drawn_calibrated"] = analyze_dynamic(sine, calibration=learned[best])
     draws = [m for n, m in sorted(captures.items()) if n.startswith("mc_")]
+    spice_figures, spice_results, waves = _spice_record(spice)
     numbers = metrics(
         dynamics=dynamics,
         powers=powers,
         fins=at_nominal,
-        ramp=design,
-        extracted=extracted_ramp,
-        calibrated=calibrated,
-        noise=analyze_noise_rms(noise),
+        noise=analyze_noise_rms(noise) if noise else None,
         input_noise=input_noise,
         hsu=hsu,
         redundancy=redundancy,
         mismatch=mismatch,
         noise_sampling=analyze_noise_rms(captures["noise_sampling"]) if "noise_sampling" in captures else None,
         noise_comparator=analyze_noise_rms(captures["noise_comparator"]) if "noise_comparator" in captures else None,
-        calibration3=calibration3,
         ladder=ladder,
         draws=analyze_mismatch_draws(draws, ramps=[analyze_ramp(m) for m in draws]) if draws else None,
-        **drawn,
+        converter=analyze_converter(next(iter(captures.values()))) if captures else None,
+        reference=reference,
+        **results,
+        **spice_results,
     )
-    return Record(metrics=numbers, details=details)
+    return Record(metrics=numbers, details=details + spice_figures, waves=waves)
+
+
+def _spice_run(pdk: str, params: Params, symbol_rate: float, **fields: Any) -> TbParams:
+    """A circuit run of ``params`` at ``symbol_rate`` with ``fields``: on FRIDA-1's testbench and
+    256-symbol recipe where the design has FRIDA-1's stages, else each DAC state sized to the
+    design's and its continuous sequence."""
+    recipe = Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011
+    stages = len(capdac.Model.weights(params.cdac))
+    # the stages FRIDA-1's testbench and recipe are for
+    if stages == len(capdac.Model.weights(Fabricated.FRIDA1_1LAYER_RADIX17.params.cdac)):
+        return TbParams(pdk=pdk, params=params, simulator=Simulator.SPECTRE, **fields).sequenced(
+            recipe.rows, symbol_rate=symbol_rate
+        )
+    states: dict[str, Any] = {
+        "dac_astate_p": tuple(stage % 2 for stage in range(stages)),
+        "dac_astate_n": tuple(stage % 2 for stage in range(stages)),
+        "dac_bstate_p": (0,) * stages,
+        "dac_bstate_n": (0,) * stages,
+    }
+    tb = TbParams(pdk=pdk, params=params, simulator=Simulator.SPECTRE, **states, **fields)
+    return tb.continuous(stages).sequenced(symbol_rate=symbol_rate)
+
+
+def _spice_named(figure: Plot) -> Plot:
+    """A figure of the circuit runs, named ``spice_<figure>``."""
+    return replace(figure, name=f"spice_{figure.name}")
+
+
+def _spice_record(spice: dict[str, MeasAdc]) -> tuple[list[Plot], dict[str, Any], dict[str, str]]:
+    """The circuit simulator's runs' figures (each a record figure named ``spice_<figure>``), their
+    results for the metrics, and the run whose waves the viewer shows: the fixed input's noise, its
+    noise-equivalent ENOB, its codes and the supply power over the rate (``spice_rate_*``); the
+    transfer curve (``spice_ramp``); the noise over the rate behind each noisy supply
+    (``spice_supply_*``, a figure a rail); the sequence map of the timings (``spice_sequence_*``)."""
+
+    figures: list[Plot] = []
+    results: dict[str, Any] = {}
+    rates = sorted((m for n, m in spice.items() if n.startswith("spice_rate_")), key=lambda m: m.sample_rate_hz)
+    if rates:
+        noises = [analyze_noise(m) for m in rates]
+        powers = [analyze_power(m) for m in rates]
+        figures += [
+            _spice_named(plot_noise_rate(noises)),
+            _spice_named(plot_noise_enob_rate(noises)),
+            _spice_named(plot_codes_rate(noises)),
+        ]
+        figures.append(_spice_named(plot_power_rate(powers)))
+    if "spice_rate_10" in spice:
+        results["spice_noise"] = analyze_noise(spice["spice_rate_10"])
+        results["spice_power"] = analyze_power(spice["spice_rate_10"])
+    if "spice_ramp" in spice:
+        figures.append(_spice_named(plot_transfer(analyze_transfer([spice["spice_ramp"]]))))
+    rails: dict[str, list[MeasAdc]] = {}
+    for name, measurement in spice.items():
+        if name.startswith("spice_supply_"):
+            # spice_supply_<rate>_<rail>
+            rails.setdefault(name.split("_", 3)[3], []).append(measurement)
+    for rail, measurements in rails.items():
+        noises = sorted((analyze_noise(m) for m in measurements), key=lambda noise: noise.sample_rate_hz)
+        figures.append(replace(plot_noise_rate(noises), name=f"spice_supply_{rail}_noise_rate"))
+    sequences = [m for n, m in spice.items() if n.startswith("spice_sequence_")]
+    if sequences:
+        conditions = analyze_operating_conditions(sequences, noise=[analyze_noise(m) for m in sequences])
+        timings = analyze_sequence_map([conditions])
+        figures += [
+            _spice_named(plot_sequence_enob(timings)),
+            _spice_named(plot_sequence_plausible(timings)),
+            _spice_named(plot_sequence_shift(timings)),
+        ]
+    waves = {"spice_rate_10": "spice_rate_10"} if "spice_rate_10" in spice else {}
+    return figures, results, waves
+
+
+def _captures(measurements: dict[str, Meas]) -> dict[str, MeasAdc]:
+    """The runs' measurements, each a converter's captures (``MeasAdc``, ``flow.adc.sim.read``'s)."""
+    for name, measurement in measurements.items():
+        if not isinstance(measurement, MeasAdc):
+            raise TypeError(f"{name}: a {type(measurement).__name__}, not the converter's MeasAdc")
+    return dict(measurements)  # ty: ignore[invalid-return-type]
 
 
 def _extracted(measurement: MeasAdc) -> AnalysisCalibration:
@@ -608,266 +815,10 @@ def _extracted(measurement: MeasAdc) -> AnalysisCalibration:
 
 
 def _ladder(captures: dict[str, MeasAdc]) -> AnalysisLadder | None:
-    """The ENOB ladder (``LADDER``) of a campaign's captures, each step decoded as ``enob_bits`` is
-    (the extracted weights, unrounded); None where the campaign has no ladder (a SPICE one)."""
+    """The ENOB ladder (``LADDER``) of the runs' captures, each step decoded as ``enob_bits`` is
+    (the extracted weights, unrounded); None where the runs have no ladder (below ``Level.FULL``)."""
     if not all(name in captures for name in LADDER_NAMES):
         return None
     return analyze_ladder(
         [analyze_dynamic(captures[name], calibration=_extracted(captures[name])) for name in LADDER_NAMES]
     )
-
-
-def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
-    """The campaign's captures, converted and kept in memory, and their record (``record``), with
-    the reference's requirements the converter sets (``Model.reference_requirements``, apart from
-    its own ENOB: its metrics ``ref_*`` and its figures) and the model's own metrics (among them its
-    DAC's full scale over the reference, and the energy its drivers draw, none: it is not
-    characterized): the viewer shows the figures (the record's details) and no waveform of an ADC
-    instance, so no capture is written (a run is its ``instance.json``)."""
-    from .model import Model
-
-    model = Model.of(pdk, params)
-    plan = campaign(model.tb, model.full_scale_v, params.adc_bits)
-    captures = {name: model.capture(tb, None) for name, tb in plan.items()}
-    # the behavioral model alone can keep one noise source at a time
-    for name, quiet in (("noise_sampling", Quiet.COMPARATOR), ("noise_comparator", Quiet.SAMPLING)):
-        captures[name] = model.capture(replace(plan["noise"], quiet=frozenset({quiet})), None)
-    recorded = record(captures)
-    # the reference buffer's requirements this converter sets, apart from its own ENOB
-    reference = model.reference_requirements(plan[LADDER_NAMES[-1]])
-    numbers = recorded.metrics | {
-        "ref_decap_f": reference.decap_f,
-        "ref_r_max_ohm": reference.r_max_ohm,
-        "ref_noise_max_v": reference.noise_max_v,
-        "ref_enob_loss_max_bits": reference.enob_loss_max_bits,
-        "stages": float(model.stages),  # the switched capacitors a side
-        "decisions": float(model.stages + 1),  # a conversion's comparator decisions
-        "full_scale_v": model.full_scale_v,
-        # the DAC's full scale over its reference: its plates are sized for a full scale of the
-        # reference, so their quantization noise over the sampled kT/C is the scale times this
-        "full_scale_over_reference": model.full_scale_v / model.supply_v,
-        "settling_tau_s": model.settling_tau_s,
-        # the energy the DAC's drivers draw a bottom-plate transition: none, as its characterization
-        # saves no supply current to measure it by
-        "dac_driver_energy_j": model.cdac.behavioral().driver_energy_j,
-        "comp_noise_v": model.comp.noise_v,
-        "comp_delay_s": model.comp.delay_s,
-        **model.metastability(),
-    }
-    details = [*recorded.details, plot_reference_noise(reference)]
-    # the driver's resistance only where the reference node has decoupling to restore
-    if reference.decap_f > 0:
-        details.append(plot_reference_r_out(reference))
-    return Record(metrics=numbers, details=details)
-
-
-# The named Spectre runs (``python -m flow adc.<name>``, ``flow.adc.targets``): each a set of
-# testbenches of the generated or an extracted converter, simulated side by side in fresh processes
-# (``sim.simulate``), each measurement written beside its run
-
-
-def hdl21_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the generated ADC at 2, 6, and 10 MS/s with 50 mV input."""
-
-    from flow.analysis.io import write_measurement
-
-    with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
-        futures = []
-        for rate, symbol_rate in ((2, 0.32e9), (6, 0.96e9), (10, 1.6e9)):
-            params = TbParams(
-                pdk="tsmc65",
-                params=Params(),
-                simulator=Simulator.SPECTRE,
-                conversions=1 if check else 100,
-                vin_diff=h.Vdc.Params(dc=0.05),
-                transient_noise=True,
-                check=check,
-            ).sequenced(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011.rows, symbol_rate=symbol_rate)
-            futures.append(
-                (
-                    executor.submit(simulate, params, run_dir / f"{float(symbol_rate) / 1e6:g}mbd"),
-                    params,
-                )
-            )
-        for future, params in futures:
-            raw_path = future.result()
-            if not check:
-                measurement = read(raw_path, params)
-                write_measurement(raw_path.parent / "result.h5", measurement)
-    return run_dir
-
-
-def hdl21_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the generated ADC from -750 mV to +750 mV in 10 mV steps."""
-
-    from flow.analysis.io import write_measurement
-
-    params = TbParams(
-        pdk="tsmc65",
-        params=Params(),
-        simulator=Simulator.SPECTRE,
-        conversions=151,
-        vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
-        check=check,
-    ).sequenced(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011.rows, symbol_rate=1.6e9)
-    raw_path = simulate(params, run_dir)
-    if not check:
-        measurement = read(raw_path, params)
-        write_measurement(run_dir / "result.h5", measurement)
-    return run_dir
-
-
-def frida1_sequence(run_dir: Path, *, check: bool = False) -> Path:
-    """Compare seven continuous timing recipes on four historical flavors."""
-
-    from flow.analysis.io import write_measurement
-
-    with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
-        futures = []
-        for layers in (1, 2):
-            for radix, timing in product(
-                (17, 20),
-                # COMP      LOGIC at fall  LOGIC +1 symbol
-                # 11110000  00001111       10000111
-                # 11111000  10000111       11000011
-                # 11111100  11000011       11100001
-                # 11111110  11100001       (excluded)
-                (
-                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111,
-                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC10000111,
-                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111000_LOGIC10000111,
-                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111000_LOGIC11000011,
-                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11000011,
-                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11100001,
-                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111110_LOGIC11100001,
-                ),
-            ):
-                fabricated = next(member for member in Fabricated if (member.layers, member.radix) == (layers, radix))
-                target = fabricated.name.lower()
-                params = TbParams(
-                    pdk="tsmc65",
-                    params=fabricated.params,
-                    simulator=Simulator.SPECTRE,
-                    extraction=Extraction.SIGNOFF,
-                    conversions=1 if check else 100,
-                    vin_diff=h.Vdc.Params(dc=0.05),
-                    transient_noise=True,
-                    check=check,
-                ).sequenced(timing.rows, symbol_rate=1.6e9)
-                futures.append(
-                    (
-                        executor.submit(simulate, params, run_dir / target / timing.name.lower()),
-                        params,
-                    )
-                )
-        for future, params in futures:
-            raw_path = future.result()
-            if not check:
-                measurement = read(raw_path, params)
-                write_measurement(raw_path.parent / "result.h5", measurement)
-    return run_dir
-
-
-def frida1_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the four original PEX flavors at 2, 6, and 10 MS/s."""
-
-    from flow.analysis.io import write_measurement
-
-    with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
-        futures = []
-        for layers in (1, 2):
-            for radix in (17, 20):
-                fabricated = next(member for member in Fabricated if (member.layers, member.radix) == (layers, radix))
-                cell = f"adc_{layers}layer_radix{radix}"
-                for rate, symbol_rate in ((2, 0.32e9), (6, 0.96e9), (10, 1.6e9)):
-                    params = TbParams(
-                        pdk="tsmc65",
-                        params=fabricated.params,
-                        simulator=Simulator.SPECTRE,
-                        extraction=Extraction.TAPEOUT,
-                        conversions=1 if check else 100,
-                        vin_diff=h.Vdc.Params(dc=0.05),
-                        transient_noise=True,
-                        check=check,
-                    ).sequenced(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011.rows, symbol_rate=symbol_rate)
-                    futures.append(
-                        (
-                            executor.submit(simulate, params, run_dir / cell / f"{float(symbol_rate) / 1e6:g}mbd"),
-                            params,
-                        )
-                    )
-        for future, params in futures:
-            raw_path = future.result()
-            if not check:
-                measurement = read(raw_path, params)
-                write_measurement(raw_path.parent / "result.h5", measurement)
-    return run_dir
-
-
-def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the original extracted ADC from -750 mV to +750 mV in 10 mV steps."""
-
-    from flow.analysis.io import write_measurement
-
-    params = TbParams(
-        pdk="tsmc65",
-        params=Fabricated.FRIDA1_1LAYER_RADIX17.params,
-        simulator=Simulator.SPECTRE,
-        extraction=Extraction.TAPEOUT,
-        conversions=151,
-        vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
-        check=check,
-    ).sequenced(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011.rows, symbol_rate=1.6e9)
-    raw_path = simulate(params, run_dir)
-    if not check:
-        measurement = read(raw_path, params)
-        write_measurement(run_dir / "result.h5", measurement)
-    return run_dir
-
-
-def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the 15 original extracted-ADC rate/supply-noise combinations."""
-
-    from flow.analysis.io import write_measurement
-
-    noise_rms_v = 1e-3
-    with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
-        futures = []
-        for rate, symbol_rate in ((2, 0.32e9), (6, 0.96e9), (10, 1.6e9)):
-            for name, rail_noise in (
-                ("none", (0.0, 0.0, 0.0)),
-                ("vdda", (noise_rms_v, 0.0, 0.0)),
-                ("vddd", (0.0, noise_rms_v, 0.0)),
-                ("vddac", (0.0, 0.0, noise_rms_v)),
-                ("all", (noise_rms_v, noise_rms_v, noise_rms_v)),
-            ):
-                params = TbParams(
-                    pdk="tsmc65",
-                    params=Fabricated.FRIDA1_1LAYER_RADIX17.params,
-                    simulator=Simulator.SPECTRE,
-                    extraction=Extraction.TAPEOUT,
-                    conversions=1 if check else 100,
-                    vin_diff=h.Vdc.Params(dc=0.05),
-                    supply_series_resistance_ohm=1.0,
-                    supply_series_inductance_h=1e-9,
-                    supply_decoupling_capacitance_f=1e-12,
-                    supply_noise_rms_v=rail_noise,
-                    supply_noise_bandwidth_hz=25e9,
-                    check=check,
-                ).sequenced(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011.rows, symbol_rate=symbol_rate)
-                futures.append(
-                    (
-                        executor.submit(
-                            simulate,
-                            params,
-                            run_dir / f"{float(symbol_rate) / 1e6:g}mbd_{name}",
-                        ),
-                        params,
-                    )
-                )
-        for future, params in futures:
-            raw_path = future.result()
-            if not check:
-                measurement = read(raw_path, params)
-                write_measurement(raw_path.parent / "result.h5", measurement)
-    return run_dir

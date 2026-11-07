@@ -3,11 +3,11 @@
 each in its own stage module, their names re-exported here (``from flow import adc`` then
 ``adc.Params``, ``adc.analyze_ramp``, ``adc.AnalysisRamp``, ``adc.plot_inl``).
 
-Its design space (``flow.adc.sweep``), behavioral model (``flow.adc.model``), layouts
-(``flow.adc.layout``) and command-line targets (``flow.adc.targets``) are not imported here. The
-sweep's characterization imports the model, which imports the other blocks' models: through a
-module that refers to this package (``flow.analysis.types`` does), a block's own stages would reach
-its model, against the stage order import-linter holds the migrated blocks to."""
+Its design space (``flow.adc.sweep``), behavioral model (``flow.adc.model``), own layout flow
+(``flow.adc.layout``) and lab studies (``flow.adc.targets``) are not imported here: its runs'
+behavioral converter (``flow.adc.sim``) imports the other blocks' models, and through a module that
+refers to this package (``flow.analysis.types`` does), a block's own stages would reach the stages
+above them, against the stage order import-linter holds the migrated blocks to."""
 
 from . import params, subckt, sim, types, analysis, plots  # noqa: I001 - the pipeline's order
 from .analysis import (
@@ -19,6 +19,7 @@ from .analysis import (
     analyze_code_distribution,
     analyze_code_spectrum,
     analyze_conversions,
+    analyze_converter,
     analyze_decision_paths,
     analyze_dynamic,
     analyze_endpoint_nonlinearity,
@@ -37,6 +38,7 @@ from .analysis import (
     analyze_power_waveform,
     analyze_ramp,
     analyze_redundancy,
+    analyze_reference,
     analyze_sampling_noise,
     analyze_sequence_map,
     analyze_sequencer,
@@ -106,6 +108,7 @@ from .types import (
     AnalysisCodeDensityNonlinearity,
     AnalysisCodeDistribution,
     AnalysisCodeSpectrum,
+    AnalysisConverter,
     AnalysisDecisionPaths,
     AnalysisDynamic,
     AnalysisEndpointNonlinearity,
@@ -142,6 +145,7 @@ __all__ = [
     "AnalysisCodeDensityNonlinearity",
     "AnalysisCodeDistribution",
     "AnalysisCodeSpectrum",
+    "AnalysisConverter",
     "AnalysisDecisionPaths",
     "AnalysisDynamic",
     "AnalysisEndpointNonlinearity",
@@ -185,6 +189,7 @@ __all__ = [
     "analyze_code_distribution",
     "analyze_code_spectrum",
     "analyze_conversions",
+    "analyze_converter",
     "analyze_decision_paths",
     "analyze_dynamic",
     "analyze_endpoint_nonlinearity",
@@ -203,6 +208,7 @@ __all__ = [
     "analyze_power_waveform",
     "analyze_ramp",
     "analyze_redundancy",
+    "analyze_reference",
     "analyze_sampling_noise",
     "analyze_sequence_map",
     "analyze_sequencer",

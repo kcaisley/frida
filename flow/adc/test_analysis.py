@@ -25,6 +25,7 @@ from flow import adc, capdac, comp
 from flow.adc.analysis import (
     _decode,
     _dnl_quantile,
+    _enob_floor,
     _inl_quantile,
     _margin_over_sigma,
     _mismatch_statistics,
@@ -38,6 +39,7 @@ from flow.adc.analysis import (
     analyze_code_distribution,
     analyze_code_spectrum,
     analyze_conversions,
+    analyze_converter,
     analyze_decision_paths,
     analyze_dynamic,
     analyze_endpoint_nonlinearity,
@@ -49,16 +51,27 @@ from flow.adc.analysis import (
     analyze_power,
     analyze_power_waveform,
     analyze_ramp,
+    analyze_reference,
     analyze_sampling_noise,
     analyze_sequence_map,
     analyze_switching,
     analyze_timing_closure,
     analyze_transfer,
+    metrics,
 )
-from flow.adc.params import LADDER, LADDER_NAMES, Params, Recipe, TbParams
-from flow.adc.plots import plot_calibration_weights, plot_redundancy
+from flow.adc.params import (
+    LADDER,
+    LADDER_NAMES,
+    REFERENCE_NOISE_V,
+    REFERENCE_R_OUT_OHM,
+    REFERENCE_SHARE,
+    Params,
+    Recipe,
+    TbParams,
+)
+from flow.adc.plots import plot_calibration_weights, plot_redundancy, plot_reference_noise, plot_reference_r_out
 from flow.adc.sim import _Behavioral
-from flow.adc.sweep import _extracted, _ladder, campaign
+from flow.adc.sweep import _campaign, _extracted, _ladder
 from flow.adc.types import AnalysisMismatch, AnalysisRedundancy
 from flow.analysis.calc import calc_drawn_linearity, calc_paths
 from flow.analysis.types import (
@@ -69,6 +82,7 @@ from flow.analysis.types import (
     Wave,
 )
 from flow.capdac.test_analysis import comparator_offset
+from flow.pipeline import Level
 from flow.plot import render
 from flow.scans.params import AdcScanParams
 from flow.scans.scan_cdac import _build_cdac_params
@@ -2249,13 +2263,14 @@ def test_threshold_calibration_uses_common_weight_plot(
 
 
 def _stub_model(table: Path, params: Params):
-    """An ADC model of ideal blocks of known impairments at a 1.2 V supply (no PDK): its DAC's plates
+    """A behavioral converter of ideal blocks of known impairments at a 1.2 V supply (no PDK): its DAC's plates
     as designed there and a table of them as its extraction, each stage's step 50 ps late and
     settling with 0.35 ns."""
-    from flow.adc import model
+    from flow.adc import sim
 
-    class Stub(model.Model):
+    class Stub(sim._Converter):
         supply_v = 1.2
+        decoupling_f = math.nan  # no PDK's decap density: no reference resistance runs
 
     main_f, diff_f = capdac.Model.plates(params.cdac, 1.2)
     rows = (f"{i},{m * 1e15:.6f},{d * 1e15:.6f},{(m - d) * 1e15:.6f}\n" for i, (m, d) in enumerate(zip(main_f, diff_f)))
@@ -2309,7 +2324,7 @@ def _capture(model, declared):
 def test_the_ladder_starts_at_quantization_and_ends_on_enob_bits(tmp_path: Path, cdac: capdac.Params) -> None:
     params = Params(adc_bits=12, cdac=cdac)
     model = _stub_model(tmp_path / "table.csv", params)
-    plan = campaign(model.tb, model.full_scale_v, params.adc_bits)
+    plan = _campaign(model, Level.FULL)
     captures = {name: _capture(model, plan[name]) for name in LADDER_NAMES}
     result = _ladder(captures)
     assert result is not None and len(result.enob_bits) == len(LADDER)
@@ -2329,7 +2344,7 @@ def test_the_ladder_starts_at_quantization_and_ends_on_enob_bits(tmp_path: Path,
     np.testing.assert_array_equal(again.bout, rate.bout)
     repeated = _ladder({**captures, "rate_10": again})
     assert repeated is not None and repeated.enob_bits[-1] == ladder[-1]
-    # without the ladder's captures (a SPICE campaign), no ladder
+    # without the ladder's captures (below Level.FULL), no ladder
     assert _ladder({"rate_10": rate}) is None
 
 
@@ -2340,7 +2355,7 @@ def test_the_ladders_quantization_reads_the_design_resolution(tmp_path: Path, ad
     amplitude it reads half a dB less."""
     params = Params(adc_bits=adc_bits, cdac=capdac.Params(bits=adc_bits, redundancy=capdac.Redundancy.BINARY, extra=0))
     model = _stub_model(tmp_path / "table.csv", params)
-    plan = campaign(model.tb, model.full_scale_v, params.adc_bits)
+    plan = _campaign(model, Level.FULL)
     captures = {name: _capture(model, plan[name]) for name in LADDER_NAMES}
     ladder = _ladder(captures)
     assert ladder is not None
@@ -2369,3 +2384,102 @@ def test_a_capture_as_its_comparator_sees_it() -> None:
     with pytest.raises(ValueError, match="equally spaced"):
         _ = uneven.symbols_per_decision
     assert math.isnan(analyze_conversions(uneven).decision_period_s)
+
+
+# ---- the converter's own numbers, the reference's requirements and the record's numbers
+
+
+def test_an_error_of_the_quantization_noise_costs_an_ideal_quantizer_half_a_bit() -> None:
+    assert _enob_floor(12, 12.0) == pytest.approx(11.5)
+    assert _enob_floor(12, 12.0, REFERENCE_SHARE) == pytest.approx(12 - 0.5 * math.log2(1 + REFERENCE_SHARE))
+    # a converter already far from its resolution loses less of it to the same error
+    assert 0 < 11.0 - _enob_floor(12, 11.0) < 0.5 - 1e-3
+
+
+def test_each_requirement_is_where_its_loss_crosses_its_share_of_the_quantization_noise(monkeypatch) -> None:
+    """Stand-in reference runs (the ``ref_*`` runs' testbenches) of a converter whose added error
+    power grows as the square of the reference's noise and of its driver's time constant over 1 ns:
+    each requirement falls between the grid points about the analytic one, interpolated on a log
+    scale, and each figure is the loss over its grid."""
+    bits, enob_bits = 12, 11.0
+    lsb2 = 1.0 / 12  # the quantization noise power, in LSB^2
+    params = Params(adc_bits=bits, cdac=capdac.Params())
+    ideal = TbParams(pdk="tsmc65", params=params)
+
+    def measured(tb: TbParams) -> float:
+        error = (tb.reference_noise_v / 100e-6) ** 2 + (tb.reference_r_ohm * tb.reference_c_f / 1e-9) ** 2
+        return bits - 0.5 * math.log2(2.0 ** (2 * (bits - enob_bits)) + error / lsb2)
+
+    monkeypatch.setattr(
+        "flow.adc.analysis.analyze_dynamic",
+        lambda measurement, *, calibration=None: SimpleNamespace(spectral_enob_fs_bits=measured(measurement.tb)),
+    )
+    runs = [ideal]
+    runs += [replace(ideal, reference_noise_v=float(noise_v)) for noise_v in REFERENCE_NOISE_V]
+    runs += [replace(ideal, reference_r_ohm=float(r_ohm), reference_c_f=1e-12) for r_ohm in REFERENCE_R_OUT_OHM]
+    captures = [
+        SimpleNamespace(
+            tb=tb,
+            dut=params,
+            identity=Identity(None, None, params),
+            info=SimpleNamespace(readbacks={"decoupling_f": 1e-12}),
+        )
+        for tb in runs
+    ]
+    reference = analyze_reference(captures)
+    # the error may reach REFERENCE_SHARE of the quantization noise power: (x / x0)^2 = REFERENCE_SHARE / 12
+    within = math.sqrt(REFERENCE_SHARE * lsb2)
+    for found, analytic, grid in (
+        (reference.noise_max_v, 100e-6 * within, REFERENCE_NOISE_V),
+        (reference.r_max_ohm, 1e3 * within, REFERENCE_R_OUT_OHM),
+    ):
+        step = int(np.searchsorted(grid, analytic))
+        assert grid[step - 1] <= found <= grid[step]
+        assert found == pytest.approx(analytic, rel=0.3)
+    assert reference.decap_f == 1e-12
+    assert reference.enob_loss_max_bits == pytest.approx(enob_bits - _enob_floor(bits, enob_bits, REFERENCE_SHARE))
+    details = [plot_reference_noise(reference), plot_reference_r_out(reference)]
+    assert [plot.name for plot in details] == ["reference_noise", "reference_r_out"]
+    losses = details[0].series["ENOB loss"]
+    assert losses == sorted(losses) and losses[0] == pytest.approx(0.0, abs=1e-3)
+    # without decoupling, no resistance: its requirement NaN and its grid empty
+    alone = analyze_reference(captures[: 1 + len(REFERENCE_NOISE_V)])
+    assert math.isnan(alone.r_max_ohm) and not len(alone.r_out_ohm)
+    with pytest.raises(ValueError, match="one run on the ideal reference"):
+        analyze_reference(captures[1:])
+
+
+def test_the_converters_numbers_are_its_captures_readbacks() -> None:
+    params = Params(adc_bits=12, cdac=capdac.Params())
+    numbers = {
+        "full_scale_v": 0.5,
+        "supply_v": 1.2,
+        "settling_tau_s": 1e-10,
+        "decoupling_f": 2e-12,
+        "dac_driver_energy_j": 0.0,
+        "comp_noise_v": 1e-4,
+        "comp_delay_s": 3e-10,
+        "comp_regeneration_tau_s": 2e-11,
+        "decision_window_s": 2.9e-9,
+        "metastable_input_lsb": 1e-3,
+    }
+    capture = SimpleNamespace(
+        info=SimpleNamespace(readbacks={"cap_table": "", **numbers}),
+        nominal_bout_weights=np.ones(17),
+        identity=Identity(None, None, params),
+    )
+    converter = analyze_converter(capture)
+    assert (converter.stages, converter.decisions) == (16, 17)
+    assert {name: getattr(converter, name) for name in numbers} == numbers
+    values = metrics(converter=converter)
+    assert values["full_scale_over_reference"] == pytest.approx(0.5 / 1.2)
+    assert (values["stages"], values["decisions"]) == (16.0, 17.0)
+
+
+def test_a_record_of_no_runs_measures_nothing() -> None:
+    """``metrics`` with no results: every number NaN (None in the record), none raising; the
+    Monte Carlo's check only where its draws ran."""
+    values = metrics()
+    assert values and all(math.isnan(value) for value in values.values())
+    assert not any(name.startswith("mismatch_mc_") for name in values)
+    assert {"enob_bits", "ref_noise_max_v", "spice_noise_rms_lsb", "enob_quantization_bits"} <= set(values)

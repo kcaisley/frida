@@ -315,9 +315,9 @@ def run(
     # every worker oversubscribes the machine many times over
     for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ.setdefault(name, "1")
-    # a fresh process per task: hdl21 compiles a generated module in place, for one PDK. A block that
-    # compiles nothing (its sweep's ``tasks_per_worker``: the ADC's behavioral converters) runs that
-    # many instances as one task, which pays its imports (seconds) once, not per instance. (Not by
+    # a fresh process per task: hdl21 compiles a generated module in place, for one PDK. A legacy
+    # block that compiles nothing may run several instances as one task (its sweep's
+    # ``tasks_per_worker``), which pays its imports (seconds) once, not per instance. (Not by
     # the pool's max_tasks_per_child: once every worker has run its share and exited, the pool starts
     # no new ones and waits forever.)
     tasks = min((getattr(import_module(f"flow.{block}.sweep"), "tasks_per_worker", 1) for block in blocks), default=1)

@@ -3,7 +3,8 @@
 Allow roughly one hour for the full suite on asiclab003 (host/load dependent).
 Run it occasionally or after broad simulation-flow changes, not after every edit.
 For routine changes, select affected blocks/experiments with pytest's -k option,
-for example: uv run pytest -m spectre -k 'adc-frida1_sequence'.
+for example: uv run pytest -m spectre -k 'latch'. The ADC's circuit runs are its sweep's
+(``python -m flow run adc --instance ... --level circuit``), its Spectre check its own test.
 The short simulated durations do not imply short wall-clock runtimes.
 """
 
@@ -50,12 +51,6 @@ def diagnostic_root(spectre_installation):
 @pytest.mark.parametrize(
     "block,target",
     (
-        ("adc", "hdl21_sample_rate"),
-        ("adc", "hdl21_transfer_curve"),
-        ("adc", "frida1_sequence"),
-        ("adc", "frida1_sample_rate"),
-        ("adc", "frida1_transfer_curve"),
-        ("adc", "frida1_supply_noise"),
         ("delay", "delay_characterization"),
         ("latch", "latch_characterization"),
         ("ota", "ota_characterization"),
@@ -70,8 +65,8 @@ def diagnostic_root(spectre_installation):
     ids=lambda value: value,
 )
 def test_target_diagnostic(block, target, diagnostic_root):
-    # a block's named runs are its sim's; the ADC's are its sweep's
-    runner = getattr(importlib.import_module(f"flow.{block}.{'sweep' if block == 'adc' else 'sim'}"), target)
+    # a block's named runs are its sim's
+    runner = getattr(importlib.import_module(f"flow.{block}.sim"), target)
     run_dir = diagnostic_root / block / target
     assert runner(run_dir, check=True) == run_dir
     assert list(run_dir.rglob("netlist.scs")), f"no generated decks beneath {run_dir}"

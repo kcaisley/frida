@@ -18,8 +18,9 @@ capture's parameters, never from literals.
 - The campaign's studies: the output code's noise over the input (``analyze_input_noise``) and at a
   fixed input (``analyze_noise_rms``), Hsu's integrated error over the rate (``analyze_hsu``), the
   ENOB ladder (``analyze_ladder``), the energy over the input (``analyze_energy``) and the
-  redundancy of a calibration's weights (``analyze_redundancy``); and the record's numbers
-  (``metrics``).
+  redundancy of a calibration's weights (``analyze_redundancy``); a behavioral converter's own
+  numbers (``analyze_converter``, from its captures' readbacks) and the reference's requirements it
+  sets (``analyze_reference``, from its reference runs); and the record's numbers (``metrics``).
 - An array's capacitor mismatch: ``analyze_mismatch`` takes a behavioral capture to its array's
   mismatch as statistics rather than draws (``AnalysisMismatch``), from which ``_dnl_quantile``,
   ``_inl_quantile``, ``_missing_codes_quantile`` and ``_margin_over_sigma`` predict at a Pelgrom
@@ -132,7 +133,15 @@ from flow.analysis.calc import calc_paths
 from flow.analysis.types import MeasAdc, MeasCdac
 from flow.pipeline import Identity, analysis, check_identity, measurement_identity
 
-from .params import CDAC_SETTLING_TOLERANCE_V, LADDER, NOMINAL_RATE_HZ, PELGROM_AXIS, UNIT_MISMATCH
+from .params import (
+    CDAC_SETTLING_TOLERANCE_V,
+    LADDER,
+    NOMINAL_RATE_HZ,
+    PELGROM_AXIS,
+    RATES_HZ,
+    REFERENCE_SHARE,
+    UNIT_MISMATCH,
+)
 from .subckt import Nets
 from .types import (
     AnalysisCalibration,
@@ -143,6 +152,7 @@ from .types import (
     AnalysisCodeDensityNonlinearity,
     AnalysisCodeDistribution,
     AnalysisCodeSpectrum,
+    AnalysisConverter,
     AnalysisDecisionPaths,
     AnalysisDynamic,
     AnalysisEndpointNonlinearity,
@@ -161,6 +171,7 @@ from .types import (
     AnalysisPowerWaveform,
     AnalysisRamp,
     AnalysisRedundancy,
+    AnalysisReference,
     AnalysisSamplingNoise,
     AnalysisSequenceMap,
     AnalysisSequencer,
@@ -2687,23 +2698,130 @@ def _redundancy_margins(weights) -> np.ndarray:
 
 
 # =============================================================================
+# The behavioral converter's own numbers and the reference's requirements
+# =============================================================================
+
+
+@analysis
+def analyze_converter(measurement: MeasAdc) -> AnalysisConverter:
+    """A behavioral run's converter (``flow.adc.sim``'s, as its capture's readbacks carry its numbers):
+    its stages and decisions from the design, its full scale, supply, settling, decoupling, drivers'
+    energy, comparator and metastability as the converter gave them. A capture of another backend
+    carries none (``KeyError``)."""
+
+    numbers = measurement.info.readbacks
+    stages = len(measurement.nominal_bout_weights) - 1
+    identity = measurement.identity
+    return AnalysisConverter(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        stages=stages,
+        decisions=stages + 1,
+        **{
+            name: float(numbers[name])
+            for name in (
+                "full_scale_v",
+                "supply_v",
+                "settling_tau_s",
+                "decoupling_f",
+                "dac_driver_energy_j",
+                "comp_noise_v",
+                "comp_delay_s",
+                "comp_regeneration_tau_s",
+                "decision_window_s",
+                "metastable_input_lsb",
+            )
+        },
+    )
+
+
+@analysis
+def analyze_reference(
+    measurements: Sequence[MeasAdc], *, calibration: AnalysisCalibration | None = None
+) -> AnalysisReference:
+    """The reference's requirements a converter sets, from its reference runs: one on the ideal
+    reference (every ``reference_*`` of its testbench 0) and one at each point of a grid of the
+    reference node's white noise (``reference_noise_v``) and, where it has decoupling, of its
+    driver's output resistance (``reference_r_ohm`` at ``reference_c_f``), each the nominal rate's
+    sine with the sampler and the comparator ideal. Each is decoded as the record's ``enob_bits`` is
+    (``calibration``: the extracted weights, unrounded); the ENOB each loses is the ideal run's
+    less its own. The budget is the loss at which the reference adds ``REFERENCE_SHARE`` of an
+    ideal quantizer's noise power (LSB^2 / 12) of the converter's resolution; each requirement is
+    the value where its loss crosses the budget, interpolated on a log scale between the grid points
+    about it (``_tolerated``)."""
+
+    ideal = [m for m in measurements if not (m.tb.reference_noise_v or m.tb.reference_r_ohm)]
+    if len(ideal) != 1:
+        raise ValueError(f"the reference study takes one run on the ideal reference, not {len(ideal)}")
+    base = ideal[0]
+    enob_bits = _enob(base, calibration)
+    budget_bits = enob_bits - _enob_floor(base.dut.adc_bits, enob_bits, REFERENCE_SHARE)
+    noisy = sorted((m for m in measurements if m.tb.reference_noise_v), key=lambda m: m.tb.reference_noise_v)
+    resistive = sorted((m for m in measurements if m.tb.reference_r_ohm), key=lambda m: m.tb.reference_r_ohm)
+    noise_v = np.asarray([m.tb.reference_noise_v for m in noisy], dtype=np.float64)
+    noise_losses = np.asarray([enob_bits - _enob(m, calibration) for m in noisy], dtype=np.float64)
+    r_out_ohm = np.asarray([m.tb.reference_r_ohm for m in resistive], dtype=np.float64)
+    r_losses = np.asarray([enob_bits - _enob(m, calibration) for m in resistive], dtype=np.float64)
+    identity = measurement_identity(measurements)
+    return AnalysisReference(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        decap_f=float(base.info.readbacks["decoupling_f"]),
+        noise_v=noise_v,
+        noise_loss_bits=noise_losses,
+        r_out_ohm=r_out_ohm,
+        r_out_loss_bits=r_losses,
+        noise_max_v=_tolerated(noise_v, noise_losses, budget_bits),
+        r_max_ohm=_tolerated(r_out_ohm, r_losses, budget_bits) if len(resistive) else math.nan,
+        enob_loss_max_bits=budget_bits,
+    )
+
+
+def _enob(measurement: MeasAdc, calibration: AnalysisCalibration | None) -> float:
+    """A sine capture's spectral ENOB referred to full scale, decoded with ``calibration``."""
+    return analyze_dynamic(measurement, calibration=calibration).spectral_enob_fs_bits
+
+
+def _tolerated(grid: np.ndarray, losses: np.ndarray, budget_bits: float) -> float:
+    """The largest value on ``grid`` (ascending) within the budget: where the loss first crosses it,
+    interpolated on a log scale between the last point within it and the first over it; the grid's
+    last where none is over, NaN where the first is."""
+    over = np.flatnonzero(losses > budget_bits)
+    if not over.size:
+        return float(grid[-1])
+    if over[0] == 0:
+        return math.nan
+    low, high = over[0] - 1, over[0]
+    fraction = (budget_bits - losses[low]) / (losses[high] - losses[low])
+    return float(np.exp(np.log(grid[low]) + fraction * (np.log(grid[high]) - np.log(grid[low]))))
+
+
+def _enob_floor(bits: int, enob_bits: float, share: float = 1.0) -> float:
+    """The ENOB a converter of ``bits`` reaches when an error of ``share`` of its quantization noise
+    power (LSB^2 / 12) adds to the noise and distortion it has at ``enob_bits``."""
+    return bits - 0.5 * math.log2(2.0 ** (2 * (bits - enob_bits)) + share)
+
+
+# =============================================================================
 # The record's numbers
 # =============================================================================
 
 
 def metrics(
     *,
-    dynamics: Sequence[AnalysisDynamic],
-    powers: Sequence[AnalysisPower],
-    fins: Sequence[AnalysisDynamic],
-    ramp: AnalysisRamp,
-    extracted: AnalysisRamp,
-    calibrated: AnalysisRamp,
-    noise: AnalysisNoiseRms,
-    input_noise: AnalysisInputNoise,
-    hsu: AnalysisHsu,
-    redundancy: AnalysisRedundancy,
-    mismatch: AnalysisMismatch,
+    dynamics: Sequence[AnalysisDynamic] = (),
+    powers: Sequence[AnalysisPower] = (),
+    fins: Sequence[AnalysisDynamic] = (),
+    ramp: AnalysisRamp | None = None,
+    extracted: AnalysisRamp | None = None,
+    calibrated: AnalysisRamp | None = None,
+    noise: AnalysisNoiseRms | None = None,
+    input_noise: AnalysisInputNoise | None = None,
+    hsu: AnalysisHsu | None = None,
+    redundancy: AnalysisRedundancy | None = None,
+    mismatch: AnalysisMismatch | None = None,
     noise_sampling: AnalysisNoiseRms | None = None,
     noise_comparator: AnalysisNoiseRms | None = None,
     calibration3: AnalysisCalibration3 | None = None,
@@ -2712,101 +2830,135 @@ def metrics(
     drawn_calibrated: AnalysisDynamic | None = None,
     ladder: AnalysisLadder | None = None,
     draws: AnalysisMismatchDraws | None = None,
+    converter: AnalysisConverter | None = None,
+    reference: AnalysisReference | None = None,
+    spice_noise: AnalysisNoise | None = None,
+    spice_power: AnalysisPower | None = None,
 ) -> dict[str, float]:
-    """The record's numbers from its campaign's results: the sines over the rate (``dynamics``,
-    slowest first, the extracted weights' codes) and their power, the nominal rate's sines over the
-    input frequency (``fins``, lowest first), the check ramp decoded with the design weights, the
-    extracted weights and the calibration that grades it best (``calibrated``), the noise capture's
-    output-code noise (with one source alone, where the campaign has it), the noise over the input,
-    Hsu's study, the redundancy of the extracted weights, the array's predicted mismatch; whether
-    calibration 3 fitted (``calibration3``), the nominal rate's sine on the CDAC's SPICE draw decoded
-    with the design weights, the nominal extraction's and the best calibration's, the ENOB ladder and
-    the Monte Carlo's check of the mismatch, where the campaign holds them. Every ENOB is the
-    spectral one referred to full scale (an ideal N-bit quantizer reads N); the SNDR is the test
-    sine's own, at -0.5 dBFS."""
+    """The record's numbers from its runs' results, each NaN (None in the record) where the runs of
+    its level did not measure it: the sines over the rate (``dynamics``, slowest first, the
+    extracted weights' codes) and their power, the nominal rate's sines over the input frequency
+    (``fins``, lowest first), the check ramp decoded with the design weights, the extracted weights
+    and the calibration that grades it best (``calibrated``), the noise capture's output-code noise
+    (with one source alone), the noise over the input, Hsu's study, the redundancy of the extracted
+    weights, the array's predicted mismatch; whether calibration 3 fitted (``calibration3``), the
+    nominal rate's sine on the CDAC's SPICE draw decoded with the design weights, the nominal
+    extraction's and the best calibration's, the ENOB ladder, the converter's own numbers
+    (``converter``), the reference's requirements (``reference``) and the circuit simulator's fixed
+    input at the nominal rate (``spice_noise``, ``spice_power``: its run ``spice_rate_10``); the
+    Monte Carlo's check of the mismatch where the runs drew it (``draws``, none of a level's). Every
+    ENOB is the spectral one referred to full scale (an ideal N-bit quantizer reads N); the SNDR is
+    the test sine's own, at -0.5 dBFS."""
 
-    dynamic, power = next(
+    nan = math.nan
+    values: dict[str, float] = {}
+    nominal = [
         (d, p) for d, p in zip(dynamics, powers, strict=True) if round(d.sample_rate_hz) == round(NOMINAL_RATE_HZ)
+    ]
+    dynamic, power = nominal[0] if nominal else (None, None)
+    power_w = (
+        sum(
+            getattr(power, f"{rail}_{kind}_power_w")
+            for rail in ("vdd_a", "vdd_d", "vdd_dac")
+            for kind in ("static", "dynamic")
+        )
+        if power is not None
+        else nan
     )
-    power_w = sum(
-        getattr(power, f"{rail}_{kind}_power_w")
-        for rail in ("vdd_a", "vdd_d", "vdd_dac")
-        for kind in ("static", "dynamic")
-    )
-    sigma_lsb = input_noise.sigma_lsb
-    # the redundant stages' margins over their sigma (the others have none to lose)
-    margins = _margin_over_sigma(mismatch, UNIT_MISMATCH)[np.abs(mismatch.margin_lsb) > 1e-9]
-    values = {
-        "enob_bits": dynamic.spectral_enob_fs_bits,
-        "sndr_db": dynamic.spectral_sndr_db,
-        "sfdr_db": dynamic.spectral_sfdr_db,
-        "enob_nyquist_bits": fins[-1].spectral_enob_fs_bits,
-        "enob_low_fin_bits": fins[0].spectral_enob_fs_bits,
-        "inl_max_lsb": ramp.maximum_abs_inl,
-        "dnl_max_lsb": ramp.maximum_abs_dnl,
-        "inl_max_extracted_lsb": extracted.maximum_abs_inl,
-        "inl_max_calibrated_lsb": calibrated.maximum_abs_inl,
-        "dnl_max_calibrated_lsb": calibrated.maximum_abs_dnl,
-        "missing_codes": float(ramp.missing_codes),
+    values |= {
+        "enob_bits": dynamic.spectral_enob_fs_bits if dynamic else nan,
+        "sndr_db": dynamic.spectral_sndr_db if dynamic else nan,
+        "sfdr_db": dynamic.spectral_sfdr_db if dynamic else nan,
+        "enob_nyquist_bits": fins[-1].spectral_enob_fs_bits if fins else nan,
+        "enob_low_fin_bits": fins[0].spectral_enob_fs_bits if fins else nan,
+        "inl_max_lsb": ramp.maximum_abs_inl if ramp else nan,
+        "dnl_max_lsb": ramp.maximum_abs_dnl if ramp else nan,
+        "inl_max_extracted_lsb": extracted.maximum_abs_inl if extracted else nan,
+        "inl_max_calibrated_lsb": calibrated.maximum_abs_inl if calibrated else nan,
+        "dnl_max_calibrated_lsb": calibrated.maximum_abs_dnl if calibrated else nan,
+        "missing_codes": float(ramp.missing_codes) if ramp else nan,
         "power_w": power_w,
-        "energy_per_conversion_j": power_w / dynamic.sample_rate_hz,
-        "fom_walden_j": power_w / (2**dynamic.spectral_enob_fs_bits * dynamic.sample_rate_hz),
-        "fom_schreier_db": dynamic.spectral_sndr_db + 10 * math.log10(dynamic.sample_rate_hz / 2 / power_w),
-        "noise_rms_lsb": noise.rms_lsb,
-        # each noise source alone (the noise capture with only it on), where the campaign has them
+        "energy_per_conversion_j": power_w / dynamic.sample_rate_hz if dynamic else nan,
+        "fom_walden_j": power_w / (2**dynamic.spectral_enob_fs_bits * dynamic.sample_rate_hz) if dynamic else nan,
+        "fom_schreier_db": (
+            dynamic.spectral_sndr_db + 10 * math.log10(dynamic.sample_rate_hz / 2 / power_w) if dynamic else nan
+        ),
+        "noise_rms_lsb": noise.rms_lsb if noise else nan,
+        # each noise source alone (the noise capture with only it on)
         **{
-            f"noise_{source}_rms_lsb": result.rms_lsb
+            f"noise_{source}_rms_lsb": result.rms_lsb if result else nan
             for source, result in (("sampling", noise_sampling), ("comparator", noise_comparator))
-            if result is not None
         },
-        # the output-code noise at the input's ends and at mid-scale
-        "noise_input_edge_lsb": float(max(sigma_lsb[0], sigma_lsb[-1])),
-        "noise_input_mid_lsb": float(sigma_lsb[len(sigma_lsb) // 2]),
+    }
+    # the output-code noise at the input's ends and at mid-scale
+    sigma_lsb = input_noise.sigma_lsb if input_noise else None
+    values |= {
+        "noise_input_edge_lsb": float(max(sigma_lsb[0], sigma_lsb[-1])) if sigma_lsb is not None else nan,
+        "noise_input_mid_lsb": float(sigma_lsb[len(sigma_lsb) // 2]) if sigma_lsb is not None else nan,
         # Hsu's study at the array's own settling: the fastest error-free rate, and the error at 10 MS/s
-        "error_free_rate_max_hz": float(hsu.error_free_rate_hz),
-        "integrated_error_nominal_lsb": float(
-            hsu.integrated_error_lsb[np.flatnonzero(hsu.rate_hz == NOMINAL_RATE_HZ)[0]]
+        "error_free_rate_max_hz": float(hsu.error_free_rate_hz) if hsu else nan,
+        "integrated_error_nominal_lsb": (
+            float(hsu.integrated_error_lsb[np.flatnonzero(hsu.rate_hz == NOMINAL_RATE_HZ)[0]]) if hsu else nan
         ),
         # the fastest rate before the ENOB first falls a bit below the slowest rate's: past it the
-        # comparator or the DAC runs out of time (the sampler's distortion slopes off more gently)
-        "rate_max_hz": list(
-            takewhile(lambda d: d.spectral_enob_fs_bits >= dynamics[0].spectral_enob_fs_bits - 1.0, dynamics)
-        )[-1].sample_rate_hz,
-        "redundancy_first_pct": float(redundancy.design_pct[0]),
-        "redundancy_first_extracted_pct": float(redundancy.calibrated_pct[0]),
-        "calibration3_fitted": float(calibration3 is not None),
+        # comparator or the DAC runs out of time (the sampler's distortion slopes off more gently);
+        # only over every rate
+        "rate_max_hz": (
+            list(takewhile(lambda d: d.spectral_enob_fs_bits >= dynamics[0].spectral_enob_fs_bits - 1.0, dynamics))[
+                -1
+            ].sample_rate_hz
+            if len(dynamics) == len(RATES_HZ)
+            else nan
+        ),
+        "redundancy_first_pct": float(redundancy.design_pct[0]) if redundancy else nan,
+        "redundancy_first_extracted_pct": float(redundancy.calibrated_pct[0]) if redundancy else nan,
+        "calibration3_fitted": float(calibration3 is not None) if calibrated else nan,
         # the calibration the calibrated metrics use
-        "calibration_best": float(calibrated.decoding.removeprefix("calibration")),
+        "calibration_best": float(calibrated.decoding.removeprefix("calibration")) if calibrated else nan,
         # the nominal rate's sine on the CDAC's SPICE draw the ramps calibrate on, decoded with the
         # design weights (as it comes), the nominal extraction's (its systematic error calibrated,
         # not the draw's) and the best calibration learned from the drawn training ramp
         **{
-            f"enob_drawn_{name}_bits": result.spectral_enob_fs_bits
+            f"enob_drawn_{name}_bits": result.spectral_enob_fs_bits if result else nan
             for name, result in (
                 ("design", drawn_design),
                 ("extracted", drawn_extracted),
                 ("calibrated", drawn_calibrated),
             )
-            if result is not None
         },
+    }
+    if mismatch is not None:
         # predicted at the assumed matching (``UNIT_MISMATCH``), decoded with the design weights: the
         # array's own layout error and the mismatch's 95th percentile; the largest DNL and INL sigma
         # of any code; the smallest margin of a redundant stage over its sigma (NaN without one)
-        "mismatch_dnl_p95_lsb": _dnl_quantile(mismatch, UNIT_MISMATCH),
-        "mismatch_inl_p95_lsb": _inl_quantile(mismatch, UNIT_MISMATCH),
-        "mismatch_missing_codes_p95": _missing_codes_quantile(mismatch, UNIT_MISMATCH),
-        "dnl_sigma_max_lsb": UNIT_MISMATCH * float(np.max(mismatch.dnl_sigma)),
-        "inl_sigma_max_lsb": UNIT_MISMATCH * float(np.max(mismatch.inl_sigma)),
-        "min_margin_over_sigma": float(np.min(margins)) if len(margins) else math.nan,
-    }
+        margins = _margin_over_sigma(mismatch, UNIT_MISMATCH)[np.abs(mismatch.margin_lsb) > 1e-9]
+        values |= {
+            "mismatch_dnl_p95_lsb": _dnl_quantile(mismatch, UNIT_MISMATCH),
+            "mismatch_inl_p95_lsb": _inl_quantile(mismatch, UNIT_MISMATCH),
+            "mismatch_missing_codes_p95": _missing_codes_quantile(mismatch, UNIT_MISMATCH),
+            "dnl_sigma_max_lsb": UNIT_MISMATCH * float(np.max(mismatch.dnl_sigma)),
+            "inl_sigma_max_lsb": UNIT_MISMATCH * float(np.max(mismatch.inl_sigma)),
+            "min_margin_over_sigma": float(np.min(margins)) if len(margins) else nan,
+        }
+    else:
+        values |= dict.fromkeys(
+            (
+                "mismatch_dnl_p95_lsb",
+                "mismatch_inl_p95_lsb",
+                "mismatch_missing_codes_p95",
+                "dnl_sigma_max_lsb",
+                "inl_sigma_max_lsb",
+                "min_margin_over_sigma",
+            ),
+            nan,
+        )
     # the ladder's first step, and what each impairment after it costs where it is added (the
     # losses add up to the quantization's ENOB less enob_bits)
-    if ladder is not None:
-        enob = ladder.enob_bits
-        values["enob_quantization_bits"] = float(enob[0])
-        for (key, _, _, _), before, after in zip(LADDER[1:], enob[:-1], enob[1:], strict=True):
-            values[f"enob_loss_{key}_bits"] = float(before - after)
-    # the Monte Carlo's check, where the campaign drew it: its 95th percentiles at the assumed matching
+    enob = ladder.enob_bits if ladder is not None else np.full(len(LADDER), nan)
+    values["enob_quantization_bits"] = float(enob[0])
+    for (key, _, _, _), before, after in zip(LADDER[1:], enob[:-1], enob[1:], strict=True):
+        values[f"enob_loss_{key}_bits"] = float(before - after)
+    # the Monte Carlo's check, where the runs drew it: its 95th percentiles at the assumed matching
     if draws is not None:
         index = int(np.argmin(np.abs(draws.coefficient - UNIT_MISMATCH)))
         for drawn, column in (
@@ -2815,4 +2967,36 @@ def metrics(
             (draws.missing_codes, "missing_codes_p95"),
         ):
             values[f"mismatch_mc_{column}"] = float(np.percentile(drawn[index], 95))
+    # the converter's own numbers, which every behavioral run carries
+    if converter is not None:
+        values |= {
+            "stages": float(converter.stages),  # the switched capacitors a side
+            "decisions": float(converter.decisions),  # a conversion's comparator decisions
+            "full_scale_v": converter.full_scale_v,
+            # the DAC's full scale over its reference: its plates are sized for a full scale of the
+            # reference, so their quantization noise over the sampled kT/C is the scale times this
+            "full_scale_over_reference": converter.full_scale_v / converter.supply_v,
+            "settling_tau_s": converter.settling_tau_s,
+            # the energy the DAC's drivers draw a bottom-plate transition: none, as its
+            # characterization saves no supply current to measure it by
+            "dac_driver_energy_j": converter.dac_driver_energy_j,
+            "comp_noise_v": converter.comp_noise_v,
+            "comp_delay_s": converter.comp_delay_s,
+            "comp_regeneration_tau_s": converter.comp_regeneration_tau_s,
+            "decision_window_s": converter.decision_window_s,
+            "metastable_input_lsb": converter.metastable_input_lsb,
+        }
+    # the reference buffer's requirements this converter sets, apart from its own ENOB
+    values |= {
+        "ref_decap_f": reference.decap_f if reference else nan,
+        "ref_r_max_ohm": reference.r_max_ohm if reference else nan,
+        "ref_noise_max_v": reference.noise_max_v if reference else nan,
+        "ref_enob_loss_max_bits": reference.enob_loss_max_bits if reference else nan,
+    }
+    # the circuit simulator's fixed input at the nominal rate (a candidate's and an extraction's alike)
+    values |= {
+        "spice_noise_rms_lsb": spice_noise.std_dout if spice_noise else nan,
+        "spice_noise_enob_bits": spice_noise.enob_bits if spice_noise else nan,
+        "spice_power_w": spice_power.total_power_w if spice_power else nan,
+    }
     return values

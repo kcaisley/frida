@@ -9,11 +9,9 @@ and runs side by side (the simulator replaced), with the CLI's targets of them
 import importlib.util
 import inspect
 import math
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from itertools import pairwise
 from pathlib import Path
-from threading import Barrier
 from types import SimpleNamespace
 from typing import Any
 
@@ -23,7 +21,7 @@ import numpy as np
 import pytest
 
 from flow import capdac, comp, samp
-from flow.adc import plots, sim, sweep, targets
+from flow.adc import plots, sim, sweep
 from flow.adc.params import (
     FIN_CYCLES,
     FIN_RATES_HZ,
@@ -33,14 +31,21 @@ from flow.adc.params import (
     LADDER_NAMES,
     MISMATCH_COEFFICIENTS,
     RATES_HZ,
+    REFERENCE_NOISE_V,
+    REFERENCE_QUIET,
+    REFERENCE_R_OUT_OHM,
     RESOLUTIONS,
     VALIDATION_DRAWS,
     Extraction,
+    Fabricated,
     Params,
+    Probes,
     Quiet,
+    Recipe,
+    Simulator,
     TbParams,
 )
-from flow.pipeline import Pdk
+from flow.pipeline import Level, Pdk
 from flow.sweep.runner import design_space, digest
 
 PEX_FIXTURES = {"frida1": Path(__file__).parent / "fixtures" / "frida1_ports.scs"}
@@ -194,14 +199,22 @@ def test_every_component_is_its_block_sweeps_instance() -> None:
     assert all(digest(samp) in samplers and not samp.dummy for samp in _values("tsmc65", "samp"))
 
 
-def test_the_campaign_has_every_capture_the_figures_read() -> None:
+def _stand_in(params: Params | None = None, *, decoupling_f: float = 1e-12) -> SimpleNamespace:
+    """A converter for its runs alone (``sweep._campaign``): its testbench builder on the continuous
+    sequence of FRIDA-1's 16 stages, a full scale of 0.7 V, its decoupling."""
+    params = Params() if params is None else params
+
     def tb(*, conversions, rate_hz, vin_diff):
-        base = TbParams(pdk="tsmc65", params=Params(), conversions=conversions, vin_diff=vin_diff).continuous(16)
+        base = TbParams(pdk="tsmc65", params=params, conversions=conversions, vin_diff=vin_diff).continuous(16)
         return base.sequenced(symbol_rate=rate_hz * len(base.seq_init.data))
 
-    captures = sweep.campaign(tb, 0.7)
+    return SimpleNamespace(tb=tb, full_scale_v=0.7, params=params, decoupling_f=decoupling_f)
+
+
+def test_the_campaign_has_every_run_the_figures_read() -> None:
+    captures = sweep._campaign(_stand_in(), Level.FULL)
     names = set(captures)
-    assert {"ramp_train", "ramp_check", "trajectory", "noise"} <= names
+    assert {"ramp_train", "ramp_check", "trajectory", "noise", "noise_sampling", "noise_comparator"} <= names
     assert sum(name.startswith("rate_") for name in names) == len(RATES_HZ)
     assert sum(name.startswith("fin_") for name in names) == len(FIN_RATES_HZ) * len(FIN_CYCLES)
     assert sum(name.startswith("dc_") for name in names) == 33
@@ -212,6 +225,9 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
     assert train.noise_seed != check.noise_seed
     drawn, nominal = captures["drawn_sine"], captures["rate_10"]
     assert drawn.drawn and not nominal.drawn and replace(drawn, drawn=False) == nominal
+    # one noise source alone: the noise run with the other quiet
+    assert captures["noise_sampling"] == replace(captures["noise"], quiet=frozenset({Quiet.COMPARATOR}))
+    assert captures["noise_comparator"] == replace(captures["noise"], quiet=frozenset({Quiet.SAMPLING}))
     # sines at -0.5 dBFS of the full scale, DC inputs across it
     assert abs(captures["rate_10"].vin_diff.vamp - 0.7 * 10 ** (-0.5 / 20)) < 1e-9
     assert isinstance(captures["dc_00"].vin_diff, h.Vdc.Params)
@@ -232,9 +248,9 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
         assert own.tau_scale == 1.0 and Quiet.COMPARATOR not in own.quiet
     # the ENOB ladder: the 10 MS/s sine, quantization alone first, one impairment more a step, the
     # last rate_10 itself
-    names = LADDER_NAMES
-    assert len(names) == len(LADDER) and names[-1] == "rate_10" and "enob_ladder" in FIGURES
-    steps = [captures[name] for name in names]
+    ladder = LADDER_NAMES
+    assert len(ladder) == len(LADDER) and ladder[-1] == "rate_10" and "enob_ladder" in FIGURES
+    steps = [captures[name] for name in ladder]
     assert all(replace(step, quiet=frozenset(), tau_scale=1.0) == captures["rate_10"] for step in steps)
     assert steps[0].tau_scale == 0.0 and {Quiet.SAMPLER, Quiet.SAMPLING, Quiet.COMPARATOR} <= steps[0].quiet
     assert steps[-1].quiet == frozenset() and steps[-1].tau_scale == 1.0
@@ -245,10 +261,23 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
         quieter = before.quiet - after.quiet - ({Quiet.COMPARATOR} if timing else set())
         settled = after.tau_scale != before.tau_scale
         assert int(timing) + len(quieter) + int(settled) == 1 and after.quiet - {Quiet.COMPARATOR_NOISE} <= before.quiet
+    # the reference study: the nominal sine, its own draw, sampler and comparator ideal, on an ideal
+    # reference and at each grid point; the driver's resistance onto the converter's decoupling
+    ideal = captures["ref_ideal"]
+    assert ideal == replace(nominal, quiet=REFERENCE_QUIET)
+    noisy = [captures[name] for name in sorted(names) if name.startswith("ref_noise_")]
+    resistive = [captures[name] for name in sorted(names) if name.startswith("ref_r_")]
+    assert [tb.reference_noise_v for tb in noisy] == list(REFERENCE_NOISE_V)
+    assert [tb.reference_r_ohm for tb in resistive] == list(REFERENCE_R_OUT_OHM)
+    assert {tb.reference_c_f for tb in resistive} == {1e-12}
+    assert all(replace(tb, reference_noise_v=0.0) == ideal for tb in noisy)
+    # no decoupling (NaN: the PDK gives no decap density), no resistance runs
+    alone = sweep._campaign(_stand_in(decoupling_f=math.nan), Level.FULL)
+    assert not any(name.startswith("ref_r_") for name in alone) and "ref_noise_0" in alone
     # the mismatch is predicted, not drawn: the Monte Carlo that checks it only where asked for
     assert not any(name.startswith("mc_") for name in names)
     assert {"mismatch_weight_sigma", "mismatch_transition_sigma", "mismatch_margin"} <= set(FIGURES)
-    drawn = sweep.campaign(tb, 0.7, mismatch_draws=VALIDATION_DRAWS)
+    drawn = sweep._campaign(_stand_in(), Level.FULL, mismatch_draws=VALIDATION_DRAWS)
     studies = [capture for name, capture in drawn.items() if name.startswith("mc_")]
     assert len(studies) == len(MISMATCH_COEFFICIENTS) * VALIDATION_DRAWS and all(
         c.quiet == {Quiet.SAMPLING, Quiet.COMPARATOR} for c in studies
@@ -256,300 +285,160 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
     assert {c.unit_mismatch for c in studies} == set(MISMATCH_COEFFICIENTS)
 
 
-def test_the_record_holds_the_models_own_metrics_beside_the_campaigns(monkeypatch, tmp_path) -> None:
-    """``characterize`` on a stand-in model (known blocks, a DAC whose last stage is drawn twice as
-    heavy as designed) and a campaign of short captures: the campaign's record and the reference's
-    requirements, and the model's own metrics: the DAC's full scale, half its measured steps' sum,
-    and that over the reference, its drivers' energy (none: not characterized), its stages and
-    decisions, its slowest settling, the comparator's noise and delay and the late-decision input."""
-    from flow.adc.model import Model
-    from flow.adc.test_model import TB, _dac, _stand_in
-    from flow.adc.types import AnalysisReference
-    from flow.pipeline import Record
-
-    main_f, diff_f = capdac.Model.plates(TB.params.cdac, 1.2)
-    steps = 2 * 1.2 * 0.8 * (main_f - diff_f) / float(np.sum(main_f + diff_f))  # the design's at a gain of 0.8
-    steps[-1] *= 2.0
-    model = _stand_in(replace(_dac(TB.params, gain=0.8), step_v=tuple(steps)))
-    # the comparator's own numbers, which the record reports and the metastability reads
-    model.comp.noise_v, model.comp.delay_s, model.comp.regeneration_tau_s = 1e-4, 300e-12, 20e-12
-    model.comp.delay_table_v, model.comp.delay_table_s = (1e-6, 1e-3), (200e-12, 50e-12)
-    planned, converted = {}, []
-
-    def campaign(tb, full_scale_v, bits):
-        planned.update(full_scale_v=full_scale_v, bits=bits)
-        short = tb(conversions=4, rate_hz=10e6, vin_diff=h.Vdc.Params(dc=0.0))
-        return {"noise": short, LADDER_NAMES[-1]: short}
-
-    reference = AnalysisReference(
-        group=None,
-        index=None,
-        dut=TB.params,
-        decap_f=2e-12,
-        noise_v=np.asarray([1e-4, 1e-3]),
-        noise_loss_bits=np.asarray([0.0, 0.4]),
-        r_out_ohm=np.asarray([1.0, 10.0]),
-        r_out_loss_bits=np.asarray([0.0, 0.2]),
-        noise_max_v=5e-4,
-        r_max_ohm=8.0,
-        enob_loss_max_bits=0.1,
-    )
-    monkeypatch.setattr(Model, "of", classmethod(lambda cls, pdk, params, *, simulate=True: model))
-    monkeypatch.setattr(Model, "reference_requirements", lambda self, capture: reference)
-    monkeypatch.setattr(sweep, "campaign", campaign)
-    monkeypatch.setattr(
-        sweep, "record", lambda captures: converted.extend(captures) or Record(metrics={"enob_bits": 11.0}, details=[])
-    )
-    result = sweep.characterize(tmp_path, "tsmc65", TB.params)
-    metrics = result.metrics
-    assert planned == {"full_scale_v": model.full_scale_v, "bits": 12}
-    assert sorted(converted) == ["noise", "noise_comparator", "noise_sampling", LADDER_NAMES[-1]]
-    assert metrics["enob_bits"] == 11.0
-    assert metrics["full_scale_v"] == pytest.approx(steps.sum() / 2, rel=1e-12)
-    assert metrics["full_scale_over_reference"] == pytest.approx(steps.sum() / 2 / 1.2, rel=1e-12)
-    assert metrics["dac_driver_energy_j"] == 0.0
-    assert (metrics["stages"], metrics["decisions"]) == (16.0, 17.0)
-    assert metrics["settling_tau_s"] == max(model.cdac.tau_s)
-    assert (metrics["comp_noise_v"], metrics["comp_delay_s"]) == (1e-4, 300e-12)
-    assert metrics["comp_regeneration_tau_s"] == 20e-12
-    lsb_v = 2 * metrics["full_scale_v"] / 2**12
-    assert metrics["metastable_input_lsb"] * lsb_v == pytest.approx(
-        1e-6 * math.exp(-(metrics["decision_window_s"] - 200e-12) / 20e-12), rel=1e-9
-    )
-    assert (metrics["ref_decap_f"], metrics["ref_r_max_ohm"]) == (2e-12, 8.0)
-    assert (metrics["ref_noise_max_v"], metrics["ref_enob_loss_max_bits"]) == (5e-4, 0.1)
-    # the reference's figures after the record's, the driver's resistance where there is decoupling
-    assert [detail.name for detail in result.details] == ["reference_noise", "reference_r_out"]
+@pytest.mark.parametrize("params", [Params(), Fabricated.FRIDA1_1LAYER_RADIX17.params], ids=["frida1", "fabricated"])
+def test_each_levels_runs_hold_the_level_below(monkeypatch, params) -> None:
+    """``runs`` at each level, its converter a stand-in: SCREEN the ramps, the nominal sine and the
+    noise run; each level after it every run of the level below, unchanged; CIRCUIT the circuit
+    simulator's runs (``spice_*``) beside FULL's, every other run behavioral."""
+    monkeypatch.setattr(sweep, "_converter", lambda pdk, found: _stand_in(found))
+    levels = [sweep.runs("tsmc65", params, level) for level in Level]
+    assert set(levels[0]) == {"ramp_train", "ramp_check", "rate_10", "noise"}
+    for below, above in pairwise(levels):
+        assert set(below) < set(above) and all(above[name] == tb for name, tb in below.items())
+    circuit = set(levels[-1]) - set(levels[-2])
+    assert circuit and all(name.startswith("spice_") for name in circuit)
+    assert {levels[-1][name].simulator for name in circuit} == {Simulator.SPECTRE}
+    assert {tb.simulator for name, tb in levels[-1].items() if name not in circuit} == {Simulator.BEHAVIORAL}
 
 
-# the named Spectre runs and their CLI targets
+def test_a_screen_record_measures_what_its_runs_ran(tmp_path: Path) -> None:
+    """The record of SCREEN's runs, converted by a behavioral converter of ideal blocks: the ENOB,
+    linearity, power, calibrations, noise and the converter's own numbers; every metric of a run it
+    did not run None (NaN), none raising; the figures of the runs it has."""
+    from flow.adc.test_analysis import _stub_model
 
-
-@pytest.mark.parametrize("check", (False, True))
-def test_fixed_input_campaigns(check, tmp_path, monkeypatch):
-    count = 4  # FRIDA-1's flavors
-    calls = []
-    started = Barrier(count)
-
-    def pool(*, max_workers, mp_context):
-        assert max_workers == count
-        assert mp_context.get_start_method() == "spawn"
-        return ThreadPoolExecutor(max_workers=max_workers)
-
-    def capture(params, directory, **options):
-        calls.append((directory, params, options))
-        started.wait(timeout=10)
-        return directory / "netlist.raw"
-
-    monkeypatch.setattr(sweep, "ProcessPoolExecutor", pool)
-    from flow.analysis import io
-
-    monkeypatch.setattr(sweep, "read", lambda raw, tb: object())
-    monkeypatch.setattr(io, "write_measurement", lambda *args: None)
-    monkeypatch.setattr(sweep, "simulate", capture)
-    monkeypatch.setattr(sim, "_extraction", lambda tb: (PEX_FIXTURES["frida1"], "adc_12b_17step"))
-    root = tmp_path / "campaign"
-    assert sweep.frida1_sequence(root, check=check) == root
-    timing_count = 7
-    assert len(calls) == timing_count * count
-    assert len({directory for directory, *_ in calls}) == timing_count * count
-    assert len({directory.parent.name for directory, *_ in calls}) == count
-    assert len({directory.name for directory, *_ in calls}) == timing_count
-    for directory, params, options in calls:
-        flavor = directory.parent.name
-        assert directory.parent.parent == root
-        assert params.conversions == (1 if check else 100)
-        assert params.extraction is Extraction.SIGNOFF
-        assert params.params.fabricated is not None and params.params.fabricated.name.lower() == flavor
-        assert float(params.symbol_rate) == 1.6e9
-        assert float(params.vin_diff.dc) == 0.05
-        assert float(params.vin_cm.dc) == pytest.approx(0.7)
-        assert params.check == check
-        assert params.transient_noise is True
-        # its extraction its layout's signoff, which the run finds itself (``sim._extraction``)
-        assert options == {}
-        assert params.expected_disconnect == ("2layer" in flavor)
-        assert sum(capdac.Model.weights(params.params.cdac)) == (2303 if "radix20" in flavor else 2047)
-        comp = np.fromiter(map(int, params.seq_comp.data), dtype=int)
-        logic = np.fromiter(map(int, params.seq_logic.data), dtype=int)
-        assert len(comp) == len(logic) == len(params.seq_init.data) == len(params.seq_samp.data) == 160
-        assert len(comp) / float(params.symbol_rate) == pytest.approx(100e-9)
-        comp_rises = np.flatnonzero(np.diff(comp) == 1) + 1
-        comp_falls = np.flatnonzero(np.diff(np.r_[comp, 0]) == -1) + 1
-        np.testing.assert_array_equal(comp_rises, 24 + 8 * np.arange(17))
-        comp_word = directory.name.split("_comp", 1)[1].split("_logic", 1)[0]
-        np.testing.assert_array_equal(comp_falls, comp_rises + comp_word.count("1"))
-        np.testing.assert_array_equal(
-            np.flatnonzero(np.fromiter(map(int, params.seq_init.data), dtype=int)), np.arange(4)
-        )
-        np.testing.assert_array_equal(
-            np.flatnonzero(np.fromiter(map(int, params.seq_samp.data), dtype=int)), np.arange(4, 24)
-        )
-        assert sim.testbench(params).name == "AdcTb_frida1"
-
-
-def test_concurrent_campaign_propagates_case_failure(tmp_path, monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        sweep, "ProcessPoolExecutor", lambda **kwargs: ThreadPoolExecutor(max_workers=kwargs["max_workers"])
-    )
-
-    def fail_one(_params, directory, *_args, **_kwargs):
-        calls.append(directory)
-        if "1layer_radix17" in directory.parent.name:
-            raise RuntimeError("simulator failed")
-        return directory / "netlist.raw"
-
-    monkeypatch.setattr(sweep, "simulate", fail_one)
-    with pytest.raises(RuntimeError, match="simulator failed"):
-        sweep.frida1_sequence(tmp_path)
-    assert len(calls) == 7 * 4
-
-
-@pytest.mark.parametrize(
-    "target,count,workers",
-    (
-        ("hdl21_sample_rate", 3, 3),
-        pytest.param("frida1_sample_rate", 12, 4, marks=SITE),
-        pytest.param("frida1_supply_noise", 15, 4, marks=SITE),
-        ("hdl21_transfer_curve", 1, None),
-        pytest.param("frida1_transfer_curve", 1, None, marks=SITE),
-    ),
-)
-@pytest.mark.parametrize("check", (False, True))
-def test_other_campaign_recipes(target, count, workers, check, tmp_path, monkeypatch):
-    calls = []
-
-    def pool(*, max_workers, mp_context):
-        assert max_workers == workers
-        assert mp_context.get_start_method() == "spawn"
-        return ThreadPoolExecutor(max_workers=max_workers)
-
-    def capture(params, directory, **options):
-        calls.append((directory, params, options))
-        return directory / "netlist.raw"
-
-    monkeypatch.setattr(sweep, "ProcessPoolExecutor", pool)
-    from flow.analysis import io
-
-    monkeypatch.setattr(sweep, "read", lambda raw, tb: object())
-    monkeypatch.setattr(io, "write_measurement", lambda *args: None)
-    monkeypatch.setattr(sweep, "simulate", capture)
-    assert getattr(sweep, target)(tmp_path, check=check) == tmp_path
-    assert len(calls) == count
-    assert len({directory for directory, *_ in calls}) == count
-    for directory, params, options in calls:
-        assert params.check == check
-        assert (params.params.fabricated is None) == target.startswith("hdl21")
-        if "transfer_curve" in target:
-            assert params.conversions == 151
-            assert params.vin_diff == hs.LinearSweep(start=-0.75, stop=0.75, step=0.01)
-            assert not params.transient_noise
-        else:
-            assert params.conversions == (1 if check else 100)
-            assert float(params.vin_diff.dc) == 0.05
-        if "supply_noise" in target:
-            assert params.supply_series_resistance_ohm == 1.0
-            assert params.supply_series_inductance_h == 1e-9
-            assert params.supply_decoupling_capacitance_f == 1e-12
-            assert params.supply_noise_bandwidth_hz == 25e9
-            assert set(params.supply_noise_rms_v) <= {0.0, 1e-3}
-            # Preserve the original supply recipe; do not enable device noise
-            # as an incidental effect of consolidating the executors.
-            assert not params.transient_noise
-        elif "fixed_input_noise" in target:
-            assert params.transient_noise is True
-    if "vs_rate" in target:
-        assert {float(params.symbol_rate) for _, params, _ in calls} == {320e6, 960e6, 1.6e9}
-
-
-def test_adc_targets_list_only_experiment_targets_in_family_order():
-    names = [
-        name
-        for name, value in vars(targets).items()
-        if inspect.isfunction(value) and value.__module__ == targets.__name__ and hasattr(sweep, name)
-    ]
-    assert names == [
-        "hdl21_sample_rate",
-        "hdl21_transfer_curve",
-        "frida1_sequence",
-        "frida1_sample_rate",
-        "frida1_transfer_curve",
-        "frida1_supply_noise",
-    ]
-    assert all(not inspect.signature(getattr(targets, name)).parameters for name in names)
-    assert not hasattr(sweep, "main")
-
-
-def test_target_runs_full_experiment(tmp_path, monkeypatch):
-    calls = []
-
-    def frida1_sequence(directory, **options):
-        calls.append((directory, options))
-
-    def new_run(*parts):
-        run_dir = (tmp_path / "build").joinpath(*parts, "20260101_000000")
-        run_dir.mkdir(parents=True)
-        return run_dir
-
-    monkeypatch.setattr(sweep, "frida1_sequence", frida1_sequence)
-    monkeypatch.setattr(targets, "new_run", new_run)
-    targets.frida1_sequence()
-    directory, options = calls[0]
-    assert directory == tmp_path / "build/sim/adc/20260101_000000_frida1_sequence"
-    assert directory.is_dir()
-    assert not (tmp_path / "build/sim/adc/20260101_000000").exists()
-    assert options == {}
-
-
-def test_all_campaign_patterns_are_preserved(monkeypatch, tmp_path):
-    """Independent literal expectations cover every clock of all 28 configurations."""
-    from concurrent.futures import Future
-
-    expected = {
-        "symbol160_init4_samp20_comp11110000_logic00001111": ("11110000", "00001111", "00001111", "00000000"),
-        "symbol160_init4_samp20_comp11110000_logic10000111": ("11110000", "00000111", "10000111", "10000000"),
-        "symbol160_init4_samp20_comp11111000_logic10000111": ("11111000", "00000111", "10000111", "10000000"),
-        "symbol160_init4_samp20_comp11111000_logic11000011": ("11111000", "00000011", "11000011", "11000000"),
-        "symbol160_init4_samp20_comp11111100_logic11000011": ("11111100", "00000011", "11000011", "11000000"),
-        "symbol160_init4_samp20_comp11111100_logic11100001": ("11111100", "00000001", "11100001", "11100000"),
-        "symbol160_init4_samp20_comp11111110_logic11100001": ("11111110", "00000001", "11100001", "11100000"),
+    params = Params(adc_bits=10, cdac=capdac.Params(bits=10, redundancy=capdac.Redundancy.BINARY, extra=0))
+    converter = _stub_model(tmp_path / "table.csv", params)
+    numbers = {
+        "full_scale_v": converter.full_scale_v,
+        "supply_v": 1.2,
+        "settling_tau_s": 0.35e-9,
+        "decoupling_f": math.nan,
+        "dac_driver_energy_j": 0.0,
+        "comp_noise_v": 1e-4,
+        "comp_delay_s": 6e-10,
+        "comp_regeneration_tau_s": 2e-10,
+        "decision_window_s": 2.9e-9,
+        "metastable_input_lsb": 1e-3,
     }
-    cases = []
 
-    class CaptureExecutor:
-        def __init__(self, **kwargs):
-            pass
+    def capture(tb: TbParams):
+        measurement = converter.capture(tb, None)
+        return replace(measurement, info=replace(measurement.info, readbacks={**measurement.info.readbacks, **numbers}))
 
-        def __enter__(self):
-            return self
+    plan = sweep._campaign(converter, Level.SCREEN)
+    assert set(plan) == {"ramp_train", "ramp_check", "rate_10", "noise"}
+    result = sweep.record({name: capture(tb) for name, tb in plan.items()})
+    values = result.metrics
+    measured = {
+        "enob_bits",
+        "inl_max_lsb",
+        "inl_max_calibrated_lsb",
+        "power_w",
+        "noise_rms_lsb",
+        "redundancy_first_pct",
+        "calibration_best",
+        "mismatch_dnl_p95_lsb",
+        "stages",
+        "full_scale_v",
+        "metastable_input_lsb",
+    }
+    assert all(math.isfinite(values[name]) for name in measured)
+    unmeasured = {
+        "enob_nyquist_bits",
+        "rate_max_hz",
+        "noise_input_mid_lsb",
+        "error_free_rate_max_hz",
+        "noise_sampling_rms_lsb",
+        "enob_quantization_bits",
+        "enob_drawn_design_bits",
+        "ref_noise_max_v",
+        "spice_noise_rms_lsb",
+    }
+    assert all(math.isnan(values[name]) for name in unmeasured)
+    names = [plot.name for plot in result.details]
+    assert {"inl", "inl_calibrated", "noise_spectrum", "enob_rate", "power_rate", "mismatch_inl"} <= set(names)
+    assert not {"enob_fin", "enob_ladder", "hsu_rate", "trajectory", "reference_noise"} & set(names)
+    assert result.waves == {}
 
-        def __exit__(self, *args):
-            pass
 
-        def submit(self, function, params, directory, **kwargs):
-            cases.append((directory, params))
-            future = Future()
-            future.set_result(directory / "netlist.raw")
-            return future
+def test_a_record_refuses_another_measurement() -> None:
+    with pytest.raises(TypeError, match="not the converter's MeasAdc"):
+        sweep.record({"noise": SimpleNamespace()})
 
-    from flow.analysis import io
 
-    monkeypatch.setattr(sweep, "read", lambda raw, tb: object())
-    monkeypatch.setattr(io, "write_measurement", lambda *args: None)
-    monkeypatch.setattr(sweep, "ProcessPoolExecutor", CaptureExecutor)
-    sweep.frida1_sequence(tmp_path)
-    assert len(cases) == len({path for path, _ in cases}) == 28
-    for path, params in cases:
-        comp_word, first_logic, logic_word, last_logic = expected[path.name]
-        expected_rows = (
+# the circuit simulator's runs (``spice_*``, at Level.CIRCUIT), the named Spectre campaigns' successors
+
+_TIMINGS = {
+    "comp11110000_logic00001111": ("11110000", "00001111", "00001111", "00000000"),
+    "comp11110000_logic10000111": ("11110000", "00000111", "10000111", "10000000"),
+    "comp11111000_logic10000111": ("11111000", "00000111", "10000111", "10000000"),
+    "comp11111000_logic11000011": ("11111000", "00000011", "11000011", "11000000"),
+    "comp11111100_logic11000011": ("11111100", "00000011", "11000011", "11000000"),
+    "comp11111100_logic11100001": ("11111100", "00000001", "11100001", "11100000"),
+    "comp11111110_logic11100001": ("11111110", "00000001", "11100001", "11100000"),
+}
+
+
+def test_a_generated_converters_spice_runs_are_its_rates_and_its_ramp() -> None:
+    runs = sweep._spice("tsmc65", Params())
+    assert set(runs) == {"spice_rate_2", "spice_rate_6", "spice_rate_10", "spice_ramp"}
+    recipe = Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011
+    for name, rate in (("spice_rate_2", 0.32e9), ("spice_rate_6", 0.96e9), ("spice_rate_10", 1.6e9)):
+        tb = runs[name]
+        assert (tb.simulator, tb.extraction, tb.params) == (Simulator.SPECTRE, None, Params())
+        assert (tb.conversions, float(tb.vin_diff.dc), tb.transient_noise) == (100, 0.05, True)
+        assert float(tb.symbol_rate) == rate and tb.rows == tuple("".join(row.split()) for row in recipe.rows)
+        # the viewer's waves at the nominal rate, the codes alone elsewhere
+        assert tb.probes is (Probes.NODES if name == "spice_rate_10" else Probes.CODES)
+        assert sim._runnable(tb)
+    ramp = runs["spice_ramp"]
+    assert ramp.conversions == 151 and ramp.vin_diff == hs.LinearSweep(start=-0.75, stop=0.75, step=0.01)
+    assert not ramp.transient_noise and float(ramp.symbol_rate) == 1.6e9
+    # a design of other stages than FRIDA-1's 16: its continuous sequence, its DAC states its own
+    ten = sweep._spice("tsmc65", Params(adc_bits=10, cdac=capdac.Params(bits=10)))
+    stages = ten["spice_rate_10"].stages
+    assert stages != 16 and len(ten["spice_rate_10"].dac_astate_p) == stages
+    assert all(sim._runnable(tb) for tb in ten.values())
+
+
+@pytest.mark.parametrize("member", list(Fabricated), ids=lambda member: member.name.lower())
+def test_a_fabricated_converters_spice_runs_simulate_its_extractions(member, monkeypatch) -> None:
+    """The fabricated converters' runs: the rates on the tape-out's extraction; the one-layer
+    radix-17 flavor's ramp and its 15 supply-noise runs; every flavor's seven continuous timings on
+    its layout's signoff extraction, their rows each clock's as the reviewed recipes give them."""
+    runs = sweep._spice("tsmc65", member.params)
+    rates = {f"spice_rate_{rate}" for rate in ("2", "6", "10")}
+    timings = {f"spice_sequence_{name}" for name in _TIMINGS}
+    supplies = {
+        f"spice_supply_{rate}_{rail}" for rate in ("2", "6", "10") for rail in ("none", "vdda", "vddd", "vddac", "all")
+    }
+    extra = {"spice_ramp", *supplies} if member is Fabricated.FRIDA1_1LAYER_RADIX17 else set()
+    assert set(runs) == rates | timings | extra
+    for name, tb in runs.items():
+        assert tb.params == member.params and tb.simulator is Simulator.SPECTRE
+        assert tb.extraction is (Extraction.SIGNOFF if name in timings else Extraction.TAPEOUT)
+        assert tb.expected_disconnect == (member.layers == 2 and name in timings)
+        assert sim._runnable(tb)
+    for name in supplies & set(runs):
+        tb = runs[name]
+        assert (tb.supply_series_resistance_ohm, tb.supply_series_inductance_h) == (1.0, 1e-9)
+        assert tb.supply_decoupling_capacitance_f == 1e-12 and tb.supply_noise_bandwidth_hz == 25e9
+        assert set(tb.supply_noise_rms_v) <= {0.0, 1e-3} and not tb.transient_noise
+    for name in timings:
+        tb = runs[name]
+        comp_word, first_logic, logic_word, last_logic = _TIMINGS[name.removeprefix("spice_sequence_")]
+        assert tb.rows == (
             "1111" + "0" * 156,
             "0000" + "1" * 20 + "0" * 136,
             "0" * 24 + comp_word * 17,
             "001111" + "0" * 18 + first_logic + logic_word * 15 + last_logic,
         )
-        assert params.rows == expected_rows
-        assert float(params.symbol_rate) == 1.6e9
+        assert (float(tb.symbol_rate), tb.conversions, float(tb.vin_diff.dc)) == (1.6e9, 100, 0.05)
+        assert tb.transient_noise and float(tb.vin_cm.dc) == pytest.approx(0.7)
+    # its signoff extraction's top, the run finding it itself (``sim._extraction``)
+    monkeypatch.setattr(sim, "_extraction", lambda tb: (PEX_FIXTURES["frida1"], "adc_12b_17step"))
+    assert sim.testbench(runs[f"spice_sequence_{next(iter(_TIMINGS))}"]).name == "AdcTb_frida1"
 
 
 def test_extracted_weights_are_a_pex_tables_effective_capacitances(tmp_path: Path) -> None:

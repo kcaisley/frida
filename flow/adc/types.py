@@ -6,7 +6,7 @@ the weights a calibration gives (``AnalysisCalibration``, the extracted weights'
 calibration's own type a subclass of it); the campaign's studies: the noise over the input and at a
 fixed input, Hsu's integrated error over the rate, the ENOB ladder, the energy over the input and the
 redundancy of the weights; an array's predicted mismatch, its predictions and their Monte Carlo
-check; and the reference's requirements.
+check; the reference's requirements; and a behavioral converter's own numbers.
 """
 
 from __future__ import annotations
@@ -974,11 +974,12 @@ class AnalysisMismatchDraws(Analysis):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisReference(Analysis):
-    """The reference's requirements a converter sets (``flow.adc.model.Model.reference_requirements``):
-    its decoupling (F), the ENOB it loses (bits) over the white noise at the reference node (V RMS)
-    and over its driver's output resistance (ohm; neither grid nor losses where it has no
-    decoupling), the largest of each within the ENOB loss ``enob_loss_max_bits`` its share of the
-    quantization noise allows (NaN where even the grid's first point costs more)."""
+    """The reference's requirements a converter sets (``flow.adc.analysis.analyze_reference``, from
+    its ``ref_*`` runs): its decoupling (F), the ENOB it loses (bits) over the white noise at the
+    reference node (V RMS) and over its driver's output resistance (ohm; neither grid nor losses
+    where it has no decoupling), the largest of each within the ENOB loss ``enob_loss_max_bits`` its
+    share of the quantization noise allows, interpolated on a log scale between the grid's points
+    about it (the grid's last where none costs more, NaN where even its first does)."""
 
     decap_f: float
     noise_v: np.ndarray
@@ -988,3 +989,28 @@ class AnalysisReference(Analysis):
     noise_max_v: float
     r_max_ohm: float
     enob_loss_max_bits: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnalysisConverter(Analysis):
+    """A behavioral converter's own numbers, as its runs' captures carry them
+    (``flow.adc.analysis.analyze_converter``): its switched capacitors a side (``stages``) and a
+    conversion's comparator decisions, its differential full scale (+-V) and supply (V), its slowest
+    stage's settling time constant (s), its reference's decoupling (F; NaN where its PDK gives no
+    decap density), the energy its DAC's drivers draw a bottom-plate transition (J; none: not
+    characterized), its comparator's noise (V rms) and delay (s), and its metastability: the
+    comparator's regeneration time constant (s), the shortest time a decision has at the nominal
+    rate (s), and the input below which it is late there (LSB)."""
+
+    stages: int
+    decisions: int
+    full_scale_v: float
+    supply_v: float
+    settling_tau_s: float
+    decoupling_f: float
+    dac_driver_energy_j: float
+    comp_noise_v: float
+    comp_delay_s: float
+    comp_regeneration_tau_s: float
+    decision_window_s: float
+    metastable_input_lsb: float
