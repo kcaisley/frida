@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from flow import __main__ as cli
+from flow import pipeline
 from flow.web import targets as web
 
 
@@ -71,6 +72,7 @@ def test_a_verb_runs_a_pipeline_block_and_only_one(monkeypatch) -> None:
     for argv in (
         ["run", "comp", "--pdk", "tsmc65", "--instance", "frida1", "--workers", "4"],
         ["run", "comp", "--missing"],
+        ["run", "comp", "--missing", "--instance", "frida1", "--level", "circuit"],
         ["layout", "comp", "--pdk", "ihp130"],
         ["layout", "comp", "--pdk", "ihp130", "--no-pex", "--redo"],
         ["table", "comp"],
@@ -78,8 +80,9 @@ def test_a_verb_runs_a_pipeline_block_and_only_one(monkeypatch) -> None:
         monkeypatch.setattr(sys, "argv", ["flow", *argv])
         cli.main()
     assert calls == [
-        ("run", ["comp"], ("tsmc65",), 4, {"failed": False, "names": ["frida1"]}),
-        ("run", ["comp"], runner.PDKS, 36, {"failed": True, "names": None}),
+        ("run", ["comp"], ("tsmc65",), 4, {"failed": False, "names": ["frida1"], "level": pipeline.Level.FULL}),
+        ("run", ["comp"], runner.PDKS, 36, {"failed": True, "names": None, "level": pipeline.Level.FULL}),
+        ("run", ["comp"], runner.PDKS, 36, {"failed": True, "names": ["frida1"], "level": pipeline.Level.CIRCUIT}),
         ("layout", ["comp"], 28, {"pdks": ("ihp130",), "pex": True, "redo": False}),
         ("layout", ["comp"], 28, {"pdks": ("ihp130",), "pex": False, "redo": True}),
         ("table", ["comp"], 16),
@@ -88,6 +91,11 @@ def test_a_verb_runs_a_pipeline_block_and_only_one(monkeypatch) -> None:
     monkeypatch.setattr(sys, "argv", ["flow", "run", "delay"])
     with pytest.raises(SystemExit):
         cli.main()
+    # the circuit simulator's runs of picked instances only: the whole design space is refused
+    monkeypatch.setattr(sys, "argv", ["flow", "run", "comp", "--level", "circuit"])
+    with pytest.raises(SystemExit, match="pick the instances"):
+        cli.main()
+    assert len(calls) == 6
 
 
 def test_the_layout_verb_takes_a_block_with_a_params_a_subckt_and_a_sweep(monkeypatch, capsys) -> None:

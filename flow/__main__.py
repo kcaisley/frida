@@ -3,7 +3,7 @@
 A block on the pipeline (docs/pipeline.md) is run by verbs, each over the block's design space and
 named instances (its ``sweep.py``):
 
-    python -m flow run <block> [--pdk P ...] [--instance I ...] [--missing] [--workers N]
+    python -m flow run <block> [--pdk P ...] [--instance I ...] [--missing] [--level L] [--workers N]
     python -m flow layout <block> [--pdk P ...] [--instance I ... [--auto] [--plan]] [--list] [--no-pex] [--redo] [--workers N]
     python -m flow table <block> [--workers N]
     python -m flow plot <block> [FIGURE ...] --from DIR [--from DIR ...] [--backend matplotlib|web]
@@ -11,11 +11,16 @@ named instances (its ``sweep.py``):
     python -m flow page <block> [--pdk P ...] [--instance I ...] [--run-dir DIR]
 
 An instance ``I`` is a named instance, an instance's label (``grid(name, parameter=value, ...)``) or its
-digest; ``--list`` prints the design space's, digest and label. ``layout`` takes any block with a
-``params``, a ``subckt`` and a ``sweep``, on the pipeline or not: without ``--instance`` it lays
-out the newest run's instances by ALIGN into their records; with it, each instance picked by
-ALIGN, placed as its generator (or its hand-written floorplan) states, or, with ``--auto``, by
-ALIGN on its own, into ``build/<block>/layout/<stamp>/<pdk>/<name>/``: the netlist, the
+digest; ``--list`` prints the design space's, digest and label. ``run --level`` characterizes at
+``screen``, ``search``, ``full`` (the default) or ``circuit`` (a block whose full characterization
+is behavioral also runs the circuit simulator's runs; picked instances only), and with
+``--missing`` also re-runs, into the newest run, the records below that level. ``layout`` takes
+any block with a ``params``, a ``sweep`` and a ``subckt`` or its own ``layout.py``, on the
+pipeline or not: without ``--instance`` it lays out the newest run's instances into their records;
+with it, each instance picked into ``build/<block>/layout/<stamp>/<pdk>/<name>/``. A block with its
+own ``layout.py`` lays itself out (its ``lay_out``) and is signed off as it states
+(``flow.layout.step.lay_out_one``); any other by ALIGN, placed as its generator (or its
+hand-written floorplan) states, or, with ``--auto``, by ALIGN on its own: the netlist, the
 constraints, the GDS and its signoff. ``--plan`` stops after the netlist and the constraints (ALIGN's design directory).
 ``plot`` draws a sweep run's records' figures, or the figures of a directory of captures.
 
@@ -59,16 +64,21 @@ VERBS = ("run", "layout", "table", "plot", "opt", "page")
 
 
 def layout_blocks() -> list[str]:
-    """The blocks the layout verb takes: those with a ``params``, a ``subckt`` and a ``sweep`` (by
-    their files: a block that no longer imports is one still, and fails when it is laid out)."""
+    """The blocks the layout verb takes: those with a ``params``, a ``sweep`` and a ``subckt`` (its
+    generator, which ALIGN lays out) or a ``layout`` (its own flow) (by their files: a block that
+    no longer imports is one still, and fails when it is laid out)."""
     from flow.sweep import runner
 
-    folder = Path(__file__).resolve().parent
     return [
         block
         for block in runner.sweep_blocks()
-        if all((folder / block.replace(".", "/") / f"{stage}.py").is_file() for stage in ("params", "subckt"))
+        if _has_file(block, "params") and (_has_file(block, "subckt") or _has_file(block, "layout"))
     ]
+
+
+def _has_file(block: str, stage: str) -> bool:
+    """Whether ``block``'s folder has the file ``<stage>.py``."""
+    return (Path(__file__).resolve().parent / block.replace(".", "/") / f"{stage}.py").is_file()
 
 
 def pipeline_blocks() -> list[str]:
@@ -111,7 +121,15 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--pdk", action="append", choices=runner.PDKS, dest="pdks")
             command.add_argument("--instance", action="append", dest="instances", metavar="I")
         if verb == "run":
-            command.add_argument("--missing", action="store_true", help="the newest run's failed or missing ones")
+            command.add_argument(
+                "--missing", action="store_true", help="the newest run's failed or missing ones, or below --level"
+            )
+            command.add_argument(
+                "--level",
+                choices=("screen", "search", "full", "circuit"),
+                default="full",
+                help="how much to run (circuit: the circuit simulator's runs too, for picked instances)",
+            )
         if verb == "page":
             command.add_argument("--run-dir", type=Path, help="an instance's layout directory (<run>/<pdk>/<name>)")
         if verb == "layout":
@@ -198,7 +216,12 @@ def verb(argv: list[str]) -> None:
         return
     pdks = tuple(args.pdks or runner.PDKS) if args.verb != "table" else runner.PDKS
     if args.verb == "run":
-        runner.run([args.block], pdks, args.workers, failed=args.missing, names=args.instances)
+        from flow import pipeline
+
+        level = pipeline.Level[args.level.upper()]
+        if level is pipeline.Level.CIRCUIT and not args.instances:
+            raise SystemExit("--level circuit runs the circuit simulator: pick the instances (--instance I ...)")
+        runner.run([args.block], pdks, args.workers, failed=args.missing, names=args.instances, level=level)
     elif args.verb == "table":
         runner.table([args.block], args.workers)
     elif args.verb == "plot":
@@ -250,18 +273,21 @@ def layout_instances(
     ``block`` in each of ``pdks``, one run a call, ``build/<block>/layout/<stamp>/`` (not a
     characterization run of the block, ``build/<block>/<stamp>/``): each instance into
     ``<pdk>/<name>/`` there, a named instance by its name, a grid's by its digest; by the shared
-    step (``flow.layout.step.layout_one``), or by the block's own ``layout.py``'s ``layout_named``
-    into ``<name>/`` where it has one. ``plan_only``: the netlist and the constraints alone (ALIGN's
-    design directory). The console is the flow's log (``flow.layout.logs``: its steps as Python's
+    step (``flow.layout.step.layout_one``), or, a block that lays itself out (its ``layout.py``'s
+    ``lay_out``), by its own flow (``flow.layout.step.lay_out_one``; no ``auto``, no ``plan_only``).
+    ``plan_only``: the netlist and the constraints alone (ALIGN's design directory). The console is the flow's log (``flow.layout.logs``: its steps as Python's
     logging has them, in ALIGN's format) with ALIGN's own output and the checkers' as they run,
     unless ``quiet``; each instance's ``flow.log`` keeps the flow's lines, ALIGN and every tool their
     own logs; an instance ends with its steps, a line each (its time, state and statistics, as its
     page has them)."""
     from flow import new_run, pipeline
     from flow.layout import run as align_run
-    from flow.layout.step import layout_one
+    from flow.layout.step import lay_out_one, layout_one, own_layout
     from flow.sweep import runner
 
+    own = own_layout(block)
+    if own and (auto or plan_only):
+        raise SystemExit(f"{block} lays itself out (its layout.py's lay_out): no ALIGN placement or plan")
     named = pipeline.names(import_module(f"flow.{block}.sweep"))
     names = list(named) if names == ["all"] else names
     import logging
@@ -294,9 +320,19 @@ def layout_instances(
             started = time.monotonic()
             with logs.instance_log(out / "flow.log"):
                 try:
-                    layout_one(
-                        block, out, pdk, f"{block}_{name}", params, auto=auto, checker=Checker[signoff.upper()], pex=pex
-                    )
+                    if own:
+                        lay_out_one(block, out, pdk, params, checker=Checker[signoff.upper()], pex=pex)
+                    else:
+                        layout_one(
+                            block,
+                            out,
+                            pdk,
+                            f"{block}_{name}",
+                            params,
+                            auto=auto,
+                            checker=Checker[signoff.upper()],
+                            pex=pex,
+                        )
                 except RuntimeError as error:  # a failed signoff: reported, the other instances laid out
                     failed.append(f"{block} {name} in {pdk}: {_reason(out) or error}")
                 _record(block, pdk, ident, params, out, time.monotonic() - started, name)
@@ -315,14 +351,13 @@ def _record(block: str, pdk: str, ident: str, params, out: Path, seconds: float,
 
     from flow.web.export import json_value
 
-    root = Path(__file__).resolve().parents[1]
     summary = out / "summary.json"
     entry = next(iter(json.loads(summary.read_text()).values()), {}) if summary.exists() else {}
     netlist = next((out / "netlist").glob("*.sp"), None)
     width, height = entry.get("cell_um", (None, None))
     layout = {
-        "gds": str(Path(entry["gds"]).relative_to(root)) if entry.get("gds") else None,
-        "netlist": str(netlist.relative_to(root)) if netlist else None,
+        "gds": _shown(Path(entry["gds"])) if entry.get("gds") else None,
+        "netlist": _shown(netlist) if netlist else None,
         "w_um": width,
         "h_um": height,
         "drc_violations": entry.get("drc_violations"),

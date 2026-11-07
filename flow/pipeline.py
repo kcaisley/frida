@@ -347,11 +347,14 @@ GEOMETRY: dict[str, Better] = {
 
 class Level(Enum):
     """How much of an instance's characterization to run: a quick screen (no transient noise), the
-    runs a search needs, or all of them. Each level's runs include the lower levels'."""
+    runs a search needs, all of them, or all of them and the circuit simulator's too (a block whose
+    full characterization is behavioral, as the converter's: SPICE confirmation of picked instances;
+    elsewhere the same as ``FULL``). Each level's runs include the lower levels'."""
 
     SCREEN = 1
     SEARCH = 2
     FULL = 3
+    CIRCUIT = 4
 
 
 @dataclass(frozen=True)

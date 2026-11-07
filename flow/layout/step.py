@@ -6,6 +6,8 @@ generator's own layout intent (``flow.layout.hdl21align``) as ALIGN's constraint
 - ``inputs``: the netlists and ALIGN's design directory of one instance (``python -m flow layout
   --plan``).
 - ``layout_one``: one instance laid out and signed off; ``layout_named``: in every PDK.
+- ``lay_out_one``: one instance of a block that lays itself out (its ``layout.py``'s ``lay_out``,
+  ``own_layout``), signed off as it states.
 - ``block_netlist``: an instance's netlist as simulated, as hdl21 and vlsir write it (a design's
   identity: ``flow.opt.runner.identity``, ``flow.netlist_hashes``).
 
@@ -20,6 +22,7 @@ import re
 import time
 from collections.abc import Callable
 from importlib import import_module
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +30,7 @@ from klayout import db
 
 from flow.layout.build import build_design, other_router, pdk_router
 from flow.layout.hdl21align import pnr_input
-from flow.layout.signoff import Checker, RowSignoff, signoff
+from flow.layout.signoff import Checker, RowSignoff, drc, signoff
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -181,6 +184,79 @@ def layout_one(
     seconds: dict[str, float] = {}
     design_input = inputs(block, out_dir, pdk, design, params, auto=auto, seconds=seconds)
     return signed_off_design(out_dir, pdk, design, *design_input, seconds, checker, seed, pex)
+
+
+def own_layout(block: str) -> bool:
+    """Whether ``block`` lays itself out: its ``layout.py`` gives ``lay_out(params, pdk, run_dir)``
+    (docs/pipeline.md), which the layout verbs run in place of ALIGN's (``layout_one``)."""
+    return find_spec(f"flow.{block}.layout") is not None and callable(
+        getattr(import_module(f"flow.{block}.layout"), "lay_out", None)
+    )
+
+
+def _drc_count(report: Path) -> int:
+    """The violations a DRC report counts: ``drc_violations.json``'s; a kit's own report, of a check
+    that passed (the kit's DRC raises unless clean), none."""
+    if report.suffix == ".json" and report.is_file():
+        return sum(json.loads(report.read_text()).get("violations", {}).values())
+    return 0
+
+
+def lay_out_one(
+    block: str, out_dir: Path, pdk: str, params, *, checker: Checker = Checker.OPEN, pex: bool = True
+) -> Path:
+    """One instance of a block that lays itself out (``own_layout``) in ``pdk``, into ``out_dir``: its
+    ``lay_out(params, pdk, out_dir)``, which gives the GDS, then the signoff it states. Where
+    ``lay_out`` signed it off itself (its ``out_dir/signoff_summary.json``, ``flow.layout.signoff
+    .run_signoff``'s: DRC clean, LVS as it expected, its extraction), that is recorded as it is;
+    else, where it wrote its LVS source (``out_dir/source.cdl``), the shared signoff checks the GDS
+    against it (``signoff``, in ``out_dir/signoff``) and, with ``pex``, KLayout-PEX extracts it
+    where LVS did not fail; else DRC alone (``drc``: blocks side by side, nothing connected).
+    ``summary.json`` as ``layout_one``'s, its entry ``<pdk>/lay_out`` (``finish``: and
+    ``failures.json``, raising, where it failed)."""
+    seconds: dict[str, float] = {}
+    entry: dict[str, Any] = {"seconds": seconds}
+    key = f"{pdk}/lay_out"
+    summary: dict[str, dict[str, Any]] = {key: entry}
+    failures: dict[str, str] = {}
+    try:
+        started = time.monotonic()
+        LOG.info(f"{block} in {pdk}: its own layout (flow.{block}.layout.lay_out) into {out_dir}")
+        gds = Path(import_module(f"flow.{block}.layout").lay_out(params, pdk, out_dir))
+        seconds["layout"] = round(time.monotonic() - started, 1)
+        entry.update(gds=str(gds), cell_um=cell_um(gds))
+        LOG.info(f"layout: {gds} ({' × '.join(f'{v:g}' for v in entry['cell_um'])} um)")
+        own, source = out_dir / "signoff_summary.json", out_dir / "source.cdl"
+        if own.exists():
+            signed = json.loads(own.read_text())
+            entry.update(
+                signoff="lay_out",
+                drc_violations=_drc_count(Path(signed["drc_report"])),
+                lvs_correct=signed["lvs_correct"],
+                warnings=signed.get("warnings", []),
+                pex={"netlist": signed["pex_netlist"], "sha256": signed.get("pex_sha256")},
+            )
+            LOG.info(f"signed off by lay_out: LVS correct {signed['lvs_correct']} {signed.get('warnings', [])}")
+        else:
+            started = time.monotonic()
+            if source.exists():
+                check = signoff(pdk, gds, source, out_dir / "signoff", checker)
+                entry.update(signoff="shared")
+            else:
+                check = drc(pdk, gds, out_dir / "signoff", checker)
+                entry.update(signoff="drc")
+            seconds.update(drc=check.drc_seconds, lvs=check.lvs_seconds)
+            entry.update(drc_violations=check.drc_violations, lvs_correct=check.lvs_correct)
+            if check.drc_violations or check.lvs_correct is False:
+                failures[key] = f"DRC {check.drc_violations} violations, LVS correct {check.lvs_correct}"
+            if pex and source.exists() and check.lvs_correct is not False:
+                started = time.monotonic()
+                entry["pex"] = extracted(pdk, gds, gds.stem, out_dir / "pex")
+                seconds["pex"] = round(time.monotonic() - started, 1)
+    except Exception as error:  # noqa: BLE001 - reported as layout_one reports a failure
+        entry["error"] = failures[key] = repr(error)
+    out_dir.mkdir(parents=True, exist_ok=True)  # where lay_out failed before it made its folder
+    return finish(out_dir, summary, failures)
 
 
 def block_netlist(block: str, params, pdk: str, path: Path) -> Path:

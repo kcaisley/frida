@@ -191,15 +191,20 @@ def _problems(block: str) -> set[str]:
     ):
         problem("subckt", "netlist does not take the block's Params and return an h.Module")
 
-    # sim.py: testbench(tb) -> h.Module and simulate(tb, run_dir) -> Path, constants
+    # sim.py: testbench(tb) -> h.Module and simulate(tb, run_dir) -> Path, constants; and, where the
+    # block's raw output is not what flow.pipeline.read reads (the converter's rows of conversions),
+    # its own read(raw, tb) -> Meas
     defined = _defined(stage["sim"])
-    extra = {name for name in defined if name not in ("testbench", "simulate") and not UPPER.fullmatch(name)}
+    sim_names = ("testbench", "simulate", "read")
+    extra = {name for name in defined if name not in sim_names and not UPPER.fullmatch(name)}
     if extra:
-        problem("sim", f"defines {sorted(extra)} beside testbench, simulate and constants")
+        problem("sim", f"defines {sorted(extra)} beside testbench, simulate, read and constants")
     if list(_hints(defined.get("testbench", lambda: None)).values()) != [TbParams, h.Module]:
         problem("sim", "testbench does not take TbParams and return an h.Module")
     if list(_hints(defined.get("simulate", lambda: None)).values()) != [TbParams, Path, Path]:
         problem("sim", "simulate does not take TbParams and a run directory and return the raw file's Path")
+    if "read" in defined and list(_hints(defined["read"]).values()) != [Path, TbParams, pipeline.Meas]:
+        problem("sim", "read does not take the raw file's Path and TbParams and return a Meas")
 
     # types.py: Analysis<Thing> dataclasses deriving pipeline.Analysis, and at most the block's
     # Metrics deriving pipeline.Metrics (each field declared with its better-direction), data only
@@ -486,6 +491,12 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
         stream.write("\n\nclass Extra:\n    pass\n")
     with (package / "sweep.py").open("a") as stream:
         stream.write('\n\nSIZES = ("x1", "x2")\nARCHIVE = "build/badblock/20260101_000000"\n')
+    with (package / "sim.py").open("a") as stream:
+        # a reader that takes no testbench
+        stream.write(
+            "\n\nfrom flow.pipeline import Meas as _Meas\n\n\n"
+            "def read(raw: Path) -> _Meas:\n    raise NotImplementedError\n"
+        )
     (package / "targets.py").write_text('"""Old targets."""\n')
     (package / "helpers.py").write_text('"""Helpers."""\n')
     (package / "test_helpers.py").write_text('"""Helper tests."""\n')
@@ -504,6 +515,7 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
         ) in problems
     assert "badblock.analysis: _outer defines a function inside it" in problems
     assert "badblock.model: module constant LIMIT outside params.py and sim.py" in problems
+    assert "badblock.sim: read does not take the raw file's Path and TbParams and return a Meas" in problems
     # the helper's file I/O alone, not the helper
     assert {problem for problem in problems if problem.startswith("badblock.plots:")} == {
         "badblock.plots: calls open: file I/O"
@@ -525,8 +537,9 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
 
 def test_the_contract_admits_what_it_allows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """capdac's files, its generator a stand-in that places nothing for ALIGN, with what the contract
-    admits beside them: a layout.py of its own (``lay_out``), a private pure helper in each pure
-    stage, and an analysis with an optional prior (``X | None = None``)."""
+    admits beside them: a layout.py of its own (``lay_out``), its own reader of its raw output
+    (``sim.read``), a private pure helper in each pure stage, and an analysis with an optional prior
+    (``X | None = None``)."""
     package = tmp_path / "flow" / "goodblock"
     package.mkdir(parents=True)
     (package / "__init__.py").write_text("")
@@ -542,6 +555,11 @@ def test_the_contract_admits_what_it_allows(tmp_path: Path, monkeypatch: pytest.
     for name in PURE:
         with (package / f"{name}.py").open("a") as stream:
             stream.write("\n\ndef _twice(value: float) -> float:\n    return 2 * value\n")
+    with (package / "sim.py").open("a") as stream:
+        stream.write(
+            "\n\nfrom flow.pipeline import Meas as _Meas\n\n\n"
+            "def read(raw: Path, tb: TbParams) -> _Meas:\n    raise NotImplementedError\n"
+        )
     analysis = (package / "analysis.py").read_text()
     plain = "def analyze_mismatch(meas: Meas) -> AnalysisMismatch:"
     optional = "def analyze_mismatch(meas: Meas, *, settling: AnalysisSettling | None = None) -> AnalysisMismatch:"

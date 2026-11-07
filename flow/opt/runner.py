@@ -187,13 +187,15 @@ def layout_area(block: str, pdk: str, params: Any, out: Path) -> float:
 
 
 def simulate(block: str, runs: dict[str, Any], run_dir: Path) -> dict[str, pipeline.Meas]:
-    """Each of ``runs`` simulated, one after another in ``run_dir``, and read back."""
+    """Each of ``runs`` simulated, one after another in ``run_dir``, and read back (by the block's
+    ``sim.read`` where it has one, else ``flow.pipeline.read``)."""
 
     sim = import_module(f"flow.{block}.sim")
+    read = getattr(sim, "read", pipeline.read)
     measurements = {}
     for name, tb in runs.items():
         raw = sim.simulate(tb, run_dir / name)
-        measurements[name] = pipeline.read(raw, tb)
+        measurements[name] = read(raw, tb)
         raw.unlink()
     return measurements
 

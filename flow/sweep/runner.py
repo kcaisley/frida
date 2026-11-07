@@ -3,11 +3,12 @@
 An instance is its parameters: its id is ``<pdk>__<digest>``, the digest the first 12 hex digits of
 the SHA-1 of its flat parameters (``digest``), as ``flow.sweep.lookup`` keys the models' cache.
 
-``run``: every block's instances (each PDK's grids and named instances) characterized, one process each,
-at most ``workers`` at once; each writes ``instance.json`` (its id, parameters, metrics, details,
-waves, its run time or error) in ``build/<block>/<run>/<pdk>/<digest>/``. ``layout``: ALIGN
-places and routes each instance of the newest run whose block gives a layout netlist or a
-floorplan, signoff checks it, and its area joins the record. ``table``: each block's newest run in
+``run``: every block's instances (each PDK's grids and named instances) characterized at a level
+(``flow.pipeline.Level``), one process each, at most ``workers`` at once; each writes
+``instance.json`` (its id, parameters, level, metrics, details, waves, its run time or error) in
+``build/<block>/<run>/<pdk>/<digest>/``. ``layout``: each instance of the newest run laid out, by
+its block's own layout flow (``layout.py``'s ``lay_out``) where it has one, else by ALIGN as its
+generator places it; signed off, and its area joins the record. ``table``: each block's newest run in
 each PDK (a run of some PDKs alone keeps the others' from the run before) as the viewer's table
 (``build/web/data/sweep/<block>.json``: one row per instance, the parameters that differ, then the
 metrics) and one file per instance (its details, waves, layout and schematic).
@@ -163,13 +164,33 @@ def write_record(path: Path, record: dict) -> None:
     temporary.replace(path)
 
 
-def characterize(block: str, run_dir: Path, pdk: str, params) -> tuple[dict, list, dict]:
+def leveled(block: str) -> bool:
+    """Whether the block's ``sweep.runs`` takes the evaluation level (``flow.pipeline.Level``); a
+    block whose runs take none characterizes alike at every level."""
+    from inspect import signature
+
+    runs = getattr(import_module(f"flow.{block}.sweep"), "runs", None)
+    return runs is not None and "level" in signature(runs).parameters
+
+
+def _level_below(record: dict, level) -> bool:
+    """Whether a record ran at a level below ``level``: one written before records carried their
+    level ran at ``Level.FULL``; one of a block whose runs take no level (its level None) is never
+    below."""
+    from flow import pipeline
+
+    ran = record.get("level", pipeline.Level.FULL.value)
+    return ran is not None and ran < level.value
+
+
+def characterize(block: str, run_dir: Path, pdk: str, params, level=None) -> tuple[dict, list, dict]:
     """One instance's metrics (the geometry of its compiled circuit among them), plots and waves, in
-    ``run_dir``. A block on the pipeline (docs/pipeline.md: its sweep gives ``runs`` and ``record``)
-    is simulated run by run (``sim.simulate``), each read back (``flow.pipeline.read``) and its raw
-    file removed, and recorded from the measurements (``sweep.record``), the runs it names
-    (the record's ``waves``) kept as HDF5 for the viewer; another block characterizes itself
-    (``sweep.characterize``)."""
+    ``run_dir``, at ``level`` (``flow.pipeline.Level``; None: ``FULL``). A block on the pipeline
+    (docs/pipeline.md: its sweep gives ``runs`` and ``record``) is simulated run by run
+    (``sim.simulate``, the runs of ``level`` where its ``runs`` takes one), each read back (its
+    ``sim.read`` where it has one, else ``flow.pipeline.read``) and its raw file removed, and
+    recorded from the measurements (``sweep.record``), the runs it names (the record's ``waves``)
+    kept as HDF5 for the viewer; another block characterizes itself (``sweep.characterize``)."""
 
     import hdl21 as h
 
@@ -182,10 +203,12 @@ def characterize(block: str, run_dir: Path, pdk: str, params) -> tuple[dict, lis
     sweep = import_module(f"flow.{block}.sweep")
     if hasattr(sweep, "runs"):
         sim = import_module(f"flow.{block}.sim")
+        read = getattr(sim, "read", pipeline.read)
+        runs = sweep.runs(pdk, params, level or pipeline.Level.FULL) if leveled(block) else sweep.runs(pdk, params)
         measurements = {}
-        for name, tb in sweep.runs(pdk, params).items():
+        for name, tb in runs.items():
             raw = sim.simulate(tb, run_dir / name)
-            measurements[name] = pipeline.read(raw, tb)
+            measurements[name] = read(raw, tb)
             raw.unlink()
         result = sweep.record(measurements)
         result.waves = {
@@ -208,14 +231,20 @@ def instance_batch(jobs: list[tuple]) -> list[dict]:
     return [instance_job(*job) for job in jobs]
 
 
-def instance_job(block: str, run_dir: Path, pdk: str, params, label: str | None = None) -> dict:
-    """Characterize one instance in this (fresh) process; its record, also as ``instance.json``."""
+def instance_job(block: str, run_dir: Path, pdk: str, params, label: str | None = None, level=None) -> dict:
+    """Characterize one instance in this (fresh) process at ``level`` (None: ``Level.FULL``); its
+    record, also as ``instance.json``, with the level it ran at (None for a block whose runs take
+    no level)."""
 
+    from flow import pipeline
+
+    level = level or pipeline.Level.FULL
     record = {
         "block": block,
         "id": instance_id(pdk, params),
         "pdk": pdk,
         "label": label,
+        "level": level.value if leveled(block) else None,
         "params": flat_params(params),
         "metrics": {},
         "details": [],
@@ -225,7 +254,7 @@ def instance_job(block: str, run_dir: Path, pdk: str, params, label: str | None 
     start = time.time()
     run_dir.mkdir(parents=True, exist_ok=True)
     try:
-        record["metrics"], record["details"], record["waves"] = characterize(block, run_dir, pdk, params)
+        record["metrics"], record["details"], record["waves"] = characterize(block, run_dir, pdk, params, level)
     except Exception:  # noqa: BLE001 - every instance reports its own failure
         record["error"] = traceback.format_exc(limit=6)[-4000:]
     record["seconds"] = round(time.time() - start, 1)
@@ -240,11 +269,23 @@ def run(
     *,
     failed: bool = False,
     names: list[str] | None = None,
+    level=None,
 ) -> dict[str, Path]:
-    """Characterize every instance of ``blocks`` in ``pdks``, or those ``names`` pick (``select``);
-    each block's run directory. ``failed``: only the instances of each block's newest run that
-    failed (or never ran), again, into that run."""
+    """Characterize every instance of ``blocks`` in ``pdks``, or those ``names`` pick (``select``),
+    at ``level`` (``flow.pipeline.Level``; None: ``FULL``); each block's run directory. ``failed``:
+    only the instances of each block's newest run that failed, never ran or ran at a level below
+    ``level``, again, into that run (so no fresh run shadows the rest of it). ``Level.CIRCUIT``
+    (the circuit simulator's runs of a block whose full characterization is behavioral: minutes to
+    hours of SPICE an instance) takes picked instances alone."""
 
+    from flow import pipeline
+
+    level = level or pipeline.Level.FULL
+    if level is pipeline.Level.CIRCUIT and not names:
+        raise ValueError(
+            "the circuit level runs the circuit simulator on every instance it characterizes: "
+            "pick the instances (names; python -m flow run <block> --instance I ... --level circuit)"
+        )
     stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
     ranked, runs = [], {}
     for block in blocks:
@@ -260,9 +301,11 @@ def run(
             for ident, (label, params) in space.items():
                 path = runs[block] / pdk / ident
                 record = path / "instance.json"
-                if failed and record.exists() and json.loads(record.read_text())["error"] is None:
-                    continue
-                ranked.append((rank(pdk, params) if rank else 0.0, (block, path, pdk, params, label)))
+                if failed and record.exists():
+                    done = json.loads(record.read_text())
+                    if done["error"] is None and not _level_below(done, level):
+                        continue
+                ranked.append((rank(pdk, params) if rank else 0.0, (block, path, pdk, params, label, level)))
     # the longest first where a block ranks its instances (``cost``), so the pool does not end on
     # one long instance alone
     jobs = [job for _cost, job in sorted(ranked, key=lambda item: item[0], reverse=True)]
@@ -332,11 +375,14 @@ def pdk_runs(block: str) -> dict[str, Path]:
 
 
 def layout_job(block: str, instance_dir: Path, pdk: str, pex: bool = True) -> dict:
-    """ALIGN's layout of one instance and its signoff, into ``instance_dir/layout``, by the shared
-    layout step (``_module_layouts``); the record's layout entry (also written into its
-    ``instance.json``); ``pex``: each layout extracted (KLayout-PEX)."""
+    """One instance's layout and its signoff, into ``instance_dir/layout``: by the block's own flow
+    where it lays itself out (``_own_layouts``), else ALIGN's by the shared layout step
+    (``_module_layouts``); the record's layout entry (also written into its ``instance.json``);
+    ``pex``: each layout extracted (KLayout-PEX)."""
 
     import os
+
+    from flow.layout.step import own_layout
 
     # an attempt that has not placed and routed in half an hour fails (ALIGN's placer can search
     # for hours on the larger sizings); the next attempt, if any, follows
@@ -344,7 +390,8 @@ def layout_job(block: str, instance_dir: Path, pdk: str, pex: bool = True) -> di
     record = json.loads((instance_dir / "instance.json").read_text())
     params = instance_params(block, pdk, instance_dir.name)
     start = time.time()
-    results = _module_layouts(block, instance_dir / "layout", pdk, params, pex)
+    made = _own_layouts if own_layout(block) else _module_layouts
+    results = made(block, instance_dir / "layout", pdk, params, pex)
     clean = [r for r in results if r["error"] is None and r["drc_violations"] == 0 and r["lvs_correct"]]
     entry = {**(clean or [r for r in results if r["error"] is None] or results)[0], "attempts": len(results)}
     return _layout_record(record, instance_dir, entry, start)
@@ -361,6 +408,44 @@ def _layout_record(record: dict, instance_dir: Path, entry: dict, start: float) 
         record["metrics"]["density"] = gate / area if gate else None
     write_record(instance_dir / "instance.json", record)
     return entry
+
+
+def _shown(path) -> str:
+    """A path as a record holds it: from the repository root where it is under it."""
+    path = Path(path).resolve()
+    return str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
+
+
+def _own_layouts(block: str, out: Path, pdk: str, params, pex: bool = True) -> list[dict]:
+    """The layout of an instance of a block that lays itself out (``flow.layout.step.lay_out_one``,
+    in ``out``): its entry, as ``_module_layouts`` gives one, with who signed it off (``signoff``:
+    ``lay_out`` itself, the ``shared`` signoff against its source, or ``drc`` alone), in a list."""
+    from flow.layout.step import lay_out_one
+
+    result: dict = {"error": None, "floorplan": "lay_out"}
+    try:
+        try:
+            lay_out_one(block, out, pdk, params, pex=pex)
+        except RuntimeError:  # a failed signoff: in its summary
+            pass
+        summary = json.loads((out / "summary.json").read_text())[f"{pdk}/lay_out"]
+        if summary.get("error"):
+            raise RuntimeError(summary["error"])
+        w, h_um = summary["cell_um"]
+        result.update(
+            gds=_shown(summary["gds"]),
+            netlist=_shown(out / "source.cdl") if (out / "source.cdl").exists() else None,
+            w_um=w,
+            h_um=h_um,
+            signoff=summary.get("signoff"),
+            drc_violations=summary.get("drc_violations"),
+            lvs_correct=summary.get("lvs_correct"),
+            warnings=summary.get("warnings"),
+            pex=summary.get("pex"),
+        )
+    except Exception:  # noqa: BLE001 - every instance reports its own failure
+        result["error"] = traceback.format_exc(limit=6)[-4000:]
+    return [result]
 
 
 def _module_layouts(block: str, out: Path, pdk: str, params, pex: bool = True) -> list[dict]:
@@ -412,7 +497,9 @@ def layout(
     blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS, pex: bool = True, redo: bool = False
 ) -> None:
     """Lay out every characterized instance of the newest runs of ``blocks`` in ``pdks`` not yet laid
-    out DRC clean and LVS correct (``redo``: every one), each extracted where ``pex``."""
+    out DRC clean and LVS correct (or signed off as its own layout flow states: LVS as ``lay_out``
+    expected, or DRC alone where it has no source; ``redo``: every one), each extracted where
+    ``pex``."""
 
     jobs = []
     for block in blocks:
@@ -429,7 +516,7 @@ def layout(
                 entry.get("gds")
                 and not entry.get("error")
                 and entry.get("drc_violations") == 0
-                and entry.get("lvs_correct")
+                and (entry.get("lvs_correct") or entry.get("signoff") in ("lay_out", "drc"))
             )
             if record["error"] is None and (redo or not done):
                 jobs.append((block, path.parent, record["pdk"], pex))

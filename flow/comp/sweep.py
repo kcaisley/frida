@@ -203,7 +203,7 @@ def runs(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbPar
     time), three decisions at the small and the large input (delay, energy), one onto a DAC-like
     source (kickback), and both inputs at each supply. ``Level.SEARCH`` adds the transient-noise
     S-curve at the nominal common mode (noise, offset); ``Level.FULL`` the S-curves at the other
-    common modes."""
+    common modes. Its characterization is SPICE already: ``Level.CIRCUIT`` runs what ``FULL`` does."""
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
     # the nominal run: the supply, its common mode; each run changes what it measures
@@ -235,7 +235,7 @@ def runs(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbPar
             vin_diff_values_v=(SMALL_V, LARGE_V),
             conversions=2,
         )
-    fractions = {Level.SCREEN: (), Level.SEARCH: (NOMINAL_CM,), Level.FULL: CM_SWEEP}[level]
+    fractions = {Level.SCREEN: (), Level.SEARCH: (NOMINAL_CM,), Level.FULL: CM_SWEEP, Level.CIRCUIT: CM_SWEEP}[level]
     for fraction in sorted(fractions, key=lambda fraction: fraction != NOMINAL_CM):
         benches[f"scurve_cm{round(fraction * 24)}"] = replace(
             nominal,

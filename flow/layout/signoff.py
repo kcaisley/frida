@@ -493,3 +493,33 @@ def signoff(
         + "\n"
     )
     return result
+
+
+def drc(pdk: str, gds: Path, run_dir: Path, checker: Checker = Checker.OPEN) -> RowSignoff:
+    """DRC alone of a layout that has no LVS source (a block's own layout of its blocks side by side,
+    unconnected): by the open tools (``Checker.OPEN``, the default: ``open_drc``) or the kit's
+    Calibre (its ``BLOCK_OPTIONS``), on the GDS's largest top cell. Writes
+    ``run_dir/drc_violations.json``; LVS is not run (``lvs_correct`` None); raises only when the
+    checker fails to run."""
+    started = time.monotonic()
+    run_dir.mkdir(parents=True, exist_ok=True)
+    layout = db.Layout()
+    layout.read(str(gds))
+    top = max(layout.top_cells(), key=lambda cell: cell.bbox().area()).name
+    report = run_dir / "drc_violations.json"
+    if checker is Checker.OPEN:
+        violations, deck = open_drc(pdk, gds, top, run_dir)
+        report.write_text(json.dumps({"checker": deck, "violations": violations, "waived": {}}, indent=1) + "\n")
+    else:
+        provider = _provider(pdk)
+        try:
+            provider.run_drc(
+                run_dir=run_dir, gds_path=gds, layout_top=top, options=getattr(provider, "BLOCK_OPTIONS", None)
+            )
+        except RuntimeError:
+            if not report.exists():  # the checker did not run to the end
+                raise
+        deck = json.loads(report.read_text()).get("checker", "calibre")
+    count = sum(json.loads(report.read_text())["violations"].values())
+    logging.getLogger("flow.layout.signoff").info(f"DRC: {count} violations ({deck}); no LVS source, LVS not run")
+    return RowSignoff(report, count, None, None, drc_seconds=round(time.monotonic() - started, 1), drc_checker=deck)
