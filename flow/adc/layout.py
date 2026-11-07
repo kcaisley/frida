@@ -253,14 +253,18 @@ def _assemble(params: Params, pdk: str, run_dir: Path) -> Path:
         )
     }
     cells = {block: _copied(layout, gds) for block, gds in sources.items()}
-    blocks, x = [], 0.0
+    # in database units, each offset a multiple of the manufacturing grid: a block centred on the row
+    # at half a grid step would move every one of its shapes off the grid
+    grid = tech.MFG_GRID
+    blocks, x = [], 0
     for name, block, mirrored in _ROW:
         # mirrored about the vertical axis, then moved: its left edge at x, centred on the row
-        orientation = db.DTrans(db.DTrans.M90 if mirrored else db.DTrans.R0, 0.0, 0.0)
-        box = cells[block].dbbox().transformed(orientation)
-        shift = db.DTrans(x - box.left, -box.center().y)
-        placed = box.transformed(shift)
-        top.insert(db.DCellInstArray(cells[block].cell_index(), shift * orientation))
+        orientation = db.Trans(db.Trans.M90 if mirrored else db.Trans.R0, 0, 0)
+        box = cells[block].bbox().transformed(orientation)
+        dx, dy = x - box.left, -(box.bottom + box.top) / 2
+        shift = db.Trans(round(dx / grid) * grid, round(dy / grid) * grid)
+        top.insert(db.CellInstArray(cells[block].cell_index(), shift * orientation))
+        placed = box.transformed(shift).to_dtype(layout.dbu)
         top.shapes(boundary).insert(placed)
         top.shapes(boundary).insert(db.DText(name, placed.center().x, placed.top + 1.0))
         blocks.append(
@@ -274,7 +278,7 @@ def _assemble(params: Params, pdk: str, run_dir: Path) -> Path:
                 "h_um": round(placed.height(), 3),
             }
         )
-        x = placed.right + _GAP_UM
+        x = box.transformed(shift).right + round(_GAP_UM / tech.DBU)
     run_dir.mkdir(parents=True, exist_ok=True)
     gds = run_dir / "adc_blocks.gds"
     layout.write(str(gds))
