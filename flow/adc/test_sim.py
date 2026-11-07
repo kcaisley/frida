@@ -1171,3 +1171,34 @@ def test_the_behavioral_interface_record_is_one_complete_conversion() -> None:
         wave.v["seq_comp"][0], 1.2 * np.repeat(np.fromiter(map(int, params.seq_comp.data), dtype=float), 2)
     )
     assert np.count_nonzero(np.diff(wave.v["comp_out"][0])) <= 1
+
+
+@pytest.mark.spectre
+@pytest.mark.parametrize(
+    "extraction", (None, Extraction.TAPEOUT, Extraction.SIGNOFF), ids=("generated", "tapeout", "signoff")
+)
+def test_each_top_passes_spectres_checks(extraction, tmp_path) -> None:
+    """Each kind of top through its run's short static and dynamic checks (``simulate`` of a run with
+    ``check``), in Spectre: the generated netlist, and a fabricated converter's tape-out extraction
+    and its layout's signoff (skipped where it is not laid out, ``flow.sweep.lookup.laid_out``)."""
+    import shutil
+
+    from flow.sweep import lookup
+
+    if shutil.which("spectre") is None:
+        pytest.skip("Spectre binary is not on PATH; source the Cadence environment")
+    pytest.importorskip("pdk.tsmc65.hdl21.site")
+    params = Params() if extraction is None else Fabricated.FRIDA1_1LAYER_RADIX17.params
+    if extraction is Extraction.SIGNOFF:
+        try:
+            lookup.laid_out("adc", "tsmc65", params)
+        except LookupError as error:
+            pytest.skip(str(error))
+    tb = TbParams(
+        pdk="tsmc65", params=params, simulator=Simulator.SPECTRE, extraction=extraction, conversions=1, check=True
+    )
+    run_dir = tmp_path / "run"
+    assert sim.simulate(tb, run_dir) == run_dir / "netlist.raw"
+    assert (run_dir / "netlist.scs").is_file()
+    assert "completes with 0 errors" in (run_dir / "spectre.log").read_text(errors="replace")
+    assert json.loads((run_dir / "names.json").read_text())["time"] == "time"

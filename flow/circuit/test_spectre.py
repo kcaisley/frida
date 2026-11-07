@@ -79,38 +79,6 @@ def test_target_diagnostic(block, target, diagnostic_root):
 
 
 @pytest.mark.spectre
-@pytest.mark.parametrize("extraction", (None, "TAPEOUT", "SIGNOFF"), ids=("generated", "tapeout", "signoff"))
-def test_adc_top_diagnostic(extraction, diagnostic_root):
-    """Each kind of ADC top through its run's short static and dynamic checks (``adc.simulate`` of
-    a run with ``check``): the generated netlist, and a fabricated converter's tape-out extraction
-    and its layout's signoff (skipped where it is not laid out, ``flow.sweep.lookup.laid_out``)."""
-
-    import json
-
-    from flow import adc
-    from flow.sweep import lookup
-
-    params = adc.Params() if extraction is None else adc.Fabricated.FRIDA1_1LAYER_RADIX17.params
-    if extraction == "SIGNOFF":
-        try:
-            lookup.laid_out("adc", "tsmc65", params)
-        except LookupError as error:
-            pytest.skip(str(error))
-    tb = adc.TbParams(
-        pdk="tsmc65",
-        params=params,
-        simulator=adc.Simulator.SPECTRE,
-        extraction=None if extraction is None else adc.Extraction[extraction],
-        conversions=1,
-        check=True,
-    )
-    run_dir = diagnostic_root / "adc" / f"top_{(extraction or 'generated').lower()}"
-    assert adc.simulate(tb, run_dir) == run_dir / "netlist.raw"
-    assert (run_dir / "netlist.scs").is_file() and (run_dir / "spectre.log").is_file()
-    assert json.loads((run_dir / "names.json").read_text())["time"] == "time"
-
-
-@pytest.mark.spectre
 def test_comp_pipeline_diagnostic(diagnostic_root):
     """The comparator on the pipeline: one short run simulated (``comp.simulate``) and read
     (``flow.pipeline.read``) on Spectre's own steps."""
