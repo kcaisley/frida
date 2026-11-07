@@ -49,11 +49,11 @@ def _is_valid_transient(result: TranResult, names: Mapping[str, str], interval: 
     )
 
 
-def _conversion_inputs(result: TranResult, names: Mapping[str, str], interval: float, *, supply_rails: tuple[str, ...]):
-    """Alias traces; express selected supply-source currents as positive draw.
-
-    Other current traces retain the simulator's reference direction.
-    """
+def conversion_inputs(result: TranResult, names: Mapping[str, str], interval: float, *, supply_rails: tuple[str, ...]):
+    """A saved transient's time, voltages and currents by ``names``' aliases, the ``supply_rails``
+    sources' currents as positive draw (other currents in the simulator's reference direction).
+    Raises unless the raw holds exactly those traces, finite, on steps no longer than ``interval``
+    (Spectre's sub-femtosecond jitter aside): a block's reader decodes them further."""
     if not _is_valid_transient(result, names, interval):
         raise ValueError(
             "Invalid transient: require complete unique bindings, aligned finite traces, and raw timestep no larger than waveform_sample_interval_s"
@@ -79,7 +79,7 @@ def read_transient_wave(
     ``time`` to itself), the ``supply_rails`` sources' currents as positive draw. Raises unless the
     raw holds exactly those traces, finite, on steps no longer than ``interval``."""
 
-    times_s, voltages, currents = _conversion_inputs(
+    times_s, voltages, currents = conversion_inputs(
         read_raw_transient(path), names, interval, supply_rails=supply_rails
     )
     window = [(float(times_s[0]), float(times_s[-1]))]

@@ -18,7 +18,7 @@ def test_raw_step_validation_accepts_spectre_strobe_jitter_but_rejects_coarser_d
 
 
 def test_current_polarity_only_changes_for_selected_supply_sources():
-    from flow.circuit.results import _conversion_inputs
+    from flow.circuit.results import conversion_inputs
 
     result = TranResult(
         "tran",
@@ -30,6 +30,6 @@ def test_current_polarity_only_changes_for_selected_supply_sources():
         {},
     )
     names = {"time": "time", "supply:p": "i(vdd)", "device:d": "i(device)"}
-    _, _, currents = _conversion_inputs(result, names, 1e-12, supply_rails=("vdd",))
+    _, _, currents = conversion_inputs(result, names, 1e-12, supply_rails=("vdd",))
     np.testing.assert_allclose(currents["vdd"], [2e-6, 3e-6])
     np.testing.assert_allclose(currents["device"], [4e-6, -5e-6])

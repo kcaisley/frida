@@ -98,7 +98,7 @@ from flow.analysis import calc
 from flow.analysis.io import interpolate_wave_records, read_measurement, write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
 from flow.circuit.ports import testbench_from_ports
-from flow.circuit.results import _RAW_STEP_RTOL, _conversion_inputs, read_raw_transient
+from flow.circuit.results import conversion_inputs, read_raw_transient
 from flow.pipeline import Meas, Wave
 from flow.sweep import lookup
 
@@ -588,7 +588,7 @@ def _decode(
     """Map a VLSIR transient to canonical ADC records and decode LOGIC observations once."""
 
     supply_rails = tuple(net.name for net in Nets.signals.values() if net.usage == h.Usage.POWER)
-    times_s, signals, currents = _conversion_inputs(
+    times_s, signals, currents = conversion_inputs(
         result, signal_names, params.waveform_sample_interval_s, supply_rails=supply_rails
     )
     code_weights = np.asarray([2 * weight for weight in capdac.Model.weights(params.params.cdac)] + [1], dtype=np.int64)
@@ -651,9 +651,8 @@ def _decode(
         "raw_points": len(times_s),
         "raw_max_timestep_s": calc.ymax(np.diff(times_s)),
         "waveform_sample_interval_s": params.waveform_sample_interval_s,
-        "waveform_interpolated_from_coarser_raw": bool(
-            calc.ymax(np.diff(times_s)) > params.waveform_sample_interval_s * (1.0 + _RAW_STEP_RTOL)
-        ),
+        # never: ``conversion_inputs`` refuses a raw step coarser than the interval
+        "waveform_interpolated_from_coarser_raw": False,
         "decision_sample_fraction": 1.0,
         "decision_time_reference": "seq_logic_rising_threshold_B0_B15",
         "original_conversion_count": len(decode_starts),
