@@ -2276,7 +2276,7 @@ def _stub_model(table: Path, params: Params):
                 ron_table_ohm=(750.0, 1500.0, 750.0),
             )
         ),
-        # its extracted weights the table's (``flow.analysis.io.read_extracted_calibration``)
+        # its extracted weights the table's (``flow.analysis.io.read_cap_table``)
         cdac=capdac.Model(
             pdk="none",
             params=params.cdac,

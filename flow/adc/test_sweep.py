@@ -14,6 +14,7 @@ from dataclasses import replace
 from itertools import pairwise
 from pathlib import Path
 from threading import Barrier
+from types import SimpleNamespace
 from typing import Any
 
 import hdl21 as h
@@ -341,7 +342,7 @@ def test_fixed_input_campaigns(check, tmp_path, monkeypatch):
     from flow.circuit import results
 
     monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
-    monkeypatch.setattr(results, "convert_raw_adc_to_measurement", lambda *args, **kwargs: object())
+    monkeypatch.setattr(sim, "_decode", lambda *args, **kwargs: object())
     monkeypatch.setattr(io, "write_measurement", lambda *args: None)
     monkeypatch.setattr(sweep, "simulate", capture)
     root = tmp_path / "campaign"
@@ -430,7 +431,7 @@ def test_other_campaign_recipes(target, count, workers, check, tmp_path, monkeyp
     from flow.circuit import results
 
     monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
-    monkeypatch.setattr(results, "convert_raw_adc_to_measurement", lambda *args, **kwargs: object())
+    monkeypatch.setattr(sim, "_decode", lambda *args, **kwargs: object())
     monkeypatch.setattr(io, "write_measurement", lambda *args: None)
     monkeypatch.setattr(sweep, "simulate", capture)
     assert getattr(sweep, target)(tmp_path, check=check) == tmp_path
@@ -535,7 +536,7 @@ def test_all_campaign_patterns_are_preserved(monkeypatch, tmp_path):
     from flow.circuit import results
 
     monkeypatch.setattr(results, "read_raw_transient", lambda path: object())
-    monkeypatch.setattr(results, "convert_raw_adc_to_measurement", lambda *args, **kwargs: object())
+    monkeypatch.setattr(sim, "_decode", lambda *args, **kwargs: object())
     monkeypatch.setattr(io, "write_measurement", lambda *args: None)
     monkeypatch.setattr(sweep, "ProcessPoolExecutor", CaptureExecutor)
     sweep.frida1_sequence(tmp_path)
@@ -555,3 +556,67 @@ def test_all_campaign_patterns_are_preserved(monkeypatch, tmp_path):
             params.seq_logic_pattern,
         ) == expected_rows
         assert float(params.symbol_rate) == 1.6e9
+
+
+def test_extracted_weights_are_a_pex_tables_effective_capacitances(tmp_path: Path) -> None:
+    from flow.adc.test_analysis import adc_measurement
+
+    nominal = adc_measurement([0, 1, 2], readbacks={}).nominal_bout_weights.astype(float)
+    effective_ff = nominal[:-1] / 2 * 0.4
+    effective_ff[3] *= 1.02
+    table = tmp_path / "capacitance_table.csv"
+    table.write_text(
+        "stage,main_ff,diff_ff,effective_ff\n"
+        + "".join(f"{stage},{value + 1},1,{value}\n" for stage, value in enumerate(effective_ff))
+    )
+
+    measurement = adc_measurement([0, 1, 2], readbacks={"cap_table": str(table)})
+    calibration = sweep._extracted(measurement)
+
+    assert calibration.method == "extracted"
+    assert calibration.identity == measurement.identity
+    assert np.sum(calibration.calibrated_weights) == pytest.approx(measurement.code_max)
+    ratio = calibration.calibrated_weights / (nominal * measurement.code_max / np.sum(nominal))
+    # Only stage 3 departs from the nominal capacitor ratios, by its 2 % excess;
+    # the terminal decision follows the projected scale instead.
+    assert ratio[3] / ratio[0] == pytest.approx(1.02)
+    np.testing.assert_allclose(np.delete(ratio[:-1], 3), ratio[0])
+    assert calibration.measured_weight_mask.tolist() == [True] * 16 + [False]
+
+
+def test_extracted_weights_are_a_capacitive_dacs_measured_steps(tmp_path: Path, monkeypatch) -> None:
+    """The settling measurement a capacitive DAC's characterization keeps (``flow.capdac``): each
+    stage's step as measured (``capdac.Model.measured_steps``), its slower direction's (a falling one
+    negative), in proportion to its effective capacitance; nothing extracted (no path), the design's
+    own weights, none measured."""
+    import flow.capdac.model as capdac_model
+    from flow.adc.test_analysis import adc_measurement
+
+    measurement = adc_measurement([0, 1, 2], readbacks={})
+    nominal = measurement.nominal_bout_weights.astype(float)
+    # the steps in volts: the design's at some gain, stage 3 2 % large, every other stage falling
+    steps = 0.37e-3 * nominal[:-1] * np.where(np.arange(len(nominal) - 1) % 2, -1.0, 1.0)
+    steps[3] *= 1.02
+    path = tmp_path / "settling" / "result.h5"
+    read = []
+    monkeypatch.setattr(capdac_model, "read_measurement", lambda source: read.append(source) or "settling")
+    monkeypatch.setattr(capdac_model, "analyze_settling", lambda meas: SimpleNamespace(step_v=steps) if meas else None)
+
+    measurement = adc_measurement([0, 1, 2], readbacks={"cap_table": str(path)})
+    calibration = sweep._extracted(measurement)
+
+    assert calibration.method == "extracted" and calibration.label == "Measured-step weights"
+    # read and analyzed once a process, however many captures decode with it
+    again = sweep._extracted(measurement)
+    np.testing.assert_array_equal(again.calibrated_weights, calibration.calibrated_weights)
+    assert read == [path]
+    assert calibration.identity == measurement.identity
+    assert np.sum(calibration.calibrated_weights) == pytest.approx(measurement.code_max)
+    ratio = calibration.calibrated_weights / (nominal * measurement.code_max / np.sum(nominal))
+    assert ratio[3] / ratio[0] == pytest.approx(1.02)
+    np.testing.assert_allclose(np.delete(ratio[:-1], 3), ratio[0])
+    assert calibration.measured_weight_mask.tolist() == [True] * 16 + [False]
+
+    design = sweep._extracted(adc_measurement([0, 1, 2], readbacks={"cap_table": ""}))
+    np.testing.assert_allclose(design.calibrated_weights, design.nominal_weights)
+    assert not design.measured_weight_mask.any()

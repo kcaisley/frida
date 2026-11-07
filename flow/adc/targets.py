@@ -16,7 +16,6 @@ from flow.adc.sim import (
 from flow.analysis import calc
 from flow.analysis.io import (
     read_analysis,
-    read_extracted_calibration,
     read_measurement,
     read_measurement_param,
     write_analysis,
@@ -289,7 +288,7 @@ def behavioral_nonlinearity_study() -> tuple[Path, ...]:
         measurement = read_measurement(path)
         if not isinstance(measurement, MeasAdc):
             raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
-        extracted = read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
+        extracted = adc_sweep._extracted(measurement)
         stem = f"frida2_3layer_behavioral_{path.stem}"
         for ramp in (analyze_ramp(measurement), analyze_ramp(measurement, calibration=extracted)):
             artifacts.extend(_ramp_figures(ramp, output_dir, stem))
@@ -353,9 +352,7 @@ def behavioral_sample_rate_study() -> tuple[Path, ...]:
                     (
                         analyze_dynamic(
                             measurement,
-                            calibration=read_extracted_calibration(
-                                Path(str(measurement.info.readbacks["cap_table"])), measurement
-                            ),
+                            calibration=adc_sweep._extracted(measurement),
                         )
                         for measurement in measurements
                     ),
@@ -429,7 +426,7 @@ def behavioral_calibration_study() -> tuple[Path, ...]:
             analyze_calibration2(train, ramp=train_ramp),
             analyze_calibration3(train, ramp=train_ramp),
         )
-        extracted = read_extracted_calibration(Path(str(check.info.readbacks["cap_table"])), check)
+        extracted = adc_sweep._extracted(check)
         ramps = [analyze_ramp(check)] + [
             analyze_ramp(check, calibration=calibration) for calibration in (extracted, *learned)
         ]
@@ -487,7 +484,7 @@ def behavioral_noise_spectrum_study() -> tuple[Path, ...]:
         measurement = read_measurement(path)
         if not isinstance(measurement, MeasAdc):
             raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
-        calibration = read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
+        calibration = adc_sweep._extracted(measurement)
         spectrum = analyze_code_spectrum(measurement, calibration=calibration)
         artifacts.extend(
             render(plot_noise_spectrum(spectrum), output_dir / f"frida2_3layer_behavioral_noise_spectrum_{name}")
@@ -512,7 +509,7 @@ def behavioral_input_frequency_study() -> tuple[Path, ...]:
         measurement = read_measurement(path)
         if not isinstance(measurement, MeasAdc):
             raise TypeError(f"{path} contains {type(measurement).__name__}, expected MeasAdc")
-        calibration = read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
+        calibration = adc_sweep._extracted(measurement)
         dynamics.append(analyze_dynamic(measurement, calibration=calibration))
     artifacts = []
     for rate_hz in sorted({round(dynamic.sample_rate_hz) for dynamic in dynamics}):

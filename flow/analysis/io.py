@@ -13,17 +13,14 @@ from decimal import Decimal
 from enum import Enum
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import h5py
 import numpy as np
 from hdl21.prefix import Prefix, Prefixed
 
 from flow.analysis import calc
-from flow.analysis.types import Analysis, Meas, MeasAdc, MeasInfo
-
-if TYPE_CHECKING:
-    from flow import adc
+from flow.analysis.types import Analysis, Meas, MeasInfo
 
 
 def _dataclass_fields(value) -> tuple[Any, ...]:
@@ -298,60 +295,18 @@ def read_analysis(path: Path) -> Analysis:
     return analysis
 
 
-def read_extracted_calibration(path: Path, measurement: MeasAdc) -> adc.AnalysisCalibration:
-    """Read the extraction ``path`` names as BOUT weights for ``measurement``: a PEX per-stage
-    capacitance table (CSV, its ``effective_ff`` column), or the settling measurement a capacitive
-    DAC's characterization keeps (``flow.capdac``, HDF5: each stage's differential step as measured,
-    which is in proportion to its effective capacitance, ``capdac.Model.measured_steps``, the steps
-    the behavioral DAC's plates give). No path (an empty one, ``Path()``: a DAC as designed, nothing
-    extracted) gives the design's own weights.
+def read_cap_table(path: Path) -> np.ndarray:
+    """Each stage's effective capacitance that ``path`` holds, C0 first, in a unit of its own (a
+    converter's extracted weights are their proportions): a PEX per-stage capacitance table (CSV, its
+    ``effective_ff`` column, main less difference), or the settling measurement a capacitive DAC's
+    characterization keeps (``flow.capdac``, HDF5: each stage's differential step as measured, which
+    is in proportion to its effective capacitance, ``capdac.Model.measured_steps``)."""
 
-    The extracted effective (main - diff) capacitances are the best estimate
-    of the CDAC weights before random mismatch. Each switched capacitor
-    contributes twice its effective value; the terminal decision keeps its
-    nominal unit weight at the volts-per-design-unit scale projected from the
-    extracted capacitances, as in calibration 1. The weights are normalized to
-    the inclusive output range and carry the measurement's identity.
-    """
-
-    from flow import adc  # in here: flow.adc.model imports this module
-
-    nominal_bout_weight = measurement.nominal_bout_weights.astype(np.float64)
-    nominal_cap_weight = nominal_bout_weight[:-1]
     path = Path(path)
-    # the effective capacitances in any common unit: the weights are their proportions
-    if path == Path():
-        effective, label = nominal_cap_weight / 2, "Design weights, nothing extracted"
-    elif path.suffix == ".h5":
-        effective, label = _measured_steps(path), "Measured-step weights"
-    else:
-        with path.open(newline="") as table:
-            effective = np.asarray([float(row["effective_ff"]) for row in csv.DictReader(table)], dtype=np.float64)
-        label = "PEX-extracted weights"
-    if effective.shape != nominal_cap_weight.shape:
-        raise ValueError(f"{path} has {len(effective)} stages, expected {len(nominal_cap_weight)}")
-    extracted_cap_weight = 2.0 * effective
-    scale = float(np.dot(nominal_cap_weight, extracted_cap_weight) / np.dot(nominal_cap_weight, nominal_cap_weight))
-    code_max = measurement.code_max
-    calibrated_weight = np.append(extracted_cap_weight, nominal_bout_weight[-1] * scale)
-    calibrated_weight *= code_max / np.sum(calibrated_weight)
-    identity = measurement.identity
-    return adc.AnalysisCalibration(
-        group=identity.group,
-        index=identity.index,
-        dut=identity.dut,
-        method="extracted",
-        label=label,
-        code_max=code_max,
-        nominal_weights=nominal_bout_weight * code_max / np.sum(nominal_bout_weight),
-        calibrated_weights=calibrated_weight,
-        # a design's weights are none of them measured
-        measured_weight_mask=np.append(np.full(len(effective), path != Path()), False),
-        training_sample_count=0,
-        validation_sample_count=0,
-        output_gain=1.0,
-        output_offset_lsb=0.0,
-    )
+    if path.suffix == ".h5":
+        return _measured_steps(path)
+    with path.open(newline="") as table:
+        return np.asarray([float(row["effective_ff"]) for row in csv.DictReader(table)], dtype=np.float64)
 
 
 @cache

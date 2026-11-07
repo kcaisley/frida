@@ -40,9 +40,8 @@ do), so the subtraction is wired in. The digital block's difference states and i
 (``dac_state_<side>_diff``, ``dac_invert_<side>_<kind>``) drive nothing, and ``dac_diffcaps`` keeps
 its pin with no effect: FRIDA-1's extracted view, its lab scans and the behavioral model keep its
 other mode, the difference plates switching with the main ones. The bottom plates lie inside the
-sides (``generated_net_aliases``). One side's plates as a behavioral DAC (``flow.adc.model``) gives them:
-``calc_side_capacitances``, the plates capdac designs at the testbench's DAC supply
-(``capdac.Model.plates``) where it gives none.
+sides (``generated_net_aliases``). One side's plates as a behavioral DAC gives them are capdac's
+(``capdac.Model.Behavioral.plates_f``).
 
 The ADC's analog blocks alone (``AdcBlocks``: the comparator, and a sampler and a side of the DAC
 a side, capdac's, its drivers with it), whose geometry the sweep's records give
@@ -65,11 +64,10 @@ from functools import cache
 from pathlib import Path
 
 import hdl21 as h
-import numpy as np
 from hdl21.primitives import MosType
 
 from flow import capdac, comp, samp
-from flow.adc.params import Params, TbParams
+from flow.adc.params import Params
 from flow.circuit.ports import module_from_ports, port_connections
 from flow.layout.devices.device import active_pdk, resolve
 from flow.sweep.lookup import MODELS_DIR
@@ -272,23 +270,6 @@ def _place(blocks: h.Module, module: h.Module, name: str) -> None:
         port: blocks.add(h.Signal(width=signal.width), name=f"{name}_{port}") for port, signal in module.ports.items()
     }
     blocks.add(module(**connections), name=name)
-
-
-# One side's plates as the behavioral DAC (``flow.adc.model``) gives them
-
-
-def calc_side_capacitances(behavioral: object, tb: TbParams, side: str) -> tuple[np.ndarray, np.ndarray]:
-    """Return one side's main and diff capacitances, as capdac designs them at the testbench's DAC
-    supply where not given (``capdac.Model.plates``): ``behavioral`` is the behavioral DAC
-    (``capdac.Model.Behavioral``), read by attribute."""
-
-    ideal_main_f, ideal_diff_f = capdac.Model.plates(tb.dut.cdac, float(tb.vdd_dac.dc))
-    main = getattr(behavioral, f"main_{side}_f")
-    diff = getattr(behavioral, f"diff_{side}_f")
-    return (
-        ideal_main_f if main is None else np.asarray(main),
-        ideal_diff_f if diff is None else np.asarray(diff),
-    )
 
 
 # The digital block: its netlist at a stage count and its pins bound to the canonical nets

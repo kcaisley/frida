@@ -130,9 +130,9 @@ class MeasAdc(Meas):
         cdac = getattr(self.param, "cdac", None)
         if cdac is None:
             return float(tb.vdd_dac.dc) / self.code_max
-        from flow.adc.subckt import calc_side_capacitances
+        from flow import capdac
 
-        main_f, diff_f = calc_side_capacitances(cdac, tb, "p")
+        main_f, diff_f = capdac.Model.plates_f(cdac, "p", tb.dut.cdac, float(tb.vdd_dac.dc))
         effective_f = np.sum(main_f) + (-1 if tb.dac_diffcaps else 1) * np.sum(diff_f)
         total_f = np.sum(main_f) + np.sum(diff_f) + cdac.parasitic_f
         return float(2 * float(tb.vdd_dac.dc) * effective_f / total_f / (1 << self.dut.adc_bits))

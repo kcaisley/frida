@@ -38,7 +38,6 @@ from flow.adc.sim import (
     calc_source_value,
     symbol160_init4_samp20_comp11110000_logic00001111,
 )
-from flow.adc.subckt import calc_side_capacitances
 from flow.analysis.io import write_analysis, write_measurement
 from flow.analysis.types import MeasAdc, MeasCdac, MeasInfo
 from flow.scans.params import AdcScanParams
@@ -389,7 +388,9 @@ def frida2_cdac_ab(run_dir: Path) -> None:
                         )
                         step_v = 0.0
                         for plate in ("p", "n"):
-                            main_f, diff_f = calc_side_capacitances(params.cdac, tb, plate)
+                            main_f, diff_f = capdac.Model.plates_f(
+                                params.cdac, plate, tb.dut.cdac, float(tb.vdd_dac.dc)
+                            )
                             top_step, _charge, _toggles = capdac.Model.switch(
                                 main_f,
                                 diff_f,

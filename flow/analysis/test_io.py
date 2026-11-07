@@ -229,66 +229,21 @@ def test_analysis_reader_rejects_measurement_files(tmp_path: Path) -> None:
         read_analysis(path)
 
 
-def test_extracted_calibration_reads_pex_effective_weights(tmp_path: Path) -> None:
-    from flow.adc.test_analysis import adc_measurement
-    from flow.analysis.io import read_extracted_calibration
-
-    measurement = adc_measurement([0, 1, 2], readbacks={})
-    nominal = measurement.nominal_bout_weights.astype(float)
-    effective_ff = nominal[:-1] / 2 * 0.4
-    effective_ff[3] *= 1.02
-    table = tmp_path / "capacitance_table.csv"
-    table.write_text(
-        "stage,main_ff,diff_ff,effective_ff\n"
-        + "".join(f"{stage},{value + 1},1,{value}\n" for stage, value in enumerate(effective_ff))
-    )
-
-    calibration = read_extracted_calibration(table, measurement)
-
-    assert calibration.method == "extracted"
-    assert calibration.identity == measurement.identity
-    assert np.sum(calibration.calibrated_weights) == pytest.approx(measurement.code_max)
-    ratio = calibration.calibrated_weights / (nominal * measurement.code_max / np.sum(nominal))
-    # Only stage 3 departs from the nominal capacitor ratios, by its 2 % excess;
-    # the terminal decision follows the projected scale instead.
-    assert ratio[3] / ratio[0] == pytest.approx(1.02)
-    np.testing.assert_allclose(np.delete(ratio[:-1], 3), ratio[0])
-    assert calibration.measured_weight_mask.tolist() == [True] * 16 + [False]
-
-
-def test_extracted_calibration_reads_a_capacitive_dacs_measured_steps(tmp_path: Path, monkeypatch) -> None:
-    """The settling measurement a capacitive DAC's characterization keeps (``flow.capdac``): each
-    stage's step as measured (``capdac.Model.measured_steps``), its slower direction's (a falling one
-    negative), in proportion to its effective capacitance; nothing extracted (no path), the design's
-    own weights, none measured."""
+def test_cap_table_reads_a_pex_tables_effective_column_and_a_dacs_measured_steps(tmp_path: Path, monkeypatch) -> None:
+    """A PEX per-stage table (CSV): its ``effective_ff`` column; the settling measurement a
+    capacitive DAC's characterization keeps (HDF5): each stage's step as measured
+    (``capdac.Model.measured_steps``), read and analyzed once a process."""
     import flow.capdac.model as capdac_model
-    from flow.adc.test_analysis import adc_measurement
     from flow.analysis import io
 
-    measurement = adc_measurement([0, 1, 2], readbacks={})
-    nominal = measurement.nominal_bout_weights.astype(float)
-    # the steps in volts: the design's at some gain, stage 3 2 % large, every other stage falling
-    steps = 0.37e-3 * nominal[:-1] * np.where(np.arange(len(nominal) - 1) % 2, -1.0, 1.0)
-    steps[3] *= 1.02
+    table = tmp_path / "capacitance_table.csv"
+    table.write_text("stage,main_ff,diff_ff,effective_ff\n0,2.5,1,1.5\n1,4,1,3\n")
+    np.testing.assert_array_equal(io.read_cap_table(table), [1.5, 3.0])
+    steps = np.asarray([0.4e-3, -0.8e-3])
     path = tmp_path / "settling" / "result.h5"
     read = []
     monkeypatch.setattr(capdac_model, "read_measurement", lambda source: read.append(source) or "settling")
     monkeypatch.setattr(capdac_model, "analyze_settling", lambda meas: SimpleNamespace(step_v=steps) if meas else None)
-
-    calibration = io.read_extracted_calibration(path, measurement)
-
-    assert calibration.method == "extracted" and calibration.label == "Measured-step weights"
-    # read and analyzed once a process, however many captures decode with it
-    again = io.read_extracted_calibration(path, measurement)
-    np.testing.assert_array_equal(again.calibrated_weights, calibration.calibrated_weights)
+    np.testing.assert_array_equal(io.read_cap_table(path), np.abs(steps))
+    np.testing.assert_array_equal(io.read_cap_table(path), np.abs(steps))
     assert read == [path]
-    assert calibration.identity == measurement.identity
-    assert np.sum(calibration.calibrated_weights) == pytest.approx(measurement.code_max)
-    ratio = calibration.calibrated_weights / (nominal * measurement.code_max / np.sum(nominal))
-    assert ratio[3] / ratio[0] == pytest.approx(1.02)
-    np.testing.assert_allclose(np.delete(ratio[:-1], 3), ratio[0])
-    assert calibration.measured_weight_mask.tolist() == [True] * 16 + [False]
-
-    design = io.read_extracted_calibration(Path(""), measurement)
-    np.testing.assert_allclose(design.calibrated_weights, design.nominal_weights)
-    assert not design.measured_weight_mask.any()

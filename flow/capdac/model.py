@@ -22,7 +22,7 @@ array calibrates on (``flow.adc.model``): of one condition, the run at a percent
 calibration recovers. ``Model.settling_meas`` is the measurement its settling run keeps, whose
 steps, each stage's as measured (``Model.measured_steps``, ``Model.step_v``), are the weights a
 converter on the array decodes with as its extracted ones
-(``flow.analysis.io.read_extracted_calibration``): the steps its plates give.
+(``flow.analysis.io.read_cap_table``): the steps its plates give.
 
 The switching is the model's own physics, which the behavioral ADC runs: ``Model.Behavioral``, the
 DAC beyond its ``Params`` (what ``behavioral`` gives: each side's plates, the top plate's other
@@ -225,13 +225,23 @@ class Model:
             stage_delay_s=self.delay_s,
         )
 
+    def full_scale_v(self, supply_v: float) -> float:
+        """The differential full scale (+-) of a converter on this DAC at the reference ``supply_v``:
+        the reference across the switched plates' share of the top plate's whole load
+        (``behavioral``), main less difference with the difference plates in use; half the sum of
+        the measured steps where its characterization keeps them."""
+        dac = self.behavioral()
+        load_f = float(np.sum(dac.main_p_f) + np.sum(dac.diff_p_f)) + dac.parasitic_f
+        effective = float(np.sum(dac.main_p_f) - np.sum(dac.diff_p_f))
+        return supply_v * effective / load_f
+
     @staticmethod
     def measured_steps(path: Path) -> np.ndarray:
         """Each stage's step the settling measurement ``path`` holds (V, C0 first, one that
         ``Model.settling_meas`` names), as ``analyze_settling`` measures it, in its slower direction:
         its magnitude, whose sign is that direction's. In proportion to its plates' switched
         capacitance as drawn: the steps the behavioral DAC's plates give (``behavioral``), and a
-        converter's extracted weights (``flow.analysis.io.read_extracted_calibration``)."""
+        converter's extracted weights (``flow.analysis.io.read_cap_table``)."""
         return np.abs(analyze_settling(read_measurement(path)).step_v)
 
     @staticmethod
@@ -249,6 +259,19 @@ class Model:
         in units (unit capacitors have no difference plates). A run's ``TbParams.main_f`` and
         ``diff_f`` at its ``vdd``."""
         return _design_plates(params, reference_v)
+
+    @staticmethod
+    def plates_f(dac: Model.Behavioral, side: str, params: Params, reference_v: float) -> tuple[np.ndarray, np.ndarray]:
+        """The behavioral DAC ``dac``'s plates of one side (``"p"`` or ``"n"``), main and difference (F,
+        C0 first): its own, or where it gives none, those ``params`` designs at the reference
+        ``reference_v`` (``plates``)."""
+        ideal_main_f, ideal_diff_f = _design_plates(params, reference_v)
+        main = getattr(dac, f"main_{side}_f")
+        diff = getattr(dac, f"diff_{side}_f")
+        return (
+            ideal_main_f if main is None else np.asarray(main),
+            ideal_diff_f if diff is None else np.asarray(diff),
+        )
 
     @staticmethod
     def draw(capacitance_f: np.ndarray, *, pelgrom: float, rng: np.random.Generator) -> np.ndarray:

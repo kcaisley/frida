@@ -105,9 +105,8 @@ from flow.adc.params import (
     TbParams,
 )
 from flow.adc.sim import AdcSequence, build_adc_interface_wave, calc_source_value
-from flow.adc.subckt import calc_side_capacitances
 from flow.adc.types import AnalysisReference
-from flow.analysis.io import read_extracted_calibration, write_measurement
+from flow.analysis.io import write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
 
 
@@ -202,12 +201,9 @@ class Model:
 
     @property
     def full_scale_v(self) -> float:
-        """The differential full scale (+-): the reference across the switched plates' share of the
-        top plate, main less difference with the difference plates in use; half the sum of the
-        DAC's measured steps where its characterization keeps them."""
-        dac = self.cdac.behavioral()
-        effective = float(np.sum(dac.main_p_f) - np.sum(dac.diff_p_f))
-        return self.supply_v * effective / self.load_f
+        """The differential full scale (+-) at the PDK's supply: its DAC's
+        (``capdac.Model.full_scale_v``)."""
+        return self.cdac.full_scale_v(self.supply_v)
 
     @property
     def stage_tau_s(self) -> tuple[float, ...]:
@@ -354,7 +350,7 @@ class Model:
         """Convert every conversion of ``tb`` and write the MeasAdc with its supply power to ``path``
         (kept in memory alone where it is None); its ``cap_table`` readback names the decoding's
         "extracted" weights: the measurement the DAC's characterization keeps of its settling run,
-        each stage's step as measured (``flow.analysis.io.read_extracted_calibration``), none where
+        each stage's step as measured (``flow.analysis.io.read_cap_table``), none where
         the DAC is designed alone (its design weights). ``quiet``, ``tau_scale``, ``reference`` and
         ``drawn``: as ``behavioral``'s."""
 
@@ -501,8 +497,9 @@ class Model:
 def _enob(measurement: MeasAdc) -> float:
     """A sine capture's spectral ENOB referred to full scale, decoded as the record's ``enob_bits``
     is (the extracted weights of its ``cap_table`` readback, unrounded)."""
-    extracted = read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
-    return analyze_dynamic(measurement, calibration=extracted).spectral_enob_fs_bits
+    from flow.adc.sweep import _extracted  # in here: sweep imports this module
+
+    return analyze_dynamic(measurement, calibration=_extracted(measurement)).spectral_enob_fs_bits
 
 
 def _enob_floor(bits: int, enob_bits: float, share: float = 1.0) -> float:
@@ -585,7 +582,7 @@ def convert_behavioral(
     reference_rng = rng.spawn(1)[0]
     vin_cm_v = float(tb.vin_cm.dc)
     slope = np.zeros(conversions) if vin_diff_slope_v_per_s is None else np.asarray(vin_diff_slope_v_per_s)
-    caps = {side: calc_side_capacitances(params.cdac, tb, side) for side in ("p", "n")}
+    caps = {side: capdac.Model.plates_f(params.cdac, side, tb.dut.cdac, float(tb.vdd_dac.dc)) for side in ("p", "n")}
     parasitic_f = params.cdac.parasitic_f
     load_f = {side: float(np.sum(main_f) + np.sum(diff_f)) + parasitic_f for side, (main_f, diff_f) in caps.items()}
     vref_v, diffcaps = float(tb.vdd_dac.dc), int(tb.dac_diffcaps)

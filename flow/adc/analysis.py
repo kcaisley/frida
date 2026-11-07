@@ -134,7 +134,7 @@ from flow.pipeline import Identity, analysis, check_identity, measurement_identi
 
 from .params import CDAC_SETTLING_TOLERANCE_V, LADDER, NOMINAL_RATE_HZ, PELGROM_AXIS, UNIT_MISMATCH
 from .sim import AdcSequence
-from .subckt import AdcNets, calc_side_capacitances
+from .subckt import AdcNets
 from .types import (
     AnalysisCalibration,
     AnalysisCalibration1,
@@ -2286,6 +2286,51 @@ def analyze_calibration3(measurement: MeasAdc, *, ramp: AnalysisRamp) -> Analysi
     )
 
 
+def _extracted_calibration(measurement: MeasAdc, effective: np.ndarray | None, label: str) -> AnalysisCalibration:
+    """``measurement``'s BOUT weights from each stage's extracted effective capacitance (``effective``,
+    C0 first, in any common unit: a PEX table's, or a capacitive DAC's measured steps,
+    ``flow.analysis.io.read_cap_table``); None, nothing extracted (a DAC as designed): the design's
+    own weights. ``label`` names where they came from.
+
+    The extracted effective (main - diff) capacitances are the best estimate
+    of the CDAC weights before random mismatch. Each switched capacitor
+    contributes twice its effective value; the terminal decision keeps its
+    nominal unit weight at the volts-per-design-unit scale projected from the
+    extracted capacitances, as in calibration 1. The weights are normalized to
+    the inclusive output range and carry the measurement's identity.
+    """
+
+    nominal_bout_weight = measurement.nominal_bout_weights.astype(np.float64)
+    nominal_cap_weight = nominal_bout_weight[:-1]
+    measured = effective is not None
+    # the effective capacitances in any common unit: the weights are their proportions
+    effective = nominal_cap_weight / 2 if effective is None else np.asarray(effective, dtype=np.float64)
+    if effective.shape != nominal_cap_weight.shape:
+        raise ValueError(f"{label}: {len(effective)} stages, expected {len(nominal_cap_weight)}")
+    extracted_cap_weight = 2.0 * effective
+    scale = float(np.dot(nominal_cap_weight, extracted_cap_weight) / np.dot(nominal_cap_weight, nominal_cap_weight))
+    code_max = measurement.code_max
+    calibrated_weight = np.append(extracted_cap_weight, nominal_bout_weight[-1] * scale)
+    calibrated_weight *= code_max / np.sum(calibrated_weight)
+    identity = measurement.identity
+    return AnalysisCalibration(
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        method="extracted",
+        label=label,
+        code_max=code_max,
+        nominal_weights=nominal_bout_weight * code_max / np.sum(nominal_bout_weight),
+        calibrated_weights=calibrated_weight,
+        # a design's weights are none of them measured
+        measured_weight_mask=np.append(np.full(len(effective), measured), False),
+        training_sample_count=0,
+        validation_sample_count=0,
+        output_gain=1.0,
+        output_offset_lsb=0.0,
+    )
+
+
 def _decode(bout: np.ndarray, calibration: AnalysisCalibration, *, rounded: bool = True) -> np.ndarray:
     """Stored BOUT decisions decoded with ``calibration``'s weights, clipped to its code range.
 
@@ -2317,7 +2362,7 @@ def analyze_mismatch(meas: MeasAdc) -> AnalysisMismatch:
     """The predicted mismatch statistics of a behavioral capture's array: its nominal capacitances
     (a capture without a draw), top-plate load, design weights and code range."""
     cdac = meas.param.cdac
-    main_f, diff_f = calc_side_capacitances(cdac, meas.tb, "p")
+    main_f, diff_f = capdac.Model.plates_f(cdac, "p", meas.tb.dut.cdac, float(meas.tb.vdd_dac.dc))
     statistics = _mismatch_statistics(
         main_f,
         diff_f,

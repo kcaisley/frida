@@ -65,11 +65,12 @@ import numpy as np
 from hdl21.prefix import G
 
 from flow import capdac, comp, samp
-from flow.analysis.io import read_extracted_calibration
+from flow.analysis.io import read_cap_table
 from flow.analysis.types import MeasAdc
 from flow.pipeline import Pdk, Record, grid, values, widen
 
 from .analysis import (
+    _extracted_calibration,
     analyze_calibration2,
     analyze_calibration3,
     analyze_code_spectrum,
@@ -527,11 +528,15 @@ def record(captures: dict[str, MeasAdc]) -> Record:
 
 
 def _extracted(measurement: MeasAdc) -> AnalysisCalibration:
-    """A capture's "extracted" weights: what its ``cap_table`` readback names (a PEX table; a
+    """A capture's "extracted" weights: from what its ``cap_table`` readback names (a PEX table; a
     behavioral capture's, the settling measurement its DAC's characterization keeps, each stage's
-    step as measured; none, a DAC designed alone: the design's weights,
-    ``flow.analysis.io.read_extracted_calibration``)."""
-    return read_extracted_calibration(Path(str(measurement.info.readbacks["cap_table"])), measurement)
+    step as measured, ``flow.analysis.io.read_cap_table``); none, a DAC designed alone: the design's
+    weights."""
+    path = Path(str(measurement.info.readbacks["cap_table"]))
+    if path == Path():
+        return _extracted_calibration(measurement, None, "Design weights, nothing extracted")
+    label = "Measured-step weights" if path.suffix == ".h5" else "PEX-extracted weights"
+    return _extracted_calibration(measurement, read_cap_table(path), label)
 
 
 def _ladder(captures: dict[str, MeasAdc]) -> AnalysisLadder | None:
@@ -607,8 +612,9 @@ def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
 def hdl21_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
     """Run the generated ADC at 2, 6, and 10 MS/s with 50 mV input."""
 
+    from flow.adc.sim import _decode
     from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+    from flow.circuit.results import read_raw_transient
 
     with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
         futures = []
@@ -635,7 +641,7 @@ def hdl21_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
         for future, params in futures:
             raw_path, signal_names = future.result()
             if not check:
-                measurement = convert_raw_adc_to_measurement(
+                measurement = _decode(
                     read_raw_transient(raw_path),
                     params=params,
                     raw_path=raw_path,
@@ -648,8 +654,9 @@ def hdl21_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
 def hdl21_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
     """Run the generated ADC from -750 mV to +750 mV in 10 mV steps."""
 
+    from flow.adc.sim import _decode
     from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+    from flow.circuit.results import read_raw_transient
 
     params = TbParams(
         view="hdl21gen",
@@ -664,7 +671,7 @@ def hdl21_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
         check=check,
     )
     if not check:
-        measurement = convert_raw_adc_to_measurement(
+        measurement = _decode(
             read_raw_transient(raw_path),
             params=params,
             raw_path=raw_path,
@@ -677,8 +684,9 @@ def hdl21_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
 def frida1_sequence(run_dir: Path, *, check: bool = False) -> Path:
     """Compare seven continuous timing recipes on four historical flavors."""
 
+    from flow.adc.sim import _decode
     from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+    from flow.circuit.results import read_raw_transient
 
     root = Path(__file__).resolve().parents[2] / "build/layout/adc"
     with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
@@ -732,7 +740,7 @@ def frida1_sequence(run_dir: Path, *, check: bool = False) -> Path:
         for future, params in futures:
             raw_path, signal_names = future.result()
             if not check:
-                measurement = convert_raw_adc_to_measurement(
+                measurement = _decode(
                     read_raw_transient(raw_path),
                     params=params,
                     raw_path=raw_path,
@@ -745,8 +753,9 @@ def frida1_sequence(run_dir: Path, *, check: bool = False) -> Path:
 def frida1_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
     """Run the four original PEX flavors at 2, 6, and 10 MS/s."""
 
+    from flow.adc.sim import _decode
     from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+    from flow.circuit.results import read_raw_transient
     from pdk.tsmc65.hdl21 import site
 
     with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
@@ -788,7 +797,7 @@ def frida1_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
         for future, params in futures:
             raw_path, signal_names = future.result()
             if not check:
-                measurement = convert_raw_adc_to_measurement(
+                measurement = _decode(
                     read_raw_transient(raw_path),
                     params=params,
                     raw_path=raw_path,
@@ -801,8 +810,9 @@ def frida1_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
 def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
     """Run the original extracted ADC from -750 mV to +750 mV in 10 mV steps."""
 
+    from flow.adc.sim import _decode
     from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+    from flow.circuit.results import read_raw_transient
     from pdk.tsmc65.hdl21 import site
 
     params = TbParams(
@@ -819,7 +829,7 @@ def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
         check=check,
     )
     if not check:
-        measurement = convert_raw_adc_to_measurement(
+        measurement = _decode(
             read_raw_transient(raw_path),
             params=params,
             raw_path=raw_path,
@@ -832,8 +842,9 @@ def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
 def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
     """Run the 15 original extracted-ADC rate/supply-noise combinations."""
 
+    from flow.adc.sim import _decode
     from flow.analysis.io import write_measurement
-    from flow.circuit.results import convert_raw_adc_to_measurement, read_raw_transient
+    from flow.circuit.results import read_raw_transient
     from pdk.tsmc65.hdl21 import site
 
     noise_rms_v = 1e-3
@@ -874,7 +885,7 @@ def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
         for future, params in futures:
             raw_path, signal_names = future.result()
             if not check:
-                measurement = convert_raw_adc_to_measurement(
+                measurement = _decode(
                     read_raw_transient(raw_path),
                     params=params,
                     raw_path=raw_path,
