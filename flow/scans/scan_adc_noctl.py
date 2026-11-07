@@ -173,7 +173,7 @@ def scan(
             try:
                 print(
                     f"\n=== {position} variant {variant_index + 1}: ADC {scan_params.observed_adc:02d}, "
-                    f"{float(params.symbol_rate) / 1e6:g} MBd ==="
+                    f"{1e-6 / float(params.seq_init.period):g} MBd ==="
                 )
 
                 # Put every GPIO0 debug path in a known physical-capture state
@@ -193,7 +193,8 @@ def scan(
                 cap_weights = capdac.Model.weights(params.params.cdac)
                 code_weights = convert_dac_caps_to_adc_weights(cap_weights)
                 sequence_words = len(params.seq_init.data) // 8
-                symbol_rate_bps = float(params.symbol_rate)
+                # the sequencer's clock: a symbol each period of its lines (``h.Vbit.Params``)
+                symbol_rate_bps = 1.0 / float(params.seq_init.period)
                 capture_settings = select_fastrx_capture_settings(scan_params, board["fastrx_capture_settings"])
                 rx_sen_start_word = capture_settings.rx_sen_start_word
                 comp_idelay_taps = capture_settings.comp_delay_taps

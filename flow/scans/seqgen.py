@@ -11,7 +11,8 @@ def convert_params_to_seqgen_fmt(params: adc.TbParams, rx_sen_pattern: str) -> a
     """Pack four serializer lanes and a caller-defined RX_SEN word pattern.
 
     The four sequencer lines (``seq_*``, ``h.Vbit.Params``) hold one bit per serialized symbol
-    (their ``data``).
+    (their ``data``), all at the serializer's one symbol period (their ``period``, which
+    ``adc.TbParams`` holds equal; the scans program the serializer's clock from it).
     ``rx_sen_pattern`` contains one bit per eight-symbol sequencer word. The
     RX_SEN may remain high across a repeat. Stop the receiver before stopping
     a sequence whose last RX_SEN word is high.

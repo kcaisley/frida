@@ -1169,9 +1169,15 @@ class TbParams(pipeline.TbParams):
                 raise ValueError("a staircase input's conversion is longer than its 100 ps step")
 
     @property
+    def lines(self) -> tuple[h.Vbit.Params, h.Vbit.Params, h.Vbit.Params, h.Vbit.Params]:
+        """The sequencer's four lines, INIT, SAMP, COMP and LOGIC: a row each (its ``data``), a
+        symbol a ``period``."""
+        return tuple(getattr(self, name) for name in _lines)
+
+    @property
     def rows(self) -> tuple[str, str, str, str]:
         """The sequencer's rows its four lines play: INIT, SAMP, COMP and LOGIC."""
-        return tuple(getattr(self, name).data for name in _lines)
+        return tuple(line.data for line in self.lines)
 
     def sequenced(
         self, rows: tuple[str, str, str, str] | None = None, *, symbol_rate: float | None = None

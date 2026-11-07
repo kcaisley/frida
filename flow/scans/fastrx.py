@@ -204,7 +204,8 @@ def select_fastrx_capture_settings(params: AdcScanParams, profiles: Sequence[dic
         matches = [
             profile
             for profile in profiles
-            if float(profile["symbol_rate_bps"]) == float(params.tb.symbol_rate)
+            # the profile's baud is the sequencer lines' symbol period (``h.Vbit.Params.period``)
+            if math.isclose(float(profile["symbol_rate_bps"]) * float(params.tb.seq_init.period), 1.0, rel_tol=1e-12)
             and (
                 # a profile names its recipe by the recipe's name in lower case
                 getattr(Recipe.__members__.get(str(profile.get("sequence", "")).upper()), "rows", None) == rows

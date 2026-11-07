@@ -547,7 +547,8 @@ def scan(
         daq["gpio0"]["RST_B"] = 1
         daq["gpio0"].write()
 
-        symbol_rate_bps = float(first.tb.symbol_rate)
+        # the sequencer's clock: a symbol each period of its lines (``h.Vbit.Params``)
+        symbol_rate_bps = 1.0 / float(first.tb.seq_init.period)
         si570_frequency_hz, pll_divider_n = select_pll_configuration(symbol_rate_bps)
         sequencer_frequency_hz, serializer_frequency_hz = calculate_pll_frequency(
             pll_divider_n,

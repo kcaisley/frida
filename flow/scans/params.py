@@ -60,8 +60,10 @@ def validate_params(params: AdcScanParams) -> None:
         raise ValueError("settling_time_s must be finite and non-negative")
     if params.vdd_io.dc is None or not math.isfinite(float(params.vdd_io.dc)):
         raise ValueError("vdd_io.dc must be finite")
-    if not math.isfinite(float(tb.symbol_rate)) or float(tb.symbol_rate) <= 0.0:
-        raise ValueError("tb.symbol_rate must be finite and positive")
+    # the sequencer's four lines (``h.Vbit.Params``): one clock, a symbol a period
+    periods = {float(line.period) for line in tb.lines}
+    if len(periods) != 1 or not all(math.isfinite(period) and period > 0.0 for period in periods):
+        raise ValueError("tb's sequencer lines must play their symbols at one finite, positive period")
     if tb.conversions <= 0:
         raise ValueError("tb.conversions must be positive")
     for name in ("vdd_a", "vdd_d", "vdd_dac", "vin_cm"):
@@ -92,11 +94,11 @@ def validate_params(params: AdcScanParams) -> None:
         values = getattr(tb, name)
         if len(values) != 16 or any(value not in (0, 1) for value in values):
             raise ValueError(f"tb.{name} must contain exactly sixteen binary values")
-    patterns = tb.rows
+    patterns = [line.data for line in tb.lines]
     if any(not pattern or set(pattern) - {"0", "1"} for pattern in patterns):
-        raise ValueError("tb sequencer patterns must be non-empty binary strings")
+        raise ValueError("tb's sequencer lines must play non-empty binary data")
     if len({len(pattern) for pattern in patterns}) != 1 or len(patterns[0]) % 8:
-        raise ValueError("tb sequencer patterns must have equal whole-word lengths")
+        raise ValueError("tb's sequencer lines must play data of equal whole-word lengths")
 
     selection = (params.board_id, params.observed_adc, params.active_adc_mask)
     if any(value is not None for value in selection):

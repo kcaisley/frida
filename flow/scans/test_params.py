@@ -149,3 +149,47 @@ def test_variants_use_selected_sequence_to_set_conversion_rate():
         vin_diff=h.Vdc.Params(dc=0.05),
     )
     assert [float(item.tb.symbol_rate) for item in variants] == [1.6e9, 1.68e9]
+
+
+def test_a_captures_converter_is_its_named_instances_digest() -> None:
+    """Each channel's capture is of FRIDA-1's fabricated converter on it (the board map's layers
+    and weights): its ``dut`` the named instance's Params, the same digest, so a capture and the
+    instance's record compare."""
+    from flow import pipeline
+    from flow.adc import sweep
+    from flow.scans.params import fabricated
+    from flow.sweep.runner import digest
+
+    named = pipeline.names(sweep)
+    variants = build_adc_variants(
+        board_id=0,
+        adc_indices=(0, 1, 2, 3),
+        active_conversion_rates_hz=(1.0e6,),
+        sequences=(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC00001111,),
+        conversions=100,
+        vin_cm_v=0.6,
+        vin_diff=h.Vdc.Params(dc=0.05),
+    )
+    for variant in variants:
+        member = fabricated(variant.observed_adc)
+        instance = named[f"frida1_{member.layers}layer_radix{member.radix}"]()
+        assert variant.tb.params == instance
+        assert digest(variant.tb.params) == digest(instance)
+    assert len({digest(variant.tb.params) for variant in variants}) == len({fabricated(i) for i in range(4)})
+
+
+def test_the_sequencer_is_programmed_from_its_lines_data_and_period() -> None:
+    """The FPGA's sequencer plays the four lines' ``data`` at their ``period`` (``h.Vbit.Params``):
+    the scan's checks read them, and a FastRX profile matches the lines' symbol period."""
+    from flow.scans.fastrx import FastRxCapture, select_fastrx_capture_settings
+
+    recipe = Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC10000111
+    params = AdcScanParams(tb=AdcScanParams().tb.sequenced(recipe.rows, symbol_rate=960e6))
+    assert [line.data for line in params.tb.lines] == list(recipe.rows)
+    assert {float(line.period) for line in params.tb.lines} == {1 / 960e6}
+    validate_params(params)
+    profile = {"symbol_rate_bps": 960e6, "sequence": recipe.name.lower(), "comp_delay_taps": 7, "rx_sen_start_word": 3}
+    assert select_fastrx_capture_settings(params, [profile]) == FastRxCapture(7, 3)
+    other = {**profile, "symbol_rate_bps": 1600e6}
+    with pytest.raises(ValueError, match="expected one characterized"):
+        select_fastrx_capture_settings(params, [other])

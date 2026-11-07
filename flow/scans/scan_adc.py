@@ -625,7 +625,7 @@ def scan(
             try:
                 print(
                     f"\n=== {position} variant {variant_index + 1}: ADC {scan_params.observed_adc:02d}, "
-                    f"{float(params.symbol_rate) / 1e6:g} MBd ==="
+                    f"{1e-6 / float(params.seq_init.period):g} MBd ==="
                 )
                 loaded_voltage_tolerance_v = float(supply_limits["loaded_voltage_tolerance_v"])
 
@@ -907,7 +907,8 @@ def scan(
                 daq["gpio0"]["RST_B"] = 1
                 daq["gpio0"].write()
 
-                symbol_rate_bps = float(params.symbol_rate)
+                # the sequencer's clock: a symbol each period of its lines (``h.Vbit.Params``)
+                symbol_rate_bps = 1.0 / float(params.seq_init.period)
 
                 capture_settings = select_fastrx_capture_settings(scan_params, board["fastrx_capture_settings"])
                 rx_sen_start_word = capture_settings.rx_sen_start_word
