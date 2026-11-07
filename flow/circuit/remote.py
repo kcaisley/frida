@@ -1,4 +1,4 @@
-"""Deploy existing simulation targets with SSH/rsync/tmux (``launch``); check a worker
+"""Deploy a block's circuit simulator runs with SSH/rsync/tmux (``launch``); check a worker
 (``status``) and collect (``collect``).
 
 FTD infrastructure (examples, not defaults): launch from /local/frida on
@@ -17,10 +17,11 @@ be configured on the worker; rsync, SSH and tmux are also needed locally.
 Each launch gets a fresh revision-pinned snapshot under the supplied work root
 and a local build/remote/<session>/ record. ``inputs`` adds explicit build inputs
 (e.g. signed-off PEX directories), never an old simulation campaign or a venv.
-The detached worker runs focused tests, the target's Spectre diagnostic (skips
-are failures), then the target (``python -m flow <block>.<target>``). A detached *local* tmux collector
-checks every 30 minutes and copies raw/HDF5 results and logs when the whole
-target exits, including failures. Analysis runners select reviewed collected directories explicitly.
+The detached worker runs focused tests, the block's Spectre diagnostic (skips
+are failures), then the instances' circuit runs (``python -m flow run <block> --instance I ...
+--level circuit``, a fresh run of the snapshot's ``build/<block>/``). A detached *local* tmux
+collector checks every 30 minutes and copies the run's records, results and logs when the whole
+run exits, including failures; its figures are then ``python -m flow plot <block> --from`` it.
 Neither host may power off; SSH outages are retried by the collector. Resume
 collection with ``collect(campaign, watch=True)`` if the local session was lost.
 No simulation is automatically restarted and no remote files are deleted.
@@ -34,6 +35,7 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
@@ -110,13 +112,16 @@ def _snapshot_files(root: Path, inputs: list[str], pdk: str) -> list[str]:
     return sorted(set(files))
 
 
-def _worker_script(remote_dir: str, block: str, target: str, setup: str | None) -> str:
-    """Only shell plumbing: experiment/diagnostic definitions stay in the runners/tests. ``target``
-    is the simulation function in ``flow.<block>.sim`` (the ADC's: ``flow.adc.sweep``, its tests in
-    test_sweep.py); its flow target drops the block prefix."""
-    node = f"flow/circuit/test_spectre.py::test_target_diagnostic[{block}-{target}]"
-    folder = block.replace(".", "/")
-    focused = f"flow/{folder}/test_sim.py" + (f" flow/{folder}/test_sweep.py" if block == "adc" else "")
+def _worker_script(remote_dir: str, block: str, instances: Sequence[str], pdk: str, setup: str | None) -> str:
+    """Only shell plumbing: the focused tests of ``block`` (its sim's and sweep's), its Spectre
+    diagnostic (the ADC's: each top's checks), then its circuit simulator's runs of ``instances``
+    in ``pdk`` (``python -m flow run <block> --level circuit``) into a fresh run of the snapshot."""
+    node = (
+        "flow/adc/test_sim.py::test_each_top_passes_spectres_checks"
+        if block == "adc"
+        else f"flow/circuit/test_spectre.py::test_{block}_pipeline_diagnostic"
+    )
+    focused = f"flow/{block}/test_sim.py flow/{block}/test_sweep.py"
     # pytest succeeds on skipped tests; require a real passing diagnostic before a campaign.
     gate = (
         "import xml.etree.ElementTree as E; "
@@ -125,6 +130,8 @@ def _worker_script(remote_dir: str, block: str, target: str, setup: str | None) 
         "assert not any(int(x.get(k,0)) for x in s for k in ('skipped','failures','errors')), "
         "'diagnostic must pass without skips'"
     )
+    run = ["uv", "run", "--frozen", "python", "-m", "flow", "run", block, "--pdk", pdk]
+    run += [part for instance in instances for part in ("--instance", instance)]
     return "\n".join(
         [
             "#!/bin/bash",
@@ -145,17 +152,7 @@ def _worker_script(remote_dir: str, block: str, target: str, setup: str | None) 
             f"uv run --frozen pytest {focused}",
             f"uv run --frozen pytest -m spectre {shlex.quote(node)} --junitxml=build/remote/preflight.xml",
             f"uv run --frozen python -c {shlex.quote(gate)}",
-            shlex.join(
-                [
-                    "uv",
-                    "run",
-                    "--frozen",
-                    "python",
-                    "-m",
-                    "flow",
-                    f"{block}.{target.removeprefix(block.rpartition('.')[2] + '_')}",
-                ]
-            ),
+            shlex.join([*run, "--level", "circuit"]),
             "",
         ]
     )
@@ -171,7 +168,7 @@ def _check_worker(host: str, *paths: str | None) -> None:
 
 
 def launch(
-    target: str,
+    instances: Sequence[str],
     *,
     host: str,
     work_root: str,
@@ -181,9 +178,9 @@ def launch(
     inputs: list[str] | tuple[str, ...] = (),
     root: Path = ROOT,
 ) -> Path:
-    """Snapshot, diagnose, run detached and collect automatically: ``target`` (a simulation function
-    of ``flow.<block>.sim``, the ADC's of ``flow.adc.sweep``) on the trusted SSH ``host`` (FTD: juno
-    or jupiter) in a fresh snapshot under ``work_root`` (an existing absolute worker directory),
+    """Snapshot, diagnose, run detached and collect automatically: the circuit simulator's runs of
+    ``instances`` of ``block`` (named instances or digests, ``python -m flow run <block> --level
+    circuit``) on the trusted SSH ``host`` (FTD: juno or jupiter) in a fresh snapshot under ``work_root`` (an existing absolute worker directory),
     after sourcing ``setup`` (an absolute shell environment script on the worker); ``pdk`` names
     the PDK submodule to include (not a foundry model installation), ``inputs`` repository-relative
     build inputs. The local campaign directory."""
@@ -191,8 +188,9 @@ def launch(
     _check_worker(host, work_root, setup)
     if block not in BLOCKS:
         raise ValueError(f"block must be one of {BLOCKS}")
-    if not all(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) for value in (target, pdk)):
-        raise ValueError("target and PDK must be identifiers")
+    instances = list(instances)
+    if not instances or not all(re.fullmatch(r"[A-Za-z0-9_]+", value) for value in (*instances, pdk)):
+        raise ValueError("instances (names or digests) and PDK must be identifiers")
     inputs = list(inputs)
     for tool in ("ssh", "rsync", "tmux"):
         if shutil.which(tool) is None:
@@ -208,7 +206,7 @@ def launch(
         "remote_dir": remote_dir,
         "session": session,
         "block": block,
-        "target": target,
+        "instances": instances,
         "setup": setup,
         "inputs": inputs,
         "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
@@ -216,7 +214,7 @@ def launch(
     }
     (campaign / "manifest.json").write_text(json.dumps(record, indent=2) + "\n")
     (campaign / "source-files.txt").write_bytes("\0".join(files).encode() + b"\0")
-    (campaign / "run.sh").write_text(_worker_script(remote_dir, block, target, setup))
+    (campaign / "run.sh").write_text(_worker_script(remote_dir, block, instances, pdk, setup))
     # No mkdir -p for the snapshot itself: an existing destination must never be overwritten.
     _ssh(
         host,
@@ -297,6 +295,7 @@ def collect(campaign: Path, *, watch: bool = False) -> int:
                             "--protect-args",
                             "--timeout=120",
                             "--rsh=ssh -o BatchMode=yes -o ConnectTimeout=10",
+                            f"--include=/{record['block']}/***",
                             "--include=/sim/***",
                             "--include=/diagnostics/***",
                             "--include=/remote/***",

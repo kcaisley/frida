@@ -1,10 +1,8 @@
 """The ADC's design space (``flow.adc.sweep``, the grid ``converters``, in TSMC65 alone): the plain
 product of the comparator grid, the samplers, the arrays (both weight builds), the resolutions and
-the capacitance scales, every component its block sweep's instance; its campaign (``campaign``),
-every capture the figures read, for any testbench builder; the model's own metrics its record adds
-(``characterize``, on a stand-in model); and its named Spectre runs, each the testbenches it builds
-and runs side by side (the simulator replaced), with the CLI's targets of them
-(``flow.adc.targets``)."""
+the capacitance scales, every component its block sweep's instance; its runs at each level, every
+capture the figures read; the record of any of them; and the circuit simulator's runs, each the
+testbench it builds, and each timing's figures."""
 
 import importlib.util
 import inspect
@@ -503,3 +501,25 @@ def test_extracted_weights_are_a_capacitive_dacs_measured_steps(tmp_path: Path, 
     design = sweep._extracted(adc_measurement([0, 1, 2], readbacks={"cap_table": ""}))
     np.testing.assert_allclose(design.calibrated_weights, design.nominal_weights)
     assert not design.measured_weight_mask.any()
+
+
+def test_each_timings_circuit_run_draws_its_decision_paths_and_its_sequence() -> None:
+    """The sequence runs' record (``spice_sequence_*``): the map of the timings, and each timing's
+    decision paths (whole, their last decisions, the codes they end on) and programmed sequence,
+    each figure named by its run."""
+    from flow.adc.test_analysis import adc_measurement, timing_sequences
+
+    spice = {}
+    for number, rows in enumerate(timing_sequences[:2]):
+        capture = adc_measurement([1000, 1001, 1002, 1001] * 25, sample_rate_hz=10e6, observed_adc=0)
+        spice[f"spice_sequence_t{number}"] = replace(
+            capture, param=replace(capture.param, tb=capture.tb.sequenced(rows))
+        )
+    figures, _results, _waves = sweep._spice_record(spice)
+    names = [figure.name for figure in figures]
+    assert names[:3] == ["spice_sequence_enob", "spice_sequence_plausible", "spice_sequence_shift"]
+    assert names[3:] == [
+        f"spice_sequence_t{number}_{figure}"
+        for number in range(2)
+        for figure in ("trajectory", "trajectory_final", "trajectory_codes", "sequencer")
+    ]

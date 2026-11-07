@@ -3,15 +3,16 @@
 each in its own stage module, their names re-exported here (``from flow import adc`` then
 ``adc.Params``, ``adc.analyze_ramp``, ``adc.AnalysisRamp``, ``adc.plot_inl``).
 
-Its design space (``flow.adc.sweep``), behavioral model (``flow.adc.model``), own layout flow
-(``flow.adc.layout``) and lab studies (``flow.adc.targets``) are not imported here: its runs'
-behavioral converter (``flow.adc.sim``) imports the other blocks' models, and through a module that
+Its design space (``flow.adc.sweep``), behavioral model (``flow.adc.model``) and own layout flow
+(``flow.adc.layout``) are not imported here (its lab studies are its figures of captures,
+``python -m flow plot adc <figure> --from <runs>``): its runs' behavioral converter (``flow.adc.sim``) imports the other blocks' models, and through a module that
 refers to this package (``flow.analysis.types`` does), a block's own stages would reach the stages
 above them, against the stage order import-linter holds the migrated blocks to."""
 
 from . import params, subckt, sim, types, analysis, plots  # noqa: I001 - the pipeline's order
 from .analysis import (
     analyze_calibration1,
+    analyze_cap_mismatch,
     analyze_calibration2,
     analyze_calibration3,
     analyze_cdac_settling,
@@ -184,6 +185,7 @@ __all__ = [
     "analyze_calibration1",
     "analyze_calibration2",
     "analyze_calibration3",
+    "analyze_cap_mismatch",
     "analyze_cdac_settling",
     "analyze_code_density_nonlinearity",
     "analyze_code_distribution",

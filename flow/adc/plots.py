@@ -5,10 +5,10 @@ record's, ``flow.adc.sweep.record``), then the figures only the lab studies draw
 readable; what a second curve would add is a figure of its own. The decision-path density is its
 paths, each distinct one with how many conversions took it (``Plot.paths``): the whole conversion,
 its last decisions, and where the conversions at one input end. Every value is written to six
-significant digits, as the viewer's other exports. The same specs draw the lab captures: a study
-(``flow.adc.targets``, a scan's test) renders those of its captures' results with
-``flow.plot.render``, a figure a decoding, calibration, capture or group of captures, each named by
-its weights, its rate or its sequence.
+significant digits, as the viewer's other exports. The same specs draw the lab captures, a study's
+figures (``python -m flow plot adc <figure> --from <runs>``, ``flow.plot.figures``; a scan's test),
+a figure a decoding, calibration, capture or sweep, each named by its weights, its rate or its
+sequence.
 """
 
 from __future__ import annotations
@@ -493,7 +493,7 @@ def plot_reference_r_out(reference: AnalysisReference) -> Plot:
     )
 
 
-# ---- the lab studies' figures (flow.adc.targets, the scans' tests), none of them the record's: each
+# ---- the lab studies' figures (``python -m flow plot adc --from``, the scans' tests), none of them the record's: each
 # from the results of its captures, one curve or one map as the record's
 
 

@@ -88,7 +88,7 @@ FIGURES = (
     "reference_noise",
     "reference_r_out",
 )
-# the figures only the lab studies draw (flow.adc.targets, the scans' tests), after the record's
+# the figures only the lab studies draw (``python -m flow plot adc --from``, the scans' tests), after the record's
 LAB_FIGURES = (
     "transfer",
     "ramp_transfer",
@@ -565,7 +565,7 @@ def test_the_interferer_search_marks_its_frequency_and_each_rates_line(
     ]
     stuck = adc_measurement(np.full(16_384, 2_000), sample_rate_hz=2.0e6, logic_phase_delay_symbols=1, observed_adc=2)
     spectra = [analyze_code_spectrum(measurement) for measurement in (*measurements, stuck)]
-    interferer = analyze_interferer([*measurements, stuck], spectra=spectra)
+    interferer = analyze_interferer(spectra)
     figure = plots.plot_interferer(interferer)
     (score,) = figure.series.values()
     assert len(figure.x) == 2000 < len(interferer.candidate_frequency_hz)
@@ -691,3 +691,116 @@ def test_a_simulated_conversions_rail_power_and_its_sequencer(tmp_path: Path, mo
     for figure in (figures[0], diagram):
         (png, _pdf) = render(figure, tmp_path / figure.name)
         assert plt.imread(png).shape[:2] == (2700, 4800)
+
+
+# ---- the lab studies as ``python -m flow plot adc <figure> --from <runs>``: a campaign's captures,
+# each board and channel's, made into its figures by the analyses as they chain
+
+
+def _captured(dout, *, rate: float, rows, vin: float = 0.05, observed_adc: int = 0, readbacks=None) -> MeasAdc:
+    """A lab capture of a fixed input at ``rate`` conversions a second, its sequencer playing
+    ``rows`` (board 7)."""
+    import hdl21 as h
+
+    capture = adc_measurement(dout, sample_rate_hz=rate, observed_adc=observed_adc, readbacks=readbacks)
+    tb = replace(capture.tb, vin_diff=h.Vdc.Params(dc=vin)).sequenced(rows, symbol_rate=rate * len(rows[0]))
+    return replace(capture, param=replace(capture.param, tb=tb))
+
+
+def _written(run: Path, captures) -> Path:
+    from flow.analysis.io import write_measurement
+
+    for number, capture in enumerate(captures):
+        write_measurement(run / f"{number:04d}_capture.h5", capture)
+    return run
+
+
+def test_a_campaigns_rate_sweeps_are_a_figure_each(tmp_path: Path) -> None:
+    """A campaign's captures of one ADC over two sequences and three rates: the noise over the rate
+    of each sequence its own figure (``MeasAdc.sweep``), as one sweep's captures draw it."""
+    import json
+
+    from flow import plot
+
+    rng = np.random.default_rng(3)
+    captures = [
+        _captured(np.rint(1000 + rng.normal(0, 1 + rate / 1e6, 400)), rate=rate, rows=rows)
+        for rows in timing_sequences[:2]
+        for rate in (1e6, 2e6, 4e6)
+    ]
+    run = _written(tmp_path / "run", captures)
+    paths = plot.figures("adc", [run], ["noise_rate"], backend="web", out_dir=tmp_path / "out")
+    assert sorted(path.stem for path in paths) == sorted(f"noise_rate_board7_channel0_{c.sweep}" for c in captures[::3])
+    for path, sweep in zip(sorted(paths), sorted({c.sweep: c for c in captures}.items()), strict=True):
+        expected = plots.plot_noise_rate([analyze_noise(c) for c in captures if c.sweep == sweep[0]])
+        assert json.loads(path.read_text()) == json.loads(json.dumps(expected.to_json()))
+
+
+def test_the_interferer_search_takes_each_sweep_of_a_campaign(tmp_path: Path) -> None:
+    """The alias search over one sequence's rates (``analyze_interferer`` of their code spectra), a
+    figure a sequence: a campaign of two never mixes its sequences' lines."""
+    import json
+
+    from flow import plot
+
+    shown = Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC10000111.rows
+    other = Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111.rows
+    captures = [
+        _captured(tone_codes(rate, tone_hz=tone, count=4096, seed=seed), rate=rate, rows=rows)
+        for rows, tone in ((shown, 8.15e6), (other, 7.143e6))
+        for seed, rate in enumerate((2e6, 6e6, 10e6))
+    ]
+    run = _written(tmp_path / "run", captures)
+    paths = plot.figures("adc", [run], ["interferer"], backend="web", out_dir=tmp_path / "out")
+    assert len(paths) == 2
+    path = tmp_path / "out" / f"interferer_board7_channel0_{captures[0].sweep}.json"
+    expected = plots.plot_interferer(analyze_interferer([analyze_code_spectrum(c) for c in captures[:3]]))
+    assert json.loads(path.read_text()) == json.loads(json.dumps(plot._finite(expected.to_json())))
+    assert expected.x_markers[0].at == pytest.approx(8.15e6, rel=1e-3)
+
+
+def test_a_chips_sequence_maps_are_each_adcs_and_its_adcs_together(tmp_path: Path) -> None:
+    """The operating conditions over sequence and rate as maps: each ADC's, and its board's ADCs'
+    together (``analyze_sequence_map`` of every channel's conditions)."""
+    import json
+
+    from flow import plot
+
+    captures = [
+        _captured([1000, 1001, 1002, 1001] * 25, rate=rate, rows=rows, observed_adc=adc)
+        for adc in (0, 1)
+        for rate in (1e6, 2e6)
+        for rows in timing_sequences[:3]
+    ]
+    run = _written(tmp_path / "run", captures)
+    paths = plot.figures("adc", [run], ["sequence_enob"], backend="web", out_dir=tmp_path / "out")
+    assert sorted(path.stem for path in paths) == [
+        "sequence_enob_board7",
+        "sequence_enob_board7_channel0",
+        "sequence_enob_board7_channel1",
+    ]
+    board = json.loads((tmp_path / "out/sequence_enob_board7.json").read_text())
+    assert board["title"] == plots.plot_sequence_enob(analyze_sequence_map([adc_conditions(0, {})])).title
+
+
+def test_a_ramps_calibrations_and_its_codes_decoded_by_each(tmp_path: Path, capsys) -> None:
+    """A ramp's calibrations, a figure each (the analyses giving one of ``AnalysisCalibration``'s
+    kinds: calibration 1 wants the DAC's curves, calibration 3 a noisy ramp, so this one's draws
+    calibration 2 alone and says why the others are not drawn); with ``priors``, its codes decoded
+    by each calibration it gives instead of the design's weights."""
+    from flow import plot
+    from flow.analysis.io import write_measurement
+
+    ramp = adc_ramp_measurement()
+    write_measurement(tmp_path / "run/0000_ramp.h5", ramp)
+    (weights,) = plot.figures("adc", [tmp_path / "run"], ["calibration_weights"], out_dir=tmp_path / "w")
+    assert weights.stem == "calibration_weights_board7_channel0_calibration2_0000_ramp"
+    assert "analyze_calibration3: threshold fit requires" in capsys.readouterr().out
+    (design,) = plot.figures("adc", [tmp_path / "run"], ["inl"], backend="web", out_dir=tmp_path / "d")
+    (decoded,) = plot.figures(
+        "adc", [tmp_path / "run"], ["inl_calibrated"], backend="web", out_dir=tmp_path / "c", priors=True
+    )
+    assert design.stem == "inl_board7_channel0_0000_ramp"
+    assert decoded.stem == "inl_calibrated_board7_channel0_0000_ramp_calibration2"
+    with pytest.raises(ValueError, match="no figure sampling_noise of adc from these captures"):
+        plot.figures("adc", [tmp_path / "run"], ["sampling_noise"], out_dir=tmp_path / "x")

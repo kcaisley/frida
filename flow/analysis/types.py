@@ -73,6 +73,13 @@ class MeasAdc(Meas):
         return float(self.tb.symbol_rate) / len(self.tb.seq_init.data)
 
     @property
+    def sweep(self) -> str:
+        """What a sweep over the rate holds in its run (its input, common mode and sequence:
+        ``adc.TbParams.sweep``), so a campaign's captures of one sweep draw one curve."""
+
+        return self.tb.sweep
+
+    @property
     def active_conversion_rate_hz(self) -> float:
         """Return the nominal conversion rate excluding idle padding."""
 

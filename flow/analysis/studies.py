@@ -1,6 +1,7 @@
-"""What the analysis studies share: explicit, manually invoked measurement -> analysis -> plot
-pipelines, the ``*_study`` targets in each block's ``targets.py``
-(``python -m flow adc.sample_rate_study``).
+"""What the analysis studies of the blocks not on the pipeline share: explicit, manually invoked
+measurement -> analysis -> plot pipelines, the ``*_study`` targets in each such block's
+``targets.py`` (``python -m flow delay.characterization_study``). A block on the pipeline has no
+studies: its figures of captures are ``python -m flow plot <block> <figure> --from <runs>``.
 
 Each study pins its accepted input files or measurement directories under ``BASE_PATH``. Small
 campaigns list every H5 file; large campaigns use a narrow glob within a named directory. There is

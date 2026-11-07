@@ -91,6 +91,7 @@ from .analysis import (
     analyze_redundancy,
     analyze_reference,
     analyze_sequence_map,
+    analyze_sequencer,
     analyze_transfer,
     metrics,
 )
@@ -155,6 +156,7 @@ from .plots import (
     plot_sequence_enob,
     plot_sequence_plausible,
     plot_sequence_shift,
+    plot_sequencer,
     plot_spectrum_low,
     plot_spectrum_nyquist,
     plot_trajectory,
@@ -754,7 +756,8 @@ def _spice_record(spice: dict[str, MeasAdc]) -> tuple[list[Plot], dict[str, Any]
     results for the metrics, and the run whose waves the viewer shows: the fixed input's noise, its
     noise-equivalent ENOB, its codes and the supply power over the rate (``spice_rate_*``); the
     transfer curve (``spice_ramp``); the noise over the rate behind each noisy supply
-    (``spice_supply_*``, a figure a rail); the sequence map of the timings (``spice_sequence_*``)."""
+    (``spice_supply_*``, a figure a rail); the sequence map of the timings (``spice_sequence_*``),
+    and each timing's decision paths and programmed sequence."""
 
     figures: list[Plot] = []
     results: dict[str, Any] = {}
@@ -790,6 +793,20 @@ def _spice_record(spice: dict[str, MeasAdc]) -> tuple[list[Plot], dict[str, Any]
             _spice_named(plot_sequence_plausible(timings)),
             _spice_named(plot_sequence_shift(timings)),
         ]
+        # each timing's decision paths (whole, their last decisions, the codes they end on) and its
+        # programmed sequence, a figure each named by its run (spice_sequence_<comp>_<logic>_<figure>)
+        for name, measurement in spice.items():
+            if name.startswith("spice_sequence_"):
+                paths = analyze_decision_paths(measurement)
+                figures += [
+                    replace(figure, name=f"{name}_{figure.name}")
+                    for figure in (
+                        plot_trajectory(paths),
+                        plot_trajectory_final(paths),
+                        plot_trajectory_codes(paths),
+                        plot_sequencer(analyze_sequencer(measurement)),
+                    )
+                ]
     waves = {"spice_rate_10": "spice_rate_10"} if "spice_rate_10" in spice else {}
     return figures, results, waves
 

@@ -1,6 +1,7 @@
 """PDK-independent runner contracts and diagnostic prerequisite handling."""
 
 import importlib
+import importlib.util
 import inspect
 import sys
 from types import SimpleNamespace
@@ -11,11 +12,10 @@ from . import test_spectre
 
 
 def test_the_adcs_circuit_runs_are_its_sweeps():
-    # the ADC's circuit simulator's runs are its sweep's runs at the circuit level, no targets of them
+    # the ADC's circuit simulator's runs are its sweep's runs at the circuit level: it has no targets
     sweep = importlib.import_module("flow.adc.sweep")
-    targets = importlib.import_module("flow.adc.targets")
     assert "level" in inspect.signature(sweep.runs).parameters
-    assert not any(name.startswith(("hdl21_", "frida1_")) for name in vars(targets))
+    assert importlib.util.find_spec("flow.adc.targets") is None
     for stage in ("sim", "sweep"):
         source = importlib.import_module(f"flow.adc.{stage}")
         assert not hasattr(source, "main")

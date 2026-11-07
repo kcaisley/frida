@@ -24,6 +24,7 @@ start); ``TbParams.sequenced`` sets them, ``TbParams.continuous`` to the generat
 continuous rows at any stage count.
 """
 
+import hashlib
 import math
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
@@ -971,6 +972,11 @@ def _default_line(index: int) -> h.Vbit.Params:
     return _line(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC00001111.rows[index], 1.6e9, 1.2)
 
 
+def _digest(text: str) -> str:
+    """A short digest of ``text``, a name for what has none of its own."""
+    return hashlib.sha256(text.encode()).hexdigest()[:8]
+
+
 def _conversion_symbols(rows: tuple[str, ...]) -> int:
     """INIT rise to final COMP fall, rounded up to its eight-symbol word.
 
@@ -1203,6 +1209,26 @@ class TbParams(pipeline.TbParams):
     def rows_from_init(self) -> tuple[str, ...]:
         """Its rows advanced to INIT's rise (``from_init``)."""
         return TbParams.from_init(self.rows)
+
+    @property
+    def sweep(self) -> str:
+        """What a sweep over the rate holds in this run, as a name: its input (a level, a sine's
+        frequency and amplitude, another waveform's digest), its common mode and its sequence from
+        INIT (its recipe's name, or its rows' digest where no recipe has them). A lab campaign's
+        captures of one sweep share it (``flow.plot.figures``: a rate sweep's curve)."""
+        source = self.vin_diff
+        if isinstance(source, h.Vdc.Params):
+            vin = f"dc{float(source.dc) * 1e3:g}mv"
+        elif isinstance(source, h.Vsin.Params):
+            vin = f"sine{float(source.freq) / 1e3:g}khz{float(source.vamp) * 1e3:g}mv"
+        else:
+            vin = f"{type(source).__name__.lower()}{_digest(repr(source))}"
+        rows = self.rows_from_init
+        sequence = (
+            next((recipe.name.lower() for recipe in Recipe if TbParams.from_init(recipe.rows) == rows), None)
+            or f"rows{_digest(repr(rows))}"
+        )
+        return f"{vin}_cm{float(self.vin_cm.dc) * 1e3:g}mv_{sequence}".replace(".", "p").replace("-", "m")
 
     @property
     def conversion_symbols(self) -> int:

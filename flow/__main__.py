@@ -6,7 +6,7 @@ named instances (its ``sweep.py``):
     python -m flow run <block> [--pdk P ...] [--instance I ...] [--missing] [--level L] [--workers N]
     python -m flow layout <block> [--pdk P ...] [--instance I ... [--auto] [--plan]] [--list] [--no-pex] [--redo] [--workers N]
     python -m flow table <block> [--workers N]
-    python -m flow plot <block> [FIGURE ...] --from DIR [--from DIR ...] [--backend matplotlib|web]
+    python -m flow plot <block> [FIGURE ...] --from DIR [--from DIR ...] [--backend matplotlib|web] [--priors]
     python -m flow opt <block> --problem P [--pdk P] [--budget N] [--workers N] [--best N] [--finalists N]
     python -m flow page <block> [--pdk P ...] [--instance I ...] [--run-dir DIR]
 
@@ -41,7 +41,7 @@ from pathlib import Path
 # each block's targets module, imported when it is listed or run: a block that no longer imports
 # (one not yet ported to the shared layout step) fails alone, when it is run
 BLOCKS = (
-    *("adc", "bias", "clkgen", "cml", "csa", "delay", "disc", "follower", "idac", "latch", "layout"),
+    *("bias", "clkgen", "cml", "csa", "delay", "disc", "follower", "idac", "latch", "layout"),
     *("lvshift", "ota", "pi", "ringamp", "schmitt", "sweep", "web"),
 )
 
@@ -117,6 +117,11 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("figures", nargs="*", metavar="FIGURE", help="the figures, by name (default: all)")
             command.add_argument("--from", dest="sources", type=Path, action="append", required=True)
             command.add_argument("--backend", choices=("matplotlib", "web"), default="matplotlib")
+            command.add_argument(
+                "--priors",
+                action="store_true",
+                help="draw each figure with each optional prior its captures give (a ramp by each calibration)",
+            )
         if verb != "table":
             command.add_argument("--pdk", action="append", choices=runner.PDKS, dest="pdks")
             command.add_argument("--instance", action="append", dest="instances", metavar="I")
@@ -232,6 +237,7 @@ def verb(argv: list[str]) -> None:
             backend=args.backend,
             pdks=args.pdks or (),
             instances=args.instances or (),
+            priors=args.priors,
         ):
             print(path)
     elif args.list:

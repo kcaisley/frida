@@ -100,7 +100,7 @@ def test_snapshot_rejects_input_symlinks(repository):
 def test_launch_rejects_unsafe_arguments(args, monkeypatch):
     monkeypatch.setattr(remote, "_snapshot_files", lambda *_: pytest.fail("validated before any snapshot"))
     with pytest.raises(ValueError):
-        remote.launch("frida1_sequence", **args)
+        remote.launch(["frida1_1layer_radix17"], **args)
 
 
 def test_ssh_quotes_one_remote_bash_command(monkeypatch):
@@ -126,7 +126,7 @@ def test_launch_uses_existing_target_and_detached_collector(repository, monkeypa
     monkeypatch.setattr(subprocess, "run", run)
     monkeypatch.setattr(remote, "_ssh", lambda host, command: calls.append([host, command]))
     campaign = remote.launch(
-        "frida1_sequence",
+        ["frida1_1layer_radix17", "frida1_2layer_radix20"],
         host="worker",
         work_root="/local/user",
         setup="/eda/setup.sh",
@@ -140,7 +140,14 @@ def test_launch_uses_existing_target_and_detached_collector(repository, monkeypa
         record["revision"] == subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip()
     )
     assert record["remote_dir"].startswith("/local/user/frida-")
-    assert "uv run --frozen python -m flow adc.frida1_sequence" in (campaign / "run.sh").read_text()
+    script = (campaign / "run.sh").read_text()
+    # the instances' circuit runs, after the converter's own Spectre check of each top
+    assert (
+        "uv run --frozen python -m flow run adc --pdk tsmc65 --instance frida1_1layer_radix17 "
+        "--instance frida1_2layer_radix20 --level circuit"
+    ) in script
+    assert "flow/adc/test_sim.py::test_each_top_passes_spectres_checks" in script
+    assert record["instances"] == ["frida1_1layer_radix17", "frida1_2layer_radix20"]
     assert any(call[0] == "tmux" and "collect" in call[-1] and "watch=True" in call[-1] for call in calls)
     assert any(call[0] == "worker" and "tmux new-session -d" in call[1] for call in calls)
     assert not any("--delete" in call for call in calls)
@@ -196,7 +203,7 @@ elif 'python' in args:
         path.chmod(0o755)
     setup = tmp_path / "vendor's setup.sh"
     setup.write_text("false\nexport VENDOR_ENVIRONMENT=ready\n")
-    script = remote._worker_script(str(work), "adc", "frida1_sequence", str(setup))
+    script = remote._worker_script(str(work), "adc", ["frida1_1layer_radix17"], "tsmc65", str(setup))
     result = subprocess.run(
         ["bash", "-c", script],
         env={**os.environ, "PATH": f"{binaries}:{os.environ['PATH']}", "SCENARIO": scenario},
@@ -215,6 +222,7 @@ def campaign(tmp_path):
                 "host": "worker",
                 "remote_dir": "/local/user/snapshot",
                 "session": "test",
+                "block": "adc",
             }
         )
     )
@@ -276,6 +284,7 @@ def test_rsync_result_filter_preserves_raw_and_hdf5_but_omits_inputs(tmp_path):
         pytest.skip("rsync unavailable")
     source, dest = tmp_path / "source", tmp_path / "dest"
     for name in (
+        "adc/20261107_120000/tsmc65/frida1_1layer_radix17/instance.json",
         "sim/target/stamp/case/raw/data",
         "sim/target/stamp/case/result.h5",
         "diagnostics/log",
@@ -289,6 +298,7 @@ def test_rsync_result_filter_preserves_raw_and_hdf5_but_omits_inputs(tmp_path):
         [
             "rsync",
             "-a",
+            "--include=/adc/***",
             "--include=/sim/***",
             "--include=/diagnostics/***",
             "--include=/remote/***",
@@ -298,6 +308,7 @@ def test_rsync_result_filter_preserves_raw_and_hdf5_but_omits_inputs(tmp_path):
         ],
         check=True,
     )
+    assert (dest / "adc/20261107_120000/tsmc65/frida1_1layer_radix17/instance.json").exists()
     assert (dest / "sim/target/stamp/case/raw/data").exists()
     assert (dest / "sim/target/stamp/case/result.h5").exists()
     assert (dest / "remote/run.log").exists()

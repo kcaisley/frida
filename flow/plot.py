@@ -9,12 +9,15 @@ as the JSON the viewer draws with Plotly; from a sweep run's records or from cap
 from __future__ import annotations
 
 import inspect
+import itertools
 import json
 import math
 import typing
 from collections.abc import Sequence
 from importlib import import_module
+from importlib.util import find_spec
 from pathlib import Path
+from types import UnionType
 from typing import Any
 
 import matplotlib as mpl
@@ -25,8 +28,9 @@ from matplotlib.colors import LogNorm
 from matplotlib.figure import Figure
 from matplotlib.ticker import FixedLocator, LogLocator, MaxNLocator, NullFormatter
 
+from flow import pipeline
 from flow.analysis.plots import CURVE_COLORS, DENSITY_COLOR_MAP, PLOT_STYLE, SPINE_COLOR, save_figure, style_grid
-from flow.pipeline import Analysis, Heatmap, Plot
+from flow.pipeline import Heatmap, Plot
 
 # the units an axis label ends in that take an SI prefix, as the viewer scales them (detail.js)
 SCALABLE = ("s", "V", "A", "J", "W", "F", "Hz", "Ω", "C", "V/C", "V/√Hz")
@@ -270,36 +274,225 @@ def _finite(value):
     return value
 
 
-def resolvable(block: str) -> dict[str, tuple[Any, ...]]:
-    """The block's figures drawn from captures, by name: each ``plot_<name>`` of its ``plots.py`` that
-    takes one result, with the analysis of its ``analysis.py`` that gives that result from a
-    sequence of captures, and the captures' type."""
+def _members(hint: Any) -> tuple[type, ...]:
+    """The classes ``hint`` names: itself, or a union's members (None left out)."""
+    if isinstance(hint, UnionType) or typing.get_origin(hint) is typing.Union:
+        return tuple(
+            member for member in typing.get_args(hint) if isinstance(member, type) and member is not type(None)
+        )
+    return (hint,) if isinstance(hint, type) else ()
 
-    analyses = import_module(f"flow.{block}.analysis")
-    plots = import_module(f"flow.{block}.plots")
-    found = {}
-    for name, function in vars(plots).items():
-        if not name.startswith("plot_") or not inspect.isfunction(function):
+
+def _of(hint: Any) -> tuple[tuple[type, ...], bool]:
+    """What a parameter takes: its classes, and whether a sequence of them (``Sequence[X]``)."""
+    if typing.get_origin(hint) is Sequence:
+        return _members(typing.get_args(hint)[0]), True
+    return _members(hint), False
+
+
+def _stages(block: str, kind: str) -> list[Any]:
+    """The analyses (``kind`` "analysis") or figures ("plots") a block's figures from captures draw
+    on: its own, then those of every block whose results they take or give (the ADC's: the
+    comparator's and the DAC's), each module once."""
+
+    modules, pending = [], [block]
+    while pending:
+        name = pending.pop(0)
+        if name in modules:
             continue
+        modules.append(name)
+        for function in vars(import_module(f"flow.{name}.analysis")).values():
+            if not inspect.isfunction(function) or pipeline.STAGE_FUNCTIONS.get(function) != "analysis":
+                continue
+            for hint in typing.get_type_hints(function).values():
+                for member in (*_of(hint)[0], *_members(hint)):
+                    owner = member.__module__.split(".")
+                    if (
+                        len(owner) == 3
+                        and owner[0] == "flow"
+                        and owner[2] == "types"
+                        and owner[1] not in modules
+                        and find_spec(f"flow.{owner[1]}.analysis") is not None
+                    ):
+                        pending.append(owner[1])
+    found, names = [], set()
+    for name in modules:
+        for function_name, function in vars(import_module(f"flow.{name}.{kind}")).items():
+            stage = "analysis" if kind == "analysis" else "plot"
+            if (
+                inspect.isfunction(function)
+                and pipeline.STAGE_FUNCTIONS.get(function) == stage
+                and function_name not in names
+            ):
+                names.add(function_name)
+                found.append(function)
+    return found
+
+
+def _returns(function: Any) -> type:
+    return typing.get_type_hints(function)["return"]
+
+
+def _producers(analyses: Sequence[Any], wanted: type) -> list[Any]:
+    """The analyses that give a ``wanted`` result: the first that gives it exactly, else each that
+    gives one of its kinds (the ADC's three calibrations of ``AnalysisCalibration``)."""
+    exact = [analysis for analysis in analyses if _returns(analysis) is wanted]
+    return exact[:1] or [analysis for analysis in analyses if issubclass(_returns(analysis), wanted)]
+
+
+def resolvable(block: str) -> dict[str, tuple[Any, type, bool]]:
+    """The block's figures drawn from captures, by name: each ``plot_<name>`` of its ``plots.py``
+    (or of the plots of a block whose results its analyses give: the ADC's of the DAC's mismatch)
+    that takes one result, or a sequence of them, which a capture is or an analysis gives, with
+    that result's type and whether it takes a sequence."""
+
+    analyses = _stages(block, "analysis")
+    found = {}
+    for function in _stages(block, "plots"):
         hints = typing.get_type_hints(function)
         hints.pop("return", None)
         if len(hints) != 1:
             continue
-        (result,) = hints.values()
-        for analysis in vars(analyses).values():
-            if not inspect.isfunction(analysis) or not analysis.__name__.startswith("analyze_"):
-                continue
-            needs = typing.get_type_hints(analysis)
-            given = needs.pop("return", None)
-            parameters = [
-                p for p in inspect.signature(analysis).parameters.values() if p.kind is p.POSITIONAL_OR_KEYWORD
-            ]
-            if given is not result or len(needs) != 1 or len(parameters) != 1:
-                continue
-            (sequence,) = needs.values()
-            if typing.get_origin(sequence) is Sequence and issubclass(typing.get_args(sequence)[0], Analysis):
-                found[name.removeprefix("plot_")] = (function, analysis, typing.get_args(sequence)[0])
+        (kinds, many) = _of(next(iter(hints.values())))
+        if len(kinds) == 1 and (
+            _producers(analyses, kinds[0]) or getattr(kinds[0], "__module__", "").endswith(".types")
+        ):
+            found.setdefault(function.__name__.removeprefix("plot_"), (function, kinds[0], many))
     return found
+
+
+def _stem(capture: Any) -> str:
+    """A capture's name in its figures' names: its file's stem."""
+    source = getattr(getattr(capture, "info", None), "source_path", None)
+    return Path(source).stem if source else f"capture{id(capture):x}"
+
+
+def _tag(*parts: str) -> str:
+    """A figure's name from its parts, each once."""
+    return "_".join(dict.fromkeys(part for part in parts if part))
+
+
+def _ids(value: Any) -> Any:
+    """A value's identity as an analysis's input: a sequence's, its items'."""
+    return tuple(map(id, value)) if isinstance(value, list) else id(value)
+
+
+def _gathered(analyses: Sequence[Any], kind: type, composer: _Composer) -> list[Any]:
+    """The results a board's channels gather for a figure of ``kind`` (an ADC's operating
+    conditions, for a chip's sequence map): where its analysis takes, and needs nothing but, a
+    sequence of results the channel's captures make once (an analysis of a sequence of them), the
+    channel's; none otherwise."""
+    producers = _producers(analyses, kind)
+    if len(producers) != 1:
+        return []
+    parameters = list(inspect.signature(producers[0]).parameters.values())
+    if any(parameter.default is inspect.Parameter.empty for parameter in parameters[1:]):
+        return []
+    kinds, many = _of(typing.get_type_hints(producers[0])[parameters[0].name])
+    if not many or len(kinds) != 1 or any(isinstance(item, kinds[0]) for item in composer.channel):
+        return []
+    inner = _producers(analyses, kinds[0])
+    if not inner or not all(
+        _of(typing.get_type_hints(producer)[next(iter(inspect.signature(producer).parameters))])[1]
+        for producer in inner
+    ):
+        return []
+    return [value for value, _parts in composer.values(kinds[0], [], split=False)]
+
+
+class _Composer:
+    """A channel's results by type, each made from its captures as the block's analyses chain them
+    (``figures``): a capture of that kind, or the analysis that gives it, its input and its priors
+    made the same way; each analysis call kept, so a result is made once, and each that failed
+    (``ValueError``, or ``KeyError`` for a wave a capture has not: not of these captures) noted."""
+
+    def __init__(self, analyses: Sequence[Any], channel: Sequence[Any], priors: bool) -> None:
+        self.analyses, self.channel, self.priors = analyses, list(channel), priors
+        self.made: dict[tuple[Any, ...], Any] = {}
+        self.making: list[tuple[Any, Any]] = []
+        self.failures: dict[str, None] = {}
+
+    def values(self, hint: Any, inputs: Sequence[Any], *, split: bool) -> list[tuple[Any, tuple[str, ...]]]:
+        """Each value a parameter annotated ``hint`` takes for an analysis of ``inputs``, with what
+        names it among several: captures of its kind (the analysis's own where they are of it,
+        else the channel's), one each (each its file's name) or all as a sequence; else what its
+        analysis makes (each analysis's name where several give one of its kinds), one capture at a
+        time or once, a sequence made one capture at a time taken one sweep at a time (its name)
+        where ``split`` and its captures name their sweep (``MeasAdc.sweep``)."""
+
+        return self.made_of(*_of(hint), inputs, split=split)
+
+    def made_of(
+        self, kinds: tuple[type, ...], many: bool, inputs: Sequence[Any], *, split: bool
+    ) -> list[tuple[Any, tuple[str, ...]]]:
+        """``values`` of a parameter of ``kinds`` (a sequence of them where ``many``)."""
+        captured = [item for item in inputs if isinstance(item, kinds)] or [
+            item for item in self.channel if isinstance(item, kinds)
+        ]
+        if captured:
+            return [(captured, ())] if many else [(item, (_stem(item),)) for item in captured]
+        # a result made of these inputs while it is being made (a cycle of priors): none
+        making = (kinds[0] if kinds else None, _ids(list(inputs)))
+        if len(kinds) != 1 or making in self.making:
+            return []
+        self.making.append(making)
+        producers = _producers(self.analyses, kinds[0])
+        try:
+            produced = [
+                (value, (producer.__name__.removeprefix("analyze_"),) * (len(producers) > 1) + parts, source)
+                for producer in producers
+                for value, parts, source in self.results(producer, inputs)
+            ]
+        finally:
+            self.making.pop()
+        if not many:
+            return [(value, parts) for value, parts, _source in produced]
+        if not produced or produced[0][2] is None:
+            return [([value], parts) for value, parts, _source in produced]
+        sweeps: dict[tuple[str, ...], list[Any]] = {}
+        for value, parts, source in produced:
+            key = (*parts[: len(producers) > 1], getattr(source, "sweep", "") if split else "")
+            sweeps.setdefault(key, []).append(value)
+        return [(values, key) for key, values in sweeps.items()]
+
+    def results(self, analysis: Any, inputs: Sequence[Any]) -> list[tuple[Any, tuple[str, ...], Any]]:
+        """``analysis`` over the values its input takes (``values``), each with its required priors
+        (made from that input, one value each) and its optional ones (None; with ``priors``, at the
+        top, each the captures make instead): the results, what names each and the capture each was
+        made of (None for one of several)."""
+
+        parameters = list(inspect.signature(analysis).parameters.values())
+        hints = typing.get_type_hints(analysis)
+        primary, rest = parameters[0], parameters[1:]
+        # the figure's own analysis: its optional priors taken where ``priors`` asks
+        top = len(self.making) == 1
+        produced = []
+        for value, parts in self.values(hints[primary.name], inputs, split=True):
+            given = value if isinstance(value, list) else [value]
+            choices: list[list[tuple[str, Any, tuple[str, ...]]]] = []
+            for parameter in rest:
+                optional = parameter.default is None
+                if optional and not (self.priors and top):
+                    continue
+                candidates = self.values(hints[parameter.name], given, split=False)
+                if not optional and len(candidates) != 1:
+                    break
+                choices.append([(parameter.name, item, item_parts) for item, item_parts in candidates])
+            else:
+                for combination in itertools.product(*choices):
+                    keywords = {name: item for name, item, _parts in combination}
+                    key = (analysis, _ids(value), *((name, _ids(item)) for name, item in keywords.items()))
+                    if key not in self.made:
+                        try:
+                            self.made[key] = analysis(value, **keywords)
+                        except (ValueError, KeyError) as error:
+                            # not of these captures (a capture without the run, or the waves, it takes)
+                            self.made[key] = None
+                            self.failures[f"{analysis.__name__}: {error!s}"] = None
+                    if self.made[key] is not None:
+                        names = (*parts, *(part for _name, _item, item_parts in combination for part in item_parts))
+                        produced.append((self.made[key], names, None if isinstance(value, list) else value))
+        return produced
 
 
 def figures(
@@ -311,15 +504,30 @@ def figures(
     pdks: Sequence[str] = (),
     instances: Sequence[str] = (),
     out_dir: Path | None = None,
+    priors: bool = False,
 ) -> list[Path]:
     """The block's figures from ``sources`` into ``out_dir`` (a fresh ``build/analysis/<block>/``
     run): from a sweep run (its records' plots, those ``names``, of the instances ``pdks`` and
     ``instances`` pick by label or digest), or from captures (each figure of ``resolvable``, or
     those ``names``, of each board and channel's captures). ``backend`` "matplotlib" draws them,
-    "web" writes each spec as the JSON the viewer draws (a record's plots it shows already)."""
+    "web" writes each spec as the JSON the viewer draws (a record's plots it shows already).
+
+    From captures (directories of them, each HDF5 file beneath, or files): a channel's captures
+    (one board's ``group`` and ``index``) make each figure's result as the block's analyses chain
+    them: a capture of its kind, or the analysis that gives it (of the block's, then of the blocks
+    whose results they take), whose input is made the same way: a capture each where it takes one
+    (a figure each), all of its kind where it takes a sequence; a sequence an analysis makes one
+    capture at a time is taken one sweep at a time where the captures name their sweep (an ADC's:
+    its input, common mode and sequence, ``MeasAdc.sweep``, so a sweep over the rate is one curve);
+    its required priors are made the same way from its own input, its optional ones left out (with
+    ``priors``, each the captures make taken instead: a ramp decoded by each calibration). A result
+    several analyses give (each of its kinds) is drawn for each. An analysis of the results one
+    channel's captures make once (an ADC's operating conditions) is drawn for each channel and for
+    every channel of a board together (``_board<g>``). A figure's name ends in what it is of where
+    there are several: the capture, the sweep, the analysis or the prior."""
 
     from flow import new_run
-    from flow.analysis.io import read_analysis
+    from flow.analysis.io import read_capture, read_channel
 
     written: list[Path] = []
     made: list[Path] = [out_dir] if out_dir else []
@@ -354,23 +562,42 @@ def figures(
     unknown = set(names) - set(available)
     if unknown:
         raise LookupError(f"no figure {sorted(unknown)} of {block} from captures: {', '.join(available)}")
-    captures = [read_analysis(path) for source in sources for path in sorted(Path(source).rglob("*.h5"))]
-    if not captures:
+    paths = [
+        path
+        for source in sources
+        for path in ([Path(source)] if Path(source).is_file() else sorted(Path(source).rglob("*.h5")))
+    ]
+    if not paths:
         raise FileNotFoundError(f"no sweep run's records and no captures in {', '.join(map(str, sources))}")
-    channels: dict[tuple[Any, ...], list[Any]] = {}
-    for capture in captures:
-        channels.setdefault((capture.group, capture.index), []).append(capture)
-    for name in names or available:
-        plot, analysis, kind = available[name]
-        for (group, index), channel in channels.items():
-            if not all(isinstance(capture, kind) for capture in channel):
-                continue
-            try:
-                result = analysis(channel)
-            except ValueError as error:
-                if names:
-                    raise
-                print(f"{name}: not from the captures of board {group}, channel {index}: {error}")
-                continue
-            emit(plot(result), Path(f"{name}_board{group}_channel{index}"))
+    # the captures read one channel at a time, in the order given (a later run's after an earlier one's)
+    channels: dict[tuple[Any, ...], list[Path]] = {}
+    for path in paths:
+        channels.setdefault(read_channel(path), []).append(path)
+    analyses = _stages(block, "analysis")
+    drawn = dict.fromkeys(names or available, 0)
+    failures: dict[str, list[str]] = {}
+    boards: dict[tuple[str, Any], list[Any]] = {}
+    for (group, index), channel_paths in channels.items():
+        composer = _Composer(analyses, [read_capture(path) for path in channel_paths], priors)
+        for name in drawn:
+            plot, kind, many = available[name]
+            noted = len(composer.failures)
+            for value, parts in composer.made_of((kind,), many, [], split=True):
+                emit(plot(value), Path(_tag(f"{name}_board{group}_channel{index}", *parts)))
+                drawn[name] += 1
+            if not many:
+                boards.setdefault((name, group), []).append(_gathered(analyses, kind, composer))
+            failures.setdefault(name, []).extend(
+                f"board {group}, channel {index}: {failure}" for failure in list(composer.failures)[noted:]
+            )
+    for (name, group), gathered in boards.items():
+        if sum(map(bool, gathered)) > 1:
+            plot, kind, _many = available[name]
+            (analysis,) = _producers(analyses, kind)
+            emit(plot(analysis([result for channel in gathered for result in channel])), Path(f"{name}_board{group}"))
+    for name, count in drawn.items():
+        for failure in failures.get(name, []):
+            print(f"{name}: not from the captures of {failure}")
+        if names and not count:
+            raise ValueError(f"no figure {name} of {block} from these captures: {'; '.join(failures.get(name, []))}")
     return written

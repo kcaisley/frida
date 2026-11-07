@@ -722,7 +722,7 @@ def test_adc_code_noise(amp_enable: bool) -> None:
     for adc_index, measurements in sorted(measurements_by_adc.items()):
         spectra = [adc.analyze_code_spectrum(measurement) for measurement in measurements]
         shown_spectra.extend(spectra)
-        interferers.append(adc.analyze_interferer(measurements, spectra=spectra))
+        interferers.append(adc.analyze_interferer(spectra))
         for spectrum in spectra:
             print(
                 f"ADC{adc_index:02d} {spectrum.sample_rate_hz / 1e6:4g} MSPS: {spectrum.total_rms_lsb:.2f} LSB = "

@@ -771,24 +771,18 @@ def analyze_code_spectrum(
 
 
 @analysis
-def analyze_interferer(
-    measurements: Sequence[MeasAdc],
-    *,
-    spectra: Sequence[AnalysisCodeSpectrum],
-) -> AnalysisInterferer:
-    """Unfold one interferer's aliases at several conversion rates to its true frequency.
+def analyze_interferer(spectra: Sequence[AnalysisCodeSpectrum]) -> AnalysisInterferer:
+    """Unfold one interferer's aliases at several conversion rates to its true frequency, from the
+    code spectra of one ADC's captures of one sweep over the rate (``analyze_code_spectrum``: one
+    sequence, its rates captured close in time; over a long campaign a drifting interferer smears
+    and a fixed line wins).
 
     Every candidate frequency is folded into each rate's first Nyquist zone
     and scored by the code spectra there, relative to their floors. Two rates
     or more are needed for the aliases to single out a candidate.
     """
 
-    identity = measurement_identity(measurements)
-    check_identity(spectra, identity, name="spectra")
-    if sorted((m.sample_rate_hz, repr(m.tb.rows)) for m in measurements) != sorted(
-        (s.sample_rate_hz, repr(s.sequence)) for s in spectra
-    ):
-        raise ValueError("spectra must match the measurements' sequences and rates one to one")
+    identity = measurement_identity(spectra)
     valid = [spectrum for spectrum in spectra if spectrum.spectrum_valid]
     if not valid:
         raise ValueError("interferer search needs at least one capture with a noise floor")
@@ -1019,6 +1013,71 @@ def analyze_switching(measurement: MeasCdac) -> capdac.AnalysisSwitching:
         expected_fraction=np.broadcast_to(expected, (stages,)).copy(),
         comparator=params.tb.params.comp,
     )
+
+
+def _lab_curves(measurements: Sequence[MeasCdac]) -> dict[tuple[str, int, str, int], list[MeasCdac]]:
+    """An ADC's A-to-B switching curves (a side, stage, direction and difference-plate mode each)
+    as its latest run holds them: a later run's points of a curve replace an earlier run's whole (a
+    run: the folder its captures were read from, in the order given). A physical curve comes whole
+    from one acquisition session, its last point the one marking it complete; no capture lost
+    FastRX words or SPI readbacks."""
+
+    runs: dict[Any, dict[tuple[str, int, str, int], list[MeasCdac]]] = {}
+    for measurement in measurements:
+        # a lab capture's scan parameters (``flow.scans.params.AdcScanParams``)
+        params: Any = measurement.param
+        if params.campaign != "cdac_ab":
+            raise ValueError("CDAC campaign contains a point outside campaign='cdac_ab'")
+        readbacks = measurement.info.readbacks
+        if int(readbacks.get("fastrx_lost_count", 0)) or int(readbacks.get("spi_mismatches", 0)):
+            raise ValueError("CDAC campaign contains a corrupt physical capture")
+        if params.cdac_side is None or params.cdac_element is None or params.cdac_direction is None:
+            raise ValueError("CDAC measurement is missing its side, element, or direction")
+        source = measurement.info.source_path
+        key = (params.cdac_side, params.cdac_element, params.cdac_direction, int(params.tb.dac_diffcaps))
+        runs.setdefault(None if source is None else source.parent, {}).setdefault(key, []).append(measurement)
+    selected: dict[tuple[str, int, str, int], list[MeasCdac]] = {}
+    for curves in runs.values():
+        for key, curve in curves.items():
+            physical = [point for point in curve if point.info.backend == "physical"]
+            if physical:
+                sessions = {point.info.readbacks.get("acquisition_session_id") for point in physical}
+                completed = [point for point in physical if point.info.readbacks.get("curve_complete") is True]
+                latest = max(point.info.timestamp_utc for point in physical)
+                if (
+                    len(physical) != len(curve)
+                    or None in sessions
+                    or len(sessions) != 1
+                    or len(completed) != 1
+                    or completed[0].info.timestamp_utc != latest
+                ):
+                    raise ValueError(f"CDAC campaign contains an incomplete or mixed-session curve {key}")
+        selected.update(curves)
+    return dict(sorted(selected.items()))
+
+
+@analysis
+def analyze_cap_mismatch(
+    measurements: Sequence[MeasCdac], *, comparator: comp.AnalysisOffsetNoise
+) -> capdac.AnalysisCapMismatch:
+    """One ADC's capacitor mismatch from the A-to-B switching curves its lab captures hold
+    (``capdac.analyze_cap_mismatch``): its curves as its latest runs hold them (``_lab_curves``),
+    each point as the CDAC sees it (``analyze_switching``), each curve's transition the S-curve fit
+    of its fine sweep stage's points where it has them (``capdac.analyze_transition``), every step
+    referred to the ADC's comparator offset (``comparator``, its own characterization)."""
+
+    switching = []
+    transitions = []
+    for curve in _lab_curves(measurements).values():
+        points = [analyze_switching(point) for point in curve]
+        switching.extend(points)
+        # a lab capture's scan parameters (``flow.scans.params.AdcScanParams``): its sweep stage
+        stages = [getattr(measurement.param, "sweep_stage", None) for measurement in curve]
+        fit = [point for point, stage in zip(points, stages, strict=True) if stage == "fine"] or points
+        transitions.append(
+            capdac.analyze_transition(fit, offset=comp.analyze_offset_noise([capdac.analyze_decisions(fit)]))
+        )
+    return capdac.analyze_cap_mismatch(switching, transitions=transitions, comparator=comparator)
 
 
 @analysis
@@ -1856,9 +1915,13 @@ def analyze_calibration1(
     half-step, not a separately switched capacitor; its scale is inferred by
     projecting the measured movements onto their nominal design weights. This
     is the one coefficient marked as not directly measured in the result.
-    The result applies to the whole ADC, so its DUT parameters are the ADC's.
+    The result applies to the whole ADC, so its DUT parameters are the ADC's. The captures are its
+    switching curves as its latest runs hold them (``_lab_curves``: a later run's curve replaces an
+    earlier one's), the programmed A-state that of the first curve's first point.
     """
 
+    # the points of its curves as its latest runs hold them, in the curves' order (``_lab_curves``)
+    measurements = [point for curve in _lab_curves(measurements).values() for point in curve]
     identity = measurement_identity(measurements)
     check_identity(cap_mismatch, identity, name="CDAC cap mismatch")
     tb = measurements[0].tb

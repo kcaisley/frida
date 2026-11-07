@@ -317,7 +317,8 @@ def test_analysis_modules_are_pure_and_never_nest_analyses() -> None:
     assert _source_problems() <= KNOWN_SOURCE_VIOLATIONS
 
 
-# the studies: the *_study targets in the blocks' targets.py, and what they share
+# the studies: the *_study targets in the targets.py of the blocks not on the pipeline, and what they
+# share
 STUDY_MODULES = (ANALYSIS_DIR / "studies.py", *sorted(ANALYSIS_DIR.parent.glob("*/targets.py")))
 
 

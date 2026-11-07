@@ -304,6 +304,29 @@ def read_analysis(path: Path) -> Analysis:
     return analysis
 
 
+def read_capture(path: Path) -> Meas | Analysis:
+    """One capture as it was written: a measurement (:func:`write_measurement`) or an analysis
+    result kept as a capture (:func:`write_analysis`, a comparator's trials)."""
+
+    path = Path(path)
+    with h5py.File(path, "r") as input_file:
+        content = _decode_string(input_file.attrs.get("_content"))
+    return read_measurement(path) if content == "measurement" else read_analysis(path)
+
+
+def read_channel(path: Path) -> tuple[Any, Any]:
+    """Which board and channel a capture is of (its ``group`` and ``index``), read alone so the
+    captures of many channels can be gathered channel by channel."""
+
+    with h5py.File(Path(path), "r") as input_file:
+        content = _decode_string(input_file.attrs.get("_content"))
+        if content not in ("measurement", "analysis") or content not in input_file:
+            raise ValueError(f"{path} is neither a measurement nor an analysis HDF5 file")
+        node = input_file[content]
+        group, index = (_read_native(node[name]) if name in node else None for name in ("group", "index"))
+        return group, index
+
+
 def read_cap_table(path: Path) -> np.ndarray:
     """Each stage's effective capacitance that ``path`` holds, C0 first, in a unit of its own (a
     converter's extracted weights are their proportions): a PEX per-stage capacitance table (CSV, its

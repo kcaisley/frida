@@ -1367,7 +1367,7 @@ def test_interferer_unfolds_aliases_at_three_rates_and_skips_stuck_captures() ->
     measurements.append(stuck)
     spectra = [analyze_code_spectrum(measurement) for measurement in measurements]
 
-    interferer = analyze_interferer(measurements, spectra=spectra)
+    interferer = analyze_interferer(spectra)
 
     np.testing.assert_allclose(interferer.sample_rate_hz, [2.0e6, 6.0e6, 10.0e6])
     # 2, 6, and 10 MSPS fold 8.15 MHz to 150 kHz, 2.15 MHz, and 1.85 MHz.
@@ -1379,12 +1379,16 @@ def test_interferer_unfolds_aliases_at_three_rates_and_skips_stuck_captures() ->
     np.testing.assert_allclose(interferer.folded_frequency_hz[:, 0], 0.0)
 
 
-def test_interferer_rejects_spectra_from_other_captures() -> None:
-    measurement = adc_measurement(tone_codes(2.0e6, tone_hz=8.15e6, count=4_096), sample_rate_hz=2.0e6)
-    other = analyze_code_spectrum(adc_measurement(tone_codes(6.0e6, tone_hz=8.15e6, count=4_096), sample_rate_hz=6.0e6))
+def test_interferer_rejects_spectra_of_other_adcs() -> None:
+    spectra = [
+        analyze_code_spectrum(
+            adc_measurement(tone_codes(rate, tone_hz=8.15e6, count=4_096), sample_rate_hz=rate, observed_adc=adc)
+        )
+        for adc, rate in ((0, 2.0e6), (1, 6.0e6))
+    ]
 
-    with pytest.raises(ValueError, match="one to one"):
-        analyze_interferer([measurement], spectra=[other])
+    with pytest.raises(ValueError, match="share one group"):
+        analyze_interferer(spectra)
 
 
 def test_physical_noise_readout_requires_valid_scope_and_fastrx_readbacks() -> None:
@@ -1922,7 +1926,7 @@ def test_cdac_mismatch_and_calibration1_use_the_measured_capacitor_count() -> No
     )
     fake = cast(
         MeasCdac,
-        SimpleNamespace(tb=tb, identity=Identity(1, 5, tb.params.cdac), trial_index=np.arange(3)),
+        cdac_point(measurements[0].param, Identity(1, 5, tb.params.cdac), 3),
     )
     calibration = analyze_calibration1((fake,), cap_mismatch=cap_mismatch)
     assert calibration.calibrated_weights.shape == (13,)
@@ -1931,6 +1935,14 @@ def test_cdac_mismatch_and_calibration1_use_the_measured_capacitor_count() -> No
 
 
 # ---- calibration 1, from mechanistic CDAC measurements
+
+
+def cdac_point(params: AdcScanParams, identity: Identity, trials: int) -> SimpleNamespace:
+    """A stand-in for one point of a CDAC switching curve (``MeasCdac``): its scan parameters (one
+    curve of the A-to-B campaign), testbench, identity and trials, read from no file."""
+    params = replace(params, campaign="cdac_ab", cdac_side="p", cdac_element=0, cdac_direction="0to1")
+    info = MeasInfo(backend="behavioral", timestamp_utc=datetime(2026, 10, 5, tzinfo=UTC))
+    return SimpleNamespace(param=params, tb=params.tb, identity=identity, trial_index=np.arange(trials), info=info)
 
 
 def test_calibration1_public_analysis_returns_common_weights() -> None:
@@ -1947,7 +1959,7 @@ def test_calibration1_public_analysis_returns_common_weights() -> None:
     identity = Identity(0, 0, params.tb.params.cdac)
     measurement = cast(
         MeasCdac,
-        SimpleNamespace(param=params, tb=params.tb, identity=identity, trial_index=np.arange(100)),
+        cdac_point(params, identity, 100),
     )
 
     def cap_mismatch(by_direction: np.ndarray) -> capdac.AnalysisCapMismatch:
@@ -2017,12 +2029,7 @@ def test_calibration1_selects_p_and_n_directions_from_each_a_state() -> None:
     )
     measurement = cast(
         MeasCdac,
-        SimpleNamespace(
-            param=params,
-            tb=params.tb,
-            identity=Identity(0, 0, params.tb.params.cdac),
-            trial_index=np.arange(10),
-        ),
+        cdac_point(params, Identity(0, 0, params.tb.params.cdac), 10),
     )
 
     result = analyze_calibration1((measurement,), cap_mismatch=cap_mismatch)
@@ -2483,3 +2490,76 @@ def test_a_record_of_no_runs_measures_nothing() -> None:
     assert values and all(math.isnan(value) for value in values.values())
     assert not any(name.startswith("mismatch_mc_") for name in values)
     assert {"enob_bits", "ref_noise_max_v", "spice_noise_rms_lsb", "enob_quantization_bits"} <= set(values)
+
+
+def _lab_curve(direction: str, diffcaps: int, transition_v: float, *, session: str) -> list[MeasCdac]:
+    """One A-to-B switching curve of ADC 0's C15 (P side) as the lab captures it: three fine points
+    about ``transition_v`` (none, half and all of 100 trials high), one acquisition session, the
+    last point marking it complete."""
+    points = []
+    for number, probability in enumerate((0.0, 0.5, 1.0)):
+        vin = transition_v + (number - 1) * 10e-3
+        params = _build_cdac_params(
+            adc_index=0,
+            side="p",
+            element=15,
+            direction=direction,
+            dac_diffcaps=diffcaps,
+            vin_diff_v=vin,
+            conversions=100,
+            sweep_stage="fine",
+        )
+        ones = round(100 * probability)
+        points.append(
+            MeasCdac(
+                group=params.board_id,
+                index=params.observed_adc,
+                dut=params.tb.params.cdac,
+                info=MeasInfo(
+                    backend="physical",
+                    timestamp_utc=datetime(2026, 8, 4, number, tzinfo=UTC),
+                    readbacks={"acquisition_session_id": session, "curve_complete": number == 2},
+                ),
+                param=params,
+                trial_index=np.arange(100),
+                dac_state_p=np.zeros((100, 16), dtype=np.uint8),
+                dac_state_n=np.zeros((100, 16), dtype=np.uint8),
+                vin_diff_v=np.full(100, vin),
+                decision=np.concatenate((np.ones(ones, dtype=np.uint8), np.zeros(100 - ones, dtype=np.uint8))),
+                wave=None,
+            )
+        )
+    return points
+
+
+def test_the_lab_cap_mismatch_takes_each_curve_from_its_latest_run(tmp_path: Path) -> None:
+    """An ADC's capacitor mismatch from its lab captures (``analyze_cap_mismatch``): a later run's
+    points of a curve replace the earlier run's whole, each curve fitted alone, every step referred
+    to the comparator's offset; a curve of two sessions is refused."""
+    from flow.analysis.io import read_measurement, write_measurement
+
+    curves = {
+        (d, c): 1e-3 - (1 if d == "0to1" else -1) * w * 1.2 for d in ("1to0", "0to1") for c, w in ((0, 0.2), (1, 0.18))
+    }
+    first = {key: _lab_curve(*key, transition_v, session=f"a{key}") for key, transition_v in curves.items()}
+    moved = _lab_curve("0to1", 1, curves[("0to1", 1)] - 2e-3, session="b")
+    for run, points in (("run1", [p for curve in first.values() for p in curve]), ("run2", moved)):
+        for number, point in enumerate(points):
+            write_measurement(tmp_path / run / f"{number:04d}_cdac.h5", point)
+    captured = [read_measurement(path) for run in ("run1", "run2") for path in sorted((tmp_path / run).glob("*.h5"))]
+    comparator = comparator_offset(moved[0], 1e-3)
+    mismatch = adc.analyze_cap_mismatch(captured, comparator=comparator)
+    # the direct chain on the curves the later run leaves
+    kept = [*first[("1to0", 0)], *first[("1to0", 1)], *first[("0to1", 0)], *moved]
+    switching = [analyze_switching(point) for point in kept]
+    curve_points = [switching[i : i + 3] for i in range(0, len(switching), 3)]
+    transitions = [
+        capdac.analyze_transition(p, offset=comp.analyze_offset_noise([capdac.analyze_decisions(p)]))
+        for p in curve_points
+    ]
+    expected = capdac.analyze_cap_mismatch(switching, transitions=transitions, comparator=comparator)
+    np.testing.assert_array_equal(mismatch.effective_fraction_by_direction, expected.effective_fraction_by_direction)
+    assert mismatch.effective_fraction_by_direction[0, 15, 1] == pytest.approx(0.18 + 2e-3 / 1.2, abs=1e-4)
+    mixed = [*first[("1to0", 0)][:2], replace(first[("1to0", 0)][2], info=replace(moved[2].info))]
+    with pytest.raises(ValueError, match="mixed-session curve"):
+        adc.analyze_cap_mismatch(mixed, comparator=comparator)
