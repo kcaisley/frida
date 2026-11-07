@@ -17,14 +17,13 @@ Digital lint, simulation, synthesis, and implementation use their stock tools di
 
 The converter's DAC is capdac's (`flow/capdac`, on the [pipeline](pipeline.md)), laid out by the shared layout step as the comparator and the sampler are: `python -m flow layout capdac`.
 
-The fabricated FRIDA-1 ADC's four flavors are extracted and signed off as targets, `adc.layout_<name>`, for example:
+The fabricated FRIDA-1 ADC's four flavors are named instances of the ADC's sweep, laid out by its own flow (`flow/adc/layout.py`'s `lay_out`, which the layout verb runs in place of ALIGN's), extracted and signed off:
 
 ```bash
-uv run python -m flow adc.layout_frida1_1layer_radix17
-uv run python -m flow adc.layout_frida1_2layer_radix20
+uv run python -m flow layout adc --pdk tsmc65 --instance frida1_1layer_radix17 --instance frida1_1layer_radix20 --instance frida1_2layer_radix17 --instance frida1_2layer_radix20
 ```
 
-Each reads its fabricated inputs under `build/`: `frida-1.gds`, the flavor's source netlist `frida-1/<flavor>.src.net`, and its capacitor array's LVS source, frozen once from the retired array generator (`frida-1/<array>.lvs.cdl`, the array's subcircuit with its MOM units as the kit's LVS recognizes them, and `frida-1/<array>.pins.json`, its pins to the fabricated macro's: stage C0 is the macro's pin 15). A target always runs the complete signoff sequence. The DRC stage includes the PDK-local `gdscheck` ADC suite before foundry Calibre DRC. Results are isolated beneath `build/layout/adc/<name>/<timestamp>/`. Each result contains the exact GDS and source CDL used, a recognition-only GDS diff, generated decks and logs, DRC/LVS reports, coupling and net-summary reports, and the final RC-plus-coupling `*.pex.netlist`. xRC stops unless its own conductive-source LVS comparison is correct.
+Each reads its fabricated inputs from the TSMC65 kit's tape-out folder (`site.FRIDA1`), not the repository: `frida-1.gds`, the flavor's source netlist `<flavor>.src.net`, and its capacitor array's LVS source, frozen once from the retired array generator (`<array>.lvs.cdl`, the array's subcircuit with its MOM units as the kit's LVS recognizes them, and `<array>.pins.json`, its pins to the fabricated macro's: stage C0 is the macro's pin 15). Each always runs the complete signoff sequence. The DRC stage includes the PDK-local `gdscheck` ADC suite before foundry Calibre DRC. Results go beneath `build/adc/layout/<timestamp>/tsmc65/<name>/`, each with its record (`instance.json`, the layout's signoff and extraction, which a signoff run of the converter finds by `flow.sweep.lookup.laid_out`). Each result contains the exact GDS and source CDL used, a recognition-only GDS diff, generated decks and logs, DRC/LVS reports, coupling and net-summary reports, and the final RC-plus-coupling `*.pex.netlist`. xRC stops unless its own conductive-source LVS comparison is correct.
 
 The run-local layout copy adds only PDK-local non-mask MOM recognition shapes; the archived source and GDS are never modified. The normal LVS source contains the intended per-layer capacitor network. Thus the old one-layer layout must report `CORRECT`, while the known disconnected upper layer in an old two-layer layout must report the expected connectivity warning. The separate conductive PEX source omits the electrically empty CDAC wrappers so the extractor extracts the fabricated connectivity.
 
@@ -53,13 +52,13 @@ ADC, comparator, sampler, and CDAC simulations use the same named-target interfa
 
 The building blocks' simulations are targets the same way. The comparator, the sampling switch and the capacitive DAC follow the [block pipeline](pipeline.md): their stage files from parameters to records, characterized instance by instance by the sweep runner (`python -m flow run comp`, `run samp`, `run capdac`). Each other block has one `<block>.characterization` campaign (`<block>_characterization` in its `sim.py`) that writes a typed measurement per point, in every PDK (`<run>/<pdk>/<case>/…/result.h5`); `uv run python -m flow <block>.characterization_study` analyzes a pinned campaign and writes its architecture-comparison figures per PDK to `build/analysis/<block>/<timestamp>/<pdk>/`.
 
-Each target owns its reviewed parameter recipe. Short, noise-free Spectre diagnostics call the same simulation function with `check=True`, through pytest only:
+Each target owns its reviewed parameter recipe. Short, noise-free Spectre diagnostics call the same simulation function with `check=True`, through pytest only (the ADC's: one check of each top, generated, tape-out and signoff, in `flow/adc/test_sim.py`):
 
 ```bash
 source /eda/local/scripts/cadence_2024-25.sh
 uv run pytest -m spectre
-# Select just one worker campaign's preflight, if needed:
-uv run pytest -m spectre -k 'adc-frida1_sequence'
+# Select just the ADC's tops, if needed:
+uv run pytest -m spectre -k 'each_top'
 ```
 
 Allow roughly one hour for the full Spectre suite on asiclab003; runtime depends on the host and available resources. Run the full group occasionally or after broad simulation-flow changes, not after every edit. For routine changes, use `-k` to select the tests covering the affected block or experiment. "Short" describes the simulated time, not the wall-clock runtime of extracted circuits.
@@ -68,20 +67,15 @@ The `spectre` group is excluded by default and requires no custom pytest flag. I
 
 ## Circuit simulation
 
-Simulation targets always create a fresh complete run beneath `build/sim/adc/<YYYYMMDD_HHMMSS>_<target>/` for ADCs. Other blocks retain `build/sim/<block>/<target>/<YYYYMMDD_HHMMSS>/`:
+The ADC's Spectre runs are its circuit level: each instance's `spice_*` runs (`flow/adc/sweep.py`'s `runs` at `--level circuit`), recorded with its behavioral ones in its sweep run's record, a candidate's and FRIDA-1's extractions' under the same names. Other blocks' simulation targets create a fresh run beneath `build/sim/<block>/<target>/<YYYYMMDD_HHMMSS>/`:
 
 ```bash
-# Reviewed ADC campaigns
-uv run python -m flow adc.hdl21_sample_rate
-uv run python -m flow adc.frida1_sample_rate
-uv run python -m flow adc.frida1_sequence
-uv run python -m flow adc.hdl21_transfer_curve
-uv run python -m flow adc.frida1_transfer_curve
+# FRIDA-1's sizing generated (the old hdl21_* campaigns), then its four extractions (frida1_*)
+uv run python -m flow run adc --missing --instance frida1 --level circuit
+uv run python -m flow run adc --missing --instance frida1_1layer_radix17 --instance frida1_1layer_radix20 --instance frida1_2layer_radix17 --instance frida1_2layer_radix20 --level circuit
 ```
 
-The extracted fixed-input rate sweep groups the one-layer and two-layer radix-17 and radix-20 ADCs beneath one timestamped run. Each flavor has its own named subdirectory containing the 2, 6, and 10 MS/s results. Independent cases run concurrently within a fixed worker budget, while retaining one coherent campaign directory.
-
-The ADC runners convert completed raw results to typed HDF5 in each case directory; the comparator's and the sampler's runs are read as measurements on the simulator's own time axis (`flow.pipeline.read`, [pipeline](pipeline.md)). Accepted analysis directories remain explicit paths in the studies (the `*_study` targets) and are updated manually after reviewing a run.
+The ADC's runs are read by its own reader (`flow.adc.sim.read`: a Spectre run's transient decoded as conversions, a behavioral run's capture as written); the comparator's and the sampler's runs are read as measurements on the simulator's own time axis (`flow.pipeline.read`, [pipeline](pipeline.md)). Accepted analysis directories remain explicit paths in the studies (the `*_study` targets) and are updated manually after reviewing a run.
 
 Every executable target builds one native HDL21 `Sim` per parameter variant and calls `Sim.run()` or `hs.run()` with the timestamped output as the VLSIR run directory. ADC batches and the sweep's instances use isolated spawned processes, one Spectre thread each. The ADC converts the returned transient to typed HDF5 before releasing it. VLSIR retains the generated `netlist.scs` in every run directory, so a separate netlist-writing layer or target is unnecessary.
 
@@ -212,22 +206,7 @@ Scope/FastRX verification at 1600 MBd does not validate 960 MBd automatically. B
 
 The target function owns the complete parameter recipe. ADC targets iterate their flat list and pass one configuration plus its lifecycle position to the acquisition module; comparator and CDAC targets pass their complete lists. Each run writes one typed HDF5 measurement per parameter variant below a fresh timestamped `build/scan_adc/`, `build/scan_comp/`, or `build/scan_cdac/` directory. The individual scan modules are libraries and do not provide command-line entry points.
 
-Behavioral and SPICE-backed runs write the same measurement schema. The ADC Spectre flow exposes one fixed-input noise campaign for each DUT view:
-
-```bash
-uv run python -m flow adc.hdl21_sample_rate
-uv run python -m flow adc.frida1_sample_rate
-```
-
-Use the `spectre` pytest group for short diagnostics with circuit checks and AHDL linting. Normal target runs write below a fresh `build/sim/adc/<YYYYMMDD_HHMMSS>_<target>/`; `python -m flow` lists all choices.
-
-For the extracted-layout comparison, `frida1_sequence` selects all four historical flavors. Each case uses 100 conversions, 50 mV differential input, 700 mV common mode, 1.2 V supplies, and transient device noise. These reuse the same testbench and result conversion as the rate-sweep targets.
-
-```bash
-uv run pytest -m spectre -k 'adc and sequence'
-uv run python -m flow adc.frida1_sequence
-uv run python -m flow adc.sequence_study
-```
+Behavioral and SPICE-backed runs write the same measurement schema; the ADC's circuit runs are its instances' `spice_*` runs (above). Each fixed-input case uses 100 conversions, 50 mV differential input, 700 mV common mode, 1.2 V supplies, and transient device noise; the seven continuous timings (`spice_sequence_*`) run on each flavor's layout's signoff extraction.
 
 The analysis entrypoints select their input directories in source:
 

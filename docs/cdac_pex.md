@@ -1,6 +1,6 @@
 # FRIDA-1 capacitor-array extraction record
 
-A record of extraction results for the fabricated FRIDA-1 capacitor arrays and of one held sampling-noise comparison. The legacy capacitor-array block that produced some of these numbers, and FRIDA-2's template-swapped extractions, were retired: the converter's DAC is `flow/capdac`, and FRIDA-2 is generated whole. FRIDA-1's four extracted flavors remain (`flow.adc.layout`'s `frida1_*` targets, with the cap array's LVS source frozen under `build/frida-1/`). The runs under `build/` cited here are history.
+A record of extraction results for the fabricated FRIDA-1 capacitor arrays and of one held sampling-noise comparison. The legacy capacitor-array block that produced some of these numbers, and FRIDA-2's template-swapped extractions, were retired: the converter's DAC is `flow/capdac`, and FRIDA-2 is generated whole. FRIDA-1's four extracted flavors remain (the ADC's fabricated instances, laid out by `flow.adc.layout.lay_out`, with the cap array's LVS source frozen in the TSMC65 kit's tape-out folder). The runs under `build/` cited here are history.
 
 ## Held sampling-noise comparison (2026-09-06)
 

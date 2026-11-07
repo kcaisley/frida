@@ -1,29 +1,32 @@
-"""The ADC's layouts: the fabricated FRIDA-1 ADC's four flavors extracted and signed off
-(``frida1_*``); and the sweep's blocks side by side, unconnected, for the viewer
-(``assemble_blocks``, ``layout_run``).
+"""The ADC's own layout flow (``lay_out``, which the layout verbs run in place of ALIGN's,
+docs/pipeline.md): a fabricated FRIDA-1 converter's tape-out layout, signed off and extracted; any
+other converter's blocks side by side, unconnected, until OpenROAD and ALIGN place and route them
+together.
 
-The FRIDA-1 layouts read their fabricated inputs under build/, not in the repository: the GDS
-(``frida-1.gds``), each flavor's source netlist (``frida-1/<flavor>.src.net``) and its capacitor
-array's LVS source (``frida-1/<array>.lvs.cdl``, the array's subcircuit with its MOM units as the
-kit's LVS recognizes them, and ``frida-1/<array>.pins.json``, its pins to the fabricated macro's:
-stage C0 is the macro's pin 15). The GDS gains MOM recognition only; nothing on a mask layer
-changes. LVS reads the source netlist with the array's source swapped in, PEX the source netlist
-without the array (its capacitors are extracted).
+A fabricated converter (``Params.fabricated``, one of ``Fabricated``) is laid out from its tape-out's
+inputs, the TSMC65 kit's ``site.FRIDA1`` folder, not the repository: the chip's GDS (``frida-1.gds``,
+each flavor its own cell), each flavor's source netlist (``<flavor>.src.net``) and its capacitor
+array's LVS source (``<array>.lvs.cdl``, the array's subcircuit with its MOM units as the kit's LVS
+recognizes them, and ``<array>.pins.json``, its pins to the fabricated macro's: stage C0 is the
+macro's pin 15). The GDS gains MOM recognition only; nothing on a mask layer changes. LVS reads the
+source netlist with the array's source swapped in, PEX the source netlist without the array (its
+capacitors are extracted). ``lay_out`` signs it off itself (``flow.layout.signoff.run_signoff``: its
+``signoff_summary.json``, which the layout verbs record as it is): LVS correct for the one-layer
+flavors, the historical disconnected MOM layer of the two-layer ones accepted.
 
-The blocks side by side, until OpenROAD and ALIGN place and route them together: the comparator,
-the samplers and each side of the DAC as their sweeps laid them out (ALIGN): one side of capdac's
-array of the converter's ``capdac.Params``, its drivers with it, as the behavioral model reads its
-characterization, the N side its mirror image. Each block is outlined and labelled on the boundary
-layer, which the viewer shows. Nothing is connected, so nothing is signed off.
+Any other converter's blocks side by side: the comparator, the samplers and each side of the DAC as
+their own layouts laid them out (``flow.sweep.lookup.laid_out``, by their parameters): one side of
+capdac's array of the converter's ``capdac.Params``, its drivers with it, the N side its mirror
+image. Each block is outlined and labelled on the boundary layer, which the viewer shows, and its
+place written beside the GDS (``blocks.json``). Nothing is connected, so DRC alone signs it off.
 
-    entry = assemble_blocks("tsmc65", params, run_dir / "layout")  # the record's layout entry
+    gds = lay_out(params, "tsmc65", run_dir)  # python -m flow layout adc --instance <name>
 """
 
 from __future__ import annotations
 
 import json
 import re
-import traceback
 from importlib import import_module
 from pathlib import Path
 from typing import Literal
@@ -32,10 +35,21 @@ from klayout import db
 
 from flow.layout.gdsdiff import gds_diff
 from flow.layout.signoff import SignoffParams, run_signoff
-from flow.sweep.runner import ROOT, RUNS_DIR, digest, instance_params, write_record
+from flow.sweep.lookup import laid_out
+from flow.sweep.runner import ROOT
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
 
-from .params import Params
+from .params import Fabricated, Params
+
+
+def lay_out(params: Params, pdk: str, run_dir: Path) -> Path:
+    """The converter ``params`` laid out in ``pdk`` into ``run_dir``, its GDS: a fabricated one's
+    tape-out layout, signed off and extracted (``_fabricated``); any other's blocks side by side
+    (``_assemble``)."""
+    if params.fabricated is not None:
+        return _fabricated(params.fabricated, pdk, run_dir)
+    return _assemble(params, pdk, run_dir)
+
 
 # ---- the fabricated FRIDA-1 layouts, extracted and signed off
 
@@ -51,12 +65,11 @@ def _write_top(layout: db.Layout, top_cell: str, path: Path) -> None:
     layout.write(str(path), options)
 
 
-def _frida1_sources(run_dir: Path, *, flavor: str, cap_cell: str) -> tuple[Path, Path]:
+def _frida1_sources(run_dir: Path, inputs: Path, *, flavor: str, cap_cell: str) -> tuple[Path, Path]:
     """A FRIDA-1 flavor's LVS and PEX sources in ``run_dir``: its source netlist
-    (``build/frida-1/<flavor>.src.net``), its top renamed ``adc_12b_17step``, with its capacitor
-    array's LVS source swapped in (``build/frida-1/<cap_cell>.lvs.cdl``, each call reconnected by
-    ``<cap_cell>.pins.json``) for LVS, and without the array for PEX."""
-    inputs = ROOT / "build" / "frida-1"
+    (``inputs/<flavor>.src.net``, the kit's ``site.FRIDA1``), its top renamed ``adc_12b_17step``,
+    with its capacitor array's LVS source swapped in (``inputs/<cap_cell>.lvs.cdl``, each call
+    reconnected by ``<cap_cell>.pins.json``) for LVS, and without the array for PEX."""
     reference = (inputs / f"{flavor}.src.net").read_text(encoding="utf-8")
     pins = json.loads((inputs / f"{cap_cell}.pins.json").read_text(encoding="utf-8"))
     lvs_source = run_dir / "source.lvs.cdl"
@@ -86,6 +99,7 @@ def _frida1_sources(run_dir: Path, *, flavor: str, cap_cell: str) -> tuple[Path,
 
 def _run_frida1(
     run_dir: Path,
+    inputs: Path,
     *,
     target_name: str,
     source_layout_cell: str,
@@ -98,9 +112,9 @@ def _run_frida1(
     # the kit's signoff, imported here: the module loads without the kit
     from pdk.tsmc65.calibre.signoff import BLOCK_WAIVERS, UPPER_DENSITY_WAIVERS, SignoffOptions, add_mom_recognition
 
-    run_dir.mkdir(parents=True, exist_ok=False)
+    run_dir.mkdir(parents=True, exist_ok=True)
     pristine = db.Layout()
-    pristine.read(str(ROOT / "build" / "frida-1.gds"))
+    pristine.read(str(inputs / "frida-1.gds"))
     source_top = pristine.cell(source_layout_cell)
     if source_top is None:
         raise ValueError(f"FRIDA-1 GDS has no cell {source_layout_cell!r}")
@@ -129,7 +143,7 @@ def _run_frida1(
         raise RuntimeError(f"historical annotation changed mask geometry on {sorted(changed)}")
     (run_dir / "recognition_only_diff.json").write_text(json.dumps(diff_summary, indent=2) + "\n", encoding="utf-8")
 
-    lvs_source, pex_source = _frida1_sources(run_dir, flavor=flavor, cap_cell=cap_cell)
+    lvs_source, pex_source = _frida1_sources(run_dir, inputs, flavor=flavor, cap_cell=cap_cell)
     run_signoff(
         SignoffParams(
             technology="tsmc65",
@@ -158,68 +172,39 @@ def _run_frida1(
         ),
         run_dir,
     )
-    return run_dir
+    return gds_path
 
 
-def frida1_1layer_radix17(run_dir: Path) -> Path:
+def _fabricated(member: Fabricated, pdk: str, run_dir: Path) -> Path:
+    """A fabricated converter's tape-out layout, signed off and extracted (``_run_frida1``) from the
+    kit's tape-out inputs (``site.FRIDA1``): its flavor's cell of the chip's GDS (the one-layer
+    radix-17 converter ``adc``, then ``adc_0`` to ``adc_2`` in the order of ``Fabricated``), its
+    source netlist, array and MOM unit cells by its layers and radix, its MOM units on metal 6 (and
+    7, two layers), LVS correct with one layer; ``<member>.gds``, the member's name in lower case."""
+    layers, radix = member.layers, member.radix
+    match member:
+        case Fabricated.FRIDA1_1LAYER_RADIX17:
+            cell = "adc"
+        case Fabricated.FRIDA1_1LAYER_RADIX20:
+            cell = "adc_0"
+        case Fabricated.FRIDA1_2LAYER_RADIX17:
+            cell = "adc_1"
+        case Fabricated.FRIDA1_2LAYER_RADIX20:
+            cell = "adc_2"
     return _run_frida1(
         run_dir,
-        target_name="frida1_1layer_radix17",
-        source_layout_cell="adc",
-        flavor="adc_1layer_radix17",
-        cap_cell="caparray_1layer_radix17",
-        unit_cell_prefix="capunit_1layer",
-        active_layers=(6,),
-        lvs_expectation="correct",
+        import_module(f"pdk.{pdk}.hdl21.site").FRIDA1,
+        target_name=member.name.lower(),
+        source_layout_cell=cell,
+        flavor=f"adc_{layers}layer_radix{radix}",
+        cap_cell=f"caparray_{layers}layer_radix{radix}",
+        unit_cell_prefix=f"capunit_{layers}layer",
+        active_layers=(6,) if layers == 1 else (6, 7),
+        lvs_expectation="correct" if layers == 1 else "incorrect",
     )
 
 
-def frida1_1layer_radix20(run_dir: Path) -> Path:
-    return _run_frida1(
-        run_dir,
-        target_name="frida1_1layer_radix20",
-        source_layout_cell="adc_0",
-        flavor="adc_1layer_radix20",
-        cap_cell="caparray_1layer_radix20",
-        unit_cell_prefix="capunit_1layer",
-        active_layers=(6,),
-        lvs_expectation="correct",
-    )
-
-
-def frida1_2layer_radix17(run_dir: Path) -> Path:
-    return _run_frida1(
-        run_dir,
-        target_name="frida1_2layer_radix17",
-        source_layout_cell="adc_1",
-        flavor="adc_2layer_radix17",
-        cap_cell="caparray_2layer_radix17",
-        unit_cell_prefix="capunit_2layer",
-        active_layers=(6, 7),
-        lvs_expectation="incorrect",
-    )
-
-
-def frida1_2layer_radix20(run_dir: Path) -> Path:
-    return _run_frida1(
-        run_dir,
-        target_name="frida1_2layer_radix20",
-        source_layout_cell="adc_2",
-        flavor="adc_2layer_radix20",
-        cap_cell="caparray_2layer_radix20",
-        unit_cell_prefix="capunit_2layer",
-        active_layers=(6, 7),
-        lvs_expectation="incorrect",
-    )
-
-
-def all_adcs(run_dir: Path) -> Path:
-    for target in (frida1_1layer_radix17, frida1_1layer_radix20, frida1_2layer_radix17, frida1_2layer_radix20):
-        target(run_dir / target.__name__)
-    return run_dir
-
-
-# ---- the sweep's blocks side by side, unconnected, for the viewer
+# ---- any other converter's blocks side by side, unconnected
 
 _GAP_UM = 4.0  # between neighbouring blocks
 # left to right: (instance, block, mirrored); each side's DAC, its drivers with it, then its sampler;
@@ -239,21 +224,6 @@ def _path(path: Path) -> str:
     return str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
 
 
-def sweep_gds(block: str, pdk: str, params) -> Path:
-    """The layout of the instance of ``block``'s sweep with exactly these parameters (its digest),
-    newest run first."""
-    ident = digest(params)
-    for path in sorted((RUNS_DIR / block).glob(f"*/{pdk}/{ident}/instance.json"), reverse=True):
-        record = json.loads(path.read_text())
-        gds = (record.get("layout") or {}).get("gds")
-        if gds and (ROOT / gds).exists():
-            return ROOT / gds
-    raise FileNotFoundError(
-        f"no laid-out instance of the {block} sweep in {pdk} with these parameters under {RUNS_DIR / block}: "
-        f"run python -m flow {block}.sweep ({params})"
-    )
-
-
 def _copied(layout: db.Layout, gds: Path) -> db.Cell:
     """The GDS's top cell (the one named as the file, else the largest) copied into ``layout``."""
     source = db.Layout()
@@ -264,20 +234,23 @@ def _copied(layout: db.Layout, gds: Path) -> db.Cell:
     return cell
 
 
-def assemble_blocks(pdk: str, params: Params, out_dir: Path) -> dict:
-    """The ADC's blocks in a row, unconnected, into ``out_dir/adc_blocks.gds``; its layout entry
-    (as ``flow.sweep.runner.layout_job`` gives one, unsigned) with each block's place, orientation
-    and source: each block as its sweep laid it out, the DAC's one side (capdac's, its drivers with
-    it) twice, the second mirrored."""
+def _assemble(params: Params, pdk: str, run_dir: Path) -> Path:
+    """The converter's blocks in a row, unconnected, into ``run_dir/adc_blocks.gds``: each block as its
+    own layout laid it out (``flow.sweep.lookup.laid_out``), the DAC's one side (capdac's, its drivers
+    with it) twice, the second mirrored; each block's place, orientation and source in
+    ``run_dir/blocks.json``."""
     tech = import_module(f"pdk.{pdk}.layout.tech")
     layout = db.Layout()
     layout.dbu = tech.DBU
     top = layout.create_cell("adc_blocks")
     boundary = layout.layer(*tech.LAYERS["BND"])
     sources = {
-        "comp": sweep_gds("comp", pdk, params.comp),
-        "samp": sweep_gds("samp", pdk, params.samp),
-        "cap": sweep_gds("capdac", pdk, params.cdac),
+        block: ROOT / laid_out(name, pdk, part)["gds"]
+        for block, name, part in (
+            ("comp", "comp", params.comp),
+            ("samp", "samp", params.samp),
+            ("cap", "capdac", params.cdac),
+        )
     }
     cells = {block: _copied(layout, gds) for block, gds in sources.items()}
     blocks, x = [], 0.0
@@ -302,31 +275,8 @@ def assemble_blocks(pdk: str, params: Params, out_dir: Path) -> dict:
             }
         )
         x = placed.right + _GAP_UM
-    out_dir.mkdir(parents=True, exist_ok=True)
-    gds = out_dir / "adc_blocks.gds"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    gds = run_dir / "adc_blocks.gds"
     layout.write(str(gds))
-    box = top.dbbox()
-    return {
-        "gds": _path(gds),
-        "w_um": box.width(),
-        "h_um": box.height(),
-        "drc_violations": None,
-        "lvs_correct": None,
-        "error": None,
-        "blocks": blocks,
-    }
-
-
-def layout_run(run_dir: Path) -> None:
-    """Each characterized instance of an ADC sweep run (``build/adc/<run>``) given its
-    blocks' layout entry in its ``instance.json``, which the viewer's table exports."""
-    for path in sorted(run_dir.glob("*/*/instance.json")):
-        record = json.loads(path.read_text())
-        if record["error"] is not None:
-            continue
-        try:
-            adc = instance_params("adc", record["pdk"], path.parent.name)
-            record["layout"] = assemble_blocks(record["pdk"], adc, path.parent / "layout")
-        except Exception:  # noqa: BLE001 - every instance reports its own failure
-            record["layout"] = {"error": traceback.format_exc(limit=4)[-2000:]}
-        write_record(path, record)
+    (run_dir / "blocks.json").write_text(json.dumps(blocks, indent=1) + "\n")
+    return gds

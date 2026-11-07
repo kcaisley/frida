@@ -365,6 +365,9 @@ def _record(block: str, pdk: str, ident: str, params, out: Path, seconds: float,
         "error": _reason(out) or entry.get("error"),
         "seconds": round(seconds, 1),
         "steps": entry.get("seconds", {}),  # each step's seconds: netlist, layout, DRC, LVS
+        # who signed it off, what it accepted and its extraction, where its flow gives them (a block
+        # that lays itself out: ``lay_out_one``'s entry), so ``flow.sweep.lookup.laid_out`` hands them on
+        **{key: entry[key] for key in ("signoff", "warnings", "pex") if key in entry},
     }
     record = {
         "block": block,
