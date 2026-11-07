@@ -416,6 +416,12 @@ def _shown(path) -> str:
     return str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
 
 
+def _shown_pex(pex: dict | None) -> dict | None:
+    """An extraction's entry as a record holds it: its netlist's path as ``_shown`` gives one, so a
+    copy of the repository (a remote worker's snapshot) reads its own."""
+    return {**pex, "netlist": _shown(pex["netlist"])} if pex and pex.get("netlist") else pex
+
+
 def _own_layouts(block: str, out: Path, pdk: str, params, pex: bool = True) -> list[dict]:
     """The layout of an instance of a block that lays itself out (``flow.layout.step.lay_out_one``,
     in ``out``): its entry, as ``_module_layouts`` gives one, with who signed it off (``signoff``:
@@ -441,7 +447,7 @@ def _own_layouts(block: str, out: Path, pdk: str, params, pex: bool = True) -> l
             drc_violations=summary.get("drc_violations"),
             lvs_correct=summary.get("lvs_correct"),
             warnings=summary.get("warnings"),
-            pex=summary.get("pex"),
+            pex=_shown_pex(summary.get("pex")),
         )
     except Exception:  # noqa: BLE001 - every instance reports its own failure
         result["error"] = traceback.format_exc(limit=6)[-4000:]
@@ -486,7 +492,7 @@ def _module_layouts(block: str, out: Path, pdk: str, params, pex: bool = True) -
             router=summary.get("router"),
             drc_violations=summary.get("drc_violations"),
             lvs_correct=summary.get("lvs_correct"),
-            pex=summary.get("pex"),
+            pex=_shown_pex(summary.get("pex")),
         )
     except Exception:  # noqa: BLE001 - every instance reports its own failure
         result["error"] = traceback.format_exc(limit=6)[-4000:]

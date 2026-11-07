@@ -579,6 +579,20 @@ def test_a_block_with_its_own_layout_is_signed_off_as_it_states(toy, tmp_path: P
         cli.layout_instances("toyblock", ["one"], ("toypdk",), auto=False, plan_only=True)
 
 
+def test_a_layouts_extraction_is_recorded_from_the_repositorys_root(tmp_path: Path) -> None:
+    """An extraction's netlist inside the repository is recorded from its root, as the GDS is, by
+    the runner's layout step and the layout verb alike, so a copy of the repository reads its own;
+    one outside it as it is."""
+    from flow import __main__ as cli
+
+    inside = {"netlist": str(runner.ROOT / "build/adc/layout/x/adc.pex.netlist"), "sha256": "0" * 64}
+    outside = {"netlist": str(tmp_path / "adc.pex.netlist")}
+    for shown in (runner._shown_pex, cli._shown_pex):
+        assert shown(inside) == {"netlist": "build/adc/layout/x/adc.pex.netlist", "sha256": "0" * 64}
+        assert shown(outside) == outside
+        assert shown(None) is None and shown({"skipped": "LVS did not match"}) == {"skipped": "LVS did not match"}
+
+
 def test_a_layout_is_found_by_its_digest_newest_first(tmp_path: Path, monkeypatch) -> None:
     """``lookup.laid_out``: the newest layout entry of the instance with these parameters that
     stands (its GDS on disk, no error), from a layout run or a sweep run's record; none raises,

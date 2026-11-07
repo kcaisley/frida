@@ -373,7 +373,9 @@ def _record(block: str, pdk: str, ident: str, params, out: Path, seconds: float,
         "steps": entry.get("seconds", {}),  # each step's seconds: netlist, layout, DRC, LVS
         # who signed it off, what it accepted and its extraction, where its flow gives them (a block
         # that lays itself out: ``lay_out_one``'s entry), so ``flow.sweep.lookup.laid_out`` hands them on
-        **{key: entry[key] for key in ("signoff", "warnings", "pex") if key in entry},
+        **{key: entry[key] for key in ("signoff", "warnings") if key in entry},
+        # its extraction's netlist from the repository's root, as the GDS
+        **({"pex": _shown_pex(entry["pex"])} if "pex" in entry else {}),
     }
     record = {
         "block": block,
@@ -419,6 +421,11 @@ def _shown(path: Path) -> str:
     root = Path(__file__).resolve().parents[1]
     path = Path(path).resolve()
     return str(path.relative_to(root)) if path.is_relative_to(root) else str(path)
+
+
+def _shown_pex(pex: dict | None) -> dict | None:
+    """An extraction's entry with its netlist's path as ``_shown`` gives one."""
+    return {**pex, "netlist": _shown(Path(pex["netlist"]))} if pex and pex.get("netlist") else pex
 
 
 def _reason(run_dir: Path) -> str:
