@@ -137,6 +137,7 @@ jobs:
           flow/adc/test_model.py
           flow/adc/test_params.py
           flow/adc/test_plots.py
+          flow/adc/test_sim.py
           flow/adc/test_subckt.py
           flow/adc/test_sweep.py
           flow/comp/test_subckt.py

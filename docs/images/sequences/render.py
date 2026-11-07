@@ -23,16 +23,18 @@ PRE_SYMBOLS = 4  # Show the end of the preceding period.
 EXTRA_SYMBOLS = 8  # Show the beginning of the following period.
 OUT = Path(__file__).resolve().parent
 # The seven timings of the fabricated converters' spice_sequence_* runs in flow/adc/sweep.py.
-PEX_RECIPES = (
-    Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111,
-    Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC10000111,
-    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111000_LOGIC10000111,
-    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111000_LOGIC11000011,
-    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11000011,
-    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11100001,
-    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111110_LOGIC11100001,
-)
-RECIPES = {f"comp{recipe.name.lower().split('_comp', 1)[1]}": recipe.rows for recipe in PEX_RECIPES}
+RECIPES = {
+    f"comp{recipe.name.lower().split('_comp', 1)[1]}": recipe.rows
+    for recipe in (
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111,
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC10000111,
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11111000_LOGIC10000111,
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11111000_LOGIC11000011,
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11000011,
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11100001,
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11111110_LOGIC11100001,
+    )
+}
 ROWS = ("init", "samp", "comp", "logic")
 
 

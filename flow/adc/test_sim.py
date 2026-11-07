@@ -50,7 +50,7 @@ PEX_FIXTURES = {"frida1": Path(__file__).parent / "fixtures" / "frida1_ports.scs
 PEX_PINS = {view: subcircuit_ports(path.read_text(), "adc_12b_17step") for view, path in PEX_FIXTURES.items()}
 
 # the recipes of the catalogue (``Recipe``, the historical samp24 one left out of it, last)
-CATALOGUE = tuple(Recipe)[:-1]
+_catalogue = tuple(Recipe)[:-1]
 
 
 def _entry(path: Path, *, lvs_correct: bool = True, warnings: tuple[str, ...] = (), sha256=None) -> dict:
@@ -603,7 +603,7 @@ def test_sim_holds_no_private_wrapper_and_no_main():
 # the sequencer's rows: the testbench's bit sources and the serializer play the same
 
 
-@pytest.mark.parametrize("recipe", CATALOGUE, ids=lambda recipe: recipe.name.lower())
+@pytest.mark.parametrize("recipe", _catalogue, ids=lambda recipe: recipe.name.lower())
 @pytest.mark.parametrize("symbol_rate", (0.32e9, 0.96e9, 1.6e9))
 def test_voltage_sources_and_serializer_consume_identical_rows(tsmc65, recipe, symbol_rate):
     params = _gen().sequenced(recipe.rows, symbol_rate=symbol_rate)
@@ -1170,7 +1170,7 @@ def test_a_spectre_run_of_the_adc_is_tsmc65s(tmp_path) -> None:
     assert not (tmp_path / "run").exists()
 
 
-@pytest.mark.parametrize("recipe", CATALOGUE[:3] + CATALOGUE[-3:], ids=lambda recipe: recipe.name.lower())
+@pytest.mark.parametrize("recipe", _catalogue[:3] + _catalogue[-3:], ids=lambda recipe: recipe.name.lower())
 def test_a_sequencer_line_reads_as_its_rows_bits(recipe) -> None:
     """A line (``h.Vbit``) as the behavioral converter sees it: each symbol its row's bit, between
     ground and the digital supply, at the symbol's start and anywhere inside it, repeated."""

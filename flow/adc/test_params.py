@@ -14,11 +14,11 @@ from flow.sweep.runner import digest, select
 from .params import Extraction, Fabricated, Params, Quiet, Recipe, Simulator, TbParams, valid
 
 # the recipes of the catalogue (the historical samp24 one, which it left out, last)
-CATALOGUE = tuple(Recipe)[:-1]
-TIMING = tuple(recipe for recipe in Recipe if recipe.name.startswith("SYMBOL256_INIT8_SAMP16_COMP11110000_"))
-DUTY = tuple(
+_catalogue = tuple(Recipe)[:-1]
+_timing = tuple(recipe for recipe in Recipe if recipe.name.startswith("SYMBOL256_INIT8_SAMP16_COMP11110000_"))
+_duty = tuple(
     recipe
-    for recipe in CATALOGUE
+    for recipe in _catalogue
     if recipe.name.startswith(("SYMBOL160_INIT4_SAMP20_", "SYMBOL256_INIT4_SAMP20_"))
     and recipe is not Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC00000010
 )
@@ -141,14 +141,14 @@ def test_rows_drop_whitespace_and_validate_lengths():
 # the recipes' rows
 
 
-@pytest.mark.parametrize("symbols,recipe", enumerate(TIMING, start=1))
+@pytest.mark.parametrize("symbols,recipe", enumerate(_timing, start=1))
 def test_library_logic_rows_have_explicit_edge_separations(symbols, recipe):
     default = Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC00001111.rows
     assert recipe.rows[:3] == default[:3]
     assert _tb().sequenced(recipe.rows).logic_timing == (8, symbols)
 
 
-@pytest.mark.parametrize("recipe", DUTY, ids=lambda recipe: recipe.name.lower())
+@pytest.mark.parametrize("recipe", _duty, ids=lambda recipe: recipe.name.lower())
 def test_duty_rows_preserve_conversion_boundaries_and_pulse_edges(recipe):
     name = recipe.name.lower()
     comp_word, logic_word = name.split("_comp")[1].split("_logic")
@@ -169,15 +169,15 @@ def test_duty_rows_preserve_conversion_boundaries_and_pulse_edges(recipe):
 
 
 def test_duty_matrix_covers_every_pair_and_preserves_pause_only_changes():
-    recipes = {recipe.name.lower(): recipe.rows for recipe in DUTY}
-    assert len(recipes) == len(DUTY) == 56
+    recipes = {recipe.name.lower(): recipe.rows for recipe in _duty}
+    assert len(recipes) == len(_duty) == 56
     assert set(recipes) == {
         f"symbol{symbols}_init4_samp20_comp{comp_word}_logic{logic}"
         for symbols in (160, 256)
         for comp_word in ("11110000", "11111000", "11111100", "11111110")
         for logic in ("00001111", "00000111", "00000011", "00000001", "10000111", "11000011", "11100001")
     }
-    for recipe in DUTY[:28]:
+    for recipe in _duty[:28]:
         short = recipe.rows
         long = recipes[recipe.name.lower().replace("symbol160_", "symbol256_")]
         for index in range(3):
@@ -194,7 +194,7 @@ def test_all_160_symbol_init_logic_pulses_span_symbols_two_through_five():
         assert recipe.rows[3][:8] == "00111100"
 
 
-@pytest.mark.parametrize("recipe", CATALOGUE, ids=lambda recipe: recipe.name.lower())
+@pytest.mark.parametrize("recipe", _catalogue, ids=lambda recipe: recipe.name.lower())
 def test_conversion_duration_uses_comp_word_and_survives_phase_advance(recipe):
     expected = 168 if recipe is Recipe.SYMBOL256_INIT8_SAMP16_COMP11111100_LOGIC00000010 else 160
     tb = _tb().sequenced(recipe.rows)
@@ -207,8 +207,8 @@ def test_conversion_duration_uses_comp_word_and_survives_phase_advance(recipe):
 
 
 def test_conversion_rate_ignores_logic_and_idle_padding():
-    assert {recipe.conversion_symbols for recipe in TIMING} == {160}
-    for recipe in DUTY:
+    assert {recipe.conversion_symbols for recipe in _timing} == {160}
+    for recipe in _duty:
         assert 1.6e9 / recipe.conversion_symbols == 10e6
         assert len(recipe.rows[0]) / 1.6e9 == pytest.approx(100e-9 if len(recipe.rows[0]) == 160 else 160e-9)
 
@@ -220,7 +220,7 @@ def test_the_recipes_preserve_all_reviewed_channel_rows():
     # Fingerprint of the catalogue's reviewed relative timings, normalized to INIT rising.
     rows = "\n".join(
         recipe.name.lower() + ":" + ":".join(TbParams.from_init(recipe.rows))
-        for recipe in sorted(CATALOGUE, key=lambda recipe: recipe.name.lower())
+        for recipe in sorted(_catalogue, key=lambda recipe: recipe.name.lower())
     )
     assert (
         hashlib.sha256(rows.encode()).hexdigest() == "785b4bb014a0bbf5955edcef7dc7900e7fea4158c74d776a9eac6c7c687ba957"
@@ -228,11 +228,11 @@ def test_the_recipes_preserve_all_reviewed_channel_rows():
 
 
 def test_continuous_catalogue_keeps_complete_terminal_comp_word():
-    continuous = tuple(recipe for recipe in CATALOGUE if recipe.name.startswith("SYMBOL160_INIT4_SAMP20_"))
+    continuous = tuple(recipe for recipe in _catalogue if recipe.name.startswith("SYMBOL160_INIT4_SAMP20_"))
     assert len(continuous) == 29
     repaired = continuous[-1]
     assert repaired is Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC00000010
-    assert repaired.rows[1:3] == CATALOGUE[21].rows[1:3]
+    assert repaired.rows[1:3] == _catalogue[21].rows[1:3]
     logic = repaired.rows[3]
     assert [index for index, bit in enumerate(logic) if bit == "1" and logic[index - 1] == "0"] == [
         2,
