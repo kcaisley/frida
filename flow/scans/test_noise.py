@@ -701,21 +701,21 @@ def test_adc_code_noise(amp_enable: bool) -> None:
     Pin the run directory in ``flow.analysis.runner`` before formal analysis.
     """
     from flow import adc
-    from flow.adc.sim import SEQUENCES, AdcSequence
+    from flow.adc import Recipe
     from flow.analysis.io import read_measurement
     from flow.analysis.types import MeasAdc
     from flow.plot import render
     from flow.scans import runner
 
     run_dir = runner.adc_sequence_static(capture_scope=False, amp_enable=amp_enable)
-    shown = dict(SEQUENCES)["symbol160_init4_samp20_comp11110000_logic10000111"]
+    shown = Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC10000111.rows
     measurements_by_adc: dict[int, list[MeasAdc]] = {}
     lost_frames = {}
     for path in sorted(run_dir.glob("[0-9][0-9][0-9][0-9]_capture.h5")):
         measurement = read_measurement(path)
         assert isinstance(measurement, MeasAdc)
         lost_frames[path.name] = int(measurement.info.readbacks.get("fastrx_lost_count", -1))
-        if AdcSequence.from_tb_params(measurement.tb) == shown:
+        if measurement.tb.rows == shown:
             measurements_by_adc.setdefault(measurement.param.observed_adc, []).append(measurement)
     shown_spectra = []
     interferers = []

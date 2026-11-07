@@ -168,6 +168,8 @@ known-first-party = ["flow", "pdk"]
 # the pipeline's stage order (docs/pipeline.md), for each block on it (flow/test_pipeline.py: MIGRATED);
 # run as `PYTHONPATH=. uvx --from import-linter==2.15 lint-imports` (pre-commit and CI)
 root_packages = ["flow"]
+# an import for a type annotation alone (under typing.TYPE_CHECKING) is no dependency at run time
+exclude_type_checking_imports = true
 
 [[tool.importlinter.contracts]]
 # every migrated block (flow/test_pipeline.py holds the containers to them); a layer in parentheses
@@ -183,6 +185,14 @@ name = "the pipeline's base knows no block"
 type = "forbidden"
 source_modules = ["flow.pipeline"]
 forbidden_modules = ["flow.comp", "flow.samp", "flow.adc", "flow.capdac", "flow.sweep"]
+
+[[tool.importlinter.contracts]]
+# the circuit helpers every block's sim uses, and the measurement files' reader and writer: the ADC's
+# raw decode is its own sim's (flow/adc/sim.py), its weights from a capacitance table its sweep's
+name = "the shared circuit and measurement I/O know no ADC"
+type = "forbidden"
+source_modules = ["flow.circuit", "flow.analysis.io"]
+forbidden_modules = ["flow.adc"]
 
 [tool.pytest.ini_options]
 testpaths = ["flow", "pdk", "test"]

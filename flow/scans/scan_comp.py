@@ -24,12 +24,13 @@ from flow import adc, capdac, comp
 from flow.analysis import calc
 from flow.analysis.io import read_analysis, write_analysis
 from flow.analysis.types import MeasInfo, Wave
+from flow.scans.board import load_board_map
 from flow.scans.fastrx import (
     convert_fastrx_words_to_comp,
     program_comp_delay,
     select_fastrx_capture_settings,
 )
-from flow.scans.params import AdcScanParams, load_board_map, validate_params
+from flow.scans.params import AdcScanParams, fabricated, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scan_adc import (
     convert_params_to_spi_fmt,
@@ -104,8 +105,8 @@ def _build_comp_params(
     board_map = load_board_map()
     flavor = board_map["adc_channels"][adc_index]
     cap_weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
-    # FRIDA-1's array (capdac's defaults) with the flavor's fabricated weights
-    dut = adc.Params(adc_bits=12, cdac=capdac.Params(weights=cap_weights))
+    # FRIDA-1's converter on the channel, its flavor's weights
+    dut = fabricated(adc_index).params
     if dac_state_p is None:
         from flow.scans.scan_cdac import _convert_dac_rail_percent_to_codes
 
@@ -116,9 +117,8 @@ def _build_comp_params(
     symbol_rate_bps = 1.6e9
     params = AdcScanParams(
         tb=adc.TbParams(
-            view="frida1",
-            dut=dut,
-            symbol_rate=symbol_rate_bps,
+            pdk="tsmc65",
+            params=dut,
             conversions=conversions,
             dac_mode=0,
             dac_astate_p=dac_state_p,
@@ -127,7 +127,7 @@ def _build_comp_params(
             dac_bstate_n=dac_state_n,
             vin_cm=h.Vdc.Params(dc=vin_cm_v),
             vin_diff=h.Vdc.Params(dc=vin_diff_v),
-        ),
+        ).sequenced(symbol_rate=symbol_rate_bps),
         board_id=board_id,
         observed_adc=adc_index,
         active_adc_mask=tuple(int(index == adc_index) for index in reversed(range(16))),
@@ -140,7 +140,7 @@ def _build_comp_params(
         requested_dac_rail_percent=requested_dac_rail_percent,
         settling_time_s=settling_time_s,
     )
-    sequence_words = len(params.tb.seq_init_pattern) // 8
+    sequence_words = len(params.tb.seq_init.data) // 8
     word_period_s = 8.0 / symbol_rate_bps
     settle_words = math.ceil(settling_time_s / word_period_s)
     init_words = ["00000000"] * sequence_words
@@ -162,13 +162,7 @@ def _build_comp_params(
 
     params = replace(
         params,
-        tb=replace(
-            params.tb,
-            seq_init_pattern="".join(init_words),
-            seq_samp_pattern="".join(samp_words),
-            seq_comp_pattern="".join(comp_words),
-            seq_logic_pattern="".join(logic_words),
-        ),
+        tb=params.tb.sequenced(("".join(init_words), "".join(samp_words), "".join(comp_words), "".join(logic_words))),
     )
     validate_params(params)
     return params
@@ -563,7 +557,7 @@ def scan(
         sleep(si570_settle_s)
         set_pll_divider(daq["gpio2"], pll_divider_n)
         data_size = int(daq["fastrx0"].get_size())
-        expected_data_size = len(capdac.Model.weights(first.tb.dut.cdac)) + 1
+        expected_data_size = len(capdac.Model.weights(first.tb.params.cdac)) + 1
         if data_size != expected_data_size:
             raise RuntimeError(f"FastRX DATA_SIZE={data_size}, expected {expected_data_size} from the configured CDAC")
 
@@ -647,19 +641,20 @@ def scan(
                     raise RuntimeError(f"SPI configuration readback has {spi_mismatches} mismatches")
                 programmed_spi_bytes = spi_bytes
 
-            sequence_words = len(params.seq_init_pattern) // 8
+            sequence_words = len(params.seq_init.data) // 8
             setup_init_words = ["00000000"] * sequence_words
             setup_samp_words = ["00000000", *(["11111111"] * (sequence_words - 1))]
             setup_comp_words = ["00000000"] * sequence_words
             setup_logic_words = ["00000000"] * sequence_words
             setup_init_words[1] = "11111111"
             setup_logic_words[1] = "00001111"
-            setup_params = replace(
-                params,
-                seq_init_pattern="".join(setup_init_words),
-                seq_samp_pattern="".join(setup_samp_words),
-                seq_comp_pattern="".join(setup_comp_words),
-                seq_logic_pattern="".join(setup_logic_words),
+            setup_params = params.sequenced(
+                (
+                    "".join(setup_init_words),
+                    "".join(setup_samp_words),
+                    "".join(setup_comp_words),
+                    "".join(setup_logic_words),
+                )
             )
             setup_rx_sen_pattern = "0" * sequence_words
             daq["seq0"].reset()
@@ -683,14 +678,14 @@ def scan(
             daq["fastrx0"].reset()
             sleep(0.001)
             daq["seq0"].set_data(sequencer_memory)
-            daq["seq0"].set_size(len(params.seq_init_pattern) // 8)
+            daq["seq0"].set_size(len(params.seq_init.data) // 8)
             daq["seq0"].set_clk_divide(1)
             daq["seq0"].set_en_ext_start(False)
             daq["fastrx0"].set_en(True)
             daq["fifo0"]["RESET"]
             daq["fifo0"].get_data()
 
-            conversion_period_s = len(params.seq_init_pattern) / symbol_rate_bps
+            conversion_period_s = len(params.seq_init.data) / symbol_rate_bps
             capture_scope = scope is not None and curve_key not in scope_captured_curves
             acquisition_count_before: int | None = None
             if capture_scope:
@@ -808,7 +803,7 @@ def scan(
             measurement = comp.AnalysisDecisions(
                 group=scan_params.board_id,
                 index=scan_params.observed_adc,
-                dut=scan_params.tb.dut.comp,
+                dut=scan_params.tb.params.comp,
                 info=MeasInfo(
                     backend="physical",
                     timestamp_utc=datetime.now().astimezone(),

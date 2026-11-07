@@ -11,8 +11,9 @@ import pytest
 
 from flow import adc
 from flow.analysis.types import MeasCdac, MeasInfo, Wave
+from flow.scans.board import load_board_map
 from flow.scans.fastrx import FastRxCapture, select_fastrx_capture_settings
-from flow.scans.params import AdcScanParams, load_board_map, validate_params
+from flow.scans.params import AdcScanParams, validate_params
 from flow.scans.scan_cdac import (
     _build_cdac_params,
     _calculate_cdac_input_bounds,
@@ -158,7 +159,7 @@ def _resume_measurement(
     return MeasCdac(
         group=params.board_id,
         index=params.observed_adc,
-        dut=params.tb.dut.cdac,
+        dut=params.tb.params.cdac,
         info=MeasInfo(backend="physical", timestamp_utc=timestamp, readbacks=readbacks),
         param=params,
         trial_index=np.arange(trials),
@@ -303,13 +304,13 @@ def test_cdac_params_encode_only_selected_a_to_b_transition(
     assert (before_p if side == "p" else before_n)[7] == expected_before
     assert (after_p if side == "p" else after_n)[7] == expected_after
     assert tb.dac_diffcaps == dac_diffcaps
-    assert tb.seq_logic_pattern.count("1") == 8
-    assert tb.seq_init_pattern.count("1") == 8
-    assert tb.seq_samp_pattern.count("1") == 136
-    assert tb.seq_comp_pattern.count("1") == 4
-    samp_words = [tb.seq_samp_pattern[index : index + 8] for index in range(0, 256, 8)]
-    logic_words = [tb.seq_logic_pattern[index : index + 8] for index in range(0, 256, 8)]
-    comp_words = [tb.seq_comp_pattern[index : index + 8] for index in range(0, 256, 8)]
+    assert tb.seq_logic.data.count("1") == 8
+    assert tb.seq_init.data.count("1") == 8
+    assert tb.seq_samp.data.count("1") == 136
+    assert tb.seq_comp.data.count("1") == 4
+    samp_words = [tb.seq_samp.data[index : index + 8] for index in range(0, 256, 8)]
+    logic_words = [tb.seq_logic.data[index : index + 8] for index in range(0, 256, 8)]
+    comp_words = [tb.seq_comp.data[index : index + 8] for index in range(0, 256, 8)]
     assert samp_words[3:20] == ["11111111"] * 17
     assert all(word == "00000000" for index, word in enumerate(samp_words) if not 3 <= index < 20)
     update_word = 21
@@ -505,6 +506,10 @@ def test_cdac_preflight_rejects_supply_and_fixed_io_before_hardware(tmp_path) ->
 
 
 def test_cdac_scan_axis_validation_rejects_incomplete_params() -> None:
-    params = AdcScanParams(tb=adc.TbParams(view="frida1"), campaign="cdac_ab", sampling_mode="hold")
+    params = AdcScanParams(
+        tb=adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params),
+        campaign="cdac_ab",
+        sampling_mode="hold",
+    )
     with pytest.raises(ValueError, match="requires side, element, and direction"):
         validate_params(params)

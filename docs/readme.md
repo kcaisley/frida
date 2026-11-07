@@ -57,7 +57,7 @@ make -C docs sequences
 
 Use `make -C docs DEBUG=1 sequences` to retain LaTeX logs and render PNG previews while developing the figures. Rerun without the option to remove the LaTeX intermediates, or run `make -C docs clean-image-debug` to remove those and the previews together.
 
-The generator is `docs/images/sequences/render.py`. It reads recipes from `flow/adc/sim.py` and writes only `tikz-timing` TeX. Each figure shows four symbols before index 0 and eight after the next period begins. The dashed red lines mark the sequence boundaries. Vertical guides occur every four symbols; dotted horizontal guides mark each signal's low and high levels. Triangular arrows mark both edges of `comp` and rising edges of `logic`. The seven TeX/PDF pairs and the Python generator live in `docs/images/sequences/`; debug previews live under `build/`.
+The generator is `docs/images/sequences/render.py`. It reads recipes from `flow/adc/params.py` (`Recipe`) and writes only `tikz-timing` TeX. Each figure shows four symbols before index 0 and eight after the next period begins. The dashed red lines mark the sequence boundaries. Vertical guides occur every four symbols; dotted horizontal guides mark each signal's low and high levels. Triangular arrows mark both edges of `comp` and rising edges of `logic`. The seven TeX/PDF pairs and the Python generator live in `docs/images/sequences/`; debug previews live under `build/`.
 
 For another named recipe, use `--sequence NAME --name my_timing`. For literal rows, pass `--init`, `--samp`, `--comp`, and `--logic` binary strings. Put one-off results outside the image directory:
 
@@ -69,7 +69,7 @@ latexmk -pdf -outdir=build/analysis/sequences/custom \
   build/analysis/sequences/custom/my_timing.tex
 ```
 
-Python callers can also construct `flow.adc.sim.AdcSequence` and pass it to `render(sequence, "my_timing", output_dir=...)` from the generator module.
+Python callers can also pass any four rows (INIT, SAMP, COMP, LOGIC) to `render(rows, "my_timing", output_dir=...)` from the generator module.
 
 ## TeX image figures
 

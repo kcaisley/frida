@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from flow.adc.sim import SEQUENCES, AdcSequence
+from flow.adc import Recipe
 
 if TYPE_CHECKING:
     from flow.scans.params import AdcScanParams
@@ -118,7 +118,7 @@ class FastRxCapture:
 
 
 def calculate_fastrx_capture_settings(
-    sequence: AdcSequence,
+    rows: tuple[str, ...],
     symbol_rate_bps: float,
     *,
     comparator_return_min_s: float,
@@ -160,7 +160,7 @@ def calculate_fastrx_capture_settings(
     if type(seqgen_pipeline_words) is not int or seqgen_pipeline_words < 0:
         raise ValueError("seqgen_pipeline_words must be a nonnegative integer")
 
-    comp = sequence.comp
+    comp = rows[2]
     edge_symbols = [index for index, bit in enumerate(comp) if bit == "1" and comp[index - 1] == "0"]
     if len(edge_symbols) != 17 or any(right - left != 8 for left, right in pairwise(edge_symbols)):
         raise ValueError("capture alignment requires 17 COMP rising edges eight symbols apart")
@@ -196,24 +196,23 @@ def select_fastrx_capture_settings(params: AdcScanParams, profiles: Sequence[dic
     """
     capture = params.fastrx_capture
     if capture is None:
-        sequence = AdcSequence.from_tb_params(params.tb)
-        catalogue = dict(SEQUENCES)
-        is_catalogued = sequence in catalogue.values()
-        comp_edges = [
-            index for index, bit in enumerate(sequence.comp) if bit == "1" and sequence.comp[index - 1] == "0"
-        ]
+        rows = params.tb.rows
+        is_catalogued = rows in {recipe.rows for recipe in Recipe}
+        comp = rows[2]
+        comp_edges = [index for index, bit in enumerate(comp) if bit == "1" and comp[index - 1] == "0"]
         regular_comp = len(comp_edges) == 17 and all(right - left == 8 for left, right in pairwise(comp_edges))
         matches = [
             profile
             for profile in profiles
             if float(profile["symbol_rate_bps"]) == float(params.tb.symbol_rate)
             and (
-                catalogue.get(profile.get("sequence")) == sequence
+                # a profile names its recipe by the recipe's name in lower case
+                getattr(Recipe.__members__.get(str(profile.get("sequence", "")).upper()), "rows", None) == rows
                 or (
                     "sequence" not in profile
                     and regular_comp
                     and is_catalogued
-                    and profile.get("sequence_symbols") == len(sequence.comp)
+                    and profile.get("sequence_symbols") == len(comp)
                     and profile.get("first_comp_edge_symbol") == comp_edges[0]
                 )
             )
@@ -224,7 +223,7 @@ def select_fastrx_capture_settings(params: AdcScanParams, profiles: Sequence[dic
                 "set fastrx_capture=FastRxCapture(...) explicitly for calibration"
             )
         capture = FastRxCapture(matches[0]["comp_delay_taps"], matches[0]["rx_sen_start_word"])
-    if capture.rx_sen_start_word >= len(params.tb.seq_init_pattern) // 8:
+    if capture.rx_sen_start_word >= len(params.tb.seq_init.data) // 8:
         raise ValueError("rx_sen_start_word must be inside the sequencer period")
     return capture
 

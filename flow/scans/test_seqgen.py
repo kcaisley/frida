@@ -25,8 +25,8 @@ pytestmark = pytest.mark.hw
 
 def test_seq_gen_memory_and_register_readback() -> None:
     """Hardware: write and read back seq_gen memory and control registers."""
-    params = adc.TbParams()
-    sequence_words = len(params.seq_init_pattern) // 8
+    params = adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params)
+    sequence_words = len(params.seq_init.data) // 8
     rx_sen_pattern = "0" * 5 + "1" * 17 + "0" * (sequence_words - 22)
     memory = convert_params_to_seqgen_fmt(params, rx_sen_pattern)
 

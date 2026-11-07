@@ -133,7 +133,6 @@ from flow.analysis.types import MeasAdc, MeasCdac
 from flow.pipeline import Identity, analysis, check_identity, measurement_identity
 
 from .params import CDAC_SETTLING_TOLERANCE_V, LADDER, NOMINAL_RATE_HZ, PELGROM_AXIS, UNIT_MISMATCH
-from .sim import AdcSequence
 from .subckt import AdcNets
 from .types import (
     AnalysisCalibration,
@@ -675,7 +674,7 @@ def analyze_noise(measurement: MeasAdc) -> AnalysisNoise:
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
-        sequence=AdcSequence.from_tb_params(tb),
+        sequence=tb.rows,
         symbol_rate_hz=float(tb.symbol_rate),
         sample_rate_hz=measurement.sample_rate_hz,
         active_conversion_rate_hz=measurement.active_conversion_rate_hz,
@@ -745,7 +744,7 @@ def analyze_code_spectrum(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
-        sequence=AdcSequence.from_tb_params(measurement.tb),
+        sequence=measurement.tb.rows,
         symbol_rate_hz=float(measurement.tb.symbol_rate),
         decoding="uncalibrated_dout" if calibration is None else calibration.method,
         sample_rate_hz=measurement.sample_rate_hz,
@@ -774,7 +773,7 @@ def analyze_interferer(
 
     identity = measurement_identity(measurements)
     check_identity(spectra, identity, name="spectra")
-    if sorted((m.sample_rate_hz, repr(AdcSequence.from_tb_params(m.tb))) for m in measurements) != sorted(
+    if sorted((m.sample_rate_hz, repr(m.tb.rows)) for m in measurements) != sorted(
         (s.sample_rate_hz, repr(s.sequence)) for s in spectra
     ):
         raise ValueError("spectra must match the measurements' sequences and rates one to one")
@@ -833,7 +832,7 @@ def analyze_operating_conditions(
 
     identity = measurement_identity(measurements)
     check_identity(noise, identity, name="noise")
-    by_coordinates: dict[tuple[AdcSequence, float], AnalysisNoise] = {}
+    by_coordinates: dict[tuple[tuple[str, ...], float], AnalysisNoise] = {}
     for result in noise:
         key = (result.sequence, result.symbol_rate_hz)
         if key in by_coordinates:
@@ -841,7 +840,7 @@ def analyze_operating_conditions(
         by_coordinates[key] = result
     rows = []
     for measurement in measurements:
-        key = (AdcSequence.from_tb_params(measurement.tb), float(measurement.tb.symbol_rate))
+        key = (measurement.tb.rows, float(measurement.tb.symbol_rate))
         if key not in by_coordinates:
             raise ValueError("no noise result matches a measurement's sequence and symbol rate")
         rows.append(by_coordinates[key])
@@ -923,12 +922,11 @@ def analyze_sequence_map(conditions: Sequence[AnalysisOperatingConditions]) -> A
 
 @analysis
 def analyze_sequencer(measurement: MeasAdc) -> AnalysisSequencer:
-    """A capture's sequence as its testbench programs it (``AdcSequence``: the sequencer's four rows),
+    """A capture's sequence as its testbench programs it (``TbParams.rows``: the sequencer's four rows),
     from INIT's rise, as levels a symbol: the timing the capture ran, a physical one or a simulated
     one alike."""
 
-    sequence = AdcSequence.from_tb_params(measurement.tb).relative_to_init()
-    rows = (sequence.init, sequence.samp, sequence.comp, sequence.logic)
+    rows = measurement.tb.rows_from_init
     identity = measurement.identity
     return AnalysisSequencer(
         group=identity.group,
@@ -960,7 +958,7 @@ def analyze_conversions(measurement: MeasAdc) -> comp.AnalysisConversions:
         index=identity.index,
         dut=identity.dut,
         wave=measurement.wave,
-        sequence=(tb.seq_init_pattern, tb.seq_samp_pattern, tb.seq_comp_pattern, tb.seq_logic_pattern),
+        sequence=tb.rows,
         symbol_rate_hz=symbol_rate_hz,
         decisions=len(measurement.nominal_bout_weights),
         decision_period_s=decision_period_s,
@@ -981,7 +979,7 @@ def analyze_switching(measurement: MeasCdac) -> capdac.AnalysisSwitching:
 
     params = measurement.param
     tb = measurement.tb
-    stages = len(capdac.Model.weights(params.tb.dut.cdac))
+    stages = len(capdac.Model.weights(params.tb.params.cdac))
     expected = np.asarray(measurement.expected_effective_fraction, dtype=np.float64)
     identity = measurement.identity
     return capdac.AnalysisSwitching(
@@ -1005,7 +1003,7 @@ def analyze_switching(measurement: MeasCdac) -> capdac.AnalysisSwitching:
         stages=stages,
         # an array without weights of its own (a behavioral one) has no expectation: NaN a stage
         expected_fraction=np.broadcast_to(expected, (stages,)).copy(),
-        comparator=params.tb.dut.comp,
+        comparator=params.tb.params.comp,
     )
 
 
@@ -1113,7 +1111,7 @@ def analyze_cdac_settling(measurement: MeasAdc) -> AnalysisCdacSettling:
         logic_rising_s = np.asarray(
             calc.cross(wave.v[AdcNets.seq_logic.name][record_index], time_s, threshold_v, edge="rising")
         )
-        period_s = len(measurement.tb.seq_init_pattern) / float(measurement.tb.symbol_rate)
+        period_s = len(measurement.tb.seq_init.data) / float(measurement.tb.symbol_rate)
         comp_rising_s = comp_rising_s[comp_rising_s < period_s]
         comp_falling_s = comp_falling_s[comp_falling_s < period_s]
         logic_rising_s = logic_rising_s[logic_rising_s < period_s]
@@ -1485,7 +1483,7 @@ def analyze_timing_closure(measurement: MeasAdc) -> AnalysisTimingClosure:
     dac_supply = float(params.vdd_dac.dc)
     capacitors = len(measurement.nominal_bout_weights) - 1
     # an array of unit capacitors has no difference plates to save: its main plates alone
-    differences = params.dut.cdac.weight_impl is not capdac.WeightImpl.UNIT_CAPS
+    differences = params.params.cdac.weight_impl is not capdac.WeightImpl.UNIT_CAPS
     buses = (
         AdcNets.dac_state_p,
         AdcNets.dac_state_n,
@@ -1668,7 +1666,7 @@ def analyze_timing_summary(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
-        sequence=AdcSequence.from_tb_params(measurement.tb),
+        sequence=measurement.tb.rows,
         symbol_rate_hz=float(measurement.tb.symbol_rate),
         decisions=len(closure.decision_index),
         cdac_decisions=int(np.count_nonzero(ordinary)),
@@ -1852,7 +1850,7 @@ def analyze_calibration1(
     tb = measurements[0].tb
     # Every switched capacitor contributes twice its unit weight (both CDAC
     # sides move), and the terminal comparison adds one unit.
-    nominal_bout_weight = np.asarray([2 * weight for weight in capdac.Model.weights(tb.dut.cdac)] + [1], float)
+    nominal_bout_weight = np.asarray([2 * weight for weight in capdac.Model.weights(tb.params.cdac)] + [1], float)
     nominal_cap_weight = nominal_bout_weight[:-1]
     initial_p = np.asarray(tb.dac_astate_p, dtype=np.int64)
     initial_n = np.asarray(tb.dac_astate_n, dtype=np.int64)
@@ -1887,14 +1885,14 @@ def analyze_calibration1(
     hybrid_cap_weight = nominal_cap_weight * measured_scale
     hybrid_cap_weight[resolved] = measured_cap_weight[resolved]
     terminal_weight = nominal_bout_weight[-1] * measured_scale
-    code_max = (1 << tb.dut.adc_bits) - 1
+    code_max = (1 << tb.params.adc_bits) - 1
     nominal_weight = nominal_bout_weight * code_max / np.sum(nominal_bout_weight)
     calibrated_weight = np.concatenate((hybrid_cap_weight, [terminal_weight]))
     calibrated_weight *= code_max / np.sum(calibrated_weight)
     return AnalysisCalibration1(
         group=identity.group,
         index=identity.index,
-        dut=tb.dut,
+        dut=tb.params,
         method="calibration1",
         label="Cal. 1: CDAC S-curve capacitor measurement",
         code_max=code_max,
@@ -2362,7 +2360,7 @@ def analyze_mismatch(meas: MeasAdc) -> AnalysisMismatch:
     """The predicted mismatch statistics of a behavioral capture's array: its nominal capacitances
     (a capture without a draw), top-plate load, design weights and code range."""
     cdac = meas.param.cdac
-    main_f, diff_f = capdac.Model.plates_f(cdac, "p", meas.tb.dut.cdac, float(meas.tb.vdd_dac.dc))
+    main_f, diff_f = capdac.Model.plates_f(cdac, "p", meas.tb.params.cdac, float(meas.tb.vdd_dac.dc))
     statistics = _mismatch_statistics(
         main_f,
         diff_f,

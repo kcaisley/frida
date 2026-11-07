@@ -22,8 +22,7 @@ import numpy as np
 
 from flow.pipeline import Band, Heatmap, Marker, Plot, plot
 
-from .params import CDAC_SETTLING_TOLERANCE_V, FINAL_DECISIONS, LADDER, MAX_PATHS
-from .sim import AdcSequence
+from .params import CDAC_SETTLING_TOLERANCE_V, FINAL_DECISIONS, LADDER, MAX_PATHS, TbParams
 from .types import (
     AnalysisCalibration,
     AnalysisCdacSettling,
@@ -932,7 +931,7 @@ def _cells(centres: np.ndarray) -> list[float]:
     return [low, *middles.tolist(), float(2 * centres[-1] - middles[-1])]
 
 
-def _sequence_labels(sequences: Sequence[AdcSequence]) -> list[str]:
+def _sequence_labels(sequences: Sequence[tuple[str, ...]]) -> list[str]:
     """Each sequence by its decision word (``_sequence_label``); where two share one (another period,
     INIT or SAMP), each numbered as well."""
     labels = [_sequence_label(sequence) for sequence in sequences]
@@ -941,15 +940,15 @@ def _sequence_labels(sequences: Sequence[AdcSequence]) -> list[str]:
     return labels
 
 
-def _sequence_label(sequence: AdcSequence) -> str:
-    """A sequence by its decision word: COMP's and LOGIC's symbols from its second COMP rise after
-    INIT to its third (the first decision has no update before it), ``11110000/00001111``, as the
-    catalogue names it (``comp11110000_logic00001111``, flow/adc/sim.py)."""
-    relative = sequence.relative_to_init()
-    comp = relative.comp
+def _sequence_label(rows: tuple[str, ...]) -> str:
+    """A sequence (its rows, INIT, SAMP, COMP, LOGIC) by its decision word: COMP's and LOGIC's
+    symbols from its second COMP rise after INIT to its third (the first decision has no update
+    before it), ``11110000/00001111``, as the recipes name it (``comp11110000_logic00001111``,
+    ``flow.adc.params.Recipe``)."""
+    _, _, comp, logic = TbParams.from_init(rows)
     rises = [index for index in range(1, len(comp)) if comp[index] == "1" and comp[index - 1] == "0"]
     if len(rises) < 2:
-        return f"{comp}/{relative.logic}"
+        return f"{comp}/{logic}"
     start = rises[1]
     stop = rises[2] if len(rises) > 2 else start + 8
-    return f"{comp[start:stop]}/{relative.logic[start:stop]}"
+    return f"{comp[start:stop]}/{logic[start:stop]}"

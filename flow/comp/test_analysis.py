@@ -13,7 +13,7 @@ import pytest
 from basil.HL.tektronix_oscilloscope import CapturedWaveform, XScale, YScale
 
 from flow import adc
-from flow.adc.sim import symbol160_init4_samp20_comp11111100_logic11000011
+from flow.adc.params import Recipe
 from flow.adc.test_analysis import adc_measurement, adc_timing_measurement
 from flow.analysis.types import MeasAdc
 from flow.pipeline import Meas, MeasInfo, Plot, Wave
@@ -518,12 +518,12 @@ def scope_records(captures: int = 4) -> list[MeasAdc]:
     captures, at 320 MBd): ``captures`` records of one conversion, COMP high six symbols of each
     decision, COMP_OUT toggling 5 ns after each rise but at B3, which it holds; each capture a
     little later than the one before."""
-    sequence = symbol160_init4_samp20_comp11111100_logic11000011
+    sequence = Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11000011.rows
     rate = 320e6
     step_s = 0.1e-9
     time_s = np.arange(-20e-9, 600e-9, step_s)
     scale = XScale(step_s, float(time_s[0]), "s")
-    edge_symbols = [index for index, bit in enumerate(sequence.comp) if bit == "1" and sequence.comp[index - 1] == "0"]
+    edge_symbols = [index for index, bit in enumerate(sequence[2]) if bit == "1" and sequence[2][index - 1] == "0"]
     records = []
     for capture_index in range(captures):
         edge_s = np.asarray(edge_symbols) / rate + capture_index * 0.03e-9
@@ -543,7 +543,7 @@ def scope_records(captures: int = 4) -> list[MeasAdc]:
             }
         )
     base = adc_measurement([2048], observed_adc=1)
-    params = replace(base.param, tb=replace(base.param.tb, symbol_rate=rate, **sequence.as_tb_fields()))
+    params = replace(base.param, tb=base.param.tb.sequenced(sequence, symbol_rate=rate))
     return [
         replace(
             base,
@@ -592,7 +592,7 @@ def test_the_scope_edges_time_each_decision_and_fold_comp_out_at_its_rise() -> N
 
 def test_the_scope_edges_take_one_sequence_and_rate() -> None:
     records = scope_records(2)
-    faster = replace(records[1], param=replace(records[1].param, tb=replace(records[1].param.tb, symbol_rate=640e6)))
+    faster = replace(records[1], param=replace(records[1].param, tb=records[1].param.tb.sequenced(symbol_rate=640e6)))
     with pytest.raises(ValueError, match="one sequence and symbol rate"):
         analyze_scope_edges([adc.analyze_conversions(records[0]), adc.analyze_conversions(faster)])
 

@@ -9,12 +9,10 @@ from pathlib import Path
 import hdl21 as h
 import pytest
 
-from flow.adc.sim import SEQUENCES
+from flow.adc import Recipe
 from flow.scans import runner
 
-timing_sequences = tuple(
-    sequence for name, sequence in SEQUENCES if name.startswith("symbol256_init8_samp16_comp11110000_")
-)
+timing_sequences = tuple(recipe for recipe in Recipe if recipe.name.startswith("SYMBOL256_INIT8_SAMP16_COMP11110000_"))
 
 
 def test_registered_targets_cover_every_accepted_physical_campaign() -> None:
@@ -115,8 +113,7 @@ def test_adc_targets_reproduce_accepted_campaign_shapes(
         assert {float(params.tb.vin_cm.dc) for params in variants} == {0.7}
         assert {float(params.tb.vin_diff.dc) for params in variants} == {0.05}
         assert {
-            timing_sequences.index(next(row for row in timing_sequences if row.logic == params.tb.seq_logic_pattern))
-            - 3
+            timing_sequences.index(next(row for row in timing_sequences if row.rows[3] == params.tb.seq_logic.data)) - 3
             for params in variants
         } == {2.0}
         if target_name == "adc00_all_adc_activity_noise":
@@ -172,7 +169,7 @@ def test_adc_noctl_target_aborts_fpga_after_interrupted_middle_point(monkeypatch
 
 
 def test_adc_sequence_static_resumes_contiguous_capture_prefix(tmp_path: Path, monkeypatch) -> None:
-    sequences = tuple(sequence for _name, sequence in SEQUENCES[:2])
+    sequences = tuple(Recipe)[:2]
     for index in range(2):
         (tmp_path / f"{index:04d}_capture.h5").touch()
     calls = []
@@ -313,7 +310,7 @@ def test_main_requires_and_dispatches_one_named_target(monkeypatch, tmp_path) ->
 )
 def test_fixed_input_grid_noctl_covers_all_adcs_and_three_rates(monkeypatch, sequence_name):
     captured = []
-    sequence = dict(SEQUENCES)[sequence_name]
+    sequence = Recipe[sequence_name.upper()]
     monkeypatch.setattr(runner.scan_adc_noctl, "scan", lambda params, **kwargs: captured.append((params, kwargs)))
     runner.adc_sequence_static(
         adc_indices=tuple(range(16)),
@@ -327,7 +324,7 @@ def test_fixed_input_grid_noctl_covers_all_adcs_and_three_rates(monkeypatch, seq
     }
     assert all(p.tb.conversions == 100_000 for p, _ in captured)
     assert all(float(p.tb.vin_diff.dc) == 0.050 and float(p.tb.vin_cm.dc) == 0.700 for p, _ in captured)
-    assert all(p.tb.seq_logic_pattern == sequence.logic for p, _ in captured)
+    assert all(p.tb.seq_logic.data == sequence.rows[3] for p, _ in captured)
 
 
 def test_sequence_static_default_covers_init_logic_shortlist(monkeypatch):
@@ -343,21 +340,21 @@ def test_sequence_static_default_covers_init_logic_shortlist(monkeypatch):
         "symbol160_init4_samp20_comp11111100_logic11100001",
         "symbol160_init4_samp20_comp11111110_logic11100001",
     )
-    selected = tuple(dict(SEQUENCES)[name] for name in names)
+    selected = tuple(Recipe[name.upper()] for name in names)
     assert len(captured) == 4 * len(selected) * 3
     actual = {
         (
             p.observed_adc,
-            p.tb.seq_init_pattern,
-            p.tb.seq_samp_pattern,
-            p.tb.seq_comp_pattern,
-            p.tb.seq_logic_pattern,
+            p.tb.seq_init.data,
+            p.tb.seq_samp.data,
+            p.tb.seq_comp.data,
+            p.tb.seq_logic.data,
             float(p.tb.symbol_rate),
         )
         for p in captured
     }
     expected = {
-        (adc, seq.init, seq.samp, seq.comp, seq.logic, rate * 160)
+        (adc, seq.rows[0], seq.rows[1], seq.rows[2], seq.rows[3], rate * 160)
         for adc in range(4)
         for seq in selected
         for rate in (2e6, 6e6, 10e6)

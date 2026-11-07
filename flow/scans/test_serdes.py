@@ -51,7 +51,7 @@ import pytest
 from yaml import safe_load
 
 from flow import adc, seqgen
-from flow.adc.sim import SEQUENCES, AdcSequence
+from flow.adc import Recipe
 from flow.analysis import calc
 from flow.analysis.io import write_analysis
 from flow.analysis.plots import plot_waveforms
@@ -73,13 +73,13 @@ from flow.scans.scope import (
 from flow.scans.seqgen import convert_params_to_seqgen_fmt
 
 duty_sequences = tuple(
-    (name, sequence)
-    for name, sequence in SEQUENCES
-    if name.startswith(("symbol160_init4_samp20_", "symbol256_init4_samp20_"))
+    (recipe.name.lower(), recipe)
+    for recipe in tuple(Recipe)[:-1]
+    if recipe.name.startswith(("SYMBOL160_INIT4_SAMP20_", "SYMBOL256_INIT4_SAMP20_"))
 )
 
 comparison_sequences = tuple(
-    (name, dict(SEQUENCES)[name])
+    (name, Recipe[name.upper()])
     for name in (
         "symbol256_init8_samp16_comp11110000_logic11000011",
         "symbol256_init8_samp16_comp11111100_logic00000010",
@@ -263,13 +263,15 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
         daq["gpio0"]["RST_B"] = 1
         daq["gpio0"].write()
 
-        params = adc.TbParams(
-            seq_init_pattern=SEQ_PATTERNS["INIT"].replace(" ", ""),
-            seq_samp_pattern=SEQ_PATTERNS["SAMP"].replace(" ", ""),
-            seq_comp_pattern=SEQ_PATTERNS["COMP"].replace(" ", ""),
-            seq_logic_pattern=SEQ_PATTERNS["LOGIC"].replace(" ", ""),
+        params = adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params).sequenced(
+            (
+                SEQ_PATTERNS["INIT"].replace(" ", ""),
+                SEQ_PATTERNS["SAMP"].replace(" ", ""),
+                SEQ_PATTERNS["COMP"].replace(" ", ""),
+                SEQ_PATTERNS["LOGIC"].replace(" ", ""),
+            )
         )
-        sequence_words = len(params.seq_init_pattern) // 8
+        sequence_words = len(params.seq_init.data) // 8
         rx_sen_pattern = "0" * 5 + "1" * 17 + "0" * (sequence_words - 22)
         memory = convert_params_to_seqgen_fmt(params, rx_sen_pattern)
         scope_dut = Dut(str(SCOPE_MAP_PATH))
@@ -335,7 +337,7 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
                     # by test_helpers.py. Do not use TrackRegister.write(), whose
                     # legacy reversal does not match the 64-bit memory layout.
                     daq["seq0"].set_data(memory)
-                    daq["seq0"].set_size(len(params.seq_init_pattern) // 8)
+                    daq["seq0"].set_size(len(params.seq_init.data) // 8)
                     daq["seq0"].set_clk_divide(1)
                     daq["seq0"].set_repeat(SEQUENCE_REPEATS)
                     daq["seq0"].set_en_ext_start(False)
@@ -463,7 +465,7 @@ def test_serdes_rates(linux_gpib_interface: None) -> None:
     comparison_sequences + duty_sequences,
     ids=[name for name, _ in comparison_sequences + duty_sequences],
 )
-def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
+def test_adc_sequence_waveforms(name: str, sequence: Recipe) -> None:
     """Capture PCB differential INIT/SAMP/COMP/LOGIC; supplies stay manual.
 
     Requires the clock hookup: INIT/SAMP/COMP/LOGIC on CH1-4.
@@ -478,13 +480,8 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
     edge_tolerance_s = 0.25e-9
     run_dir = OUTPUT_DIR / time.strftime("%Y%m%d_%H%M%S") / name
     run_dir.mkdir(parents=True, exist_ok=False)
-    params = adc.TbParams(
-        seq_init_pattern=sequence.init,
-        seq_samp_pattern=sequence.samp,
-        seq_comp_pattern=sequence.comp,
-        seq_logic_pattern=sequence.logic,
-    )
-    sequence_words = len(sequence.init) // 8
+    params = adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params).sequenced(sequence.rows)
+    sequence_words = len(sequence.rows[0]) // 8
     memory = convert_params_to_seqgen_fmt(params, "0" * sequence_words)
     config = safe_load(MAP_PATH.read_text())
     config["hw_drivers"] = [
@@ -584,7 +581,7 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
         init_edges = calc.cross(wave.v["seq_init"][0], time_s, 0.0, edge="rising")
         assert len(init_edges), "capture must include the triggering INIT rising edge"
         origin_s = float(init_edges[np.argmin(np.abs(init_edges))])
-        period_s = len(sequence.init) / symbol_rate_bps
+        period_s = len(sequence.rows[0]) / symbol_rate_bps
         # Reuse the waveform plotter for an INIT-aligned overview and pulse detail.
         relative_time_s = time_s - origin_s
         for view, start_s, stop_s in (("sequence", -3.4e-9, 116.6e-9), ("pulse_detail", 40e-9, 55e-9)):
@@ -596,11 +593,11 @@ def test_adc_sequence_waveforms(name: str, sequence: AdcSequence) -> None:
                 title=name,
                 output_path=run_dir / view,
             )
-        init_index = sequence.init.index("1")
+        init_index = sequence.rows[0].index("1")
         errors = []
         observations: dict[str, dict[str, object]] = {}
         for index, (track, channel) in enumerate(scope_conns.channels.items()):
-            row = np.array([int(bit) for bit in getattr(sequence, track.removeprefix("seq_"))])
+            row = np.array([int(bit) for bit in getattr(params, track).data])
             signal = wave.v[track][0]
             observations[track] = {"min_v": float(signal.min()), "max_v": float(signal.max())}
             for rising in (True, False):
@@ -746,12 +743,8 @@ def test_serdes_output_words() -> None:
                 # Quiet first/last RAM words keep COMP from toggling while idle.
                 word = "1" * high_symbols + "0" * (8 - high_symbols)
                 pattern = "0" * 8 + word * 30 + "0" * 8
-                params = adc.TbParams(
-                    symbol_rate=symbol_rate_bps,
-                    seq_init_pattern="0" * 256,
-                    seq_samp_pattern="0" * 256,
-                    seq_comp_pattern=pattern,
-                    seq_logic_pattern="0" * 256,
+                params = adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params).sequenced(
+                    ("0" * 256, "0" * 256, pattern, "0" * 256), symbol_rate=symbol_rate_bps
                 )
                 memory = convert_params_to_seqgen_fmt(params, "0" * 32)
                 seq.reset()
@@ -876,12 +869,8 @@ def test_serdes_symbol_eye() -> None:
             daq["si570"].frequency_change(si570_frequency_hz / 1e6)
             time.sleep(SI570_SETTLE_TIME_S)
             set_pll_divider(daq["gpio2"], divider_n)
-            params = adc.TbParams(
-                symbol_rate=symbol_rate_bps,
-                seq_init_pattern="1" * 8 + "0" * 248,
-                seq_samp_pattern="0" * 256,
-                seq_comp_pattern=pattern,
-                seq_logic_pattern="0" * 256,
+            params = adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params).sequenced(
+                ("1" * 8 + "0" * 248, "0" * 256, pattern, "0" * 256), symbol_rate=symbol_rate_bps
             )
             memory = convert_params_to_seqgen_fmt(params, "0" * 32)
             seq.reset()

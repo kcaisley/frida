@@ -15,15 +15,15 @@ import numpy as np
 from bitarray import bitarray
 
 from flow import capdac, seqgen
-from flow.adc.sim import AdcSequence
 from flow.analysis.io import write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
+from flow.scans.board import load_board_map
 from flow.scans.fastrx import (
     convert_fastrx_words_to_adc,
     program_comp_delay,
     select_fastrx_capture_settings,
 )
-from flow.scans.params import AdcScanParams, load_board_map, validate_params
+from flow.scans.params import AdcScanParams, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scan_adc import (
     convert_dac_caps_to_adc_weights,
@@ -67,7 +67,7 @@ def scan(
         raise ValueError(f"unknown scope trigger signal {scope_trigger_signal!r}")
     if position != "abort":
         validate_params(params)
-        if params.tb.seq_init_pattern[0] != "1" or params.tb.seq_init_pattern[-1] != "0":
+        if params.tb.seq_init.data[0] != "1" or params.tb.seq_init.data[-1] != "0":
             raise ValueError("ADC control sequence must start at the INIT rising edge")
     scan_params = params
     params = scan_params.tb
@@ -190,9 +190,9 @@ def scan(
                 daq["gpio0"]["RST_B"] = 1
                 daq["gpio0"].write()
 
-                cap_weights = capdac.Model.weights(params.dut.cdac)
+                cap_weights = capdac.Model.weights(params.params.cdac)
                 code_weights = convert_dac_caps_to_adc_weights(cap_weights)
-                sequence_words = len(params.seq_init_pattern) // 8
+                sequence_words = len(params.seq_init.data) // 8
                 symbol_rate_bps = float(params.symbol_rate)
                 capture_settings = select_fastrx_capture_settings(scan_params, board["fastrx_capture_settings"])
                 rx_sen_start_word = capture_settings.rx_sen_start_word
@@ -267,7 +267,7 @@ def scan(
                 daq["fifo0"].get_data()
 
                 # Arm before FPGA start; include startup and crop to DAQ conversion zero.
-                conversion_period_s = len(params.seq_init_pattern) / symbol_rate_bps
+                conversion_period_s = len(params.seq_init.data) / symbol_rate_bps
                 acquisition_count_before = 0
                 if scope is not None:
                     scope.set_horizontal_scale(3 * conversion_period_s / 8.0)
@@ -326,7 +326,7 @@ def scan(
                     fastrx_words,
                     data_size,
                     code_weights,
-                    params.dut.adc_bits,
+                    params.params.adc_bits,
                 )
                 # Keep exactly N complete conversions after validating every
                 # received frame, including host-stop latency and startup frames.
@@ -355,19 +355,18 @@ def scan(
                 measurement = MeasAdc(
                     group=scan_params.board_id,
                     index=scan_params.observed_adc,
-                    dut=scan_params.tb.dut,
+                    dut=scan_params.tb.params,
                     info=MeasInfo(
                         backend="physical",
                         timestamp_utc=datetime.now().astimezone(),
                         instruments={"controller": hostname}
                         | ({"scope": str(scope.get_name()).strip()} if scope is not None else {}),
                         readbacks={
-                            "actual_sample_rate_hz": symbol_rate_bps / len(params.seq_init_pattern),
-                            "repetition_rate_hz": symbol_rate_bps / len(params.seq_init_pattern),
-                            "repetition_interval_s": len(params.seq_init_pattern) / symbol_rate_bps,
+                            "actual_sample_rate_hz": symbol_rate_bps / len(params.seq_init.data),
+                            "repetition_rate_hz": symbol_rate_bps / len(params.seq_init.data),
+                            "repetition_interval_s": len(params.seq_init.data) / symbol_rate_bps,
                             "nominal_conversion_rate_hz": symbol_rate_bps / 160,
-                            "active_conversion_rate_hz": symbol_rate_bps
-                            / AdcSequence.from_tb_params(params).conversion_symbols,
+                            "active_conversion_rate_hz": symbol_rate_bps / params.conversion_symbols,
                             "si570_frequency_hz": si570_frequency_hz,
                             "pll_divider_n": pll_divider_n,
                             "sequencer_frequency_hz": sequencer_frequency_hz,

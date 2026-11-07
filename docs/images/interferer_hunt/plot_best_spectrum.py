@@ -18,7 +18,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
-from flow.adc.sim import SEQUENCES, AdcSequence
+from flow.adc import Recipe
 from flow.analysis import calc
 from flow.analysis.io import read_measurement
 from flow.analysis.plots import PLOT_STYLE, save_figure, style_grid
@@ -31,12 +31,12 @@ CLEAN = {"A": "20261009_105940_adc_sequence_static", "D": "20261009_153529_adc_s
 DIRTY = ("C", "20261009_110933_adc_sequence_static")
 
 
-SEQUENCE_NAMES = {sequence: name for name, sequence in SEQUENCES}
+SEQUENCE_NAMES = {recipe.rows: recipe.name.lower() for recipe in Recipe}
 
 
 def case_key(path: Path) -> tuple[int, str, float]:
     measurement = read_measurement(path)
-    sequence = SEQUENCE_NAMES.get(AdcSequence.from_tb_params(measurement.param.tb), "unnamed")
+    sequence = SEQUENCE_NAMES.get(measurement.param.tb.rows, "unnamed")
     return (measurement.param.observed_adc, sequence, measurement.sample_rate_hz)
 
 

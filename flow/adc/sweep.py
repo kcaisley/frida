@@ -62,12 +62,11 @@ from pathlib import Path
 import hdl21 as h
 import hdl21.sim as hs
 import numpy as np
-from hdl21.prefix import G
 
 from flow import capdac, comp, samp
 from flow.analysis.io import read_cap_table
 from flow.analysis.types import MeasAdc
-from flow.pipeline import Pdk, Record, grid, values, widen
+from flow.pipeline import Pdk, Record, grid, named, values, widen
 
 from .analysis import (
     _extracted_calibration,
@@ -108,8 +107,12 @@ from .params import (
     RATES_HZ,
     RESOLUTIONS,
     SINE_CONVERSIONS,
-    Capture,
+    Extraction,
+    Fabricated,
     Params,
+    Quiet,
+    Recipe,
+    Simulator,
     TbParams,
 )
 from .plots import (
@@ -142,7 +145,7 @@ from .plots import (
     plot_trajectory_codes,
     plot_trajectory_final,
 )
-from .sim import SEQUENCES, simulate, symbol256_init8_samp16_comp11110000_logic11000011
+from .sim import simulate
 from .subckt import AdcBlocks
 from .types import AnalysisCalibration, AnalysisLadder
 
@@ -237,9 +240,44 @@ def converters(pdk: Pdk) -> dict[str, Params]:
     return spaces
 
 
+# FRIDA-1: its sizing as a generated design (the grid's point of its parts), and its four fabricated
+# converters (``Fabricated``), each simulated on its extraction and laid out from its tape-out
+
+
+@named
+def frida1() -> Params:
+    """FRIDA-1's converter as a generated design: its sizing, capdac's, the sampler's and the
+    comparator's FRIDA-1 parts."""
+    return Params()
+
+
+@named
+def frida1_1layer_radix17() -> Params:
+    """FRIDA-1's fabricated converter, its DAC in one metal layer at radix 17."""
+    return Fabricated.FRIDA1_1LAYER_RADIX17.params
+
+
+@named
+def frida1_1layer_radix20() -> Params:
+    """FRIDA-1's fabricated converter, its DAC in one metal layer at radix 20."""
+    return Fabricated.FRIDA1_1LAYER_RADIX20.params
+
+
+@named
+def frida1_2layer_radix17() -> Params:
+    """FRIDA-1's fabricated converter, its DAC in two metal layers at radix 17."""
+    return Fabricated.FRIDA1_2LAYER_RADIX17.params
+
+
+@named
+def frida1_2layer_radix20() -> Params:
+    """FRIDA-1's fabricated converter, its DAC in two metal layers at radix 20."""
+    return Fabricated.FRIDA1_2LAYER_RADIX20.params
+
+
 def campaign(
     tb: Callable[..., TbParams], full_scale_v: float, bits: int = 12, *, mismatch_draws: int = MISMATCH_DRAWS
-) -> dict[str, Capture]:
+) -> dict[str, TbParams]:
     """Every capture of the campaign, by name, for a ``bits`` ADC whose differential full scale is
     +-``full_scale_v``, each a testbench from ``tb`` (``tb(conversions=, rate_hz=, vin_diff=)``);
     ``mismatch_draws`` capacitor draws a Pelgrom coefficient for the Monte Carlo that checks the
@@ -295,9 +333,9 @@ def campaign(
     edge_v = 1.05 * full_scale_v
     ramp = h.Vpwl.Params(wave=f"0 {-edge_v:.6g} {period_s:.6g} {edge_v:.6g}")
     captures = {
-        role: Capture(
+        role: replace(
             tb(conversions=ramp_conversions, rate_hz=NOMINAL_RATE_HZ, vin_diff=ramp),
-            seed=1,
+            mismatch_seed=1,
             noise_seed=noise_seed,
             drawn=True,
         )
@@ -305,8 +343,8 @@ def campaign(
     }
 
     for rate in RATES_HZ:
-        captures[f"rate_{rate / 1e6:g}"] = Capture(
-            tb(conversions=SINE_CONVERSIONS, rate_hz=rate, vin_diff=_sine(amplitude_v, rate, 1021))
+        captures[f"rate_{rate / 1e6:g}"] = tb(
+            conversions=SINE_CONVERSIONS, rate_hz=rate, vin_diff=_sine(amplitude_v, rate, 1021)
         )
     # the ladder's steps but the last, which is the nominal rate's sine itself: its testbench and
     # seeds, fewer impairments
@@ -317,16 +355,16 @@ def campaign(
         captures[f"ladder_{step}"] = replace(nominal, quiet=quiet, tau_scale=tau_scale)
     for rate in FIN_RATES_HZ:
         for cycles in FIN_CYCLES:
-            captures[f"fin_{rate / 1e6:g}_{cycles}"] = Capture(
-                tb(conversions=SINE_CONVERSIONS, rate_hz=rate, vin_diff=_sine(amplitude_v, rate, cycles))
+            captures[f"fin_{rate / 1e6:g}_{cycles}"] = tb(
+                conversions=SINE_CONVERSIONS, rate_hz=rate, vin_diff=_sine(amplitude_v, rate, cycles)
             )
     for index, vin_v in enumerate(np.linspace(-full_scale_v, full_scale_v, 33)):
-        captures[f"dc_{index:02d}"] = Capture(
-            tb(conversions=2_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=round(float(vin_v), 6)))
+        captures[f"dc_{index:02d}"] = tb(
+            conversions=2_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=round(float(vin_v), 6))
         )
-    captures["trajectory"] = Capture(tb(conversions=2_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.0)))
-    captures["noise"] = Capture(tb(conversions=100_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.05)))
-    captures["noise_input"] = Capture(
+    captures["trajectory"] = tb(conversions=2_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.0))
+    captures["noise"] = tb(conversions=100_000, rate_hz=NOMINAL_RATE_HZ, vin_diff=h.Vdc.Params(dc=0.05))
+    captures["noise_input"] = replace(
         tb(
             conversions=INPUT_NOISE_LEVELS * INPUT_NOISE_CONVERSIONS,
             rate_hz=NOMINAL_RATE_HZ,
@@ -335,11 +373,11 @@ def campaign(
         noise_seed=2001,
     )
     for rate_index, rate in enumerate(RATES_HZ):
-        captures[f"hsu_r{rate_index}"] = Capture(
+        captures[f"hsu_r{rate_index}"] = replace(
             tb(conversions=(1 << bits) + 1, rate_hz=rate, vin_diff=_code_ramp(full_scale_v, bits, rate)),
             quiet=HSU_QUIET,
         )
-        captures[f"hsu_reference_r{rate_index}"] = Capture(
+        captures[f"hsu_reference_r{rate_index}"] = replace(
             tb(conversions=(1 << bits) + 1, rate_hz=rate, vin_diff=_code_ramp(full_scale_v, bits, rate)),
             quiet=HSU_REFERENCE_QUIET,
             tau_scale=0.0,
@@ -351,8 +389,12 @@ def campaign(
     mismatch_tb = tb(conversions=mismatch_conversions, rate_hz=NOMINAL_RATE_HZ, vin_diff=mismatch_ramp)
     for coefficient in MISMATCH_COEFFICIENTS:
         for draw in range(mismatch_draws):
-            captures[f"mc_{coefficient * 100:g}_{draw:02d}"] = Capture(
-                mismatch_tb, seed=100 + draw, unit_mismatch=coefficient, noise_free=True
+            # noise-free: the capacitors' nonlinearity alone
+            captures[f"mc_{coefficient * 100:g}_{draw:02d}"] = replace(
+                mismatch_tb,
+                mismatch_seed=100 + draw,
+                unit_mismatch=coefficient,
+                quiet=frozenset({Quiet.SAMPLING, Quiet.COMPARATOR}),
             )
     return captures
 
@@ -560,21 +602,10 @@ def characterize(run_dir: Path, pdk: str, params: Params) -> Record:
 
     model = Model.of(pdk, params)
     plan = campaign(model.tb, model.full_scale_v, params.adc_bits)
-    captures = {}
-    for name, capture in plan.items():
-        captures[name] = model.capture(
-            capture.tb,
-            None,
-            seed=capture.seed,
-            noise_seed=capture.noise_seed,
-            unit_mismatch=capture.unit_mismatch,
-            quiet=("sampling", "comparator") if capture.noise_free else capture.quiet,
-            tau_scale=capture.tau_scale,
-            drawn=capture.drawn,
-        )
+    captures = {name: model.capture(tb, None) for name, tb in plan.items()}
     # the behavioral model alone can keep one noise source at a time
-    for name, quiet in (("noise_sampling", ("comparator",)), ("noise_comparator", ("sampling",))):
-        captures[name] = model.capture(plan["noise"].tb, None, quiet=quiet)
+    for name, quiet in (("noise_sampling", Quiet.COMPARATOR), ("noise_comparator", Quiet.SAMPLING)):
+        captures[name] = model.capture(replace(plan["noise"], quiet=frozenset({quiet})), None)
     recorded = record(captures)
     # the reference buffer's requirements this converter sets, apart from its own ENOB
     reference = model.reference_requirements(plan[LADDER_NAMES[-1]])
@@ -618,23 +649,19 @@ def hdl21_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
 
     with ProcessPoolExecutor(max_workers=3, mp_context=get_context("spawn")) as executor:
         futures = []
-        for rate, symbol_rate in ((2, 0.32 * G), (6, 0.96 * G), (10, 1.6 * G)):
+        for rate, symbol_rate in ((2, 0.32e9), (6, 0.96e9), (10, 1.6e9)):
             params = TbParams(
-                view="hdl21gen",
-                symbol_rate=symbol_rate,
+                pdk="tsmc65",
+                params=Params(),
+                simulator=Simulator.SPECTRE,
                 conversions=1 if check else 100,
                 vin_diff=h.Vdc.Params(dc=0.05),
-                **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
-            )
+                transient_noise=True,
+                check=check,
+            ).sequenced(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011.rows, symbol_rate=symbol_rate)
             futures.append(
                 (
-                    executor.submit(
-                        simulate,
-                        params,
-                        run_dir / f"{float(symbol_rate) / 1e6:g}mbd",
-                        noise=True,
-                        check=check,
-                    ),
+                    executor.submit(simulate, params, run_dir / f"{float(symbol_rate) / 1e6:g}mbd"),
                     params,
                 )
             )
@@ -659,17 +686,14 @@ def hdl21_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
     from flow.circuit.results import read_raw_transient
 
     params = TbParams(
-        view="hdl21gen",
-        symbol_rate=1.6 * G,
+        pdk="tsmc65",
+        params=Params(),
+        simulator=Simulator.SPECTRE,
         conversions=151,
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
-        **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
-    )
-    raw_path, signal_names = simulate(
-        params,
-        run_dir,
         check=check,
-    )
+    ).sequenced(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011.rows, symbol_rate=1.6e9)
+    raw_path, signal_names = simulate(params, run_dir)
     if not check:
         measurement = _decode(
             read_raw_transient(raw_path),
@@ -692,48 +716,39 @@ def frida1_sequence(run_dir: Path, *, check: bool = False) -> Path:
     with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
         futures = []
         for layers in (1, 2):
-            for (radix, cdac), timing in product(
-                (
-                    (17, capdac.Params()),
-                    (20, capdac.Params(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
-                ),
+            for radix, timing in product(
+                (17, 20),
                 # COMP      LOGIC at fall  LOGIC +1 symbol
                 # 11110000  00001111       10000111
                 # 11111000  10000111       11000011
                 # 11111100  11000011       11100001
                 # 11111110  11100001       (excluded)
                 (
-                    "symbol160_init4_samp20_comp11110000_logic00001111",
-                    "symbol160_init4_samp20_comp11110000_logic10000111",
-                    "symbol160_init4_samp20_comp11111000_logic10000111",
-                    "symbol160_init4_samp20_comp11111000_logic11000011",
-                    "symbol160_init4_samp20_comp11111100_logic11000011",
-                    "symbol160_init4_samp20_comp11111100_logic11100001",
-                    "symbol160_init4_samp20_comp11111110_logic11100001",
+                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111,
+                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC10000111,
+                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111000_LOGIC10000111,
+                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111000_LOGIC11000011,
+                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11000011,
+                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11100001,
+                    Recipe.SYMBOL160_INIT4_SAMP20_COMP11111110_LOGIC11100001,
                 ),
             ):
-                target = f"frida1_{layers}layer_radix{radix}"
+                fabricated = next(member for member in Fabricated if (member.layers, member.radix) == (layers, radix))
+                target = fabricated.name.lower()
                 pex = root / target / "20260905_171235" / f"{target}.pex.netlist"
                 params = TbParams(
-                    view="frida1",
-                    pex_cell="adc_12b_17step",
-                    dut=Params(adc_bits=12, cdac=cdac),
-                    symbol_rate=1.6 * G,
+                    pdk="tsmc65",
+                    params=fabricated.params,
+                    simulator=Simulator.SPECTRE,
+                    extraction=Extraction.SIGNOFF,
                     conversions=1 if check else 100,
                     vin_diff=h.Vdc.Params(dc=0.05),
-                    **dict(SEQUENCES)[timing].as_tb_fields(),
-                )
+                    transient_noise=True,
+                    check=check,
+                ).sequenced(timing.rows, symbol_rate=1.6e9)
                 futures.append(
                     (
-                        executor.submit(
-                            simulate,
-                            params,
-                            run_dir / target / timing,
-                            pex_netlist=pex,
-                            noise=True,
-                            check=check,
-                            expected_disconnect=layers == 2,
-                        ),
+                        executor.submit(simulate, params, run_dir / target / timing.name.lower(), pex_netlist=pex),
                         params,
                     )
                 )
@@ -761,35 +776,29 @@ def frida1_sample_rate(run_dir: Path, *, check: bool = False) -> Path:
     with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
         futures = []
         for layers in (1, 2):
-            for radix, cdac in (
-                (17, capdac.Params()),
-                (20, capdac.Params(weights=(768, 512, 320, 192, 128, 64, 64, 64, 64, 64, 32, 16, 8, 4, 2, 1))),
-            ):
+            for radix in (17, 20):
+                fabricated = next(member for member in Fabricated if (member.layers, member.radix) == (layers, radix))
                 cell = f"adc_{layers}layer_radix{radix}"
                 pex = (
                     site.ADC_PEX_NETLIST
                     if cell == "adc_1layer_radix17"
                     else site.ADC_PEX_NETLIST.parent / cell / f"{cell}.pex.netlist"
                 )
-                for rate, symbol_rate in ((2, 0.32 * G), (6, 0.96 * G), (10, 1.6 * G)):
+                for rate, symbol_rate in ((2, 0.32e9), (6, 0.96e9), (10, 1.6e9)):
                     params = TbParams(
-                        view="frida1",
-                        pex_cell=cell,
-                        dut=Params(adc_bits=12, cdac=cdac),
-                        symbol_rate=symbol_rate,
+                        pdk="tsmc65",
+                        params=fabricated.params,
+                        simulator=Simulator.SPECTRE,
+                        extraction=Extraction.TAPEOUT,
                         conversions=1 if check else 100,
                         vin_diff=h.Vdc.Params(dc=0.05),
-                        **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
-                    )
+                        transient_noise=True,
+                        check=check,
+                    ).sequenced(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011.rows, symbol_rate=symbol_rate)
                     futures.append(
                         (
                             executor.submit(
-                                simulate,
-                                params,
-                                run_dir / cell / f"{float(symbol_rate) / 1e6:g}mbd",
-                                pex_netlist=pex,
-                                noise=True,
-                                check=check,
+                                simulate, params, run_dir / cell / f"{float(symbol_rate) / 1e6:g}mbd", pex_netlist=pex
                             ),
                             params,
                         )
@@ -816,18 +825,15 @@ def frida1_transfer_curve(run_dir: Path, *, check: bool = False) -> Path:
     from pdk.tsmc65.hdl21 import site
 
     params = TbParams(
-        view="frida1",
-        symbol_rate=1.6 * G,
+        pdk="tsmc65",
+        params=Fabricated.FRIDA1_1LAYER_RADIX17.params,
+        simulator=Simulator.SPECTRE,
+        extraction=Extraction.TAPEOUT,
         conversions=151,
         vin_diff=hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
-        **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
-    )
-    raw_path, signal_names = simulate(
-        params,
-        run_dir,
-        pex_netlist=site.ADC_PEX_NETLIST,
         check=check,
-    )
+    ).sequenced(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011.rows, symbol_rate=1.6e9)
+    raw_path, signal_names = simulate(params, run_dir, pex_netlist=site.ADC_PEX_NETLIST)
     if not check:
         measurement = _decode(
             read_raw_transient(raw_path),
@@ -850,7 +856,7 @@ def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
     noise_rms_v = 1e-3
     with ProcessPoolExecutor(max_workers=4, mp_context=get_context("spawn")) as executor:
         futures = []
-        for rate, symbol_rate in ((2, 0.32 * G), (6, 0.96 * G), (10, 1.6 * G)):
+        for rate, symbol_rate in ((2, 0.32e9), (6, 0.96e9), (10, 1.6e9)):
             for name, rail_noise in (
                 ("none", (0.0, 0.0, 0.0)),
                 ("vdda", (noise_rms_v, 0.0, 0.0)),
@@ -859,17 +865,19 @@ def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
                 ("all", (noise_rms_v, noise_rms_v, noise_rms_v)),
             ):
                 params = TbParams(
-                    view="frida1",
-                    symbol_rate=symbol_rate,
+                    pdk="tsmc65",
+                    params=Fabricated.FRIDA1_1LAYER_RADIX17.params,
+                    simulator=Simulator.SPECTRE,
+                    extraction=Extraction.TAPEOUT,
                     conversions=1 if check else 100,
                     vin_diff=h.Vdc.Params(dc=0.05),
-                    **symbol256_init8_samp16_comp11110000_logic11000011.as_tb_fields(),
                     supply_series_resistance_ohm=1.0,
                     supply_series_inductance_h=1e-9,
                     supply_decoupling_capacitance_f=1e-12,
                     supply_noise_rms_v=rail_noise,
                     supply_noise_bandwidth_hz=25e9,
-                )
+                    check=check,
+                ).sequenced(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011.rows, symbol_rate=symbol_rate)
                 futures.append(
                     (
                         executor.submit(
@@ -877,7 +885,6 @@ def frida1_supply_noise(run_dir: Path, *, check: bool = False) -> Path:
                             params,
                             run_dir / f"{float(symbol_rate) / 1e6:g}mbd_{name}",
                             pex_netlist=site.ADC_PEX_NETLIST,
-                            check=check,
                         ),
                         params,
                     )

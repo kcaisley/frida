@@ -54,7 +54,7 @@ def capture(adc: int, vin_cm_v: float, vin_diff_v: float, **scan) -> AnalysisDec
     return AnalysisDecisions(
         group=params.board_id,
         index=params.observed_adc,
-        dut=params.tb.dut.comp,
+        dut=params.tb.params.comp,
         info=MeasInfo(backend="physical", timestamp_utc=datetime(2026, 8, 5, tzinfo=UTC)),
         param=params,
         trial_index=np.arange(400),
@@ -177,7 +177,7 @@ def campaign_curve(campaign: str, mode: str, vin_cm_v: float, center_v: float, c
             AnalysisDecisions(
                 group=params.board_id,
                 index=params.observed_adc,
-                dut=params.tb.dut.comp,
+                dut=params.tb.params.comp,
                 info=MeasInfo(backend="physical", timestamp_utc=datetime(2026, 8, 5, tzinfo=UTC)),
                 param=params,
                 trial_index=np.arange(100),

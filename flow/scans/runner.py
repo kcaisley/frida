@@ -19,12 +19,7 @@ from pathlib import Path
 
 import hdl21 as h
 
-from flow.adc.sim import (
-    SEQUENCES,
-    AdcSequence,
-    symbol256_init8_samp16_comp11110000_logic00001111,
-    symbol256_init8_samp16_comp11110000_logic11000011,
-)
+from flow.adc import Recipe
 from flow.scans import scan_adc, scan_adc_noctl, scan_cdac, scan_comp
 from flow.scans.params import build_adc_variants
 
@@ -34,13 +29,11 @@ BASE_PATH = Path(__file__).resolve().parents[2]
 def adc_sample_rate_static() -> Path:
     """Manual-input ADC00–03 fixed-input rate sweep; sequence selection pending."""
     # TODO: choose 4–5 complete named sequences after the all-sequence comparison.
-    sequences: tuple[AdcSequence, ...] = (
+    sequences: tuple[Recipe, ...] = (
         # TODO: sequence_1, sequence_2, sequence_3, sequence_4[, sequence_5]
     )
     if not sequences:
         raise ValueError("adc_sample_rate_static: TODO select 4–5 named sequences before running")
-    if any(sequence not in dict(SEQUENCES).values() for sequence in sequences):
-        raise ValueError("sequences must be explicitly named catalogue entries")
     # Nominal MSPS assumes 160 symbols, independently of the recipe length.
     variants = [
         params
@@ -95,7 +88,7 @@ def adc_sequence_static(
     # TODO: Restore tuple(range(16)) after the INIT-LOGIC check.
     adc_indices: tuple[int, ...] = (0, 1, 2, 3),
     nominal_conversion_rates_hz: tuple[float, ...] = (2.0e6, 6.0e6, 10.0e6),
-    sequences: tuple[AdcSequence, ...] | None = None,
+    sequences: tuple[Recipe, ...] | None = None,
     conversions: int = 100_000,
     run_dir: Path | None = None,
     capture_scope: bool = True,
@@ -114,22 +107,19 @@ def adc_sequence_static(
     board_id = 0
     if sequences is None:
         # TODO: Restore all 29 continuous recipes after the INIT-LOGIC check.
-        names = (
-            "symbol160_init4_samp20_comp11110000_logic00001111",
-            "symbol160_init4_samp20_comp11110000_logic10000111",
-            "symbol160_init4_samp20_comp11111000_logic10000111",
-            "symbol160_init4_samp20_comp11111000_logic11000011",
-            "symbol160_init4_samp20_comp11111100_logic11000011",
-            "symbol160_init4_samp20_comp11111100_logic11100001",
-            "symbol160_init4_samp20_comp11111110_logic11100001",
+        sequences = (
+            Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111,
+            Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC10000111,
+            Recipe.SYMBOL160_INIT4_SAMP20_COMP11111000_LOGIC10000111,
+            Recipe.SYMBOL160_INIT4_SAMP20_COMP11111000_LOGIC11000011,
+            Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11000011,
+            Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11100001,
+            Recipe.SYMBOL160_INIT4_SAMP20_COMP11111110_LOGIC11100001,
         )
-        catalogue = dict(SEQUENCES)
-        sequences = tuple(catalogue[name] for name in names)
     if not adc_indices or not nominal_conversion_rates_hz or not sequences:
         raise ValueError("ADC, rate, and sequence selections must be nonempty")
-    catalogue = dict(SEQUENCES).values()
-    if any(sequence not in catalogue for sequence in sequences):
-        raise ValueError("sequences must be explicitly named catalogue entries")
+    if not all(isinstance(sequence, Recipe) for sequence in sequences):
+        raise ValueError("sequences must be named recipes (adc.Recipe)")
     vin_cm_v = 0.700
     vin_diff = h.Vdc.Params(dc=0.050)
     # Nominal MSPS uses a fixed 160-symbol reference: 320/960/1600 MBd.
@@ -210,7 +200,7 @@ def adc_activity_noise() -> Path:
             board_id=0,
             adc_indices=adc_indices,
             active_conversion_rates_hz=(2.0e6, 6.0e6, 10.0e6),
-            sequences=(symbol256_init8_samp16_comp11110000_logic11000011,),
+            sequences=(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011,),
             conversions=100_000,
             vin_cm_v=0.700,
             vin_diff=h.Vdc.Params(dc=0.050),
@@ -254,7 +244,7 @@ def adc_transfer_curve() -> Path:
     adc_indices = (0,)
     # adc_indices = tuple(range(16))  # Extend the long sweep after checking these ADCs.
     active_conversion_rates_hz = (10.0e6,)
-    sequences = (symbol256_init8_samp16_comp11110000_logic11000011,)
+    sequences = (Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011,)
     conversions = 100
     vin_cm_v = 0.700
     vin_diff_values_v = tuple((step - 500) * 0.0015 for step in range(1_001))
@@ -309,7 +299,7 @@ def adc_ramp_code_density() -> Path:
     adc_indices = (0, 1, 2, 3)
     # adc_indices = tuple(range(16))  # Extend the long sweep after checking these ADCs.
     active_conversion_rates_hz = (1.0e6,)
-    sequences = (symbol256_init8_samp16_comp11110000_logic00001111,)
+    sequences = (Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC00001111,)
     conversions = 4_000_000
     vin_cm_v = 0.700
     vin_diff = h.Vpwl.Params(wave="0 -1 0.1 1")

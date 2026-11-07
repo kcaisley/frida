@@ -25,12 +25,13 @@ from flow import adc, capdac
 from flow.analysis import calc
 from flow.analysis.io import read_measurement, write_measurement
 from flow.analysis.types import MeasCdac, MeasInfo, Wave
+from flow.scans.board import load_board_map
 from flow.scans.fastrx import (
     convert_fastrx_words_to_comp,
     program_comp_delay,
     select_fastrx_capture_settings,
 )
-from flow.scans.params import AdcScanParams, load_board_map, validate_params
+from flow.scans.params import AdcScanParams, fabricated, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scan_adc import (
     convert_params_to_spi_fmt,
@@ -265,7 +266,7 @@ def _predict_cdac_step_v(params: AdcScanParams) -> float:
 
     if params.campaign != "cdac_ab" or params.cdac_element is None:
         raise ValueError("CDAC step prediction requires a selected cdac_ab element")
-    weights = capdac.Model.weights(params.tb.dut.cdac)
+    weights = capdac.Model.weights(params.tb.params.cdac)
     total_weights = [65 * math.ceil(weight / 64) for weight in weights]
     switched_weight = weights[params.cdac_element] if params.tb.dac_diffcaps else total_weights[params.cdac_element]
     topplate_parasitic_weight = 0.0
@@ -418,11 +419,8 @@ def _build_cdac_params(
     """Compose one complete physical A-to-B CDAC point."""
 
     board_id = 0
-    board_map = load_board_map()
-    flavor = board_map["adc_channels"][adc_index]
-    cap_weights = tuple(board_map["adc_flavors"][flavor]["cdac_weights"])
-    # FRIDA-1's array (capdac's defaults) with the flavor's fabricated weights
-    dut = adc.Params(adc_bits=12, cdac=capdac.Params(weights=cap_weights))
+    # FRIDA-1's converter on the channel, its flavor's weights
+    dut = fabricated(adc_index).params
     if direction == "1to0":
         a_p = [1] * 16
         a_n = [1] * 16
@@ -441,9 +439,8 @@ def _build_cdac_params(
     symbol_rate_bps = 1.6e9
     params = AdcScanParams(
         tb=adc.TbParams(
-            view="frida1",
-            dut=dut,
-            symbol_rate=symbol_rate_bps,
+            pdk="tsmc65",
+            params=dut,
             conversions=conversions,
             dac_mode=0,
             dac_diffcaps=dac_diffcaps,
@@ -453,7 +450,7 @@ def _build_cdac_params(
             dac_bstate_n=tuple(b_n),
             vin_cm=h.Vdc.Params(dc=0.8),
             vin_diff=h.Vdc.Params(dc=vin_diff_v),
-        ),
+        ).sequenced(symbol_rate=symbol_rate_bps),
         board_id=board_id,
         observed_adc=adc_index,
         active_adc_mask=tuple(int(index == adc_index) for index in reversed(range(16))),
@@ -468,7 +465,7 @@ def _build_cdac_params(
         cdac_direction=direction,
         settling_time_s=settling_time_s,
     )
-    sequence_words = len(params.tb.seq_init_pattern) // 8
+    sequence_words = len(params.tb.seq_init.data) // 8
     word_period_s = 8.0 / symbol_rate_bps
     update_word = 21
     comp_word = update_word + 1 + math.ceil(settling_time_s / word_period_s)
@@ -481,16 +478,7 @@ def _build_cdac_params(
     samp_pattern = "00000000" * 3 + "11111111" * 17 + "00000000" * 12
     logic_pattern = "00000000" + "00001111" + "00000000" * 19 + "00001111" + "00000000" * 10
     comp_words[comp_word] = "00001111"
-    params = replace(
-        params,
-        tb=replace(
-            params.tb,
-            seq_init_pattern=init_pattern,
-            seq_samp_pattern=samp_pattern,
-            seq_comp_pattern="".join(comp_words),
-            seq_logic_pattern=logic_pattern,
-        ),
-    )
+    params = replace(params, tb=params.tb.sequenced((init_pattern, samp_pattern, "".join(comp_words), logic_pattern)))
     validate_params(params)
     plate_voltages = _calculate_cdac_plate_voltages(params)
     if any(voltage < 0.4 or voltage > float(params.tb.vdd_a.dc) for voltage in plate_voltages):
@@ -899,7 +887,7 @@ def scan(
         sleep(si570_settle_s)
         set_pll_divider(daq["gpio2"], pll_divider_n)
         data_size = int(daq["fastrx0"].get_size())
-        expected_data_size = len(capdac.Model.weights(first.tb.dut.cdac)) + 1
+        expected_data_size = len(capdac.Model.weights(first.tb.params.cdac)) + 1
         if data_size != expected_data_size:
             raise RuntimeError(f"FastRX DATA_SIZE={data_size}, expected {expected_data_size} from the configured CDAC")
 
@@ -1020,19 +1008,20 @@ def scan(
                     raise RuntimeError(f"SPI configuration readback has {spi_mismatches} mismatches")
                 programmed_spi_bytes = spi_bytes
 
-            sequence_words = len(params.seq_init_pattern) // 8
+            sequence_words = len(params.seq_init.data) // 8
             setup_init_words = ["00000000"] * sequence_words
             setup_samp_words = ["00000000", *(["11111111"] * (sequence_words - 1))]
             setup_comp_words = ["00000000"] * sequence_words
             setup_logic_words = ["00000000"] * sequence_words
             setup_init_words[1] = "11111111"
             setup_logic_words[1] = "00001111"
-            setup_params = replace(
-                params,
-                seq_init_pattern="".join(setup_init_words),
-                seq_samp_pattern="".join(setup_samp_words),
-                seq_comp_pattern="".join(setup_comp_words),
-                seq_logic_pattern="".join(setup_logic_words),
+            setup_params = params.sequenced(
+                (
+                    "".join(setup_init_words),
+                    "".join(setup_samp_words),
+                    "".join(setup_comp_words),
+                    "".join(setup_logic_words),
+                )
             )
             setup_rx_sen_pattern = "0" * sequence_words
             daq["seq0"].reset()
@@ -1065,7 +1054,7 @@ def scan(
             daq["fifo0"]["RESET"]
             daq["fifo0"].get_data()
 
-            conversion_period_s = len(params.seq_init_pattern) / symbol_rate_bps
+            conversion_period_s = len(params.seq_init.data) / symbol_rate_bps
             capture_scope = scope is not None and curve_key not in scope_captured_curves
             acquisition_count_before: int | None = None
             if capture_scope:
@@ -1207,7 +1196,7 @@ def scan(
                 "scope_waveform_captured": capture_scope,
                 "scope_elapsed_s": scope_elapsed_s,
                 "topplate_precondition_s": topplate_precondition_s,
-                "sample_aperture_s": params.seq_samp_pattern.count("1") / symbol_rate_bps,
+                "sample_aperture_s": params.seq_samp.data.count("1") / symbol_rate_bps,
                 "acquisition_session_id": acquisition_session_id,
                 "curve_complete": curve_complete,
                 "vin_cm_supply_set_v": vin_cm_supply_v,
@@ -1244,7 +1233,7 @@ def scan(
             measurement = MeasCdac(
                 group=scan_params.board_id,
                 index=scan_params.observed_adc,
-                dut=scan_params.tb.dut.cdac,
+                dut=scan_params.tb.params.cdac,
                 info=MeasInfo(
                     backend="physical",
                     timestamp_utc=datetime.now().astimezone(),

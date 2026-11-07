@@ -70,32 +70,26 @@ class MeasAdc(Meas):
     def sample_rate_hz(self) -> float:
         """Return the true sampling rate including sequencer idle padding."""
 
-        return float(self.tb.symbol_rate) / len(self.tb.seq_init_pattern)
+        return float(self.tb.symbol_rate) / len(self.tb.seq_init.data)
 
     @property
     def active_conversion_rate_hz(self) -> float:
         """Return the nominal conversion rate excluding idle padding."""
 
-        from flow.adc.sim import AdcSequence
-
-        return float(self.tb.symbol_rate) / AdcSequence.from_tb_params(self.tb).conversion_symbols
+        return float(self.tb.symbol_rate) / self.tb.conversion_symbols
 
     @property
     def logic_phase_delay_symbols(self) -> float:
         """Return the COMP-to-LOGIC delay relative to mid-decision, in symbols."""
 
-        from flow.adc.sim import AdcSequence
-
-        interval, delay = AdcSequence.from_tb_params(self.tb).logic_timing
+        interval, delay = self.tb.logic_timing
         return delay - interval / 2
 
     @property
     def comparator_time_percent(self) -> float:
         """Return the COMP-to-LOGIC delay as a percentage of the decision interval."""
 
-        from flow.adc.sim import AdcSequence
-
-        interval, delay = AdcSequence.from_tb_params(self.tb).logic_timing
+        interval, delay = self.tb.logic_timing
         return 100.0 * delay / interval
 
     @property
@@ -132,7 +126,7 @@ class MeasAdc(Meas):
             return float(tb.vdd_dac.dc) / self.code_max
         from flow import capdac
 
-        main_f, diff_f = capdac.Model.plates_f(cdac, "p", tb.dut.cdac, float(tb.vdd_dac.dc))
+        main_f, diff_f = capdac.Model.plates_f(cdac, "p", tb.params.cdac, float(tb.vdd_dac.dc))
         effective_f = np.sum(main_f) + (-1 if tb.dac_diffcaps else 1) * np.sum(diff_f)
         total_f = np.sum(main_f) + np.sum(diff_f) + cdac.parasitic_f
         return float(2 * float(tb.vdd_dac.dc) * effective_f / total_f / (1 << self.dut.adc_bits))
@@ -141,9 +135,7 @@ class MeasAdc(Meas):
     def symbols_per_decision(self) -> int:
         """Return the symbol spacing of the INIT-relative COMP rises, one per decision."""
 
-        from flow.adc.sim import AdcSequence
-
-        comp = np.fromiter((bit == "1" for bit in AdcSequence.from_tb_params(self.tb).relative_to_init().comp), bool)
+        comp = np.fromiter((bit == "1" for bit in self.tb.rows_from_init[2]), bool)
         spacing = np.diff(np.flatnonzero(comp & ~np.roll(comp, 1)))
         decisions = len(self.nominal_bout_weights)
         if len(spacing) != decisions - 1 or np.any(spacing != spacing[0]):
@@ -190,7 +182,7 @@ class MeasCdac(Meas):
         elif self.info.backend != "physical" or self.group is None or self.index is None:
             topplate_parasitic_weight = 0.0
         else:
-            from flow.scans.params import load_board_map
+            from flow.scans.board import load_board_map
 
             board_map = load_board_map()
             flavor = board_map["adc_channels"][self.index]

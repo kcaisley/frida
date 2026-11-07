@@ -7,7 +7,7 @@ from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 
 
 def test_default_weights_and_decisions_are_chronological() -> None:
-    weights = capdac.Model.weights(adc.TbParams().dut.cdac)
+    weights = capdac.Model.weights(adc.TbParams(pdk="tsmc65", params=adc.Params()).params.cdac)
 
     assert weights == (768, 512, 320, 192, 96, 64, 32, 24, 12, 10, 5, 4, 4, 2, 1, 1)
     assert convert_dac_caps_to_adc_weights(weights) == [

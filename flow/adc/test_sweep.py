@@ -35,6 +35,10 @@ from flow.adc.params import (
     RATES_HZ,
     RESOLUTIONS,
     VALIDATION_DRAWS,
+    Extraction,
+    Params,
+    Quiet,
+    TbParams,
 )
 from flow.pipeline import Pdk
 from flow.sweep.runner import design_space, digest
@@ -192,7 +196,8 @@ def test_every_component_is_its_block_sweeps_instance() -> None:
 
 def test_the_campaign_has_every_capture_the_figures_read() -> None:
     def tb(*, conversions, rate_hz, vin_diff):
-        return {"conversions": conversions, "rate_hz": rate_hz, "vin_diff": vin_diff}
+        base = TbParams(pdk="tsmc65", params=Params(), conversions=conversions, vin_diff=vin_diff).continuous(16)
+        return base.sequenced(symbol_rate=rate_hz * len(base.seq_init.data))
 
     captures = sweep.campaign(tb, 0.7)
     names = set(captures)
@@ -206,11 +211,11 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
     assert train.drawn and check.drawn and train.unit_mismatch == check.unit_mismatch == 0.0
     assert train.noise_seed != check.noise_seed
     drawn, nominal = captures["drawn_sine"], captures["rate_10"]
-    assert drawn.drawn and not nominal.drawn and drawn.tb == nominal.tb and drawn.noise_seed == nominal.noise_seed
+    assert drawn.drawn and not nominal.drawn and replace(drawn, drawn=False) == nominal
     # sines at -0.5 dBFS of the full scale, DC inputs across it
-    assert abs(captures["rate_10"].tb["vin_diff"].vamp - 0.7 * 10 ** (-0.5 / 20)) < 1e-9
-    assert isinstance(captures["dc_00"].tb["vin_diff"], h.Vdc.Params)
-    assert captures["dc_00"].tb["vin_diff"].dc == -0.7 and captures["dc_32"].tb["vin_diff"].dc == 0.7
+    assert abs(captures["rate_10"].vin_diff.vamp - 0.7 * 10 ** (-0.5 / 20)) < 1e-9
+    assert isinstance(captures["dc_00"].vin_diff, h.Vdc.Params)
+    assert captures["dc_00"].vin_diff.dc == -0.7 and captures["dc_32"].vin_diff.dc == 0.7
     assert next(iter(FIGURES)) == "redundancy" and {"noise_input", "hsu_rate"} <= set(FIGURES)
     # what a fabricated instance can show: its settling is its own, only its rate varies
     assert not {"hsu_map", "hsu_fastest"} & set(FIGURES)
@@ -222,32 +227,32 @@ def test_the_campaign_has_every_capture_the_figures_read() -> None:
     assert len(hsu) == len(references) == len(RATES_HZ)
     for index, rate in enumerate(RATES_HZ):
         reference, own = captures[f"hsu_reference_r{index}"], captures[f"hsu_r{index}"]
-        assert reference.tb["rate_hz"] == rate == own.tb["rate_hz"]
-        assert reference.tau_scale == 0.0 and "comparator" in reference.quiet
-        assert own.tau_scale == 1.0 and "comparator" not in own.quiet
+        assert reference.sample_rate_hz == pytest.approx(rate) and own.symbol_rate == reference.symbol_rate
+        assert reference.tau_scale == 0.0 and Quiet.COMPARATOR in reference.quiet
+        assert own.tau_scale == 1.0 and Quiet.COMPARATOR not in own.quiet
     # the ENOB ladder: the 10 MS/s sine, quantization alone first, one impairment more a step, the
     # last rate_10 itself
     names = LADDER_NAMES
     assert len(names) == len(LADDER) and names[-1] == "rate_10" and "enob_ladder" in FIGURES
     steps = [captures[name] for name in names]
-    assert all(replace(step, quiet=(), tau_scale=1.0) == captures["rate_10"] for step in steps)
-    assert steps[0].tau_scale == 0.0 and {"sampler", "sampling", "comparator"} <= set(steps[0].quiet)
-    assert steps[-1].quiet == () and steps[-1].tau_scale == 1.0
-    # each step adds one impairment: the timing of the comparator ("comparator" made it ideal,
-    # "comparator_noise" keeps its delay), else one source less quiet or the settling on
+    assert all(replace(step, quiet=frozenset(), tau_scale=1.0) == captures["rate_10"] for step in steps)
+    assert steps[0].tau_scale == 0.0 and {Quiet.SAMPLER, Quiet.SAMPLING, Quiet.COMPARATOR} <= steps[0].quiet
+    assert steps[-1].quiet == frozenset() and steps[-1].tau_scale == 1.0
+    # each step adds one impairment: the timing of the comparator (COMPARATOR made it ideal,
+    # COMPARATOR_NOISE keeps its delay), else one source less quiet or the settling on
     for before, after in pairwise(steps):
-        timing = "comparator" in before.quiet and "comparator_noise" in after.quiet
-        quieter = set(before.quiet) - set(after.quiet) - ({"comparator"} if timing else set())
+        timing = Quiet.COMPARATOR in before.quiet and Quiet.COMPARATOR_NOISE in after.quiet
+        quieter = before.quiet - after.quiet - ({Quiet.COMPARATOR} if timing else set())
         settled = after.tau_scale != before.tau_scale
-        assert int(timing) + len(quieter) + int(settled) == 1 and set(after.quiet) - {"comparator_noise"} <= set(
-            before.quiet
-        )
+        assert int(timing) + len(quieter) + int(settled) == 1 and after.quiet - {Quiet.COMPARATOR_NOISE} <= before.quiet
     # the mismatch is predicted, not drawn: the Monte Carlo that checks it only where asked for
     assert not any(name.startswith("mc_") for name in names)
     assert {"mismatch_weight_sigma", "mismatch_transition_sigma", "mismatch_margin"} <= set(FIGURES)
     drawn = sweep.campaign(tb, 0.7, mismatch_draws=VALIDATION_DRAWS)
     studies = [capture for name, capture in drawn.items() if name.startswith("mc_")]
-    assert len(studies) == len(MISMATCH_COEFFICIENTS) * VALIDATION_DRAWS and all(c.noise_free for c in studies)
+    assert len(studies) == len(MISMATCH_COEFFICIENTS) * VALIDATION_DRAWS and all(
+        c.quiet == {Quiet.SAMPLING, Quiet.COMPARATOR} for c in studies
+    )
     assert {c.unit_mismatch for c in studies} == set(MISMATCH_COEFFICIENTS)
 
 
@@ -258,15 +263,14 @@ def test_the_record_holds_the_models_own_metrics_beside_the_campaigns(monkeypatc
     and that over the reference, its drivers' energy (none: not characterized), its stages and
     decisions, its slowest settling, the comparator's noise and delay and the late-decision input."""
     from flow.adc.model import Model
-    from flow.adc.params import Capture
     from flow.adc.test_model import TB, _dac, _stand_in
     from flow.adc.types import AnalysisReference
     from flow.pipeline import Record
 
-    main_f, diff_f = capdac.Model.plates(TB.dut.cdac, 1.2)
+    main_f, diff_f = capdac.Model.plates(TB.params.cdac, 1.2)
     steps = 2 * 1.2 * 0.8 * (main_f - diff_f) / float(np.sum(main_f + diff_f))  # the design's at a gain of 0.8
     steps[-1] *= 2.0
-    model = _stand_in(replace(_dac(TB.dut, gain=0.8), step_v=tuple(steps)))
+    model = _stand_in(replace(_dac(TB.params, gain=0.8), step_v=tuple(steps)))
     # the comparator's own numbers, which the record reports and the metastability reads
     model.comp.noise_v, model.comp.delay_s, model.comp.regeneration_tau_s = 1e-4, 300e-12, 20e-12
     model.comp.delay_table_v, model.comp.delay_table_s = (1e-6, 1e-3), (200e-12, 50e-12)
@@ -274,13 +278,13 @@ def test_the_record_holds_the_models_own_metrics_beside_the_campaigns(monkeypatc
 
     def campaign(tb, full_scale_v, bits):
         planned.update(full_scale_v=full_scale_v, bits=bits)
-        short = Capture(tb=tb(conversions=4, rate_hz=10e6, vin_diff=h.Vdc.Params(dc=0.0)))
+        short = tb(conversions=4, rate_hz=10e6, vin_diff=h.Vdc.Params(dc=0.0))
         return {"noise": short, LADDER_NAMES[-1]: short}
 
     reference = AnalysisReference(
         group=None,
         index=None,
-        dut=TB.dut,
+        dut=TB.params,
         decap_f=2e-12,
         noise_v=np.asarray([1e-4, 1e-3]),
         noise_loss_bits=np.asarray([0.0, 0.4]),
@@ -296,7 +300,7 @@ def test_the_record_holds_the_models_own_metrics_beside_the_campaigns(monkeypatc
     monkeypatch.setattr(
         sweep, "record", lambda captures: converted.extend(captures) or Record(metrics={"enob_bits": 11.0}, details=[])
     )
-    result = sweep.characterize(tmp_path, "tsmc65", TB.dut)
+    result = sweep.characterize(tmp_path, "tsmc65", TB.params)
     metrics = result.metrics
     assert planned == {"full_scale_v": model.full_scale_v, "bits": 12}
     assert sorted(converted) == ["noise", "noise_comparator", "noise_sampling", LADDER_NAMES[-1]]
@@ -356,20 +360,20 @@ def test_fixed_input_campaigns(check, tmp_path, monkeypatch):
         flavor = directory.parent.name
         assert directory.parent.parent == root
         assert params.conversions == (1 if check else 100)
-        assert params.pex_cell == "adc_12b_17step"
-        assert params.view == "frida1"
+        assert params.extraction is Extraction.SIGNOFF
+        assert params.params.fabricated is not None and params.params.fabricated.name.lower() == flavor
         assert float(params.symbol_rate) == 1.6e9
         assert float(params.vin_diff.dc) == 0.05
         assert float(params.vin_cm.dc) == pytest.approx(0.7)
-        assert options["check"] == check
-        assert options["noise"] is True
+        assert params.check == check
+        assert params.transient_noise is True
         assert options["pex_netlist"].name == f"{flavor}.pex.netlist"
         assert options["pex_netlist"].parent.name.startswith("20260905_")
-        assert options.get("expected_disconnect", False) == ("2layer" in flavor)
-        assert sum(capdac.Model.weights(params.dut.cdac)) == (2303 if "radix20" in flavor else 2047)
-        comp = np.fromiter(map(int, params.seq_comp_pattern), dtype=int)
-        logic = np.fromiter(map(int, params.seq_logic_pattern), dtype=int)
-        assert len(comp) == len(logic) == len(params.seq_init_pattern) == len(params.seq_samp_pattern) == 160
+        assert params.expected_disconnect == ("2layer" in flavor)
+        assert sum(capdac.Model.weights(params.params.cdac)) == (2303 if "radix20" in flavor else 2047)
+        comp = np.fromiter(map(int, params.seq_comp.data), dtype=int)
+        logic = np.fromiter(map(int, params.seq_logic.data), dtype=int)
+        assert len(comp) == len(logic) == len(params.seq_init.data) == len(params.seq_samp.data) == 160
         assert len(comp) / float(params.symbol_rate) == pytest.approx(100e-9)
         comp_rises = np.flatnonzero(np.diff(comp) == 1) + 1
         comp_falls = np.flatnonzero(np.diff(np.r_[comp, 0]) == -1) + 1
@@ -377,10 +381,10 @@ def test_fixed_input_campaigns(check, tmp_path, monkeypatch):
         comp_word = directory.name.split("_comp", 1)[1].split("_logic", 1)[0]
         np.testing.assert_array_equal(comp_falls, comp_rises + comp_word.count("1"))
         np.testing.assert_array_equal(
-            np.flatnonzero(np.fromiter(map(int, params.seq_init_pattern), dtype=int)), np.arange(4)
+            np.flatnonzero(np.fromiter(map(int, params.seq_init.data), dtype=int)), np.arange(4)
         )
         np.testing.assert_array_equal(
-            np.flatnonzero(np.fromiter(map(int, params.seq_samp_pattern), dtype=int)), np.arange(4, 24)
+            np.flatnonzero(np.fromiter(map(int, params.seq_samp.data), dtype=int)), np.arange(4, 24)
         )
         assert sim.testbench(params, pex_netlist=PEX_FIXTURES["frida1"]).name == "AdcTb_frida1"
 
@@ -438,12 +442,12 @@ def test_other_campaign_recipes(target, count, workers, check, tmp_path, monkeyp
     assert len(calls) == count
     assert len({directory for directory, *_ in calls}) == count
     for directory, params, options in calls:
-        assert options["check"] == check
-        assert params.view == ("hdl21gen" if target.startswith("hdl21") else "frida1")
+        assert params.check == check
+        assert (params.params.fabricated is None) == target.startswith("hdl21")
         if "transfer_curve" in target:
             assert params.conversions == 151
             assert params.vin_diff == hs.LinearSweep(start=-0.75, stop=0.75, step=0.01)
-            assert not options.get("noise", False)
+            assert not params.transient_noise
         else:
             assert params.conversions == (1 if check else 100)
             assert float(params.vin_diff.dc) == 0.05
@@ -455,9 +459,9 @@ def test_other_campaign_recipes(target, count, workers, check, tmp_path, monkeyp
             assert set(params.supply_noise_rms_v) <= {0.0, 1e-3}
             # Preserve the original supply recipe; do not enable device noise
             # as an incidental effect of consolidating the executors.
-            assert not options.get("noise", False)
+            assert not params.transient_noise
         elif "fixed_input_noise" in target:
-            assert options["noise"] is True
+            assert params.transient_noise is True
     if "vs_rate" in target:
         assert {float(params.symbol_rate) for _, params, _ in calls} == {320e6, 960e6, 1.6e9}
 
@@ -549,12 +553,7 @@ def test_all_campaign_patterns_are_preserved(monkeypatch, tmp_path):
             "0" * 24 + comp_word * 17,
             "001111" + "0" * 18 + first_logic + logic_word * 15 + last_logic,
         )
-        assert (
-            params.seq_init_pattern,
-            params.seq_samp_pattern,
-            params.seq_comp_pattern,
-            params.seq_logic_pattern,
-        ) == expected_rows
+        assert params.rows == expected_rows
         assert float(params.symbol_rate) == 1.6e9
 
 

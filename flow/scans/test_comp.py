@@ -97,10 +97,10 @@ def test_comparator_balanced_track_params_encode_expected_point() -> None:
         tb = params.tb
         assert params.campaign == "comp_common_mode"
         assert params.sampling_mode == "track"
-        assert set(tb.seq_samp_pattern) == {"1"}
-        assert "1" not in tb.seq_init_pattern
-        assert "1" not in tb.seq_logic_pattern
-        weights = capdac.Model.weights(tb.dut.cdac)
+        assert set(tb.seq_samp.data) == {"1"}
+        assert "1" not in tb.seq_init.data
+        assert "1" not in tb.seq_logic.data
+        weights = capdac.Model.weights(tb.params.cdac)
         expected = _convert_dac_rail_percent_to_codes(50.0, weights)[0]
         assert tb.dac_astate_p == tuple(int(bit) for bit in expected)
         assert tb.dac_astate_p == tb.dac_bstate_p == tb.dac_astate_n == tb.dac_bstate_n
@@ -108,7 +108,7 @@ def test_comparator_balanced_track_params_encode_expected_point() -> None:
 
 def test_comparator_setup_latches_sampling_enable_before_continuous_track() -> None:
     measured = build_comp_test_variants()[0]
-    sequence_words = len(measured.tb.seq_init_pattern) // 8
+    sequence_words = len(measured.tb.seq_init.data) // 8
     init_words = ["00000000"] * sequence_words
     samp_words = ["00000000", *(["11111111"] * (sequence_words - 1))]
     comp_words = ["00000000"] * sequence_words
@@ -117,21 +117,15 @@ def test_comparator_setup_latches_sampling_enable_before_continuous_track() -> N
     logic_words[1] = "00001111"
     setup = replace(
         measured,
-        tb=replace(
-            measured.tb,
-            seq_init_pattern="".join(init_words),
-            seq_samp_pattern="".join(samp_words),
-            seq_comp_pattern="".join(comp_words),
-            seq_logic_pattern="".join(logic_words),
-        ),
+        tb=measured.tb.sequenced(("".join(init_words), "".join(samp_words), "".join(comp_words), "".join(logic_words))),
     )
 
-    assert set(measured.tb.seq_samp_pattern) == {"1"}
-    assert setup.tb.seq_samp_pattern[:8] == "00000000"
-    assert set(setup.tb.seq_samp_pattern[8:]) == {"1"}
-    assert setup.tb.seq_init_pattern[8:16] == "11111111"
-    assert setup.tb.seq_logic_pattern[8:16] == "00001111"
-    assert "1" not in setup.tb.seq_comp_pattern
+    assert set(measured.tb.seq_samp.data) == {"1"}
+    assert setup.tb.seq_samp.data[:8] == "00000000"
+    assert set(setup.tb.seq_samp.data[8:]) == {"1"}
+    assert setup.tb.seq_init.data[8:16] == "11111111"
+    assert setup.tb.seq_logic.data[8:16] == "00001111"
+    assert "1" not in setup.tb.seq_comp.data
 
 
 def test_default_comparator_campaign_cardinality_selection_and_point_uniqueness() -> None:
@@ -230,10 +224,18 @@ def test_default_comparator_campaign_cardinality_selection_and_point_uniqueness(
     ("params", "message"),
     (
         (
-            AdcScanParams(tb=adc.TbParams(view="frida1"), campaign="comp_sampling_noise"),
+            AdcScanParams(
+                tb=adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params),
+                campaign="comp_sampling_noise",
+            ),
             "requested_dac_rail_percent",
         ),
-        (AdcScanParams(tb=adc.TbParams(view="frida1"), settling_time_s=-1.0), "non-negative"),
+        (
+            AdcScanParams(
+                tb=adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params), settling_time_s=-1.0
+            ),
+            "non-negative",
+        ),
     ),
 )
 def test_comparator_scan_axis_validation_rejects_incomplete_params(
@@ -256,8 +258,8 @@ def test_hold_comp_builder_places_sampling_before_comparison() -> None:
         requested_dac_rail_percent=50.0,
         settling_time_s=20e-9,
     )
-    samp_words = [params.tb.seq_samp_pattern[index : index + 8] for index in range(0, 256, 8)]
-    comp_words = [params.tb.seq_comp_pattern[index : index + 8] for index in range(0, 256, 8)]
+    samp_words = [params.tb.seq_samp.data[index : index + 8] for index in range(0, 256, 8)]
+    comp_words = [params.tb.seq_comp.data[index : index + 8] for index in range(0, 256, 8)]
 
     assert samp_words[1:4] == ["11111111"] * 3
     assert all(word == "00000000" for word in samp_words[4:])

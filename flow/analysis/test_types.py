@@ -60,7 +60,7 @@ def wave(names: tuple[str, ...], currents: tuple[str, ...] = (), records: int = 
 
 def physical_scan_params() -> AdcScanParams:
     return AdcScanParams(
-        tb=adc.TbParams(conversions=2),
+        tb=adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params, conversions=2),
         board_id=4,
         observed_adc=9,
         active_adc_mask=tuple(int(index == 9) for index in reversed(range(16))),
@@ -72,7 +72,7 @@ def adc_physical() -> MeasAdc:
     return MeasAdc(
         group=params.board_id,
         index=params.observed_adc,
-        dut=params.tb.dut,
+        dut=params.tb.params,
         info=info("physical"),
         param=params,
         conversion_index=np.arange(2),
@@ -86,11 +86,13 @@ def adc_physical() -> MeasAdc:
 
 
 def adc_spice() -> MeasAdc:
-    params = adc.TbParams(conversions=1, mc_seed=11, mc_index=2)
+    params = adc.TbParams(
+        pdk="tsmc65", params=adc.Params(), simulator=adc.Simulator.SPECTRE, conversions=1, mc_seed=11, mc_index=2
+    )
     return MeasAdc(
         group=params.mc_seed,
         index=params.mc_index,
-        dut=params.dut,
+        dut=params.params,
         info=info(),
         param=params,
         conversion_index=np.arange(1),
@@ -108,7 +110,7 @@ def comp_capture() -> comp.AnalysisDecisions:
     return comp.AnalysisDecisions(
         group=params.board_id,
         index=params.observed_adc,
-        dut=params.tb.dut.comp,
+        dut=params.tb.params.comp,
         info=info("physical"),
         param=params,
         trial_index=np.arange(2),
@@ -143,7 +145,7 @@ def cdac_physical() -> MeasCdac:
     return MeasCdac(
         group=params.board_id,
         index=params.observed_adc,
-        dut=params.tb.dut.cdac,
+        dut=params.tb.params.cdac,
         info=info("physical"),
         param=params,
         trial_index=np.arange(2),
@@ -288,7 +290,8 @@ def test_typed_pwl_and_linear_sweep_parameters_round_trip(tmp_path: Path) -> Non
         h.Vpwl.Params(wave=h.Pwl.ramp(start=-0.1, stop=0.1, duration=1e-6)),
         hs.LinearSweep(start=-0.75, stop=0.75, step=0.01),
     ):
-        measurement = replace(original, param=replace(original.param, tb=replace(original.param.tb, vin_diff=source)))
+        tb = replace(original.param.tb, vin_diff=source, conversions=151 if isinstance(source, hs.LinearSweep) else 2)
+        measurement = replace(original, param=replace(original.param, tb=tb))
         loaded = read_measurement(write_measurement(tmp_path / "source.h5", measurement))
         assert loaded.param == measurement.param
         assert type(loaded.param.tb.vin_diff) is type(source)
@@ -318,7 +321,7 @@ def test_parameter_reader_applies_defaults_added_after_capture(tmp_path: Path) -
 
     path = write_measurement(tmp_path / "older.h5", adc_physical())
     with h5py.File(path, "a") as stored:
-        for cdac in (stored["measurement/param/tb/dut/cdac"], stored["measurement/dut/cdac"]):
+        for cdac in (stored["measurement/param/tb/params/cdac"], stored["measurement/dut/cdac"]):
             # an archived capture: before the array gained its weights' build and its settling, and
             # with a field since removed
             for name in ("weight_impl", "coarse_weight", "settle_ps", "settle_margin"):
@@ -328,7 +331,7 @@ def test_parameter_reader_applies_defaults_added_after_capture(tmp_path: Path) -
     loaded = read_measurement(path)
     assert loaded.dut.cdac.weight_impl is capdac.WeightImpl.DIFFERENCE_CAPS
     assert (loaded.dut.cdac.coarse_weight, loaded.dut.cdac.settle_ps, loaded.dut.cdac.settle_margin) == (64, 1000, 2)
-    assert loaded.dut == loaded.param.tb.dut == adc_physical().dut
+    assert loaded.dut == loaded.param.tb.params == adc_physical().dut
 
 
 def test_reader_rejects_a_missing_required_field(tmp_path: Path) -> None:
@@ -375,7 +378,8 @@ def test_analysis_base_holds_only_identity_fields_without_defaults() -> None:
 
 
 def test_monte_carlo_parameters_default_to_nominal() -> None:
-    assert (adc.TbParams().mc_seed, adc.TbParams().mc_index) == (None, None)
+    default = adc.TbParams(pdk="tsmc65", params=adc.Params())
+    assert (default.mc_seed, default.mc_index) == (None, None)
     assert (comp.TbParams().mc_seed, comp.TbParams().mc_index) == (None, None)
 
 

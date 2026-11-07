@@ -115,6 +115,13 @@ def _write_native(parent: h5py.Group, name: str, value, *, finite: bool = True) 
                 raise ValueError(f"cannot persist mapping key {key!r}: HDF5 names cannot contain '/'")
             _write_native(group, str(key), item, finite=finite)
         return
+    if isinstance(value, frozenset):
+        # a set of choices (enum members): its items in a stable order, read back as a set
+        group = parent.create_group(name)
+        group.attrs["_kind"] = "frozenset"
+        for index, item in enumerate(sorted(value, key=repr)):
+            _write_native(group, str(index), item, finite=finite)
+        return
     if isinstance(value, (tuple, list)):
         array = np.asarray(value)
         if array.ndim == 1 and array.dtype.kind != "O":
@@ -174,6 +181,8 @@ def _read_native(node: h5py.Group | h5py.Dataset):
     if kind in {"tuple", "list"}:
         values = [_read_native(node[key]) for key in sorted(node, key=int)]
         return tuple(values) if kind == "tuple" else values
+    if kind == "frozenset":
+        return frozenset(_read_native(node[key]) for key in node)
     if kind == "mapping":
         return {key: _read_native(node[key]) for key in node}
     if kind == "dataclass":

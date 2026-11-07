@@ -116,11 +116,11 @@ def test_scope_records_build_dense_adc_external_wave(with_input: bool) -> None:
 
 
 def test_behavioral_adapter_builds_one_complete_interface_record() -> None:
-    params = adc.TbParams(conversions=1)
+    params = adc.TbParams(pdk="tsmc65", params=adc.Params(), conversions=1)
     wave = build_adc_interface_wave(params, [1] * 17, samples_per_symbol=2)
 
     assert wave.record_index.tolist() == [0]
-    assert wave.v["vin_diff"].shape == (1, 2 * len(params.seq_init_pattern))
+    assert wave.v["vin_diff"].shape == (1, 2 * len(params.seq_init.data))
     assert wave.v["seq_comp"].shape == wave.v["vin_diff"].shape
     assert np.count_nonzero(np.diff(wave.v["comp_out"][0])) <= 1
 

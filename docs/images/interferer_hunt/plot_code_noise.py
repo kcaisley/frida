@@ -14,7 +14,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
-from flow.adc.sim import SEQUENCES, AdcSequence
+from flow.adc import Recipe
 from flow.analysis import calc
 from flow.analysis.io import read_measurement
 from flow.analysis.plots import PLOT_STYLE, save_figure, style_grid
@@ -27,12 +27,12 @@ RUNS = {
     "scope-less run 19:55": ROOT / "build/scan_adc/20261008_195543_adc_sequence_static",
     "scope re-run 20:41": ROOT / "build/scan_adc/20261008_204141_adc_sequence_static",
 }
-SEQUENCE = "symbol160_init4_samp20_comp11110000_logic10000111"
+SEQUENCE = Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC10000111
 SEGMENT = 8192  # Welch segment: 244 Hz bins at 2 MSPS, 1.2 kHz at 10 MSPS
 TONE_HALF_WIDTH_HZ = 25e3  # the tone wanders by a few kHz within one capture; harmonic k spreads k times wider
 HARMONICS = 8  # harmonics of the interferer counted as interference (higher ones vanish into the floor)
 
-sequence = dict(SEQUENCES)[SEQUENCE]
+sequence = SEQUENCE.rows
 
 
 def alias(frequency_hz: np.ndarray | float, sample_rate_hz: float) -> np.ndarray | float:
@@ -87,7 +87,7 @@ data: dict[str, dict[float, dict[int, dict]]] = {}
 for run, run_dir in RUNS.items():
     for path in sorted(run_dir.glob("[0-9][0-9][0-9][0-9]_capture.h5")):
         measurement = read_measurement(path)
-        if AdcSequence.from_tb_params(measurement.param.tb) != sequence:
+        if measurement.param.tb.rows != sequence:
             continue
         rate = measurement.sample_rate_hz
         data.setdefault(run, {}).setdefault(rate, {})[measurement.param.observed_adc] = code_spectrum(

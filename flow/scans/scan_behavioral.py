@@ -19,12 +19,12 @@ from __future__ import annotations
 import argparse
 import csv
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
 import hdl21 as h
 import numpy as np
-from hdl21.prefix import G
 
 import flow.adc.params as adc_params
 import flow.comp.model as comp_model
@@ -32,12 +32,7 @@ import flow.samp.model as samp_model
 from flow import adc, capdac
 from flow import comp as comparator
 from flow.adc.model import AdcBehavioralParams, SalogicBehavioralParams, convert_behavioral
-from flow.adc.sim import (
-    AdcSequence,
-    build_adc_interface_wave,
-    calc_source_value,
-    symbol160_init4_samp20_comp11110000_logic00001111,
-)
+from flow.adc.sim import build_adc_interface_wave, calc_source_value
 from flow.analysis.io import write_analysis, write_measurement
 from flow.analysis.types import MeasAdc, MeasCdac, MeasInfo
 from flow.scans.params import AdcScanParams
@@ -46,11 +41,10 @@ from flow.scans.scan_adc import convert_dac_caps_to_adc_weights
 # FRIDA-2 three-layer configuration with the 160-symbol continuous recipe, as the generated
 # converter (FRIDA-2 is generated: it has no extracted view).
 TB = adc.TbParams(
-    dut=adc.Params(adc_bits=12, cdac=capdac.Params()),
-    symbol_rate=1.6 * G,
+    pdk="tsmc65",
+    params=adc.Params(adc_bits=12, cdac=capdac.Params()),
     vin_cm=h.Vdc.Params(dc=0.700),
-    **symbol160_init4_samp20_comp11110000_logic00001111.as_tb_fields(),
-)
+).sequenced(adc.Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111.rows, symbol_rate=1.6e9)
 # Reviewed standalone three-layer extraction: main and diff per stage, one side.
 CAP_TABLE = Path("/local/frida/build/layout/cdac/caparray_3layer_radix17/20260905_122920/capacitance_table.csv")
 # Full-ADC PEX VDAC load per side for frida2_3layer_radix17 (docs/cdac_pex.md);
@@ -152,7 +146,7 @@ def capture_behavioral(
     """
 
     tb = params.tb
-    sample_rate_hz = float(tb.symbol_rate) / len(tb.seq_init_pattern)
+    sample_rate_hz = float(tb.symbol_rate) / len(tb.seq_init.data)
     time_s = np.arange(tb.conversions) / sample_rate_hz
     vin_diff_v = calc_source_value(tb.vin_diff, time_s)
     # A centered difference over 1 ps gives the slope the sampler tracks.
@@ -160,11 +154,11 @@ def capture_behavioral(
         calc_source_value(tb.vin_diff, time_s + 0.5e-12) - calc_source_value(tb.vin_diff, time_s - 0.5e-12)
     ) / 1e-12
     result = convert_behavioral(params, vin_diff_v, slope)
-    code_weights = np.asarray(convert_dac_caps_to_adc_weights(capdac.Model.weights(tb.dut.cdac)), dtype=np.int64)
+    code_weights = np.asarray(convert_dac_caps_to_adc_weights(capdac.Model.weights(tb.params.cdac)), dtype=np.int64)
     dout_raw = result.bout.astype(np.int64) @ code_weights
-    dout = np.rint(dout_raw * ((1 << tb.dut.adc_bits) - 1) / code_weights.sum()).astype(np.int64)
+    dout = np.rint(dout_raw * ((1 << tb.params.adc_bits) - 1) / code_weights.sum()).astype(np.int64)
     # Active power averages one conversion window, as for SPICE captures.
-    active_rate_hz = float(tb.symbol_rate) / AdcSequence.from_tb_params(tb).conversion_symbols
+    active_rate_hz = float(tb.symbol_rate) / tb.conversion_symbols
     readbacks: dict[str, str | int | float | bool] = {
         "cap_table": cap_table,
         "unit_mismatch": unit_mismatch,
@@ -176,7 +170,7 @@ def capture_behavioral(
     measurement = MeasAdc(
         group=group,
         index=None if group is None else 0,
-        dut=tb.dut,
+        dut=tb.params,
         info=MeasInfo(
             backend="behavioral",
             timestamp_utc=datetime.now().astimezone(),
@@ -238,17 +232,12 @@ def frida2_sample_rate(run_dir: Path) -> None:
     conversions = 8_192
     amplitude_v = 0.765 * 10 ** (-0.5 / 20)
     for symbol_rate_gbd in (0.2, 0.4, 0.8, 1.2, 1.6, 2.4, 3.2, 4.8, 6.4):
-        sample_rate_hz = symbol_rate_gbd * 1e9 / len(TB.seq_init_pattern)
+        sample_rate_hz = symbol_rate_gbd * 1e9 / len(TB.seq_init.data)
         # 1,021 cycles in 8,192 conversions: coprime and near fs / 8.
         frequency_hz = 1_021 * sample_rate_hz / conversions
-        tb = adc.TbParams(
-            **{
-                **TB.__dict__,
-                "symbol_rate": symbol_rate_gbd * G,
-                "conversions": conversions,
-                "vin_diff": h.Vsin.Params(voff=0.0, vamp=amplitude_v, freq=frequency_hz),
-            }
-        )
+        tb = replace(
+            TB, conversions=conversions, vin_diff=h.Vsin.Params(voff=0.0, vamp=amplitude_v, freq=frequency_hz)
+        ).sequenced(symbol_rate=symbol_rate_gbd * 1e9)
         name = f"{round(symbol_rate_gbd * 1e3):04d}mbd.h5"
         path = capture_behavioral(build_frida2_params(tb, seed=0), run_dir / name)
         print(f"Saved {path} ({sample_rate_hz / 1e6:.3g} MS/s, f_in {frequency_hz / 1e6:.4g} MHz)")
@@ -262,7 +251,7 @@ def frida2_noise_sources(run_dir: Path) -> None:
     DC input.
     """
 
-    tb = adc.TbParams(**{**TB.__dict__, "conversions": 100_000, "vin_diff": h.Vdc.Params(dc=0.05)})
+    tb = replace(TB, conversions=100_000, vin_diff=h.Vdc.Params(dc=0.05))
     base = build_frida2_params(tb, seed=0)
     quiet_samp = samp_model.Model.Behavioral(**{**SAMP.__dict__, "noise_v": 0.0, "jitter_s": 0.0})
     quiet_comp = comp_model.Model.Behavioral(**{**COMP.__dict__, "noise_v": 0.0})
@@ -288,17 +277,12 @@ def frida2_input_frequency(run_dir: Path) -> None:
     # Odd cycle counts, coprime with 8,192, from 0.4 % to 49 % of the sample rate.
     cycles = (31, 101, 257, 509, 1021, 1531, 2039, 3067, 4013)
     for symbol_rate_gbd in (0.32, 0.96, 1.6):
-        sample_rate_hz = symbol_rate_gbd * 1e9 / len(TB.seq_init_pattern)
+        sample_rate_hz = symbol_rate_gbd * 1e9 / len(TB.seq_init.data)
         for count in cycles:
             frequency_hz = count * sample_rate_hz / conversions
-            tb = adc.TbParams(
-                **{
-                    **TB.__dict__,
-                    "symbol_rate": symbol_rate_gbd * G,
-                    "conversions": conversions,
-                    "vin_diff": h.Vsin.Params(voff=0.0, vamp=amplitude_v, freq=frequency_hz),
-                }
-            )
+            tb = replace(
+                TB, conversions=conversions, vin_diff=h.Vsin.Params(voff=0.0, vamp=amplitude_v, freq=frequency_hz)
+            ).sequenced(symbol_rate=symbol_rate_gbd * 1e9)
             name = f"{round(symbol_rate_gbd * 1e3):04d}mbd_{count:04d}cycles.h5"
             capture_behavioral(build_frida2_params(tb, seed=0), run_dir / name)
         print(f"Saved {len(cycles)} captures at {sample_rate_hz / 1e6:g} MS/s")
@@ -345,7 +329,7 @@ def frida2_cdac_ab(run_dir: Path) -> None:
         )
 
         comp_tb = comparator.TbParams(
-            params=TB.dut.comp,
+            params=TB.params.comp,
             vin_cm_values_v=(vin_cm_v,),
             vin_diff_values_v=tuple(float(value) for value in np.linspace(-4 * sigma_v, 4 * sigma_v, 41)),
             conversions=trials,
@@ -360,7 +344,7 @@ def frida2_cdac_ab(run_dir: Path) -> None:
             trial_index=np.arange(len(vin_diff_v)),
             vin_diff_v=vin_diff_v,
             vin_cm_v=np.full(len(vin_diff_v), vin_cm_v),
-            decision=comp_model.Model.compare(TB.dut.comp, params.comp, vin_diff_v, rng, vin_cm_v=vin_cm_v).astype(
+            decision=comp_model.Model.compare(TB.params.comp, params.comp, vin_diff_v, rng, vin_cm_v=vin_cm_v).astype(
                 np.uint8
             ),
         )
@@ -389,7 +373,7 @@ def frida2_cdac_ab(run_dir: Path) -> None:
                         step_v = 0.0
                         for plate in ("p", "n"):
                             main_f, diff_f = capdac.Model.plates_f(
-                                params.cdac, plate, tb.dut.cdac, float(tb.vdd_dac.dc)
+                                params.cdac, plate, tb.params.cdac, float(tb.vdd_dac.dc)
                             )
                             top_step, _charge, _toggles = capdac.Model.switch(
                                 main_f,
@@ -406,7 +390,7 @@ def frida2_cdac_ab(run_dir: Path) -> None:
                         grid = transition_v + np.linspace(-4 * sigma_v, 4 * sigma_v, 41)
                         vin_diff_v = np.repeat(grid, trials)
                         held = samp_model.Model.sample(
-                            TB.dut.samp,
+                            TB.params.samp,
                             params.samp,
                             {"p": vin_cm_v + vin_diff_v / 2, "n": vin_cm_v - vin_diff_v / 2},
                             {"p": np.zeros(len(vin_diff_v)), "n": np.zeros(len(vin_diff_v))},
@@ -415,7 +399,7 @@ def frida2_cdac_ab(run_dir: Path) -> None:
                             rng=rng,
                         )
                         decision = comp_model.Model.compare(
-                            TB.dut.comp, params.comp, held["p"] - held["n"] + step_v, rng, vin_cm_v=vin_cm_v
+                            TB.params.comp, params.comp, held["p"] - held["n"] + step_v, rng, vin_cm_v=vin_cm_v
                         )
                         point = AdcScanParams(
                             tb=adc.TbParams(**{**tb.__dict__, "vin_diff": h.Vdc.Params(dc=float(transition_v))}),
@@ -431,7 +415,7 @@ def frida2_cdac_ab(run_dir: Path) -> None:
                         measurement = MeasCdac(
                             group=seed,
                             index=0,
-                            dut=tb.dut.cdac,
+                            dut=tb.params.cdac,
                             info=info,
                             param=point,
                             trial_index=np.arange(rows),
@@ -489,19 +473,16 @@ def architecture_variants(run_dir: Path) -> None:
                 main_f, diff_f = weights * array_f / float(np.sum(weights)), np.zeros(stages)
             # Each array's own differential full scale; a ramp 5 % beyond it reaches every code.
             full_scale_v = float(TB.vdd_dac.dc) * float(np.sum(main_f - diff_f)) / TOTAL_LOAD_F
-            tb = adc.TbParams(
-                **{
-                    **TB.__dict__,
-                    "dut": adc.Params(adc_bits=12, cdac=cdac_config),
-                    "conversions": 1_000_000,
-                    "vin_diff": h.Vpwl.Params(wave=f"0 {-1.05 * full_scale_v:.4f} 0.0125 {1.05 * full_scale_v:.4f}"),
-                    "dac_astate_p": alternating,
-                    "dac_astate_n": alternating,
-                    "dac_bstate_p": (0,) * stages,
-                    "dac_bstate_n": (0,) * stages,
-                    **AdcSequence.continuous(stages).as_tb_fields(),
-                }
-            )
+            tb = replace(
+                TB,
+                params=adc.Params(adc_bits=12, cdac=cdac_config),
+                conversions=1_000_000,
+                vin_diff=h.Vpwl.Params(wave=f"0 {-1.05 * full_scale_v:.4f} 0.0125 {1.05 * full_scale_v:.4f}"),
+                dac_astate_p=alternating,
+                dac_astate_n=alternating,
+                dac_bstate_p=(0,) * stages,
+                dac_bstate_n=(0,) * stages,
+            ).continuous(stages)
             for seed, mismatch in cases:
                 for role, noise_seed in (("train", seed), ("check", seed + 1000)):
                     rng = np.random.default_rng(seed)
@@ -533,7 +514,7 @@ def frida2_comparator(run_dir: Path) -> None:
     """The comparator block alone: 61 differential inputs within +/-1.5 mV at 0.7 V, 400 decisions each."""
 
     tb = comparator.TbParams(
-        params=TB.dut.comp,
+        params=TB.params.comp,
         vin_cm_values_v=(0.7,),
         vin_diff_values_v=tuple(float(value) for value in np.linspace(-1.5e-3, 1.5e-3, 61)),
         conversions=400,

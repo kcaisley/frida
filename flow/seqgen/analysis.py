@@ -203,7 +203,7 @@ def analyze_scope_bits(measurement: MeasAdc) -> AnalysisScopeBits:
 
 def _played(captures: Sequence[AnalysisCapture]) -> tuple[float, str]:
     """The symbol rate and the output's pattern (COMP's row) the captures played, which they share."""
-    played = {(float(capture.param.symbol_rate), str(capture.param.seq_comp_pattern)) for capture in captures}
+    played = {(float(capture.param.symbol_rate), str(capture.param.seq_comp.data)) for capture in captures}
     if len(played) != 1:
         raise ValueError("an eye takes captures of one pattern at one symbol rate")
     return played.pop()

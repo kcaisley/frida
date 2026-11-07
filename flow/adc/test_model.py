@@ -11,7 +11,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from hdl21.prefix import G
 
 import flow.capdac.model as capdac_model
 import flow.comp.model as comp_model
@@ -31,16 +30,14 @@ from flow.adc.params import (
     REFERENCE_QUIET,
     REFERENCE_SHARE,
     Params,
-    Reference,
+    Quiet,
+    Recipe,
     TbParams,
 )
 from flow.adc.plots import plot_reference_noise, plot_reference_r_out
-from flow.adc.sim import AdcSequence, symbol160_init4_samp20_comp11110000_logic00001111
 
-TB = TbParams(
-    dut=Params(adc_bits=12, cdac=capdac.Params()),
-    symbol_rate=1.6 * G,
-    **symbol160_init4_samp20_comp11110000_logic00001111.as_tb_fields(),
+TB = TbParams(pdk="tsmc65", params=Params(adc_bits=12, cdac=capdac.Params())).sequenced(
+    Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111.rows, symbol_rate=1.6e9
 )
 
 
@@ -50,11 +47,11 @@ def with_tb(**fields) -> AdcBehavioralParams:
 
 def ideal_codes(params: AdcBehavioralParams, points: int = 2001) -> tuple[np.ndarray, np.ndarray]:
     tb = params.tb
-    main_f, diff_f = capdac.Model.plates(tb.dut.cdac, float(tb.vdd_dac.dc))
+    main_f, diff_f = capdac.Model.plates(tb.params.cdac, float(tb.vdd_dac.dc))
     full_scale_v = float(tb.vdd_dac.dc) * np.sum(main_f - diff_f) / np.sum(main_f + diff_f)
     vin_v = np.linspace(-full_scale_v, full_scale_v, points)
-    code_weights = np.append(2 * np.asarray(capdac.Model.weights(tb.dut.cdac)), 1)
-    code_max = (1 << tb.dut.adc_bits) - 1
+    code_weights = np.append(2 * np.asarray(capdac.Model.weights(tb.params.cdac)), 1)
+    code_max = (1 << tb.params.adc_bits) - 1
     bout = convert_behavioral(params, vin_v).bout
     code = np.rint((bout @ code_weights) * code_max / code_weights.sum())
     ideal_code = np.clip(np.floor((vin_v / full_scale_v + 1) / 2 * (code_max + 1)), 0, code_max)
@@ -73,14 +70,13 @@ def test_other_resolutions_convert_and_scale_logic_energy(bits: int, extra: int)
     stages = len(capdac.Model.weights(cdac))
     params = AdcBehavioralParams(
         tb=TbParams(
-            dut=Params(adc_bits=bits, cdac=cdac),
-            symbol_rate=1.6 * G,
+            pdk="tsmc65",
+            params=Params(adc_bits=bits, cdac=cdac),
             dac_astate_p=(0, 1) * (stages // 2) + (0,) * (stages % 2),
             dac_astate_n=(0, 1) * (stages // 2) + (0,) * (stages % 2),
             dac_bstate_p=(0,) * stages,
             dac_bstate_n=(0,) * stages,
-            **AdcSequence.continuous(stages).as_tb_fields(),
-        ),
+        ).continuous(stages),
         salogic=SalogicBehavioralParams(clock_energy_j=1e-15),
     )
     code, ideal_code = ideal_codes(params, points=501)
@@ -100,7 +96,7 @@ def test_differential_caps_double_their_weight_without_diffcaps() -> None:
     # step is (main + diff) instead of (main - diff): a small input resolves
     # to a code nearer mid-scale.
     vin_v = np.asarray([0.2])
-    code_weights = np.append(2 * np.asarray(capdac.Model.weights(TB.dut.cdac)), 1)
+    code_weights = np.append(2 * np.asarray(capdac.Model.weights(TB.params.cdac)), 1)
     differential = convert_behavioral(with_tb(dac_diffcaps=1), vin_v).bout @ code_weights
     common = convert_behavioral(with_tb(dac_diffcaps=0), vin_v).bout @ code_weights
     assert abs(common[0] - code_weights.sum() / 2) < abs(differential[0] - code_weights.sum() / 2)
@@ -115,15 +111,15 @@ def reference_codes(vin_v: float, conversions: int = 400, **reference) -> np.nda
         cdac=capdac.Model.Behavioral(**reference),
         seed=3,
     )
-    code_weights = np.append(2 * np.asarray(capdac.Model.weights(TB.dut.cdac)), 1)
+    code_weights = np.append(2 * np.asarray(capdac.Model.weights(TB.params.cdac)), 1)
     bout = convert_behavioral(params, np.full(conversions, vin_v)).bout
-    return (bout @ code_weights) * ((1 << TB.dut.adc_bits) - 1) / code_weights.sum()
+    return (bout @ code_weights) * ((1 << TB.params.adc_bits) - 1) / code_weights.sum()
 
 
 def full_scale_and_lsb() -> tuple[float, float]:
-    main_f, diff_f = capdac.Model.plates(TB.dut.cdac, float(TB.vdd_dac.dc))
+    main_f, diff_f = capdac.Model.plates(TB.params.cdac, float(TB.vdd_dac.dc))
     full_scale_v = float(TB.vdd_dac.dc) * np.sum(main_f - diff_f) / np.sum(main_f + diff_f)
-    return full_scale_v, 2 * full_scale_v / (1 << TB.dut.adc_bits)
+    return full_scale_v, 2 * full_scale_v / (1 << TB.params.adc_bits)
 
 
 def test_reference_noise_cancels_at_mid_scale_and_grows_toward_the_ends() -> None:
@@ -160,11 +156,11 @@ def test_a_drawn_arrays_exact_transfer_is_the_noise_free_converters() -> None:
     held at 1 moves the other side's capacitor."""
     from flow.analysis.calc import calc_decision_steps, calc_paths
 
-    stages = len(capdac.Model.weights(TB.dut.cdac))
+    stages = len(capdac.Model.weights(TB.params.cdac))
     astate = (0, 1) * (stages // 2) + (0,) * (stages % 2)
     tb = TbParams(**{**TB.__dict__, "dac_astate_p": astate, "dac_astate_n": astate})
     rng = np.random.default_rng(5)
-    main_f, diff_f = capdac.Model.plates(tb.dut.cdac, float(tb.vdd_dac.dc))
+    main_f, diff_f = capdac.Model.plates(tb.params.cdac, float(tb.vdd_dac.dc))
     drawn = {
         side: (capdac.Model.draw(main_f, pelgrom=0.01, rng=rng), capdac.Model.draw(diff_f, pelgrom=0.01, rng=rng))
         for side in ("p", "n")
@@ -177,13 +173,13 @@ def test_a_drawn_arrays_exact_transfer_is_the_noise_free_converters() -> None:
         }
     )
     params = AdcBehavioralParams(tb=tb, comp=comp_model.Model.Behavioral(noise_v=0.0), cdac=cdac)
-    code_max = (1 << tb.dut.adc_bits) - 1
+    code_max = (1 << tb.params.adc_bits) - 1
     full_scale_v, lsb_v = full_scale_and_lsb()
     # an even count: no input on the first threshold, 0 V, a tie the comparator (overdrive > 0) and
     # the paths (an input on a threshold above it) break apart
     vin_v = np.linspace(-full_scale_v, full_scale_v, 20_010)
     bout = convert_behavioral(params, vin_v).bout
-    weights = np.append(2 * np.asarray(capdac.Model.weights(tb.dut.cdac), dtype=np.float64), 1.0)
+    weights = np.append(2 * np.asarray(capdac.Model.weights(tb.params.cdac), dtype=np.float64), 1.0)
     a, b = calc_decision_steps(
         (drawn["p"], drawn["n"]), 0.0, code_max, diffcaps=bool(tb.dac_diffcaps), nominal=(main_f, diff_f), astate=astate
     )
@@ -235,7 +231,7 @@ def _stand_in(dac: capdac.Model) -> Model:
     """The model on stand-in blocks: a comparator and a sampler of known impairments, and ``dac``."""
     return _Model(
         pdk="none",
-        params=TB.dut,
+        params=TB.params,
         comp=SimpleNamespace(
             behavioral=lambda vin_cm_v: comp_model.Model.Behavioral(
                 noise_v=1e-4, delay_table_v=(1e-6, 1e-3), delay_table_s=(200e-12, 50e-12)
@@ -255,8 +251,8 @@ def test_the_model_switches_its_dacs_design_plates_as_characterized() -> None:
     parasitic of its drawn gain; its delays and time constants are its characterization's, and its
     drivers draw no energy. The full scale is the switched plates' share of that load; a capture's
     extracted weights name the measurement the DAC's settling run keeps, none where it is designed."""
-    main_f, diff_f = capdac.Model.plates(TB.dut.cdac, 1.2)
-    model = _stand_in(_dac(TB.dut, gain=0.8, settling_meas=Path("/runs/settling/result.h5")))
+    main_f, diff_f = capdac.Model.plates(TB.params.cdac, 1.2)
+    model = _stand_in(_dac(TB.params, gain=0.8, settling_meas=Path("/runs/settling/result.h5")))
     dac = model.behavioral(TB).cdac
     assert dac.main_p_f == dac.main_n_f == tuple(main_f) and dac.diff_p_f == dac.diff_n_f == tuple(diff_f)
     plates_f = float(np.sum(main_f) + np.sum(diff_f))
@@ -268,7 +264,7 @@ def test_the_model_switches_its_dacs_design_plates_as_characterized() -> None:
     assert dac.driver_energy_j == 0.0 and dac.driver_static_w == 0.0
     tb = TbParams(**{**TB.__dict__, "conversions": 4})
     assert model.capture(tb, None).info.readbacks["cap_table"] == "/runs/settling/result.h5"
-    assert _stand_in(_dac(TB.dut)).capture(tb, None).info.readbacks["cap_table"] == ""
+    assert _stand_in(_dac(TB.params)).capture(tb, None).info.readbacks["cap_table"] == ""
 
 
 def test_the_model_converts_on_its_dacs_array_as_drawn() -> None:
@@ -278,14 +274,14 @@ def test_the_model_converts_on_its_dacs_array_as_drawn() -> None:
     the steps the conversion switches are the decoding's extracted weights and the full scale is
     half their sum; a Pelgrom draw is of the design's plates, as the DAC's Monte Carlo draws them,
     and drawn so too."""
-    main_f, diff_f = capdac.Model.plates(TB.dut.cdac, 1.2)
+    main_f, diff_f = capdac.Model.plates(TB.params.cdac, 1.2)
     plates_f = float(np.sum(main_f + diff_f))
     # the design's steps at a gain of 0.8, the last stage drawn three times as heavy, the first 2 %
     # light
     steps = 2 * 1.2 * 0.8 * (main_f - diff_f) / plates_f
     steps[-1] *= 3.0
     steps[0] *= 0.98
-    model = _stand_in(replace(_dac(TB.dut, gain=0.8), step_v=tuple(steps)))
+    model = _stand_in(replace(_dac(TB.params, gain=0.8), step_v=tuple(steps)))
     dac = model.behavioral(TB).cdac
     switched = np.asarray(dac.main_p_f) - np.asarray(dac.diff_p_f)
     assert dac.main_n_f == dac.main_p_f and dac.diff_p_f == dac.diff_n_f == tuple(diff_f)
@@ -294,7 +290,7 @@ def test_the_model_converts_on_its_dacs_array_as_drawn() -> None:
     assert model.full_scale_v == pytest.approx(steps.sum() / 2, rel=1e-12)
     rng = np.random.default_rng(7)
     expected = [capdac.Model.draw(plate, pelgrom=0.01, rng=rng) for _side in "pn" for plate in (main_f, diff_f)]
-    seeded = model.behavioral(TB, seed=7, unit_mismatch=0.01).cdac
+    seeded = model.behavioral(replace(TB, mismatch_seed=7, unit_mismatch=0.01)).cdac
     excess_f = np.asarray(dac.main_p_f) - main_f
     np.testing.assert_allclose(seeded.main_p_f, expected[0] + excess_f, rtol=1e-12)
     np.testing.assert_allclose(seeded.main_n_f, expected[2] + excess_f, rtol=1e-12)
@@ -302,46 +298,46 @@ def test_the_model_converts_on_its_dacs_array_as_drawn() -> None:
 
 
 def test_the_model_quiets_each_source_alone_and_scales_the_settling() -> None:
-    main_f, diff_f = capdac.Model.plates(TB.dut.cdac, float(TB.vdd_dac.dc))
-    model = _stand_in(_dac(TB.dut))
+    main_f, diff_f = capdac.Model.plates(TB.params.cdac, float(TB.vdd_dac.dc))
+    model = _stand_in(_dac(TB.params))
     # the DAC's SPICE draw where a capture asks for it, the nominal plates where none is characterized
     heavy = (main_f * 1.01, diff_f)
-    drawn = replace(model, drawn=(heavy, (main_f, diff_f))).behavioral(TB, drawn=True).cdac
+    drawn = replace(model, drawn=(heavy, (main_f, diff_f))).behavioral(replace(TB, drawn=True)).cdac
     assert drawn.main_p_f == tuple(heavy[0]) and drawn.main_n_f == tuple(main_f)
-    assert model.behavioral(TB, drawn=True).cdac.main_p_f == tuple(main_f)
+    assert model.behavioral(replace(TB, drawn=True)).cdac.main_p_f == tuple(main_f)
     # a Pelgrom draw from the seed, the P side's main and difference plates, then the N side's;
     # none without mismatch, which takes nothing from the seed's stream
     rng = np.random.default_rng(7)
     expected = [capdac.Model.draw(plate, pelgrom=0.01, rng=rng) for _side in "pn" for plate in (main_f, diff_f)]
-    seeded = model.behavioral(TB, seed=7, unit_mismatch=0.01).cdac
+    seeded = model.behavioral(replace(TB, mismatch_seed=7, unit_mismatch=0.01)).cdac
     assert [seeded.main_p_f, seeded.diff_p_f, seeded.main_n_f, seeded.diff_n_f] == [tuple(e) for e in expected]
-    assert model.behavioral(TB, seed=7).cdac.main_p_f == tuple(main_f)
+    assert model.behavioral(replace(TB, mismatch_seed=7)).cdac.main_p_f == tuple(main_f)
     # the reference is ideal unless one is given (the reference study's)
     ideal = model.behavioral(TB).cdac
     assert ideal.reference_r_ohm == ideal.reference_c_f == ideal.reference_noise_v == 0.0
-    given = model.behavioral(TB, reference=Reference(r_ohm=3.0, c_f=200e-12, noise_v=1e-4)).cdac
+    given = model.behavioral(replace(TB, reference_r_ohm=3.0, reference_c_f=200e-12, reference_noise_v=1e-4)).cdac
     assert (given.reference_r_ohm, given.reference_c_f, given.reference_noise_v) == (3.0, 200e-12, 1e-4)
     # the comparator's noise alone: its delay stays, so a late decision still holds
-    noiseless = model.behavioral(TB, quiet=("comparator_noise",)).comp
+    noiseless = model.behavioral(replace(TB, quiet=frozenset({Quiet.COMPARATOR_NOISE}))).comp
     assert noiseless.noise_v == 0.0 and noiseless.delay_table_v == (1e-6, 1e-3)
-    ideal = model.behavioral(TB, quiet=("comparator",)).comp
+    ideal = model.behavioral(replace(TB, quiet=frozenset({Quiet.COMPARATOR}))).comp
     assert ideal.noise_v == 0.0 and ideal.delay_table_v is None
     # a perfect track-and-hold: no on-resistance (so no tracking lag), its noise and jitter kept
-    sampler = model.behavioral(TB, quiet=("sampler",)).samp
+    sampler = model.behavioral(replace(TB, quiet=frozenset({Quiet.SAMPLER}))).samp
     assert sampler.ron_table_v is None and sampler.n_conductance_s_per_v == sampler.p_conductance_s_per_v == 0.0
     assert sampler.noise_v == 1e-4 and sampler.jitter_s == 2e-12
-    resistance = samp_model.Model.resistance(TB.dut.samp, sampler, np.asarray([0.2, 0.6, 1.0]), 1.2)
+    resistance = samp_model.Model.resistance(TB.params.samp, sampler, np.asarray([0.2, 0.6, 1.0]), 1.2)
     assert not np.any(resistance)
-    quiet = model.behavioral(TB, quiet=("sampling",)).samp
+    quiet = model.behavioral(replace(TB, quiet=frozenset({Quiet.SAMPLING}))).samp
     assert quiet.noise_v == quiet.jitter_s == 0.0 and quiet.ron_table_v == (0.2, 1.0)
-    with pytest.raises(ValueError, match="nothing to quiet"):
-        model.behavioral(TB, quiet=("samplers",))
+    with pytest.raises(ValueError, match="quiet takes Quiet members"):
+        replace(TB, quiet=frozenset({"samplers"}))
     # the settling time constants scale, the drivers' delays do not; at 0 settling is ideal, the
     # drivers' delay gone too
-    nominal, slower = model.behavioral(TB).cdac, model.behavioral(TB, tau_scale=4.0).cdac
+    nominal, slower = model.behavioral(TB).cdac, model.behavioral(replace(TB, tau_scale=4.0)).cdac
     np.testing.assert_allclose(slower.stage_tau_s, 4 * np.asarray(nominal.stage_tau_s))
     assert slower.stage_delay_s == nominal.stage_delay_s == (20e-12,) * len(main_f)
-    settled = model.behavioral(TB, tau_scale=0.0).cdac
+    settled = model.behavioral(replace(TB, tau_scale=0.0)).cdac
     assert not any(settled.stage_tau_s) and not any(settled.stage_delay_s) and settled.settling_tau_s == 0.0
 
 
@@ -351,8 +347,8 @@ def test_the_model_composes_its_dacs_characterization_or_else_its_design(monkeyp
     ``DRAWN_PERCENTILE``); where there is none, the DAC as designed and its draws nominal, each with
     a warning."""
     asked = []
-    characterized = _dac(TB.dut, gain=0.8)
-    main_f, diff_f = capdac.Model.plates(TB.dut.cdac, 1.2)
+    characterized = _dac(TB.params, gain=0.8)
+    main_f, diff_f = capdac.Model.plates(TB.params.cdac, 1.2)
     draw = ((main_f, diff_f), (main_f, diff_f))
 
     def of(cls, pdk, params, *, simulate=True):
@@ -367,11 +363,11 @@ def test_the_model_composes_its_dacs_characterization_or_else_its_design(monkeyp
     monkeypatch.setattr(capdac.Model, "drawn", classmethod(drawn))
     for block in (comp_model, samp_model):
         monkeypatch.setattr(block.Model, "of", classmethod(lambda cls, pdk, params, *, simulate=True: None))
-    model = Model.of("tsmc65", TB.dut)
+    model = Model.of("tsmc65", TB.params)
     assert model.cdac is characterized and model.drawn is draw
     assert asked == [
-        ("of", "tsmc65", TB.dut.cdac, False),
-        ("drawn", "tsmc65", TB.dut.cdac, DRAWN_RUN, DRAWN_PERCENTILE),
+        ("of", "tsmc65", TB.params.cdac, False),
+        ("drawn", "tsmc65", TB.params.cdac, DRAWN_RUN, DRAWN_PERCENTILE),
     ]
 
     def missing(cls, *args, **kwargs):
@@ -381,12 +377,12 @@ def test_the_model_composes_its_dacs_characterization_or_else_its_design(monkeyp
     monkeypatch.setattr(capdac.Model, "drawn", classmethod(missing))
     monkeypatch.setattr(capdac_model, "_supply_v", lambda pdk: 1.2)
     with pytest.warns(UserWarning) as warned:
-        designed = Model.of("tsmc65", TB.dut)
+        designed = Model.of("tsmc65", TB.params)
     assert [str(warning.message).split(" (")[0] for warning in warned] == [
         "the DAC is not characterized",
         "the DAC's Monte Carlo is not characterized",
     ]
-    assert designed.cdac == capdac.Model.design("tsmc65", TB.dut.cdac) and designed.drawn is None
+    assert designed.cdac == capdac.Model.design("tsmc65", TB.params.cdac) and designed.drawn is None
     assert designed.cdac.gain == 1.0 and designed.cdac.settling_meas is None
 
     # a record whose kept settling run (or Monte Carlo) cannot be read converts as designed too
@@ -396,7 +392,7 @@ def test_the_model_composes_its_dacs_characterization_or_else_its_design(monkeyp
     monkeypatch.setattr(capdac.Model, "of", classmethod(unreadable))
     monkeypatch.setattr(capdac.Model, "drawn", classmethod(unreadable))
     with pytest.warns(UserWarning) as warned:
-        unread = Model.of("tsmc65", TB.dut)
+        unread = Model.of("tsmc65", TB.params)
     assert [str(warning.message).split(" (")[0] for warning in warned] == [
         "the DAC is not characterized",
         "the DAC's Monte Carlo is not characterized",
@@ -431,22 +427,21 @@ def test_each_requirement_is_where_its_loss_reaches_its_share_of_the_quantizatio
     bits, enob_bits = 12, 11.0
     lsb2 = 1.0 / 12  # the quantization noise power, in LSB^2
 
-    def measured(ref: Reference) -> float:
+    def measured(tb: TbParams) -> float:
         # an ideal reference gives the converter's own ENOB
-        error = (ref.noise_v / 100e-6) ** 2 + (ref.r_ohm * ref.c_f / 1e-9) ** 2
+        error = (tb.reference_noise_v / 100e-6) ** 2 + (tb.reference_r_ohm * tb.reference_c_f / 1e-9) ** 2
         return bits - 0.5 * math.log2(2.0 ** (2 * (bits - enob_bits)) + error / lsb2)
 
     monkeypatch.setattr("flow.adc.model._enob", measured)
-    capture = SimpleNamespace(tb=None, seed=0, noise_seed=0, unit_mismatch=0.0, quiet=(), tau_scale=1.0)
     quiets = set()
 
-    def converted(tb, path, reference, quiet, **_) -> Reference:
-        quiets.add(quiet)
-        return reference
+    def converted(tb, path) -> TbParams:
+        quiets.add(tb.quiet)
+        return tb
 
     # a stand-in model: its resolution, its capture and its decoupling
     model = SimpleNamespace(params=SimpleNamespace(adc_bits=bits), capture=converted, decoupling_f=1e-12)
-    reference = Model.reference_requirements(model, capture)
+    reference = Model.reference_requirements(model, TB)
     # every point on the DAC alone: the sampler and the comparator ideal
     assert quiets == {REFERENCE_QUIET}
     # the error may reach REFERENCE_SHARE of the quantization noise power: (x / x0)^2 = REFERENCE_SHARE / 12

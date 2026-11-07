@@ -20,9 +20,9 @@ Carlo draws (``Model.drawn``). Its drivers' energy is not characterized (its set
 supply current): they draw none here, which the record states. The SAR logic is the fixed digital
 netlist built by OpenROAD: it is not characterized, so its energies are the ones fitted to the
 FRIDA-2 three-layer PEX transient (``_SALOGIC``). The DAC's reference is ideal here, the front
-end's own characterization; a ``Reference`` (driver resistance, decoupling capacitance, noise) is
-what the reference study (``Model.reference_requirements``, below) varies to find the reference
-buffer's requirements.
+end's own characterization; a run's reference (``TbParams.reference_*``: driver resistance,
+decoupling capacitance, noise) is what the reference study (``Model.reference_requirements``,
+below) varies to find the reference buffer's requirements.
 
 The SAR loop (``convert_behavioral``) runs four blocks driven by HDL21 parameters. The sampler, the
 comparator and the capacitor array with its drivers are their blocks' models
@@ -75,7 +75,7 @@ import importlib
 import math
 import warnings
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -90,21 +90,18 @@ from flow.adc.params import (
     DECAP_COVERAGE,
     DRAWN_PERCENTILE,
     DRAWN_RUN,
-    IDEAL_REFERENCE,
     NOMINAL_RATE_HZ,
-    QUIET,
     REFERENCE_HALVINGS,
     REFERENCE_NOISE_V,
     REFERENCE_QUIET,
     REFERENCE_R_OUT_OHM,
     REFERENCE_SHARE,
     VIN_CM_FRACTION,
-    Capture,
     Params,
-    Reference,
+    Quiet,
     TbParams,
 )
-from flow.adc.sim import AdcSequence, build_adc_interface_wave, calc_source_value
+from flow.adc.sim import build_adc_interface_wave, calc_source_value
 from flow.adc.types import AnalysisReference
 from flow.analysis.io import write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
@@ -123,7 +120,7 @@ class SalogicBehavioralParams:
 class AdcBehavioralParams:
     """One HDL21 testbench configuration plus the block physics it does not describe."""
 
-    tb = h.Param(dtype=TbParams, desc="ADC stimulus and digital configuration", default=TbParams())
+    tb = h.Param(dtype=TbParams, desc="ADC stimulus and digital configuration")
     samp = h.Param(dtype=samp_model.Model.Behavioral, desc="Sampler", default=samp_model.Model.Behavioral())
     comp = h.Param(dtype=comp_model.Model.Behavioral, desc="Comparator", default=comp_model.Model.Behavioral())
     cdac = h.Param(dtype=capdac.Model.Behavioral, desc="Capacitor array and drivers", default=capdac.Model.Behavioral())
@@ -235,11 +232,10 @@ class Model:
     def tb(self, *, conversions: int, rate_hz: float, vin_diff) -> TbParams:
         """The testbench of ``conversions`` at ``rate_hz`` with the continuous sequence (8 symbols a
         decision), an alternating A state and the PDK's supply on every rail."""
-        sequence = AdcSequence.continuous(self.stages)
         supply = h.Vdc.Params(dc=round(self.supply_v, 4))
-        return TbParams(
-            dut=self.params,
-            symbol_rate=rate_hz * len(sequence.init),
+        tb = TbParams(
+            pdk=self.pdk,
+            params=self.params,
             conversions=conversions,
             vin_diff=vin_diff,
             vin_cm=h.Vdc.Params(dc=round(VIN_CM_FRACTION * self.supply_v, 4)),
@@ -250,36 +246,28 @@ class Model:
             dac_astate_n=tuple(stage % 2 for stage in range(self.stages)),
             dac_bstate_p=(0,) * self.stages,
             dac_bstate_n=(0,) * self.stages,
-            **sequence.as_tb_fields(),
-        )
+        ).continuous(self.stages)
+        return tb.sequenced(symbol_rate=rate_hz * len(tb.seq_init.data))
 
-    def behavioral(
-        self,
-        tb: TbParams,
-        *,
-        seed: int = 0,
-        unit_mismatch: float = 0.0,
-        quiet: tuple[str, ...] = (),
-        tau_scale: float = 1.0,
-        reference: Reference | None = None,
-        drawn: bool = False,
-    ) -> AdcBehavioralParams:
-        """The behavioral ADC: the DAC's SPICE draw where ``drawn`` (``Model.drawn``; nominal where
-        there is none), else one Pelgrom draw of its design's plates from ``seed``, as its Monte Carlo
+    def behavioral(self, tb: TbParams) -> AdcBehavioralParams:
+        """The behavioral ADC of the run ``tb``, as its knobs set it: the DAC's SPICE draw where
+        ``tb.drawn`` (``Model.drawn``; nominal where there is none), else one Pelgrom draw of its
+        design's plates from ``tb.mismatch_seed`` at ``tb.unit_mismatch``, as its Monte Carlo
         draws them, the P side then the N side, each its main then its difference plates (none where
         ``unit_mismatch`` is 0, which takes nothing from the seed's stream), each the array as drawn
-        about it (``capdac.Model.behavioral``); ``quiet`` silences the "sampling" noise (kT/C and the
-        aperture jitter) or the comparator's noise alone ("comparator_noise": its delay stays, so a
-        late decision still holds the last bit), or makes the "comparator" ideal (no noise, never
-        late) or the "sampler" a perfect track-and-hold (no on-resistance, so no tracking error: its
-        noise is "sampling"'s). Each stage's step starts its delay after the LOGIC edge (the SAR
+        about it (``capdac.Model.behavioral``); ``tb.quiet`` silences the sampling noise (kT/C and
+        the aperture jitter, ``Quiet.SAMPLING``) or the comparator's noise alone
+        (``Quiet.COMPARATOR_NOISE``: its delay stays, so a late decision still holds the last bit),
+        or makes the comparator ideal (``Quiet.COMPARATOR``: no noise, never late) or the sampler a
+        perfect track-and-hold (``Quiet.SAMPLER``: no on-resistance, so no tracking error; its noise
+        is the sampling's). Each stage's step starts its delay after the LOGIC edge (the SAR
         register's clock-to-output is not modeled) and settles with the stage's time constant, times
-        ``tau_scale`` (0: ideal, every step whole at once)."""
-        if unknown := set(quiet) - QUIET:
-            raise ValueError(f"nothing to quiet by {sorted(unknown)}: expected some of {sorted(QUIET)}")
+        ``tb.tau_scale`` (0: ideal, every step whole at once); the reference as ``tb.reference_*``
+        sets it."""
+        seed, unit_mismatch, quiet, tau_scale = tb.mismatch_seed, tb.unit_mismatch, tb.quiet, tb.tau_scale
         rng = np.random.default_rng(seed)
         sides = None  # the design's plates
-        if drawn:
+        if tb.drawn:
             sides = self.drawn
         elif unit_mismatch:
             # the design's plates drawn, as the DAC's Monte Carlo draws them: the P side's main and
@@ -294,9 +282,9 @@ class Model:
         dac = self.cdac.behavioral(sides)
         samp = self.samp.behavioral(load_f=self.load_f)
         comp = self.comp.behavioral(vin_cm_v=float(tb.vin_cm.dc))
-        if "sampling" in quiet:
+        if Quiet.SAMPLING in quiet:
             samp = type(samp)(**{**samp.__dict__, "noise_v": 0.0, "jitter_s": 0.0})
-        if "sampler" in quiet:
+        if Quiet.SAMPLER in quiet:
             # a perfect track-and-hold: the held value is the input at the sampling instant (the
             # switch's on-resistance, which lags the input by R(v) C dv/dt, gone)
             samp = type(samp)(
@@ -308,10 +296,10 @@ class Model:
                     "p_conductance_s_per_v": 0.0,
                 }
             )
-        if "comparator" in quiet:
+        if Quiet.COMPARATOR in quiet:
             # an ideal comparator: no noise, and never late
             comp = type(comp)(**{**comp.__dict__, "noise_v": 0.0, "delay_table_v": None, "delay_table_s": None})
-        elif "comparator_noise" in quiet:
+        elif Quiet.COMPARATOR_NOISE in quiet:
             comp = type(comp)(**{**comp.__dict__, "noise_v": 0.0})
         return AdcBehavioralParams(
             tb=tb,
@@ -325,47 +313,28 @@ class Model:
                     "stage_tau_s": tuple(tau_s * tau_scale for tau_s in self.stage_tau_s),
                     # ideal settling: the drivers' delay goes too
                     "stage_delay_s": tuple(delay_s if tau_scale else 0.0 for delay_s in self.stage_delay_s),
-                    "reference_r_ohm": (reference or IDEAL_REFERENCE).r_ohm,
-                    "reference_c_f": (reference or IDEAL_REFERENCE).c_f,
-                    "reference_noise_v": (reference or IDEAL_REFERENCE).noise_v,
+                    "reference_r_ohm": tb.reference_r_ohm,
+                    "reference_c_f": tb.reference_c_f,
+                    "reference_noise_v": tb.reference_noise_v,
                 }
             ),
             salogic=_SALOGIC,
             seed=seed,
         )
 
-    def capture(
-        self,
-        tb: TbParams,
-        path: Path | None,
-        *,
-        seed: int = 0,
-        noise_seed: int | None = None,
-        unit_mismatch: float = 0.0,
-        quiet: tuple[str, ...] = (),
-        tau_scale: float = 1.0,
-        reference: Reference | None = None,
-        drawn: bool = False,
-    ) -> MeasAdc:
-        """Convert every conversion of ``tb`` and write the MeasAdc with its supply power to ``path``
-        (kept in memory alone where it is None); its ``cap_table`` readback names the decoding's
-        "extracted" weights: the measurement the DAC's characterization keeps of its settling run,
-        each stage's step as measured (``flow.analysis.io.read_cap_table``), none where
-        the DAC is designed alone (its design weights). ``quiet``, ``tau_scale``, ``reference`` and
-        ``drawn``: as ``behavioral``'s."""
+    def capture(self, tb: TbParams, path: Path | None) -> MeasAdc:
+        """Convert every conversion of ``tb`` (its behavioral converter, ``behavioral``; its noise
+        drawn from ``tb.noise_seed``, the mismatch seed's where None) and write the MeasAdc with its
+        supply power to ``path`` (kept in memory alone where it is None); its ``cap_table`` readback
+        names the decoding's "extracted" weights: the measurement the DAC's characterization keeps of
+        its settling run, each stage's step as measured (``flow.analysis.io.read_cap_table``), none
+        where the DAC is designed alone (its design weights)."""
 
-        params = self.behavioral(
-            tb,
-            seed=seed,
-            unit_mismatch=unit_mismatch,
-            quiet=quiet,
-            tau_scale=tau_scale,
-            reference=reference,
-            drawn=drawn,
-        )
-        if noise_seed is not None:
-            params = AdcBehavioralParams(**{**params.__dict__, "seed": noise_seed})
-        sample_rate_hz = float(tb.symbol_rate) / len(tb.seq_init_pattern)
+        params = self.behavioral(tb)
+        if tb.noise_seed is not None:
+            params = AdcBehavioralParams(**{**params.__dict__, "seed": tb.noise_seed})
+        seed, unit_mismatch, tau_scale, drawn = tb.mismatch_seed, tb.unit_mismatch, tb.tau_scale, tb.drawn
+        sample_rate_hz = float(tb.symbol_rate) / len(tb.seq_init.data)
         time_s = np.arange(tb.conversions) / sample_rate_hz
         vin_diff_v = calc_source_value(tb.vin_diff, time_s)
         # a centred difference over 1 ps gives the slope the sampler tracks
@@ -374,11 +343,11 @@ class Model:
         ) / 1e-12
         result = convert_behavioral(params, vin_diff_v, slope)
         # each capacitor's decision weighs twice its weight (both sides move), the last decision one
-        code_weights = np.asarray([2 * weight for weight in capdac.Model.weights(tb.dut.cdac)] + [1], dtype=np.int64)
+        code_weights = np.asarray([2 * weight for weight in capdac.Model.weights(tb.params.cdac)] + [1], dtype=np.int64)
         dout_raw = result.bout.astype(np.int64) @ code_weights
-        dout = np.rint(dout_raw * ((1 << tb.dut.adc_bits) - 1) / code_weights.sum()).astype(np.int64)
+        dout = np.rint(dout_raw * ((1 << tb.params.adc_bits) - 1) / code_weights.sum()).astype(np.int64)
         # active power averages one conversion window, as for SPICE captures
-        active_rate_hz = float(tb.symbol_rate) / AdcSequence.from_tb_params(tb).conversion_symbols
+        active_rate_hz = float(tb.symbol_rate) / tb.conversion_symbols
         readbacks: dict[str, str | int | float | bool] = {
             "cap_table": str(self.cdac.settling_meas or ""),
             "unit_mismatch": unit_mismatch,
@@ -395,7 +364,7 @@ class Model:
         measurement = MeasAdc(
             group=seed if unit_mismatch else None,
             index=0 if unit_mismatch else None,
-            dut=tb.dut,
+            dut=tb.params,
             info=MeasInfo(
                 backend="behavioral",
                 timestamp_utc=datetime.now().astimezone(),
@@ -434,30 +403,23 @@ class Model:
             "metastable_input_lsb": late_v / (2 * self.full_scale_v / 2**self.params.adc_bits),
         }
 
-    def reference_requirements(self, capture: Capture) -> AnalysisReference:
-        """The reference's requirements for this converter at ``capture`` (the nominal rate's sine),
-        and the ENOB it loses over each."""
+    def reference_requirements(self, tb: TbParams) -> AnalysisReference:
+        """The reference's requirements for this converter at the run ``tb`` (the nominal rate's
+        sine), and the ENOB it loses over each: ``tb`` with ``REFERENCE_QUIET``, its own draw, on
+        each reference (``TbParams.reference_*``; none, ideal)."""
 
-        def enob(reference: Reference) -> float:
-            measurement = self.capture(
-                capture.tb,
-                None,
-                seed=capture.seed,
-                noise_seed=capture.noise_seed,
-                unit_mismatch=capture.unit_mismatch,
-                quiet=REFERENCE_QUIET,
-                tau_scale=capture.tau_scale,
-                reference=reference,
-            )
-            return _enob(measurement)
+        base = replace(tb, quiet=REFERENCE_QUIET, drawn=False)
 
-        enob_bits = enob(IDEAL_REFERENCE)
+        def enob(reference: dict[str, float]) -> float:
+            return _enob(self.capture(replace(base, **reference), None))
+
+        enob_bits = enob({})
         budget_bits = enob_bits - _enob_floor(self.params.adc_bits, enob_bits, REFERENCE_SHARE)
 
-        def loss(reference: Reference) -> float:
+        def loss(reference: dict[str, float]) -> float:
             return enob_bits - enob(reference)
 
-        def tolerated(make: Callable[[float], Reference], grid: np.ndarray) -> tuple[list[float], float]:
+        def tolerated(make: Callable[[float], dict[str, float]], grid: np.ndarray) -> tuple[list[float], float]:
             # the loss at each grid point, and the largest value within the budget: below the first
             # point over it, bisected towards it; the grid's last where none is, NaN where the first is
             losses = [loss(make(value)) for value in grid]
@@ -473,12 +435,14 @@ class Model:
             return losses, low
 
         decap_f = self.decoupling_f
-        noise_losses, noise_max_v = tolerated(lambda noise_v: Reference(noise_v=noise_v), REFERENCE_NOISE_V)
+        noise_losses, noise_max_v = tolerated(lambda noise_v: {"reference_noise_v": noise_v}, REFERENCE_NOISE_V)
         # the driver's resistance only where the node has decoupling to restore
         r_out_ohm, r_losses, r_max_ohm = np.zeros(0), [], math.nan
         if decap_f > 0:
             r_out_ohm = REFERENCE_R_OUT_OHM
-            r_losses, r_max_ohm = tolerated(lambda r_ohm: Reference(r_ohm=r_ohm, c_f=decap_f), REFERENCE_R_OUT_OHM)
+            r_losses, r_max_ohm = tolerated(
+                lambda r_ohm: {"reference_r_ohm": r_ohm, "reference_c_f": decap_f}, REFERENCE_R_OUT_OHM
+            )
         return AnalysisReference(
             group=None,
             index=None,
@@ -511,16 +475,16 @@ def _enob_floor(bits: int, enob_bits: float, share: float = 1.0) -> float:
 def _sequence_times(tb: TbParams, decisions: int) -> tuple[np.ndarray, np.ndarray]:
     """Return COMP and post-INIT LOGIC rising times relative to the INIT rise."""
 
-    sequence = AdcSequence.from_tb_params(tb).relative_to_init()
+    init, _, comp, logic = tb.rows_from_init
     symbol_s = 1.0 / float(tb.symbol_rate)
 
     def rising(row: str) -> np.ndarray:
         bits = np.asarray([int(bit) for bit in row])
         return np.flatnonzero((bits == 1) & (np.roll(bits, 1) == 0)) * symbol_s
 
-    comp_s = rising(sequence.comp)
-    logic_s = rising(sequence.logic)
-    logic_s = logic_s[logic_s > symbol_s * sequence.init.count("1")]
+    comp_s = rising(comp)
+    logic_s = rising(logic)
+    logic_s = logic_s[logic_s > symbol_s * init.count("1")]
     if len(comp_s) != decisions or len(logic_s) < decisions - 1:
         raise ValueError(f"sequence must contain {decisions} COMP and {decisions - 1} LOGIC rises after INIT")
     return comp_s, logic_s[: decisions - 1]
@@ -530,10 +494,10 @@ def calc_decision_windows(tb: TbParams, decisions: int) -> np.ndarray:
     """Return, for each COMP rise, the time until the comparator resets (COMP falls) or the SAR
     logic reads it (LOGIC rises), whichever comes first, wrapping into the next conversion."""
 
-    sequence = AdcSequence.from_tb_params(tb).relative_to_init()
+    _, _, comp_row, logic_row = tb.rows_from_init
     symbol_s = 1.0 / float(tb.symbol_rate)
-    comp = np.asarray([int(bit) for bit in sequence.comp])
-    logic = np.asarray([int(bit) for bit in sequence.logic])
+    comp = np.asarray([int(bit) for bit in comp_row])
+    logic = np.asarray([int(bit) for bit in logic_row])
     rises = np.flatnonzero((comp == 1) & (np.roll(comp, 1) == 0))
     ends = np.flatnonzero(((comp == 0) & (np.roll(comp, 1) == 1)) | ((logic == 1) & (np.roll(logic, 1) == 0)))
     if len(rises) != decisions or not len(ends):
@@ -568,7 +532,7 @@ def convert_behavioral(
     tb = params.tb
     vin_diff_v = np.asarray(vin_diff_v, dtype=np.float64)
     conversions = len(vin_diff_v)
-    stages = len(capdac.Model.weights(tb.dut.cdac))
+    stages = len(capdac.Model.weights(tb.params.cdac))
     comp_s, logic_s = _sequence_times(tb, stages + 1)
     windows_s = calc_decision_windows(tb, stages + 1)
     stage_tau_s = params.cdac.stage_tau_s or (params.cdac.settling_tau_s,) * stages
@@ -582,12 +546,12 @@ def convert_behavioral(
     reference_rng = rng.spawn(1)[0]
     vin_cm_v = float(tb.vin_cm.dc)
     slope = np.zeros(conversions) if vin_diff_slope_v_per_s is None else np.asarray(vin_diff_slope_v_per_s)
-    caps = {side: capdac.Model.plates_f(params.cdac, side, tb.dut.cdac, float(tb.vdd_dac.dc)) for side in ("p", "n")}
+    caps = {side: capdac.Model.plates_f(params.cdac, side, tb.params.cdac, float(tb.vdd_dac.dc)) for side in ("p", "n")}
     parasitic_f = params.cdac.parasitic_f
     load_f = {side: float(np.sum(main_f) + np.sum(diff_f)) + parasitic_f for side, (main_f, diff_f) in caps.items()}
     vref_v, diffcaps = float(tb.vdd_dac.dc), int(tb.dac_diffcaps)
     top = samp_model.Model.sample(
-        tb.dut.samp,
+        tb.params.samp,
         params.samp,
         {"p": vin_cm_v + vin_diff_v / 2, "n": vin_cm_v - vin_diff_v / 2},
         {"p": slope / 2, "n": -slope / 2},
@@ -643,7 +607,7 @@ def convert_behavioral(
                 unsettled.append((start_s, tau_s, step))
         steps = unsettled
         decided = comp_model.Model.compare(
-            tb.dut.comp, params.comp, seen, rng, vin_cm_v=vin_cm_v, window_s=float(windows_s[decision]), held=held
+            tb.params.comp, params.comp, seen, rng, vin_cm_v=vin_cm_v, window_s=float(windows_s[decision]), held=held
         )
         bout[:, decision] = decided
         held = decided

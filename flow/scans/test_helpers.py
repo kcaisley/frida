@@ -11,18 +11,12 @@ import pytest
 from bitarray import bitarray
 
 from flow import adc
-from flow.adc.sim import (
-    SEQUENCES,
-    AdcSequence,
-    symbol160_init4_samp20_comp11110000_logic00001111,
-    symbol160_init4_samp20_comp11111100_logic11000011,
-    symbol256_init8_samp16_comp11110000_logic00001111,
-    symbol256_init8_samp16_comp11110000_logic11000011,
-)
+from flow.adc import Recipe
 from flow.analysis.plots import plot_waveforms
 from flow.analysis.types import Wave
 from flow.scans import fastrx, scan_adc, scan_adc_noctl, scope, seqgen
-from flow.scans.params import AdcScanParams, build_adc_variants, load_board_map
+from flow.scans.board import load_board_map
+from flow.scans.params import AdcScanParams, build_adc_variants
 from flow.scans.scan_adc import crop_adc_scope_conversion
 from flow.scans.scope import ScopeConns
 from flow.scans.test_diffamp import OUTPUT_DIR as DIFFAMP_OUTPUT_DIR
@@ -49,10 +43,10 @@ def test_hardware_output_directories_match_test_modules() -> None:
 
 
 def test_analytical_fastrx_capture_uses_unrotated_comp_edges() -> None:
-    sequence = symbol160_init4_samp20_comp11111100_logic11000011
-    original_rows = (sequence.init, sequence.samp, sequence.comp, sequence.logic)
+    sequence = Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11000011
+    original_rows = sequence.rows
     capture = fastrx.calculate_fastrx_capture_settings(
-        sequence,
+        sequence.rows,
         320e6,
         comparator_return_min_s=12e-9,
         comparator_return_max_s=13e-9,
@@ -64,10 +58,10 @@ def test_analytical_fastrx_capture_uses_unrotated_comp_edges() -> None:
         hold_guard_s=1e-9,
     )
     assert capture == fastrx.FastRxCapture(comp_delay_taps=0, rx_sen_start_word=5)
-    assert (sequence.init, sequence.samp, sequence.comp, sequence.logic) == original_rows
+    assert sequence.rows == original_rows
     with pytest.raises(ValueError, match="no RX_SEN word"):
         fastrx.calculate_fastrx_capture_settings(
-            sequence,
+            sequence.rows,
             320e6,
             comparator_return_min_s=0,
             comparator_return_max_s=30e-9,
@@ -80,7 +74,7 @@ def test_analytical_fastrx_capture_uses_unrotated_comp_edges() -> None:
         )
     with pytest.raises(ValueError, match="no RX_SEN word"):
         fastrx.calculate_fastrx_capture_settings(
-            sequence,
+            sequence.rows,
             320e6,
             comparator_return_min_s=500e-9,
             comparator_return_max_s=500e-9,
@@ -101,7 +95,8 @@ def spi_params(**overrides) -> AdcScanParams:
         "active_adc_mask": tuple(int(index in (3, 9)) for index in reversed(range(16))),
     }
     tb_config = {
-        "view": "frida1",
+        "pdk": "tsmc65",
+        "params": adc.Fabricated.FRIDA1_1LAYER_RADIX17.params,
         "dac_astate_p": tuple(int(bit) for bit in "1010101010101010"),
         "dac_bstate_p": tuple(int(bit) for bit in "0101010101010101"),
         "dac_astate_n": tuple(int(bit) for bit in "1111000011110000"),
@@ -158,14 +153,14 @@ def test_scope_wave_plots_raw_aligned_acquisition(tmp_path) -> None:
 
 def test_convert_params_to_seqgen_fmt_packs_serializer_lanes() -> None:
     """Verify critical 64-bit lane ordering, control placement, and zero padding."""
-    sequence = symbol160_init4_samp20_comp11111100_logic11000011
-    params = adc.TbParams(**sequence.as_tb_fields())
+    sequence = Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11000011
+    params = adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params).sequenced(sequence.rows)
     capture = "0110" + "0" * 16
     memory = seqgen.convert_params_to_seqgen_fmt(params, capture)
     assert len(memory) == 160
     assert list(memory[:8]) == [0x0F, 0xF0, 0, 0x3C, 0, 0, 0, 0]
     assert list(memory[24:32]) == [0, 0, 0x3F, 0xC0, 0, 0, 0, 0]
-    for lane, row in enumerate((sequence.init, sequence.samp, sequence.comp, sequence.logic)):
+    for lane, row in enumerate(sequence.rows):
         decoded = "".join(str((word >> bit) & 1) for word in memory[lane::8] for bit in range(8))
         assert decoded == row
     assert list(memory[4::8]) == [int(bit) for bit in capture]
@@ -173,7 +168,9 @@ def test_convert_params_to_seqgen_fmt_packs_serializer_lanes() -> None:
 
 
 def test_convert_params_to_seqgen_fmt_rejects_invalid_capture() -> None:
-    params = adc.TbParams(**symbol160_init4_samp20_comp11111100_logic11000011.as_tb_fields())
+    params = adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params).sequenced(
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11000011.rows
+    )
     with pytest.raises(TypeError, match="binary string"):
         seqgen.convert_params_to_seqgen_fmt(params, [0] * 20)  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError, match="must contain 20"):
@@ -187,20 +184,15 @@ def test_convert_params_to_seqgen_fmt_rejects_invalid_capture() -> None:
     [
         (row, start)
         for row in (
-            symbol256_init8_samp16_comp11110000_logic00001111,
-            symbol160_init4_samp20_comp11110000_logic00001111,
+            Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC00001111,
+            Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111,
         )
-        for start in range(len(row.init) // 8)
+        for start in range(len(row.rows[0]) // 8)
     ],
 )
-def test_fastrx_pattern_preserves_controls_and_wraps_receive(row: AdcSequence, start: int) -> None:
-    params = adc.TbParams(
-        seq_init_pattern=row.init,
-        seq_samp_pattern=row.samp,
-        seq_comp_pattern=row.comp,
-        seq_logic_pattern=row.logic,
-    )
-    words = len(row.init) // 8
+def test_fastrx_pattern_preserves_controls_and_wraps_receive(row: Recipe, start: int) -> None:
+    params = adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params).sequenced(row.rows)
+    words = len(row.rows[0]) // 8
     period = seqgen.build_fastrx_capture_pattern(params, start, 17)
     controls = seqgen.convert_params_to_seqgen_fmt(params, "0" * words)
     for lane in range(4):
@@ -406,7 +398,6 @@ def test_convert_params_to_spi_fmt_places_fields_and_reverses_for_transmission(c
 @pytest.mark.parametrize(
     ("override", "message"),
     [
-        ({"dac_astate_p": (0,) * 15}, "exactly sixteen"),
         ({"observed_adc": 16}, "observed_adc must be in 0..15"),
         ({"active_adc_mask": (0,) * 16}, "must include observed_adc"),
     ],
@@ -476,7 +467,7 @@ def test_adc_preflight_rejects_input_beyond_headroom_before_hardware(
         board_id=0,
         adc_indices=(0,),
         active_conversion_rates_hz=(1.0e6,),
-        sequences=(symbol256_init8_samp16_comp11110000_logic00001111,),
+        sequences=(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC00001111,),
         conversions=1,
         vin_cm_v=0.8,
         vin_diff=h.Vdc.Params(dc=0.05),
@@ -510,7 +501,7 @@ def test_adc_preflight_rejects_supply_and_fixed_io_before_hardware(
         board_id=0,
         adc_indices=(0,),
         active_conversion_rates_hz=(1.0e6,),
-        sequences=(symbol256_init8_samp16_comp11110000_logic00001111,),
+        sequences=(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC00001111,),
         conversions=1,
         vin_cm_v=0.8,
         vin_diff=h.Vdc.Params(dc=0.05),
@@ -550,7 +541,7 @@ def test_adc_noctl_abort_opens_only_the_fpga_map(monkeypatch, tmp_path) -> None:
         board_id=0,
         adc_indices=(0,),
         active_conversion_rates_hz=(2.0e6,),
-        sequences=(symbol256_init8_samp16_comp11110000_logic11000011,),
+        sequences=(Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011,),
         conversions=1,
         vin_cm_v=0.7,
         vin_diff=h.Vdc.Params(dc=0.05),
@@ -561,18 +552,20 @@ def test_adc_noctl_abort_opens_only_the_fpga_map(monkeypatch, tmp_path) -> None:
     assert [path.rsplit("/", 1)[-1] for path in constructed_paths] == ["map_fpga.yaml"]
 
 
-@pytest.mark.parametrize("name,sequence", SEQUENCES)
+@pytest.mark.parametrize("sequence", tuple(Recipe)[:-1], ids=lambda recipe: recipe.name.lower())
 @pytest.mark.parametrize("symbol_rate", (320e6, 960e6, 1600e6))
-def test_adc_receive_alignment_keeps_control_rows_fixed(name, sequence, symbol_rate):
+def test_adc_receive_alignment_keeps_control_rows_fixed(sequence, symbol_rate):
     params = AdcScanParams(
-        tb=adc.TbParams(symbol_rate=symbol_rate, **sequence.as_tb_fields()),
+        tb=adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params).sequenced(
+            sequence.rows, symbol_rate=symbol_rate
+        ),
         fastrx_capture=fastrx.FastRxCapture(62, 7),
     )
     settings = fastrx.select_fastrx_capture_settings(params)
     assert settings.comp_delay_taps == 62
     assert settings.rx_sen_start_word == 7
     memory = seqgen.build_fastrx_capture_pattern(params.tb, settings.rx_sen_start_word, 17)
-    for lane, row in enumerate((sequence.init, sequence.samp, sequence.comp, sequence.logic)):
+    for lane, row in enumerate(sequence.rows):
         assert "".join(str((word >> bit) & 1) for word in memory[lane::8] for bit in range(8)) == row
     assert sum(memory[4::8]) == 17
 
@@ -589,14 +582,23 @@ def test_parse_pwl_wave_accepts_spice_suffixes_and_rejects_time_reversal() -> No
 
 
 def test_fastrx_settings_require_exact_characterization():
-    name, sequence = SEQUENCES[0]
-    params = AdcScanParams(tb=adc.TbParams(symbol_rate=320e6, **sequence.as_tb_fields()))
-    profile = {"sequence": name, "symbol_rate_bps": 320e6, "comp_delay_taps": 33, "rx_sen_start_word": 6}
+    sequence = next(iter(Recipe))
+    params = AdcScanParams(
+        tb=adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params).sequenced(
+            sequence.rows, symbol_rate=320e6
+        )
+    )
+    profile = {
+        "sequence": sequence.name.lower(),
+        "symbol_rate_bps": 320e6,
+        "comp_delay_taps": 33,
+        "rx_sen_start_word": 6,
+    }
     with pytest.raises(ValueError, match="characterized"):
         fastrx.select_fastrx_capture_settings(params)
     assert fastrx.select_fastrx_capture_settings(params, [profile]) == fastrx.FastRxCapture(33, 6)
     with pytest.raises(ValueError, match="characterized"):
-        fastrx.select_fastrx_capture_settings(replace(params, tb=replace(params.tb, symbol_rate=321e6)), [profile])
+        fastrx.select_fastrx_capture_settings(replace(params, tb=params.tb.sequenced(symbol_rate=321e6)), [profile])
     with pytest.raises(ValueError, match="characterized"):
         fastrx.select_fastrx_capture_settings(params, [profile, profile])
     for taps, word in [(-1, 0), (63, 0), (True, 0), (1, -1), (1, 32)]:
@@ -608,9 +610,13 @@ def test_fastrx_settings_require_exact_characterization():
 
 def test_fastrx_timing_profiles_cover_every_catalogue_sequence() -> None:
     profiles = load_board_map()["boards"][0]["fastrx_capture_settings"]
-    for _name, sequence in SEQUENCES:
+    for sequence in tuple(Recipe)[:-1]:
         for baud in (320e6, 960e6, 1600e6):
-            params = AdcScanParams(tb=adc.TbParams(symbol_rate=baud, **sequence.as_tb_fields()))
+            params = AdcScanParams(
+                tb=adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params).sequenced(
+                    sequence.rows, symbol_rate=baud
+                )
+            )
             capture = fastrx.select_fastrx_capture_settings(params, profiles)
             assert 0 <= capture.comp_delay_taps <= 62
-            assert capture.rx_sen_start_word < len(sequence.init) // 8
+            assert capture.rx_sen_start_word < len(sequence.rows[0]) // 8

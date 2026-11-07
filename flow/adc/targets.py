@@ -8,11 +8,7 @@ from pathlib import Path
 import hdl21 as h
 
 from flow import capdac, comp, new_run
-from flow.adc.sim import (
-    SEQUENCES,
-    AdcSequence,
-    symbol256_init8_samp16_comp11110000_logic11000011,
-)
+from flow.adc.params import Recipe, TbParams
 from flow.analysis import calc
 from flow.analysis.io import (
     read_analysis,
@@ -910,7 +906,7 @@ def interferer_study() -> tuple[Path, ...]:
         "Test #14: amp supplies on, disabled": "20261009_110933_adc_sequence_static",
         "Test #15: amp supplies turned down": "20261009_153529_adc_sequence_static",
     }
-    shown = dict(SEQUENCES)["symbol160_init4_samp20_comp11110000_logic10000111"]
+    shown = Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC10000111.rows
     output_dir.mkdir(parents=True, exist_ok=True)
     artifacts: list[Path] = []
     for folder in runs.values():
@@ -971,15 +967,22 @@ def sample_rate_study() -> tuple[Path, ...]:
         )
     )
     sine_read_dir = BASE_PATH / "build/scan_adc/20260730_215145_complete"
-    selected_sequences = (symbol256_init8_samp16_comp11110000_logic11000011,)
+    selected_sequences = (Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011,)
 
     # Give selected library recipes the same INIT reference as acquired rows, each labelled by its
     # LOGIC timing among the 256-symbol recipe's at comparator timing 11110000 (LOGIC n/8)
-    timings = [sequence for name, sequence in SEQUENCES if name.startswith("symbol256_init8_samp16_comp11110000_")]
+    timings = [
+        Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC01111000,
+        Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC00111100,
+        Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC00011110,
+        Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC00001111,
+        Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC10000111,
+        Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011,
+        Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11100001,
+    ]
     sequence_labels = {}
-    for sequence in selected_sequences:
-        relative_sequence = sequence.relative_to_init()
-        sequence_labels[relative_sequence] = f"LOGIC {timings.index(sequence) + 1}/8"
+    for recipe in selected_sequences:
+        sequence_labels[TbParams.from_init(recipe.rows)] = f"LOGIC {timings.index(recipe) + 1}/8"
 
     # Select and compare DC sweeps without changing their saved acquisition phase.
     artifacts = []
@@ -996,7 +999,7 @@ def sample_rate_study() -> tuple[Path, ...]:
             if not isinstance(params.vin_diff, h.Vdc.Params):
                 continue
             # Compare complete rows relative to INIT; leave acquired patterns and data unchanged.
-            sequence = AdcSequence.from_tb_params(params).relative_to_init()
+            sequence = params.rows_from_init
             if sequence not in sequence_labels:
                 continue
             key = (measurement.index, float(params.vin_diff.dc), float(params.vin_cm.dc))
@@ -1004,10 +1007,7 @@ def sample_rate_study() -> tuple[Path, ...]:
         if not groups:
             raise ValueError(f"no selected sequences in {meas_read_dir}")
         for (adc_index, input_v, common_v), measurements in sorted(groups.items(), key=lambda item: str(item[0])):
-            labels = [
-                sequence_labels[AdcSequence.from_tb_params(measurement.tb).relative_to_init()]
-                for measurement in measurements
-            ]
+            labels = [sequence_labels[measurement.tb.rows_from_init] for measurement in measurements]
             noise = [analyze_noise(measurement) for measurement in measurements]
             stem = f"{meas_read_dir.name}_adc{adc_index or 0:02d}_{input_v * 1e3:g}mv_{common_v * 1e3:g}cm"
             for label in dict.fromkeys(labels):
@@ -1024,7 +1024,7 @@ def sample_rate_study() -> tuple[Path, ...]:
     paths = sorted(sine_read_dir.glob("[0-9][0-9][0-9][0-9]_*.h5"))
     if not paths:
         raise FileNotFoundError(sine_read_dir)
-    sine_groups: dict[tuple[int | None, AdcSequence], list[MeasAdc]] = {}
+    sine_groups: dict[tuple[int | None, tuple[str, ...]], list[MeasAdc]] = {}
     for path in paths:
         measurement = read_measurement(path)
         if not isinstance(measurement, MeasAdc):
@@ -1033,7 +1033,7 @@ def sample_rate_study() -> tuple[Path, ...]:
         if not isinstance(params.vin_diff, h.Vsin.Params):
             continue
         # Compare complete rows relative to INIT; leave acquired patterns and data unchanged.
-        sequence = AdcSequence.from_tb_params(params).relative_to_init()
+        sequence = params.rows_from_init
         if sequence not in sequence_labels:
             continue
         sine_groups.setdefault((measurement.index, sequence), []).append(measurement)
@@ -1076,7 +1076,7 @@ def power_study() -> tuple[Path, ...]:
         paths = sorted(meas_read_dir.glob("[0-9][0-9][0-9][0-9]_*.h5"))
         if not paths:
             raise FileNotFoundError(meas_read_dir)
-        groups: dict[tuple[int | None, float, float, AdcSequence], list[MeasAdc]] = {}
+        groups: dict[tuple[int | None, float, float, tuple[str, ...]], list[MeasAdc]] = {}
         for path in paths:
             measurement = read_measurement(path)
             if not isinstance(measurement, MeasAdc):
@@ -1085,7 +1085,7 @@ def power_study() -> tuple[Path, ...]:
             if not isinstance(params.vin_diff, h.Vdc.Params):
                 continue
             # Compare complete rows relative to INIT; leave acquired patterns and data unchanged.
-            sequence = AdcSequence.from_tb_params(params).relative_to_init()
+            sequence = params.rows_from_init
             key = (measurement.index, float(params.vin_diff.dc), float(params.vin_cm.dc), sequence)
             groups.setdefault(key, []).append(measurement)
         for index, ((adc_index, input_v, common_v, _sequence), measurements) in enumerate(groups.items()):

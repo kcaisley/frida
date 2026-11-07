@@ -56,9 +56,8 @@ from flow.adc.analysis import (
     analyze_transfer,
 )
 from flow.adc.model import AdcBehavioralParams
-from flow.adc.params import LADDER, LADDER_NAMES, Params, TbParams
+from flow.adc.params import LADDER, LADDER_NAMES, Params, Recipe, TbParams
 from flow.adc.plots import plot_calibration_weights, plot_redundancy
-from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.adc.sweep import _extracted, _ladder, campaign
 from flow.adc.types import AnalysisMismatch, AnalysisRedundancy
 from flow.analysis.calc import calc_drawn_linearity, calc_paths
@@ -268,7 +267,7 @@ def test_a_captures_mismatch_is_its_nominal_arrays_statistics() -> None:
         index=0,
         dut=design,
         info=MeasInfo(backend="behavioral", timestamp_utc=datetime(2026, 1, 1, tzinfo=UTC)),
-        param=AdcBehavioralParams(tb=TbParams(dut=design), cdac=cdac),
+        param=AdcBehavioralParams(tb=_tb(design), cdac=cdac),
         conversion_index=np.arange(1),
         bout=np.zeros((1, 8), dtype=np.uint8),
         dout_raw=np.zeros(1, dtype=np.int64),
@@ -304,8 +303,21 @@ def test_the_mismatch_draws_gather_each_ramp_by_its_coefficient() -> None:
 # ---- the conversion and waveform analyses, on built captures
 
 timing_sequences = tuple(
-    sequence for name, sequence in SEQUENCES if name.startswith("symbol256_init8_samp16_comp11110000_")
+    recipe.rows for recipe in Recipe if recipe.name.startswith("SYMBOL256_INIT8_SAMP16_COMP11110000_")
 )
+
+
+def _tb(params: Params | None = None, **fields) -> TbParams:
+    """A run in TSMC65 of ``params`` (the default design where None), its DAC states sized to its
+    stages unless given."""
+    params = Params() if params is None else params
+    stages = len(capdac.Model.weights(params.cdac))
+    states = (
+        {}
+        if stages == 16
+        else {name: (0,) * stages for name in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n")}
+    )
+    return TbParams(pdk="tsmc65", params=params, **(states | fields))
 
 
 def adc_sampling_measurement() -> MeasAdc:
@@ -431,7 +443,7 @@ def adc_measurement(
     vin_diff_array = np.asarray(vin_diff_v, dtype=np.float64)
     if vin_diff_array.ndim == 0:
         vin_diff_array = np.full(len(dout), vin_diff_array.item())
-    template = adc.TbParams()
+    template = _tb()
     measurement_selection = {}
     if observed_adc is not None:
         measurement_selection = {
@@ -439,11 +451,11 @@ def adc_measurement(
             "observed_adc": observed_adc,
             "active_adc_mask": tuple(int(index == observed_adc) for index in reversed(range(16))),
         }
-    tb_params = adc.TbParams(
-        conversions=len(dout),
-        symbol_rate=sample_rate_hz * len(template.seq_init_pattern),
-        vin_diff=h.Vsin.Params(voff=0.0, vamp=0.5, freq=input_frequency_hz),
-        seq_logic_pattern=timing_sequences[int(logic_phase_delay_symbols) + 3].logic,
+    tb_params = _tb(
+        conversions=len(dout), vin_diff=h.Vsin.Params(voff=0.0, vamp=0.5, freq=input_frequency_hz)
+    ).sequenced(
+        (*template.rows[:3], timing_sequences[int(logic_phase_delay_symbols) + 3][3]),
+        symbol_rate=sample_rate_hz * len(template.rows[0]),
     )
     time_s = np.linspace(0.0, 1.0 / sample_rate_hz, waveform_sample_count)
     zeros = np.zeros((1, len(time_s)))
@@ -458,7 +470,7 @@ def adc_measurement(
         return MeasAdc(
             group=tb_params.mc_seed,
             index=tb_params.mc_index,
-            dut=tb_params.dut,
+            dut=tb_params.params,
             info=MeasInfo(
                 backend="spice", timestamp_utc=datetime(2026, 7, 29, tzinfo=UTC), readbacks=dict(readbacks or {})
             ),
@@ -503,7 +515,7 @@ def adc_measurement(
     return MeasAdc(
         group=7 if observed_adc is not None else None,
         index=observed_adc,
-        dut=tb_params.dut,
+        dut=tb_params.params,
         info=MeasInfo(
             backend="behavioral", timestamp_utc=datetime(2026, 7, 29, tzinfo=UTC), readbacks=dict(readbacks or {})
         ),
@@ -610,13 +622,12 @@ def adc_ramp_measurement(*, cycles: int = 4, observed_adc: int = 0, start_offset
     base = adc_measurement(np.zeros(sample_count, dtype=np.int64), observed_adc=observed_adc)
     assert isinstance(base, MeasAdc)
     params = AdcScanParams(
-        tb=adc.TbParams(
-            dut=base.param.tb.dut,
+        tb=_tb(
+            base.param.tb.params,
             conversions=sample_count,
-            symbol_rate=base.param.tb.symbol_rate,
             vin_cm=h.Vdc.Params(dc=0.6),
             vin_diff=h.Vpwl.Params(wave=f"0 -1 {samples_per_cycle / base.sample_rate_hz:.12g} 1"),
-        ),
+        ).sequenced(symbol_rate=base.param.tb.symbol_rate),
         board_id=7,
         observed_adc=observed_adc,
         active_adc_mask=tuple(int(index == observed_adc) for index in reversed(range(16))),
@@ -742,12 +753,8 @@ def sar_sine_measurement(
         bout[:, decision] = sine > dac
         dac += np.where(sine > dac, weight, -weight) / 2
     dout = bout.astype(np.int64) @ nominal
-    tb = adc.TbParams(
-        dut=dut,
-        conversions=count,
-        symbol_rate=template.tb.symbol_rate,
-        vin_diff=template.tb.vin_diff,
-        seq_logic_pattern=template.tb.seq_logic_pattern,
+    tb = _tb(dut, conversions=count, vin_diff=template.tb.vin_diff).sequenced(
+        (*_tb(dut).rows[:3], template.tb.rows[3]), symbol_rate=template.tb.symbol_rate
     )
     measurement = replace(
         adc_measurement(dout, sample_rate_hz=sample_rate_hz, input_frequency_hz=sample_rate_hz * cycles / count),
@@ -1048,7 +1055,7 @@ def test_decision_paths_normalize_redundant_raw_weights() -> None:
             msmt.param,
             tb=replace(
                 msmt.param.tb,
-                dut=adc.Params(adc_bits=12, cdac=capdac.Params(weights=weights)),
+                params=adc.Params(adc_bits=12, cdac=capdac.Params(weights=weights)),
             ),
         ),
     )
@@ -1065,7 +1072,7 @@ def test_sequence_logic_timing_uses_the_full_crossing_span() -> None:
     logic = "".join("1" if index in (1, 3, 7) else "0" for index in range(24))
     # Four COMP rises span 18 symbols: the average period is six rather
     # than the median spacing of four. LOGIC remains one symbol after COMP.
-    sequence = AdcSequence(init="1" + "0" * 23, samp="0" * 24, comp=comp, logic=logic)
+    sequence = _tb().sequenced(("1" + "0" * 23, "0" * 24, comp, logic))
     assert sequence.logic_timing == pytest.approx((6.0, 1.0))
 
 
@@ -1387,9 +1394,7 @@ def test_operating_conditions_judge_constant_shifted_and_readout_rows() -> None:
             if (rate_index, sequence_index) == (1, 2):
                 dout = [1100, 1101, 1102, 1101] * 25
             base = adc_measurement(dout, sample_rate_hz=sample_rate_hz, observed_adc=3)
-            measurements.append(
-                replace(base, param=replace(base.param, tb=replace(base.param.tb, **sequence.as_tb_fields())))
-            )
+            measurements.append(replace(base, param=replace(base.param, tb=base.param.tb.sequenced(sequence))))
     noise = [analyze_noise(measurement) for measurement in measurements]
     result = analyze_operating_conditions(measurements, noise=list(reversed(noise)))
 
@@ -1412,9 +1417,7 @@ def adc_conditions(observed_adc: int, codes: Mapping[tuple[int, int], Sequence[i
             if not len(dout):
                 continue
             base = adc_measurement(dout, sample_rate_hz=sample_rate_hz, observed_adc=observed_adc)
-            measurements.append(
-                replace(base, param=replace(base.param, tb=replace(base.param.tb, **sequence.as_tb_fields())))
-            )
+            measurements.append(replace(base, param=replace(base.param, tb=base.param.tb.sequenced(sequence))))
     return analyze_operating_conditions(
         measurements, noise=[analyze_noise(measurement) for measurement in measurements]
     )
@@ -1450,11 +1453,16 @@ def test_a_sequence_map_takes_the_median_of_three_quarters_of_the_adcs() -> None
         analyze_sequence_map([])
 
 
+def test_a_run_at_no_symbol_rate_is_refused() -> None:
+    """A run's symbol rate is finite and positive: no capture holds one at no rate."""
+    with pytest.raises(ValueError, match="symbol rate"):
+        replace(adc_measurement([1] * 8).param.tb, symbol_rate=0.0)
+
+
 @pytest.mark.parametrize(
     ("samples", "sample_rate_hz", "input_frequency_hz", "message"),
     [
         ([1] * 7, 1_000.0, 10.0, "at least eight"),
-        ([1] * 8, 0.0, 10.0, "sample_rate_hz"),
         ([1] * 8, 1_000.0, 500.0, "Nyquist"),
     ],
 )
@@ -1469,10 +1477,8 @@ def test_dynamic_analysis_rejects_invalid_records(
         msmt,
         param=replace(
             msmt.param,
-            tb=replace(
-                msmt.param.tb,
-                symbol_rate=sample_rate_hz * len(msmt.param.tb.seq_init_pattern),
-                vin_diff=h.Vsin.Params(voff=0.0, vamp=0.5, freq=input_frequency_hz),
+            tb=replace(msmt.param.tb, vin_diff=h.Vsin.Params(voff=0.0, vamp=0.5, freq=input_frequency_hz)).sequenced(
+                symbol_rate=sample_rate_hz * len(msmt.param.tb.rows[0])
             ),
         ),
     )
@@ -1642,7 +1648,7 @@ def test_adc_timing_closure_checks_the_plates_a_unit_capacitor_array_has() -> No
         measurement.wave,
         v={name: values for name, values in measurement.wave.v.items() if not name.startswith(differences)},
     )
-    tb = adc.TbParams(**{**measurement.param.__dict__, "dut": unit})
+    tb = replace(measurement.param, params=unit)
     result = analyze_timing_closure(replace(measurement, dut=unit, param=tb, wave=wave))
     assert np.all(result.passed[:16]) and np.all(result.cdac_ready[:16])
     with pytest.raises(ValueError, match="dac_botplate_p_diff"):
@@ -1750,19 +1756,18 @@ def small_adc() -> adc.Params:
 
 
 def small_scan_params(conversions: int, vin_diff) -> AdcScanParams:
-    template = adc.TbParams()
+    template = _tb()
     return AdcScanParams(
-        tb=adc.TbParams(
-            dut=small_adc(),
+        tb=_tb(
+            small_adc(),
             conversions=conversions,
-            symbol_rate=1.0e6 * len(template.seq_init_pattern),
             vin_cm=h.Vdc.Params(dc=0.6),
             vin_diff=vin_diff,
             dac_astate_p=(0, 1) * 6,
             dac_astate_n=(0, 1) * 6,
             dac_bstate_p=(0,) * 12,
             dac_bstate_n=(0,) * 12,
-        ),
+        ).sequenced(symbol_rate=1.0e6 * len(template.rows[0])),
         board_id=1,
         observed_adc=5,
         active_adc_mask=tuple(int(index == 5) for index in reversed(range(16))),
@@ -1776,7 +1781,7 @@ def small_measurement(bout: np.ndarray, vin_diff_v: np.ndarray, vin_diff) -> Mea
     return MeasAdc(
         group=params.board_id,
         index=params.observed_adc,
-        dut=params.tb.dut,
+        dut=params.tb.params,
         info=MeasInfo(backend="behavioral", timestamp_utc=datetime(2026, 10, 5, tzinfo=UTC)),
         param=params,
         conversion_index=np.arange(len(bout)),
@@ -1861,7 +1866,7 @@ def test_cdac_mismatch_and_calibration1_use_the_measured_capacitor_count() -> No
             MeasCdac(
                 group=params.board_id,
                 index=params.observed_adc,
-                dut=params.tb.dut.cdac,
+                dut=params.tb.params.cdac,
                 info=MeasInfo(
                     backend="physical",
                     timestamp_utc=datetime(2026, 10, 5, tzinfo=UTC),
@@ -1893,7 +1898,7 @@ def test_cdac_mismatch_and_calibration1_use_the_measured_capacitor_count() -> No
     cap_mismatch = capdac.AnalysisCapMismatch(
         group=1,
         index=5,
-        dut=tb.dut.cdac,
+        dut=tb.params.cdac,
         main_fraction=nan,
         diff_fraction=nan,
         effective_fraction=nan,
@@ -1903,7 +1908,7 @@ def test_cdac_mismatch_and_calibration1_use_the_measured_capacitor_count() -> No
     )
     fake = cast(
         MeasCdac,
-        SimpleNamespace(tb=tb, identity=Identity(1, 5, tb.dut.cdac), trial_index=np.arange(3)),
+        SimpleNamespace(tb=tb, identity=Identity(1, 5, tb.params.cdac), trial_index=np.arange(3)),
     )
     calibration = analyze_calibration1((fake,), cap_mismatch=cap_mismatch)
     assert calibration.calibrated_weights.shape == (13,)
@@ -1916,16 +1921,16 @@ def test_cdac_mismatch_and_calibration1_use_the_measured_capacitor_count() -> No
 
 def test_calibration1_public_analysis_returns_common_weights() -> None:
     params = AdcScanParams(
-        tb=adc.TbParams(),
+        tb=_tb(),
         board_id=0,
         observed_adc=0,
         active_adc_mask=tuple(int(index == 0) for index in reversed(range(16))),
     )
-    nominal_cap_weight = 2.0 * np.asarray(capdac.Model.weights(params.tb.dut.cdac), dtype=np.float64)
+    nominal_cap_weight = 2.0 * np.asarray(capdac.Model.weights(params.tb.params.cdac), dtype=np.float64)
     element_count = len(nominal_cap_weight)
     measured = np.repeat((nominal_cap_weight / 2.0)[None, :, None], 2, axis=0)
     measured = np.repeat(measured, 2, axis=2)
-    identity = Identity(0, 0, params.tb.dut.cdac)
+    identity = Identity(0, 0, params.tb.params.cdac)
     measurement = cast(
         MeasCdac,
         SimpleNamespace(param=params, tb=params.tb, identity=identity, trial_index=np.arange(100)),
@@ -1936,7 +1941,7 @@ def test_calibration1_public_analysis_returns_common_weights() -> None:
         return capdac.AnalysisCapMismatch(
             group=0,
             index=0,
-            dut=params.tb.dut.cdac,
+            dut=params.tb.params.cdac,
             main_fraction=nan,
             diff_fraction=nan,
             effective_fraction=nan,
@@ -1948,7 +1953,7 @@ def test_calibration1_public_analysis_returns_common_weights() -> None:
     result = analyze_calibration1((measurement,), cap_mismatch=cap_mismatch(measured))
 
     assert result.method == "calibration1"
-    assert (result.group, result.index, result.dut) == (0, 0, params.tb.dut)
+    assert (result.group, result.index, result.dut) == (0, 0, params.tb.params)
     np.testing.assert_allclose(result.calibrated_weights, result.nominal_weights)
     np.testing.assert_array_equal(result.measured_weight_mask, [True] * element_count + [False])
     assert result.training_sample_count == 100
@@ -1970,12 +1975,12 @@ def test_calibration1_selects_p_and_n_directions_from_each_a_state() -> None:
     a_p = (0, 1) * 8
     a_n = (0, 0, 1, 1) * 4
     params = AdcScanParams(
-        tb=adc.TbParams(dac_astate_p=a_p, dac_astate_n=a_n),
+        tb=_tb(dac_astate_p=a_p, dac_astate_n=a_n),
         board_id=0,
         observed_adc=0,
         active_adc_mask=tuple(int(index == 0) for index in reversed(range(16))),
     )
-    nominal_cap_weight = np.asarray(capdac.Model.weights(params.tb.dut.cdac), dtype=np.float64)
+    nominal_cap_weight = np.asarray(capdac.Model.weights(params.tb.params.cdac), dtype=np.float64)
     by_direction = np.empty((2, 16, 2))
     # Selected movements are each nominal half-weight; unselected ones are
     # deliberately wrong or NaN so a wrong selection would be visible.
@@ -1988,7 +1993,7 @@ def test_calibration1_selects_p_and_n_directions_from_each_a_state() -> None:
     cap_mismatch = capdac.AnalysisCapMismatch(
         group=0,
         index=0,
-        dut=params.tb.dut.cdac,
+        dut=params.tb.params.cdac,
         main_fraction=nan,
         diff_fraction=nan,
         effective_fraction=nan,
@@ -2001,7 +2006,7 @@ def test_calibration1_selects_p_and_n_directions_from_each_a_state() -> None:
         SimpleNamespace(
             param=params,
             tb=params.tb,
-            identity=Identity(0, 0, params.tb.dut.cdac),
+            identity=Identity(0, 0, params.tb.params.cdac),
             trial_index=np.arange(10),
         ),
     )
@@ -2146,13 +2151,12 @@ def _threshold_ramp_measurement(
     base = adc_measurement(np.zeros(len(vin_diff_v), dtype=np.int64), observed_adc=0)
     assert isinstance(base, MeasAdc)
     params = AdcScanParams(
-        tb=adc.TbParams(
-            dut=base.param.tb.dut,
+        tb=_tb(
+            base.param.tb.params,
             conversions=len(vin_diff_v),
-            symbol_rate=base.param.tb.symbol_rate,
             vin_cm=h.Vdc.Params(dc=0.6),
             vin_diff=h.Vpwl.Params(wave=f"0 -1 {samples_per_cycle / base.sample_rate_hz:.12g} 1"),
-        ),
+        ).sequenced(symbol_rate=base.param.tb.symbol_rate),
         board_id=7,
         observed_adc=0,
         active_adc_mask=tuple(int(index == 0) for index in reversed(range(16))),
@@ -2294,15 +2298,7 @@ def _stub_model(table: Path, params: Params):
 
 def _capture(model, declared):
     """The model's capture of one declared capture, its sources and settling as declared."""
-    return model.capture(
-        declared.tb,
-        None,
-        seed=declared.seed,
-        noise_seed=declared.noise_seed,
-        unit_mismatch=declared.unit_mismatch,
-        quiet=declared.quiet,
-        tau_scale=declared.tau_scale,
-    )
+    return model.capture(declared, None)
 
 
 @pytest.mark.parametrize(
@@ -2363,13 +2359,13 @@ def test_a_capture_as_its_comparator_sees_it() -> None:
     assert isinstance(conversions, comp.AnalysisConversions)
     assert conversions.wave is measurement.wave and conversions.identity == measurement.identity
     tb = measurement.tb
-    assert conversions.sequence == (tb.seq_init_pattern, tb.seq_samp_pattern, tb.seq_comp_pattern, tb.seq_logic_pattern)
+    assert conversions.sequence == tb.rows
     assert conversions.decisions == 17
     assert conversions.symbol_rate_hz == float(tb.symbol_rate)
     assert conversions.decision_period_s == pytest.approx(measurement.symbols_per_decision / float(tb.symbol_rate))
     assert conversions.conversion_rate_hz == measurement.active_conversion_rate_hz
     assert (conversions.vdd_a_v, conversions.vdd_d_v) == (float(tb.vdd_a.dc), float(tb.vdd_d.dc))
-    uneven = replace(measurement, param=replace(tb, seq_comp_pattern="1" + tb.seq_comp_pattern[1:]))
+    uneven = replace(measurement, param=tb.sequenced((tb.rows[0], tb.rows[1], "1" + tb.rows[2][1:], tb.rows[3])))
     with pytest.raises(ValueError, match="equally spaced"):
         _ = uneven.symbols_per_decision
     assert math.isnan(analyze_conversions(uneven).decision_period_s)

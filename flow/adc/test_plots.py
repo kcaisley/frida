@@ -35,8 +35,7 @@ from flow.adc.analysis import (
     analyze_sequencer,
     analyze_transfer,
 )
-from flow.adc.params import FINAL_DECISIONS, PELGROM_AXIS, UNIT_MISMATCH
-from flow.adc.sim import SEQUENCES, AdcSequence
+from flow.adc.params import FINAL_DECISIONS, PELGROM_AXIS, UNIT_MISMATCH, Recipe, TbParams
 from flow.adc.test_analysis import (
     adc_cdac_settling_measurement,
     adc_conditions,
@@ -462,9 +461,9 @@ def test_the_sequence_maps_name_each_sequence_by_its_decision_word(
     conditions = adc_conditions(3, {(1, 1): [1000] * 100})
     sequences = analyze_sequence_map([conditions])
     words = [
-        name.split("_comp")[1].replace("_logic", "/")
-        for name, sequence in SEQUENCES
-        if sequence in timing_sequences[:4]
+        recipe.name.lower().split("_comp")[1].replace("_logic", "/")
+        for recipe in Recipe
+        if recipe.rows in timing_sequences[:4]
     ]
     for function, label in (
         (plots.plot_sequence_enob, "ENOB (bits)"),
@@ -488,7 +487,7 @@ def test_sequences_sharing_a_decision_word_are_numbered() -> None:
     """Two sequences of one decision word (another INIT phase, period or sampling) are told apart by
     their places."""
     base = timing_sequences[0]
-    longer = base.__class__(*(row + "0" * 8 for row in (base.init, base.samp, base.comp, base.logic)))
+    longer = tuple(row + "0" * 8 for row in base)
     assert plots._sequence_labels([base, longer]) == [
         f"1: {plots._sequence_label(base)}",
         f"2: {plots._sequence_label(base)}",
@@ -683,11 +682,11 @@ def test_a_simulated_conversions_rail_power_and_its_sequencer(tmp_path: Path, mo
         assert [(band.low, band.high) for band in figure.x_bands] == pytest.approx(samp)
     sequencer = analyze_sequencer(measurement)
     diagram = plots.plot_sequencer(sequencer)
-    sequence = AdcSequence.from_tb_params(measurement.tb).relative_to_init()
+    init, _, _, logic = TbParams.from_init(measurement.tb.rows)
     assert diagram.y_labels == ["LOGIC", "COMP", "SAMP", "INIT"] and diagram.heatmap is not None
-    assert diagram.heatmap.z[3] == [1.0 if bit == "1" else 0.0 for bit in sequence.init]
-    assert diagram.heatmap.z[0] == [1.0 if bit == "1" else 0.0 for bit in sequence.logic]
-    assert diagram.heatmap.x[-1] == pytest.approx(len(sequence.init) / float(measurement.tb.symbol_rate))
+    assert diagram.heatmap.z[3] == [1.0 if bit == "1" else 0.0 for bit in init]
+    assert diagram.heatmap.z[0] == [1.0 if bit == "1" else 0.0 for bit in logic]
+    assert diagram.heatmap.x[-1] == pytest.approx(len(init) / float(measurement.tb.symbol_rate))
     monkeypatch.setattr(analysis_plots, "PLOT_PNGS", True)
     for figure in (figures[0], diagram):
         (png, _pdf) = render(figure, tmp_path / figure.name)

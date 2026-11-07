@@ -215,7 +215,7 @@ def comparator_offset(measurement: MeasCdac, offset_v: float, *, index: int | No
     return comp.AnalysisOffsetNoise(
         group=measurement.group,
         index=measurement.index if index is None else index,
-        dut=measurement.param.tb.dut.comp,
+        dut=measurement.param.tb.params.comp,
         vin_cm_v=0.8,
         vin_diff_v=np.asarray([offset_v - 1e-3, offset_v, offset_v + 1e-3]),
         decision_probability=np.asarray([0.0, 0.5, 1.0]),
@@ -257,7 +257,7 @@ def test_cap_mismatch_recovers_main_diff_and_direction_pairs() -> None:
                     MeasCdac(
                         group=params.board_id,
                         index=params.observed_adc,
-                        dut=params.tb.dut.cdac,
+                        dut=params.tb.params.cdac,
                         info=MeasInfo(backend="physical", timestamp_utc=datetime(2026, 8, 4, tzinfo=UTC)),
                         param=params,
                         trial_index=np.arange(100),
@@ -355,7 +355,7 @@ def test_cap_mismatch_retains_side_asymmetry_and_direction_bias() -> None:
                         MeasCdac(
                             group=params.board_id,
                             index=params.observed_adc,
-                            dut=params.tb.dut.cdac,
+                            dut=params.tb.params.cdac,
                             info=MeasInfo(backend="physical", timestamp_utc=datetime(2026, 8, 4, tzinfo=UTC)),
                             param=params,
                             trial_index=np.arange(100),
@@ -446,7 +446,7 @@ def _curve(side: str, direction: str, diffcaps: int, transition_v: float) -> lis
             MeasCdac(
                 group=params.board_id,
                 index=params.observed_adc,
-                dut=params.tb.dut.cdac,
+                dut=params.tb.params.cdac,
                 info=MeasInfo(backend="physical", timestamp_utc=datetime(2026, 8, 4, tzinfo=UTC)),
                 param=params,
                 trial_index=np.arange(100),
@@ -499,7 +499,7 @@ def test_the_points_of_one_converter_share_the_designs_expectation() -> None:
     points that disagree on it are not decomposed together."""
     readbacks = {"cdac_topplate_parasitic_weight": 100.0}
     curve = [replace(point, info=replace(point.info, readbacks=readbacks)) for point in _curve("p", "0to1", 1, 4e-3)]
-    weights = np.asarray(curve[0].param.tb.dut.cdac.weights, dtype=np.float64)
+    weights = np.asarray(capdac.Model.weights(curve[0].param.tb.params.cdac), dtype=np.float64)
     expected = weights / (np.sum(65.0 * np.ceil(weights / 64.0)) + 100.0)
     np.testing.assert_allclose(adc.analyze_switching(curve[0]).expected_fraction, expected)
     result = capdac.analyze_cap_mismatch(
@@ -525,7 +525,7 @@ def test_a_point_without_a_recorded_common_mode_takes_its_testbenchs() -> None:
     switching = adc.analyze_switching(point)
     np.testing.assert_array_equal(switching.vin_cm_v, np.full(100, float(point.tb.vin_cm.dc)))
     assert (switching.side, switching.stage, switching.direction, switching.diffcaps) == ("n", 15, "1to0", 0)
-    assert switching.stages == 16 and switching.comparator == point.param.tb.dut.comp
+    assert switching.stages == 16 and switching.comparator == point.param.tb.params.comp
     decisions = capdac.analyze_decisions([switching])
     assert decisions.param == point.param and decisions.info == point.info
     np.testing.assert_array_equal(decisions.vin_diff_v, point.vin_diff_v)

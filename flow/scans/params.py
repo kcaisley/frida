@@ -2,15 +2,11 @@
 
 import math
 from collections.abc import Sequence
-from functools import cache
-from pathlib import Path
-from typing import Any
 
 import hdl21 as h
-from yaml import safe_load
 
 from flow import adc, capdac
-from flow.adc.sim import AdcSequence
+from flow.scans.board import load_board_map
 from flow.scans.fastrx import FastRxCapture
 
 
@@ -21,7 +17,7 @@ class AdcScanParams:
     tb = h.Param(
         dtype=adc.TbParams,
         desc="ADC stimulus and digital configuration",
-        default=adc.TbParams(view="frida1"),
+        default=adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params),
     )
     fastrx_capture = h.Param(
         dtype=FastRxCapture | None, desc="Combined comparator delay and FastRX SEN start word", default=None
@@ -56,8 +52,8 @@ def validate_params(params: AdcScanParams) -> None:
     if not isinstance(params, AdcScanParams):
         raise TypeError("physical scans require AdcScanParams")
     tb = params.tb
-    if tb.view != "frida1":
-        raise ValueError("physical scans require tb.view='frida1'")
+    if tb.params.fabricated is None:
+        raise ValueError("physical scans take one of FRIDA-1's fabricated converters (adc.Fabricated)")
     if not math.isfinite(float(params.temperature_c)):
         raise ValueError("temperature_c must be finite")
     if not math.isfinite(float(params.settling_time_s)) or float(params.settling_time_s) < 0.0:
@@ -96,7 +92,7 @@ def validate_params(params: AdcScanParams) -> None:
         values = getattr(tb, name)
         if len(values) != 16 or any(value not in (0, 1) for value in values):
             raise ValueError(f"tb.{name} must contain exactly sixteen binary values")
-    patterns = (tb.seq_init_pattern, tb.seq_samp_pattern, tb.seq_comp_pattern, tb.seq_logic_pattern)
+    patterns = tb.rows
     if any(not pattern or set(pattern) - {"0", "1"} for pattern in patterns):
         raise ValueError("tb sequencer patterns must be non-empty binary strings")
     if len({len(pattern) for pattern in patterns}) != 1 or len(patterns[0]) % 8:
@@ -153,19 +149,26 @@ def validate_params(params: AdcScanParams) -> None:
         raise ValueError("CDAC selectors are only valid for cdac_ab")
 
 
-@cache
-def load_board_map() -> dict[str, Any]:
-    """Load the physical-board inventory and calibration map."""
-
-    return safe_load((Path(__file__).resolve().parent / "map_board.yaml").read_text())
-
-
 def convert_conversion_rate_to_baud(params: adc.TbParams, conversion_rate_hz: float) -> float:
     """Convert the byte-rounded INIT-to-final-COMP rate into its serializer rate."""
 
     if not math.isfinite(conversion_rate_hz) or conversion_rate_hz <= 0.0:
         raise ValueError("conversion_rate_hz must be finite and positive")
-    return conversion_rate_hz * AdcSequence.from_tb_params(params).conversion_symbols
+    return conversion_rate_hz * params.conversion_symbols
+
+
+def fabricated(adc_index: int) -> adc.Fabricated:
+    """FRIDA-1's converter on the channel ``adc_index``: the one of its layers whose DAC has the
+    channel's flavor's weights (the board inventory)."""
+
+    board_map = load_board_map()
+    weights = tuple(board_map["adc_flavors"][board_map["adc_channels"][adc_index]]["cdac_weights"])
+    layers = board_map["adc_layers"][adc_index]
+    return next(
+        member
+        for member in adc.Fabricated
+        if member.layers == layers and capdac.Model.weights(member.params.cdac) == weights
+    )
 
 
 def build_adc_variants(
@@ -173,7 +176,7 @@ def build_adc_variants(
     board_id: int,
     adc_indices: Sequence[int],
     active_conversion_rates_hz: Sequence[float],
-    sequences: Sequence[AdcSequence],
+    sequences: Sequence[adc.Recipe],
     conversions: int,
     vin_cm_v: float,
     vin_diff: h.Vdc.Params | h.Vsin.Params | h.Vpwl.Params,
@@ -186,27 +189,20 @@ def build_adc_variants(
         raise ValueError("adc_indices must contain unique selections")
     if not active_conversion_rates_hz or not sequences:
         raise ValueError("conversion rates and sequences must not be empty")
-    board_map = load_board_map()
     variants = []
     for adc_index in adc_indices:
-        flavor = board_map["adc_channels"][adc_index]
-        # FRIDA-1's array (capdac's defaults) with the flavor's fabricated weights
-        dut = adc.Params(
-            adc_bits=12, cdac=capdac.Params(weights=tuple(board_map["adc_flavors"][flavor]["cdac_weights"]))
-        )
+        dut = fabricated(adc_index).params
         active_adc_mask = tuple(int(index == adc_index) for index in reversed(range(16)))
         for sequence in sequences:
             for conversion_rate in active_conversion_rates_hz:
                 params = AdcScanParams(
                     tb=adc.TbParams(
-                        view="frida1",
-                        dut=dut,
-                        symbol_rate=float(conversion_rate) * sequence.conversion_symbols,
+                        pdk="tsmc65",
+                        params=dut,
                         conversions=conversions,
                         vin_cm=h.Vdc.Params(dc=vin_cm_v),
                         vin_diff=vin_diff,
-                        **sequence.as_tb_fields(),
-                    ),
+                    ).sequenced(sequence.rows, symbol_rate=float(conversion_rate) * sequence.conversion_symbols),
                     board_id=board_id,
                     observed_adc=adc_index,
                     active_adc_mask=active_adc_mask,

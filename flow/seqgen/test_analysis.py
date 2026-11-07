@@ -33,12 +33,8 @@ def serializer_capture(rate_hz: float, pattern: str, *, first: int, symbols: flo
         index=None,
         dut=None,
         info=MeasInfo(backend="physical", timestamp_utc=datetime(2026, 9, 1, tzinfo=UTC)),
-        param=adc.TbParams(
-            symbol_rate=rate_hz,
-            seq_init_pattern=marker or "0" * len(pattern),
-            seq_samp_pattern="0" * len(pattern),
-            seq_comp_pattern=pattern,
-            seq_logic_pattern="0" * len(pattern),
+        param=adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params).sequenced(
+            (marker or "0" * len(pattern), "0" * len(pattern), pattern, "0" * len(pattern)), symbol_rate=rate_hz
         ),
         wave=Wave(
             record_index=np.asarray([0]),
@@ -217,9 +213,8 @@ def test_a_capture_reads_back_with_the_sequence_it_played(tmp_path) -> None:
     write_analysis(tmp_path / "capture_000.h5", capture)
     loaded = read_analysis(tmp_path / "capture_000.h5")
     assert isinstance(loaded, AnalysisCapture)
-    # (the parameters by field: hdl21 cannot compare a prefixed number this large to itself)
-    assert float(loaded.param.symbol_rate) == float(capture.param.symbol_rate) == 960e6
-    assert loaded.param.seq_comp_pattern == capture.param.seq_comp_pattern and loaded.info.backend == "physical"
+    assert loaded.param == capture.param and loaded.param.symbol_rate == 960e6
+    assert loaded.param.seq_comp.data == capture.param.seq_comp.data and loaded.info.backend == "physical"
     np.testing.assert_array_equal(loaded.wave.v["seq_comp"], capture.wave.v["seq_comp"])
     word, again = analyze_word([capture]), analyze_word([loaded])
     assert again.words == word.words == 29

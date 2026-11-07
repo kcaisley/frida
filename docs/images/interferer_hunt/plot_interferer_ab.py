@@ -26,7 +26,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from flow import adc
-from flow.adc.sim import SEQUENCES, AdcSequence
 from flow.analysis import calc
 from flow.analysis.io import read_measurement, read_measurement_param, write_analysis
 from flow.analysis.plots import PLOT_STYLE, save_figure, style_grid
@@ -41,7 +40,7 @@ RUNS = {
     "B: amp supplies on, enabled": "20261009_110638_adc_sequence_static",
     "C: amp supplies on, disabled": "20261009_110933_adc_sequence_static",
 }
-SPECTRUM_SEQUENCE = dict(SEQUENCES)["symbol160_init4_samp20_comp11110000_logic10000111"]
+SPECTRUM_SEQUENCE = adc.Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC10000111.rows
 
 # {run: {rate: {adc: (frequency_hz, asd_lsb_per_sqrt_hz, std_lsb)}}}
 spectra: dict[str, dict[float, dict[int, tuple[np.ndarray, np.ndarray, float]]]] = {}
@@ -67,7 +66,7 @@ for run, folder in RUNS.items():
         write_analysis(run_out / f"adc{adc_index:02d}_operating_conditions.h5", result)
         all_noise.extend(noise)
         for measurement in measurements:
-            if AdcSequence.from_tb_params(measurement.param.tb) != SPECTRUM_SEQUENCE:
+            if measurement.param.tb.rows != SPECTRUM_SEQUENCE:
                 continue
             codes = measurement.dout.astype(np.float64)
             codes -= codes.mean()

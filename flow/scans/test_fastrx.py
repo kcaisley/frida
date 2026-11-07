@@ -53,13 +53,7 @@ from bitarray import bitarray
 from yaml import safe_load
 
 from flow import adc, capdac, comp, seqgen
-from flow.adc.sim import (
-    SEQUENCES,
-    AdcSequence,
-    symbol160_init4_samp20_comp11110000_logic00001111,
-    symbol160_init4_samp20_comp11111100_logic11000011,
-    symbol256_init8_samp16_comp11110000_logic11000011,
-)
+from flow.adc import Recipe
 from flow.analysis.io import (
     read_measurement,
     write_measurement,
@@ -67,8 +61,9 @@ from flow.analysis.io import (
 from flow.analysis.types import MeasAdc, MeasInfo
 from flow.plot import render
 from flow.scans import scan_adc, scan_adc_noctl
+from flow.scans.board import load_board_map
 from flow.scans.fastrx import convert_fastrx_words_to_adc, program_comp_delay, select_fastrx_capture_settings
-from flow.scans.params import AdcScanParams, build_adc_variants, load_board_map, validate_params
+from flow.scans.params import AdcScanParams, build_adc_variants, fabricated, validate_params
 from flow.scans.plldrp import calculate_pll_frequency, select_pll_configuration, set_pll_divider
 from flow.scans.scan_adc import (
     convert_dac_caps_to_adc_weights,
@@ -142,21 +137,19 @@ def test_physical_fastrx_matches_scope(
     """Hardware: compare physical comparator decisions with FastRX capture."""
 
     timing_sequences = tuple(
-        sequence for name, sequence in SEQUENCES if name.startswith("symbol256_init8_samp16_comp11110000_")
+        recipe for recipe in Recipe if recipe.name.startswith("SYMBOL256_INIT8_SAMP16_COMP11110000_")
     )
     # Standard MSO54 hookup: TDP3500 input on CH1, COMP, LOGIC, and comparator output on CH2-4.
     scope_conns = ScopeConns(ch1="vin_diff", ch2="seq_comp", ch3="seq_logic", ch4="comp_out")
     board_map = load_board_map()
     board = board_map["boards"][BOARD_ID]
     capture_profiles = board["fastrx_capture_settings"]
-    flavor_name = board_map["adc_channels"][ADC_INDEX]
-    cap_weights = tuple(board_map["adc_flavors"][flavor_name]["cdac_weights"])
-    dut_params = adc.Params(adc_bits=12, cdac=capdac.Params(weights=cap_weights))
+    dut_params = fabricated(ADC_INDEX).params
     active_adc_mask = tuple(int(index == ADC_INDEX) for index in reversed(range(16)))
     base_params = AdcScanParams(
         tb=adc.TbParams(
-            view="frida1",
-            dut=dut_params,
+            pdk="tsmc65",
+            params=dut_params,
             conversions=conversions,
             vin_cm=h.Vdc.Params(dc=VIN_CM_V),
             vin_diff=h.Vdc.Params(dc=VIN_DIFF_V),
@@ -171,10 +164,8 @@ def test_physical_fastrx_matches_scope(
         for offset in logic_offsets:
             planned = dataclasses.replace(
                 base_params,
-                tb=dataclasses.replace(
-                    base_params.tb,
-                    symbol_rate=rate,
-                    seq_logic_pattern=timing_sequences[int(offset) + 3].logic,
+                tb=base_params.tb.sequenced(
+                    (*base_params.tb.rows[:3], timing_sequences[int(offset) + 3].rows[3]), symbol_rate=rate
                 ),
             )
             select_fastrx_capture_settings(planned, capture_profiles)
@@ -352,12 +343,12 @@ def test_physical_fastrx_matches_scope(
         scope.set_trigger_level(0.0, channel=scope_conns.channels["seq_logic"])
         scope.set_trigger_mode("NORMAL")
 
-        cap_weights = capdac.Model.weights(base_params.tb.dut.cdac)
+        cap_weights = capdac.Model.weights(base_params.tb.params.cdac)
         code_weights = convert_dac_caps_to_adc_weights(cap_weights)
         data_size = int(daq["fastrx0"].get_size())
         if data_size != len(code_weights):
             raise RuntimeError(f"FastRX DATA_SIZE={data_size}, expected {len(code_weights)}")
-        sequence_words = len(base_params.tb.seq_init_pattern) // 8
+        sequence_words = len(base_params.tb.seq_init.data) // 8
 
         for point_index, (symbol_rate_bps, logic_offset) in enumerate(
             ((symbol_rate_bps, logic_offset) for logic_offset in logic_offsets for symbol_rate_bps in symbol_rates_bps),
@@ -365,10 +356,9 @@ def test_physical_fastrx_matches_scope(
         ):
             params = dataclasses.replace(
                 base_params,
-                tb=dataclasses.replace(
-                    base_params.tb,
+                tb=base_params.tb.sequenced(
+                    (*base_params.tb.rows[:3], timing_sequences[int(logic_offset) + 3].rows[3]),
                     symbol_rate=symbol_rate_bps,
-                    seq_logic_pattern=timing_sequences[int(logic_offset) + 3].logic,
                 ),
             )
             validate_params(params)
@@ -421,7 +411,7 @@ def test_physical_fastrx_matches_scope(
             daq["fifo0"]["RESET"]
             daq["fifo0"].get_data()
 
-            sequence_period_s = len(params.tb.seq_init_pattern) / symbol_rate_bps
+            sequence_period_s = len(params.tb.seq_init.data) / symbol_rate_bps
             scope.set_acquire_state("STOP")
             # Request about two complete patterns across the ten horizontal
             # divisions. This leaves margin for the scope's discrete timebase
@@ -486,14 +476,14 @@ def test_physical_fastrx_matches_scope(
                 fastrx_words,
                 data_size,
                 code_weights,
-                params.tb.dut.adc_bits,
+                params.tb.params.adc_bits,
             )
             mean_code = float(np.mean(dout_values))
             sigma_code = float(np.std(dout_values))
             measurement = MeasAdc(
                 group=params.board_id,
                 index=params.observed_adc,
-                dut=params.tb.dut,
+                dut=params.tb.params,
                 info=MeasInfo(
                     backend="physical",
                     timestamp_utc=datetime.now().astimezone(),
@@ -654,10 +644,13 @@ INTERNAL_CAPTURE_TIMEOUT_S = 2.0
 @pytest.mark.parametrize("symbol_rate", (960e6, 1600e6))
 @pytest.mark.parametrize(
     "sequence",
-    (symbol256_init8_samp16_comp11110000_logic11000011, symbol160_init4_samp20_comp11110000_logic00001111),
+    (
+        Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011,
+        Recipe.SYMBOL160_INIT4_SAMP20_COMP11110000_LOGIC00001111,
+    ),
     ids=("ordinary", "wrapped"),
 )
-def test_adc_scan_boundary_capture(sequence: AdcSequence, symbol_rate: float, linux_gpib_interface: None) -> None:
+def test_adc_scan_boundary_capture(sequence: Recipe, symbol_rate: float, linux_gpib_interface: None) -> None:
     """Exercise both production scans and compare instrumented ADC data with scope."""
     params = build_adc_variants(
         board_id=BOARD_ID,
@@ -668,7 +661,7 @@ def test_adc_scan_boundary_capture(sequence: AdcSequence, symbol_rate: float, li
         vin_cm_v=0.700,
         vin_diff=h.Vdc.Params(dc=VIN_DIFF_V),
     )[0]
-    params = dataclasses.replace(params, tb=dataclasses.replace(params.tb, symbol_rate=symbol_rate))
+    params = dataclasses.replace(params, tb=params.tb.sequenced(symbol_rate=symbol_rate))
     run_dir = OUTPUT_DIR / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f") + "_adc_wrap")
     try:
         scan_adc.scan(params, run_dir=run_dir, position="first")
@@ -704,21 +697,16 @@ def test_adc_scan_boundary_capture(sequence: AdcSequence, symbol_rate: float, li
             "symbol160_init4_samp20_comp11111100_logic00000010",
             "symbol160_init4_samp20_comp11111110_logic00000001",
         )
-        for row in (dict(SEQUENCES)[name],)
+        for row in (Recipe[name.upper()],)
         for boundary in (False, True)
-        if not boundary or len(row.init) < 256
+        if not boundary or len(row.rows[0]) < 256
     ],
 )
-def test_fastrx_captures_exact_internal_17_bit_pattern(sequence: AdcSequence, boundary_case: bool) -> None:
+def test_fastrx_captures_exact_internal_17_bit_pattern(sequence: Recipe, boundary_case: bool) -> None:
     """Hardware: capture every test bit in order with contiguous frame IDs."""
 
-    params = adc.TbParams(
-        seq_init_pattern=sequence.init,
-        seq_samp_pattern=sequence.samp,
-        seq_comp_pattern=sequence.comp,
-        seq_logic_pattern=sequence.logic,
-    )
-    sequence_words = len(params.seq_init_pattern) // 8
+    params = adc.TbParams(pdk="tsmc65", params=adc.Fabricated.FRIDA1_1LAYER_RADIX17.params).sequenced(sequence.rows)
+    sequence_words = len(params.seq_init.data) // 8
     # Exercise every receive word offset, including wrapped first/last frames.
     capture_start_words = list(range(sequence_words))
     run_dir = OUTPUT_DIR / (datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f") + "_internal_wrap")
@@ -875,7 +863,7 @@ def test_adc_comp_out_edge_eye(linux_gpib_interface: None) -> None:
     record arrives as a typed MeasAdc with its FastRX conversion data.
     """
 
-    sequence = symbol160_init4_samp20_comp11111100_logic11000011
+    sequence = Recipe.SYMBOL160_INIT4_SAMP20_COMP11111100_LOGIC11000011
     params = build_adc_variants(
         board_id=BOARD_ID,
         adc_indices=(ADC_INDEX,),
@@ -902,11 +890,11 @@ def test_adc_comp_out_edge_eye(linux_gpib_interface: None) -> None:
         assert isinstance(measurement, MeasAdc)
         measurements.append(measurement)
     assert len(measurements) == capture_count
-    aligned = sequence.relative_to_init()
-    first_comp = aligned.comp.index("1") + 8
+    aligned = adc.TbParams.from_init(sequence.rows)
+    first_comp = aligned[2].index("1") + 8
     context = (
-        f"COMP {aligned.comp[first_comp : first_comp + 8]}; "
-        f"LOGIC {aligned.logic[first_comp : first_comp + 8]} (B1 word)\n"
+        f"COMP {aligned[2][first_comp : first_comp + 8]}; "
+        f"LOGIC {aligned[3][first_comp : first_comp + 8]} (B1 word)\n"
         f"{symbol_rate_bps / 1e6:g} MBd; ADC01; FRIDA-1 1-layer radix20; Scope measurement"
     )
     print(context)

@@ -20,8 +20,6 @@ import numpy as np
 from flow.analysis import calc
 from flow.pipeline import Analysis
 
-from .sim import AdcSequence
-
 
 @dataclass(frozen=True, slots=True)
 class AnalysisTransfer(Analysis):
@@ -284,7 +282,7 @@ class AnalysisNoise(Analysis):
     scope/FastRX comparison with no bit mismatches and no lost frames.
     """
 
-    sequence: AdcSequence
+    sequence: tuple[str, ...]  # the sequencer's rows, INIT, SAMP, COMP, LOGIC (TbParams.rows)
     symbol_rate_hz: float
     sample_rate_hz: float
     active_conversion_rate_hz: float
@@ -370,7 +368,7 @@ class AnalysisCodeSpectrum(Analysis):
     """
 
     decoding: Literal["uncalibrated_dout", "extracted", "calibration1", "calibration2", "calibration3"]
-    sequence: AdcSequence
+    sequence: tuple[str, ...]  # the sequencer's rows, INIT, SAMP, COMP, LOGIC (TbParams.rows)
     symbol_rate_hz: float
     sample_rate_hz: float
     input_lsb_v: float
@@ -474,7 +472,7 @@ class AnalysisOperatingConditions(Analysis):
     reference, its readout is valid, and its noise-equivalent ENOB is finite.
     """
 
-    sequence: tuple[AdcSequence, ...]
+    sequence: tuple[tuple[str, ...], ...]  # each column's sequencer rows (TbParams.rows)
     symbol_rate_hz: np.ndarray
     enob_bits: np.ndarray
     mean_shift_dout: np.ndarray
@@ -499,7 +497,7 @@ class AnalysisSequenceMap(Analysis):
     distance of the ADCs' mean code from each one's reference (LSB). A cell no ADC measured is NaN
     in each. Its identity is what the ADCs share (None where they differ)."""
 
-    sequence: tuple[AdcSequence, ...]
+    sequence: tuple[tuple[str, ...], ...]  # each column's sequencer rows (TbParams.rows)
     symbol_rate_hz: np.ndarray
     adc_count: int
     plausible_count: np.ndarray
@@ -845,7 +843,7 @@ class AnalysisTimingClosure(Analysis):
 class AnalysisTimingSummary(Analysis):
     """Setup and comparator-reset margins of one PEX case's timing closure."""
 
-    sequence: AdcSequence
+    sequence: tuple[str, ...]  # the sequencer's rows, INIT, SAMP, COMP, LOGIC (TbParams.rows)
     symbol_rate_hz: float
     decisions: int
     cdac_decisions: int
