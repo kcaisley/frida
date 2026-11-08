@@ -9,7 +9,8 @@ The characterization's steps: ``write_netlist`` (the circuit as simulated and it
 ``netlist/``), ``simulate`` (each testbench run of ``runs_of``, or ``circuit_runs``, simulated and
 its measurement kept as HDF5, into ``sim/<run>/``) and ``record`` (``sweep.record`` of the kept
 measurements: the instance's ``instance.json``, its id, parameters, level, metrics, details and
-waves). ``table``: each block's newest run in each PDK (a run of some
+waves); the pexsim step's ``simulate`` and ``record`` again, into ``pexsim/``, each testbench's DUT
+a flat copy of it holding its extraction's capacitors (``_back_annotated``). ``table``: each block's newest run in each PDK (a run of some
 PDKs alone keeps the others' from the run before) as the viewer's table
 (``build/web/data/sweep/<block>.json``: one row per instance, the parameters that differ, then the
 metrics) and one file per instance (its details, waves, layout and schematic).
@@ -25,6 +26,7 @@ import shutil
 import time
 import traceback
 from concurrent.futures import ProcessPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime
 from functools import cache
 from importlib import import_module
@@ -219,11 +221,15 @@ def write_netlist(block: str, pdk: str, params, folder: Path) -> dict:
     return sizes
 
 
-def simulate(block: str, pdk: str, runs: dict, folder: Path) -> dict[str, Path]:
+def simulate(block: str, pdk: str, runs: dict, folder: Path, annotation=None) -> dict[str, Path]:
     """Each of ``runs`` simulated in ``folder/<run>/`` (``sim.simulate``), read back (its
     ``sim.read`` where it has one, else ``flow.pipeline.read``) and kept as a measurement
     (``result.h5``, ``flow.analysis.io.write_measurement``), its raw file removed; a run whose
-    measurement is kept already is not simulated again. Each run's measurement file, by name."""
+    measurement is kept already is not simulated again. With ``annotation`` (an extraction on the
+    schematic's nets, ``flow.layout.annotate.Annotation``), each run's DUT carries its capacitors
+    (``_back_annotated``). Each run's measurement file, by name."""
+    from contextlib import nullcontext
+
     import hdl21 as h
 
     from flow import pipeline
@@ -236,11 +242,125 @@ def simulate(block: str, pdk: str, runs: dict, folder: Path) -> dict[str, Path]:
     for name, tb in runs.items():
         path = folder / name / "result.h5"
         if not path.exists():
-            raw = sim.simulate(tb, folder / name)
+            with _back_annotated(block, tb, annotation, folder / name) if annotation else nullcontext():
+                raw = sim.simulate(tb, folder / name)
             write_measurement(path, read(raw, tb))
             raw.unlink()
         kept[name] = path
     return kept
+
+
+@contextmanager
+def _back_annotated(block: str, tb, annotation, run_dir: Path):
+    """While a run simulates, each testbench it compiles to the PDK (``hdl21.pdk.compile``, which
+    every block's ``sim.simulate`` calls on its testbench before Spectre runs it) first has its DUT
+    back-annotated: each of its instances of the block's module of ``tb.params``
+    (``subckt.netlist``; the converter's two sides alike) takes a flat copy of it
+    (``_flattened``) that holds the extraction's capacitors (``_add_capacitors``). What it added is
+    ``run_dir/annotation.json``; a testbench without the DUT (the capacitive DAC's plates alone)
+    simulates as it is and says so there."""
+    import hdl21 as h
+
+    dut = import_module(f"flow.{block}.subckt").netlist(tb.params).name
+    compile_ = h.pdk.compile
+
+    def annotated(src, *args, **kwargs):
+        duts = [inst for inst in getattr(src, "instances", {}).values() if getattr(inst.of, "name", None) == dut]
+        entry: dict[str, Any] = {"dut": dut, "instances": [inst.name for inst in duts]}
+        if duts:
+            flat = _flattened(duts[0].of)
+            entry.update(_add_capacitors(flat, annotation))
+            for inst in duts:
+                inst.of = flat
+        if duts or not (run_dir / "annotation.json").exists():  # a run's other compiles keep its DUT's
+            run_dir.mkdir(parents=True, exist_ok=True)
+            (run_dir / "annotation.json").write_text(json.dumps(_json(entry), indent=1) + "\n")
+        return compile_(src, *args, **kwargs)
+
+    h.pdk.compile = annotated  # ty: ignore[invalid-assignment]
+    try:
+        yield
+    finally:
+        h.pdk.compile = compile_
+
+
+def _flattened(module):
+    """A flat copy of ``module`` (hdl21's ``flatten``), a net or device inside a cell named by its
+    path joined by ``_`` (Spectre's names take no ``:``), its ports and its own nets as they are:
+    a module of its own, to which the extraction's capacitors are added."""
+    import hdl21 as h
+    from hdl21.flatten import walk
+
+    flat = h.Module(name=f"{module.name}_pex")
+    for port in module.ports.values():
+        flat.add(h.Port(name=port.name, width=port.width, usage=port.usage, direction=port.direction))
+
+    def net(connection):
+        if isinstance(connection, h.Slice):
+            return net(connection.parent)[connection.index]
+        if isinstance(connection, h.Concat):
+            return h.Concat(*(net(part) for part in connection.parts))
+        name = connection.name.replace(":", "_")
+        found = flat.ports.get(name, flat.signals.get(name))
+        return found if found is not None else flat.add(h.Signal(name=name, width=connection.width))
+
+    for signal in h.elaborate(module).signals.values():
+        net(signal)
+    for node in walk(module, parents=[]):
+        name = node.make_name().replace(":", "_")
+        flat.add(node.inst.of(**{port: net(connection) for port, connection in node.conns.items()}), name=name)
+    return flat
+
+
+def _add_capacitors(module, annotation) -> dict:
+    """The extraction's capacitors added to the DUT's flat ``module``, each between its nets (by
+    name: a bus's bit as ``<bus>_<bit>``, as netlists write it; a net inside a cell by its path
+    joined by ``_``, KLayout's ``.``; ground, ``0``, the module's ground port), less the module's
+    own capacitors between them (hdl21's ideal ones: a drawn capacitor's view, which the
+    extraction measured as metal too); what it added and what it took off."""
+    import hdl21 as h
+    from hdl21.primitives import C, IdealCapacitor
+
+    nets: dict[str, Any] = {}
+    for signal in (*module.ports.values(), *module.signals.values()):
+        nets[signal.name.lower()] = signal
+        if signal.width > 1:
+            nets.update({f"{signal.name}_{bit}".lower(): signal[bit] for bit in range(signal.width)})
+    ground = next(port.name.lower() for port in module.ports.values() if port.usage == h.Usage.GROUND)
+
+    def named(net: str) -> str:
+        return ground if net == "0" else net.replace(".", "_")
+
+    missing = sorted({named(net) for a, b, _c in annotation.capacitors for net in (a, b)} - set(nets))
+    if missing:
+        # the netlist LVS compared is not the one simulated
+        raise LookupError(f"the schematic's nets {', '.join(missing)} are not {module.name}'s")
+    drawn: dict[tuple[str, ...], float] = {}
+    for instance in module.instances.values():
+        if getattr(instance.of, "prim", None) is not IdealCapacitor:
+            continue
+        try:
+            value = float(instance.of.params.c)
+        except (TypeError, ValueError):  # a Monte Carlo's expression
+            continue
+        ends = tuple(sorted(_net(instance.conns[terminal]) for terminal in ("p", "n")))
+        drawn[ends] = drawn.get(ends, 0.0) + value
+    added = taken = 0.0
+    for index, (a, b, c) in enumerate(annotation.capacitors):
+        ends = tuple(sorted((named(a), named(b))))
+        own = min(c, drawn.get(ends, 0.0))
+        if ends[0] != ends[1] and c > own:
+            module.add(C(c=c - own)(p=nets[ends[0]], n=nets[ends[1]]), name=f"cpex_{index}")
+            added += c - own
+        taken += own
+    return {"added_f": added, "drawn_f": taken}
+
+
+def _net(connection) -> str:
+    """A flat module's connection by its net's name, lower case: a bus's bit as ``<bus>_<bit>``."""
+    if hasattr(connection, "parent"):
+        return f"{connection.parent.name}_{connection.index}".lower()
+    return connection.name.lower()
 
 
 def _base_record(block: str, pdk: str, params, label: str | None, name: str | None) -> dict:

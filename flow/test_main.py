@@ -32,6 +32,8 @@ def test_the_steps_run_from_one_to_another() -> None:
     assert cli.between(Step.SIM, Step.PAGE) == [Step.SIM, Step.RECORD, Step.PAGE]
     page = [Step.NETLIST, Step.SIM, Step.RECORD, Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.PAGE]
     assert cli.between(Step.NETLIST, Step.PAGE) == page
+    pexsim = [Step.NETLIST, Step.SIM, Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.PEXSIM]
+    assert cli.between(Step.NETLIST, Step.PEXSIM) == pexsim
     # each step's order puts it after what it needs
     assert all(need.value < step.value for step in Step for need in step.needs)
     with pytest.raises(SystemExit, match="--from layout does not lead to --to record: record needs netlist, sim"):
@@ -605,3 +607,113 @@ def test_a_signoff_step_without_its_layout_fails_naming_the_command_that_makes_i
     with pytest.raises(SystemExit, match="1 of 1 instances failed"):
         flow("--from", "page", "--to", "page")
     assert "page failed: page needs the record or the layout" in capsys.readouterr().out
+
+
+@pytest.fixture
+def extraction(tools, monkeypatch):
+    """The open extractor stood in for by a toy's capacitances (its port ``a``, ground, a gate's
+    poly ``$1`` LVS finds on ``a``, a cell's inner net ``$9`` it finds on none) with their probes,
+    and LVS's cross-reference by a fake (``mapped``: each layout net's schematic net)."""
+    from flow.layout import annotate, step
+
+    mapped = {"a": "a", "$1": "a", "$9": None}
+
+    def extracted(pdk, gds, name, run_dir, checker):
+        run_dir.mkdir(parents=True, exist_ok=True)
+        netlist, probes = run_dir / f"{name}.pex.netlist", run_dir / f"{name}.probes.json"
+        lines = ["c_0 ( a 0 ) capacitor c=3f", "c_1 ( $1 a ) capacitor c=0.5f", "c_2 ( $1 0 ) capacitor c=0.2f"]
+        netlist.write_text("\n".join([*lines, "c_3 ( $9 a ) capacitor c=0.01f"]) + "\n")
+        probes.write_text(json.dumps({net: [[17, 0, 5, 5]] for net in mapped}))
+        return {"netlist": str(netlist), "probes": str(probes), "extractor": "stand-in", "nets": {"a": 3.51e-15}}
+
+    monkeypatch.setattr(step, "extracted", extracted)
+    monkeypatch.setattr(annotate, "schematic_nets", lambda lvsdb, probes: {net: mapped[net] for net in probes})
+    return mapped
+
+
+def test_pexsim_simulates_the_runs_again_with_the_extraction_on_the_schematic(flow, extraction, capsys) -> None:
+    """``--to pexsim``: the extraction's nets found on the schematic's through LVS (a gate's poly on
+    its net, the capacitor between them shorted out), its capacitors in each run's DUT less the
+    DUT's own drawn between the same nets, each run simulated again and recorded alike in
+    ``pexsim/`` (the record's metric names, the annotation's totals beside them); the cell's inner
+    net, a small share, reported."""
+    flow("--to", "pexsim", "--run", "mine", "--instance", "wired")
+    out = capsys.readouterr().out
+    assert "steps netlist, sim, layout, drc, lvs, pex, pexsim" in out
+    assert "pexsim ok in" in out and "(3 runs, 2.2 fF added, 0.3% of the extraction on no schematic net)" in out
+    instance = _instance("mine").with_name("wired")
+    runs = sorted(path.parent.name for path in instance.glob("sim/*/result.h5"))
+    assert sorted(path.parent.name for path in instance.glob("pexsim/*/result.h5")) == runs
+    added = json.loads((instance / "pexsim" / runs[0] / "annotation.json").read_text())
+    assert added["instances"] == ["dut"] and added["added_f"] == pytest.approx(2.2e-15)
+    assert added["drawn_f"] == pytest.approx(1e-15)
+    record = json.loads((instance / "pexsim/instance.json").read_text())
+    assert set(record["metrics"]) == {"devices", *(f"read_{run}" for run in runs)}
+    annotation = record["annotation"]
+    assert annotation["capacitors"] == 1 and annotation["total_f"] == pytest.approx(3.71e-15)
+    assert annotation["mapped_f"] == pytest.approx(3.7e-15) and annotation["unmapped_f"] == pytest.approx(1e-17)
+    assert annotation["unmapped_nets"] == {"$9": pytest.approx(1e-17)} and annotation["unannotated"] == []
+    assert record["waves"] == {} and record["name"] == "wired"
+
+
+def test_pexsim_refuses_an_extraction_mostly_on_no_schematic_net(flow, extraction, capsys) -> None:
+    """More than a small share of the capacitance on nets LVS paired with nothing: not simulated,
+    the totals and the nets in the failure."""
+    extraction["a"] = None
+    with pytest.raises(SystemExit, match="1 of 1 instances failed"):
+        flow("--to", "pexsim", "--run", "mine", "--instance", "wired")
+    out = capsys.readouterr().out
+    assert "pexsim failed: ValueError: 3.51 fF of the extraction's 3.71 fF (94.6%, over 5%)" in out
+    assert "a 3.51 fF, $9 0.01 fF" in out
+    assert not list((_instance("mine").with_name("wired") / "pexsim").glob("*/result.h5"))
+
+
+def test_pexsim_leaves_an_extraction_with_devices_or_none_alone(toy, tmp_path) -> None:
+    """An extraction with devices and RC (a kit's, a planned signoff's) is not back-annotated, nor a
+    layout not extracted; one made before its nets' probes is refused with what makes it again."""
+    job = cli.Job("toyblock", "toypdk", "one", "one", None, tmp_path / "one", (Step.PEXSIM,), "mine")
+    cli._mark(job.out, Step.PEX, 0.0, netlist="toy.pex.netlist", sha256="0", extractor="the kit's (against its source)")
+    assert cli._pexsim(job) == {
+        "skipped": "the kit's (against its source) extraction has devices and RC, not capacitances to back-annotate"
+    }
+    cli._mark(job.out, Step.PEX, 0.0, skipped="no LVS source")
+    assert cli._pexsim(job) == {"skipped": "no extraction (no LVS source)"}
+    cli._mark(job.out, Step.PEX, 0.0, netlist="toy.pex.netlist", extractor="KLayout-PEX", nets={"a": 1e-15})
+    with pytest.raises(RuntimeError, match="no net probes .* then python -m flow toyblock --to pex --run mine"):
+        cli._pexsim(job)
+
+
+def test_the_dut_takes_a_flat_copy_with_the_capacitors_on_its_bits_and_its_cells_nets() -> None:
+    """The DUT's flat copy names a cell's net by its path (``drive_n0``: no ``:``, which Spectre's
+    names refuse) and keeps its ports and their usage; the capacitors join a bus's bit, a cell's net
+    (KLayout's ``drive.n0``) and ground (its ground port), less its own drawn between the same nets."""
+    import io
+
+    import hdl21 as h
+    from hdl21.primitives import C, R
+
+    from flow.layout.annotate import Annotation
+
+    cell = h.Module(name="Cell")
+    cell.a, cell.y = h.Port(), h.Port()
+    cell.n0 = h.Signal()
+    cell.r0, cell.r1 = R(r=1)(p=cell.a, n=cell.n0), R(r=1)(p=cell.n0, n=cell.y)
+    top = h.Module(name="Top")
+    top.bits, top.out, top.vss = h.Port(width=2), h.Port(), h.Port(usage=h.Usage.GROUND)
+    top.drive = cell(a=top.bits[1], y=top.out)
+    top.cdrawn = C(c=2e-15)(p=top.out, n=top.vss)
+    flat = runner._flattened(top)
+    assert set(flat.signals) == {"drive_n0"} and set(flat.instances) == {"drive_r0", "drive_r1", "cdrawn"}
+    assert flat.ports["vss"].usage == h.Usage.GROUND and flat.ports["bits"].width == 2
+    found = Annotation(
+        capacitors=(("0", "out", 3e-15), ("bits_1", "drive.n0", 1e-16)), total_f=0, mapped_f=0, unmapped={}
+    )
+    assert runner._add_capacitors(flat, found) == {"added_f": pytest.approx(1.1e-15), "drawn_f": pytest.approx(2e-15)}
+    out = io.StringIO()
+    h.netlist(flat, out, fmt="spectre")
+    lines = [line for line in out.getvalue().splitlines() if "//" not in line]
+    assert sum("( bits_1 drive_n0 )" in line for line in lines) == 2 and not any(":" in line for line in lines)
+    with pytest.raises(LookupError, match="the schematic's nets nowhere are not Top_pex's"):
+        runner._add_capacitors(
+            flat, Annotation(capacitors=(("0", "nowhere", 1e-15),), total_f=0, mapped_f=0, unmapped={})
+        )

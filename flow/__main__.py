@@ -11,6 +11,7 @@ signoff a kit takes), never a flag here. The steps make a small graph, each afte
     netlist -> sim -> record -> figures
                sim -> circuit          record -> table
     netlist -> layout -> drc -> lvs -> pex
+    sim, pex -> pexsim
     record, pex -> page
 
 ``--to`` runs the steps that lead from ``--from`` (``netlist`` by default) to it, both included:
@@ -24,13 +25,20 @@ lab's captures, the figures the block's analyses make of them. ``layout`` runs t
 ``flow.layout.signoff.write_plan``), else ALIGN through the shared step (its netlists and
 constraints too: the netlist step's edge to it only orders them); ``drc``, ``lvs`` and ``pex``
 run, each in its folder, that plan, else the checker the kit names
-(``flow.layout.signoff.checker``: the open tools, else Calibre), on its GDS. ``page`` writes the
-instance's page from whatever of its record and layout exists.
+(``flow.layout.signoff.checker``: the open tools, else Calibre), on its GDS. ``pexsim`` simulates
+the sim step's runs again with the open extractor's capacitances back-annotated onto the schematic
+(``flow.layout.annotate``: each layout net found on its schematic net through LVS; each run's DUT
+a flat copy with the capacitors, ``flow.sweep.runner.simulate``) and records them alike, a record
+of its own beside the instance's (``pexsim/instance.json``: the same metric names, the
+annotation's totals); it refuses an extraction more than a small share of whose capacitance has no
+schematic net, and leaves an extraction with devices and RC (a kit's) to the block's own
+simulation of it (the ADC's circuit step). ``page`` writes the instance's page from whatever of
+its record and layout exists.
 
 A run is ``build/<block>/<run>/``, each instance in ``<pdk>/<name>/`` there (a named instance by its
 name, a grid's by its digest), a folder a step: ``netlist/``, ``sim/<run>/``, ``circuit/<run>/``,
-``record/``, ``figures/``, ``layout/``, ``drc/``, ``lvs/``, ``pex/``, ``page/``; its record,
-``instance.json``, beside them, which the viewer's table reads. ``--from netlist`` makes a new run
+``record/``, ``figures/``, ``layout/``, ``drc/``, ``lvs/``, ``pex/``, ``pexsim/<run>/``,
+``page/``; its record, ``instance.json``, beside them, which the viewer's table reads. ``--from netlist`` makes a new run
 (named ``--run NAME``, else by its stamp); a later ``--from`` takes the newest run, or the one
 ``--run`` names (a name under ``build/<block>/`` or a directory), and the instances in it. A step
 skips an instance whose output is complete and not older than what it was made from (make's rule),
@@ -73,6 +81,7 @@ class Step(Enum):
     DRC = auto()
     LVS = auto()
     PEX = auto()
+    PEXSIM = auto()
     PAGE = auto()
 
     def __str__(self) -> str:
@@ -98,6 +107,8 @@ class Step(Enum):
                 return (Step.DRC,)
             case Step.PEX:
                 return (Step.LVS,)
+            case Step.PEXSIM:
+                return (Step.SIM, Step.LVS, Step.PEX)
             case Step.PAGE:
                 return (Step.RECORD, Step.PEX)
 
@@ -374,6 +385,50 @@ def _pex(job: Job) -> dict:
     return step.extracted(job.pdk, gds, gds.stem, job.out / "pex", signoff.checker(job.pdk, job.block))
 
 
+def _pexsim(job: Job) -> dict:
+    """The instance's runs simulated again with its extraction back-annotated (``pexsim/<run>/``)
+    and recorded alike (``pexsim/instance.json``: the record's shape and metric names, the
+    annotation's totals beside them): the extraction's capacitors, each net found on the
+    schematic's through LVS (``flow.layout.annotate``), in each testbench's DUT
+    (``flow.sweep.runner.simulate``). Not run where the layout was not extracted, nor for an
+    extraction with devices and RC (a kit's: a block's own simulation of it, the ADC's circuit
+    step's); refused where more than a small share of the capacitance has no schematic net."""
+    from flow.layout import annotate
+    from flow.sweep import runner
+
+    extracted, checked = _outputs(job.out, Step.PEX), _outputs(job.out, Step.LVS)
+    if extracted.get("skipped"):
+        return {"skipped": f"no extraction ({extracted['skipped']})"}
+    if "nets" not in extracted:
+        return {"skipped": f"{extracted['extractor']} extraction has devices and RC, not capacitances to back-annotate"}
+    if "probes" not in extracted:
+        made = f"delete {runner._shown(job.out / 'pex')}, then {_command(job, Step.PEX)}"
+        raise RuntimeError(f"its extraction has no net probes (made before them): make it again, {made}")
+    found = annotate.annotation(Path(extracted["netlist"]), Path(extracted["probes"]), Path(checked["lvs_report"]))
+    runs = runner.runs_of(job.block, job.pdk, job.params)
+    files = runner.simulate(job.block, job.pdk, runs, job.out / "pexsim", annotation=found)
+    added = {run: job.out / "pexsim" / run / "annotation.json" for run in runs}
+    added = {run: json.loads(path.read_text()) for run, path in added.items() if path.exists()}
+    summary = {
+        **found.summary(),
+        **next((entry for entry in added.values() if entry["instances"]), {}),
+        "unannotated": [run for run in runs if not added.get(run, {}).get("instances")],
+    }
+    record = runner.record(
+        job.block,
+        job.pdk,
+        job.params,
+        job.out / "pexsim",
+        files,
+        json.loads((job.out / "netlist" / "geometry.json").read_text()),
+        label=job.label,
+        name=job.name,
+        netlist=job.out / "netlist" / f"{job.block}.cdl",
+    )
+    runner.write_record(job.out / "pexsim" / "instance.json", {**record, "annotation": summary})
+    return {"runs": list(runs), **summary}
+
+
 def _page(job: Job) -> dict:
     """The instance's page (``flow.web.page.page``) in ``page/``: its record and whatever of its
     layout exists."""
@@ -396,6 +451,7 @@ def _body(step: Step):
         Step.DRC: _drc,
         Step.LVS: _lvs,
         Step.PEX: _pex,
+        Step.PEXSIM: _pexsim,
         Step.PAGE: _page,
     }.get(step)
 
@@ -465,6 +521,11 @@ def _brief(step: Step, outputs: dict) -> str:
             return f" ({verdict}, {outputs['lvs_checker'] or '-'})"
         case Step.PEX:
             return f" ({len(outputs['nets'])} nets)" if "nets" in outputs else f" ({outputs['extractor']})"
+        case Step.PEXSIM:
+            return (
+                f" ({_count(len(outputs['runs']), 'run')}, {outputs.get('added_f', 0.0) * 1e15:.4g} fF added, "
+                f"{outputs['unmapped_share']:.1%} of the extraction on no schematic net)"
+            )
     return ""
 
 
@@ -630,6 +691,8 @@ def _simulations(job: Job, pending: list[Step]) -> int:
         runs |= {f"sim/{n}": tb for n, tb in runner.runs_of(job.block, job.pdk, job.params).items()}
     if Step.CIRCUIT in pending:
         runs |= {f"circuit/{n}": tb for n, tb in runner.circuit_runs(job.block, job.pdk, job.params).items()}
+    if Step.PEXSIM in pending:
+        runs |= {f"pexsim/{n}": tb for n, tb in runner.runs_of(job.block, job.pdk, job.params).items()}
     return sum(not (job.out / name / "result.h5").exists() for name in runs)
 
 

@@ -21,8 +21,9 @@ def tsmc65(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---- a toy block on the pipeline, for the CLI's steps and the runner's own contract: its reader
-# (sim.read), a run a level (its circuit level one more), a figure, and a layout of its own
-# (layout.py's lay_out: no LVS source, one, or signed off by itself, by its mode)
+# (sim.read), a run a level (its circuit level one more), a figure, a testbench whose DUT draws a
+# capacitor, and a layout of its own (layout.py's lay_out: no LVS source, one, or signed off by
+# itself, by its mode)
 
 _TOY = {
     "__init__.py": '"""A toy block."""\n',
@@ -46,28 +47,42 @@ class TbParams(pipeline.TbParams):
     params: Params
     name: str
 ''',
-    "subckt.py": '''"""Nothing."""
+    "subckt.py": '''"""A capacitor drawn between its port and ground."""
 
 import hdl21 as h
+from hdl21.primitives import C
 
 from .params import Params
 
 
 @h.generator
 def netlist(params: Params) -> h.Module:
-    return h.Module()
+    toy = h.Module()
+    toy.a = h.Port()
+    toy.vss = h.Port(usage=h.Usage.GROUND)
+    toy.inner = h.Signal()
+    toy.cdrawn = C(c=1e-15)(p=toy.a, n=toy.vss)
+    return toy
 ''',
-    "sim.py": '''"""A run writes its name; the block reads it back itself."""
+    "sim.py": '''"""A run compiles its testbench and writes its name; the block reads it back itself."""
 
 from datetime import datetime, timezone
 from pathlib import Path
 
+import hdl21 as h
+
 from flow import pipeline
 
 from .params import TbParams
+from .subckt import netlist
 
 
 def simulate(tb: TbParams, run_dir: Path) -> Path:
+    bench = h.Module(name="ToyTb")
+    bench.vss = h.Port()
+    bench.a = h.Signal()
+    bench.dut = netlist(tb.params)(a=bench.a, vss=bench.vss)
+    h.pdk.compile(bench)
     run_dir.mkdir(parents=True, exist_ok=True)
     raw = run_dir / "raw.txt"
     raw.write_text(tb.name)
