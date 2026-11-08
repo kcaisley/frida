@@ -112,10 +112,11 @@ def record(measurements: dict[str, Meas]) -> Record:
 ''',
     "layout.py": '''"""Its own layout: a box, and what its mode says it signs off."""
 
-import json
 from pathlib import Path
 
 from klayout import db
+
+from flow.layout.signoff import SignoffParams, write_plan
 
 from .params import Params
 
@@ -130,16 +131,10 @@ def lay_out(params: Params, pdk: str, run_dir: Path) -> Path:
     if params.mode == 1:
         (run_dir / "source.cdl").write_text(".subckt toy\\n.ends\\n")
     if params.mode == 2:
-        (run_dir / "drc_violations.json").write_text(json.dumps({"violations": {}}))
-        summary = {
-            "drc_report": str(run_dir / "drc_violations.json"),
-            "lvs_report": str(run_dir / "lvs.report"),
-            "lvs_correct": False,
-            "warnings": ["an accepted mismatch"],
-            "pex_netlist": str(run_dir / "toy.pex.netlist"),
-            "pex_sha256": "0" * 64,
-        }
-        (run_dir / "signoff_summary.json").write_text(json.dumps(summary))
+        source = run_dir / "toy.lvs.cdl"
+        source.write_text(".subckt toy\\n.ends\\n")
+        plan = SignoffParams("toypdk", gds, "toy", source, "toy", "toy", lvs_expectation="incorrect")
+        write_plan(plan, run_dir / "signoff.json")
     return gds
 ''',
 }

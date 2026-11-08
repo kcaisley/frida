@@ -139,14 +139,14 @@ def block_netlist(block: str, params, pdk: str, path: Path) -> Path:
 
 
 def inputs(
-    block: str, out_dir: Path, pdk: str, design: str, params, *, auto: bool = False, seconds: dict | None = None
+    block: str, out_dir: Path, pdk: str, design: str, params, *, seconds: dict | None = None
 ) -> tuple[Path, list[str], Path, bool]:
     """What ALIGN and the signoff take for one instance of ``block`` (``lay_out_align``'s, without
     ALIGN): its module compiled once (as its ``params.layout_view`` gives), its netlists in ALIGN's and
     LVS's contexts (``out_dir/netlist/<design>.sp``, ``.cdl``) and ALIGN's design directory
-    (``out_dir/align/input/<design>``, a constraint file a module that states its layout; none where
-    ``auto``). Returns the design directory, the library cells it calls, the LVS netlist, and
-    whether its top states its placement; ``seconds`` gets each one's."""
+    (``out_dir/align/input/<design>``, a constraint file a module that states its layout). Returns
+    the design directory, the library cells it calls, the LVS netlist, and whether its top states
+    its placement; ``seconds`` gets each one's."""
     from flow.circuit.netlists import Context, align_design, compile_block, lvs_source, package, write
 
     seconds = {} if seconds is None else seconds
@@ -160,9 +160,9 @@ def inputs(
     LOG.info(f"netlists: {netlist} (ALIGN), {source} (LVS)")
     seconds["netlist"] = round(time.monotonic() - started, 1)
     started = time.monotonic()
-    input_dir, cells = align_design(compiled, out_dir / "align" / "input", placed=not auto)
+    input_dir, cells = align_design(compiled, out_dir / "align" / "input")
     seconds["floorplan"] = round(time.monotonic() - started, 1)
-    return input_dir, cells, source, not auto and pnr_input(compiled.module) is not None
+    return input_dir, cells, source, pnr_input(compiled.module) is not None
 
 
 def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = None) -> dict[str, Any]:
@@ -218,18 +218,22 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
 
 def lay_out_own(block: str, pdk: str, params, out: Path) -> dict[str, Any]:
     """One instance of a block that lays itself out (``own_layout``) in ``pdk``, into ``out``: its
-    ``lay_out(params, pdk, out)``, which gives the GDS. The GDS and its size, its LVS source where
-    ``lay_out`` wrote one (``out/source.cdl``), and its own signoff where it signed the layout off
-    itself (``out/signoff_summary.json``, ``flow.layout.signoff.run_signoff``'s), which the CLI's
-    drc, lvs and pex steps take as theirs."""
+    ``lay_out(params, pdk, out)``, which gives the GDS. The GDS and its size, its LVS source (the
+    one its signoff plan names, else ``out/source.cdl`` where ``lay_out`` wrote one), and its
+    signoff plan where it planned one (``out/signoff.json``, ``flow.layout.signoff.write_plan``),
+    which the CLI's drc, lvs and pex steps run."""
+    from flow.layout.signoff import read_plan
+
     LOG.info(f"{block} in {pdk}: its own layout (flow.{block}.layout.lay_out) into {out}")
     gds = Path(import_module(f"flow.{block}.layout").lay_out(params, pdk, out))
     size = cell_um(gds)
     LOG.info(f"layout: {gds} ({' × '.join(f'{v:g}' for v in size)} um)")
-    source, signed = out / "source.cdl", out / "signoff_summary.json"
+    source, plan = out / "source.cdl", out / "signoff.json"
+    if plan.exists():
+        source = read_plan(plan).lvs_source_path
     return {
         "gds": str(gds),
         "source": str(source) if source.exists() else None,
         "cell_um": size,
-        "signed_off": str(signed) if signed.exists() else None,
+        "plan": str(plan) if plan.exists() else None,
     }

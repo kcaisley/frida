@@ -8,7 +8,10 @@ kit's extractor, ``calibre_pex.py``). The provider picks the checker it has (Cal
 KLayout). ``run_layout_pex`` here extracts by FasterCap through KLayout-PEX (``flow.layout.kpex``)
 unless asked for the kit's (``Extractor.CALIBRE``, its manual check). Any other check takes a
 layout's largest top cell by the checker a kit names (``checker``): ``drc`` and ``lvs``, the CLI's
-drc and lvs steps, by the open tools (gdscheck, the kit's KLayout LVS) or its Calibre.
+drc and lvs steps, by the open tools (gdscheck, the kit's KLayout LVS) or its Calibre. A block's
+own ``lay_out`` may plan its layout's signoff instead (``write_plan``: its sources, LVS expectation
+and the kit's options, FRIDA-1's), which the drc, lvs and pex steps run, each in its own folder
+(``planned_drc``, ``planned_lvs``, ``planned_pex``); ``run_signoff`` runs all three in one.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ import json
 import logging
 import shutil
 import time
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, fields, is_dataclass
 from enum import Enum, auto
 from importlib import import_module
 from importlib.util import find_spec
@@ -156,11 +159,9 @@ def run_layout_pex(
     return provider.run_layout_pex(run_dir=run_dir, gds_path=gds_path, layout_top=layout_top, output_stem=output_stem)
 
 
-def run_signoff(params: SignoffParams, run_dir: Path) -> SignoffResult:
-    """Run DRC, LVS, and PEX and enforce the declared LVS expectation."""
-
-    run_dir.mkdir(parents=True, exist_ok=True)
-    drc_report = run_drc(params, run_dir)
+def _lvs_expected(params: SignoffParams, run_dir: Path) -> tuple[bool, Path, tuple[str, ...]]:
+    """LVS (``run_lvs``) held to the declared expectation: its verdict, its report and its warnings
+    (an expected mismatch's); raises where the verdict or the mismatch's signature is other."""
     lvs_correct, lvs_report = run_lvs(params, run_dir)
     report_text = lvs_report.read_text(encoding="utf-8", errors="replace")
     expected_correct = params.lvs_expectation == "correct"
@@ -170,6 +171,84 @@ def run_signoff(params: SignoffParams, run_dir: Path) -> SignoffResult:
     if missing:
         raise RuntimeError(f"expected LVS mismatch signature is missing {missing}; see {lvs_report}")
     warnings = () if lvs_correct else ("expected LVS mismatch: disconnected historical MOM layer",)
+    return lvs_correct, lvs_report, warnings
+
+
+def write_plan(params: SignoffParams, path: Path) -> Path:
+    """A layout's signoff as its block's own ``lay_out`` states it (its GDS, sources and tops, its
+    LVS expectation and the kit's options), written as ``path`` (JSON) for the CLI's drc, lvs and
+    pex steps to run, each in its own folder (``planned_drc``, ``planned_lvs``, ``planned_pex``)."""
+    entry = {field.name: getattr(params, field.name) for field in fields(params)}
+    options = params.pdk_options
+    entry["pdk_options"] = (
+        None
+        if options is None
+        else {"type": f"{type(options).__module__}:{type(options).__qualname__}", "fields": asdict(options)}
+    )
+    path.write_text(json.dumps(entry, indent=1, default=str) + "\n")
+    return path
+
+
+def read_plan(path: Path) -> SignoffParams:
+    """The signoff ``write_plan`` wrote: its paths as paths, its lists as tuples, the kit's options
+    as the kit's class."""
+
+    def tupled(value: Any) -> Any:
+        return tuple(value) if isinstance(value, list) else value
+
+    entry = json.loads(Path(path).read_text())
+    for name in ("gds_path", "lvs_source_path", "pex_source_path"):
+        entry[name] = Path(entry[name]) if entry[name] is not None else None
+    entry["lvs_required_report_fragments"] = tuple(entry["lvs_required_report_fragments"])
+    options = entry["pdk_options"]
+    if options is not None:
+        module, name = options["type"].split(":")
+        kind = getattr(import_module(module), name)
+        entry["pdk_options"] = kind(**{key: tupled(value) for key, value in options["fields"].items()})
+    return SignoffParams(**entry)
+
+
+def planned_drc(params: SignoffParams, run_dir: Path) -> dict[str, Any]:
+    """DRC of a planned signoff (``write_plan``) into ``run_dir`` by the kit (``run_drc``): its
+    violations a count (``drc_violations.json``), raising only where the checker did not run to
+    its report. The violations, the checker and the report."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    report = run_dir / "drc_violations.json"
+    try:
+        run_drc(params, run_dir)
+    except RuntimeError:
+        if not report.exists():
+            raise
+    found = json.loads(report.read_text())
+    return {"violations": sum(found["violations"].values()), "checker": found.get("checker"), "report": str(report)}
+
+
+def planned_lvs(params: SignoffParams, run_dir: Path) -> dict[str, Any]:
+    """LVS of a planned signoff into ``run_dir``, held to its expectation (``_lvs_expected``: an
+    expected mismatch passes, among its warnings). The verdict, report, checker and warnings."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    correct, report, warnings = _lvs_expected(params, run_dir)
+    checker = "calibre" if (run_dir / "lvs.rep").exists() else "the kit's"
+    result = {"lvs_correct": correct, "lvs_report": str(report), "lvs_checker": checker, "warnings": list(warnings)}
+    (run_dir / "lvs.json").write_text(json.dumps(result, indent=1) + "\n")
+    return result
+
+
+def planned_pex(params: SignoffParams, run_dir: Path) -> dict[str, Any]:
+    """The extraction of a planned signoff into ``run_dir`` (``run_pex``, against its PEX source):
+    its netlist, the netlist's SHA-256 (which a simulation of it checks) and the extractor."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    netlist = run_pex(params, run_dir)
+    digest = hashlib.sha256(netlist.read_bytes()).hexdigest()
+    return {"netlist": str(netlist), "sha256": digest, "extractor": "the kit's (against its source)"}
+
+
+def run_signoff(params: SignoffParams, run_dir: Path) -> SignoffResult:
+    """Run DRC, LVS, and PEX and enforce the declared LVS expectation."""
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    drc_report = run_drc(params, run_dir)
+    lvs_correct, lvs_report, warnings = _lvs_expected(params, run_dir)
     pex_netlist = run_pex(params, run_dir)
     result = SignoffResult(
         drc_report=drc_report,
@@ -404,11 +483,13 @@ def _top(gds: Path) -> str:
 
 def checker(pdk: str, block: str) -> Checker:
     """Who signs ``block``'s layouts off in ``pdk``: the kit's choice, where its signoff module
-    gives one (``pdk.<pdk>.signoff.checker(block) -> Checker``), else the open tools. A block that
-    signs its layout off itself (its ``lay_out``, ``signoff_summary.json``) takes its own."""
+    gives one (``pdk.<pdk>.signoff.checker(block) -> Checker``), else the open tools. A block whose
+    own ``lay_out`` plans its signoff (``write_plan``) takes the plan's."""
     try:
         choose = getattr(import_module(f"pdk.{pdk}.signoff"), "checker", None)
-    except ImportError:  # a kit without a signoff module (or this checkout lacks the kit)
+    except ModuleNotFoundError as error:  # a kit without a signoff module (or this checkout lacks the kit)
+        if error.name not in ("pdk", f"pdk.{pdk}", f"pdk.{pdk}.signoff"):
+            raise  # the kit's signoff module there, but broken
         return Checker.OPEN
     return choose(block) if callable(choose) else Checker.OPEN
 

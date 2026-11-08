@@ -299,50 +299,49 @@ def _figures(job: Job) -> dict:
 def _layout(job: Job) -> dict:
     """The instance laid out into ``layout/``: by its block's own ``lay_out`` where it has a
     ``layout.py`` (``flow.layout.step.lay_out_own``: the ADC's block assembly, or a FRIDA-1
-    flavor's tape-out layout, whose own signoff and extraction the drc, lvs and pex steps take),
-    else by ALIGN through the shared layout step (``flow.layout.step.lay_out_align``)."""
+    flavor's tape-out layout with its signoff plan, which the drc, lvs and pex steps run), else by
+    ALIGN through the shared layout step (``flow.layout.step.lay_out_align``)."""
     from flow.layout import step
 
-    made = step.lay_out_own if step.own_layout(job.block) else step.lay_out_align
-    return made(job.block, job.pdk, job.params, job.out / "layout")
+    if step.own_layout(job.block):
+        return step.lay_out_own(job.block, job.pdk, job.params, job.out / "layout")
+    # the design by its instance (a top cell of its own: COMP_FRIDA1_0), as the GDS of several
+    # instances open or merge in one layout
+    return step.lay_out_align(job.block, job.pdk, job.params, job.out / "layout", f"{job.block}_{job.name}")
 
 
-def _signed_off(job: Job) -> dict | None:
-    """The signoff the block's own ``lay_out`` ran itself (``signoff_summary.json``), else None."""
-    path = _outputs(job.out, Step.LAYOUT).get("signed_off")
-    return json.loads(Path(path).read_text()) if path else None
+def _plan(job: Job):
+    """The signoff the block's own ``lay_out`` planned (``flow.layout.signoff.write_plan``), else
+    None."""
+    from flow.layout.signoff import read_plan
+
+    path = _outputs(job.out, Step.LAYOUT).get("plan")
+    return read_plan(Path(path)) if path else None
 
 
 def _drc(job: Job) -> dict:
-    """DRC of the layout's GDS into ``drc/`` by the checker its kit names
-    (``flow.layout.signoff.checker``: the open tools by default), or the DRC its own ``lay_out``
-    ran; its violations a count, not a failure."""
+    """DRC of the layout's GDS into ``drc/``: as its ``lay_out`` planned it (``planned_drc``), else
+    by the checker its kit names (``flow.layout.signoff.checker``: the open tools by default); its
+    violations a count, not a failure."""
     from flow.layout import signoff
 
-    laid, signed = _outputs(job.out, Step.LAYOUT), _signed_off(job)
-    if signed is not None:
-        report = Path(signed["drc_report"])
-        found = json.loads(report.read_text()) if report.suffix == ".json" and report.is_file() else {}
-        return {"violations": sum(found.get("violations", {}).values()), "checker": "lay_out", "report": str(report)}
+    laid, plan = _outputs(job.out, Step.LAYOUT), _plan(job)
+    if plan is not None:
+        return signoff.planned_drc(plan, job.out / "drc")
     source = Path(laid["source"]) if laid.get("source") else None
     checker = signoff.checker(job.pdk, job.block)
     return signoff.drc(job.pdk, Path(laid["gds"]), job.out / "drc", checker, source=source)
 
 
 def _lvs(job: Job) -> dict:
-    """LVS of the layout's GDS against its LVS source into ``lvs/`` by its kit's checker, or the
-    LVS its own ``lay_out`` ran (an accepted mismatch among its warnings); not run where the
-    layout has no source (blocks side by side, unconnected)."""
+    """LVS of the layout's GDS against its LVS source into ``lvs/``: as its ``lay_out`` planned it
+    (``planned_lvs``: an expected mismatch among its warnings), else by its kit's checker; not run
+    where the layout has no source (blocks side by side, unconnected)."""
     from flow.layout import signoff
 
-    laid, signed = _outputs(job.out, Step.LAYOUT), _signed_off(job)
-    if signed is not None:
-        return {
-            "lvs_correct": signed["lvs_correct"],
-            "lvs_report": signed.get("lvs_report"),
-            "lvs_checker": "lay_out",
-            "warnings": signed.get("warnings", []),
-        }
+    laid, plan = _outputs(job.out, Step.LAYOUT), _plan(job)
+    if plan is not None:
+        return signoff.planned_lvs(plan, job.out / "lvs")
     if not laid.get("source"):
         return {"lvs_correct": None, "skipped": "no LVS source: its blocks side by side, unconnected"}
     checker = signoff.checker(job.pdk, job.block)
@@ -350,14 +349,15 @@ def _lvs(job: Job) -> dict:
 
 
 def _pex(job: Job) -> dict:
-    """The layout's extraction into ``pex/`` (``flow.layout.step.extracted``: KLayout-PEX, or the
-    kit's extractor where its kit names Calibre), or the one its own ``lay_out`` ran; not run where
-    LVS was not (no source), refused where LVS found the layout other than its netlist."""
+    """The layout's extraction into ``pex/``: as its ``lay_out`` planned it (``planned_pex``, against
+    its PEX source), else ``flow.layout.step.extracted`` (KLayout-PEX, or the kit's extractor where
+    its kit names Calibre); not run where LVS was not (no source), refused where LVS found the
+    layout other than its netlist (a planned signoff's LVS step holds it to its expectation)."""
     from flow.layout import signoff, step
 
-    laid, checked, signed = _outputs(job.out, Step.LAYOUT), _outputs(job.out, Step.LVS), _signed_off(job)
-    if signed is not None:
-        return {"netlist": signed["pex_netlist"], "sha256": signed.get("pex_sha256"), "extractor": "lay_out"}
+    laid, checked, plan = _outputs(job.out, Step.LAYOUT), _outputs(job.out, Step.LVS), _plan(job)
+    if plan is not None:
+        return signoff.planned_pex(plan, job.out / "pex")
     if checked.get("skipped"):
         return {"skipped": checked["skipped"]}
     if checked.get("lvs_correct") is False:
@@ -423,16 +423,10 @@ def _join_layout(job: Job) -> None:
         "netlist": runner._shown(laid["source"]) if laid.get("source") else None,
         "w_um": width,
         "h_um": height,
-        "floorplan": None
-        if not laid
-        else "lay_out"
-        if "signed_off" in laid
-        else "generator"
-        if laid["placed"]
-        else None,
+        "floorplan": None if not laid else "lay_out" if "plan" in laid else "generator" if laid["placed"] else None,
         "router": laid.get("router"),
         "route_shorts": laid.get("route_shorts"),
-        "signoff": "lay_out" if laid.get("signed_off") else drc.get("checker"),
+        "signoff": drc.get("checker"),
         "drc_violations": drc.get("violations"),
         "lvs_correct": lvs.get("lvs_correct"),
         "warnings": lvs.get("warnings"),

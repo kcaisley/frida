@@ -368,15 +368,86 @@ def test_a_kit_that_names_calibre_signs_off_by_it(flow, tools, monkeypatch) -> N
     assert [call[2] for call in tools.calls] == [Checker.CALIBRE] * 3
 
 
-def test_a_block_that_signs_its_layout_off_gives_the_signoff_steps_its_own(flow, tools, capsys) -> None:
-    """A ``lay_out`` that signed its layout off itself (``signoff_summary.json``): its DRC, LVS (an
-    accepted mismatch among its warnings) and extraction are the steps', no tool run again."""
+def test_a_block_that_plans_its_signoff_has_the_signoff_steps_run_it_each_in_its_folder(
+    flow, tools, monkeypatch, capsys
+) -> None:
+    """A ``lay_out`` that plans its layout's signoff (``signoff.json``, ``write_plan``: its sources,
+    its LVS expectation, the kit's options): the drc, lvs and pex steps run the kit's tools on it,
+    each in its own folder (``planned_drc``, ``planned_lvs``, ``planned_pex``), the expected LVS
+    mismatch passing among the warnings; the open tools not run."""
+    import hashlib
+
+    ran: list[tuple[str, str]] = []
+
+    def run_drc(*, run_dir, gds_path, layout_top, options):
+        ran.append(("drc", run_dir.name))
+        (run_dir / "drc_violations.json").write_text(json.dumps({"checker": "kitcheck", "violations": {}}))
+        return run_dir / "drc_violations.json"
+
+    def run_lvs(*, run_dir, gds_path, source_path, layout_top, source_top, options):
+        ran.append(("lvs", run_dir.name))
+        (run_dir / "lvs.report").write_text("INCORRECT\n")
+        return False, run_dir / "lvs.report"
+
+    def run_pex(*, run_dir, gds_path, source_path, layout_top, source_top, output_stem, options):
+        ran.append(("pex", run_dir.name))
+        (run_dir / f"{output_stem}.pex.netlist").write_text("* extracted\n")
+        return run_dir / f"{output_stem}.pex.netlist"
+
+    kit = SimpleNamespace(run_drc=run_drc, run_lvs=run_lvs, run_pex=run_pex)
+    monkeypatch.setitem(sys.modules, "pdk.toypdk.signoff", kit)
     flow("--to", "pex", "--instance", "signed")
-    assert not tools.calls and "(match" not in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert not tools.calls and ran == [("drc", "drc"), ("lvs", "lvs"), ("pex", "pex")]
+    assert "(0 violations, kitcheck)" in out and "(no match, the kit's)" in out
     instance = runner.newest_run("toyblock") / "toypdk" / "signed"
+    assert {path.name for path in (instance / "layout").iterdir()} == {
+        "toy.gds",
+        "toy.lvs.cdl",
+        "signoff.json",
+        "step.json",
+        "step.log",
+    }
     entry = json.loads((instance / "instance.json").read_text())["layout"]
-    assert entry["signoff"] == "lay_out" and entry["drc_violations"] == 0 and entry["lvs_correct"] is False
-    assert entry["warnings"] == ["an accepted mismatch"] and entry["pex"]["sha256"] == "0" * 64
+    assert entry["floorplan"] == "lay_out" and entry["signoff"] == "kitcheck" and entry["drc_violations"] == 0
+    assert entry["lvs_correct"] is False and entry["netlist"].endswith("signed/layout/toy.lvs.cdl")
+    assert entry["warnings"] == ["expected LVS mismatch: disconnected historical MOM layer"]
+    netlist = instance / "pex/toy.pex.netlist"
+    assert entry["pex"]["netlist"].endswith("signed/pex/toy.pex.netlist")
+    assert entry["pex"]["sha256"] == hashlib.sha256(netlist.read_bytes()).hexdigest()
+
+
+def test_a_plan_reads_back_as_written(tmp_path) -> None:
+    """``write_plan`` then ``read_plan``: the same ``SignoffParams``, the kit's options as its class
+    (its lists tuples again)."""
+    from dataclasses import dataclass
+
+    from flow.layout.signoff import SignoffParams, read_plan, write_plan
+
+    @dataclass(frozen=True)
+    class Options:
+        waived: tuple[str, ...] = ()
+        layer: int | None = None
+
+    module = SimpleNamespace(Options=Options)
+    Options.__module__, Options.__qualname__ = "toykit_options", "Options"
+    sys.modules["toykit_options"] = module  # type: ignore[assignment]
+    try:
+        plan = SignoffParams(
+            "toypdk",
+            tmp_path / "a.gds",
+            "top",
+            tmp_path / "a.cdl",
+            "top",
+            "a",
+            pex_source_path=tmp_path / "a.pex.cdl",
+            lvs_expectation="incorrect",
+            lvs_required_report_fragments=("x", "y"),
+            pdk_options=Options(waived=("R.1", "R.2"), layer=5),
+        )
+        assert read_plan(write_plan(plan, tmp_path / "signoff.json")) == plan
+    finally:
+        del sys.modules["toykit_options"]
 
 
 def test_a_layout_without_an_lvs_source_is_checked_by_drc_alone(flow, tools, capsys) -> None:
@@ -440,10 +511,11 @@ def test_the_shared_step_lays_out_by_align_and_its_other_router_where_one_fails(
     instance = _instance("mine").with_name("wired")
     laid = json.loads((instance / "layout/step.json").read_text())
     assert laid["router"] == "second" and laid["gds"].endswith("layout/align_second/gds/toyblock.gds")
-    assert laid["cell_um"] == [3.0, 1.0] and laid["source"].endswith("layout/netlist/toyblock.cdl")
+    # the design by its instance: a top cell of its own
+    assert laid["cell_um"] == [3.0, 1.0] and laid["source"].endswith("layout/netlist/toyblock_wired.cdl")
     assert [call[:2] for call in tools.calls] == [
         ("drc", "toyblock.gds"),
-        ("lvs", "toyblock.cdl"),
+        ("lvs", "toyblock_wired.cdl"),
         ("pex", "toyblock.gds"),
     ]
     assert json.loads((instance / "instance.json").read_text())["layout"]["floorplan"] == "generator"

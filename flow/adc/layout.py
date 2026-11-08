@@ -1,7 +1,7 @@
 """The ADC's own layout flow (``lay_out``, which the layout step runs in place of ALIGN's,
-docs/pipeline.md): a fabricated FRIDA-1 converter's tape-out layout, signed off and extracted; any
-other converter's blocks side by side, unconnected, until OpenROAD and ALIGN place and route them
-together.
+docs/pipeline.md): a fabricated FRIDA-1 converter's tape-out layout, its signoff and extraction
+planned; any other converter's blocks side by side, unconnected, until OpenROAD and ALIGN place and
+route them together.
 
 A fabricated converter (``Params.fabricated``, one of ``Fabricated``) is laid out from its tape-out's
 inputs, the TSMC65 kit's ``site.FRIDA1`` folder, not the repository: the chip's GDS (``frida-1.gds``,
@@ -10,9 +10,10 @@ array's LVS source (``<array>.lvs.cdl``, the array's subcircuit with its MOM uni
 recognizes them, and ``<array>.pins.json``, its pins to the fabricated macro's: stage C0 is the
 macro's pin 15). The GDS gains MOM recognition only; nothing on a mask layer changes. LVS reads the
 source netlist with the array's source swapped in, PEX the source netlist without the array (its
-capacitors are extracted). ``lay_out`` signs it off itself (``flow.layout.signoff.run_signoff``: its
-``signoff_summary.json``, which the drc, lvs and pex steps take as theirs): LVS correct for the one-layer
-flavors, the historical disconnected MOM layer of the two-layer ones accepted.
+capacitors are extracted). ``lay_out`` plans its signoff (``flow.layout.signoff.write_plan``:
+``signoff.json``, its sources, its LVS expectation and the kit's Calibre options and waivers), which
+the drc, lvs and pex steps run, each in its own folder: LVS correct for the one-layer flavors, the
+historical disconnected MOM layer of the two-layer ones accepted.
 
 Any other converter's blocks side by side: the comparator, the samplers and each side of the DAC as
 their own layouts laid them out (``flow.sweep.lookup.laid_out``, by their parameters): one side of
@@ -20,7 +21,7 @@ capdac's array of the converter's ``capdac.Params``, its drivers with it, the N 
 image. Each block is outlined and labelled on the boundary layer, which the viewer shows, and its
 place written beside the GDS (``blocks.json``). Nothing is connected, so DRC alone signs it off.
 
-    gds = lay_out(params, "tsmc65", run_dir)  # python -m flow adc --to pex --pdk tsmc65 --instance <name>
+    gds = lay_out(params, "tsmc65", run_dir)  # python -m flow adc --to layout --pdk tsmc65 --instance <name>
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ from typing import Literal
 from klayout import db
 
 from flow.layout.gdsdiff import gds_diff
-from flow.layout.signoff import SignoffParams, run_signoff
+from flow.layout.signoff import SignoffParams, write_plan
 from flow.sweep.lookup import laid_out
 from flow.sweep.runner import ROOT
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
@@ -44,14 +45,14 @@ from .params import Fabricated, Params
 
 def lay_out(params: Params, pdk: str, run_dir: Path) -> Path:
     """The converter ``params`` laid out in ``pdk`` into ``run_dir``, its GDS: a fabricated one's
-    tape-out layout, signed off and extracted (``_fabricated``); any other's blocks side by side
+    tape-out layout, its signoff planned (``_fabricated``); any other's blocks side by side
     (``_assemble``)."""
     if params.fabricated is not None:
         return _fabricated(params.fabricated, pdk, run_dir)
     return _assemble(params, pdk, run_dir)
 
 
-# ---- the fabricated FRIDA-1 layouts, extracted and signed off
+# ---- the fabricated FRIDA-1 layouts, their signoff planned
 
 
 def _write_top(layout: db.Layout, top_cell: str, path: Path) -> None:
@@ -144,7 +145,7 @@ def _run_frida1(
     (run_dir / "recognition_only_diff.json").write_text(json.dumps(diff_summary, indent=2) + "\n", encoding="utf-8")
 
     lvs_source, pex_source = _frida1_sources(run_dir, inputs, flavor=flavor, cap_cell=cap_cell)
-    run_signoff(
+    write_plan(
         SignoffParams(
             technology="tsmc65",
             gds_path=gds_path,
@@ -170,13 +171,13 @@ def _run_frida1(
                 mom_active_layers=active_layers,
             ),
         ),
-        run_dir,
+        run_dir / "signoff.json",
     )
     return gds_path
 
 
 def _fabricated(member: Fabricated, pdk: str, run_dir: Path) -> Path:
-    """A fabricated converter's tape-out layout, signed off and extracted (``_run_frida1``) from the
+    """A fabricated converter's tape-out layout, its signoff planned (``_run_frida1``) from the
     kit's tape-out inputs (``site.FRIDA1``): its flavor's cell of the chip's GDS (the one-layer
     radix-17 converter ``adc``, then ``adc_0`` to ``adc_2`` in the order of ``Fabricated``), its
     source netlist, array and MOM unit cells by its layers and radix, its MOM units on metal 6 (and

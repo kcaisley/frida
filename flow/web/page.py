@@ -626,7 +626,7 @@ def _stepped(instance_dir: Path) -> tuple[dict[str, Any], dict[str, Path]]:
         found = json.loads(path.read_text()) if path.exists() else {}
         return found if found.get("error") is None else {"error": found["error"]}
 
-    laid, drc, lvs, pex = (ended(step) for step in ("layout", "drc", "lvs", "pex"))
+    laid, lvs, pex = (ended(step) for step in ("layout", "lvs", "pex"))
     seconds = {**laid.get("parts", {}), **{step: ended(step).get("seconds") for step in ("drc", "lvs", "pex")}}
     entry: dict[str, Any] = {
         "gds": laid.get("gds"),
@@ -637,10 +637,6 @@ def _stepped(instance_dir: Path) -> tuple[dict[str, Any], dict[str, Path]]:
         **({"pex": pex} if pex else {}),
     }
     folders = {"align": instance_dir / "layout" / "align", "drc": instance_dir / "drc", "lvs": instance_dir / "lvs"}
-    if "drc_violations.json" not in {path.name for path in folders["drc"].glob("*.json")} and drc.get("report"):
-        folders["drc"] = Path(drc["report"]).parent  # the DRC its own lay_out ran
-    if lvs.get("lvs_checker") == "lay_out" and lvs.get("lvs_report"):
-        folders["lvs"] = Path(lvs["lvs_report"]).parent
     return entry, folders
 
 
