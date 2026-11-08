@@ -611,7 +611,9 @@ def steps(
              ["Total (fF)", f"{pex.get('total_f', 0.0) * 1e15:.4g}"]],
             [{"title": "Largest nets: each one's capacitance to everything else (fF)", "head": ["Net", "C (fF)"],
               "rows": largest, "align": "l"}] if largest else [],
-            f"{len(nets)} nets, {pex.get('total_f', 0.0) * 1e15:.4g} fF ({pex.get('extractor')})",
+            f"{len(nets)} nets, {pex.get('total_f', 0.0) * 1e15:.4g} fF ({pex.get('extractor')})"
+            if nets
+            else f"{Path(pex['netlist']).name} ({pex.get('extractor')})",  # the kit's: its netlist alone
         )  # fmt: skip
     return out
 
