@@ -4,11 +4,11 @@
 
 The record (an ``instance.json``: its metrics and condition sweeps) of the block's instance whose
 parameters equal ``params`` in ``pdk``: an instance is its parameters, so it is found by their
-digest (``flow.sweep.runner.digest``): in the block's newest sweep run in that PDK
-(``build/<block>/<run>/<pdk>/<digest>/``; a run of some PDKs alone leaves the others' in the
-run before) where it ran there, else in
-``build/models/<block>/<pdk>/<digest>/``, characterized there once, on demand, by the block's
-``sweep.characterize`` in a process of its own, as the sweep runs an instance. The same parameters
+digest (``flow.sweep.runner.digest``): in the newest of the block's runs in that PDK that holds it
+(``build/<block>/<run>/<pdk>/<name>/``; a run of some PDKs or instances alone leaves the others' in
+the runs before) where it ran there, else in ``build/models/<block>/<pdk>/<digest>/``,
+characterized there once, on demand, in a process of its own, by the CLI's netlist, sim and record
+steps (``flow.sweep.runner.characterize``). The same parameters
 that build the block's netlist so fetch the numbers its behavioral model runs on.
 
     entry = laid_out("adc", "tsmc65", params)
@@ -22,65 +22,54 @@ from __future__ import annotations
 
 import fcntl
 import json
-import time
-import traceback
 from concurrent.futures import ProcessPoolExecutor
 from functools import cache
 from multiprocessing import get_context
 from pathlib import Path
 
 from flow.sweep import flat_params
-from flow.sweep.runner import ROOT, digest, newest_run, write_record
+from flow.sweep.runner import ROOT, digest
 
 MODELS_DIR = ROOT / "build/models"
 
 
 @cache
-def _newest_run(block: str, pdk: str) -> Path | None:
-    try:
-        return newest_run(block, pdk)
-    except FileNotFoundError:
-        return None
+def _pdk_runs(block: str, pdk: str) -> tuple[Path, ...]:
+    """The block's runs that ran in ``pdk``, the newest first."""
+    from flow.sweep import runner
+
+    return tuple(
+        sorted((run for run in runner._runs(block) if (run / pdk).is_dir()), key=runner.run_time, reverse=True)
+    )
+
+
+@cache
+def _run_instances(run: Path, pdk: str) -> dict[str, Path]:
+    from flow.sweep import runner
+
+    return runner.instance_dirs(run, pdk)
 
 
 def _sweep_record(block: str, pdk: str, ident: str) -> dict | None:
-    """The record of ``block``'s instance with this digest in the newest sweep run in ``pdk``,
-    where it ran there without error."""
+    """The record of ``block``'s instance with this digest from the newest run in ``pdk`` that
+    holds it (a run of some instances alone leaves the others' in the runs before), where it ran
+    there without error."""
 
-    run = _newest_run(block, pdk)
-    path = run / pdk / ident / "instance.json" if run is not None else None
-    if path is None or not path.exists():
-        return None
-    record = json.loads(path.read_text())
-    return record if record["error"] is None else None
+    for run in _pdk_runs(block, pdk):
+        folder = _run_instances(run, pdk).get(ident)
+        if folder is not None:
+            record = json.loads((folder / "instance.json").read_text())
+            return record if record["error"] is None else None
+    return None
 
 
 def _characterize(block: str, pdk: str, params, run_dir: Path) -> dict:
-    """One instance characterized in this (fresh) process, as ``flow.sweep.runner.instance_job``
-    characterizes a sweep's (``flow.sweep.runner.characterize``)."""
+    """One instance characterized in this (fresh) process, as the CLI's netlist, sim and record
+    steps characterize a run's (``flow.sweep.runner.characterize``)."""
 
     from flow.sweep.runner import characterize
 
-    flat = flat_params(params)
-    record = {
-        "block": block,
-        "id": f"{pdk}__{digest(flat)}",
-        "pdk": pdk,
-        "params": flat,
-        "metrics": {},
-        "details": [],
-        "waves": {},
-        "error": None,
-    }
-    start = time.time()
-    run_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        record["metrics"], record["details"], record["waves"] = characterize(block, run_dir, pdk, params)
-    except Exception:  # noqa: BLE001 - the record carries the failure
-        record["error"] = traceback.format_exc(limit=6)[-4000:]
-    record["seconds"] = round(time.time() - start, 1)
-    write_record(run_dir / "instance.json", record)
-    return record
+    return characterize(block, run_dir, pdk, params)
 
 
 def characterized(block: str, pdk: str, params, *, simulate: bool = True) -> dict:

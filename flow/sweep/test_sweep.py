@@ -251,34 +251,23 @@ def test_a_run_of_some_pdks_keeps_the_others_from_the_run_before(tmp_path: Path,
     data = json.loads((tmp_path / "web/data/sweep/toy.json").read_text())
     assert {row["pdk"]: row["metrics"]["delay_s"] for row in data["rows"]} == {"tsmc65": 2e-10, "ihp130": 3e-10}
     assert data["run"] == "20261021_000000 (tsmc65), 20261020_000000 (ihp130)"
-    # and the models' lookup alike
-    lookup._newest_run.cache_clear()
+    # and the models' lookup alike, from the newest run that holds the instance: a later run of
+    # another instance alone, a named one by its name, leaves it in the run before
+    other = tmp_path / "sweep/toy/mine/tsmc65/frida1/instance.json"
+    other.parent.mkdir(parents=True)
+    other.write_text(json.dumps({"id": "tsmc65__" + "0" * 12, "error": None, "metrics": {"delay_s": 4e-10}}))
+    (tmp_path / "sweep/toy/mine/run.json").write_text(json.dumps({"created": "20261022_000000"}))
+    for cached in (lookup._pdk_runs, lookup._run_instances):
+        cached.cache_clear()
     try:
         assert lookup._sweep_record("toy", "tsmc65", ident)["metrics"]["delay_s"] == 2e-10
+        assert lookup._sweep_record("toy", "tsmc65", "0" * 12)["metrics"]["delay_s"] == 4e-10
         assert lookup._sweep_record("toy", "ihp130", ident)["metrics"]["delay_s"] == 3e-10
         assert lookup._sweep_record("toy", "tower180", ident) is None
+        assert runner.newest_run("toy", "tsmc65").name == "mine"
     finally:
-        lookup._newest_run.cache_clear()
-
-
-def test_the_sweep_targets_call_the_library_on_every_block(monkeypatch) -> None:
-    from flow.sweep import targets
-
-    calls = []
-    monkeypatch.setattr(runner, "run", lambda blocks, pdks, workers, **kw: calls.append(("run", blocks, workers, kw)))
-    monkeypatch.setattr(runner, "layout", lambda blocks, workers: calls.append(("layout", blocks, workers)))
-    monkeypatch.setattr(runner, "table", lambda blocks, workers: calls.append(("table", blocks, workers)))
-    blocks = runner.sweep_blocks()
-    targets.run()
-    targets.missing()
-    targets.layout()
-    targets.tables()
-    assert calls == [
-        ("run", blocks, 36, {}),
-        ("run", blocks, 36, {"failed": True}),
-        ("layout", blocks, 28),
-        ("table", blocks, 16),
-    ]
+        for cached in (lookup._pdk_runs, lookup._run_instances):
+            cached.cache_clear()
 
 
 def test_a_lookup_without_simulation_never_waits_on_a_lock(tmp_path: Path, monkeypatch) -> None:
@@ -303,221 +292,6 @@ def test_a_lookup_without_simulation_never_waits_on_a_lock(tmp_path: Path, monke
         (lock.parent / digest).mkdir()
         (lock.parent / digest / "instance.json").write_text(json.dumps(record))
         assert lookup.characterized("comp", "tsmc65", params, simulate=False) == record
-
-
-# ---- a toy block on the pipeline, for the runner's own contract: its reader (sim.read), the
-# levels a record runs at, and a layout of its own (layout.py's lay_out)
-
-_TOY = {
-    "__init__.py": '"""A toy block."""\n',
-    "params.py": '''"""A toy design: how its own layout signs itself off."""
-
-from dataclasses import dataclass
-
-import hdl21 as h
-
-from flow import pipeline
-
-
-@h.paramclass
-class Params:
-    mode = h.Param(dtype=int, desc="0: no LVS source; 1: an LVS source; 2: signed off by lay_out", default=0)
-
-
-@dataclass(frozen=True)
-class TbParams(pipeline.TbParams):
-    pdk: str
-    params: Params
-    name: str
-''',
-    "subckt.py": '''"""Nothing."""
-
-import hdl21 as h
-
-from .params import Params
-
-
-@h.generator
-def netlist(params: Params) -> h.Module:
-    return h.Module()
-''',
-    "sim.py": '''"""A run writes its name; the block reads it back itself."""
-
-from datetime import datetime, timezone
-from pathlib import Path
-
-from flow import pipeline
-
-from .params import TbParams
-
-
-def simulate(tb: TbParams, run_dir: Path) -> Path:
-    run_dir.mkdir(parents=True, exist_ok=True)
-    raw = run_dir / "raw.txt"
-    raw.write_text(tb.name)
-    return raw
-
-
-def read(raw: Path, tb: TbParams) -> pipeline.Meas:
-    info = pipeline.MeasInfo(backend="behavioral", timestamp_utc=datetime.now(timezone.utc), readbacks={"text": raw.read_text()})
-    return pipeline.Meas(group=None, index=None, dut=tb.params, info=info, param=tb)
-''',
-    "sweep.py": '''"""One named instance; a run a level."""
-
-from flow.pipeline import Level, Meas, Record, named
-
-from .params import Params, TbParams
-
-
-@named
-def one() -> Params:
-    return Params()
-
-
-def runs(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
-    names = [name for name in Level if name.value <= level.value]
-    return {name.name.lower(): TbParams(pdk=pdk, params=params, name=name.name.lower()) for name in names}
-
-
-def record(measurements: dict[str, Meas]) -> Record:
-    return Record(metrics={f"read_{name}": meas.info.readbacks["text"] == name for name, meas in measurements.items()})
-''',
-    "layout.py": '''"""Its own layout: a box, and what its mode says it signs off."""
-
-import json
-from pathlib import Path
-
-from klayout import db
-
-from .params import Params
-
-
-def lay_out(params: Params, pdk: str, run_dir: Path) -> Path:
-    run_dir.mkdir(parents=True, exist_ok=True)
-    layout = db.Layout()
-    top = layout.create_cell("toy")
-    top.shapes(layout.layer(1, 0)).insert(db.Box(0, 0, 2000, 1000))
-    gds = run_dir / "toy.gds"
-    layout.write(str(gds))
-    if params.mode == 1:
-        (run_dir / "source.cdl").write_text(".subckt toy\\n.ends\\n")
-    if params.mode == 2:
-        (run_dir / "drc_violations.json").write_text(json.dumps({"violations": {}}))
-        summary = {
-            "drc_report": str(run_dir / "drc_violations.json"),
-            "lvs_correct": False,
-            "warnings": ["an accepted mismatch"],
-            "pex_netlist": str(run_dir / "toy.pex.netlist"),
-            "pex_sha256": "0" * 64,
-        }
-        (run_dir / "signoff_summary.json").write_text(json.dumps(summary))
-    return gds
-''',
-}
-
-
-class _NowPool:
-    """A process pool that runs each task at once, in this process (where the toy block imports)."""
-
-    def __init__(self, **_kwargs) -> None:
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_exc) -> None:
-        return None
-
-    def submit(self, function, *args, **kwargs):
-        from concurrent.futures import Future
-
-        future = Future()
-        future.set_result(function(*args, **kwargs))
-        return future
-
-
-@pytest.fixture
-def toy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """The toy block, ``flow.toyblock``, in a PDK of no devices (``toypdk``), its runs under
-    ``tmp_path/build`` and characterized in this process."""
-    import sys
-    from types import SimpleNamespace
-
-    import flow
-    from flow import sweep
-    from flow.layout.devices import device
-
-    package = tmp_path / "flow" / "toyblock"
-    package.mkdir(parents=True)
-    for name, text in _TOY.items():
-        (package / name).write_text(text)
-    monkeypatch.setattr(flow, "__path__", [*flow.__path__, str(tmp_path / "flow")])
-    monkeypatch.setitem(sys.modules, "pdk.toypdk", SimpleNamespace(pdk_logic=None))
-    monkeypatch.setattr(h.pdk, "set_default", lambda logic: None)
-    monkeypatch.setattr(h.pdk, "compile", lambda module, *args: None)
-    monkeypatch.setattr(device, "resolve", lambda module, pdk: None)
-    monkeypatch.setattr(sweep, "geometry", lambda module, pdk: {})
-    monkeypatch.setattr(runner, "RUNS_DIR", tmp_path / "build")
-    monkeypatch.setattr(runner, "ProcessPoolExecutor", _NowPool)
-    for cached in (runner.design_space, runner.labelled_space):
-        cached.cache_clear()
-    yield importlib.import_module("flow.toyblock")
-    for cached in (runner.design_space, runner.labelled_space):
-        cached.cache_clear()
-    for name in [name for name in sys.modules if name.startswith("flow.toyblock")]:
-        del sys.modules[name]
-
-
-def _toy_record(run: Path) -> dict:
-    (path,) = run.glob("toypdk/*/instance.json")
-    return json.loads(path.read_text())
-
-
-def test_a_block_reads_its_raw_output_itself_at_each_level(toy, capsys) -> None:
-    """The runner reads a run by the block's ``sim.read`` (raw file removed), its record keeps the
-    level it ran at, and ``failed`` (``--missing``) re-runs a record below the level asked for into
-    the same run, and only that; the circuit level takes picked instances alone."""
-    from flow import pipeline
-
-    run = runner.run(["toyblock"], ("toypdk",), 1, names=["one"])["toyblock"]
-    record = _toy_record(run)
-    assert record["error"] is None, record["error"]
-    assert record["level"] == pipeline.Level.FULL.value
-    assert record["metrics"] == {"read_screen": True, "read_search": True, "read_full": True}
-    assert not list(run.rglob("raw.txt"))
-    # FULL again: nothing below it, nothing run
-    capsys.readouterr()
-    assert runner.run(["toyblock"], ("toypdk",), 1, failed=True, names=["one"])["toyblock"] == run
-    assert capsys.readouterr().out.startswith("0 instances")
-    # the circuit level: the record below it, re-run into the same run
-    level = pipeline.Level.CIRCUIT
-    assert runner.run(["toyblock"], ("toypdk",), 1, failed=True, names=["one"], level=level)["toyblock"] == run
-    assert sorted(path.name for path in (runner.RUNS_DIR / "toyblock").iterdir()) == [run.name]
-    record = _toy_record(run)
-    assert record["level"] == level.value and record["metrics"]["read_circuit"] is True
-    # a record from before records carried their level ran at FULL
-    (path,) = run.glob("toypdk/*/instance.json")
-    path.write_text(json.dumps({key: value for key, value in record.items() if key != "level"}))
-    capsys.readouterr()
-    runner.run(["toyblock"], ("toypdk",), 1, failed=True, names=["one"])
-    assert capsys.readouterr().out.startswith("0 instances")
-    runner.run(["toyblock"], ("toypdk",), 1, failed=True, names=["one"], level=level)
-    assert _toy_record(run)["level"] == level.value
-    with pytest.raises(ValueError, match="pick the instances"):
-        runner.run(["toyblock"], ("toypdk",), 1, level=level)
-
-
-def test_a_block_without_levels_is_never_below_one(toy) -> None:
-    """A block whose ``runs`` takes no level records none, and no level re-runs it."""
-    from flow import pipeline
-
-    sweep = importlib.import_module("flow.toyblock.sweep")
-    leveled = sweep.runs
-    sweep.runs = lambda pdk, params: leveled(pdk, params, pipeline.Level.SCREEN)
-    run = runner.run(["toyblock"], ("toypdk",), 1, names=["one"])["toyblock"]
-    record = _toy_record(run)
-    assert record["level"] is None and set(record["metrics"]) == {"read_screen"}
-    assert not runner._level_below(record, pipeline.Level.CIRCUIT)
 
 
 def test_a_block_with_its_own_layout_is_signed_off_as_it_states(toy, tmp_path: Path, monkeypatch) -> None:

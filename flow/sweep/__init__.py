@@ -4,8 +4,9 @@ each instance characterized at its nominal point and over its conditions, and la
 An instance is its parameters (the block generator's parameter class), nothing else: no name. Its
 id is ``<pdk>__<digest>``, the digest the first 12 hex digits of the SHA-1 of its flat parameters
 (``flat_params`` as canonical JSON: ``flow.sweep.runner.digest``), and it runs in
-``build/<block>/<run>/<pdk>/<digest>/``; the behavioral models look a characterization up by
-the same digest (``flow.sweep.lookup``), so a model's parameters find the sweep's instance.
+``build/<block>/<run>/<pdk>/<name>/`` (a named instance by its name, a grid's by its digest); the
+behavioral models look a characterization up by the same digest (``flow.sweep.lookup``), so a
+model's parameters find the sweep's instance.
 
 A block takes part with a module ``flow/<block>/sweep.py``:
 
@@ -30,8 +31,7 @@ keeps what works in a PDK); a block on the pipeline (docs/pipeline.md) gives ``r
 shared layout step lays it out (``flow.layout.step``), or, a block assembled from laid-out blocks
 (the ADC), its own ``layout.py``.
 
-    uv run python -m flow run comp        # one block on the pipeline (layout comp, table comp)
-    uv run python -m flow sweep.run       # every block (sweep.missing, sweep.layout, sweep.tables)
+    uv run python -m flow comp --to record     # one block on the pipeline, its steps (python -m flow)
 """
 
 from __future__ import annotations

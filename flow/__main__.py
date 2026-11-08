@@ -1,84 +1,113 @@
-"""The flow's one entry point: ``python -m flow`` lists what it runs.
+r"""The flow's one entry point: a block's steps, from one to another, over its instances.
 
-A block on the pipeline (docs/pipeline.md) is run by verbs, each over the block's design space and
-named instances (its ``sweep.py``):
+    python -m flow <block> --to STEP [--from STEP] [--run NAME|DIR] [--instance I ...] [--pdk P ...] [--workers N] [--predict]
+    python -m flow opt <block> --problem P [--pdk P] [--budget N] [--workers N] [--best N] [--finalists N] [--table]
+    python -m flow web.serve
 
-    python -m flow run <block> [--pdk P ...] [--instance I ...] [--missing] [--level L] [--workers N]
-    python -m flow layout <block> [--pdk P ...] [--instance I ... [--auto] [--plan]] [--list] [--no-pex] [--redo] [--workers N]
-    python -m flow table <block> [--workers N]
-    python -m flow plot <block> [FIGURE ...] --from DIR [--from DIR ...] [--backend matplotlib|web] [--priors]
-    python -m flow opt <block> --problem P [--pdk P] [--budget N] [--workers N] [--best N] [--finalists N]
-    python -m flow page <block> [--pdk P ...] [--instance I ...] [--run-dir DIR]
+A step is one tool: it takes its inputs and makes its outputs, and its configuration is the tool's
+own, in the block's Python files and the kit's (the runs a sweep states, a layout's placement, which
+signoff a kit takes), never a flag here. The steps make a small graph, each after those it needs:
 
-An instance ``I`` is a named instance, an instance's label (``grid(name, parameter=value, ...)``) or its
-digest; ``--list`` prints the design space's, digest and label. ``run --level`` characterizes at
-``screen``, ``search``, ``full`` (the default) or ``circuit`` (a block whose full characterization
-is behavioral also runs the circuit simulator's runs; picked instances only), and with
-``--missing`` also re-runs, into the newest run, the records below that level. ``layout`` takes
-any block with a ``params``, a ``sweep`` and a ``subckt`` or its own ``layout.py``, on the
-pipeline or not: without ``--instance`` it lays out the newest run's instances into their records;
-with it, each instance picked into ``build/<block>/layout/<stamp>/<pdk>/<name>/``. A block with its
-own ``layout.py`` lays itself out (its ``lay_out``) and is signed off as it states
-(``flow.layout.step.lay_out_one``); any other by ALIGN, placed as its generator (or its
-hand-written floorplan) states, or, with ``--auto``, by ALIGN on its own: the netlist, the
-constraints, the GDS and its signoff. ``--plan`` stops after the netlist and the constraints (ALIGN's design directory).
-``plot`` draws a sweep run's records' figures, or the figures of a directory of captures.
+    netlist -> sim -> record -> figures
+               sim -> circuit          record -> table
+    netlist -> layout -> drc -> lvs -> pex
+    record, pex -> page
 
-A block not yet on the pipeline, and the flow's own tools, keep their targets: ``python -m flow
-<module>.<target>`` runs a public function without arguments of that ``targets.py``, which makes its
-own run directory under ``build/``.
+``--to`` runs the steps that lead from ``--from`` (``netlist`` by default) to it, both included:
+``--to record`` simulates and records, ``--from record --to record`` analyses again what ``sim``
+kept. ``circuit`` adds the circuit simulator's runs of a block whose full characterization is
+behavioral (the ADC's Spectre runs) and records again; it takes picked instances alone.
+
+A run is ``build/<block>/<run>/``, each instance in ``<pdk>/<name>/`` there (a named instance by its
+name, a grid's by its digest), a folder a step: ``netlist/``, ``sim/<run>/``, ``circuit/<run>/``,
+``record/``, ``figures/``, ``layout/``, ``drc/``, ``lvs/``, ``pex/``, ``page/``; its record,
+``instance.json``, beside them, which the viewer's table reads. ``--from netlist`` makes a new run
+(named ``--run NAME``, else by its stamp); a later ``--from`` takes the newest run, or the one
+``--run`` names (a name under ``build/<block>/`` or a directory), and the instances in it. A step
+skips an instance whose output is complete and not older than what it was made from (make's rule),
+so a run stopped part way resumes where it stopped; to make a step again, delete its folder or start
+a new run. A step whose inputs are missing fails, naming the command that makes them.
+
+``--instance`` picks a named instance, the label of one of the design space's (``grid(name,
+parameter=value, ...)``) or a digest, else the design space is run; ``--pdk``, else every PDK
+the block admits. ``--predict`` prints the run, the instances and the steps each would run, with a
+rough count, and runs nothing. ``opt`` searches one of a block's problems (``flow.opt.runner``), and
+``web.serve`` serves the viewer on http://127.0.0.1:8765.
 """
 
 from __future__ import annotations
 
 import argparse
-import inspect
+import json
+import os
 import sys
 import time
+import traceback
+from dataclasses import dataclass
+from enum import Enum, auto
 from importlib import import_module
 from pathlib import Path
-
-# each block's targets module, imported when it is listed or run: a block that no longer imports
-# (one not yet ported to the shared layout step) fails alone, when it is run
-BLOCKS = (
-    *("bias", "clkgen", "cml", "csa", "delay", "disc", "follower", "idac", "latch", "layout"),
-    *("lvshift", "ota", "pi", "ringamp", "schmitt", "sweep", "web"),
-)
+from typing import Any
 
 
-def block_targets(block: str):
-    """A block's targets module (``flow.<block>.targets``)."""
-    return import_module(f"flow.{block}.targets")
+class Step(Enum):
+    """One tool's step over an instance (``TABLE``: over a run), in an order that puts each after
+    the steps it needs (``needs``); its folder in an instance's directory is its name."""
+
+    NETLIST = auto()
+    SIM = auto()
+    CIRCUIT = auto()
+    RECORD = auto()
+    FIGURES = auto()
+    TABLE = auto()
+    LAYOUT = auto()
+    DRC = auto()
+    LVS = auto()
+    PEX = auto()
+    PAGE = auto()
+
+    def __str__(self) -> str:
+        return self.name.lower()
+
+    @property
+    def needs(self) -> tuple[Step, ...]:
+        """The steps whose outputs this one takes."""
+        match self:
+            case Step.NETLIST:
+                return ()
+            case Step.SIM | Step.LAYOUT:
+                return (Step.NETLIST,)
+            case Step.CIRCUIT | Step.RECORD:
+                return (Step.SIM,)
+            case Step.FIGURES | Step.TABLE:
+                return (Step.RECORD,)
+            case Step.DRC:
+                return (Step.LAYOUT,)
+            case Step.LVS:
+                return (Step.DRC,)
+            case Step.PEX:
+                return (Step.LVS,)
+            case Step.PAGE:
+                return (Step.RECORD, Step.PEX)
+
+    @property
+    def ancestors(self) -> set[Step]:
+        """This step and every step it needs, directly or through others."""
+        return {self}.union(*(need.ancestors for need in self.needs))
 
 
-def targets(module) -> dict:
-    """The targets a ``targets.py`` defines, by name, in source order."""
-    return {
-        name: function
-        for name, function in vars(module).items()
-        if inspect.isfunction(function) and function.__module__ == module.__name__ and not name.startswith("_")
-    }
+def between(start: Step, stop: Step) -> list[Step]:
+    """The steps from ``start`` to ``stop``, both included, in the order they run: those that need
+    ``start`` and that ``stop`` needs."""
+    steps = [step for step in Step if start in step.ancestors and step in stop.ancestors]
+    if not steps:
+        raise SystemExit(f"--from {start} does not lead to --to {stop}: {stop} needs {_needed(stop)}")
+    return steps
 
 
-VERBS = ("run", "layout", "table", "plot", "opt", "page")
-
-
-def layout_blocks() -> list[str]:
-    """The blocks the layout verb takes: those with a ``params``, a ``sweep`` and a ``subckt`` (its
-    generator, which ALIGN lays out) or a ``layout`` (its own flow) (by their files: a block that
-    no longer imports is one still, and fails when it is laid out)."""
-    from flow.sweep import runner
-
-    return [
-        block
-        for block in runner.sweep_blocks()
-        if _has_file(block, "params") and (_has_file(block, "subckt") or _has_file(block, "layout"))
-    ]
-
-
-def _has_file(block: str, stage: str) -> bool:
-    """Whether ``block``'s folder has the file ``<stage>.py``."""
-    return (Path(__file__).resolve().parent / block.replace(".", "/") / f"{stage}.py").is_file()
+def _needed(step: Step) -> str:
+    """The steps ``step`` needs, as a sentence's words."""
+    return ", ".join(str(need) for need in sorted(step.ancestors - {step}, key=lambda s: s.value)) or "nothing"
 
 
 def pipeline_blocks() -> list[str]:
@@ -95,73 +124,422 @@ def pipeline_blocks() -> list[str]:
     return [block for block in runner.sweep_blocks() if on_pipeline(block)]
 
 
-def parser() -> argparse.ArgumentParser:
-    """The verbs' arguments."""
+# ---------------------------------------------------------------- an instance's steps
+
+
+@dataclass(frozen=True)
+class Job:
+    """One instance's steps in a run: its block, PDK, name in the run (a named instance's name, a
+    grid's digest), label and parameters, its directory, the steps to run, and the run as
+    ``--run`` takes it (for the commands a failure names)."""
+
+    block: str
+    pdk: str
+    name: str
+    label: str
+    params: Any
+    out: Path
+    steps: tuple[Step, ...]
+    run: str
+
+
+def _marker(out: Path, step: Step) -> Path:
+    """A step's record of its run on an instance: ``<step>/step.json``, written once it ends."""
+    return out / str(step) / "step.json"
+
+
+def _ended(out: Path, step: Step) -> dict | None:
+    """The step's record on this instance where it ended without error, else None."""
+    path = _marker(out, step)
+    if not path.exists():
+        return None
+    ended = json.loads(path.read_text())
+    return ended if ended.get("error") is None else None
+
+
+def done(out: Path, step: Step) -> bool:
+    """Whether the step's output on this instance is complete: it ended without error, after each
+    step it needs that has ended, each of those complete too (make's rule: made again where what it
+    was made from, or what that was made from, is newer)."""
+    ended = _ended(out, step)
+    if ended is None:
+        return False
+    for need in step.needs:
+        made = _ended(out, need)
+        if made is not None and (made["finished"] > ended["finished"] or not done(out, need)):
+            return False
+    return True
+
+
+def _mark(out: Path, step: Step, started: float, error: str | None = None, **outputs: Any) -> None:
+    """The step's record on this instance: when it finished, its seconds, its error and outputs."""
+    path = _marker(out, step)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    finished = time.time()
+    entry = {"step": str(step), "finished": finished, "seconds": round(finished - started, 1), "error": error}
+    path.write_text(json.dumps({**entry, **outputs}, indent=1) + "\n")
+
+
+def _command(job: Job, step: Step) -> str:
+    """The command that makes ``step``'s output on this instance (the steps before it that are
+    complete skipped)."""
+    return f"python -m flow {job.block} --to {step} --run {job.run} --pdk {job.pdk} --instance {job.name}"
+
+
+def _missing(job: Job, step: Step) -> str | None:
+    """What ``step`` needs on this instance that is not complete, and the command that makes it;
+    None where it has all it needs."""
+    for need in step.needs:
+        if not done(job.out, need):
+            return f"{step} needs its {need} step's output: {_command(job, need)}"
+    return None
+
+
+def _netlist(job: Job) -> dict:
+    """The circuit as simulated and its size (``flow.sweep.runner.write_netlist``)."""
     from flow.sweep import runner
 
-    verbs = argparse.ArgumentParser(prog="python -m flow", description=__doc__.split("\n\n")[0])
-    commands = verbs.add_subparsers(dest="verb", required=True)
-    for verb, workers, text in (
-        ("run", 36, "characterize the block's instances in a fresh run"),
-        ("layout", 28, "lay out the newest run's instances, or named instances, by ALIGN"),
-        ("table", 16, "export the newest runs as the viewer's tables"),
-        ("plot", 0, "draw a sweep run's or captures' figures"),
-        ("page", 0, "write a laid-out instance's page: its metrics, netlist, schematic, 2-D and 3-D views"),
-    ):
-        command = commands.add_parser(verb, help=text, description=text)
-        # the table: a block on the pipeline, or one laid out before it is characterized
-        laid_out = sorted({*pipeline_blocks(), *layout_blocks()})
-        blocks = {"layout": layout_blocks(), "table": laid_out, "page": laid_out}
-        command.add_argument("block", choices=blocks.get(verb) or pipeline_blocks())
-        if verb == "plot":
-            command.add_argument("figures", nargs="*", metavar="FIGURE", help="the figures, by name (default: all)")
-            command.add_argument("--from", dest="sources", type=Path, action="append", required=True)
-            command.add_argument("--backend", choices=("matplotlib", "web"), default="matplotlib")
-            command.add_argument(
-                "--priors",
-                action="store_true",
-                help="draw each figure with each optional prior its captures give (a ramp by each calibration)",
-            )
-        if verb != "table":
-            command.add_argument("--pdk", action="append", choices=runner.PDKS, dest="pdks")
-            command.add_argument("--instance", action="append", dest="instances", metavar="I")
-        if verb == "run":
-            command.add_argument(
-                "--missing", action="store_true", help="the newest run's failed or missing ones, or below --level"
-            )
-            command.add_argument(
-                "--level",
-                choices=("screen", "search", "full", "circuit"),
-                default="full",
-                help="how much to run (circuit: the circuit simulator's runs too, for picked instances)",
-            )
-        if verb == "page":
-            command.add_argument("--run-dir", type=Path, help="an instance's layout directory (<run>/<pdk>/<name>)")
-        if verb == "layout":
-            floorplan = command.add_mutually_exclusive_group()
-            floorplan.add_argument("--manual", action="store_true", help="as its generator places it (default)")
-            floorplan.add_argument("--auto", action="store_true", help="from ALIGN's placement")
-            command.add_argument("--plan", action="store_true", help="the netlist and constraints only, no ALIGN")
-            command.add_argument("--list", action="store_true", help="print the design space's instances, no layout")
-            command.add_argument("--quiet", action="store_true", help="the flow's steps alone: no tool's own output")
-            command.add_argument(
-                "--signoff",
-                choices=("open", "calibre"),
-                default="open",
-                help="DRC and LVS by the open tools (gdscheck, KLayout: the default) or the kit's Calibre",
-            )
-            command.add_argument(
-                "--no-pex", action="store_true", help="no extraction (KLayout-PEX, FasterCap: minutes a block)"
-            )
-            if verb == "layout":
-                command.add_argument(
-                    "--redo", action="store_true", help="lay out a run's instances already laid out clean too"
+    runner.write_netlist(job.block, job.pdk, job.params, job.out / "netlist")
+    return {}
+
+
+def _sim(job: Job) -> dict:
+    """Each of the instance's testbench runs simulated and its measurement kept (``sim/<run>/``)."""
+    from flow.sweep import runner
+
+    runs = runner.runs_of(job.block, job.pdk, job.params)
+    runner.simulate(job.block, job.pdk, runs, _fresh(job.out, Step.SIM))
+    return {"runs": list(runs)}
+
+
+def _fresh(out: Path, step: Step) -> Path:
+    """The step's folder, emptied where the step ended before (its output out of date, made again
+    whole); a step that failed or stopped part way keeps what it made, which it then reuses."""
+    import shutil
+
+    if _ended(out, step) is not None:
+        shutil.rmtree(out / str(step))
+    return out / str(step)
+
+
+def _record(job: Job, circuit: dict[str, Path] | None = None) -> dict:
+    """The instance's record from the measurements its sim step kept, and its circuit step's
+    (``circuit``, else those of a complete circuit step), as ``instance.json``."""
+    from flow import pipeline
+    from flow.sweep import runner
+
+    out = job.out
+    files = {run: out / "sim" / run / "result.h5" for run in json.loads(_marker(out, Step.SIM).read_text())["runs"]}
+    if circuit is None and done(out, Step.CIRCUIT):
+        runs = json.loads(_marker(out, Step.CIRCUIT).read_text())["runs"]
+        circuit = {run: out / "circuit" / run / "result.h5" for run in runs}
+    ran = sum(json.loads(_marker(out, step).read_text())["seconds"] for step in (Step.NETLIST, Step.SIM))
+    runner.record(
+        job.block,
+        job.pdk,
+        job.params,
+        out,
+        {**files, **(circuit or {})},
+        json.loads((out / "netlist" / "geometry.json").read_text()),
+        label=job.label,
+        name=job.name,
+        level=pipeline.Level.CIRCUIT if circuit else pipeline.Level.FULL,
+        netlist=out / "netlist" / f"{job.block}.cdl",
+        seconds=ran,
+    )
+    return {"circuit": bool(circuit)}
+
+
+def _circuit(job: Job) -> dict:
+    """The circuit simulator's runs of the instance (``flow.sweep.runner.circuit_runs``) simulated
+    and kept (``circuit/<run>/``), then its record made again with them."""
+    from flow.sweep import runner
+
+    runs = runner.circuit_runs(job.block, job.pdk, job.params)
+    files = runner.simulate(job.block, job.pdk, runs, _fresh(job.out, Step.CIRCUIT))
+    started = time.time()
+    _mark(job.out, Step.RECORD, started, **_record(job, files))
+    return {"runs": list(runs)}
+
+
+def _body(step: Step):
+    """The function that runs ``step`` on one instance, None for a step the CLI does not run yet or
+    that runs over a run (``TABLE``)."""
+    return {Step.NETLIST: _netlist, Step.SIM: _sim, Step.CIRCUIT: _circuit, Step.RECORD: _record}.get(step)
+
+
+def run_steps(job: Job) -> list[str]:
+    """The job's steps on its instance, in order, in this (fresh) process: each skipped where its
+    output is complete (``done``), failed where what it needs is missing (``_missing``), else run;
+    a failure ends the instance's steps, and one of its characterization records the failure as its
+    record (``flow.sweep.runner.failed_record``), so the viewer's table shows it. Each step's
+    outcome, a line each."""
+    from flow.sweep import runner
+
+    outcomes = []
+    for step in job.steps:
+        if done(job.out, step):
+            outcomes.append(f"{step} done")
+            continue
+        missing = _missing(job, step)
+        if missing:
+            outcomes.append(f"{step} failed: {missing}")
+            break
+        started = time.time()
+        try:
+            outputs = _body(step)(job)
+        except Exception:  # noqa: BLE001 - every instance reports its own failure
+            error = traceback.format_exc(limit=6)[-4000:]
+            _mark(job.out, step, started, error=error)
+            if step in (Step.NETLIST, Step.SIM, Step.RECORD):
+                runner.failed_record(
+                    job.block, job.pdk, job.params, job.out, f"{step}: {error}", label=job.label, name=job.name
                 )
-        if workers:
-            command.add_argument("--workers", type=int, default=workers)
+            outcomes.append(f"{step} failed: {error.strip().splitlines()[-1]}")
+            break
+        _mark(job.out, step, started, **outputs)
+        outcomes.append(f"{step} ok in {time.time() - started:.1f} s")
+    return outcomes
+
+
+# ---------------------------------------------------------------- a run's instances
+
+
+def _run_dir(block: str, value: str | None, start: Step) -> tuple[Path, str]:
+    """The run the steps work in, and how it was found: ``--run``'s (a name under
+    ``build/<block>/``, or a directory), a new one where the steps start at the netlist, else the
+    block's newest."""
+    from flow.sweep import runner
+
+    if value is not None:
+        path = Path(value).absolute() if "/" in value or value.startswith(".") else runner.RUNS_DIR / block / value
+        if start is not Step.NETLIST and not path.is_dir():
+            raise SystemExit(f"no run {value} of {block} ({path}): python -m flow {block} --to netlist --run {value}")
+        return path, "resumed" if path.is_dir() else "new"
+    if start is Step.NETLIST:
+        return runner.RUNS_DIR / block / _stamp(), "new"
+    try:
+        return runner.newest_run(block), "the latest"
+    except FileNotFoundError:
+        raise SystemExit(f"no run of {block} yet to start at {start}: python -m flow {block} --to {start}") from None
+
+
+def _stamp() -> str:
+    """Now, as a new run's name: ``YYYYmmdd_HHMMSS``."""
+    from datetime import datetime
+
+    return datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+
+
+def _run_name(block: str, run: Path) -> str:
+    """The run as ``--run`` takes it: its name where it is under ``build/<block>/``, else its path."""
+    from flow.sweep import runner
+
+    return run.name if run.parent == runner.RUNS_DIR / block else str(run)
+
+
+def _pdks(block: str, names: list[str] | None, given: list[str] | None, run: Path, reused: bool) -> list[str]:
+    """The PDKs to run in: those given, else a reused run's own (its instances' PDKs), else every
+    PDK in which the block admits an instance (one whose kit this checkout lacks left out)."""
+    from flow.sweep import runner
+
+    if given:
+        return list(given)
+    if reused and not names:
+        return [pdk for pdk in runner.PDKS if (run / pdk).is_dir()]
+    found = []
+    for pdk in runner.PDKS:
+        try:
+            if runner.labelled_space(block, pdk) or names:
+                found.append(pdk)
+        except (LookupError, ModuleNotFoundError):  # a design space of a kit this checkout lacks
+            continue
+    return found
+
+
+def instances(block: str, pdk: str, names: list[str] | None, run: Path, reused: bool) -> dict[str, tuple[str, Any]]:
+    """The instances to run in ``pdk``, by their name in the run (a named instance's name, a grid's
+    digest), with their labels and parameters: those ``names`` pick (``flow.sweep.runner.select``),
+    else a reused run's own (those its design still has), else the design space."""
+    from flow import pipeline
+    from flow.sweep import runner
+
+    named = pipeline.names(import_module(f"flow.{block}.sweep"))
+    if names:
+        picked = runner.select(block, pdk, names)
+    elif reused:
+        picked = {}
+        folders = (run / pdk).iterdir() if (run / pdk).is_dir() else ()
+        for folder in sorted(path for path in folders if path.is_dir()):
+            try:
+                picked |= runner.select(block, pdk, [folder.name])
+            except LookupError:
+                print(f"{folder}: not in {block}'s design any more, left out")
+    else:
+        picked = runner.labelled_space(block, pdk)
+    return {(label if label in named else ident): (label, params) for ident, (label, params) in picked.items()}
+
+
+def _pending(job: Job) -> list[Step]:
+    """The job's steps that would run: each whose output is not complete, or that needs one that
+    would run (made again after it)."""
+    pending: list[Step] = []
+    for step in job.steps:
+        if not done(job.out, step) or any(need in pending for need in step.needs):
+            pending.append(step)
+    return pending
+
+
+def _simulations(job: Job, pending: list[Step]) -> int:
+    """How many testbench runs the job's pending steps would simulate (those kept already not)."""
+    from flow.sweep import runner
+
+    runs = {}
+    if Step.SIM in pending:
+        runs |= {f"sim/{n}": tb for n, tb in runner.runs_of(job.block, job.pdk, job.params).items()}
+    if Step.CIRCUIT in pending:
+        runs |= {f"circuit/{n}": tb for n, tb in runner.circuit_runs(job.block, job.pdk, job.params).items()}
+    return sum(not (job.out / name / "result.h5").exists() for name in runs)
+
+
+def _pool(workers: int):
+    """A pool of fresh processes, one an instance: hdl21 compiles a generated module in place, for
+    one PDK."""
+    from concurrent.futures import ProcessPoolExecutor
+    from multiprocessing import get_context
+
+    return ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=1)
+
+
+def steps(args: argparse.Namespace) -> None:
+    """Run ``args``' steps (``parser``) over the instances it picks, or print them (``--predict``)."""
+    from flow.sweep import runner
+
+    start, stop = Step[args.start.upper()], Step[args.to.upper()]
+    chosen = between(start, stop)
+    unbuilt = [step for step in chosen if step is not Step.TABLE and _body(step) is None]
+    if unbuilt:
+        raise SystemExit(f"python -m flow runs no {', '.join(map(str, unbuilt))} step yet")
+    if Step.CIRCUIT in chosen and not args.instances:
+        raise SystemExit("the circuit step runs the circuit simulator: pick the instances (--instance I ...)")
+    run, found = _run_dir(args.block, args.run, start)
+    reused = found != "new" and start is not Step.NETLIST
+    name = _run_name(args.block, run)
+    jobs = []
+    for pdk in _pdks(args.block, args.instances, args.pdks, run, reused):
+        try:
+            picked = instances(args.block, pdk, args.instances, run, reused)
+        except LookupError as error:
+            raise SystemExit(str(error)) from None
+        each = tuple(step for step in chosen if step is not Step.TABLE)
+        jobs += [
+            Job(args.block, pdk, n, label, params, run / pdk / n, each, name) for n, (label, params) in picked.items()
+        ]
+    if not jobs:
+        raise SystemExit(f"no instance of {args.block} to run in {', '.join(args.pdks or runner.PDKS)}")
+    if Step.CIRCUIT in chosen and not any(runner.circuit_runs(j.block, j.pdk, j.params) for j in jobs):
+        raise SystemExit(f"{args.block} has no circuit simulator runs beyond its full ones: its sim step runs them")
+    print(f"{args.block}: {found} run {runner._shown(run)}; steps {', '.join(map(str, chosen))}")
+    if args.predict:
+        _predict(jobs, chosen)
+        return
+    if found == "new" or not (run / "run.json").exists():
+        runner.new_run(args.block, run_dir=run)
+    failures = _run_jobs(jobs, args.workers) if jobs[0].steps else []
+    if Step.TABLE in chosen:
+        unrecorded = [job for job in jobs if not (job.out / "instance.json").exists()]
+        if unrecorded:
+            raise SystemExit(
+                f"table needs every instance's record, {len(unrecorded)} of {len(jobs)} have none: "
+                f"python -m flow {args.block} --to record --run {name}"
+            )
+        runner.table([args.block], args.workers, run=run)
+    if failures:
+        raise SystemExit(f"{len(failures)} of {len(jobs)} instances failed; the first: {failures[0]}")
+
+
+def _run_jobs(jobs: list[Job], workers: int) -> list[str]:
+    """Each job's steps in a process of its own, at most ``workers`` at once, a line each as it ends;
+    the lines of those that failed."""
+    from concurrent.futures import as_completed
+
+    from flow.sweep import runner
+
+    # one BLAS thread a worker (the spawned workers inherit it): numpy's pool of a thread a core in
+    # every worker oversubscribes the machine many times over
+    for variable in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        os.environ.setdefault(variable, "1")
+    print(f"{_count(len(jobs), 'instance')} on {_count(min(workers, len(jobs)), 'worker')}", flush=True)
+    failures = []
+    with _pool(workers) as pool:
+        futures = {pool.submit(run_steps, job): job for job in jobs}
+        for count, future in enumerate(as_completed(futures), 1):
+            job = futures[future]
+            try:
+                outcomes = future.result()
+            except Exception as error:  # noqa: BLE001 - a worker that died
+                outcomes = [f"failed: {error!r}"]
+            line = f"[{count}/{len(jobs)}] {runner._shown(job.out)}: {', '.join(outcomes)}"
+            print(line, flush=True)
+            if any(" failed" in outcome or outcome.startswith("failed") for outcome in outcomes):
+                failures.append(line)
+    return failures
+
+
+def _predict(jobs: list[Job], chosen: list[Step]) -> None:
+    """Each job's pending steps (``_pending``) and simulator runs, a line each, then the totals."""
+    total_steps = total_runs = complete = 0
+    for job in jobs:
+        pending = _pending(job)
+        runs = _simulations(job, pending)
+        total_steps += len(pending)
+        total_runs += runs
+        complete += len(job.steps) - len(pending)
+        shown = ", ".join(map(str, pending)) or "nothing (complete)"
+        print(f"{job.pdk} {job.name} ({job.label}): {shown}{f'; {_count(runs, "simulator run")}' if runs else ''}")
+    pdks = len({job.pdk for job in jobs})
+    table = "; then the table" if Step.TABLE in chosen else ""
+    print(
+        f"{_count(len(jobs), 'instance')} in {_count(pdks, 'PDK')}: {_count(total_steps, 'step')} to run, "
+        f"{complete} complete, about {_count(total_runs, 'simulator run')}{table}"
+    )
+
+
+def _count(number: int, noun: str) -> str:
+    """``number`` of ``noun``, plural where it is not one."""
+    return f"{number} {noun}{'' if number == 1 else 's'}"
+
+
+# ---------------------------------------------------------------- the command line
+
+
+def parser() -> argparse.ArgumentParser:
+    """The steps' arguments (``python -m flow <block> ...``)."""
+    from flow.sweep import runner
+
+    words = [str(step) for step in Step]
+    command = argparse.ArgumentParser(prog="python -m flow", description=(__doc__ or "").split("\n\n")[0])
+    command.add_argument("block", choices=pipeline_blocks(), help="a block on the pipeline")
+    command.add_argument("--to", required=True, choices=words, metavar="STEP", help="the last step to run")
+    command.add_argument("--from", dest="start", default="netlist", choices=words, metavar="STEP")
+    command.add_argument("--run", metavar="NAME|DIR", help="the run (default: new from netlist, else the latest)")
+    command.add_argument("--instance", action="append", dest="instances", metavar="I", help="a name, label or digest")
+    command.add_argument("--pdk", action="append", choices=runner.PDKS, dest="pdks", metavar="P")
+    # a Spectre X run holds 3 of the server's 120 licences: 36 at once leaves others theirs
+    command.add_argument("--workers", type=int, default=36)
+    command.add_argument("--predict", action="store_true", help="print what would run, run nothing")
+    return command
+
+
+def opt_parser() -> argparse.ArgumentParser:
+    """The optimizer's arguments (``python -m flow opt <block> ...``)."""
+    from importlib.util import find_spec
+
+    from flow.sweep import runner
+
     text = "optimize the block over its parameters for one of its problems (its opt.py)"
-    command = commands.add_parser("opt", help=text, description=text)
-    command.add_argument("block", choices=[block for block in pipeline_blocks() if _has_opt(block)])
+    command = argparse.ArgumentParser(prog="python -m flow opt", description=text)
+    command.add_argument("block", choices=[b for b in pipeline_blocks() if find_spec(f"flow.{b}.opt") is not None])
     command.add_argument("--problem", required=True, help='a problem by its label, as "adc(bits=12)"')
     command.add_argument("--pdk", choices=runner.PDKS, default="tsmc65")
     command.add_argument("--budget", type=int, default=500, help="trials in the study, those before included")
@@ -171,97 +549,52 @@ def parser() -> argparse.ArgumentParser:
         "--finalists", type=int, metavar="N", help="characterize the study's N best feasible designs in full"
     )
     command.add_argument("--table", action="store_true", help="export the study as the viewer's table, run none")
-    return verbs
+    return command
 
 
-def _has_opt(block: str) -> bool:
-    """Whether a block on the pipeline gives optimization problems (an opt.py)."""
-    from importlib.util import find_spec
+def optimize(argv: list[str]) -> None:
+    """``python -m flow opt``: one of a block's problems searched (``flow.opt.runner``)."""
+    from flow.opt import runner as opt
 
-    return find_spec(f"flow.{block}.opt") is not None
-
-
-def verb(argv: list[str]) -> None:
-    """Run one verb (``parser``)."""
-    from flow.sweep import runner
-
-    args = parser().parse_args(argv)
-    if args.verb == "opt":
-        from flow.opt import runner as opt
-
-        if args.table:
-            print(opt.table(args.block, args.pdk, args.problem, args.workers))
-        elif args.best:
-            for entry in opt.best(args.block, args.pdk, args.problem)[: args.best]:
-                print(entry)
-        elif args.finalists:
-            for entry in opt.finalize(args.block, args.pdk, args.problem, args.finalists, args.workers):
-                print(entry)
-        else:
-            print(opt.optimize(args.block, args.pdk, args.problem, args.budget, args.workers))
-        return
-    if args.verb == "page":
-        from flow.web.page import newest, page
-
-        if args.run_dir:
-            print(page(args.run_dir))
-            return
-        if not args.instances:
-            raise SystemExit("a page takes --instance (its name or digest) or --run-dir")
-        written = []
-        for pdk in args.pdks or runner.PDKS:
-            for name in args.instances:
-                try:
-                    written.append(page(newest(args.block, pdk, name)))
-                except LookupError:  # not laid out in this PDK
-                    continue
-        if not written:
-            raise SystemExit(f"no layout of {', '.join(args.instances)} under build/{args.block}/layout/")
-        print(*written, sep="\n")
-        return
-    pdks = tuple(args.pdks or runner.PDKS) if args.verb != "table" else runner.PDKS
-    if args.verb == "run":
-        from flow import pipeline
-
-        level = pipeline.Level[args.level.upper()]
-        if level is pipeline.Level.CIRCUIT and not args.instances:
-            raise SystemExit("--level circuit runs the circuit simulator: pick the instances (--instance I ...)")
-        runner.run([args.block], pdks, args.workers, failed=args.missing, names=args.instances, level=level)
-    elif args.verb == "table":
-        runner.table([args.block], args.workers)
-    elif args.verb == "plot":
-        for path in __import__("flow.plot", fromlist=["figures"]).figures(
-            args.block,
-            args.sources,
-            args.figures,
-            backend=args.backend,
-            pdks=args.pdks or (),
-            instances=args.instances or (),
-            priors=args.priors,
-        ):
-            print(path)
-    elif args.list:
-        for pdk in pdks:
-            for ident, (label, _params) in runner.labelled_space(args.block, pdk).items():
-                print(pdk, ident, label)
-    elif not args.instances:
-        if args.block not in pipeline_blocks():
-            raise SystemExit(
-                f"{args.block} has no characterization runs to lay out: pick instances with --instance "
-                f"(a name, a label or a digest; python -m flow layout {args.block} --list prints them)"
-            )
-        runner.layout([args.block], args.workers, pdks=pdks, pex=not args.no_pex, redo=args.redo)
+    args = opt_parser().parse_args(argv)
+    if args.table:
+        print(opt.table(args.block, args.pdk, args.problem, args.workers))
+    elif args.best:
+        for entry in opt.best(args.block, args.pdk, args.problem)[: args.best]:
+            print(entry)
+    elif args.finalists:
+        for entry in opt.finalize(args.block, args.pdk, args.problem, args.finalists, args.workers):
+            print(entry)
     else:
-        layout_instances(
-            args.block,
-            args.instances,
-            pdks,
-            auto=args.auto,
-            plan_only=args.plan,
-            quiet=args.quiet,
-            signoff=args.signoff,
-            pex=not args.no_pex,
-        )
+        print(opt.optimize(args.block, args.pdk, args.problem, args.budget, args.workers))
+
+
+def usage() -> None:
+    """The commands, the steps (each with those it needs) and the blocks on the pipeline."""
+    for line in (__doc__ or "").splitlines():
+        if line.startswith("    python -m flow"):
+            print(line.strip())
+    print("steps:")
+    for step in Step:
+        print(f"  {step}{f' (needs {", ".join(map(str, step.needs))})' if step.needs else ''}")
+    print(f"blocks: {', '.join(pipeline_blocks())}")
+
+
+def main(argv: list[str] | None = None) -> None:
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv:
+        usage()
+    elif argv[0] == "opt":
+        optimize(argv[1:])
+    elif argv[0] == "web.serve":
+        from flow.web import server
+
+        server.serve(8765, "127.0.0.1")
+    else:
+        steps(parser().parse_args(argv))
+
+
+# ---------------------------------------------------------------- the layout steps' helpers
 
 
 def layout_instances(
@@ -341,13 +674,13 @@ def layout_instances(
                         )
                 except RuntimeError as error:  # a failed signoff: reported, the other instances laid out
                     failed.append(f"{block} {name} in {pdk}: {_reason(out) or error}")
-                _record(block, pdk, ident, params, out, time.monotonic() - started, name)
+                _layout_record(block, pdk, ident, params, out, time.monotonic() - started, name)
                 _page(out)
     if failed:
         raise SystemExit(f"{len(failed)} of the layouts failed signoff:\n" + "\n".join(failed))
 
 
-def _record(block: str, pdk: str, ident: str, params, out: Path, seconds: float, name: str) -> None:
+def _layout_record(block: str, pdk: str, ident: str, params, out: Path, seconds: float, name: str) -> None:
     """A laid-out instance's record for the viewer's table (``flow table``), ``out/instance.json``,
     as a characterization run writes one: its parameters, no metrics, and its layout (GDS, netlist,
     size, signoff), so a block laid out before it is characterized shows its layouts. ``name``: the
@@ -445,30 +778,7 @@ def plan_design(block: str, params, pdk: str, out_dir: Path, design: str) -> tup
     return out_dir / "netlist" / f"{design}.sp", source, input_dir
 
 
-def main() -> None:
-    if len(sys.argv) < 2:
-        for line in (__doc__ or "").splitlines():
-            if line.startswith("    python -m flow "):
-                print(line.strip())
-        print(f"(blocks on the pipeline: {', '.join(pipeline_blocks())})")
-        for block in BLOCKS:
-            try:
-                module = block_targets(block)
-            except ImportError as error:
-                print(f"{block}: does not import ({error})")
-                continue
-            for name in targets(module):
-                print(f"{block}.{name}")
-        return
-    if sys.argv[1] in VERBS:
-        verb(sys.argv[1:])
-        return
-    block, _, name = sys.argv[1].rpartition(".")
-    module = block_targets(block) if block in BLOCKS else None
-    if module is None or name not in targets(module):
-        raise SystemExit(f"no target {sys.argv[1]}: python -m flow lists them")
-    targets(module)[name]()
-
-
 if __name__ == "__main__":
-    main()
+    # the module by its name, not as __main__: the jobs it sends its spawned workers name their
+    # functions by its module, which a worker imports (it never runs a package's __main__)
+    import_module("flow.__main__").main()
