@@ -166,6 +166,20 @@ def test_a_later_step_takes_the_latest_run_or_the_one_named(flow, toy, capsys) -
         flow("--from", "record", "--to", "record", "--run", "nothing")
 
 
+def test_a_reused_run_keeps_to_its_own_pdks(flow, toy, monkeypatch, capsys) -> None:
+    """A later step works in the PDKs its run holds, its instances picked or not; a new run in every
+    PDK the block admits."""
+    monkeypatch.setattr(runner, "PDKS", ("toypdk", "otherpdk"))
+    flow("--to", "record", "--predict")
+    assert [line.split()[0] for line in capsys.readouterr().out.splitlines()[1:3]] == ["toypdk", "otherpdk"]
+    flow("--to", "netlist", "--pdk", "toypdk", "--run", "mine")
+    capsys.readouterr()
+    for picked in ((), ("--instance", "one")):
+        flow("--from", "sim", "--to", "record", "--predict", *picked)
+        lines = capsys.readouterr().out.splitlines()
+        assert lines[1].startswith("toypdk one") and lines[2].startswith("1 instance in 1 PDK")
+
+
 def test_predict_prints_what_would_run_and_runs_nothing(flow, toy, capsys) -> None:
     flow("--to", "record", "--predict")
     out = capsys.readouterr().out.splitlines()

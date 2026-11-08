@@ -270,10 +270,10 @@ def _body(step: Step):
 
 def run_steps(job: Job) -> list[str]:
     """The job's steps on its instance, in order, in this (fresh) process: each skipped where its
-    output is complete (``done``), failed where what it needs is missing (``_missing``), else run;
-    a failure ends the instance's steps, and one of its characterization records the failure as its
-    record (``flow.sweep.runner.failed_record``), so the viewer's table shows it. Each step's
-    outcome, a line each."""
+    output is complete (``done``), failed where what it needs is missing (``_missing``), else run.
+    A failure ends the instance's steps; a characterization step's (netlist, sim, record) is also
+    the instance's record (``flow.sweep.runner.failed_record``), so the viewer's table shows it.
+    Each step's outcome, a line each."""
     from flow.sweep import runner
 
     outcomes = []
@@ -345,7 +345,7 @@ def _pdks(block: str, names: list[str] | None, given: list[str] | None, run: Pat
 
     if given:
         return list(given)
-    if reused and not names:
+    if reused:
         return [pdk for pdk in runner.PDKS if (run / pdk).is_dir()]
     found = []
     for pdk in runner.PDKS:
