@@ -242,11 +242,16 @@ def test_a_run_of_some_pdks_keeps_the_others_from_the_run_before(tmp_path: Path,
     monkeypatch.setattr(runner, "DATA_DIR", tmp_path / "web/data/sweep")
     assert runner.newest_run("toy").name == runner.newest_run("toy", "tsmc65").name == "20261021_000000"
     assert runner.newest_run("toy", "ihp130").name == "20261020_000000"
-    assert {pdk: run.name for pdk, run in runner.pdk_runs("toy").items()} == {
-        "ihp130": "20261020_000000",
-        "tsmc65": "20261021_000000",
+    records, sources = runner.newest_records("toy")
+    assert [(record["pdk"], record["metrics"]["delay_s"]) for record in records] == [
+        ("ihp130", 3e-10),
+        ("tsmc65", 2e-10),
+    ]
+    assert {run.name: pdks for run, pdks in sources.items()} == {
+        "20261020_000000": {"ihp130"},
+        "20261021_000000": {"tsmc65"},
     }
-    # the table: each PDK's newest run
+    # the table: each instance's newest record
     runner.table(["toy"], 1)
     data = json.loads((tmp_path / "web/data/sweep/toy.json").read_text())
     assert {row["pdk"]: row["metrics"]["delay_s"] for row in data["rows"]} == {"tsmc65": 2e-10, "ihp130": 3e-10}

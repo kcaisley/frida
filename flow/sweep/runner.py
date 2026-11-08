@@ -31,6 +31,7 @@ from importlib import import_module
 from importlib.util import find_spec
 from multiprocessing import get_context
 from pathlib import Path
+from typing import Any
 
 from flow.sweep import flat_params
 
@@ -380,14 +381,46 @@ def newest_run(block: str, pdk: str | None = None) -> Path:
     return runs[-1]
 
 
-def pdk_runs(block: str) -> dict[str, Path]:
-    """Each PDK's newest run of the block (``newest_run``), the PDKs in name order."""
-    runs = {}
-    for run in sorted(_runs(block), key=run_time, reverse=True):
-        for pdk in run.iterdir():
-            if pdk.is_dir():
-                runs.setdefault(pdk.name, run)
-    return dict(sorted(runs.items()))
+def newest_records(block: str, first: Path | None = None) -> tuple[list[dict[str, Any]], dict[Path, set[str]]]:
+    """Each of the block's instances' newest record across its runs (``first``'s ahead of the
+    others where given), as ``flow.sweep.lookup`` finds one: the newest that characterizes it (its
+    metrics, or its failure), the layout of a newer record of its layout alone joined to it; a
+    record of its layout alone where none characterizes it. A run of some PDKs or instances alone,
+    or of a layout alone, so leaves the others' records from the runs before. A pipeline block's
+    instances since left out of its design are left out (on disk still, and for the models'
+    lookup). The records, by PDK then digest, and the runs they came from, each with its PDKs."""
+    runs = sorted(_runs(block), key=run_time, reverse=True)
+    if first is not None:
+        runs = [first, *(run for run in runs if run != first)]
+    pipelined = find_spec(f"flow.{block}") is not None and hasattr(import_module(f"flow.{block}.sweep"), "runs")
+    current: dict[str, set[str]] = {}
+    chosen: dict[tuple[str, str], tuple[int, dict[str, Any]]] = {}
+    layouts: dict[tuple[str, str], tuple[int, dict[str, Any]]] = {}
+    for rank, run in enumerate(runs):
+        for pdk in sorted(path.name for path in run.iterdir() if path.is_dir()):
+            if pipelined and pdk not in current:
+                try:
+                    current[pdk] = _current(block, pdk)
+                except (LookupError, ModuleNotFoundError):  # a kit this checkout lacks
+                    current[pdk] = set()
+            for ident, folder in instance_dirs(run, pdk).items():
+                key = (pdk, ident)
+                if key in chosen or (pipelined and ident not in current[pdk]):
+                    continue
+                record = json.loads((folder / "instance.json").read_text())
+                if not record["metrics"] and record["error"] is None:  # a record of its layout alone
+                    layouts.setdefault(key, (rank, record))
+                else:
+                    chosen[key] = (rank, record)
+    for key, (rank, record) in layouts.items():
+        if key not in chosen:
+            chosen[key] = (rank, record)
+        elif rank < chosen[key][0] and (record.get("layout") or {}).get("gds"):
+            chosen[key] = (chosen[key][0], {**chosen[key][1], "layout": record["layout"]})
+    sources: dict[Path, set[str]] = {}
+    for (pdk, _ident), (rank, _record) in chosen.items():
+        sources.setdefault(runs[rank], set()).add(pdk)
+    return [chosen[key][1] for key in sorted(chosen)], sources
 
 
 def instance_dirs(run: Path, pdk: str) -> dict[str, Path]:
@@ -481,8 +514,8 @@ def _current(block: str, pdk: str) -> set[str]:
 
 
 def table(blocks: list[str], workers: int, run: Path | None = None) -> None:
-    """The viewer's table of each block's newest run in each PDK (``run`` for the PDKs it ran in,
-    where given), and one detail file per instance."""
+    """The viewer's table of each block's instances, each by its newest record (``newest_records``:
+    ``run``'s first, where given), and one detail file per instance."""
 
     from flow import pipeline
     from flow.web.export import BLOCKS
@@ -494,29 +527,18 @@ def table(blocks: list[str], workers: int, run: Path | None = None) -> None:
     catalog = {block: entry for block, entry in catalog.items() if block in sweep_blocks() or block in blocks}
     with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as pool:
         for block in blocks:
-            # each PDK's newest run: a run of some PDKs alone keeps the others' rows from the run before
-            runs = pdk_runs(block)
-            if run is not None:
-                runs.update({pdk.name: run for pdk in run.iterdir() if pdk.is_dir()})
-            if not runs:
-                raise FileNotFoundError(f"no sweep run of {block} in {RUNS_DIR / block}")
-            paths = sorted(
-                (path for pdk, run in runs.items() for path in (run / pdk).glob("*/instance.json")),
-                key=lambda path: path.parts[-3:],  # by PDK, then digest
-            )
-            records = [json.loads(path.read_text()) for path in paths]
-            # a block on the pipeline shows its design as it is: a run's instances since left out of
-            # it stay on disk (and for the models' lookup), not in the table
-            if find_spec(f"flow.{block}") and hasattr(import_module(f"flow.{block}.sweep"), "runs"):
-                current = {pdk: _current(block, pdk) for pdk in runs}
-                records = [entry for entry in records if entry["id"].split("__")[-1] in current[entry["pdk"]]]
+            # each instance's newest record: a run of some PDKs or instances alone keeps the others'
+            # rows from the runs before
+            records, sources = newest_records(block, run)
+            if not records:
+                raise FileNotFoundError(f"no record of {block} in {RUNS_DIR / block}")
             # the run, or each run with the PDKs it gives where they differ
             run_name = (
-                max(runs.values()).name
-                if len(set(runs.values())) == 1
+                next(iter(sources)).name
+                if len(sources) == 1
                 else ", ".join(
-                    f"{run.name} ({', '.join(pdk for pdk, of in runs.items() if of == run)})"
-                    for run in sorted(set(runs.values()), reverse=True)
+                    f"{source.name} ({', '.join(sorted(sources[source]))})"
+                    for source in sorted(sources, key=run_time, reverse=True)
                 )
             )
             (DATA_DIR / block).mkdir(parents=True, exist_ok=True)
