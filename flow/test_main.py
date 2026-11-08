@@ -42,7 +42,7 @@ def test_the_bare_command_prints_the_usage_the_steps_and_the_blocks(capsys) -> N
     cli.main([])
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].startswith("python -m flow <block> --to STEP")
-    assert "  record (needs sim)" in lines and "  page (needs record, pex)" in lines
+    assert "  record (needs netlist, sim)" in lines and "  page (needs record, pex)" in lines
     assert lines[-1] == f"blocks: {', '.join(cli.pipeline_blocks())}"
     assert {"adc", "capdac", "comp", "samp"} <= set(cli.pipeline_blocks())
 
@@ -197,6 +197,57 @@ def test_predict_prints_what_would_run_and_runs_nothing(flow, toy, capsys) -> No
     assert out[1] == "toypdk one (one): record" and out[2].endswith(
         "2 complete, about 0 simulator runs; then the table"
     )
+
+
+def test_predict_marks_the_steps_that_would_fail_and_why(flow, toy, capsys) -> None:
+    """A step whose inputs are neither complete nor made first would fail: ``--predict`` says so,
+    with the command that makes them, and the steps after it not run; the totals count them."""
+    flow("--to", "netlist", "--run", "mine")
+    capsys.readouterr()
+    flow("--from", "record", "--to", "figures", "--predict")
+    lines = capsys.readouterr().out.splitlines()
+    command = "python -m flow toyblock --to sim --run mine --pdk toypdk --instance one"
+    assert lines[1] == (
+        f"toypdk one (one): record (fails: record needs its sim step's output: {command}), "
+        "figures (fails: not run, as record fails)"
+    )
+    assert lines[2] == "1 instance in 1 PDK: 0 steps to run, 2 would fail, 0 complete, about 0 simulator runs"
+
+
+def test_a_run_from_before_run_json_keeps_its_time_when_reused(flow, toy, capsys) -> None:
+    """A run without ``run.json`` (its time its name's stamp) reused by ``--run`` gains none: it does
+    not become the block's latest run."""
+    flow("--to", "sim", "--run", "mine")
+    old = runner.RUNS_DIR / "toyblock" / "20261101_015731"
+    shutil.copytree(runner.RUNS_DIR / "toyblock" / "mine", old)
+    (old / "run.json").unlink()
+    assert runner.newest_run("toyblock").name == "mine"
+    flow("--from", "record", "--to", "record", "--run", "20261101_015731")
+    assert "resumed run" in capsys.readouterr().out and (old / "toypdk/one/instance.json").exists()
+    assert not (old / "run.json").exists() and runner.newest_run("toyblock").name == "mine"
+
+
+def test_the_table_takes_each_instances_newest_record_across_the_runs(flow, tools, monkeypatch) -> None:
+    """A newer run of a layout alone does not hide the records of the runs before: the table keeps
+    each instance's newest characterization, the newer layout joined to it."""
+    data = runner.RUNS_DIR / "web/data/sweep"
+    monkeypatch.setattr(runner, "DATA_DIR", data)
+    flow("--to", "record", "--run", "a")
+    flow("--to", "layout", "--run", "b", "--instance", "one")
+    flow("--to", "layout", "--run", "c", "--instance", "wired")
+    flow("--from", "table", "--to", "table")
+    table = json.loads((data / "toyblock.json").read_text())
+    rows = {row["id"]: row for row in table["rows"]}
+    one, wired = (runner.instance_id("toypdk", build()) for build in _named("one", "wired"))
+    assert set(rows) == {one, wired} and rows[one]["metrics"]["read_full"] is True and rows[wired]["metrics"] == {}
+    detail = json.loads((data / "toyblock" / f"{one}.json").read_text())
+    assert detail["layout"]["gds"].endswith("b/toypdk/one/layout/toy.gds")
+    assert table["run"] == "c (toypdk), a (toypdk)"
+
+
+def _named(*names: str):
+    sweep = importlib.import_module("flow.toyblock.sweep")
+    return [getattr(sweep, name) for name in names]
 
 
 def test_a_step_without_its_inputs_fails_naming_the_command_that_makes_them(flow, toy, capsys) -> None:
@@ -448,6 +499,28 @@ def test_a_plan_reads_back_as_written(tmp_path) -> None:
         assert read_plan(write_plan(plan, tmp_path / "signoff.json")) == plan
     finally:
         del sys.modules["toykit_options"]
+
+
+def test_a_layout_made_again_that_fails_leaves_its_signoff_steps_not_run(flow, tools, monkeypatch, capsys) -> None:
+    """Make's rule through a failure: a layout deleted, or made again and failed, leaves the steps
+    after it incomplete (their outputs of a GDS no longer there), not run, and none of their
+    results joined to the record."""
+    flow("--to", "pex", "--run", "mine", "--instance", "wired")
+    instance = _instance("mine").with_name("wired")
+    assert cli.done(instance, Step.PEX)
+    shutil.rmtree(instance / "layout")
+    assert not cli.done(instance, Step.DRC) and not cli.done(instance, Step.PEX)
+    layout = importlib.import_module("flow.toyblock.layout")
+    monkeypatch.setattr(layout, "lay_out", lambda params, pdk, run_dir: (_ for _ in ()).throw(RuntimeError("no room")))
+    capsys.readouterr()
+    tools.calls.clear()
+    with pytest.raises(SystemExit, match="1 of 1 instances failed"):
+        flow("--from", "layout", "--to", "pex")
+    out = capsys.readouterr().out
+    assert "layout failed: RuntimeError: no room, drc not run, lvs not run, pex not run" in out and not tools.calls
+    assert not any(cli.done(instance, step) for step in (Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX))
+    entry = json.loads((instance / "instance.json").read_text())["layout"]
+    assert entry["error"] and entry["drc_violations"] is None and entry["lvs_correct"] is None and entry["pex"] is None
 
 
 def test_a_layout_without_an_lvs_source_is_checked_by_drc_alone(flow, tools, capsys) -> None:

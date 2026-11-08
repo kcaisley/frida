@@ -14,16 +14,18 @@ signoff a kit takes), never a flag here. The steps make a small graph, each afte
     record, pex -> page
 
 ``--to`` runs the steps that lead from ``--from`` (``netlist`` by default) to it, both included:
-``--to record`` simulates and records, ``--from record --to record`` analyses again what ``sim``
-kept, ``--to lvs`` lays out and signs off without extraction. ``circuit`` adds the circuit
-simulator's runs of a block whose full characterization is behavioral (the ADC's Spectre runs) and
-records again; it takes picked instances alone. ``figures`` draws a record's figures, or, over a
-``--run DIR`` of the lab's captures, the figures the block's analyses make of them. ``layout`` runs
-the block's own ``lay_out`` where it has a ``layout.py`` (its own signoff and extraction, where it
-ran them, the drc, lvs and pex steps'), else ALIGN through the shared step; ``drc``, ``lvs`` and
-``pex`` run the checker the kit names (``flow.layout.signoff.checker``: the open tools, else
-Calibre) on its GDS. ``page`` writes the instance's page from whatever of its record and layout
-exists.
+``--to record`` simulates and records, ``--to lvs`` lays out and signs off without extraction,
+``--from table --to table`` exports what the runs hold; with ``record/`` deleted, ``--from record
+--to record`` analyses again what ``sim`` kept. ``circuit`` adds the circuit simulator's runs of a
+block whose full characterization is behavioral (the ADC's Spectre runs) and records again; it
+takes picked instances alone. ``figures`` draws a record's figures, or, over a ``--run DIR`` of the
+lab's captures, the figures the block's analyses make of them. ``layout`` runs the block's own
+``lay_out`` where it has a ``layout.py`` (with the signoff it plans, FRIDA-1's Calibre:
+``flow.layout.signoff.write_plan``), else ALIGN through the shared step (its netlists and
+constraints too: the netlist step's edge to it only orders them); ``drc``, ``lvs`` and ``pex``
+run, each in its folder, that plan, else the checker the kit names
+(``flow.layout.signoff.checker``: the open tools, else Calibre), on its GDS. ``page`` writes the
+instance's page from whatever of its record and layout exists.
 
 A run is ``build/<block>/<run>/``, each instance in ``<pdk>/<name>/`` there (a named instance by its
 name, a grid's by its digest), a folder a step: ``netlist/``, ``sim/<run>/``, ``circuit/<run>/``,
@@ -84,8 +86,10 @@ class Step(Enum):
                 return ()
             case Step.SIM | Step.LAYOUT:
                 return (Step.NETLIST,)
-            case Step.CIRCUIT | Step.RECORD:
+            case Step.CIRCUIT:
                 return (Step.SIM,)
+            case Step.RECORD:
+                return (Step.NETLIST, Step.SIM)
             case Step.FIGURES | Step.TABLE:
                 return (Step.RECORD,)
             case Step.DRC:
@@ -166,14 +170,18 @@ def _ended(out: Path, step: Step) -> dict | None:
 
 def done(out: Path, step: Step) -> bool:
     """Whether the step's output on this instance is complete: it ended without error, after each
-    step it needs that has ended, each of those complete too (make's rule: made again where what it
-    was made from, or what that was made from, is newer)."""
+    step it needs ended without error, each of those complete too (make's rule: made again where
+    what it was made from, or what that was made from, is newer, failed or gone). The page shows
+    whatever exists: complete unless a step it shows ended after it."""
     ended = _ended(out, step)
     if ended is None:
         return False
+    if step is Step.PAGE:
+        shown = (_marker(out, need) for need in step.ancestors - {step})
+        return all(json.loads(path.read_text())["finished"] <= ended["finished"] for path in shown if path.exists())
     for need in step.needs:
         made = _ended(out, need)
-        if made is not None and (made["finished"] > ended["finished"] or not done(out, need)):
+        if made is None or made["finished"] > ended["finished"] or not done(out, need):
             return False
     return True
 
@@ -477,12 +485,12 @@ def run_steps(job: Job) -> list[str]:
     outcomes: list[str] = []
     failed: set[Step] = set()
     for step in job.steps:
-        if done(job.out, step):
-            outcomes.append(f"{step} done")
-            continue
         if failed & step.ancestors and step is not Step.PAGE:
             failed.add(step)
             outcomes.append(f"{step} not run")
+            continue
+        if done(job.out, step):
+            outcomes.append(f"{step} done")
             continue
         missing = _missing(job, step)
         if missing:
@@ -580,26 +588,37 @@ def instances(block: str, pdk: str, names: list[str] | None, run: Path, reused: 
     if names:
         picked = runner.select(block, pdk, names)
     elif reused:
-        picked = {}
-        folders = (run / pdk).iterdir() if (run / pdk).is_dir() else ()
-        for folder in sorted(path for path in folders if path.is_dir()):
-            try:
-                picked |= runner.select(block, pdk, [folder.name])
-            except LookupError:
+        folders = sorted(path for path in (run / pdk).iterdir() if path.is_dir()) if (run / pdk).is_dir() else []
+        known = set(named) | set(runner.labelled_space(block, pdk))
+        for folder in folders:
+            if folder.name not in known:
                 print(f"{folder}: not in {block}'s design any more, left out")
+        picked = runner.select(block, pdk, [folder.name for folder in folders if folder.name in known])
     else:
         picked = runner.labelled_space(block, pdk)
     return {(label if label in named else ident): (label, params) for ident, (label, params) in picked.items()}
 
 
-def _pending(job: Job) -> list[Step]:
+def _pending(job: Job) -> tuple[list[Step], dict[Step, str]]:
     """The job's steps that would run: each whose output is not complete, or that needs one that
-    would run (made again after it)."""
+    would run (made again after it); and those of them that would fail, with why: what they need
+    neither complete nor to run (``_missing``), or a step they need that would fail (not run; the
+    page, which takes whatever exists, excepted)."""
     pending: list[Step] = []
+    failing: dict[Step, str] = {}
     for step in job.steps:
-        if not done(job.out, step) or any(need in pending for need in step.needs):
-            pending.append(step)
-    return pending
+        if done(job.out, step) and not any(need in pending for need in step.needs):
+            continue
+        pending.append(step)
+        if step is Step.PAGE:
+            shown = (Step.RECORD, Step.LAYOUT)
+            if not any(done(job.out, s) or (s in pending and s not in failing) for s in shown):
+                failing[step] = _missing(job, step) or "page needs the record or the layout"
+        elif any(need in failing for need in step.needs):
+            failing[step] = f"not run, as {next(need for need in step.needs if need in failing)} fails"
+        elif any(need not in pending and not done(job.out, need) for need in step.needs):
+            failing[step] = _missing(job, step) or "a step it needs is not complete"
+    return pending, failing
 
 
 def _simulations(job: Job, pending: list[Step]) -> int:
@@ -655,7 +674,7 @@ def steps(args: argparse.Namespace) -> None:
     if args.predict:
         _predict(jobs, chosen)
         return
-    if found == "new" or not (run / "run.json").exists():
+    if found == "new":  # a run from before run.json keeps its time, its name's stamp
         runner.new_run(args.block, run_dir=run)
     failures = _run_jobs(jobs, args.workers) if jobs[0].steps else []
     if Step.TABLE in chosen:
@@ -686,7 +705,9 @@ def _capture_figures(block: str, run: Path, predict: bool) -> None:
     from flow import plot
 
     print(f"{block}: captures {run}; step figures")
-    if done(run, Step.FIGURES):
+    ended = _ended(run, Step.FIGURES)
+    # make's rule over the captures: drawn again where one is newer than the figures
+    if ended is not None and all(path.stat().st_mtime <= ended["finished"] for path in plot.capture_files(run)):
         print("figures done")
         return
     if predict:
@@ -732,20 +753,26 @@ def _run_jobs(jobs: list[Job], workers: int) -> list[str]:
 
 
 def _predict(jobs: list[Job], chosen: list[Step]) -> None:
-    """Each job's pending steps (``_pending``) and simulator runs, a line each, then the totals."""
-    total_steps = total_runs = complete = 0
+    """Each job's pending steps (``_pending``: those that would fail marked, with why) and
+    simulator runs, a line each, then the totals."""
+    total_steps = total_runs = complete = total_failing = 0
     for job in jobs:
-        pending = _pending(job)
-        runs = _simulations(job, pending)
-        total_steps += len(pending)
+        pending, failing = _pending(job)
+        runs = _simulations(job, [step for step in pending if step not in failing])
+        total_steps += len(pending) - len(failing)
+        total_failing += len(failing)
         total_runs += runs
         complete += len(job.steps) - len(pending)
-        shown = ", ".join(map(str, pending)) or "nothing (complete)"
+        shown = (
+            ", ".join(f"{step} (fails: {failing[step]})" if step in failing else str(step) for step in pending)
+            or "nothing (complete)"
+        )
         print(f"{job.pdk} {job.name} ({job.label}): {shown}{f'; {_count(runs, "simulator run")}' if runs else ''}")
     pdks = len({job.pdk for job in jobs})
     table = "; then the table" if Step.TABLE in chosen else ""
+    fails = f", {total_failing} would fail" if total_failing else ""
     print(
-        f"{_count(len(jobs), 'instance')} in {_count(pdks, 'PDK')}: {_count(total_steps, 'step')} to run, "
+        f"{_count(len(jobs), 'instance')} in {_count(pdks, 'PDK')}: {_count(total_steps, 'step')} to run{fails}, "
         f"{complete} complete, about {_count(total_runs, 'simulator run')}{table}"
     )
 
@@ -765,13 +792,15 @@ def parser() -> argparse.ArgumentParser:
     words = [str(step) for step in Step]
     command = argparse.ArgumentParser(prog="python -m flow", description=(__doc__ or "").split("\n\n")[0])
     command.add_argument("block", choices=pipeline_blocks(), help="a block on the pipeline")
-    command.add_argument("--to", required=True, choices=words, metavar="STEP", help="the last step to run")
-    command.add_argument("--from", dest="start", default="netlist", choices=words, metavar="STEP")
+    shown = ", ".join(words)
+    command.add_argument("--to", required=True, choices=words, metavar="STEP", help=f"the last step: {shown}")
+    command.add_argument("--from", dest="start", default="netlist", choices=words, metavar="STEP", help="the first")
     command.add_argument("--run", metavar="NAME|DIR", help="the run (default: new from netlist, else the latest)")
     command.add_argument("--instance", action="append", dest="instances", metavar="I", help="a name, label or digest")
     command.add_argument("--pdk", action="append", choices=runner.PDKS, dest="pdks", metavar="P")
-    # a Spectre X run holds 3 of the server's 120 licences: 36 at once leaves others theirs
-    command.add_argument("--workers", type=int, default=36)
+    # a Spectre X run holds 3 of the server's 120 licences: 36 at once leaves others theirs (an
+    # ALIGN layout a core and some GB each: 36 fit the server too)
+    command.add_argument("--workers", type=int, default=36, help="instances at once (default: 36)")
     command.add_argument("--predict", action="store_true", help="print what would run, run nothing")
     return command
 
