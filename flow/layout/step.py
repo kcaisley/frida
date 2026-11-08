@@ -84,8 +84,8 @@ def extracted(
     (``net_texts``) or KLayout's name, each pair's capacitance and each net's to ground) to a
     block's parasitics' accuracy (``tolerance``, 5 %: their relative sizes, which a Monte Carlo
     varies), or by the kit's extractor (``Checker.CALIBRE``). Its netlist and extractor; KLayout-PEX's
-    also its nets and capacitors, their total and the nets' own capacitances (to everything else),
-    largest first. Raises where the extraction fails."""
+    also its nets' probes (``flow.layout.kpex``), its nets and capacitors, their total and the nets'
+    own capacitances (to everything else), largest first. Raises where the extraction fails."""
     from flow.layout.kpex import Extractor
     from flow.layout.signoff import run_layout_pex
 
@@ -114,6 +114,7 @@ def extracted(
     LOG.info(f"PEX: {len(nets)} nets, {count} capacitors, {total * 1e15:.4g} fF in all ({netlist})")
     return {
         "netlist": str(netlist),
+        "probes": str(netlist.with_name(f"{name}.probes.json")),
         "extractor": f"KLayout-PEX (FasterCap, {tolerance:.0%})",
         "nets": nets,
         "capacitors": count,

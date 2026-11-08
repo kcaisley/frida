@@ -12,7 +12,9 @@ slabs' in series, as the field between levels crosses them); and runs the extrac
 subprocess: ``kpex_extract.py``), FasterCap (``FASTERCAP``) at ``TOLERANCE`` and ``MESH`` with
 Galerkin's scheme. Each net's capacitance to infinity counts to ground, as an extractor's infinite
 substrate plane has it. The result is a Spectre netlist of capacitors by the layout's net names, as
-the kits' extractors write theirs, so one parser reads either.
+the kits' extractors write theirs, so one parser reads either; beside it each net's probes
+(``<stem>.probes.json``: points on its shapes), by which ``flow.layout.annotate`` finds it in an LVS
+database.
 
     uv run python -m flow.layout.kpex stack <ict> PO=poly M1=metal1 ...   # a PDK's stack.json, printed
 """
@@ -241,6 +243,7 @@ def run_layout_pex(
         **joins,
         "out_dir": str(work),
         "netlist": str(netlist),
+        "probes": str(netlist.with_name(f"{output_stem}.probes.json")),
         "fastercap": str(FASTERCAP),
         "tolerance": tolerance,
         "texts": [list(text) for text in texts],

@@ -11,7 +11,9 @@ the netlist to write. The layout's nets are found by KLayout (each conductor joi
 to the conductors above and below it, each label naming the net under it), kpex turns them into
 FasterCap's model, and FasterCap's Maxwell matrix becomes a Spectre netlist of capacitors between the
 nets by their labels, a net's capacitance to infinity (its row sum) to ground, ``0``, as an
-extractor whose substrate is an infinite plane counts it.
+extractor whose substrate is an infinite plane counts it. Beside it (``spec["probes"]``), each net's
+probes: points on a few of its shapes, each with its conductor's GDS pair, by which an LVS database
+finds the net among its own (``flow.layout.annotate``).
 """
 
 import json
@@ -63,13 +65,31 @@ def nets(spec: dict) -> kdb.LayoutToNetlist:
     return l2n
 
 
+def probes(l2n: kdb.LayoutToNetlist, spec: dict, count: int = 4) -> dict[str, list[list[int]]]:
+    """Each net's probes, by its name as the netlist gives it: up to ``count`` points, each inside
+    one of its shapes (the conductors in the spec's order), as its conductor's GDS layer and
+    datatype and the point's x and y in database units."""
+    found: dict[str, list[list[int]]] = {}
+    for net in l2n.netlist().top_circuit().each_net():
+        points = found.setdefault(net.expanded_name(), [])
+        for name, pairs in spec["layers"].items():
+            # a point inside each shape: the centre of one of its trapezoids (a comb's own is outside it)
+            for polygon in l2n.shapes_of_net(net, l2n.layer_by_name(name), True).each():
+                centre = polygon.decompose_trapezoids()[0].bbox().center()
+                if len(points) < count and polygon.inside(centre):
+                    points.append([*pairs[0], centre.x, centre.y])
+    return found
+
+
 def main(path: str) -> None:
     spec = json.loads(Path(path).read_text())
     out = Path(spec["out_dir"])
     out.mkdir(parents=True, exist_ok=True)
     tech = TechInfo.from_json(spec["tech"], dielectric_filter=None)
+    l2n = nets(spec)
+    Path(spec["probes"]).write_text(json.dumps(probes(l2n, spec)) + "\n")
     context = KLayoutExtractionContext.prepare_extraction(
-        lvsdb=nets(spec), top_cell=spec["top"], tech=tech, blackbox_devices=False
+        lvsdb=l2n, top_cell=spec["top"], tech=tech, blackbox_devices=False
     )
     builder = FasterCapInputBuilder(
         pex_context=context,
