@@ -18,8 +18,8 @@ Each launch gets a fresh revision-pinned snapshot under the supplied work root
 and a local build/remote/<session>/ record. ``inputs`` adds explicit build inputs
 (e.g. signed-off PEX directories), never an old simulation campaign or a venv.
 The detached worker runs focused tests, the block's Spectre diagnostic (skips
-are failures), then the instances' circuit runs (``python -m flow run <block> --instance I ...
---level circuit``, a fresh run of the snapshot's ``build/<block>/``). A detached *local* tmux
+are failures), then the instances' circuit runs (``python -m flow <block> --to circuit --instance I
+...``, a fresh run of the snapshot's ``build/<block>/``). A detached *local* tmux
 collector checks every 30 minutes and copies the run's records, results and logs when the whole
 run exits, including failures; its figures are then ``python -m flow plot <block> --from`` it.
 Neither host may power off; SSH outages are retried by the collector. Resume
@@ -115,7 +115,7 @@ def _snapshot_files(root: Path, inputs: list[str], pdk: str) -> list[str]:
 def _worker_script(remote_dir: str, block: str, instances: Sequence[str], pdk: str, setup: str | None) -> str:
     """Only shell plumbing: the focused tests of ``block`` (its sim's and sweep's), its Spectre
     diagnostic (the ADC's: each top's checks), then its circuit simulator's runs of ``instances``
-    in ``pdk`` (``python -m flow run <block> --level circuit``) into a fresh run of the snapshot."""
+    in ``pdk`` (``python -m flow <block> --to circuit``) into a fresh run of the snapshot."""
     node = (
         "flow/adc/test_sim.py::test_each_top_passes_spectres_checks"
         if block == "adc"
@@ -130,7 +130,7 @@ def _worker_script(remote_dir: str, block: str, instances: Sequence[str], pdk: s
         "assert not any(int(x.get(k,0)) for x in s for k in ('skipped','failures','errors')), "
         "'diagnostic must pass without skips'"
     )
-    run = ["uv", "run", "--frozen", "python", "-m", "flow", "run", block, "--pdk", pdk]
+    run = ["uv", "run", "--frozen", "python", "-m", "flow", block, "--to", "circuit", "--pdk", pdk]
     run += [part for instance in instances for part in ("--instance", instance)]
     return "\n".join(
         [
@@ -152,7 +152,7 @@ def _worker_script(remote_dir: str, block: str, instances: Sequence[str], pdk: s
             f"uv run --frozen pytest {focused}",
             f"uv run --frozen pytest -m spectre {shlex.quote(node)} --junitxml=build/remote/preflight.xml",
             f"uv run --frozen python -c {shlex.quote(gate)}",
-            shlex.join([*run, "--level", "circuit"]),
+            shlex.join(run),
             "",
         ]
     )
@@ -179,7 +179,7 @@ def launch(
     root: Path = ROOT,
 ) -> Path:
     """Snapshot, diagnose, run detached and collect automatically: the circuit simulator's runs of
-    ``instances`` of ``block`` (named instances or digests, ``python -m flow run <block> --level
+    ``instances`` of ``block`` (named instances or digests, ``python -m flow <block> --to
     circuit``) on the trusted SSH ``host`` in a fresh snapshot under ``work_root`` (an existing
     absolute worker directory), after sourcing ``setup`` (an absolute shell environment script on
     the worker); ``pdk`` names

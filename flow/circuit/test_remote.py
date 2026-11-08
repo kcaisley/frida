@@ -143,8 +143,8 @@ def test_launch_uses_existing_target_and_detached_collector(repository, monkeypa
     script = (campaign / "run.sh").read_text()
     # the instances' circuit runs, after the converter's own Spectre check of each top
     assert (
-        "uv run --frozen python -m flow run adc --pdk tsmc65 --instance frida1_1layer_radix17 "
-        "--instance frida1_2layer_radix20 --level circuit"
+        "uv run --frozen python -m flow adc --to circuit --pdk tsmc65 --instance frida1_1layer_radix17 "
+        "--instance frida1_2layer_radix20"
     ) in script
     assert "flow/adc/test_sim.py::test_each_top_passes_spectres_checks" in script
     assert record["instances"] == ["frida1_1layer_radix17", "frida1_2layer_radix20"]
