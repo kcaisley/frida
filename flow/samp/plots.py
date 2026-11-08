@@ -1,7 +1,7 @@
 """The sampler's figures as ``Plot`` specs (``flow.pipeline.Plot``), each from analysis results alone:
 a characterization's condition sweeps, over the input level and over the supply (the record's
 plots). The viewer draws a record's from its JSON, ``flow.plot.render`` any with matplotlib
-(``python -m flow plot samp``)."""
+(the CLI's figures step)."""
 
 from __future__ import annotations
 

@@ -4,7 +4,7 @@ the lab captures' S-curves, offset and noise (its noise and offset over the comm
 record's own specs, so a campaign and a characterization overlay as instances), and the comparator
 inside a converter: its output's edges in the bench's scope records and a simulation's latches over
 each decision. The viewer draws a record's from its JSON, ``flow.plot.render`` any with matplotlib
-(``python -m flow plot comp``)."""
+(the CLI's figures step)."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def plot_metastability(metastability: AnalysisMetastability) -> Plot:
 def plot_noise_cm(common_mode: AnalysisCommonMode) -> Plot:
     """The input-referred noise over the common mode (NaN where an S-curve gave no valid fit): a
     characterization's S-curves (``sweep.record``), or a lab campaign's captures, each common mode's
-    (``python -m flow plot comp noise_cm --from <captures>``)."""
+    (``python -m flow comp --from figures --to figures --run <captures>``)."""
     return Plot(
         name="noise_cm",
         title="Input-referred noise over the common mode",

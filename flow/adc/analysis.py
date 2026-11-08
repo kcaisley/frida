@@ -475,7 +475,7 @@ def analyze_ramp(
     tb = measurement.tb
     source = tb.vin_diff
     if not isinstance(source, h.Vpwl.Params):
-        # a capture of another input (not a wrong argument): ``flow plot --from`` passes it by
+        # a capture of another input (not a wrong argument): the figures step over captures passes it by
         raise ValueError("ADC ramp analysis requires a PWL differential-input source")  # noqa: TRY004
     # The PWL source repeats after its last time point.
     if isinstance(source.wave, str):
@@ -2162,7 +2162,7 @@ def analyze_calibration3(measurement: MeasAdc, *, ramp: AnalysisRamp) -> Analysi
     """
 
     if not isinstance(measurement.tb.vin_diff, h.Vpwl.Params):
-        # a capture of another input (not a wrong argument): ``flow plot --from`` passes it by
+        # a capture of another input (not a wrong argument): the figures step over captures passes it by
         raise ValueError("ADC threshold calibration requires a PWL differential-input source")  # noqa: TRY004
     identity = measurement.identity
     check_identity(ramp, identity, name="ramp")

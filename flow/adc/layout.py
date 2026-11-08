@@ -1,4 +1,4 @@
-"""The ADC's own layout flow (``lay_out``, which the layout verbs run in place of ALIGN's,
+"""The ADC's own layout flow (``lay_out``, which the layout step runs in place of ALIGN's,
 docs/pipeline.md): a fabricated FRIDA-1 converter's tape-out layout, signed off and extracted; any
 other converter's blocks side by side, unconnected, until OpenROAD and ALIGN place and route them
 together.
@@ -11,7 +11,7 @@ recognizes them, and ``<array>.pins.json``, its pins to the fabricated macro's: 
 macro's pin 15). The GDS gains MOM recognition only; nothing on a mask layer changes. LVS reads the
 source netlist with the array's source swapped in, PEX the source netlist without the array (its
 capacitors are extracted). ``lay_out`` signs it off itself (``flow.layout.signoff.run_signoff``: its
-``signoff_summary.json``, which the layout verbs record as it is): LVS correct for the one-layer
+``signoff_summary.json``, which the drc, lvs and pex steps take as theirs): LVS correct for the one-layer
 flavors, the historical disconnected MOM layer of the two-layer ones accepted.
 
 Any other converter's blocks side by side: the comparator, the samplers and each side of the DAC as
@@ -20,7 +20,7 @@ capdac's array of the converter's ``capdac.Params``, its drivers with it, the N 
 image. Each block is outlined and labelled on the boundary layer, which the viewer shows, and its
 place written beside the GDS (``blocks.json``). Nothing is connected, so DRC alone signs it off.
 
-    gds = lay_out(params, "tsmc65", run_dir)  # python -m flow layout adc --instance <name>
+    gds = lay_out(params, "tsmc65", run_dir)  # python -m flow adc --to pex --pdk tsmc65 --instance <name>
 """
 
 from __future__ import annotations

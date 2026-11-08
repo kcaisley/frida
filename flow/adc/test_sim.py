@@ -54,7 +54,7 @@ _catalogue = tuple(Recipe)[:-1]
 
 
 def _entry(path: Path, *, lvs_correct: bool = True, warnings: tuple[str, ...] = (), sha256=None) -> dict:
-    """A layout entry signed off by its own ``lay_out`` (``flow.layout.step.lay_out_one``'s) whose
+    """A layout entry signed off by its own ``lay_out`` (the layout steps' record of it) whose
     extraction is ``path``."""
     return {
         "gds": "unused.gds",

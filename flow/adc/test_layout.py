@@ -132,7 +132,7 @@ def test_the_blocks_sit_side_by_side_in_one_labelled_cell(tmp_path: Path) -> Non
     except (FileNotFoundError, LookupError) as error:
         pytest.skip(f"the blocks are not laid out: {error}")
 
-    # nothing connected: no LVS source, so the layout verbs check its DRC alone
+    # nothing connected: no LVS source, so the drc step checks it alone
     assert gds == tmp_path / "adc_blocks.gds" and not (tmp_path / "source.cdl").exists()
     blocks = json.loads((tmp_path / "blocks.json").read_text())
     names = [block["name"] for block in blocks]

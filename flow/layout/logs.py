@@ -5,7 +5,7 @@ logging, a logger a module (``flow.layout.step``, ``flow.netlist`` ...), each li
 ``calibre.drc`` ...), its output streamed a line at a time as it writes it, all of it into the
 tool's own log file beside its results.
 
-    python -m flow layout capdac --instance 9a5e63c5482c --pdk tsmc65   # console() first
+    with instance_log(out / "layout" / "step.log"): ...   # a layout step's log (flow.__main__)
 """
 
 from __future__ import annotations

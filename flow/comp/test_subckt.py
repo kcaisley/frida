@@ -261,8 +261,8 @@ def test_the_dynamic_bias_capacitors() -> None:
 
 
 def test_the_named_instances() -> None:
-    """``python -m flow layout comp --instance NAME [--auto]`` lays out these, each by the shared
-    layout step (``flow.layout.step.layout_one``) as its generator places it, or by ALIGN alone."""
+    """``python -m flow comp --to layout --instance NAME`` lays out these, each by the shared
+    layout step (``flow.layout.step.lay_out_align``) as its generator places it."""
     assert set(pipeline.names(sweep)) == {
         "frida1",
         "strongarm",

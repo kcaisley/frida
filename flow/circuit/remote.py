@@ -21,7 +21,7 @@ The detached worker runs focused tests, the block's Spectre diagnostic (skips
 are failures), then the instances' circuit runs (``python -m flow <block> --to circuit --instance I
 ...``, a fresh run of the snapshot's ``build/<block>/``). A detached *local* tmux
 collector checks every 30 minutes and copies the run's records, results and logs when the whole
-run exits, including failures; its figures are then ``python -m flow plot <block> --from`` it.
+run exits, including failures; its figures are then ``python -m flow <block> --from figures --to figures --run`` it.
 Neither host may power off; SSH outages are retried by the collector. Resume
 collection with ``collect(campaign, watch=True)`` if the local session was lost.
 No simulation is automatically restarted and no remote files are deleted.

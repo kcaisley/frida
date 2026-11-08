@@ -15,12 +15,11 @@ Everything they produce goes to `build/layout/comp/<target>/<timestamp>/`.
   row cell (an inverter), each in a row of its own, hand-written per PDK.
 - `comparison.md` — notes from evaluating cIcCreator, laygo and ALIGN.
 
-The comparator layout runner (`flow/comp/layout.py`) builds them, and floorplans from ALIGN's
-placement, with all three tools and signs each layout off:
+The comparator's layouts are the CLI's layout steps (ALIGN through the shared layout step, then
+DRC, LVS and PEX), as its generator places them:
 
 ```bash
-uv run python -m flow layout comp --instance frida1          # this floorplan, in all six PDKs
-uv run python -m flow layout comp --instance c040 --auto     # a floorplan from ALIGN's placement
+uv run python -m flow comp --to pex --instance frida1        # in all six PDKs
 ```
 
 The netlists come from the generator (`flow/comp/subckt.py`), compiled for the PDK exactly as for

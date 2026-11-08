@@ -88,7 +88,7 @@ FIGURES = (
     "reference_noise",
     "reference_r_out",
 )
-# the figures only the lab studies draw (``python -m flow plot adc --from``, the scans' tests), after the record's
+# the figures only the lab studies draw (the figures step over captures, the scans' tests), after the record's
 LAB_FIGURES = (
     "transfer",
     "ramp_transfer",
@@ -693,7 +693,7 @@ def test_a_simulated_conversions_rail_power_and_its_sequencer(tmp_path: Path, mo
         assert plt.imread(png).shape[:2] == (2700, 4800)
 
 
-# ---- the lab studies as ``python -m flow plot adc <figure> --from <runs>``: a campaign's captures,
+# ---- the lab studies as ``python -m flow adc --from figures --to figures --run <run>``: a campaign's captures,
 # each board and channel's, made into its figures by the analyses as they chain
 
 
