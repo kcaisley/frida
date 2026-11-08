@@ -150,10 +150,12 @@ class Handler(SimpleHTTPRequestHandler):
 
 def serve(port: int, host: str) -> None:
     """Serve the viewer on ``host:port`` until interrupted; the sweep tables must exist (a block's
-    table step, ``python -m flow <block> --to table``)."""
+    table step over the records its runs hold, ``python -m flow <block> --from table --to table``)."""
 
     if not (DATA_DIR / "sweep/catalog.json").exists():
-        raise SystemExit(f"no sweep tables in {DATA_DIR / 'sweep'}: run `python -m flow <block> --to table` first")
+        raise SystemExit(
+            f"no sweep tables in {DATA_DIR / 'sweep'}: run `python -m flow <block> --from table --to table` first"
+        )
     try:
         server = ThreadingHTTPServer((host, port), functools.partial(Handler, directory=str(STATIC_DIR)))
     except OSError as error:

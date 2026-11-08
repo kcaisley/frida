@@ -1,7 +1,7 @@
 """The layout flow's log, kept as ALIGN keeps its own (``align/config/logging.ini``): Python's
 logging, a logger a module (``flow.layout.step``, ``flow.netlist`` ...), each line
 ``name LEVEL : message`` on the console (coloured, as ALIGN's) and with its time in an instance's
-``flow.log``. A tool the flow runs (gdscheck, Calibre) logs under a name of its own (``gdscheck``,
+step's log (``<step>/step.log``). A tool the flow runs (gdscheck, Calibre) logs under a name of its own (``gdscheck``,
 ``calibre.drc`` ...), its output streamed a line at a time as it writes it, all of it into the
 tool's own log file beside its results.
 
@@ -46,7 +46,7 @@ def console(level: int = logging.INFO) -> None:
 
 @contextmanager
 def instance_log(path: Path) -> Iterator[None]:
-    """Every record logged meanwhile also in ``path`` (an instance's ``flow.log``), with its time."""
+    """Every record logged meanwhile also in ``path`` (an instance's ``<step>/step.log``), with its time."""
     path.parent.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(path, mode="w", encoding="utf-8")
     handler.setFormatter(logging.Formatter(FILE_FORMAT, DATE))
