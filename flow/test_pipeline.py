@@ -136,7 +136,7 @@ def _problems(block: str) -> set[str]:
     # its files: FILES, OPTIONAL, __init__.py, readme.md, test_<file>.py; a targets.py named for
     # what replaced it
     known = {*FILES, *OPTIONAL}
-    replaced = {"targets": "a block on the pipeline has no targets.py: the CLI's verbs run it"}
+    replaced = {"targets": "a block on the pipeline has no targets.py: the CLI's steps run it"}
     for path in sorted(p for p in folder.iterdir() if p.is_file()):
         stem = path.stem
         if path.name in ("__init__.py", "readme.md") or path.suffix == ".py" and stem in known:
@@ -326,8 +326,8 @@ def _problems(block: str) -> set[str]:
         if not callable(entry) or list(_hints(entry).values()) != [Params, str, Path, Path]:
             problem("layout", "lay_out does not take the block's Params, a PDK and a run directory and return a Path")
 
-    # the block runs from the one entry point (``python -m flow <verb> <block>``): no targets of its
-    # own (above); and its code names no run and no input under build/ (a run is a verb's argument)
+    # the block runs from the one entry point (``python -m flow <block> --to STEP``): no targets of
+    # its own (above); and its code names no run and no input under build/ (a run is the CLI's argument)
     for path in sorted(folder.glob("*.py")):
         text = path.read_text()
         if RUN_ID.search(text):
@@ -522,7 +522,7 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
     }
     assert "badblock.types: Extra is not an Analysis<Thing> deriving pipeline.Analysis" in problems
     assert "badblock.sweep: module constant SIZES: a parameter's values belong to its grid" in problems
-    assert {"badblock.targets: a block on the pipeline has no targets.py: the CLI's verbs run it"} <= problems
+    assert {"badblock.targets: a block on the pipeline has no targets.py: the CLI's steps run it"} <= problems
     files = sorted({*FILES, *OPTIONAL})
     assert f"badblock.helpers: helpers.py is none of the block files {files}" in problems
     assert f"badblock.test_helpers: test_helpers.py is none of the block files {files}" in problems

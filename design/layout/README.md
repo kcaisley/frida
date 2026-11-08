@@ -21,7 +21,6 @@ placement, with all three tools and signs each layout off:
 ```bash
 uv run python -m flow layout comp --instance frida1          # this floorplan, in all six PDKs
 uv run python -m flow layout comp --instance c040 --auto     # a floorplan from ALIGN's placement
-uv run python -m flow layout.mos_inv                         # the single-device test
 ```
 
 The netlists come from the generator (`flow/comp/subckt.py`), compiled for the PDK exactly as for
