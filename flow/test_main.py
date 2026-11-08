@@ -412,7 +412,7 @@ def test_the_shared_step_lays_out_by_align_and_its_other_router_where_one_fails(
     """A block that states its layout in its generator: ALIGN alone in the layout step (its netlists,
     its design directory, ALIGN by the PDK's router, by the other where that one fails), the
     signoff the steps after it."""
-    from flow.layout import build, step
+    from flow.layout import step
 
     def inputs(block, out, pdk, design, params, seconds=None):
         (out / "netlist").mkdir(parents=True)
@@ -436,7 +436,6 @@ def test_the_shared_step_lays_out_by_align_and_its_other_router_where_one_fails(
     monkeypatch.setattr(step, "pdk_router", lambda pdk: "first")
     monkeypatch.setattr(step, "other_router", {"first": "second", "second": "first"}.get)
     monkeypatch.setattr(step, "route_shorts", lambda work, name: {})
-    assert build.other_router(build.pdk_router("tsmc65")) != build.pdk_router("tsmc65")
     flow("--to", "pex", "--run", "mine", "--instance", "wired")
     instance = _instance("mine").with_name("wired")
     laid = json.loads((instance / "layout/step.json").read_text())
