@@ -31,7 +31,7 @@ the sim step's runs again with the open extractor's capacitances back-annotated 
 a flat copy with the capacitors, ``flow.sweep.runner.simulate``) and records them alike, a record
 of its own beside the instance's (``pexsim/instance.json``: the same metric names, the
 annotation's totals); it refuses an extraction more than a small share of whose capacitance has no
-schematic net, and leaves an extraction with devices and RC (a kit's) to the block's own
+schematic net or one the DUT lacks, and testbenches none of which holds the DUT, and leaves an extraction with devices and RC (a kit's) to the block's own
 simulation of it (the ADC's circuit step). ``page`` writes the instance's page from whatever of
 its record and layout exists.
 
@@ -406,9 +406,17 @@ def _pexsim(job: Job) -> dict:
         raise RuntimeError(f"its extraction has no net probes (made before them): make it again, {made}")
     found = annotate.annotation(Path(extracted["netlist"]), Path(extracted["probes"]), Path(checked["lvs_report"]))
     runs = runner.runs_of(job.block, job.pdk, job.params)
+    for kept in (job.out / "pexsim").glob("*/annotation.json"):  # a failed pexsim's, kept to resume
+        if kept.stat().st_mtime < _marker(job.out, Step.PEX).stat().st_mtime:  # of an extraction since redone
+            (kept.parent / "result.h5").unlink(missing_ok=True)
+    began = time.monotonic()
     files = runner.simulate(job.block, job.pdk, runs, job.out / "pexsim", annotation=found)
+    ran = time.monotonic() - began
     added = {run: job.out / "pexsim" / run / "annotation.json" for run in runs}
     added = {run: json.loads(path.read_text()) for run, path in added.items() if path.exists()}
+    if not any(entry["instances"] for entry in added.values()):
+        dut = next((entry["dut"] for entry in added.values()), job.block)
+        raise RuntimeError(f"no testbench of {job.block} instantiates {dut} directly: nothing was back-annotated")
     summary = {
         **found.summary(),
         **next((entry for entry in added.values() if entry["instances"]), {}),
@@ -424,6 +432,7 @@ def _pexsim(job: Job) -> dict:
         label=job.label,
         name=job.name,
         netlist=job.out / "netlist" / f"{job.block}.cdl",
+        seconds=ran,
     )
     runner.write_record(job.out / "pexsim" / "instance.json", {**record, "annotation": summary})
     return {"runs": list(runs), **summary}

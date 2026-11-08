@@ -60,7 +60,6 @@ def netlist(params: Params) -> h.Module:
     toy = h.Module()
     toy.a = h.Port()
     toy.vss = h.Port(usage=h.Usage.GROUND)
-    toy.inner = h.Signal()
     toy.cdrawn = C(c=1e-15)(p=toy.a, n=toy.vss)
     return toy
 ''',

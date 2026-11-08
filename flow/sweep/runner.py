@@ -26,16 +26,19 @@ import shutil
 import time
 import traceback
 from concurrent.futures import ProcessPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from functools import cache
 from importlib import import_module
 from importlib.util import find_spec
 from multiprocessing import get_context
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from flow.sweep import flat_params
+
+if TYPE_CHECKING:
+    from flow.layout.annotate import Annotation
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNS_DIR = ROOT / "build"  # a block's runs: build/<block>/<run>/
@@ -221,15 +224,13 @@ def write_netlist(block: str, pdk: str, params, folder: Path) -> dict:
     return sizes
 
 
-def simulate(block: str, pdk: str, runs: dict, folder: Path, annotation=None) -> dict[str, Path]:
+def simulate(block: str, pdk: str, runs: dict, folder: Path, annotation: Annotation | None = None) -> dict[str, Path]:
     """Each of ``runs`` simulated in ``folder/<run>/`` (``sim.simulate``), read back (its
     ``sim.read`` where it has one, else ``flow.pipeline.read``) and kept as a measurement
     (``result.h5``, ``flow.analysis.io.write_measurement``), its raw file removed; a run whose
     measurement is kept already is not simulated again. With ``annotation`` (an extraction on the
     schematic's nets, ``flow.layout.annotate.Annotation``), each run's DUT carries its capacitors
     (``_back_annotated``). Each run's measurement file, by name."""
-    from contextlib import nullcontext
-
     import hdl21 as h
 
     from flow import pipeline
@@ -251,7 +252,7 @@ def simulate(block: str, pdk: str, runs: dict, folder: Path, annotation=None) ->
 
 
 @contextmanager
-def _back_annotated(block: str, tb, annotation, run_dir: Path):
+def _back_annotated(block: str, tb, annotation: Annotation, run_dir: Path):
     """While a run simulates, each testbench it compiles to the PDK (``hdl21.pdk.compile``, which
     every block's ``sim.simulate`` calls on its testbench before Spectre runs it) first has its DUT
     back-annotated: each of its instances of the block's module of ``tb.params``
@@ -270,6 +271,13 @@ def _back_annotated(block: str, tb, annotation, run_dir: Path):
         if duts:
             flat = _flattened(duts[0].of)
             entry.update(_add_capacitors(flat, annotation))
+            off = annotation.unmapped_f + sum(entry["unsimulated"].values())
+            if off > annotation.limit * annotation.total_f:
+                nets = ", ".join(f"{net} {c * 1e15:.3g} fF" for net, c in entry["unsimulated"].items())
+                raise ValueError(
+                    f"{off * 1e15:.4g} fF of the extraction's {annotation.total_f * 1e15:.4g} fF (over "
+                    f"{annotation.limit:.0%}) is on no net of {dut}, unmapped or unsimulated: {nets}"
+                )
             for inst in duts:
                 inst.of = flat
         if duts or not (run_dir / "annotation.json").exists():  # a run's other compiles keep its DUT's
@@ -302,7 +310,7 @@ def _flattened(module):
             return h.Concat(*(net(part) for part in connection.parts))
         name = connection.name.replace(":", "_")
         found = flat.ports.get(name, flat.signals.get(name))
-        return found if found is not None else flat.add(h.Signal(name=name, width=connection.width))
+        return found if found is not None else flat.add(h.Signal(width=connection.width), name=name)  # ty: ignore[unknown-argument]
 
     for signal in h.elaborate(module).signals.values():
         net(signal)
@@ -312,7 +320,7 @@ def _flattened(module):
     return flat
 
 
-def _add_capacitors(module, annotation) -> dict:
+def _add_capacitors(module, annotation: Annotation) -> dict[str, Any]:
     """The extraction's capacitors added to the DUT's flat ``module``, each between its nets (by
     name: a bus's bit as ``<bus>_<bit>``, as netlists write it; a net inside a cell by its path
     joined by ``_``, KLayout's ``.``; ground, ``0``, the module's ground port), less the module's
@@ -331,10 +339,10 @@ def _add_capacitors(module, annotation) -> dict:
     def named(net: str) -> str:
         return ground if net == "0" else net.replace(".", "_")
 
-    missing = sorted({named(net) for a, b, _c in annotation.capacitors for net in (a, b)} - set(nets))
-    if missing:
-        # the netlist LVS compared is not the one simulated
-        raise LookupError(f"the schematic's nets {', '.join(missing)} are not {module.name}'s")
+    summed: dict[tuple[str, ...], float] = {}  # a net's to ground (``0``) and to the ground port are one
+    for a, b, c in annotation.capacitors:
+        ends = tuple(sorted((named(a), named(b))))
+        summed[ends] = summed.get(ends, 0.0) + c
     drawn: dict[tuple[str, ...], float] = {}
     for instance in module.instances.values():
         if getattr(instance.of, "prim", None) is not IdealCapacitor:
@@ -346,14 +354,20 @@ def _add_capacitors(module, annotation) -> dict:
         ends = tuple(sorted(_net(instance.conns[terminal]) for terminal in ("p", "n")))
         drawn[ends] = drawn.get(ends, 0.0) + value
     added = taken = 0.0
-    for index, (a, b, c) in enumerate(annotation.capacitors):
-        ends = tuple(sorted((named(a), named(b))))
+    unsimulated: dict[str, float] = {}  # nets LVS compared that the simulated module lacks
+    for index, (ends, c) in enumerate(sorted(summed.items())):
+        if ends[0] == ends[1]:
+            continue
+        if absent := [net for net in ends if net not in nets]:
+            for net in absent:
+                unsimulated[net] = unsimulated.get(net, 0.0) + c
+            continue
         own = min(c, drawn.get(ends, 0.0))
-        if ends[0] != ends[1] and c > own:
+        if c > own:
             module.add(C(c=c - own)(p=nets[ends[0]], n=nets[ends[1]]), name=f"cpex_{index}")
             added += c - own
         taken += own
-    return {"added_f": added, "drawn_f": taken}
+    return {"added_f": added, "drawn_f": taken, "unsimulated": unsimulated}
 
 
 def _net(connection) -> str:

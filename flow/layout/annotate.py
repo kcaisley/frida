@@ -9,7 +9,10 @@ cell's net to its parent's through the cell's pins, and the schematic net LVS pa
 top. ``annotation`` reads the extraction's capacitors onto those nets: a capacitor with an end on a
 net that has none (a cell's inner net, one LVS paired with nothing) is left out and counted
 unmapped, one whose ends are one schematic net is shorted out, and those between the same two nets
-are summed; ground (``0``) stays ground.
+are summed; ground (``0``) stays ground. A cell's inner net is named by its path only where LVS is
+flat (the kits' decks); a hierarchical LVS's pinless inner net is unmapped, the climb ending there.
+Poly to substrate is taken as extracted (the device models' own capacitances are not taken off), and
+capacitance through a floating net (a dummy gate) is left out, not reduced in series.
 """
 
 from __future__ import annotations
@@ -27,12 +30,14 @@ from klayout import db
 class Annotation:
     """An extraction on the schematic's nets: its capacitors between schematic nets (lower case,
     ``0`` for ground), the extraction's total, the part on schematic nets (those shorted out too),
-    and the capacitance of each layout net with no schematic net (to everything)."""
+    the capacitance of each layout net with no schematic net (to everything), and the share of the
+    total those, and the nets the simulated DUT lacks (``flow.sweep.runner``), may reach."""
 
     capacitors: tuple[tuple[str, str, float], ...]
     total_f: float
     mapped_f: float
     unmapped: dict[str, float]
+    limit: float = 0.05
 
     @property
     def unmapped_f(self) -> float:
@@ -113,6 +118,7 @@ def annotation(netlist: Path, probes: Path, lvsdb: Path, limit: float = 0.05) ->
         total_f=total,
         mapped_f=mapped,
         unmapped=dict(sorted(unmapped.items(), key=lambda item: -item[1])),
+        limit=limit,
     )
     if result.unmapped_f > limit * total:
         nets = ", ".join(f"{net} {c * 1e15:.3g} fF" for net, c in result.unmapped.items())

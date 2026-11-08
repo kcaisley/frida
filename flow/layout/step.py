@@ -86,6 +86,7 @@ def extracted(
     varies), or by the kit's extractor (``Checker.CALIBRE``). Its netlist and extractor; KLayout-PEX's
     also its nets' probes (``flow.layout.kpex``), its nets and capacitors, their total and the nets'
     own capacitances (to everything else), largest first. Raises where the extraction fails."""
+    from flow.layout.annotate import capacitors
     from flow.layout.kpex import Extractor
     from flow.layout.signoff import run_layout_pex
 
@@ -98,19 +99,12 @@ def extracted(
         return {"netlist": str(netlist), "extractor": "the kit's (Calibre)"}
     netlist = run_layout_pex(pdk, gds, top, name, run_dir, tolerance=tolerance, texts=net_texts(gds))
     own: dict[str, float] = {}
-    count = 0
-    for line in netlist.read_text().splitlines():
-        found = re.match(r"\s*c_\d+\s*\(\s*(\S+)\s+(\S+)\s*\)\s*capacitor\s+c=([0-9.eE+-]+)f", line)
-        if found:
-            a, b, c_ff = found.group(1), found.group(2), float(found.group(3))
-            count += 1
-            for net in {a, b} - {"0"}:
-                own[net] = own.get(net, 0.0) + c_ff * 1e-15
+    found = capacitors(netlist)
+    for a, b, c in found:
+        for net in {a, b} - {"0"}:
+            own[net] = own.get(net, 0.0) + c
     nets = dict(sorted(own.items(), key=lambda item: -item[1]))
-    total = (
-        sum(float(found.group(1)) for found in re.finditer(r"capacitor\s+c=([0-9.eE+-]+)f", netlist.read_text()))
-        * 1e-15
-    )
+    count, total = len(found), sum(c for _a, _b, c in found)
     LOG.info(f"PEX: {len(nets)} nets, {count} capacitors, {total * 1e15:.4g} fF in all ({netlist})")
     return {
         "netlist": str(netlist),

@@ -668,6 +668,24 @@ def test_pexsim_refuses_an_extraction_mostly_on_no_schematic_net(flow, extractio
     assert not list((_instance("mine").with_name("wired") / "pexsim").glob("*/result.h5"))
 
 
+def test_pexsim_refuses_capacitance_on_nets_the_dut_lacks_or_no_dut(flow, extraction, capsys, monkeypatch) -> None:
+    """A schematic net LVS compared that the simulated DUT lacks counts against the same share as an
+    unmapped one; testbenches none of which instantiates the DUT annotate nothing and fail."""
+    import sys
+
+    extraction["$1"] = "nowhere"
+    with pytest.raises(SystemExit, match="1 of 1 instances failed"):
+        flow("--to", "pexsim", "--run", "mine", "--instance", "wired")
+    out = capsys.readouterr().out
+    assert "0.71 fF of the extraction's 3.71 fF (over 5%) is on no net of netlist(mode=1)" in out
+    assert "unmapped or unsimulated: nowhere 0.7 fF" in out
+    extraction["$1"] = "a"
+    monkeypatch.setattr(sys.modules["flow.toyblock.subckt"], "netlist", lambda params: type("M", (), {"name": "Other"}))
+    with pytest.raises(SystemExit, match="1 of 1 instances failed"):
+        flow("--from", "pexsim", "--to", "pexsim", "--run", "mine", "--instance", "wired")
+    assert "no testbench of toyblock instantiates Other directly" in capsys.readouterr().out
+
+
 def test_pexsim_leaves_an_extraction_with_devices_or_none_alone(toy, tmp_path) -> None:
     """An extraction with devices and RC (a kit's, a planned signoff's) is not back-annotated, nor a
     layout not extracted; one made before its nets' probes is refused with what makes it again."""
@@ -686,7 +704,9 @@ def test_pexsim_leaves_an_extraction_with_devices_or_none_alone(toy, tmp_path) -
 def test_the_dut_takes_a_flat_copy_with_the_capacitors_on_its_bits_and_its_cells_nets() -> None:
     """The DUT's flat copy names a cell's net by its path (``drive_n0``: no ``:``, which Spectre's
     names refuse) and keeps its ports and their usage; the capacitors join a bus's bit, a cell's net
-    (KLayout's ``drive.n0``) and ground (its ground port), less its own drawn between the same nets."""
+    (KLayout's ``drive.n0``) and ground (its ground port: a net's to ``0`` and to it one capacitor),
+    less its own drawn between the same nets, taken off once; a net it lacks is left out and
+    counted."""
     import io
 
     import hdl21 as h
@@ -706,14 +726,24 @@ def test_the_dut_takes_a_flat_copy_with_the_capacitors_on_its_bits_and_its_cells
     assert set(flat.signals) == {"drive_n0"} and set(flat.instances) == {"drive_r0", "drive_r1", "cdrawn"}
     assert flat.ports["vss"].usage == h.Usage.GROUND and flat.ports["bits"].width == 2
     found = Annotation(
-        capacitors=(("0", "out", 3e-15), ("bits_1", "drive.n0", 1e-16)), total_f=0, mapped_f=0, unmapped={}
+        capacitors=(
+            ("0", "out", 3e-15),
+            ("bits_1", "drive.n0", 1e-16),
+            ("out", "vss", 1e-15),
+            ("nowhere", "out", 2e-16),
+        ),
+        total_f=0,
+        mapped_f=0,
+        unmapped={},
     )
-    assert runner._add_capacitors(flat, found) == {"added_f": pytest.approx(1.1e-15), "drawn_f": pytest.approx(2e-15)}
+    added = runner._add_capacitors(flat, found)
+    assert added == {
+        "added_f": pytest.approx(2.1e-15),
+        "drawn_f": pytest.approx(2e-15),
+        "unsimulated": {"nowhere": pytest.approx(2e-16)},
+    }
     out = io.StringIO()
     h.netlist(flat, out, fmt="spectre")
     lines = [line for line in out.getvalue().splitlines() if "//" not in line]
     assert sum("( bits_1 drive_n0 )" in line for line in lines) == 2 and not any(":" in line for line in lines)
-    with pytest.raises(LookupError, match="the schematic's nets nowhere are not Top_pex's"):
-        runner._add_capacitors(
-            flat, Annotation(capacitors=(("0", "nowhere", 1e-15),), total_f=0, mapped_f=0, unmapped={})
-        )
+    assert sum("( out vss )" in line for line in lines) == 2  # the drawn one and the extraction's 2 fF more
