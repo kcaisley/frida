@@ -2,13 +2,13 @@
 
 ADC capacitor stages, comparator decisions, and output codes follow the [project-wide ADC convention](adc_conventions.md): C0 is the largest and first capacitor, B0..B16 are chronological decisions, and DOUT is the 12-bit result formed from all 17 decisions.
 
-`python -m flow` is the one entry point and lists what it runs. A block on the [pipeline](pipeline.md) (the comparator, the sampling switch, the capacitive DAC and the ADC) is run by verbs over its design space: `python -m flow run comp`, `layout comp`, `table comp` and `plot comp` (below), and the same for `samp`, `capdac` and `adc`. The other blocks' simulation, layout, extraction, analysis and sweep recipes are still targets until they move onto the pipeline: `python -m flow <block>.<target>` runs a public function without arguments in `flow/<block>/targets.py`; it makes its own fresh run directory under `build/` and calls the block's implementation, which takes that directory. Physical scans keep their own runner (`python -m flow.scans.<scan>`), and the file tools (`flow.util.netlist`, `flow.util.gds2image`, ...) are Python functions.
+`python -m flow` is the one entry point; bare, it prints its usage, its steps and the blocks it runs. A block on the [pipeline](pipeline.md) (the comparator, the sampling switch, the capacitive DAC and the ADC) is run by steps over its instances, `python -m flow <block> --to STEP [--from STEP]` ([Running a block](pipeline.md#running-a-block)): `python -m flow comp --to record` characterizes the comparator's design space, and the same for `samp`, `capdac` and `adc`. Each step is one tool, configured in its own Python files (the block's, the kit's), not by flags of the CLI. The optimizer keeps its command (`python -m flow opt <block> ...`) and the viewer its own (`python -m flow web.serve`). The blocks not yet on the pipeline wait for their port: their `targets.py` are no longer run by the CLI. Physical scans keep their own runner (`python -m flow.scans.<scan>`), and the file tools (`flow.util.netlist`, `flow.util.gds2image`, ...) are Python functions.
 
 There is no installed `flow` executable or separate build-system orchestration layer. Run commands from the repository root through `uv`, for example:
 
 ```bash
 uv run python -m flow
-uv run python -m flow run comp
+uv run python -m flow comp --to record --pdk tsmc65 --instance frida1
 ```
 
 Digital lint, simulation, synthesis, and implementation use their stock tools directly.
@@ -46,11 +46,11 @@ The sampling switch's four named instances (`frida1`, `tgate_dummy`, `nmos`, `bo
 
 The tools come from the environment: `ALIGN_HOME` (an ALIGN install with its own Python, default `/local/kcaisley/layout-eval/ALIGN-public` on juno and asiclab003) and `IHP_OPEN_PDK` (a full IHP-Open-PDK checkout for ihp130's KLayout decks). Each PDK's signoff provider, `pdk/<pdk>/signoff.py`, runs the gdscheck precheck and then Calibre (Assura for LF150 LVS, the KLayout decks for ihp130).
 
-## Circuit simulation targets
+## Circuit simulation
 
-ADC, comparator, sampler, and CDAC simulations use the same named-target interface; `python -m flow` lists the choices without generating or running anything.
+ADC, comparator, sampler, and CDAC simulations are the sim step of their blocks; `python -m flow <block> --to sim --predict` lists the instances and runs without generating or running anything.
 
-The building blocks' simulations are targets the same way. The comparator, the sampling switch and the capacitive DAC follow the [block pipeline](pipeline.md): their stage files from parameters to records, characterized instance by instance by the sweep runner (`python -m flow run comp`, `run samp`, `run capdac`). Each other block has one `<block>.characterization` campaign (`<block>_characterization` in its `sim.py`) that writes a typed measurement per point, in every PDK (`<run>/<pdk>/<case>/…/result.h5`); `uv run python -m flow <block>.characterization_study` analyzes a pinned campaign and writes its architecture-comparison figures per PDK to `build/analysis/<block>/<timestamp>/<pdk>/`.
+The comparator, the sampling switch and the capacitive DAC follow the [block pipeline](pipeline.md): their stage files from parameters to records, characterized instance by instance by the CLI's netlist, sim and record steps (`python -m flow comp --to record`, `samp`, `capdac`). The other blocks' characterization campaigns (`<block>_characterization` in their `sim.py`) wait for their port to the pipeline.
 
 Each target owns its reviewed parameter recipe. Short, noise-free Spectre diagnostics call the same simulation function with `check=True`, through pytest only (the ADC's: one check of each top, generated, tape-out and signoff, in `flow/adc/test_sim.py`):
 
@@ -65,51 +65,38 @@ Allow roughly one hour for the full Spectre suite on asiclab003; runtime depends
 
 The `spectre` group is excluded by default and requires no custom pytest flag. It covers the maintained ADC and building-block targets, and one short run of the comparator's pipeline (simulated and read). Artifacts and diagnostic reports remain beneath timestamped `build/diagnostics/` directories. Missing Spectre or an unavailable PDK installation skips with a reason; missing configured inputs, invalid decks, license failures, and simulator errors fail. Circuit-check findings remain available in reports; these diagnostics are not comprehensive circuit signoff. There are no CLI diagnostic flags, netlist-only modes, or separate check targets.
 
-## Circuit simulation
-
-The ADC's Spectre runs are its circuit level: each instance's `spice_*` runs (`flow/adc/sweep.py`'s `runs` at `--level circuit`), recorded with its behavioral ones in its sweep run's record, a candidate's and FRIDA-1's extractions' under the same names. Other blocks' simulation targets create a fresh run beneath `build/sim/<block>/<target>/<YYYYMMDD_HHMMSS>/`:
+The ADC's Spectre runs are its circuit step: each instance's `spice_*` runs (`flow/adc/sweep.py`'s `runs` at `Level.CIRCUIT` that its full ones are not), simulated into `circuit/<run>/` and recorded again with its behavioral ones in the instance's record, a candidate's and FRIDA-1's extractions' under the same names. The circuit step takes picked instances alone; in a run whose sim step is complete it simulates the circuit runs alone:
 
 ```bash
 # FRIDA-1's sizing generated, then its four fabricated converters on their extractions
-uv run python -m flow run adc --pdk tsmc65 --missing --instance frida1 --level circuit
-uv run python -m flow run adc --pdk tsmc65 --missing --instance frida1_1layer_radix17 --instance frida1_1layer_radix20 --instance frida1_2layer_radix17 --instance frida1_2layer_radix20 --level circuit
+uv run python -m flow adc --to circuit --pdk tsmc65 --instance frida1
+uv run python -m flow adc --to circuit --pdk tsmc65 --instance frida1_1layer_radix17 --instance frida1_1layer_radix20 --instance frida1_2layer_radix17 --instance frida1_2layer_radix20
 ```
 
 The ADC's runs are read by its own reader (`flow.adc.sim.read`: a Spectre run's transient decoded as conversions, a behavioral run's capture as written); the comparator's and the sampler's runs are read as measurements on the simulator's own time axis (`flow.pipeline.read`, [pipeline](pipeline.md)). A lab study names its accepted runs on the command line (`python -m flow plot adc <figure> --from <run>`, [flow/adc/readme.md](../flow/adc/readme.md)).
 
-Every executable target builds one native HDL21 `Sim` per parameter variant and calls `Sim.run()` or `hs.run()` with the timestamped output as the VLSIR run directory. ADC batches and the sweep's instances use isolated spawned processes, one Spectre thread each. The ADC converts the returned transient to typed HDF5 before releasing it. VLSIR retains the generated `netlist.scs` in every run directory, so a separate netlist-writing layer or target is unnecessary.
+Every simulation builds one native HDL21 `Sim` per parameter variant and calls `Sim.run()` or `hs.run()` with the run's folder (`sim/<run>/`) as the VLSIR run directory. ADC batches and the CLI's instances use isolated spawned processes, one Spectre thread each. The ADC converts the returned transient to typed HDF5 before releasing it. VLSIR retains the generated `netlist.scs` in every run directory, so a separate netlist-writing layer or target is unnecessary.
 
-Concurrency and each case's Spectre `+mt` setting are visible in the target which owns the campaign. Simulation targets require `spectre` on `PATH`; source `design/spice/workspace.sh` first when necessary.
+Concurrency and each case's Spectre `+mt` setting are visible in the block's `sim.py`, which owns its runs. Simulation targets require `spectre` on `PATH`; source `design/spice/workspace.sh` first when necessary.
 
 ## Design-space sweeps
 
-`flow.sweep` characterizes every block's design space: each `flow/<block>/sweep.py` gives its instances in each PDK as parameter values (a block on the pipeline as families, each the product of its knobs, and named instances, its `params.valid(params, pdk)` leaving out what does not work in a PDK; the others as `instances(pdk)`: their circuits' structures times four to eight sizes of their key devices). An instance is its parameters, nothing else: its id is `<pdk>__<digest>`, the digest the first 12 hex digits of the SHA-1 of its flat parameters, the same digest the behavioral models look a characterization up by. Each is characterized in a fresh process of its own (under five minutes; 36 at once by default: a Spectre X run holds 3 of the server's 120 licences):
+Each `flow/<block>/sweep.py` gives the block's design space in each PDK as grids and named instances (`flow.pipeline.grid`, `named`), its `params.valid(params, pdk)` leaving out what does not work in a PDK. An instance is its parameters, nothing else: its id is `<pdk>__<digest>`, the digest the first 12 hex digits of the SHA-1 of its flat parameters, the same digest the behavioral models look a characterization up by. Each instance runs its steps in a fresh process of its own (36 at once by default: a Spectre X run holds 3 of the server's 120 licences):
 
 ```sh
-uv run python -m flow sweep.run       # every block, every PDK, a fresh run (36 workers)
-uv run python -m flow sweep.missing   # each block's newest run's failed or missing instances, again
-uv run python -m flow sweep.layout    # ALIGN, signed off: area and density join the metrics; rerun to retry what is not clean
-uv run python -m flow sweep.tables    # the viewer's tables (also web.tables)
+uv run python -m flow comp --to record                             # a new run, every PDK the comparator admits
+uv run python -m flow comp --to record --pdk tsmc65 --instance frida1 --instance 'dynamic_bias(ratio=3.5, k=3)'
+uv run python -m flow comp --to record --run 20261108_101500       # that run resumed: what is complete skipped
+uv run python -m flow comp --from record --to table                # the latest run recorded again from its kept measurements, then tabled
+uv run python -m flow comp --to record --predict                   # what would run, and about how many simulator runs
 uv run python -m flow web.serve
 ```
 
-A block on the pipeline is run alone by its verbs:
+An instance is picked by name, by its label (`family(knob=value, ...)`, as the run's records hold it) or by its digest. `--from netlist` (the default) makes a new run, `build/<block>/<run>/` (named by `--run NAME`, else by its stamp); a later `--from` takes the block's latest run, or the one `--run` names, and the instances in it. A step skips an instance whose output is complete and not older than its inputs, so a run that stopped resumes; delete a step's folder, or start a new run, to make it again. The table and the behavioral models' lookup (`flow.sweep.lookup`) take, for each PDK, the newest run in it (`--to table`: the run itself for its PDKs); the models find an instance in the newest run that holds it.
 
-```sh
-uv run python -m flow run comp                                   # a fresh run, every PDK (36 workers)
-uv run python -m flow run comp --pdk tsmc65 --instance frida1 --instance 'dynamic_bias(ratio=3.5, k=3)'
-uv run python -m flow run comp --missing                         # the newest run's failed or missing instances
-uv run python -m flow layout comp                                # the newest run's instances by ALIGN
-uv run python -m flow table comp
-uv run python -m flow plot comp noise_cm --from build/comp/<run> --pdk tsmc65   # records' figures (PDF)
-uv run python -m flow plot comp noise_cm offset_cm --from build/scan_comp/<run>      # captures' figures
-```
+Each instance runs in `build/<block>/<run>/<pdk>/<name>/` (a named instance by its name, a grid's by its digest), a folder a step: `netlist/` (the circuit as simulated, `<block>.cdl`, and its size, `geometry.json`), `sim/<run>/` (each testbench run's simulator files and its kept measurement, `result.h5`), `circuit/<run>/`, `record/`, and beside them its record, `instance.json`: its id, name, label, parameters, its scalar metrics (its compiled netlist's size among them: its child cells where it has any, its devices and their area), its condition sweeps and the measurements whose waveforms the viewer shows. Each step's folder holds its `step.json` (when it finished, its seconds, its error). A step that fails records its error (a characterization's in `instance.json` too, so the table shows it) and is made again by the next command. The viewer (`flow/web`) shows a block's instances as one table and a scatter plot of any metric against any other, and each instance on a page of its own. Runs from before the steps (`<run>/<pdk>/<digest>/instance.json` alone) stay readable where they are.
 
-An instance is picked by name, by its label (`family(knob=value, ...)`, as the run's records hold it) or by its digest. `plot` draws with matplotlib, or with `--backend web` writes each figure's spec as the JSON the viewer draws. For another selection of blocks, PDKs or workers, call `flow.sweep.runner`'s `run`, `layout` and `table` from Python. A run of some PDKs alone replaces only those: the table and the behavioral models' lookup (`flow.sweep.lookup`) take each PDK's newest run of the block.
-
-Each instance writes `build/<block>/<run>/<pdk>/<digest>/instance.json`: its id, its parameters, its scalar metrics (its compiled netlist's size among them: its child cells where it has any, its devices and their area), its condition sweeps (over supply, common mode, load, frequency) and its transient measurements. `sweep.missing` runs the newest run's failed instances again. ALIGN places each instance by the hand-written floorplan of the block's named case with the same structure (`design/layout/<block>_<case>.json`, chosen by the parameters the block's `STRUCTURE` names; a minute or two) and, where it has none or that layout is not DRC clean and LVS correct, on its own (ten minutes or more). The viewer (`flow/web`) shows a block's instances as one table and a scatter plot of any metric against any other, and each instance on a page of its own.
-
-The PDK packages give each simulator what it reads: `Install.simulation_includes(corner, simulator, mismatch=False)`. `pdk/test_spice.py` loads every device and standard cell each package wraps in Spectre and ngspice (`-m site_pdk`); ngspice runs TSMC65, IHP130 and TPSC65. `flow.mosfet` characterizes every PDK's core devices in both (`python -m flow mosfet.characterization`, then `python -m flow mosfet.characterization_study`).
+The PDK packages give each simulator what it reads: `Install.simulation_includes(corner, simulator, mismatch=False)`. `pdk/test_spice.py` loads every device and standard cell each package wraps in Spectre and ngspice (`-m site_pdk`); ngspice runs TSMC65, IHP130 and TPSC65. `flow.mosfet` characterizes every PDK's core devices in both.
 
 ## Netlist conversion
 
@@ -230,7 +217,7 @@ The sampling noise (`adc.analyze_sampling_noise`, figure `sampling_noise`) compa
 
 Worker preflight uses these diagnostic tests: it checks the actual extracted port order and internal waveform nodes, generates the complete input, and runs short Spectre diagnostics. Require passing tests, not skipped prerequisites, before deploying a long campaign. Each case records its PEX SHA-256. A worker snapshot must include each fabricated flavor's signoff run (`build/adc/layout/<run>/`: its signoff summary and PEX netlist). Only the two historical two-layer targets may accept the explicitly recorded disconnect warning.
 
-A signoff run is its instance's newest standing layout (`flow.sweep.lookup.laid_out`), and each run checks its LVS verdict and its extraction's SHA-256 before it simulates. To replace it, lay the flavor out again (`python -m flow layout adc --instance <name>`) and review the new signoff run. `adc.simulate()` (`flow/adc/sim.py`) executes one run; the sweep's `runs` (`flow/adc/sweep.py`) own the experiment parameters, and the sweep runner the concurrent submission.
+A signoff run is its instance's newest standing layout (`flow.sweep.lookup.laid_out`), and each run checks its LVS verdict and its extraction's SHA-256 before it simulates. To replace it, lay the flavor out again (`python -m flow layout adc --instance <name>`) and review the new signoff run. `adc.simulate()` (`flow/adc/sim.py`) executes one run; the sweep's `runs` (`flow/adc/sweep.py`) own the experiment parameters, and the CLI's sim and circuit steps the concurrent submission.
 
 The standard sequence has a 100 ns active conversion window at a 1.6 GHz symbol rate, followed by padding to a 160 ns record. Thus “10 MS/s” describes the active timing, not a continuous 100 ns sampling interval. The analysis uses all 100 decision records and writes both B0-first 17-bit decisions and decoded 12-bit outputs. Run long campaigns in detached worker sessions and copy results back before selecting them for analysis.
 
@@ -257,7 +244,7 @@ launch(
 )
 ```
 
-The worker runs `python -m flow run <block> --pdk <pdk> --instance I ... --level circuit` into a fresh run of its snapshot, after the block's focused tests and its Spectre diagnostic (the ADC's: each top's Spectre checks). `block` defaults to `adc`; use `comp` or `samp` for the others. The fabricated converters' extractions come from the PDK's site (`site.FRIDA1`) and their layouts' signoff runs (`python -m flow layout adc --instance ...`), which `inputs` adds to the snapshot where the worker cannot see them. Analysis is a separate explicit `python -m flow plot`, not a collection hook. The selected PDK submodule defaults to `tsmc65`; foundry installations and absolute site inputs are not copied and must already be accessible on the trusted worker. No PDK data goes to public CI.
+The worker runs `python -m flow <block> --to circuit --pdk <pdk> --instance I ...` into a fresh run of its snapshot, after the block's focused tests and its Spectre diagnostic (the ADC's: each top's Spectre checks). `block` defaults to `adc`; use `comp` or `samp` for the others. The fabricated converters' extractions come from the PDK's site (`site.FRIDA1`) and their layouts' signoff runs (`python -m flow layout adc --instance ...`), which `inputs` adds to the snapshot where the worker cannot see them. Analysis is a separate explicit `python -m flow plot`, not a collection hook. The selected PDK submodule defaults to `tsmc65`; foundry installations and absolute site inputs are not copied and must already be accessible on the trusted worker. No PDK data goes to public CI.
 
 The worker parent directory must already exist. Each launch creates a fresh snapshot there from clean tracked source, dependencies, `uv.lock`, and explicit build inputs, without a `.git` directory, virtual environment, or old results. The remote tmux session installs from the lockfile, runs focused unit tests and the block's Spectre diagnostic, then the instances' circuit runs. Skipped diagnostics, missing inputs, and simulator/license errors prevent the full run. Existing Spectre processes owned by the same user also stop preflight; other users' resource use needs the manual review above.
 

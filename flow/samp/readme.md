@@ -8,7 +8,7 @@ The sampling switch is the second block on the [pipeline](../../docs/pipeline.md
 | Netlist tests | ✓ | [test_subckt.py](test_subckt.py) | The FRIDA-1 switch, the dummies' and the bootstrap's wiring, the designs the parameters refuse. Every instance's netlist can be hashed and compared by hand ([flow/netlist_hashes.py](../netlist_hashes.py)). |
 | Parameters | ✓ | [params.py](params.py) | `Params` (the design: the switch type, `SwitchType.BOOTSTRAP` the bootstrapped NMOS switch; sizes positive; a dummy only on a switch of two units or more, `__post_init__`), `STRUCTURE` (the parameters that pick a hand-written floorplan), and `TbParams`, one testbench run: the PDK, the design, the supply, the load, the input level and its step, the clock, the periods. The bench every switch is characterized on: into 1 pF (`LOAD_F`) at a 10 ns clock (5 ns tracking, 50 ps edges), six periods, a sample every 5 ps; the input levels and supplies swept. |
 | Testbench generator | ✓ | [sim.py](sim.py) | `testbench(TbParams)`: complementary clocks (tracking while `clk` is high), an input level and the load; with an input step the input toggles by it once per period in mid-hold, so every track phase settles from a known step. `simulate(tb, run_dir)`: one Spectre transient (`+preset=mx`, one thread) left on disk in nutbin: the ports and the supply current (`SAVES`) every 5 ps (`STROBE_S`), Spectre's step bounded to it. `flow.pipeline.read` reads it as a measurement, nothing resampled. |
-| Simulation runners | ✓ | [sweep.py](sweep.py) | `python -m flow run samp`: the sweep runner (`flow.sweep.runner`) characterizes each instance by its 14 runs (`runs`): the input stepping a twelfth of the supply at 1/12 to 11/12 of the supply (`vin_1` to `vin_11`), at mid-supply input at 90, 110 and 120 % of the supply; `record` gives its metrics and plots, about 30 s an instance. The `frida1_transient` reference and the four-switch `samp_characterization` retired with their resampled `MeasSamp` measurements: the families hold the switches and sizes, `--instance` runs any named one. |
+| Simulation runners | ✓ | [sweep.py](sweep.py) | `python -m flow samp --to record`: the CLI's netlist, sim and record steps (`flow.sweep.runner`) characterize each instance by its 14 runs (`runs`): the input stepping a twelfth of the supply at 1/12 to 11/12 of the supply (`vin_1` to `vin_11`), at mid-supply input at 90, 110 and 120 % of the supply; `record` gives its metrics and plots, about 30 s an instance. The `frida1_transient` reference and the four-switch `samp_characterization` retired with their resampled `MeasSamp` measurements: the families hold the switches and sizes, `--instance` runs any named one. |
 | Design space | ✓ | [sweep.py](sweep.py) | The grids and named instances below, 28 in each PDK. |
 | Analysis | ✓ | [analysis.py](analysis.py), [types.py](types.py) | From the runs' measurements: `analyze_track` (the track phase's time constant from its 1/e to its 1/e^2 point, the on-resistance into the load, the bandwidth, the track error), `analyze_hold` (pedestal, droop, input feedthrough); `metrics`, the record's numbers. In TSMC65 into 1 pF (run 20261026_010439): FRIDA-1's transmission gate 130–550 Ω (highest at mid-supply), the NMOS switch from 140 Ω to open above 0.7 V, the bootstrapped one 140–230 Ω at 32 units and 30–45 Ω at 160; pedestals within ±0.7 mV for the transmission gates, −2 mV for the NMOS switches at 32 units, growing with the width (−10 mV at 160). |
 | Plots | ✓ | [plots.py](plots.py) | `Plot` specs of a record's sweeps: the on-resistance, track error, pedestal and feedthrough over the input level, the on-resistance and pedestal over the supply. The viewer draws a record's; `python -m flow plot samp [FIGURE ...] --from <run>` draws any with matplotlib. |
@@ -24,10 +24,11 @@ The sampling switch is the second block on the [pipeline](../../docs/pipeline.md
 ## How to run
 
 ```sh
-uv run python -m flow run samp [--pdk P] [--instance I]          # characterize, into build/samp/<run>
-uv run python -m flow layout samp                                 # lay out the newest run's instances
-uv run python -m flow layout samp --instance frida1 [--auto]      # a named switch by ALIGN
-uv run python -m flow table samp                                  # the viewer's table
+uv run python -m flow samp --to record [--pdk P] [--instance I]    # characterize, into a new build/samp/<run>
+uv run python -m flow samp --from layout --to pex                 # lay out the latest run's instances, signed off
+uv run python -m flow samp --to lvs --instance frida1             # a named switch by ALIGN, without extraction
+uv run python -m flow samp --from table --to table                # the viewer's table of the latest run
+uv run python -m flow samp --to record --predict                  # what would run
 uv run python -m flow plot samp [FIGURE ...] --from DIR           # a run's figures
 ```
 

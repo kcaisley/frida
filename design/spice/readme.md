@@ -2,15 +2,15 @@
 
 ## Campaign interface
 
-Each circuit-level simulation module owns its reviewed campaigns in `flow/<module>/sim.py` (the ADC's in `flow/adc/sweep.py`), where `<module>` is `adc`, `comp`, `caparray`, or `samp`, and its targets in `flow/<module>/targets.py`. Run a named target with:
+Each block on the pipeline owns its reviewed runs in `flow/<block>/sweep.py` (`runs`) and their testbenches and simulation in `flow/<block>/sim.py`, where `<block>` is `adc`, `comp`, `capdac` or `samp`. The CLI's sim step simulates them:
 
 ```bash
-uv run python -m flow <module>.<target>
+uv run python -m flow <block> --to sim [--pdk P] [--instance I ...]
 ```
 
-`python -m flow` lists the available targets. Each target constructs complete typed testbench parameters and writes a new, timestamped run beneath `build/sim/<module>/<target>/<timestamp>/`; a target never overwrites a previous run. Every target uses the native HDL21 `Sim.run()` or `hs.run()` API with its timestamped output as the VLSIR run directory; VLSIR creates numbered subdirectories for batch inputs. ADC and comparator runners immediately convert the returned transient arrays to the shared typed HDF5 measurement format. The standalone sampler and CDAC targets do not yet perform that conversion; they execute the native transient and retain its raw output. Each generated deck, simulator log, and raw result therefore stays together.
+`python -m flow <block> --to sim --predict` lists the instances and their runs without running any. Each instance's run writes into its own folder of a run, `build/<block>/<run>/<pdk>/<name>/sim/<run>/`, made new by `--from netlist`; a run is never overwritten, only resumed where its output is incomplete. Every run uses the native HDL21 `Sim.run()` or `hs.run()` API with its folder as the VLSIR run directory. Its raw output is read as a typed measurement and kept as HDF5 (`result.h5`), then removed; each generated deck and simulator log stays beside it.
 
-Multi-case ADC and comparator targets state their concurrency and per-case Spectre `+mt` settings at the call sites which own that resource policy. Spectre jobs use `+lqtimeout 3600` so a temporarily exhausted license queue does not immediately fail a run. Analysis runners deliberately name accepted simulation run directories; creating new simulation data does not silently change analysis inputs.
+The blocks' `sim.py` state their concurrency and per-case Spectre `+mt` settings at the call sites which own that resource policy. Spectre jobs use `+lqtimeout 3600` so a temporarily exhausted license queue does not immediately fail a run. An analysis names its run (`--run`), or takes the latest and says which; creating new simulation data never changes an older run's inputs.
 
 ## Transient noise
 
