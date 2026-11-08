@@ -257,6 +257,12 @@ def test_a_run_of_some_pdks_keeps_the_others_from_the_run_before(tmp_path: Path,
     other.parent.mkdir(parents=True)
     other.write_text(json.dumps({"id": "tsmc65__" + "0" * 12, "error": None, "metrics": {"delay_s": 4e-10}}))
     (tmp_path / "sweep/toy/mine/run.json").write_text(json.dumps({"created": "20261022_000000"}))
+    # a record of its layout alone, newer still (the layout steps without a characterization), is
+    # passed over
+    laid = tmp_path / f"sweep/toy/laid/tsmc65/{ident}/instance.json"
+    laid.parent.mkdir(parents=True)
+    laid.write_text(json.dumps({"id": f"tsmc65__{ident}", "error": None, "metrics": {}, "layout": {}}))
+    (tmp_path / "sweep/toy/laid/run.json").write_text(json.dumps({"created": "20261023_000000"}))
     for cached in (lookup._pdk_runs, lookup._run_instances):
         cached.cache_clear()
     try:
@@ -264,7 +270,7 @@ def test_a_run_of_some_pdks_keeps_the_others_from_the_run_before(tmp_path: Path,
         assert lookup._sweep_record("toy", "tsmc65", "0" * 12)["metrics"]["delay_s"] == 4e-10
         assert lookup._sweep_record("toy", "ihp130", ident)["metrics"]["delay_s"] == 3e-10
         assert lookup._sweep_record("toy", "tower180", ident) is None
-        assert runner.newest_run("toy", "tsmc65").name == "mine"
+        assert runner.newest_run("toy", "tsmc65").name == "laid"
     finally:
         for cached in (lookup._pdk_runs, lookup._run_instances):
             cached.cache_clear()
@@ -294,83 +300,23 @@ def test_a_lookup_without_simulation_never_waits_on_a_lock(tmp_path: Path, monke
         assert lookup.characterized("comp", "tsmc65", params, simulate=False) == record
 
 
-def test_a_block_with_its_own_layout_is_signed_off_as_it_states(toy, tmp_path: Path, monkeypatch) -> None:
-    """``lay_out_one`` runs the block's ``lay_out``: a signoff it ran itself is recorded as it is
-    (an accepted LVS mismatch is no failure); its LVS source is checked by the shared signoff; with
-    none, DRC alone. The runner's layout step and the layout verb take it in place of ALIGN's."""
-    from flow import __main__ as cli
-    from flow.layout import logs, step
-    from flow.layout.signoff import RowSignoff
-
-    calls = []
-
-    def shared(pdk, gds, source, run_dir, checker):
-        calls.append(("signoff", Path(source).name))
-        return RowSignoff(run_dir / "drc_violations.json", 0, None, True)
-
-    def drc_only(pdk, gds, run_dir, checker):
-        calls.append(("drc", gds.name))
-        return RowSignoff(run_dir / "drc_violations.json", 0, None, None)
-
-    monkeypatch.setattr(step, "signoff", shared)
-    monkeypatch.setattr(step, "drc", drc_only)
-    monkeypatch.setattr(step, "extracted", lambda pdk, gds, name, run_dir: {"netlist": "x"})
-    assert step.own_layout("toyblock") and not step.own_layout("comp")
-    entries = {}
-    for mode in (0, 1, 2):
-        out = tmp_path / f"mode{mode}"
-        step.lay_out_one("toyblock", out, "toypdk", toy.params.Params(mode=mode), pex=mode == 1)
-        entries[mode] = json.loads((out / "summary.json").read_text())["toypdk/lay_out"]
-    assert calls == [("drc", "toy.gds"), ("signoff", "source.cdl")]
-    assert [entries[mode]["signoff"] for mode in (0, 1, 2)] == ["drc", "shared", "lay_out"]
-    assert entries[0]["cell_um"] == [2.0, 1.0] and entries[0]["lvs_correct"] is None
-    assert entries[1]["pex"] == {"netlist": "x"}
-    assert entries[2]["lvs_correct"] is False and entries[2]["warnings"] == ["an accepted mismatch"]
-    assert entries[2]["drc_violations"] == 0 and entries[2]["pex"]["sha256"] == "0" * 64
-    # DRC violations fail it
-    monkeypatch.setattr(step, "drc", lambda pdk, gds, run_dir, checker: RowSignoff(run_dir / "d.json", 3, None, None))
-    with pytest.raises(RuntimeError, match="failed"):
-        step.lay_out_one("toyblock", tmp_path / "dirty", "toypdk", toy.params.Params())
-    monkeypatch.setattr(step, "drc", drc_only)
-    # the runner's layout step: the record gains the entry and its area
-    instance = tmp_path / "build/toyblock/20261101_000000/toypdk/abc"
-    instance.mkdir(parents=True)
-    (instance / "instance.json").write_text(json.dumps({"error": None, "metrics": {"device_area_um2": 1.0}}))
-    monkeypatch.setattr(runner, "instance_params", lambda block, pdk, ident: toy.params.Params())
-    entry = runner.layout_job("toyblock", instance, "toypdk", pex=False)
-    assert entry["error"] is None and entry["signoff"] == "drc" and entry["floorplan"] == "lay_out"
-    assert json.loads((instance / "instance.json").read_text())["metrics"]["layout_area_um2"] == 2.0
-    # the layout verb, by name: its own flow, no ALIGN plan
-    layout_runs = tmp_path / "build/toyblock/layout"
-    monkeypatch.setattr(
-        importlib.import_module("flow"), "new_run", lambda *parts: (layout_runs / "20261102_000000").resolve()
-    )
-    monkeypatch.setattr(logs, "console", lambda: None)
-    cli.layout_instances("toyblock", ["one"], ("toypdk",), auto=False, plan_only=False)
-    record = json.loads((layout_runs / "20261102_000000/toypdk/one/instance.json").read_text())
-    assert record["layout"]["w_um"] == 2.0 and record["layout"]["error"] in ("", None)
-    with pytest.raises(SystemExit, match="lays itself out"):
-        cli.layout_instances("toyblock", ["one"], ("toypdk",), auto=False, plan_only=True)
-
-
 def test_a_layouts_extraction_is_recorded_from_the_repositorys_root(tmp_path: Path) -> None:
-    """An extraction's netlist inside the repository is recorded from its root, as the GDS is, by
-    the runner's layout step and the layout verb alike, so a copy of the repository reads its own;
-    one outside it as it is."""
-    from flow import __main__ as cli
-
+    """An extraction's netlist inside the repository is recorded from its root, as the GDS is (the
+    CLI's layout steps join it to the record so), so a copy of the repository reads its own; one
+    outside it as it is."""
     # under a folder the repository holds itself (its build/ may be a link to another disk)
     inside = {"netlist": str(runner.ROOT / "flow/adc/x/adc.pex.netlist"), "sha256": "0" * 64}
     outside = {"netlist": str(tmp_path / "adc.pex.netlist")}
-    for shown in (runner._shown_pex, cli._shown_pex):
-        assert shown(inside) == {"netlist": "flow/adc/x/adc.pex.netlist", "sha256": "0" * 64}
-        assert shown(outside) == outside
-        assert shown(None) is None and shown({"skipped": "LVS did not match"}) == {"skipped": "LVS did not match"}
+    shown = runner._shown_pex
+    assert shown(inside) == {"netlist": "flow/adc/x/adc.pex.netlist", "sha256": "0" * 64}
+    assert shown(outside) == outside
+    assert shown(None) is None and shown({"skipped": "no LVS source"}) == {"skipped": "no LVS source"}
 
 
 def test_a_layout_is_found_by_its_digest_newest_first(tmp_path: Path, monkeypatch) -> None:
     """``lookup.laid_out``: the newest layout entry of the instance with these parameters that
-    stands (its GDS on disk, no error), from a layout run or a sweep run's record; none raises,
+    stands (its GDS on disk, no error), from a run's record (by its digest's folder or a named
+    instance's) or a layout run from before the CLI's steps, the newest run first; none raises,
     naming the command that lays it out."""
     from flow.sweep import lookup
 
@@ -385,13 +331,18 @@ def test_a_layout_is_found_by_its_digest_newest_first(tmp_path: Path, monkeypatc
         path.write_text(json.dumps({"id": f"tsmc65__{ident}", "layout": layout}))
 
     root = tmp_path / "build/toy"
+    for run, stamp in (("older", "20261102_000000.0"), ("named", "20261106_000000.0"), ("newest", "20261107_0.0")):
+        (root / run).mkdir(parents=True)
+        (root / run / "run.json").write_text(json.dumps({"block": "toy", "created": stamp}))
     write(root / "layout/20261101_000000/tsmc65/frida1/instance.json", {"gds": str(gds), "w_um": 1})
-    write(root / f"20261102_000000/tsmc65/{ident}/instance.json", {"gds": str(gds), "w_um": 2})
-    write(root / "layout/20261103_000000/tsmc65/frida1/instance.json", {"gds": str(gds), "error": "failed"})
-    write(root / "layout/20261104_000000/tsmc65/frida1/instance.json", {"gds": str(tmp_path / "gone.gds")})
-    write(root / "layout/20261105_000000/tsmc65/other/instance.json", {"gds": str(gds), "w_um": 5}, "0" * 12)
-    assert lookup.laid_out("toy", "tsmc65", params)["w_um"] == 2
-    with pytest.raises(LookupError, match=f"python -m flow layout toy --pdk ihp130 --instance {ident}"):
+    write(root / f"older/tsmc65/{ident}/instance.json", {"gds": str(gds), "w_um": 2})
+    write(root / "layout/20261103_000000/tsmc65/frida1/instance.json", {"gds": str(gds), "w_um": 3})
+    write(root / "named/tsmc65/frida1/instance.json", {"gds": str(gds), "w_um": 4})
+    write(root / "newest/tsmc65/frida1/instance.json", {"gds": str(gds), "error": "failed"})
+    write(root / f"newest/tsmc65/{ident}/instance.json", {"gds": str(tmp_path / "gone.gds")})
+    write(root / "newest/tsmc65/other/instance.json", {"gds": str(gds), "w_um": 5}, "0" * 12)
+    assert lookup.laid_out("toy", "tsmc65", params)["w_um"] == 4
+    with pytest.raises(LookupError, match=f"python -m flow toy --to pex --pdk ihp130 --instance {ident}"):
         lookup.laid_out("toy", "ihp130", params)
 
 

@@ -6,8 +6,9 @@ installed, then the PDK's DRC; writes ``<run_dir>/drc_violations.json`` and rais
 ``run_pex`` (against a schematic) and ``run_layout_pex`` (a layout by its own net names with the
 kit's extractor, ``calibre_pex.py``). The provider picks the checker it has (Calibre, Assura or
 KLayout). ``run_layout_pex`` here extracts by FasterCap through KLayout-PEX (``flow.layout.kpex``)
-unless asked for the kit's (``Extractor.CALIBRE``, its manual check). ``row_signoff`` checks a
-standard-cell row layout (flow/layout) with DRC and LVS.
+unless asked for the kit's (``Extractor.CALIBRE``, its manual check). Any other check takes a
+layout's largest top cell by the checker a kit names (``checker``): ``drc`` and ``lvs``, the CLI's
+drc and lvs steps, by the open tools (gdscheck, the kit's KLayout LVS) or its Calibre.
 """
 
 from __future__ import annotations
@@ -199,21 +200,6 @@ def run_signoff(params: SignoffParams, run_dir: Path) -> SignoffResult:
         encoding="utf-8",
     )
     return result
-
-
-@dataclass(frozen=True)
-class RowSignoff:
-    """DRC and LVS of a row layout: the rule counts (``drc_violations.json``) and the LVS report;
-    ``lvs_correct`` None where the PDK has no LVS deck for the checkers asked for."""
-
-    drc_report: Path
-    drc_violations: int
-    lvs_report: Path | None
-    lvs_correct: bool | None
-    drc_seconds: float = 0.0
-    lvs_seconds: float = 0.0  # its source's preparation with it
-    drc_checker: str = ""
-    lvs_checker: str = ""
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -409,24 +395,59 @@ def _block_options(pdk: str, source: Path) -> Any:
     return getattr(provider, "BLOCK_OPTIONS", None)
 
 
-def signoff(
-    pdk: str,
-    gds: Path,
-    lvs_source: Path,
-    run_dir: Path,
-    checker: Checker = Checker.OPEN,
-    *,
-    name: str | None = None,
-    started: float | None = None,
-) -> RowSignoff:
-    """DRC and LVS (no PEX) of a layout against its LVS source (``lvs_source``: the netlist in the
-    LVS context, ``flow.circuit.netlists.lvs_source``, its library text ahead), both run whatever
-    the other finds: by the open tools (``Checker.OPEN``, the default: ``open_drc``, ``open_lvs``)
-    or the kit's Calibre signoff. The source checked is ``run_dir/source.cdl``: it with the devices
-    a post step added (``<gds>.extra.sp``). Source top: its last subcircuit; layout top: the GDS's
-    largest top cell. Writes ``row_signoff.json``; raises only when a checker fails to run."""
-    started = time.monotonic() if started is None else started
-    name = name or Path(gds).stem
+def _top(gds: Path) -> str:
+    """The GDS's largest top cell, the layout a check takes."""
+    layout = db.Layout()
+    layout.read(str(gds))
+    return max(layout.top_cells(), key=lambda cell: cell.bbox().area()).name
+
+
+def checker(pdk: str, block: str) -> Checker:
+    """Who signs ``block``'s layouts off in ``pdk``: the kit's choice, where its signoff module
+    gives one (``pdk.<pdk>.signoff.checker(block) -> Checker``), else the open tools. A block that
+    signs its layout off itself (its ``lay_out``, ``signoff_summary.json``) takes its own."""
+    try:
+        choose = getattr(import_module(f"pdk.{pdk}.signoff"), "checker", None)
+    except ImportError:  # a kit without a signoff module (or this checkout lacks the kit)
+        return Checker.OPEN
+    return choose(block) if callable(choose) else Checker.OPEN
+
+
+def drc(pdk: str, gds: Path, run_dir: Path, checker: Checker = Checker.OPEN, source: Path | None = None) -> dict:
+    """DRC of a layout's largest top cell into ``run_dir``: by the open tools (``Checker.OPEN``, the
+    default: ``open_drc``) or the kit's Calibre (its options for the LVS ``source`` where the kit
+    reads one, else its ``BLOCK_OPTIONS``). Writes ``run_dir/drc_violations.json``; raises only
+    when the checker fails to run. The violations counted, the checker, the report and the top."""
+    started = time.monotonic()
+    run_dir.mkdir(parents=True, exist_ok=True)
+    top = _top(gds)
+    report = run_dir / "drc_violations.json"
+    if checker is Checker.OPEN:
+        violations, deck = open_drc(pdk, gds, top, run_dir)
+        report.write_text(json.dumps({"checker": deck, "violations": violations, "waived": {}}, indent=1) + "\n")
+    else:
+        provider = _provider(pdk)
+        options = _block_options(pdk, source) if source else getattr(provider, "BLOCK_OPTIONS", None)
+        try:
+            provider.run_drc(run_dir=run_dir, gds_path=gds, layout_top=top, options=options)
+        except RuntimeError:
+            if not report.exists():  # the checker did not run to the end
+                raise
+        deck = json.loads(report.read_text()).get("checker", "calibre")
+    count = sum(json.loads(report.read_text())["violations"].values())
+    seconds = round(time.monotonic() - started, 1)
+    logging.getLogger("flow.layout.signoff").info(f"DRC: {count} violations ({deck}) in {seconds} s")
+    return {"violations": count, "checker": deck, "report": str(report), "top": top}
+
+
+def lvs(pdk: str, gds: Path, lvs_source: Path, run_dir: Path, checker: Checker = Checker.OPEN) -> dict:
+    """LVS of a layout against its LVS source (``lvs_source``: the netlist in the LVS context,
+    ``flow.circuit.netlists.lvs_source``, its library text ahead) into ``run_dir``: by the open
+    tools (``Checker.OPEN``, the default: ``open_lvs``) or the kit's Calibre. The source checked is
+    ``run_dir/source.cdl``: it with the devices a post step added (``<gds>.extra.sp``). Source top:
+    its last subcircuit; layout top: the GDS's largest top cell. The verdict (None: the kit has no
+    deck for the checker), its report, the checker, the source and the tops, also as
+    ``run_dir/lvs.json``; raises only when the checker fails to run."""
     run_dir.mkdir(parents=True, exist_ok=True)
     source = run_dir / "source.cdl"
     if Path(lvs_source).resolve() != source.resolve():
@@ -436,21 +457,11 @@ def signoff(
     extra = Path(f"{gds}.extra.sp")
     if extra.exists():
         add_post_devices(pdk, source, extra, source_top)
-    layout = db.Layout()
-    layout.read(str(gds))
-    layout_top = max(layout.top_cells(), key=lambda cell: cell.bbox().area()).name
+    layout_top = _top(gds)
     log = logging.getLogger("flow.layout.signoff")
-    log.info(f"{checker.name.lower()} signoff; LVS source {source} (top {source_top}); layout {gds} (top {layout_top})")
-    drc_report = run_dir / "drc_violations.json"
-    prepared = time.monotonic()
+    log.info(f"{checker.name.lower()} LVS; source {source} (top {source_top}); layout {gds} (top {layout_top})")
     if checker is Checker.OPEN:
-        violations, drc_checker = open_drc(pdk, gds, layout_top, run_dir)
-        drc_report.write_text(
-            json.dumps({"checker": drc_checker, "violations": violations, "waived": {}}, indent=1) + "\n"
-        )
-        checked = time.monotonic()
-        log.info(f"DRC: {sum(violations.values())} violations ({drc_checker})")
-        lvs_correct, lvs_report, lvs_checker = open_lvs(pdk, gds, layout_top, source, source_top, run_dir)
+        correct, report, deck = open_lvs(pdk, gds, layout_top, source, source_top, run_dir)
     else:
         params = SignoffParams(
             technology=pdk,
@@ -458,68 +469,19 @@ def signoff(
             layout_top=layout_top,
             lvs_source_path=source,
             source_top=source_top,
-            output_stem=name,
+            output_stem=Path(gds).stem,
             pdk_options=_block_options(pdk, source),
         )
-        try:
-            run_drc(params, run_dir)
-        except RuntimeError:
-            if not drc_report.exists():  # the checker did not run to the end
-                raise
-        checked = time.monotonic()
-        drc_checker = json.loads(drc_report.read_text()).get("checker", "calibre")
-        log.info(f"DRC: {sum(json.loads(drc_report.read_text())['violations'].values())} violations ({drc_checker})")
-        lvs_correct, lvs_report = run_lvs(params, run_dir)
-        lvs_checker = "calibre"
-    log.info(
-        f"LVS: {'not run' if lvs_correct is None else 'correct' if lvs_correct else 'not correct'} ({lvs_checker or '-'})"
-    )
-    result = RowSignoff(
-        drc_report,
-        sum(json.loads(drc_report.read_text())["violations"].values()),
-        lvs_report,
-        lvs_correct,
-        drc_seconds=round(checked - prepared, 1),
-        lvs_seconds=round(time.monotonic() - checked + prepared - started, 1),
-        drc_checker=drc_checker,
-        lvs_checker=lvs_checker,
-    )
-    (run_dir / "row_signoff.json").write_text(
-        json.dumps(
-            {"gds": str(gds), "layout_top": layout_top, "source_top": source_top, **asdict(result)},
-            indent=2,
-            default=str,
-        )
-        + "\n"
-    )
+        correct, report = run_lvs(params, run_dir)
+        deck = "calibre"
+    log.info(f"LVS: {'not run' if correct is None else 'correct' if correct else 'not correct'} ({deck or '-'})")
+    result = {
+        "lvs_correct": correct,
+        "lvs_report": str(report) if report else None,
+        "lvs_checker": deck,
+        "source": str(source),
+        "source_top": source_top,
+        "layout_top": layout_top,
+    }
+    (run_dir / "lvs.json").write_text(json.dumps(result, indent=1) + "\n")
     return result
-
-
-def drc(pdk: str, gds: Path, run_dir: Path, checker: Checker = Checker.OPEN) -> RowSignoff:
-    """DRC alone of a layout that has no LVS source (a block's own layout of its blocks side by side,
-    unconnected): by the open tools (``Checker.OPEN``, the default: ``open_drc``) or the kit's
-    Calibre (its ``BLOCK_OPTIONS``), on the GDS's largest top cell. Writes
-    ``run_dir/drc_violations.json``; LVS is not run (``lvs_correct`` None); raises only when the
-    checker fails to run."""
-    started = time.monotonic()
-    run_dir.mkdir(parents=True, exist_ok=True)
-    layout = db.Layout()
-    layout.read(str(gds))
-    top = max(layout.top_cells(), key=lambda cell: cell.bbox().area()).name
-    report = run_dir / "drc_violations.json"
-    if checker is Checker.OPEN:
-        violations, deck = open_drc(pdk, gds, top, run_dir)
-        report.write_text(json.dumps({"checker": deck, "violations": violations, "waived": {}}, indent=1) + "\n")
-    else:
-        provider = _provider(pdk)
-        try:
-            provider.run_drc(
-                run_dir=run_dir, gds_path=gds, layout_top=top, options=getattr(provider, "BLOCK_OPTIONS", None)
-            )
-        except RuntimeError:
-            if not report.exists():  # the checker did not run to the end
-                raise
-        deck = json.loads(report.read_text()).get("checker", "calibre")
-    count = sum(json.loads(report.read_text())["violations"].values())
-    logging.getLogger("flow.layout.signoff").info(f"DRC: {count} violations ({deck}); no LVS source, LVS not run")
-    return RowSignoff(report, count, None, None, drc_seconds=round(time.monotonic() - started, 1), drc_checker=deck)

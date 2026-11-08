@@ -1,13 +1,14 @@
-"""The one layout step every block on the pipeline shares: its module compiled once in a PDK, its
-netlists from hdl21 and vlsir in ALIGN's and LVS's contexts (``flow.circuit.netlists``), its
-generator's own layout intent (``flow.layout.hdl21align``) as ALIGN's constraint files, ALIGN
-(``flow.layout.build``) and the signoff (``flow.layout.signoff``).
+"""The one layout step every block on the pipeline shares, ALIGN's and nothing else: its module
+compiled once in a PDK, its netlists from hdl21 and vlsir in ALIGN's and LVS's contexts
+(``flow.circuit.netlists``), its generator's own layout intent (``flow.layout.hdl21align``) as
+ALIGN's constraint files, and ALIGN (``flow.layout.build``); the signoff is the CLI's drc, lvs and
+pex steps' (``flow.layout.signoff``, ``extracted``).
 
-- ``inputs``: the netlists and ALIGN's design directory of one instance (``python -m flow layout
-  --plan``).
-- ``layout_one``: one instance laid out and signed off; ``layout_named``: in every PDK.
-- ``lay_out_one``: one instance of a block that lays itself out (its ``layout.py``'s ``lay_out``,
-  ``own_layout``), signed off as it states.
+- ``lay_out_align``: one instance laid out by ALIGN (the CLI's layout step).
+- ``lay_out_own``: one instance of a block that lays itself out (its ``layout.py``'s ``lay_out``,
+  ``own_layout``), in place of ALIGN's.
+- ``inputs``: the netlists and ALIGN's design directory of one instance.
+- ``extracted``: a layout's extraction (the CLI's pex step).
 - ``block_netlist``: an instance's netlist as simulated, as hdl21 and vlsir write it (a design's
   identity: ``flow.opt.runner.identity``, ``flow.netlist_hashes``).
 
@@ -18,9 +19,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
-from collections.abc import Callable
 from importlib import import_module
 from importlib.util import find_spec
 from pathlib import Path
@@ -28,9 +29,9 @@ from typing import Any
 
 from klayout import db
 
-from flow.layout.build import build_design, other_router, pdk_router
+from flow.layout.build import annealed, build_design, other_router, pdk_router, route_shorts
 from flow.layout.hdl21align import pnr_input
-from flow.layout.signoff import Checker, RowSignoff, drc, signoff
+from flow.layout.signoff import Checker
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -55,19 +56,6 @@ def cell_um(gds: Path) -> list[float]:
     return [round(box.width(), 3), round(box.height(), 3)]
 
 
-def finish(run_dir: Path, summary: dict[str, dict[str, Any]], failures: dict[str, str]) -> Path:
-    """Write ``summary.json`` (and ``failures.json``, or remove an earlier run's where nothing
-    failed); raise when anything failed."""
-
-    (run_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    path = run_dir / "failures.json"
-    if failures:
-        path.write_text(json.dumps(failures, indent=2) + "\n")
-        raise RuntimeError(f"{len(failures)} layouts failed; see {path}")
-    path.unlink(missing_ok=True)
-    return run_dir
-
-
 def net_texts(gds: Path) -> list[tuple[str, int, int, str]]:
     """Every net ALIGN routed in the layout ``gds`` (its placed-and-routed ``3_pnr/<NAME>_0.json``
     beside it: each wire's net, a child module's by its path, ``XDRIVE_MAIN_0/N0``), as a label for
@@ -88,22 +76,27 @@ def net_texts(gds: Path) -> list[tuple[str, int, int, str]]:
     return [(layer, x, y, net.lower()) for net, (_, (layer, x, y)) in sorted(best.items())]
 
 
-def extracted(pdk: str, gds: Path, name: str, run_dir: Path, tolerance: float = 0.05) -> dict[str, Any]:
-    """The layout's extraction by FasterCap through KLayout-PEX (``flow.layout.kpex``: every net of
-    the GDS's largest top cell, by its label or KLayout's name, each pair's capacitance and each
-    net's to ground) to a block's parasitics' accuracy (``tolerance``, 5 %: their relative sizes,
-    which a Monte Carlo varies), in ``run_dir``: its netlist, its nets and capacitors, their total, and the
-    nets' own capacitances (to everything else), largest first; or the error where it failed."""
+def extracted(
+    pdk: str, gds: Path, name: str, run_dir: Path, checker: Checker = Checker.OPEN, tolerance: float = 0.05
+) -> dict[str, Any]:
+    """The layout's extraction into ``run_dir``: by FasterCap through KLayout-PEX (``Checker.OPEN``:
+    ``flow.layout.kpex``, every net of the GDS's largest top cell, by its label, ALIGN's route
+    (``net_texts``) or KLayout's name, each pair's capacitance and each net's to ground) to a
+    block's parasitics' accuracy (``tolerance``, 5 %: their relative sizes, which a Monte Carlo
+    varies), or by the kit's extractor (``Checker.CALIBRE``). Its netlist and extractor; KLayout-PEX's
+    also its nets and capacitors, their total and the nets' own capacitances (to everything else),
+    largest first. Raises where the extraction fails."""
+    from flow.layout.kpex import Extractor
     from flow.layout.signoff import run_layout_pex
 
     layout = db.Layout()
     layout.read(str(gds))
     top = max(layout.top_cells(), key=lambda cell: cell.bbox().area()).name
-    try:
-        netlist = run_layout_pex(pdk, gds, top, name, run_dir, tolerance=tolerance, texts=net_texts(gds))
-    except Exception as error:  # noqa: BLE001 - recorded with the layout, which stands
-        LOG.warning(f"PEX: {error}")
-        return {"error": repr(error)}
+    if checker is Checker.CALIBRE:
+        netlist = run_layout_pex(pdk, gds, top, name, run_dir, extractor=Extractor.CALIBRE)
+        LOG.info(f"PEX: {netlist} (the kit's extractor)")
+        return {"netlist": str(netlist), "extractor": "the kit's (Calibre)"}
+    netlist = run_layout_pex(pdk, gds, top, name, run_dir, tolerance=tolerance, texts=net_texts(gds))
     own: dict[str, float] = {}
     count = 0
     for line in netlist.read_text().splitlines():
@@ -128,135 +121,12 @@ def extracted(pdk: str, gds: Path, name: str, run_dir: Path, tolerance: float = 
     }
 
 
-def all_pdks(run_dir: Path, case: Callable[..., Path], *args: Any, pdks: tuple[str, ...] = PDKS) -> Path:
-    """``case(run_dir / pdk, pdk, *args)`` in every PDK (or ``pdks``); every failure collected, the
-    summaries merged."""
-
-    summary: dict[str, dict[str, Any]] = {}
-    failures: dict[str, str] = {}
-    for pdk in pdks:
-        sub = run_dir / pdk
-        try:
-            case(sub, pdk, *args)
-        except Exception as error:  # noqa: BLE001 - report every PDK
-            found = sub / "failures.json"
-            failures.update(json.loads(found.read_text()) if found.exists() else {pdk: repr(error)})
-        if (sub / "summary.json").exists():
-            summary.update(json.loads((sub / "summary.json").read_text()))
-    return finish(run_dir, summary, failures)
-
-
-def layout_named(
-    block: str, run_dir: Path, name: str, params, *, auto: bool = False, pdks: tuple[str, ...] = PDKS
-) -> Path:
-    """The named instance ``name`` of ``block`` in each of ``pdks`` by ALIGN, into
-    ``run_dir/<pdk>/``: placed as its generator states, or (``auto``, or where it states nothing)
-    by ALIGN on its own."""
-
-    design = f"{block}_{name}"
-
-    def case(sub: Path, pdk: str) -> Path:
-        return layout_one(block, sub, pdk, design, params, auto=auto)
-
-    return all_pdks(run_dir, case, pdks=pdks)
-
-
-def layout_one(
-    block: str,
-    out_dir: Path,
-    pdk: str,
-    design: str,
-    params,
-    *,
-    auto: bool = False,
-    checker: Checker = Checker.OPEN,
-    seed: int = 0,
-    pex: bool = True,
-) -> Path:
-    """One instance of ``block`` in ``pdk``, the design ``design``, into ``out_dir``: its module
-    compiled once (``flow.circuit.netlists``), its netlists from hdl21 and vlsir in ALIGN's and LVS's
-    contexts (``out_dir/netlist/<design>.sp``, ``.cdl``), ALIGN's design directory (a constraint file
-    a module that states its layout; none where ``auto``: ALIGN places it), ALIGN's layout (its
-    placer's ``seed``), its signoff against the LVS netlist and, with ``pex``, its extraction by
-    KLayout-PEX (``out_dir/align``, ``out_dir/summary.json``). The block is laid out as its
-    ``params.layout_view`` gives, where it has one (the comparator's output stage as the PDK's
-    library cells)."""
-    seconds: dict[str, float] = {}
-    design_input = inputs(block, out_dir, pdk, design, params, auto=auto, seconds=seconds)
-    return signed_off_design(out_dir, pdk, design, *design_input, seconds, checker, seed, pex)
-
-
 def own_layout(block: str) -> bool:
     """Whether ``block`` lays itself out: its ``layout.py`` gives ``lay_out(params, pdk, run_dir)``
-    (docs/pipeline.md), which the layout verbs run in place of ALIGN's (``layout_one``)."""
+    (docs/pipeline.md), which the layout step runs in place of ALIGN's (``lay_out_align``)."""
     return find_spec(f"flow.{block}.layout") is not None and callable(
         getattr(import_module(f"flow.{block}.layout"), "lay_out", None)
     )
-
-
-def _drc_count(report: Path) -> int:
-    """The violations a DRC report counts: ``drc_violations.json``'s; a kit's own report, of a check
-    that passed (the kit's DRC raises unless clean), none."""
-    if report.suffix == ".json" and report.is_file():
-        return sum(json.loads(report.read_text()).get("violations", {}).values())
-    return 0
-
-
-def lay_out_one(
-    block: str, out_dir: Path, pdk: str, params, *, checker: Checker = Checker.OPEN, pex: bool = True
-) -> Path:
-    """One instance of a block that lays itself out (``own_layout``) in ``pdk``, into ``out_dir``: its
-    ``lay_out(params, pdk, out_dir)``, which gives the GDS, then the signoff it states. Where
-    ``lay_out`` signed it off itself (its ``out_dir/signoff_summary.json``, ``flow.layout.signoff
-    .run_signoff``'s: DRC clean, LVS as it expected, its extraction), that is recorded as it is;
-    else, where it wrote its LVS source (``out_dir/source.cdl``), the shared signoff checks the GDS
-    against it (``signoff``, in ``out_dir/signoff``) and, with ``pex``, KLayout-PEX extracts it
-    where LVS did not fail; else DRC alone (``drc``: blocks side by side, nothing connected).
-    ``summary.json`` as ``layout_one``'s, its entry ``<pdk>/lay_out`` (``finish``: and
-    ``failures.json``, raising, where it failed)."""
-    seconds: dict[str, float] = {}
-    entry: dict[str, Any] = {"seconds": seconds}
-    key = f"{pdk}/lay_out"
-    summary: dict[str, dict[str, Any]] = {key: entry}
-    failures: dict[str, str] = {}
-    try:
-        started = time.monotonic()
-        LOG.info(f"{block} in {pdk}: its own layout (flow.{block}.layout.lay_out) into {out_dir}")
-        gds = Path(import_module(f"flow.{block}.layout").lay_out(params, pdk, out_dir))
-        seconds["layout"] = round(time.monotonic() - started, 1)
-        entry.update(gds=str(gds), cell_um=cell_um(gds))
-        LOG.info(f"layout: {gds} ({' × '.join(f'{v:g}' for v in entry['cell_um'])} um)")
-        own, source = out_dir / "signoff_summary.json", out_dir / "source.cdl"
-        if own.exists():
-            signed = json.loads(own.read_text())
-            entry.update(
-                signoff="lay_out",
-                drc_violations=_drc_count(Path(signed["drc_report"])),
-                lvs_correct=signed["lvs_correct"],
-                warnings=signed.get("warnings", []),
-                pex={"netlist": signed["pex_netlist"], "sha256": signed.get("pex_sha256")},
-            )
-            LOG.info(f"signed off by lay_out: LVS correct {signed['lvs_correct']} {signed.get('warnings', [])}")
-        else:
-            started = time.monotonic()
-            if source.exists():
-                check = signoff(pdk, gds, source, out_dir / "signoff", checker)
-                entry.update(signoff="shared")
-            else:
-                check = drc(pdk, gds, out_dir / "signoff", checker)
-                entry.update(signoff="drc")
-            seconds.update(drc=check.drc_seconds, lvs=check.lvs_seconds)
-            entry.update(drc_violations=check.drc_violations, lvs_correct=check.lvs_correct)
-            if check.drc_violations or check.lvs_correct is False:
-                failures[key] = f"DRC {check.drc_violations} violations, LVS correct {check.lvs_correct}"
-            if pex and source.exists() and check.lvs_correct is not False:
-                started = time.monotonic()
-                entry["pex"] = extracted(pdk, gds, gds.stem, out_dir / "pex")
-                seconds["pex"] = round(time.monotonic() - started, 1)
-    except Exception as error:  # noqa: BLE001 - reported as layout_one reports a failure
-        entry["error"] = failures[key] = repr(error)
-    out_dir.mkdir(parents=True, exist_ok=True)  # where lay_out failed before it made its folder
-    return finish(out_dir, summary, failures)
 
 
 def block_netlist(block: str, params, pdk: str, path: Path) -> Path:
@@ -271,7 +141,7 @@ def block_netlist(block: str, params, pdk: str, path: Path) -> Path:
 def inputs(
     block: str, out_dir: Path, pdk: str, design: str, params, *, auto: bool = False, seconds: dict | None = None
 ) -> tuple[Path, list[str], Path, bool]:
-    """What ALIGN and the signoff take for one instance of ``block`` (``layout_one``'s, without
+    """What ALIGN and the signoff take for one instance of ``block`` (``lay_out_align``'s, without
     ALIGN): its module compiled once (as its ``params.layout_view`` gives), its netlists in ALIGN's and
     LVS's contexts (``out_dir/netlist/<design>.sp``, ``.cdl``) and ALIGN's design directory
     (``out_dir/align/input/<design>``, a constraint file a module that states its layout; none where
@@ -295,87 +165,71 @@ def inputs(
     return input_dir, cells, source, not auto and pnr_input(compiled.module) is not None
 
 
-def _signed_off_better(new: RowSignoff, old: RowSignoff) -> bool:
-    """Whether the signoff ``new`` is better than ``old``: its LVS matching where the other's does
-    not, else as matching and fewer DRC violations."""
-
-    def rank(check: RowSignoff) -> tuple[bool, float]:
-        return check.lvs_correct is not False, -(check.drc_violations or 0)
-
-    return rank(new) > rank(old)
-
-
-def signed_off_design(
-    run_dir: Path,
-    pdk: str,
-    name: str,
-    input_dir: Path,
-    cells: list[str],
-    source: Path,
-    placed: bool,
-    seconds: dict[str, float] | None = None,
-    checker: Checker = Checker.OPEN,
-    seed: int = 0,
-    pex: bool = True,
-) -> Path:
-    """ALIGN's layout of the design directory ``input_dir`` (``flow.circuit.netlists.align_design``)
-    into ``run_dir/align/``, by the PDK's router, signed off in ``run_dir/align/signoff/`` against
-    ``source`` (the LVS netlist); where LVS did not match, laid out again by ALIGN's other router
-    (``run_dir/align_<router>/``) and that layout kept where its LVS matches (the two routers fail
-    on different designs). With ``pex``, extracted (``<align dir>/pex/``, ``extracted``; not where
-    LVS did not match: a layout other than its netlist; an extraction that fails is recorded, the
-    layout not failed); ``summary.json`` with each step's seconds and the router that drew the
-    layout, as far as the steps ran (``finish``: and ``failures.json``, raising, where it failed)."""
-    summary: dict[str, dict[str, Any]] = {}
-    failures: dict[str, str] = {}
-    out = run_dir / "align"
-    seconds = dict(seconds or {})
-    entry: dict[str, Any] = {"seconds": seconds}
-    summary[f"{pdk}/align"] = entry
-    try:
-        started = time.monotonic()
-        router, check, failed = pdk_router(pdk), None, None
+def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = None) -> dict[str, Any]:
+    """One instance of ``block`` in ``pdk`` laid out by ALIGN into ``out``, the design ``design``
+    (the block's name by default): its netlists and ALIGN's design directory (``inputs``: a
+    constraint file a module that states its layout; ALIGN places one that states nothing), then
+    ALIGN by the PDK's router (``out/align/``), by its other router where that one fails
+    (``out/align_<router>/``); routed again, its placer's seed another, where ALIGN's route joins two
+    nets and its placer annealed (twice at most: a placement the generator states whole is
+    enumerated, the same whatever the seed). An attempt that has not placed and routed in half an
+    hour fails (``ALIGN_TIMEOUT``). The GDS, its LVS source, ALIGN's netlist, its size, the router,
+    the nets its route joins and each part's seconds (``parts``: the module's compilation, the
+    netlists, the floorplan, ALIGN)."""
+    # ALIGN's placer can search for hours on the larger sizings
+    os.environ.setdefault("ALIGN_TIMEOUT", "1800")
+    design = design or block
+    seconds: dict[str, float] = {}
+    input_dir, cells, source, placed = inputs(block, out, pdk, design, params, seconds=seconds)
+    router, shorts, gds, work = pdk_router(pdk), {}, None, out / "align"
+    started = time.monotonic()
+    for seed in range(3):
         try:
-            gds = build_design(pdk, input_dir, cells, out, placed=placed, seed=seed, router=router)
+            work = out / "align"
+            gds = build_design(pdk, input_dir, cells, work, placed=placed, seed=seed, router=router)
         except Exception as error:  # noqa: BLE001 - ALIGN failed or stopped: the other router may lay it out
-            failed = error
-            LOG.warning(f"ALIGN with the {router} router failed ({error!r})")
-        else:
-            entry.update(gds=str(gds), cell_um=cell_um(gds), router=router)
-            LOG.info(f"layout: {gds} ({' × '.join(f'{v:g}' for v in entry['cell_um'])} um)")
-            check = signoff(pdk, gds, source, out / "signoff", checker)
-            seconds.update(drc=check.drc_seconds, lvs=check.lvs_seconds)
-        seconds["layout"] = round(time.monotonic() - started, 1)
-        if check is None or check.lvs_correct is False or check.drc_violations:  # the other router's, if better
-            again, started = other_router(router), time.monotonic()
-            why = "no layout" if check is None else f"LVS correct {check.lvs_correct}, DRC {check.drc_violations}"
-            LOG.info(f"laid out again by ALIGN's {again} router ({why})")
+            again = other_router(router)
+            LOG.warning(f"ALIGN with the {router} router failed ({error!r}): laid out again by its {again} router")
+            work = out / f"align_{again}"
             try:
-                other = build_design(pdk, input_dir, cells, run_dir / f"align_{again}", placed=placed, router=again)
-                checked = signoff(pdk, other, source, run_dir / f"align_{again}" / "signoff", checker)
-            except Exception as error:  # noqa: BLE001 - the first layout stands, if there is one
-                LOG.warning(f"the {again} router's layout failed: {error!r}")
-                if check is None:
-                    raise failed from None  # neither router laid it out: the first one's failure
-            else:
-                seconds[f"layout_{again}"] = round(time.monotonic() - started, 1)
-                if check is None or _signed_off_better(checked, check):
-                    out, gds, check = other.parent.parent, other, checked
-                    entry.update(gds=str(gds), cell_um=cell_um(gds), router=again)
-                    seconds.update(drc=checked.drc_seconds, lvs=checked.lvs_seconds)
-                    LOG.info(f"layout: {gds} by the {again} router")
-        entry.update(drc_violations=check.drc_violations, lvs_correct=check.lvs_correct)
-        if check.drc_violations or check.lvs_correct is False:
-            failures[f"{pdk}/align"] = f"DRC {check.drc_violations} violations, LVS correct {check.lvs_correct}"
-        if pex and check.lvs_correct is False:  # a layout other than its netlist: nothing to extract
-            entry["pex"] = {"skipped": "LVS did not match"}
-        elif pex:  # LVS matched, or no deck checked it
-            started = time.monotonic()
-            entry["pex"] = extracted(pdk, gds, name, out / "pex")
-            seconds["pex"] = round(time.monotonic() - started, 1)
-    except Exception as error:  # noqa: BLE001 - report the failure with every other PDK's
-        entry["error"] = failures[f"{pdk}/align"] = repr(error)
-        drc = out / "signoff" / "drc_violations.json"
-        if drc.exists():  # DRC ran before the failure
-            entry["drc_violations"] = sum(json.loads(drc.read_text())["violations"].values())
-    return finish(run_dir, summary, failures)
+                gds = build_design(pdk, input_dir, cells, work, placed=placed, seed=seed, router=again)
+            except Exception:  # noqa: BLE001 - neither router laid it out: the first one's failure
+                raise error from None
+            router = again
+        shorts = route_shorts(work, design)
+        if not shorts or not annealed(work):
+            break
+        LOG.info(f"ALIGN's route joins {len(shorts)} pairs of nets: routed again, placer seed {seed + 1}")
+    assert gds is not None
+    seconds["layout"] = round(time.monotonic() - started, 1)
+    size = cell_um(gds)
+    LOG.info(f"layout: {gds} ({' × '.join(f'{v:g}' for v in size)} um) by the {router} router")
+    return {
+        "gds": str(gds),
+        "source": str(source),
+        "netlist": str(out / "netlist" / f"{design}.sp"),
+        "cell_um": size,
+        "router": router,
+        "placed": placed,
+        "route_shorts": {"/".join(pair): n for pair, n in shorts.items()} or None,
+        "parts": seconds,
+    }
+
+
+def lay_out_own(block: str, pdk: str, params, out: Path) -> dict[str, Any]:
+    """One instance of a block that lays itself out (``own_layout``) in ``pdk``, into ``out``: its
+    ``lay_out(params, pdk, out)``, which gives the GDS. The GDS and its size, its LVS source where
+    ``lay_out`` wrote one (``out/source.cdl``), and its own signoff where it signed the layout off
+    itself (``out/signoff_summary.json``, ``flow.layout.signoff.run_signoff``'s), which the CLI's
+    drc, lvs and pex steps take as theirs."""
+    LOG.info(f"{block} in {pdk}: its own layout (flow.{block}.layout.lay_out) into {out}")
+    gds = Path(import_module(f"flow.{block}.layout").lay_out(params, pdk, out))
+    size = cell_um(gds)
+    LOG.info(f"layout: {gds} ({' × '.join(f'{v:g}' for v in size)} um)")
+    source, signed = out / "source.cdl", out / "signoff_summary.json"
+    return {
+        "gds": str(gds),
+        "source": str(source) if source.exists() else None,
+        "cell_um": size,
+        "signed_off": str(signed) if signed.exists() else None,
+    }

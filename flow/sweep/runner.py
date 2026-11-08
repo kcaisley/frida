@@ -9,9 +9,7 @@ The characterization's steps: ``write_netlist`` (the circuit as simulated and it
 ``netlist/``), ``simulate`` (each testbench run of ``runs_of``, or ``circuit_runs``, simulated and
 its measurement kept as HDF5, into ``sim/<run>/``) and ``record`` (``sweep.record`` of the kept
 measurements: the instance's ``instance.json``, its id, parameters, level, metrics, details and
-waves). ``layout``: each instance of the newest run laid out, by its block's own layout flow
-(``layout.py``'s ``lay_out``) where it has one, else by ALIGN as its generator places it; signed
-off, and its area joins the record. ``table``: each block's newest run in each PDK (a run of some
+waves). ``table``: each block's newest run in each PDK (a run of some
 PDKs alone keeps the others' from the run before) as the viewer's table
 (``build/web/data/sweep/<block>.json``: one row per instance, the parameters that differ, then the
 metrics) and one file per instance (its details, waves, layout and schematic).
@@ -22,12 +20,11 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
 import re
 import shutil
 import time
 import traceback
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from functools import cache
 from importlib import import_module
@@ -405,40 +402,6 @@ def instance_dirs(run: Path, pdk: str) -> dict[str, Path]:
     return found
 
 
-def layout_job(block: str, instance_dir: Path, pdk: str, pex: bool = True) -> dict:
-    """One instance's layout and its signoff, into ``instance_dir/layout``: by the block's own flow
-    where it lays itself out (``_own_layouts``), else ALIGN's by the shared layout step
-    (``_module_layouts``); the record's layout entry (also written into its ``instance.json``);
-    ``pex``: each layout extracted (KLayout-PEX)."""
-
-    from flow.layout.step import own_layout
-
-    # an attempt that has not placed and routed in half an hour fails (ALIGN's placer can search
-    # for hours on the larger sizings); the next attempt, if any, follows
-    os.environ.setdefault("ALIGN_TIMEOUT", "1800")
-    record = json.loads((instance_dir / "instance.json").read_text())
-    params = instance_params(block, pdk, instance_dir.name)
-    start = time.time()
-    made = _own_layouts if own_layout(block) else _module_layouts
-    results = made(block, instance_dir / "layout", pdk, params, pex)
-    clean = [r for r in results if r["error"] is None and r["drc_violations"] == 0 and r["lvs_correct"]]
-    entry = {**(clean or [r for r in results if r["error"] is None] or results)[0], "attempts": len(results)}
-    return _layout_record(record, instance_dir, entry, start)
-
-
-def _layout_record(record: dict, instance_dir: Path, entry: dict, start: float) -> dict:
-    """The layout entry, its seconds and the record's area metrics, written into ``instance.json``."""
-    entry["seconds"] = round(time.time() - start, 1)
-    record["layout"] = entry
-    if entry.get("w_um"):
-        area = entry["w_um"] * entry["h_um"]
-        record["metrics"]["layout_area_um2"] = area
-        gate = record["metrics"].get("device_area_um2")
-        record["metrics"]["density"] = gate / area if gate else None
-    write_record(instance_dir / "instance.json", record)
-    return entry
-
-
 def _shown(path) -> str:
     """A path as a record holds it: from the repository root where it is under it, as written or
     once resolved."""
@@ -451,128 +414,6 @@ def _shown_pex(pex: dict | None) -> dict | None:
     """An extraction's entry as a record holds it: its netlist's path as ``_shown`` gives one, so a
     copy of the repository (a remote worker's snapshot) reads its own."""
     return {**pex, "netlist": _shown(pex["netlist"])} if pex and pex.get("netlist") else pex
-
-
-def _own_layouts(block: str, out: Path, pdk: str, params, pex: bool = True) -> list[dict]:
-    """The layout of an instance of a block that lays itself out (``flow.layout.step.lay_out_one``,
-    in ``out``): its entry, as ``_module_layouts`` gives one, with who signed it off (``signoff``:
-    ``lay_out`` itself, the ``shared`` signoff against its source, or ``drc`` alone), in a list."""
-    from flow.layout.step import lay_out_one
-
-    result: dict = {"error": None, "floorplan": "lay_out"}
-    try:
-        try:
-            lay_out_one(block, out, pdk, params, pex=pex)
-        except RuntimeError:  # a failed signoff: in its summary
-            pass
-        summary = json.loads((out / "summary.json").read_text())[f"{pdk}/lay_out"]
-        if summary.get("error"):
-            raise RuntimeError(summary["error"])
-        w, h_um = summary["cell_um"]
-        result.update(
-            gds=_shown(summary["gds"]),
-            netlist=_shown(out / "source.cdl") if (out / "source.cdl").exists() else None,
-            w_um=w,
-            h_um=h_um,
-            signoff=summary.get("signoff"),
-            drc_violations=summary.get("drc_violations"),
-            lvs_correct=summary.get("lvs_correct"),
-            warnings=summary.get("warnings"),
-            pex=_shown_pex(summary.get("pex")),
-        )
-    except Exception:  # noqa: BLE001 - every instance reports its own failure
-        result["error"] = traceback.format_exc(limit=6)[-4000:]
-    return [result]
-
-
-def _module_layouts(block: str, out: Path, pdk: str, params, pex: bool = True) -> list[dict]:
-    """The shared step's layout of an instance (``flow.layout.step.layout_one``, in
-    ``out/align_floorplan``): as its generator places it, by ALIGN on its own only where the
-    generator states nothing (no second attempt by ALIGN alone: a generator's placement is the
-    intent, and ALIGN's own search on a large array runs for hours); routed again, its placer's seed
-    another, where ALIGN's route joins two nets and its placer annealed (twice at most: a placement
-    the generator states whole is enumerated, the same whatever the seed). Its entry, as
-    ``layout_job``'s, in a list."""
-    from flow.layout.build import annealed, route_shorts
-    from flow.layout.step import layout_one
-
-    work = out / "align_floorplan"
-    result: dict = {"error": None, "floorplan": "generator"}
-    try:
-        for seed in range(3):
-            try:
-                layout_one(block, work, pdk, block, params, seed=seed, pex=pex)
-            except RuntimeError:  # a failed signoff: in its summary
-                pass
-            # the layout kept (by the PDK's router, or the other one where LVS matched only there)
-            kept = json.loads((work / "summary.json").read_text())[f"{pdk}/align"].get("gds")
-            routed = Path(kept).parents[1] if kept else work / "align"
-            shorts = route_shorts(routed, block)
-            if not shorts or not annealed(routed):
-                break
-        summary = json.loads((work / "summary.json").read_text())[f"{pdk}/align"]
-        if summary.get("error"):
-            raise RuntimeError(summary["error"])
-        w, h_um = summary["cell_um"]
-        result.update(
-            route_shorts={"/".join(pair): n for pair, n in shorts.items()} or None,
-            gds=str(Path(summary["gds"]).resolve().relative_to(ROOT)),
-            netlist=str((work / "netlist" / f"{block}.cdl").relative_to(ROOT)),
-            w_um=w,
-            h_um=h_um,
-            router=summary.get("router"),
-            drc_violations=summary.get("drc_violations"),
-            lvs_correct=summary.get("lvs_correct"),
-            pex=_shown_pex(summary.get("pex")),
-        )
-    except Exception:  # noqa: BLE001 - every instance reports its own failure
-        result["error"] = traceback.format_exc(limit=6)[-4000:]
-    return [result]
-
-
-def layout(
-    blocks: list[str], workers: int, *, pdks: tuple[str, ...] = PDKS, pex: bool = True, redo: bool = False
-) -> None:
-    """Lay out every characterized instance of the newest runs of ``blocks`` in ``pdks`` not yet laid
-    out DRC clean and LVS correct (or signed off as its own layout flow states: LVS as ``lay_out``
-    expected, or DRC alone where it has no source; ``redo``: every one), each extracted where
-    ``pex``."""
-
-    jobs = []
-    for block in blocks:
-        for path in sorted(newest_run(block).glob("*/*/instance.json")):
-            record = json.loads(path.read_text())
-            if record["pdk"] not in pdks:
-                continue
-            params = design_space(block, record["pdk"]).get(record["id"].split("__")[-1])
-            if params is None:
-                print(f"{path.parent.relative_to(RUNS_DIR)}: not in the design space any more, not laid out")
-                continue
-            entry = record.get("layout") or {}
-            done = (
-                entry.get("gds")
-                and not entry.get("error")
-                and entry.get("drc_violations") == 0
-                and (entry.get("lvs_correct") or entry.get("signoff") in ("lay_out", "drc"))
-            )
-            if record["error"] is None and (redo or not done):
-                jobs.append((block, path.parent, record["pdk"], pex))
-    print(f"{len(jobs)} layouts on {workers} workers")
-    with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=1) as pool:
-        futures = {pool.submit(layout_job, *job): job for job in jobs}
-        for done, future in enumerate(as_completed(futures), 1):
-            _block, path, _pdk, _pex = futures[future]
-            try:
-                entry = future.result()
-            except Exception as error:  # noqa: BLE001 - a worker that died
-                entry = {"error": repr(error), "seconds": math.nan}
-            status = (
-                "failed"
-                if entry["error"]
-                else f"{entry['w_um']:.1f} x {entry['h_um']:.1f} um, DRC {entry['drc_violations']}, LVS {entry['lvs_correct']}"
-                f"{'' if entry.get('floorplan') else ', ALIGN alone'}"
-            )
-            print(f"[{done}/{len(jobs)}] {path.relative_to(RUNS_DIR)}: {status} in {entry['seconds']} s", flush=True)
 
 
 def _block_netlist(block: str, ident: str, record: dict, data_dir: Path) -> Path | None:

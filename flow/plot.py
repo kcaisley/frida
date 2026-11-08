@@ -1,7 +1,7 @@
-"""A block's figures (``python -m flow plot <block>``): figure specs (``flow.pipeline.Plot``) drawn
-with matplotlib in the style of the analysis plots (``flow.analysis.plots``, ``render``), or written
-as the JSON the viewer draws with Plotly; from a sweep run's records or from captures
-(``figures``).
+"""A block's figures (the CLI's figures step, ``python -m flow <block> --to figures``): figure
+specs (``flow.pipeline.Plot``) drawn with matplotlib in the style of the analysis plots
+(``flow.analysis.plots``, ``render``), or written as the JSON the viewer draws with Plotly; from a
+sweep run's records or from captures (``figures``).
 
     paths = render(comp.plot_noise_cm(common_mode), Path("build/analysis/comp/noise_cm"))
 """
@@ -12,6 +12,7 @@ import inspect
 import itertools
 import json
 import math
+import os
 import typing
 from collections.abc import Sequence
 from importlib import import_module
@@ -500,6 +501,17 @@ class _Composer:
         return produced
 
 
+def capture_files(source: Path) -> list[Path]:
+    """The captures ``source`` holds: itself where it is a file, else every HDF5 file beneath it,
+    through linked folders too (a study's folder of links to the campaigns it takes), in order."""
+    if source.is_file():
+        return [source]
+    found = []
+    for folder, _folders, files in os.walk(source, followlinks=True):
+        found += [Path(folder) / name for name in files if name.endswith(".h5")]
+    return sorted(found)
+
+
 def figures(
     block: str,
     sources: Sequence[Path],
@@ -567,11 +579,7 @@ def figures(
     unknown = set(names) - set(available)
     if unknown:
         raise LookupError(f"no figure {sorted(unknown)} of {block} from captures: {', '.join(available)}")
-    paths = [
-        path
-        for source in sources
-        for path in ([Path(source)] if Path(source).is_file() else sorted(Path(source).rglob("*.h5")))
-    ]
+    paths = [path for source in sources for path in capture_files(Path(source))]
     if not paths:
         raise FileNotFoundError(f"no sweep run's records and no captures in {', '.join(map(str, sources))}")
     # the captures read one channel at a time, in the order given (a later run's after an earlier one's)

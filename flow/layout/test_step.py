@@ -1,15 +1,14 @@
-"""The shared layout step's runner: a design laid out and signed off in one PDK, and in every PDK."""
+"""The shared layout step: ALIGN alone (``lay_out_align``), by the PDK's router, by the other where
+that one fails, routed again where its route joins two nets; the signoff is the CLI's steps'."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 from klayout import db
 
 from flow.layout import step
-from flow.layout.signoff import RowSignoff
 
 
 def _gds(path: Path) -> Path:
@@ -21,112 +20,46 @@ def _gds(path: Path) -> Path:
     return path
 
 
-def test_a_layout_records_its_cell_and_signoff_and_a_failure_its_drc(tmp_path: Path, monkeypatch) -> None:
-    """ALIGN's layout of a design in one PDK: its GDS, size, signoff, extraction and each step's
-    seconds in the summary; a failed one (as after DRC ran) its error and the violations DRC found, in
-    ``failures.json``."""
+@pytest.fixture
+def aligned(monkeypatch):
+    """ALIGN's inputs and its route's check stood in for: the netlists and design directory of
+    ``inputs`` (an LVS netlist ``inv.cdl``), no route joining two nets; ``shorts`` the nets the next
+    routes join, one entry a route."""
+    shorts: list[dict] = []
 
+    def inputs(block, out, pdk, design, params, seconds=None):
+        (seconds if seconds is not None else {}).update(netlist=0.2, floorplan=0.1)
+        return out / "align" / "input" / design, [], out / "netlist" / f"{design}.cdl", True
+
+    monkeypatch.setattr(step, "inputs", inputs)
     monkeypatch.setattr(step, "pdk_router", lambda pdk: "astar")
+    monkeypatch.setattr(step, "route_shorts", lambda work, name: shorts.pop(0) if shorts else {})
+    monkeypatch.setattr(step, "annealed", lambda work: True)
+    return shorts
+
+
+def test_align_lays_out_the_design_and_gives_what_the_signoff_takes(tmp_path: Path, monkeypatch, aligned) -> None:
+    """The GDS, its size, its LVS netlist, ALIGN's netlist, the router and each part's seconds."""
     monkeypatch.setattr(
-        step, "build_design", lambda pdk, design, cells, out, placed, seed=0, router=None: _gds(out / "align.gds")
+        step, "build_design", lambda pdk, design, cells, out, placed, seed=0, router=None: _gds(out / "inv" / "inv.gds")
     )
-    monkeypatch.setattr(
-        step,
-        "signoff",
-        lambda pdk, gds, source, run_dir, checker: RowSignoff(run_dir / "r.json", 0, run_dir, True, 1.5, 2.5),
-    )
-    monkeypatch.setattr(step, "extracted", lambda pdk, gds, name, run_dir: {"nets": {"a": 1e-15}, "total_f": 1e-15})
-    design, source = tmp_path / "input" / "inv", tmp_path / "inv.cdl"
-    step.signed_off_design(tmp_path / "ok", "tsmc65", "inv", design, [], source, True, {"netlist": 0.2})
-    entry = json.loads((tmp_path / "ok" / "summary.json").read_text())["tsmc65/align"]
-    seconds = entry.pop("seconds")
-    assert entry == {
-        "gds": str(tmp_path / "ok" / "align" / "align.gds"),
+    laid = step.lay_out_align("inv", "tsmc65", None, tmp_path)
+    parts = laid.pop("parts")
+    assert laid == {
+        "gds": str(tmp_path / "align" / "inv" / "inv.gds"),
+        "source": str(tmp_path / "netlist" / "inv.cdl"),
+        "netlist": str(tmp_path / "netlist" / "inv.sp"),
         "cell_um": [2.0, 1.0],
         "router": "astar",
-        "drc_violations": 0,
-        "lvs_correct": True,
-        "pex": {"nets": {"a": 1e-15}, "total_f": 1e-15},
+        "placed": True,
+        "route_shorts": None,
     }
-    assert set(seconds) == {"netlist", "layout", "drc", "lvs", "pex"}
-    assert (seconds["netlist"], seconds["drc"], seconds["lvs"]) == (0.2, 1.5, 2.5)
-
-    def broken(pdk, design, cells, out, placed, seed=0, router=None):
-        report = out / "signoff" / "drc_violations.json"  # as if DRC ran before the failure
-        report.parent.mkdir(parents=True)
-        report.write_text('{"violations": {"spacing": 3}}')
-        raise RuntimeError("router gave up")
-
-    monkeypatch.setattr(step, "build_design", broken)
-    with pytest.raises(RuntimeError, match="1 layouts failed"):
-        step.signed_off_design(tmp_path / "bad", "tsmc65", "inv", design, [], source, True)
-    # a layout that does not match its netlist (by either router) is not extracted
-    monkeypatch.setattr(
-        step, "build_design", lambda pdk, design, cells, out, placed, seed=0, router=None: _gds(out / "align.gds")
-    )
-    monkeypatch.setattr(
-        step,
-        "signoff",
-        lambda pdk, gds, source, run_dir, checker: RowSignoff(run_dir / "r.json", 0, run_dir, False, 1.5, 2.5),
-    )
-    with pytest.raises(RuntimeError, match="1 layouts failed"):
-        step.signed_off_design(tmp_path / "open", "tsmc65", "inv", design, [], source, True)
-    assert json.loads((tmp_path / "open" / "summary.json").read_text())["tsmc65/align"]["pex"] == {
-        "skipped": "LVS did not match"
-    }
-    assert json.loads((tmp_path / "bad" / "summary.json").read_text())["tsmc65/align"]["drc_violations"] == 3
-    assert "router gave up" in json.loads((tmp_path / "bad" / "failures.json").read_text())["tsmc65/align"]
+    assert set(parts) == {"netlist", "floorplan", "layout"}
 
 
-def test_a_layout_not_matching_is_routed_again_by_the_other_router(tmp_path: Path, monkeypatch) -> None:
-    """Where LVS does not match the PDK's router's layout, ALIGN's other router lays it out again
-    (``align_<router>/``), and its layout is kept where its LVS matches: the summary names it."""
-
-    monkeypatch.setattr(step, "pdk_router", lambda pdk: "astar")
-    routers = []
-
-    def build(pdk, design, cells, out, placed, seed=0, router=None):
-        routers.append(router)
-        return _gds(out / "inv" / "inv.gds")
-
-    monkeypatch.setattr(step, "build_design", build)
-    # the first router's layout does not match, the other's does
-    monkeypatch.setattr(
-        step,
-        "signoff",
-        lambda pdk, gds, source, run_dir, checker: RowSignoff(
-            run_dir / "r.json", 0, run_dir, "align_hanan" in str(gds), 1.5, 2.5
-        ),
-    )
-    monkeypatch.setattr(step, "extracted", lambda pdk, gds, name, run_dir: {"total_f": 1e-15, "at": str(run_dir)})
-    design, source = tmp_path / "input" / "inv", tmp_path / "inv.cdl"
-    step.signed_off_design(tmp_path / "run", "tsmc65", "inv", design, [], source, True)
-    entry = json.loads((tmp_path / "run" / "summary.json").read_text())["tsmc65/align"]
-    assert routers == ["astar", "hanan"]
-    assert entry["router"] == "hanan" and entry["lvs_correct"] is True
-    assert entry["gds"] == str(tmp_path / "run" / "align_hanan" / "inv" / "inv.gds")
-    assert entry["pex"]["at"] == str(tmp_path / "run" / "align_hanan" / "pex")
-    assert "layout_hanan" in entry["seconds"]
-
-
-def test_all_pdks_merges_summaries_and_failures(tmp_path: Path) -> None:
-    def case(run_dir: Path, pdk: str, name: str) -> Path:
-        run_dir.mkdir()
-        if pdk == "ihp130":
-            return step.finish(run_dir, {f"{pdk}/{name}": {"error": "x"}}, {f"{pdk}/{name}": "x"})
-        return step.finish(run_dir, {f"{pdk}/{name}": {"drc_violations": 0}}, {})
-
-    with pytest.raises(RuntimeError, match="1 layouts failed"):
-        step.all_pdks(tmp_path, case, "align")
-    assert set(json.loads((tmp_path / "summary.json").read_text())) == {f"{pdk}/align" for pdk in step.PDKS}
-    assert json.loads((tmp_path / "failures.json").read_text()) == {"ihp130/align": "x"}
-
-
-def test_a_layout_the_first_router_cannot_draw_is_drawn_by_the_other(tmp_path: Path, monkeypatch) -> None:
-    """Where ALIGN fails (or stops) with the PDK's router, the other router lays the design out; where
-    both fail, the first router's failure is the layout's."""
-
-    monkeypatch.setattr(step, "pdk_router", lambda pdk: "astar")
+def test_a_layout_the_first_router_cannot_draw_is_drawn_by_the_other(tmp_path: Path, monkeypatch, aligned) -> None:
+    """Where ALIGN fails (or stops) with the PDK's router, the other router lays the design out
+    (``align_<router>/``); where both fail, the first router's failure is the step's."""
 
     def build(pdk, design, cells, out, placed, seed=0, router=None):
         if router == "astar":
@@ -134,43 +67,31 @@ def test_a_layout_the_first_router_cannot_draw_is_drawn_by_the_other(tmp_path: P
         return _gds(out / "inv" / "inv.gds")
 
     monkeypatch.setattr(step, "build_design", build)
-    monkeypatch.setattr(
-        step,
-        "signoff",
-        lambda pdk, gds, source, run_dir, checker: RowSignoff(run_dir / "r.json", 0, run_dir, True, 1.5, 2.5),
-    )
-    design, source = tmp_path / "input" / "inv", tmp_path / "inv.cdl"
-    step.signed_off_design(tmp_path / "run", "tsmc65", "inv", design, [], source, True, pex=False)
-    entry = json.loads((tmp_path / "run" / "summary.json").read_text())["tsmc65/align"]
-    assert entry["router"] == "hanan" and entry["lvs_correct"] is True
-    assert entry["gds"] == str(tmp_path / "run" / "align_hanan" / "inv" / "inv.gds")
+    laid = step.lay_out_align("inv", "tsmc65", None, tmp_path / "run")
+    assert laid["router"] == "hanan" and laid["gds"] == str(tmp_path / "run" / "align_hanan" / "inv" / "inv.gds")
 
     def neither(pdk, design, cells, out, placed, seed=0, router=None):
         raise RuntimeError(f"{router} gave up")
 
     monkeypatch.setattr(step, "build_design", neither)
-    (tmp_path / "none").mkdir()  # the step's netlists are there before ALIGN runs
-    with pytest.raises(RuntimeError, match="1 layouts failed"):
-        step.signed_off_design(tmp_path / "none", "tsmc65", "inv", design, [], source, True, pex=False)
-    assert "astar gave up" in json.loads((tmp_path / "none" / "failures.json").read_text())["tsmc65/align"]
+    with pytest.raises(RuntimeError, match="astar gave up"):
+        step.lay_out_align("inv", "tsmc65", None, tmp_path / "none")
 
 
-def test_a_layout_with_drc_violations_is_routed_again_and_the_cleaner_one_kept(tmp_path: Path, monkeypatch) -> None:
-    """A layout matching LVS but with DRC violations is laid out by the other router too, and the
-    one with fewer violations (its LVS matching) kept."""
+def test_a_route_joining_two_nets_is_routed_again_with_another_seed(tmp_path: Path, monkeypatch, aligned) -> None:
+    """ALIGN's route joining two nets, where its placer annealed: placed and routed again, its
+    placer's seed the next, three times at most; the joins of the last route kept."""
+    seeds = []
 
-    monkeypatch.setattr(step, "pdk_router", lambda pdk: "astar")
-    monkeypatch.setattr(
-        step, "build_design", lambda pdk, design, cells, out, placed, seed=0, router=None: _gds(out / "inv" / "inv.gds")
-    )
-    monkeypatch.setattr(
-        step,
-        "signoff",
-        lambda pdk, gds, source, run_dir, checker: RowSignoff(
-            run_dir / "r.json", 0 if "align_hanan" in str(gds) else 4, run_dir, True, 1.5, 2.5
-        ),
-    )
-    design, source = tmp_path / "input" / "inv", tmp_path / "inv.cdl"
-    step.signed_off_design(tmp_path / "run", "tsmc65", "inv", design, [], source, True, pex=False)
-    entry = json.loads((tmp_path / "run" / "summary.json").read_text())["tsmc65/align"]
-    assert (entry["router"], entry["drc_violations"], entry["lvs_correct"]) == ("hanan", 0, True)
+    def build(pdk, design, cells, out, placed, seed=0, router=None):
+        seeds.append(seed)
+        return _gds(out / "inv" / "inv.gds")
+
+    monkeypatch.setattr(step, "build_design", build)
+    aligned.extend([{("a", "b"): 2}, {}])
+    assert step.lay_out_align("inv", "tsmc65", None, tmp_path / "once")["route_shorts"] is None
+    assert seeds == [0, 1]
+    seeds.clear()
+    aligned.extend([{("a", "b"): 2}] * 3)
+    assert step.lay_out_align("inv", "tsmc65", None, tmp_path / "thrice")["route_shorts"] == {"a/b": 2}
+    assert seeds == [0, 1, 2]

@@ -1,12 +1,15 @@
 """The CLI (``python -m flow``): its steps from one to another, its runs, make-style resume,
-``--predict`` and its refusals, on the toy block (``flow/conftest.py``'s ``toy``)."""
+``--predict`` and its refusals, on the toy block (``flow/conftest.py``'s ``toy``); its layout steps
+with the tools stood in for (``tools``)."""
 
 from __future__ import annotations
 
 import importlib
 import json
 import shutil
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -203,11 +206,9 @@ def test_a_step_without_its_inputs_fails_naming_the_command_that_makes_them(flow
     out = capsys.readouterr().out
     assert "record failed: record needs its sim step's output: " in out
     assert "python -m flow toyblock --to sim --run mine --pdk toypdk --instance one" in out
-    # the circuit simulator's runs of picked instances alone; the steps the CLI does not run yet
+    # the circuit simulator's runs of picked instances alone
     with pytest.raises(SystemExit, match="pick the instances"):
         flow("--to", "circuit")
-    with pytest.raises(SystemExit, match="runs no layout, drc step yet"):
-        flow("--to", "drc")
     with pytest.raises(SystemExit, match="no instance 'two' of toyblock in toypdk"):
         flow("--to", "record", "--instance", "two")
     # the table needs every instance's record
@@ -263,3 +264,200 @@ def test_a_block_whose_circuit_level_adds_no_runs_refuses_the_circuit_step(flow,
     sweep.runs = lambda pdk, params, at=level.FULL: runs(pdk, params, level.FULL if at is level.CIRCUIT else at)
     with pytest.raises(SystemExit, match="no circuit simulator runs beyond its full ones"):
         flow("--to", "circuit", "--instance", "one")
+
+
+def test_the_figures_step_draws_the_records_figures(flow, toy, capsys) -> None:
+    flow("--to", "figures", "--run", "mine")
+    instance = _instance("mine")
+    assert "figures ok" in capsys.readouterr().out
+    drawn = json.loads((instance / "figures/step.json").read_text())["figures"]
+    assert drawn and all(name.startswith("figures/reads.") for name in drawn)
+    assert all((instance / name).is_file() for name in drawn)
+
+
+# ---- the layout steps: layout, then drc, lvs and pex, each its own tool, the tools stood in for
+
+
+@pytest.fixture
+def tools(toy, monkeypatch):
+    """The signoff tools stood in for, each call recorded (``calls``: the step, the file it took and
+    the checker): DRC finds ``state["violations"]``, LVS's verdict is ``state["lvs"]``; the toy PDK's
+    layers for the page's views."""
+    from flow.layout import signoff, step
+
+    calls: list[tuple] = []
+    state = {"violations": 0, "lvs": True}
+
+    def drc(pdk, gds, run_dir, checker, source=None):
+        calls.append(("drc", Path(gds).name, checker))
+        run_dir.mkdir(parents=True, exist_ok=True)
+        report = run_dir / "drc_violations.json"
+        report.write_text(json.dumps({"checker": "stand-in", "violations": {"A.1": state["violations"]}}))
+        return {"violations": state["violations"], "checker": "stand-in", "report": str(report), "top": "toy"}
+
+    def lvs(pdk, gds, source, run_dir, checker):
+        calls.append(("lvs", Path(source).name, checker))
+        correct = state["lvs"]
+        return {"lvs_correct": correct, "lvs_report": str(run_dir / "x.lvsdb"), "lvs_checker": "stand-in"}
+
+    def extracted(pdk, gds, name, run_dir, checker):
+        calls.append(("pex", Path(gds).name, checker))
+        return {"netlist": str(run_dir / f"{name}.pex.spectre"), "extractor": "stand-in", "nets": {"a": 1e-15}}
+
+    monkeypatch.setattr(signoff, "drc", drc)
+    monkeypatch.setattr(signoff, "lvs", lvs)
+    monkeypatch.setattr(step, "extracted", extracted)
+    monkeypatch.setitem(sys.modules, "pdk.toypdk.layout.tech", SimpleNamespace(LAYERS={"M1": (1, 0)}))
+    return SimpleNamespace(calls=calls, state=state)
+
+
+def test_the_layout_steps_lay_out_then_sign_off_each_in_its_folder(flow, tools, capsys) -> None:
+    """``--to pex``: the layout (here the toy's own, with its LVS source), then DRC, LVS and the
+    extraction, each by the open tools, each in its folder; the record of the layout alone joins
+    them, so the viewer's table and ``laid_out`` find it. A complete step is skipped; one deleted
+    is made again with those after it, the layout not."""
+    from flow.layout.signoff import Checker
+    from flow.sweep import lookup
+
+    flow("--to", "pex", "--run", "mine", "--instance", "wired")
+    out = capsys.readouterr().out
+    assert "steps netlist, layout, drc, lvs, pex" in out
+    assert "layout ok in" in out and "(2 x 1 um)" in out
+    assert "drc ok in" in out and "(0 violations, stand-in)" in out
+    assert "(match, stand-in)" in out and "pex ok in" in out and "(1 nets)" in out
+    open_ = Checker.OPEN
+    assert tools.calls == [("drc", "toy.gds", open_), ("lvs", "source.cdl", open_), ("pex", "toy.gds", open_)]
+    instance = _instance("mine").with_name("wired")
+    assert (instance / "layout/toy.gds").is_file() and (instance / "layout/step.log").is_file()
+    assert {path.parent.name for path in instance.glob("*/step.json")} == {"netlist", "layout", "drc", "lvs", "pex"}
+    record = json.loads((instance / "instance.json").read_text())
+    entry = record["layout"]
+    assert record["name"] == "wired" and record["metrics"] == {} and record["error"] is None
+    assert entry["gds"].endswith("wired/layout/toy.gds") and entry["netlist"].endswith("layout/source.cdl")
+    assert (entry["w_um"], entry["h_um"], entry["drc_violations"], entry["lvs_correct"]) == (2.0, 1.0, 0, True)
+    assert entry["pex"] == {"netlist": entry["pex"]["netlist"], "extractor": "stand-in", "nets": {"a": 1e-15}}
+    assert entry["pex"]["netlist"].endswith("wired/pex/toy.pex.spectre") and entry["error"] is None
+    assert set(entry["steps"]) == {"layout", "drc", "lvs", "pex"} and entry["floorplan"] == "lay_out"
+    assert lookup.laid_out("toyblock", "toypdk", importlib.import_module("flow.toyblock.sweep").wired()) == entry
+    # complete: skipped
+    tools.calls.clear()
+    flow("--from", "drc", "--to", "pex")
+    assert "drc done, lvs done, pex done" in capsys.readouterr().out and not tools.calls
+    # DRC's output gone: DRC, then LVS and PEX after it, made again; the layout kept
+    laid = (instance / "layout/step.json").read_text()
+    shutil.rmtree(instance / "drc")
+    flow("--from", "drc", "--to", "pex")
+    assert "the latest run" in capsys.readouterr().out
+    assert [call[0] for call in tools.calls] == ["drc", "lvs", "pex"]
+    assert (instance / "layout/step.json").read_text() == laid
+    # the layout made again: every signoff step after it is out of date
+    shutil.rmtree(instance / "layout")
+    flow("--from", "layout", "--to", "layout")
+    assert cli.done(instance, Step.LAYOUT) and not cli.done(instance, Step.DRC) and not cli.done(instance, Step.PEX)
+
+
+def test_a_kit_that_names_calibre_signs_off_by_it(flow, tools, monkeypatch) -> None:
+    """The checker is the kit's configuration (its ``signoff.checker(block)``), not a flag."""
+    from flow.layout import signoff
+    from flow.layout.signoff import Checker
+
+    assert signoff.checker("toypdk", "toyblock") is Checker.OPEN
+    monkeypatch.setitem(sys.modules, "pdk.toypdk.signoff", SimpleNamespace(checker=lambda block: Checker.CALIBRE))
+    assert signoff.checker("toypdk", "toyblock") is Checker.CALIBRE
+    flow("--to", "pex", "--instance", "wired")
+    assert [call[2] for call in tools.calls] == [Checker.CALIBRE] * 3
+
+
+def test_a_block_that_signs_its_layout_off_gives_the_signoff_steps_its_own(flow, tools, capsys) -> None:
+    """A ``lay_out`` that signed its layout off itself (``signoff_summary.json``): its DRC, LVS (an
+    accepted mismatch among its warnings) and extraction are the steps', no tool run again."""
+    flow("--to", "pex", "--instance", "signed")
+    assert not tools.calls and "(match" not in capsys.readouterr().out
+    instance = runner.newest_run("toyblock") / "toypdk" / "signed"
+    entry = json.loads((instance / "instance.json").read_text())["layout"]
+    assert entry["signoff"] == "lay_out" and entry["drc_violations"] == 0 and entry["lvs_correct"] is False
+    assert entry["warnings"] == ["an accepted mismatch"] and entry["pex"]["sha256"] == "0" * 64
+
+
+def test_a_layout_without_an_lvs_source_is_checked_by_drc_alone(flow, tools, capsys) -> None:
+    flow("--to", "pex", "--instance", "one")
+    out = capsys.readouterr().out
+    assert [call[0] for call in tools.calls] == ["drc"]
+    assert "lvs ok" in out and "(not run: no LVS source" in out
+    instance = runner.newest_run("toyblock") / "toypdk" / "one"
+    entry = json.loads((instance / "instance.json").read_text())["layout"]
+    assert entry["lvs_correct"] is None and entry["pex"]["skipped"].startswith("no LVS source")
+
+
+def test_a_layout_other_than_its_netlist_is_not_extracted_and_its_page_still_written(flow, tools, capsys) -> None:
+    """LVS that does not match refuses the extraction; the page, which takes whatever exists, is
+    written all the same, with the record's metrics and the layout's steps. DRC's violations are a
+    count, not a failure."""
+    tools.state.update(lvs=False, violations=3)
+    with pytest.raises(SystemExit, match="1 of 1 instances failed"):
+        flow("--to", "page", "--run", "mine", "--instance", "wired")
+    out = capsys.readouterr().out
+    assert "record ok" in out and "(3 violations, stand-in)" in out and "(no match, stand-in)" in out
+    assert "pex failed: RuntimeError: LVS found the layout other than its netlist" in out and "page ok" in out
+    instance = _instance("mine").with_name("wired")
+    steps = {entry["key"]: entry for entry in json.loads((instance / "page/steps.json").read_text())}
+    assert (instance / "page/page.html").is_file()
+    assert steps["record"]["state"] == "ok" and steps["gds"]["state"] == "ok"
+    assert steps["drc"]["state"] == "bad" and steps["lvs"]["state"] == "bad" and steps["pex"]["state"] == "bad"
+    record = json.loads((instance / "instance.json").read_text())
+    assert record["metrics"]["layout_area_um2"] == 2.0 and record["layout"]["steps"]["pex"]["error"]
+
+
+def test_the_shared_step_lays_out_by_align_and_its_other_router_where_one_fails(flow, tools, monkeypatch) -> None:
+    """A block that states its layout in its generator: ALIGN alone in the layout step (its netlists,
+    its design directory, ALIGN by the PDK's router, by the other where that one fails), the
+    signoff the steps after it."""
+    from flow.layout import build, step
+
+    def inputs(block, out, pdk, design, params, seconds=None):
+        (out / "netlist").mkdir(parents=True)
+        (out / "netlist" / f"{design}.cdl").write_text(f".subckt {design}\n.ends\n")
+        return out / "align/input" / design, [], out / "netlist" / f"{design}.cdl", True
+
+    def align(pdk, design, cells, out, placed, seed=0, router=None):
+        if router == "first":
+            raise RuntimeError("the router gave up")
+        from klayout import db
+
+        layout = db.Layout()
+        layout.create_cell("TOYBLOCK").shapes(layout.layer(1, 0)).insert(db.Box(0, 0, 3000, 1000))
+        (out / "gds").mkdir(parents=True)
+        layout.write(str(out / "gds/toyblock.gds"))
+        return out / "gds/toyblock.gds"
+
+    monkeypatch.setattr(step, "own_layout", lambda block: False)
+    monkeypatch.setattr(step, "inputs", inputs)
+    monkeypatch.setattr(step, "build_design", align)
+    monkeypatch.setattr(step, "pdk_router", lambda pdk: "first")
+    monkeypatch.setattr(step, "other_router", {"first": "second", "second": "first"}.get)
+    monkeypatch.setattr(step, "route_shorts", lambda work, name: {})
+    assert build.other_router(build.pdk_router("tsmc65")) != build.pdk_router("tsmc65")
+    flow("--to", "pex", "--run", "mine", "--instance", "wired")
+    instance = _instance("mine").with_name("wired")
+    laid = json.loads((instance / "layout/step.json").read_text())
+    assert laid["router"] == "second" and laid["gds"].endswith("layout/align_second/gds/toyblock.gds")
+    assert laid["cell_um"] == [3.0, 1.0] and laid["source"].endswith("layout/netlist/toyblock.cdl")
+    assert [call[:2] for call in tools.calls] == [
+        ("drc", "toyblock.gds"),
+        ("lvs", "toyblock.cdl"),
+        ("pex", "toyblock.gds"),
+    ]
+    assert json.loads((instance / "instance.json").read_text())["layout"]["floorplan"] == "generator"
+
+
+def test_a_signoff_step_without_its_layout_fails_naming_the_command_that_makes_it(flow, tools, capsys) -> None:
+    flow("--to", "netlist", "--run", "mine")
+    capsys.readouterr()
+    with pytest.raises(SystemExit, match="1 of 1 instances failed"):
+        flow("--from", "drc", "--to", "pex")
+    out = capsys.readouterr().out
+    assert "drc failed: drc needs its layout step's output: python -m flow toyblock --to layout --run mine" in out
+    assert "lvs not run, pex not run" in out and not tools.calls
+    with pytest.raises(SystemExit, match="1 of 1 instances failed"):
+        flow("--from", "page", "--to", "page")
+    assert "page failed: page needs the record or the layout" in capsys.readouterr().out

@@ -1,4 +1,4 @@
-"""The comparator's figures: the lab's (``python -m flow plot comp FIGURE --from <captures>``) on
+"""The comparator's figures: the lab's (``python -m flow comp --from figures --to figures --run <captures>``) on
 synthetic captures, as the bench scans write them (each point one ``AnalysisDecisions`` file), the
 record's noise and offset over the common mode the same specs; and the comparator inside a
 converter, from its scope records and a simulation's latches."""
@@ -143,16 +143,20 @@ def test_the_sampling_figures_take_a_correction_runs_curves(tmp_path: Path) -> N
     assert [path.suffix for path in paths] == [".pdf"]
 
 
-def test_a_single_s_curve_is_drawn_from_captures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``flow.plot.figures`` over a directory of captures (the figures step's, ``--run DIR``)."""
-    import flow
+def test_the_cli_draws_a_single_s_curve(tmp_path: Path, capsys) -> None:
+    """The figures step over a ``--run DIR`` of captures: each figure the comparator's analyses make
+    of them, in ``DIR/figures/``, a path a line; complete, skipped the next time."""
+    from flow import __main__ as cli
 
     run = write(tmp_path / "behavioral", [capture(0, 0.7, v) for v in INPUTS_V])
-    out = tmp_path / "out"
-    monkeypatch.setattr(flow, "new_run", lambda *parts: out)
-    assert list(plot.figures("comp", [run], ["offset_noise"])) == [out / "offset_noise_board0_channel0.pdf"]
+    cli.main(["comp", "--from", "figures", "--to", "figures", "--run", str(run)])
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == f"comp: captures {run}; step figures"
+    assert str(run / "figures" / "offset_noise_board0_channel0.pdf") in lines[1:]
+    cli.main(["comp", "--from", "figures", "--to", "figures", "--run", str(run)])
+    assert capsys.readouterr().out.splitlines()[1:] == ["figures done"]
     with pytest.raises(LookupError, match="no figure"):
-        plot.figures("comp", [run], ["no_such_figure"], out_dir=out)
+        plot.figures("comp", [run], ["no_such_figure"], out_dir=tmp_path / "out")
 
 
 def campaign_curve(campaign: str, mode: str, vin_cm_v: float, center_v: float, coupling: float | None = None):

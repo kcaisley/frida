@@ -14,14 +14,17 @@ that build the block's netlist so fetch the numbers its behavioral model runs on
     entry = laid_out("adc", "tsmc65", params)
 
 The newest layout of the instance with these parameters (``laid_out``): its layout entry (its GDS,
-size, signoff and extraction), from a layout run of the block or a sweep run's record, whichever ran
-last; a block's code names no run and no path under build/, so it finds a layout by its digest.
+size, signoff and extraction), from the newest of the block's runs whose record of it has one (the
+CLI's layout steps join it there), or a layout run from before them
+(``build/<block>/layout/<stamp>/``); a block's code names no run and no path under build/, so it
+finds a layout by its digest.
 """
 
 from __future__ import annotations
 
 import fcntl
 import json
+import re
 from concurrent.futures import ProcessPoolExecutor
 from functools import cache
 from multiprocessing import get_context
@@ -59,6 +62,8 @@ def _sweep_record(block: str, pdk: str, ident: str) -> dict | None:
         folder = _run_instances(run, pdk).get(ident)
         if folder is not None:
             record = json.loads((folder / "instance.json").read_text())
+            if not record["metrics"] and record["error"] is None:  # a record of its layout alone
+                continue
             return record if record["error"] is None else None
     return None
 
@@ -114,31 +119,29 @@ def detail(record: dict, name: str) -> dict:
 
 
 def laid_out(block: str, pdk: str, params) -> dict:
-    """The newest layout entry of ``block``'s instance with ``params`` in ``pdk``: from the block's
-    layout runs (``python -m flow layout <block> --instance ...``: ``build/<block>/layout/<stamp>/
-    <pdk>/<name>/instance.json``, the record ``flow.__main__`` writes, by its id) and its sweep runs'
-    records (``build/<block>/<stamp>/<pdk>/<digest>/instance.json``, the ``layout`` that
-    ``python -m flow layout <block>`` adds), the newest run first, one whose layout stands (a GDS on
+    """The newest layout entry of ``block``'s instance with ``params`` in ``pdk``: from the record
+    of it (by its id: ``<run>/<pdk>/<name>/instance.json``, a named instance's by its name, a
+    grid's by its digest) in the block's runs and its layout runs from before the CLI's steps
+    (``build/<block>/layout/<stamp>/``), the newest run first, one whose layout stands (a GDS on
     disk, no error). Raises ``LookupError`` naming the command that lays it out."""
 
     from flow.sweep import runner
 
     ident = digest(flat_params(params))
-    found = []
-    for path in (runner.RUNS_DIR / block / "layout").glob(f"*/{pdk}/*/instance.json"):
-        found.append((path.parts[-4], path))
-    for path in (runner.RUNS_DIR / block).glob(f"*/{pdk}/{ident}/instance.json"):
-        found.append((path.parts[-4], path))
-    for stamp, path in sorted(found, key=lambda item: item[0], reverse=True):
-        if not runner.RUN_STAMP.fullmatch(stamp):
-            continue
-        record = json.loads(path.read_text())
-        entry = record.get("layout") or {}
-        if record.get("id") != f"{pdk}__{ident}" or entry.get("error") or not entry.get("gds"):
-            continue
-        if (runner.ROOT / entry["gds"]).exists():
-            return entry
+    history = runner.RUNS_DIR / block / "layout"
+    runs = {*runner._runs(block), *(path for path in history.glob("*") if runner.RUN_STAMP.fullmatch(path.name))}
+    for run in sorted(runs, key=runner.run_time, reverse=True):
+        folders = sorted(path for path in (run / pdk).glob("*") if not re.fullmatch(r"[0-9a-f]{12}", path.name))
+        for path in (folder / "instance.json" for folder in [run / pdk / ident, *folders]):
+            if not path.is_file():
+                continue
+            record = json.loads(path.read_text())
+            entry = record.get("layout") or {}
+            if record.get("id") != f"{pdk}__{ident}" or entry.get("error") or not entry.get("gds"):
+                continue
+            if (runner.ROOT / entry["gds"]).exists():
+                return entry
     raise LookupError(
         f"{block} in {pdk} with these parameters ({ident}) is not laid out: "
-        f"python -m flow layout {block} --pdk {pdk} --instance {ident}"
+        f"python -m flow {block} --to pex --pdk {pdk} --instance {ident}"
     )

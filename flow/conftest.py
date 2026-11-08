@@ -21,7 +21,8 @@ def tsmc65(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---- a toy block on the pipeline, for the CLI's steps and the runner's own contract: its reader
-# (sim.read), a run a level (its circuit level one more), and a layout of its own (layout.py's lay_out)
+# (sim.read), a run a level (its circuit level one more), a figure, and a layout of its own
+# (layout.py's lay_out: no LVS source, one, or signed off by itself, by its mode)
 
 _TOY = {
     "__init__.py": '"""A toy block."""\n',
@@ -77,9 +78,9 @@ def read(raw: Path, tb: TbParams) -> pipeline.Meas:
     info = pipeline.MeasInfo(backend="behavioral", timestamp_utc=datetime.now(timezone.utc), readbacks={"text": raw.read_text()})
     return pipeline.Meas(group=None, index=None, dut=tb.params, info=info, param=tb)
 ''',
-    "sweep.py": '''"""One named instance; a run a level."""
+    "sweep.py": '''"""One named instance swept, two more named for their layouts; a run a level; a figure."""
 
-from flow.pipeline import Level, Meas, Record, named
+from flow.pipeline import Level, Meas, Plot, Record, named
 
 from .params import Params, TbParams
 
@@ -89,13 +90,25 @@ def one() -> Params:
     return Params()
 
 
+@named(swept=False)
+def wired() -> Params:
+    return Params(mode=1)
+
+
+@named(swept=False)
+def signed() -> Params:
+    return Params(mode=2)
+
+
 def runs(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
     names = [name for name in Level if name.value <= level.value]
     return {name.name.lower(): TbParams(pdk=pdk, params=params, name=name.name.lower()) for name in names}
 
 
 def record(measurements: dict[str, Meas]) -> Record:
-    return Record(metrics={f"read_{name}": meas.info.readbacks["text"] == name for name, meas in measurements.items()})
+    reads = {name: meas.info.readbacks["text"] == name for name, meas in measurements.items()}
+    figure = Plot("reads", "Reads", "Run", "Read", list(range(len(reads))), {"read": [float(r) for r in reads.values()]})
+    return Record(metrics={f"read_{name}": read for name, read in reads.items()}, details=[figure])
 ''',
     "layout.py": '''"""Its own layout: a box, and what its mode says it signs off."""
 
@@ -120,6 +133,7 @@ def lay_out(params: Params, pdk: str, run_dir: Path) -> Path:
         (run_dir / "drc_violations.json").write_text(json.dumps({"violations": {}}))
         summary = {
             "drc_report": str(run_dir / "drc_violations.json"),
+            "lvs_report": str(run_dir / "lvs.report"),
             "lvs_correct": False,
             "warnings": ["an accepted mismatch"],
             "pex_netlist": str(run_dir / "toy.pex.netlist"),

@@ -15,8 +15,15 @@ signoff a kit takes), never a flag here. The steps make a small graph, each afte
 
 ``--to`` runs the steps that lead from ``--from`` (``netlist`` by default) to it, both included:
 ``--to record`` simulates and records, ``--from record --to record`` analyses again what ``sim``
-kept. ``circuit`` adds the circuit simulator's runs of a block whose full characterization is
-behavioral (the ADC's Spectre runs) and records again; it takes picked instances alone.
+kept, ``--to lvs`` lays out and signs off without extraction. ``circuit`` adds the circuit
+simulator's runs of a block whose full characterization is behavioral (the ADC's Spectre runs) and
+records again; it takes picked instances alone. ``figures`` draws a record's figures, or, over a
+``--run DIR`` of the lab's captures, the figures the block's analyses make of them. ``layout`` runs
+the block's own ``lay_out`` where it has a ``layout.py`` (its own signoff and extraction, where it
+ran them, the drc, lvs and pex steps'), else ALIGN through the shared step; ``drc``, ``lvs`` and
+``pex`` run the checker the kit names (``flow.layout.signoff.checker``: the open tools, else
+Calibre) on its GDS. ``page`` writes the instance's page from whatever of its record and layout
+exists.
 
 A run is ``build/<block>/<run>/``, each instance in ``<pdk>/<name>/`` there (a named instance by its
 name, a grid's by its digest), a folder a step: ``netlist/``, ``sim/<run>/``, ``circuit/<run>/``,
@@ -188,11 +195,21 @@ def _command(job: Job, step: Step) -> str:
 
 def _missing(job: Job, step: Step) -> str | None:
     """What ``step`` needs on this instance that is not complete, and the command that makes it;
-    None where it has all it needs."""
+    None where it has all it needs. The page takes whatever exists of the instance's record and
+    layout, one of them at least."""
+    if step is Step.PAGE:
+        if done(job.out, Step.RECORD) or done(job.out, Step.LAYOUT):
+            return None
+        return f"page needs the record or the layout: {_command(job, Step.RECORD)}, or --to pex"
     for need in step.needs:
         if not done(job.out, need):
             return f"{step} needs its {need} step's output: {_command(job, need)}"
     return None
+
+
+def _outputs(out: Path, step: Step) -> dict:
+    """What a step that ended made on this instance (its ``step.json``), else nothing."""
+    return _ended(out, step) or {}
 
 
 def _netlist(job: Job) -> dict:
@@ -208,13 +225,14 @@ def _sim(job: Job) -> dict:
     from flow.sweep import runner
 
     runs = runner.runs_of(job.block, job.pdk, job.params)
-    runner.simulate(job.block, job.pdk, runs, _fresh(job.out, Step.SIM))
+    runner.simulate(job.block, job.pdk, runs, job.out / "sim")
     return {"runs": list(runs)}
 
 
 def _fresh(out: Path, step: Step) -> Path:
     """The step's folder, emptied where the step ended before (its output out of date, made again
-    whole); a step that failed or stopped part way keeps what it made, which it then reuses."""
+    whole); a step that failed or stopped part way keeps what it made, which it then reuses (the
+    sim step its kept measurements)."""
     import shutil
 
     if _ended(out, step) is not None:
@@ -256,38 +274,233 @@ def _circuit(job: Job) -> dict:
     from flow.sweep import runner
 
     runs = runner.circuit_runs(job.block, job.pdk, job.params)
-    files = runner.simulate(job.block, job.pdk, runs, _fresh(job.out, Step.CIRCUIT))
+    files = runner.simulate(job.block, job.pdk, runs, job.out / "circuit")
     started = time.time()
     _mark(job.out, Step.RECORD, started, **_record(job, files))
+    _join_layout(job)
     return {"runs": list(runs)}
 
 
+def _figures(job: Job) -> dict:
+    """Each of the record's figures (its details, ``flow.pipeline.Plot`` specs) drawn by matplotlib
+    into ``figures/`` (``flow.plot.render``)."""
+    from flow.pipeline import Plot
+    from flow.plot import render
+
+    record = json.loads((job.out / "instance.json").read_text())
+    paths = [
+        path
+        for detail in record["details"]
+        for path in render(Plot.from_json(detail), job.out / "figures" / detail["name"])
+    ]
+    return {"figures": [str(path.relative_to(job.out)) for path in paths]}
+
+
+def _layout(job: Job) -> dict:
+    """The instance laid out into ``layout/``: by its block's own ``lay_out`` where it has a
+    ``layout.py`` (``flow.layout.step.lay_out_own``: the ADC's block assembly, or a FRIDA-1
+    flavor's tape-out layout, whose own signoff and extraction the drc, lvs and pex steps take),
+    else by ALIGN through the shared layout step (``flow.layout.step.lay_out_align``)."""
+    from flow.layout import step
+
+    made = step.lay_out_own if step.own_layout(job.block) else step.lay_out_align
+    return made(job.block, job.pdk, job.params, job.out / "layout")
+
+
+def _signed_off(job: Job) -> dict | None:
+    """The signoff the block's own ``lay_out`` ran itself (``signoff_summary.json``), else None."""
+    path = _outputs(job.out, Step.LAYOUT).get("signed_off")
+    return json.loads(Path(path).read_text()) if path else None
+
+
+def _drc(job: Job) -> dict:
+    """DRC of the layout's GDS into ``drc/`` by the checker its kit names
+    (``flow.layout.signoff.checker``: the open tools by default), or the DRC its own ``lay_out``
+    ran; its violations a count, not a failure."""
+    from flow.layout import signoff
+
+    laid, signed = _outputs(job.out, Step.LAYOUT), _signed_off(job)
+    if signed is not None:
+        report = Path(signed["drc_report"])
+        found = json.loads(report.read_text()) if report.suffix == ".json" and report.is_file() else {}
+        return {"violations": sum(found.get("violations", {}).values()), "checker": "lay_out", "report": str(report)}
+    source = Path(laid["source"]) if laid.get("source") else None
+    checker = signoff.checker(job.pdk, job.block)
+    return signoff.drc(job.pdk, Path(laid["gds"]), job.out / "drc", checker, source=source)
+
+
+def _lvs(job: Job) -> dict:
+    """LVS of the layout's GDS against its LVS source into ``lvs/`` by its kit's checker, or the
+    LVS its own ``lay_out`` ran (an accepted mismatch among its warnings); not run where the
+    layout has no source (blocks side by side, unconnected)."""
+    from flow.layout import signoff
+
+    laid, signed = _outputs(job.out, Step.LAYOUT), _signed_off(job)
+    if signed is not None:
+        return {
+            "lvs_correct": signed["lvs_correct"],
+            "lvs_report": signed.get("lvs_report"),
+            "lvs_checker": "lay_out",
+            "warnings": signed.get("warnings", []),
+        }
+    if not laid.get("source"):
+        return {"lvs_correct": None, "skipped": "no LVS source: its blocks side by side, unconnected"}
+    checker = signoff.checker(job.pdk, job.block)
+    return signoff.lvs(job.pdk, Path(laid["gds"]), Path(laid["source"]), job.out / "lvs", checker)
+
+
+def _pex(job: Job) -> dict:
+    """The layout's extraction into ``pex/`` (``flow.layout.step.extracted``: KLayout-PEX, or the
+    kit's extractor where its kit names Calibre), or the one its own ``lay_out`` ran; not run where
+    LVS was not (no source), refused where LVS found the layout other than its netlist."""
+    from flow.layout import signoff, step
+
+    laid, checked, signed = _outputs(job.out, Step.LAYOUT), _outputs(job.out, Step.LVS), _signed_off(job)
+    if signed is not None:
+        return {"netlist": signed["pex_netlist"], "sha256": signed.get("pex_sha256"), "extractor": "lay_out"}
+    if checked.get("skipped"):
+        return {"skipped": checked["skipped"]}
+    if checked.get("lvs_correct") is False:
+        raise RuntimeError(f"LVS found the layout other than its netlist ({checked['lvs_report']}): not extracted")
+    gds = Path(laid["gds"])
+    return step.extracted(job.pdk, gds, gds.stem, job.out / "pex", signoff.checker(job.pdk, job.block))
+
+
+def _page(job: Job) -> dict:
+    """The instance's page (``flow.web.page.page``) in ``page/``: its record and whatever of its
+    layout exists."""
+    from flow.web.page import page
+
+    (job.out / "page").mkdir(parents=True, exist_ok=True)
+    return {"page": str(page(job.out, job.out / "page" / "page.html").relative_to(job.out))}
+
+
 def _body(step: Step):
-    """The function that runs ``step`` on one instance, None for a step the CLI does not run yet or
-    that runs over a run (``TABLE``)."""
-    return {Step.NETLIST: _netlist, Step.SIM: _sim, Step.CIRCUIT: _circuit, Step.RECORD: _record}.get(step)
+    """The function that runs ``step`` on one instance, None for one that runs over a run
+    (``TABLE``)."""
+    return {
+        Step.NETLIST: _netlist,
+        Step.SIM: _sim,
+        Step.CIRCUIT: _circuit,
+        Step.RECORD: _record,
+        Step.FIGURES: _figures,
+        Step.LAYOUT: _layout,
+        Step.DRC: _drc,
+        Step.LVS: _lvs,
+        Step.PEX: _pex,
+        Step.PAGE: _page,
+    }.get(step)
+
+
+def _made(ended: dict) -> dict:
+    """A step's outputs, from its ``step.json``: its record of the run (``_mark``'s) left out."""
+    return {key: value for key, value in ended.items() if key not in ("step", "finished", "seconds", "error")}
+
+
+def _join_layout(job: Job) -> None:
+    """The layout steps' outcome joined to the instance's record (``instance.json``, a record of
+    the layout alone where it is not characterized, so the viewer's table and
+    ``flow.sweep.lookup.laid_out`` find it): its GDS, LVS source, size, router, signoff, extraction,
+    the layout step's error and each step's seconds; a characterized record also its layout area
+    and density. Nothing where it is not laid out."""
+    from flow.sweep import runner
+
+    marked = {step: _marker(job.out, step) for step in (Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX)}
+    if not marked[Step.LAYOUT].exists():
+        return
+    made = {step: json.loads(path.read_text()) for step, path in marked.items() if path.exists()}
+    ended = {step: made[step] for step in made if done(job.out, step)}
+    laid, drc, lvs, pex = (ended.get(step, {}) for step in marked)
+    path = job.out / "instance.json"
+    record = (
+        json.loads(path.read_text())
+        if path.exists()
+        else runner._base_record(job.block, job.pdk, job.params, job.label, job.name)
+    )
+    width, height = laid.get("cell_um") or (None, None)
+    record["layout"] = {
+        "gds": runner._shown(laid["gds"]) if laid.get("gds") else None,
+        "netlist": runner._shown(laid["source"]) if laid.get("source") else None,
+        "w_um": width,
+        "h_um": height,
+        "floorplan": None
+        if not laid
+        else "lay_out"
+        if "signed_off" in laid
+        else "generator"
+        if laid["placed"]
+        else None,
+        "router": laid.get("router"),
+        "route_shorts": laid.get("route_shorts"),
+        "signoff": "lay_out" if laid.get("signed_off") else drc.get("checker"),
+        "drc_violations": drc.get("violations"),
+        "lvs_correct": lvs.get("lvs_correct"),
+        "warnings": lvs.get("warnings"),
+        "pex": runner._shown_pex(_made(pex)) if pex else None,
+        "error": made[Step.LAYOUT].get("error"),
+        "seconds": round(sum(entry["seconds"] for entry in made.values()), 1),
+        "steps": {str(step): {"seconds": entry["seconds"], "error": entry["error"]} for step, entry in made.items()},
+    }
+    if record["metrics"] and width:
+        gate = record["metrics"].get("device_area_um2")
+        record["metrics"].update(layout_area_um2=width * height, density=gate / (width * height) if gate else None)
+    runner.write_record(path, record)
+
+
+def _brief(step: Step, outputs: dict) -> str:
+    """What a step found, for its outcome's line: a layout's size, DRC's violations, LVS's verdict,
+    an extraction's nets."""
+    if outputs.get("skipped"):
+        return f" (not run: {outputs['skipped']})"
+    match step:
+        case Step.LAYOUT:
+            return f" ({' x '.join(f'{v:g}' for v in outputs['cell_um'])} um)"
+        case Step.DRC:
+            return f" ({_count(outputs['violations'], 'violation')}, {outputs['checker']})"
+        case Step.LVS:
+            correct = outputs["lvs_correct"]
+            verdict = "no deck" if correct is None else "match" if correct else "no match"
+            return f" ({verdict}, {outputs['lvs_checker'] or '-'})"
+        case Step.PEX:
+            return f" ({len(outputs['nets'])} nets)" if "nets" in outputs else f" ({outputs['extractor']})"
+    return ""
 
 
 def run_steps(job: Job) -> list[str]:
     """The job's steps on its instance, in order, in this (fresh) process: each skipped where its
-    output is complete (``done``), failed where what it needs is missing (``_missing``), else run.
-    A failure ends the instance's steps; a characterization step's (netlist, sim, record) is also
-    the instance's record (``flow.sweep.runner.failed_record``), so the viewer's table shows it.
-    Each step's outcome, a line each."""
+    output is complete (``done``), failed where what it needs is missing (``_missing``), else run
+    in its folder (emptied where it ended before: ``_fresh``), a layout step's log, the flow's own
+    lines, in it (``<step>/step.log``; each tool's own log beside its results). A failure leaves
+    the steps after it not run (the page, which takes whatever exists, runs); a characterization
+    step's failure (netlist, sim, record) is also the instance's record
+    (``flow.sweep.runner.failed_record``), and a layout step's joins it (``_join_layout``), so the
+    viewer's table shows it. Each step's outcome, a line each."""
+    from contextlib import nullcontext
+
+    from flow.layout import logs
     from flow.sweep import runner
 
-    outcomes = []
+    outcomes: list[str] = []
+    failed: set[Step] = set()
     for step in job.steps:
         if done(job.out, step):
             outcomes.append(f"{step} done")
             continue
+        if failed & step.ancestors and step is not Step.PAGE:
+            failed.add(step)
+            outcomes.append(f"{step} not run")
+            continue
         missing = _missing(job, step)
         if missing:
+            failed.add(step)
             outcomes.append(f"{step} failed: {missing}")
-            break
+            continue
         started = time.time()
+        folder = _fresh(job.out, step)
+        logged = step in (Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX)
         try:
-            outputs = _body(step)(job)
+            with logs.instance_log(folder / "step.log") if logged else nullcontext():
+                outputs = _body(step)(job)
         except Exception:  # noqa: BLE001 - every instance reports its own failure
             error = traceback.format_exc(limit=6)[-4000:]
             _mark(job.out, step, started, error=error)
@@ -295,10 +508,15 @@ def run_steps(job: Job) -> list[str]:
                 runner.failed_record(
                     job.block, job.pdk, job.params, job.out, f"{step}: {error}", label=job.label, name=job.name
                 )
+            if logged or step is Step.RECORD:
+                _join_layout(job)
+            failed.add(step)
             outcomes.append(f"{step} failed: {error.strip().splitlines()[-1]}")
-            break
+            continue
         _mark(job.out, step, started, **outputs)
-        outcomes.append(f"{step} ok in {time.time() - started:.1f} s")
+        if logged or step is Step.RECORD:
+            _join_layout(job)
+        outcomes.append(f"{step} ok in {time.time() - started:.1f} s{_brief(step, outputs)}")
     return outcomes
 
 
@@ -417,12 +635,12 @@ def steps(args: argparse.Namespace) -> None:
 
     start, stop = Step[args.start.upper()], Step[args.to.upper()]
     chosen = between(start, stop)
-    unbuilt = [step for step in chosen if step is not Step.TABLE and _body(step) is None]
-    if unbuilt:
-        raise SystemExit(f"python -m flow runs no {', '.join(map(str, unbuilt))} step yet")
     if Step.CIRCUIT in chosen and not args.instances:
         raise SystemExit("the circuit step runs the circuit simulator: pick the instances (--instance I ...)")
     run, found = _run_dir(args.block, args.run, start)
+    if chosen == [Step.FIGURES] and _captures(run):
+        _capture_figures(args.block, run, args.predict)
+        return
     reused = found != "new" and start is not Step.NETLIST
     name = _run_name(args.block, run)
     jobs = []
@@ -456,6 +674,39 @@ def steps(args: argparse.Namespace) -> None:
         runner.table([args.block], args.workers, run=run)
     if failures:
         raise SystemExit(f"{len(failures)} of {len(jobs)} instances failed; the first: {failures[0]}")
+
+
+def _captures(run: Path) -> bool:
+    """Whether ``run`` is a directory of captures (the lab's, ``flow.scans.runner``'s: HDF5 files
+    beneath it, through linked folders too: a study's links to its campaigns), not a run of
+    instances."""
+    from flow.plot import capture_files
+
+    return not (run / "run.json").exists() and not list(run.glob("*/*/instance.json")) and bool(capture_files(run))
+
+
+def _capture_figures(block: str, run: Path, predict: bool) -> None:
+    """The figures step over a directory of captures: each figure the block's analyses make of
+    them (``flow.plot.figures``) drawn into ``run/figures/``, a line each; make's rule as an
+    instance's step (``run/figures/step.json``)."""
+    from flow import plot
+
+    print(f"{block}: captures {run}; step figures")
+    if done(run, Step.FIGURES):
+        print("figures done")
+        return
+    if predict:
+        print(f"figures of {len(plot.capture_files(run))} captures")
+        return
+    started = time.time()
+    folder = _fresh(run, Step.FIGURES)
+    try:
+        paths = plot.figures(block, [run], out_dir=folder)
+    except Exception:
+        _mark(run, Step.FIGURES, started, error=traceback.format_exc(limit=6)[-4000:])
+        raise
+    _mark(run, Step.FIGURES, started, figures=[str(path.relative_to(folder)) for path in paths])
+    print(*paths, sep="\n")
 
 
 def _run_jobs(jobs: list[Job], workers: int) -> list[str]:
@@ -592,190 +843,6 @@ def main(argv: list[str] | None = None) -> None:
         server.serve(8765, "127.0.0.1")
     else:
         steps(parser().parse_args(argv))
-
-
-# ---------------------------------------------------------------- the layout steps' helpers
-
-
-def layout_instances(
-    block: str,
-    names: list[str],
-    pdks: tuple[str, ...],
-    *,
-    auto: bool,
-    plan_only: bool,
-    quiet: bool = False,
-    signoff: str = "open",
-    pex: bool = True,
-) -> None:
-    """Lay out the instances ``names`` pick (``runner.select``; ``all``: every named one) of
-    ``block`` in each of ``pdks``, one run a call, ``build/<block>/layout/<stamp>/`` (not a
-    characterization run of the block, ``build/<block>/<stamp>/``): each instance into
-    ``<pdk>/<name>/`` there, a named instance by its name, a grid's by its digest; by the shared
-    step (``flow.layout.step.layout_one``), or, a block that lays itself out (its ``layout.py``'s
-    ``lay_out``), by its own flow (``flow.layout.step.lay_out_one``; no ``auto``, no ``plan_only``).
-    ``plan_only``: the netlist and the constraints alone (ALIGN's design directory). The console is the flow's log (``flow.layout.logs``: its steps as Python's
-    logging has them, in ALIGN's format) with ALIGN's own output and the checkers' as they run,
-    unless ``quiet``; each instance's ``flow.log`` keeps the flow's lines, ALIGN and every tool their
-    own logs; an instance ends with its steps, a line each (its time, state and statistics, as its
-    page has them)."""
-    from flow import new_run, pipeline
-    from flow.layout import run as align_run
-    from flow.layout.step import lay_out_one, layout_one, own_layout
-    from flow.sweep import runner
-
-    own = own_layout(block)
-    if own and (auto or plan_only):
-        raise SystemExit(f"{block} lays itself out (its layout.py's lay_out): no ALIGN placement or plan")
-    named = pipeline.names(import_module(f"flow.{block}.sweep"))
-    names = list(named) if names == ["all"] else names
-    import logging
-
-    from flow.layout import logs
-    from flow.layout.signoff import Checker
-
-    logs.console()
-    if quiet:  # the tools' own lines in their logs alone
-        for tool in ("gdscheck", "calibre", "klayout"):
-            logging.getLogger(tool).setLevel(logging.WARNING)
-    log = logging.getLogger("flow")
-    align_run.ECHO = not quiet  # ALIGN's output on the terminal as well as in its log
-    run_dir = new_run(block, "layout")
-    log.info(f"{block}: run {_shown(run_dir)}")
-    failed: list[str] = []
-    for pdk in pdks:
-        try:
-            picked = runner.select(block, pdk, names)
-        except LookupError as error:
-            raise SystemExit(str(error)) from None
-        for ident, (label, params) in picked.items():
-            name = label if label in named else ident  # a named instance by its name, a grid's by its digest
-            name = f"{name}_auto" if auto else name
-            out = run_dir / pdk / name
-            log.info(f"{block} {name} in {pdk}: {label}: {_shown(out)}")
-            if plan_only:
-                print(*plan_design(block, params, pdk, out, f"{block}_{name}"), sep="\n")
-                continue
-            started = time.monotonic()
-            with logs.instance_log(out / "flow.log"):
-                try:
-                    if own:
-                        lay_out_one(block, out, pdk, params, checker=Checker[signoff.upper()], pex=pex)
-                    else:
-                        layout_one(
-                            block,
-                            out,
-                            pdk,
-                            f"{block}_{name}",
-                            params,
-                            auto=auto,
-                            checker=Checker[signoff.upper()],
-                            pex=pex,
-                        )
-                except RuntimeError as error:  # a failed signoff: reported, the other instances laid out
-                    failed.append(f"{block} {name} in {pdk}: {_reason(out) or error}")
-                _layout_record(block, pdk, ident, params, out, time.monotonic() - started, name)
-                _page(out)
-    if failed:
-        raise SystemExit(f"{len(failed)} of the layouts failed signoff:\n" + "\n".join(failed))
-
-
-def _layout_record(block: str, pdk: str, ident: str, params, out: Path, seconds: float, name: str) -> None:
-    """A laid-out instance's record for the viewer's table (``flow table``), ``out/instance.json``,
-    as a characterization run writes one: its parameters, no metrics, and its layout (GDS, netlist,
-    size, signoff), so a block laid out before it is characterized shows its layouts. ``name``: the
-    instance's name in the run (a named instance's, a grid's digest), as its page titles it."""
-    import dataclasses
-    import json
-
-    from flow.web.export import json_value
-
-    summary = out / "summary.json"
-    entry = next(iter(json.loads(summary.read_text()).values()), {}) if summary.exists() else {}
-    netlist = next((out / "netlist").glob("*.sp"), None)
-    width, height = entry.get("cell_um", (None, None))
-    layout = {
-        "gds": _shown(Path(entry["gds"])) if entry.get("gds") else None,
-        "netlist": _shown(netlist) if netlist else None,
-        "w_um": width,
-        "h_um": height,
-        "drc_violations": entry.get("drc_violations"),
-        "lvs_correct": entry.get("lvs_correct"),
-        "error": _reason(out) or entry.get("error"),
-        "seconds": round(seconds, 1),
-        "steps": entry.get("seconds", {}),  # each step's seconds: netlist, layout, DRC, LVS
-        # who signed it off, what it accepted and its extraction, where its flow gives them (a block
-        # that lays itself out: ``lay_out_one``'s entry), so ``flow.sweep.lookup.laid_out`` hands them on
-        **{key: entry[key] for key in ("signoff", "warnings") if key in entry},
-        # its extraction's netlist from the repository's root, as the GDS
-        **({"pex": _shown_pex(entry["pex"])} if "pex" in entry else {}),
-    }
-    record = {
-        "block": block,
-        "id": f"{pdk}__{ident}",
-        "name": name,
-        "pdk": pdk,
-        "params": {field.name: json_value(getattr(params, field.name)) for field in dataclasses.fields(params)},
-        "metrics": {},
-        "details": [],
-        "waves": {},
-        "error": None,
-        "seconds": round(seconds, 1),
-        "layout": layout,
-    }
-    (out / "instance.json").write_text(json.dumps(record, indent=1) + "\n")
-
-
-def _page(out: Path) -> None:
-    """The laid-out instance's page (``flow.web.page``, ``out/page.html``) and its steps, a line
-    each, the error that stopped it under them; a page that cannot be written is reported, never
-    the layout's failure."""
-    import json
-    import logging
-
-    from flow.web.page import page, step_lines
-
-    log = logging.getLogger("flow.steps")
-    try:
-        written = page(out)
-    except Exception as error:  # noqa: BLE001 - the layout stands without its page
-        log.warning(f"page not written ({error!r})")
-        return
-    for line in step_lines(out):
-        log.info(line)
-    for entry in json.loads((out / "summary.json").read_text()).values() if (out / "summary.json").exists() else ():
-        if entry.get("error"):
-            log.error(entry["error"][:300])
-    log.info(f"page {_shown(written)}")
-
-
-def _shown(path: Path) -> str:
-    """A path as the console shows it: from the repository's root where it is inside."""
-    root = Path(__file__).resolve().parents[1]
-    path = Path(path).resolve()
-    return str(path.relative_to(root)) if path.is_relative_to(root) else str(path)
-
-
-def _shown_pex(pex: dict | None) -> dict | None:
-    """An extraction's entry with its netlist's path as ``_shown`` gives one."""
-    return {**pex, "netlist": _shown(Path(pex["netlist"]))} if pex and pex.get("netlist") else pex
-
-
-def _reason(run_dir: Path) -> str:
-    """Why an instance failed signoff, as its ``failures.json`` records it ("" where it has none)."""
-    import json
-
-    path = run_dir / "failures.json"
-    return "; ".join(f"{key}: {why}" for key, why in json.loads(path.read_text()).items()) if path.exists() else ""
-
-
-def plan_design(block: str, params, pdk: str, out_dir: Path, design: str) -> tuple[Path, ...]:
-    """The netlists and ALIGN's design directory of ``block``'s ``params`` in ``pdk``, without ALIGN
-    (``flow.layout.step.inputs``): the ALIGN and LVS netlists, the design directory."""
-    from flow.layout.step import inputs
-
-    input_dir, _cells, source, _placed = inputs(block, out_dir, pdk, design, params)
-    return out_dir / "netlist" / f"{design}.sp", source, input_dir
 
 
 if __name__ == "__main__":

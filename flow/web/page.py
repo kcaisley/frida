@@ -1,15 +1,16 @@
-"""One laid-out instance as a page of its own: a single HTML file to open from disk or publish as a
-claude.ai artifact, no server behind it. Its metrics by the pipeline's steps, in their order (the
-netlist, the layout, DRC, LVS: each one's statistics and run time), its netlist, its schematic and
-its layout in 2-D and 3-D. No analysis and no simulation (yet).
+"""One instance as a page of its own: a single HTML file to open from disk or publish as a
+claude.ai artifact, no server behind it. Its metrics by the pipeline's steps, in their order (its
+record's metrics, the netlist, the layout, DRC, LVS, PEX: each one's statistics and run time), its
+netlist, its schematic and its layout in 2-D and 3-D.
 
-    python -m flow page capdac --instance 9a5e63c5482c --pdk tsmc65     # its newest layout
-    python -m flow page capdac --run-dir build/capdac/layout/<stamp>/tsmc65/<name>
+    python -m flow capdac --from page --to page --instance 9a5e63c5482c --pdk tsmc65
 
-An instance's directory is what ``python -m flow layout`` writes (``<pdk>/<name>/``: ``netlist/``,
-``align/``, ``summary.json``, ``instance.json``); the page is ``page.html`` in it. Its data sit in
-the page as JSON; the 3-D view loads three.js from jsDelivr when it is first opened, and draws on a
-2-D canvas where a browser has no WebGL.
+An instance's directory is a run's ``<pdk>/<name>/`` (``flow.__main__``: a folder a step,
+``netlist/``, ``layout/``, ``drc/``, ``lvs/``, ``pex/``, each with its ``step.json``, and its record
+``instance.json``), or a layout run's from before the steps (``build/<block>/layout/<stamp>/``:
+``netlist/``, ``align/``, ``summary.json``); the page is ``page.html`` in it, the CLI's in
+``page/``. Its data sit in the page as JSON; the 3-D view loads three.js from jsDelivr when it is
+first opened, and draws on a 2-D canvas where a browser has no WebGL.
 """
 
 from __future__ import annotations
@@ -161,10 +162,10 @@ def calibre_lvs(report: str) -> dict[str, Any]:
 def lvs_stats(signoff: Path, entry: dict[str, Any]) -> dict[str, Any] | None:
     """LVS's verdict (None: not run), its checker, and its comparison: Calibre's objects
     (``calibre_lvs``), or KLayout's mismatches from its database (``mismatches``)."""
-    record = signoff / "row_signoff.json"
-    if not record.exists() and "lvs_correct" not in entry:
+    record = next((path for path in (signoff / "row_signoff.json", signoff / "lvs.json") if path.exists()), None)
+    if record is None and "lvs_correct" not in entry:
         return None
-    data = json.loads(record.read_text()) if record.exists() else {}
+    data = json.loads(record.read_text()) if record else {}
     correct = data.get("lvs_correct", entry.get("lvs_correct"))
     checker = data.get("lvs_checker") or ("calibre" if (signoff / "lvs.rep").exists() else "")
     out: dict[str, Any] = {"correct": correct, "rows": [], "wrong": None, "checker": checker, "mismatches": []}
@@ -421,13 +422,15 @@ def _counted(found: Counter[tuple[str, str]]) -> str:
     return " and ".join(parts) + " from ALIGN" if parts else ""
 
 
-def steps(instance_dir: Path, entry: dict[str, Any], netlist_text: str, layout: dict | None, about: dict) -> list[dict]:
+def steps(
+    folders: dict[str, Path], entry: dict[str, Any], netlist_text: str, layout: dict | None, about: dict
+) -> list[dict]:
     """The pipeline's steps in order, each its state (ok, bad, or none where it did not run), run
-    time, facts ([label, value]) and tables ({title, head, rows}): the parameters, the netlist, the
-    constraints, ALIGN's own stages (topology, primitives, placement, routing), the GDS, DRC, LVS,
-    PEX."""
-    align = instance_dir / "align"
-    signoff = align / "signoff"
+    time, facts ([label, value]) and tables ({title, head, rows}): the parameters, the record's
+    metrics, the netlist, the constraints, ALIGN's own stages (topology, primitives, placement,
+    routing), the GDS, DRC, LVS, PEX. ``folders``: ALIGN's (``align``), DRC's and LVS's."""
+    align = folders["align"]
+    signoff = folders["drc"]
     works = [path.parent for path in align.glob("*/LOG")]
     work = works[0] if works else align / "none"
     build_path = work / "build.json"
@@ -477,6 +480,14 @@ def steps(instance_dir: Path, entry: dict[str, Any], netlist_text: str, layout: 
         [["Block", about["block"]], ["PDK", about["pdk"]], ["Instance", about["name"]], ["Run", about["run"]]],
         [{"title": "Parameters", "head": ["Parameter", "Value"], "rows": params}] if params else [],
         f"{len(params)} parameters",
+    )  # fmt: skip
+
+    metrics = [[name, value] for name, value in about.get("metrics", {}).items()]
+    step(
+        "record", "Record", "ok" if metrics else "none", about.get("seconds"),
+        [["Metrics", len(metrics) or None]],
+        [{"title": "Metrics", "head": ["Metric", "Value"], "rows": metrics}] if metrics else [],
+        f"{len(metrics)} metrics" if metrics else "",
     )  # fmt: skip
 
     stats = netlist_stats(netlist_text)
@@ -559,7 +570,7 @@ def steps(instance_dir: Path, entry: dict[str, Any], netlist_text: str, layout: 
             f"{drc['total']} violations ({drc['checker']}" + (f"; gdscheck precheck {pre}" if precheck else "") + ")",
         )  # fmt: skip
 
-    lvs = lvs_stats(signoff, entry)
+    lvs = lvs_stats(folders["lvs"], entry)
     if lvs is None or lvs["correct"] is None:
         step("lvs", "LVS", "none", _seconds(entry, "lvs"), [["Checker", lvs and lvs.get("checker") or None]],
              brief="not run: no LVS deck for these checkers" if lvs else "")  # fmt: skip
@@ -605,20 +616,58 @@ def steps(instance_dir: Path, entry: dict[str, Any], netlist_text: str, layout: 
     return out
 
 
+def _stepped(instance_dir: Path) -> tuple[dict[str, Any], dict[str, Path]]:
+    """A run's instance's layout as a layout run's summary entry (``page``'s): the layout step's GDS
+    and size, the drc, lvs and pex steps' findings, each one's seconds, the layout's error; and the
+    steps' folders. Each from its ``step.json``, a step that ended without error."""
+
+    def ended(step: str) -> dict[str, Any]:
+        path = instance_dir / step / "step.json"
+        found = json.loads(path.read_text()) if path.exists() else {}
+        return found if found.get("error") is None else {"error": found["error"]}
+
+    laid, drc, lvs, pex = (ended(step) for step in ("layout", "drc", "lvs", "pex"))
+    seconds = {**laid.get("parts", {}), **{step: ended(step).get("seconds") for step in ("drc", "lvs", "pex")}}
+    entry: dict[str, Any] = {
+        "gds": laid.get("gds"),
+        "cell_um": laid.get("cell_um"),
+        "seconds": {key: value for key, value in seconds.items() if value is not None},
+        "error": laid.get("error"),
+        **({"lvs_correct": lvs["lvs_correct"]} if "lvs_correct" in lvs else {}),
+        **({"pex": pex} if pex else {}),
+    }
+    folders = {"align": instance_dir / "layout" / "align", "drc": instance_dir / "drc", "lvs": instance_dir / "lvs"}
+    if "drc_violations.json" not in {path.name for path in folders["drc"].glob("*.json")} and drc.get("report"):
+        folders["drc"] = Path(drc["report"]).parent  # the DRC its own lay_out ran
+    if lvs.get("lvs_checker") == "lay_out" and lvs.get("lvs_report"):
+        folders["lvs"] = Path(lvs["lvs_report"]).parent
+    return entry, folders
+
+
 def page(instance_dir: Path, out: Path | None = None) -> Path:
-    """The page of the instance laid out in ``instance_dir`` (``python -m flow layout``'s
-    ``<pdk>/<name>/``), written to ``out`` (default ``instance_dir/page.html``)."""
+    """The page of the instance in ``instance_dir`` (a run's ``<pdk>/<name>/``, or a layout run's
+    from before the steps), written to ``out`` (default ``instance_dir/page.html``)."""
     from flow.web.export import export_layout
 
     instance_dir = instance_dir.resolve()
-    summary = json.loads((instance_dir / "summary.json").read_text())
-    key, entry = next(iter(summary.items()))
-    pdk = key.split("/")[0]
     record_path = instance_dir / "instance.json"
     if not record_path.exists() and (instance_dir.parents[1] / "instance.json").exists():
         record_path = instance_dir.parents[1] / "instance.json"  # a sweep run's: <id>/layout/<flow>/
     record = json.loads(record_path.read_text()) if record_path.exists() else {}
-    netlist = next(iter(sorted((instance_dir / "netlist").glob("*.sp"))), None)
+    if (instance_dir / "summary.json").exists():  # a layout run's from before the steps
+        key, entry = next(iter(json.loads((instance_dir / "summary.json").read_text()).items()))
+        pdk = key.split("/")[0]
+        folders = {"align": instance_dir / "align", "drc": instance_dir / "align" / "signoff"}
+        folders["lvs"] = folders["drc"]
+        netlists = sorted((instance_dir / "netlist").glob("*.sp"))
+    else:
+        entry, folders = _stepped(instance_dir)
+        pdk = record.get("pdk") or instance_dir.parent.name
+        netlists = [
+            *sorted((instance_dir / "layout" / "netlist").glob("*.sp")),
+            *sorted((instance_dir / "netlist").glob("*.cdl")),
+        ]
+    netlist = next(iter(netlists), None)
     netlist_text = netlist.read_text() if netlist else ""
 
     layout = None
@@ -631,10 +680,19 @@ def page(instance_dir: Path, out: Path | None = None) -> Path:
 
     parts = instance_dir.parts  # build/<block>/layout/<stamp>/...: the block before "layout"
     block = record.get("block") or (parts[parts.index("layout") - 1] if "layout" in parts else instance_dir.name)
-    stamp = next((part for part in instance_dir.parts if STAMP.match(part)), "")
+    run = instance_dir.parents[1]
+    stamp = next((part for part in instance_dir.parts if STAMP.match(part)), run.name)
     name = record.get("name") or record_path.parent.name  # the instance's directory: its name or digest
-    about = {"block": block, "pdk": pdk, "name": name, "run": stamp, "params": record.get("params", {})}
-    data = {**about, "steps": steps(instance_dir, entry, netlist_text, layout, about), "schematic_of": schematic_of}
+    about = {
+        "block": block,
+        "pdk": pdk,
+        "name": name,
+        "run": stamp,
+        "params": record.get("params", {}),
+        "metrics": {key: value for key, value in record.get("metrics", {}).items() if not isinstance(value, dict)},
+        "seconds": record.get("seconds"),
+    }
+    data = {**about, "steps": steps(folders, entry, netlist_text, layout, about), "schematic_of": schematic_of}
 
     template = (STATIC / "page.html").read_text()
     script = (STATIC / "page.js").read_text()
@@ -644,35 +702,8 @@ def page(instance_dir: Path, out: Path | None = None) -> Path:
     html = html.replace("/*SCRIPT*/", script)
     out = out or instance_dir / "page.html"
     out.write_text(html)
-    (instance_dir / "steps.json").write_text(json.dumps(data["steps"], indent=1, ensure_ascii=False) + "\n")
+    (out.parent / "steps.json").write_text(json.dumps(data["steps"], indent=1, ensure_ascii=False) + "\n")
     return out
-
-
-def seconds_text(seconds: float | None) -> str:
-    """A step's time as the page shows it: whole seconds as ALIGN's log has them, else tenths."""
-    if seconds is None:
-        return "—"
-    if seconds >= 60:
-        return f"{int(seconds // 60)} min {round(seconds % 60)} s"
-    return f"{seconds:g} s" if float(seconds).is_integer() else f"{seconds:.1f} s"
-
-
-STATE_WORDS = {"ok": "passed", "warn": "warnings", "bad": "failed", "none": "not run"}
-
-
-def step_lines(instance_dir: Path) -> list[str]:
-    """The console's lines for a laid-out instance, one a step: its number, name, time, state and
-    brief, as its page has them (``steps.json``)."""
-    found = instance_dir / "steps.json"
-    if not found.exists():
-        return []
-    lines = []
-    for k, step in enumerate(json.loads(found.read_text()), 1):
-        state = STATE_WORDS.get(step["state"], step["state"])
-        lines.append(
-            f"  {k:>2} {step['title']:<12}{seconds_text(step['seconds']):>10}  {state:<9} {step.get('brief', '')}".rstrip()
-        )
-    return lines
 
 
 def _json(value: Any) -> str:
@@ -682,15 +713,3 @@ def _json(value: Any) -> str:
 
 def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-def newest(block: str, pdk: str, name: str) -> Path:
-    """The newest layout of instance ``name`` (its name or digest) of ``block`` in ``pdk``: its
-    directory under ``build/<block>/layout/<stamp>/``: ``<pdk>/<name>/`` by the shared step,
-    ``<name>/<pdk>/`` by a block's own ``layout.py``."""
-    layouts = ROOT / "build" / block / "layout"
-    runs = sorted([*layouts.glob(f"*/{pdk}/{name}"), *layouts.glob(f"*/{name}/{pdk}")], key=lambda run: run.parts[-3])
-    runs = [run for run in runs if (run / "summary.json").exists()]
-    if not runs:
-        raise LookupError(f"no layout of {block} {name} in {pdk} under build/{block}/layout/")
-    return runs[-1]
