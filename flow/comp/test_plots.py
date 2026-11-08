@@ -6,7 +6,6 @@ converter, from its scope records and a simulation's latches."""
 from __future__ import annotations
 
 import math
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -144,16 +143,14 @@ def test_the_sampling_figures_take_a_correction_runs_curves(tmp_path: Path) -> N
     assert [path.suffix for path in paths] == [".pdf"]
 
 
-def test_the_cli_draws_a_single_s_curve(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+def test_a_single_s_curve_is_drawn_from_captures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``flow.plot.figures`` over a directory of captures (the figures step's, ``--run DIR``)."""
     import flow
-    from flow import __main__ as cli
 
     run = write(tmp_path / "behavioral", [capture(0, 0.7, v) for v in INPUTS_V])
     out = tmp_path / "out"
     monkeypatch.setattr(flow, "new_run", lambda *parts: out)
-    monkeypatch.setattr(sys, "argv", ["flow", "plot", "comp", "offset_noise", "--from", str(run)])
-    cli.main()
-    assert capsys.readouterr().out.split() == [str(out / "offset_noise_board0_channel0.pdf")]
+    assert list(plot.figures("comp", [run], ["offset_noise"])) == [out / "offset_noise_board0_channel0.pdf"]
     with pytest.raises(LookupError, match="no figure"):
         plot.figures("comp", [run], ["no_such_figure"], out_dir=out)
 
