@@ -14,16 +14,11 @@ import json
 import os
 import signal
 import subprocess
-import sys
-import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 ALIGN_HOME = Path(os.environ.get("ALIGN_HOME", "/local/kcaisley/tools/ALIGN-public"))
-# ALIGN's output on the terminal as well as in its log, as it runs (``python -m flow layout`` sets it
-# for the instances it lays out one at a time; a sweep's parallel layouts keep it in their logs)
-ECHO = False
 # the placer's annealing steps for a design with a floorplan (ALIGN's default 10000): it anneals only
 # where the floorplan leaves it a choice, and found its first placement within one step on the capdac
 FLOORPLAN_SA_ITERATIONS = 100
@@ -38,14 +33,6 @@ def align_env() -> dict[str, str]:
     env = dict(os.environ)
     env["LD_LIBRARY_PATH"] = os.pathsep.join(filter(None, (str(lib.parent), env.get("LD_LIBRARY_PATH"))))
     return env
-
-
-def _echo(stream, out) -> None:
-    for line in stream:
-        out.write(line)
-        out.flush()
-        sys.stdout.write(line)
-        sys.stdout.flush()
 
 
 def _schematic2layout(design_dir: Path, pdk_dir: Path, work: Path, args: list[str], env: dict[str, str]) -> None:
@@ -74,21 +61,10 @@ def _schematic2layout(design_dir: Path, pdk_dir: Path, work: Path, args: list[st
     limit = float(os.environ["ALIGN_TIMEOUT"]) if os.environ.get("ALIGN_TIMEOUT") else None
     with log.open("w") as out:
         process = subprocess.Popen(
-            command,
-            cwd=work,
-            env=env,
-            stdout=subprocess.PIPE if ECHO else out,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            text=ECHO,
+            command, cwd=work, env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True
         )
-        echo = threading.Thread(target=_echo, args=(process.stdout, out), daemon=True) if ECHO else None
-        if echo:  # each line to the log and the terminal as ALIGN writes it
-            echo.start()
         try:
             process.wait(timeout=limit)
-            if echo:
-                echo.join(timeout=10)  # its last lines, before the log closes
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
             process.wait()
