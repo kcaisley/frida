@@ -453,73 +453,88 @@ def _join_layout(job: Job) -> None:
 
 
 def _brief(step: Step, outputs: dict) -> str:
-    """What a step found, for its outcome's line: a layout's size, DRC's violations, LVS's verdict,
-    an extraction's nets."""
+    """What a step found, for its outcome: a simulation's runs, a layout's size, DRC's violations,
+    LVS's verdict, an extraction's nets, a back-annotation's capacitance."""
     if outputs.get("skipped"):
-        return f" (not run: {outputs['skipped']})"
+        return f"not run: {outputs['skipped']}"
     match step:
+        case Step.SIM | Step.CIRCUIT:
+            return _count(len(outputs["runs"]), "run")
         case Step.LAYOUT:
-            return f" ({' x '.join(f'{v:g}' for v in outputs['cell_um'])} um)"
+            return f"{' x '.join(f'{v:g}' for v in outputs['cell_um'])} um"
         case Step.DRC:
-            return f" ({_count(outputs['violations'], 'violation')}, {outputs['checker']})"
+            return f"{_count(outputs['violations'], 'violation')} ({outputs['checker']})"
         case Step.LVS:
             correct = outputs["lvs_correct"]
             verdict = "no deck" if correct is None else "match" if correct else "no match"
-            return f" ({verdict}, {outputs['lvs_checker'] or '-'})"
+            return f"{verdict} ({outputs['lvs_checker'] or '-'})"
         case Step.PEX:
-            return f" ({len(outputs['nets'])} nets)" if "nets" in outputs else f" ({outputs['extractor']})"
+            return f"{len(outputs['nets'])} nets" if "nets" in outputs else outputs["extractor"]
         case Step.PEXSIM:
             return (
-                f" ({_count(len(outputs['runs']), 'run')}, {outputs.get('added_f', 0.0) * 1e15:.4g} fF added, "
-                f"{outputs['unmapped_share']:.1%} of the extraction on no schematic net)"
+                f"{_count(len(outputs['runs']), 'run')}, {outputs.get('added_f', 0.0) * 1e15:.4g} fF added, "
+                f"{outputs['unmapped_share']:.1%} unmapped"
             )
     return ""
 
 
-def _logged(counts: dict[str, dict[str, int]]) -> str:
-    """A step's warnings and errors by tool (``flow.logs.step_log``'s counts), for its outcome's
-    line: `` [align 4 warnings, 2 errors; spectre 26 warnings]``; nothing where there were none."""
-    nouns = {"WARNING": "warning", "ERROR": "error", "CRITICAL": "critical error"}
+def logged(counts: dict[str, dict[str, int]]) -> str:
+    """A step's warnings and errors by tool (``flow.logs.step_log``'s counts), for its outcome:
+    ``align 4 errors, 10 warnings; spectre 26 warnings``; nothing where there were none."""
+    nouns = {"CRITICAL": "critical error", "ERROR": "error", "WARNING": "warning"}  # the worst first
     tools = [
-        f"{tool} {', '.join(_count(n, nouns[level]) for level, n in levels.items())}" for tool, levels in counts.items()
+        f"{tool} {', '.join(_count(levels[level], noun) for level, noun in nouns.items() if level in levels)}"
+        for tool, levels in counts.items()
     ]
-    return f" [{'; '.join(tools)}]" if tools else ""
+    return "; ".join(tools)
 
 
-def run_steps(job: Job) -> list[str]:
+def run_steps(job: Job) -> list[Outcome]:
     """The job's steps on its instance, in order, in this (fresh) process: each skipped where its
     output is complete (``done``), failed where what it needs is missing (``_missing``), else run
     in its folder (emptied where it ended before: ``_fresh``) with its log (``flow.logs.step_log``:
     every line, the flow's and its tools', in ``<step>/step.log``, each tool's whole output in its
-    own log beside its results; the warnings and errors on the console, tagged with the instance
-    and step, and counted by tool in ``step.json``'s ``log``). A failure leaves
+    own log beside its results; the warnings and errors counted by tool in ``step.json``'s
+    ``log``). A failure leaves
     the steps after it not run (the page, which takes whatever exists, runs); a characterization
     step's failure (netlist, sim, record) is also the instance's record
     (``flow.sweep.runner.failed_record``), and a layout step's joins it (``_join_layout``), so the
-    viewer's table shows it. Each step's outcome, a line each."""
+    viewer's table shows it. Each step's outcome on the console as it ends (``_report``), and the
+    outcomes (``Outcome``: picklable, for the run's table, ``flow.__main__``)."""
     from flow.logs import step_log
     from flow.sweep import runner
 
-    outcomes: list[str] = []
+    outcomes: list[Outcome] = []
+
+    def report(step: Step, state: str, detail: str = "", seconds=None, found: str = "", counts=None) -> None:
+        outcome = Outcome(str(step), state, seconds, found or detail, counts or {})
+        outcomes.append(outcome)
+        _report(job, outcome)
+
     failed: set[Step] = set()
     for step in job.steps:
         if failed & step.ancestors and step is not Step.PAGE:
             failed.add(step)
-            outcomes.append(f"{step} not run")
+            report(step, "not run", f"(after {next(s for s in job.steps if s in failed)} failed)")
             continue
-        if done(job.out, step):
-            outcomes.append(f"{step} done")
+        if done(job.out, step):  # its result, seconds and counts as it made them before
+            before = _outputs(job.out, step)
+            try:
+                found = _brief(step, _made(before))
+            except (KeyError, TypeError):  # a step.json from before a key it now states
+                found = ""
+            report(step, "done", seconds=before.get("seconds"), found=found, counts=before.get("log"))
             continue
         missing = _missing(job, step)
         if missing:
             failed.add(step)
-            outcomes.append(f"{step} failed: {missing}")
+            report(step, "failed", missing)
             continue
         started = time.time()
         folder = _fresh(job.out, step)
         laid = step in (Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.RECORD)  # joined to the record
         error = None
-        with step_log(folder / "step.log", f"[{job.pdk}/{job.name} {step}]") as counts:
+        with step_log(folder / "step.log") as counts:
             try:
                 outputs = _body(step)(job)
             except Exception:  # noqa: BLE001 - every instance reports its own failure
@@ -534,13 +549,42 @@ def run_steps(job: Job) -> list[str]:
             if laid:
                 _join_layout(job)
             failed.add(step)
-            outcomes.append(f"{step} failed: {error.strip().splitlines()[-1]}{_logged(counts)}")
+            last = error.strip().splitlines()[-1]
+            report(step, "failed", seconds=time.time() - started, found=last, counts=counts)
             continue
         _mark(job.out, step, started, log=counts, **outputs)
         if laid:
             _join_layout(job)
-        outcomes.append(f"{step} ok in {time.time() - started:.1f} s{_brief(step, outputs)}{_logged(counts)}")
+        report(step, "ok", seconds=time.time() - started, found=_brief(step, outputs), counts=counts)
     return outcomes
+
+
+@dataclass(frozen=True)
+class Outcome:
+    """How a step ended on an instance: its state (ok, failed, done: its output kept from before,
+    then its seconds, result and counts as it made them; not run), its seconds (where it ran), what
+    it found or why it failed, and its log's warnings and errors by tool (``flow.logs.step_log``'s
+    counts)."""
+
+    step: str
+    state: str
+    seconds: float | None
+    found: str
+    counts: dict[str, dict[str, int]]
+
+
+def _report(job: Job, outcome: Outcome) -> None:
+    """A step's outcome on the console, a line as it ends: its folder in the run (``<pdk>/<name>/
+    <step>``, where its results and its ``step.log`` are), its state, seconds, what it found and
+    its warnings and errors by tool (``logged``): ``tsmc65/frida1/layout ok in 5.0 s: 3.28 x 3.93
+    um; align 4 errors, 10 warnings``."""
+    head = f"{job.pdk}/{job.name}/{outcome.step} {outcome.state}"
+    if outcome.seconds is not None:
+        head += f" in {outcome.seconds:.1f} s"
+    print(
+        ": ".join([head, "; ".join(part for part in (outcome.found, logged(outcome.counts)) if part)]).rstrip(": "),
+        flush=True,
+    )
 
 
 def _count(number: int, noun: str) -> str:

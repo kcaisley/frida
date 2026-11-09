@@ -38,10 +38,12 @@ its record and layout exists.
 Every step logs (``flow.logs``): each tool keeps its whole output in its own log beside its results
 (``align``'s ``schematic2layout.log``, ``spectre.log``, ``kpex.log``, ``gdscheck.*.log``,
 ``calibre.*.log``); every line of the step, the flow's and its tools', at the level the line
-states, is in ``<step>/step.log`` (``time tool LEVEL : message``); the console shows each
-instance's outcome, a line, with its warnings and errors by tool, and each warning and error as it
-comes, ``[<pdk>/<instance> <step>] tool LEVEL : message`` (one like it before not again); the
-counts are ``step.json``'s ``log``.
+states, is in ``<step>/step.log`` (``time tool LEVEL : message``), its warnings and errors
+counted by tool in ``step.json``'s ``log``. The console has a line a step as it ends (its folder
+in the run, its state, seconds, what it found and those counts: ``tsmc65/frida1/layout ok in
+3.3 s: 3.28 x 3.93 um; align 4 errors, 10 warnings``), a line an instance, and at the end the
+run's table (one instance's steps a row each, with their folders; over several, each step's
+states counted and its seconds and warnings summed).
 
 A run is ``build/<block>/<run>/``, each instance in ``<pdk>/<name>/`` there (a named instance by its
 name, a grid's by its digest), a folder a step: ``netlist/``, ``sim/<run>/``, ``circuit/<run>/``,
@@ -71,7 +73,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from flow.steps import Job, Step, _count, _ended, _fresh, _mark, _missing, between, done, run_steps
+from flow.steps import Job, Outcome, Step, _count, _ended, _fresh, _mark, _missing, between, done, logged, run_steps
 
 
 def pipeline_blocks() -> list[str]:
@@ -293,7 +295,8 @@ def _capture_figures(block: str, run: Path, predict: bool) -> None:
 
 
 def _run_jobs(jobs: list[Job], workers: int) -> list[str]:
-    """Each job's steps in a process of its own, at most ``workers`` at once, a line each as it ends;
+    """Each job's steps in a process of its own, at most ``workers`` at once (each step's line as it
+    ends, ``flow.steps._report``), a line each job as it ends, then the run's table (``_table``);
     the lines of those that failed."""
     from concurrent.futures import as_completed
 
@@ -304,7 +307,7 @@ def _run_jobs(jobs: list[Job], workers: int) -> list[str]:
     for variable in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ.setdefault(variable, "1")
     print(f"{_count(len(jobs), 'instance')} on {_count(min(workers, len(jobs)), 'worker')}", flush=True)
-    failures = []
+    failures, ended = [], {}
     with _pool(workers) as pool:
         futures = {pool.submit(run_steps, job): job for job in jobs}
         for count, future in enumerate(as_completed(futures), 1):
@@ -312,12 +315,56 @@ def _run_jobs(jobs: list[Job], workers: int) -> list[str]:
             try:
                 outcomes = future.result()
             except Exception as error:  # noqa: BLE001 - a worker that died
-                outcomes = [f"failed: {error!r}"]
-            line = f"[{count}/{len(jobs)}] {runner._shown(job.out)}: {', '.join(outcomes)}"
+                outcomes = [Outcome("worker", "failed", None, repr(error), {})]
+            ended[job] = outcomes
+            states = [outcome.state for outcome in outcomes]
+            tally = ", ".join(f"{states.count(s)} {s}" for s in dict.fromkeys(states))
+            stopped = [outcome.step for outcome in outcomes if outcome.state == "failed"]
+            line = f"[{count}/{len(jobs)}] {job.pdk}/{job.name}: {tally}" + (
+                f" ({', '.join(stopped)})" if stopped else ""
+            )
             print(line, flush=True)
-            if any(" failed" in outcome or outcome.startswith("failed") for outcome in outcomes):
-                failures.append(line)
+            if stopped:
+                failures.append(f"{runner._shown(job.out)}: {', '.join(stopped)} failed")
+    print(_table(ended))
     return failures
+
+
+def _table(ended: dict[Job, list[Outcome]]) -> str:
+    """The run's table: one instance's steps a row each (its state, seconds, what it found, its
+    log's warnings and errors by tool, its folder, where its results and ``step.log`` are); over
+    several instances, each step's states counted, its seconds summed, its warnings and errors
+    summed by tool."""
+    from tabulate import tabulate
+
+    from flow.sweep import runner
+
+    if len(ended) == 1:
+        [(job, outcomes)] = ended.items()
+        rows = [
+            [
+                o.step,
+                o.state,
+                "" if o.seconds is None else f"{o.seconds:.1f} s",
+                o.found,
+                logged(o.counts),
+                runner._shown(job.out / o.step),
+            ]
+            for o in outcomes
+        ]
+        return tabulate(rows, ["step", "state", "time", "result", "warnings, errors", "folder"])
+    states = ("ok", "failed", "done", "not run")
+    rows = []
+    for step in dict.fromkeys(o.step for outcomes in ended.values() for o in outcomes):
+        each = [o for outcomes in ended.values() for o in outcomes if o.step == step]
+        counts: dict[str, dict[str, int]] = {}
+        for o in each:
+            for tool, levels in o.counts.items():
+                for level, n in levels.items():
+                    counts.setdefault(tool, {})[level] = counts.get(tool, {}).get(level, 0) + n
+        seconds = sum(o.seconds or 0.0 for o in each)
+        rows.append([step, *(sum(o.state == s for o in each) for s in states), f"{seconds:.1f} s", logged(counts)])
+    return tabulate(rows, ["step", *states, "time (sum)", "warnings, errors"])
 
 
 def _predict(jobs: list[Job], chosen: list[Step]) -> None:

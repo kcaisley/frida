@@ -7,13 +7,12 @@ A tool the flow runs keeps its whole output, as it writes it, in its own log fil
 lines is also a record of the tool's logger, at the level the line states (``level``: ALIGN's
 ``name LEVEL :``, kpex's rich columns, Spectre's ``WARNING (SPECTRE-...)``, ``Warning:``/``ERROR:``
 elsewhere; INFO where it states none). While a step runs on an instance (``step_log``), every record,
-the flow's and its tools', goes with its time into the step's ``step.log``; each warning and error
-also goes to the console, tagged with the instance; and the warnings and errors are counted by tool,
+the flow's and its tools', goes with its time into the step's ``step.log``, and the warnings and errors are counted by tool,
 for the step's ``step.json``. Nothing is filtered out: what a tool says it says in its log and the
-step's; the console shows each of its warnings and errors once (``_Once``: a license's warning
-repeated for each of its features, a line), how many it repeats too.
+step's. The console has a line a step as it ends (``flow.steps``): its folder, its state, its
+seconds and those counts.
 
-    with step_log(out / "layout" / "step.log", "samp/tsmc65/frida1") as counts: ...
+    with step_log(out / "layout" / "step.log") as counts: ...
     run_logged(["gdscheck", ...], cwd=run_dir, log=run_dir / "gdscheck.log", name="gdscheck")
 """
 
@@ -24,7 +23,6 @@ import os
 import re
 import signal
 import subprocess
-import sys
 import threading
 from collections.abc import Callable, Iterator
 from concurrent.futures import ProcessPoolExecutor
@@ -37,7 +35,6 @@ from typing import Any
 FORMAT = "%(name)s %(levelname)s : %(message)s"  # ALIGN's console format
 FILE_FORMAT = "%(asctime)s %(name)s %(levelname)s : %(message)s"  # its log file's
 DATE = "%Y-%m-%d %H:%M:%S"
-_CONSOLE = "flow-console"
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _LEVELS = "DEBUG|INFO|WARNING|ERROR|CRITICAL"
@@ -54,7 +51,6 @@ _HEADING = re.compile(r"^(Warning|Error|Notice) from \w+ (at|during|in)\b")
 # deck's echoed option, ``LVS ABORT ON SUPPLY ERROR  NO``)
 _ERROR = re.compile(r"(\b(ERROR|Error|FATAL|Fatal|CRITICAL)|^\w*(Error|Exception))\s*[:(]")
 _WARNING = re.compile(r"\b(WARNING|Warning|WARN)\s*[:(]")
-_DIGITS = re.compile(r"\d+")
 
 
 def level(line: str, previous: int = logging.INFO) -> tuple[str | None, int, str, bool]:
@@ -192,24 +188,6 @@ class _Counts(logging.Handler):
         levels[record.levelname] = levels.get(record.levelname, 0) + 1
 
 
-class _Once(logging.Filter):
-    """Each message once on the console: one like it shown (the same logger, the same words, its
-    numbers aside: a license's serial, a matrix's row), its repeats counted, not shown."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.seen: set[tuple[str, str]] = set()
-        self.repeats = 0
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        key = (record.name, _DIGITS.sub("#", record.getMessage()))
-        if key in self.seen:
-            self.repeats += 1
-            return False
-        self.seen.add(key)
-        return True
-
-
 class _Here(logging.Handler):
     """A spawned process's record logged in this one, by its logger (``spawned``)."""
 
@@ -248,27 +226,6 @@ def spawned(
         listener.stop()
 
 
-def console(level: int = logging.INFO, tag: str = "") -> logging.Handler:
-    """The console's handler on the root logger (one only: another's, a library's basicConfig,
-    replaced), ``tag`` (an instance) before each line: ALIGN's format, coloured where colorlog is."""
-    root = logging.getLogger()
-    for found in [h for h in root.handlers if h.get_name() == _CONSOLE or type(h) is logging.StreamHandler]:
-        root.removeHandler(found)
-    handler = logging.StreamHandler(sys.stdout)
-    handler.set_name(_CONSOLE)
-    shown = f"{tag} {FORMAT}" if tag else FORMAT
-    try:
-        import colorlog
-
-        handler.setFormatter(colorlog.ColoredFormatter("%(log_color)s" + shown))
-    except ImportError:
-        handler.setFormatter(logging.Formatter(shown))
-    handler.setLevel(level)
-    root.addHandler(handler)
-    root.setLevel(min(root.level or logging.WARNING, level))
-    return handler
-
-
 def _trimmed(record: logging.LogRecord) -> bool:
     """A record's message without the line end it may carry (Python's warnings')."""
     if isinstance(record.msg, str):
@@ -277,21 +234,21 @@ def _trimmed(record: logging.LogRecord) -> bool:
 
 
 @contextmanager
-def step_log(path: Path, instance: str) -> Iterator[dict[str, dict[str, int]]]:
-    """While a step runs on an instance: every record (INFO and above, the flow's and its tools',
-    Python's warnings too) into ``path`` (the step's ``step.log``) with its time; each warning and
-    error on the console, ``instance`` before it; the warnings and errors counted by tool (the dict
-    yielded, filled as they come: ``_Counts``)."""
+def step_log(path: Path) -> Iterator[dict[str, dict[str, int]]]:
+    """While a step runs: every record (INFO and above, the flow's and its tools', Python's warnings
+    too) into ``path`` (the step's ``step.log``) with its time, and nowhere else (a library's
+    console handler set aside meanwhile: the step's outcome is the console's line, ``flow.steps``);
+    the warnings and errors counted by tool (the dict yielded, filled as they come: ``_Counts``)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     root = logging.getLogger()
     file = logging.FileHandler(path, mode="w", encoding="utf-8")
     file.setFormatter(logging.Formatter(FILE_FORMAT, DATE))
     file.setLevel(logging.INFO)
     file.addFilter(_trimmed)
-    counts, once = _Counts(), _Once()
-    shown = console(logging.WARNING, instance)
-    shown.addFilter(_trimmed)
-    shown.addFilter(once)
+    counts = _Counts()
+    aside = [handler for handler in root.handlers if type(handler) is logging.StreamHandler]
+    for handler in aside:
+        root.removeHandler(handler)
     level_before = root.level
     root.setLevel(logging.INFO)
     root.addHandler(file)
@@ -300,10 +257,10 @@ def step_log(path: Path, instance: str) -> Iterator[dict[str, dict[str, int]]]:
     try:
         yield counts.counts
     finally:
-        if once.repeats:
-            print(f"{instance} {once.repeats} warnings and errors like those above not shown again; all in {path}")
         logging.captureWarnings(False)
-        for handler in (file, counts, shown):
+        for handler in (file, counts):
             root.removeHandler(handler)
+        for handler in aside:
+            root.addHandler(handler)
         file.close()
         root.setLevel(level_before)

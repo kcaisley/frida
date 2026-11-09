@@ -128,7 +128,7 @@ def test_a_step_resumes_where_its_output_is_complete(flow, simulated, capsys) ->
     simulated.clear()
     flow("--to", "record", "--run", "mine")
     out = capsys.readouterr().out
-    assert "resumed run" in out and "netlist done, sim done, record done" in out and not simulated
+    assert "resumed run" in out and all(f"one/{s} done" in out for s in ("netlist", "sim", "record")) and not simulated
     shutil.rmtree(instance / "record")
     (instance / "instance.json").unlink()
     flow("--from", "record", "--to", "record")
@@ -283,14 +283,15 @@ def test_a_failed_step_is_recorded_and_made_again_next_time(flow, toy, capsys, m
     monkeypatch.setattr(sim, "simulate", broken)
     with pytest.raises(SystemExit, match="1 of 1 instances failed"):
         flow("--to", "record", "--run", "mine")
-    assert "sim failed: RuntimeError: no licence" in capsys.readouterr().out
+    assert ": RuntimeError: no licence" in capsys.readouterr().out
     instance = _instance("mine")
     record = json.loads((instance / "instance.json").read_text())
     assert record["error"].startswith("sim: ") and record["metrics"] == {}
     assert not steps.done(instance, Step.SIM) and (instance / "sim/screen/result.h5").exists()
     monkeypatch.setattr(sim, "simulate", simulate)
     flow("--to", "record", "--run", "mine")
-    assert "netlist done, sim ok" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "one/netlist done" in out and "one/sim ok" in out
     assert json.loads((instance / "instance.json").read_text())["error"] is None
 
 
@@ -298,7 +299,7 @@ def test_the_circuit_step_adds_the_circuit_simulators_runs_and_records_again(flo
     flow("--to", "record", "--run", "mine")
     flow("--to", "circuit", "--run", "mine", "--instance", "one")
     out = capsys.readouterr().out
-    assert "netlist done, sim done, circuit ok" in out
+    assert all(f"/{s}" in out for s in ("netlist done", "sim done", "circuit ok"))
     instance = _instance("mine")
     assert [path.parent.name for path in instance.glob("circuit/*/result.h5")] == ["circuit"]
     record = json.loads((instance / "instance.json").read_text())
@@ -377,9 +378,9 @@ def test_the_layout_steps_lay_out_then_sign_off_each_in_its_folder(flow, tools, 
     flow("--to", "pex", "--run", "mine", "--instance", "wired")
     out = capsys.readouterr().out
     assert "steps netlist, layout, drc, lvs, pex" in out
-    assert "layout ok in" in out and "(2 x 1 um)" in out
-    assert "drc ok in" in out and "(0 violations, stand-in)" in out
-    assert "(match, stand-in)" in out and "pex ok in" in out and "(1 nets)" in out
+    assert "layout ok in" in out and "2 x 1 um" in out
+    assert "drc ok in" in out and "0 violations (stand-in)" in out
+    assert "match (stand-in)" in out and "pex ok in" in out and "1 nets" in out
     open_ = Checker.OPEN
     assert tools.calls == [("drc", "toy.gds", open_), ("lvs", "source.cdl", open_), ("pex", "toy.gds", open_)]
     instance = _instance("mine").with_name("wired")
@@ -397,7 +398,8 @@ def test_the_layout_steps_lay_out_then_sign_off_each_in_its_folder(flow, tools, 
     # complete: skipped
     tools.calls.clear()
     flow("--from", "drc", "--to", "pex")
-    assert "drc done, lvs done, pex done" in capsys.readouterr().out and not tools.calls
+    out = capsys.readouterr().out
+    assert all(f"/{s} done" in out for s in ("drc", "lvs", "pex")) and not tools.calls
     # DRC's output gone: DRC, then LVS and PEX after it, made again; the layout kept
     laid = (instance / "layout/step.json").read_text()
     shutil.rmtree(instance / "drc")
@@ -473,7 +475,7 @@ def test_a_block_that_plans_its_signoff_has_the_signoff_steps_run_it_each_in_its
     flow("--to", "pex", "--instance", "signed")
     out = capsys.readouterr().out
     assert not tools.calls and ran == [("drc", "drc"), ("lvs", "lvs"), ("pex", "pex")]
-    assert "(0 violations, kitcheck)" in out and "(no match, the kit's)" in out
+    assert "0 violations (kitcheck)" in out and "no match (the kit's)" in out
     instance = runner.newest_run("toyblock") / "toypdk" / "signed"
     assert {path.name for path in (instance / "layout").iterdir()} == {
         "toy.gds",
@@ -540,7 +542,11 @@ def test_a_layout_made_again_that_fails_leaves_its_signoff_steps_not_run(flow, t
     with pytest.raises(SystemExit, match="1 of 1 instances failed"):
         flow("--from", "layout", "--to", "pex")
     out = capsys.readouterr().out
-    assert "layout failed: RuntimeError: no room, drc not run, lvs not run, pex not run" in out and not tools.calls
+    assert (
+        ": RuntimeError: no room" in out
+        and all(f"/{s} not run" in out for s in ("drc", "lvs", "pex"))
+        and not tools.calls
+    )
     assert not any(steps.done(instance, step) for step in (Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX))
     entry = json.loads((instance / "instance.json").read_text())["layout"]
     assert entry["error"] and entry["drc_violations"] is None and entry["lvs_correct"] is None and entry["pex"] is None
@@ -550,7 +556,7 @@ def test_a_layout_without_an_lvs_source_is_checked_by_drc_alone(flow, tools, cap
     flow("--to", "pex", "--instance", "one")
     out = capsys.readouterr().out
     assert [call[0] for call in tools.calls] == ["drc"]
-    assert "lvs ok" in out and "(not run: no LVS source" in out
+    assert "lvs ok" in out and "not run: no LVS source" in out
     instance = runner.newest_run("toyblock") / "toypdk" / "one"
     entry = json.loads((instance / "instance.json").read_text())["layout"]
     assert entry["lvs_correct"] is None and entry["pex"]["skipped"].startswith("no LVS source")
@@ -564,8 +570,12 @@ def test_a_layout_other_than_its_netlist_is_not_extracted_and_its_page_still_wri
     with pytest.raises(SystemExit, match="1 of 1 instances failed"):
         flow("--to", "page", "--run", "mine", "--instance", "wired")
     out = capsys.readouterr().out
-    assert "record ok" in out and "(3 violations, stand-in)" in out and "(no match, stand-in)" in out
-    assert "pex failed: RuntimeError: LVS found the layout other than its netlist" in out and "page ok" in out
+    assert "record ok" in out and "3 violations (stand-in)" in out and "no match (stand-in)" in out
+    assert (
+        "pex failed in" in out
+        and "RuntimeError: LVS found the layout other than its netlist" in out
+        and "page ok" in out
+    )
     instance = _instance("mine").with_name("wired")
     steps = {entry["key"]: entry for entry in json.loads((instance / "page/steps.json").read_text())}
     assert (instance / "page/page.html").is_file()
@@ -624,7 +634,7 @@ def test_a_signoff_step_without_its_layout_fails_naming_the_command_that_makes_i
         flow("--from", "drc", "--to", "pex")
     out = capsys.readouterr().out
     assert "drc failed: drc needs its layout step's output: python -m flow toyblock --to layout --run mine" in out
-    assert "lvs not run, pex not run" in out and not tools.calls
+    assert "/lvs not run" in out and "/pex not run" in out and not tools.calls
     with pytest.raises(SystemExit, match="1 of 1 instances failed"):
         flow("--from", "page", "--to", "page")
     assert "page failed: page needs the record or the layout" in capsys.readouterr().out
@@ -661,7 +671,7 @@ def test_pexsim_simulates_the_runs_again_with_the_extraction_on_the_schematic(fl
     flow("--to", "pexsim", "--run", "mine", "--instance", "wired")
     out = capsys.readouterr().out
     assert "steps netlist, sim, layout, drc, lvs, pex, pexsim" in out
-    assert "pexsim ok in" in out and "(3 runs, 2.2 fF added, 0.3% of the extraction on no schematic net)" in out
+    assert "pexsim ok in" in out and "3 runs, 2.2 fF added, 0.3% unmapped" in out
     instance = _instance("mine").with_name("wired")
     runs = sorted(path.parent.name for path in instance.glob("sim/*/result.h5"))
     assert sorted(path.parent.name for path in instance.glob("pexsim/*/result.h5")) == runs
@@ -688,7 +698,7 @@ def test_pexsim_refuses_an_extraction_mostly_on_no_schematic_net(flow, extractio
     with pytest.raises(SystemExit, match="1 of 1 instances failed"):
         flow("--to", "pexsim", "--run", "mine", "--instance", "wired")
     out = capsys.readouterr().out
-    assert "pexsim failed: ValueError: 3.51 fF of the extraction's 3.71 fF (94.6%, over 5%)" in out
+    assert "ValueError: 3.51 fF of the extraction's 3.71 fF (94.6%, over 5%)" in out
     assert "a 3.51 fF, $9 0.01 fF" in out
     assert not list((_instance("mine").with_name("wired") / "pexsim").glob("*/result.h5"))
 

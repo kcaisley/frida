@@ -44,6 +44,7 @@ def test_an_indented_line_continues_the_message_before() -> None:
 
 
 def test_a_step_log_holds_every_line_and_counts_the_warnings_by_tool(tmp_path: Path, capsys) -> None:
+    """Every line goes to the step's log, none to the console (the step's outcome line is the console's)."""
     script = tmp_path / "tool.py"
     script.write_text(
         "print('starting')\n"
@@ -51,17 +52,14 @@ def test_a_step_log_holds_every_line_and_counts_the_warnings_by_tool(tmp_path: P
         "print('ERROR: no such layer')\n"
         "print('    and its detail')\n"
     )
-    with step_log(tmp_path / "step" / "step.log", "[pdk/one pex]") as counts:
+    with step_log(tmp_path / "step" / "step.log") as counts:
         run_logged([sys.executable, str(script)], cwd=tmp_path, log=tmp_path / "tool.log", name="toy")
         logging.getLogger("flow.toy").warning("the flow's own")
     text = (tmp_path / "step" / "step.log").read_text()
     assert "toy INFO : starting" in text and "toy ERROR :     and its detail" in text
     assert (tmp_path / "tool.log").read_text().count("Warning: odd") == 3
     assert counts == {"toy": {"WARNING": 3, "ERROR": 1}, "flow": {"WARNING": 1}}
-    shown = capsys.readouterr().out
-    assert "[pdk/one pex] toy WARNING : Warning: odd matrix element at row 0" in shown
-    assert "row 1" not in shown and "2 warnings and errors like those above not shown again" in shown
-    assert "starting" not in shown
+    assert capsys.readouterr().out == ""
 
 
 def test_a_tool_that_fails_or_runs_too_long_raises_with_its_log(tmp_path: Path) -> None:
@@ -90,7 +88,7 @@ def _child_warns(text: str) -> int:
 def test_a_spawned_process_logs_into_the_step(tmp_path: Path) -> None:
     from flow.logs import spawned
 
-    with step_log(tmp_path / "step.log", "[pdk/one sim]") as counts, spawned(1) as pool:
+    with step_log(tmp_path / "step.log") as counts, spawned(1) as pool:
         assert pool.submit(_child_warns, "from the child").result() == 7
     assert "toy.child WARNING : from the child" in (tmp_path / "step.log").read_text()
     assert counts == {"toy": {"WARNING": 1}}
