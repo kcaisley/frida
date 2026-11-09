@@ -1,0 +1,115 @@
+"""The run's dashboard (``flow.dashboard``): its model of a run from the workers' events, and what
+it draws of it, live or as plain text into the run's ``status.txt`` and ``events.log``."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from rich.console import Console
+
+from flow import dashboard
+from flow.dashboard import Board, View
+
+
+def _board(tmp_path: Path, names: list[str]) -> Board:
+    board = Board("comp", "grid1", "grid", ("tsmc65",), 4, tmp_path, ("netlist", "sim", "layout", "record"))
+    for name in names:
+        (tmp_path / name).mkdir(parents=True)
+        board.add(f"tsmc65/{name}", tmp_path / name, ["delay_s"])
+    return board
+
+
+def _shown(found) -> str:
+    console = Console(width=200, height=56, color_system=None, record=True, file=open("/dev/null", "w"))  # noqa: SIM115
+    console.print(found)
+    return console.export_text()
+
+
+def test_the_board_counts_each_steps_instances_and_says_what_needs_attention(tmp_path: Path) -> None:
+    """Events in: a step running, ended, kept, rejected, failed; each step's instances by state, each
+    failure said with its log, a bound's rejections said once and counted, a step log's kind of
+    warning said the first time."""
+    board = _board(tmp_path, ["a", "b", "c"])
+    (tmp_path / "a" / "sim").mkdir()
+    (tmp_path / "a" / "sim" / "step.log").write_text(
+        "2026-11-10 00:00:00 spectre WARNING : WARNING (SFE-106): parameter 3 ignored\n"
+        "2026-11-10 00:00:01 spectre INFO : tran done\n"
+    )
+    for key in ("a", "b", "c"):
+        board.take(
+            {"key": f"tsmc65/{key}", "step": "netlist", "state": "done", "seconds": 0.5, "found": "", "counts": {}}
+        )
+    board.take({"key": "tsmc65/a", "step": "sim", "state": "running"})
+    assert board.by_step("sim")["running"] == 1 and board.by_step("sim")["waiting"] == 2
+    board.take(
+        {
+            "key": "tsmc65/a",
+            "step": "sim",
+            "state": "ok",
+            "seconds": 30.0,
+            "found": "14 runs",
+            "counts": {"spectre": {"WARNING": 1}},
+        }
+    )
+    why = "rejected at sim (prelayout): delay_s 2.1e-09 > 2e-09"
+    for key in ("b", "c"):
+        board.take(
+            {"key": f"tsmc65/{key}", "step": "sim", "state": "rejected", "seconds": None, "found": why, "counts": {}}
+        )
+    board.take(
+        {
+            "key": "tsmc65/a",
+            "step": "layout",
+            "state": "failed",
+            "seconds": 4.0,
+            "found": "align: no route",
+            "counts": {},
+        }
+    )
+    for key, states in (("a", ["done", "ok", "failed"]), ("b", ["done", "rejected"]), ("c", ["done", "rejected"])):
+        board.end(f"tsmc65/{key}", states)
+    assert board.by_step("netlist")["done"] == 3 and board.by_step("sim")["rejected"] == 2
+    assert board.ended() == {"failed": 1, "rejected": 2}
+    assert board.rejections == {("sim", "delay_s"): 2}
+    levels = [level for _, level, *_ in board.attention]
+    assert levels == ["WARNING", "REJECTED", "FAILED"]  # the rejection once, its kind counted
+    text = _shown(dashboard.dashboard(board))
+    assert "comp grid1 · grid · 3 designs" in text and "0 passed   2 rejected   1 failed" in text
+    assert "spectre: WARNING (SFE-106): parameter 3 ignored" in text and "×2" in text
+    assert "tsmc65/a/layout: align: no route" in text and "delay_s" in text
+    assert "status:" in dashboard.status_line(board) and "2 by delay_s at sim" in dashboard.status_line(board)
+
+
+def test_one_instance_shows_its_metrics_pre_and_post_layout(tmp_path: Path) -> None:
+    board = _board(tmp_path, ["a"])
+    record = {
+        "evidence": "postlayout",
+        "metrics": {"delay_s": 1.2e-9, "ok": True},
+        "prelayout": {"delay_s": 1e-9, "ok": True},
+    }
+    (tmp_path / "a" / "instance.json").write_text(json.dumps(record))
+    board.take({"key": "tsmc65/a", "step": "record", "state": "ok", "seconds": 1.0, "found": "", "counts": {}})
+    text = _shown(dashboard.dashboard(board))
+    assert "tsmc65/a · postlayout" in text and "1 ns" in text and "1.2 ns" in text and "+20.0%" in text
+
+
+def test_a_metric_is_shown_in_its_unit() -> None:
+    assert dashboard.value("delay_0p5mv_s", 2.1e-9) == "2.1 ns"
+    assert dashboard.value("energy_j", 6.2e-13) == "620 fJ"
+    assert dashboard.value("layout_area_um2", 277.0) == "277 µm²"
+    assert dashboard.value("decides_in_time", True) == "yes" and dashboard.value("x", None) == "–"
+
+
+def test_the_view_writes_the_status_and_events_beside_the_run(tmp_path: Path, capsys) -> None:
+    """Not a terminal: a small run's step lines are the step runner's own (``line``); the summary at the
+    end; ``status.txt`` the dashboard as plain text, ``events.log`` each line that needs attention."""
+    board = _board(tmp_path, ["a"])
+    lines = []
+    with View(board, lines.append) as view:
+        view.take({"key": "tsmc65/a", "step": "sim", "state": "failed", "seconds": 1.0, "found": "boom", "counts": {}})
+        view.refresh()
+    assert [event["state"] for event in lines] == ["failed"]
+    assert "comp grid1" in (tmp_path / "status.txt").read_text()
+    assert "FAILED tsmc65/a/sim: boom" in (tmp_path / "events.log").read_text()
+    assert "needs attention" in capsys.readouterr().out

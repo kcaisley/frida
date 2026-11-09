@@ -47,11 +47,14 @@ Every step logs (``flow.logs``): each tool keeps its whole output in its own log
 (``align``'s ``schematic2layout.log``, ``spectre.log``, ``kpex.log``, ``gdscheck.*.log``,
 ``calibre.*.log``); every line of the step, the flow's and its tools', at the level the line
 states, is in ``<step>/step.log`` (``time tool LEVEL : message``), its warnings and errors
-counted by tool in ``step.json``'s ``log``. The console has a line a step as it ends (its folder
-in the run, its state, seconds, what it found and those counts: ``tsmc65/frida1/layout ok in
-3.3 s: 3.28 x 3.93 um; align 4 errors, 10 warnings``), a line an instance, and at the end the
-run's table (one instance's steps a row each, with their folders; over several, each step's
-states counted and its seconds and warnings summed).
+counted by tool in ``step.json``'s ``log``. The run is watched on its dashboard (``flow.dashboard``):
+in a terminal, live and in place (the pipeline a row a step, its instances by state, what needs
+attention, the running tool's newest lines and the metrics pre- and post-layout, or why designs
+left the run and those that passed); elsewhere, a line a step as it ends for a run of a few
+instances (``tsmc65/frida1/layout ok in 3.3 s: 3.28 x 3.93 um; align 4 errors, 10 warnings``),
+what needs attention and a status line now and then for many; its summary at the end; and
+always, beside the run, ``status.txt`` (the dashboard as plain text, every two seconds) and
+``events.log`` (each line that needs attention).
 
 A run is ``build/<block>/<run>/<stamp>/``, dated, each design in ``<pdk>/<name>/`` there (a
 single's by its name, a grid's by its digest), a folder a step: ``netlist/``, ``sim/<run>/``,
@@ -74,11 +77,13 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from dataclasses import asdict
 from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from flow.steps import Job, Outcome, Step, _count, _missing, between, done, logged, run_steps
+from flow.dashboard import SMALL, Board
+from flow.steps import Job, Outcome, Step, _count, _missing, _report, between, done, key, run_steps
 
 
 def pipeline_blocks() -> list[str]:
@@ -240,7 +245,16 @@ def steps(args: argparse.Namespace) -> None:
         return
     if found == "new":
         runner.new_run(args.block, run_dir=run)
-    failures = _run_jobs(jobs, workers) if jobs[0].steps else []
+    board = Board(
+        args.block,
+        args.run,
+        type(spec).__name__.lower(),
+        tuple(dict.fromkeys(job.pdk for job in jobs)),
+        min(workers, len(jobs)),
+        run,
+        tuple(str(step) for step in chosen if step is not Step.TABLE),
+    )
+    failures = _run_jobs(jobs, workers, board) if jobs[0].steps else []
     if Step.TABLE in chosen:
         unrecorded = [job for job in jobs if not (job.out / "instance.json").exists()]
         if unrecorded:
@@ -287,12 +301,15 @@ def _optimize(block: str, run: str, spec, dry_run: bool) -> None:
             print(opt.optimize(block, pdk, run, spec.budget, workers))
 
 
-def _run_jobs(jobs: list[Job], workers: int) -> list[str]:
-    """Each job's steps in a process of its own, at most ``workers`` at once (each step's line as it
-    ends, ``flow.steps._report``), a line each job as it ends, then the run's table (``_table``);
-    the lines of those that failed."""
-    from concurrent.futures import as_completed
+def _run_jobs(jobs: list[Job], workers: int, board) -> list[str]:
+    """Each job's steps in a process of its own, at most ``workers`` at once, their events onto the
+    run's dashboard (``flow.dashboard``: live in a terminal, else each step's line for a few
+    instances, what needs attention for many; ``status.txt`` and ``events.log`` beside the run), its
+    summary at the end; the lines of those that failed."""
+    from concurrent.futures import FIRST_COMPLETED, wait
+    from queue import Empty
 
+    from flow.dashboard import View
     from flow.sweep import runner
 
     # one BLAS thread a worker (the spawned workers inherit it): numpy's pool of a thread a core in
@@ -300,64 +317,75 @@ def _run_jobs(jobs: list[Job], workers: int) -> list[str]:
     for variable in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ.setdefault(variable, "1")
     print(f"{_count(len(jobs), 'instance')} on {_count(min(workers, len(jobs)), 'worker')}", flush=True)
-    failures, ended = [], {}
-    with _pool(workers) as pool:
-        futures = {pool.submit(run_steps, job): job for job in jobs}
-        for count, future in enumerate(as_completed(futures), 1):
-            job = futures[future]
-            try:
-                outcomes = future.result()
-            except Exception as error:  # noqa: BLE001 - a worker that died
-                outcomes = [Outcome("worker", "failed", None, repr(error), {})]
-            ended[job] = outcomes
-            states = [outcome.state for outcome in outcomes]
-            tally = ", ".join(f"{states.count(s)} {s}" for s in dict.fromkeys(states))
-            stopped = [outcome.step for outcome in outcomes if outcome.state == "failed"]
-            line = f"[{count}/{len(jobs)}] {job.pdk}/{job.name}: {tally}" + (
-                f" ({', '.join(stopped)})" if stopped else ""
-            )
-            print(line, flush=True)
-            if stopped:
-                failures.append(f"{runner._shown(job.out)}: {', '.join(stopped)} failed")
-    print(_table(ended))
+    by_key = {key(job): job for job in jobs}
+    for job in jobs:
+        board.add(key(job), job.out, [bound.metric for bound in job.bounds])
+    failures: list[str] = []
+    ended = 0
+
+    def line(event: dict[str, Any]) -> None:  # a step's line, as the step runner prints it
+        outcome = Outcome(event["step"], event["state"], event["seconds"], event["found"], event["counts"])
+        _report(by_key[event["key"]], outcome)
+
+    with _pool(workers) as pool, _channel(pool) as channel, View(board, line) as view:
+
+        def drain() -> None:
+            while True:
+                try:
+                    view.take(channel.get_nowait())
+                except Empty:
+                    return
+
+        futures = {pool.submit(run_steps, job, channel): job for job in jobs}
+        pending = set(futures)
+        while pending:
+            finished, pending = wait(pending, timeout=0.25, return_when=FIRST_COMPLETED)
+            drain()
+            for future in finished:
+                job = futures[future]
+                try:
+                    outcomes = future.result()
+                except Exception as error:  # noqa: BLE001 - a worker that died
+                    outcomes = [Outcome("worker", "failed", None, repr(error), {})]
+                    view.take({"key": key(job), **asdict(outcomes[0]), "step": "worker"})
+                ended += 1
+                board.end(key(job), [outcome.state for outcome in outcomes])
+                stopped = [outcome.step for outcome in outcomes if outcome.state == "failed"]
+                if view.live is None and len(jobs) <= SMALL:
+                    states = [outcome.state for outcome in outcomes]
+                    tally = ", ".join(f"{states.count(s)} {s}" for s in dict.fromkeys(states))
+                    shown = f" ({', '.join(stopped)})" if stopped else ""
+                    print(f"[{ended}/{len(jobs)}] {key(job)}: {tally}{shown}", flush=True)
+                if stopped:
+                    failures.append(f"{runner._shown(job.out)}: {', '.join(stopped)} failed")
+            view.refresh()
     return failures
 
 
-def _table(ended: dict[Job, list[Outcome]]) -> str:
-    """The run's table: one instance's steps a row each (its state, seconds, what it found, its
-    log's warnings and errors by tool, its folder, where its results and ``step.log`` are); over
-    several instances, each step's states counted, its seconds summed, its warnings and errors
-    summed by tool."""
-    from tabulate import tabulate
+class _channel:
+    """The queue a run's workers send their steps' events on: a manager's, across the processes of a
+    real pool; a plain one where the pool runs its tasks in this process (the tests')."""
 
-    from flow.sweep import runner
+    def __init__(self, pool) -> None:
+        from concurrent.futures import ProcessPoolExecutor
 
-    if len(ended) == 1:
-        [(job, outcomes)] = ended.items()
-        rows = [
-            [
-                o.step,
-                o.state,
-                "" if o.seconds is None else f"{o.seconds:.1f} s",
-                o.found,
-                logged(o.counts),
-                runner._shown(job.out / o.step),
-            ]
-            for o in outcomes
-        ]
-        return tabulate(rows, ["step", "state", "time", "result", "warnings, errors", "folder"])
-    states = ("ok", "failed", "done", "rejected", "not run")
-    rows = []
-    for step in dict.fromkeys(o.step for outcomes in ended.values() for o in outcomes):
-        each = [o for outcomes in ended.values() for o in outcomes if o.step == step]
-        counts: dict[str, dict[str, int]] = {}
-        for o in each:
-            for tool, levels in o.counts.items():
-                for level, n in levels.items():
-                    counts.setdefault(tool, {})[level] = counts.get(tool, {}).get(level, 0) + n
-        seconds = sum(o.seconds or 0.0 for o in each)
-        rows.append([step, *(sum(o.state == s for o in each) for s in states), f"{seconds:.1f} s", logged(counts)])
-    return tabulate(rows, ["step", *states, "time (sum)", "warnings, errors"])
+        self.manager = None
+        if isinstance(pool, ProcessPoolExecutor):
+            from multiprocessing import get_context
+
+            self.manager = get_context("spawn").Manager()
+            self.queue = self.manager.Queue()
+        else:
+            from queue import SimpleQueue
+
+            self.queue = SimpleQueue()
+
+    def __enter__(self):
+        return self.queue
+
+    def __exit__(self, *exc: object) -> None:
+        if self.manager is not None:
+            self.manager.shutdown()
 
 
 def _dry_run(jobs: list[Job], chosen: list[Step]) -> None:

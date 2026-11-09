@@ -67,6 +67,7 @@ jobs:
         run: >-
           uv run ty check
           flow/opt/runner.py
+          flow/dashboard.py
           flow/pipeline.py
           flow/plot.py
           flow/scans/plldrp.py
@@ -166,6 +167,7 @@ jobs:
           flow/test_pipeline.py
           flow/test_plot.py
           flow/test_main.py
+          flow/test_dashboard.py
           flow/test_logs.py
           flow/samp/test_sim.py
           flow/samp/test_analysis.py

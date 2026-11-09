@@ -11,7 +11,7 @@ import json
 import logging
 import time
 import traceback
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any
@@ -634,7 +634,7 @@ def logged(counts: dict[str, dict[str, int]]) -> str:
     return "; ".join(tools)
 
 
-def run_steps(job: Job) -> list[Outcome]:
+def run_steps(job: Job, events: Any = None) -> list[Outcome]:
     """The job's steps on its instance, in order, in this (fresh) process: each skipped where its
     output is complete (``done``), failed where what it needs is missing (``_missing``), else run
     in its folder (emptied where it ended before: ``_fresh``) with its log (``flow.logs.step_log``:
@@ -645,8 +645,10 @@ def run_steps(job: Job) -> list[Outcome]:
     page, which takes whatever exists, run); a characterization
     step's failure (netlist, sim, record) is also the instance's record
     (``flow.sweep.runner.failed_record``), and a layout step's joins it (``_join_layout``), so the
-    viewer's table shows it. Each step's outcome on the console as it ends (``_report``), and the
-    outcomes (``Outcome``: picklable, for the run's table, ``flow.__main__``)."""
+    viewer's table shows it. Each step's start and outcome an event onto ``events`` (a queue the
+    run's dashboard takes them from, ``flow.dashboard``: ``key``, ``step``, ``state``, ``seconds``,
+    ``found``, ``counts``), else its outcome on the console as it ends (``_report``); and the
+    outcomes (``Outcome``: picklable, ``flow.__main__``)."""
     from flow.logs import step_log
     from flow.sweep import runner
 
@@ -655,7 +657,10 @@ def run_steps(job: Job) -> list[Outcome]:
     def report(step: Step, state: str, detail: str = "", seconds=None, found: str = "", counts=None) -> None:
         outcome = Outcome(str(step), state, seconds, found or detail, counts or {})
         outcomes.append(outcome)
-        _report(job, outcome)
+        if events is None:
+            _report(job, outcome)
+        else:
+            events.put({"key": key(job), **asdict(outcome)})
 
     failed: set[Step] = set()
     rejected: dict[str, Any] | None = None
@@ -699,6 +704,8 @@ def run_steps(job: Job) -> list[Outcome]:
             report(step, "failed", missing)
             continue
         started = time.time()
+        if events is not None:
+            events.put({"key": key(job), "step": str(step), "state": "running"})
         folder = _fresh(job.out, step)
         laid = step in (Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.RECORD)  # joined to the record
         error = None
@@ -740,6 +747,11 @@ class Outcome:
     seconds: float | None
     found: str
     counts: dict[str, dict[str, int]]
+
+
+def key(job: Job) -> str:
+    """The instance's name in its run's dashboard and lines: ``<pdk>/<name>``."""
+    return f"{job.pdk}/{job.name}"
 
 
 def _report(job: Job, outcome: Outcome) -> None:

@@ -15,7 +15,6 @@ dependencies = [
     "pytest",
     "klayout",
     "protobuf",
-    "tabulate",  # the step runner's table (python -m flow)
     # Keep these commits aligned with the submodule gitlinks; uv uses the local editable sources below.
     "hdl21 @ git+https://github.com/kcaisley/Hdl21.git@c0d73fa152c1b290498dfd686d10db597567e9af",
     "vlsir @ git+https://github.com/kcaisley/Vlsir.git@21d2981b171046c5f03dcc2f1307854cbd054516#subdirectory=bindings/python",
@@ -37,6 +36,7 @@ dependencies = [
     "ruff>=0.16.1",
     "pre-commit>=4.6.2",
     "optuna>=4.0",
+    "rich==13.9.4",  # the step runner's live dashboard and tables (python -m flow)
 ]
 
 [dependency-groups]
