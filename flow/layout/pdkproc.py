@@ -11,14 +11,14 @@ must be picklable (paths, strings, numbers, dicts).
 from __future__ import annotations
 
 import json
-import multiprocessing
 import os
 import sys
 from collections.abc import Iterable
-from concurrent.futures import ProcessPoolExecutor
 from importlib import import_module
 from pathlib import Path
 from typing import Any
+
+from flow.logs import spawned
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -50,23 +50,19 @@ def in_pdk(
 ) -> Any:
     """Call ``module.function(*args, **kwargs)`` in a fresh process bound to ``pdk``.
 
-    ``environ`` adds environment variables in the child only (e.g. ``ROWS_STD_DENSE``). An
-    exception in the child is raised here; a child that dies raises ``BrokenProcessPool``.
+    ``environ`` adds environment variables in the child only (e.g. ``ROWS_STD_DENSE``). What the
+    child logs is logged here (``flow.logs.spawned``). An exception in the child is raised here; a child that
+    dies raises ``BrokenProcessPool``.
     """
 
-    context = multiprocessing.get_context("spawn")
-    with ProcessPoolExecutor(
-        1, mp_context=context, initializer=_bind, initargs=(pdk_paths(pdk), dict(environ or {}))
-    ) as pool:
+    with spawned(1, initializer=_bind, initargs=(pdk_paths(pdk), dict(environ or {}))) as pool:
         return pool.submit(_call, module, function, args, kwargs).result()
 
 
 def pdk_value(pdk: str, module: str, name: str, default: Any = None) -> Any:
     """One value of a PDK's layout module (``tech`` or ``paths``), read in a process bound to it."""
 
-    context = multiprocessing.get_context("spawn")
-    with ProcessPoolExecutor(1, mp_context=context, initializer=_bind, initargs=(pdk_paths(pdk), {})) as pool:
-        return pool.submit(_value, module, name, default).result()
+    return in_pdk(pdk, __name__, "_value", module, name, default)
 
 
 def access_points(pdk: str, cells: Iterable[str] = ()) -> Path:

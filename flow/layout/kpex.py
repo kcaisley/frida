@@ -28,11 +28,12 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import sys
 from enum import Enum, auto
 from importlib import import_module
 from pathlib import Path
+
+from flow.logs import run_logged
 
 ROOT = Path(__file__).resolve().parents[2]
 KPEX_HOME = Path(os.environ.get("KPEX_HOME", "/local/kcaisley/tools/kpex-env"))
@@ -278,22 +279,20 @@ def run_layout_pex(
     }
     (work / "spec.json").write_text(json.dumps(spec, indent=1))
     log = work / "kpex.log"
-    with log.open("w") as stream:
-        result = subprocess.run(
-            # -P: the script's folder (this one, with a kpex.py of its own) stays off its path
-            [
-                str(KPEX_HOME / "bin" / "python"),
-                "-P",
-                str(Path(__file__).with_name("kpex_extract.py")),
-                str(work / "spec.json"),
-            ],
-            stdout=stream,
-            stderr=subprocess.STDOUT,
-            cwd=work,
-            check=False,
-        )
-    if result.returncode or not netlist.is_file():
-        raise RuntimeError(f"KLayout-PEX extraction of {layout_top} failed; see {log}")
+    run_logged(
+        # -P: the script's folder (this one, with a kpex.py of its own) stays off its path
+        [
+            str(KPEX_HOME / "bin" / "python"),
+            "-P",
+            str(Path(__file__).with_name("kpex_extract.py")),
+            str(work / "spec.json"),
+        ],
+        cwd=work,
+        log=log,
+        name="kpex",
+    )
+    if not netlist.is_file():
+        raise RuntimeError(f"KLayout-PEX wrote no netlist of {layout_top} ({log})")
     return netlist
 
 

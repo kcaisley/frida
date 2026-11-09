@@ -14,30 +14,30 @@ from types import SimpleNamespace
 import pytest
 
 from flow import __main__ as cli
-from flow import pipeline
+from flow import pipeline, steps
 from flow.conftest import _NowPool
 from flow.sweep import runner
 
-Step = cli.Step
+Step = steps.Step
 
 
 def test_the_steps_run_from_one_to_another() -> None:
     """``--from`` and ``--to`` pick the steps between them, both included, each after those it needs;
     one that does not lead to the other is refused."""
-    assert cli.between(Step.NETLIST, Step.RECORD) == [Step.NETLIST, Step.SIM, Step.RECORD]
-    assert cli.between(Step.RECORD, Step.RECORD) == [Step.RECORD]
-    assert cli.between(Step.NETLIST, Step.TABLE) == [Step.NETLIST, Step.SIM, Step.RECORD, Step.TABLE]
-    assert cli.between(Step.NETLIST, Step.CIRCUIT) == [Step.NETLIST, Step.SIM, Step.CIRCUIT]
-    assert cli.between(Step.NETLIST, Step.LVS) == [Step.NETLIST, Step.LAYOUT, Step.DRC, Step.LVS]
-    assert cli.between(Step.SIM, Step.PAGE) == [Step.SIM, Step.RECORD, Step.PAGE]
+    assert steps.between(Step.NETLIST, Step.RECORD) == [Step.NETLIST, Step.SIM, Step.RECORD]
+    assert steps.between(Step.RECORD, Step.RECORD) == [Step.RECORD]
+    assert steps.between(Step.NETLIST, Step.TABLE) == [Step.NETLIST, Step.SIM, Step.RECORD, Step.TABLE]
+    assert steps.between(Step.NETLIST, Step.CIRCUIT) == [Step.NETLIST, Step.SIM, Step.CIRCUIT]
+    assert steps.between(Step.NETLIST, Step.LVS) == [Step.NETLIST, Step.LAYOUT, Step.DRC, Step.LVS]
+    assert steps.between(Step.SIM, Step.PAGE) == [Step.SIM, Step.RECORD, Step.PAGE]
     page = [Step.NETLIST, Step.SIM, Step.RECORD, Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.PAGE]
-    assert cli.between(Step.NETLIST, Step.PAGE) == page
+    assert steps.between(Step.NETLIST, Step.PAGE) == page
     pexsim = [Step.NETLIST, Step.SIM, Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.PEXSIM]
-    assert cli.between(Step.NETLIST, Step.PEXSIM) == pexsim
+    assert steps.between(Step.NETLIST, Step.PEXSIM) == pexsim
     # each step's order puts it after what it needs
     assert all(need.value < step.value for step in Step for need in step.needs)
     with pytest.raises(SystemExit, match="--from layout does not lead to --to record: record needs netlist, sim"):
-        cli.between(Step.LAYOUT, Step.RECORD)
+        steps.between(Step.LAYOUT, Step.RECORD)
 
 
 def test_the_bare_command_prints_the_usage_the_steps_and_the_blocks(capsys) -> None:
@@ -141,14 +141,14 @@ def test_a_step_resumes_where_its_output_is_complete(flow, simulated, capsys) ->
     (instance / "sim/step.json").unlink()
     flow("--from", "sim", "--to", "record")
     assert simulated == ["search"] and "sim ok" in capsys.readouterr().out
-    assert cli.done(instance, Step.RECORD)
+    assert steps.done(instance, Step.RECORD)
     # a step made again makes the steps after it out of date
     record = (instance / "record/step.json").read_text()
     shutil.rmtree(instance / "netlist")
     flow("--to", "netlist", "--run", "mine")
-    assert not cli.done(instance, Step.SIM) and not cli.done(instance, Step.RECORD)
+    assert not steps.done(instance, Step.SIM) and not steps.done(instance, Step.RECORD)
     flow("--to", "record", "--run", "mine")
-    assert cli.done(instance, Step.RECORD) and (instance / "record/step.json").read_text() != record
+    assert steps.done(instance, Step.RECORD) and (instance / "record/step.json").read_text() != record
     assert simulated == ["search", "screen", "search", "full"]
 
 
@@ -287,7 +287,7 @@ def test_a_failed_step_is_recorded_and_made_again_next_time(flow, toy, capsys, m
     instance = _instance("mine")
     record = json.loads((instance / "instance.json").read_text())
     assert record["error"].startswith("sim: ") and record["metrics"] == {}
-    assert not cli.done(instance, Step.SIM) and (instance / "sim/screen/result.h5").exists()
+    assert not steps.done(instance, Step.SIM) and (instance / "sim/screen/result.h5").exists()
     monkeypatch.setattr(sim, "simulate", simulate)
     flow("--to", "record", "--run", "mine")
     assert "netlist done, sim ok" in capsys.readouterr().out
@@ -303,7 +303,7 @@ def test_the_circuit_step_adds_the_circuit_simulators_runs_and_records_again(flo
     assert [path.parent.name for path in instance.glob("circuit/*/result.h5")] == ["circuit"]
     record = json.loads((instance / "instance.json").read_text())
     assert record["level"] == pipeline.Level.CIRCUIT.value and record["metrics"]["read_circuit"] is True
-    assert cli.done(instance, Step.RECORD)
+    assert steps.done(instance, Step.RECORD)
     # recorded again later, the circuit runs stay in it
     shutil.rmtree(instance / "record")
     flow("--from", "record", "--to", "record")
@@ -408,7 +408,9 @@ def test_the_layout_steps_lay_out_then_sign_off_each_in_its_folder(flow, tools, 
     # the layout made again: every signoff step after it is out of date
     shutil.rmtree(instance / "layout")
     flow("--from", "layout", "--to", "layout")
-    assert cli.done(instance, Step.LAYOUT) and not cli.done(instance, Step.DRC) and not cli.done(instance, Step.PEX)
+    assert (
+        steps.done(instance, Step.LAYOUT) and not steps.done(instance, Step.DRC) and not steps.done(instance, Step.PEX)
+    )
 
 
 def test_a_kit_that_names_calibre_signs_off_by_it(flow, tools, monkeypatch) -> None:
@@ -528,9 +530,9 @@ def test_a_layout_made_again_that_fails_leaves_its_signoff_steps_not_run(flow, t
     results joined to the record."""
     flow("--to", "pex", "--run", "mine", "--instance", "wired")
     instance = _instance("mine").with_name("wired")
-    assert cli.done(instance, Step.PEX)
+    assert steps.done(instance, Step.PEX)
     shutil.rmtree(instance / "layout")
-    assert not cli.done(instance, Step.DRC) and not cli.done(instance, Step.PEX)
+    assert not steps.done(instance, Step.DRC) and not steps.done(instance, Step.PEX)
     layout = importlib.import_module("flow.toyblock.layout")
     monkeypatch.setattr(layout, "lay_out", lambda params, pdk, run_dir: (_ for _ in ()).throw(RuntimeError("no room")))
     capsys.readouterr()
@@ -539,7 +541,7 @@ def test_a_layout_made_again_that_fails_leaves_its_signoff_steps_not_run(flow, t
         flow("--from", "layout", "--to", "pex")
     out = capsys.readouterr().out
     assert "layout failed: RuntimeError: no room, drc not run, lvs not run, pex not run" in out and not tools.calls
-    assert not any(cli.done(instance, step) for step in (Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX))
+    assert not any(steps.done(instance, step) for step in (Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX))
     entry = json.loads((instance / "instance.json").read_text())["layout"]
     assert entry["error"] and entry["drc_violations"] is None and entry["lvs_correct"] is None and entry["pex"] is None
 
@@ -712,16 +714,18 @@ def test_pexsim_refuses_capacitance_on_nets_the_dut_lacks_or_no_dut(flow, extrac
 def test_pexsim_leaves_an_extraction_with_devices_or_none_alone(toy, tmp_path) -> None:
     """An extraction with devices and RC (a kit's, a planned signoff's) is not back-annotated, nor a
     layout not extracted; one made before its nets' probes is refused with what makes it again."""
-    job = cli.Job("toyblock", "toypdk", "one", "one", None, tmp_path / "one", (Step.PEXSIM,), "mine")
-    cli._mark(job.out, Step.PEX, 0.0, netlist="toy.pex.netlist", sha256="0", extractor="the kit's (against its source)")
-    assert cli._pexsim(job) == {
+    job = steps.Job("toyblock", "toypdk", "one", "one", None, tmp_path / "one", (Step.PEXSIM,), "mine")
+    steps._mark(
+        job.out, Step.PEX, 0.0, netlist="toy.pex.netlist", sha256="0", extractor="the kit's (against its source)"
+    )
+    assert steps._pexsim(job) == {
         "skipped": "the kit's (against its source) extraction has devices and RC, not capacitances to back-annotate"
     }
-    cli._mark(job.out, Step.PEX, 0.0, skipped="no LVS source")
-    assert cli._pexsim(job) == {"skipped": "no extraction (no LVS source)"}
-    cli._mark(job.out, Step.PEX, 0.0, netlist="toy.pex.netlist", extractor="KLayout-PEX", nets={"a": 1e-15})
+    steps._mark(job.out, Step.PEX, 0.0, skipped="no LVS source")
+    assert steps._pexsim(job) == {"skipped": "no extraction (no LVS source)"}
+    steps._mark(job.out, Step.PEX, 0.0, netlist="toy.pex.netlist", extractor="KLayout-PEX", nets={"a": 1e-15})
     with pytest.raises(RuntimeError, match="no net probes .* then python -m flow toyblock --to pex --run mine"):
-        cli._pexsim(job)
+        steps._pexsim(job)
 
 
 def test_the_dut_takes_a_flat_copy_with_the_capacitors_on_its_bits_and_its_cells_nets() -> None:

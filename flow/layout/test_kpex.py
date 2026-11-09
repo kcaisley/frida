@@ -103,7 +103,6 @@ def test_the_extraction_runs_the_engine_it_is_given(kit: Path, tmp_path: Path, m
     """The spec kpex's Python reads names the engine (FasterCap by default); the 2.5-D engine is
     refused in a kit without its coefficients, before anything runs."""
     import json
-    import subprocess
 
     specs: list[dict] = []
 
@@ -111,9 +110,9 @@ def test_the_extraction_runs_the_engine_it_is_given(kit: Path, tmp_path: Path, m
         spec = json.loads(Path(command[-1]).read_text())
         specs.append(spec)
         Path(spec["netlist"]).write_text("simulator lang=spectre\n")
-        return subprocess.CompletedProcess(command, 0)
+        return ""
 
-    monkeypatch.setattr(kpex.subprocess, "run", run)
+    monkeypatch.setattr(kpex, "run_logged", run)
     gds = tmp_path / "toy.gds"
     gds.write_bytes(b"")
     with pytest.raises(ValueError, match="no 2.5-D coefficients"):

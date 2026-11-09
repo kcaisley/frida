@@ -25,11 +25,10 @@ from __future__ import annotations
 import fcntl
 import json
 import re
-from concurrent.futures import ProcessPoolExecutor
 from functools import cache
-from multiprocessing import get_context
 from pathlib import Path
 
+from flow.logs import spawned
 from flow.sweep import flat_params
 from flow.sweep.runner import ROOT, digest
 
@@ -101,7 +100,7 @@ def characterized(block: str, pdk: str, params, *, simulate: bool = True) -> dic
         with (run_dir.parent / f"{ident}.lock").open("w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             if not path.exists():
-                with ProcessPoolExecutor(max_workers=1, mp_context=get_context("spawn")) as pool:
+                with spawned(1) as pool:  # its log is the caller's (a step's, where a step looks it up)
                     pool.submit(_characterize, block, pdk, params, run_dir).result()
     record = json.loads(path.read_text())
     if record["error"] is not None:

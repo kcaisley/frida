@@ -52,7 +52,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 from functools import cache
 from pathlib import Path
@@ -65,6 +64,7 @@ from flow.adc.params import Params
 from flow.circuit.ports import module_from_ports, port_connections
 from flow.layout.devices.device import active_pdk, resolve
 from flow.layout.devices.mosfet.netlist import mos
+from flow.logs import run_logged
 from flow.sweep.lookup import MODELS_DIR
 from flow.util.netlist import normalize_bus_pin, subcircuit_ports
 
@@ -416,7 +416,7 @@ def _synthesize(stages: int, cell: str, work: Path) -> str:
             )
         )
     )
-    subprocess.run(["yosys", "-q", "-l", str(work / "yosys.log"), str(script)], check=True, capture_output=True)
+    run_logged(["yosys", str(script)], cwd=work, log=work / "yosys.log", name="yosys")
     module = json.loads((work / "netlist.json").read_text())["modules"]["adc_digital"]
     pin_order = {}
     for netlist in STANDARD_CELL_SPICE_NETLISTS:

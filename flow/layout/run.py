@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import json
 import os
-import signal
-import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+from flow.logs import run_logged
 
 ALIGN_HOME = Path(os.environ.get("ALIGN_HOME", "/local/kcaisley/tools/ALIGN-public"))
 # the placer's annealing steps for a design with a floorplan (ALIGN's default 10000): it anneals only
@@ -36,7 +36,9 @@ def align_env() -> dict[str, str]:
 
 
 def _schematic2layout(design_dir: Path, pdk_dir: Path, work: Path, args: list[str], env: dict[str, str]) -> None:
-    """One ALIGN run in ``work`` (its working directory), output in ``work/schematic2layout.log``."""
+    """One ALIGN run in ``work`` (its working directory), its output in ``work/schematic2layout.log``
+    and the flow's log (``flow.logs.run_logged``: the logger ``align``, its own loggers' lines as
+    ``align.pnr.main`` ...)."""
 
     work.mkdir(parents=True, exist_ok=True)
     command = [
@@ -55,26 +57,10 @@ def _schematic2layout(design_dir: Path, pdk_dir: Path, work: Path, args: list[st
         "INFO",
         *args,
     ]
-    log = work / "schematic2layout.log"
     # ALIGN_TIMEOUT (seconds, unset: none): its placer can search for hours on a large design;
     # the run and the PnR processes it starts stop together
     limit = float(os.environ["ALIGN_TIMEOUT"]) if os.environ.get("ALIGN_TIMEOUT") else None
-    with log.open("w") as out:
-        process = subprocess.Popen(
-            command, cwd=work, env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True
-        )
-        try:
-            process.wait(timeout=limit)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
-            raise RuntimeError(
-                f"ALIGN stopped after {limit:g} s on {design_dir.name} {' '.join(args)}; {log}"
-            ) from None
-    done = process
-    if done.returncode:
-        tail = "\n".join(log.read_text().splitlines()[-15:])
-        raise RuntimeError(f"ALIGN failed ({done.returncode}) on {design_dir.name} {' '.join(args)}; {log}:\n{tail}")
+    run_logged(command, cwd=work, log=work / "schematic2layout.log", name="align", env=env, timeout=limit)
 
 
 def run_align(
@@ -138,17 +124,16 @@ def draw(pdk_dir: Path, drawings: list[Drawing]) -> list[Path]:
     env = dict(os.environ)
     if lib is not None:
         env["LD_LIBRARY_PATH"] = os.pathsep.join(filter(None, (str(lib.parent), env.get("LD_LIBRARY_PATH"))))
-    result = subprocess.run(
+    run_logged(
         [str(ALIGN_HOME / "general/bin/python"), str(Path(__file__).with_name("draw.py")), str(spec)],
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
         cwd=first.parent,  # ALIGN logs into ./LOG, rotating it: one directory a run
+        log=spec.with_suffix(".log"),
+        name="align.draw",
+        env=env,
     )
     missing = [drawing for drawing in drawings if not drawing.gds.is_file()]
-    if result.returncode or missing:
-        raise RuntimeError(f"ALIGN could not draw {missing[:1] or drawings[:1]}: {result.stderr[-1500:]}")
+    if missing:
+        raise RuntimeError(f"ALIGN drew no {missing[0].gds} ({spec.with_suffix('.log')})")
     return [drawing.gds for drawing in drawings]
 
 

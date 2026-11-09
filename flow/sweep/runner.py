@@ -228,13 +228,16 @@ def simulate(block: str, pdk: str, runs: dict, folder: Path, annotation: Annotat
     """Each of ``runs`` simulated in ``folder/<run>/`` (``sim.simulate``), read back (its
     ``sim.read`` where it has one, else ``flow.pipeline.read``) and kept as a measurement
     (``result.h5``, ``flow.analysis.io.write_measurement``), its raw file removed; a run whose
-    measurement is kept already is not simulated again. With ``annotation`` (an extraction on the
+    measurement is kept already is not simulated again. The simulator's log (Spectre's
+    ``spectre.log``: each ``*.log`` the run wrote) also goes, a line a record, to the flow's log
+    under its name (``flow.logs.relay``), whether the run ended or failed. With ``annotation`` (an extraction on the
     schematic's nets, ``flow.layout.annotate.Annotation``), each run's DUT carries its capacitors
     (``_back_annotated``). Each run's measurement file, by name."""
     import hdl21 as h
 
     from flow import pipeline
     from flow.analysis.io import write_measurement
+    from flow.logs import relay
 
     h.pdk.set_default(import_module(f"pdk.{pdk}").pdk_logic)
     sim = import_module(f"flow.{block}.sim")
@@ -243,8 +246,12 @@ def simulate(block: str, pdk: str, runs: dict, folder: Path, annotation: Annotat
     for name, tb in runs.items():
         path = folder / name / "result.h5"
         if not path.exists():
-            with _back_annotated(block, tb, annotation, folder / name) if annotation else nullcontext():
-                raw = sim.simulate(tb, folder / name)
+            try:
+                with _back_annotated(block, tb, annotation, folder / name) if annotation else nullcontext():
+                    raw = sim.simulate(tb, folder / name)
+            finally:
+                for log in sorted((folder / name).glob("*.log")):
+                    relay(log, log.stem)
             write_measurement(path, read(raw, tb))
             raw.unlink()
         kept[name] = path

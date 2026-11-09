@@ -166,6 +166,7 @@ jobs:
           flow/test_pipeline.py
           flow/test_plot.py
           flow/test_main.py
+          flow/test_logs.py
           flow/samp/test_sim.py
           flow/samp/test_analysis.py
           flow/samp/test_plots.py

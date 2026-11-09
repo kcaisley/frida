@@ -390,7 +390,7 @@ def open_drc(pdk: str, gds: Path, top: str, run_dir: Path) -> tuple[dict[str, in
     """gdscheck on ``gds``: its own full deck of an open PDK, else the repo's precheck
     (``flow.layout.compile._gdscheck_runs``), its output streamed to the log; the violations by
     rule, and which deck ran."""
-    from flow.layout.logs import run_logged
+    from flow.logs import run_logged
 
     runs = _gdscheck_runs(pdk)
     if not runs:

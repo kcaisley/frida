@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import re
 import shlex
-import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+
+from flow.logs import run_logged
 
 SIEMENS = Path("/eda/local/scripts/siemens_2024-25.sh")
 
@@ -100,12 +101,8 @@ def run_layout_pex(
         command = (
             f"source {shlex.quote(str(SIEMENS))} >/dev/null 2>&1; calibre -xact {arguments} {shlex.quote(str(control))}"
         )
-        done = subprocess.run(
-            ["bash", "-lc", command], cwd=run_dir, env=env, capture_output=True, text=True, check=False
-        )
-        (run_dir / f"calibre.xact.{stage}.log").write_text(done.stdout + done.stderr)
-        if done.returncode:
-            raise RuntimeError(f"Calibre xACT {stage} failed (status {done.returncode}); see {run_dir}")
+        log = run_dir / f"calibre.xact.{stage}.log"
+        run_logged(["bash", "-lc", command], cwd=run_dir, log=log, name="calibre.xact", env=env)
     if not netlist.is_file():
         raise RuntimeError(f"Calibre xACT wrote no netlist; see {run_dir}")
     return netlist
