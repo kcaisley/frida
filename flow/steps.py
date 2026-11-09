@@ -19,20 +19,22 @@ from typing import Any
 
 class Step(Enum):
     """One tool's step over an instance (``TABLE``: over a run), in an order that puts each after
-    the steps it needs (``needs``); its folder in an instance's directory is its name."""
+    the steps it needs (``needs``) and those whose outputs it takes where they exist (``after``);
+    its folder in an instance's directory is its name. An instance's chain is linear: netlist,
+    sim, layout, drc, lvs, pex, pexsim, record, page."""
 
     NETLIST = auto()
     SIM = auto()
     CIRCUIT = auto()
-    RECORD = auto()
-    FIGURES = auto()
-    TABLE = auto()
     LAYOUT = auto()
     DRC = auto()
     LVS = auto()
     PEX = auto()
     PEXSIM = auto()
+    RECORD = auto()
     PAGE = auto()
+    FIGURES = auto()
+    TABLE = auto()
 
     def __str__(self) -> str:
         return self.name.lower()
@@ -49,7 +51,7 @@ class Step(Enum):
                 return (Step.SIM,)
             case Step.RECORD:
                 return (Step.NETLIST, Step.SIM)
-            case Step.FIGURES | Step.TABLE:
+            case Step.FIGURES | Step.TABLE | Step.PAGE:
                 return (Step.RECORD,)
             case Step.DRC:
                 return (Step.LAYOUT,)
@@ -59,13 +61,30 @@ class Step(Enum):
                 return (Step.LVS,)
             case Step.PEXSIM:
                 return (Step.SIM, Step.LVS, Step.PEX)
-            case Step.PAGE:
-                return (Step.RECORD, Step.PEX)
+
+    @property
+    def after(self) -> tuple[Step, ...]:
+        """The steps this one runs after and takes the outputs of where they ended, but does without
+        where they failed or were not run: the record takes pexsim's measurements (the post-layout
+        metrics), else records the pre-layout ones alone."""
+        return (Step.PEXSIM,) if self is Step.RECORD else ()
+
+    @property
+    def inputs(self) -> tuple[Step, ...]:
+        """The steps whose outputs this one takes: those it needs, then those it runs after."""
+        return self.needs + self.after
 
     @property
     def ancestors(self) -> set[Step]:
-        """This step and every step it needs, directly or through others."""
-        return {self}.union(*(need.ancestors for need in self.needs))
+        """This step and every step whose output it takes, directly or through others: the steps a
+        run to it runs (``between``)."""
+        return {self}.union(*(step.ancestors for step in self.inputs))
+
+    @property
+    def required(self) -> set[Step]:
+        """This step and every step it needs, directly or through others: a failure of any of them
+        leaves it not run."""
+        return {self}.union(*(need.required for need in self.needs))
 
 
 def between(start: Step, stop: Step) -> list[Step]:
@@ -79,7 +98,7 @@ def between(start: Step, stop: Step) -> list[Step]:
 
 def _needed(step: Step) -> str:
     """The steps ``step`` needs, as a sentence's words."""
-    return ", ".join(str(need) for need in sorted(step.ancestors - {step}, key=lambda s: s.value)) or "nothing"
+    return ", ".join(str(need) for need in sorted(step.required - {step}, key=lambda s: s.value)) or "nothing"
 
 
 @dataclass(frozen=True)
@@ -126,6 +145,11 @@ def done(out: Path, step: Step) -> bool:
     for need in step.needs:
         made = _ended(out, need)
         if made is None or made["finished"] > ended["finished"] or not done(out, need):
+            return False
+    # a step it runs after that ended since (made, failed or not run again) changes what it took
+    for before in step.after:
+        path = _marker(out, before)
+        if path.exists() and json.loads(path.read_text())["finished"] > ended["finished"]:
             return False
     return True
 
@@ -193,31 +217,54 @@ def _fresh(out: Path, step: Step) -> Path:
 
 
 def _record(job: Job, circuit: dict[str, Path] | None = None) -> dict:
-    """The instance's record from the measurements its sim step kept, and its circuit step's
-    (``circuit``, else those of a complete circuit step), as ``instance.json``."""
+    """The instance's record (``instance.json``), the last of its characterization: from the
+    measurements its pexsim step kept where it simulated the extraction (``evidence``
+    ``postlayout``), the metrics of the sim step's measurements beside them (``prelayout``: the
+    estimates every step before the layout judged); else from the sim step's alone (``evidence``
+    ``prelayout``: no layout, or one not extracted, or not back-annotated). Each with the circuit
+    step's measurements (``circuit``, else those of a complete circuit step)."""
     from flow import pipeline
     from flow.sweep import runner
 
     out = job.out
-    files = {run: out / "sim" / run / "result.h5" for run in json.loads(_marker(out, Step.SIM).read_text())["runs"]}
+
+    def kept(step: Step) -> dict[str, Path]:
+        return {run: out / str(step) / run / "result.h5" for run in json.loads(_marker(out, step).read_text())["runs"]}
+
     if circuit is None and done(out, Step.CIRCUIT):
-        runs = json.loads(_marker(out, Step.CIRCUIT).read_text())["runs"]
-        circuit = {run: out / "circuit" / run / "result.h5" for run in runs}
-    ran = sum(json.loads(_marker(out, step).read_text())["seconds"] for step in (Step.NETLIST, Step.SIM))
-    runner.record(
-        job.block,
-        job.pdk,
-        job.params,
-        out,
-        {**files, **(circuit or {})},
-        json.loads((out / "netlist" / "geometry.json").read_text()),
-        label=job.label,
-        name=job.name,
-        level=pipeline.Level.CIRCUIT if circuit else pipeline.Level.FULL,
-        netlist=out / "netlist" / f"{job.block}.cdl",
-        seconds=ran,
-    )
-    return {"circuit": bool(circuit)}
+        circuit = kept(Step.CIRCUIT)
+    annotated = _outputs(out, Step.PEXSIM) if done(out, Step.PEXSIM) else {}
+    steps = [step for step in Step if step.value < Step.RECORD.value and _ended(out, step) is not None]
+    ran = sum(_outputs(out, step)["seconds"] for step in steps)
+    sizes = json.loads((out / "netlist" / "geometry.json").read_text())
+
+    def recorded(files: dict[str, Path]) -> dict[str, Any]:
+        return runner.record(
+            job.block,
+            job.pdk,
+            job.params,
+            None,
+            {**files, **(circuit or {})},
+            sizes,
+            label=job.label,
+            name=job.name,
+            level=pipeline.Level.CIRCUIT if circuit else pipeline.Level.FULL,
+            netlist=out / "netlist" / f"{job.block}.cdl",
+            seconds=ran,
+        )
+
+    prelayout = recorded(kept(Step.SIM))
+    if annotated and not annotated.get("skipped"):
+        entry = {
+            **recorded(kept(Step.PEXSIM)),
+            "evidence": pipeline.Evidence.POSTLAYOUT.name.lower(),
+            "prelayout": prelayout["metrics"],
+            "annotation": {key: annotated[key] for key in annotated if key != "runs"},
+        }
+    else:
+        entry = {**prelayout, "evidence": pipeline.Evidence.PRELAYOUT.name.lower()}
+    runner.write_record(out / "instance.json", entry)
+    return {"circuit": bool(circuit), "evidence": entry["evidence"]}
 
 
 def _circuit(job: Job) -> dict:
@@ -321,14 +368,15 @@ def _pex(job: Job) -> dict:
 
 
 def _pexsim(job: Job) -> dict:
-    """The instance's runs simulated again with its extraction back-annotated (``pexsim/<run>/``)
-    and recorded alike (``pexsim/instance.json``: the record's shape and metric names, the
-    annotation's totals beside them): the extraction's capacitors, each net found on the
+    """The instance's runs simulated again with its extraction back-annotated (``pexsim/<run>/``),
+    which the record step records (the post-layout metrics, the annotation's totals beside them):
+    the extraction's capacitors, each net found on the
     schematic's through LVS (``flow.layout.annotate``), in each testbench's DUT
     (``flow.sweep.runner.simulate``). Not run where the layout was not extracted, nor for an
     extraction with devices and RC (a kit's: a block's own simulation of it, the ADC's circuit
     step's); refused where more than a small share of the capacitance has no schematic net. The
-    record's annotation names the extractor (its engine)."""
+    record's annotation names the extractor (its engine). Not run either where LVS had no deck (no
+    database to find the extraction's nets on)."""
     from flow.layout import annotate
     from flow.sweep import runner
 
@@ -337,6 +385,8 @@ def _pexsim(job: Job) -> dict:
         return {"skipped": f"no extraction ({extracted['skipped']})"}
     if "nets" not in extracted:
         return {"skipped": f"{extracted['extractor']} extraction has devices and RC, not capacitances to back-annotate"}
+    if not checked.get("lvs_report"):  # LVS ran without a deck: no database pairs layout nets with schematic ones
+        return {"skipped": "no LVS database to find the extraction's nets on (LVS: no deck)"}
     if "probes" not in extracted:
         made = f"delete {runner._shown(job.out / 'pex')}, then {_command(job, Step.PEX)}"
         raise RuntimeError(f"its extraction has no net probes (made before them): make it again, {made}")
@@ -346,7 +396,7 @@ def _pexsim(job: Job) -> dict:
         if kept.stat().st_mtime < _marker(job.out, Step.PEX).stat().st_mtime:  # of an extraction since redone
             (kept.parent / "result.h5").unlink(missing_ok=True)
     began = time.monotonic()
-    files = runner.simulate(job.block, job.pdk, runs, job.out / "pexsim", annotation=found)
+    runner.simulate(job.block, job.pdk, runs, job.out / "pexsim", annotation=found)
     ran = time.monotonic() - began
     added = {run: job.out / "pexsim" / run / "annotation.json" for run in runs}
     added = {run: json.loads(path.read_text()) for run, path in added.items() if path.exists()}
@@ -359,20 +409,7 @@ def _pexsim(job: Job) -> dict:
         **next((entry for entry in added.values() if entry["instances"]), {}),
         "unannotated": [run for run in runs if not added.get(run, {}).get("instances")],
     }
-    record = runner.record(
-        job.block,
-        job.pdk,
-        job.params,
-        job.out / "pexsim",
-        files,
-        json.loads((job.out / "netlist" / "geometry.json").read_text()),
-        label=job.label,
-        name=job.name,
-        netlist=job.out / "netlist" / f"{job.block}.cdl",
-        seconds=ran,
-    )
-    runner.write_record(job.out / "pexsim" / "instance.json", {**record, "annotation": summary})
-    return {"runs": list(runs), **summary}
+    return {"runs": list(runs), "seconds_simulated": round(ran, 1), **summary}
 
 
 def _page(job: Job) -> dict:
@@ -496,7 +533,8 @@ def run_steps(job: Job) -> list[Outcome]:
     every line, the flow's and its tools', in ``<step>/step.log``, each tool's whole output in its
     own log beside its results; the warnings and errors counted by tool in ``step.json``'s
     ``log``). A failure leaves
-    the steps after it not run (the page, which takes whatever exists, runs); a characterization
+    the steps that need it not run (the record, which does without the layout's steps, and the
+    page, which takes whatever exists, run); a characterization
     step's failure (netlist, sim, record) is also the instance's record
     (``flow.sweep.runner.failed_record``), and a layout step's joins it (``_join_layout``), so the
     viewer's table shows it. Each step's outcome on the console as it ends (``_report``), and the
@@ -513,7 +551,7 @@ def run_steps(job: Job) -> list[Outcome]:
 
     failed: set[Step] = set()
     for step in job.steps:
-        if failed & step.ancestors and step is not Step.PAGE:
+        if failed & step.required and step is not Step.PAGE:
             failed.add(step)
             report(step, "not run", f"(after {next(s for s in job.steps if s in failed)} failed)")
             continue

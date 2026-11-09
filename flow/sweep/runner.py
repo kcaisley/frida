@@ -401,7 +401,7 @@ def record(
     block: str,
     pdk: str,
     params,
-    out: Path,
+    out: Path | None,
     files: dict[str, Path],
     sizes: dict,
     *,
@@ -412,7 +412,8 @@ def record(
     seconds: float = 0.0,
 ) -> dict:
     """The instance's record from its kept measurements (``files``, by run: ``simulate``'s) and its
-    size (``sizes``: ``write_netlist``'s), written as ``out/instance.json``: its metrics (the size's
+    size (``sizes``: ``write_netlist``'s), written as ``out/instance.json`` (not written where ``out``
+    is None: the CLI's record step writes the record it composes): its metrics (the size's
     and ``sweep.record``'s), details, the waves of the runs the record names (their measurement
     files from the repository's root), the level its runs ran at (None for a block whose runs take
     no level), its netlist and its seconds (``seconds``, those of the steps before it, and its own)."""
@@ -433,7 +434,8 @@ def record(
         netlist=_shown(netlist) if netlist else None,
         seconds=round(seconds + time.time() - start, 1),
     )
-    write_record(out / "instance.json", entry)
+    if out is not None:
+        write_record(out / "instance.json", entry)
     return entry
 
 

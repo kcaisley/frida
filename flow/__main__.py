@@ -10,17 +10,21 @@ the run's own (its PDKs, its workers, an optimization's budget), never a flag he
 
 A step is one tool: it takes its inputs and makes its outputs, and its configuration is the tool's
 own, in the block's Python files and the kit's (the runs a run states, a layout's placement,
-which signoff a kit takes), never a flag here. The steps make a small graph, each after those it needs:
+which signoff a kit takes), never a flag here. An instance's steps are one chain, each after those it needs:
 
-    netlist -> sim -> record -> figures
-               sim -> circuit          record -> table
-    netlist -> layout -> drc -> lvs -> pex
-    sim, pex -> pexsim
-    record, pex -> page
+    netlist -> sim -> layout -> drc -> lvs -> pex -> pexsim -> record -> page
+               sim -> circuit                                 record -> figures, table
+
+The record runs after pexsim and takes its measurements where it simulated the extraction (the
+post-layout metrics, the pre-layout ones beside them as ``prelayout``, ``evidence`` saying which),
+but needs only the netlist and the sim: where the layout fails, or is not extracted or
+back-annotated (a kit's extraction with devices, the ADC's), the record holds the pre-layout
+metrics alone and the layout's outcome.
 
 ``--to`` (``page`` by default) runs the steps that lead from ``--from`` (``netlist`` by default) to
 it, both included:
-``--to record`` simulates and records, ``--to lvs`` lays out and signs off without extraction,
+``--to sim`` simulates alone, ``--to record`` lays out, signs off, extracts, simulates the
+extraction and records, ``--to lvs`` lays out and signs off without extraction,
 ``--from table --to table`` exports what the runs hold; with ``record/`` deleted, ``--from record
 --to record`` analyses again what ``sim`` kept. ``circuit`` adds the circuit simulator's runs of a
 block whose full characterization is behavioral (the ADC's Spectre runs) and records again; it
@@ -33,9 +37,8 @@ run, each in its folder, that plan, else the checker the kit names
 (``flow.layout.signoff.checker``: the open tools, else Calibre), on its GDS. ``pexsim`` simulates
 the sim step's runs again with the open extractor's capacitances back-annotated onto the schematic
 (``flow.layout.annotate``: each layout net found on its schematic net through LVS; each run's DUT
-a flat copy with the capacitors, ``flow.sweep.runner.simulate``) and records them alike, a record
-of its own beside the instance's (``pexsim/instance.json``: the same metric names, the
-annotation's totals); it refuses an extraction more than a small share of whose capacitance has no
+a flat copy with the capacitors, ``flow.sweep.runner.simulate``), which the record step records
+(the same metric names, the annotation's totals beside them); it refuses an extraction more than a small share of whose capacitance has no
 schematic net or one the DUT lacks, and testbenches none of which holds the DUT, and leaves an extraction with devices and RC (a kit's) to the block's own
 simulation of it (the ADC's circuit step). ``page`` writes the instance's page from whatever of
 its record and layout exists.
@@ -165,7 +168,7 @@ def _pending(job: Job) -> tuple[list[Step], dict[Step, str]]:
     pending: list[Step] = []
     failing: dict[Step, str] = {}
     for step in job.steps:
-        if done(job.out, step) and not any(need in pending for need in step.needs):
+        if done(job.out, step) and not any(need in pending for need in step.inputs):
             continue
         pending.append(step)
         if step is Step.PAGE:
@@ -399,7 +402,8 @@ def parser() -> argparse.ArgumentParser:
 
 
 def usage() -> None:
-    """The commands, the steps (each with those it needs) and each block's runs."""
+    """The commands, the steps (each with those it needs and those it runs after) and each block's
+    runs."""
     from flow import pipeline
     from flow.sweep import runner
 
@@ -408,7 +412,9 @@ def usage() -> None:
             print(line.strip())
     print("steps:")
     for step in Step:
-        print(f"  {step}{f' (needs {", ".join(map(str, step.needs))})' if step.needs else ''}")
+        said = [f"needs {', '.join(map(str, step.needs))}"] if step.needs else []
+        said += [f"after {', '.join(map(str, step.after))}"] if step.after else []
+        print(f"  {step}{f' ({"; ".join(said)})' if said else ''}")
     print("blocks and their runs (--run):")
     kind = {pipeline.Single: "single", pipeline.Grid: "grid", pipeline.Optimize: "optimize"}
     for block in pipeline_blocks():

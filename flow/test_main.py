@@ -22,29 +22,32 @@ Step = steps.Step
 
 
 def test_the_steps_run_from_one_to_another() -> None:
-    """``--from`` and ``--to`` pick the steps between them, both included, each after those it needs;
-    one that does not lead to the other is refused."""
-    assert steps.between(Step.NETLIST, Step.RECORD) == [Step.NETLIST, Step.SIM, Step.RECORD]
+    """``--from`` and ``--to`` pick the steps between them, both included, each after those whose
+    outputs it takes: an instance's steps are one chain, the record after pexsim (whose measurements
+    it takes where they exist) and the page after the record; one that does not lead to the other
+    is refused."""
+    chain = [Step.NETLIST, Step.SIM, Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.PEXSIM, Step.RECORD]
+    assert steps.between(Step.NETLIST, Step.RECORD) == chain
     assert steps.between(Step.RECORD, Step.RECORD) == [Step.RECORD]
-    assert steps.between(Step.NETLIST, Step.TABLE) == [Step.NETLIST, Step.SIM, Step.RECORD, Step.TABLE]
+    assert steps.between(Step.NETLIST, Step.TABLE) == [*chain, Step.TABLE]
+    assert steps.between(Step.NETLIST, Step.PAGE) == [*chain, Step.PAGE]
     assert steps.between(Step.NETLIST, Step.CIRCUIT) == [Step.NETLIST, Step.SIM, Step.CIRCUIT]
     assert steps.between(Step.NETLIST, Step.LVS) == [Step.NETLIST, Step.LAYOUT, Step.DRC, Step.LVS]
-    assert steps.between(Step.SIM, Step.PAGE) == [Step.SIM, Step.RECORD, Step.PAGE]
-    page = [Step.NETLIST, Step.SIM, Step.RECORD, Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.PAGE]
-    assert steps.between(Step.NETLIST, Step.PAGE) == page
-    pexsim = [Step.NETLIST, Step.SIM, Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.PEXSIM]
-    assert steps.between(Step.NETLIST, Step.PEXSIM) == pexsim
-    # each step's order puts it after what it needs
-    assert all(need.value < step.value for step in Step for need in step.needs)
-    with pytest.raises(SystemExit, match="--from layout does not lead to --to record: record needs netlist, sim"):
-        steps.between(Step.LAYOUT, Step.RECORD)
+    assert steps.between(Step.NETLIST, Step.PEXSIM) == chain[:-1]
+    assert steps.between(Step.SIM, Step.PAGE) == [Step.SIM, Step.PEXSIM, Step.RECORD, Step.PAGE]
+    assert steps.between(Step.LAYOUT, Step.RECORD) == chain[2:]
+    # each step's order puts it after what it takes; the record needs the sim alone
+    assert all(before.value < step.value for step in Step for before in step.inputs)
+    assert Step.RECORD.required == {Step.NETLIST, Step.SIM, Step.RECORD} and Step.PEXSIM in Step.RECORD.ancestors
+    with pytest.raises(SystemExit, match="--from layout does not lead to --to sim: sim needs netlist"):
+        steps.between(Step.LAYOUT, Step.SIM)
 
 
 def test_the_bare_command_prints_the_usage_the_steps_and_each_blocks_runs(capsys) -> None:
     cli.main([])
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].startswith("python -m flow --block B --run R")
-    assert "  record (needs netlist, sim)" in lines and "  page (needs record, pex)" in lines
+    assert "  record (needs netlist, sim; after pexsim)" in lines and "  page (needs record)" in lines
     assert "blocks and their runs (--run):" in lines
     assert any(
         line.startswith("  comp: ") and "frida1 (single)" in line and "adc_12bit (optimize)" in line for line in lines
@@ -72,9 +75,10 @@ def test_an_optimization_runs_its_study_and_the_viewer_keeps_its_command(monkeyp
 
 
 @pytest.fixture
-def flow(toy, monkeypatch):
-    """The CLI on the toy block in ``toypdk``, its instances run in this process; ``flow(*argv)``
-    runs a command (``--run`` one of its singles: ``one``, ``wired``, ``signed``)."""
+def flow(toy, tools, monkeypatch):
+    """The CLI on the toy block in ``toypdk``, its instances run in this process, the signoff tools
+    stood in for (``tools``: every run to the record lays out and signs off); ``flow(*argv)`` runs
+    a command (``--run`` one of its singles: ``one``, ``wired``, ``signed``)."""
     monkeypatch.setattr(runner, "PDKS", ("toypdk",))
     monkeypatch.setattr(cli, "pipeline_blocks", lambda: ["toyblock"])
     monkeypatch.setattr(cli, "_pool", lambda workers: _NowPool())
@@ -113,11 +117,17 @@ def test_a_block_runs_through_every_characterization_step(flow, simulated, capsy
     assert json.loads((instance / "netlist/geometry.json").read_text()) == {"devices": 0.0}
     assert sorted(path.parent.name for path in instance.glob("sim/*/result.h5")) == ["full", "screen", "search"]
     assert not list(instance.rglob("raw.txt"))
-    assert {path.parent.name for path in instance.glob("*/step.json")} == {"netlist", "sim", "record"}
+    laid = {"layout", "drc", "lvs", "pex", "pexsim"}
+    assert {path.parent.name for path in instance.glob("*/step.json")} == {"netlist", "sim", "record", *laid}
     record = json.loads((instance / "instance.json").read_text())
     assert record["error"] is None, record["error"]
+    # no LVS source, so nothing extracted: the pre-layout metrics alone, and the layout's outcome
+    assert record["evidence"] == "prelayout" and "prelayout" not in record
+    assert record["layout"]["error"] is None and record["layout"]["lvs_correct"] is None
     assert record["name"] == "one" and record["label"] == "one" and record["level"] == pipeline.Level.FULL.value
-    assert record["metrics"] == {"devices": 0.0, "read_screen": True, "read_search": True, "read_full": True}
+    reads = {"read_screen": True, "read_search": True, "read_full": True}
+    # the layout's area joined (2 x 1 um), no device area to give a density
+    assert record["metrics"] == {"devices": 0.0, **reads, "layout_area_um2": 2.0, "density": None}
     assert record["netlist"].endswith("toypdk/one/netlist/toyblock.cdl")
     # the table, from the run's records
     data = runner.RUNS_DIR / "web/data/sweep"
@@ -183,9 +193,11 @@ def test_a_search_runs_in_its_pdks(flow, toy, monkeypatch, capsys) -> None:
 def test_dry_run_prints_what_would_run_and_runs_nothing(flow, toy, capsys) -> None:
     flow("--run", "one", "--to", "record", "--dry-run")
     out = capsys.readouterr().out.splitlines()
-    assert out[0].startswith("toyblock: new run") and out[0].endswith("steps netlist, sim, record")
-    assert out[1] == "toypdk one (one): netlist, sim, record; 3 simulator runs"
-    assert out[2] == "1 instance in 1 PDK: 3 steps to run, 0 complete, about 3 simulator runs"
+    chain = "netlist, sim, layout, drc, lvs, pex, pexsim, record"
+    assert out[0].startswith("toyblock: new run") and out[0].endswith(f"steps {chain}")
+    # the sim's runs and pexsim's again (at most: pexsim does without an extraction)
+    assert out[1] == f"toypdk one (one): {chain}; 6 simulator runs"
+    assert out[2] == "1 instance in 1 PDK: 8 steps to run, 0 complete, about 6 simulator runs"
     assert not (runner.RUNS_DIR / "toyblock").exists()
     flow("--run", "one", "--to", "sim")
     capsys.readouterr()
@@ -642,14 +654,14 @@ def extraction(tools, monkeypatch):
 
 
 def test_pexsim_simulates_the_runs_again_with_the_extraction_on_the_schematic(flow, extraction, capsys) -> None:
-    """``--to pexsim``: the extraction's nets found on the schematic's through LVS (a gate's poly on
+    """``--to record``: the extraction's nets found on the schematic's through LVS (a gate's poly on
     its net, the capacitor between them shorted out), its capacitors in each run's DUT less the
-    DUT's own drawn between the same nets, each run simulated again and recorded alike in
-    ``pexsim/`` (the record's metric names, the annotation's totals beside them); the cell's inner
-    net, a small share, reported."""
-    flow("--to", "pexsim", "--run", "wired")
+    DUT's own drawn between the same nets, each run simulated again in ``pexsim/``, and the record
+    from those (``evidence`` ``postlayout``: the same metric names, the pre-layout ones beside them,
+    the annotation's totals); the cell's inner net, a small share, reported."""
+    flow("--to", "record", "--run", "wired")
     out = capsys.readouterr().out
-    assert "steps netlist, sim, layout, drc, lvs, pex, pexsim" in out
+    assert "steps netlist, sim, layout, drc, lvs, pex, pexsim, record" in out
     assert "pexsim ok in" in out and "3 runs, 2.2 fF added, 0.3% unmapped" in out
     instance = _instance("wired")
     runs = sorted(path.parent.name for path in instance.glob("sim/*/result.h5"))
@@ -657,8 +669,10 @@ def test_pexsim_simulates_the_runs_again_with_the_extraction_on_the_schematic(fl
     added = json.loads((instance / "pexsim" / runs[0] / "annotation.json").read_text())
     assert added["instances"] == ["dut"] and added["added_f"] == pytest.approx(2.2e-15)
     assert added["drawn_f"] == pytest.approx(1e-15)
-    record = json.loads((instance / "pexsim/instance.json").read_text())
-    assert set(record["metrics"]) == {"devices", *(f"read_{run}" for run in runs)}
+    record = json.loads((instance / "instance.json").read_text())
+    assert record["evidence"] == "postlayout"
+    assert set(record["metrics"]) - {"layout_area_um2", "density"} == {"devices", *(f"read_{run}" for run in runs)}
+    assert record["prelayout"] == {"devices": 0.0, **{f"read_{run}": True for run in runs}}
     annotation = record["annotation"]
     assert (
         annotation["extractor"] == "stand-in"
@@ -712,6 +726,11 @@ def test_pexsim_leaves_an_extraction_with_devices_or_none_alone(toy, tmp_path) -
     }
     steps._mark(job.out, Step.PEX, 0.0, skipped="no LVS source")
     assert steps._pexsim(job) == {"skipped": "no extraction (no LVS source)"}
+    # LVS without a deck: no database pairs the layout's nets with the schematic's
+    steps._mark(job.out, Step.PEX, 0.0, extractor="stand-in", nets={"a": 1e-15})
+    steps._mark(job.out, Step.LVS, 0.0, lvs_correct=None, lvs_report=None, lvs_checker=None)
+    assert steps._pexsim(job) == {"skipped": "no LVS database to find the extraction's nets on (LVS: no deck)"}
+    steps._mark(job.out, Step.LVS, 0.0, lvs_correct=True, lvs_report="toy.lvsdb", lvs_checker="stand-in")
     steps._mark(job.out, Step.PEX, 0.0, netlist="toy.pex.netlist", extractor="KLayout-PEX", nets={"a": 1e-15})
     with pytest.raises(
         RuntimeError, match="no net probes .* then python -m flow --block toyblock --run mine --from pex --to pex"
