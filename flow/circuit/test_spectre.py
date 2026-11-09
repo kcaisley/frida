@@ -4,7 +4,7 @@ Allow roughly one hour for the full suite on asiclab003 (host/load dependent).
 Run it occasionally or after broad simulation-flow changes, not after every edit.
 For routine changes, select affected blocks/experiments with pytest's -k option,
 for example: uv run pytest -m spectre -k 'latch'. The ADC's circuit runs are its sweep's
-(``python -m flow adc --to circuit --instance ...``), its Spectre check its own test.
+(``python -m flow --block adc --run <name> --to circuit``), its Spectre check its own test.
 The short simulated durations do not imply short wall-clock runtimes.
 """
 

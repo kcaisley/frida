@@ -142,5 +142,5 @@ def laid_out(block: str, pdk: str, params) -> dict:
                 return entry
     raise LookupError(
         f"{block} in {pdk} with these parameters ({ident}) is not laid out: "
-        f"python -m flow {block} --to pex --pdk {pdk} --instance {ident}"
+        f"python -m flow --block {block} --run <a search naming it> --to pex"
     )

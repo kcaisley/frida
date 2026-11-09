@@ -614,3 +614,14 @@ def figures(
         if names and not count:
             raise ValueError(f"no figure {name} of {block} from these captures: {'; '.join(failures.get(name, []))}")
     return written
+
+
+if __name__ == "__main__":
+    # python -m flow.plot <block> <captures> ...: the figures the block's analyses make of a lab
+    # campaign's captures (or a study's folder of links to campaigns), into build/analysis/<block>/
+    import sys
+
+    if len(sys.argv) < 3:
+        raise SystemExit("python -m flow.plot <block> <captures> ...")
+    for drawn in figures(sys.argv[1], [Path(path) for path in sys.argv[2:]]):
+        print(drawn)

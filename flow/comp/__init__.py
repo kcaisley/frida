@@ -2,7 +2,7 @@
 testbench, analyses, plots and design space, each in its own stage module, their names re-exported
 here (``from flow import comp`` then ``comp.Params``, ``comp.analyze_offset_noise``)."""
 
-from . import params, subckt, sim, types, analysis, plots, sweep  # noqa: I001 - the pipeline's order
+from . import params, subckt, sim, types, analysis, plots, search  # noqa: I001 - the pipeline's order
 from .analysis import (
     analyze_clock_check,
     analyze_common_mode,
@@ -47,7 +47,10 @@ from .plots import (
 )
 from .sim import simulate, testbench
 from .subckt import Nets, netlist
-from .sweep import (
+from .search import (
+    adc_10bit,
+    adc_12bit,
+    adc_14bit,
     base_strongarm,
     double_tail,
     double_tail_modified,
@@ -104,6 +107,9 @@ __all__ = [
     "OutputStage",
     "Params",
     "TbParams",
+    "adc_10bit",
+    "adc_12bit",
+    "adc_14bit",
     "analysis",
     "analyze_clock_check",
     "analyze_common_mode",
@@ -154,11 +160,11 @@ __all__ = [
     "plots",
     "record",
     "runs",
+    "search",
     "sim",
     "simulate",
     "strongarm",
     "subckt",
-    "sweep",
     "testbench",
     "topologies",
     "triple_tail",

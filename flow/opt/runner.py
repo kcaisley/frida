@@ -1,7 +1,7 @@
-"""Optimize a block over its parameters' domains (``python -m flow opt <block> --problem P``), as
+"""Optimize a block over its parameters' domains (``python -m flow --block <block> --run <optimization>``, its search.py's ``@optimize``), as
 ``flow.sweep.runner`` sweeps it over its families.
 
-A study is one problem of the block (its opt.py's ``@problem``: ``adc(bits=12)``) in one PDK, kept in
+A study is one optimization of the block (its search.py's ``@optimize``: ``adc_12bit``) in one PDK, kept in
 ``build/opt/<block>/<pdk>/<problem>.db`` (Optuna, sqlite) so that it resumes. Optuna's TPE sampler
 proposes designs asynchronously: whenever a worker frees, it asks for the next design, so a slow
 evaluation holds no other (a design is about a minute to an hour). The objective is the problem's
@@ -87,6 +87,18 @@ def stage(record: dict[str, Any]) -> Stage:
 def shown(member: Enum) -> str:
     """A member as the viewer shows it: its name in words (``Stage.DEVICE_AREA``: device area)."""
     return member.name.lower().replace("_", " ")
+
+
+def _problem(block: str, label: str, pdk: str) -> pipeline.Problem:
+    """The problem of the block's optimization ``label`` (its search.py's ``@optimize``) in ``pdk``."""
+    optimizations = {
+        name: search
+        for name, search in pipeline.searches(import_module(f"flow.{block}.search")).items()
+        if isinstance(search, pipeline.Optimize)
+    }
+    if label not in optimizations:
+        raise LookupError(f"{block} has no optimization {label!r}: {', '.join(optimizations) or 'none'}")
+    return optimizations[label].problem(pdk)
 
 
 def study_dir(block: str, pdk: str) -> Path:
@@ -260,7 +272,7 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
     folder.mkdir(parents=True, exist_ok=True)
     met = lambda metrics: not any(value > 0 for value in pipeline.violations(problem, metrics, better).values())
     if record["valid"]:
-        sweep = import_module(f"flow.{block}.sweep")
+        sweep = import_module(f"flow.{block}.search")
         module = import_module(f"flow.{block}.subckt").netlist(params)
         h.pdk.compile(module)
         extra = geometry(module, pdk)
@@ -374,10 +386,7 @@ def optimize(block: str, pdk: str, label: str, budget: int, workers: int) -> Pat
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ.setdefault(name, "1")
-    problems = pipeline.problems(import_module(f"flow.{block}.opt"), pdk)
-    if label not in problems:
-        raise SystemExit(f"no problem {label} of {block} in {pdk}: {', '.join(problems)}")
-    problem = problems[label]
+    problem = _problem(block, label, pdk)
     better = betters(block)
     folder = study_dir(block, pdk)
     folder.mkdir(parents=True, exist_ok=True)
@@ -478,7 +487,7 @@ def characterize_full(block: str, pdk: str, params: Any) -> dict[str, Any]:
 
     h.pdk.set_default(import_module(f"pdk.{pdk}").pdk_logic)
     folder = study_dir(block, pdk) / "evals" / identity(block, pdk, params)
-    sweep = import_module(f"flow.{block}.sweep")
+    sweep = import_module(f"flow.{block}.search")
     measurements = simulate(block, sweep.runs(pdk, params, pipeline.Level.FULL), folder / "full")
     result = sweep.record(measurements)
     path = folder / "instance.json"
@@ -494,7 +503,7 @@ def finalize(block: str, pdk: str, label: str, count: int, workers: int) -> list
 
     import optuna
 
-    problem = pipeline.problems(import_module(f"flow.{block}.opt"), pdk)[label]
+    problem = _problem(block, label, pdk)
     finalists = best(block, pdk, label)[:count]
     designs = [suggest(optuna.trial.FixedTrial(entry["params"]), problem) for entry in finalists]
     with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"), max_tasks_per_child=1) as pool:
@@ -533,7 +542,7 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
     from flow.sweep.runner import DATA_DIR, _json, instance_views
     from flow.web.export import BLOCKS
 
-    problem = pipeline.problems(import_module(f"flow.{block}.opt"), pdk)[label]
+    problem = _problem(block, label, pdk)
     better = betters(block)
     study = optuna.load_study(storage=f"sqlite:///{study_dir(block, pdk) / f'{label}.db'}", study_name=label)
     # each design by the trial that first evaluated it, and whether that trial was the warm start's

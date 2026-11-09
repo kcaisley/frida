@@ -18,10 +18,11 @@ Each launch gets a fresh revision-pinned snapshot under the supplied work root
 and a local build/remote/<session>/ record. ``inputs`` adds explicit build inputs
 (e.g. signed-off PEX directories), never an old simulation campaign or a venv.
 The detached worker runs focused tests, the block's Spectre diagnostic (skips
-are failures), then the instances' circuit runs (``python -m flow <block> --to circuit --instance I
-...``, a fresh run of the snapshot's ``build/<block>/``). A detached *local* tmux
-collector checks every 30 minutes and copies the run's records, results and logs when the whole
-run exits, including failures; its figures are then ``python -m flow <block> --from figures --to figures --run`` it.
+are failures), then the instances' circuit runs (``python -m flow --block <block> --run <name>
+--to circuit``, each a @single of its search.py, into the snapshot's ``build/<block>/<name>/``). A
+detached *local* tmux collector checks every 30 minutes and copies the runs' records, results and
+logs when the whole campaign exits, including failures; its figures are then
+``python -m flow.plot <block> <run>``.
 Neither host may power off; SSH outages are retried by the collector. Resume
 collection with ``collect(campaign, watch=True)`` if the local session was lost.
 No simulation is automatically restarted and no remote files are deleted.
@@ -115,13 +116,14 @@ def _snapshot_files(root: Path, inputs: list[str], pdk: str) -> list[str]:
 def _worker_script(remote_dir: str, block: str, instances: Sequence[str], pdk: str, setup: str | None) -> str:
     """Only shell plumbing: the focused tests of ``block`` (its sim's and sweep's), its Spectre
     diagnostic (the ADC's: each top's checks), then its circuit simulator's runs of ``instances``
-    in ``pdk`` (``python -m flow <block> --to circuit``) into a fresh run of the snapshot."""
+    (``python -m flow --block <block> --run <name> --to circuit``, each a @single of its search.py,
+    in the PDKs it names) into the snapshot's runs."""
     node = (
         "flow/adc/test_sim.py::test_each_top_passes_spectres_checks"
         if block == "adc"
         else f"flow/circuit/test_spectre.py::test_{block}_pipeline_diagnostic"
     )
-    focused = f"flow/{block}/test_sim.py flow/{block}/test_sweep.py"
+    focused = f"flow/{block}/test_sim.py flow/{block}/test_search.py"
     # pytest succeeds on skipped tests; require a real passing diagnostic before a campaign.
     gate = (
         "import xml.etree.ElementTree as E; "
@@ -130,8 +132,11 @@ def _worker_script(remote_dir: str, block: str, instances: Sequence[str], pdk: s
         "assert not any(int(x.get(k,0)) for x in s for k in ('skipped','failures','errors')), "
         "'diagnostic must pass without skips'"
     )
-    run = ["uv", "run", "--frozen", "python", "-m", "flow", block, "--to", "circuit", "--pdk", pdk]
-    run += [part for instance in instances for part in ("--instance", instance)]
+    # each single design a run of its own (``python -m flow --block B --run R --to circuit``)
+    runs = [
+        ["uv", "run", "--frozen", "python", "-m", "flow", "--block", block, "--run", name, "--to", "circuit"]
+        for name in instances
+    ]
     return "\n".join(
         [
             "#!/bin/bash",
@@ -152,7 +157,7 @@ def _worker_script(remote_dir: str, block: str, instances: Sequence[str], pdk: s
             f"uv run --frozen pytest {focused}",
             f"uv run --frozen pytest -m spectre {shlex.quote(node)} --junitxml=build/remote/preflight.xml",
             f"uv run --frozen python -c {shlex.quote(gate)}",
-            shlex.join(run),
+            *(shlex.join(run) for run in runs),
             "",
         ]
     )
@@ -179,8 +184,8 @@ def launch(
     root: Path = ROOT,
 ) -> Path:
     """Snapshot, diagnose, run detached and collect automatically: the circuit simulator's runs of
-    ``instances`` of ``block`` (named instances or digests, ``python -m flow <block> --to
-    circuit``) on the trusted SSH ``host`` in a fresh snapshot under ``work_root`` (an existing
+    ``instances`` of ``block`` (its search.py's @single designs, by name, ``python -m flow --block
+    <block> --run <name> --to circuit``) on the trusted SSH ``host`` in a fresh snapshot under ``work_root`` (an existing
     absolute worker directory), after sourcing ``setup`` (an absolute shell environment script on
     the worker); ``pdk`` names
     the PDK submodule to include (not a foundry model installation), ``inputs`` repository-relative
@@ -191,7 +196,7 @@ def launch(
         raise ValueError(f"block must be one of {BLOCKS}")
     instances = list(instances)
     if not instances or not all(re.fullmatch(r"[A-Za-z0-9_]+", value) for value in (*instances, pdk)):
-        raise ValueError("instances (names or digests) and PDK must be identifiers")
+        raise ValueError("instances (@single names) and PDK must be identifiers")
     inputs = list(inputs)
     for tool in ("ssh", "rsync", "tmux"):
         if shutil.which(tool) is None:

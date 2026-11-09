@@ -1,4 +1,4 @@
-"""The ADC's behavioral model: one converter's characterization (``flow.adc.sweep``'s record, looked
+"""The ADC's behavioral model: one converter's characterization (``flow.adc.search``'s record, looked
 up by ``flow.sweep.lookup``) as the stand-in a higher level of the hierarchy simulates.
 
     model = Model.of("tsmc65", Params(adc_bits=12, cdac=..., samp=..., comp=...))

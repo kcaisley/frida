@@ -12,7 +12,7 @@ from flow.circuit.devices import fingers
 from flow.layout.devices.moscap.netlist import CAP_L
 from flow.layout.hdl21align import issues, module_plan, pnr_input
 
-from . import subckt, sweep
+from . import search, subckt
 from .params import Bias, Latch, Params, layout_view
 from .subckt import netlist
 
@@ -261,9 +261,9 @@ def test_the_dynamic_bias_capacitors() -> None:
 
 
 def test_the_named_instances() -> None:
-    """``python -m flow comp --to layout --instance NAME`` lays out these, each by the shared
+    """``python -m flow --block comp --run NAME --to layout`` lays out these, each by the shared
     layout step (``flow.layout.step.lay_out_align``) as its generator places it."""
-    assert set(pipeline.names(sweep)) == {
+    assert set(pipeline.singles(search)) == {
         "frida1",
         "strongarm",
         "double_tail",

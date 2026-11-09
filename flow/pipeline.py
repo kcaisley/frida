@@ -4,10 +4,11 @@ A block's parameters (``Params``: the design; ``TbParams``: one testbench run of
 its ``params.py``, its circuit in ``subckt.py``, its testbench and simulator run in ``sim.py``; the
 simulator's raw output becomes a ``Meas`` here (``read``: every saved signal on the simulator's own
 time axis), the block's ``analysis.py`` turns measurements into ``Analysis`` results and metrics,
-its ``plots.py`` into ``Plot`` specs, and its ``sweep.py`` into the ``Record`` of an instance.
-Its ``sweep.py`` also gives its design space: grids (``@grid``: spaces, each a design with some of
-its parameters widened, ``widen``) and named instances (``@named``); its ``opt.py`` its problems,
-each with the space it searches.
+its ``plots.py`` into ``Plot`` specs, and its ``search.py`` into the ``Record`` of an instance.
+Its ``search.py`` also gives its searches, each one run of the command line by its function's name
+(``python -m flow --block comp --run frida1``): one design (``@single``), a grid of them (``@grid``:
+spaces, each a design with some of its parameters widened, ``widen``), or an optimization over a
+space (``@optimize``: a ``Problem``).
 
 ``Meas`` also stays the base of the measurement types of the blocks not yet migrated (the ADC's,
 the CDAC's), which add their own per-row arrays to it.
@@ -61,18 +62,31 @@ class TbParams(ABC):
     params: Any
 
 
-# ---- the design space: named instances (a block's sweep.py); its grids below
+# ---- a block's searches (its search.py): one design, a grid of them, an optimization
 
 type Axis = Sequence[Any] | Callable[[str], Sequence[Any]]
 
+# the workers a search runs on where it names none; more than the machine's processors is refused
+DEFAULT_WORKERS = 36
+
+
+def _pdks(pdks: Sequence[Pdk] | None) -> tuple[Pdk, ...] | None:
+    return tuple(pdks) if pdks is not None else None
+
+
+def _admits(pdks: tuple[Pdk, ...] | None, pdk: str | Pdk) -> bool:
+    return pdks is None or pdk_of(pdk) in pdks
+
 
 @dataclass(frozen=True)
-class Named:
-    """One instance of a block by name (``@named``): in its design space (``swept``) or only named,
-    for a layout or a comparison."""
+class Single:
+    """One design of a block (``@single``): a function without arguments returning its ``Params``,
+    run by its name (``frida1``); in the PDKs ``pdks`` names (None: every PDK whose kit is here and
+    whose ``params.valid`` admits it), on ``workers`` (None: ``DEFAULT_WORKERS``)."""
 
     build: Callable[[], Any]
-    swept: bool = True
+    pdks: tuple[Pdk, ...] | None = None
+    workers: int | None = None
 
     @property
     def name(self) -> str:
@@ -81,32 +95,58 @@ class Named:
     def __call__(self) -> Any:
         return self.build()
 
+    def instances(self, pdk: str | Pdk) -> Iterator[tuple[str, Any]]:
+        """The design in ``pdk``, labelled by its name, where its PDKs admit it."""
+        if _admits(self.pdks, pdk):
+            yield self.name, self.build()
 
-def named(build: Callable[[], Any] | None = None, *, swept: bool = True) -> Any:
-    """Make a function without arguments, returning a block's ``Params``, a named instance: ``@named``
-    (swept), or ``@named(swept=False)``, named but not swept."""
+
+def single(
+    build: Callable[[], Any] | None = None, *, pdks: Sequence[Pdk] | None = None, workers: int | None = None
+) -> Any:
+    """Make a function without arguments, returning a block's ``Params``, a search of that one
+    design: ``@single``, or ``@single(pdks=(Pdk.TSMC65,))``."""
     if build is None:
-        return lambda function: Named(function, swept)
-    return Named(build, swept)
+        return lambda function: Single(function, _pdks(pdks), workers)
+    return Single(build, _pdks(pdks), workers)
 
 
-def design(sweep: Any, pdk: str) -> Iterator[tuple[str, Any]]:
-    """A block's design space in ``pdk`` (before a block's ``params.valid``, where it has one): each
-    grid's instances and each swept named instance of its sweep module, labelled, in source order."""
-    for value in vars(sweep).values():
-        if isinstance(value, Grid):
+type Search = Single | Grid | Optimize
+
+
+def searches(module: Any) -> dict[str, Search]:
+    """A block's searches (its search module's ``@single``, ``@grid`` and ``@optimize`` functions)
+    by name, in source order."""
+    return {value.name: value for value in vars(module).values() if isinstance(value, (Single, Grid, Optimize))}
+
+
+def singles(module: Any) -> dict[str, Single]:
+    """A block's single designs (its search module's ``@single`` functions) by name."""
+    return {name: found for name, found in searches(module).items() if isinstance(found, Single)}
+
+
+def design(module: Any, pdk: str) -> Iterator[tuple[str, Any]]:
+    """Every design a block's searches name in ``pdk`` (before its ``params.valid``, where it has
+    one), labelled, in source order: each single's and each grid's (an optimization's space is not
+    enumerated)."""
+    for value in vars(module).values():
+        if isinstance(value, (Single, Grid)):
             yield from value.instances(pdk)
-        elif isinstance(value, Named) and value.swept:
-            yield value.name, value()
 
 
-def names(sweep: Any) -> dict[str, Named]:
-    """A block's named instances, swept or not, by name."""
-    return {value.name: value for value in vars(sweep).values() if isinstance(value, Named)}
+def workers(search: Single | Grid | Optimize) -> int:
+    """The workers a search runs on (its own, else ``DEFAULT_WORKERS``), refused above the machine's
+    processors."""
+    import os
+
+    count = search.workers or DEFAULT_WORKERS
+    if count > (os.cpu_count() or 1):
+        raise ValueError(f"{search.name} asks for {count} workers; this machine has {os.cpu_count()} processors")
+    return count
 
 
-# ---- spaces: a design with some of its parameters widened, for a grid (a block's sweep.py, @grid)
-# or a search (a problem's space, its opt.py)
+# ---- spaces: a design with some of its parameters widened, for a grid (a block's search.py, @grid)
+# or an optimization (a problem's space, its @optimize)
 
 
 @dataclass(frozen=True)
@@ -268,12 +308,13 @@ def shown(value: Any) -> str:
 class Grid:
     """A grid of a block's design space (``@grid``): ``build`` (given the PDK, where it takes one)
     gives a space or several (``widen``; their union), or several by name (a mapping), in the PDKs
-    ``pdks`` names (None: every PDK); its instances every point of each, labelled by the values that
+    ``pdks`` names (None: every PDK), on ``workers``; its instances every point of each, labelled by the values that
     vary, ``name(parameter=value, ...)``, and by the space's name where it has one,
     ``name(space, parameter=value, ...)``."""
 
     build: Callable[..., Any]
     pdks: tuple[Pdk, ...] | None = None
+    workers: int | None = None
 
     @property
     def name(self) -> str:
@@ -303,17 +344,19 @@ class Grid:
                 yield f"{self.name}({', '.join(words)})", design
 
 
-def grid(build: Callable[..., Any] | None = None, *, pdks: Sequence[Pdk] | None = None) -> Any:
+def grid(
+    build: Callable[..., Any] | None = None, *, pdks: Sequence[Pdk] | None = None, workers: int | None = None
+) -> Any:
     """Make a function (of the PDK, a ``Pdk``, where it takes one) returning a space, several, or
-    several by name, a grid of a block's design space: ``@grid``, or ``@grid(pdks=(Pdk.TSMC65, ...))``
-    in those PDKs alone."""
+    several by name, a search of every design they hold, run by its name: ``@grid``, or
+    ``@grid(pdks=(Pdk.TSMC65, ...), workers=24)`` in those PDKs alone, on that many workers."""
     entry = tuple(pdks) if pdks is not None else None
     if build is None:
-        return lambda function: Grid(function, entry)
-    return Grid(build, entry)
+        return lambda function: Grid(function, entry, workers)
+    return Grid(build, entry, workers)
 
 
-# ---- metrics, evaluation levels and problems (a block's types.py, sweep.py and opt.py)
+# ---- metrics, evaluation levels and problems (a block's types.py and search.py)
 
 
 class Metrics:
@@ -372,49 +415,29 @@ class Problem:
 
 
 @dataclass(frozen=True)
-class ProblemFamily:
-    """Problems of a block (its opt.py's ``@problem``): a function of a few knobs returning a
-    ``Problem``, one for each combination of its knobs' values (``axes``: each knob's values, or a
-    function of the PDK's folder giving them), in the PDKs ``pdks`` names (their folders; None: every
-    PDK); a function that takes ``pdk`` is given the PDK as well (a ``Pdk``), which its label leaves
-    out (``adc(bits=12)``)."""
+class Optimize:
+    """An optimization of a block (``@optimize``): a function (of the PDK, a ``Pdk``, where it takes
+    one) returning its ``Problem``, run by its name (``adc_12bit``): ``budget`` trials in each of the
+    PDKs ``pdks`` names (None: every PDK whose kit is here), a study each, on ``workers``."""
 
     build: Callable[..., Any]
-    axes: Mapping[str, Axis]
-    pdks: tuple[str, ...] | None
+    budget: int
+    pdks: tuple[Pdk, ...] | None = None
+    workers: int | None = None
 
     @property
     def name(self) -> str:
         return getattr(self.build, "__name__", "")
 
-    def instances(self, pdk: str | Pdk) -> Iterator[tuple[str, Any]]:
-        takes_pdk = "pdk" in signature(self.build).parameters
-        pdk = pdk_of(pdk)
-        folder = pdk.name.lower()  # the problems' entries name PDKs by their folders
-        if self.pdks is not None and folder not in self.pdks:
-            return
-        values = [axis if isinstance(axis, Sequence) else axis(folder) for axis in self.axes.values()]
-        for combination in itertools.product(*values):
-            knobs = dict(zip(self.axes, combination, strict=True))
-            label = ", ".join(f"{knob}={value}" for knob, value in knobs.items())
-            yield f"{self.name}({label})", self.build(**knobs, **({"pdk": pdk} if takes_pdk else {}))
+    def problem(self, pdk: str | Pdk) -> Problem:
+        """Its problem in ``pdk``."""
+        return self.build(pdk_of(pdk)) if "pdk" in signature(self.build).parameters else self.build()
 
 
-def problem(*, pdks: Sequence[Pdk] | None = None, **axes: Axis) -> Callable[[Callable[..., Problem]], ProblemFamily]:
-    """Make a function of a few named knobs returning a ``Problem`` problems over ``axes``
-    (in the ``pdks`` named, else in every PDK): ``adc(bits=12)`` is one."""
-    entry = tuple(pdk.name.lower() for pdk in pdks) if pdks is not None else None
-    return lambda build: ProblemFamily(build, axes, entry)
-
-
-def problems(opt: Any, pdk: str) -> dict[str, Problem]:
-    """A block's problems in ``pdk`` by label (``adc(bits=12)``), from its opt module."""
-    return {
-        label: built
-        for value in vars(opt).values()
-        if isinstance(value, ProblemFamily)
-        for label, built in value.instances(pdk)
-    }
+def optimize(*, budget: int, pdks: Sequence[Pdk] | None = None, workers: int | None = None) -> Callable[..., Optimize]:
+    """Make a function (of the PDK where it takes one) returning a ``Problem`` a search that
+    optimizes it: ``@optimize(budget=500)``, ``@optimize(budget=500, pdks=(Pdk.TSMC65,), workers=24)``."""
+    return lambda build: Optimize(build, budget, _pdks(pdks), workers)
 
 
 def objective(problem: Problem, metrics: Mapping[str, Any]) -> float:

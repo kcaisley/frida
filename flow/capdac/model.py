@@ -1,7 +1,7 @@
 """The capacitive DAC's behavioral model: each stage's settling to half the converter's LSB, its
 drivers' delay and the time constant that reproduces it, each stage's step as drawn, and the
 drawn array's gain against its design and its area, from the SPICE characterization of the same
-``Params`` in the PDK (``flow.capdac.sweep``, looked up by ``flow.sweep.lookup``) and its layout; a
+``Params`` in the PDK (``flow.capdac.search``, looked up by ``flow.sweep.lookup``) and its layout; a
 design that is not characterized, as designed (``Model.design``).
 
     model = capdac.Model.of("tsmc65", capdac.Params(bits=10, redundancy=capdac.Redundancy.BINARY, extra=0))
@@ -54,7 +54,7 @@ from .params import Params, _design_plates, _weights
 
 def _supply_v(pdk: str) -> float:
     """The PDK's typical supply: the reference at which the netlist draws an array's plates
-    (``flow.capdac.subckt``) and the characterization runs (``flow.capdac.sweep.runs``)."""
+    (``flow.capdac.subckt``) and the characterization runs (``flow.capdac.search.runs``)."""
     site = importlib.import_module(f"pdk.{pdk}.hdl21.site")
     return float(site.install.supply_voltage(h.pdk.Corner.TYP))
 
@@ -171,7 +171,7 @@ class Model:
         cls, pdk: str, params: Params, run: str, percentile: float
     ) -> tuple[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]]:
         """One Monte Carlo draw of the characterization's run ``run`` (a condition of
-        ``flow.capdac.sweep.runs``): its plates, (main, difference) for the P side then the N side (F,
+        ``flow.capdac.search.runs``): its plates, (main, difference) for the P side then the N side (F,
         C0 first). The draw is the one at ``percentile`` of its runs ranked by what no calibration
         recovers, the converter's INL with its design weights breaking ties
         (``flow.capdac.analysis.analyze_mismatch``). Looked up, never simulated."""

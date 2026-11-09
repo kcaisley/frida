@@ -1,12 +1,16 @@
-r"""The flow's one entry point: a block's steps, from one to another, over its instances.
+r"""The flow's one entry point: one of a block's searches, through its steps.
 
-    python -m flow <block> --to STEP [--from STEP] [--run NAME|DIR] [--instance I ...] [--pdk P ...] [--workers N] [--predict]
-    python -m flow opt <block> --problem P [--pdk P] [--budget N] [--workers N] [--best N] [--finalists N] [--table]
+    python -m flow --block B --run R [--to STEP] [--from STEP] [--predict]
     python -m flow web.serve
 
+``--run`` names one of the block's searches (its search.py, by its function's name): one design
+(``@single``, ``frida1``), every design of a grid (``@grid``) or an optimization (``@optimize``,
+``adc_12bit``: its study in each of its PDKs, ``flow.opt.runner``). What a search runs in and on is
+the search's own (its PDKs, its workers, an optimization's budget), never a flag here.
+
 A step is one tool: it takes its inputs and makes its outputs, and its configuration is the tool's
-own, in the block's Python files and the kit's (the runs a sweep states, a layout's placement, which
-signoff a kit takes), never a flag here. The steps make a small graph, each after those it needs:
+own, in the block's Python files and the kit's (the runs a search states, a layout's placement,
+which signoff a kit takes), never a flag here. The steps make a small graph, each after those it needs:
 
     netlist -> sim -> record -> figures
                sim -> circuit          record -> table
@@ -14,13 +18,14 @@ signoff a kit takes), never a flag here. The steps make a small graph, each afte
     sim, pex -> pexsim
     record, pex -> page
 
-``--to`` runs the steps that lead from ``--from`` (``netlist`` by default) to it, both included:
+``--to`` (``page`` by default) runs the steps that lead from ``--from`` (``netlist`` by default) to
+it, both included:
 ``--to record`` simulates and records, ``--to lvs`` lays out and signs off without extraction,
 ``--from table --to table`` exports what the runs hold; with ``record/`` deleted, ``--from record
 --to record`` analyses again what ``sim`` kept. ``circuit`` adds the circuit simulator's runs of a
 block whose full characterization is behavioral (the ADC's Spectre runs) and records again; it
-takes picked instances alone. ``figures`` draws a record's figures, or, over a ``--run DIR`` of the
-lab's captures, the figures the block's analyses make of them. ``layout`` runs the block's own
+runs on a ``@single`` alone. ``figures`` draws a record's figures (the lab's captures are drawn by
+``flow.scans``, not here). ``layout`` runs the block's own
 ``lay_out`` where it has a ``layout.py`` (with the signoff it plans, FRIDA-1's Calibre:
 ``flow.layout.signoff.write_plan``), else ALIGN through the shared step (its netlists and
 constraints too: the netlist step's edge to it only orders them); ``drc``, ``lvs`` and ``pex``
@@ -45,21 +50,20 @@ in the run, its state, seconds, what it found and those counts: ``tsmc65/frida1/
 run's table (one instance's steps a row each, with their folders; over several, each step's
 states counted and its seconds and warnings summed).
 
-A run is ``build/<block>/<run>/``, each instance in ``<pdk>/<name>/`` there (a named instance by its
-name, a grid's by its digest), a folder a step: ``netlist/``, ``sim/<run>/``, ``circuit/<run>/``,
-``record/``, ``figures/``, ``layout/``, ``drc/``, ``lvs/``, ``pex/``, ``pexsim/<run>/``,
-``page/``; its record, ``instance.json``, beside them, which the viewer's table reads. ``--from netlist`` makes a new run
-(named ``--run NAME``, else by its stamp); a later ``--from`` takes the newest run, or the one
-``--run`` names (a name under ``build/<block>/`` or a directory), and the instances in it. A step
-skips an instance whose output is complete and not older than what it was made from (make's rule),
-so a run stopped part way resumes where it stopped; to make a step again, delete its folder or start
-a new run. A step whose inputs are missing fails, naming the command that makes them.
+A run is ``build/<block>/<search>/<stamp>/``, dated, each design in ``<pdk>/<name>/`` there (a
+single's by its name, a grid's by its digest), a folder a step: ``netlist/``, ``sim/<run>/``,
+``circuit/<run>/``, ``record/``, ``figures/``, ``layout/``, ``drc/``, ``lvs/``, ``pex/``,
+``pexsim/<run>/``, ``page/``; its record, ``instance.json``, beside them, which the viewer's table
+reads (the search's older runs kept, for the viewer to show). A run from the netlist (the default)
+is a new one; ``--from`` a later step works in the search's latest, which must exist, and resumes
+it: a step skips a design whose output is complete and not older than what it was made from
+(make's rule), so a run stopped part way resumes where it stopped; to make a step again, delete its
+folder. A step whose inputs are missing fails, naming the command that makes them. A folder of a
+design the search no longer names is said and left alone.
 
-``--instance`` picks a named instance, the label of one of the design space's (``grid(name,
-parameter=value, ...)``) or a digest, else the design space is run; ``--pdk``, else every PDK
-the block admits. ``--predict`` prints the run, the instances and the steps each would run, with a
-rough count, and runs nothing. ``opt`` searches one of a block's problems (``flow.opt.runner``), and
-``web.serve`` serves the viewer on http://127.0.0.1:8765.
+``--predict`` prints the run, the designs and the steps each would run, with a rough count, and runs
+nothing (an optimization: its PDKs and budget). The bare command lists the steps and each block's
+searches. ``web.serve`` serves the viewer on http://127.0.0.1:8765.
 """
 
 from __future__ import annotations
@@ -67,23 +71,23 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import time
-import traceback
 from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from flow.steps import Job, Outcome, Step, _count, _ended, _fresh, _mark, _missing, between, done, logged, run_steps
+from flow.steps import Job, Outcome, Step, _count, _missing, between, done, logged, run_steps
 
 
 def pipeline_blocks() -> list[str]:
-    """The blocks on the pipeline: those whose ``sweep.py`` gives ``runs`` (one that no longer
-    imports, a block not yet ported, gives none)."""
+    """The blocks on the pipeline: those whose ``search.py`` gives ``runs`` (one that no longer
+    imports gives none)."""
+    from importlib.util import find_spec
+
     from flow.sweep import runner
 
     def on_pipeline(block: str) -> bool:
         try:
-            return hasattr(import_module(f"flow.{block}.sweep"), "runs")
+            return find_spec(f"flow.{block}.search") is not None and hasattr(runner.search_module(block), "runs")
         except ImportError:
             return False
 
@@ -93,78 +97,64 @@ def pipeline_blocks() -> list[str]:
 # ---------------------------------------------------------------- a run's instances
 
 
-def _run_dir(block: str, value: str | None, start: Step) -> tuple[Path, str]:
-    """The run the steps work in, and how it was found: ``--run``'s (a name under
-    ``build/<block>/``, or a directory), a new one where the steps start at the netlist, else the
-    block's newest."""
+def _search(block: str, run: str):
+    """The block's search ``run`` (its search.py's ``@single``, ``@grid`` or ``@optimize``)."""
+    from flow import pipeline
     from flow.sweep import runner
 
-    if value is not None:
-        path = Path(value).absolute() if "/" in value or value.startswith(".") else runner.RUNS_DIR / block / value
-        if start is not Step.NETLIST and not path.is_dir():
-            raise SystemExit(f"no run {value} of {block} ({path}): python -m flow {block} --to netlist --run {value}")
-        return path, "resumed" if path.is_dir() else "new"
-    if start is Step.NETLIST:
-        return runner.RUNS_DIR / block / _stamp(), "new"
-    try:
-        return runner.newest_run(block), "the latest"
-    except FileNotFoundError:
-        raise SystemExit(f"no run of {block} yet to start at {start}: python -m flow {block} --to {start}") from None
+    found = pipeline.searches(runner.search_module(block))
+    if run not in found:
+        raise SystemExit(f"{block} has no search {run!r}: {', '.join(found)}")
+    return found[run]
 
 
-def _stamp() -> str:
-    """Now, as a new run's name: ``YYYYmmdd_HHMMSS``."""
-    from datetime import datetime
+def _pdks(block: str, run: str, search) -> list[str]:
+    """The PDKs the search runs in: those it names, else every PDK whose kit is here and in which
+    the block admits one of its designs (an optimization: whose kit is here)."""
 
-    return datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
-
-
-def _run_name(block: str, run: Path) -> str:
-    """The run as ``--run`` takes it: its name where it is under ``build/<block>/``, else its path."""
+    from flow import pipeline
     from flow.sweep import runner
 
-    return run.name if run.parent == runner.RUNS_DIR / block else str(run)
-
-
-def _pdks(block: str, names: list[str] | None, given: list[str] | None, run: Path, reused: bool) -> list[str]:
-    """The PDKs to run in: those given, else a reused run's own (its instances' PDKs), else every
-    PDK in which the block admits an instance (one whose kit this checkout lacks left out)."""
-    from flow.sweep import runner
-
-    if given:
-        return list(given)
-    if reused:
-        return [pdk for pdk in runner.PDKS if (run / pdk).is_dir()]
+    pdks = [pdk.name.lower() for pdk in search.pdks] if search.pdks is not None else list(runner.PDKS)
     found = []
-    for pdk in runner.PDKS:
+    for pdk in pdks:
         try:
-            if runner.labelled_space(block, pdk) or names:
+            if not _kit(pdk):
+                continue
+            if isinstance(search, pipeline.Optimize) or runner.run_instances(block, run, pdk):
                 found.append(pdk)
-        except (LookupError, ModuleNotFoundError):  # a design space of a kit this checkout lacks
+        except (LookupError, ModuleNotFoundError):  # a kit this checkout lacks, or holds no design
             continue
     return found
 
 
-def instances(block: str, pdk: str, names: list[str] | None, run: Path, reused: bool) -> dict[str, tuple[str, Any]]:
-    """The instances to run in ``pdk``, by their name in the run (a named instance's name, a grid's
-    digest), with their labels and parameters: those ``names`` pick (``flow.sweep.runner.select``),
-    else a reused run's own (those its design still has), else the design space."""
+def _kit(pdk: str) -> bool:
+    """Whether this checkout has ``pdk``'s kit (``pdk/<pdk>``, or a module standing in for it)."""
+    from importlib.util import find_spec
+
+    try:
+        return find_spec(f"pdk.{pdk}") is not None
+    except ValueError:  # a module put in place of the kit (a test's), without a spec
+        return f"pdk.{pdk}" in sys.modules
+
+
+def instances(block: str, run: str, pdk: str, folder: Path) -> dict[str, tuple[str, Any]]:
+    """The designs the run's search names in ``pdk``, by their folder in the run (a single's name, a
+    grid's digests), with their labels and parameters; a folder of the run's that the search no
+    longer names is said and left alone."""
     from flow import pipeline
     from flow.sweep import runner
 
-    named = pipeline.names(import_module(f"flow.{block}.sweep"))
-    if names:
-        picked = runner.select(block, pdk, names)
-    elif reused:
-        folders = sorted(path for path in (run / pdk).iterdir() if path.is_dir()) if (run / pdk).is_dir() else []
-        known = set(named) | set(runner.labelled_space(block, pdk))
-        for folder in folders:
-            if folder.name not in known:
-                print(f"{folder}: not in {block}'s design any more, left out")
-        picked = runner.select(block, pdk, [folder.name for folder in folders if folder.name in known])
-    else:
-        picked = runner.labelled_space(block, pdk)
-    return {(label if label in named else ident): (label, params) for ident, (label, params) in picked.items()}
+    single = isinstance(_search(block, run), pipeline.Single)
+    picked = {
+        (label if single else ident): (label, params)
+        for ident, (label, params) in runner.run_instances(block, run, pdk).items()
+    }
+    if (folder / pdk).is_dir():
+        for path in sorted(path for path in (folder / pdk).iterdir() if path.is_dir()):
+            if path.name not in picked:
+                print(f"{runner._shown(path)}: not in {block}'s search {run} any more, left alone")
+    return picked
 
 
 def _pending(job: Job) -> tuple[list[Step], dict[Step, str]]:
@@ -213,85 +203,84 @@ def _pool(workers: int):
 
 
 def steps(args: argparse.Namespace) -> None:
-    """Run ``args``' steps (``parser``) over the instances it picks, or print them (``--predict``)."""
+    """Run ``args``' steps (``parser``) over the designs its run's search names, or print them
+    (``--predict``); an optimization runs its study in each PDK (``flow.opt.runner``)."""
+    from flow import pipeline
     from flow.sweep import runner
 
+    search = _search(args.block, args.run)
+    if isinstance(search, pipeline.Optimize):
+        _optimize(args.block, args.run, search, args.predict)
+        return
     start, stop = Step[args.start.upper()], Step[args.to.upper()]
     chosen = between(start, stop)
-    if Step.CIRCUIT in chosen and not args.instances:
-        raise SystemExit("the circuit step runs the circuit simulator: pick the instances (--instance I ...)")
+    if Step.CIRCUIT in chosen and not isinstance(search, pipeline.Single):
+        raise SystemExit("the circuit step runs the circuit simulator: run it on a @single design")
     run, found = _run_dir(args.block, args.run, start)
-    if chosen == [Step.FIGURES] and _captures(run):
-        _capture_figures(args.block, run, args.predict)
-        return
-    reused = found != "new" and start is not Step.NETLIST
-    name = _run_name(args.block, run)
     jobs = []
-    for pdk in _pdks(args.block, args.instances, args.pdks, run, reused):
-        try:
-            picked = instances(args.block, pdk, args.instances, run, reused)
-        except LookupError as error:
-            raise SystemExit(str(error)) from None
+    for pdk in _pdks(args.block, args.run, search):
         each = tuple(step for step in chosen if step is not Step.TABLE)
+        picked = instances(args.block, args.run, pdk, run)
         jobs += [
-            Job(args.block, pdk, n, label, params, run / pdk / n, each, name) for n, (label, params) in picked.items()
+            Job(args.block, pdk, n, label, params, run / pdk / n, each, args.run)
+            for n, (label, params) in picked.items()
         ]
     if not jobs:
-        raise SystemExit(f"no instance of {args.block} to run in {', '.join(args.pdks or runner.PDKS)}")
+        raise SystemExit(f"{args.block}'s search {args.run} names no design in a PDK whose kit is here")
     if Step.CIRCUIT in chosen and not any(runner.circuit_runs(j.block, j.pdk, j.params) for j in jobs):
         raise SystemExit(f"{args.block} has no circuit simulator runs beyond its full ones: its sim step runs them")
+    workers = pipeline.workers(search)
     print(f"{args.block}: {found} run {runner._shown(run)}; steps {', '.join(map(str, chosen))}")
     if args.predict:
         _predict(jobs, chosen)
         return
-    if found == "new":  # a run from before run.json keeps its time, its name's stamp
+    if found == "new":
         runner.new_run(args.block, run_dir=run)
-    failures = _run_jobs(jobs, args.workers) if jobs[0].steps else []
+    failures = _run_jobs(jobs, workers) if jobs[0].steps else []
     if Step.TABLE in chosen:
         unrecorded = [job for job in jobs if not (job.out / "instance.json").exists()]
         if unrecorded:
             raise SystemExit(
                 f"table needs every instance's record, {len(unrecorded)} of {len(jobs)} have none: "
-                f"python -m flow {args.block} --to record --run {name}"
+                f"python -m flow --block {args.block} --run {args.run} --to record"
             )
-        runner.table([args.block], args.workers, run=run)
+        runner.table([args.block], workers, run=run)
     if failures:
         raise SystemExit(f"{len(failures)} of {len(jobs)} instances failed; the first: {failures[0]}")
 
 
-def _captures(run: Path) -> bool:
-    """Whether ``run`` is a directory of captures (the lab's, ``flow.scans.runner``'s: HDF5 files
-    beneath it, through linked folders too: a study's links to its campaigns), not a run of
-    instances."""
-    from flow.plot import capture_files
+def _run_dir(block: str, search: str, start: Step) -> tuple[Path, str]:
+    """The run the steps work in, and how it was found: a new one, dated, where they start at the
+    netlist (``build/<block>/<search>/<stamp>/``), else the search's latest, which must exist."""
+    from flow.sweep import runner
 
-    return not (run / "run.json").exists() and not list(run.glob("*/*/instance.json")) and bool(capture_files(run))
+    folder = runner.RUNS_DIR / block / search
+    if start is Step.NETLIST:
+        return folder / _stamp(), "new"
+    dated = sorted(path for path in folder.glob("*") if (path / "run.json").exists()) if folder.is_dir() else []
+    if not dated:
+        raise SystemExit(f"no run of {block}'s {search} yet: python -m flow --block {block} --run {search}")
+    return dated[-1], "the latest"
 
 
-def _capture_figures(block: str, run: Path, predict: bool) -> None:
-    """The figures step over a directory of captures: each figure the block's analyses make of
-    them (``flow.plot.figures``) drawn into ``run/figures/``, a line each; make's rule as an
-    instance's step (``run/figures/step.json``)."""
-    from flow import plot
+def _stamp() -> str:
+    """Now, as a new run's folder: ``YYYYmmdd_HHMMSS``."""
+    from datetime import datetime
 
-    print(f"{block}: captures {run}; step figures")
-    ended = _ended(run, Step.FIGURES)
-    # make's rule over the captures: drawn again where one is newer than the figures
-    if ended is not None and all(path.stat().st_mtime <= ended["finished"] for path in plot.capture_files(run)):
-        print("figures done")
-        return
-    if predict:
-        print(f"figures of {len(plot.capture_files(run))} captures")
-        return
-    started = time.time()
-    folder = _fresh(run, Step.FIGURES)
-    try:
-        paths = plot.figures(block, [run], out_dir=folder)
-    except Exception:
-        _mark(run, Step.FIGURES, started, error=traceback.format_exc(limit=6)[-4000:])
-        raise
-    _mark(run, Step.FIGURES, started, figures=[str(path.relative_to(folder)) for path in paths])
-    print(*paths, sep="\n")
+    return datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+
+
+def _optimize(block: str, run: str, search, predict: bool) -> None:
+    """An optimization's study in each of its PDKs (``flow.opt.runner.optimize``): its budget's
+    trials, on its workers."""
+    from flow import pipeline
+    from flow.opt import runner as opt
+
+    workers = pipeline.workers(search)
+    for pdk in _pdks(block, run, search):
+        print(f"{block}: optimization {run} in {pdk}, {search.budget} trials on {_count(workers, 'worker')}")
+        if not predict:
+            print(opt.optimize(block, pdk, run, search.budget, workers))
 
 
 def _run_jobs(jobs: list[Job], workers: int) -> list[str]:
@@ -396,80 +385,41 @@ def _predict(jobs: list[Job], chosen: list[Step]) -> None:
 
 
 def parser() -> argparse.ArgumentParser:
-    """The steps' arguments (``python -m flow <block> ...``)."""
-    from flow.sweep import runner
-
+    """The command line (``python -m flow --block B --run R ...``): which block, which of its
+    searches, which steps; everything else is in the block's search.py."""
     words = [str(step) for step in Step]
     command = argparse.ArgumentParser(prog="python -m flow", description=(__doc__ or "").split("\n\n")[0])
-    command.add_argument("block", choices=pipeline_blocks(), help="a block on the pipeline")
+    command.add_argument("--block", required=True, choices=pipeline_blocks(), help="a block on the pipeline")
+    command.add_argument("--run", required=True, metavar="RUN", help="one of the block's searches, by its name")
     shown = ", ".join(words)
-    command.add_argument("--to", required=True, choices=words, metavar="STEP", help=f"the last step: {shown}")
+    command.add_argument("--to", default="page", choices=words, metavar="STEP", help=f"the last step (page): {shown}")
     command.add_argument("--from", dest="start", default="netlist", choices=words, metavar="STEP", help="the first")
-    command.add_argument("--run", metavar="NAME|DIR", help="the run (default: new from netlist, else the latest)")
-    command.add_argument("--instance", action="append", dest="instances", metavar="I", help="a name, label or digest")
-    command.add_argument("--pdk", action="append", choices=runner.PDKS, dest="pdks", metavar="P")
-    # a Spectre X run holds 3 of the server's 120 licences: 36 at once leaves others theirs (an
-    # ALIGN layout a core and some GB each: 36 fit the server too)
-    command.add_argument("--workers", type=int, default=36, help="instances at once (default: 36)")
     command.add_argument("--predict", action="store_true", help="print what would run, run nothing")
     return command
 
 
-def opt_parser() -> argparse.ArgumentParser:
-    """The optimizer's arguments (``python -m flow opt <block> ...``)."""
-    from importlib.util import find_spec
-
+def usage() -> None:
+    """The commands, the steps (each with those it needs) and each block's searches."""
+    from flow import pipeline
     from flow.sweep import runner
 
-    text = "optimize the block over its parameters for one of its problems (its opt.py)"
-    command = argparse.ArgumentParser(prog="python -m flow opt", description=text)
-    command.add_argument("block", choices=[b for b in pipeline_blocks() if find_spec(f"flow.{b}.opt") is not None])
-    command.add_argument("--problem", required=True, help='a problem by its label, as "adc(bits=12)"')
-    command.add_argument("--pdk", choices=runner.PDKS, default="tsmc65")
-    command.add_argument("--budget", type=int, default=500, help="trials in the study, those before included")
-    command.add_argument("--workers", type=int, default=48)
-    command.add_argument("--best", type=int, metavar="N", help="print the study's N best feasible designs, run none")
-    command.add_argument(
-        "--finalists", type=int, metavar="N", help="characterize the study's N best feasible designs in full"
-    )
-    command.add_argument("--table", action="store_true", help="export the study as the viewer's table, run none")
-    return command
-
-
-def optimize(argv: list[str]) -> None:
-    """``python -m flow opt``: one of a block's problems searched (``flow.opt.runner``)."""
-    from flow.opt import runner as opt
-
-    args = opt_parser().parse_args(argv)
-    if args.table:
-        print(opt.table(args.block, args.pdk, args.problem, args.workers))
-    elif args.best:
-        for entry in opt.best(args.block, args.pdk, args.problem)[: args.best]:
-            print(entry)
-    elif args.finalists:
-        for entry in opt.finalize(args.block, args.pdk, args.problem, args.finalists, args.workers):
-            print(entry)
-    else:
-        print(opt.optimize(args.block, args.pdk, args.problem, args.budget, args.workers))
-
-
-def usage() -> None:
-    """The commands, the steps (each with those it needs) and the blocks on the pipeline."""
     for line in (__doc__ or "").splitlines():
         if line.startswith("    python -m flow"):
             print(line.strip())
     print("steps:")
     for step in Step:
         print(f"  {step}{f' (needs {", ".join(map(str, step.needs))})' if step.needs else ''}")
-    print(f"blocks: {', '.join(pipeline_blocks())}")
+    print("blocks and their searches (--run):")
+    kind = {pipeline.Single: "single", pipeline.Grid: "grid", pipeline.Optimize: "optimize"}
+    for block in pipeline_blocks():
+        found = pipeline.searches(runner.search_module(block))
+        print(f"  {block}: {', '.join(f'{name} ({kind[type(search)]})' for name, search in found.items())}")
 
 
 def main(argv: list[str] | None = None) -> None:
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
         usage()
-    elif argv[0] == "opt":
-        optimize(argv[1:])
     elif argv[0] == "web.serve":
         from flow.web import server
 

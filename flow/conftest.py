@@ -92,24 +92,24 @@ def read(raw: Path, tb: TbParams) -> pipeline.Meas:
     info = pipeline.MeasInfo(backend="behavioral", timestamp_utc=datetime.now(timezone.utc), readbacks={"text": raw.read_text()})
     return pipeline.Meas(group=None, index=None, dut=tb.params, info=info, param=tb)
 ''',
-    "sweep.py": '''"""One named instance swept, two more named for their layouts; a run a level; a figure."""
+    "search.py": '''"""Three single designs (one characterized, two more for their layouts); a run a level; a figure."""
 
-from flow.pipeline import Level, Meas, Plot, Record, named
+from flow.pipeline import Level, Meas, Plot, Record, single
 
 from .params import Params, TbParams
 
 
-@named
+@single
 def one() -> Params:
     return Params()
 
 
-@named(swept=False)
+@single
 def wired() -> Params:
     return Params(mode=1)
 
 
-@named(swept=False)
+@single
 def signed() -> Params:
     return Params(mode=2)
 

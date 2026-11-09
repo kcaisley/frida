@@ -3,7 +3,7 @@ claude.ai artifact, no server behind it. Its metrics by the pipeline's steps, in
 record's metrics, the netlist, the layout, DRC, LVS, PEX: each one's statistics and run time), its
 netlist, its schematic and its layout in 2-D and 3-D.
 
-    python -m flow capdac --from page --to page --instance 9a5e63c5482c --pdk tsmc65
+    python -m flow --block capdac --run frida1 --from page --to page
 
 An instance's directory is a run's ``<pdk>/<name>/`` (``flow.__main__``: a folder a step,
 ``netlist/``, ``layout/``, ``drc/``, ``lvs/``, ``pex/``, each with its ``step.json``, and its record

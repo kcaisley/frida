@@ -21,7 +21,7 @@ from dataclasses import replace
 
 import hdl21 as h
 
-from flow.pipeline import Meas, Record, every, grid, named, values, widen
+from flow.pipeline import Meas, Record, every, grid, single, values, widen
 
 from .analysis import analyze_mismatch, analyze_settling, metrics
 from .params import Params, Redundancy, TbParams, WeightImpl
@@ -50,7 +50,7 @@ def arrays() -> dict[str, Params]:
     return {"binary": binary, "redundant": redundant}
 
 
-@named
+@single
 def frida1() -> Params:
     """FRIDA-1's fabricated array (the defaults): 12 bits in 16 stages, MSB redistribution with 5
     extra cycles, at twice the minimum capacitance."""

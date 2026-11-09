@@ -693,7 +693,7 @@ def test_a_simulated_conversions_rail_power_and_its_sequencer(tmp_path: Path, mo
         assert plt.imread(png).shape[:2] == (2700, 4800)
 
 
-# ---- the lab studies as ``python -m flow adc --from figures --to figures --run <run>``: a campaign's captures,
+# ---- the lab studies as ``python -m flow.plot adc <run>``: a campaign's captures,
 # each board and channel's, made into its figures by the analyses as they chain
 
 

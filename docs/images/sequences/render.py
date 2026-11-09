@@ -22,7 +22,7 @@ from flow.adc.params import Recipe
 PRE_SYMBOLS = 4  # Show the end of the preceding period.
 EXTRA_SYMBOLS = 8  # Show the beginning of the following period.
 OUT = Path(__file__).resolve().parent
-# The seven timings of the fabricated converters' spice_sequence_* runs in flow/adc/sweep.py.
+# The seven timings of the fabricated converters' spice_sequence_* runs in flow/adc/search.py.
 RECIPES = {
     f"comp{recipe.name.lower().split('_comp', 1)[1]}": recipe.rows
     for recipe in (

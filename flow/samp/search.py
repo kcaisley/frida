@@ -1,5 +1,5 @@
 """The sampling switch's design space (docs/pipeline.md): its grids (``@grid``: designs with some of
-their parameters widened, ``widen``, every point of each) and its named instances (``@named``); the
+their parameters widened, ``widen``, every point of each) and its named instances (``@single``); the
 testbench runs that characterize one instance (``runs``) and the record they make (``record``).
 
 The characterization's switches (FRIDA-1's transmission gate, with and without dummies, the NMOS
@@ -19,7 +19,7 @@ from dataclasses import replace
 
 import hdl21 as h
 
-from flow.pipeline import Meas, Record, every, grid, named, steps, widen
+from flow.pipeline import Meas, Record, every, grid, single, steps, widen
 
 from .analysis import analyze_hold, analyze_track, metrics
 from .params import FRIDA1, NOMINAL_VIN, SUPPLY_SWEEP, VIN_SWEEP, WAVE_VIN, Params, SwitchType, TbParams
@@ -83,25 +83,25 @@ def boost_ladder() -> dict[str, Params]:
     }
 
 
-@named(swept=False)
+@single
 def frida1() -> Params:
     """FRIDA-1's fabricated sampler: the transmission gate, 32 units a side."""
     return FRIDA1
 
 
-@named(swept=False)
+@single
 def tgate_dummy() -> Params:
     """The transmission gate with half-size charge-injection dummies."""
     return Params(dummy=True)
 
 
-@named(swept=False)
+@single
 def nmos() -> Params:
     """The NMOS switch alone."""
     return Params(switch_type=SwitchType.NMOS)
 
 
-@named(swept=False)
+@single
 def bootstrap() -> Params:
     """The bootstrapped NMOS switch."""
     return Params(switch_type=SwitchType.BOOTSTRAP)

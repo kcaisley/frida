@@ -1,12 +1,12 @@
 """The ADC's figures as ``Plot`` specs (``flow.pipeline.Plot``), each from analysis results alone:
 first a characterization's details, which the viewer shows in the order they are written here (the
-record's, ``flow.adc.sweep.record``), then the figures only the lab studies draw. Each is one curve
+record's, ``flow.adc.search.record``), then the figures only the lab studies draw. Each is one curve
 (one series, or one family of decision paths), or one map, so instances compared on one plot stay
 readable; what a second curve would add is a figure of its own. The decision-path density is its
 paths, each distinct one with how many conversions took it (``Plot.paths``): the whole conversion,
 its last decisions, and where the conversions at one input end. Every value is written to six
 significant digits, as the viewer's other exports. The same specs draw the lab captures, a study's
-figures (``python -m flow adc --from figures --to figures --run <run>``, ``flow.plot.figures``; a scan's test),
+figures (``python -m flow.plot adc <captures>``, ``flow.plot.figures``; a scan's test),
 a figure a decoding, calibration, capture or sweep, each named by its weights, its rate or its
 sequence.
 """

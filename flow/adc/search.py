@@ -1,6 +1,6 @@
 """The ADC's design space (``flow.sweep``), by the behavioral converter (``flow.adc.sim``) of its
 characterized blocks: the plain product of its components, each converter given by its parameters;
-in TSMC65 alone, the one PDK its DAC is characterized in (``flow.capdac.sweep``).
+in TSMC65 alone, the one PDK its DAC is characterized in (``flow.capdac.search``).
 
 Every converter samples on its top plates, makes one free comparison before any capacitor switches
 and fires the comparator again after the last one switches: an N-bit converter has an N-1-step DAC
@@ -34,7 +34,7 @@ The product, nothing pruned:
 
 20 x 5 x (10 x 3 x 2 x 2 + 1) = 12,100 converters in TSMC65. The other PDKs have none until capdac
 is characterized there; their spaces stay: the arrays and the blocks the same study's but the
-comparator grid the PDK's own (``flow.comp.sweep``), each array with the PDK's StrongARM noise
+comparator grid the PDK's own (``flow.comp.search``), each array with the PDK's StrongARM noise
 ladder at about FRIDA-1's speed (``_comparators``) and the widest bootstrapped switch
 (``_samplers``), 484 to 605 converters a PDK. The design space is a grid (``converters``,
 docs/pipeline.md): one space per resolution, its arrays, comparators and samplers values by name.
@@ -66,7 +66,7 @@ import numpy as np
 from flow import capdac, comp, samp
 from flow.analysis.io import read_cap_table
 from flow.analysis.types import MeasAdc
-from flow.pipeline import Level, Meas, Pdk, Plot, Record, grid, named, values, widen
+from flow.pipeline import Level, Meas, Pdk, Plot, Record, grid, single, values, widen
 
 from .analysis import (
     _extracted_calibration,
@@ -262,32 +262,32 @@ def converters(pdk: Pdk) -> dict[str, Params]:
 # converters (``Fabricated``), each simulated on its extraction and laid out from its tape-out
 
 
-@named
+@single
 def frida1() -> Params:
     """FRIDA-1's converter as a generated design: its sizing, capdac's, the sampler's and the
     comparator's FRIDA-1 parts."""
     return Params()
 
 
-@named
+@single
 def frida1_1layer_radix17() -> Params:
     """FRIDA-1's fabricated converter, its DAC in one metal layer at radix 17."""
     return Fabricated.FRIDA1_1LAYER_RADIX17.params
 
 
-@named
+@single
 def frida1_1layer_radix20() -> Params:
     """FRIDA-1's fabricated converter, its DAC in one metal layer at radix 20."""
     return Fabricated.FRIDA1_1LAYER_RADIX20.params
 
 
-@named
+@single
 def frida1_2layer_radix17() -> Params:
     """FRIDA-1's fabricated converter, its DAC in two metal layers at radix 17."""
     return Fabricated.FRIDA1_2LAYER_RADIX17.params
 
 
-@named
+@single
 def frida1_2layer_radix20() -> Params:
     """FRIDA-1's fabricated converter, its DAC in two metal layers at radix 20."""
     return Fabricated.FRIDA1_2LAYER_RADIX20.params

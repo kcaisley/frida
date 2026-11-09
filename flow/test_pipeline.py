@@ -1,5 +1,5 @@
 """The pipeline contract (docs/pipeline.md), checked on every block that follows it (``MIGRATED``:
-every block with a sweep, a new one too, unless ``NOT_MIGRATED`` names it): its stage files, the
+every block with a search.py, a new one too, unless ``NOT_MIGRATED`` names it): its stage files, the
 names each may define, their signatures (an analysis's prior optional as ``X | None = None``), that
 its pure stages do no file I/O (their private helpers pure functions too), and that it states its
 layout one way at most: its ALIGN placement in subckt.py or its own layout.py, not both. Reads no
@@ -41,7 +41,7 @@ NOT_MIGRATED = (
     *("pi", "ringamp", "schmitt"),
 )
 MIGRATED = tuple(block for block in sweep_blocks() if block not in NOT_MIGRATED)
-STAGES = ("params", "subckt", "sim", "types", "analysis", "plots", "sweep")
+STAGES = ("params", "subckt", "sim", "types", "analysis", "plots", "search")
 PURE = ("types", "analysis", "plots")  # no file I/O; a private helper there is a pure function too
 # Known violations, as "<block>.<stage>: <problem>"; entries may be removed, never added.
 KNOWN_VIOLATIONS: set[str] = set()
@@ -49,11 +49,10 @@ KNOWN_VIOLATIONS: set[str] = set()
 # OpenROAD flow (the ADC; later the SAR logic) instead of the shared step (flow.layout.step: its
 # generator's ALIGN placement, flow.layout.hdl21align.place); never both
 SIDE = {"model": r"Model", "layout": r"lay_out"}
-# a block's folder: the stages and its model (the eight a designer writes), opt.py where it is
-# optimized, layout.py where it lays itself out, and nothing else but its package's __init__.py,
-# its readme.md and a test_<file>.py a file
+# a block's folder: the stages and its model (the eight a designer writes), layout.py where it lays
+# itself out, and nothing else but its package's __init__.py, its readme.md and a test_<file>.py a file
 FILES = (*STAGES, "model")
-OPTIONAL = ("opt", "layout")
+OPTIONAL = ("layout",)
 
 UPPER = re.compile(r"[A-Z][A-Z0-9_]*")
 RUN_ID = re.compile(r"\d{8}_\d{6}")
@@ -279,10 +278,11 @@ def _problems(block: str) -> set[str]:
         elif not all(_is(hint, pipeline.Analysis) for hint in hints.values()):
             problem("plots", f"{name} draws other than Analysis results")
 
-    # sweep.py: its design space as grids (``@grid``) and named instances (``@named``) of the
-    # block's Params, runs(pdk, params) -> dict[str, TbParams] and record(measurements) -> Record;
-    # nothing else, no module constants
-    sweep = _defined(stage["sweep"])
+    # search.py: its searches, each a run by its name: single designs (``@single``) and grids
+    # (``@grid``) of the block's Params, optimizations (``@optimize``) of a Problem; runs(pdk,
+    # params) -> dict[str, TbParams] and record(measurements) -> Record; nothing else, no module
+    # constants
+    sweep = _defined(stage["search"])
     expected = {
         "runs": [str, Params, dict[str, TbParams]],
         "record": [dict[str, pipeline.Meas], pipeline.Record],
@@ -292,18 +292,25 @@ def _problems(block: str) -> set[str]:
     for name, signature in expected.items():
         hints = list(_hints(sweep[name]).values()) if name in sweep else None
         if hints not in (signature, leveled.get(name)):
-            problem("sweep", f"{name} is missing or does not have the signature {signature}")
+            problem("search", f"{name} is missing or does not have the signature {signature}")
     for name, value in sweep.items():
         if name in expected:
             continue
+        returns = (
+            _hints(value.build).get("return")
+            if isinstance(value, (pipeline.Single, pipeline.Grid, pipeline.Optimize))
+            else None
+        )
         if UPPER.fullmatch(name):
-            problem("sweep", f"module constant {name}: a parameter's values belong to its grid")
-        elif not isinstance(value, (pipeline.Grid, pipeline.Named)) or _hints(value.build).get("return") not in (
+            problem("search", f"module constant {name}: a parameter's values belong to its grid")
+        elif isinstance(value, (pipeline.Grid, pipeline.Single)) and returns in (
             Params,
             list[Params],
             dict[str, Params],
         ):
-            problem("sweep", f"{name} is not a grid, a named instance (of Params), runs or record")
+            continue
+        elif not (isinstance(value, pipeline.Optimize) and returns is pipeline.Problem):
+            problem("search", f"{name} is not a @single or @grid of Params, an @optimize of a Problem, runs or record")
 
     # the side files beside the stages: their own names only, and no module constant (a block's
     # constants live in params.py, a testbench's in sim.py)
@@ -358,28 +365,25 @@ def _problems(block: str) -> set[str]:
                 callee = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
                 if callee in io_calls or callee.startswith(("read_", "write_")):
                     problem(name, f"calls {callee}: file I/O")
-    if (folder / "opt.py").is_file():
+    if any(isinstance(value, pipeline.Optimize) for value in vars(stage["search"]).values()):
         problems |= _optimizable(block, Params, stage)
     return problems
 
 
 def _optimizable(block: str, Params, stage: dict) -> set[str]:
-    """The contract of a block with problems (its opt.py, ``python -m flow opt``): opt.py gives
-    problems alone, each naming metrics, bounding only those with a direction, and searching a space
+    """The contract of a block with optimizations (its search.py's ``@optimize``): each problem
+    names metrics, bounding only those with a direction, and searching a space
     of the block's ``Params`` (``Problem.space``: ``pipeline.widen``) in which every combination of
     its choices builds and a range that does not apply (``when``) leaves the circuit as it is; its
     metrics are typed (``types.Metrics``)."""
 
     problems: set[str] = set()
     problem = lambda where, text: problems.add(f"{block}.{where}: {text}")
-    opt = _module(block, "opt")
+    optimizations = [value for value in vars(stage["search"]).values() if isinstance(value, pipeline.Optimize)]
     metrics_class = getattr(stage["types"], "Metrics", None)
     if metrics_class is None:
         problem("types", "no Metrics: a block with problems types its metrics")
         return problems
-    for name, value in _defined(opt).items():
-        if not isinstance(value, pipeline.ProblemFamily):
-            problem("opt", f"{name} is not a @problem")
     better = {**pipeline.betters(metrics_class), **pipeline.GEOMETRY}
     netlist = stage["subckt"].netlist
 
@@ -391,16 +395,21 @@ def _optimizable(block: str, Params, stage: dict) -> set[str]:
 
     for pdk in PDKS:
         installed = importlib.util.find_spec(f"pdk.{pdk}.hdl21") is not None
-        for label, made in (pipeline.problems(opt, pdk) if installed else {}).items():
+        found = {
+            o.name: o.problem(pdk)
+            for o in optimizations
+            if installed and (o.pdks is None or pipeline.pdk_of(pdk) in o.pdks)
+        }
+        for label, made in found.items():
             for name in [*made.cost, *made.bound]:
                 if name not in better:
-                    problem("opt", f"{label} names {name}, not a metric")
+                    problem("search", f"{label} names {name}, not a metric")
             for name, limit in made.bound.items():
                 if better.get(name) == "none" or (better.get(name) == "true") != isinstance(limit, bool):
-                    problem("opt", f"{label} bounds {name} against its direction")
+                    problem("search", f"{label} bounds {name} against its direction")
             space = made.space
             if not isinstance(space, pipeline.Space) or not isinstance(space.base, Params):
-                problem("opt", f"{label} searches no space of its Params (Problem.space: pipeline.widen)")
+                problem("search", f"{label} searches no space of its Params (Problem.space: pipeline.widen)")
                 continue
             # every combination of the space's choices builds
             choices = {
@@ -415,7 +424,7 @@ def _optimizable(block: str, Params, stage: dict) -> set[str]:
                     built(design)
                     designs.append(design)
                 except Exception as error:  # noqa: BLE001 - the contract reports what does not build
-                    problem("opt", f"{label}: the choices {combination} do not build ({type(error).__name__})")
+                    problem("search", f"{label}: the choices {combination} do not build ({type(error).__name__})")
             # a range that does not apply to a design leaves its circuit as it is
             for name, widened in space.widened.items():
                 design = next((d for d in designs if widened.when and not pipeline.holds(widened.when, d)), None)
@@ -423,13 +432,12 @@ def _optimizable(block: str, Params, stage: dict) -> set[str]:
                     continue
                 other = widened.values[-1] if isinstance(widened, pipeline.Values) else round(widened.high)
                 if built(design) != built(Params(**{**design.__dict__, name: other})):
-                    problem("opt", f"{label}: {name} changes the circuit where it does not apply")
+                    problem("search", f"{label}: {name} changes the circuit where it does not apply")
     return problems
 
 
 def typed() -> list[str]:
-    """The files ty checks for the pipeline (CI): every migrated block's stages, its opt.py and its
-    layout.py."""
+    """The files ty checks for the pipeline (CI): every migrated block's stages and its layout.py."""
     return [
         f"flow/{block}/{stage}.py"
         for block in MIGRATED
@@ -444,8 +452,8 @@ def test_the_blocks_not_migrated_are_blocks() -> None:
 
 
 def test_one_import_contract_orders_every_migrated_block() -> None:
-    """import-linter's layers contract covers exactly the migrated blocks, a block's opt.py and
-    layout.py optional in it."""
+    """import-linter's layers contract covers exactly the migrated blocks, a block's layout.py
+    optional in it."""
     contracts = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["importlinter"]["contracts"]
     layers = [contract for contract in contracts if contract["type"] == "layers"]
     assert len(layers) == 1
@@ -489,7 +497,7 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
         stream.write("\n\ndef _helper() -> None:\n    open('x')\n")
     with (package / "types.py").open("a") as stream:
         stream.write("\n\nclass Extra:\n    pass\n")
-    with (package / "sweep.py").open("a") as stream:
+    with (package / "search.py").open("a") as stream:
         stream.write('\n\nSIZES = ("x1", "x2")\nARCHIVE = "build/badblock/20260101_000000"\n')
     with (package / "sim.py").open("a") as stream:
         # a reader that takes no testbench
@@ -521,12 +529,12 @@ def test_the_contract_catches_what_it_forbids(tmp_path: Path, monkeypatch: pytes
         "badblock.plots: calls open: file I/O"
     }
     assert "badblock.types: Extra is not an Analysis<Thing> deriving pipeline.Analysis" in problems
-    assert "badblock.sweep: module constant SIZES: a parameter's values belong to its grid" in problems
+    assert "badblock.search: module constant SIZES: a parameter's values belong to its grid" in problems
     assert {"badblock.targets: a block on the pipeline has no targets.py: the CLI's steps run it"} <= problems
     files = sorted({*FILES, *OPTIONAL})
     assert f"badblock.helpers: helpers.py is none of the block files {files}" in problems
     assert f"badblock.test_helpers: test_helpers.py is none of the block files {files}" in problems
-    assert {"badblock.sweep: names a run (20260101_000000)", "badblock.sweep: names a path under build/"} <= problems
+    assert {"badblock.search: names a run (20260101_000000)", "badblock.search: names a path under build/"} <= problems
     assert {
         "badblock.layout: a layout.py beside a subckt.py that places its instances for ALIGN: one or the other",
         "badblock.layout: lay_out does not take the block's Params, a PDK and a run directory and return a Path",

@@ -14,7 +14,7 @@ from scipy.constants import Boltzmann
 from . import model as capdac_model
 from .model import Model
 from .params import Params, Redundancy, TbParams, WeightImpl
-from .sweep import frida1
+from .search import frida1
 
 
 @pytest.mark.parametrize(

@@ -19,7 +19,7 @@ The comparator's layouts are the CLI's layout steps (ALIGN through the shared la
 DRC, LVS and PEX), as its generator places them:
 
 ```bash
-uv run python -m flow comp --to pex --instance frida1        # in all six PDKs
+uv run python -m flow --block comp --run frida1 --to pex    # in all six PDKs
 ```
 
 The netlists come from the generator (`flow/comp/subckt.py`), compiled for the PDK exactly as for

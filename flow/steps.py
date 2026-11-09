@@ -140,9 +140,9 @@ def _mark(out: Path, step: Step, started: float, error: str | None = None, **out
 
 
 def _command(job: Job, step: Step) -> str:
-    """The command that makes ``step``'s output on this instance (the steps before it that are
-    complete skipped)."""
-    return f"python -m flow {job.block} --to {step} --run {job.run} --pdk {job.pdk} --instance {job.name}"
+    """The command that makes ``step``'s output in this run, the search's latest (its designs whose
+    output is complete skipped)."""
+    return f"python -m flow --block {job.block} --run {job.run} --from {step} --to {step}"
 
 
 def _missing(job: Job, step: Step) -> str | None:

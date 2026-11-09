@@ -31,7 +31,7 @@ keeps what works in a PDK); a block on the pipeline (docs/pipeline.md) gives ``r
 shared layout step lays it out (``flow.layout.step``), or, a block assembled from laid-out blocks
 (the ADC), its own ``layout.py``.
 
-    uv run python -m flow comp --to record     # one block on the pipeline, its steps (python -m flow)
+    uv run python -m flow --block comp --run topologies --to record   # one search of a block on the pipeline
 """
 
 from __future__ import annotations

@@ -48,7 +48,7 @@ def plot_metastability(metastability: AnalysisMetastability) -> Plot:
 def plot_noise_cm(common_mode: AnalysisCommonMode) -> Plot:
     """The input-referred noise over the common mode (NaN where an S-curve gave no valid fit): a
     characterization's S-curves (``sweep.record``), or a lab campaign's captures, each common mode's
-    (``python -m flow comp --from figures --to figures --run <captures>``)."""
+    (``python -m flow.plot comp <captures>``)."""
     return Plot(
         name="noise_cm",
         title="Input-referred noise over the common mode",

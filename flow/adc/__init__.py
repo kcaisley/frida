@@ -3,9 +3,9 @@ circuit, testbench, analyses and plots, each in its own stage module, their name
 (``from flow import adc`` then ``adc.Params``, ``adc.analyze_ramp``, ``adc.AnalysisRamp``,
 ``adc.plot_inl``).
 
-Its design space (``flow.adc.sweep``), behavioral model (``flow.adc.model``) and own layout flow
+Its design space (``flow.adc.search``), behavioral model (``flow.adc.model``) and own layout flow
 (``flow.adc.layout``) are not imported here (its lab studies are its figures of captures,
-``python -m flow adc --from figures --to figures --run <run>``): its runs' behavioral converter
+``python -m flow.plot adc <captures>``): its runs' behavioral converter
 (``flow.adc.sim``) imports the other blocks' models, and through a module that refers to this
 package (``flow.analysis.types`` does), a block's own stages would reach the stages above them,
 against the stage order import-linter holds the migrated blocks to."""

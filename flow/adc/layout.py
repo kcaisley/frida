@@ -21,7 +21,7 @@ capdac's array of the converter's ``capdac.Params``, its drivers with it, the N 
 image. Each block is outlined and labelled on the boundary layer, which the viewer shows, and its
 place written beside the GDS (``blocks.json``). Nothing is connected, so DRC alone signs it off.
 
-    gds = lay_out(params, "tsmc65", run_dir)  # python -m flow adc --to layout --pdk tsmc65 --instance <name>
+    gds = lay_out(params, "tsmc65", run_dir)  # python -m flow --block adc --run <name> --to layout
 """
 
 from __future__ import annotations

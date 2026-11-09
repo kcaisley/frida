@@ -81,7 +81,7 @@ def test_every_sweep_module_keeps_the_contract() -> None:
 
     for block in runner.sweep_blocks():
         try:
-            sweep = __import__(f"flow.{block}.sweep", fromlist=["instances"])
+            sweep = runner.search_module(block)
         except ImportError:
             # a legacy block (flow/test_pipeline.py's NOT_MIGRATED) may no longer import: it waits on
             # its port, and fails where it is run; a block on the pipeline imports
@@ -152,13 +152,13 @@ def test_the_comparator_space_is_its_grid_and_the_adcs_comparators() -> None:
     # the ADC's StrongARM: every width times k but the tail's, 4 k wide
     strongarm = comp.base_strongarm.spaces("lf150")["tail_l=34, k=1.5"].base
     assert strongarm.diffpair_w == 48 and strongarm.tail_w == 6
-    # named but not swept: picked by name, and by label or digest the swept ones
-    picked = runner.select(
-        "comp", "tsmc65", ["triple_tail", "dynamic_bias(ratio=3.5, k=3)", runner.digest(comp.frida1())]
-    )
-    assert [label for label, _params in picked.values()] == ["triple_tail", "dynamic_bias(ratio=3.5, k=3)", "frida1"]
-    with pytest.raises(LookupError, match="no instance"):
-        runner.select("comp", "tsmc65", ["no_such_comparator"])
+    # a run's designs: a single's one, by its name; a grid's every point, labelled
+    single = runner.run_instances("comp", "frida1", "tsmc65")
+    assert [label for label, _params in single.values()] == ["frida1"] and runner.digest(comp.FRIDA1) in single
+    grid = runner.run_instances("comp", "dynamic_bias", "tsmc65")
+    assert "dynamic_bias(ratio=3.5, k=3)" in {label for label, _params in grid.values()}
+    with pytest.raises(KeyError):
+        runner.run_instances("comp", "no_such_comparator", "tsmc65")
 
 
 def test_the_table_has_a_row_per_instance_and_a_file_each(tmp_path: Path, monkeypatch) -> None:
@@ -347,7 +347,7 @@ def test_a_layout_is_found_by_its_digest_newest_first(tmp_path: Path, monkeypatc
     write(root / f"newest/tsmc65/{ident}/instance.json", {"gds": str(tmp_path / "gone.gds")})
     write(root / "newest/tsmc65/other/instance.json", {"gds": str(gds), "w_um": 5}, "0" * 12)
     assert lookup.laid_out("toy", "tsmc65", params)["w_um"] == 4
-    with pytest.raises(LookupError, match=f"python -m flow toy --to pex --pdk ihp130 --instance {ident}"):
+    with pytest.raises(LookupError, match=f"{ident}\\) is not laid out: python -m flow --block toy --run"):
         lookup.laid_out("toy", "ihp130", params)
 
 
@@ -356,5 +356,5 @@ def test_the_comparators_circuit_level_runs_its_full_runs() -> None:
     pytest.importorskip("pdk.tsmc65.hdl21")
     from flow.pipeline import Level
 
-    sweep = importlib.import_module("flow.comp.sweep")
-    assert sweep.runs("tsmc65", comp.FRIDA1, Level.CIRCUIT) == sweep.runs("tsmc65", comp.FRIDA1, Level.FULL)
+    search = importlib.import_module("flow.comp.search")
+    assert search.runs("tsmc65", comp.FRIDA1, Level.CIRCUIT) == search.runs("tsmc65", comp.FRIDA1, Level.FULL)

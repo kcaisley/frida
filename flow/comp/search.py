@@ -1,17 +1,24 @@
-"""The comparator's design space (docs/pipeline.md): its grids (``@grid``: a design with some of its
-parameters widened, ``widen``, every point of it; the ADC's comparators, each PDK's, by name) and
-its named instances (``@named``); the testbench runs that characterize one instance
-(``runs``) and the record they make (``record``); readme.md says why the space is what it is."""
+"""The comparator's searches (docs/pipeline.md), each run by its name: its grids (``@grid``: a design
+with some of its parameters widened, ``widen``, every point of it; the ADC's comparators, each
+PDK's, by name), its single designs (``@single``) and its optimizations (``@optimize``: the least
+energy, area and noise of a comparator for a converter of each resolution, within its bounds,
+``params.ADC_FULL_SCALE`` and the constants after it, over its space; the first search NMOS input
+pairs alone: the placements that give the layout area in a minute, the generator's,
+``subckt._place``, are NMOS ones, and a design without one cannot meet the area bound); the
+testbench runs that characterize one design (``runs``) and the record they make (``record``);
+readme.md says why the space is what it is."""
 
 from __future__ import annotations
 
 import dataclasses
 import importlib
+import math
 from dataclasses import replace
 
 import hdl21 as h
+from hdl21.primitives import MosType
 
-from flow.pipeline import Level, Meas, Pdk, Record, every, grid, named, steps, widen
+from flow.pipeline import Level, Meas, Pdk, Problem, Record, every, grid, optimize, single, steps, widen
 
 from .analysis import (
     analyze_clock_check,
@@ -27,13 +34,18 @@ from .analysis import (
     metrics,
 )
 from .params import (
+    ADC_FULL_SCALE,
+    AREA_SIDE_UM,
+    AREA_WEIGHT,
     CHECK_CLOCK_S,
     CM_SWEEP,
+    DECISION_S,
     FRIDA1,
     KICKBACK_SOURCE,
     LARGE_V,
     METASTABILITY_RUN_V,
     NOISE_STROBE_S,
+    NOISE_WEIGHT,
     NOMINAL_CM,
     SCURVE_DECISIONS,
     SCURVE_V,
@@ -70,7 +82,7 @@ def topologies() -> Params:
 
 @grid
 def base_strongarm(pdk: Pdk) -> dict[str, Params]:
-    """The ADC's comparators (flow.adc.sweep: TSMC65's comparator grid, elsewhere the PDK's StrongARM
+    """The ADC's comparators (flow.adc.search: TSMC65's comparator grid, elsewhere the PDK's StrongARM
     ladder at its longest tail), where the base StrongARM is the more frugal topology: each PDK's
     tails (its delays: 0.5, 1, 1.5 and 2 ns at 0.5 mV) and widths (its noise levels: 200, 150, 100,
     70 and 50 uV, where its noise floor reaches them), each point by its tail's length in minimum
@@ -153,43 +165,43 @@ def _dynamic_bias(ratio: float, k: float) -> Params:
     )
 
 
-@named
+@single
 def frida1() -> Params:
     """FRIDA-1's fabricated comparator."""
     return FRIDA1
 
 
-@named(swept=False)
+@single
 def strongarm() -> Params:
     """The StrongARM at the characterization's sizes."""
     return Params(latch=Latch.STRONGARM)
 
 
-@named(swept=False)
+@single
 def double_tail() -> Params:
     """The double tail at the characterization's sizes."""
     return Params(latch=Latch.DOUBLE_TAIL)
 
 
-@named(swept=False)
+@single
 def triple_tail() -> Params:
     """The triple tail at the characterization's sizes."""
     return Params(latch=Latch.TRIPLE_TAIL)
 
 
-@named(swept=False)
+@single
 def double_tail_self_timed() -> Params:
     """The self-timed double tail at the characterization's sizes."""
     return Params(latch=Latch.DOUBLE_TAIL_SELF_TIMED)
 
 
-@named(swept=False)
+@single
 def double_tail_modified() -> Params:
     """The modified double tail at the characterization's sizes."""
     return Params(latch=Latch.DOUBLE_TAIL_MODIFIED)
 
 
-@named(swept=False)
+@single
 def double_tail_modified_self_timed() -> Params:
     """The self-timed modified double tail at the characterization's sizes."""
     return Params(latch=Latch.DOUBLE_TAIL_MODIFIED_SELF_TIMED)
@@ -321,4 +333,61 @@ def record(measurements: dict[str, Meas]) -> Record:
             "metastability": "metastability",
             "kickback": "kickback",
         },
+    )
+
+
+# ---------------------------------------------------------------- optimizations
+
+
+@optimize(budget=500, pdks=(Pdk.TSMC65,), workers=48)
+def adc_10bit(pdk: Pdk) -> Problem:
+    """A comparator for a 10-bit converter in ``pdk`` (``_adc``)."""
+    return _adc(10, pdk)
+
+
+@optimize(budget=500, pdks=(Pdk.TSMC65,), workers=48)
+def adc_12bit(pdk: Pdk) -> Problem:
+    """A comparator for a 12-bit converter in ``pdk`` (``_adc``)."""
+    return _adc(12, pdk)
+
+
+@optimize(budget=500, pdks=(Pdk.TSMC65,), workers=48)
+def adc_14bit(pdk: Pdk) -> Problem:
+    """A comparator for a 14-bit converter in ``pdk`` (``_adc``)."""
+    return _adc(14, pdk)
+
+
+def _adc(bits: int, pdk: Pdk) -> Problem:
+    """A comparator for a ``bits``-bit converter in ``pdk``: its noise at most the converter's
+    quantization noise at the PDK's supply, its layout within the resolution's square, its delay
+    within the decision's time. Searched: every latch and tail, each size on a log scale; the latch
+    devices' lengths only where a PDK's longer ones still decide within the evaluation (else held at
+    the minimum), the tail no longer than a PDK's decides; the dynamic bias's capacitors with it."""
+
+    supply = importlib.import_module(f"pdk.{pdk.name.lower()}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
+    quantization_v = 2 * ADC_FULL_SCALE * supply / 2**bits / math.sqrt(12)
+    space = widen(Params(input_pair=MosType.NMOS))
+    space.latch = every(Latch)
+    space.bias = every(Bias)
+    space.diffpair_w = steps(2, 8192, log=True)
+    space.diffpair_l = steps(1, 16, log=True)
+    space.tail_w = steps(2, 4096, log=True)
+    space.tail_l = steps(1, {Pdk.TSMC28: 32, Pdk.IHP130: 34, Pdk.LF150: 34}.get(pdk, 64), log=True)
+    space.rst_w = steps(2, 2048, log=True)
+    space.latch_on_w = steps(2, 2048, log=True)
+    space.latch_init_w = steps(2, 2048, log=True)
+    if pdk in (Pdk.TSMC65, Pdk.TSMC28):  # elsewhere longer latch devices do not decide in time: held at 1
+        space.latch_on_l = steps(1, 32, log=True)
+        space.latch_init_l = steps(1, 32, log=True)
+    space.preamp_c_ff = steps(10, 16000, log=True, when=Bias.DYNAMIC)
+    space.bias_c_ff = steps(10, 64000, log=True, when=Bias.DYNAMIC)
+    return Problem(
+        cost={"energy_0p5mv_j": 1.0, "layout_area_um2": AREA_WEIGHT, "noise_v": (NOISE_WEIGHT, quantization_v)},
+        bound={
+            "noise_v": quantization_v,
+            "layout_area_um2": AREA_SIDE_UM[bits] ** 2,
+            "delay_0p5mv_s": DECISION_S,
+            "decides_in_time": True,
+        },
+        space=space,
     )

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from flow import capdac, comp, samp
-from flow.sweep.runner import digest, select
+from flow.sweep.runner import digest, run_instances
 
 from .params import Extraction, Fabricated, Params, Quiet, Recipe, Simulator, TbParams, valid
 
@@ -64,11 +64,11 @@ def test_a_fabricated_converter_is_a_design_in_its_tape_outs_process_alone():
     assert all(valid(member.params, "tsmc65") for member in Fabricated)
     assert not any(valid(member.params, pdk) for member in Fabricated for pdk in ("ihp130", "tsmc28"))
     assert valid(Params(), "ihp130")
-    picked = select("adc", "tsmc65", ["frida1_2layer_radix20"])
+    picked = run_instances("adc", "frida1_2layer_radix20", "tsmc65")
     assert [(label, params) for label, params in picked.values()] == [
         ("frida1_2layer_radix20", Fabricated.FRIDA1_2LAYER_RADIX20.params)
     ]
-    assert select("adc", "ihp130", ["frida1_2layer_radix20"]) == {}
+    assert run_instances("adc", "frida1_2layer_radix20", "ihp130") == {}
 
 
 # a run: what simulates it, its lines and its checks
