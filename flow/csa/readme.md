@@ -11,7 +11,7 @@
 | Analysis tests | ✓ | [test_analysis.py](test_analysis.py) | Piecewise-linear pulses of known gain, peaking, discharge (NMOS and PMOS polarity), a held step (reset), white noise of known ENC; every plot renders. |
 | Layout generator | ✓ | [layout.py](layout.py) | Standard-cell rows by ALIGN from hand-written floorplans (`design/layout/csa_*.json`); the layout netlist leaves `cf` out. |
 | Layout tests | ✓ | [test_layout.py](test_layout.py) | Target registry; every floorplan places each netlist device once and escapes every connected port; every PDK writes every case. |
-| Layout runner | ✓ | [layout.py](layout.py) | Four cases in six PDKs by ALIGN (their earlier layouts by cIcCreator and laygo, both since removed, were all DRC clean and LVS correct). LF150's signoff runs in a shell with only the Cadence and frida-layout environments: with the rd53a one sourced, Assura stops before its report. |
+| Layout runner | ✓ | [layout.py](layout.py) | Four cases in six PDKs by ALIGN (their earlier layouts by cIcCreator and laygo, both since removed, were all DRC clean and LVS correct). LF150's signoff runs in a shell with only the Cadence environment and the layout tools' settings: with the rd53a one sourced, Assura stops before its report. |
 | DRC runner | ✓ | [layout.py](layout.py) | gdscheck and the PDK's DRC for every layout (`row_signoff`). |
 | LVS runner | ✓ | [layout.py](layout.py) | The PDK's LVS for every layout against the netlist the build placed. |
 | PEX runner | ✗ | - | No extraction. |

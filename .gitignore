@@ -1,4 +1,5 @@
 # Local workspace
+/workspace.sh
 /.zed/
 /.slang/local/
 /tmp
