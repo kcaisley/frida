@@ -2,7 +2,7 @@
 testbench, analyses, plots, design space and behavioral model, each in its own stage module, their
 names re-exported here (``from flow import capdac`` then ``capdac.Params``, ``capdac.analyze_settling``)."""
 
-from . import params, subckt, sim, types, analysis, plots, search, model  # noqa: I001 - the pipeline's order
+from . import params, subckt, sim, types, analysis, plots, runs, model  # noqa: I001 - the pipeline's order
 from .analysis import (
     analyze_cap_mismatch,
     analyze_decisions,
@@ -30,7 +30,7 @@ from .plots import (
 )
 from .sim import simulate, testbench
 from .subckt import Nets, netlist
-from .search import arrays, frida1, record, runs
+from .runs import arrays, frida1, record, testbenches
 from .types import (
     AnalysisCapMismatch,
     AnalysisMismatch,
@@ -79,10 +79,10 @@ __all__ = [
     "plots",
     "record",
     "runs",
-    "search",
     "sim",
     "simulate",
     "subckt",
     "testbench",
+    "testbenches",
     "types",
 ]

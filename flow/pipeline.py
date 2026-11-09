@@ -4,8 +4,8 @@ A block's parameters (``Params``: the design; ``TbParams``: one testbench run of
 its ``params.py``, its circuit in ``subckt.py``, its testbench and simulator run in ``sim.py``; the
 simulator's raw output becomes a ``Meas`` here (``read``: every saved signal on the simulator's own
 time axis), the block's ``analysis.py`` turns measurements into ``Analysis`` results and metrics,
-its ``plots.py`` into ``Plot`` specs, and its ``search.py`` into the ``Record`` of an instance.
-Its ``search.py`` also gives its searches, each one run of the command line by its function's name
+its ``plots.py`` into ``Plot`` specs, and its ``runs.py`` into the ``Record`` of an instance.
+Its ``runs.py`` also gives its runs, each one run of the command line by its function's name
 (``python -m flow --block comp --run frida1``): one design (``@single``), a grid of them (``@grid``:
 spaces, each a design with some of its parameters widened, ``widen``), or an optimization over a
 space (``@optimize``: a ``Problem``).
@@ -62,11 +62,11 @@ class TbParams(ABC):
     params: Any
 
 
-# ---- a block's searches (its search.py): one design, a grid of them, an optimization
+# ---- a block's runs (its runs.py): one design, a grid of them, an optimization
 
 type Axis = Sequence[Any] | Callable[[str], Sequence[Any]]
 
-# the workers a search runs on where it names none; more than the machine's processors is refused
+# the workers a run runs on where it names none; more than the machine's processors is refused
 DEFAULT_WORKERS = 36
 
 
@@ -104,29 +104,29 @@ class Single:
 def single(
     build: Callable[[], Any] | None = None, *, pdks: Sequence[Pdk] | None = None, workers: int | None = None
 ) -> Any:
-    """Make a function without arguments, returning a block's ``Params``, a search of that one
+    """Make a function without arguments, returning a block's ``Params``, a run of that one
     design: ``@single``, or ``@single(pdks=(Pdk.TSMC65,))``."""
     if build is None:
         return lambda function: Single(function, _pdks(pdks), workers)
     return Single(build, _pdks(pdks), workers)
 
 
-type Search = Single | Grid | Optimize
+type Run = Single | Grid | Optimize
 
 
-def searches(module: Any) -> dict[str, Search]:
-    """A block's searches (its search module's ``@single``, ``@grid`` and ``@optimize`` functions)
-    by name, in source order."""
+def runs(module: Any) -> dict[str, Run]:
+    """A block's runs (its runs module's ``@single``, ``@grid`` and ``@optimize`` functions) by
+    name, in source order."""
     return {value.name: value for value in vars(module).values() if isinstance(value, (Single, Grid, Optimize))}
 
 
 def singles(module: Any) -> dict[str, Single]:
-    """A block's single designs (its search module's ``@single`` functions) by name."""
-    return {name: found for name, found in searches(module).items() if isinstance(found, Single)}
+    """A block's single designs (its runs module's ``@single`` functions) by name."""
+    return {name: found for name, found in runs(module).items() if isinstance(found, Single)}
 
 
 def design(module: Any, pdk: str) -> Iterator[tuple[str, Any]]:
-    """Every design a block's searches name in ``pdk`` (before its ``params.valid``, where it has
+    """Every design a block's runs name in ``pdk`` (before its ``params.valid``, where it has
     one), labelled, in source order: each single's and each grid's (an optimization's space is not
     enumerated)."""
     for value in vars(module).values():
@@ -134,18 +134,18 @@ def design(module: Any, pdk: str) -> Iterator[tuple[str, Any]]:
             yield from value.instances(pdk)
 
 
-def workers(search: Single | Grid | Optimize) -> int:
-    """The workers a search runs on (its own, else ``DEFAULT_WORKERS``), refused above the machine's
+def workers(run: Single | Grid | Optimize) -> int:
+    """The workers a run runs on (its own, else ``DEFAULT_WORKERS``), refused above the machine's
     processors."""
     import os
 
-    count = search.workers or DEFAULT_WORKERS
+    count = run.workers or DEFAULT_WORKERS
     if count > (os.cpu_count() or 1):
-        raise ValueError(f"{search.name} asks for {count} workers; this machine has {os.cpu_count()} processors")
+        raise ValueError(f"{run.name} asks for {count} workers; this machine has {os.cpu_count()} processors")
     return count
 
 
-# ---- spaces: a design with some of its parameters widened, for a grid (a block's search.py, @grid)
+# ---- spaces: a design with some of its parameters widened, for a grid (a block's runs.py, @grid)
 # or an optimization (a problem's space, its @optimize)
 
 
@@ -348,7 +348,7 @@ def grid(
     build: Callable[..., Any] | None = None, *, pdks: Sequence[Pdk] | None = None, workers: int | None = None
 ) -> Any:
     """Make a function (of the PDK, a ``Pdk``, where it takes one) returning a space, several, or
-    several by name, a search of every design they hold, run by its name: ``@grid``, or
+    several by name, a run of every design they hold, by its name: ``@grid``, or
     ``@grid(pdks=(Pdk.TSMC65, ...), workers=24)`` in those PDKs alone, on that many workers."""
     entry = tuple(pdks) if pdks is not None else None
     if build is None:
@@ -356,7 +356,7 @@ def grid(
     return Grid(build, entry, workers)
 
 
-# ---- metrics, evaluation levels and problems (a block's types.py and search.py)
+# ---- metrics, evaluation levels and problems (a block's types.py and runs.py)
 
 
 class Metrics:
@@ -435,7 +435,7 @@ class Optimize:
 
 
 def optimize(*, budget: int, pdks: Sequence[Pdk] | None = None, workers: int | None = None) -> Callable[..., Optimize]:
-    """Make a function (of the PDK where it takes one) returning a ``Problem`` a search that
+    """Make a function (of the PDK where it takes one) returning a ``Problem`` a run that
     optimizes it: ``@optimize(budget=500)``, ``@optimize(budget=500, pdks=(Pdk.TSMC65,), workers=24)``."""
     return lambda build: Optimize(build, budget, _pdks(pdks), workers)
 

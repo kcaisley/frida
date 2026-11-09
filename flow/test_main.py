@@ -1,5 +1,5 @@
 """The CLI (``python -m flow``): its steps from one to another, its runs, make-style resume,
-``--predict`` and its refusals, on the toy block (``flow/conftest.py``'s ``toy``); its layout steps
+``--dry-run`` and its refusals, on the toy block (``flow/conftest.py``'s ``toy``); its layout steps
 with the tools stood in for (``tools``)."""
 
 from __future__ import annotations
@@ -40,12 +40,12 @@ def test_the_steps_run_from_one_to_another() -> None:
         steps.between(Step.LAYOUT, Step.RECORD)
 
 
-def test_the_bare_command_prints_the_usage_the_steps_and_each_blocks_searches(capsys) -> None:
+def test_the_bare_command_prints_the_usage_the_steps_and_each_blocks_runs(capsys) -> None:
     cli.main([])
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].startswith("python -m flow --block B --run R")
     assert "  record (needs netlist, sim)" in lines and "  page (needs record, pex)" in lines
-    assert "blocks and their searches (--run):" in lines
+    assert "blocks and their runs (--run):" in lines
     assert any(
         line.startswith("  comp: ") and "frida1 (single)" in line and "adc_12bit (optimize)" in line for line in lines
     )
@@ -54,7 +54,7 @@ def test_the_bare_command_prints_the_usage_the_steps_and_each_blocks_searches(ca
 
 def test_an_optimization_runs_its_study_and_the_viewer_keeps_its_command(monkeypatch) -> None:
     """``--run`` an optimization runs its study in each of its PDKs, its budget and workers its own
-    (search.py); the viewer keeps ``web.serve``; the old verbs and flags are gone."""
+    (runs.py); the viewer keeps ``web.serve``; the old verbs and flags are gone."""
     from flow.opt import runner as opt
     from flow.web import server
 
@@ -67,7 +67,7 @@ def test_an_optimization_runs_its_study_and_the_viewer_keeps_its_command(monkeyp
     for old in (["opt", "comp", "--problem", "adc(bits=12)"], ["comp", "--to", "record"]):
         with pytest.raises(SystemExit):
             cli.main(old)
-    with pytest.raises(SystemExit, match="comp has no search 'nothing'"):
+    with pytest.raises(SystemExit, match="comp has no run 'nothing'"):
         cli.main(["--block", "comp", "--run", "nothing"])
 
 
@@ -94,13 +94,13 @@ def simulated(toy, monkeypatch) -> list[str]:
 
 
 def _instance(run: str) -> Path:
-    """A single's folder in its search's latest run: ``build/toyblock/<run>/<stamp>/toypdk/<run>``."""
+    """A single's folder in its run's latest folder: ``build/toyblock/<run>/<stamp>/toypdk/<run>``."""
     dated = sorted((runner.RUNS_DIR / "toyblock" / run).glob("2*"))
     return dated[-1] / "toypdk" / run
 
 
 def test_a_block_runs_through_every_characterization_step(flow, simulated, capsys, monkeypatch) -> None:
-    """``--to record`` makes the run, named by its search: the netlist (the circuit and its size),
+    """``--to record`` makes the run, dated under its name: the netlist (the circuit and its size),
     each run simulated and its measurement kept (its raw file removed), and the record from the kept
     measurements, each step in its folder, the record beside them; the table from it."""
     flow("--run", "one", "--to", "record")
@@ -129,7 +129,7 @@ def test_a_block_runs_through_every_characterization_step(flow, simulated, capsy
 
 def test_a_step_resumes_where_its_output_is_complete(flow, simulated, capsys) -> None:
     """Make's rule: a run from the netlist is a new one, dated; ``--from`` a later step resumes the
-    search's latest, a step whose output is complete, and not older than what it needs, skipped,
+    run's latest, a step whose output is complete, and not older than what it needs, skipped,
     one deleted made again, and every step after it; ``--from record`` analyses again what the sim
     step kept, without simulating."""
     flow("--run", "one", "--to", "record")
@@ -162,7 +162,7 @@ def test_a_step_resumes_where_its_output_is_complete(flow, simulated, capsys) ->
 
 
 def test_a_later_step_needs_its_run(flow, toy, capsys) -> None:
-    """``--from`` past the netlist works in the search's latest run, which must exist."""
+    """``--from`` past the netlist works in the run's latest folder, which must exist."""
     with pytest.raises(SystemExit, match="no run of toyblock's one yet: python -m flow --block toyblock --run one"):
         flow("--run", "one", "--from", "record", "--to", "record")
     flow("--run", "one", "--to", "sim")
@@ -171,17 +171,17 @@ def test_a_later_step_needs_its_run(flow, toy, capsys) -> None:
 
 
 def test_a_search_runs_in_its_pdks(flow, toy, monkeypatch, capsys) -> None:
-    """A search runs in every PDK whose kit is here and that admits its designs, or in those it names."""
+    """A run runs in every PDK whose kit is here and that admits its designs, or in those it names."""
     import importlib.util
 
     monkeypatch.setattr(runner, "PDKS", ("toypdk", "otherpdk"))
     monkeypatch.setattr(importlib.util, "find_spec", lambda name, *rest: object())
-    flow("--run", "one", "--to", "record", "--predict")
+    flow("--run", "one", "--to", "record", "--dry-run")
     assert [line.split()[0] for line in capsys.readouterr().out.splitlines()[1:3]] == ["toypdk", "otherpdk"]
 
 
-def test_predict_prints_what_would_run_and_runs_nothing(flow, toy, capsys) -> None:
-    flow("--run", "one", "--to", "record", "--predict")
+def test_dry_run_prints_what_would_run_and_runs_nothing(flow, toy, capsys) -> None:
+    flow("--run", "one", "--to", "record", "--dry-run")
     out = capsys.readouterr().out.splitlines()
     assert out[0].startswith("toyblock: new run") and out[0].endswith("steps netlist, sim, record")
     assert out[1] == "toypdk one (one): netlist, sim, record; 3 simulator runs"
@@ -189,18 +189,18 @@ def test_predict_prints_what_would_run_and_runs_nothing(flow, toy, capsys) -> No
     assert not (runner.RUNS_DIR / "toyblock").exists()
     flow("--run", "one", "--to", "sim")
     capsys.readouterr()
-    flow("--run", "one", "--from", "record", "--to", "table", "--predict")
+    flow("--run", "one", "--from", "record", "--to", "table", "--dry-run")
     out = capsys.readouterr().out.splitlines()
     assert out[0].startswith("toyblock: the latest run") and out[1] == "toypdk one (one): record"
     assert out[2].endswith("0 complete, about 0 simulator runs; then the table")
 
 
-def test_predict_marks_the_steps_that_would_fail_and_why(flow, toy, capsys) -> None:
-    """A step whose inputs are neither complete nor made first would fail: ``--predict`` says so,
+def test_dry_run_marks_the_steps_that_would_fail_and_why(flow, toy, capsys) -> None:
+    """A step whose inputs are neither complete nor made first would fail: ``--dry-run`` says so,
     with the command that makes them, and the steps after it not run; the totals count them."""
     flow("--run", "one", "--to", "netlist")
     capsys.readouterr()
-    flow("--run", "one", "--from", "record", "--to", "figures", "--predict")
+    flow("--run", "one", "--from", "record", "--to", "figures", "--dry-run")
     lines = capsys.readouterr().out.splitlines()
     command = "python -m flow --block toyblock --run one --from sim --to sim"
     assert lines[1] == (
@@ -226,8 +226,8 @@ def test_the_table_takes_each_instances_newest_record_across_the_runs(flow, tool
 
 
 def _named(*names: str):
-    search = importlib.import_module("flow.toyblock.search")
-    return [getattr(search, name) for name in names]
+    module = importlib.import_module("flow.toyblock.runs")
+    return [getattr(module, name) for name in names]
 
 
 def test_a_step_without_its_inputs_fails_naming_the_command_that_makes_them(flow, toy, capsys) -> None:
@@ -285,10 +285,12 @@ def test_the_circuit_step_adds_the_circuit_simulators_runs_and_records_again(flo
 
 
 def test_a_block_whose_circuit_level_adds_no_runs_refuses_the_circuit_step(flow, toy) -> None:
-    search = importlib.import_module("flow.toyblock.search")
-    runs = search.runs
+    module = importlib.import_module("flow.toyblock.runs")
+    testbenches = module.testbenches
     level = pipeline.Level
-    search.runs = lambda pdk, params, at=level.FULL: runs(pdk, params, level.FULL if at is level.CIRCUIT else at)
+    module.testbenches = lambda pdk, params, at=level.FULL: testbenches(
+        pdk, params, level.FULL if at is level.CIRCUIT else at
+    )
     with pytest.raises(SystemExit, match="no circuit simulator runs beyond its full ones"):
         flow("--run", "one", "--to", "circuit")
 
@@ -367,7 +369,7 @@ def test_the_layout_steps_lay_out_then_sign_off_each_in_its_folder(flow, tools, 
     assert entry["pex"] == {"netlist": entry["pex"]["netlist"], "extractor": "stand-in", "nets": {"a": 1e-15}}
     assert entry["pex"]["netlist"].endswith("wired/pex/toy.pex.spectre") and entry["error"] is None
     assert set(entry["steps"]) == {"layout", "drc", "lvs", "pex"} and entry["floorplan"] == "lay_out"
-    assert lookup.laid_out("toyblock", "toypdk", importlib.import_module("flow.toyblock.search").wired()) == entry
+    assert lookup.laid_out("toyblock", "toypdk", importlib.import_module("flow.toyblock.runs").wired()) == entry
     # complete: skipped
     tools.calls.clear()
     flow("--run", "wired", "--from", "drc", "--to", "pex")

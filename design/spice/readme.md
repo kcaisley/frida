@@ -2,13 +2,13 @@
 
 ## Campaign interface
 
-Each block on the pipeline owns its reviewed runs in `flow/<block>/search.py` (`runs`) and their testbenches and simulation in `flow/<block>/sim.py`, where `<block>` is `adc`, `comp`, `capdac` or `samp`. The CLI's sim step simulates them:
+Each block on the pipeline owns its reviewed runs in `flow/<block>/runs.py` (`runs`) and their testbenches and simulation in `flow/<block>/sim.py`, where `<block>` is `adc`, `comp`, `capdac` or `samp`. The CLI's sim step simulates them:
 
 ```bash
-uv run python -m flow --block <block> --run <search> --to sim
+uv run python -m flow --block <block> --run <run> --to sim
 ```
 
-`python -m flow --block <block> --run <search> --to sim --predict` lists the designs and their runs without running any (a search: a `@single`, `@grid` or `@optimize` of the block's `search.py`, by name). Each design's run writes into its own folder of the search's run, `build/<block>/<search>/<pdk>/<name>/sim/<run>/`; a run is never overwritten, only resumed where its output is incomplete. Every run uses the native HDL21 `Sim.run()` or `hs.run()` API with its folder as the VLSIR run directory. Its raw output is read as a typed measurement and kept as HDF5 (`result.h5`), then removed; each generated deck and simulator log stays beside it.
+`python -m flow --block <block> --run <run> --to sim --dry-run` lists the designs and their runs without running any (a run: a `@single`, `@grid` or `@optimize` of the block's `runs.py`, by name). Each design's run writes into its own folder of the run's dated folder, `build/<block>/<run>/<stamp>/<pdk>/<name>/sim/<testbench>/`; a run is never overwritten, only resumed where its output is incomplete. Every run uses the native HDL21 `Sim.run()` or `hs.run()` API with its folder as the VLSIR run directory. Its raw output is read as a typed measurement and kept as HDF5 (`result.h5`), then removed; each generated deck and simulator log stays beside it.
 
 The blocks' `sim.py` state their concurrency and per-case Spectre `+mt` settings at the call sites which own that resource policy. Spectre jobs use `+lqtimeout 3600` so a temporarily exhausted license queue does not immediately fail a run. An analysis names its run (`--run`), or takes the latest and says which; creating new simulation data never changes an older run's inputs.
 

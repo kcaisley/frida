@@ -13,10 +13,10 @@ from . import test_spectre
 
 def test_the_adcs_circuit_runs_are_its_sweeps():
     # the ADC's circuit simulator's runs are its sweep's runs at the circuit level: it has no targets
-    search = importlib.import_module("flow.adc.search")
-    assert "level" in inspect.signature(search.runs).parameters
+    runs = importlib.import_module("flow.adc.runs")
+    assert "level" in inspect.signature(runs.testbenches).parameters
     assert importlib.util.find_spec("flow.adc.targets") is None
-    for stage in ("sim", "search"):
+    for stage in ("sim", "runs"):
         source = importlib.import_module(f"flow.adc.{stage}")
         assert not hasattr(source, "main")
         assert "netlist_only" not in inspect.getsource(source)

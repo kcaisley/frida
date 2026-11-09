@@ -1,7 +1,7 @@
-"""Optimize a block over its parameters' domains (``python -m flow --block <block> --run <optimization>``, its search.py's ``@optimize``), as
+"""Optimize a block over its parameters' domains (``python -m flow --block <block> --run <optimization>``, its runs.py's ``@optimize``), as
 ``flow.sweep.runner`` sweeps it over its families.
 
-A study is one optimization of the block (its search.py's ``@optimize``: ``adc_12bit``) in one PDK, kept in
+A study is one optimization of the block (its runs.py's ``@optimize``: ``adc_12bit``) in one PDK, kept in
 ``build/opt/<block>/<pdk>/<problem>.db`` (Optuna, sqlite) so that it resumes. Optuna's TPE sampler
 proposes designs asynchronously: whenever a worker frees, it asks for the next design, so a slow
 evaluation holds no other (a design is about a minute to an hour). The objective is the problem's
@@ -90,10 +90,10 @@ def shown(member: Enum) -> str:
 
 
 def _problem(block: str, label: str, pdk: str) -> pipeline.Problem:
-    """The problem of the block's optimization ``label`` (its search.py's ``@optimize``) in ``pdk``."""
+    """The problem of the block's optimization ``label`` (its runs.py's ``@optimize``) in ``pdk``."""
     optimizations = {
         name: search
-        for name, search in pipeline.searches(import_module(f"flow.{block}.search")).items()
+        for name, search in pipeline.runs(import_module(f"flow.{block}.runs")).items()
         if isinstance(search, pipeline.Optimize)
     }
     if label not in optimizations:
@@ -272,7 +272,7 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
     folder.mkdir(parents=True, exist_ok=True)
     met = lambda metrics: not any(value > 0 for value in pipeline.violations(problem, metrics, better).values())
     if record["valid"]:
-        sweep = import_module(f"flow.{block}.search")
+        sweep = import_module(f"flow.{block}.runs")
         module = import_module(f"flow.{block}.subckt").netlist(params)
         h.pdk.compile(module)
         extra = geometry(module, pdk)
@@ -286,7 +286,7 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
             record["seconds"] = round(time.time() - start, 1)
             write_record(path, record)
             return record
-        measurements = simulate(block, sweep.runs(pdk, params, pipeline.Level.SCREEN), folder / "runs")
+        measurements = simulate(block, sweep.testbenches(pdk, params, pipeline.Level.SCREEN), folder / "runs")
         result = sweep.record(measurements)
         metrics = {**result.metrics, **extra}
         record.update(metrics=metrics, level=pipeline.Level.SCREEN.value, **kept(result, measurements, folder / "runs"))
@@ -297,7 +297,7 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
             record.update(metrics=metrics)
         if met(metrics):
             # the search's runs include the screen's: only the rest are simulated, one record of all
-            more = {n: tb for n, tb in sweep.runs(pdk, params, pipeline.Level.SEARCH).items() if n not in measurements}
+            more = {n: tb for n, tb in sweep.testbenches(pdk, params, pipeline.Level.SEARCH).items() if n not in measurements}
             measurements.update(simulate(block, more, folder / "runs"))
             result = sweep.record(measurements)
             metrics = {**result.metrics, **extra}
@@ -487,8 +487,8 @@ def characterize_full(block: str, pdk: str, params: Any) -> dict[str, Any]:
 
     h.pdk.set_default(import_module(f"pdk.{pdk}").pdk_logic)
     folder = study_dir(block, pdk) / "evals" / identity(block, pdk, params)
-    sweep = import_module(f"flow.{block}.search")
-    measurements = simulate(block, sweep.runs(pdk, params, pipeline.Level.FULL), folder / "full")
+    sweep = import_module(f"flow.{block}.runs")
+    measurements = simulate(block, sweep.testbenches(pdk, params, pipeline.Level.FULL), folder / "full")
     result = sweep.record(measurements)
     path = folder / "instance.json"
     record = json.loads(path.read_text())

@@ -2,7 +2,7 @@
 testbench, analyses, plots and design space, each in its own stage module, their names re-exported
 here (``from flow import samp`` then ``samp.Params``, ``samp.analyze_track``)."""
 
-from . import params, subckt, sim, types, analysis, plots, search  # noqa: I001 - the pipeline's order
+from . import params, subckt, sim, types, analysis, plots, runs  # noqa: I001 - the pipeline's order
 from .analysis import analyze_hold, analyze_track, metrics
 from .params import FRIDA1, Params, SwitchType, TbParams
 from .plots import (
@@ -15,7 +15,7 @@ from .plots import (
 )
 from .sim import simulate, testbench
 from .subckt import Nets, netlist
-from .search import boost_ladder, bootstrap, frida1, long_channel, nmos, record, runs, scaled, tgate_dummy
+from .runs import boost_ladder, bootstrap, frida1, long_channel, nmos, record, testbenches, scaled, tgate_dummy
 from .types import AnalysisHold, AnalysisTrack
 
 __all__ = [
@@ -47,11 +47,11 @@ __all__ = [
     "record",
     "runs",
     "scaled",
-    "search",
     "sim",
     "simulate",
     "subckt",
     "testbench",
+    "testbenches",
     "tgate_dummy",
     "types",
 ]

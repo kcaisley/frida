@@ -1,5 +1,5 @@
 """The comparator's behavioral model: the decision a SAR loop sees, from the characterization of
-the same ``Params`` in the PDK (``flow.comp.search``, looked up by ``flow.sweep.lookup``).
+the same ``Params`` in the PDK (``flow.comp.runs``, looked up by ``flow.sweep.lookup``).
 
     model = comp.model.Model.of("tsmc65", comp.Params(...))
     bits = model.decide(vin_diff_v, rng, vin_cm_v=0.7)

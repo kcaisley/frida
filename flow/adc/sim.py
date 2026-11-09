@@ -163,7 +163,7 @@ def _checked(tb: TbParams) -> Path:
     """The extraction a fabricated converter's Spectre run ``tb`` simulates (``_extraction``), refused
     unless it stands: its file there and not empty, as the kit's check of an extracted netlist
     passes it, and a signoff's as its layout signed it (``_signed_off``). The sweep checks each of a
-    level's circuit runs so before the first runs (``flow.adc.search.runs``), and each run again."""
+    level's circuit runs so before the first runs (``flow.adc.runs.runs``), and each run again."""
     path, _cell = _extraction(tb)
     if not path.is_file() or not path.stat().st_size:
         raise FileNotFoundError(path)

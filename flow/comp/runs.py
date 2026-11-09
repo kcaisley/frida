@@ -1,4 +1,4 @@
-"""The comparator's searches (docs/pipeline.md), each run by its name: its grids (``@grid``: a design
+"""The comparator's runs (docs/pipeline.md), each by its name: its grids (``@grid``: a design
 with some of its parameters widened, ``widen``, every point of it; the ADC's comparators, each
 PDK's, by name), its single designs (``@single``) and its optimizations (``@optimize``: the least
 energy, area and noise of a comparator for a converter of each resolution, within its bounds,
@@ -82,7 +82,7 @@ def topologies() -> Params:
 
 @grid
 def base_strongarm(pdk: Pdk) -> dict[str, Params]:
-    """The ADC's comparators (flow.adc.search: TSMC65's comparator grid, elsewhere the PDK's StrongARM
+    """The ADC's comparators (flow.adc.runs: TSMC65's comparator grid, elsewhere the PDK's StrongARM
     ladder at its longest tail), where the base StrongARM is the more frugal topology: each PDK's
     tails (its delays: 0.5, 1, 1.5 and 2 ns at 0.5 mV) and widths (its noise levels: 200, 150, 100,
     70 and 50 uV, where its noise floor reaches them), each point by its tail's length in minimum
@@ -207,7 +207,7 @@ def double_tail_modified_self_timed() -> Params:
     return Params(latch=Latch.DOUBLE_TAIL_MODIFIED_SELF_TIMED)
 
 
-def runs(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
+def testbenches(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
     """The testbench runs that characterize ``params`` in ``pdk`` at ``level``, by name (each run's
     folder), the quick ones first. ``Level.SCREEN``, no transient noise (about 25 s): the
     noise-free decisions over the input at the clock and at twice it (``metastability``,

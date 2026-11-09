@@ -139,7 +139,7 @@ jobs:
           flow/adc/test_plots.py
           flow/adc/test_sim.py
           flow/adc/test_subckt.py
-          flow/adc/test_search.py
+          flow/adc/test_runs.py
           flow/comp/test_subckt.py
           flow/opt/test_runner.py
           flow/layout/test_lint.py

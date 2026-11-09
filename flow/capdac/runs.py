@@ -57,7 +57,7 @@ def frida1() -> Params:
     return Params()
 
 
-def runs(pdk: str, params: Params) -> dict[str, TbParams]:
+def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     """The testbench runs that characterize ``params`` in ``pdk``: every stage up and back down, at
     the PDK's supply, in a window four times the stages' settling time, its output every 2000th of
     it (``settling``); and the plates' Monte Carlo, a hundred draws at each of Pelgrom's

@@ -81,16 +81,16 @@ def test_every_sweep_module_keeps_the_contract() -> None:
 
     for block in runner.sweep_blocks():
         try:
-            sweep = runner.search_module(block)
+            sweep = runner.runs_module(block)
         except ImportError:
             # a legacy block (flow/test_pipeline.py's NOT_MIGRATED) may no longer import: it waits on
             # its port, and fails where it is run; a block on the pipeline imports
             assert block in NOT_MIGRATED, block
             continue
-        # a block on the pipeline gives its runs and its record (flow/test_pipeline.py checks the
-        # rest), the others their characterization and generator
-        if hasattr(sweep, "runs"):
-            assert callable(sweep.runs) and callable(sweep.record), block
+        # a block on the pipeline gives its testbenches and its record (flow/test_pipeline.py checks
+        # the rest), the others their characterization and generator
+        if hasattr(sweep, "testbenches"):
+            assert callable(sweep.testbenches) and callable(sweep.record), block
         else:
             assert callable(sweep.characterize) and sweep.GENERATOR is not None, block
         # no tables of topologies or sizings of its own (a block's params may name its topologies)
@@ -356,5 +356,5 @@ def test_the_comparators_circuit_level_runs_its_full_runs() -> None:
     pytest.importorskip("pdk.tsmc65.hdl21")
     from flow.pipeline import Level
 
-    search = importlib.import_module("flow.comp.search")
-    assert search.runs("tsmc65", comp.FRIDA1, Level.CIRCUIT) == search.runs("tsmc65", comp.FRIDA1, Level.FULL)
+    runs = importlib.import_module("flow.comp.runs")
+    assert runs.testbenches("tsmc65", comp.FRIDA1, Level.CIRCUIT) == runs.testbenches("tsmc65", comp.FRIDA1, Level.FULL)

@@ -92,7 +92,7 @@ def read(raw: Path, tb: TbParams) -> pipeline.Meas:
     info = pipeline.MeasInfo(backend="behavioral", timestamp_utc=datetime.now(timezone.utc), readbacks={"text": raw.read_text()})
     return pipeline.Meas(group=None, index=None, dut=tb.params, info=info, param=tb)
 ''',
-    "search.py": '''"""Three single designs (one characterized, two more for their layouts); a run a level; a figure."""
+    "runs.py": '''"""Three single designs (one characterized, two more for their layouts); a run a level; a figure."""
 
 from flow.pipeline import Level, Meas, Plot, Record, single
 
@@ -114,7 +114,7 @@ def signed() -> Params:
     return Params(mode=2)
 
 
-def runs(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
+def testbenches(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
     names = [name for name in Level if name.value <= level.value]
     return {name.name.lower(): TbParams(pdk=pdk, params=params, name=name.name.lower()) for name in names}
 

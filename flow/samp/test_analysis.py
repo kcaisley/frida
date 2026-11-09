@@ -14,7 +14,7 @@ from flow.pipeline import Meas, MeasInfo, Plot
 
 from .analysis import analyze_hold, analyze_track, metrics
 from .params import NOMINAL_VIN, SUPPLY_SWEEP, VIN_SWEEP, Params, TbParams
-from .search import record
+from .runs import record
 from .types import AnalysisHold, AnalysisTrack
 
 INFO = MeasInfo(backend="spice", timestamp_utc=datetime(2026, 10, 26, tzinfo=UTC))

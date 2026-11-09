@@ -6,7 +6,7 @@ run (``new_run``) is ``build/<block>/<run>/``, each instance in ``<pdk>/<name>/`
 instance by its name, a grid's by its digest), a folder a step.
 
 The characterization's steps: ``write_netlist`` (the circuit as simulated and its size, into
-``netlist/``), ``simulate`` (each testbench run of ``runs_of``, or ``circuit_runs``, simulated and
+``netlist/``), ``simulate`` (each testbench run of ``testbenches_of``, or ``circuit_testbenches``, simulated and
 its measurement kept as HDF5, into ``sim/<run>/``) and ``record`` (``search.record`` of the kept
 measurements: the instance's ``instance.json``, its id, parameters, level, metrics, details and
 waves); the pexsim step's ``simulate`` and ``record`` again, into ``pexsim/``, each testbench's DUT
@@ -48,20 +48,20 @@ PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
 
 
 def sweep_blocks() -> list[str]:
-    """Every block with a ``search.py`` (a block on the pipeline) or a ``sweep.py`` (one not yet),
+    """Every block with a ``runs.py`` (a block on the pipeline) or a ``sweep.py`` (one not yet),
     in name order: a part of a block by its dotted name (``<block>.<part>``, ``flow/<block>/<part>``)."""
     flow = ROOT / "flow"
     found = {
         ".".join(path.parent.relative_to(flow).parts)
-        for name in ("search.py", "sweep.py")
+        for name in ("runs.py", "sweep.py")
         for path in (*flow.glob(f"*/{name}"), *flow.glob(f"*/*/{name}"))
     }
     return sorted(found)
 
 
-def search_module(block: str):
-    """A block's searches and runs: its ``search.py``; a block not on the pipeline, its ``sweep.py``."""
-    return import_module(f"flow.{block}.search" if find_spec(f"flow.{block}.search") else f"flow.{block}.sweep")
+def runs_module(block: str):
+    """A block's runs and testbenches: its ``runs.py``; a block not on the pipeline, its ``sweep.py``."""
+    return import_module(f"flow.{block}.runs" if find_spec(f"flow.{block}.runs") else f"flow.{block}.sweep")
 
 
 def params_key(flat: dict) -> str:
@@ -86,7 +86,7 @@ def design_space(block: str, pdk: str) -> dict:
     """The block's instances in ``pdk``, by digest: a design space may reach the same parameters
     twice (two arrays that come out alike), which are one instance. A block on the pipeline gives
     its grids and named instances (``labelled_space``), another its sweep's ``instances``."""
-    sweep = search_module(block)
+    sweep = runs_module(block)
     if hasattr(sweep, "instances"):
         return {digest(params): params for params in sweep.instances(pdk)}
     return {ident: params for ident, (_label, params) in labelled_space(block, pdk).items()}
@@ -104,26 +104,26 @@ def _valid(block: str):
 def labelled_space(block: str, pdk: str) -> dict:
     """A block's designs in ``pdk`` by digest, each with its label (its grid and the values that
     vary there, or a single's name; the first that reaches it): every grid's and single's of its
-    searches (``flow.pipeline.design``) that its ``params.valid`` admits in ``pdk``."""
+    runs (``flow.pipeline.design``) that its ``params.valid`` admits in ``pdk``."""
     from flow import pipeline
 
     valid = _valid(block)
     space: dict = {}
-    for label, params in pipeline.design(search_module(block), pdk):
+    for label, params in pipeline.design(runs_module(block), pdk):
         if valid is None or valid(params, pdk):
             space.setdefault(digest(params), (label, params))
     return space
 
 
 def run_instances(block: str, run: str, pdk: str) -> dict:
-    """The designs the search ``run`` names in ``pdk`` (a single's one, a grid's every point), by
+    """The designs the block's run ``run`` names in ``pdk`` (a single's one, a grid's every point), by
     digest, with their labels; those its ``params.valid`` does not admit in ``pdk`` left out."""
     from flow import pipeline
 
-    search = pipeline.searches(search_module(block))[run]
+    found = pipeline.runs(runs_module(block))[run]
     valid = _valid(block)
     picked: dict = {}
-    for label, params in search.instances(pdk):
+    for label, params in found.instances(pdk):
         if valid is None or valid(params, pdk):
             picked.setdefault(digest(params), (label, params))
     return picked
@@ -136,7 +136,7 @@ def instance_params(block: str, pdk: str, ident: str):
     except KeyError:
         raise LookupError(
             f"no instance of the {block} design space in {pdk} has the digest {ident}: its parameters "
-            f"are not among flow.{block}.search's designs in {pdk!r} (changed since it ran?)"
+            f"are not among flow.{block}.runs's designs in {pdk!r} (changed since it ran?)"
         ) from None
 
 
@@ -165,28 +165,34 @@ def leveled(block: str) -> bool:
     block whose runs take none characterizes alike at every level."""
     from inspect import signature
 
-    runs = getattr(search_module(block), "runs", None)
+    runs = getattr(runs_module(block), "testbenches", None)
     return runs is not None and "level" in signature(runs).parameters
 
 
-def runs_of(block: str, pdk: str, params, level=None) -> dict:
+def testbenches_of(block: str, pdk: str, params, level=None) -> dict:
     """The testbench runs that characterize ``params`` in ``pdk`` at ``level`` (None: ``FULL``), by
     name (``sweep.runs``; a block whose runs take no level, its only runs)."""
     from flow import pipeline
 
-    search = search_module(block)
-    return search.runs(pdk, params, level or pipeline.Level.FULL) if leveled(block) else search.runs(pdk, params)
+    module = runs_module(block)
+    return (
+        module.testbenches(pdk, params, level or pipeline.Level.FULL)
+        if leveled(block)
+        else module.testbenches(pdk, params)
+    )
 
 
-def circuit_runs(block: str, pdk: str, params) -> dict:
+def circuit_testbenches(block: str, pdk: str, params) -> dict:
     """The circuit simulator's runs of a block whose full characterization is behavioral: its runs at
     ``Level.CIRCUIT`` that are not its full ones (none where both are alike, the comparator's)."""
     from flow import pipeline
 
     if not leveled(block):
         return {}
-    full = runs_of(block, pdk, params)
-    return {name: tb for name, tb in runs_of(block, pdk, params, pipeline.Level.CIRCUIT).items() if name not in full}
+    full = testbenches_of(block, pdk, params)
+    return {
+        name: tb for name, tb in testbenches_of(block, pdk, params, pipeline.Level.CIRCUIT).items() if name not in full
+    }
 
 
 def _compiled(block: str, pdk: str, params, path: Path):
@@ -417,7 +423,7 @@ def record(
 
     start = time.time()
     h.pdk.set_default(import_module(f"pdk.{pdk}").pdk_logic)
-    result = search_module(block).record({run: read_measurement(path) for run, path in files.items()})
+    result = runs_module(block).record({run: read_measurement(path) for run, path in files.items()})
     entry = _base_record(block, pdk, params, label, name)
     entry.update(
         level=(level or pipeline.Level.FULL).value if leveled(block) else None,
@@ -447,7 +453,7 @@ def characterize(block: str, run_dir: Path, pdk: str, params) -> dict:
     start = time.time()
     try:
         sizes = write_netlist(block, pdk, params, run_dir / "netlist")
-        files = simulate(block, pdk, runs_of(block, pdk, params), run_dir / "sim")
+        files = simulate(block, pdk, testbenches_of(block, pdk, params), run_dir / "sim")
         return record(
             block,
             pdk,
@@ -473,7 +479,7 @@ def run_time(run: Path) -> str:
 
 
 def new_run(block: str, name: str | None = None, run_dir: Path | None = None) -> Path:
-    """A run of ``block``: ``run_dir`` (a search's: ``build/<block>/<search>/<stamp>``), or
+    """A run of ``block``: ``run_dir`` (a run's: ``build/<block>/<run>/<stamp>``), or
     ``build/<block>/<name>`` (``name``: now's stamp where None), made with its ``run.json`` (when it
     was made) where it is new; an existing one as it is."""
     now = datetime.now().astimezone()
@@ -486,8 +492,8 @@ def new_run(block: str, name: str | None = None, run_dir: Path | None = None) ->
 
 
 def _runs(block: str) -> list[Path]:
-    """The block's runs: each search's dated runs (``build/<block>/<search>/<stamp>/``, ``new_run``:
-    a ``run.json``), and the directories in ``build/<block>/`` made as runs before searches named
+    """The block's runs: each run's dated folders (``build/<block>/<run>/<stamp>/``, ``new_run``:
+    a ``run.json``), and the directories in ``build/<block>/`` made as runs before runs.py named
     them, or named by their stamp, not its other outputs there; a block not yet characterized, its
     layout runs (``build/<block>/layout/``), whose instances carry their layouts alone."""
 
@@ -501,7 +507,7 @@ def _runs(block: str) -> list[Path]:
         for path in folder.iterdir():
             if run(path):
                 found.append(path)
-            elif path.is_dir():  # a search's folder: its dated runs
+            elif path.is_dir():  # a run's folder: its dated runs
                 found += [dated for dated in path.iterdir() if (dated / "run.json").exists()]
         return found
 
@@ -509,8 +515,8 @@ def _runs(block: str) -> list[Path]:
 
 
 def run_label(block: str, run: Path) -> str:
-    """A run as the viewer and the command line name it: ``<search>/<stamp>``, or a run's own name
-    from before searches named them."""
+    """A run as the viewer and the command line name it: ``<run>/<stamp>``, or a run's own name
+    from before runs.py named them."""
     return run.relative_to(RUNS_DIR / block).as_posix() if run.is_relative_to(RUNS_DIR / block) else run.name
 
 
@@ -534,7 +540,7 @@ def newest_records(block: str, first: Path | None = None) -> tuple[list[dict[str
     runs = sorted(_runs(block), key=run_time, reverse=True)
     if first is not None:
         runs = [first, *(run for run in runs if run != first)]
-    pipelined = find_spec(f"flow.{block}") is not None and hasattr(search_module(block), "runs")
+    pipelined = find_spec(f"flow.{block}") is not None and hasattr(runs_module(block), "testbenches")
     current: dict[str, set[str]] = {}
     chosen: dict[tuple[str, str], tuple[int, dict[str, Any]]] = {}
     layouts: dict[tuple[str, str], tuple[int, dict[str, Any]]] = {}
@@ -647,7 +653,7 @@ def instance_views(block: str, ident: str, record: dict, data_dir: Path) -> dict
 
 
 def _current(block: str, pdk: str) -> set[str]:
-    """The digests of ``block``'s designs in ``pdk`` as its searches are now (every grid's and
+    """The digests of ``block``'s designs in ``pdk`` as its runs are now (every grid's and
     single's)."""
     return set(design_space(block, pdk))
 

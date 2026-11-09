@@ -179,7 +179,7 @@ exclude_type_checking_imports = true
 name = "each block's stages import only the stages below them"
 type = "layers"
 containers = ["flow.adc", "flow.capdac", "flow.comp", "flow.samp"]
-layers = ["model | (layout)", "search", "plots", "analysis", "types", "sim", "subckt", "params"]
+layers = ["model | (layout)", "runs", "plots", "analysis", "types", "sim", "subckt", "params"]
 
 [[tool.importlinter.contracts]]
 name = "the pipeline's base knows no block"

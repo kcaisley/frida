@@ -140,7 +140,7 @@ def _mark(out: Path, step: Step, started: float, error: str | None = None, **out
 
 
 def _command(job: Job, step: Step) -> str:
-    """The command that makes ``step``'s output in this run, the search's latest (its designs whose
+    """The command that makes ``step``'s output in this run, its latest folder (its designs whose
     output is complete skipped)."""
     return f"python -m flow --block {job.block} --run {job.run} --from {step} --to {step}"
 
@@ -176,7 +176,7 @@ def _sim(job: Job) -> dict:
     """Each of the instance's testbench runs simulated and its measurement kept (``sim/<run>/``)."""
     from flow.sweep import runner
 
-    runs = runner.runs_of(job.block, job.pdk, job.params)
+    runs = runner.testbenches_of(job.block, job.pdk, job.params)
     runner.simulate(job.block, job.pdk, runs, job.out / "sim")
     return {"runs": list(runs)}
 
@@ -221,11 +221,11 @@ def _record(job: Job, circuit: dict[str, Path] | None = None) -> dict:
 
 
 def _circuit(job: Job) -> dict:
-    """The circuit simulator's runs of the instance (``flow.sweep.runner.circuit_runs``) simulated
+    """The circuit simulator's runs of the instance (``flow.sweep.runner.circuit_testbenches``) simulated
     and kept (``circuit/<run>/``), then its record made again with them."""
     from flow.sweep import runner
 
-    runs = runner.circuit_runs(job.block, job.pdk, job.params)
+    runs = runner.circuit_testbenches(job.block, job.pdk, job.params)
     files = runner.simulate(job.block, job.pdk, runs, job.out / "circuit")
     started = time.time()
     _mark(job.out, Step.RECORD, started, **_record(job, files))
@@ -341,7 +341,7 @@ def _pexsim(job: Job) -> dict:
         made = f"delete {runner._shown(job.out / 'pex')}, then {_command(job, Step.PEX)}"
         raise RuntimeError(f"its extraction has no net probes (made before them): make it again, {made}")
     found = annotate.annotation(Path(extracted["netlist"]), Path(extracted["probes"]), Path(checked["lvs_report"]))
-    runs = runner.runs_of(job.block, job.pdk, job.params)
+    runs = runner.testbenches_of(job.block, job.pdk, job.params)
     for kept in (job.out / "pexsim").glob("*/annotation.json"):  # a failed pexsim's, kept to resume
         if kept.stat().st_mtime < _marker(job.out, Step.PEX).stat().st_mtime:  # of an extraction since redone
             (kept.parent / "result.h5").unlink(missing_ok=True)

@@ -17,7 +17,7 @@ from flow.sweep.runner import ROOT
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
 from flow.web.export import export_layout
 
-from . import layout, search
+from . import layout, runs
 from .layout import lay_out
 from .params import Fabricated
 
@@ -124,7 +124,7 @@ def test_the_blocks_sit_side_by_side_in_one_labelled_cell(tmp_path: Path) -> Non
     # comparator of the grid (200 uV, 1 ns)
     params = next(
         p
-        for label, p in search.converters.instances("tsmc65")
+        for label, p in runs.converters.instances("tsmc65")
         if p.cdac.extra == 4 and p.cdac.redundancy is capdac.Redundancy.MSB_REDIST and "comp=200uV_1ns" in label
     )
     try:

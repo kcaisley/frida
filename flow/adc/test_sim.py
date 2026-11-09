@@ -565,7 +565,7 @@ def test_historical_lvs_exception_is_narrow(
 
 def test_sim_holds_no_private_wrapper_and_no_main():
     """The executor is ``simulate`` itself, and the runs that call it are the sweep's
-    (``flow.adc.search``): no flavor-specific private wrapper, no command line of its own; its private
+    (``flow.adc.runs``): no flavor-specific private wrapper, no command line of its own; its private
     functions find a run's top and probes, decode a run's raw output (``_decode``) and make up the
     behavioral converter."""
     functions = [

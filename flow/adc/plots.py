@@ -1,6 +1,6 @@
 """The ADC's figures as ``Plot`` specs (``flow.pipeline.Plot``), each from analysis results alone:
 first a characterization's details, which the viewer shows in the order they are written here (the
-record's, ``flow.adc.search.record``), then the figures only the lab studies draw. Each is one curve
+record's, ``flow.adc.runs.record``), then the figures only the lab studies draw. Each is one curve
 (one series, or one family of decision paths), or one map, so instances compared on one plot stay
 readable; what a second curve would add is a figure of its own. The decision-path density is its
 paths, each distinct one with how many conversions took it (``Plot.paths``): the whole conversion,

@@ -1,6 +1,6 @@
 """The ADC's design space (``flow.sweep``), by the behavioral converter (``flow.adc.sim``) of its
 characterized blocks: the plain product of its components, each converter given by its parameters;
-in TSMC65 alone, the one PDK its DAC is characterized in (``flow.capdac.search``).
+in TSMC65 alone, the one PDK its DAC is characterized in (``flow.capdac.runs``).
 
 Every converter samples on its top plates, makes one free comparison before any capacitor switches
 and fires the comparator again after the last one switches: an N-bit converter has an N-1-step DAC
@@ -34,7 +34,7 @@ The product, nothing pruned:
 
 20 x 5 x (10 x 3 x 2 x 2 + 1) = 12,100 converters in TSMC65. The other PDKs have none until capdac
 is characterized there; their spaces stay: the arrays and the blocks the same study's but the
-comparator grid the PDK's own (``flow.comp.search``), each array with the PDK's StrongARM noise
+comparator grid the PDK's own (``flow.comp.runs``), each array with the PDK's StrongARM noise
 ladder at about FRIDA-1's speed (``_comparators``) and the widest bootstrapped switch
 (``_samplers``), 484 to 605 converters a PDK. The design space is a grid (``converters``,
 docs/pipeline.md): one space per resolution, its arrays, comparators and samplers values by name.
@@ -293,7 +293,7 @@ def frida1_2layer_radix20() -> Params:
     return Fabricated.FRIDA1_2LAYER_RADIX20.params
 
 
-def runs(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
+def testbenches(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
     """The runs that characterize ``params`` in ``pdk`` at ``level``, by name, each behavioral (its
     converter, ``flow.adc.sim``'s, of the blocks' characterizations), and at ``Level.CIRCUIT`` the
     circuit simulator's as well (``_spice``). Each level holds the one below it:

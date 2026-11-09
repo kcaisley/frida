@@ -37,11 +37,11 @@ def record_path(block: str) -> Path:
 
 def corpus(block: str, pdk: str | None) -> dict[str, Any]:
     """Every instance of ``block`` its code makes, by a label stable across refactors: the design
-    searches' (``grid(knob=value, ...)``, singles by name), each combination of the searched
+    runs' (``grid(knob=value, ...)``, singles by name), each combination of the searched
     choices (``choices(latch=STRONGARM, ...)``) and each held enumeration's other values
     (``held(vth=HIGH)``); in ``pdk``, those ``valid`` admits there."""
 
-    search = importlib.import_module(f"flow.{block}.search")
+    module = importlib.import_module(f"flow.{block}.runs")
     params = importlib.import_module(f"flow.{block}.params")
     Params = params.Params
     instances: dict[str, Any] = {}
@@ -50,14 +50,14 @@ def corpus(block: str, pdk: str | None) -> dict[str, Any]:
     with contextlib.suppress(LookupError, ModuleNotFoundError):
         for label, instance in labelled_space(block, pdk or STRUCTURE_PDK).values():
             instances.setdefault(label, instance)
-    for name, found in pipeline.searches(search).items():
+    for name, found in pipeline.runs(module).items():
         if isinstance(found, pipeline.Single):
             instances.setdefault(name, found())
     # each problem's space: every combination of its choices at its base; and every other value of each
     # enumeration no space widens, at the defaults
     spaces = []
     with contextlib.suppress(ModuleNotFoundError):
-        optimizations = [found for found in pipeline.searches(search).values() if isinstance(found, pipeline.Optimize)]
+        optimizations = [found for found in pipeline.runs(module).values() if isinstance(found, pipeline.Optimize)]
         spaces = [made.space for made in (found.problem(pdk or STRUCTURE_PDK) for found in optimizations) if made.space]
     shown = lambda value: getattr(value, "name", value)
     for space in spaces:

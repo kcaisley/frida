@@ -53,7 +53,7 @@ class Params:
     as positive multiples of the PDK's unit width and minimum length (w = 10: ten unit widths), so
     that one design ports across PDKs. Every Params the class admits builds; the defaults are the
     characterization's short-channel sizes, at which ``Params(latch=...)`` is a topology's reference.
-    What a grid or a search varies is a space of it (``pipeline.widen``: search.py)."""
+    What a grid or an optimization varies is a space of it (``pipeline.widen``: runs.py)."""
 
     latch = h.Param(dtype=Latch, desc="Latch topology", default=Latch.STRONGARM)
     input_pair = h.Param(dtype=MosType, desc="Input pair type (NMOS or PMOS)", default=MosType.NMOS)
@@ -184,10 +184,10 @@ L_MIN_UM = 0.06
 JUNCTION_F_PER_UM = 0.8e-15
 COX_F_PER_UM2 = 14e-15
 
-# The optimization's problems (flow.comp.search): a comparator for a converter of each resolution. Its
+# The optimization's problems (flow.comp.runs): a comparator for a converter of each resolution. Its
 # noise at most the converter's quantization noise (LSB / sqrt(12), every noise source about equal
 # to it), the LSB twice the full scale over 2^bits, the full scale ADC_FULL_SCALE of the supply (the
-# converter's arrays reach at least 80 % of the reference: flow.adc.search); its layout within a
+# converter's arrays reach at least 80 % of the reference: flow.adc.runs); its layout within a
 # square of AREA_SIDE_UM a side, the same in every PDK (a denser PDK fits more in it); its delay at
 # 0.5 mV within DECISION_S (the converter allows about 2 ns a decision), deciding within the clock.
 # Its cost, in J um^2: energy x area^AREA_WEIGHT x (1 + (noise / LSB-noise)^2)^NOISE_WEIGHT, the

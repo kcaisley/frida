@@ -156,11 +156,11 @@ def test_a_captures_converter_is_its_named_instances_digest() -> None:
     and weights): its ``dut`` the named instance's Params, the same digest, so a capture and the
     instance's record compare."""
     from flow import pipeline
-    from flow.adc import search
+    from flow.adc import runs
     from flow.scans.params import fabricated
     from flow.sweep.runner import digest
 
-    named = pipeline.singles(search)
+    named = pipeline.singles(runs)
     variants = build_adc_variants(
         board_id=0,
         adc_indices=(0, 1, 2, 3),

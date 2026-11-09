@@ -1,4 +1,4 @@
-"""The ADC's design space (``flow.adc.search``, the grid ``converters``, in TSMC65 alone): the plain
+"""The ADC's design space (``flow.adc.runs``, the grid ``converters``, in TSMC65 alone): the plain
 product of the comparator grid, the samplers, the arrays (both weight builds), the resolutions and
 the capacitance scales, every component its block sweep's instance; its runs at each level, every
 capture the figures read; the record of any of them; and the circuit simulator's runs, each the
@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from flow import capdac, comp, samp
-from flow.adc import plots, search, sim
+from flow.adc import plots, runs, sim
 from flow.adc.params import (
     FIN_CYCLES,
     FIN_RATES_HZ,
@@ -68,7 +68,7 @@ SITE = pytest.mark.skipif(not _tsmc65_site(), reason="FRIDA-1's extracted runs r
 
 
 def _instances(pdk: str) -> list:
-    return [params for _label, params in search.converters.instances(pdk)]
+    return [params for _label, params in runs.converters.instances(pdk)]
 
 
 def _swept_arrays() -> list[capdac.Params]:
@@ -80,7 +80,7 @@ def _swept_arrays() -> list[capdac.Params]:
 def _values(pdk: str, parameter: str) -> tuple[Any, ...]:
     """The values the grid gives a converter's ``parameter`` (its comparators, its samplers) in
     ``pdk``, in order: every resolution's space gives the same."""
-    widened = [space.widened[parameter] for space in search.converters.spaces(pdk).values()]
+    widened = [space.widened[parameter] for space in runs.converters.spaces(pdk).values()]
     assert all(other == widened[0] for other in widened)
     return widened[0].values
 
@@ -109,14 +109,14 @@ def test_elsewhere_no_converter_until_the_dac_is_characterized_there() -> None:
     instance. Their spaces stay as they will be swept: each array with the PDK's StrongARM ladder at
     its longest tail and the widest bootstrapped switch."""
     arrays = _swept_arrays()
-    assert search.converters.pdks == (Pdk.TSMC65,)
+    assert runs.converters.pdks == (Pdk.TSMC65,)
     for pdk in ("tsmc28", "ihp130", "tower180", "lf150", "tpsc65"):
         assert not _instances(pdk)
         ladder = [params for _label, params in comp.base_strongarm.instances(pdk)]
         longest = max(params.tail_l for params in ladder)
         assert list(_values(pdk, "comp")) == [params for params in ladder if params.tail_l == longest]
         assert [samp.mos_w for samp in _values(pdk, "samp")] == [160]
-        spaced = [cdac for space in search.converters.spaces(pdk).values() for cdac in space.widened["cdac"].values]
+        spaced = [cdac for space in runs.converters.spaces(pdk).values() for cdac in space.widened["cdac"].values]
         assert len(spaced) == len(arrays) and set(spaced) == set(arrays)
         assert len(_values(pdk, "comp")) * len(arrays) in (484, 605)
 
@@ -130,7 +130,7 @@ def test_each_resolution_takes_binary_and_three_schemes_with_two_four_and_six_ex
     ]
     count = 0
     for bits in RESOLUTIONS:
-        named = search._arrays(Pdk.TSMC65, bits)
+        named = runs._arrays(Pdk.TSMC65, bits)
         count += len(named)
         arrays = [cdac for cdac in named.values() if cdac != FRIDA1_ARRAY]
         # the difference capacitors' arrays, then the unit capacitors': one minimum's, then two
@@ -163,7 +163,7 @@ def test_each_resolution_takes_binary_and_three_schemes_with_two_four_and_six_ex
 def test_frida1s_converter_is_one_of_the_product() -> None:
     # FRIDA-1's array: capdac's frida1 (its defaults), 16 stages, 17 decisions at 12 bits, at two of
     # the 12-bit least capacitance (its drawn size is near it)
-    arrays = search._arrays(Pdk.TSMC65, FRIDA1_BITS)
+    arrays = runs._arrays(Pdk.TSMC65, FRIDA1_BITS)
     assert FRIDA1_ARRAY == capdac.frida1() == capdac.Params() == arrays["12b_msb_redist5_x2"]
     assert list(arrays)[-1] == "12b_msb_redist5_x2" and "12b_msb_redist5_x1" not in arrays
     assert FRIDA1_ARRAY.bits == FRIDA1_BITS and FRIDA1_ARRAY.extra == 5 and FRIDA1_ARRAY.scale == 2
@@ -198,7 +198,7 @@ def test_every_component_is_its_block_sweeps_instance() -> None:
 
 
 def _stand_in(params: Params | None = None, *, decoupling_f: float = 1e-12) -> SimpleNamespace:
-    """A converter for its runs alone (``search._campaign``): its testbench builder on the continuous
+    """A converter for its runs alone (``runs._campaign``): its testbench builder on the continuous
     sequence of FRIDA-1's 16 stages, a full scale of 0.7 V, its decoupling."""
     params = Params() if params is None else params
 
@@ -210,7 +210,7 @@ def _stand_in(params: Params | None = None, *, decoupling_f: float = 1e-12) -> S
 
 
 def test_the_campaign_has_every_run_the_figures_read() -> None:
-    captures = search._campaign(_stand_in(), Level.FULL)
+    captures = runs._campaign(_stand_in(), Level.FULL)
     names = set(captures)
     assert {"ramp_train", "ramp_check", "trajectory", "noise", "noise_sampling", "noise_comparator"} <= names
     assert sum(name.startswith("rate_") for name in names) == len(RATES_HZ)
@@ -270,12 +270,12 @@ def test_the_campaign_has_every_run_the_figures_read() -> None:
     assert {tb.reference_c_f for tb in resistive} == {1e-12}
     assert all(replace(tb, reference_noise_v=0.0) == ideal for tb in noisy)
     # no decoupling (NaN: the PDK gives no decap density), no resistance runs
-    alone = search._campaign(_stand_in(decoupling_f=math.nan), Level.FULL)
+    alone = runs._campaign(_stand_in(decoupling_f=math.nan), Level.FULL)
     assert not any(name.startswith("ref_r_") for name in alone) and "ref_noise_0" in alone
     # the mismatch is predicted, not drawn: the Monte Carlo that checks it only where asked for
     assert not any(name.startswith("mc_") for name in names)
     assert {"mismatch_weight_sigma", "mismatch_transition_sigma", "mismatch_margin"} <= set(FIGURES)
-    drawn = search._campaign(_stand_in(), Level.FULL, mismatch_draws=VALIDATION_DRAWS)
+    drawn = runs._campaign(_stand_in(), Level.FULL, mismatch_draws=VALIDATION_DRAWS)
     studies = [capture for name, capture in drawn.items() if name.startswith("mc_")]
     assert len(studies) == len(MISMATCH_COEFFICIENTS) * VALIDATION_DRAWS and all(
         c.quiet == {Quiet.SAMPLING, Quiet.COMPARATOR} for c in studies
@@ -288,10 +288,10 @@ def test_each_levels_runs_hold_the_level_below(monkeypatch, params) -> None:
     """``runs`` at each level, its converter a stand-in: SCREEN the ramps, the nominal sine and the
     noise run; each level after it every run of the level below, unchanged; CIRCUIT the circuit
     simulator's runs (``spice_*``) beside FULL's, every other run behavioral."""
-    monkeypatch.setattr(search, "_converter", lambda pdk, found: _stand_in(found))
+    monkeypatch.setattr(runs, "_converter", lambda pdk, found: _stand_in(found))
     checked = []
-    monkeypatch.setattr(search, "_checked", checked.append)
-    levels = [search.runs("tsmc65", params, level) for level in Level]
+    monkeypatch.setattr(runs, "_checked", checked.append)
+    levels = [runs.testbenches("tsmc65", params, level) for level in Level]
     # each extraction the circuit runs simulate checked once, before any run
     fabricated = params.fabricated is not None
     assert {tb.extraction for tb in checked} == ({Extraction.TAPEOUT, Extraction.SIGNOFF} if fabricated else set())
@@ -309,9 +309,9 @@ def test_each_levels_runs_hold_the_level_below(monkeypatch, params) -> None:
 def test_a_pdk_without_the_adcs_spectre_runs_has_no_circuit_runs(monkeypatch, pdk) -> None:
     """Outside TSMC65 (the ADC's Spectre runs take its kit's includes) CIRCUIT's runs are FULL's: none
     raises after the behavioral runs before it."""
-    monkeypatch.setattr(search, "_converter", lambda pdk, found: _stand_in(found))
-    assert search._spice(pdk, Params()) == {}
-    assert search.runs(pdk, Params(), Level.CIRCUIT) == search.runs(pdk, Params(), Level.FULL)
+    monkeypatch.setattr(runs, "_converter", lambda pdk, found: _stand_in(found))
+    assert runs._spice(pdk, Params()) == {}
+    assert runs.testbenches(pdk, Params(), Level.CIRCUIT) == runs.testbenches(pdk, Params(), Level.FULL)
 
 
 def test_a_circuit_level_without_its_layouts_signoff_is_refused_before_any_run(monkeypatch) -> None:
@@ -322,10 +322,10 @@ def test_a_circuit_level_without_its_layouts_signoff_is_refused_before_any_run(m
     def unlaid(*_):
         raise LookupError("no standing layout")
 
-    monkeypatch.setattr(search, "_converter", lambda pdk, found: _stand_in(found))
+    monkeypatch.setattr(runs, "_converter", lambda pdk, found: _stand_in(found))
     monkeypatch.setattr(sim.lookup, "laid_out", unlaid)
     with pytest.raises(LookupError, match="no standing layout"):
-        search.runs("tsmc65", Fabricated.FRIDA1_1LAYER_RADIX17.params, Level.CIRCUIT)
+        runs.testbenches("tsmc65", Fabricated.FRIDA1_1LAYER_RADIX17.params, Level.CIRCUIT)
 
 
 def test_a_screen_record_measures_what_its_runs_ran(tmp_path: Path) -> None:
@@ -353,9 +353,9 @@ def test_a_screen_record_measures_what_its_runs_ran(tmp_path: Path) -> None:
         measurement = converter.capture(tb, None)
         return replace(measurement, info=replace(measurement.info, readbacks={**measurement.info.readbacks, **numbers}))
 
-    plan = search._campaign(converter, Level.SCREEN)
+    plan = runs._campaign(converter, Level.SCREEN)
     assert set(plan) == {"ramp_train", "ramp_check", "rate_10", "noise"}
-    result = search.record({name: capture(tb) for name, tb in plan.items()})
+    result = runs.record({name: capture(tb) for name, tb in plan.items()})
     values = result.metrics
     measured = {
         "enob_bits",
@@ -391,7 +391,7 @@ def test_a_screen_record_measures_what_its_runs_ran(tmp_path: Path) -> None:
 
 def test_a_record_refuses_another_measurement() -> None:
     with pytest.raises(TypeError, match="not the converter's MeasAdc"):
-        search.record({"noise": SimpleNamespace()})
+        runs.record({"noise": SimpleNamespace()})
 
 
 # the circuit simulator's runs (``spice_*``, at Level.CIRCUIT), the named Spectre campaigns' successors
@@ -408,22 +408,22 @@ _TIMINGS = {
 
 
 def test_a_generated_converters_spice_runs_are_its_rates_and_its_ramp() -> None:
-    runs = search._spice("tsmc65", Params())
-    assert set(runs) == {"spice_rate_2", "spice_rate_6", "spice_rate_10", "spice_ramp"}
+    spice = runs._spice("tsmc65", Params())
+    assert set(spice) == {"spice_rate_2", "spice_rate_6", "spice_rate_10", "spice_ramp"}
     recipe = Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC11000011
     for name, rate in (("spice_rate_2", 0.32e9), ("spice_rate_6", 0.96e9), ("spice_rate_10", 1.6e9)):
-        tb = runs[name]
+        tb = spice[name]
         assert (tb.simulator, tb.extraction, tb.params) == (Simulator.SPECTRE, None, Params())
         assert (tb.conversions, float(tb.vin_diff.dc), tb.transient_noise) == (100, 0.05, True)
         assert float(tb.symbol_rate) == rate and tb.rows == tuple("".join(row.split()) for row in recipe.rows)
         # the viewer's waves at the nominal rate, the codes alone elsewhere
         assert tb.probes is (Probes.NODES if name == "spice_rate_10" else Probes.CODES)
         assert sim._runnable(tb)
-    ramp = runs["spice_ramp"]
+    ramp = spice["spice_ramp"]
     assert ramp.conversions == 151 and ramp.vin_diff == hs.LinearSweep(start=-0.75, stop=0.75, step=0.01)
     assert not ramp.transient_noise and float(ramp.symbol_rate) == 1.6e9
     # a design of other stages than FRIDA-1's 16: its continuous sequence, its DAC states its own
-    ten = search._spice("tsmc65", Params(adc_bits=10, cdac=capdac.Params(bits=10)))
+    ten = runs._spice("tsmc65", Params(adc_bits=10, cdac=capdac.Params(bits=10)))
     stages = ten["spice_rate_10"].stages
     assert stages != 16 and len(ten["spice_rate_10"].dac_astate_p) == stages
     assert all(sim._runnable(tb) for tb in ten.values())
@@ -434,26 +434,26 @@ def test_a_fabricated_converters_spice_runs_simulate_its_extractions(member, mon
     """The fabricated converters' runs: the rates on the tape-out's extraction; the one-layer
     radix-17 flavor's ramp and its 15 supply-noise runs; every flavor's seven continuous timings on
     its layout's signoff extraction, their rows each clock's as the reviewed recipes give them."""
-    runs = search._spice("tsmc65", member.params)
+    spice = runs._spice("tsmc65", member.params)
     rates = {f"spice_rate_{rate}" for rate in ("2", "6", "10")}
     timings = {f"spice_sequence_{name}" for name in _TIMINGS}
     supplies = {
         f"spice_supply_{rate}_{rail}" for rate in ("2", "6", "10") for rail in ("none", "vdda", "vddd", "vddac", "all")
     }
     extra = {"spice_ramp", *supplies} if member is Fabricated.FRIDA1_1LAYER_RADIX17 else set()
-    assert set(runs) == rates | timings | extra
-    for name, tb in runs.items():
+    assert set(spice) == rates | timings | extra
+    for name, tb in spice.items():
         assert tb.params == member.params and tb.simulator is Simulator.SPECTRE
         assert tb.extraction is (Extraction.SIGNOFF if name in timings else Extraction.TAPEOUT)
         assert tb.expected_disconnect == (member.layers == 2 and name in timings)
         assert sim._runnable(tb)
-    for name in supplies & set(runs):
-        tb = runs[name]
+    for name in supplies & set(spice):
+        tb = spice[name]
         assert (tb.supply_series_resistance_ohm, tb.supply_series_inductance_h) == (1.0, 1e-9)
         assert tb.supply_decoupling_capacitance_f == 1e-12 and tb.supply_noise_bandwidth_hz == 25e9
         assert set(tb.supply_noise_rms_v) <= {0.0, 1e-3} and not tb.transient_noise
     for name in timings:
-        tb = runs[name]
+        tb = spice[name]
         comp_word, first_logic, logic_word, last_logic = _TIMINGS[name.removeprefix("spice_sequence_")]
         assert tb.rows == (
             "1111" + "0" * 156,
@@ -465,7 +465,7 @@ def test_a_fabricated_converters_spice_runs_simulate_its_extractions(member, mon
         assert tb.transient_noise and float(tb.vin_cm.dc) == pytest.approx(0.7)
     # its signoff extraction's top, the run finding it itself (``sim._extraction``)
     monkeypatch.setattr(sim, "_extraction", lambda tb: (PEX_FIXTURES["frida1"], "adc_12b_17step"))
-    assert sim.testbench(runs[f"spice_sequence_{next(iter(_TIMINGS))}"]).name == "AdcTb_frida1"
+    assert sim.testbench(spice[f"spice_sequence_{next(iter(_TIMINGS))}"]).name == "AdcTb_frida1"
 
 
 def test_extracted_weights_are_a_pex_tables_effective_capacitances(tmp_path: Path) -> None:
@@ -481,7 +481,7 @@ def test_extracted_weights_are_a_pex_tables_effective_capacitances(tmp_path: Pat
     )
 
     measurement = adc_measurement([0, 1, 2], readbacks={"cap_table": str(table)})
-    calibration = search._extracted(measurement)
+    calibration = runs._extracted(measurement)
 
     assert calibration.method == "extracted"
     assert calibration.identity == measurement.identity
@@ -513,11 +513,11 @@ def test_extracted_weights_are_a_capacitive_dacs_measured_steps(tmp_path: Path, 
     monkeypatch.setattr(capdac_model, "analyze_settling", lambda meas: SimpleNamespace(step_v=steps) if meas else None)
 
     measurement = adc_measurement([0, 1, 2], readbacks={"cap_table": str(path)})
-    calibration = search._extracted(measurement)
+    calibration = runs._extracted(measurement)
 
     assert calibration.method == "extracted" and calibration.label == "Measured-step weights"
     # read and analyzed once a process, however many captures decode with it
-    again = search._extracted(measurement)
+    again = runs._extracted(measurement)
     np.testing.assert_array_equal(again.calibrated_weights, calibration.calibrated_weights)
     assert read == [path]
     assert calibration.identity == measurement.identity
@@ -527,7 +527,7 @@ def test_extracted_weights_are_a_capacitive_dacs_measured_steps(tmp_path: Path, 
     np.testing.assert_allclose(np.delete(ratio[:-1], 3), ratio[0])
     assert calibration.measured_weight_mask.tolist() == [True] * 16 + [False]
 
-    design = search._extracted(adc_measurement([0, 1, 2], readbacks={"cap_table": ""}))
+    design = runs._extracted(adc_measurement([0, 1, 2], readbacks={"cap_table": ""}))
     np.testing.assert_allclose(design.calibrated_weights, design.nominal_weights)
     assert not design.measured_weight_mask.any()
 
@@ -544,7 +544,7 @@ def test_each_timings_circuit_run_draws_its_decision_paths_and_its_sequence() ->
         spice[f"spice_sequence_t{number}"] = replace(
             capture, param=replace(capture.param, tb=capture.tb.sequenced(rows))
         )
-    figures, _results, _waves = search._spice_record(spice)
+    figures, _results, _waves = runs._spice_record(spice)
     names = [figure.name for figure in figures]
     assert names[:3] == ["spice_sequence_enob", "spice_sequence_plausible", "spice_sequence_shift"]
     assert names[3:] == [

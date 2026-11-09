@@ -1,5 +1,5 @@
 """The sampling switch's behavioral model: the held top-plate voltage, from the characterization of
-the same ``Params`` in the PDK (``flow.samp.search``, looked up by ``flow.sweep.lookup``).
+the same ``Params`` in the PDK (``flow.samp.runs``, looked up by ``flow.sweep.lookup``).
 
     model = samp.model.Model.of("tsmc65", samp.Params())
     params = model.behavioral(load_f=1.2e-12)

@@ -19,7 +19,7 @@ and a local build/remote/<session>/ record. ``inputs`` adds explicit build input
 (e.g. signed-off PEX directories), never an old simulation campaign or a venv.
 The detached worker runs focused tests, the block's Spectre diagnostic (skips
 are failures), then the instances' circuit runs (``python -m flow --block <block> --run <name>
---to circuit``, each a @single of its search.py, into the snapshot's ``build/<block>/<name>/``). A
+--to circuit``, each a @single of its runs.py, into the snapshot's ``build/<block>/<name>/``). A
 detached *local* tmux collector checks every 30 minutes and copies the runs' records, results and
 logs when the whole campaign exits, including failures; its figures are then
 ``python -m flow.plot <block> <run>``.
@@ -116,14 +116,14 @@ def _snapshot_files(root: Path, inputs: list[str], pdk: str) -> list[str]:
 def _worker_script(remote_dir: str, block: str, instances: Sequence[str], pdk: str, setup: str | None) -> str:
     """Only shell plumbing: the focused tests of ``block`` (its sim's and sweep's), its Spectre
     diagnostic (the ADC's: each top's checks), then its circuit simulator's runs of ``instances``
-    (``python -m flow --block <block> --run <name> --to circuit``, each a @single of its search.py,
+    (``python -m flow --block <block> --run <name> --to circuit``, each a @single of its runs.py,
     in the PDKs it names) into the snapshot's runs."""
     node = (
         "flow/adc/test_sim.py::test_each_top_passes_spectres_checks"
         if block == "adc"
         else f"flow/circuit/test_spectre.py::test_{block}_pipeline_diagnostic"
     )
-    focused = f"flow/{block}/test_sim.py flow/{block}/test_search.py"
+    focused = f"flow/{block}/test_sim.py flow/{block}/test_runs.py"
     # pytest succeeds on skipped tests; require a real passing diagnostic before a campaign.
     gate = (
         "import xml.etree.ElementTree as E; "
@@ -184,7 +184,7 @@ def launch(
     root: Path = ROOT,
 ) -> Path:
     """Snapshot, diagnose, run detached and collect automatically: the circuit simulator's runs of
-    ``instances`` of ``block`` (its search.py's @single designs, by name, ``python -m flow --block
+    ``instances`` of ``block`` (its runs.py's @single designs, by name, ``python -m flow --block
     <block> --run <name> --to circuit``) on the trusted SSH ``host`` in a fresh snapshot under ``work_root`` (an existing
     absolute worker directory), after sourcing ``setup`` (an absolute shell environment script on
     the worker); ``pdk`` names

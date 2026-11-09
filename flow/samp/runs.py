@@ -107,7 +107,7 @@ def bootstrap() -> Params:
     return Params(switch_type=SwitchType.BOOTSTRAP)
 
 
-def runs(pdk: str, params: Params) -> dict[str, TbParams]:
+def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     """The testbench runs that characterize ``params`` in ``pdk``, by name (each run's folder): the
     input stepping a twelfth of the supply at each input level (``vin_<twelfths>``), and at
     mid-supply input at each other supply (``supply_<percent>``; the nominal one is ``vin_6``)."""
