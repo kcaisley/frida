@@ -65,6 +65,11 @@ class MeasAdc(Meas):
     dout: np.ndarray
     vin_diff_v: np.ndarray
     fastrx_word: np.ndarray | None = None
+    # each stage's extracted effective capacitance, C0 first, in a unit of its own: what its
+    # ``cap_table`` readback names (a PEX table, or its DAC's measured steps), read with the run
+    # (``flow.adc.sim.read``); None, nothing extracted. A tuple, not an array: a stage a value, not
+    # a conversion a row
+    effective_cap: tuple[float, ...] | None = None
 
     @property
     def sample_rate_hz(self) -> float:

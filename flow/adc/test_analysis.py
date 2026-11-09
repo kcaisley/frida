@@ -22,6 +22,7 @@ from scipy import constants
 import flow.comp.model as comp_model
 import flow.samp.model as samp_model
 from flow import adc, capdac, comp
+from flow.adc import sim
 from flow.adc.analysis import (
     _decode,
     _dnl_quantile,
@@ -43,7 +44,9 @@ from flow.adc.analysis import (
     analyze_decision_paths,
     analyze_dynamic,
     analyze_endpoint_nonlinearity,
+    analyze_extracted,
     analyze_interferer,
+    analyze_ladder,
     analyze_mismatch,
     analyze_mismatch_draws,
     analyze_noise,
@@ -70,7 +73,6 @@ from flow.adc.params import (
     TbParams,
 )
 from flow.adc.plots import plot_calibration_weights, plot_redundancy, plot_reference_noise, plot_reference_r_out
-from flow.adc.runs import _campaign, _extracted, _ladder
 from flow.adc.sim import _Behavioral
 from flow.adc.types import AnalysisMismatch, AnalysisRedundancy
 from flow.analysis.calc import calc_drawn_linearity, calc_paths
@@ -2319,8 +2321,27 @@ def _stub_model(table: Path, params: Params):
 
 
 def _capture(model, declared):
-    """The model's capture of one declared capture, its sources and settling as declared."""
-    return model.capture(declared, None)
+    """The model's capture of one declared capture, its sources and settling as declared, read as a
+    run's is (``sim.read``: its extracted capacitance with it)."""
+    return sim._with_extraction(model.capture(declared, None))
+
+
+def _campaign(converter, level: Level, **draws) -> dict[str, TbParams]:
+    """The behavioral testbenches (``sim.behavioral_testbenches``) on ``converter`` itself, a model
+    or a stand-in, not the one its blocks' characterizations give."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sim, "_converter", lambda pdk, params: converter)
+        return sim.behavioral_testbenches("tsmc65", converter.params, level, **draws)
+
+
+def _ladder(captures: dict[str, MeasAdc]):
+    """The ENOB ladder as the record builds it: each step decoded as ``enob_bits`` is (the extracted
+    weights, unrounded); None without the ladder's captures (below ``Level.FULL``)."""
+    if not all(name in captures for name in LADDER_NAMES):
+        return None
+    return analyze_ladder(
+        [analyze_dynamic(captures[name], calibration=analyze_extracted(captures[name])) for name in LADDER_NAMES]
+    )
 
 
 @pytest.mark.parametrize(
@@ -2345,7 +2366,7 @@ def test_the_ladder_starts_at_quantization_and_ends_on_enob_bits(tmp_path: Path,
     # every impairment on is the 10 MS/s sine as enob_bits decodes it (the extracted weights), and
     # the last step's sources and settling capture it again, decision for decision
     rate = captures["rate_10"]
-    assert ladder[-1] == analyze_dynamic(rate, calibration=_extracted(rate)).spectral_enob_fs_bits
+    assert ladder[-1] == analyze_dynamic(rate, calibration=analyze_extracted(rate)).spectral_enob_fs_bits
     _, _, quiet, tau_scale = LADDER[-1]
     again = _capture(model, replace(plan["rate_10"], quiet=quiet, tau_scale=tau_scale))
     np.testing.assert_array_equal(again.bout, rate.bout)
@@ -2368,7 +2389,7 @@ def test_the_ladders_quantization_reads_the_design_resolution(tmp_path: Path, ad
     assert ladder is not None
     assert ladder.enob_bits[0] == pytest.approx(adc_bits, abs=0.02)
     quantization = captures[LADDER_NAMES[0]]
-    at_amplitude = analyze_dynamic(quantization, calibration=_extracted(quantization)).spectral_enob_bits
+    at_amplitude = analyze_dynamic(quantization, calibration=analyze_extracted(quantization)).spectral_enob_bits
     assert at_amplitude == pytest.approx(adc_bits - 0.5 / 6.02, abs=0.02)
 
 

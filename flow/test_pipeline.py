@@ -195,9 +195,16 @@ def _problems(block: str) -> set[str]:
     # its own read(raw, tb) -> Meas
     defined = _defined(stage["sim"])
     sim_names = ("testbench", "simulate", "read")
-    extra = {name for name in defined if name not in sim_names and not UPPER.fullmatch(name)}
+    builders = {name for name in defined if name.endswith("_testbenches")}
+    extra = {name for name in defined if name not in sim_names and name not in builders and not UPPER.fullmatch(name)}
     if extra:
-        problem("sim", f"defines {sorted(extra)} beside testbench, simulate, read and constants")
+        problem("sim", f"defines {sorted(extra)} beside testbench, simulate, read, *_testbenches and constants")
+    # a block whose testbenches take building (the converter's campaign) builds them here, each
+    # builder taking the PDK and the design (and the level) and giving testbenches by name
+    for name in sorted(builders):
+        hints = list(_hints(defined[name]).values())
+        if hints[:2] != [str, Params] or hints[-1] != dict[str, TbParams]:
+            problem("sim", f"{name} does not take a PDK and the block's Params and give testbenches by name")
     if list(_hints(defined.get("testbench", lambda: None)).values()) != [TbParams, h.Module]:
         problem("sim", "testbench does not take TbParams and return an h.Module")
     if list(_hints(defined.get("simulate", lambda: None)).values()) != [TbParams, Path, Path]:
@@ -279,8 +286,24 @@ def _problems(block: str) -> set[str]:
             problem("plots", f"{name} draws other than Analysis results")
 
     # runs.py: its runs, each by its name: single designs (``@single``) and grids (``@grid``) of the
-    # block's Params, optimizations (``@optimize``) of a Problem; testbenches(pdk, params) ->
-    # dict[str, TbParams] and record(measurements) -> Record; nothing else, no module constants
+    # block's Params, optimizations (``@optimize``) of a Problem; then testbenches(pdk, params) ->
+    # dict[str, TbParams], then record(measurements) -> Record; in that order, and nothing else: no
+    # private helper, class or module constant (what a run computes is written in it)
+    order = [
+        node.name if isinstance(node, (ast.FunctionDef, ast.ClassDef)) else ast.unparse(node)[:40]
+        for node in _tree(stage["runs"]).body
+        if not isinstance(node, (ast.Import, ast.ImportFrom, ast.Expr))
+    ]
+    for name in order:
+        if name.startswith("_") or not name.isidentifier():
+            problem("runs", f"defines {name}: runs.py holds its runs, testbenches and record alone")
+    kinds = [
+        "run" if name not in ("testbenches", "record") else name
+        for name in order
+        if name.isidentifier() and not name.startswith("_")
+    ]
+    if kinds != sorted(kinds, key=("run", "testbenches", "record").index):
+        problem("runs", "is not in order: its runs (@single, @grid, @optimize) first, then testbenches, then record")
     sweep = _defined(stage["runs"])
     expected = {
         "testbenches": [str, Params, dict[str, TbParams]],

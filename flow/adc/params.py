@@ -6,7 +6,7 @@ the behavioral converter's knobs); the design space's resolutions and FRIDA-1's 
 (``RESOLUTIONS``, ``FRIDA1_*``); the behavioral converter's constants (``flow.adc.sim``'s): its
 testbench's common mode, what it can quiet (``Quiet``), the CDAC draw it calibrates on, and the
 reference study's decoupling, budget and grids (``REFERENCE_*``); and the campaign's
-(``flow.adc.runs.runs``): its rates, input frequencies and conversion counts, the mismatch
+(``flow.adc.runs.testbenches``): its rates, input frequencies and conversion counts, the mismatch
 study's coefficients, the levels of the noise over the input, the Hsu study's quiet sources and the
 ENOB ladder (``LADDER``, its captures ``LADDER_NAMES``); and the record's figures'
 (``flow.adc.plots``): the decision paths drawn and the Pelgrom coefficients the predicted mismatch is
@@ -1300,7 +1300,7 @@ VIN_CM_FRACTION = 0.700 / 1.2
 DRAWN_RUN = "mc_a5"
 DRAWN_PERCENTILE = 90.0
 
-# The reference study (the ``ref_*`` runs of ``flow.adc.runs.runs``, ``analyze_reference``): the
+# The reference study (the ``ref_*`` runs of ``flow.adc.runs.testbenches``, ``analyze_reference``): the
 # share of the converter's footprint its layout fills with decap cells (front-end-of-line area under
 # the routing)
 DECAP_COVERAGE = 0.30
@@ -1323,7 +1323,7 @@ PELGROM_AXIS = np.geomspace(0.0002, 0.01, 41)
 # its final value, well under an LSB of the reference; its figures mark it
 CDAC_SETTLING_TOLERANCE_V = 1e-3
 
-# The campaign (``flow.adc.runs.runs``): every run the record needs.
+# The campaign (``flow.adc.runs.testbenches``): every run the record needs.
 # 1 to 10 MS/s in 1 MS/s steps, the rates the ADC is meant to run at, then on to 100 MS/s: where
 # the DAC's settling or the comparator's delay starts to cost codes, and whether redundancy recovers
 # them

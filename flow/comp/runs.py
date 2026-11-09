@@ -120,20 +120,22 @@ def base_strongarm(pdk: Pdk) -> dict[str, Params]:
             21: (1.25, 2.5, 5, 10, 20),
         },
     }
+    # the StrongARM at the short-channel sizes with every width times k but its tail, 4 k units wide
+    # and tail_l minimum lengths long: the tail's length sets the delay, k the noise
+    base = Params()
+    widths = ("diffpair_w", "rst_w", "latch_on_w", "latch_init_w", "srlatch_n_w", "srlatch_p_w")
     return {
-        f"tail_l={tail_l}, k={k}": widen(_base_strongarm(tail_l, k))
+        f"tail_l={tail_l}, k={k}": widen(
+            Params(
+                latch=Latch.STRONGARM,
+                **{name: round(k * getattr(base, name)) for name in widths},
+                tail_w=round(4 * k),
+                tail_l=tail_l,
+            )
+        )
         for tail_l, factors in ladders[pdk].items()
         for k in factors
     }
-
-
-def _base_strongarm(tail_l: int, k: float) -> Params:
-    """The StrongARM at the short-channel sizes with every width times ``k`` but its tail, 4 k units
-    wide and ``tail_l`` minimum lengths long: the tail's length sets the delay, ``k`` the noise."""
-    base = Params()
-    widths = ("diffpair_w", "rst_w", "latch_on_w", "latch_init_w", "srlatch_n_w", "srlatch_p_w")
-    sizes = {name: round(k * getattr(base, name)) for name in widths}
-    return Params(latch=Latch.STRONGARM, **sizes, tail_w=round(4 * k), tail_l=tail_l)
 
 
 @grid
@@ -145,19 +147,11 @@ def dynamic_bias(pdk: Pdk) -> dict[str, Params]:
         Pdk.TPSC65: {3.5: (1, 2, 4, 8), 2.75: (0.75, 2, 4, 8)},
         Pdk.LF150: {6: (0.75, 2.5)},
     }
-    return {
-        f"ratio={ratio}, k={k}": widen(_dynamic_bias(ratio, k))
-        for ratio, factors in ladders.get(pdk, {}).items()
-        for k in factors
-    }
-
-
-def _dynamic_bias(ratio: float, k: float) -> Params:
-    """The dynamic-bias double tail (the modified double tail's latch, the input pair's tail a
-    minimum-length switch onto C_TAIL): a unit per 60 fF of C_P (input pair 64, tail switch 4, latch
-    16, reset 4, no device under 4) times ``k``, C_TAIL ``ratio`` times C_P, every device at the
-    minimum length: the ratio sets the delay, ``k`` the noise."""
-    unit = {
+    # the dynamic-bias double tail (the modified double tail's latch, the input pair's tail a
+    # minimum-length switch onto C_TAIL): a unit per 60 fF of C_P (input pair 64, tail switch 4,
+    # latch 16, reset 4, no device under 4) times k, C_TAIL ratio times C_P, every device at the
+    # minimum length: the ratio sets the delay, k the noise
+    units = {
         "diffpair_w": 64,
         "tail_w": 4,
         "rst_w": 4,
@@ -166,17 +160,21 @@ def _dynamic_bias(ratio: float, k: float) -> Params:
         "srlatch_n_w": 4,
         "srlatch_p_w": 8,
     }
-    sizes = {name: max(4, round(k * units)) for name, units in unit.items()}
-    c_p = round(60 * k)
-    return Params(
-        latch=Latch.DOUBLE_TAIL_MODIFIED,
-        bias=Bias.DYNAMIC,
-        **sizes,
-        diffpair_l=1,
-        tail_l=1,
-        preamp_c_ff=c_p,
-        bias_c_ff=round(ratio * c_p),
-    )
+    return {
+        f"ratio={ratio}, k={k}": widen(
+            Params(
+                latch=Latch.DOUBLE_TAIL_MODIFIED,
+                bias=Bias.DYNAMIC,
+                **{name: max(4, round(k * unit)) for name, unit in units.items()},
+                diffpair_l=1,
+                tail_l=1,
+                preamp_c_ff=round(60 * k),
+                bias_c_ff=round(ratio * round(60 * k)),
+            )
+        )
+        for ratio, factors in ladders.get(pdk, {}).items()
+        for k in factors
+    }
 
 
 @single
@@ -219,6 +217,126 @@ def double_tail_modified() -> Params:
 def double_tail_modified_self_timed() -> Params:
     """The self-timed modified double tail at the characterization's sizes."""
     return Params(latch=Latch.DOUBLE_TAIL_MODIFIED_SELF_TIMED)
+
+
+# ---------------------------------------------------------------- optimizations
+
+
+@optimize(budget=500, pdks=(Pdk.TSMC65,), workers=48)
+def adc_10bit(pdk: Pdk) -> Problem:
+    """A comparator for a 10-bit converter in ``pdk``: the least energy, area and noise, its noise
+    at most the converter's quantization noise at the PDK's supply, its layout within the
+    resolution's square, its delay within the decision's time. Searched: every latch and tail, each
+    size on a log scale, the latch devices' lengths too (TSMC65's longer ones still decide within
+    the evaluation); the dynamic bias's capacitors with it."""
+
+    supply = importlib.import_module(f"pdk.{pdk.name.lower()}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
+    quantization_v = 2 * ADC_FULL_SCALE * supply / 2**10 / math.sqrt(12)
+    space = widen(Params(input_pair=MosType.NMOS))
+    space.latch = every(Latch)
+    space.bias = every(Bias)
+    space.diffpair_w = steps(2, 8192, log=True)
+    space.diffpair_l = steps(1, 16, log=True)
+    space.tail_w = steps(2, 4096, log=True)
+    space.tail_l = steps(1, 64, log=True)
+    space.rst_w = steps(2, 2048, log=True)
+    space.latch_on_w = steps(2, 2048, log=True)
+    space.latch_init_w = steps(2, 2048, log=True)
+    space.latch_on_l = steps(1, 32, log=True)
+    space.latch_init_l = steps(1, 32, log=True)
+    space.preamp_c_ff = steps(10, 16000, log=True, when=Bias.DYNAMIC)
+    space.bias_c_ff = steps(10, 64000, log=True, when=Bias.DYNAMIC)
+    return Problem(
+        cost={"energy_0p5mv_j": 1.0, "layout_area_um2": AREA_WEIGHT, "noise_v": (NOISE_WEIGHT, quantization_v)},
+        bounds=(
+            # its devices over a layout's densest packing already exceed it: no layout can meet it
+            Bound("layout_area_um2", AREA_SIDE_UM[10] ** 2, since=Evidence.NETLIST),
+            # the layout only adds capacitance: a design too slow before it is too slow after
+            Bound("delay_0p5mv_s", DECISION_S, since=Evidence.PRELAYOUT),
+            Bound("decides_in_time", True, since=Evidence.PRELAYOUT),
+            # the layout moves the noise either way: judged after it alone
+            Bound("noise_v", quantization_v, since=Evidence.POSTLAYOUT),
+        ),
+        space=space,
+    )
+
+
+@optimize(budget=500, pdks=(Pdk.TSMC65,), workers=48)
+def adc_12bit(pdk: Pdk) -> Problem:
+    """A comparator for a 12-bit converter in ``pdk``: the least energy, area and noise, its noise
+    at most the converter's quantization noise at the PDK's supply, its layout within the
+    resolution's square, its delay within the decision's time. Searched: every latch and tail, each
+    size on a log scale, the latch devices' lengths too (TSMC65's longer ones still decide within
+    the evaluation); the dynamic bias's capacitors with it."""
+
+    supply = importlib.import_module(f"pdk.{pdk.name.lower()}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
+    quantization_v = 2 * ADC_FULL_SCALE * supply / 2**12 / math.sqrt(12)
+    space = widen(Params(input_pair=MosType.NMOS))
+    space.latch = every(Latch)
+    space.bias = every(Bias)
+    space.diffpair_w = steps(2, 8192, log=True)
+    space.diffpair_l = steps(1, 16, log=True)
+    space.tail_w = steps(2, 4096, log=True)
+    space.tail_l = steps(1, 64, log=True)
+    space.rst_w = steps(2, 2048, log=True)
+    space.latch_on_w = steps(2, 2048, log=True)
+    space.latch_init_w = steps(2, 2048, log=True)
+    space.latch_on_l = steps(1, 32, log=True)
+    space.latch_init_l = steps(1, 32, log=True)
+    space.preamp_c_ff = steps(10, 16000, log=True, when=Bias.DYNAMIC)
+    space.bias_c_ff = steps(10, 64000, log=True, when=Bias.DYNAMIC)
+    return Problem(
+        cost={"energy_0p5mv_j": 1.0, "layout_area_um2": AREA_WEIGHT, "noise_v": (NOISE_WEIGHT, quantization_v)},
+        bounds=(
+            # its devices over a layout's densest packing already exceed it: no layout can meet it
+            Bound("layout_area_um2", AREA_SIDE_UM[12] ** 2, since=Evidence.NETLIST),
+            # the layout only adds capacitance: a design too slow before it is too slow after
+            Bound("delay_0p5mv_s", DECISION_S, since=Evidence.PRELAYOUT),
+            Bound("decides_in_time", True, since=Evidence.PRELAYOUT),
+            # the layout moves the noise either way: judged after it alone
+            Bound("noise_v", quantization_v, since=Evidence.POSTLAYOUT),
+        ),
+        space=space,
+    )
+
+
+@optimize(budget=500, pdks=(Pdk.TSMC65,), workers=48)
+def adc_14bit(pdk: Pdk) -> Problem:
+    """A comparator for a 14-bit converter in ``pdk``: the least energy, area and noise, its noise
+    at most the converter's quantization noise at the PDK's supply, its layout within the
+    resolution's square, its delay within the decision's time. Searched: every latch and tail, each
+    size on a log scale, the latch devices' lengths too (TSMC65's longer ones still decide within
+    the evaluation); the dynamic bias's capacitors with it."""
+
+    supply = importlib.import_module(f"pdk.{pdk.name.lower()}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
+    quantization_v = 2 * ADC_FULL_SCALE * supply / 2**14 / math.sqrt(12)
+    space = widen(Params(input_pair=MosType.NMOS))
+    space.latch = every(Latch)
+    space.bias = every(Bias)
+    space.diffpair_w = steps(2, 8192, log=True)
+    space.diffpair_l = steps(1, 16, log=True)
+    space.tail_w = steps(2, 4096, log=True)
+    space.tail_l = steps(1, 64, log=True)
+    space.rst_w = steps(2, 2048, log=True)
+    space.latch_on_w = steps(2, 2048, log=True)
+    space.latch_init_w = steps(2, 2048, log=True)
+    space.latch_on_l = steps(1, 32, log=True)
+    space.latch_init_l = steps(1, 32, log=True)
+    space.preamp_c_ff = steps(10, 16000, log=True, when=Bias.DYNAMIC)
+    space.bias_c_ff = steps(10, 64000, log=True, when=Bias.DYNAMIC)
+    return Problem(
+        cost={"energy_0p5mv_j": 1.0, "layout_area_um2": AREA_WEIGHT, "noise_v": (NOISE_WEIGHT, quantization_v)},
+        bounds=(
+            # its devices over a layout's densest packing already exceed it: no layout can meet it
+            Bound("layout_area_um2", AREA_SIDE_UM[14] ** 2, since=Evidence.NETLIST),
+            # the layout only adds capacitance: a design too slow before it is too slow after
+            Bound("delay_0p5mv_s", DECISION_S, since=Evidence.PRELAYOUT),
+            Bound("decides_in_time", True, since=Evidence.PRELAYOUT),
+            # the layout moves the noise either way: judged after it alone
+            Bound("noise_v", quantization_v, since=Evidence.POSTLAYOUT),
+        ),
+        space=space,
+    )
 
 
 def testbenches(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
@@ -347,124 +465,4 @@ def record(measurements: dict[str, Meas]) -> Record:
             "metastability": "metastability",
             "kickback": "kickback",
         },
-    )
-
-
-# ---------------------------------------------------------------- optimizations
-
-
-@optimize(budget=500, pdks=(Pdk.TSMC65,), workers=48)
-def adc_10bit(pdk: Pdk) -> Problem:
-    """A comparator for a 10-bit converter in ``pdk``: the least energy, area and noise, its noise
-    at most the converter's quantization noise at the PDK's supply, its layout within the
-    resolution's square, its delay within the decision's time. Searched: every latch and tail, each
-    size on a log scale, the latch devices' lengths too (TSMC65's longer ones still decide within
-    the evaluation); the dynamic bias's capacitors with it."""
-
-    supply = importlib.import_module(f"pdk.{pdk.name.lower()}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
-    quantization_v = 2 * ADC_FULL_SCALE * supply / 2**10 / math.sqrt(12)
-    space = widen(Params(input_pair=MosType.NMOS))
-    space.latch = every(Latch)
-    space.bias = every(Bias)
-    space.diffpair_w = steps(2, 8192, log=True)
-    space.diffpair_l = steps(1, 16, log=True)
-    space.tail_w = steps(2, 4096, log=True)
-    space.tail_l = steps(1, 64, log=True)
-    space.rst_w = steps(2, 2048, log=True)
-    space.latch_on_w = steps(2, 2048, log=True)
-    space.latch_init_w = steps(2, 2048, log=True)
-    space.latch_on_l = steps(1, 32, log=True)
-    space.latch_init_l = steps(1, 32, log=True)
-    space.preamp_c_ff = steps(10, 16000, log=True, when=Bias.DYNAMIC)
-    space.bias_c_ff = steps(10, 64000, log=True, when=Bias.DYNAMIC)
-    return Problem(
-        cost={"energy_0p5mv_j": 1.0, "layout_area_um2": AREA_WEIGHT, "noise_v": (NOISE_WEIGHT, quantization_v)},
-        bounds=(
-            # its devices over a layout's densest packing already exceed it: no layout can meet it
-            Bound("layout_area_um2", AREA_SIDE_UM[10] ** 2, since=Evidence.NETLIST),
-            # the layout only adds capacitance: a design too slow before it is too slow after
-            Bound("delay_0p5mv_s", DECISION_S, since=Evidence.PRELAYOUT),
-            Bound("decides_in_time", True, since=Evidence.PRELAYOUT),
-            # the layout moves the noise either way: judged after it alone
-            Bound("noise_v", quantization_v, since=Evidence.POSTLAYOUT),
-        ),
-        space=space,
-    )
-
-
-@optimize(budget=500, pdks=(Pdk.TSMC65,), workers=48)
-def adc_12bit(pdk: Pdk) -> Problem:
-    """A comparator for a 12-bit converter in ``pdk``: the least energy, area and noise, its noise
-    at most the converter's quantization noise at the PDK's supply, its layout within the
-    resolution's square, its delay within the decision's time. Searched: every latch and tail, each
-    size on a log scale, the latch devices' lengths too (TSMC65's longer ones still decide within
-    the evaluation); the dynamic bias's capacitors with it."""
-
-    supply = importlib.import_module(f"pdk.{pdk.name.lower()}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
-    quantization_v = 2 * ADC_FULL_SCALE * supply / 2**12 / math.sqrt(12)
-    space = widen(Params(input_pair=MosType.NMOS))
-    space.latch = every(Latch)
-    space.bias = every(Bias)
-    space.diffpair_w = steps(2, 8192, log=True)
-    space.diffpair_l = steps(1, 16, log=True)
-    space.tail_w = steps(2, 4096, log=True)
-    space.tail_l = steps(1, 64, log=True)
-    space.rst_w = steps(2, 2048, log=True)
-    space.latch_on_w = steps(2, 2048, log=True)
-    space.latch_init_w = steps(2, 2048, log=True)
-    space.latch_on_l = steps(1, 32, log=True)
-    space.latch_init_l = steps(1, 32, log=True)
-    space.preamp_c_ff = steps(10, 16000, log=True, when=Bias.DYNAMIC)
-    space.bias_c_ff = steps(10, 64000, log=True, when=Bias.DYNAMIC)
-    return Problem(
-        cost={"energy_0p5mv_j": 1.0, "layout_area_um2": AREA_WEIGHT, "noise_v": (NOISE_WEIGHT, quantization_v)},
-        bounds=(
-            # its devices over a layout's densest packing already exceed it: no layout can meet it
-            Bound("layout_area_um2", AREA_SIDE_UM[12] ** 2, since=Evidence.NETLIST),
-            # the layout only adds capacitance: a design too slow before it is too slow after
-            Bound("delay_0p5mv_s", DECISION_S, since=Evidence.PRELAYOUT),
-            Bound("decides_in_time", True, since=Evidence.PRELAYOUT),
-            # the layout moves the noise either way: judged after it alone
-            Bound("noise_v", quantization_v, since=Evidence.POSTLAYOUT),
-        ),
-        space=space,
-    )
-
-
-@optimize(budget=500, pdks=(Pdk.TSMC65,), workers=48)
-def adc_14bit(pdk: Pdk) -> Problem:
-    """A comparator for a 14-bit converter in ``pdk``: the least energy, area and noise, its noise
-    at most the converter's quantization noise at the PDK's supply, its layout within the
-    resolution's square, its delay within the decision's time. Searched: every latch and tail, each
-    size on a log scale, the latch devices' lengths too (TSMC65's longer ones still decide within
-    the evaluation); the dynamic bias's capacitors with it."""
-
-    supply = importlib.import_module(f"pdk.{pdk.name.lower()}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
-    quantization_v = 2 * ADC_FULL_SCALE * supply / 2**14 / math.sqrt(12)
-    space = widen(Params(input_pair=MosType.NMOS))
-    space.latch = every(Latch)
-    space.bias = every(Bias)
-    space.diffpair_w = steps(2, 8192, log=True)
-    space.diffpair_l = steps(1, 16, log=True)
-    space.tail_w = steps(2, 4096, log=True)
-    space.tail_l = steps(1, 64, log=True)
-    space.rst_w = steps(2, 2048, log=True)
-    space.latch_on_w = steps(2, 2048, log=True)
-    space.latch_init_w = steps(2, 2048, log=True)
-    space.latch_on_l = steps(1, 32, log=True)
-    space.latch_init_l = steps(1, 32, log=True)
-    space.preamp_c_ff = steps(10, 16000, log=True, when=Bias.DYNAMIC)
-    space.bias_c_ff = steps(10, 64000, log=True, when=Bias.DYNAMIC)
-    return Problem(
-        cost={"energy_0p5mv_j": 1.0, "layout_area_um2": AREA_WEIGHT, "noise_v": (NOISE_WEIGHT, quantization_v)},
-        bounds=(
-            # its devices over a layout's densest packing already exceed it: no layout can meet it
-            Bound("layout_area_um2", AREA_SIDE_UM[14] ** 2, since=Evidence.NETLIST),
-            # the layout only adds capacitance: a design too slow before it is too slow after
-            Bound("delay_0p5mv_s", DECISION_S, since=Evidence.PRELAYOUT),
-            Bound("decides_in_time", True, since=Evidence.PRELAYOUT),
-            # the layout moves the noise either way: judged after it alone
-            Bound("noise_v", quantization_v, since=Evidence.POSTLAYOUT),
-        ),
-        space=space,
     )

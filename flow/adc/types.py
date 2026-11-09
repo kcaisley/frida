@@ -121,6 +121,12 @@ class AnalysisCalibration3(AnalysisCalibration):
 
 
 @dataclass(frozen=True, slots=True)
+class AnalysisExtracted(AnalysisCalibration):
+    """The extracted weights: each stage's effective capacitance its run read, a PEX table's or its
+    DAC's measured steps, or the design's own where none (``analyze_extracted``)."""
+
+
+@dataclass(frozen=True, slots=True)
 class AnalysisRamp(Analysis):
     """One DOUT decoding of a repeated ramp capture, reconstructed against the ramp phase.
 

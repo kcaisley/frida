@@ -297,7 +297,11 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
             record.update(metrics=metrics)
         if met(metrics):
             # the search's runs include the screen's: only the rest are simulated, one record of all
-            more = {n: tb for n, tb in sweep.testbenches(pdk, params, pipeline.Level.SEARCH).items() if n not in measurements}
+            more = {
+                n: tb
+                for n, tb in sweep.testbenches(pdk, params, pipeline.Level.SEARCH).items()
+                if n not in measurements
+            }
             measurements.update(simulate(block, more, folder / "runs"))
             result = sweep.record(measurements)
             metrics = {**result.metrics, **extra}

@@ -158,6 +158,7 @@ from .types import (
     AnalysisDynamic,
     AnalysisEndpointNonlinearity,
     AnalysisEnergy,
+    AnalysisExtracted,
     AnalysisHsu,
     AnalysisInputNoise,
     AnalysisInterferer,
@@ -2363,7 +2364,23 @@ def analyze_calibration3(measurement: MeasAdc, *, ramp: AnalysisRamp) -> Analysi
     )
 
 
-def _extracted_calibration(measurement: MeasAdc, effective: np.ndarray | None, label: str) -> AnalysisCalibration:
+@analysis
+def analyze_extracted(meas: MeasAdc) -> AnalysisExtracted:
+    """A capture's "extracted" weights: from each stage's effective capacitance its run read
+    (``MeasAdc.effective_cap``, ``flow.adc.sim.read``: a PEX table's, or its DAC's steps as its
+    characterization measured them); none, a DAC designed alone: the design's weights. A capture
+    of no run of the flow (a lab capture: no ``cap_table`` readback, empty or not) has nothing to
+    say about extraction, and is refused."""
+    if "cap_table" not in meas.info.readbacks:
+        raise ValueError("the extracted weights take a run's capture: this one's readbacks name no cap_table")
+    source = str(meas.info.readbacks["cap_table"])
+    if meas.effective_cap is None:
+        return _extracted_calibration(meas, None, "Design weights, nothing extracted")
+    label = "Measured-step weights" if source.endswith(".h5") else "PEX-extracted weights"
+    return _extracted_calibration(meas, np.asarray(meas.effective_cap, dtype=np.float64), label)
+
+
+def _extracted_calibration(measurement: MeasAdc, effective: np.ndarray | None, label: str) -> AnalysisExtracted:
     """``measurement``'s BOUT weights from each stage's extracted effective capacitance (``effective``,
     C0 first, in any common unit: a PEX table's, or a capacitive DAC's measured steps,
     ``flow.analysis.io.read_cap_table``); None, nothing extracted (a DAC as designed): the design's
@@ -2390,7 +2407,7 @@ def _extracted_calibration(measurement: MeasAdc, effective: np.ndarray | None, l
     calibrated_weight = np.append(extracted_cap_weight, nominal_bout_weight[-1] * scale)
     calibrated_weight *= code_max / np.sum(calibrated_weight)
     identity = measurement.identity
-    return AnalysisCalibration(
+    return AnalysisExtracted(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,

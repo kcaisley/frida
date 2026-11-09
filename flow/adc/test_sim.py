@@ -564,10 +564,11 @@ def test_historical_lvs_exception_is_narrow(
 
 
 def test_sim_holds_no_private_wrapper_and_no_main():
-    """The executor is ``simulate`` itself, and the runs that call it are the sweep's
-    (``flow.adc.runs``): no flavor-specific private wrapper, no command line of its own; its private
-    functions find a run's top and probes, decode a run's raw output (``_decode``) and make up the
-    behavioral converter."""
+    """The executor is ``simulate`` itself, and the testbenches it runs are built here
+    (``behavioral_testbenches``, ``spice_testbenches``; ``flow.adc.runs.testbenches`` lists them): no
+    flavor-specific private wrapper, no command line of its own; its private functions find a run's
+    top and probes, decode a run's raw output (``_decode``), read its extraction
+    (``_with_extraction``), make up the behavioral converter and the testbenches' stimuli."""
     functions = [
         name
         for name, value in vars(sim).items()
@@ -580,6 +581,7 @@ def test_sim_holds_no_private_wrapper_and_no_main():
         "_bit_value",
         "_capture",
         "_checked",
+        "_code_ramp",
         "_complete",
         "_convert",
         "_converter",
@@ -595,7 +597,12 @@ def test_sim_holds_no_private_wrapper_and_no_main():
         "_salogic",
         "_sequence_times",
         "_signed_off",
+        "_sine",
         "_source_value",
+        "_spice_run",
+        "_spice_runs",
+        "_staircase",
+        "_with_extraction",
     ]
     assert not hasattr(sim, "main")
 
@@ -1139,8 +1146,9 @@ def test_read_decodes_a_spectre_run_by_the_probes_it_left(tmp_path, monkeypatch)
     seen = {}
     monkeypatch.setattr(sim, "read_raw_transient", lambda path: seen.setdefault("raw", path))
     monkeypatch.setattr(sim, "_decode", lambda result, **kwargs: seen.update(kwargs) or "decoded")
+    monkeypatch.setattr(sim, "_with_extraction", lambda measurement: f"{measurement}, extracted")
     tb = _gen()
-    assert sim.read(raw, tb) == "decoded"
+    assert sim.read(raw, tb) == "decoded, extracted"
     assert seen["raw"] == raw and seen["params"] is tb and seen["raw_path"] == raw
     assert seen["signal_names"] == {"time": "time", "xtop.comp_out": "comp_out"}
 
