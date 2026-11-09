@@ -24,17 +24,16 @@ Step = steps.Step
 def test_the_steps_run_from_one_to_another() -> None:
     """``--from`` and ``--to`` pick the steps between them, both included, each after those whose
     outputs it takes: an instance's steps are one chain, the record after pexsim (whose measurements
-    it takes where they exist) and the page after the record; one that does not lead to the other
+    it takes where they exist), the run's table after it; one that does not lead to the other
     is refused."""
     chain = [Step.NETLIST, Step.SIM, Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.PEXSIM, Step.RECORD]
     assert steps.between(Step.NETLIST, Step.RECORD) == chain
     assert steps.between(Step.RECORD, Step.RECORD) == [Step.RECORD]
     assert steps.between(Step.NETLIST, Step.TABLE) == [*chain, Step.TABLE]
-    assert steps.between(Step.NETLIST, Step.PAGE) == [*chain, Step.PAGE]
     assert steps.between(Step.NETLIST, Step.CIRCUIT) == [Step.NETLIST, Step.SIM, Step.CIRCUIT]
     assert steps.between(Step.NETLIST, Step.LVS) == [Step.NETLIST, Step.LAYOUT, Step.DRC, Step.LVS]
     assert steps.between(Step.NETLIST, Step.PEXSIM) == chain[:-1]
-    assert steps.between(Step.SIM, Step.PAGE) == [Step.SIM, Step.PEXSIM, Step.RECORD, Step.PAGE]
+    assert steps.between(Step.SIM, Step.TABLE) == [Step.SIM, Step.PEXSIM, Step.RECORD, Step.TABLE]
     assert steps.between(Step.LAYOUT, Step.RECORD) == chain[2:]
     # each step's order puts it after what it takes; the record needs the sim alone
     assert all(before.value < step.value for step in Step for before in step.inputs)
@@ -47,7 +46,7 @@ def test_the_bare_command_prints_the_usage_the_steps_and_each_blocks_runs(capsys
     cli.main([])
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].startswith("python -m flow --block B --run R")
-    assert "  record (needs netlist, sim; after pexsim)" in lines and "  page (needs record)" in lines
+    assert "  record (needs netlist, sim; after pexsim)" in lines and "  table (needs record)" in lines
     assert "blocks and their runs (--run):" in lines
     assert any(
         line.startswith("  comp: ") and "frida1 (single)" in line and "adc_12bit (optimize)" in line for line in lines
@@ -578,26 +577,19 @@ def test_a_layout_without_an_lvs_source_is_checked_by_drc_alone(flow, tools, cap
     assert entry["lvs_correct"] is None and entry["pex"]["skipped"].startswith("no LVS source")
 
 
-def test_a_layout_other_than_its_netlist_is_not_extracted_and_its_page_still_written(flow, tools, capsys) -> None:
-    """LVS that does not match refuses the extraction; the page, which takes whatever exists, is
-    written all the same, with the record's metrics and the layout's steps. DRC's violations are a
-    count, not a failure."""
+def test_a_layout_other_than_its_netlist_is_not_extracted_and_its_record_still_written(flow, tools, capsys) -> None:
+    """LVS that does not match refuses the extraction; the record, which needs only the netlist and
+    the sim, is written all the same, with the layout's steps joined. DRC's violations are a count,
+    not a failure."""
     tools.state.update(lvs=False, violations=3)
     with pytest.raises(SystemExit, match="1 of 1 instances failed"):
-        flow("--to", "page", "--run", "wired")
+        flow("--to", "record", "--run", "wired")
     out = capsys.readouterr().out
     assert "record ok" in out and "3 violations (stand-in)" in out and "no match (stand-in)" in out
-    assert (
-        "pex failed in" in out
-        and "RuntimeError: LVS found the layout other than its netlist" in out
-        and "page ok" in out
-    )
-    instance = _instance("wired")
-    steps = {entry["key"]: entry for entry in json.loads((instance / "page/steps.json").read_text())}
-    assert (instance / "page/page.html").is_file()
-    assert steps["record"]["state"] == "ok" and steps["gds"]["state"] == "ok"
-    assert steps["drc"]["state"] == "bad" and steps["lvs"]["state"] == "bad" and steps["pex"]["state"] == "bad"
-    record = json.loads((instance / "instance.json").read_text())
+    assert "pex failed in" in out and "RuntimeError: LVS found the layout other than its netlist" in out
+    assert "pexsim not run: (after pex failed)" in out
+    record = json.loads((_instance("wired") / "instance.json").read_text())
+    assert record["evidence"] == "prelayout" and record["layout"]["drc_violations"] == 3
     assert record["metrics"]["layout_area_um2"] == 2.0 and record["layout"]["steps"]["pex"]["error"]
 
 
@@ -654,9 +646,6 @@ def test_a_signoff_step_without_its_layout_fails_naming_the_command_that_makes_i
         in out
     )
     assert "/lvs not run" in out and "/pex not run" in out and not tools.calls
-    with pytest.raises(SystemExit, match="1 of 1 instances failed"):
-        flow("--run", "one", "--from", "page", "--to", "page")
-    assert "page failed: page needs the record or the layout" in capsys.readouterr().out
 
 
 @pytest.fixture

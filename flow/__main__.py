@@ -12,8 +12,8 @@ A step is one tool: it takes its inputs and makes its outputs, and its configura
 own, in the block's Python files and the kit's (the runs a run states, a layout's placement,
 which signoff a kit takes), never a flag here. An instance's steps are one chain, each after those it needs:
 
-    netlist -> sim -> layout -> drc -> lvs -> pex -> pexsim -> record -> page
-               sim -> circuit                                 record -> figures, table
+    netlist -> sim -> layout -> drc -> lvs -> pex -> pexsim -> record -> table
+               sim -> circuit                                 record -> figures
 
 The record runs after pexsim and takes its measurements where it simulated the extraction (the
 post-layout metrics, the pre-layout ones beside them as ``prelayout``, ``evidence`` saying which),
@@ -21,7 +21,7 @@ but needs only the netlist and the sim: where the layout fails, or is not extrac
 back-annotated (a kit's extraction with devices, the ADC's), the record holds the pre-layout
 metrics alone and the layout's outcome.
 
-``--to`` (``page`` by default) runs the steps that lead from ``--from`` (``netlist`` by default) to
+``--to`` (``table`` by default: the viewer's table of the run's records) runs the steps that lead from ``--from`` (``netlist`` by default) to
 it, both included:
 ``--to sim`` simulates alone, ``--to record`` lays out, signs off, extracts, simulates the
 extraction and records, ``--to lvs`` lays out and signs off without extraction,
@@ -40,8 +40,8 @@ the sim step's runs again with the open extractor's capacitances back-annotated 
 a flat copy with the capacitors, ``flow.sweep.runner.simulate``), which the record step records
 (the same metric names, the annotation's totals beside them); it refuses an extraction more than a small share of whose capacitance has no
 schematic net or one the DUT lacks, and testbenches none of which holds the DUT, and leaves an extraction with devices and RC (a kit's) to the block's own
-simulation of it (the ADC's circuit step). ``page`` writes the instance's page from whatever of
-its record and layout exists.
+simulation of it (the ADC's circuit step). The viewer (``web.serve``) shows each instance's steps
+from top to bottom, each with what it made.
 
 Every step logs (``flow.logs``): each tool keeps its whole output in its own log beside its results
 (``align``'s ``schematic2layout.log``, ``spectre.log``, ``kpex.log``, ``gdscheck.*.log``,
@@ -59,7 +59,7 @@ always, beside the run, ``status.txt`` (the dashboard as plain text, every two s
 A run is ``build/<block>/<run>/<stamp>/``, dated, each design in ``<pdk>/<name>/`` there (a
 single's by its name, a grid's by its digest), a folder a step: ``netlist/``, ``sim/<run>/``,
 ``circuit/<run>/``, ``record/``, ``figures/``, ``layout/``, ``drc/``, ``lvs/``, ``pex/``,
-``pexsim/<run>/``, ``page/``; its record, ``instance.json``, beside them, which the viewer's table
+``pexsim/<run>/``; its record, ``instance.json``, beside them, which the viewer's table
 reads (the run's older dated folders kept, for the viewer to show). A run from the netlist (the default)
 is a new one; ``--from`` a later step works in the run's latest folder, which must exist, and resumes
 it: a step skips a design whose output is complete and not older than what it was made from
@@ -168,19 +168,14 @@ def instances(block: str, run: str, pdk: str, folder: Path) -> dict[str, tuple[s
 def _pending(job: Job) -> tuple[list[Step], dict[Step, str]]:
     """The job's steps that would run: each whose output is not complete, or that needs one that
     would run (made again after it); and those of them that would fail, with why: what they need
-    neither complete nor to run (``_missing``), or a step they need that would fail (not run; the
-    page, which takes whatever exists, excepted)."""
+    neither complete nor to run (``_missing``), or a step they need that would fail (not run)."""
     pending: list[Step] = []
     failing: dict[Step, str] = {}
     for step in job.steps:
         if done(job.out, step) and not any(need in pending for need in step.inputs):
             continue
         pending.append(step)
-        if step is Step.PAGE:
-            shown = (Step.RECORD, Step.LAYOUT)
-            if not any(done(job.out, s) or (s in pending and s not in failing) for s in shown):
-                failing[step] = _missing(job, step) or "page needs the record or the layout"
-        elif any(need in failing for need in step.needs):
+        if any(need in failing for need in step.needs):
             failing[step] = f"not run, as {next(need for need in step.needs if need in failing)} fails"
         elif any(need not in pending and not done(job.out, need) for need in step.needs):
             failing[step] = _missing(job, step) or "a step it needs is not complete"
@@ -424,7 +419,7 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--block", required=True, choices=pipeline_blocks(), help="a block on the pipeline")
     command.add_argument("--run", required=True, metavar="RUN", help="one of the block's runs, by its name")
     shown = ", ".join(words)
-    command.add_argument("--to", default="page", choices=words, metavar="STEP", help=f"the last step (page): {shown}")
+    command.add_argument("--to", default="table", choices=words, metavar="STEP", help=f"the last step (table): {shown}")
     command.add_argument("--from", dest="start", default="netlist", choices=words, metavar="STEP", help="the first")
     command.add_argument("--dry-run", dest="dry_run", action="store_true", help="print what would run, run nothing")
     return command

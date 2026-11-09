@@ -21,7 +21,7 @@ class Step(Enum):
     """One tool's step over an instance (``TABLE``: over a run), in an order that puts each after
     the steps it needs (``needs``) and those whose outputs it takes where they exist (``after``);
     its folder in an instance's directory is its name. An instance's chain is linear: netlist,
-    sim, layout, drc, lvs, pex, pexsim, record, page."""
+    sim, layout, drc, lvs, pex, pexsim, record (the run's table after: the viewer's)."""
 
     NETLIST = auto()
     SIM = auto()
@@ -32,7 +32,6 @@ class Step(Enum):
     PEX = auto()
     PEXSIM = auto()
     RECORD = auto()
-    PAGE = auto()
     FIGURES = auto()
     TABLE = auto()
 
@@ -51,7 +50,7 @@ class Step(Enum):
                 return (Step.SIM,)
             case Step.RECORD:
                 return (Step.NETLIST, Step.SIM)
-            case Step.FIGURES | Step.TABLE | Step.PAGE:
+            case Step.FIGURES | Step.TABLE:
                 return (Step.RECORD,)
             case Step.DRC:
                 return (Step.LAYOUT,)
@@ -151,14 +150,10 @@ def _ended(out: Path, step: Step) -> dict | None:
 def done(out: Path, step: Step) -> bool:
     """Whether the step's output on this instance is complete: it ended without error, after each
     step it needs ended without error, each of those complete too (make's rule: made again where
-    what it was made from, or what that was made from, is newer, failed or gone). The page shows
-    whatever exists: complete unless a step it shows ended after it."""
+    what it was made from, or what that was made from, is newer, failed or gone)."""
     ended = _ended(out, step)
     if ended is None:
         return False
-    if step is Step.PAGE:
-        shown = (_marker(out, need) for need in step.ancestors - {step})
-        return all(json.loads(path.read_text())["finished"] <= ended["finished"] for path in shown if path.exists())
     for need in step.needs:
         made = _ended(out, need)
         if made is None or made["finished"] > ended["finished"] or not done(out, need):
@@ -188,12 +183,7 @@ def _command(job: Job, step: Step) -> str:
 
 def _missing(job: Job, step: Step) -> str | None:
     """What ``step`` needs on this instance that is not complete, and the command that makes it;
-    None where it has all it needs. The page takes whatever exists of the instance's record and
-    layout, one of them at least."""
-    if step is Step.PAGE:
-        if done(job.out, Step.RECORD) or done(job.out, Step.LAYOUT):
-            return None
-        return f"page needs the record or the layout: {_command(job, Step.RECORD)}, or --to pex"
+    None where it has all it needs."""
     for need in step.needs:
         if not done(job.out, need):
             return f"{step} needs its {need} step's output: {_command(job, need)}"
@@ -514,15 +504,6 @@ def _pexsim(job: Job) -> dict:
     return {"runs": list(runs), "seconds_simulated": round(ran, 1), **summary}
 
 
-def _page(job: Job) -> dict:
-    """The instance's page (``flow.web.page.page``) in ``page/``: its record and whatever of its
-    layout exists."""
-    from flow.web.page import page
-
-    (job.out / "page").mkdir(parents=True, exist_ok=True)
-    return {"page": str(page(job.out, job.out / "page" / "page.html").relative_to(job.out))}
-
-
 def _body(step: Step):
     """The function that runs ``step`` on one instance, None for one that runs over a run
     (``TABLE``)."""
@@ -537,7 +518,6 @@ def _body(step: Step):
         Step.LVS: _lvs,
         Step.PEX: _pex,
         Step.PEXSIM: _pexsim,
-        Step.PAGE: _page,
     }.get(step)
 
 
@@ -641,8 +621,8 @@ def run_steps(job: Job, events: Any = None) -> list[Outcome]:
     every line, the flow's and its tools', in ``<step>/step.log``, each tool's whole output in its
     own log beside its results; the warnings and errors counted by tool in ``step.json``'s
     ``log``). A failure leaves
-    the steps that need it not run (the record, which does without the layout's steps, and the
-    page, which takes whatever exists, run); a characterization
+    the steps that need it not run (the record, which does without the layout's steps, runs); a
+    characterization
     step's failure (netlist, sim, record) is also the instance's record
     (``flow.sweep.runner.failed_record``), and a layout step's joins it (``_join_layout``), so the
     viewer's table shows it. Each step's start and outcome an event onto ``events`` (a queue the
@@ -682,11 +662,11 @@ def run_steps(job: Job, events: Any = None) -> list[Outcome]:
         if rejected is not None:
             report(Step[rejected["step"].upper()], "rejected", _shown_rejection(rejected))
     for step in job.steps:
-        if failed & step.required and step is not Step.PAGE:
+        if failed & step.required:
             failed.add(step)
             report(step, "not run", f"(after {next(s for s in job.steps if s in failed)} failed)")
             continue
-        if rejected is not None and step not in (Step.RECORD, Step.PAGE):
+        if rejected is not None and step is not Step.RECORD:
             report(step, "not run", f"(rejected at {rejected['step']})")
             continue
         if done(job.out, step):  # its result, seconds and counts as it made them before
