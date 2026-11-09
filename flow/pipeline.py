@@ -308,17 +308,23 @@ def shown(value: Any) -> str:
 class Grid:
     """A grid of a block's design space (``@grid``): ``build`` (given the PDK, where it takes one)
     gives a space or several (``widen``; their union), or several by name (a mapping), in the PDKs
-    ``pdks`` names (None: every PDK), on ``workers``; its instances every point of each, labelled by the values that
+    ``pdks`` names (None: every PDK), on ``workers``, a design rejected where it misses one of its
+    ``bounds`` (a tuple of ``Bound``, or a function of the PDK giving one); its instances every point of each, labelled by the values that
     vary, ``name(parameter=value, ...)``, and by the space's name where it has one,
     ``name(space, parameter=value, ...)``."""
 
     build: Callable[..., Any]
     pdks: tuple[Pdk, ...] | None = None
     workers: int | None = None
+    limits: Callable[[Pdk], Sequence[Bound]] = lambda pdk: ()
 
     @property
     def name(self) -> str:
         return getattr(self.build, "__name__", "")
+
+    def bounds(self, pdk: str | Pdk) -> tuple[Bound, ...]:
+        """Its bounds in ``pdk``: those it was given, or what the function it was given gives there."""
+        return tuple(self.limits(pdk_of(pdk)))
 
     def built(self, pdk: str | Pdk) -> Any:
         """What ``build`` gives in ``pdk``: a space, several, or several by name."""
@@ -345,15 +351,28 @@ class Grid:
 
 
 def grid(
-    build: Callable[..., Any] | None = None, *, pdks: Sequence[Pdk] | None = None, workers: int | None = None
+    build: Callable[..., Any] | None = None,
+    *,
+    pdks: Sequence[Pdk] | None = None,
+    workers: int | None = None,
+    bounds: Sequence[Bound] | Callable[[Pdk], Sequence[Bound]] = (),
 ) -> Any:
     """Make a function (of the PDK, a ``Pdk``, where it takes one) returning a space, several, or
     several by name, a run of every design they hold, by its name: ``@grid``, or
-    ``@grid(pdks=(Pdk.TSMC65, ...), workers=24)`` in those PDKs alone, on that many workers."""
+    ``@grid(pdks=(Pdk.TSMC65, ...), workers=24, bounds=_adc_bounds_12)`` in those PDKs alone, on that
+    many workers, a design that misses a bound rejected."""
     entry = tuple(pdks) if pdks is not None else None
+    limits: Callable[[Pdk], Sequence[Bound]]
+    if isinstance(bounds, Sequence):
+        fixed: tuple[Bound, ...] = tuple(cast("Sequence[Bound]", bounds))
+
+        def limits(pdk: Pdk) -> Sequence[Bound]:
+            return fixed
+    else:
+        limits = bounds
     if build is None:
-        return lambda function: Grid(function, entry, workers)
-    return Grid(build, entry, workers)
+        return lambda function: Grid(function, entry, workers, limits)
+    return Grid(build, entry, workers, limits)
 
 
 # ---- metrics, evaluation levels and problems (a block's types.py and runs.py)
@@ -400,18 +419,53 @@ class Level(Enum):
     CIRCUIT = 4
 
 
+class Evidence(Enum):
+    """How far along the pipeline a design is, in its order: its netlist (the estimates its devices
+    give: its area at most their own over a layout's densest packing), its pre-layout simulation (the
+    circuit's, or a behavioral one of laid-out blocks), its layout, its extraction, its post-layout
+    simulation. A bound judges a design from the evidence it names on (``Bound.since``)."""
+
+    NETLIST = auto()
+    PRELAYOUT = auto()
+    LAYOUT = auto()
+    EXTRACTION = auto()
+    POSTLAYOUT = auto()
+
+
+@dataclass(frozen=True)
+class Bound:
+    """A limit a design must meet: its metric's value on the side the metric's ``better`` names
+    (``limit``; a flag's ``True``, it must hold), judged from ``since`` on: a metric the layout only
+    makes worse (area, delay, energy) from its first estimate, one the layout can move either way
+    (offset, mismatch, noise) only once it is extracted or simulated after layout. The post-layout
+    record judges every bound."""
+
+    metric: str
+    limit: float | bool
+    since: Evidence = Evidence.POSTLAYOUT
+
+
+def judged(bounds: Sequence[Bound], evidence: Evidence) -> tuple[Bound, ...]:
+    """The bounds that may judge a design at ``evidence``: those whose ``since`` it has reached."""
+    return tuple(bound for bound in bounds if bound.since.value <= evidence.value)
+
+
 @dataclass(frozen=True)
 class Problem:
     """What an optimization of a block minimizes and what it must meet, by metric name: ``cost``, a
     product of factors, each a weight (the factor metric^w, in the metric's unit) or a weight and a
     scale (the factor (1 + (metric / scale)^2)^w, without unit, which stays near 1 below the scale);
-    ``bound``, each a limit on the side its metric's ``better`` names (a flag: True, it must hold);
-    ``space``, the designs it searches (``widen``: a design, its searched parameters widened, every
-    other held)."""
+    ``bounds`` (``Bound``), each a limit judged from its evidence on; ``space``, the designs it
+    searches (``widen``: a design, its searched parameters widened, every other held)."""
 
     cost: Mapping[str, float | tuple[float, float]]
-    bound: Mapping[str, float | bool]
+    bounds: tuple[Bound, ...] = ()
     space: Any = None
+
+    @property
+    def limits(self) -> dict[str, float | bool]:
+        """Each bound's limit by its metric."""
+        return {bound.metric: bound.limit for bound in self.bounds}
 
 
 @dataclass(frozen=True)
@@ -466,13 +520,13 @@ def cost_unit(problem: Problem) -> str:
     return "_".join(name.rsplit("_", 1)[-1] for name in plain)
 
 
-def violations(problem: Problem, metrics: Mapping[str, Any], better: Mapping[str, Better]) -> dict[str, float]:
-    """Each bound's violation, at most 0 where it is met: log(value / limit) for a "lower" metric
-    (-10, met by far, at zero), log(limit / value) for a "higher" one, 0 or 1 for a flag; 0 where the
-    metric was not measured (absent), 1 where it was measured and is not a number (beyond what the
-    bench resolves)."""
+def violations(bounds: Sequence[Bound], metrics: Mapping[str, Any], better: Mapping[str, Better]) -> dict[str, float]:
+    """Each bound's violation by its metric, at most 0 where it is met: log(value / limit) for a
+    "lower" metric (-10, met by far, at zero), log(limit / value) for a "higher" one, 0 or 1 for a
+    flag; 0 where the metric was not measured (absent), 1 where it was measured and is not a number
+    (beyond what the bench resolves)."""
     result = {}
-    for name, limit in problem.bound.items():
+    for name, limit in ((bound.metric, bound.limit) for bound in bounds):
         value = metrics.get(name)
         if value is None:
             result[name] = 0.0

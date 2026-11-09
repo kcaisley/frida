@@ -402,10 +402,10 @@ def _optimizable(block: str, Params, stage: dict) -> set[str]:
             if installed and (o.pdks is None or pipeline.pdk_of(pdk) in o.pdks)
         }
         for label, made in found.items():
-            for name in [*made.cost, *made.bound]:
+            for name in [*made.cost, *made.limits]:
                 if name not in better:
                     problem("runs", f"{label} names {name}, not a metric")
-            for name, limit in made.bound.items():
+            for name, limit in made.limits.items():
                 if better.get(name) == "none" or (better.get(name) == "true") != isinstance(limit, bool):
                     problem("runs", f"{label} bounds {name} against its direction")
             space = made.space
@@ -667,3 +667,24 @@ def test_a_grid_labels_named_values_and_named_spaces_by_their_names() -> None:
     plain = pipeline.grid(lambda: [ladder.spaces(pipeline.Pdk.TSMC65)["short"]])
     assert {label.split("(", 1)[1] for label, _ in plain.instances("tsmc65")} == {"width=narrow)", "width=wide)"}
     assert set(plain.spaces("tsmc65")) == {"0"}
+
+
+def test_a_bound_judges_from_its_evidence_on() -> None:
+    """A bound judges a design from the evidence it names on: an area from the netlist's estimate, a
+    delay from the pre-layout simulation, a noise after the layout alone; the post-layout record by
+    every bound. A grid's bounds may be given, or given by a function of the PDK."""
+    area = pipeline.Bound("layout_area_um2", 100.0, since=pipeline.Evidence.NETLIST)
+    delay = pipeline.Bound("delay_s", 1e-9, since=pipeline.Evidence.PRELAYOUT)
+    noise = pipeline.Bound("noise_v", 1e-4)
+    bounds = (area, delay, noise)
+    assert pipeline.judged(bounds, pipeline.Evidence.NETLIST) == (area,)
+    assert pipeline.judged(bounds, pipeline.Evidence.LAYOUT) == (area, delay)
+    assert pipeline.judged(bounds, pipeline.Evidence.POSTLAYOUT) == bounds
+    better = {"layout_area_um2": "lower", "delay_s": "lower", "noise_v": "lower"}
+    found = pipeline.violations(bounds, {"layout_area_um2": 120.0, "delay_s": 0.5e-9}, better)
+    assert found["layout_area_um2"] > 0 and found["delay_s"] < 0 and found["noise_v"] == 0.0
+    fixed = pipeline.grid(lambda: None, bounds=(area,))
+    per_pdk = pipeline.grid(
+        lambda: None, bounds=lambda pdk: (pipeline.Bound("x", 1.0 if pdk is pipeline.Pdk.TSMC65 else 2.0),)
+    )
+    assert fixed.bounds("tsmc65") == (area,) and per_pdk.bounds("ihp130")[0].limit == 2.0

@@ -256,7 +256,7 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
     path = folder / "instance.json"
     if path.exists():
         cached = json.loads(path.read_text())
-        stopped = any(value > 0 for value in pipeline.violations(problem, measured(cached), better).values())
+        stopped = any(value > 0 for value in pipeline.violations(problem.bounds, measured(cached), better).values())
         if cached["level"] >= pipeline.Level.SEARCH.value or stopped or not cached["valid"]:
             return {**cached, "cached": True}
     record: dict[str, Any] = {
@@ -270,16 +270,16 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
         "error": None,
     }
     folder.mkdir(parents=True, exist_ok=True)
-    met = lambda metrics: not any(value > 0 for value in pipeline.violations(problem, metrics, better).values())
+    met = lambda metrics: not any(value > 0 for value in pipeline.violations(problem.bounds, metrics, better).values())
     if record["valid"]:
         sweep = import_module(f"flow.{block}.runs")
         module = import_module(f"flow.{block}.subckt").netlist(params)
         h.pdk.compile(module)
         extra = geometry(module, pdk)
-        bounded = "layout_area_um2" in problem.bound
+        bounded = "layout_area_um2" in problem.limits
         # no layout has its devices cover more than DENSITY of it: where the device area over DENSITY
         # exceeds the area bound, the design is out without simulating, its area estimated so
-        if bounded and extra["device_area_um2"] / DENSITY > problem.bound["layout_area_um2"]:
+        if bounded and extra["device_area_um2"] / DENSITY > problem.limits["layout_area_um2"]:
             record.update(
                 metrics={**extra, "layout_area_um2": extra["device_area_um2"] / DENSITY}, estimated=["layout_area_um2"]
             )
@@ -319,10 +319,10 @@ def score(
     tiny energy), and a tool that ranks by the objective alone would take it for the best. The
     sampler ranks infeasible trials by their violations, whatever their objective."""
     if not record["valid"]:
-        return INFEASIBLE, {name: 1.0 for name in problem.bound}
+        return INFEASIBLE, {name: 1.0 for name in problem.limits}
     metrics = measured(record)
     value = pipeline.objective(problem, metrics)
-    violations = pipeline.violations(problem, metrics, better)
+    violations = pipeline.violations(problem.bounds, metrics, better)
     # a bound on an estimate (an area from the gates alone) is broken by at least 1, the estimate
     # being a best case: the sampler must not take such a design for nearly met
     for name in record.get("estimated", ()):
@@ -362,14 +362,14 @@ def warm_start(study: Any, block: str, pdk: str, problem: pipeline.Problem) -> i
         value, constraints = score(problem, record, better)
         # a bound left unmeasured (another problem stopped the evaluation first) is unknown here,
         # unless another is broken already: such a record would need evaluating again
-        unknown = any(record["metrics"].get(name) is None for name in problem.bound)
+        unknown = any(record["metrics"].get(name) is None for name in problem.limits)
         if record["valid"] and unknown and all(v <= 0 for v in constraints.values()):
             continue
         trial = optuna.trial.create_trial(
             params=params,
             distributions={name: dists[name] for name in params},
             value=value,
-            system_attrs={"constraints": [constraints[name] for name in problem.bound]},
+            system_attrs={"constraints": [constraints[name] for name in problem.limits]},
             user_attrs={"id": record["id"], "metrics": record["metrics"], "warm_start": True},
         )
         study.add_trial(trial)
@@ -431,7 +431,7 @@ def optimize(block: str, pdk: str, label: str, budget: int, workers: int) -> Pat
                 print(f"[{trial.number}] failed: {traceback.format_exc(limit=3)[-600:]}", file=log, flush=True)
                 continue
             value, constraints = score(problem, record, better)
-            trial.set_user_attr("constraints", [constraints[name] for name in problem.bound])
+            trial.set_user_attr("constraints", [constraints[name] for name in problem.limits])
             trial.set_user_attr("id", record["id"])
             trial.set_user_attr("metrics", record["metrics"])
             study.tell(trial, value)
@@ -638,7 +638,7 @@ def table(block: str, pdk: str, label: str, workers: int) -> Path:
     every = {key for row in rows for key in row["metrics"]}
     # the cost, the problem's other metrics, the design's size together (child cells, devices, device
     # and layout area, the problem's or not), then the rest
-    named = [key for key in [*problem.cost, *problem.bound] if key not in pipeline.GEOMETRY]
+    named = [key for key in [*problem.cost, *problem.limits] if key not in pipeline.GEOMETRY]
     metrics = [key for key in dict.fromkeys([cost, *named, *pipeline.GEOMETRY, *sorted(every)]) if key in every]
     feasible = sum(1 for row in rows if row["status"]["feasible"])
     title = f"{BLOCKS.get(block, block)}, {label} in {pdk}"

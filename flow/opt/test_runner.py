@@ -23,7 +23,11 @@ def _space() -> comp.Params:
 
 PROBLEM = pipeline.Problem(
     cost={"energy_0p5mv_j": 1.0, "layout_area_um2": 1.0, "noise_v": (6.0, 100e-6)},
-    bound={"noise_v": 100e-6, "layout_area_um2": 400.0, "decides_in_time": True},
+    bounds=(
+        pipeline.Bound("noise_v", 100e-6),
+        pipeline.Bound("layout_area_um2", 400.0, since=pipeline.Evidence.NETLIST),
+        pipeline.Bound("decides_in_time", True, since=pipeline.Evidence.PRELAYOUT),
+    ),
     space=_space(),
 )
 
@@ -79,7 +83,7 @@ def test_a_record_scores_by_the_problems_costs_and_bounds() -> None:
     # a design the block does not admit: every bound violated, without metrics
     assert runner.score(PROBLEM, {"valid": False, "metrics": {}}, better) == (
         runner.INFEASIBLE,
-        dict.fromkeys(PROBLEM.bound, 1.0),
+        dict.fromkeys(PROBLEM.limits, 1.0),
     )
 
 
@@ -87,6 +91,6 @@ def test_a_search_offers_named_values_by_their_names() -> None:
     """A choice among named values (``values`` of a mapping) is offered and answered by name."""
     space = pipeline.widen(comp.Params())
     space.diffpair_w = pipeline.values({"small": 32, "large": 512})
-    named = pipeline.Problem(cost={"energy_0p5mv_j": 1.0}, bound={}, space=space)
+    named = pipeline.Problem(cost={"energy_0p5mv_j": 1.0}, space=space)
     assert runner.distributions(named)["diffpair_w"].choices == ("small", "large")
     assert runner.suggest(optuna.trial.FixedTrial({"diffpair_w": "large"}), named).diffpair_w == 512
