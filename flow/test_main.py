@@ -339,6 +339,7 @@ def tools(toy, monkeypatch):
     from flow.layout import signoff, step
 
     calls: list[tuple] = []
+    engines: list = []
     state = {"violations": 0, "lvs": True}
 
     def drc(pdk, gds, run_dir, checker, source=None):
@@ -353,15 +354,16 @@ def tools(toy, monkeypatch):
         correct = state["lvs"]
         return {"lvs_correct": correct, "lvs_report": str(run_dir / "x.lvsdb"), "lvs_checker": "stand-in"}
 
-    def extracted(pdk, gds, name, run_dir, checker):
+    def extracted(pdk, gds, name, run_dir, checker, engine):
         calls.append(("pex", Path(gds).name, checker))
+        engines.append(engine)
         return {"netlist": str(run_dir / f"{name}.pex.spectre"), "extractor": "stand-in", "nets": {"a": 1e-15}}
 
     monkeypatch.setattr(signoff, "drc", drc)
     monkeypatch.setattr(signoff, "lvs", lvs)
     monkeypatch.setattr(step, "extracted", extracted)
     monkeypatch.setitem(sys.modules, "pdk.toypdk.layout.tech", SimpleNamespace(LAYERS={"M1": (1, 0)}))
-    return SimpleNamespace(calls=calls, state=state)
+    return SimpleNamespace(calls=calls, engines=engines, state=state)
 
 
 def test_the_layout_steps_lay_out_then_sign_off_each_in_its_folder(flow, tools, capsys) -> None:
@@ -419,6 +421,23 @@ def test_a_kit_that_names_calibre_signs_off_by_it(flow, tools, monkeypatch) -> N
     assert signoff.checker("toypdk", "toyblock") is Checker.CALIBRE
     flow("--to", "pex", "--instance", "wired")
     assert [call[2] for call in tools.calls] == [Checker.CALIBRE] * 3
+
+
+def test_the_extraction_engine_is_the_kits_configuration_for_the_block(flow, tools, monkeypatch) -> None:
+    """KLayout-PEX's engine is the kit's choice for the block (its ``signoff.engine(block)``), not a
+    flag: FasterCap where the kit names none, the 2.5-D engine for the block it names it for."""
+    from flow.layout import signoff
+    from flow.layout.kpex import Engine
+
+    flow("--to", "pex", "--run", "fastercap", "--instance", "wired")
+    assert signoff.engine("toypdk", "toyblock") is Engine.FASTERCAP and tools.engines == [Engine.FASTERCAP]
+    kit = SimpleNamespace(engine=lambda block: Engine.RCX25 if block == "toyblock" else Engine.FASTERCAP)
+    monkeypatch.setitem(sys.modules, "pdk.toypdk.signoff", kit)
+    assert (
+        signoff.engine("toypdk", "toyblock") is Engine.RCX25 and signoff.engine("toypdk", "other") is Engine.FASTERCAP
+    )
+    flow("--to", "pex", "--run", "rcx25", "--instance", "wired")
+    assert tools.engines == [Engine.FASTERCAP, Engine.RCX25]
 
 
 def test_a_block_that_plans_its_signoff_has_the_signoff_steps_run_it_each_in_its_folder(
@@ -618,7 +637,7 @@ def extraction(tools, monkeypatch):
 
     mapped = {"a": "a", "$1": "a", "$9": None}
 
-    def extracted(pdk, gds, name, run_dir, checker):
+    def extracted(pdk, gds, name, run_dir, checker, engine):
         run_dir.mkdir(parents=True, exist_ok=True)
         netlist, probes = run_dir / f"{name}.pex.netlist", run_dir / f"{name}.probes.json"
         lines = ["c_0 ( a 0 ) capacitor c=3f", "c_1 ( $1 a ) capacitor c=0.5f", "c_2 ( $1 0 ) capacitor c=0.2f"]
@@ -650,7 +669,11 @@ def test_pexsim_simulates_the_runs_again_with_the_extraction_on_the_schematic(fl
     record = json.loads((instance / "pexsim/instance.json").read_text())
     assert set(record["metrics"]) == {"devices", *(f"read_{run}" for run in runs)}
     annotation = record["annotation"]
-    assert annotation["capacitors"] == 1 and annotation["total_f"] == pytest.approx(3.71e-15)
+    assert (
+        annotation["extractor"] == "stand-in"
+        and annotation["capacitors"] == 1
+        and annotation["total_f"] == pytest.approx(3.71e-15)
+    )
     assert annotation["mapped_f"] == pytest.approx(3.7e-15) and annotation["unmapped_f"] == pytest.approx(1e-17)
     assert annotation["unmapped_nets"] == {"$9": pytest.approx(1e-17)} and annotation["unannotated"] == []
     assert record["waves"] == {} and record["name"] == "wired"

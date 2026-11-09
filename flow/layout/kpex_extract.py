@@ -1,17 +1,20 @@
-"""One layout-only extraction by FasterCap through KLayout-PEX's library, run by kpex's own Python
+"""One layout-only extraction through KLayout-PEX's library, by FasterCap or by kpex's 2.5-D engine
+(``spec["engine"]``: ``fastercap``, ``rcx25``), run by kpex's own Python
 (``flow.layout.kpex.run_layout_pex`` writes its inputs and starts it): this file imports KLayout and
 klayout_pex alone.
 
     <kpex python> kpex_extract.py <spec.json>
 
-The spec holds the GDS, its top cell, kpex's technology (a JSON file), each conductor's GDS pairs
-and its labels', the vias that join the conductors, the texts to add (a net the layout leaves
-unlabelled: its conductor, a point on it and its name), FasterCap's executable and settings, and
-the netlist to write. The layout's nets are found by KLayout (each conductor joined to itself, each via
-to the conductors above and below it, each label naming the net under it), kpex turns them into
-FasterCap's model, and FasterCap's Maxwell matrix becomes a Spectre netlist of capacitors between the
-nets by their labels, a net's capacitance to infinity (its row sum) to ground, ``0``, as an
-extractor whose substrate is an infinite plane counts it. Beside it (``spec["probes"]``), each net's
+The spec holds the GDS, its top cell, kpex's technology (a JSON file; the 2.5-D engine's coefficients
+in it), each conductor's GDS pairs and its labels', the vias that join the conductors, the texts to
+add (a net the layout leaves unlabelled: its conductor, a point on it and its name), the engine,
+FasterCap's executable and settings, and the netlist to write. The layout's nets are found by
+KLayout (each conductor joined to itself, each via to the conductors above and below it, each label
+naming the net under it). FasterCap's model of them gives a Maxwell matrix, a net's capacitance to
+infinity its row sum; the 2.5-D engine gives each pair's capacitance, the substrate's among them.
+Either becomes a Spectre netlist of capacitors between the nets by their labels, a net's capacitance
+to the substrate or infinity to ground, ``0``, as an extractor whose substrate is an infinite plane
+counts it. Beside it (``spec["probes"]``), each net's
 probes: points on a few of its shapes, each with its conductor's GDS pair, by which an LVS database
 finds the net among its own (``flow.layout.annotate``).
 """
@@ -25,6 +28,8 @@ import klayout.db as kdb
 from klayout_pex.fastercap.fastercap_input_builder import FasterCapInputBuilder
 from klayout_pex.fastercap.fastercap_runner import fastercap_parse_capacitance_matrix, run_fastercap
 from klayout_pex.klayout.lvsdb_extractor import KLayoutExtractionContext
+from klayout_pex.rcx25.extractor import RCX25Extractor
+from klayout_pex.rcx25.pex_mode import PEXMode
 from klayout_pex.tech_info import TechInfo
 
 
@@ -81,16 +86,9 @@ def probes(l2n: kdb.LayoutToNetlist, spec: dict, count: int = 4) -> dict[str, li
     return found
 
 
-def main(path: str) -> None:
-    spec = json.loads(Path(path).read_text())
-    out = Path(spec["out_dir"])
-    out.mkdir(parents=True, exist_ok=True)
-    tech = TechInfo.from_json(spec["tech"], dielectric_filter=None)
-    l2n = nets(spec)
-    Path(spec["probes"]).write_text(json.dumps(probes(l2n, spec)) + "\n")
-    context = KLayoutExtractionContext.prepare_extraction(
-        lvsdb=l2n, top_cell=spec["top"], tech=tech, blackbox_devices=False
-    )
+def fastercap(context: KLayoutExtractionContext, tech: TechInfo, spec: dict, out: Path) -> list[tuple[str, str, float]]:
+    """FasterCap's capacitances (fF) of the layout's nets: each pair's (the Maxwell matrix's
+    off-diagonals), each net's to infinity (its row sum) to the substrate."""
     builder = FasterCapInputBuilder(
         pex_context=context,
         tech_info=tech,
@@ -119,27 +117,58 @@ def main(path: str) -> None:
     )
     matrix = fastercap_parse_capacitance_matrix(str(log)).averaged_off_diagonals()
     matrix.write_csv(str(out / "FasterCap_Result_Matrix_Avg.csv"))
-    # FasterCap names its conductors g<index>_<net>; the substrate's net is ground
+    # FasterCap names its conductors g<index>_<net>
     names = [name.split("_", 1)[1] for name in matrix.conductor_names]
+    found = [(a, names[j], -matrix[i][j] * 1e15) for i, a in enumerate(names) for j in range(i + 1, len(names))]
     ground = context.substrate_net_name
-    node = {name: "0" if name == ground else name for name in names}
+    return found + [(a, ground, sum(matrix[i]) * 1e15) for i, a in enumerate(names) if a != ground]
+
+
+def rcx25(context: KLayoutExtractionContext, tech: TechInfo, out: Path) -> list[tuple[str, str, float]]:
+    """kpex's 2.5-D capacitances (fF) of the layout's nets, by the technology's coefficients: each
+    pair's, a net's to the substrate among them."""
+    extractor = RCX25Extractor(
+        pex_context=context,
+        pex_mode=PEXMode.CC,
+        scale_ratio_to_fit_halo=True,
+        delaunay_amax=0,
+        delaunay_b=0.5,
+        tech_info=tech,
+        report_path=str(out / "rcx25_report.rdb"),
+        report_caps=False,
+    )
+    summary = extractor.extract().summarize()
+    return [(key.net1, key.net2, c) for key, c in summary.capacitances.items()]
+
+
+def main(path: str) -> None:
+    spec = json.loads(Path(path).read_text())
+    out = Path(spec["out_dir"])
+    out.mkdir(parents=True, exist_ok=True)
+    tech = TechInfo.from_json(spec["tech"], dielectric_filter=None)
+    l2n = nets(spec)
+    Path(spec["probes"]).write_text(json.dumps(probes(l2n, spec)) + "\n")
+    context = KLayoutExtractionContext.prepare_extraction(
+        lvsdb=l2n, top_cell=spec["top"], tech=tech, blackbox_devices=False
+    )
+    if spec["engine"] == "rcx25":
+        found, made = rcx25(context, tech, out), "kpex's 2.5-D engine"
+    else:
+        found, made = fastercap(context, tech, spec, out), "FasterCap"
+    # the substrate's net is ground (the 2.5-D engine's own name for it, VSUBS, too)
+    ground = {context.substrate_net_name, "VSUBS"}
+    node = {name: "0" if name in ground else name for pair in found for name in pair[:2]}
+    ports = sorted({name for name in node.values() if name != "0"})
     lines = [
-        "// FasterCap through KLayout-PEX, by the layout's net names; each net's capacitance to infinity to ground",
+        f"// {made} through KLayout-PEX, by the layout's net names; a net's to the substrate or infinity to ground",
         "simulator lang=spectre",
-        f"subckt {spec['top']} ( {' '.join(name for name in names if name != ground)} )",
+        f"subckt {spec['top']} ( {' '.join(ports)} )",
     ]
     count = 0
-    for i, first in enumerate(names):
-        for j in range(i + 1, len(names)):
-            value = -matrix[i][j]
-            if value > 0:
-                lines.append(f"c_{count} ( {node[first]} {node[names[j]]} ) capacitor c={value * 1e15:.6g}f")
-                count += 1
-        if first != ground:
-            infinity = sum(matrix[i])
-            if infinity > 0:
-                lines.append(f"c_{count} ( {node[first]} 0 ) capacitor c={infinity * 1e15:.6g}f")
-                count += 1
+    for a, b, value in found:
+        if value > 0 and node[a] != node[b]:
+            lines.append(f"c_{count} ( {node[a]} {node[b]} ) capacitor c={value:.6g}f")
+            count += 1
     lines.append(f"ends {spec['top']}")
     Path(spec["netlist"]).write_text("\n".join(lines) + "\n")
 

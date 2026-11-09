@@ -31,6 +31,7 @@ from klayout import db
 
 from flow.layout.build import annealed, build_design, other_router, pdk_router, route_shorts
 from flow.layout.hdl21align import pnr_input
+from flow.layout.kpex import Engine
 from flow.layout.signoff import Checker
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -77,15 +78,23 @@ def net_texts(gds: Path) -> list[tuple[str, int, int, str]]:
 
 
 def extracted(
-    pdk: str, gds: Path, name: str, run_dir: Path, checker: Checker = Checker.OPEN, tolerance: float = 0.05
+    pdk: str,
+    gds: Path,
+    name: str,
+    run_dir: Path,
+    checker: Checker = Checker.OPEN,
+    tolerance: float = 0.05,
+    engine: Engine = Engine.FASTERCAP,
 ) -> dict[str, Any]:
-    """The layout's extraction into ``run_dir``: by FasterCap through KLayout-PEX (``Checker.OPEN``:
+    """The layout's extraction into ``run_dir``: through KLayout-PEX (``Checker.OPEN``:
     ``flow.layout.kpex``, every net of the GDS's largest top cell, by its label, ALIGN's route
-    (``net_texts``) or KLayout's name, each pair's capacitance and each net's to ground) to a
-    block's parasitics' accuracy (``tolerance``, 5 %: their relative sizes, which a Monte Carlo
-    varies), or by the kit's extractor (``Checker.CALIBRE``). Its netlist and extractor; KLayout-PEX's
-    also its nets' probes (``flow.layout.kpex``), its nets and capacitors, their total and the nets'
-    own capacitances (to everything else), largest first. Raises where the extraction fails."""
+    (``net_texts``) or KLayout's name, each pair's capacitance and each net's to ground) by its
+    ``engine``, FasterCap to a block's parasitics' accuracy (``tolerance``, 5 %: their relative
+    sizes, which a Monte Carlo varies) or the 2.5-D engine (the one the kit names for the block,
+    ``flow.layout.signoff.engine``), or by the kit's extractor (``Checker.CALIBRE``). Its netlist
+    and extractor; KLayout-PEX's also its engine, its nets' probes (``flow.layout.kpex``), its nets
+    and capacitors, their total and the nets' own capacitances (to everything else), largest first.
+    Raises where the extraction fails."""
     from flow.layout.annotate import capacitors
     from flow.layout.kpex import Extractor
     from flow.layout.signoff import run_layout_pex
@@ -97,7 +106,7 @@ def extracted(
         netlist = run_layout_pex(pdk, gds, top, name, run_dir, extractor=Extractor.CALIBRE)
         LOG.info(f"PEX: {netlist} (the kit's extractor)")
         return {"netlist": str(netlist), "extractor": "the kit's (Calibre)"}
-    netlist = run_layout_pex(pdk, gds, top, name, run_dir, tolerance=tolerance, texts=net_texts(gds))
+    netlist = run_layout_pex(pdk, gds, top, name, run_dir, tolerance=tolerance, texts=net_texts(gds), engine=engine)
     own: dict[str, float] = {}
     found = capacitors(netlist)
     for a, b, c in found:
@@ -105,11 +114,13 @@ def extracted(
             own[net] = own.get(net, 0.0) + c
     nets = dict(sorted(own.items(), key=lambda item: -item[1]))
     count, total = len(found), sum(c for _a, _b, c in found)
-    LOG.info(f"PEX: {len(nets)} nets, {count} capacitors, {total * 1e15:.4g} fF in all ({netlist})")
+    made = f"FasterCap, {tolerance:.0%}" if engine is Engine.FASTERCAP else "2.5-D"
+    LOG.info(f"PEX: {len(nets)} nets, {count} capacitors, {total * 1e15:.4g} fF in all by {made} ({netlist})")
     return {
         "netlist": str(netlist),
         "probes": str(netlist.with_name(f"{name}.probes.json")),
-        "extractor": f"KLayout-PEX (FasterCap, {tolerance:.0%})",
+        "extractor": f"KLayout-PEX ({made})",
+        "engine": engine.name.lower(),
         "nets": nets,
         "capacitors": count,
         "total_f": total,

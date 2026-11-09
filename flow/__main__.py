@@ -369,9 +369,11 @@ def _lvs(job: Job) -> dict:
 
 def _pex(job: Job) -> dict:
     """The layout's extraction into ``pex/``: as its ``lay_out`` planned it (``planned_pex``, against
-    its PEX source), else ``flow.layout.step.extracted`` (KLayout-PEX, or the kit's extractor where
-    its kit names Calibre); not run where LVS was not (no source), refused where LVS found the
-    layout other than its netlist (a planned signoff's LVS step holds it to its expectation)."""
+    its PEX source), else ``flow.layout.step.extracted`` (KLayout-PEX by the engine its kit names for
+    the block, FasterCap by default, ``flow.layout.signoff.engine``; or the kit's extractor where its
+    kit names Calibre), its engine among its outputs; not run where LVS was not (no source),
+    refused where LVS found the layout other than its netlist (a planned signoff's LVS step holds
+    it to its expectation)."""
     from flow.layout import signoff, step
 
     laid, checked, plan = _outputs(job.out, Step.LAYOUT), _outputs(job.out, Step.LVS), _plan(job)
@@ -381,8 +383,8 @@ def _pex(job: Job) -> dict:
         return {"skipped": checked["skipped"]}
     if checked.get("lvs_correct") is False:
         raise RuntimeError(f"LVS found the layout other than its netlist ({checked['lvs_report']}): not extracted")
-    gds = Path(laid["gds"])
-    return step.extracted(job.pdk, gds, gds.stem, job.out / "pex", signoff.checker(job.pdk, job.block))
+    gds, engine = Path(laid["gds"]), signoff.engine(job.pdk, job.block)
+    return step.extracted(job.pdk, gds, gds.stem, job.out / "pex", signoff.checker(job.pdk, job.block), engine=engine)
 
 
 def _pexsim(job: Job) -> dict:
@@ -392,7 +394,8 @@ def _pexsim(job: Job) -> dict:
     schematic's through LVS (``flow.layout.annotate``), in each testbench's DUT
     (``flow.sweep.runner.simulate``). Not run where the layout was not extracted, nor for an
     extraction with devices and RC (a kit's: a block's own simulation of it, the ADC's circuit
-    step's); refused where more than a small share of the capacitance has no schematic net."""
+    step's); refused where more than a small share of the capacitance has no schematic net. The
+    record's annotation names the extractor (its engine)."""
     from flow.layout import annotate
     from flow.sweep import runner
 
@@ -418,6 +421,7 @@ def _pexsim(job: Job) -> dict:
         dut = next((entry["dut"] for entry in added.values()), job.block)
         raise RuntimeError(f"no testbench of {job.block} instantiates {dut} directly: nothing was back-annotated")
     summary = {
+        "extractor": extracted["extractor"],
         **found.summary(),
         **next((entry for entry in added.values() if entry["instances"]), {}),
         "unannotated": [run for run in runs if not added.get(run, {}).get("instances")],

@@ -95,3 +95,28 @@ def test_a_route_joining_two_nets_is_routed_again_with_another_seed(tmp_path: Pa
     aligned.extend([{("a", "b"): 2}] * 3)
     assert step.lay_out_align("inv", "tsmc65", None, tmp_path / "thrice")["route_shorts"] == {"a/b": 2}
     assert seeds == [0, 1, 2]
+
+
+def test_the_extraction_records_the_engine_that_ran(tmp_path: Path, monkeypatch) -> None:
+    """The pex step's output names KLayout-PEX's engine (``engine``, ``extractor``): FasterCap at its
+    tolerance by default, the 2.5-D engine where asked; the extraction is given it."""
+    from flow.layout import signoff
+    from flow.layout.kpex import Engine
+
+    given: list = []
+
+    def run_layout_pex(pdk, gds, top, name, run_dir, tolerance=None, texts=(), engine=Engine.FASTERCAP):
+        given.append(engine)
+        netlist = run_dir / "kpex" / f"{name}.pex.netlist"
+        netlist.parent.mkdir(parents=True, exist_ok=True)
+        netlist.write_text("c_0 ( a 0 ) capacitor c=2f\nc_1 ( a b ) capacitor c=0.5f\n")
+        return netlist
+
+    monkeypatch.setattr(signoff, "run_layout_pex", run_layout_pex)
+    gds = _gds(tmp_path / "layout" / "toy.gds")
+    default = step.extracted("tsmc65", gds, "toy", tmp_path / "fastercap")
+    assert (default["engine"], default["extractor"]) == ("fastercap", "KLayout-PEX (FasterCap, 5%)")
+    rcx25 = step.extracted("tsmc65", gds, "toy", tmp_path / "rcx25", engine=Engine.RCX25)
+    assert (rcx25["engine"], rcx25["extractor"]) == ("rcx25", "KLayout-PEX (2.5-D)")
+    assert given == [Engine.FASTERCAP, Engine.RCX25]
+    assert rcx25["nets"] == {"a": pytest.approx(2.5e-15), "b": pytest.approx(0.5e-15)} and rcx25["capacitors"] == 2

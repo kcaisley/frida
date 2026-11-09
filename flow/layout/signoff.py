@@ -5,8 +5,9 @@ installed, then the PDK's DRC; writes ``<run_dir>/drc_violations.json`` and rais
 ``run_lvs`` (whether LVS is correct, and its report) and, where the PDK has extraction,
 ``run_pex`` (against a schematic) and ``run_layout_pex`` (a layout by its own net names with the
 kit's extractor, ``calibre_pex.py``). The provider picks the checker it has (Calibre, Assura or
-KLayout). ``run_layout_pex`` here extracts by FasterCap through KLayout-PEX (``flow.layout.kpex``)
-unless asked for the kit's (``Extractor.CALIBRE``, its manual check). Any other check takes a
+KLayout). ``run_layout_pex`` here extracts through KLayout-PEX (``flow.layout.kpex``), by FasterCap
+or by the 2.5-D engine a kit names for a block (``engine``), unless asked for the kit's
+(``Extractor.CALIBRE``, its manual check). Any other check takes a
 layout's largest top cell by the checker a kit names (``checker``): ``drc`` and ``lvs``, the CLI's
 drc and lvs steps, by the open tools (gdscheck, the kit's KLayout LVS) or its Calibre. A block's
 own ``lay_out`` may plan its layout's signoff instead (``write_plan``: its sources, LVS expectation
@@ -31,7 +32,7 @@ from typing import Any, Literal
 from klayout import db
 
 from flow.layout import kpex
-from flow.layout.kpex import Extractor
+from flow.layout.kpex import Engine, Extractor
 from flow.layout.pdkproc import pdk_value
 
 
@@ -137,9 +138,11 @@ def run_layout_pex(
     extractor: Extractor = Extractor.KLAYOUT,
     tolerance: float | None = None,
     texts: list[tuple[str, int, int, str]] = (),
+    engine: Engine = Engine.FASTERCAP,
 ) -> Path:
-    """A layout-only extraction (3D, by the layout's own net names, nothing compared): FasterCap
-    through KLayout-PEX (``flow.layout.kpex``), or the kit's extractor (``Extractor.CALIBRE``).
+    """A layout-only extraction (by the layout's own net names, nothing compared): KLayout-PEX
+    (``flow.layout.kpex``) by its ``engine``, FasterCap's 3-D or kpex's 2.5-D, or the kit's
+    extractor (``Extractor.CALIBRE``).
 
     For primitives' test structures and arrays: plain metal with labelled terminals has no device to
     recognize and no schematic; and a block's parasitics, at a looser ``tolerance`` (KLayout-PEX's
@@ -151,7 +154,14 @@ def run_layout_pex(
         raise FileNotFoundError(gds_path)
     if extractor is Extractor.KLAYOUT:
         return kpex.run_layout_pex(
-            technology, gds_path, layout_top, output_stem, run_dir, tolerance=tolerance or kpex.TOLERANCE, texts=texts
+            technology,
+            gds_path,
+            layout_top,
+            output_stem,
+            run_dir,
+            tolerance=tolerance or kpex.TOLERANCE,
+            texts=texts,
+            engine=engine,
         )
     provider = _provider(technology)
     if not callable(getattr(provider, "run_layout_pex", None)):
@@ -481,17 +491,30 @@ def _top(gds: Path) -> str:
     return max(layout.top_cells(), key=lambda cell: cell.bbox().area()).name
 
 
+def _kit_choice(pdk: str, name: str, block: str, default: Any) -> Any:
+    """The kit's choice for ``block``, where its signoff module gives one (``pdk.<pdk>.signoff.<name>(block)``),
+    else ``default``."""
+    try:
+        choose = getattr(import_module(f"pdk.{pdk}.signoff"), name, None)
+    except ModuleNotFoundError as error:  # a kit without a signoff module (or this checkout lacks the kit)
+        if error.name not in ("pdk", f"pdk.{pdk}", f"pdk.{pdk}.signoff"):
+            raise  # the kit's signoff module there, but broken
+        return default
+    return choose(block) if callable(choose) else default
+
+
 def checker(pdk: str, block: str) -> Checker:
     """Who signs ``block``'s layouts off in ``pdk``: the kit's choice, where its signoff module
     gives one (``pdk.<pdk>.signoff.checker(block) -> Checker``), else the open tools. A block whose
     own ``lay_out`` plans its signoff (``write_plan``) takes the plan's."""
-    try:
-        choose = getattr(import_module(f"pdk.{pdk}.signoff"), "checker", None)
-    except ModuleNotFoundError as error:  # a kit without a signoff module (or this checkout lacks the kit)
-        if error.name not in ("pdk", f"pdk.{pdk}", f"pdk.{pdk}.signoff"):
-            raise  # the kit's signoff module there, but broken
-        return Checker.OPEN
-    return choose(block) if callable(choose) else Checker.OPEN
+    return _kit_choice(pdk, "checker", block, Checker.OPEN)
+
+
+def engine(pdk: str, block: str) -> Engine:
+    """Which engine KLayout-PEX extracts ``block``'s layouts in ``pdk`` by: the kit's choice, where
+    its signoff module gives one (``pdk.<pdk>.signoff.engine(block) -> Engine``: the 2.5-D engine
+    for a block FasterCap does not converge on, by the kit's coefficients), else FasterCap."""
+    return _kit_choice(pdk, "engine", block, Engine.FASTERCAP)
 
 
 def drc(pdk: str, gds: Path, run_dir: Path, checker: Checker = Checker.OPEN, source: Path | None = None) -> dict:

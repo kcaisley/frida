@@ -1,6 +1,7 @@
-"""Layout-only 3-D extraction by FasterCap through KLayout-PEX (kpex): every PDK's default extractor
-of a layout by its own net names (``flow.layout.signoff.run_layout_pex``). A kit's own extractor
-(``Extractor.CALIBRE``: Calibre's xACT, or Quantus where the kit has it so) is the manual check.
+"""Layout-only extraction through KLayout-PEX (kpex), by FasterCap in 3-D or by kpex's own 2.5-D
+engine (``Engine``): every PDK's default extractor of a layout by its own net names
+(``flow.layout.signoff.run_layout_pex``). A kit's own extractor (``Extractor.CALIBRE``: Calibre's
+xACT, or Quantus where the kit has it so) is the manual check.
 
 The PDK gives its process stack (``pdk/<tech>/kpex/stack.json``: each conductor's height and
 thickness and the planar dielectrics, made from its kit's typical interconnect corner by
@@ -10,8 +11,11 @@ dielectric of its own level (a film around it filling the level; the slabs' mean
 the field between neighbours runs along them) and the one from its top to the next metal (the
 slabs' in series, as the field between levels crosses them); and runs the extraction in kpex's own Python (``KPEX_HOME``, a
 subprocess: ``kpex_extract.py``), FasterCap (``FASTERCAP``) at ``TOLERANCE`` and ``MESH`` with
-Galerkin's scheme. Each net's capacitance to infinity counts to ground, as an extractor's infinite
-substrate plane has it. The result is a Spectre netlist of capacitors by the layout's net names, as
+Galerkin's scheme; or kpex's 2.5-D engine (``Engine.RCX25``: each pair of shapes' overlap, sidewall
+and fringe by the kit's coefficients, ``pdk/<tech>/kpex/parasitics.json``, kpex's
+``process_parasitics``), where FasterCap does not converge (a MOM array's long fingers at minimum
+pitch; the kit names it for a block, ``flow.layout.signoff.engine``). Each net's capacitance to
+infinity counts to ground, as an extractor's infinite substrate plane has it. The result is a Spectre netlist of capacitors by the layout's net names, as
 the kits' extractors write theirs, so one parser reads either; beside it each net's probes
 (``<stem>.probes.json``: points on its shapes), by which ``flow.layout.annotate`` finds it in an LVS
 database.
@@ -43,6 +47,17 @@ K_VOID = 3.9
 TOP_SPAN_UM = 5.0
 # the film of a metal's level around its shapes (um): thin, the level's permittivity
 FILM_UM = 0.005
+
+
+class Engine(Enum):
+    """KLayout-PEX's engine: FasterCap, a 3-D field solver (the default); or kpex's 2.5-D rule
+    engine (each pair of shapes by the kit's coefficients, ``parasitics.json``), which needs no
+    convergence: a capacitor array's weights to a fraction of an LSB and its gain to a few percent,
+    its plates' absolute values and the split of a net's load between a shield and the substrate
+    more loosely (docs/klayout.md)."""
+
+    FASTERCAP = auto()
+    RCX25 = auto()
 
 
 class Extractor(Enum):
@@ -107,10 +122,12 @@ def _k(slabs: list[list[float]], bottom: float, top: float, *, along: bool = Fal
 
 
 def technology(pdk: str) -> tuple[dict, dict]:
-    """kpex's technology of the PDK (``stack.json`` and its layout tech), and the layers' GDS pairs,
-    labels and vias the extraction joins its nets by."""
+    """kpex's technology of the PDK (``stack.json`` and its layout tech; its 2.5-D coefficients where
+    the kit has them, ``parasitics.json``), and the layers' GDS pairs, labels and vias the
+    extraction joins its nets by."""
 
-    stack = json.loads((ROOT / "pdk" / pdk / "kpex" / "stack.json").read_text())
+    folder = ROOT / "pdk" / pdk / "kpex"
+    stack = json.loads((folder / "stack.json").read_text())
     tech = import_module(f"pdk.{pdk}.layout.tech")
     conductors = stack["conductors"]
     metals = sorted((name for name in conductors if re.fullmatch(r"M\d+", name)), key=lambda name: int(name[1:]))
@@ -198,6 +215,8 @@ def technology(pdk: str) -> tuple[dict, dict]:
         "process_stack": {"layers": process},
         "substrate": {"net_names": ["GROUND"]},
     }
+    if (folder / "parasitics.json").is_file():
+        kpex["process_parasitics"] = json.loads((folder / "parasitics.json").read_text())
     # each conductor's labels: its pin layer, its pin text, any text on its drawn pair
     labels = {
         name: [
@@ -224,16 +243,20 @@ def run_layout_pex(
     run_dir: Path,
     tolerance: float = TOLERANCE,
     texts: list[tuple[str, int, int, str]] = (),
+    engine: Engine = Engine.FASTERCAP,
 ) -> Path:
-    """Extract ``layout_top`` of ``gds_path`` in ``pdk`` by FasterCap to its relative ``tolerance``
-    (``TOLERANCE``: a unit's, the arrays' ratios; looser for a block's parasitics), in
-    ``run_dir/kpex/``: the Spectre netlist of its nets' capacitances (``<output_stem>.pex.netlist``).
-    ``texts``: labels to add, (conductor, x, y in database units, name), for nets the layout leaves
-    unlabelled."""
+    """Extract ``layout_top`` of ``gds_path`` in ``pdk`` by ``engine``, FasterCap to its relative
+    ``tolerance`` (``TOLERANCE``: a unit's, the arrays' ratios; looser for a block's parasitics) or
+    the 2.5-D engine by the kit's coefficients, in ``run_dir/kpex/``: the Spectre netlist of its nets'
+    capacitances (``<output_stem>.pex.netlist``). ``texts``: labels to add, (conductor, x, y in
+    database units, name), for nets the layout leaves unlabelled. Refuses the 2.5-D engine in a kit
+    without its coefficients."""
 
+    kpex, joins = technology(pdk)
+    if engine is Engine.RCX25 and "process_parasitics" not in kpex:
+        raise ValueError(f"{pdk} has no 2.5-D coefficients (pdk/{pdk}/kpex/parasitics.json): extract it by FasterCap")
     work = (run_dir / "kpex").resolve()
     work.mkdir(parents=True, exist_ok=True)
-    kpex, joins = technology(pdk)
     (work / "tech.pb.json").write_text(json.dumps(kpex, indent=1))
     netlist = work / f"{output_stem}.pex.netlist"
     spec = {
@@ -244,6 +267,7 @@ def run_layout_pex(
         "out_dir": str(work),
         "netlist": str(netlist),
         "probes": str(netlist.with_name(f"{output_stem}.probes.json")),
+        "engine": engine.name.lower(),
         "fastercap": str(FASTERCAP),
         "tolerance": tolerance,
         "texts": [list(text) for text in texts],
