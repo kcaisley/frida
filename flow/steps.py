@@ -75,6 +75,21 @@ class Step(Enum):
         return self.needs + self.after
 
     @property
+    def evidence(self):
+        """What this step adds to what is known of a design (``flow.pipeline.Evidence``), from which
+        on bounds judge it: the netlist's estimates, the pre-layout simulation, the layout, its
+        extraction; the record judges every bound on its own evidence (post-layout where pexsim
+        simulated, else pre-layout); None for a step that adds none."""
+        from flow.pipeline import Evidence
+
+        return {
+            Step.NETLIST: Evidence.NETLIST,
+            Step.SIM: Evidence.PRELAYOUT,
+            Step.LAYOUT: Evidence.LAYOUT,
+            Step.PEX: Evidence.EXTRACTION,
+        }.get(self)
+
+    @property
     def ancestors(self) -> set[Step]:
         """This step and every step whose output it takes, directly or through others: the steps a
         run to it runs (``between``)."""
@@ -104,8 +119,9 @@ def _needed(step: Step) -> str:
 @dataclass(frozen=True)
 class Job:
     """One instance's steps in a run: its block, PDK, name in the run (a named instance's name, a
-    grid's digest), label and parameters, its directory, the steps to run, and the run as
-    ``--run`` takes it (for the commands a failure names)."""
+    grid's digest), label and parameters, its directory, the steps to run, the run as ``--run``
+    takes it (for the commands a failure names) and the run's bounds in its PDK (``bounds(pdk)``
+    of its ``@single``, ``@grid`` or ``@optimize``: ``flow.pipeline.Bound``), which reject it."""
 
     block: str
     pdk: str
@@ -115,6 +131,7 @@ class Job:
     out: Path
     steps: tuple[Step, ...]
     run: str
+    bounds: tuple[Any, ...] = ()
 
 
 def _marker(out: Path, step: Step) -> Path:
@@ -216,6 +233,71 @@ def _fresh(out: Path, step: Step) -> Path:
     return out / str(step)
 
 
+def _established(job: Job, step: Step) -> dict[str, Any]:
+    """The metrics ``step`` established on this instance, from its evidence: the netlist's size and
+    its area estimate (its devices over the densest packing a layout reaches, ``pipeline.DENSITY``:
+    no layout is smaller), the pre-layout record's metrics, the layout's area; made once, when a
+    bound first asks, and kept in its ``step.json`` (``metrics``)."""
+    from flow import pipeline
+    from flow.sweep import runner
+
+    path = _marker(job.out, step)
+    entry = json.loads(path.read_text())
+    if "metrics" in entry:
+        return entry["metrics"]
+    sizes = json.loads((job.out / "netlist" / "geometry.json").read_text())
+    match step:
+        case Step.NETLIST:
+            area = sizes.get("device_area_um2")
+            found = {**sizes, **({"layout_area_um2": area / pipeline.DENSITY} if area else {})}
+        case Step.SIM:
+            files = {run: job.out / "sim" / run / "result.h5" for run in entry["runs"]}
+            found = runner.record(job.block, job.pdk, job.params, None, files, sizes)["metrics"]
+        case Step.LAYOUT if entry.get("cell_um"):
+            width, height = entry["cell_um"]
+            found = {"layout_area_um2": width * height}
+        case _:
+            found = {}
+    entry["metrics"] = runner._json(found)
+    path.write_text(json.dumps(entry, indent=1) + "\n")
+    return entry["metrics"]
+
+
+def _rejection(job: Job, upto: Step) -> dict[str, Any] | None:
+    """Whether the run's bounds reject this instance from what its steps up to ``upto`` established
+    (``_established``), each step's evidence judging the bounds it reaches
+    (``flow.pipeline.missed``): the first step that does, its evidence and the bounds missed (each
+    metric's value and limit); None where none does, or the run has no bounds. Judged again from
+    the kept metrics on every run, so changed bounds judge a resumed run anew."""
+    from flow import pipeline
+    from flow.sweep import runner
+
+    if not job.bounds:
+        return None
+    better, known = runner.betters(job.block), {}
+    for step in Step:
+        if step.value > upto.value:
+            break
+        if step.evidence is None or _ended(job.out, step) is None:
+            continue
+        known |= _established(job, step)
+        missed = pipeline.missed(job.bounds, step.evidence, known, better)
+        if missed:
+            return {"step": str(step), "evidence": step.evidence.name.lower(), "bounds": missed}
+    return None
+
+
+def _shown_rejection(rejected: dict[str, Any]) -> str:
+    """A rejection as a line says it: ``rejected at sim (prelayout): delay_0p5mv_s 2.1e-09 > 2e-09``."""
+    misses = ", ".join(
+        f"{metric} {value:.3g} {'>' if value > limit else '<'} {limit:.3g}"
+        if isinstance(value, (int, float)) and not isinstance(limit, bool)
+        else f"{metric} {value} (must be {limit})"
+        for metric, (value, limit) in rejected["bounds"].items()
+    )
+    return f"rejected at {rejected['step']} ({rejected['evidence']}): {misses}"
+
+
 def _record(job: Job, circuit: dict[str, Path] | None = None) -> dict:
     """The instance's record (``instance.json``), the last of its characterization: from the
     measurements its pexsim step kept where it simulated the extraction (``evidence``
@@ -253,6 +335,16 @@ def _record(job: Job, circuit: dict[str, Path] | None = None) -> dict:
             seconds=ran,
         )
 
+    rejected = _rejection(job, Step.RECORD)
+    if not done(out, Step.SIM):  # rejected before the simulation: what the netlist established
+        entry = {
+            **runner._base_record(job.block, job.pdk, job.params, job.label, job.name),
+            "metrics": _established(job, Step.NETLIST),
+            "evidence": pipeline.Evidence.NETLIST.name.lower(),
+            "rejected": rejected,
+        }
+        runner.write_record(out / "instance.json", entry)
+        return {"evidence": entry["evidence"], "rejected": rejected}
     prelayout = recorded(kept(Step.SIM))
     if annotated and not annotated.get("skipped"):
         entry = {
@@ -263,8 +355,18 @@ def _record(job: Job, circuit: dict[str, Path] | None = None) -> dict:
         }
     else:
         entry = {**prelayout, "evidence": pipeline.Evidence.PRELAYOUT.name.lower()}
+    # the final verdict: every bound its evidence reaches, on the record's own metrics (a step's
+    # rejection before it stands)
+    evidence = pipeline.Evidence[entry["evidence"].upper()]
+    if rejected is None and job.bounds:
+        # judged as the steps' kept metrics are (``runner._json``: a number not finite as not measured)
+        missed = pipeline.missed(job.bounds, evidence, runner._json(entry["metrics"]), runner.betters(job.block))
+        if missed:
+            rejected = {"step": str(Step.RECORD), "evidence": entry["evidence"], "bounds": missed}
+    entry["rejected"] = rejected
+    entry["unjudged"] = [bound.metric for bound in job.bounds if bound.since.value > evidence.value]
     runner.write_record(out / "instance.json", entry)
-    return {"circuit": bool(circuit), "evidence": entry["evidence"]}
+    return {"circuit": bool(circuit), "evidence": entry["evidence"], "rejected": rejected}
 
 
 def _circuit(job: Job) -> dict:
@@ -507,6 +609,12 @@ def _brief(step: Step, outputs: dict) -> str:
             return f"{verdict} ({outputs['lvs_checker'] or '-'})"
         case Step.PEX:
             return f"{len(outputs['nets'])} nets" if "nets" in outputs else outputs["extractor"]
+        case Step.RECORD:
+            verdict = _shown_rejection(outputs["rejected"]) if outputs.get("rejected") else "met its bounds"
+            return f"{outputs.get('evidence', '')}, {verdict}"
+        case Step.RECORD:
+            verdict = _shown_rejection(outputs["rejected"]) if outputs.get("rejected") else "met its bounds"
+            return f"{outputs.get('evidence', '')}, {verdict}"
         case Step.PEXSIM:
             return (
                 f"{_count(len(outputs['runs']), 'run')}, {outputs.get('added_f', 0.0) * 1e15:.4g} fF added, "
@@ -550,10 +658,31 @@ def run_steps(job: Job) -> list[Outcome]:
         _report(job, outcome)
 
     failed: set[Step] = set()
+    rejected: dict[str, Any] | None = None
+
+    def judge(step: Step) -> None:
+        """The run's bounds judged on what this step established, the instance rejected where it
+        misses one (``_rejection``), said as its own line."""
+        nonlocal rejected
+        if rejected is None and step.evidence is not None and job.bounds:
+            rejected = _rejection(job, step)
+            if rejected is not None:
+                report(step, "rejected", _shown_rejection(rejected))
+
+    # a run resumed past a step that rejected the instance: the rejection stands (judged again
+    # from what the steps before kept)
+    earlier = [step for step in Step if job.steps and step.value < job.steps[0].value]
+    if earlier and job.bounds:
+        rejected = _rejection(job, earlier[-1])
+        if rejected is not None:
+            report(Step[rejected["step"].upper()], "rejected", _shown_rejection(rejected))
     for step in job.steps:
         if failed & step.required and step is not Step.PAGE:
             failed.add(step)
             report(step, "not run", f"(after {next(s for s in job.steps if s in failed)} failed)")
+            continue
+        if rejected is not None and step not in (Step.RECORD, Step.PAGE):
+            report(step, "not run", f"(rejected at {rejected['step']})")
             continue
         if done(job.out, step):  # its result, seconds and counts as it made them before
             before = _outputs(job.out, step)
@@ -562,8 +691,9 @@ def run_steps(job: Job) -> list[Outcome]:
             except (KeyError, TypeError):  # a step.json from before a key it now states
                 found = ""
             report(step, "done", seconds=before.get("seconds"), found=found, counts=before.get("log"))
+            judge(step)
             continue
-        missing = _missing(job, step)
+        missing = None if rejected is not None and step is Step.RECORD else _missing(job, step)
         if missing:
             failed.add(step)
             report(step, "failed", missing)
@@ -594,6 +724,7 @@ def run_steps(job: Job) -> list[Outcome]:
         if laid:
             _join_layout(job)
         report(step, "ok", seconds=time.time() - started, found=_brief(step, outputs), counts=counts)
+        judge(step)
     return outcomes
 
 

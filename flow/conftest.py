@@ -92,9 +92,9 @@ def read(raw: Path, tb: TbParams) -> pipeline.Meas:
     info = pipeline.MeasInfo(backend="behavioral", timestamp_utc=datetime.now(timezone.utc), readbacks={"text": raw.read_text()})
     return pipeline.Meas(group=None, index=None, dut=tb.params, info=info, param=tb)
 ''',
-    "runs.py": '''"""Three single designs (one characterized, two more for their layouts); a run a level; a figure."""
+    "runs.py": '''"""Five single designs (one characterized, two more for their layouts, two bounded); a run a level; a figure."""
 
-from flow.pipeline import Level, Meas, Plot, Record, single
+from flow.pipeline import Bound, Evidence, Level, Meas, Plot, Record, single
 
 from .params import Params, TbParams
 
@@ -114,6 +114,16 @@ def signed() -> Params:
     return Params(mode=2)
 
 
+@single(bounds=(Bound("read_full", False, since=Evidence.PRELAYOUT),))
+def unread() -> Params:
+    return Params()
+
+
+@single(bounds=(Bound("layout_area_um2", 1.0, since=Evidence.LAYOUT),))
+def tiny() -> Params:
+    return Params()
+
+
 def testbenches(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str, TbParams]:
     names = [name for name in Level if name.value <= level.value]
     return {name.name.lower(): TbParams(pdk=pdk, params=params, name=name.name.lower()) for name in names}
@@ -123,6 +133,19 @@ def record(measurements: dict[str, Meas]) -> Record:
     reads = {name: meas.info.readbacks["text"] == name for name, meas in measurements.items()}
     figure = Plot("reads", "Reads", "Run", "Read", list(range(len(reads))), {"read": [float(r) for r in reads.values()]})
     return Record(metrics={f"read_{name}": read for name, read in reads.items()}, details=[figure])
+''',
+    "types.py": '''"""Its metrics: which run read back its own name."""
+
+from dataclasses import dataclass
+
+from flow import pipeline
+
+
+@dataclass(frozen=True)
+class Metrics(pipeline.Metrics):
+    read_screen: bool = pipeline.metric("the screen run read back its name", "true", False)
+    read_search: bool = pipeline.metric("the search run read back its name", "true", False)
+    read_full: bool = pipeline.metric("the full run read back its name", "true", False)
 ''',
     "layout.py": '''"""Its own layout: a box, and what its mode says it signs off."""
 

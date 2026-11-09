@@ -439,6 +439,14 @@ def record(
     return entry
 
 
+def betters(block: str) -> dict:
+    """Which way is better for each metric a block's record carries (``flow.pipeline.Better`` by
+    name): its own (its ``types.Metrics``) and the runner's (``flow.pipeline.GEOMETRY``)."""
+    from flow import pipeline
+
+    return {**pipeline.betters(import_module(f"flow.{block}.types").Metrics), **pipeline.GEOMETRY}
+
+
 def failed_record(block: str, pdk: str, params, out: Path, error: str, *, label=None, name=None) -> dict:
     """An instance's record of a characterization that failed (``error``, its step's traceback),
     written as ``out/instance.json``, so the viewer's table shows the failure."""

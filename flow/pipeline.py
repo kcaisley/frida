@@ -82,15 +82,21 @@ def _admits(pdks: tuple[Pdk, ...] | None, pdk: str | Pdk) -> bool:
 class Single:
     """One design of a block (``@single``): a function without arguments returning its ``Params``,
     run by its name (``frida1``); in the PDKs ``pdks`` names (None: every PDK whose kit is here and
-    whose ``params.valid`` admits it), on ``workers`` (None: ``DEFAULT_WORKERS``)."""
+    whose ``params.valid`` admits it), on ``workers`` (None: ``DEFAULT_WORKERS``), rejected where it
+    misses one of its ``bounds`` (``Bound``)."""
 
     build: Callable[[], Any]
     pdks: tuple[Pdk, ...] | None = None
     workers: int | None = None
+    limits: tuple[Bound, ...] = ()
 
     @property
     def name(self) -> str:
         return getattr(self.build, "__name__", "")
+
+    def bounds(self, pdk: str | Pdk) -> tuple[Bound, ...]:
+        """Its bounds, in any PDK."""
+        return self.limits
 
     def __call__(self) -> Any:
         return self.build()
@@ -102,13 +108,17 @@ class Single:
 
 
 def single(
-    build: Callable[[], Any] | None = None, *, pdks: Sequence[Pdk] | None = None, workers: int | None = None
+    build: Callable[[], Any] | None = None,
+    *,
+    pdks: Sequence[Pdk] | None = None,
+    workers: int | None = None,
+    bounds: Sequence[Bound] = (),
 ) -> Any:
     """Make a function without arguments, returning a block's ``Params``, a run of that one
-    design: ``@single``, or ``@single(pdks=(Pdk.TSMC65,))``."""
+    design: ``@single``, or ``@single(pdks=(Pdk.TSMC65,), bounds=(Bound(...), ...))``."""
     if build is None:
-        return lambda function: Single(function, _pdks(pdks), workers)
-    return Single(build, _pdks(pdks), workers)
+        return lambda function: Single(function, _pdks(pdks), workers, tuple(bounds))
+    return Single(build, _pdks(pdks), workers, tuple(bounds))
 
 
 type Run = Single | Grid | Optimize
@@ -419,6 +429,12 @@ class Level(Enum):
     CIRCUIT = 4
 
 
+# the largest share of a layout its devices' own footprints cover (flow.sweep.geometry's device area):
+# at most 0.873 over the 1615 comparator layouts of the TSMC65 studies (median 0.47, 2026-10-27), so
+# a design's layout is at least its device area over it (``Evidence.NETLIST``'s area estimate)
+DENSITY = 0.9
+
+
 class Evidence(Enum):
     """How far along the pipeline a design is, in its order: its netlist (the estimates its devices
     give: its area at most their own over a layout's densest packing), its pre-layout simulation (the
@@ -448,6 +464,16 @@ class Bound:
 def judged(bounds: Sequence[Bound], evidence: Evidence) -> tuple[Bound, ...]:
     """The bounds that may judge a design at ``evidence``: those whose ``since`` it has reached."""
     return tuple(bound for bound in bounds if bound.since.value <= evidence.value)
+
+
+def missed(
+    bounds: Sequence[Bound], evidence: Evidence, metrics: Mapping[str, Any], better: Mapping[str, Better]
+) -> dict[str, tuple[Any, float | bool]]:
+    """The bounds ``evidence`` may judge (``judged``) that ``metrics`` miss, each metric's value and
+    limit by its name: a design is rejected where any is (a metric not measured misses none)."""
+    found = judged(bounds, evidence)
+    over = violations(found, metrics, better)
+    return {bound.metric: (metrics.get(bound.metric), bound.limit) for bound in found if over[bound.metric] > 0}
 
 
 @dataclass(frozen=True)
@@ -486,6 +512,10 @@ class Optimize:
     def problem(self, pdk: str | Pdk) -> Problem:
         """Its problem in ``pdk``."""
         return self.build(pdk_of(pdk)) if "pdk" in signature(self.build).parameters else self.build()
+
+    def bounds(self, pdk: str | Pdk) -> tuple[Bound, ...]:
+        """Its problem's bounds in ``pdk``."""
+        return tuple(self.problem(pdk).bounds)
 
 
 def optimize(*, budget: int, pdks: Sequence[Pdk] | None = None, workers: int | None = None) -> Callable[..., Optimize]:

@@ -42,16 +42,12 @@ from typing import Any
 
 from flow import pipeline
 from flow.sweep import flat_params
-from flow.sweep.runner import ROOT, write_record
+from flow.sweep.runner import ROOT, betters, write_record
 
 OPT_DIR = ROOT / "build/opt"
 # an ALIGN layout in the loop that has not placed and routed in ten minutes fails (its placer can
 # search for hours on the larger sizings); the evaluation is then broken, not the design
 ALIGN_TIMEOUT_S = 600
-# the largest share of a layout its devices' own footprints cover (flow.sweep.geometry's device area):
-# at most 0.873 over the 1615 comparator layouts of the TSMC65 studies (median 0.47, 2026-10-27), so
-# a design whose device area over it exceeds the area bound cannot meet it
-DENSITY = 0.9
 # the objective of a design that misses a bound: no cost, above any design that meets them
 INFEASIBLE = math.inf
 
@@ -173,11 +169,6 @@ def admitted(block: str, params: Any, pdk: str) -> bool:
     return valid is None or bool(valid(params, pdk))
 
 
-def betters(block: str) -> dict[str, pipeline.Better]:
-    """Which way is better for each metric a block's record carries: its own and the runner's."""
-    return {**pipeline.betters(import_module(f"flow.{block}.types").Metrics), **pipeline.GEOMETRY}
-
-
 def layout_area(block: str, pdk: str, params: Any, out: Path) -> float:
     """The design's layout area (um^2) as its generator places it (``flow.layout.step.inputs``,
     ALIGN placing and routing, no signoff); NaN where it states no placement."""
@@ -279,9 +270,10 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
         bounded = "layout_area_um2" in problem.limits
         # no layout has its devices cover more than DENSITY of it: where the device area over DENSITY
         # exceeds the area bound, the design is out without simulating, its area estimated so
-        if bounded and extra["device_area_um2"] / DENSITY > problem.limits["layout_area_um2"]:
+        if bounded and extra["device_area_um2"] / pipeline.DENSITY > problem.limits["layout_area_um2"]:
             record.update(
-                metrics={**extra, "layout_area_um2": extra["device_area_um2"] / DENSITY}, estimated=["layout_area_um2"]
+                metrics={**extra, "layout_area_um2": extra["device_area_um2"] / pipeline.DENSITY},
+                estimated=["layout_area_um2"],
             )
             record["seconds"] = round(time.time() - start, 1)
             write_record(path, record)

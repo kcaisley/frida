@@ -137,6 +137,34 @@ def test_a_block_runs_through_every_characterization_step(flow, simulated, capsy
     assert [row["id"] for row in table["rows"]] == [record["id"]] and table["run"] == "one/20261108_000000"
 
 
+def test_a_design_that_misses_a_bound_is_rejected_from_its_evidence_on(flow, capsys) -> None:
+    """A run's bounds (``@single(bounds=...)``, as a grid's and an optimization's) judge an instance
+    after each step whose evidence they reach, on what the steps established so far: a miss rejects
+    it there, the steps after it not run but the record, which keeps the rejection; a run resumed
+    past the step keeps it, judged again from the kept metrics."""
+    flow("--run", "unread", "--to", "record")
+    out = capsys.readouterr().out
+    assert "toypdk/unread/sim rejected: rejected at sim (prelayout): read_full True (must be False)" in out
+    assert "toypdk/unread/layout not run: (rejected at sim)" in out and "toypdk/unread/record ok" in out
+    instance = _instance("unread")
+    record = json.loads((instance / "instance.json").read_text())
+    assert record["rejected"] == {"step": "sim", "evidence": "prelayout", "bounds": {"read_full": [True, False]}}
+    assert record["evidence"] == "prelayout" and not (instance / "layout").exists()
+    # the layout's own area, not the netlist's estimate (no devices here), rejects this one
+    flow("--run", "tiny", "--to", "record")
+    out = capsys.readouterr().out
+    assert "toypdk/tiny/layout rejected: rejected at layout (layout): layout_area_um2 2 > 1" in out
+    assert "toypdk/tiny/drc not run: (rejected at layout)" in out
+    assert json.loads((_instance("tiny") / "layout/step.json").read_text())["metrics"] == {"layout_area_um2": 2.0}
+    flow("--run", "tiny", "--from", "drc", "--to", "record")
+    out = capsys.readouterr().out
+    assert "toypdk/tiny/layout rejected" in out and "toypdk/tiny/drc not run: (rejected at layout)" in out
+    assert json.loads((_instance("tiny") / "instance.json").read_text())["rejected"]["step"] == "layout"
+    # every run kind states its bounds alike
+    toy = importlib.import_module("flow.toyblock.runs")
+    assert toy.one.bounds("toypdk") == () and toy.tiny.bounds("toypdk")[0].since is pipeline.Evidence.LAYOUT
+
+
 def test_a_step_resumes_where_its_output_is_complete(flow, simulated, capsys) -> None:
     """Make's rule: a run from the netlist is a new one, dated; ``--from`` a later step resumes the
     run's latest, a step whose output is complete, and not older than what it needs, skipped,

@@ -224,8 +224,9 @@ def steps(args: argparse.Namespace) -> None:
     for pdk in _pdks(args.block, args.run, spec):
         each = tuple(step for step in chosen if step is not Step.TABLE)
         picked = instances(args.block, args.run, pdk, run)
+        bounds = tuple(spec.bounds(pdk))
         jobs += [
-            Job(args.block, pdk, n, label, params, run / pdk / n, each, args.run)
+            Job(args.block, pdk, n, label, params, run / pdk / n, each, args.run, bounds)
             for n, (label, params) in picked.items()
         ]
     if not jobs:
@@ -345,7 +346,7 @@ def _table(ended: dict[Job, list[Outcome]]) -> str:
             for o in outcomes
         ]
         return tabulate(rows, ["step", "state", "time", "result", "warnings, errors", "folder"])
-    states = ("ok", "failed", "done", "not run")
+    states = ("ok", "failed", "done", "rejected", "not run")
     rows = []
     for step in dict.fromkeys(o.step for outcomes in ended.values() for o in outcomes):
         each = [o for outcomes in ended.values() for o in outcomes if o.step == step]
