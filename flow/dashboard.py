@@ -388,11 +388,11 @@ def passed_panel(board: Board, rows: int = 30) -> Panel:
         names = [n for n, v in (passed[0].record.get("metrics") or {}).items() if isinstance(v, (int, float))][:4]
     width = max((len(item.key) for item in passed), default=8)
     found = _table(
-        ("evidence", "left", 10), *((n, "right", max(9, len(n))) for n in names), ("instance", "left", width)
+        ("instance", "left", width), *((n, "right", max(9, len(n))) for n in names), ("evidence", "left", 10)
     )
     for item in reversed(passed[-rows:]):
         metrics = item.record.get("metrics") or {}
-        found.add_row(item.record.get("evidence", ""), *(value(n, metrics.get(n)) for n in names), item.key)
+        found.add_row(item.key, *(value(n, metrics.get(n)) for n in names), item.record.get("evidence", ""))
     title = f"{len(passed)} passed (the latest first)" if passed else "nothing has passed yet"
     return Panel(found, title=title, title_align="left", border_style=FRAME)
 
