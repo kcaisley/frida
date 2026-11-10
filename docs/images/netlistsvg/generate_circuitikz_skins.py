@@ -489,12 +489,36 @@ def mos(kind: str, mirror: bool, x: float, y: float) -> list[str]:
     return template(name, 80, 64, aliases, art, ports, x=x, y=y, label=False)
 
 
+def mos_h(kind: str, x: float, y: float) -> list[str]:
+    """A pass device on its side (``mos_n_h``, ``mos_p_h``): drain and source on one horizontal line,
+    the NMOS's gate down, the PMOS's up (a transmission gate drawn as one: its PMOS above its NMOS)."""
+    p = kind == "p"
+    if p:
+        art = [
+            '<path d="M0,48 H16 V32 H48 V48 H64 M16,28 H48 M32,16 V28" class="symbol $cell_id"/>',
+            '<circle cx="32" cy="25.6" r="2.4" class="gatebubble $cell_id"/>',
+            '<text x="38" y="13" s:attribute="ref" class="$cell_id">M1</text>',
+            '<text x="38" y="24" s:attribute="value" class="$cell_id">W/L</text>',
+        ]
+        ports = [("G", 32, 16, "top"), ("D", 0, 48, "left"), ("S", 64, 48, "right")]
+    else:
+        art = [
+            '<path d="M0,16 H16 V32 H48 V16 H64 M16,36 H48 M32,36 V48" class="symbol $cell_id"/>',
+            '<text x="38" y="48" s:attribute="ref" class="$cell_id">M1</text>',
+            '<text x="38" y="59" s:attribute="value" class="$cell_id">W/L</text>',
+        ]
+        ports = [("G", 32, 48, "bottom"), ("D", 0, 16, "left"), ("S", 64, 16, "right")]
+    return template(f"mos_{kind}_h", 80, 64, [f"mos_{kind}_h"], art, ports, x=x, y=y, label=False)
+
+
 def analog_skin() -> str:
     lines = svg_header(analog=True)
     lines += mos("n", False, 20, 70)
     lines += mos("p", False, 150, 70)
     lines += mos("n", True, 280, 70)
     lines += mos("p", True, 410, 70)
+    lines += mos_h("n", 540, 70)
+    lines += mos_h("p", 670, 70)
     lines += template(
         "vcc",
         32,

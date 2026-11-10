@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="https://github.com/nturley/netlistsvg" width="560" height="350">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:s="https://github.com/nturley/netlistsvg" width="760" height="350">
 <!-- Experimental Circuitikz-style netlistsvg skin for FRIDA. -->
 <s:properties constants="false" splitsAndJoins="false" genericsLaterals="true">
   <s:layoutEngine org.eclipse.elk.direction="DOWN" org.eclipse.elk.layered.spacing.nodeNodeBetweenLayers="45" org.eclipse.elk.spacing.nodeNode="45"/>
@@ -51,6 +51,25 @@ text { fill: #000; stroke: none; font: 10px "FRIDA Latin Modern Mono", "Latin Mo
   <g s:x="80" s:y="32" s:pid="G" s:position="right"/>
   <g s:x="48" s:y="64" s:pid="D" s:position="bottom"/>
   <g s:x="48" s:y="0" s:pid="S" s:position="top"/>
+</g>
+<g s:type="mos_n_h" s:width="80" s:height="64" transform="translate(540,70)">
+  <s:alias val="mos_n_h"/>
+  <path d="M0,16 H16 V32 H48 V16 H64 M16,36 H48 M32,36 V48" class="symbol $cell_id"/>
+  <text x="38" y="48" s:attribute="ref" class="$cell_id">M1</text>
+  <text x="38" y="59" s:attribute="value" class="$cell_id">W/L</text>
+  <g s:x="32" s:y="48" s:pid="G" s:position="bottom"/>
+  <g s:x="0" s:y="16" s:pid="D" s:position="left"/>
+  <g s:x="64" s:y="16" s:pid="S" s:position="right"/>
+</g>
+<g s:type="mos_p_h" s:width="80" s:height="64" transform="translate(670,70)">
+  <s:alias val="mos_p_h"/>
+  <path d="M0,48 H16 V32 H48 V48 H64 M16,28 H48 M32,16 V28" class="symbol $cell_id"/>
+  <circle cx="32" cy="25.6" r="2.4" class="gatebubble $cell_id"/>
+  <text x="38" y="13" s:attribute="ref" class="$cell_id">M1</text>
+  <text x="38" y="24" s:attribute="value" class="$cell_id">W/L</text>
+  <g s:x="32" s:y="16" s:pid="G" s:position="top"/>
+  <g s:x="0" s:y="48" s:pid="D" s:position="left"/>
+  <g s:x="64" s:y="48" s:pid="S" s:position="right"/>
 </g>
 <g s:type="vcc" s:width="16" s:height="10" transform="translate(20,185)">
   <s:alias val="vcc"/>

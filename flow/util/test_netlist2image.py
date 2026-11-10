@@ -211,3 +211,42 @@ def test_a_top_of_subcircuits_draws_what_they_hold(tmp_path: Path) -> None:
     assert all(f">{net}<" in svg for net in ("st_p_0", "st_p_1", "st_n_0", "st_n_1", "vdac_p", "vdac_n"))
     assert svg.count('class="nodelabel">×2<') == 2  # each side's stage 0, its two pieces as one
     assert ">Xside_p.c_1_0<" in svg and "4.23 µm" in svg and "2.03 µm" in svg
+
+
+def test_a_transmission_gate_is_drawn_on_its_side(tmp_path: Path) -> None:
+    """A pass device (drain and source off the rails, one of them a port) lies on its side, drain and
+    source on one line: the PMOS above with its gate up, the NMOS below with its gate down, the
+    earlier port (din) on the left, its flag pointing out; a StrongARM keeps its upright devices."""
+    from flow.util.netlist2image import Skin, parse, passes
+
+    netlist = tmp_path / "tgate.sp"
+    netlist.write_text(
+        ".subckt samp din dout clk clk_b vdd vss\nMn dout clk din vss nmos\nMp dout clk_b din vdd pmos\n.ends\n"
+    )
+    ports, devs = parse(netlist)
+    passes(ports, devs)
+    # the source (din) is the earlier port: on the left
+    assert devs["Mn"]["pass"] is True and devs["Mp"]["pass"] is True
+    svg = tmp_path / "tgate.svg"
+    render(netlist, svg)
+    text = svg.read_text()
+    skin = Skin()
+    assert {"mos_n_h", "mos_p_h"} <= set(skin.types)
+    shapes = {
+        kind: "".join(ET.tostring(e, encoding="unicode") for e in skin.types[kind][1])
+        for kind in ("mos_n_h", "mos_p_h")
+    }
+    assert "M16,36 H48 M32,36 V48" in shapes["mos_n_h"] and "M32,16 V28" in shapes["mos_p_h"]
+    assert "M16,36 H48 M32,36 V48" in text and "M32,16 V28" in text
+    # the PMOS's symbol above the NMOS's, in one column
+    groups = text.split('<g transform="translate(')[1:]
+    places = {
+        name: tuple(float(v) for v in next(g for g in groups if f">{name}</text>" in g).split(")")[0].split(","))
+        for name in ("Mn", "Mp")
+    }
+    assert places["Mp"][0] == places["Mn"][0] and places["Mp"][1] < places["Mn"][1]
+    sa = tmp_path / "sa.sp"
+    sa.write_text(NETLIST)
+    found = parse(sa)
+    passes(*found)
+    assert not any("pass" in d for d in found[1].values())

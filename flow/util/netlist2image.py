@@ -235,21 +235,40 @@ def levels(devs, stage):
             return lvl
 
         up, down = dist("vdd", "p"), dist("vss", "n")
-        p_rows = max(up.values(), default=-1) + 1 if any(d["pol"] == "p" for d in mem.values()) else 0
-        n_rows = max(down.values(), default=-1) + 1
+        # a row at least for each polarity the stage has (its PMOS above its NMOS though none is on
+        # a rail: a transmission gate's pair)
+        p_rows = max(up.values(), default=0) + 1 if any(d["pol"] == "p" for d in mem.values()) else 0
+        n_rows = max(down.values(), default=0) + 1
         for n, d in mem.items():
             row[n] = up.get(n, 0) if d["pol"] == "p" else p_rows + (n_rows - 1 - down.get(n, n_rows - 1))
     return row, max(row.values()) + 1
 
 
 # ---- drawing (netlistsvg analog skin) ------------------------------------------------------
+def passes(ports, devs):
+    """Mark each pass device (``pass``): its drain and source both off the rails and one of them a
+    port (a transmission gate's, a sampling switch's), drawn on its side (``mos_n_h``, gate down;
+    ``mos_p_h``, gate up), the earlier port of the two on the left (``pass`` True: its source)."""
+    order = {net: place for place, net in enumerate(ports)}
+    for d in devs.values():
+        ends = {d["d"], d["s"]}
+        if not ends & set(SUPPLY) and ends & set(ports):
+            d["pass"] = order.get(d["s"], len(ports)) < order.get(d["d"], len(ports))
+
+
 def mos_kind(dev, mirrored):
+    if "pass" in dev:
+        return f"mos_{dev['pol']}_h"
     return f"mos_{dev['pol']}{'_r' if mirrored else ''}"
 
 
 def pins(skin, dev, x, y, mirrored):
-    """Pin coordinates of a device symbol at (x, y) (top left)."""
-    return {pin: (x + px, y + py) for pin, (px, py) in skin.pins(mos_kind(dev, mirrored)).items()}
+    """Pin coordinates of a device symbol at (x, y) (top left); a pass device's drain and source
+    swapped where its source goes on the left."""
+    found = {pin: (x + px, y + py) for pin, (px, py) in skin.pins(mos_kind(dev, mirrored)).items()}
+    if dev.get("pass"):
+        found["D"], found["S"] = found["S"], found["D"]
+    return found
 
 
 def symbol(skin, dev, x, y, mirrored, name, raised=False):
@@ -620,6 +639,7 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN) ->
     if not devs:  # cells and capacitors alone, outside a subcircuit: their chains
         _render_boxes(netlist, out)
         return {}
+    passes(ports, devs)
     pairs, axis, sym_nets = symmetry(devs, const_path)
     stage = stages(ports, devs, sym_nets)
     row, nrows = levels(devs, stage)
@@ -630,10 +650,25 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN) ->
     for s in range(nstage):
         mem = [n for n in devs if stage[n] == s]
         used = defaultdict(set)  # row -> used slots
+        # a pass device without its complement (a transmission gate's other half) takes a column of
+        # its own, after the others: another's wires through its column would read as its pins'
+        lone = {
+            n
+            for n in mem
+            if "pass" in devs[n]
+            and not any(
+                m != n
+                and "pass" in devs[m]
+                and devs[m]["pol"] != devs[n]["pol"]
+                and {devs[m]["d"], devs[m]["s"]} == {devs[n]["d"], devs[n]["s"]}
+                for m in mem
+            )
+        }
         on_axis = [n for n in mem if n in axis or not any(n in p for p in pairs)]
-        for n in on_axis:
+        for n in sorted(on_axis, key=lambda n: n in lone):
+            taken = set().union(*used.values()) if n in lone else used[row[n]]
             k = 0
-            while k in used[row[n]]:
+            while k in taken:
                 k = -k + (1 if k <= 0 else 0)  # 0, 1, -1, 2, -2 ...
             slot[n] = k
             used[row[n]].add(k)
@@ -711,8 +746,14 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN) ->
             edges = sorted(p[4] + (1 if (p[3] > ys[p[4]] + DEV_H / 2) else 0) for p in ps)
             ch = edges[len(edges) // 2]
             # gate jogs staggered by row, so stacked devices in one column keep separate verticals
+            # (a pass device's gate points up or down: no jog)
             xs = [
-                p[2] + (((-1 if p[0] not in mirrored else 1) * (16 + 10 * (p[4] % 3))) if p[1] == "G" else 0)
+                p[2]
+                + (
+                    ((-1 if p[0] not in mirrored else 1) * (16 + 10 * (p[4] % 3)))
+                    if p[1] == "G" and "pass" not in devs[p[0]]
+                    else 0
+                )
                 for p in ps
             ]
             # a drain/source whose trunk lies past its own device, or past another of its column, or
@@ -798,6 +839,12 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN) ->
             net = d[pin.lower()]
             if net in SUPPLY and pin != "G":
                 svg += supply(skin, net, x, y)
+            elif (net in beside or net in as_label) and "pass" in d:
+                # a pass device's gate: a stub out of it (down from an NMOS's, up from a PMOS's), its
+                # flag or label to the left
+                end = y + (14 if d["pol"] == "n" else -14)
+                svg += [f'<path d="M{x},{y} V{end}"/>']
+                svg += flag(skin, net, x, end, "left") if net in beside else label(net, x, end, "left")
             elif net in beside or net in as_label:
                 side = "right" if n in mirrored else "left"
                 if net in beside:
@@ -805,11 +852,23 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN) ->
                     svg += flag(skin, net, x + (20 if side == "right" else -20), y, side)
                 else:
                     svg += label(net, x, y, side)
+
+    def outward(ps) -> str | None:
+        """The side a port's flag points to where the port reaches only pass devices' drains and
+        sources on one side (their left ends: an input, "left"; their right: "right"); else None."""
+        sides = {
+            ("left" if x == pos[n][0] else "right") if "pass" in devs[n] and pin != "G" else None
+            for n, pin, x, _y, _r in ps
+        }
+        return sides.pop() if len(sides) == 1 and None not in sides else None
+
     spans = {}  # net -> (trunk y, x0, x1)
     for net, (ch, ps, xs) in plan.items():
         a, b = min(xs), max(xs)
         if net in ports and net not in SUPPLY:  # an output or a multi-pin port: a flag at the trunk's end
             b = max(b, width - 60) if net.startswith("out") else b
+            side = outward(ps)
+            a, b = (a - 30, b) if side == "left" else (a, b + 30) if side == "right" else (a, b)
         spans[net] = (trunk_y(ch, net, chans, tracks), a, b)
 
     def down(net, x, y0, y1):
@@ -829,7 +888,7 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN) ->
         svg.append(f'<path d="M{a},{ty} H{b}"/>')
         flagged = net in ports and net not in SUPPLY
         if flagged:
-            svg += flag(skin, net, b, ty, "right")
+            svg += flag(skin, net, a, ty, "left") if outward(ps) == "left" else flag(skin, net, b, ty, "right")
         drops = defaultdict(set)  # x on the trunk -> the sides (above/below) wires drop from
         for (_n, pin, x, y, r), sx in zip(ps, xs, strict=True):
             if pin == "G":
@@ -842,7 +901,7 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN) ->
             drops[sx].add("above" if y < ty else "below")
         # a junction dot only where three or more wires meet; a trunk end with one drop is a corner
         for sx, sides in drops.items():
-            wires = len(sides) + (sx > a) + (sx < b) + (flagged and sx == b)
+            wires = len(sides) + (sx > a) + (sx < b) + (flagged and sx in (a, b))
             if wires >= 3:
                 svg.append(f'<circle cx="{sx}" cy="{ty}" r="2.5" fill="#000"/>')
     out.write_text(
