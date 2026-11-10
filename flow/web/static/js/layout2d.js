@@ -187,7 +187,7 @@ export class LayoutPanel {
         const shownLayout = !this.config.tiled && focus ? layoutsFor(focus, this.config.generator) : null;
         this.toolbar.append(
             h("span.grow"),
-            shownLayout ? sizeMeter({ file: typeof shownLayout.gdsBytes === "number" ? bytes(shownLayout.gdsBytes) : "—", label: "GDS", renderer: "2-D canvas" }) : "",
+            shownLayout ? sizeMeter({ file: typeof shownLayout.gdsBytes === "number" ? bytes(shownLayout.gdsBytes) : "—", label: "GDS", renderer: "Canvas" }) : "",
             gds ? h("a.icon-btn", { href: gds, download: `${layoutsFor(focus, this.config.generator).cell || "layout"}.gds`, title: "Download GDS" }, h("span", { html: icon("download", 14) })) : "",
             // tiling only where several series' layouts are there to tile
             shown.length > 1
@@ -407,10 +407,10 @@ export class LayoutPanel {
         if (!this.view || !this.tiles.length) return;
         const { k, ox, oy } = this.view;
 
-        // grid at the scale bar's spacing
-        const step = niceLength(110 / k);
-        const minor = step / 5;
-        if (minor * k >= 14) {
+        // a 100 nm grid; zoomed out until its lines would crowd, 1 µm, 10 µm ...
+        let minor = 0.1;
+        while (minor * k < 8) minor *= 10;
+        {
             ctx.strokeStyle = root.getPropertyValue("--layout-grid").trim();
             ctx.lineWidth = 1;
             ctx.beginPath();

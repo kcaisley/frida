@@ -1,9 +1,10 @@
 // The focused series' transistor schematic (pan, zoom) and, in a panel of its own, the netlist its
-// layout was built from; on an instance page, the instance's.
+// layout was built from; on an instance page, the instance's. Each under a bar of what it shows: the
+// schematic's SVG and its size, the netlist's file type, size, encoding and lines.
 
-import { loadEditor } from "./editor.js";
-import { h, icon, select, titled } from "./icons.js";
+import { h, icon, select, sizeMeter, titled } from "./icons.js";
 import { fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
+import { bytes } from "./units.js";
 
 // The schematic's own stylesheet (netlist2image: black on white) scoped to the sheet: inline, its
 // "svg" and "text" rules would restyle every icon on the page; the theme recolours the sheet.
@@ -16,6 +17,28 @@ function scopedSvg(text) {
     });
 }
 
+// a text's encoding as its bytes tell it: ASCII where every character is, else UTF-8 (as fetched)
+const encoding = (text) => (/^[\x00-\x7f]*$/.test(text) ? "ASCII" : "UTF-8");
+
+// a SPICE line's parts, highlighted as the Compiler's editor does: a comment, a dot statement, a
+// device (its name's first letter), a continuation; parameters (name=value) within
+function spiceLine(line) {
+    if (/^\s*\*/.test(line)) return [h("span.sp-comment", {}, line)];
+    const comment = line.search(/[$;]/);
+    const [code, rest] = comment >= 0 ? [line.slice(0, comment), line.slice(comment)] : [line, ""];
+    const parts = [];
+    const head = code.match(/^(\s*)(\.\w+|\+|[A-Za-z]\w*)/);
+    let body = code;
+    if (head) {
+        const kind = head[2].startsWith(".") ? "sp-keyword" : head[2] === "+" ? "sp-operator" : /^[Mm]/.test(head[2]) ? "sp-device" : /^[Xx]/.test(head[2]) ? "sp-instance" : "sp-def";
+        parts.push(head[1], h(`span.${kind}`, {}, head[2]));
+        body = code.slice(head[0].length);
+    }
+    for (const piece of body.split(/(\b[A-Za-z_]\w*=)/)) parts.push(/^[A-Za-z_]\w*=$/.test(piece) ? h("span.sp-param", {}, piece) : piece);
+    if (rest) parts.push(h("span.sp-comment", {}, rest));
+    return parts;
+}
+
 // view: "schematic" or "netlist"
 export class SchematicPanel {
     constructor(container, view = "schematic") {
@@ -24,24 +47,32 @@ export class SchematicPanel {
         this.toolbar = h("div.panel-toolbar");
         this.sheet = h("div.sheet");
         this.page = h("div.page");
-        this.listing = h("pre.netlist", { style: { display: "none" } });
-        // the netlist as the Compiler's editor highlights it, read-only (the listing where it cannot load)
-        this.editorHost = h("div.editor-host", { style: { display: "none" } });
+        // the netlist as a listing, numbered and highlighted (no editor library: it loads nowhere a
+        // page cannot fetch a stylesheet)
+        this.listing = h("div.netlist-listing", { style: { display: "none" } });
         this.emptyNote = h("div.empty", {}, h("span", { html: icon("schematic", 28) }), h("strong", {}, view === "netlist" ? "No netlist" : "No schematic"), h("span", {}, ""));
         this.sheet.append(this.page);
-        // the schematic's fit floats over its sheet: no toolbar row for one button
-        this.fitButton = h("button.icon-btn.float", { title: "Fit (double-click)", onclick: () => this.fit(), html: icon("fit", 14) });
-        this.element.append(this.toolbar, h("div.panel-body.fill", {}, this.sheet, this.listing, this.editorHost, this.emptyNote, this.fitButton));
+        this.element.append(this.toolbar, h("div.panel-body.fill", {}, this.sheet, this.listing, this.emptyNote));
         container.element.append(this.element);
         this.view = { k: 1, x: 0, y: 0 };
         this.bindInput();
         this.off = [on("block", () => this.refresh()), on("selection", () => this.refresh()), on("focus", () => this.refresh())];
         container.on("destroy", () => this.off.forEach((off) => off()));
-        // an editor made while its tab was hidden measures itself once shown
-        container.on("show", () => this.editor?.refresh());
-        this.resizeObserver = new ResizeObserver(() => this.svgSize && !this.moved && this.fit());
+        this.resizeObserver = new ResizeObserver(() => this.box && !this.moved && this.fit());
         this.resizeObserver.observe(this.sheet);
         this.refresh();
+    }
+
+    // the bar: the series to show where several are, then what is shown (its file and size), the
+    // schematic's fit
+    bar(shown, focus, facts) {
+        this.toolbar.replaceChildren();
+        if (shown.length > 1) {
+            this.toolbar.append(titled("Series", select(shown.map((item) => ({ value: item.key, label: `${item.case} · ${item.pdk}` })), focus?.key, (value) => setFocus(value))));
+        }
+        this.toolbar.append(h("span.grow"));
+        if (facts) this.toolbar.append(sizeMeter({ ...facts, memory: false }));
+        if (facts && this.viewName === "schematic") this.toolbar.append(h("button.icon-btn", { title: "Fit (double-click)", onclick: () => this.fit(), html: icon("fit", 14) }));
     }
 
     // the focused series' schematic, or its netlist
@@ -53,18 +84,11 @@ export class SchematicPanel {
         const focus = focused && !schematicOf(focused) ? shown.find(schematicOf) || focused : focused;
         const entry = focus && schematicOf(focus);
         const view = this.viewName;
-        this.toolbar.replaceChildren();
-        if (shown.length > 1) {
-            this.toolbar.append(titled("Series", select(shown.map((item) => ({ value: item.key, label: `${item.case} · ${item.pdk}` })), focus?.key, (value) => setFocus(value))));
-        }
-        // a toolbar only to choose among several series
-        this.toolbar.style.display = this.toolbar.childElementCount ? "" : "none";
         const path = entry && (view === "netlist" ? entry.netlist : entry.path);
-        this.fitButton.style.display = view === "schematic" && path ? "" : "none";
         if (!path) {
+            this.bar(shown, focus, null);
             this.page.replaceChildren();
             this.listing.style.display = "none";
-            this.editorHost.style.display = "none";
             this.sheet.style.display = "none";
             this.key = null;
             this.emptyNote.style.display = "";
@@ -82,28 +106,30 @@ export class SchematicPanel {
         try {
             const text = await fetchData(path, "text");
             if (this.key !== key) return;
+            const size = bytes(new TextEncoder().encode(text).length);
             this.listing.style.display = view === "netlist" ? "" : "none";
             this.sheet.style.display = view === "netlist" ? "none" : "";
             if (view === "netlist") {
-                this.listing.textContent = text;
-                try {
-                    await loadEditor();
-                } catch {
-                    return;
-                }
-                if (this.key !== key) return;
-                this.editor ||= CodeMirror(this.editorHost, { mode: "spice", readOnly: true, lineNumbers: true, lineWrapping: false });
-                this.editor.setValue(text);
-                this.listing.style.display = "none";
-                this.editorHost.style.display = "";
-                this.editor.refresh();
+                const lines = text.replace(/\n$/, "").split("\n");
+                const type = `.${path.split(".").pop()}`;
+                this.bar(shown, focus, { file: size, label: type, extra: [encoding(text), `${lines.length} lines`] });
+                this.listing.replaceChildren(
+                    h(
+                        "pre.netlist-code",
+                        {},
+                        lines.map((line, index) => h("span.line", {}, h("span.number", {}, String(index + 1)), h("span.code", {}, ...spiceLine(line)), "\n")),
+                    ),
+                );
                 return;
             }
+            this.bar(shown, focus, { file: size, label: "SVG" });
             this.page.innerHTML = scopedSvg(text);
             const svg = this.page.querySelector("svg");
-            // no dashed outline around the sheet (the drawing's own box of the cell)
-            svg.querySelectorAll(":scope > rect[stroke-dasharray]").forEach((rect) => rect.remove());
-            this.svgSize = [Number(svg.getAttribute("width")) || svg.viewBox.baseVal.width, Number(svg.getAttribute("height")) || svg.viewBox.baseVal.height];
+            // no outline around the sheet, nor its white backdrop: the sheet is the theme's
+            svg.querySelectorAll(":scope > rect[stroke-dasharray], :scope > rect[fill='white'], :scope > rect[fill='#fff'], :scope > rect[fill='#ffffff']").forEach((rect) => rect.remove());
+            // fitted to what it draws, not its page's margins
+            const drawn = svg.getBBox();
+            this.box = drawn.width && drawn.height ? [drawn.x, drawn.y, drawn.width, drawn.height] : [0, 0, Number(svg.getAttribute("width")) || svg.viewBox.baseVal.width, Number(svg.getAttribute("height")) || svg.viewBox.baseVal.height];
             this.moved = false;
             this.fit();
         } catch (error) {
@@ -111,12 +137,15 @@ export class SchematicPanel {
         }
     }
 
+    // the drawing as large as the sheet takes it, a small margin around
     fit() {
-        if (!this.svgSize) return;
+        if (!this.box) return;
         const width = this.sheet.clientWidth;
         const height = this.sheet.clientHeight;
-        const k = 0.92 * Math.min(width / this.svgSize[0], height / this.svgSize[1]);
-        this.view = { k, x: (width - k * this.svgSize[0]) / 2, y: (height - k * this.svgSize[1]) / 2 };
+        if (!width || !height) return;
+        const [bx, by, bw, bh] = this.box;
+        const k = 0.94 * Math.min(width / bw, height / bh);
+        this.view = { k, x: (width - k * bw) / 2 - k * bx, y: (height - k * bh) / 2 - k * by };
         this.moved = false;
         this.apply();
     }

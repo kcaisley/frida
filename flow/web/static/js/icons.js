@@ -44,6 +44,14 @@ const PATHS = {
     back: '<path d="M13.5 8h-11M6.5 4l-4 4 4 4"/>',
     keyboard: '<rect x="1.5" y="4" width="13" height="8" rx="1"/><path d="M4 7h1M7 7h1M10 7h1M5 9.5h6"/>',
     top: '<rect x="3" y="3" width="10" height="10" rx="1"/><path d="M8 6v4M6 8h4"/>',
+    // a layout seen from its side: its layers stacked
+    side: '<path d="M2 13h12M3 10.5h10M4.5 8h7M6 5.5h4"/>',
+    // a layout seen at an angle: a box on its corner
+    iso: '<path d="M8 2l5.5 3.2v6.1L8 14.5l-5.5-3.2V5.2z"/><path d="M8 8.4v6.1M8 8.4l5.5-3.2M8 8.4L2.5 5.2"/>',
+    // a link: two rings joined
+    link: '<path d="M6.5 9.5l3-3"/><path d="M7.2 4.3l1.3-1.3a2.8 2.8 0 0 1 4 4l-1.3 1.3M8.8 11.7l-1.3 1.3a2.8 2.8 0 0 1-4-4l1.3-1.3"/>',
+    // opened elsewhere: a box and an arrow out of it
+    open: '<path d="M9 2h5v5M14 2L7.5 8.5"/><path d="M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5"/>',
     edges: '<path d="M2.5 5.5L8 2.5l5.5 3v5l-5.5 3-5.5-3z" stroke-dasharray="2 1.5"/>',
     points: '<circle cx="4" cy="11" r="1.5"/><circle cx="8" cy="6" r="1.5"/><circle cx="12" cy="8" r="1.5"/>',
 };
@@ -107,15 +115,17 @@ export function seg(options, value, onChange) {
 // a toolbar's facts about what it draws: its file's size ("GDS 14.3 kB"), what draws it (WebGL,
 // CPU) and the page's memory in use, read every two seconds while on the page ("n/a" where the
 // browser does not tell it: Chromium's performance.memory alone does)
-export function sizeMeter({ file = null, label = "file", renderer = null } = {}) {
+export function sizeMeter({ file = null, label = "file", renderer = null, extra = [], memory: withMemory = true } = {}) {
     const memory = h("span", {}, "");
+    // its items " · " apart (extra: more facts, a file's encoding)
+    const items = [file !== null ? `${label} ${file}` : null, ...extra, renderer].filter(Boolean).map((text) => h("span", {}, text));
+    if (withMemory) items.push(memory);
     const element = h(
         "span.size-meter.mono",
         { title: "What this view loaded and the page's memory in use (the browser's JavaScript heap, where it tells it)" },
-        file !== null ? h("span", {}, `${label} ${file}`) : null,
-        renderer ? h("span", {}, renderer) : null,
-        memory,
+        items.flatMap((item, index) => (index ? [h("span.meter-dot", {}, "·"), item] : [item])),
     );
+    if (!withMemory) return element;
     const read = () => {
         const used = globalThis.performance?.memory?.usedJSHeapSize;
         let text = "n/a";

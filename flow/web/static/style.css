@@ -1496,6 +1496,55 @@ table.grid.instances td.name {
     display: block;
 }
 
+/* the netlist: numbered, highlighted lines (SPICE: comments, statements, devices, parameters) */
+.netlist-listing {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    background: var(--bg-input);
+    user-select: text;
+}
+
+.netlist-code {
+    margin: 0;
+    padding: 8px 0;
+    color: var(--fg-primary);
+    font: var(--fs-12) / 1.55 var(--font-mono);
+    white-space: pre;
+}
+
+.netlist-code .number {
+    display: inline-block;
+    width: 4ch;
+    margin-right: 12px;
+    padding-right: 8px;
+    border-right: 1px solid var(--border-subtle);
+    color: var(--fg-muted);
+    text-align: right;
+    user-select: none;
+}
+
+.netlist-code .sp-comment {
+    color: var(--fg-muted);
+    font-style: italic;
+}
+
+.netlist-code .sp-keyword {
+    color: var(--accent-bright);
+}
+
+.netlist-code .sp-device {
+    color: var(--sem-ok);
+}
+
+.netlist-code .sp-instance {
+    color: var(--sem-warn);
+}
+
+.netlist-code .sp-param {
+    color: var(--fg-secondary);
+}
+
 pre.netlist {
     position: absolute;
     inset: 0;
@@ -3291,16 +3340,24 @@ a.icon-btn {
 }
 
 /* the single instance in the page's bar: its name, PDK, when its run started, its folder */
-.bar-name {
+/* the name, the technology and the time in one font, a middle dot between them */
+.bar-info {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-12);
     color: var(--fg-bright);
-    font-weight: 600;
     white-space: nowrap;
 }
 
-.bar-pdk,
-.bar-when {
-    font-size: var(--fs-12);
-    white-space: nowrap;
+.bar-dot {
+    color: var(--fg-muted);
+}
+
+/* a single instance's story the whole width */
+aside.library.hidden {
+    display: none;
 }
 
 .bar-path {
@@ -3409,4 +3466,216 @@ table.tgrid.rules thead th:nth-child(2) {
 /* compared, a step's logging wraps in its column rather than running under the next */
 table.tgrid.facts td.node .log-link {
     white-space: normal;
+}
+
+/* ─── review round 3 ──────────────────────────────────────────────────────────────────────────── */
+
+/* a step's logging: no errors or warnings green; its log opened by the link icon at its right */
+.log-count.ok {
+    color: var(--sem-ok);
+}
+
+.log-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.log-cell .log-open {
+    width: 18px;
+    height: 18px;
+    color: var(--fg-muted);
+}
+
+.log-cell .log-open:hover {
+    color: var(--accent-bright);
+}
+
+.lightbox.log figcaption .log-raw {
+    text-decoration: none;
+}
+
+/* a step's head: its name in its chip, as the page's pipeline names it */
+.step-head .stage-chip {
+    font-weight: 600;
+}
+
+.stage-chip.named {
+    color: var(--fg-bright);
+}
+
+/* a toolbar's facts a middle dot apart */
+.size-meter {
+    gap: 6px;
+}
+
+.size-meter .meter-dot {
+    color: var(--fg-muted);
+    opacity: 0.7;
+}
+
+/* the findings' tables (DRC's rules, LVS's devices, the extraction's nets): edge to edge, their
+   head in the rows' own light background */
+.findings:has(> table.flat) {
+    padding: 0;
+    gap: 0;
+}
+
+.findings > .findings-who,
+.findings > .findings-note,
+.findings > pre.mismatches {
+    margin: 8px 10px;
+}
+
+table.tgrid.flat {
+    width: 100%;
+}
+
+table.tgrid.flat thead th {
+    background: var(--bg-panel);
+    color: var(--fg-muted);
+    font-size: var(--fs-11);
+    font-weight: 400;
+}
+
+table.tgrid.flat th.inst {
+    cursor: default;
+}
+
+table.tgrid.flat th.inst:hover {
+    background: var(--bg-panel);
+}
+
+table.tgrid.rules td:last-child,
+table.tgrid.rules thead th:last-child {
+    width: 1%;
+    text-align: right;
+}
+
+/* the check takes the room the rule and its violations leave, a long one cut short (its title) */
+table.tgrid.rules td.check {
+    width: 100%;
+    max-width: 0;
+}
+
+table.tgrid.devices td.match.passed {
+    color: var(--sem-ok);
+}
+
+table.tgrid.devices td.match.failed {
+    color: var(--sem-error);
+}
+
+/* the nets' bars: the wiring's (blue) and the devices' (orange) one after the other */
+table.tgrid.nets .bars {
+    display: flex;
+    width: 100%;
+    height: 9px;
+}
+
+table.tgrid.nets .bars .bar {
+    flex: none;
+    height: 9px;
+    border-radius: 0;
+}
+
+table.tgrid.nets .bars .bar:first-child {
+    border-radius: 2px 0 0 2px;
+}
+
+table.tgrid.nets .bars .bar:last-child {
+    border-radius: 0 2px 2px 0;
+}
+
+table.tgrid.nets .bar-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: var(--fs-10);
+}
+
+table.tgrid.nets .bar-key .swatch {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-left: 6px;
+    border-radius: 2px;
+}
+
+/* the analyses: no box around each plot */
+.detail-plots .plot {
+    border: 0;
+}
+
+/* a layout view with its layers in a column at its right, folded to a strip by its head */
+.with-layers {
+    position: absolute;
+    inset: 0;
+    display: flex;
+}
+
+.with-layers-main {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+
+.with-layers-main > .panel,
+.with-layers-list > .panel {
+    position: absolute;
+    inset: 0;
+}
+
+.with-layers-side {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    width: 230px;
+    border-left: 1px solid var(--border);
+    background: var(--bg-panel);
+}
+
+.with-layers-side.folded {
+    width: 24px;
+}
+
+.with-layers-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 8px;
+    border: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    background: none;
+    color: var(--fg-secondary);
+    font-size: var(--fs-12);
+    text-align: left;
+    cursor: pointer;
+}
+
+.with-layers-head:hover {
+    color: var(--fg-bright);
+}
+
+.with-layers-list {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+}
+
+.with-layers-side.folded .with-layers-list {
+    display: none;
+}
+
+/* folded: the layers' icon alone, a strip at the view's right */
+.with-layers-side.folded .with-layers-head {
+    justify-content: center;
+    padding: 0;
+    border-bottom: 0;
+}
+
+.with-layers-side.folded .with-layers-head .label {
+    display: none;
 }

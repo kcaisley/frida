@@ -174,6 +174,8 @@ async function show(mode, ids, want) {
     // one host on the stage at a time: the other neither shows nor takes the mouse
     element.sweeps.classList.toggle("hidden", mode !== "table");
     element.view.classList.toggle("hidden", mode === "table");
+    // a single instance's story the whole width: no Library beside it
+    element.library.classList.toggle("hidden", mode === "view");
     element.view.replaceChildren();
     renderBar();
     document.title = { table: `Assembler · ${app.block}`, view: `Explorer · ${app.block}`, compare: `Comparer · ${app.block} (${ids.length})`, compiler: "Compiler" }[mode];
@@ -224,10 +226,14 @@ function instanceBar({ name, pdk, run, finished, folder }) {
             toast(folder);
         }
     };
+    // the name, the technology and the time in one font, " · " between them
+    const info = [
+        h("span.bar-name", { title: "The instance" }, name),
+        h("span.bar-pdk", { title: "The technology" }, pdk),
+        when ? h("span.bar-when", { title: `When it finished (its run: ${run})` }, when) : null,
+    ].filter(Boolean);
     return [
-        h("strong.bar-name", { title: "The instance" }, name),
-        h("span.bar-pdk.mono", { title: "The technology" }, pdk),
-        when ? h("span.bar-when.muted", { title: `When it finished (its run: ${run})` }, when) : null,
+        h("span.bar-info", {}, info.flatMap((item, index) => (index ? [h("span.bar-dot", {}, "·"), item] : [item]))),
         folder ? h("button.bar-btn.bar-path", { title: `Copy the instance's folder: ${folder}`, onclick: copy }, h("span", { html: icon("copy", 13) }), h("span.mono", {}, folder)) : null,
     ].filter(Boolean);
 }
@@ -274,7 +280,7 @@ function renderBar() {
     const marked = marks();
     const status = sweepStatus();
     const left = [];
-    if (mode === "view" || mode === "compare") left.push(button("back", "All instances", "Back to every instance of the block (the shown ones stay marked)", () => navigate({ ids: [] })));
+    if (mode === "view" || mode === "compare") left.push(button("back", "Back", "Back to every instance of the block (the shown ones stay marked)", () => navigate({ ids: [] })));
     // one instance: its name, PDK, run and folder; nothing to view, compare or compile from here
     if (mode === "view") {
         setBar(mode, [...left, ...(app.stage?.info ? instanceBar(app.stage.info) : [])]);
