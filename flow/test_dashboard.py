@@ -84,9 +84,9 @@ def test_the_board_counts_each_steps_instances_and_says_what_needs_attention(tmp
     assert rows and "warning" in rows[0] and " sim " in rows[0] and " spectre " in rows[0] and "WARNING" not in rows[0]
     assert any("rejected" in line and "sim" in line and " 2 " in line for line in text.splitlines())
     assert "align: no route" in text and "delay_s" in text
-    # the results a row each design that ended: the step and bound that stopped it, or its failure
+    # the results a column each design that ended: the step and bound that stopped it, or its failure
     results = _shown(dashboard.results_panel(board))
-    assert results.count("rejected at sim (prelayout): delay_s 2.1e-09 > 2e-09") == 2
+    assert results.count("rejected at sim: delay_s") == 2
     assert "failed at layout" in results
     assert "status:" in dashboard.status_line(board) and "2 by delay_s at sim" in dashboard.status_line(board)
 
@@ -108,6 +108,7 @@ def test_a_metric_is_shown_in_its_unit() -> None:
     assert dashboard.value("delay_0p5mv_s", 2.1e-9) == "2.1 ns"
     assert dashboard.value("energy_j", 6.2e-13) == "620 fJ"
     assert dashboard.value("layout_area_um2", 277.0) == "277 µm²"
+    assert dashboard.value("droop_v_s", -0.5) == "-500 mV/s" and dashboard.value("delay_s", 2e-9) == "2 ns"
     assert dashboard.value("decides_in_time", True) == "yes" and dashboard.value("x", None) == "–"
 
 
@@ -186,4 +187,5 @@ def test_a_design_that_passed_says_how_many_of_its_bounds_it_met(tmp_path: Path)
     board.take({"key": "tsmc65/a", "step": "record", "state": "ok", "seconds": 1.0, "found": "", "counts": {}})
     board.end("tsmc65/a", ["ok"])
     results = _shown(dashboard.results_panel(board))
-    assert "passed · 1/1 bounds" in results and "1 ns" in results and "tsmc65/b" not in results
+    assert "passed 1/1" in results and "1 ns" in results and "tsmc65/b" not in results
+    assert dashboard.outcome(board.instances["tsmc65/a"]).plain == "passed · 1/1 bounds"

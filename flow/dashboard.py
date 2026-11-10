@@ -72,6 +72,8 @@ DRAW_EVERY_S = 0.5
 SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 # a status file's size, as a large terminal's
 STATUS_WIDTH, STATUS_HEIGHT = 200, 56
+# the results' most metrics (rows) and, of several instances, the most instances (columns)
+RESULT_ROWS, COLUMNS = 24, 8
 LEVELS = {"ERROR": "error", "CRITICAL": "error", "WARNING": "warning", "KNOWN": "known"}
 
 
@@ -265,6 +267,8 @@ def _seconds(seconds: float) -> str:
 
 # a metric's unit by its name's last word, and its SI prefixes
 _UNITS = {"s": "s", "j": "J", "v": "V", "w": "W", "hz": "Hz", "ohm": "Ω", "f": "F", "a": "A"}
+# a rate's unit, its name's last two words (``droop_v_s``: volts a second)
+_RATES = {"v_s": "V/s", "a_s": "A/s"}
 _PREFIXES = (
     (1e9, "G"),
     (1e6, "M"),
@@ -281,7 +285,8 @@ _PREFIXES = (
 
 def value(name: str, number: Any) -> str:
     """A metric's value as the dashboard shows it: a flag yes or no, a number in its unit (its name's
-    last word: ``_s``, ``_j``, ``_v``, ``_hz``, ``_ohm``, ``_um2`` ...) with an SI prefix, three
+    last word: ``_s``, ``_j``, ``_v``, ``_hz``, ``_ohm``, ``_um2`` ...; a rate's its last two,
+    ``_v_s``) with an SI prefix, three
     significant digits; not measured, a dash."""
     if number is None:
         return "–"
@@ -289,6 +294,10 @@ def value(name: str, number: Any) -> str:
         return "yes" if number else "no"
     if not isinstance(number, (int, float)):
         return str(number)
+    rate = "_".join(name.split("_")[-2:])
+    if rate in _RATES and name.count("_") >= 2:
+        scale, prefix = next(((s, p) for s, p in _PREFIXES if abs(number) >= s), _PREFIXES[-1])
+        return f"{number / scale:.3g} {prefix}{_RATES[rate]}" if number else f"0 {_RATES[rate]}"
     unit = name.rsplit("_", 1)[-1] if "_" in name else ""
     if unit == "um2":
         return f"{number:.3g} µm²"
@@ -439,29 +448,33 @@ def logging_panel(board: Board, rows: int | None = None, plain: bool = False) ->
     return _panel(found, "logging", plain)
 
 
-def outcome(item: _Instance) -> Text:
+def outcome(item: _Instance, short: bool = False) -> Text:
     """How an instance came out: passed, with how many of its bounds it met (``7/7 bounds``; those
     its evidence could not judge named apart), rejected with the step and the bounds it missed, or
-    failed with the step; nothing while it runs."""
+    failed with the step; nothing while it runs. ``short``: a table cell's (``passed 7/7``, the
+    rejection's step and bounds without their values)."""
     if item.ended == "passed":
         total, unjudged = len(item.bounds), len(item.record.get("unjudged") or [])
+        if short:
+            return Text(f"passed {total - unjudged}/{total}" if total else "passed", style=OK)
         met = f"{total - unjudged}/{total} bounds" if total else "no bounds"
         return Text.assemble(("passed", OK), f" · {met}", (f", {unjudged} unjudged" if unjudged else "", DIM))
     if item.ended == "rejected":
         step = next(step for step, state in item.states.items() if state == "rejected")
-        return Text(item.found[step], style=REJECT)
+        said = f"rejected at {step}: {_bounds_of(item.found[step])}" if short else item.found[step]
+        return Text(said, style=REJECT)
     if item.ended == "failed":
         steps = [step for step, state in item.states.items() if state == "failed"]
         return Text(f"failed at {', '.join(steps) or 'worker'}", style=BAD)
     return Text("")
 
 
-def results_panel(board: Board, rows: int = 14, plain: bool = False) -> Any:
+def results_panel(board: Board, rows: int = RESULT_ROWS, plain: bool = False) -> Any:
     """The results: one instance's metrics pre- and post-layout and how each moved (its bounds'
-    metrics first), its outcome in the title; several instances', each that ended a row (those that
-    passed, then those rejected, then those failed): its bounds' metrics (or its record's first),
-    its evidence and its outcome (``outcome``: the bounds it met, or the step and bound that stopped
-    it)."""
+    metrics first), its outcome in the title; several instances' as the viewer's table, a column
+    each that ended (those that passed, then those rejected, then those failed; the first
+    ``COLUMNS``), a row its outcome (``outcome``), each metric (every one their records hold, the
+    bounds' first) and its evidence."""
     if len(board.instances) == 1:
         item = next(iter(board.instances.values()))
         record = item.record
@@ -484,35 +497,48 @@ def results_panel(board: Board, rows: int = 14, plain: bool = False) -> Any:
         title = f"results · {item.key} · {record.get('evidence', 'not recorded yet')}"
         said = outcome(item).plain
         return _panel(found, f"{title} · {said}" if said else title, plain)
-    order = {"passed": 0, "rejected": 1, "failed": 2}
-    ended = sorted((item for item in board.instances.values() if item.ended), key=lambda item: order[item.ended])
-    names = list(next(iter(board.instances.values())).bounds) if board.instances else []
-    with_record = [item for item in ended if item.record]
-    if not names and with_record:
-        names = [n for n, v in (with_record[0].record.get("metrics") or {}).items() if isinstance(v, (int, float))][:4]
-    found = _table(
-        ("instance", "left", max((len(item.key) for item in ended), default=8)),
-        *((n, "right", max(9, len(n))) for n in names),
-        ("evidence", "left", 10),
-        ("outcome", "left", 18),
-        plain=plain,
-    )
-    for item in ended[:rows]:
-        metrics = item.record.get("metrics") or {}
-        found.add_row(
-            item.key, *(value(n, metrics.get(n)) for n in names), item.record.get("evidence", ""), outcome(item)
+    ended = _ended(board)[:COLUMNS]
+    names = _metric_names(board)[:rows]
+    found = Table(box=box.SIMPLE_HEAD, expand=False, pad_edge=False, header_style=f"bold {HEAD}", border_style=FRAME)
+    found.add_column("metric", no_wrap=True)
+    said = [outcome(item, short=True) for item in ended]
+    for item, text in zip(ended, said, strict=True):
+        wide = max(len(item.key), len(text.plain))
+        found.add_column(
+            item.key, justify="right", overflow="fold", min_width=min(24, wide), max_width=max(24, len(item.key))
         )
+    found.add_row(Text("outcome", style=DIM), *said)
+    for name in names:
+        found.add_row(name, *(value(name, (item.record.get("metrics") or {}).get(name)) for item in ended))
+    found.add_row(Text("evidence", style=DIM), *(Text(item.record.get("evidence", ""), style=DIM) for item in ended))
     if not ended:
-        found.add_row(Text("none ended yet", style=DIM), *("" for _ in names), "", "")
-    shown = f" · the first {rows} of {len(ended)}" if len(ended) > rows else ""
+        found.add_row(Text("none ended yet", style=DIM))
+    many = sum(bool(item.ended) for item in board.instances.values())
+    shown = f" · the first {COLUMNS} of {many}" if many > COLUMNS else ""
     return _panel(found, f"results{shown}", plain)
 
 
-def _results_rows(board: Board, rows: int = 14) -> int:
+def _ended(board: Board) -> list[_Instance]:
+    """The instances that ended: those that passed, then those rejected, then those failed."""
+    order = {"passed": 0, "rejected": 1, "failed": 2}
+    return sorted((item for item in board.instances.values() if item.ended), key=lambda item: order[item.ended])
+
+
+def _metric_names(board: Board) -> list[str]:
+    """Every metric the ended instances' records hold (a number or a flag), the bounds' first."""
+    names = dict.fromkeys(next(iter(board.instances.values())).bounds if board.instances else ())
+    for item in _ended(board):
+        for name, number in (item.record.get("metrics") or {}).items():
+            if isinstance(number, (int, float)):
+                names.setdefault(name)
+    return list(names)
+
+
+def _results_rows(board: Board, rows: int = RESULT_ROWS) -> int:
     if len(board.instances) == 1:
         item = next(iter(board.instances.values()))
         return max(1, min(rows, len(item.record.get("metrics") or {})))
-    return max(1, min(rows, sum(bool(item.ended) for item in board.instances.values())))
+    return max(1, min(rows, len(_metric_names(board))) + 2)
 
 
 def dashboard(board: Board) -> Layout:
