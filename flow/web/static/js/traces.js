@@ -72,8 +72,11 @@ function valueAt(times, values, t) {
 }
 
 export class TracesPanel {
-    constructor(container, saved) {
+    // index: the file under the block's folder that indexes its waveforms (a step's own on an
+    // instance's story: its pre-layout runs', traces.sim.json), or a function giving it, null for none
+    constructor(container, saved, { index = "traces.json" } = {}) {
         this.config = { run: null, record: 0, ...(saved || {}) };
+        this.indexFile = index;
         this.view = null; // visible time span [t0, t1]
         this.cursor = null;
         this.marker = null;
@@ -117,7 +120,8 @@ export class TracesPanel {
     // the focused series, or where it has no waveforms the first shown series with some
     async refresh() {
         const block = state.block;
-        this.index = block ? await fetchData(`${block.name}/traces.json`).catch(() => ({})) : {};
+        const file = typeof this.indexFile === "function" ? this.indexFile() : this.indexFile;
+        this.index = block && file ? await fetchData(`${block.name}/${file}`).catch(() => ({})) : {};
         const runsOf = (item) => this.index?.[item.pdk]?.[item.case] || [];
         const shown = series();
         const focused = focusSeries();

@@ -1,12 +1,15 @@
 // The viewer, one page (index.html): the Library of blocks on the left (it folds to a strip), a top
 // bar, and under it the stage in one of four states, kept in the URL's hash so a view is bookmarked
-// and Back and Forward step through them (#block=<block>&search=<label>&ids=<id>,<id>&compiler&job=<run>):
-//   the Assembler (no ids): the block's sweep, or one of its optimizations (search, a study's problem
-//     as adc(bits=12); the Sweeps panel's Search picks it), its table on its side and its scatter (sweep.js);
-//     marking instances (a column's head, a point) loads nothing;
-//   the Explorer (one id, the top bar's View): its column, its analyses, waveforms, layout and
-//     schematic (detail.js);
-//   the Comparer (several ids, Compare): their columns, their analyses stacked (detail.js);
+// and Back and Forward step through them
+// (#block=<block>&run=<run>/<stamp>&search=<label>&ids=<id>,<id>&compiler&job=<run>):
+//   the Assembler (no ids): one of the block's runs' tables (run, the Sweeps panel's Run: a run's
+//     name and dated folder, the catalog's default first, * each instance's newest record across
+//     the runs), or one of its optimizations (search, a study's problem as adc(bits=12); the Search
+//     picks it), its table on its side and its scatter (sweep.js); marking instances (a column's
+//     head, a point) loads nothing;
+//   the Explorer (one id, the top bar's View): its story, the steps it went through top to bottom,
+//     each its state and findings beside what it made (detail.js);
+//   the Comparer (several ids, Compare): their stories side by side, a column each (detail.js);
 //   the Compiler (compiler, the Compiler button): a netlist laid out (compile.js), the block and the
 //     instances kept for the way back.
 // The top bar's back button returns to every instance and unloads the instances' panels. Nothing
@@ -15,11 +18,12 @@
 import { h, icon, toast } from "./icons.js";
 import { Layout } from "./regions.js";
 import { emit, on, recall, setBar, store } from "./store.js";
-import { clearFilters, marks, ScatterPanel, setBlock, setMarks, setSearches, SweepTablePanel, sweepStatus } from "./sweep.js";
+import { clearFilters, marks, ScatterPanel, setBlock, setMarks, setRuns, setSearches, SweepTablePanel, sweepStatus } from "./sweep.js";
 
 const app = {
-    catalog: null, // block -> {title, run, instances, searches: {label -> {table, title, run, instances}}}
+    catalog: null, // block -> {title, run, instances, runs: [{label, file, instances, failed, created}], default, searches: {label -> {table, title, run, instances}}}
     block: null, // the shown block's name
+    run: null, // the shown run's label ("*": each instance's newest record), null for a search's table
     search: null, // the shown optimization's label, null for the block's sweep
     file: null, // the shown table's name under data/sweep/: the block's, or its search's
     table: null, // the shown table
@@ -45,6 +49,7 @@ function parseHash() {
     const params = new URLSearchParams(location.hash.replace(/^#/, ""));
     return {
         block: params.get("block"),
+        run: params.get("run"),
         search: params.get("search"),
         ids: (params.get("ids") || "").split(",").filter(Boolean),
         compiler: params.has("compiler"),
@@ -52,9 +57,10 @@ function parseHash() {
     };
 }
 
-function hashOf({ block, search = null, ids = [], compiler = false, job = null }) {
+function hashOf({ block, run = null, search = null, ids = [], compiler = false, job = null }) {
     const parts = [];
     if (block) parts.push(`block=${encodeURIComponent(block)}`);
+    if (run) parts.push(`run=${encodeURIComponent(run).replaceAll("%2F", "/")}`);
     if (search) parts.push(`search=${encodeURIComponent(search)}`);
     if (ids.length) parts.push(`ids=${ids.map(encodeURIComponent).join(",")}`);
     if (compiler) parts.push("compiler", ...(job ? [`job=${encodeURIComponent(job)}`] : []));
@@ -89,10 +95,17 @@ async function route() {
     let search = want.search && searches[want.search] ? want.search : null;
     if (want.search && !search) toast(`No search ${want.search} of ${block}`);
     if (!search && app.catalog[block].instances === undefined) search = Object.keys(searches)[0] || null;
-    // another block's or search's ids are not this one's
-    const same = block === want.block && search === want.search;
-    if (!same) amend({ block, search, ids: [] });
-    const file = search ? searches[search].table : block;
+    // the run: the URL's, else the catalog's default (the table step's run, else the newest)
+    const runs = search ? [] : app.catalog[block].runs || [];
+    const known = (label) => label === "*" || runs.some((entry) => entry.label === label);
+    let run = runs.length && want.run && known(want.run) ? want.run : null;
+    if (runs.length && want.run && !run) toast(`No run ${want.run} of ${block}`);
+    if (runs.length && !run) run = known(app.catalog[block].default) ? app.catalog[block].default : runs[0].label;
+    // another block's, search's or run's ids are not this one's (a URL without a run: the default's)
+    const same = block === want.block && search === want.search && (!want.run || want.run === run);
+    if (!same) amend({ block, search, run, ids: [] });
+    else if (run !== want.run) amend({ run });
+    const file = search ? searches[search].table : run && run !== "*" ? runs.find((entry) => entry.label === run).file : block;
     if (file !== app.file || !app.table) {
         let table;
         try {
@@ -103,6 +116,7 @@ async function route() {
         }
         if (token !== app.routes) return;
         app.block = block;
+        app.run = run;
         app.search = search;
         app.file = file;
         app.table = table;
@@ -110,18 +124,39 @@ async function route() {
         setBlock(table);
         // the Search: the block's sweep and each of its optimizations, where it has any
         const options = [...(app.catalog[block].instances !== undefined ? [{ value: "", label: `sweep · ${app.catalog[block].instances}` }] : []), ...Object.entries(searches).map(([label, entry]) => ({ value: label, label: `${label} · ${entry.instances}` }))];
-        setSearches(Object.keys(searches).length ? options : [], search || "", (value) => navigate({ search: value || null, ids: [] }));
+        setSearches(Object.keys(searches).length ? options : [], search || "", (value) => navigate({ search: value || null, run: null, ids: [] }));
+        setRuns(runOptions(runs), run || "", (value) => navigate({ run: value, ids: [] }));
         renderLibrary();
     }
     // the instances: those of the shown table (an id from an older sweep is gone)
     const ids = same ? want.ids : [];
-    const known = ids.filter((id) => app.table.rows.some((row) => row.id === id));
-    if (known.length !== ids.length) {
-        toast(`Not in ${block}'s sweep: ${ids.filter((id) => !known.includes(id)).join(", ")}`);
-        amend({ ids: known });
+    const found = ids.filter((id) => app.table.rows.some((row) => row.id === id));
+    if (found.length !== ids.length) {
+        toast(`Not in ${block}'s ${run && run !== "*" ? `run ${run}` : "table"}: ${ids.filter((id) => !found.includes(id)).join(", ")}`);
+        amend({ ids: found });
     }
-    const mode = want.compiler ? "compiler" : !known.length ? "table" : known.length === 1 ? "view" : "compare";
-    await show(mode, known, want);
+    const mode = want.compiler ? "compiler" : !found.length ? "table" : found.length === 1 ? "view" : "compare";
+    await show(mode, found, want);
+}
+
+// a stamp as a date: 20261110_001031 -> 2026-11-10 00:10
+const dated = (stamp) => String(stamp || "").replace(/^(\d{4})(\d\d)(\d\d)_(\d\d)(\d\d)(\d\d).*$/, "$1-$2-$3 $4:$5");
+
+// the Run's options: each instance's newest record first, then the runs grouped by their name (the
+// group of the newest run first), each its dated folder, the newest first
+function runOptions(runs) {
+    if (!runs.length) return [];
+    const names = [...new Set(runs.map((entry) => (entry.label.includes("/") ? entry.label.split("/")[0] : null)))];
+    const ordered = names.flatMap((name) => runs.filter((entry) => (entry.label.includes("/") ? entry.label.split("/")[0] : null) === name));
+    const count = (entry) => `${entry.instances}${entry.failed ? ` (${entry.failed} failed)` : ""}`;
+    return [
+        ...(runs.length > 1 ? [{ value: "*", label: "every run: each instance's newest record", title: "Each instance's newest record across the block's runs" }] : []),
+        ...ordered.map((entry) => {
+            const [name, stamp] = entry.label.includes("/") ? entry.label.split("/") : [/^\d{8}_\d{6}$/.test(entry.label) ? "" : entry.label, entry.created];
+            const title = `${entry.label}: ${entry.instances} instance${entry.instances === 1 ? "" : "s"}${entry.failed ? `, ${entry.failed} failed` : ""}`;
+            return { value: entry.label, group: entry.label.includes("/") ? name : null, label: [name, dated(stamp), count(entry)].filter(Boolean).join(" · "), title };
+        }),
+    ];
 }
 
 async function show(mode, ids, want) {
@@ -159,7 +194,9 @@ async function show(mode, ids, want) {
     let instances;
     let mount;
     try {
-        [instances, { mountInstances: mount }] = await Promise.all([Promise.all(ids.map((id) => fetchJson(`sweep/${app.file}/${id}.json`).then((instance) => ({ ...instance, id })))), import("./detail.js")]);
+        // a row of each instance's newest record names the run whose file it is (its file)
+        const fileOf = (id) => app.table.rows.find((row) => row.id === id)?.file || app.file;
+        [instances, { mountInstances: mount }] = await Promise.all([Promise.all(ids.map((id) => fetchJson(`sweep/${fileOf(id)}/${id}.json`).then((instance) => ({ ...instance, id, file: fileOf(id) })))), import("./detail.js")]);
     } catch (error) {
         if (token !== app.mounts) return;
         note.replaceChildren(h("strong", {}, "The instance did not load"), h("span.mono.muted", {}, error.message));
@@ -168,7 +205,6 @@ async function show(mode, ids, want) {
     if (token !== app.mounts) return;
     note.remove();
     app.stage = mount(element.view, {
-        block: app.file,
         instances,
         onRemove: (id) => navigate({ ids: app.ids.filter((item) => item !== id) }),
         onView: (id) => navigate({ ids: [id] }),
@@ -231,14 +267,14 @@ function renderBar() {
     const view = button(
         "eye",
         "View",
-        single ? "View the marked instance in place: its analyses, waveforms, layout and schematic" : "View: mark exactly one instance (a column's ○ or its point)",
+        single ? "View the marked instance in place: its story, the steps it went through and what each made" : "View: mark exactly one instance (a column's ○ or its point)",
         () => navigate({ ids: marked, compiler: false }),
         { on: mode === "view", disabled: !single || (mode === "view" && marked[0] === app.ids[0]) },
     );
     const compare = button(
         "compare",
         several ? `Compare ${marked.length}` : "Compare",
-        several ? `Compare the ${marked.length} marked instances in place: their parameters, metrics and analyses side by side` : "Compare: mark two or more instances",
+        several ? `Compare the ${marked.length} marked instances in place: their stories side by side` : "Compare: mark two or more instances",
         () => navigate({ ids: marked, compiler: false }),
         { on: mode === "compare", disabled: !several || (mode === "compare" && marked.join(",") === app.ids.join(",")) },
     );

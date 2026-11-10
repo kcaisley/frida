@@ -1880,10 +1880,387 @@ table.tgrid col.hover {
     background: var(--accent-alpha-strong);
 }
 
-/* ─── The Explorer and the Comparer: the shown instances' columns ─────────────────────────── */
+/* ─── The Explorer and the Comparer: each instance's story, a row a step ─────────────────────── */
 
-.panel-body.selection {
+.story {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-main);
+}
+
+.story-head {
+    flex: none;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.story-key {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 6px;
+}
+
+/* a design: its colour, PDK, name, run, evidence and verdict, then its steps as chips */
+.story-design {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    padding: 3px 6px;
+    border-radius: var(--radius-sm);
     user-select: text;
+}
+
+.story-design[title*="Click"] {
+    cursor: pointer;
+}
+
+.story-design[title*="Click"]:hover {
+    background: var(--bg-hover);
+}
+
+.story-design.on {
+    background: var(--accent-alpha);
+}
+
+.story-design .swatch {
+    width: 11px;
+    height: 11px;
+    border-radius: 2px;
+}
+
+.story-design .grow {
+    flex: 1;
+}
+
+.story-design .pdk-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--font-mono);
+}
+
+.evidence {
+    padding: 0 6px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--fg-secondary);
+    font-size: var(--fs-11);
+}
+
+button.stage-chip {
+    cursor: pointer;
+}
+
+button.stage-chip:hover {
+    border-color: var(--border-strong);
+    color: var(--fg-bright);
+}
+
+.stage-chip.kept {
+    opacity: 0.75;
+}
+
+.stage-chip.kept > span:first-child {
+    color: var(--fg-muted);
+}
+
+.stage-chip.rejected {
+    border-color: var(--sem-warn);
+    color: var(--sem-warn);
+}
+
+/* the steps, top to bottom: the facts on the left (a column per design), what it made on the right */
+.story-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px;
+}
+
+.step-row {
+    flex: none;
+    display: grid;
+    grid-template-columns: minmax(0, var(--story-left)) minmax(0, 1fr);
+    gap: 4px;
+    scroll-margin-top: 6px;
+}
+
+.step-row.solo {
+    grid-template-columns: minmax(0, var(--story-left));
+}
+
+.step-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-subtle);
+}
+
+.step-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+    padding: 0 10px;
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: var(--fs-12);
+}
+
+.step-head strong {
+    color: var(--fg-bright);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.step-head .muted {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.step-index {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--bg-input);
+    color: var(--fg-muted);
+    font: var(--fs-10) var(--font-mono);
+}
+
+/* a step none of the designs ran: its one line */
+.step-row.idle .step-head {
+    grid-column: 1 / -1;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-panel);
+    opacity: 0.8;
+}
+
+.step-facts {
+    overflow-x: auto;
+    user-select: text;
+}
+
+table.tgrid.facts {
+    min-width: 100%;
+}
+
+table.tgrid.facts .inst-head {
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+table.tgrid.facts .inst-name {
+    overflow: hidden;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+table.tgrid.facts td.node {
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+table.tgrid.facts td.muted {
+    color: var(--fg-muted);
+}
+
+table.tgrid.prepost {
+    border-top: 1px solid var(--border-subtle);
+}
+
+.log-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent-text);
+    font: inherit;
+    text-align: right;
+    cursor: pointer;
+}
+
+.log-link:hover {
+    text-decoration: underline;
+}
+
+td.failed .log-link {
+    color: var(--sem-error);
+}
+
+table.tgrid.prepost thead th {
+    font-size: var(--fs-11);
+    font-weight: 500;
+    text-align: right;
+}
+
+.step-card pre.error {
+    margin: 8px;
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-input);
+    color: var(--sem-error);
+    font: var(--fs-11) var(--font-mono);
+    white-space: pre-wrap;
+    user-select: text;
+}
+
+/* what a step made: a region of tabs, as the stage's, a height by what it holds */
+/* as tall as the step's facts, at least as its kind needs */
+.step-viz {
+    position: relative;
+    min-width: 0;
+    min-height: 380px;
+}
+
+.step-viz.layout {
+    min-height: 460px;
+}
+
+.step-viz.traces {
+    min-height: 340px;
+}
+
+/* the analyses and the signoff's findings: as tall as they are */
+.step-viz.auto {
+    height: auto;
+    min-height: 120px;
+}
+
+.step-viz.auto .layout-root,
+.step-viz.auto .region-body,
+.step-viz.auto .pane,
+.step-viz.auto .panel {
+    position: static;
+}
+
+.step-viz.auto .layout-root,
+.step-viz.auto .region {
+    height: 100%;
+}
+
+.step-viz.auto .detail-plots {
+    overflow: visible;
+}
+
+.findings {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    user-select: text;
+}
+
+.findings .empty {
+    position: static;
+    padding: 16px;
+}
+
+.findings-who {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--fg-secondary);
+}
+
+.findings-who .swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+}
+
+.verdict {
+    color: var(--fg-bright);
+    font-size: var(--fs-14);
+    font-weight: 600;
+}
+
+.verdict.ok {
+    color: var(--sem-ok);
+}
+
+.verdict.bad {
+    color: var(--sem-error);
+}
+
+.verdict .muted {
+    color: var(--fg-muted);
+    font-size: var(--fs-12);
+    font-weight: 400;
+}
+
+pre.mismatches {
+    max-height: 260px;
+    margin: 0;
+    padding: 8px;
+    overflow: auto;
+    border-radius: var(--radius-sm);
+    background: var(--bg-input);
+    color: var(--sem-error);
+    font: var(--fs-11) var(--font-mono);
+}
+
+.findings .plot {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+}
+
+/* a step's log over the page */
+.lightbox.log {
+    cursor: default;
+}
+
+.lightbox.log figure {
+    display: flex;
+    flex-direction: column;
+    width: min(1100px, 92vw);
+    height: 82vh;
+    background: var(--bg-panel);
+}
+
+.lightbox.log figcaption {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--fg-primary);
+    font-family: var(--font-mono);
+}
+
+.lightbox.log figcaption .grow {
+    flex: 1;
+}
+
+pre.log-text .log-error {
+    color: var(--sem-error);
+}
+
+pre.log-text .log-warning {
+    color: var(--sem-warn);
+}
+
+pre.log-text {
+    flex: 1;
+    min-height: 0;
+    margin: 0;
+    padding: 8px;
+    overflow: auto;
+    background: var(--bg-input);
+    color: var(--fg-primary);
+    font: var(--fs-11) / 1.45 var(--font-mono);
+    white-space: pre-wrap;
+    user-select: text;
+    cursor: text;
 }
 
 table.tgrid.narrow {
@@ -1951,16 +2328,6 @@ table.tgrid.narrow tbody tr.differs:hover > td {
     gap: 6px;
     color: var(--fg-secondary);
     cursor: pointer;
-}
-
-.selection pre.error {
-    margin: 10px;
-    padding: 8px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-input);
-    color: var(--sem-error);
-    font: var(--fs-11) var(--font-mono);
-    white-space: pre-wrap;
 }
 
 /* ─── The scatter ─────────────────────────────────────────────────────────── */
@@ -2110,19 +2477,6 @@ html[data-theme="dark"] .detail-plots .figure-card img {
     height: 290px;
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-sm);
-}
-
-/* compared: the plots stacked, each the region's width */
-.detail-plots.stacked {
-    grid-template-columns: minmax(0, 1fr);
-}
-
-.detail-plots.stacked .figure-card {
-    grid-column: auto;
-}
-
-.detail-plots.stacked .plot {
-    height: 320px;
 }
 
 /* a figure pressed to show it over the page */

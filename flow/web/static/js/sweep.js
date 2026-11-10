@@ -1,11 +1,13 @@
-// The Sweeps: a block's sweep (python -m flow web.tables) as one table on its side, a row per field
-// (the PDK first, then the parameters that differ between the instances, then the metrics) and a
-// column per instance, and beside it a scatter plot of any metric against any other, a point
-// coloured and shaped by its PDK as the PDK row's dot is. A row's label sorts the columns by it and
-// filters them; hovering a column or a point lights up the other; clicking a column's head or a point
-// marks the instance. Marking loads nothing: the top bar's View (one marked) and Compare (two or
-// more) open the marked instances in place (detail.js), where the table narrows to their columns
-// (SelectionPanel). An instance is its PDK and parameters: its id names it only in the URL.
+// The Sweeps: one of a block's runs' tables (its Run picks it: python -m flow --block <block> --run
+// <run> --from table --to table) as one table on its side, a row per field (the PDK first, then the
+// parameters that differ between the instances, then the metrics: its parameters and results alone)
+// and a column per instance, and beside it a scatter plot of any metric against any other, a point
+// coloured by its PDK as the PDK row's dot is and shaped by its topology (the table's topology
+// parameter, as that row's marks are). A row's label sorts the columns by it and filters them;
+// hovering a column or a point lights up the other; clicking a column's head or a point marks the
+// instance. Marking loads nothing: the top bar's View (one marked) and Compare (two or more) open
+// the marked instances' stories in place (detail.js). An instance is its PDK and parameters: its id
+// names it only in the URL.
 
 import { h, icon, popover, select, titled } from "./icons.js";
 import { currentTheme, keepTicks, PAPERS, paperLayout, TICK_KEYS, tone } from "./paper.js";
@@ -13,8 +15,8 @@ import { COLORS, emit, hostBar, on, recall, store } from "./store.js";
 import { fieldInfo, scaledUnit, siExponent, words } from "./units.js";
 
 export const PDK_ORDER = ["tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65"];
-// a PDK's marker, in the scatter and beside its name in the table: Plotly's symbol names
-const PDK_SYMBOLS = ["circle", "square", "diamond", "triangle-up", "triangle-down", "hexagon"];
+// a topology's marker, in the scatter and beside its value in the table: Plotly's symbol names
+const TOPOLOGY_SYMBOLS = ["circle", "square", "diamond", "triangle-up", "triangle-down", "cross", "star", "hexagon"];
 
 const view = {
     table: null, // the block's table
@@ -26,6 +28,7 @@ const view = {
     sort: null, // {key, dir}
     filters: {}, // key -> {values: [...]} or {min, max}
     marks: new Set(),
+    topologies: [], // the topology parameter's values, in order: a marker each
     hover: null,
     x: null,
     y: null,
@@ -44,9 +47,12 @@ export function pdkColor(pdk, theme = currentTheme()) {
     return tone(COLORS[(index < 0 ? PDK_ORDER.length : index) % COLORS.length], theme);
 }
 
-export function pdkSymbol(pdk) {
-    const index = PDK_ORDER.indexOf(pdk);
-    return index < 0 ? "star" : PDK_SYMBOLS[index];
+// a row's topology (the table's topology parameter's value: its marker), null where it has none
+const topologyOf = (row) => (view.table?.topology ? (row.params?.[view.table.topology] ?? null) : null);
+
+function topologySymbol(value) {
+    const index = view.topologies.indexOf(value);
+    return index < 0 ? "circle" : TOPOLOGY_SYMBOLS[index % TOPOLOGY_SYMBOLS.length];
 }
 
 // Plotly's marker shapes, as small SVGs for the table and the legends
@@ -57,6 +63,7 @@ const SHAPES = {
     "triangle-up": '<path d="M5 .8l4.6 8.2H.4z"/>',
     "triangle-down": '<path d="M.4 1h9.2L5 9.2z"/>',
     hexagon: '<path d="M5 .4l4 2.3v4.6l-4 2.3-4-2.3V2.7z"/>',
+    cross: '<path d="M3.6 .6h2.8v3h3v2.8h-3v3H3.6v-3h-3V3.6h3z"/>',
     star: '<path d="M5 .3l1.2 3.3h3.5L6.9 5.8l1 3.4L5 7.2 2.1 9.2l1-3.4L.3 3.6h3.5z"/>',
 };
 
@@ -65,7 +72,7 @@ export function symbolSvg(symbol, color, size = 10) {
 }
 
 export function pdkMark(pdk, size = 10) {
-    return symbolSvg(pdkSymbol(pdk), pdkColor(pdk), size);
+    return symbolSvg("circle", pdkColor(pdk), size);
 }
 
 const escapes = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
@@ -94,7 +101,7 @@ function buildFields(table) {
     fields.push({ section: "Parameters" }, { key: "pdk", label: "pdk", kind: "cat", get: (row) => row.pdk, pdk: true, note: "The PDK" });
     for (const name of table.params) {
         const get = (row) => row.params?.[name];
-        fields.push({ key: `p:${name}`, label: name, kind: numeric(get) ? "num" : "cat", get, decimals: decimalsOf(rows, get) });
+        fields.push({ key: `p:${name}`, label: name, kind: numeric(get) ? "num" : "cat", get, decimals: decimalsOf(rows, get), topology: name === table.topology, ...(name === table.topology ? { note: "The topology: a point's marker in the scatter" } : {}) });
     }
     fields.push({ section: "Metrics" });
     // a row's SI prefix by the instances in the running, where some are dimmed; by its smallest tenth
@@ -267,7 +274,8 @@ function rowMenu(anchor, field) {
                     "only",
                 );
                 const name = value === null ? "—" : words(value);
-                list.append(h("label.filter-value", {}, box, h("span", field.pdk ? { html: `${pdkMark(value)} ${esc(name)}` } : {}, field.pdk ? null : name), h("span.muted", {}, `${counts.get(value)}`), only));
+                const mark = field.pdk ? pdkMark(value) : field.topology ? symbolSvg(topologySymbol(value), PAPERS[currentTheme()].spine, 10) : null;
+                list.append(h("label.filter-value", {}, box, h("span", mark ? { html: `${mark} ${esc(name)}` } : {}, mark ? null : name), h("span.muted", {}, `${counts.get(value)}`), only));
             }
             const all = () => {
                 for (const input of list.querySelectorAll("input")) input.checked = true;
@@ -312,6 +320,29 @@ export function setSearches(options, value, onChange) {
     tablePanel?.renderSearches();
 }
 
+// the Run: the block's runs (app.js: each {value, label, group}, its run's name the group, the
+// newest first), none for a table that is not a run's (an optimization's)
+const runs = { options: [], value: "", onChange: null };
+
+export function setRuns(options, value, onChange) {
+    Object.assign(runs, { options, value, onChange });
+    tablePanel?.renderSearches();
+}
+
+// a dropdown of the runs, grouped by the run's name: each its dated folder
+function runSelect() {
+    const element = h("select", { title: "The run whose table is shown: a run's name, then its dated folder (the latest first)" });
+    let group = null;
+    for (const option of runs.options) {
+        if (option.group && option.group !== group?.label) element.append((group = h("optgroup", { label: option.group })));
+        else if (!option.group) group = null;
+        (group || element).append(h("option", { value: option.value, title: option.title }, option.label));
+    }
+    element.value = runs.value;
+    element.addEventListener("change", () => runs.onChange?.(element.value));
+    return element;
+}
+
 export class SweepTablePanel {
     constructor(container) {
         this.scroller = h("div.sweep-scroll");
@@ -349,7 +380,11 @@ export class SweepTablePanel {
     // the Search, as the layout's Generator above its panel
     renderSearches() {
         // then the page's bar: the instances shown, filters and marks, View, Compare and Compiler
-        this.toolbar.replaceChildren(...(searches.options.length ? [select(searches.options, searches.value, (value) => searches.onChange?.(value), { title: "The block's sweep, or one of its optimizations" })] : []), this.barSlot);
+        this.toolbar.replaceChildren(
+            ...(runs.options.length ? [runSelect()] : []),
+            ...(searches.options.length ? [select(searches.options, searches.value, (value) => searches.onChange?.(value), { title: "The block's sweep, or one of its optimizations" })] : []),
+            this.barSlot,
+        );
     }
 
     // the instance a cell is in: a head carries its index, a value cell its place in the row
@@ -426,7 +461,10 @@ export class SweepTablePanel {
                 `<tr><th class="label${sorted ? " sorted" : ""}${filtered ? " filtered" : ""}" data-key="${esc(field.key)}" title="${esc(title)}"><div class="lab"><span class="name">${esc(field.label)}</span><span class="unit">${esc(field.unit || "")}</span><span class="mk">${filtered}${sorted}</span></div></th><td class="pad"></td>`,
             );
             if (field.pdk) {
-                for (const row of cols) parts.push(`<td class="pdk">${symbolSvg(pdkSymbol(row.pdk), pdkColor(row.pdk, theme), 9)}${esc(row.pdk ?? "—")}</td>`);
+                for (const row of cols) parts.push(`<td class="pdk">${symbolSvg("circle", pdkColor(row.pdk, theme), 9)}${esc(row.pdk ?? "—")}</td>`);
+            } else if (field.topology) {
+                const spine = PAPERS[theme].spine;
+                for (const row of cols) parts.push(`<td class="pdk">${symbolSvg(topologySymbol(field.get(row) ?? null), spine, 9)}${esc(cellText(field, field.get(row)))}</td>`);
             } else {
                 // a category's name longer than its column whole in its title
                 const fits = Math.floor((view.colWidth - 14) / 6.7);
@@ -674,18 +712,21 @@ export class ScatterPanel {
         const colors = PAPERS[theme];
         const known = [...new Set(view.cols.map((row) => row.pdk))];
         const pdks = [...PDK_ORDER.filter((pdk) => known.includes(pdk)), ...known.filter((pdk) => !PDK_ORDER.includes(pdk))];
-        const traces = pdks.map((pdk) => {
-            const rows = view.cols.filter((row) => row.pdk === pdk && !row.dim);
+        // a trace per PDK (its colour) and topology (its marker)
+        const shapes = view.table.topology ? view.topologies.filter((value) => view.cols.some((row) => topologyOf(row) === value)) : [null];
+        const groups = pdks.flatMap((pdk) => shapes.map((shape) => ({ pdk, shape, rows: view.cols.filter((row) => row.pdk === pdk && !row.dim && topologyOf(row) === shape) }))).filter((group) => group.rows.length);
+        const traces = groups.map(({ pdk, shape, rows }) => {
+            const name = shape === null ? pdk : `${pdk} · ${words(shape)}`;
             return {
                 type: "scatter",
                 mode: "markers",
-                name: pdk,
+                name,
                 showlegend: false,
                 x: rows.map((row) => point(row, x)),
                 y: rows.map((row) => point(row, y)),
                 customdata: rows.map((row) => row.id),
-                hovertemplate: `${pdk}<br>${x.label}: %{x:.4g} ${x.unit || ""}<br>${y.label}: %{y:.4g} ${y.unit || ""}<extra></extra>`,
-                marker: { color: pdkColor(pdk, theme), symbol: pdkSymbol(pdk), size: 9, line: { width: 0.6, color: colors.paper }, opacity: 0.9 },
+                hovertemplate: `${esc(name)}<br>${x.label}: %{x:.4g} ${x.unit || ""}<br>${y.label}: %{y:.4g} ${y.unit || ""}<extra></extra>`,
+                marker: { color: pdkColor(pdk, theme), symbol: topologySymbol(shape), size: 9, line: { width: 0.6, color: colors.paper }, opacity: 0.9 },
             };
         });
         // the dimmed instances (an optimization's designs that missed a bound) in grey, under the rest
@@ -705,8 +746,12 @@ export class ScatterPanel {
             });
         }
         // the legend alone, for the saved PNG (the page draws its own under the plot)
+        const plotted = traces.length;
         for (const pdk of pdks) {
-            traces.push({ type: "scatter", mode: "markers", name: pdk, legendgroup: "pdk", legendgrouptitle: { text: "PDK" }, x: [null], y: [null], hoverinfo: "skip", marker: { color: pdkColor(pdk, theme), symbol: pdkSymbol(pdk), size: 9 } });
+            traces.push({ type: "scatter", mode: "markers", name: pdk, legendgroup: "pdk", legendgrouptitle: { text: "PDK" }, x: [null], y: [null], hoverinfo: "skip", marker: { color: pdkColor(pdk, theme), symbol: "circle", size: 9 } });
+        }
+        for (const shape of shapes.filter((value) => value !== null)) {
+            traces.push({ type: "scatter", mode: "markers", name: words(shape), legendgroup: "topology", legendgrouptitle: { text: view.table.topology }, x: [null], y: [null], hoverinfo: "skip", marker: { color: colors.spine, symbol: topologySymbol(shape), size: 9 } });
         }
         const marked = view.cols.filter((row) => view.marks.has(row.id));
         traces.push({
@@ -764,9 +809,9 @@ export class ScatterPanel {
         if (this.revision !== revision) [this.revision, this.focus] = [revision, true];
         const focused = this.focus && dimmed.length && dimmed.length < view.cols.length;
         // the ticks of every point (Fit restores them), a focused axis's of the undimmed ones alone
-        const layout = paperLayout("", axisLabel(x), axisLabel(y), view.logX, view.logY, 1, theme, { traces: traces.slice(0, pdks.length + (dimmed.length ? 1 : 0)) });
+        const layout = paperLayout("", axisLabel(x), axisLabel(y), view.logX, view.logY, 1, theme, { traces: traces.slice(0, plotted) });
         if (focused) {
-            const narrow = paperLayout("", axisLabel(x), axisLabel(y), view.logX, view.logY, 1, theme, { traces: traces.slice(1, pdks.length + 1) });
+            const narrow = paperLayout("", axisLabel(x), axisLabel(y), view.logX, view.logY, 1, theme, { traces: traces.slice(1, plotted) });
             for (const [key, range] of Object.entries(this.focusRanges(x, y))) {
                 const axis = layout[`${key}axis`];
                 for (const attribute of TICK_KEYS) axis[attribute] = narrow[`${key}axis`][attribute];
@@ -811,7 +856,7 @@ export class ScatterPanel {
         layout.legend = { ...layout.legend, orientation: "v", x: 1.02, xanchor: "left", yref: "paper", y: 1, yanchor: "top", font: { size: 12 }, tracegroupgap: 12 };
         layout.dragmode = view.dragmode;
         layout.uirevision = revision;
-        this.renderLegend(pdks, dimmed.length ? view.table.dimmed || "dimmed" : null);
+        this.renderLegend(pdks, shapes.filter((value) => value !== null), dimmed.length ? view.table.dimmed || "dimmed" : null);
         Plotly.react(element, traces, layout, { displaylogo: false, displayModeBar: false, scrollZoom: true });
         keepTicks(element);
         if (!element.dataset.bound) {
@@ -831,10 +876,13 @@ export class ScatterPanel {
         }
     }
 
-    // under the plot: each PDK's colour and marker, and the grey of the dimmed instances (named by the table)
-    renderLegend(pdks, dimmed) {
+    // under the plot: each PDK's colour, each topology's marker, and the grey of the dimmed instances
+    // (named by the table)
+    renderLegend(pdks, shapes, dimmed) {
+        const spine = PAPERS[currentTheme()].spine;
         this.legend.replaceChildren(
             h("span.legend-group", {}, h("span.legend-title", {}, "pdk"), ...pdks.map((pdk) => h("span.legend-item", { html: `${pdkMark(pdk, 10)}${esc(pdk)}` }))),
+            ...(shapes.length ? [h("span.legend-group", {}, h("span.legend-title", {}, view.table.topology), ...shapes.map((shape) => h("span.legend-item", { html: `${symbolSvg(topologySymbol(shape), spine, 10)}${esc(words(shape))}` })))] : []),
             ...(dimmed ? [h("span.legend-group", {}, h("span.legend-item.muted", { html: `${symbolSvg("circle", PAPERS[currentTheme()].spine, 8)}${esc(dimmed)}` }))] : []),
         );
     }
@@ -918,6 +966,7 @@ function refresh() {
 export function setBlock(table) {
     view.table = table;
     view.fields = buildFields(table);
+    view.topologies = table.topology ? [...new Set(table.rows.map((row) => row.params?.[table.topology] ?? null))].sort((a, b) => String(a).localeCompare(String(b))) : [];
     view.labelWidth = labelWidth(view.fields);
     view.colWidth = colWidth(view.fields, table.rows);
     view.hover = null;
@@ -942,19 +991,19 @@ export function setBlock(table) {
     emit("marks", [...view.marks]);
 }
 
-// ---- the narrowed table: the instances shown in place, a column each ------------------------------
+// ---- the shown instances: their names, values and differences (detail.js) ---------------------
 
-const differs = (values) => new Set(values.map((value) => JSON.stringify(value ?? null))).size > 1;
+export const differs = (values) => new Set(values.map((value) => JSON.stringify(value ?? null))).size > 1;
 
 // the parameters any of the instances has, in the order their sweep sets them
-function paramNames(instances) {
+export function paramNames(instances) {
     return [...new Set(instances.flatMap((instance) => Object.keys(instance.params || {})))];
 }
 
-const shown = (value) => (value === null || value === undefined ? "—" : words(value));
+export const shown = (value) => (value === null || value === undefined ? "—" : typeof value === "object" ? JSON.stringify(value) : words(value));
 
 // a number at its row's SI prefix to 0.001 of it, whole numbers as they are
-function formatted(value, exponent) {
+export function formatted(value, exponent) {
     if (typeof value !== "number" || !Number.isFinite(value)) return shown(value);
     return Number.isInteger(value) ? String(value) : (value / 10 ** exponent).toFixed(3).replace(/^-(0\.0*)$/, "$1");
 }
@@ -983,129 +1032,4 @@ export function describe(instances) {
         const full = telling.map((key) => name(instance, key)).join(", ") || `instance ${index + 1}`;
         return { short: short.map((key) => name(instance, key)).join(", ") || full, full };
     });
-}
-
-// what the old instance page's summary showed, its column on the left: every parameter (the PDK
-// first), every metric at its row's SI prefix, the layout's size and signoff; compared, a column
-// each under its colour, the parameters those that differ unless asked for all
-export class SelectionPanel {
-    constructor(container, { instances, colorOf, onRemove, onView }) {
-        this.instances = instances;
-        this.colorOf = colorOf;
-        this.onRemove = onRemove;
-        this.onView = onView;
-        this.compare = instances.length > 1;
-        this.onlyDifferences = recall("compare.differences", true);
-        this.toolbar = h("div.panel-toolbar");
-        this.barSlot = h("div.bar-slot");
-        this.toolbar.append(this.barSlot);
-        this.body = h("div.panel-body.selection");
-        this.element = h("div.panel", {}, this.toolbar, this.body);
-        container.element.append(this.element);
-        this.off = [on("theme", () => this.render()), hostBar(this.barSlot, ["view", "compare"])];
-        container.on("destroy", () => this.off.forEach((off) => off()));
-        this.render();
-    }
-
-    render() {
-        const instances = this.instances;
-        const theme = currentTheme();
-        const cell = (tag, text, attributes = {}) => h(tag, attributes, text);
-        const row = (label, values, { unit = "", mono = false, differ = false, title } = {}) =>
-            h(
-                `tr${differ ? ".differs" : ""}`,
-                {},
-                h("th.label", { title: title || label }, h("div.lab", {}, h(`span.name${mono ? ".mono" : ""}`, {}, label), h("span.unit", {}, unit))),
-                values,
-            );
-        const section = (title) => h("tr.section", {}, h("th.label", {}, title), h("td", { colspan: String(instances.length) }));
-        // the heads: the colour (compared), this one alone, and out of the selection
-        const heads = instances.map((instance, index) =>
-            h(
-                "th.inst.sel",
-                {},
-                h(
-                    "div.inst-head",
-                    {},
-                    this.compare ? h("span.swatch", { style: { background: this.colorOf(index) } }) : null,
-                    h("span.grow"),
-                    this.compare ? h("button.icon-btn.mini", { title: "View this instance alone: its analyses, waveforms, layout and schematic", onclick: () => this.onView(instance.id), html: icon("eye", 13) }) : null,
-                    h("button.icon-btn.mini", { title: this.compare ? "Remove from the comparison" : "Close: back to every instance", onclick: () => this.onRemove(instance.id), html: icon("x", 13) }),
-                ),
-            ),
-        );
-        const head = h("tr", {}, h("th.corner", {}, h("span.muted", {}, this.compare ? `${instances.length} compared` : "")), heads);
-        const pdkRow = row("pdk", instances.map((instance) => h("td.pdk", { html: `${symbolSvg(pdkSymbol(instance.pdk), pdkColor(instance.pdk, theme), 9)}${esc(shown(instance.pdk))}` })), { mono: true, differ: this.compare && differs(instances.map((instance) => instance.pdk)) });
-        // a search's own fields, the evaluation's: a Status group before the parameters
-        const statusRows = [...new Set(instances.flatMap((instance) => Object.keys(instance.status || {})))].map((name) => {
-            const values = instances.map((instance) => instance.status?.[name]);
-            return row(name, values.map((value) => cell("td", shown(value))), { mono: true, differ: this.compare && differs(values) });
-        });
-        const paramRows = paramNames(instances)
-            .map((name) => [name, instances.map((instance) => instance.params?.[name])])
-            .filter(([, values]) => !this.compare || !this.onlyDifferences || differs(values))
-            .map(([name, values]) => row(name, values.map((value) => cell("td", shown(value))), { mono: true, differ: this.compare && differs(values) }));
-        const metricNames = [...new Set(instances.flatMap((instance) => Object.keys(instance.metrics || {})))];
-        const metricRows = metricNames.map((name) => {
-            const info = fieldInfo(name);
-            const values = instances.map((instance) => instance.metrics?.[name]);
-            const finite = values.filter((value) => typeof value === "number" && Number.isFinite(value) && !Number.isInteger(value));
-            const exponent = info.scalable && finite.length ? siExponent(finite) : 0;
-            return row(info.label, values.map((value, index) => cell(`td${instances[index].error && missing(value) ? ".failed" : ""}`, formatted(value, exponent))), { unit: scaledUnit(info, exponent), differ: this.compare && differs(values), title: name });
-        });
-        const layoutRows = this.layoutRows(row);
-        const failed = instances.some((instance) => instance.error);
-        const errorRow = failed
-            ? row("Error", instances.map((instance) => h(`td.text${instance.error ? ".failed" : ""}`, { title: instance.error || "" }, instance.error ? instance.error.trim().split("\n").pop() || "failed" : "—")))
-            : null;
-        const table = h(
-            "table.tgrid.narrow",
-            {},
-            h("thead", {}, head),
-            h("tbody", {}, errorRow, ...(statusRows.length ? [section("Status"), ...statusRows] : []), section("Parameters"), pdkRow, paramRows, section("Metrics"), metricRows, section("Layout"), layoutRows),
-        );
-        // alone, a failure's whole message under its column
-        const error = !this.compare && instances[0].error ? h("pre.error", {}, instances[0].error) : null;
-        this.body.replaceChildren(table, error || "");
-        if (this.compare) {
-            const toggle = h("label.check", { title: "Hide the parameters every compared instance shares" }, h("input", { type: "checkbox", checked: this.onlyDifferences }), "Only the parameters that differ");
-            toggle.querySelector("input").addEventListener("change", (event) => {
-                this.onlyDifferences = event.target.checked;
-                store("compare.differences", this.onlyDifferences);
-                this.render();
-            });
-            this.toolbar.replaceChildren(this.barSlot, toggle);
-        }
-    }
-
-    // the ALIGN layout's size and signoff, a row each
-    layoutRows(row) {
-        const instances = this.instances;
-        const value = (instance, key) => {
-            const layout = instance.layout;
-            // none, or only its netlist's views (a characterization laid out by no one)
-            if (!layout || (!layout.gds && !layout.error && !layout.blocks)) return key === "placed" ? "none" : "—";
-            if (layout.error) return key === "placed" ? "ALIGN failed" : "—";
-            if (key === "w") return Number.isFinite(layout.w_um) ? layout.w_um.toFixed(3) : "—";
-            if (key === "h") return Number.isFinite(layout.h_um) ? layout.h_um.toFixed(3) : "—";
-            // the blocks' own layouts side by side (a behavioral ADC): nothing routed or signed off
-            if (layout.blocks) return key === "placed" ? "blocks, unconnected" : "none";
-            // a block drawn by its own generator (the CDAC: under layout/drawn/), not placed by ALIGN
-            if (key === "placed") return (layout.gds || "").includes("/layout/drawn/") ? "by its generator" : layout.floorplan ? "by floorplan" : "ALIGN alone";
-            if (key === "drc") return layout.drc_violations === null || layout.drc_violations === undefined ? "—" : layout.drc_violations ? `${layout.drc_violations} violations` : "clean";
-            if (key === "lvs") return layout.lvs_correct === null || layout.lvs_correct === undefined ? "—" : layout.lvs_correct ? "correct" : "incorrect";
-            return "—";
-        };
-        const bad = (text) => /violations|incorrect|failed/.test(text);
-        return [
-            ["Placed", "placed", ""],
-            ["Width", "w", "µm"],
-            ["Height", "h", "µm"],
-            ["DRC", "drc", ""],
-            ["LVS", "lvs", ""],
-        ].map(([label, key, unit]) => {
-            const values = instances.map((instance) => value(instance, key));
-            return row(label, values.map((text) => h(`td${bad(text) ? ".failed" : ""}`, {}, text)), { unit, differ: this.compare && differs(values) });
-        });
-    }
 }
