@@ -60,6 +60,35 @@ def test_the_bare_command_prints_the_usage_the_steps_and_each_blocks_runs(capsys
     assert {"adc", "capdac", "comp", "samp"} <= set(cli.pipeline_blocks())
 
 
+def test_tab_completes_the_flags_the_blocks_their_runs_and_the_steps(capsys) -> None:
+    """``--completion``'s bash script: after ``--block`` the blocks, after ``--run`` that block's
+    runs, after ``--from``/``--to`` the steps, else the flags; another python command its own."""
+    import shutil
+    import subprocess
+
+    cli.main(["--completion"])
+    script = capsys.readouterr().out
+    if shutil.which("bash") is None:
+        pytest.skip("no bash")
+    probe = (
+        script
+        + """
+try() { COMP_WORDS=("$@"); COMP_CWORD=$((${#COMP_WORDS[@]}-1)); COMPREPLY=();
+        __flow_complete python "${COMP_WORDS[-1]}" "${COMP_WORDS[-2]}"; echo "${COMPREPLY[*]}"; }
+try python -m flow --block ""
+try python -m flow --block comp --run ""
+try python -m flow --block comp --run frida1 --t
+try python -m flow --block comp --run frida1 --to pe
+try python -m fl
+try python script.py ""
+"""
+    )
+    lines = subprocess.run(["bash", "-c", probe], capture_output=True, text=True, check=True).stdout.splitlines()
+    assert lines[0].split() == cli.pipeline_blocks()
+    assert "frida1" in lines[1].split() and "adc_12bit" in lines[1].split()
+    assert lines[2:5] == ["--to", "pex pexsim", "flow"] and lines[5] == ""
+
+
 def test_an_optimization_runs_its_study_and_the_viewer_keeps_its_command(monkeypatch) -> None:
     """``--run`` an optimization runs its study in each of its PDKs, its budget and workers its own
     (runs.py); the viewer keeps ``web.serve``; the old verbs and flags are gone."""

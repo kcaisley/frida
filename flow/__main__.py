@@ -531,9 +531,52 @@ def usage() -> None:
         console.print(indented(Text.assemble((f"# {meaning}\n", DIM), command)))
 
 
+COMPLETION = r"""# python -m flow's tab completion in bash: eval "$(python -m flow --completion)"
+__flow_blocks="{blocks}"
+__flow_steps="{steps}"
+declare -A __flow_runs=({runs})
+__flow_before="$(complete -p python 2>/dev/null | sed -n 's/.* -F \([^ ]*\) .*/\1/p')"
+__flow_complete() {{
+    local cur="${{COMP_WORDS[COMP_CWORD]}}" prev="${{COMP_WORDS[COMP_CWORD-1]}}" i flow=0 block=""
+    for ((i = 1; i < COMP_CWORD; i++)); do
+        [[ ${{COMP_WORDS[i]}} == -m && ${{COMP_WORDS[i+1]}} == flow ]] && flow=1
+        [[ ${{COMP_WORDS[i]}} == --block ]] && block="${{COMP_WORDS[i+1]}}"
+    done
+    if ((!flow)); then  # not python -m flow: flow after -m, else python's own completion, else the files
+        [[ $prev == -m ]] && COMPREPLY=($(compgen -W "flow" -- "$cur")) && return
+        [[ -n $__flow_before ]] && "$__flow_before" "$@"
+        return
+    fi
+    case "$prev" in
+        --block) COMPREPLY=($(compgen -W "$__flow_blocks" -- "$cur")); return ;;
+        --run) COMPREPLY=($(compgen -W "${{__flow_runs[$block]}}" -- "$cur")); return ;;
+        --from|--to) COMPREPLY=($(compgen -W "$__flow_steps" -- "$cur")); return ;;
+        flow) [[ $COMP_CWORD -eq 3 ]] && COMPREPLY=($(compgen -W "--block web.serve --help" -- "$cur")) && return ;;
+    esac
+    COMPREPLY=($(compgen -W "--block --run --from --to --dry-run --help" -- "$cur"))
+}}
+complete -o default -F __flow_complete python python3
+"""
+
+
+def completion() -> str:
+    """The bash completion of ``python -m flow`` (``--completion``; ``eval`` it, as workspace.sh
+    does): the flags, the blocks after ``--block``, that block's runs after ``--run``, the steps
+    after ``--from`` and ``--to``; its lists made here once, so a tab runs no Python. Any other
+    ``python`` command keeps the completion it had (else the files)."""
+    from flow import pipeline
+    from flow.sweep import runner
+
+    blocks = pipeline_blocks()
+    runs = " ".join(f'[{block}]="{" ".join(pipeline.runs(runner.runs_module(block)))}"' for block in blocks)
+    return COMPLETION.format(blocks=" ".join(blocks), steps=" ".join(str(step) for step in Step), runs=runs)
+
+
 def main(argv: list[str] | None = None) -> None:
     argv = sys.argv[1:] if argv is None else argv
-    if not argv or argv[0] in ("-h", "--help") or "-h" in argv or "--help" in argv:
+    if argv == ["--completion"]:
+        print(completion(), end="")
+    elif not argv or argv[0] in ("-h", "--help") or "-h" in argv or "--help" in argv:
         usage()
     elif argv[0] == "web.serve":
         from flow.web import server
