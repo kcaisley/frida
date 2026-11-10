@@ -39,7 +39,6 @@ from rich.layout import Layout
 from rich.live import Live
 from rich.padding import Padding
 from rich.panel import Panel
-from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 
@@ -64,6 +63,9 @@ SMALL = 8
 STATUS_EVERY_S, WRITE_EVERY_S = 120.0, 2.0
 # how often the live view is drawn (s): a spinner's step, and seldom enough not to flicker
 DRAW_EVERY_S = 0.5
+# a running step's spinner, a frame a drawing: picked by the clock, as each drawing builds the board
+# anew (a Rich Spinner made each frame would stay on its first)
+SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 # a status file's size, as a large terminal's
 STATUS_WIDTH, STATUS_HEIGHT = 200, 56
 LEVELS = {"ERROR": "error", "CRITICAL": "error", "WARNING": "warning", "KNOWN": "known"}
@@ -218,6 +220,11 @@ def _shown(path: Path) -> str:
     return runner._shown(path)
 
 
+def _spun() -> str:
+    """The spinner's frame now: the next one each drawing."""
+    return SPIN[int(time.monotonic() / DRAW_EVERY_S) % len(SPIN)]
+
+
 def _seconds(seconds: float) -> str:
     """Seconds, a decimal below 100 alone: ``12.3``, ``154``."""
     return f"{seconds:.1f}" if seconds < 100 else f"{seconds:.0f}"
@@ -340,7 +347,7 @@ def pipeline_panel(board: Board, plain: bool = False) -> Any:
             said.append(f"{tool} {n} {LEVELS.get(level, level.lower())}  ", style=style)
         label = Text(step, style=f"bold {RUN}" if c["running"] else TEXT)
         found.add_row(
-            Spinner("dots", text=label, style=RUN) if c["running"] else Text.assemble("  ", label),
+            Text.assemble((_spun(), RUN), " ", label) if c["running"] else Text.assemble("  ", label),
             _count(c["waiting"], DIM),
             _count(c["running"], RUN),
             _count(c["ok"], OK),

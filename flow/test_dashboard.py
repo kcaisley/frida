@@ -147,3 +147,15 @@ def test_a_tools_message_loses_its_level_word_and_its_paths() -> None:
     assert dashboard._clean("Warning: dummy interface") == "dummy interface"
     assert dashboard._clean('line 3 of "/a/b/c/FasterCap_Input_.lst"') == 'line 3 of "…/FasterCap_Input_.lst"'
     assert dashboard._seconds(12.34) == "12.3" and dashboard._seconds(154.2) == "154"
+
+
+def test_a_running_steps_spinner_turns_a_frame_each_drawing(monkeypatch) -> None:
+    """The spinner beside a running step is the clock's frame, so a board built anew each drawing
+    still turns (a Rich Spinner made each frame stays on its first)."""
+    from flow import dashboard
+
+    frames = []
+    for tick in range(3):
+        monkeypatch.setattr(dashboard.time, "monotonic", lambda tick=tick: 100.0 + tick * dashboard.DRAW_EVERY_S)
+        frames.append(dashboard._spun())
+    assert len(set(frames)) == 3
