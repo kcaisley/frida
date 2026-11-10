@@ -117,3 +117,20 @@ def test_a_python_tool_streams_its_lines_as_it_writes_them(tmp_path: Path) -> No
     finally:
         logging.getLogger("slowtool").removeHandler(handler)
     assert len(seen) == 3 and seen[1] - began < 2.5  # the command, then 'first' well before 'last'
+
+
+def test_a_known_warning_is_counted_apart_and_a_new_one_is_not(tmp_path: Path) -> None:
+    """A warning the flow knows and cannot fix at its source (``KNOWN``: a foundry model's) is
+    still logged, counted as ``KNOWN``; a new one (a device past its safe operating area) stays a
+    warning; every known entry says why."""
+    from flow.logs import KNOWN, known
+
+    with step_log(tmp_path / "step.log") as counts:
+        spectre = logging.getLogger("spectre")
+        spectre.warning("WARNING (SPECTRE-592): Following parameters are disabled")
+        spectre.warning("WARNING (CMI-2753): xtop.dut.MN: Vgb(=1.08 V) has exceeded vgb_max(=990 mV).")
+    assert counts == {"spectre": {"KNOWN": 1, "WARNING": 1}}
+    assert "SPECTRE-592" in (tmp_path / "step.log").read_text()
+    assert known("align.pnr.main", "2 LVS / DRC errors found !!!") is not None
+    assert known("spectre", "Vgb has exceeded vgb_max") is None
+    assert all(entry.reason for entry in KNOWN)

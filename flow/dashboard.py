@@ -43,6 +43,8 @@ from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 
+from flow.logs import known
+
 # the terminal's own colours, which its theme maps
 DIM, TEXT, HEAD, RUN, OK, KEPT, REJECT, WARN, BAD, FRAME = (
     "bright_black",
@@ -64,7 +66,7 @@ STATUS_EVERY_S, WRITE_EVERY_S = 120.0, 2.0
 DRAW_EVERY_S = 0.5
 # a status file's size, as a large terminal's
 STATUS_WIDTH, STATUS_HEIGHT = 200, 56
-LEVELS = {"ERROR": "error", "CRITICAL": "error", "WARNING": "warning"}
+LEVELS = {"ERROR": "error", "CRITICAL": "error", "WARNING": "warning", "KNOWN": "known"}
 
 
 @dataclass
@@ -156,11 +158,14 @@ class Board:
             if len(parts) < 5 or parts[3] not in LEVELS:
                 continue
             tool, level, message = parts[2], parts[3], " ".join(parts[4].removeprefix(": ").split())
+            entry = known(tool, message)
+            level = "KNOWN" if entry else level
             # one kind however its paths, quotes and numbers differ (the same warning in each PDK)
             kind = (tool, level, re.sub(r"\d+", "#", re.sub(r'"[^"]*"|\S*/\S*', "…", message))[:160])
             self.kinds[kind] += 1
             if self.kinds[kind] == 1:
-                self._say(level, step, tool, item.key, _clean(message), kind)
+                reason = f"  (known: {entry.reason})" if entry else ""
+                self._say(level, step, tool, item.key, _clean(message) + reason, kind)
 
     def _say(self, notice: str, step: str, tool: str, instance: str, text: str, kind: Any = None) -> None:
         stamp = time.strftime("%H:%M:%S")
@@ -331,7 +336,8 @@ def pipeline_panel(board: Board, plain: bool = False) -> Any:
         seconds = sum(item.seconds.get(step, 0.0) for item in board.instances.values())
         said = Text()
         for (tool, level), n in sorted(board.counts.get(step, Counter()).items()):
-            said.append(f"{tool} {n} {LEVELS.get(level, level.lower())}  ", style=BAD if level != "WARNING" else WARN)
+            style = {"WARNING": WARN, "KNOWN": DIM}.get(level, BAD)
+            said.append(f"{tool} {n} {LEVELS.get(level, level.lower())}  ", style=style)
         label = Text(step, style=f"bold {RUN}" if c["running"] else TEXT)
         found.add_row(
             Spinner("dots", text=label, style=RUN) if c["running"] else Text.assemble("  ", label),
@@ -352,6 +358,7 @@ NOTICES = {
     "ERROR": f"bold {BAD}",
     "CRITICAL": f"bold {BAD}",
     "WARNING": WARN,
+    "KNOWN": DIM,
     "FAILED": f"bold {BAD}",
     "REJECTED": REJECT,
 }

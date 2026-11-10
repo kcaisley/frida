@@ -27,6 +27,7 @@ import threading
 from collections.abc import Callable, Iterator
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
+from dataclasses import dataclass
 from logging.handlers import QueueHandler, QueueListener
 from multiprocessing import get_context
 from pathlib import Path
@@ -51,6 +52,54 @@ _HEADING = re.compile(r"^(Warning|Error|Notice) from \w+ (at|during|in)\b")
 # deck's echoed option, ``LVS ABORT ON SUPPLY ERROR  NO``)
 _ERROR = re.compile(r"(\b(ERROR|Error|FATAL|Fatal|CRITICAL)|^\w*(Error|Exception))\s*[:(]")
 _WARNING = re.compile(r"\b(WARNING|Warning|WARN)\s*[:(]")
+
+
+@dataclass(frozen=True)
+class Known:
+    """A warning or error the flow knows and cannot fix at its source (a foundry's model files, a
+    tool's own check another step contradicts): the tool whose logger says it (its name or its
+    name's start: ``align`` for ``align.pnr.main``), a pattern its message matches, and why it is
+    not fixed. Still logged and counted; the dashboard shows it as known, with the reason, so a
+    new one stands out (``flow.dashboard``). A warning the flow causes is fixed, never listed here."""
+
+    tool: str
+    pattern: str
+    reason: str
+
+    def matches(self, tool: str, message: str) -> bool:
+        return (tool == self.tool or tool.startswith(f"{self.tool}.")) and re.search(self.pattern, message) is not None
+
+
+KNOWN = (
+    Known(
+        "spectre",
+        r"SPECTRE-592\b",
+        "the foundry's model cards set parameters Spectre X ignores; the models are the kit's, not ours to edit",
+    ),
+    Known(
+        "spectre",
+        r"SFE-1131\b.*scalefactor",
+        "TSMC28's model files set scalefactor twice (its toplevel and its usage file)",
+    ),
+    Known(
+        "spectre",
+        r"CMI-9000\b.*Rgate",
+        "IHP's models add a gate resistance below Spectre's MinR, which Spectre then drops",
+    ),
+    Known(
+        "spectre", r"Further occurrences of this warning will be suppressed", "Spectre's note after a repeated warning"
+    ),
+    Known(
+        "align",
+        r"LVS / DRC errors found|Found errors: SHORT: 0 OPEN|feasible path might not be found",
+        "ALIGN's own checks of its output; the lvs step's KLayout LVS of the same layout decides",
+    ),
+)
+
+
+def known(tool: str, message: str) -> Known | None:
+    """The known warning ``tool``'s ``message`` is (``KNOWN``), else None."""
+    return next((entry for entry in KNOWN if entry.matches(tool, message)), None)
 
 
 def level(line: str, previous: int = logging.INFO) -> tuple[str | None, int, str, bool]:
@@ -171,7 +220,8 @@ def relay(log: Path, name: str) -> None:
 
 class _Counts(logging.Handler):
     """The warnings and errors logged, by tool (a logger's first name: ``align``, ``spectre``,
-    ``flow`` ...; Python's warnings as ``python``) and level: ``{"align": {"WARNING": 4}}``; a
+    ``flow`` ...; Python's warnings as ``python``) and level, a known one (``KNOWN``) as ``KNOWN``:
+    ``{"align": {"WARNING": 4, "KNOWN": 2}}``; a
     record marked ``counted=False`` not (a message's continued lines, ``level``; a step's own
     failure, which its outcome states)."""
 
@@ -185,7 +235,9 @@ class _Counts(logging.Handler):
         tool = record.name.split(".")[0]
         tool = "python" if tool == "py" else tool
         levels = self.counts.setdefault(tool, {})
-        levels[record.levelname] = levels.get(record.levelname, 0) + 1
+        # a known warning or error (``KNOWN``) counted as known, apart from the new ones
+        level = "KNOWN" if known(record.name, record.getMessage()) else record.levelname
+        levels[level] = levels.get(level, 0) + 1
 
 
 class _Here(logging.Handler):

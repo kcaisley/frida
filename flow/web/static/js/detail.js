@@ -560,9 +560,11 @@ function logged(counts) {
         ["CRITICAL", "critical"],
         ["ERROR", "error"],
         ["WARNING", "warning"],
+        ["KNOWN", "known"], // flow.logs.KNOWN: a third party's, its reason in the log
     ];
+    const said = (level, noun, n) => `${n} ${noun}${n === 1 || level === "KNOWN" ? "" : "s"}`;
     return Object.entries(counts || {})
-        .map(([tool, levels]) => `${tool} ${nouns.filter(([level]) => levels[level]).map(([level, noun]) => `${levels[level]} ${noun}${levels[level] === 1 ? "" : "s"}`).join(", ")}`)
+        .map(([tool, levels]) => `${tool} ${nouns.filter(([level]) => levels[level]).map(([level, noun]) => said(level, noun, levels[level])).join(", ")}`)
         .join("; ");
 }
 

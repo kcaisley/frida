@@ -121,6 +121,27 @@ def test_the_view_writes_the_status_and_events_beside_the_run(tmp_path: Path, ca
     assert "logging (newest first)" in capsys.readouterr().out
 
 
+def test_a_known_warning_is_shown_as_known_with_its_reason(tmp_path: Path) -> None:
+    board = _board(tmp_path, ["a"])
+    (tmp_path / "a" / "sim").mkdir()
+    (tmp_path / "a" / "sim" / "step.log").write_text(
+        "2026-11-10 00:00:00 spectre WARNING : WARNING (SPECTRE-592): Following parameters are disabled\n"
+    )
+    board.take(
+        {
+            "key": "tsmc65/a",
+            "step": "sim",
+            "state": "ok",
+            "seconds": 1.0,
+            "found": "",
+            "counts": {"spectre": {"KNOWN": 1}},
+        }
+    )
+    [(_, notice, _, _, _, text, _)] = board.attention
+    assert notice == "KNOWN" and text.startswith("SPECTRE-592:") and "(known: the foundry" in text
+    assert "spectre 1 known" in _shown(dashboard.pipeline_panel(board))
+
+
 def test_a_tools_message_loses_its_level_word_and_its_paths() -> None:
     assert dashboard._clean("WARNING (SPECTRE-592): Following parameters") == "SPECTRE-592: Following parameters"
     assert dashboard._clean("Warning: dummy interface") == "dummy interface"

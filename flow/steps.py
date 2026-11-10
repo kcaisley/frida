@@ -612,12 +612,15 @@ def _brief(step: Step, outputs: dict) -> str:
 
 def logged(counts: dict[str, dict[str, int]]) -> str:
     """A step's warnings and errors by tool (``flow.logs.step_log``'s counts), for its outcome:
-    ``align 4 errors, 10 warnings; spectre 26 warnings``; nothing where there were none."""
+    ``align 4 errors, 10 warnings; spectre 26 warnings, 14 known`` (``flow.logs.KNOWN``); nothing
+    where there were none."""
     nouns = {"CRITICAL": "critical error", "ERROR": "error", "WARNING": "warning"}  # the worst first
-    tools = [
-        f"{tool} {', '.join(_count(levels[level], noun) for level, noun in nouns.items() if level in levels)}"
-        for tool, levels in counts.items()
-    ]
+
+    def said(levels: dict[str, int]) -> str:
+        found = [_count(levels[level], noun) for level, noun in nouns.items() if level in levels]
+        return ", ".join(found + ([f"{levels['KNOWN']} known"] if "KNOWN" in levels else []))
+
+    tools = [f"{tool} {said(levels)}" for tool, levels in counts.items()]
     return "; ".join(tools)
 
 
