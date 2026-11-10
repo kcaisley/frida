@@ -345,7 +345,7 @@ async function main() {
     try {
         app.catalog = await fetchJson("sweep/catalog.json");
     } catch (error) {
-        loading.replaceChildren(h("strong", {}, "No sweep tables"), h("span", {}, "Run  uv run python -m flow web.tables  and reload."), h("span.mono.muted", {}, error.message));
+        loading.replaceChildren(h("strong", {}, "No sweep tables"), h("span", {}, "No tables yet: python -m flow --block B --run R"), h("span.mono.muted", {}, error.message));
         return;
     }
     renderLibrary();

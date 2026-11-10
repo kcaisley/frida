@@ -487,17 +487,17 @@ function shimBlock(instance) {
 
 // ---- the steps --------------------------------------------------------------------------------
 
-// a step's name on its row, and what it does
+// a step's name on its row
 const STEPS = {
-    netlist: ["Netlist", "the circuit as simulated, and its size"],
-    sim: ["Simulation", "each testbench run before layout"],
-    circuit: ["Circuit simulation", "the runs a behavioral block leaves to the circuit simulator"],
-    layout: ["Layout", "placed and routed"],
-    drc: ["DRC", "the design rules checked"],
-    lvs: ["LVS", "the layout against its schematic"],
-    pex: ["Extraction", "the layout's parasitic capacitance"],
-    pexsim: ["Post-layout simulation", "the runs again, the extraction back-annotated"],
-    record: ["Record", "the metrics and analyses, post-layout where the extraction was simulated"],
+    netlist: ["Netlist"],
+    sim: ["Simulation"],
+    circuit: ["Circuit simulation"],
+    layout: ["Layout"],
+    drc: ["DRC"],
+    lvs: ["LVS"],
+    pex: ["Extraction"],
+    pexsim: ["Post-layout simulation"],
+    record: ["Record"],
 };
 // a state's chip (compile.js's stage chips): its class and word
 const STATES = {
@@ -967,7 +967,7 @@ function vizOf(key) {
 
 // a step's row: its facts on the left, what it made on the right (its own Layout of one region)
 function stepRow(key, number, layouts) {
-    const [title, about] = STEPS[key] || [key, ""];
+    const [title] = STEPS[key] || [key];
     const entries = page.instances.map((instance) => stepOf(instance, key));
     const anchor = { id: `step-${key}` };
     // a step none of the designs ran: one line, why
@@ -984,7 +984,7 @@ function stepRow(key, number, layouts) {
     const left = h(
         "div.step-card",
         {},
-        h("div.step-head", {}, h("span.step-index", {}, String(number)), h("strong", {}, title), page.compare ? null : chip(entries[0]), h("span.muted.grow", {}, about)),
+        h("div.step-head", {}, h("span.step-index", {}, String(number)), h("strong", {}, title), page.compare ? null : chip(entries[0]), h("span.grow")),
         facts,
         error,
     );
