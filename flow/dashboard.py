@@ -37,6 +37,7 @@ from rich import box
 from rich.console import Console, Group
 from rich.layout import Layout
 from rich.live import Live
+from rich.padding import Padding
 from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.table import Table
@@ -255,9 +256,12 @@ def value(name: str, number: Any) -> str:
 # ---------------------------------------------------------------- the panels
 
 
-def _table(*columns: tuple[str, str, int]) -> Table:
-    """A table of these columns (name, justification, width), the last taking what room is left."""
-    found = Table(box=box.SIMPLE_HEAD, expand=True, pad_edge=False, header_style=f"bold {HEAD}", border_style=FRAME)
+def _table(*columns: tuple[str, str, int], plain: bool = False) -> Table:
+    """A table of these columns (name, justification, width), the last taking what room is left
+    (``plain``: only its content's, for the summary left in the terminal's buffer)."""
+    found = Table(
+        box=box.SIMPLE_HEAD, expand=not plain, pad_edge=False, header_style=f"bold {HEAD}", border_style=FRAME
+    )
     for place, (name, justify, width) in enumerate(columns):
         last = place == len(columns) - 1
         found.add_column(
@@ -267,7 +271,7 @@ def _table(*columns: tuple[str, str, int]) -> Table:
             overflow="ellipsis",
             width=None if last else width,
             min_width=width if last else None,
-            ratio=1 if last else None,
+            ratio=1 if last and not plain else None,
         )
     return found
 
@@ -276,11 +280,16 @@ def _count(n: int, style: str) -> Text:
     return Text(str(n) if n else "·", style=style if n else DIM)
 
 
-def _panel(body: Any, title: str) -> Panel:
+def _panel(body: Any, title: str, plain: bool = False) -> Any:
+    """A box of the live view; ``plain``, a heading over the content alone (the summary left in the
+    terminal's buffer: no border, no line wider than its content, so a narrower window rewraps
+    nothing but long messages)."""
+    if plain:
+        return Group(Text(title, style=f"bold {HEAD}"), Padding(body, (0, 0, 1, 2), expand=False))
     return Panel(body, title=title, title_align="left", border_style=FRAME)
 
 
-def runs_panel(board: Board) -> Panel:
+def runs_panel(board: Board, plain: bool = False) -> Any:
     """The run: its block, name, kind, designs, PDKs and workers, its folder; how long it has run,
     and its designs started, passed, rejected and failed."""
     ended, many = board.ended(), len(board.instances)
@@ -299,10 +308,10 @@ def runs_panel(board: Board) -> Panel:
         (f"{ended['failed']} failed   ", BAD),
         (_shown(board.folder), DIM),
     )
-    return _panel(Group(first, second), "run")
+    return _panel(Group(first, second), "run", plain)
 
 
-def pipeline_panel(board: Board) -> Panel:
+def pipeline_panel(board: Board, plain: bool = False) -> Any:
     """A row a step: its instances in each state, its seconds summed, its tools' warnings and errors."""
     found = _table(
         ("step", "left", 9),
@@ -315,6 +324,7 @@ def pipeline_panel(board: Board) -> Panel:
         ("not run", "right", 7),
         ("time (s)", "right", 8),
         ("notices", "left", 18),
+        plain=plain,
     )
     for step in board.steps:
         c = board.by_step(step)
@@ -335,7 +345,7 @@ def pipeline_panel(board: Board) -> Panel:
             Text(_seconds(seconds) if seconds else "", style=DIM),
             said,
         )
-    return _panel(found, "pipeline")
+    return _panel(found, "pipeline", plain)
 
 
 NOTICES = {
@@ -347,16 +357,18 @@ NOTICES = {
 }
 
 
-def logging_panel(board: Board, rows: int | None = None) -> Panel:
+def logging_panel(board: Board, rows: int | None = None, plain: bool = False) -> Any:
     """What needs attention, the newest first, a row each: when, the notice (a tool's error or
     warning, a failure, a rejection), the step and its tool, how often it came (each kind of
     warning counted once it was said), and the message, the instance it came first from after it."""
-    found = Table(box=box.SIMPLE_HEAD, expand=True, pad_edge=False, header_style=f"bold {HEAD}", border_style=FRAME)
+    found = Table(
+        box=box.SIMPLE_HEAD, expand=not plain, pad_edge=False, header_style=f"bold {HEAD}", border_style=FRAME
+    )
     found.add_column("time", style=DIM, no_wrap=True, width=8)
     found.add_column("notice", no_wrap=True, width=8)
     found.add_column("step (tool)", no_wrap=True, max_width=24)
     found.add_column("count", justify="right", no_wrap=True, width=5)
-    found.add_column("message", overflow="fold", ratio=1)
+    found.add_column("message", overflow="fold", ratio=None if plain else 1, max_width=90 if plain else None)
     for stamp, notice, step, tool, instance, text, kind in list(reversed(board.attention))[: rows or None]:
         count = board.kinds[kind] if kind else 1
         found.add_row(
@@ -368,12 +380,12 @@ def logging_panel(board: Board, rows: int | None = None) -> Panel:
         )
     if not board.attention:
         found.add_row("", "", "", "", Text("nothing yet", style=DIM))
-    return _panel(found, "logging (newest first)")
+    return _panel(found, "logging (newest first)", plain)
 
 
-def rejections_panel(board: Board) -> Panel:
+def rejections_panel(board: Board, plain: bool = False) -> Any:
     """Why designs left the run: each bound by the step that caught them, and the failures by step."""
-    found = _table(("caught at", "left", 9), ("designs", "right", 7), ("bound", "left", 18))
+    found = _table(("caught at", "left", 9), ("designs", "right", 7), ("bound", "left", 18), plain=plain)
     # a resumed run's rejection may be a step before the ones it runs: first
     order = {step: place for place, step in enumerate(board.steps)}
     for (step, bounds), n in sorted(board.rejections.items(), key=lambda kn: order.get(kn[0][0], -1)):
@@ -383,7 +395,7 @@ def rejections_panel(board: Board) -> Panel:
         found.add_row(step, Text(str(n), style=BAD), Text("failed", style=BAD))
     if not board.rejections and not failed:
         found.add_row("", "", Text("none", style=DIM))
-    return _panel(found, "rejections")
+    return _panel(found, "rejections", plain)
 
 
 def _rejection_rows(board: Board) -> int:
@@ -391,7 +403,7 @@ def _rejection_rows(board: Board) -> int:
     return max(1, len(board.rejections) + len(failed))
 
 
-def results_panel(board: Board, rows: int = 14) -> Panel:
+def results_panel(board: Board, rows: int = 14, plain: bool = False) -> Any:
     """The results: one instance's metrics pre- and post-layout and how each moved (its bounds'
     metrics first); several instances' that passed, the latest first, by their bounds' metrics (or
     their record's first)."""
@@ -399,7 +411,11 @@ def results_panel(board: Board, rows: int = 14) -> Panel:
         item = next(iter(board.instances.values()))
         record = item.record
         found = _table(
-            ("pre-layout", "right", 11), ("post-layout", "right", 11), ("change", "right", 7), ("metric", "left", 16)
+            ("pre-layout", "right", 11),
+            ("post-layout", "right", 11),
+            ("change", "right", 7),
+            ("metric", "left", 16),
+            plain=plain,
         )
         post = record.get("metrics") or {}
         pre = record.get("prelayout") or (post if record.get("evidence") != "postlayout" else {})
@@ -413,19 +429,22 @@ def results_panel(board: Board, rows: int = 14) -> Panel:
         title = f"results · {item.key} · {record.get('evidence', 'not recorded yet')}"
         if record.get("rejected"):
             title += f" · rejected at {record['rejected']['step']}"
-        return _panel(found, title)
+        return _panel(found, title, plain)
     passed = [item for item in board.instances.values() if item.ended == "passed" and item.record]
     names = list(next(iter(board.instances.values())).bounds) if board.instances else []
     if not names and passed:
         names = [n for n, v in (passed[0].record.get("metrics") or {}).items() if isinstance(v, (int, float))][:4]
     width = max((len(item.key) for item in passed), default=8)
     found = _table(
-        ("instance", "left", width), *((n, "right", max(9, len(n))) for n in names), ("evidence", "left", 10)
+        ("instance", "left", width),
+        *((n, "right", max(9, len(n))) for n in names),
+        ("evidence", "left", 10),
+        plain=plain,
     )
     for item in reversed(passed[-rows:]):
         metrics = item.record.get("metrics") or {}
         found.add_row(item.key, *(value(n, metrics.get(n)) for n in names), item.record.get("evidence", ""))
-    return _panel(found, f"results · {len(passed)} passed (the latest first)")
+    return _panel(found, f"results · {len(passed)} passed (the latest first)", plain)
 
 
 def _results_rows(board: Board, rows: int = 14) -> int:
@@ -450,13 +469,15 @@ def dashboard(board: Board) -> Layout:
 
 
 def summary(board: Board) -> Group:
-    """What stays once the run ends: the same boxes, the logging's newest 40 rows."""
+    """What stays in the terminal's buffer once the run ends: the same boxes, plain (headings, no
+    borders, no line wider than its content: a narrower window rewraps only long messages), the
+    logging's newest 40 rows."""
     return Group(
-        runs_panel(board),
-        pipeline_panel(board),
-        logging_panel(board, 40),
-        rejections_panel(board),
-        results_panel(board),
+        runs_panel(board, plain=True),
+        pipeline_panel(board, plain=True),
+        logging_panel(board, 40, plain=True),
+        rejections_panel(board, plain=True),
+        results_panel(board, plain=True),
     )
 
 
