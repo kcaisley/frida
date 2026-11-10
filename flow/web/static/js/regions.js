@@ -95,7 +95,7 @@ class Region {
         this.expand = h("button.icon-btn.region-expand", { title: "Full screen", onclick: () => this.setFull(!this.full) });
         this.head.append(h("span.grow"), this.expand);
         this.setFull(false);
-        const saved = key ? recall(`tab.${key}`, null) : null;
+        const saved = key ? recall(`tabs.${key}`, null) : null;
         this.active = this.entries.some((entry) => entry.id === saved) ? saved : this.entries[0]?.id;
         this.show();
         this.resizeObserver = new ResizeObserver(() => this.current()?.container.emit("resize"));
@@ -134,7 +134,7 @@ class Region {
     activate(id) {
         if (!this.has(id)) return;
         this.active = id;
-        if (this.key) store(`tab.${this.key}`, id);
+        if (this.key) store(`tabs.${this.key}`, id);
         this.show();
         const entry = this.current();
         entry.container.emit("show");

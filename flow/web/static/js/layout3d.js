@@ -88,6 +88,12 @@ const SHADE = (() => {
     const normals = { top: [0, 0, 1], bottom: [0, 0, -1], px: [1, 0, 0], nx: [-1, 0, 0], py: [0, 1, 0], ny: [0, -1, 0] };
     return Object.fromEntries(Object.entries(normals).map(([key, n]) => [key, 0.28 + 0.22 * (0.5 + 0.5 * n[2]) + 0.5 * Math.max(0, dot(n, sun)) + 0.12 * Math.max(0, dot(n, fill))]));
 })();
+// a wall's shade by its outward normal (nx, ny, 0), as SHADE lights a box's sides
+const wallShade = (nx, ny) => {
+    const sun = [0.6, -1, 1.4].map((v, _, all) => v / Math.hypot(...all));
+    const fill = [-1, 0.8, 0.6].map((v, _, all) => v / Math.hypot(...all));
+    return 0.28 + 0.11 + 0.5 * Math.max(0, nx * sun[0] + ny * sun[1]) + 0.12 * Math.max(0, nx * fill[0] + ny * fill[1]);
+};
 const tint = (rgb, shade) => `rgb(${Math.min(255, rgb[0] * shade) | 0},${Math.min(255, rgb[1] * shade) | 0},${Math.min(255, rgb[2] * shade) | 0})`;
 
 export class Layout3DPanel {
@@ -445,15 +451,31 @@ export class Layout3DPanel {
                     if (py > y2) quad([c[2], c[3], c[7], c[6]], layer.rgb, SHADE.py, layer.alpha, edges);
                     else if (py < y1) quad([c[0], c[1], c[5], c[4]], layer.rgb, SHADE.ny, layer.alpha, edges);
                 }
-                // a polygon's top face, triangulated
+                // a polygon: its walls (each edge facing the camera, lit by its outward normal) and its
+                // top face, triangulated
                 for (const ring of layer.polys) {
-                    if (pz <= z1) continue;
                     const contour = [];
                     for (let k = 0; k < ring.length; k += 2) contour.push(new THREE.Vector2(ring[k], ring[k + 1]));
+                    const outward = THREE.ShapeUtils.isClockWise(contour) ? -1 : 1;
+                    for (let k = 0; k < contour.length; k++) {
+                        const a = contour[k];
+                        const b = contour[(k + 1) % contour.length];
+                        const length = Math.hypot(b.x - a.x, b.y - a.y);
+                        if (!length) continue;
+                        const nx = (outward * (b.y - a.y)) / length;
+                        const ny = (-outward * (b.x - a.x)) / length;
+                        if (nx * (px - a.x) + ny * (py - a.y) <= 0) continue;
+                        quad([project(a.x, a.y, z0), project(b.x, b.y, z0), project(b.x, b.y, z1), project(a.x, a.y, z1)], layer.rgb, wallShade(nx, ny), layer.alpha, edges);
+                    }
+                    if (pz <= z1) continue;
                     const points = contour.map((point) => project(point.x, point.y, z1));
                     if (points.some((point) => point[2] <= near)) continue;
                     const color = shade(layer.rgb, SHADE.top);
                     for (const [a, b, c] of THREE.ShapeUtils.triangulateShape(contour, [])) triangle(points[a], points[b], points[c], color, layer.alpha);
+                    if (edges && layer.alpha >= 1) {
+                        const dark = shade(layer.rgb, SHADE.top * 0.45);
+                        for (let k = 0; k < points.length; k++) line(points[k], points[(k + 1) % points.length], dark);
+                    }
                 }
             }
         }

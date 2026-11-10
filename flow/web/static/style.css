@@ -3679,3 +3679,92 @@ table.tgrid.nets .bar-key .swatch {
 .with-layers-side.folded .with-layers-head .label {
     display: none;
 }
+
+/* the findings' tables: their columns as wide as their content, an empty one taking the rest */
+table.tgrid.flat th.fill,
+table.tgrid.flat td.fill {
+    width: 100%;
+}
+
+table.tgrid.rules td.check {
+    width: auto;
+    max-width: 48ch;
+}
+
+table.tgrid.rules td:last-child,
+table.tgrid.rules thead th:last-child {
+    width: 100%;
+}
+
+table.tgrid.rules td.passed,
+table.tgrid.rules td.failed,
+table.tgrid.rules thead th:nth-child(3) {
+    text-align: right;
+}
+
+table.tgrid.devices td,
+table.tgrid.devices thead th.inst {
+    width: 1%;
+    padding-left: 14px;
+    white-space: nowrap;
+}
+
+table.tgrid.devices td.fill,
+table.tgrid.devices thead th.fill {
+    width: 100%;
+}
+
+/* a section's heading across its row, no column line beside it */
+table.tgrid tr.section th.label {
+    border-right: none;
+}
+
+/* the nets' bars, their values on them */
+table.tgrid.nets .bars,
+table.tgrid.nets .bars .bar {
+    height: 15px;
+}
+
+table.tgrid.nets .bars .bar {
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    border-radius: 0;
+}
+
+table.tgrid.nets .bar-value {
+    padding: 0 4px;
+    color: #fff;
+    font-size: var(--fs-10);
+    line-height: 15px;
+    white-space: nowrap;
+}
+
+/* every column but the filler (or the nets' bars) only as wide as its content */
+table.tgrid.rules td:not(.fill),
+table.tgrid.rules thead th:not(.fill),
+table.tgrid.nets td:not(.bar-cell),
+table.tgrid.nets thead th:not(.bar-head) {
+    width: 1%;
+    white-space: nowrap;
+}
+
+table.tgrid.rules td.check {
+    padding-right: 24px;
+}
+
+table.tgrid.nets td.bar-cell {
+    width: auto;
+}
+
+/* the findings' tables sized by their content (the facts' tables are fixed: their columns even) */
+table.tgrid.rules,
+table.tgrid.nets,
+table.tgrid.devices {
+    table-layout: auto;
+}
+
+/* a check as long as its limit: a rule with several cut short (its title holds them all) */
+table.tgrid.rules td.check {
+    max-width: 26ch;
+}

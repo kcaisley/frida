@@ -186,8 +186,6 @@ export class LayersPanel {
                     "Default",
                 ),
             ),
-            h("span.grow"),
-            h("span.muted", { title: "Alt-click a layer to show it alone" }, "alt-click: solo"),
         );
         this.body.replaceChildren();
         if (!keys.length) {

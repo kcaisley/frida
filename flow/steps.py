@@ -527,7 +527,6 @@ def _extraction_stats(found: dict, checked: dict, gds: Path, out: Path) -> dict:
         stat("Extraction", "Layout nets", len(found.get("nets") or {}) or None, "#"),
         stat("Extraction", "Schematic nets", len(added.get("schematic_nets") or {}) or None, "#"),
         stat("Extraction", "Conductors", conductors, "#"),
-        stat("Extraction", "Capacitors", found.get("capacitors"), "#"),
         *fastercap_stats(out / "kpex" / "FasterCap_Output.txt", float(tolerance[1]) / 100 if tolerance else None),
     ]
     return added

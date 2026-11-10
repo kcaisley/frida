@@ -651,7 +651,7 @@ function factsTable(rows) {
     const body = [];
     for (const [label, cells, options = {}] of rows) {
         if (options.section) {
-            body.push(h("tr.section", {}, h("th.label", {}, label), h("td", { colspan: String(page.instances.length) })));
+            body.push(h("tr.section", {}, h("th.label", { colSpan: page.instances.length + 1 }, label)));
             continue;
         }
         const differ = page.compare && !options.plain && differs(cells.map((item) => item.value));
@@ -1047,9 +1047,10 @@ function drcRules(entry) {
             h("th.label", { title: rule }, h("div.lab", {}, h("span.name.mono", {}, rule))),
             h("td.check.muted", { title: checked[rule] || "" }, checked[rule] || "—"),
             h(`td${count ? ".failed" : ".passed"}`, {}, count ? String(count) : "passed"),
+            h("td.fill"),
         );
     });
-    return h("table.tgrid.narrow.facts.flat.rules", {}, h("thead", {}, h("tr", {}, h("th.corner", {}, "rule"), h("th.inst", {}, "check"), h("th.inst", {}, "violations"))), h("tbody", {}, rows));
+    return h("table.tgrid.narrow.facts.flat.rules", {}, h("thead", {}, h("tr", {}, h("th.corner", {}, "rule"), h("th.inst", {}, "check"), h("th.inst", {}, "violations"), h("th.fill"))), h("tbody", {}, rows));
 }
 
 // LVS's devices by class, a row each: the schematic's count, the layout's and whether they match
@@ -1065,9 +1066,10 @@ function devicesTable(devices) {
             h("td", {}, schematic ?? "—"),
             h("td", {}, layout ?? "—"),
             h(`td.match${match ? ".passed" : ".failed"}`, { title: match ? "The same count on both sides" : "The sides differ" }, match ? "✓" : "✗"),
+            h("td.fill"),
         );
     });
-    const head = h("tr", {}, h("th.corner", {}, "device"), h("th.inst", {}, "schematic"), h("th.inst", {}, "layout"), h("th.inst", {}, "match"));
+    const head = h("tr", {}, h("th.corner", {}, "device"), h("th.inst", {}, "schematic"), h("th.inst", {}, "layout"), h("th.inst", {}, "match"), h("th.fill"));
     return h("table.tgrid.narrow.facts.flat.devices", {}, h("thead", {}, head), h("tbody", {}, rows));
 }
 
@@ -1084,27 +1086,19 @@ function netsTable(nets, device) {
     const own = (net) => (device && typeof device[net] === "number" ? device[net] : 0);
     nets = [...nets].sort((a, b) => b[1] + own(b[0]) - (a[1] + own(a[0])));
     const largest = Math.max(...nets.map(([net, wiring]) => wiring + own(net)));
-    const key = device ? h("span.bar-key", {}, h("span.swatch", { style: { background: blue } }), "wiring", h("span.swatch", { style: { background: orange } }), "device") : "";
-    const head = h("tr", {}, h("th.corner", {}, "net"), h("th.inst", {}, "wiring"), device ? h("th.inst", {}, "device") : null, device ? h("th.inst", {}, "total") : null, h("th.inst.bar-head", {}, key));
+    const key = h("span.bar-key", {}, h("span.swatch", { style: { background: blue } }), "wiring", ...(device ? [h("span.swatch", { style: { background: orange } }), "device"] : []));
+    const head = h("tr", {}, h("th.corner", {}, "net"), h("th.inst", {}, "total"), h("th.inst.bar-head", {}, key));
+    // a segment of the bar with its value on it where it has the room
+    const segment = (value, color, what) =>
+        h("span.bar", { title: `${what} ${femto(value)} fF`, style: { width: `${(100 * value) / largest}%`, background: color } }, h("span.bar-value", {}, `${femto(value)}`));
     const rows = nets.map(([net, wiring]) => {
         const measured = device && typeof device[net] === "number";
         return h(
             "tr",
             {},
-            h("th.label", { title: net }, h("div.lab", {}, h("span.name.mono", {}, net), h("span.unit", {}, "fF"))),
-            h("td", {}, femto(wiring)),
-            device ? h("td", {}, measured ? femto(device[net]) : "—") : null,
-            device ? h("td", {}, measured ? femto(wiring + device[net]) : "—") : null,
-            h(
-                "td.bar-cell",
-                {},
-                h(
-                    "span.bars",
-                    {},
-                    h("span.bar", { title: `wiring ${femto(wiring)} fF`, style: { width: `${(100 * wiring) / largest}%`, background: blue } }),
-                    measured ? h("span.bar", { title: `device ${femto(device[net])} fF`, style: { width: `${(100 * device[net]) / largest}%`, background: orange } }) : null,
-                ),
-            ),
+            h("th.label", { title: net }, h("div.lab", {}, h("span.name.mono", {}, net))),
+            h("td", {}, `${femto(wiring + (measured ? device[net] : 0))} fF`),
+            h("td.bar-cell", {}, h("span.bars", {}, segment(wiring, blue, "wiring"), measured ? segment(device[net], orange, "device") : null)),
         );
     });
     return h("table.tgrid.narrow.facts.flat.nets", {}, h("thead", {}, head), h("tbody", {}, rows));
@@ -1150,7 +1144,7 @@ function vizOf(key) {
             if (!any((instance) => instance.layout?.file)) return null;
             return [
                 // the layers a column of each view, not a tab of their own
-                [panel("layout", "Layout", (container) => withLayers(container, LayoutPanel)), panel("layout3d", "3D", (container) => withLayers(container, Layout3DPanel))],
+                [panel("layout", "2D", (container) => withLayers(container, LayoutPanel)), panel("layout3d", "3D", (container) => withLayers(container, Layout3DPanel))],
                 "layout",
             ];
         case "drc":
