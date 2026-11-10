@@ -43,7 +43,42 @@ const WORDS = {
 
 const PREFIXES = { "-18": "a", "-15": "f", "-12": "p", "-9": "n", "-6": "µ", "-3": "m", 0: "", 3: "k", 6: "M", 9: "G", 12: "T" };
 
+// the ratios a name carries without a unit suffix, shown in percent: the layout's density (its
+// devices' area over its own)
+const RATIOS = { density: "Density" };
+
+// a field's label, unit, whether an SI prefix applies and the factor its values are shown at (a
+// ratio's 100: percent)
 export function fieldInfo(name) {
+    if (name in RATIOS) return { name, label: RATIOS[name], unit: "%", scalable: false, scale: 100 };
+    return { ...suffixInfo(name), scale: 1 };
+}
+
+// a value as its field shows it: a ratio's in percent
+export function scaled(info, value) {
+    return typeof value === "number" && info?.scale && info.scale !== 1 ? value * info.scale : value;
+}
+
+// a byte count in its prefixed unit: 14.3 kB, 1.2 GB
+export function bytes(count) {
+    const units = ["B", "kB", "MB", "GB", "TB"];
+    let value = count;
+    let index = 0;
+    while (value >= 1000 && index < units.length - 1) {
+        value /= 1000;
+        index += 1;
+    }
+    return `${+value.toPrecision(3)} ${units[index]}`;
+}
+
+// a field's unit where it has none and its values are whole numbers: "#", a count
+export function countUnit(info, values) {
+    if (info.unit) return info.unit;
+    const numbers = values.filter((value) => value !== null && value !== undefined);
+    return numbers.length && numbers.every((value) => typeof value === "number" && Number.isInteger(value)) ? "#" : "";
+}
+
+function suffixInfo(name) {
     let base = name;
     let unit = "";
     let scalable = false;
@@ -104,6 +139,7 @@ export function formatValue(value, info) {
     if (value === null || value === undefined || (typeof value === "number" && !Number.isFinite(value))) return "—";
     if (typeof value === "boolean") return value ? "yes" : "no";
     if (typeof value !== "number") return words(value);
+    value = scaled(info, value);
     if (!info || !info.scalable) {
         const text = Math.abs(value) >= 1e5 || (value && Math.abs(value) < 1e-3) ? value.toExponential(3) : +value.toPrecision(4);
         return `${text}${info?.unit ? ` ${info.unit}` : ""}`;

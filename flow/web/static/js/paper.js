@@ -264,10 +264,12 @@ export function paperLayout(title, xTitle, yTitle, logX, logY, legendCount, mode
         xaxis: paperAxis(xTitle, logX, colors, fonts),
         yaxis: paperAxis(yTitle, logY, colors, fonts),
         showlegend: legendCount > 0,
+        // on screen the key under the plot bare, no box around it; a saved figure's boxed, as
+        // matplotlib's
         legend: {
-            bgcolor: colors.legend,
+            bgcolor: mode === "paper" ? colors.legend : "rgba(0, 0, 0, 0)",
             bordercolor: colors.spine,
-            borderwidth: 0.8,
+            borderwidth: mode === "paper" ? 0.8 : 0,
             font: { size: fonts.legend },
             orientation: "h",
             x: 0.5,

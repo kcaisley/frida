@@ -7,9 +7,10 @@
 // of the shown layout's, by rule) draws its layers dimmed under them, one more layer it toggles,
 // each marker's rule on hover.
 
-import { h, icon, select, titled } from "./icons.js";
+import { h, icon, select, sizeMeter, titled } from "./icons.js";
 import { hatchTile, isVisible, layerColor, layerStyle, reportLayers, rgba, sortLayers } from "./layers.js";
 import { fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
+import { bytes } from "./units.js";
 
 export function layoutsFor(item, generator) {
     return (state.block?.layouts || []).find((layout) => layout.case === item.case && layout.pdk === item.pdk && layout.generator === generator) || null;
@@ -163,17 +164,7 @@ export class LayoutPanel {
                 ),
             );
         }
-        if (gens.length) {
-            this.toolbar.append(
-                titled(
-                    "Generator",
-                    select(gens.map((generator) => ({ value: generator, label: generator })), this.config.generator, (value) => {
-                        this.config.generator = value;
-                        this.refresh(true);
-                    }),
-                ),
-            );
-        }
+        // the generator is the block's own (ALIGN for analog, OpenROAD for digital): no choice offered
         const button = (name, title, active, onclick, label) => {
             const element = h("button.icon-btn", { title, onclick }, h("span", { html: icon(name, 14) }), label || "");
             if (active) element.classList.add("on");
@@ -181,25 +172,30 @@ export class LayoutPanel {
         };
         // the shown layout's GDS, where its page offers it
         const gds = !this.config.tiled && focus ? layoutsFor(focus, this.config.generator)?.gds : null;
-        // DRC's markers: their count, and their layer shown or hidden
+        // DRC's markers, their layer shown or hidden (their count is the step's and its rules')
         if (this.drc) {
             const rules = this.drc() || {};
             const count = Object.values(rules).reduce((sum, rule) => sum + rule.count, 0);
             this.markers = this.config.markers ? Object.entries(rules).flatMap(([rule, entry]) => entry.boxes.map((box) => [...box, rule, entry.description])) : [];
-            this.toolbar.append(h(`span.drc-count${count ? ".bad" : ""}`, {}, `${count} violation${count === 1 ? "" : "s"}`));
             if (count) this.toolbar.append(button(this.config.markers ? "eye" : "eyeOff", "Show or hide the violations' markers", this.config.markers, () => {
                 this.config.markers = !this.config.markers;
                 this.buildToolbar();
                 this.draw();
             }, "Markers"));
         }
+        // the shown layout's GDS size, what draws it and the page's memory
+        const shownLayout = !this.config.tiled && focus ? layoutsFor(focus, this.config.generator) : null;
         this.toolbar.append(
             h("span.grow"),
+            shownLayout ? sizeMeter({ file: typeof shownLayout.gdsBytes === "number" ? bytes(shownLayout.gdsBytes) : "—", label: "GDS", renderer: "2-D canvas" }) : "",
             gds ? h("a.icon-btn", { href: gds, download: `${layoutsFor(focus, this.config.generator).cell || "layout"}.gds`, title: "Download GDS" }, h("span", { html: icon("download", 14) })) : "",
-            button("tiles", "Tile every selected series at one scale (PDK columns, case rows)", this.config.tiled, () => {
-                this.config.tiled = !this.config.tiled;
-                this.refresh(true);
-            }, "Tiled"),
+            // tiling only where several series' layouts are there to tile
+            shown.length > 1
+                ? button("tiles", "Tile every selected series at one scale (PDK columns, case rows)", this.config.tiled, () => {
+                      this.config.tiled = !this.config.tiled;
+                      this.refresh(true);
+                  }, "Tiled")
+                : "",
             button("tag", "Pin labels (L)", this.config.labels, () => this.command("labels")),
             button("ruler", "Measure (K); Esc clears", this.ruler.on, () => this.toggleRuler()),
             button("fit", "Fit (F, double-click)", false, () => this.fit()),
@@ -289,27 +285,9 @@ export class LayoutPanel {
         });
     }
 
+    // the layout's facts are its toolbar's (its GDS's size) and its step's: no box over the drawing
     updateInfo() {
-        const tiles = this.tiles;
-        if (!tiles.length) {
-            this.info.style.display = "none";
-            return;
-        }
-        this.info.style.display = "";
-        if (tiles.length > 1) {
-            this.info.replaceChildren(h("span", {}, `${tiles.length} layouts · ${this.config.generator}`));
-            return;
-        }
-        const { meta, layout } = tiles[0];
-        const [x1, y1, x2, y2] = layout.bbox;
-        const size = meta.cell_um || [x2 - x1, y2 - y1];
-        this.info.replaceChildren(
-            h("span", {}, `${layout.cell} · ${layout.pdk} · ${meta.generator}`),
-            h("span", {}, `${um(size[0])} × ${um(size[1])} µm`),
-            meta.drc_violations === undefined || meta.drc_violations === null ? "" : h(meta.drc_violations ? "span.bad" : "span.ok", {}, `DRC ${meta.drc_violations}`),
-            meta.lvs_correct === undefined || meta.lvs_correct === null ? "" : h(meta.lvs_correct ? "span.ok" : "span.bad", {}, meta.lvs_correct ? "LVS ✓" : "LVS ✗"),
-            meta.note ? h("span", { title: meta.note }, meta.note.length > 48 ? `${meta.note.slice(0, 48)}…` : meta.note) : "",
-        );
+        this.info.style.display = "none";
     }
 
     empty(show, message) {
@@ -628,11 +606,9 @@ export class LayoutPanel {
             ctx.fillText(text, mx, my);
         }
 
-        // scale bar
+        // scale bar, on the drawing with no box of its own (a box hid the grid under it)
         const length = niceLength(90 / k);
         const barWidth = length * k;
-        ctx.fillStyle = hud.bg;
-        ctx.fillRect(10, height - 34, barWidth + 16, 24);
         ctx.strokeStyle = hud.ink;
         ctx.lineWidth = 1.5;
         ctx.beginPath();

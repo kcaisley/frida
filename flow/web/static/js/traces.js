@@ -4,9 +4,9 @@
 // Wheel zooms time about the cursor, drag pans, right-drag zooms to a span, double-click fits;
 // a click places the cursor, shift-click a second marker for the time between them.
 
-import { h, icon, select, titled } from "./icons.js";
+import { h, icon, select, sizeMeter, titled } from "./icons.js";
 import { apiUrl, COLORS, fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
-import { fieldInfo, formatValue, scaledUnit, siExponent } from "./units.js";
+import { bytes, fieldInfo, formatValue, scaledUnit, siExponent } from "./units.js";
 
 const ROW = 40; // px per signal row
 const AXIS = 26; // px of the time axis
@@ -31,7 +31,10 @@ function loadWave(path, record) {
     return waves.get(key);
 }
 
-// the run's label: its sweep and the bench parameters that tell its points apart
+// a run's own name: its folder's (each run of a step simulates into <step>/<run>/)
+const runName = (run) => run.path.split("/").slice(-2, -1)[0] || run.sweep || "run";
+
+// the run's description: its sweep and the bench parameters that tell its points apart
 function runLabel(run) {
     const point = Object.entries(run.point || {})
         .map(([name, value]) => {
@@ -150,12 +153,9 @@ export class TracesPanel {
             this.config.record = 0;
         }
         this.run = runs.find((run) => run.path === this.config.run);
+        // a run by its own name (its folder: vin_1, supply_90), its sweep's words in its title
         const chooser = h("select", { title: "The cached transient run" });
-        for (const sweep of [...new Set(runs.map((run) => run.sweep))]) {
-            const group = h("optgroup", { label: sweep || "runs" });
-            for (const run of runs.filter((item) => item.sweep === sweep)) group.append(h("option", { value: run.path }, runLabel(run)));
-            chooser.append(group);
-        }
+        for (const run of runs) chooser.append(h("option", { value: run.path, title: runLabel(run) }, runName(run)));
         chooser.value = this.config.run;
         chooser.addEventListener("change", () => {
             this.config.run = chooser.value;
@@ -172,9 +172,12 @@ export class TracesPanel {
             );
         }
         this.readout = h("span.mono.muted", {}, "");
-        this.toolbar.append(h("span.grow"), this.readout, h("button.icon-btn", { title: "Fit (F, double-click)", onclick: () => this.fit(), html: icon("fit", 14) }));
+        // the measurement's size once it is read, and the page's memory
+        this.meterSlot = h("span.meter-slot");
+        this.toolbar.append(h("span.grow"), this.readout, this.meterSlot, h("button.icon-btn", { title: "Fit the whole run (F, double-click)", onclick: () => this.fit(), html: icon("fit", 14) }));
         const key = `${this.run.path}#${this.config.record}`;
         if (key === this.key) {
+            this.showMeter();
             this.buildNames();
             this.draw();
             return;
@@ -206,9 +209,16 @@ export class TracesPanel {
             if (high - low < 1e-15) [low, high] = [low - 0.5 * (Math.abs(low) || 1), high + 0.5 * (Math.abs(high) || 1)];
             trace.range = [low, high];
         }
-        status(`${this.run.sweep} run: ${wave.samples} samples`);
+        status(`${runName(this.run)}: ${wave.samples} samples`);
+        this.showMeter();
         this.fit();
         this.buildNames();
+    }
+
+    // the shown run's measurement file size and the page's memory, in the toolbar
+    showMeter() {
+        if (!this.meterSlot || !this.wave) return;
+        this.meterSlot.replaceChildren(sizeMeter({ file: typeof this.wave.file_bytes === "number" ? bytes(this.wave.file_bytes) : "—", label: this.wave.path.split("/").pop() }));
     }
 
     shownTraces() {

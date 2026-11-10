@@ -206,6 +206,30 @@ async function show(mode, ids, want) {
         onRemove: (id) => navigate({ ids: app.ids.filter((item) => item !== id) }),
         onView: (id) => navigate({ ids: [id] }),
     });
+    // alone, the bar names the instance
+    renderBar();
+}
+
+// the single instance in the bar: its name, PDK, when it finished and a button that copies its
+// folder (to the clipboard where the page may write it, else shown to copy by hand)
+function instanceBar({ name, pdk, run, finished, folder }) {
+    const pad = (value) => String(value).padStart(2, "0");
+    const at = finished ? new Date(finished * 1000) : null;
+    const when = at ? `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}` : "";
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(folder);
+            toast(`Copied ${folder}`);
+        } catch (error) {
+            toast(folder);
+        }
+    };
+    return [
+        h("strong.bar-name", { title: "The instance" }, name),
+        h("span.bar-pdk.mono", { title: "The technology" }, pdk),
+        when ? h("span.bar-when.muted", { title: `When it finished (its run: ${run})` }, when) : null,
+        folder ? h("button.bar-btn.bar-path", { title: `Copy the instance's folder: ${folder}`, onclick: copy }, h("span", { html: icon("copy", 13) }), h("span.mono", {}, folder)) : null,
+    ].filter(Boolean);
 }
 
 // ---- the Library ------------------------------------------------------------------------------
@@ -251,6 +275,11 @@ function renderBar() {
     const status = sweepStatus();
     const left = [];
     if (mode === "view" || mode === "compare") left.push(button("back", "All instances", "Back to every instance of the block (the shown ones stay marked)", () => navigate({ ids: [] })));
+    // one instance: its name, PDK, run and folder; nothing to view, compare or compile from here
+    if (mode === "view") {
+        setBar(mode, [...left, ...(app.stage?.info ? instanceBar(app.stage.info) : [])]);
+        return;
+    }
     if (mode === "compiler") left.push(button("back", app.block, `Back to ${app.table.title}`, () => navigate({ compiler: false })));
     if (mode === "table") {
         // the filters' and sort's clear, the marks' (the instances shown are the table's corner)

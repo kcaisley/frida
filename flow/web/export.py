@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
+import re
 from collections.abc import Iterable
 from enum import Enum
 from importlib import import_module
@@ -184,6 +185,8 @@ def read_wave(relative: str, record: int = 0, *, root: Path = ROOT) -> dict:
         "path": relative,
         "record": record,
         "records": len(wave.record_index),
+        # the measurement file's size, which the traces view states beside what it draws
+        "file_bytes": path.stat().st_size,
         "samples": len(wave.time_s),
         "time_s": [float(f"{value:.10g}") for value in wave.time_s.tolist()],
         "v": {name: trace(values) for name, values in sorted(wave.v.items())},
@@ -442,11 +445,16 @@ def steps_view(folder: Path, record: dict[str, Any], *, root: Path = ROOT) -> li
 
 
 def _step_extras(step, folder: Path, view: dict[str, Any]) -> dict[str, Any]:
-    """What a step's view adds beside its step.json: the netlist's statistics and size, DRC's
-    violations by rule, LVS's mismatches (a KLayout database that did not match)."""
+    """What a step's view adds beside its step.json: the netlist's statistics and size, the GDS's
+    size, DRC's violations by rule and the rules it checked, LVS's devices by class on each side and
+    its mismatches (a KLayout database that did not match)."""
     from flow.steps import Step
 
     extras: dict[str, Any] = {}
+    if step is Step.LAYOUT:
+        gds = view["outputs"].get("gds")
+        if gds and (ROOT / gds).is_file():
+            extras["gds_bytes"] = (ROOT / gds).stat().st_size
     if step is Step.NETLIST:
         netlist = next(iter(sorted((folder / "netlist").glob("*.cdl"))), None)
         if netlist is not None:
@@ -461,16 +469,61 @@ def _step_extras(step, folder: Path, view: dict[str, Any]) -> dict[str, Any]:
             extras["rules"] = dict(sorted(found.get("violations", {}).items(), key=lambda item: (-item[1], item[0])))
             extras["waived"] = found.get("waived") or {}
         extras["markers"] = drc_markers(folder / "drc", view["outputs"].get("top") or "")
-    elif step is Step.LVS and view["outputs"].get("lvs_correct") is False:
+        extras["checked"] = drc_checked(folder / "drc")
+    elif step is Step.LVS:
         report = view["outputs"].get("lvs_report")
         if report and str(report).endswith(".lvsdb") and (ROOT / report).exists():
-            from flow.layout.signoff import _lvs_findings
+            extras["devices"] = lvs_devices(ROOT / report)
+            if view["outputs"].get("lvs_correct") is False:
+                from flow.layout.signoff import _lvs_findings
 
-            try:
-                extras["mismatches"] = _lvs_findings(ROOT / report)[:200]
-            except Exception as error:  # noqa: BLE001 - the verdict stands without them
-                extras["mismatches"] = [f"(the LVS database did not read: {error})"]
+                try:
+                    extras["mismatches"] = _lvs_findings(ROOT / report)[:200]
+                except Exception as error:  # noqa: BLE001 - the verdict stands without them
+                    extras["mismatches"] = [f"(the LVS database did not read: {error})"]
     return extras
+
+
+# a rule gdscheck checks, as its log states it: ``[FRIDA.M3.width] Checking min_width ...``
+_CHECKING = re.compile(r"^\[([^\]]+)\] Checking (.*)$")
+
+
+def drc_checked(folder: Path) -> dict[str, str]:
+    """The rules gdscheck checked, by name, each its checks as its log states them (a rule over
+    several layers its checks joined); none from another checker."""
+    checked: dict[str, list[str]] = {}
+    for log in sorted(folder.glob("gdscheck.*.log")):
+        for line in log.read_text(errors="replace").splitlines():
+            found = _CHECKING.match(line)
+            if found:
+                checked.setdefault(found[1], []).append(found[2])
+    return {rule: "; ".join(checks) for rule, checks in checked.items()}
+
+
+def lvs_devices(report: Path) -> dict[str, dict[str, int]]:
+    """Each side's devices by class in a KLayout LVS database: the layout's (as extracted) and the
+    schematic's (the reference), each netlist flattened; empty where the database does not read."""
+    import klayout.db as kdb
+
+    try:
+        lvs = kdb.LayoutVsSchematic()
+        lvs.read(str(report))
+        sides = {"layout": lvs.netlist(), "schematic": lvs.reference}
+    except Exception:  # noqa: BLE001 - the verdict stands without the counts
+        return {}
+    counts: dict[str, dict[str, int]] = {}
+    for side, netlist in sides.items():
+        if netlist is None:
+            continue
+        flat = netlist.dup()
+        flat.flatten()
+        found: dict[str, int] = {}
+        for circuit in flat.each_circuit():
+            for device in circuit.each_device():
+                name = device.device_class().name
+                found[name] = found.get(name, 0) + 1
+        counts[side] = dict(sorted(found.items()))
+    return counts
 
 
 def drc_markers(folder: Path, top: str) -> dict[str, dict[str, Any]]:

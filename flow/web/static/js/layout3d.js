@@ -1,14 +1,15 @@
 // The 3-D layout view (three.js): every visible layer of the focused layout extruded between its
 // nominal heights (an even stack, the same for every PDK: the exported geometry carries no
-// thicknesses), with an adjustable vertical exaggeration. Drag orbits, right-drag pans, wheel
+// thicknesses), its boxes edged. Drag orbits, right-drag pans, wheel
 // zooms. Where the browser has no WebGL (the Claude app's artifact panel), the same view is drawn
 // on a 2-D canvas: each box's faces toward the camera, the boxes far to near, each face lit flat
 // (a polygon's top face alone).
 
-import { h, icon, select, titled } from "./icons.js";
+import { h, icon, select, sizeMeter, titled } from "./icons.js";
 import { isVisible, layerColor, layerStyle, reportLayers } from "./layers.js";
 import { generators, layoutFocus, layoutsFor, loadLayout } from "./layout2d.js";
 import { on, series, setFocus, state, status } from "./store.js";
+import { bytes } from "./units.js";
 
 // three.js and its addons by their full module URLs (jsDelivr's +esm: an addon imports the same
 // three, and no import map, which an artifact's frame refuses)
@@ -91,13 +92,13 @@ const tint = (rgb, shade) => `rgb(${Math.min(255, rgb[0] * shade) | 0},${Math.mi
 export class Layout3DPanel {
     constructor(container, saved) {
         this.container = container;
-        this.config = { generator: null, exaggeration: 1, edges: true, ...(saved || {}) };
+        // the stack at its nominal heights, every box edged (no exaggeration or edges to set)
+        this.config = { generator: null, ...(saved || {}), exaggeration: 1, edges: true };
         this.element = h("div.panel");
         this.toolbar = h("div.panel-toolbar");
         this.host = h("div.canvas-host", { style: { background: "var(--scene-bg)" } });
-        this.info = h("div.hud.info", { style: { display: "none" } });
         this.emptyNote = h("div.empty", {}, h("span", { html: icon("cube", 28) }), h("strong", {}, "No layout"), h("span", {}, ""));
-        this.host.append(this.info, this.emptyNote);
+        this.host.append(this.emptyNote);
         this.element.append(this.toolbar, h("div.panel-body.fill", {}, this.host));
         container.element.append(this.element);
         container.stateRequestEvent = () => ({ ...this.config });
@@ -127,40 +128,23 @@ export class Layout3DPanel {
 
     buildToolbar() {
         const gens = generators();
+        // the generator is the block's own (ALIGN for analog, OpenROAD for digital): no choice offered
         if (!gens.includes(this.config.generator)) this.config.generator = gens[0] || null;
         const shown = series();
         const focus = layoutFocus(this.config.generator);
+        const meta = focus ? layoutsFor(focus, this.config.generator) : null;
         this.toolbar.replaceChildren();
         if (shown.length > 1) {
             this.toolbar.append(
                 titled("Series", select(shown.map((item) => ({ value: item.key, label: `${item.case} · ${item.pdk}` })), focus?.key, (value) => setFocus(value))),
             );
         }
-        if (gens.length) {
-            this.toolbar.append(
-                titled("Generator", select(gens.map((generator) => ({ value: generator, label: generator })), this.config.generator, (value) => {
-                    this.config.generator = value;
-                    this.refresh(true);
-                })),
-            );
-        }
-        const range = h("input", { type: "range", min: "1", max: "12", step: "0.5", title: "Vertical exaggeration" });
-        range.value = this.config.exaggeration;
-        range.addEventListener("input", () => {
-            this.config.exaggeration = Number(range.value);
-            if (this.group) this.group.scale.z = this.config.exaggeration;
-            this.render();
-        });
-        const edges = h("button.icon-btn", { title: "Edges", onclick: () => {
-            this.config.edges = !this.config.edges;
-            edges.classList.toggle("on", this.config.edges);
-            this.applyVisibility();
-        } }, h("span", { html: icon("edges", 14) }));
-        if (this.config.edges) edges.classList.add("on");
+        // the layout's GDS size, what draws it (WebGL, else the CPU on a 2-D canvas) and the page's
+        // memory; the stack at its nominal heights, every box's edges drawn
+        const renderer = this.renderer ? "WebGL" : this.flat ? "CPU 2-D canvas" : null;
         this.toolbar.append(
             h("span.grow"),
-            h("label.field", {}, h("span", {}, "Z ×"), range),
-            edges,
+            meta ? sizeMeter({ file: typeof meta.gdsBytes === "number" ? bytes(meta.gdsBytes) : "—", label: "GDS", renderer }) : "",
             h("button.icon-btn", { title: "View from above", onclick: () => this.home(true) }, h("span", { html: icon("top", 14) })),
             h("button.icon-btn", { title: "Reset the view", onclick: () => this.home(false) }, h("span", { html: icon("fit", 14) })),
             h("button.icon-btn", { title: "Save the view as PNG", onclick: () => this.save() }, h("span", { html: icon("download", 14) })),
@@ -174,8 +158,7 @@ export class Layout3DPanel {
         if (!meta) {
             this.clear();
             this.emptyNote.style.display = "";
-            this.emptyNote.lastChild.textContent = !state.block ? "Select a block." : state.block.layoutNote || "No layout for the focused series with this generator.";
-            this.info.style.display = "none";
+            this.emptyNote.lastChild.textContent = !state.block ? "Select a block." : state.block.layoutNote || "No layout for the focused series.";
             return;
         }
         if (meta.path === this.path && !rehome) return;
@@ -192,8 +175,8 @@ export class Layout3DPanel {
             this.ensureRenderer();
             this.build(layout);
             this.path = meta.path;
-            this.info.style.display = "";
-            this.info.replaceChildren(h("span", {}, `${layout.cell} · ${layout.pdk} · ${meta.generator}`), h("span", {}, this.flat ? "nominal stack · drawn without WebGL" : "nominal stack"));
+            // the renderer is known now
+            this.buildToolbar();
             this.home(false);
         } catch (error) {
             status(`3-D view: ${error.message}`, true);
