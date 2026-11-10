@@ -1,9 +1,9 @@
 """A run's live dashboard (``python -m flow``): every instance's steps as they end, from the events
 its worker sends (``flow.steps.run_steps``), drawn three ways from one model (``Board``):
 
-- in a terminal, htop-like and in place (Rich's inline live view at the terminal's height, not the
-  alternate screen, so the frame stays in the terminal's own buffer: a selection, an editor's
-  terminal context, the last frame in scrollback): the run's header; the pipeline, a row a step
+- in a terminal, htop-like on the alternate screen (each frame drawn over the last, at once:
+  Rich's live screen in the terminal's synchronized output; the summary left in the terminal's
+  own buffer when the run ends): the run's header; the pipeline, a row a step
   (its instances waiting, running, passed, kept from before, rejected, failed, not run; its
   seconds; its tools' warnings and errors); what needs attention (each failure, each bound's first
   rejection, each kind of warning or error the first time, with how often since); for one instance
@@ -471,13 +471,14 @@ class View:
 
     def __enter__(self) -> Self:
         if self.console.is_terminal:
-            # a line short of the terminal: a frame of its full height scrolls it, each redraw a flicker
-            self.console.height = max(12, self.console.size.height - 1)
+            # the alternate screen, as htop: each frame overwrites the last in place, nothing scrolled
+            # or cleared first (an inline view redraws by clearing lines: it flickers); the summary
+            # goes into the terminal's own buffer at the end
             self.live = Live(
                 dashboard(self.board),
                 console=self.console,
                 auto_refresh=False,
-                screen=False,
+                screen=True,
                 transient=True,
                 vertical_overflow="crop",
             )

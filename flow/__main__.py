@@ -48,7 +48,7 @@ Every step logs (``flow.logs``): each tool keeps its whole output in its own log
 ``calibre.*.log``); every line of the step, the flow's and its tools', at the level the line
 states, is in ``<step>/step.log`` (``time tool LEVEL : message``), its warnings and errors
 counted by tool in ``step.json``'s ``log``. The run is watched on its dashboard (``flow.dashboard``):
-in a terminal, live and in place (the pipeline a row a step, its instances by state, what needs
+in a terminal, live on its alternate screen as htop (the pipeline a row a step, its instances by state, what needs
 attention, the running tool's newest lines and the metrics pre- and post-layout, or why designs
 left the run and those that passed); elsewhere, a line a step as it ends for a run of a few
 instances (``tsmc65/frida1/layout ok in 3.3 s: 3.28 x 3.93 um; align 4 errors, 10 warnings``),
