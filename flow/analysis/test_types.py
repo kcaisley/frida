@@ -170,7 +170,7 @@ def samp_spice() -> Meas:
         info=info(),
         param=params,
         time_s=time_s,
-        v={name: time_s * 1e9 for name in ("din", "dout", "clk", "clk_b")},
+        v={name: time_s * 1e9 for name in ("vin", "vout", "clk", "clk_b")},
         i={"vdd": np.full(4, 1e-5)},
     )
 

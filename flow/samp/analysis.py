@@ -34,7 +34,7 @@ def analyze_track(measurements: Sequence[Meas]) -> AnalysisTrack:
         tb = measurement.param
         vdd, transition = float(tb.vdd), float(tb.clock_transition_time_s)
         time_s = measurement.time_s
-        clock, data, output = (measurement.v[net.name] for net in (Nets.clk, Nets.din, Nets.dout))
+        clock, data, output = (measurement.v[net.name] for net in (Nets.clk, Nets.vin, Nets.vout))
         falls = calc.cross(clock, time_s, vdd / 2, edge="falling")
         constants, errors = [], []
         for start in calc.cross(clock, time_s, vdd / 2, edge="rising")[1:]:
@@ -88,7 +88,7 @@ def analyze_hold(measurements: Sequence[Meas]) -> AnalysisHold:
         tb = measurement.param
         vdd, transition = float(tb.vdd), float(tb.clock_transition_time_s)
         time_s = measurement.time_s
-        clock, data, output = (measurement.v[net.name] for net in (Nets.clk, Nets.din, Nets.dout))
+        clock, data, output = (measurement.v[net.name] for net in (Nets.clk, Nets.vin, Nets.vout))
         rises = calc.cross(clock, time_s, vdd / 2, edge="rising")
         steps = calc.cross(data, time_s, float(tb.input_voltage), edge="either")
         pedestals, droops, feedthroughs = [], [], []

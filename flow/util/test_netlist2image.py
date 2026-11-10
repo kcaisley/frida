@@ -216,27 +216,27 @@ def test_a_top_of_subcircuits_draws_what_they_hold(tmp_path: Path) -> None:
 def test_a_transmission_gate_is_drawn_on_its_side(tmp_path: Path) -> None:
     """A pass device (drain and source off the rails, one of them a port) lies on its side, drain and
     source on one line: the PMOS above with its gate up, the NMOS below with its gate down, the
-    earlier port (din) on the left, its flag pointing out; a StrongARM keeps its upright devices."""
+    earlier port (vin) on the left, its flag pointing out; a StrongARM keeps its upright devices."""
     from flow.util.netlist2image import Skin, parse, passes
 
     netlist = tmp_path / "tgate.sp"
     netlist.write_text(
-        ".subckt samp din dout clk clk_b vdd vss\nMn dout clk din vss nmos\nMp dout clk_b din vdd pmos\n.ends\n"
+        ".subckt samp vin vout clk clk_b vdd vss\nMn vout clk vin vss nmos\nMp vout clk_b vin vdd pmos\n.ends\n"
     )
     ports, devs = parse(netlist)
     passes(ports, devs)
-    # the source (din) is the earlier port: on the left
+    # the source (vin) is the earlier port: on the left
     assert devs["Mn"]["pass"] is True and devs["Mp"]["pass"] is True
     svg = tmp_path / "tgate.svg"
     render(netlist, svg)
     text = svg.read_text()
     skin = Skin()
-    assert {"mos_n_h", "mos_p_h"} <= set(skin.types)
+    assert {"mos_n_down", "mos_p_up", "moscap_n", "moscap_p"} <= set(skin.types)
     shapes = {
         kind: "".join(ET.tostring(e, encoding="unicode") for e in skin.types[kind][1])
-        for kind in ("mos_n_h", "mos_p_h")
+        for kind in ("mos_n_down", "mos_p_up")
     }
-    assert "M16,36 H48 M32,36 V48" in shapes["mos_n_h"] and "M32,16 V28" in shapes["mos_p_h"]
+    assert "M16,36 H48 M32,36 V48" in shapes["mos_n_down"] and "M32,16 V28" in shapes["mos_p_up"]
     assert "M16,36 H48 M32,36 V48" in text and "M32,16 V28" in text
     # the PMOS's symbol above the NMOS's, in one column
     groups = text.split('<g transform="translate(')[1:]
@@ -245,6 +245,20 @@ def test_a_transmission_gate_is_drawn_on_its_side(tmp_path: Path) -> None:
         for name in ("Mn", "Mp")
     }
     assert places["Mp"][0] == places["Mn"][0] and places["Mp"][1] < places["Mn"][1]
+    # a PMOS whose drain the netlist puts on vdd: drawn turned, vdd on top (its source)
+    pre = tmp_path / "pre.sp"
+    pre.write_text(".subckt p top gate vdd\nMpre vdd gate top vdd pmos\n.ends\n")
+    found = parse(pre)
+    passes(*found)
+    assert (found[1]["Mpre"]["s"], found[1]["Mpre"]["d"]) == ("vdd", "top")
+    # a MOS capacitor (drain and source one net): gate up, its legs tied below, an NMOS's too
+    cap = tmp_path / "cap.sp"
+    cap.write_text(".subckt c top bot vss\nMcap bot top bot vss nmos\n.ends\n")
+    found = parse(cap)
+    passes(*found)
+    assert found[1]["Mcap"].get("cap") and "pass" not in found[1]["Mcap"]
+    render(cap, tmp_path / "cap.svg")
+    assert "V58 H0 V48 M32,58 V64" in (tmp_path / "cap.svg").read_text()
     sa = tmp_path / "sa.sp"
     sa.write_text(NETLIST)
     found = parse(sa)

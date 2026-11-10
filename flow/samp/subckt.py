@@ -18,8 +18,8 @@ from .params import Params, SwitchType
 
 @h.bundle
 class Nets:
-    din = h.Input(desc="Data input")
-    dout = h.Output(desc="Data output")
+    vin = h.Input(desc="Data input")
+    vout = h.Output(desc="Data output")
     clk, clk_b = h.Clock(), h.Clock()
     vdd = h.Power(direction=h.PortDir.INOUT)
     vss = h.Ground(direction=h.PortDir.INOUT)
@@ -29,9 +29,9 @@ class Nets:
 # and its area each compile one
 @h.generator(enable_cache=False)
 def netlist(param: Params) -> h.Module:
-    """The sampling switch: an NMOS, a PMOS or both (a transmission gate) between ``din`` and
-    ``dout``, tracking while ``clk`` is high; a bootstrap drives the NMOS gate from its boosted node,
-    half-size dummies on ``dout`` absorb the charge their switch's channel releases at turn-off."""
+    """The sampling switch: an NMOS, a PMOS or both (a transmission gate) between ``vin`` and
+    ``vout``, tracking while ``clk`` is high; a bootstrap drives the NMOS gate from its boosted node,
+    half-size dummies on ``vout`` absorb the charge their switch's channel releases at turn-off."""
     Samp = module_from_ports("Samp", Nets.signals)
     bootstrap = param.switch_type is SwitchType.BOOTSTRAP
     nmos = param.switch_type in (SwitchType.NMOS, SwitchType.TGATE, SwitchType.BOOTSTRAP)
@@ -39,17 +39,17 @@ def netlist(param: Params) -> h.Module:
 
     # The boosted gate of the NMOS switch (a bootstrap). During hold (clk low) the capacitor's bottom
     # plate ``boot_bot`` is pulled to vss and its top plate ``boot_top`` charged to vdd, while a
-    # stacked pull-down holds ``gate`` low. During sampling a transmission gate puts din on the
-    # bottom plate and a PMOS joins ``gate`` to the top plate, which then sits one supply above din:
+    # stacked pull-down holds ``gate`` low. During sampling a transmission gate puts vin on the
+    # bottom plate and a PMOS joins ``gate`` to the top plate, which then sits one supply above vin:
     # the switch's gate-source voltage stays near vdd whatever the input. The PMOS bodies sit on vdd,
     # so the boosted node's junctions leak toward vdd while sampling.
     if bootstrap:
         Samp.gate = h.Signal(desc="Boosted switch gate")
         Samp.boot_top, Samp.boot_bot, Samp.gate_off = h.Signal(), h.Signal(), h.Signal()
         aux = {"vth": param.mos_vth, "w": param.boot_w, "l": 1}
-        # Transmission gate: the bottom plate follows din while sampling
-        Samp.Mtg_n = mos(tp=MosType.NMOS, **aux)(d=Samp.boot_bot, g=Samp.clk, s=Samp.din, b=Samp.vss)
-        Samp.Mtg_p = mos(tp=MosType.PMOS, **aux)(d=Samp.boot_bot, g=Samp.clk_b, s=Samp.din, b=Samp.vdd)
+        # Transmission gate: the bottom plate follows vin while sampling
+        Samp.Mtg_n = mos(tp=MosType.NMOS, **aux)(d=Samp.boot_bot, g=Samp.clk, s=Samp.vin, b=Samp.vss)
+        Samp.Mtg_p = mos(tp=MosType.PMOS, **aux)(d=Samp.boot_bot, g=Samp.clk_b, s=Samp.vin, b=Samp.vdd)
         # Bottom plate to vss during hold
         Samp.Mbot = mos(tp=MosType.NMOS, **aux)(d=Samp.boot_bot, g=Samp.clk_b, s=Samp.vss, b=Samp.vss)
         # Gate pull-down during hold: a stack of two, so the boosted gate splits over two off devices
@@ -66,24 +66,24 @@ def netlist(param: Params) -> h.Module:
         )
     if nmos:
         Samp.MN = mos(tp=MosType.NMOS, vth=param.mos_vth, w=param.mos_w, l=param.mos_l)(
-            d=Samp.dout, g=Samp.gate if bootstrap else Samp.clk, s=Samp.din, b=Samp.vss
+            d=Samp.vout, g=Samp.gate if bootstrap else Samp.clk, s=Samp.vin, b=Samp.vss
         )
     if pmos:
         Samp.MP = mos(tp=MosType.PMOS, vth=param.mos_vth, w=param.mos_w, l=param.mos_l)(
-            d=Samp.dout, g=Samp.clk_b, s=Samp.din, b=Samp.vdd
+            d=Samp.vout, g=Samp.clk_b, s=Samp.vin, b=Samp.vdd
         )
 
-    # Half-size dummies with drain and source on dout absorb the charge their switch's channel
+    # Half-size dummies with drain and source on vout absorb the charge their switch's channel
     # releases at turn-off: each is clocked opposite its switch
     if param.dummy:
         half = param.mos_w // 2
         if nmos:
             Samp.MN_dummy = mos(tp=MosType.NMOS, vth=param.mos_vth, w=half, l=param.mos_l)(
-                d=Samp.dout, g=Samp.clk_b, s=Samp.dout, b=Samp.vss
+                d=Samp.vout, g=Samp.clk_b, s=Samp.vout, b=Samp.vss
             )
         if pmos:
             Samp.MP_dummy = mos(tp=MosType.PMOS, vth=param.mos_vth, w=half, l=param.mos_l)(
-                d=Samp.dout, g=Samp.clk, s=Samp.dout, b=Samp.vdd
+                d=Samp.vout, g=Samp.clk, s=Samp.vout, b=Samp.vdd
             )
 
     # where ALIGN puts each device (flow.layout.hdl21align), rows top first, for the structures

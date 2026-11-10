@@ -43,7 +43,7 @@ class Params:
     mos_w = h.Param(dtype=PositiveInt, desc="Width multiplier (x Wmin)", default=32)
     mos_l = h.Param(dtype=PositiveInt, desc="Length multiplier (x Lmin)", default=1)
     mos_vth = h.Param(dtype=MosVth, desc="Threshold voltage flavor", default=MosVth.LOW)
-    dummy = h.Param(dtype=bool, desc="Half-size dummies on dout, clocked opposite their switch", default=False)
+    dummy = h.Param(dtype=bool, desc="Half-size dummies on vout, clocked opposite their switch", default=False)
     boot_w = h.Param(dtype=PositiveInt, desc="Bootstrap helper device width multiplier", default=4)
     cap_w = h.Param(dtype=PositiveInt, desc="Bootstrap MOS capacitor width multiplier", default=16)
     cap_l = h.Param(dtype=PositiveInt, desc="Bootstrap MOS capacitor length multiplier", default=8)

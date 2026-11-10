@@ -200,7 +200,7 @@ def netlist(param: Params) -> h.Module:
         ("n", Adc.vin_n, Adc.vdac_n, Adc.dac_state_n, Adc.clk_samp_n, Adc.clk_samp_n_b),
     ):
         Adc.add(dac(dac_state=state, vdac=top, vdd=Adc.vdd_dac, vss=Adc.vss_dac), name=f"xdac_{side}")
-        Adc.add(sampler(din=vin, dout=top, clk=clk, clk_b=clk_b, vdd=Adc.vdd_a, vss=Adc.vss_a), name=f"xsamp_{side}")
+        Adc.add(sampler(vin=vin, vout=top, clk=clk, clk_b=clk_b, vdd=Adc.vdd_a, vss=Adc.vss_a), name=f"xsamp_{side}")
 
     # Instantiate comparator
     comparator = comp.netlist(param.comp)

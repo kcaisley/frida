@@ -50,7 +50,7 @@ def rc_run(tb: TbParams, *, tau_s: float = 0.2e-9, pedestal_v: float = -2e-3, fe
         info=INFO,
         param=tb,
         time_s=time_s,
-        v={"clk": clock, "clk_b": tb.vdd - clock, "din": data, "dout": output},
+        v={"clk": clock, "clk_b": tb.vdd - clock, "vin": data, "vout": output},
         i={"vdd": np.zeros_like(time_s)},
     )
 
@@ -66,8 +66,8 @@ def test_tracking_recovers_the_time_constant_and_resistance() -> None:
     assert abs(track.track_error_v[0]) < 1e-6
     # the time constant of the exponential, not from the clock edge: a switch slow to turn on reads alike
     late = rc_run(TB)
-    shifted = np.interp(late.time_s - 40e-12, late.time_s, late.v["dout"])
-    delayed = analyze_track([replace(late, v={**late.v, "dout": shifted})])
+    shifted = np.interp(late.time_s - 40e-12, late.time_s, late.v["vout"])
+    delayed = analyze_track([replace(late, v={**late.v, "vout": shifted})])
     assert delayed.time_constant_s[0] == pytest.approx(0.2e-9, abs=2e-12)
 
 

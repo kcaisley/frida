@@ -25,15 +25,15 @@ def test_the_testbench_clocks_steps_and_loads_the_switch() -> None:
     assert isinstance(bench, h.Module) and bench.dut.of.name.startswith("Samp")
     assert float(bench.vclk.of.params.period) == pytest.approx(80e-9)
     assert float(bench.vclk.of.params.width) == pytest.approx(30e-9)
-    assert float(bench.vdin.of.params.dc) == pytest.approx(0.7)
+    assert float(bench.vvin.of.params.dc) == pytest.approx(0.7)
     # with a step: low for a period, high for the next, each change in mid-hold
-    stepped = sim.testbench(TbParams()).vdin.of.params
+    stepped = sim.testbench(TbParams()).vvin.of.params
     assert (float(stepped.v1), float(stepped.v2)) == pytest.approx((0.55, 0.65))
     assert float(stepped.delay) == pytest.approx(7.5e-9) and float(stepped.period) == pytest.approx(20e-9)
 
 
 def test_a_run_saves_the_ports_and_the_supply_current() -> None:
-    assert set(sim.SAVES) == {"xtop.din", "xtop.dout", "xtop.clk", "xtop.clk_b", "xtop.vvdd:p"}
+    assert set(sim.SAVES) == {"xtop.vin", "xtop.vout", "xtop.clk", "xtop.clk_b", "xtop.vvdd:p"}
 
 
 @pytest.mark.parametrize(

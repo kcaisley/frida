@@ -52,8 +52,8 @@ text { fill: #000; stroke: none; font: 10px "FRIDA Latin Modern Mono", "Latin Mo
   <g s:x="48" s:y="64" s:pid="D" s:position="bottom"/>
   <g s:x="48" s:y="0" s:pid="S" s:position="top"/>
 </g>
-<g s:type="mos_n_h" s:width="80" s:height="64" transform="translate(540,70)">
-  <s:alias val="mos_n_h"/>
+<g s:type="mos_n_down" s:width="80" s:height="64" transform="translate(540,70)">
+  <s:alias val="mos_n_down"/>
   <path d="M0,16 H16 V32 H48 V16 H64 M16,36 H48 M32,36 V48" class="symbol $cell_id"/>
   <text x="38" y="48" s:attribute="ref" class="$cell_id">M1</text>
   <text x="38" y="59" s:attribute="value" class="$cell_id">W/L</text>
@@ -61,8 +61,8 @@ text { fill: #000; stroke: none; font: 10px "FRIDA Latin Modern Mono", "Latin Mo
   <g s:x="0" s:y="16" s:pid="D" s:position="left"/>
   <g s:x="64" s:y="16" s:pid="S" s:position="right"/>
 </g>
-<g s:type="mos_p_h" s:width="80" s:height="64" transform="translate(670,70)">
-  <s:alias val="mos_p_h"/>
+<g s:type="mos_p_up" s:width="80" s:height="64" transform="translate(670,70)">
+  <s:alias val="mos_p_up"/>
   <path d="M0,48 H16 V32 H48 V48 H64 M16,28 H48 M32,16 V28" class="symbol $cell_id"/>
   <circle cx="32" cy="25.6" r="2.4" class="gatebubble $cell_id"/>
   <text x="38" y="13" s:attribute="ref" class="$cell_id">M1</text>
@@ -70,6 +70,25 @@ text { fill: #000; stroke: none; font: 10px "FRIDA Latin Modern Mono", "Latin Mo
   <g s:x="32" s:y="16" s:pid="G" s:position="top"/>
   <g s:x="0" s:y="48" s:pid="D" s:position="left"/>
   <g s:x="64" s:y="48" s:pid="S" s:position="right"/>
+</g>
+<g s:type="moscap_n" s:width="80" s:height="64" transform="translate(540,185)">
+  <s:alias val="moscap_n"/>
+  <path d="M0,48 H16 V32 H48 V48 H64 V58 H0 V48 M32,58 V64 M16,28 H48 M32,16 V28" class="symbol $cell_id"/>
+  <text x="38" y="13" s:attribute="ref" class="$cell_id">M1</text>
+  <text x="38" y="24" s:attribute="value" class="$cell_id">W/L</text>
+  <g s:x="32" s:y="16" s:pid="G" s:position="top"/>
+  <g s:x="32" s:y="64" s:pid="D" s:position="bottom"/>
+  <g s:x="32" s:y="64" s:pid="S" s:position="bottom"/>
+</g>
+<g s:type="moscap_p" s:width="80" s:height="64" transform="translate(670,185)">
+  <s:alias val="moscap_p"/>
+  <path d="M0,48 H16 V32 H48 V48 H64 V58 H0 V48 M32,58 V64 M16,28 H48 M32,16 V28" class="symbol $cell_id"/>
+  <circle cx="32" cy="25.6" r="2.4" class="gatebubble $cell_id"/>
+  <text x="38" y="13" s:attribute="ref" class="$cell_id">M1</text>
+  <text x="38" y="24" s:attribute="value" class="$cell_id">W/L</text>
+  <g s:x="32" s:y="16" s:pid="G" s:position="top"/>
+  <g s:x="32" s:y="64" s:pid="D" s:position="bottom"/>
+  <g s:x="32" s:y="64" s:pid="S" s:position="bottom"/>
 </g>
 <g s:type="vcc" s:width="16" s:height="10" transform="translate(20,185)">
   <s:alias val="vcc"/>

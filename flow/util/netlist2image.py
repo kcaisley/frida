@@ -246,20 +246,37 @@ def levels(devs, stage):
 
 # ---- drawing (netlistsvg analog skin) ------------------------------------------------------
 def passes(ports, devs):
-    """Mark each pass device (``pass``): its drain and source both off the rails and one of them a
-    port (a transmission gate's, a sampling switch's), drawn on its side (``mos_n_h``, gate down;
-    ``mos_p_h``, gate up), the earlier port of the two on the left (``pass`` True: its source)."""
+    """Turn each device whose drain the netlist puts on its rail (``Mpre vdd gate top vdd pch``)
+    so the rail is its source; mark each MOS capacitor (``cap``: its drain and source one net), drawn gate up, drain and
+    source joined below (``moscap_n``, ``moscap_p``); and each pass device (``pass``): its drain and
+    source both off the rails and one of them a port (a transmission gate's, a sampling switch's),
+    drawn on its side (``mos_n_down``, gate down; ``mos_p_up``, gate up), the earlier port of the
+    two on the left (``pass`` True: its source)."""
     order = {net: place for place, net in enumerate(ports)}
     for d in devs.values():
+        # a MOS is symmetric: its rail drawn where the symbol puts the source (a PMOS's on top, an
+        # NMOS's below), whichever end the netlist names it
+        if d["d"] == ("vdd" if d["pol"] == "p" else "vss") and d["s"] != d["d"]:
+            d["d"], d["s"] = d["s"], d["d"]
         ends = {d["d"], d["s"]}
-        if not ends & set(SUPPLY) and ends & set(ports):
+        if len(ends) == 1:
+            d["cap"] = True
+        elif not ends & set(SUPPLY) and ends & set(ports):
             d["pass"] = order.get(d["s"], len(ports)) < order.get(d["d"], len(ports))
 
 
 def mos_kind(dev, mirrored):
+    if "cap" in dev:
+        return f"moscap_{dev['pol']}"
     if "pass" in dev:
-        return f"mos_{dev['pol']}_h"
+        return f"mos_{dev['pol']}_{'up' if dev['pol'] == 'p' else 'down'}"
     return f"mos_{dev['pol']}{'_r' if mirrored else ''}"
+
+
+def upright(dev) -> bool:
+    """Whether the device stands upright, its gate to its side (not a pass device, not a capacitor,
+    whose gates point up or down)."""
+    return "pass" not in dev and "cap" not in dev
 
 
 def pins(skin, dev, x, y, mirrored):
@@ -751,7 +768,7 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN) ->
                 p[2]
                 + (
                     ((-1 if p[0] not in mirrored else 1) * (16 + 10 * (p[4] % 3)))
-                    if p[1] == "G" and "pass" not in devs[p[0]]
+                    if p[1] == "G" and upright(devs[p[0]])
                     else 0
                 )
                 for p in ps
@@ -839,10 +856,10 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN) ->
             net = d[pin.lower()]
             if net in SUPPLY and pin != "G":
                 svg += supply(skin, net, x, y)
-            elif (net in beside or net in as_label) and "pass" in d:
-                # a pass device's gate: a stub out of it (down from an NMOS's, up from a PMOS's), its
-                # flag or label to the left
-                end = y + (14 if d["pol"] == "n" else -14)
+            elif (net in beside or net in as_label) and not upright(d):
+                # a pass device's or a capacitor's gate: a stub out of it (down from a pass NMOS's,
+                # else up), its flag or label to the left
+                end = y + (14 if "pass" in d and d["pol"] == "n" else -14)
                 svg += [f'<path d="M{x},{y} V{end}"/>']
                 svg += flag(skin, net, x, end, "left") if net in beside else label(net, x, end, "left")
             elif net in beside or net in as_label:

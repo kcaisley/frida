@@ -202,8 +202,8 @@ def test_the_comparator_and_samplers_sit_on_their_sides_top_plates(tsmc65):
     for side, comparator_input in (("p", "inp"), ("n", "inn")):
         top = module.namespace[f"vdac_{side}"]
         assert module.instances[f"xdac_{side}"].conns["vdac"] is top
-        assert module.instances[f"xsamp_{side}"].conns["dout"] is top
-        assert module.instances[f"xsamp_{side}"].conns["din"] is module.namespace[f"vin_{side}"]
+        assert module.instances[f"xsamp_{side}"].conns["vout"] is top
+        assert module.instances[f"xsamp_{side}"].conns["vin"] is module.namespace[f"vin_{side}"]
         assert module.xcomp.conns[comparator_input] is top
         assert _loads(module, top) == {f"xdac_{side}", f"xsamp_{side}", "xcomp"}
 

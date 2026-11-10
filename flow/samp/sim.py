@@ -63,11 +63,11 @@ def testbench(tb: TbParams) -> h.Module:
             name=f"v{net.name}",
         )
     if float(tb.input_step_v) == 0.0:
-        bench.vdin = Vdc(dc=tb.input_voltage)(p=bench.din, n=bench.vss)
+        bench.vvin = Vdc(dc=tb.input_voltage)(p=bench.vin, n=bench.vss)
     else:
         # low for one period, high for the next, each change in the middle of a hold phase
         period, high = float(tb.clock_period_s), float(tb.clock_high_time_s)
-        bench.vdin = Vpulse(
+        bench.vvin = Vpulse(
             v1=float(tb.input_voltage) - float(tb.input_step_v) / 2,
             v2=float(tb.input_voltage) + float(tb.input_step_v) / 2,
             period=2 * period,
@@ -75,8 +75,8 @@ def testbench(tb: TbParams) -> h.Module:
             rise=tb.clock_transition_time_s,
             fall=tb.clock_transition_time_s,
             delay=float(tb.clock_delay_s) + high + (period - high) / 2,
-        )(p=bench.din, n=bench.vss)
-    bench.cload = C(c=tb.cload)(p=bench.dout, n=bench.vss)
+        )(p=bench.vin, n=bench.vss)
+    bench.cload = C(c=tb.cload)(p=bench.vout, n=bench.vss)
     bench.dut = netlist(tb.params)(**connections)
     return bench
 

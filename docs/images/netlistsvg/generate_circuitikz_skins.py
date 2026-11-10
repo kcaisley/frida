@@ -490,7 +490,7 @@ def mos(kind: str, mirror: bool, x: float, y: float) -> list[str]:
 
 
 def mos_h(kind: str, x: float, y: float) -> list[str]:
-    """A pass device on its side (``mos_n_h``, ``mos_p_h``): drain and source on one horizontal line,
+    """A pass device on its side (``mos_n_down``, ``mos_p_up``): drain and source on one horizontal line,
     the NMOS's gate down, the PMOS's up (a transmission gate drawn as one: its PMOS above its NMOS)."""
     p = kind == "p"
     if p:
@@ -508,7 +508,22 @@ def mos_h(kind: str, x: float, y: float) -> list[str]:
             '<text x="38" y="59" s:attribute="value" class="$cell_id">W/L</text>',
         ]
         ports = [("G", 32, 48, "bottom"), ("D", 0, 16, "left"), ("S", 64, 16, "right")]
-    return template(f"mos_{kind}_h", 80, 64, [f"mos_{kind}_h"], art, ports, x=x, y=y, label=False)
+    name = f"mos_{kind}_{'up' if p else 'down'}"
+    return template(name, 80, 64, [name], art, ports, x=x, y=y, label=False)
+
+
+def moscap(kind: str, x: float, y: float) -> list[str]:
+    """A MOS capacitor (``moscap_n``, ``moscap_p``): its gate up, its drain and source legs tied below
+    into one terminal (both pins there)."""
+    art = ['<path d="M0,48 H16 V32 H48 V48 H64 V58 H0 V48 M32,58 V64 M16,28 H48 M32,16 V28" class="symbol $cell_id"/>']
+    if kind == "p":
+        art += ['<circle cx="32" cy="25.6" r="2.4" class="gatebubble $cell_id"/>']
+    art += [
+        '<text x="38" y="13" s:attribute="ref" class="$cell_id">M1</text>',
+        '<text x="38" y="24" s:attribute="value" class="$cell_id">W/L</text>',
+    ]
+    ports = [("G", 32, 16, "top"), ("D", 32, 64, "bottom"), ("S", 32, 64, "bottom")]
+    return template(f"moscap_{kind}", 80, 64, [f"moscap_{kind}"], art, ports, x=x, y=y, label=False)
 
 
 def analog_skin() -> str:
@@ -519,6 +534,8 @@ def analog_skin() -> str:
     lines += mos("p", True, 410, 70)
     lines += mos_h("n", 540, 70)
     lines += mos_h("p", 670, 70)
+    lines += moscap("n", 540, 185)
+    lines += moscap("p", 670, 185)
     lines += template(
         "vcc",
         32,
