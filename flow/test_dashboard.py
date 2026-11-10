@@ -122,7 +122,7 @@ def test_the_view_writes_the_status_and_events_beside_the_run(tmp_path: Path, ca
     assert "logging" in out and "viewer  http://localhost:8765/#block=comp&run=grid1/" in out
 
 
-def test_a_known_warning_is_shown_as_known_with_its_reason(tmp_path: Path) -> None:
+def test_a_known_warning_keeps_its_level_and_its_reason_is_a_note(tmp_path: Path) -> None:
     board = _board(tmp_path, ["a"])
     (tmp_path / "a" / "sim").mkdir()
     (tmp_path / "a" / "sim" / "step.log").write_text(
@@ -138,8 +138,12 @@ def test_a_known_warning_is_shown_as_known_with_its_reason(tmp_path: Path) -> No
             "counts": {"spectre": {"KNOWN": 1}},
         }
     )
-    [(_, notice, _, _, _, text, _)] = board.attention
-    assert notice == "KNOWN" and text.startswith("SPECTRE-592:") and "(known: the foundry" in text
+    [row] = board.attention
+    # the notice the tool's own level, the message the tool's alone, why it is left in the notes
+    assert row.notice == "WARNING" and row.known and row.instance == "tsmc65/a"
+    assert row.text == "SPECTRE-592: Following parameters are disabled" and row.note.startswith("the foundry")
+    shown = _shown(dashboard.logging_panel(board))
+    assert "notes" in shown and "known" not in shown.replace("unknown", "")
     assert "spectre 1 known" in _shown(dashboard.pipeline_panel(board))
 
 

@@ -31,7 +31,7 @@ from collections import Counter, deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, NamedTuple, Self
 from urllib.request import urlopen
 
 from rich import box
@@ -74,6 +74,22 @@ STATUS_WIDTH, STATUS_HEIGHT = 200, 56
 LEVELS = {"ERROR": "error", "CRITICAL": "error", "WARNING": "warning", "KNOWN": "known"}
 
 
+class Notice(NamedTuple):
+    """A row of what needs attention: when, the notice (a tool's level, ``FAILED``, ``REJECTED``),
+    the step, its tool, the instance it came from first, the message as the tool said it, a note
+    (why a known one is left: ``flow.logs.KNOWN``; a failure's log) and its kind (counted)."""
+
+    stamp: str
+    notice: str
+    step: str
+    tool: str
+    instance: str
+    text: str
+    note: str = ""
+    kind: Any = None
+    known: bool = False
+
+
 @dataclass
 class _Instance:
     """One instance as the board knows it: the step it runs, each step's state and what it found,
@@ -104,8 +120,8 @@ class Board:
     steps: tuple[str, ...]
     instances: dict[str, _Instance] = field(default_factory=dict)
     counts: dict[str, Counter[tuple[str, str]]] = field(default_factory=dict)
-    # what needs attention: (time, notice, step, tool, instance, message, kind)
-    attention: deque[tuple[str, str, str, str, str, str, Any]] = field(default_factory=lambda: deque(maxlen=200))
+    # what needs attention, a row each
+    attention: deque[Notice] = field(default_factory=lambda: deque(maxlen=200))
     kinds: Counter[Any] = field(default_factory=Counter)
     rejections: Counter[tuple[str, str]] = field(default_factory=Counter)
     began: float = field(default_factory=time.monotonic)
@@ -134,13 +150,14 @@ class Board:
         if state == "ok" and event.get("counts"):
             self._kinds(item, step)
         if state == "failed":
-            self._say("FAILED", step, "", item.key, f"{item.found[step]}  ({_shown(item.out / step / 'step.log')})")
+            self._say(Notice("", "FAILED", step, "", item.key, item.found[step], _shown(item.out / step / "step.log")))
         if state == "rejected":
             kind = (step, re.sub(r"[-+.\deE]+(?=\s|$|\))", "#", item.found[step]))
             self.rejections[(step, _bounds_of(item.found[step]))] += 1
             self.kinds[kind] += 1
             if self.kinds[kind] == 1:
-                self._say("REJECTED", step, "", item.key, item.found[step].removeprefix(f"rejected at {step} "), kind)
+                text = item.found[step].removeprefix(f"rejected at {step} ")
+                self._say(Notice("", "REJECTED", step, "", item.key, text, kind=kind))
         if step == "record" and state in ("ok", "done"):
             item.record = _read(item.out / "instance.json")
 
@@ -168,19 +185,26 @@ class Board:
                 continue  # a message's continued line, which the step's counts leave out too
             tool, level, message = parts[2], parts[3], " ".join(raw.split())
             entry = known(tool, message)
-            level = "KNOWN" if entry else level
             # one kind however its paths, quotes and numbers differ (the same warning in each PDK)
             # (a kind a step's: the same warning in sim and pexsim counted apart, as their counts are)
-            kind = (step, tool, level, re.sub(r"\d+", "#", re.sub(r'"[^"]*"|\S*/\S*', "…", message))[:160])
+            kind = (
+                step,
+                tool,
+                level,
+                entry is not None,
+                re.sub(r"\d+", "#", re.sub(r'"[^"]*"|\S*/\S*', "…", message))[:160],
+            )
             self.kinds[kind] += 1
             if self.kinds[kind] == 1:
-                reason = f"  (known: {entry.reason})" if entry else ""
-                self._say(level, step, tool, item.key, _clean(message) + reason, kind)
+                note = entry.reason if entry else ""
+                self._say(Notice("", level, step, tool, item.key, _clean(message), note, kind, entry is not None))
 
-    def _say(self, notice: str, step: str, tool: str, instance: str, text: str, kind: Any = None) -> None:
-        stamp = time.strftime("%H:%M:%S")
-        self.attention.append((stamp, notice, step, tool, instance, text, kind))
-        self.fresh.append(f"{stamp} {notice} {step}{f' ({tool})' if tool else ''} {instance}: {text}")
+    def _say(self, notice: Notice) -> None:
+        notice = notice._replace(stamp=time.strftime("%H:%M:%S"))
+        self.attention.append(notice)
+        tool = f" ({notice.tool})" if notice.tool else ""
+        note = f"  [{'known: ' if notice.known else ''}{notice.note}]" if notice.note else ""
+        self.fresh.append(f"{notice.stamp} {notice.notice} {notice.step}{tool} {notice.instance}: {notice.text}{note}")
         self.unprinted.append(self.fresh[-1])
 
     # ------------------------------------------------------------ what the views count
@@ -381,8 +405,10 @@ NOTICES = {
 
 def logging_panel(board: Board, rows: int | None = None, plain: bool = False) -> Any:
     """What needs attention, the newest first, a row each: when, the notice (a tool's error or
-    warning, a failure, a rejection), the step, its tool (the logger's full name), how often it came (each kind of
-    warning counted once it was said), and the message, the instance it came first from after it."""
+    warning, a failure, a rejection), the step, its tool (the logger's full name), the instance it
+    came from first, how often it came (each kind counted once it was said), the message as the
+    tool said it, and a note: why a known one is left (``flow.logs.KNOWN``; its row dimmed, so a
+    new one stands out), a failure's log."""
     found = Table(
         box=box.SIMPLE_HEAD, expand=not plain, pad_edge=False, header_style=f"bold {HEAD}", border_style=FRAME
     )
@@ -390,20 +416,25 @@ def logging_panel(board: Board, rows: int | None = None, plain: bool = False) ->
     found.add_column("notice", no_wrap=True, width=8)
     found.add_column("step", no_wrap=True)
     found.add_column("tool", style=DIM, no_wrap=True)
+    found.add_column("instance", style=DIM, no_wrap=True)
     found.add_column("count", justify="right", no_wrap=True, width=5)
-    found.add_column("message", overflow="fold", ratio=None if plain else 1, max_width=90 if plain else None)
-    for stamp, notice, step, tool, instance, text, kind in list(reversed(board.attention))[: rows or None]:
-        count = board.kinds[kind] if kind else 1
+    found.add_column("message", overflow="fold", ratio=None if plain else 3, max_width=90 if plain else None)
+    found.add_column("notes", style=DIM, overflow="fold", ratio=None if plain else 2, max_width=60 if plain else None)
+    for row in list(reversed(board.attention))[: rows or None]:
+        count = board.kinds[row.kind] if row.kind else 1
+        style = DIM if row.known else NOTICES.get(row.notice, TEXT)
         found.add_row(
-            stamp,
-            Text(notice.lower(), style=NOTICES.get(notice, TEXT)),
-            step,
-            tool,
-            Text(str(count), style=NOTICES.get(notice, TEXT) if count > 1 else DIM),
-            Text.assemble(text, (f"  {instance}", DIM)),
+            row.stamp,
+            Text(LEVELS.get(row.notice, row.notice.lower()), style=style),
+            row.step,
+            row.tool,
+            row.instance,
+            Text(str(count), style=style if count > 1 else DIM),
+            Text(row.text, style=DIM if row.known else TEXT),
+            row.note,
         )
     if not board.attention:
-        found.add_row("", "", "", "", "", Text("nothing yet", style=DIM))
+        found.add_row("", "", "", "", "", "", Text("nothing yet", style=DIM), "")
     return _panel(found, "logging", plain)
 
 

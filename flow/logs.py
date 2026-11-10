@@ -59,8 +59,9 @@ class Known:
     """A warning or error the flow knows and cannot fix at its source (a foundry's model files, a
     tool's own check another step contradicts): the tool whose logger says it (its name or its
     name's start: ``align`` for ``align.pnr.main``), a pattern its message matches, and why it is
-    not fixed. Still logged and counted; the dashboard shows it as known, with the reason, so a
-    new one stands out (``flow.dashboard``). A warning the flow causes is fixed, never listed here."""
+    not fixed. Still logged and counted; the dashboard shows it at its own level, dimmed, the
+    reason as its note, so a new one stands out (``flow.dashboard``). A warning the flow causes is
+    fixed, never listed here."""
 
     tool: str
     pattern: str
