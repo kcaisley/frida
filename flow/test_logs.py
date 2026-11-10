@@ -132,5 +132,6 @@ def test_a_known_warning_is_counted_apart_and_a_new_one_is_not(tmp_path: Path) -
     assert counts == {"spectre": {"KNOWN": 1, "WARNING": 1}}
     assert "SPECTRE-592" in (tmp_path / "step.log").read_text()
     assert known("align.pnr.main", "2 LVS / DRC errors found !!!") is not None
+    assert known("kpex", "Warning: capacitance matrix has a non-negative off-diagonal element at row 1 col") is not None
     assert known("spectre", "Vgb has exceeded vgb_max") is None
     assert all(entry.reason for entry in KNOWN)

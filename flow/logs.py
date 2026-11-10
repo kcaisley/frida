@@ -90,6 +90,13 @@ KNOWN = (
         "spectre", r"Further occurrences of this warning will be suppressed", "Spectre's note after a repeated warning"
     ),
     Known(
+        "kpex",
+        r"capacitance matrix (has a non-negative off-diagonal element|is not diagonally dominant)",
+        "FasterCap's check of the matrix it solved: near-zero couplings between distant nets come out"
+        " with the wrong sign; a tighter tolerance does not lessen them (measured at 5, 2 and 1 %), and"
+        " 5 % is kept for speed, its nets' capacitances a few percent high",
+    ),
+    Known(
         "align",
         r"LVS / DRC errors found|Found errors: SHORT: 0 OPEN|feasible path might not be found",
         "ALIGN's own checks of its output; the lvs step's KLayout LVS of the same layout decides",
