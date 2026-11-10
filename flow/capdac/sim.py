@@ -24,8 +24,8 @@ from pathlib import Path
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.primitives import R, Vdc, Vpulse
-from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
+from flow.circuit import spectre
 from flow.circuit.ports import testbench_from_ports
 from flow.layout.devices.device import resolve
 from flow.layout.devices.momcap.netlist import mom_cap, variation
@@ -139,16 +139,8 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
             },
         )
     attrs = [
-        install.include(h.pdk.Corner.TYP),
-        # what else the PDK's simulations take, in this order: TSMC's pre-simulation settings, its
-        # standard cells, the device names its netlists use (pdk/<name>/hdl21)
-        *(
-            getattr(install, name)()
-            for name in ("include_pre_simulation", "include_stdcell", "include_devices")
-            if hasattr(install, name)
-        ),
-        hs.Options(name="temp", value=25.0),
-        hs.Options(name="save", value="selected"),
+        *spectre.includes(install, stdcells=True),
+        *spectre.options(),
         hs.Options(name="reltol", value=tb.reltol),
         hs.Options(name="vabstol", value=tb.vabstol),
         hs.Options(name="iabstol", value=tb.iabstol),
@@ -156,17 +148,5 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
         hs.Save(saves),
         analysis,
     ]
-    try:
-        hs.Sim(tb=bench, attrs=attrs).run(
-            SimOptions(
-                simulator=SupportedSimulators.SPECTRE,
-                fmt=ResultFormat.NONE,
-                rundir=run_dir,
-                # wait up to an hour for a license: other runs share the server's
-                simulator_args=("-format", "nutbin", "+lqtimeout", "3600", "+escchars", "+log", "spectre.log"),
-            )
-        )
-    except SimError as error:
-        # the simulator's error holds its simulation, which cannot cross back from a worker process
-        raise RuntimeError(f"Spectre failed in {run_dir}: {error}") from None
+    spectre.run(bench, attrs, run_dir, fast=False)
     return run_dir / "netlist.raw"

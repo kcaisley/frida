@@ -118,6 +118,7 @@ from flow.adc.subckt import (
 from flow.analysis import calc
 from flow.analysis.io import interpolate_wave_records, read_cap_table, read_measurement, write_measurement
 from flow.analysis.types import MeasAdc, MeasInfo
+from flow.circuit import spectre
 from flow.circuit.ports import testbench_from_ports
 from flow.circuit.results import conversion_inputs, read_raw_transient
 from flow.pipeline import Level, Meas, Wave
@@ -456,9 +457,7 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
                 )
             )
         )
-    attrs.extend(
-        (hs.Options(name="temp", value=25.0), hs.Options(name="save", value="selected"), hs.Save(save_targets))
-    )
+    attrs.extend((*spectre.options(), hs.Save(save_targets)))
     tstop_s = 100e-9 if check else tb.conversions * len(tb.seq_init.data) / float(tb.symbol_rate)
     if not check:
         first_comp_symbol = tb.seq_comp.data.index("01") + 1

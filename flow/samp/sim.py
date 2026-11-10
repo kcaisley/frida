@@ -15,8 +15,8 @@ from pathlib import Path
 import hdl21 as h
 import hdl21.sim as hs
 from hdl21.primitives import C, Vdc, Vpulse
-from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
+from flow.circuit import spectre
 from flow.circuit.ports import testbench_from_ports
 
 from .params import TbParams
@@ -94,12 +94,8 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
     h.pdk.compile(bench)
     interval = tb.waveform_sample_interval_s
     attrs = [
-        install.include(h.pdk.Corner.TYP),
-        # what else the PDK's simulations take, in this order: TSMC's pre-simulation settings, the
-        # device names its netlists use (pdk/<name>/hdl21)
-        *(getattr(install, name)() for name in ("include_pre_simulation", "include_devices") if hasattr(install, name)),
-        hs.Options(name="temp", value=25.0),
-        hs.Options(name="save", value="selected"),
+        *spectre.includes(install),
+        *spectre.options(),
         hs.Save(list(SAVES)),
         hs.Tran(
             tstop=tb.stop_s,
@@ -107,19 +103,5 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
             options={"strobeperiod": interval, "maxstep": interval, "strobeoutput": "strobeonly"},
         ),
     ]
-    try:
-        hs.Sim(tb=bench, attrs=attrs).run(
-            SimOptions(
-                simulator=SupportedSimulators.SPECTRE,
-                fmt=ResultFormat.NONE,
-                rundir=run_dir,
-                simulator_args=(
-                    *("-format", "nutbin", "+preset=mx", "+mt=1"),
-                    *("+lqtimeout", "3600", "+escchars", "+log", "spectre.log"),
-                ),
-            )
-        )
-    except SimError as error:
-        # the simulator's error holds its simulation, which cannot cross back from a worker process
-        raise RuntimeError(f"Spectre failed in {run_dir}: {error}") from None
+    spectre.run(bench, attrs, run_dir)
     return run_dir / "netlist.raw"
