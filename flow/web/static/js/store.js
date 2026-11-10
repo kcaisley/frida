@@ -79,6 +79,15 @@ export function recall(key, fallback) {
 
 const cache = new Map();
 
+// the server's answer to /api/<kind>?<params>; a snapshot (window.FRIDA_SNAPSHOT: the page published
+// without its server, flow/web/artifactifier.py) holds each as a file named by its query, typed by its
+// extension
+const API_TYPES = { wave: "json", log: "txt", figure: "svg" };
+export function apiUrl(kind, params) {
+    const query = new URLSearchParams(params).toString();
+    return window.FRIDA_SNAPSHOT ? `api/${kind}/${query.replace(/[^A-Za-z0-9._-]/g, "_")}.${API_TYPES[kind]}` : `api/${kind}?${query}`;
+}
+
 export function fetchData(path, kind = "json") {
     const key = `${kind}:${path}`;
     if (!cache.has(key)) {

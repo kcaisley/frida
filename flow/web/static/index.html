@@ -11,16 +11,8 @@
         document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     </script>
     <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
-    <!-- three.js for the 3D panel, imported only once an instance is viewed; the Compiler's
-         CodeMirror (5.65.18) is loaded by js/compile.js the first time it is opened -->
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
+    <!-- three.js for the 3D panel is imported once an instance is viewed (js/layout3d.js); the
+         Compiler's CodeMirror (5.65.18) is loaded by js/compile.js the first time it is opened -->
 </head>
 <body>
     <div id="app"></div>

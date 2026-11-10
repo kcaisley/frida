@@ -45,7 +45,8 @@ async function fetchJson(path) {
 // ---- the URL ----------------------------------------------------------------------------------
 
 function parseHash() {
-    const params = new URLSearchParams(location.hash.replace(/^#/, ""));
+    // a snapshot opens on the view it was made of (its link carries no state of its own)
+    const params = new URLSearchParams(location.hash.replace(/^#/, "") || window.FRIDA_SNAPSHOT?.hash || "");
     return {
         block: params.get("block"),
         run: params.get("run"),

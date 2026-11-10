@@ -26,7 +26,7 @@ import { LayoutPanel } from "./layout2d.js";
 import { currentTheme, DENSITY, keepTicks, PAPERS, paperColorBar, paperLayout, thinLabels, tone } from "./paper.js";
 import { SchematicPanel } from "./panels.js";
 import { Layout } from "./regions.js";
-import { COLORS, DASHES, emit, hostBar, on, recall, state, store } from "./store.js";
+import { apiUrl, COLORS, DASHES, emit, hostBar, on, recall, state, store } from "./store.js";
 import { describe, differs, formatted, paramNames, shown } from "./sweep.js";
 import { TracesPanel } from "./traces.js";
 import { fieldInfo, scaledUnit, siExponent, words } from "./units.js";
@@ -311,7 +311,7 @@ class PlotsPanel {
                             "div.figure-row",
                             {},
                             entries.map(({ index, detail }) => {
-                                const src = `api/figure?path=${encodeURIComponent(detail.figure)}`;
+                                const src = apiUrl("figure", { path: detail.figure });
                                 const title = compare ? `${first.title}: ${labelOf(index)}` : first.title;
                                 return h(
                                     "button.figure-open",
@@ -471,8 +471,8 @@ function shimBlock(instance) {
                       generator: layout.blocks ? "blocks" : "align",
                       path: layout.file,
                       cell,
-                      // the GDS itself, answered as a download by the server
-                      gds: layout.gds ? `api/gds?path=${encodeURIComponent(layout.gds)}` : null,
+                      // the GDS itself, answered as a download by the server (none in a snapshot)
+                      gds: layout.gds && !window.FRIDA_SNAPSHOT ? apiUrl("gds", { path: layout.gds }) : null,
                   },
               ]
             : [],
@@ -601,7 +601,7 @@ async function showLog(path, title) {
     document.body.append(overlay);
     document.addEventListener("keydown", onKey, true);
     try {
-        const response = await fetch(`api/log?path=${encodeURIComponent(path)}`);
+        const response = await fetch(apiUrl("log", { path }));
         const body = response.ok ? (await response.text()) || "(empty)" : `HTTP ${response.status}`;
         // its errors and warnings in their colours
         text.replaceChildren(...body.split("\n").map((line) => h(/ (ERROR|CRITICAL) /.test(line) ? "span.log-error" : / WARNING /.test(line) ? "span.log-warning" : "span", {}, `${line}\n`)));

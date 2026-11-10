@@ -8,15 +8,18 @@ import { isVisible, layerColor, layerStyle, reportLayers } from "./layers.js";
 import { generators, layoutFocus, layoutsFor, loadLayout } from "./layout2d.js";
 import { on, series, setFocus, state, status } from "./store.js";
 
+// three.js and its addons by their full module URLs (jsDelivr's +esm: an addon imports the same
+// three, and no import map, which an artifact's frame refuses)
+const THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.160.0";
 let THREE = null;
 let OrbitControls = null;
 let mergeGeometries = null;
 
 async function three() {
     if (!THREE) {
-        THREE = await import("three");
-        ({ OrbitControls } = await import("three/addons/controls/OrbitControls.js"));
-        ({ mergeGeometries } = await import("three/addons/utils/BufferGeometryUtils.js"));
+        THREE = await import(`${THREE_URL}/+esm`);
+        ({ OrbitControls } = await import(`${THREE_URL}/examples/jsm/controls/OrbitControls.js/+esm`));
+        ({ mergeGeometries } = await import(`${THREE_URL}/examples/jsm/utils/BufferGeometryUtils.js/+esm`));
     }
     return THREE;
 }

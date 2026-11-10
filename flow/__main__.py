@@ -578,6 +578,10 @@ def main(argv: list[str] | None = None) -> None:
         print(completion(), end="")
     elif not argv or argv[0] in ("-h", "--help") or "-h" in argv or "--help" in argv:
         usage()
+    elif argv[0] == "web.artifactify" and len(argv) in (3, 4):
+        from flow.web.artifactifier import snapshot
+
+        print(snapshot(argv[1], argv[2], argv[3].split(",") if len(argv) == 4 else []))
     elif argv[0] == "web.serve":
         from flow.web import PORT, server
 

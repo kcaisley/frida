@@ -5,7 +5,7 @@
 // a click places the cursor, shift-click a second marker for the time between them.
 
 import { h, icon, select, titled } from "./icons.js";
-import { COLORS, fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
+import { apiUrl, COLORS, fetchData, focusSeries, on, series, setFocus, state, status } from "./store.js";
 import { fieldInfo, formatValue, scaledUnit, siExponent } from "./units.js";
 
 const ROW = 40; // px per signal row
@@ -21,7 +21,7 @@ function loadWave(path, record) {
     if (!waves.has(key)) {
         waves.set(
             key,
-            fetch(`api/wave?path=${encodeURIComponent(path)}&record=${record}`).then((response) => {
+            fetch(apiUrl("wave", { path, record })).then((response) => {
                 if (!response.ok) throw new Error(`waveform: HTTP ${response.status}`);
                 return response.json();
             }),
