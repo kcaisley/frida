@@ -605,6 +605,7 @@ def _brief(step: Step, outputs: dict) -> str:
             return (
                 f"{_count(len(outputs['runs']), 'run')}, {outputs.get('added_f', 0.0) * 1e15:.4g} fF added, "
                 f"{outputs['unmapped_share']:.1%} unmapped"
+                + (f", {outputs['floating_f'] * 1e15:.3g} fF floating" if outputs.get("floating_f") else "")
             )
     return ""
 

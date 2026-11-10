@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -38,11 +38,14 @@ class Annotation:
     mapped_f: float
     unmapped: dict[str, float]
     limit: float = 0.05
+    floating: dict[str, float] = field(default_factory=dict)
+    floating_f: float = 0.0
 
     @property
     def unmapped_f(self) -> float:
-        """The extraction's capacitance with an end on a net with no schematic net."""
-        return self.total_f - self.mapped_f
+        """The extraction's capacitance with an end on a net with no schematic net (a floating
+        net's left out of it: ``floating_f``)."""
+        return self.total_f - self.mapped_f - self.floating_f
 
     def summary(self) -> dict[str, Any]:
         """The annotation as a record holds it: its totals, the unmapped share and nets."""
@@ -53,6 +56,8 @@ class Annotation:
             "unmapped_f": self.unmapped_f,
             "unmapped_share": self.unmapped_f / self.total_f if self.total_f else 0.0,
             "unmapped_nets": self.unmapped,
+            "floating_f": self.floating_f,
+            "floating_nets": self.floating,
         }
 
 
@@ -62,14 +67,22 @@ def capacitors(netlist: Path) -> list[tuple[str, str, float]]:
     return [(a, b, float(c) * 1e-15) for a, b, c in re.findall(pattern, netlist.read_text())]
 
 
+# a layout net LVS left out as floating (no device, no pin: a dummy poly, a dummy finger)
+FLOATING = "<floating>"
+
+
 def _probed(lvs: db.LayoutVsSchematic, layers: dict[tuple[int, int], db.Region], probe: list[int]) -> str | None:
     """The schematic net at the top that LVS paired with the layout net under ``probe`` (GDS layer,
-    datatype, x, y in database units), climbed through its cells' pins; None where it has none."""
+    datatype, x, y in database units), climbed through its cells' pins; ``FLOATING`` where LVS kept
+    no net there (a floating one it dropped); None where it has none (a layer it does not know, a
+    net it did not pair)."""
     layer, datatype, x, y = probe
     if (layer, datatype) not in layers:
         return None
     path: list[db.SubCircuit] = []
     net = lvs.probe_net(layers[layer, datatype], db.Point(x, y), path)
+    if net is None:
+        return FLOATING
     while net is not None and path:
         pins = list(net.each_pin())
         net = path.pop().net_for_pin(pins[0].pin_id()) if pins else None
@@ -92,10 +105,12 @@ def schematic_nets(lvsdb: Path, probes: dict[str, list[list[int]]], gds: Path | 
     wanted = {(layer, datatype) for points in probes.values() for layer, datatype, *_ in points}
     if gds is not None and wanted - set(layers):
         layers |= _matched(lvs, gds, wanted - set(layers))
-    return {
-        name: next((net for probe in points if (net := _probed(lvs, layers, probe)) is not None), None)
-        for name, points in probes.items()
-    }
+    found = {}
+    for name, points in probes.items():
+        nets = [_probed(lvs, layers, probe) for probe in points]
+        # a schematic net where any probe finds one, else floating where one finds it so
+        found[name] = next((n for n in nets if n not in (None, FLOATING)), FLOATING if FLOATING in nets else None)
+    return found
 
 
 def _matched(lvs: db.LayoutVsSchematic, gds: Path, wanted: set[tuple[int, int]]) -> dict[tuple[int, int], db.Region]:
@@ -127,12 +142,15 @@ MATCHED_SHARE = 0.05
 
 def annotation(netlist: Path, probes: Path, lvsdb: Path, limit: float = 0.05, gds: Path | None = None) -> Annotation:
     """The extraction at ``netlist`` on the schematic's nets, its nets found by their ``probes``
-    in the LVS database ``lvsdb`` (``schematic_nets``). Raises where more than ``limit`` of its
-    capacitance is on nets with no schematic net (a share a few unconnected dummy gates reach)."""
+    in the LVS database ``lvsdb`` (``schematic_nets``). A capacitor on a net LVS dropped as floating
+    (a dummy poly, a dummy finger) is left out and counted apart (``floating``); raises where more
+    than ``limit`` of the capacitance is on nets with no schematic net otherwise (unpaired, or on a
+    layer the database does not know: the mapping failed)."""
     found = {"0": "0", **schematic_nets(lvsdb, json.loads(probes.read_text()), gds)}
     summed: dict[tuple[str, str], float] = {}
     unmapped: dict[str, float] = {}
-    total = mapped = 0.0
+    floating: dict[str, float] = {}
+    total = mapped = floated = 0.0
     for a, b, c in capacitors(netlist):
         total += c
         first, second = found.get(a), found.get(b)
@@ -140,6 +158,12 @@ def annotation(netlist: Path, probes: Path, lvsdb: Path, limit: float = 0.05, gd
             for net, end in ((a, first), (b, second)):
                 if end is None:
                     unmapped[net] = unmapped.get(net, 0.0) + c
+            continue
+        if FLOATING in (first, second):  # through a floating net: left out, not reduced in series
+            floated += c
+            for net, end in ((a, first), (b, second)):
+                if end == FLOATING:
+                    floating[net] = floating.get(net, 0.0) + c
             continue
         mapped += c
         if first != second:
@@ -151,6 +175,8 @@ def annotation(netlist: Path, probes: Path, lvsdb: Path, limit: float = 0.05, gd
         mapped_f=mapped,
         unmapped=dict(sorted(unmapped.items(), key=lambda item: -item[1])),
         limit=limit,
+        floating=dict(sorted(floating.items(), key=lambda item: -item[1])),
+        floating_f=floated,
     )
     if result.unmapped_f > limit * total:
         nets = ", ".join(f"{net} {c * 1e15:.3g} fF" for net, c in result.unmapped.items())
