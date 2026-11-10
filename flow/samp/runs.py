@@ -8,7 +8,7 @@ bootstrapped switch as an on-resistance ladder (the ADC study's samplers), in ev
 instance is run on the bench every switch is characterized on (``params``): over the input level
 (1/12 to 11/12 of the supply) the on-resistance into the load, the track error, the pedestal and the
 input's feedthrough while holding; at the nominal point (mid-supply input) those and the bandwidth
-and droop; over the supply (90 to 120 % of its own, mid-supply input) the on-resistance and pedestal.
+and droop; over the supply (90 and 110 % of its own besides nominal, mid-supply input) the on-resistance and pedestal.
 Fourteen Spectre runs, about a minute in all.
 """
 

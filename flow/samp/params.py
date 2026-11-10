@@ -71,8 +71,9 @@ STROBE_S = 5e-12
 VIN_SWEEP = tuple(step / 12 for step in range(1, 12))
 NOMINAL_VIN = 0.5
 WAVE_VIN = (VIN_SWEEP[0], NOMINAL_VIN, VIN_SWEEP[-1])
-# the supply over 90 to 120 % of its own, at mid-supply input
-SUPPLY_SWEEP = (0.9, 1.0, 1.1, 1.2)
+# the supply at 90 and 110 % of its own besides nominal, at mid-supply input: never past the
+# models' limits (TSMC28's core devices warn above 110 %: CMI-2753, Vgb over vgb_max)
+SUPPLY_SWEEP = (0.9, 1.0, 1.1)
 # Rough 65-nm device constants, for the behavioral model's triode conductances from the switch's
 # sizing where none is given (flow.samp.model.Model.conductances): the width and the length one size
 # unit stands for, and each device type's k'
