@@ -217,6 +217,8 @@ function save() {
     if (!view.table) return;
     store(`sweep.${view.table.block}`, {
         sort: view.sort,
+        // the filters belong to the run they were set on: another run of the block opens unfiltered
+        run: view.table.run || null,
         filters: view.filters,
         marks: [...view.marks],
         x: view.x,
@@ -964,7 +966,8 @@ function refresh() {
     emit("sweep");
 }
 
-// a block's table, shown with its sort, filters, marks and axes as last left
+// a block's table, shown with its sort, marks and axes as last left, and its filters where it is
+// the run they were set on
 export function setBlock(table) {
     view.table = table;
     view.fields = buildFields(table);
@@ -979,7 +982,8 @@ export function setBlock(table) {
     // against trial), else unsorted, energy against delay where the block has them
     const sort = "sort" in saved ? saved.sort : table.sort;
     view.sort = sort && fieldOf(sort.key) ? sort : null;
-    view.filters = Object.fromEntries(Object.entries(saved.filters || {}).filter(([key]) => fieldOf(key)));
+    const sameRun = (saved.run || null) === (table.run || null);
+    view.filters = sameRun ? Object.fromEntries(Object.entries(saved.filters || {}).filter(([key]) => fieldOf(key))) : {};
     view.marks = new Set((saved.marks || saved.pins || []).filter((id) => ids.has(id)));
     const preferX = axes.find((key) => key === table.axes?.x) || axes.find((key) => /energy|power/.test(key)) || axes[0];
     const preferY = axes.find((key) => key === table.axes?.y) || axes.find((key) => /delay|time|noise/.test(key) && key !== preferX) || axes[1] || axes[0];
