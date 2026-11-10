@@ -1,7 +1,8 @@
 // The 3-D layout view (three.js): every visible layer of the focused layout extruded between its
 // nominal heights (an even stack, the same for every PDK: the exported geometry carries no
-// thicknesses), its boxes edged. Drag orbits, right-drag pans, wheel
-// zooms. Where the browser has no WebGL (the Claude app's artifact panel), the same view is drawn
+// thicknesses), its boxes edged, seen first from the top as the 2-D layout (Top, Side, Isometric).
+// Left-drag turns it, middle- (or right-) drag pans, the wheel zooms. Where the browser has no
+// WebGL (the Claude app's artifact panel), the same view is drawn
 // on a 2-D canvas: each box's faces toward the camera, the boxes far to near, each face lit flat
 // (a polygon's top face alone).
 
@@ -141,12 +142,17 @@ export class Layout3DPanel {
         }
         // the layout's GDS size, what draws it (WebGL, else the CPU on a 2-D canvas) and the page's
         // memory; the stack at its nominal heights, every box's edges drawn
-        const renderer = this.renderer ? "WebGL" : this.flat ? "CPU 2-D canvas" : null;
+        const renderer = this.renderer ? "WebGL" : this.flat ? "CPU (no WebGL)" : null;
+        const view = (name, label, title) => {
+            const button = h(`button.icon-btn${this.view === name ? ".on" : ""}`, { title, onclick: () => (this.home(name), this.buildToolbar()) }, h("span", { html: icon(name, 14) }), label);
+            return button;
+        };
         this.toolbar.append(
             h("span.grow"),
             meta ? sizeMeter({ file: typeof meta.gdsBytes === "number" ? bytes(meta.gdsBytes) : "—", label: "GDS", renderer }) : "",
-            h("button.icon-btn", { title: "View from above", onclick: () => this.home(true) }, h("span", { html: icon("top", 14) })),
-            h("button.icon-btn", { title: "Reset the view", onclick: () => this.home(false) }, h("span", { html: icon("fit", 14) })),
+            view("top", "Top", "View from the top, as the 2-D layout"),
+            view("side", "Side", "View from the side: the layers' stack edge on"),
+            view("iso", "Isometric", "View at an angle"),
             h("button.icon-btn", { title: "Save the view as PNG", onclick: () => this.save() }, h("span", { html: icon("download", 14) })),
         );
     }
@@ -175,9 +181,9 @@ export class Layout3DPanel {
             this.ensureRenderer();
             this.build(layout);
             this.path = meta.path;
-            // the renderer is known now
+            // from the top, as the 2-D layout, until turned; the renderer is known now
+            this.home("top");
             this.buildToolbar();
-            this.home(false);
         } catch (error) {
             status(`3-D view: ${error.message}`, true);
         }
@@ -204,6 +210,8 @@ export class Layout3DPanel {
         this.controls = new OrbitControls(this.camera, canvas);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.12;
+        // the left button turns the view, the middle (and the right) one pans it, the wheel zooms
+        this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN };
         this.controls.addEventListener("change", () => this.render());
         this.controls.addEventListener("start", () => this.animate(true));
         this.controls.addEventListener("end", () => this.animate(false));
@@ -421,11 +429,15 @@ export class Layout3DPanel {
         this.render();
     }
 
-    home(top) {
+    // the view from the top (as the 2-D layout, y up), from its side (the stack's layers edge on,
+    // from below the drawing's y) or at an angle (isometric)
+    home(view = "top") {
         if (!this.camera || !this.extent) return;
+        this.view = view;
         const distance = this.extent * 1.6;
         this.controls.target.set(0, 0, 0.5);
-        if (top) this.camera.position.set(0, -0.001, distance * 1.15);
+        if (view === "top") this.camera.position.set(0, -0.001, distance * 1.15);
+        else if (view === "side") this.camera.position.set(0, -distance * 1.25, 0.5);
         else this.camera.position.set(distance * 0.55, -distance * 0.85, distance * 0.75);
         this.camera.near = distance / 500;
         this.camera.far = distance * 50;

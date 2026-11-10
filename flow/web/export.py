@@ -488,16 +488,31 @@ def _step_extras(step, folder: Path, view: dict[str, Any]) -> dict[str, Any]:
 _CHECKING = re.compile(r"^\[([^\]]+)\] Checking (.*)$")
 
 
+# a check's limit as gdscheck states it (``min_width >= 0.10 µm on layer Metal3``): its comparison
+# and its value with its unit
+_LIMIT = re.compile(r"(>=|<=|==|!=|>|<)\s*(-?[\d.]+(?:e-?\d+)?)\s*([^\s,;()]*)")
+_OPERATORS = {">=": "≥", "<=": "≤", "==": "=", "!=": "≠", ">": ">", "<": "<"}
+
+
+def drc_limit(check: str) -> str:
+    """A check as its limit alone: ``min_width >= 0.10 µm on layer Metal3 (33/0)`` is ``≥ 0.10 µm``;
+    the check itself where it states none."""
+    found = _LIMIT.search(check)
+    if not found:
+        return check
+    return " ".join(part for part in (_OPERATORS[found[1]], found[2], found[3]) if part)
+
+
 def drc_checked(folder: Path) -> dict[str, str]:
-    """The rules gdscheck checked, by name, each its checks as its log states them (a rule over
-    several layers its checks joined); none from another checker."""
+    """The rules gdscheck checked, by name, each its checks' limits (``drc_limit``; a rule over
+    several layers its limits joined, each once); none from another checker."""
     checked: dict[str, list[str]] = {}
     for log in sorted(folder.glob("gdscheck.*.log")):
         for line in log.read_text(errors="replace").splitlines():
             found = _CHECKING.match(line)
-            if found:
-                checked.setdefault(found[1], []).append(found[2])
-    return {rule: "; ".join(checks) for rule, checks in checked.items()}
+            if found and drc_limit(found[2]) not in checked.setdefault(found[1], []):
+                checked[found[1]].append(drc_limit(found[2]))
+    return {rule: "; ".join(limits) for rule, limits in checked.items()}
 
 
 def lvs_devices(report: Path) -> dict[str, dict[str, int]]:

@@ -250,7 +250,19 @@ class PlotsPanel {
         // of their own; an instance clicked in it hides or shows its curves in every plot
         this.key = h("div.compare-key");
         this.plots = h("div.detail-plots");
-        this.element = h("div.panel", {}, page.compare ? this.key : null, this.plots);
+        // alone, its bar: the pre-layout curves shown or hidden (where the results are post-layout)
+        this.showPre = recall("analyses.prelayout", true);
+        const pre = h(`button.icon-btn.labeled${this.showPre ? ".on" : ""}`, { title: "Show or hide the pre-layout curves (dotted)" }, h("span", { html: icon(this.showPre ? "eye" : "eyeOff", 13) }), "Pre-layout");
+        pre.addEventListener("click", () => {
+            this.showPre = !this.showPre;
+            store("analyses.prelayout", this.showPre);
+            pre.classList.toggle("on", this.showPre);
+            pre.firstChild.innerHTML = icon(this.showPre ? "eye" : "eyeOff", 13);
+            this.render();
+        });
+        const prelayout = !page.compare && page.instances.some((instance) => instance.evidence === "postlayout" && instance.prelayout_details?.length);
+        this.toolbar = prelayout ? h("div.panel-toolbar", {}, pre) : null;
+        this.element = h("div.panel", {}, this.toolbar, page.compare ? this.key : null, this.plots);
         this.hidden = new Set();
         container.element.append(this.element);
         this.off = on("theme", () => this.render());
@@ -350,7 +362,7 @@ class PlotsPanel {
         // alone, a post-layout record's pre-layout figure of the same name (its prelayout_details):
         // its curves dotted under the post-layout ones, in the same colour; compared, each design's
         // post-layout curves alone
-        const preOf = ({ instance, detail }) => (!compare && instance.evidence === "postlayout" ? (instance.prelayout_details || []).find((item) => item.name === detail.name) : null) || null;
+        const preOf = ({ instance, detail }) => (!compare && this.showPre && instance.evidence === "postlayout" ? (instance.prelayout_details || []).find((item) => item.name === detail.name) : null) || null;
         const pres = entries.map(preOf);
         const prelayout = pres.some((pre) => pre && Object.keys(pre.series || {}).length);
         // SI prefixes from the values plotted (a map's cell edges among them), not the markers
@@ -554,30 +566,30 @@ function chip(entry, { label = null, time = true, onclick = null } = {}) {
     );
 }
 
-// a time: in ms under a second (the quick checks' tenths of a second read 0.0 s)
+// a time in seconds, to the hundredth (10 ms) everywhere
 export function duration(seconds) {
-    if (seconds < 1) return `${Math.round(seconds * 1000)} ms`;
-    if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
-    return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
+    return `${seconds.toFixed(2)} s`;
 }
 
-// a step's logging, summed over its tools (flow.steps.logged): its errors, warnings and known
-// warnings (flow.logs.KNOWN: a third party's, its reason in the log)
+// a step's logging, summed over its tools (flow.steps.logged): its errors, warnings and waived
+// warnings (flow.logs: a third party's, its reason in the log; "KNOWN" in a run from before the name)
 function tally(counts) {
     const sum = (...levels) => Object.values(counts || {}).reduce((total, by) => total + levels.reduce((n, level) => n + (by[level] || 0), 0), 0);
-    return { errors: sum("ERROR", "CRITICAL"), warnings: sum("WARNING"), known: sum("KNOWN") };
+    return { errors: sum("ERROR", "CRITICAL"), warnings: sum("WARNING"), waived: sum("WAIVED", "KNOWN") };
 }
 
-// "0 ERROR · 2 WARN", each count in its colour where it is not 0, the known ones after, dim; the
-// tools' own counts in its title
+// "0 ERROR · 2 WARN", a count in red or yellow where it is not 0 and green where it is, the waived
+// ones after, dim; the tools' own counts in its title; where the step has a log, a link icon at its
+// right opening it
 function loggingNode(counts, onclick) {
-    const { errors, warnings, known } = tally(counts);
-    const parts = [h(`span${errors ? ".log-count.error" : ""}`, {}, `${errors} ERROR`), " · ", h(`span${warnings ? ".log-count.warning" : ""}`, {}, `${warnings} WARN`)];
-    if (known) parts.push(" · ", h("span.log-count.known", {}, `${known} KNOWN`));
+    const { errors, warnings, waived } = tally(counts);
+    const parts = [h(`span.log-count${errors ? ".error" : ".ok"}`, {}, `${errors} ERROR`), " · ", h(`span.log-count${warnings ? ".warning" : ".ok"}`, {}, `${warnings} WARN`)];
+    if (waived) parts.push(" · ", h("span.log-count.known", { title: "Warnings the flow waives: a tool's, listed with its reason in flow.logs" }, `${waived} WAIVED`));
     const title = Object.entries(counts || {})
-        .map(([tool, levels]) => `${tool}: ${Object.entries(levels).map(([level, n]) => `${n} ${level.toLowerCase()}`).join(", ")}`)
+        .map(([tool, levels]) => `${tool}: ${Object.entries(levels).map(([level, n]) => `${n} ${(level === "KNOWN" ? "waived" : level).toLowerCase()}`).join(", ")}`)
         .join("\n");
-    return onclick ? h("button.link.log-link", { title: `${title ? `${title}\n` : ""}Show the step's log`, onclick }, parts) : h("span", { title }, parts);
+    if (!onclick) return h("span", { title }, parts);
+    return h("span.log-cell", { title }, h("span", {}, parts), h("button.icon-btn.mini.log-open", { title: "Show the step's log", onclick, html: icon("link", 12) }));
 }
 
 // a rejection as the dashboard says it: "rejected at sim (prelayout): delay 2.1e-09 > 2e-09"
@@ -610,11 +622,14 @@ async function showLog(path, title) {
         event.stopPropagation();
         close();
     };
-    const overlay = h("div.lightbox.log", { onclick: (event) => event.target === overlay && close() }, h("figure", {}, h("figcaption", {}, title, h("span.grow"), h("button.icon-btn", { title: "Close (Escape)", onclick: close, html: icon("x", 14) })), text));
+    // the raw log itself, opened by the browser beside the page (in a snapshot, its file)
+    const raw = apiUrl("log", { path });
+    const open = h("a.bar-btn.log-raw", { href: raw, target: "_blank", rel: "noopener", title: "Open the raw log" }, h("span", { html: icon("open", 13) }), "Open");
+    const overlay = h("div.lightbox.log", { onclick: (event) => event.target === overlay && close() }, h("figure", {}, h("figcaption", {}, title, h("span.grow"), open, h("button.icon-btn", { title: "Close (Escape)", onclick: close, html: icon("x", 14) })), text));
     document.body.append(overlay);
     document.addEventListener("keydown", onKey, true);
     try {
-        const response = await fetch(apiUrl("log", { path }));
+        const response = await fetch(raw);
         const body = response.ok ? (await response.text()) || "(empty)" : `HTTP ${response.status}`;
         // its errors and warnings in their colours
         text.replaceChildren(...body.split("\n").map((line) => h(/ (ERROR|CRITICAL) /.test(line) ? "span.log-error" : / WARNING /.test(line) ? "span.log-warning" : "span", {}, `${line}\n`)));
@@ -676,21 +691,21 @@ function commonRows(key) {
     const rows = [
         ...(page.compare ? [["State", entries.map((entry) => cell(entry.state, { node: chip(entry, { time: false }) })), { plain: true }]] : []),
     ];
+    // the tool the step ran, its version beside it, first
+    const tools = entries.map((entry) => toolOf(key, entry));
+    if (tools.some(Boolean)) rows.push(["Tool", tools.map((tool) => cell(tool, { raw: true })), { plain: true }]);
     // its time and when it finished are its chip's (the head's pipeline and the row's own)
     if (entries.some((entry) => Object.keys(entry.counts || {}).length || entry.log_file)) {
         rows.push([
             "Logging",
             entries.map((entry) => {
-                const { errors, warnings, known } = tally(entry.counts);
+                const { errors, warnings, waived } = tally(entry.counts);
                 const node = loggingNode(entry.counts, entry.log_file ? () => showLog(entry.log_file, `${STEPS[key]?.[0] || key}: ${entry.log_file}`) : null);
-                return cell(`${errors} ${warnings} ${known}`, { node });
+                return cell(`${errors} ${warnings} ${waived}`, { node });
             }),
-            { plain: true, unit: "#" },
+            { plain: true },
         ]);
     }
-    // the tool the step ran, its version beside it
-    const tools = entries.map((entry) => toolOf(key, entry));
-    if (tools.some(Boolean)) rows.push(["Tool", tools.map((tool) => cell(tool, { raw: true })), { plain: true }]);
     if (entries.some((entry) => entry.error)) {
         rows.push(["Error", entries.map((entry) => cell(entry.error ? entry.error.trim().split("\n").pop() : "—", { title: entry.error || "", bad: Boolean(entry.error) }))]);
     }
@@ -723,7 +738,7 @@ function commonRows(key) {
 
 // the tool a step ran as "name version" (its outputs' tool: {name, version}); a run from before the
 // steps named theirs, by what its step kept (DRC's checker, the extractor) or the step's own tool
-const STEP_TOOLS = { presim: "spectre", postsim: "spectre", layout: "align", lvs: "klayout-lvs" };
+const STEP_TOOLS = { netlist: "hdl21 · vlsir", presim: "spectre", postsim: "spectre", layout: "align", lvs: "klayout-lvs" };
 function toolOf(key, entry) {
     const outputs = entry.outputs || {};
     if (outputs.tool?.name) return [outputs.tool.name, outputs.tool.version].filter(Boolean).join(" ");
@@ -750,13 +765,15 @@ function stepRows(key) {
             const sizes = [...new Set(instances.flatMap((instance) => Object.keys(stepOf(instance, key).geometry || {})))];
             const leaves = [...new Set(instances.flatMap((instance) => Object.keys(stepOf(instance, key).netlist?.leaves || {})))];
             const stat = (name) => (_outputs, _instance, entry) => entry.netlist?.[name];
+            // its size and its netlist's statistics one section
+            const listed = instances.some((instance) => stepOf(instance, key).netlist?.top);
             return [
                 ["Parameters", [], { section: true }],
                 ...params,
-                ...(sizes.length ? [["Size", [], { section: true }], ...metricRows(sizes, (instance) => stepOf(instance, key).geometry)] : []),
-                ...(instances.some((instance) => stepOf(instance, key).netlist?.top)
+                ...(sizes.length || listed ? [["Netlist", [], { section: true }]] : []),
+                ...(sizes.length ? metricRows(sizes, (instance) => stepOf(instance, key).geometry) : []),
+                ...(listed
                     ? [
-                          ["Netlist", [], { section: true }],
                           ["Top cell", valuesOf(key, stat("top")), { mono: true }],
                           count("Ports", stat("ports")),
                           count("Nets", stat("nets")),
@@ -784,7 +801,8 @@ function stepRows(key) {
                 ["Placement", valuesOf(key, (outputs, instance) => (outputs.placed === undefined ? null : instance.layout?.floorplan || outputs.placed ? "constraints" : "generated")), { title: "Placed by the block's constraints, or generated by the flow" }],
                 ["Routing", valuesOf(key, (outputs) => outputs.router)],
                 count("Route shorts", (outputs) => outputs.route_shorts),
-                ...parts(key),
+                // its parts' times and figures are its statistics where it has them (statsRows)
+                ...(hasStats(key) ? [] : parts(key)),
             ];
         case "drc":
             return [
@@ -804,7 +822,10 @@ function stepRows(key) {
             return [
                 ["Extracted", valuesOf(key, (outputs) => (outputs.total_f === undefined ? null : femto(outputs.total_f))), { unit: "fF", title: "The extraction's capacitance, every net's summed" }],
                 count("Capacitors", (outputs) => outputs.capacitors),
-                count("Nets", (outputs) => (outputs.nets ? Object.keys(outputs.nets).length : null)),
+                count("Nets", (outputs) => {
+                    const nets = pexNets(outputs);
+                    return nets ? Object.keys(nets).length : null;
+                }),
             ];
         case "postsim":
             return [
@@ -868,12 +889,53 @@ function parts(key) {
     return [["Its time by part", [], { section: true }], ...rows.map(([part, label]) => timeRow(label, page.instances.map((instance) => outputsOf(instance, key).parts?.[part]), `The step's ${label.toLowerCase()}`))];
 }
 
-// a row of times in one unit: ms where every one is under a second, else s; "N/A" where a design's
-// tool has no such part
+// a row of times in seconds, to the hundredth; "N/A" where a design's tool has no such part
 function timeRow(label, seconds, title) {
-    const known = seconds.filter((value) => typeof value === "number");
-    const ms = known.length && known.every((value) => value < 1);
-    return [label, seconds.map((value) => cell(typeof value !== "number" ? "N/A" : ms ? String(Math.round(value * 1000)) : value.toFixed(1), { raw: true })), { plain: true, unit: ms ? "ms" : "s", title }];
+    return [label, seconds.map((value) => cell(typeof value !== "number" ? "N/A" : value.toFixed(2), { raw: true })), { plain: true, unit: "s", title }];
+}
+
+// ---- a step's own statistics (its outputs' stats: {section, label, value, unit}) ----------------
+
+// the units a statistic's values take an SI prefix in
+const SI_UNITS = new Set(["F", "Hz", "V", "A", "W", "J", "Ω", "S"]);
+
+const hasStats = (key) => page.instances.some((instance) => (outputsOf(instance, key).stats || []).length);
+
+// a step's statistics after its other facts, under their sections in the order its tool reports
+// them, a row a statistic: its values in one unit (an SI prefix the row's; a file's size in kB or
+// MB; seconds to the hundredth; a count whole)
+function statsRows(key) {
+    const lists = page.instances.map((instance) => outputsOf(instance, key).stats || []);
+    const keyOf = (stat) => `${stat.section}\u0000${stat.label}`;
+    const first = new Map();
+    for (const list of lists) for (const stat of list) if (!first.has(keyOf(stat))) first.set(keyOf(stat), stat);
+    const sections = [...new Set([...first.values()].map((stat) => stat.section))];
+    const rows = [];
+    for (const section of sections) {
+        rows.push([section, [], { section: true }]);
+        for (const stat of [...first.values()].filter((item) => item.section === section)) {
+            const values = lists.map((list) => list.find((item) => keyOf(item) === keyOf(stat))?.value ?? null);
+            rows.push(statRow(stat.label, stat.unit || "", values));
+        }
+    }
+    return rows;
+}
+
+function statRow(label, unit, values) {
+    const numbers = values.filter((value) => typeof value === "number" && Number.isFinite(value));
+    const text = (value, show) => cell(value === null || value === undefined ? (unit === "s" ? "N/A" : null) : typeof value === "number" ? show(value) : value, { raw: true });
+    if (unit === "s") return [label, values.map((value) => text(value, (seconds) => seconds.toFixed(2))), { unit: "s", plain: true }];
+    if (unit === "#") return [label, values.map((value) => text(value, (count) => String(Math.round(count)))), { unit: "#" }];
+    if (unit === "B") {
+        const shown = numbers.length ? bytes(Math.max(...numbers)).split(" ")[1] : "B";
+        const scale = { B: 1, kB: 1e3, MB: 1e6, GB: 1e9, TB: 1e12 }[shown] || 1;
+        return [label, values.map((value) => text(value, (size) => String(+(size / scale).toPrecision(3)))), { unit: shown }];
+    }
+    if (SI_UNITS.has(unit) && numbers.some(Boolean)) {
+        const exponent = siExponent(numbers.filter(Boolean));
+        return [label, values.map((value) => text(value, (number) => String(+(number / 10 ** exponent).toPrecision(4)))), { unit: `${PREFIXES[exponent]}${unit}` }];
+    }
+    return [label, values.map((value) => text(value, (number) => String(+number.toPrecision(4)))), { unit }];
 }
 
 const verdict = (outputs) => (outputs.lvs_correct === undefined ? null : outputs.lvs_correct === null ? "no deck" : outputs.lvs_correct ? "match" : "no match");
@@ -900,16 +962,8 @@ function prePost(instance, names) {
             h("td.muted", {}, change),
         );
     });
-    const bad = Boolean(instance.rejected || instance.error);
-    const heading = h(
-        "div.prepost-head",
-        {},
-        h("strong", {}, "Metrics"),
-        instance.evidence ? h("span.muted", { title: "What the results' metrics come from" }, ` · ${words(instance.evidence.toUpperCase())}`) : null,
-        h(`span${bad ? ".bad" : ".good"}`, {}, ` · ${verdictOf(instance)}`),
-        instance.unjudged?.length ? h("span.muted", { title: "The bounds the results' evidence could not judge" }, ` · unjudged: ${instance.unjudged.join(", ")}`) : null,
-    );
-    return [["", [], { node: h("div.prepost", {}, heading, h("table.tgrid.narrow.facts.prepost", {}, h("thead", {}, head), h("tbody", {}, rows))) }]];
+    // the verdict is the row's chip's (its title), the evidence the columns'
+    return [["", [], { node: h("div.prepost", {}, h("table.tgrid.narrow.facts.prepost", {}, h("thead", {}, head), h("tbody", {}, rows))) }]];
 }
 
 // ---- what a step made: its row's right side ---------------------------------------------------
@@ -952,22 +1006,20 @@ class FindingsPanel {
             const devices = entry.devices || {};
             const mismatches = entry.mismatches?.length ? h("pre.mismatches", {}, entry.mismatches.join("\n")) : null;
             if (!Object.keys(devices).length) {
-                this.body.replaceChildren(...[named, h("div.muted", {}, outputs.lvs_correct === null ? "Not compared: no LVS deck." : "No device counts in this run's LVS database."), mismatches].filter(Boolean));
+                this.body.replaceChildren(...[named, h("div.muted.findings-note", {}, outputs.lvs_correct === null ? "Not compared: no LVS deck." : "No device counts in this run's LVS database."), mismatches].filter(Boolean));
                 return;
             }
-            const element = h("div.plot");
-            this.body.replaceChildren(...[named, element, mismatches].filter(Boolean));
-            devicesPlot(element, devices);
+            this.body.replaceChildren(...[named, devicesTable(devices), mismatches].filter(Boolean));
         } else if (this.key === "pex") {
-            const nets = Object.entries(outputs.nets || {}).sort((a, b) => b[1] - a[1]);
+            const nets = Object.entries(pexNets(outputs) || {}).sort((a, b) => b[1] - a[1]);
             if (!nets.length) {
-                this.body.replaceChildren(...[named, h("div.muted", {}, "The extraction's netlist alone: no capacitance by net.")].filter(Boolean));
+                this.body.replaceChildren(...[named, h("div.muted.findings-note", {}, "The extraction's netlist alone: no capacitance by net.")].filter(Boolean));
                 return;
             }
             // each net's devices' own capacitance (the pre-layout simulation's operating point), where
             // the run measured it
             const device = outputs.device_f || stepOf(instance, "presim").outputs?.device_f || null;
-            this.body.replaceChildren(...[named, netsTable(nets, device, colorOf(page.shown))].filter(Boolean));
+            this.body.replaceChildren(...[named, netsTable(nets, device)].filter(Boolean));
         }
     }
 }
@@ -978,7 +1030,7 @@ function drcRules(entry) {
     const violated = entry.rules || {};
     const checked = entry.checked || {};
     const names = [...new Set([...Object.keys(violated), ...Object.keys(checked)])].sort((a, b) => (violated[b] || 0) - (violated[a] || 0));
-    if (!names.length) return h("div.muted", {}, "The checker listed no rules.");
+    if (!names.length) return h("div.muted.findings-note", {}, "The checker listed no rules.");
     const rows = names.map((rule) => {
         const count = violated[rule] || 0;
         return h(
@@ -989,52 +1041,89 @@ function drcRules(entry) {
             h(`td${count ? ".failed" : ".passed"}`, {}, count ? String(count) : "passed"),
         );
     });
-    return h("table.tgrid.narrow.facts.rules", {}, h("thead", {}, h("tr", {}, h("th.corner", {}, "rule"), h("th.inst", {}, "check"), h("th.inst", {}, "violations"))), h("tbody", {}, rows));
+    return h("table.tgrid.narrow.facts.flat.rules", {}, h("thead", {}, h("tr", {}, h("th.corner", {}, "rule"), h("th.inst", {}, "check"), h("th.inst", {}, "violations"))), h("tbody", {}, rows));
 }
 
-// LVS's devices by class on each side, the schematic's and the layout's bars side by side
-function devicesPlot(element, devices) {
-    const theme = currentTheme();
-    const colors = PAPERS[theme];
+// LVS's devices by class, a row each: the schematic's count, the layout's and whether they match
+function devicesTable(devices) {
     const classes = [...new Set(Object.values(devices).flatMap((side) => Object.keys(side)))].sort();
-    const sides = [["schematic", 0], ["layout", 1]].filter(([side]) => devices[side]);
-    const traces = sides.map(([side, index]) => ({
-        type: "bar",
-        name: side,
-        x: classes,
-        y: classes.map((name) => devices[side][name] || 0),
-        marker: { color: tone(COLORS[index], theme) },
-        hovertemplate: `${side} %{x}: %{y}<extra></extra>`,
-    }));
-    const layout = paperLayout("", "", "Devices (#)", false, false, traces.length, theme, { traces });
-    layout.xaxis = { ...layout.xaxis, type: "category", tickfont: { family: "var(--font-mono)", size: 11, color: colors.ink }, title: { text: "" } };
-    layout.yaxis = { ...layout.yaxis, rangemode: "tozero", dtick: 1 };
-    layout.margin = { l: 56, r: 16, t: 8, b: 40 };
-    layout.barmode = "group";
-    layout.bargap = 0.35;
-    layout.legend = { ...layout.legend, bordercolor: "rgba(0,0,0,0)", borderwidth: 0 };
-    element.style.height = "260px";
-    Plotly.newPlot(element, traces, layout, { displayModeBar: false }).then(() => keepTicks(element));
+    const rows = classes.map((name) => {
+        const [schematic, layout] = [devices.schematic?.[name], devices.layout?.[name]];
+        const match = schematic === layout;
+        return h(
+            "tr",
+            {},
+            h("th.label", { title: name }, h("div.lab", {}, h("span.name.mono", {}, name), h("span.unit", {}, "#"))),
+            h("td", {}, schematic ?? "—"),
+            h("td", {}, layout ?? "—"),
+            h(`td.match${match ? ".passed" : ".failed"}`, { title: match ? "The same count on both sides" : "The sides differ" }, match ? "✓" : "✗"),
+        );
+    });
+    const head = h("tr", {}, h("th.corner", {}, "device"), h("th.inst", {}, "schematic"), h("th.inst", {}, "layout"), h("th.inst", {}, "match"));
+    return h("table.tgrid.narrow.facts.flat.devices", {}, h("thead", {}, head), h("tbody", {}, rows));
 }
 
-// the extraction's capacitance by net, the largest first: each net's wiring capacitance (to
-// everything else), its devices' own where measured and their sum, a bar of its wiring's share
-function netsTable(nets, device, color) {
-    const largest = Math.max(...nets.map(([, value]) => value));
-    const head = h("tr", {}, h("th.corner", {}, "net"), h("th.inst", {}, "wiring"), device ? h("th.inst", {}, "device") : null, device ? h("th.inst", {}, "total") : null, h("th.inst.bar-head", {}, ""));
+// the extraction's nets, by their schematic names where LVS paired them (schematic_nets), else as
+// extracted
+const pexNets = (outputs) => outputs.schematic_nets || outputs.nets || null;
+
+// the extraction's capacitance by net, the largest total first: each net's wiring capacitance (to
+// everything else), its devices' own where measured and their sum, a stacked bar of the two
+// (orange the devices', blue the wiring's)
+function netsTable(nets, device) {
+    const theme = currentTheme();
+    const [blue, orange] = [tone(COLORS[0], theme), tone(COLORS[1], theme)];
+    const own = (net) => (device && typeof device[net] === "number" ? device[net] : 0);
+    nets = [...nets].sort((a, b) => b[1] + own(b[0]) - (a[1] + own(a[0])));
+    const largest = Math.max(...nets.map(([net, wiring]) => wiring + own(net)));
+    const key = device ? h("span.bar-key", {}, h("span.swatch", { style: { background: blue } }), "wiring", h("span.swatch", { style: { background: orange } }), "device") : "";
+    const head = h("tr", {}, h("th.corner", {}, "net"), h("th.inst", {}, "wiring"), device ? h("th.inst", {}, "device") : null, device ? h("th.inst", {}, "total") : null, h("th.inst.bar-head", {}, key));
     const rows = nets.map(([net, wiring]) => {
-        const own = device?.[net];
+        const measured = device && typeof device[net] === "number";
         return h(
             "tr",
             {},
             h("th.label", { title: net }, h("div.lab", {}, h("span.name.mono", {}, net), h("span.unit", {}, "fF"))),
             h("td", {}, femto(wiring)),
-            device ? h("td", {}, own === undefined ? "—" : femto(own)) : null,
-            device ? h("td", {}, own === undefined ? "—" : femto(wiring + own)) : null,
-            h("td.bar-cell", {}, h("span.bar", { style: { width: `${(100 * wiring) / largest}%`, background: color } })),
+            device ? h("td", {}, measured ? femto(device[net]) : "—") : null,
+            device ? h("td", {}, measured ? femto(wiring + device[net]) : "—") : null,
+            h(
+                "td.bar-cell",
+                {},
+                h(
+                    "span.bars",
+                    {},
+                    h("span.bar", { title: `wiring ${femto(wiring)} fF`, style: { width: `${(100 * wiring) / largest}%`, background: blue } }),
+                    measured ? h("span.bar", { title: `device ${femto(device[net])} fF`, style: { width: `${(100 * device[net]) / largest}%`, background: orange } }) : null,
+                ),
+            ),
         );
     });
-    return h("table.tgrid.narrow.facts.nets", {}, h("thead", {}, head), h("tbody", {}, rows));
+    return h("table.tgrid.narrow.facts.flat.nets", {}, h("thead", {}, head), h("tbody", {}, rows));
+}
+
+// a layout view (2-D or 3-D) with its layers in a column at its right, folded to a strip by its
+// head (the fold kept between visits): the region's container shared by both
+function withLayers(container, Make) {
+    const main = h("div.with-layers-main");
+    const list = h("div.with-layers-list");
+    const folded = recall("layers.folded", false);
+    const side = h(`div.with-layers-side${folded ? ".folded" : ""}`);
+    const head = h("button.with-layers-head", { title: "Show or fold the layers" }, h("span", { html: icon("layers", 13) }), h("span.label", {}, "Layers"));
+    head.addEventListener("click", () => {
+        const fold = !side.classList.contains("folded");
+        // the 2-D and the 3-D view's columns alike
+        document.querySelectorAll(".with-layers-side").forEach((column) => column.classList.toggle("folded", fold));
+        store("layers.folded", fold);
+        // the view takes the room the column leaves
+        window.dispatchEvent(new Event("resize"));
+    });
+    side.append(head, list);
+    container.element.append(h("div.with-layers", {}, main, side));
+    const shared = (element) => ({ element, on: (event, handler) => container.on(event, handler), set stateRequestEvent(_handler) {} });
+    const panel = new Make(shared(main));
+    new LayersPanel(shared(list));
+    return panel;
 }
 
 // the regions a step's right side holds: [panels, its height class], none where nothing was made
@@ -1052,7 +1141,8 @@ function vizOf(key) {
         case "layout":
             if (!any((instance) => instance.layout?.file)) return null;
             return [
-                [panel("layout", "Layout", (container) => new LayoutPanel(container)), panel("layout3d", "3D", (container) => new Layout3DPanel(container)), panel("layers", "Layers", (container) => new LayersPanel(container))],
+                // the layers a column of each view, not a tab of their own
+                [panel("layout", "Layout", (container) => withLayers(container, LayoutPanel)), panel("layout3d", "3D", (container) => withLayers(container, Layout3DPanel))],
                 "layout",
             ];
         case "drc":
@@ -1092,11 +1182,11 @@ function stepRow(key, number, layouts) {
     // a step none of the designs ran: one line, why
     if (entries.every((entry) => entry.state === "not run")) {
         const why = [...new Set(entries.map((entry) => entry.why).filter(Boolean))].join("; ");
-        return h("section.step-row.idle", anchor, h("div.step-head", {}, h("span.step-index", {}, String(number)), h("strong", {}, title), chip(entries[0], { time: false }), h("span.muted", {}, why)));
+        return h("section.step-row.idle", anchor, h("div.step-head", {}, h("span.step-index", {}, String(number)), chip(entries[0], { label: title, time: false }), h("span.muted", {}, why)));
     }
     // the results' metrics their own table, its heading their evidence and verdict (the step's
     // logging is its chip's)
-    const rows = key === "results" ? stepRows(key) : [...commonRows(key), ...stepRows(key)];
+    const rows = key === "results" ? stepRows(key) : [...commonRows(key), ...stepRows(key), ...statsRows(key)];
     const facts = h("div.step-facts");
     const table = factsTable(rows.filter((row) => !row[2]?.node));
     facts.append(table, ...rows.filter((row) => row[2]?.node).map((row) => row[2].node));
@@ -1105,7 +1195,9 @@ function stepRow(key, number, layouts) {
     const left = h(
         "div.step-card",
         {},
-        h("div.step-head", {}, h("span.step-index", {}, String(number)), h("strong", {}, title), page.compare ? null : chip(entries[0]), h("span.grow")),
+        // its name in its chip, as the head's pipeline names it; compared, a chip of the name alone
+        // (each design's state is its column's)
+        h("div.step-head", {}, h("span.step-index", {}, String(number)), page.compare ? h("span.stage-chip.named", {}, title) : chip(entries[0], { label: title }), h("span.grow")),
         facts,
         error,
     );
