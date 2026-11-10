@@ -438,14 +438,21 @@ def _for_lvs(pkg: vckt.Package, pdk: str) -> str:
         [r for *_, r in mom_at],
         library_cells(pkg),
     )
+    # each LVS model once, however many instances take it (a second definition of one name is refused)
+    renamed: dict[tuple[str, str], Any] = {}
     for (instance, ext, _), found in zip(mos_at, mos, strict=True):
         if found is None:
             continue
         model, values = found
         if model != ext.name.name:
-            device = pkg.ext_modules.add()
-            device.CopyFrom(ext)
-            device.name.name = model
+            device = renamed.get((ext.name.domain, model))
+            if device is None:
+                existing = [e for e in pkg.ext_modules if (e.name.domain, e.name.name) == (ext.name.domain, model)]
+                device = existing[0] if existing else pkg.ext_modules.add()
+                if not existing:
+                    device.CopyFrom(ext)
+                    device.name.name = model
+                renamed[ext.name.domain, model] = device
             instance.module.CopyFrom(vutils.Reference(external=device.name))
         _set_params(instance, {k: _microns(v) for k, v in values.items()})
     replaced: dict[tuple[str, int], list[vckt.Instance]] = {}

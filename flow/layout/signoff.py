@@ -414,8 +414,9 @@ def open_lvs(
     pdk: str, gds: Path, top: str, source: Path, source_top: str, run_dir: Path
 ) -> tuple[bool | None, Path | None, str]:
     """The kit's KLayout LVS of ``gds`` against ``source``: its full deck (``pdk.<pdk>.klayout.lvs``)
-    or its approximate one (``klayout_lvs``); the verdict (None: the kit has neither), the LVS
-    database and which deck ran. Its first mismatches are logged."""
+    or its approximate one (``klayout_lvs``), else the generic deck on its layer table
+    (``flow.layout.klayout_lvs``, MOS devices and their wiring); the verdict (None: the kit has none
+    of them), the LVS database and which deck ran. Its first mismatches are logged."""
     log = logging.getLogger("klayout.lvs")
     if find_spec(f"pdk.{pdk}.klayout.lvs"):
         correct, _found = import_module(f"pdk.{pdk}.klayout.lvs").lvs(gds, top, source, source_top, run_dir)
@@ -423,6 +424,12 @@ def open_lvs(
     elif find_spec(f"pdk.{pdk}.klayout.klayout_lvs"):
         correct = import_module(f"pdk.{pdk}.klayout.klayout_lvs").lvs(str(gds), top, str(source), source_top)
         reports, deck = [Path(f"{gds}.lvsdb")], "KLayout (approximate deck)"
+    elif find_spec(f"pdk.{pdk}.layout.tech"):
+        from flow.layout.klayout_lvs import lvs as generic
+
+        tech = import_module(f"pdk.{pdk}.layout.tech")
+        correct = generic(str(gds), top, str(source), source_top, tech)
+        reports, deck = [Path(f"{gds}.lvsdb")], "KLayout (generic deck)"
     else:
         log.warning(f"{pdk} has no KLayout LVS deck: LVS not run")
         return None, None, ""
