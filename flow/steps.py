@@ -482,7 +482,10 @@ def _pexsim(job: Job) -> dict:
     if "probes" not in extracted:
         made = f"delete {runner._shown(job.out / 'pex')}, then {_command(job, Step.PEX)}"
         raise RuntimeError(f"its extraction has no net probes (made before them): make it again, {made}")
-    found = annotate.annotation(Path(extracted["netlist"]), Path(extracted["probes"]), Path(checked["lvs_report"]))
+    laid = _outputs(job.out, Step.LAYOUT)
+    gds = Path(laid["gds"]) if laid.get("gds") else None
+    lvsdb = Path(checked["lvs_report"])
+    found = annotate.annotation(Path(extracted["netlist"]), Path(extracted["probes"]), lvsdb, gds=gds)
     runs = runner.testbenches_of(job.block, job.pdk, job.params)
     for kept in (job.out / "pexsim").glob("*/annotation.json"):  # a failed pexsim's, kept to resume
         if kept.stat().st_mtime < _marker(job.out, Step.PEX).stat().st_mtime:  # of an extraction since redone

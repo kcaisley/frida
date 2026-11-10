@@ -666,7 +666,9 @@ def extraction(tools, monkeypatch):
         return {"netlist": str(netlist), "probes": str(probes), "extractor": "stand-in", "nets": {"a": 3.51e-15}}
 
     monkeypatch.setattr(step, "extracted", extracted)
-    monkeypatch.setattr(annotate, "schematic_nets", lambda lvsdb, probes: {net: mapped[net] for net in probes})
+    monkeypatch.setattr(
+        annotate, "schematic_nets", lambda lvsdb, probes, gds=None: {net: mapped[net] for net in probes}
+    )
     return mapped
 
 

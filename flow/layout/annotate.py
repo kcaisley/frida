@@ -77,9 +77,11 @@ def _probed(lvs: db.LayoutVsSchematic, layers: dict[tuple[int, int], db.Region],
     return other.expanded_name().lower() if other is not None else None
 
 
-def schematic_nets(lvsdb: Path, probes: dict[str, list[list[int]]]) -> dict[str, str | None]:
+def schematic_nets(lvsdb: Path, probes: dict[str, list[list[int]]], gds: Path | None = None) -> dict[str, str | None]:
     """Each extracted net's schematic net (``_probed``, its first probe that finds one), by its
-    layout name; None for one that has none."""
+    layout name; None for one that has none. A probe's GDS layer is the database's layer of that
+    number, else, given the layout (``gds``), the database's layer of the same shapes
+    (``_matched``: a deck's derived layer, which the saved database keeps without its number)."""
     lvs = db.LayoutVsSchematic()
     lvs.read(str(lvsdb))
     layers: dict[tuple[int, int], db.Region] = {}
@@ -87,17 +89,47 @@ def schematic_nets(lvsdb: Path, probes: dict[str, list[list[int]]]) -> dict[str,
         info = lvs.layer_info(index)
         if info.layer >= 0:
             layers.setdefault((info.layer, info.datatype), lvs.layer_by_index(index))
+    wanted = {(layer, datatype) for points in probes.values() for layer, datatype, *_ in points}
+    if gds is not None and wanted - set(layers):
+        layers |= _matched(lvs, gds, wanted - set(layers))
     return {
         name: next((net for probe in points if (net := _probed(lvs, layers, probe)) is not None), None)
         for name, points in probes.items()
     }
 
 
-def annotation(netlist: Path, probes: Path, lvsdb: Path, limit: float = 0.05) -> Annotation:
+def _matched(lvs: db.LayoutVsSchematic, gds: Path, wanted: set[tuple[int, int]]) -> dict[tuple[int, int], db.Region]:
+    """Each of the ``wanted`` GDS layers matched to the LVS database's unnumbered layer of the same
+    shapes: the one whose difference from the layer's own shapes in the layout's top (the database's
+    top cell) is least, at most ``MATCHED_SHARE`` of their area; a layer none matches is left out."""
+    layout = db.Layout()
+    layout.read(str(gds))
+    name = lvs.internal_top_cell().name
+    top = layout.cell(name) if layout.has_cell(name) else max(layout.top_cells(), key=lambda c: c.bbox().area())
+    unnumbered = [lvs.layer_by_index(i) for i in lvs.layer_indexes() if lvs.layer_info(i).layer < 0]
+    found: dict[tuple[int, int], db.Region] = {}
+    for layer, datatype in sorted(wanted):
+        index = layout.find_layer(layer, datatype)
+        if index is None:
+            continue
+        own = db.Region(top.begin_shapes_rec(index)).merged()
+        if own.is_empty() or not unnumbered:
+            continue
+        best = min(unnumbered, key=lambda region: (region ^ own).area())
+        if (best ^ own).area() <= MATCHED_SHARE * own.area():
+            found[layer, datatype] = best
+    return found
+
+
+# how far a deck's derived layer may differ from the GDS layer it stands for (its pins, a cut)
+MATCHED_SHARE = 0.05
+
+
+def annotation(netlist: Path, probes: Path, lvsdb: Path, limit: float = 0.05, gds: Path | None = None) -> Annotation:
     """The extraction at ``netlist`` on the schematic's nets, its nets found by their ``probes``
     in the LVS database ``lvsdb`` (``schematic_nets``). Raises where more than ``limit`` of its
     capacitance is on nets with no schematic net (a share a few unconnected dummy gates reach)."""
-    found = {"0": "0", **schematic_nets(lvsdb, json.loads(probes.read_text()))}
+    found = {"0": "0", **schematic_nets(lvsdb, json.loads(probes.read_text()), gds)}
     summed: dict[tuple[str, str], float] = {}
     unmapped: dict[str, float] = {}
     total = mapped = 0.0
