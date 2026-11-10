@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from enum import Enum
 from importlib import import_module
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -40,6 +41,11 @@ BLOCKS = {
     "idac": "Current source",
     "bias": "Cascode bias",
 }
+# block -> the parameter that is its topology, which the scatter marks a point by (its colour is the
+# PDK's): the sampling switch's kind, the comparator's latch, the DAC's redundancy scheme, the
+# converter's DAC scheme. A block not named here: its first parameter that is an enumeration's
+# member (``topology``).
+TOPOLOGY = {"samp": "switch_type", "comp": "latch", "capdac": "redundancy", "adc": "cdac.redundancy"}
 # 2-D records longer than this are thinned to it for the browser (every k-th sample)
 MAX_SAMPLES = 1600
 
@@ -78,6 +84,20 @@ def json_value(value):
         return float(value)
     except (TypeError, ValueError):
         return str(value)
+
+
+def topology(block: str, rows: list[dict[str, Any]], varying: list[str]) -> str | None:
+    """The parameter a table's scatter marks its points by: the block's topology (``TOPOLOGY``), else
+    its first parameter whose every value is a name (an enumeration's member, upper case), where it
+    differs between the rows (``varying``); None where none does."""
+    named = TOPOLOGY.get(block)
+    if named is not None:
+        return named if named in varying else None
+    for name in varying:
+        values = [row["params"].get(name) for row in rows]
+        if all(isinstance(value, str) and value.isupper() for value in values):
+            return name
+    return None
 
 
 def thinned(length: int) -> np.ndarray:
@@ -257,3 +277,231 @@ def export_schematic(netlist: str, out: str) -> str:
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     render(Path(netlist), Path(out))
     return out
+
+
+# =============================================================================
+# An instance's steps: the story of its run through the pipeline
+# =============================================================================
+
+# a step that finished more than this before the next one in its chain started ran in an earlier
+# invocation of the run (the steps of one invocation follow each other in one worker)
+INVOCATION_GAP_S = 30.0
+# what a step's view leaves out of its step.json: its record of the run, kept apart, and its files
+_RUN_KEYS = ("step", "finished", "seconds", "error", "log")
+
+
+def _subcircuits(text: str) -> dict[str, dict[str, Any]]:
+    """A SPICE netlist's subcircuits by name (lowercase), in order: each one's ports and its element
+    lines (continuations joined, comments dropped)."""
+    lines: list[str] = []
+    for raw in text.splitlines():
+        if raw.startswith("+") and lines:
+            lines[-1] += " " + raw[1:].strip()
+        elif raw.strip() and not raw.lstrip().startswith("*"):
+            lines.append(raw.strip())
+    found: dict[str, dict[str, Any]] = {}
+    current: dict[str, Any] | None = None
+    for line in lines:
+        fields = line.split()
+        head = fields[0].lower()
+        if head == ".subckt":
+            current = found[fields[1].lower()] = {"name": fields[1], "ports": fields[2:], "elements": []}
+        elif head.startswith(".ends"):
+            current = None
+        elif current is not None and not head.startswith("."):
+            current["elements"].append(fields)
+    return found
+
+
+def netlist_stats(text: str) -> dict[str, Any]:
+    """A netlist's statistics: its top subcircuit (the last), its ports and nets, its subcircuits,
+    the instances in it, and every leaf it holds when flattened, by kind (transistors by model,
+    capacitors, resistors, the cells it names but does not define)."""
+    subs = _subcircuits(text)
+    if not subs:
+        return {"top": None}
+    top = list(subs.values())[-1]
+
+    def model(fields: list[str]) -> str:  # an element's model or subcircuit: its last bare field
+        return next(field for field in reversed(fields[1:]) if "=" not in field)
+
+    def nets(fields: list[str]) -> list[str]:
+        kind = fields[0][0].lower()
+        if kind == "x":
+            return [field for field in fields[1:] if "=" not in field][:-1]
+        return fields[1:5] if kind == "m" else fields[1:3]
+
+    named = {port.lower() for port in top["ports"]}
+    for fields in top["elements"]:
+        named |= {net.lower() for net in nets(fields)}
+    leaves: dict[str, int] = {}
+
+    def flatten(sub: dict[str, Any], depth: int = 0) -> None:
+        for fields in sub["elements"]:
+            kind = fields[0][0].lower()
+            child = subs.get(model(fields).lower()) if kind == "x" else None
+            if child is not None and depth < 32:
+                flatten(child, depth + 1)
+                continue
+            leaf = {"x": f"cell {model(fields)}", "m": f"MOS {model(fields)}", "c": "capacitor", "r": "resistor"}
+            key = leaf.get(kind, f"element {kind.upper()}")
+            leaves[key] = leaves.get(key, 0) + 1
+
+    flatten(top)
+    return {
+        "top": top["name"],
+        "ports": len(top["ports"]),
+        "nets": len(named),
+        "subcircuits": len(subs),
+        "instances": len(top["elements"]),
+        "leaves": dict(sorted(leaves.items(), key=lambda item: (-item[1], item[0]))),
+    }
+
+
+def _relative(path, root: Path) -> str | None:
+    """A path a step names, from the repository's root where it is under it."""
+    if not path:
+        return None
+    path = Path(path)
+    try:
+        return str(path.resolve().relative_to(root.resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _invocation_start(ended: dict[str, dict[str, Any]]) -> float:
+    """When the instance's newest invocation began: the start of the earliest step in the chain of
+    steps that ran one after another (within ``INVOCATION_GAP_S``) up to the newest."""
+    timed = sorted((entry for entry in ended.values() if entry.get("finished")), key=lambda entry: entry["finished"])
+    if not timed:
+        return 0.0
+    start = timed[-1]["finished"] - (timed[-1].get("seconds") or 0.0)
+    for entry in reversed(timed[:-1]):
+        if entry["finished"] < start - INVOCATION_GAP_S:
+            break
+        start = min(start, entry["finished"] - (entry.get("seconds") or 0.0))
+    return start
+
+
+def steps_view(folder: Path, record: dict[str, Any], *, root: Path = ROOT) -> list[dict[str, Any]] | None:
+    """The instance's steps in their order (``flow.steps.Step``: netlist, sim, circuit where it ran,
+    layout, drc, lvs, pex, pexsim, record), each as the viewer tells it: its state (``ok``; ``kept``:
+    made in an earlier invocation of the run than the instance's newest; ``failed`` with its error;
+    ``rejected``: the step after which the run's bounds rejected the design, with the bounds it
+    missed; ``skipped`` with why; ``not run`` with why), when it finished, its seconds, its log's
+    warnings and errors by tool (``counts``) and its log's path, what it established for the bounds
+    (``metrics``) and its outputs, paths from the repository's root; DRC's violations by rule, LVS's
+    mismatches where it found some, the netlist's statistics and size. None for an instance of a run
+    from before steps kept their own records (no ``step.json``): its record alone tells its story.
+    A record whose failure no step recorded (a run from before the record step) fails that step."""
+    from flow.steps import Step
+
+    ended = {}
+    for step in Step:
+        path = folder / str(step) / "step.json"
+        if path.exists():
+            try:
+                ended[step] = json.loads(path.read_text())
+            except ValueError:  # a step.json being written
+                continue
+    if not ended:
+        return None
+    if Step.RECORD not in ended and record.get("error"):
+        ended[Step.RECORD] = {"step": "record", "finished": None, "seconds": None, "error": record["error"]}
+    start = _invocation_start({str(step): entry for step, entry in ended.items()})
+    rejected = record.get("rejected") or None
+    rejected_at = (
+        Step[rejected["step"].upper()] if rejected and rejected.get("step", "").upper() in Step.__members__ else None
+    )
+    failed: list[Step] = []
+    out = []
+    for step in Step:
+        if step in (Step.FIGURES, Step.TABLE) or (step is Step.CIRCUIT and step not in ended):
+            continue
+        entry = ended.get(step)
+        view: dict[str, Any] = {"step": str(step)}
+        if entry is None:
+            if rejected_at is not None and step.value > rejected_at.value and step is not Step.RECORD:
+                why = f"rejected at {rejected_at}"
+            elif failed and set(failed) & (step.required - {step}):
+                why = f"after {next(str(s) for s in failed if s in step.required)} failed"
+            else:
+                why = "not run in this run"
+            out.append({**view, "state": "not run", "why": why})
+            continue
+        outputs = {key: value for key, value in entry.items() if key not in _RUN_KEYS}
+        for key, value in outputs.items():
+            if isinstance(value, str) and value.startswith("/") and Path(value).exists():
+                outputs[key] = _relative(value, root)
+        view.update(
+            finished=entry.get("finished"),
+            seconds=entry.get("seconds"),
+            counts=entry.get("log") or {},
+            log_file=_relative(folder / str(step) / "step.log", root)
+            if (folder / str(step) / "step.log").exists()
+            else None,
+            metrics=outputs.pop("metrics", None) or {},
+            outputs=outputs,
+        )
+        if entry.get("error"):
+            failed.append(step)
+            view.update(state="failed", error=entry["error"])
+        elif outputs.get("skipped"):
+            view.update(state="skipped", why=outputs["skipped"])
+        elif step is rejected_at:
+            view.update(state="rejected", rejected=rejected)
+        else:
+            view["state"] = "kept" if (entry.get("finished") or 0.0) < start - INVOCATION_GAP_S else "ok"
+        if rejected_at is not None and step.value > rejected_at.value and step is not Step.RECORD:
+            view["note"] = f"made before the design was rejected at {rejected_at}"
+        out.append(view | _step_extras(step, folder, view))
+    return out
+
+
+def _step_extras(step, folder: Path, view: dict[str, Any]) -> dict[str, Any]:
+    """What a step's view adds beside its step.json: the netlist's statistics and size, DRC's
+    violations by rule, LVS's mismatches (a KLayout database that did not match)."""
+    from flow.steps import Step
+
+    extras: dict[str, Any] = {}
+    if step is Step.NETLIST:
+        netlist = next(iter(sorted((folder / "netlist").glob("*.cdl"))), None)
+        if netlist is not None:
+            extras["netlist"] = netlist_stats(netlist.read_text(errors="replace"))
+        geometry = folder / "netlist" / "geometry.json"
+        if geometry.exists():
+            extras["geometry"] = json.loads(geometry.read_text())
+    elif step is Step.DRC:
+        report = folder / "drc" / "drc_violations.json"
+        if report.exists():
+            found = json.loads(report.read_text())
+            extras["rules"] = dict(sorted(found.get("violations", {}).items(), key=lambda item: (-item[1], item[0])))
+            extras["waived"] = found.get("waived") or {}
+    elif step is Step.LVS and view["outputs"].get("lvs_correct") is False:
+        report = view["outputs"].get("lvs_report")
+        if report and str(report).endswith(".lvsdb") and (ROOT / report).exists():
+            from flow.layout.signoff import _lvs_findings
+
+            try:
+                extras["mismatches"] = _lvs_findings(ROOT / report)[:200]
+            except Exception as error:  # noqa: BLE001 - the verdict stands without them
+                extras["mismatches"] = [f"(the LVS database did not read: {error})"]
+    return extras
+
+
+def wave_kinds(waves: dict[str, str], root: Path = ROOT) -> dict[str, dict[str, str]]:
+    """A record's waves (label -> measurement) by the step that simulated them: ``sim``'s (pre-layout)
+    and ``pexsim``'s (the extraction back-annotated), each pexsim measurement's pre-layout
+    counterpart (``sim/<run>/`` beside its ``pexsim/<run>/``) among sim's where it is kept."""
+    kinds: dict[str, dict[str, str]] = {"sim": {}, "pexsim": {}}
+    for label, relative in waves.items():
+        parts = Path(relative).parts
+        if "pexsim" in parts:
+            kinds["pexsim"][label] = relative
+            at = len(parts) - 1 - parts[::-1].index("pexsim")
+            twin = Path(*parts[:at], "sim", *parts[at + 1 :])
+            if (root / twin).exists():
+                kinds["sim"][label] = str(twin)
+        else:
+            kinds["sim"][label] = relative
+    return kinds

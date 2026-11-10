@@ -1,0 +1,98 @@
+"""An instance's story as the viewer tells it (``flow.web.export``): its netlist's statistics, each
+step's state from its ``step.json``, its waves by the step that simulated them, a table's topology,
+and the server's step logs."""
+
+import json
+from pathlib import Path
+
+import pytest
+
+from flow.web import export, server
+
+NETLIST = """\
+* a made-up block
+.subckt inv A Y VDD VSS
+mn Y A VSS VSS nmos_x w=240n l=60n nf=1
+mp Y A VDD VDD pmos_x w=240n l=60n nf=1
+.ends inv
+.subckt top IN OUT VDD VSS
+Xa IN mid VDD VSS inv
+Xb mid OUT VDD VSS inv
+Xc OUT VSS cap_cell length=4230
+C1 OUT VSS 1f
+.ends top
+"""
+
+
+def test_netlist_stats():
+    stats = export.netlist_stats(NETLIST)
+    assert stats["top"] == "top"
+    assert (stats["ports"], stats["instances"], stats["subcircuits"]) == (4, 4, 2)
+    assert stats["nets"] == 5  # in, out, mid, vdd, vss
+    assert stats["leaves"] == {"MOS nmos_x": 2, "MOS pmos_x": 2, "capacitor": 1, "cell cap_cell": 1}
+
+
+def _mark(folder: Path, step: str, finished: float, seconds: float, error=None, **outputs) -> None:
+    (folder / step).mkdir(parents=True, exist_ok=True)
+    entry = {"step": step, "finished": finished, "seconds": seconds, "error": error, "log": {}, **outputs}
+    (folder / step / "step.json").write_text(json.dumps(entry))
+
+
+def test_each_step_has_its_state(tmp_path: Path):
+    """A step made in an earlier invocation is kept, one the bounds rejected the design after is
+    rejected (the steps after it not run, but the record), a failure leaves the steps that need it
+    not run, and a run without steps has its record's story alone."""
+    rejected = {"step": "sim", "evidence": "prelayout", "bounds": {"delay_s": [2e-9, 1e-9]}}
+    _mark(tmp_path, "netlist", 1000.0, 0.5)
+    _mark(tmp_path, "sim", 1010.0, 9.0, runs=["a", "b"])
+    _mark(tmp_path, "record", 5000.0, 0.5, evidence="prelayout", rejected=rejected)
+    (tmp_path / "netlist" / "toy.cdl").write_text(NETLIST)
+    steps = {step["step"]: step for step in export.steps_view(tmp_path, {"rejected": rejected}, root=tmp_path) or []}
+    assert [steps[key]["state"] for key in ("netlist", "sim", "layout", "pexsim", "record")] == [
+        "kept",
+        "rejected",
+        "not run",
+        "not run",
+        "ok",
+    ]
+    assert steps["layout"]["why"] == "rejected at sim" and steps["sim"]["rejected"] == rejected
+    assert steps["sim"]["outputs"] == {"runs": ["a", "b"]} and steps["netlist"]["netlist"]["top"] == "top"
+    # a layout that failed: what needs it is not run, the record (which does without) ran
+    failed = tmp_path / "failed"
+    _mark(failed, "netlist", 1000.0, 0.5)
+    _mark(failed, "layout", 1004.0, 3.0, error="Traceback ...\nValueError: no room")
+    _mark(failed, "record", 1005.0, 0.5)
+    steps = {step["step"]: step for step in export.steps_view(failed, {}, root=tmp_path) or []}
+    assert steps["layout"]["state"] == "failed" and steps["layout"]["error"].endswith("no room")
+    assert (steps["drc"]["state"], steps["drc"]["why"]) == ("not run", "after layout failed")
+    assert steps["netlist"]["state"] == steps["record"]["state"] == "ok"
+    assert export.steps_view(tmp_path / "none", {}, root=tmp_path) is None
+
+
+def test_waves_by_the_step_that_simulated_them(tmp_path: Path):
+    post = "build/b/r/tsmc65/x/pexsim/vin_1/result.h5"
+    (tmp_path / "build/b/r/tsmc65/x/sim/vin_1").mkdir(parents=True)
+    (tmp_path / "build/b/r/tsmc65/x/sim/vin_1/result.h5").write_text("")
+    kinds = export.wave_kinds({"low": post, "gone": "build/b/r/tsmc65/x/pexsim/vin_2/result.h5"}, tmp_path)
+    assert kinds["pexsim"] == {"low": post, "gone": "build/b/r/tsmc65/x/pexsim/vin_2/result.h5"}
+    assert kinds["sim"] == {"low": "build/b/r/tsmc65/x/sim/vin_1/result.h5"}  # the twin kept alone
+    assert export.wave_kinds({"low": "build/b/r/tsmc65/x/sim/vin_1/result.h5"}, tmp_path)["pexsim"] == {}
+
+
+def test_a_tables_topology():
+    rows = [{"params": {"latch": "STRONGARM", "w": 1}}, {"params": {"latch": "DOUBLE_TAIL", "w": 2}}]
+    assert export.topology("comp", rows, ["latch", "w"]) == "latch"
+    assert export.topology("comp", rows, ["w"]) is None  # the same everywhere
+    assert export.topology("toy", rows, ["w", "latch"]) == "latch"  # its first enumeration's
+
+
+def test_the_server_serves_a_steps_log_alone(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(server, "BUILD_DIR", tmp_path / "build")
+    log = tmp_path / "build/b/r/tsmc65/x/layout/step.log"
+    log.parent.mkdir(parents=True)
+    log.write_text("one\ntwo\n")
+    assert server.log_body("build/b/r/tsmc65/x/layout/step.log") == b"one\ntwo\n"
+    (tmp_path / "secret.log").write_text("no")
+    for path in ("secret.log", "build/../secret.log", "build/b/r/tsmc65/x/layout/step.json"):
+        with pytest.raises(ValueError):
+            server.log_body(path)

@@ -201,16 +201,26 @@ def test_the_table_has_a_row_per_instance_and_a_file_each(tmp_path: Path, monkey
     # and a block whose sweep is gone
     (tmp_path / "web/data/sweep/catalog.json").write_text(json.dumps({"gone": {"title": "Gone", "instances": 1}}))
     runner.table(["toy"], 1)
+    # the run's own table, a file per instance beside it (its story: no steps kept, its record's)
+    own = json.loads((tmp_path / "web/data/sweep/toy/runs/20261020_000000.json").read_text())
+    assert [row["id"] for row in own["rows"]] == sorted(idents)
+    assert all(set(row) == {"id", "pdk", "params", "metrics", "error", "seconds"} for row in own["rows"])
+    assert own["params"] == ["w"]  # the kind is the same everywhere
+    assert "details" not in own  # each plot is scaled to its own data
+    instance = json.loads((tmp_path / f"web/data/sweep/toy/runs/20261020_000000/{idents[0]}.json").read_text())
+    assert instance["params"] == {"w": 1, "kind": "inv"} and instance["details"][0]["series"]["delay"][1] is None
+    assert instance["steps"] is None
+    # each instance's newest record, a row naming its run's file
     data = json.loads((tmp_path / "web/data/sweep/toy.json").read_text())
     assert [row["id"] for row in data["rows"]] == sorted(idents)
-    assert all(set(row) == {"id", "pdk", "params", "metrics", "error", "seconds"} for row in data["rows"])
-    assert data["params"] == ["w"]  # the kind is the same everywhere
-    assert "details" not in data  # each plot is scaled to its own data
-    instance = json.loads((tmp_path / f"web/data/sweep/toy/{idents[0]}.json").read_text())
-    assert instance["params"] == {"w": 1, "kind": "inv"} and instance["details"][0]["series"]["delay"][1] is None
+    assert {row["file"] for row in data["rows"]} == {"toy/runs/20261020_000000"}
     assert not (tmp_path / "web/data/sweep/toy/tsmc65__inv__x1.json").exists()
     catalog = json.loads((tmp_path / "web/data/sweep/catalog.json").read_text())
     assert catalog["toy"]["instances"] == 2 and "gone" not in catalog
+    assert catalog["toy"]["default"] == "20261020_000000"
+    assert [(run["label"], run["file"], run["instances"]) for run in catalog["toy"]["runs"]] == [
+        ("20261020_000000", "toy/runs/20261020_000000", 2)
+    ]
 
 
 def test_a_run_of_some_pdks_keeps_the_others_from_the_run_before(tmp_path: Path, monkeypatch) -> None:
@@ -256,6 +266,13 @@ def test_a_run_of_some_pdks_keeps_the_others_from_the_run_before(tmp_path: Path,
     data = json.loads((tmp_path / "web/data/sweep/toy.json").read_text())
     assert {row["pdk"]: row["metrics"]["delay_s"] for row in data["rows"]} == {"tsmc65": 2e-10, "ihp130": 3e-10}
     assert data["run"] == "20261021_000000 (tsmc65), 20261020_000000 (ihp130)"
+    # and each run's own, the newest the viewer's default
+    catalog = json.loads((tmp_path / "web/data/sweep/catalog.json").read_text())
+    assert [(run["label"], run["instances"]) for run in catalog["toy"]["runs"]] == [
+        ("20261021_000000", 1),
+        ("20261020_000000", 2),
+    ]
+    assert catalog["toy"]["default"] == "20261021_000000"
     # and the models' lookup alike, from the newest run that holds the instance: a later run of
     # another instance alone, a named one by its name, leaves it in the run before
     other = tmp_path / "sweep/toy/mine/tsmc65/frida1/instance.json"

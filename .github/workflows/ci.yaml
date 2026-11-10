@@ -159,7 +159,7 @@ jobs:
           flow/layout/devices/test_devices.py
           flow/layout/devices/momcap/test_netlist.py
           flow/util/test_netlist2image.py
-          flow/web/test_page.py
+          flow/web/test_story.py
           flow/comp/test_sim.py
           flow/comp/test_analysis.py
           flow/comp/test_plots.py

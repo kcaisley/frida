@@ -1,8 +1,11 @@
 """The viewer's server: ``/`` from ``flow/web/static``, ``/data/`` from ``build/web/data``,
 ``/api/wave?path=<measurement>&record=<n>`` with one record of a cached measurement's waveforms
 (read from its HDF5 file, under ``build/``), ``/api/figure?path=<svg>`` with an instance's
-figure (an SVG under a block's run, ``build/<block>/``, drawn by its analysis plots) and ``/api/gds?path=<gds>``
-with a layout's GDS (under ``build/``) as a download. The layout compiler (``compile.html``) has
+figure (an SVG under a block's run, ``build/<block>/``, drawn by its analysis plots), ``/api/gds?path=<gds>``
+with a layout's GDS (under ``build/``) as a download and ``/api/log?path=<log>`` with a step's log (a
+``.log`` under ``build/``, its last ``MAX_LOG`` bytes) as text. A block's tables are files under
+``/data/sweep/``: its runs' own (``<block>/runs/<run>/<stamp>.json``) and its newest records'
+(``<block>.json``), which ``flow.sweep.runner.table`` writes. The layout compiler (``compile.html``) has
 ``/api/compile/...`` (``flow/web/jobs.py``) and its jobs' files under ``/data/compile/``.
 ``python -m flow web.serve`` serves it; on a remote machine, forward the port
 (``ssh -L 8765:localhost:8765 host``) and open http://localhost:8765.
@@ -23,6 +26,7 @@ from flow.web.export import DATA_DIR, read_wave
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 BUILD_DIR = Path(__file__).resolve().parents[2] / "build"
 MAX_BODY = 1 << 20  # bytes of a POST body
+MAX_LOG = 1 << 20  # bytes of a step's log shown: its end
 
 
 @functools.lru_cache(maxsize=32)
@@ -39,6 +43,16 @@ def figure_body(path: str) -> bytes:
     return figure.read_bytes()
 
 
+def log_body(path: str) -> bytes:
+    """A step's log: only a ``.log`` under ``build/``, its last ``MAX_LOG`` bytes."""
+    log = (BUILD_DIR.parent / path).resolve()
+    if log.suffix != ".log" or not log.is_relative_to(BUILD_DIR.resolve()) or not log.is_file():
+        raise ValueError(f"not a step's log: {path}")
+    with log.open("rb") as file:
+        file.seek(max(0, log.stat().st_size - MAX_LOG))
+        return file.read()
+
+
 def gds_path(path: str) -> Path:
     """A layout's GDS: only a ``.gds`` under ``build/``."""
     gds = (BUILD_DIR.parent / path).resolve()
@@ -49,20 +63,22 @@ def gds_path(path: str) -> Path:
 
 class Handler(SimpleHTTPRequestHandler):
     """Static files from ``flow/web/static``, the exported data under ``/data/``, waveforms
-    under ``/api/wave``, the layout compiler under ``/api/compile/``."""
+    under ``/api/wave``, steps' logs under ``/api/log``, the layout compiler under ``/api/compile/``."""
 
     def do_GET(self) -> None:
         url = urlsplit(self.path)
         if url.path.startswith("/api/compile/"):
             self.compile_api("GET", url.path.removeprefix("/api/compile/"))
             return
-        if url.path not in ("/api/wave", "/api/figure", "/api/gds"):
+        if url.path not in ("/api/wave", "/api/figure", "/api/gds", "/api/log"):
             super().do_GET()
             return
         query = parse_qs(url.query)
         headers = {}
         try:
-            if url.path == "/api/figure":
+            if url.path == "/api/log":
+                body, kind = log_body(query["path"][0]), "text/plain; charset=utf-8"
+            elif url.path == "/api/figure":
                 body, kind = figure_body(query["path"][0]), "image/svg+xml"
             elif url.path == "/api/gds":
                 gds = gds_path(query["path"][0])

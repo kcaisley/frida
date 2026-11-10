@@ -10,10 +10,11 @@ The characterization's steps: ``write_netlist`` (the circuit as simulated and it
 its measurement kept as HDF5, into ``sim/<run>/``) and ``record`` (``search.record`` of the kept
 measurements: the instance's ``instance.json``, its id, parameters, level, metrics, details and
 waves); the pexsim step's ``simulate`` and ``record`` again, into ``pexsim/``, each testbench's DUT
-a flat copy of it holding its extraction's capacitors (``_back_annotated``). ``table``: each block's newest run in each PDK (a run of some
-PDKs alone keeps the others' from the run before) as the viewer's table
-(``build/web/data/sweep/<block>.json``: one row per instance, the parameters that differ, then the
-metrics) and one file per instance (its details, waves, layout and schematic).
+a flat copy of it holding its extraction's capacitors (``_back_annotated``). ``table``: the viewer's
+tables of a block, each of its runs' own (``export_run``: ``build/web/data/sweep/<block>/runs/<run>/
+<stamp>.json``, one row per instance, the parameters that differ, then the metrics, and one file per
+instance: its details, waves, layout, schematic and steps) and each instance's newest record across
+the runs (``<block>.json``: a run of some PDKs alone keeps the others' from the run before).
 """
 
 from __future__ import annotations
@@ -546,7 +547,8 @@ def newest_records(block: str, first: Path | None = None) -> tuple[list[dict[str
     record of its layout alone where none characterizes it. A run of some PDKs or instances alone,
     or of a layout alone, so leaves the others' records from the runs before. A pipeline block's
     instances since left out of its design are left out (on disk still, and for the models'
-    lookup). The records, by PDK then digest, and the runs they came from, each with its PDKs."""
+    lookup). The records, by PDK then digest, each with the run it came from (``source``: the
+    characterizing one's where a layout is joined), and the runs they came from, each with its PDKs."""
     runs = sorted(_runs(block), key=run_time, reverse=True)
     if first is not None:
         runs = [first, *(run for run in runs if run != first)]
@@ -578,7 +580,7 @@ def newest_records(block: str, first: Path | None = None) -> tuple[list[dict[str
     sources: dict[Path, set[str]] = {}
     for (pdk, _ident), (rank, _record) in chosen.items():
         sources.setdefault(runs[rank], set()).add(pdk)
-    return [chosen[key][1] for key in sorted(chosen)], sources
+    return [{**chosen[key][1], "source": runs[chosen[key][0]]} for key in sorted(chosen)], sources
 
 
 def instance_dirs(run: Path, pdk: str) -> dict[str, Path]:
@@ -607,7 +609,7 @@ def _shown_pex(pex: dict | None) -> dict | None:
     return {**pex, "netlist": _shown(pex["netlist"])} if pex and pex.get("netlist") else pex
 
 
-def _block_netlist(block: str, ident: str, record: dict, data_dir: Path) -> Path | None:
+def _block_netlist(block: str, ident: str, record: dict, out: Path) -> Path | None:
     """An instance laid out by no one: the netlist its netlist step wrote (its record's ``netlist``),
     or its block's compiled in its PDK (``flow.layout.step.block_netlist``: a record from before),
     else None."""
@@ -620,45 +622,63 @@ def _block_netlist(block: str, ident: str, record: dict, data_dir: Path) -> Path
         return ROOT / record["netlist"]
     try:
         params = instance_params(block, record["pdk"], ident.split("__")[-1])
-        return block_netlist(block, params, record["pdk"], data_dir / block / ident / f"{block}.cdl")
+        return block_netlist(block, params, record["pdk"], out / ident / f"{block}.cdl")
     except Exception:  # noqa: BLE001 - the page shows no netlist rather than no page
         return None
 
 
-def instance_views(block: str, ident: str, record: dict, data_dir: Path) -> dict:
-    """An instance's views for its page, under ``data_dir/<block>/`` (``build/web/data/sweep``): its layout
-    flattened onto the PDK's generic layers (``flow.web.export``), its schematic and netlist (its
-    layout's, else its block's: ``_block_netlist``), and
-    the index of its waveforms (``<ident>/traces.json``, as the waveform panel reads one); the
+def instance_views(
+    block: str, ident: str, record: dict, data_dir: Path, *, table: str | None = None, folder: Path | None = None
+) -> dict:
+    """An instance's views for its page, under ``data_dir/<table>/`` (``build/web/data/sweep``; ``table``
+    the block's by default, a run's ``run_file``): its layout flattened onto the PDK's generic layers
+    (``flow.web.export``), its schematic and netlist (its layout's, else its block's:
+    ``_block_netlist``), and the index of its waveforms (``<ident>/traces.json``, as the waveform panel
+    reads one); where its record's are its pexsim step's and ``folder`` (its directory in a run) is
+    given, the index of their pre-layout twins too (``<ident>/traces.sim.json``, ``traces_sim``). The
     files written, by kind."""
 
     from flow.analysis.io import read_measurement
-    from flow.web.export import export_layout, export_schematic, trace_index, wave_entry
+    from flow.web.export import export_layout, export_schematic, trace_index, wave_entry, wave_kinds
 
+    table = table or block
     files: dict = {}
     entry = record.get("layout") or {}
     if entry.get("gds"):
-        files["file"] = f"sweep/{block}/{ident}.layout.json"
+        files["file"] = f"sweep/{table}/{ident}.layout.json"
         export_layout(str(ROOT / entry["gds"]), record["pdk"], str(data_dir.parent / files["file"]))
-    netlist = ROOT / entry["netlist"] if entry.get("netlist") else _block_netlist(block, ident, record, data_dir)
+    netlist = (
+        ROOT / entry["netlist"] if entry.get("netlist") else _block_netlist(block, ident, record, data_dir / table)
+    )
+    if netlist is None and folder is not None:  # a failed record's: the netlist its netlist step wrote
+        netlist = next(iter(sorted((folder / "netlist").glob("*.cdl"))), None)
     if netlist is not None:
-        files["netlist_file"] = f"sweep/{block}/{ident}.netlist.sp"
+        files["netlist_file"] = f"sweep/{table}/{ident}.netlist.sp"
         (data_dir.parent / files["netlist_file"]).write_text(netlist.read_text())
         try:
-            files["schematic"] = f"sweep/{block}/{ident}.schematic.svg"
+            files["schematic"] = f"sweep/{table}/{ident}.schematic.svg"
             export_schematic(str(netlist), str(data_dir.parent / files["schematic"]))
         except Exception:  # noqa: BLE001 - the netlist stays readable without its drawing
             del files["schematic"]
-    waves = []
-    for label, relative in record.get("waves", {}).items():
-        path = ROOT / relative
-        if path.exists():
-            wave = wave_entry(path, read_measurement(path))
-            if wave is not None:
-                waves.append({**wave, "pdk": record["pdk"], "case": ident, "sweep": label})
-    index = data_dir / block / ident / "traces.json"
-    index.parent.mkdir(parents=True, exist_ok=True)
-    index.write_text(json.dumps(_json(trace_index(waves)), separators=(",", ":")))
+
+    def index(waves: dict[str, str], name: str) -> None:
+        found = []
+        for label, relative in waves.items():
+            path = ROOT / relative
+            if path.exists():
+                wave = wave_entry(path, read_measurement(path))
+                if wave is not None:
+                    found.append({**wave, "pdk": record["pdk"], "case": ident, "sweep": label})
+        path = data_dir / table / ident / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(_json(trace_index(found)), separators=(",", ":")))
+
+    waves = record.get("waves", {})
+    index(waves, "traces.json")
+    kinds = wave_kinds(waves)
+    if folder is not None and kinds["pexsim"] and kinds["sim"]:
+        index(kinds["sim"], "traces.sim.json")
+        files["traces_sim"] = f"sweep/{table}/{ident}/traces.sim.json"
     return files
 
 
@@ -668,12 +688,150 @@ def _current(block: str, pdk: str) -> set[str]:
     return set(design_space(block, pdk))
 
 
-def table(blocks: list[str], workers: int, run: Path | None = None) -> None:
-    """The viewer's table of each block's instances, each by its newest record (``newest_records``:
-    ``run``'s first, where given), and one detail file per instance."""
+# the format of a run's export (``export_run``): an export in another is made again
+VIEW_FORMAT = 2
 
+
+def run_file(block: str, run: Path) -> str:
+    """A run's table in the viewer's data, under ``build/web/data/sweep/``: ``<block>/runs/<label>``
+    (``run_label``: ``<run>/<stamp>``), its instances' files in the folder of that name."""
+    return f"{block}/runs/{run_label(block, run)}"
+
+
+def run_folders(run: Path) -> list[tuple[str, Path]]:
+    """A run's instance directories (``<pdk>/<name>/``, each with its record or a step's
+    ``step.json``: a run stopped before its records has the latter alone), by PDK then name."""
+    found = []
+    for pdk in sorted(path for path in run.iterdir() if path.is_dir()):
+        for folder in sorted(path for path in pdk.iterdir() if path.is_dir()):
+            if (folder / "instance.json").exists() or any(folder.glob("*/step.json")):
+                found.append((pdk.name, folder))
+    return found
+
+
+def _stand_in(block: str, pdk: str, folder: Path) -> dict[str, Any]:
+    """An instance's record where its run stopped before making one: its name, nothing measured."""
+    return {
+        **_base_record(block, pdk, {}, folder.name, folder.name),
+        "id": f"{pdk}__{folder.name}",
+        "params": {},
+        "error": "no record: the run stopped before this instance's record step",
+    }
+
+
+def _row(record: dict[str, Any]) -> dict[str, Any]:
+    """An instance's row in a table: its id, PDK, parameters, metrics, error's last line, seconds."""
+    return {
+        "id": record["id"],
+        "pdk": record["pdk"],
+        "params": record["params"],
+        "metrics": record["metrics"],
+        "error": ((record["error"] or "").strip().splitlines() or [None])[-1],
+        "seconds": record.get("seconds"),
+    }
+
+
+def _table(block: str, run_name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """A table of ``rows`` (``_row``'s, narrowed in place to the parameters that tell them apart):
+    the parameters that differ, then every metric (the design's size first: child cells, devices,
+    device and layout area; the rest by name), and the parameter that is the block's topology
+    where it differs (``flow.web.export.topology``), which the scatter marks a point by."""
     from flow import pipeline
-    from flow.web.export import BLOCKS
+    from flow.web.export import BLOCKS, topology
+
+    names = sorted({name for row in rows for name in row["params"]})
+    varying = [name for name in names if len({json.dumps(row["params"].get(name)) for row in rows}) > 1]
+    present = {name for row in rows for name in row["metrics"]}
+    metrics = [name for name in dict.fromkeys([*pipeline.GEOMETRY, *sorted(present)]) if name in present]
+    for row in rows:
+        row["params"] = {name: row["params"].get(name) for name in varying}
+    data = {
+        "block": block,
+        "title": BLOCKS.get(block, block),
+        "run": run_name,
+        "params": varying,
+        "metrics": metrics,
+        "rows": rows,
+    }
+    shape = topology(block, rows, varying)
+    return {**data, "topology": shape} if shape else data
+
+
+def instance_export(block: str, ident: str, record: dict[str, Any], folder: Path, table: str) -> dict[str, Any]:
+    """An instance's file in a run's table (``export_run``): its row, parameters, analyses, waves,
+    layout (with its views: ``instance_views``), error, the record's evidence, pre-layout metrics,
+    back-annotation, rejection and unjudged bounds, and its steps as the viewer tells them
+    (``flow.web.export.steps_view``)."""
+    from flow.web.export import steps_view
+
+    try:
+        files = instance_views(block, ident, record, DATA_DIR, table=table, folder=folder)
+    except Exception as error:  # noqa: BLE001 - a missing view is shown as missing
+        print(f"{table}/{ident}: {error!r}")
+        files = {}
+    entry = record.get("layout")
+    return {
+        **_row(record),
+        "label": record.get("label"),
+        "name": record.get("name"),
+        "details": record.get("details", []),
+        "waves": record.get("waves", {}),
+        # an instance laid out by no one keeps its netlist's views (no gds: no layout)
+        "layout": {**(entry or {}), **files} if entry or files else None,
+        "error": record["error"],
+        **{key: record.get(key) for key in ("evidence", "prelayout", "annotation", "rejected", "unjudged")},
+        "steps": steps_view(folder, record),
+    }
+
+
+def export_run(block: str, run: Path, pool: ProcessPoolExecutor, force: bool = False) -> dict[str, Any]:
+    """A run's table in the viewer's data (``run_file``: a row per instance it holds, as a table step
+    makes one, and a file per instance, ``instance_export``), made again where a record or step of
+    the run is newer than it, its format another or ``force``; the run's entry in the catalog (its
+    label, file, instances, failures and when it was made)."""
+    file = run_file(block, run)
+    path = DATA_DIR / f"{file}.json"
+    folders = run_folders(run)
+    made = [
+        marker.stat().st_mtime
+        for _pdk, folder in folders
+        for marker in (folder / "instance.json", *folder.glob("*/step.json"))
+        if marker.exists()
+    ]
+    data: dict[str, Any] | None = json.loads(path.read_text()) if path.exists() else None
+    if force or data is None or data.get("format") != VIEW_FORMAT or path.stat().st_mtime <= max(made, default=0.0):
+        found: dict[str, tuple[Path, dict[str, Any]]] = {}
+        for pdk, folder in folders:
+            marker = folder / "instance.json"
+            record = json.loads(marker.read_text()) if marker.exists() else _stand_in(block, pdk, folder)
+            found.setdefault(record["id"], (folder, record))
+        shutil.rmtree(DATA_DIR / file, ignore_errors=True)
+        (DATA_DIR / file).mkdir(parents=True)
+        futures = {
+            ident: pool.submit(instance_export, block, ident, record, folder, file)
+            for ident, (folder, record) in found.items()
+        }
+        for ident, future in futures.items():
+            instance = future.result()
+            (DATA_DIR / file / f"{ident}.json").write_text(json.dumps(_json(instance), separators=(",", ":")))
+        data = {**_table(block, run_label(block, run), [_row(record) for _folder, record in found.values()])}
+        data["format"] = VIEW_FORMAT
+        path.write_text(json.dumps(_json(data), separators=(",", ":")))
+    return {
+        "label": run_label(block, run),
+        "file": file,
+        "instances": len(data["rows"]),
+        "failed": sum(1 for row in data["rows"] if row["error"]),
+        "created": run_time(run),
+    }
+
+
+def table(blocks: list[str], workers: int, run: Path | None = None) -> None:
+    """The viewer's tables of each block (``build/web/data/sweep/``): each of its runs' own
+    (``export_run``: ``run``'s made again, the others where their records changed), the run the viewer
+    opens on (``default``: ``run``, else the newest), and the block's table of each instance's newest
+    record across its runs (``newest_records``: ``run``'s first), a row naming the run whose file it
+    shows (``file``); the catalog's entry of each, its runs newest first."""
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     catalog_path = DATA_DIR / "catalog.json"
@@ -682,6 +840,8 @@ def table(blocks: list[str], workers: int, run: Path | None = None) -> None:
     catalog = {block: entry for block, entry in catalog.items() if block in sweep_blocks() or block in blocks}
     with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as pool:
         for block in blocks:
+            runs = sorted(_runs(block), key=run_time, reverse=True)
+            entries = [export_run(block, each, pool, force=each == run) for each in runs]
             # each instance's newest record: a run of some PDKs or instances alone keeps the others'
             # rows from the runs before
             records, sources = newest_records(block, run)
@@ -696,65 +856,35 @@ def table(blocks: list[str], workers: int, run: Path | None = None) -> None:
                     for source in sorted(sources, key=run_time, reverse=True)
                 )
             )
-            (DATA_DIR / block).mkdir(parents=True, exist_ok=True)
-            rows, views = [], {}
-            for record in records:
-                ident = record["id"]
-                rows.append(
-                    {
-                        "id": ident,
-                        "pdk": record["pdk"],
-                        "params": record["params"],
-                        "metrics": record["metrics"],
-                        "error": ((record["error"] or "").strip().splitlines() or [None])[-1],
-                        "seconds": record.get("seconds"),
-                    }
-                )
-                views[ident] = (record, pool.submit(instance_views, block, ident, record, DATA_DIR))
-            for row in rows:
-                record, future = views[row["id"]]
-                try:
-                    files = future.result()
-                except Exception as error:  # noqa: BLE001 - a missing view is shown as missing
-                    print(f"{block}/{row['id']}: {error!r}")
-                    files = {}
-                entry = record.get("layout")
-                instance = {
-                    **row,
-                    "params": record["params"],
-                    "details": record["details"],
-                    "waves": record["waves"],
-                    # an instance laid out by no one keeps its netlist's views (no gds: no layout)
-                    "layout": {**(entry or {}), **files} if entry or files else None,
-                    "error": record["error"],
-                }
-                path = DATA_DIR / block / f"{row['id']}.json"
-                path.write_text(json.dumps(_json(instance), separators=(",", ":")))
-            # the parameters that tell instances apart, then every metric: the design's size together
-            # first (child cells, devices, device and layout area), the rest by name
-            names = sorted({name for row in rows for name in row["params"]})
-            varying = [name for name in names if len({json.dumps(row["params"].get(name)) for row in rows}) > 1]
-            present = {name for row in rows for name in row["metrics"]}
-            metrics = [name for name in dict.fromkeys([*pipeline.GEOMETRY, *sorted(present)]) if name in present]
-            for row in rows:
-                row["params"] = {name: row["params"].get(name) for name in varying}
-            title = BLOCKS.get(block, block)
-            data = {
-                "block": block,
-                "title": title,
-                "run": run_name,
-                "params": varying,
-                "metrics": metrics,
-                "rows": rows,
-            }
+            rows = [{**_row(record), "file": run_file(block, record["source"])} for record in records]
+            data = _table(block, run_name, rows)
             (DATA_DIR / f"{block}.json").write_text(json.dumps(_json(data), separators=(",", ":")))
-            # the files of instances no longer in the run (an earlier run's, or under older ids)
-            for stale in (DATA_DIR / block).iterdir():
-                if stale.name.split(".", 1)[0] not in views:
+            # the files of runs gone, and of the exports before runs had tables of their own
+            for stale in (DATA_DIR / block).iterdir() if (DATA_DIR / block).is_dir() else ():
+                if stale.name != "runs":
                     shutil.rmtree(stale) if stale.is_dir() else stale.unlink()
+            kept = {DATA_DIR / entry["file"] for entry in entries}
+            for stale in sorted((DATA_DIR / block / "runs").rglob("*.json")):
+                if stale.exists() and stale.with_suffix("") not in kept and not any(map(stale.is_relative_to, kept)):
+                    stale.unlink()
+                    shutil.rmtree(stale.with_suffix(""), ignore_errors=True)
+            for folder in sorted((DATA_DIR / block / "runs").rglob("*"), reverse=True):
+                if folder.is_dir() and not any(folder.iterdir()):
+                    folder.rmdir()
             # its optimizations' tables (flow.opt.runner.table, ``searches``) kept
-            catalog[block] = {**catalog.get(block, {}), "title": title, "run": run_name, "instances": len(rows)}
-            laid_out = sum(1 for record, _future in views.values() if (record.get("layout") or {}).get("gds"))
+            default = run_label(block, run) if run is not None else entries[0]["label"]
+            catalog[block] = {
+                **catalog.get(block, {}),
+                "title": data["title"],
+                "run": run_name,
+                "instances": len(rows),
+                "runs": entries,
+                "default": default,
+            }
+            laid_out = sum(1 for record in records if (record.get("layout") or {}).get("gds"))
             details = len({detail["name"] for record in records for detail in record["details"]})
-            print(f"{block}: {len(rows)} instances, {len(metrics)} metrics, {details} details, {laid_out} layouts")
+            print(
+                f"{block}: {len(rows)} instances, {len(data['metrics'])} metrics, {details} details, "
+                f"{laid_out} layouts; {len(entries)} runs"
+            )
     catalog_path.write_text(json.dumps(dict(sorted(catalog.items())), indent=1) + "\n")
