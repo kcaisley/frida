@@ -77,13 +77,17 @@ def test_the_board_counts_each_steps_instances_and_says_what_needs_attention(tmp
     text = _shown(dashboard.dashboard(board))
     assert "comp grid1  grid · 3 designs" in text and "0 passed   2 rejected   1 failed" in text
     # each box stacked, in order
-    titles = ["─ run ─", "─ pipeline ─", "─ logging ─", "─ rejections ─", "─ results "]
+    titles = ["─ run ─", "─ pipeline ─", "─ logging ─", "─ results "]
     assert all(title in text for title in titles) and sorted(titles, key=text.index) == titles
     # a row a notice: time, notice, step, tool, count, the message without its level word
     rows = [line for line in text.splitlines() if "SFE-106: parameter 3 ignored" in line]
     assert rows and "warning" in rows[0] and " sim " in rows[0] and " spectre " in rows[0] and "WARNING" not in rows[0]
     assert any("rejected" in line and "sim" in line and " 2 " in line for line in text.splitlines())
     assert "align: no route" in text and "delay_s" in text
+    # the results a row each design that ended: the step and bound that stopped it, or its failure
+    results = _shown(dashboard.results_panel(board))
+    assert results.count("rejected at sim (prelayout): delay_s 2.1e-09 > 2e-09") == 2
+    assert "failed at layout" in results
     assert "status:" in dashboard.status_line(board) and "2 by delay_s at sim" in dashboard.status_line(board)
 
 
@@ -174,3 +178,12 @@ def test_the_last_line_points_at_the_runs_page_in_the_viewer_and_says_whether_it
     assert "not running: python -m flow web.serve" in _shown(dashboard.viewer_line(board))
     board.viewer = True
     assert _shown(dashboard.viewer_line(board)).rstrip().endswith("up")
+
+
+def test_a_design_that_passed_says_how_many_of_its_bounds_it_met(tmp_path: Path) -> None:
+    board = _board(tmp_path, ["a", "b"])
+    (tmp_path / "a" / "instance.json").write_text(json.dumps({"evidence": "postlayout", "metrics": {"delay_s": 1e-9}}))
+    board.take({"key": "tsmc65/a", "step": "record", "state": "ok", "seconds": 1.0, "found": "", "counts": {}})
+    board.end("tsmc65/a", ["ok"])
+    results = _shown(dashboard.results_panel(board))
+    assert "passed · 1/1 bounds" in results and "1 ns" in results and "tsmc65/b" not in results

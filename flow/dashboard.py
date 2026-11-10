@@ -6,10 +6,11 @@ its worker sends (``flow.steps.run_steps``), drawn three ways from one model (``
   own buffer when the run ends), its boxes stacked: the run (block, run, kind, designs, workers,
   PDKs, its time and its designs started, passed, rejected, failed); the pipeline, a row a step
   (its instances waiting, running, ok, kept from before, rejected, failed, not run; its seconds;
-  its tools' warnings and errors); the logging, a row a notice (time, notice, step and tool,
-  count, message: each failure, each kind of rejection and of warning or error the first time,
-  counted after); the rejections (each bound by the step that caught it, the failures); the
-  results (one instance's metrics pre- and post-layout, or the designs that passed);
+  its tools' warnings and errors); the logging, a row a notice (time, notice, step, tool,
+  instance, count, the tool's message, notes: each failure, each kind of rejection and of warning
+  or error the first time, counted after); the results (one instance's metrics pre- and
+  post-layout, or each design that ended: passed with the bounds it met, rejected with the step
+  and bound, or failed with the step); the viewer's page of the run;
 - elsewhere (a pipe, a log, an agent's command), as lines: each step's line for a run of a few
   instances (``SMALL``), else what needs attention as it happens and a status line every two
   minutes; the summary at the end either way;
@@ -438,30 +439,29 @@ def logging_panel(board: Board, rows: int | None = None, plain: bool = False) ->
     return _panel(found, "logging", plain)
 
 
-def rejections_panel(board: Board, plain: bool = False) -> Any:
-    """Why designs left the run: each bound by the step that caught them, and the failures by step."""
-    found = _table(("caught at", "left", 9), ("designs", "right", 7), ("bound", "left", 18), plain=plain)
-    # a resumed run's rejection may be a step before the ones it runs: first
-    order = {step: place for place, step in enumerate(board.steps)}
-    for (step, bounds), n in sorted(board.rejections.items(), key=lambda kn: order.get(kn[0][0], -1)):
-        found.add_row(step, Text(str(n), style=REJECT), bounds)
-    failed = Counter(step for item in board.instances.values() for step, s in item.states.items() if s == "failed")
-    for step, n in failed.items():
-        found.add_row(step, Text(str(n), style=BAD), Text("failed", style=BAD))
-    if not board.rejections and not failed:
-        found.add_row("", "", Text("none", style=DIM))
-    return _panel(found, "rejections", plain)
-
-
-def _rejection_rows(board: Board) -> int:
-    failed = {step for item in board.instances.values() for step, s in item.states.items() if s == "failed"}
-    return max(1, len(board.rejections) + len(failed))
+def outcome(item: _Instance) -> Text:
+    """How an instance came out: passed, with how many of its bounds it met (``7/7 bounds``; those
+    its evidence could not judge named apart), rejected with the step and the bounds it missed, or
+    failed with the step; nothing while it runs."""
+    if item.ended == "passed":
+        total, unjudged = len(item.bounds), len(item.record.get("unjudged") or [])
+        met = f"{total - unjudged}/{total} bounds" if total else "no bounds"
+        return Text.assemble(("passed", OK), f" · {met}", (f", {unjudged} unjudged" if unjudged else "", DIM))
+    if item.ended == "rejected":
+        step = next(step for step, state in item.states.items() if state == "rejected")
+        return Text(item.found[step], style=REJECT)
+    if item.ended == "failed":
+        steps = [step for step, state in item.states.items() if state == "failed"]
+        return Text(f"failed at {', '.join(steps) or 'worker'}", style=BAD)
+    return Text("")
 
 
 def results_panel(board: Board, rows: int = 14, plain: bool = False) -> Any:
     """The results: one instance's metrics pre- and post-layout and how each moved (its bounds'
-    metrics first); several instances' that passed, the latest first, by their bounds' metrics (or
-    their record's first)."""
+    metrics first), its outcome in the title; several instances', each that ended a row (those that
+    passed, then those rejected, then those failed): its bounds' metrics (or its record's first),
+    its evidence and its outcome (``outcome``: the bounds it met, or the step and bound that stopped
+    it)."""
     if len(board.instances) == 1:
         item = next(iter(board.instances.values()))
         record = item.record
@@ -482,42 +482,47 @@ def results_panel(board: Board, rows: int = 14, plain: bool = False) -> Any:
                 moved = f"{b / a - 1:+.1%}"
             found.add_row(value(name, a), value(name, b), moved, name)
         title = f"results · {item.key} · {record.get('evidence', 'not recorded yet')}"
-        if record.get("rejected"):
-            title += f" · rejected at {record['rejected']['step']}"
-        return _panel(found, title, plain)
-    passed = [item for item in board.instances.values() if item.ended == "passed" and item.record]
+        said = outcome(item).plain
+        return _panel(found, f"{title} · {said}" if said else title, plain)
+    order = {"passed": 0, "rejected": 1, "failed": 2}
+    ended = sorted((item for item in board.instances.values() if item.ended), key=lambda item: order[item.ended])
     names = list(next(iter(board.instances.values())).bounds) if board.instances else []
-    if not names and passed:
-        names = [n for n, v in (passed[0].record.get("metrics") or {}).items() if isinstance(v, (int, float))][:4]
-    width = max((len(item.key) for item in passed), default=8)
+    with_record = [item for item in ended if item.record]
+    if not names and with_record:
+        names = [n for n, v in (with_record[0].record.get("metrics") or {}).items() if isinstance(v, (int, float))][:4]
     found = _table(
-        ("instance", "left", width),
+        ("instance", "left", max((len(item.key) for item in ended), default=8)),
         *((n, "right", max(9, len(n))) for n in names),
         ("evidence", "left", 10),
+        ("outcome", "left", 18),
         plain=plain,
     )
-    for item in reversed(passed[-rows:]):
+    for item in ended[:rows]:
         metrics = item.record.get("metrics") or {}
-        found.add_row(item.key, *(value(n, metrics.get(n)) for n in names), item.record.get("evidence", ""))
-    return _panel(found, f"results · {len(passed)} passed", plain)
+        found.add_row(
+            item.key, *(value(n, metrics.get(n)) for n in names), item.record.get("evidence", ""), outcome(item)
+        )
+    if not ended:
+        found.add_row(Text("none ended yet", style=DIM), *("" for _ in names), "", "")
+    shown = f" · the first {rows} of {len(ended)}" if len(ended) > rows else ""
+    return _panel(found, f"results{shown}", plain)
 
 
 def _results_rows(board: Board, rows: int = 14) -> int:
     if len(board.instances) == 1:
         item = next(iter(board.instances.values()))
         return max(1, min(rows, len(item.record.get("metrics") or {})))
-    return max(1, min(rows, sum(item.ended == "passed" and bool(item.record) for item in board.instances.values())))
+    return max(1, min(rows, sum(bool(item.ended) for item in board.instances.values())))
 
 
 def dashboard(board: Board) -> Layout:
-    """The whole terminal, its boxes stacked: the run, the pipeline, the logging (the room left), the
-    rejections and the results."""
+    """The whole terminal, its boxes stacked: the run, the pipeline, the logging (the room left) and
+    the results; the viewer's page last."""
     root = Layout()
     root.split_column(
         Layout(runs_panel(board), size=4),
         Layout(pipeline_panel(board), size=len(board.steps) + 5),
         Layout(logging_panel(board, 60)),
-        Layout(rejections_panel(board), size=_rejection_rows(board) + 5),
         Layout(results_panel(board), size=_results_rows(board) + 5),
         Layout(Padding(viewer_line(board), (0, 1)), size=1),
     )
@@ -532,7 +537,6 @@ def summary(board: Board) -> Group:
         runs_panel(board, plain=True),
         pipeline_panel(board, plain=True),
         logging_panel(board, 40, plain=True),
-        rejections_panel(board, plain=True),
         results_panel(board, plain=True),
         viewer_line(board),
     )
