@@ -72,12 +72,18 @@ def test_the_board_counts_each_steps_instances_and_says_what_needs_attention(tmp
     assert board.by_step("netlist")["done"] == 3 and board.by_step("sim")["rejected"] == 2
     assert board.ended() == {"failed": 1, "rejected": 2}
     assert board.rejections == {("sim", "delay_s"): 2}
-    levels = [level for _, level, *_ in board.attention]
+    levels = [notice for _, notice, *_ in board.attention]
     assert levels == ["WARNING", "REJECTED", "FAILED"]  # the rejection once, its kind counted
     text = _shown(dashboard.dashboard(board))
-    assert "comp grid1 · grid · 3 designs" in text and "0 passed   2 rejected   1 failed" in text
-    assert "spectre: WARNING (SFE-106): parameter 3 ignored" in text and "×2" in text
-    assert "tsmc65/a/layout: align: no route" in text and "delay_s" in text
+    assert "comp grid1  grid · 3 designs" in text and "0 passed   2 rejected   1 failed" in text
+    # each box stacked, in order
+    titles = ["─ run ─", "─ pipeline ─", "─ logging (newest first) ─", "─ rejections ─", "─ results "]
+    assert all(title in text for title in titles) and sorted(titles, key=text.index) == titles
+    # a row a notice: time, notice, step (tool), count, the message without its level word
+    rows = [line for line in text.splitlines() if "SFE-106: parameter 3 ignored" in line]
+    assert rows and "warning" in rows[0] and "sim (spectre)" in rows[0] and "WARNING" not in rows[0]
+    assert any("rejected" in line and "sim" in line and " 2 " in line for line in text.splitlines())
+    assert "align: no route" in text and "delay_s" in text
     assert "status:" in dashboard.status_line(board) and "2 by delay_s at sim" in dashboard.status_line(board)
 
 
@@ -91,7 +97,7 @@ def test_one_instance_shows_its_metrics_pre_and_post_layout(tmp_path: Path) -> N
     (tmp_path / "a" / "instance.json").write_text(json.dumps(record))
     board.take({"key": "tsmc65/a", "step": "record", "state": "ok", "seconds": 1.0, "found": "", "counts": {}})
     text = _shown(dashboard.dashboard(board))
-    assert "tsmc65/a · postlayout" in text and "1 ns" in text and "1.2 ns" in text and "+20.0%" in text
+    assert "results · tsmc65/a · postlayout" in text and "1 ns" in text and "1.2 ns" in text and "+20.0%" in text
 
 
 def test_a_metric_is_shown_in_its_unit() -> None:
@@ -111,5 +117,12 @@ def test_the_view_writes_the_status_and_events_beside_the_run(tmp_path: Path, ca
         view.refresh()
     assert [event["state"] for event in lines] == ["failed"]
     assert "comp grid1" in (tmp_path / "status.txt").read_text()
-    assert "FAILED tsmc65/a/sim: boom" in (tmp_path / "events.log").read_text()
-    assert "needs attention" in capsys.readouterr().out
+    assert "FAILED sim tsmc65/a: boom" in (tmp_path / "events.log").read_text()
+    assert "logging (newest first)" in capsys.readouterr().out
+
+
+def test_a_tools_message_loses_its_level_word_and_its_paths() -> None:
+    assert dashboard._clean("WARNING (SPECTRE-592): Following parameters") == "SPECTRE-592: Following parameters"
+    assert dashboard._clean("Warning: dummy interface") == "dummy interface"
+    assert dashboard._clean('line 3 of "/a/b/c/FasterCap_Input_.lst"') == 'line 3 of "…/FasterCap_Input_.lst"'
+    assert dashboard._seconds(12.34) == "12.3" and dashboard._seconds(154.2) == "154"
