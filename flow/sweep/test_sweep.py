@@ -362,3 +362,17 @@ def test_the_comparators_circuit_level_runs_its_full_runs() -> None:
 
     runs = importlib.import_module("flow.comp.runs")
     assert runs.testbenches("tsmc65", comp.FRIDA1, Level.CIRCUIT) == runs.testbenches("tsmc65", comp.FRIDA1, Level.FULL)
+
+
+def test_an_instance_its_run_stopped_before_its_record_stands_in_by_its_folder(tmp_path: Path) -> None:
+    """A run stopped before an instance's record (a step's ``step.json`` alone) still lists it in
+    the viewer's table: by its folder's name, no parameters, the reason as its error."""
+    from flow.sweep.runner import _stand_in, run_folders
+
+    folder = tmp_path / "tsmc28" / "frida1"
+    (folder / "pex").mkdir(parents=True)
+    (folder / "pex" / "step.json").write_text('{"step": "pex", "error": "stopped"}')
+    assert run_folders(tmp_path) == [("tsmc28", folder)]
+    record = _stand_in("samp", "tsmc28", folder)
+    assert (record["id"], record["name"], record["params"]) == ("tsmc28__frida1", "frida1", {})
+    assert "stopped before" in record["error"]

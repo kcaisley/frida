@@ -381,15 +381,16 @@ def _net(connection) -> str:
 
 
 def _base_record(block: str, pdk: str, params, label: str | None, name: str | None) -> dict:
-    """A record's identity: its block, id, name in its run, PDK, label and parameters, nothing measured."""
+    """A record's identity: its block, id, name in its run, PDK, label and parameters (none where
+    ``params`` is: an instance known by its folder alone), nothing measured."""
     return {
         "block": block,
-        "id": instance_id(pdk, params),
+        "id": instance_id(pdk, params) if params is not None else f"{pdk}__{name}",
         "name": name,
         "pdk": pdk,
         "label": label,
         "level": None,
-        "params": flat_params(params),
+        "params": flat_params(params) if params is not None else {},
         "metrics": {},
         "details": [],
         "waves": {},
@@ -668,9 +669,7 @@ def run_folders(run: Path) -> list[tuple[str, Path]]:
 def _stand_in(block: str, pdk: str, folder: Path) -> dict[str, Any]:
     """An instance's record where its run stopped before making one: its name, nothing measured."""
     return {
-        **_base_record(block, pdk, {}, folder.name, folder.name),
-        "id": f"{pdk}__{folder.name}",
-        "params": {},
+        **_base_record(block, pdk, None, folder.name, folder.name),
         "error": "no record: the run stopped before this instance's record step",
     }
 
