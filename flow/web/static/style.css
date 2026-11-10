@@ -87,6 +87,7 @@ html[data-theme="dark"] {
     --layout-ink: #dce0e5;
     --scene-bg: #2f343e;
     --plot-paper: #2f343e;
+    --drc-marker: #f472d0;
 }
 
 html[data-theme="light"] {
@@ -126,6 +127,7 @@ html[data-theme="light"] {
     --layout-ink: #242529;
     --scene-bg: #fafafa;
     --plot-paper: #fafafa;
+    --drc-marker: #c026a3;
 }
 
 html {
@@ -1959,14 +1961,6 @@ button.stage-chip:hover {
     color: var(--fg-bright);
 }
 
-.stage-chip.kept {
-    opacity: 0.75;
-}
-
-.stage-chip.kept > span:first-child {
-    color: var(--fg-muted);
-}
-
 .stage-chip.rejected {
     border-color: var(--sem-warn);
     color: var(--sem-warn);
@@ -2152,6 +2146,16 @@ table.tgrid.prepost thead th {
 
 .step-viz.auto .detail-plots {
     overflow: visible;
+}
+
+/* DRC's count over its markers' layout */
+.drc-count {
+    color: var(--sem-ok);
+    font: var(--fs-12) var(--font-mono);
+}
+
+.drc-count.bad {
+    color: var(--drc-marker);
 }
 
 .findings {

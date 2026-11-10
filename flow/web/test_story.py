@@ -39,9 +39,9 @@ def _mark(folder: Path, step: str, finished: float, seconds: float, error=None, 
 
 
 def test_each_step_has_its_state(tmp_path: Path):
-    """A step made in an earlier invocation is kept, one the bounds rejected the design after is
-    rejected (the steps after it not run, but the record), a failure leaves the steps that need it
-    not run, and a run without steps has its record's story alone."""
+    """A step the bounds rejected the design after is rejected (the steps after it not run, but the
+    record), a failure leaves the steps that need it not run, and a run without steps has its
+    record's story alone."""
     rejected = {"step": "sim", "evidence": "prelayout", "bounds": {"delay_s": [2e-9, 1e-9]}}
     _mark(tmp_path, "netlist", 1000.0, 0.5)
     _mark(tmp_path, "sim", 1010.0, 9.0, runs=["a", "b"])
@@ -49,7 +49,7 @@ def test_each_step_has_its_state(tmp_path: Path):
     (tmp_path / "netlist" / "toy.cdl").write_text(NETLIST)
     steps = {step["step"]: step for step in export.steps_view(tmp_path, {"rejected": rejected}, root=tmp_path) or []}
     assert [steps[key]["state"] for key in ("netlist", "sim", "layout", "pexsim", "record")] == [
-        "kept",
+        "ok",
         "rejected",
         "not run",
         "not run",
@@ -96,3 +96,23 @@ def test_the_server_serves_a_steps_log_alone(tmp_path: Path, monkeypatch):
     for path in ("secret.log", "build/../secret.log", "build/b/r/tsmc65/x/layout/step.json"):
         with pytest.raises(ValueError):
             server.log_body(path)
+
+
+def test_drcs_markers_by_rule(tmp_path: Path):
+    """DRC's markers read from a KLayout marker database, by rule: its count, description and boxes
+    (µm), a rule's boxes capped."""
+    from klayout import db, rdb
+
+    report = rdb.ReportDatabase("drc")
+    top = report.create_cell("TOP")
+    rule = report.create_category("M1_a")
+    rule.description = "Minimum width"
+    for k in range(export.MAX_MARKERS + 5):
+        item = report.create_item(top.rdb_id(), rule.rdb_id())
+        item.add_value(db.DBox(k, 0, k + 0.5, 0.25))
+    report.save(str(tmp_path / "gdscheck.core.lyrdb"))
+    markers = export.drc_markers(tmp_path, "TOP")
+    assert list(markers) == ["M1_a"] and markers["M1_a"]["count"] == export.MAX_MARKERS + 5
+    assert markers["M1_a"]["description"] == "Minimum width" and len(markers["M1_a"]["boxes"]) == export.MAX_MARKERS
+    assert markers["M1_a"]["boxes"][1] == [1.0, 0.0, 1.5, 0.25]
+    assert export.drc_markers(tmp_path / "none", "TOP") == {}

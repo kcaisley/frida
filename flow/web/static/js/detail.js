@@ -3,7 +3,7 @@
 //
 // Each instance is its story: the steps of the pipeline it went through (flow.steps: netlist, sim,
 // layout, drc, lvs, pex, pexsim, record; flow.web.export.steps_view), top to bottom, a row a step.
-// On a row's left the step's state (ok; kept: made in an earlier invocation of the run; failed, with
+// On a row's left the step's state (ok; failed, with
 // its error; rejected, with the bounds it missed; skipped or not run, with why), its seconds, its
 // tools' warnings and errors (its log over the page) and what it found or established; on its right
 // what it made: the netlist's schematic and listing, the pre-layout runs' waveforms, the layout in
@@ -15,7 +15,8 @@
 // Compared, a row's left is a column per design under its colour (blue, orange, ...: COLORS, the
 // values that differ tinted) and its right one design's at a time (the head's Show), but for the
 // analyses: there every design's curves overlay, a design a colour under one key (a design clicked
-// in it hides or shows its curves), its several curves a dash each, its maps side by side, a marker
+// in it hides or shows its curves), its several curves a dash each, a post-layout record's
+// pre-layout curves (prelayout_details) dotted beside its own, its maps side by side, a marker
 // or band only some have in each one's colour.
 
 import { h, icon } from "./icons.js";
@@ -38,6 +39,8 @@ const PATH_LEVELS = 8;
 
 // the shown designs, their names, whether compared, and the one whose visualizations show
 const page = { instances: [], labels: [], compare: false, shown: 0, onlyDifferences: true };
+// a design's several series told apart by these dashes; dotted is its pre-layout curves'
+const SERIES_DASHES = DASHES.filter((dash) => dash !== "dot");
 
 // a compared instance's colour, by its place in the selection
 export const colorOf = (index, theme = currentTheme()) => tone(COLORS[index % COLORS.length], theme);
@@ -342,9 +345,14 @@ class PlotsPanel {
         const colors = PAPERS[theme];
         const compare = page.compare;
         const first = entries[0].detail;
+        // a post-layout record's pre-layout figure of the same name (its prelayout_details): its
+        // curves dotted under the post-layout ones, in the same colour
+        const preOf = ({ instance, detail }) => (instance.evidence === "postlayout" ? (instance.prelayout_details || []).find((item) => item.name === detail.name) : null) || null;
+        const pres = entries.map(preOf);
+        const prelayout = pres.some((pre) => pre && Object.keys(pre.series || {}).length);
         // SI prefixes from the values plotted (a map's cell edges among them), not the markers
-        const xs = entries.flatMap(({ detail }) => [...detail.x, ...(detail.heatmap?.x || [])]);
-        const ys = entries.flatMap(({ detail }) => [...Object.values(detail.series).flat(), ...(detail.paths || []).flatMap((path) => path.y), ...(detail.heatmap?.y || [])]);
+        const xs = entries.flatMap(({ detail }, k) => [...detail.x, ...(detail.heatmap?.x || []), ...(pres[k]?.x || [])]);
+        const ys = entries.flatMap(({ detail }, k) => [...Object.values(detail.series).flat(), ...(detail.paths || []).flatMap((path) => path.y), ...(detail.heatmap?.y || []), ...Object.values(pres[k]?.series || {}).flat()]);
         // categories on x or y (their indices, by name: first.x_labels, first.y_labels): ticked and
         // hovered by name, never scaled
         const categories = first.x_labels?.length ? first.x_labels : null;
@@ -355,39 +363,46 @@ class PlotsPanel {
         // a histogram (one bin a code) its outline, steps centred on the bins, so compared ones overlay
         const dense = entries.some(({ detail }) => detail.x.length > 100);
         const histogram = Boolean(first.histogram);
-        // a design a colour (the first blue, the second orange: COLORS) and, where it has several
-        // series, a series a dash; compared, the dashes keyed under the plot in the spine's grey (the
-        // key over the plots names the colours), alone the curves themselves in its legend
+        // a design a colour (the first blue, the second orange: COLORS; compared, the key over the
+        // plots names them) and, where it has several series, a series a dash; its pre-layout curves
+        // dotted beside its post-layout ones (solid); the dashes and dots keyed under the plot in
+        // the spine's grey
         const seriesNames = [...new Set(entries.flatMap(({ detail }) => Object.keys(detail.series)))];
         const several = entries.some(({ detail }) => Object.keys(detail.series).length > 1);
-        const dashed = compare && several;
         const traces = [];
-        for (const { instance, index, detail } of entries) {
+        const curve = (index, detail, series, values, { pre = false, meta, name, j }) => ({
+            type: "scatter",
+            mode: dense || histogram ? "lines" : "lines+markers",
+            name,
+            meta,
+            showlegend: false,
+            x: detail.x.map((value) => (value === null ? null : value * x.factor)),
+            y: values.map((value) => (value === null ? null : value * y.factor)),
+            line: { color: colorOf(compare ? index : 0, theme), width: pre ? 1.6 : dense ? 1.2 : 2, dash: pre ? "dot" : several ? SERIES_DASHES[j % SERIES_DASHES.length] : "solid", ...(histogram ? { shape: "hvh" } : {}) },
+            marker: pre ? { size: 5, symbol: "circle-open" } : { size: 6 },
+            ...(categories ? { text: detail.x.map((value) => categories[value] ?? ""), hovertemplate: "%{text}: %{y}" } : {}),
+        });
+        entries.forEach(({ instance, index, detail }, k) => {
             const meta = compare ? instance.id : undefined;
+            const named = (series) => [compare ? labelOf(index) : null, seriesNames.length > 1 || !compare ? series : null].filter(Boolean).join(" · ");
+            // the pre-layout curves first, under the post-layout ones
+            for (const [series, values] of Object.entries(pres[k]?.series || {})) {
+                traces.push(curve(index, pres[k], series, values, { pre: true, meta, name: `${named(series)} · pre-layout`, j: seriesNames.indexOf(series) }));
+            }
             // a map under the curves, kept when its instance's curves are hidden
             if (detail.heatmap) traces.push(heatmapTrace(detail.heatmap, x, y, theme, { x: categories, y: rows }));
             if (detail.paths?.length) traces.push(...pathTraces(detail, x, y, colorOf(compare ? index : 0, theme), meta));
             for (const [series, values] of Object.entries(detail.series)) {
-                const j = seriesNames.indexOf(series);
-                traces.push({
-                    type: "scatter",
-                    mode: dense || histogram ? "lines" : "lines+markers",
-                    name: compare ? (seriesNames.length > 1 ? `${labelOf(index)} · ${series}` : labelOf(index)) : series,
-                    meta,
-                    showlegend: !compare,
-                    x: detail.x.map((value) => (value === null ? null : value * x.factor)),
-                    y: values.map((value) => (value === null ? null : value * y.factor)),
-                    line: { color: colorOf(compare ? index : 0, theme), width: dense ? 1.2 : 2, dash: several ? DASHES[j % DASHES.length] : "solid", ...(histogram ? { shape: "hvh" } : {}) },
-                    marker: { size: 6 },
-                    ...(categories ? { text: detail.x.map((value) => categories[value] ?? ""), hovertemplate: "%{text}: %{y}" } : {}),
-                });
+                traces.push(curve(index, detail, series, values, { meta, name: prelayout ? `${named(series)} · post-layout` : named(series), j: seriesNames.indexOf(series) }));
             }
-        }
-        if (dashed) {
-            seriesNames.forEach((series, j) =>
-                traces.push({ type: "scatter", mode: "lines", name: series, x: [null], y: [null], hoverinfo: "skip", line: { color: colors.spine, width: 2, dash: DASHES[j % DASHES.length] } }),
-            );
-        }
+        });
+        // the key: each series' dash where there are several, post-layout solid and pre-layout dotted
+        const keys = [
+            ...(several ? seriesNames.map((series, j) => [series, SERIES_DASHES[j % SERIES_DASHES.length], 2]) : []),
+            ...(prelayout ? [["post-layout", "solid", 2], ["pre-layout", "dot", 1.6]] : []),
+        ];
+        for (const [name, dash, width] of keys) traces.push({ type: "scatter", mode: "lines", name, x: [null], y: [null], hoverinfo: "skip", line: { color: colors.spine, width, dash } });
+        const dashed = keys.length > 0;
         for (const trace of traces) if (this.hidden.has(trace.meta)) trace.visible = false;
         // the data's x in its prefixed unit (positive on a log axis): where a band's label stays inside
         let [xLow, xHigh] = [Infinity, -Infinity];
@@ -407,7 +422,7 @@ class PlotsPanel {
         layout.margin = { l: 64, r: 12, t: 34, b: 46 };
         layout.legend.font = { size: 11, color: colors.ink };
         layout.shapes = shapes;
-        // the compared series' key names dashes: nothing to toggle
+        // the key names dashes and dots: nothing to toggle
         if (dashed) layout.legend.itemclick = layout.legend.itemdoubleclick = false;
         const element = h("div.plot");
         host.append(element);
@@ -487,7 +502,6 @@ const STEPS = {
 // a state's chip (compile.js's stage chips): its class and word
 const STATES = {
     ok: ["done", "ok"],
-    kept: ["done.kept", "kept"],
     failed: ["failed", "failed"],
     rejected: ["rejected", "rejected"],
     skipped: ["skipped", "skipped"],
@@ -496,7 +510,6 @@ const STATES = {
 // the chips' marks, drawn as icons.js draws its set (compile.js's)
 const GLYPHS = {
     done: '<path d="M3 8.5l3 3 7-7"/>',
-    "done.kept": '<path d="M3 8.5l3 3 7-7"/>',
     failed: '<path d="M4 4l8 8M12 4l-8 8"/>',
     rejected: '<path d="M8 2.2l6.3 11.3H1.7z"/><path d="M8 6.5v3.2M8 11.6v.1"/>',
     skipped: '<path d="M4 8h8"/>',
@@ -522,7 +535,7 @@ function stepsOf(instance) {
 }
 
 const stepOf = (instance, key) => stepsOf(instance).find((entry) => entry.step === key) || { step: key, state: "not run", why: "not in this instance's pipeline" };
-const ran = (entry) => entry.state === "ok" || entry.state === "kept" || entry.state === "rejected";
+const ran = (entry) => entry.state === "ok" || entry.state === "rejected";
 
 function chip(entry, { label = null, time = true, onclick = null } = {}) {
     const [kind, word] = STATES[entry.state] || STATES["not run"];
@@ -925,10 +938,19 @@ function vizOf(key) {
                 "layout",
             ];
         case "drc":
+            if (!any((instance) => ran(stepOf(instance, key)))) return null;
+            // the violations over the layout, dimmed, where it was drawn; their rules beside
+            return [
+                [
+                    ...(any((instance) => instance.layout?.file) ? [panel("drc.layout", "Markers", (container) => new LayoutPanel(container, null, { drc: () => stepOf(shownInstance(), "drc").markers || {} }))] : []),
+                    panel(key, "Rules", (container) => new FindingsPanel(container, key)),
+                ],
+                "layout",
+            ];
         case "lvs":
         case "pex": {
             if (!any((instance) => ran(stepOf(instance, key)))) return null;
-            const title = { drc: "Violations", lvs: "Comparison", pex: "Nets" }[key];
+            const title = { lvs: "Comparison", pex: "Nets" }[key];
             return [[panel(key, title, (container) => new FindingsPanel(container, key))], "auto"];
         }
         case "pexsim":

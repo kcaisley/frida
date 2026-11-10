@@ -13,8 +13,7 @@ waves); the pexsim step's ``simulate`` and ``record`` again, into ``pexsim/``, e
 a flat copy of it holding its extraction's capacitors (``_back_annotated``). ``table``: the viewer's
 tables of a block, each of its runs' own (``export_run``: ``build/web/data/sweep/<block>/runs/<run>/
 <stamp>.json``, one row per instance, the parameters that differ, then the metrics, and one file per
-instance: its details, waves, layout, schematic and steps) and each instance's newest record across
-the runs (``<block>.json``: a run of some PDKs alone keeps the others' from the run before).
+instance: its details, waves, layout, schematic and steps).
 """
 
 from __future__ import annotations
@@ -540,49 +539,6 @@ def newest_run(block: str, pdk: str | None = None) -> Path:
     return runs[-1]
 
 
-def newest_records(block: str, first: Path | None = None) -> tuple[list[dict[str, Any]], dict[Path, set[str]]]:
-    """Each of the block's instances' newest record across its runs (``first``'s ahead of the
-    others where given), as ``flow.sweep.lookup`` finds one: the newest that characterizes it (its
-    metrics, or its failure), the layout of a newer record of its layout alone joined to it; a
-    record of its layout alone where none characterizes it. A run of some PDKs or instances alone,
-    or of a layout alone, so leaves the others' records from the runs before. A pipeline block's
-    instances since left out of its design are left out (on disk still, and for the models'
-    lookup). The records, by PDK then digest, each with the run it came from (``source``: the
-    characterizing one's where a layout is joined), and the runs they came from, each with its PDKs."""
-    runs = sorted(_runs(block), key=run_time, reverse=True)
-    if first is not None:
-        runs = [first, *(run for run in runs if run != first)]
-    pipelined = find_spec(f"flow.{block}") is not None and hasattr(runs_module(block), "testbenches")
-    current: dict[str, set[str]] = {}
-    chosen: dict[tuple[str, str], tuple[int, dict[str, Any]]] = {}
-    layouts: dict[tuple[str, str], tuple[int, dict[str, Any]]] = {}
-    for rank, run in enumerate(runs):
-        for pdk in sorted(path.name for path in run.iterdir() if path.is_dir()):
-            if pipelined and pdk not in current:
-                try:
-                    current[pdk] = _current(block, pdk)
-                except (LookupError, ModuleNotFoundError):  # a kit this checkout lacks
-                    current[pdk] = set()
-            for ident, folder in instance_dirs(run, pdk).items():
-                key = (pdk, ident)
-                if key in chosen or (pipelined and ident not in current[pdk]):
-                    continue
-                record = json.loads((folder / "instance.json").read_text())
-                if not record["metrics"] and record["error"] is None:  # a record of its layout alone
-                    layouts.setdefault(key, (rank, record))
-                else:
-                    chosen[key] = (rank, record)
-    for key, (rank, record) in layouts.items():
-        if key not in chosen:
-            chosen[key] = (rank, record)
-        elif rank < chosen[key][0] and (record.get("layout") or {}).get("gds"):
-            chosen[key] = (chosen[key][0], {**chosen[key][1], "layout": record["layout"]})
-    sources: dict[Path, set[str]] = {}
-    for (pdk, _ident), (rank, _record) in chosen.items():
-        sources.setdefault(runs[rank], set()).add(pdk)
-    return [{**chosen[key][1], "source": runs[chosen[key][0]]} for key in sorted(chosen)], sources
-
-
 def instance_dirs(run: Path, pdk: str) -> dict[str, Path]:
     """The instances of ``run`` in ``pdk`` by digest: each directory of ``run/<pdk>/`` with a record,
     a named instance's by its name (its record gives its digest), a grid's by its digest."""
@@ -689,7 +645,7 @@ def _current(block: str, pdk: str) -> set[str]:
 
 
 # the format of a run's export (``export_run``): an export in another is made again
-VIEW_FORMAT = 2
+VIEW_FORMAT = 3
 
 
 def run_file(block: str, run: Path) -> str:
@@ -828,10 +784,11 @@ def export_run(block: str, run: Path, pool: ProcessPoolExecutor, force: bool = F
 
 def table(blocks: list[str], workers: int, run: Path | None = None) -> None:
     """The viewer's tables of each block (``build/web/data/sweep/``): each of its runs' own
-    (``export_run``: ``run``'s made again, the others where their records changed), the run the viewer
-    opens on (``default``: ``run``, else the newest), and the block's table of each instance's newest
-    record across its runs (``newest_records``: ``run``'s first), a row naming the run whose file it
-    shows (``file``); the catalog's entry of each, its runs newest first."""
+    (``export_run``: ``run``'s made again, the others where their records changed), and the catalog's
+    entry of each block, its runs newest first and the one the viewer opens on (``default``: ``run``,
+    else the newest)."""
+
+    from flow.web.export import BLOCKS
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     catalog_path = DATA_DIR / "catalog.json"
@@ -841,25 +798,11 @@ def table(blocks: list[str], workers: int, run: Path | None = None) -> None:
     with ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) as pool:
         for block in blocks:
             runs = sorted(_runs(block), key=run_time, reverse=True)
+            if not runs:
+                raise FileNotFoundError(f"no run of {block} in {RUNS_DIR / block}")
             entries = [export_run(block, each, pool, force=each == run) for each in runs]
-            # each instance's newest record: a run of some PDKs or instances alone keeps the others'
-            # rows from the runs before
-            records, sources = newest_records(block, run)
-            if not records:
-                raise FileNotFoundError(f"no record of {block} in {RUNS_DIR / block}")
-            # the run, or each run with the PDKs it gives where they differ
-            run_name = (
-                run_label(block, next(iter(sources)))
-                if len(sources) == 1
-                else ", ".join(
-                    f"{run_label(block, source)} ({', '.join(sorted(sources[source]))})"
-                    for source in sorted(sources, key=run_time, reverse=True)
-                )
-            )
-            rows = [{**_row(record), "file": run_file(block, record["source"])} for record in records]
-            data = _table(block, run_name, rows)
-            (DATA_DIR / f"{block}.json").write_text(json.dumps(_json(data), separators=(",", ":")))
             # the files of runs gone, and of the exports before runs had tables of their own
+            (DATA_DIR / f"{block}.json").unlink(missing_ok=True)
             for stale in (DATA_DIR / block).iterdir() if (DATA_DIR / block).is_dir() else ():
                 if stale.name != "runs":
                     shutil.rmtree(stale) if stale.is_dir() else stale.unlink()
@@ -872,19 +815,14 @@ def table(blocks: list[str], workers: int, run: Path | None = None) -> None:
                 if folder.is_dir() and not any(folder.iterdir()):
                     folder.rmdir()
             # its optimizations' tables (flow.opt.runner.table, ``searches``) kept
-            default = run_label(block, run) if run is not None else entries[0]["label"]
+            default = next(entry for entry in entries if run is None or entry["label"] == run_label(block, run))
             catalog[block] = {
                 **catalog.get(block, {}),
-                "title": data["title"],
-                "run": run_name,
-                "instances": len(rows),
+                "title": BLOCKS.get(block, block),
+                "run": default["label"],
+                "instances": default["instances"],
                 "runs": entries,
-                "default": default,
+                "default": default["label"],
             }
-            laid_out = sum(1 for record in records if (record.get("layout") or {}).get("gds"))
-            details = len({detail["name"] for record in records for detail in record["details"]})
-            print(
-                f"{block}: {len(rows)} instances, {len(data['metrics'])} metrics, {details} details, "
-                f"{laid_out} layouts; {len(entries)} runs"
-            )
+            print(f"{block}: {len(entries)} runs, {default['label']} first: {default['instances']} instances")
     catalog_path.write_text(json.dumps(dict(sorted(catalog.items())), indent=1) + "\n")

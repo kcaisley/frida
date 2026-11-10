@@ -101,7 +101,9 @@ function buildFields(table) {
     fields.push({ section: "Parameters" }, { key: "pdk", label: "pdk", kind: "cat", get: (row) => row.pdk, pdk: true, note: "The PDK" });
     for (const name of table.params) {
         const get = (row) => row.params?.[name];
-        fields.push({ key: `p:${name}`, label: name, kind: numeric(get) ? "num" : "cat", get, decimals: decimalsOf(rows, get), topology: name === table.topology, ...(name === table.topology ? { note: "The topology: a point's marker in the scatter" } : {}) });
+        // the block's topology parameter named so (its own name in its title), a point's marker in the scatter
+        const topology = name === table.topology;
+        fields.push({ key: `p:${name}`, label: topology ? "topology" : name, kind: numeric(get) ? "num" : "cat", get, decimals: decimalsOf(rows, get), topology, ...(topology ? { note: `The topology (${name}): a point's marker in the scatter` } : {}) });
     }
     fields.push({ section: "Metrics" });
     // a row's SI prefix by the instances in the running, where some are dimmed; by its smallest tenth
@@ -751,7 +753,7 @@ export class ScatterPanel {
             traces.push({ type: "scatter", mode: "markers", name: pdk, legendgroup: "pdk", legendgrouptitle: { text: "PDK" }, x: [null], y: [null], hoverinfo: "skip", marker: { color: pdkColor(pdk, theme), symbol: "circle", size: 9 } });
         }
         for (const shape of shapes.filter((value) => value !== null)) {
-            traces.push({ type: "scatter", mode: "markers", name: words(shape), legendgroup: "topology", legendgrouptitle: { text: view.table.topology }, x: [null], y: [null], hoverinfo: "skip", marker: { color: colors.spine, symbol: topologySymbol(shape), size: 9 } });
+            traces.push({ type: "scatter", mode: "markers", name: words(shape), legendgroup: "topology", legendgrouptitle: { text: "topology" }, x: [null], y: [null], hoverinfo: "skip", marker: { color: colors.spine, symbol: topologySymbol(shape), size: 9 } });
         }
         const marked = view.cols.filter((row) => view.marks.has(row.id));
         traces.push({
@@ -882,7 +884,7 @@ export class ScatterPanel {
         const spine = PAPERS[currentTheme()].spine;
         this.legend.replaceChildren(
             h("span.legend-group", {}, h("span.legend-title", {}, "pdk"), ...pdks.map((pdk) => h("span.legend-item", { html: `${pdkMark(pdk, 10)}${esc(pdk)}` }))),
-            ...(shapes.length ? [h("span.legend-group", {}, h("span.legend-title", {}, view.table.topology), ...shapes.map((shape) => h("span.legend-item", { html: `${symbolSvg(topologySymbol(shape), spine, 10)}${esc(words(shape))}` })))] : []),
+            ...(shapes.length ? [h("span.legend-group", {}, h("span.legend-title", { title: view.table.topology }, "topology"), ...shapes.map((shape) => h("span.legend-item", { html: `${symbolSvg(topologySymbol(shape), spine, 10)}${esc(words(shape))}` })))] : []),
             ...(dimmed ? [h("span.legend-group", {}, h("span.legend-item.muted", { html: `${symbolSvg("circle", PAPERS[currentTheme()].spine, 8)}${esc(dimmed)}` }))] : []),
         );
     }

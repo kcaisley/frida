@@ -3,7 +3,9 @@
 // and a row per case. Wheel zooms about the cursor, drag pans, right-drag (or shift-drag) zooms
 // to a box, double-click fits; K measures (KLayout's ruler key), L toggles labels, F fits. A
 // page may mark boxes on the layout (a check's violations: the "markers" event) and offer the
-// shown layout's GDS (its layout entry's ``gds``).
+// shown layout's GDS (its layout entry's ``gds``). A panel given DRC's markers (``drc``: a function
+// of the shown layout's, by rule) draws its layers dimmed under them, one more layer it toggles,
+// each marker's rule on hover.
 
 import { h, icon, select, titled } from "./icons.js";
 import { hatchTile, isVisible, layerColor, layerStyle, reportLayers, rgba, sortLayers } from "./layers.js";
@@ -85,9 +87,10 @@ function um(value) {
 }
 
 export class LayoutPanel {
-    constructor(container, saved) {
+    constructor(container, saved, { drc = null } = {}) {
         this.container = container;
-        this.config = { generator: null, tiled: false, labels: true, ...(saved || {}) };
+        this.drc = drc; // () => {rule: {count, description, boxes}} of the shown layout, or null
+        this.config = { generator: null, tiled: false, labels: true, markers: true, ...(saved || {}) };
         this.view = null; // {k, ox, oy}
         this.tiles = [];
         this.element = h("div.panel");
@@ -117,7 +120,8 @@ export class LayoutPanel {
                 this.draw();
             }),
             on("command", (command) => this.command(command)),
-            on("markers", (markers) => this.setMarkers(markers)),
+            // DRC's own markers follow the shown design, the page's markers the others
+            drc ? on("story-shown", () => this.refresh(true)) : on("markers", (markers) => this.setMarkers(markers)),
         ];
         this.resizeObserver = new ResizeObserver(() => this.resize());
         this.resizeObserver.observe(this.host);
@@ -177,6 +181,18 @@ export class LayoutPanel {
         };
         // the shown layout's GDS, where its page offers it
         const gds = !this.config.tiled && focus ? layoutsFor(focus, this.config.generator)?.gds : null;
+        // DRC's markers: their count, and their layer shown or hidden
+        if (this.drc) {
+            const rules = this.drc() || {};
+            const count = Object.values(rules).reduce((sum, rule) => sum + rule.count, 0);
+            this.markers = this.config.markers ? Object.entries(rules).flatMap(([rule, entry]) => entry.boxes.map((box) => [...box, rule, entry.description])) : [];
+            this.toolbar.append(h(`span.drc-count${count ? ".bad" : ""}`, {}, `${count} violation${count === 1 ? "" : "s"}`));
+            if (count) this.toolbar.append(button(this.config.markers ? "eye" : "eyeOff", "Show or hide the violations' markers", this.config.markers, () => {
+                this.config.markers = !this.config.markers;
+                this.buildToolbar();
+                this.draw();
+            }, "Markers"));
+        }
         this.toolbar.append(
             h("span.grow"),
             gds ? h("a.icon-btn", { href: gds, download: `${layoutsFor(focus, this.config.generator).cell || "layout"}.gds`, title: "Download GDS" }, h("span", { html: icon("download", 14) })) : "",
@@ -359,6 +375,19 @@ export class LayoutPanel {
         this.draw();
     }
 
+    // the DRC marker drawn under a screen point, null where none is
+    markerAt(px, py) {
+        const tile = this.tiles[0];
+        return (
+            this.markers.find(([x1, y1, x2, y2]) => {
+                const [ax, ay] = this.toScreen(x1 + tile.dx, y2 + tile.dy);
+                const [bx, by] = this.toScreen(x2 + tile.dx, y1 + tile.dy);
+                const [w, hgt] = [Math.max(bx - ax, 8), Math.max(by - ay, 8)];
+                return Math.abs(px - (ax + bx) / 2) <= w / 2 && Math.abs(py - (ay + by) / 2) <= hgt / 2;
+            }) || null
+        );
+    }
+
     // frame a box of the (first) layout's own coordinates with room around it
     zoomTo([x1, y1, x2, y2]) {
         const tile = this.tiles[0];
@@ -426,6 +455,8 @@ export class LayoutPanel {
         const inverse = transform.inverse();
         this.patterns = this.patterns || {};
         const keys = sortLayers(new Set(this.tiles.flatMap((tile) => Object.keys(tile.paths))));
+        // under DRC's markers, the layers dimmed
+        ctx.globalAlpha = this.drc ? 0.35 : 1;
         for (const key of keys) {
             if (!isVisible(key)) continue;
             const style = layerStyle(key);
@@ -454,6 +485,7 @@ export class LayoutPanel {
                 }
             }
         }
+        ctx.globalAlpha = 1;
         ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 
         // hovered shape
@@ -507,10 +539,11 @@ export class LayoutPanel {
             }
         }
 
-        // markers on the first layout, in the theme's error color, at least 8 pixels across
+        // markers on the first layout, in the theme's error color (DRC's in their own), at least 8
+        // pixels across
         if (this.markers.length && this.tiles.length) {
             const tile = this.tiles[0];
-            const color = root.getPropertyValue("--sem-error").trim();
+            const color = root.getPropertyValue(this.drc ? "--drc-marker" : "--sem-error").trim();
             ctx.strokeStyle = color;
             ctx.fillStyle = rgba(color, 0.16);
             ctx.lineWidth = 1.5;
@@ -729,10 +762,15 @@ export class LayoutPanel {
                 this.ruler.b = [snap(wx), snap(wy)];
                 this.draw();
             }
-            const hover = this.hit(px, py);
+            // a DRC marker under the mouse (at least 8 pixels across, as drawn): its rule
+            const marker = this.drc && this.tiles.length ? this.markerAt(px, py) : null;
+            const hover = marker ? null : this.hit(px, py);
             const changed = hover?.layer !== this.hover?.layer || hover?.index !== this.hover?.index || hover?.poly !== this.hover?.poly || hover?.tile !== this.hover?.tile;
             this.hover = hover;
-            if (hover) {
+            if (marker) {
+                this.tip.textContent = `${marker[4]}${marker[5] ? ` · ${marker[5]}` : ""}`;
+                Object.assign(this.tip.style, { display: "", left: `${px}px`, top: `${py}px` });
+            } else if (hover) {
                 const caption = this.tiles.length > 1 ? `${hover.tile.item.case} · ${hover.tile.item.pdk} · ` : "";
                 this.tip.textContent = `${caption}${hover.layer.key} · ${um(hover.size[0])} × ${um(hover.size[1])} µm`;
                 Object.assign(this.tip.style, { display: "", left: `${px}px`, top: `${py}px` });

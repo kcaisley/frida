@@ -132,7 +132,7 @@ def test_a_block_runs_through_every_characterization_step(flow, simulated, capsy
     data = runner.RUNS_DIR / "web/data/sweep"
     monkeypatch.setattr(runner, "DATA_DIR", data)
     flow("--run", "one", "--from", "table", "--to", "table")
-    table = json.loads((data / "toyblock.json").read_text())
+    table = json.loads((data / "toyblock/runs/one/20261108_000000.json").read_text())
     assert [row["id"] for row in table["rows"]] == [record["id"]] and table["run"] == "one/20261108_000000"
 
 
@@ -249,19 +249,24 @@ def test_dry_run_marks_the_steps_that_would_fail_and_why(flow, toy, capsys) -> N
     assert lines[2] == "1 instance in 1 PDK: 0 steps to run, 2 would fail, 0 complete, about 0 simulator runs"
 
 
-def test_the_table_takes_each_instances_newest_record_across_the_runs(flow, tools, monkeypatch) -> None:
-    """A newer run of a layout alone does not hide the records of the runs before: the table keeps
-    each instance's newest characterization, the newer layout joined to it."""
+def test_the_table_has_each_run_of_the_block_its_own(flow, tools, monkeypatch) -> None:
+    """The table step exports each of the block's runs as a table of its own, the run it was given
+    the one the viewer opens on: a newer run of a layout alone leaves the run before as it was."""
     data = runner.RUNS_DIR / "web/data/sweep"
     monkeypatch.setattr(runner, "DATA_DIR", data)
     flow("--run", "one", "--to", "record")
     flow("--run", "wired", "--to", "layout")
     flow("--run", "wired", "--from", "table", "--to", "table")
-    table = json.loads((data / "toyblock.json").read_text())
-    rows = {row["id"]: row for row in table["rows"]}
     one, wired = (runner.instance_id("toypdk", build()) for build in _named("one", "wired"))
-    assert set(rows) == {one, wired} and rows[one]["metrics"]["read_full"] is True and rows[wired]["metrics"] == {}
-    assert table["run"] == "wired/20261108_000001 (toypdk), one/20261108_000000 (toypdk)"
+    tables = {
+        run: {row["id"]: row for row in json.loads((data / f"toyblock/runs/{run}.json").read_text())["rows"]}
+        for run in ("one/20261108_000000", "wired/20261108_000001")
+    }
+    assert tables["one/20261108_000000"][one]["metrics"]["read_full"] is True
+    assert set(tables["wired/20261108_000001"]) == {wired} and tables["wired/20261108_000001"][wired]["metrics"] == {}
+    catalog = json.loads((data / "catalog.json").read_text())["toyblock"]
+    assert [entry["label"] for entry in catalog["runs"]] == ["wired/20261108_000001", "one/20261108_000000"]
+    assert catalog["default"] == "wired/20261108_000001" and not (data / "toyblock.json").exists()
 
 
 def _named(*names: str):

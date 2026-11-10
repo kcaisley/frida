@@ -283,9 +283,8 @@ def export_schematic(netlist: str, out: str) -> str:
 # An instance's steps: the story of its run through the pipeline
 # =============================================================================
 
-# a step that finished more than this before the next one in its chain started ran in an earlier
-# invocation of the run (the steps of one invocation follow each other in one worker)
-INVOCATION_GAP_S = 30.0
+# a DRC rule's markers exported at most (its count is whole)
+MAX_MARKERS = 100
 # what a step's view leaves out of its step.json: its record of the run, kept apart, and its files
 _RUN_KEYS = ("step", "finished", "seconds", "error", "log")
 
@@ -369,24 +368,9 @@ def _relative(path, root: Path) -> str | None:
         return str(path)
 
 
-def _invocation_start(ended: dict[str, dict[str, Any]]) -> float:
-    """When the instance's newest invocation began: the start of the earliest step in the chain of
-    steps that ran one after another (within ``INVOCATION_GAP_S``) up to the newest."""
-    timed = sorted((entry for entry in ended.values() if entry.get("finished")), key=lambda entry: entry["finished"])
-    if not timed:
-        return 0.0
-    start = timed[-1]["finished"] - (timed[-1].get("seconds") or 0.0)
-    for entry in reversed(timed[:-1]):
-        if entry["finished"] < start - INVOCATION_GAP_S:
-            break
-        start = min(start, entry["finished"] - (entry.get("seconds") or 0.0))
-    return start
-
-
 def steps_view(folder: Path, record: dict[str, Any], *, root: Path = ROOT) -> list[dict[str, Any]] | None:
     """The instance's steps in their order (``flow.steps.Step``: netlist, sim, circuit where it ran,
-    layout, drc, lvs, pex, pexsim, record), each as the viewer tells it: its state (``ok``; ``kept``:
-    made in an earlier invocation of the run than the instance's newest; ``failed`` with its error;
+    layout, drc, lvs, pex, pexsim, record), each as the viewer tells it: its state (``ok``; ``failed`` with its error;
     ``rejected``: the step after which the run's bounds rejected the design, with the bounds it
     missed; ``skipped`` with why; ``not run`` with why), when it finished, its seconds, its log's
     warnings and errors by tool (``counts``) and its log's path, what it established for the bounds
@@ -408,7 +392,6 @@ def steps_view(folder: Path, record: dict[str, Any], *, root: Path = ROOT) -> li
         return None
     if Step.RECORD not in ended and record.get("error"):
         ended[Step.RECORD] = {"step": "record", "finished": None, "seconds": None, "error": record["error"]}
-    start = _invocation_start({str(step): entry for step, entry in ended.items()})
     rejected = record.get("rejected") or None
     rejected_at = (
         Step[rejected["step"].upper()] if rejected and rejected.get("step", "").upper() in Step.__members__ else None
@@ -451,7 +434,7 @@ def steps_view(folder: Path, record: dict[str, Any], *, root: Path = ROOT) -> li
         elif step is rejected_at:
             view.update(state="rejected", rejected=rejected)
         else:
-            view["state"] = "kept" if (entry.get("finished") or 0.0) < start - INVOCATION_GAP_S else "ok"
+            view["state"] = "ok"
         if rejected_at is not None and step.value > rejected_at.value and step is not Step.RECORD:
             view["note"] = f"made before the design was rejected at {rejected_at}"
         out.append(view | _step_extras(step, folder, view))
@@ -477,6 +460,7 @@ def _step_extras(step, folder: Path, view: dict[str, Any]) -> dict[str, Any]:
             found = json.loads(report.read_text())
             extras["rules"] = dict(sorted(found.get("violations", {}).items(), key=lambda item: (-item[1], item[0])))
             extras["waived"] = found.get("waived") or {}
+        extras["markers"] = drc_markers(folder / "drc", view["outputs"].get("top") or "")
     elif step is Step.LVS and view["outputs"].get("lvs_correct") is False:
         report = view["outputs"].get("lvs_report")
         if report and str(report).endswith(".lvsdb") and (ROOT / report).exists():
@@ -487,6 +471,26 @@ def _step_extras(step, folder: Path, view: dict[str, Any]) -> dict[str, Any]:
             except Exception as error:  # noqa: BLE001 - the verdict stands without them
                 extras["mismatches"] = [f"(the LVS database did not read: {error})"]
     return extras
+
+
+def drc_markers(folder: Path, top: str) -> dict[str, dict[str, Any]]:
+    """DRC's markers by rule, from the KLayout marker databases gdscheck wrote (``gdscheck.<suite>
+    .lyrdb``, ``flow.layout.signoff._markers``): each rule's count, description and boxes (µm, in
+    the top cell, ``MAX_MARKERS`` at most). A report that does not read is left out; Calibre's
+    results are not read."""
+    from flow.layout.signoff import _markers
+
+    rules: dict[str, dict[str, Any]] = {}
+    for report in sorted(folder.glob("*.lyrdb")):
+        try:
+            found = _markers(report, top)
+        except Exception:  # noqa: BLE001, S112 - the counts stand without their places
+            continue
+        for rule, entry in found.items():
+            kept = rules.setdefault(rule, {"count": 0, "description": entry["description"], "boxes": []})
+            kept["count"] += entry["count"]
+            kept["boxes"] = (kept["boxes"] + entry["boxes"])[:MAX_MARKERS]
+    return rules
 
 
 def wave_kinds(waves: dict[str, str], root: Path = ROOT) -> dict[str, dict[str, str]]:

@@ -3,10 +3,9 @@
 // and Back and Forward step through them
 // (#block=<block>&run=<run>/<stamp>&search=<label>&ids=<id>,<id>&compiler&job=<run>):
 //   the Assembler (no ids): one of the block's runs' tables (run, the Sweeps panel's Run: a run's
-//     name and dated folder, the catalog's default first, * each instance's newest record across
-//     the runs), or one of its optimizations (search, a study's problem as adc(bits=12); the Search
-//     picks it), its table on its side and its scatter (sweep.js); marking instances (a column's
-//     head, a point) loads nothing;
+//     name and dated folder, the catalog's default first), or one of its optimizations (search,
+//     a study's problem as adc(bits=12); the Search picks it), its table on its side and its
+//     scatter (sweep.js); marking instances (a column's head, a point) loads nothing;
 //   the Explorer (one id, the top bar's View): its story, the steps it went through top to bottom,
 //     each its state and findings beside what it made (detail.js);
 //   the Comparer (several ids, Compare): their stories side by side, a column each (detail.js);
@@ -23,7 +22,7 @@ import { clearFilters, marks, ScatterPanel, setBlock, setMarks, setRuns, setSear
 const app = {
     catalog: null, // block -> {title, run, instances, runs: [{label, file, instances, failed, created}], default, searches: {label -> {table, title, run, instances}}}
     block: null, // the shown block's name
-    run: null, // the shown run's label ("*": each instance's newest record), null for a search's table
+    run: null, // the shown run's label, null for a search's table
     search: null, // the shown optimization's label, null for the block's sweep
     file: null, // the shown table's name under data/sweep/: the block's, or its search's
     table: null, // the shown table
@@ -97,7 +96,7 @@ async function route() {
     if (!search && app.catalog[block].instances === undefined) search = Object.keys(searches)[0] || null;
     // the run: the URL's, else the catalog's default (the table step's run, else the newest)
     const runs = search ? [] : app.catalog[block].runs || [];
-    const known = (label) => label === "*" || runs.some((entry) => entry.label === label);
+    const known = (label) => runs.some((entry) => entry.label === label);
     let run = runs.length && want.run && known(want.run) ? want.run : null;
     if (runs.length && want.run && !run) toast(`No run ${want.run} of ${block}`);
     if (runs.length && !run) run = known(app.catalog[block].default) ? app.catalog[block].default : runs[0].label;
@@ -105,7 +104,7 @@ async function route() {
     const same = block === want.block && search === want.search && (!want.run || want.run === run);
     if (!same) amend({ block, search, run, ids: [] });
     else if (run !== want.run) amend({ run });
-    const file = search ? searches[search].table : run && run !== "*" ? runs.find((entry) => entry.label === run).file : block;
+    const file = search ? searches[search].table : run ? runs.find((entry) => entry.label === run).file : block;
     if (file !== app.file || !app.table) {
         let table;
         try {
@@ -132,7 +131,7 @@ async function route() {
     const ids = same ? want.ids : [];
     const found = ids.filter((id) => app.table.rows.some((row) => row.id === id));
     if (found.length !== ids.length) {
-        toast(`Not in ${block}'s ${run && run !== "*" ? `run ${run}` : "table"}: ${ids.filter((id) => !found.includes(id)).join(", ")}`);
+        toast(`Not in ${block}'s ${run ? `run ${run}` : "table"}: ${ids.filter((id) => !found.includes(id)).join(", ")}`);
         amend({ ids: found });
     }
     const mode = want.compiler ? "compiler" : !found.length ? "table" : found.length === 1 ? "view" : "compare";
@@ -142,15 +141,14 @@ async function route() {
 // a stamp as a date: 20261110_001031 -> 2026-11-10 00:10
 const dated = (stamp) => String(stamp || "").replace(/^(\d{4})(\d\d)(\d\d)_(\d\d)(\d\d)(\d\d).*$/, "$1-$2-$3 $4:$5");
 
-// the Run's options: each instance's newest record first, then the runs grouped by their name (the
-// group of the newest run first), each its dated folder, the newest first
+// the Run's options: the runs grouped by their name (the group of the newest run first), each its
+// dated folder, the newest first
 function runOptions(runs) {
     if (!runs.length) return [];
     const names = [...new Set(runs.map((entry) => (entry.label.includes("/") ? entry.label.split("/")[0] : null)))];
     const ordered = names.flatMap((name) => runs.filter((entry) => (entry.label.includes("/") ? entry.label.split("/")[0] : null) === name));
     const count = (entry) => `${entry.instances}${entry.failed ? ` (${entry.failed} failed)` : ""}`;
     return [
-        ...(runs.length > 1 ? [{ value: "*", label: "every run: each instance's newest record", title: "Each instance's newest record across the block's runs" }] : []),
         ...ordered.map((entry) => {
             const [name, stamp] = entry.label.includes("/") ? entry.label.split("/") : [/^\d{8}_\d{6}$/.test(entry.label) ? "" : entry.label, entry.created];
             const title = `${entry.label}: ${entry.instances} instance${entry.instances === 1 ? "" : "s"}${entry.failed ? `, ${entry.failed} failed` : ""}`;
@@ -194,9 +192,7 @@ async function show(mode, ids, want) {
     let instances;
     let mount;
     try {
-        // a row of each instance's newest record names the run whose file it is (its file)
-        const fileOf = (id) => app.table.rows.find((row) => row.id === id)?.file || app.file;
-        [instances, { mountInstances: mount }] = await Promise.all([Promise.all(ids.map((id) => fetchJson(`sweep/${fileOf(id)}/${id}.json`).then((instance) => ({ ...instance, id, file: fileOf(id) })))), import("./detail.js")]);
+        [instances, { mountInstances: mount }] = await Promise.all([Promise.all(ids.map((id) => fetchJson(`sweep/${app.file}/${id}.json`).then((instance) => ({ ...instance, id, file: app.file })))), import("./detail.js")]);
     } catch (error) {
         if (token !== app.mounts) return;
         note.replaceChildren(h("strong", {}, "The instance did not load"), h("span.mono.muted", {}, error.message));
