@@ -711,3 +711,13 @@ def test_a_bound_judges_from_its_evidence_on() -> None:
         lambda: None, bounds=lambda pdk: (pipeline.Bound("x", 1.0 if pdk is pipeline.Pdk.TSMC65 else 2.0),)
     )
     assert fixed.bounds("tsmc65") == (area,) and per_pdk.bounds("ihp130")[0].limit == 2.0
+
+
+def test_a_run_asking_for_more_workers_than_the_machine_has_runs_on_all_it_has(monkeypatch) -> None:
+    """CI's machine has a few processors; a run's 36 workers run there on those it has."""
+    import os
+
+    monkeypatch.setattr(os, "cpu_count", lambda: 4)
+    assert pipeline.workers(pipeline.single(lambda: None)) == 4
+    monkeypatch.setattr(os, "cpu_count", lambda: 64)
+    assert pipeline.workers(pipeline.single(lambda: None)) == pipeline.DEFAULT_WORKERS

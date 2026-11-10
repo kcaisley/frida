@@ -145,14 +145,18 @@ def design(module: Any, pdk: str) -> Iterator[tuple[str, Any]]:
 
 
 def workers(run: Single | Grid | Optimize) -> int:
-    """The workers a run runs on (its own, else ``DEFAULT_WORKERS``), refused above the machine's
-    processors."""
+    """The workers a run runs on: its own, else ``DEFAULT_WORKERS``, at most the machine's
+    processors (a smaller machine, CI's, runs it on all it has)."""
+    import logging
     import os
 
     count = run.workers or DEFAULT_WORKERS
-    if count > (os.cpu_count() or 1):
-        raise ValueError(f"{run.name} asks for {count} workers; this machine has {os.cpu_count()} processors")
-    return count
+    processors = os.cpu_count() or 1
+    if count > processors:
+        logging.getLogger("flow").info(
+            f"{run.name} asks for {count} workers: {processors} here, this machine's processors"
+        )
+    return min(count, processors)
 
 
 # ---- spaces: a design with some of its parameters widened, for a grid (a block's runs.py, @grid)

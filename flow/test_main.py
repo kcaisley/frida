@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -100,7 +101,9 @@ def test_an_optimization_runs_its_study_and_the_viewer_keeps_its_command(monkeyp
     monkeypatch.setattr(server, "serve", lambda port, host: calls.append(("serve", port, host)))
     cli.main(["--block", "comp", "--run", "adc_12bit"])
     cli.main(["web.serve"])
-    assert calls == [("opt", "comp", "tsmc65", "adc_12bit", 500, 48), ("serve", 8765, "127.0.0.1")]
+    # its 48 workers, at most this machine's processors (CI's has 4)
+    workers = min(48, os.cpu_count() or 1)
+    assert calls == [("opt", "comp", "tsmc65", "adc_12bit", 500, workers), ("serve", 8765, "127.0.0.1")]
     for old in (["opt", "comp", "--problem", "adc(bits=12)"], ["comp", "--to", "results"]):
         with pytest.raises(SystemExit):
             cli.main(old)
