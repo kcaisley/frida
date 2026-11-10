@@ -82,7 +82,7 @@ def _admits(pdks: tuple[Pdk, ...] | None, pdk: str | Pdk) -> bool:
 class Single:
     """One design of a block (``@single``): a function without arguments returning its ``Params``,
     run by its name (``frida1``); in the PDKs ``pdks`` names (None: every PDK whose kit is here and
-    whose ``params.valid`` admits it), on ``workers`` (None: ``DEFAULT_WORKERS``), rejected where it
+    whose ``params.valid`` admits it), on a worker a design (``workers``: at most so many), rejected where it
     misses one of its ``bounds`` (``Bound``)."""
 
     build: Callable[[], Any]
@@ -144,19 +144,15 @@ def design(module: Any, pdk: str) -> Iterator[tuple[str, Any]]:
             yield from value.instances(pdk)
 
 
-def workers(run: Single | Grid | Optimize) -> int:
-    """The workers a run runs on: its own, else ``DEFAULT_WORKERS``, at most the machine's
-    processors (a smaller machine, CI's, runs it on all it has)."""
-    import logging
+def workers(run: Single | Grid | Optimize, designs: int | None = None) -> int:
+    """The workers a run runs on: one a design (``designs``, a single's or a grid's), else its own
+    (``run.workers``, an optimization's; ``DEFAULT_WORKERS`` where it states none), at most the
+    machine's processors (CI's runner has a few) and at most the run's own where it states them."""
     import os
 
-    count = run.workers or DEFAULT_WORKERS
     processors = os.cpu_count() or 1
-    if count > processors:
-        logging.getLogger("flow").info(
-            f"{run.name} asks for {count} workers: {processors} here, this machine's processors"
-        )
-    return min(count, processors)
+    count = min(designs, run.workers or designs) if designs else run.workers or DEFAULT_WORKERS
+    return max(1, min(count, processors))
 
 
 # ---- spaces: a design with some of its parameters widened, for a grid (a block's runs.py, @grid)

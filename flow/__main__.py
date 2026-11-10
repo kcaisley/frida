@@ -233,7 +233,7 @@ def steps(args: argparse.Namespace) -> None:
         raise SystemExit(f"{args.block}'s run {args.run} names no design in a PDK whose kit is here")
     if Step.CIRCUIT in chosen and not any(runner.circuit_testbenches(j.block, j.pdk, j.params) for j in jobs):
         raise SystemExit(f"{args.block} has no circuit simulator runs beyond its full ones: its presim step runs them")
-    workers = pipeline.workers(spec)
+    workers = pipeline.workers(spec, len(jobs))
     print(f"{args.block}: {found} run {runner._shown(run)}; steps {', '.join(map(str, chosen))}")
     if args.dry_run:
         _dry_run(jobs, chosen)

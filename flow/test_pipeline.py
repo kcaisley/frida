@@ -713,11 +713,18 @@ def test_a_bound_judges_from_its_evidence_on() -> None:
     assert fixed.bounds("tsmc65") == (area,) and per_pdk.bounds("ihp130")[0].limit == 2.0
 
 
-def test_a_run_asking_for_more_workers_than_the_machine_has_runs_on_all_it_has(monkeypatch) -> None:
-    """CI's machine has a few processors; a run's 36 workers run there on those it has."""
+def test_a_run_has_a_worker_a_design_at_most_the_machines_processors(monkeypatch) -> None:
+    """A run's workers: one a design, at most the machine's processors (CI's runner has 4) and at
+    most its own where it states them; an optimization its own, at most the processors."""
     import os
 
     monkeypatch.setattr(os, "cpu_count", lambda: 4)
-    assert pipeline.workers(pipeline.single(lambda: None)) == 4
+    run = pipeline.single(lambda: None)
+    assert (pipeline.workers(run, 3), pipeline.workers(run, 6), pipeline.workers(run)) == (3, 4, 4)
     monkeypatch.setattr(os, "cpu_count", lambda: 64)
-    assert pipeline.workers(pipeline.single(lambda: None)) == pipeline.DEFAULT_WORKERS
+    assert (pipeline.workers(run, 6), pipeline.workers(run, 200), pipeline.workers(run)) == (
+        6,
+        64,
+        pipeline.DEFAULT_WORKERS,
+    )
+    assert pipeline.workers(pipeline.single(lambda: None, workers=2), 6) == 2
