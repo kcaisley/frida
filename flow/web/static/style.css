@@ -1892,6 +1892,18 @@ table.tgrid col.hover {
     background: var(--bg-main);
 }
 
+/* the bar and the head one box, its edges on the steps' below (the Library's 4 px gutter beside it):
+   no box inset more than another */
+.story-toolbar,
+.story-head {
+    border-left: 1px solid var(--border-subtle);
+    border-right: 1px solid var(--border-subtle);
+}
+
+.story-toolbar {
+    border-top: 1px solid var(--border-subtle);
+}
+
 .story-head {
     flex: none;
     background: var(--bg-panel);
@@ -1973,8 +1985,8 @@ button.stage-chip:hover {
     overflow: auto;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 6px;
+    gap: 4px;
+    padding: 4px 0;
 }
 
 .step-row {
@@ -1982,7 +1994,7 @@ button.stage-chip:hover {
     display: grid;
     grid-template-columns: minmax(0, var(--story-left)) minmax(0, 1fr);
     gap: 4px;
-    scroll-margin-top: 6px;
+    scroll-margin-top: 4px;
 }
 
 .step-row.solo {
@@ -3244,3 +3256,157 @@ a.icon-btn {
     gap: 8px;
 }
 
+
+/* ─── the review's round: full screen, the bar's instance, logging, rules, nets ─────────────── */
+
+/* a region's full-screen button at its head's right */
+.region-head .grow {
+    flex: 1;
+}
+
+.region-expand {
+    align-self: center;
+    height: 22px;
+    min-width: 22px;
+    margin-right: 3px;
+    color: var(--fg-muted);
+}
+
+/* a region over the whole window (where the browser refuses full screen: an artifact's frame), or
+   on the whole screen */
+.region.maximized {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    background: var(--bg-main);
+}
+
+.region:fullscreen {
+    background: var(--bg-main);
+}
+
+.region.maximized .region-body,
+.region:fullscreen .region-body {
+    overflow: auto;
+}
+
+/* the single instance in the page's bar: its name, PDK, when its run started, its folder */
+.bar-name {
+    color: var(--fg-bright);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.bar-pdk,
+.bar-when {
+    font-size: var(--fs-12);
+    white-space: nowrap;
+}
+
+.bar-path {
+    min-width: 0;
+    max-width: 64ch;
+}
+
+.bar-path .mono {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-11);
+}
+
+/* a step's logging: its counts in their colours where not 0, the known ones dim */
+.log-count.error {
+    color: var(--sem-error);
+    font-weight: 600;
+}
+
+.log-count.warning {
+    color: var(--sem-warn);
+    font-weight: 600;
+}
+
+.log-count.known {
+    color: var(--fg-muted);
+}
+
+.log-link {
+    color: var(--fg-primary);
+}
+
+/* the results' metrics: their heading the evidence and the verdict */
+.prepost-head {
+    padding: 6px 8px 4px;
+    border-top: 1px solid var(--border-subtle);
+    font-size: var(--fs-12);
+}
+
+.prepost-head strong {
+    color: var(--fg-bright);
+    font-weight: 600;
+}
+
+.prepost-head .good {
+    color: var(--sem-ok);
+}
+
+.prepost-head .bad {
+    color: var(--sem-error);
+}
+
+/* DRC's rules: each checked, passed or its violations */
+table.tgrid.rules td.check {
+    max-width: 48ch;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-11);
+}
+
+table.tgrid.rules td.passed {
+    color: var(--sem-ok);
+}
+
+/* the extraction's nets: their capacitances and a bar of each one's wiring */
+table.tgrid.nets td.bar-cell {
+    width: 40%;
+    min-width: 80px;
+    text-align: left;
+}
+
+table.tgrid.nets .bar {
+    display: block;
+    height: 9px;
+    border-radius: 2px;
+    opacity: 0.85;
+}
+
+/* alone, the head is the pipeline */
+.story-design.pipeline {
+    padding: 2px 0;
+}
+
+/* a toolbar's facts about what it draws: its file's size, its renderer, the page's memory */
+.size-meter {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--fg-muted);
+    font-size: var(--fs-11);
+    white-space: nowrap;
+}
+
+table.tgrid.nets thead th.inst,
+table.tgrid.rules thead th.inst:last-child {
+    text-align: right;
+}
+
+table.tgrid.rules thead th:nth-child(2) {
+    text-align: left;
+}
+
+/* compared, a step's logging wraps in its column rather than running under the next */
+table.tgrid.facts td.node .log-link {
+    white-space: normal;
+}

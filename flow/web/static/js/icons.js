@@ -14,7 +14,12 @@ const PATHS = {
     layers: '<path d="M8 2l6 3-6 3-6-3z"/><path d="M2 8l6 3 6-3M2 11l6 3 6-3"/>',
     params: '<path d="M2 4h7M12 4h2M2 8h2M7 8h7M2 12h9M14 12h0"/><circle cx="10.5" cy="4" r="1.5"/><circle cx="5.5" cy="8" r="1.5"/><circle cx="12.5" cy="12" r="1.5"/>',
     list: '<path d="M5.5 4h8.5M5.5 8h8.5M5.5 12h8.5"/><circle cx="2.5" cy="4" r=".6"/><circle cx="2.5" cy="8" r=".6"/><circle cx="2.5" cy="12" r=".6"/>',
-    fit: '<path d="M2 5.5V2h3.5M14 5.5V2h-3.5M2 10.5V14h3.5M14 10.5V14h-3.5"/><rect x="5" y="5" width="6" height="6" rx=".5"/>',
+    // the view fitted to what it shows: a lens over a frame (the four corners are full screen's)
+    fit: '<circle cx="6.8" cy="6.8" r="4.8"/><path d="M10.3 10.3L14 14"/><rect x="4.6" y="4.6" width="4.4" height="4.4" rx=".4"/>',
+    // a panel over the whole window
+    expand: '<path d="M10 2h4v4M14 2l-4.5 4.5M6 14H2v-4M2 14l4.5-4.5"/>',
+    shrink: '<path d="M13.5 6.5h-4v-4M9.5 6.5L14 2M2.5 9.5h4v4M6.5 9.5L2 14"/>',
+    copy: '<rect x="5" y="5" width="9" height="9" rx="1"/><path d="M11 5V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2"/>',
     ruler: '<path d="M1.5 11.5l10-10 3 3-10 10z"/><path d="M4.5 8.5l1.5 1.5M6.5 6.5l1 1M8.5 4.5l1.5 1.5"/>',
     tag: '<path d="M2 2h5.5L14 8.5 8.5 14 2 7.5z"/><circle cx="5" cy="5" r="1"/>',
     tiles: '<rect x="1.5" y="3" width="5.5" height="10" rx=".5"/><rect x="9" y="3" width="5.5" height="10" rx=".5"/>',
@@ -96,6 +101,32 @@ export function seg(options, value, onChange) {
         if (option.value === value) button.classList.add("on");
         element.append(button);
     }
+    return element;
+}
+
+// a toolbar's facts about what it draws: its file's size ("GDS 14.3 kB"), what draws it (WebGL,
+// CPU) and the page's memory in use, read every two seconds while on the page ("n/a" where the
+// browser does not tell it: Chromium's performance.memory alone does)
+export function sizeMeter({ file = null, label = "file", renderer = null } = {}) {
+    const memory = h("span", {}, "");
+    const element = h(
+        "span.size-meter.mono",
+        { title: "What this view loaded and the page's memory in use (the browser's JavaScript heap, where it tells it)" },
+        file !== null ? h("span", {}, `${label} ${file}`) : null,
+        renderer ? h("span", {}, renderer) : null,
+        memory,
+    );
+    const read = () => {
+        const used = globalThis.performance?.memory?.usedJSHeapSize;
+        let text = "n/a";
+        if (typeof used === "number") {
+            const mb = used / 1e6;
+            text = mb >= 1000 ? `${+(mb / 1000).toPrecision(3)} GB` : `${+mb.toPrecision(3)} MB`;
+        }
+        memory.textContent = `RAM ${text}`;
+    };
+    read();
+    const timer = setInterval(() => (element.isConnected ? read() : clearInterval(timer)), 2000);
     return element;
 }
 

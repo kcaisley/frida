@@ -101,6 +101,8 @@ export class SchematicPanel {
             }
             this.page.innerHTML = scopedSvg(text);
             const svg = this.page.querySelector("svg");
+            // no dashed outline around the sheet (the drawing's own box of the cell)
+            svg.querySelectorAll(":scope > rect[stroke-dasharray]").forEach((rect) => rect.remove());
             this.svgSize = [Number(svg.getAttribute("width")) || svg.viewBox.baseVal.width, Number(svg.getAttribute("height")) || svg.viewBox.baseVal.height];
             this.moved = false;
             this.fit();

@@ -4,7 +4,7 @@
 // as GoldenLayout gave one (its element, on("destroy" | "show" | "resize")), so the shared panels
 // (layout2d, layout3d, layers, traces, panels) run unchanged.
 
-import { h } from "./icons.js";
+import { h, icon } from "./icons.js";
 import { recall, store } from "./store.js";
 
 // what a panel is given: the element it fills and its lifetime's events
@@ -91,6 +91,10 @@ class Region {
         });
         // a lone panel's title is a label, not a tab to press
         if (this.entries.length === 1) this.head.classList.add("single");
+        // the region over the whole window, and back (Escape too)
+        this.expand = h("button.icon-btn.region-expand", { title: "Full screen", onclick: () => this.setFull(!this.full) });
+        this.head.append(h("span.grow"), this.expand);
+        this.setFull(false);
         const saved = key ? recall(`tab.${key}`, null) : null;
         this.active = this.entries.some((entry) => entry.id === saved) ? saved : this.entries[0]?.id;
         this.show();
@@ -137,7 +141,41 @@ class Region {
         entry.container.emit("resize");
     }
 
+    // full: the region on the whole screen where the browser lets the page (the Fullscreen API),
+    // else over the whole window (an artifact's frame refuses full screen); Escape leaves either
+    async setFull(full) {
+        if (full === Boolean(this.full)) {
+            this.showFull(full);
+            return;
+        }
+        this.full = full;
+        if (full) {
+            this.onKey = (event) => event.key === "Escape" && this.setFull(false);
+            document.addEventListener("keydown", this.onKey, true);
+            try {
+                await this.element.requestFullscreen();
+                this.onExit = () => !document.fullscreenElement && this.setFull(false);
+                document.addEventListener("fullscreenchange", this.onExit);
+            } catch (error) {
+                this.element.classList.add("maximized");
+            }
+        } else {
+            document.removeEventListener("keydown", this.onKey, true);
+            document.removeEventListener("fullscreenchange", this.onExit);
+            if (document.fullscreenElement === this.element) await document.exitFullscreen().catch(() => {});
+            this.element.classList.remove("maximized");
+        }
+        this.showFull(full);
+        this.current()?.container.emit("resize");
+    }
+
+    showFull(full) {
+        this.expand.innerHTML = icon(full ? "shrink" : "expand", 13);
+        this.expand.title = full ? "Leave full screen (Escape)" : "Full screen";
+    }
+
     destroy() {
+        if (this.full) this.setFull(false);
         this.resizeObserver.disconnect();
         for (const entry of this.entries) entry.container.emit("destroy");
     }

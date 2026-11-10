@@ -12,7 +12,7 @@
 import { h, icon, popover, select, titled } from "./icons.js";
 import { currentTheme, keepTicks, PAPERS, paperLayout, TICK_KEYS, tone } from "./paper.js";
 import { COLORS, emit, hostBar, on, recall, store } from "./store.js";
-import { fieldInfo, scaledUnit, siExponent, words } from "./units.js";
+import { fieldInfo, scaled, scaledUnit, siExponent, words } from "./units.js";
 
 export const PDK_ORDER = ["tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65"];
 // a topology's marker, in the scatter and beside its value in the table: Plotly's symbol names
@@ -115,7 +115,7 @@ function buildFields(table) {
         return finite.length ? [finite[Math.floor(finite.length / 10)]] : [];
     };
     for (const name of table.metrics) {
-        const get = (row) => row.metrics?.[name];
+        const get = (row) => scaled(fieldInfo(name), row.metrics?.[name]);
         const info = fieldInfo(name);
         const exponent = !info.scalable ? 0 : running.length ? siExponent(running.map(get)) : siExponent(smallest(rows.map(get)));
         fields.push({ key: `m:${name}`, label: info.label, unit: scaledUnit(info, exponent), kind: "num", get, info, exponent, metric: name, decimals: decimalsOf(rows, get) });
@@ -1011,7 +1011,8 @@ export const shown = (value) => (value === null || value === undefined ? "—" :
 // a number at its row's SI prefix to 0.001 of it, whole numbers as they are
 export function formatted(value, exponent) {
     if (typeof value !== "number" || !Number.isFinite(value)) return shown(value);
-    return Number.isInteger(value) ? String(value) : (value / 10 ** exponent).toFixed(3).replace(/^-(0\.0*)$/, "$1");
+    // a whole number as it is, unless its row's prefix scales it (1 V beside 750 mV is 1000 mV)
+    return Number.isInteger(value) && !exponent ? String(value) : (value / 10 ** exponent).toFixed(3).replace(/^-(0\.0*)$/, "$1");
 }
 
 // each compared instance's name: its PDK and the parameters that tell it from the others

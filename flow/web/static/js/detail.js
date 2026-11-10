@@ -1,23 +1,25 @@
 // The Explorer and the Comparer: the instances marked in the Sweeps, opened in place by the top
 // bar's View (one) or Compare (two or more); nothing here loads before.
 //
-// Each instance is its story: the steps of the pipeline it went through (flow.steps: netlist, sim,
-// layout, drc, lvs, pex, pexsim, record; flow.web.export.steps_view), top to bottom, a row a step.
-// On a row's left the step's state (ok; failed, with
-// its error; rejected, with the bounds it missed; skipped or not run, with why), its seconds, its
-// tools' warnings and errors (its log over the page) and what it found or established; on its right
-// what it made: the netlist's schematic and listing, the pre-layout runs' waveforms, the layout in
-// 2-D and 3-D and its layers, DRC's violations, LVS's verdict, the extraction's nets, the
-// post-layout runs' waveforms, the record's analyses (each plot scaled to its own data: curves, a
-// map, markers and bands, as flow/plot.py draws a spec). The shared panels (layout, 3D, layers,
-// schematic, waveforms) read a one-instance block from the store, as they read any other.
+// Each instance is its story: the steps of the pipeline it went through (flow.steps: netlist,
+// presim, layout, drc, lvs, pex, postsim, results; flow.web.export.steps_view), top to bottom, a row
+// a step. On a row's left the step's state (ok; failed, with its error; rejected, with the bounds
+// it missed; skipped or not run, with why; its time is its chip's), its logging (its tools' errors
+// and warnings, its log over the page) and what it found or established, every value with its
+// unit (a count's "#"); on its right what it made: the netlist's schematic and listing, the
+// pre-layout runs' waveforms, the layout in 2-D and 3-D and its layers, DRC's rules, LVS's devices
+// on each side, the extraction's nets, the post-layout runs' waveforms, the results' analyses (each
+// plot scaled to its own data: curves, a map, markers and bands, as flow/plot.py draws a spec).
+// The shared panels (layout, 3D, layers, schematic, waveforms) read a one-instance block from the
+// store, as they read any other. The single instance's name, PDK, run and folder are the page's
+// bar's (app.js: info), its head its pipeline alone.
 //
 // Compared, a row's left is a column per design under its colour (blue, orange, ...: COLORS, the
 // values that differ tinted) and its right one design's at a time (the head's Show), but for the
 // analyses: there every design's curves overlay, a design a colour under one key (a design clicked
-// in it hides or shows its curves), its several curves a dash each, a post-layout record's
-// pre-layout curves (prelayout_details) dotted beside its own, its maps side by side, a marker
-// or band only some have in each one's colour.
+// in it hides or shows its curves), its several curves a dash each, its maps side by side, a
+// marker or band only some have in each one's colour; alone, a post-layout record's pre-layout
+// curves (prelayout_details) dotted beside its own.
 
 import { h, icon } from "./icons.js";
 import { LayersPanel, rgba } from "./layers.js";
@@ -29,7 +31,7 @@ import { Layout } from "./regions.js";
 import { apiUrl, COLORS, DASHES, emit, hostBar, on, recall, state, store } from "./store.js";
 import { describe, differs, formatted, paramNames, shown } from "./sweep.js";
 import { TracesPanel } from "./traces.js";
-import { fieldInfo, scaledUnit, siExponent, words } from "./units.js";
+import { bytes, countUnit, fieldInfo, scaled, scaledUnit, siExponent, words } from "./units.js";
 
 // the units the detail plots' labels end in that take an SI prefix
 const SCALABLE = new Set(["s", "V", "A", "J", "W", "F", "Hz", "Ω", "C", "V/C", "V/√Hz"]);
@@ -345,9 +347,10 @@ class PlotsPanel {
         const colors = PAPERS[theme];
         const compare = page.compare;
         const first = entries[0].detail;
-        // a post-layout record's pre-layout figure of the same name (its prelayout_details): its
-        // curves dotted under the post-layout ones, in the same colour
-        const preOf = ({ instance, detail }) => (instance.evidence === "postlayout" ? (instance.prelayout_details || []).find((item) => item.name === detail.name) : null) || null;
+        // alone, a post-layout record's pre-layout figure of the same name (its prelayout_details):
+        // its curves dotted under the post-layout ones, in the same colour; compared, each design's
+        // post-layout curves alone
+        const preOf = ({ instance, detail }) => (!compare && instance.evidence === "postlayout" ? (instance.prelayout_details || []).find((item) => item.name === detail.name) : null) || null;
         const pres = entries.map(preOf);
         const prelayout = pres.some((pre) => pre && Object.keys(pre.series || {}).length);
         // SI prefixes from the values plotted (a map's cell edges among them), not the markers
@@ -471,8 +474,10 @@ function shimBlock(instance) {
                       generator: layout.blocks ? "blocks" : "align",
                       path: layout.file,
                       cell,
-                      // the GDS itself, answered as a download by the server (none in a snapshot)
+                      // the GDS itself, answered as a download by the server (none in a snapshot),
+                      // and its size (the layout step's)
                       gds: layout.gds && !window.FRIDA_SNAPSHOT ? apiUrl("gds", { path: layout.gds }) : null,
+                      gdsBytes: stepOf(instance, "layout").gds_bytes,
                   },
               ]
             : [],
@@ -490,14 +495,14 @@ function shimBlock(instance) {
 // a step's name on its row
 const STEPS = {
     netlist: ["Netlist"],
-    sim: ["Simulation"],
+    presim: ["Pre-Sim"],
     circuit: ["Circuit simulation"],
     layout: ["Layout"],
     drc: ["DRC"],
     lvs: ["LVS"],
-    pex: ["Extraction"],
-    pexsim: ["Post-layout simulation"],
-    record: ["Record"],
+    pex: ["PEX"],
+    postsim: ["Post-Sim"],
+    results: ["Results"],
 };
 // a state's chip (compile.js's stage chips): its class and word
 const STATES = {
@@ -526,11 +531,11 @@ function stepsOf(instance) {
     const known = (value) => value !== null && value !== undefined;
     return [
         { step: "netlist", state: has(layout.netlist_file), why },
-        { step: "sim", state: has(Object.keys(instance.waves || {}).length || Object.keys(instance.metrics || {}).length), why },
+        { step: "presim", state: has(Object.keys(instance.waves || {}).length || Object.keys(instance.metrics || {}).length), why },
         { step: "layout", state: layout.error ? "failed" : has(layout.file || layout.gds), error: layout.error, why, outputs: { cell_um: layout.w_um ? [layout.w_um, layout.h_um] : undefined, router: layout.router } },
         { step: "drc", state: has(known(layout.drc_violations)), why, outputs: { violations: layout.drc_violations, checker: layout.signoff } },
         { step: "lvs", state: has(known(layout.lvs_correct)), why, outputs: known(layout.lvs_correct) ? { lvs_correct: layout.lvs_correct } : {} },
-        { step: "record", state: instance.error ? "failed" : "ok", error: instance.error },
+        { step: "results", state: instance.error ? "failed" : "ok", error: instance.error },
     ];
 }
 
@@ -549,23 +554,30 @@ function chip(entry, { label = null, time = true, onclick = null } = {}) {
     );
 }
 
-function duration(seconds) {
+// a time: in ms under a second (the quick checks' tenths of a second read 0.0 s)
+export function duration(seconds) {
+    if (seconds < 1) return `${Math.round(seconds * 1000)} ms`;
     if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
     return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
 }
 
-// a step's warnings and errors by tool (flow.steps.logged): "align 4 errors, 10 warnings"
-function logged(counts) {
-    const nouns = [
-        ["CRITICAL", "critical"],
-        ["ERROR", "error"],
-        ["WARNING", "warning"],
-        ["KNOWN", "known"], // flow.logs.KNOWN: a third party's, its reason in the log
-    ];
-    const said = (level, noun, n) => `${n} ${noun}${n === 1 || level === "KNOWN" ? "" : "s"}`;
-    return Object.entries(counts || {})
-        .map(([tool, levels]) => `${tool} ${nouns.filter(([level]) => levels[level]).map(([level, noun]) => said(level, noun, levels[level])).join(", ")}`)
-        .join("; ");
+// a step's logging, summed over its tools (flow.steps.logged): its errors, warnings and known
+// warnings (flow.logs.KNOWN: a third party's, its reason in the log)
+function tally(counts) {
+    const sum = (...levels) => Object.values(counts || {}).reduce((total, by) => total + levels.reduce((n, level) => n + (by[level] || 0), 0), 0);
+    return { errors: sum("ERROR", "CRITICAL"), warnings: sum("WARNING"), known: sum("KNOWN") };
+}
+
+// "0 ERROR · 2 WARN", each count in its colour where it is not 0, the known ones after, dim; the
+// tools' own counts in its title
+function loggingNode(counts, onclick) {
+    const { errors, warnings, known } = tally(counts);
+    const parts = [h(`span${errors ? ".log-count.error" : ""}`, {}, `${errors} ERROR`), " · ", h(`span${warnings ? ".log-count.warning" : ""}`, {}, `${warnings} WARN`)];
+    if (known) parts.push(" · ", h("span.log-count.known", {}, `${known} KNOWN`));
+    const title = Object.entries(counts || {})
+        .map(([tool, levels]) => `${tool}: ${Object.entries(levels).map(([level, n]) => `${n} ${level.toLowerCase()}`).join(", ")}`)
+        .join("\n");
+    return onclick ? h("button.link.log-link", { title: `${title ? `${title}\n` : ""}Show the step's log`, onclick }, parts) : h("span", { title }, parts);
 }
 
 // a rejection as the dashboard says it: "rejected at sim (prelayout): delay 2.1e-09 > 2e-09"
@@ -577,6 +589,7 @@ function rejection(rejected) {
 
 function formatQuantity(value, info) {
     if (typeof value !== "number" || !Number.isFinite(value)) return shown(value);
+    value = scaled(info, value);
     const exponent = info.scalable ? siExponent([value]) : 0;
     const unit = scaledUnit(info, exponent);
     return `${+(value / 10 ** exponent).toPrecision(4)}${unit ? ` ${unit}` : ""}`;
@@ -643,14 +656,15 @@ function factsTable(rows) {
     return h("table.tgrid.narrow.facts", {}, head, h("tbody", {}, body));
 }
 
-// a metric row per name: its values at the row's SI prefix
+// a metric row per name: its values at the row's SI prefix (a ratio's in percent), its unit (a
+// count's "#")
 function metricRows(names, valuesOf, { title = (name) => name } = {}) {
     return names.map((name) => {
         const info = fieldInfo(name);
-        const values = page.instances.map((instance, index) => valuesOf(instance, index)?.[name]);
+        const values = page.instances.map((instance, index) => scaled(info, valuesOf(instance, index)?.[name]));
         const finite = values.filter((value) => typeof value === "number" && Number.isFinite(value) && !Number.isInteger(value));
         const exponent = info.scalable && finite.length ? siExponent(finite) : 0;
-        return [info.label, values.map((value, index) => cell(formatted(value, exponent), { title: title(name, index) })), { unit: scaledUnit(info, exponent), title: name }];
+        return [info.label, values.map((value, index) => cell(formatted(value, exponent), { title: title(name, index) })), { unit: scaledUnit(info, exponent) || countUnit(info, values), title: name }];
     });
 }
 
@@ -662,25 +676,21 @@ function commonRows(key) {
     const rows = [
         ...(page.compare ? [["State", entries.map((entry) => cell(entry.state, { node: chip(entry, { time: false }) })), { plain: true }]] : []),
     ];
-    if (entries.some((entry) => typeof entry.seconds === "number")) rows.push(["Time", entries.map((entry) => cell(typeof entry.seconds === "number" ? duration(entry.seconds) : "—")), { plain: true }]);
-    if (entries.some((entry) => entry.finished)) {
-        const when = (entry) => (entry.finished ? new Date(entry.finished * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
-        rows.push(["Finished", entries.map((entry) => cell(when(entry))), { plain: true }]);
-    }
+    // its time and when it finished are its chip's (the head's pipeline and the row's own)
     if (entries.some((entry) => Object.keys(entry.counts || {}).length || entry.log_file)) {
         rows.push([
-            "Warnings · errors",
+            "Logging",
             entries.map((entry) => {
-                const text = logged(entry.counts) || "none";
-                const errors = Object.values(entry.counts || {}).some((levels) => levels.ERROR || levels.CRITICAL);
-                const node = entry.log_file
-                    ? h("button.link.log-link", { title: `Show ${entry.step}'s log (step.log)`, onclick: () => showLog(entry.log_file, `${STEPS[key]?.[0] || key}: ${entry.log_file}`) }, text)
-                    : document.createTextNode(text);
-                return cell(text, { node, bad: errors });
+                const { errors, warnings, known } = tally(entry.counts);
+                const node = loggingNode(entry.counts, entry.log_file ? () => showLog(entry.log_file, `${STEPS[key]?.[0] || key}: ${entry.log_file}`) : null);
+                return cell(`${errors} ${warnings} ${known}`, { node });
             }),
-            { plain: true },
+            { plain: true, unit: "#" },
         ]);
     }
+    // the tool the step ran, its version beside it
+    const tools = entries.map((entry) => toolOf(key, entry));
+    if (tools.some(Boolean)) rows.push(["Tool", tools.map((tool) => cell(tool, { raw: true })), { plain: true }]);
     if (entries.some((entry) => entry.error)) {
         rows.push(["Error", entries.map((entry) => cell(entry.error ? entry.error.trim().split("\n").pop() : "—", { title: entry.error || "", bad: Boolean(entry.error) }))]);
     }
@@ -705,25 +715,41 @@ function commonRows(key) {
     }
     // what the step established for the run's bounds (its step.json's metrics)
     const established = [...new Set(entries.flatMap((entry) => Object.keys(entry.metrics || {})))];
-    if (established.length && key !== "sim" && key !== "record") {
+    if (established.length && key !== "presim" && key !== "results") {
         rows.push(["Established for the bounds", [], { section: true }], ...metricRows(established, (instance) => stepOf(instance, key).metrics));
     }
     return rows;
 }
 
+// the tool a step ran as "name version" (its outputs' tool: {name, version}); a run from before the
+// steps named theirs, by what its step kept (DRC's checker, the extractor) or the step's own tool
+const STEP_TOOLS = { presim: "spectre", postsim: "spectre", layout: "align", lvs: "klayout-lvs" };
+function toolOf(key, entry) {
+    const outputs = entry.outputs || {};
+    if (outputs.tool?.name) return [outputs.tool.name, outputs.tool.version].filter(Boolean).join(" ");
+    if (!ran(entry) && entry.state !== "failed") return null;
+    if (key === "drc") return outputs.checker || null;
+    if (key === "pex") return outputs.extractor || null;
+    return STEP_TOOLS[key] || null;
+}
+
 const outputsOf = (instance, key) => stepOf(instance, key).outputs || {};
 const valuesOf = (key, get) => page.instances.map((instance) => cell(get(outputsOf(instance, key), instance, stepOf(instance, key)) ?? null, { raw: true }));
 
-// the step's own facts, after the common ones
+// the step's own facts, after the common ones, each with its unit (a count's "#")
 function stepRows(key) {
     const instances = page.instances;
+    const count = (label, get, options = {}) => [label, valuesOf(key, get), { unit: "#", ...options }];
     switch (key) {
         case "netlist": {
             const names = ["pdk", ...paramNames(instances)].filter((name) => !page.compare || !page.onlyDifferences || name === "pdk" || differs(instances.map((instance) => instance.params?.[name])));
-            const params = names.map((name) => [name, instances.map((instance) => (name === "pdk" ? cell(instance.pdk, { raw: true }) : cell(instance.params?.[name] ?? null))), { mono: true }]);
+            const params = names.map((name) => {
+                const values = instances.map((instance) => (name === "pdk" ? instance.pdk : instance.params?.[name] ?? null));
+                return [name, values.map((value, index) => (name === "pdk" ? cell(value, { raw: true }) : cell(value))), { mono: true, unit: name === "pdk" ? "" : countUnit({ unit: "" }, values) }];
+            });
             const sizes = [...new Set(instances.flatMap((instance) => Object.keys(stepOf(instance, key).geometry || {})))];
             const leaves = [...new Set(instances.flatMap((instance) => Object.keys(stepOf(instance, key).netlist?.leaves || {})))];
-            const stat = (name) => valuesOf(key, (_outputs, _instance, entry) => entry.netlist?.[name]);
+            const stat = (name) => (_outputs, _instance, entry) => entry.netlist?.[name];
             return [
                 ["Parameters", [], { section: true }],
                 ...params,
@@ -731,25 +757,20 @@ function stepRows(key) {
                 ...(instances.some((instance) => stepOf(instance, key).netlist?.top)
                     ? [
                           ["Netlist", [], { section: true }],
-                          ["Top cell", stat("top"), { mono: true }],
-                          ["Ports", stat("ports")],
-                          ["Nets", stat("nets")],
-                          ["Instances", stat("instances")],
-                          ["Subcircuits", stat("subcircuits")],
-                          ...leaves.map((leaf) => [leaf, valuesOf(key, (_outputs, _instance, entry) => entry.netlist?.leaves?.[leaf] ?? 0), { mono: true }]),
+                          ["Top cell", valuesOf(key, stat("top")), { mono: true }],
+                          count("Ports", stat("ports")),
+                          count("Nets", stat("nets")),
+                          count("Instances", stat("instances")),
+                          count("Subcircuits", stat("subcircuits")),
+                          ...leaves.map((leaf) => count(leaf, (_outputs, _instance, entry) => entry.netlist?.leaves?.[leaf] ?? 0, { mono: true })),
                       ]
                     : []),
             ];
         }
-        case "sim":
-        case "circuit": {
-            const rows = [["Runs", valuesOf(key, (outputs) => outputs.runs?.length)]];
-            if (key === "circuit") return rows;
-            // the pre-layout metrics: the record's own where it is pre-layout, else beside its post-layout ones
-            const before = (instance) => (instance.evidence === "postlayout" ? instance.prelayout : ran(stepOf(instance, "sim")) ? instance.metrics : null);
-            const names = [...new Set(instances.flatMap((instance) => Object.keys(before(instance) || {})))].filter((name) => !["layout_area_um2", "density"].includes(name));
-            return names.length ? [...rows, ["Pre-layout metrics", [], { section: true }], ...metricRows(names, before)] : rows;
-        }
+        // the pre-layout metrics are the results step's, beside the post-layout ones
+        case "presim":
+        case "circuit":
+            return [count("Runs", (outputs) => outputs.runs?.length)];
         case "layout":
             return [
                 ["Outline", valuesOf(key, (outputs) => (outputs.cell_um ? outputs.cell_um.map((value) => +value.toPrecision(5)).join(" × ") : null)), { unit: "µm" }],
@@ -757,97 +778,138 @@ function stepRows(key) {
                     ["layout_area_um2", "density"].filter((name) => instances.some((instance) => instance.metrics?.[name] !== undefined)),
                     (instance) => instance.metrics,
                 ),
-                ["Placed", valuesOf(key, (outputs, instance) => (outputs.placed === undefined ? null : instance.layout?.floorplan ? `by ${instance.layout.floorplan}` : outputs.placed ? "by its generator" : "ALIGN alone"))],
-                ["Router", valuesOf(key, (outputs) => outputs.router)],
-                ["Route shorts", valuesOf(key, (outputs) => outputs.route_shorts)],
+                gdsRow(key),
+                // placed by the block's constraints (its floorplan, its generator's places) or by the
+                // flow (ALIGN alone); routed by the router named
+                ["Placement", valuesOf(key, (outputs, instance) => (outputs.placed === undefined ? null : instance.layout?.floorplan || outputs.placed ? "constraints" : "generated")), { title: "Placed by the block's constraints, or generated by the flow" }],
+                ["Routing", valuesOf(key, (outputs) => outputs.router)],
+                count("Route shorts", (outputs) => outputs.route_shorts),
                 ...parts(key),
             ];
         case "drc":
             return [
-                ["Checker", valuesOf(key, (outputs) => outputs.checker)],
-                ["Violations", page.instances.map((instance) => cell(outputsOf(instance, key).violations ?? null, { bad: outputsOf(instance, key).violations > 0 }))],
-                ["Rules violated", valuesOf(key, (_outputs, _instance, entry) => (entry.rules ? Object.keys(entry.rules).length : null))],
+                count("Rules checked", (_outputs, _instance, entry) => (entry.checked ? Object.keys(entry.checked).length : null)),
+                ["Violations", page.instances.map((instance) => cell(outputsOf(instance, key).violations ?? null, { bad: outputsOf(instance, key).violations > 0 })), { unit: "#" }],
+                count("Rules violated", (_outputs, _instance, entry) => (entry.rules ? Object.keys(entry.rules).length : null)),
                 ["Top cell", valuesOf(key, (outputs) => outputs.top), { mono: true }],
             ];
         case "lvs":
             return [
-                ["Checker", valuesOf(key, (outputs) => outputs.lvs_checker || null)],
                 ["Verdict", page.instances.map((instance) => cell(verdict(outputsOf(instance, key)), { bad: outputsOf(instance, key).lvs_correct === false }))],
                 ["Source top", valuesOf(key, (outputs) => outputs.source_top), { mono: true }],
                 ["Layout top", valuesOf(key, (outputs) => outputs.layout_top), { mono: true }],
-                ["Mismatches", valuesOf(key, (_outputs, _instance, entry) => entry.mismatches?.length ?? null)],
+                count("Mismatches", (_outputs, _instance, entry) => entry.mismatches?.length ?? (outputsOf(_instance, key).lvs_correct ? 0 : null)),
             ];
         case "pex":
             return [
-                ["Extractor", valuesOf(key, (outputs) => outputs.extractor)],
-                ["Capacitors", valuesOf(key, (outputs) => outputs.capacitors)],
-                ["Total", valuesOf(key, (outputs) => (outputs.total_f === undefined ? null : femto(outputs.total_f))), { unit: "fF" }],
-                ["Nets", valuesOf(key, (outputs) => (outputs.nets ? Object.keys(outputs.nets).length : null))],
+                ["Extracted", valuesOf(key, (outputs) => (outputs.total_f === undefined ? null : femto(outputs.total_f))), { unit: "fF", title: "The extraction's capacitance, every net's summed" }],
+                count("Capacitors", (outputs) => outputs.capacitors),
+                count("Nets", (outputs) => (outputs.nets ? Object.keys(outputs.nets).length : null)),
             ];
-        case "pexsim":
+        case "postsim":
             return [
-                ["Runs", valuesOf(key, (outputs) => outputs.runs?.length)],
-                ["Capacitors", valuesOf(key, (outputs) => outputs.capacitors)],
-                ["Extracted", valuesOf(key, (outputs) => (outputs.total_f === undefined ? null : femto(outputs.total_f))), { unit: "fF" }],
+                count("Runs", (outputs) => outputs.runs?.length),
+                count("Capacitors", (outputs) => outputs.capacitors, { title: "The capacitors the back-annotation put in the simulated circuit" }),
                 ["Added", valuesOf(key, (outputs) => (outputs.added_f === undefined ? null : femto(outputs.added_f))), { unit: "fF", title: "The capacitance the back-annotation added to the simulated circuit" }],
                 ["Drawn taken off", valuesOf(key, (outputs) => (outputs.drawn_f === undefined ? null : femto(outputs.drawn_f))), { unit: "fF", title: "The drawn capacitors' own capacitance, which the extraction measured as metal" }],
                 ["Unmapped", page.instances.map((instance) => {
                     const outputs = outputsOf(instance, key);
-                    return outputs.unmapped_share === undefined ? cell(null) : cell(`${femto(outputs.unmapped_f)} fF (${(100 * outputs.unmapped_share).toFixed(1)} %)`, { bad: outputs.unmapped_share > 0.05, title: Object.keys(outputs.unmapped_nets || {}).join(", ") });
-                }), { title: "The extraction's capacitance on nets with no schematic net (the step fails over 5 %)" }],
-                ["Unsimulated nets", valuesOf(key, (outputs) => (outputs.unsimulated ? Object.keys(outputs.unsimulated).length : null))],
+                    return outputs.unmapped_share === undefined ? cell(null) : cell(`${femto(outputs.unmapped_f)} (${(100 * outputs.unmapped_share).toFixed(1)} %)`, { bad: outputs.unmapped_share > 0.05, title: Object.keys(outputs.unmapped_nets || {}).join(", ") });
+                }), { unit: "fF", title: "The extraction's capacitance on nets with no schematic net (the step fails over 5 %)" }],
+                count("Unsimulated nets", (outputs) => (outputs.unsimulated ? Object.keys(outputs.unsimulated).length : null)),
                 ["Unannotated", valuesOf(key, (outputs) => (outputs.unannotated ? outputs.unannotated.join(", ") || "none" : null)), { title: "The testbenches without the design, run as they are" }],
             ];
-        case "record": {
-            const rows = [
-                ["Evidence", instances.map((instance) => cell(instance.evidence ? words(instance.evidence.toUpperCase()) : null))],
-                ["Verdict", instances.map((instance) => cell(instance.rejected ? rejection(instance.rejected) : instance.error ? "failed" : "met its bounds", { bad: Boolean(instance.rejected || instance.error) }))],
-            ];
-            if (instances.some((instance) => instance.unjudged?.length)) rows.push(["Unjudged", instances.map((instance) => cell(instance.unjudged?.join(", ") || "none")), { title: "The bounds the record's evidence could not judge" }]);
+        case "results": {
             const names = [...new Set(instances.flatMap((instance) => Object.keys(instance.metrics || {})))];
-            if (!names.length) return rows;
-            // alone: post-layout beside pre-layout and the change; compared: each design's, the pre-layout in its title
-            if (!page.compare && instances[0].evidence === "postlayout" && instances[0].prelayout) {
-                return [...rows, ["Metrics", [], { section: true }], ...prePost(instances[0], names)];
-            }
-            const before = (name, index) => {
-                const value = instances[index].prelayout?.[name];
-                return value === undefined ? name : `${name}: pre-layout ${formatQuantity(value, fieldInfo(name))}`;
-            };
-            return [...rows, ["Metrics", [], { section: true }], ...metricRows(names, (instance) => instance.metrics, { title: before })];
+            // alone: pre-layout, post-layout and the change, the evidence and verdict its heading
+            if (!page.compare) return names.length ? prePost(instances[0], names) : [];
+            // compared: each design's post-layout value alone, its verdict first
+            const rows = [["Verdict", instances.map((instance) => cell(verdictOf(instance), { bad: Boolean(instance.rejected || instance.error), title: instance.evidence ? words(instance.evidence.toUpperCase()) : "" }))]];
+            if (instances.some((instance) => instance.unjudged?.length)) rows.push(["Unjudged", instances.map((instance) => cell(instance.unjudged?.join(", ") || "none")), { title: "The bounds the results' evidence could not judge" }]);
+            return [...rows, ...metricRows(names, (instance) => instance.metrics)];
         }
     }
     return [];
 }
 
-// the parts of a step's time (the layout's: parameters, netlist, floorplan, layout)
+
+
+// the layout's GDS file size, its unit (kB, MB) the largest one's, on the label
+function gdsRow(key) {
+    const sizes = page.instances.map((instance) => stepOf(instance, key).gds_bytes);
+    const largest = Math.max(0, ...sizes.filter((size) => typeof size === "number"));
+    const unit = largest ? bytes(largest).split(" ")[1] : "";
+    const scale = { B: 1, kB: 1e3, MB: 1e6, GB: 1e9, TB: 1e12 }[unit] || 1;
+    return ["GDS", sizes.map((size) => cell(typeof size === "number" ? +(size / scale).toPrecision(3) : null)), { unit, title: "The layout's GDS file" }];
+}
+
+// a design's verdict: met its bounds, rejected (where, by which), failed
+const verdictOf = (instance) => (instance.rejected ? rejection(instance.rejected) : instance.error ? "failed" : "met its bounds");
+
+// a layout's parts, under the names ALIGN's and OpenROAD's share, in their order
+const PARTS = [
+    ["read", "Read"],
+    ["mapping", "Library mapping"],
+    ["floorplan", "Floorplan"],
+    ["placement", "Placement"],
+    ["global_route", "Global routing"],
+    ["detail_route", "Detail routing"],
+    ["cts", "CTS"],
+    ["finishing", "Finishing"],
+];
+
+// the parts of a step's time (the layout's): each shared part in its order, "N/A" where the tool has
+// none; a part of a run from before the shared names after them, by its own
 function parts(key) {
     const names = [...new Set(page.instances.flatMap((instance) => Object.keys(outputsOf(instance, key).parts || {})))];
     if (!names.length) return [];
-    return [["Its time by part", [], { section: true }], ...names.map((part) => [part, valuesOf(key, (outputs) => (outputs.parts?.[part] === undefined ? null : `${outputs.parts[part]} s`)), { plain: true, title: `The step's ${part}` }])];
+    const known = new Set(PARTS.map(([part]) => part));
+    const rows = [...PARTS, ...names.filter((part) => !known.has(part)).map((part) => [part, part])];
+    return [["Its time by part", [], { section: true }], ...rows.map(([part, label]) => timeRow(label, page.instances.map((instance) => outputsOf(instance, key).parts?.[part]), `The step's ${label.toLowerCase()}`))];
+}
+
+// a row of times in one unit: ms where every one is under a second, else s; "N/A" where a design's
+// tool has no such part
+function timeRow(label, seconds, title) {
+    const known = seconds.filter((value) => typeof value === "number");
+    const ms = known.length && known.every((value) => value < 1);
+    return [label, seconds.map((value) => cell(typeof value !== "number" ? "N/A" : ms ? String(Math.round(value * 1000)) : value.toFixed(1), { raw: true })), { plain: true, unit: ms ? "ms" : "s", title }];
 }
 
 const verdict = (outputs) => (outputs.lvs_correct === undefined ? null : outputs.lvs_correct === null ? "no deck" : outputs.lvs_correct ? "match" : "no match");
 
-// one design's metrics post-layout, pre-layout beside them and the change
+// one design's metrics pre-layout, post-layout and the change, under a heading of its evidence and
+// verdict
 function prePost(instance, names) {
-    const head = h("tr", {}, h("th.corner", {}, ""), h("th.inst", {}, "post-layout"), h("th.inst", {}, "pre-layout"), h("th.inst", {}, "change"));
+    const post = instance.evidence === "postlayout";
+    const head = h("tr", {}, h("th.corner", {}, ""), h("th.inst", {}, "pre-layout"), h("th.inst", {}, "post-layout"), h("th.inst", {}, "change"));
     const rows = names.map((name) => {
         const info = fieldInfo(name);
-        const [post, pre] = [instance.metrics?.[name], instance.prelayout?.[name]];
-        const finite = [post, pre].filter((value) => typeof value === "number" && Number.isFinite(value) && !Number.isInteger(value));
+        // a pre-layout record's metrics are its pre-layout ones
+        const [after, before] = post ? [instance.metrics?.[name], instance.prelayout?.[name]] : [undefined, instance.metrics?.[name]];
+        const [a, b] = [scaled(info, before), scaled(info, after)];
+        const finite = [a, b].filter((value) => typeof value === "number" && Number.isFinite(value) && !Number.isInteger(value));
         const exponent = info.scalable && finite.length ? siExponent(finite) : 0;
-        const change = typeof post === "number" && typeof pre === "number" && pre !== 0 && Number.isFinite(post) && Number.isFinite(pre) ? `${post >= pre ? "+" : ""}${((100 * (post - pre)) / Math.abs(pre)).toFixed(1)} %` : "—";
+        const change = typeof a === "number" && typeof b === "number" && a !== 0 && Number.isFinite(a) && Number.isFinite(b) ? `${b >= a ? "+" : ""}${((100 * (b - a)) / Math.abs(a)).toFixed(1)} %` : "—";
         return h(
             "tr",
             {},
-            h("th.label", { title: name }, h("div.lab", {}, h("span.name", {}, info.label), h("span.unit", {}, scaledUnit(info, exponent)))),
-            h("td", {}, formatted(post, exponent)),
-            h("td.muted", {}, pre === undefined ? "—" : formatted(pre, exponent)),
+            h("th.label", { title: name }, h("div.lab", {}, h("span.name", {}, info.label), h("span.unit", {}, scaledUnit(info, exponent) || countUnit(info, [a, b])))),
+            h("td.muted", {}, a === undefined ? "—" : formatted(a, exponent)),
+            h("td", {}, b === undefined ? "—" : formatted(b, exponent)),
             h("td.muted", {}, change),
         );
     });
-    return [["", [], { node: h("table.tgrid.narrow.facts.prepost", {}, h("thead", {}, head), h("tbody", {}, rows)) }]];
+    const bad = Boolean(instance.rejected || instance.error);
+    const heading = h(
+        "div.prepost-head",
+        {},
+        h("strong", {}, "Metrics"),
+        instance.evidence ? h("span.muted", { title: "What the results' metrics come from" }, ` · ${words(instance.evidence.toUpperCase())}`) : null,
+        h(`span${bad ? ".bad" : ".good"}`, {}, ` · ${verdictOf(instance)}`),
+        instance.unjudged?.length ? h("span.muted", { title: "The bounds the results' evidence could not judge" }, ` · unjudged: ${instance.unjudged.join(", ")}`) : null,
+    );
+    return [["", [], { node: h("div.prepost", {}, heading, h("table.tgrid.narrow.facts.prepost", {}, h("thead", {}, head), h("tbody", {}, rows))) }]];
 }
 
 // ---- what a step made: its row's right side ---------------------------------------------------
@@ -855,7 +917,7 @@ function prePost(instance, names) {
 // the shown design's index of its pre-layout runs' waveforms (traces.sim.json where the record's
 // are post-layout), or of its post-layout runs' (the record's, where they are)
 const simIndex = (instance) => (instance.layout?.traces_sim ? "traces.sim.json" : instance.evidence === "postlayout" || !Object.keys(instance.waves || {}).length ? null : "traces.json");
-const pexsimIndex = (instance) => (instance.evidence === "postlayout" && Object.keys(instance.waves || {}).length ? "traces.json" : null);
+const postsimIndex = (instance) => (instance.evidence === "postlayout" && Object.keys(instance.waves || {}).length ? "traces.json" : null);
 const shownInstance = () => page.instances[page.shown];
 
 // a panel of the shown design's step findings, drawn again when another design is shown
@@ -885,40 +947,94 @@ class FindingsPanel {
             return;
         }
         if (this.key === "drc") {
-            const rules = Object.entries(entry.rules || {});
-            const verdictLine = h(`div.verdict${outputs.violations ? ".bad" : ".ok"}`, {}, outputs.violations ? `${outputs.violations} violation${outputs.violations === 1 ? "" : "s"}` : "clean", h("span.muted", {}, ` · ${outputs.checker || ""}`));
-            const table = rules.length ? h("table.tgrid.narrow.facts", {}, h("thead", {}, h("tr", {}, h("th.corner", {}, "rule"), h("th.inst", {}, "violations"))), h("tbody", {}, rules.map(([rule, count]) => h("tr", {}, h("th.label", {}, h("div.lab", {}, h("span.name.mono", {}, rule))), h("td.failed", {}, String(count)))))) : null;
-            this.body.replaceChildren(...[named, verdictLine, table].filter(Boolean));
+            this.body.replaceChildren(...[named, drcRules(entry)].filter(Boolean));
         } else if (this.key === "lvs") {
-            const word = verdict(outputs);
-            const verdictLine = h(`div.verdict${outputs.lvs_correct === false ? ".bad" : outputs.lvs_correct ? ".ok" : ""}`, {}, word === "no deck" ? "not compared: no LVS deck" : word, h("span.muted", {}, outputs.lvs_checker ? ` · ${outputs.lvs_checker}` : ""));
+            const devices = entry.devices || {};
             const mismatches = entry.mismatches?.length ? h("pre.mismatches", {}, entry.mismatches.join("\n")) : null;
-            this.body.replaceChildren(...[named, verdictLine, h("div.muted.mono", {}, `${outputs.layout_top || "?"} (layout) against ${outputs.source_top || "?"} (source)`), mismatches].filter(Boolean));
-        } else if (this.key === "pex") {
-            const nets = Object.entries(outputs.nets || {}).sort((a, b) => b[1] - a[1]);
-            const verdictLine = h("div.verdict", {}, `${femto(outputs.total_f)} fF`, h("span.muted", {}, ` in ${outputs.capacitors ?? "?"} capacitors · ${outputs.extractor || ""}`));
-            if (!nets.length) {
-                this.body.replaceChildren(...[named, verdictLine, h("div.muted", {}, "The extraction's netlist alone: no capacitance by net.")].filter(Boolean));
+            if (!Object.keys(devices).length) {
+                this.body.replaceChildren(...[named, h("div.muted", {}, outputs.lvs_correct === null ? "Not compared: no LVS deck." : "No device counts in this run's LVS database."), mismatches].filter(Boolean));
                 return;
             }
             const element = h("div.plot");
-            this.body.replaceChildren(...[named, verdictLine, element].filter(Boolean));
-            netsPlot(element, nets, colorOf(page.shown));
+            this.body.replaceChildren(...[named, element, mismatches].filter(Boolean));
+            devicesPlot(element, devices);
+        } else if (this.key === "pex") {
+            const nets = Object.entries(outputs.nets || {}).sort((a, b) => b[1] - a[1]);
+            if (!nets.length) {
+                this.body.replaceChildren(...[named, h("div.muted", {}, "The extraction's netlist alone: no capacitance by net.")].filter(Boolean));
+                return;
+            }
+            // each net's devices' own capacitance (the pre-layout simulation's operating point), where
+            // the run measured it
+            const device = outputs.device_f || stepOf(instance, "presim").outputs?.device_f || null;
+            this.body.replaceChildren(...[named, netsTable(nets, device, colorOf(page.shown))].filter(Boolean));
         }
     }
 }
 
-// the extraction's capacitance by net, each net's to everything else: a bar a net, the largest first
-function netsPlot(element, nets, color) {
+// DRC's rules: each one checked (its checks as the checker stated them) and its violations, the
+// violated first; a rule violated that the checker did not list among its checks too
+function drcRules(entry) {
+    const violated = entry.rules || {};
+    const checked = entry.checked || {};
+    const names = [...new Set([...Object.keys(violated), ...Object.keys(checked)])].sort((a, b) => (violated[b] || 0) - (violated[a] || 0));
+    if (!names.length) return h("div.muted", {}, "The checker listed no rules.");
+    const rows = names.map((rule) => {
+        const count = violated[rule] || 0;
+        return h(
+            "tr",
+            {},
+            h("th.label", { title: rule }, h("div.lab", {}, h("span.name.mono", {}, rule))),
+            h("td.check.muted", { title: checked[rule] || "" }, checked[rule] || "—"),
+            h(`td${count ? ".failed" : ".passed"}`, {}, count ? String(count) : "passed"),
+        );
+    });
+    return h("table.tgrid.narrow.facts.rules", {}, h("thead", {}, h("tr", {}, h("th.corner", {}, "rule"), h("th.inst", {}, "check"), h("th.inst", {}, "violations"))), h("tbody", {}, rows));
+}
+
+// LVS's devices by class on each side, the schematic's and the layout's bars side by side
+function devicesPlot(element, devices) {
     const theme = currentTheme();
     const colors = PAPERS[theme];
-    const trace = { type: "bar", orientation: "h", x: nets.map(([, value]) => value * 1e15), y: nets.map(([net]) => net), marker: { color }, hovertemplate: "%{y}: %{x:.4g} fF<extra></extra>" };
-    const layout = paperLayout("", "Capacitance (fF)", "", false, false, 0, theme, { traces: [trace] });
-    layout.yaxis = { ...layout.yaxis, type: "category", autorange: "reversed", tickfont: { family: "var(--font-mono)", size: 11, color: colors.ink }, title: { text: "" }, automargin: true };
-    layout.margin = { l: 12, r: 16, t: 8, b: 44 };
-    layout.bargap = 0.3;
-    element.style.height = `${Math.min(420, 60 + 22 * nets.length)}px`;
-    Plotly.newPlot(element, [trace], layout, { displayModeBar: false }).then(() => keepTicks(element));
+    const classes = [...new Set(Object.values(devices).flatMap((side) => Object.keys(side)))].sort();
+    const sides = [["schematic", 0], ["layout", 1]].filter(([side]) => devices[side]);
+    const traces = sides.map(([side, index]) => ({
+        type: "bar",
+        name: side,
+        x: classes,
+        y: classes.map((name) => devices[side][name] || 0),
+        marker: { color: tone(COLORS[index], theme) },
+        hovertemplate: `${side} %{x}: %{y}<extra></extra>`,
+    }));
+    const layout = paperLayout("", "", "Devices (#)", false, false, traces.length, theme, { traces });
+    layout.xaxis = { ...layout.xaxis, type: "category", tickfont: { family: "var(--font-mono)", size: 11, color: colors.ink }, title: { text: "" } };
+    layout.yaxis = { ...layout.yaxis, rangemode: "tozero", dtick: 1 };
+    layout.margin = { l: 56, r: 16, t: 8, b: 40 };
+    layout.barmode = "group";
+    layout.bargap = 0.35;
+    layout.legend = { ...layout.legend, bordercolor: "rgba(0,0,0,0)", borderwidth: 0 };
+    element.style.height = "260px";
+    Plotly.newPlot(element, traces, layout, { displayModeBar: false }).then(() => keepTicks(element));
+}
+
+// the extraction's capacitance by net, the largest first: each net's wiring capacitance (to
+// everything else), its devices' own where measured and their sum, a bar of its wiring's share
+function netsTable(nets, device, color) {
+    const largest = Math.max(...nets.map(([, value]) => value));
+    const head = h("tr", {}, h("th.corner", {}, "net"), h("th.inst", {}, "wiring"), device ? h("th.inst", {}, "device") : null, device ? h("th.inst", {}, "total") : null, h("th.inst.bar-head", {}, ""));
+    const rows = nets.map(([net, wiring]) => {
+        const own = device?.[net];
+        return h(
+            "tr",
+            {},
+            h("th.label", { title: net }, h("div.lab", {}, h("span.name.mono", {}, net), h("span.unit", {}, "fF"))),
+            h("td", {}, femto(wiring)),
+            device ? h("td", {}, own === undefined ? "—" : femto(own)) : null,
+            device ? h("td", {}, own === undefined ? "—" : femto(wiring + own)) : null,
+            h("td.bar-cell", {}, h("span.bar", { style: { width: `${(100 * wiring) / largest}%`, background: color } })),
+        );
+    });
+    return h("table.tgrid.narrow.facts.nets", {}, h("thead", {}, head), h("tbody", {}, rows));
 }
 
 // the regions a step's right side holds: [panels, its height class], none where nothing was made
@@ -930,7 +1046,7 @@ function vizOf(key) {
         case "netlist":
             if (!any((instance) => instance.layout?.schematic || instance.layout?.netlist_file)) return null;
             return [[panel("schematic", "Schematic", (container) => new SchematicPanel(container, "schematic")), panel("netlist", "Netlist", (container) => new SchematicPanel(container, "netlist"))], "sheet"];
-        case "sim":
+        case "presim":
             if (!any(simIndex)) return null;
             return [[panel("traces", "Waveforms", (container) => new TracesPanel(container, null, { index: () => simIndex(shownInstance()) }))], "traces"];
         case "layout":
@@ -941,24 +1057,25 @@ function vizOf(key) {
             ];
         case "drc":
             if (!any((instance) => ran(stepOf(instance, key)))) return null;
-            // the violations over the layout, dimmed, where it was drawn; their rules beside
+            // the rules checked and their violations first; the violations over the layout, dimmed,
+            // beside where it was drawn
             return [
                 [
-                    ...(any((instance) => instance.layout?.file) ? [panel("drc.layout", "Markers", (container) => new LayoutPanel(container, null, { drc: () => stepOf(shownInstance(), "drc").markers || {} }))] : []),
                     panel(key, "Rules", (container) => new FindingsPanel(container, key)),
+                    ...(any((instance) => instance.layout?.file) ? [panel("drc.layout", "Markers", (container) => new LayoutPanel(container, null, { drc: () => stepOf(shownInstance(), "drc").markers || {} }))] : []),
                 ],
                 "layout",
             ];
         case "lvs":
         case "pex": {
             if (!any((instance) => ran(stepOf(instance, key)))) return null;
-            const title = { lvs: "Comparison", pex: "Nets" }[key];
+            const title = { lvs: "Devices", pex: "Nets" }[key];
             return [[panel(key, title, (container) => new FindingsPanel(container, key))], "auto"];
         }
-        case "pexsim":
-            if (!any(pexsimIndex)) return null;
-            return [[panel("traces.pexsim", "Waveforms", (container) => new TracesPanel(container, null, { index: () => pexsimIndex(shownInstance()) }))], "traces"];
-        case "record":
+        case "postsim":
+            if (!any(postsimIndex)) return null;
+            return [[panel("traces.postsim", "Waveforms", (container) => new TracesPanel(container, null, { index: () => postsimIndex(shownInstance()) }))], "traces"];
+        case "results":
             if (!any((instance) => instance.details?.length)) return null;
             return [[panel("plots", "Analyses", (container) => new PlotsPanel(container))], "auto"];
     }
@@ -977,7 +1094,9 @@ function stepRow(key, number, layouts) {
         const why = [...new Set(entries.map((entry) => entry.why).filter(Boolean))].join("; ");
         return h("section.step-row.idle", anchor, h("div.step-head", {}, h("span.step-index", {}, String(number)), h("strong", {}, title), chip(entries[0], { time: false }), h("span.muted", {}, why)));
     }
-    const rows = [...commonRows(key), ...stepRows(key)];
+    // the results' metrics their own table, its heading their evidence and verdict (the step's
+    // logging is its chip's)
+    const rows = key === "results" ? stepRows(key) : [...commonRows(key), ...stepRows(key)];
     const facts = h("div.step-facts");
     const table = factsTable(rows.filter((row) => !row[2]?.node));
     facts.append(table, ...rows.filter((row) => row[2]?.node).map((row) => row[2].node));
@@ -1000,39 +1119,49 @@ function stepRow(key, number, layouts) {
     return h("section.step-row", anchor, left, host);
 }
 
-// the head: each design (its colour, PDK, name, run, evidence and verdict), its pipeline as chips
-// (each scrolls to its step), and compared, which design's visualizations the rows show
+// the head: alone, the design's pipeline as chips (each scrolls to its step; its name, PDK, run
+// and folder are the page's bar's: instanceInfo); compared, each design (its colour, PDK, name,
+// run, evidence and verdict) and its pipeline, and which design's visualizations the rows show
 function storyHead(onRemove, onView, scroller) {
     const keys = Object.keys(STEPS);
+    const goto = (key) => () => scroller.querySelector(`#step-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const chips = (instance) => h("div.stage-chips", {}, stepsOf(instance).filter((entry) => keys.includes(entry.step)).map((entry) => chip(entry, { label: STEPS[entry.step][0], onclick: (event) => (event.stopPropagation(), goto(entry.step)()) })));
+    if (!page.compare) return h("div.story-key", {}, h("div.story-design.pipeline", {}, chips(page.instances[0])));
     const lines = page.instances.map((instance, index) => {
-        const steps = stepsOf(instance).filter((entry) => keys.includes(entry.step));
-        const goto = (key) => () => scroller.querySelector(`#step-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
         const verdictChip = instance.rejected
             ? h("span.stage-chip.rejected", { title: rejection(instance.rejected) }, h("span", { html: glyph("rejected") }), `rejected at ${instance.rejected.step}`)
             : instance.error
               ? h("span.stage-chip.failed", { title: instance.error }, h("span", { html: glyph("failed") }), "failed")
               : null;
-        const line = h(
-            `div.story-design${page.compare && index === page.shown ? ".on" : ""}`,
-            {
-                title: page.compare ? `${page.labels[index]?.full || ""}\nClick: show this design's netlist, waveforms, layout and findings on the right` : page.labels[index]?.full || "",
-                onclick: page.compare ? () => setShown(index) : null,
-            },
-            page.compare ? h("span.swatch", { style: { background: colorOf(index) } }) : null,
+        return h(
+            `div.story-design${index === page.shown ? ".on" : ""}`,
+            { title: `${page.labels[index]?.full || ""}\nClick: show this design's netlist, waveforms, layout and findings on the right`, onclick: () => setShown(index) },
+            h("span.swatch", { style: { background: colorOf(index) } }),
             h("span.pdk-name", {}, instance.pdk),
             h("strong", {}, instance.label || instance.name || (instance.status ? `trial ${instance.status.trial}` : labelOf(index))),
-            page.compare && labelOf(index) !== instance.pdk ? h("span.muted", {}, labelOf(index)) : null,
+            labelOf(index) !== instance.pdk ? h("span.muted", {}, labelOf(index)) : null,
             h("span.mono.muted", { title: "The run" }, instance.file?.split("/runs/")[1] || ""),
-            instance.evidence ? h("span.evidence", { title: "What the record's metrics come from" }, words(instance.evidence.toUpperCase())) : null,
+            instance.evidence ? h("span.evidence", { title: "What the results' metrics come from" }, words(instance.evidence.toUpperCase())) : null,
             verdictChip,
             h("span.grow"),
-            h("div.stage-chips", {}, steps.map((entry) => chip(entry, { label: STEPS[entry.step][0], onclick: (event) => (event.stopPropagation(), goto(entry.step)()) }))),
-            page.compare ? h("button.icon-btn.mini", { title: "View this design alone", onclick: (event) => (event.stopPropagation(), onView(instance.id)), html: icon("eye", 13) }) : null,
-            h("button.icon-btn.mini", { title: page.compare ? "Remove from the comparison" : "Close: back to every instance", onclick: (event) => (event.stopPropagation(), onRemove(instance.id)), html: icon("x", 13) }),
+            chips(instance),
+            h("button.icon-btn.mini", { title: "View this design alone", onclick: (event) => (event.stopPropagation(), onView(instance.id)), html: icon("eye", 13) }),
+            h("button.icon-btn.mini", { title: "Remove from the comparison", onclick: (event) => (event.stopPropagation(), onRemove(instance.id)), html: icon("x", 13) }),
         );
-        return line;
     });
     return h("div.story-key", {}, lines);
+}
+
+// the single instance as the page's bar names it: its name, PDK, run, when it finished (its results
+// step's end, else its latest step's) and its folder (build/<block>/<run>/<stamp>/<pdk>/<name>,
+// from its steps' logs)
+export function instanceInfo(instance) {
+    const run = instance.file?.split("/runs/")[1] || "";
+    const steps = stepsOf(instance);
+    const log = steps.find((entry) => entry.log_file)?.log_file || "";
+    const folder = log ? log.split("/").slice(0, -2).join("/") : "";
+    const finished = steps.find((entry) => entry.step === "results")?.finished || Math.max(0, ...steps.map((entry) => entry.finished || 0)) || null;
+    return { name: instance.label || instance.name || instance.id, pdk: instance.pdk, run, finished, folder };
 }
 
 // the design whose visualizations the rows' right sides show
@@ -1094,6 +1223,8 @@ export function mountInstances(host, { instances, onRemove, onView }) {
         }),
     )
     return {
+        // alone, what the page's bar names it by
+        info: compare ? null : instanceInfo(instances[0]),
         destroy() {
             offs.forEach((off) => off());
             for (const [layout] of layouts) layout.destroy();
