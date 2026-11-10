@@ -85,7 +85,7 @@ def geometry(module: h.Module, pdk: str) -> dict[str, float]:
     cell written as a subcircuit that is neither the library's nor a device: a netlist included from
     a file, the ADC's digital block or a fabricated converter's black box, whose contents its netlist
     does not hold), none in a leaf (primitives alone); its devices, every primitive through its
-    hierarchy (transistors, capacitors, resistors; a library cell's or an opaque cell's own are not
+    hierarchy, each once whatever its multiplicity (transistors, capacitors, resistors; a library cell's or an opaque cell's own are not
     in its netlist); and its device area (um2), every device and library cell's own footprint,
     unplaced: the row cell the layout flows draw for it (``netcells.area``, in a process bound to
     ``pdk``; an ideal element and an opaque cell have none)."""
@@ -115,7 +115,9 @@ def geometry(module: h.Module, pdk: str) -> dict[str, float]:
                 if isinstance(target, h.Module):
                     walk(target, False)
                 continue
-            count = float(getattr(getattr(target, "params", None), "m", 1) or 1)
+            # a device once, however many parallel copies (``m``) its kit writes it as: a kit with
+            # fingers writes 32 units as nf=8, one without as m=4 or m=8, the same two transistors
+            count = 1.0
             totals["devices"] += count
             if isinstance(target, h.ExternalModuleCall):
                 externals.setdefault(target.module.name, []).append((top, count))

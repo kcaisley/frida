@@ -87,9 +87,6 @@ KNOWN = (
         "IHP's models add a gate resistance below Spectre's MinR, which Spectre then drops",
     ),
     Known(
-        "spectre", r"Further occurrences of this warning will be suppressed", "Spectre's note after a repeated warning"
-    ),
-    Known(
         "kpex",
         r"capacitance matrix (has a non-negative off-diagonal element|is not diagonally dominant)",
         "FasterCap's check of the matrix it solved: near-zero couplings between distant nets come out"

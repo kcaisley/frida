@@ -44,6 +44,7 @@ from rich.table import Table
 from rich.text import Text
 
 from flow.logs import known
+from flow.logs import level as level_of
 from flow.web import PORT
 
 # the terminal's own colours, which its theme maps
@@ -162,11 +163,15 @@ class Board:
             parts = line.split(" ", 4)  # date time tool LEVEL : message
             if len(parts) < 5 or parts[3] not in LEVELS:
                 continue
-            tool, level, message = parts[2], parts[3], " ".join(parts[4].removeprefix(": ").split())
+            raw = parts[4].removeprefix(": ")
+            if level_of(raw)[3]:
+                continue  # a message's continued line, which the step's counts leave out too
+            tool, level, message = parts[2], parts[3], " ".join(raw.split())
             entry = known(tool, message)
             level = "KNOWN" if entry else level
             # one kind however its paths, quotes and numbers differ (the same warning in each PDK)
-            kind = (tool, level, re.sub(r"\d+", "#", re.sub(r'"[^"]*"|\S*/\S*', "…", message))[:160])
+            # (a kind a step's: the same warning in sim and pexsim counted apart, as their counts are)
+            kind = (step, tool, level, re.sub(r"\d+", "#", re.sub(r'"[^"]*"|\S*/\S*', "…", message))[:160])
             self.kinds[kind] += 1
             if self.kinds[kind] == 1:
                 reason = f"  (known: {entry.reason})" if entry else ""
