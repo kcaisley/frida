@@ -374,7 +374,9 @@ def logging_panel(board: Board, rows: int | None = None) -> Panel:
 def rejections_panel(board: Board) -> Panel:
     """Why designs left the run: each bound by the step that caught them, and the failures by step."""
     found = _table(("caught at", "left", 9), ("designs", "right", 7), ("bound", "left", 18))
-    for (step, bounds), n in sorted(board.rejections.items(), key=lambda kn: board.steps.index(kn[0][0])):
+    # a resumed run's rejection may be a step before the ones it runs: first
+    order = {step: place for place, step in enumerate(board.steps)}
+    for (step, bounds), n in sorted(board.rejections.items(), key=lambda kn: order.get(kn[0][0], -1)):
         found.add_row(step, Text(str(n), style=REJECT), bounds)
     failed = Counter(step for item in board.instances.values() for step, s in item.states.items() if s == "failed")
     for step, n in failed.items():
