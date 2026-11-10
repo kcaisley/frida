@@ -43,14 +43,20 @@ def test_the_steps_run_from_one_to_another() -> None:
 
 
 def test_the_bare_command_prints_the_usage_the_steps_and_each_blocks_runs(capsys) -> None:
+    """The bare command, and ``-h``: a help page (usage, options, steps, each block's runs by kind,
+    examples) that fits a half-screen terminal."""
     cli.main([])
-    lines = capsys.readouterr().out.splitlines()
-    assert lines[0].startswith("python -m flow --block B --run R")
-    assert "  record (needs netlist, sim; after pexsim)" in lines and "  table (needs record)" in lines
-    assert "blocks and their runs (--run):" in lines
-    assert any(
-        line.startswith("  comp: ") and "frida1 (single)" in line and "adc_12bit (optimize)" in line for line in lines
-    )
+    out = capsys.readouterr().out
+    lines = [line.rstrip() for line in out.splitlines()]
+    assert lines[0] == "Usage" and lines[1].strip() == "python -m flow --block BLOCK --run RUN"
+    assert {"Usage", "Options", "Steps", "Runs", "Examples"} <= set(lines)
+    assert "[--from STEP] [--to STEP] [--dry-run]" in out and out.index("--from STEP") < out.index("--to STEP")
+    assert any(line.split() == ["record", "netlist,", "sim;", "after", "pexsim"] for line in lines)
+    comp = next(line for line in lines if line.split()[:1] == ["comp"])
+    assert comp.split() == ["comp", "frida1", "topologies", "adc_10bit"]
+    assert max(map(len, lines)) <= 80
+    cli.main(["--help"])
+    assert capsys.readouterr().out == out
     assert {"adc", "capdac", "comp", "samp"} <= set(cli.pipeline_blocks())
 
 

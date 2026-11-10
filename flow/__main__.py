@@ -1,6 +1,6 @@
 r"""The flow's one entry point: one of a block's runs, through its steps.
 
-    python -m flow --block B --run R [--to STEP] [--from STEP] [--dry-run]
+    python -m flow --block B --run R [--from STEP] [--to STEP] [--dry-run]
     python -m flow web.serve
 
 ``--run`` names one of the block's runs (its runs.py, by its function's name): one design
@@ -411,44 +411,129 @@ def _dry_run(jobs: list[Job], chosen: list[Step]) -> None:
 # ---------------------------------------------------------------- the command line
 
 
+USAGE = "python -m flow --block BLOCK --run RUN [--from STEP] [--to STEP] [--dry-run]"
+
+
 def parser() -> argparse.ArgumentParser:
     """The command line (``python -m flow --block B --run R ...``): which block, which of its
-    runs, which steps; everything else is in the block's runs.py."""
+    runs, which steps; everything else is in the block's runs.py. ``-h`` prints ``usage``."""
     words = [str(step) for step in Step]
-    command = argparse.ArgumentParser(prog="python -m flow", description=(__doc__ or "").split("\n\n")[0])
+    command = argparse.ArgumentParser(prog="python -m flow", usage=USAGE, add_help=False)
     command.add_argument("--block", required=True, choices=pipeline_blocks(), help="a block on the pipeline")
     command.add_argument("--run", required=True, metavar="RUN", help="one of the block's runs, by its name")
-    shown = ", ".join(words)
-    command.add_argument("--to", default="table", choices=words, metavar="STEP", help=f"the last step (table): {shown}")
-    command.add_argument("--from", dest="start", default="netlist", choices=words, metavar="STEP", help="the first")
+    command.add_argument(
+        "--from", dest="start", default="netlist", choices=words, metavar="STEP", help="the first step"
+    )
+    command.add_argument("--to", default="table", choices=words, metavar="STEP", help="the last step")
     command.add_argument("--dry-run", dest="dry_run", action="store_true", help="print what would run, run nothing")
     return command
 
 
 def usage() -> None:
-    """The commands, the steps (each with those it needs and those it runs after) and each block's
-    runs."""
+    """The help page (the bare command, ``-h``, ``--help``), as a command line's help reads: its
+    usage, options, the steps in their order (each with those it needs), each block's runs by
+    kind, and examples; in the terminal's own colours (``flow.dashboard``'s), plain elsewhere; it
+    fits a half-screen terminal (80 columns)."""
+    from rich import box
+    from rich.console import Console
+    from rich.padding import Padding
+    from rich.table import Table
+    from rich.text import Text
+
     from flow import pipeline
+    from flow.dashboard import DIM, HEAD, OK, REJECT, RUN
     from flow.sweep import runner
 
-    for line in (__doc__ or "").splitlines():
-        if line.startswith("    python -m flow"):
-            print(line.strip())
-    print("steps:")
+    console = Console(highlight=False)
+    blocks = pipeline_blocks()
+
+    def heading(text: str) -> None:
+        console.print(Text(text, style=f"bold {HEAD}"))
+
+    def rows() -> Table:
+        table = Table(box=None, show_header=False, pad_edge=False, padding=(0, 3, 0, 0))
+        table.add_column(no_wrap=True)
+        table.add_column()
+        return table
+
+    def indented(renderable) -> Padding:
+        return Padding(renderable, (0, 0, 0, 2), expand=False)
+
+    heading("Usage")
+    console.print(
+        indented(
+            Text.assemble(
+                "python -m flow ",
+                ("--block", RUN),
+                " BLOCK ",
+                ("--run", RUN),
+                " RUN\n",
+                ("               [--from STEP] [--to STEP] [--dry-run]", DIM),
+                "\npython -m flow ",
+                ("web.serve", RUN),
+            )
+        )
+    )
+    console.print()
+    heading("Options")
+    options = rows()
+    for flag, meaning in (
+        ("--block BLOCK", ", ".join(blocks)),
+        ("--run RUN", "one of the block's runs (below)"),
+        ("--from STEP", "first step (netlist: a new run; later: the latest)"),
+        ("--to STEP", "last step (table)"),
+        ("--dry-run", "say what would run; run nothing"),
+        ("-h, --help", "this page"),
+    ):
+        options.add_row(Text(flag, style=RUN), Text(meaning))
+    console.print(indented(options))
+    console.print()
+    heading("Steps")
+    arrow = Text(" → ", style=DIM)
+    chain = ("netlist", "sim", "layout", "drc", "lvs", "pex", "pexsim", "record", "table")
+    console.print(indented(arrow.join(Text(step, style=RUN) for step in chain)))
+    optional = Text.assemble(("sim", RUN), arrow, ("circuit", RUN), ",  ", ("record", RUN), arrow, ("figures", RUN))
+    console.print(indented(optional + Text("  (by --to only)", style=DIM)))
+    console.print()
+    needs = rows()
     for step in Step:
-        said = [f"needs {', '.join(map(str, step.needs))}"] if step.needs else []
+        said = [", ".join(map(str, step.needs))] if step.needs else []
         said += [f"after {', '.join(map(str, step.after))}"] if step.after else []
-        print(f"  {step}{f' ({"; ".join(said)})' if said else ''}")
-    print("blocks and their runs (--run):")
-    kind = {pipeline.Single: "single", pipeline.Grid: "grid", pipeline.Optimize: "optimize"}
-    for block in pipeline_blocks():
+        needs.add_row(Text(str(step), style=RUN), Text("; ".join(said), style=DIM))
+    console.print(indented(needs))
+    console.print()
+    heading("Runs")
+    kinds = {pipeline.Single: "single", pipeline.Grid: "grid", pipeline.Optimize: "optimize"}
+    styles = {"single": OK, "grid": RUN, "optimize": REJECT}
+    table = Table(
+        box=box.SIMPLE_HEAD, show_edge=False, pad_edge=False, header_style=f"bold {HEAD}", padding=(0, 3, 0, 0)
+    )
+    table.add_column("block", style="bold", no_wrap=True)
+    for kind in styles:
+        table.add_column(kind, no_wrap=True)
+    for block in blocks:
         found = pipeline.runs(runner.runs_module(block))
-        print(f"  {block}: {', '.join(f'{name} ({kind[type(spec)]})' for name, spec in found.items())}")
+        cells = [
+            Text("\n").join(Text(name, style=styles[kind]) for name, spec in found.items() if kinds[type(spec)] == kind)
+            or Text("–", style=DIM)
+            for kind in styles
+        ]
+        table.add_row(block, *cells, end_section=True)
+    console.print(indented(table))
+    console.print()
+    heading("Examples")
+    for command, meaning in (
+        ("python -m flow --block samp --run frida1", "every step of one design, each PDK"),
+        ("python -m flow --block comp --run topologies --to sim --dry-run", "what a grid would simulate"),
+        ("python -m flow --block comp --run frida1 --from lvs --to lvs", "LVS again, in the latest run"),
+        ("python -m flow --block comp --run adc_12bit", "an optimization's study"),
+    ):
+        console.print(indented(Text.assemble((f"# {meaning}\n", DIM), command)))
 
 
 def main(argv: list[str] | None = None) -> None:
     argv = sys.argv[1:] if argv is None else argv
-    if not argv:
+    if not argv or argv[0] in ("-h", "--help") or "-h" in argv or "--help" in argv:
         usage()
     elif argv[0] == "web.serve":
         from flow.web import server

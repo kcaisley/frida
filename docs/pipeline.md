@@ -31,7 +31,7 @@ A lab capture meets a simulation in a result, not a measurement: the comparator'
 ## Running a block
 
 ```sh
-python -m flow --block B --run R [--to STEP] [--from STEP] [--dry-run]
+python -m flow --block B --run R [--from STEP] [--to STEP] [--dry-run]
 python -m flow web.serve
 ```
 
