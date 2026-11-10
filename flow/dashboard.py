@@ -58,6 +58,8 @@ DIM, TEXT, HEAD, RUN, OK, KEPT, REJECT, WARN, BAD, FRAME = (
 SMALL = 8
 # how often the plain view says where the run is, and the status file is written (s)
 STATUS_EVERY_S, WRITE_EVERY_S = 120.0, 2.0
+# how often the live view is drawn (s): a spinner's step, and seldom enough not to flicker
+DRAW_EVERY_S = 0.5
 # a status file's size, as a large terminal's
 STATUS_WIDTH, STATUS_HEIGHT = 200, 56
 LEVELS = {"ERROR": "error", "CRITICAL": "error", "WARNING": "warning"}
@@ -150,11 +152,12 @@ class Board:
             parts = line.split(" ", 4)  # date time tool LEVEL : message
             if len(parts) < 5 or parts[3] not in LEVELS:
                 continue
-            tool, level, message = parts[2], parts[3], parts[4].removeprefix(": ")
-            kind = (tool, level, re.sub(r"\d+", "#", message)[:160])
+            tool, level, message = parts[2], parts[3], " ".join(parts[4].removeprefix(": ").split())
+            # one kind however its paths, quotes and numbers differ (the same warning in each PDK)
+            kind = (tool, level, re.sub(r"\d+", "#", re.sub(r'"[^"]*"|\S*/\S*', "…", message))[:160])
             self.kinds[kind] += 1
             if self.kinds[kind] == 1:
-                self._say(level, f"{tool}: {message}", f"first in {item.key}/{step}", kind)
+                self._say(level, f"{tool}: {_short(message)}", f"first in {item.key}/{step}", kind)
 
     def _say(self, level: str, text: str, where: str, kind: Any = None) -> None:
         stamp = time.strftime("%H:%M:%S")
@@ -174,6 +177,11 @@ class Board:
 
     def ended(self) -> Counter[str]:
         return Counter(item.ended or ("running" if item.states else "waiting") for item in self.instances.values())
+
+
+def _short(message: str) -> str:
+    """A message with each path cut to its file's name (``…/FasterCap_Input_.lst``)."""
+    return re.sub(r"(?:/[^\s\"/]+)+/([^\s\"/]+)", r"…/\1", message)
 
 
 def _bounds_of(found: str) -> str:
@@ -459,14 +467,16 @@ class View:
         self.board, self.line = board, line
         self.console = Console(file=sys.stdout)
         self.live: Live | None = None
-        self.written = self.said = -1e9
+        self.written = self.said = self.drawn = -1e9
 
     def __enter__(self) -> Self:
         if self.console.is_terminal:
+            # a line short of the terminal: a frame of its full height scrolls it, each redraw a flicker
+            self.console.height = max(12, self.console.size.height - 1)
             self.live = Live(
                 dashboard(self.board),
                 console=self.console,
-                refresh_per_second=4,
+                auto_refresh=False,
                 screen=False,
                 transient=True,
                 vertical_overflow="crop",
@@ -492,8 +502,9 @@ class View:
         """The live view drawn again; elsewhere what needs attention printed as it came (a large
         run's), and a status line now and then; the status files every two seconds."""
         now = time.monotonic()
-        if self.live is not None:
-            self.live.update(dashboard(self.board))
+        if self.live is not None and now - self.drawn >= DRAW_EVERY_S:
+            self.draw()
+            self.drawn = now
         if len(self.board.instances) > SMALL and self.live is None:
             for line in self.board.unprinted:
                 print(line, flush=True)
@@ -502,6 +513,16 @@ class View:
                 self.said = now
         self.board.unprinted.clear()
         self.write()
+
+    def draw(self) -> None:
+        """The live view drawn again whole, as one frame: inside the terminal's synchronized output
+        (mode 2026: Ghostty, recent GNOME Terminal, iTerm2 show it at once; others ignore it), so a
+        half-drawn frame never shows."""
+        assert self.live is not None
+        self.console.file.write("\x1b[?2026h")
+        self.live.update(dashboard(self.board), refresh=True)
+        self.console.file.write("\x1b[?2026l")
+        self.console.file.flush()
 
     def write(self, force: bool = False) -> None:
         """The dashboard as plain text into ``status.txt`` (written whole, then renamed: a reader never
