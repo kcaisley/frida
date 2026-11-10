@@ -100,7 +100,7 @@ def compile_block(generator, params, pdk: str, name: str, nets, seconds: dict | 
         manager.default = previous
     ports = [module.ports.get(n, s) for n, s in nets.signals.items() if s.vis == h.Visibility.PORT]
     if seconds is not None:
-        seconds["parameters"] = round(time.monotonic() - started, 1)
+        seconds["parameters"] = round(time.monotonic() - started, 2)
     return Block(module, pdk, name, ports)
 
 

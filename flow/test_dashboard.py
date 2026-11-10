@@ -131,7 +131,7 @@ def test_the_view_writes_the_status_and_events_beside_the_run(tmp_path: Path, ca
     assert "logging" in out and "viewer  http://localhost:8765/#block=comp&run=grid1/" in out
 
 
-def test_a_known_warning_keeps_its_level_and_its_reason_is_a_note(tmp_path: Path) -> None:
+def test_a_waived_warning_keeps_its_level_and_its_reason_is_a_note(tmp_path: Path) -> None:
     board = _board(tmp_path, ["a"])
     (tmp_path / "a" / "presim").mkdir()
     (tmp_path / "a" / "presim" / "step.log").write_text(
@@ -144,7 +144,7 @@ def test_a_known_warning_keeps_its_level_and_its_reason_is_a_note(tmp_path: Path
             "state": "ok",
             "seconds": 1.0,
             "found": "",
-            "counts": {"spectre": {"KNOWN": 1}},
+            "counts": {"spectre": {"WAIVED": 1}},
         }
     )
     [row] = board.attention
@@ -152,8 +152,8 @@ def test_a_known_warning_keeps_its_level_and_its_reason_is_a_note(tmp_path: Path
     assert row.notice == "WARNING" and row.known and row.instance == "tsmc65/a"
     assert row.text == "SPECTRE-592: Following parameters are disabled" and row.note.startswith("the foundry")
     shown = _shown(dashboard.logging_panel(board))
-    assert "notes" in shown and "known" not in shown.replace("unknown", "")
-    assert "spectre 1 known" in _shown(dashboard.pipeline_panel(board))
+    assert "notes" in shown and "waived" not in shown
+    assert "spectre 1 waived" in _shown(dashboard.pipeline_panel(board))
 
 
 def test_a_tools_message_loses_its_level_word_and_its_paths() -> None:

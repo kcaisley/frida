@@ -44,7 +44,7 @@ def test_align_lays_out_the_design_and_gives_what_the_signoff_takes(tmp_path: Pa
         step, "build_design", lambda pdk, design, cells, out, placed, seed=0, router=None: _gds(out / "inv" / "inv.gds")
     )
     laid = step.lay_out_align("inv", "tsmc65", None, tmp_path)
-    parts, tool = laid.pop("parts"), laid.pop("tool")
+    parts, tool, stats = laid.pop("parts"), laid.pop("tool"), laid.pop("stats")
     assert laid == {
         "gds": str(tmp_path / "align" / "inv" / "inv.gds"),
         "source": str(tmp_path / "netlist" / "inv.cdl"),
@@ -56,6 +56,9 @@ def test_align_lays_out_the_design_and_gives_what_the_signoff_takes(tmp_path: Pa
     }
     # its parts under the names every layout flow shares, in order; ALIGN has no clock tree
     assert list(parts) == list(step.PARTS) and parts["cts"] is None and tool["name"] == "align"
+    # its numbers by part, each part's seconds first
+    sections = [row["section"] for row in stats if row["label"] == "Time"]
+    assert sections == ["Init", "Floorplanning", "Placement", "Routing", "Finishing"]
 
 
 def test_a_layout_the_first_router_cannot_draw_is_drawn_by_the_other(tmp_path: Path, monkeypatch, aligned) -> None:

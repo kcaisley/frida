@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import traceback
 from dataclasses import asdict, dataclass
@@ -171,7 +172,7 @@ def _mark(out: Path, step: Step, started: float, error: str | None = None, **out
     path = _marker(out, step)
     path.parent.mkdir(parents=True, exist_ok=True)
     finished = time.time()
-    entry = {"step": str(step), "finished": finished, "seconds": round(finished - started, 1), "error": error}
+    entry = {"step": str(step), "finished": finished, "seconds": round(finished - started, 2), "error": error}
     path.write_text(json.dumps({**entry, **outputs}, indent=1) + "\n")
 
 
@@ -216,7 +217,39 @@ def _presim(job: Job) -> dict:
     points = [device_capacitance(path) for path in sorted((job.out / "presim").glob(f"*/{OPPOINT}"))]
     nets = sorted({net for point in points for net in point})
     device = {net: sum(point.get(net, 0.0) for point in points) / len(points) for net in nets} if points else {}
-    return {"runs": list(runs), **({"device_f": device} if device else {})}
+    return {
+        "runs": list(runs),
+        **({"device_f": device} if device else {}),
+        "stats": _simulation_stats(job.out / "presim"),
+    }
+
+
+def _simulation_stats(folder: Path) -> list:
+    """The runs' numbers from their logs (``flow.circuit.spectre.log_stats``): the circuit (nodes,
+    each primitive's instances), Spectre's preset, the transient's accepted steps (their mean),
+    the times (each run's mean, all runs' sum) and the peak memory."""
+    from flow.circuit.spectre import log_stats
+    from flow.layout.stats import stat
+
+    found = [log_stats(path) for path in sorted(folder.glob("*/spectre.log"))]
+    if not found:
+        return []
+    mean = lambda key: (
+        round(sum(values) / len(values), 2) if (values := [run[key] for run in found if run[key] is not None]) else None
+    )
+    first = found[0]
+    return [
+        stat("Circuit", "Nodes", first["nodes"], "#"),
+        *(stat("Circuit", name.capitalize(), count, "#") for name, count in first["primitives"].items()),
+        stat("Simulation", "Runs", len(found), "#"),
+        stat("Simulation", "Preset", f"Spectre X {first['preset']}" if first["preset"] else "Spectre"),
+        stat("Simulation", "Accepted steps", int(mean("accepted_steps") or 0) or None, "#"),
+        stat("Simulation", "Parse time", mean("parse_s"), "s"),
+        stat("Simulation", "Transient time", mean("tran_s"), "s"),
+        stat("Simulation", "Run time", mean("elapsed_s"), "s"),
+        stat("Simulation", "All runs", round(sum(run["elapsed_s"] or 0.0 for run in found), 2), "s"),
+        stat("Simulation", "Peak memory", max((run["memory_b"] or 0) for run in found) or None, "B"),
+    ]
 
 
 def _fresh(out: Path, step: Step) -> Path:
@@ -466,7 +499,38 @@ def _pex(job: Job) -> dict:
     if checked.get("lvs_correct") is False:
         raise RuntimeError(f"LVS found the layout other than its netlist ({checked['lvs_report']}): not extracted")
     gds, engine = Path(laid["gds"]), signoff.engine(job.pdk, job.block)
-    return step.extracted(job.pdk, gds, gds.stem, job.out / "pex", signoff.checker(job.pdk, job.block), engine=engine)
+    found = step.extracted(job.pdk, gds, gds.stem, job.out / "pex", signoff.checker(job.pdk, job.block), engine=engine)
+    return {**found, **_extraction_stats(found, checked, gds, job.out / "pex")}
+
+
+def _extraction_stats(found: dict, checked: dict, gds: Path, out: Path) -> dict:
+    """What an extraction adds for the viewer: its nets' wiring capacitance on the schematic's nets
+    (``schematic_nets``: a gate's poly, ``$6``, on its schematic net through LVS, ``flow.layout.annotate``;
+    a floating net apart), and its numbers (``stats``: its nets, capacitors and conductors, FasterCap's
+    solve)."""
+    from flow.layout import annotate
+    from flow.layout.stats import fastercap_stats, stat
+
+    added: dict = {}
+    if found.get("nets") and found.get("probes") and checked.get("lvs_report"):
+        names = annotate.schematic_nets(Path(checked["lvs_report"]), json.loads(Path(found["probes"]).read_text()), gds)
+        merged: dict[str, float] = {}
+        for net, farad in found["nets"].items():
+            name = names.get(net) or net
+            name = "(floating)" if name == annotate.FLOATING else name
+            merged[name] = merged.get(name, 0.0) + farad
+        added["schematic_nets"] = dict(sorted(merged.items(), key=lambda item: -item[1]))
+    log = out / "step.log"
+    conductors = log.read_text(errors="replace").count(" : Conductor ") if log.exists() else None
+    tolerance = re.search(r"(\d+(?:\.\d+)?)%", str(found.get("extractor") or ""))
+    added["stats"] = [
+        stat("Extraction", "Layout nets", len(found.get("nets") or {}) or None, "#"),
+        stat("Extraction", "Schematic nets", len(added.get("schematic_nets") or {}) or None, "#"),
+        stat("Extraction", "Conductors", conductors, "#"),
+        stat("Extraction", "Capacitors", found.get("capacitors"), "#"),
+        *fastercap_stats(out / "kpex" / "FasterCap_Output.txt", float(tolerance[1]) / 100 if tolerance else None),
+    ]
+    return added
 
 
 def _postsim(job: Job) -> dict:
@@ -514,7 +578,7 @@ def _postsim(job: Job) -> dict:
         **next((entry for entry in added.values() if entry["instances"]), {}),
         "unannotated": [run for run in runs if not added.get(run, {}).get("instances")],
     }
-    return {"runs": list(runs), "seconds_simulated": round(ran, 1), **summary}
+    return {"runs": list(runs), "seconds_simulated": round(ran, 2), **summary}
 
 
 def _body(step: Step):
@@ -536,8 +600,10 @@ def _body(step: Step):
 
 def _made(ended: dict) -> dict:
     """A step's outputs, from its ``step.json``: its record of the run (``_mark``'s, its log's
-    counts too) left out."""
-    return {key: value for key, value in ended.items() if key not in ("step", "finished", "seconds", "error", "log")}
+    counts too) and what only the viewer shows (its tool, its numbers, an extraction's nets by
+    schematic net) left out."""
+    kept = ("step", "finished", "seconds", "error", "log", "tool", "stats", "schematic_nets")
+    return {key: value for key, value in ended.items() if key not in kept}
 
 
 def _join_layout(job: Job) -> None:
@@ -575,7 +641,7 @@ def _join_layout(job: Job) -> None:
         "warnings": lvs.get("warnings"),
         "pex": runner._shown_pex(_made(pex)) if pex else None,
         "error": made[Step.LAYOUT].get("error"),
-        "seconds": round(sum(entry["seconds"] for entry in made.values()), 1),
+        "seconds": round(sum(entry["seconds"] for entry in made.values()), 2),
         "steps": {str(step): {"seconds": entry["seconds"], "error": entry["error"]} for step, entry in made.items()},
     }
     if record["metrics"] and width:
@@ -619,13 +685,13 @@ def _brief(step: Step, outputs: dict) -> str:
 
 def logged(counts: dict[str, dict[str, int]]) -> str:
     """A step's warnings and errors by tool (``flow.logs.step_log``'s counts), for its outcome:
-    ``align 4 errors, 10 warnings; spectre 26 warnings, 14 known`` (``flow.logs.KNOWN``); nothing
+    ``align 4 errors, 10 warnings; spectre 26 warnings, 14 known`` (``flow.logs.WAIVERS``); nothing
     where there were none."""
     nouns = {"CRITICAL": "critical error", "ERROR": "error", "WARNING": "warning"}  # the worst first
 
     def said(levels: dict[str, int]) -> str:
         found = [_count(levels[level], noun) for level, noun in nouns.items() if level in levels]
-        return ", ".join(found + ([f"{levels['KNOWN']} known"] if "KNOWN" in levels else []))
+        return ", ".join(found + ([f"{levels['WAIVED']} waived"] if "WAIVED" in levels else []))
 
     tools = [f"{tool} {said(levels)}" for tool, levels in counts.items()]
     return "; ".join(tools)

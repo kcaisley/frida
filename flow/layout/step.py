@@ -34,6 +34,7 @@ from flow.layout.build import annealed, build_design, other_router, pdk_router, 
 from flow.layout.hdl21align import pnr_input
 from flow.layout.kpex import Engine
 from flow.layout.signoff import Checker
+from flow.layout.stats import layout_stats
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -165,10 +166,10 @@ def inputs(
     netlist = write(package(compiled, Context.ALIGN), out_dir / "netlist" / f"{design}.sp")
     source = lvs_source(compiled, out_dir / "netlist" / f"{design}.cdl")
     LOG.info(f"netlists: {netlist} (ALIGN), {source} (LVS)")
-    seconds["netlist"] = round(time.monotonic() - started, 1)
+    seconds["netlist"] = round(time.monotonic() - started, 2)
     started = time.monotonic()
     input_dir, cells = align_design(compiled, out_dir / "align" / "input")
-    seconds["floorplan"] = round(time.monotonic() - started, 1)
+    seconds["floorplan"] = round(time.monotonic() - started, 2)
     return input_dir, cells, source, pnr_input(compiled.module) is not None
 
 
@@ -221,8 +222,8 @@ def _parts(own: dict[str, float], starts: dict[str, float], begun: float, ended:
     marks = sorted(starts.items(), key=lambda item: item[1])
     edges = [begun if not index else at for index, (_, at) in enumerate(marks)] + [ended]
     for (part, _), start, end in zip(marks, edges, edges[1:], strict=False):
-        found[part] = round((found[part] or 0.0) + max(0.0, end - start), 1)
-    return {part: (round(value, 1) if value is not None else None) for part, value in found.items()}
+        found[part] = round((found[part] or 0.0) + max(0.0, end - start), 2)
+    return {part: (round(value, 2) if value is not None else None) for part, value in found.items()}
 
 
 def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = None) -> dict[str, Any]:
@@ -271,7 +272,7 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
     parts = _parts(seconds, timed.starts, begun, ended)
     size = cell_um(gds)
     LOG.info(f"layout: {gds} ({' × '.join(f'{v:g}' for v in size)} um) by the {router} router")
-    return {
+    laid = {
         "gds": str(gds),
         "source": str(source),
         "netlist": str(out / "netlist" / f"{design}.sp"),
@@ -282,6 +283,7 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
         "parts": parts,
         "tool": {"name": "align", "version": tools.align()},
     }
+    return {**laid, "stats": layout_stats(work, design, Path(gds), pdk, laid)}
 
 
 def lay_out_own(block: str, pdk: str, params, out: Path) -> dict[str, Any]:

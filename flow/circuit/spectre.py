@@ -110,3 +110,32 @@ def run(
     except SimError as error:
         # the simulator's error holds its simulation, which cannot cross back from a worker process
         raise RuntimeError(f"Spectre failed in {run_dir}: {error}") from None
+
+
+def log_stats(path: Path) -> dict[str, Any]:
+    """What a run's log (``spectre.log``) says of it: its circuit (nodes, each primitive's
+    instances), its transient's accepted steps, its times (the parse of its netlist and models,
+    its transient, its whole run: elapsed seconds) and its peak memory (bytes)."""
+    text = path.read_text(errors="replace")
+    inventory = text.split("Circuit inventory:", 1)[-1].split("\n\n", 1)[0] if "Circuit inventory:" in text else ""
+    counts = {name: int(count) for name, count in re.findall(r"^\s+(\w+) (\d+)\s*$", inventory, re.MULTILINE)}
+
+    def seconds(pattern: str) -> float | None:
+        found = re.findall(pattern + r".*?elapsed = ([\d.]+) (\w*s)", text, re.MULTILINE)
+        if not found:
+            return None
+        value, unit = found[-1]
+        return float(value) * {"s": 1.0, "ms": 1e-3, "us": 1e-6}.get(unit, 1.0)
+
+    memory = [int(value) for value in re.findall(r"Peak resident memory used = (\d+) Mbytes", text)]
+    steps = re.findall(r"Number of accepted tran steps =\s+(\d+)", text)
+    return {
+        "nodes": counts.pop("nodes", None),
+        "primitives": counts,
+        "accepted_steps": int(steps[-1]) if steps else None,
+        "parse_s": seconds(r"Time for NDB Parsing:"),
+        "tran_s": seconds(r"Total time required for tran analysis"),
+        "elapsed_s": seconds(r"^Time used:"),
+        "memory_b": max(memory) * 2**20 if memory else None,
+        "preset": (re.findall(r"Spectre X preset=(\w+) enabled", text) or [None])[-1],
+    }

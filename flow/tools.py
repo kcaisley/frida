@@ -54,6 +54,16 @@ def kpex() -> str | None:
     return found.stdout.strip() or None
 
 
+def _version(package: str) -> str | None:
+    """An installed Python package's version."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version(package)
+    except PackageNotFoundError:
+        return None
+
+
 def spectre(folder: Path) -> str | None:
     """Spectre's version, as a run's log under ``folder`` states it (``Version 24.1.0.078``)."""
     for log in sorted(folder.glob("*/spectre.log"))[:1]:
@@ -69,6 +79,8 @@ def of(step: str, outputs: dict[str, Any], out: Path) -> dict[str, Any] | None:
     own (the layout's ALIGN)."""
     if outputs.get("skipped") or "tool" in outputs:
         return None
+    if step == "netlist":
+        return {"name": "hdl21 · vlsir", "version": " · ".join(filter(None, (_version("hdl21"), _version("vlsir"))))}
     if step in ("presim", "postsim", "circuit"):
         return {"name": "spectre", "version": spectre(out / step)}
     checker = str(outputs.get("checker") or outputs.get("lvs_checker") or outputs.get("extractor") or "")

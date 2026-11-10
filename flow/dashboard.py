@@ -44,8 +44,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from flow.logs import known
 from flow.logs import level as level_of
+from flow.logs import waived
 from flow.web import PORT
 
 # the terminal's own colours, which its theme maps
@@ -74,13 +74,13 @@ SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 STATUS_WIDTH, STATUS_HEIGHT = 200, 56
 # the results' most metrics (rows) and, of several instances, the most instances (columns)
 RESULT_ROWS, COLUMNS = 24, 8
-LEVELS = {"ERROR": "error", "CRITICAL": "error", "WARNING": "warning", "KNOWN": "known"}
+LEVELS = {"ERROR": "error", "CRITICAL": "error", "WARNING": "warning", "WAIVED": "waived"}
 
 
 class Notice(NamedTuple):
     """A row of what needs attention: when, the notice (a tool's level, ``FAILED``, ``REJECTED``),
     the step, its tool, the instance it came from first, the message as the tool said it, a note
-    (why a known one is left: ``flow.logs.KNOWN``; a failure's log) and its kind (counted)."""
+    (why a known one is left: ``flow.logs.WAIVERS``; a failure's log) and its kind (counted)."""
 
     stamp: str
     notice: str
@@ -187,7 +187,7 @@ class Board:
             if level_of(raw)[3]:
                 continue  # a message's continued line, which the step's counts leave out too
             tool, level, message = parts[2], parts[3], " ".join(raw.split())
-            entry = known(tool, message)
+            entry = waived(tool, message)
             # one kind however its paths, quotes and numbers differ (the same warning in each PDK)
             # (a kind a step's: the same warning in sim and postsim counted apart, as their counts are)
             kind = (
@@ -206,7 +206,7 @@ class Board:
         notice = notice._replace(stamp=time.strftime("%H:%M:%S"))
         self.attention.append(notice)
         tool = f" ({notice.tool})" if notice.tool else ""
-        note = f"  [{'known: ' if notice.known else ''}{notice.note}]" if notice.note else ""
+        note = f"  [{'waived: ' if notice.known else ''}{notice.note}]" if notice.note else ""
         self.fresh.append(f"{notice.stamp} {notice.notice} {notice.step}{tool} {notice.instance}: {notice.text}{note}")
         self.unprinted.append(self.fresh[-1])
 
@@ -385,7 +385,7 @@ def pipeline_panel(board: Board, plain: bool = False) -> Any:
         seconds = sum(item.seconds.get(step, 0.0) for item in board.instances.values())
         said = Text()
         for (tool, level), n in sorted(board.counts.get(step, Counter()).items()):
-            style = {"WARNING": WARN, "KNOWN": DIM}.get(level, BAD)
+            style = {"WARNING": WARN, "WAIVED": DIM}.get(level, BAD)
             said.append(f"{tool} {n} {LEVELS.get(level, level.lower())}  ", style=style)
         label = Text(step, style=f"bold {RUN}" if c["running"] else TEXT)
         found.add_row(
@@ -407,7 +407,7 @@ NOTICES = {
     "ERROR": f"bold {BAD}",
     "CRITICAL": f"bold {BAD}",
     "WARNING": WARN,
-    "KNOWN": DIM,
+    "WAIVED": DIM,
     "FAILED": f"bold {BAD}",
     "REJECTED": REJECT,
 }
@@ -417,7 +417,7 @@ def logging_panel(board: Board, rows: int | None = None, plain: bool = False) ->
     """What needs attention, the newest first, a row each: when, the notice (a tool's error or
     warning, a failure, a rejection), the step, its tool (the logger's full name), the instance it
     came from first, how often it came (each kind counted once it was said), the message as the
-    tool said it, and a note: why a known one is left (``flow.logs.KNOWN``; its row dimmed, so a
+    tool said it, and a note: why a known one is left (``flow.logs.WAIVERS``; its row dimmed, so a
     new one stands out), a failure's log."""
     found = Table(
         box=box.SIMPLE_HEAD, expand=not plain, pad_edge=False, header_style=f"bold {HEAD}", border_style=FRAME

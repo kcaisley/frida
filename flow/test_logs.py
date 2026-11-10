@@ -120,18 +120,20 @@ def test_a_python_tool_streams_its_lines_as_it_writes_them(tmp_path: Path) -> No
 
 
 def test_a_known_warning_is_counted_apart_and_a_new_one_is_not(tmp_path: Path) -> None:
-    """A warning the flow knows and cannot fix at its source (``KNOWN``: a foundry model's) is
-    still logged, counted as ``KNOWN``; a new one (a device past its safe operating area) stays a
+    """A warning the flow knows and cannot fix at its source (``WAIVED``: a foundry model's) is
+    still logged, counted as ``WAIVED``; a new one (a device past its safe operating area) stays a
     warning; every known entry says why."""
-    from flow.logs import KNOWN, known
+    from flow.logs import WAIVERS, waived
 
     with step_log(tmp_path / "step.log") as counts:
         spectre = logging.getLogger("spectre")
         spectre.warning("WARNING (SPECTRE-592): Following parameters are disabled")
         spectre.warning("WARNING (CMI-2753): xtop.dut.MN: Vgb(=1.08 V) has exceeded vgb_max(=990 mV).")
-    assert counts == {"spectre": {"KNOWN": 1, "WARNING": 1}}
+    assert counts == {"spectre": {"WAIVED": 1, "WARNING": 1}}
     assert "SPECTRE-592" in (tmp_path / "step.log").read_text()
-    assert known("align.pnr.main", "2 LVS / DRC errors found !!!") is not None
-    assert known("kpex", "Warning: capacitance matrix has a non-negative off-diagonal element at row 1 col") is not None
-    assert known("spectre", "Vgb has exceeded vgb_max") is None
-    assert all(entry.reason for entry in KNOWN)
+    assert waived("align.pnr.main", "2 LVS / DRC errors found !!!") is not None
+    assert (
+        waived("kpex", "Warning: capacitance matrix has a non-negative off-diagonal element at row 1 col") is not None
+    )
+    assert waived("spectre", "Vgb has exceeded vgb_max") is None
+    assert all(entry.reason for entry in WAIVERS)
