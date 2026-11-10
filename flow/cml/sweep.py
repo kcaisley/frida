@@ -22,7 +22,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import (
     CLOCK_PERIOD_SWEEP_S,
@@ -108,7 +108,7 @@ def _eye(measurement) -> tuple[list[float], dict[str, list[float]]]:
     }
 
 
-def characterize(run_dir: Path, pdk: str, cml: CmlParams) -> Record:
+def characterize(run_dir: Path, pdk: str, cml: CmlParams) -> Results:
     from flow.analysis.io import write_measurement
 
     from .analysis import analyze_cml_switching
@@ -170,7 +170,7 @@ def characterize(run_dir: Path, pdk: str, cml: CmlParams) -> Record:
 
     supply_delay = np.asarray(delay(over_supply))
 
-    return Record(
+    return Results(
         metrics={
             "swing_v": float(at.swing_v[0]),
             "output_cm_v": float(at.output_cm_v[0]),

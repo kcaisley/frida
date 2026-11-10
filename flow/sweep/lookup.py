@@ -52,7 +52,7 @@ def _run_instances(run: Path, pdk: str) -> dict[str, Path]:
     return runner.instance_dirs(run, pdk)
 
 
-def _sweep_record(block: str, pdk: str, ident: str) -> dict | None:
+def _sweep_results(block: str, pdk: str, ident: str) -> dict | None:
     """The record of ``block``'s instance with this digest from the newest run in ``pdk`` that
     holds it (a run of some instances alone leaves the others' in the runs before), where it ran
     there without error."""
@@ -84,7 +84,7 @@ def characterized(block: str, pdk: str, params, *, simulate: bool = True) -> dic
     """
 
     ident = digest(flat_params(params))
-    found = _sweep_record(block, pdk, ident)
+    found = _sweep_results(block, pdk, ident)
     if found is not None:
         return found
     run_dir = MODELS_DIR / block / pdk / ident

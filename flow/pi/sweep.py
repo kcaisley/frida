@@ -21,7 +21,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import (
     NOMINAL_PERIOD_S,
@@ -90,7 +90,7 @@ def _measure(run_dir: Path, tb: PiTbParams):
     )
 
 
-def characterize(run_dir: Path, pdk: str, pi: PiParams) -> Record:
+def characterize(run_dir: Path, pdk: str, pi: PiParams) -> Results:
     from flow.analysis.io import write_measurement
 
     from .analysis import analyze_pi_linearity, analyze_pi_phase
@@ -155,7 +155,7 @@ def characterize(run_dir: Path, pdk: str, pi: PiParams) -> Record:
     spacing = list(over_spacing.spacing_deg)
     fitted = over_spacing.spacing_deg <= 90.0  # beyond quadrature an interpolator follows one phase
 
-    return Record(
+    return Results(
         metrics={
             "delay_s": float(at.delay_s[0]),
             "phase_deg": float(at.output_phase_deg[0]),

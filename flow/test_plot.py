@@ -21,7 +21,7 @@ import flow.plot
 from flow.analysis.plots import DENSITY_COLOR_MAP, SPINE_COLOR
 from flow.pipeline import Band, Heatmap, Marker, Plot
 from flow.plot import figures, render, scaled
-from flow.sweep.runner import write_record
+from flow.sweep.runner import write_results
 
 
 def drawn(plot: Plot, monkeypatch: pytest.MonkeyPatch) -> Figure:
@@ -238,7 +238,7 @@ def test_a_records_map_draws_from_its_json(tmp_path: Path, monkeypatch: pytest.M
     plot = a_map(x_markers=[Marker(1.5e-9, "Sampling")], x_bands=[Band(2e-9, 2.5e-9)])
     record = tmp_path / "run/tsmc65/abc/instance.json"
     record.parent.mkdir(parents=True)
-    write_record(record, {"pdk": "tsmc65", "label": None, "details": [plot.to_json()]})
+    write_results(record, {"pdk": "tsmc65", "label": None, "details": [plot.to_json()]})
     (png,) = figures("sample", [tmp_path / "run"], out_dir=tmp_path / "png")
     assert png.name == "map.png" and png.stat().st_size > 0
     (spec,) = figures("sample", [tmp_path / "run"], backend="web", out_dir=tmp_path / "web")

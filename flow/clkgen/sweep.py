@@ -23,7 +23,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import ClkgenTbParams, _run_clkgen_sim, clkgen_signal_names
 from .subckt import CASES, Clkgen, ClkgenParams, Function, is_valid_clkgen_params
@@ -86,7 +86,7 @@ def _measure(run_dir: Path, tb: ClkgenTbParams):
     return measurement
 
 
-def characterize(run_dir: Path, pdk: str, clkgen: ClkgenParams) -> Record:
+def characterize(run_dir: Path, pdk: str, clkgen: ClkgenParams) -> Results:
     from flow.analysis.io import write_measurement
     from flow.clkgen.analysis import analyze_clkgen_timing
 
@@ -123,7 +123,7 @@ def characterize(run_dir: Path, pdk: str, clkgen: ClkgenParams) -> Record:
     frequency = 1 / over_period.period_s
     pulsing = frequency[over_period.pulse_fraction == 1.0]
 
-    return Record(
+    return Results(
         metrics={
             "delay_s": float(over_supply.delay_s[at]),
             "high_width_s": float(over_supply.high_width_s[at]),

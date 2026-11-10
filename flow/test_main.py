@@ -26,20 +26,20 @@ def test_the_steps_run_from_one_to_another() -> None:
     outputs it takes: an instance's steps are one chain, the record after pexsim (whose measurements
     it takes where they exist), the run's table after it; one that does not lead to the other
     is refused."""
-    chain = [Step.NETLIST, Step.SIM, Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.PEXSIM, Step.RECORD]
-    assert steps.between(Step.NETLIST, Step.RECORD) == chain
-    assert steps.between(Step.RECORD, Step.RECORD) == [Step.RECORD]
+    chain = [Step.NETLIST, Step.PRESIM, Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.PEXSIM, Step.RESULTS]
+    assert steps.between(Step.NETLIST, Step.RESULTS) == chain
+    assert steps.between(Step.RESULTS, Step.RESULTS) == [Step.RESULTS]
     assert steps.between(Step.NETLIST, Step.TABLE) == [*chain, Step.TABLE]
-    assert steps.between(Step.NETLIST, Step.CIRCUIT) == [Step.NETLIST, Step.SIM, Step.CIRCUIT]
+    assert steps.between(Step.NETLIST, Step.CIRCUIT) == [Step.NETLIST, Step.PRESIM, Step.CIRCUIT]
     assert steps.between(Step.NETLIST, Step.LVS) == [Step.NETLIST, Step.LAYOUT, Step.DRC, Step.LVS]
     assert steps.between(Step.NETLIST, Step.PEXSIM) == chain[:-1]
-    assert steps.between(Step.SIM, Step.TABLE) == [Step.SIM, Step.PEXSIM, Step.RECORD, Step.TABLE]
-    assert steps.between(Step.LAYOUT, Step.RECORD) == chain[2:]
+    assert steps.between(Step.PRESIM, Step.TABLE) == [Step.PRESIM, Step.PEXSIM, Step.RESULTS, Step.TABLE]
+    assert steps.between(Step.LAYOUT, Step.RESULTS) == chain[2:]
     # each step's order puts it after what it takes; the record needs the sim alone
     assert all(before.value < step.value for step in Step for before in step.inputs)
-    assert Step.RECORD.required == {Step.NETLIST, Step.SIM, Step.RECORD} and Step.PEXSIM in Step.RECORD.ancestors
-    with pytest.raises(SystemExit, match="--from layout does not lead to --to sim: sim needs netlist"):
-        steps.between(Step.LAYOUT, Step.SIM)
+    assert Step.RESULTS.required == {Step.NETLIST, Step.PRESIM, Step.RESULTS} and Step.PEXSIM in Step.RESULTS.ancestors
+    with pytest.raises(SystemExit, match="--from layout does not lead to --to presim: presim needs netlist"):
+        steps.between(Step.LAYOUT, Step.PRESIM)
 
 
 def test_the_bare_command_prints_the_usage_the_steps_and_each_blocks_runs(capsys) -> None:
@@ -51,7 +51,7 @@ def test_the_bare_command_prints_the_usage_the_steps_and_each_blocks_runs(capsys
     assert lines[0] == "Usage" and lines[1].strip() == "python -m flow --block BLOCK --run RUN"
     assert {"Usage", "Options", "Steps", "Runs", "Examples"} <= set(lines)
     assert "[--from STEP] [--to STEP] [--dry-run]" in out and out.index("--from STEP") < out.index("--to STEP")
-    assert any(line.split() == ["record", "netlist,", "sim;", "after", "pexsim"] for line in lines)
+    assert any(line.split() == ["results", "netlist,", "presim;", "after", "pexsim"] for line in lines)
     comp = next(line for line in lines if line.split()[:1] == ["comp"])
     assert comp.split() == ["comp", "frida1", "topologies", "adc_10bit"]
     assert max(map(len, lines)) <= 80
@@ -101,7 +101,7 @@ def test_an_optimization_runs_its_study_and_the_viewer_keeps_its_command(monkeyp
     cli.main(["--block", "comp", "--run", "adc_12bit"])
     cli.main(["web.serve"])
     assert calls == [("opt", "comp", "tsmc65", "adc_12bit", 500, 48), ("serve", 8765, "127.0.0.1")]
-    for old in (["opt", "comp", "--problem", "adc(bits=12)"], ["comp", "--to", "record"]):
+    for old in (["opt", "comp", "--problem", "adc(bits=12)"], ["comp", "--to", "results"]):
         with pytest.raises(SystemExit):
             cli.main(old)
     with pytest.raises(SystemExit, match="comp has no run 'nothing'"):
@@ -138,21 +138,21 @@ def _instance(run: str) -> Path:
 
 
 def test_a_block_runs_through_every_characterization_step(flow, simulated, capsys, monkeypatch) -> None:
-    """``--to record`` makes the run, dated under its name: the netlist (the circuit and its size),
+    """``--to results`` makes the run, dated under its name: the netlist (the circuit and its size),
     each run simulated and its measurement kept (its raw file removed), and the record from the kept
     measurements, each step in its folder, the record beside them; the table from it."""
-    flow("--run", "one", "--to", "record")
+    flow("--run", "one", "--to", "results")
     out = capsys.readouterr().out
-    assert "toyblock: new run" in out and "netlist ok" in out and "sim ok" in out and "record ok" in out
+    assert "toyblock: new run" in out and "netlist ok" in out and "presim ok" in out and "results ok" in out
     assert simulated == ["screen", "search", "full"]
     instance = _instance("one")
     assert json.loads((instance.parents[1] / "run.json").read_text())["block"] == "toyblock"
     assert (instance / "netlist/toyblock.cdl").read_text().startswith("* toyblock in toypdk")
     assert json.loads((instance / "netlist/geometry.json").read_text()) == {"devices": 0.0}
-    assert sorted(path.parent.name for path in instance.glob("sim/*/result.h5")) == ["full", "screen", "search"]
+    assert sorted(path.parent.name for path in instance.glob("presim/*/result.h5")) == ["full", "screen", "search"]
     assert not list(instance.rglob("raw.txt"))
     laid = {"layout", "drc", "lvs", "pex", "pexsim"}
-    assert {path.parent.name for path in instance.glob("*/step.json")} == {"netlist", "sim", "record", *laid}
+    assert {path.parent.name for path in instance.glob("*/step.json")} == {"netlist", "presim", "results", *laid}
     record = json.loads((instance / "instance.json").read_text())
     assert record["error"] is None, record["error"]
     # no LVS source, so nothing extracted: the pre-layout metrics alone, and the layout's outcome
@@ -176,21 +176,21 @@ def test_a_design_that_misses_a_bound_is_rejected_from_its_evidence_on(flow, cap
     after each step whose evidence they reach, on what the steps established so far: a miss rejects
     it there, the steps after it not run but the record, which keeps the rejection; a run resumed
     past the step keeps it, judged again from the kept metrics."""
-    flow("--run", "unread", "--to", "record")
+    flow("--run", "unread", "--to", "results")
     out = capsys.readouterr().out
-    assert "toypdk/unread/sim rejected: rejected at sim (prelayout): read_full True (must be False)" in out
-    assert "toypdk/unread/layout not run: (rejected at sim)" in out and "toypdk/unread/record ok" in out
+    assert "toypdk/unread/presim rejected: rejected at presim (prelayout): read_full True (must be False)" in out
+    assert "toypdk/unread/layout not run: (rejected at presim)" in out and "toypdk/unread/results ok" in out
     instance = _instance("unread")
     record = json.loads((instance / "instance.json").read_text())
-    assert record["rejected"] == {"step": "sim", "evidence": "prelayout", "bounds": {"read_full": [True, False]}}
+    assert record["rejected"] == {"step": "presim", "evidence": "prelayout", "bounds": {"read_full": [True, False]}}
     assert record["evidence"] == "prelayout" and not (instance / "layout").exists()
     # the layout's own area, not the netlist's estimate (no devices here), rejects this one
-    flow("--run", "tiny", "--to", "record")
+    flow("--run", "tiny", "--to", "results")
     out = capsys.readouterr().out
     assert "toypdk/tiny/layout rejected: rejected at layout (layout): layout_area_um2 2 > 1" in out
     assert "toypdk/tiny/drc not run: (rejected at layout)" in out
     assert json.loads((_instance("tiny") / "layout/step.json").read_text())["metrics"] == {"layout_area_um2": 2.0}
-    flow("--run", "tiny", "--from", "drc", "--to", "record")
+    flow("--run", "tiny", "--from", "drc", "--to", "results")
     out = capsys.readouterr().out
     assert "toypdk/tiny/layout rejected" in out and "toypdk/tiny/drc not run: (rejected at layout)" in out
     assert json.loads((_instance("tiny") / "instance.json").read_text())["rejected"]["step"] == "layout"
@@ -202,33 +202,35 @@ def test_a_design_that_misses_a_bound_is_rejected_from_its_evidence_on(flow, cap
 def test_a_step_resumes_where_its_output_is_complete(flow, simulated, capsys) -> None:
     """Make's rule: a run from the netlist is a new one, dated; ``--from`` a later step resumes the
     run's latest, a step whose output is complete, and not older than what it needs, skipped,
-    one deleted made again, and every step after it; ``--from record`` analyses again what the sim
+    one deleted made again, and every step after it; ``--from results`` analyses again what the sim
     step kept, without simulating."""
-    flow("--run", "one", "--to", "record")
+    flow("--run", "one", "--to", "results")
     instance = _instance("one")
     capsys.readouterr()
     simulated.clear()
-    flow("--run", "one", "--from", "sim", "--to", "record")
+    flow("--run", "one", "--from", "presim", "--to", "results")
     out = capsys.readouterr().out
-    assert "the latest run" in out and all(f"one/{s} done" in out for s in ("sim", "record")) and not simulated
-    shutil.rmtree(instance / "record")
+    assert "the latest run" in out and all(f"one/{s} done" in out for s in ("presim", "results")) and not simulated
+    shutil.rmtree(instance / "results")
     (instance / "instance.json").unlink()
-    flow("--run", "one", "--from", "record", "--to", "record")
+    flow("--run", "one", "--from", "results", "--to", "results")
     out = capsys.readouterr().out
-    assert "the latest run" in out and "record ok" in out and not simulated
+    assert "the latest run" in out and "results ok" in out and not simulated
     assert json.loads((instance / "instance.json").read_text())["metrics"]["read_full"] is True
-    # one run's measurement gone and the sim step's record with it: only that run simulated, and
+    # one run's measurement gone and the presim step's record with it: only that run simulated, and
     # the record after it made again
-    shutil.rmtree(instance / "sim/search")
-    (instance / "sim/step.json").unlink()
-    record = (instance / "record/step.json").read_text()
-    flow("--run", "one", "--from", "sim", "--to", "record")
-    assert simulated == ["search"] and "sim ok" in capsys.readouterr().out
-    assert steps.done(instance, Step.RECORD) and (instance / "record/step.json").read_text() != record
+    shutil.rmtree(instance / "presim/search")
+    (instance / "presim/step.json").unlink()
+    record = (instance / "results/step.json").read_text()
+    flow("--run", "one", "--from", "presim", "--to", "results")
+    assert simulated == ["search"] and "presim ok" in capsys.readouterr().out
+    assert steps.done(instance, Step.RESULTS) and (instance / "results/step.json").read_text() != record
     # from the netlist again: a new run beside the first, which stays
-    flow("--run", "one", "--to", "record")
+    flow("--run", "one", "--to", "results")
     assert (
-        _instance("one") != instance and steps.done(instance, Step.RECORD) and steps.done(_instance("one"), Step.RECORD)
+        _instance("one") != instance
+        and steps.done(instance, Step.RESULTS)
+        and steps.done(_instance("one"), Step.RESULTS)
     )
     assert simulated == ["search", "screen", "search", "full"]
 
@@ -236,9 +238,9 @@ def test_a_step_resumes_where_its_output_is_complete(flow, simulated, capsys) ->
 def test_a_later_step_needs_its_run(flow, toy, capsys) -> None:
     """``--from`` past the netlist works in the run's latest folder, which must exist."""
     with pytest.raises(SystemExit, match="no run of toyblock's one yet: python -m flow --block toyblock --run one"):
-        flow("--run", "one", "--from", "record", "--to", "record")
-    flow("--run", "one", "--to", "sim")
-    flow("--run", "one", "--from", "record", "--to", "record")
+        flow("--run", "one", "--from", "results", "--to", "results")
+    flow("--run", "one", "--to", "presim")
+    flow("--run", "one", "--from", "results", "--to", "results")
     assert (_instance("one") / "instance.json").exists()
 
 
@@ -248,24 +250,24 @@ def test_a_search_runs_in_its_pdks(flow, toy, monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(runner, "PDKS", ("toypdk", "otherpdk"))
     monkeypatch.setattr(importlib.util, "find_spec", lambda name, *rest: object())
-    flow("--run", "one", "--to", "record", "--dry-run")
+    flow("--run", "one", "--to", "results", "--dry-run")
     assert [line.split()[0] for line in capsys.readouterr().out.splitlines()[1:3]] == ["toypdk", "otherpdk"]
 
 
 def test_dry_run_prints_what_would_run_and_runs_nothing(flow, toy, capsys) -> None:
-    flow("--run", "one", "--to", "record", "--dry-run")
+    flow("--run", "one", "--to", "results", "--dry-run")
     out = capsys.readouterr().out.splitlines()
-    chain = "netlist, sim, layout, drc, lvs, pex, pexsim, record"
+    chain = "netlist, presim, layout, drc, lvs, pex, pexsim, results"
     assert out[0].startswith("toyblock: new run") and out[0].endswith(f"steps {chain}")
     # the sim's runs and pexsim's again (at most: pexsim does without an extraction)
     assert out[1] == f"toypdk one (one): {chain}; 6 simulator runs"
     assert out[2] == "1 instance in 1 PDK: 8 steps to run, 0 complete, about 6 simulator runs"
     assert not (runner.RUNS_DIR / "toyblock").exists()
-    flow("--run", "one", "--to", "sim")
+    flow("--run", "one", "--to", "presim")
     capsys.readouterr()
-    flow("--run", "one", "--from", "record", "--to", "table", "--dry-run")
+    flow("--run", "one", "--from", "results", "--to", "table", "--dry-run")
     out = capsys.readouterr().out.splitlines()
-    assert out[0].startswith("toyblock: the latest run") and out[1] == "toypdk one (one): record"
+    assert out[0].startswith("toyblock: the latest run") and out[1] == "toypdk one (one): results"
     assert out[2].endswith("0 complete, about 0 simulator runs; then the table")
 
 
@@ -274,12 +276,12 @@ def test_dry_run_marks_the_steps_that_would_fail_and_why(flow, toy, capsys) -> N
     with the command that makes them, and the steps after it not run; the totals count them."""
     flow("--run", "one", "--to", "netlist")
     capsys.readouterr()
-    flow("--run", "one", "--from", "record", "--to", "figures", "--dry-run")
+    flow("--run", "one", "--from", "results", "--to", "figures", "--dry-run")
     lines = capsys.readouterr().out.splitlines()
-    command = "python -m flow --block toyblock --run one --from sim --to sim"
+    command = "python -m flow --block toyblock --run one --from presim --to presim"
     assert lines[1] == (
-        f"toypdk one (one): record (fails: record needs its sim step's output: {command}), "
-        "figures (fails: not run, as record fails)"
+        f"toypdk one (one): results (fails: results needs its presim step's output: {command}), "
+        "figures (fails: not run, as results fails)"
     )
     assert lines[2] == "1 instance in 1 PDK: 0 steps to run, 2 would fail, 0 complete, about 0 simulator runs"
 
@@ -289,7 +291,7 @@ def test_the_table_has_each_run_of_the_block_its_own(flow, tools, monkeypatch) -
     the one the viewer opens on: a newer run of a layout alone leaves the run before as it was."""
     data = runner.RUNS_DIR / "web/data/sweep"
     monkeypatch.setattr(runner, "DATA_DIR", data)
-    flow("--run", "one", "--to", "record")
+    flow("--run", "one", "--to", "results")
     flow("--run", "wired", "--to", "layout")
     flow("--run", "wired", "--from", "table", "--to", "table")
     one, wired = (runner.instance_id("toypdk", build()) for build in _named("one", "wired"))
@@ -312,12 +314,12 @@ def _named(*names: str):
 def test_a_step_without_its_inputs_fails_naming_the_command_that_makes_them(flow, toy, capsys) -> None:
     flow("--run", "one", "--to", "netlist")
     with pytest.raises(SystemExit, match="1 of 1 instances failed"):
-        flow("--run", "one", "--from", "record", "--to", "record")
+        flow("--run", "one", "--from", "results", "--to", "results")
     out = capsys.readouterr().out
-    assert "record failed: record needs its sim step's output: " in out
-    assert "python -m flow --block toyblock --run one --from sim --to sim" in out
+    assert "results failed: results needs its presim step's output: " in out
+    assert "python -m flow --block toyblock --run one --from presim --to presim" in out
     # the table needs every instance's record
-    with pytest.raises(SystemExit, match="table needs every instance's record, 1 of 1 have none"):
+    with pytest.raises(SystemExit, match="table needs every instance's results, 1 of 1 have none"):
         flow("--run", "one", "--from", "table", "--to", "table")
 
 
@@ -334,21 +336,21 @@ def test_a_failed_step_is_recorded_and_made_again_next_time(flow, toy, capsys, m
 
     monkeypatch.setattr(sim, "simulate", broken)
     with pytest.raises(SystemExit, match="1 of 1 instances failed"):
-        flow("--run", "one", "--to", "record")
+        flow("--run", "one", "--to", "results")
     assert ": RuntimeError: no licence" in capsys.readouterr().out
     instance = _instance("one")
     record = json.loads((instance / "instance.json").read_text())
-    assert record["error"].startswith("sim: ") and record["metrics"] == {}
-    assert not steps.done(instance, Step.SIM) and (instance / "sim/screen/result.h5").exists()
+    assert record["error"].startswith("presim: ") and record["metrics"] == {}
+    assert not steps.done(instance, Step.PRESIM) and (instance / "presim/screen/result.h5").exists()
     monkeypatch.setattr(sim, "simulate", simulate)
-    flow("--run", "one", "--from", "sim", "--to", "record")
+    flow("--run", "one", "--from", "presim", "--to", "results")
     out = capsys.readouterr().out
-    assert "one/sim ok" in out and "one/record ok" in out
+    assert "one/presim ok" in out and "one/results ok" in out
     assert json.loads((instance / "instance.json").read_text())["error"] is None
 
 
 def test_the_circuit_step_adds_the_circuit_simulators_runs_and_records_again(flow, toy, capsys) -> None:
-    flow("--run", "one", "--to", "record")
+    flow("--run", "one", "--to", "results")
     flow("--run", "one", "--from", "circuit", "--to", "circuit")
     out = capsys.readouterr().out
     assert "one/circuit ok" in out
@@ -356,10 +358,10 @@ def test_the_circuit_step_adds_the_circuit_simulators_runs_and_records_again(flo
     assert [path.parent.name for path in instance.glob("circuit/*/result.h5")] == ["circuit"]
     record = json.loads((instance / "instance.json").read_text())
     assert record["level"] == pipeline.Level.CIRCUIT.value and record["metrics"]["read_circuit"] is True
-    assert steps.done(instance, Step.RECORD)
+    assert steps.done(instance, Step.RESULTS)
     # recorded again later, the circuit runs stay in it
-    shutil.rmtree(instance / "record")
-    flow("--run", "one", "--from", "record", "--to", "record")
+    shutil.rmtree(instance / "results")
+    flow("--run", "one", "--from", "results", "--to", "results")
     assert json.loads((instance / "instance.json").read_text())["metrics"]["read_circuit"] is True
 
 
@@ -623,9 +625,9 @@ def test_a_layout_other_than_its_netlist_is_not_extracted_and_its_record_still_w
     not a failure."""
     tools.state.update(lvs=False, violations=3)
     with pytest.raises(SystemExit, match="1 of 1 instances failed"):
-        flow("--to", "record", "--run", "wired")
+        flow("--to", "results", "--run", "wired")
     out = capsys.readouterr().out
-    assert "record ok" in out and "3 violations (stand-in)" in out and "no match (stand-in)" in out
+    assert "results ok" in out and "3 violations (stand-in)" in out and "no match (stand-in)" in out
     assert "pex failed in" in out and "RuntimeError: LVS found the layout other than its netlist" in out
     assert "pexsim not run: (after pex failed)" in out
     record = json.loads((_instance("wired") / "instance.json").read_text())
@@ -713,17 +715,17 @@ def extraction(tools, monkeypatch):
 
 
 def test_pexsim_simulates_the_runs_again_with_the_extraction_on_the_schematic(flow, extraction, capsys) -> None:
-    """``--to record``: the extraction's nets found on the schematic's through LVS (a gate's poly on
+    """``--to results``: the extraction's nets found on the schematic's through LVS (a gate's poly on
     its net, the capacitor between them shorted out), its capacitors in each run's DUT less the
     DUT's own drawn between the same nets, each run simulated again in ``pexsim/``, and the record
     from those (``evidence`` ``postlayout``: the same metric names, the pre-layout ones beside them,
     the annotation's totals); the cell's inner net, a small share, reported."""
-    flow("--to", "record", "--run", "wired")
+    flow("--to", "results", "--run", "wired")
     out = capsys.readouterr().out
-    assert "steps netlist, sim, layout, drc, lvs, pex, pexsim, record" in out
+    assert "steps netlist, presim, layout, drc, lvs, pex, pexsim, results" in out
     assert "pexsim ok in" in out and "3 runs, 2.2 fF added, 0.3% unmapped" in out
     instance = _instance("wired")
-    runs = sorted(path.parent.name for path in instance.glob("sim/*/result.h5"))
+    runs = sorted(path.parent.name for path in instance.glob("presim/*/result.h5"))
     assert sorted(path.parent.name for path in instance.glob("pexsim/*/result.h5")) == runs
     added = json.loads((instance / "pexsim" / runs[0] / "annotation.json").read_text())
     assert added["instances"] == ["dut"] and added["added_f"] == pytest.approx(2.2e-15)

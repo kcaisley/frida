@@ -20,7 +20,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import IREF_SWEEP_A, NOMINAL_IREF_A, BiasTbParams, _run_bias_sim, bias_signal_names
 from .subckt import CASES, Bias, BiasParams, is_valid_bias_params, write_netlist
@@ -109,7 +109,7 @@ def _measure(run_dir: Path, tb: BiasTbParams):
     )
 
 
-def characterize(run_dir: Path, pdk: str, bias: BiasParams) -> Record:
+def characterize(run_dir: Path, pdk: str, bias: BiasParams) -> Results:
     from .analysis import analyze_bias_mirror
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
@@ -136,7 +136,7 @@ def characterize(run_dir: Path, pdk: str, bias: BiasParams) -> Record:
     p_compliance = mirror.vdd_v - mirror.p_compliance_v
     errors = np.abs(np.stack([mirror.n_ratio, mirror.p_ratio]) - 1)
     power = mirror.vdd_v * mirror.supply_current_a
-    return Record(
+    return Results(
         metrics={
             "n_ratio": float(mirror.n_ratio[nominal]),
             "p_ratio": float(mirror.p_ratio[nominal]),

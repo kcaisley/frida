@@ -19,7 +19,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import CONTROL_SWEEP, NOMINAL_CONTROL, DelayTbParams, _run_delay_sim, delay_signal_names
 from .subckt import CASES, Control, Delay, DelayParams, Stage, is_valid_delay_params, write_netlist
@@ -95,7 +95,7 @@ def _measure(run_dir: Path, tb: DelayTbParams):
     return measurement
 
 
-def characterize(run_dir: Path, pdk: str, delay: DelayParams) -> Record:
+def characterize(run_dir: Path, pdk: str, delay: DelayParams) -> Results:
     from flow.analysis.io import write_measurement
     from flow.delay.analysis import analyze_delay_oscillation, analyze_delay_propagation
 
@@ -243,7 +243,7 @@ def characterize(run_dir: Path, pdk: str, delay: DelayParams) -> Record:
             )
         )
 
-    return Record(metrics=metrics, details=details, waves=waves)
+    return Results(metrics=metrics, details=details, waves=waves)
 
 
 def layout_netlist(out_dir: Path, pdk: str, delay: DelayParams) -> Path:

@@ -17,7 +17,7 @@ the PDK, switched by its SAR loop; a behavioral run writes its conversions as a 
 The blocks: the comparator (``flow.comp.model``), the sampling switch (``flow.samp.model``) and the
 capacitive DAC with its drivers (``flow.capdac.model``). The DAC's is looked up and never run here
 (minutes of SPICE an array, which every converter on the array would wait for: ``python -m flow
-capdac --to record`` runs it ahead); where there is none, the DAC converts as designed (``capdac.Model.design``),
+capdac --to results`` runs it ahead); where there is none, the DAC converts as designed (``capdac.Model.design``),
 with a warning. Its plates are the array as drawn: its design's at the reference they are drawn
 for, its top plate loaded as its measured gain gives, each stage's main plate drawn so that its step
 at that load is the one measured (``capdac.Model.behavioral``), so its full scale is the measured

@@ -30,7 +30,7 @@ from .plots import (
 )
 from .sim import simulate, testbench
 from .subckt import Nets, netlist
-from .runs import arrays, frida1, record, testbenches
+from .runs import arrays, frida1, results, testbenches
 from .types import (
     AnalysisCapMismatch,
     AnalysisMismatch,
@@ -77,7 +77,7 @@ __all__ = [
     "plot_separation_stage",
     "plot_settling_stage",
     "plots",
-    "record",
+    "results",
     "runs",
     "sim",
     "simulate",

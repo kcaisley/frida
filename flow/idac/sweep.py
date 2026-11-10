@@ -23,7 +23,7 @@ import hdl21 as h
 import numpy as np
 from hdl21.primitives import MosType
 
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import IREF_SWEEP_A, NOMINAL_IREF_A, IdacTbParams, _run_idac_sim
 from .subckt import CASES, Idac, IdacParams, Switch, is_valid_idac_params, write_netlist
@@ -103,7 +103,7 @@ def _measure(run_dir: Path, tb: IdacTbParams):
     )
 
 
-def characterize(run_dir: Path, pdk: str, idac: IdacParams) -> Record:
+def characterize(run_dir: Path, pdk: str, idac: IdacParams) -> Results:
     from .analysis import analyze_idac_output, analyze_idac_steering
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
@@ -148,7 +148,7 @@ def characterize(run_dir: Path, pdk: str, idac: IdacParams) -> Record:
     share = idac.units * np.asarray(IREF_SWEEP_A)  # the current the units' mirror ratio gives
     headrooms = [headroom(on, row, supply) for row in range(len(IREF_SWEEP_A))]
     current = float(on.current_a[nominal])
-    return Record(
+    return Results(
         metrics={
             "current_a": current,
             "mirror_error_ratio": current / (idac.units * NOMINAL_IREF_A) - 1,

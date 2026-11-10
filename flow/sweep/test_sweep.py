@@ -90,7 +90,7 @@ def test_every_sweep_module_keeps_the_contract() -> None:
         # a block on the pipeline gives its testbenches and its record (flow/test_pipeline.py checks
         # the rest), the others their characterization and generator
         if hasattr(sweep, "testbenches"):
-            assert callable(sweep.testbenches) and callable(sweep.record), block
+            assert callable(sweep.testbenches) and callable(sweep.results), block
         else:
             assert callable(sweep.characterize) and sweep.GENERATOR is not None, block
         # no tables of topologies or sizings of its own (a block's params may name its topologies)
@@ -275,10 +275,10 @@ def test_a_run_of_some_pdks_keeps_the_others_from_the_run_before(tmp_path: Path,
     for cached in (lookup._pdk_runs, lookup._run_instances):
         cached.cache_clear()
     try:
-        assert lookup._sweep_record("toy", "tsmc65", ident)["metrics"]["delay_s"] == 2e-10
-        assert lookup._sweep_record("toy", "tsmc65", "0" * 12)["metrics"]["delay_s"] == 4e-10
-        assert lookup._sweep_record("toy", "ihp130", ident)["metrics"]["delay_s"] == 3e-10
-        assert lookup._sweep_record("toy", "tower180", ident) is None
+        assert lookup._sweep_results("toy", "tsmc65", ident)["metrics"]["delay_s"] == 2e-10
+        assert lookup._sweep_results("toy", "tsmc65", "0" * 12)["metrics"]["delay_s"] == 4e-10
+        assert lookup._sweep_results("toy", "ihp130", ident)["metrics"]["delay_s"] == 3e-10
+        assert lookup._sweep_results("toy", "tower180", ident) is None
         assert runner.newest_run("toy", "tsmc65").name == "laid"
     finally:
         for cached in (lookup._pdk_runs, lookup._run_instances):
@@ -292,7 +292,7 @@ def test_a_lookup_without_simulation_never_waits_on_a_lock(tmp_path: Path, monke
     from flow.sweep import lookup
 
     monkeypatch.setattr(lookup, "MODELS_DIR", tmp_path)
-    monkeypatch.setattr(lookup, "_sweep_record", lambda block, pdk, ident: None)
+    monkeypatch.setattr(lookup, "_sweep_results", lambda block, pdk, ident: None)
     params = comp.Params()
     digest = hashlib.sha1(json.dumps(flat_params(params), sort_keys=True).encode()).hexdigest()[:12]
     assert digest == runner.digest(params)

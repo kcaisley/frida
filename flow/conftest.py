@@ -94,7 +94,7 @@ def read(raw: Path, tb: TbParams) -> pipeline.Meas:
 ''',
     "runs.py": '''"""Five single designs (one characterized, two more for their layouts, two bounded); a run a level; a figure."""
 
-from flow.pipeline import Bound, Evidence, Level, Meas, Plot, Record, single
+from flow.pipeline import Bound, Evidence, Level, Meas, Plot, Results, single
 
 from .params import Params, TbParams
 
@@ -129,10 +129,10 @@ def testbenches(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str
     return {name.name.lower(): TbParams(pdk=pdk, params=params, name=name.name.lower()) for name in names}
 
 
-def record(measurements: dict[str, Meas]) -> Record:
+def results(measurements: dict[str, Meas]) -> Results:
     reads = {name: meas.info.readbacks["text"] == name for name, meas in measurements.items()}
     figure = Plot("reads", "Reads", "Run", "Read", list(range(len(reads))), {"read": [float(r) for r in reads.values()]})
-    return Record(metrics={f"read_{name}": read for name, read in reads.items()}, details=[figure])
+    return Results(metrics={f"read_{name}": read for name, read in reads.items()}, details=[figure])
 ''',
     "types.py": '''"""Its metrics: which run read back its own name."""
 

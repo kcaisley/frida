@@ -377,7 +377,7 @@ def steps_view(folder: Path, record: dict[str, Any], *, root: Path = ROOT) -> li
     (``metrics``) and its outputs, paths from the repository's root; DRC's violations by rule, LVS's
     mismatches where it found some, the netlist's statistics and size. None for an instance of a run
     from before steps kept their own records (no ``step.json``): its record alone tells its story.
-    A record whose failure no step recorded (a run from before the record step) fails that step."""
+    A record whose failure no step recorded (a run from before the results step) fails that step."""
     from flow.steps import Step
 
     ended = {}
@@ -390,8 +390,8 @@ def steps_view(folder: Path, record: dict[str, Any], *, root: Path = ROOT) -> li
                 continue
     if not ended:
         return None
-    if Step.RECORD not in ended and record.get("error"):
-        ended[Step.RECORD] = {"step": "record", "finished": None, "seconds": None, "error": record["error"]}
+    if Step.RESULTS not in ended and record.get("error"):
+        ended[Step.RESULTS] = {"step": "results", "finished": None, "seconds": None, "error": record["error"]}
     rejected = record.get("rejected") or None
     rejected_at = (
         Step[rejected["step"].upper()] if rejected and rejected.get("step", "").upper() in Step.__members__ else None
@@ -404,7 +404,7 @@ def steps_view(folder: Path, record: dict[str, Any], *, root: Path = ROOT) -> li
         entry = ended.get(step)
         view: dict[str, Any] = {"step": str(step)}
         if entry is None:
-            if rejected_at is not None and step.value > rejected_at.value and step is not Step.RECORD:
+            if rejected_at is not None and step.value > rejected_at.value and step is not Step.RESULTS:
                 why = f"rejected at {rejected_at}"
             elif failed and set(failed) & (step.required - {step}):
                 why = f"after {next(str(s) for s in failed if s in step.required)} failed"
@@ -435,7 +435,7 @@ def steps_view(folder: Path, record: dict[str, Any], *, root: Path = ROOT) -> li
             view.update(state="rejected", rejected=rejected)
         else:
             view["state"] = "ok"
-        if rejected_at is not None and step.value > rejected_at.value and step is not Step.RECORD:
+        if rejected_at is not None and step.value > rejected_at.value and step is not Step.RESULTS:
             view["note"] = f"made before the design was rejected at {rejected_at}"
         out.append(view | _step_extras(step, folder, view))
     return out
@@ -494,16 +494,16 @@ def drc_markers(folder: Path, top: str) -> dict[str, dict[str, Any]]:
 
 
 def wave_kinds(waves: dict[str, str], root: Path = ROOT) -> dict[str, dict[str, str]]:
-    """A record's waves (label -> measurement) by the step that simulated them: ``sim``'s (pre-layout)
+    """A record's waves (label -> measurement) by the step that simulated them: ``presim``'s (pre-layout)
     and ``pexsim``'s (the extraction back-annotated), each pexsim measurement's pre-layout
-    counterpart (``sim/<run>/`` beside its ``pexsim/<run>/``) among sim's where it is kept."""
+    counterpart (``presim/<run>/`` beside its ``pexsim/<run>/``) among sim's where it is kept."""
     kinds: dict[str, dict[str, str]] = {"sim": {}, "pexsim": {}}
     for label, relative in waves.items():
         parts = Path(relative).parts
         if "pexsim" in parts:
             kinds["pexsim"][label] = relative
             at = len(parts) - 1 - parts[::-1].index("pexsim")
-            twin = Path(*parts[:at], "sim", *parts[at + 1 :])
+            twin = Path(*parts[:at], "presim", *parts[at + 1 :])
             if (root / twin).exists():
                 kinds["sim"][label] = str(twin)
         else:

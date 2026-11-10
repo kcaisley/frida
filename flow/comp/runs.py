@@ -5,7 +5,7 @@ energy, area and noise of a comparator for a converter of each resolution, withi
 ``params.ADC_FULL_SCALE`` and the constants after it, over its space; the first search NMOS input
 pairs alone: the placements that give the layout area in a minute, the generator's,
 ``subckt._place``, are NMOS ones, and a design without one cannot meet the area bound); the
-testbench runs that characterize one design (``runs``) and the record they make (``record``);
+testbench runs that characterize one design (``runs``) and the record they make (``results``);
 readme.md says why the space is what it is."""
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from flow.pipeline import (
     Meas,
     Pdk,
     Problem,
-    Record,
+    Results,
     every,
     grid,
     optimize,
@@ -393,7 +393,7 @@ def testbenches(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str
     return benches
 
 
-def record(measurements: dict[str, Meas]) -> Record:
+def results(measurements: dict[str, Meas]) -> Results:
     """The record of one instance from the measurements of the runs of any level (``runs``): the
     metrics (``analysis.metrics``: None where its runs did not run) and the plots of its condition
     sweeps. A comparator that does not decide within the clock is recorded so
@@ -455,7 +455,7 @@ def record(measurements: dict[str, Meas]) -> Record:
         nominal=nominal,
         scurve=scurve,
     )
-    return Record(
+    return Results(
         metrics=dataclasses.asdict(values),
         details=plots,
         # the runs the viewer shows the waveforms of, by label

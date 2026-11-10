@@ -42,7 +42,7 @@ from typing import Any
 
 from flow import pipeline
 from flow.sweep import flat_params
-from flow.sweep.runner import ROOT, betters, write_record
+from flow.sweep.runner import ROOT, betters, write_results
 
 OPT_DIR = ROOT / "build/opt"
 # an ALIGN layout in the loop that has not placed and routed in ten minutes fails (its placer can
@@ -72,7 +72,7 @@ class Stage(Enum):
 
 
 def stage(record: dict[str, Any]) -> Stage:
-    """How far ``record``'s evaluation went."""
+    """How far ``results``'s evaluation went."""
     if not record["valid"]:
         return Stage.INVALID
     if record["level"] >= pipeline.Level.SEARCH.value:
@@ -203,7 +203,7 @@ def simulate(block: str, runs: dict[str, Any], run_dir: Path) -> dict[str, pipel
     return measurements
 
 
-def kept(result: pipeline.Record, measurements: dict[str, pipeline.Meas], run_dir: Path) -> dict[str, Any]:
+def kept(result: pipeline.Results, measurements: dict[str, pipeline.Meas], run_dir: Path) -> dict[str, Any]:
     """What a record keeps of its measurements for the viewer, as a sweep's (``flow.sweep.runner
     .characterize``): its analyses, and the runs it names for their waveforms as HDF5 beside them,
     by path (a few MB a design)."""
@@ -276,10 +276,10 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
                 estimated=["layout_area_um2"],
             )
             record["seconds"] = round(time.time() - start, 1)
-            write_record(path, record)
+            write_results(path, record)
             return record
         measurements = simulate(block, sweep.testbenches(pdk, params, pipeline.Level.SCREEN), folder / "runs")
-        result = sweep.record(measurements)
+        result = sweep.results(measurements)
         metrics = {**result.metrics, **extra}
         record.update(metrics=metrics, level=pipeline.Level.SCREEN.value, **kept(result, measurements, folder / "runs"))
         # the layout only for a design the screen keeps: a minute of ALIGN
@@ -295,14 +295,14 @@ def evaluate(block: str, pdk: str, params: Any, problem: pipeline.Problem) -> di
                 if n not in measurements
             }
             measurements.update(simulate(block, more, folder / "runs"))
-            result = sweep.record(measurements)
+            result = sweep.results(measurements)
             metrics = {**result.metrics, **extra}
             record.update(
                 metrics=metrics, level=pipeline.Level.SEARCH.value, **kept(result, measurements, folder / "runs")
             )
     record["seconds"] = round(time.time() - start, 1)
     record["unmeasurable"] = unmeasurable(record["metrics"])
-    write_record(path, record)
+    write_results(path, record)
     return record
 
 
@@ -485,11 +485,11 @@ def characterize_full(block: str, pdk: str, params: Any) -> dict[str, Any]:
     folder = study_dir(block, pdk) / "evals" / identity(block, pdk, params)
     sweep = import_module(f"flow.{block}.runs")
     measurements = simulate(block, sweep.testbenches(pdk, params, pipeline.Level.FULL), folder / "full")
-    result = sweep.record(measurements)
+    result = sweep.results(measurements)
     path = folder / "instance.json"
     record = json.loads(path.read_text())
     record.update(metrics_full=result.metrics, **kept(result, measurements, folder / "full"))
-    write_record(path, record)
+    write_results(path, record)
     return result.metrics
 
 

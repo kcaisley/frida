@@ -20,7 +20,7 @@ import hdl21 as h
 import numpy as np
 
 from flow.analysis import calc
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import OVERDRIVES_V, THRESHOLD, DiscTbParams, _ramp_settle_s, _run_disc_sim, disc_signal_names
 from .subckt import CASES, Disc, DiscNets, DiscParams, is_valid_disc_params, write_netlist
@@ -105,7 +105,7 @@ def _transfer(measurement) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return grid, np.interp(grid, up_in, up_out), np.interp(grid, down_in[::-1], down_out[::-1])
 
 
-def characterize(run_dir: Path, pdk: str, disc: DiscParams) -> Record:
+def characterize(run_dir: Path, pdk: str, disc: DiscParams) -> Results:
     from flow.analysis.io import write_measurement
 
     from .analysis import analyze_disc_delay, analyze_disc_trip
@@ -148,7 +148,7 @@ def characterize(run_dir: Path, pdk: str, disc: DiscParams) -> Record:
 
     grid, up, down = _transfer(ramp)
     overdrives = list(OVERDRIVES_V)
-    return Record(
+    return Results(
         metrics={
             "offset_v": float(trip.offset_v[0]),
             "hysteresis_v": float(trip.hysteresis_v[0]),

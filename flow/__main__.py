@@ -23,10 +23,10 @@ metrics alone and the layout's outcome.
 
 ``--to`` (``table`` by default: the viewer's table of the run's records) runs the steps that lead from ``--from`` (``netlist`` by default) to
 it, both included:
-``--to sim`` simulates alone, ``--to record`` lays out, signs off, extracts, simulates the
+``--to presim`` simulates alone, ``--to results`` lays out, signs off, extracts, simulates the
 extraction and records, ``--to lvs`` lays out and signs off without extraction,
-``--from table --to table`` exports what the runs hold; with ``record/`` deleted, ``--from record
---to record`` analyses again what ``sim`` kept. ``circuit`` adds the circuit simulator's runs of a
+``--from table --to table`` exports what the runs hold; with ``results/`` deleted, ``--from results
+--to results`` analyses again what ``presim`` kept. ``circuit`` adds the circuit simulator's runs of a
 block whose full characterization is behavioral (the ADC's Spectre runs) and records again; it
 runs on a ``@single`` alone. ``figures`` draws a record's figures (the lab's captures are drawn by
 ``flow.scans``, not here). ``layout`` runs the block's own
@@ -35,9 +35,9 @@ runs on a ``@single`` alone. ``figures`` draws a record's figures (the lab's cap
 constraints too: the netlist step's edge to it only orders them); ``drc``, ``lvs`` and ``pex``
 run, each in its folder, that plan, else the checker the kit names
 (``flow.layout.signoff.checker``: the open tools, else Calibre), on its GDS. ``pexsim`` simulates
-the sim step's runs again with the open extractor's capacitances back-annotated onto the schematic
+the presim step's runs again with the open extractor's capacitances back-annotated onto the schematic
 (``flow.layout.annotate``: each layout net found on its schematic net through LVS; each run's DUT
-a flat copy with the capacitors, ``flow.sweep.runner.simulate``), which the record step records
+a flat copy with the capacitors, ``flow.sweep.runner.simulate``), which the results step records
 (the same metric names, the annotation's totals beside them); it refuses an extraction more than a small share of whose capacitance has no
 schematic net or one the DUT lacks, and testbenches none of which holds the DUT, and leaves an extraction with devices and RC (a kit's) to the block's own
 simulation of it (the ADC's circuit step). The viewer (``web.serve``) shows each instance's steps
@@ -57,8 +57,8 @@ always, beside the run, ``status.txt`` (the dashboard as plain text, every two s
 ``events.log`` (each line that needs attention).
 
 A run is ``build/<block>/<run>/<stamp>/``, dated, each design in ``<pdk>/<name>/`` there (a
-single's by its name, a grid's by its digest), a folder a step: ``netlist/``, ``sim/<run>/``,
-``circuit/<run>/``, ``record/``, ``figures/``, ``layout/``, ``drc/``, ``lvs/``, ``pex/``,
+single's by its name, a grid's by its digest), a folder a step: ``netlist/``, ``presim/<run>/``,
+``circuit/<run>/``, ``results/``, ``figures/``, ``layout/``, ``drc/``, ``lvs/``, ``pex/``,
 ``pexsim/<run>/``; its record, ``instance.json``, beside them, which the viewer's table
 reads (the run's older dated folders kept, for the viewer to show). A run from the netlist (the default)
 is a new one; ``--from`` a later step works in the run's latest folder, which must exist, and resumes
@@ -187,7 +187,7 @@ def _simulations(job: Job, pending: list[Step]) -> int:
     from flow.sweep import runner
 
     runs = {}
-    if Step.SIM in pending:
+    if Step.PRESIM in pending:
         runs |= {f"sim/{n}": tb for n, tb in runner.testbenches_of(job.block, job.pdk, job.params).items()}
     if Step.CIRCUIT in pending:
         runs |= {f"circuit/{n}": tb for n, tb in runner.circuit_testbenches(job.block, job.pdk, job.params).items()}
@@ -232,7 +232,7 @@ def steps(args: argparse.Namespace) -> None:
     if not jobs:
         raise SystemExit(f"{args.block}'s run {args.run} names no design in a PDK whose kit is here")
     if Step.CIRCUIT in chosen and not any(runner.circuit_testbenches(j.block, j.pdk, j.params) for j in jobs):
-        raise SystemExit(f"{args.block} has no circuit simulator runs beyond its full ones: its sim step runs them")
+        raise SystemExit(f"{args.block} has no circuit simulator runs beyond its full ones: its presim step runs them")
     workers = pipeline.workers(spec)
     print(f"{args.block}: {found} run {runner._shown(run)}; steps {', '.join(map(str, chosen))}")
     if args.dry_run:
@@ -254,8 +254,8 @@ def steps(args: argparse.Namespace) -> None:
         unrecorded = [job for job in jobs if not (job.out / "instance.json").exists()]
         if unrecorded:
             raise SystemExit(
-                f"table needs every instance's record, {len(unrecorded)} of {len(jobs)} have none: "
-                f"python -m flow --block {args.block} --run {args.run} --to record"
+                f"table needs every instance's results, {len(unrecorded)} of {len(jobs)} have none: "
+                f"python -m flow --block {args.block} --run {args.run} --to results"
             )
         runner.table([args.block], workers, run=run)
     if failures:
@@ -490,9 +490,9 @@ def usage() -> None:
     console.print()
     heading("Steps")
     arrow = Text(" → ", style=DIM)
-    chain = ("netlist", "sim", "layout", "drc", "lvs", "pex", "pexsim", "record", "table")
+    chain = ("netlist", "presim", "layout", "drc", "lvs", "pex", "pexsim", "results", "table")
     console.print(indented(arrow.join(Text(step, style=RUN) for step in chain)))
-    optional = Text.assemble(("sim", RUN), arrow, ("circuit", RUN), ",  ", ("record", RUN), arrow, ("figures", RUN))
+    optional = Text.assemble(("presim", RUN), arrow, ("circuit", RUN), ",  ", ("results", RUN), arrow, ("figures", RUN))
     console.print(indented(optional + Text("  (by --to only)", style=DIM)))
     console.print()
     needs = rows()
@@ -524,7 +524,7 @@ def usage() -> None:
     heading("Examples")
     for command, meaning in (
         ("python -m flow --block samp --run frida1", "every step of one design, each PDK"),
-        ("python -m flow --block comp --run topologies --to sim --dry-run", "what a grid would simulate"),
+        ("python -m flow --block comp --run topologies --to presim --dry-run", "what a grid would simulate"),
         ("python -m flow --block comp --run frida1 --from lvs --to lvs", "LVS again, in the latest run"),
         ("python -m flow --block comp --run adc_12bit", "an optimization's study"),
     ):

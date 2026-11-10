@@ -161,7 +161,7 @@ class Board:
             if self.kinds[kind] == 1:
                 text = item.found[step].removeprefix(f"rejected at {step} ")
                 self._say(Notice("", "REJECTED", step, "", item.key, text, kind=kind))
-        if step == "record" and state in ("ok", "done"):
+        if step == "results" and state in ("ok", "done"):
             item.record = _read(item.out / "instance.json")
 
     def end(self, key: str, states: Iterable[str]) -> None:
@@ -505,7 +505,7 @@ def results_panel(board: Board, rows: int = RESULT_ROWS, plain: bool = False) ->
     for item, text in zip(ended, said, strict=True):
         wide = max(len(item.key), len(text.plain))
         found.add_column(
-            item.key, justify="right", overflow="fold", min_width=min(24, wide), max_width=max(24, len(item.key))
+            item.key, justify="right", overflow="fold", min_width=min(32, wide), max_width=max(32, len(item.key))
         )
     found.add_row(Text("outcome", style=DIM), *said)
     for name in names:

@@ -1,6 +1,6 @@
 """The capacitive DAC's design space: every array of the ADC study, one grid, and FRIDA-1's array by
 name (``frida1``); the testbench runs that characterize one instance (``runs``) and the record they
-make (``record``).
+make (``results``).
 
 At 10, 12 and 14 bits, at one and two kT/C minimums of switched capacitance, each with its weights
 built both ways (``WeightImpl``): the binary array, and each redundant scheme with 2, 4 and 6 extra
@@ -21,7 +21,7 @@ from dataclasses import replace
 
 import hdl21 as h
 
-from flow.pipeline import Meas, Record, every, grid, single, values, widen
+from flow.pipeline import Meas, Results, every, grid, single, values, widen
 
 from .analysis import analyze_mismatch, analyze_settling, metrics
 from .params import Params, Redundancy, TbParams, WeightImpl
@@ -71,7 +71,7 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     }
 
 
-def record(measurements: dict[str, Meas]) -> Record:
+def results(measurements: dict[str, Meas]) -> Results:
     """The record of one instance from its runs' measurements (``runs``): the metrics
     (``analysis.metrics``), the settling and the behavioral model's step by stage (which
     ``flow.capdac.model`` reads), and the plates' Monte Carlo over its conditions; a stage that does
@@ -86,7 +86,7 @@ def record(measurements: dict[str, Meas]) -> Record:
     figures = (
         [plot_mismatch_inl(mismatch), plot_mismatch_gap(mismatch), plot_mismatch_dac_inl(mismatch)] if mismatch else []
     )
-    return Record(
+    return Results(
         metrics=metrics(settling=settling, mismatch=mismatch),
         details=[
             plot_settling_stage(settling),

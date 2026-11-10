@@ -45,7 +45,7 @@ extractions.
 
 Each instance's testbenches (``testbenches``, built by ``flow.adc.sim``) at a level (``flow.pipeline.Level``) are the behavioral campaign's,
 the cheapest first, and at ``Level.CIRCUIT`` the circuit simulator's as well (``spice_*``, Spectre:
-a candidate's netlist, a fabricated converter's extraction); its record (``record``) holds the
+a candidate's netlist, a fabricated converter's extraction); its record (``results``) holds the
 metrics and figures of whatever runs it has (the analyses of ``flow.adc.analysis``, the figures of
 ``flow.adc.plots``), each metric None where its runs did not run, the circuit runs' under the same
 names for a candidate and a fabricated converter, so the two line up in one table.
@@ -59,7 +59,7 @@ from typing import Any
 
 from flow import capdac, comp, samp
 from flow.analysis.types import MeasAdc
-from flow.pipeline import Level, Meas, Pdk, Plot, Record, grid, single, values, widen
+from flow.pipeline import Level, Meas, Pdk, Plot, Results, grid, single, values, widen
 
 from .analysis import (
     analyze_calibration2,
@@ -299,7 +299,7 @@ def testbenches(pdk: str, params: Params, level: Level = Level.FULL) -> dict[str
     return found
 
 
-def record(measurements: dict[str, Meas]) -> Record:
+def results(measurements: dict[str, Meas]) -> Results:
     """The record of an instance from the measurements of its runs at any level (``testbenches``), each a
     ``MeasAdc``: the metrics (``analysis.metrics``, None where its runs did not run) and the
     figures (``flow.adc.plots``, the viewer's details, in its order) of whatever runs it has, a
@@ -501,4 +501,4 @@ def record(measurements: dict[str, Meas]) -> Record:
         **results,
         **spice_results,
     )
-    return Record(metrics=numbers, details=details + spice_figures, waves=waves)
+    return Results(metrics=numbers, details=details + spice_figures, waves=waves)

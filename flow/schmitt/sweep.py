@@ -16,7 +16,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import SchmittTbParams, _run_schmitt_sim, schmitt_signal_names
 from .subckt import Schmitt, SchmittParams, is_valid_schmitt_params, write_netlist
@@ -95,7 +95,7 @@ def _transfer(inp: np.ndarray, out: np.ndarray, levels: np.ndarray) -> tuple[lis
     return curves[0], curves[1]
 
 
-def characterize(run_dir: Path, pdk: str, schmitt: SchmittParams) -> Record:
+def characterize(run_dir: Path, pdk: str, schmitt: SchmittParams) -> Results:
     from flow.analysis.io import write_measurement
     from flow.schmitt.analysis import analyze_schmitt_delay, analyze_schmitt_trip
 
@@ -126,7 +126,7 @@ def characterize(run_dir: Path, pdk: str, schmitt: SchmittParams) -> Record:
     levels = np.linspace(0.0, supply, TRANSFER_POINTS)
     up, down = _transfer(trip.inp_v[nominal], trip.out_v[nominal], levels)
 
-    return Record(
+    return Results(
         metrics={
             "rise_trip_v": float(trip.rise_trip_v[nominal]),
             "fall_trip_v": float(trip.fall_trip_v[nominal]),

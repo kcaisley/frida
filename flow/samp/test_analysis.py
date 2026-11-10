@@ -14,7 +14,7 @@ from flow.pipeline import Meas, MeasInfo, Plot
 
 from .analysis import analyze_hold, analyze_track, metrics
 from .params import NOMINAL_VIN, SUPPLY_SWEEP, VIN_SWEEP, Params, TbParams
-from .runs import record
+from .runs import results
 from .types import AnalysisHold, AnalysisTrack
 
 INFO = MeasInfo(backend="spice", timestamp_utc=datetime(2026, 10, 26, tzinfo=UTC))
@@ -84,7 +84,7 @@ def test_a_run_that_never_settles_has_no_resistance() -> None:
 
 
 def test_the_record_reads_every_run_and_names_its_waves() -> None:
-    """``record`` from every run ``runs`` names: the metrics at mid-supply input, the plots the
+    """``results`` from every run ``runs`` names: the metrics at mid-supply input, the plots the
     behavioral model reads (``ron_vin``), the three transients the viewer shows."""
 
     supply = 1.2
@@ -97,7 +97,7 @@ def test_the_record_reads_every_run_and_names_its_waves() -> None:
         for f in SUPPLY_SWEEP
         if f != 1.0
     }
-    result = record({name: rc_run(tb) for name, tb in runs.items()})
+    result = results({name: rc_run(tb) for name, tb in runs.items()})
     assert list(result.metrics) == [
         "ron_ohm",
         "ron_max_ohm",

@@ -25,7 +25,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import NOMINAL_VCM, SINE, STEP, OtaTbParams, _run_ota_sim, is_large_signal, ota_transient_names
 from .subckt import CASES, Ota, OtaParams, Topology, is_valid_ota_params, write_netlist
@@ -138,7 +138,7 @@ def _span(within: np.ndarray, center: int) -> tuple[int, int]:
     return low, high
 
 
-def characterize(run_dir: Path, pdk: str, ota: OtaParams) -> Record:
+def characterize(run_dir: Path, pdk: str, ota: OtaParams) -> Results:
     from flow.analysis.io import write_measurement
 
     from .analysis import analyze_ota_ac, analyze_ota_distortion, analyze_ota_noise, analyze_ota_slew
@@ -185,7 +185,7 @@ def characterize(run_dir: Path, pdk: str, ota: OtaParams) -> Record:
 
     frequency = ac.frequency_hz.tolist()
     cm_v = [fraction * supply for fraction in CM_SWEEP]
-    return Record(
+    return Results(
         metrics={
             "dc_gain_db": float(ac.dc_gain_db[nominal]),
             "ugbw_hz": float(ac.ugbw_hz[nominal]),

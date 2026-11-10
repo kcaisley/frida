@@ -21,7 +21,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import UPSET_NODE, LatchTbParams, _run_latch_sim, latch_signal_names
 from .subckt import CASES, CLOCKED_STYLES, Latch, LatchParams, Style, is_valid_latch_params, write_netlist
@@ -94,7 +94,7 @@ def _measure(run_dir: Path, tb: LatchTbParams):
     return measurement
 
 
-def characterize(run_dir: Path, pdk: str, latch: LatchParams) -> Record:
+def characterize(run_dir: Path, pdk: str, latch: LatchParams) -> Results:
     from flow.analysis.io import write_measurement
     from flow.latch.analysis import (
         analyze_latch_constraint,
@@ -273,7 +273,7 @@ def characterize(run_dir: Path, pdk: str, latch: LatchParams) -> Record:
             ),
         ]
 
-    return Record(metrics=metrics, details=details, waves=waves)
+    return Results(metrics=metrics, details=details, waves=waves)
 
 
 def layout_netlist(out_dir: Path, pdk: str, latch: LatchParams) -> Path:

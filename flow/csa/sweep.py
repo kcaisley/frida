@@ -24,7 +24,7 @@ import hdl21 as h
 import numpy as np
 from hdl21.prefix import f
 
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import CHARGES_C, VREF, CsaTbParams, _run_csa_sim, csa_signal_names
 from .subckt import CASES, Csa, CsaParams, Feedback, is_valid_csa_params, write_netlist
@@ -101,7 +101,7 @@ def _measure(run_dir: Path, tb: CsaTbParams):
     return MeasCsa(**common, trial_index=np.arange(1, dtype=np.int64), wave=wave)
 
 
-def characterize(run_dir: Path, pdk: str, csa: CsaParams) -> Record:
+def characterize(run_dir: Path, pdk: str, csa: CsaParams) -> Results:
     from flow.analysis.io import write_measurement
 
     from .analysis import analyze_csa_noise, analyze_csa_pulse
@@ -148,7 +148,7 @@ def characterize(run_dir: Path, pdk: str, csa: CsaParams) -> Record:
     powers = [factor * supply * float(point.supply_current_a[small]) for factor, (point, _) in supply_points.items()]
     stride = max(1, round(PULSE_STEP_S / bench(supply, SMALL_C).waveform_sample_interval_s))
     charges = pulse.charge_c.tolist()
-    return Record(
+    return Results(
         metrics={
             "gain_v_per_c": float(pulse.gain_v_per_c[small]),
             "peaking_time_s": float(pulse.peaking_time_s[small]),

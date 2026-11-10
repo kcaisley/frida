@@ -7,9 +7,9 @@ instance by its name, a grid's by its digest), a folder a step.
 
 The characterization's steps: ``write_netlist`` (the circuit as simulated and its size, into
 ``netlist/``), ``simulate`` (each testbench run of ``testbenches_of``, or ``circuit_testbenches``, simulated and
-its measurement kept as HDF5, into ``sim/<run>/``) and ``record`` (``search.record`` of the kept
+its measurement kept as HDF5, into ``presim/<run>/``) and ``results`` (``search.record`` of the kept
 measurements: the instance's ``instance.json``, its id, parameters, level, metrics, details and
-waves); the pexsim step's ``simulate`` and ``record`` again, into ``pexsim/``, each testbench's DUT
+waves); the pexsim step's ``simulate`` and ``results`` again, into ``pexsim/``, each testbench's DUT
 a flat copy of it holding its extraction's capacitors (``_back_annotated``). ``table``: the viewer's
 tables of a block, each of its runs' own (``export_run``: ``build/web/data/sweep/<block>/runs/<run>/
 <stamp>.json``, one row per instance, the parameters that differ, then the metrics, and one file per
@@ -153,7 +153,7 @@ def _json(value):
     return value
 
 
-def write_record(path: Path, record: dict) -> None:
+def write_results(path: Path, record: dict) -> None:
     """``instance.json``, replaced whole: the layout step rewrites records others may be reading."""
     temporary = path.with_name(f".{path.name}.tmp")
     temporary.write_text(json.dumps(_json(record), indent=1) + "\n")
@@ -380,7 +380,7 @@ def _net(connection) -> str:
     return connection.name.lower()
 
 
-def _base_record(block: str, pdk: str, params, label: str | None, name: str | None) -> dict:
+def _base_results(block: str, pdk: str, params, label: str | None, name: str | None) -> dict:
     """A record's identity: its block, id, name in its run, PDK, label and parameters (none where
     ``params`` is: an instance known by its folder alone), nothing measured."""
     return {
@@ -398,7 +398,7 @@ def _base_record(block: str, pdk: str, params, label: str | None, name: str | No
     }
 
 
-def record(
+def results(
     block: str,
     pdk: str,
     params,
@@ -414,8 +414,8 @@ def record(
 ) -> dict:
     """The instance's record from its kept measurements (``files``, by run: ``simulate``'s) and its
     size (``sizes``: ``write_netlist``'s), written as ``out/instance.json`` (not written where ``out``
-    is None: the CLI's record step writes the record it composes): its metrics (the size's
-    and ``sweep.record``'s), details, the waves of the runs the record names (their measurement
+    is None: the CLI's results step writes the record it composes): its metrics (the size's
+    and ``sweep.results``'s), details, the waves of the runs the record names (their measurement
     files from the repository's root), the level its runs ran at (None for a block whose runs take
     no level), its netlist and its seconds (``seconds``, those of the steps before it, and its own)."""
     import hdl21 as h
@@ -425,8 +425,8 @@ def record(
 
     start = time.time()
     h.pdk.set_default(import_module(f"pdk.{pdk}").pdk_logic)
-    result = runs_module(block).record({run: read_measurement(path) for run, path in files.items()})
-    entry = _base_record(block, pdk, params, label, name)
+    result = runs_module(block).results({run: read_measurement(path) for run, path in files.items()})
+    entry = _base_results(block, pdk, params, label, name)
     entry.update(
         level=(level or pipeline.Level.FULL).value if leveled(block) else None,
         metrics={**sizes, **result.metrics},
@@ -436,7 +436,7 @@ def record(
         seconds=round(seconds + time.time() - start, 1),
     )
     if out is not None:
-        write_record(out / "instance.json", entry)
+        write_results(out / "instance.json", entry)
     return entry
 
 
@@ -448,24 +448,24 @@ def betters(block: str) -> dict:
     return {**pipeline.betters(import_module(f"flow.{block}.types").Metrics), **pipeline.GEOMETRY}
 
 
-def failed_record(block: str, pdk: str, params, out: Path, error: str, *, label=None, name=None) -> dict:
+def failed_results(block: str, pdk: str, params, out: Path, error: str, *, label=None, name=None) -> dict:
     """An instance's record of a characterization that failed (``error``, its step's traceback),
     written as ``out/instance.json``, so the viewer's table shows the failure."""
-    entry = {**_base_record(block, pdk, params, label, name), "error": error}
+    entry = {**_base_results(block, pdk, params, label, name), "error": error}
     out.mkdir(parents=True, exist_ok=True)
-    write_record(out / "instance.json", entry)
+    write_results(out / "instance.json", entry)
     return entry
 
 
 def characterize(block: str, run_dir: Path, pdk: str, params) -> dict:
     """One instance characterized in ``run_dir`` as the CLI's netlist, sim and record steps do it
-    (``write_netlist``, ``simulate``, ``record``), without their bookkeeping: the models' on-demand
+    (``write_netlist``, ``simulate``, ``results``), without their bookkeeping: the models' on-demand
     characterization (``flow.sweep.lookup``). Its record; a failure recorded, not raised."""
     start = time.time()
     try:
         sizes = write_netlist(block, pdk, params, run_dir / "netlist")
-        files = simulate(block, pdk, testbenches_of(block, pdk, params), run_dir / "sim")
-        return record(
+        files = simulate(block, pdk, testbenches_of(block, pdk, params), run_dir / "presim")
+        return results(
             block,
             pdk,
             params,
@@ -476,7 +476,7 @@ def characterize(block: str, run_dir: Path, pdk: str, params) -> dict:
             seconds=time.time() - start,
         )
     except Exception:  # noqa: BLE001 - the record carries the failure
-        return failed_record(block, pdk, params, run_dir, traceback.format_exc(limit=6)[-4000:])
+        return failed_results(block, pdk, params, run_dir, traceback.format_exc(limit=6)[-4000:])
 
 
 def run_time(run: Path) -> str:
@@ -669,8 +669,8 @@ def run_folders(run: Path) -> list[tuple[str, Path]]:
 def _stand_in(block: str, pdk: str, folder: Path) -> dict[str, Any]:
     """An instance's record where its run stopped before making one: its name, nothing measured."""
     return {
-        **_base_record(block, pdk, None, folder.name, folder.name),
-        "error": "no record: the run stopped before this instance's record step",
+        **_base_results(block, pdk, None, folder.name, folder.name),
+        "error": "no record: the run stopped before this instance's results step",
     }
 
 

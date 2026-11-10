@@ -24,14 +24,14 @@ class Step(Enum):
     sim, layout, drc, lvs, pex, pexsim, record (the run's table after: the viewer's)."""
 
     NETLIST = auto()
-    SIM = auto()
+    PRESIM = auto()
     CIRCUIT = auto()
     LAYOUT = auto()
     DRC = auto()
     LVS = auto()
     PEX = auto()
     PEXSIM = auto()
-    RECORD = auto()
+    RESULTS = auto()
     FIGURES = auto()
     TABLE = auto()
 
@@ -44,14 +44,14 @@ class Step(Enum):
         match self:
             case Step.NETLIST:
                 return ()
-            case Step.SIM | Step.LAYOUT:
+            case Step.PRESIM | Step.LAYOUT:
                 return (Step.NETLIST,)
             case Step.CIRCUIT:
-                return (Step.SIM,)
-            case Step.RECORD:
-                return (Step.NETLIST, Step.SIM)
+                return (Step.PRESIM,)
+            case Step.RESULTS:
+                return (Step.NETLIST, Step.PRESIM)
             case Step.FIGURES | Step.TABLE:
-                return (Step.RECORD,)
+                return (Step.RESULTS,)
             case Step.DRC:
                 return (Step.LAYOUT,)
             case Step.LVS:
@@ -59,14 +59,14 @@ class Step(Enum):
             case Step.PEX:
                 return (Step.LVS,)
             case Step.PEXSIM:
-                return (Step.SIM, Step.LVS, Step.PEX)
+                return (Step.PRESIM, Step.LVS, Step.PEX)
 
     @property
     def after(self) -> tuple[Step, ...]:
         """The steps this one runs after and takes the outputs of where they ended, but does without
         where they failed or were not run: the record takes pexsim's measurements (the post-layout
         metrics), else records the pre-layout ones alone."""
-        return (Step.PEXSIM,) if self is Step.RECORD else ()
+        return (Step.PEXSIM,) if self is Step.RESULTS else ()
 
     @property
     def inputs(self) -> tuple[Step, ...]:
@@ -83,7 +83,7 @@ class Step(Enum):
 
         return {
             Step.NETLIST: Evidence.NETLIST,
-            Step.SIM: Evidence.PRELAYOUT,
+            Step.PRESIM: Evidence.PRELAYOUT,
             Step.LAYOUT: Evidence.LAYOUT,
             Step.PEX: Evidence.EXTRACTION,
         }.get(self)
@@ -203,19 +203,19 @@ def _netlist(job: Job) -> dict:
     return {}
 
 
-def _sim(job: Job) -> dict:
-    """Each of the instance's testbench runs simulated and its measurement kept (``sim/<run>/``)."""
+def _presim(job: Job) -> dict:
+    """Each of the instance's testbench runs simulated and its measurement kept (``presim/<run>/``)."""
     from flow.sweep import runner
 
     runs = runner.testbenches_of(job.block, job.pdk, job.params)
-    runner.simulate(job.block, job.pdk, runs, job.out / "sim")
+    runner.simulate(job.block, job.pdk, runs, job.out / "presim")
     return {"runs": list(runs)}
 
 
 def _fresh(out: Path, step: Step) -> Path:
     """The step's folder, emptied where the step ended before (its output out of date, made again
     whole); a step that failed or stopped part way keeps what it made, which it then reuses (the
-    sim step its kept measurements)."""
+    presim step its kept measurements)."""
     import shutil
 
     if _ended(out, step) is not None:
@@ -240,9 +240,9 @@ def _established(job: Job, step: Step) -> dict[str, Any]:
         case Step.NETLIST:
             area = sizes.get("device_area_um2")
             found = {**sizes, **({"layout_area_um2": area / pipeline.DENSITY} if area else {})}
-        case Step.SIM:
-            files = {run: job.out / "sim" / run / "result.h5" for run in entry["runs"]}
-            found = runner.record(job.block, job.pdk, job.params, None, files, sizes)["metrics"]
+        case Step.PRESIM:
+            files = {run: job.out / "presim" / run / "result.h5" for run in entry["runs"]}
+            found = runner.results(job.block, job.pdk, job.params, None, files, sizes)["metrics"]
         case Step.LAYOUT if entry.get("cell_um"):
             width, height = entry["cell_um"]
             found = {"layout_area_um2": width * height}
@@ -288,11 +288,11 @@ def _shown_rejection(rejected: dict[str, Any]) -> str:
     return f"rejected at {rejected['step']} ({rejected['evidence']}): {misses}"
 
 
-def _record(job: Job, circuit: dict[str, Path] | None = None) -> dict:
+def _results(job: Job, circuit: dict[str, Path] | None = None) -> dict:
     """The instance's record (``instance.json``), the last of its characterization: from the
     measurements its pexsim step kept where it simulated the extraction (``evidence``
-    ``postlayout``), the metrics and figures of the sim step's measurements beside them
-    (``prelayout``, ``prelayout_details``: the estimates every step before the layout judged); else from the sim step's alone (``evidence``
+    ``postlayout``), the metrics and figures of the presim step's measurements beside them
+    (``prelayout``, ``prelayout_details``: the estimates every step before the layout judged); else from the presim step's alone (``evidence``
     ``prelayout``: no layout, or one not extracted, or not back-annotated). Each with the circuit
     step's measurements (``circuit``, else those of a complete circuit step)."""
     from flow import pipeline
@@ -306,12 +306,12 @@ def _record(job: Job, circuit: dict[str, Path] | None = None) -> dict:
     if circuit is None and done(out, Step.CIRCUIT):
         circuit = kept(Step.CIRCUIT)
     annotated = _outputs(out, Step.PEXSIM) if done(out, Step.PEXSIM) else {}
-    steps = [step for step in Step if step.value < Step.RECORD.value and _ended(out, step) is not None]
+    steps = [step for step in Step if step.value < Step.RESULTS.value and _ended(out, step) is not None]
     ran = sum(_outputs(out, step)["seconds"] for step in steps)
     sizes = json.loads((out / "netlist" / "geometry.json").read_text())
 
     def recorded(files: dict[str, Path]) -> dict[str, Any]:
-        return runner.record(
+        return runner.results(
             job.block,
             job.pdk,
             job.params,
@@ -325,17 +325,17 @@ def _record(job: Job, circuit: dict[str, Path] | None = None) -> dict:
             seconds=ran,
         )
 
-    rejected = _rejection(job, Step.RECORD)
-    if not done(out, Step.SIM):  # rejected before the simulation: what the netlist established
+    rejected = _rejection(job, Step.RESULTS)
+    if not done(out, Step.PRESIM):  # rejected before the simulation: what the netlist established
         entry = {
-            **runner._base_record(job.block, job.pdk, job.params, job.label, job.name),
+            **runner._base_results(job.block, job.pdk, job.params, job.label, job.name),
             "metrics": _established(job, Step.NETLIST),
             "evidence": pipeline.Evidence.NETLIST.name.lower(),
             "rejected": rejected,
         }
-        runner.write_record(out / "instance.json", entry)
+        runner.write_results(out / "instance.json", entry)
         return {"evidence": entry["evidence"], "rejected": rejected}
-    prelayout = recorded(kept(Step.SIM))
+    prelayout = recorded(kept(Step.PRESIM))
     if annotated and not annotated.get("skipped"):
         entry = {
             **recorded(kept(Step.PEXSIM)),
@@ -355,10 +355,10 @@ def _record(job: Job, circuit: dict[str, Path] | None = None) -> dict:
         # judged as the steps' kept metrics are (``runner._json``: a number not finite as not measured)
         missed = pipeline.missed(job.bounds, evidence, runner._json(entry["metrics"]), runner.betters(job.block))
         if missed:
-            rejected = {"step": str(Step.RECORD), "evidence": entry["evidence"], "bounds": missed}
+            rejected = {"step": str(Step.RESULTS), "evidence": entry["evidence"], "bounds": missed}
     entry["rejected"] = rejected
     entry["unjudged"] = [bound.metric for bound in job.bounds if bound.since.value > evidence.value]
-    runner.write_record(out / "instance.json", entry)
+    runner.write_results(out / "instance.json", entry)
     return {"circuit": bool(circuit), "evidence": entry["evidence"], "rejected": rejected}
 
 
@@ -370,7 +370,7 @@ def _circuit(job: Job) -> dict:
     runs = runner.circuit_testbenches(job.block, job.pdk, job.params)
     files = runner.simulate(job.block, job.pdk, runs, job.out / "circuit")
     started = time.time()
-    _mark(job.out, Step.RECORD, started, **_record(job, files))
+    _mark(job.out, Step.RESULTS, started, **_results(job, files))
     _join_layout(job)
     return {"runs": list(runs)}
 
@@ -464,7 +464,7 @@ def _pex(job: Job) -> dict:
 
 def _pexsim(job: Job) -> dict:
     """The instance's runs simulated again with its extraction back-annotated (``pexsim/<run>/``),
-    which the record step records (the post-layout metrics, the annotation's totals beside them):
+    which the results step records (the post-layout metrics, the annotation's totals beside them):
     the extraction's capacitors, each net found on the
     schematic's through LVS (``flow.layout.annotate``), in each testbench's DUT
     (``flow.sweep.runner.simulate``). Not run where the layout was not extracted, nor for an
@@ -515,9 +515,9 @@ def _body(step: Step):
     (``TABLE``)."""
     return {
         Step.NETLIST: _netlist,
-        Step.SIM: _sim,
+        Step.PRESIM: _presim,
         Step.CIRCUIT: _circuit,
-        Step.RECORD: _record,
+        Step.RESULTS: _results,
         Step.FIGURES: _figures,
         Step.LAYOUT: _layout,
         Step.DRC: _drc,
@@ -551,7 +551,7 @@ def _join_layout(job: Job) -> None:
     record = (
         json.loads(path.read_text())
         if path.exists()
-        else runner._base_record(job.block, job.pdk, job.params, job.label, job.name)
+        else runner._base_results(job.block, job.pdk, job.params, job.label, job.name)
     )
     width, height = laid.get("cell_um") or (None, None)
     record["layout"] = {
@@ -574,7 +574,7 @@ def _join_layout(job: Job) -> None:
     if record["metrics"] and width:
         gate = record["metrics"].get("device_area_um2")
         record["metrics"].update(layout_area_um2=width * height, density=gate / (width * height) if gate else None)
-    runner.write_record(path, record)
+    runner.write_results(path, record)
 
 
 def _brief(step: Step, outputs: dict) -> str:
@@ -583,7 +583,7 @@ def _brief(step: Step, outputs: dict) -> str:
     if outputs.get("skipped"):
         return f"not run: {outputs['skipped']}"
     match step:
-        case Step.SIM | Step.CIRCUIT:
+        case Step.PRESIM | Step.CIRCUIT:
             return _count(len(outputs["runs"]), "run")
         case Step.LAYOUT:
             return f"{' x '.join(f'{v:g}' for v in outputs['cell_um'])} um"
@@ -595,10 +595,10 @@ def _brief(step: Step, outputs: dict) -> str:
             return f"{verdict} ({outputs['lvs_checker'] or '-'})"
         case Step.PEX:
             return f"{len(outputs['nets'])} nets" if "nets" in outputs else outputs["extractor"]
-        case Step.RECORD:
+        case Step.RESULTS:
             verdict = _shown_rejection(outputs["rejected"]) if outputs.get("rejected") else "met its bounds"
             return f"{outputs.get('evidence', '')}, {verdict}"
-        case Step.RECORD:
+        case Step.RESULTS:
             verdict = _shown_rejection(outputs["rejected"]) if outputs.get("rejected") else "met its bounds"
             return f"{outputs.get('evidence', '')}, {verdict}"
         case Step.PEXSIM:
@@ -634,7 +634,7 @@ def run_steps(job: Job, events: Any = None) -> list[Outcome]:
     the steps that need it not run (the record, which does without the layout's steps, runs); a
     characterization
     step's failure (netlist, sim, record) is also the instance's record
-    (``flow.sweep.runner.failed_record``), and a layout step's joins it (``_join_layout``), so the
+    (``flow.sweep.runner.failed_results``), and a layout step's joins it (``_join_layout``), so the
     viewer's table shows it. Each step's start and outcome an event onto ``events`` (a queue the
     run's dashboard takes them from, ``flow.dashboard``: ``key``, ``step``, ``state``, ``seconds``,
     ``found``, ``counts``), else its outcome on the console as it ends (``_report``); and the
@@ -676,7 +676,7 @@ def run_steps(job: Job, events: Any = None) -> list[Outcome]:
             failed.add(step)
             report(step, "not run", f"(after {next(s for s in job.steps if s in failed)} failed)")
             continue
-        if rejected is not None and step is not Step.RECORD:
+        if rejected is not None and step is not Step.RESULTS:
             report(step, "not run", f"(rejected at {rejected['step']})")
             continue
         if done(job.out, step):  # its result, seconds and counts as it made them before
@@ -688,7 +688,7 @@ def run_steps(job: Job, events: Any = None) -> list[Outcome]:
             report(step, "done", seconds=before.get("seconds"), found=found, counts=before.get("log"))
             judge(step)
             continue
-        missing = None if rejected is not None and step is Step.RECORD else _missing(job, step)
+        missing = None if rejected is not None and step is Step.RESULTS else _missing(job, step)
         if missing:
             failed.add(step)
             report(step, "failed", missing)
@@ -697,7 +697,7 @@ def run_steps(job: Job, events: Any = None) -> list[Outcome]:
         if events is not None:
             events.put({"key": key(job), "step": str(step), "state": "running"})
         folder = _fresh(job.out, step)
-        laid = step in (Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.RECORD)  # joined to the record
+        laid = step in (Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.RESULTS)  # joined to the record
         error = None
         with step_log(folder / "step.log") as counts:
             try:
@@ -707,8 +707,8 @@ def run_steps(job: Job, events: Any = None) -> list[Outcome]:
                 logging.getLogger("flow.steps").error(error.rstrip(), extra={"counted": False})
         if error is not None:
             _mark(job.out, step, started, error=error, log=counts)
-            if step in (Step.NETLIST, Step.SIM, Step.RECORD):
-                runner.failed_record(
+            if step in (Step.NETLIST, Step.PRESIM, Step.RESULTS):
+                runner.failed_results(
                     job.block, job.pdk, job.params, job.out, f"{step}: {error}", label=job.label, name=job.name
                 )
             if laid:

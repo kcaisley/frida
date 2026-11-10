@@ -364,7 +364,7 @@ def test_a_screen_record_measures_what_its_runs_ran(tmp_path: Path) -> None:
 
     plan = _campaign(converter, Level.SCREEN)
     assert set(plan) == {"ramp_train", "ramp_check", "rate_10", "noise"}
-    result = runs.record({name: capture(tb) for name, tb in plan.items()})
+    result = runs.results({name: capture(tb) for name, tb in plan.items()})
     values = result.metrics
     measured = {
         "enob_bits",
@@ -400,7 +400,7 @@ def test_a_screen_record_measures_what_its_runs_ran(tmp_path: Path) -> None:
 
 def test_a_record_refuses_another_measurement() -> None:
     with pytest.raises(TypeError, match="not the converter's MeasAdc"):
-        runs.record({"noise": SimpleNamespace()})
+        runs.results({"noise": SimpleNamespace()})
 
 
 # the circuit simulator's runs (``spice_*``, at Level.CIRCUIT), the named Spectre campaigns' successors
@@ -559,7 +559,7 @@ def test_each_timings_circuit_run_draws_its_decision_paths_and_its_sequence() ->
         spice[f"spice_sequence_t{number}"] = replace(
             capture, param=replace(capture.param, tb=capture.tb.sequenced(rows))
         )
-    figures = runs.record(spice).details
+    figures = runs.results(spice).details
     names = [figure.name for figure in figures]
     assert names[:3] == ["spice_sequence_enob", "spice_sequence_plausible", "spice_sequence_shift"]
     assert names[3:] == [

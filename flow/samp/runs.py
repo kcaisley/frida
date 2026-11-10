@@ -1,6 +1,6 @@
 """The sampling switch's design space (docs/pipeline.md): its grids (``@grid``: designs with some of
 their parameters widened, ``widen``, every point of each) and its named instances (``@single``); the
-testbench runs that characterize one instance (``runs``) and the record they make (``record``).
+testbench runs that characterize one instance (``runs``) and the record they make (``results``).
 
 The characterization's switches (FRIDA-1's transmission gate, with and without dummies, the NMOS
 switch, the bootstrapped NMOS switch) 8 to 128 units wide and at twice their length, and the
@@ -19,7 +19,7 @@ from dataclasses import replace
 
 import hdl21 as h
 
-from flow.pipeline import Meas, Record, every, grid, single, steps, widen
+from flow.pipeline import Meas, Results, every, grid, single, steps, widen
 
 from .analysis import analyze_hold, analyze_track, metrics
 from .params import FRIDA1, NOMINAL_VIN, SUPPLY_SWEEP, VIN_SWEEP, WAVE_VIN, Params, SwitchType, TbParams
@@ -135,7 +135,7 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     return benches
 
 
-def record(measurements: dict[str, Meas]) -> Record:
+def results(measurements: dict[str, Meas]) -> Results:
     """The record of one instance from its runs' measurements (``runs``): the metrics
     (``analysis.metrics``) and the plots of its sweeps over the input level and the supply."""
 
@@ -146,7 +146,7 @@ def record(measurements: dict[str, Meas]) -> Record:
     ]
     track, hold = analyze_track(by_vin), analyze_hold(by_vin)
     supply_track, supply_hold = analyze_track(by_supply), analyze_hold(by_supply)
-    return Record(
+    return Results(
         metrics=metrics(track=track, hold=hold, supply=supply_track),
         details=[
             plot_ron_vin(track),

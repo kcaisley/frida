@@ -4,7 +4,7 @@ A block's parameters (``Params``: the design; ``TbParams``: one testbench run of
 its ``params.py``, its circuit in ``subckt.py``, its testbench and simulator run in ``sim.py``; the
 simulator's raw output becomes a ``Meas`` here (``read``: every saved signal on the simulator's own
 time axis), the block's ``analysis.py`` turns measurements into ``Analysis`` results and metrics,
-its ``plots.py`` into ``Plot`` specs, and its ``runs.py`` into the ``Record`` of an instance.
+its ``plots.py`` into ``Plot`` specs, and its ``runs.py`` into the ``Results`` of an instance.
 Its ``runs.py`` also gives its runs, each one run of the command line by its function's name
 (``python -m flow --block comp --run frida1``): one design (``@single``), a grid of them (``@grid``:
 spaces, each a design with some of its parameters widened, ``widen``), or an optimization over a
@@ -890,7 +890,7 @@ class Plot:
 
 
 @dataclass
-class Record:
+class Results:
     """What one instance's characterization gives."""
 
     metrics: dict[str, Any]  # numbers, flags, None where a level did not measure one

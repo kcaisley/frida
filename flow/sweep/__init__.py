@@ -17,21 +17,21 @@ A block takes part with a module ``flow/<block>/sweep.py``:
 - ``cost(pdk, params) -> float`` (optional): an instance's relative run time; the runner starts
   the longest first.
 - ``GENERATOR``: the block's generator, whose compiled devices give the geometry metrics.
-- ``characterize(run_dir, pdk, params) -> Record``: simulate the instance in ``run_dir``, in
+- ``characterize(run_dir, pdk, params) -> Results``: simulate the instance in ``run_dir``, in
   under five minutes.
 
-A ``Record`` (``flow.pipeline.Record``) holds the instance's scalar ``metrics`` (each name ends in
+A ``Results`` (``flow.pipeline.Results``) holds the instance's scalar ``metrics`` (each name ends in
 its unit, as the analyses' fields do: ``_s``, ``_j``, ``_v``, ``_w``, ``_um2``), its ``details``
 (``flow.pipeline.Plot`` specs of its condition sweeps, each plotted on its own data, or figures
 drawn by the analysis plots) and ``waves`` (measurement files under ``build/`` holding transient
 waveforms, by label). A block gives its design space as grids and named instances
 (``flow.pipeline.grid``, ``named``; a block not yet typed so, its ``params.valid(params, pdk)``
 keeps what works in a PDK); a block on the pipeline (docs/pipeline.md) gives ``runs`` and
-``record``, another ``characterize`` and ``GENERATOR``. Its layout is its generator's to state; the
+``results``, another ``characterize`` and ``GENERATOR``. Its layout is its generator's to state; the
 shared layout step lays it out (``flow.layout.step``), or, a block assembled from laid-out blocks
 (the ADC), its own ``layout.py``.
 
-    uv run python -m flow --block comp --run topologies --to record   # one search of a block on the pipeline
+    uv run python -m flow --block comp --run topologies --to results   # one search of a block on the pipeline
 """
 
 from __future__ import annotations

@@ -15,7 +15,7 @@ from .plots import (
 )
 from .sim import simulate, testbench
 from .subckt import Nets, netlist
-from .runs import boost_ladder, bootstrap, frida1, long_channel, nmos, record, testbenches, scaled, tgate_dummy
+from .runs import boost_ladder, bootstrap, frida1, long_channel, nmos, results, testbenches, scaled, tgate_dummy
 from .types import AnalysisHold, AnalysisTrack
 
 __all__ = [
@@ -44,7 +44,7 @@ __all__ = [
     "plot_ron_vin",
     "plot_track_error_vin",
     "plots",
-    "record",
+    "results",
     "runs",
     "scaled",
     "sim",

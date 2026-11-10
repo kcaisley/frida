@@ -21,7 +21,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import (
     DEAD_ZONE_SWEEP,
@@ -91,7 +91,7 @@ def _measure(run_dir: Path, tb: RingampTbParams):
     )
 
 
-def characterize(run_dir: Path, pdk: str, ringamp: RingampParams) -> Record:
+def characterize(run_dir: Path, pdk: str, ringamp: RingampParams) -> Results:
     from flow.analysis.io import write_measurement
 
     from .analysis import analyze_ringamp_settling, analyze_ringamp_transfer
@@ -156,7 +156,7 @@ def characterize(run_dir: Path, pdk: str, ringamp: RingampParams) -> Record:
     drives = {f"drive {Fraction(drive).limit_denominator(12)} VDD": row for row, drive in enumerate(DEAD_ZONE_SWEEP)}
     drive_v = list(over_drive.dead_zone_v)
     step_v = list(over_step.step_v)
-    return Record(
+    return Results(
         metrics={
             "trip_v": float(transfer.trip_v[k]),
             "hysteresis_v": float(transfer.hysteresis_v[k]),

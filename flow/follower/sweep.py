@@ -21,7 +21,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import NOMINAL_VIN, STEP, FollowerTbParams, _run_follower_sim, follower_signal_names
 from .subckt import CASES, Follower, FollowerParams, Topology, is_valid_follower_params, write_netlist
@@ -144,7 +144,7 @@ def _measure_step(run_dir: Path, tb: FollowerTbParams):
     )
 
 
-def characterize(run_dir: Path, pdk: str, follower: FollowerParams) -> Record:
+def characterize(run_dir: Path, pdk: str, follower: FollowerParams) -> Results:
     from flow.analysis import calc
     from flow.analysis.io import write_measurement
 
@@ -185,7 +185,7 @@ def characterize(run_dir: Path, pdk: str, follower: FollowerParams) -> Record:
     vin_v = list(transfer.vin_v)
     frequency = list(transfer.frequency_hz)
 
-    return Record(
+    return Results(
         metrics={
             "vout_v": float(transfer.vout_v[k]),
             "level_shift_v": float(transfer.level_shift_v[k]),

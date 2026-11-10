@@ -287,7 +287,7 @@ def _problems(block: str) -> set[str]:
 
     # runs.py: its runs, each by its name: single designs (``@single``) and grids (``@grid``) of the
     # block's Params, optimizations (``@optimize``) of a Problem; then testbenches(pdk, params) ->
-    # dict[str, TbParams], then record(measurements) -> Record; in that order, and nothing else: no
+    # dict[str, TbParams], then results(measurements) -> Results; in that order, and nothing else: no
     # private helper, class or module constant (what a run computes is written in it)
     order = [
         node.name if isinstance(node, (ast.FunctionDef, ast.ClassDef)) else ast.unparse(node)[:40]
@@ -298,16 +298,16 @@ def _problems(block: str) -> set[str]:
         if name.startswith("_") or not name.isidentifier():
             problem("runs", f"defines {name}: runs.py holds its runs, testbenches and record alone")
     kinds = [
-        "run" if name not in ("testbenches", "record") else name
+        "run" if name not in ("testbenches", "results") else name
         for name in order
         if name.isidentifier() and not name.startswith("_")
     ]
-    if kinds != sorted(kinds, key=("run", "testbenches", "record").index):
+    if kinds != sorted(kinds, key=("run", "testbenches", "results").index):
         problem("runs", "is not in order: its runs (@single, @grid, @optimize) first, then testbenches, then record")
     sweep = _defined(stage["runs"])
     expected = {
         "testbenches": [str, Params, dict[str, TbParams]],
-        "record": [dict[str, pipeline.Meas], pipeline.Record],
+        "results": [dict[str, pipeline.Meas], pipeline.Results],
     }
     # testbenches may take the evaluation level (pipeline.Level), the third of its arguments
     leveled = {"testbenches": [str, Params, pipeline.Level, dict[str, TbParams]]}

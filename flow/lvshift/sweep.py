@@ -19,7 +19,7 @@ from pathlib import Path
 import hdl21 as h
 import numpy as np
 
-from flow.pipeline import Plot, Record
+from flow.pipeline import Plot, Results
 
 from .sim import NOMINAL_VDDL, VDDL_SWEEP, LvShiftTbParams, _run_lvshift_sim, lvshift_signal_names
 from .subckt import CASES, LvShift, LvShiftParams, is_valid_lvshift_params, write_netlist
@@ -75,7 +75,7 @@ def _measure(run_dir: Path, tb: LvShiftTbParams):
     )
 
 
-def characterize(run_dir: Path, pdk: str, lvshift: LvShiftParams) -> Record:
+def characterize(run_dir: Path, pdk: str, lvshift: LvShiftParams) -> Results:
     from flow.analysis.io import write_measurement
 
     from .analysis import analyze_lvshift_switching
@@ -107,7 +107,7 @@ def characterize(run_dir: Path, pdk: str, lvshift: LvShiftParams) -> Record:
     delays = np.concatenate([over_output.rise_delay_s, over_output.fall_delay_s])
     input_v = list(over_input.vddl_v)
 
-    return Record(
+    return Results(
         metrics={
             "rise_delay_s": float(at.rise_delay_s[0]),
             "fall_delay_s": float(at.fall_delay_s[0]),

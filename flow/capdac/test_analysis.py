@@ -134,11 +134,11 @@ def test_the_record_plots_the_settling_and_the_model_by_stage():
     assert settling.x == model.x == list(range(7))
     assert settling.series["settling"] == list(result.settling_s)
     assert model.series == {"delay": list(result.delay_s), "time constant": list(result.tau_s)}
-    record = capdac.record({"settling": _rc(TAUS)})
+    record = capdac.results({"settling": _rc(TAUS)})
     assert [plot.name for plot in record.details] == ["settling_stage", "model_stage"]
     assert record.waves == {"settling": "settling"} and record.metrics["stages"] == 7
     with pytest.raises(RuntimeError, match="did not settle"):
-        capdac.record({"settling": _rc((900e-12, *TAUS[1:]))})
+        capdac.results({"settling": _rc((900e-12, *TAUS[1:]))})
 
 
 def _draws(main_p: np.ndarray, main_n: np.ndarray) -> Meas:

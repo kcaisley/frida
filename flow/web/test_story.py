@@ -42,41 +42,41 @@ def test_each_step_has_its_state(tmp_path: Path):
     """A step the bounds rejected the design after is rejected (the steps after it not run, but the
     record), a failure leaves the steps that need it not run, and a run without steps has its
     record's story alone."""
-    rejected = {"step": "sim", "evidence": "prelayout", "bounds": {"delay_s": [2e-9, 1e-9]}}
+    rejected = {"step": "presim", "evidence": "prelayout", "bounds": {"delay_s": [2e-9, 1e-9]}}
     _mark(tmp_path, "netlist", 1000.0, 0.5)
-    _mark(tmp_path, "sim", 1010.0, 9.0, runs=["a", "b"])
-    _mark(tmp_path, "record", 5000.0, 0.5, evidence="prelayout", rejected=rejected)
+    _mark(tmp_path, "presim", 1010.0, 9.0, runs=["a", "b"])
+    _mark(tmp_path, "results", 5000.0, 0.5, evidence="prelayout", rejected=rejected)
     (tmp_path / "netlist" / "toy.cdl").write_text(NETLIST)
     steps = {step["step"]: step for step in export.steps_view(tmp_path, {"rejected": rejected}, root=tmp_path) or []}
-    assert [steps[key]["state"] for key in ("netlist", "sim", "layout", "pexsim", "record")] == [
+    assert [steps[key]["state"] for key in ("netlist", "presim", "layout", "pexsim", "results")] == [
         "ok",
         "rejected",
         "not run",
         "not run",
         "ok",
     ]
-    assert steps["layout"]["why"] == "rejected at sim" and steps["sim"]["rejected"] == rejected
-    assert steps["sim"]["outputs"] == {"runs": ["a", "b"]} and steps["netlist"]["netlist"]["top"] == "top"
+    assert steps["layout"]["why"] == "rejected at presim" and steps["presim"]["rejected"] == rejected
+    assert steps["presim"]["outputs"] == {"runs": ["a", "b"]} and steps["netlist"]["netlist"]["top"] == "top"
     # a layout that failed: what needs it is not run, the record (which does without) ran
     failed = tmp_path / "failed"
     _mark(failed, "netlist", 1000.0, 0.5)
     _mark(failed, "layout", 1004.0, 3.0, error="Traceback ...\nValueError: no room")
-    _mark(failed, "record", 1005.0, 0.5)
+    _mark(failed, "results", 1005.0, 0.5)
     steps = {step["step"]: step for step in export.steps_view(failed, {}, root=tmp_path) or []}
     assert steps["layout"]["state"] == "failed" and steps["layout"]["error"].endswith("no room")
     assert (steps["drc"]["state"], steps["drc"]["why"]) == ("not run", "after layout failed")
-    assert steps["netlist"]["state"] == steps["record"]["state"] == "ok"
+    assert steps["netlist"]["state"] == steps["results"]["state"] == "ok"
     assert export.steps_view(tmp_path / "none", {}, root=tmp_path) is None
 
 
 def test_waves_by_the_step_that_simulated_them(tmp_path: Path):
     post = "build/b/r/tsmc65/x/pexsim/vin_1/result.h5"
-    (tmp_path / "build/b/r/tsmc65/x/sim/vin_1").mkdir(parents=True)
-    (tmp_path / "build/b/r/tsmc65/x/sim/vin_1/result.h5").write_text("")
+    (tmp_path / "build/b/r/tsmc65/x/presim/vin_1").mkdir(parents=True)
+    (tmp_path / "build/b/r/tsmc65/x/presim/vin_1/result.h5").write_text("")
     kinds = export.wave_kinds({"low": post, "gone": "build/b/r/tsmc65/x/pexsim/vin_2/result.h5"}, tmp_path)
     assert kinds["pexsim"] == {"low": post, "gone": "build/b/r/tsmc65/x/pexsim/vin_2/result.h5"}
-    assert kinds["sim"] == {"low": "build/b/r/tsmc65/x/sim/vin_1/result.h5"}  # the twin kept alone
-    assert export.wave_kinds({"low": "build/b/r/tsmc65/x/sim/vin_1/result.h5"}, tmp_path)["pexsim"] == {}
+    assert kinds["sim"] == {"low": "build/b/r/tsmc65/x/presim/vin_1/result.h5"}  # the twin kept alone
+    assert export.wave_kinds({"low": "build/b/r/tsmc65/x/presim/vin_1/result.h5"}, tmp_path)["pexsim"] == {}
 
 
 def test_a_tables_topology():
