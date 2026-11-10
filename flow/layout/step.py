@@ -29,6 +29,7 @@ from typing import Any
 
 from klayout import db
 
+from flow import tools
 from flow.layout.build import annealed, build_design, other_router, pdk_router, route_shorts
 from flow.layout.hdl21align import pnr_input
 from flow.layout.kpex import Engine
@@ -171,6 +172,59 @@ def inputs(
     return input_dir, cells, source, pnr_input(compiled.module) is not None
 
 
+# a layout's parts under names every layout flow shares (ALIGN's now, OpenROAD's later), in order;
+# a part a flow does not have is None (ALIGN has no clock tree, nor a global route apart from its
+# detailed one)
+PARTS = ("read", "mapping", "floorplan", "placement", "global_route", "detail_route", "cts", "finishing")
+# ALIGN's loggers by the part they log: the first record of each starts it
+_ALIGN_PARTS = (
+    ("align.compiler", "read"),
+    ("align.main", "read"),
+    ("align.primitive", "mapping"),
+    ("align.cell_fabric", "mapping"),
+    ("align.pnr.build_pnr_model", "placement"),
+    ("align.pnr.placer", "placement"),
+    ("align.PnR.placer", "placement"),
+    ("align.pnr.router", "detail_route"),
+    ("align.PnR.router", "detail_route"),
+)
+
+
+class _AlignParts(logging.Handler):
+    """ALIGN's log as it comes, timed: where each of its parts begins (the first record of a logger
+    ``_ALIGN_PARTS`` names, in order: a part never starts before the one before it); after the
+    routing, its last records and the GDS's finishing."""
+
+    def __init__(self) -> None:
+        super().__init__(logging.INFO)
+        self.starts: dict[str, float] = {}
+        self.last = 0.0
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.last = record.created
+        part = next((part for prefix, part in _ALIGN_PARTS if record.name.startswith(prefix)), None)
+        if (
+            part is not None
+            and part not in self.starts
+            and all(PARTS.index(part) > PARTS.index(seen) for seen in self.starts)
+        ):
+            self.starts[part] = record.created
+
+
+def _parts(own: dict[str, float], starts: dict[str, float], begun: float, ended: float) -> dict[str, float | None]:
+    """The layout's seconds by part (``PARTS``): the flow's own compilation and netlists as read,
+    its constraints as the floorplan, then ALIGN's parts from where each began to the next, the
+    time after its routing as finishing."""
+    found: dict[str, float | None] = dict.fromkeys(PARTS)
+    found["read"] = own.get("parameters", 0.0) + own.get("netlist", 0.0)
+    found["floorplan"] = own.get("floorplan", 0.0)
+    marks = sorted(starts.items(), key=lambda item: item[1])
+    edges = [begun if not index else at for index, (_, at) in enumerate(marks)] + [ended]
+    for (part, _), start, end in zip(marks, edges, edges[1:], strict=False):
+        found[part] = round((found[part] or 0.0) + max(0.0, end - start), 1)
+    return {part: (round(value, 1) if value is not None else None) for part, value in found.items()}
+
+
 def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = None) -> dict[str, Any]:
     """One instance of ``block`` in ``pdk`` laid out by ALIGN into ``out``, the design ``design``
     (the block's name by default): its netlists and ALIGN's design directory (``inputs``: a
@@ -188,7 +242,9 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
     seconds: dict[str, float] = {}
     input_dir, cells, source, placed = inputs(block, out, pdk, design, params, seconds=seconds)
     router, shorts, gds, work = pdk_router(pdk), {}, None, out / "align"
-    started = time.monotonic()
+    timed = _AlignParts()
+    logging.getLogger("align").addHandler(timed)
+    begun = time.time()
     for seed in range(3):
         try:
             work = out / "align"
@@ -207,7 +263,12 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
             break
         LOG.info(f"ALIGN's route joins {len(shorts)} pairs of nets: routed again, placer seed {seed + 1}")
     assert gds is not None
-    seconds["layout"] = round(time.monotonic() - started, 1)
+    logging.getLogger("align").removeHandler(timed)
+    # the time after ALIGN's last part: its last records, the GDS written and finished (post.py)
+    ended = time.time()
+    if timed.starts:
+        timed.starts.setdefault("finishing", timed.last)
+    parts = _parts(seconds, timed.starts, begun, ended)
     size = cell_um(gds)
     LOG.info(f"layout: {gds} ({' × '.join(f'{v:g}' for v in size)} um) by the {router} router")
     return {
@@ -218,7 +279,8 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
         "router": router,
         "placed": placed,
         "route_shorts": {"/".join(pair): n for pair, n in shorts.items()} or None,
-        "parts": seconds,
+        "parts": parts,
+        "tool": {"name": "align", "version": tools.align()},
     }
 
 

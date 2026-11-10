@@ -717,7 +717,10 @@ def run_steps(job: Job, events: Any = None) -> list[Outcome]:
             last = error.strip().splitlines()[-1]
             report(step, "failed", seconds=time.time() - started, found=last, counts=counts)
             continue
-        _mark(job.out, step, started, log=counts, **outputs)
+        from flow import tools
+
+        used = tools.of(str(step), outputs, job.out)
+        _mark(job.out, step, started, log=counts, **outputs, **({"tool": used} if used else {}))
         if laid:
             _join_layout(job)
         report(step, "ok", seconds=time.time() - started, found=_brief(step, outputs), counts=counts)

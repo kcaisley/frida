@@ -6,7 +6,7 @@
 Stages are channel-connected components in signal-flow order, inputs on the left: devices
 joined through drain and source nets form one stage (a StrongARM is one), and each next stage
 is gated by the nets of the stages before. Consecutive static CMOS stages (decision inverters,
-SR latch, buffers) share one dashed stack; every other stage is a stack of its own.
+SR latch, buffers) share one stack; every other stage is a stack of its own (drawn without outlines).
 
 Each stage has its own symmetry axis. With ALIGN's constraints (the ``.const.json`` its
 topology step writes: GroupBlocks, SymmetricBlocks and SymmetricNets), its mirror pairs sit at
@@ -844,10 +844,7 @@ def render(netlist: Path, out: Path, const_path=None, skin_path: Path = SKIN) ->
         ys, height = place_rows(chans)
         _, plan, tracks, chans = route(ys)
 
-    svg = [
-        f'<rect x="{a - 20}" y="20" width="{b - a + 40}" height="{height - 40}" stroke="#999" stroke-dasharray="6 4"/>'
-        for a, b in box.values()
-    ]
+    svg: list[str] = []  # the stages side by side, no outline around each
     for n, d in devs.items():
         px, r = pos[n]
         crowded = slot[n] == 0 and any(slot[m] == 1 and row[m] == r and stage[m] == stage[n] for m in devs)
