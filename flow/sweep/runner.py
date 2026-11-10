@@ -645,7 +645,7 @@ def _current(block: str, pdk: str) -> set[str]:
 
 
 # the format of a run's export (``export_run``): an export in another is made again
-VIEW_FORMAT = 3
+VIEW_FORMAT = 4
 
 
 def run_file(block: str, run: Path) -> str:
@@ -735,7 +735,10 @@ def instance_export(block: str, ident: str, record: dict[str, Any], folder: Path
         # an instance laid out by no one keeps its netlist's views (no gds: no layout)
         "layout": {**(entry or {}), **files} if entry or files else None,
         "error": record["error"],
-        **{key: record.get(key) for key in ("evidence", "prelayout", "annotation", "rejected", "unjudged")},
+        **{
+            key: record.get(key)
+            for key in ("evidence", "prelayout", "prelayout_details", "annotation", "rejected", "unjudged")
+        },
         "steps": steps_view(folder, record),
     }
 
