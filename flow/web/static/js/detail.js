@@ -646,8 +646,8 @@ function commonRows(key) {
     // alone, the state is the row's head's chip
     const rows = [
         ...(page.compare ? [["State", entries.map((entry) => cell(entry.state, { node: chip(entry, { time: false }) })), { plain: true }]] : []),
-        ["Time", entries.map((entry) => cell(entry.seconds === undefined || entry.seconds === null ? "—" : duration(entry.seconds))), { plain: true }],
     ];
+    if (entries.some((entry) => typeof entry.seconds === "number")) rows.push(["Time", entries.map((entry) => cell(typeof entry.seconds === "number" ? duration(entry.seconds) : "—")), { plain: true }]);
     if (entries.some((entry) => entry.finished)) {
         const when = (entry) => (entry.finished ? new Date(entry.finished * 1000).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
         rows.push(["Finished", entries.map((entry) => cell(when(entry))), { plain: true }]);
@@ -996,7 +996,7 @@ function storyHead(onRemove, onView, scroller) {
             },
             page.compare ? h("span.swatch", { style: { background: colorOf(index) } }) : null,
             h("span.pdk-name", {}, instance.pdk),
-            h("strong", {}, instance.label || instance.name || labelOf(index)),
+            h("strong", {}, instance.label || instance.name || (instance.status ? `trial ${instance.status.trial}` : labelOf(index))),
             page.compare && labelOf(index) !== instance.pdk ? h("span.muted", {}, labelOf(index)) : null,
             h("span.mono.muted", { title: "The run" }, instance.file?.split("/runs/")[1] || ""),
             instance.evidence ? h("span.evidence", { title: "What the record's metrics come from" }, words(instance.evidence.toUpperCase())) : null,
