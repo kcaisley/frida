@@ -65,7 +65,7 @@ def _source(source: str) -> Path:
 
 def _unused(netlist: kdb.Netlist) -> None:
     """Leave out each unused transistor, as a foundry deck filters them: one whose source or drain
-    reaches nothing but itself (a library's dummy gates over continuous diffusion), again until none
+    reaches nothing but itself, unlabelled (a library's dummy gates over continuous diffusion), again until none
     is left. A real device left open is missing from the comparison, so a mismatch all the same."""
     for circuit in netlist.each_circuit():
         while True:
@@ -74,8 +74,12 @@ def _unused(netlist: kdb.Netlist) -> None:
                 ends = [device.net_for_terminal(t.id()) for t in device.device_class().terminal_definitions()]
                 names = [t.name for t in device.device_class().terminal_definitions()]
                 for name, net in zip(names, ends, strict=True):
+                    # a net a label names (a port) is used, whatever else it reaches
                     lone = net is None or (
-                        net.terminal_count() == 1 and net.pin_count() == 0 and net.subcircuit_pin_count() == 0
+                        not net.name
+                        and net.terminal_count() == 1
+                        and net.pin_count() == 0
+                        and net.subcircuit_pin_count() == 0
                     )
                     if name in ("S", "D") and lone:
                         unused.append(device)
@@ -183,6 +187,10 @@ def lvs(gds: str, top: str, source: str, source_top: str, tech: Any) -> bool:
     lvs.reference = ref
     comparer = kdb.NetlistComparer()
     layout_circuit = lvs.netlist().circuit_by_name(top)
+    if layout_circuit is None:  # nothing extracted (no device, no labelled net)
+        LOG.warning(f"{top}: nothing extracted to compare")
+        lvs.write(gds + ".lvsdb")
+        return False
     comparer.same_circuits(layout_circuit, source_circuit)
     ok = lvs.compare(comparer)
     lvs.write(gds + ".lvsdb")
