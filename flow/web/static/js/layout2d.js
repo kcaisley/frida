@@ -31,6 +31,15 @@ export function generators() {
 }
 
 // the layout record in µm, one Float64Array of rectangles and the polygon rings per layer
+// what a layout view holds (bytes): its layouts' coordinates (8 bytes a number) and its canvas
+export function heldBytes(layouts, canvas) {
+    let total = canvas ? canvas.width * canvas.height * 4 : 0;
+    for (const layout of layouts || []) {
+        for (const layer of layout?.layers || []) total += (layer.rects?.length || 0) * 8 + (layer.polys || []).reduce((sum, rings) => sum + rings.reduce((n, ring) => n + ring.length * 8, 0), 0);
+    }
+    return total;
+}
+
 export async function loadLayout(path) {
     const raw = await fetchData(path);
     if (raw.prepared) return raw.prepared;
@@ -187,7 +196,7 @@ export class LayoutPanel {
         const shownLayout = !this.config.tiled && focus ? layoutsFor(focus, this.config.generator) : null;
         this.toolbar.append(
             h("span.grow"),
-            shownLayout ? sizeMeter({ file: typeof shownLayout.gdsBytes === "number" ? bytes(shownLayout.gdsBytes) : "—", label: "GDS", renderer: "Canvas" }) : "",
+            shownLayout ? sizeMeter({ file: typeof shownLayout.gdsBytes === "number" ? bytes(shownLayout.gdsBytes) : "—", label: "GDS", renderer: "Canvas", held: () => heldBytes(this.loaded, this.canvas) }) : "",
             gds ? h("a.icon-btn", { href: gds, download: `${layoutsFor(focus, this.config.generator).cell || "layout"}.gds`, title: "Download GDS" }, h("span", { html: icon("download", 14) })) : "",
             // tiling only where several series' layouts are there to tile
             shown.length > 1
@@ -229,6 +238,7 @@ export class LayoutPanel {
             return;
         }
         if (token !== this.token) return;
+        this.loaded = loaded;
         this.arrange(wanted, loaded);
         if (refit || signature !== this.signature) this.fit();
         this.signature = signature;

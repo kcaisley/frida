@@ -218,7 +218,9 @@ export class TracesPanel {
     // the shown run's measurement file size and the page's memory, in the toolbar
     showMeter() {
         if (!this.meterSlot || !this.wave) return;
-        this.meterSlot.replaceChildren(sizeMeter({ file: typeof this.wave.file_bytes === "number" ? bytes(this.wave.file_bytes) : "—", label: this.wave.path.split("/").pop() }));
+        // what the view holds where the browser does not tell its heap: the samples (8 bytes each)
+        const held = () => (this.wave ? ((this.wave.time_s?.length || 0) + (this.traces || []).reduce((sum, trace) => sum + (trace.values?.length || 0), 0)) * 8 : 0);
+        this.meterSlot.replaceChildren(sizeMeter({ file: typeof this.wave.file_bytes === "number" ? bytes(this.wave.file_bytes) : "—", label: this.wave.path.split("/").pop(), held }));
     }
 
     shownTraces() {

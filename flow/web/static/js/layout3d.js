@@ -149,7 +149,7 @@ export class Layout3DPanel {
         };
         this.toolbar.append(
             h("span.grow"),
-            meta ? sizeMeter({ file: typeof meta.gdsBytes === "number" ? bytes(meta.gdsBytes) : "—", label: "GDS", renderer }) : "",
+            meta ? sizeMeter({ file: typeof meta.gdsBytes === "number" ? bytes(meta.gdsBytes) : "—", label: "GDS", renderer, held: () => this.heldBytes() }) : "",
             view("top", "Top", "View from the top, as the 2-D layout"),
             view("side", "Side", "View from the side: the layers' stack edge on"),
             view("iso", "Isometric", "View at an angle"),
@@ -331,86 +331,147 @@ export class Layout3DPanel {
 
     // the 2-D drawing: each visible box's faces toward the camera, the boxes sorted far to near
     drawFlat() {
+        // the CPU's drawing: every visible face rasterized with a depth test (a z-buffer of 1/w per
+        // pixel), as the GPU draws it, so no face shows through one in front of it; edges drawn
+        // depth-tested too, a little darker
         const ctx = this.flat;
         const width = this.canvas.width;
         const height = this.canvas.height;
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--scene-bg").trim() || "#20242c";
-        ctx.fillRect(0, 0, width, height);
-        if (!this.flatLayers) return;
-        const camera = this.camera;
-        camera.updateMatrixWorld();
-        const e = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
-        const { x: px, y: py, z: pz } = camera.position;
-        const project = (x, y, z) => {
-            const w = e[3] * x + e[7] * y + e[11] * z + e[15];
-            return [((e[0] * x + e[4] * y + e[8] * z + e[12]) / w * 0.5 + 0.5) * width, (0.5 - ((e[1] * x + e[5] * y + e[9] * z + e[13]) / w) * 0.5) * height, w];
-        };
-        const zs = this.config.exaggeration;
-        const items = [];
-        for (const layer of this.flatLayers) {
-            if (!isVisible(layer.key)) continue;
-            const zm = ((layer.z[0] + layer.z[1]) / 2) * zs - pz;
-            const r = layer.rects;
-            for (let i = 0; i < r.length; i += 4) {
-                const mx = (r[i] + r[i + 2]) / 2 - px;
-                const my = (r[i + 1] + r[i + 3]) / 2 - py;
-                items.push([mx * mx + my * my + zm * zm, layer, i]);
-            }
-            for (const ring of layer.polys) {
-                let mx = 0;
-                let my = 0;
-                for (let i = 0; i < ring.length; i += 2) {
-                    mx += ring[i];
-                    my += ring[i + 1];
+        const image = ctx.createImageData(width, height);
+        const pixels = image.data;
+        const depth = new Float32Array(width * height);
+        const backdrop = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue("--scene-bg").trim() || "#20242c").getHexString();
+        const [br, bgreen, bb] = [0, 2, 4].map((at) => parseInt(backdrop.slice(at, at + 2), 16));
+        for (let k = 0; k < pixels.length; k += 4) {
+            pixels[k] = br;
+            pixels[k + 1] = bgreen;
+            pixels[k + 2] = bb;
+            pixels[k + 3] = 255;
+        }
+        if (this.flatLayers) {
+            const camera = this.camera;
+            camera.updateMatrixWorld();
+            const e = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
+            const { x: px, y: py, z: pz } = camera.position;
+            const near = camera.near;
+            const project = (x, y, z) => {
+                const w = e[3] * x + e[7] * y + e[11] * z + e[15];
+                return [((e[0] * x + e[4] * y + e[8] * z + e[12]) / w * 0.5 + 0.5) * width, (0.5 - ((e[1] * x + e[5] * y + e[9] * z + e[13]) / w) * 0.5) * height, w];
+            };
+            // one triangle, flat colour [r, g, b] and opacity: a pixel drawn where nearer (1/w larger)
+            const triangle = (a, b, c, color, alpha) => {
+                const minX = Math.max(0, Math.floor(Math.min(a[0], b[0], c[0])));
+                const maxX = Math.min(width - 1, Math.ceil(Math.max(a[0], b[0], c[0])));
+                const minY = Math.max(0, Math.floor(Math.min(a[1], b[1], c[1])));
+                const maxY = Math.min(height - 1, Math.ceil(Math.max(a[1], b[1], c[1])));
+                const area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+                if (!area || minX > maxX || minY > maxY) return;
+                const ia = 1 / a[2];
+                const ib = 1 / b[2];
+                const ic = 1 / c[2];
+                for (let y = minY; y <= maxY; y++) {
+                    const sy = y + 0.5;
+                    for (let x = minX; x <= maxX; x++) {
+                        const sx = x + 0.5;
+                        const w0 = ((b[0] - sx) * (c[1] - sy) - (b[1] - sy) * (c[0] - sx)) / area;
+                        const w1 = ((c[0] - sx) * (a[1] - sy) - (c[1] - sy) * (a[0] - sx)) / area;
+                        const w2 = 1 - w0 - w1;
+                        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+                        const iz = w0 * ia + w1 * ib + w2 * ic;
+                        const at = y * width + x;
+                        if (iz <= depth[at]) continue;
+                        const k = at * 4;
+                        if (alpha >= 1) {
+                            depth[at] = iz;
+                            pixels[k] = color[0];
+                            pixels[k + 1] = color[1];
+                            pixels[k + 2] = color[2];
+                        } else {
+                            pixels[k] += (color[0] - pixels[k]) * alpha;
+                            pixels[k + 1] += (color[1] - pixels[k + 1]) * alpha;
+                            pixels[k + 2] += (color[2] - pixels[k + 2]) * alpha;
+                        }
+                    }
                 }
-                mx = mx / (ring.length / 2) - px;
-                my = my / (ring.length / 2) - py;
-                items.push([mx * mx + my * my + zm * zm, layer, -1, ring]);
+            };
+            // a line, depth-tested with a little bias so it shows on its own face
+            const line = (a, b, color) => {
+                const steps = Math.ceil(Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]))) + 1;
+                const ia = 1 / a[2];
+                const ib = 1 / b[2];
+                for (let s = 0; s <= steps; s++) {
+                    const t = s / steps;
+                    const x = Math.round(a[0] + (b[0] - a[0]) * t);
+                    const y = Math.round(a[1] + (b[1] - a[1]) * t);
+                    if (x < 0 || y < 0 || x >= width || y >= height) continue;
+                    const iz = (ia + (ib - ia) * t) * 1.002;
+                    const at = y * width + x;
+                    if (iz < depth[at]) continue;
+                    const k = at * 4;
+                    pixels[k] = color[0];
+                    pixels[k + 1] = color[1];
+                    pixels[k + 2] = color[2];
+                }
+            };
+            const shade = (rgb, factor) => rgb.map((v) => Math.min(255, v * factor));
+            const quad = (points, rgb, factor, alpha, edges) => {
+                if (points.some((point) => point[2] <= near)) return;
+                const color = shade(rgb, factor);
+                triangle(points[0], points[1], points[2], color, alpha);
+                triangle(points[0], points[2], points[3], color, alpha);
+                if (edges && alpha >= 1) {
+                    const dark = shade(rgb, factor * 0.45);
+                    for (let k = 0; k < 4; k++) line(points[k], points[(k + 1) % 4], dark);
+                }
+            };
+            const zs = this.config.exaggeration;
+            // opaque layers first, the translucent ones (wells) over them
+            const layers = this.flatLayers.filter((layer) => isVisible(layer.key)).sort((a, b) => (b.alpha >= 1) - (a.alpha >= 1));
+            for (const layer of layers) {
+                const z0 = layer.z[0] * zs;
+                const z1 = layer.z[1] * zs;
+                const edges = this.config.edges;
+                const r = layer.rects;
+                for (let i = 0; i < r.length; i += 4) {
+                    const x1 = r[i];
+                    const y1 = r[i + 1];
+                    const x2 = r[i + 2];
+                    const y2 = r[i + 3];
+                    const c = [project(x1, y1, z0), project(x2, y1, z0), project(x2, y2, z0), project(x1, y2, z0), project(x1, y1, z1), project(x2, y1, z1), project(x2, y2, z1), project(x1, y2, z1)];
+                    if (pz > z1) quad([c[4], c[5], c[6], c[7]], layer.rgb, SHADE.top, layer.alpha, edges);
+                    else if (pz < z0) quad([c[0], c[3], c[2], c[1]], layer.rgb, SHADE.bottom, layer.alpha, edges);
+                    if (px > x2) quad([c[1], c[2], c[6], c[5]], layer.rgb, SHADE.px, layer.alpha, edges);
+                    else if (px < x1) quad([c[3], c[0], c[4], c[7]], layer.rgb, SHADE.nx, layer.alpha, edges);
+                    if (py > y2) quad([c[2], c[3], c[7], c[6]], layer.rgb, SHADE.py, layer.alpha, edges);
+                    else if (py < y1) quad([c[0], c[1], c[5], c[4]], layer.rgb, SHADE.ny, layer.alpha, edges);
+                }
+                // a polygon's top face, triangulated
+                for (const ring of layer.polys) {
+                    if (pz <= z1) continue;
+                    const contour = [];
+                    for (let k = 0; k < ring.length; k += 2) contour.push(new THREE.Vector2(ring[k], ring[k + 1]));
+                    const points = contour.map((point) => project(point.x, point.y, z1));
+                    if (points.some((point) => point[2] <= near)) continue;
+                    const color = shade(layer.rgb, SHADE.top);
+                    for (const [a, b, c] of THREE.ShapeUtils.triangulateShape(contour, [])) triangle(points[a], points[b], points[c], color, layer.alpha);
+                }
             }
         }
-        items.sort((a, b) => b[0] - a[0]);
-        ctx.lineWidth = 0.6 * (window.devicePixelRatio || 1);
-        ctx.lineJoin = "round";
-        const shape = (points, fill, stroke) => {
-            ctx.beginPath();
-            ctx.moveTo(points[0][0], points[0][1]);
-            for (let k = 1; k < points.length; k++) ctx.lineTo(points[k][0], points[k][1]);
-            ctx.closePath();
-            ctx.fillStyle = fill;
-            ctx.fill();
-            if (stroke) {
-                ctx.strokeStyle = stroke;
-                ctx.stroke();
-            }
-        };
-        const near = camera.near;
-        for (const [, layer, i, ring] of items) {
-            const z0 = layer.z[0] * zs;
-            const z1 = layer.z[1] * zs;
-            const edge = this.config.edges ? layer.edge : null;
-            ctx.globalAlpha = layer.alpha;
-            if (ring) {
-                const top = [];
-                for (let k = 0; k < ring.length; k += 2) top.push(project(ring[k], ring[k + 1], z1));
-                if (pz > z1 && top.every((point) => point[2] > near)) shape(top, tint(layer.rgb, SHADE.top), edge);
-                continue;
-            }
-            const r = layer.rects;
-            const x1 = r[i];
-            const y1 = r[i + 1];
-            const x2 = r[i + 2];
-            const y2 = r[i + 3];
-            const c = [project(x1, y1, z0), project(x2, y1, z0), project(x2, y2, z0), project(x1, y2, z0), project(x1, y1, z1), project(x2, y1, z1), project(x2, y2, z1), project(x1, y2, z1)];
-            if (c.some((point) => point[2] <= near)) continue;
-            if (pz > z1) shape([c[4], c[5], c[6], c[7]], tint(layer.rgb, SHADE.top), edge);
-            else if (pz < z0) shape([c[0], c[3], c[2], c[1]], tint(layer.rgb, SHADE.bottom), edge);
-            if (px > x2) shape([c[1], c[2], c[6], c[5]], tint(layer.rgb, SHADE.px), edge);
-            else if (px < x1) shape([c[3], c[0], c[4], c[7]], tint(layer.rgb, SHADE.nx), edge);
-            if (py > y2) shape([c[2], c[3], c[7], c[6]], tint(layer.rgb, SHADE.py), edge);
-            else if (py < y1) shape([c[0], c[1], c[5], c[4]], tint(layer.rgb, SHADE.ny), edge);
+        ctx.putImageData(image, 0, 0);
+    }
+
+    // what the view holds (bytes): its geometry's arrays, the WebGL buffers or the CPU's layers and
+    // depth buffer; the memory the browser needs for it where the browser does not say its own
+    heldBytes() {
+        let total = 0;
+        if (this.flatLayers) {
+            for (const layer of this.flatLayers) total += layer.rects.byteLength + layer.polys.reduce((sum, ring) => sum + ring.length * 8, 0);
+            if (this.canvas) total += this.canvas.width * this.canvas.height * 8;  // the image and the depth buffer
         }
-        ctx.globalAlpha = 1;
+        this.group?.traverse((object) => {
+            for (const attribute of Object.values(object.geometry?.attributes || {})) total += attribute.array.byteLength;
+        });
+        return total;
     }
 
     applyVisibility() {

@@ -113,9 +113,10 @@ export function seg(options, value, onChange) {
 }
 
 // a toolbar's facts about what it draws: its file's size ("GDS 14.3 kB"), what draws it (WebGL,
-// CPU) and the page's memory in use, read every two seconds while on the page ("n/a" where the
-// browser does not tell it: Chromium's performance.memory alone does)
-export function sizeMeter({ file = null, label = "file", renderer = null, extra = [], memory: withMemory = true } = {}) {
+// CPU) and the memory, read every two seconds while on the page: the page's JavaScript heap where
+// the browser tells it (Chromium's performance.memory, "RAM"), else what the view holds (``held``:
+// its arrays and buffers, "Data"), else "n/a"
+export function sizeMeter({ file = null, label = "file", renderer = null, extra = [], memory: withMemory = true, held = null } = {}) {
     const memory = h("span", {}, "");
     // its items " · " apart (extra: more facts, a file's encoding)
     const items = [file !== null ? `${label} ${file}` : null, ...extra, renderer].filter(Boolean).map((text) => h("span", {}, text));
@@ -126,14 +127,15 @@ export function sizeMeter({ file = null, label = "file", renderer = null, extra 
         items.flatMap((item, index) => (index ? [h("span.meter-dot", {}, "·"), item] : [item])),
     );
     if (!withMemory) return element;
+    const amount = (value) => {
+        const mb = value / 1e6;
+        return mb >= 1000 ? `${+(mb / 1000).toPrecision(3)} GB` : mb >= 1 ? `${+mb.toPrecision(3)} MB` : `${+(value / 1e3).toPrecision(3)} kB`;
+    };
     const read = () => {
         const used = globalThis.performance?.memory?.usedJSHeapSize;
-        let text = "n/a";
-        if (typeof used === "number") {
-            const mb = used / 1e6;
-            text = mb >= 1000 ? `${+(mb / 1000).toPrecision(3)} GB` : `${+mb.toPrecision(3)} MB`;
-        }
-        memory.textContent = `RAM ${text}`;
+        const own = typeof used === "number" ? null : held?.();
+        memory.textContent = typeof used === "number" ? `RAM ${amount(used)}` : typeof own === "number" && own > 0 ? `Data ${amount(own)}` : "RAM n/a";
+        memory.title = typeof used === "number" ? "The page's JavaScript heap in use" : "What this view holds in memory: its geometry and buffers (the browser does not tell its own heap)";
     };
     read();
     const timer = setInterval(() => (element.isConnected ? read() : clearInterval(timer)), 2000);
