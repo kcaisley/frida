@@ -692,6 +692,9 @@ def test_pexsim_simulates_the_runs_again_with_the_extraction_on_the_schematic(fl
     assert record["evidence"] == "postlayout"
     assert set(record["metrics"]) - {"layout_area_um2", "density"} == {"devices", *(f"read_{run}" for run in runs)}
     assert record["prelayout"] == {"devices": 0.0, **{f"read_{run}": True for run in runs}}
+    assert [detail["name"] for detail in record["prelayout_details"]] == [
+        detail["name"] for detail in record["details"]
+    ]
     annotation = record["annotation"]
     assert (
         annotation["extractor"] == "stand-in"

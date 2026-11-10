@@ -291,8 +291,8 @@ def _shown_rejection(rejected: dict[str, Any]) -> str:
 def _record(job: Job, circuit: dict[str, Path] | None = None) -> dict:
     """The instance's record (``instance.json``), the last of its characterization: from the
     measurements its pexsim step kept where it simulated the extraction (``evidence``
-    ``postlayout``), the metrics of the sim step's measurements beside them (``prelayout``: the
-    estimates every step before the layout judged); else from the sim step's alone (``evidence``
+    ``postlayout``), the metrics and figures of the sim step's measurements beside them
+    (``prelayout``, ``prelayout_details``: the estimates every step before the layout judged); else from the sim step's alone (``evidence``
     ``prelayout``: no layout, or one not extracted, or not back-annotated). Each with the circuit
     step's measurements (``circuit``, else those of a complete circuit step)."""
     from flow import pipeline
@@ -341,6 +341,9 @@ def _record(job: Job, circuit: dict[str, Path] | None = None) -> dict:
             **recorded(kept(Step.PEXSIM)),
             "evidence": pipeline.Evidence.POSTLAYOUT.name.lower(),
             "prelayout": prelayout["metrics"],
+            # the pre-layout figures beside the post-layout ones, by the same names (the viewer
+            # draws each pre-layout curve dotted under its post-layout one)
+            "prelayout_details": prelayout["details"],
             "annotation": {key: annotated[key] for key in annotated if key != "runs"},
         }
     else:
