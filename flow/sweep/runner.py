@@ -9,7 +9,7 @@ The characterization's steps: ``write_netlist`` (the circuit as simulated and it
 ``netlist/``), ``simulate`` (each testbench run of ``testbenches_of``, or ``circuit_testbenches``, simulated and
 its measurement kept as HDF5, into ``presim/<run>/``) and ``results`` (``search.record`` of the kept
 measurements: the instance's ``instance.json``, its id, parameters, level, metrics, details and
-waves); the pexsim step's ``simulate`` and ``results`` again, into ``pexsim/``, each testbench's DUT
+waves); the postsim step's ``simulate`` and ``results`` again, into ``postsim/``, each testbench's DUT
 a flat copy of it holding its extraction's capacitors (``_back_annotated``). ``table``: the viewer's
 tables of a block, each of its runs' own (``export_run``: ``build/web/data/sweep/<block>/runs/<run>/
 <stamp>.json``, one row per instance, the parameters that differ, then the metrics, and one file per
@@ -591,7 +591,7 @@ def instance_views(
     the block's by default, a run's ``run_file``): its layout flattened onto the PDK's generic layers
     (``flow.web.export``), its schematic and netlist (its layout's, else its block's:
     ``_block_netlist``), and the index of its waveforms (``<ident>/traces.json``, as the waveform panel
-    reads one); where its record's are its pexsim step's and ``folder`` (its directory in a run) is
+    reads one); where its record's are its postsim step's and ``folder`` (its directory in a run) is
     given, the index of their pre-layout twins too (``<ident>/traces.sim.json``, ``traces_sim``). The
     files written, by kind."""
 
@@ -633,7 +633,7 @@ def instance_views(
     waves = record.get("waves", {})
     index(waves, "traces.json")
     kinds = wave_kinds(waves)
-    if folder is not None and kinds["pexsim"] and kinds["sim"]:
+    if folder is not None and kinds["postsim"] and kinds["sim"]:
         index(kinds["sim"], "traces.sim.json")
         files["traces_sim"] = f"sweep/{table}/{ident}/traces.sim.json"
     return files

@@ -23,21 +23,21 @@ Step = steps.Step
 
 def test_the_steps_run_from_one_to_another() -> None:
     """``--from`` and ``--to`` pick the steps between them, both included, each after those whose
-    outputs it takes: an instance's steps are one chain, the record after pexsim (whose measurements
+    outputs it takes: an instance's steps are one chain, the record after postsim (whose measurements
     it takes where they exist), the run's table after it; one that does not lead to the other
     is refused."""
-    chain = [Step.NETLIST, Step.PRESIM, Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.PEXSIM, Step.RESULTS]
+    chain = [Step.NETLIST, Step.PRESIM, Step.LAYOUT, Step.DRC, Step.LVS, Step.PEX, Step.POSTSIM, Step.RESULTS]
     assert steps.between(Step.NETLIST, Step.RESULTS) == chain
     assert steps.between(Step.RESULTS, Step.RESULTS) == [Step.RESULTS]
     assert steps.between(Step.NETLIST, Step.TABLE) == [*chain, Step.TABLE]
     assert steps.between(Step.NETLIST, Step.CIRCUIT) == [Step.NETLIST, Step.PRESIM, Step.CIRCUIT]
     assert steps.between(Step.NETLIST, Step.LVS) == [Step.NETLIST, Step.LAYOUT, Step.DRC, Step.LVS]
-    assert steps.between(Step.NETLIST, Step.PEXSIM) == chain[:-1]
-    assert steps.between(Step.PRESIM, Step.TABLE) == [Step.PRESIM, Step.PEXSIM, Step.RESULTS, Step.TABLE]
+    assert steps.between(Step.NETLIST, Step.POSTSIM) == chain[:-1]
+    assert steps.between(Step.PRESIM, Step.TABLE) == [Step.PRESIM, Step.POSTSIM, Step.RESULTS, Step.TABLE]
     assert steps.between(Step.LAYOUT, Step.RESULTS) == chain[2:]
     # each step's order puts it after what it takes; the record needs the sim alone
     assert all(before.value < step.value for step in Step for before in step.inputs)
-    assert Step.RESULTS.required == {Step.NETLIST, Step.PRESIM, Step.RESULTS} and Step.PEXSIM in Step.RESULTS.ancestors
+    assert Step.RESULTS.required == {Step.NETLIST, Step.PRESIM, Step.RESULTS} and Step.POSTSIM in Step.RESULTS.ancestors
     with pytest.raises(SystemExit, match="--from layout does not lead to --to presim: presim needs netlist"):
         steps.between(Step.LAYOUT, Step.PRESIM)
 
@@ -51,7 +51,7 @@ def test_the_bare_command_prints_the_usage_the_steps_and_each_blocks_runs(capsys
     assert lines[0] == "Usage" and lines[1].strip() == "python -m flow --block BLOCK --run RUN"
     assert {"Usage", "Options", "Steps", "Runs", "Examples"} <= set(lines)
     assert "[--from STEP] [--to STEP] [--dry-run]" in out and out.index("--from STEP") < out.index("--to STEP")
-    assert any(line.split() == ["results", "netlist,", "presim;", "after", "pexsim"] for line in lines)
+    assert any(line.split() == ["results", "netlist,", "presim;", "after", "postsim"] for line in lines)
     comp = next(line for line in lines if line.split()[:1] == ["comp"])
     assert comp.split() == ["comp", "frida1", "topologies", "adc_10bit"]
     assert max(map(len, lines)) <= 80
@@ -78,7 +78,7 @@ try() { COMP_WORDS=("$@"); COMP_CWORD=$((${#COMP_WORDS[@]}-1)); COMPREPLY=();
 try python -m flow --block ""
 try python -m flow --block comp --run ""
 try python -m flow --block comp --run frida1 --t
-try python -m flow --block comp --run frida1 --to pe
+try python -m flow --block comp --run frida1 --to p
 try python -m fl
 try python script.py ""
 """
@@ -86,7 +86,7 @@ try python script.py ""
     lines = subprocess.run(["bash", "-c", probe], capture_output=True, text=True, check=True).stdout.splitlines()
     assert lines[0].split() == cli.pipeline_blocks()
     assert "frida1" in lines[1].split() and "adc_12bit" in lines[1].split()
-    assert lines[2:5] == ["--to", "pex pexsim", "flow"] and lines[5] == ""
+    assert lines[2:5] == ["--to", "presim pex postsim", "flow"] and lines[5] == ""
 
 
 def test_an_optimization_runs_its_study_and_the_viewer_keeps_its_command(monkeypatch) -> None:
@@ -151,7 +151,7 @@ def test_a_block_runs_through_every_characterization_step(flow, simulated, capsy
     assert json.loads((instance / "netlist/geometry.json").read_text()) == {"devices": 0.0}
     assert sorted(path.parent.name for path in instance.glob("presim/*/result.h5")) == ["full", "screen", "search"]
     assert not list(instance.rglob("raw.txt"))
-    laid = {"layout", "drc", "lvs", "pex", "pexsim"}
+    laid = {"layout", "drc", "lvs", "pex", "postsim"}
     assert {path.parent.name for path in instance.glob("*/step.json")} == {"netlist", "presim", "results", *laid}
     record = json.loads((instance / "instance.json").read_text())
     assert record["error"] is None, record["error"]
@@ -257,9 +257,9 @@ def test_a_search_runs_in_its_pdks(flow, toy, monkeypatch, capsys) -> None:
 def test_dry_run_prints_what_would_run_and_runs_nothing(flow, toy, capsys) -> None:
     flow("--run", "one", "--to", "results", "--dry-run")
     out = capsys.readouterr().out.splitlines()
-    chain = "netlist, presim, layout, drc, lvs, pex, pexsim, results"
+    chain = "netlist, presim, layout, drc, lvs, pex, postsim, results"
     assert out[0].startswith("toyblock: new run") and out[0].endswith(f"steps {chain}")
-    # the sim's runs and pexsim's again (at most: pexsim does without an extraction)
+    # the sim's runs and postsim's again (at most: postsim does without an extraction)
     assert out[1] == f"toypdk one (one): {chain}; 6 simulator runs"
     assert out[2] == "1 instance in 1 PDK: 8 steps to run, 0 complete, about 6 simulator runs"
     assert not (runner.RUNS_DIR / "toyblock").exists()
@@ -629,7 +629,7 @@ def test_a_layout_other_than_its_netlist_is_not_extracted_and_its_record_still_w
     out = capsys.readouterr().out
     assert "results ok" in out and "3 violations (stand-in)" in out and "no match (stand-in)" in out
     assert "pex failed in" in out and "RuntimeError: LVS found the layout other than its netlist" in out
-    assert "pexsim not run: (after pex failed)" in out
+    assert "postsim not run: (after pex failed)" in out
     record = json.loads((_instance("wired") / "instance.json").read_text())
     assert record["evidence"] == "prelayout" and record["layout"]["drc_violations"] == 3
     assert record["metrics"]["layout_area_um2"] == 2.0 and record["layout"]["steps"]["pex"]["error"]
@@ -714,20 +714,20 @@ def extraction(tools, monkeypatch):
     return mapped
 
 
-def test_pexsim_simulates_the_runs_again_with_the_extraction_on_the_schematic(flow, extraction, capsys) -> None:
+def test_postsim_simulates_the_runs_again_with_the_extraction_on_the_schematic(flow, extraction, capsys) -> None:
     """``--to results``: the extraction's nets found on the schematic's through LVS (a gate's poly on
     its net, the capacitor between them shorted out), its capacitors in each run's DUT less the
-    DUT's own drawn between the same nets, each run simulated again in ``pexsim/``, and the record
+    DUT's own drawn between the same nets, each run simulated again in ``postsim/``, and the record
     from those (``evidence`` ``postlayout``: the same metric names, the pre-layout ones beside them,
     the annotation's totals); the cell's inner net, a small share, reported."""
     flow("--to", "results", "--run", "wired")
     out = capsys.readouterr().out
-    assert "steps netlist, presim, layout, drc, lvs, pex, pexsim, results" in out
-    assert "pexsim ok in" in out and "3 runs, 2.2 fF added, 0.3% unmapped" in out
+    assert "steps netlist, presim, layout, drc, lvs, pex, postsim, results" in out
+    assert "postsim ok in" in out and "3 runs, 2.2 fF added, 0.3% unmapped" in out
     instance = _instance("wired")
     runs = sorted(path.parent.name for path in instance.glob("presim/*/result.h5"))
-    assert sorted(path.parent.name for path in instance.glob("pexsim/*/result.h5")) == runs
-    added = json.loads((instance / "pexsim" / runs[0] / "annotation.json").read_text())
+    assert sorted(path.parent.name for path in instance.glob("postsim/*/result.h5")) == runs
+    added = json.loads((instance / "postsim" / runs[0] / "annotation.json").read_text())
     assert added["instances"] == ["dut"] and added["added_f"] == pytest.approx(2.2e-15)
     assert added["drawn_f"] == pytest.approx(1e-15)
     record = json.loads((instance / "instance.json").read_text())
@@ -748,58 +748,58 @@ def test_pexsim_simulates_the_runs_again_with_the_extraction_on_the_schematic(fl
     assert record["waves"] == {} and record["name"] == "wired"
 
 
-def test_pexsim_refuses_an_extraction_mostly_on_no_schematic_net(flow, extraction, capsys) -> None:
+def test_postsim_refuses_an_extraction_mostly_on_no_schematic_net(flow, extraction, capsys) -> None:
     """More than a small share of the capacitance on nets LVS paired with nothing: not simulated,
     the totals and the nets in the failure."""
     extraction["a"] = None
     with pytest.raises(SystemExit, match="1 of 1 instances failed"):
-        flow("--to", "pexsim", "--run", "wired")
+        flow("--to", "postsim", "--run", "wired")
     out = capsys.readouterr().out
     assert "ValueError: 3.51 fF of the extraction's 3.71 fF (94.6%, over 5%)" in out
     assert "a 3.51 fF, $9 0.01 fF" in out
-    assert not list((_instance("wired") / "pexsim").glob("*/result.h5"))
+    assert not list((_instance("wired") / "postsim").glob("*/result.h5"))
 
 
-def test_pexsim_refuses_capacitance_on_nets_the_dut_lacks_or_no_dut(flow, extraction, capsys, monkeypatch) -> None:
+def test_postsim_refuses_capacitance_on_nets_the_dut_lacks_or_no_dut(flow, extraction, capsys, monkeypatch) -> None:
     """A schematic net LVS compared that the simulated DUT lacks counts against the same share as an
     unmapped one; testbenches none of which instantiates the DUT annotate nothing and fail."""
     import sys
 
     extraction["$1"] = "nowhere"
     with pytest.raises(SystemExit, match="1 of 1 instances failed"):
-        flow("--to", "pexsim", "--run", "wired")
+        flow("--to", "postsim", "--run", "wired")
     out = capsys.readouterr().out
     assert "0.71 fF of the extraction's 3.71 fF (over 5%) is on no net of netlist(mode=1)" in out
     assert "unmapped or unsimulated: nowhere 0.7 fF" in out
     extraction["$1"] = "a"
     monkeypatch.setattr(sys.modules["flow.toyblock.subckt"], "netlist", lambda params: type("M", (), {"name": "Other"}))
     with pytest.raises(SystemExit, match="1 of 1 instances failed"):
-        flow("--from", "pexsim", "--to", "pexsim", "--run", "wired")
+        flow("--from", "postsim", "--to", "postsim", "--run", "wired")
     assert "no testbench of toyblock instantiates Other directly" in capsys.readouterr().out
 
 
-def test_pexsim_leaves_an_extraction_with_devices_or_none_alone(toy, tmp_path) -> None:
+def test_postsim_leaves_an_extraction_with_devices_or_none_alone(toy, tmp_path) -> None:
     """An extraction with devices and RC (a kit's, a planned signoff's) is not back-annotated, nor a
     layout not extracted; one made before its nets' probes is refused with what makes it again."""
-    job = steps.Job("toyblock", "toypdk", "one", "one", None, tmp_path / "one", (Step.PEXSIM,), "mine")
+    job = steps.Job("toyblock", "toypdk", "one", "one", None, tmp_path / "one", (Step.POSTSIM,), "mine")
     steps._mark(
         job.out, Step.PEX, 0.0, netlist="toy.pex.netlist", sha256="0", extractor="the kit's (against its source)"
     )
-    assert steps._pexsim(job) == {
+    assert steps._postsim(job) == {
         "skipped": "the kit's (against its source) extraction has devices and RC, not capacitances to back-annotate"
     }
     steps._mark(job.out, Step.PEX, 0.0, skipped="no LVS source")
-    assert steps._pexsim(job) == {"skipped": "no extraction (no LVS source)"}
+    assert steps._postsim(job) == {"skipped": "no extraction (no LVS source)"}
     # LVS without a deck: no database pairs the layout's nets with the schematic's
     steps._mark(job.out, Step.PEX, 0.0, extractor="stand-in", nets={"a": 1e-15})
     steps._mark(job.out, Step.LVS, 0.0, lvs_correct=None, lvs_report=None, lvs_checker=None)
-    assert steps._pexsim(job) == {"skipped": "no LVS database to find the extraction's nets on (LVS: no deck)"}
+    assert steps._postsim(job) == {"skipped": "no LVS database to find the extraction's nets on (LVS: no deck)"}
     steps._mark(job.out, Step.LVS, 0.0, lvs_correct=True, lvs_report="toy.lvsdb", lvs_checker="stand-in")
     steps._mark(job.out, Step.PEX, 0.0, netlist="toy.pex.netlist", extractor="KLayout-PEX", nets={"a": 1e-15})
     with pytest.raises(
         RuntimeError, match="no net probes .* then python -m flow --block toyblock --run mine --from pex --to pex"
     ):
-        steps._pexsim(job)
+        steps._postsim(job)
 
 
 def test_the_dut_takes_a_flat_copy_with_the_capacitors_on_its_bits_and_its_cells_nets() -> None:

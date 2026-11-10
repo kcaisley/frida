@@ -29,7 +29,7 @@ uv run python -m flow --block samp --run scaled --from layout --to pex     # lay
 uv run python -m flow --block samp --run frida1 --to lvs                   # one switch by ALIGN, without extraction
 uv run python -m flow --block samp --run scaled --from table --to table    # the viewer's table
 uv run python -m flow --block samp --run scaled --to results --dry-run      # what would run
-uv run python -m flow --block samp --run frida1 --to pexsim                # post-layout, back-annotated
+uv run python -m flow --block samp --run frida1 --to postsim                # post-layout, back-annotated
 ```
 
 ## Design space

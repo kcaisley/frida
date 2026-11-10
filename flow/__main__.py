@@ -12,10 +12,10 @@ A step is one tool: it takes its inputs and makes its outputs, and its configura
 own, in the block's Python files and the kit's (the runs a run states, a layout's placement,
 which signoff a kit takes), never a flag here. An instance's steps are one chain, each after those it needs:
 
-    netlist -> sim -> layout -> drc -> lvs -> pex -> pexsim -> record -> table
+    netlist -> sim -> layout -> drc -> lvs -> pex -> postsim -> record -> table
                sim -> circuit                                 record -> figures
 
-The record runs after pexsim and takes its measurements where it simulated the extraction (the
+The record runs after postsim and takes its measurements where it simulated the extraction (the
 post-layout metrics, the pre-layout ones beside them as ``prelayout``, ``evidence`` saying which),
 but needs only the netlist and the sim: where the layout fails, or is not extracted or
 back-annotated (a kit's extraction with devices, the ADC's), the record holds the pre-layout
@@ -34,7 +34,7 @@ runs on a ``@single`` alone. ``figures`` draws a record's figures (the lab's cap
 ``flow.layout.signoff.write_plan``), else ALIGN through the shared step (its netlists and
 constraints too: the netlist step's edge to it only orders them); ``drc``, ``lvs`` and ``pex``
 run, each in its folder, that plan, else the checker the kit names
-(``flow.layout.signoff.checker``: the open tools, else Calibre), on its GDS. ``pexsim`` simulates
+(``flow.layout.signoff.checker``: the open tools, else Calibre), on its GDS. ``postsim`` simulates
 the presim step's runs again with the open extractor's capacitances back-annotated onto the schematic
 (``flow.layout.annotate``: each layout net found on its schematic net through LVS; each run's DUT
 a flat copy with the capacitors, ``flow.sweep.runner.simulate``), which the results step records
@@ -59,7 +59,7 @@ always, beside the run, ``status.txt`` (the dashboard as plain text, every two s
 A run is ``build/<block>/<run>/<stamp>/``, dated, each design in ``<pdk>/<name>/`` there (a
 single's by its name, a grid's by its digest), a folder a step: ``netlist/``, ``presim/<run>/``,
 ``circuit/<run>/``, ``results/``, ``figures/``, ``layout/``, ``drc/``, ``lvs/``, ``pex/``,
-``pexsim/<run>/``; its record, ``instance.json``, beside them, which the viewer's table
+``postsim/<run>/``; its record, ``instance.json``, beside them, which the viewer's table
 reads (the run's older dated folders kept, for the viewer to show). A run from the netlist (the default)
 is a new one; ``--from`` a later step works in the run's latest folder, which must exist, and resumes
 it: a step skips a design whose output is complete and not older than what it was made from
@@ -191,8 +191,8 @@ def _simulations(job: Job, pending: list[Step]) -> int:
         runs |= {f"sim/{n}": tb for n, tb in runner.testbenches_of(job.block, job.pdk, job.params).items()}
     if Step.CIRCUIT in pending:
         runs |= {f"circuit/{n}": tb for n, tb in runner.circuit_testbenches(job.block, job.pdk, job.params).items()}
-    if Step.PEXSIM in pending:
-        runs |= {f"pexsim/{n}": tb for n, tb in runner.testbenches_of(job.block, job.pdk, job.params).items()}
+    if Step.POSTSIM in pending:
+        runs |= {f"postsim/{n}": tb for n, tb in runner.testbenches_of(job.block, job.pdk, job.params).items()}
     return sum(not (job.out / name / "result.h5").exists() for name in runs)
 
 
@@ -490,7 +490,7 @@ def usage() -> None:
     console.print()
     heading("Steps")
     arrow = Text(" → ", style=DIM)
-    chain = ("netlist", "presim", "layout", "drc", "lvs", "pex", "pexsim", "results", "table")
+    chain = ("netlist", "presim", "layout", "drc", "lvs", "pex", "postsim", "results", "table")
     console.print(indented(arrow.join(Text(step, style=RUN) for step in chain)))
     optional = Text.assemble(("presim", RUN), arrow, ("circuit", RUN), ",  ", ("results", RUN), arrow, ("figures", RUN))
     console.print(indented(optional + Text("  (by --to only)", style=DIM)))

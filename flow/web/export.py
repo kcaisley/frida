@@ -370,7 +370,7 @@ def _relative(path, root: Path) -> str | None:
 
 def steps_view(folder: Path, record: dict[str, Any], *, root: Path = ROOT) -> list[dict[str, Any]] | None:
     """The instance's steps in their order (``flow.steps.Step``: netlist, sim, circuit where it ran,
-    layout, drc, lvs, pex, pexsim, record), each as the viewer tells it: its state (``ok``; ``failed`` with its error;
+    layout, drc, lvs, pex, postsim, record), each as the viewer tells it: its state (``ok``; ``failed`` with its error;
     ``rejected``: the step after which the run's bounds rejected the design, with the bounds it
     missed; ``skipped`` with why; ``not run`` with why), when it finished, its seconds, its log's
     warnings and errors by tool (``counts``) and its log's path, what it established for the bounds
@@ -495,14 +495,14 @@ def drc_markers(folder: Path, top: str) -> dict[str, dict[str, Any]]:
 
 def wave_kinds(waves: dict[str, str], root: Path = ROOT) -> dict[str, dict[str, str]]:
     """A record's waves (label -> measurement) by the step that simulated them: ``presim``'s (pre-layout)
-    and ``pexsim``'s (the extraction back-annotated), each pexsim measurement's pre-layout
-    counterpart (``presim/<run>/`` beside its ``pexsim/<run>/``) among sim's where it is kept."""
-    kinds: dict[str, dict[str, str]] = {"sim": {}, "pexsim": {}}
+    and ``postsim``'s (the extraction back-annotated), each postsim measurement's pre-layout
+    counterpart (``presim/<run>/`` beside its ``postsim/<run>/``) among sim's where it is kept."""
+    kinds: dict[str, dict[str, str]] = {"sim": {}, "postsim": {}}
     for label, relative in waves.items():
         parts = Path(relative).parts
-        if "pexsim" in parts:
-            kinds["pexsim"][label] = relative
-            at = len(parts) - 1 - parts[::-1].index("pexsim")
+        if "postsim" in parts:
+            kinds["postsim"][label] = relative
+            at = len(parts) - 1 - parts[::-1].index("postsim")
             twin = Path(*parts[:at], "presim", *parts[at + 1 :])
             if (root / twin).exists():
                 kinds["sim"][label] = str(twin)

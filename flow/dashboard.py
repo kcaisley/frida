@@ -189,7 +189,7 @@ class Board:
             tool, level, message = parts[2], parts[3], " ".join(raw.split())
             entry = known(tool, message)
             # one kind however its paths, quotes and numbers differ (the same warning in each PDK)
-            # (a kind a step's: the same warning in sim and pexsim counted apart, as their counts are)
+            # (a kind a step's: the same warning in sim and postsim counted apart, as their counts are)
             kind = (
                 step,
                 tool,

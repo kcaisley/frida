@@ -48,7 +48,7 @@ def test_each_step_has_its_state(tmp_path: Path):
     _mark(tmp_path, "results", 5000.0, 0.5, evidence="prelayout", rejected=rejected)
     (tmp_path / "netlist" / "toy.cdl").write_text(NETLIST)
     steps = {step["step"]: step for step in export.steps_view(tmp_path, {"rejected": rejected}, root=tmp_path) or []}
-    assert [steps[key]["state"] for key in ("netlist", "presim", "layout", "pexsim", "results")] == [
+    assert [steps[key]["state"] for key in ("netlist", "presim", "layout", "postsim", "results")] == [
         "ok",
         "rejected",
         "not run",
@@ -70,13 +70,13 @@ def test_each_step_has_its_state(tmp_path: Path):
 
 
 def test_waves_by_the_step_that_simulated_them(tmp_path: Path):
-    post = "build/b/r/tsmc65/x/pexsim/vin_1/result.h5"
+    post = "build/b/r/tsmc65/x/postsim/vin_1/result.h5"
     (tmp_path / "build/b/r/tsmc65/x/presim/vin_1").mkdir(parents=True)
     (tmp_path / "build/b/r/tsmc65/x/presim/vin_1/result.h5").write_text("")
-    kinds = export.wave_kinds({"low": post, "gone": "build/b/r/tsmc65/x/pexsim/vin_2/result.h5"}, tmp_path)
-    assert kinds["pexsim"] == {"low": post, "gone": "build/b/r/tsmc65/x/pexsim/vin_2/result.h5"}
+    kinds = export.wave_kinds({"low": post, "gone": "build/b/r/tsmc65/x/postsim/vin_2/result.h5"}, tmp_path)
+    assert kinds["postsim"] == {"low": post, "gone": "build/b/r/tsmc65/x/postsim/vin_2/result.h5"}
     assert kinds["sim"] == {"low": "build/b/r/tsmc65/x/presim/vin_1/result.h5"}  # the twin kept alone
-    assert export.wave_kinds({"low": "build/b/r/tsmc65/x/presim/vin_1/result.h5"}, tmp_path)["pexsim"] == {}
+    assert export.wave_kinds({"low": "build/b/r/tsmc65/x/presim/vin_1/result.h5"}, tmp_path)["postsim"] == {}
 
 
 def test_a_tables_topology():

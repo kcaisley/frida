@@ -1,4 +1,4 @@
-"""A capacitance-only extraction read onto the schematic's nets: what the CLI's pexsim step
+"""A capacitance-only extraction read onto the schematic's nets: what the CLI's postsim step
 back-annotates (``flow.sweep.runner.simulate``).
 
 KLayout-PEX (``flow.layout.kpex``) names its nets by the layout's labels, and a net without one by

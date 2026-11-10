@@ -21,7 +21,7 @@ class Step(Enum):
     """One tool's step over an instance (``TABLE``: over a run), in an order that puts each after
     the steps it needs (``needs``) and those whose outputs it takes where they exist (``after``);
     its folder in an instance's directory is its name. An instance's chain is linear: netlist,
-    sim, layout, drc, lvs, pex, pexsim, record (the run's table after: the viewer's)."""
+    sim, layout, drc, lvs, pex, postsim, record (the run's table after: the viewer's)."""
 
     NETLIST = auto()
     PRESIM = auto()
@@ -30,7 +30,7 @@ class Step(Enum):
     DRC = auto()
     LVS = auto()
     PEX = auto()
-    PEXSIM = auto()
+    POSTSIM = auto()
     RESULTS = auto()
     FIGURES = auto()
     TABLE = auto()
@@ -58,15 +58,15 @@ class Step(Enum):
                 return (Step.DRC,)
             case Step.PEX:
                 return (Step.LVS,)
-            case Step.PEXSIM:
+            case Step.POSTSIM:
                 return (Step.PRESIM, Step.LVS, Step.PEX)
 
     @property
     def after(self) -> tuple[Step, ...]:
         """The steps this one runs after and takes the outputs of where they ended, but does without
-        where they failed or were not run: the record takes pexsim's measurements (the post-layout
+        where they failed or were not run: the record takes postsim's measurements (the post-layout
         metrics), else records the pre-layout ones alone."""
-        return (Step.PEXSIM,) if self is Step.RESULTS else ()
+        return (Step.POSTSIM,) if self is Step.RESULTS else ()
 
     @property
     def inputs(self) -> tuple[Step, ...]:
@@ -77,7 +77,7 @@ class Step(Enum):
     def evidence(self):
         """What this step adds to what is known of a design (``flow.pipeline.Evidence``), from which
         on bounds judge it: the netlist's estimates, the pre-layout simulation, the layout, its
-        extraction; the record judges every bound on its own evidence (post-layout where pexsim
+        extraction; the record judges every bound on its own evidence (post-layout where postsim
         simulated, else pre-layout); None for a step that adds none."""
         from flow.pipeline import Evidence
 
@@ -290,7 +290,7 @@ def _shown_rejection(rejected: dict[str, Any]) -> str:
 
 def _results(job: Job, circuit: dict[str, Path] | None = None) -> dict:
     """The instance's record (``instance.json``), the last of its characterization: from the
-    measurements its pexsim step kept where it simulated the extraction (``evidence``
+    measurements its postsim step kept where it simulated the extraction (``evidence``
     ``postlayout``), the metrics and figures of the presim step's measurements beside them
     (``prelayout``, ``prelayout_details``: the estimates every step before the layout judged); else from the presim step's alone (``evidence``
     ``prelayout``: no layout, or one not extracted, or not back-annotated). Each with the circuit
@@ -305,7 +305,7 @@ def _results(job: Job, circuit: dict[str, Path] | None = None) -> dict:
 
     if circuit is None and done(out, Step.CIRCUIT):
         circuit = kept(Step.CIRCUIT)
-    annotated = _outputs(out, Step.PEXSIM) if done(out, Step.PEXSIM) else {}
+    annotated = _outputs(out, Step.POSTSIM) if done(out, Step.POSTSIM) else {}
     steps = [step for step in Step if step.value < Step.RESULTS.value and _ended(out, step) is not None]
     ran = sum(_outputs(out, step)["seconds"] for step in steps)
     sizes = json.loads((out / "netlist" / "geometry.json").read_text())
@@ -338,7 +338,7 @@ def _results(job: Job, circuit: dict[str, Path] | None = None) -> dict:
     prelayout = recorded(kept(Step.PRESIM))
     if annotated and not annotated.get("skipped"):
         entry = {
-            **recorded(kept(Step.PEXSIM)),
+            **recorded(kept(Step.POSTSIM)),
             "evidence": pipeline.Evidence.POSTLAYOUT.name.lower(),
             "prelayout": prelayout["metrics"],
             # the pre-layout figures beside the post-layout ones, by the same names (the viewer
@@ -462,8 +462,8 @@ def _pex(job: Job) -> dict:
     return step.extracted(job.pdk, gds, gds.stem, job.out / "pex", signoff.checker(job.pdk, job.block), engine=engine)
 
 
-def _pexsim(job: Job) -> dict:
-    """The instance's runs simulated again with its extraction back-annotated (``pexsim/<run>/``),
+def _postsim(job: Job) -> dict:
+    """The instance's runs simulated again with its extraction back-annotated (``postsim/<run>/``),
     which the results step records (the post-layout metrics, the annotation's totals beside them):
     the extraction's capacitors, each net found on the
     schematic's through LVS (``flow.layout.annotate``), in each testbench's DUT
@@ -490,13 +490,13 @@ def _pexsim(job: Job) -> dict:
     lvsdb = Path(checked["lvs_report"])
     found = annotate.annotation(Path(extracted["netlist"]), Path(extracted["probes"]), lvsdb, gds=gds)
     runs = runner.testbenches_of(job.block, job.pdk, job.params)
-    for kept in (job.out / "pexsim").glob("*/annotation.json"):  # a failed pexsim's, kept to resume
+    for kept in (job.out / "postsim").glob("*/annotation.json"):  # a failed postsim's, kept to resume
         if kept.stat().st_mtime < _marker(job.out, Step.PEX).stat().st_mtime:  # of an extraction since redone
             (kept.parent / "result.h5").unlink(missing_ok=True)
     began = time.monotonic()
-    runner.simulate(job.block, job.pdk, runs, job.out / "pexsim", annotation=found)
+    runner.simulate(job.block, job.pdk, runs, job.out / "postsim", annotation=found)
     ran = time.monotonic() - began
-    added = {run: job.out / "pexsim" / run / "annotation.json" for run in runs}
+    added = {run: job.out / "postsim" / run / "annotation.json" for run in runs}
     added = {run: json.loads(path.read_text()) for run, path in added.items() if path.exists()}
     if not any(entry["instances"] for entry in added.values()):
         dut = next((entry["dut"] for entry in added.values()), job.block)
@@ -523,7 +523,7 @@ def _body(step: Step):
         Step.DRC: _drc,
         Step.LVS: _lvs,
         Step.PEX: _pex,
-        Step.PEXSIM: _pexsim,
+        Step.POSTSIM: _postsim,
     }.get(step)
 
 
@@ -601,7 +601,7 @@ def _brief(step: Step, outputs: dict) -> str:
         case Step.RESULTS:
             verdict = _shown_rejection(outputs["rejected"]) if outputs.get("rejected") else "met its bounds"
             return f"{outputs.get('evidence', '')}, {verdict}"
-        case Step.PEXSIM:
+        case Step.POSTSIM:
             return (
                 f"{_count(len(outputs['runs']), 'run')}, {outputs.get('added_f', 0.0) * 1e15:.4g} fF added, "
                 f"{outputs['unmapped_share']:.1%} unmapped"
