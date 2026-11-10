@@ -32,6 +32,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self
+from urllib.request import urlopen
 
 from rich import box
 from rich.console import Console, Group
@@ -43,6 +44,7 @@ from rich.table import Table
 from rich.text import Text
 
 from flow.logs import known
+from flow.web import PORT
 
 # the terminal's own colours, which its theme maps
 DIM, TEXT, HEAD, RUN, OK, KEPT, REJECT, WARN, BAD, FRAME = (
@@ -106,6 +108,7 @@ class Board:
     kinds: Counter[Any] = field(default_factory=Counter)
     rejections: Counter[tuple[str, str]] = field(default_factory=Counter)
     began: float = field(default_factory=time.monotonic)
+    viewer: bool | None = None  # whether the viewer answered when last asked (None: not asked)
     fresh: list[str] = field(default_factory=list)  # attention lines not yet written to events.log
     unprinted: list[str] = field(default_factory=list)  # nor printed, where the run is not drawn live
 
@@ -373,14 +376,15 @@ NOTICES = {
 
 def logging_panel(board: Board, rows: int | None = None, plain: bool = False) -> Any:
     """What needs attention, the newest first, a row each: when, the notice (a tool's error or
-    warning, a failure, a rejection), the step and its tool, how often it came (each kind of
+    warning, a failure, a rejection), the step, its tool (the logger's full name), how often it came (each kind of
     warning counted once it was said), and the message, the instance it came first from after it."""
     found = Table(
         box=box.SIMPLE_HEAD, expand=not plain, pad_edge=False, header_style=f"bold {HEAD}", border_style=FRAME
     )
     found.add_column("time", style=DIM, no_wrap=True, width=8)
     found.add_column("notice", no_wrap=True, width=8)
-    found.add_column("step (tool)", no_wrap=True, max_width=24)
+    found.add_column("step", no_wrap=True)
+    found.add_column("tool", style=DIM, no_wrap=True)
     found.add_column("count", justify="right", no_wrap=True, width=5)
     found.add_column("message", overflow="fold", ratio=None if plain else 1, max_width=90 if plain else None)
     for stamp, notice, step, tool, instance, text, kind in list(reversed(board.attention))[: rows or None]:
@@ -388,13 +392,14 @@ def logging_panel(board: Board, rows: int | None = None, plain: bool = False) ->
         found.add_row(
             stamp,
             Text(notice.lower(), style=NOTICES.get(notice, TEXT)),
-            Text.assemble(step, (f" ({tool})" if tool else "", DIM)),
+            step,
+            tool,
             Text(str(count), style=NOTICES.get(notice, TEXT) if count > 1 else DIM),
             Text.assemble(text, (f"  {instance}", DIM)),
         )
     if not board.attention:
-        found.add_row("", "", "", "", Text("nothing yet", style=DIM))
-    return _panel(found, "logging (newest first)", plain)
+        found.add_row("", "", "", "", "", Text("nothing yet", style=DIM))
+    return _panel(found, "logging", plain)
 
 
 def rejections_panel(board: Board, plain: bool = False) -> Any:
@@ -458,7 +463,7 @@ def results_panel(board: Board, rows: int = 14, plain: bool = False) -> Any:
     for item in reversed(passed[-rows:]):
         metrics = item.record.get("metrics") or {}
         found.add_row(item.key, *(value(n, metrics.get(n)) for n in names), item.record.get("evidence", ""))
-    return _panel(found, f"results · {len(passed)} passed (the latest first)", plain)
+    return _panel(found, f"results · {len(passed)} passed", plain)
 
 
 def _results_rows(board: Board, rows: int = 14) -> int:
@@ -478,6 +483,7 @@ def dashboard(board: Board) -> Layout:
         Layout(logging_panel(board, 60)),
         Layout(rejections_panel(board), size=_rejection_rows(board) + 5),
         Layout(results_panel(board), size=_results_rows(board) + 5),
+        Layout(Padding(viewer_line(board), (0, 1)), size=1),
     )
     return root
 
@@ -492,7 +498,35 @@ def summary(board: Board) -> Group:
         logging_panel(board, 40, plain=True),
         rejections_panel(board, plain=True),
         results_panel(board, plain=True),
+        viewer_line(board),
     )
+
+
+def viewer_url(board: Board) -> str:
+    """The viewer's page of this run (its table, once the table step has written it)."""
+    return f"http://localhost:{PORT}/#block={board.block}&run={board.run}/{board.folder.name}"
+
+
+def viewer_up() -> bool:
+    """Whether the viewer answers on this machine: its catalog served (``python -m flow web.serve``)."""
+    try:
+        with urlopen(f"http://127.0.0.1:{PORT}/data/sweep/catalog.json", timeout=0.5) as answer:
+            return answer.status == 200
+    except OSError:
+        return False
+
+
+def viewer_line(board: Board) -> Text:
+    """The last line: the run's page in the viewer, and whether the viewer is up (checked as the run
+    starts and as it ends: ``Board.viewer``)."""
+    state = (
+        ("up", OK)
+        if board.viewer
+        else ("not running: python -m flow web.serve", WARN)
+        if board.viewer is False
+        else ("", DIM)
+    )
+    return Text.assemble(("viewer  ", f"bold {HEAD}"), (viewer_url(board), TEXT), "  ", state)
 
 
 def status_line(board: Board) -> str:
@@ -519,6 +553,7 @@ class View:
         self.written = self.said = self.drawn = -1e9
 
     def __enter__(self) -> Self:
+        self.board.viewer = viewer_up()
         if self.console.is_terminal:
             # the alternate screen, as htop: each frame overwrites the last in place, nothing scrolled
             # or cleared first (an inline view redraws by clearing lines: it flickers); the summary
@@ -535,6 +570,7 @@ class View:
         return self
 
     def __exit__(self, *exc: object) -> None:
+        self.board.viewer = viewer_up()
         if self.live is not None:
             self.live.__exit__(None, None, None)
         self.write(force=True)

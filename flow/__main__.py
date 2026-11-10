@@ -579,9 +579,9 @@ def main(argv: list[str] | None = None) -> None:
     elif not argv or argv[0] in ("-h", "--help") or "-h" in argv or "--help" in argv:
         usage()
     elif argv[0] == "web.serve":
-        from flow.web import server
+        from flow.web import PORT, server
 
-        server.serve(8765, "127.0.0.1")
+        server.serve(PORT, "127.0.0.1")
     else:
         steps(parser().parse_args(argv))
 

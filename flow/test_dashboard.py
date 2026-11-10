@@ -77,11 +77,11 @@ def test_the_board_counts_each_steps_instances_and_says_what_needs_attention(tmp
     text = _shown(dashboard.dashboard(board))
     assert "comp grid1  grid · 3 designs" in text and "0 passed   2 rejected   1 failed" in text
     # each box stacked, in order
-    titles = ["─ run ─", "─ pipeline ─", "─ logging (newest first) ─", "─ rejections ─", "─ results "]
+    titles = ["─ run ─", "─ pipeline ─", "─ logging ─", "─ rejections ─", "─ results "]
     assert all(title in text for title in titles) and sorted(titles, key=text.index) == titles
-    # a row a notice: time, notice, step (tool), count, the message without its level word
+    # a row a notice: time, notice, step, tool, count, the message without its level word
     rows = [line for line in text.splitlines() if "SFE-106: parameter 3 ignored" in line]
-    assert rows and "warning" in rows[0] and "sim (spectre)" in rows[0] and "WARNING" not in rows[0]
+    assert rows and "warning" in rows[0] and " sim " in rows[0] and " spectre " in rows[0] and "WARNING" not in rows[0]
     assert any("rejected" in line and "sim" in line and " 2 " in line for line in text.splitlines())
     assert "align: no route" in text and "delay_s" in text
     assert "status:" in dashboard.status_line(board) and "2 by delay_s at sim" in dashboard.status_line(board)
@@ -118,7 +118,8 @@ def test_the_view_writes_the_status_and_events_beside_the_run(tmp_path: Path, ca
     assert [event["state"] for event in lines] == ["failed"]
     assert "comp grid1" in (tmp_path / "status.txt").read_text()
     assert "FAILED sim tsmc65/a: boom" in (tmp_path / "events.log").read_text()
-    assert "logging (newest first)" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "logging" in out and "viewer  http://localhost:8765/#block=comp&run=grid1/" in out
 
 
 def test_a_known_warning_is_shown_as_known_with_its_reason(tmp_path: Path) -> None:
@@ -159,3 +160,13 @@ def test_a_running_steps_spinner_turns_a_frame_each_drawing(monkeypatch) -> None
         monkeypatch.setattr(dashboard.time, "monotonic", lambda tick=tick: 100.0 + tick * dashboard.DRAW_EVERY_S)
         frames.append(dashboard._spun())
     assert len(set(frames)) == 3
+
+
+def test_the_last_line_points_at_the_runs_page_in_the_viewer_and_says_whether_it_is_up(tmp_path: Path) -> None:
+    board = _board(tmp_path, ["a"])
+    url = dashboard.viewer_url(board)
+    assert url == f"http://localhost:8765/#block=comp&run=grid1/{tmp_path.name}"
+    board.viewer = False
+    assert "not running: python -m flow web.serve" in _shown(dashboard.viewer_line(board))
+    board.viewer = True
+    assert _shown(dashboard.viewer_line(board)).rstrip().endswith("up")
