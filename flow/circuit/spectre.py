@@ -13,6 +13,7 @@ its own database and a warning that none was named.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -39,14 +40,55 @@ def includes(install: Any, corner: Any = None, *, stdcells: bool = False) -> lis
     ]
 
 
-def options(temperature_c: float = 25.0) -> list[Any]:
+# the operating point's file a run writes (``options(oppoint=True)``): each device's terminals and
+# its model's values at the DC solution the run starts from
+OPPOINT = "oppoint.txt"
+
+
+def options(temperature_c: float = 25.0, *, oppoint: bool = True) -> list[Any]:
     """The options every run takes: its temperature, the selected signals saved alone, and the
-    models' limit checks into a file (``checklimitdest``)."""
-    return [
+    models' limit checks into a file (``checklimitdest``); where ``oppoint``, the DC operating
+    point before its analyses, each device's into ``OPPOINT`` (its capacitances: ``device_capacitance``)."""
+    found = [
         hs.Options(name="temp", value=temperature_c),
         hs.Options(name="save", value="selected"),
         hs.Options(name="checklimitdest", value="file"),
     ]
+    if oppoint:
+        found += [hs.Literal("opdc dc"), hs.Literal(f'opinfo info what=oppoint where=file file="{OPPOINT}"')]
+    return found
+
+
+_SI = {"a": 1e-18, "f": 1e-15, "p": 1e-12, "n": 1e-9, "u": 1e-6, "m": 1e-3, "": 1.0}
+# a device's terminal and the self-capacitances (its model's, at the operating point) it puts on
+# that terminal's net: the gate's total, the drain's and source's intrinsic and junction ones
+_SELF = {"g": ("cgg",), "d": ("cdd", "cjd"), "s": ("css", "cjs")}
+
+
+def device_capacitance(path: Path) -> dict[str, float]:
+    """Each net's capacitance from the devices on it (F), from a run's operating point
+    (``OPPOINT``): every transistor's gate (``cgg``), drain (``cdd`` and ``cjd``) and source
+    (``css`` and ``cjs``) self-capacitance on its terminal's net, the net named as the DUT names it
+    (the testbench's ``xtop.`` and ``xtop.dut.`` left out; ground, ``0``, is ``vss``)."""
+    found: dict[str, float] = {}
+    for block in path.read_text(errors="replace").split("Instance: ")[1:]:
+        nets = {
+            term: net or value
+            for term, net, value in re.findall(r"^\s+([gdsb]) : (?:V\(([^)]+)\)|val\(([^)]+)\))", block, re.MULTILINE)
+        }
+        values = {
+            name: float(number) * _SI[prefix]
+            for name, number, prefix in re.findall(
+                r"^\s+(\w+) = (-?[\d.]+(?:e-?\d+)?) ?([afpnum]?)F\b", block, re.MULTILINE
+            )
+        }
+        for term, names in _SELF.items():
+            if term not in nets:
+                continue
+            net = re.sub(r"^xtop\.(dut\.)?", "", nets[term])
+            net = "vss" if net == "0" else net
+            found[net] = found.get(net, 0.0) + sum(values.get(name, 0.0) for name in names)
+    return found
 
 
 def run(

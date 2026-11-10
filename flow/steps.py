@@ -204,12 +204,19 @@ def _netlist(job: Job) -> dict:
 
 
 def _presim(job: Job) -> dict:
-    """Each of the instance's testbench runs simulated and its measurement kept (``presim/<run>/``)."""
+    """Each of the instance's testbench runs simulated and its measurement kept (``presim/<run>/``),
+    and each net's capacitance from its devices at the runs' operating points (``device_f``, F)."""
+    from flow.circuit.spectre import OPPOINT, device_capacitance
     from flow.sweep import runner
 
     runs = runner.testbenches_of(job.block, job.pdk, job.params)
     runner.simulate(job.block, job.pdk, runs, job.out / "presim")
-    return {"runs": list(runs)}
+    # each net's capacitance from its devices (their models' at each run's operating point), the
+    # runs' mean: what the extraction's wiring adds to it, side by side in the viewer
+    points = [device_capacitance(path) for path in sorted((job.out / "presim").glob(f"*/{OPPOINT}"))]
+    nets = sorted({net for point in points for net in point})
+    device = {net: sum(point.get(net, 0.0) for point in points) / len(points) for net in nets} if points else {}
+    return {"runs": list(runs), **({"device_f": device} if device else {})}
 
 
 def _fresh(out: Path, step: Step) -> Path:

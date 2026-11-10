@@ -64,3 +64,22 @@ def test_spectre_marker_is_opt_in():
         )
         assert result.returncode == (0 if selection else 5), result.stdout + result.stderr
         assert expected in result.stdout
+
+
+def test_a_runs_operating_point_gives_each_nets_device_capacitance(tmp_path) -> None:
+    """Spectre's operating point (``OPPOINT``) as each net's device capacitance: a gate's total, a
+    drain's and source's intrinsic and junction ones, the testbench's prefixes left out, ground as vss."""
+    from flow.circuit.spectre import device_capacitance
+
+    path = tmp_path / "oppoint.txt"
+    path.write_text(
+        "Instance: xtop.dut.MN of Samp\nModel: nch\nPrimitive: bsim4\n"
+        "          d : V(xtop.vout) = 541 mV\n          g : V(xtop.clk) = 0 V\n"
+        "          s : V(xtop.dut.mid) = 550 mV\n          b : val(0) = 0 \n"
+        "        cjd = 800 aF\n        cjs = 976.224 aF\n        cgg = 2.5 fF\n"
+        "        cgd = -1.1 fF\n        cdd = 1.1 fF\n        cds = -525.08e-24 F\n        css = 1 fF\n"
+    )
+    found = device_capacitance(path)
+    assert set(found) == {"vout", "clk", "mid"}
+    assert abs(found["clk"] - 2.5e-15) < 1e-20 and abs(found["vout"] - 1.9e-15) < 1e-20
+    assert abs(found["mid"] - 1.976224e-15) < 1e-20

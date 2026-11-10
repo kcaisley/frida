@@ -457,7 +457,7 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
                 )
             )
         )
-    attrs.extend((*spectre.options(), hs.Save(save_targets)))
+    attrs.extend((*spectre.options(oppoint=False), hs.Save(save_targets)))
     tstop_s = 100e-9 if check else tb.conversions * len(tb.seq_init.data) / float(tb.symbol_rate)
     if not check:
         first_comp_symbol = tb.seq_comp.data.index("01") + 1
