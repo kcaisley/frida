@@ -45,7 +45,7 @@ FRIDA-2 is generated whole: its earlier template-swapped layouts and their extra
 
 The building blocks not yet on the pipeline (`flow.delay`, `flow.latch`, `flow.ota`, `flow.follower`, `flow.idac`, `flow.cml`, `flow.pi`, `flow.clkgen`, `flow.lvshift`, `flow.ringamp`, `flow.csa`, `flow.disc`, `flow.schmitt`, `flow.bias`) wait for their port: the CLI runs them no more.
 
-The tools come from the environment: `ALIGN_HOME` (an ALIGN install with its own Python, default `/local/kcaisley/layout-eval/ALIGN-public` on juno and asiclab003) and `IHP_OPEN_PDK` (a full IHP-Open-PDK checkout for ihp130's KLayout decks). Each PDK's signoff provider, `pdk/<pdk>/signoff.py`, runs the gdscheck precheck and then Calibre (Assura for LF150 LVS, the KLayout decks for ihp130).
+The tools come from the environment: `ALIGN_HOME` (an ALIGN install with its own Python, default `/local/kcaisley/layout-eval/ALIGN-public` on juno and asiclab003) and `IHP_OPEN_PDK` (a full IHP-Open-PDK checkout for ihp130's KLayout decks). Each PDK's signoff provider, `pdk/<pdk>/signoff.py`, runs gdscheck on the kit's DRC file, `pdk/<kit>/gdscheck/drc.yaml` (its `core` and `antenna` suites where it has them, else `main`, else its precheck), and then Calibre (Assura for LF150 LVS, the KLayout decks for ihp130).
 
 ## Circuit simulation
 

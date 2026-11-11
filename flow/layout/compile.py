@@ -29,7 +29,7 @@ from importlib import import_module
 from importlib.util import find_spec
 from pathlib import Path
 
-from flow.layout.signoff import GDSCHECK_PROCESSES, _gdscheck_runs, _lvs_findings, _markers
+from flow.layout.signoff import _gdscheck_runs, _lvs_findings, _markers, gdscheck_label
 
 ROOT = Path(__file__).resolve().parents[2]
 STAGES = (
@@ -62,7 +62,7 @@ def checks(pdk: str) -> dict:
     runs = _gdscheck_runs(pdk)
     drc = []
     if runs:
-        drc.append(f"gdscheck {GDSCHECK_PROCESSES[pdk]}" if pdk in GDSCHECK_PROCESSES else "gdscheck precheck")
+        drc.append(gdscheck_label(pdk))
     lvs = None
     if find_spec(f"pdk.{pdk}.klayout"):
         if find_spec(f"pdk.{pdk}.klayout.lvs"):

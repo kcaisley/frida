@@ -29,6 +29,7 @@ from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Literal
 
+import yaml
 from klayout import db
 
 from flow.layout import kpex
@@ -300,14 +301,32 @@ MAX_BOXES = 200  # markers kept per rule
 def _gdscheck_runs(pdk: str) -> list[tuple[str, str]]:
     """The gdscheck runs (process, suite) that check a layout in ``pdk``: gdscheck's own full deck of
     an open PDK (``GDSCHECK_PROCESSES``; its geometry and antenna suites, not density, which a block
-    alone fails), else the repo's precheck (``pdk/<pdk>/gdscheck/pdk.yml``); none without gdscheck."""
+    alone fails), else the kit's DRC file (``pdk/<pdk>/gdscheck/drc.yaml``) laid out the same way:
+    its core and antenna suites where it has them, else its main suite (the kit's
+    block-level rules), else its precheck; none without gdscheck."""
 
     if not shutil.which("gdscheck"):
         return []
     if pdk in GDSCHECK_PROCESSES:
         return [(GDSCHECK_PROCESSES[pdk], "core"), (GDSCHECK_PROCESSES[pdk], "antenna")]
-    deck = ROOT / "pdk" / pdk / "gdscheck/pdk.yml"
-    return [(str(deck), "precheck")] if deck.is_file() else []
+    # the kit's DRC file: its main suite (the kit's block-level rules), else its precheck
+    deck = ROOT / "pdk" / pdk / "gdscheck/drc.yaml"
+    if not deck.is_file():
+        return []
+    suites = {suite["name"] for suite in yaml.safe_load(deck.read_text()).get("suites", [])}
+    if "core" in suites:  # main less antenna, density and recommended: what a block alone must pass
+        return [(str(deck), suite) for suite in ("core", "antenna") if suite in suites]
+    return [(str(deck), "main" if "main" in suites else "precheck")]
+
+
+def _rule_name(category) -> str:
+    """A report category's rule name: its names from the top joined by dots (``CPO.EX.1``), not its
+    path, which quotes a name that reads as a number (``CPO.EX.'1'``)."""
+    names = []
+    while category is not None:
+        names.append(category.name())
+        category = category.parent()
+    return ".".join(reversed(names))
 
 
 def _markers(report: Path, top: str) -> dict[str, dict]:
@@ -322,7 +341,7 @@ def _markers(report: Path, top: str) -> dict[str, dict]:
     rules: dict[str, dict] = {}
     for item in database.each_item():
         category = database.category_by_id(item.category_id())
-        entry = rules.setdefault(category.path(), {"count": 0, "description": category.description, "boxes": []})
+        entry = rules.setdefault(_rule_name(category), {"count": 0, "description": category.description, "boxes": []})
         entry["count"] += 1
         if len(entry["boxes"]) >= MAX_BOXES:
             continue
@@ -387,7 +406,7 @@ class Checker(Enum):
 
 
 def open_drc(pdk: str, gds: Path, top: str, run_dir: Path) -> tuple[dict[str, int], str]:
-    """gdscheck on ``gds``: its own full deck of an open PDK, else the repo's precheck
+    """gdscheck on ``gds``: its own full deck of an open PDK, else the kit's full deck or precheck
     (``flow.layout.compile._gdscheck_runs``), its output streamed to the log; the violations by
     rule, and which deck ran."""
     from flow.logs import run_logged
@@ -406,8 +425,16 @@ def open_drc(pdk: str, gds: Path, top: str, run_dir: Path) -> tuple[dict[str, in
             raise RuntimeError(f"gdscheck ({suite}) wrote no report; see {run_dir / f'gdscheck.{suite}.log'}")
         for rule, entry in _markers(report, top).items():
             violations[rule] = violations.get(rule, 0) + entry["count"]
-    deck = f"gdscheck {GDSCHECK_PROCESSES[pdk]}" if pdk in GDSCHECK_PROCESSES else "gdscheck precheck"
-    return violations, deck
+    return violations, gdscheck_label(pdk)
+
+
+def gdscheck_label(pdk: str) -> str:
+    """Which gdscheck deck checks ``pdk``: gdscheck's own (its process), else the kit's suites
+    (``core + antenna``, ``main`` or ``precheck``)."""
+    runs = _gdscheck_runs(pdk)
+    if pdk in GDSCHECK_PROCESSES:
+        return f"gdscheck {GDSCHECK_PROCESSES[pdk]}"
+    return f"gdscheck {' + '.join(suite for _, suite in runs)}" if runs else "gdscheck"
 
 
 def open_lvs(
