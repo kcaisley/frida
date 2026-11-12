@@ -227,8 +227,7 @@ ty-paths = [
     "flow/seqgen/plots.py",
     "flow/seqgen/types.py",
 ]
-# flow/analysis/test_conformance.py belongs here once it imports again (write_netlist is gone)
-contract-tests = ["flow/test_pipeline.py"]
+contract-tests = ["flow/test_pipeline.py", "flow/analysis/test_conformance.py"]
 tex-files = '^docs/(outline|thesis/.*)\.tex$'
 tex-fmt-args = ["--nowrap", "--tabsize", "2"]
 chktex-files = '^docs/.*\.tex$'
