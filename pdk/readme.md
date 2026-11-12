@@ -11,7 +11,7 @@ One submodule per process (`tsmc65`, `tsmc28`, `tower180`, `ihp130`, `lf150`, `t
 | `netlist/` | netlist collateral shared by the tools (`lvs_source.py`: the LVS source of a row layout) | `pdk.<tech>.netlist.*` |
 | `klayout/` | layer palette and technology (`.lyp`, `.lyt`, `.lyd25`), KLayout LVS | files |
 | `calibre/` | foundry deck specialisation, the signoff checks `signoff.py` wraps (`signoff_rules`; LF150's runs Assura for LVS), recognition decks | `pdk.<tech>.calibre.*` |
-| `gdscheck/` | gdscheck process and rule decks derived from the Calibre rules | files |
+| `gdscheck/` | gdscheck process and rule decks | files |
 | `openroad/` | technology LEF, the standard-cell views (`lef/`, `lib/`, `gds/`, `sp/`), an `init.tcl` that reads them, and a design of every cell (`v/`) that `pdk/test_openroad.py` links | files |
 | `docs/` | notes on the PDK (layout-dependent effects in the models, `lde.md`) | |
 | `tests/` | the PDK's tests | |
