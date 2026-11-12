@@ -24,6 +24,32 @@ from flow.analysis.plots import (
 ROOT = Path(__file__).resolve().parents[1]
 ELEMENTARY_CHARGE_C = 1.602176634e-19
 
+# beam sources marked under the fluence axis: (name, fluence in cps/mm², label offset in points)
+photon_sources = (
+    ("PETRA III", 1e10, -4),
+    ("PETRA IV", 1.5e10, 4),
+    ("ESRF-EBS", 1e11, -8),
+    ("EuXFEL CW", 1.2e11, 8),
+)
+electron_sources = (
+    ("ELSA", 4e6, 0),
+    ("Talos F200", 1.4e7, 0),
+    ("Spectra", 6.2e7, -5),
+    ("F200X", 9.4e7, 0),
+    ("Themis", 1.2e8, 5),
+)
+# counting chips: (name, front-end dead time in ns, reported rate per pixel in cps)
+counting_chips = (
+    ("SPHIRD", 8.3, 12e6),
+    ("KITE", 23, 31e6),
+    ("MPX4", 36, 2.9e6),
+    ("TPX4", 50, 2.1e6),
+    ("IBEX", 100, 1.1e6),
+    ("PIL3", 125, 0.89e6),
+    ("EIGER", 238, 0.47e6),
+    ("MPX3", 400, 0.25e6),
+)
+
 
 def hit_rate_per_pixel_per_second(fluence_m2_s: float, pixel_pitch_m: float) -> float:
     return fluence_m2_s * pixel_pitch_m**2
@@ -160,19 +186,8 @@ def plot_hit_rate_vs_fluence(*, output_path: Path) -> tuple[Path, ...]:
 
     # ---- beam-source markers along bottom axis ----
     photon_color, electron_color = CURVE_COLORS[3], CURVE_COLORS[5]
-    _photon = [
-        ("PETRA III", 1e10, -4),
-        ("PETRA IV", 1.5e10, 4),
-        ("ESRF-EBS", 1e11, -8),
-        ("EuXFEL CW", 1.2e11, 8),
-    ]
-    _electron = [
-        ("ELSA", 4e6, 0),
-        ("Talos F200", 1.4e7, 0),
-        ("Spectra", 6.2e7, -5),
-        ("F200X", 9.4e7, 0),
-        ("Themis", 1.2e8, 5),
-    ]
+    _photon = photon_sources
+    _electron = electron_sources
     _xax = ax.get_xaxis_transform()
     for n, f, text_offset in _photon:
         ax.plot(
@@ -306,16 +321,7 @@ def plot_max_counting_rate_vs_window(*, output_path: Path) -> tuple[Path, ...]:
     ax_disc.plot(dead_ns, loss_rates, "--", color=CURVE_COLORS[0], label="10% pile-up limit")
 
     # Discriminating detector markers
-    _discrim = [  # (label, dead_time_ns, reported_rate_cps)
-        ("SPHIRD", 8.3, 12e6),
-        ("KITE", 23, 31e6),
-        ("MPX4", 36, 2.9e6),
-        ("TPX4", 50, 2.1e6),
-        ("IBEX", 100, 1.1e6),
-        ("PIL3", 125, 0.89e6),
-        ("EIGER", 238, 0.47e6),
-        ("MPX3", 400, 0.25e6),
-    ]
+    _discrim = counting_chips
     annotation_positions = {
         "MPX4": ((-8, 8), "right"),
         "TPX4": ((8, -2), "left"),

@@ -1,0 +1,5 @@
+# built by quarto and figures.py
+/_book/
+/.quarto/
+/figures/
+*_files/

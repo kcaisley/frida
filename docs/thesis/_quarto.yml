@@ -1,0 +1,58 @@
+# The thesis: one Markdown source, two editions. `quarto preview docs/thesis` serves the web
+# edition with live reload; `quarto render docs/thesis` builds the web edition and the PDF
+# (ubonn-thesis class) into docs/thesis/_book. Figures come from figures.py (pre-render).
+project:
+  type: book
+  output-dir: _book
+  pre-render: prerender.sh
+  resources:
+    - fonts/*.woff2
+
+book:
+  title: "Compact SAR ADCs for High-Frame-Rate Radiation Imaging"
+  subtitle: "Working draft"
+  author: "Kennedy Caisley"
+  date: last-modified
+  date-format: "D MMMM YYYY"
+  chapters:
+    - index.qmd
+    - background.qmd
+    - references.qmd
+  downloads: [pdf]
+  search: true
+  page-navigation: true
+
+bibliography: references.bib
+csl: ieee.csl
+link-citations: true
+number-sections: true
+crossref:
+  fig-prefix: Figure
+  eq-prefix: Equation
+  sec-prefix: Section
+
+format:
+  html:
+    theme: [default, thesis.scss]
+    css: fonts.css
+    include-after-body: plotly.html
+    html-math-method: mathjax
+    reference-location: margin
+    citation-location: margin
+    cap-location: bottom
+    toc: true
+    toc-depth: 3
+    toc-title: "On this page"
+    smooth-scroll: true
+    anchor-sections: true
+    lang: en-GB
+  pdf:
+    documentclass: scrbook
+    classoption: [PhD, UKenglish, oneside]
+    pdf-engine: lualatex
+    include-in-header: ubonn.tex
+    toc: true
+    lof: false
+    keep-tex: false
+    colorlinks: true
+    lang: en-GB

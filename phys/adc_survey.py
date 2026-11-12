@@ -86,6 +86,9 @@ class AdcSurveyPoint:
     nyquist_rate_hz: float
     conversion_energy_pj: float
     walden_fom_fj: float
+    title: str = ""
+    authors: str = ""
+    doi: str = ""
 
 
 def _as_float(value: object) -> float | None:
@@ -175,6 +178,10 @@ def load_filtered_points(workbook_path: Path = DEFAULT_WORKBOOK) -> tuple[AdcSur
                 technology_um = _as_float(row[column["TECHNOLOGY"]])
                 year = _as_float(row[column["YEAR"]])
                 paper_id = row[column["ID"]]
+                title, authors, doi = (
+                    str(row[column[name]] or "").strip() if name in column else ""
+                    for name in ("TITLE", "AUTHORS", "DOI")
+                )
                 architecture = row[column["ARCHITECTURE"]]
                 numeric = (area_mm2, sndr_plot_db, power_w, sampling_rate_hz, nyquist_rate_hz, technology_um, year)
                 if (
@@ -220,6 +227,9 @@ def load_filtered_points(workbook_path: Path = DEFAULT_WORKBOOK) -> tuple[AdcSur
                         nyquist_rate_hz=nyquist_rate_hz,
                         conversion_energy_pj=conversion_energy_pj,
                         walden_fom_fj=power_w / (nyquist_rate_hz * 2**enob) * 1e15,
+                        title=title,
+                        authors=authors,
+                        doi=doi,
                     )
                 )
     finally:
