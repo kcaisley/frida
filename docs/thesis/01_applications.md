@@ -5,7 +5,9 @@ Detector dynamic range has substantially improved over this period, spanning sin
 In contrast, the specification of frame rate has seen comparatively less advancement, as increasing it requires not just better pixel design optimization but also system-level optimization of readout circuits.
 However, as increasingly sophisticated imaging modalities have been introduced, the challenge of faster readout design has come to the foreground as a major limitation in current generation microelectronics hardware.
 
-[Paragraph outlining the chapter: from the physics to the resolution and frame rate, from the packaging to the area and power per converter.]
+::: todo
+- Paragraph outlining the chapter: from the physics to the resolution and frame rate, from the packaging to the area and power per converter.
+:::
 
 ## Frame rate is time resolution {#sec-frame-rate}
 
@@ -24,7 +26,9 @@ Faster detector readout supports efficient collection of these image series [@la
 Imaging applications: (a) transmission electron microscopy; (b) 4D-STEM; (c) X-ray diffraction at a synchrotron or free-electron laser; (d) in-situ and stroboscopic electron microscopy.
 :::
 
-[Section explaining each imaging mode and the frame rate, dose rate and pixel pitch it asks of the detector.]
+::: todo
+- Section explaining each imaging mode and the frame rate, dose rate and pixel pitch it asks of the detector.
+:::
 
 ## Counting and integrating pixels {#sec-counting}
 
@@ -53,7 +57,9 @@ $$ {#eq-integrating}
 Maximum hit rate per pixel. Left: integrating, @eq-integrating. Right: discriminating, @eq-pileup at 10 % pile-up, with SPHIRD [@grybos2023], KITE [@zambon2023], Medipix4 [@sriskaran2024], Timepix4 [@llopart2022], IBEX [@bochenek2018], PILATUS3 [@loeliger2012], EIGER [@dinapoli2010] and Medipix3 [@ballabriga2011].
 :::
 
-[Paragraph reading @fig-hit-rate and @fig-counting-rate against each other.]
+::: todo
+- Paragraph reading @fig-hit-rate and @fig-counting-rate against each other.
+:::
 
 These problems are best solved by integrating mode sensors, where multiple particles are measured per frame, but still with single electron resolution.
 With the generous SNR provided by direct electron detectors, single electron resolution has been readily achieved, and so the next question becomes how quickly and compactly (with low pixel pitch) we can read out these.
@@ -65,7 +71,9 @@ Frame-based radiation detectors with integrating front-ends are especially well-
 
 ## Sensor and readout arrangements {#sec-arrangements}
 
-[Section introducing the arrangements of sensor and readout: monolithic, sensor and readout chips side by side on one package, and hybrid stacks.]
+::: todo
+- Section introducing the arrangements of sensor and readout: monolithic, sensor and readout chips side by side on one package, and hybrid stacks.
+:::
 
 Monolithic sensors are often very thin and so can't typically absorb 100 % of incident electron energy; therefore there is some variation in the proportion of energy left between particles, even with the same energy.
 This is called Landau noise and follows a Landau distribution.
@@ -91,7 +99,9 @@ A hybrid stack.
 Thinner sensors (below 150 µm) will reduce the multiple scattering of keV electrons, so this is often targeted by commercial sensors.
 MeV electrons have less multiple scattering, and as they deposit about five times less energy per unit length, a thicker sensor (about 500 µm) is more desirable.
 
-[Section on interconnect: bump bonding, wafer bonding and TSVs, and the pixel pitch they allow.]
+::: todo
+- Section on interconnect: bump bonding, wafer bonding and TSVs, and the pixel pitch they allow.
+:::
 
 Redistribution layers are a post-metallization layer which can be used to remap the spacing of top metal traces, in either 3D or 2D integrations.
 In bump bonding, chip and sensor are typically 300 µm and 150 µm thick respectively; with wafer bonding and TSVs, the chip and sensor can be thinned to 20 µm and 100 µm.
@@ -110,7 +120,9 @@ The sampling time of an ADC must be slow enough to achieve the resolution needed
 The settling time of the row switching and the pixels determines how quickly a row can be read out.
 Just reading multiple rows at once, with extra ADCs, is a workaround for this speed limit, but four-fold may be the practical limit.
 
-[Section on pixel-parallel against column-parallel conversion and multiplexing.]
+::: todo
+- Section on pixel-parallel against column-parallel conversion and multiplexing.
+:::
 
 ## Budgets {#sec-budgets}
 
@@ -135,11 +147,15 @@ Most blocks are roughly square, and exact geometry is less critical than in RF d
 Small area improvements scale across the array.
 Area is essential to this argument: an efficient ADC that occupies too much silicon cannot be distributed throughout a tightly constrained detector readout.
 
-[Worked example of the area available per ADC in a column-parallel readout chip.]
+::: todo
+- Worked example of the area available per ADC in a column-parallel readout chip.
+:::
 
 ### Data off the chip
 
 This project pursues a single-reticle array larger than 1 Mpixel with a continuous frame rate above 100,000 fps.
 To meet those array-level goals, the converter fabric must deliver aggregate throughput above 1000 Gbps while staying within a 1 W/cm² chip-bottom power-density budget.
 
-[Section on serial links and their share of the power and area budget.]
+::: todo
+- Section on serial links and their share of the power and area budget.
+:::

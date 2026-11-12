@@ -1,12 +1,16 @@
 # Analog-to-digital converters {#sec-adcs}
 
-[Paragraph introducing the chapter: the field of ADCs, the architectures, the survey that points to SAR, and the specification derived from @sec-applications.]
+::: todo
+- Paragraph introducing the chapter: the field of ADCs, the architectures, the survey that points to SAR, and the specification derived from @sec-applications.
+:::
 
 ## Metrics {#sec-metrics}
 
 ### Quantization, noise, and effective number of bits
 
-[Section explaining quantization noise, SNDR and ENOB.]
+::: todo
+- Section explaining quantization noise, SNDR and ENOB.
+:::
 
 The effective number of bits follows from the signal-to-noise-and-distortion ratio of a full-scale sine wave [@walden1999]:
 $$
@@ -30,11 +34,15 @@ $$
 \mathrm{FoM_S} = \mathrm{SNDR} + 10 \log_{10}\frac{f_\mathrm{s}/2}{P}.
 $$ {#eq-schreier}
 
-[Section on area and sampling-rate density as metrics beside energy.]
+::: todo
+- Section on area and sampling-rate density as metrics beside energy.
+:::
 
 ## Architectures {#sec-architectures}
 
-[Section introducing the basic ADC architectures: flash, single-slope, SAR, pipeline, pipelined SAR, delta-sigma and time-based, with a block diagram of each.]
+::: todo
+- Section introducing the basic ADC architectures: flash, single-slope, SAR, pipeline, pipelined SAR, delta-sigma and time-based, with a block diagram of each.
+:::
 
 ::: {#fig-architectures placeholder="Block diagrams of the basic ADC architectures: flash, single-slope, SAR, pipeline, delta-sigma."}
 The basic ADC architectures.
@@ -43,7 +51,9 @@ The basic ADC architectures.
 In general, arbitrarily high resolution is achievable up to the noise floor at the maximum single-stage speed, if you are willing to spend more power via pipelines.
 Put differently, pipelining is a way to improve resolution, at a fixed speed, by spending more power.
 
-[Table comparing the architectures: decisions per sample, cycles per sample, and what dominates their area.]
+::: todo
+- Table comparing the architectures: decisions per sample, cycles per sample, and what dominates their area.
+:::
 
 ## Survey {#sec-survey}
 
@@ -62,11 +72,15 @@ Effective resolution against energy per Nyquist conversion, with the design goal
 Walden figure of merit against reported ADC area, with the design goal.
 :::
 
-[Section reading the survey by architecture and by process node.]
+::: todo
+- Section reading the survey by architecture and by process node.
+:::
 
 ## Why SAR {#sec-why-sar}
 
-[Section on why the SAR architecture fits the application.]
+::: todo
+- Section on why the SAR architecture fits the application.
+:::
 
 The trade-off between performance (noise, linearity, speed) and costs (power, area) in SAR ADCs is tricky, because each block has a different relationship between these.
 Digital power is linear with N, while analog power is exponential with N (due to mismatch and noise).
@@ -97,7 +111,9 @@ The Walden figure of merit (@eq-walden) and the sampling-rate density $f_\mathrm
 | Walden FoM | 1.2 pJ/step (8 bit) | 20 pJ/step (6 ENOB) | 15 fJ/step (8 bit) | 9.4 fJ/step (10 ENOB) | 4.9 fJ/step |
 | $f_\mathrm{s}/A$ | 1.4 kS/s/µm² | 0.087 kS/s/µm² | 3.6 kS/s/µm² | 0.095 kS/s/µm² | 2.8 kS/s/µm² |
 
-[Section analyzing the layout area of these converters against the design goal: where each spends its area, and why resolution and area have so far been traded against each other.]
+::: todo
+- Section analyzing the layout area of these converters against the design goal: where each spends its area, and why resolution and area have so far been traded against each other.
+:::
 
 ::: {#fig-earlier placeholder="Published layouts of the group's earlier ADCs: the DCD channel floorplan (Peric 2010, Fig. 3), the DCDB layout (Knopf 2011, Fig. 3), the 8-bit SAR channel (Kishishita 2013, Fig. 3), and the CoRDIA ADC chips (Marras 2024, Fig. 2), each redrawn or reproduced with permission."}
 Earlier detector ADCs from the research group.
@@ -105,7 +121,9 @@ Earlier detector ADCs from the research group.
 
 ## Specification {#sec-specs}
 
-[Section deriving each specification from @sec-applications.]
+::: todo
+- Section deriving each specification from @sec-applications.
+:::
 
 : The design goal. {#tbl-specs}
 

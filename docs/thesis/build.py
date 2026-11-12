@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import figures
@@ -63,6 +64,40 @@ def drawing_pdfs() -> None:
             subprocess.run(["rsvg-convert", "--format=pdf", f"--output={pdf}", str(svg)], check=True)
         else:
             subprocess.run(["inkscape", str(svg), f"--export-filename={pdf}"], check=True)
+
+
+FRIDA1_GDS = "build/adc/e2e_adc_fab/tsmc65/frida1_1layer_radix17/layout/frida1_1layer_radix17.gds"
+FRIDA1_RENDERS = (
+    "layout_frida1_channel=@4",
+    "layout_frida1_comp=comp",
+    "layout_frida1_samp=sampswitch",
+    "layout_frida1_capdriver=capdriver",
+    "layout_frida1_caparray=caparray_1layer_radix17",
+    "layout_frida1_digital=adc_digital@3",
+)
+
+
+def layout_renders() -> None:
+    """FRIDA-1's layouts in the viewer's style (drawings/render_layout.py), where its GDS and the
+    kit's layer map are present (the main checkout with the PDK submodules); kept once made."""
+    root = figures.build_dir().parent
+    gds = root / FRIDA1_GDS
+    if (figures.OUT / "layout_frida1_comp.png").exists() or not gds.exists():
+        return
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(HERE / "drawings" / "render_layout.py"),
+            str(gds),
+            "tsmc65",
+            str(figures.OUT),
+            *FRIDA1_RENDERS,
+        ],
+        cwd=root,
+        check=False,
+    )
+    if result.returncode:
+        print("build: FRIDA-1's layout renders need the kit's layer map; left out")
 
 
 def tikz_drawings() -> None:
@@ -127,6 +162,9 @@ def web_image(path: Path, embed: bool) -> str:
     itself), linked from _build, or inside the page (downsampled when large) to share it."""
     raster = BUILD / "raster"
     raster.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        print(f"build: no {path} (a render the kit makes); left out of the page")
+        return ""
     if path.suffix == ".pdf":
         png = raster / f"{path.stem}.png"
         if not png.exists() or png.stat().st_mtime < path.stat().st_mtime:
@@ -213,6 +251,7 @@ def main() -> None:
     args = parser.parse_args()
     BUILD.mkdir(exist_ok=True)
     figures.main()
+    layout_renders()
     drawing_pdfs()
     tikz_drawings()
     if "html" in args.targets:

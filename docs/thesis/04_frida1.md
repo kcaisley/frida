@@ -14,11 +14,11 @@ FRIDA-1's core: the ADC channels and their shared periphery.
 The sampling switch and comparator layouts were manually laid out using a traditional analog-on-top flow.
 We used these designs because their architectures and device sizes were already close to the optima found in the preceding optimization steps (@sec-frida1-samp, @sec-frida1-comp).
 
-::: {#fig-frida1-comp src="../images/frida_comp.png"}
+::: {#fig-frida1-comp src="figures/layout_frida1_comp.png"}
 FRIDA-1's comparator layout.
 :::
 
-::: {#fig-frida1-samp src="../images/frida_samp.png"}
+::: {#fig-frida1-samp src="figures/layout_frida1_samp.png"}
 FRIDA-1's sampling switch layout.
 :::
 
@@ -27,12 +27,12 @@ FRIDA-1's sampling switch layout.
 The drivers were sized from standard cells.
 The capacitor array was generated directly from its specification to GDS using a Python script and the KLayout Python API.
 
-::: {#fig-frida1-capdriver src="../images/frida_capdriver.png"}
+::: {#fig-frida1-capdriver src="figures/layout_frida1_capdriver.png"}
 FRIDA-1's capacitor drivers.
 :::
 
-::: {#fig-frida1-caparray src="../images/frida_caparray.png"}
-FRIDA-1's capacitor array.
+::: {#fig-frida1-caparray src="figures/layout_frida1_caparray.png"}
+FRIDA-1's capacitor array, metals M2 to M7.
 :::
 
 ### Digital control logic {#sec-frida1-logic}
@@ -40,8 +40,8 @@ FRIDA-1's capacitor array.
 The digital control logic was implemented entirely in Verilog.
 An OpenROAD flow converted it to layout, leaving gaps for the analog blocks.
 
-::: {#fig-frida1-digital src="../images/frida_adc_dgital.png"}
-The ADC channel's digital layout, with the gaps left for the analog blocks.
+::: {#fig-frida1-digital src="figures/layout_frida1_digital.png"}
+The ADC channel's digital layout, metals up to M3, with the gaps left for the analog blocks.
 :::
 
 ## ADC block assembly and channel layout {#sec-frida1-channel}
@@ -51,8 +51,8 @@ Within this channel footprint, the capacitor structures occupy upper metal layer
 This overlap reduces the footprint that would otherwise be required by separate capacitor and circuit regions.
 The prototype channel layout measures 60.5 × 63.5 µm, or approximately 3,800 µm², satisfying the intended compact form factor.
 
-::: {#fig-frida1-adc src="../images/frida_adc.png"}
-One FRIDA-1 ADC channel: building-block placement, capacitor array, shielding and power grids.
+::: {#fig-frida1-adc src="figures/layout_frida1_channel.png"}
+One FRIDA-1 ADC channel, the devices and metals up to M4: the building blocks' placement under the capacitor array.
 :::
 
 ::: {#fig-frida1-adc-3d src="../images/frida_adc_3d.png"}
@@ -84,10 +84,6 @@ The top level was assembled hierarchically with OpenROAD, using the ADC block as
 
 ::: {#fig-frida1-padring src="../images/frida_padring.png"}
 FRIDA-1's pad ring.
-:::
-
-::: {#fig-frida1-pinout src="../images/pinout.png"}
-FRIDA-1's pinout.
 :::
 
 ::: todo

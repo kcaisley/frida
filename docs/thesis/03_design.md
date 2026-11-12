@@ -53,7 +53,7 @@ $$ {#eq-cost-optimum}
 
 ### Comparing across processes and topologies {#sec-top-level}
 
-::: {#fig-top-level placeholder="The top-level comparison: each block's figure of merit against its area, coloured by process and marked by topology, from every block's records (the viewer's scatter, drawn for print)."}
+::: {#fig-top-level plot="top_level"}
 Every block's designs across processes and topologies.
 :::
 
@@ -94,9 +94,17 @@ In TSMC65 into 1 pF, FRIDA-1's transmission gate measures 130–550 Ω (highest 
 Transmission-gate on-resistance at mid-supply against width in six processes, with the triode rule's $R_\mathrm{on} \propto 1/W$ (@eq-ron).
 :::
 
+::: {#fig-rec-samp-ron-vin plot="rec_samp_ron_vin"}
+FRIDA-1's sampling switch in TSMC65: On-resistance into 1 pF over the input level.
+:::
+
 @fig-samp-ron-width checks @eq-ron across processes: in every one the measured resistance falls as $1/W$ over a factor of sixteen in width.
 
 ### Tracking error and distortion {#sec-samp-distortion}
+
+::: {#fig-rec-samp-track-error-vin plot="rec_samp_track_error_vin"}
+FRIDA-1's sampling switch in TSMC65: Track error at the end of tracking over the input level.
+:::
 
 While tracking, the held node follows the input through the switch's time constant.
 To first order it lags the input by $\tau = R_\mathrm{on}(v)\,C$, so the sample taken is
@@ -123,6 +131,10 @@ FRIDA-1's switch, with $R_\mathrm{on} \approx 1$ kΩ into $C = 1.64$ pF, has $\t
 
 ::: {#fig-samp-boost plot="samp_boost_pedestal"}
 Bootstrapped switches in six processes: the largest pedestal against the on-resistance. A lower resistance is a wider switch, which injects more charge when it opens.
+:::
+
+::: {#fig-rec-samp-pedestal-vin plot="rec_samp_pedestal_vin"}
+FRIDA-1's sampling switch in TSMC65: Pedestal over the input level.
 :::
 
 Pedestals stay within ±0.7 mV for the transmission gates and reach −2 mV for the NMOS switches at 32 units, growing with the width (−10 mV at 160).
@@ -215,6 +227,10 @@ The product $E\,\sigma^2$ is the comparator's figure of merit: scaling a design 
 Energy per decision against input-referred noise for every comparator in six processes, marked by latch, with lines of constant $E\sigma^2$ (@eq-comp-scaling). Scaling moves a design along a line; the topology and the process set which line.
 :::
 
+::: {#fig-rec-comp-noise-cm plot="rec_comp_noise_cm"}
+FRIDA-1's comparator in TSMC65: Input-referred noise over the common mode.
+:::
+
 The characterization confirms @eq-comp-scaling: every width times $k$ divides the noise by about $\sqrt{k}$ (toward a floor) and multiplies the energy by $k$, keeping the delay.
 In TSMC65 the energy times noise power of the dynamic bias is 3.9 to 4.3 fJ·mV², of the base StrongARM 5.8 to 7.5.
 The dynamic bias's input pair integrates in weak inversion and spends only the charge C_TAIL sets, which is why it sits on a lower line.
@@ -225,6 +241,10 @@ The dynamic bias's input pair integrates in weak inversion and spends only the c
 :::
 
 ### Regeneration and metastability {#sec-comp-metastability}
+
+::: {#fig-rec-comp-metastability plot="rec_comp_metastability"}
+FRIDA-1's comparator in TSMC65: Delay over the input (nominal common mode).
+:::
 
 Once integration ends, the cross-coupled pair amplifies the difference exponentially with a time constant $\tau$, set by its own capacitance over its transconductance.
 An input $v$ is resolved to a logic level in [@razavi2015]
@@ -249,8 +269,12 @@ One clock is 1 ns of reset, then 4 ns of evaluation, and the converter allows ab
 The energy per decision is the supply's charge over a decision's cycle, read off a charge meter the simulator integrates, at the supply's voltage, averaged over the decisions that follow one at the same input.
 Each clock reaches the comparator through an inverter chain on the comparator's supply, tapering by fanout 4 to a last stage at fanout 2, so that the energy per decision counts the clock (a long-tailed StrongARM's nearly doubles).
 
-::: {#fig-comp-scurve placeholder="One comparator's transient-noise S-curve with its fitted Gaussian, and its noise and offset over the common mode (the pipeline's per-record plots)."}
-A comparator's S-curve and its noise over the common mode.
+::: {#fig-rec-comp-scurve plot="rec_comp_scurve"}
+FRIDA-1's comparator in TSMC65: Decision probability (nominal common mode, transient noise).
+:::
+
+::: {#fig-rec-comp-energy-supply plot="rec_comp_energy_supply"}
+FRIDA-1's comparator in TSMC65: Energy per decision over the supply.
 :::
 
 ### Optimization per resolution {#sec-comp-optimization}
@@ -351,8 +375,16 @@ C_u \geq \left(2^N - 1\right)\left(\frac{A}{\sigma_\mathrm{mid}}\right)^2 \mathr
 $$ {#eq-cmin-matching}
 Matching asks for $4^N$ as noise does, but with the coefficient $A^2$ in place of $kT/V_\mathrm{ref}^2$; whichever is larger in a given process sets the array.
 
-::: {#fig-cdac-limits placeholder="The two minimum capacitances, @eq-cmin-noise and @eq-cmin-matching, against resolution, for published matching coefficients (0.22 to 0.85 %·√fF), with each design's array marked."}
+::: {#fig-cdac-limits plot="cdac_limits"}
 The noise and the matching limits on the total capacitance.
+:::
+
+::: {#fig-rec-capdac-mismatch-inl plot="rec_capdac_mismatch_inl"}
+FRIDA-1's capacitor array in TSMC65: Worst INL with the design weights (95th percentile) over Pelgrom's coefficient.
+:::
+
+::: {#fig-rec-adc-mismatch-dnl plot="rec_adc_mismatch_dnl"}
+The generated FRIDA converter (behavioral): Worst DNL over the Pelgrom coefficient (predicted 95th percentile).
 :::
 
 ::: todo
@@ -413,6 +445,18 @@ $$ {#eq-calibratable}
 The 95th percentile of the gap no calibration recovers, at a matching coefficient of 1 %·√fF, against the number of redundant decisions, for every array of the design space, marked by scheme. Binary arrays leave 1.5–3 LSB; enough redundancy, placed at the most significant stages, brings it under one LSB.
 :::
 
+::: {#fig-rec-capdac-mismatch-gap plot="rec_capdac_mismatch_gap"}
+FRIDA-1's capacitor array in TSMC65: Unrecoverable code width after ideal calibration (95th percentile).
+:::
+
+::: {#fig-rec-adc-redundancy plot="rec_adc_redundancy"}
+The generated FRIDA converter (behavioral): Error tolerance by stage.
+:::
+
+::: {#fig-rec-adc-mismatch-margin plot="rec_adc_mismatch_margin"}
+The generated FRIDA converter (behavioral): Redundancy margin over its mismatch σ by stage.
+:::
+
 Three schemes redistribute the binary array's units: MSB split splits the most significant binary weights into halves, which gives the free first comparison and the decisions after it their tolerance; LSB split splits the least significant weights of at least 2, a tolerance only at the LSB end; MSB redistribution is FRIDA's paired overlay, a run of paired powers of two taken from the MSB and added from the third stage on, its tolerance spread over the whole chain.
 
 Redundant capacitor weights spread FRIDA-1's conversion over 17 comparator decisions, from which a normalized 12-bit result is reconstructed.
@@ -427,6 +471,10 @@ Overlapping decision ranges allow later comparisons to correct some earlier erro
 :::
 
 ### Switching scheme {#sec-cdac-switching}
+
+::: {#fig-rec-capdac-dac-inl plot="rec_capdac_dac_inl"}
+FRIDA-1's capacitor array in TSMC65: DAC INL by code, the 95th-percentile run at the middle condition.
+:::
 
 FRIDA uses a modified monotonic, single-side switching procedure, building on the monotonic switching scheme [@liu2010].
 Programmable initial capacitor states provide a means to adjust the comparator common-mode trajectory.
@@ -443,6 +491,10 @@ $$ {#eq-switching}
 :::
 
 ### Drivers and settling {#sec-cdac-settling}
+
+::: {#fig-rec-capdac-settling-stage plot="rec_capdac_settling_stage"}
+FRIDA-1's capacitor array in TSMC65: Settling to half an LSB by stage (the slower direction).
+:::
 
 A stage's bottom plate settles first order through its driver.
 To settle a stage of weight $w$ to half an LSB of the whole array $W$ takes
@@ -469,6 +521,18 @@ The extracted `main − diff` relative weights matched the intended weights well
 The nominal two-layer flavors have disconnected upper plates, so their extracted capacitance matched the one-layer one rather than adding a parallel layer.
 
 ### FRIDA-1 in the grid {#sec-frida1-cdac}
+
+::: {#fig-rec-adc-calibration-weights plot="rec_adc_calibration_weights"}
+The generated FRIDA converter (behavioral): Weight error of the extracted array.
+:::
+
+::: {#fig-rec-adc-inl plot="rec_adc_inl"}
+The generated FRIDA converter (behavioral): Ramp INL, design weights.
+:::
+
+::: {#fig-rec-adc-inl-calibrated plot="rec_adc_inl_calibrated"}
+The generated FRIDA converter (behavioral): Ramp INL, calibrated.
+:::
 
 FRIDA-1's array is the grid's `frida1` instance: 12 bits, MSB redistribution with 5 redundant decisions (17 in all), at twice the noise minimum (@eq-cmin-noise), in difference capacitors.
 Extracted in TSMC65, its gain is 0.73 (a 0.68 V full scale), its largest stage settles in 0.28 ns with a step error of 0.017 LSB, and it takes 645 µm² of layout per side.
@@ -504,6 +568,14 @@ The sequences studied.
 :::
 
 ### Timing budget {#sec-clocking-budget}
+
+::: {#fig-rec-adc-trajectory plot="rec_adc_trajectory"}
+The generated FRIDA converter (behavioral): Decision paths at one input.
+:::
+
+::: {#fig-rec-adc-hsu-rate plot="rec_adc_hsu_rate"}
+The generated FRIDA converter (behavioral): Integrated error over the conversion rate.
+:::
 
 Each decision must fit the comparator's delay at its input (@eq-regeneration), the logic's clock-to-output and the DAC's settling (@eq-driver) within its share of the conversion.
 
@@ -561,8 +633,20 @@ The reference may add at most half the quantization noise power from its output 
 
 The behavioral model measures the budget as a ladder: the 10 MS/s sine from quantization alone, then adding the sampler's tracking error, its kT/C noise and jitter, the DAC's settling, the comparator's delay and its noise in turn.
 
-::: {#fig-adc-ladder placeholder="The ENOB ladder of the generated FRIDA design (TSMC65): quantization 11.99 bits, then the sampler's tracking error −1.65, kT/C −0.06, settling 0, comparator timing −0.02, comparator noise −0.22, ending at 10.04."}
+::: {#fig-adc-ladder plot="adc_ladder"}
 The ENOB budget, one impairment at a time.
+:::
+
+::: {#fig-rec-adc-enob-rate plot="rec_adc_enob_rate"}
+The generated FRIDA converter (behavioral): ENOB over the conversion rate.
+:::
+
+::: {#fig-rec-adc-spectrum-low plot="rec_adc_spectrum_low"}
+The generated FRIDA converter (behavioral): Spectrum at 10 MS/s, low input frequency.
+:::
+
+::: {#fig-rec-adc-noise-spectrum plot="rec_adc_noise_spectrum"}
+The generated FRIDA converter (behavioral): Output-code noise: 0.77 LSB rms = lines 0.00 ⊕ white 0.77.
 :::
 
 For the generated FRIDA design the ladder ends at 10.04 bits: the sampler's tracking error costs the most (1.65 bits), the comparator's noise 0.22, kT/C 0.06.
@@ -574,6 +658,10 @@ Its noise is 0.76 LSB, the sampler 0.50 and the comparator 0.71.
 :::
 
 ### Energy {#sec-adc-energy}
+
+::: {#fig-rec-adc-power-rate plot="rec_adc_power_rate"}
+The generated FRIDA converter (behavioral): Supply power over the conversion rate.
+:::
 
 The energy per conversion sums the three supplies: the comparator's decisions on the analog rail, the logic's registers and clock on the digital rail, and the DAC's charge from the reference (@eq-switching) with its drivers' transitions:
 $$
@@ -588,6 +676,10 @@ The generated FRIDA design spends about 28.9 pJ per conversion, 289 µW at 10 MS
 :::
 
 ### Area {#sec-adc-area}
+
+::: {#fig-rec-adc-reference-noise plot="rec_adc_reference_noise"}
+The generated FRIDA converter (behavioral): ENOB lost to the reference's noise, sampler and comparator ideal.
+:::
 
 ::: todo
 - An area budget for the full converter: the array (@fig-cdac-area), the comparator's cap per resolution (15, 20, 63 µm a side), the sampler, the drivers and the logic; no full-converter layout exists yet beyond the blocks side by side.

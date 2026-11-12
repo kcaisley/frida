@@ -1052,9 +1052,280 @@ def enob_ctot() -> Figure:
     )
 
 
+SWITCH_SYMBOLS = {"TGATE": "o", "NMOS": "s", "PMOS": "v", "BOOTSTRAP": "^"}
+
+
+def top_level(samp_rows: list[dict], comp_rows: list[dict]) -> Figure:
+    """Each block's figure of merit against its layout area, coloured by process and marked by
+    topology: the switch's on-resistance, the comparator's E·σ²."""
+    samp_traces, comp_traces = [], []
+    for pdk in PDK_ORDER:
+        pick = [
+            r
+            for r in samp_rows
+            if r["pdk"] == pdk and r["metrics"].get("ron_ohm") and r["metrics"].get("layout_area_um2")
+        ]
+        if pick:
+            samp_traces.append(
+                Trace(
+                    PDK_LABELS[pdk],
+                    [r["metrics"]["layout_area_um2"] for r in pick],
+                    [r["metrics"]["ron_ohm"] for r in pick],
+                    color=_pdk_color(pdk),
+                    symbol=[SWITCH_SYMBOLS.get(r["params"]["switch_type"], "o") for r in pick],
+                    hover=[
+                        f"<b>{PDK_LABELS[pdk]}</b><br>{r['label']}<br>{r['metrics']['ron_ohm']:.0f} Ω, {r['metrics']['layout_area_um2']:.0f} µm²"
+                        for r in pick
+                    ],
+                )
+            )
+        pick = [
+            r
+            for r in comp_rows
+            if r["pdk"] == pdk
+            and r["metrics"].get("noise_v")
+            and r["metrics"].get("energy_0p5mv_j")
+            and r["metrics"].get("layout_area_um2")
+            and r["metrics"].get("decides_in_time")
+        ]
+        if pick:
+            comp_traces.append(
+                Trace(
+                    PDK_LABELS[pdk],
+                    [r["metrics"]["layout_area_um2"] for r in pick],
+                    [r["metrics"]["energy_0p5mv_j"] * 1e15 * (r["metrics"]["noise_v"] * 1e3) ** 2 for r in pick],
+                    color=_pdk_color(pdk),
+                    symbol=[LATCH_SYMBOLS.get(r["params"]["latch"], "o") for r in pick],
+                    legend=0,
+                    hover=[
+                        f"<b>{PDK_LABELS[pdk]}</b><br>{r['label']}<br>E·σ² "
+                        f"{r['metrics']['energy_0p5mv_j'] * 1e15 * (r['metrics']['noise_v'] * 1e3) ** 2:.1f} fJ·mV², {r['metrics']['layout_area_um2']:.0f} µm²"
+                        for r in pick
+                    ],
+                )
+            )
+    for kind, marker in SWITCH_SYMBOLS.items():
+        samp_traces.append(
+            Trace(
+                kind.title() if kind != "TGATE" else "Transmission gate",
+                [],
+                [],
+                color=LEGEND_FACE_COLOR,
+                symbol=marker,
+                legend=2,
+            )
+        )
+    return Figure(
+        "top_level",
+        [
+            Panel(
+                Axis("Layout area (µm²)", log=True, ticks=decades(0, 3, plain)),
+                Axis("On-resistance (Ω)", log=True, ticks=decades(1, 4, plain)),
+                samp_traces,
+                title="Sampling switch",
+                legend=("Process", "upper right"),
+                legend2=("Switch", "lower left"),
+            ),
+            Panel(
+                Axis("Layout area (µm²)", log=True, ticks=decades(1, 4, plain)),
+                Axis("E·σ² (fJ·mV²)", log=True, ticks=decades(0, 3, plain)),
+                comp_traces,
+                title="Comparator",
+                legend=("", "upper right"),
+            ),
+        ],
+        height_in=3.6,
+    )
+
+
+def cdac_limits() -> Figure:
+    """The least capacitance per side for noise (2kT/C = LSB²/12) and for matching (the mid-code
+    transition at a quarter LSB), over the resolution, at published matching coefficients."""
+    k_t = 1.380649e-23 * 300.0
+    full_scale = 1.2
+    bits = list(range(8, 17))
+    noise = [24 * k_t / (full_scale / 2**n) ** 2 * 1e15 for n in bits]
+    traces = [Trace("Noise, 2kT/C = LSB²/12", bits, noise, color=CURVE_COLORS[0], lines=True)]
+    for coefficient, color, source in ((0.0022, CURVE_COLORS[1], "0.22"), (0.0085, CURVE_COLORS[3], "0.85")):
+        sigma = 0.25  # LSB at the mid-code transition
+        matching = [2**n * (2**n - 1) * (coefficient / sigma) ** 2 for n in bits]
+        traces.append(Trace(f"Matching, A = {source} %·√fF", bits, matching, color=color, lines=True, dash=True))
+    return Figure(
+        "cdac_limits",
+        [
+            Panel(
+                Axis("Resolution (bits)", limits=(8, 16), ticks=[(n, str(n)) for n in range(8, 17, 2)]),
+                Axis("Least capacitance per side (fF)", log=True, ticks=decades(0, 7, plain)),
+                traces,
+                legend=("Limit", "upper left"),
+            )
+        ],
+        height_in=3.2,
+    )
+
+
+def adc_ladder() -> Figure | None:
+    """The generated FRIDA design's ENOB as impairments are added (its behavioral record's ladder)."""
+    path = build_dir() / "adc" / "e2e_adc_gen" / "tsmc65" / "frida1" / "instance.json"
+    if not path.exists():
+        return None
+    detail = next(d for d in json.loads(path.read_text())["details"] if d["name"] == "enob_ladder")
+    labels = detail["x_labels"]
+    values = detail["series"]["ENOB"]
+    xs = list(range(len(values)))
+    return Figure(
+        "adc_ladder",
+        [
+            Panel(
+                Axis("Impairment added", limits=(-0.4, len(xs) - 0.6), ticks=list(zip(xs, labels, strict=True))),
+                Axis("ENOB (bits)", limits=(9.5, 12.2)),
+                [
+                    Trace("ENOB", xs, values, color=CURVE_COLORS[0], lines=True, legend=0),
+                    Trace(
+                        "ENOB",
+                        xs,
+                        values,
+                        color=CURVE_COLORS[0],
+                        legend=0,
+                        hover=[f"{lab}: {v:.2f} bits" for lab, v in zip(labels, values, strict=True)],
+                    ),
+                ],
+                legend=("", "upper right"),
+            )
+        ],
+        height_in=3.0,
+    )
+
+
+# ---------------------------------------------------------------- a record's own figures (the pipeline's Plot specs)
+
+
+# a record figure's own spec: its PDF is the pipeline's (flow.plot.render), its page our Plotly
+RECORD_SPECS: dict[str, dict] = {}
+
+
+def record_detail(record: Path, detail: str, name: str, height_in: float = 3.0) -> Figure | None:
+    """One of a record's figures (its stored `flow.pipeline.Plot` spec, `details`), as a thesis
+    figure: each series a curve (scaled to its SI prefix as the viewer and flow.plot scale it),
+    decision paths as thin lines, a categorical axis ticked by name."""
+    from flow.plot import scaled
+
+    if not record.exists():
+        return None
+    spec = next((d for d in json.loads(record.read_text()).get("details", []) if d["name"] == detail), None)
+    if spec is None:
+        return None
+    RECORD_SPECS[name] = spec
+    x = [float("nan") if v is None else float(v) for v in spec["x"]]
+    values = [v for series in spec["series"].values() for v in series if v is not None]
+    values += [v for path in spec.get("paths") or [] for v in path.get("y", []) if v is not None]
+    x_label, x_factor = (spec["x_label"], 1.0) if spec.get("x_labels") else scaled(spec["x_label"], x)
+    y_label, y_factor = scaled(spec["y_label"], values)
+    traces = []
+    for i, (label, series) in enumerate(spec["series"].items()):
+        ys = [None if v is None else v * y_factor for v in series]
+        xs = [v * x_factor for v in x]
+        color = CURVE_COLORS[i % len(CURVE_COLORS)]
+        traces.append(Trace(label, xs, ys, color=color, lines=True, legend=1 if len(spec["series"]) > 1 else 0))
+        if len(xs) <= 40:
+            traces.append(
+                Trace(
+                    label,
+                    xs,
+                    ys,
+                    color=color,
+                    size=4,
+                    legend=0,
+                    hover=[
+                        f"{label}: {xv:.4g}, {yv:.4g}" if yv is not None else "" for xv, yv in zip(xs, ys, strict=True)
+                    ],
+                )
+            )
+    for path in (spec.get("paths") or [])[:80]:
+        traces.append(
+            Trace(
+                "path",
+                [v * x_factor for v in x[: len(path["y"])]],
+                [v * y_factor for v in path["y"]],
+                color=CURVE_COLORS[0],
+                lines=True,
+                legend=0,
+            )
+        )
+    ticks = None
+    if spec.get("x_labels"):
+        ticks = list(zip(x, spec["x_labels"], strict=False))
+    x_axis = Axis(x_label, log=bool(spec.get("x_log")), ticks=ticks)
+    y_axis = Axis(y_label, log=bool(spec.get("y_log")))
+    return Figure(
+        name,
+        [Panel(x_axis, y_axis, traces, legend=(spec.get("legend_title") or "", "upper right"))],
+        height_in=height_in,
+    )
+
+
+def _record(block: str, run: str, pdk: str, label: str) -> Path:
+    for path in sorted((build_dir() / block / run / pdk).glob("*/instance.json")):
+        if json.loads(path.read_text()).get("label") == label:
+            return path
+    return build_dir() / block / run / pdk / "missing" / "instance.json"
+
+
+# FRIDA-1's instances in the grids, and the generated FRIDA converter
+RECORD_FIGURES = (
+    (
+        "samp",
+        RUNS["samp"],
+        "tsmc65",
+        "scaled(tgate, mos_w=32, dummy=False)",
+        ("ron_vin", "track_error_vin", "pedestal_vin"),
+    ),
+    ("comp", RUNS["comp"], "tsmc65", "frida1", ("scurve", "noise_cm", "metastability", "energy_supply")),
+    ("capdac", RUNS["capdac"], "tsmc65", "frida1", ("settling_stage", "mismatch_gap", "mismatch_inl", "dac_inl")),
+)
+ADC_RECORD = ("adc", "e2e_adc_gen", "tsmc65", "frida1")
+ADC_FIGURES = (
+    "redundancy",
+    "mismatch_margin",
+    "mismatch_dnl",
+    "enob_rate",
+    "power_rate",
+    "spectrum_low",
+    "inl",
+    "inl_calibrated",
+    "hsu_rate",
+    "calibration_weights",
+    "noise_spectrum",
+    "trajectory",
+    "reference_noise",
+)
+
+
+def record_figures() -> list[Figure]:
+    out = []
+    for block, run, pdk, label, details in RECORD_FIGURES:
+        path = _record(block, run, pdk, label)
+        for detail in details:
+            figure = record_detail(path, detail, f"rec_{block}_{detail}")
+            if figure is not None:
+                out.append(figure)
+    adc = build_dir() / ADC_RECORD[0] / ADC_RECORD[1] / ADC_RECORD[2] / ADC_RECORD[3] / "instance.json"
+    for detail in ADC_FIGURES:
+        figure = record_detail(adc, detail, f"rec_adc_{detail}")
+        if figure is not None:
+            out.append(figure)
+    return out
+
+
 def block_figures() -> list[Figure]:
     """The block chapters' figures, where the pipeline's records are present (skipped otherwise)."""
-    out = [enob_ctot()]
+    out = [enob_ctot(), cdac_limits()]
+    ladder = adc_ladder()
+    if ladder is not None:
+        out.append(ladder)
+    samp_rows, comp_rows = records("samp"), records("comp")
+    if samp_rows and comp_rows:
+        out.append(top_level(samp_rows, comp_rows))
     for block, makers in (
         ("samp", (samp_ron_width, samp_boost_pedestal)),
         ("comp", (comp_energy_noise,)),
@@ -1065,7 +1336,7 @@ def block_figures() -> list[Figure]:
             print(f"figures: no {block} records under {build_dir()}; its figures are skipped")
             continue
         out += [make(rows) for make in makers]
-    return out
+    return out + record_figures()
 
 
 def figures() -> list[Figure]:
@@ -1108,7 +1379,13 @@ def figures() -> list[Figure]:
 def main() -> None:
     OUT.mkdir(exist_ok=True)
     for figure in figures():
-        draw_pdf(figure, OUT / f"{figure.name}.pdf")
+        if figure.name in RECORD_SPECS:
+            from flow.pipeline import Plot
+            from flow.plot import render
+
+            render(Plot.from_json(RECORD_SPECS[figure.name]), OUT / figure.name)
+        else:
+            draw_pdf(figure, OUT / f"{figure.name}.pdf")
         (OUT / f"{figure.name}.json").write_text(json.dumps(plotly_spec(figure), ensure_ascii=False))
         print(OUT / figure.name)
 
