@@ -78,7 +78,9 @@ def corpus(block: str, pdk: str | None) -> dict[str, Any]:
             continue
         for value in dtype:
             if value != getattr(default, name):
-                instances[f"held({name}={value.name})"] = Params(**{name: value})
+                # a value the defaults' other choices exclude (a binary array with extra cycles) is no design
+                with contextlib.suppress(ValueError):
+                    instances[f"held({name}={value.name})"] = Params(**{name: value})
     valid = getattr(params, "valid", None)
     return {label: instance for label, instance in instances.items() if valid is None or valid(instance, pdk)}
 
