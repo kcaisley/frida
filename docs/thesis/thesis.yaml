@@ -5,7 +5,6 @@ author: "Kennedy Caisley"
 pagetitle: "FRIDA Thesis"
 lang: en-GB
 link-citations: true
-reference-section-title: "References"
 # the PDF edition
 documentclass: scrbook
 classoption: [PhD, UKenglish, oneside]

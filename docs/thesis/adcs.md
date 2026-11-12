@@ -13,9 +13,7 @@ $$
 \mathrm{ENOB} = \frac{\mathrm{SNDR} - 1.76\,\mathrm{dB}}{6.02\,\mathrm{dB}}.
 $$ {#eq-enob}
 
-::: aside
 There is a reason dynamic range is not the most important specification to quote for a data converter: dynamic range is relatively easy to increase, since an input out of range can simply be amplified to fit. What doesn't come cheaply is the LSB.
-:::
 
 Resolution comes at a price in power and speed.
 The Walden figure of merit [@walden1999]

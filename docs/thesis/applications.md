@@ -23,7 +23,7 @@ Stroboscopic electron microscopy collects images at successive pump–probe dela
 @fig-applications sketches the four instruments; in each, a pixelated detector at the end of the column records the image.
 
 ::: {#fig-applications image="app_tem app_4dstem app_xray app_stroboscopic" cols="2"}
-The imaging applications this work serves: (a) transmission electron microscopy; (b) 4D-STEM, where a focused probe is scanned across the sample and a diffraction pattern recorded at every position; (c) X-ray diffraction at a synchrotron or free-electron laser; (d) stroboscopic pump–probe electron microscopy, where pulses of electrons probe the sample at a set delay after each excitation.
+The imaging applications this work serves: (a) transmission electron microscopy; (b) 4D-STEM, where scan coils move a focused probe across the sample and a diffraction pattern is recorded at every position; (c) X-ray diffraction at a synchrotron or free-electron laser; (d) in-situ and stroboscopic electron microscopy, where packets of electrons probe the sample, annotated with the detector's targets.
 :::
 
 ## Counting and integrating pixels {#sec-counting}
@@ -69,10 +69,8 @@ A 12-bit integrating pixel read at 100,000 frames per second (a 10 µs frame) ca
 These problems are therefore best solved by integrating-mode sensors, where multiple particles are measured per frame, but still with single-particle resolution.
 With the generous signal-to-noise ratio of direct electron detectors, single-electron resolution has been readily achieved, and so the next question becomes how quickly and how compactly the pixels can be read out.
 
-::: aside
 If we target single-electron sensitivity, the ADC can act as a multi-bit electron counter: rather than reading out full ADC resolution, it can simply report the number of electrons.
 Sub-electron resolution remains useful for position localization.
-:::
 
 Frame-based radiation detectors with integrating front ends are especially well suited to applications like electron microscopy and X-ray imaging, where hit rates are high and spatial resolution should be maximized with simple pixels.
 The cost moves from the pixel to the converter: every pixel needs a multi-bit conversion in every frame.
@@ -82,30 +80,21 @@ The cost moves from the pixel to the converter: every pixel needs a multi-bit co
 Where a converter can be placed, and how much area and power it may take, follows from how the sensor and its readout are built.
 There are three arrangements, which differ in where the pixels and the converters sit relative to each other.
 
-In a monolithic sensor (@fig-monolithic), charge is collected in the same CMOS substrate that holds the readout circuits, and the converters sit on the same die as the pixels, typically at the foot of each column.
+In a monolithic sensor, charge is collected in the same CMOS substrate that holds the readout circuits, and the converters sit on the same die as the pixels, typically at the foot of each column.
 Monolithic sensors are often very thin, and so cannot typically absorb all of an incident electron's energy; the proportion of energy deposited then varies between particles even of the same energy, a variation called Landau noise, following a Landau distribution.
 Fine pitches are possible because no interconnect is needed between sensor and circuit: monolithic electron cameras reach pixel pitches of 10 µm and below [@bammes2023; @ercius2024].
 
-::: {#fig-monolithic image="chip_monolithic"}
-A monolithic imager: pixels, column ADCs, serializers and row drivers on one die, wire-bonded to its package.
-:::
 
-A sensor can instead carry only its pixels and leave conversion to separate readout chips beside it, on the same package or on the sensor's own periphery, joined to the ends of its columns by wire or bump bonds (@fig-side-by-side).
+A sensor can instead carry only its pixels and leave conversion to separate readout chips beside it, on the same package or on the sensor's own periphery, joined to the ends of its columns by wire or bump bonds.
 DEPFET pixel detectors are read out this way, with readout chips bump-bonded along the sensor's edge [@peric2010].
 The converters then have room outside the array, but every column must be carried to a chip edge, and the number of bonds along that edge bounds how many columns can be read in parallel.
 
-::: {#fig-side-by-side image="chip_side_by_side"}
-A sensor and its readout chips side by side on one package: the sensor holds only pixels, and readout chips with the ADCs and serializers are joined to its column ends by wire or bump bonds.
-:::
 
-In a hybrid detector (@fig-hybrid), the sensor is a separate, fully depleted diode array, stacked on and bonded pixel by pixel to a readout chip of the same pitch [@llopart2022; @philipp2022], so that the converters sit directly beneath the pixels they serve.
+In a hybrid detector, the sensor is a separate, fully depleted diode array, stacked on and bonded pixel by pixel to a readout chip of the same pitch [@llopart2022; @philipp2022], so that the converters sit directly beneath the pixels they serve.
 The sensor material and thickness can then be chosen for the particle: silicon for electrons, and silicon or high-Z materials such as CdTe for X-rays.
 Thinner sensors (below about 150 µm) reduce the multiple scattering of keV electrons, and so are often targeted by commercial sensors; MeV electrons scatter less and deposit about five times less energy per unit length, so a thicker sensor (about 500 µm) is more desirable there.
 A hybrid configuration also allows in-pixel digital storage, so higher-rate counting can be reached: pile-up is limited only by a single pixel's dead time, with multiple hits read out digitally per frame.
 
-::: {#fig-hybrid image="chip_hybrid"}
-A hybrid stack, drawn apart: the sensor above, joined by bump bonds or hybrid bonding to a readout chip with an ADC beneath each group of pixels.
-:::
 
 The connection between sensor and readout sets the smallest pixel a hybrid can have.
 Bump bonds range from indium and fine-pitch solder at about 20 µm pitch to standard solder at about 200 µm.

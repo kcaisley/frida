@@ -33,6 +33,7 @@ COMMON = [
     f"--metadata=date:{datetime.date.today():%-d %B %Y}",
     "--lua-filter=thesis.lua",
     "--citeproc",
+    "--lua-filter=section-refs.lua",
     "--bibliography=references.bib",
     "--csl=ieee.csl",
 ]
@@ -55,6 +56,18 @@ def drawing_pdfs() -> None:
             subprocess.run(["inkscape", str(svg), f"--export-filename={pdf}"], check=True)
 
 
+def hidden_layers_dropped(svg: str) -> str:
+    """An Inkscape drawing without its hidden layers (display:none), which a page need not carry."""
+    while match := re.search(r'<g\b[^>]*inkscape:groupmode="layer"[^>]*display:none[^>]*>', svg):
+        depth = 0
+        for tag in re.finditer(r"<g\b|</g>", svg[match.start() :]):
+            depth += 1 if tag.group(0) == "<g" else -1
+            if depth == 0:
+                svg = svg[: match.start()] + svg[match.start() + tag.end() :]
+                break
+    return svg
+
+
 def inline_svg(name: str) -> str:
     """A drawing's SVG for inline use in the page: Inkscape's editor state dropped, its ids
     prefixed so that drawings on one page cannot collide, and its size left to the page."""
@@ -63,6 +76,7 @@ def inline_svg(name: str) -> str:
     svg = re.sub(
         r"<sodipodi:namedview\b.*?(/>|</sodipodi:namedview>)|<metadata\b.*?</metadata>", "", svg, flags=re.DOTALL
     )
+    svg = hidden_layers_dropped(svg)
     svg = re.sub(r'\bid="([^"]+)"', rf'id="{name}-\1"', svg)
     svg = re.sub(r"url\(#([^)]+)\)", rf"url(#{name}-\1)", svg)
     svg = re.sub(r'((?:xlink:)?href)="#([^"]+)"', rf'\1="#{name}-\2"', svg)
