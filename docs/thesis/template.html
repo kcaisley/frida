@@ -79,14 +79,22 @@ main { min-width: 0; width: 100%; max-width: var(--measure); }
   padding: 0.8rem 1rem 0.8rem 0.6rem; font-size: 0.86rem; line-height: 1.35;
 }
 .contents.folded { display: none; }
-.contents ul { list-style: none; margin: 0; padding: 0 0 0 1.6rem; }
-.contents li { margin: 0.25rem 0; }
-.contents ul ul { padding-left: 1.6rem; }
-.contents a { color: var(--ink); text-decoration: none; display: block; padding: 0.05rem 0 0.05rem 0.5rem; margin-left: -0.5rem; border-left: 2px solid transparent; }
+/* each entry a two-column grid: its number in a fixed column, the title (wrapped lines too) beside
+   it; every level indented by one number column */
+.contents ul { list-style: none; margin: 0; padding: 0; }
+.contents ul ul { padding-left: 1.7rem; }
+.contents li { margin: 0.2rem 0; }
+.contents > ul > li { margin-top: 0.65rem; }
+.contents a {
+  display: grid; grid-template-columns: 1.7rem minmax(0, 1fr); align-items: baseline;
+  color: var(--ink); text-decoration: none;
+  padding: 0.05rem 0 0.05rem 0.45rem; border-left: 2px solid transparent;
+}
+.contents ul ul ul a { grid-template-columns: minmax(0, 1fr); }
 .contents a:hover, .contents a:focus-visible { color: var(--link); }
 .contents a.active { color: var(--link); border-left-color: var(--link); }
-.contents .num { display: inline-block; min-width: 1.6rem; margin-left: -1.6rem; color: var(--muted); }
-.contents > ul > li { margin-top: 0.6rem; }
+.contents .num { color: var(--muted); font-variant-numeric: tabular-nums; }
+.contents ul ul .num { grid-column: 1; }
 
 /* text */
 main p, main li { text-align: justify; hyphens: auto; -webkit-hyphens: auto; }
