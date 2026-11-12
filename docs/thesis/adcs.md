@@ -46,24 +46,24 @@ Every converter compares its input against references; the architectures differ 
 | Delta-sigma | 1 per oversampled cycle | oversampling ratio | loop filter, decimation filter |
 | Time-based (VCO) | counted phase | oversampled | oscillators, counters |
 
-A **flash** converter compares the input against all $2^N - 1$ thresholds at once.
+A flash converter compares the input against all $2^N - 1$ thresholds at once.
 It is the fastest architecture, but its comparators, and their area and power, grow exponentially with resolution, limiting it to about six to eight bits.
 
-A **single-slope** converter compares the input against a ramp and counts clock cycles until they cross.
+A single-slope converter compares the input against a ramp and counts clock cycles until they cross.
 Its per-channel circuit is one comparator and a counter, which is why it dominates the column readout of commercial image sensors.
 It needs up to $2^N$ clock cycles per conversion: a 12-bit conversion at 10 MS/s would need a 41 GHz counter clock.
 
-A **SAR** converter performs a binary search with one comparator, setting one bit per cycle by switching a capacitive digital-to-analog converter (CDAC) that holds the sampled input.
+A SAR converter performs a binary search with one comparator, setting one bit per cycle by switching a capacitive digital-to-analog converter (CDAC) that holds the sampled input.
 It needs $N$ cycles per conversion, has no static bias current in its core, and consists mostly of switches, capacitors and logic, which improve with each process node [@murmann2016].
 
-A **pipeline** converter resolves a few bits per stage and amplifies the residue to the next stage, completing one conversion per clock with a latency of several stages.
+A pipeline converter resolves a few bits per stage and amplifies the residue to the next stage, completing one conversion per clock with a latency of several stages.
 In general, arbitrarily high resolution is achievable up to the noise floor at the maximum single-stage speed, if one is willing to spend more power: pipelining is a way to improve resolution at a fixed speed by spending more power.
 Its residue amplifiers bring static power and area.
-The **pipelined SAR** combines the two, with SAR stages joined by a single residue amplifier.
+The pipelined SAR combines the two, with SAR stages joined by a single residue amplifier.
 
-A **delta-sigma** converter samples far above the signal bandwidth with a coarse quantizer in a feedback loop, shaping its quantization noise out of band and filtering it away digitally.
+A delta-sigma converter samples far above the signal bandwidth with a coarse quantizer in a feedback loop, shaping its quantization noise out of band and filtering it away digitally.
 It reaches the highest resolutions, but needs many cycles per output sample and a continuous input, and so suits a single continuous signal rather than a sequence of multiplexed pixels.
-**Time-based** converters quantize in time or phase rather than voltage, with oscillators and counters that scale well with process, but at modest resolution.
+Time-based converters quantize in time or phase rather than voltage, with oscillators and counters that scale well with process, but at modest resolution.
 
 ## Survey {#sec-survey}
 
@@ -136,7 +136,7 @@ The DCD current-mode ADC established a successful multichannel readout approach 
 These designs provide relevant precedents, while leaving scope for the combination of resolution, throughput, power and channel footprint pursued here.
 
 ::: {.openitems}
-**Open items in this draft**
+Open items in this draft:
 
 - The design goal's power differs between sources: 100 µW (`readme.md`, `phys/adc_survey.py`, used here), 200 µW (the readme's comparison table), 500 µW (`docs/report.md`), and "below 1 mW per channel" (`docs/report.md`). The readme's "above 5 ksps/µm²" also differs from the 2.8 kS/s/µm² of 10 MS/s in 60 × 60 µm.
 - The CoRDIA ADC is described as 8-bit at 10 MS/s, as 10-bit (ENOB 8.8) at 30 µW, and as more than 10 effective bits at about 24 µW in different notes; the text above follows `docs/report.md`.

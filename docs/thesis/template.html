@@ -17,7 +17,8 @@
 @font-face { font-family: "Latin Modern Roman"; src: url("fonts/LM-bold-italic.woff2") format("woff2"); font-weight: 700; font-style: italic; font-display: swap; }
 
 :root {
-  /* layout: contents | text column (~70ch) | margin notes; one column below 1100px */
+  /* layout: one text column, growing with the window up to --measure; figures exactly its width;
+     a margin column for side notes on wide screens; contents behind a button */
   --paper: #ffffff;
   --ink: #141414;
   --muted: #555a63;
@@ -25,7 +26,7 @@
   --link: #1d4f91;
   --tint: #f3f5f8;
   --serif: "Latin Modern Roman", "DejaVu Serif", Georgia, "Times New Roman", serif;
-  --measure: 38rem;
+  --measure: 45rem; /* 720 px at the 16 px rem: 87 characters of 19 px Latin Modern, the line of the A4 thesis (KOMA 11pt, DIV=12: 157.5 mm) */
   --note: 14rem;
   color-scheme: light;
 }
@@ -49,17 +50,12 @@ body {
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
-/* contents beside the text from 760px, a margin column for side notes from 1280px */
-@media (min-width: 760px) {
-  .page { grid-template-columns: 12.5rem minmax(0, var(--measure)); gap: 0 2.5rem; }
-  .contents { position: sticky; top: calc(1.5rem + env(safe-area-inset-top, 0px)); align-self: start; max-height: calc(100vh - 3rem); overflow-y: auto; }
-}
-@media (min-width: 1280px) {
-  .page { grid-template-columns: 13rem var(--measure) var(--note); gap: 0 3rem; }
+.page { grid-template-columns: minmax(0, var(--measure)); }
+@media (min-width: 1300px) {
+  .page { grid-template-columns: minmax(0, var(--measure)) var(--note); }
   main .aside { float: right; clear: right; width: var(--note); margin: 0.2rem calc(-1 * (var(--note) + 3rem)) 1rem 0; border-left: none; padding-left: 0; }
 }
-main { min-width: 0; max-width: var(--measure); }
-@media (max-width: 759px) { main { margin-inline: auto; width: 100%; } .contents { max-width: var(--measure); margin-inline: auto; width: 100%; } }
+main { min-width: 0; width: 100%; max-width: var(--measure); }
 
 /* title block, as a thesis's title page in miniature */
 .titleblock { margin-bottom: 2.5rem; padding-bottom: 1.4rem; border-bottom: 1px solid var(--rule); }
@@ -67,9 +63,22 @@ main { min-width: 0; max-width: var(--measure); }
 .titleblock .subtitle { font-style: italic; margin: 0 0 1rem; }
 .titleblock .meta { font-variant: small-caps; letter-spacing: 0.04em; color: var(--muted); margin: 0; }
 
-/* contents */
-.contents { font-size: 0.86rem; line-height: 1.35; }
-.contents h2 { font-size: 0.9rem; font-weight: 400; font-variant: small-caps; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 0.6rem; }
+/* contents: a button at the top left opening the list as a panel */
+.toc-toggle {
+  position: fixed; z-index: 20;
+  top: calc(0.8rem + env(safe-area-inset-top, 0px)); left: calc(0.8rem + env(safe-area-inset-left, 0px));
+  font: inherit; font-size: 0.82rem; font-variant: small-caps; letter-spacing: 0.06em;
+  color: var(--muted); background: var(--paper); border: 1px solid var(--rule); padding: 0.25rem 0.7rem; cursor: pointer;
+}
+.toc-toggle:hover, .toc-toggle:focus-visible { color: var(--ink); border-color: var(--muted); }
+.contents {
+  position: fixed; z-index: 19;
+  top: calc(2.9rem + env(safe-area-inset-top, 0px)); left: calc(0.8rem + env(safe-area-inset-left, 0px));
+  width: min(19rem, calc(100vw - 1.6rem)); max-height: calc(100vh - 4rem); overflow-y: auto;
+  background: var(--paper); border: 1px solid var(--rule); box-shadow: 0 6px 24px rgba(20, 20, 20, 0.12);
+  padding: 0.8rem 1rem 0.8rem 0.6rem; font-size: 0.86rem; line-height: 1.35;
+}
+.contents.folded { display: none; }
 .contents ul { list-style: none; margin: 0; padding: 0 0 0 1.6rem; }
 .contents li { margin: 0.25rem 0; }
 .contents ul ul { padding-left: 1.6rem; }
@@ -77,16 +86,7 @@ main { min-width: 0; max-width: var(--measure); }
 .contents a:hover, .contents a:focus-visible { color: var(--link); }
 .contents a.active { color: var(--link); border-left-color: var(--link); }
 .contents .num { display: inline-block; min-width: 1.6rem; margin-left: -1.6rem; color: var(--muted); }
-.contents > ul > li { margin-top: 0.7rem; font-weight: 700; }
-.contents > ul > li li { font-weight: 400; }
-.toc-toggle { display: none; }
-@media (max-width: 759px) {
-  .contents { border-bottom: 1px solid var(--rule); padding-bottom: 0.8rem; margin-bottom: 2rem; }
-  .contents h2 { display: none; }
-  .toc-toggle { display: block; font: inherit; font-variant: small-caps; letter-spacing: 0.06em; color: var(--ink); background: var(--tint); border: 1px solid var(--rule); padding: 0.35rem 0.8rem; cursor: pointer; }
-  .contents.folded > ul { display: none; }
-  .contents > ul { margin-top: 0.6rem; }
-}
+.contents > ul > li { margin-top: 0.6rem; }
 
 /* text */
 main p, main li { text-align: justify; hyphens: auto; -webkit-hyphens: auto; }
@@ -107,7 +107,7 @@ mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; padding: 0
 .figure { margin: 1.8rem 0 2rem; clear: both; }
 .figure .plot { width: 100%; min-height: 320px; }
 .figure > p { font-size: 0.86rem; line-height: 1.38; margin: 0.4rem 0 0; }
-.figlabel { font-weight: 700; margin-right: 0.15em; }
+.figlabel { margin-right: 0.15em; }
 /* Inkscape drawings, inline so that their labels take Noto Sans Mono as in Inkscape */
 .panels { display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); gap: 0.8rem 1.2rem; align-items: end; }
 @media (max-width: 600px) { .panels { grid-template-columns: repeat(min(var(--cols, 1), 2), minmax(0, 1fr)); } }
@@ -115,7 +115,6 @@ mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; padding: 0
 .drawing-svg text, .drawing-svg tspan { font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace; }
 .panel-label { text-align: center !important; font-size: 0.86rem; margin: 0.2rem 0 0; }
 .picked { font-size: 0.82rem; color: var(--muted); text-align: left !important; margin: 0.3rem 0 0; }
-@media (min-width: 1280px) { .figure { margin-right: calc(-1 * (var(--note) + 3rem)); } .figure > p { max-width: var(--measure); } }
 
 /* side notes: in the margin column when there is one, else set off in the text */
 .aside { font-size: 0.8rem; line-height: 1.35; color: var(--muted); border-left: 2px solid var(--rule); padding-left: 0.8rem; margin: 0.4rem 0 1rem; }
@@ -152,9 +151,8 @@ html { scroll-behavior: smooth; }
 </head>
 <body>
 <div class="page">
-<nav class="contents folded" aria-label="Contents">
-<h2>Contents</h2>
-<button class="toc-toggle" type="button" id="toc-toggle" aria-expanded="false">Contents</button>
+<button class="toc-toggle" type="button" id="toc-toggle" aria-expanded="false" aria-controls="contents">Contents</button>
+<nav class="contents folded" id="contents" aria-label="Contents">
 $table-of-contents$
 </nav>
 <main>
@@ -202,12 +200,15 @@ $body$
   (function () {
     var nav = document.querySelector(".contents");
     var toggle = document.getElementById("toc-toggle");
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !nav.classList.contains("folded")) { nav.classList.add("folded"); toggle.setAttribute("aria-expanded", "false"); toggle.focus(); }
+    });
     toggle.addEventListener("click", function () {
       var folded = nav.classList.toggle("folded");
       toggle.setAttribute("aria-expanded", String(!folded));
     });
     nav.addEventListener("click", function (event) {
-      if (event.target.closest("a") && window.matchMedia("(max-width: 759px)").matches) {
+      if (event.target.closest("a")) {
         nav.classList.add("folded");
         toggle.setAttribute("aria-expanded", "false");
       }
