@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import subprocess
 import sys
 import textwrap
 from collections.abc import Sequence
@@ -678,6 +679,395 @@ def _survey_hover(p: adc_survey.AdcSurveyPoint) -> str:
     )
 
 
+# ---------------------------------------------------------------- the blocks, from the pipeline's records
+
+LATCH_SYMBOLS = {
+    "STRONGARM": "o",
+    "DOUBLE_TAIL": "s",
+    "DOUBLE_TAIL_SELF_TIMED": "v",
+    "MODIFIED_DOUBLE_TAIL": "^",
+    "MODIFIED_SELF_TIMED": "D",
+    "TRIPLE_TAIL": "X",
+}
+PDK_ORDER = ("tsmc28", "tsmc65", "tpsc65", "ihp130", "lf150", "tower180")
+PDK_LABELS = {
+    "tsmc28": "TSMC 28",
+    "tsmc65": "TSMC 65",
+    "tpsc65": "TPSC 65",
+    "ihp130": "IHP 130",
+    "lf150": "LF 150",
+    "tower180": "Tower 180",
+}
+# the sweeps these figures read (build/<block>/<run>), newest characterizations
+RUNS = {"samp": "20261101_015731", "comp": "20261101_015731", "capdac": "20261105_191300"}
+
+
+def build_dir() -> Path:
+    """The repository's build/ (a worktree has none of its own: the main checkout's, through git)."""
+    root = HERE.parents[1]
+    if (root / "build").is_dir():
+        return root / "build"
+    common = subprocess.run(
+        ["git", "rev-parse", "--git-common-dir"], check=True, cwd=root, capture_output=True, text=True
+    ).stdout.strip()
+    return (root / common).resolve().parent / "build"
+
+
+def records(block: str) -> list[dict]:
+    run = build_dir() / block / RUNS[block]
+    rows = []
+    for path in sorted(run.glob("*/*/instance.json")):
+        row = json.loads(path.read_text())
+        if row.get("metrics") and not row.get("error"):
+            rows.append(row)
+    return rows
+
+
+def _frida1(x: float, y: float, text: str) -> Trace:
+    """FRIDA-1's fabricated design in a design-space figure: a large outlined marker."""
+    return Trace(
+        "FRIDA-1", [x], [y], color="white", symbol="*", size=11, edge=TEXT_COLOR, edge_width=1.0, order=8, hover=[text]
+    )
+
+
+def _pdk_color(pdk: str) -> str:
+    return CURVE_COLORS[PDK_ORDER.index(pdk) % len(CURVE_COLORS)]
+
+
+def samp_ron_width(rows: list[dict]) -> Figure:
+    """Transmission-gate on-resistance against width in every PDK, against the triode rule R ∝ 1/W."""
+    traces = []
+    widths = []
+    for pdk in PDK_ORDER:
+        pick = sorted(
+            (
+                r
+                for r in rows
+                if r["pdk"] == pdk
+                and r["params"]["switch_type"] == "TGATE"
+                and r["params"]["mos_l"] == 1
+                and not r["params"]["dummy"]
+                and r["metrics"].get("ron_ohm")
+            ),
+            key=lambda r: r["params"]["mos_w"],
+        )
+        if not pick:
+            continue
+        widths += [r["params"]["mos_w"] for r in pick]
+        traces.append(
+            Trace(
+                PDK_LABELS[pdk],
+                [r["params"]["mos_w"] for r in pick],
+                [r["metrics"]["ron_ohm"] for r in pick],
+                color=_pdk_color(pdk),
+                hover=[
+                    f"<b>{PDK_LABELS[pdk]}</b><br>{r['label']}<br>R_on {r['metrics']['ron_ohm']:.0f} Ω" for r in pick
+                ],
+            )
+        )
+    for r in rows:
+        p = r["params"]
+        if (
+            r["pdk"] == "tsmc65"
+            and p["switch_type"] == "TGATE"
+            and p["mos_w"] == 32
+            and p["mos_l"] == 1
+            and not p["dummy"]
+        ):
+            traces.append(
+                _frida1(
+                    32, r["metrics"]["ron_ohm"], f"<b>FRIDA-1</b> (TSMC 65)<br>R_on {r['metrics']['ron_ohm']:.0f} Ω"
+                )
+            )
+    lo, hi = min(widths), max(widths)
+    guide = [lo, hi]
+    first = next(t for t in traces)
+    k = first.y[0] * first.x[0]
+    traces.append(Trace("∝ 1/W", guide, [k / w for w in guide], color=SPINE_COLOR, lines=True, dash=True))
+    return Figure(
+        "samp_ron_width",
+        [
+            Panel(
+                Axis("Switch width (unit widths)", log=True, ticks=[(w, f"{w:g}") for w in (8, 16, 32, 64, 128)]),
+                Axis("On-resistance at mid-supply (Ω)", log=True, ticks=decades(2, 4, plain)),
+                traces,
+                legend=("Process", "upper right"),
+            )
+        ],
+        height_in=3.4,
+    )
+
+
+def samp_boost_pedestal(rows: list[dict]) -> Figure:
+    """Bootstrapped switches: lower on-resistance bought with a larger pedestal (charge injection)."""
+    traces = []
+    for pdk in PDK_ORDER:
+        pick = sorted(
+            (
+                r
+                for r in rows
+                if r["pdk"] == pdk
+                and r["params"]["switch_type"] == "BOOTSTRAP"
+                and r["metrics"].get("ron_ohm")
+                and r["metrics"].get("pedestal_max_v") is not None
+            ),
+            key=lambda r: r["metrics"]["ron_ohm"],
+        )
+        if not pick:
+            continue
+        traces.append(
+            Trace(
+                PDK_LABELS[pdk],
+                [r["metrics"]["ron_ohm"] for r in pick],
+                [abs(r["metrics"]["pedestal_max_v"]) * 1e3 for r in pick],
+                color=_pdk_color(pdk),
+                hover=[
+                    f"<b>{PDK_LABELS[pdk]}</b><br>{r['label']}<br>R_on {r['metrics']['ron_ohm']:.0f} Ω, pedestal {abs(r['metrics']['pedestal_max_v']) * 1e3:.2f} mV"
+                    for r in pick
+                ],
+            )
+        )
+    return Figure(
+        "samp_boost_pedestal",
+        [
+            Panel(
+                Axis("On-resistance at mid-supply (Ω)", log=True, ticks=decades(1, 3, plain)),
+                Axis("Largest pedestal (mV)", log=True, ticks=decades(-2, 2, plain)),
+                traces,
+                legend=("Process", "upper right"),
+            )
+        ],
+        height_in=3.4,
+    )
+
+
+def comp_energy_noise(rows: list[dict]) -> Figure:
+    """Every comparator: energy per decision against input-referred noise, with lines of constant E·σ²."""
+    traces = []
+    for pdk in PDK_ORDER:
+        pick = [
+            r
+            for r in rows
+            if r["pdk"] == pdk
+            and r["metrics"].get("noise_v")
+            and r["metrics"].get("energy_0p5mv_j")
+            and r["metrics"].get("decides_in_time")
+        ]
+        if not pick:
+            continue
+        traces.append(
+            Trace(
+                PDK_LABELS[pdk],
+                [r["metrics"]["noise_v"] * 1e6 for r in pick],
+                [r["metrics"]["energy_0p5mv_j"] * 1e15 for r in pick],
+                color=_pdk_color(pdk),
+                symbol=[LATCH_SYMBOLS.get(r["params"]["latch"], "o") for r in pick],
+                hover=[
+                    f"<b>{PDK_LABELS[pdk]}</b><br>{r['label']}<br>{r['metrics']['noise_v'] * 1e6:.0f} µV, "
+                    f"{r['metrics']['energy_0p5mv_j'] * 1e15:.0f} fJ, E·σ² {r['metrics']['energy_0p5mv_j'] * 1e15 * (r['metrics']['noise_v'] * 1e3) ** 2:.1f} fJ·mV²"
+                    for r in pick
+                ],
+            )
+        )
+    for latch, marker in LATCH_SYMBOLS.items():
+        traces.append(Trace(latch.replace("_", " ").title(), [], [], color=LEGEND_FACE_COLOR, symbol=marker, legend=2))
+    for r in rows:
+        m = r["metrics"]
+        if r["pdk"] == "tsmc65" and r["label"] == "frida1" and m.get("noise_v") and m.get("energy_0p5mv_j"):
+            traces.append(
+                _frida1(
+                    m["noise_v"] * 1e6,
+                    m["energy_0p5mv_j"] * 1e15,
+                    f"<b>FRIDA-1</b> (TSMC 65)<br>{m['noise_v'] * 1e6:.0f} µV, {m['energy_0p5mv_j'] * 1e15:.0f} fJ",
+                )
+            )
+    sigma = [20.0, 2000.0]
+    for product in (3.0, 30.0):  # fJ·mV²: E = product / σ²
+        traces.append(
+            Trace(
+                f"E·σ² = {product:g} fJ·mV²",
+                sigma,
+                [product / (s * 1e-3) ** 2 for s in sigma],
+                color=SPINE_COLOR,
+                lines=True,
+                dash=True,
+                legend=0,
+            )
+        )
+    return Figure(
+        "comp_energy_noise",
+        [
+            Panel(
+                Axis("Input-referred noise (µV)", log=True, limits=(20, 2000), ticks=decades(2, 3, plain)),
+                Axis("Energy per decision (fJ)", log=True, limits=(5, 2e4), ticks=decades(1, 4, plain)),
+                traces,
+                legend=("Process", "upper right"),
+                legend2=("Latch", "lower left"),
+            )
+        ],
+        height_in=4.0,
+    )
+
+
+def capdac_area_bits(rows: list[dict]) -> Figure:
+    """CDAC layout area against resolution, against the kT/C rule (area ∝ capacitance ∝ 4^N)."""
+    traces = []
+    for impl, color in (("DIFFERENCE_CAPS", CURVE_COLORS[0]), ("UNIT_CAPS", CURVE_COLORS[1])):
+        for scale, symbol in ((1, "o"), (2, "s")):
+            pick = [
+                r
+                for r in rows
+                if r["params"]["weight_impl"] == impl
+                and r["params"]["scale"] == scale
+                and r["metrics"].get("layout_area_um2")
+            ]
+            if not pick:
+                continue
+            traces.append(
+                Trace(
+                    f"{impl.replace('_', ' ').lower()}, {scale}× kT/C",
+                    [r["params"]["bits"] + (0.08 if impl == "UNIT_CAPS" else -0.08) for r in pick],
+                    [r["metrics"]["layout_area_um2"] for r in pick],
+                    color=color,
+                    symbol=symbol,
+                    hover=[f"{r['label']}<br>{r['metrics']['layout_area_um2']:.0f} µm²" for r in pick],
+                )
+            )
+    for r in rows:
+        if r["label"] == "frida1" and r["metrics"].get("layout_area_um2"):
+            traces.append(
+                _frida1(
+                    12, r["metrics"]["layout_area_um2"], f"<b>FRIDA-1</b><br>{r['metrics']['layout_area_um2']:.0f} µm²"
+                )
+            )
+    anchor = sorted(
+        r["metrics"]["layout_area_um2"] for r in rows if r["params"]["bits"] == 12 and r["params"]["scale"] == 2
+    )
+    middle = anchor[len(anchor) // 2]
+    bits = [10, 12, 14]
+    traces.append(
+        Trace("∝ 4^N", bits, [middle * 4.0 ** (b - 12) for b in bits], color=SPINE_COLOR, lines=True, dash=True)
+    )
+    return Figure(
+        "capdac_area_bits",
+        [
+            Panel(
+                Axis("Resolution (bits)", limits=(9.5, 14.5), ticks=[(b, str(b)) for b in bits]),
+                Axis("Layout area per side (µm²)", log=True, ticks=decades(1, 5, plain)),
+                traces,
+                legend=("Weight build", "upper left"),
+            )
+        ],
+        height_in=3.4,
+    )
+
+
+def capdac_gap_redundancy(rows: list[dict]) -> Figure:
+    """The 95th-percentile missing level no calibration recovers, at 1 % mismatch, against redundant cycles."""
+    traces = []
+    schemes = (("BINARY", "o"), ("MSB_SPLIT", "s"), ("LSB_SPLIT", "v"), ("MSB_REDIST", "^"))
+    for bits, color in ((10, CURVE_COLORS[0]), (12, CURVE_COLORS[1]), (14, CURVE_COLORS[2])):
+        for scheme, symbol in schemes:
+            pick = [
+                r
+                for r in rows
+                if r["params"]["bits"] == bits
+                and r["params"]["redundancy"] == scheme
+                and r["metrics"].get("mc_a10_gap_p95_lsb") is not None
+            ]
+            if not pick:
+                continue
+            traces.append(
+                Trace(
+                    f"{bits} bit",
+                    [r["params"]["extra"] for r in pick],
+                    [r["metrics"]["mc_a10_gap_p95_lsb"] for r in pick],
+                    color=color,
+                    symbol=symbol,
+                    legend=1 if scheme == "BINARY" else 0,
+                    hover=[f"{r['label']}<br>gap p95 {r['metrics']['mc_a10_gap_p95_lsb']:.2f} LSB" for r in pick],
+                )
+            )
+    for r in rows:
+        if r["label"] == "frida1" and r["metrics"].get("mc_a10_gap_p95_lsb") is not None:
+            traces.append(
+                _frida1(
+                    r["params"]["extra"],
+                    r["metrics"]["mc_a10_gap_p95_lsb"],
+                    f"<b>FRIDA-1</b><br>gap p95 {r['metrics']['mc_a10_gap_p95_lsb']:.2f} LSB",
+                )
+            )
+    for scheme, symbol in schemes:
+        traces.append(Trace(scheme.replace("_", " ").title(), [], [], color=LEGEND_FACE_COLOR, symbol=symbol, legend=2))
+    traces.append(Trace("1 LSB", [-0.5, 6.5], [1.0, 1.0], color=SPINE_COLOR, lines=True, dash=True, legend=0))
+    return Figure(
+        "capdac_gap_redundancy",
+        [
+            Panel(
+                Axis("Redundant decisions", limits=(-0.5, 6.5), ticks=[(e, str(e)) for e in range(7)]),
+                Axis("Uncalibratable gap, 95th percentile (LSB)", limits=(0, 4)),
+                traces,
+                legend=("Resolution", "upper right"),
+                legend2=("Scheme", "upper left"),
+            )
+        ],
+        height_in=3.4,
+    )
+
+
+def enob_ctot() -> Figure:
+    """ENOB with quantization and kT/C noise only, against the capacitance per side, for 10, 12 and
+    14 bits on a 1.2 V differential full scale; the marker is the kT/C minimum, 2kT/C = LSB²/12."""
+    k_t = 1.380649e-23 * 300.0
+    full_scale = 1.2
+    cap = np.logspace(-15, -10, 200)
+    traces = []
+    for bits, color in ((10, CURVE_COLORS[0]), (12, CURVE_COLORS[1]), (14, CURVE_COLORS[2])):
+        lsb = full_scale / 2**bits
+        q = lsb**2 / 12
+        enob = [bits - 0.5 * math.log2(1 + (2 * k_t / c) / q) for c in cap]
+        traces.append(Trace(f"{bits} bit", (cap * 1e15).tolist(), enob, color=color, lines=True))
+        c_min = 24 * k_t / lsb**2
+        traces.append(
+            Trace(
+                f"{bits}-bit minimum",
+                [c_min * 1e15],
+                [bits - 0.5],
+                color=color,
+                legend=0,
+                hover=[f"{bits} bit: 2kT/C = LSB²/12 at {c_min * 1e15:.0f} fF per side, ENOB {bits - 0.5:g}"],
+            )
+        )
+    return Figure(
+        "enob_ctot",
+        [
+            Panel(
+                Axis("Capacitance per side (fF)", log=True, limits=(1, 1e5), ticks=decades(0, 5, plain)),
+                Axis("ENOB (quantization and kT/C)", limits=(6, 14.5), ticks=[(v, str(v)) for v in range(6, 15, 2)]),
+                traces,
+                legend=("Resolution", "lower right"),
+            )
+        ],
+        height_in=3.2,
+    )
+
+
+def block_figures() -> list[Figure]:
+    """The block chapters' figures, where the pipeline's records are present (skipped otherwise)."""
+    out = [enob_ctot()]
+    for block, makers in (
+        ("samp", (samp_ron_width, samp_boost_pedestal)),
+        ("comp", (comp_energy_noise,)),
+        ("capdac", (capdac_area_bits, capdac_gap_redundancy)),
+    ):
+        rows = records(block)
+        if not rows:
+            print(f"figures: no {block} records under {build_dir()}; its figures are skipped")
+            continue
+        out += [make(rows) for make in makers]
+    return out
+
+
 def figures() -> list[Figure]:
     s = adc_survey
     enob = Axis("Effective number of bits (ENOB)", limits=(5.6, 16.4), ticks=[(v, f"{v}") for v in range(6, 17, 2)])
@@ -711,6 +1101,7 @@ def figures() -> list[Figure]:
             (s.FRIDA_TARGET_AREA_UM2, s.FRIDA_TARGET_WALDEN_FOM_FJ),
             legends=("upper left", "upper right"),
         ),
+        *block_figures(),
     ]
 
 

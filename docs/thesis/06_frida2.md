@@ -1,57 +1,36 @@
-# FRIDA-2: A revised 65 nm design {#sec-frida-2-a-revised-65-nm-design}
+# FRIDA-2: optimized converters across processes and resolutions {#sec-frida2}
 
-## Sampling and input-path characterization {#sec-sampling-and-input-path-characterization}
+::: todo
+- The chapter's claim: with FRIDA-1's lessons, each block is re-optimized from the full system's view, and the whole converter becomes the object of an optimization search, generated for every process and resolution.
+:::
 
-### Sampling-switch behavior with extracted loading
+## Optimizing each block for the system {#sec-frida2-blocks}
 
-[Section explaining sampling-switch behavior with extracted loading.]
+::: todo
+- The sampler: sized against the converter's tracking-error budget (@eq-tracking), not alone; the bootstrap where the transmission gate costs bits.
+- The comparator: optimized per resolution (@sec-comp-optimization), the dynamic bias where it lowers $E\sigma^2$.
+- The array: sized from both limits (@eq-cmin-noise, @eq-cmin-matching) with the redundancy that keeps it calibratable (@eq-calibratable).
+- The sequencer and logic: from the measured timing limits (@sec-meas-sequence).
+:::
 
-### Sampling window and input-noise budget
+## Searching the whole converter {#sec-frida2-search}
 
-[Section explaining sampling window and input-noise budget.]
+::: todo
+- The converter as an optimization problem: ENOB, energy and area together, with the blocks' own spaces as its space.
+- How the search uses the blocks' records and behavioral models, and what it costs per evaluation.
+:::
 
-## Comparator and timing changes {#sec-comparator-and-timing-changes}
+## Generated converters {#sec-frida2-generated}
 
-### Lower kickback, offset, and metastability risk
+::: {#fig-frida2-generated placeholder="The generated converters' layouts: one per process and resolution."}
+Generated converters across processes and resolutions.
+:::
 
-[Section explaining lower kickback, offset, and metastability risk.]
+::: {#fig-frida2-survey placeholder="The survey's plots (@fig-survey-rate, @fig-survey-energy, @fig-survey-area) with every generated converter's predicted point, by process and resolution, beside FRIDA-1's measured one."}
+Where the generated converters fall against the state of the art.
+:::
 
-### Transistor-level layout and extracted verification
-
-[Section explaining transistor-level layout and extracted verification.]
-
-### Comparator, logic, and CDAC timing allocation
-
-[Section explaining comparator, logic, and CDAC timing allocation.]
-
-## Capacitor array and driver changes {#sec-capacitor-array-and-driver-changes}
-
-### Connected metal layers and improved parasitic modeling
-
-[Section explaining connected metal layers and improved parasitic modeling.]
-
-### Capacitor mismatch modeling for linearity studies
-
-[Section explaining capacitor mismatch modeling for linearity studies.]
-
-### Coarse and fine weights and common-mode control
-
-[Section explaining coarse and fine weights and common-mode control.]
-
-### Driver sizing for the extracted capacitance
-
-[Section explaining driver sizing for the extracted capacitance.]
-
-## Sequence, logic, and system changes {#sec-sequence-logic-and-system-changes}
-
-### SR-latch and SAR-logic delay reduction
-
-[Section explaining SR-latch and SAR-logic delay reduction.]
-
-### Clock synchronization and channel-to-channel errors
-
-[Section explaining clock synchronization and channel-to-channel errors.]
-
-### Redundancy versus conversion time and power
-
-[Section explaining redundancy versus conversion time and power.]
+::: todo
+- Which processes and resolutions reach the compact, efficient region of @fig-survey-area, and which block limits the rest.
+- FRIDA-2's layout and its extracted predictions.
+:::

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime
+import math
 import os
 import re
 import shutil
@@ -118,6 +119,36 @@ def inline_svg(name: str) -> str:
     return head + svg[head_end:]
 
 
+EMBED_MAX_BYTES = 300_000  # an image larger than this is downsampled for a shared page
+
+
+def web_image(path: Path, embed: bool) -> str:
+    """An existing image as the page shows it: a PDF rasterized (the PDF edition takes the PDF
+    itself), linked from _build, or inside the page (downsampled when large) to share it."""
+    raster = BUILD / "raster"
+    raster.mkdir(parents=True, exist_ok=True)
+    if path.suffix == ".pdf":
+        png = raster / f"{path.stem}.png"
+        if not png.exists() or png.stat().st_mtime < path.stat().st_mtime:
+            subprocess.run(
+                ["pdftocairo", "-png", "-r", "110", "-singlefile", str(path), str(png.with_suffix(""))], check=True
+            )
+        path = png
+    if not embed:
+        return os.path.relpath(path, BUILD)
+    data = path.read_bytes()
+    kind = "jpeg" if path.suffix.lower() in (".jpg", ".jpeg") else "png"
+    if len(data) > EMBED_MAX_BYTES:
+        import matplotlib.image as mpimg
+
+        image = mpimg.imread(path)
+        step = math.ceil(math.sqrt(len(data) / EMBED_MAX_BYTES))
+        small = raster / f"{path.stem}.small.png"
+        mpimg.imsave(small, image[::step, ::step])
+        data, kind = small.read_bytes(), "png"
+    return f"data:image/{kind};base64," + base64.b64encode(data).decode()
+
+
 def html(embed: bool) -> Path:
     out = BUILD / "thesis.html"
     pandoc("--to=html5", "--template=template.html", "--mathjax", "--toc", "--section-divs", f"--output={out}")
@@ -129,15 +160,7 @@ def html(embed: bool) -> Path:
     # existing images (src=): inside the page to share it, else linked from _build
     page = re.sub(
         r'<img class="photo" alt="" data-src="([^"]+)">',
-        lambda m: (
-            '<img class="photo" alt="" src="'
-            + (
-                "data:image/png;base64," + base64.b64encode((HERE / m.group(1)).read_bytes()).decode()
-                if embed
-                else os.path.relpath(HERE / m.group(1), BUILD)
-            )
-            + '">'
-        ),
+        lambda m: f'<img class="photo" alt="" src="{web_image(HERE / m.group(1), embed)}">',
         page,
     )
     out.write_text(page)

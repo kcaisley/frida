@@ -77,7 +77,9 @@ local function figure(div, number)
     local blocks
     if latex then
       local body
-      if src then
+      if src and src:match("%.%w+$") then
+        body = "\\includegraphics[width=\\linewidth]{../" .. src .. "}"
+      elseif src then
         local pdf = io.open(src .. ".pdf", "r")
         if pdf then
           pdf:close()
@@ -92,7 +94,7 @@ local function figure(div, number)
       return { pandoc.RawBlock("latex", "\\begin{figure}[tbp]\n\\centering\n" .. body), pandoc.Plain(inlines), pandoc.RawBlock("latex", "\\end{figure}") }
     end
     if src then
-      blocks = { pandoc.RawBlock("html", '<img class="photo" alt="" data-src="' .. src .. '.png">') }
+      blocks = { pandoc.RawBlock("html", '<img class="photo" alt="" data-src="' .. (src:match("%.%w+$") and src or src .. ".png") .. '">') }
     else
       blocks = { pandoc.RawBlock("html", '<div class="placeholder">[Figure: ' .. text .. "]</div>") }
     end
@@ -190,18 +192,22 @@ local function table_caption(tbl, number)
 end
 
 local function number(doc)
-  local chapter, section, figures, eqs, tables = 0, 0, 0, 0, 0
+  local chapter, section, subsection, figures, eqs, tables = 0, 0, 0, 0, 0, 0
   local blocks = pandoc.List()
   for _, block in ipairs(doc.blocks) do
-    if block.t == "Header" and not block.classes:includes("unnumbered") and block.level <= 2 then
+    if block.t == "Header" and not block.classes:includes("unnumbered") and block.level <= 3 then
       local text
       if block.level == 1 then
-        chapter, section, figures, eqs, tables = chapter + 1, 0, 0, 0, 0
+        chapter, section, subsection, figures, eqs, tables = chapter + 1, 0, 0, 0, 0, 0
         text = tostring(chapter)
         labels[block.identifier] = "Chapter " .. text
-      else
-        section = section + 1
+      elseif block.level == 2 then
+        section, subsection = section + 1, 0
         text = chapter .. "." .. section
+        labels[block.identifier] = "Section " .. text
+      else
+        subsection = subsection + 1
+        text = chapter .. "." .. section .. "." .. subsection
         labels[block.identifier] = "Section " .. text
       end
       if html then

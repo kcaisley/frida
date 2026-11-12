@@ -90,7 +90,7 @@ main { min-width: 0; width: 100%; max-width: var(--measure); }
   color: var(--ink); text-decoration: none;
   padding: 0.05rem 0 0.05rem 0.45rem; border-left: 2px solid transparent;
 }
-.contents ul ul ul a { grid-template-columns: minmax(0, 1fr); }
+.contents ul ul ul a { grid-template-columns: 2.4rem minmax(0, 1fr); }
 .contents a:hover, .contents a:focus-visible { color: var(--link); }
 .contents a.active { color: var(--link); border-left-color: var(--link); }
 .contents .num { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -137,6 +137,12 @@ thead th { border-top: 1.5px solid var(--ink); border-bottom: 0.8px solid var(--
 tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
 td { padding: 0.3rem 0.6rem 0.3rem 0; vertical-align: top; text-align: left !important; }
 .table-wrap { overflow-x: auto; }
+
+/* what a section still needs, for the author to write */
+.todo { border-left: 3px solid #c99a2e; background: #fbf6e9; padding: 0.5rem 0.9rem 0.3rem; margin: 0.9rem 0 1.1rem; font-size: 0.88rem; }
+.todo::before { content: "To write"; display: block; font-variant: small-caps; letter-spacing: 0.05em; color: #8a6a1e; margin-bottom: 0.2rem; }
+.todo ul { margin: 0.2rem 0 0.4rem; padding-left: 1.2rem; }
+.todo p, .todo li { text-align: left; }
 
 /* the draft's open items */
 .openitems { background: var(--tint); border-left: 3px solid var(--rule); padding: 0.8rem 1rem 0.4rem; margin: 2rem 0; font-size: 0.88rem; }
