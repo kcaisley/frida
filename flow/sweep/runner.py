@@ -44,7 +44,7 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNS_DIR = ROOT / "build"  # a block's runs: build/<block>/<run>/
 RUN_STAMP = re.compile(r"\d{8}_\d{6}")  # a run's name (new_run, run)
 DATA_DIR = ROOT / "build/web/data/sweep"
-PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
+PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65", "sky130", "gf180")
 
 
 def sweep_blocks() -> list[str]:

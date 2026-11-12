@@ -29,7 +29,7 @@ from pathlib import Path
 from flow.circuit.cells import DEFINITIONS, DRIVES, FUNCTIONS, generic_name
 
 ROOT = Path(__file__).resolve().parents[2]
-PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
+PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65", "sky130", "gf180")
 # a flip-flop or latch without reset or set, and the ones that stand in for it (their extra
 # pins held inactive)
 STAND_INS = {"dff": ("dffr", "dffs", "dffrs"), "dffr": ("dffrs",), "latch": ("latchr", "latchs", "latchrs")}

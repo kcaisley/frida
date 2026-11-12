@@ -42,6 +42,8 @@ class Pdk(Enum):
     TOWER180 = auto()
     LF150 = auto()
     TPSC65 = auto()
+    SKY130 = auto()
+    GF180 = auto()
 
 
 def pdk_of(pdk: str | Pdk) -> Pdk:

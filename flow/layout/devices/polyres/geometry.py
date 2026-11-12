@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 # the kits with a poly resistor row cell (their tech.RES)
-PDKS = ("tsmc65", "tsmc28", "tpsc65", "ihp130", "tower180", "lf150")
+PDKS = ("tsmc65", "tsmc28", "tpsc65", "ihp130", "tower180", "lf150", "sky130", "gf180")
 
 
 @dataclass(frozen=True)

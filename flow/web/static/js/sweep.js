@@ -14,7 +14,7 @@ import { currentTheme, keepTicks, PAPERS, paperLayout, TICK_KEYS, tone } from ".
 import { COLORS, emit, hostBar, on, recall, store } from "./store.js";
 import { fieldInfo, scaled, scaledUnit, siExponent, words } from "./units.js";
 
-export const PDK_ORDER = ["tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65"];
+export const PDK_ORDER = ["tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65", "sky130", "gf180"];
 // a topology's marker, in the scatter and beside its value in the table: Plotly's symbol names
 const TOPOLOGY_SYMBOLS = ["circle", "square", "diamond", "triangle-up", "triangle-down", "cross", "star", "hexagon"];
 

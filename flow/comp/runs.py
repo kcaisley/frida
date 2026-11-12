@@ -133,7 +133,7 @@ def base_strongarm(pdk: Pdk) -> dict[str, Params]:
                 tail_l=tail_l,
             )
         )
-        for tail_l, factors in ladders[pdk].items()
+        for tail_l, factors in ladders.get(pdk, {}).items()  # a kit not yet characterized: none
         for k in factors
     }
 

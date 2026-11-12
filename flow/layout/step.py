@@ -42,7 +42,7 @@ ROOT = Path(__file__).resolve().parents[2]
 LOG = logging.getLogger("flow.layout")
 
 
-PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
+PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65", "sky130", "gf180")
 
 
 def _generator(block: str):

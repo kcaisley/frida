@@ -35,3 +35,9 @@
 [submodule "pdk/tpsc65"]
 	path = pdk/tpsc65
 	url = git@github.com:kcaisley/tower65.git
+[submodule "pdk/sky130"]
+	path = pdk/sky130
+	url = git@github.com:kcaisley/sky130.git
+[submodule "pdk/gf180"]
+	path = pdk/gf180
+	url = git@github.com:kcaisley/gf180.git
