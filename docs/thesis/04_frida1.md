@@ -18,8 +18,16 @@ We used these designs because their architectures and device sizes were already 
 FRIDA-1's comparator layout.
 :::
 
+::: {#fig-frida1-comp-iso src="figures/layout3d_frida1_comp.png"}
+FRIDA-1's comparator in an isometric view of its layers.
+:::
+
 ::: {#fig-frida1-samp src="figures/layout_frida1_samp.png"}
 FRIDA-1's sampling switch layout.
+:::
+
+::: {#fig-frida1-samp-iso src="figures/layout3d_frida1_samp.png"}
+FRIDA-1's sampling switch in an isometric view of its layers.
 :::
 
 ### Capacitor drivers and array {#sec-frida1-cdac-impl}
@@ -31,8 +39,16 @@ The capacitor array was generated directly from its specification to GDS using a
 FRIDA-1's capacitor drivers.
 :::
 
+::: {#fig-frida1-capdriver-iso src="figures/layout3d_frida1_capdriver.png"}
+FRIDA-1's capacitor drivers in an isometric view of their layers.
+:::
+
 ::: {#fig-frida1-caparray src="figures/layout_frida1_caparray.png"}
 FRIDA-1's capacitor array, metals M2 to M7.
+:::
+
+::: {#fig-frida1-caparray-iso src="figures/layout3d_frida1_caparray.png"}
+FRIDA-1's capacitor array in an isometric view of its layers.
 :::
 
 ### Digital control logic {#sec-frida1-logic}
@@ -55,8 +71,8 @@ The prototype channel layout measures 60.5 × 63.5 µm, or approximately 3,800 �
 One FRIDA-1 ADC channel, the devices and metals up to M4: the building blocks' placement under the capacitor array.
 :::
 
-::: {#fig-frida1-adc-3d src="../images/frida_adc_3d.png"}
-A three-dimensional render of one FRIDA-1 ADC channel's layout.
+::: {#fig-frida1-adc-3d src="figures/layout3d_frida1_channel.png"}
+One FRIDA-1 ADC channel in an isometric view of its layers: the capacitor array above the drivers, the logic and the analog blocks.
 :::
 
 ::: todo

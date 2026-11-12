@@ -689,7 +689,7 @@ LATCH_SYMBOLS = {
     "MODIFIED_SELF_TIMED": "D",
     "TRIPLE_TAIL": "X",
 }
-PDK_ORDER = ("tsmc28", "tsmc65", "tpsc65", "ihp130", "lf150", "tower180")
+PDK_ORDER = ("tsmc28", "tsmc65", "tpsc65", "ihp130", "lf150", "tower180", "sky130", "gf180")
 PDK_LABELS = {
     "tsmc28": "TSMC 28",
     "tsmc65": "TSMC 65",
@@ -697,6 +697,8 @@ PDK_LABELS = {
     "ihp130": "IHP 130",
     "lf150": "LF 150",
     "tower180": "Tower 180",
+    "sky130": "SKY130",
+    "gf180": "GF180",
 }
 # the sweeps these figures read (build/<block>/<run>), newest characterizations
 RUNS = {"samp": "20261101_015731", "comp": "20261101_015731", "capdac": "20261105_191300"}

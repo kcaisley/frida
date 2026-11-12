@@ -77,27 +77,53 @@ FRIDA1_RENDERS = (
 )
 
 
+FRIDA1_RENDERS_3D = (
+    "layout3d_frida1_channel=",
+    "layout3d_frida1_comp=comp",
+    "layout3d_frida1_samp=sampswitch",
+    "layout3d_frida1_capdriver=capdriver",
+    "layout3d_frida1_caparray=caparray_1layer_radix17",
+)
+
+
 def layout_renders() -> None:
     """FRIDA-1's layouts in the viewer's style (drawings/render_layout.py), where its GDS and the
     kit's layer map are present (the main checkout with the PDK submodules); kept once made."""
     root = figures.build_dir().parent
     gds = root / FRIDA1_GDS
-    if (figures.OUT / "layout_frida1_comp.png").exists() or not gds.exists():
+    if not gds.exists():
         return
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(HERE / "drawings" / "render_layout.py"),
-            str(gds),
-            "tsmc65",
-            str(figures.OUT),
-            *FRIDA1_RENDERS,
-        ],
-        cwd=root,
-        check=False,
-    )
+    result = subprocess.CompletedProcess([], 0)
+    if not (figures.OUT / "layout_frida1_comp.png").exists():
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HERE / "drawings" / "render_layout.py"),
+                str(gds),
+                "tsmc65",
+                str(figures.OUT),
+                *FRIDA1_RENDERS,
+            ],
+            cwd=root,
+            check=False,
+        )
     if result.returncode:
         print("build: FRIDA-1's layout renders need the kit's layer map; left out")
+    if not (figures.OUT / "layout3d_frida1_comp.png").exists():
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HERE / "drawings" / "render_layout3d.py"),
+                str(gds),
+                "tsmc65",
+                str(figures.OUT),
+                *FRIDA1_RENDERS_3D,
+            ],
+            cwd=root,
+            check=False,
+        )
+        if result.returncode:
+            print("build: FRIDA-1's isometric renders need the kit's layer map and Chromium; left out")
 
 
 def tikz_drawings() -> None:
