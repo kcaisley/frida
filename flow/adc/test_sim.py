@@ -1455,4 +1455,4 @@ def test_the_decoupling_is_the_decap_share_of_both_dac_sides_to_one_figure(monke
     decoupling_f = sim._Converter.decoupling_f.fget
     assert decoupling_f(SimpleNamespace(pdk="any", cdac=SimpleNamespace(area_um2=1000.0))) == 2e-12
     assert math.isnan(decoupling_f(SimpleNamespace(pdk="any", cdac=SimpleNamespace(area_um2=0.0))))
-    assert math.isnan(decoupling_f(SimpleNamespace(pdk="any", cdac=SimpleNamespace(area_um2=math.nan))))
+    assert math.isnan(decoupling_f(SimpleNamespace(pdk="any", cdac=SimpleNamespace(area_um2=None))))

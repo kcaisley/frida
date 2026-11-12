@@ -141,7 +141,7 @@ def test_rows_drop_whitespace_and_validate_lengths():
 # the recipes' rows
 
 
-@pytest.mark.parametrize("symbols,recipe", enumerate(_timing, start=1))
+@pytest.mark.parametrize("symbols,recipe", list(enumerate(_timing, start=1)))
 def test_library_logic_rows_have_explicit_edge_separations(symbols, recipe):
     default = Recipe.SYMBOL256_INIT8_SAMP16_COMP11110000_LOGIC00001111.rows
     assert recipe.rows[:3] == default[:3]

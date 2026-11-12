@@ -1,7 +1,7 @@
 """Enforce the analysis contract in ``readme.md`` by inspecting signatures and source.
 
 These tests read no data and render no figures, so they also run as a
-pre-commit hook. Each known-violation list may only shrink.
+check (tools/check.py, once it imports again). Each known-violation list may only shrink.
 """
 
 from __future__ import annotations

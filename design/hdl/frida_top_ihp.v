@@ -42,10 +42,12 @@ module frida_top #(
     inout wire cmos_reserved_0_PAD,  // Reserved CMOS pad 0
     inout wire cmos_reserved_1_PAD,  // Reserved CMOS pad 1
     inout wire cmos_reserved_2_PAD,  // Reserved CMOS pad 2
-    inout wire cmos_reserved_3_PAD,  // Reserved CMOS pad 3
+    inout wire cmos_reserved_3_PAD   // Reserved CMOS pad 3
 
     // Power Supply Pad Connections (handled by OpenROAD PDN)
-`ifdef POWER_PINS
+// verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
+    ,
     inout wire vdd_a_PAD,
     vss_a_PAD,  // Analog supply pads
     inout wire vdd_d_PAD,
@@ -55,6 +57,7 @@ module frida_top #(
     inout wire vdd_dac_PAD,
     vss_dac_PAD  // DAC supply pads
 `endif
+// verilog_format: on
 );
 
     // Core interface signals (directly connected to IO cells)
@@ -178,7 +181,8 @@ module frida_top #(
         .c2p(cmos_reserved_3_out)
     );
 
-`ifdef POWER_PINS
+// verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
     // Power pads - instantiated but no connections needed
     sg13g2_IOPadVdd sg13g2_IOPad_vdd_a ();
     sg13g2_IOPadVss sg13g2_IOPad_vss_a ();
@@ -189,6 +193,7 @@ module frida_top #(
     sg13g2_IOPadVdd sg13g2_IOPad_vdd_dac ();
     sg13g2_IOPadIOVss sg13g2_IOPad_vss_dac ();
 `endif
+// verilog_format: on
 
 
     // Convert differential signals to single-ended for core
@@ -211,23 +216,26 @@ module frida_top #(
     ) frida_core (
         .seq_init (seq_init),
         .seq_samp (seq_samp),
-        .seq_cmp  (seq_cmp),
+        .seq_comp (seq_cmp),
         .seq_logic(seq_logic),
         .spi_sclk (spi_sclk),
         .spi_sdi  (spi_sdi),
         .spi_sdo  (spi_sdo),
         .spi_cs_b (spi_cs_b),
+        .comp_out (comp_out)
+// verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
+        ,
         .vin_p    (vin_p),
         .vin_n    (vin_n),
-        .comp_out (comp_out),
         .vdd_a    (vdd_a),
         .vss_a    (vss_a),
         .vdd_d    (vdd_d),
         .vss_d    (vss_d),
-        .vdd_io   (vdd_io),
-        .vss_io   (vss_io),
         .vdd_dac  (vdd_dac),
         .vss_dac  (vss_dac)
+`endif
+// verilog_format: on
     );
 
 

@@ -23,10 +23,12 @@ module tb_frida_digital;
     localparam [3:0] MUX_BITS_UNDER_TEST = 4'b0101;
 
     // Temporal left-to-right tracks copied from flow/scans/scan_adc.py.
+    // verilog_lint: waive-start line-length (each track one 64-bit literal, left to right)
     localparam [63:0] SEQ_INIT_PATTERN  = 64'b0011000000000000000000000000000000000000000000000000000000000000;
     localparam [63:0] SEQ_SAMP_PATTERN  = 64'b0000111100000000000000000000000000000000000000000000000000000000;
     localparam [63:0] SEQ_COMP_PATTERN  = 64'b0000000001010101010101010101010101010101010000000000000000000000;
     localparam [63:0] SEQ_LOGIC_PATTERN = 64'b0001000000101010101010101010101010101010100000000000000000000000;
+    // verilog_lint: waive-stop line-length
 
     reg seq_init_p_PAD;
     reg seq_init_n_PAD;
@@ -116,6 +118,7 @@ module tb_frida_digital;
             check_spi_config(spi_config);
 
             apply_sequence_once_count_edges();
+            // verilog_lint: waive line-length (one format string)
             $display("%2d    %07b               %016b     %0d  mux[%0d:%0d]=%04b bits%0d..%0d=%b%b%b%b", cfg_slot,
                      dut.frida_core.spi_bits[CTRL_BASE + cfg_slot * 7 +: 7],
                      dut.frida_core.adc_en_comp,
@@ -133,7 +136,7 @@ module tb_frida_digital;
         $finish;
     end
 
-    task init_pads;
+    task automatic init_pads;
         begin
             seq_init_p_PAD  = 1'b0;
             seq_init_n_PAD  = 1'b1;
@@ -152,7 +155,7 @@ module tb_frida_digital;
         end
     endtask
 
-    task chip_reset;
+    task automatic chip_reset;
         begin
             rst_b_PAD = 1'b0;
             #(5 * SPI_HALF_PERIOD);
@@ -161,7 +164,7 @@ module tb_frida_digital;
         end
     endtask
 
-    task build_spi_config;
+    task automatic build_spi_config;
         output [SPI_BITS-1:0] cfg;
         input integer enabled_cfg_slot;
         input [3:0] mux_bits;
@@ -185,7 +188,7 @@ module tb_frida_digital;
         end
     endtask
 
-    task spi_write_config;
+    task automatic spi_write_config;
         input [SPI_BITS-1:0] cfg;
         integer bit_index;
         begin
@@ -205,7 +208,7 @@ module tb_frida_digital;
         end
     endtask
 
-    task check_spi_config;
+    task automatic check_spi_config;
         input [SPI_BITS-1:0] expected;
         begin
             if (dut.frida_core.spi_bits !== expected) begin
@@ -218,7 +221,7 @@ module tb_frida_digital;
         end
     endtask
 
-    task apply_sequence_once;
+    task automatic apply_sequence_once;
         integer step;
         begin
             for (step = 0; step < 64; step = step + 1) begin
@@ -236,7 +239,7 @@ module tb_frida_digital;
         end
     endtask
 
-    task apply_sequence_once_count_edges;
+    task automatic apply_sequence_once_count_edges;
         begin
             comp_edge_count = 0;
             capture_comp_edges = 1'b1;
@@ -251,7 +254,7 @@ module tb_frida_digital;
         end
     end
 
-    task drive_lvds;
+    task automatic drive_lvds;
         output pad_p;
         output pad_n;
         input  value;
@@ -295,14 +298,13 @@ endmodule
 // -----------------------------------------------------------------------------
 // Behavioral TSMC65 pad and OPENROAD helper-cell models for Icarus.
 // -----------------------------------------------------------------------------
-`ifndef FRIDA_TB_BEHAVIORAL_MODELS
-`define FRIDA_TB_BEHAVIORAL_MODELS
 
 module LVDS_RX_CUP_pad (
     input  wire PAD_P,
     input  wire PAD_N,
     output wire O,
     input  wire EN_B
+// verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
     ,
     inout wire VDDPST,
@@ -310,6 +312,7 @@ module LVDS_RX_CUP_pad (
     inout wire VDD,
     inout wire VSS
 `endif
+// verilog_format: on
 );
     assign O = EN_B ? 1'b0 : (PAD_P & ~PAD_N);
 endmodule
@@ -320,6 +323,7 @@ module LVDS_TX_CUP_pad (
     input  wire I,
     input  wire EN_B,
     input  wire [2:0] DS
+// verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
     ,
     inout wire VDDPST,
@@ -327,6 +331,7 @@ module LVDS_TX_CUP_pad (
     inout wire VDD,
     inout wire VSS
 `endif
+// verilog_format: on
 );
     assign PAD_P = EN_B ? 1'bz : I;
     assign PAD_N = EN_B ? 1'bz : ~I;
@@ -341,6 +346,7 @@ module CMOS_IO_CUP_pad (
     input  wire DS,
     output wire Z_h,
     input  wire UD_B
+// verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
     ,
     inout wire VDDPST,
@@ -348,6 +354,7 @@ module CMOS_IO_CUP_pad (
     inout wire VDD,
     inout wire VSS
 `endif
+// verilog_format: on
 );
     assign PAD = OUT_EN ? A : 1'bz;
     assign Z   = OUT_EN ? 1'bz : PAD;
@@ -358,6 +365,7 @@ module PASSIVE_CUP_pad (
     inout  wire PAD,
     input  wire I,
     output wire O
+// verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
     ,
     inout wire VDD,
@@ -365,27 +373,32 @@ module PASSIVE_CUP_pad (
     inout wire VDDPST,
     inout wire VSSPST
 `endif
+// verilog_format: on
 );
     assign O = PAD;
 endmodule
 
 module POWER_CUP_pad (
+// verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
     inout wire VSS,
     inout wire VDD,
     inout wire VDDPST,
     inout wire VSSPST
 `endif
+// verilog_format: on
 );
 endmodule
 
 module GROUND_CUP_pad (
+// verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
     inout wire VSS,
     inout wire VDD,
     inout wire VDDPST,
     inout wire VSSPST
 `endif
+// verilog_format: on
 );
 endmodule
 
@@ -422,11 +435,13 @@ module OPENROAD_CLKXOR (
     input  wire A,
     input  wire B,
     output wire Y
+// verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
     ,
     inout wire VDD,
     inout wire VSS
 `endif
+// verilog_format: on
 );
     assign Y = A ^ B;
 endmodule
@@ -434,11 +449,13 @@ endmodule
 module OPENROAD_CLKBUF (
     input  wire A,
     output wire Y
+// verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
     ,
     inout wire VDD,
     inout wire VSS
 `endif
+// verilog_format: on
 );
     assign Y = A;
 endmodule
@@ -446,11 +463,13 @@ endmodule
 module OPENROAD_CLKINV (
     input  wire A,
     output wire Y
+// verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
     ,
     inout wire VDD,
     inout wire VSS
 `endif
+// verilog_format: on
 );
     assign Y = ~A;
 endmodule
@@ -462,4 +481,3 @@ module OPENROAD_CTRLGATE (
 );
     assign GCK = CK & E;
 endmodule
-`endif

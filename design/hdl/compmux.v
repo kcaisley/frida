@@ -11,10 +11,13 @@ module compmux (
     output wire        comp_out      // Selected output to LVDS TX
 
     // Power supply signals
+// verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
+    ,
     inout wire vdd_d,
     vss_d  // Digital supply
 `endif
+// verilog_format: on
 );
 
     // 16:1 mux using direct array indexing

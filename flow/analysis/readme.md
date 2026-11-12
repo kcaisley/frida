@@ -128,7 +128,7 @@ The rules:
 - Analyses do no file I/O. Runners save results that another runner needs with `write_analysis` and read them back with `read_analysis`; measurement files are never modified.
 - Only `types.py`, `io.py`, and `calc.py` define helper functions or classes. Analysis, plotting, and runner code keeps its logic inside its public functions, with no private functions, classes, or nested functions. Values derived from a measurement are properties of its `Meas*` type; reusable numerical steps are `calc` primitives.
 - `plots.py` defines only `plot_*` plotters, `style_*` formatting, and `save_figure`; the studies of the blocks not on the pipeline are the `*_study` targets in their `targets.py`, and `studies.py` holds only what they share (`BASE_PATH`).
-- `flow/analysis/test_conformance.py` checks these rules from signatures and source, and runs as a pre-commit hook.
+- `flow/analysis/test_conformance.py` checks these rules from signatures and source (it fails to import now: `flow.circuit.devices.write_netlist` is gone).
 
 ### Building blocks
 

@@ -1,5 +1,10 @@
 name: CI
 
+# Every job runs one check of tools/check.py, the same command a checkout and a local runner
+# run. The native tools (Verible, OSS CAD Suite, tex-fmt) are pinned releases installed into
+# FRIDA_TOOLS: build/tools here, cached on GitHub's runners; a self-hosted runner sets
+# FRIDA_TOOLS in its environment to a persistent directory and skips the cache. No apt.
+
 on:
   pull_request:
   push:
@@ -12,40 +17,38 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CHECK: uv run --no-project --python 3.12 python tools/check.py
+
 jobs:
-  markdown:
-    name: Markdown
+  python:
+    name: ${{ matrix.check }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [ruff, import-linter, markdown]
     steps:
       - name: Check out FRIDA
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
 
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
         with:
-          python-version: 3.12.11
+          python-version: '3.12'
           enable-cache: true
 
-      - name: Install mdl
-        run: |
-          gem install mdl --version 0.14.0 --no-document --user-install
-          echo "$(ruby -e 'puts Gem.user_dir')/bin" >> "$GITHUB_PATH"
-
-      - name: Run rumdl
-        run: uvx --from rumdl==0.2.55 rumdl check $(git ls-files '*.md')
-
-      - name: Run mdl
-        if: ${{ always() }}
-        run: mdl $(git ls-files '*.md')
+      - name: Run ${{ matrix.check }}
+        run: $CHECK ${{ matrix.check }}
 
   ty:
-    name: Ty (PDK-independent)
+    name: ty
     runs-on: ubuntu-latest
     steps:
       - name: Check out FRIDA
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
 
@@ -55,59 +58,71 @@ jobs:
           git submodule update --init --depth 1 libs/Hdl21 libs/Vlsir libs/basil
 
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
         with:
-          python-version: 3.12.11
+          python-version: '3.12'
           enable-cache: true
 
       - name: Install Python dependencies
         run: uv sync --dev
 
-      - name: Run Ty
-        run: >-
-          uv run ty check
-          flow/opt/runner.py
-          flow/dashboard.py
-          flow/pipeline.py
-          flow/plot.py
-          flow/scans/plldrp.py
-          flow/seqgen/analysis.py
-          flow/seqgen/plots.py
-          flow/seqgen/types.py
-          $(uv run python -c "from flow.test_pipeline import typed; print(*typed())")
+      - name: Run ty
+        run: $CHECK ty
 
-  ruff:
-    name: Ruff
+  # The four HDL checks, each its own job so a failure shows on its own.
+  hdl:
+    name: ${{ matrix.check }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [verible-format, verible-lint, verilator-lint, slang-lint]
     steps:
       - name: Check out FRIDA
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
 
+      - name: Check out Basil (its firmware modules are in FRIDA's designs)
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --depth 1 libs/basil
+
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
         with:
-          python-version: 3.12.11
+          python-version: '3.12'
           enable-cache: true
 
-      - name: Run Ruff lint
-        run: uvx pre-commit run ruff-lint --all-files --show-diff-on-failure
+      - name: Name the pinned tools
+        id: tools
+        run: echo "key=$($CHECK cache-key)" >> "$GITHUB_OUTPUT"
 
-      - name: Run Ruff format
-        if: ${{ always() }}
-        run: uvx pre-commit run ruff-format --all-files --show-diff-on-failure
+      - name: Restore the pinned tools
+        if: runner.environment == 'github-hosted'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: build/tools
+          key: ${{ steps.tools.outputs.key }}
 
-      - name: Check the block pipeline's stage order
-        if: ${{ always() }}
-        run: PYTHONPATH=. uvx --from import-linter==2.15 lint-imports
+      - name: Install the pinned tools (where not yet installed)
+        run: $CHECK install
 
+      - name: Run ${{ matrix.check }}
+        run: $CHECK ${{ matrix.check }}
+
+  # The oldest Python FRIDA supports and the newest its dependencies' wheels support (3.15 waits on
+  # h5py's and Cocotb's).
   pytest:
-    name: Pytest
+    name: pytest (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.14']
     steps:
       - name: Check out FRIDA
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           persist-credentials: false
 
@@ -116,73 +131,28 @@ jobs:
           git config --global url."https://github.com/".insteadOf git@github.com:
           git submodule update --init --depth 1 libs/Hdl21 libs/Vlsir libs/basil
 
-      - name: Install Icarus Verilog
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes iverilog
-
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
         with:
-          python-version: 3.12.11
+          python-version: ${{ matrix.python }}
           enable-cache: true
+
+      - name: Name the pinned tools
+        id: tools
+        run: echo "key=$($CHECK cache-key)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the pinned tools
+        if: runner.environment == 'github-hosted'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: build/tools
+          key: ${{ steps.tools.outputs.key }}
+
+      - name: Install the pinned tools (where not yet installed)
+        run: $CHECK install
 
       - name: Install Python dependencies
         run: uv sync --dev
 
-      - name: Run PDK-independent tests
-        run: >-
-          uv run pytest
-          flow/adc/test_analysis.py
-          flow/adc/test_layout.py
-          flow/adc/test_model.py
-          flow/adc/test_params.py
-          flow/adc/test_plots.py
-          flow/adc/test_sim.py
-          flow/adc/test_subckt.py
-          flow/adc/test_runs.py
-          flow/comp/test_subckt.py
-          flow/opt/test_runner.py
-          flow/layout/test_lint.py
-          flow/layout/test_kpex.py
-          flow/layout/test_mosline.py
-          flow/layout/test_pdkproc.py
-          flow/layout/test_signoff.py
-          flow/layout/test_stdcells.py
-          test/test_pdk_agnostic.py
-          flow/samp/test_subckt.py
-          flow/capdac/test_analysis.py
-          flow/capdac/test_model.py
-          flow/capdac/test_plots.py
-          flow/layout/test_step.py
-          flow/layout/test_hdl21align.py
-          flow/layout/devices/test_devices.py
-          flow/layout/devices/momcap/test_netlist.py
-          flow/util/test_netlist2image.py
-          flow/web/test_story.py
-          flow/web/test_artifactifier.py
-          flow/comp/test_sim.py
-          flow/comp/test_analysis.py
-          flow/comp/test_plots.py
-          flow/comp/test_model.py
-          flow/test_pipeline.py
-          flow/test_plot.py
-          flow/test_main.py
-          flow/layout/test_klayout_lvs.py
-          flow/test_dashboard.py
-          flow/test_logs.py
-          flow/samp/test_sim.py
-          flow/samp/test_analysis.py
-          flow/samp/test_plots.py
-          flow/samp/test_model.py
-          flow/seqgen/test_analysis.py
-          flow/seqgen/test_plots.py
-          flow/circuit/test_sim.py
-          flow/circuit/test_remote.py
-          flow/circuit/test_spectre.py
-          flow/scans/test_plldrp.py
-          flow/sweep/test_sweep.py
-          test/test_hooks.py
-          test/test_adc_capdriver.py
-          test/test_salogic.py
-          test/test_spi_register.py
+      - name: Run the PDK-independent tests (with OSS CAD Suite's Icarus for Cocotb)
+        run: $CHECK pytest

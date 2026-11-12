@@ -86,10 +86,13 @@ module adc #(
         .clk_update(clk_update)
 
         // Power supplies
-`ifdef USE_POWER_PINS,
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
+        ,
         .vdd_d(vdd_d),
         .vss_d(vss_d)
 `endif
+// verilog_format: on
     );
 
     // SAR Logic - Consolidated dual-channel
@@ -109,10 +112,13 @@ module adc #(
         .dac_state_n (dac_state_n)    // Output to negative DAC state
 
         // Power supplies
-`ifdef USE_POWER_PINS,
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
+        ,
         .vdd_d(vdd_d),
         .vss_d(vss_d)
 `endif
+// verilog_format: on
     );
 
 
@@ -129,10 +135,13 @@ module adc #(
         .dac_state       (dac_state_p),                // SAR logic positive output
         .dac_drive_invert(1'b0),                       // Main drivers: no inversion
         .dac_drive       (dac_drive_botplate_main_p)   // To positive main capacitor array
-`ifdef USE_POWER_PINS,
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
+        ,
         .vdd_dac         (vdd_dac),
         .vss_dac         (vss_dac)
 `endif
+// verilog_format: on
     );
 
     // P-side diff capacitor driver (1 = invert)
@@ -142,10 +151,13 @@ module adc #(
         .dac_state(dac_state_p),  // SAR logic positive output
         .dac_drive_invert(dac_diffcaps),  // Invert diff caps when differential mode is enabled
         .dac_drive(dac_drive_botplate_diff_p)  // To positive diff capacitor array
-`ifdef USE_POWER_PINS,
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
+        ,
         .vdd_dac(vdd_dac),
         .vss_dac(vss_dac)
 `endif
+// verilog_format: on
     );
 
     // N-side main capacitor driver (0 = no invert)
@@ -155,10 +167,13 @@ module adc #(
         .dac_state       (dac_state_n),                // SAR logic negative output
         .dac_drive_invert(1'b0),                       // Main drivers: no inversion
         .dac_drive       (dac_drive_botplate_main_n)   // To negative main capacitor array
-`ifdef USE_POWER_PINS,
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
+        ,
         .vdd_dac         (vdd_dac),
         .vss_dac         (vss_dac)
 `endif
+// verilog_format: on
     );
 
     // N-side diff capacitor driver (1 = invert)
@@ -168,10 +183,13 @@ module adc #(
         .dac_state(dac_state_n),  // SAR logic negative output
         .dac_drive_invert(dac_diffcaps),  // Invert diff caps when differential mode is enabled
         .dac_drive(dac_drive_botplate_diff_n)  // To negative diff capacitor array
-`ifdef USE_POWER_PINS,
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
+        ,
         .vdd_dac(vdd_dac),
         .vss_dac(vss_dac)
 `endif
+// verilog_format: on
     );
 
 
@@ -182,20 +200,26 @@ module adc #(
         .clk_in   (clk_samp_p_raw),  // Input raw gated sampling clock positive
         .clk_out  (clk_samp_p),      // Buffered output clock positive
         .clk_out_b(clk_samp_p_b)     // Inverted output clock positive
-`ifdef USE_POWER_PINS,
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
+        ,
         .vdd_d    (vdd_d),
         .vss_d    (vss_d)
 `endif
+// verilog_format: on
     );
 
     sampdriver sampdriver_n (
         .clk_in   (clk_samp_n_raw),  // Input raw gated sampling clock negative
         .clk_out  (clk_samp_n),      // Buffered output clock negative
         .clk_out_b(clk_samp_n_b)     // Inverted output clock negative
-`ifdef USE_POWER_PINS,
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
+        ,
         .vdd_d    (vdd_d),
         .vss_d    (vss_d)
 `endif
+// verilog_format: on
     );
 
     // ! ANALOG MACRO ! Capacitor arrays (CDACs)
@@ -222,10 +246,13 @@ module adc #(
         .vout (vsamp_p),       // Positive sampling output
         .clk  (clk_samp_p),    // Positive sampling clock
         .clk_b(clk_samp_p_b)   // Complementary positive sampling clock
-`ifdef USE_POWER_PINS,
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
+        ,
         .vdd_a(vdd_a),         // Analog power
         .vss_a(vss_a)          // Analog ground
 `endif
+// verilog_format: on
     );
 
     sampswitch samp_n (
@@ -233,10 +260,13 @@ module adc #(
         .vout (vsamp_n),       // Negative sampling output
         .clk  (clk_samp_n),    // Negative sampling clock
         .clk_b(clk_samp_n_b)   // Complementary negative sampling clock
-`ifdef USE_POWER_PINS,
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
+        ,
         .vdd_a(vdd_a),         // Analog power
         .vss_a(vss_a)          // Analog ground
 `endif
+// verilog_format: on
     );
 
     // ! ANALOG MACRO ! Comparator
@@ -246,10 +276,13 @@ module adc #(
         .dout_p(comp_out_p),  // Positive comparator output
         .dout_n(comp_out_n),  // Negative comparator output
         .clk   (clk_comp)     // Comparator clock
-`ifdef USE_POWER_PINS,
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
+`ifdef USE_POWER_PINS
+        ,
         .vdd_a (vdd_a),       // Analog power
         .vss_a (vss_a)        // Analog ground
 `endif
+// verilog_format: on
     );
 
     // Output assignment

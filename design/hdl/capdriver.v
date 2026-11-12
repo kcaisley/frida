@@ -9,10 +9,12 @@ module capdriver #(
     parameter integer N_STAGES = 16  // Capacitor stages; FRIDA has 16
 ) (
     // Power supply signals
+    // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
     inout  wire                vdd_dac,
     inout  wire                vss_dac,           // DAC supply
 `endif
+// verilog_format: on
     input  wire [N_STAGES-1:0] dac_state,         // C0-first conversion-stage state
     input  wire                dac_drive_invert,  // Active-high control for inverting the output
     output wire [N_STAGES-1:0] dac_drive          // C0-first capacitor drive bus
@@ -30,10 +32,13 @@ module capdriver #(
                 .A  (dac_state[i]),      // Data input
                 .B  (dac_drive_invert),  // Active-high invert control
                 .Y  (dac_drive[i])       // Output
+                // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
+                ,
                 .VDD(vdd_dac),           // DAC power domain
                 .VSS(vss_dac)            // DAC ground domain
 `endif
+// verilog_format: on
             );
         end
     endgenerate

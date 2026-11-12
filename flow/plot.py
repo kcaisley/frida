@@ -107,7 +107,9 @@ def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
                 _log_ticks(axis)
         if plot.x_labels is not None:
             # angled where they would collide, each name ending at its tick
-            angled = {"rotation": 45, "ha": "right", "rotation_mode": "anchor"} if len(plot.x_labels) > 6 else {}
+            angled: dict[str, Any] = (
+                {"rotation": 45, "ha": "right", "rotation_mode": "anchor"} if len(plot.x_labels) > 6 else {}
+            )
             ax.set_xticks(range(len(plot.x_labels)), plot.x_labels, **angled)
         if plot.y_labels is not None:
             ax.set_yticks(range(len(plot.y_labels)), plot.y_labels)

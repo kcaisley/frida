@@ -10,10 +10,13 @@ module sampswitch (
     input  wire clk_b  // Complementary switch control clock
 
     // Power supply signals
+// verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
+    ,
     inout wire vdd_a,
     vss_a  // Analog supply
 `endif
+// verilog_format: on
 );
 
     // Black box - analog implementation

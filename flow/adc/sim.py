@@ -963,6 +963,8 @@ class _Converter:
         DAC's two sides (each side's layout, its drivers with it) at the PDK's density, to one
         significant figure; NaN where the PDK gives none or the DAC is not laid out."""
         density = getattr(importlib.import_module(f"pdk.{self.pdk}.hdl21").pdk_logic, "DECAP_FF_PER_UM2", math.nan)
+        if self.cdac.area_um2 is None:
+            return math.nan
         capacitance_f = DECAP_COVERAGE * 2 * self.cdac.area_um2 * density * 1e-15
         return float(f"{capacitance_f:.0e}") if capacitance_f > 0 else math.nan
 

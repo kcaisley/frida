@@ -3,7 +3,7 @@ every block with a runs.py, a new one too, unless ``NOT_MIGRATED`` names it): it
 names each may define, their signatures (an analysis's prior optional as ``X | None = None``), that
 its pure stages do no file I/O (their private helpers pure functions too), and that it states its
 layout one way at most: its ALIGN placement in subckt.py or its own layout.py, not both. Reads no
-data and runs no simulator: a pre-commit hook and CI run it.
+data and runs no simulator: the checks (tools/check.py contracts, pytest) run it.
 
 The import order of the stages is checked by import-linter (``[tool.importlinter]`` in
 pyproject.toml: one contract over every migrated block, held to them here), ``from flow.<block>

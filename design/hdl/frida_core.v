@@ -21,6 +21,7 @@ module frida_core #(
     input  wire reset_b,
 
     // Comparator output (to LVDS TX pad)
+    // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
     output wire comp_out,
     input  wire vin_p,     // Positive input
@@ -34,6 +35,7 @@ module frida_core #(
 `else
     output wire comp_out
 `endif
+// verilog_format: on
 );
 
     // SPI register length: four shared DAC state fields, 7 controls for each of

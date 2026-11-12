@@ -1,47 +1,46 @@
 [project]
 name = "frida"
 version = "0.1.0"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12"
 dependencies = [
     # Core
-    "numpy",
-    "scipy",
-    "matplotlib>=3.11,<3.12",
-    "openpyxl",
-    "pillow",
-    "h5py",
-    "pyyaml",
-    "pydantic",
-    "pytest",
-    "klayout",
-    "protobuf",
+    "numpy>=2.4.4",
+    "scipy>=1.17.1",
+    "matplotlib>=3.11.1",
+    "openpyxl>=3.1.5",
+    "pillow>=12.2.0",
+    "h5py>=3.16.0",
+    "pyyaml>=6.0.3",
+    "pydantic>=2.13.0",
+    "pytest>=9.0.3",
+    "klayout>=0.30.7",
+    "protobuf>=6.33.6",
     # Keep these commits aligned with the submodule gitlinks; uv uses the local editable sources below.
     "hdl21 @ git+https://github.com/kcaisley/Hdl21.git@c0d73fa152c1b290498dfd686d10db597567e9af",
     "vlsir @ git+https://github.com/kcaisley/Vlsir.git@21d2981b171046c5f03dcc2f1307854cbd054516#subdirectory=bindings/python",
     "vlsirtools @ git+https://github.com/kcaisley/Vlsir.git@21d2981b171046c5f03dcc2f1307854cbd054516#subdirectory=VlsirTools",
     "basil-daq @ git+https://github.com/SiLab-Bonn/basil.git@c1a011edee2d8ede0811f1246e182a7e93f518e7",
-    "cocotb",
-    "cocotb-bus",
-    "spyci",
-    "vcdvcd",
-    "pexpect",
-    "gitpython",
-    "setuptools",  # basil imports pkg_resources at runtime
-    "bitarray",
-    "pyvisa",
-    "pyvisa-py",
-    "gpib-ctypes",
-    "pyserial",
+    "cocotb>=2.1.0",
+    "cocotb-bus>=0.3.0",
+    "spyci>=1.0.2",
+    "vcdvcd>=2.6.0",
+    "pexpect>=4.9.0",
+    "gitpython>=3.1.46",
+    "setuptools>=83.0.0",  # basil imports pkg_resources at runtime
+    "bitarray>=3.8.1",
+    "pyvisa>=1.16.2",
+    "pyvisa-py>=0.8.1",
+    "gpib-ctypes>=0.3.0",
+    "pyserial>=3.5",
     "pyusb>=1.3.1",
-    "ruff>=0.16.1",
-    "pre-commit>=4.6.2",
+    "ruff>=0.16.6",
     "optuna>=4.0",
-    "rich==13.9.4",  # the step runner's live dashboard and tables (python -m flow)
+    "rich>=13.9.4",  # the step runner's live dashboard and tables (python -m flow)
 ]
 
 [dependency-groups]
 dev = [
-    "ty==0.0.63",
+    "ty>=0.0.63",
 ]
 
 [build-system]
@@ -94,7 +93,7 @@ exclude = ["libs/", ".venv/"]
 # Some developer environments intentionally omit optional simulation dependencies.
 # Keep imports permissive while enforcing every other ty diagnostic.
 [tool.ty.rules]
-unresolved-import = "ignore"
+import-not-found = "ignore"
 invalid-argument-type = "error"
 # Require explicit type arguments for generic containers in first-party code.
 missing-type-argument = "error"
@@ -167,7 +166,7 @@ known-first-party = ["flow", "pdk"]
 
 [tool.importlinter]
 # the pipeline's stage order (docs/pipeline.md), for each block on it (flow/test_pipeline.py: MIGRATED);
-# run as `PYTHONPATH=. uvx --from import-linter==2.15 lint-imports` (pre-commit and CI)
+# checked by `tools/check.py import-linter` (a checkout's git hook and CI)
 root_packages = ["flow"]
 # an import for a type annotation alone (under typing.TYPE_CHECKING) is no dependency at run time
 exclude_type_checking_imports = true
@@ -205,10 +204,360 @@ markers = [
     "slow: long-running characterization or regression campaign",
     "site_pdk: requires site-local PDK installations under /eda/kits (deselected by default)",
 ]
-# Suppress protobuf deprecation warning from vlsirtools dependency.
-# The warning is about Python 3.14 C API changes in google._upb._message.
-# Vlsir pins protobuf~=4.23 (in libs/Vlsir/bindings/python/setup.py),
-# which prevents upgrading to protobuf 5.x/6.x where this may be fixed.
-filterwarnings = [
-    "ignore:Type google._upb._message:DeprecationWarning",
+# protobuf 4.x's upb extension warned of Python 3.14 C API changes (and fails to import on
+# 3.14); protobuf 5 and later do not, so nothing is filtered.
+
+# ------------------------------------------------------------------------------- checks
+# tools/check.py runs every check, the same in a checkout, a local runner and GitHub's: the
+# Python tools through uv at these versions or newer (minimums, so updates arrive), the native
+# ones as the exact releases below (a checksum names one file).
+[tool.check]
+ruff = "ruff>=0.16.6"
+import-linter = "import-linter>=2.15"
+rumdl = "rumdl>=0.2.55"
+python-files = '^(flow/((analysis|scans|adc|capdac|comp|samp|seqgen|circuit|sweep|web|layout)/.*|[^/]+)|tools/[^/]+)\.py$'
+# ty: these and every migrated block's stages (flow.test_pipeline.typed), the files that pass
+ty-paths = [
+    "flow/opt/runner.py",
+    "flow/dashboard.py",
+    "flow/pipeline.py",
+    "flow/plot.py",
+    "flow/scans/plldrp.py",
+    "flow/seqgen/analysis.py",
+    "flow/seqgen/plots.py",
+    "flow/seqgen/types.py",
 ]
+# flow/analysis/test_conformance.py belongs here once it imports again (write_netlist is gone)
+contract-tests = ["flow/test_pipeline.py"]
+tex-files = '^docs/(outline|thesis/.*)\.tex$'
+tex-fmt-args = ["--nowrap", "--tabsize", "2"]
+chktex-files = '^docs/.*\.tex$'
+# ChkTeX's legacy parser misreads TikZ coordinates and Beamer constructs as these classes.
+chktex-nowarn = [1, 3, 8, 12, 13, 17, 25, 26, 31, 35, 36, 37, 44, 47, 48]
+# The tests that need no PDK, the ones CI runs.
+pytest = [
+    "flow/adc/test_analysis.py",
+    "flow/adc/test_layout.py",
+    "flow/adc/test_model.py",
+    "flow/adc/test_params.py",
+    "flow/adc/test_plots.py",
+    "flow/adc/test_sim.py",
+    "flow/adc/test_subckt.py",
+    "flow/adc/test_runs.py",
+    "flow/comp/test_subckt.py",
+    "flow/opt/test_runner.py",
+    "flow/layout/test_lint.py",
+    "flow/layout/test_kpex.py",
+    "flow/layout/test_mosline.py",
+    "flow/layout/test_pdkproc.py",
+    "flow/layout/test_signoff.py",
+    "flow/layout/test_stdcells.py",
+    "test/test_pdk_agnostic.py",
+    "flow/samp/test_subckt.py",
+    "flow/capdac/test_analysis.py",
+    "flow/capdac/test_model.py",
+    "flow/capdac/test_plots.py",
+    "flow/layout/test_step.py",
+    "flow/layout/test_hdl21align.py",
+    "flow/layout/devices/test_devices.py",
+    "flow/layout/devices/momcap/test_netlist.py",
+    "flow/util/test_netlist2image.py",
+    "flow/web/test_story.py",
+    "flow/web/test_artifactifier.py",
+    "flow/comp/test_sim.py",
+    "flow/comp/test_analysis.py",
+    "flow/comp/test_plots.py",
+    "flow/comp/test_model.py",
+    "flow/test_pipeline.py",
+    "flow/test_plot.py",
+    "flow/test_main.py",
+    "flow/layout/test_klayout_lvs.py",
+    "flow/test_dashboard.py",
+    "flow/test_logs.py",
+    "flow/samp/test_sim.py",
+    "flow/samp/test_analysis.py",
+    "flow/samp/test_plots.py",
+    "flow/samp/test_model.py",
+    "flow/seqgen/test_analysis.py",
+    "flow/seqgen/test_plots.py",
+    "flow/circuit/test_sim.py",
+    "flow/circuit/test_remote.py",
+    "flow/circuit/test_spectre.py",
+    "flow/scans/test_plldrp.py",
+    "flow/sweep/test_sweep.py",
+    "test/test_hooks.py",
+    "test/test_adc_capdriver.py",
+    "test/test_salogic.py",
+    "test/test_spi_register.py",
+]
+
+[tool.tex-fmt.install]
+version = "v0.5.7"
+sha256 = "d0e30b9b811fdc1e66a9328d5c95e9d8e585019288ca39c07f643e0796bcc4a3"
+url = "https://github.com/WGUNDERWOOD/tex-fmt/releases/download/{version}/tex-fmt-x86_64-linux.tar.gz"
+strip = 0  # the binary at the archive's root
+
+# ---------------------------------------------------------------------------- HDL checks
+# The four HDL checks (verible-format, verible-lint, verilator-lint, slang-lint) and their
+# tools' pins, as in Basil's hdl-fmt-and-lint.
+
+[tool.verible.install]
+version = "v0.0-4296-g0f262651"
+sha256 = "8569defb891d2316067613ea00442af28a7a09d405d95b54c0c91f9942d26635"
+url = "https://github.com/chipsalliance/verible/releases/download/{version}/verible-{version}-linux-static-x86_64.tar.gz"
+
+[tool.oss-cad-suite.install]
+version = "2026-10-01"
+sha256 = "1c91249e9671666b58d94e2fe8a81e6103d37b254eab77bd82625802c208bf4d"
+url = "https://github.com/YosysHQ/oss-cad-suite-build/releases/download/{version}/oss-cad-suite-linux-x64-{date}.tgz"
+
+[tool.hdl]
+source-suffixes = [".v", ".sv"]
+verilog-standard = "1364-2005"
+systemverilog-standard = "1800-2017"
+# Not checked at all: the netlistsvg drawing input is a figure, not a design.
+exclude = ["docs/images/netlistsvg"]
+# Formatted and style-linted, but in no design: they need what the repository does not
+# hold (TSMC's standard cells) or are Verilog-AMS for co-simulation (wreal nets).
+not-elaborated = [
+    "design/hdl/cells_tsmc65.v",
+    "design/hdl/sediff.v",
+    "design/hdl/adc_stub.v",
+    "design/hdl/frida_core_1chan.v",
+    "design/fpga/daq_top.v",
+]
+# Basil's firmware modules, as its own designs read them.
+include-directories = [
+    "libs/basil/basil/firmware/modules",
+    "libs/basil/basil/firmware/modules/utils",
+    "libs/basil/basil/firmware/modules/includes",
+]
+
+# Each design elaborated by Verilator and Slang: its top, its sources in order, and what it
+# needs besides (defines, include directories, a SystemVerilog standard, a directory that
+# must exist, such as the vendor SiTCP sources, for it to be checked).
+[[tool.hdl.designs]]
+name = "adc"
+top = "adc"
+files = [
+    "design/hdl/cells_behavioral.v",
+    "design/hdl/clkgate.v",
+    "design/hdl/salogic.v",
+    "design/hdl/capdriver.v",
+    "design/hdl/sampdriver.v",
+    "design/hdl/caparray.v",
+    "design/hdl/sampswitch.v",
+    "design/hdl/comp.v",
+    "design/hdl/adc.v",
+]
+
+[[tool.hdl.designs]]
+name = "adc_digital"
+top = "adc_digital"
+files = [
+    "design/hdl/cells_behavioral.v",
+    "design/hdl/clkgate.v",
+    "design/hdl/salogic.v",
+    "design/hdl/capdriver.v",
+    "design/hdl/sampdriver.v",
+    "design/hdl/adc_digital.v",
+]
+
+[[tool.hdl.designs]]
+name = "adc_macro"
+top = "adc"
+files = ["design/hdl/adc_macro.v"]
+
+[[tool.hdl.designs]]
+name = "frida_core"
+top = "frida_core"
+files = [
+    "design/hdl/cells_behavioral.v",
+    "design/hdl/clkgate.v",
+    "design/hdl/salogic.v",
+    "design/hdl/capdriver.v",
+    "design/hdl/sampdriver.v",
+    "design/hdl/caparray.v",
+    "design/hdl/sampswitch.v",
+    "design/hdl/comp.v",
+    "design/hdl/adc.v",
+    "design/hdl/compmux.v",
+    "design/hdl/spi.v",
+    "design/hdl/frida_core.v",
+]
+
+[[tool.hdl.designs]]
+name = "frida_core_frida_spi"
+top = "frida_core"
+files = [
+    "design/hdl/cells_behavioral.v",
+    "design/hdl/clkgate.v",
+    "design/hdl/salogic.v",
+    "design/hdl/capdriver.v",
+    "design/hdl/sampdriver.v",
+    "design/hdl/caparray.v",
+    "design/hdl/sampswitch.v",
+    "design/hdl/comp.v",
+    "design/hdl/adc.v",
+    "design/hdl/compmux.v",
+    "design/hdl/frida_spi.v",
+    "design/hdl/frida_core.v",
+]
+
+[[tool.hdl.designs]]
+name = "frida_top_ihp"
+top = "frida_top"
+files = [
+    "design/hdl/stubs/sg13g2_stubs.v",
+    "design/hdl/cells_ihp_sg13g2.v",
+    "design/hdl/clkgate.v",
+    "design/hdl/salogic.v",
+    "design/hdl/capdriver.v",
+    "design/hdl/sampdriver.v",
+    "design/hdl/caparray.v",
+    "design/hdl/sampswitch.v",
+    "design/hdl/comp.v",
+    "design/hdl/adc.v",
+    "design/hdl/compmux.v",
+    "design/hdl/spi.v",
+    "design/hdl/frida_core.v",
+    "design/hdl/frida_top_ihp.v",
+]
+
+[[tool.hdl.designs]]
+name = "tb_frida_digital"
+top = "tb_frida_digital"
+standard = "1800-2017"  # $fatal
+# the testbench models the cells, the pads and the ADC itself
+files = [
+    "design/hdl/compmux.v",
+    "design/hdl/spi.v",
+    "design/hdl/frida_core.v",
+    "design/hdl/frida_top_tsmc65.v",
+    "design/hdl/tb_frida_digital.v",
+]
+
+[[tool.hdl.designs]]
+name = "daq_core"
+top = "daq_core"
+files = ["design/fpga/daq_core.v"]
+
+[[tool.hdl.designs]]
+name = "pll_drp"
+top = "pll_drp"
+files = ["design/fpga/pll_drp.v"]
+
+[[tool.hdl.designs]]
+name = "clock_reset_sync"
+top = "clock_reset_sync"
+files = ["design/fpga/clock_reset_sync.v"]
+
+[[tool.hdl.designs]]
+name = "daq_top"
+top = "daq_top"
+files = ["design/fpga/daq_top.v"]
+include-directories = ["design/hdl", "design/fpga", "design/fpga/SiTCP"]
+defines = ["BDAQ53=1"]
+requires = "design/fpga/SiTCP"  # the vendor SiTCP sources, not in the repository
+
+[[tool.hdl.designs]]
+name = "fastrx_sequence_tb"
+top = "fastrx_sequence_tb"
+files = [
+    "libs/basil/basil/firmware/modules/seq_gen/seq_gen_core.v",
+    "libs/basil/basil/firmware/modules/fast_spi_rx/fast_spi_rx_core.v",
+    "test/rtl/fastrx_sequence_tb.v",
+]
+
+[tool.verible-format]
+args = [
+    "--assignment_statement_alignment=align",
+    "--class_member_variable_alignment=align",
+    "--distribution_items_alignment=align",
+    "--enum_assignment_statement_alignment=align",
+    "--expand_coverpoints=true",
+    "--formal_parameters_alignment=align",
+    "--formal_parameters_indentation=indent",
+    "--module_net_variable_alignment=flush-left",
+    "--named_parameter_alignment=align",
+    "--named_parameter_indentation=indent",
+    "--named_port_alignment=align",
+    "--named_port_indentation=indent",
+    "--port_declarations_alignment=align",
+    "--port_declarations_indentation=indent",
+    "--port_declarations_right_align_packed_dimensions=true",
+    "--port_declarations_right_align_unpacked_dimensions=true",
+    "--struct_union_members_alignment=align",
+    "--indentation_spaces=4",
+    # Basil adds --failsafe_success=false (fail where Verible cannot parse). Verible cannot parse
+    # a guarded port or connection list that starts with a comma (the power pins last, under
+    # USE_POWER_PINS), valid Verilog it leaves as written; Verilator and Slang check its syntax.
+]
+
+[tool.verible-lint]
+# The disabled rules conflict with the Verilog-2005 dialect; FRIDA's files hold several
+# modules each (cells, pad models), so a module need not name its file.
+rules = [
+    "-module-filename",
+    "-always-comb",
+    "-explicit-parameter-storage-type",
+    "-unpacked-dimensions-range-ordering",
+    "parameter-name-style=localparam_style:CamelCase|ALL_CAPS",
+]
+
+[tool.verilator]
+# Report legacy warnings; fail on implicit nets, syntax and elaboration errors.
+args = ["--lint-only", "--timing", "-Wall", "-Wno-fatal", "-Werror-IMPLICIT"]
+# Written to build/hdl/verilator.vlt for each run (a rule, or every rule, off in a file).
+waivers = [
+    # Basil is linted in its own repository: keep it in the elaborated designs, but its
+    # warnings are not FRIDA's.
+    { file = "*libs/basil/*" },
+    { rule = "WIDTHCONCAT", file = "*libs/basil/*" },
+    { rule = "MULTIDRIVEN", file = "*libs/basil/*" },
+    # SiTCP is vendor HDL with a black-box core interface.
+    { file = "*design/fpga/SiTCP/*" },
+    { rule = "UNDRIVEN", file = "*design/fpga/daq_top.v" },
+    # Optional primitive and SiTCP wrapper ports left open, status outputs kept for the
+    # board wrapper, unused upper sequencer bits: stable interfaces.
+    { rule = "PINCONNECTEMPTY", file = "*design/fpga/daq_top.v" },
+    { rule = "PINCONNECTEMPTY", file = "*design/fpga/daq_core.v" },
+    { rule = "UNUSEDSIGNAL", file = "*design/fpga/daq_top.v" },
+    { rule = "UNUSEDSIGNAL", file = "*design/fpga/daq_core.v" },
+    # The TSMC top's input pads sit on bidirectional pad cells (PAD is inout, as in the cell
+    # library), output-disabled; their testbench drives them as regs, so they stay inputs.
+    { rule = "ASSIGNIN", file = "*design/hdl/frida_top_tsmc65.v" },
+]
+
+[tool.slang]
+# --single-unit: one compilation unit, as Verilator reads them (include guards hold across files)
+args = ["-Wextra", "--timescale=1ns/1ps", "--allow-lib-module-redef", "-Wempty-output-connection", "--single-unit"]
+
+[tool.rumdl]
+# Let Markdown prose use one source line per paragraph.
+disable = ["MD013"]
+
+[tool.rumdl.MD007]
+indent = 2
+
+[tool.rumdl.MD009]
+strict = true
+
+[tool.rumdl.MD024]
+allow-different-nesting = true
+
+[tool.rumdl.MD029]
+style = "ordered"
+
+[tool.rumdl.MD033]
+allowed-elements = ["br", "img", "p"]
+
+[tool.rumdl.MD046]
+style = "fenced"
+
+[tool.rumdl.per-file-ignores]
+# These archival research notes refer to figures and papers stored outside the
+# repository. Keep link checking enabled for maintained project documentation.
+"docs/background.md" = ["MD057"]
+"docs/literature.md" = ["MD057"]
+"flow/analysis/gallery.md" = ["MD057"]

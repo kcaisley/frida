@@ -32,10 +32,13 @@ module salogic #(
     output wire [N_STAGES-1:0] dac_state_n   // Current output register negative
 
     // Power supply signals
+// verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
+    ,
     inout wire vdd_d,  // Digital supply positive
     inout wire vss_d   // Digital supply ground
 `endif
+// verilog_format: on
 );
 
     // One-hot conversion-stage selector. Stage 0 is the first register and

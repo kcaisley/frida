@@ -135,13 +135,16 @@ Use another cocotb-supported simulator through `SIM`:
 SIM=verilator uv run pytest -q -s test/test_spi_register.py
 ```
 
-The simulator is a system dependency, not a Python package. For Ubuntu:
+The simulator is not a Python package: `tools/check.py pytest` takes Icarus and Verilator from the pinned OSS CAD Suite (see [Checks](#checks)), as CI does; `uv run pytest` takes them from `PATH`.
+
+The HDL checks format and lint every Verilog source and elaborate each design in `pyproject.toml` (`[[tool.hdl.designs]]`: a top, its files, defines and include directories) with Verilator and Slang:
 
 ```bash
-sudo apt install iverilog
+uv run --no-project --python 3.12 python tools/check.py verilator-lint
+uv run --no-project --python 3.12 python tools/check.py verible-format --fix
 ```
 
-Verible, Verilator, Yosys, and OpenROAD can likewise be run directly for linting, synthesis, and physical implementation. Each PDK's OpenROAD setup is in `pdk/<pdk>/openroad/`; the TSMC65 flow notes are in the private `pdk/tsmc65/docs/openroad.md`.
+Yosys and OpenROAD run directly for synthesis and physical implementation. Each PDK's OpenROAD setup is in `pdk/<pdk>/openroad/`; the TSMC65 flow notes are in the private `pdk/tsmc65/docs/openroad.md`.
 
 ## ADC scans
 
@@ -275,7 +278,18 @@ Clone with submodules, create the environment, and run the software checks:
 git clone --recursive git@github.com:kcaisley/frida.git
 cd frida
 uv sync
-uv run pytest
+uv run --no-project --python 3.12 python tools/check.py all
+uv run --no-project --python 3.12 python tools/check.py install-hook   # the checks on each commit
 ```
 
-Cadence Spectre, ngspice, Xyce, Icarus, KLayout, and OpenROAD are external executables. Install only the tools needed for the workflows you run and make them available on `PATH`.
+Cadence Spectre, ngspice, Xyce, KLayout, and OpenROAD are external executables. Install only the tools needed for the workflows you run and make them available on `PATH`.
+
+### Checks
+
+`tools/check.py` runs every check (`all`, or one: `ruff`, `import-linter`, `ty`, `contracts`, `markdown`, `tex-fmt`, `chktex`, `verible-format`, `verible-lint`, `verilator-lint`, `slang-lint`, `pytest`; `--fix` applies what a check can fix). A checkout, a local CI runner and GitHub's run the same command; its settings, versions and file lists are all in `pyproject.toml` (`[tool.check]`, `[tool.hdl]`, `[tool.<check>]`). It needs bash, git, curl, tar and uv, and no system packages:
+
+- Python tools run through uv at their minimum versions (`[tool.check]`), and the project's dependencies are minimum versions too, locked in `uv.lock`: `uv lock --upgrade` takes each one's newest release. FRIDA runs on Python 3.12 to 3.14; CI tests both ends. 3.15 waits on h5py's and Cocotb's wheels.
+- Verible, OSS CAD Suite (Icarus, Verilator, Slang) and tex-fmt are pinned prebuilt Linux x86_64 releases (`[tool.<tool>.install]`), checksum-verified and unpacked on first use into `FRIDA_TOOLS` (default `build/tools`), each version in its own directory; `tools/check.py install` installs them ahead. A self-hosted runner sets `FRIDA_TOOLS` to a persistent directory; `FRIDA_TOOLS=path` uses the tools on `PATH` instead.
+- `chktex` comes with TeX Live and is skipped where it is not installed.
+- `install-hook` writes `.git/hooks/pre-commit`: the checks the staged files touch, fixing what they can; a commit a fix changed stops for review.
+- `editor` writes the HDL language servers' configs (`.slang/server.json`, `veridian.yaml`, gitignored) from the same settings.

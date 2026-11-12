@@ -679,7 +679,7 @@ def test_a_simulated_conversions_rail_power_and_its_sequencer(tmp_path: Path, mo
             (float(f"{waveform.active_power_w[rail]:.6g}"), "Active average"),
         ]
         assert [band.label for band in figure.x_bands] == ["SAMP"]
-        assert [(band.low, band.high) for band in figure.x_bands] == pytest.approx(samp)
+        assert [(band.low, band.high) for band in figure.x_bands] == [pytest.approx(pair) for pair in samp]
     sequencer = analyze_sequencer(measurement)
     diagram = plots.plot_sequencer(sequencer)
     init, _, _, logic = TbParams.from_init(measurement.tb.rows)

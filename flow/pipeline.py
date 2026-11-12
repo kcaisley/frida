@@ -26,7 +26,7 @@ from enum import Enum, auto
 from inspect import signature
 from pathlib import Path
 from types import UnionType
-from typing import Any, Literal, Union, cast, get_args, get_origin, get_type_hints
+from typing import TYPE_CHECKING, Any, Literal, Union, cast, get_args, get_origin, get_type_hints
 
 import numpy as np
 
@@ -58,8 +58,13 @@ class TbParams(ABC):
     """One testbench run of a block: at least the PDK it runs in (``pdk``) and the design under test
     (``params``), and the conditions of the run."""
 
-    pdk: str
-    params: Any
+    if TYPE_CHECKING:  # read-only: each block's TbParams, a frozen dataclass, declares them as fields
+
+        @property
+        def pdk(self) -> str: ...
+
+        @property
+        def params(self) -> Any: ...
 
 
 # ---- a block's runs (its runs.py): one design, a grid of them, an optimization

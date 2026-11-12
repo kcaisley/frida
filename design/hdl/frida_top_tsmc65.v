@@ -71,12 +71,15 @@ module frida_top #(
         .PAD_N (seq_init_n_PAD),
         .O     (seq_init),
         .EN_B  (1'b0)             // Enable active
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),          // Connected to I/O power rail
+        ,
+        .VDDPST(vdd_io),          // Connected to I/O power rail
         .VSSPST(vss_io),          // Connected to I/O ground rail
         .VDD   (vdd_io),          // Connected to I/O supply
         .VSS   (vss_io)           // Connected to I/O supply
 `endif
+// verilog_format: on
     );
 
     LVDS_RX_CUP_pad lvds_seq_samp (
@@ -84,12 +87,15 @@ module frida_top #(
         .PAD_N (seq_samp_n_PAD),
         .O     (seq_samp),
         .EN_B  (1'b0)             // Enable active
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),          // Connected to I/O power rail
+        ,
+        .VDDPST(vdd_io),          // Connected to I/O power rail
         .VSSPST(vss_io),          // Connected to I/O ground rail
         .VDD   (vdd_io),          // Connected to I/O supply
         .VSS   (vss_io)           // Connected to I/O supply
 `endif
+// verilog_format: on
     );
 
     LVDS_RX_CUP_pad lvds_seq_cmp (
@@ -97,12 +103,15 @@ module frida_top #(
         .PAD_N (seq_cmp_n_PAD),
         .O     (seq_cmp),
         .EN_B  (1'b0)            // Enable active
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),         // Connected to I/O power rail
+        ,
+        .VDDPST(vdd_io),         // Connected to I/O power rail
         .VSSPST(vss_io),         // Connected to I/O ground rail
         .VDD   (vdd_io),         // Connected to I/O supply
         .VSS   (vss_io)          // Connected to I/O supply
 `endif
+// verilog_format: on
     );
 
     LVDS_RX_CUP_pad lvds_seq_logic (
@@ -110,12 +119,15 @@ module frida_top #(
         .PAD_N (seq_logic_n_PAD),
         .O     (seq_logic),
         .EN_B  (1'b0)              // Enable active
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),           // Connected to I/O power rail
+        ,
+        .VDDPST(vdd_io),           // Connected to I/O power rail
         .VSSPST(vss_io),           // Connected to I/O ground rail
         .VDD   (vdd_io),           // Connected to I/O supply
         .VSS   (vss_io)            // Connected to I/O supply
 `endif
+// verilog_format: on
     );
 
     // CMOS I/O Pads
@@ -128,12 +140,15 @@ module frida_top #(
         .DS    (1'b1),          // Drive strength control
         .Z_h   (),              // Not used
         .UD_B  (1'b0)           // Pull down control, matching SPICE top tie-off
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),        // Connected to I/O power rail
+        ,
+        .VDDPST(vdd_io),        // Connected to I/O power rail
         .VSSPST(vss_io),        // Connected to I/O ground rail
         .VDD   (vdd_io),        // Connected to I/O supply
         .VSS   (vss_io)         // Connected to I/O supply
 `endif
+// verilog_format: on
     );
 
     CMOS_IO_CUP_pad cmos_spi_sdi (
@@ -145,12 +160,15 @@ module frida_top #(
         .DS    (1'b1),
         .Z_h   (),
         .UD_B  (1'b0)
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),       // Connected to I/O power rail
+        ,
+        .VDDPST(vdd_io),       // Connected to I/O power rail
         .VSSPST(vss_io),       // Connected to I/O ground rail
         .VDD   (vdd_io),       // Connected to I/O supply
         .VSS   (vss_io)        // Connected to I/O supply
 `endif
+// verilog_format: on
     );
 
     CMOS_IO_CUP_pad cmos_spi_sdo (
@@ -162,12 +180,15 @@ module frida_top #(
         .DS    (1'b1),
         .Z_h   (),
         .UD_B  (1'b0)
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),       // Connected to I/O power rail
+        ,
+        .VDDPST(vdd_io),       // Connected to I/O power rail
         .VSSPST(vss_io),       // Connected to I/O ground rail
         .VDD   (vdd_io),       // Connected to I/O supply
         .VSS   (vss_io)        // Connected to I/O supply
 `endif
+// verilog_format: on
     );
 
     CMOS_IO_CUP_pad cmos_spi_cs_b (
@@ -179,29 +200,35 @@ module frida_top #(
         .DS    (1'b1),
         .Z_h   (),
         .UD_B  (1'b0)
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),        // Connected to I/O power rail
+        ,
+        .VDDPST(vdd_io),        // Connected to I/O power rail
         .VSSPST(vss_io),        // Connected to I/O ground rail
         .VDD   (vdd_io),        // Connected to I/O supply
         .VSS   (vss_io)         // Connected to I/O supply
 `endif
+// verilog_format: on
     );
 
     CMOS_IO_CUP_pad cmos_reset_b (
         .PAD   (rst_b_PAD),
         .A     (1'b0),
         .Z     (reset_b),
-        .OUT_EN(1'b0),          // Output disabled (input mode)
+        .OUT_EN(1'b0),       // Output disabled (input mode)
         .PEN   (1'b1),
         .DS    (1'b1),
         .Z_h   (),
         .UD_B  (1'b0)
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),        // Connected to I/O power rail
-        .VSSPST(vss_io),        // Connected to I/O ground rail
-        .VDD   (vdd_io),        // Connected to I/O supply
-        .VSS   (vss_io)         // Connected to I/O supply
+        ,
+        .VDDPST(vdd_io),     // Connected to I/O power rail
+        .VSSPST(vss_io),     // Connected to I/O ground rail
+        .VDD   (vdd_io),     // Connected to I/O supply
+        .VSS   (vss_io)      // Connected to I/O supply
 `endif
+// verilog_format: on
     );
 
     // Analog Input Pads
@@ -209,24 +236,30 @@ module frida_top #(
         .PAD   (vin_p_PAD),
         .I     (1'b0),       // Not used for input pads
         .O     (vin_p)       // Output to core
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDD   (vdd_a_PAD),  // Connected to analog power PAD
+        ,
+        .VDD   (vdd_a_PAD),  // Connected to analog power PAD
         .VSS   (vss_a_PAD),  // Connected to analog ground PAD
         .VDDPST(vdd_a),      // Connected to internal analog power rail
         .VSSPST(vss_a)       // Connected to internal analog ground rail
 `endif
+// verilog_format: on
     );
 
     PASSIVE_CUP_pad passive_vin_n (
         .PAD   (vin_n_PAD),
         .I     (1'b0),       // Not used for input pads
         .O     (vin_n)       // Output to core
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDD   (vdd_a_PAD),  // Connected to analog power PAD
+        ,
+        .VDD   (vdd_a_PAD),  // Connected to analog power PAD
         .VSS   (vss_a_PAD),  // Connected to analog ground PAD
         .VDDPST(vdd_a),      // Connected to internal analog power rail
         .VSSPST(vss_a)       // Connected to internal analog ground rail
 `endif
+// verilog_format: on
     );
 
     // LVDS Transmitter Pad for output
@@ -236,12 +269,15 @@ module frida_top #(
         .I     (comp_out),
         .EN_B  (1'b0),            // Enable active
         .DS    (3'b111)           // Drive strength control, matching SPICE top tie-off
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),          // Connected to I/O power rail
+        ,
+        .VDDPST(vdd_io),          // Connected to I/O power rail
         .VSSPST(vss_io),          // Connected to I/O ground rail
         .VDD   (vdd_io),          // Connected to I/O supply
         .VSS   (vss_io)           // Connected to I/O supply
 `endif
+// verilog_format: on
     );
 
     // Reserved Pads (no connections for future expansion)
@@ -249,12 +285,15 @@ module frida_top #(
         .PAD   (passive_reserved_0_PAD),
         .I     (1'b0),                    // Tied off
         .O     ()                         // Left unconnected
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDD   (vdd_io_PAD),              // Connected to I/O power PAD
+        ,
+        .VDD   (vdd_io_PAD),              // Connected to I/O power PAD
         .VSS   (vss_io_PAD),              // Connected to I/O ground PAD
         .VDDPST(vdd_io),                  // Connected to I/O power rail
         .VSSPST(vss_io)                   // Connected to I/O ground rail
 `endif
+// verilog_format: on
     );
 
     CMOS_IO_CUP_pad cmos_reserved_1 (
@@ -266,12 +305,15 @@ module frida_top #(
         .DS    (1'b0),                 // Drive strength control
         .Z_h   (),                     // Left unconnected
         .UD_B  (1'b0)                  // Pull down
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),               // Connected to I/O power rail
+        ,
+        .VDDPST(vdd_io),               // Connected to I/O power rail
         .VSSPST(vss_io),               // Connected to I/O ground rail
         .VDD   (vdd_io),               // Connected to I/O supply
         .VSS   (vss_io)                // Connected to I/O supply
 `endif
+// verilog_format: on
     );
 
     CMOS_IO_CUP_pad cmos_reserved_2 (
@@ -283,87 +325,106 @@ module frida_top #(
         .DS    (1'b0),                 // Drive strength control
         .Z_h   (),                     // Left unconnected
         .UD_B  (1'b0)                  // Pull down
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
-        ,.VDDPST(vdd_io),               // Connected to I/O power rail
+        ,
+        .VDDPST(vdd_io),               // Connected to I/O power rail
         .VSSPST(vss_io),               // Connected to I/O ground rail
         .VDD   (vdd_io),               // Connected to I/O supply
         .VSS   (vss_io)                // Connected to I/O supply
 `endif
+// verilog_format: on
     );
 
     // Power distribution is handled through the POWER_CUP_pad
     // and GROUND_CUP_pad instances below
 
     POWER_CUP_pad power_vdd_a (
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
         .VSS   (vss_a),      // Connected to analog ground rail
         .VDD   (vdd_a_PAD),  // Connected to analog power PAD
         .VDDPST(vdd_a),      // Connected to internal analog rail
         .VSSPST(vss_a)       // Connected to internal analog rail
 `endif
+// verilog_format: on
     );
 
     GROUND_CUP_pad ground_vss_a (
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
         .VSS   (vss_a_PAD),  // Connected to analog ground PAD
         .VDD   (vdd_a),      // Connected to analog power rail
         .VDDPST(vdd_a),      // Connected to internal analog rail
         .VSSPST(vss_a)       // Connected to internal analog rail
 `endif
+// verilog_format: on
     );
 
     POWER_CUP_pad power_vdd_d (
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
         .VSS   (vss_d),      // Connected to digital ground rail
         .VDD   (vdd_d_PAD),  // Connected to digital power PAD
         .VDDPST(vdd_d),      // Connected to internal digital rail
         .VSSPST(vss_d)       // Connected to internal digital rail
 `endif
+// verilog_format: on
     );
 
     GROUND_CUP_pad ground_vss_d (
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
         .VSS   (vss_d_PAD),  // Connected to digital ground PAD
         .VDD   (vdd_d),      // Connected to digital power rail
         .VDDPST(vdd_d),      // Connected to internal digital rail
         .VSSPST(vss_d)       // Connected to internal digital rail
 `endif
+// verilog_format: on
     );
 
     POWER_CUP_pad power_vdd_io (
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
         .VSS   (vss_io),      // Connected to I/O ground rail
         .VDD   (vdd_io_PAD),  // Connected to I/O power PAD
         .VDDPST(vdd_io),      // Connected to internal I/O rail
         .VSSPST(vss_io)       // Connected to internal I/O rail
 `endif
+// verilog_format: on
     );
 
     GROUND_CUP_pad ground_vss_io (
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
         .VSS   (vss_io_PAD),  // Connected to I/O ground PAD
         .VDD   (vdd_io),      // Connected to I/O power rail
         .VDDPST(vdd_io),      // Connected to internal I/O rail
         .VSSPST(vss_io)       // Connected to internal I/O rail
 `endif
+// verilog_format: on
     );
 
     POWER_CUP_pad power_vdd_dac (
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
         .VSS   (vss_dac),      // Connected to DAC ground rail
         .VDD   (vdd_dac_PAD),  // Connected to DAC power PAD
         .VDDPST(vdd_dac),      // Connected to internal DAC rail
         .VSSPST(vss_dac)       // Connected to internal DAC rail
 `endif
+// verilog_format: on
     );
 
     GROUND_CUP_pad ground_vss_dac (
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
         .VSS   (vss_dac_PAD),  // Connected to DAC ground PAD
         .VDD   (vdd_dac),      // Connected to DAC power rail
         .VDDPST(vdd_dac),      // Connected to internal DAC rail
         .VSSPST(vss_dac)       // Connected to internal DAC rail
 `endif
+// verilog_format: on
     );
 
     // Core logic behind the TSMC65 pad ring.
@@ -380,6 +441,7 @@ module frida_top #(
         .spi_cs_b (spi_cs_b),
         .reset_b  (reset_b),
         .comp_out (comp_out)
+        // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
         ,
         .vin_p    (vin_p),
@@ -391,6 +453,7 @@ module frida_top #(
         .vdd_dac  (vdd_dac),
         .vss_dac  (vss_dac)
 `endif
+// verilog_format: on
     );
 
 endmodule

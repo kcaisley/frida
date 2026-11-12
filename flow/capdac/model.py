@@ -75,7 +75,7 @@ class Model:
     tau_s: tuple[float, ...]  # (settling - delay) / ln(|step| / half an LSB)
     lsb_v: float
     gain: float  # the drawn steps against the design's: its plates over its top plate's whole load
-    area_um2: float  # one side's layout, its drivers with it; NaN where it is not laid out
+    area_um2: float | None  # one side's layout, its drivers with it; None where it is not laid out
     # the measurement its settling run keeps, each stage's step as measured; None where none is kept
     # (a design's, ``Model.design``)
     settling_meas: Path | None = None
@@ -134,7 +134,7 @@ class Model:
             tau_s=tuple(stages["time constant"]),
             lsb_v=metrics["lsb_v"],
             gain=metrics["gain"],
-            area_um2=math.nan if area is None else float(area),
+            area_um2=None if area is None else float(area),
             settling_meas=settling_meas,
             step_v=None if settling_meas is None else tuple(map(float, Model.measured_steps(settling_meas))),
         )
@@ -163,7 +163,7 @@ class Model:
             tau_s=tuple(settling_s / math.log(2 ** (params.bits + 1) * weight / sum(weights)) for weight in weights),
             lsb_v=2 * full_scale_v / 2**params.bits,
             gain=1.0,
-            area_um2=math.nan,
+            area_um2=None,
         )
 
     @classmethod

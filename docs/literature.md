@@ -196,7 +196,6 @@ I want to target 12-bit precision, as this is more generally useful, and it bett
   - pg3: Refernce decoupling cap is often designed larger than CDAC
   - pg3: the DAC switches actually add noise! In line with the reference buffer itself
   - pg3: but in low-medium speed designs, the bandwidth of the switches is high but comp is small. So most noise is rejected
-
   - pg6: redundancy in the last 1-2 bits can allow you to relax comparator noise beyond quantization noise, and then simply increase comparator power for a certain number of additional steps. It equivalently reloats critical decisions to the LSBs. What this means is that in an ideally sized normal SAR only one decision will be critical, but it could occur anywhere. Redundancy allows one to essentially recover this mistake on the last bit, meaning the rest of the chain need not worry.
   - pg3: "In a well designed SAR ADC, SNDR should be limited by noise not distortion"
     - And within noise, good designs shouldn't be dominated by reference or dac switch noise. But by sampling and comparator noise.

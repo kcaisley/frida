@@ -21,6 +21,7 @@ module clkgate (
     output wire clk_samp_p,  // Gated sampling clock positive
     output wire clk_samp_n,  // Gated sampling clock negative
     output wire clk_comp,    // Gated comparator clock
+    // verilog_format: off  (Verible moves a leading comma onto the directive)
 `ifdef USE_POWER_PINS
     output wire clk_update,  // Gated update clock
     inout  wire vdd_d,
@@ -28,6 +29,7 @@ module clkgate (
 `else
     output wire clk_update   // Gated update clock
 `endif
+// verilog_format: on
 );
 
     // Generate gated clocks using custom clock gates

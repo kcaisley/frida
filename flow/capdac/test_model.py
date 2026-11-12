@@ -204,7 +204,7 @@ def test_a_record_gives_the_drawn_gain_area_and_settling(monkeypatch: pytest.Mon
     # a record the layout step has not reached has no area, one that keeps no run no measurement:
     # its plates the design's
     del record["metrics"]["layout_area_um2"]
-    assert math.isnan(Model.of("tsmc65", params).area_um2)
+    assert Model.of("tsmc65", params).area_um2 is None
     del record["waves"]
     kept_none = Model.of("tsmc65", params)
     assert kept_none.settling_meas is None and kept_none.step_v is None
@@ -219,7 +219,7 @@ def test_a_design_without_a_record_settles_as_its_drivers_are_sized() -> None:
     params = Params(bits=10, redundancy=Redundancy.BINARY, extra=0, settle_ps=800.0)
     model = Model.design("tsmc65", params, reference_v=1.0)
     weights = np.asarray(Model.weights(params), dtype=np.float64)
-    assert model.gain == 1.0 and math.isnan(model.area_um2) and model.delay_s == (0.0,) * len(weights)
+    assert model.gain == 1.0 and model.area_um2 is None and model.delay_s == (0.0,) * len(weights)
     assert model.settling_meas is None and model.step_v is None
     assert model.reference_v == 1.0
     np.testing.assert_allclose(model.settling_s, 400e-12, rtol=1e-12)
