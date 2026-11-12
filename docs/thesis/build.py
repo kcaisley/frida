@@ -26,7 +26,15 @@ import figures
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 BUILD = HERE / "_build"
-CHAPTERS = ["applications.md", "adcs.md"]
+CHAPTERS = [
+    "01_applications.md",
+    "02_adcs.md",
+    "03_design.md",
+    "04_frida1.md",
+    "05_frida1_measurements.md",
+    "06_frida2.md",
+    "07_conclusions.md",
+]
 COMMON = [
     "--from=markdown+fenced_divs+bracketed_spans+raw_attribute+superscript",
     "--metadata-file=thesis.yaml",
@@ -56,6 +64,29 @@ def drawing_pdfs() -> None:
             subprocess.run(["inkscape", str(svg), f"--export-filename={pdf}"], check=True)
 
 
+def tikz_drawings() -> None:
+    """Each TikZ drawing (drawings/*.tex, built from thesis-drawings.sty) as figures/<name>.pdf
+    for the PDF and figures/<name>.svg for the page."""
+    work = BUILD / "tikz"
+    work.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ, TEXINPUTS=f".:{HERE / 'drawings'}//:")
+    for tex in sorted((HERE / "drawings").glob("*.tex")):
+        if tex.stem == "drawing-preamble":
+            continue
+        pdf, svg = figures.OUT / f"{tex.stem}.pdf", figures.OUT / f"{tex.stem}.svg"
+        sources = [tex, HERE / "drawings" / "drawing-preamble.tex", HERE / "drawings" / "thesis-drawings.sty"]
+        if svg.exists() and svg.stat().st_mtime >= max(s.stat().st_mtime for s in sources):
+            continue
+        subprocess.run(
+            ["lualatex", "-interaction=nonstopmode", "-halt-on-error", f"-output-directory={work}", str(tex)],
+            env=env,
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+        shutil.copyfile(work / f"{tex.stem}.pdf", pdf)
+        subprocess.run(["pdftocairo", "-svg", str(pdf), str(svg)], check=True)
+
+
 def hidden_layers_dropped(svg: str) -> str:
     """An Inkscape drawing without its hidden layers (display:none), which a page need not carry."""
     while match := re.search(r'<g\b[^>]*inkscape:groupmode="layer"[^>]*display:none[^>]*>', svg):
@@ -71,7 +102,8 @@ def hidden_layers_dropped(svg: str) -> str:
 def inline_svg(name: str) -> str:
     """A drawing's SVG for inline use in the page: Inkscape's editor state dropped, its ids
     prefixed so that drawings on one page cannot collide, and its size left to the page."""
-    svg = (HERE / "drawings" / f"{name}.svg").read_text()
+    source = HERE / "drawings" / f"{name}.svg"
+    svg = (source if source.exists() else figures.OUT / f"{name}.svg").read_text()
     svg = re.sub(r"<\?xml[^>]*\?>|<!--.*?-->", "", svg, flags=re.DOTALL)
     svg = re.sub(
         r"<sodipodi:namedview\b.*?(/>|</sodipodi:namedview>)|<metadata\b.*?</metadata>", "", svg, flags=re.DOTALL
@@ -93,6 +125,20 @@ def html(embed: bool) -> Path:
         r'<div class="drawing" data-src="drawings/([\w-]+)\.svg"></div>',
         lambda m: f'<div class="drawing">{inline_svg(m.group(1))}</div>',
         out.read_text(),
+    )
+    # existing images (src=): inside the page to share it, else linked from _build
+    page = re.sub(
+        r'<img class="photo" alt="" data-src="([^"]+)">',
+        lambda m: (
+            '<img class="photo" alt="" src="'
+            + (
+                "data:image/png;base64," + base64.b64encode((HERE / m.group(1)).read_bytes()).decode()
+                if embed
+                else os.path.relpath(HERE / m.group(1), BUILD)
+            )
+            + '">'
+        ),
+        page,
     )
     out.write_text(page)
     if embed:
@@ -145,6 +191,7 @@ def main() -> None:
     BUILD.mkdir(exist_ok=True)
     figures.main()
     drawing_pdfs()
+    tikz_drawings()
     if "html" in args.targets:
         print(html(args.embed))
     if "pdf" in args.targets:

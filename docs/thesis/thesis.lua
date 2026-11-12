@@ -71,6 +71,36 @@ local function figure(div, number)
       caption:extend(block.content)
     end
   end
+  if div.attributes.placeholder or div.attributes.src then
+    local text = div.attributes.placeholder
+    local src = div.attributes.src
+    local blocks
+    if latex then
+      local body
+      if src then
+        local pdf = io.open(src .. ".pdf", "r")
+        if pdf then
+          pdf:close()
+        end
+        body = "\\includegraphics[width=\\linewidth]{../" .. src .. (pdf and ".pdf" or ".png") .. "}"
+      else
+        body = "\\fbox{\\parbox{0.92\\linewidth}{\\centering\\small\\itshape [Figure: " .. text .. "]}}"
+      end
+      local inlines = pandoc.List({ pandoc.RawInline("latex", "\\caption{") })
+      inlines:extend(caption)
+      inlines:insert(pandoc.RawInline("latex", "}\\label{" .. div.identifier .. "}"))
+      return { pandoc.RawBlock("latex", "\\begin{figure}[tbp]\n\\centering\n" .. body), pandoc.Plain(inlines), pandoc.RawBlock("latex", "\\end{figure}") }
+    end
+    if src then
+      blocks = { pandoc.RawBlock("html", '<img class="photo" alt="" data-src="' .. src .. '.png">') }
+    else
+      blocks = { pandoc.RawBlock("html", '<div class="placeholder">[Figure: ' .. text .. "]</div>") }
+    end
+    local label = pandoc.List({ pandoc.Span({ pandoc.Str("Figure " .. number .. ":") }, pandoc.Attr("", { "figlabel" })), pandoc.Space() })
+    label:extend(caption)
+    blocks[#blocks + 1] = pandoc.Para(label)
+    return { pandoc.Div(blocks, pandoc.Attr(div.identifier, { "figure" })) }
+  end
   if div.attributes.image then
     local blocks = drawings(div, caption)
     if latex then

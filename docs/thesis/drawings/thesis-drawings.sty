@@ -1,0 +1,110 @@
+% Building blocks for the thesis's isometric chip drawings (TikZ). Every outline is \lwmain, every
+% fine detail \lwfine; colours from docs/images/arch.svg. Lengths are millimetres of drawing, and
+% any argument may be an expression.
+%   \isobox{x}{y}{z}{w}{d}{h}{fill}       a box: its top and the two faces toward the viewer
+%   \board{name}{x}{y}{w}{d}{kind}        a board, kind fr4 or flex; \finger{name}{i}{x}{y} on it
+%   \die{name}{x}{y}{z}{w}{d}{h}          a die with its seal ring; \pad{name}{i}{x}{y} on its top
+%   \pixelmatrix{x}{y}{z}{nx}{ny}{pitch}  pixels inside a periphery boundary half a pitch wide
+%   \tiles{x}{y}{z}{n}{pitch}{w}{d}{fill} a row of blocks along x (ADCs, serializers)
+%   \bondwire{a}{b}                       a wire from coordinate a, over, to coordinate b
+%   \bump{x}{y}{z}                        a bump between two stacked dies
+%   \callout / \calloutleft{at}{label at}{text}  a label with a leader to a point
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{thesis-drawings}[2026/11/12]
+\RequirePackage{tikz}
+\usetikzlibrary{3d,calc}
+
+\newcommand\lwmain{0.7pt}
+\newcommand\lwfine{0.4pt}
+\definecolor{pixel}{HTML}{FF9E8B}
+\definecolor{adc}{HTML}{C4DBD8}
+\definecolor{ser}{HTML}{A9D9F8}
+\definecolor{logic}{HTML}{EAE7DB}
+\definecolor{silicon}{HTML}{EBEBEB}
+\definecolor{fr4}{HTML}{2F7A45}
+\definecolor{flex}{HTML}{D39A3A}
+\definecolor{gold}{HTML}{D9B44A}
+\definecolor{wire}{HTML}{8A6D1E}
+\definecolor{bumpgrey}{HTML}{9A9A9A}
+
+% isometric axes: x toward the lower right, y toward the upper right, z up
+\tikzset{
+  iso/.style={x={(0.866mm,-0.5mm)}, y={(0.866mm,0.5mm)}, z={(0mm,1mm)}, line join=round, line cap=round},
+  main/.style={draw=black, line width=\lwmain},
+  fine/.style={draw=black, line width=\lwfine},
+  label/.style={font=\sffamily\small, align=left, inner sep=1pt},
+  leader/.style={draw=black, line width=\lwfine},
+}
+
+\newcommand\isobox[7]{% x y z w d h fill
+  \pgfmathsetmacro\bxa{#1}\pgfmathsetmacro\bya{#2}\pgfmathsetmacro\bza{#3}%
+  \pgfmathsetmacro\bxb{#1+#4}\pgfmathsetmacro\byb{#2+#5}\pgfmathsetmacro\bzb{#3+#6}%
+  \fill[#7!78!black] (\bxb,\bya,\bza) -- (\bxb,\byb,\bza) -- (\bxb,\byb,\bzb) -- (\bxb,\bya,\bzb) -- cycle;
+  \fill[#7!90!black] (\bxa,\bya,\bza) -- (\bxb,\bya,\bza) -- (\bxb,\bya,\bzb) -- (\bxa,\bya,\bzb) -- cycle;
+  \fill[#7] (\bxa,\bya,\bzb) -- (\bxb,\bya,\bzb) -- (\bxb,\byb,\bzb) -- (\bxa,\byb,\bzb) -- cycle;
+  \draw[main] (\bxa,\bya,\bza) -- (\bxb,\bya,\bza) -- (\bxb,\byb,\bza) -- (\bxb,\byb,\bzb) -- (\bxa,\byb,\bzb) -- (\bxa,\bya,\bzb) -- cycle;
+  \draw[main] (\bxa,\bya,\bzb) -- (\bxb,\bya,\bzb) -- (\bxb,\byb,\bzb);
+  \draw[main] (\bxb,\bya,\bza) -- (\bxb,\bya,\bzb);
+}
+
+\newcommand\topface[6]{% x y z w d fill: a flat area on a top surface
+  \pgfmathsetmacro\txa{#1}\pgfmathsetmacro\tya{#2}\pgfmathsetmacro\tz{#3}%
+  \pgfmathsetmacro\txb{#1+#4}\pgfmathsetmacro\tyb{#2+#5}%
+  \filldraw[fine, fill=#6] (\txa,\tya,\tz) -- (\txb,\tya,\tz) -- (\txb,\tyb,\tz) -- (\txa,\tyb,\tz) -- cycle;
+}
+
+\newcommand\board[6]{% name x y w d kind
+  \def\boardkind{#6}\def\flexkind{flex}%
+  \ifx\boardkind\flexkind \isobox{#2}{#3}{0}{#4}{#5}{0.4}{flex}\def\boardtop{0.4}%
+  \else \isobox{#2}{#3}{0}{#4}{#5}{1.6}{fr4}\def\boardtop{1.6}\fi
+}
+
+\newcommand\finger[4]{% board i x y: a gold bond finger, coordinate board-finger-i at its centre
+  \pgfmathsetmacro\fx{#3}\pgfmathsetmacro\fy{#4}%
+  \topface{\fx-0.6}{\fy-1.0}{\boardtop}{1.2}{2.0}{gold}
+  \coordinate (#1-finger-#2) at (\fx,\fy,\boardtop);
+}
+
+\newcommand\die[7]{% name x y z w d h
+  \isobox{#2}{#3}{#4}{#5}{#6}{#7}{silicon}
+  \pgfmathsetmacro\dietop{#4+#7}%
+  \topface{#2+1.2}{#3+1.2}{\dietop}{#5-2.4}{#6-2.4}{silicon}% seal ring
+}
+
+\newcommand\pad[4]{% die i x y: a bond pad, coordinate die-pad-i at its centre
+  \pgfmathsetmacro\px{#3}\pgfmathsetmacro\py{#4}%
+  \topface{\px-0.6}{\py-0.6}{\dietop}{1.2}{1.2}{white}
+  \coordinate (#1-pad-#2) at (\px,\py,\dietop);
+}
+
+\newcommand\pixelmatrix[6]{% x y z nx ny pitch
+  \pgfmathsetmacro\pmw{#4*#6+#6}\pgfmathsetmacro\pmd{#5*#6+#6}%
+  \topface{#1}{#2}{#3}{\pmw}{\pmd}{silicon!80!pixel}
+  \foreach \i in {1,...,#4}{\foreach \j in {1,...,#5}{%
+    \topface{#1+#6/2+(\i-1)*#6+0.12*#6}{#2+#6/2+(\j-1)*#6+0.12*#6}{#3}{0.76*#6}{0.76*#6}{pixel}}}
+}
+
+\newcommand\tiles[8]{% x y z n pitch w d fill
+  \foreach \i in {1,...,#4}{\topface{#1+(\i-1)*#5}{#2}{#3}{#6}{#7}{#8}}
+}
+
+\newcommand\bondwire[2]{% from a to b, rising 3 mm above each end
+  \draw[draw=wire, line width=\lwfine] (#1) .. controls ($(#1)+(0,0,3)$) and ($(#2)+(0,0,3)$) .. (#2);
+}
+
+\newcommand\bump[3]{% x y z: a bump 0.9 mm wide and 1.2 mm high
+  \pgfmathsetmacro\ux{#1}\pgfmathsetmacro\uy{#2}\pgfmathsetmacro\uz{#3}%
+  \pgfmathsetmacro\uxa{#1-0.45}\pgfmathsetmacro\uxb{#1+0.45}\pgfmathsetmacro\uzb{#3+1.2}%
+  \filldraw[fine, fill=bumpgrey] (\uxa,\uy,\uz) -- (\uxa,\uy,\uzb) -- (\uxb,\uy,\uzb) -- (\uxb,\uy,\uz) -- cycle;
+}
+
+\newcommand\callout[3]{% point, label position, text (label to the right)
+  \draw[leader] (#1) -- (#2);
+  \fill (#1) circle (0.7pt);
+  \node[label, anchor=west] at (#2) {#3};
+}
+\newcommand\calloutleft[3]{% the same, label to the left
+  \draw[leader] (#1) -- (#2);
+  \fill (#1) circle (0.7pt);
+  \node[label, anchor=east] at (#2) {#3};
+}

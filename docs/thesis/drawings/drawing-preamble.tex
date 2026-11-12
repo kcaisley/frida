@@ -1,0 +1,11 @@
+% The preamble of every isometric drawing: standalone where installed (as docs/images/*.tex),
+% else article with the page cropped to the drawing. Then Latin Modern sans and the blocks.
+\IfFileExists{standalone.cls}{\documentclass[tikz,border=2mm]{standalone}\newenvironment{drawing}{}{}}{%
+  \documentclass{article}\usepackage{tikz}\pagestyle{empty}\newsavebox\drawingbox
+  \newenvironment{drawing}{\begin{lrbox}{\drawingbox}}{\end{lrbox}%
+    \pagewidth=\dimexpr\wd\drawingbox+4mm\relax\pageheight=\dimexpr\ht\drawingbox+\dp\drawingbox+4mm\relax
+    \hoffset=-1in\voffset=-1in\shipout\vbox{\kern2mm\hbox{\kern2mm\usebox\drawingbox}}}}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage{thesis-drawings}

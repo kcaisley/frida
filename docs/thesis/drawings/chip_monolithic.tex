@@ -1,0 +1,26 @@
+% A monolithic imager: pixels, column ADCs, serializers and row drivers on one die, wire-bonded to
+% an FR4 board. Built by docs/thesis/build.py (standalone where installed, else the fallback below).
+\input{drawing-preamble}
+\begin{document}
+\begin{drawing}
+\begin{tikzpicture}[iso]
+  \board{pcb}{0}{0}{70}{66}{fr4}
+  % bond fingers along the front edge (y = 6), one per die pad
+  \foreach \i in {1,...,8}{\finger{pcb}{\i}{14+(\i-1)*6}{5}}
+  \die{die}{12}{12}{\boardtop}{48}{47}{0.7}
+  \pixelmatrix{15}{24}{\dietop}{8}{8}{3.6}
+  \topface{50}{24}{\dietop}{6}{32.4}{logic}% row drivers
+  \tiles{15+1.8+0.2}{18.6}{\dietop}{8}{3.6}{3.2}{4}{adc}% one ADC at the foot of each column
+  \tiles{15+1.8+0.2}{14.6}{\dietop}{4}{7.2}{6.8}{3}{ser}% a serializer per two columns
+  \foreach \i in {1,...,8}{\pad{die}{\i}{14+(\i-1)*6}{13.2}}
+  \foreach \i in {1,...,8}{\bondwire{die-pad-\i}{pcb-finger-\i}}
+  % labels
+  \calloutleft{20,40,\dietop}{-8,52,\dietop}{Pixel matrix}
+  \calloutleft{19,20.6,\dietop}{-14,14,\dietop}{Column ADCs}
+  \calloutleft{21,16,\dietop}{-12,4,\dietop}{Serializers}
+  \callout{53,48,\dietop}{66,70,\dietop}{Row drivers}
+  \callout{38,9,2.5}{66,6,0}{Wire bonds}
+  \callout{64,30,1.6}{84,26,1.6}{FR4 board}
+\end{tikzpicture}
+\end{drawing}
+\end{document}
