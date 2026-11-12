@@ -1,0 +1,13 @@
+# The thesis's metadata, for both editions (build.py passes it to pandoc).
+title: "Compact SAR ADCs for High-Frame-Rate Radiation Imaging"
+subtitle: "Working draft"
+author: "Kennedy Caisley"
+pagetitle: "FRIDA Thesis"
+lang: en-GB
+link-citations: true
+reference-section-title: "References"
+# the PDF edition
+documentclass: scrbook
+classoption: [PhD, UKenglish, oneside]
+colorlinks: true
+toc-depth: 2

@@ -37,9 +37,7 @@ The hit rate a pixel sees is the incident fluence multiplied by the pixel area.
 @fig-hit-rate places present-day sources on that scale: transmission electron microscopes deliver up to about 10^8^ electrons/mm²/s, and fourth-generation synchrotrons and continuous-wave free-electron lasers 10^10^–10^11^ photons/mm²/s.
 At 10^10^ particles/mm²/s, a 100 µm pixel is hit 10^8^ times per second.
 
-::: {#fig-hit-rate}
-{{< plotly hit_rate_vs_fluence >}}
-
+::: {#fig-hit-rate plot="hit_rate_vs_fluence"}
 Per-pixel hit rate against incident particle fluence for pixel pitches from 100 µm down to 10 µm. The markers along the bottom place the fluence of present photon sources (squares) and electron microscopes (circles).
 :::
 
@@ -56,9 +54,7 @@ $$
 $$ {#eq-integrating}
 for an $N$-bit conversion with single-particle resolution.
 
-::: {#fig-counting-rate}
-{{< plotly counting_rate_limits >}}
-
+::: {#fig-counting-rate plot="counting_rate_limits"}
 The highest hit rate per pixel that can be counted. Left: an integrating pixel, limited by its ADC's levels per frame (@eq-integrating). Right: a counting pixel, limited by pile-up within its front-end dead time (@eq-pileup), with the rates reported for SPHIRD [@grybos2023], KITE [@zambon2023], Medipix4 [@sriskaran2024], Timepix4 [@llopart2022], IBEX [@bochenek2018], PILATUS3 [@loeliger2012], EIGER [@dinapoli2010] and Medipix3 [@ballabriga2011].
 :::
 
@@ -68,7 +64,7 @@ A 12-bit integrating pixel read at 100,000 frames per second (a 10 µs frame) ca
 These problems are therefore best solved by integrating-mode sensors, where multiple particles are measured per frame, but still with single-particle resolution.
 With the generous signal-to-noise ratio of direct electron detectors, single-electron resolution has been readily achieved, and so the next question becomes how quickly and how compactly the pixels can be read out.
 
-::: {.column-margin}
+::: aside
 If we target single-electron sensitivity, the ADC can act as a multi-bit electron counter: rather than reading out full ADC resolution, it can simply report the number of electrons.
 Sub-electron resolution remains useful for position localization.
 :::
@@ -88,7 +84,7 @@ The sampling time of each ADC must be slow enough to achieve the resolution need
 This project therefore pursues a single-reticle array larger than 1 Mpixel with a continuous frame rate above 100,000 fps.
 To meet those array-level goals, the converter fabric must deliver an aggregate throughput above 1000 Gbps while staying within a 1 W/cm² power-density budget at the bottom of the chip.
 
-::: {.column-margin}
+::: aside
 Power consumption should not simply be blindly reduced: it is a budget for performance.
 :::
 
@@ -108,11 +104,9 @@ The converter this thesis develops is designed for a nominal 12-bit output (11 e
 
 The survey of ADC performance at the ISSCC and VLSI symposia maintained by Murmann [@murmann_survey] provides the efficiency context for this target.
 To compare like with like, the designs here are restricted to those occupying at most 0.25 mm², resolving at least 6 effective bits at a Nyquist rate of at least 0.1 MS/s, and spending at most 1 nJ per conversion: 270 designs from 2002 to 2026, 89 of them SAR converters.
-Each design is coloured by its process node and marked by its architecture; in the web edition, hovering over a point shows its paper and clicking it opens the paper.
+Each design is coloured by its process node and marked by its architecture; in the web edition, hovering over a point shows its paper, and clicking it links to the paper.
 
-::: {#fig-survey-rate}
-{{< plotly survey_enob_vs_rate >}}
-
+::: {#fig-survey-rate plot="survey_enob_vs_rate"}
 Effective resolution against Nyquist conversion rate for the selected survey designs [@murmann_survey], coloured by process node and marked by architecture. The large marker is this work's design goal.
 :::
 
@@ -120,9 +114,7 @@ Effective resolution against Nyquist conversion rate for the selected survey des
 Delta-sigma converters hold the high-resolution corner, pipelines and time-interleaved designs the high-speed one, and SAR and pipelined-SAR converters cover the middle, where the design goal lies.
 In general, arbitrarily high resolution is achievable up to the noise floor at the maximum single-stage speed, if one is willing to spend more power on pipelining: pipelining is a way to improve resolution at a fixed speed by spending more power.
 
-::: {#fig-survey-energy}
-{{< plotly survey_enob_vs_energy >}}
-
+::: {#fig-survey-energy plot="survey_enob_vs_energy"}
 Effective resolution against energy per Nyquist conversion, $P / f_\mathrm{s,nyq}$, for the same designs. The large marker is this work's design goal.
 :::
 
@@ -131,9 +123,7 @@ The trade-off between performance (noise, linearity, speed) and cost (power, are
 Digital power grows linearly with resolution, while analog power grows exponentially, since mismatch and noise must each be halved for every added bit.
 At high resolution the comparator and capacitive DAC therefore dominate, while at low resolution the analog blocks scale down and the digital logic dominates.
 
-::: {#fig-survey-area}
-{{< plotly survey_fomw_vs_area >}}
-
+::: {#fig-survey-area plot="survey_fomw_vs_area"}
 Walden figure of merit (@eq-walden) against reported converter area for the same designs. The large marker is this work's design goal.
 :::
 
@@ -163,8 +153,8 @@ The CoRDIA ADC demonstrated more than 10 effective bits at 2.5 MS/s with approxi
 The DCD current-mode ADC established a successful multichannel readout approach for DEPFET detectors, with 8-bit conversion [@peric2010].
 These designs provide relevant precedents, while leaving scope for the combination of resolution, throughput, power, and channel footprint pursued here.
 
-::: {.callout-note collapse="true"}
-## Open items in this draft
+::: {.openitems}
+**Open items in this draft**
 
 - The design goal's power differs between sources: 100 µW (`readme.md`, `phys/adc_survey.py`, used here), 200 µW (the readme's comparison table), 500 µW (`docs/report.md`), and "below 1 mW per channel" (`docs/report.md`). The survey marker and @eq-walden follow `phys/adc_survey.py`.
 - The CoRDIA ADC is described as 8-bit at 10 MS/s, as 10-bit (ENOB 8.8) at 30 µW, and as more than 10 effective bits at about 24 µW in different notes; the text above follows `docs/report.md`.

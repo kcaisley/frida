@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>$pagetitle$</title>
+<style>
+/* A thesis set for the screen: the PDF's Latin Modern on white, one justified column of about
+   70 characters, numbered contents at the left, side notes in the right margin. One light look
+   on purpose: the figures are drawn on white, as printed. */
+@font-face { font-family: "Latin Modern Roman"; src: url("fonts/LM-regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: "Latin Modern Roman"; src: url("fonts/LM-italic.woff2") format("woff2"); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: "Latin Modern Roman"; src: url("fonts/LM-bold.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: "Latin Modern Roman"; src: url("fonts/LM-bold-italic.woff2") format("woff2"); font-weight: 700; font-style: italic; font-display: swap; }
+
+:root {
+  /* layout: contents | text column (~70ch) | margin notes; one column below 1100px */
+  --paper: #ffffff;
+  --ink: #141414;
+  --muted: #555a63;
+  --rule: #c9ced6;
+  --link: #1d4f91;
+  --tint: #f3f5f8;
+  --serif: "Latin Modern Roman", "DejaVu Serif", Georgia, "Times New Roman", serif;
+  --measure: 38rem;
+  --note: 14rem;
+  color-scheme: light;
+}
+html { background: var(--paper); }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 19px;
+  line-height: 1.45;
+  font-kerning: normal;
+  font-feature-settings: "kern", "liga";
+  margin: 0;
+}
+.page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: center;
+  gap: 0 3rem;
+  padding-block: 2.5rem 4rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+@media (min-width: 1100px) {
+  .page { grid-template-columns: 13rem var(--measure) var(--note); }
+  .contents { position: sticky; top: calc(1.5rem + env(safe-area-inset-top, 0px)); align-self: start; max-height: calc(100vh - 3rem); overflow-y: auto; }
+  main .aside { float: right; clear: right; width: var(--note); margin: 0.2rem calc(-1 * (var(--note) + 3rem)) 1rem 0; }
+}
+main { min-width: 0; max-width: var(--measure); }
+@media (max-width: 1099px) { main { margin-inline: auto; width: 100%; } .contents { max-width: var(--measure); margin-inline: auto; width: 100%; } }
+
+/* title block, as a thesis's title page in miniature */
+.titleblock { margin-bottom: 2.5rem; padding-bottom: 1.4rem; border-bottom: 1px solid var(--rule); }
+.titleblock h1 { font-size: 2rem; line-height: 1.15; margin: 0 0 0.6rem; text-wrap: balance; }
+.titleblock .subtitle { font-style: italic; margin: 0 0 1rem; }
+.titleblock .meta { font-variant: small-caps; letter-spacing: 0.04em; color: var(--muted); margin: 0; }
+
+/* contents */
+.contents { font-size: 0.86rem; line-height: 1.35; }
+.contents h2 { font-size: 0.9rem; font-weight: 400; font-variant: small-caps; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 0.6rem; }
+.contents ul { list-style: none; margin: 0; padding: 0 0 0 1.6rem; }
+.contents li { margin: 0.25rem 0; }
+.contents ul ul { padding-left: 1.6rem; }
+.contents a { color: var(--ink); text-decoration: none; }
+.contents a:hover, .contents a:focus-visible { color: var(--link); text-decoration: underline; }
+.contents .num { display: inline-block; min-width: 1.6rem; margin-left: -1.6rem; color: var(--muted); }
+.contents > ul > li { margin-top: 0.7rem; font-weight: 700; }
+.contents > ul > li li { font-weight: 400; }
+@media (max-width: 1099px) { .contents { border-bottom: 1px solid var(--rule); padding-bottom: 1rem; margin-bottom: 2rem; } .contents ul { padding-left: 1.6rem; } }
+
+/* text */
+main p, main li { text-align: justify; hyphens: auto; -webkit-hyphens: auto; }
+main h1 { font-size: 1.75rem; line-height: 1.2; margin: 3rem 0 1.2rem; text-wrap: balance; }
+main h2 { font-size: 1.3rem; line-height: 1.25; margin: 2.2rem 0 0.7rem; text-wrap: balance; }
+main h3 { font-size: 1.08rem; margin: 1.6rem 0 0.5rem; }
+main h1 .num, main h2 .num { margin-right: 0.6em; }
+main section:first-of-type > h1 { margin-top: 0; }
+p { margin: 0 0 0.9rem; }
+a { color: var(--link); text-underline-offset: 0.15em; text-decoration-thickness: 1px; }
+a:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+a.xref, .citation a { text-decoration: none; }
+a.xref:hover, .citation a:hover { text-decoration: underline; }
+code { font-size: 0.9em; background: var(--tint); padding: 0 0.2em; }
+mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; padding: 0.2rem 0; }
+
+/* figures: the plot on white, the caption small, set like LaTeX's */
+.figure { margin: 1.8rem 0 2rem; clear: both; }
+.figure .plot { width: 100%; min-height: 320px; }
+.figure > p { font-size: 0.86rem; line-height: 1.38; margin: 0.4rem 0 0; }
+.figlabel { font-weight: 700; margin-right: 0.15em; }
+.picked { font-size: 0.82rem; color: var(--muted); text-align: left !important; margin: 0.3rem 0 0; }
+@media (min-width: 1100px) { .figure { margin-right: calc(-1 * (var(--note) + 3rem)); } .figure > p { max-width: var(--measure); } }
+
+/* side notes */
+.aside { font-size: 0.8rem; line-height: 1.35; color: var(--muted); }
+.aside p { text-align: left; margin: 0 0 0.4rem; }
+@media (max-width: 1099px) { .aside { border-left: 2px solid var(--rule); padding-left: 0.8rem; margin: 0.4rem 0 1rem; } }
+
+/* the draft's open items */
+.openitems { background: var(--tint); border-left: 3px solid var(--rule); padding: 0.8rem 1rem 0.4rem; margin: 2rem 0; font-size: 0.88rem; }
+.openitems p, .openitems li { text-align: left; }
+.openitems ul { padding-left: 1.2rem; margin: 0.4rem 0 0.6rem; }
+
+/* references, IEEE style */
+#refs { font-size: 0.88rem; line-height: 1.35; }
+.csl-entry { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr); margin-bottom: 0.45rem; }
+.csl-left-margin { color: var(--muted); }
+.csl-right-inline, .csl-entry { text-align: left; overflow-wrap: anywhere; }
+
+@media (max-width: 600px) { body { font-size: 17px; } main p, main li { text-align: left; } }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+html { scroll-behavior: smooth; }
+</style>
+<script>
+  window.MathJax = { tex: { tags: "none" }, svg: { fontCache: "global" } };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js" charset="utf-8"></script>
+</head>
+<body>
+<div class="page">
+<nav class="contents" aria-label="Contents">
+<h2>Contents</h2>
+$table-of-contents$
+</nav>
+<main>
+<header class="titleblock">
+<h1>$title$</h1>
+$if(subtitle)$<p class="subtitle">$subtitle$</p>$endif$
+<p class="meta">$for(author)$$author$$sep$, $endfor$ · $date$</p>
+</header>
+$body$
+</main>
+</div>
+<script>
+  // each embedded figure spec drawn by Plotly once the fonts are in; a survey point's paper
+  // linked under its figure when the point is clicked
+  (function () {
+    function draw() {
+      document.querySelectorAll("script.plotly-spec").forEach(function (source) {
+        var target = document.getElementById(source.dataset.target);
+        if (!target || target.dataset.drawn) return;
+        var spec = JSON.parse(source.textContent);
+        target.dataset.drawn = "1";
+        Plotly.newPlot(target, spec.data, spec.layout, spec.config).then(function () {
+          var picked = document.getElementById(target.id.replace("plot-", "picked-"));
+          target.on("plotly_click", function (event) {
+            var point = event.points.length ? event.points[0] : null;
+            var url = point && point.customdata;
+            if (!picked || typeof url !== "string" || !url) return;
+            var title = String(point.text || "").split("</b>")[0].replace(/<br>/g, " ").replace(/<[^>]+>/g, "");
+            picked.textContent = "Selected: " + title + " — ";
+            var link = document.createElement("a");
+            link.href = url;
+            link.target = "_blank";
+            link.rel = "noopener";
+            link.textContent = url.replace("https://doi.org/", "doi:");
+            picked.appendChild(link);
+            picked.hidden = false;
+          });
+        });
+      });
+    }
+    (document.fonts ? document.fonts.ready : Promise.resolve()).then(draw);
+  })();
+</script>
+</body>
+</html>

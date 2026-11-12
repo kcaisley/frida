@@ -1,5 +1,3 @@
-# built by quarto and figures.py
-/_book/
-/.quarto/
+# built by build.py and figures.py
+/_build/
 /figures/
-*_files/

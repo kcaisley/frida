@@ -1,11 +1,11 @@
 """The thesis's figures: each described once (``Figure``: panels of traces, notes, legends and
 ticks), then drawn twice from that description: by matplotlib into ``figures/<name>.pdf`` for the
 printed thesis (the analysis plots' style, ``flow.analysis.plots``, in the thesis's Latin Modern),
-and as the Plotly JSON the web edition draws (``figures/<name>.json``, read by the ``plotly``
-shortcode in ``_extensions/plotly``), with the same colours, markers, ticks and labels, plus
-hover text and links.
+and as the Plotly JSON the web edition draws (``figures/<name>.json``, embedded by the
+``thesis.lua`` filter for a ``::: {#fig-... plot="<name>"}`` div), with the same colours,
+markers, ticks and labels, plus hover text and links.
 
-    uv run python docs/thesis/figures.py      # quarto's pre-render runs this
+    uv run python docs/thesis/figures.py      # build.py runs this first
 """
 
 from __future__ import annotations
