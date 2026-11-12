@@ -5,6 +5,9 @@ their cross-references, for HTML and LaTeX alike (pandoc 2.14 and later).
   ::: {#fig-name plot="file"}          a figure: figures/<file>.json drawn by Plotly in HTML,
   Caption text.                        figures/<file>.pdf in LaTeX; the div's text is the caption
   :::
+  ::: {#fig-name image="a b" cols="2"} a figure of drawings/<name>.svg (Inkscape), lettered
+  Caption text.                        (a), (b), ... when there are several
+  :::
   $$ ... $$ {#eq-name}                 a numbered equation
   @sec-name  @fig-name  @eq-name       references to them ("Section 1.2", "Figure 1.3", "(1.1)")
 
@@ -24,6 +27,39 @@ local function read(path)
   return text
 end
 
+-- a figure of drawings (image="a b c", cols="2"): drawings/<name>.svg inline in HTML (build.py
+-- fills the placeholders), figures/<name>.pdf in LaTeX; several are lettered (a), (b), ...
+local function drawings(div, caption)
+  local names = pandoc.List()
+  for name in div.attributes.image:gmatch("%S+") do
+    names:insert(name)
+  end
+  local cols = tonumber(div.attributes.cols or "1")
+  local letter = function(i)
+    return #names > 1 and ("(" .. string.char(96 + i) .. ")") or ""
+  end
+  if latex then
+    local width = string.format("%.3f", 0.98 / cols - 0.01)
+    local parts = { "\\begin{figure}[tbp]\n\\centering" }
+    for i, name in ipairs(names) do
+      parts[#parts + 1] = "\\begin{minipage}[b]{" .. width .. "\\linewidth}\\centering\n\\includegraphics[width=\\linewidth]{figures/" .. name .. ".pdf}"
+        .. (#names > 1 and ("\\\\[0.3ex]{\\small " .. letter(i) .. "}") or "") .. "\n\\end{minipage}"
+      parts[#parts + 1] = (i % cols == 0 and i < #names) and "\\\\[1.5ex]" or (i < #names and "\\hfill" or "")
+    end
+    local inlines = pandoc.List({ pandoc.RawInline("latex", "\\caption{") })
+    inlines:extend(caption)
+    inlines:insert(pandoc.RawInline("latex", "}\\label{" .. div.identifier .. "}"))
+    return { pandoc.RawBlock("latex", table.concat(parts, "\n")), pandoc.Plain(inlines), pandoc.RawBlock("latex", "\\end{figure}") }
+  end
+  local html_parts = { '<div class="panels" style="--cols:' .. cols .. '">' }
+  for i, name in ipairs(names) do
+    html_parts[#html_parts + 1] = '<div class="panel"><div class="drawing" data-src="drawings/' .. name .. '.svg"></div>'
+      .. (#names > 1 and ('<p class="panel-label">' .. letter(i) .. "</p>") or "") .. "</div>"
+  end
+  html_parts[#html_parts + 1] = "</div>"
+  return { pandoc.RawBlock("html", table.concat(html_parts, "\n")) }
+end
+
 local function figure(div, number)
   local name = div.attributes.plot
   local caption = pandoc.List()
@@ -34,6 +70,16 @@ local function figure(div, number)
       end
       caption:extend(block.content)
     end
+  end
+  if div.attributes.image then
+    local blocks = drawings(div, caption)
+    if latex then
+      return blocks
+    end
+    local text = pandoc.List({ pandoc.Span({ pandoc.Str("Figure " .. number .. ":") }, pandoc.Attr("", { "figlabel" })), pandoc.Space() })
+    text:extend(caption)
+    blocks[#blocks + 1] = pandoc.Para(text)
+    return { pandoc.Div(blocks, pandoc.Attr(div.identifier, { "figure" })) }
   end
   if latex then
     local inlines = pandoc.List({ pandoc.RawInline("latex", "\\caption{") })

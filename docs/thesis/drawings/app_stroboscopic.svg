@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="1039" height="1080" viewBox="100 0 275 285.75">
+<g inkscape:groupmode="layer" id="layer-defs" inkscape:label="Defs">
+<defs><marker id="arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="4" markerHeight="4" orient="auto"><path d="M0,0 L6,3 L0,6 z" style="fill:#000000"/></marker></defs>
+</g>
+<g inkscape:groupmode="layer" id="layer-beam" inkscape:label="Beam">
+<polygon points="255.000,40.000 246.000,62.000 264.000,62.000" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.5;stroke-linejoin:round;fill-opacity:0.2;stroke-opacity:0.7"/>
+<polygon points="246.000,68.000 264.000,68.000 261.000,82.000 249.000,82.000" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.5;stroke-linejoin:round;fill-opacity:0.2;stroke-opacity:0.7"/>
+<polygon points="251.000,123.000 259.000,123.000 255.000,140.000" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.5;stroke-linejoin:round;fill-opacity:0.2;stroke-opacity:0.7"/>
+<polygon points="255.000,140.000 252.000,157.000 258.000,157.000" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.5;stroke-linejoin:round;fill-opacity:0.2;stroke-opacity:0.7"/>
+<polygon points="252.000,163.000 258.000,163.000 255.000,180.000" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.5;stroke-linejoin:round;fill-opacity:0.2;stroke-opacity:0.7"/>
+<polygon points="255.000,183.000 217.000,257.000 293.000,257.000" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.5;stroke-linejoin:round;fill-opacity:0.2;stroke-opacity:0.7"/>
+</g>
+<g inkscape:groupmode="layer" id="layer-column" inkscape:label="Column">
+<polygon points="245.000,15.000 265.000,15.000 265.000,30.000 255.000,40.000 245.000,30.000" style="fill:#eae7db;stroke:#000000;stroke-width:0.5;stroke-linejoin:round"/>
+<rect x="240.000" y="62.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<rect x="258.000" y="62.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<rect x="240.000" y="82.000" width="30.000" height="9.000" style="fill:#eae7db;stroke:#000000;stroke-width:0.5"/>
+<rect x="240.000" y="117.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<rect x="258.000" y="117.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<rect x="252.000" y="94.000" width="6.000" height="3.500" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.4;fill-opacity:0.9"/>
+<rect x="252.000" y="101.000" width="6.000" height="3.500" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.4;fill-opacity:0.9"/>
+<rect x="252.000" y="108.000" width="6.000" height="3.500" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.4;fill-opacity:0.9"/>
+<path d="M 242.0,86.5 q 2,-3 4,0 t 4,0 t 4,0" style="fill:none;stroke:#000000;stroke-width:0.4"/>
+<rect x="240.000" y="135.000" width="30.000" height="10.000" style="fill:#ffffff;stroke:#000000;stroke-width:0.5"/>
+<ellipse cx="255.0" cy="140" rx="5" ry="2" style="fill:#c3dcd7;stroke:#000000;stroke-width:0.35"/>
+<rect x="240.000" y="157.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<rect x="258.000" y="157.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<rect x="240.000" y="177.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<rect x="258.000" y="177.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<path d="M 310.0,132 q -2,2.5 -4,0 q -2,-2.5 -4,0 q -2,2.5 -4,0 q -2,-2.5 -4,0 q -2,2.5 -4,0 q -2,-2.5 -4,0 q -2,2.5 -4,0 q -2,-2.5 -4,0 q -2,2.5 -4,0 L 262.0,135" style="fill:none;stroke:#ff0000;stroke-width:0.6"/>
+<rect x="215.000" y="260.000" width="110.000" height="5.000" style="fill:#ebebeb;stroke:#000000;stroke-width:0.5"/>
+<rect x="215.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="220.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="225.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="230.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="235.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="240.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="245.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="250.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="255.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="260.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="265.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="270.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="275.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="280.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="285.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="290.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="298.000" y="257.000" width="11.000" height="3.000" style="fill:#c4dbd8;stroke:#000000;stroke-width:0.25"/>
+<rect x="312.000" y="257.000" width="9.000" height="3.000" style="fill:#a9d9f8;stroke:#000000;stroke-width:0.25"/>
+</g>
+<g inkscape:groupmode="layer" id="layer-labels" inkscape:label="Labels">
+<text x="121.000" y="30.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Electron source</tspan></text>
+<text x="121.000" y="67.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Condenser lens</tspan></text>
+<text x="121.000" y="89.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Beam pulser</tspan></text>
+<text x="121.000" y="105.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Electron pulses</tspan></text>
+<text x="121.000" y="143.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Sample</tspan></text>
+<text x="121.000" y="122.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Objective lens</tspan></text>
+<text x="121.000" y="170.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Objective and</tspan><tspan x="121.000" dy="8.2">projector lenses</tspan></text>
+<text x="277.000" y="116.000" style="font-family:'Noto Sans Mono';font-size:4.93889px;fill:#000000;text-anchor:start"><tspan x="277.000" dy="0">pump (laser or RF);</tspan><tspan x="277.000" dy="8.2">probe after delay τ</tspan></text>
+<text x="121.000" y="259.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Direct electron</tspan><tspan x="121.000" dy="8.2">detector</tspan></text>
+</g>
+</svg>

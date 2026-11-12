@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="1039" height="1080" viewBox="100 0 275 285.75">
+<g inkscape:groupmode="layer" id="layer-defs" inkscape:label="Defs">
+<defs><marker id="arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="4" markerHeight="4" orient="auto"><path d="M0,0 L6,3 L0,6 z" style="fill:#000000"/></marker></defs>
+</g>
+<g inkscape:groupmode="layer" id="layer-beam" inkscape:label="Beam">
+<polygon points="253.000,30.000 257.000,30.000 257.500,62.000 252.500,62.000" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.5;stroke-linejoin:round;fill-opacity:0.2;stroke-opacity:0.7"/>
+<polygon points="252.500,68.000 257.500,68.000 255.500,140.000 254.500,140.000" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.5;stroke-linejoin:round;fill-opacity:0.2;stroke-opacity:0.7"/>
+<polygon points="254.500,140.000 255.500,140.000 256.500,236.000 253.500,236.000" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.5;stroke-linejoin:round;fill-opacity:0.2;stroke-opacity:0.7"/>
+</g>
+<g inkscape:groupmode="layer" id="layer-column" inkscape:label="Column">
+<rect x="230.000" y="12.000" width="5.000" height="5.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.3"/>
+<rect x="230.000" y="22.000" width="5.000" height="5.000" style="fill:#a9d9f8;stroke:#000000;stroke-width:0.3"/>
+<rect x="235.000" y="12.000" width="5.000" height="5.000" style="fill:#a9d9f8;stroke:#000000;stroke-width:0.3"/>
+<rect x="235.000" y="22.000" width="5.000" height="5.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.3"/>
+<rect x="240.000" y="12.000" width="5.000" height="5.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.3"/>
+<rect x="240.000" y="22.000" width="5.000" height="5.000" style="fill:#a9d9f8;stroke:#000000;stroke-width:0.3"/>
+<rect x="245.000" y="12.000" width="5.000" height="5.000" style="fill:#a9d9f8;stroke:#000000;stroke-width:0.3"/>
+<rect x="245.000" y="22.000" width="5.000" height="5.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.3"/>
+<rect x="250.000" y="12.000" width="5.000" height="5.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.3"/>
+<rect x="250.000" y="22.000" width="5.000" height="5.000" style="fill:#a9d9f8;stroke:#000000;stroke-width:0.3"/>
+<rect x="255.000" y="12.000" width="5.000" height="5.000" style="fill:#a9d9f8;stroke:#000000;stroke-width:0.3"/>
+<rect x="255.000" y="22.000" width="5.000" height="5.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.3"/>
+<rect x="260.000" y="12.000" width="5.000" height="5.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.3"/>
+<rect x="260.000" y="22.000" width="5.000" height="5.000" style="fill:#a9d9f8;stroke:#000000;stroke-width:0.3"/>
+<rect x="265.000" y="12.000" width="5.000" height="5.000" style="fill:#a9d9f8;stroke:#000000;stroke-width:0.3"/>
+<rect x="265.000" y="22.000" width="5.000" height="5.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.3"/>
+<rect x="270.000" y="12.000" width="5.000" height="5.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.3"/>
+<rect x="270.000" y="22.000" width="5.000" height="5.000" style="fill:#a9d9f8;stroke:#000000;stroke-width:0.3"/>
+<rect x="275.000" y="12.000" width="5.000" height="5.000" style="fill:#a9d9f8;stroke:#000000;stroke-width:0.3"/>
+<rect x="275.000" y="22.000" width="5.000" height="5.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.3"/>
+<path d="M 223.0,19.5 Q 227.5,17.5 235.0,19.5 Q 232.5,21.5 240.0,19.5 Q 237.5,17.5 245.0,19.5 Q 242.5,21.5 250.0,19.5 Q 247.5,17.5 255.0,19.5 Q 252.5,21.5 260.0,19.5 Q 257.5,17.5 265.0,19.5 Q 262.5,21.5 270.0,19.5 Q 267.5,17.5 275.0,19.5 Q 272.5,21.5 280.0,19.5 L 287.0,19.5" style="fill:none;stroke:#000000;stroke-width:0.4"/>
+<rect x="247.000" y="62.000" width="16.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<polygon points="243.000,95.000 249.000,95.000 251.000,110.000 245.000,110.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5;stroke-linejoin:round"/>
+<polygon points="261.000,98.000 267.000,98.000 265.000,113.000 259.000,113.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5;stroke-linejoin:round"/>
+<polygon points="255.000,134.000 261.000,140.000 255.000,146.000 249.000,140.000" style="fill:#c3dcd7;stroke:#000000;stroke-width:0.5;stroke-linejoin:round"/>
+<rect x="252.000" y="236.000" width="6.000" height="3.000" style="fill:#000000;stroke:#000000;stroke-width:0.3"/>
+<line x1="255.000" y1="140.000" x2="221.000" y2="257.000" style="stroke:#e0a83a;stroke-width:0.6;fill:none;stroke-opacity:0.9"/>
+<circle cx="221.0" cy="256" r="1.3" style="fill:#e0a83a"/>
+<line x1="255.000" y1="140.000" x2="231.000" y2="257.000" style="stroke:#e0a83a;stroke-width:0.6;fill:none;stroke-opacity:0.9"/>
+<circle cx="231.0" cy="256" r="1.3" style="fill:#e0a83a"/>
+<line x1="255.000" y1="140.000" x2="242.000" y2="257.000" style="stroke:#e0a83a;stroke-width:0.6;fill:none;stroke-opacity:0.9"/>
+<circle cx="242.0" cy="256" r="1.3" style="fill:#e0a83a"/>
+<line x1="255.000" y1="140.000" x2="268.000" y2="257.000" style="stroke:#e0a83a;stroke-width:0.6;fill:none;stroke-opacity:0.9"/>
+<circle cx="268.0" cy="256" r="1.3" style="fill:#e0a83a"/>
+<line x1="255.000" y1="140.000" x2="279.000" y2="257.000" style="stroke:#e0a83a;stroke-width:0.6;fill:none;stroke-opacity:0.9"/>
+<circle cx="279.0" cy="256" r="1.3" style="fill:#e0a83a"/>
+<line x1="255.000" y1="140.000" x2="289.000" y2="257.000" style="stroke:#e0a83a;stroke-width:0.6;fill:none;stroke-opacity:0.9"/>
+<circle cx="289.0" cy="256" r="1.3" style="fill:#e0a83a"/>
+<rect x="215.000" y="260.000" width="110.000" height="5.000" style="fill:#ebebeb;stroke:#000000;stroke-width:0.5"/>
+<rect x="215.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="220.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="225.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="230.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="235.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="240.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="245.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="250.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="255.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="260.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="265.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="270.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="275.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="280.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="285.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="290.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="298.000" y="257.000" width="11.000" height="3.000" style="fill:#c4dbd8;stroke:#000000;stroke-width:0.25"/>
+<rect x="312.000" y="257.000" width="9.000" height="3.000" style="fill:#a9d9f8;stroke:#000000;stroke-width:0.25"/>
+</g>
+<g inkscape:groupmode="layer" id="layer-labels" inkscape:label="Labels">
+<text x="121.000" y="21.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Undulator</tspan><tspan x="121.000" dy="8.2">(synchrotron or FEL)</tspan></text>
+<text x="121.000" y="67.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Monochromator</tspan></text>
+<text x="121.000" y="106.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Focusing mirrors</tspan></text>
+<text x="121.000" y="142.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Crystal sample</tspan></text>
+<text x="121.000" y="239.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Beam stop</tspan></text>
+<text x="295.000" y="200.000" style="font-family:'Noto Sans Mono';font-size:4.93889px;fill:#000000;text-anchor:start"><tspan x="295.000" dy="0">Bragg</tspan><tspan x="295.000" dy="8.2">reflections</tspan></text>
+<text x="121.000" y="259.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Hybrid pixel</tspan><tspan x="121.000" dy="8.2">detector</tspan></text>
+</g>
+</svg>

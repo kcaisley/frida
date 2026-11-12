@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="1039" height="1080" viewBox="100 0 275 285.75">
+<g inkscape:groupmode="layer" id="layer-defs" inkscape:label="Defs">
+<defs><marker id="arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="4" markerHeight="4" orient="auto"><path d="M0,0 L6,3 L0,6 z" style="fill:#000000"/></marker></defs>
+</g>
+<g inkscape:groupmode="layer" id="layer-beam" inkscape:label="Beam">
+<polygon points="255.000,40.000 246.000,62.000 264.000,62.000" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.5;stroke-linejoin:round;fill-opacity:0.2;stroke-opacity:0.7"/>
+<polygon points="246.000,62.000 264.000,62.000 259.000,117.000 251.000,117.000" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.5;stroke-linejoin:round;fill-opacity:0.2;stroke-opacity:0.7"/>
+<polygon points="251.000,117.000 259.000,117.000 255.000,140.000" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.5;stroke-linejoin:round;fill-opacity:0.2;stroke-opacity:0.7"/>
+<polygon points="255.000,140.000 217.000,257.000 293.000,257.000" style="fill:#fad68e;stroke:#fad68e;stroke-width:0.5;stroke-linejoin:round;fill-opacity:0.2;stroke-opacity:0.7"/>
+</g>
+<g inkscape:groupmode="layer" id="layer-column" inkscape:label="Column">
+<polygon points="245.000,15.000 265.000,15.000 265.000,30.000 255.000,40.000 245.000,30.000" style="fill:#eae7db;stroke:#000000;stroke-width:0.5;stroke-linejoin:round"/>
+<rect x="240.000" y="62.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<rect x="258.000" y="62.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<rect x="240.000" y="117.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<rect x="258.000" y="117.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<rect x="240.000" y="82.000" width="7.000" height="6.000" style="fill:#eae7db;stroke:#000000;stroke-width:0.5"/>
+<rect x="263.000" y="82.000" width="7.000" height="6.000" style="fill:#eae7db;stroke:#000000;stroke-width:0.5"/>
+<rect x="240.000" y="96.000" width="7.000" height="6.000" style="fill:#eae7db;stroke:#000000;stroke-width:0.5"/>
+<rect x="263.000" y="96.000" width="7.000" height="6.000" style="fill:#eae7db;stroke:#000000;stroke-width:0.5"/>
+<path d="M 273.0,85 c 6,2 6,10 0,12" style="fill:none;stroke:#000000;stroke-width:0.5;marker-end:url(#arrow)"/>
+<rect x="240.000" y="135.000" width="30.000" height="10.000" style="fill:#ffffff;stroke:#000000;stroke-width:0.5"/>
+<ellipse cx="255.0" cy="140" rx="5" ry="2" style="fill:#c3dcd7;stroke:#000000;stroke-width:0.35"/>
+<rect x="240.000" y="177.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<rect x="258.000" y="177.000" width="12.000" height="6.000" style="fill:#d8c8c7;stroke:#000000;stroke-width:0.5"/>
+<rect x="285.000" y="128.000" width="22.000" height="22.000" style="fill:#ffffff;stroke:#000000;stroke-width:0.35"/>
+<line x1="288.000" y1="131.000" x2="304.000" y2="131.000" style="stroke:#ff0000;stroke-width:0.3;fill:none;stroke-dasharray:0.8,0.8"/>
+<circle cx="288.00" cy="131.00" r="0.7" style="fill:#000000"/>
+<circle cx="292.00" cy="131.00" r="0.7" style="fill:#000000"/>
+<circle cx="296.00" cy="131.00" r="0.7" style="fill:#000000"/>
+<circle cx="300.00" cy="131.00" r="0.7" style="fill:#000000"/>
+<circle cx="304.00" cy="131.00" r="0.7" style="fill:#000000"/>
+<line x1="288.000" y1="135.000" x2="304.000" y2="135.000" style="stroke:#ff0000;stroke-width:0.3;fill:none;stroke-dasharray:0.8,0.8"/>
+<circle cx="288.00" cy="135.00" r="0.7" style="fill:#000000"/>
+<circle cx="292.00" cy="135.00" r="0.7" style="fill:#000000"/>
+<circle cx="296.00" cy="135.00" r="0.7" style="fill:#000000"/>
+<circle cx="300.00" cy="135.00" r="0.7" style="fill:#000000"/>
+<circle cx="304.00" cy="135.00" r="0.7" style="fill:#000000"/>
+<line x1="288.000" y1="139.000" x2="304.000" y2="139.000" style="stroke:#ff0000;stroke-width:0.3;fill:none;stroke-dasharray:0.8,0.8"/>
+<circle cx="288.00" cy="139.00" r="0.7" style="fill:#000000"/>
+<circle cx="292.00" cy="139.00" r="0.7" style="fill:#000000"/>
+<circle cx="296.00" cy="139.00" r="0.7" style="fill:#000000"/>
+<circle cx="300.00" cy="139.00" r="0.7" style="fill:#000000"/>
+<circle cx="304.00" cy="139.00" r="0.7" style="fill:#000000"/>
+<line x1="288.000" y1="143.000" x2="304.000" y2="143.000" style="stroke:#ff0000;stroke-width:0.3;fill:none;stroke-dasharray:0.8,0.8"/>
+<circle cx="288.00" cy="143.00" r="0.7" style="fill:#000000"/>
+<circle cx="292.00" cy="143.00" r="0.7" style="fill:#000000"/>
+<circle cx="296.00" cy="143.00" r="0.7" style="fill:#000000"/>
+<circle cx="300.00" cy="143.00" r="0.7" style="fill:#000000"/>
+<circle cx="304.00" cy="143.00" r="0.7" style="fill:#000000"/>
+<line x1="288.000" y1="147.000" x2="304.000" y2="147.000" style="stroke:#ff0000;stroke-width:0.3;fill:none;stroke-dasharray:0.8,0.8"/>
+<circle cx="288.00" cy="147.00" r="0.7" style="fill:#000000"/>
+<circle cx="292.00" cy="147.00" r="0.7" style="fill:#000000"/>
+<circle cx="296.00" cy="147.00" r="0.7" style="fill:#000000"/>
+<circle cx="300.00" cy="147.00" r="0.7" style="fill:#000000"/>
+<circle cx="304.00" cy="147.00" r="0.7" style="fill:#000000"/>
+<line x1="270.000" y1="140.000" x2="285.000" y2="139.000" style="stroke:#000000;stroke-width:0.3;fill:none;stroke-dasharray:1,1"/>
+<rect x="285.000" y="212.000" width="30.000" height="30.000" style="fill:#ffffff;stroke:#000000;stroke-width:0.35"/>
+<circle cx="300.0" cy="227" r="4" style="fill:#fad68e;stroke:#000000;stroke-width:0.3"/>
+<circle cx="310.00" cy="227.00" r="2.2" style="fill:#fad68e;stroke:#000000;stroke-width:0.3;fill-opacity:0.8"/>
+<circle cx="305.00" cy="235.66" r="2.2" style="fill:#fad68e;stroke:#000000;stroke-width:0.3;fill-opacity:0.8"/>
+<circle cx="295.00" cy="235.66" r="2.2" style="fill:#fad68e;stroke:#000000;stroke-width:0.3;fill-opacity:0.8"/>
+<circle cx="290.00" cy="227.00" r="2.2" style="fill:#fad68e;stroke:#000000;stroke-width:0.3;fill-opacity:0.8"/>
+<circle cx="295.00" cy="218.34" r="2.2" style="fill:#fad68e;stroke:#000000;stroke-width:0.3;fill-opacity:0.8"/>
+<circle cx="305.00" cy="218.34" r="2.2" style="fill:#fad68e;stroke:#000000;stroke-width:0.3;fill-opacity:0.8"/>
+<line x1="285.000" y1="242.000" x2="273.000" y2="256.000" style="stroke:#000000;stroke-width:0.3;fill:none;stroke-dasharray:1,1"/>
+<rect x="215.000" y="260.000" width="110.000" height="5.000" style="fill:#ebebeb;stroke:#000000;stroke-width:0.5"/>
+<rect x="215.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="220.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="225.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="230.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="235.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="240.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="245.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="250.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="255.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="260.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="265.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="270.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="275.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="280.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="285.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="290.000" y="257.000" width="5.000" height="3.000" style="fill:#ff9e8b;stroke:#000000;stroke-width:0.25"/>
+<rect x="298.000" y="257.000" width="11.000" height="3.000" style="fill:#c4dbd8;stroke:#000000;stroke-width:0.25"/>
+<rect x="312.000" y="257.000" width="9.000" height="3.000" style="fill:#a9d9f8;stroke:#000000;stroke-width:0.25"/>
+</g>
+<g inkscape:groupmode="layer" id="layer-labels" inkscape:label="Labels">
+<text x="121.000" y="30.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Electron source</tspan></text>
+<text x="121.000" y="67.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Condenser lens</tspan></text>
+<text x="121.000" y="94.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Scan coils</tspan></text>
+<text x="121.000" y="122.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Probe-forming lens</tspan></text>
+<text x="121.000" y="143.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Sample</tspan></text>
+<text x="121.000" y="182.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Projector lens</tspan></text>
+<text x="319.000" y="141.000" style="font-family:'Noto Sans Mono';font-size:4.93889px;fill:#000000;text-anchor:start"><tspan x="319.000" dy="0">probe raster</tspan></text>
+<text x="319.000" y="228.000" style="font-family:'Noto Sans Mono';font-size:4.93889px;fill:#000000;text-anchor:start"><tspan x="319.000" dy="0">diffraction pattern</tspan><tspan x="319.000" dy="8.2">per probe position</tspan></text>
+<text x="121.000" y="259.000" style="font-family:'Noto Sans Mono';font-size:7.05556px;fill:#000000;text-anchor:start"><tspan x="121.000" dy="0">Pixelated</tspan><tspan x="121.000" dy="8.2">detector</tspan></text>
+</g>
+</svg>

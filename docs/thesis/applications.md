@@ -20,6 +20,11 @@ A number of recent detector applications now demand continuous frame acquisition
 In four-dimensional scanning transmission electron microscopy (4D-STEM), diffraction images record the angular distribution of scattered electrons at each probe position; rapid acquisition allows a complete spatial scan to be collected in a short time [@ercius2024].
 In X-ray imaging under the high photon fluence of continuous-wave free-electron lasers and diffraction-limited synchrotrons, short integration windows limit the number of photons accumulated per frame, reducing the overlap of photon signals and the risk of sensor saturation [@cordia2024].
 Stroboscopic electron microscopy collects images at successive pump–probe delays to reconstruct a time-resolved sequence, effectively making a movie of repeatable dynamics; faster detector readout supports efficient collection of these image series [@lau2020].
+@fig-applications sketches the four instruments; in each, a pixelated detector at the end of the column records the image.
+
+::: {#fig-applications image="app_tem app_4dstem app_xray app_stroboscopic" cols="2"}
+The imaging applications this work serves: (a) transmission electron microscopy; (b) 4D-STEM, where a focused probe is scanned across the sample and a diffraction pattern recorded at every position; (c) X-ray diffraction at a synchrotron or free-electron laser; (d) stroboscopic pump–probe electron microscopy, where pulses of electrons probe the sample at a set delay after each excitation.
+:::
 
 ## Counting and integrating pixels {#sec-counting}
 
@@ -75,16 +80,32 @@ The cost moves from the pixel to the converter: every pixel needs a multi-bit co
 ## Sensor and readout arrangements {#sec-arrangements}
 
 Where a converter can be placed, and how much area and power it may take, follows from how the sensor and its readout are built.
-There are two arrangements.
+There are three arrangements, which differ in where the pixels and the converters sit relative to each other.
 
-In a monolithic sensor, charge is collected in the same CMOS substrate that holds the readout circuits.
+In a monolithic sensor (@fig-monolithic), charge is collected in the same CMOS substrate that holds the readout circuits, and the converters sit on the same die as the pixels, typically at the foot of each column.
 Monolithic sensors are often very thin, and so cannot typically absorb all of an incident electron's energy; the proportion of energy deposited then varies between particles even of the same energy, a variation called Landau noise, following a Landau distribution.
 Fine pitches are possible because no interconnect is needed between sensor and circuit: monolithic electron cameras reach pixel pitches of 10 µm and below [@bammes2023; @ercius2024].
 
-In a hybrid detector, the sensor is a separate, fully depleted diode array, bonded pixel by pixel to a readout chip of the same pitch [@llopart2022; @philipp2022].
+::: {#fig-monolithic image="chip_monolithic"}
+A monolithic imager: pixels, column ADCs, serializers and row drivers on one die, wire-bonded to its package.
+:::
+
+A sensor can instead carry only its pixels and leave conversion to separate readout chips beside it, on the same package or on the sensor's own periphery, joined to the ends of its columns by wire or bump bonds (@fig-side-by-side).
+DEPFET pixel detectors are read out this way, with readout chips bump-bonded along the sensor's edge [@peric2010].
+The converters then have room outside the array, but every column must be carried to a chip edge, and the number of bonds along that edge bounds how many columns can be read in parallel.
+
+::: {#fig-side-by-side image="chip_side_by_side"}
+A sensor and its readout chips side by side on one package: the sensor holds only pixels, and readout chips with the ADCs and serializers are joined to its column ends by wire or bump bonds.
+:::
+
+In a hybrid detector (@fig-hybrid), the sensor is a separate, fully depleted diode array, stacked on and bonded pixel by pixel to a readout chip of the same pitch [@llopart2022; @philipp2022], so that the converters sit directly beneath the pixels they serve.
 The sensor material and thickness can then be chosen for the particle: silicon for electrons, and silicon or high-Z materials such as CdTe for X-rays.
 Thinner sensors (below about 150 µm) reduce the multiple scattering of keV electrons, and so are often targeted by commercial sensors; MeV electrons scatter less and deposit about five times less energy per unit length, so a thicker sensor (about 500 µm) is more desirable there.
 A hybrid configuration also allows in-pixel digital storage, so higher-rate counting can be reached: pile-up is limited only by a single pixel's dead time, with multiple hits read out digitally per frame.
+
+::: {#fig-hybrid image="chip_hybrid"}
+A hybrid stack, drawn apart: the sensor above, joined by bump bonds or hybrid bonding to a readout chip with an ADC beneath each group of pixels.
+:::
 
 The connection between sensor and readout sets the smallest pixel a hybrid can have.
 Bump bonds range from indium and fine-pitch solder at about 20 µm pitch to standard solder at about 200 µm.
@@ -100,6 +121,11 @@ Each step outward gives the converter more room and makes it serve more pixels.
 A pixel-parallel converter gets one pixel's area, the pitch squared, and has to share it with the front end: 3025 µm² in total at a 55 µm pitch, the Timepix pitch [@llopart2022].
 It needs only to convert once per frame.
 A column-parallel converter sits at the edge of the array and digitizes one row after another; it gains area along the column direction but must convert as many times per frame as the rows it serves.
+@fig-column-parallel shows such an imager: several ADCs at the foot of each column, and a serializer for each group of them.
+
+::: {#fig-column-parallel image="chip_column_parallel"}
+A monolithic imager with column-parallel conversion: pixel columns, several ADCs at the foot of each, a serializer per column group, and row decoders and drivers along one side, annotated with the targets of a 1 Mpixel array.
+:::
 The sampling time of each ADC must be slow enough to achieve the resolution needed for each pixel, but the aggregate rate must be fast enough to read out the entire pixel array within a frame.
 
 Column-parallel readout has its own speed limit.

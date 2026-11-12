@@ -6,7 +6,8 @@ figures and MathJax) and a PDF (LuaLaTeX, the ubonn-thesis package), into docs/t
     uv run python docs/thesis/build.py html --embed # with the fonts inside the page, to share it
 
 The chapters (CHAPTERS, in order) number their sections, figures and equations through the
-thesis.lua filter; figures.py draws each figure for both editions first.
+thesis.lua filter; figures.py draws each plot for both editions first, and each Inkscape drawing
+in drawings/ goes into the page as SVG and into the PDF through rsvg-convert (or Inkscape).
 """
 
 from __future__ import annotations
@@ -41,9 +42,45 @@ def pandoc(*args: str) -> None:
     subprocess.run(["pandoc", *COMMON, *args, *CHAPTERS], cwd=HERE, check=True)
 
 
+def drawing_pdfs() -> None:
+    """Each Inkscape drawing as the PDF the LaTeX edition includes (figures/<name>.pdf)."""
+    figures.OUT.mkdir(exist_ok=True)
+    for svg in sorted((HERE / "drawings").glob("*.svg")):
+        pdf = figures.OUT / f"{svg.stem}.pdf"
+        if pdf.exists() and pdf.stat().st_mtime >= svg.stat().st_mtime:
+            continue
+        if shutil.which("rsvg-convert"):
+            subprocess.run(["rsvg-convert", "--format=pdf", f"--output={pdf}", str(svg)], check=True)
+        else:
+            subprocess.run(["inkscape", str(svg), f"--export-filename={pdf}"], check=True)
+
+
+def inline_svg(name: str) -> str:
+    """A drawing's SVG for inline use in the page: Inkscape's editor state dropped, its ids
+    prefixed so that drawings on one page cannot collide, and its size left to the page."""
+    svg = (HERE / "drawings" / f"{name}.svg").read_text()
+    svg = re.sub(r"<\?xml[^>]*\?>|<!--.*?-->", "", svg, flags=re.DOTALL)
+    svg = re.sub(
+        r"<sodipodi:namedview\b.*?(/>|</sodipodi:namedview>)|<metadata\b.*?</metadata>", "", svg, flags=re.DOTALL
+    )
+    svg = re.sub(r'\bid="([^"]+)"', rf'id="{name}-\1"', svg)
+    svg = re.sub(r"url\(#([^)]+)\)", rf"url(#{name}-\1)", svg)
+    svg = re.sub(r'((?:xlink:)?href)="#([^"]+)"', rf'\1="#{name}-\2"', svg)
+    head_end = svg.index(">", svg.index("<svg")) + 1
+    head = re.sub(r'\s(width|height)="[^"]*"', "", svg[svg.index("<svg") : head_end])
+    head = head.replace("<svg", '<svg class="drawing-svg" role="img"', 1)
+    return head + svg[head_end:]
+
+
 def html(embed: bool) -> Path:
     out = BUILD / "thesis.html"
     pandoc("--to=html5", "--template=template.html", "--mathjax", "--toc", "--section-divs", f"--output={out}")
+    page = re.sub(
+        r'<div class="drawing" data-src="drawings/([\w-]+)\.svg"></div>',
+        lambda m: f'<div class="drawing">{inline_svg(m.group(1))}</div>',
+        out.read_text(),
+    )
+    out.write_text(page)
     if embed:
         page = out.read_text()
         page = re.sub(
@@ -93,6 +130,7 @@ def main() -> None:
     args = parser.parse_args()
     BUILD.mkdir(exist_ok=True)
     figures.main()
+    drawing_pdfs()
     if "html" in args.targets:
         print(html(args.embed))
     if "pdf" in args.targets:

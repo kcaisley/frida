@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="claude:viewport-fit-sides" content="cover">
 <title>$pagetitle$</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Mono&amp;display=swap">
 <style>
 /* A thesis set for the screen: the PDF's Latin Modern on white, one justified column of about
    70 characters, numbered contents at the left, side notes in the right margin. One light look
@@ -106,6 +108,12 @@ mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; padding: 0
 .figure .plot { width: 100%; min-height: 320px; }
 .figure > p { font-size: 0.86rem; line-height: 1.38; margin: 0.4rem 0 0; }
 .figlabel { font-weight: 700; margin-right: 0.15em; }
+/* Inkscape drawings, inline so that their labels take Noto Sans Mono as in Inkscape */
+.panels { display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); gap: 0.8rem 1.2rem; align-items: end; }
+@media (max-width: 600px) { .panels { grid-template-columns: repeat(min(var(--cols, 1), 2), minmax(0, 1fr)); } }
+.drawing-svg { display: block; width: 100%; height: auto; }
+.drawing-svg text, .drawing-svg tspan { font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace; }
+.panel-label { text-align: center !important; font-size: 0.86rem; margin: 0.2rem 0 0; }
 .picked { font-size: 0.82rem; color: var(--muted); text-align: left !important; margin: 0.3rem 0 0; }
 @media (min-width: 1280px) { .figure { margin-right: calc(-1 * (var(--note) + 3rem)); } .figure > p { max-width: var(--measure); } }
 
