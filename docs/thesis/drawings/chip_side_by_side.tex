@@ -3,28 +3,28 @@
 \input{drawing-preamble}
 \begin{document}
 \begin{drawing}
-\begin{tikzpicture}[iso]
-  \board{pcb}{0}{0}{78}{74}{fr4}
-  \foreach \i in {1,...,9}{\finger{pcb}{\i}{11+(\i-1)*7}{4}}
-  % readout chips first (nearer the front edge, drawn before the sensor behind them)
-  \foreach \k in {0,1,2}{%
-    \die{roc\k}{9+\k*22}{9}{\boardtop}{18}{12}{0.7}
-    \tiles{11+\k*22}{15}{\dietop}{4}{4}{3.2}{3.2}{adc}
-    \topface{11+\k*22}{11.6}{\dietop}{14}{2.4}{ser}
-    \foreach \i in {1,2,3}{\pad{roc\k}{in\i}{12.5+\k*22+(\i-1)*5.5}{19.6}}
-    \foreach \i in {1,2,3}{\pad{roc\k}{out\i}{11+\k*22+(\i-1)*7}{10.4}}
-  }
-  \die{sensor}{9}{26}{\boardtop}{64}{42}{0.5}
-  \pixelmatrix{11}{30}{\dietop}{14}{8}{4}
-  \foreach \i in {1,...,9}{\pad{sensor}{\i}{12.5+(\i-1)*7}{27.6}}
-  % sensor column pads to the chips' inputs, chips' outputs to the board
-  \foreach \k/\a/\b/\c in {0/1/2/3,1/4/5/6,2/7/8/9}{%
-    \bondwire{sensor-pad-\a}{roc\k-pad-in1}\bondwire{sensor-pad-\b}{roc\k-pad-in2}\bondwire{sensor-pad-\c}{roc\k-pad-in3}%
+  \begin{tikzpicture}[iso]
+    \board{pcb}{0}{0}{78}{74}{fr4}
+    \foreach \i in {1,...,9}{\finger{pcb}{\i}{11+(\i-1)*7}{4}}
+    % readout chips first (nearer the front edge, drawn before the sensor behind them)
+    \foreach \k in {0,1,2}{%
+      \die{roc\k}{9+\k*22}{9}{\boardtop}{18}{12}{0.7}
+      \tiles{11+\k*22}{15}{\dietop}{4}{4}{3.2}{3.2}{adc}
+      \topface{11+\k*22}{11.6}{\dietop}{14}{2.4}{ser}
+      \foreach \i in {1,2,3}{\pad{roc\k}{in\i}{12.5+\k*22+(\i-1)*5.5}{19.6}}
+      \foreach \i in {1,2,3}{\pad{roc\k}{out\i}{11+\k*22+(\i-1)*7}{10.4}}
+    }
+    \die{sensor}{9}{26}{\boardtop}{64}{42}{0.5}
+    \pixelmatrix{11}{30}{\dietop}{14}{8}{4}
+    \foreach \i in {1,...,9}{\pad{sensor}{\i}{12.5+(\i-1)*7}{27.6}}
+    % sensor column pads to the chips' inputs, chips' outputs to the board
+    \foreach \k/\a/\b/\c in {0/1/2/3,1/4/5/6,2/7/8/9}{%
+      \bondwire{sensor-pad-\a}{roc\k-pad-in1}\bondwire{sensor-pad-\b}{roc\k-pad-in2}\bondwire{sensor-pad-\c}{roc\k-pad-in3}%
     \bondwire{roc\k-pad-out1}{pcb-finger-\a}\bondwire{roc\k-pad-out2}{pcb-finger-\b}\bondwire{roc\k-pad-out3}{pcb-finger-\c}}
-  \calloutleft{30,50,\dietop}{-6,70,\dietop}{Sensor (pixels only)}
-  \calloutleft{13,17,\dietop}{-12,14,\dietop}{Readout chips\\(ADCs, serializers)}
-  \callout{60,24,2.5}{86,40,0}{Wire bonds}
-  \callout{74,50,1.6}{88,64,1.6}{FR4 board}
-\end{tikzpicture}
+    \calloutleft{30,50,\dietop}{-6,70,\dietop}{Sensor (pixels only)}
+    \calloutleft{13,17,\dietop}{-12,14,\dietop}{Readout chips\\(ADCs, serializers)}
+    \callout{60,24,2.5}{86,40,0}{Wire bonds}
+    \callout{74,50,1.6}{88,64,1.6}{FR4 board}
+  \end{tikzpicture}
 \end{drawing}
 \end{document}

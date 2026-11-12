@@ -3,27 +3,27 @@
 \input{drawing-preamble}
 \begin{document}
 \begin{drawing}
-\begin{tikzpicture}[iso]
-  \board{pcb}{0}{0}{70}{74}{fr4}
-  \foreach \i in {1,...,8}{\finger{pcb}{\i}{14+(\i-1)*6}{5}}
-  \die{roc}{12}{12}{\boardtop}{46}{52}{0.7}
-  \edef\roctop{\dietop}
-  % an ADC beneath each 2 x 2 pixel group: the groups start half a pitch inside the matrix
-  \foreach \i in {0,...,3}{\foreach \j in {0,...,3}{\topface{19.25+0.7+\i*9}{24.25+0.7+\j*9}{\roctop}{7.6}{7.6}{adc}}}
-  \topface{17}{15.6}{\roctop}{34.6}{3}{ser}
-  \foreach \i in {1,...,8}{\pad{roc}{\i}{14+(\i-1)*6}{13.2}}
-  \foreach \i in {1,...,8}{\bondwire{roc-pad-\i}{pcb-finger-\i}}
-  % a bump under every pixel, and the sensor raised above them
-  \foreach \i in {0,...,7}{\foreach \j in {0,...,7}{\bump{21.5+\i*4.5}{26.5+\j*4.5}{\roctop}}}
-  \die{sensor}{15}{20}{\roctop+12}{44.5}{44.5}{0.5}
-  \pixelmatrix{17}{22}{\dietop}{8}{8}{4.5}
-  \calloutleft{24,40,\dietop}{-4,62,\dietop}{Sensor (pixels)}
-  \calloutleft{19,24,\roctop+1}{-12,30,\roctop}{Bumps, one per pixel}
-  \calloutleft{20,17,\roctop}{-12,10,\roctop}{Serializers}
-  \callout{50,30,\roctop}{78,36,\roctop}{Readout chip: an ADC}
-  \node[label, anchor=west] at (78,36,\roctop-4.5) {beneath each pixel group};
-  \callout{40,9,2.5}{76,22,0}{Wire bonds}
-  \callout{64,62,1.6}{82,74,1.6}{FR4 board}
-\end{tikzpicture}
+  \begin{tikzpicture}[iso]
+    \board{pcb}{0}{0}{70}{74}{fr4}
+    \foreach \i in {1,...,8}{\finger{pcb}{\i}{14+(\i-1)*6}{5}}
+    \die{roc}{12}{12}{\boardtop}{46}{52}{0.7}
+    \edef\roctop{\dietop}
+    % an ADC beneath each 2 x 2 pixel group: the groups start half a pitch inside the matrix
+    \foreach \i in {0,...,3}{\foreach \j in {0,...,3}{\topface{19.25+0.7+\i*9}{24.25+0.7+\j*9}{\roctop}{7.6}{7.6}{adc}}}
+    \topface{17}{15.6}{\roctop}{34.6}{3}{ser}
+    \foreach \i in {1,...,8}{\pad{roc}{\i}{14+(\i-1)*6}{13.2}}
+    \foreach \i in {1,...,8}{\bondwire{roc-pad-\i}{pcb-finger-\i}}
+    % a bump under every pixel, and the sensor raised above them
+    \foreach \i in {0,...,7}{\foreach \j in {0,...,7}{\bump{21.5+\i*4.5}{26.5+\j*4.5}{\roctop}}}
+    \die{sensor}{15}{20}{\roctop+12}{44.5}{44.5}{0.5}
+    \pixelmatrix{17}{22}{\dietop}{8}{8}{4.5}
+    \calloutleft{24,40,\dietop}{-4,62,\dietop}{Sensor (pixels)}
+    \calloutleft{19,24,\roctop+1}{-12,30,\roctop}{Bumps, one per pixel}
+    \calloutleft{20,17,\roctop}{-12,10,\roctop}{Serializers}
+    \callout{50,30,\roctop}{78,36,\roctop}{Readout chip: an ADC}
+    \node[label, anchor=west] at (78,36,\roctop-4.5) {beneath each pixel group};
+    \callout{40,9,2.5}{76,22,0}{Wire bonds}
+    \callout{64,62,1.6}{82,74,1.6}{FR4 board}
+  \end{tikzpicture}
 \end{drawing}
 \end{document}

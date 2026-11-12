@@ -1,6 +1,7 @@
 # Analog-to-digital converters {#sec-adcs}
 
 ::: todo
+
 - Paragraph introducing the chapter: the field of ADCs, the architectures, the survey that points to SAR, and the specification derived from @sec-applications.
 :::
 
@@ -9,6 +10,7 @@
 ### Quantization, noise, and effective number of bits
 
 ::: todo
+
 - Section explaining quantization noise, SNDR and ENOB.
 :::
 
@@ -35,12 +37,14 @@ $$
 $$ {#eq-schreier}
 
 ::: todo
+
 - Section on area and sampling-rate density as metrics beside energy.
 :::
 
 ## Architectures {#sec-architectures}
 
 ::: todo
+
 - Section introducing the basic ADC architectures: flash, single-slope, SAR, pipeline, pipelined SAR, delta-sigma and time-based, with a block diagram of each.
 :::
 
@@ -52,6 +56,7 @@ In general, arbitrarily high resolution is achievable up to the noise floor at t
 Put differently, pipelining is a way to improve resolution, at a fixed speed, by spending more power.
 
 ::: todo
+
 - Table comparing the architectures: decisions per sample, cycles per sample, and what dominates their area.
 :::
 
@@ -73,12 +78,14 @@ Walden figure of merit against reported ADC area, with the design goal.
 :::
 
 ::: todo
+
 - Section reading the survey by architecture and by process node.
 :::
 
 ## Why SAR {#sec-why-sar}
 
 ::: todo
+
 - Section on why the SAR architecture fits the application.
 :::
 
@@ -112,6 +119,7 @@ The Walden figure of merit (@eq-walden) and the sampling-rate density $f_\mathrm
 | $f_\mathrm{s}/A$ | 1.4 kS/s/µm² | 0.087 kS/s/µm² | 3.6 kS/s/µm² | 0.095 kS/s/µm² | 2.8 kS/s/µm² |
 
 ::: todo
+
 - Section analyzing the layout area of these converters against the design goal: where each spends its area, and why resolution and area have so far been traded against each other.
 :::
 
@@ -122,6 +130,7 @@ Earlier detector ADCs from the research group.
 ## Specification {#sec-specs}
 
 ::: todo
+
 - Section deriving each specification from @sec-applications.
 :::
 

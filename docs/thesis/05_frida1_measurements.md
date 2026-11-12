@@ -1,6 +1,7 @@
 # FRIDA-1 measurements {#sec-frida1-measurements}
 
 ::: todo
+
 - The chapter's question: does the silicon behave as the single-instance predictions of @sec-frida1-samp, @sec-frida1-comp, @sec-frida1-cdac and @sec-frida1-adc say, and where not, what does that teach the next design?
 :::
 
@@ -27,6 +28,7 @@ Its output-noise floor therefore limits the smallest transition displacement tha
 The time-domain and frequency-domain estimates of the amplifier's output noise agree at approximately 0.59 mV RMS.
 
 ::: todo
+
 - The DAQ chain: the FPGA sequencer at 1600 MBd, the FastRX capture of each comparator output, and the decoding and validation against the scope (zero mismatches, zero lost frames).
 - Input drive, references and clock distribution on the board.
 :::
@@ -48,6 +50,7 @@ Power over the sampling rate: measured against the behavioral model.
 :::
 
 ::: todo
+
 - Which overlays agree, and by how much each departs: the comparator's noise, the code noise, the power.
 - The lab captures behind these figures (their run IDs) and the command that redraws each over the instance's record.
 :::
@@ -91,6 +94,7 @@ The quietest code spectrum: ADC02 at 6 MS/s, 0.87 LSB against 1.61 LSB with the 
 :::
 
 ::: todo
+
 - The root cause: the input amplifier's supply at its connector, and the fix (filtering, or a quieter source).
 - What remains after the interferer: the broadband noise against the predicted sampler and comparator noise (@sec-frida1-adc).
 :::
@@ -116,6 +120,7 @@ This pattern is consistent with a reset or setup limitation but does not identif
 The quietest result is from ADC15 with 5/8 COMP and one-symbol LOGIC: at 9.524 MS/s its full output-code sigma is 0.193 LSB, and at exactly 10 MS/s four LOGIC settings give 0.301–0.316 LSB over 100,000 conversions each.
 
 ::: todo
+
 - Finding the right sequence: what the sequence map and the scope's decision eyes showed, and the lag-7 recurrence of all-one frames at 5/8 and 6/8 duty.
 - The lesson for the next design: the sequence belongs on chip, or in a self-timed loop (@sec-clocking).
 :::
@@ -161,6 +166,7 @@ Measured capacitor weights against prediction.
 :::
 
 ::: todo
+
 - The mismatch coefficient the measured weights imply, against the 1 %·√fF assumed in @fig-cdac-gap.
 - The ramp's DNL and INL before and after calibration (@eq-dcal) on ADC00–03.
 :::
@@ -172,6 +178,7 @@ B11 is high in 95.2–95.9 % of conversions at 2 MS/s, 60.1–65.6 % at 6 MS/s, 
 The 10 MS/s code spread thus coincides with one output branch becoming rare, as the redundant decisions after it correct less as the time per decision shrinks.
 
 ::: todo
+
 - The lesson: redundancy corrects as designed at low rate, but at speed the settling or the comparator's delay leaves decisions the later stages cannot recover (@sec-redundancy, @eq-regeneration).
 - Redundancy shortens a conversion where DAC settling dominates, not where the latch delay does [@chang2013]: which regime FRIDA-1 is in.
 :::
@@ -181,6 +188,7 @@ The 10 MS/s code spread thus coincides with one output branch becoming rare, as 
 Preliminary prototype measurements indicate approximately 488–494 µW at 10 MS/s and a 1.2 V supply for ADC00 and ADC01: 451–457 µW on the digital supply, 34 µW on the DAC's reference and 3 µW on the analog supply.
 
 ::: todo
+
 - The digital supply's dominance against the behavioral model's 28.9 pJ per conversion (@sec-adc-energy): the logic, the LVDS drivers, the clock.
 :::
 
@@ -191,6 +199,7 @@ FRIDA-1 measured, on the survey's plots.
 :::
 
 ::: todo
+
 - FRIDA-1 on the survey: where it falls, and how far from the design goal.
 - The lessons: the input path's interferer, the external sequence's timing limits, redundancy at speed, the measured mismatch, the logic's power.
 :::

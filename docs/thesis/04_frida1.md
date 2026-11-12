@@ -60,6 +60,7 @@ A three-dimensional render of one FRIDA-1 ADC channel's layout.
 :::
 
 ::: todo
+
 - The strategy for isolating the power grids and routing the supplies within the channel.
 - Physical verification of the assembled channel: connectivity, DRC, LVS, and extraction (@sec-cdac-parasitic, @tbl-held-noise).
 :::
@@ -87,6 +88,7 @@ FRIDA-1's pad ring.
 :::
 
 ::: todo
+
 - The chip-level power grids and a labeled pad ring.
 :::
 

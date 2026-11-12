@@ -1,12 +1,14 @@
 # Design of a compact SAR ADC {#sec-design}
 
 ::: todo
+
 - The chapter's plan: the method, then each block's design space with its model, its optimization rule and its sweep, then FRIDA-1's instance in each grid, then the converter assembled from them.
 :::
 
 ## Methodology {#sec-methodology}
 
 ::: todo
+
 - Why a pipeline: the blocks' trade-offs cross each other, so each is characterized the same way in every process before the converter is assembled from them.
 - The chapter's claim: each block's analytic model, flipped around, gives its optimization rule, and the sweep across processes and topologies checks it.
 :::
@@ -25,6 +27,7 @@ The block pipeline.
 :::
 
 ::: todo
+
 - The six processes (180, 150, 130 and 65 nm twice, 28 nm) and what is held the same across them: testbenches, supply corners at 90/100/110 %, the same area caps.
 - The open tools for layout and signoff (ALIGN placement, KLayout LVS and extraction) and what remains kit-specific.
 - The behavioral model each block derives from its own characterization, and how the converter is composed from them (@sec-adc).
@@ -47,6 +50,7 @@ $$ {#eq-cost-optimum}
 0.71 for the weights used, $a = 1$ and $g = 6$.
 
 ::: todo
+
 - Why a product of factors rather than a weighted sum: scale-free, so the same weights hold in every process.
 - The search (Optuna's TPE) and its budget; the warm start from the grid.
 :::
@@ -58,6 +62,7 @@ Every block's designs across processes and topologies.
 :::
 
 ::: todo
+
 - How to read the top-level figure: a process's frontier, and which topology sets it.
 - What a figure of merit per block means: R_on·C for the switch, E·σ² for the comparator, capacitance per bit for the DAC.
 :::
@@ -122,6 +127,7 @@ $$ {#eq-settle}
 FRIDA-1's switch, with $R_\mathrm{on} \approx 1$ kΩ into $C = 1.64$ pF, has $\tau = 1.64$ ns, and needs more than $9\tau$, 15 ns, of tracking for 12 bits.
 
 ::: todo
+
 - @eq-tracking flipped into the sizing rule: the largest $R_\mathrm{on}$ (and so the smallest switch) whose signal-dependent lag stays within the noise budget at the input's highest slew.
 - The behavioral ADC's measured cost: in the 14-bit converters, the widest bootstrap still costs 2.2 bits in IHP130 (6.5 pF) and 3.3 bits in TPSC65 (5.7 pF), which therefore need a wider sampler.
 - Sampling switch non-linearity sets a speed × resolution frontier.
@@ -141,6 +147,7 @@ Pedestals stay within ±0.7 mV for the transmission gates and reach −2 mV for 
 Half-size dummies take the transmission gate's largest pedestal from 0.75 to 0.03 mV, and nearly double its area.
 
 ::: todo
+
 - The charge each device injects, roughly half its channel charge $W L C_\mathrm{ox} (V_{GS} - V_t)$, and why the transmission gate's complementary devices largely cancel.
 - @fig-samp-boost read as the trade-off: on-resistance against pedestal, set by width.
 :::
@@ -161,6 +168,7 @@ The remaining architecture similarly prioritizes compactness: transmission-gate 
 The front end must nevertheless provide suitable input common mode and settling.
 
 ::: todo
+
 - The rule per resolution and process: transmission gate where its mid-supply $R_\mathrm{on}$ settles within the track time, bootstrap above.
 - The area each choice costs, and the switch's share of the converter's area.
 :::
@@ -180,6 +188,7 @@ The same sizing measures 535 Ω in TSMC28 and 690 Ω in IHP130, and 236–331 Ω
 | Layout (µm²) | 12.9 | | |
 
 ::: todo
+
 - Where FRIDA-1's switch sits on @fig-samp-ron-width and what the 12-bit track time (@eq-settle) asks of it.
 - The measured counterpart in @sec-frida1-measurements.
 :::
@@ -187,6 +196,7 @@ The same sizing measures 535 Ω in TSMC28 and 690 Ω in IHP130, and 236–331 Ω
 ## Dynamic comparator {#sec-comparator}
 
 ::: todo
+
 - The comparator's job in a SAR loop: one decision per cycle on a small differential input, no static current.
 - Why its noise matters most at high resolution: typically at high resolutions comparator noise is the trickiest to reduce on a fixed power budget.
 :::
@@ -202,6 +212,7 @@ The comparator latches studied.
 :::
 
 ::: todo
+
 - How a StrongARM decides: reset, integration on the drains' capacitance, regeneration in the cross-coupled pair.
 - What the double tail separates (integration from regeneration), and what the dynamic bias stops (the input pair, once its drains have fallen by a fraction C_TAIL/C_P sets).
 :::
@@ -236,6 +247,7 @@ In TSMC65 the energy times noise power of the dynamic bias is 3.9 to 4.3 fJ·mV�
 The dynamic bias's input pair integrates in weak inversion and spends only the charge C_TAIL sets, which is why it sits on a lower line.
 
 ::: todo
+
 - @fig-comp-energy-noise read per process: the best $E\sigma^2$ per process (3.3 fJ·mV² in TSMC65, 3.8 in TSMC28, 5.6 in LF150, 16–20 in the 130 and 180 nm processes) and why the older processes sit higher.
 - The noise floor the families approach, $\sigma = \sqrt{a^2/k + f^2}$, and where it comes from.
 :::
@@ -256,6 +268,7 @@ The pipeline measures $\tau$ from the delays at two small inputs, $\tau = (t_1 -
 In the behavioral converter a late decision is held: the SR latch keeps its previous value.
 
 ::: todo
+
 - @eq-regeneration flipped: the window per decision sets the smallest input that resolves, and so the decision-error rate per conversion.
 - The measured regeneration time constants per process (40–100 ps in TSMC28 to 250–500 ps at 130–180 nm at 0.2 mV).
 :::
@@ -290,6 +303,7 @@ The comparator optimization for a 12-bit converter.
 :::
 
 ::: todo
+
 - Why 14 bits is infeasible within 63 µm a side: @eq-comp-scaling at the 14-bit noise bound.
 - Redundancy in the last 1–2 bits can relax comparator noise beyond the quantization noise, with more power for a few extra steps only (@sec-redundancy).
 :::
@@ -297,6 +311,7 @@ The comparator optimization for a 12-bit converter.
 ### Kickback and offset {#sec-comp-kickback}
 
 ::: todo
+
 - Kickback: the inputs' largest excursion over a decision, driven as a DAC's top plates; how it depends on the CDAC's state.
 - Offset: systematic only in simulation; how offset relates to sampling noise and CDAC error, and why a SAR tolerates it (a shift of every code).
 :::
@@ -308,6 +323,7 @@ In TSMC65 it measures 246 µV of input-referred noise, a negligible systematic o
 In TSMC28 the same sizing measures 530 µV and 80 fJ; in the 130–180 nm processes and TPSC65 its latch lengths do not decide within the clock.
 
 ::: todo
+
 - Why FRIDA-1's comparator sits where it does on @fig-comp-energy-noise, and what the optimized 12-bit design (620 fJ, 100 µV, 277 µm²) changes.
 - The pre-extraction estimate for the fabricated comparator (177 µV, 18 × 18 µm) against the grid's 246 µV.
 :::
@@ -388,6 +404,7 @@ The generated FRIDA converter (behavioral): Worst DNL over the Pelgrom coefficie
 :::
 
 ::: todo
+
 - Which limit binds at 10, 12 and 14 bits for the matching coefficients published for MOM capacitors (up to 0.22 %·√fF [@harpe2019], 0.85 %·√fF [@tripathi2014]).
 - The pipeline's linearized prediction (every code's DNL and INL sigma from every plate's error) against its SPICE Monte Carlo, and where @eq-midcode is the worst code.
 :::
@@ -412,6 +429,7 @@ Opposite switching produces the effective weight of element $N$, $C_{\mathrm{eff
 The perspective shows three metal layers connected by vias, while the plan shows their shared footprint and via locations.
 
 ::: todo
+
 - The mismatch of a difference weight: both elements' errors add, so $\sigma(C_\mathrm{eff}) = A\sqrt{(C_\mathrm{main} + C_\mathrm{diff})\cdot 1\,\mathrm{fF}}$, large against the weight itself; why redundancy and calibration are therefore part of the design, not an afterthought.
 - The design space's two weight builds compared: at 1 % mismatch unit capacitors leave less to calibrate than difference strips (12 bits at twice the minimum: 0.43 against 0.83 LSB).
 - MOM structures: unit-length strips, three metal layers, the 2:1 outline per branch.
@@ -464,6 +482,7 @@ At 10 MS/s a conversion lasts 100 ns, permitting approximately 5 ns per decision
 Overlapping decision ranges allow later comparisons to correct some earlier errors caused by noise or incomplete settling, with a correction margin that depends on the stage and error magnitude.
 
 ::: todo
+
 - @eq-calibratable as the sizing rule: for a given $A$ and $C_u$, the fewest extra decisions that keep $q_k/\sigma_{w_k} \geq 3$; the pipeline computes each stage's margin over sigma, but no solver picks the scheme yet.
 - Redundancy and time: it shortens a conversion where DAC settling dominates, not where the latch delay does, since it cannot undo a metastable decision [@chang2013].
 - Redundancy in the last 1–2 bits relaxes comparator noise beyond quantization noise (@sec-comp-optimization).
@@ -486,6 +505,7 @@ $$
 $$ {#eq-switching}
 
 ::: todo
+
 - Switching energy per conversion for monotonic against Vcm-based switching, and the common-mode drift it costs the comparator [@chang2013; @liu2010].
 - The initial state (16'h5555 in FRIDA-1) and what it does to the common-mode trajectory, power and noise; measured evidence is still missing.
 :::
@@ -539,6 +559,7 @@ Extracted in TSMC65, its gain is 0.73 (a 0.68 V full scale), its largest stage s
 At a matching coefficient of 1 %·√fF its 95th-percentile uncalibratable gap is 0.27 LSB and its INL with the design weights 2.4 LSB (@fig-cdac-gap).
 
 ::: todo
+
 - @eq-calibratable applied to FRIDA-1's weights: each stage's margin over its weight's sigma.
 - The measured weights of @sec-frida1-measurements against these.
 :::
@@ -546,6 +567,7 @@ At a matching coefficient of 1 %·√fF its 95th-percentile uncalibratable gap i
 ## Clocking and sequencing {#sec-clocking}
 
 ::: todo
+
 - The SAR loop's timing: sample, then per decision a comparator evaluation, a logic update and a DAC settling, within one conversion period.
 - Synchronous against asynchronous control: what each needs (an external fast clock, or a self-timed loop), and what each costs in an array of thousands of converters.
 - Could asynchronous operation be beneficial, and also not cause issues in an array?
@@ -580,6 +602,7 @@ The generated FRIDA converter (behavioral): Integrated error over the conversion
 Each decision must fit the comparator's delay at its input (@eq-regeneration), the logic's clock-to-output and the DAC's settling (@eq-driver) within its share of the conversion.
 
 ::: todo
+
 - The timing-closure margins the behavioral model checks: 200 ps logic and CDAC setup, 0.3 V latch resolution, 1 mV CDAC tolerance.
 - The ENOB over sequence and symbol rate (the sequence map), and which recipe the timing allows at 10 MS/s.
 :::
@@ -597,6 +620,7 @@ The sequences FRIDA-1 measures are in @sec-meas-sequence.
 ## Assembling the converter {#sec-adc}
 
 ::: todo
+
 - The assembly problem: pick a sampler, a comparator and an array per process and resolution so that the noise, the area and the power budgets of @sec-specs are all met.
 - The trade-off between performance (noise, linearity, speed) and costs (power, area) in SAR ADCs is tricky, because each block has a different relationship between these: large CDACs have worse speed, but large comparators and sampling switches can typically improve it.
 :::
@@ -653,6 +677,7 @@ For the generated FRIDA design the ladder ends at 10.04 bits: the sampler's trac
 Its noise is 0.76 LSB, the sampler 0.50 and the comparator 0.71.
 
 ::: todo
+
 - Why the tracking error dominates here: the transmission gate's mid-supply $R_\mathrm{on}$ into the 12-bit array (@eq-tracking), and the bootstrap's recovery.
 - @eq-enob-budget flipped: given the area and power caps, how much of the budget each block gets.
 :::
@@ -671,6 +696,7 @@ for $M$ capacitor stages.
 The generated FRIDA design spends about 28.9 pJ per conversion, 289 µW at 10 MS/s; the SAR logic dominates.
 
 ::: todo
+
 - The logic's share and what dynamic or TSPC logic would save.
 - Energy against rate: static against dynamic consumption.
 :::
@@ -682,6 +708,7 @@ The generated FRIDA converter (behavioral): ENOB lost to the reference's noise, 
 :::
 
 ::: todo
+
 - An area budget for the full converter: the array (@fig-cdac-area), the comparator's cap per resolution (15, 20, 63 µm a side), the sampler, the drivers and the logic; no full-converter layout exists yet beyond the blocks side by side.
 - The generated design: 2760 µm² of layout, 540 µm² of devices.
 :::
@@ -695,6 +722,7 @@ Optimized converters across processes and resolutions.
 :::
 
 ::: todo
+
 - The best converter per process at 10, 12 and 14 bits, and which block limits each.
 - How the result compares with the survey (@fig-survey-area) and the specification (@tbl-specs).
 :::

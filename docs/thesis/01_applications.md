@@ -6,6 +6,7 @@ In contrast, the specification of frame rate has seen comparatively less advance
 However, as increasingly sophisticated imaging modalities have been introduced, the challenge of faster readout design has come to the foreground as a major limitation in current generation microelectronics hardware.
 
 ::: todo
+
 - Paragraph outlining the chapter: from the physics to the resolution and frame rate, from the packaging to the area and power per converter.
 :::
 
@@ -27,6 +28,7 @@ Imaging applications: (a) transmission electron microscopy; (b) 4D-STEM; (c) X-r
 :::
 
 ::: todo
+
 - Section explaining each imaging mode and the frame rate, dose rate and pixel pitch it asks of the detector.
 :::
 
@@ -58,6 +60,7 @@ Maximum hit rate per pixel. Left: integrating, @eq-integrating. Right: discrimin
 :::
 
 ::: todo
+
 - Paragraph reading @fig-hit-rate and @fig-counting-rate against each other.
 :::
 
@@ -72,6 +75,7 @@ Frame-based radiation detectors with integrating front-ends are especially well-
 ## Sensor and readout arrangements {#sec-arrangements}
 
 ::: todo
+
 - Section introducing the arrangements of sensor and readout: monolithic, sensor and readout chips side by side on one package, and hybrid stacks.
 :::
 
@@ -100,6 +104,7 @@ Thinner sensors (below 150 µm) will reduce the multiple scattering of keV elect
 MeV electrons have less multiple scattering, and as they deposit about five times less energy per unit length, a thicker sensor (about 500 µm) is more desirable.
 
 ::: todo
+
 - Section on interconnect: bump bonding, wafer bonding and TSVs, and the pixel pitch they allow.
 :::
 
@@ -121,6 +126,7 @@ The settling time of the row switching and the pixels determines how quickly a r
 Just reading multiple rows at once, with extra ADCs, is a workaround for this speed limit, but four-fold may be the practical limit.
 
 ::: todo
+
 - Section on pixel-parallel against column-parallel conversion and multiplexing.
 :::
 
@@ -148,6 +154,7 @@ Small area improvements scale across the array.
 Area is essential to this argument: an efficient ADC that occupies too much silicon cannot be distributed throughout a tightly constrained detector readout.
 
 ::: todo
+
 - Worked example of the area available per ADC in a column-parallel readout chip.
 :::
 
@@ -157,5 +164,6 @@ This project pursues a single-reticle array larger than 1 Mpixel with a continuo
 To meet those array-level goals, the converter fabric must deliver aggregate throughput above 1000 Gbps while staying within a 1 W/cm² chip-bottom power-density budget.
 
 ::: todo
+
 - Section on serial links and their share of the power and area budget.
 :::
