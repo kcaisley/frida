@@ -86,14 +86,41 @@ local function equations(para, chapter, count)
   return count
 end
 
+-- a table whose caption ends in {#tbl-name}: numbered, labelled
+local function table_caption(tbl, number)
+  local caption = tbl.caption.long[1]
+  if caption == nil then
+    return
+  end
+  local inlines = caption.content
+  local last = inlines[#inlines]
+  local ident = last and last.t == "Str" and last.text:match("^{#(tbl%-[%w%-]+)}$")
+  if not ident then
+    return
+  end
+  inlines:remove(#inlines)
+  while #inlines > 0 and (inlines[#inlines].t == "Space" or inlines[#inlines].t == "SoftBreak") do
+    inlines:remove(#inlines)
+  end
+  labels[ident] = "Table " .. number
+  tbl.identifier = ident
+  if latex then
+    inlines:insert(pandoc.RawInline("latex", "\\label{" .. ident .. "}"))
+  else
+    inlines:insert(1, pandoc.Span({ pandoc.Str("Table " .. number .. ":") }, pandoc.Attr("", { "figlabel" })))
+    inlines:insert(2, pandoc.Space())
+  end
+  return ident
+end
+
 local function number(doc)
-  local chapter, section, figures, eqs = 0, 0, 0, 0
+  local chapter, section, figures, eqs, tables = 0, 0, 0, 0, 0
   local blocks = pandoc.List()
   for _, block in ipairs(doc.blocks) do
     if block.t == "Header" and not block.classes:includes("unnumbered") and block.level <= 2 then
       local text
       if block.level == 1 then
-        chapter, section, figures, eqs = chapter + 1, 0, 0, 0
+        chapter, section, figures, eqs, tables = chapter + 1, 0, 0, 0, 0
         text = tostring(chapter)
         labels[block.identifier] = "Chapter " .. text
       else
@@ -114,6 +141,18 @@ local function number(doc)
     elseif block.t == "Para" then
       eqs = equations(block, chapter, eqs)
       blocks:insert(block)
+    elseif block.t == "Table" then
+      local ident = table_caption(block, chapter .. "." .. (tables + 1))
+      if ident then
+        tables = tables + 1
+      end
+      if html then
+        -- the anchor on a wrapper (pandoc 2.14's HTML drops a table's own id), which also scrolls
+        block.identifier = ""
+        blocks:insert(pandoc.Div({ block }, pandoc.Attr(ident or "", { "table-wrap" })))
+      else
+        blocks:insert(block)
+      end
     else
       blocks:insert(block)
     end
@@ -122,7 +161,7 @@ local function number(doc)
   return doc
 end
 
-local commands = { sec = "Section~\\ref{%s}", fig = "Figure~\\ref{%s}", eq = "(\\ref{%s})" }
+local commands = { sec = "Section~\\ref{%s}", fig = "Figure~\\ref{%s}", eq = "(\\ref{%s})", tbl = "Table~\\ref{%s}" }
 
 local function reference(cite)
   if #cite.citations ~= 1 then
@@ -133,8 +172,12 @@ local function reference(cite)
   if not kind or not commands[kind] then
     return nil
   end
+  if not labels[ident] then
+    error("thesis.lua: no " .. ident .. " to refer to")
+  end
   if latex then
-    return pandoc.RawInline("latex", commands[kind]:format(ident))
+    local command = labels[ident]:match("^Chapter") and "Chapter~\\ref{%s}" or commands[kind]
+    return pandoc.RawInline("latex", command:format(ident))
   end
   if not labels[ident] then
     error("thesis.lua: no " .. ident .. " to refer to")

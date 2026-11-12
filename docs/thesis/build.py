@@ -25,7 +25,7 @@ import figures
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 BUILD = HERE / "_build"
-CHAPTERS = ["preface.md", "background.md"]
+CHAPTERS = ["preface.md", "applications.md", "adcs.md"]
 COMMON = [
     "--from=markdown+fenced_divs+bracketed_spans+raw_attribute+superscript",
     "--metadata-file=thesis.yaml",

@@ -7,4 +7,4 @@ In the web edition the figures are interactive: hover over a point to identify i
 Clicking a point from the ADC survey shows a link to its paper.
 The PDF draws the same figures, with the same colours, markers and scales, as vector graphics.
 
-Only the background chapter is drafted so far.
+Only the first two chapters, Applications and Analog-to-digital converters, are drafted so far.
