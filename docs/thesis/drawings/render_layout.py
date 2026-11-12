@@ -1,6 +1,6 @@
 """A layout's cells rendered for the thesis, in the viewer's style (flow/web/static/js/layers.js:
-Nord colours on the generic layer keys, translucent hatched fills, the front end under the
-metals) on a transparent background. Each cell is flattened onto the PDK's generic layers
+Nord colours on the generic layer keys, each layer a translucent fill at the viewer's opacity
+under its outline, the front end under the metals) on a transparent background. Each cell is flattened onto the PDK's generic layers
 (``pdk.<pdk>.layout.tech.LAYERS``, read at run time from the kit, nothing of it written here),
 each layer merged, and drawn with KLayout's own renderer.
 
@@ -74,44 +74,77 @@ def generic(layout: kdb.Layout, cell: kdb.Cell, pdk: str, max_metal: int = 99) -
     return out, keys
 
 
+# the viewer's fill opacities (layers.js layerStyle); an outline over each fill
+FILL_ALPHA = {"NW": 0.07, "OD": 0.35, "PO": 0.45, "CO": 0.85}
+METAL_ALPHA, VIA_ALPHA, OUTLINE_ALPHA = 0.3, 0.75, 0.9
+
+
+def fill_alpha(key: str) -> float:
+    if key in FILL_ALPHA:
+        return FILL_ALPHA[key]
+    return VIA_ALPHA if key.startswith("V") else METAL_ALPHA
+
+
+def frame(layout: kdb.Layout) -> tuple[kdb.DBox, int]:
+    """The rendered box (the cell's, with a 1 % margin) and its height at WIDTH_PX."""
+    box = layout.top_cell().dbbox()
+    box = box.enlarged(box.width() * 0.01, box.height() * 0.01)
+    return box, max(1, round(WIDTH_PX * box.height() / box.width()))
+
+
+def mask(gds: Path, layout: kdb.Layout, key: str, box: kdb.DBox, height: int, hollow: bool, tmp: Path) -> np.ndarray:
+    """One generic layer's coverage (0 to 1): drawn alone in black by KLayout, solid or as its
+    outline only."""
+    index = next(i for i in layout.layer_indexes() if layout.get_info(i).name == key)
+    info = layout.get_info(index)
+    view = klay.LayoutView()
+    view.set_config("background-color", "#ffffff")
+    view.set_config("grid-visible", "false")
+    view.set_config("text-visible", "false")
+    view.set_config("cell-frame-visible", "false")
+    view.load_layout(str(gds), True)
+    view.clear_layers()
+    node = klay.LayerProperties()
+    node.source = f"{info.layer}/{info.datatype}@1"
+    node.fill_color = 0x000000
+    node.frame_color = 0x000000
+    node.dither_pattern = 1 if hollow else 0
+    node.width = 1
+    view.insert_layer(view.end_layers(), node)
+    view.max_hier()
+    raw = tmp / f"{key}_{'edge' if hollow else 'fill'}.png"
+    view.save_image_with_options(str(raw), WIDTH_PX, height, 0, 2, 0, box, True)
+    image = mpimg.imread(raw)
+    gray = image if image.ndim == 2 else image[:, :, :3].mean(axis=2)
+    return 1.0 - gray
+
+
+def over(out: np.ndarray, color: str, coverage: np.ndarray) -> None:
+    """Composite one colour at a per-pixel opacity over the image so far (premultiplied)."""
+    rgb = np.array([int(color[i : i + 2], 16) / 255 for i in (1, 3, 5)])
+    out[:, :, :3] = rgb * coverage[:, :, None] + out[:, :, :3] * (1 - coverage[:, :, None])
+    out[:, :, 3] = coverage + out[:, :, 3] * (1 - coverage)
+
+
+def save(out: np.ndarray, path: Path) -> None:
+    shown = out[:, :, 3] > 0
+    out[shown, :3] /= out[shown, 3][:, None]
+    mpimg.imsave(path, np.clip(out, 0, 1))
+
+
 def render(layout: kdb.Layout, keys: list[str], path: Path) -> None:
+    """The viewer's style: each layer's Nord fill at the viewer's opacity, its outline over it,
+    bottom first."""
+    box, height = frame(layout)
+    out = np.zeros((height, WIDTH_PX, 4))
     with tempfile.TemporaryDirectory() as tmp:
         gds = Path(tmp) / "render.gds"
         layout.write(str(gds))
-        view = klay.LayoutView()
-        view.set_config("background-color", "#ffffff")
-        view.set_config("grid-visible", "false")
-        view.set_config("text-visible", "false")
-        view.load_layout(str(gds), True)
-        view.clear_layers()
-        for key in reversed(keys):  # KLayout draws the list's first on top
-            color, stipple, _ = style(key)
-            number = next(i for i in layout.layer_indexes() if layout.get_info(i).name == key)
-            info = layout.get_info(number)
-            node = klay.LayerProperties()
-            node.source = f"{info.layer}/{info.datatype}@1"
-            node.name = key
-            rgb = int(color.lstrip("#"), 16)
-            node.fill_color = rgb
-            node.frame_color = rgb
-            node.dither_pattern = stipple
-            node.transparent = True
-            node.width = 1
-            view.insert_layer(view.end_layers(), node)
-        view.max_hier()
-        view.zoom_fit()
-        box = layout.top_cell().dbbox()
-        height = max(1, round(WIDTH_PX * box.height() / box.width()))
-        view.save_image_with_options(
-            str(path), WIDTH_PX, height, 2, 2, 0, box.enlarged(box.width() * 0.01, box.height() * 0.01), False
-        )
-    # white to transparent
-    image = mpimg.imread(path)
-    if image.shape[2] == 3:
-        image = np.dstack([image, np.ones(image.shape[:2])])
-    white = np.all(image[:, :, :3] > 0.985, axis=2)
-    image[white, 3] = 0.0
-    mpimg.imsave(path, image)
+        for key in keys:
+            color = style(key)[0]
+            over(out, color, mask(gds, layout, key, box, height, False, Path(tmp)) * fill_alpha(key))
+            over(out, color, mask(gds, layout, key, box, height, True, Path(tmp)) * OUTLINE_ALPHA)
+    save(out, path)
 
 
 # the ASICLab chip catalogue's role palette (docs/images/adc_layouts/render.py) on the generic keys:
@@ -142,51 +175,18 @@ ASICLAB = {
 
 
 def render_asiclab(layout: kdb.Layout, keys: list[str], path: Path) -> None:
-    """The ASICLab catalogue's style: each layer rendered alone in black, its coverage tinted with
-    its role colour at its opacity, the layers composited bottom first (over)."""
-    box = (
-        layout.top_cell()
-        .dbbox()
-        .enlarged(layout.top_cell().dbbox().width() * 0.01, layout.top_cell().dbbox().height() * 0.01)
-    )
-    height = max(1, round(WIDTH_PX * box.height() / box.width()))
+    """The ASICLab catalogue's style: each layer's coverage tinted with its role colour at its
+    opacity, bottom first."""
+    box, height = frame(layout)
     out = np.zeros((height, WIDTH_PX, 4))
     with tempfile.TemporaryDirectory() as tmp:
         gds = Path(tmp) / "render.gds"
         layout.write(str(gds))
         for key in keys:
-            if key not in ASICLAB:
-                continue
-            index = next(i for i in layout.layer_indexes() if layout.get_info(i).name == key)
-            info = layout.get_info(index)
-            view = klay.LayoutView()
-            view.set_config("background-color", "#ffffff")
-            view.set_config("grid-visible", "false")
-            view.set_config("text-visible", "false")
-            view.set_config("cell-frame-visible", "false")
-            view.load_layout(str(gds), True)
-            view.clear_layers()
-            node = klay.LayerProperties()
-            node.source = f"{info.layer}/{info.datatype}@1"
-            node.fill_color = 0x000000
-            node.frame_color = 0x000000
-            node.dither_pattern = 0
-            node.width = 1
-            view.insert_layer(view.end_layers(), node)
-            view.max_hier()
-            raw = Path(tmp) / f"{key}.png"
-            view.save_image_with_options(str(raw), WIDTH_PX, height, 0, 2, 0, box, True)
-            image = mpimg.imread(raw)
-            gray = image if image.ndim == 2 else image[:, :, :3].mean(axis=2)
-            color, alpha = ASICLAB[key]
-            rgb = np.array([int(color[i : i + 2], 16) / 255 for i in (1, 3, 5)])
-            a = (1.0 - gray) * alpha
-            out[:, :, :3] = rgb * a[:, :, None] + out[:, :, :3] * (1 - a[:, :, None])
-            out[:, :, 3] = a + out[:, :, 3] * (1 - a)
-    # un-premultiply the colour for the PNG
-    shown = out[:, :, 3] > 0
-    out[shown, :3] /= out[shown, 3][:, None]
-    mpimg.imsave(path, np.clip(out, 0, 1))
+            if key in ASICLAB:
+                color, alpha = ASICLAB[key]
+                over(out, color, mask(gds, layout, key, box, height, False, Path(tmp)) * alpha)
+    save(out, path)
 
 
 def main() -> None:
