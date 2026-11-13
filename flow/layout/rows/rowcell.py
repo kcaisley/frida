@@ -91,6 +91,9 @@ from tech import (  # the PDK's values: its layout directory goes on the path ah
 
 RAIL_TAPS = getattr(_tech, "RAIL_TAPS", True)  # tap contacts under the rails (else tie cells)
 RAIL_OD = getattr(_tech, "RAIL_OD", True)  # diffusion under the rails
+# the taps' centre this far inside the cell from each rail line (a library whose taps lie inside
+# its cells, each row its own; 0: on the line, shared by the rows that meet there)
+TAP_Y = getattr(_tech, "TAP_Y", 0)
 RAIL_IMPLANTS = getattr(_tech, "RAIL_IMPLANTS", ("PP", "NP"))  # implant of the VSS and the VDD rail diffusion
 # a cell's device implant (y from, to) per type, where it stops short of the other type's rail diffusion
 DEV_IMP = getattr(_tech, "DEV_IMP", {"n": (_tech.PP_TAP, _tech.NP_TAP), "p": (_tech.PP_TAP, _tech.NP_TAP)})
@@ -118,6 +121,21 @@ VIA_SPACE = getattr(_tech, "VIA_SPACE", 0)  # via to via where it exceeds what t
 # M2 tracks past the gate track, away from the diffusion, for the bars of gate nets whose gates
 # interleave with another net's (reached by an M1 riser from each gate pad); none: no interleaving
 GATE_SPARE = getattr(_tech, "GATE_SPARE", {})
+# an M2 landing pad (half width, half height) around every VIA1 and VIA2 cut, {"V1": .., "V2": ..},
+# where M2 that encloses a cut is wider than its minimum: the bars between the cuts then stay at
+# the minimum width (M2W) and the tracks at its pitch; none: the bars enclose their cuts themselves
+M2_VIA_PAD = getattr(_tech, "M2_VIA_PAD", {})
+# a marker around the gate contacts of each cell, {"layer", "enclosure"}: one bar on the gate
+# track from the first contact to the last (a nitride poly cut, say); none: no marker
+GATE_CONTACT_MARK = getattr(_tech, "GATE_CONTACT_MARK", None)
+# the VT layer kept this far from the cell sides (abutting cells' VT layers apart); 0: to the sides
+VT_INSET = getattr(_tech, "VT_INSET", 0)
+# M1 past a VIA1 along a strip or riser (the cut's M1 landing), where M1 needs less than an M2 bar
+M1_VIA_END = getattr(_tech, "M1_VIA_END", BAR_END)
+# the implant split of a standard cell's pad (std_pad): N+ implant up to the first, P+ from the
+# second (a gap between, as a library whose implants leave its gate contacts' band bare); the
+# well from STD_NW either way
+STD_SPLIT = getattr(_tech, "STD_SPLIT", (_tech.STD_NW, _tech.STD_NW))
 
 GLAYERS = LAYERS
 M1_HW, M2_HW, M3_HW = M1W // 2, M2W // 2, M3W // 2  # half widths: M1 strips and pads, M2 and M3 bars
@@ -133,7 +151,9 @@ class Rect:
     x1: int
     y1: int
     net: str | None = None
-    kind: str = "drawing"  # drawing | pin | stub (helper M1 under a via, inside a rail) | blockage (ALIGN keep-out)
+    # drawing | pin | stub (helper M1 under a via, inside a rail) | blockage (ALIGN keep-out) | pad (a
+    # cut's M2 landing pad, M2_VIA_PAD: drawn, and to ALIGN part of its net's pin where on its grid)
+    kind: str = "drawing"
     term: str | None = None  # device terminal a contact belongs to, "dev:pin"
 
 
@@ -144,11 +164,15 @@ class Cell:
     rects: list[Rect] = field(default_factory=list)
     pins: dict[str, list[Rect]] = field(default_factory=dict)
 
-    def add(self, layer, x0, y0, x1, y1, net=None, kind="drawing", term=None):
+    def add(self, layer, x0, y0, x1, y1, net=None, kind="drawing", term=None, pad=True):
         r = Rect(layer, int(x0), int(y0), int(x1), int(y1), net, kind, term)
         self.rects.append(r)
         if kind == "pin":
             self.pins.setdefault(net, []).append(r)
+        if pad and layer in M2_VIA_PAD and kind == "drawing":  # the cut's M2 landing pad (M2_VIA_PAD)
+            hx, hy = M2_VIA_PAD[layer]
+            cx, cy = (r.x0 + r.x1) // 2, (r.y0 + r.y1) // 2
+            self.add("M2", cx - hx, cy - hy, cx + hx, cy + hy, net, "pad")
         return r
 
 
@@ -180,16 +204,22 @@ def _gate_off(l: int) -> int:
     return CO // 2 + (CO_GATE_LONG if _long(l) else CO_GATE)
 
 
+def _tap(y: int) -> int:
+    """The centre of the taps of the rail on the line y (0 or H): TAP_Y inside the cell."""
+    return y + TAP_Y if y == 0 else y - TAP_Y
+
+
 def rails(cell: Cell, w: int, pol: str, vss: str = "vss", vdd: str = "vdd", m2: bool = False) -> None:
     """Both rails with taps, implant bands, well, VT band and boundary for a cell of width w."""
     c = cell
     for y, net in ((0, vss), (H, vdd)):
         c.add("M1", 0, y - RAIL, w, y + RAIL, net, "pin" if net else "drawing")
+        ty = _tap(y)
         if RAIL_OD:
-            c.add("OD", 0, y - TAP_OD, w, y + TAP_OD)
+            c.add("OD", 0, ty - TAP_OD, w, ty + TAP_OD)
         for x in range(TAP_PITCH // 2, w - M1_HW, TAP_PITCH):
             if RAIL_TAPS:
-                c.add("CO", x - CO // 2, y - CO // 2, x + CO // 2, y + CO // 2, net)
+                c.add("CO", x - CO // 2, ty - CO // 2, x + CO // 2, ty + CO // 2, net)
                 c.add("M1", x - M1_HW, y - RAIL, x + M1_HW, y + RAIL, net, "stub")
             if m2 and (x // TAP_PITCH) % 2 == 0:
                 c.add("V1", x - V1_H, y - V1_H, x + V1_H, y + V1_H, net)
@@ -205,8 +235,9 @@ def rails(cell: Cell, w: int, pol: str, vss: str = "vss", vdd: str = "vdd", m2: 
     c.add("NW", -NW_OH, NW_N, w + NW_OH, NW_TOP)
     if pol == "p":
         c.add("NW", 0, NW_P, w, NW_N)
-    for layer in VT[pol]:
-        c.add(layer, 0, VT_BAND[0], w, VT_BAND[1])
+    for k, layer in enumerate(VT[pol]):
+        inset = VT_INSET if k == 0 else 0  # the VT layer itself, not its markers
+        c.add(layer, inset, VT_BAND[0], w - inset, VT_BAND[1])
     c.add("BND", 0, 0, w, H)
 
 
@@ -223,6 +254,16 @@ class Dev:
     s: str
 
 
+def _gate_mark(c: Cell, xs: list[int], y: int, width: int) -> None:
+    """The gate contacts' marker (GATE_CONTACT_MARK) of a cell whose gate contacts sit at ``xs`` on
+    the line ``y``: one bar from the first to the last, enclosing each by the marker's enclosure;
+    with ``full``, across the whole cell, so the bars of abutting cells on one line merge."""
+    m = GATE_CONTACT_MARK
+    e = CO // 2 + m["enclosure"]
+    x0, x1 = (0, width) if m.get("full") else (min(xs) - e, max(xs) + e)
+    c.add(m["layer"], x0, y - e, x1, y + e)
+
+
 def std_pad(cell: Cell, x0: int, x1: int, lib_side: str, vss: str = "vss", vdd: str = "vdd") -> None:
     """A standard cell's pad from x0 to x1: the library's implant, well and VT profile with
     the rail taps, drawn up to the pad's ends and no further, so an analog row cell can abut
@@ -231,8 +272,9 @@ def std_pad(cell: Cell, x0: int, x1: int, lib_side: str, vss: str = "vss", vdd: 
     (``lib_side``: "left" or "right"), at least 100 nm from the far end."""
     c = cell
     for y, net in ((0, vss), (H, vdd)):
+        ty = _tap(y)
         if RAIL_OD:
-            c.add("OD", x0, y - TAP_OD, x1, y + TAP_OD)
+            c.add("OD", x0, ty - TAP_OD, x1, ty + TAP_OD)
         half = TAP_PITCH // 2
         xs = (
             range(x1 - half, x0 + half - 1, -TAP_PITCH)
@@ -240,17 +282,19 @@ def std_pad(cell: Cell, x0: int, x1: int, lib_side: str, vss: str = "vss", vdd: 
             else range(x0 + half, x1 - half + 1, TAP_PITCH)
         )
         for x in xs if RAIL_TAPS else ():
-            c.add("CO", x - CO // 2, y - CO // 2, x + CO // 2, y + CO // 2, net)
+            c.add("CO", x - CO // 2, ty - CO // 2, x + CO // 2, ty + CO // 2, net)
             c.add("M1", x - M1_HW, y - RAIL, x + M1_HW, y + RAIL, net, "stub")
     c.add(RAIL_IMPLANTS[0], x0, -PP_TAP, x1, PP_TAP)
-    c.add("NP", x0, PP_TAP, x1, STD_NW)
-    c.add("PP", x0, STD_NW, x1, NP_TAP)
+    c.add("NP", x0, PP_TAP, x1, STD_SPLIT[0])
+    c.add("PP", x0, STD_SPLIT[1], x1, NP_TAP)
     c.add(RAIL_IMPLANTS[1], x0, NP_TAP, x1, 2 * H - NP_TAP)
     c.add("NW", x0, STD_NW, x1, NW_TOP)
-    for layer in VT["n"]:
-        c.add(layer, x0, VT_BAND[0], x1, STD_NW)
-    for layer in VT["p"]:
-        c.add(layer, x0, STD_NW, x1, VT_BAND[1])
+    # the VT layer kept VT_INSET from the far end (the library cell's side continues into the cell)
+    far0, far1 = (VT_INSET, 0) if lib_side == "right" else (0, VT_INSET)
+    for pol, y0, y1 in (("n", VT_BAND[0], STD_NW), ("p", STD_NW, VT_BAND[1])):
+        for k, layer in enumerate(VT[pol]):
+            inset = (far0, far1) if k == 0 else (0, 0)
+            c.add(layer, x0 + inset[0], y0, x1 - inset[1], y1)
     # past the far end only what every row cell has there: the tap bands and the N-tap well band
     # overhang like rails()'s, so the taps stay enclosed at a row end
     o0, o1 = (x0 - IMP_OH, x0) if lib_side == "right" else (x1, x1 + IMP_OH)
@@ -603,7 +647,7 @@ def mos_array(
             ys.append(rail_y)
         else:
             t = tracks[net]
-            ys += [t - BAR_END, t + BAR_END]
+            ys += [t - M1_VIA_END, t + M1_VIA_END]
             c.add("V1", x - V1_H, t - V1_H, x + V1_H, t + V1_H, net)
         y0, y1 = min(ys), max(ys)
         # the strip covers its devices' diffusion, keeping the M1 space (an end-of-line space where
@@ -746,11 +790,13 @@ def mos_array(
             if g in fars and g not in tracks:  # tied in M1 and never routed: no VIA1 on the strapped rail
                 continue
             if y != gt:
-                y0, y1 = (pad[0], y + BAR_END) if pol == "n" else (y - BAR_END, pad[1])
+                y0, y1 = (pad[0], y + M1_VIA_END) if pol == "n" else (y - M1_VIA_END, pad[1])
                 c.add("M1", cx - M1_HW, y0, cx + M1_HW, y1, g)
             c.add("V1", cx - V1_H, y - V1_H, cx + V1_H, y + V1_H, g)
         if not (g in fars and g not in tracks):
             c.add("M2", gx2[g][0] - BAR_END, y - M2_HW, gx2[g][1] + BAR_END, y + M2_HW, g, "pin")
+    if GATE_CONTACT_MARK:
+        _gate_mark(c, [on_grid(gx) + sh for gx, _ in gates], gt, width)
     # poly bar: the contact's enclosure left and right; M1 bar: the minimum area (M1_AREA)
     for g, gxs in gruns:
         if PO_BAR:
@@ -848,7 +894,7 @@ def inverter(
     pitch = getattr(_tech, "PITCH", 200)
     ya = round(gc / pitch) * pitch  # the input's M2 track, through the gate pad
     yy = ya - pitch  # the output's, below it, across the drain strips
-    pad = (min(gc - GATE_PAD, ya - BAR_END), max(gc + GATE_PAD, ya + BAR_END))
+    pad = (min(gc - GATE_PAD, ya - M1_VIA_END), max(gc + GATE_PAD, ya + M1_VIA_END))
     gap = max(M1_SPACE, getattr(_tech, "LINE_END", 0))
     # the gate pad's M1 meets the M1 area, widened about its contact (its height is the gap's)
     pad_hw = max(M1_HW, _up(-(-M1_AREA // (pad[1] - pad[0])), 2 * MFG_GRID) // 2)
@@ -899,11 +945,12 @@ def inverter(
     # rails, taps and the standard cells' profile across the whole cell
     for yr, net in ((0, vss), (H, vdd)):
         c.add("M1", 0, yr - RAIL, width, yr + RAIL, net, "pin" if net else "drawing")
+        ty = _tap(yr)
         if RAIL_OD:
-            c.add("OD", 0, yr - TAP_OD, width, yr + TAP_OD)
+            c.add("OD", 0, ty - TAP_OD, width, ty + TAP_OD)
         for x in range(TAP_PITCH // 2, width - M1_HW, TAP_PITCH):
             if RAIL_TAPS:
-                c.add("CO", x - CO // 2, yr - CO // 2, x + CO // 2, yr + CO // 2, net)
+                c.add("CO", x - CO // 2, ty - CO // 2, x + CO // 2, ty + CO // 2, net)
                 c.add("M1", x - M1_HW, yr - RAIL, x + M1_HW, yr + RAIL, net, "stub")
     c.add(RAIL_IMPLANTS[0], -IMP_OH, -PP_TAP, width + IMP_OH, PP_TAP)
     c.add(RAIL_IMPLANTS[1], -IMP_OH, NP_TAP, width + IMP_OH, 2 * H - NP_TAP)
@@ -914,10 +961,12 @@ def inverter(
     c.add("PP", 0, STD_NW, width, NP_TAP)
     c.add("NW", 0, STD_NW, width, NW_TOP)
     c.add("NW", -NW_OH, NW_N, width + NW_OH, NW_TOP)
-    for layer in VT["n"]:
-        c.add(layer, 0, VT_BAND[0], width, STD_NW)
-    for layer in VT["p"]:
-        c.add(layer, 0, STD_NW, width, VT_BAND[1])
+    for k, layer in enumerate(VT["n"]):
+        inset = VT_INSET if k == 0 else 0
+        c.add(layer, inset, VT_BAND[0], width - inset, STD_NW)
+    for k, layer in enumerate(VT["p"]):
+        inset = VT_INSET if k == 0 else 0
+        c.add(layer, inset, STD_NW, width - inset, VT_BAND[1])
     c.add("BND", 0, 0, width, H)
 
     # diffusions, strips and their contacts
@@ -947,6 +996,8 @@ def inverter(
         c.add("CO", tx - CO // 2, gc - CO // 2, tx + CO // 2, gc + CO // 2, a)
         c.add("M1", tx - pad_hw, pad[0], tx + pad_hw, pad[1], a)
         c.add("V1", tx - V1_H, ya - V1_H, tx + V1_H, ya + V1_H, a)
+    if GATE_CONTACT_MARK:
+        _gate_mark(c, [tx + sh for tx in taps], gc, width)
     for x0, x1 in dummies:  # as tall as the gates
         c.add(PO_DUMMY_LAYER, x0 + sh, ny0 - PO_ENDCAP, x1 + sh, py1 + PO_ENDCAP)
     po = [r for r in c.rects if r.layer in ("PO", PO_DUMMY_LAYER)]
@@ -1028,7 +1079,7 @@ def mos_grid(
     for k, row in enumerate(cells):
         for r in row.rects:
             y0, y1 = (r.y0, r.y1) if k % 2 == 0 else (H - r.y1, H - r.y0)
-            c.add(r.layer, r.x0, y0 + k * H, r.x1, y1 + k * H, r.net, r.kind, r.term)
+            c.add(r.layer, r.x0, y0 + k * H, r.x1, y1 + k * H, r.net, r.kind, r.term, pad=False)
     if len(cells) == 1:
         return c
     bars = []  # per row: each signal net's widest M2 bar (x0, x1, y)

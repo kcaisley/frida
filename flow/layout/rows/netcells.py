@@ -44,6 +44,8 @@ PLATE_SPACE, PLATE_RUN = getattr(_tech, "M2_PLATE_SPACE", (_tech.M2_SPACE, 0))
 # pad would reach past the cell (where two VIA1 on the rail need a wide pad)
 EDGE_STEP = -(-EDGE_PAD[0] // XPITCH) * XPITCH
 EDGE_W = getattr(_tech, "EDGE_W", 3 * EDGE_STEP)  # row end cell width
+# the stacks' x (VSS, VDD) where a PDK places them elsewhere (on its tie cell's own rail contacts)
+EDGE_STACKS = getattr(_tech, "EDGE_STACKS", (EDGE_STEP, 2 * EDGE_STEP))
 STD_FILLS = getattr(_tech, "STD_FILLS", ((STD_FILL, STD_FILL_W),))  # library fillers (name, width)
 
 
@@ -74,15 +76,20 @@ def align_access(frame: dict) -> tuple[dict[str, tuple], list[tuple[int, int, in
     no bar comes near another pin's metal or keep-out. ``{pin: (pad, bar)}``, ``(None, None)`` for
     a pin with no free side (primitives/stdcell.py lifts it to an M3 stub, with keep-outs along the
     whole bar on both tracks), and the keep-outs. Pins on the M2 tracks get ``(None, bar)``: their
-    bar, longer where it reaches a second M3 grid point that way. align/post.py removes the keep-outs
-    again and draws the pads of the pins between the tracks."""
+    bar, longer where it reaches a second M3 grid point that way. A pin on M2 joined without a cut
+    (its own M2, ``own``: the library's pad, which ALIGN sees only as far as its bar) gets a
+    keep-out on each track whose wires would come nearer its pad than the M2 space. align/post.py
+    removes the keep-outs again and draws the pads of the pins between the tracks."""
     pitch, hw, sp, end = _tech.PITCH, _tech.M2W // 2, _tech.M2_SPACE, _tech.BAR_END
     off = {p: a for p, a in frame["access"].items() if (a["bar"][1] + a["bar"][3]) // 2 % pitch}
     fixed = [tuple(b) for p, a in frame["access"].items() if p not in off for b in (a["bar"], a["pad"]) if b]
+    fixed += [tuple(b) for p, a in frame["access"].items() if p not in off for b in a.get("own", ())]
+    # a half-pitch pin's via pad: the bar's height, or the cut's M2 landing pad where it is taller
+    ph = max(hw, getattr(_tech, "M2_VIA_PAD", {}).get("V1", (0, 0))[1])
     pads = {}
     for p, a in off.items():
         xs, y = [x for x, _ in a["cuts"]], (a["bar"][1] + a["bar"][3]) // 2
-        pads[p] = (min(xs) - end, y - hw, max(xs) + end, y + hw)
+        pads[p] = (min(xs) - end, y - ph, max(xs) + end, y + ph)
 
     def attempt(sides):
         taken, keep, views = fixed + list(pads.values()), [], {}
@@ -136,6 +143,19 @@ def align_access(frame: dict) -> tuple[dict[str, tuple], list[tuple[int, int, in
                 break
     for p in frame["access"]:
         views[p] = (views.get(p, (None, None))[0], bars.get(p))
+    # the pads of pins on M2 (``own``): a keep-out on every other track a wire on which would come
+    # nearer a pad than the M2 space, as wide as the pad and the space either side (never over
+    # another pin's metal, which ALIGN must reach)
+    for p, a in frame["access"].items():
+        y = (a["bar"][1] + a["bar"][3]) // 2
+        pins = [b for q, (pad, bar) in views.items() if q != p for b in (pad, bar) if b]
+        pins += [tuple(b) for q, o in frame["access"].items() if q != p for b in (o["bar"], o["pad"]) if b]
+        for x0, y0, x1, y1 in a.get("own", ()):
+            for t in range(pitch, rowcell.H, pitch):
+                ko = (x0 - sp, t - hw, x1 + sp, t + hw)
+                near = t != y and t - hw < y1 + sp and y0 - sp < t + hw
+                if near and ko not in keep and not any(_overlap(ko, b) for b in pins):
+                    keep.append(ko)
     return views, keep
 
 
@@ -252,7 +272,7 @@ def std_fill(w: int) -> rowcell.Cell:
 
 def edge(w: int = EDGE_W, std: bool = False) -> rowcell.Cell:
     """Row end with the supply via stacks: VSS (y = 0) to an M3 trunk at x = EDGE_STEP, VDD (y = H)
-    at x = 2 EDGE_STEP. EDGE_CUTS VIA1 per rail (two where the rail is wide), an M2
+    at x = 2 EDGE_STEP (``EDGE_STACKS``). EDGE_CUTS VIA1 per rail (two where the rail is wide), an M2
     pad, one VIA2 under the trunk. ``std``: for standard-cell rows (library fillers inside, see ``draw``).
     A PDK whose rails carry no taps (EDGE_TIE) gets its library tie cell at the outer end (x = 0,
     drawn by ``draw``), then library fillers (``std``) or a pad with the standard cells' profile
@@ -265,7 +285,7 @@ def edge(w: int = EDGE_W, std: bool = False) -> rowcell.Cell:
     else:
         c = std_fill(w) if std else filler(w)
     c.name = f"{'std' if std else ''}edge_{w}"
-    for y, x, net in ((0, EDGE_STEP, "vss"), (rowcell.H, 2 * EDGE_STEP, "vdd")):
+    for y, x, net in ((0, EDGE_STACKS[0], "vss"), (rowcell.H, EDGE_STACKS[1], "vdd")):
         for k in range(EDGE_CUTS):
             cx = x + (2 * k - (EDGE_CUTS - 1)) * V1_PAIR // 2
             c.add("V1", cx - V1 // 2, y - V1 // 2, cx + V1 // 2, y + V1 // 2, net)

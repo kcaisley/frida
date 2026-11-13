@@ -26,7 +26,8 @@ another analog cell. No pin comes near the outline, so no access needs a pad.
 Writes ``paths.ACCESS_JSON`` (under ``build/``):
 {cell: {"width": library width, "padded": padded width, "offset": x of the library cell, "pins": [names in .subckt
 order], "access": {pin: {"cuts": [[x, y], ...], "patch": [x0,y0,x1,y1] or null, "bar": [x0,y0,x1,y1],
-"pad": [x0,y0,x1,y1] or null}}, "iso": {"padded", "offset", "access"}}}
+"pad": [x0,y0,x1,y1] or null, "own": [[x0,y0,x1,y1], ...] (a pin on M2 joined without a cut: its own M2,
+the library's pad, which may reach past the bar)}}, "iso": {"padded", "offset", "access"}}}
 
 Run bound to a PDK (flow/layout/pdkproc.py); ``pdkproc.access_points`` calls ``write_access``
 when a build needs the file and it is missing.
@@ -91,7 +92,8 @@ M1_HW, M2_HW = VIA_M1_W // 2, M2W // 2
 # the M1 a cut lands on, (half width, half height): its line-end enclosure along the track's
 # normal (y); where the PDK allows it on either pair of sides (VIA_EOL_ACROSS: VIA1
 # enclosure 0 / 0.05), also along x, so a pin shorter than the landing takes the cut without a patch
-LANDINGS = [(M1_HW, BAR_END)] + ([(BAR_END, V1 // 2)] if getattr(_tech, "VIA_EOL_ACROSS", False) else [])
+M1_END = getattr(_tech, "M1_VIA_END", BAR_END)  # M1 past a cut along the strip (rowcell.M1_VIA_END)
+LANDINGS = [(M1_HW, M1_END)] + ([(M1_END, V1 // 2)] if getattr(_tech, "VIA_EOL_ACROSS", False) else [])
 
 
 def subckt_pins(spice: str, cell: str) -> list[str]:
@@ -137,13 +139,13 @@ def candidates(y, own: kdb.Region, other: kdb.Region, *, local: bool = False):
             if b.height() < 2 * hh or b.width() < M1_MIN_W:
                 continue
             if b.width() < VIA_M1_W:  # narrow: widen the whole straight run
-                got = _candidate(own, other, b, (b.left + b.right) // 2 // 5 * 5, y) if hh == BAR_END else None
+                got = _candidate(own, other, b, (b.left + b.right) // 2 // 5 * 5, y) if hh == M1_END else None
                 if got:
                     out.append(got)
                 continue
             centre = (b.left + b.right) // 2 // MFG_GRID * MFG_GRID
             piece = own.interacting(kdb.Region(b)).bbox()  # across: the M1's width is its smaller side
-            wide = WIDE is not None and (b.width() if hh == BAR_END else min(piece.width(), piece.height())) > WIDE
+            wide = WIDE is not None and (b.width() if hh == M1_END else min(piece.width(), piece.height())) > WIDE
             for xc in [centre] + [x for x in range(b.left + hw, b.right - hw + 1, 10) if x != centre]:
                 if local and WIDE is not None:
                     square = kdb.Box(xc - WIDE // 2, y - WIDE // 2, xc + WIDE // 2, y + WIDE // 2)
@@ -228,6 +230,9 @@ def access(gds: kdb.Layout, lef: str, cell: str, pin_order: list[str]) -> dict:
                 lib2 = {p: keep(m2 - own2.get(p, kdb.Region())).moved(off, 0) for p in signal}
                 got = _assign(order, pins, m1, padded, off, patches, lib2, direct)
                 if got:
+                    for pin, a in got.items():  # a direct access: its pin's own M2, which may reach past the bar
+                        if not a["cuts"] and direct.get(pin):
+                            a["own"] = [[b.left + off, b.bottom, b.right + off, b.top] for b in direct[pin]]
                     return got
         raise AssertionError(f"{cell}: no access for all pins")
 

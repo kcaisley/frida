@@ -3,7 +3,9 @@
 
 ALIGN sees an abstract: the cell outline, the M1 supply rails (the supply pins), and per
 signal pin an M1 patch, VIA1 and an M2 pin bar at the access point from
-``paths.ACCESS_JSON``. ``align/post.py`` drops the
+``paths.ACCESS_JSON``; a pin on M2 (the library's pad, joined without a cut) its bar along the
+pad, and M2 keep-outs on the neighbouring tracks where the whole pad comes nearer their wires
+than the M2 space (``netcells.align_access``). ``align/post.py`` drops the
 real cell (the library GDS, ``paths.STD_GDS``) into the abstract after place and route.
 
 The cell is wrapped for free placement (``iso`` in the access table): pads on both sides
@@ -65,13 +67,19 @@ class StdCellGenerator(RowCanvas):
         views, keep = netcells.align_access(frame)
         for pin, a in frame["access"].items():
             n = net[pin]
-            for x, y in a["cuts"]:  # ALIGN bins M1 by centre line: one stub per cut, inside the pin
-                c.add("M1", x - VIA_M1_W // 2, y - STUB_H, x + VIA_M1_W // 2, y + STUB_H, n, "stub")
-                c.add("V1", x - V1 // 2, y - V1 // 2, x + V1 // 2, y + V1 // 2, n)
-            if a["patch"]:
-                c.add("M1", *a["patch"], n)
             x0, y0, x1, y1 = a["bar"]
             y = (y0 + y1) // 2
+            for x, yc in a["cuts"]:  # ALIGN bins M1 by centre line: one stub per cut, inside the pin
+                c.add("M1", x - VIA_M1_W // 2, yc - STUB_H, x + VIA_M1_W // 2, yc + STUB_H, n, "stub")
+                # with its M2 landing pad (rowcell.M2_VIA_PAD); between the tracks, where a bar beside
+                # it is the pin, just M2 under the cut (ALIGN checks every via lands on metal), as
+                # the pad itself would block the bar it touches (post.py draws it, align_access's)
+                half = y % PITCH != 0 and views[pin][1] is not None and "V1" in rowcell.M2_VIA_PAD
+                c.add("V1", x - V1 // 2, yc - V1 // 2, x + V1 // 2, yc + V1 // 2, n, pad=not half)
+                if half:
+                    c.add("M2", x - V1 // 2, yc - V1 // 2, x + V1 // 2, yc + V1 // 2, n)
+            if a["patch"]:
+                c.add("M1", *a["patch"], n)
             if y % PITCH == 0:  # on ALIGN's M2 grid: the bar (netcells.align_access) is the pin
                 if a["pad"]:  # a pin shape too, so the router sees how far it reaches
                     c.add("M2", *a["pad"], n, "pin")

@@ -132,6 +132,9 @@ class RowCanvas(DefaultCanvas):
         for r in rects:
             net = r.term if r.term else net_map(r.net)
             pin = r.kind == "pin" and net is not None and ":" not in net
+            # a cut's M2 landing pad (rowcell.M2_VIA_PAD) on ALIGN's M2 grid: part of the net's pin, as
+            # the router would keep its line-end space from it as from an obstacle, and so from the bar
+            pin |= r.kind == "pad" and net is not None and ":" not in net and (r.y0 + r.y1) // 2 % tech.PITCH == 0
             kind = "pin" if pin else "blockage" if r.kind == "blockage" else "drawing"
             shapes.append((LAYERS[r.layer], net, r.x0, r.y0, r.x1, r.y1, kind))
         # each metal's wires: a centre-line grid per layer, direction and width, holding every
