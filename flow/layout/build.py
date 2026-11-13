@@ -168,9 +168,11 @@ def build_design(
     )
 
 
-def pdk_router(pdk: str) -> str:
-    """ALIGN's router a PDK routes with (``ALIGN_ROUTER``, else ALIGN's default ``astar``)."""
-    return pdk_value(pdk, "tech", "ALIGN_ROUTER") or "astar"
+def pdk_router(pdk: str, block: str | None = None) -> str:
+    """ALIGN's router a PDK routes ``block`` with (its ``ALIGN_ROUTER_BLOCKS`` entry, else its
+    ``ALIGN_ROUTER``, else ALIGN's default ``astar``)."""
+    own = (pdk_value(pdk, "tech", "ALIGN_ROUTER_BLOCKS") or {}).get(block) if block else None
+    return own or pdk_value(pdk, "tech", "ALIGN_ROUTER") or "astar"
 
 
 def other_router(router: str) -> str:

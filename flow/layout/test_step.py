@@ -32,7 +32,7 @@ def aligned(monkeypatch):
         return out / "align" / "input" / design, [], out / "netlist" / f"{design}.cdl", True
 
     monkeypatch.setattr(step, "inputs", inputs)
-    monkeypatch.setattr(step, "pdk_router", lambda pdk: "astar")
+    monkeypatch.setattr(step, "pdk_router", lambda pdk, block=None: "astar")
     monkeypatch.setattr(step, "route_shorts", lambda work, name: shorts.pop(0) if shorts else {})
     monkeypatch.setattr(step, "annealed", lambda work: True)
     return shorts

@@ -230,7 +230,7 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
     """One instance of ``block`` in ``pdk`` laid out by ALIGN into ``out``, the design ``design``
     (the block's name by default): its netlists and ALIGN's design directory (``inputs``: a
     constraint file a module that states its layout; ALIGN places one that states nothing), then
-    ALIGN by the PDK's router (``out/align/``), by its other router where that one fails
+    ALIGN by the PDK's router for the block (``out/align/``), by its other router where that one fails
     (``out/align_<router>/``); routed again, its placer's seed another, where ALIGN's route joins two
     nets and its placer annealed (twice at most: a placement the generator states whole is
     enumerated, the same whatever the seed). An attempt that has not placed and routed in half an
@@ -242,7 +242,7 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
     design = design or block
     seconds: dict[str, float] = {}
     input_dir, cells, source, placed = inputs(block, out, pdk, design, params, seconds=seconds)
-    router, shorts, gds, work = pdk_router(pdk), {}, None, out / "align"
+    router, shorts, gds, work = pdk_router(pdk, block), {}, None, out / "align"
     timed = _AlignParts()
     logging.getLogger("align").addHandler(timed)
     begun = time.time()
