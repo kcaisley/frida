@@ -127,6 +127,13 @@ def build(pdk: str, out: Path | None = None) -> Path:
                 a.update(WidthX=rule["cut"], WidthY=rule["cut"], SpaceX=rule["space"], SpaceY=rule["space"])
                 if "enclosure" in rule:  # the metals' line-end enclosure of the cut, below and above
                     a.update(VencA_L=rule["enclosure"][0], VencA_H=rule["enclosure"][0])
+                    # and across a metal too narrow to hold its side enclosure (a pad round the cut)
+                    level, side = int(name[1:]), rule["enclosure"][1]
+                    below = t.M3W if level == 3 else t.RULES.get(f"M{level}", {}).get("width", 0)
+                    above = t.RULES.get(f"M{level + 1}", {}).get("width", 0)
+                    for key, width in (("VencP_L", below), ("VencP_H", above)):
+                        if width - rule["cut"] < 2 * side:
+                            a[key] = side
         elif name == "Cap":
             a.update(m1Pitch=t.XPITCH, m2Pitch=t.PITCH, m3Pitch=t.XPITCH, m1Width=t.M1W, m2Width=t.M2W, m3Width=t.M3W)
         layers.append(a)
