@@ -4,12 +4,13 @@ ALIGN frida's generators, ``package.py``; ``test_make_pdk.py`` checks the files 
 
 * layers.json: layers_base.json (PDK-neutral placeholders) with the GDS layers, routing pitches
   (M2 tracks PITCH, M1/M3 XPITCH), widths, cuts and spacings replaced, and the metals and cuts
-  above M3 from the PDK's RULES (a cut's size, space and line-end enclosure); a layer the PDK
+  above M3 from the PDK's RULES (a cut's size, space and line-end enclosure), and M2's enclosure
+  of VIA1 and VIA2 across its wire from the PDK's M2 landing pads (M2_VIA_PAD); a layer the PDK
   does not draw (NP, VT) goes to an abstract 255/x layer, which post.py removes;
 * models.sp: models_base.sp plus the PDK's MOS models;
 * rows.json: where mos.py finds the PDK's layout directory and the row engine, and which of
   ALIGN's spare layers (Rvt, Hvt, Pb) carry the PDK's own row-cell markers (its PO_MARK,
-  GATE_MARK, VT_MARKS, RAIL_MARKS and PO_DUMMY_LAYER);
+  GATE_MARK, VT_MARKS, RAIL_MARKS, PO_DUMMY_LAYER and GATE_CONTACT_MARK);
 * user_template.sp: ALIGN's own user templates and those of frida's first-class devices
   (``primitives/models.py``: the MOM units, each a primitive of MomUnit's, as ALIGN's CAP_2T is of
   its cap generator); their models come from the package's ``pdk_models``.
@@ -69,6 +70,9 @@ def build(pdk: str, out: Path | None = None) -> Path:
         "V1": (t.V1, t.V1_PAIR - t.V1, "V1"),
         "V2": (t.V2, t.V1_PAIR - t.V2, "V2"),
     }
+    # M2's landing pad round a VIA1 / VIA2 cut (M2_VIA_PAD, its half width and half height): ALIGN's
+    # own vias enclose the cut across a minimum-width M2 wire by as much (VencP on M2's side)
+    pads = getattr(t, "M2_VIA_PAD", {})
     names = {
         "Poly": "PO",
         "Pc": "PO",
@@ -85,6 +89,8 @@ def build(pdk: str, out: Path | None = None) -> Path:
     marks += [m for ms in getattr(t, "VT_MARKS", {}).values() for m in ms]
     marks += [layer for layer, _ in getattr(t, "RAIL_MARKS", ())]
     marks += [t.PO_DUMMY_LAYER] if getattr(t, "PO_DUMMY_LAYER", "PO") != "PO" else []
+    gate_contact = getattr(t, "GATE_CONTACT_MARK", None)  # the gate contacts' marker, unless a marker above
+    marks += [gate_contact["layer"]] if gate_contact and gate_contact["layer"] not in marks else []
     extra = dict(zip(marks, ("Rvt", "Hvt", "Pb"), strict=False))
     names.update({align: key for key, align in extra.items()})
     layers = []
@@ -104,6 +110,8 @@ def build(pdk: str, out: Path | None = None) -> Path:
             (a["GdsLayerNo"], a["GdsDatatype"]["Draw"]) = gds(tl)
             venc = t.BAR_END - size // 2 + 10 if name != "V0" else a["VencA_L"]
             a.update(WidthX=size, WidthY=size, SpaceX=space, SpaceY=space, VencA_L=venc, VencA_H=venc)
+            if name in pads:
+                a["VencP_H" if name == "V1" else "VencP_L"] = pads[name][1] - size // 2
         elif name in names:
             (a["GdsLayerNo"], a["GdsDatatype"]["Draw"]) = gds(names[name])
         elif name in ("M4", "M5", "M6", "M7", "M8", "M9", "V3", "V4", "V5", "V6", "V7", "V8"):
