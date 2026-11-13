@@ -16,6 +16,9 @@
   LabelLayerNo, honoured by its writers since ALIGN 24656418); pin shapes,
   blockages and abstract layers (datatypes 251/253, layer 255 unless the PDK draws on it, and the PnR's whole-block
   boundary marker 235/5) are removed; shapes are merged and snapped to the manufacturing grid.
+* Cuts and pads: a cut where a via layer's shapes make none or several (``single_cuts``), one of
+  two cuts of a net closer than their space (``close_cuts``); in a PDK with M2 landing pads
+  (``M2_VIA_PAD``) the notches between pads on one M2 polygon filled (``fill_notches``).
 * Option (for any block, in a PDK with a guard ring): ``ring`` wraps the block in the PDK's
   guard ring (its ringcell.py), the ring's N-well on ``ring_net``, the substrate ring on
   ``sub_net`` (a port of its own); ``out.gds.extra.sp`` says so for the LVS source
@@ -124,9 +127,11 @@ def fill_rows(
 ) -> int:
     """Rails, taps and well band across the placement gaps of every row; library fillers in
     standard-cell rows (their implant bands differ from the analog rows'). ``filled`` collects the
-    analog rows' gaps (``bridge``)."""
+    analog rows' gaps (``bridge``). Where ALIGN routed M1 through a gap (no cell is there, so it is
+    another net's), the fill's M1 and contacts keep M1's space from it (``_clear_of``)."""
     bnd = kdb.Region(top.begin_shapes_rec(layout.layer(*BND))).merged()
     box = bnd.bbox()
+    m1 = kdb.Region(top.begin_shapes_rec(layout.layer(*rowcell.GLAYERS["M1"])))
     n = 0
     for k in range(box.bottom // rowcell.H, -(-box.top // rowcell.H)):
         y0 = k * rowcell.H
@@ -136,6 +141,10 @@ def fill_rows(
             g = gap.bbox()
             if g.height() < rowcell.H:
                 continue
+            # ALIGN's M1 through the gap: what reaches inside it past the rails (the rows beside it
+            # reach into it with their rails' halves alone)
+            inside = kdb.Region(kdb.Box(g.left, g.bottom + rowcell.RAIL + 1, g.right, g.top - rowcell.RAIL - 1))
+            routed = m1.interacting(inside)
             if k in std_rows:
                 x = g.left
                 try:
@@ -144,10 +153,13 @@ def fill_rows(
                     pad = netcells.std_fill(g.width())  # the standard cells' profile, as at a row end
                     rowcell.std_pad(pad, 0, g.width(), "left")
                     t = kdb.Trans(x, y0) if k % 2 == 0 else kdb.Trans(kdb.Trans.M0, x, y0 + rowcell.H)
-                    for r in pad.rects:
-                        if r.layer != "BND" and r.kind != "stub" and rowcell.GLAYERS.get(r.layer):
-                            b = kdb.Box(r.x0, r.y0, r.x1, r.y1).transformed(t)
-                            top.shapes(layout.layer(*rowcell.GLAYERS[r.layer])).insert(b)
+                    boxes = [
+                        (r.layer, kdb.Box(r.x0, r.y0, r.x1, r.y1).transformed(t))
+                        for r in pad.rects
+                        if r.layer != "BND" and r.kind != "stub" and rowcell.GLAYERS.get(r.layer)
+                    ]
+                    for layer, b in _clear_of(boxes, routed, g):
+                        top.shapes(layout.layer(*rowcell.GLAYERS[layer])).insert(b)
                     fillers = []
                 for name, w in fillers:
                     t = kdb.Trans(x, y0) if k % 2 == 0 else kdb.Trans(kdb.Trans.M0, x, y0 + rowcell.H)
@@ -159,6 +171,7 @@ def fill_rows(
             t = kdb.Trans(g.left, y0) if k % 2 == 0 else kdb.Trans(kdb.Trans.M0, g.left, y0 + rowcell.H)
             cell = rowcell.Cell("fill", g.width())
             rowcell.rails(cell, g.width(), "n", m2=False)
+            boxes = []
             for r in cell.rects:
                 if (
                     r.layer in ("BND", *rowcell.VT["n"], *rowcell.VT["p"])
@@ -168,12 +181,35 @@ def fill_rows(
                     continue
                 if r.layer in ("NP", "PP") and (r.y0, r.y1) == rowcell.DEV_IMP["n"]:
                     continue  # no device implant in a gap
-                b = kdb.Box(r.x0, r.y0, r.x1, r.y1).transformed(t)
-                top.shapes(layout.layer(*rowcell.GLAYERS[r.layer])).insert(b)
+                boxes.append((r.layer, kdb.Box(r.x0, r.y0, r.x1, r.y1).transformed(t)))
+            for layer, b in _clear_of(boxes, routed, g):
+                top.shapes(layout.layer(*rowcell.GLAYERS[layer])).insert(b)
             if filled is not None:
                 filled.append(g)
             n += 1
     return n
+
+
+def _clear_of(boxes: list[tuple[str, kdb.Box]], routed: kdb.Region, gap: kdb.Box) -> list:
+    """A gap fill's shapes (layer, box) clear of ``routed``, the M1 ALIGN drew through the gap
+    (another net's): its M1 cut back to M1's space from it, of the pieces left only those reaching
+    the gap's sides (joined to the cells' rails beside it), and a contact only inside such a piece
+    by its line-end enclosure; every other layer as it is. The shapes unchanged where nothing is
+    routed through the gap."""
+    if routed.is_empty():
+        return boxes
+    import tech as _tech
+
+    space, end = _tech.M1_SPACE, getattr(_tech, "M1_CO_END", 0)
+    m1 = (kdb.Region([b for layer, b in boxes if layer == "M1"]) - routed.sized(space)).merged()
+    sides = kdb.Region(kdb.Box(gap.left, gap.bottom, gap.left + 1, gap.top)) + kdb.Region(
+        kdb.Box(gap.right - 1, gap.bottom, gap.right, gap.top)
+    )
+    m1 = m1.interacting(sides)
+    kept = [(layer, b) for layer, b in boxes if layer not in ("M1", "CO")]
+    kept += [("M1", p) for p in m1.each()]
+    kept += [("CO", b) for layer, b in boxes if layer == "CO" and (kdb.Region(b.enlarged(end, 0)) - m1).is_empty()]
+    return kept
 
 
 def bridge(layout: kdb.Layout, top: kdb.Cell, g: kdb.Box, block: kdb.Box) -> None:
@@ -346,11 +382,18 @@ def mom_shields(layout: kdb.Layout, top: kdb.Cell, units: dict[str, int]) -> lis
     return [(metal, gather(f"M{metal}", ids).not_interacting(gather(f"V{metal}", ids))) for metal, ids in cells.items()]
 
 
-def shield_ties(layout: kdb.Layout, top: kdb.Cell, shields: list[tuple[int, kdb.Region]], per_shield: int = 2) -> int:
+def shield_ties(
+    layout: kdb.Layout,
+    top: kdb.Cell,
+    shields: list[tuple[int, kdb.Region]],
+    per_shield: int = 2,
+    routes: kdb.Region | None = None,
+) -> int:
     """Tie each MOM shield (``mom_shields``) to VSS where it lies over a row's VSS rail: a stack of
     cuts from the rail up to the shield, a pad on every metal between, on the M3 grid, where every
     pad keeps its metal's space from other metal and every cut its cut space; ``per_shield`` stacks
-    a shield, from its lower left. Returns the stacks drawn."""
+    a shield, from its lower left. ``routes``: ALIGN's own M1, which crosses a rail's line in a row
+    gap and is no rail. Returns the stacks drawn."""
     import tech as _tech
 
     if not shields:  # a design without MOM arrays
@@ -365,6 +408,8 @@ def shield_ties(layout: kdb.Layout, top: kdb.Cell, shields: list[tuple[int, kdb.
         if k % 2 == 0:  # VSS lines are the even ones
             rails.insert(kdb.Box(b.left, k * rowcell.H - rowcell.RAIL, b.right, k * rowcell.H + rowcell.RAIL))
     rails &= metals[1]
+    if routes is not None and not routes.is_empty():  # another net's M1 across the rail's line
+        rails -= routes.sized(_tech.M1_SPACE)
 
     def pad(k: int, x: int, y: int) -> kdb.Box:
         rule, cut_below = _tech.RULES[f"M{k}"], _tech.RULES[f"V{k - 1}"]
@@ -486,16 +531,26 @@ def close_cuts(layout: kdb.Layout, top: kdb.Cell) -> int:
     drops a cut at each of two parallel wires of a net a fraction of a track apart, where one metal
     polygon (the same net) holds both cuts. The gap between their pads on the other metal, where
     they run side by side, is filled (no wider than that metal's space, over no other shape), and
-    the second cut goes; the net stays joined through the filled metal. Returns the cuts removed."""
+    the second cut goes; the net stays joined through the filled metal. In a PDK with M2 landing
+    pads (``M2_VIA_PAD``) two cuts of a padded via layer are that close while their M2 pads are
+    nearer than M2's space (ALIGN's two VIA2 of one net on neighbouring tracks, joined by its M3).
+    Returns the cuts removed."""
     import tech as _tech
 
     rules = getattr(_tech, "RULES", {})
+    landings = getattr(_tech, "M2_VIA_PAD", {})
     removed = 0
     for n in range(1, 8):
         via, below, above = LAYERS.get(f"V{n}"), LAYERS.get(f"M{n}"), LAYERS.get(f"M{n + 1}")
         space = rules.get(f"V{n}", {}).get("space")
         if not (via and below and above and space):
             continue
+        # where M2 lands a cut on a pad (M2_VIA_PAD), two cuts are as close as their pads are: the
+        # pads' extent and M2's space past the cut, along the track (x) and across it (y)
+        sx = sy = space
+        if f"V{n}" in landings:
+            cut, (hx, hy) = rules[f"V{n}"]["cut"], landings[f"V{n}"]
+            sx, sy = max(space, 2 * hx + M2_SPACE - cut), max(space, 2 * hy + M2_SPACE - cut)
         cut_shapes = top.shapes(layout.layer(*via))
         cuts = sorted(((c, c.bbox()) for c in cut_shapes.each() if not c.is_text()), key=lambda c: c[1].left)
         metals = {
@@ -508,9 +563,9 @@ def close_cuts(layout: kdb.Layout, top: kdb.Cell) -> int:
         for i, (_, a) in enumerate(cuts):
             for j in range(i + 1, len(cuts)):
                 b = cuts[j][1]
-                if b.left >= a.right + space:  # sorted by left edge: none further on is closer
+                if b.left >= a.right + sx:  # sorted by left edge: none further on is closer
                     break
-                if i in gone or j in gone or a.overlaps(b) or not a.enlarged(space - 1, space - 1).overlaps(b):
+                if i in gone or j in gone or a.overlaps(b) or not a.enlarged(sx - 1, sy - 1).overlaps(b):
                     continue
                 # the same net on one metal; the other's pads joined across their gap
                 for same, other in ((f"M{n}", f"M{n + 1}"), (f"M{n + 1}", f"M{n}")):
@@ -536,6 +591,33 @@ def close_cuts(layout: kdb.Layout, top: kdb.Cell) -> int:
     return removed
 
 
+def fill_notches(layout: kdb.Layout, top: kdb.Cell) -> int:
+    """In a PDK with M2 landing pads (``M2_VIA_PAD``): the notches of each M2 polygon narrower than
+    M2's space filled, where the fill comes within that space of no other M2 shape (two pads on one
+    bar a fraction of a space apart: a via's landing ALIGN drew beside a row cell's pad, beside a
+    library pin's pad, or beside another of its own). One polygon is one net, so the fill joins
+    nothing. Returns the fills."""
+    import tech as _tech
+
+    if not getattr(_tech, "M2_VIA_PAD", None):
+        return 0
+    layer = layout.layer(*LAYERS["M2"])
+    m2 = kdb.Region(top.shapes(layer)).merged()
+    half = (M2_SPACE - 1) // 2  # closes every gap narrower than the space, and no legal one
+    fills = kdb.Region()
+    for polygon in m2.each():
+        own = kdb.Region(polygon)
+        gaps = (own.sized(half).sized(-half) - own) & kdb.Region(polygon.bbox())
+        if gaps.is_empty():
+            continue
+        near = (m2 - own) & kdb.Region(polygon.bbox().enlarged(M2_SPACE, M2_SPACE))
+        for gap in gaps.merged().each():
+            if (kdb.Region(gap).sized(M2_SPACE - 1) & near).is_empty():
+                fills.insert(gap)
+    top.shapes(layer).insert(fills)
+    return fills.count()
+
+
 def post(
     src: str | Path,
     dst: str | Path,
@@ -552,6 +634,7 @@ def post(
     layout = kdb.Layout()
     layout.read(src)
     top = layout.top_cell()
+    routes = kdb.Region(top.shapes(layout.layer(*LAYERS["M1"])))  # ALIGN's own M1, before flattening
     n_std = insert_stdcells(layout, lib)
     shields = mom_shields(layout, top, mom_units or {})  # before flattening: by the units' cells
     # rows holding standard cells, from the abstracts' placement
@@ -575,7 +658,7 @@ def post(
     for g in filled:
         bridge(layout, top, g, block)
     n_straps = supply_straps(layout, top)
-    n_shield = shield_ties(layout, top, shields)
+    n_shield = shield_ties(layout, top, shields, routes=routes)
     ring_info = ""
     if ring:
         import ringcell  # the PDK's guard ring
@@ -599,6 +682,7 @@ def post(
         ):
             layout.clear_layer(li)
     n_cuts = single_cuts(layout, top) + close_cuts(layout, top)
+    n_notches = fill_notches(layout, top)
     netcells.close_wells(layout, kdb, top)
     for c in list(layout.top_cells()):  # an unused helper (the filler copy when no row needed fill)
         if c.cell_index() != top.cell_index():
@@ -620,6 +704,7 @@ def post(
         "row-end ties": n_ties,
         **({"shield ties": n_shield} if shields else {}),
         "cuts made single": n_cuts,
+        **({"M2 notches filled": n_notches} if n_notches else {}),
         **({"guard ring": ring_info.removeprefix(", guard ring ")} if ring else {}),
     }
     Path(dst + ".post.json").write_text(json.dumps(done, indent=1) + "\n")
