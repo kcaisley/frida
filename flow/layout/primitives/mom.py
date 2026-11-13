@@ -373,10 +373,13 @@ class MomUnit(_Fabric):
         self._landing(c["metal"] - 1, terminal, inner_x + w // 2, mid)
 
     def _landing(self, metal, terminal, x, y):
-        """A stub on ``metal`` (vertical) centred on (``x``, ``y``), its metal's minimum length,
-        joined by a cut up to the bar above, the terminal's pin."""
+        """A stub on ``metal`` (vertical) centred on (``x``, ``y``), its metal's minimum length and
+        area, joined by a cut up to the bar above, the terminal's pin."""
         m, v = self.pdk[f"M{metal}"], self.pdk[f"V{metal}"]
-        half, hw = max(m["MinL"], v["WidthY"] + 2 * v["VencA_L"]) // 2, m["Width"] // 2
+        hw, grid = m["Width"] // 2, capcell.tech.MFG_GRID
+        area = capcell.tech.RULES.get(f"M{metal}", {}).get("area", 0)
+        least = capcell._snap(-(-area // (2 * hw)), 2 * grid)  # the length that meets the area
+        half = max(m["MinL"], v["WidthY"] + 2 * v["VencA_L"], least) // 2
         name = f"mom_landing_via{metal}"
         via = self.generators.get(name) or self.addGen(
             Via(name, f"V{metal}", h_clg=self.nm, v_clg=self.nm, WidthX=v["WidthX"], WidthY=v["WidthY"])
