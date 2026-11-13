@@ -19,6 +19,24 @@ The same sizing measures 535 Ω in TSMC28 and 690 Ω in IHP130, and 236–331 Ω
 | Largest pedestal (mV) | 0.75 | | 10.3 |
 | Layout (µm²) | 12.9 | | |
 
+The pipeline measures the on-resistance from the track phase's time constant into a 1 pF load, between the 1/e and 1/e² crossings of a step, so that the edge's delay is excluded: $R_\mathrm{on} = \tau / C_\mathrm{load}$, an upper bound since the switch's own capacitance is included.
+In TSMC65 into 1 pF, a transmission gate of 32 units measures 130–550 Ω (highest at mid-supply), the NMOS switch from 140 Ω to open above 0.7 V, the bootstrapped one 140–230 Ω at 32 units and 30–45 Ω at 160.
+
+::: {#fig-rec-samp-ron-vin plot="rec_samp_ron_vin"}
+A transmission gate of 32 units in TSMC65: On-resistance into 1 pF over the input level.
+:::
+
+::: {#fig-rec-samp-track-error-vin plot="rec_samp_track_error_vin"}
+A transmission gate of 32 units in TSMC65: Track error at the end of tracking over the input level.
+:::
+
+::: {#fig-rec-samp-pedestal-vin plot="rec_samp_pedestal_vin"}
+A transmission gate of 32 units in TSMC65: Pedestal over the input level.
+:::
+
+Pedestals stay within ±0.7 mV for the transmission gates and reach −2 mV for the NMOS switches at 32 units, growing with the width (−10 mV at 160).
+Half-size dummies take the transmission gate's largest pedestal from 0.75 to 0.03 mV, and nearly double its area.
+
 ::: todo
 
 - Where FRIDA-1's switch sits on @fig-samp-ron-width and what the 12-bit track time (@eq-settle) asks of it.
@@ -30,6 +48,24 @@ The same sizing measures 535 Ω in TSMC28 and 690 Ω in IHP130, and 236–331 Ω
 FRIDA-1's comparator is the grid's `frida1` instance, a StrongARM.
 In TSMC65 it measures 246 µV of input-referred noise, a negligible systematic offset, 292 fJ per decision, 2.0 ns at 0.5 mV, a regeneration time constant of 194 ps, 6.9 mV of kickback, and 157 µm² of layout: an $E\sigma^2$ of about 18 fJ·mV², against 3.3 for the best TSMC65 designs (@fig-comp-energy-noise).
 In TSMC28 the same sizing measures 530 µV and 80 fJ; in the 130–180 nm processes and TPSC65 its latch lengths do not decide within the clock.
+
+::: {#fig-rec-comp-noise-cm plot="rec_comp_noise_cm"}
+A StrongARM comparator in TSMC65: Input-referred noise over the common mode.
+:::
+
+::: {#fig-rec-comp-metastability plot="rec_comp_metastability"}
+A StrongARM comparator in TSMC65: Delay over the input (nominal common mode).
+:::
+
+The pipeline measures $\tau$ from the delays at two small inputs, $\tau = (t_1 - t_2)/\ln(v_2/v_1)$, and extrapolates below the smallest input measured with @eq-regeneration.
+
+::: {#fig-rec-comp-scurve plot="rec_comp_scurve"}
+A StrongARM comparator in TSMC65: Decision probability (nominal common mode, transient noise).
+:::
+
+::: {#fig-rec-comp-energy-supply plot="rec_comp_energy_supply"}
+A StrongARM comparator in TSMC65: Energy per decision over the supply.
+:::
 
 ::: todo
 
@@ -55,6 +91,35 @@ FRIDA-1's array is the grid's `frida1` instance: 12 bits, MSB redistribution wit
 Extracted in TSMC65, its gain is 0.73 (a 0.68 V full scale), its largest stage settles in 0.28 ns with a step error of 0.017 LSB, and it takes 645 µm² of layout per side.
 At a matching coefficient of 1 %·√fF its 95th-percentile uncalibratable gap is 0.27 LSB and its INL with the design weights 2.4 LSB (@fig-cdac-gap).
 
+The prototype's nominal physical capacitance, including both members of the difference pairs, is approximately 1.88 pF per branch; the same ideal estimate gives approximately 66 µV RMS, before comparator noise and other nonidealities are included.
+
+The prototype's smallest effective weight is 0.8 fF, obtained from nominal 26.4 fF and 25.6 fF elements.
+
+::: {#fig-rec-capdac-mismatch-inl plot="rec_capdac_mismatch_inl"}
+A 12-bit array of 17 decisions in TSMC65: Worst INL with the design weights (95th percentile) over Pelgrom's coefficient.
+:::
+
+::: {#fig-rec-adc-mismatch-dnl plot="rec_adc_mismatch_dnl"}
+The assembled 12-bit converter (behavioral): Worst DNL over the Pelgrom coefficient (predicted 95th percentile).
+:::
+
+::: {#fig-rec-capdac-mismatch-gap plot="rec_capdac_mismatch_gap"}
+A 12-bit array of 17 decisions in TSMC65: Unrecoverable code width after ideal calibration (95th percentile).
+:::
+
+::: {#fig-rec-capdac-dac-inl plot="rec_capdac_dac_inl"}
+A 12-bit array of 17 decisions in TSMC65: DAC INL by code, the 95th-percentile run at the middle condition.
+:::
+
+::: {#fig-rec-capdac-settling-stage plot="rec_capdac_settling_stage"}
+A 12-bit array of 17 decisions in TSMC65: Settling to half an LSB by stage (the slower direction).
+:::
+
+::: todo
+
+- The initial state (16'h5555) and what it does to the common-mode trajectory, power and noise; measured evidence is still missing.
+:::
+
 ::: todo
 
 - @eq-calibratable applied to FRIDA-1's weights: each stage's margin over its weight's sigma.
@@ -65,6 +130,75 @@ At a matching coefficient of 1 %·√fF its 95th-percentile uncalibratable gap i
 
 The generated FRIDA design composes these three instances: its behavioral record gives 10.04 ENOB, 28.9 pJ per conversion (289 µW at 10 MS/s) and 0.76 LSB of noise (sampler 0.50, comparator 0.71), with the ladder of @fig-adc-ladder.
 These single-instance predictions are what @sec-frida1-measurements compares the silicon against.
+
+#### The behavioral converter {#sec-adc-behavioral}
+
+The behavioral converter composes the blocks' models, each from its own characterization: the sampler's on-resistance over the input and its kT/C (@sec-sampling-switch), the comparator's noise, offset and delay over the input (@sec-comparator), and the array's plates as drawn, with each stage's step, delay and settling as the DAC's characterization measured them (@sec-cdac).
+It runs the SAR loop on them.
+The comparator's measured delay over the input decides when a decision is late, and its SR latch then holds the last one; each stage's plates move after its driver's delay and settle with its own time constant.
+
+In the behavioral converter a late decision is held: the SR latch keeps its previous value.
+
+::: {#fig-adc-architecture src="../images/report/adc_architecture"}
+Circuitikz schematic of the differential ADC, redundant capacitor weights, synchronous SAR registers, and main/difference capacitor pair.
+:::
+
+The circuit diagram shows the differential architecture.
+Each capacitor cell contains a main capacitor and a difference capacitor, with the effective weight shown above it.
+Complementary rail drivers connect directly to the enabled decision registers.
+The first three capacitor stages and the final stage are shown; three dots denote the omitted stages 3–14.
+Complementary comparator outputs feed the decision registers, and a dedicated clock input controls evaluation.
+Weighted decoding is external to the prototype ADC macro.
+
+The behavioral model measures the budget as a ladder: the 10 MS/s sine from quantization alone, then adding the sampler's tracking error, its kT/C noise and jitter, the DAC's settling, the comparator's delay and its noise in turn.
+
+::: {#fig-adc-ladder plot="adc_ladder"}
+The ENOB budget, one impairment at a time.
+:::
+
+::: {#fig-rec-adc-enob-rate plot="rec_adc_enob_rate"}
+The assembled 12-bit converter (behavioral): ENOB over the conversion rate.
+:::
+
+::: {#fig-rec-adc-spectrum-low plot="rec_adc_spectrum_low"}
+The assembled 12-bit converter (behavioral): Spectrum at 10 MS/s, low input frequency.
+:::
+
+::: {#fig-rec-adc-noise-spectrum plot="rec_adc_noise_spectrum"}
+The assembled 12-bit converter (behavioral): Output-code noise: 0.77 LSB rms = lines 0.00 ⊕ white 0.77.
+:::
+
+For the generated FRIDA design the ladder ends at 10.04 bits: the sampler's tracking error costs the most (1.65 bits), the comparator's noise 0.22, kT/C 0.06.
+Its noise is 0.76 LSB, the sampler 0.50 and the comparator 0.71.
+
+::: todo
+
+- Why the tracking error dominates here: the transmission gate's mid-supply $R_\mathrm{on}$ into the 12-bit array (@eq-tracking), and the bootstrap's recovery.
+:::
+
+::: {#fig-rec-adc-trajectory plot="rec_adc_trajectory"}
+The assembled 12-bit converter (behavioral): Decision paths at one input.
+:::
+
+::: {#fig-rec-adc-hsu-rate plot="rec_adc_hsu_rate"}
+The assembled 12-bit converter (behavioral): Integrated error over the conversion rate.
+:::
+
+::: todo
+
+- The timing-closure margins the behavioral model checks: 200 ps logic and CDAC setup, 0.3 V latch resolution, 1 mV CDAC tolerance.
+- The ENOB over sequence and symbol rate (the sequence map), and which recipe the timing allows at 10 MS/s.
+:::
+
+::: {#fig-rec-adc-power-rate plot="rec_adc_power_rate"}
+The assembled 12-bit converter (behavioral): Supply power over the conversion rate.
+:::
+
+The generated FRIDA design spends about 28.9 pJ per conversion, 289 µW at 10 MS/s; the SAR logic dominates.
+
+::: {#fig-rec-adc-reference-noise plot="rec_adc_reference_noise"}
+The assembled 12-bit converter (behavioral): ENOB lost to the reference's noise, sampler and comparator ideal.
+:::
 
 ## Implementation of the building blocks {#sec-frida1-blocks}
 
@@ -126,6 +260,19 @@ The nominal two-layer flavors have disconnected upper plates, so their extracted
 
 The digital control logic was implemented entirely in Verilog.
 An OpenROAD flow converted it to layout, leaving gaps for the analog blocks.
+
+A one-hot stage selector advances through 16 capacitor-control stages, followed by a terminal comparison that contributes to the decoded result without switching another capacitor.
+Initialization loads the programmed starting state into all driver registers and seeds the selector with stage 0 active; subsequent logic-clock edges shift this one-hot enable through the chain.
+
+::: {#fig-adc-timing-clocking src="../images/report/adc_timing"}
+Initialization, sampling, comparator, and logic timing waveforms.
+:::
+
+The sequencer is a set of named recipes over four lines, INIT, SAMP, COMP and LOGIC, each a pattern of symbols at the sequencer's symbol rate: four symbols of INIT, twenty of SAMP, then one eight-symbol word per decision, COMP high for the first four symbols and LOGIC for the last four.
+
+::: {#fig-sequences placeholder="The sequencer's recipes as timing diagrams (docs/images/sequences, drawn from the recipes): COMP duty and LOGIC phase."}
+The sequences studied.
+:::
 
 ::: {#fig-frida1-digital src="figures/layout_frida1_digital.png"}
 The ADC channel's digital layout, metals up to M3, with the gaps left for the analog blocks.

@@ -89,6 +89,11 @@ Bootstrapped switches in six processes: the largest pedestal against the on-resi
 - @fig-samp-boost read as the trade-off: on-resistance against pedestal, set by width.
 :::
 
+::: todo
+
+- The behavioral ADC's measured cost: in the 14-bit converters, the widest bootstrap still costs 2.2 bits in IHP130 (6.5 pF) and 3.3 bits in TPSC65 (5.7 pF), which therefore need a wider sampler.
+:::
+
 ### Choosing a switch per process {#sec-samp-choice}
 
 The remaining architecture similarly prioritizes compactness: transmission-gate sampling switches, top-plate sampling, and a single-stage StrongARM comparator avoid a bootstrapped sampler, an internal input buffer, and a dedicated intermediate common-mode reference generator.
@@ -113,6 +118,22 @@ The dynamic bias's input pair integrates in weak inversion and spends only the c
 ::: todo
 
 - @fig-comp-energy-noise read per process: the best $E\sigma^2$ per process (3.3 fJ·mV² in TSMC65, 3.8 in TSMC28, 5.6 in LF150, 16–20 in the 130 and 180 nm processes) and why the older processes sit higher.
+:::
+
+The estimate runs a median 4.4 times high against the transient-noise simulation, so it ranks sizings loosely.
+
+#### How a comparator is characterized {#sec-comp-characterization}
+
+Each instance is characterized at the nominal common mode: the delay and energy at 0.5 mV and 100 mV, the delay over 0.1–100 mV (its metastability and regeneration time constant), the kickback, and the offset and noise from a transient-noise S-curve: 0 and 25 µV to 3 mV a side, 33 points, 80 decisions a point in passes through every input in a fresh random order, fitted by the Gaussian of most likelihood.
+One noise reading scatters by about 4 % (one sigma) between seeds.
+One clock is 1 ns of reset, then 4 ns of evaluation, and the converter allows about 2 ns.
+
+The energy per decision is the supply's charge over a decision's cycle, read off a charge meter the simulator integrates, at the supply's voltage, averaged over the decisions that follow one at the same input.
+Each clock reaches the comparator through an inverter chain on the comparator's supply, tapering by fanout 4 to a last stage at fanout 2, so that the energy per decision counts the clock (a long-tailed StrongARM's nearly doubles).
+
+::: todo
+
+- The measured regeneration time constants per process (40–100 ps in TSMC28 to 250–500 ps at 130–180 nm at 0.2 mV).
 :::
 
 ### Comparator optimization per resolution {#sec-comp-optimization}
@@ -150,6 +171,12 @@ The arrays of the design space reach 55–65 % of the reference in full scale at
 ::: todo
 
 - The design space's two weight builds compared: at 1 % mismatch unit capacitors leave less to calibrate than difference strips (12 bits at twice the minimum: 0.43 against 0.83 LSB).
+:::
+
+::: todo
+
+- The pipeline's linearized prediction (every code's DNL and INL sigma from every plate's error) against its SPICE Monte Carlo, and where @eq-midcode is the worst code.
+- The pipeline computes each stage's margin over sigma (@eq-calibratable), but no solver picks the scheme yet.
 :::
 
 ## Searching the whole converter {#sec-frida2-search}

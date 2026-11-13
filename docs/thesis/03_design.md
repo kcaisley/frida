@@ -2,7 +2,7 @@
 
 ::: todo
 
-- The chapter's plan: each block's circuit, its analytic model and the sizing rule the model gives, then the converter assembled from them: the design as it was done before the sweeps of @sec-frida2.
+- The chapter's plan: each block's circuit, its analytic and statistical model, and the sizing rule the model gives when flipped around; then how the blocks' noise, energy and area add up in a converter: the design as it was done before the sweeps of @sec-frida2.
 :::
 
 ## Sampling switch {#sec-sampling-switch}
@@ -30,18 +30,7 @@ $$ {#eq-ron}
 Its resistance is therefore highest near mid-supply, and falls as $1/W$.
 A bootstrapped switch holds its gate a fixed voltage above the input, so its overdrive, and with it $R_\mathrm{on}$, no longer depends on the input.
 
-The pipeline measures the on-resistance from the track phase's time constant into a 1 pF load, between the 1/e and 1/e² crossings of a step, so that the edge's delay is excluded: $R_\mathrm{on} = \tau / C_\mathrm{load}$, an upper bound since the switch's own capacitance is included.
-In TSMC65 into 1 pF, a transmission gate of 32 units measures 130–550 Ω (highest at mid-supply), the NMOS switch from 140 Ω to open above 0.7 V, the bootstrapped one 140–230 Ω at 32 units and 30–45 Ω at 160.
-
-::: {#fig-rec-samp-ron-vin plot="rec_samp_ron_vin"}
-A transmission gate of 32 units in TSMC65: On-resistance into 1 pF over the input level.
-:::
-
 ### Tracking error and distortion {#sec-samp-distortion}
-
-::: {#fig-rec-samp-track-error-vin plot="rec_samp_track_error_vin"}
-A transmission gate of 32 units in TSMC65: Track error at the end of tracking over the input level.
-:::
 
 While tracking, the held node follows the input through the switch's time constant.
 To first order it lags the input by $\tau = R_\mathrm{on}(v)\,C$, so the sample taken is
@@ -61,18 +50,10 @@ A switch with $R_\mathrm{on} \approx 1$ kΩ into $C = 1.64$ pF has $\tau = 1.64$
 ::: todo
 
 - @eq-tracking flipped into the sizing rule: the largest $R_\mathrm{on}$ (and so the smallest switch) whose signal-dependent lag stays within the noise budget at the input's highest slew.
-- The behavioral ADC's measured cost: in the 14-bit converters, the widest bootstrap still costs 2.2 bits in IHP130 (6.5 pF) and 3.3 bits in TPSC65 (5.7 pF), which therefore need a wider sampler.
 - Sampling switch non-linearity sets a speed × resolution frontier.
 :::
 
 ### Charge injection {#sec-samp-injection}
-
-::: {#fig-rec-samp-pedestal-vin plot="rec_samp_pedestal_vin"}
-A transmission gate of 32 units in TSMC65: Pedestal over the input level.
-:::
-
-Pedestals stay within ±0.7 mV for the transmission gates and reach −2 mV for the NMOS switches at 32 units, growing with the width (−10 mV at 160).
-Half-size dummies take the transmission gate's largest pedestal from 0.75 to 0.03 mV, and nearly double its area.
 
 ::: todo
 
@@ -121,7 +102,6 @@ $$
 \sigma^2 = r\left(\frac{4kT\gamma}{C_{PQ}} + \frac{r\,kT}{2\,C_{PQ}}\right), \qquad r = \frac{V_{GS} - V_{TH}}{V_{TH}},
 $$ {#eq-strongarm-noise}
 so the noise power falls as $1/C_{PQ}$: the integration capacitance sets the comparator's noise, as the sampling capacitance sets the sampler's.
-The estimate runs a median 4.4 times high against the transient-noise simulation, so it ranks sizings loosely.
 
 Every width times $k$ multiplies $C_{PQ}$, and with it the charge drawn per decision, by $k$.
 So the noise falls as $1/\sqrt{k}$ and the energy rises as $k$, keeping the delay:
@@ -130,10 +110,6 @@ E \propto k, \qquad \sigma \propto \frac{1}{\sqrt{k}} \quad\Rightarrow\quad E\,\
 $$ {#eq-comp-scaling}
 The product $E\,\sigma^2$ is the comparator's figure of merit: scaling a design moves it along a line of constant $E\,\sigma^2$, and only a better topology moves the line.
 
-::: {#fig-rec-comp-noise-cm plot="rec_comp_noise_cm"}
-A StrongARM comparator in TSMC65: Input-referred noise over the common mode.
-:::
-
 ::: todo
 
 - The noise floor the families approach, $\sigma = \sqrt{a^2/k + f^2}$, and where it comes from.
@@ -141,40 +117,16 @@ A StrongARM comparator in TSMC65: Input-referred noise over the common mode.
 
 ### Regeneration and metastability {#sec-comp-metastability}
 
-::: {#fig-rec-comp-metastability plot="rec_comp_metastability"}
-A StrongARM comparator in TSMC65: Delay over the input (nominal common mode).
-:::
-
 Once integration ends, the cross-coupled pair amplifies the difference exponentially with a time constant $\tau$, set by its own capacitance over its transconductance.
 An input $v$ is resolved to a logic level in [@razavi2015]
 $$
 t_\mathrm{d}(v) = t_0 + \tau \ln\frac{V_0}{|v|},
 $$ {#eq-regeneration}
 so the delay grows only logarithmically as the input falls, and a decision whose delay exceeds the window the SAR loop allows is late.
-The pipeline measures $\tau$ from the delays at two small inputs, $\tau = (t_1 - t_2)/\ln(v_2/v_1)$, and extrapolates below the smallest input measured with @eq-regeneration.
-In the behavioral converter a late decision is held: the SR latch keeps its previous value.
 
 ::: todo
 
 - @eq-regeneration flipped: the window per decision sets the smallest input that resolves, and so the decision-error rate per conversion.
-- The measured regeneration time constants per process (40–100 ps in TSMC28 to 250–500 ps at 130–180 nm at 0.2 mV).
-:::
-
-### Characterization {#sec-comp-characterization}
-
-Each instance is characterized at the nominal common mode: the delay and energy at 0.5 mV and 100 mV, the delay over 0.1–100 mV (its metastability and regeneration time constant), the kickback, and the offset and noise from a transient-noise S-curve: 0 and 25 µV to 3 mV a side, 33 points, 80 decisions a point in passes through every input in a fresh random order, fitted by the Gaussian of most likelihood.
-One noise reading scatters by about 4 % (one sigma) between seeds.
-One clock is 1 ns of reset, then 4 ns of evaluation, and the converter allows about 2 ns.
-
-The energy per decision is the supply's charge over a decision's cycle, read off a charge meter the simulator integrates, at the supply's voltage, averaged over the decisions that follow one at the same input.
-Each clock reaches the comparator through an inverter chain on the comparator's supply, tapering by fanout 4 to a last stage at fanout 2, so that the energy per decision counts the clock (a long-tailed StrongARM's nearly doubles).
-
-::: {#fig-rec-comp-scurve plot="rec_comp_scurve"}
-A StrongARM comparator in TSMC65: Decision probability (nominal common mode, transient noise).
-:::
-
-::: {#fig-rec-comp-energy-supply plot="rec_comp_energy_supply"}
-A StrongARM comparator in TSMC65: Energy per decision over the supply.
 :::
 
 ### Kickback and offset {#sec-comp-kickback}
@@ -220,7 +172,6 @@ Capacitance also establishes the sampling-noise budget.
 For an illustrative 800 fF capacitance per differential branch at 300 K, the ideal differential sampling noise is $\sigma_\mathrm{sample} = \sqrt{2kT/C} \approx 102$ µV RMS.
 For an assumed 1.2 V differential full-scale span, ideal 12-bit quantization noise is $\sigma_\mathrm{quant} = (1.2\,\mathrm{V}/2^{12})/\sqrt{12} \approx 85$ µV RMS.
 Sampling noise is therefore already comparable to quantization noise at this capacitance, making capacitor sizing consequential for effective resolution.
-The prototype's nominal physical capacitance, including both members of the difference pairs, is approximately 1.88 pF per branch; the same ideal estimate gives approximately 66 µV RMS, before comparator noise and other nonidealities are included.
 
 ### The matching limit {#sec-cdac-matching}
 
@@ -246,18 +197,9 @@ Matching asks for $4^N$ as noise does, but with the coefficient $A^2$ in place o
 The noise and the matching limits on the total capacitance.
 :::
 
-::: {#fig-rec-capdac-mismatch-inl plot="rec_capdac_mismatch_inl"}
-A 12-bit array of 17 decisions in TSMC65: Worst INL with the design weights (95th percentile) over Pelgrom's coefficient.
-:::
-
-::: {#fig-rec-adc-mismatch-dnl plot="rec_adc_mismatch_dnl"}
-The assembled 12-bit converter (behavioral): Worst DNL over the Pelgrom coefficient (predicted 95th percentile).
-:::
-
 ::: todo
 
 - Which limit binds at 10, 12 and 14 bits for the matching coefficients published for MOM capacitors (up to 0.22 %·√fF [@harpe2019], 0.85 %·√fF [@tripathi2014]).
-- The pipeline's linearized prediction (every code's DNL and INL sigma from every plate's error) against its SPICE Monte Carlo, and where @eq-midcode is the worst code.
 :::
 
 ### Breaking the scaling: difference capacitors {#sec-cdac-difference}
@@ -266,7 +208,6 @@ To break the direct relation between the total capacitance and the mismatch of t
 
 The CDAC uses fringe metal–oxide–metal capacitors with capacitance determined by finger length, drawing on the unit-length capacitor approach [@harpe2019].
 Small effective weights are formed from the difference between two capacitors switched in opposite directions: $C_\mathrm{eff} = C_\mathrm{main} - C_\mathrm{diff}$.
-The prototype's smallest effective weight is 0.8 fF, obtained from nominal 26.4 fF and 25.6 fF elements.
 This avoids relying on an individually fabricated capacitor of the same small value, while retaining a compact array without a bridge-capacitor divider or additional scaled reference voltages.
 The benefit comes with sensitivity to matching between the paired elements, which must be assessed through extraction, modeling, and calibration.
 
@@ -309,37 +250,29 @@ $$
 q_k \geq z\,\sigma_{w_k} \quad \text{at every stage } k.
 $$ {#eq-calibratable}
 
-::: {#fig-rec-capdac-mismatch-gap plot="rec_capdac_mismatch_gap"}
-A 12-bit array of 17 decisions in TSMC65: Unrecoverable code width after ideal calibration (95th percentile).
-:::
-
 ::: {#fig-rec-adc-redundancy plot="rec_adc_redundancy"}
-The assembled 12-bit converter (behavioral): Error tolerance by stage.
+A 12-bit array of 17 decisions (MSB redistribution): each stage's error tolerance (@eq-margin).
 :::
 
 ::: {#fig-rec-adc-mismatch-margin plot="rec_adc_mismatch_margin"}
-The assembled 12-bit converter (behavioral): Redundancy margin over its mismatch σ by stage.
+A 12-bit array of 17 decisions (MSB redistribution): each stage's margin over its weight's mismatch σ (@eq-calibratable).
 :::
 
 Three schemes redistribute the binary array's units: MSB split splits the most significant binary weights into halves, which gives the free first comparison and the decisions after it their tolerance; LSB split splits the least significant weights of at least 2, a tolerance only at the LSB end; MSB redistribution is this work's paired overlay, a run of paired powers of two taken from the MSB and added from the third stage on, its tolerance spread over the whole chain.
 
-Redundant capacitor weights spread a 12-bit conversion over more comparator decisions, 17 in @fig-rec-capdac-dac-inl, from which a normalized 12-bit result is reconstructed.
+Redundant capacitor weights spread a 12-bit conversion over more comparator decisions, 17 in @fig-rec-adc-redundancy, from which a normalized 12-bit result is reconstructed.
 At 10 MS/s a conversion lasts 100 ns, permitting approximately 5 ns per decision after sampling and initialization overhead.
 Overlapping decision ranges allow later comparisons to correct some earlier errors caused by noise or incomplete settling, with a correction margin that depends on the stage and error magnitude.
 
 ::: todo
 
-- @eq-calibratable as the sizing rule: for a given $A$ and $C_u$, the fewest extra decisions that keep $q_k/\sigma_{w_k} \geq 3$; the pipeline computes each stage's margin over sigma, but no solver picks the scheme yet.
+- @eq-calibratable as the sizing rule: for a given $A$ and $C_u$, the fewest extra decisions that keep $q_k/\sigma_{w_k} \geq 3$.
 - Redundancy and time: it shortens a conversion where DAC settling dominates, not where the latch delay does, since it cannot undo a metastable decision [@chang2013].
 - Redundancy in the last 1–2 bits relaxes comparator noise beyond quantization noise (@sec-comp-optimization).
 - The three calibrations: CDAC S-curves, least squares on a known ramp, and Chang's algorithm [@chang2013].
 :::
 
 ### Switching scheme {#sec-cdac-switching}
-
-::: {#fig-rec-capdac-dac-inl plot="rec_capdac_dac_inl"}
-A 12-bit array of 17 decisions in TSMC65: DAC INL by code, the 95th-percentile run at the middle condition.
-:::
 
 This work uses a modified monotonic, single-side switching procedure, building on the monotonic switching scheme [@liu2010].
 Programmable initial capacitor states provide a means to adjust the comparator common-mode trajectory.
@@ -353,14 +286,9 @@ $$ {#eq-switching}
 ::: todo
 
 - Switching energy per conversion for monotonic against Vcm-based switching, and the common-mode drift it costs the comparator [@chang2013; @liu2010].
-- The initial state (16'h5555 in @sec-frida1) and what it does to the common-mode trajectory, power and noise; measured evidence is still missing.
 :::
 
 ### Drivers and settling {#sec-cdac-settling}
-
-::: {#fig-rec-capdac-settling-stage plot="rec_capdac_settling_stage"}
-A 12-bit array of 17 decisions in TSMC65: Settling to half an LSB by stage (the slower direction).
-:::
 
 A stage's bottom plate settles first order through its driver.
 To settle a stage of weight $w$ to half an LSB of the whole array $W$ takes
@@ -385,40 +313,10 @@ The top plate's parasitic capacitance divides every step: the full scale is the 
 ### Synchronous control {#sec-clocking-sync}
 
 Synchronous control supports implementation with conventional digital synthesis and place-and-route tools.
-A one-hot stage selector advances through 16 capacitor-control stages, followed by a terminal comparison that contributes to the decoded result without switching another capacitor.
-Initialization loads the programmed starting state into all driver registers and seeds the selector with stage 0 active; subsequent logic-clock edges shift this one-hot enable through the chain.
-
-::: {#fig-adc-timing-clocking src="../images/report/adc_timing"}
-Initialization, sampling, comparator, and logic timing waveforms.
-:::
-
-The sequencer is a set of named recipes over four lines, INIT, SAMP, COMP and LOGIC, each a pattern of symbols at the sequencer's symbol rate: four symbols of INIT, twenty of SAMP, then one eight-symbol word per decision, COMP high for the first four symbols and LOGIC for the last four.
-
-::: {#fig-sequences placeholder="The sequencer's recipes as timing diagrams (docs/images/sequences, drawn from the recipes): COMP duty and LOGIC phase."}
-The sequences studied.
-:::
 
 ### Timing budget {#sec-clocking-budget}
 
-::: {#fig-rec-adc-trajectory plot="rec_adc_trajectory"}
-The assembled 12-bit converter (behavioral): Decision paths at one input.
-:::
-
-::: {#fig-rec-adc-hsu-rate plot="rec_adc_hsu_rate"}
-The assembled 12-bit converter (behavioral): Integrated error over the conversion rate.
-:::
-
 Each decision must fit the comparator's delay at its input (@eq-regeneration), the logic's clock-to-output and the DAC's settling (@eq-driver) within its share of the conversion.
-
-::: todo
-
-- The timing-closure margins the behavioral model checks: 200 ps logic and CDAC setup, 0.3 V latch resolution, 1 mV CDAC tolerance.
-- The ENOB over sequence and symbol rate (the sequence map), and which recipe the timing allows at 10 MS/s.
-:::
-
-### Measured sequences
-
-The measured sequences are in @sec-meas-sequence.
 
 ## Assembling the converter {#sec-adc}
 
@@ -427,23 +325,6 @@ The measured sequences are in @sec-meas-sequence.
 - The assembly problem: pick a sampler, a comparator and an array per process and resolution so that the noise, the area and the power budgets of @sec-specs are all met.
 - The trade-off between performance (noise, linearity, speed) and costs (power, area) in SAR ADCs is tricky, because each block has a different relationship between these: large CDACs have worse speed, but large comparators and sampling switches can typically improve it.
 :::
-
-### The behavioral converter {#sec-adc-behavioral}
-
-The behavioral converter composes the blocks' models, each from its own characterization: the sampler's on-resistance over the input and its kT/C (@sec-sampling-switch), the comparator's noise, offset and delay over the input (@sec-comparator), and the array's plates as drawn, with each stage's step, delay and settling as the DAC's characterization measured them (@sec-cdac).
-It runs the SAR loop on them.
-The comparator's measured delay over the input decides when a decision is late, and its SR latch then holds the last one; each stage's plates move after its driver's delay and settle with its own time constant.
-
-::: {#fig-adc-architecture src="../images/report/adc_architecture"}
-Circuitikz schematic of the differential ADC, redundant capacitor weights, synchronous SAR registers, and main/difference capacitor pair.
-:::
-
-The circuit diagram shows the differential architecture.
-Each capacitor cell contains a main capacitor and a difference capacitor, with the effective weight shown above it.
-Complementary rail drivers connect directly to the enabled decision registers.
-The first three capacitor stages and the final stage are shown; three dots denote the omitted stages 3–14.
-Complementary comparator outputs feed the decision registers, and a dedicated clock input controls evaluation.
-Weighted decoding is external to the prototype ADC macro.
 
 ### The noise budget {#sec-adc-noise}
 
@@ -455,48 +336,21 @@ Each source that adds one quantization noise power costs the converter
 $$
 \mathrm{ENOB} = N - \frac{1}{2}\log_2\!\left(1 + \sum_i \frac{\sigma_i^2}{\mathrm{LSB}^2/12}\right),
 $$ {#eq-enob-budget}
-half a bit for one such source, and about 0.8 bit for three equal ones at 0.71 of the quantization noise each (@eq-cost-optimum).
+half a bit for one such source, and about 0.8 bit for three equal ones at 0.71 of the quantization noise each.
 The reference may add at most half the quantization noise power from its output resistance and half from its noise.
-
-The behavioral model measures the budget as a ladder: the 10 MS/s sine from quantization alone, then adding the sampler's tracking error, its kT/C noise and jitter, the DAC's settling, the comparator's delay and its noise in turn.
-
-::: {#fig-adc-ladder plot="adc_ladder"}
-The ENOB budget, one impairment at a time.
-:::
-
-::: {#fig-rec-adc-enob-rate plot="rec_adc_enob_rate"}
-The assembled 12-bit converter (behavioral): ENOB over the conversion rate.
-:::
-
-::: {#fig-rec-adc-spectrum-low plot="rec_adc_spectrum_low"}
-The assembled 12-bit converter (behavioral): Spectrum at 10 MS/s, low input frequency.
-:::
-
-::: {#fig-rec-adc-noise-spectrum plot="rec_adc_noise_spectrum"}
-The assembled 12-bit converter (behavioral): Output-code noise: 0.77 LSB rms = lines 0.00 ⊕ white 0.77.
-:::
-
-For the assembled converter the ladder ends at 10.04 bits: the sampler's tracking error costs the most (1.65 bits), the comparator's noise 0.22, kT/C 0.06.
-Its noise is 0.76 LSB, the sampler 0.50 and the comparator 0.71.
 
 ::: todo
 
-- Why the tracking error dominates here: the transmission gate's mid-supply $R_\mathrm{on}$ into the 12-bit array (@eq-tracking), and the bootstrap's recovery.
 - @eq-enob-budget flipped: given the area and power caps, how much of the budget each block gets.
 :::
 
 ### Energy {#sec-adc-energy}
-
-::: {#fig-rec-adc-power-rate plot="rec_adc_power_rate"}
-The assembled 12-bit converter (behavioral): Supply power over the conversion rate.
-:::
 
 The energy per conversion sums the three supplies: the comparator's decisions on the analog rail, the logic's registers and clock on the digital rail, and the DAC's charge from the reference (@eq-switching) with its drivers' transitions:
 $$
 E_\mathrm{conv} = (M + 1)E_\mathrm{dec} + E_\mathrm{logic} + V_\mathrm{ref}\,Q_\mathrm{DAC} + E_\mathrm{drivers},
 $$ {#eq-energy}
 for $M$ capacitor stages.
-The assembled converter spends about 28.9 pJ per conversion, 289 µW at 10 MS/s; the SAR logic dominates.
 
 ::: todo
 
@@ -505,10 +359,6 @@ The assembled converter spends about 28.9 pJ per conversion, 289 µW at 10 MS/s;
 :::
 
 ### Area {#sec-adc-area}
-
-::: {#fig-rec-adc-reference-noise plot="rec_adc_reference_noise"}
-The assembled 12-bit converter (behavioral): ENOB lost to the reference's noise, sampler and comparator ideal.
-:::
 
 ::: todo
 
