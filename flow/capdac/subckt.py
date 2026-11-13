@@ -351,6 +351,8 @@ def _place(
             c.Stackup(caps, min_layer=shield - 1, max_layer=top),
             c.Stackup((*diff, *main), max_layer=shield - 2),
         ]
+    elif room_nm:  # the states' routing room past the capacitors' ends (``netlist``)
+        inner.append(c.Boundary(halo_horizontal_um=room_nm / 1000))
     regions = [region for region in (*diffs, *cap_rows, *mains) if region]
     # not mirrored: a capacitor's channels meet its neighbours' as drawn, so ALIGN mirrors none
     place(side, rows(*(row(*region) for region in regions)), symmetric=False, constraints=tuple(inner))
@@ -446,6 +448,11 @@ def netlist(params: Params) -> h.Module:
     room_nm = 0
     if slice_ is not None and wide * outline[0] >= rows_nm:
         room_nm = 2 * metal_tracks(pdk, f"M{slice_[0] - 1}")[0]
+    elif slice_ is None and difference:
+        # capacitors beside the rows, across the side's width: each state runs from its main
+        # driver under them to its difference driver over them past their ends, on M1 and M3, a
+        # quarter of the states' tracks at each edge
+        room_nm = -(-len(weights) // 4) * metal_tracks(pdk, "M3")[0]
     # the stages' drivers and pieces between the states and the top plate
     state, top = Capdac.dac_state, Capdac.vdac
     stages: list[_Stage] = []
