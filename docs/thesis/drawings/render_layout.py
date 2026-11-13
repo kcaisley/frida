@@ -7,7 +7,8 @@ each layer merged, and drawn with KLayout's own renderer.
     uv run python docs/thesis/drawings/render_layout.py GDS PDK OUT_DIR name=CELL [name=CELL ...]
 
 ``name=CELL`` renders cell CELL into ``OUT_DIR/name.png``; ``name=`` (no cell) the top cell;
-``name=CELL@4`` only the metals up to M4 (and their vias), for a dense cell. A first argument
+``name=CELL@4`` only the metals up to M4 (and their vias), for a dense cell; ``name=CELL!SUB`` the
+cell less its subcell SUB (a chip's pad ring without its core). A first argument
 ``--style=asiclab`` draws in the ASICLab chip catalogue's style instead of the viewer's.
 """
 
@@ -49,8 +50,11 @@ def style(key: str) -> tuple[str, int, int] | None:
     return None
 
 
-def generic(layout: kdb.Layout, cell: kdb.Cell, pdk: str, max_metal: int = 99) -> tuple[kdb.Layout, list[str]]:
-    """The cell flattened onto the generic layers, each merged; the keys, bottom first."""
+def generic(
+    layout: kdb.Layout, cell: kdb.Cell, pdk: str, max_metal: int = 99, without: str = ""
+) -> tuple[kdb.Layout, list[str]]:
+    """The cell flattened onto the generic layers (less the subcell ``without``), each merged; the
+    keys, bottom first."""
     tech = import_module(f"pdk.{pdk}.layout.tech")
     numbers = {tuple(number): key for key, number in tech.LAYERS.items() if number}
     out = kdb.Layout()
@@ -64,7 +68,10 @@ def generic(layout: kdb.Layout, cell: kdb.Cell, pdk: str, max_metal: int = 99) -
             continue
         if key[0] in "MV" and key[1:].isdigit() and int(key[1:]) > max_metal - (key[0] == "V"):
             continue
-        region = kdb.Region(cell.begin_shapes_rec(index)).merged()
+        shapes = cell.begin_shapes_rec(index)
+        if without:
+            shapes.unselect_cells(without)
+        region = kdb.Region(shapes).merged()
         if region.is_empty():
             continue
         target = out.layer(kdb.LayerInfo(len(keys) + 1, 0, key))
@@ -201,9 +208,10 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     for item in wanted:
         name, _, spec = item.partition("=")
-        cell_name, _, limit = spec.partition("@")
+        spec, _, limit = spec.partition("@")
+        cell_name, _, without = spec.partition("!")
         cell = layout.cell(cell_name) if cell_name else layout.top_cells()[0]
-        flat, keys = generic(layout, cell, pdk, int(limit) if limit else 99)
+        flat, keys = generic(layout, cell, pdk, int(limit) if limit else 99, without)
         (render_asiclab if style_name == "asiclab" else render)(flat, keys, out_dir / f"{name}.png")
         print(out_dir / f"{name}.png", keys)
 

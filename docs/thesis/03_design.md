@@ -179,6 +179,14 @@ FRIDA-1's sampler is the grid's transmission gate of 32 units without dummies.
 In TSMC65 into 1 pF it measures 460 Ω at mid-supply and 553 Ω at most over the input, a 346 MHz bandwidth, a largest pedestal of 0.75 mV, and 12.9 µm² of layout.
 The same sizing measures 535 Ω in TSMC28 and 690 Ω in IHP130, and 236–331 Ω (at mid-supply) in TPSC65, LF150 and Tower180.
 
+::: {#fig-gen-samp src="figures/layout_gen_samp.png"}
+The grid's FRIDA-1 sampler (TGATE, 32 units) as the pipeline lays it out in TSMC65.
+:::
+
+::: {#fig-gen-samp-iso src="figures/layout3d_gen_samp.png"}
+The grid's FRIDA-1 sampler (TGATE, 32 units) in an isometric view of its layers.
+:::
+
 : FRIDA-1's sampler in its grid, TSMC65, into 1 pF. {#tbl-frida1-samp}
 
 | | FRIDA-1 (TGATE, 32) | TGATE, 128 | Bootstrap, 160 |
@@ -321,6 +329,14 @@ The comparator optimization for a 12-bit converter.
 FRIDA-1's comparator is the grid's `frida1` instance, a StrongARM.
 In TSMC65 it measures 246 µV of input-referred noise, a negligible systematic offset, 292 fJ per decision, 2.0 ns at 0.5 mV, a regeneration time constant of 194 ps, 6.9 mV of kickback, and 157 µm² of layout: an $E\sigma^2$ of about 18 fJ·mV², against 3.3 for the best TSMC65 designs (@fig-comp-energy-noise).
 In TSMC28 the same sizing measures 530 µV and 80 fJ; in the 130–180 nm processes and TPSC65 its latch lengths do not decide within the clock.
+
+::: {#fig-gen-comp src="figures/layout_gen_comp.png"}
+The grid's FRIDA-1 comparator as the pipeline lays it out in TSMC65.
+:::
+
+::: {#fig-gen-comp-iso src="figures/layout3d_gen_comp.png"}
+The grid's FRIDA-1 comparator in an isometric view of its layers.
+:::
 
 ::: todo
 
@@ -558,6 +574,14 @@ FRIDA-1's array is the grid's `frida1` instance: 12 bits, MSB redistribution wit
 Extracted in TSMC65, its gain is 0.73 (a 0.68 V full scale), its largest stage settles in 0.28 ns with a step error of 0.017 LSB, and it takes 645 µm² of layout per side.
 At a matching coefficient of 1 %·√fF its 95th-percentile uncalibratable gap is 0.27 LSB and its INL with the design weights 2.4 LSB (@fig-cdac-gap).
 
+::: {#fig-gen-capdac src="figures/layout_gen_capdac.png"}
+The grid's FRIDA-1 array, one side, with its drivers as the pipeline lays it out in TSMC65.
+:::
+
+::: {#fig-gen-capdac-iso src="figures/layout3d_gen_capdac.png"}
+The grid's FRIDA-1 array, one side, with its drivers in an isometric view of its layers.
+:::
+
 ::: todo
 
 - @eq-calibratable applied to FRIDA-1's weights: each stage's margin over its weight's sigma.
@@ -731,3 +755,11 @@ Optimized converters across processes and resolutions.
 
 The generated FRIDA design composes these three instances: its behavioral record gives 10.04 ENOB, 28.9 pJ per conversion (289 µW at 10 MS/s) and 0.76 LSB of noise (sampler 0.50, comparator 0.71), with the ladder of @fig-adc-ladder.
 These single-instance predictions are what @sec-frida1-measurements compares the silicon against.
+
+::: {#fig-gen-adc src="figures/layout_gen_adc.png"}
+The generated FRIDA design's blocks side by side as the pipeline lays it out in TSMC65.
+:::
+
+::: {#fig-gen-adc-iso src="figures/layout3d_gen_adc.png"}
+The generated FRIDA design's blocks side by side in an isometric view of its layers.
+:::

@@ -67,6 +67,7 @@ def drawing_pdfs() -> None:
 
 
 FRIDA1_GDS = "build/adc/e2e_adc_fab/tsmc65/frida1_1layer_radix17/layout/frida1_1layer_radix17.gds"
+FRIDA1_CHIP_GDS = "build/frida-1.gds"
 FRIDA1_RENDERS = (
     "layout_frida1_channel=@4",
     "layout_frida1_comp=comp",
@@ -75,8 +76,6 @@ FRIDA1_RENDERS = (
     "layout_frida1_caparray=caparray_1layer_radix17",
     "layout_frida1_digital=adc_digital@3",
 )
-
-
 FRIDA1_RENDERS_3D = (
     "layout3d_frida1_channel=",
     "layout3d_frida1_comp=comp",
@@ -84,46 +83,39 @@ FRIDA1_RENDERS_3D = (
     "layout3d_frida1_capdriver=capdriver",
     "layout3d_frida1_caparray=caparray_1layer_radix17",
 )
+FRIDA1_CHIP_RENDERS = ("layout_frida1_top=frida_top", "layout_frida1_padring=frida_top!frida_core")
+
+
+def layout_sources() -> list[tuple[Path, tuple[str, ...], tuple[str, ...]]]:
+    """Each GDS with its flat and isometric renders: FRIDA-1's channel and chip, and the generated
+    layouts of FRIDA-1's instances in the grids (the record's own GDS, its top cell)."""
+    root = figures.build_dir().parent
+    sources = [
+        (root / FRIDA1_GDS, FRIDA1_RENDERS, FRIDA1_RENDERS_3D),
+        (root / FRIDA1_CHIP_GDS, FRIDA1_CHIP_RENDERS, ()),
+    ]
+    for block, run, pdk, label, *_ in (*figures.RECORD_FIGURES, figures.ADC_RECORD):
+        folder = figures._record(block, run, pdk, label).parent / "layout"
+        gds = sorted(g for g in folder.rglob("*.gds") if g.stem in (g.parent.name, "adc_blocks"))
+        if gds:
+            sources.append((gds[0], (f"layout_gen_{block}=",), (f"layout3d_gen_{block}=",)))
+    return sources
 
 
 def layout_renders() -> None:
-    """FRIDA-1's layouts in the viewer's style (drawings/render_layout.py), where its GDS and the
-    kit's layer map are present (the main checkout with the PDK submodules); kept once made."""
+    """The layouts in the viewer's style (drawings/render_layout.py, render_layout3d.py), where
+    their GDS and the kit's layer map are present (the main checkout with the PDK submodules);
+    kept once made."""
     root = figures.build_dir().parent
-    gds = root / FRIDA1_GDS
-    if not gds.exists():
-        return
-    result = subprocess.CompletedProcess([], 0)
-    if not (figures.OUT / "layout_frida1_comp.png").exists():
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(HERE / "drawings" / "render_layout.py"),
-                str(gds),
-                "tsmc65",
-                str(figures.OUT),
-                *FRIDA1_RENDERS,
-            ],
-            cwd=root,
-            check=False,
-        )
-    if result.returncode:
-        print("build: FRIDA-1's layout renders need the kit's layer map; left out")
-    if not (figures.OUT / "layout3d_frida1_comp.png").exists():
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(HERE / "drawings" / "render_layout3d.py"),
-                str(gds),
-                "tsmc65",
-                str(figures.OUT),
-                *FRIDA1_RENDERS_3D,
-            ],
-            cwd=root,
-            check=False,
-        )
-        if result.returncode:
-            print("build: FRIDA-1's isometric renders need the kit's layer map and Chromium; left out")
+    for gds, flat, iso in layout_sources():
+        if not gds.exists():
+            continue
+        for script, items in (("render_layout.py", flat), ("render_layout3d.py", iso)):
+            if not items or (figures.OUT / f"{items[0].partition('=')[0]}.png").exists():
+                continue
+            command = [sys.executable, str(HERE / "drawings" / script), str(gds), "tsmc65", str(figures.OUT), *items]
+            if subprocess.run(command, cwd=root, check=False).returncode:
+                print(f"build: {gds.name}'s renders need the kit's layer map (and Chromium); left out")
 
 
 def tikz_drawings() -> None:

@@ -3,10 +3,6 @@
 FRIDA-1 is a 1 × 1 mm test chip in 65 nm with 16 ADC channels, submitted in October 2025 and received in March 2026.
 Its four ADC flavors cross one- and two-layer capacitor arrays with two weight radixes.
 
-::: {#fig-frida1-core src="../images/frida_core.png"}
-FRIDA-1's core: the ADC channels and their shared periphery.
-:::
-
 ## Implementation of the building blocks {#sec-frida1-blocks}
 
 ### Sampling switch and comparator {#sec-frida1-samp-comp}
@@ -99,8 +95,8 @@ The SAR logic is still on-chip, but the external DAQ system must acquire each co
 
 The top level was assembled hierarchically with OpenROAD, using the ADC block as a hardened macro with a LEF view.
 
-::: {#fig-frida1-padring src="../images/frida_padring.png"}
-FRIDA-1's pad ring.
+::: {#fig-frida1-padring src="figures/layout_frida1_padring.png"}
+FRIDA-1's pad ring: the top level without its core.
 :::
 
 ::: todo
@@ -110,7 +106,7 @@ FRIDA-1's pad ring.
 
 ### Top-level layout and fabricated prototype
 
-::: {#fig-frida1-top src="../images/frida_top.png"}
+::: {#fig-frida1-top src="figures/layout_frida1_top.png"}
 FRIDA-1's top-level layout.
 :::
 
