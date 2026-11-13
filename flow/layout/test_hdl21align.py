@@ -10,8 +10,20 @@ import hdl21 as h
 import pytest
 from hdl21.primitives import MosType, MosVth, Nmos
 
+from flow.layout.hdl21align import (
+    column,
+    halves,
+    issues,
+    module_plan,
+    netlist_name,
+    place,
+    pnr_input,
+    pnr_inputs,
+    row,
+    rows,
+    sides,
+)
 from flow.layout.hdl21align import constraints as c
-from flow.layout.hdl21align import halves, issues, module_plan, place, pnr_input, pnr_inputs, row, rows
 from flow.layout.run import ALIGN_HOME, align_env
 
 
@@ -270,3 +282,211 @@ def test_a_group_takes_only_the_constraints_align_takes_within_one() -> None:
     m, _ = _demo()
     with pytest.raises(ValueError, match="no PowerPorts within a group"):
         c.Group("Xload", (m.MLp, m.MLn), constraints=(c.PowerPorts((m.vdd,)),))
+
+
+def _six() -> h.Module:
+    """Six like NMOS devices on two nets, ``Ma`` to ``Mf``."""
+    m = h.Module(name="six")
+    m.x, m.y = h.Port(), h.Port()
+    device = Nmos(h.primitives.MosParams(tp=MosType.NMOS, vth=MosVth.STD))
+    for name in "abcdef":
+        m.add(device(d=m.x, g=m.y, s=m.y, b=m.y), name=f"M{name}")
+    return m
+
+
+def test_a_column_in_a_row_is_a_sub_cell_stacking_its_entries() -> None:
+    m = _six()
+    plan = module_plan(place(m, rows(row(m.Ma, column(m.Mb, row(m.Mc, m.Md), m.Me), m.Mf))))
+    assert plan["rows"] == [["Ma", "Xcolumn0", "Mf"]]
+    assert plan["constraints"] == [
+        {
+            "constraint": "GroupBlocks",
+            "instance_name": "Xcolumn0",
+            "instances": ["Mb", "Mc", "Md", "Me"],
+            "constraints": [
+                {
+                    "constraint": "Floorplan",
+                    "regions": [["Mb"], ["Mc", "Md"], ["Me"]],
+                    "order": True,
+                    "symmetrize": True,
+                },
+                {"constraint": "DoNotIdentify", "instances": ["Mb", "Mc", "Md", "Me"]},
+            ],
+        }
+    ]
+
+
+def test_nesting_opens_like_containers_and_names_columns_inner_first() -> None:
+    m = _six()
+    nested = rows(row(row(m.Ma, column(column(m.Mb), m.Mc)), column(m.Md, row(m.Me, column(m.Mf)))))
+    m2 = _six()
+    flat = rows(row(m2.Ma, column(m2.Mb, m2.Mc), column(m2.Md, row(m2.Me, m2.Mf))))
+    a = module_plan(place(m, nested, symmetric=False))
+    b = module_plan(place(m2, flat, symmetric=False))
+    assert a == b and a["rows"] == [["Ma", "Xcolumn0", "Xcolumn1"]]
+    assert a["constraints"][1]["constraints"][0]["regions"] == [["Md"], ["Me", "Mf"]]
+    # a column of one entry is that entry; a column at the top is the rows themselves
+    m3 = _six()
+    top = rows(column(row(m3.Ma, column(m3.Mb), m3.Mc), m3.Md, row(m3.Me, m3.Mf)))
+    assert module_plan(place(m3, top))["rows"] == [["Ma", "Mb", "Mc"], ["Md"], ["Me", "Mf"]]
+
+
+def test_a_column_within_a_column_within_a_row_is_a_group_within_a_group() -> None:
+    m = _six()
+    inner = column(m.Mc, m.Md, name="Xinner")
+    plan = module_plan(
+        place(m, rows(row(m.Ma, column(m.Mb, row(inner, m.Me)), m.Mf)), constraints=(c.Stackup((inner,), max_layer=3),))
+    )
+    groups = [(x["instance_name"], x["instances"]) for x in plan["constraints"] if x["constraint"] == "GroupBlocks"]
+    assert groups == [("Xinner", ["Mc", "Md"]), ("Xcolumn0", ["Mb", "Xinner", "Me"])]
+    assert plan["constraints"][-1] == {"constraint": "Stackup", "instances": ["Xinner"], "max_layer": "M3"}
+
+
+def test_each_instance_is_placed_once_through_every_nesting() -> None:
+    m = _six()
+    pnr = place(m, rows(row(m.Ma, column(m.Mb, row(m.Mc, m.Ma)), m.Md), row(m.Me)))
+    assert sorted(issues(pnr)) == ["Ma is placed 2 times", "Mf is in no row and not left to ALIGN"]
+    top = h.Module(name="top")
+    top.a, top.y, top.vdd, top.vss = h.Port(), h.Port(), h.Port(), h.Port()
+    top.Xa = _inverters()(a=top.a, y=top.y, vdd=top.vdd, vss=top.vss)
+    device = Nmos(h.primitives.MosParams(tp=MosType.NMOS, vth=MosVth.STD))
+    top.Mb, top.Mc = device(d=top.y, g=top.a, s=top.vss, b=top.vss), device(d=top.y, g=top.a, s=top.vss, b=top.vss)
+    named = rows(row(column(top.Mb, top.Mc, name="Xa"), top.Xa))
+    assert issues(place(top, named)) == ["a sub-cell is named as an instance: XA"]
+    m3 = _six()
+    twice = rows(row(column(m3.Ma, m3.Mb, name="Xs"), column(m3.Mc, m3.Md, name="Xs")), row(m3.Me, m3.Mf))
+    assert issues(place(m3, twice)) == ["two sub-cells are named XS"]
+
+
+def _diff(*, taken: bool = False) -> h.Module:
+    """A differential pair (an ``h.Pair``, ``diff``) on a tail."""
+    m = h.Module(name="diff")
+    m.inp, m.inn, m.vss, m.tail = h.Port(), h.Port(), h.Port(), h.Signal()
+    m.out = h.Diff()
+    device = Nmos(h.primitives.MosParams(tp=MosType.NMOS, vth=MosVth.STD))
+    m.diff = h.Pair(device)(d=m.out, g=h.AnonymousBundle(p=m.inp, n=m.inn), s=m.tail, b=m.vss)
+    m.Mtail = device(d=m.tail, g=m.inp, s=m.vss, b=m.vss)
+    if taken:
+        m.diff_p = device(d=m.tail, g=m.inp, s=m.vss, b=m.vss)
+    return m
+
+
+_PAIR_CELL = {
+    "constraint": "GroupBlocks",
+    "instance_name": "Xdiff",
+    "instances": ["Mdiff_p", "Mdiff_n"],
+    "constraints": [
+        {"constraint": "Order", "instances": ["Mdiff_p", "Mdiff_n"], "abut": False, "direction": "left_to_right"},
+        {"constraint": "SymmetricBlocks", "pairs": [["Mdiff_p", "Mdiff_n"]], "direction": "V"},
+    ],
+}
+
+
+def test_a_pair_placed_whole_is_a_mirrored_sub_cell_before_and_after_elaboration() -> None:
+    m = _diff()
+    pnr = place(m, rows(row(m.diff), row(m.Mtail)))
+    before = module_plan(pnr)
+    assert before == {"rows": [["Xdiff"], ["Mtail"]], "symmetric": True, "split": {}, "constraints": [_PAIR_CELL]}
+    h.elaborate(m)
+    assert set(m.instances) == {"diff_p", "diff_n", "Mtail"} and not m.instbundles
+    assert module_plan(pnr) == before
+
+
+@pytest.mark.parametrize(
+    ("arrange", "symmetric", "added"),
+    (
+        ("p tail n", True, False),  # the mirrored rows mirror them already
+        ("p tail n", False, True),
+        ("p n tail", True, True),  # in the rows' mirrored places: (p, tail) and n
+        ("p tail/n", False, False),  # in two rows: mirrored about no vertical axis
+    ),
+)
+def test_a_pairs_sides_in_one_row_are_mirrored_unless_stated(arrange: str, symmetric: bool, added: bool) -> None:
+    m = _diff()
+    p, n = sides(m.diff)
+    by = {"p": p, "n": n, "tail": m.Mtail}
+    placed = rows(*(row(*(by[x] for x in r.split())) for r in arrange.split("/")))
+    plan = module_plan(place(m, placed, symmetric=symmetric))
+    mirror = {"constraint": "SymmetricBlocks", "pairs": [["Mdiff_p", "Mdiff_n"]], "direction": "V"}
+    assert plan["constraints"] == ([mirror] if added else [])
+    h.elaborate(m)
+    assert module_plan(pnr_input(m)) == plan
+
+
+def test_a_pairs_symmetry_the_generator_states_is_not_repeated() -> None:
+    m = _diff()
+    p, n = sides(m.diff)
+    stated = c.SymmetricBlocks(((p, n), (m.Mtail,)), c.Axis.VERTICAL)
+    plan = module_plan(place(m, rows(row(p, n, m.Mtail)), symmetric=False, constraints=(stated,)))
+    assert plan["constraints"] == [
+        {"constraint": "SymmetricBlocks", "pairs": [["Mdiff_p", "Mdiff_n"], ["Mtail"]], "direction": "V"}
+    ]
+
+
+def test_a_pair_is_placed_once_in_its_sides_and_only_its_own_module_s() -> None:
+    m = _diff()
+    p, _ = sides(m.diff)
+    assert issues(place(m, rows(row(p, m.Mtail)))) == ["diff is placed 1 times"]
+    m2 = _diff()
+    assert issues(place(m2, rows(row(m2.Mtail)))) == ["diff is in no row and not left to ALIGN"]
+    m3 = _diff()
+    pnr = place(m3, rows(row(m3.Mtail)), auto=(m3.diff,))
+    assert issues(pnr) == []
+    h.elaborate(m3)
+    assert issues(pnr) == []
+    m4 = _diff()
+    assert "a placed Pair is not the module's" in issues(place(m4, rows(row(m4.diff, m4.Mtail, _diff().diff))))
+    with pytest.raises(ValueError, match="its name taken: diff_p"):
+        place(_diff(taken=True), rows())
+    with pytest.raises(TypeError):
+        sides(m4.Mtail)
+
+
+def test_a_pair_within_a_column_is_a_sub_cell_within_it() -> None:
+    m = _diff()
+    plan = module_plan(place(m, rows(row(column(m.diff, m.Mtail))), symmetric=False))
+    assert plan["rows"] == [["Xcolumn0"]]
+    assert plan["constraints"][0] == _PAIR_CELL
+    assert plan["constraints"][1]["instances"] == ["Xdiff", "Mtail"]
+    assert plan["constraints"][1]["constraints"] == [
+        {"constraint": "Floorplan", "regions": [["Xdiff"], ["Mtail"]], "order": True, "symmetrize": False},
+        {"constraint": "DoNotIdentify", "instances": ["Mtail"]},
+    ]
+
+
+@pytest.mark.parametrize("whole", (False, True))
+def test_align_accepts_nested_columns_and_pairs(tmp_path, whole: bool) -> None:
+    python = ALIGN_HOME / "general" / "bin" / "python"
+    if not python.is_file():
+        pytest.skip("ALIGN is not installed")
+    m = _diff()
+    device = Nmos(h.primitives.MosParams(tp=MosType.NMOS, vth=MosVth.STD))
+    m.Mx, m.My = (device(d=m.tail, g=m.inn, s=m.vss, b=m.vss) for _ in range(2))
+    p, n = sides(m.diff)
+    if whole:  # the pair's sub-cell within a column
+        placed = rows(row(m.Mx, column(m.diff, row(m.Mtail, m.My), name="Xstack")))
+    else:
+        placed = rows(row(p, column(m.Mtail, row(m.Mx, m.My)), n))
+    pnr = place(m, placed, symmetric=not whole)
+    h.elaborate(m)
+    written = module_plan(pnr)["constraints"]
+    design = {
+        "name": m.name,
+        "ports": list(m.ports),
+        # the instances as the netlist names them: the pair's ``diff_p`` is ``Mdiff_p``
+        "instances": {netlist_name(k, x.of): {p: s.name for p, s in x.conns.items()} for k, x in m.instances.items()},
+        "constraints": written,
+        "groups": [x for x in written if x["constraint"] == "GroupBlocks"],
+    }
+    path = tmp_path / "design.json"
+    path.write_text(json.dumps(design))
+    done = subprocess.run(
+        [str(python), "-c", _CHECK, str(path)],
+        env=align_env(),
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert json.loads(done.stdout.strip().splitlines()[-1]) == {}
