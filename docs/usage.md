@@ -144,6 +144,30 @@ uv run --no-project --python 3.12 python tools/check.py verilator-lint
 uv run --no-project --python 3.12 python tools/check.py verible-format --fix
 ```
 
+A per-file check takes files too (`tools/check.py verilator-lint design/hdl/adc.v` elaborates the designs holding it); the other commands take none. A design's sources are its file list, not `` `include ``s: Basil's modules include their own parts from the include directories, and a design may name library directories (`-y`) for primitive models.
+
+Supply pins follow OpenLane's and Caravel's convention. The netlist OpenROAD places and routes has no supply ports: synthesis runs without `USE_POWER_PINS`, and the PDN connects every cell's and macro's supplies by global connections (`add_global_connection`, `global_connect`). The powered view (LVS, a macro's blackbox, co-simulation) defines `USE_POWER_PINS`, which adds each supply port and connection first in its list, so the guard holds whole lines, each with its own comma:
+
+```verilog
+module sampdriver (
+`ifdef USE_POWER_PINS
+    inout  wire vdd_d,
+    inout  wire vss_d,
+`endif
+    input  wire clk_in,
+    ...
+);
+    OPENROAD_CLKBUF clk_buf (
+`ifdef USE_POWER_PINS
+        .VDD(vdd_d),
+        .VSS(vss_d),
+`endif
+        .A  (clk_in),
+        ...
+```
+
+A module has supply ports when it instantiates cells or macros (the `OPENROAD_*` wrappers, `comp`, `sampswitch`, the ADC macro and the blocks holding them, the pad rings); pure RTL such as `compmux` has none, as its synthesized cells take the PDN's connections. The wrappers' and the models' `VDD`/`VSS` reach no cell model (the standard cells' Verilog has none) and are waived as unused. A SPICE subcircuit takes its supplies last, so `flow.util.netlist` orders a hardened netlist's pins as the RTL's with the guarded ports after the signals. Every design whose files use the define is elaborated twice, without it and with it (`<design>+USE_POWER_PINS`).
+
 Yosys and OpenROAD run directly for synthesis and physical implementation. Each PDK's OpenROAD setup is in `pdk/<pdk>/openroad/`; the TSMC65 flow notes are in the private `pdk/tsmc65/docs/openroad.md`.
 
 ## ADC scans

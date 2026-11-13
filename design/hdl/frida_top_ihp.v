@@ -12,6 +12,19 @@
 module frida_top #(
     parameter integer N_STAGES = 16  // Capacitor stages per ADC; FRIDA has 16
 ) (
+`ifdef USE_POWER_PINS
+    // Supplies: the pad ring's (vdd_io/vss_io on its iovdd/iovss, vdd_d/vss_d on its vdd/vss,
+    // which its supply pads take) and the core's analog and DAC domains
+    inout wire vdd_a,
+    inout wire vss_a,
+    inout wire vdd_d,
+    inout wire vss_d,
+    inout wire vdd_io,
+    inout wire vss_io,
+    inout wire vdd_dac,
+    inout wire vss_dac,
+`endif
+
     // I/O Pad connections (must match pad.tcl instance names with _PAD suffix)
 
     // SPI Interface
@@ -43,21 +56,6 @@ module frida_top #(
     inout wire cmos_reserved_1_PAD,  // Reserved CMOS pad 1
     inout wire cmos_reserved_2_PAD,  // Reserved CMOS pad 2
     inout wire cmos_reserved_3_PAD   // Reserved CMOS pad 3
-
-    // Power Supply Pad Connections (handled by OpenROAD PDN)
-// verilog_format: off  (Verible moves a leading comma onto the directive)
-`ifdef USE_POWER_PINS
-    ,
-    inout wire vdd_a_PAD,
-    vss_a_PAD,  // Analog supply pads
-    inout wire vdd_d_PAD,
-    vss_d_PAD,  // Digital supply pads
-    inout wire vdd_io_PAD,
-    vss_io_PAD,  // I/O supply pads
-    inout wire vdd_dac_PAD,
-    vss_dac_PAD  // DAC supply pads
-`endif
-// verilog_format: on
 );
 
     // Core interface signals (directly connected to IO cells)
@@ -77,123 +75,302 @@ module frida_top #(
 
     // SPI Interface - Input pads (directly connected to core)
     sg13g2_IOPadIn sg13g2_IOPad_spi_sdi (
-        .pad(spi_sdi_PAD),
-        .p2c(spi_sdi)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (spi_sdi_PAD),
+        .p2c  (spi_sdi)
     );
 
     sg13g2_IOPadIn sg13g2_IOPad_spi_sclk (
-        .pad(spi_sclk_PAD),
-        .p2c(spi_sclk)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (spi_sclk_PAD),
+        .p2c  (spi_sclk)
     );
 
     sg13g2_IOPadIn sg13g2_IOPad_spi_cs_b (
-        .pad(spi_cs_b_PAD),
-        .p2c(spi_cs_b)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (spi_cs_b_PAD),
+        .p2c  (spi_cs_b)
     );
 
     // SPI Interface - Output pad
     sg13g2_IOPadOut4mA sg13g2_IOPad_spi_sdo (
-        .pad(spi_sdo_PAD),
-        .c2p(spi_sdo)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (spi_sdo_PAD),
+        .c2p  (spi_sdo)
     );
 
     // Sequencer Control - Input pads (directly connected for differential conversion)
     sg13g2_IOPadIn sg13g2_IOPad_seq_init_p (
-        .pad(seq_init_p_PAD),
-        .p2c(seq_init_p)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (seq_init_p_PAD),
+        .p2c  (seq_init_p)
     );
 
     sg13g2_IOPadIn sg13g2_IOPad_seq_init_n (
-        .pad(seq_init_n_PAD),
-        .p2c(seq_init_n)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (seq_init_n_PAD),
+        .p2c  (seq_init_n)
     );
 
     sg13g2_IOPadIn sg13g2_IOPad_seq_samp_p (
-        .pad(seq_samp_p_PAD),
-        .p2c(seq_samp_p)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (seq_samp_p_PAD),
+        .p2c  (seq_samp_p)
     );
 
     sg13g2_IOPadIn sg13g2_IOPad_seq_samp_n (
-        .pad(seq_samp_n_PAD),
-        .p2c(seq_samp_n)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (seq_samp_n_PAD),
+        .p2c  (seq_samp_n)
     );
 
     sg13g2_IOPadIn sg13g2_IOPad_seq_cmp_p (
-        .pad(seq_cmp_p_PAD),
-        .p2c(seq_cmp_p)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (seq_cmp_p_PAD),
+        .p2c  (seq_cmp_p)
     );
 
     sg13g2_IOPadIn sg13g2_IOPad_seq_cmp_n (
-        .pad(seq_cmp_n_PAD),
-        .p2c(seq_cmp_n)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (seq_cmp_n_PAD),
+        .p2c  (seq_cmp_n)
     );
 
     sg13g2_IOPadIn sg13g2_IOPad_seq_logic_p (
-        .pad(seq_logic_p_PAD),
-        .p2c(seq_logic_p)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (seq_logic_p_PAD),
+        .p2c  (seq_logic_p)
     );
 
     sg13g2_IOPadIn sg13g2_IOPad_seq_logic_n (
-        .pad(seq_logic_n_PAD),
-        .p2c(seq_logic_n)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (seq_logic_n_PAD),
+        .p2c  (seq_logic_n)
     );
 
     // Analog Inputs - Use analog passive cells (directly connected to core)
     sg13g2_IOPadAnalog sg13g2_IOPad_vin_p (
+`ifdef USE_POWER_PINS
+        .iovdd (vdd_io),
+        .iovss (vss_io),
+        .vdd   (vdd_d),
+        .vss   (vss_d),
+`endif
         .pad   (vin_p_PAD),
         .padres(vin_p)
     );
 
     sg13g2_IOPadAnalog sg13g2_IOPad_vin_n (
+`ifdef USE_POWER_PINS
+        .iovdd (vdd_io),
+        .iovss (vss_io),
+        .vdd   (vdd_d),
+        .vss   (vss_d),
+`endif
         .pad   (vin_n_PAD),
         .padres(vin_n)
     );
 
     // Comparator Outputs - Output pads (directly connected for differential conversion)
     sg13g2_IOPadOut4mA sg13g2_IOPad_comp_out_p (
-        .pad(comp_out_p_PAD),
-        .c2p(comp_out_p)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (comp_out_p_PAD),
+        .c2p  (comp_out_p)
     );
 
     sg13g2_IOPadOut4mA sg13g2_IOPad_comp_out_n (
-        .pad(comp_out_n_PAD),
-        .c2p(comp_out_n)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (comp_out_n_PAD),
+        .c2p  (comp_out_n)
     );
 
     // Reserved Pads - Output pads driven high (prevents optimization)
     sg13g2_IOPadOut4mA sg13g2_IOPad_cmos_reserved_0 (
-        .pad(cmos_reserved_0_PAD),
-        .c2p(cmos_reserved_0_out)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (cmos_reserved_0_PAD),
+        .c2p  (cmos_reserved_0_out)
     );
 
     sg13g2_IOPadOut4mA sg13g2_IOPad_cmos_reserved_1 (
-        .pad(cmos_reserved_1_PAD),
-        .c2p(cmos_reserved_1_out)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (cmos_reserved_1_PAD),
+        .c2p  (cmos_reserved_1_out)
     );
 
     sg13g2_IOPadOut4mA sg13g2_IOPad_cmos_reserved_2 (
-        .pad(cmos_reserved_2_PAD),
-        .c2p(cmos_reserved_2_out)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (cmos_reserved_2_PAD),
+        .c2p  (cmos_reserved_2_out)
     );
 
     sg13g2_IOPadOut4mA sg13g2_IOPad_cmos_reserved_3 (
-        .pad(cmos_reserved_3_PAD),
-        .c2p(cmos_reserved_3_out)
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d),
+`endif
+        .pad  (cmos_reserved_3_PAD),
+        .c2p  (cmos_reserved_3_out)
     );
 
-// verilog_format: off  (Verible moves a leading comma onto the directive)
+    // Power pads, on the ring's supplies
+    sg13g2_IOPadVdd sg13g2_IOPad_vdd_a (
 `ifdef USE_POWER_PINS
-    // Power pads - instantiated but no connections needed
-    sg13g2_IOPadVdd sg13g2_IOPad_vdd_a ();
-    sg13g2_IOPadVss sg13g2_IOPad_vss_a ();
-    sg13g2_IOPadVdd sg13g2_IOPad_vdd_d ();
-    sg13g2_IOPadVss sg13g2_IOPad_vss_d ();
-    sg13g2_IOPadIOVdd sg13g2_IOPad_vdd_io ();
-    sg13g2_IOPadIOVss sg13g2_IOPad_vss_io ();
-    sg13g2_IOPadVdd sg13g2_IOPad_vdd_dac ();
-    sg13g2_IOPadIOVss sg13g2_IOPad_vss_dac ();
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d)
 `endif
-// verilog_format: on
+    );
+
+    sg13g2_IOPadVss sg13g2_IOPad_vss_a (
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d)
+`endif
+    );
+
+    sg13g2_IOPadVdd sg13g2_IOPad_vdd_d (
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d)
+`endif
+    );
+
+    sg13g2_IOPadVss sg13g2_IOPad_vss_d (
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d)
+`endif
+    );
+
+    sg13g2_IOPadIOVdd sg13g2_IOPad_vdd_io (
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d)
+`endif
+    );
+
+    sg13g2_IOPadIOVss sg13g2_IOPad_vss_io (
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d)
+`endif
+    );
+
+    sg13g2_IOPadVdd sg13g2_IOPad_vdd_dac (
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d)
+`endif
+    );
+
+    sg13g2_IOPadIOVss sg13g2_IOPad_vss_dac (
+`ifdef USE_POWER_PINS
+        .iovdd(vdd_io),
+        .iovss(vss_io),
+        .vdd  (vdd_d),
+        .vss  (vss_d)
+`endif
+    );
 
 
     // Convert differential signals to single-ended for core
@@ -207,13 +384,20 @@ module frida_top #(
     assign comp_out_p = comp_out;
     assign comp_out_n = ~comp_out;
 
-    // Power rail connections (handled by PDN)
-    wire vdd_a, vss_a, vdd_d, vss_d, vdd_io, vss_io, vdd_dac, vss_dac;
-
     // Instantiate core logic
     frida_core #(
         .N_STAGES(N_STAGES)
     ) frida_core (
+`ifdef USE_POWER_PINS
+        .vdd_a    (vdd_a),
+        .vss_a    (vss_a),
+        .vdd_d    (vdd_d),
+        .vss_d    (vss_d),
+        .vdd_dac  (vdd_dac),
+        .vss_dac  (vss_dac),
+`endif
+        .vin_p    (vin_p),
+        .vin_n    (vin_n),
         .seq_init (seq_init),
         .seq_samp (seq_samp),
         .seq_comp (seq_cmp),
@@ -223,19 +407,6 @@ module frida_top #(
         .spi_sdo  (spi_sdo),
         .spi_cs_b (spi_cs_b),
         .comp_out (comp_out)
-// verilog_format: off  (Verible moves a leading comma onto the directive)
-`ifdef USE_POWER_PINS
-        ,
-        .vin_p    (vin_p),
-        .vin_n    (vin_n),
-        .vdd_a    (vdd_a),
-        .vss_a    (vss_a),
-        .vdd_d    (vdd_d),
-        .vss_d    (vss_d),
-        .vdd_dac  (vdd_dac),
-        .vss_dac  (vss_dac)
-`endif
-// verilog_format: on
     );
 
 

@@ -1,10 +1,6 @@
 // SAR Logic Module - Non-traditional SAR logic implementation
 // Inputs: dac_astate (N_STAGES bits), dac_bstate (N_STAGES bits), dac_mode, comp, clk_init, clk_update
 
-// Include enabled flip-flop cell mapping
-//`include "platforms/tsmc65/cells_dffe.v"
-
-
 // A potential issues reported by Yosys:
 // The SAR logic has two always blocks that can both drive dac_state and dac_cycle, which creates the multiple driver warnings.
 // The second always block only executes when clk_init is low, but the synthesis tool doesn't understand this mutual exclusion properly.
@@ -12,6 +8,11 @@
 module salogic #(
     parameter integer N_STAGES = 16  // Capacitor stages, one SAR decision each; FRIDA has 16
 ) (
+`ifdef USE_POWER_PINS
+    inout wire vdd_d,  // Digital supply
+    inout wire vss_d,  // Digital ground
+`endif
+
     // Clock inputs for Mealy state machine
     input wire clk_init,   // Initialize signal
     input wire clk_update, // Update signal positive
@@ -30,15 +31,6 @@ module salogic #(
     // Outputs
     output wire [N_STAGES-1:0] dac_state_p,  // Current output register positive
     output wire [N_STAGES-1:0] dac_state_n   // Current output register negative
-
-    // Power supply signals
-// verilog_format: off  (Verible moves a leading comma onto the directive)
-`ifdef USE_POWER_PINS
-    ,
-    inout wire vdd_d,  // Digital supply positive
-    inout wire vss_d   // Digital supply ground
-`endif
-// verilog_format: on
 );
 
     // One-hot conversion-stage selector. Stage 0 is the first register and
@@ -75,17 +67,25 @@ module salogic #(
         for (i = 0; i < N_STAGES; i = i + 1) begin : g_dac_ff
             // Explicitly instantiate enabled flip-flops to ensure proper mapping
             OPENROAD_DFFE dac_state_p_ff (
-                .D(dac_state_p_d[i]),
-                .C(clk_update),
-                .E(dac_state_p_en[i]),
-                .Q(dac_state_p[i])
+`ifdef USE_POWER_PINS
+                .VDD(vdd_d),
+                .VSS(vss_d),
+`endif
+                .D  (dac_state_p_d[i]),
+                .C  (clk_update),
+                .E  (dac_state_p_en[i]),
+                .Q  (dac_state_p[i])
             );
 
             OPENROAD_DFFE dac_state_n_ff (
-                .D(dac_state_n_d[i]),
-                .C(clk_update),
-                .E(dac_state_n_en[i]),
-                .Q(dac_state_n[i])
+`ifdef USE_POWER_PINS
+                .VDD(vdd_d),
+                .VSS(vss_d),
+`endif
+                .D  (dac_state_n_d[i]),
+                .C  (clk_update),
+                .E  (dac_state_n_en[i]),
+                .Q  (dac_state_n[i])
             );
         end
     endgenerate

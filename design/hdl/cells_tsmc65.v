@@ -1,18 +1,23 @@
 // TSMC65 Cell Mappings for OPENROAD_* Generic Modules
 // Maps generic OPENROAD cell names to TSMC65 standard cells
+//
+// The supply ports are the netlist's (USE_POWER_PINS, design/hdl's convention). The PDN connects
+// the cells' own supplies (global connections), so the wrappers leave them open.
+
+/* verilator lint_off UNUSEDSIGNAL */
 
 // Generic OPENROAD enabled flip-flop mapped to TSMC65
 // TSMC65 has native enabled DFF cells
 module OPENROAD_DFFE (
-    D,
-    C,
-    E,
-    Q
+`ifdef USE_POWER_PINS
+    inout  wire VDD,
+    inout  wire VSS,
+`endif
+    input  wire D,    // Data input
+    input  wire C,    // Clock input
+    input  wire E,    // Enable input
+    output wire Q     // Data output
 );
-    input D;  // Data input
-    input C;  // Clock input
-    input E;  // Enable input
-    output Q;  // Data output
 
     // Use TSMC65 enabled D flip-flop
     // EDFD2LVT: Enabled D flip-flop with 2x drive strength
@@ -27,17 +32,16 @@ endmodule
 
 // Generic OPENROAD enabled flip-flop with reset mapped to TSMC65
 module OPENROAD_DFFER (
-    D,
-    C,
-    E,
-    R,
-    Q
+`ifdef USE_POWER_PINS
+    inout  wire VDD,
+    inout  wire VSS,
+`endif
+    input  wire D,    // Data input
+    input  wire C,    // Clock input
+    input  wire E,    // Enable input
+    input  wire R,    // Active-low async reset
+    output wire Q     // Data output
 );
-    input D;  // Data input
-    input C;  // Clock input
-    input E;  // Enable input
-    input R;  // Active-low async reset
-    output Q;  // Data output
 
     // Use TSMC65 enabled D flip-flop with reset
     // EDFCND2LVT: Enabled D flip-flop with Clear-Direct-Negative (active-low reset)
@@ -53,13 +57,14 @@ endmodule
 
 // Generic OPENROAD XOR gate mapped to TSMC65 XOR
 module OPENROAD_CLKXOR (
-    A,
-    B,
-    Y
+`ifdef USE_POWER_PINS
+    inout  wire VDD,
+    inout  wire VSS,
+`endif
+    input  wire A,    // Input A
+    input  wire B,    // Input B
+    output wire Y     // Output Y = A ^ B
 );
-    input A;  // Input A
-    input B;  // Input B
-    output Y;  // Output Y = A ^ B
 
     XOR2D1LVT xor_cell (
         .A1(A),
@@ -71,11 +76,13 @@ endmodule
 
 // Generic OPENROAD clock buffer mapped to TSMC65 buffer
 module OPENROAD_CLKBUF (
-    A,
-    Y
+`ifdef USE_POWER_PINS
+    inout  wire VDD,
+    inout  wire VSS,
+`endif
+    input  wire A,    // Input
+    output wire Y     // Output Y = A
 );
-    input A;  // Input
-    output Y;  // Output Y = A
 
     BUFFD2LVT buf_cell (
         .I(A),
@@ -86,11 +93,13 @@ endmodule
 
 // Generic OPENROAD clock inverter mapped to TSMC65 inverter
 module OPENROAD_CLKINV (
-    A,
-    Y
+`ifdef USE_POWER_PINS
+    inout  wire VDD,
+    inout  wire VSS,
+`endif
+    input  wire A,    // Input
+    output wire Y     // Output Y = ~A
 );
-    input A;  // Input
-    output Y;  // Output Y = ~A
 
     INVD2LVT inv_cell (
         .I (A),
@@ -102,13 +111,14 @@ endmodule
 // Custom clock gate module that directly uses TSMC65 clock gate
 // This bypasses the OPENROAD_CLKGATE define issues
 module OPENROAD_CTRLGATE (
-    CK,
-    E,
-    GCK
+`ifdef USE_POWER_PINS
+    inout  wire VDD,
+    inout  wire VSS,
+`endif
+    input  wire CK,   // Clock input
+    input  wire E,    // Enable input
+    output wire GCK   // Gated clock output
 );
-    input CK;  // Clock input
-    input E;  // Enable input
-    output GCK;  // Gated clock output
 
     // Use TSMC65 latch-based clock gate (TE tied to 0 for normal operation)
     CKLNQD1LVT clkgate_cell (
@@ -119,3 +129,5 @@ module OPENROAD_CTRLGATE (
     );
 
 endmodule
+
+/* verilator lint_on UNUSEDSIGNAL */

@@ -9,15 +9,6 @@ module compmux (
     input  wire [15:0] adc_comp_in,  // Comparator outputs from 16 ADCs (adc_00 to adc_15)
     input  wire [ 3:0] mux_sel,      // Selection bits from SPI register [179:176]
     output wire        comp_out      // Selected output to LVDS TX
-
-    // Power supply signals
-// verilog_format: off  (Verible moves a leading comma onto the directive)
-`ifdef USE_POWER_PINS
-    ,
-    inout wire vdd_d,
-    vss_d  // Digital supply
-`endif
-// verilog_format: on
 );
 
     // 16:1 mux using direct array indexing

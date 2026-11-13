@@ -14,6 +14,14 @@
 module spi_register #(
     parameter integer WIDTH = 180  // Register length; frida_core derives it from N_STAGES
 ) (
+    // The supply ports, as frida_spi.v's, for which this file stands in; behavioral logic
+    // does not use them (its synthesized cells take the PDN's global connections).
+    // verilator lint_off UNUSEDSIGNAL
+`ifdef USE_POWER_PINS
+    inout  wire             vdd_d,     // Digital supply
+    inout  wire             vss_d,     // Digital ground
+`endif
+    // verilator lint_on UNUSEDSIGNAL
     input  wire             rst_b,     // Active-low async reset
     input  wire             spi_cs_b,  // SPI chip select (active low)
     input  wire             spi_sdi,   // SPI serial data input (MOSI)

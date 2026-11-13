@@ -3,6 +3,11 @@
 
 (* dont_touch = "true" *)
 module clkgate (
+`ifdef USE_POWER_PINS
+    inout wire vdd_d,  // Digital supply
+    inout wire vss_d,  // Digital ground
+`endif
+
     // Sequencing signals
     input wire seq_init,   // DAC initialization sequence timing
     input wire seq_samp,   // Sampling sequence timing
@@ -21,39 +26,51 @@ module clkgate (
     output wire clk_samp_p,  // Gated sampling clock positive
     output wire clk_samp_n,  // Gated sampling clock negative
     output wire clk_comp,    // Gated comparator clock
-    // verilog_format: off  (Verible moves a leading comma onto the directive)
-`ifdef USE_POWER_PINS
-    output wire clk_update,  // Gated update clock
-    inout  wire vdd_d,
-    vss_d  // Digital supply
-`else
     output wire clk_update   // Gated update clock
-`endif
-// verilog_format: on
 );
 
     // Generate gated clocks using custom clock gates
     OPENROAD_CTRLGATE clkgate_init (
+`ifdef USE_POWER_PINS
+        .VDD(vdd_d),
+        .VSS(vss_d),
+`endif
         .CK (seq_init),
         .E  (en_init),
         .GCK(clk_init)
     );
     OPENROAD_CTRLGATE clkgate_samp_p (
+`ifdef USE_POWER_PINS
+        .VDD(vdd_d),
+        .VSS(vss_d),
+`endif
         .CK (seq_samp),
         .E  (en_samp_p),
         .GCK(clk_samp_p)
     );
     OPENROAD_CTRLGATE clkgate_samp_n (
+`ifdef USE_POWER_PINS
+        .VDD(vdd_d),
+        .VSS(vss_d),
+`endif
         .CK (seq_samp),
         .E  (en_samp_n),
         .GCK(clk_samp_n)
     );
     OPENROAD_CTRLGATE clkgate_comp (
+`ifdef USE_POWER_PINS
+        .VDD(vdd_d),
+        .VSS(vss_d),
+`endif
         .CK (seq_comp),
         .E  (en_comp),
         .GCK(clk_comp)
     );
     OPENROAD_CTRLGATE clkgate_update (
+`ifdef USE_POWER_PINS
+        .VDD(vdd_d),
+        .VSS(vss_d),
+`endif
         .CK (seq_update),
         .E  (en_update),
         .GCK(clk_update)

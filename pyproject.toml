@@ -325,7 +325,10 @@ not-elaborated = [
     "design/hdl/frida_core_1chan.v",
     "design/fpga/daq_top.v",
 ]
-# Basil's firmware modules, as its own designs read them.
+# The define guarding supply ports and connections (design/hdl's convention, docs/usage.md): a
+# design whose files use it is elaborated without it and again with it (name+USE_POWER_PINS).
+power-define = "USE_POWER_PINS"
+# Basil's firmware modules, as its own designs read them (its modules include their own parts).
 include-directories = [
     "libs/basil/basil/firmware/modules",
     "libs/basil/basil/firmware/modules/utils",
@@ -333,8 +336,9 @@ include-directories = [
 ]
 
 # Each design elaborated by Verilator and Slang: its top, its sources in order, and what it
-# needs besides (defines, include directories, a SystemVerilog standard, a directory that
-# must exist, such as the vendor SiTCP sources, for it to be checked).
+# needs besides (defines, include directories, library directories searched for missing
+# modules, a SystemVerilog standard, a directory that must exist, such as the vendor SiTCP
+# sources, for it to be checked).
 [[tool.hdl.designs]]
 name = "adc"
 top = "adc"
@@ -427,10 +431,11 @@ files = [
 name = "tb_frida_digital"
 top = "tb_frida_digital"
 standard = "1800-2017"  # $fatal
-# the testbench models the cells, the pads and the ADC itself
+# the testbench models the pads and the ADC itself
 files = [
+    "design/hdl/cells_behavioral.v",
     "design/hdl/compmux.v",
-    "design/hdl/spi.v",
+    "design/hdl/frida_spi.v",
     "design/hdl/frida_core.v",
     "design/hdl/frida_top_tsmc65.v",
     "design/hdl/tb_frida_digital.v",
@@ -439,7 +444,13 @@ files = [
 [[tool.hdl.designs]]
 name = "daq_core"
 top = "daq_core"
-files = ["design/fpga/daq_core.v"]
+files = [
+    "libs/basil/basil/firmware/modules/seq_gen/seq_gen.v",
+    "libs/basil/basil/firmware/modules/spi/spi.v",
+    "libs/basil/basil/firmware/modules/gpio/gpio.v",
+    "libs/basil/basil/firmware/modules/fast_spi_rx/fast_spi_rx.v",
+    "design/fpga/daq_core.v",
+]
 
 [[tool.hdl.designs]]
 name = "pll_drp"
@@ -454,8 +465,26 @@ files = ["design/fpga/clock_reset_sync.v"]
 [[tool.hdl.designs]]
 name = "daq_top"
 top = "daq_top"
-files = ["design/fpga/daq_top.v"]
-include-directories = ["design/hdl", "design/fpga", "design/fpga/SiTCP"]
+files = [
+    "libs/basil/basil/firmware/modules/seq_gen/seq_gen.v",
+    "libs/basil/basil/firmware/modules/spi/spi.v",
+    "libs/basil/basil/firmware/modules/gpio/gpio.v",
+    "libs/basil/basil/firmware/modules/fast_spi_rx/fast_spi_rx.v",
+    "libs/basil/basil/firmware/modules/utils/fifo_32_to_8.v",
+    "libs/basil/basil/firmware/modules/utils/rgmii_io.v",
+    "libs/basil/basil/firmware/modules/utils/rbcp_to_bus.v",
+    "libs/basil/basil/firmware/modules/utils/clock_divider.v",
+    "libs/basil/basil/firmware/modules/i2c/i2c.v",
+    "design/fpga/SiTCP/WRAP_SiTCP_GMII_XC7K_32K.V",
+    "design/fpga/SiTCP/SiTCP_XC7K_32K_BBT_V110.V",
+    "design/fpga/SiTCP/TIMER.v",
+    "design/fpga/daq_core.v",
+    "design/fpga/pll_drp.v",
+    "design/fpga/clock_reset_sync.v",
+    "design/fpga/daq_top.v",
+]
+# Basil's models of the Xilinx primitives, found by module name (Vivado takes UNISIM's instead)
+library-directories = ["libs/basil/basil/firmware/modules/utils"]
 defines = ["BDAQ53=1"]
 requires = "design/fpga/SiTCP"  # the vendor SiTCP sources, not in the repository
 
@@ -488,9 +517,8 @@ args = [
     "--port_declarations_right_align_unpacked_dimensions=true",
     "--struct_union_members_alignment=align",
     "--indentation_spaces=4",
-    # Basil adds --failsafe_success=false (fail where Verible cannot parse). Verible cannot parse
-    # a guarded port or connection list that starts with a comma (the power pins last, under
-    # USE_POWER_PINS), valid Verilog it leaves as written; Verilator and Slang check its syntax.
+    # As Basil's: fail where Verible cannot parse rather than leave the file as written.
+    "--failsafe_success=false",
 ]
 
 [tool.verible-lint]
@@ -506,7 +534,8 @@ rules = [
 
 [tool.verilator]
 # Report legacy warnings; fail on implicit nets, syntax and elaboration errors.
-args = ["--lint-only", "--timing", "-Wall", "-Wno-fatal", "-Werror-IMPLICIT"]
+# The default timescale as Slang's, for the modules without one.
+args = ["--lint-only", "--timing", "-Wall", "-Wno-fatal", "-Werror-IMPLICIT", "--timescale", "1ns/1ps"]
 # Written to build/hdl/verilator.vlt for each run (a rule, or every rule, off in a file).
 waivers = [
     # Basil is linted in its own repository: keep it in the elaborated designs, but its
@@ -523,14 +552,31 @@ waivers = [
     { rule = "PINCONNECTEMPTY", file = "*design/fpga/daq_core.v" },
     { rule = "UNUSEDSIGNAL", file = "*design/fpga/daq_top.v" },
     { rule = "UNUSEDSIGNAL", file = "*design/fpga/daq_core.v" },
-    # The TSMC top's input pads sit on bidirectional pad cells (PAD is inout, as in the cell
-    # library), output-disabled; their testbench drives them as regs, so they stay inputs.
-    { rule = "ASSIGNIN", file = "*design/hdl/frida_top_tsmc65.v" },
+    # A reset both ways by design: the bus reset is Basil's modules' synchronous one and the
+    # asynchronous one of the reset synchronizers, whose output OSERDESE2 takes synchronously.
+    { rule = "SYNCASYNCNET", file = "*design/fpga/*" },
+    # Basil's naming: upper-case ports, the same names lower-case inside.
+    { rule = "SIMILARNAME", file = "*design/fpga/*" },
+    # As Verible's module-filename: a file holds several modules (cells, pad models), a top
+    # is named by its kit.
+    { rule = "DECLFILENAME", file = "*design/*" },
+    # FRIDA-1's IHP pad ring (to be discarded) has no reset pad: its core's reset_b stays open.
+    { rule = "PINMISSING", file = "*design/hdl/frida_top_ihp.v" },
 ]
 
 [tool.slang]
-# --single-unit: one compilation unit, as Verilator reads them (include guards hold across files)
-args = ["-Wextra", "--timescale=1ns/1ps", "--allow-lib-module-redef", "-Wempty-output-connection", "--single-unit"]
+# --single-unit: one compilation unit, as Verilator reads them (include guards hold across files).
+# --suppress-warnings: Basil's and SiTCP's warnings are not FRIDA's (Verilator's waivers), nor
+# the open reset_b of FRIDA-1's IHP pad ring.
+args = [
+    "-Wextra",
+    "--timescale=1ns/1ps",
+    "--allow-lib-module-redef",
+    "-Wempty-output-connection",
+    "--single-unit",
+    "--suppress-warnings",
+    "libs/basil/...,design/fpga/SiTCP/...,design/hdl/frida_top_ihp.v",
+]
 
 [tool.rumdl]
 # Let Markdown prose use one source line per paragraph.

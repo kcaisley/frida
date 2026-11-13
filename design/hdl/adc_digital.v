@@ -3,6 +3,10 @@
 module adc_digital #(
     parameter integer N_STAGES = 16  // Capacitor stages, one SAR decision each; FRIDA has 16
 ) (
+`ifdef USE_POWER_PINS
+    inout wire vdd_d,  // Digital supply
+    inout wire vss_d,  // Digital ground
+`endif
 
     // Sequencing signals
     input wire seq_init,   // Initialization sequence timing
@@ -52,16 +56,7 @@ module adc_digital #(
     output wire dac_invert_n_main,  // Negative DAC invert main (tied low)
     output wire dac_invert_n_diff,  // Negative DAC invert diff (driven by dac_diffcaps)
 
-    // Keep complete port declarations in each preprocessing branch.
-    // verilog_format: off  (Verible moves a leading comma onto the directive)
-`ifdef USE_POWER_PINS
-    output wire comp_out,  // Comparator output
-    inout  wire vdd_d,
-    vss_d  // Digital supply
-`else
-    output wire comp_out   // Comparator output
-`endif
-// verilog_format: on
+    output wire comp_out  // Comparator output
 );
 
     // Internal wires
@@ -75,6 +70,10 @@ module adc_digital #(
 
     // Clock gate module - generates all gated clocks
     clkgate clkgate (
+`ifdef USE_POWER_PINS
+        .vdd_d     (vdd_d),
+        .vss_d     (vss_d),
+`endif
         // Sequencing inputs
         .seq_init  (seq_init),
         .seq_samp  (seq_samp),
@@ -94,21 +93,16 @@ module adc_digital #(
         .clk_samp_n(clk_samp_n_raw),
         .clk_comp  (clk_comp),
         .clk_update(clk_update)
-
-        // Power supplies
-        // verilog_format: off  (Verible moves a leading comma onto the directive)
-`ifdef USE_POWER_PINS
-        ,
-        .vdd_d(vdd_d),
-        .vss_d(vss_d)
-`endif
-// verilog_format: on
     );
 
     // SAR Logic - Consolidated dual-channel
     salogic #(
         .N_STAGES(N_STAGES)
     ) salogic_dual (
+`ifdef USE_POWER_PINS
+        .vdd_d       (vdd_d),
+        .vss_d       (vss_d),
+`endif
         .clk_init    (clk_init),      // Initialization clock
         .clk_update  (clk_update),    // Update clock
         .dac_astate_p(dac_astate_p),  // DAC A state positive
@@ -120,44 +114,29 @@ module adc_digital #(
         .comp_n      (comp_out_p),    // Use positive comp output for N-side logic
         .dac_state_p (dac_state_p),   // Output to positive DAC state
         .dac_state_n (dac_state_n)    // Output to negative DAC state
-
-        // Power supplies
-        // verilog_format: off  (Verible moves a leading comma onto the directive)
-`ifdef USE_POWER_PINS
-        ,
-        .vdd_d(vdd_d),
-        .vss_d(vss_d)
-`endif
-// verilog_format: on
     );
 
 
 
     // Sampling clock drivers - generate complementary clock pairs
     sampdriver sampdriver_p (
+`ifdef USE_POWER_PINS
+        .vdd_d    (vdd_d),
+        .vss_d    (vss_d),
+`endif
         .clk_in   (clk_samp_p_raw),  // Input raw gated sampling clock positive
         .clk_out  (clk_samp_p),      // Buffered output clock positive
         .clk_out_b(clk_samp_p_b)     // Inverted output clock positive
-        // verilog_format: off  (Verible moves a leading comma onto the directive)
-`ifdef USE_POWER_PINS
-        ,
-        .vdd_d    (vdd_d),
-        .vss_d    (vss_d)
-`endif
-// verilog_format: on
     );
 
     sampdriver sampdriver_n (
+`ifdef USE_POWER_PINS
+        .vdd_d    (vdd_d),
+        .vss_d    (vss_d),
+`endif
         .clk_in   (clk_samp_n_raw),  // Input raw gated sampling clock negative
         .clk_out  (clk_samp_n),      // Buffered output clock negative
         .clk_out_b(clk_samp_n_b)     // Inverted output clock negative
-        // verilog_format: off  (Verible moves a leading comma onto the directive)
-`ifdef USE_POWER_PINS
-        ,
-        .vdd_d    (vdd_d),
-        .vss_d    (vss_d)
-`endif
-// verilog_format: on
     );
 
     // DAC state buffering - create four separate outputs from SAR logic

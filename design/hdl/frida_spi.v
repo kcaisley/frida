@@ -16,6 +16,10 @@
 module spi_register #(
     parameter integer WIDTH = 180  // Register length; frida_core derives it from N_STAGES
 ) (
+`ifdef USE_POWER_PINS
+    inout  wire             vdd_d,     // Digital supply
+    inout  wire             vss_d,     // Digital ground
+`endif
     input  wire             rst_b,     // Active-low async reset
     input  wire             spi_cs_b,  // SPI chip select (active low)
     input  wire             spi_sdi,   // SPI serial data input (MOSI)
@@ -37,11 +41,15 @@ module spi_register #(
             assign d_in[i] = (i == 0) ? spi_sdi : shift_reg[i-1];
 
             OPENROAD_DFFER dff_inst (
-                .D(d_in[i]),
-                .C(spi_sclk),
-                .E(enable),
-                .R(rst_b),
-                .Q(shift_reg[i])
+`ifdef USE_POWER_PINS
+                .VDD(vdd_d),
+                .VSS(vss_d),
+`endif
+                .D  (d_in[i]),
+                .C  (spi_sclk),
+                .E  (enable),
+                .R  (rst_b),
+                .Q  (shift_reg[i])
             );
         end
     endgenerate
@@ -49,16 +57,24 @@ module spi_register #(
     wire spi_sclk_n;
 
     OPENROAD_CLKINV clk_inv (
-        .A(spi_sclk),
-        .Y(spi_sclk_n)
+`ifdef USE_POWER_PINS
+        .VDD(vdd_d),
+        .VSS(vss_d),
+`endif
+        .A  (spi_sclk),
+        .Y  (spi_sclk_n)
     );
 
     OPENROAD_DFFER sdo_dff (
-        .D(shift_reg[WIDTH-1]),
-        .C(spi_sclk_n),
-        .E(enable),
-        .R(rst_b),
-        .Q(spi_sdo)
+`ifdef USE_POWER_PINS
+        .VDD(vdd_d),
+        .VSS(vss_d),
+`endif
+        .D  (shift_reg[WIDTH-1]),
+        .C  (spi_sclk_n),
+        .E  (enable),
+        .R  (rst_b),
+        .Q  (spi_sdo)
     );
 
 endmodule

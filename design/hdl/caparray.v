@@ -2,6 +2,7 @@
 // Parameterizable capacitive DAC array
 
 /* verilator lint_off UNUSEDSIGNAL */
+/* verilator lint_off UNDRIVEN */
 (* blackbox *)
 module caparray #(
     parameter integer N_STAGES = 16  // Capacitor stages; FRIDA has 16
@@ -16,3 +17,6 @@ module caparray #(
     // This module will be implemented at the analog level
 
 endmodule
+
+/* verilator lint_on UNDRIVEN */
+/* verilator lint_on UNUSEDSIGNAL */

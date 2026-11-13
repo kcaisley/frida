@@ -352,8 +352,10 @@ def _parse_verilog_ports(verilog_path: Path, module_name: str) -> tuple[list[str
 
     body = match.group(1)
 
-    # Keep the USE_POWER_PINS branch (the power pins), drop its `else
-    filtered = []
+    # Keep the USE_POWER_PINS branch (the power pins), drop its `else. The RTL declares the power
+    # pins first (design/hdl's convention); a SPICE subcircuit takes its supplies last, as the
+    # hardened and the synthesized netlists have them, so they follow the signals here.
+    filtered, power = [], []
     branch = None
     for line in body.splitlines():
         if "`ifdef USE_POWER_PINS" in line:
@@ -362,8 +364,11 @@ def _parse_verilog_ports(verilog_path: Path, module_name: str) -> tuple[list[str
             branch = "else"
         elif branch and "`endif" in line:
             branch = None
+        elif branch == "power":
+            power.append(line)
         elif branch != "else":
             filtered.append(line)
+    filtered += power
 
     dir_map = {"input": "I", "output": "O", "inout": "B"}
     ports, pininfo = [], []

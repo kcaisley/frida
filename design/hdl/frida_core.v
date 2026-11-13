@@ -7,6 +7,19 @@
 module frida_core #(
     parameter integer N_STAGES = 16  // Capacitor stages per ADC; FRIDA has 16
 ) (
+`ifdef USE_POWER_PINS
+    inout wire vdd_a,    // Analog supply
+    inout wire vss_a,    // Analog ground
+    inout wire vdd_d,    // Digital supply
+    inout wire vss_d,    // Digital ground
+    inout wire vdd_dac,  // DAC supply
+    inout wire vss_dac,  // DAC ground
+`endif
+
+    // Analog inputs, shared by the ADCs
+    inout wire vin_p,
+    inout wire vin_n,
+
     // Clock inputs (from LVDS RX pads)
     input wire seq_init,
     input wire seq_samp,
@@ -21,21 +34,7 @@ module frida_core #(
     input  wire reset_b,
 
     // Comparator output (to LVDS TX pad)
-    // verilog_format: off  (Verible moves a leading comma onto the directive)
-`ifdef USE_POWER_PINS
-    output wire comp_out,
-    input  wire vin_p,     // Positive input
-    input  wire vin_n,     // Negative input
-    inout  wire vdd_a,     // Analog supply positive
-    inout  wire vss_a,     // Analog supply ground
-    inout  wire vdd_d,     // Digital supply positive
-    inout  wire vss_d,     // Digital supply ground
-    inout  wire vdd_dac,   // DAC supply positive
-    inout  wire vss_dac    // DAC supply ground
-`else
     output wire comp_out
-`endif
-// verilog_format: on
 );
 
     // SPI register length: four shared DAC state fields, 7 controls for each of
@@ -60,6 +59,10 @@ module frida_core #(
     spi_register #(
         .WIDTH(SpiBits)
     ) spi_reg (
+`ifdef USE_POWER_PINS
+        .vdd_d   (vdd_d),
+        .vss_d   (vss_d),
+`endif
         .rst_b   (reset_b),
         .spi_cs_b(spi_cs_b),
         .spi_sdi (spi_sdi),
@@ -109,6 +112,16 @@ module frida_core #(
         for (i = 0; i < 16; i = i + 1) begin : g_adc_array
 `ifdef SYNTHESIS
             adc adc_inst (
+`ifdef USE_POWER_PINS
+                .vdd_a       (vdd_a),
+                .vss_a       (vss_a),
+                .vdd_d       (vdd_d),
+                .vss_d       (vss_d),
+                .vdd_dac     (vdd_dac),
+                .vss_dac     (vss_dac),
+`endif
+                .vin_p       (vin_p),
+                .vin_n       (vin_n),
                 .seq_init    (seq_init),
                 .seq_samp    (seq_samp),
                 .seq_comp    (seq_comp),
@@ -130,6 +143,16 @@ module frida_core #(
             adc #(
                 .N_STAGES(N_STAGES)
             ) adc_inst (
+`ifdef USE_POWER_PINS
+                .vdd_a       (vdd_a),
+                .vss_a       (vss_a),
+                .vdd_d       (vdd_d),
+                .vss_d       (vss_d),
+                .vdd_dac     (vdd_dac),
+                .vss_dac     (vss_dac),
+`endif
+                .vin_p       (vin_p),
+                .vin_n       (vin_n),
                 .seq_init    (seq_init),
                 .seq_samp    (seq_samp),
                 .seq_comp    (seq_comp),

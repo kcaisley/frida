@@ -6,8 +6,8 @@
  * so the basil host code (Frida class, map_dut.yaml) works unchanged.
  *
  * Analog and supply ports are always present (no USE_POWER_PINS guard)
- * because the co-simulation boundary requires them. Sub-modules
- * (spi_register) also have their supply ports unconditionally.
+ * because the co-simulation boundary requires them. Its sub-module
+ * spi_register has its supply ports under USE_POWER_PINS, unconnected here.
  *
  * Signal types: all ports are plain `wire`. The real-valued type conversion
  * for analog signals (real -> wreal -> SPICE) is handled in the testbench

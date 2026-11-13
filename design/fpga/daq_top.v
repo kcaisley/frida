@@ -6,23 +6,10 @@
 
 `timescale 1ns / 1ps
 
-// FRIDA core (self-contained: includes its basil functional module deps
-// and the utility modules they rely on)
-`include "daq_core.v"
-`include "pll_drp.v"
-`include "clock_reset_sync.v"
-
-// Additional basil utility modules (directly used by daq_top)
-`include "utils/fifo_32_to_8.v"
-`include "utils/rgmii_io.v"
-`include "utils/rbcp_to_bus.v"
-`include "utils/clock_divider.v"
-`include "i2c/i2c.v"
-
-// SiTCP (patched with `default_nettype wire by manage.py get_sitcp)
-`include "WRAP_SiTCP_GMII_XC7K_32K.V"
-`include "SiTCP_XC7K_32K_BBT_V110.V"
-`include "TIMER.v"
+// Its sources are listed beside it (pyproject.toml's daq_top design, readme.md's Vivado
+// command), not included: daq_core.v, pll_drp.v, clock_reset_sync.v, Basil's modules (and
+// those of daq_core) and SiTCP's wrapper, core and timer (patched with `default_nettype
+// wire by manage.py get_sitcp).
 
 module daq_top (
     input wire FCLK_IN,      // 100 MHz system clock

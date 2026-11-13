@@ -2,6 +2,7 @@
 
     uv run --no-project --python 3.12 python tools/check.py all          # every check
     uv run --no-project --python 3.12 python tools/check.py ruff --fix   # one check, fixing
+    uv run --no-project --python 3.12 python tools/check.py ruff FILE... # a per-file check, its files
     uv run --no-project --python 3.12 python tools/check.py --staged     # the git hook
     uv run --no-project --python 3.12 python tools/check.py install      # the pinned native tools
     uv run --no-project --python 3.12 python tools/check.py install-hook # .git/hooks/pre-commit
@@ -263,16 +264,19 @@ def check_verible_lint(fix: bool, files: list[str] | None) -> int:
 
 
 def designs(files: list[str] | None = None) -> list[dict]:
-    """The designs to elaborate: all, or those holding one of ``files``."""
+    """The designs to elaborate: all, or those holding one of ``files``; a design whose files use
+    the power define also with it defined."""
 
     chosen = [d for d in HDL["designs"] if files is None or set(d["files"]) & set(files)]
-    out = []
+    power, out = HDL["power-define"], []
     for design in chosen:
         need = design.get("requires")
         if need and not (ROOT / need).exists():
             print(f"{design['name']}: skipped, {need} is not in this checkout")
             continue
         out.append(design)
+        if any(power in (ROOT / f).read_text(errors="replace") for f in design["files"] if (ROOT / f).is_file()):
+            out.append({**design, "name": f"{design['name']}+{power}", "defines": [*design.get("defines", []), power]})
     return out
 
 
@@ -282,7 +286,9 @@ def _vlt() -> Path:
     lines = ["`verilator_config"]
     for waiver in PROJECT["tool"]["verilator"]["waivers"]:
         rule = f"-rule {waiver['rule']} " if waiver.get("rule") else ""
-        lines.append(f'lint_off {rule}-file "{waiver["file"]}"')
+        # -match: the waiver applies to the warning as reported; without it Verilator keeps some
+        # (all of SiTCP's) it ties to a source line read before the waiver
+        lines.append(f'lint_off {rule}-file "{waiver["file"]}" -match "*"')
     path.write_text("\n".join(lines) + "\n")
     return path
 
@@ -306,6 +312,7 @@ def check_verilator_lint(fix: bool, files: list[str] | None) -> int:
             str(vlt),
             *(f"+incdir+{d}" for d in incdirs),
             *(f"+define+{d}" for d in design.get("defines", [])),
+            *(arg for d in design.get("library-directories", []) for arg in ("-y", d)),
             *design["files"],
         ]
         print(f"== {design['name']}", flush=True)
@@ -327,6 +334,7 @@ def check_slang_lint(fix: bool, files: list[str] | None) -> int:
             design["top"],
             *(f"-I{d}" for d in incdirs),
             *(f"-D{d}" for d in design.get("defines", [])),
+            *(arg for d in design.get("library-directories", []) for arg in ("-y", d)),
             *design["files"],
         ]
         print(f"== {design['name']}", flush=True)
@@ -436,15 +444,19 @@ def main() -> int:
     parser.add_argument(
         "command", nargs="?", choices=[*CHECKS, "all", "install", "install-hook", "editor", "cache-key"]
     )
-    parser.add_argument("tools", nargs="*", help="install: the tools (default: every pinned one)")
+    parser.add_argument(
+        "names", nargs="*", help="install: the tools (default: every pinned one); a per-file check: its files"
+    )
     parser.add_argument("--fix", action="store_true", help="apply the fixes a check can make")
     parser.add_argument("--staged", action="store_true", help="the checks the staged files touch (the git hook)")
     options = parser.parse_args()
+    if options.names and options.command not in {"install", *PER_FILE}:
+        parser.error(f"{options.command} takes no names (files go to a per-file check: {', '.join(sorted(PER_FILE))})")
     if options.staged:
         return staged()
     match options.command:
         case "install":
-            for tool in options.tools or NATIVE:
+            for tool in options.names or NATIVE:
                 if tool not in NATIVE:
                     parser.error(f"install: {tool} is not one of {', '.join(NATIVE)}")
                 install(tool)
@@ -464,7 +476,15 @@ def main() -> int:
             return status
         case None:
             parser.error("a check, or all")
-    return CHECKS[options.command][0](options.fix, None)
+    if not options.names:
+        return CHECKS[options.command][0](options.fix, None)
+    files = []
+    for name in options.names:
+        path = Path(name).resolve()
+        if not path.is_file() or not path.is_relative_to(ROOT):
+            parser.error(f"{options.command}: {name} is not a file in this checkout")
+        files.append(str(path.relative_to(ROOT)))
+    return CHECKS[options.command][0](options.fix, files)
 
 
 if __name__ == "__main__":

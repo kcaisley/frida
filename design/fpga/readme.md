@@ -18,13 +18,29 @@ source /eda/local/scripts/vivado_2025.2.sh
 # 2. download SiTCP (only needed once)
 uv run python design/fpga/manage.py --get_sitcp
 
-# 3. compile
+# 3. compile (the sources are listed, as pyproject.toml's daq_top design lists them; Basil's
+#    modules include their own parts from its modules directory)
 uv run python design/fpga/manage.py --compile BDAQ53_KX1 \
-  --verilog design/fpga/daq_top.v --top daq_top \
+  --verilog libs/basil/basil/firmware/modules/seq_gen/seq_gen.v \
+  --verilog libs/basil/basil/firmware/modules/spi/spi.v \
+  --verilog libs/basil/basil/firmware/modules/gpio/gpio.v \
+  --verilog libs/basil/basil/firmware/modules/fast_spi_rx/fast_spi_rx.v \
+  --verilog libs/basil/basil/firmware/modules/utils/fifo_32_to_8.v \
+  --verilog libs/basil/basil/firmware/modules/utils/rgmii_io.v \
+  --verilog libs/basil/basil/firmware/modules/utils/rbcp_to_bus.v \
+  --verilog libs/basil/basil/firmware/modules/utils/clock_divider.v \
+  --verilog libs/basil/basil/firmware/modules/i2c/i2c.v \
+  --verilog design/fpga/SiTCP/WRAP_SiTCP_GMII_XC7K_32K.V \
+  --verilog design/fpga/SiTCP/SiTCP_XC7K_32K_BBT_V110.V \
+  --verilog design/fpga/SiTCP/TIMER.v \
+  --verilog design/fpga/daq_core.v \
+  --verilog design/fpga/pll_drp.v \
+  --verilog design/fpga/clock_reset_sync.v \
+  --verilog design/fpga/daq_top.v \
+  --top daq_top \
   --xdc design/fpga/bdaq53_kx1.xdc \
   --xdc design/fpga/SiTCP/EDF_SiTCP.xdc \
   --edif design/fpga/SiTCP/SiTCP_XC7K_32K_BBT_V110.edf \
-  --include-dir design/fpga --include-dir design/fpga/SiTCP \
   --include-dir libs/basil/basil/firmware/modules \
   --name frida_bdaq53_kx1 --out-dir design/fpga
 

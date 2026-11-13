@@ -24,11 +24,8 @@
 
 `timescale 1ns / 10ps
 
-// Basil functional modules (direct children of daq_core)
-`include "seq_gen/seq_gen.v"
-`include "spi/spi.v"
-`include "gpio/gpio.v"
-`include "fast_spi_rx/fast_spi_rx.v"
+// Its Basil modules (seq_gen, spi, gpio, fast_spi_rx) are listed beside it, as its design in
+// pyproject.toml lists them, not included.
 
 module daq_core #(
     parameter integer ABUSWIDTH = 32
