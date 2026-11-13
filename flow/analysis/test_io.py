@@ -236,3 +236,296 @@ def test_cap_table_reads_a_pex_tables_effective_column_and_a_dacs_measured_steps
     np.testing.assert_array_equal(io.read_cap_table(path), np.abs(steps))
     np.testing.assert_array_equal(io.read_cap_table(path), np.abs(steps))
     assert read == [path]
+
+
+# The shared reader (``flow.pipeline.read``) on raw output written here as Spectre writes it.
+
+
+def write_nutbin(path: Path, plots) -> Path:
+    """Spectre's nutbin at ``path``: each plot its title ("AC Analysis `ac': ...") and its
+    variables in order, the swept one first, each name its unit and values."""
+    with path.open("wb") as raw:
+        raw.write(b"Title: \nDate: 12:00:00 PM, Wed Jul 29, 2026\n")
+        for title, variables in plots:
+            columns = [np.asarray(values) for _unit, values in variables.values()]
+            kind = "complex" if any(np.iscomplexobj(column) for column in columns) else "real"
+            raw.write(f"Plotname: {title}\nFlags: {kind}\n".encode())
+            raw.write(f"No. Variables: {len(columns):8d}\nNo. Points: {len(columns[0]):8d}\n".encode())
+            for index, (name, (unit, _values)) in enumerate(variables.items()):
+                raw.write(f"{'Variables:' if index == 0 else chr(9)}\t{index}\t{name}\t{unit}\n".encode())
+            raw.write(b"Binary:\n")
+            raw.write(np.stack(columns, axis=1).astype(">c16" if kind == "complex" else ">f8").tobytes())
+    return path
+
+
+def write_psf(folder: Path, name: str, kind: str, body: str) -> None:
+    """One analysis of Spectre's PSF ASCII directory: its header, then ``body`` (its types, sweep,
+    traces and values)."""
+    folder.mkdir(parents=True, exist_ok=True)
+    header = f'HEADER\n"PSFversion" "1.00"\n"analysis type" "{kind}"\n"analysis name" "{name}"\n'
+    (folder / f"{name}.{kind}").write_text(header + dedent(body) + "END\n")
+
+
+def small_signal_nutbin(path: Path) -> Path:
+    """A run of every analysis nutbin holds: the flow's operating point, a transient, the AC
+    response, the transfer functions to the output and a DC sweep of the input source."""
+    f = np.asarray([1e3, 1e6, 1e9])
+    h = 1 / (1 + 1j * f / 1e6)
+    time = np.asarray([0.0, 1e-9, 3e-9])
+    swept = np.asarray([0.0, 0.6, 1.2])
+    return write_nutbin(
+        path,
+        [
+            (
+                "DC Analysis `opdc'",
+                {
+                    "dummy": ("dummy", [0.0]),
+                    "xtop.vvdd:p": ("A", [-2e-6]),
+                    "xtop.out": ("V", [0.6]),
+                    "xtop.dut.tail": ("V", [0.2]),
+                },
+            ),
+            (
+                "Transient Analysis `tran': time = (0 s -> 3 ns)",
+                {"time": ("s", time), "xtop.vvdd:p": ("A", [-1e-6, -2e-6, -3e-6]), "xtop.out": ("V", [0.1, 0.5, 0.6])},
+            ),
+            (
+                "AC Analysis `ac': freq = (1 kHz -> 1 GHz)",
+                {"freq": ("Hz", f + 0j), "xtop.vvdd:p": ("A", -1e-6 * h), "xtop.out": ("V", h)},
+            ),
+            (
+                "Transfer Function Analysis `xf': freq = (1 kHz -> 1 GHz)",
+                {"freq": ("Hz", f + 0j), "xtop.vvdd": ("V/V", 0.01 * h), "xtop.ibias": ("V/A", 1e3 * h)},
+            ),
+            (
+                "DC Analysis `sweep_in': xtop.vin:dc = (0 V -> 1.2 V)",
+                {"dc": ("V", swept), "xtop.vin:p": ("A", -1e-6 * swept), "xtop.out": ("V", 0.5 * swept)},
+            ),
+        ],
+    )
+
+
+def test_the_shared_reader_keeps_a_runs_transient_and_each_other_analysis_by_its_name(tmp_path: Path) -> None:
+    """The transient on the simulator's time axis, as a run of it alone reads; beside it each
+    other analysis a sweep of its kind, on the simulator's points, its signals named alike (a
+    source's current by its net, positive for current drawn; a net inside the DUT by its name)."""
+    from flow import pipeline, samp
+    from flow.pipeline import SweepKind
+
+    tb = samp.TbParams()
+    meas = pipeline.read(small_signal_nutbin(tmp_path / "netlist.raw"), tb)
+    assert meas.param is tb and meas.dut == tb.params and meas.info.backend == "spice"
+    assert meas.info.readbacks == {"raw_file": "netlist.raw", "raw_points": 3}
+    np.testing.assert_array_equal(meas.time_s, [0.0, 1e-9, 3e-9])
+    np.testing.assert_array_equal(meas.v["out"], [0.1, 0.5, 0.6])
+    np.testing.assert_array_equal(meas.i["vdd"], [1e-6, 2e-6, 3e-6])
+    assert {name: sweep.kind for name, sweep in meas.sweeps.items()} == {
+        "opdc": SweepKind.OP,
+        "ac": SweepKind.AC,
+        "xf": SweepKind.XF,
+        "sweep_in": SweepKind.DC,
+    }
+    op, ac, xf, dc = (meas.sweeps[name] for name in ("opdc", "ac", "xf", "sweep_in"))
+    assert op.x.shape == (0,) and op.v["out"][0] == 0.6 and op.v["tail"][0] == 0.2 and op.i["vdd"][0] == 2e-6
+    f = np.asarray([1e3, 1e6, 1e9])
+    h = 1 / (1 + 1j * f / 1e6)
+    np.testing.assert_array_equal(ac.x, f)
+    assert ac.x.dtype == np.float64 and ac.v["out"].dtype == np.complex128
+    np.testing.assert_allclose(ac.v["out"], h)
+    np.testing.assert_allclose(ac.i["vdd"], 1e-6 * h)
+    # each source's transfer to the output: a voltage source by its net, another by its own name
+    assert sorted(xf.v) == ["ibias", "vdd"] and not xf.i
+    np.testing.assert_allclose(xf.v["vdd"], 0.01 * h)
+    np.testing.assert_array_equal(dc.x, [0.0, 0.6, 1.2])
+    assert dc.v["out"].dtype == np.float64
+    np.testing.assert_allclose(dc.v["out"], [0.0, 0.3, 0.6])
+    np.testing.assert_allclose(dc.i["in"], [0.0, 0.6e-6, 1.2e-6])
+
+
+def test_a_run_without_a_transient_reads_as_its_sweeps_alone(tmp_path: Path) -> None:
+    from flow import pipeline, samp
+
+    f = np.asarray([1e3, 1e6])
+    raw = write_nutbin(
+        tmp_path / "netlist.raw",
+        [("AC Analysis `ac': freq = (1 kHz -> 1 MHz)", {"freq": ("Hz", f + 0j), "xtop.out": ("V", [1 + 0j, 0.5j])})],
+    )
+    meas = pipeline.read(raw, samp.TbParams())
+    assert meas.time_s.shape == (0,) and not meas.v and not meas.i
+    assert meas.info.readbacks["raw_points"] == 0
+    np.testing.assert_array_equal(meas.sweeps["ac"].v["out"], [1 + 0j, 0.5j])
+
+
+def test_a_noise_run_reads_from_its_psf_ascii_directory(tmp_path: Path) -> None:
+    """A run with a noise analysis writes PSF ASCII, a file an analysis: the noise's densities,
+    its gain and each device's total contribution (those of a device's sources apart left out),
+    the AC response and the operating point beside it; what is no analysis is passed over."""
+    from flow import pipeline, samp
+    from flow.pipeline import SweepKind
+
+    raw = tmp_path / "netlist.raw"
+    write_psf(
+        raw,
+        "noise",
+        "noise",
+        """\
+        TYPE
+        "sweep" FLOAT DOUBLE PROP(
+        "key" "sweep"
+        )
+        "V/sqrt(Hz)" FLOAT DOUBLE PROP(
+        "units" "V/sqrt(Hz)"
+        )
+        "V/V" FLOAT DOUBLE
+        "resistor" STRUCT(
+        "rn" FLOAT DOUBLE PROP(
+        "units" "V^2/Hz"
+        )
+        "total" FLOAT DOUBLE PROP(
+        "units" "V^2/Hz"
+        )
+        ) PROP(
+        "key" "inst"
+        )
+        SWEEP
+        "freq" "sweep" PROP(
+        "units" "Hz"
+        )
+        TRACE
+        "xtop.dut.r" "resistor"
+        "out" "V/sqrt(Hz)"
+        "in" "V/sqrt(Hz)"
+        "gain" "V/V"
+        VALUE
+        "freq" 1.0e+03
+        "xtop.dut.r" (
+        1.6e-17
+        1.6e-17
+        )
+        "out" 4.0e-09
+        "in" 8.0e-09
+        "gain" 5.0e-01
+        "freq" 1.0e+06
+        "xtop.dut.r" (
+        4.0e-18
+        4.0e-18
+        )
+        "out" 2.0e-09
+        "in" 8.0e-09
+        "gain" 2.5e-01
+        """,
+    )
+    write_psf(
+        raw,
+        "ac",
+        "ac",
+        """\
+        TYPE
+        "sweep" FLOAT DOUBLE
+        "V" COMPLEX DOUBLE
+        SWEEP
+        "freq" "sweep"
+        TRACE
+        "xtop.out" "V"
+        VALUE
+        "freq" 1.0e+03
+        "xtop.out" (5.0e-01 0.0e+00)
+        "freq" 1.0e+06
+        "xtop.out" (0.0e+00 -2.5e-01)
+        """,
+    )
+    write_psf(
+        raw,
+        "op",
+        "dc",
+        """\
+        TYPE
+        "V" FLOAT DOUBLE
+        "I" FLOAT DOUBLE
+        VALUE
+        "xtop.vvdd:p" "I" -2.0e-06 PROP(
+        "units" "A"
+        )
+        "xtop.out" "V" 6.0e-01
+        """,
+    )
+    write_psf(raw, "op", "info", 'VALUE\n"xtop.dut.r" "resistor" 1.0\n')
+    (raw / "logFile").write_text("HEADER\n")
+    meas = pipeline.read(raw, samp.TbParams())
+    assert meas.time_s.shape == (0,) and meas.info.readbacks["raw_file"] == "netlist.raw"
+    assert {name: sweep.kind for name, sweep in meas.sweeps.items()} == {
+        "noise": SweepKind.NOISE,
+        "ac": SweepKind.AC,
+        "op": SweepKind.OP,
+    }
+    noise, ac, op = (meas.sweeps[name] for name in ("noise", "ac", "op"))
+    np.testing.assert_array_equal(noise.x, [1e3, 1e6])
+    assert sorted(noise.v) == ["gain", "in", "out", "r.total"] and not noise.i
+    np.testing.assert_array_equal(noise.v["out"], [4e-9, 2e-9])
+    np.testing.assert_allclose(noise.v["r.total"], noise.v["out"] ** 2)
+    np.testing.assert_array_equal(ac.v["out"], [0.5 + 0j, -0.25j])
+    assert op.x.shape == (0,) and op.v["out"][0] == 0.6 and op.i["vdd"][0] == 2e-6
+
+
+def test_a_monte_carlo_of_operating_points_reads_a_value_a_run_beside_its_nominal_point(tmp_path: Path) -> None:
+    from flow import pipeline, samp
+    from flow.pipeline import SweepKind
+
+    def point(name: str, value: float):
+        return (f"DC Analysis `{name}'", {"dummy": ("dummy", [0.0]), "xtop.dut.c.drawn": ("V", [value])})
+
+    # the family's plots as Spectre writes them, a run each, here out of order
+    raw = write_nutbin(tmp_path / "netlist.raw", [point("op", 2.0), point("mc-002_op", 2.2), point("mc-001_op", 2.1)])
+    meas = pipeline.read(raw, samp.TbParams())
+    assert meas.time_s.shape == (0,) and meas.info.readbacks["runs"] == 2
+    np.testing.assert_array_equal(meas.v["c.drawn"], [2.1, 2.2])
+    assert list(meas.sweeps) == ["op"] and meas.sweeps["op"].kind is SweepKind.OP
+    assert meas.sweeps["op"].v["c.drawn"][0] == 2.0
+
+
+def test_the_shared_reader_refuses_what_it_cannot_tell(tmp_path: Path) -> None:
+    from flow import pipeline, samp
+
+    tb = samp.TbParams()
+    time = {"time": ("s", [0.0, 1e-9]), "xtop.out": ("V", [0.0, 1.0])}
+    two = write_nutbin(tmp_path / "two.raw", [("Transient Analysis `a'", time), ("Transient Analysis `b'", time)])
+    with pytest.raises(ValueError, match="holds 2 transients"):
+        pipeline.read(two, tb)
+    empty = tmp_path / "empty.raw"
+    empty.write_bytes(b"Title: \n")
+    with pytest.raises(ValueError, match="holds 0 transients"):
+        pipeline.read(empty, tb)
+    other = write_nutbin(
+        tmp_path / "other.raw",
+        [("Stability Analysis `stb': freq = (1 Hz -> 1 GHz)", {"freq": ("Hz", [1 + 0j]), "loopGain": ("V", [2 + 0j])})],
+    )
+    with pytest.raises(ValueError, match="analysis stb is of a kind the shared reader does not read"):
+        pipeline.read(other, tb)
+
+
+def test_a_measurement_with_sweeps_survives_hdf5(tmp_path: Path) -> None:
+    from flow import pipeline, samp
+    from flow.analysis.io import read_measurement
+
+    meas = pipeline.read(small_signal_nutbin(tmp_path / "netlist.raw"), samp.TbParams())
+    loaded = read_measurement(write_measurement(tmp_path / "result.h5", meas))
+    assert loaded.sweeps.keys() == meas.sweeps.keys()
+    for name, sweep in meas.sweeps.items():
+        kept = loaded.sweeps[name]
+        assert kept.kind is sweep.kind and kept.v.keys() == sweep.v.keys() and kept.i.keys() == sweep.i.keys()
+        np.testing.assert_array_equal(kept.x, sweep.x)
+        for signals, found in ((sweep.v, kept.v), (sweep.i, kept.i)):
+            for key, values in signals.items():
+                assert found[key].dtype == values.dtype
+                np.testing.assert_array_equal(found[key], values)
+
+
+def test_raw_output_is_discarded_as_a_file_or_a_directory(tmp_path: Path) -> None:
+    from flow import pipeline
+
+    nutbin = small_signal_nutbin(tmp_path / "netlist.raw")
+    pipeline.discard(nutbin)
+    psf = tmp_path / "psf" / "netlist.raw"
+    write_psf(psf, "op", "dc", 'TYPE\n"V" FLOAT DOUBLE\nVALUE\n"xtop.out" "V" 6.0e-01\n')
+    pipeline.discard(psf)
+    assert not nutbin.exists() and not psf.exists()

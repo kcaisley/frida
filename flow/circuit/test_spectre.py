@@ -104,6 +104,81 @@ def test_samp_pipeline_diagnostic(diagnostic_root):
 
 
 @pytest.mark.spectre
+@pytest.mark.parametrize("noise", (False, True), ids=("nutbin", "psfascii"))
+def test_every_analysis_of_a_run_reads_as_a_sweep(diagnostic_root, noise):
+    """An RC low-pass beside a resistor on a supply, simulated by the shared helper
+    (``flow.circuit.spectre.run``) and read by the shared reader (``flow.pipeline.read``): its
+    operating point, a DC sweep, its AC response and transfer functions, and its transient
+    (nutbin) or its noise (PSF ASCII, which a noise analysis takes)."""
+
+    from types import SimpleNamespace
+
+    import hdl21 as h
+    import hdl21.sim as hs
+    import numpy as np
+    from hdl21.primitives import C, R, Vdc
+
+    from flow import pipeline
+    from flow.analysis import calc
+    from flow.circuit import spectre
+    from flow.pipeline import SweepKind
+
+    r, c, r_supply, vdd, temperature_k = 1e3, 1e-12, 1e4, 1.2, 300.0
+    bench = h.Module(name="RcTb")
+    bench.VSS = h.Port()
+    bench.inp, bench.out, bench.vdd = h.Signal(), h.Signal(), h.Signal()
+    bench.vinp = Vdc(dc=0.5, ac=1.0)(p=bench.inp, n=bench.VSS)
+    bench.vvdd = Vdc(dc=vdd)(p=bench.vdd, n=bench.VSS)
+    bench.r = R(r=r)(p=bench.inp, n=bench.out)
+    bench.c = C(c=c)(p=bench.out, n=bench.VSS)
+    bench.rsupply = R(r=r_supply)(p=bench.vdd, n=bench.VSS)
+    sweep = hs.LogSweep(start=1e3, stop=1e11, npts=10)
+    attrs = [
+        *spectre.options(temperature_k - 273.15),
+        hs.Save(["xtop.inp", "xtop.out", "xtop.vinp:p", "xtop.vvdd:p"]),
+        hs.Ac(sweep=sweep, name="ac"),
+        h.Literal("xf (xtop.out 0) xf start=1e3 stop=1e11 dec=10"),
+        h.Literal(f"sweep_vdd dc dev=xtop.vvdd param=dc start=0 stop={vdd:g} step={vdd / 4:g}"),
+        hs.Noise(output=bench.out, input_source=bench.vinp, sweep=sweep, name="noise")
+        if noise
+        else hs.Tran(tstop=20 * r * c, name="tran"),
+    ]
+    run_dir = diagnostic_root / "sweeps" / ("psfascii" if noise else "nutbin")
+    spectre.run(bench, attrs, run_dir)
+    raw = run_dir / "netlist.raw"
+    assert raw.is_dir() == noise
+    meas = pipeline.read(raw, SimpleNamespace(params=None))
+    kinds = {"opdc": SweepKind.OP, "ac": SweepKind.AC, "xf": SweepKind.XF, "sweep_vdd": SweepKind.DC}
+    expected = kinds | ({"noise": SweepKind.NOISE} if noise else {})
+    assert {name: found.kind for name, found in meas.sweeps.items()} == expected
+    op, ac, xf, dc = (meas.sweeps[name] for name in kinds)
+    # the operating point and the DC sweep: the supply's current as drawn, through its resistor
+    assert op.v["out"][0] == pytest.approx(0.5) and op.i["vdd"][0] == pytest.approx(vdd / r_supply)
+    np.testing.assert_allclose(dc.x, np.linspace(0, vdd, 5), atol=1e-12)
+    np.testing.assert_allclose(dc.i["vdd"], dc.x / r_supply, atol=1e-12)
+    # [Razavi-Analog] Eq. (7.17), p. 229: the RC low-pass's transfer function, 1 / (RCs + 1)
+    h_ideal = 1 / (1 + 2j * np.pi * ac.x * r * c)
+    np.testing.assert_allclose(ac.v["out"], h_ideal, rtol=1e-6)
+    # its corner, 1 / (2 pi RC), read between the sweep's points
+    assert calc.bandwidth(ac.v["out"], ac.x, 3) == pytest.approx(1 / (2 * np.pi * r * c), rel=1e-2)
+    # the output per volt of each source: the input's is the AC response, the supply's nothing
+    np.testing.assert_allclose(xf.v["inp"], h_ideal, rtol=1e-6)
+    np.testing.assert_allclose(np.abs(xf.v["vdd"]), 0.0, atol=1e-9)
+    if noise:
+        found = meas.sweeps["noise"]
+        # [Razavi-Analog] Eq. (7.19), p. 229: the low-pass's output noise spectrum
+        density = 4 * 1.380649e-23 * temperature_k * r / (4 * np.pi**2 * r**2 * c**2 * found.x**2 + 1)
+        np.testing.assert_allclose(found.v["out"] ** 2, density, rtol=1e-3)
+        np.testing.assert_allclose(found.v["r.total"], density, rtol=1e-3)
+        np.testing.assert_allclose(found.v["gain"], np.abs(h_ideal), rtol=1e-6)
+        assert meas.time_s.shape == (0,)
+    else:
+        # the transient beside them, as a run of it alone reads: the input held, the output on it
+        assert meas.time_s[-1] == pytest.approx(20 * r * c) and meas.v["out"][-1] == pytest.approx(0.5)
+        assert meas.i["vdd"][-1] == pytest.approx(vdd / r_supply)
+
+
+@pytest.mark.spectre
 def test_varying_mom_capacitors_draw_pelgroms_mismatch_and_one_gradient_a_run(diagnostic_root):
     """Spectre's Monte Carlo of the varying FMOM leaf (``flow.layout.devices.momcap.netlist``), read back as one
     measurement (``flow.pipeline.read``): equal capacitors draw independently at Pelgrom's sigma,

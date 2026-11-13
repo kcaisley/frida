@@ -379,3 +379,30 @@ def test_an_instance_its_run_stopped_before_its_record_stands_in_by_its_folder(t
     record = _stand_in("samp", "tsmc28", folder)
     assert (record["id"], record["name"], record["params"]) == ("tsmc28__frida1", "frida1", {})
     assert "stopped before" in record["error"]
+
+
+def test_the_simulate_step_keeps_a_runs_sweeps_and_removes_its_raw_directory(tmp_path, monkeypatch) -> None:
+    """A run whose raw output is a directory (Spectre's PSF ASCII, a noise run's) is read by the
+    shared reader, kept as a measurement with its sweeps and its raw output removed, as a file is."""
+    import sys
+    from types import SimpleNamespace
+
+    from flow import pipeline, samp
+    from flow.analysis.io import read_measurement
+
+    def simulate(tb, run_dir: Path) -> Path:
+        raw = run_dir / "netlist.raw"
+        raw.mkdir(parents=True)
+        (raw / "op.dc").write_text(
+            'HEADER\n"analysis type" "dc"\n"analysis name" "op"\nTYPE\n"V" FLOAT DOUBLE\n'
+            'VALUE\n"xtop.vout" "V" 6.0e-01\nEND\n'
+        )
+        return raw
+
+    monkeypatch.setitem(sys.modules, "pdk.fake", SimpleNamespace(pdk_logic=None))
+    monkeypatch.setitem(sys.modules, "flow.fake.sim", SimpleNamespace(simulate=simulate))
+    monkeypatch.setattr(h.pdk, "set_default", lambda *_: None)
+    kept = runner.simulate("fake", "fake", {"quiet": samp.TbParams()}, tmp_path)
+    assert kept == {"quiet": tmp_path / "quiet" / "result.h5"} and not (tmp_path / "quiet" / "netlist.raw").exists()
+    op = read_measurement(kept["quiet"]).sweeps["op"]
+    assert op.kind is pipeline.SweepKind.OP and op.v["vout"][0] == 0.6

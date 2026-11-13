@@ -199,7 +199,7 @@ def simulate(block: str, runs: dict[str, Any], run_dir: Path) -> dict[str, pipel
     for name, tb in runs.items():
         raw = sim.simulate(tb, run_dir / name)
         measurements[name] = read(raw, tb)
-        raw.unlink()
+        pipeline.discard(raw)
     return measurements
 
 

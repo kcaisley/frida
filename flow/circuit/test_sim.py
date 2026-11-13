@@ -55,7 +55,7 @@ def test_missing_installation_skips_but_missing_collateral_fails(monkeypatch, tm
 def test_spectre_marker_is_opt_in():
     import subprocess
 
-    for selection, expected in (([], "13 deselected"), (["-m", "spectre"], "13 tests collected")):
+    for selection, expected in (([], "15 deselected"), (["-m", "spectre"], "15 tests collected")):
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "--collect-only", "-q", str(test_spectre.__file__), *selection],
             capture_output=True,
@@ -83,3 +83,31 @@ def test_a_runs_operating_point_gives_each_nets_device_capacitance(tmp_path) -> 
     assert set(found) == {"vout", "clk", "mid"}
     assert abs(found["clk"] - 2.5e-15) < 1e-20 and abs(found["vout"] - 1.9e-15) < 1e-20
     assert abs(found["mid"] - 1.976224e-15) < 1e-20
+
+
+@pytest.mark.parametrize(("noise", "expected"), [(False, "nutbin"), (True, "psfascii")])
+def test_a_run_writes_nutbin_or_psf_ascii_where_it_has_a_noise_analysis(monkeypatch, tmp_path, noise, expected) -> None:
+    """Spectre's raw format first on its command line, by the run's analyses: PSF ASCII (a file an
+    analysis, which ``flow.pipeline.read`` reads as a directory) where one is a noise analysis."""
+    import hdl21 as h
+    import hdl21.sim as hs
+
+    from flow.circuit import spectre
+
+    bench = h.Module(name="Bench")
+    bench.VSS = h.Port()
+    bench.out, bench.inp = h.Signal(), h.Signal()
+    bench.vinp = h.primitives.Vdc(dc=0.5, ac=1.0)(p=bench.inp, n=bench.VSS)
+    sweep = hs.LogSweep(start=1e3, stop=1e9, npts=5)
+    attrs = [hs.Op(name="op"), hs.Ac(sweep=sweep, name="ac")]
+    if noise:
+        attrs.append(hs.Noise(output=bench.out, input_source=bench.vinp, sweep=sweep, name="noise"))
+    assert spectre.raw_format(attrs) == expected
+    captured = {}
+    monkeypatch.setattr(
+        hs, "Sim", lambda **kwargs: SimpleNamespace(run=lambda options: captured.update(kwargs, options=options))
+    )
+    spectre.run(bench, attrs, tmp_path / "run")
+    arguments = captured["options"].simulator_args
+    assert arguments[:2] == ("-format", expected) and arguments.count("-format") == 1
+    assert {"+escchars", "+preset=mx", "+mt=1"} <= set(arguments) and captured["attrs"] is attrs

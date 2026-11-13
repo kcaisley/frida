@@ -223,7 +223,7 @@ def write_netlist(block: str, pdk: str, params, folder: Path) -> dict:
 def simulate(block: str, pdk: str, runs: dict, folder: Path, annotation: Annotation | None = None) -> dict[str, Path]:
     """Each of ``runs`` simulated in ``folder/<run>/`` (``sim.simulate``), read back (its
     ``sim.read`` where it has one, else ``flow.pipeline.read``) and kept as a measurement
-    (``result.h5``, ``flow.analysis.io.write_measurement``), its raw file removed; a run whose
+    (``result.h5``, ``flow.analysis.io.write_measurement``), its raw output removed; a run whose
     measurement is kept already is not simulated again. The simulator's log (Spectre's
     ``spectre.log``: each ``*.log`` the run wrote) also goes, a line a record, to the flow's log
     under its name (``flow.logs.relay``), whether the run ended or failed. With ``annotation`` (an extraction on the
@@ -249,7 +249,7 @@ def simulate(block: str, pdk: str, runs: dict, folder: Path, annotation: Annotat
                 for log in sorted((folder / name).glob("*.log")):
                     relay(log, log.stem)
             write_measurement(path, read(raw, tb))
-            raw.unlink()
+            pipeline.discard(raw)
         kept[name] = path
     return kept
 

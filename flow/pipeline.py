@@ -3,7 +3,8 @@
 A block's parameters (``Params``: the design; ``TbParams``: one testbench run of it) are built in
 its ``params.py``, its circuit in ``subckt.py``, its testbench and simulator run in ``sim.py``; the
 simulator's raw output becomes a ``Meas`` here (``read``: every saved signal on the simulator's own
-time axis), the block's ``analysis.py`` turns measurements into ``Analysis`` results and metrics,
+axis: its transient's over time, each other analysis's, a ``Sweep``, over what it swept), the
+block's ``analysis.py`` turns measurements into ``Analysis`` results and metrics,
 its ``plots.py`` into ``Plot`` specs, and its ``runs.py`` into the ``Results`` of an instance.
 Its ``runs.py`` also gives its runs, each one run of the command line by its function's name
 (``python -m flow --block comp --run frida1``): one design (``@single``), a grid of them (``@grid``:
@@ -670,6 +671,49 @@ class Wave:
             raise ValueError(f"wave traces must have shape {shape}: {wrong}")
 
 
+class SweepKind(Enum):
+    """Which of the simulator's analyses a ``Sweep`` is, by Spectre's: the operating point (its
+    ``dc`` without a sweep), a DC sweep (``dc`` over a source's value, a parameter or the
+    temperature), the small-signal response (``ac``), the transfer functions to one output (``xf``)
+    and the noise (``noise``)."""
+
+    OP = auto()
+    DC = auto()
+    AC = auto()
+    XF = auto()
+    NOISE = auto()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Sweep:
+    """One analysis of a simulation other than its transient (``Meas.sweeps``, by the name its
+    bench gave it): every saved signal at each value the analysis swept (``x``), on the simulator's
+    own points, named as the transient's are: ``v`` by net, ``i`` a source's current by its net,
+    positive for current drawn.
+
+    ``OP``: nothing swept (``x`` empty), one value a signal. ``DC``: ``x`` the swept value as the
+    simulator wrote it (a source's volts or amperes, a parameter, the temperature). ``AC``: ``x``
+    the frequency (Hz), each signal its complex response to the bench's AC stimulus. ``XF``: ``x``
+    the frequency (Hz), ``v`` the complex transfer to the analysis's output from each source: a
+    voltage source ``v<net>`` by its net, as its current is, any other by its own name. ``NOISE``:
+    ``x`` the frequency (Hz), ``v`` the simulator's own ``out`` (the output's noise density, per
+    sqrt(Hz)), ``in`` (that referred to the input source) and ``gain`` (from that source to the
+    output), and each device's contribution to the output's, ``<device>.total`` (squared, per Hz:
+    they sum to ``out`` squared)."""
+
+    kind: SweepKind
+    x: np.ndarray
+    v: dict[str, np.ndarray] = field(default_factory=dict)
+    i: dict[str, np.ndarray] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        shape = (1,) if self.kind is SweepKind.OP else self.x.shape
+        if self.kind is SweepKind.OP and len(self.x):
+            raise ValueError(f"an operating point sweeps nothing: x holds {len(self.x)} values")
+        if wrong := {name: trace.shape for name, trace in (*self.v.items(), *self.i.items()) if trace.shape != shape}:
+            raise ValueError(f"a {self.kind.name} sweep's signals must have shape {shape}: {wrong}")
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Meas:
     """A measurement: identity, run information, the parameters that produced it, and its signals.
@@ -678,9 +722,10 @@ class Meas:
     ``param`` holds the complete scan or testbench parameters. A simulation's measurement (``read``)
     holds every saved signal on the simulator's own time axis ``time_s`` (empty without signals):
     node voltages ``v`` and supply currents ``i`` (positive for current drawn), by canonical net
-    name; nothing is resampled. The blocks not yet migrated add their per-row readback arrays as
-    fields of a subclass (they share one row per conversion or trial, which is checked here) and
-    records in ``wave``.
+    name; nothing is resampled. Its other analyses (the operating point, DC sweeps, the AC
+    response, transfer functions, noise) are ``sweeps``, each by its analysis's name (``Sweep``).
+    The blocks not yet migrated add their per-row readback arrays as fields of a subclass (they
+    share one row per conversion or trial, which is checked here) and records in ``wave``.
     """
 
     group: int | None
@@ -692,6 +737,7 @@ class Meas:
     time_s: np.ndarray = field(default_factory=lambda: np.zeros(0))
     v: dict[str, np.ndarray] = field(default_factory=dict)
     i: dict[str, np.ndarray] = field(default_factory=dict)
+    sweeps: dict[str, Sweep] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         rows = {
@@ -721,43 +767,114 @@ class Meas:
         return getattr(self.param, "tb", self.param)
 
 
+def _plots(raw: Path) -> dict[str, tuple[str, Mapping[str, np.ndarray]]]:
+    """Each analysis Spectre's raw output holds, by its name: what Spectre calls its kind and its
+    variables, the swept one first. A nutbin file's plots, each kind the first words of its title
+    ("AC Analysis `ac': freq = ..."), or a PSF ASCII directory's files, each kind its analysis
+    type (``ac``)."""
+    from vlsirtools.spice.spectre import parse_nutbin_analysis, parse_psfascii
+
+    if raw.is_dir():
+        return {name: (plot.analysis_type, plot.data) for name, plot in parse_psfascii(raw).items()}
+    plots = {}
+    with raw.open("rb") as stream:
+        # the lines between two plots' data are a plot's header: the next plot's title among them
+        while line := stream.readline():
+            title = line.decode("ascii", errors="replace")
+            if title.startswith("Plotname:"):
+                plot = parse_nutbin_analysis(stream, title)
+                plots[plot.analysis_name] = (title.removeprefix("Plotname:").split("`")[0], plot.data)
+    return plots
+
+
+def _signals(
+    data: Mapping[str, np.ndarray], *, sources: bool = False
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    """An analysis's variables as voltages and currents by net: ``xtop.<net>`` and
+    ``xtop.dut.<net>`` as ``v[<net>]``, a source's current ``xtop.v<net>:p`` as ``i[<net>]``,
+    positive for current drawn; where the variables are ``sources`` (a transfer function's), a
+    voltage source ``xtop.v<net>`` as ``v[<net>]``."""
+    v: dict[str, np.ndarray] = {}
+    i: dict[str, np.ndarray] = {}
+    for name, values in data.items():
+        if name.endswith(":p") and name.startswith("xtop.v"):
+            i[name.removeprefix("xtop.v").removesuffix(":p")] = -values
+        elif sources and name.startswith("xtop.v"):
+            v[name.removeprefix("xtop.v")] = values
+        else:
+            v[name.removeprefix("xtop.").removeprefix("dut.")] = values
+    return v, i
+
+
+def _sweep(name: str, kind: str, data: Mapping[str, np.ndarray]) -> Sweep:
+    """An analysis other than a transient as a ``Sweep``: its kind from what Spectre calls it
+    (``_plots``), its swept variable the first where that is no signal of the bench (no ``xtop.``
+    name; nutbin's ``dummy``, an operating point's, is none), its signals complex where the
+    analysis solves a response (AC, XF). Of a noise analysis's contributions, each device's total
+    is kept, those of its noise sources apart (a transistor's channel, flicker, each resistance:
+    more than ten a device) left out."""
+    word = kind.split()[0].lower() if kind.split() else ""
+    first = next(iter(data), "dummy")
+    swept = None if first.startswith("xtop.") or first == "dummy" else first
+    kinds = {"ac": SweepKind.AC, "xf": SweepKind.XF, "transfer": SweepKind.XF, "noise": SweepKind.NOISE}
+    if word == "dc":
+        found = SweepKind.OP if swept is None else SweepKind.DC
+    elif word in kinds:
+        found = kinds[word]
+    else:
+        raise ValueError(f"analysis {name} is of a kind the shared reader does not read ({kind.strip()})")
+    dtype = np.complex128 if found in (SweepKind.AC, SweepKind.XF) else np.float64
+    signals = {
+        key: np.asarray(values if dtype is np.complex128 else np.real(values), dtype=dtype)
+        for key, values in data.items()
+        if key not in (swept, "dummy")
+        and not (found is SweepKind.NOISE and key.startswith("xtop.") and not key.endswith(".total"))
+    }
+    v, i = _signals(signals, sources=found is SweepKind.XF)
+    x = np.zeros(0) if swept is None else np.asarray(np.real(data[swept]), dtype=np.float64)
+    return Sweep(kind=found, x=x, v=v, i=i)
+
+
 def read(raw: Path, tb: TbParams) -> Meas:
-    """A simulation's raw output (Spectre's nutbin) as a measurement of the testbench ``tb``: its
-    one transient, every saved signal on the simulator's own time axis; or its Monte Carlo of
-    operating points (the plots ``mc-<run>_<analysis>``), every saved signal one value a run, in
-    the runs' order (``time_s`` empty; ``readbacks["runs"]`` their count). Signals are named by
+    """A simulation's raw output (Spectre's nutbin file, or its PSF ASCII directory, which a run
+    with a noise analysis writes) as a measurement of the testbench ``tb``: its transient, if it
+    has one, every saved signal on the simulator's own time axis; or its Monte Carlo of operating
+    points (the plots ``mc-<run>_<analysis>``), every saved signal one value a run, in
+    the runs' order (``time_s`` empty; ``readbacks["runs"]`` their count); and each other analysis
+    (the operating point, a DC sweep, the AC response, transfer functions, noise) a ``Sweep`` by
+    its name (``sweeps``), on the simulator's own points. Signals are named by
     their net (``xtop.<net>`` and ``xtop.dut.<net>`` as ``<net>``; a supply source's current
     ``xtop.v<net>:p`` as ``i[<net>]``, positive for current drawn); the design ``tb.params``,
     Monte Carlo seed and iteration where ``tb`` has them."""
 
-    from vlsirtools.spice.spectre import parse_nutbin
-
     raw = Path(raw)
-    with raw.open("rb") as stream:
-        plots = parse_nutbin(stream)
-    transients = [plot for plot in plots.values() if "time" in plot.data]
+    plots = _plots(raw)
+    transients = [data for _, data in plots.values() if "time" in data]
+    family = {name for name in plots if re.match(r"mc-\d+_", name)}
     runs = sorted(
-        (int(match.group(1)), plot)
-        for name, plot in plots.items()
-        if (match := re.match(r"mc-(\d+)_", name)) and "time" not in plot.data
+        ((int(name[3:].split("_")[0]), plots[name][1]) for name in family if "time" not in plots[name][1]),
+        key=lambda run: run[0],
     )
     if len(transients) == 1:
-        data = {name: np.asarray(values, dtype=np.float64) for name, values in transients[0].data.items()}
+        data = {name: np.asarray(values, dtype=np.float64) for name, values in transients[0].items()}
         time_s = data.pop("time")
     elif not transients and runs:
-        names = set(runs[0][1].data) - {"dummy"}
-        data = {
-            name: np.asarray([np.ravel(plot.data[name])[0] for _, plot in runs], dtype=np.float64) for name in names
-        }
+        names = set(runs[0][1]) - {"dummy"}
+        data = {name: np.asarray([np.ravel(plot[name])[0] for _, plot in runs], dtype=np.float64) for name in names}
         time_s = np.zeros(0)
+    elif not transients and plots:
+        data, time_s = {}, np.zeros(0)
     else:
-        raise ValueError(f"{raw} must hold exactly one transient or one Monte Carlo of operating points")
-    v, i = {}, {}
-    for name, values in data.items():
-        if name.endswith(":p") and name.startswith("xtop.v"):
-            i[name.removeprefix("xtop.v").removesuffix(":p")] = -values
-        else:
-            v[name.removeprefix("xtop.").removeprefix("dut.")] = values
+        raise ValueError(
+            f"{raw} holds {len(transients)} transients: at most one, or one Monte Carlo of operating points, "
+            "beside its other analyses"
+        )
+    v, i = _signals(data)
+    sweeps = {
+        name: _sweep(name, kind, variables)
+        for name, (kind, variables) in plots.items()
+        if "time" not in variables and name not in family
+    }
     readbacks: dict[str, str | int | float | bool] = {"raw_file": raw.name, "raw_points": len(time_s)}
     if runs:
         readbacks["runs"] = len(runs)
@@ -775,7 +892,20 @@ def read(raw: Path, tb: TbParams) -> Meas:
         time_s=time_s,
         v=v,
         i=i,
+        sweeps=sweeps,
     )
+
+
+def discard(raw: Path) -> None:
+    """Remove a simulation's raw output, once read: its file, or its directory (PSF ASCII: a file
+    an analysis)."""
+    import shutil
+
+    raw = Path(raw)
+    if raw.is_dir():
+        shutil.rmtree(raw)
+    else:
+        raw.unlink()
 
 
 @dataclass(frozen=True)

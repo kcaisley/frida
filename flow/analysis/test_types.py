@@ -27,6 +27,7 @@ from flow.analysis.types import (
     check_identity,
     measurement_identity,
 )
+from flow.pipeline import Sweep, SweepKind
 from flow.scans.params import AdcScanParams
 
 
@@ -256,12 +257,12 @@ def test_a_new_measurement_class_needs_no_registration(tmp_path: Path) -> None:
 
 def test_every_measurement_carries_the_base_fields() -> None:
     base = [data_field.name for data_field in fields(Meas)]
-    assert base == ["group", "index", "dut", "info", "param", "wave", "time_s", "v", "i"]
+    assert base == ["group", "index", "dut", "info", "param", "wave", "time_s", "v", "i", "sweeps"]
     assert [
         data_field.name
         for data_field in fields(Meas)
         if data_field.default is not MISSING or data_field.default_factory is not MISSING
-    ] == ["wave", "time_s", "v", "i"]
+    ] == ["wave", "time_s", "v", "i", "sweeps"]
     for build in MEASUREMENTS:
         assert [data_field.name for data_field in fields(type(build()))][: len(base)] == base
 
@@ -277,6 +278,20 @@ def test_wave_rejects_misaligned_traces_and_a_nonincreasing_axis() -> None:
         replace(valid, v={"comp_out": valid.v["comp_out"][:1]})
     with pytest.raises(ValueError, match="strictly increasing"):
         replace(valid, time_s=valid.time_s[::-1])
+
+
+def test_a_sweeps_signals_share_its_points_and_an_operating_point_has_one() -> None:
+    f = np.asarray([1e3, 1e6])
+    ac = Sweep(kind=SweepKind.AC, x=f, v={"out": np.asarray([1 + 0j, 0.5j])})
+    assert ac.v["out"].shape == ac.x.shape and not ac.i
+    with pytest.raises(ValueError, match="AC sweep's signals must have shape"):
+        replace(ac, i={"vdd": np.zeros(3, dtype=np.complex128)})
+    op = Sweep(kind=SweepKind.OP, x=np.zeros(0), v={"out": np.asarray([0.6])})
+    assert op.v["out"][0] == 0.6
+    with pytest.raises(ValueError, match="OP sweep's signals must have shape"):
+        replace(op, v={"out": np.asarray([0.6, 0.7])})
+    with pytest.raises(ValueError, match="an operating point sweeps nothing"):
+        replace(op, x=f)
 
 
 def test_measurement_without_waveform_round_trips(tmp_path: Path) -> None:

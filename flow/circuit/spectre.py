@@ -9,6 +9,13 @@ The options settle what Spectre otherwise warns about in every run: ``checklimit
 where the models' limit checks (their asserts: a device's safe operating area) go, the run's
 log (``file``: spectre.log, which the flow's log reads with the rest), where Spectre's default is
 its own database and a warning that none was named.
+
+A run's analyses are its ``attrs``: a transient (``hs.Tran``), the operating point (``hs.Op``;
+``options`` runs one already, ``opdc``), the AC response (``hs.Ac``), noise (``hs.Noise``), and,
+as literals, what hdl21 has no analysis for: a DC sweep of a source's value
+(``h.Literal("<name> dc dev=xtop.v<net> param=dc start=... stop=... step=...")``) and the
+transfer functions to an output (``h.Literal("<name> (xtop.<net> 0) xf start=... stop=...
+dec=...")``). ``flow.pipeline.read`` reads each by its name.
 """
 
 from __future__ import annotations
@@ -20,9 +27,9 @@ from typing import Any
 from hdl21 import sim as hs
 from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
-# Spectre's command line: nutbin output, a license waited for up to an hour (other runs share the
-# server's), escaped names, its log in spectre.log
-ARGS = ("-format", "nutbin", "+lqtimeout", "3600", "+escchars", "+log", "spectre.log")
+# Spectre's command line after its raw format (``raw_format``): a license waited for up to an
+# hour (other runs share the server's), escaped names, its log in spectre.log
+ARGS = ("+lqtimeout", "3600", "+escchars", "+log", "spectre.log")
 # Spectre X at its mx preset, on this many threads a run (the flow runs many at once)
 FAST = ("+preset=mx", "+mt=1")
 
@@ -48,7 +55,8 @@ OPPOINT = "oppoint.txt"
 def options(temperature_c: float = 25.0, *, oppoint: bool = True) -> list[Any]:
     """The options every run takes: its temperature, the selected signals saved alone, and the
     models' limit checks into a file (``checklimitdest``); where ``oppoint``, the DC operating
-    point before its analyses, each device's into ``OPPOINT`` (its capacitances: ``device_capacitance``)."""
+    point before its analyses (``opdc``: the saved signals' in the run's measurement,
+    ``sweeps["opdc"]``), each device's into ``OPPOINT`` (its capacitances: ``device_capacitance``)."""
     found = [
         hs.Options(name="temp", value=temperature_c),
         hs.Options(name="save", value="selected"),
@@ -91,19 +99,26 @@ def device_capacitance(path: Path) -> dict[str, float]:
     return found
 
 
+def raw_format(attrs: list[Any]) -> str:
+    """The format a run's raw output takes (Spectre's ``-format``): nutbin, one file; PSF ASCII, a
+    directory with a file an analysis, where the run has a noise analysis (``hs.Noise``), whose
+    totals (``out``, ``in``, ``gain``) Spectre's nutmeg writers leave out."""
+    return "psfascii" if any(isinstance(attr, hs.Noise) for attr in attrs) else "nutbin"
+
+
 def run(
     bench: Any, attrs: list[Any], run_dir: Path, *, fast: bool = True, args: tuple[str, ...] = (), data=False
 ) -> Any:
     """Simulate ``bench`` with ``attrs`` in ``run_dir`` (Spectre's raw output left there,
-    ``netlist.raw``): Spectre X (``FAST``) unless ``fast`` is off, ``args`` after the common
-    command line; its results parsed only where ``data``. Spectre's failure raised as a
-    RuntimeError naming the run."""
+    ``netlist.raw``, in the format its analyses take, ``raw_format``): Spectre X (``FAST``) unless
+    ``fast`` is off, ``args`` after the common command line; its results parsed only where
+    ``data``. Spectre's failure raised as a RuntimeError naming the run."""
     run_dir.mkdir(parents=True, exist_ok=True)
     settings = SimOptions(
         simulator=SupportedSimulators.SPECTRE,
         fmt=ResultFormat.SIM_DATA if data else ResultFormat.NONE,
         rundir=run_dir,
-        simulator_args=(*ARGS, *(FAST if fast else ()), *args),
+        simulator_args=("-format", raw_format(attrs), *ARGS, *(FAST if fast else ()), *args),
     )
     try:
         return hs.Sim(tb=bench, attrs=attrs).run(settings)
