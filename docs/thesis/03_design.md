@@ -2,64 +2,7 @@
 
 ::: todo
 
-- The chapter's plan: the method, then each block's design space with its model, its optimization rule and its sweep, then the converter assembled from them.
-:::
-
-## Methodology {#sec-methodology}
-
-::: todo
-
-- Why a pipeline: the blocks' trade-offs cross each other, so each is characterized the same way in every process before the converter is assembled from them.
-- The chapter's claim: each block's analytic model, flipped around, gives its optimization rule, and the sweep across processes and topologies checks it.
-:::
-
-### The block pipeline {#sec-pipeline}
-
-A building block runs as one pipeline: its design parameters make a circuit, testbench runs of it are simulated, each run's raw output is read as a measurement, analyses turn measurements into results, and the results become the block's metrics, its figures and the record of one instance of its design space.
-Each step is a file of the block's folder, and the names in each file are the same in every block.
-The comparator is the first block on it, the sampling switch the second, the capacitive DAC the third and the ADC, assembled from them, the fourth.
-
-An instance's steps are one chain, each after the steps whose outputs it takes: the netlist, its simulation, and the record, from which the figures and the viewer's table are drawn; the layout steps after it are the subject of @sec-frida2-layout.
-A run's bounds reject a design as early as its evidence allows: each step names what it adds, so a design whose gates alone exceed an area bound is out before it is simulated.
-
-::: todo
-
-- The six processes (180, 150, 130 and 65 nm twice, 28 nm) and what is held the same across them: testbenches, supply corners at 90/100/110 %, the same area caps.
-- The behavioral model each block derives from its own characterization, and how the converter is composed from them (@sec-adc).
-:::
-
-### Optimizing a block {#sec-optimizing}
-
-An optimization run is to a problem's space what a grid's steps are to its designs: its problem in one process is a study, its budget's trials asked asynchronously across a process pool, so a slow design holds no other.
-The objective is the problem's cost, the product of its cost metrics, each to its weight, with a saturating factor where a cost has a scale; each bound's violation is a named constraint, and a design that misses a bound completes infeasible.
-
-For the comparator of an $N$-bit converter the cost is
-$$
-J = E \cdot A^{\,a} \cdot \left(1 + \frac{\sigma^2}{\sigma_q^2}\right)^{g}, \qquad \sigma_q = \frac{2\,V_\mathrm{FS}}{2^N \sqrt{12}},
-$$ {#eq-cost}
-the energy per decision $E$ times the area $A$ times a saturating noise factor: the last factor is the converter's noise power over its quantization noise alone, near 1 where the converter no longer gains from a quieter comparator.
-A design that only scales settles at
-$$
-\frac{\sigma}{\sigma_q} = \frac{1}{\sqrt{g/(1+a) - 1}},
-$$ {#eq-cost-optimum}
-0.71 for the weights used, $a = 1$ and $g = 6$.
-
-::: todo
-
-- Why a product of factors rather than a weighted sum: scale-free, so the same weights hold in every process.
-- The search (Optuna's TPE) and its budget; the warm start from the grid.
-:::
-
-### Comparing across processes and topologies {#sec-top-level}
-
-::: {#fig-top-level plot="top_level"}
-Every block's designs across processes and topologies.
-:::
-
-::: todo
-
-- How to read the top-level figure: a process's frontier, and which topology sets it.
-- What a figure of merit per block means: R_on·C for the switch, E·σ² for the comparator, capacitance per bit for the DAC.
+- The chapter's plan: each block's circuit, its analytic model and the sizing rule the model gives, then the converter assembled from them: the design as it was done before the sweeps of @sec-frida2.
 :::
 
 ## Sampling switch {#sec-sampling-switch}
@@ -90,15 +33,9 @@ A bootstrapped switch holds its gate a fixed voltage above the input, so its ove
 The pipeline measures the on-resistance from the track phase's time constant into a 1 pF load, between the 1/e and 1/e² crossings of a step, so that the edge's delay is excluded: $R_\mathrm{on} = \tau / C_\mathrm{load}$, an upper bound since the switch's own capacitance is included.
 In TSMC65 into 1 pF, a transmission gate of 32 units measures 130–550 Ω (highest at mid-supply), the NMOS switch from 140 Ω to open above 0.7 V, the bootstrapped one 140–230 Ω at 32 units and 30–45 Ω at 160.
 
-::: {#fig-samp-ron-width plot="samp_ron_width"}
-Transmission-gate on-resistance at mid-supply against width in six processes, with the triode rule's $R_\mathrm{on} \propto 1/W$ (@eq-ron).
-:::
-
 ::: {#fig-rec-samp-ron-vin plot="rec_samp_ron_vin"}
 A transmission gate of 32 units in TSMC65: On-resistance into 1 pF over the input level.
 :::
-
-@fig-samp-ron-width checks @eq-ron across processes: in every one the measured resistance falls as $1/W$ over a factor of sixteen in width.
 
 ### Tracking error and distortion {#sec-samp-distortion}
 
@@ -130,10 +67,6 @@ A switch with $R_\mathrm{on} \approx 1$ kΩ into $C = 1.64$ pF has $\tau = 1.64$
 
 ### Charge injection {#sec-samp-injection}
 
-::: {#fig-samp-boost plot="samp_boost_pedestal"}
-Bootstrapped switches in six processes: the largest pedestal against the on-resistance. A lower resistance is a wider switch, which injects more charge when it opens.
-:::
-
 ::: {#fig-rec-samp-pedestal-vin plot="rec_samp_pedestal_vin"}
 A transmission gate of 32 units in TSMC65: Pedestal over the input level.
 :::
@@ -144,7 +77,6 @@ Half-size dummies take the transmission gate's largest pedestal from 0.75 to 0.0
 ::: todo
 
 - The charge each device injects, roughly half its channel charge $W L C_\mathrm{ox} (V_{GS} - V_t)$, and why the transmission gate's complementary devices largely cancel.
-- @fig-samp-boost read as the trade-off: on-resistance against pedestal, set by width.
 :::
 
 ### Sampling noise {#sec-samp-noise}
@@ -156,17 +88,6 @@ $$ {#eq-ktc-samp}
 differentially, for a capacitance $C$ per side.
 Here $C$ is the capacitive DAC's: for a 12-bit array kT/C is about 50 µV, 0.17 LSB.
 The capacitance itself is the DAC's to choose, in @sec-cdac-noise.
-
-### Choosing a switch per process {#sec-samp-choice}
-
-The remaining architecture similarly prioritizes compactness: transmission-gate sampling switches, top-plate sampling, and a single-stage StrongARM comparator avoid a bootstrapped sampler, an internal input buffer, and a dedicated intermediate common-mode reference generator.
-The front end must nevertheless provide suitable input common mode and settling.
-
-::: todo
-
-- The rule per resolution and process: transmission gate where its mid-supply $R_\mathrm{on}$ settles within the track time, bootstrap above.
-- The area each choice costs, and the switch's share of the converter's area.
-:::
 
 ## Dynamic comparator {#sec-comparator}
 
@@ -209,21 +130,12 @@ E \propto k, \qquad \sigma \propto \frac{1}{\sqrt{k}} \quad\Rightarrow\quad E\,\
 $$ {#eq-comp-scaling}
 The product $E\,\sigma^2$ is the comparator's figure of merit: scaling a design moves it along a line of constant $E\,\sigma^2$, and only a better topology moves the line.
 
-::: {#fig-comp-energy-noise plot="comp_energy_noise"}
-Energy per decision against input-referred noise for every comparator in six processes, marked by latch, with lines of constant $E\sigma^2$ (@eq-comp-scaling). Scaling moves a design along a line; the topology and the process set which line.
-:::
-
 ::: {#fig-rec-comp-noise-cm plot="rec_comp_noise_cm"}
 A StrongARM comparator in TSMC65: Input-referred noise over the common mode.
 :::
 
-The characterization confirms @eq-comp-scaling: every width times $k$ divides the noise by about $\sqrt{k}$ (toward a floor) and multiplies the energy by $k$, keeping the delay.
-In TSMC65 the energy times noise power of the dynamic bias is 3.9 to 4.3 fJ·mV², of the base StrongARM 5.8 to 7.5.
-The dynamic bias's input pair integrates in weak inversion and spends only the charge C_TAIL sets, which is why it sits on a lower line.
-
 ::: todo
 
-- @fig-comp-energy-noise read per process: the best $E\sigma^2$ per process (3.3 fJ·mV² in TSMC65, 3.8 in TSMC28, 5.6 in LF150, 16–20 in the 130 and 180 nm processes) and why the older processes sit higher.
 - The noise floor the families approach, $\sigma = \sqrt{a^2/k + f^2}$, and where it comes from.
 :::
 
@@ -263,24 +175,6 @@ A StrongARM comparator in TSMC65: Decision probability (nominal common mode, tra
 
 ::: {#fig-rec-comp-energy-supply plot="rec_comp_energy_supply"}
 A StrongARM comparator in TSMC65: Energy per decision over the supply.
-:::
-
-### Optimization per resolution {#sec-comp-optimization}
-
-The comparator of an $N$-bit converter is optimized for the cost of @eq-cost: least energy times area times a saturating noise factor, the noise within the converter's quantization noise, the layout within 15, 20 or 63 µm a side at 10, 12 or 14 bits, the 0.5 mV delay within 2 ns.
-A design that only scales settles at $\sigma/\sigma_q = 0.71$ (@eq-cost-optimum).
-
-In TSMC65 the best 10-bit comparator is a StrongARM at 214 fJ, 157 µm², 185 µV and 0.58 ns; the best 12-bit one a StrongARM at 620 fJ, 277 µm², 100 µV and 1.28 ns.
-No 14-bit design met its bounds within the area cap: the quietest found was 39.3 µV, a dynamic bias at 3374 µm².
-
-::: {#fig-comp-optimization placeholder="The 12-bit optimization in TSMC65: cost against trial, and the feasible designs' energy against noise, with the optimum marked."}
-The comparator optimization for a 12-bit converter.
-:::
-
-::: todo
-
-- Why 14 bits is infeasible within 63 µm a side: @eq-comp-scaling at the 14-bit noise bound.
-- Redundancy in the last 1–2 bits can relax comparator noise beyond the quantization noise, with more power for a few extra steps only (@sec-redundancy).
 :::
 
 ### Kickback and offset {#sec-comp-kickback}
@@ -327,12 +221,6 @@ For an illustrative 800 fF capacitance per differential branch at 300 K, the ide
 For an assumed 1.2 V differential full-scale span, ideal 12-bit quantization noise is $\sigma_\mathrm{quant} = (1.2\,\mathrm{V}/2^{12})/\sqrt{12} \approx 85$ µV RMS.
 Sampling noise is therefore already comparable to quantization noise at this capacitance, making capacitor sizing consequential for effective resolution.
 The prototype's nominal physical capacitance, including both members of the difference pairs, is approximately 1.88 pF per branch; the same ideal estimate gives approximately 66 µV RMS, before comparator noise and other nonidealities are included.
-
-Every array of the design space is sized from @eq-cmin-noise at one or two times the minimum, and its layout area follows it (@fig-cdac-area).
-
-::: {#fig-cdac-area plot="capdac_area_bits"}
-CDAC layout area per side against resolution for the 121 arrays of the design space, at one and two times @eq-cmin-noise, in difference and in unit capacitors, with the rule's $4^N$.
-:::
 
 ### The matching limit {#sec-cdac-matching}
 
@@ -394,7 +282,6 @@ The perspective shows three metal layers connected by vias, while the plan shows
 ::: todo
 
 - The mismatch of a difference weight: both elements' errors add, so $\sigma(C_\mathrm{eff}) = A\sqrt{(C_\mathrm{main} + C_\mathrm{diff})\cdot 1\,\mathrm{fF}}$, large against the weight itself; why redundancy and calibration are therefore part of the design, not an afterthought.
-- The design space's two weight builds compared: at 1 % mismatch unit capacitors leave less to calibrate than difference strips (12 bits at twice the minimum: 0.43 against 0.83 LSB).
 - MOM structures: unit-length strips, three metal layers, the 2:1 outline per branch.
 :::
 
@@ -421,10 +308,6 @@ With $\sigma_{w_k} = \frac{A}{\sqrt{C_u/1\,\mathrm{fF}}}\sqrt{w_k}$ in units, th
 $$
 q_k \geq z\,\sigma_{w_k} \quad \text{at every stage } k.
 $$ {#eq-calibratable}
-
-::: {#fig-cdac-gap plot="capdac_gap_redundancy"}
-The 95th percentile of the gap no calibration recovers, at a matching coefficient of 1 %·√fF, against the number of redundant decisions, for every array of the design space, marked by scheme. Binary arrays leave 1.5–3 LSB; enough redundancy, placed at the most significant stages, brings it under one LSB.
-:::
 
 ::: {#fig-rec-capdac-mismatch-gap plot="rec_capdac_mismatch_gap"}
 A 12-bit array of 17 decisions in TSMC65: Unrecoverable code width after ideal calibration (95th percentile).
@@ -489,7 +372,6 @@ time constants, into the plate in series with the rest of the array, $C_\mathrm{
 ### Top-plate parasitics and full scale {#sec-cdac-parasitic}
 
 The top plate's parasitic capacitance divides every step: the full scale is the reference times the switched capacitance over the total load, $V_\mathrm{FS} = V_\mathrm{ref}(\sum C_\mathrm{main} - \sum C_\mathrm{diff})/C_\mathrm{load}$.
-The arrays reach 55–65 % of the reference at 10 bits and 73–76 % at 12 and 14.
 
 ## Clocking and sequencing {#sec-clocking}
 
