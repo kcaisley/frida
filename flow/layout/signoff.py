@@ -293,8 +293,9 @@ def run_signoff(params: SignoffParams, run_dir: Path) -> SignoffResult:
 
 
 ROOT = Path(__file__).resolve().parents[2]
-# gdscheck's built-in decks of the open PDKs, by frida's PDK name (``gdscheck list-suites -p <process>``)
-GDSCHECK_PROCESSES = {"ihp130": "ihp-sg13g2"}
+# gdscheck's built-in decks of the open PDKs, by frida's PDK name (``gdscheck list-suites -p <process>``);
+# sky130 has none in gdscheck 0.2.1: its kit's drc.yaml carries the core suite
+GDSCHECK_PROCESSES = {"ihp130": "ihp-sg13g2", "gf180": "gf180mcuD"}
 MAX_BOXES = 200  # markers kept per rule
 
 

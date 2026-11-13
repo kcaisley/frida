@@ -6,7 +6,7 @@ import pytest
 from flow.layout.package import ROOT
 from flow.layout.pdkproc import in_pdk
 
-PDKS = ("tsmc65", "tsmc28", "tpsc65", "tower180", "ihp130", "lf150")
+PDKS = ("tsmc65", "tsmc28", "tpsc65", "tower180", "ihp130", "lf150", "sky130", "gf180")
 
 
 @pytest.mark.parametrize("pdk", PDKS)

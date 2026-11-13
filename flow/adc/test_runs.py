@@ -116,12 +116,16 @@ def test_the_design_space_is_the_plain_product() -> None:
 def test_elsewhere_no_converter_until_the_dac_is_characterized_there() -> None:
     """A converter's DAC is capdac's record, which TSMC65 alone has: the grid gives no other PDK an
     instance. Their spaces stay as they will be swept: each array with the PDK's StrongARM ladder at
-    its longest tail and the widest bootstrapped switch."""
+    its longest tail and the widest bootstrapped switch; a PDK without a characterized StrongARM
+    ladder has no space."""
     arrays = _swept_arrays()
     assert runs.converters.pdks == (Pdk.TSMC65,)
-    for pdk in ("tsmc28", "ihp130", "tower180", "lf150", "tpsc65"):
+    for pdk in ("tsmc28", "ihp130", "tower180", "lf150", "tpsc65", "sky130", "gf180"):
         assert not _instances(pdk)
         ladder = [params for _label, params in comp.base_strongarm.instances(pdk)]
+        if not ladder:  # SKY130, GF180
+            assert runs.converters.spaces(pdk) == {}
+            continue
         longest = max(params.tail_l for params in ladder)
         assert list(_values(pdk, "comp")) == [params for params in ladder if params.tail_l == longest]
         assert [samp.mos_w for samp in _values(pdk, "samp")] == [160]

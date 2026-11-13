@@ -160,7 +160,8 @@ def converters(pdk: Pdk) -> dict[str, Params]:
       0.5 mV), each cell the characterized comparator of least energy per decision within 15 % of
       the noise and 20 % of the delay (flow/comp/readme.md), FRIDA-1's at 200 uV and 2 ns, each from
       the comparator's grids by name (``comp.base_strongarm``, ``comp.dynamic_bias``); elsewhere the
-      PDK's StrongARM noise ladder at its longest tail, by its width factor (``k2.5``).
+      PDK's StrongARM noise ladder at its longest tail, by its width factor (``k2.5``); a PDK without
+      a ladder (SKY130, GF180: not yet characterized) has no space.
     - The samplers: TSMC65's an on-resistance ladder, FRIDA-1's transmission gate (``frida1``) the
       worst, then the bootstrapped NMOS switch's rungs (``samp.boost_ladder``, ``boost_<rung>``),
       none with dummy switches; elsewhere the bootstrapped switch's widest rung alone."""
@@ -185,6 +186,8 @@ def converters(pdk: Pdk) -> dict[str, Params]:
             for (noise, delay), params in zip(targets, cells, strict=True)
         }
         samplers = {"frida1": samp.FRIDA1, **boost}
+    elif not strongarm:  # a PDK whose StrongARM ladder is not yet characterized: no space
+        return {}
     else:
         longest = max(params.tail_l for params in strongarm.values())
         comparators = {f"k{name.rsplit('k=', 1)[1]}": p for name, p in strongarm.items() if p.tail_l == longest}

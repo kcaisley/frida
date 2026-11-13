@@ -1,5 +1,6 @@
 """Write each PDK's standard-cell library for hdl21 (``pdk/<pdk>/hdl21/cells.py``): every cell of
-its chosen library, and which cell implements each generic cell (``flow.circuit.cells``).
+its chosen library, which cell implements each generic cell (``flow.circuit.cells``), and the
+generic cells it cannot implement (``MISSING``).
 
     uv run python -c "from flow.circuit.cellmap import write_libraries; write_libraries()"  # or ("tsmc65",)
 
@@ -41,6 +42,18 @@ def _text(path: Path) -> str:
         return file.read()
 
 
+def _group_end(text: str, start: int) -> int:
+    """The index of the brace closing the group whose body starts at ``start``."""
+    depth, index = 1, start
+    while depth:
+        opening, closing = text.find("{", index), text.find("}", index)
+        if opening != -1 and opening < closing:
+            depth, index = depth + 1, opening + 1
+        else:
+            depth, index = depth - 1, closing + 1
+    return index - 1
+
+
 def read_liberty(path: Path) -> dict[str, dict]:
     """Every cell group of a Liberty file: pins (direction, function, pg_type), the ff or latch
     group's attributes, dont_use and area."""
@@ -48,17 +61,12 @@ def read_liberty(path: Path) -> dict[str, dict]:
     text = _text(path)
     cells = {}
     for match in re.finditer(r"\bcell\s*\(\s*\"?([\w$]+)\"?\s*\)\s*\{", text):
-        depth, index = 1, match.end()
-        while depth:
-            opening, closing = text.find("{", index), text.find("}", index)
-            if opening != -1 and opening < closing:
-                depth, index = depth + 1, opening + 1
-            else:
-                depth, index = depth - 1, closing + 1
-        body = text[match.end() : index - 1]
+        body = text[match.end() : _group_end(text, match.end())]
         pins = {}
         for pin in re.finditer(r"\b(pin|pg_pin)\s*\(\s*\"?([\w\[\]]+)\"?\s*\)\s*\{", body):
-            head = body[pin.end() : pin.end() + 4000]
+            # the pin's own attributes: within its group (a short pg_pin's would run on into the next
+            # pin's), before its timing groups
+            head = body[pin.end() : _group_end(body, pin.end())]
             head = head[: head.find("timing")] if "timing" in head else head
             direction = re.search(r"direction\s*:\s*\"?(\w+)", head)
             function = re.search(r"\bfunction\s*:\s*\"([^\"]*)\"", head)
@@ -225,10 +233,12 @@ def classify(cells: dict[str, dict], spice: dict[str, list[str]], drive_pattern:
             continue
         inputs = [pin for pin, info in signal.items() if info["direction"] == "input"]
         outputs = [pin for pin, info in signal.items() if info["direction"] == "output"]
+        # a Liberty pg_pin the cell's SPICE lacks has no connection: a kit whose netlist folds the
+        # cells' well pins onto their rails (sky130's VPB, VNB) maps only the rails
         supplies = {
             pin: ("VSS" if (info["pg_type"] or "").endswith(("ground", "pwell")) else "VDD")
             for pin, info in cell["pins"].items()
-            if info["kind"] == "pg_pin"
+            if info["kind"] == "pg_pin" and pin in spice[name]
         }
         supplies |= {pin: pin for pin in spice[name] if pin in ("VDD", "VSS") and pin not in supplies}
         entries = []
@@ -320,7 +330,7 @@ def write_library(pdk: str) -> tuple[Path, list[str]]:
     ]
     for generic, (name, pins, high, low) in mapping.items():
         lines.append(f"    {generic!r}: ({name!r}, {pins!r}, {tuple(high)!r}, {tuple(low)!r}),")
-    lines += ["}", f"# generic cells the library cannot implement: {missing}" if missing else "", ""]
+    lines += ["}", "# generic cells the library cannot implement (they stay generic)", f"MISSING = {tuple(missing)!r}"]
     out = ROOT / "pdk" / pdk / "hdl21" / "cells.py"
     out.write_text("\n".join(line for line in lines if line is not None).rstrip() + "\n")
     return out, missing

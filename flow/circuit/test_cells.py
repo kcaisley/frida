@@ -8,7 +8,7 @@ import pytest
 
 from flow.circuit.cells import DRIVES, FUNCTIONS, cell, generic_name
 
-PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
+PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65", "sky130", "gf180")
 
 
 def _library(pdk: str):
@@ -19,7 +19,9 @@ def _library(pdk: str):
 def test_every_pdk_implements_every_generic_cell(pdk: str) -> None:
     library = _library(pdk)
     wanted = {generic_name(function, drive) for function, drives in DRIVES.items() for drive in drives}
-    assert set(library.GENERIC) == wanted
+    # every generic cell implemented but those the library records it cannot (gf180's OSU cells)
+    assert set(library.GENERIC) | set(library.MISSING) == wanted
+    assert not set(library.GENERIC) & set(library.MISSING)
     for generic, (target, pins, high, low) in library.GENERIC.items():
         cell_pins, directions = library.CELLS[target]
         inputs, outputs = FUNCTIONS[generic.rsplit("_x", 1)[0]]

@@ -4,12 +4,13 @@ name, for PDK-agnostic netlists; each PDK's compile pass swaps them for its own 
 A generic cell is an ExternalModule of the "generic" domain named ``<function>_x<drive>``
 (``nand2_x1``, ``inv_x4``) with the same ports in every PDK: inputs A, B, C, D (a mux's select S),
 output Y; flip-flops D, CLK and Q, with RN an active-low reset; the latch D, EN (transparent while
-high) and Q; supplies VDD and VSS. ``DRIVES`` lists the drives every library reaches, natively or
-through a substitute (a flip-flop with a reset for one without, its reset held inactive).
+high) and Q; supplies VDD and VSS. ``DRIVES`` lists the drives the libraries reach, natively or
+through a substitute (a flip-flop with a reset for one without, its reset held inactive); a library
+that cannot reach one lists it (``MISSING``), and a call of it stays generic there.
 
 Each PDK's hdl21 package holds its library (``cells.py``, written by ``flow.circuit.cellmap``):
-every cell with its SPICE pin order and directions, and which cell implements each generic one with
-which pins. ``substitute`` builds the wrapper a compile pass returns: the library cell, its pins
+every cell with its SPICE pin order and directions, which cell implements each generic one with
+which pins, and the generic cells it lacks. ``substitute`` builds the wrapper a compile pass returns: the library cell, its pins
 on the wrapper's, an output it does not use on a net of its own, an input it holds inactive on the
 library's tie cell (a gate tied to a rail by metal alone breaks some PDKs' rules). A library
 without tie cells would tie with an inverter whose input is on the opposite rail.

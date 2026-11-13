@@ -35,8 +35,13 @@ from vlsirtools.netlist.spice import NgspiceNetlister
 from flow.circuit.cells import library_module
 
 ROOT = Path(__file__).resolve().parents[1]
-PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65")
+PDKS = ("tsmc65", "tsmc28", "ihp130", "tower180", "lf150", "tpsc65", "sky130", "gf180")
 SIMULATORS = ("spectre", "ngspice")
+# a run's limit in seconds, longer where a kit's load is slow: sky130's ngspice deck holds each MOS's
+# bins in a subcircuit, which ngspice copies per instance (its 437 cells and devices, about 8400 MOS,
+# took 31 to 36 CPU minutes; Spectre 10 s). Every cell is loaded still: a binned model with no bin
+# for a cell's size is one of the errors this test finds, and only the full library shows it
+TIMEOUT_S = {"sky130": 3600}
 CADENCE = "/eda/local/scripts/cadence_2024-25.sh"
 
 
@@ -125,19 +130,20 @@ def test_every_device_and_cell_loads(pdk: str, simulator: str) -> None:
         pytest.skip(f"{pdk} in {simulator}: {reason}")
 
     run_dir = ROOT / "build/test_spice" / pdk / simulator
+    timeout = TIMEOUT_S.get(pdk, 1200)
     run_dir.mkdir(parents=True, exist_ok=True)
     if simulator == "spectre":
         (run_dir / "netlist.scs").write_text(netlist(pdk, simulator))
         command = f"source {CADENCE} >/dev/null 2>&1; spectre -64 +escchars +log spectre.log netlist.scs"
         run = subprocess.run(
-            ["bash", "-c", command], cwd=run_dir, capture_output=True, text=True, timeout=1200, check=False
+            ["bash", "-c", command], cwd=run_dir, capture_output=True, text=True, timeout=timeout, check=False
         )
         log = (run_dir / "spectre.log").read_text(errors="replace")
         errors = [line for line in log.splitlines() if "ERROR" in line]
     else:
         (run_dir / "netlist.sp").write_text(netlist(pdk, simulator))
         command = ["ngspice", "--no-spiceinit", "-D", "ngbehavior=hsa", "-b", "netlist.sp"]
-        run = subprocess.run(command, cwd=run_dir, capture_output=True, text=True, timeout=1200, check=False)
+        run = subprocess.run(command, cwd=run_dir, capture_output=True, text=True, timeout=timeout, check=False)
         log = run.stdout + run.stderr
         (run_dir / "ngspice.log").write_text(log)
         lines = log.splitlines()

@@ -53,7 +53,7 @@ def _module(params):
     return netlist(params)
 
 
-@pytest.mark.parametrize("pdk", ("tsmc65", "ihp130", "tsmc28", "tower180", "lf150", "tpsc65"))
+@pytest.mark.parametrize("pdk", ("tsmc65", "ihp130", "tsmc28", "tower180", "lf150", "tpsc65", "sky130", "gf180"))
 def test_every_instance_states_a_complete_placement_or_none(pdk: str) -> None:
     h.pdk.set_default(pytest.importorskip(f"pdk.{pdk}.hdl21").pdk_logic)  # a PDK-free checkout (CI) has none
     for instance in runs.scaled.instances(pdk) if hasattr(runs.scaled, "instances") else []:

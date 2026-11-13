@@ -20,7 +20,7 @@ from .mosfet.netlist import DriverParams, DriverRequest, _input, driver, shared_
 from .mosfet.table import MosfetTable
 from .polyres.table import PolyResTable
 
-PDKS = ("tsmc65", "tsmc28", "tpsc65", "ihp130", "tower180", "lf150")
+PDKS = ("tsmc65", "tsmc28", "tpsc65", "ihp130", "tower180", "lf150", "sky130", "gf180")
 KINDS = ("mosfet", "moscap", "polyres", "momcap")
 
 

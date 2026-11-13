@@ -4,8 +4,8 @@ ALIGN frida's generators, ``package.py``; ``test_make_pdk.py`` checks the files 
 
 * layers.json: layers_base.json (PDK-neutral placeholders) with the GDS layers, routing pitches
   (M2 tracks PITCH, M1/M3 XPITCH), widths, cuts and spacings replaced, and the metals and cuts
-  above M3 from the PDK's RULES; a layer the PDK does not draw (NP, VT) goes to an abstract
-  255/x layer, which post.py removes;
+  above M3 from the PDK's RULES (a cut's size, space and line-end enclosure); a layer the PDK
+  does not draw (NP, VT) goes to an abstract 255/x layer, which post.py removes;
 * models.sp: models_base.sp plus the PDK's MOS models;
 * rows.json: where mos.py finds the PDK's layout directory and the row engine, and which of
   ALIGN's spare layers (Rvt, Hvt, Pb) carry the PDK's own row-cell markers (its PO_MARK,
@@ -117,6 +117,8 @@ def build(pdk: str, out: Path | None = None) -> Path:
                     a["MinL"] = -(-rule["area"] // rule["width"])
             elif "cut" in rule and "space" in rule:
                 a.update(WidthX=rule["cut"], WidthY=rule["cut"], SpaceX=rule["space"], SpaceY=rule["space"])
+                if "enclosure" in rule:  # the metals' line-end enclosure of the cut, below and above
+                    a.update(VencA_L=rule["enclosure"][0], VencA_H=rule["enclosure"][0])
         elif name == "Cap":
             a.update(m1Pitch=t.XPITCH, m2Pitch=t.PITCH, m3Pitch=t.XPITCH, m1Width=t.M1W, m2Width=t.M2W, m3Width=t.M3W)
         layers.append(a)

@@ -25,6 +25,7 @@ RULE = re.compile(
     r"\.(?:S|W|EN|EX|A|R|L|O|C|E|DN|R)\.[0-9]+[A-Z]?\b"
     r"|\b(?:METAL[0-9]|POLY[0-9]|DIFF|CONT|VIA[0-9]|NWELL|PWELL)\.(?:SPACING|WIDTH|OVERLAP|ENCLOSURE|AREA|EXTENSION)\b"
 )
+OPEN = ("ihp130", "sky130", "gf180")  # the open PDKs: their names are public
 KIT = re.compile(r"/eda/kits/(?!IHP)[A-Za-z]")  # a commercial foundry kit path (IHP's PDK is open)
 GENERIC = re.compile(r"[A-Za-z]+[01]?")
 WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -54,7 +55,7 @@ def _library_names() -> dict[str, str]:
     names = {}
     for tech in sorted(ROOT.glob("pdk/*/layout/tech.py")):
         pdk = tech.parts[-3]
-        if pdk == "ihp130":  # open PDK
+        if pdk in OPEN:
             continue
         for key in ("STD_LIB", "STD_CELLS", "STD_FILL"):
             value = _assigned(tech, key)
