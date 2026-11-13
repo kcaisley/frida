@@ -3,7 +3,7 @@
 import pytest
 from klayout import db
 
-from flow.layout.devices.momcap.characterize import draw_unit, mom_rules, pair_capacitances
+from flow.layout.devices.momcap.characterize import draw_unit, mom_rules, pair_capacitances, structure
 from flow.layout.devices.momcap.geometry import TERMINALS, MomcapGeometry, MomStyle
 
 
@@ -21,7 +21,9 @@ def test_a_minimum_finger_holds_its_via(pdk: str) -> None:
 
 @pytest.mark.parametrize("style", tuple(MomStyle))
 def test_every_terminal_is_labelled_and_every_stack_is_joined(style: MomStyle) -> None:
-    layout = draw_unit("tsmc65", MomcapGeometry(style, 3, 4000, 2000), "unit")
+    # a strip and a ring unit as their arrays draw them (channels, columns); a plain strip alone
+    geometry = MomcapGeometry(style, 3, 4000, 2000) if style is MomStyle.STRIP else structure(style, 3, 4000, 2000)
+    layout = draw_unit("tsmc65", geometry, "unit")
     cell = layout.top_cell()
     labels = {
         shape.text_string for layer in layout.layer_indexes() for shape in cell.shapes(layer).each() if shape.is_text()

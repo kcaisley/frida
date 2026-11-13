@@ -245,13 +245,15 @@ def run_layout_pex(
     tolerance: float = TOLERANCE,
     texts: list[tuple[str, int, int, str]] = (),
     engine: Engine = Engine.FASTERCAP,
+    timeout: float | None = None,
 ) -> Path:
     """Extract ``layout_top`` of ``gds_path`` in ``pdk`` by ``engine``, FasterCap to its relative
     ``tolerance`` (``TOLERANCE``: a unit's, the arrays' ratios; looser for a block's parasitics) or
     the 2.5-D engine by the kit's coefficients, in ``run_dir/kpex/``: the Spectre netlist of its nets'
     capacitances (``<output_stem>.pex.netlist``). ``texts``: labels to add, (conductor, x, y in
     database units, name), for nets the layout leaves unlabelled. Refuses the 2.5-D engine in a kit
-    without its coefficients."""
+    without its coefficients. ``timeout``: seconds before the extraction is stopped (where FasterCap
+    does not converge), raising; None: none."""
 
     kpex, joins = technology(pdk)
     if engine is Engine.RCX25 and "process_parasitics" not in kpex:
@@ -290,6 +292,7 @@ def run_layout_pex(
         cwd=work,
         log=log,
         name="kpex",
+        timeout=timeout,
     )
     if not netlist.is_file():
         raise RuntimeError(f"KLayout-PEX wrote no netlist of {layout_top} ({log})")
