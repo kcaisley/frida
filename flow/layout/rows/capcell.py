@@ -50,12 +50,27 @@ def mom_geometry(layers: int, space: int = 0) -> dict:
             raise ValueError(f"the PDK has no V{metal} enclosure rule (layout/tech.py RULES)")
         width = max(width, via["cut"] + 2 * via["enclosure"][1])
     width = _snap(width, 2 * grid)
-    minimum = max(rule["space"] for rule in rules)
-    for rule in rules:
-        # (space, above width, above parallel run length): a long finger meets every run length
-        for conditional, above_width, _run in rule.get("parallel_space", ()):
-            if width > above_width:
-                minimum = max(minimum, conditional)
+
+    def spacing(width: int) -> int:
+        """The spacing fingers ``width`` wide need alongside a long run."""
+        minimum = max(rule["space"] for rule in rules)
+        for rule in rules:
+            # (space, above width, above parallel run length): a long finger meets every run length
+            for conditional, above_width, _run in rule.get("parallel_space", ()):
+                if width > above_width:
+                    minimum = max(minimum, conditional)
+        return minimum
+
+    # an array's ring unit spans two finger pitches from wall centre to wall centre, and ALIGN
+    # places it on whole M3 tracks (its cells' widths): the fingers widened, their spacing kept,
+    # until two pitches are, where the narrowest leave them off the tracks
+    m3 = getattr(tech, "M3_PITCH", tech.XPITCH)
+    widest = width + m3
+    while 2 * (width + _snap(max(spacing(width), space), grid)) % m3:
+        width += 2 * grid
+        if width > widest:
+            raise ValueError(f"no finger width puts two MOM pitches on the {m3} nm M3 tracks")
+    minimum = spacing(width)
     # (space, below edge length, extension): a narrow finger's end
     end_gap = max(
         [minimum, *(gap for rule in rules for gap, below, _ext in rule.get("end_of_line", ()) if width < below)]
