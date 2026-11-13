@@ -996,7 +996,12 @@ def inverter(
     (n_lo, ny1), (py0, p_hi) = _tech.LOGIC_OD["n"], _tech.LOGIC_OD["p"]
     ny0, py1 = ny1 - wn, py0 + wp
     assert ny0 >= n_lo and py1 <= p_hi, f"{name}: fingers of {wn}/{wp} nm exceed the logic diffusion bands"
-    yy = ya - getattr(_tech, "PITCH", 200)  # the output's M2 track, below the input's, across the drain strips
+    # the output's M2 track, below the input's, across the drain strips: the next track down, or
+    # the one below it where ALIGN's VIA1 space (V1_PAIR's, make_pdk) keeps cuts on neighbouring
+    # tracks apart (a chain's link jogs between an output's track and the next input's on M1, a
+    # cut at each)
+    pitch = getattr(_tech, "PITCH", 200)
+    yy = ya - (pitch if pitch - V1 >= getattr(_tech, "V1_PAIR", 2 * V1) - V1 else 2 * pitch)
     gap = max(M1_SPACE, getattr(_tech, "LINE_END", 0))
     least = _inverter_widths(pad)
     assert wn >= least[0] and wp >= least[1], f"{name}: no room for the S/D contacts of {wn}/{wp} nm fingers"
@@ -1046,6 +1051,13 @@ def inverter(
     # rails, taps and the standard cells' profile across the whole cell
     for yr, net in ((0, vss), (H, vdd)):
         c.add("M1", 0, yr - RAIL, width, yr + RAIL, net, "pin" if net else "drawing")
+        if not RAIL_TAPS:
+            # rails no tap ties: an M2 rail over the M1 one, joined by VIA1 on every other tap
+            # position, so ALIGN's router keeps off the rail's line, where the post step joins a
+            # rail its M1 cuts between two cells (post._rail_bridge)
+            c.add("M2", 0, yr - M2_HW, width, yr + M2_HW, net)
+            for x in range(TAP_PITCH // 2, width - M1_HW, 2 * TAP_PITCH):
+                c.add("V1", x - V1_H, yr - V1_H, x + V1_H, yr + V1_H, net)
         ty = _tap(yr)
         if RAIL_OD:
             c.add("OD", 0, ty - TAP_OD, width, ty + TAP_OD)
