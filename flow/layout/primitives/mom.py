@@ -467,8 +467,15 @@ class MomUnit(_Fabric):
                     self.rect(layer, "SHIELD", x, band[0], x + w, band[1])
             if bottom:  # the shield's pin on the channel's inner bar, on a track
                 self.rect(layer, "SHIELD", inner_x, ground - w // 2, inner_x + w, ground + w // 2, "pin")
-        for x in (0, inner_x, outer - w):  # the grid under the walls and the inner finger
-            self.rect(layer, "SHIELD", x, low, x + w, high)
+        # the grid under the walls and the inner finger, its lines narrowed alike on both sides
+        # (a wall's line is its neighbour's too) where the metal's narrowest hole (``hole_width``)
+        # is wider than the plates' spacing between them
+        rule, grid = capcell.tech.RULES.get(layer, {}), g["grid"]
+        trim = capcell._snap(max(0, rule.get("hole_width", 0) - g["space"]), 2 * grid) // 2
+        if w - 2 * trim < rule.get("width", 0):
+            raise ValueError(f"no {layer} shield line fits between holes {rule.get('hole_width')} nm wide")
+        for x in (0, inner_x, outer - w):
+            self.rect(layer, "SHIELD", x + trim, low, x + w - trim, high)
 
     def _recognition(self, g, outer, height, y0, y1, side):
         """One U on the ring's inner halves (the bar at the finger's root and both walls to half
