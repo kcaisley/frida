@@ -283,9 +283,18 @@ $$
 \Delta V_\mathrm{top} = \frac{\sum_i C_i\,\Delta V_{\mathrm{bot},i}}{C_\mathrm{tot}}, \qquad Q_\mathrm{ref} = \sum_{i \in \mathrm{ref}} C_i \left(\Delta V_{\mathrm{bot},i} - \Delta V_\mathrm{top}\right).
 $$ {#eq-switching}
 
+::: {#fig-switching-energy-code plot="switching_energy_code"}
+Reference energy per conversion over the output code of an ideal 10-bit differential array, by charge accounting at each switching event (@eq-switching): conventional switching with $N$-bit arrays [@ginsburg2005], monotonic [@liu2010] and Vcm-based [@zhu2010] with $(N-1)$-bit arrays and top-plate sampling. The means, 1363.3, 255.5 and 170.2 C·Vref², are the published ones; the Vcm rail's energy is counted at its voltage.
+:::
+
+::: {#fig-switching-energy-bits plot="switching_energy_bits"}
+Mean reference energy per conversion against resolution for the three schemes of @fig-switching-energy-code. Each approaches a constant times $2^N$: $\tfrac{4}{3}\,2^N$, $2^N/4$ and $2^N/6$ C·Vref².
+:::
+
 ::: todo
 
-- Switching energy per conversion for monotonic against Vcm-based switching, and the common-mode drift it costs the comparator [@chang2013; @liu2010].
+- @fig-switching-energy-code and @fig-switching-energy-bits read: where each scheme spends its charge over the code, and what the factor between them is worth against the comparator's and the logic's energy (@eq-energy).
+- The common-mode drift monotonic switching costs the comparator, and what the modified single-side procedure and the programmable initial state change [@chang2013; @liu2010].
 :::
 
 ### Drivers and settling {#sec-cdac-settling}

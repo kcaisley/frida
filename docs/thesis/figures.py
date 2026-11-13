@@ -1140,6 +1140,123 @@ def top_level(samp_rows: list[dict], comp_rows: list[dict]) -> Figure:
     )
 
 
+# ---------------------------------------------------------------- switching energy (charge accounting)
+
+SWITCHING_SCHEMES = (
+    ("conventional", "Conventional"),
+    ("monotonic", "Monotonic"),
+    ("vcm", "Vcm-based"),
+)
+
+
+def _switch(cap: np.ndarray, vb: np.ndarray, vt: float, new: np.ndarray, rail: float) -> tuple[float, float]:
+    """One switching event of an ideal array with a floating top plate: the top plate's new
+    voltage (charge conservation, @eq-switching) and the charge the rail at `rail` delivers to the
+    plates the event connects to it."""
+    vt_new = vt + float(np.sum(cap * (new - vb)) / np.sum(cap))
+    on = new == rail
+    return vt_new, float(np.sum(cap[on] * ((rail - vt_new) - (vb[on] - vt))))
+
+
+def switching_energy(scheme: str, bits: int, vin: float) -> float:
+    """Reference energy of one conversion of a differential input `vin` (-1..1) by an ideal
+    binary array, in C·Vref² (unit capacitor C, Vref = 1), by charge accounting at each switching
+    event: conventional, with N-bit arrays and bottom-plate sampling, each bit tried at Vref and,
+    when too high, returned in the same event that tries the next [@ginsburg2005]; monotonic, with
+    (N-1)-bit arrays and top-plate sampling, the higher side's next capacitor from Vref to ground
+    [@liu2010]; Vcm-based, from Vcm, the higher side's next capacitor to ground and the lower's to
+    Vref, the Vcm rail's energy counted at its voltage [@zhu2010]."""
+    vcm = 0.5
+    tops = [vcm + vin / 2, vcm - vin / 2]
+    total = 0.0
+    if scheme == "conventional":
+        cap = np.array([2.0 ** (bits - 1 - i) for i in range(bits)] + [1.0])
+        plates = [np.full(cap.size, tops[0]), np.full(cap.size, tops[1])]
+        tops = [vcm, vcm]  # the input on the bottom plates, the top plates at Vcm
+        reset = [None, None]
+        for k in range(bits):
+            for side in (0, 1):
+                new = plates[side].copy()
+                if k == 0:
+                    new[:] = 0.0
+                if reset[side] is not None:
+                    new[reset[side]] = 0.0
+                new[k] = 1.0
+                tops[side], charge = _switch(cap, plates[side], tops[side], new, 1.0)
+                total += charge
+                plates[side] = new
+            high = tops[0] > tops[1]  # the trial overshoots where the top sits above the other side
+            reset = [k if high else None, None if high else k]
+        return total
+    cap = np.array([2.0 ** (bits - 2 - i) for i in range(bits - 1)] + [1.0])
+    plates = [np.full(cap.size, 1.0 if scheme == "monotonic" else vcm) for _ in (0, 1)]
+    for k in range(bits - 1):
+        high = 0 if tops[0] > tops[1] else 1
+        for side in (0, 1):
+            if scheme == "monotonic" and side != high:
+                continue
+            new = plates[side].copy()
+            new[k] = 0.0 if side == high else 1.0
+            vt_old = tops[side]
+            tops[side], charge = _switch(cap, plates[side], vt_old, new, 1.0)
+            total += charge
+            if scheme == "vcm":
+                total += vcm * _switch(cap, plates[side], vt_old, new, vcm)[1]
+            plates[side] = new
+    return total
+
+
+def _codes(bits: int, points: int = 1024) -> np.ndarray:
+    """Differential inputs at the centres of `points` evenly spaced codes of an N-bit converter."""
+    codes = np.linspace(0, 2**bits - 1, min(points, 2**bits)).round()
+    return -1 + (codes + 0.5) * 2 / 2**bits
+
+
+def switching_energy_code() -> Figure:
+    """Each scheme's reference energy over the output code of a 10-bit converter."""
+    bits = 10
+    vins = _codes(bits)
+    codes = ((vins + 1) / 2 * 2**bits - 0.5).tolist()
+    traces = []
+    for (scheme, label), color in zip(SWITCHING_SCHEMES, CURVE_COLORS, strict=False):
+        energy = [switching_energy(scheme, bits, v) for v in vins]
+        traces.append(Trace(f"{label} (mean {np.mean(energy):.1f})", codes, energy, color=color, lines=True))
+    return Figure(
+        "switching_energy_code",
+        [
+            Panel(
+                Axis("Output code", limits=(0, 2**bits), ticks=[(c, str(c)) for c in range(0, 2**bits + 1, 256)]),
+                Axis("Reference energy (C·Vref²)", limits=(0, 1600)),
+                traces,
+                legend=("Switching", "upper right"),
+            )
+        ],
+        height_in=3.2,
+    )
+
+
+def switching_energy_bits() -> Figure:
+    """Each scheme's mean reference energy per conversion over the resolution."""
+    resolutions = list(range(6, 15))
+    traces = []
+    for (scheme, label), color in zip(SWITCHING_SCHEMES, CURVE_COLORS, strict=False):
+        mean = [float(np.mean([switching_energy(scheme, n, v) for v in _codes(n, 256)])) for n in resolutions]
+        traces.append(Trace(label, resolutions, mean, color=color, lines=True))
+        traces.append(Trace(label, resolutions, mean, color=color, legend=0, size=4))
+    return Figure(
+        "switching_energy_bits",
+        [
+            Panel(
+                Axis("Resolution (bits)", limits=(6, 14), ticks=[(n, str(n)) for n in range(6, 15, 2)]),
+                Axis("Mean reference energy (C·Vref²)", log=True, ticks=decades(1, 5, plain)),
+                traces,
+                legend=("Switching", "upper left"),
+            )
+        ],
+        height_in=3.2,
+    )
+
+
 def cdac_limits() -> Figure:
     """The least capacitance per side for noise (2kT/C = LSB²/12) and for matching (the mid-code
     transition at a quarter LSB), over the resolution, at published matching coefficients."""
@@ -1321,7 +1438,7 @@ def record_figures() -> list[Figure]:
 
 def block_figures() -> list[Figure]:
     """The block chapters' figures, where the pipeline's records are present (skipped otherwise)."""
-    out = [enob_ctot(), cdac_limits()]
+    out = [enob_ctot(), cdac_limits(), switching_energy_code(), switching_energy_bits()]
     ladder = adc_ladder()
     if ladder is not None:
         out.append(ladder)
