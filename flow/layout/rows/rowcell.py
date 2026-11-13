@@ -132,6 +132,8 @@ GATE_CONTACT_MARK = getattr(_tech, "GATE_CONTACT_MARK", None)
 VT_INSET = getattr(_tech, "VT_INSET", 0)
 # M1 past a VIA1 along a strip or riser (the cut's M1 landing), where M1 needs less than an M2 bar
 M1_VIA_END = getattr(_tech, "M1_VIA_END", BAR_END)
+# an S/D net beside another on the next track reached on M3 stubs at legal VIA2 columns (_access_stubs)
+ACCESS_STUBS = getattr(_tech, "ACCESS_STUBS", False)
 # the implant split of a standard cell's pad (std_pad): N+ implant up to the first, P+ from the
 # second (a gap between, as a library whose implants leave its gate contacts' band bare); the
 # well from STD_NW either way
@@ -174,6 +176,60 @@ class Cell:
             cx, cy = (r.x0 + r.x1) // 2, (r.y0 + r.y1) // 2
             self.add("M2", cx - hx, cy - hy, cx + hx, cy + hy, net, "pad")
         return r
+
+
+def _gap(a, b) -> float:
+    """Euclidean distance between two boxes (x0, y0, x1, y1)."""
+    dx, dy = max(0, max(a[0], b[0]) - min(a[2], b[2])), max(0, max(a[1], b[1]) - min(a[3], b[3]))
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def _access_stubs(strips, sh, tracks, sdx, m3s, rail_net, width) -> dict[str, list[int]] | None:
+    """ACCESS_STUBS (a PDK whose M2 landing pads, M2_VIA_PAD, reach past the M2 pitch): an S/D net
+    whose bar has another net's bar on a neighbouring track (a pass device's source and drain) gets
+    its access on M3: of the M3 columns where a VIA2's landing pad keeps the M2 space from every
+    other net's pad, the one nearest each end of its bar (its bar stretched to it where it keeps
+    the M2 space from other nets' bars on its track); the router reaches the net there, as no VIA2 of
+    its own on that bar would keep that space. ``sdx`` takes the stretched bars; None where a net has
+    no such column."""
+    hx1, hy1 = M2_VIA_PAD["V1"]
+    hx2, hy2 = M2_VIA_PAD["V2"]
+    pads = [
+        (n, (x + sh - hx1, tracks[n] - hy1, x + sh + hx1, tracks[n] + hy1))
+        for x, n, _, _ in strips
+        if n in tracks and n != rail_net
+    ]
+    pads += [(n, (x - hx2, y - hy2, x + hx2, y + hy2)) for n, x, ya, yb in m3s for y in (ya, yb)]
+    taken = [x for _, x, _, _ in m3s]
+    stubs: dict[str, list[int]] = {}
+    for net, t in tracks.items():
+        if not any(n != net and abs(u - t) == _tech.PITCH for n, u in tracks.items()):
+            continue
+        lo, hi = sdx[net]
+
+        def clear(m, net=net, t=t, lo=lo, hi=hi):
+            a, b = min(lo, m) - BAR_END, max(hi, m) + BAR_END
+            return all(
+                b + M2_SPACE <= sdx[n][0] - BAR_END or a - M2_SPACE >= sdx[n][1] + BAR_END
+                for n in tracks
+                if n != net and tracks[n] == t
+            )
+
+        cand = [
+            m
+            for m in range(_up(M3_EDGE, XPITCH), width - M3_EDGE + 1, XPITCH)
+            if all(abs(m - u) >= XPITCH for u in taken)
+            and all(_gap((m - hx2, t - hy2, m + hx2, t + hy2), box) >= M2_SPACE for n, box in pads if n != net)
+            and clear(m)
+        ]
+        if not cand:  # none here: the caller widens the cell, which moves the strips against the columns
+            return None
+        ms = sorted({min(cand, key=lambda m: abs(m - lo)), min(cand, key=lambda m: abs(m - hi))})
+        taken += ms
+        pads += [(net, (m - hx2, t - hy2, m + hx2, t + hy2)) for m in ms]
+        sdx[net] = [min(lo, *ms), max(hi, *ms)]
+        stubs[net] = ms
+    return stubs
 
 
 def _up(v: int, g: int) -> int:
@@ -763,12 +819,21 @@ def mos_array(
         m3s.append((far, m, tracks[far], far_y))
         far_pads.append((m, far))
 
+    stubs = _access_stubs(strips, sh, tracks, sdx, m3s, rail_net, width) if ACCESS_STUBS else {}
+    if stubs is None:  # no legal VIA2 column for an access stub: one column wider, centred
+        assert extra < 8 * grid, f"{name}: no M3 column for an S/D net's access stub"
+        return mos_array(name, pol, devs, runs, grid, vss, vdd, m2_rails, extra + grid, ties)
     for net, t in tracks.items():
         a, b = sdx[net][0] - BAR_END, sdx[net][1] + BAR_END
         # a single strip's minimum-length bar keeps half an M2 space to the cell edge (it still covers its VIA1)
         a, b = (a, b) if a >= M2_EDGE else (M2_EDGE, b + M2_EDGE - a)
         a, b = (a, b) if b <= width - M2_EDGE else (a - (b - width + M2_EDGE), width - M2_EDGE)
-        c.add("M2", a, t - M2_HW, b, t + M2_HW, net, "pin")
+        c.add("M2", a, t - M2_HW, b, t + M2_HW, net, "drawing" if net in stubs else "pin")
+    for net, ms in stubs.items():  # the net's access: an M3 stub on a VIA2 where its landing is legal
+        t = tracks[net]
+        for m in ms:
+            c.add("V2", m - V2_H, t - V2_H, m + V2_H, t + V2_H, net)
+            c.add("M3", m - M3_HW, t - BAR_END, m + M3_HW, t + BAR_END, net, "pin")  # M3 area: 260 x 320
 
     # gates: poly over the OD, a head with the contact at the gate track, an M1 pad, VIA1 (on a
     # riser to the net's own track where that is not the gate track), M2 bar
