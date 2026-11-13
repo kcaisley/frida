@@ -663,7 +663,7 @@ def test_the_shared_step_lays_out_by_align_and_its_other_router_where_one_fails(
     monkeypatch.setattr(step, "own_layout", lambda block: False)
     monkeypatch.setattr(step, "inputs", inputs)
     monkeypatch.setattr(step, "build_design", align)
-    monkeypatch.setattr(step, "pdk_router", lambda pdk: "first")
+    monkeypatch.setattr(step, "pdk_router", lambda pdk, block=None: "first")
     monkeypatch.setattr(step, "other_router", {"first": "second", "second": "first"}.get)
     monkeypatch.setattr(step, "route_shorts", lambda work, name: {})
     flow("--to", "pex", "--run", "wired")
