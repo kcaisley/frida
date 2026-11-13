@@ -138,6 +138,10 @@ ACCESS_STUBS = getattr(_tech, "ACCESS_STUBS", False)
 # second (a gap between, as a library whose implants leave its gate contacts' band bare); the
 # well from STD_NW either way
 STD_SPLIT = getattr(_tech, "STD_SPLIT", (_tech.STD_NW, _tech.STD_NW))
+# a complementary inverter's poly bar (rowcell.inverter) to its diffusions, where the kit's
+# minimum is below the analog cells' gate bar spacing (their gate head to their diffusion's
+# furthest edge), the default
+PO_OD = getattr(_tech, "PO_OD", GATE_TRACK["n"] - PO_HEAD - OD_LIMIT["n"][1])
 
 GLAYERS = LAYERS
 M1_HW, M2_HW, M3_HW = M1W // 2, M2W // 2, M3W // 2  # half widths: M1 strips and pads, M2 and M3 bars
@@ -911,6 +915,47 @@ def inverter_outlines(cases: list[tuple[int, int, int, int]]) -> list[tuple[int,
     return out
 
 
+def _gate_pad(name: str, l: int) -> tuple[int, int, int, tuple[int, int], int]:
+    """An inverter's gate pad, the same for every size of gate length ``l``: the strip pitch, the
+    gate contacts' height, the input's M2 track, the pad's M1 (bottom, top) and half width. The
+    pad meets the M1 area about its contact and VIA1, as wide as that needs; where that would
+    crowd the drain strip beside it, as wide as the strip pitch leaves (an M1 space short of the
+    strip) and taller instead, both ways."""
+    p = _cpp(l)
+    (_, ny1), (py0, _) = _tech.LOGIC_OD["n"], _tech.LOGIC_OD["p"]
+    gc = _on_grid((ny1 + py0) // 2)
+    assert ny1 <= STD_NW <= py0 and py0 - ny1 >= 2 * (PO_HEAD + PO_OD), f"{name}: no room between the diffusions"
+    pitch = getattr(_tech, "PITCH", 200)
+    ya = round(gc / pitch) * pitch  # the input's M2 track, through the gate pad
+    pad = (min(gc - GATE_PAD, ya - M1_VIA_END), max(gc + GATE_PAD, ya + M1_VIA_END))
+    pad_hw = max(M1_HW, _up(-(-M1_AREA // (pad[1] - pad[0])), 2 * MFG_GRID) // 2)
+    room = _on_grid(p - M1_HW - M1_SPACE)  # the widest half width beside the first drain strip
+    if pad_hw > room:
+        assert room >= M1_HW, f"{name}: the gate pad crowds the first drain strip"
+        pad_hw = room
+        grow = _up(-(-M1_AREA // (2 * pad_hw)), 2 * MFG_GRID) - (pad[1] - pad[0])
+        pad = (pad[0] - _on_grid(grow // 2), pad[1] + grow - _on_grid(grow // 2))
+    return p, gc, ya, pad, pad_hw
+
+
+def _inverter_widths(pad: tuple[int, int]) -> tuple[int, int]:
+    """The narrowest NMOS and PMOS fingers (nm) whose every strip holds a contact beside a gate pad
+    whose M1 spans ``pad`` (bottom, top): a drain's within its diffusion's enclosure, a source's
+    an M1 space (or line-end space) short of the pad, as ``inverter`` draws them."""
+    (_, ny1), (py0, _) = _tech.LOGIC_OD["n"], _tech.LOGIC_OD["p"]
+    gap = max(M1_SPACE, getattr(_tech, "LINE_END", 0))
+    top = min(ny1 - CO_OD_SIDE, pad[0] - gap - M1_CO_END)  # a source contact's highest edge
+    bot = max(py0 + CO_OD_SIDE, pad[1] + gap + M1_CO_END)  # and lowest
+    return ny1 - top + CO + CO_OD_END, bot - py0 + CO + CO_OD_END
+
+
+def inverter_min_widths(l: int) -> tuple[int, int]:
+    """The narrowest NMOS and PMOS fingers (nm) an inverter of gate length ``l`` draws
+    (``inverter``): every strip's contacts fit beside its gate pad. A driver's inverters are sized
+    no narrower (``flow.layout.devices.mosfet.netlist``)."""
+    return _inverter_widths(_gate_pad("INV", l)[3])
+
+
 def inverter(
     name: str,
     l: int,
@@ -942,7 +987,7 @@ def inverter(
     drawing its contacts)."""
 
     assert nf >= 1, f"{name}: no fingers"
-    p = _cpp(l)
+    p, gc, ya, pad, pad_hw = _gate_pad(name, l)
     strips = [i * p for i in range(nf + 1)]
     seq = _pins(nf, "S")
     gates = [x + p // 2 for x in strips[:-1]]
@@ -951,19 +996,10 @@ def inverter(
     (n_lo, ny1), (py0, p_hi) = _tech.LOGIC_OD["n"], _tech.LOGIC_OD["p"]
     ny0, py1 = ny1 - wn, py0 + wp
     assert ny0 >= n_lo and py1 <= p_hi, f"{name}: fingers of {wn}/{wp} nm exceed the logic diffusion bands"
-    # the poly bar keeps the analog cells' poly-to-diffusion space (their gate head to their
-    # diffusion's furthest edge) from both diffusions
-    po_od = GATE_TRACK["n"] - PO_HEAD - OD_LIMIT["n"][1]
-    gc = _on_grid((ny1 + py0) // 2)
-    assert ny1 <= STD_NW <= py0 and py0 - ny1 >= 2 * (PO_HEAD + po_od), f"{name}: no room between the diffusions"
-    pitch = getattr(_tech, "PITCH", 200)
-    ya = round(gc / pitch) * pitch  # the input's M2 track, through the gate pad
-    yy = ya - pitch  # the output's, below it, across the drain strips
-    pad = (min(gc - GATE_PAD, ya - M1_VIA_END), max(gc + GATE_PAD, ya + M1_VIA_END))
+    yy = ya - getattr(_tech, "PITCH", 200)  # the output's M2 track, below the input's, across the drain strips
     gap = max(M1_SPACE, getattr(_tech, "LINE_END", 0))
-    # the gate pad's M1 meets the M1 area, widened about its contact (its height is the gap's)
-    pad_hw = max(M1_HW, _up(-(-M1_AREA // (pad[1] - pad[0])), 2 * MFG_GRID) // 2)
-    assert p - pad_hw - M1_HW >= M1_SPACE, f"{name}: the gate pad crowds the first drain strip"
+    least = _inverter_widths(pad)
+    assert wn >= least[0] and wp >= least[1], f"{name}: no room for the S/D contacts of {wn}/{wp} nm fingers"
 
     def contacts(pol: str, net: str) -> list[int]:
         """A strip's contact centres on its diffusion; a source strip's away from the gate pad."""
@@ -1063,8 +1099,18 @@ def inverter(
         c.add("V1", tx - V1_H, ya - V1_H, tx + V1_H, ya + V1_H, a)
     if GATE_CONTACT_MARK:
         _gate_mark(c, [tx + sh for tx in taps], gc, width)
-    for x0, x1 in dummies:  # as tall as the gates
-        c.add(PO_DUMMY_LAYER, x0 + sh, ny0 - PO_ENDCAP, x1 + sh, py1 + PO_ENDCAP)
+    # the dummies as tall as the gates, but where one comes within the poly space (PO_SPACE) of the
+    # poly bar's end, which reaches past the first gate to its contact over the first strip: cut
+    # there, that space above and below the bar
+    po_space = getattr(_tech, "PO_SPACE", 0)
+    for x0, x1 in dummies:
+        y0, y1 = ny0 - PO_ENDCAP, py1 + PO_ENDCAP
+        if x1 + po_space > cx - PO_BAR_END - sh and x0 - po_space < max(gates) + l // 2:
+            cut = (gc - PO_HEAD - po_space, gc + PO_HEAD + po_space)
+            c.add(PO_DUMMY_LAYER, x0 + sh, y0, x1 + sh, cut[0])
+            c.add(PO_DUMMY_LAYER, x0 + sh, cut[1], x1 + sh, y1)
+        else:
+            c.add(PO_DUMMY_LAYER, x0 + sh, y0, x1 + sh, y1)
     po = [r for r in c.rects if r.layer in ("PO", PO_DUMMY_LAYER)]
     for is_long, layer in PO_MARK.items():
         if _long(l) == is_long:

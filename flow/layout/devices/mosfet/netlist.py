@@ -26,7 +26,7 @@ from flow.layout.hdl21align import place, row, rows
 from flow.layout.package import metal_tracks
 from flow.layout.pdkproc import in_pdk, pdk_value
 
-from ..device import mark
+from ..device import active_pdk, mark
 from ..device import place as drawn
 from .geometry import InverterGeometry
 from .table import mosfet_table
@@ -203,12 +203,30 @@ def shared_fanin(pdk: str, others: list[DriverRequest]) -> float:
 
 def _inverter_sizes(n_units: int, p_units: int) -> tuple[int, int, int]:
     """An inverter's NMOS and PMOS widths (unit widths, in total) and their shared finger count:
-    the logic cells' finger widths (``logic_pair``), each finger at least the narrowest the PDK
-    contacts."""
+    the logic cells' finger widths (``logic_pair``), each finger at least the narrowest its row
+    cell contacts (``_least_units``)."""
     (n_w, nf), (p_w, _) = logic_pair(n_units, p_units)
     nf = nf or 1
+    n_low, p_low = _least_units(active_pdk())
+    return max(n_w, nf * n_low), max(p_w, nf * p_low), nf
+
+
+@cache
+def _least_units(pdk: str | None) -> tuple[int, int]:
+    """The narrowest NMOS and PMOS finger (unit widths) of an inverter in ``pdk``: the narrowest the
+    PDK contacts (``MOS_FINGER_MIN_UNITS``), and no narrower than its row cell draws, every strip's
+    contacts beside the gate pad (``rowcell.inverter_min_widths``); without the PDK's row cells,
+    the first alone."""
     low = getattr(h.pdk.default(), "MOS_FINGER_MIN_UNITS", 1)
-    return max(n_w, nf * low), max(p_w, nf * low), nf
+    if pdk is None:
+        return low, low
+    unit_m, length_m = core_unit(h.pdk.default())
+    try:
+        n_nm, p_nm = in_pdk(pdk, "rowcell", "inverter_min_widths", round(length_m * 1e9))
+    except FileNotFoundError:  # a PDK without row cells
+        return low, low
+    unit = round(unit_m * 1e9)
+    return max(low, math.ceil(n_nm / unit)), max(low, math.ceil(p_nm / unit))
 
 
 @cache
