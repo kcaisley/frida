@@ -35,6 +35,7 @@ Fritchman's AlignHdl21): rows of its own instances, which ALIGN places as stated
 of its own rows.
 """
 
+import json
 import math
 from dataclasses import dataclass, replace
 from importlib import import_module
@@ -57,7 +58,7 @@ from flow.layout.devices.mosfet.netlist import (
 )
 from flow.layout.hdl21align import constraints as c
 from flow.layout.hdl21align import place, row, rows
-from flow.layout.package import metal_tracks
+from flow.layout.package import metal_tracks, pdk_dir
 
 from .params import Params, WeightImpl, _pieces, _plates, _switched_f, _weights
 
@@ -295,7 +296,7 @@ def _place(
     down), the difference drivers ``gap_nm`` apart in their rows."""
 
     pdk = active_pdk()
-    slice_ = stacked_over_rows(pdk) if pdk else None
+    slice_ = stacked_over_rows(pdk, _array_layers(pdk)) if pdk else None
     diff = _ordered(stages, lambda stage: [stage.diff])
     caps = _ordered(stages, lambda stage: stage.pieces)
     main = _ordered(stages, lambda stage: [stage.main])
@@ -355,6 +356,20 @@ def _place(
     place(side, rows(*(row(*region) for region in regions)), symmetric=False, constraints=tuple(inner))
 
 
+def _array_layers(pdk: str, most: int = 3) -> int:
+    """How many of ``pdk``'s MOM metals the side's capacitors stack: the most, up to ``most``, whose
+    shield, the metal below them, is a horizontal metal on M2's tracks in ALIGN's grid, where an
+    array unit's channels and pins run (``MomUnit._tracks``)."""
+    tech = import_module(f"pdk.{pdk}.layout.tech")
+    grid = {m["Layer"]: m for m in json.loads((pdk_dir(pdk) / "layers.json").read_text())["Abstraction"]}
+    m2 = grid["M2"]["Pitch"]
+    for layers in range(min(most, len(tech.MOM_LAYERS)), 0, -1):
+        shield = grid.get(f"M{tech.MOM_LAYERS[-layers] - 1}", {})
+        if shield.get("Direction", "").lower() == "h" and shield.get("Pitch") == m2:
+            return layers
+    raise ValueError(f"{pdk}: no MOM metals over a horizontal metal on M2's tracks, where an array's channels run")
+
+
 # a fresh module every call: resolving the requests in a PDK swaps them in place
 @h.generator(enable_cache=False)
 def netlist(params: Params) -> h.Module:
@@ -379,7 +394,7 @@ def netlist(params: Params) -> h.Module:
         )
     # the capacitors' unit as drawn (a whole piece's), its outline; unit capacitors in a column
     # array (``_columns``) of the rows nearest two to one: each piece's column, row and neighbours
-    table, layers = momcap_table(pdk), UnitParams(c_f=whole_f).layers
+    table, layers = momcap_table(pdk), _array_layers(pdk)
     drawn = table.strip(layers, whole_f, whole_f)[0] if difference else table.unit(layers, whole_f, exact=True)[0]
     outline = array_outline_nm(pdk, drawn)
     columns = []
@@ -410,7 +425,7 @@ def netlist(params: Params) -> h.Module:
     row_nm = row_height_nm(pdk)
     # a routing track between neighbouring difference drivers, on the metal the drivers rise on to
     # the capacitors standing over them (``_driver_rows``)
-    slice_ = stacked_over_rows(pdk)
+    slice_ = stacked_over_rows(pdk, layers)
     gap_nm = metal_tracks(pdk, f"M{slice_[0] - 1}")[0] if difference and slice_ is not None else 0
     main_rows, diff_rows = _driver_rows(
         [widths[main] for main, _ in keys],
@@ -448,13 +463,16 @@ def netlist(params: Params) -> h.Module:
             last = index == len(pieces[stage]) - 1
             right = Neighbour.JOINED if not last else Neighbour.EDGE if stage == len(weights) - 1 else Neighbour.APART
             if diff is not None:
-                request = strip(StripParams(net_f=piece * unit_f, whole_f=whole_f, left=left, right=right))
+                request = strip(
+                    StripParams(net_f=piece * unit_f, whole_f=whole_f, layers=layers, left=left, right=right)
+                )
                 placed.pieces.append(Capdac.add(request(MAIN=main, DIFF=diff, TOP=top, SHIELD=Capdac.vss), name=name))
             else:
                 left, right, above, below = _column_sides(columns, *at[(stage, index)])
                 request = unit(
                     UnitParams(
                         c_f=piece * unit_f,
+                        layers=layers,
                         left=left,
                         right=right,
                         above=above,
