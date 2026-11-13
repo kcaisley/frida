@@ -76,3 +76,54 @@ def test_a_gap_fill_keeps_clear_of_the_m1_routed_through_it(pdk) -> None:
     pieces, cuts, plain_cuts, clear = in_pdk(pdk, "flow.layout.test_align_post", "routed_gap_fill", True)
     assert plain[0] == 2  # the two rails across the gap
     assert clear and pieces == 4 and cuts <= plain_cuts  # each rail cut back on either side of the wire
+
+
+def capped_straps() -> tuple[int, dict[str, int], bool]:
+    """Run bound to a PDK: two rows of cells and an empty row between them under an M3 sheet across
+    the block (capacitors' plates), their rails' lines vss, vdd, vss, vdd; (the straps drawn, each supply's M3 labels, whether every
+    trunk lies outside the block and every rail line meets its supply's trunks by a VIA2)."""
+
+    import klayout.db as kdb
+    import rowcell
+    from tech import LAYERS, XPITCH
+
+    from flow.layout import post
+
+    layout = kdb.Layout()
+    layout.dbu = 0.001
+    top = layout.create_cell("TOP")
+    width = 16 * XPITCH
+    for k in (0, 2):
+        cell = rowcell.Cell("row", width)
+        rowcell.rails(cell, width, "n")
+        t = kdb.Trans(0, k * rowcell.H) if k % 2 == 0 else kdb.Trans(kdb.Trans.M0, 0, (k + 1) * rowcell.H)
+        for r in cell.rects:
+            if rowcell.GLAYERS.get(r.layer) and r.kind != "stub":
+                top.shapes(layout.layer(*rowcell.GLAYERS[r.layer])).insert(
+                    kdb.Box(r.x0, r.y0, r.x1, r.y1).transformed(t)
+                )
+    top.shapes(layout.layer(*LAYERS["M3"])).insert(kdb.Box(0, -rowcell.H, width, 4 * rowcell.H))
+    straps = post.supply_straps(layout, top, (0, width))
+    m3 = layout.layer(*post.PIN_TEXT["M3"])
+    labels: dict[str, int] = {}
+    for s in top.shapes(m3).each():
+        if s.is_text():
+            labels[s.text.string] = labels.get(s.text.string, 0) + 1
+    trunks = kdb.Region(top.shapes(layout.layer(*LAYERS["M3"]))) - kdb.Region(
+        kdb.Box(0, -rowcell.H, width, 4 * rowcell.H)
+    )
+    v2 = kdb.Region(top.shapes(layout.layer(*LAYERS["V2"])))
+    outside = trunks.inside(kdb.Region(kdb.Box(0, -rowcell.H, width, 4 * rowcell.H))).is_empty()
+    joined = all(
+        not (v2 & kdb.Region(kdb.Box(-10 * XPITCH, y - 1, width + 10 * XPITCH, y + 1))).is_empty()
+        for y in (0, rowcell.H, 2 * rowcell.H, 3 * rowcell.H)
+    )
+    return straps, labels, outside and joined
+
+
+@pytest.mark.parametrize("pdk", ("ihp130", "gf180"))
+def test_supplies_under_a_capacitor_sheet_get_trunks_outside_the_block(pdk) -> None:
+    if not (ROOT / f"pdk/{pdk}/layout/tech.py").is_file():
+        pytest.skip(f"needs the {pdk} PDK")
+    straps, labels, ok = in_pdk(pdk, "flow.layout.test_align_post", "capped_straps")
+    assert straps == 4 and labels == {"vss": 2, "vdd": 2} and ok
