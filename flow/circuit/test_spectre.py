@@ -179,6 +179,76 @@ def test_every_analysis_of_a_run_reads_as_a_sweep(diagnostic_root, noise):
 
 
 @pytest.mark.spectre
+def test_a_run_of_dc_sweeps_alone_runs_with_an_operating_point(diagnostic_root):
+    """Two resistors, each on a source swept by a literal: a run of the literals alone is refused
+    (hdl21 would not call Spectre for it); with an operating point of hdl21's (``hs.Op``) it runs
+    and reads as the two sweeps and both operating points, and its raw output (the file and the
+    directory of the devices' operating points beside it) is discarded whole."""
+
+    from types import SimpleNamespace
+
+    import hdl21 as h
+    import hdl21.sim as hs
+    import numpy as np
+    from hdl21.primitives import R, Vdc
+
+    from flow import pipeline
+    from flow.analysis import calc
+    from flow.circuit import spectre
+    from flow.pipeline import SweepKind
+
+    r_sink, r_source, vdd = 1e3, 2e3, 1.2
+    bench = h.Module(name="DcTb")
+    bench.VSS = h.Port()
+    bench.outn, bench.outp, bench.vdd = h.Signal(), h.Signal(), h.Signal()
+    bench.voutn = Vdc(dc=vdd / 2)(p=bench.outn, n=bench.VSS)
+    bench.voutp = Vdc(dc=vdd / 2)(p=bench.outp, n=bench.VSS)
+    bench.vvdd = Vdc(dc=vdd)(p=bench.vdd, n=bench.VSS)
+    # a load sinking from its source, as an NMOS mirror does, and one pushing into its, as a PMOS one
+    bench.rsink = R(r=r_sink)(p=bench.outn, n=bench.VSS)
+    bench.rsource = R(r=r_source)(p=bench.vdd, n=bench.outp)
+    literals = [
+        *spectre.options(),
+        hs.Save(["xtop.outn", "xtop.outp", "xtop.voutn:p", "xtop.voutp:p", "xtop.vvdd:p"]),
+        h.Literal(f"sweep_n dc dev=xtop.voutn param=dc start=0 stop={vdd:g} step={vdd / 4:g}"),
+        h.Literal(f"sweep_p dc dev=xtop.voutp param=dc start=0 stop={vdd:g} step={vdd / 4:g}"),
+    ]
+    run_dir = diagnostic_root / "sweeps" / "dc"
+    with pytest.raises(ValueError, match="has no hdl21 analysis"):
+        spectre.run(bench, literals, run_dir)
+    spectre.run(bench, [*literals, hs.Op(name="op")], run_dir)
+    raw = run_dir / "netlist.raw"
+    assert raw.is_file() and (run_dir / "netlist.raw.psf").is_dir()
+    meas = pipeline.read(raw, SimpleNamespace(params=None))
+    assert meas.time_s.shape == (0,)
+    assert {name: found.kind for name, found in meas.sweeps.items()} == {
+        "opdc": SweepKind.OP,
+        "op": SweepKind.OP,
+        "sweep_n": SweepKind.DC,
+        "sweep_p": SweepKind.DC,
+    }
+    op, sweep_n, sweep_p = (meas.sweeps[name] for name in ("op", "sweep_n", "sweep_p"))
+    assert op.v["outn"][0] == pytest.approx(vdd / 2) and op.i["outn"][0] == pytest.approx(vdd / 2 / r_sink)
+    assert op.i["vdd"][0] == pytest.approx(vdd / 2 / r_source)
+    np.testing.assert_allclose(sweep_n.x, np.linspace(0, vdd, 5), atol=1e-12)
+    np.testing.assert_allclose(sweep_n.v["outn"], sweep_n.x, atol=1e-12)
+    # a source's current is positive as drawn from it: what the sinking load takes, and the
+    # negative of what the sourcing one pushes into its source
+    np.testing.assert_allclose(sweep_n.i["outn"], sweep_n.x / r_sink, atol=1e-12)
+    np.testing.assert_allclose(sweep_p.i["outp"], -(vdd - sweep_p.x) / r_source, atol=1e-12)
+    # the resistance seen at either output is the slope of its source's current as drawn, positive
+    # for both; the range a current holds over takes the sourcing one's negated (its magnitude)
+    np.testing.assert_allclose(1 / calc.deriv(sweep_n.i["outn"], sweep_n.x), r_sink, rtol=1e-9)
+    np.testing.assert_allclose(1 / calc.deriv(sweep_p.i["outp"], sweep_p.x), r_source, rtol=1e-9)
+    assert np.isnan(calc.compliance_range(sweep_p.i["outp"], sweep_p.x, at=vdd / 2, tolerance=0.6)).all()
+    assert calc.compliance_range(-sweep_p.i["outp"], sweep_p.x, at=vdd / 2, tolerance=0.6) == pytest.approx(
+        (vdd / 4, 3 * vdd / 4)
+    )
+    pipeline.discard(raw)
+    assert not raw.exists() and not (run_dir / "netlist.raw.psf").exists()
+
+
+@pytest.mark.spectre
 def test_varying_mom_capacitors_draw_pelgroms_mismatch_and_one_gradient_a_run(diagnostic_root):
     """Spectre's Monte Carlo of the varying FMOM leaf (``flow.layout.devices.momcap.netlist``), read back as one
     measurement (``flow.pipeline.read``): equal capacitors draw independently at Pelgrom's sigma,

@@ -767,23 +767,33 @@ class Meas:
         return getattr(self.param, "tb", self.param)
 
 
-def _plots(raw: Path) -> dict[str, tuple[str, Mapping[str, np.ndarray]]]:
-    """Each analysis Spectre's raw output holds, by its name: what Spectre calls its kind and its
-    variables, the swept one first. A nutbin file's plots, each kind the first words of its title
-    ("AC Analysis `ac': freq = ..."), or a PSF ASCII directory's files, each kind its analysis
-    type (``ac``)."""
-    from vlsirtools.spice.spectre import parse_nutbin_analysis, parse_psfascii
+def _plots(raw: Path) -> dict[str, tuple[str, bool, Mapping[str, np.ndarray]]]:
+    """Each analysis Spectre's raw output holds, by its name: what Spectre calls its kind, whether
+    it swept a variable, and its variables, the swept one first. A nutbin file's plots, each kind
+    the first words of its title ("AC Analysis `ac': freq = ..."), swept unless its first variable
+    is the placeholder an unswept one has (``dummy``); or a PSF ASCII directory's files, each kind
+    its analysis type (``ac``), swept where the file has a ``SWEEP`` section (what holds no
+    analysis, the log and the devices' operating points, passed over)."""
+    from vlsirtools.spice.spectre import parse_nutbin_analysis, parse_psfascii_file
 
-    if raw.is_dir():
-        return {name: (plot.analysis_type, plot.data) for name, plot in parse_psfascii(raw).items()}
     plots = {}
+    if raw.is_dir():
+        for path in sorted(raw.iterdir()):
+            text = path.read_text(errors="replace") if path.is_file() and path.name != "logFile" else ""
+            if not text.startswith("HEADER"):
+                continue
+            found = parse_psfascii_file(text)
+            if found.analysis_name and found.analysis_type != "info":
+                plots[found.analysis_name] = (found.analysis_type, "\nSWEEP\n" in text, found.data)
+        return plots
     with raw.open("rb") as stream:
         # the lines between two plots' data are a plot's header: the next plot's title among them
         while line := stream.readline():
             title = line.decode("ascii", errors="replace")
             if title.startswith("Plotname:"):
                 plot = parse_nutbin_analysis(stream, title)
-                plots[plot.analysis_name] = (title.removeprefix("Plotname:").split("`")[0], plot.data)
+                kind = title.removeprefix("Plotname:").split("`")[0]
+                plots[plot.analysis_name] = (kind, next(iter(plot.data), "dummy") != "dummy", plot.data)
     return plots
 
 
@@ -806,19 +816,18 @@ def _signals(
     return v, i
 
 
-def _sweep(name: str, kind: str, data: Mapping[str, np.ndarray]) -> Sweep:
+def _sweep(name: str, kind: str, swept: bool, data: Mapping[str, np.ndarray]) -> Sweep:
     """An analysis other than a transient as a ``Sweep``: its kind from what Spectre calls it
-    (``_plots``), its swept variable the first where that is no signal of the bench (no ``xtop.``
-    name; nutbin's ``dummy``, an operating point's, is none), its signals complex where the
-    analysis solves a response (AC, XF). Of a noise analysis's contributions, each device's total
-    is kept, those of its noise sources apart (a transistor's channel, flicker, each resistance:
-    more than ten a device) left out."""
+    (``_plots``; a ``dc`` an operating point unless ``swept``), its swept variable the first where
+    it is ``swept`` (nutbin's ``dummy``, an operating point's, is no signal), its signals complex
+    where the analysis solves a response (AC, XF). Of a noise analysis's contributions, each
+    device's total is kept, those of its noise sources apart (a transistor's channel, flicker,
+    each resistance: more than ten a device) left out."""
     word = kind.split()[0].lower() if kind.split() else ""
-    first = next(iter(data), "dummy")
-    swept = None if first.startswith("xtop.") or first == "dummy" else first
+    variable = next(iter(data)) if swept else None
     kinds = {"ac": SweepKind.AC, "xf": SweepKind.XF, "transfer": SweepKind.XF, "noise": SweepKind.NOISE}
     if word == "dc":
-        found = SweepKind.OP if swept is None else SweepKind.DC
+        found = SweepKind.DC if swept else SweepKind.OP
     elif word in kinds:
         found = kinds[word]
     else:
@@ -827,11 +836,11 @@ def _sweep(name: str, kind: str, data: Mapping[str, np.ndarray]) -> Sweep:
     signals = {
         key: np.asarray(values if dtype is np.complex128 else np.real(values), dtype=dtype)
         for key, values in data.items()
-        if key not in (swept, "dummy")
+        if key not in (variable, "dummy")
         and not (found is SweepKind.NOISE and key.startswith("xtop.") and not key.endswith(".total"))
     }
     v, i = _signals(signals, sources=found is SweepKind.XF)
-    x = np.zeros(0) if swept is None else np.asarray(np.real(data[swept]), dtype=np.float64)
+    x = np.zeros(0) if variable is None else np.asarray(np.real(data[variable]), dtype=np.float64)
     return Sweep(kind=found, x=x, v=v, i=i)
 
 
@@ -849,10 +858,10 @@ def read(raw: Path, tb: TbParams) -> Meas:
 
     raw = Path(raw)
     plots = _plots(raw)
-    transients = [data for _, data in plots.values() if "time" in data]
+    transients = [data for _, _, data in plots.values() if "time" in data]
     family = {name for name in plots if re.match(r"mc-\d+_", name)}
     runs = sorted(
-        ((int(name[3:].split("_")[0]), plots[name][1]) for name in family if "time" not in plots[name][1]),
+        ((int(name[3:].split("_")[0]), plots[name][2]) for name in family if "time" not in plots[name][2]),
         key=lambda run: run[0],
     )
     if len(transients) == 1:
@@ -871,8 +880,8 @@ def read(raw: Path, tb: TbParams) -> Meas:
         )
     v, i = _signals(data)
     sweeps = {
-        name: _sweep(name, kind, variables)
-        for name, (kind, variables) in plots.items()
+        name: _sweep(name, kind, swept, variables)
+        for name, (kind, swept, variables) in plots.items()
         if "time" not in variables and name not in family
     }
     readbacks: dict[str, str | int | float | bool] = {"raw_file": raw.name, "raw_points": len(time_s)}
@@ -898,7 +907,8 @@ def read(raw: Path, tb: TbParams) -> Meas:
 
 def discard(raw: Path) -> None:
     """Remove a simulation's raw output, once read: its file, or its directory (PSF ASCII: a file
-    an analysis)."""
+    an analysis), and the directory Spectre writes beside a nutbin file for the devices' operating
+    points an ``hs.Op`` asks for (``<raw>.psf``), where the run has one."""
     import shutil
 
     raw = Path(raw)
@@ -906,6 +916,8 @@ def discard(raw: Path) -> None:
         shutil.rmtree(raw)
     else:
         raw.unlink()
+    if (points := raw.with_name(raw.name + ".psf")).is_dir():
+        shutil.rmtree(points)
 
 
 @dataclass(frozen=True)

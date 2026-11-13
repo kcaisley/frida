@@ -55,7 +55,7 @@ def test_missing_installation_skips_but_missing_collateral_fails(monkeypatch, tm
 def test_spectre_marker_is_opt_in():
     import subprocess
 
-    for selection, expected in (([], "15 deselected"), (["-m", "spectre"], "15 tests collected")):
+    for selection, expected in (([], "16 deselected"), (["-m", "spectre"], "16 tests collected")):
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "--collect-only", "-q", str(test_spectre.__file__), *selection],
             capture_output=True,
@@ -111,3 +111,29 @@ def test_a_run_writes_nutbin_or_psf_ascii_where_it_has_a_noise_analysis(monkeypa
     arguments = captured["options"].simulator_args
     assert arguments[:2] == ("-format", expected) and arguments.count("-format") == 1
     assert {"+escchars", "+preset=mx", "+mt=1"} <= set(arguments) and captured["attrs"] is attrs
+
+
+def test_a_run_of_literals_alone_is_refused(monkeypatch, tmp_path) -> None:
+    """hdl21 calls no simulator for a run without an analysis of its own, and the flow's operating
+    point, a DC sweep and the transfer functions are literals: ``run`` refuses such a run by its
+    directory, naming the operating point that makes it one, and runs it with that."""
+    import hdl21 as h
+    import hdl21.sim as hs
+
+    from flow.circuit import spectre
+
+    bench = h.Module(name="Bench")
+    bench.VSS = h.Port()
+    literals = [
+        *spectre.options(),
+        hs.Save(["xtop.outn", "xtop.voutn:p"]),
+        h.Literal("sweep_n dc dev=xtop.voutn param=dc start=0 stop=1.2 step=0.3"),
+    ]
+    monkeypatch.setattr(hs, "Sim", lambda **kwargs: pytest.fail("a run without an analysis reached hdl21"))
+    with pytest.raises(ValueError, match=r'run_n has no hdl21 analysis .* add hs\.Op\(name="op"\)'):
+        spectre.run(bench, literals, tmp_path / "run_n")
+    assert not (tmp_path / "run_n").exists()
+    ran = []
+    monkeypatch.setattr(hs, "Sim", lambda **kwargs: SimpleNamespace(run=lambda options: ran.append(kwargs["attrs"])))
+    spectre.run(bench, [*literals, hs.Op(name="op")], tmp_path / "run_n")
+    assert len(ran) == 1

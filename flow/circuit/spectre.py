@@ -15,7 +15,9 @@ A run's analyses are its ``attrs``: a transient (``hs.Tran``), the operating poi
 as literals, what hdl21 has no analysis for: a DC sweep of a source's value
 (``h.Literal("<name> dc dev=xtop.v<net> param=dc start=... stop=... step=...")``) and the
 transfer functions to an output (``h.Literal("<name> (xtop.<net> 0) xf start=... stop=...
-dec=...")``). ``flow.pipeline.read`` reads each by its name.
+dec=...")``). ``flow.pipeline.read`` reads each by its name. hdl21 simulates nothing for a run
+without an analysis of its own, so one whose analyses are all literals (DC sweeps alone) carries
+an ``hs.Op`` as well; ``run`` refuses it otherwise.
 """
 
 from __future__ import annotations
@@ -101,8 +103,8 @@ def device_capacitance(path: Path) -> dict[str, float]:
 
 def raw_format(attrs: list[Any]) -> str:
     """The format a run's raw output takes (Spectre's ``-format``): nutbin, one file; PSF ASCII, a
-    directory with a file an analysis, where the run has a noise analysis (``hs.Noise``), whose
-    totals (``out``, ``in``, ``gain``) Spectre's nutmeg writers leave out."""
+    directory with a file an analysis, where the run has a noise analysis (``hs.Noise``), which
+    Spectre's nutbin file holds short of the values its header declares, so it does not parse."""
     return "psfascii" if any(isinstance(attr, hs.Noise) for attr in attrs) else "nutbin"
 
 
@@ -112,7 +114,14 @@ def run(
     """Simulate ``bench`` with ``attrs`` in ``run_dir`` (Spectre's raw output left there,
     ``netlist.raw``, in the format its analyses take, ``raw_format``): Spectre X (``FAST``) unless
     ``fast`` is off, ``args`` after the common command line; its results parsed only where
-    ``data``. Spectre's failure raised as a RuntimeError naming the run."""
+    ``data``. Spectre's failure raised as a RuntimeError naming the run; a run without an hdl21
+    analysis (literals alone), which hdl21 passes over without calling Spectre, refused."""
+    if not any(hs.is_analysis(attr) for attr in attrs):
+        raise ValueError(
+            f"the run in {run_dir} has no hdl21 analysis (hs.Tran, hs.Ac, hs.Noise, hs.Op, hs.MonteCarlo): "
+            "hdl21 simulates nothing for analyses written as literals alone; "
+            'add hs.Op(name="op") beside them (read as sweeps["op"])'
+        )
     run_dir.mkdir(parents=True, exist_ok=True)
     settings = SimOptions(
         simulator=SupportedSimulators.SPECTRE,

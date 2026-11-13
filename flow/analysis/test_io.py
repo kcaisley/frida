@@ -449,22 +449,118 @@ def test_a_noise_run_reads_from_its_psf_ascii_directory(tmp_path: Path) -> None:
         "xtop.out" "V" 6.0e-01
         """,
     )
+    write_psf(
+        raw,
+        "sweep_vdd",
+        "dc",
+        """\
+        TYPE
+        "sweep" FLOAT DOUBLE PROP(
+        "key" "sweep"
+        )
+        "V" FLOAT DOUBLE PROP(
+        "units" "V"
+        )
+        "I" FLOAT DOUBLE PROP(
+        "units" "A"
+        )
+        SWEEP
+        "dc" "sweep" PROP(
+        "units" "V"
+        )
+        TRACE
+        "xtop.vvdd:p" "I"
+        "xtop.out" "V"
+        VALUE
+        "dc" 0.0e+00
+        "xtop.vvdd:p" 0.0e+00
+        "xtop.out" 0.0e+00
+        "dc" 1.2e+00
+        "xtop.vvdd:p" -2.0e-06
+        "xtop.out" 6.0e-01
+        """,
+    )
+    write_psf(
+        raw,
+        "xf",
+        "xf",
+        """\
+        TYPE
+        "sweep" FLOAT DOUBLE PROP(
+        "key" "sweep"
+        )
+        "V/V" COMPLEX DOUBLE PROP(
+        "units" "V/V"
+        )
+        "V/A" COMPLEX DOUBLE PROP(
+        "units" "V/A"
+        )
+        SWEEP
+        "freq" "sweep" PROP(
+        "units" "Hz"
+        )
+        TRACE
+        "xtop.vinp" "V/V"
+        "xtop.ibn" "V/A"
+        VALUE
+        "freq" 1.0e+03
+        "xtop.vinp" (5.0e-01 0.0e+00)
+        "xtop.ibn" (1.0e+03 0.0e+00)
+        "freq" 1.0e+06
+        "xtop.vinp" (0.0e+00 -2.5e-01)
+        "xtop.ibn" (0.0e+00 -5.0e+02)
+        """,
+    )
     write_psf(raw, "op", "info", 'VALUE\n"xtop.dut.r" "resistor" 1.0\n')
-    (raw / "logFile").write_text("HEADER\n")
+    # the directory's index, a file in the analyses' format that is none of them
+    log = 'TYPE\n"analysisInst" STRUCT(\n"analysisType" STRING *\n"dataFile" STRING *\n)\n'
+    (raw / "logFile").write_text(
+        f'HEADER\n"PSFversion" "1.00"\n{log}VALUE\n"op-dc" "analysisInst" (\n"dc"\n"op.dc"\n)\nEND\n'
+    )
     meas = pipeline.read(raw, samp.TbParams())
     assert meas.time_s.shape == (0,) and meas.info.readbacks["raw_file"] == "netlist.raw"
     assert {name: sweep.kind for name, sweep in meas.sweeps.items()} == {
         "noise": SweepKind.NOISE,
         "ac": SweepKind.AC,
         "op": SweepKind.OP,
+        "sweep_vdd": SweepKind.DC,
+        "xf": SweepKind.XF,
     }
-    noise, ac, op = (meas.sweeps[name] for name in ("noise", "ac", "op"))
+    noise, ac, op, dc, xf = (meas.sweeps[name] for name in ("noise", "ac", "op", "sweep_vdd", "xf"))
     np.testing.assert_array_equal(noise.x, [1e3, 1e6])
     assert sorted(noise.v) == ["gain", "in", "out", "r.total"] and not noise.i
     np.testing.assert_array_equal(noise.v["out"], [4e-9, 2e-9])
     np.testing.assert_allclose(noise.v["r.total"], noise.v["out"] ** 2)
     np.testing.assert_array_equal(ac.v["out"], [0.5 + 0j, -0.25j])
     assert op.x.shape == (0,) and op.v["out"][0] == 0.6 and op.i["vdd"][0] == 2e-6
+    # the DC sweep: the swept source's values, each signal real at each
+    np.testing.assert_array_equal(dc.x, [0.0, 1.2])
+    assert sorted(dc.v) == ["out"] and sorted(dc.i) == ["vdd"] and dc.v["out"].dtype == np.float64
+    np.testing.assert_array_equal(dc.v["out"], [0.0, 0.6])
+    np.testing.assert_array_equal(dc.i["vdd"], [0.0, 2e-6])
+    # the transfer functions: a voltage source by its net, another source by its own name
+    np.testing.assert_array_equal(xf.x, [1e3, 1e6])
+    assert sorted(xf.v) == ["ibn", "inp"] and not xf.i and xf.v["inp"].dtype == np.complex128
+    np.testing.assert_array_equal(xf.v["inp"], [0.5 + 0j, -0.25j])
+    np.testing.assert_array_equal(xf.v["ibn"], [1e3 + 0j, -500j])
+
+
+def test_an_operating_point_is_told_from_a_sweep_by_its_file_not_its_first_name(tmp_path: Path) -> None:
+    """A PSF ASCII operating point has no sweep section and no placeholder variable: one whose
+    first saved signal is a net of the bench's top (no ``xtop.`` name) is an operating point all
+    the same, that net a signal among the others; nutbin's is told by its placeholder."""
+    from flow import pipeline, samp
+    from flow.pipeline import SweepKind
+
+    psf = tmp_path / "psf" / "netlist.raw"
+    body = 'TYPE\n"V" FLOAT DOUBLE\nVALUE\n"qmeter" "V" 1.0e-03\n"xtop.out" "V" 6.0e-01\n'
+    write_psf(psf, "opdc", "dc", body)
+    point = {"dummy": ("dummy", [0.0]), "qmeter": ("V", [1e-3]), "xtop.out": ("V", [0.6])}
+    nutbin = write_nutbin(tmp_path / "netlist.raw", [("DC Analysis `opdc'", point)])
+    for raw in (psf, nutbin):
+        op = pipeline.read(raw, samp.TbParams()).sweeps["opdc"]
+        assert op.kind is SweepKind.OP and op.x.shape == (0,)
+        assert sorted(op.v) == ["out", "qmeter"] and op.v["qmeter"][0] == 1e-3 and op.v["out"][0] == 0.6
 
 
 def test_a_monte_carlo_of_operating_points_reads_a_value_a_run_beside_its_nominal_point(tmp_path: Path) -> None:
@@ -524,8 +620,12 @@ def test_raw_output_is_discarded_as_a_file_or_a_directory(tmp_path: Path) -> Non
     from flow import pipeline
 
     nutbin = small_signal_nutbin(tmp_path / "netlist.raw")
+    # the devices' operating points an hs.Op writes beside a nutbin file go with it
+    points = tmp_path / "netlist.raw.psf"
+    write_psf(points, "op", "info", 'VALUE\n"xtop.dut.r" "resistor" 1.0\n')
     pipeline.discard(nutbin)
     psf = tmp_path / "psf" / "netlist.raw"
     write_psf(psf, "op", "dc", 'TYPE\n"V" FLOAT DOUBLE\nVALUE\n"xtop.out" "V" 6.0e-01\n')
     pipeline.discard(psf)
-    assert not nutbin.exists() and not psf.exists()
+    assert not nutbin.exists() and not points.exists() and not psf.exists()
+    assert [path.name for path in tmp_path.iterdir()] == ["psf"] and not list(psf.parent.iterdir())
