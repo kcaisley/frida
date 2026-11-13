@@ -1,6 +1,10 @@
 """A layout's cells as isometric 3-D images for the thesis, drawn by the 3-D layout page
 (tools/layout3d: three.js, its 2-D canvas fallback where WebGL is missing) with an orthographic
-camera on the isometric diagonal, on a transparent background, through headless Chromium.
+camera on the isometric diagonal, on a transparent background, through headless Chromium. The
+drawing's order is made exact for a layout: layer by layer from the bottom (each layer a band of
+height, so a higher one always hides a lower one), and within a layer each box by its corner
+nearest the camera; the page's own order (boxes by their centres' distance) stacks long
+overlapping wires wrongly.
 Each cell is exported by the viewer's own export (``flow.web.export.export_layout``: the PDK's
 generic layers, read at run time from the kit, nothing of it written here).
 
@@ -54,6 +58,15 @@ HIDE = (
 )
 
 
+ORDER = (
+    "const mx = (r[i] + r[i + 2]) / 2 - cx, my = (r[i + 1] + r[i + 3]) / 2 - cy, mz = zm - cz;\n"
+    "      items.push([mx * mx + my * my + mz * mz, layer, i]);"
+)
+ORDER_ISO = "items.push([cx * (cx > 0 ? r[i + 2] : r[i]) + cy * (cy > 0 ? r[i + 3] : r[i + 1]), layer, i]);"
+SORT = "items.sort((a, b) => b[0] - a[0]);"
+SORT_ISO = "items.sort((a, b) => (cz > 0 ? a[1].z0 - b[1].z0 : b[1].z1 - a[1].z1) || a[0] - b[0]);"
+
+
 def snapshot_module():
     spec = importlib.util.spec_from_file_location("layout3d_snapshot", LAYOUT3D / "snapshot.py")
     module = importlib.util.module_from_spec(spec)
@@ -88,6 +101,8 @@ def page(folder: Path, name: str, export: Path) -> Path:
         (FILL, FILL_ISO),
         (EDGE_WIDTH, EDGE_WIDTH_ISO),
         (EDGE_TINT, EDGE_TINT_ISO),
+        (ORDER, ORDER_ISO),
+        (SORT, SORT_ISO),
     ):
         if old not in html:
             raise SystemExit(f"render_layout3d: the 3-D page changed; cannot find {old[:50]!r}")

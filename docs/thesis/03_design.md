@@ -2,7 +2,7 @@
 
 ::: todo
 
-- The chapter's plan: the method, then each block's design space with its model, its optimization rule and its sweep, then FRIDA-1's instance in each grid, then the converter assembled from them.
+- The chapter's plan: the method, then each block's design space with its model, its optimization rule and its sweep, then the converter assembled from them.
 :::
 
 ## Methodology {#sec-methodology}
@@ -19,17 +19,12 @@ A building block runs as one pipeline: its design parameters make a circuit, tes
 Each step is a file of the block's folder, and the names in each file are the same in every block.
 The comparator is the first block on it, the sampling switch the second, the capacitive DAC the third and the ADC, assembled from them, the fourth.
 
-An instance's steps are one chain, each after the steps whose outputs it takes: the netlist, the pre-layout simulation, the layout, its DRC and LVS, the extraction, the post-layout simulation of the extracted netlist, and the record, from which the figures and the viewer's table are drawn.
+An instance's steps are one chain, each after the steps whose outputs it takes: the netlist, its simulation, and the record, from which the figures and the viewer's table are drawn; the layout steps after it are the subject of @sec-frida2-layout.
 A run's bounds reject a design as early as its evidence allows: each step names what it adds, so a design whose gates alone exceed an area bound is out before it is simulated.
-
-::: {#fig-pipeline placeholder="The block pipeline: params, netlist, presim, layout, DRC, LVS, PEX, postsim, results, with the evidence each step adds and the bounds it can judge."}
-The block pipeline.
-:::
 
 ::: todo
 
 - The six processes (180, 150, 130 and 65 nm twice, 28 nm) and what is held the same across them: testbenches, supply corners at 90/100/110 %, the same area caps.
-- The open tools for layout and signoff (ALIGN placement, KLayout LVS and extraction) and what remains kit-specific.
 - The behavioral model each block derives from its own characterization, and how the converter is composed from them (@sec-adc).
 :::
 
@@ -93,14 +88,14 @@ Its resistance is therefore highest near mid-supply, and falls as $1/W$.
 A bootstrapped switch holds its gate a fixed voltage above the input, so its overdrive, and with it $R_\mathrm{on}$, no longer depends on the input.
 
 The pipeline measures the on-resistance from the track phase's time constant into a 1 pF load, between the 1/e and 1/e² crossings of a step, so that the edge's delay is excluded: $R_\mathrm{on} = \tau / C_\mathrm{load}$, an upper bound since the switch's own capacitance is included.
-In TSMC65 into 1 pF, FRIDA-1's transmission gate measures 130–550 Ω (highest at mid-supply), the NMOS switch from 140 Ω to open above 0.7 V, the bootstrapped one 140–230 Ω at 32 units and 30–45 Ω at 160.
+In TSMC65 into 1 pF, a transmission gate of 32 units measures 130–550 Ω (highest at mid-supply), the NMOS switch from 140 Ω to open above 0.7 V, the bootstrapped one 140–230 Ω at 32 units and 30–45 Ω at 160.
 
 ::: {#fig-samp-ron-width plot="samp_ron_width"}
 Transmission-gate on-resistance at mid-supply against width in six processes, with the triode rule's $R_\mathrm{on} \propto 1/W$ (@eq-ron).
 :::
 
 ::: {#fig-rec-samp-ron-vin plot="rec_samp_ron_vin"}
-FRIDA-1's sampling switch in TSMC65: On-resistance into 1 pF over the input level.
+A transmission gate of 32 units in TSMC65: On-resistance into 1 pF over the input level.
 :::
 
 @fig-samp-ron-width checks @eq-ron across processes: in every one the measured resistance falls as $1/W$ over a factor of sixteen in width.
@@ -108,7 +103,7 @@ FRIDA-1's sampling switch in TSMC65: On-resistance into 1 pF over the input leve
 ### Tracking error and distortion {#sec-samp-distortion}
 
 ::: {#fig-rec-samp-track-error-vin plot="rec_samp_track_error_vin"}
-FRIDA-1's sampling switch in TSMC65: Track error at the end of tracking over the input level.
+A transmission gate of 32 units in TSMC65: Track error at the end of tracking over the input level.
 :::
 
 While tracking, the held node follows the input through the switch's time constant.
@@ -124,7 +119,7 @@ $$
 t_\mathrm{track} \geq R_\mathrm{on}\,C \ln\!\left(2^{N+1}\right)
 $$ {#eq-settle}
 [citation needed]: about $9\tau$ for 12 bits.
-FRIDA-1's switch, with $R_\mathrm{on} \approx 1$ kΩ into $C = 1.64$ pF, has $\tau = 1.64$ ns, and needs more than $9\tau$, 15 ns, of tracking for 12 bits.
+A switch with $R_\mathrm{on} \approx 1$ kΩ into $C = 1.64$ pF has $\tau = 1.64$ ns, and needs more than $9\tau$, 15 ns, of tracking for 12 bits.
 
 ::: todo
 
@@ -140,7 +135,7 @@ Bootstrapped switches in six processes: the largest pedestal against the on-resi
 :::
 
 ::: {#fig-rec-samp-pedestal-vin plot="rec_samp_pedestal_vin"}
-FRIDA-1's sampling switch in TSMC65: Pedestal over the input level.
+A transmission gate of 32 units in TSMC65: Pedestal over the input level.
 :::
 
 Pedestals stay within ±0.7 mV for the transmission gates and reach −2 mV for the NMOS switches at 32 units, growing with the width (−10 mV at 160).
@@ -159,7 +154,7 @@ $$
 \sigma_\mathrm{sample} = \sqrt{\frac{2kT}{C}}
 $$ {#eq-ktc-samp}
 differentially, for a capacitance $C$ per side.
-For FRIDA-1, $C$ is the capacitive DAC's: kT/C is about 50 µV, 0.17 LSB.
+Here $C$ is the capacitive DAC's: for a 12-bit array kT/C is about 50 µV, 0.17 LSB.
 The capacitance itself is the DAC's to choose, in @sec-cdac-noise.
 
 ### Choosing a switch per process {#sec-samp-choice}
@@ -171,34 +166,6 @@ The front end must nevertheless provide suitable input common mode and settling.
 
 - The rule per resolution and process: transmission gate where its mid-supply $R_\mathrm{on}$ settles within the track time, bootstrap above.
 - The area each choice costs, and the switch's share of the converter's area.
-:::
-
-### FRIDA-1 in the grid {#sec-frida1-samp}
-
-FRIDA-1's sampler is the grid's transmission gate of 32 units without dummies.
-In TSMC65 into 1 pF it measures 460 Ω at mid-supply and 553 Ω at most over the input, a 346 MHz bandwidth, a largest pedestal of 0.75 mV, and 12.9 µm² of layout.
-The same sizing measures 535 Ω in TSMC28 and 690 Ω in IHP130, and 236–331 Ω (at mid-supply) in TPSC65, LF150 and Tower180.
-
-::: {#fig-gen-samp src="figures/layout_gen_samp.png"}
-The grid's FRIDA-1 sampler (TGATE, 32 units) as the pipeline lays it out in TSMC65.
-:::
-
-::: {#fig-gen-samp-iso src="figures/layout3d_gen_samp.png"}
-The grid's FRIDA-1 sampler (TGATE, 32 units) in an isometric view of its layers.
-:::
-
-: FRIDA-1's sampler in its grid, TSMC65, into 1 pF. {#tbl-frida1-samp}
-
-| | FRIDA-1 (TGATE, 32) | TGATE, 128 | Bootstrap, 160 |
-|:--|--:|--:|--:|
-| R_on, mid-supply / max (Ω) | 460 / 553 | 118 | 36 |
-| Largest pedestal (mV) | 0.75 | | 10.3 |
-| Layout (µm²) | 12.9 | | |
-
-::: todo
-
-- Where FRIDA-1's switch sits on @fig-samp-ron-width and what the 12-bit track time (@eq-settle) asks of it.
-- The measured counterpart in @sec-frida1-measurements.
 :::
 
 ## Dynamic comparator {#sec-comparator}
@@ -247,7 +214,7 @@ Energy per decision against input-referred noise for every comparator in six pro
 :::
 
 ::: {#fig-rec-comp-noise-cm plot="rec_comp_noise_cm"}
-FRIDA-1's comparator in TSMC65: Input-referred noise over the common mode.
+A StrongARM comparator in TSMC65: Input-referred noise over the common mode.
 :::
 
 The characterization confirms @eq-comp-scaling: every width times $k$ divides the noise by about $\sqrt{k}$ (toward a floor) and multiplies the energy by $k$, keeping the delay.
@@ -263,7 +230,7 @@ The dynamic bias's input pair integrates in weak inversion and spends only the c
 ### Regeneration and metastability {#sec-comp-metastability}
 
 ::: {#fig-rec-comp-metastability plot="rec_comp_metastability"}
-FRIDA-1's comparator in TSMC65: Delay over the input (nominal common mode).
+A StrongARM comparator in TSMC65: Delay over the input (nominal common mode).
 :::
 
 Once integration ends, the cross-coupled pair amplifies the difference exponentially with a time constant $\tau$, set by its own capacitance over its transconductance.
@@ -291,11 +258,11 @@ The energy per decision is the supply's charge over a decision's cycle, read off
 Each clock reaches the comparator through an inverter chain on the comparator's supply, tapering by fanout 4 to a last stage at fanout 2, so that the energy per decision counts the clock (a long-tailed StrongARM's nearly doubles).
 
 ::: {#fig-rec-comp-scurve plot="rec_comp_scurve"}
-FRIDA-1's comparator in TSMC65: Decision probability (nominal common mode, transient noise).
+A StrongARM comparator in TSMC65: Decision probability (nominal common mode, transient noise).
 :::
 
 ::: {#fig-rec-comp-energy-supply plot="rec_comp_energy_supply"}
-FRIDA-1's comparator in TSMC65: Energy per decision over the supply.
+A StrongARM comparator in TSMC65: Energy per decision over the supply.
 :::
 
 ### Optimization per resolution {#sec-comp-optimization}
@@ -322,26 +289,6 @@ The comparator optimization for a 12-bit converter.
 
 - Kickback: the inputs' largest excursion over a decision, driven as a DAC's top plates; how it depends on the CDAC's state.
 - Offset: systematic only in simulation; how offset relates to sampling noise and CDAC error, and why a SAR tolerates it (a shift of every code).
-:::
-
-### FRIDA-1 in the grid {#sec-frida1-comp}
-
-FRIDA-1's comparator is the grid's `frida1` instance, a StrongARM.
-In TSMC65 it measures 246 µV of input-referred noise, a negligible systematic offset, 292 fJ per decision, 2.0 ns at 0.5 mV, a regeneration time constant of 194 ps, 6.9 mV of kickback, and 157 µm² of layout: an $E\sigma^2$ of about 18 fJ·mV², against 3.3 for the best TSMC65 designs (@fig-comp-energy-noise).
-In TSMC28 the same sizing measures 530 µV and 80 fJ; in the 130–180 nm processes and TPSC65 its latch lengths do not decide within the clock.
-
-::: {#fig-gen-comp src="figures/layout_gen_comp.png"}
-The grid's FRIDA-1 comparator as the pipeline lays it out in TSMC65.
-:::
-
-::: {#fig-gen-comp-iso src="figures/layout3d_gen_comp.png"}
-The grid's FRIDA-1 comparator in an isometric view of its layers.
-:::
-
-::: todo
-
-- Why FRIDA-1's comparator sits where it does on @fig-comp-energy-noise, and what the optimized 12-bit design (620 fJ, 100 µV, 277 µm²) changes.
-- The pre-extraction estimate for the fabricated comparator (177 µV, 18 × 18 µm) against the grid's 246 µV.
 :::
 
 ## Capacitive DAC {#sec-cdac}
@@ -412,11 +359,11 @@ The noise and the matching limits on the total capacitance.
 :::
 
 ::: {#fig-rec-capdac-mismatch-inl plot="rec_capdac_mismatch_inl"}
-FRIDA-1's capacitor array in TSMC65: Worst INL with the design weights (95th percentile) over Pelgrom's coefficient.
+A 12-bit array of 17 decisions in TSMC65: Worst INL with the design weights (95th percentile) over Pelgrom's coefficient.
 :::
 
 ::: {#fig-rec-adc-mismatch-dnl plot="rec_adc_mismatch_dnl"}
-The generated FRIDA converter (behavioral): Worst DNL over the Pelgrom coefficient (predicted 95th percentile).
+The assembled 12-bit converter (behavioral): Worst DNL over the Pelgrom coefficient (predicted 95th percentile).
 :::
 
 ::: todo
@@ -480,20 +427,20 @@ The 95th percentile of the gap no calibration recovers, at a matching coefficien
 :::
 
 ::: {#fig-rec-capdac-mismatch-gap plot="rec_capdac_mismatch_gap"}
-FRIDA-1's capacitor array in TSMC65: Unrecoverable code width after ideal calibration (95th percentile).
+A 12-bit array of 17 decisions in TSMC65: Unrecoverable code width after ideal calibration (95th percentile).
 :::
 
 ::: {#fig-rec-adc-redundancy plot="rec_adc_redundancy"}
-The generated FRIDA converter (behavioral): Error tolerance by stage.
+The assembled 12-bit converter (behavioral): Error tolerance by stage.
 :::
 
 ::: {#fig-rec-adc-mismatch-margin plot="rec_adc_mismatch_margin"}
-The generated FRIDA converter (behavioral): Redundancy margin over its mismatch σ by stage.
+The assembled 12-bit converter (behavioral): Redundancy margin over its mismatch σ by stage.
 :::
 
-Three schemes redistribute the binary array's units: MSB split splits the most significant binary weights into halves, which gives the free first comparison and the decisions after it their tolerance; LSB split splits the least significant weights of at least 2, a tolerance only at the LSB end; MSB redistribution is FRIDA's paired overlay, a run of paired powers of two taken from the MSB and added from the third stage on, its tolerance spread over the whole chain.
+Three schemes redistribute the binary array's units: MSB split splits the most significant binary weights into halves, which gives the free first comparison and the decisions after it their tolerance; LSB split splits the least significant weights of at least 2, a tolerance only at the LSB end; MSB redistribution is this work's paired overlay, a run of paired powers of two taken from the MSB and added from the third stage on, its tolerance spread over the whole chain.
 
-Redundant capacitor weights spread FRIDA-1's conversion over 17 comparator decisions, from which a normalized 12-bit result is reconstructed.
+Redundant capacitor weights spread a 12-bit conversion over more comparator decisions, 17 in @fig-rec-capdac-dac-inl, from which a normalized 12-bit result is reconstructed.
 At 10 MS/s a conversion lasts 100 ns, permitting approximately 5 ns per decision after sampling and initialization overhead.
 Overlapping decision ranges allow later comparisons to correct some earlier errors caused by noise or incomplete settling, with a correction margin that depends on the stage and error magnitude.
 
@@ -508,10 +455,10 @@ Overlapping decision ranges allow later comparisons to correct some earlier erro
 ### Switching scheme {#sec-cdac-switching}
 
 ::: {#fig-rec-capdac-dac-inl plot="rec_capdac_dac_inl"}
-FRIDA-1's capacitor array in TSMC65: DAC INL by code, the 95th-percentile run at the middle condition.
+A 12-bit array of 17 decisions in TSMC65: DAC INL by code, the 95th-percentile run at the middle condition.
 :::
 
-FRIDA uses a modified monotonic, single-side switching procedure, building on the monotonic switching scheme [@liu2010].
+This work uses a modified monotonic, single-side switching procedure, building on the monotonic switching scheme [@liu2010].
 Programmable initial capacitor states provide a means to adjust the comparator common-mode trajectory.
 Although other switching schemes can reduce theoretical switching energy further, the small array capacitance makes simple rail-driven CMOS switching attractive.
 
@@ -523,13 +470,13 @@ $$ {#eq-switching}
 ::: todo
 
 - Switching energy per conversion for monotonic against Vcm-based switching, and the common-mode drift it costs the comparator [@chang2013; @liu2010].
-- The initial state (16'h5555 in FRIDA-1) and what it does to the common-mode trajectory, power and noise; measured evidence is still missing.
+- The initial state (16'h5555 in @sec-frida1) and what it does to the common-mode trajectory, power and noise; measured evidence is still missing.
 :::
 
 ### Drivers and settling {#sec-cdac-settling}
 
 ::: {#fig-rec-capdac-settling-stage plot="rec_capdac_settling_stage"}
-FRIDA-1's capacitor array in TSMC65: Settling to half an LSB by stage (the slower direction).
+A 12-bit array of 17 decisions in TSMC65: Settling to half an LSB by stage (the slower direction).
 :::
 
 A stage's bottom plate settles first order through its driver.
@@ -542,51 +489,7 @@ time constants, into the plate in series with the rest of the array, $C_\mathrm{
 ### Top-plate parasitics and full scale {#sec-cdac-parasitic}
 
 The top plate's parasitic capacitance divides every step: the full scale is the reference times the switched capacitance over the total load, $V_\mathrm{FS} = V_\mathrm{ref}(\sum C_\mathrm{main} - \sum C_\mathrm{diff})/C_\mathrm{load}$.
-The arrays reach 55–65 % of the reference at 10 bits and 73–76 % at 12 and 14; FRIDA-1's extracted array 0.73.
-
-: Held sampling noise against the extracted load per side for FRIDA-1's four array flavors, 100 conversions each at 50 mV input. {#tbl-held-noise}
-
-| Design | Load per side (fF) | Held differential SD (µV) |
-|:--|--:|--:|
-| FRIDA-1 1L R17 | 527.7 | 116.9 |
-| FRIDA-1 1L R20 | 527.7 | 127.2 |
-| FRIDA-1 2L R17 (disconnected) | 499.7 | 109.9 |
-| FRIDA-1 2L R20 (disconnected) | 499.6 | 102.7 |
-
-The extracted `main − diff` relative weights matched the intended weights well after normalization; the absolute effective capacitance scale was about 16.1 % of the intended behavioral value.
-The nominal two-layer flavors have disconnected upper plates, so their extracted capacitance matched the one-layer one rather than adding a parallel layer.
-
-### FRIDA-1 in the grid {#sec-frida1-cdac}
-
-::: {#fig-rec-adc-calibration-weights plot="rec_adc_calibration_weights"}
-The generated FRIDA converter (behavioral): Weight error of the extracted array.
-:::
-
-::: {#fig-rec-adc-inl plot="rec_adc_inl"}
-The generated FRIDA converter (behavioral): Ramp INL, design weights.
-:::
-
-::: {#fig-rec-adc-inl-calibrated plot="rec_adc_inl_calibrated"}
-The generated FRIDA converter (behavioral): Ramp INL, calibrated.
-:::
-
-FRIDA-1's array is the grid's `frida1` instance: 12 bits, MSB redistribution with 5 redundant decisions (17 in all), at twice the noise minimum (@eq-cmin-noise), in difference capacitors.
-Extracted in TSMC65, its gain is 0.73 (a 0.68 V full scale), its largest stage settles in 0.28 ns with a step error of 0.017 LSB, and it takes 645 µm² of layout per side.
-At a matching coefficient of 1 %·√fF its 95th-percentile uncalibratable gap is 0.27 LSB and its INL with the design weights 2.4 LSB (@fig-cdac-gap).
-
-::: {#fig-gen-capdac src="figures/layout_gen_capdac.png"}
-The grid's FRIDA-1 array, one side, with its drivers as the pipeline lays it out in TSMC65.
-:::
-
-::: {#fig-gen-capdac-iso src="figures/layout3d_gen_capdac.png"}
-The grid's FRIDA-1 array, one side, with its drivers in an isometric view of its layers.
-:::
-
-::: todo
-
-- @eq-calibratable applied to FRIDA-1's weights: each stage's margin over its weight's sigma.
-- The measured weights of @sec-frida1-measurements against these.
-:::
+The arrays reach 55–65 % of the reference at 10 bits and 73–76 % at 12 and 14.
 
 ## Clocking and sequencing {#sec-clocking}
 
@@ -616,11 +519,11 @@ The sequences studied.
 ### Timing budget {#sec-clocking-budget}
 
 ::: {#fig-rec-adc-trajectory plot="rec_adc_trajectory"}
-The generated FRIDA converter (behavioral): Decision paths at one input.
+The assembled 12-bit converter (behavioral): Decision paths at one input.
 :::
 
 ::: {#fig-rec-adc-hsu-rate plot="rec_adc_hsu_rate"}
-The generated FRIDA converter (behavioral): Integrated error over the conversion rate.
+The assembled 12-bit converter (behavioral): Integrated error over the conversion rate.
 :::
 
 Each decision must fit the comparator's delay at its input (@eq-regeneration), the logic's clock-to-output and the DAC's settling (@eq-driver) within its share of the conversion.
@@ -631,15 +534,9 @@ Each decision must fit the comparator's delay at its input (@eq-regeneration), t
 - The ENOB over sequence and symbol rate (the sequence map), and which recipe the timing allows at 10 MS/s.
 :::
 
-### Extracted sequences {#sec-clocking-pex}
-
-::: {#fig-pex-sequences placeholder="The post-layout sequence study: COMP duty 50 to 87.5 % and LOGIC phase 180 to 315° across seven array flavors, with code spread and timing-error counts (docs/thesis/adc_pex_sequence_reference.tex)."}
-Extracted converters over the comparator duty cycle and logic phase.
-:::
-
 ### Measured sequences
 
-The sequences FRIDA-1 measures are in @sec-meas-sequence.
+The measured sequences are in @sec-meas-sequence.
 
 ## Assembling the converter {#sec-adc}
 
@@ -686,18 +583,18 @@ The ENOB budget, one impairment at a time.
 :::
 
 ::: {#fig-rec-adc-enob-rate plot="rec_adc_enob_rate"}
-The generated FRIDA converter (behavioral): ENOB over the conversion rate.
+The assembled 12-bit converter (behavioral): ENOB over the conversion rate.
 :::
 
 ::: {#fig-rec-adc-spectrum-low plot="rec_adc_spectrum_low"}
-The generated FRIDA converter (behavioral): Spectrum at 10 MS/s, low input frequency.
+The assembled 12-bit converter (behavioral): Spectrum at 10 MS/s, low input frequency.
 :::
 
 ::: {#fig-rec-adc-noise-spectrum plot="rec_adc_noise_spectrum"}
-The generated FRIDA converter (behavioral): Output-code noise: 0.77 LSB rms = lines 0.00 ⊕ white 0.77.
+The assembled 12-bit converter (behavioral): Output-code noise: 0.77 LSB rms = lines 0.00 ⊕ white 0.77.
 :::
 
-For the generated FRIDA design the ladder ends at 10.04 bits: the sampler's tracking error costs the most (1.65 bits), the comparator's noise 0.22, kT/C 0.06.
+For the assembled converter the ladder ends at 10.04 bits: the sampler's tracking error costs the most (1.65 bits), the comparator's noise 0.22, kT/C 0.06.
 Its noise is 0.76 LSB, the sampler 0.50 and the comparator 0.71.
 
 ::: todo
@@ -709,7 +606,7 @@ Its noise is 0.76 LSB, the sampler 0.50 and the comparator 0.71.
 ### Energy {#sec-adc-energy}
 
 ::: {#fig-rec-adc-power-rate plot="rec_adc_power_rate"}
-The generated FRIDA converter (behavioral): Supply power over the conversion rate.
+The assembled 12-bit converter (behavioral): Supply power over the conversion rate.
 :::
 
 The energy per conversion sums the three supplies: the comparator's decisions on the analog rail, the logic's registers and clock on the digital rail, and the DAC's charge from the reference (@eq-switching) with its drivers' transitions:
@@ -717,7 +614,7 @@ $$
 E_\mathrm{conv} = (M + 1)E_\mathrm{dec} + E_\mathrm{logic} + V_\mathrm{ref}\,Q_\mathrm{DAC} + E_\mathrm{drivers},
 $$ {#eq-energy}
 for $M$ capacitor stages.
-The generated FRIDA design spends about 28.9 pJ per conversion, 289 µW at 10 MS/s; the SAR logic dominates.
+The assembled converter spends about 28.9 pJ per conversion, 289 µW at 10 MS/s; the SAR logic dominates.
 
 ::: todo
 
@@ -728,38 +625,10 @@ The generated FRIDA design spends about 28.9 pJ per conversion, 289 µW at 10 MS
 ### Area {#sec-adc-area}
 
 ::: {#fig-rec-adc-reference-noise plot="rec_adc_reference_noise"}
-The generated FRIDA converter (behavioral): ENOB lost to the reference's noise, sampler and comparator ideal.
+The assembled 12-bit converter (behavioral): ENOB lost to the reference's noise, sampler and comparator ideal.
 :::
 
 ::: todo
 
-- An area budget for the full converter: the array (@fig-cdac-area), the comparator's cap per resolution (15, 20, 63 µm a side), the sampler, the drivers and the logic; no full-converter layout exists yet beyond the blocks side by side.
-- The generated design: 2760 µm² of layout, 540 µm² of devices.
-:::
-
-### Optimized converters per process and resolution {#sec-adc-optimized}
-
-The design space crosses 20 comparators, 5 samplers and 121 arrays, 12,100 converters, in TSMC65; in the other five processes each array is paired with the process's StrongARM noise ladder and the widest bootstrapped switch.
-
-::: {#fig-adc-optimized placeholder="The optimized converters: ENOB against area and energy per conversion, per process and resolution, from the converters grid."}
-Optimized converters across processes and resolutions.
-:::
-
-::: todo
-
-- The best converter per process at 10, 12 and 14 bits, and which block limits each.
-- How the result compares with the survey (@fig-survey-area) and the specification (@tbl-specs).
-:::
-
-### FRIDA-1 in the grid {#sec-frida1-adc}
-
-The generated FRIDA design composes these three instances: its behavioral record gives 10.04 ENOB, 28.9 pJ per conversion (289 µW at 10 MS/s) and 0.76 LSB of noise (sampler 0.50, comparator 0.71), with the ladder of @fig-adc-ladder.
-These single-instance predictions are what @sec-frida1-measurements compares the silicon against.
-
-::: {#fig-gen-adc src="figures/layout_gen_adc.png"}
-The generated FRIDA design's blocks side by side as the pipeline lays it out in TSMC65.
-:::
-
-::: {#fig-gen-adc-iso src="figures/layout3d_gen_adc.png"}
-The generated FRIDA design's blocks side by side in an isometric view of its layers.
+- An area budget for the full converter: the array (@fig-cdac-area), the comparator's cap per resolution (15, 20, 63 µm a side), the sampler, the drivers and the logic.
 :::

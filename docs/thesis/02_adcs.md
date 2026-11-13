@@ -146,7 +146,7 @@ Earlier detector ADCs from the research group.
 
 We address this requirement by proposing a differential successive-approximation-register (SAR) ADC, prototyped in 65 nm but with an architecture portable between process nodes.
 Its central contribution is the combination of a compact capacitor implementation, redundant conversion, and digital control suitable for dense tiling.
-The area comparison therefore complements the conventional Walden metric and identifies the compact, efficient region that FRIDA seeks to occupy.
+The area comparison therefore complements the conventional Walden metric and identifies the compact, efficient region that this work seeks to occupy.
 
 The contributions of this thesis are:
 
