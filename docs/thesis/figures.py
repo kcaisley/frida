@@ -1258,8 +1258,9 @@ def switching_energy_bits() -> Figure:
 
 
 def cdac_limits() -> Figure:
-    """The least capacitance per side for noise (2kT/C = LSB²/12) and for matching (the mid-code
-    transition at a quarter LSB), over the resolution, at published matching coefficients."""
+    """The least capacitance per side for noise (2kT/C = LSB²/12, @eq-cmin-noise) and for matching
+    (the mid-code transition at a quarter LSB, @eq-cmin-matching), over the resolution, for a
+    top-plate-sampled array of N - 1 bits per side, at published single-capacitor coefficients."""
     k_t = 1.380649e-23 * 300.0
     full_scale = 1.2
     bits = list(range(8, 17))
@@ -1267,8 +1268,9 @@ def cdac_limits() -> Figure:
     traces = [Trace("Noise, 2kT/C = LSB²/12", bits, noise, color=CURVE_COLORS[0], lines=True)]
     for coefficient, color, source in ((0.0022, CURVE_COLORS[1], "0.22"), (0.0085, CURVE_COLORS[3], "0.85")):
         sigma = 0.25  # LSB at the mid-code transition
-        matching = [2**n * (2**n - 1) * (coefficient / sigma) ** 2 for n in bits]
-        traces.append(Trace(f"Matching, A = {source} %·√fF", bits, matching, color=color, lines=True, dash=True))
+        dac = [n - 1 for n in bits]  # top-plate sampling: an (N-1)-bit array per side
+        matching = [2**m * (2**m - 1) * (coefficient / sigma) ** 2 for m in dac]
+        traces.append(Trace(f"Matching, A_C = {source} %·√fF", bits, matching, color=color, lines=True, dash=True))
     return Figure(
         "cdac_limits",
         [

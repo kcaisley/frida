@@ -45,7 +45,7 @@ This is similar to how multi-bit quantization in wired and wireless data links o
 Per-pixel hit rate against incident particle fluence for pixel pitches from 100 µm to 10 µm, with the fluence of photon sources (squares) and electron microscopes (circles).
 :::
 
-We model particle arrivals as a Poisson process with average rate $\mu$, each hit occupying the front end for a fixed dead time $t_\mathrm{d}$ (non-paralyzable) [@ballabriga2021].
+We model particle arrivals as a Poisson process with average rate $\mu$, each hit occupying the front end for a fixed dead time $t_\mathrm{d}$ that a hit arriving within it extends (paralyzable) [@zambon2021, p. 1].
 The probability that a hit overlaps with a previous one is $1 - e^{-\mu t_\mathrm{d}}$, and for an allowed overlap fraction $f$
 $$
 \mu_\mathrm{max} = \frac{-\ln(1-f)}{t_\mathrm{d}}.

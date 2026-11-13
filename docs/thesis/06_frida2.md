@@ -35,14 +35,15 @@ The objective is the problem's cost, the product of its cost metrics, each to it
 
 For the comparator of an $N$-bit converter the cost is
 $$
-J = E \cdot A^{\,a} \cdot \left(1 + \frac{\sigma^2}{\sigma_q^2}\right)^{g}, \qquad \sigma_q = \frac{2\,V_\mathrm{FS}}{2^N \sqrt{12}},
+J = E \cdot A^{\,a} \cdot \left(1 + \frac{\sigma^2}{\sigma_\mathrm{q}^2}\right)^{g}, \qquad \sigma_\mathrm{q} = \frac{\mathrm{LSB}}{\sqrt{12}} = \frac{V_\mathrm{FS}}{2^N \sqrt{12}},
 $$ {#eq-cost}
 the energy per decision $E$ times the area $A$ times a saturating noise factor: the last factor is the converter's noise power over its quantization noise alone, near 1 where the converter no longer gains from a quieter comparator.
-A design that only scales settles at
+A design that only scales, $E, A \propto k$ and $\sigma^2 \propto 1/k$, minimizes @eq-cost at
 $$
-\frac{\sigma}{\sigma_q} = \frac{1}{\sqrt{g/(1+a) - 1}},
+\frac{\sigma}{\sigma_\mathrm{q}} = \frac{1}{\sqrt{g/(1+a) - 1}},
 $$ {#eq-cost-optimum}
-0.71 for the weights used, $a = 1$ and $g = 6$.
+0.71 for the weights used, $a = 1$ and $g = 6$; it is a minimum only for $g > 1 + a$.
+The full scale is that of an array reaching 80 % of its reference, $V_\mathrm{FS} = 1.6\,V_\mathrm{DD}$ @eq-full-scale.
 
 ::: todo
 
@@ -66,16 +67,16 @@ Every block's designs across processes and topologies.
 
 ::: todo
 
-- The sampler: sized against the converter's tracking-error budget (@eq-tracking), not alone; the bootstrap where the transmission gate costs bits.
+- The sampler: sized against the converter's tracking-error budget @eq-tracking, not alone; the bootstrap where the transmission gate costs bits.
 - The comparator: optimized per resolution (@sec-comp-optimization), the dynamic bias where it lowers $E\sigma^2$.
-- The array: sized from both limits (@eq-cmin-noise, @eq-cmin-matching) with the redundancy that keeps it calibratable (@eq-calibratable).
+- The array: sized from both limits (@eq-cmin-noise, @eq-cmin-matching) with the redundancy that keeps it calibratable @eq-calibratable.
 - The sequencer and logic: from the measured timing limits (@sec-meas-sequence).
 :::
 
 ### Sampling switch {#sec-frida2-samp}
 
 ::: {#fig-samp-ron-width plot="samp_ron_width"}
-Transmission-gate on-resistance at mid-supply against width in six processes, with the triode rule's $R_\mathrm{on} \propto 1/W$ (@eq-ron).
+Transmission-gate on-resistance at mid-supply against width in six processes, with the triode rule's $R_\mathrm{on} \propto 1/W$ @eq-ron.
 :::
 
 @fig-samp-ron-width checks @eq-ron across processes: in every one the measured resistance falls as $1/W$ over a factor of sixteen in width.
@@ -108,7 +109,7 @@ The front end must nevertheless provide suitable input common mode and settling.
 ### Comparator {#sec-frida2-comp}
 
 ::: {#fig-comp-energy-noise plot="comp_energy_noise"}
-Energy per decision against input-referred noise for every comparator in six processes, marked by latch, with lines of constant $E\sigma^2$ (@eq-comp-scaling). Scaling moves a design along a line; the topology and the process set which line.
+Energy per decision against input-referred noise for every comparator in six processes, marked by latch, with lines of constant $E\sigma^2$ @eq-comp-scaling. Scaling moves a design along a line; the topology and the process set which line.
 :::
 
 The characterization confirms @eq-comp-scaling: every width times $k$ divides the noise by about $\sqrt{k}$ (toward a floor) and multiplies the energy by $k$, keeping the delay.
@@ -120,7 +121,7 @@ The dynamic bias's input pair integrates in weak inversion and spends only the c
 - @fig-comp-energy-noise read per process: the best $E\sigma^2$ per process (3.3 fJ·mV² in TSMC65, 3.8 in TSMC28, 5.6 in LF150, 16–20 in the 130 and 180 nm processes) and why the older processes sit higher.
 :::
 
-The estimate runs a median 4.4 times high against the transient-noise simulation, so it ranks sizings loosely.
+The estimate, taken in the earlier form of @eq-strongarm-noise whose first term is twice the textbook's [@razavi2015, p. 15], runs a median 4.4 times high against the transient-noise simulation, so it ranks sizings loosely.
 
 #### How a comparator is characterized {#sec-comp-characterization}
 
@@ -139,7 +140,7 @@ Each clock reaches the comparator through an inverter chain on the comparator's 
 ### Comparator optimization per resolution {#sec-comp-optimization}
 
 The comparator of an $N$-bit converter is optimized for the cost of @eq-cost: least energy times area times a saturating noise factor, the noise within the converter's quantization noise, the layout within 15, 20 or 63 µm a side at 10, 12 or 14 bits, the 0.5 mV delay within 2 ns.
-A design that only scales settles at $\sigma/\sigma_q = 0.71$ (@eq-cost-optimum).
+A design that only scales settles at $\sigma/\sigma_\mathrm{q} = 0.71$ @eq-cost-optimum.
 
 In TSMC65 the best 10-bit comparator is a StrongARM at 214 fJ, 157 µm², 185 µV and 0.58 ns; the best 12-bit one a StrongARM at 620 fJ, 277 µm², 100 µV and 1.28 ns.
 No 14-bit design met its bounds within the area cap: the quietest found was 39.3 µV, a dynamic bias at 3374 µm².
@@ -163,7 +164,7 @@ CDAC layout area per side against resolution for the 121 arrays of the design sp
 :::
 
 ::: {#fig-cdac-gap plot="capdac_gap_redundancy"}
-The 95th percentile of the gap no calibration recovers, at a matching coefficient of 1 %·√fF, against the number of redundant decisions, for every array of the design space, marked by scheme. Binary arrays leave 1.5–3 LSB; enough redundancy, placed at the most significant stages, brings it under one LSB.
+The 95th percentile of the gap no calibration recovers, at a matching coefficient $A_C$ of 1 %·√fF, against the number of redundant decisions, for every array of the design space, marked by scheme. Binary arrays leave 1.5–3 LSB; enough redundancy, placed at the most significant stages, brings it under one LSB.
 :::
 
 The arrays of the design space reach 55–65 % of the reference in full scale at 10 bits and 73–76 % at 12 and 14.
@@ -176,7 +177,7 @@ The arrays of the design space reach 55–65 % of the reference in full scale at
 ::: todo
 
 - The pipeline's linearized prediction (every code's DNL and INL sigma from every plate's error) against its SPICE Monte Carlo, and where @eq-midcode is the worst code.
-- The pipeline computes each stage's margin over sigma (@eq-calibratable), but no solver picks the scheme yet.
+- The pipeline computes each stage's margin over sigma @eq-calibratable, but no solver picks the scheme yet.
 :::
 
 ## Searching the whole converter {#sec-frida2-search}

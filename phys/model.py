@@ -62,14 +62,12 @@ def max_counting_rate_per_pixel_per_second(enob_bits: float, window_s: float) ->
 def max_rate(time_dead: float, allowed_overlap_fraction: float = 0.1) -> float:
     r"""Return the max Poisson arrival rate for a target overlap probability.
 
-    Uses the non-paralyzable dead-time model.  After each
-    accepted hit the front-end is insensitive for a fixed interval t_d.
-    Hits arriving during that window are lost, but they do *not* extend
-    the dead time — the detector recovers on schedule and is ready for
-    the next event. In contrast, a paralyzable detector restarts the dead time
-    on every arriving event, even during the insensitive window, which
-    can cause the detector to lock up at very high rates. Some chips (e.g. IBEX)
-    add instant retrigger on top of this.
+    Uses the paralyzable dead-time model (Knoll's terms): a hit is lost when any
+    earlier hit, accepted or not, arrived within the dead time t_d before it, so
+    every arriving event restarts the dead time, which can lock the detector up at
+    very high rates. In contrast, a non-paralyzable detector is insensitive for t_d
+    only after each accepted hit: hits during that window are lost but do *not*
+    extend it. Some chips (e.g. IBEX) add instant retrigger on top of this.
 
     We model particle arrivals as a Poisson process with average rate μ (hits/s).
     Each hit occupies the front-end for a fixed dead time t_d.
@@ -90,14 +88,18 @@ def max_rate(time_dead: float, allowed_overlap_fraction: float = 0.1) -> float:
 
     Since λ = μ * t_d, we solve for μ:
 
-        μ = -ln(1 - f) / t_d     (non-paralyzable, Eq. 7)
+        μ = -ln(1 - f) / t_d     (paralyzable; Ballabriga's Eq. 7)
 
-    For comparison, the paralyzable model gives τ_p = f / ((1-f) * μ),
-    which yields a slightly longer dead time for the same rate (Eq. 6).
+    For comparison, the non-paralyzable model, which loses the fraction
+    μ t_d / (1 + μ t_d), gives t_d = f / ((1-f) * μ), a slightly longer dead time
+    for the same rate (Ballabriga's Eq. 6). Ballabriga et al. print the two
+    labels the other way round.
 
-    Reference: R. Ballabriga et al., "Photon Counting Detectors for X-ray
-    Imaging with Emphasis on CT", IEEE Trans. Radiat. Plasma Med. Sci.,
-    vol. 5, no. 4, pp. 422–440, 2021.
+    References: P. Zambon, "Dead time model for X-ray photon counting detectors
+    with retrigger capability", Nucl. Instrum. Methods Phys. Res. A, vol. 994,
+    165087, 2021 (both models, after Knoll); R. Ballabriga et al., "Photon
+    Counting Detectors for X-ray Imaging with Emphasis on CT", IEEE Trans.
+    Radiat. Plasma Med. Sci., vol. 5, no. 4, pp. 422–440, 2021.
     """
     return -np.log1p(-allowed_overlap_fraction) / time_dead
 

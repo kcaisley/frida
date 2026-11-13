@@ -39,7 +39,7 @@ Half-size dummies take the transmission gate's largest pedestal from 0.75 to 0.0
 
 ::: todo
 
-- Where FRIDA-1's switch sits on @fig-samp-ron-width and what the 12-bit track time (@eq-settle) asks of it.
+- Where FRIDA-1's switch sits on @fig-samp-ron-width and what the 12-bit track time @eq-settle asks of it.
 - The measured counterpart in @sec-frida1-measurements.
 :::
 
@@ -57,7 +57,7 @@ A StrongARM comparator in TSMC65: Input-referred noise over the common mode.
 A StrongARM comparator in TSMC65: Delay over the input (nominal common mode).
 :::
 
-The pipeline measures $\tau$ from the delays at two small inputs, $\tau = (t_1 - t_2)/\ln(v_2/v_1)$, and extrapolates below the smallest input measured with @eq-regeneration.
+The pipeline measures $\tau$ from the delays at two small inputs, $\tau = (t_1 - t_2)/\ln(v_2/v_1)$ [@razavi2025, p. 136], and extrapolates below the smallest input measured with @eq-regeneration.
 
 ::: {#fig-rec-comp-scurve plot="rec_comp_scurve"}
 A StrongARM comparator in TSMC65: Decision probability (nominal common mode, transient noise).
@@ -87,9 +87,9 @@ The generated FRIDA converter (behavioral): Ramp INL, design weights.
 The generated FRIDA converter (behavioral): Ramp INL, calibrated.
 :::
 
-FRIDA-1's array is the grid's `frida1` instance: 12 bits, MSB redistribution with 5 redundant decisions (17 in all), at twice the noise minimum (@eq-cmin-noise), in difference capacitors.
+FRIDA-1's array is the grid's `frida1` instance: 12 bits, MSB redistribution with 5 redundant decisions (17 in all), at twice the noise minimum @eq-cmin-noise, in difference capacitors.
 Extracted in TSMC65, its gain is 0.73 (a 0.68 V full scale), its largest stage settles in 0.28 ns with a step error of 0.017 LSB, and it takes 645 µm² of layout per side.
-At a matching coefficient of 1 %·√fF its 95th-percentile uncalibratable gap is 0.27 LSB and its INL with the design weights 2.4 LSB (@fig-cdac-gap).
+At a matching coefficient $A_C$ of 1 %·√fF its 95th-percentile uncalibratable gap is 0.27 LSB and its INL with the design weights 2.4 LSB (@fig-cdac-gap).
 
 The prototype's nominal physical capacitance, including both members of the difference pairs, is approximately 1.88 pF per branch; the same ideal estimate gives approximately 66 µV RMS, before comparator noise and other nonidealities are included.
 
@@ -173,7 +173,7 @@ Its noise is 0.76 LSB, the sampler 0.50 and the comparator 0.71.
 
 ::: todo
 
-- Why the tracking error dominates here: the transmission gate's mid-supply $R_\mathrm{on}$ into the 12-bit array (@eq-tracking), and the bootstrap's recovery.
+- Why the tracking error dominates here: the transmission gate's mid-supply $R_\mathrm{on}$ into the 12-bit array @eq-tracking, and the bootstrap's recovery.
 :::
 
 ::: {#fig-rec-adc-trajectory plot="rec_adc_trajectory"}

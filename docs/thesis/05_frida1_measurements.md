@@ -45,7 +45,7 @@ Comparator noise over the common mode: measured against FRIDA-1's SPICE instance
 Code noise over the sampling rate: measured against the behavioral model.
 :::
 
-::: {#fig-meas-power-rate placeholder="Supply power over the sampling rate, per rail, measured against the behavioral model's energy sum (@eq-energy)."}
+::: {#fig-meas-power-rate placeholder="Supply power over the sampling rate, per rail, measured against the behavioral model's energy sum @eq-energy."}
 Power over the sampling rate: measured against the behavioral model.
 :::
 
@@ -63,19 +63,20 @@ So there are two components: a timing malfunction that depends on duty and rate 
 
 The expressions used throughout:
 $$
-V_\mathrm{LSB} = \frac{V_\mathrm{ref}}{2^N} = \frac{1.2\,\mathrm{V}}{4096} \approx 293\,\mu\mathrm{V}, \qquad \mathrm{ENOB} = N - \log_2\frac{\sigma_\mathrm{code}}{1/\sqrt{12}\ \mathrm{LSB}},
+\mathrm{LSB} = \frac{V_\mathrm{FS}}{2^N} = \frac{1.2\,\mathrm{V}}{4096} \approx 293\,\mu\mathrm{V}, \qquad \mathrm{ENOB} = N - \log_2\frac{\sigma_\mathrm{code}}{\sigma_\mathrm{q}},
 $$ {#eq-code-enob}
 $$
-\sigma^2 = \sigma_\mathrm{interferer}^2 + \sigma_\mathrm{broadband}^2, \qquad f_a = \left|\big((f + f_s/2) \bmod f_s\big) - f_s/2\right|.
+\sigma^2 = \sigma_\mathrm{interferer}^2 + \sigma_\mathrm{broadband}^2, \qquad f_\mathrm{a} = \left|\big((f + f_\mathrm{s}/2) \bmod f_\mathrm{s}\big) - f_\mathrm{s}/2\right|.
 $$ {#eq-alias}
-A tone at $f$ sampled at $f_s$ appears at its alias $f_a$; a candidate frequency is scored by how far each sampling rate's spectrum rises above its floor at the alias it predicts.
+Here $\sigma_\mathrm{q} = \mathrm{LSB}/\sqrt{12}$ @eq-quantization; the ENOB holds while the code noise exceeds about half an LSB, as it assumes $\sigma_\mathrm{code}^2 = \sigma_\mathrm{n}^2 + \sigma_\mathrm{q}^2$.
+A tone at $f$ sampled at $f_\mathrm{s}$ appears at its alias $f_\mathrm{a}$, the nearest of $|f - k f_\mathrm{s}|$ [@pelgrom2022, p. 322]; a candidate frequency is scored by how far each sampling rate's spectrum rises above its floor at the alias it predicts.
 
 ::: {#fig-hunt-variance src="../images/interferer_hunt/1_variance_split.pdf"}
 The code variance split into an interferer and a broadband part: at 2 MS/s, $1.68^2 = 1.20^2 + 1.18^2$ LSB².
 :::
 
 ::: {#fig-hunt-alias src="../images/interferer_hunt/3_alias_search.pdf"}
-The alias search over several sampling rates (@eq-alias): one interferer near 8.4 MHz explains the lines at every rate.
+The alias search over several sampling rates @eq-alias: one interferer near 8.4 MHz explains the lines at every rate.
 :::
 
 ::: {#fig-hunt-probes src="../images/interferer_hunt/step1_floor_probes_spectrum.pdf"}
@@ -132,7 +133,7 @@ $$
 s_{q,i,d} = \operatorname{sign}(q)\operatorname{sign}(d)\frac{V_\mathrm{off} - V_{50,q,i,d}}{V_\mathrm{DD,DAC}}.
 $$ {#eq-ab-step}
 The A-state selects the direction of any change on side $q$; the SAR logic then sets $P_\mathrm{final} = 1 - B_i$ and $N_\mathrm{final} = B_i$, so $B_i$ selects an endpoint, not a fixed plate to move.
-The separation of the endpoints is the decision weight $w_i = p_i + n_i$, and with the fitted terminal weight $u$ the calibrated code is
+The separation of the endpoints is the decision weight $w_i = p_i + n_i$, and with the fitted terminal weight $u$ the calibrated code is the decisions' weighted sum [@chang2013, p. 107], normalized to the full code range:
 $$
 D_\mathrm{cal} = \operatorname{round}\!\left[4095\,\frac{\sum_i B_i w_i + B_T u}{\sum_i w_i + u}\right].
 $$ {#eq-dcal}
@@ -167,8 +168,8 @@ Measured capacitor weights against prediction.
 
 ::: todo
 
-- The mismatch coefficient the measured weights imply, against the 1 %·√fF assumed in @fig-cdac-gap.
-- The ramp's DNL and INL before and after calibration (@eq-dcal) on ADC00–03.
+- The mismatch coefficient the measured weights imply, against the $A_C$ of 1 %·√fF assumed in @fig-cdac-gap.
+- The ramp's DNL and INL before and after calibration @eq-dcal on ADC00–03.
 :::
 
 ## Redundancy at speed {#sec-meas-redundancy}

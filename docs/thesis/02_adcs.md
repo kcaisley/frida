@@ -14,10 +14,22 @@
 - Section explaining quantization noise, SNDR and ENOB.
 :::
 
-The effective number of bits follows from the signal-to-noise-and-distortion ratio of a full-scale sine wave [@walden1999]:
+With the quantization error uniform within $\pm\mathrm{LSB}/2$ and independent of the input, an $N$-bit quantizer of differential full-scale span $V_\mathrm{FS}$, $\mathrm{LSB} = V_\mathrm{FS}/2^N$, adds the noise power [@pelgrom2022, p. 433; @razavi2025, p. 239]
+$$
+\sigma_\mathrm{q}^2 = \frac{\mathrm{LSB}^2}{12} = \left(\frac{V_\mathrm{FS}}{2^N\sqrt{12}}\right)^2,
+$$ {#eq-quantization}
+and a full-scale sine over it reaches [@pelgrom2022, p. 436; @razavi2025, p. 240]
+$$
+\mathrm{SNR} = 6.02\,N + 1.76\,\mathrm{dB}.
+$$ {#eq-snr-ideal}
+The effective number of bits follows from the signal-to-noise-and-distortion ratio of a full-scale sine wave [@walden1999; @pelgrom2022, p. 439; @razavi2025, p. 248]:
 $$
 \mathrm{ENOB} = \frac{\mathrm{SNDR} - 1.76\,\mathrm{dB}}{6.02\,\mathrm{dB}}.
 $$ {#eq-enob}
+Static linearity is read on the input axis, from the input $V_j$ at which the output steps to code $j$ [@razavi2025, pp. 242--244]:
+$$
+\mathrm{DNL}_j = V_j - V_{j-1} - \mathrm{LSB}, \qquad \mathrm{INL}_j = V_j - j\,\mathrm{LSB}.
+$$ {#eq-dnl-inl}
 
 For ADCs, it doesn't make much sense to specify the dynamic range often, as an input signal that is out of range can simply be amplified to fit within the full-scale input range.
 (This amplification has some linearity, distortion, and noise penalty of course.)
@@ -26,15 +38,19 @@ What doesn't come cheaply is LSB.
 
 ### Energy, area, and figures of merit
 
-Understanding the extremity of our design requirements can best be done with a performance heuristic, the Walden figure of merit [@walden1999]:
+Understanding the extremity of our design requirements can best be done with a performance heuristic, the Walden figure of merit [@walden1999], in the inverted form the survey uses, with $f_\mathrm{s}$ the Nyquist rate [@pelgrom2022, p. 461]:
 $$
 \mathrm{FoM_W} = \frac{P}{f_\mathrm{s} \cdot 2^\mathrm{ENOB}}.
 $$ {#eq-walden}
 
-The Schreier figure of merit, used beside it in the survey for noise-limited designs [@murmann_survey], is
+The Schreier figure of merit, used beside it in the survey for noise-limited designs [@murmann_survey; @pelgrom2022, p. 459], is
 $$
 \mathrm{FoM_S} = \mathrm{SNDR} + 10 \log_{10}\frac{f_\mathrm{s}/2}{P}.
 $$ {#eq-schreier}
+Thermal noise bounds the power of any converter at a given bandwidth $\mathrm{BW}$ and signal-to-noise ratio [@pelgrom2022, p. 458]:
+$$
+P \geq 8kT \cdot \mathrm{BW} \cdot \mathrm{SNR}.
+$$ {#eq-thermal-bound}
 
 ::: todo
 
@@ -102,7 +118,7 @@ However, a conventional CDAC implemented with capacitor scaling alone exhibits s
 The design builds on earlier detector-readout work from the research group.
 
 @tbl-earlier lists the achieved specifications of four of them, from their publications, beside the design goal of this work.
-The Walden figure of merit (@eq-walden) and the sampling-rate density $f_\mathrm{s}/A$ are computed from the listed values.
+The Walden figure of merit @eq-walden and the sampling-rate density $f_\mathrm{s}/A$ are computed from the listed values.
 
 : Earlier detector ADCs of the research group and the design goal of this work. Area is the converter's own layout as published; DCDB's includes its transimpedance input stage. {#tbl-earlier}
 
