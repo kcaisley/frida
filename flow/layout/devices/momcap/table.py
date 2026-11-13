@@ -4,12 +4,13 @@ takes, and the capacitances a unit's fingers give."""
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 from typing import Any
 
 from flow.layout.devices.momcap.geometry import MomStyle
+from flow.layout.pdkproc import in_pdk
 
 from ..device import FloorError, read_table
 from .geometry import MomcapGeometry
@@ -18,10 +19,12 @@ from .geometry import MomcapGeometry
 @dataclass(frozen=True)
 class MomcapTable:
     """A PDK's MOM units: per style and metal count, each terminal pair's fit and the lengths a
-    finger can be drawn at."""
+    finger can be drawn at; ``channel_nm``, per metal count, the shortest finger an array strip's
+    channel holds (``capcell.mom_channel``), where longer than the table's shortest."""
 
     pdk: str
     styles: dict[str, dict[str, Any]]
+    channel_nm: dict[int, int] = field(default_factory=dict)
 
     def _entry(self, style: MomStyle, layers: int) -> dict[str, Any]:
         return self.styles[style.name][str(layers)]
@@ -42,7 +45,8 @@ class MomcapTable:
     def _strip_at(self, layers: int, net_f: float, whole_f: float) -> tuple[int, int, int]:
         """A strip's fingers on ``layers`` metals, and the shortest a finger can be there."""
         entry = self._entry(MomStyle.DIFFERENCE, layers)
-        grid, least = entry["grid_nm"], entry["min_length_nm"]
+        grid = entry["grid_nm"]
+        least = -(-max(entry["min_length_nm"], self.channel_nm.get(layers, 0)) // grid) * grid
         main, diff = entry["pairs"]["MAIN-TOP"], entry["pairs"]["DIFF-TOP"]
         # net(Lm, Ld) = p Lm + q Ld + r (um, fF)
         p = main["main_ff_per_um"] - diff["main_ff_per_um"]
@@ -111,8 +115,10 @@ class MomcapTable:
 
 @cache
 def momcap_table(pdk: str) -> MomcapTable:
-    """``pdk``'s momcap table."""
-    return MomcapTable(pdk=pdk, styles=read_table("momcap", pdk)["styles"])
+    """``pdk``'s momcap table, its strips' channels' shortest fingers from the PDK's rules."""
+    styles = read_table("momcap", pdk)["styles"]
+    channel = {int(n): in_pdk(pdk, "capcell", "mom_channel", int(n))["finger"] for n in styles["DIFFERENCE"]}
+    return MomcapTable(pdk=pdk, styles=styles, channel_nm=channel)
 
 
 def stacked_over_rows(pdk: str, layers: int = 3) -> tuple[int, int] | None:

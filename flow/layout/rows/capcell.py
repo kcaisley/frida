@@ -126,7 +126,9 @@ def mom_channel(layers: int, space: int = 0) -> dict:
     """An array unit's channels (nm) on the shield's metal (``MomUnit._channels``): its bar's height,
     so that the shortest bar (a lone piece at the array's edge: from a spacing past the edge's wall
     to half a spacing short of its other wall's centre) meets the metal's area; the spacing beside a
-    bar that tall (``wide``) and at its ends (``space``)."""
+    bar that tall (``wide``) and at its ends (``space``); the shortest finger that holds a channel
+    wherever the unit stands on the tracks (``finger``: its cut's reach at both ends, the bar's
+    clearance from the ring's bar past the finger's line-end gap, and a whole track pitch, M2's)."""
 
     g, a = mom_geometry(layers, space), mom_access(layers, space)
     rule, w = tech.RULES[f"M{a['metal']}"], g["width"]
@@ -136,4 +138,6 @@ def mom_channel(layers: int, space: int = 0) -> dict:
     if any(bar < below for _gap, below, _ext in rule.get("end_of_line", ())):
         raise ValueError(f"a {bar} nm bar meets M{a['metal']}'s line-end rule: no channel fits a unit")
     wide = max([rule["space"], *(gap for gap, above, _run in rule.get("parallel_space", ()) if bar > above)])
-    return {**a, "space": rule["space"], "wide": wide, "bar": bar, "area": rule.get("area", 0)}
+    reach = a["via_end"] + a["via_cut"] // 2
+    finger = _snap(reach + max(reach, wide + bar // 2 - g["end_gap"]) + tech.PITCH - 1, g["grid"])
+    return {**a, "space": rule["space"], "wide": wide, "bar": bar, "area": rule.get("area", 0), "finger": finger}
