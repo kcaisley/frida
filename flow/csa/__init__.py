@@ -13,7 +13,10 @@ from .plots import (
     plot_noise_density,
     plot_peaking_supply,
     plot_power_supply,
-    plot_pulse,
+    plot_pulse_q250,
+    plot_pulse_q500,
+    plot_pulse_q1000,
+    plot_pulse_q2000,
     plot_tot_charge,
 )
 from .sim import simulate, testbench
@@ -49,7 +52,10 @@ __all__ = [
     "plot_noise_density",
     "plot_peaking_supply",
     "plot_power_supply",
-    "plot_pulse",
+    "plot_pulse_q250",
+    "plot_pulse_q500",
+    "plot_pulse_q1000",
+    "plot_pulse_q2000",
     "plot_tot_charge",
     "plots",
     "reset",

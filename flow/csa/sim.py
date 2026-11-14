@@ -4,15 +4,19 @@
 The testbench: the input loaded by the detector capacitance, the charge injected through a small
 capacitor by a voltage step, the output loaded by the discriminator's input. The load's and the
 Krummenacher tail's biases are diode-connected copies of their devices fed the bias currents from a
-supply of their own. The cascode's is a copy fed the load current standing a little off the input
-device's rail, so that the input device keeps that much of a drain-source voltage; the continuous
-feedback's gate a copy of the feedback device fed its current standing on a copy of the input
-device, so that at rest the feedback device carries that current from the input's level. The reset
-switch is closed until well before the charge arrives. The charge has the sign that moves the
-output away from the input device's rail: electrons into an NMOS input, holes into a PMOS one.
-What the run drives is its ``Stimulus``: the charge (``CHARGE``), whose transient is the response;
-or no charge (``NOISE``), whose noise analysis gives the output noise, which over the response to a
-known charge is the ENC.
+supply of their own, so the load is mirrored from the reference current (its own current differs by
+the mirror's drain-source mismatch). The cascode's is a copy fed the reference current standing a
+little off the input device's rail. The continuous feedback's gate is a copy of the feedback device
+fed its current, standing on the input's level at rest: a copy of the amplifier's core (load,
+cascode and input device on their biases) with its input tied to its output, as the feedback device
+ties them at rest, so that the feedback device's gate-source voltage is the one that carries its
+current. Each bias gate is held to its rail by a capacitor large enough to shunt its reference
+device's noise over the whole noise sweep, so that the output noise is the amplifier's own; the
+operating point is unchanged. The reset switch is closed until well before the charge arrives.
+The charge has the sign that moves the output away from the input device's rail: electrons into an
+NMOS input, holes into a PMOS one. What the run drives is its ``Stimulus``: the charge
+(``CHARGE``), whose transient is the response; or no charge (``NOISE``), whose noise analysis gives
+the output noise, which over the response to a known charge is the ENC.
 
 ``simulate`` runs it in Spectre and leaves the raw output on disk: the signals in ``SAVES``, after
 the operating point every run starts from (``opdc``), the transient (``tran``, every
@@ -50,14 +54,16 @@ SAVES = tuple(
 
 def _reference(
     bench: h.Module, tb: TbParams, tp: MosType, size: dict[str, int], gate: h.Signal, current: float, source=None
-) -> tuple[h.Instance, h.Instance]:
+) -> tuple[h.Instance, h.Instance, h.Instance]:
     """A diode-connected copy fed ``current``: from the reference supply into an NMOS, from a PMOS
-    to ground; its source on its rail unless given."""
-    vss, vddb = bench.vss, bench.vddb
-    rail = vss if tp == MosType.NMOS else vddb
+    to ground; its source on its rail unless given; its gate held to its rail by ``tb.bypass_f``."""
+    rail = bench.vss if tp == MosType.NMOS else bench.vddb
     device = mos(tp=tp, vth=tb.params.vth, **size)(d=gate, g=gate, s=rail if source is None else source, b=rail)
-    feed = Idc(dc=current)(p=vddb, n=gate) if tp == MosType.NMOS else Idc(dc=current)(p=gate, n=vss)
-    return device, feed
+    feed = Idc(dc=current)(p=bench.vddb, n=gate) if tp == MosType.NMOS else Idc(dc=current)(p=gate, n=bench.vss)
+    # [Razavi-Analog] Sec. 7.5, p. 254; Fig. 7.48, p. 251: a mirror's diode-connected device adds its
+    # noise at the output unless a large bypass capacitor shunts the shared gate
+    bypass = C(c=tb.bypass_f)(p=gate, n=rail)
+    return device, feed, bypass
 
 
 def testbench(tb: TbParams) -> h.Module:
@@ -79,27 +85,39 @@ def testbench(tb: TbParams) -> h.Module:
     bench.vddb = h.Signal()
     bench.vvddb = Vdc(dc=tb.vdd)(p=bench.vddb, n=vss)
 
-    bench.mload, bench.iload = _reference(bench, tb, other, {"w": csa.load_w, "l": csa.load_l}, bench.vload, tb.iref_a)
-    # the cascode's copy, fed the load current, its source the drain-source voltage off the input's rail
+    load = {"w": csa.load_w, "l": csa.load_l}
+    # [Razavi-Analog] Eq. (5.7), p. 139: the load mirrored from iref_a, its current off by its
+    # drain-source voltage against the diode copy's
+    bench.mload, bench.iload, bench.cvload = _reference(bench, tb, other, load, bench.vload, tb.iref_a)
+    # the cascode's copy, fed the reference current, its source the drain-source voltage off the
+    # input's rail
     bench.vcas_source = h.Signal()
     vds = float(tb.vds_in_v)
     bench.vvcas_source = Vdc(dc=vds if nmos_input else float(tb.vdd) - vds)(p=bench.vcas_source, n=vss)
-    bench.mcas, bench.icas = _reference(
+    bench.mcas, bench.icas, bench.cvcas = _reference(
         bench, tb, csa.input_xtors, {"w": csa.cas_w, "l": csa.cas_l}, bench.vcas, tb.iref_a, source=bench.vcas_source
     )
     if csa.feedback == Feedback.KRUMMENACHER:
         # the tail carries twice the discharge current: under signal, half of it returns the input
-        bench.mtail, bench.itail = _reference(
+        bench.mtail, bench.itail, bench.cvfb = _reference(
             bench, tb, other, {"w": csa.tail_w, "l": csa.tail_l}, bench.vfb, 2 * tb.ifb_a
         )
     elif csa.feedback == Feedback.CONTINUOUS:
-        # the feedback device's copy, fed its current, standing on the input device's copy: the
-        # input's level
-        bench.vin_rest = h.Signal()
-        bench.min, bench.iin = _reference(
-            bench, tb, csa.input_xtors, {"w": csa.in_w, "l": csa.in_l}, bench.vin_rest, tb.iref_a
+        # the input's level at rest: a copy of the amplifier's core (its load, cascode and input
+        # device on their biases), its input tied to its output as the feedback device ties them at
+        # rest, so the copy stands where the amplifier's input does, at the amplifier's own current
+        # and drain-source voltages ([Razavi-Analog] Eq. (5.7), p. 139: a copy matches only at the
+        # same drain-source voltage); the feedback device's copy, fed its current, stands on it
+        bench.vin_rest, bench.x_rest = h.Signal(), h.Signal()
+        load_rail, input_rail = (bench.vddb, vss) if nmos_input else (vss, bench.vddb)
+        bench.mload_rest = mos(tp=other, vth=csa.vth, **load)(d=bench.vin_rest, g=bench.vload, s=load_rail, b=load_rail)
+        bench.mcas_rest = mos(tp=csa.input_xtors, vth=csa.vth, w=csa.cas_w, l=csa.cas_l)(
+            d=bench.vin_rest, g=bench.vcas, s=bench.x_rest, b=input_rail
         )
-        bench.mfb, bench.ifb = _reference(
+        bench.min_rest = mos(tp=csa.input_xtors, vth=csa.vth, w=csa.in_w, l=csa.in_l)(
+            d=bench.x_rest, g=bench.vin_rest, s=input_rail, b=input_rail
+        )
+        bench.mfb, bench.ifb, bench.cvfb = _reference(
             bench, tb, csa.input_xtors, {"w": csa.fb_w, "l": csa.fb_l}, bench.vfb, tb.ifb_a, source=bench.vin_rest
         )
     else:
@@ -117,6 +135,7 @@ def testbench(tb: TbParams) -> h.Module:
 
     bench.inj = h.Signal()
     if tb.stimulus is Stimulus.CHARGE:
+        # [Baker] Sec. 1.3, Fig. 1.25, pp. 20-21: the step's edges stated, not left to the time step
         bench.vinj = Vpulse(
             v1=0.0,
             v2=tb.injection_step_v,
@@ -128,6 +147,9 @@ def testbench(tb: TbParams) -> h.Module:
         )(p=bench.inj, n=vss)
     else:
         bench.vinj = Vdc(dc=0.0)(p=bench.inj, n=vss)
+    # [Razavi-Analog] Fig. 8.40, p. 297: a detector at the amplifier's input, its capacitance to
+    # ground; not in the reference texts: its charge injected as a voltage step through cinj_f
+    # (Q = C_inj times the step)
     bench.cinj = C(c=tb.cinj_f)(p=bench.inj, n=bench.inp)
     if float(tb.cdet_f):
         bench.cdet = C(c=tb.cdet_f)(p=bench.inp, n=vss)
@@ -140,8 +162,8 @@ def testbench(tb: TbParams) -> h.Module:
 def simulate(tb: TbParams, run_dir: Path) -> Path:
     """Run ``testbench(tb)`` in Spectre in ``run_dir``, its raw output left on disk: after the
     operating point every run starts from (``opdc``), the charge's transient to ``tb.stop_time_s``
-    (``tran``, in nutbin), written at its strobes alone, every ``tb.waveform_sample_interval_s``,
-    the step bounded to it; or the output noise from ``tb.fstart_hz`` to ``tb.fstop_hz`` referred to
+    (``tran``, in nutbin), written at its strobes alone, every ``tb.waveform_sample_interval_s``
+    (the step is Spectre X's own: its preset chooses it); or the output noise from ``tb.fstart_hz`` to ``tb.fstop_hz`` referred to
     the injection source (``noise``, in PSF ASCII). One Spectre thread: a campaign runs one process
     per run."""
 
@@ -153,16 +175,17 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
     h.pdk.compile(bench)
     attrs = [*spectre.includes(install), *spectre.options(), hs.Save(list(SAVES))]
     if tb.stimulus is Stimulus.CHARGE:
-        interval = tb.waveform_sample_interval_s
         attrs.append(
             hs.Tran(
                 tstop=tb.stop_time_s,
                 name="tran",
-                options={"strobeperiod": interval, "maxstep": interval, "strobeoutput": "strobeonly"},
+                options={"strobeperiod": tb.waveform_sample_interval_s, "strobeoutput": "strobeonly"},
             )
         )
     else:
         # VLSIR's npts: points per decade
+        # [Razavi-Analog] Eq. (7.20), p. 229: the output noise density, to be integrated over the
+        # band; Eq. (7.39), p. 235: the flicker noise's total grows only as ln(f_H / f_L)
         sweep = hs.LogSweep(start=tb.fstart_hz, stop=tb.fstop_hz, npts=tb.points_per_decade)
         attrs.append(hs.Noise(output=bench.out, input_source=bench.vinj, sweep=sweep, name="noise"))
     spectre.run(bench, attrs, run_dir)

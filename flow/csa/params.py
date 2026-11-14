@@ -3,8 +3,10 @@
 
 Every amplifier is characterized the same way, so that amplifiers compare: ``CDET_F`` of detector
 on its input, the charge injected through ``CINJ_F`` by a voltage step, ``CLOAD_F`` on its output;
-its load's reference fed ``IREF_A``, its feedback discharging at ``IFB_A``, the input device's
-drain ``VDS_IN_V`` off its rail, the Krummenacher reference at ``VREF`` of the supply. A charge run
+its load mirrored from a reference fed ``IREF_A``, the cascode's reference a copy fed ``IREF_A``
+standing ``VDS_IN_V`` off the input device's rail, its feedback discharging at ``IFB_A``, the
+Krummenacher reference at ``VREF_FRACTION`` of the supply, each bias gate held by ``BYPASS_F``. A
+charge run
 (``Stimulus.CHARGE``) injects one of ``CHARGES_C`` at ``INJECT_TIME_S`` (the reset opens at
 ``RESET_TIME_S``, ``TRANSITION_S`` edges), the transient running to ``STOP_TIME_S``, Spectre's
 output every ``STROBE_S``; a noise run (``Stimulus.NOISE``) has no charge and gives the output
@@ -78,16 +80,19 @@ def layout_view(params: Params) -> Params:
     return replace(params, cf=0 * f)
 
 
-# the bench: 100 fF of detector, the charge through 1 fF, 10 fF of load; the load's reference fed
-# 4 uA, the feedback discharging at 10 nA, the input device's drain 150 mV off its rail, the
-# Krummenacher reference 45 % of the supply above ground
+# the bench: 100 fF of detector, the charge through 1 fF, 10 fF of load; the load mirrored from a
+# reference fed 4 uA, the cascode's reference fed 4 uA 150 mV off the input device's rail, the
+# feedback discharging at 10 nA, the Krummenacher reference 45 % of the supply above ground
 CDET_F = 100e-15
 CINJ_F = 1e-15
 CLOAD_F = 10e-15
 IREF_A = 4e-6
 IFB_A = 10e-9
 VDS_IN_V = 0.15
-VREF = 0.45
+VREF_FRACTION = 0.45
+# each bias gate's bypass to its rail: 1 mF, whose impedance at the noise sweep's start (160 ohm at
+# 1 Hz) is far below a reference device's 1/gm, so the references add no noise at the output
+BYPASS_F = 1e-3
 # the charges: a quarter, a half, one and two femtocoulombs (1.6 to 12.5 thousand electrons)
 CHARGES_C = (0.25e-15, 0.5e-15, 1e-15, 2e-15)
 # the charge run: the reset opens at 10 ns, the charge arrives at 60 ns, the transient runs to
@@ -97,10 +102,12 @@ INJECT_TIME_S = 60e-9
 STOP_TIME_S = 500e-9
 TRANSITION_S = 100e-12
 STROBE_S = 50e-12
-# the noise run: 1 Hz to 1 GHz, ten points a decade
+# the noise run: 1 Hz to 1 THz, fifty points a decade. The output density falls as f^-2 past the
+# amplifier's bandwidth, so the band runs until its last decade holds under 0.1 % of the power, and
+# the trapezoid over fifty points a decade overstates an f^-2 segment's power by under 0.11 %
 FSTART_HZ = 1.0
-FSTOP_HZ = 1e9
-POINTS_PER_DECADE = 10
+FSTOP_HZ = 1e12
+POINTS_PER_DECADE = 50
 # the supply at 90 and 110 % of its own besides nominal: never past the models' limits
 SUPPLY_SWEEP = (0.9, 1.0, 1.1)
 # the responses' detail in the record's figure, sampled from the transient
@@ -111,9 +118,10 @@ PULSE_STEP_S = 1e-9
 class TbParams(pipeline.TbParams):
     """One run of the amplifier's testbench (flow.csa.sim.testbench): the amplifier ``params`` in
     ``pdk`` at supply ``vdd``, ``cdet_f`` on its input, ``cload_f`` on its output, the charge
-    ``charge_c`` (its magnitude) injected through ``cinj_f``; its load's and cascode's references
-    fed ``iref_a``, the cascode's leaving the input device ``vds_in_v`` of drain-source voltage, its
-    feedback discharging at ``ifb_a``, the Krummenacher reference at ``vref_v``. ``stimulus`` says
+    ``charge_c`` (its magnitude) injected through ``cinj_f``; its load mirrored from a reference
+    fed ``iref_a``, the cascode's reference a copy fed ``iref_a`` standing ``vds_in_v`` off the
+    input device's rail, its feedback discharging at ``ifb_a``, the Krummenacher reference at
+    ``vref_v``, each bias gate held to its rail by ``bypass_f``. ``stimulus`` says
     what it drives: the charge (``CHARGE``: the reset opening at ``reset_time_s``, the injection
     step at ``inject_time_s``, ``transition_time_s`` edges, the transient to ``stop_time_s``,
     Spectre writing its output every ``waveform_sample_interval_s``), or no charge (``NOISE``: the
@@ -132,6 +140,7 @@ class TbParams(pipeline.TbParams):
     vref_v: float = 0.54
     iref_a: float = IREF_A
     ifb_a: float = IFB_A
+    bypass_f: float = BYPASS_F
     reset_time_s: float = RESET_TIME_S
     inject_time_s: float = INJECT_TIME_S
     stop_time_s: float = STOP_TIME_S
@@ -146,8 +155,8 @@ class TbParams(pipeline.TbParams):
         values += (self.reset_time_s, self.inject_time_s, self.stop_time_s, self.transition_time_s)
         if not all(math.isfinite(float(value)) for value in values):
             raise ValueError("charge-sensitive amplifier testbench values must be finite")
-        if min(float(self.vdd), float(self.cinj_f), self.iref_a, self.ifb_a) <= 0:
-            raise ValueError("amplifier supply, injection capacitance and bias currents must be positive")
+        if min(float(self.vdd), float(self.cinj_f), self.iref_a, self.ifb_a, self.bypass_f) <= 0:
+            raise ValueError("amplifier supply, injection and bypass capacitances and bias currents must be positive")
         if min(float(self.cdet_f), float(self.cload_f), float(self.charge_c)) < 0:
             raise ValueError("amplifier capacitances and charge must not be negative")
         if not (0 < float(self.vds_in_v) < float(self.vdd) and 0 <= float(self.vref_v) <= float(self.vdd)):

@@ -1,5 +1,6 @@
 """Software-only checks of the amplifier's testbench parameters and testbench (no simulator)."""
 
+from dataclasses import replace
 from typing import Any
 
 import hdl21 as h
@@ -14,9 +15,9 @@ def test_a_run_defaults_to_the_bench_every_amplifier_is_characterized_on() -> No
     tb = TbParams()
     assert (tb.pdk, tb.params, tb.stimulus, tb.charge_c) == ("tsmc65", params.Params(), Stimulus.CHARGE, 0.5e-15)
     assert (tb.cdet_f, tb.cinj_f, tb.cload_f) == (100e-15, 1e-15, 10e-15)
-    assert (tb.iref_a, tb.ifb_a, tb.vds_in_v) == (4e-6, 10e-9, 0.15)
+    assert (tb.iref_a, tb.ifb_a, tb.vds_in_v, tb.bypass_f) == (4e-6, 10e-9, 0.15, 1e-3)
     assert (tb.reset_time_s, tb.inject_time_s, tb.stop_time_s) == (10e-9, 60e-9, 500e-9)
-    assert (tb.fstart_hz, tb.fstop_hz, tb.points_per_decade) == (1.0, 1e9, 10)
+    assert (tb.fstart_hz, tb.fstop_hz, tb.points_per_decade) == (1.0, 1e12, 50)
 
 
 def test_the_charge_moves_the_output_away_from_the_input_rail() -> None:
@@ -42,11 +43,45 @@ def test_the_testbench_loads_and_biases_the_amplifier() -> None:
     assert bench.mtail.conns["d"] is bench.vfb and float(bench.itail.of.params.dc) == pytest.approx(20e-9)
 
 
-def test_the_continuous_feedback_stands_on_a_copy_of_the_input_device() -> None:
+# The continuous feedback's gate stands on the input's level at rest, which a copy of the amplifier's
+# core sets: a copy of the load (gate vload, source on the reference supply), of the cascode (gate
+# vcas) and of the input device, its gate tied to the copy's output, as the feedback device ties the
+# amplifier's input to its output at rest. No current source feeds that node.
+def test_the_continuous_feedback_stands_on_a_copy_of_the_amplifier_s_core() -> None:
     bench = sim.testbench(TbParams(params=runs.continuous()))
-    assert bench.min.conns == {"d": bench.vin_rest, "g": bench.vin_rest, "s": bench.vss, "b": bench.vss}
+    dut = bench.dut.of
+    assert bench.mload_rest.conns == {"d": bench.vin_rest, "g": bench.vload, "s": bench.vddb, "b": bench.vddb}
+    assert bench.mcas_rest.conns == {"d": bench.vin_rest, "g": bench.vcas, "s": bench.x_rest, "b": bench.vss}
+    assert bench.min_rest.conns == {"d": bench.x_rest, "g": bench.vin_rest, "s": bench.vss, "b": bench.vss}
+    for copy, device in ((bench.mload_rest, dut.Mload), (bench.mcas_rest, dut.Mcas), (bench.min_rest, dut.Min)):
+        assert (copy.of.params.tp, copy.of.params.w, copy.of.params.l) == (
+            device.of.params.tp,
+            device.of.params.w,
+            device.of.params.l,
+        )
+    assert not hasattr(bench, "iin")
     assert bench.mfb.conns == {"d": bench.vfb, "g": bench.vfb, "s": bench.vin_rest, "b": bench.vss}
     assert float(bench.ifb.of.params.dc) == pytest.approx(10e-9)
+    pmos = sim.testbench(TbParams(params=replace(runs.continuous(), input_xtors=MosType.PMOS), charge_c=0.5e-15))
+    assert pmos.mload_rest.conns == {"d": pmos.vin_rest, "g": pmos.vload, "s": pmos.vss, "b": pmos.vss}
+    assert pmos.min_rest.conns == {"d": pmos.x_rest, "g": pmos.vin_rest, "s": pmos.vddb, "b": pmos.vddb}
+
+
+# Every bias gate (vload, vcas and vfb but for the reset's switch) is held to its reference device's
+# rail by bypass_f, so its reference device's noise is shunted and the output noise is the
+# amplifier's ([Razavi-Analog] Sec. 7.5, p. 254); the reset's vfb is its pulse source alone.
+@pytest.mark.parametrize("case", ("krum", "krum_pmos", "continuous"))
+def test_every_bias_gate_is_bypassed_to_its_rail(case: str) -> None:
+    bench = sim.testbench(TbParams(params=getattr(runs, case)()))
+    nmos_input = bench.dut.of.Min.of.params.tp == MosType.NMOS
+    n_rail, p_rail = bench.vss, bench.vddb
+    rails = {"cvload": p_rail if nmos_input else n_rail, "cvcas": n_rail if nmos_input else p_rail}
+    rails["cvfb"] = (p_rail if nmos_input else n_rail) if case != "continuous" else n_rail
+    for name, rail in rails.items():
+        bypass = getattr(bench, name)
+        assert bypass.conns == {"p": getattr(bench, name[1:]), "n": rail}, name
+        assert float(bypass.of.params.c) == params.BYPASS_F
+    assert not hasattr(sim.testbench(TbParams(params=runs.reset())), "cvfb")
 
 
 def test_the_reset_opens_before_the_charge() -> None:
@@ -89,11 +124,12 @@ def test_the_runs_of_one_instance() -> None:
         {"cinj_f": 0.0},
         {"cdet_f": -1e-15},
         {"iref_a": -1e-6},
+        {"bypass_f": 0.0},
         {"vds_in_v": 1.3},
         {"vref_v": 1.3},
         {"reset_time_s": 70e-9},
         {"waveform_sample_interval_s": 0.0},
-        {"fstart_hz": 1e12},
+        {"fstart_hz": 1e13},
         {"points_per_decade": 0},
         {"charge_c": 0.0},
         {"stimulus": Stimulus.NOISE},

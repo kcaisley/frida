@@ -5,18 +5,20 @@ that characterize one instance (``testbenches``) and the record they make (``res
 The four amplifiers (the NMOS-input and PMOS-input Krummenacher amplifiers, the NMOS-input one with
 a long feedback device and the one with a reset switch) at seven sizes, in every PDK. Each instance
 is run on the bench every amplifier is characterized on (``params``: 100 fF of detector, the charge
-through 1 fF, 10 fF of load, a 4 uA load, 10 nA of discharge, the Krummenacher reference at 45 % of
-the supply) at its own supply: the response to 0.25, 0.5, 1 and 2 fC (gain, peaking and rise time
-at the smallest, the gain's linearity to the largest, its time over threshold and return to the
-baseline) and, but for the reset amplifier, the output noise from 1 Hz to 1 GHz without charge
-(rms, and over the smallest charge's gain the ENC). Over the supply (90 and 110 % of its own
-besides nominal) the smallest charge's response and the noise again. Seven to nine Spectre runs.
+through 1 fF, 10 fF of load, the load mirrored from a 4 uA reference, 10 nA of discharge, the
+Krummenacher reference at 45 % of the supply) at its own supply: the response to 0.25, 0.5, 1 and
+2 fC (gain, peaking and rise time at the smallest, the amplitude's nonlinearity over all four, the
+time over threshold and return to the baseline at the largest) and, but for the reset amplifier,
+the output noise from 1 Hz to 1 THz without charge (rms, and over the smallest charge's gain the
+ENC). Over the supply (90 and 110 % of its own besides nominal) the smallest charge's response and
+the noise again. Seven to nine Spectre runs.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import importlib
+import math
 
 import hdl21 as h
 from hdl21.primitives import MosType
@@ -24,7 +26,7 @@ from hdl21.primitives import MosType
 from flow.pipeline import Meas, Results, grid, single, widen
 
 from .analysis import analyze_noise, analyze_pulse, analyze_supply, metrics
-from .params import CHARGES_C, SUPPLY_SWEEP, VREF, Feedback, Params, Stimulus, TbParams
+from .params import CHARGES_C, SUPPLY_SWEEP, VREF_FRACTION, Feedback, Params, Stimulus, TbParams
 from .plots import (
     plot_amplitude_charge,
     plot_enc_supply,
@@ -33,7 +35,10 @@ from .plots import (
     plot_noise_density,
     plot_peaking_supply,
     plot_power_supply,
-    plot_pulse,
+    plot_pulse_q250,
+    plot_pulse_q500,
+    plot_pulse_q1000,
+    plot_pulse_q2000,
     plot_tot_charge,
 )
 
@@ -89,7 +94,7 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     reference is at its share of each supply."""
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
-    nominal = TbParams(pdk=pdk, params=params, vdd=round(supply, 4), vref_v=round(VREF * supply, 4))
+    nominal = TbParams(pdk=pdk, params=params, vdd=round(supply, 4), vref_v=round(VREF_FRACTION * supply, 4))
     noise = params.feedback is not Feedback.RESET
     benches = {f"q{round(charge * 1e18)}": dataclasses.replace(nominal, charge_c=charge) for charge in CHARGES_C}
     if noise:
@@ -98,7 +103,10 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
         if factor == 1.0:
             continue
         point = dataclasses.replace(
-            nominal, vdd=round(factor * supply, 4), vref_v=round(VREF * factor * supply, 4), charge_c=min(CHARGES_C)
+            nominal,
+            vdd=round(factor * supply, 4),
+            vref_v=round(VREF_FRACTION * factor * supply, 4),
+            charge_c=min(CHARGES_C),
         )
         benches[f"supply_{round(factor * 100)}"] = point
         if noise:
@@ -111,7 +119,7 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
 def results(measurements: dict[str, Meas]) -> Results:
     """The record of one instance from its runs' measurements (``testbenches``): the metrics
     (``analysis.metrics``) and the plots of its responses over the charge, its noise and its sweep
-    over the supply."""
+    over the supply, each where it holds a finite value."""
 
     noisy = measurements[f"q{round(min(CHARGES_C) * 1e18)}"].dut.feedback is not Feedback.RESET
     pulse = analyze_pulse([measurements[f"q{round(charge * 1e18)}"] for charge in CHARGES_C])
@@ -132,18 +140,26 @@ def results(measurements: dict[str, Meas]) -> Results:
         else None
     )
     supply = analyze_supply(pulses, noises=noises)
+    figures = [
+        plot_pulse_q250(pulse),
+        plot_pulse_q500(pulse),
+        plot_pulse_q1000(pulse),
+        plot_pulse_q2000(pulse),
+        plot_amplitude_charge(pulse),
+        plot_gain_charge(pulse),
+        plot_tot_charge(pulse),
+        *([plot_noise_density(noise)] if noise is not None else []),
+        plot_gain_supply(supply),
+        plot_peaking_supply(supply),
+        plot_enc_supply(supply),
+        plot_power_supply(supply),
+    ]
     return Results(
         metrics=dataclasses.asdict(metrics(pulse=pulse, noise=noise, supply=supply)),
+        # a figure where it holds a value: a reset amplifier's time over threshold, peaking time and
+        # ENC are NaN at every point
         details=[
-            plot_pulse(pulse),
-            plot_amplitude_charge(pulse),
-            plot_gain_charge(pulse),
-            plot_tot_charge(pulse),
-            *([plot_noise_density(noise)] if noise is not None else []),
-            plot_gain_supply(supply),
-            plot_peaking_supply(supply),
-            plot_enc_supply(supply),
-            plot_power_supply(supply),
+            spec for spec in figures if any(math.isfinite(value) for curve in spec.series.values() for value in curve)
         ],
         # the runs the viewer shows the waveforms of, by label
         waves={"0.25 fC": "q250", "2 fC": "q2000"},
