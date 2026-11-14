@@ -116,6 +116,10 @@ VT_MARKS = getattr(_tech, "VT_MARKS", {})
 # (a counter-dope region, say); the dummy poly's own layer where it has one
 RAIL_MARKS = getattr(_tech, "RAIL_MARKS", ())
 PO_DUMMY_LAYER = getattr(_tech, "PO_DUMMY_LAYER", "PO")
+# a library's cut poly over each rail (its gates run on into the rail band, where a cut poly
+# shape across the cell severs them from the next row's), {"half": the cut's half height about
+# the rail line, "past": the poly's reach past the rail line}; none: the poly stops at its endcap
+RAIL_POLY_CUT = getattr(_tech, "RAIL_POLY_CUT", None)
 VT = {pol: (vt, *VT_MARKS.get(pol, ())) for pol, vt in (("n", "VTN"), ("p", "VTP"))}
 VIA_SPACE = getattr(_tech, "VIA_SPACE", 0)  # via to via where it exceeds what the M2 track pitch leaves
 # M2 tracks past the gate track, away from the diffusion, for the bars of gate nets whose gates
@@ -1126,6 +1130,22 @@ def inverter(
     )
     width = _up(hi - lo, grid)
     sh = _on_grid((width - (hi - lo)) // 2) - lo
+    # its poly run on into the rails' cuts (RAIL_POLY_CUT) where its gates stand on the library's
+    # poly grid, else its poly ending at its endcaps (its rows then never abut another's)
+    rail_cut = not PO_BAR and RAIL_POLY_CUT and p == RAIL_POLY_CUT["pitch"] and grid % p == 0
+    if rail_cut:
+        # every gate centred on a multiple of the pitch, where the cell's width (on the grid) puts
+        # it mirrored too, so that gates meet the next row's in line; the cell a grid wider where
+        # the shift leaves its parts too near a side
+        pitch = RAIL_POLY_CUT["pitch"]
+        shift = -(gates[0] + sh) % pitch
+        shift -= pitch if 2 * shift > pitch else 0
+        while lo + sh + shift < 0 or hi + sh + shift > width:
+            width += grid
+            sh = _on_grid((width - (hi - lo)) // 2) - lo
+            shift = -(gates[0] + sh) % pitch
+            shift -= pitch if 2 * shift > pitch else 0
+        sh += shift
     if wide_input:
         bar_a = (M2_EDGE - sh, width - M2_EDGE - sh)
     c = Cell(name, width)
@@ -1211,8 +1231,16 @@ def inverter(
     # gates: poly across both diffusions, the bar in the gap out to the contact over the first
     # strip; without a poly bar, each line contacted on its own
     cx = strips[0] + sh
+    # the poly's ends: past each diffusion by its endcap, or on into the rails' cuts (``rail_cut``), so
+    # that rows of these cells abut, a gate's end then as far from the next row's as the cut leaves
+    po_y = (ny0 - PO_ENDCAP, py1 + PO_ENDCAP)
+    if rail_cut:
+        past = RAIL_POLY_CUT["past"]
+        po_y = (min(po_y[0], -past), max(po_y[1], H + past))
+        for yr in (0, H):
+            c.add("CPO", 0, yr - RAIL_POLY_CUT["half"], width, yr + RAIL_POLY_CUT["half"])
     for gx in gates:
-        c.add("PO", gx + sh - l // 2, ny0 - PO_ENDCAP, gx + sh + l // 2, py1 + PO_ENDCAP)
+        c.add("PO", gx + sh - l // 2, po_y[0], gx + sh + l // 2, po_y[1])
     if PO_BAR:
         c.add("PO", cx - PO_BAR_END, gc - PO_HEAD, max(gates) + sh + l // 2, gc + PO_HEAD)
     for tx in taps:
@@ -1227,7 +1255,7 @@ def inverter(
     # there, that space above and below the bar
     po_space = getattr(_tech, "PO_SPACE", 0)
     for x0, x1 in dummies:
-        y0, y1 = ny0 - PO_ENDCAP, py1 + PO_ENDCAP
+        y0, y1 = po_y
         if PO_BAR and x1 + po_space > cx - PO_BAR_END - sh and x0 - po_space < max(gates) + l // 2:
             cut = (gc - PO_HEAD - po_space, gc + PO_HEAD + po_space)
             c.add(PO_DUMMY_LAYER, x0 + sh, y0, x1 + sh, cut[0])

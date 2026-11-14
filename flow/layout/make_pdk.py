@@ -89,6 +89,7 @@ def build(pdk: str, out: Path | None = None) -> Path:
     marks += [m for ms in getattr(t, "VT_MARKS", {}).values() for m in ms]
     marks += [layer for layer, _ in getattr(t, "RAIL_MARKS", ())]
     marks += [t.PO_DUMMY_LAYER] if getattr(t, "PO_DUMMY_LAYER", "PO") != "PO" else []
+    marks += ["CPO"] if getattr(t, "RAIL_POLY_CUT", None) else []  # the inverters' cut poly over the rails
     gate_contact = getattr(t, "GATE_CONTACT_MARK", None)  # the gate contacts' marker, unless a marker above
     marks += [gate_contact["layer"]] if gate_contact and gate_contact["layer"] not in marks else []
     extra = dict(zip(marks, ("Rvt", "Hvt", "Pb"), strict=False))

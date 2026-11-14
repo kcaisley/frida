@@ -104,6 +104,13 @@ def lvs(gds: str, top: str, source: str, source_top: str, tech: Any) -> bool:
         return lvs.make_polygon_layer(layout.layer(number, datatype), name)
 
     od, po, co, pp, nw = (layer(key, key.lower()) for key in ("OD", "PO", "CO", "PP", "NW"))
+    # a kit's cut poly (``LVS_CUT_POLY``: layer keys, a 28 nm library's over its rails) severs the
+    # poly under it
+    cuts = [key for key in getattr(tech, "LVS_CUT_POLY", ()) if key in tech.LAYERS]
+    if cuts:
+        for key in cuts:
+            po = po - layer(key, key.lower())
+        lvs.register(po, "po_cut")
     block_key = next((key for key in ("RPO", "SALBLOCK") if key in tech.LAYERS), None)
     block = layer(block_key, "block") if block_key else kdb.Region()
     levels = _metals(tech)
