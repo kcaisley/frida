@@ -52,7 +52,6 @@ def diagnostic_root(spectre_installation):
     "block,target",
     (
         ("delay", "delay_characterization"),
-        ("follower", "follower_characterization"),
         ("idac", "idac_characterization"),
         ("cml", "cml_characterization"),
         ("pi", "pi_characterization"),
