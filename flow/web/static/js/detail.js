@@ -34,7 +34,7 @@ import { TracesPanel } from "./traces.js";
 import { bytes, countUnit, fieldInfo, scaled, scaledUnit, siExponent, words } from "./units.js";
 
 // the units the detail plots' labels end in that take an SI prefix
-const SCALABLE = new Set(["s", "V", "A", "J", "W", "F", "Hz", "Ω", "C", "V/C", "V/√Hz"]);
+const SCALABLE = new Set(["s", "V", "A", "J", "W", "F", "Hz", "Ω", "ohm", "C", "V/C", "V/√Hz", "V/sqrt(Hz)", "Hz/V", "s/V"]);
 const PREFIXES = { "-18": "a", "-15": "f", "-12": "p", "-9": "n", "-6": "µ", "-3": "m", 0: "", 3: "k", 6: "M", 9: "G", 12: "T" };
 // a family of counted paths is drawn in this many weights, the most taken boldest
 const PATH_LEVELS = 8;
@@ -52,16 +52,27 @@ const labelOf = (index) => page.labels[index]?.short || `instance ${index + 1}`;
 
 // ---- the detail plots, each on its own data -----------------------------------------------------
 
+// where the parenthesis that ends a label opens, -1 where none ends it (a unit may hold its own: V/sqrt(Hz))
+function unitOpening(label) {
+    if (!label.endsWith(")")) return -1;
+    let depth = 0;
+    for (let index = label.length - 1; index >= 0; index--) {
+        depth += label[index] === ")" ? 1 : label[index] === "(" ? -1 : 0;
+        if (depth === 0) return index;
+    }
+    return -1;
+}
+
 // an axis's label with the SI prefix its values take, and their factor (flow/plot.py's scaled); a
 // log axis whose values span more than three decades stays in its base unit
 function unitScale(label, values, log = false) {
-    const match = label.match(/\(([^)]+)\)$/);
-    const unit = match?.[1];
+    const start = unitOpening(label);
+    const unit = start < 0 ? undefined : label.slice(start + 1, -1);
     if (!unit || !SCALABLE.has(unit)) return { label, factor: 1 };
     const sizes = values.filter((value) => Number.isFinite(value) && value !== 0).map(Math.abs);
     if (log && sizes.length && Math.max(...sizes) > 1e3 * Math.min(...sizes)) return { label, factor: 1 };
     const exponent = siExponent(values.filter((value) => Number.isFinite(value)));
-    return { label: label.replace(/\(([^)]+)\)$/, `(${PREFIXES[exponent]}${unit})`), factor: 10 ** -exponent };
+    return { label: `${label.slice(0, start)}(${PREFIXES[exponent]}${unit})`, factor: 10 ** -exponent };
 }
 
 // a family of counted step lines (the ADC's decision paths) as a few traces, each the paths of one

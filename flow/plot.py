@@ -34,7 +34,7 @@ from flow.analysis.plots import CURVE_COLORS, DENSITY_COLOR_MAP, PLOT_STYLE, SPI
 from flow.pipeline import Heatmap, Plot
 
 # the units an axis label ends in that take an SI prefix, as the viewer scales them (detail.js)
-SCALABLE = ("s", "V", "A", "J", "W", "F", "Hz", "Ω", "C", "V/C", "V/√Hz")
+SCALABLE = ("s", "V", "A", "J", "W", "F", "Hz", "Ω", "ohm", "C", "V/C", "V/√Hz", "V/sqrt(Hz)", "Hz/V", "s/V")
 PREFIXES = {-18: "a", -15: "f", -12: "p", -9: "n", -6: "µ", -3: "m", 0: "", 3: "k", 6: "M", 9: "G", 12: "T"}
 
 
@@ -42,13 +42,20 @@ def scaled(label: str, values: Sequence[float], *, log: bool = False) -> tuple[s
     """An axis's label with the SI prefix that brings its largest finite magnitude into [1, 1000),
     and the factor its values take (the viewer's ``unitScale``); a log axis whose values span
     more than three decades stays in its base unit (1 kHz to 100 GHz ticked 10^3 to 10^11 Hz, not
-    10^-6 to 10^2 GHz)."""
-    unit = label[label.rfind("(") + 1 : -1] if label.endswith(")") and "(" in label else ""
+    10^-6 to 10^2 GHz). The unit is what the parenthesis ending the label holds, a parenthesis of
+    its own included (``V/sqrt(Hz)``)."""
+    depth, start = 0, -1
+    for index in range(len(label) - 1, -1, -1) if label.endswith(")") else ():
+        depth += {")": 1, "(": -1}.get(label[index], 0)
+        if depth == 0:
+            start = index
+            break
+    unit = label[start + 1 : -1] if start >= 0 else ""
     finite = [abs(value) for value in values if value is not None and math.isfinite(value) and value]
     if unit not in SCALABLE or not finite or log and max(finite) > 1e3 * min(finite):
         return label, 1.0
     exponent = max(-18, min(12, math.floor(math.log10(max(finite)) / 3) * 3))
-    return f"{label[: label.rfind('(')]}({PREFIXES[exponent]}{unit})", 10.0**-exponent
+    return f"{label[:start]}({PREFIXES[exponent]}{unit})", 10.0**-exponent
 
 
 def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:

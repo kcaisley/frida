@@ -62,6 +62,11 @@ def test_an_axis_takes_the_viewers_si_prefix() -> None:
     # a log axis over more than three decades stays in its base unit; over fewer it is scaled
     assert scaled("Frequency (Hz)", [1e3, 1e7, 1e11], log=True) == ("Frequency (Hz)", 1.0)
     assert scaled("-3 dB bandwidth (Hz)", [6e8, 4e9], log=True) == ("-3 dB bandwidth (GHz)", 1e-9)
+    # the notation's quotients and ASCII units take a prefix on their first unit
+    assert scaled("VCO gain (Hz/V)", [2e9, 5e9]) == ("VCO gain (GHz/V)", 1e-9)
+    assert scaled("Delay-line gain (s/V)", [-2.7e-10]) == ("Delay-line gain (ps/V)", 1e12)
+    assert scaled("Output resistance (ohm)", [4.7e3]) == ("Output resistance (kohm)", 1e-3)
+    assert scaled("Input-referred noise (V/sqrt(Hz))", [3e-9]) == ("Input-referred noise (nV/sqrt(Hz))", 1e9)
 
 
 def test_a_spec_renders_with_gaps_where_a_point_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
