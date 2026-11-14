@@ -59,6 +59,47 @@ def cell_um(gds: Path) -> list[float]:
     return [round(box.width(), 3), round(box.height(), 3)]
 
 
+def free_rows(gds: Path, pdk: str) -> dict[str, Any] | None:
+    """The rows a block leaves free under its capacitors, where they stack over the rows
+    (``stacked_over_rows``): above its highest cell under them, up to their top, whole rows of the
+    PDK's row cells, across the capacitors' width, where the converter places its other circuits.
+    Their extent (um, the GDS's coordinates: ALIGN's GDS ``<NAME>_0.gds`` beside ``gds``, its
+    placed instances) and their count; None where the block has no such capacitors or no row is
+    free. The capacitors' own routes (their plates' runs to their channels) may cross them."""
+    from flow.layout.build import _mom_units
+    from flow.layout.devices.momcap.table import stacked_over_rows
+    from flow.layout.devices.mosfet.netlist import row_height_nm
+
+    units = _mom_units(gds.parent)
+    placed = gds.parent / f"{gds.stem.upper()}_0.gds"
+    if not units or not placed.exists() or any(stacked_over_rows(pdk, n) is None for n in units.values()):
+        return None
+    layout = db.Layout()
+    layout.read(str(placed))
+    top = max(layout.top_cells(), key=lambda cell: cell.bbox().area())
+    caps, cells = db.Box(), []
+    for inst in top.each_inst():
+        name = inst.cell.name.upper()
+        if any(name.startswith(unit) for unit in units):
+            caps += inst.bbox()
+        else:
+            cells.append(inst.bbox())
+    if caps.empty():
+        return None
+    h = round(row_height_nm(pdk) / 1000 / layout.dbu)
+    under = [b for b in cells if b.left < caps.right and b.right > caps.left]
+    y0 = (max((b.top for b in under), default=caps.bottom) // h) * h  # the highest cell's top rail line
+    y1 = caps.top // h * h
+    if y1 <= y0:
+        return None
+    um = layout.dbu
+    return {
+        "x_um": [round(caps.left * um, 3), round(caps.right * um, 3)],
+        "y_um": [round(y0 * um, 3), round(y1 * um, 3)],
+        "rows": (y1 - y0) // h,
+    }
+
+
 def net_texts(gds: Path) -> list[tuple[str, int, int, str]]:
     """Every net ALIGN routed in the layout ``gds`` (its placed-and-routed ``3_pnr/<NAME>_0.json``
     beside it: each wire's net, a child module's by its path, ``XDRIVE_MAIN_0/N0``), as a label for
@@ -283,6 +324,10 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
         "parts": parts,
         "tool": {"name": "align", "version": tools.align()},
     }
+    free = free_rows(Path(gds), pdk)
+    if free:
+        laid["free_rows"] = free
+        LOG.info(f"layout: {free['rows']} rows free under the capacitors, x {free['x_um']} y {free['y_um']} um")
     return {**laid, "stats": layout_stats(work, design, Path(gds), pdk, laid)}
 
 
