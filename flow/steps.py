@@ -417,15 +417,20 @@ def _circuit(job: Job) -> dict:
 
 def _figures(job: Job) -> dict:
     """Each of the record's figures (its details, ``flow.pipeline.Plot`` specs) drawn by matplotlib
-    into ``figures/`` (``flow.plot.render``)."""
+    (``flow.plot.render``) into ``figures/<evidence>/``, the record's evidence (``prelayout``,
+    ``postlayout``); a post-layout record's pre-layout figures beside them, in ``figures/prelayout/``."""
     from flow.pipeline import Plot
     from flow.plot import render
 
     record = json.loads((job.out / "instance.json").read_text())
+    drawn = {record["evidence"]: record.get("details", [])}
+    if "prelayout_details" in record:
+        drawn["prelayout"] = record["prelayout_details"]
     paths = [
         path
-        for detail in record["details"]
-        for path in render(Plot.from_json(detail), job.out / "figures" / detail["name"])
+        for evidence, details in drawn.items()
+        for detail in details
+        for path in render(Plot.from_json(detail), job.out / "figures" / evidence / detail["name"])
     ]
     return {"figures": [str(path.relative_to(job.out)) for path in paths]}
 

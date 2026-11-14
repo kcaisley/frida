@@ -384,8 +384,28 @@ def test_the_figures_step_draws_the_records_figures(flow, toy, capsys) -> None:
     instance = _instance("one")
     assert "figures ok" in capsys.readouterr().out
     drawn = json.loads((instance / "figures/step.json").read_text())["figures"]
-    assert drawn and all(name.startswith("figures/reads.") for name in drawn)
+    # by the record's evidence: a run without a layout's are pre-layout
+    assert drawn and all(name.startswith("figures/prelayout/reads.") for name in drawn)
     assert all((instance / name).is_file() for name in drawn)
+
+
+def test_a_post_layout_records_figures_are_drawn_beside_its_pre_layout_ones(tmp_path) -> None:
+    curve = {
+        "x_label": "Supply over nominal",
+        "y_label": "Delay (s)",
+        "x": [0.9, 1.0],
+        "series": {"delay": [2e-11, 1e-11]},
+    }
+    record = {
+        "evidence": "postlayout",
+        "details": [pipeline.Plot(name="delay", title="Delay", **curve).to_json()],
+        "prelayout_details": [pipeline.Plot(name="delay", title="Delay", **curve).to_json()],
+    }
+    (tmp_path / "instance.json").write_text(json.dumps(record))
+    job = steps.Job(block="toy", pdk="tsmc65", name="one", label="one", params=None, out=tmp_path, steps=(), run="one")
+    drawn = steps._figures(job)["figures"]
+    assert {name.split("/")[1] for name in drawn} == {"postlayout", "prelayout"}
+    assert all((tmp_path / name).is_file() and Path(name).stem == "delay" for name in drawn)
 
 
 # ---- the layout steps: layout, then drc, lvs and pex, each its own tool, the tools stood in for
