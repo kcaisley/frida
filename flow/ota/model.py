@@ -6,7 +6,7 @@ characterization of the same ``Params`` in the PDK (``flow.ota.runs``, looked up
     gain = model.gain(1e6)
 
 The characterization gives the low-frequency gain, the unity-gain bandwidth, the phase margin, the
-input-referred noise to that bandwidth and the supply power at mid-supply input, and the gain over
+total input-referred noise and the supply power at the nominal input common mode, and the gain over
 frequency there, which ``Model.gain`` interpolates.
 """
 
@@ -27,10 +27,10 @@ class Model:
 
     pdk: str
     params: Params
-    gain_dc_db: float  # low-frequency differential gain at mid-supply input
+    gain_dc_db: float  # low-frequency differential gain at the nominal input common mode
     unity_gain_bandwidth_hz: float
     phase_margin_deg: float
-    noise_in_v: float  # input-referred, RMS to the unity-gain bandwidth
+    noise_in_v: float  # the output noise over the sweep, referred to the input by the low-frequency gain
     power_w: float
     frequency_hz: tuple[float, ...]  # the measured gain's frequencies
     gain_db: tuple[float, ...]

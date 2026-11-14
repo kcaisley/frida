@@ -48,15 +48,8 @@ def netlist(param: Params) -> h.Module:
     else:
         _build_first_stage(Ota, param, out1p, out1n)
     if param.two_stage:
-        sides = (
-            ((out1p, Ota.outp, "p"),)
-            if param.topology in (Topology.FIVE_T, Topology.SELF_BIASED)
-            else (
-                (out1p, Ota.outp, "p"),
-                (out1n, Ota.outn, "n"),
-            )
-        )
-        for inp, out, side in sides:
+        # a differential first stage (Params): a second stage on each output
+        for inp, out, side in ((out1p, Ota.outp, "p"), (out1n, Ota.outn, "n")):
             _build_second_stage(Ota, param, inp, out, side)
     _place(Ota, param)
     return Ota
@@ -202,8 +195,8 @@ def _place(module: h.Module, param: Params) -> None:
     its centre (a pair's two devices at mirrored places, a tail in the middle): the loads above the
     cascodes above the input pair and its tail, a second stage's gain devices beside the loads and
     its current sources beside the input pair; a PMOS input's rows the other way up, its pair on
-    top. A device in no row (a second stage on another first stage than the telescopic one, a
-    Miller capacitor) states nothing: ALIGN places the amplifier on its own."""
+    top. A device in no row (a folded cascode's second stage, a Miller capacitor) states nothing:
+    ALIGN places the amplifier on its own."""
     order = {
         Topology.FIVE_T: [["Mload_d", "Mload"], ["Min_p", "Mtail", "Min_n"]],
         Topology.TELESCOPIC: [

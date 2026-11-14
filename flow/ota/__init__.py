@@ -3,7 +3,7 @@ parameters, circuit, testbench, analyses, plots and design space, each in its ow
 their names re-exported here (``from flow import ota`` then ``ota.Params``, ``ota.analyze_ac``)."""
 
 from . import params, subckt, sim, types, analysis, plots, runs, model  # noqa: I001 - the pipeline's order
-from .analysis import analyze_ac, analyze_distortion, analyze_noise, analyze_slew, metrics
+from .analysis import analyze_ac, analyze_distortion, analyze_noise, analyze_range, analyze_slew, metrics
 from .model import Model
 from .params import Bench, Params, TbParams, Topology
 from .plots import (
@@ -17,6 +17,7 @@ from .plots import (
     plot_phase,
     plot_power_supply,
     plot_psrr,
+    plot_saturation_margin_cm,
     plot_spectrum,
     plot_step_response,
     plot_unity_gain_bandwidth_cm,
@@ -25,12 +26,13 @@ from .plots import (
 from .runs import five_t, five_t_pmos, folded, results, self_biased, sizes, telescopic, testbenches, two_stage
 from .sim import simulate, testbench
 from .subckt import Nets, netlist
-from .types import AnalysisAc, AnalysisDistortion, AnalysisNoise, AnalysisSlew, Metrics
+from .types import AnalysisAc, AnalysisDistortion, AnalysisNoise, AnalysisRange, AnalysisSlew, Metrics
 
 __all__ = [
     "AnalysisAc",
     "AnalysisDistortion",
     "AnalysisNoise",
+    "AnalysisRange",
     "AnalysisSlew",
     "Bench",
     "Metrics",
@@ -43,6 +45,7 @@ __all__ = [
     "analyze_ac",
     "analyze_distortion",
     "analyze_noise",
+    "analyze_range",
     "analyze_slew",
     "five_t",
     "five_t_pmos",
@@ -61,6 +64,7 @@ __all__ = [
     "plot_phase",
     "plot_power_supply",
     "plot_psrr",
+    "plot_saturation_margin_cm",
     "plot_spectrum",
     "plot_step_response",
     "plot_unity_gain_bandwidth_cm",

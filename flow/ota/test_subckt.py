@@ -58,6 +58,15 @@ def test_two_stage_drives_the_outputs_from_the_first_stage() -> None:
         {"topology": Topology.SELF_BIASED, "input_xtors": MosType.PMOS},
         {"miller": 10 * f},  # a Miller capacitor without a second stage
         {"tail_w": 0},
+        # the bench's feedback drives vbp, a differential amplifier's load bias only with an NMOS input
+        {"topology": Topology.TELESCOPIC, "input_xtors": MosType.PMOS},
+        {"topology": Topology.FOLDED, "input_xtors": MosType.PMOS},
+        # a second stage on a single-ended amplifier inverts its unity-gain loop
+        {"two_stage": True},
+        {"topology": Topology.SELF_BIASED, "two_stage": True},
+        # the sources on the tail's bias take its length
+        {"topology": Topology.FOLDED, "load_l": 8},
+        {"topology": Topology.TELESCOPIC, "two_stage": True, "load_l": 2},
     ),
 )
 def test_the_parameters_refuse_what_does_not_build(setting) -> None:
@@ -86,7 +95,7 @@ def test_every_instance_states_a_complete_placement(pdk: str) -> None:
         pnr = pnr_input(netlist(params))
         assert pnr is not None and issues(pnr) == []
     # a device the rows do not know leaves the amplifier to ALIGN
-    assert pnr_input(netlist(Params(two_stage=True))) is None
+    assert pnr_input(netlist(Params(topology=Topology.FOLDED, two_stage=True))) is None
     assert pnr_input(netlist(Params(topology=Topology.TELESCOPIC, two_stage=True, miller=50 * f))) is None
 
 
