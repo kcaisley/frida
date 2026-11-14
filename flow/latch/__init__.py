@@ -1,5 +1,94 @@
-"""Latches, flip-flops, dividers and SR latches."""
+"""The latch, flip-flop, divider and SR latch, a block on the pipeline (docs/pipeline.md): its
+parameters, circuit, testbench, analyses, plots and runs, each in its own stage module, their names
+re-exported here (``from flow import latch`` then ``latch.Params``, ``latch.analyze_timing``)."""
 
-from .subckt import Latch, LatchNets, LatchParams, Style
+from . import params, subckt, sim, types, analysis, plots, runs  # noqa: I001 - the pipeline's order
+from .analysis import analyze_constraint, analyze_sr, analyze_timing, analyze_upset, metrics
+from .params import Bench, Params, Style, TbParams
+from .plots import (
+    plot_captured_frequency,
+    plot_captured_offset,
+    plot_clock_to_q_fall_frequency,
+    plot_clock_to_q_fall_offset,
+    plot_clock_to_q_rise_frequency,
+    plot_clock_to_q_rise_offset,
+    plot_delay_fall_supply,
+    plot_delay_rise_supply,
+    plot_dip_charge,
+    plot_energy_supply,
+    plot_held_offset,
+    plot_upset_charge,
+)
+from .sim import simulate, testbench
+from .subckt import Nets, netlist
+from .runs import (
+    div2,
+    div2_tspc,
+    flop_rst,
+    flop_tspc,
+    latch,
+    latch_dice,
+    latch_rst,
+    long_channel,
+    results,
+    scaled,
+    sr_nand,
+    sr_nor,
+    strong_feedback,
+    testbenches,
+)
+from .types import AnalysisConstraint, AnalysisSr, AnalysisTiming, AnalysisUpset, Metrics
 
-__all__ = ["Latch", "LatchNets", "LatchParams", "Style"]
+__all__ = [
+    "AnalysisConstraint",
+    "AnalysisSr",
+    "AnalysisTiming",
+    "AnalysisUpset",
+    "Bench",
+    "Metrics",
+    "Nets",
+    "Params",
+    "Style",
+    "TbParams",
+    "analysis",
+    "analyze_constraint",
+    "analyze_sr",
+    "analyze_timing",
+    "analyze_upset",
+    "div2",
+    "div2_tspc",
+    "flop_rst",
+    "flop_tspc",
+    "latch",
+    "latch_dice",
+    "latch_rst",
+    "long_channel",
+    "metrics",
+    "netlist",
+    "params",
+    "plot_captured_frequency",
+    "plot_captured_offset",
+    "plot_clock_to_q_fall_frequency",
+    "plot_clock_to_q_fall_offset",
+    "plot_clock_to_q_rise_frequency",
+    "plot_clock_to_q_rise_offset",
+    "plot_delay_fall_supply",
+    "plot_delay_rise_supply",
+    "plot_dip_charge",
+    "plot_energy_supply",
+    "plot_held_offset",
+    "plot_upset_charge",
+    "plots",
+    "results",
+    "runs",
+    "scaled",
+    "sim",
+    "simulate",
+    "sr_nand",
+    "sr_nor",
+    "strong_feedback",
+    "subckt",
+    "testbench",
+    "testbenches",
+    "types",
+]

@@ -1,387 +1,126 @@
-"""Latch, flip-flop, divider and SR latch testbench and named Spectre simulation targets, in every PDK.
+"""The latch's testbenches (``testbench``) and the one Spectre run of each (``simulate``).
 
-The testbench, a flip-flop and latch timing characterization: complementary clocks, data that toggles once per cycle and arrives a set
-offset before every capturing edge (the rising edge of a flip-flop, the closing falling edge of a
-latch), an initial reset, and output loads. Sweeping that offset finds setup and hold; the SR
-latches get set and reset pulses on the same bench, and a divider ignores the data.
+The timing bench (``Bench.TIMING``) is a flip-flop and latch timing characterization:
+complementary clocks, data that toggles once per cycle and crosses mid-supply a set offset before
+every capturing edge (the rising edge of a flip-flop, the closing falling edge of a latch), an
+initial reset, and output loads. Sweeping that offset finds setup and hold; the SR latches get set
+and reset pulses on the same bench, and a divider ignores the data.
 
-The upset bench is the radiation-hardness one: a latch takes a 1
-and holds it, and a double-exponential current pulse (5 ps rise, 50 ps fall) puts a charge on the
-storage node that then holds a 0 (the C2MOS latch's inner node, the DICE latch's ``x1``, neither
-loaded), as a particle strike would; whether q flips, over the charge, is the latch's critical
-charge.
+The upset bench (``Bench.UPSET``) is the radiation-hardness one: a latch takes a 1 and holds it,
+and a double-exponential current pulse puts a charge on the storage node that then holds a 0 (the
+C2MOS latch's inner node, the DICE latch's ``x1``, neither loaded), as a particle strike would;
+whether q flips, over the charge, is the latch's critical charge.
+
+``simulate`` runs either in Spectre (``+preset=mx``, one thread) and leaves Spectre's raw output on
+disk: the signals in ``SAVES``, every ``TbParams.waveform_sample_interval_s`` (Spectre's step
+bounded to it).
 """
 
 import importlib
-import json
 import math
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import UTC, datetime
-from multiprocessing import get_context
 from pathlib import Path
 
 import hdl21 as h
 import hdl21.sim as hs
-import numpy as np
 from hdl21.primitives import C, Vdc, Vpulse
-from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
-from flow.analysis.io import interpolate_wave_records, write_measurement
+from flow.circuit import spectre
 from flow.circuit.ports import testbench_from_ports
 
-from .subckt import CASES, CLOCKED_STYLES, Latch, LatchNets, LatchParams, Style
+from .params import UPSET_FALL_S, UPSET_NODE, UPSET_RISE_S, Bench, Style, TbParams
+from .subckt import Nets, netlist
 
-# the storage node holding a 0 while a latch holds a 1: the one a strike must charge to flip it
-UPSET_NODE = {Style.CLOCKED: "qb", Style.DICE: "x1"}
-UPSET_RISE_S, UPSET_FALL_S = 5e-12, 50e-12
-
-
-def latch_signal_names() -> dict[str, str]:
-    """Derive simulator saves and waveform names from the block's net bundle."""
-    names = {"time": "time"}
-    for net in LatchNets.signals.values():
-        if net.vis == h.Visibility.PORT and net.usage not in (h.Usage.POWER, h.Usage.GROUND):
-            names[f"xtop.{net.name}"] = net.name
-        if net.usage == h.Usage.POWER:
-            names[f"xtop.v{net.name}:p"] = f"i({net.name})"
-    return names
+# what each run saves: every port but the supplies, and each supply source's current
+# (flow.pipeline.read names them)
+SAVES = tuple(
+    f"xtop.{net.name}"
+    for net in Nets.signals.values()
+    if net.vis == h.Visibility.PORT and net.usage not in (h.Usage.POWER, h.Usage.GROUND)
+) + tuple(f"xtop.v{net.name}:p" for net in Nets.signals.values() if net.usage == h.Usage.POWER)
 
 
-@h.paramclass
-class LatchTbParams:
-    """Parameters which determine the generated latch testbench."""
+def testbench(tb: TbParams) -> h.Module:
+    """The latch testbench of one run: complementary clocks, data a set offset before each
+    capturing edge, an initial reset pulse, and set and reset pulses for an SR latch; or, on the
+    upset bench, d high and the latch open for the first nanosecond, then holding."""
 
-    pdk = h.Param(dtype=str, desc="PDK the testbench compiles to and simulates in", default="tsmc65")
-    waveform_sample_interval_s = h.Param(
-        dtype=float, desc="Maximum raw step and stored waveform spacing", default=1e-12
+    bench, connections = testbench_from_ports(
+        "LatchTb", {net.name: net for net in Nets.signals.values() if net.vis == h.Visibility.PORT}
     )
-    vdd = h.Param(dtype=h.Scalar, desc="Supply voltage", default=1.2)
-    latch = h.Param(dtype=LatchParams, desc="Latch parameters", default=LatchParams())
-    cload = h.Param(dtype=h.Scalar, desc="Load capacitance on q and qb (F)", default=2e-15)
-    clock_period_s = h.Param(dtype=h.Scalar, desc="Clock period", default=2e-9)
-    data_offset_s = h.Param(dtype=h.Scalar, desc="Data edge before each capturing clock edge", default=0.5e-9)
-    data_period_s = h.Param(dtype=h.Scalar, desc="SR set and reset period", default=5.2e-9)
-    reset_time_s = h.Param(dtype=h.Scalar, desc="Reset (rst) pulse length at the start", default=0.5e-9)
-    transition_time_s = h.Param(dtype=h.Scalar, desc="Rise and fall time of every source", default=50e-12)
-    cycles = h.Param(dtype=int, desc="Clock cycles after the reset", default=8)
-    upset_charge_c = h.Param(dtype=h.Scalar, desc="Charge a strike puts on the storage node; 0: no strike", default=0.0)
-    upset_time_s = h.Param(dtype=h.Scalar, desc="Strike time, a nanosecond into the hold", default=2e-9)
-
-
-def _validate_latch_tb_params(params: LatchTbParams) -> None:
-    values = (
-        params.waveform_sample_interval_s,
-        params.vdd,
-        params.cload,
-        params.clock_period_s,
-        params.data_offset_s,
-        params.data_period_s,
-        params.reset_time_s,
-        params.transition_time_s,
-    )
-    if not all(math.isfinite(float(value)) for value in values):
-        raise ValueError("latch testbench values must be finite")
-    if min(float(params.vdd), float(params.cload), float(params.waveform_sample_interval_s)) <= 0:
-        raise ValueError("latch supply, load, and sample interval must be positive")
-    edge = 2 * float(params.transition_time_s)
-    if float(params.transition_time_s) <= 0 or min(float(params.clock_period_s), float(params.data_period_s)) <= edge:
-        raise ValueError("latch periods must exceed both transitions, which must be positive")
-    if abs(float(params.data_offset_s)) >= float(params.clock_period_s) / 2 + float(params.transition_time_s):
-        raise ValueError("latch data offset must lie within half a clock period of the capturing edge")
-    if float(params.reset_time_s) < 0 or params.cycles < 3:
-        raise ValueError("latch reset time must be non-negative and the run at least three cycles")
-    if float(params.upset_charge_c):
-        if params.latch.style not in UPSET_NODE or params.latch.flop or params.latch.reset:
-            raise ValueError("the upset bench strikes a C2MOS or DICE latch without reset")
-        closed = 1e-9 + 2 * float(params.transition_time_s)
-        if not (float(params.upset_charge_c) > 0 and float(params.upset_time_s) > closed):
-            raise ValueError("the strike must carry charge and come after the latch closes")
-
-
-@h.generator
-def LatchTb(params: LatchTbParams) -> h.Module:
-    """Generate the shared latch testbench: complementary clocks, data a set offset before each
-    capturing edge, an initial reset pulse, and set and reset pulses for an SR latch; or, with an
-    upset charge, d high and the latch open for the first nanosecond, then holding."""
-
-    _validate_latch_tb_params(params)
-
-    LatchTb, connections = testbench_from_ports(
-        "LatchTb", {net.name: net for net in LatchNets.signals.values() if net.vis == h.Visibility.PORT}
-    )
-    vdd, vss = params.vdd, LatchTb.vss
-    transition = float(params.transition_time_s)
+    vdd, vss = tb.vdd, bench.vss
+    transition = float(tb.transition_time_s)
     edge = {"rise": transition, "fall": transition}
-    clock, data = float(params.clock_period_s), float(params.data_period_s)
-    LatchTb.vvdd = Vdc(dc=vdd)(p=LatchTb.vdd, n=vss)
-    if float(params.upset_charge_c):
-        # open while d is high, closed from 1 ns on; the strike itself is a literal (``_run_latch_sim``)
+    clock, data = float(tb.clock_period_s), float(tb.data_period_s)
+    bench.vvdd = Vdc(dc=vdd)(p=bench.vdd, n=vss)
+    if tb.bench is Bench.UPSET:
+        # open while d is high, closed from 1 ns on; the strike itself is a literal (``simulate``)
         hold = {"period": 1.0, "width": 0.5, "delay": 1e-9, **edge}
-        LatchTb.vclk = Vpulse(v1=vdd, v2=0.0, **hold)(p=LatchTb.clk, n=vss)
-        LatchTb.vclkb = Vpulse(v1=0.0, v2=vdd, **hold)(p=LatchTb.clkb, n=vss)
-        for name, net in (("vd", LatchTb.d), ("vrst", LatchTb.rst), ("vs", LatchTb.s), ("vr", LatchTb.r)):
-            LatchTb.add(Vdc(dc=vdd if name == "vd" else 0.0)(p=net, n=vss), name=name)
+        bench.vclk = Vpulse(v1=vdd, v2=0.0, **hold)(p=bench.clk, n=vss)
+        bench.vclkb = Vpulse(v1=0.0, v2=vdd, **hold)(p=bench.clkb, n=vss)
+        for name, net in (("vd", bench.d), ("vrst", bench.rst), ("vs", bench.s), ("vr", bench.r)):
+            bench.add(Vdc(dc=vdd if name == "vd" else 0.0)(p=net, n=vss), name=name)
         # q loaded as on the timing bench, qb not: it is the C2MOS latch's storage node, and a load
         # there would raise the charge a strike needs over the DICE latch's unloaded x1
-        LatchTb.cloadq = C(c=params.cload)(p=LatchTb.q, n=vss)
-        LatchTb.dut = Latch(params.latch)(**connections)
-        return LatchTb
-    LatchTb.vclk = Vpulse(v1=0.0, v2=vdd, period=clock, width=clock / 2, delay=clock / 2, **edge)(p=LatchTb.clk, n=vss)
-    LatchTb.vclkb = Vpulse(v1=vdd, v2=0.0, period=clock, width=clock / 2, delay=clock / 2, **edge)(
-        p=LatchTb.clkb, n=vss
-    )
+        bench.cloadq = C(c=tb.cload_f)(p=bench.q, n=vss)
+        bench.dut = netlist(tb.params)(**connections)
+        return bench
+    bench.vclk = Vpulse(v1=0.0, v2=vdd, period=clock, width=clock / 2, delay=clock / 2, **edge)(p=bench.clk, n=vss)
+    bench.vclkb = Vpulse(v1=vdd, v2=0.0, period=clock, width=clock / 2, delay=clock / 2, **edge)(p=bench.clkb, n=vss)
     # the capturing edge's mid-supply time: a flip-flop's rising edge, a latch's falling (closing) one
-    capture = clock / 2 + transition / 2 + (0.0 if params.latch.flop else clock / 2 + transition)
-    first = max(1, math.ceil((float(params.reset_time_s) + transition + float(params.data_offset_s) - capture) / clock))
+    capture = clock / 2 + transition / 2 + (0.0 if tb.params.flop else clock / 2 + transition)
+    first = max(1, math.ceil((float(tb.reset_time_s) + transition + float(tb.data_offset_s) - capture) / clock))
     # data toggles once per cycle, each mid-supply crossing data_offset_s before a capturing edge
-    LatchTb.vd = Vpulse(
+    bench.vd = Vpulse(
         v1=0.0,
         v2=vdd,
         period=2 * clock,
         width=clock - transition,
-        delay=capture + first * clock - float(params.data_offset_s) - transition / 2,
+        delay=capture + first * clock - float(tb.data_offset_s) - transition / 2,
         **edge,
-    )(p=LatchTb.d, n=vss)
-    LatchTb.vrst = Vpulse(v1=vdd, v2=0.0, period=1.0, width=0.5, delay=params.reset_time_s, **edge)(
-        p=LatchTb.rst, n=vss
-    )
+    )(p=bench.d, n=vss)
+    bench.vrst = Vpulse(v1=vdd, v2=0.0, period=1.0, width=0.5, delay=tb.reset_time_s, **edge)(p=bench.rst, n=vss)
     # set and reset pulses, a quarter period each and half a period apart (active low for a NAND latch)
-    active, idle = (0.0, vdd) if params.latch.style == Style.SR_NAND else (vdd, 0.0)
-    for name, net, delay in (("vs", LatchTb.s, data / 4), ("vr", LatchTb.r, 3 * data / 4)):
-        LatchTb.add(
-            Vpulse(v1=idle, v2=active, period=data, width=data / 4, delay=delay, **edge)(p=net, n=vss), name=name
-        )
-    LatchTb.cloadq = C(c=params.cload)(p=LatchTb.q, n=vss)
-    LatchTb.cloadqb = C(c=params.cload)(p=LatchTb.qb, n=vss)
-    LatchTb.dut = Latch(params.latch)(**connections)
-    return LatchTb
+    active, idle = (0.0, vdd) if tb.params.style is Style.SR_NAND else (vdd, 0.0)
+    for name, net, delay in (("vs", bench.s, data / 4), ("vr", bench.r, 3 * data / 4)):
+        bench.add(Vpulse(v1=idle, v2=active, period=data, width=data / 4, delay=delay, **edge)(p=net, n=vss), name=name)
+    bench.cloadq = C(c=tb.cload_f)(p=bench.q, n=vss)
+    bench.cloadqb = C(c=tb.cload_f)(p=bench.qb, n=vss)
+    bench.dut = netlist(tb.params)(**connections)
+    return bench
 
 
-def _run_latch_sim(run_dir: Path, params: LatchTbParams, *, check: bool = False) -> Path:
-    """Run one latch testbench transient in its PDK and return its raw file: the reset, then
-    ``cycles`` clock cycles (an SR latch: three set and reset periods; the upset bench: twice the
-    strike time).
+def simulate(tb: TbParams, run_dir: Path) -> Path:
+    """Run ``testbench(tb)`` in Spectre in ``run_dir``: its raw transient, in nutbin, on disk (the
+    reset, then ``tb.cycles`` clock cycles; an SR latch: three set and reset periods; the upset
+    bench: twice the strike time, ``tb.stop_s``); the output strobed every
+    ``tb.waveform_sample_interval_s``, the step bounded to it. One Spectre thread: a campaign runs
+    one process per run."""
 
-    ``check`` adds Spectre's static and connectivity checks and shortens the run to a tenth.
-    """
-
-    pdk = importlib.import_module(f"pdk.{params.pdk}")
-    install = importlib.import_module(f"pdk.{params.pdk}.hdl21.site").install
-
+    pdk = importlib.import_module(f"pdk.{tb.pdk}")
+    install = importlib.import_module(f"pdk.{tb.pdk}.hdl21.site").install
     run_dir.mkdir(parents=True, exist_ok=True)
     h.pdk.set_default(pdk.pdk_logic)
-    tb = LatchTb(params)
-    h.pdk.compile(tb)
-    interval = params.waveform_sample_interval_s
-    tstop = (
-        2 * float(params.upset_time_s)
-        if float(params.upset_charge_c)
-        else 3 * float(params.data_period_s)
-        if params.latch.style not in CLOCKED_STYLES
-        else float(params.reset_time_s) + (params.cycles + 1) * float(params.clock_period_s)
-    )
-    attrs = [
-        install.include(h.pdk.Corner.TYP),
-        # what else the PDK's simulations take, in this order: TSMC's pre-simulation settings,
-        # the device names its netlists use (pdk/<name>/hdl21)
-        *(getattr(install, name)() for name in ("include_pre_simulation", "include_devices") if hasattr(install, name)),
-        hs.Options(name="temp", value=25.0),
-        hs.Options(name="save", value="selected"),
-        hs.Save([raw for raw in latch_signal_names() if raw != "time"]),
-    ]
-    if float(params.upset_charge_c):
+    bench = testbench(tb)
+    h.pdk.compile(bench)
+    interval = tb.waveform_sample_interval_s
+    attrs = [*spectre.includes(install), *spectre.options(), hs.Save(list(SAVES))]
+    if tb.bench is Bench.UPSET:
         # the double exponential into the storage node: its charge is the peak times the
         # difference of the time constants; hdl21 has no exponential source
-        peak = float(params.upset_charge_c) / (UPSET_FALL_S - UPSET_RISE_S)
-        strike = float(params.upset_time_s)
+        peak = float(tb.charge_c) / (UPSET_FALL_S - UPSET_RISE_S)
+        strike = float(tb.upset_time_s)
         attrs.append(
             h.Literal(
-                f"iupset (xtop.dut.{UPSET_NODE[params.latch.style]} 0) isource type=exp val0=0 val1={-peak:g} "
+                f"iupset (xtop.dut.{UPSET_NODE[tb.params.style]} 0) isource type=exp val0=0 val1={-peak:g} "
                 f"td1={strike:g} tau1={UPSET_RISE_S:g} td2={strike:g} tau2={UPSET_FALL_S:g}"
-            )
-        )
-    if check:
-        attrs.append(
-            h.Literal(
-                "check_caps static_capacitor type=distr\n"
-                "check_erc static_erc floatbulk=all floatgate=no_top_moscap dangle=no_top "
-                "gate2power=on gate2ground=on\n"
-                "check_highz static_highz node=[*] fanout=gate_has_driver_no_moscap\n"
-                "check_dcpath static_dcpath net=[xtop.vdd 0]\n"
-                "check_topology static_topology node=[*] pin2gnd=on"
             )
         )
     attrs.append(
         hs.Tran(
-            tstop=tstop / 10 if check else tstop,
+            tstop=tb.stop_s,
             name="tran",
             options={"strobeperiod": interval, "maxstep": interval, "strobeoutput": "strobeonly"},
         )
     )
-    # the simulator's error holds its simulation, which cannot cross back from a worker process:
-    # raise it as text
-    try:
-        hs.Sim(tb=tb, attrs=attrs).run(
-            SimOptions(
-                simulator=SupportedSimulators.SPECTRE,
-                fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
-                rundir=run_dir,
-                simulator_args=(
-                    "+preset=mx",
-                    "+mt=1",
-                    "+lqtimeout",
-                    "3600",
-                    "+escchars",
-                    "+log",
-                    "spectre.log",
-                    *(("-ahdllint=warn", "-ahdllint_log", "ahdllint.log") if check else ()),
-                ),
-            )
-        )
-    except SimError as error:
-        raise RuntimeError(f"Spectre failed in {run_dir}: {error}") from None
+    spectre.run(bench, attrs, run_dir)
     return run_dir / "netlist.raw"
-
-
-# The characterization, in every PDK about its own core supply: every case over the supply (75 to
-# 108 % of it); at the core supply the clocked latches and the flip-flops over the data offset
-# (setup and hold), the flip-flops and dividers over the clock period, and the C2MOS and DICE
-# latches struck while holding a 1 (12 charges).
-SUPPLY_SWEEP = (9 / 12, 10 / 12, 11 / 12, 1.0, 13 / 12)
-DATA_OFFSET_SWEEP_S = tuple(round(offset * 1e-12, 15) for offset in range(-200, 301, 10))
-CLOCK_PERIOD_SWEEP_S = (
-    2e-9,
-    1e-9,
-    500e-12,
-    300e-12,
-    200e-12,
-    150e-12,
-    120e-12,
-    100e-12,
-    80e-12,
-    60e-12,
-    40e-12,
-    30e-12,
-)
-NOMINAL_CLOCK_PERIOD_S = 2e-9
-NOMINAL_DATA_OFFSET_S = 0.5e-9
-# the strikes, 1 to 200 fC: a minimum-size node's critical charge is a few femtocoulombs
-UPSET_CHARGES_C = tuple(charge * 1e-15 for charge in (1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 100, 200))
-
-
-def latch_characterization(run_dir: Path, *, check: bool = False) -> Path:
-    """Run the supply, data offset, clock period and upset sweeps in every PDK (about 370 transients each).
-
-    Each point writes ``<pdk>/<case>/<sweep>/<point>/result.h5`` (a ``MeasLatch``). ``check`` runs
-    the nominal point of each case with Spectre's checks instead, writing no measurement.
-    """
-
-    from flow.analysis.types import MeasInfo, Wave
-    from flow.circuit.results import read_raw_transient
-    from flow.latch.analysis import MeasLatch
-    from flow.layout.step import PDKS
-
-    run_dir.mkdir(parents=True, exist_ok=True)
-    jobs = {}
-    for pdk in PDKS:
-        supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
-        for case, latch in CASES.items():
-            for vdd in (supply,) if check else [round(step * supply, 4) for step in SUPPLY_SWEEP]:
-                jobs[f"{pdk}/{case}/supply/vdd{round(vdd * 1e3)}"] = LatchTbParams(pdk=pdk, latch=latch, vdd=vdd)
-            if check or latch.style not in CLOCKED_STYLES:
-                continue
-            if latch.style in UPSET_NODE and not (latch.flop or latch.reset):
-                for charge in UPSET_CHARGES_C:
-                    jobs[f"{pdk}/{case}/upset/q{round(charge * 1e18)}"] = LatchTbParams(
-                        pdk=pdk, latch=latch, vdd=supply, upset_charge_c=charge
-                    )
-            if not latch.divider:
-                for offset in DATA_OFFSET_SWEEP_S:
-                    jobs[f"{pdk}/{case}/offset/offset{round(offset * 1e12)}ps"] = LatchTbParams(
-                        pdk=pdk, latch=latch, vdd=supply, data_offset_s=offset
-                    )
-            if latch.flop:
-                for period in CLOCK_PERIOD_SWEEP_S:
-                    # the edges and the data offset scale with a short clock
-                    jobs[f"{pdk}/{case}/period/period{round(period * 1e12)}ps"] = LatchTbParams(
-                        pdk=pdk,
-                        latch=latch,
-                        vdd=supply,
-                        clock_period_s=period,
-                        transition_time_s=min(50e-12, period / 8),
-                        data_offset_s=period / 4,
-                        reset_time_s=max(0.5e-9, 2 * period),
-                        cycles=12,
-                    )
-    names = latch_signal_names()
-    failures: dict[str, str] = {}
-    # one pool per PDK: hdl21 compiles each generated module in place, for the first PDK it meets
-    for pdk in PDKS:
-        with ProcessPoolExecutor(max_workers=16, mp_context=get_context("spawn")) as executor:
-            futures = {
-                executor.submit(_run_latch_sim, run_dir / name, params, check=check): (name, params)
-                for name, params in jobs.items()
-                if params.pdk == pdk
-            }
-            for future in as_completed(futures):
-                name, params = futures[future]
-                try:
-                    raw_path = future.result()
-                    if check:
-                        continue
-                    # one record from time zero on the stored grid; the supply current as positive draw
-                    result = read_raw_transient(raw_path)
-                    times_s = np.asarray(result.data["time"])
-                    interval = params.waveform_sample_interval_s
-                    window = [(float(times_s[0]), float(times_s[-1]))]
-                    time_s, voltages = interpolate_wave_records(
-                        times_s,
-                        {
-                            names[key]: value
-                            for key, value in result.data.items()
-                            if not names[key].startswith(("i(", "time"))
-                        },
-                        window,
-                        interval,
-                    )
-                    _, currents = interpolate_wave_records(
-                        times_s,
-                        {
-                            names[key][2:-1]: -np.asarray(value)
-                            for key, value in result.data.items()
-                            if names[key].startswith("i(")
-                        },
-                        window,
-                        interval,
-                    )
-                    measurement = MeasLatch(
-                        group=None,
-                        index=None,
-                        dut=params.latch,
-                        info=MeasInfo(
-                            backend="spice",
-                            timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
-                            instruments={"simulator": "Spectre"},
-                            readbacks={
-                                "pdk": name.split("/")[0],
-                                "case": name.split("/")[1],
-                                "sweep": name.split("/")[2],
-                                "signal_map_json": json.dumps(names, sort_keys=True),
-                                "raw_file": raw_path.name,
-                                "raw_points": len(times_s),
-                                "waveform_sample_interval_s": interval,
-                                "supply_current_convention": "positive_current_draw",
-                            },
-                        ),
-                        param=params,
-                        trial_index=np.arange(1, dtype=np.int64),
-                        wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
-                    )
-                    write_measurement(raw_path.parent / "result.h5", measurement)
-                except Exception as error:  # noqa: BLE001 - report every independent point failure
-                    failures[name] = repr(error)
-    if failures:
-        failure_path = run_dir / "failures.json"
-        failure_path.write_text(json.dumps(failures, indent=2) + "\n")
-        raise RuntimeError(f"{len(failures)} latch points failed; see {failure_path}")
-    return run_dir
