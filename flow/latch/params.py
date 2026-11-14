@@ -2,11 +2,12 @@
 sweeps every latch is characterized over.
 
 One bench serves every design (``Bench.TIMING``): complementary clocks, data a set offset before
-each capturing edge, an initial reset, set and reset pulses for an SR latch; the other
-(``Bench.UPSET``) strikes the storage node of a latch that holds a 1. Each instance is run over the
-supply (``SUPPLY_SWEEP``, fractions of its own), a latch or flip-flop over the data offset
-(``DATA_OFFSET_SWEEP_S``), a flip-flop or divider over the clock period (``PERIOD_SWEEP_S``), and a
-C2MOS or DICE latch without reset over a strike's charge (``UPSET_CHARGES_C``).
+each capturing edge, an initial reset, set and reset pulses for an SR latch, each input the design
+does not use held at a fixed level; the other (``Bench.UPSET``) strikes the storage node holding a
+0 of a latch that holds a 1. Each instance is run over the supply (``SUPPLY_SWEEP``, fractions of
+its own), a latch or flip-flop over the data offset (``DATA_OFFSET_SWEEP_S``), a flip-flop or
+divider over the clock period (``PERIOD_SWEEP_S``) and at a slow clock, and a C2MOS or DICE latch
+without reset over a strike's charge (``UPSET_CHARGES_C``).
 """
 
 import math
@@ -76,28 +77,41 @@ pipeline.Params.register(Params)
 
 # the storage node holding a 0 while a latch holds a 1: the one a strike must charge to flip it
 UPSET_NODE = {Style.CLOCKED: "qb", Style.DICE: "x1"}
-# the strike's double-exponential current: its rise and fall time constants
+# not in the reference texts: the strike's double-exponential current, its rise and fall time
+# constants (the single-event upset literature's particle-strike model)
 UPSET_RISE_S = 5e-12
 UPSET_FALL_S = 50e-12
-# the supply at 90 and 110 % of its own besides nominal: never past the models' limits
+# not in the reference texts: the supply at 90 and 110 % of its own besides nominal, never past
+# the models' limits (the repository's supply corners)
 SUPPLY_SWEEP = (0.9, 1.0, 1.1)
-# the data edge from 200 ps after to 300 ps before each capturing edge, in 25 ps steps
-DATA_OFFSET_SWEEP_S = tuple(round(offset * 1e-12, 15) for offset in range(-200, 301, 25))
-# the clock from 1 ns to 30 ps
-PERIOD_SWEEP_S = (1e-9, 500e-12, 300e-12, 200e-12, 150e-12, 100e-12, 70e-12, 50e-12, 30e-12)
-# the strikes, 1 to 200 fC: a minimum-size node's critical charge is a few femtocoulombs
-UPSET_CHARGES_C = tuple(charge * 1e-15 for charge in (1, 2, 3, 5, 7, 10, 20, 50, 100, 200))
+# [Baker] Fig. 13.25, p. 401: setup, d applied t_s before the clock edge (positive offsets)
+# [Baker] Fig. 13.26, p. 402: hold, d kept t_h after it (negative offsets)
+# the data edge from 100 ps after to 300 ps before each capturing edge, in 10 ps steps: setup and
+# hold are found to within one step
+DATA_OFFSET_SWEEP_S = tuple(round(offset * 1e-12, 15) for offset in range(-100, 301, 10))
+# [Razavi-PLL] Sec. 15.1, p. 454: a divider is tested from low frequencies up, a static failure
+# told from one at speed
+# not in the reference texts: the clock from 1 ns to 29.4 ps, each period 10 % shorter than the one
+# before (three significant digits), so that f_max is found to within 10 %
+PERIOD_SWEEP_S = tuple(float(f"{1e-9 / 1.1**step:.3g}") for step in range(38))
+# not in the reference texts: the strikes, 1 to 208 fC, each 10 % above the one before (three
+# significant digits): the critical charge is found to within 10 %
+UPSET_CHARGES_C = tuple(float(f"{1.1**step:.3g}") * 1e-15 for step in range(57))
 
 
 @dataclass(frozen=True, kw_only=True)
 class TbParams(pipeline.TbParams):
     """One run of the latch's testbench (flow.latch.sim.testbench): the latch ``params`` in ``pdk``
-    at supply ``vdd``, ``cload_f`` on q and qb. On the timing bench (``Bench.TIMING``) its clock of
-    ``clock_period_s``, its data crossing mid-supply ``data_offset_s`` before each capturing edge,
-    rst high for the first ``reset_time_s``, an SR latch's set and reset every ``data_period_s``,
-    every source's edges ``transition_time_s``, ``cycles`` clock cycles after the reset. On the
-    upset bench (``Bench.UPSET``) a strike of ``charge_c`` on the storage node at ``upset_time_s``.
-    Spectre writes its output every ``waveform_sample_interval_s`` and steps no further."""
+    at supply ``vdd``, ``cload_f`` on q and on qb (on both benches). On the timing bench
+    (``Bench.TIMING``) its clock of ``clock_period_s``, its data crossing mid-supply
+    ``data_offset_s`` before each capturing edge, rst high for the first ``reset_time_s``, an SR
+    latch's set and reset every ``data_period_s``, ``cycles`` clock cycles after the reset. Every
+    pulse source ramps linearly from one level to the other in ``transition_time_s``: Spectre's
+    rise and fall, the whole 0 to 100 % ramp, so its 10 to 90 % transition time is 0.8 times it.
+    On the upset bench (``Bench.UPSET``) the latch open with d high until ``write_time_s``, then
+    holding, and a strike of ``charge_c`` on the storage node holding a 0 at ``upset_time_s``.
+    Spectre writes its output every ``waveform_sample_interval_s`` (its strobe: the points the run
+    keeps, not a bound on its own time steps)."""
 
     pdk: str = "tsmc65"
     params: Params = field(default_factory=Params)
@@ -111,6 +125,7 @@ class TbParams(pipeline.TbParams):
     transition_time_s: float = 50e-12
     cycles: int = 8
     charge_c: float = 0.0
+    write_time_s: float = 1e-9
     upset_time_s: float = 2e-9
     waveform_sample_interval_s: float = 1e-12
 
@@ -129,9 +144,16 @@ class TbParams(pipeline.TbParams):
             raise ValueError("latch testbench values must be finite")
         if min(float(self.vdd), float(self.cload_f), float(self.waveform_sample_interval_s)) <= 0:
             raise ValueError("latch supply, load, and sample interval must be positive")
-        edge = 2 * float(self.transition_time_s)
-        if float(self.transition_time_s) <= 0 or min(float(self.clock_period_s), float(self.data_period_s)) <= edge:
-            raise ValueError("latch periods must exceed both transitions, which must be positive")
+        transition = float(self.transition_time_s)
+        if transition <= 0:
+            raise ValueError("latch transitions must be positive")
+        # the clocks' flat top, T/2 - t_r, must be positive (sim.testbench)
+        if float(self.clock_period_s) <= 2 * transition:
+            raise ValueError("latch clock period must exceed two transitions")
+        # the set and reset pulses, each a quarter of the data period at the top and both edges,
+        # must fit between each other: data_period_s / 4 >= 2 t_r
+        if float(self.data_period_s) < 8 * transition:
+            raise ValueError("latch set and reset period must be at least eight transitions")
         if abs(float(self.data_offset_s)) >= float(self.clock_period_s) / 2 + float(self.transition_time_s):
             raise ValueError("latch data offset must lie within half a clock period of the capturing edge")
         if float(self.reset_time_s) < 0 or self.cycles < 3:
@@ -139,8 +161,8 @@ class TbParams(pipeline.TbParams):
         if self.bench is Bench.UPSET:
             if self.params.style not in UPSET_NODE or self.params.flop or self.params.reset:
                 raise ValueError("the upset bench strikes a C2MOS or DICE latch without reset")
-            closed = 1e-9 + 2 * float(self.transition_time_s)
-            if not (float(self.charge_c) > 0 and float(self.upset_time_s) > closed):
+            closed = float(self.write_time_s) + 2 * transition
+            if not (float(self.write_time_s) > 0 and float(self.charge_c) > 0 and float(self.upset_time_s) > closed):
                 raise ValueError("the strike must carry charge and come after the latch closes")
         elif float(self.charge_c):
             raise ValueError("a strike's charge belongs to the upset bench")

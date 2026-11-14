@@ -2,11 +2,13 @@
 Spectre's own time axis) of the latch testbench, and the record's metrics.
 
 Timing as a sequential cell characterization takes it: delays at mid-supply, a capturing edge's
-data either taken (the new value) or not (the old one), setup where the delay has grown by 10 %
-(the pushout), hold where the old value is still held (``analyze_timing``,
-``analyze_constraint``); an SR latch's set and reset delays (``analyze_sr``). On the upset bench, a
-latch holding a 1 either keeps it after a strike's charge on its storage node or flips; the
-smallest charge that flips it is its critical charge (``analyze_upset``).
+data either taken (q moved from the old value to the new one) or kept (q ends at the old one),
+setup where the delay has grown by 10 % (the pushout), resolved between the offsets that bracket
+it, hold where the old value is still kept (``analyze_timing``, ``analyze_constraint``); the
+currents from the supply and from the inputs' drivers; an SR latch's set and reset delays
+(``analyze_sr``). On the upset bench, a latch holding a 1 either keeps it after a strike's charge
+on its storage node or flips; the critical charge lies between the largest strike it recovers from
+and the smallest that flips it (``analyze_upset``).
 """
 
 from __future__ import annotations
@@ -19,14 +21,42 @@ import numpy as np
 from flow.analysis import calc
 from flow.pipeline import Meas, analysis, check_identity, measurement_identity
 
-from .params import CLOCKED_STYLES, SUPPLY_SWEEP, Bench, Style
+from .params import CLOCKED_STYLES, Bench, Style
 from .subckt import Nets
 from .types import AnalysisConstraint, AnalysisSr, AnalysisTiming, AnalysisUpset, Metrics
 
 
+def _drivers_current(measurement: Meas, start_s: float, stop_s: float) -> float:
+    """The average current CMOS drivers of the inputs on V_DD would draw from ``start_s`` to
+    ``stop_s``: each input source's signed current integrated over the spans in which its driver's
+    pull-up conducts, from the start of each rising ramp (its mid-supply crossing less half the
+    transition) to the start of the next falling one (from the run's start where the input starts
+    high, to its end where it ends high), summed over the inputs and divided by the time. What the
+    source takes back as the input falls, a driver's pull-down sinks to ground; ringing of zero mean
+    on the source's current cancels in the signed integral."""
+    tb = measurement.param
+    vdd, half_ramp = float(tb.vdd), float(tb.transition_time_s) / 2
+    time_s, charge_c = measurement.time_s, 0.0
+    for net in (Nets.d, Nets.s, Nets.r, Nets.rst, Nets.clk, Nets.clkb):
+        level = measurement.v[net.name]
+        ons = calc.cross(level, time_s, vdd / 2, edge="rising") - half_ramp
+        offs = calc.cross(level, time_s, vdd / 2, edge="falling") - half_ramp
+        if level[0] > vdd / 2:
+            ons = np.r_[time_s[0], ons]
+        if len(offs) < len(ons):
+            offs = np.r_[offs, time_s[-1]]
+        for on_s, off_s in zip(ons, offs, strict=True):
+            low, high = max(float(on_s), start_s), min(float(off_s), stop_s)
+            if low < high:
+                # [Baker] Eq. (11.14), p. 355: a CMOS driver draws current from V_DD only while its
+                # PMOS is on, the charge it puts on its load
+                charge_c += calc.integ(*calc.clip(measurement.i[net.name], time_s, low, high))
+    return charge_c / (stop_s - start_s)
+
+
 @analysis
 def analyze_timing(measurements: Sequence[Meas]) -> AnalysisTiming:
-    """Measure clock-to-q delays, captured and held events, and supply current at each point."""
+    """Measure the delays to q, the captured and held events, and the currents at each point."""
 
     identity = measurement_identity(measurements)
     dut = identity.dut
@@ -41,6 +71,12 @@ def analyze_timing(measurements: Sequence[Meas]) -> AnalysisTiming:
         opens = calc.cross(clock, time_s, vdd / 2, edge="rising")
         captures = opens if dut.flop else calc.cross(clock, time_s, vdd / 2, edge="falling")
         data_edges = calc.cross(data, time_s, vdd / 2, edge="either")
+        # a divider's capturing edges from rst's fall on (from the run's start without reset), and q
+        # 0.05 T_CK before the first of them (where an edge before it would be sampled): each edge's
+        # old value is the one the edges before it set in turn
+        released = float(tb.reset_time_s) + float(tb.transition_time_s) / 2 if dut.reset else 0.0
+        toggles = captures[captures > released]
+        first = len(toggles) > 0 and bool(calc.value(output, time_s, float(toggles[0]) - 0.05 * period) > vdd / 2)
         rises, falls, captured, held, event_times = [], [], 0, 0, []
         for capture in captures[captures > float(tb.reset_time_s) + period / 2]:
             following = opens[opens > capture + period / 8]
@@ -48,36 +84,51 @@ def analyze_timing(measurements: Sequence[Meas]) -> AnalysisTiming:
                 continue
             # q is read just before the next edge that opens its path again
             sample_s = float(following[0]) - 0.05 * period
-            before = calc.value(output, time_s, capture - 0.05 * period) > vdd / 2
-            after = calc.value(output, time_s, sample_s) > vdd / 2
             if dut.divider:
-                launch_s, new = capture, not before
+                # [Razavi-PLL] Fig. 15.3, p. 455: a divide-by-2, two latches in a negative-feedback
+                # loop: q toggles at each capturing edge
+                launch_s = capture
+                # not in the reference texts: q at the previous edge's sample instant, 0.05 T_CK
+                # before this one, must show the value that edge set, so that a toggle later than
+                # that is late, not this edge's capture; a toggle on the clock's ramp, before its
+                # mid-supply crossing, is this edge's
+                onset_s = capture - 0.05 * period
+                old = first != bool(np.searchsorted(toggles, capture) % 2)
+                new = not old
             else:
                 nearby = data_edges[np.abs(data_edges - (capture - offset)) < period / 4]
                 if not len(nearby):
                     continue
+                old = calc.value(data, time_s, capture - offset - period / 4) > vdd / 2
                 new = calc.value(data, time_s, capture - offset + period / 4) > vdd / 2
-                # a flip-flop's path opens at the capturing edge, a latch's at the rising edge before it
-                opening = capture if dut.flop else float(opens[opens <= capture][-1])
-                launch_s = max(float(nearby[0]), opening)
+                # a flip-flop launches at its capturing edge, even where d changes after it (inside its
+                # aperture); a latch at d's crossing, or at the rising edge before it that opens it
+                launch_s = capture if dut.flop else max(float(nearby[0]), float(opens[opens <= capture][-1]))
+                onset_s = launch_s
             event_times.append(capture)
-            if after != new:
-                held += 1
-                continue
-            captured += 1
-            # [Razavi-PLL] Fig. 13.40, p. 424: CK-to-Q delay
+            before = calc.value(output, time_s, onset_s) > vdd / 2
+            after = calc.value(output, time_s, sample_s) > vdd / 2
+            # [Baker] Fig. 10.9, p. 333: t_PLH and t_PHL, between the 50 % points
+            # [Razavi-PLL] Fig. 13.40, p. 424: CK-to-Q delay, a flip-flop's or divider's launch at its clock
+            # [Baker] Fig. 13.20, p. 399: while the latch is open q follows d, so its launch is d's
+            # crossing (the D-to-Q delay, not in the reference texts by that name)
             response = calc.cross(output, time_s, vdd / 2, edge="rising" if new else "falling")
-            response = response[(response > launch_s) & (response < sample_s)]
-            if len(response):
+            response = response[(response > onset_s) & (response < sample_s)]
+            # not in the reference texts: captured where q moved from the old value to the new one,
+            # held where it ends at the value d had before its edge
+            if before != new and after == new and len(response):
+                captured += 1
                 (rises if new else falls).append(float(response[0]) - launch_s)
+            elif after == before if dut.divider else after == old:
+                held += 1
         if len(event_times) >= 2:
-            current, current_s = calc.clip(
-                measurement.i[Nets.vdd.name], time_s, float(event_times[0]), float(event_times[-1])
-            )
-            idd_a = calc.average(current, current_s)
+            start_s, stop_s = float(event_times[0]), float(event_times[-1])
+            # [Baker] Eq. (11.14), p. 355: the average current, the charge a period over the period
+            current, current_s = calc.clip(measurement.i[Nets.vdd.name], time_s, start_s, stop_s)
+            idd_a, drivers_a = calc.average(current, current_s), _drivers_current(measurement, start_s, stop_s)
         else:
-            idd_a = math.nan
-        events = max(len(event_times), 1)
+            idd_a = drivers_a = math.nan
+        events = len(event_times)
         rows.append(
             (
                 vdd,
@@ -85,12 +136,13 @@ def analyze_timing(measurements: Sequence[Meas]) -> AnalysisTiming:
                 offset,
                 float(np.median(rises)) if rises else math.nan,
                 float(np.median(falls)) if falls else math.nan,
-                captured / events,
-                held / events,
+                captured / events if events else math.nan,
+                held / events if events else math.nan,
                 idd_a,
+                drivers_a,
             )
         )
-    vdd_v, period_s, offset_s, rise, fall, captured_fraction, held_fraction, current = (
+    vdd_v, period_s, offset_s, rise, fall, captured_fraction, held_fraction, current, drivers = (
         np.asarray(column, dtype=np.float64) for column in zip(*rows)
     )
     return AnalysisTiming(
@@ -100,12 +152,27 @@ def analyze_timing(measurements: Sequence[Meas]) -> AnalysisTiming:
         vdd_v=vdd_v,
         clock_period_s=period_s,
         data_offset_s=offset_s,
-        clock_to_q_rise_s=rise,
-        clock_to_q_fall_s=fall,
+        delay_rise_s=rise,
+        delay_fall_s=fall,
         captured_fraction=captured_fraction,
         held_fraction=held_fraction,
         idd_a=current,
+        idd_drivers_a=drivers,
     )
+
+
+def _pushout_offset(offsets: np.ndarray, delays: np.ndarray, reference: float, index: int) -> float:
+    """The offset between ``offsets[index - 1]`` (failing) and ``offsets[index]`` (passing) at which
+    the delay, linear between the two, reaches 1.1 times ``reference``; the passing offset where
+    either delay is not finite; -inf where the failing offset's delay is within the bound already
+    (the other direction failed there), so that this direction drops out of the caller's max."""
+    low, high = float(delays[index - 1]), float(delays[index])
+    bound = 1.1 * reference
+    if not (math.isfinite(low) and math.isfinite(high)):
+        return float(offsets[index])
+    if low <= bound:
+        return -math.inf
+    return float(offsets[index] - (offsets[index] - offsets[index - 1]) * (bound - high) / (low - high))
 
 
 @analysis
@@ -118,39 +185,52 @@ def analyze_constraint(measurements: Sequence[Meas], *, timing: AnalysisTiming) 
         raise ValueError("setup and hold require a data offset sweep at one supply and clock period")
     order = np.argsort(timing.data_offset_s)
     offsets = timing.data_offset_s[order]
-    rise, fall = timing.clock_to_q_rise_s[order], timing.clock_to_q_fall_s[order]
+    rise, fall = timing.delay_rise_s[order], timing.delay_fall_s[order]
+    captures = timing.captured_fraction[order] == 1.0
     # [Baker] Fig. 13.25, p. 401: D FF setup time
     # not in the reference texts: setup taken where the delay to q has grown by 10 % over its value
     # with the data early (the pushout criterion of standard-cell timing characterization)
-    passing = (timing.captured_fraction[order] == 1.0) & (rise <= 1.1 * rise[-1]) & (fall <= 1.1 * fall[-1])
+    passing = captures & (rise <= 1.1 * rise[-1]) & (fall <= 1.1 * fall[-1])
     # [Baker] Fig. 13.26, p. 402: D FF hold time
+    # [Baker] Sec. 13.3, p. 401: a negative hold time, d removed before the clock edge
     holding = timing.held_fraction[order] == 1.0
     # the contiguous runs from the largest offset down, and from the most negative one up
     failing_setup = np.flatnonzero(~passing)
-    setup_index = failing_setup[-1] + 1 if len(failing_setup) else 0
+    setup_s = math.nan
+    if len(failing_setup) and failing_setup[-1] + 1 < len(offsets):
+        index = int(failing_setup[-1]) + 1
+        setup_s = float(offsets[index])
+        if captures[index - 1]:
+            # the failing offset captured with its delay pushed out: the 1.1x crossing between the two
+            crossings = (_pushout_offset(offsets, delays, float(delays[-1]), index) for delays in (rise, fall))
+            setup_s = max(float(offsets[index - 1]), max(crossings))
+            setup_s = min(setup_s, float(offsets[index]))
     failing_hold = np.flatnonzero(~holding)
-    hold_index = failing_hold[0] - 1 if len(failing_hold) else len(offsets) - 1
+    hold_s = math.nan
+    if len(failing_hold) and failing_hold[0] > 0:
+        hold_s = 0.0 - float(offsets[failing_hold[0] - 1])
     return AnalysisConstraint(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
         vdd_v=float(timing.vdd_v[0]),
         clock_period_s=float(timing.clock_period_s[0]),
-        clock_to_q_rise_s=float(rise[-1]),
-        clock_to_q_fall_s=float(fall[-1]),
-        setup_s=float(offsets[setup_index]) if setup_index < len(offsets) else math.nan,
-        hold_s=-float(offsets[hold_index]) if hold_index >= 0 else math.nan,
+        delay_rise_s=float(rise[-1]),
+        delay_fall_s=float(fall[-1]),
+        setup_s=setup_s,
+        hold_s=hold_s,
     )
 
 
 @analysis
 def analyze_sr(measurements: Sequence[Meas]) -> AnalysisSr:
-    """Measure SR latch set and reset delays and supply current at each supply."""
+    """Measure SR latch set and reset delays and the currents at each supply."""
 
     identity = measurement_identity(measurements)
     if identity.dut.style in CLOCKED_STYLES:
         raise ValueError("SR analysis requires a NAND or NOR SR latch")
-    # a NAND latch sets and resets on falling (active-low) inputs, a NOR latch on rising ones
+    # [Baker] Fig. 13.13, p. 395: a NAND latch's inputs are active low
+    # [Baker] Fig. 13.14, p. 396: a NOR latch's inputs are active high
     active = "falling" if identity.dut.style is Style.SR_NAND else "rising"
     rows = []
     for measurement in measurements:
@@ -172,13 +252,16 @@ def analyze_sr(measurements: Sequence[Meas]) -> AnalysisSr:
             response_edge="falling",
             occurrence=2,
         )
+        # q answers within the active pulse, a quarter period, or the set or reset did not move it
+        delay_rise, delay_fall = (delay if delay <= period / 4 else math.nan for delay in (delay_rise, delay_fall))
         if math.isfinite(set_s) and set_s + period <= float(time_s[-1]):
+            # [Baker] Eq. (11.14), p. 355: the average current, the charge a period over the period
             current, current_s = calc.clip(measurement.i[Nets.vdd.name], time_s, set_s, set_s + period)
-            idd_a = calc.average(current, current_s)
+            idd_a, drivers_a = calc.average(current, current_s), _drivers_current(measurement, set_s, set_s + period)
         else:
-            idd_a = math.nan
-        rows.append((vdd, period, delay_rise, delay_fall, idd_a))
-    vdd_v, period_s, delay_rise_s, delay_fall_s, current = (
+            idd_a = drivers_a = math.nan
+        rows.append((vdd, period, delay_rise, delay_fall, idd_a, drivers_a))
+    vdd_v, period_s, delay_rise_s, delay_fall_s, current, drivers = (
         np.asarray(column, dtype=np.float64) for column in zip(*rows)
     )
     return AnalysisSr(
@@ -190,6 +273,7 @@ def analyze_sr(measurements: Sequence[Meas]) -> AnalysisSr:
         delay_rise_s=delay_rise_s,
         delay_fall_s=delay_fall_s,
         idd_a=current,
+        idd_drivers_a=drivers,
     )
 
 
@@ -208,16 +292,28 @@ def analyze_upset(measurements: Sequence[Meas]) -> AnalysisUpset:
         held = calc.value(output, time_s, strike_s - 0.1e-9)
         # q at the end, a strike time after the strike: recovered, or flipped
         final = calc.average(*calc.clip(output, time_s, end_s - 0.1e-9, end_s))
+        # not in the reference texts: a flip where q, holding a 1, ends below mid-supply; q's dip,
+        # its held level minus its lowest after the strike; neither where q held no 1
+        wrote = held > vdd / 2
         rows.append(
             (
                 float(tb.charge_c),
-                float(held > vdd / 2 > final),
-                held - calc.ymin(calc.clip(output, time_s, strike_s, end_s)[0]),
+                float(final < vdd / 2) if wrote else math.nan,
+                held - calc.ymin(calc.clip(output, time_s, strike_s, end_s)[0]) if wrote else math.nan,
             )
         )
     charge, upset, dip = (np.asarray(column, dtype=np.float64) for column in zip(*rows, strict=True))
+    loads = {float(item.param.cload_f) for item in measurements}
+    if len(loads) != 1:
+        raise ValueError("latch upset requires one load on q and qb")
     return AnalysisUpset(
-        group=identity.group, index=identity.index, dut=identity.dut, charge_c=charge, upset_fraction=upset, dip_v=dip
+        group=identity.group,
+        index=identity.index,
+        dut=identity.dut,
+        cload_f=loads.pop(),
+        charge_c=charge,
+        upset_fraction=upset,
+        dip_v=dip,
     )
 
 
@@ -226,34 +322,37 @@ def metrics(
     supply: AnalysisTiming | AnalysisSr,
     constraint: AnalysisConstraint | None = None,
     period: AnalysisTiming | None = None,
+    slow: AnalysisTiming | None = None,
     upset: AnalysisUpset | None = None,
 ) -> Metrics:
-    """The record's numbers: from the supply's runs (``supply``, in ``SUPPLY_SWEEP``'s order: a
-    clocked design's timing or an SR latch's delays) the delays to q rising and falling and the
-    energy per cycle at the nominal supply, and the slowest delay over the supply; a latch's or
+    """The record's numbers: from the supply's runs (``supply``, in any order: a clocked design's
+    timing or an SR latch's delays) the delays to q rising and falling and the energy per cycle at
+    the nominal supply (the run whose supply is the sweep's median), and the slowest delay over the
+    supply; a latch's or
     flip-flop's setup and hold (``constraint``); from a flip-flop's or divider's runs over the clock
-    period (``period``) the highest frequency at which every edge captures; a struck latch's
-    critical charge (``upset``). NaN where a design has no such run."""
+    period (``period``) the highest frequency up to which every edge captures, and from its run at a
+    slow clock (``slow``) the share of edges captured there; a struck latch's critical charge and
+    the smallest strike that flips it (``upset``). NaN where a design has no such run."""
 
-    nominal = SUPPLY_SWEEP.index(1.0)
-    rise, fall = (
-        (supply.clock_to_q_rise_s, supply.clock_to_q_fall_s)
-        if isinstance(supply, AnalysisTiming)
-        else (supply.delay_rise_s, supply.delay_fall_s)
-    )
-    fmax_hz = math.nan
-    if period is not None:
-        # [Razavi-PLL] Sec. 15.1, p. 453: maximum allowable input frequency, f_max
-        frequency = 1 / period.clock_period_s
-        working = frequency[period.captured_fraction == 1.0]
-        fmax_hz = float(np.max(working)) if len(working) else math.nan
+    # the supply sweep is symmetric about nominal (SUPPLY_SWEEP): nominal is its median
+    at_nominal = np.flatnonzero(np.isclose(supply.vdd_v / np.median(supply.vdd_v), 1.0))
+    if not len(at_nominal):
+        raise ValueError("latch metrics require a run at the nominal supply, the sweep's median")
+    nominal = int(at_nominal[0])
+    delays = np.asarray([supply.delay_rise_s, supply.delay_fall_s])
     return Metrics(
-        delay_rise_s=float(rise[nominal]),
-        delay_fall_s=float(fall[nominal]),
+        delay_rise_s=float(supply.delay_rise_s[nominal]),
+        delay_fall_s=float(supply.delay_fall_s[nominal]),
         energy_per_cycle_j=float(supply.energy_per_cycle_j[nominal]),
-        delay_max_supply_s=float(np.nanmax([rise, fall])),
+        # not in the reference texts: the worst of the rising and falling delays over the supply
+        delay_max_supply_s=float(np.nanmax(delays)) if np.any(np.isfinite(delays)) else math.nan,
         setup_s=constraint.setup_s if constraint is not None else math.nan,
         hold_s=constraint.hold_s if constraint is not None else math.nan,
-        fmax_hz=fmax_hz,
+        # [Razavi-PLL] Sec. 15.1, p. 453: maximum allowable input frequency, f_max
+        fmax_hz=period.fmax_hz if period is not None else math.nan,
+        # [Razavi-PLL] Sec. 15.2.2, p. 459: a dynamic latch's stored charge leaks away, so it fails below
+        # some clock frequency
+        captured_1mhz_fraction=float(slow.captured_fraction[0]) if slow is not None else math.nan,
         critical_charge_c=upset.critical_charge_c if upset is not None else math.nan,
+        flip_charge_c=upset.flip_charge_c if upset is not None else math.nan,
     )

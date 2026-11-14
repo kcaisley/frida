@@ -173,8 +173,8 @@ def _build_dice(module, param: Params):
     write gates sharing d or its complement would carry the strike to the node's partner. q and qb
     are x1 and x2 inverted."""
 
-    # not in the reference texts: the dual interlocked storage cell, four nodes each held by its two
-    # neighbours so that one upset node is restored (Calin, Nicolaidis and Velazco)
+    # not in the reference texts: the dual interlocked storage cell (single-event-upset hardening),
+    # four nodes each held by its two neighbours so that one upset node is restored
     nodes = [module.add(h.Signal(name=f"x{index}", desc="DICE storage node")) for index in (1, 2, 3, 4)]
     module.db = h.Signal(desc="d inverted")
     nmos = {"tp": MosType.NMOS, "vth": param.vth, "w": param.n_w, "l": param.l}
@@ -200,8 +200,9 @@ def _build_dice(module, param: Params):
 def _build_sr(module, param: Params):
     """Cross-coupled NAND (active-low s, r) or NOR (active-high s, r) gates: s sets q, r resets it."""
 
-    # [Baker] Fig. 13.13, p. 395: set-reset latch made using NAND gates
-    # [Baker] Fig. 13.14, p. 396: set-reset latch made using NOR gates
+    # [Baker] Fig. 13.13, p. 395: two cross-coupled NAND gates as an SR latch (the block's s is Baker's R:
+    # active low, on q's own NAND, it sets q; the block's r is Baker's S)
+    # [Baker] Fig. 13.14, p. 396: the NOR gates' cross-coupled SR latch (s and r as Baker's S and R)
     nand = param.style is Style.SR_NAND
     nmos = {"tp": MosType.NMOS, "vth": param.vth, "w": param.n_w, "l": param.l}
     pmos = {"tp": MosType.PMOS, "vth": param.vth, "w": param.p_w, "l": param.l}

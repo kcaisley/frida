@@ -5,8 +5,9 @@ the same ``Params`` in the PDK (``flow.latch.runs``, looked up by ``flow.sweep.l
     taken = model.captures(data_offset_s)
     q_s = edge_s + model.delay_s(rising=True)
 
-The characterization gives the delays to q rising and falling at the nominal supply (a clocked
-design's from the launching edge, an SR latch's from set and reset), the supply energy per cycle,
+The characterization gives the delays to q rising and falling at the nominal supply (a flip-flop's
+from its clock, a latch's from d while it is open, an SR latch's from set and reset), the energy per
+cycle drawn from the supply by the latch and by its inputs' drivers,
 and a latch's or flip-flop's setup and hold: data that changes at least the setup before a
 capturing edge is taken, data that changes at least the hold after it is not, and between the two
 the model does not say.
