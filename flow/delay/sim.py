@@ -1,309 +1,106 @@
-"""Delay line and ring oscillator testbench and named Spectre simulation targets, in every PDK.
+"""The delay line and ring oscillator's testbench (``testbench``) and the one Spectre run of it
+(``simulate``).
 
 The testbench: a supply source, the rings' enable and a kick-start (switches holding the outputs
 apart for a while after enable), the bias sources and output loads, and for a delay line a
-complementary input clock. Every case gets the same stimulus; a ring ignores the input clock and a
-delay line the enable. The characterization sweeps the supply and one control voltage, which sets
-every analog control at once: ``vbn`` and ``vctrl`` to it and
-``vbp`` to the supply minus it, so a starved stage's NMOS and PMOS starve alike.
+complementary input clock. Every chain gets the same stimulus; a ring ignores the input clock and a
+delay line the enable. One control voltage sets every analog control at once: ``vbn`` and ``vctrl``
+to it and ``vbp`` to the supply minus it, so a starved stage's NMOS and PMOS starve alike.
+``simulate`` runs it in Spectre (``+preset=mx``, one thread) and leaves Spectre's raw output on
+disk: the signals in ``SAVES``, every ``TbParams.waveform_sample_interval_s`` (Spectre's step
+bounded to it).
 """
 
 import importlib
-import json
-import math
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import UTC, datetime
-from multiprocessing import get_context
 from pathlib import Path
 
 import hdl21 as h
 import hdl21.sim as hs
-import numpy as np
 from hdl21.primitives import C, MosType, Vdc, Vpulse
-from vlsirtools.spice import ResultFormat, SimError, SimOptions, SupportedSimulators
 
-from flow.analysis.io import interpolate_wave_records, write_measurement
+from flow.circuit import spectre
 from flow.circuit.ports import testbench_from_ports
-from flow.layout.devices.mosfet.netlist import mos as _mos
+from flow.layout.devices.mosfet.netlist import mos
 
-from .subckt import CASES, Delay, DelayNets, DelayParams
+from .params import TbParams
+from .subckt import Nets, netlist
 
-
-def delay_signal_names() -> dict[str, str]:
-    """Derive simulator saves and waveform names from the block's net bundle."""
-    names = {"time": "time"}
-    for net in DelayNets.signals.values():
-        if net.vis == h.Visibility.PORT and net.usage not in (h.Usage.POWER, h.Usage.GROUND):
-            names[f"xtop.{net.name}"] = net.name
-        if net.usage == h.Usage.POWER:
-            names[f"xtop.v{net.name}:p"] = f"i({net.name})"
-    return names
+# what each run saves: every port but the supplies, and each supply source's current
+# (flow.pipeline.read names them)
+SAVES = tuple(
+    f"xtop.{net.name}"
+    for net in Nets.signals.values()
+    if net.vis == h.Visibility.PORT and net.usage not in (h.Usage.POWER, h.Usage.GROUND)
+) + tuple(f"xtop.v{net.name}:p" for net in Nets.signals.values() if net.usage == h.Usage.POWER)
 
 
-@h.paramclass
-class DelayTbParams:
-    """Parameters which determine the generated delay line or ring testbench."""
+def testbench(tb: TbParams) -> h.Module:
+    """The testbench of one run: the chain ``tb.params`` at supply ``tb.vdd`` with ``tb.cload_f`` on
+    each output, its input clock, its enable and kick-start, its controls at ``tb.vcont_v``."""
 
-    pdk = h.Param(dtype=str, desc="PDK the testbench compiles to and simulates in", default="tsmc65")
-    waveform_sample_interval_s = h.Param(
-        dtype=float, desc="Maximum raw step and stored waveform spacing", default=2e-12
+    bench, connections = testbench_from_ports(
+        "DelayTb", {net.name: net for net in Nets.signals.values() if net.vis == h.Visibility.PORT}
     )
-    vdd = h.Param(dtype=h.Scalar, desc="Supply voltage", default=1.2)
-    delay = h.Param(dtype=DelayParams, desc="Delay line or ring parameters", default=DelayParams())
-    control_v = h.Param(dtype=h.Scalar, desc="Control voltage: vbn and vctrl, and vdd minus vbp", default=0.8)
-    cload = h.Param(dtype=h.Scalar, desc="Load capacitance on each output (F)", default=2e-15)
-    kick_s = h.Param(dtype=h.Scalar, desc="How long the kick-start holds the outputs apart after enable", default=1e-9)
-    vinj = h.Param(dtype=h.Scalar, desc="Injection input level", default=0.0)
-    period_s = h.Param(dtype=h.Scalar, desc="Input clock period (a delay line)", default=4e-9)
-    transition_time_s = h.Param(dtype=h.Scalar, desc="Input and enable rise and fall time", default=50e-12)
-    enable_delay_s = h.Param(dtype=h.Scalar, desc="Time before en rises (the rings' kick-start)", default=1e-9)
-    tstop_s = h.Param(dtype=h.Scalar, desc="Transient length", default=40e-9)
-
-
-def _validate_delay_tb_params(params: DelayTbParams) -> None:
-    values = (
-        params.waveform_sample_interval_s,
-        params.vdd,
-        params.control_v,
-        params.cload,
-        params.kick_s,
-        params.vinj,
-        params.period_s,
-        params.transition_time_s,
-        params.enable_delay_s,
-        params.tstop_s,
-    )
-    if not all(math.isfinite(float(value)) for value in values):
-        raise ValueError("delay testbench values must be finite")
-    if min(float(params.vdd), float(params.cload), float(params.kick_s), float(params.waveform_sample_interval_s)) <= 0:
-        raise ValueError("delay supply, loads, and sample interval must be positive")
-    if not 0 <= float(params.control_v) <= float(params.vdd):
-        raise ValueError("delay control voltage must lie between the rails")
-    if float(params.period_s) <= 2 * float(params.transition_time_s) or float(params.transition_time_s) <= 0:
-        raise ValueError("delay input period must exceed both transitions, which must be positive")
-    if not 0 <= float(params.enable_delay_s) < float(params.tstop_s):
-        raise ValueError("delay enable must rise within the transient")
-
-
-@h.generator
-def DelayTb(params: DelayTbParams) -> h.Module:
-    """Generate the shared delay line and ring testbench."""
-
-    _validate_delay_tb_params(params)
-
-    DelayTb, connections = testbench_from_ports(
-        "DelayTb", {net.name: net for net in DelayNets.signals.values() if net.vis == h.Visibility.PORT}
-    )
-    vdd, vss = params.vdd, DelayTb.vss
-    DelayTb.vvdd = Vdc(dc=vdd)(p=DelayTb.vdd, n=vss)
-    # DiffClkGen: complementary rail-to-rail halves, the period's first quarter as delay
-    edge = {"rise": params.transition_time_s, "fall": params.transition_time_s}
-    width = float(params.period_s) / 2 - float(params.transition_time_s)
-    clock = {"period": params.period_s, "width": width, "delay": float(params.period_s) / 4, **edge}
-    DelayTb.vinp = Vpulse(v1=0.0, v2=vdd, **clock)(p=DelayTb.inp, n=vss)
-    DelayTb.vinn = Vpulse(v1=vdd, v2=0.0, **clock)(p=DelayTb.inn, n=vss)
-    # the kick-start: en rises once and stays high (one pulse longer than the run)
-    DelayTb.ven = Vpulse(v1=0.0, v2=vdd, period=1.0, width=0.5, delay=params.enable_delay_s, **edge)(
-        p=DelayTb.en, n=vss
-    )
-    DelayTb.vinj = Vdc(dc=params.vinj)(p=DelayTb.inj, n=vss)
-    DelayTb.vvbn = Vdc(dc=params.control_v)(p=DelayTb.vbn, n=vss)
-    DelayTb.vvbp = Vdc(dc=float(vdd) - float(params.control_v))(p=DelayTb.vbp, n=vss)
-    DelayTb.vvctrl = Vdc(dc=params.control_v)(p=DelayTb.vctrl, n=vss)
-    DelayTb.cloadp = C(c=params.cload)(p=DelayTb.outp, n=vss)
-    DelayTb.cloadn = C(c=params.cload)(p=DelayTb.outn, n=vss)
+    vdd, vss = tb.vdd, bench.vss
+    bench.vvdd = Vdc(dc=vdd)(p=bench.vdd, n=vss)
+    # complementary rail-to-rail halves, the period's first quarter as delay
+    edge = {"rise": tb.transition_time_s, "fall": tb.transition_time_s}
+    width = float(tb.clock_period_s) / 2 - float(tb.transition_time_s)
+    clock = {"period": tb.clock_period_s, "width": width, "delay": float(tb.clock_period_s) / 4, **edge}
+    bench.vinp = Vpulse(v1=0.0, v2=vdd, **clock)(p=bench.inp, n=vss)
+    bench.vinn = Vpulse(v1=vdd, v2=0.0, **clock)(p=bench.inn, n=vss)
+    # the enable: en rises once and stays high (one pulse longer than the run)
+    bench.ven = Vpulse(v1=0.0, v2=vdd, period=1.0, width=0.5, delay=tb.enable_delay_s, **edge)(p=bench.en, n=vss)
+    bench.vinj = Vdc(dc=tb.vinj_v)(p=bench.inj, n=vss)
+    bench.vvbn = Vdc(dc=tb.vcont_v)(p=bench.vbn, n=vss)
+    bench.vvbp = Vdc(dc=float(vdd) - float(tb.vcont_v))(p=bench.vbp, n=vss)
+    bench.vvctrl = Vdc(dc=tb.vcont_v)(p=bench.vctrl, n=vss)
+    bench.cloadp = C(c=tb.cload_f)(p=bench.outp, n=vss)
+    bench.cloadn = C(c=tb.cload_f)(p=bench.outn, n=vss)
     # the kick-start: from just after en rises, a PMOS switch holds outp
     # at vdd and an NMOS one outn at vss (each twice the output inverter's device), then lets go. A
     # coupled ring's enable leaves both chains alike, a state its main inverters hold against the
     # coupling ones; held apart, its outputs start it from a differential one.
-    delay = params.delay
+    design = tb.params
     kick = {
         "period": 1.0,
-        "width": params.kick_s,
-        "delay": float(params.enable_delay_s) + 2 * float(params.transition_time_s),
+        "width": tb.kick_time_s,
+        "delay": float(tb.enable_delay_s) + 2 * float(tb.transition_time_s),
     }
-    DelayTb.kick, DelayTb.kickb = h.Signal(), h.Signal()
-    DelayTb.vkick = Vpulse(v1=0.0, v2=vdd, **kick, **edge)(p=DelayTb.kick, n=vss)
-    DelayTb.vkickb = Vpulse(v1=vdd, v2=0.0, **kick, **edge)(p=DelayTb.kickb, n=vss)
-    DelayTb.mkickp = _mos(tp=MosType.PMOS, vth=delay.vth, w=2 * delay.inv_p_w, l=delay.inv_l)(
-        d=DelayTb.outp, g=DelayTb.kickb, s=DelayTb.vdd, b=DelayTb.vdd
+    bench.kick, bench.kickb = h.Signal(), h.Signal()
+    bench.vkick = Vpulse(v1=0.0, v2=vdd, **kick, **edge)(p=bench.kick, n=vss)
+    bench.vkickb = Vpulse(v1=vdd, v2=0.0, **kick, **edge)(p=bench.kickb, n=vss)
+    bench.mkickp = mos(tp=MosType.PMOS, vth=design.vth, w=2 * design.inv_p_w, l=design.inv_l)(
+        d=bench.outp, g=bench.kickb, s=bench.vdd, b=bench.vdd
     )
-    DelayTb.mkickn = _mos(tp=MosType.NMOS, vth=delay.vth, w=2 * delay.inv_n_w, l=delay.inv_l)(
-        d=DelayTb.outn, g=DelayTb.kick, s=vss, b=vss
+    bench.mkickn = mos(tp=MosType.NMOS, vth=design.vth, w=2 * design.inv_n_w, l=design.inv_l)(
+        d=bench.outn, g=bench.kick, s=vss, b=vss
     )
-    DelayTb.dut = Delay(params.delay)(**connections)
-    return DelayTb
+    bench.dut = netlist(tb.params)(**connections)
+    return bench
 
 
-def _run_delay_sim(run_dir: Path, params: DelayTbParams, *, check: bool = False) -> Path:
-    """Run one delay testbench transient in its PDK and return its raw file.
+def simulate(tb: TbParams, run_dir: Path) -> Path:
+    """Run ``testbench(tb)`` in Spectre in ``run_dir``: its raw transient, in nutbin, on disk; the
+    output strobed every ``tb.waveform_sample_interval_s``, the step bounded to it. One Spectre
+    thread: a campaign runs one process per run."""
 
-    ``check`` adds Spectre's static and connectivity checks and shortens the run to a tenth.
-    """
-
-    pdk = importlib.import_module(f"pdk.{params.pdk}")
-    install = importlib.import_module(f"pdk.{params.pdk}.hdl21.site").install
-
+    pdk = importlib.import_module(f"pdk.{tb.pdk}")
+    install = importlib.import_module(f"pdk.{tb.pdk}.hdl21.site").install
     run_dir.mkdir(parents=True, exist_ok=True)
     h.pdk.set_default(pdk.pdk_logic)
-    tb = DelayTb(params)
-    h.pdk.compile(tb)
-    interval = params.waveform_sample_interval_s
+    bench = testbench(tb)
+    h.pdk.compile(bench)
+    interval = tb.waveform_sample_interval_s
     attrs = [
-        install.include(h.pdk.Corner.TYP),
-        # what else the PDK's simulations take, in this order: TSMC's pre-simulation settings,
-        # the device names its netlists use (pdk/<name>/hdl21)
-        *(getattr(install, name)() for name in ("include_pre_simulation", "include_devices") if hasattr(install, name)),
-        hs.Options(name="temp", value=25.0),
-        hs.Options(name="save", value="selected"),
-        hs.Save([raw for raw in delay_signal_names() if raw != "time"]),
-    ]
-    if check:
-        attrs.append(
-            h.Literal(
-                "check_caps static_capacitor type=distr\n"
-                "check_erc static_erc floatbulk=all floatgate=no_top_moscap dangle=no_top "
-                "gate2power=on gate2ground=on\n"
-                "check_highz static_highz node=[*] fanout=gate_has_driver_no_moscap\n"
-                "check_dcpath static_dcpath net=[xtop.vdd 0]\n"
-                "check_topology static_topology node=[*] pin2gnd=on"
-            )
-        )
-    attrs.append(
+        *spectre.includes(install),
+        *spectre.options(),
+        hs.Save(list(SAVES)),
         hs.Tran(
-            tstop=float(params.tstop_s) / 10 if check else params.tstop_s,
+            tstop=tb.stop_time_s,
             name="tran",
             options={"strobeperiod": interval, "maxstep": interval, "strobeoutput": "strobeonly"},
-        )
-    )
-    # the simulator's error holds its simulation, which cannot cross back from a worker process:
-    # raise it as text
-    try:
-        hs.Sim(tb=tb, attrs=attrs).run(
-            SimOptions(
-                simulator=SupportedSimulators.SPECTRE,
-                fmt=ResultFormat.NONE if check else ResultFormat.SIM_DATA,
-                rundir=run_dir,
-                simulator_args=(
-                    "+preset=mx",
-                    "+mt=1",
-                    "+lqtimeout",
-                    "3600",
-                    "+escchars",
-                    "+log",
-                    "spectre.log",
-                    *(("-ahdllint=warn", "-ahdllint_log", "ahdllint.log") if check else ()),
-                ),
-            )
-        )
-    except SimError as error:
-        raise RuntimeError(f"Spectre failed in {run_dir}: {error}") from None
+        ),
+    ]
+    spectre.run(bench, attrs, run_dir)
     return run_dir / "netlist.raw"
-
-
-# The characterization, in every PDK about its own core supply: a supply sweep (75 to 108 %
-# of it) at the nominal control, and a control sweep (42 to 100 % of the supply) at the nominal
-# supply; in TSMC65, 0.9 to 1.3 V and 0.5 to 1.2 V.
-SUPPLY_SWEEP = (9 / 12, 10 / 12, 11 / 12, 1.0, 13 / 12)
-CONTROL_SWEEP = tuple(step / 12 for step in range(5, 13))
-NOMINAL_CONTROL = 8 / 12
-
-
-def delay_characterization(run_dir: Path, *, check: bool = False) -> Path:
-    """Run every delay case at every supply and control point in every PDK: 7 cases, 13 points each.
-
-    Each point writes ``<pdk>/<case>/<supply|control>/<point>/result.h5`` (a ``MeasDelay``).
-    ``check`` runs the nominal point of each case with Spectre's checks instead, writing no
-    measurement.
-    """
-
-    from flow.analysis.types import MeasInfo, Wave
-    from flow.circuit.results import read_raw_transient
-    from flow.delay.analysis import MeasDelay
-    from flow.layout.step import PDKS
-
-    run_dir.mkdir(parents=True, exist_ok=True)
-    jobs = {}
-    for pdk in PDKS:
-        supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
-        points = [("supply", step * supply, NOMINAL_CONTROL * supply) for step in SUPPLY_SWEEP]
-        points += [("control", supply, step * supply) for step in CONTROL_SWEEP]
-        if check:
-            points = [("check", supply, NOMINAL_CONTROL * supply)]
-        for case, delay in CASES.items():
-            for sweep, vdd, control in points:
-                jobs[f"{pdk}/{case}/{sweep}/vdd{round(vdd * 1e3)}_ctrl{round(control * 1e3)}"] = DelayTbParams(
-                    pdk=pdk, delay=delay, vdd=round(vdd, 4), control_v=round(control, 4)
-                )
-    names = delay_signal_names()
-    failures: dict[str, str] = {}
-    # one pool per PDK: hdl21 compiles each generated module in place, for the first PDK it meets
-    for pdk in PDKS:
-        with ProcessPoolExecutor(max_workers=16, mp_context=get_context("spawn")) as executor:
-            futures = {
-                executor.submit(_run_delay_sim, run_dir / name, params, check=check): (name, params)
-                for name, params in jobs.items()
-                if params.pdk == pdk
-            }
-            for future in as_completed(futures):
-                name, params = futures[future]
-                try:
-                    raw_path = future.result()
-                    if check:
-                        continue
-                    # one record from time zero on the stored grid; the supply current as positive draw
-                    result = read_raw_transient(raw_path)
-                    times_s = np.asarray(result.data["time"])
-                    interval = params.waveform_sample_interval_s
-                    window = [(float(times_s[0]), float(times_s[-1]))]
-                    time_s, voltages = interpolate_wave_records(
-                        times_s,
-                        {
-                            names[key]: value
-                            for key, value in result.data.items()
-                            if not names[key].startswith(("i(", "time"))
-                        },
-                        window,
-                        interval,
-                    )
-                    _, currents = interpolate_wave_records(
-                        times_s,
-                        {
-                            names[key][2:-1]: -np.asarray(value)
-                            for key, value in result.data.items()
-                            if names[key].startswith("i(")
-                        },
-                        window,
-                        interval,
-                    )
-                    measurement = MeasDelay(
-                        group=None,
-                        index=None,
-                        dut=params.delay,
-                        info=MeasInfo(
-                            backend="spice",
-                            timestamp_utc=datetime.fromtimestamp(raw_path.stat().st_mtime, tz=UTC),
-                            instruments={"simulator": "Spectre"},
-                            readbacks={
-                                "pdk": name.split("/")[0],
-                                "case": name.split("/")[1],
-                                "sweep": name.split("/")[2],
-                                "signal_map_json": json.dumps(names, sort_keys=True),
-                                "raw_file": raw_path.name,
-                                "raw_points": len(times_s),
-                                "waveform_sample_interval_s": interval,
-                                "supply_current_convention": "positive_current_draw",
-                            },
-                        ),
-                        param=params,
-                        trial_index=np.arange(1, dtype=np.int64),
-                        wave=Wave(record_index=np.arange(1, dtype=np.int64), time_s=time_s, v=voltages, i=currents),
-                    )
-                    write_measurement(raw_path.parent / "result.h5", measurement)
-                except Exception as error:  # noqa: BLE001 - report every independent point failure
-                    failures[name] = repr(error)
-    if failures:
-        failure_path = run_dir / "failures.json"
-        failure_path.write_text(json.dumps(failures, indent=2) + "\n")
-        raise RuntimeError(f"{len(failures)} delay points failed; see {failure_path}")
-    return run_dir

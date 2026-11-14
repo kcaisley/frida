@@ -1,168 +1,172 @@
-"""Delay line and ring oscillator architecture comparisons: one panel per named case, shared axes."""
+"""The delay line and ring oscillator's figures as ``Plot`` specs (``flow.pipeline.Plot``), each
+from analysis results alone: a characterization's condition sweeps, over the supply (at the nominal
+control) and over the control voltage (at the PDK's supply). The viewer draws a record's from its
+JSON, ``flow.plot.render`` any with matplotlib (the CLI's figures step)."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from pathlib import Path
+from flow.pipeline import Plot, plot
 
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import numpy as np
-
-from flow.analysis.plots import NORD_BLUE, NORD_ORANGE, NORD_RED, PLOT_STYLE, save_figure, style_grid
-from flow.delay.analysis import AnalysisDelayOscillation, AnalysisDelayPropagation
+from .params import SUPPLY_SWEEP
+from .types import AnalysisOscillation, AnalysisPropagation
 
 
-@mpl.rc_context(PLOT_STYLE)
-def plot_delay_ring_supply(
-    oscillations: Sequence[AnalysisDelayOscillation],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare rings over the supply: frequency and energy per cycle."""
-
-    if not oscillations or len(oscillations) != len(labels):
-        raise ValueError("ring supply comparison requires one oscillation result and label per ring")
-    columns = min(2, len(oscillations))
-    rows = (len(oscillations) + columns - 1) // columns
-    energy_limit_fj = 1.1 * max(np.nanmax(item.energy_per_cycle_j, initial=0.0) * 1e15 for item in oscillations)
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (oscillation, label) in enumerate(zip(oscillations, labels, strict=True)):
-        ax = axes.flat[index]
-        ax.plot(oscillation.vdd_v, oscillation.frequency_hz * 1e-9, "o-", color=NORD_BLUE)
-        ax.tick_params(axis="y", colors=NORD_BLUE)
-        energy_ax = ax.twinx()
-        energy_ax.plot(oscillation.vdd_v, oscillation.energy_per_cycle_j * 1e15, "s-", color=NORD_RED)
-        energy_ax.set_ylim(0.0, energy_limit_fj)
-        energy_ax.tick_params(axis="y", colors=NORD_RED)
-        if index % columns == columns - 1 or index == len(oscillations) - 1:
-            energy_ax.set_ylabel("Energy per cycle (fJ)", color=NORD_RED)
-        ax.set_title(label)
-        style_grid(ax)
-    # the shared limit, once every panel has drawn: one panel's would cut the others' data
-    axes.flat[0].set_ylim(bottom=0.0)
-    for ax in axes.flat[len(oscillations) :]:
-        ax.set_visible(False)
-    fig.supxlabel("Supply (V)")
-    fig.supylabel("Frequency (GHz)", color=NORD_BLUE)
-    fig.suptitle("Ring frequency and energy per cycle versus supply")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_delay_ring_control(
-    oscillations: Sequence[AnalysisDelayOscillation],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare rings over the control voltage: frequency and tuning gain."""
-
-    if not oscillations or len(oscillations) != len(labels):
-        raise ValueError("ring control comparison requires one oscillation result and label per ring")
-    columns = min(2, len(oscillations))
-    rows = (len(oscillations) + columns - 1) // columns
-    gains = [np.gradient(item.frequency_hz, item.control_v) * 1e-9 for item in oscillations]
-    gain_limit = 1.1 * max(np.nanmax(np.abs(gain), initial=0.0) for gain in gains)
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (oscillation, gain, label) in enumerate(zip(oscillations, gains, labels, strict=True)):
-        ax = axes.flat[index]
-        ax.plot(oscillation.control_v, oscillation.frequency_hz * 1e-9, "o-", color=NORD_BLUE)
-        ax.tick_params(axis="y", colors=NORD_BLUE)
-        gain_ax = ax.twinx()
-        gain_ax.plot(oscillation.control_v, gain, "s-", color=NORD_RED)
-        gain_ax.set_ylim(-gain_limit, gain_limit)
-        gain_ax.tick_params(axis="y", colors=NORD_RED)
-        if index % columns == columns - 1 or index == len(oscillations) - 1:
-            gain_ax.set_ylabel("Tuning gain (GHz/V)", color=NORD_RED)
-        ax.set_title(label)
-        style_grid(ax)
-    # the shared limit, once every panel has drawn: one panel's would cut the others' data
-    axes.flat[0].set_ylim(bottom=0.0)
-    for ax in axes.flat[len(oscillations) :]:
-        ax.set_visible(False)
-    fig.supxlabel("Control voltage (V)")
-    fig.supylabel("Frequency (GHz)", color=NORD_BLUE)
-    fig.suptitle(f"Ring frequency and tuning gain versus control at {oscillations[0].vdd_v[0]:g} V")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_delay_line_supply(
-    propagations: Sequence[AnalysisDelayPropagation],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare delay lines over the supply: rise and fall delay, and energy per input cycle."""
-
-    if not propagations or len(propagations) != len(labels):
-        raise ValueError("delay line supply comparison requires one propagation result and label per line")
-    columns = min(3, len(propagations))
-    rows = (len(propagations) + columns - 1) // columns
-    energy_limit_fj = 1.1 * max(np.nanmax(item.energy_per_cycle_j, initial=0.0) * 1e15 for item in propagations)
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (propagation, label) in enumerate(zip(propagations, labels, strict=True)):
-        ax = axes.flat[index]
-        ax.plot(propagation.vdd_v, propagation.rise_delay_s * 1e12, "o-", color=NORD_BLUE, label="Rising input")
-        ax.plot(propagation.vdd_v, propagation.fall_delay_s * 1e12, "^--", color=NORD_BLUE, label="Falling input")
-        ax.tick_params(axis="y", colors=NORD_BLUE)
-        energy_ax = ax.twinx()
-        energy_ax.plot(propagation.vdd_v, propagation.energy_per_cycle_j * 1e15, "s-", color=NORD_RED)
-        energy_ax.set_ylim(0.0, energy_limit_fj)
-        energy_ax.tick_params(axis="y", colors=NORD_RED)
-        if index % columns == columns - 1 or index == len(propagations) - 1:
-            energy_ax.set_ylabel("Energy per input cycle (fJ)", color=NORD_RED)
-        ax.set_title(label)
-        style_grid(ax)
-    # the shared limit, once every panel has drawn: one panel's would cut the others' data
-    axes.flat[0].set_ylim(bottom=0.0)
-    for ax in axes.flat[len(propagations) :]:
-        ax.set_visible(False)
-    axes.flat[0].legend()
-    fig.supxlabel("Supply (V)")
-    fig.supylabel("Input to output delay (ps)", color=NORD_BLUE)
-    fig.suptitle("Delay line delay and energy versus supply")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_delay_line_control(
-    propagations: Sequence[AnalysisDelayPropagation],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare delay lines over the control voltage: delay, and the output's 10–90 % transitions."""
-
-    if not propagations or len(propagations) != len(labels):
-        raise ValueError("delay line control comparison requires one propagation result and label per line")
-    columns = min(3, len(propagations))
-    rows = (len(propagations) + columns - 1) // columns
-    transition_limit_ps = 1.1 * max(
-        np.nanmax(np.r_[item.output_rise_s, item.output_fall_s], initial=0.0) * 1e12 for item in propagations
+@plot
+def plot_oscillation_frequency_supply(oscillation: AnalysisOscillation) -> Plot:
+    """A ring's frequency over the supply (``SUPPLY_SWEEP``)."""
+    return Plot(
+        name="oscillation_frequency_supply",
+        title="Ring frequency over the supply (control 8/12 of the core supply)",
+        x_label="Supply over nominal",
+        y_label="Oscillation frequency (Hz)",
+        x=list(SUPPLY_SWEEP),
+        series={"oscillation frequency": [float(value) for value in oscillation.oscillation_frequency_hz]},
     )
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (propagation, label) in enumerate(zip(propagations, labels, strict=True)):
-        ax = axes.flat[index]
-        ax.plot(propagation.control_v, propagation.rise_delay_s * 1e12, "o-", color=NORD_BLUE, label="Rising input")
-        ax.plot(propagation.control_v, propagation.fall_delay_s * 1e12, "^--", color=NORD_BLUE, label="Falling input")
-        ax.set_yscale("log")
-        ax.tick_params(axis="y", colors=NORD_BLUE)
-        transition_ax = ax.twinx()
-        transition_ax.plot(propagation.control_v, propagation.output_rise_s * 1e12, "s-", color=NORD_RED)
-        transition_ax.plot(propagation.control_v, propagation.output_fall_s * 1e12, "v--", color=NORD_ORANGE)
-        transition_ax.set_ylim(0.0, transition_limit_ps)
-        transition_ax.tick_params(axis="y", colors=NORD_RED)
-        if index % columns == columns - 1 or index == len(propagations) - 1:
-            transition_ax.set_ylabel("Output rise, fall 10–90 % (ps)", color=NORD_RED)
-        ax.set_title(label)
-        style_grid(ax)
-    for ax in axes.flat[len(propagations) :]:
-        ax.set_visible(False)
-    axes.flat[0].legend()
-    fig.supxlabel("Control voltage (V)")
-    fig.supylabel("Input to output delay (ps)", color=NORD_BLUE)
-    fig.suptitle(f"Delay line delay and output transitions versus control at {propagations[0].vdd_v[0]:g} V")
-    return save_figure(fig, output_path)
+
+
+@plot
+def plot_delay_rise_supply(propagation: AnalysisPropagation) -> Plot:
+    """A delay line's delay to its rising output over the supply (``SUPPLY_SWEEP``)."""
+    return Plot(
+        name="delay_rise_supply",
+        title="Line delay to the rising output over the supply (control 8/12 of the core supply)",
+        x_label="Supply over nominal",
+        y_label="Delay (s)",
+        x=list(SUPPLY_SWEEP),
+        series={"delay": [float(value) for value in propagation.delay_rise_s]},
+    )
+
+
+@plot
+def plot_delay_fall_supply(propagation: AnalysisPropagation) -> Plot:
+    """A delay line's delay to its falling output over the supply (``SUPPLY_SWEEP``)."""
+    return Plot(
+        name="delay_fall_supply",
+        title="Line delay to the falling output over the supply (control 8/12 of the core supply)",
+        x_label="Supply over nominal",
+        y_label="Delay (s)",
+        x=list(SUPPLY_SWEEP),
+        series={"delay": [float(value) for value in propagation.delay_fall_s]},
+    )
+
+
+@plot
+def plot_stage_delay_supply(chain: AnalysisOscillation | AnalysisPropagation) -> Plot:
+    """The delay per stage over the supply (``SUPPLY_SWEEP``), a ring's or a delay line's."""
+    return Plot(
+        name="stage_delay_supply",
+        title="Delay per stage over the supply",
+        x_label="Supply over nominal",
+        y_label="Stage delay (s)",
+        x=list(SUPPLY_SWEEP),
+        series={"stage delay": [float(value) for value in chain.stage_delay_s]},
+    )
+
+
+@plot
+def plot_energy_supply(chain: AnalysisOscillation | AnalysisPropagation) -> Plot:
+    """The energy per cycle over the supply (``SUPPLY_SWEEP``): a ring's own cycle, a delay line's
+    input clock's."""
+    ring = isinstance(chain, AnalysisOscillation)
+    return Plot(
+        name="energy_supply",
+        title="Energy per cycle over the supply" if ring else "Energy per input cycle over the supply",
+        x_label="Supply over nominal",
+        y_label="Energy per cycle (J)",
+        x=list(SUPPLY_SWEEP),
+        series={"energy per cycle": [float(value) for value in chain.energy_per_cycle_j]},
+    )
+
+
+@plot
+def plot_oscillation_frequency_control(oscillation: AnalysisOscillation) -> Plot:
+    """A ring's frequency over the control voltage."""
+    return Plot(
+        name="oscillation_frequency_control",
+        title="Ring frequency over the control (core supply)",
+        x_label="Control voltage (V)",
+        y_label="Oscillation frequency (Hz)",
+        x=[float(value) for value in oscillation.vcont_v],
+        series={"oscillation frequency": [float(value) for value in oscillation.oscillation_frequency_hz]},
+    )
+
+
+@plot
+def plot_kvco_control(oscillation: AnalysisOscillation) -> Plot:
+    """A ring's gain, its frequency's slope, over the control voltage."""
+    return Plot(
+        name="kvco_control",
+        title="Ring gain over the control (core supply)",
+        x_label="Control voltage (V)",
+        y_label="VCO gain (Hz/V)",
+        x=[float(value) for value in oscillation.vcont_v],
+        series={"vco gain": [float(value) for value in oscillation.kvco_hz_per_v]},
+    )
+
+
+@plot
+def plot_delay_rise_control(propagation: AnalysisPropagation) -> Plot:
+    """A delay line's delay to its rising output over the control voltage."""
+    return Plot(
+        name="delay_rise_control",
+        title="Line delay to the rising output over the control (core supply)",
+        x_label="Control voltage (V)",
+        y_label="Delay (s)",
+        x=[float(value) for value in propagation.vcont_v],
+        series={"delay": [float(value) for value in propagation.delay_rise_s]},
+        y_log=True,
+    )
+
+
+@plot
+def plot_delay_fall_control(propagation: AnalysisPropagation) -> Plot:
+    """A delay line's delay to its falling output over the control voltage."""
+    return Plot(
+        name="delay_fall_control",
+        title="Line delay to the falling output over the control (core supply)",
+        x_label="Control voltage (V)",
+        y_label="Delay (s)",
+        x=[float(value) for value in propagation.vcont_v],
+        series={"delay": [float(value) for value in propagation.delay_fall_s]},
+        y_log=True,
+    )
+
+
+@plot
+def plot_rise_time_control(propagation: AnalysisPropagation) -> Plot:
+    """A delay line's output rise time (10 to 90 %) over the control voltage."""
+    return Plot(
+        name="rise_time_control",
+        title="Line output rise time over the control (core supply)",
+        x_label="Control voltage (V)",
+        y_label="Rise time (s)",
+        x=[float(value) for value in propagation.vcont_v],
+        series={"rise time": [float(value) for value in propagation.rise_time_s]},
+    )
+
+
+@plot
+def plot_fall_time_control(propagation: AnalysisPropagation) -> Plot:
+    """A delay line's output fall time (90 to 10 %) over the control voltage."""
+    return Plot(
+        name="fall_time_control",
+        title="Line output fall time over the control (core supply)",
+        x_label="Control voltage (V)",
+        y_label="Fall time (s)",
+        x=[float(value) for value in propagation.vcont_v],
+        series={"fall time": [float(value) for value in propagation.fall_time_s]},
+    )
+
+
+@plot
+def plot_energy_control(chain: AnalysisOscillation | AnalysisPropagation) -> Plot:
+    """The energy per cycle over the control voltage: a ring's own cycle, a delay line's input
+    clock's."""
+    return Plot(
+        name="energy_control",
+        title="Energy per cycle over the control (core supply)",
+        x_label="Control voltage (V)",
+        y_label="Energy per cycle (J)",
+        x=[float(value) for value in chain.vcont_v],
+        series={"energy per cycle": [float(value) for value in chain.energy_per_cycle_j]},
+    )

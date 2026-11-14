@@ -51,7 +51,6 @@ def diagnostic_root(spectre_installation):
 @pytest.mark.parametrize(
     "block,target",
     (
-        ("delay", "delay_characterization"),
         ("idac", "idac_characterization"),
         ("cml", "cml_characterization"),
         ("pi", "pi_characterization"),
