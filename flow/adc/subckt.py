@@ -199,7 +199,10 @@ def netlist(param: Params) -> h.Module:
         ("p", Adc.vin_p, Adc.vdac_p, Adc.dac_state_p, Adc.clk_samp_p, Adc.clk_samp_p_b),
         ("n", Adc.vin_n, Adc.vdac_n, Adc.dac_state_n, Adc.clk_samp_n, Adc.clk_samp_n_b),
     ):
-        Adc.add(dac(dac_state=state, vdac=top, vdd=Adc.vdd_dac, vss=Adc.vss_dac), name=f"xdac_{side}")
+        # a side of difference strips takes its states at its difference drivers too: for now the
+        # same states (the digital block's difference states drive nothing, below)
+        far = {"dac_state_diff": state} if "dac_state_diff" in dac.ports else {}
+        Adc.add(dac(dac_state=state, vdac=top, vdd=Adc.vdd_dac, vss=Adc.vss_dac, **far), name=f"xdac_{side}")
         Adc.add(sampler(vin=vin, vout=top, clk=clk, clk_b=clk_b, vdd=Adc.vdd_a, vss=Adc.vss_a), name=f"xsamp_{side}")
 
     # Instantiate comparator

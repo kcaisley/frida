@@ -62,9 +62,9 @@ def testbench(tb: TbParams) -> h.Module:
     dut = netlist(tb.params)
     resolve(dut, tb.pdk)
     # side p on the block's own nets, renamed; side n on its own states and top plate
-    bench, connections = testbench_from_ports(
-        "CapdacTb", dut.ports, renames={"dac_state": "dac_state_p", "vdac": "vdac_p"}
-    )
+    # (a side's difference drivers' states, ``dac_state_diff``, on its states: no net of their own)
+    ports = {name: port for name, port in dut.ports.items() if name != "dac_state_diff"}
+    bench, connections = testbench_from_ports("CapdacTb", ports, renames={"dac_state": "dac_state_p", "vdac": "vdac_p"})
     bench.dac_state_n = h.Signal(width=dut.dac_state.width)
     bench.vdac_n = h.Signal()
     vss, vdd, edge = bench.vss, tb.vdd, tb.transition_time_s
@@ -83,8 +83,16 @@ def testbench(tb: TbParams) -> h.Module:
         }
         bench.add(Vpulse(v1=0.0, v2=vdd, **pulse)(p=bench.dac_state_p[stage], n=vss), name=f"vstate_p_{stage}")
         bench.add(Vpulse(v1=vdd, v2=0.0, **pulse)(p=bench.dac_state_n[stage], n=vss), name=f"vstate_n_{stage}")
-    bench.dut_p = dut(**connections)
-    bench.dut_n = dut(**{**connections, "dac_state": bench.dac_state_n, "vdac": bench.vdac_n})
+    far = "dac_state_diff" in dut.ports
+    bench.dut_p = dut(**{**connections, **({"dac_state_diff": bench.dac_state_p} if far else {})})
+    bench.dut_n = dut(
+        **{
+            **connections,
+            "dac_state": bench.dac_state_n,
+            "vdac": bench.vdac_n,
+            **({"dac_state_diff": bench.dac_state_n} if far else {}),
+        }
+    )
     return bench
 
 

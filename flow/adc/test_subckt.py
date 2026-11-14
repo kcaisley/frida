@@ -30,15 +30,25 @@ def _loads(module: h.Module, signal: h.Signal) -> set[str]:
 
 def _inversions(chain: h.Module) -> int:
     """How many inverters a driver's chain holds from its input to its output, each a complementary
-    pair between the rails on the one before it."""
+    pair between the rails on the one before it: an inverter cell of its own, or the chain's own
+    pair of transistors (a chain drawn as one cell)."""
     node, count = chain.A, 0
     while node is not chain.Y:
-        (cell,) = (instance for instance in chain.instances.values() if instance.conns["A"] is node)
-        inverter = cell.of
-        assert inverter.mn0.conns == {"d": inverter.Y, "g": inverter.A, "s": inverter.VSS, "b": inverter.VSS}
-        assert inverter.mp0.conns == {"d": inverter.Y, "g": inverter.A, "s": inverter.VDD, "b": inverter.VDD}
-        assert (cell.conns["VDD"], cell.conns["VSS"]) == (chain.VDD, chain.VSS)
-        node, count = cell.conns["Y"], count + 1
+        cells = [instance for instance in chain.instances.values() if instance.conns.get("A") is node]
+        if cells:
+            (cell,) = cells
+            inverter = cell.of
+            assert inverter.mn0.conns == {"d": inverter.Y, "g": inverter.A, "s": inverter.VSS, "b": inverter.VSS}
+            assert inverter.mp0.conns == {"d": inverter.Y, "g": inverter.A, "s": inverter.VDD, "b": inverter.VDD}
+            assert (cell.conns["VDD"], cell.conns["VSS"]) == (chain.VDD, chain.VSS)
+            node = cell.conns["Y"]
+        else:
+            gates = [instance for instance in chain.instances.values() if instance.conns.get("g") is node]
+            (mn,) = [m for m in gates if m.conns["s"] is chain.VSS and m.conns["b"] is chain.VSS]
+            (mp,) = [m for m in gates if m.conns["s"] is chain.VDD and m.conns["b"] is chain.VDD]
+            assert mn.conns["d"] is mp.conns["d"]
+            node = mn.conns["d"]
+        count += 1
     return count
 
 
@@ -241,10 +251,14 @@ def test_no_xor_or_capdriver_cell_remains(tsmc65, impl):
 )
 def test_every_main_chain_is_non_inverting_and_every_difference_chain_inverting(tsmc65, cdac):
     """The polarity is fixed in each side's drivers: an even count of inverters drives each stage's
-    main plates from its state, an odd count its difference plates (difference capacitors alone)."""
+    main plates from its state, an odd count its difference plates (difference capacitors alone),
+    from the side's own input of the states there, which the converter ties to the same states."""
     module = netlist(Params(adc_bits=cdac.bits, cdac=cdac))
     for side in ("p", "n"):
-        dac = module.instances[f"xdac_{side}"].of
+        instance = module.instances[f"xdac_{side}"]
+        dac = instance.of
+        if cdac.weight_impl is capdac.WeightImpl.DIFFERENCE_CAPS:
+            assert instance.conns["dac_state_diff"] is instance.conns["dac_state"]
         for stage in range(len(capdac.Model.weights(cdac))):
             main = dac.instances[f"drive_main_{stage}"]
             assert main.conns["A"] == dac.dac_state[stage] and main.conns["Y"] is dac.namespace[f"main_{stage}"]
@@ -252,7 +266,8 @@ def test_every_main_chain_is_non_inverting_and_every_difference_chain_inverting(
             diff = dac.instances.get(f"drive_diff_{stage}")
             assert (diff is None) == (cdac.weight_impl is capdac.WeightImpl.UNIT_CAPS)
             if diff is not None:
-                assert diff.conns["A"] == dac.dac_state[stage] and diff.conns["Y"] is dac.namespace[f"diff_{stage}"]
+                assert diff.conns["A"] == dac.dac_state_diff[stage]
+                assert diff.conns["Y"] is dac.namespace[f"diff_{stage}"]
                 assert _inversions(diff.of) % 2 == 1
 
 

@@ -24,7 +24,9 @@ difference plates the complement, each through a request for a driver
 (``flow.layout.devices.mosfet``) of the resistance that settles the stage's step to half an LSB
 within ``settle_ps`` over ``settle_margin``. A minimum-strength flip-flop drives each state at FO4:
 the difference driver one inverter (the complement), the main driver's chain loading it with what
-is left of four minimum inverters (``shared_fanin``).
+is left of four minimum inverters (``shared_fanin``); the difference drivers take the states on
+an input of their own (``dac_state_diff``), the same flip-flops' outputs brought from outside the
+side, so that the side's two bands of drivers share no wire.
 
 The netlist holds no PDK's dimensions: every request is an ideal device, so it simulates as it is,
 and ``flow.layout.devices.device.resolve`` makes each the PDK's own from its precharacterized
@@ -32,13 +34,14 @@ tables: a strip's or a unit's finger lengths, a driver's inverters' widths.
 
 The generator states its layout as it builds (``_place``, ``flow.layout.hdl21align``, after
 Fritchman's AlignHdl21): rows of its own instances, which ALIGN places as stated, each driver a cell
-of its own rows.
+of its own rows (a chain of inverters one cell, its links its own, ``rowcell.inverter_chain``).
 """
 
 import json
 import math
 from dataclasses import dataclass, replace
 from importlib import import_module
+from itertools import pairwise
 from math import log
 
 import hdl21 as h
@@ -66,7 +69,10 @@ from .params import Params, WeightImpl, _pieces, _plates, _switched_f, _weights
 @h.bundle
 class Nets:
     """The side's stage states in, a bit per stage, C0 first; its top plate; the DAC's supply,
-    which its drivers switch the bottom plates between (the ADC's DAC reference)."""
+    which its drivers switch the bottom plates between (the ADC's DAC reference). A side of
+    difference strips (DIFFERENCE_CAPS) has a second input of the same states, its difference
+    drivers' (``dac_state_diff``), at the strips' far end, driven from outside the side, so that no
+    wire of it runs between its two bands of drivers."""
 
     dac_state = h.Input(desc="The stage states, C0 first")
     vdac = h.Inout(desc="The top plate")
@@ -99,10 +105,9 @@ def _reference_v() -> float:
 
 def _drive(r_ohm: float, invert: bool, fanin: float, difference: bool) -> DriverParams:
     """A driver's request as the side draws it: in a strip side (DIFFERENCE_CAPS) its input bar
-    spans its first cell, where a state reaches its stage's main and difference drivers side by
-    side, a router reaching each from above on M3 among the other stages' runs; in a column side
-    its chain never mirrored, where two chains side by side would turn their outputs towards each
-    other closer than a route can leave them."""
+    spans its first cell, where a router reaches it from above on M3 among the other stages' runs;
+    in a column side its chain never mirrored, where two chains side by side would turn their
+    outputs towards each other closer than a route can leave them."""
     return DriverParams(r_ohm=r_ohm, invert=invert, wide_input=difference, mirror=difference, fanin=fanin)
 
 
@@ -150,42 +155,36 @@ def _packed(widths: list[int], capacity: int, gap_nm: int = 0) -> list[list[int]
     return [sorted(r) for r in rows]
 
 
-def _stage_widths(main: list[int], diff: list[int], gap_nm: int) -> list[int]:
-    """Each stage's drivers' width in its row (nm): its main driver's (``main``) and its difference
-    driver's beside it, ``gap_nm`` apart (``diff``; none: the main driver's alone); the gaps
-    between stages ``_rows_width`` adds."""
-    return [m + d + gap_nm for m, d in zip(main, diff, strict=True)] if diff else main
-
-
 def _driver_rows(
     main: list[int], diff: list[int], cap_nm: tuple[int, int], row_nm: int, stacked: bool, gap_nm: int = 0
-) -> list[list[int]]:
-    """The rows the drivers stand in, one band at the capacitors' main end, as stage indices, the
-    bottom row first: each stage's main driver (``main``, their widths, nm, in the
-    stages' order) and its difference driver beside it (``diff``; no difference drivers: none), so
-    that a stage's state reaches both in one place, each driver ``gap_nm`` from its neighbours.
+) -> tuple[list[list[int]], list[list[int]]]:
+    """The rows the main and the difference drivers (their widths, nm, in the stages' order; no
+    difference drivers: none) stand in, as stage indices, each band's row beside the capacitors'
+    end last: the main band at the side's bottom edge, the difference band at its top, beyond the
+    capacitors' ends or, where they stack (``stacked``), under them.
 
-    Each row every so many stages in their order, or the stages packed into rows as wide as the
-    widest of the capacitors and the stages (``_packed``): of the outlines the capacitors
-    (``cap_nm``, wide, tall) and the rows (each ``row_nm`` tall) take together, the least; of
-    those, the fewest rows. A strip side's rows stand beside the capacitors, or under them where
-    they stack (``stacked``); a column side's are counted under them. A strip side never
-    stands more than one row of a single stage's drivers (a main driver wider than the strips,
-    which every other stage's would only widen), where ALIGN's placement cannot solve the many
-    rows."""
-    pairs = _stage_widths(main, diff, gap_nm)
-    count = len(pairs)
-    candidates = [_strided(count, k) for k in range(1, count + 1)]
+    Each band's rows every so many stages in their order, the difference drivers ``gap_nm`` apart
+    in a row; a main band may pack its stages instead, into rows as wide as the widest of the
+    capacitors and the drivers (``_packed``), and never stands more than one row of a single driver
+    (a main driver wider than the strips, which every other stage's would only widen), where
+    ALIGN's placement cannot solve the many rows. Of the outlines the capacitors (``cap_nm``, wide,
+    tall) and the rows (each ``row_nm`` tall) take together, the least; of those, where the
+    capacitors stack, two difference rows or more (the stages alternating between them, a
+    difference driver's output with more exits up to its strip); of those, the fewest rows."""
+    mains = [_strided(len(main), k) for k in range(1, len(main) + 1)]
     if diff:
-        candidates = [r for r in candidates if sum(len(row) == 1 for row in r) <= 1]
-        candidates.append(_packed(pairs, max(cap_nm[0], *pairs), gap_nm))
+        mains = [r for r in mains if sum(len(row) == 1 for row in r) <= 1]
+        mains.append(_packed(main, max(cap_nm[0], *main)))
+    diffs = [_strided(len(diff), k) for k in range(1, len(diff) + 1)] if diff else [[]]
 
-    def outline(r: list[list[int]]) -> tuple[int, int]:
-        tall = len(r) * row_nm
-        width = max(cap_nm[0], _rows_width(pairs, r, gap_nm))
-        return width * (max(cap_nm[1], tall) if stacked or not diff else cap_nm[1] + tall), len(r)
+    def outline(pair: tuple[list[list[int]], list[list[int]]]) -> tuple[int, bool, int]:
+        m, d = pair
+        count = len(m) + len(d)
+        width = max(cap_nm[0], _rows_width(main, m), _rows_width(diff, d, gap_nm))
+        tall = max(cap_nm[1], count * row_nm) if stacked or not diff else cap_nm[1] + count * row_nm
+        return width * tall, stacked and bool(diff) and len(d) < min(2, len(diff)), count
 
-    return min(candidates, key=outline)
+    return min(((m, d) for m in mains for d in diffs), key=outline)
 
 
 def _grid_rows(count: int, unit_nm: tuple[int, int]) -> int:
@@ -259,34 +258,43 @@ def _place(
     side: h.Module,
     stages: list[_Stage],
     grid: list[list[h.Instance]] | None,
-    driver_rows: list[list[int]],
+    main_rows: list[list[int]],
+    diff_rows: list[list[int]],
     gap_nm: int,
     room_nm: int = 0,
-    far_nm: int = 0,
+    apart_nm: int = 0,
 ) -> None:
-    """The side's layout (``side``): its rows top first, its capacitors, then its drivers in one
-    band, every stage's pieces together, its MSB on the left, outside.
+    """The side's layout (``side``): its rows top first, its difference drivers, its capacitors, its
+    main drivers, every stage's pieces together, its MSB on the left, outside.
 
     The side is one module so that the router joining a stage's pieces to its drivers sees both:
     ALIGN lays out and routes a module before its parent places anything beside or under it, so a
     module of the capacitors alone would wire a stage's pieces through the drivers it cannot see.
-    The capacitors abut, neighbours sharing their ring walls (one top plate). Where the PDK's
-    capacitors lie above the metals the rows route on (``stacked_over_rows``), they stand over the
-    drivers (``Stackup``), the band on the side's bottom edge under the capacitors' main channels,
+    The capacitors abut, neighbours sharing their ring walls (one top plate). Each band of drivers
+    is tight, its rows abutting, its outer row on the side's edge: the main drivers' at the bottom,
+    under the capacitors' main channels, the difference drivers' at the top, by their difference
+    channels at the strips' far end, each band's drivers in a row on one line. Where the PDK's
+    capacitors lie above the metals the rows route on (``stacked_over_rows``), they stand over both
+    bands (``Stackup``), the rows between the bands left free (``flow.layout.step.free_rows``),
     the side routed up to the shield's metal, where the capacitors' bottom plates have their pins.
     Unit capacitors stand in a column array (``grid``, ``_columns``): its rows, top first, each
     row's units side by side and its columns' units one above the other, abutting. The drivers
-    stand in ``driver_rows`` (``_driver_rows``: stage indices, the bottom row first), each stage's
-    main driver and its difference driver beside it, ``gap_nm`` apart in their rows. Routing room
-    kept clear of every instance inside the outline the routers keep to: ``room_nm`` at the side's
-    left and right edges, ``far_nm`` at its top and bottom (``netlist``)."""
+    stand in ``main_rows`` and ``diff_rows`` (``_driver_rows``: stage indices, each band's row
+    beside the capacitors last), the difference drivers ``gap_nm`` apart in their rows. Routing room
+    at the side's left and right edges, ``room_nm``, kept clear of every instance inside the outline
+    the routers keep to (its right edge is the seam with the converter's other side). Where the
+    bands stand beyond the capacitors' ends, each band's row beside them ``apart_nm`` from them: a
+    row's rail beside the capacitors' shield keeps its metals' space from it."""
 
     pdk = active_pdk()
     slice_ = stacked_over_rows(pdk, _array_layers(pdk)) if pdk else None
     caps = _ordered(stages, lambda stage: stage.pieces)
     drivers = _ordered(stages, lambda stage: [stage.main, stage.diff])
-    # the drivers' rows, top first, the bottom one on the side's bottom edge
-    band = [_ordered([stages[i] for i in r], lambda stage: [stage.main, stage.diff]) for r in reversed(driver_rows)]
+    # each band's rows from the side's edge in: the main band's bottom up, the difference band's top down
+    mains = [_ordered([stages[i] for i in r], lambda stage: [stage.main]) for r in main_rows]
+    diffs = [_ordered([stages[i] for i in r], lambda stage: [stage.diff]) for r in diff_rows]
+    mains = [r for r in reversed(mains) if r]  # top first
+    diffs = [r for r in diffs if r]
     if grid:  # the column array's rows, top first, and its columns
         height = max(map(len, grid))
         cap_rows = [tuple(col[r] for col in grid if r < len(col)) for r in reversed(range(height))]
@@ -313,24 +321,27 @@ def _place(
         arrange = [c.Order(caps, c.OrderDirection.LEFT_TO_RIGHT, abut=True), c.Align(caps, c.Line.H_BOTTOM)]
     inner: list[c.Constraint] = list(arrange)
     if gap_nm:
-        inner += [c.Spread(tuple(r), c.Axis.HORIZONTAL, gap_nm) for r in band if len(r) > 1]
-    if any(stage.diff is not None for stage in stages):
-        # a row of main and difference drivers on one line: else ALIGN stands a difference driver
-        # on the free line between two rows (rows stand a line apart where the capacitors stack
-        # over them), its corners on the rows' cells across the rails, their implants unmatched
-        inner += [c.Align(tuple(r), c.Line.H_BOTTOM) for r in band if len(r) > 1]
-    room = (c.Boundary(halo_horizontal_um=room_nm / 1000, halo_vertical_um=far_nm / 1000),) if room_nm or far_nm else ()
+        inner += [c.Spread(tuple(r), c.Axis.HORIZONTAL, gap_nm) for r in diffs if len(r) > 1]
+    # each row's drivers on one line (else ALIGN stands a driver on a free line between two rows,
+    # its corners on the rows' cells across the rails, their implants unmatched), each band's rows
+    # abutting: under the capacitors nothing else holds them together
+    inner += [c.Align(tuple(r), c.Line.H_BOTTOM) for r in (*diffs, *mains) if len(r) > 1]
+    for band in (diffs, mains):
+        inner += [
+            c.Order((upper[0], lower[0]), c.OrderDirection.TOP_TO_BOTTOM, abut=True) for upper, lower in pairwise(band)
+        ]
+    if apart_nm:
+        inner += [c.Spread((*caps, *band), c.Axis.VERTICAL, apart_nm) for band in (diffs[-1:] + mains[:1]) if band]
+    room = (c.Boundary(halo_horizontal_um=room_nm / 1000),) if room_nm else ()
     if slice_ is not None:
         shield, top = slice_
         inner += [
-            c.PlaceOnBoundary(south=(*bottom, *band[-1])),
+            c.PlaceOnBoundary(south=(*bottom, *(mains[-1] if mains else ())), north=diffs[0] if diffs else ()),
             c.Route(max_layer=shield),
             # the top plate unrouted: the capacitors' top plates join where they abut (their
             # shared ring walls), and their pins lie above the metals the side routes on, where
             # the router tried and failed each one in turn
             c.DoNotRoute((side.vdac,)),
-            # the routing room (its right edge is the seam with the converter's other side, its
-            # mirror image)
             *room,
             # last: a Stackup lifts the non-overlap ALIGN's consistency check holds
             # (flow/layout/make_design.py), which then re-checks the whole cell at once
@@ -341,7 +352,7 @@ def _place(
         ]
     else:
         inner += room
-    regions = [region for region in (*cap_rows, *band) if region]
+    regions = [region for region in (*diffs, *cap_rows, *mains) if region]
     # not mirrored: a capacitor's channels meet its neighbours' as drawn, so ALIGN mirrors none
     place(side, rows(*(row(*region) for region in regions)), symmetric=False, constraints=tuple(inner))
 
@@ -376,6 +387,10 @@ def netlist(params: Params) -> h.Module:
 
     ports = dict(Nets.signals)
     ports["dac_state"] = replace(ports["dac_state"], width=len(weights))
+    if difference:  # the difference drivers' own input of the states
+        ports["dac_state_diff"] = replace(
+            ports["dac_state"], name="dac_state_diff", desc="The stage states at the difference drivers, C0 first"
+        )
     Capdac = module_from_ports("Capdac", ports)
     pdk = active_pdk()
     if pdk is None:
@@ -413,48 +428,34 @@ def netlist(params: Params) -> h.Module:
     widths = dict(zip(drives, driver_widths_nm(pdk, requests), strict=True))
     wide, tall = (len(columns), max(map(len, columns))) if columns else (sum(map(len, pieces)), 1)
     row_nm = row_height_nm(pdk)
-    # a routing track between neighbouring drivers, on the metal the drivers rise on to the
-    # capacitors standing over them: a difference driver's output's few exits up to them are taken
-    # by its own state's drop and the strips' landing stubs unless its neighbour stands a track off
+    # a routing track between neighbouring difference drivers, on the metal the drivers rise on to
+    # the capacitors standing over them: a difference driver's output's few exits up to them are
+    # taken by its own state's drop and the strips' landing stubs unless its neighbour stands a track off
     slice_ = stacked_over_rows(pdk, layers)
     gap_nm = metal_tracks(pdk, f"M{slice_[0] - 1}")[0] if difference and slice_ is not None else 0
     main_widths = [widths[main] for main, _ in keys]
     diff_widths = [widths[diff] for _, diff in keys if diff is not None]
-    driver_rows = _driver_rows(
+    main_rows, diff_rows = _driver_rows(
         main_widths, diff_widths, (wide * outline[0], tall * outline[1]), row_nm, slice_ is not None, gap_nm
     )
-    band_nm = (len(driver_rows) + 1) * row_nm
-    rows_nm = _rows_width(_stage_widths(main_widths, diff_widths, gap_nm), driver_rows, gap_nm)
-    room_nm, far_nm = 0, 0
+    band_nm = (len(main_rows) + 1) * row_nm
+    rows_nm = max(_rows_width(main_widths, main_rows), _rows_width(diff_widths, diff_rows, gap_nm))
+    room_nm = 0
     if slice_ is not None and wide * outline[0] >= rows_nm:
         # where the capacitors set the side's width (no driver row reaches past them), its last
         # stage's pieces and its drivers (wider than a piece) stand at its right edge, the seam
         # with the converter's other side, with no track free beyond them: two tracks of the metal
         # the drivers rise on are kept clear at each edge of the side
         room_nm = 2 * metal_tracks(pdk, f"M{slice_[0] - 1}")[0]
-    elif slice_ is None and difference:
-        # capacitors beside the rows: each difference plate runs from its driver in the band under
-        # them to its channel at their far end, on the landing metal under the strips (M1) and on
-        # M3 past their sides, a quarter of the stages' tracks at each edge. Inside a strip it
-        # keeps to one track: the shield's grid on M2 and the fingers above leave no horizontal
-        # metal, the centre track carries both channels' landing stubs and the other, the strip's
-        # edge, lies outside a lone piece's bar. So it climbs an edge track past the far end and
-        # turns there to its own landing: two tracks of M2 beyond the strips' far end at least.
-        # ALIGN keeps the room at the band's end too, where the rows stand on their grid from
-        # the outline's bottom (VSS on its even lines, rowcell): the band's lowest rail on the
-        # first line the room leaves, so that its top rail, beside the capacitors' shield (VSS),
-        # is VSS too (a rail of the other supply there would meet the shield, and the rows'
-        # trunks would not reach it past the routes rising to the capacitors)
-        room_nm = -(-len(weights) // 4) * metal_tracks(pdk, "M3")[0]
-        far_nm = 2 * metal_tracks(pdk, "M2")[0] + (0 if len(driver_rows) % 2 else row_nm)
     # the stages' drivers and pieces between the states and the top plate
     state, top = Capdac.dac_state, Capdac.vdac
+    far = Capdac.dac_state_diff if difference else None
     stages: list[_Stage] = []
     for stage, (main_key, diff_key) in enumerate(keys):
         main, main_drive = _driven(Capdac, f"main_{stage}", state[stage], _drive(*main_key, difference))
         diff, diff_drive = None, None
         if diff_key is not None:
-            diff, diff_drive = _driven(Capdac, f"diff_{stage}", state[stage], _drive(*diff_key, difference))
+            diff, diff_drive = _driven(Capdac, f"diff_{stage}", far[stage], _drive(*diff_key, difference))
         placed = _Stage(main_drive, diff_drive, [])
         for index, piece in enumerate(pieces[stage]):
             name = f"Xc_{stage}_{index}"  # an instance of a subcircuit (the PDK's view) is X...
@@ -486,5 +487,8 @@ def netlist(params: Params) -> h.Module:
                 placed.pieces.append(Capdac.add(request(INNER=main, TOP=top, SHIELD=Capdac.vss), name=name))
         stages.append(placed)
     grid = [[stages[stage].pieces[index] for stage, index in column] for column in columns] if columns else None
-    _place(Capdac, stages, grid, driver_rows, gap_nm, room_nm, far_nm)
+    # beyond the capacitors' ends, a rail beside their shield (its M2 over its M1, where the rails carry
+    # no taps) an M2 pitch from it
+    apart_nm = metal_tracks(pdk, "M2")[0] if slice_ is None and difference else 0
+    _place(Capdac, stages, grid, main_rows, diff_rows, gap_nm, room_nm, apart_nm)
     return Capdac
