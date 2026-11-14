@@ -176,15 +176,29 @@ def _driver_rows(
         mains = [r for r in mains if sum(len(row) == 1 for row in r) <= 1]
         mains.append(_packed(main, max(cap_nm[0], *main)))
     diffs = [_strided(len(diff), k) for k in range(1, len(diff) + 1)] if diff else [[]]
+    return min(
+        ((m, d) for m in mains for d in diffs),
+        key=lambda pair: _bands_outline(pair, main, diff, cap_nm, row_nm, stacked, gap_nm),
+    )
 
-    def outline(pair: tuple[list[list[int]], list[list[int]]]) -> tuple[int, bool, int]:
-        m, d = pair
-        count = len(m) + len(d)
-        width = max(cap_nm[0], _rows_width(main, m), _rows_width(diff, d, gap_nm))
-        tall = max(cap_nm[1], count * row_nm) if stacked or not diff else cap_nm[1] + count * row_nm
-        return width * tall, stacked and bool(diff) and len(d) < min(2, len(diff)), count
 
-    return min(((m, d) for m in mains for d in diffs), key=outline)
+def _bands_outline(
+    pair: tuple[list[list[int]], list[list[int]]],
+    main: list[int],
+    diff: list[int],
+    cap_nm: tuple[int, int],
+    row_nm: int,
+    stacked: bool,
+    gap_nm: int,
+) -> tuple[int, bool, int]:
+    """``_driver_rows``'s order of a main band's and a difference band's rows (``pair``): the outline
+    they and the capacitors take, then (where the capacitors stack) fewer than two difference rows
+    last, then the row count."""
+    m, d = pair
+    count = len(m) + len(d)
+    width = max(cap_nm[0], _rows_width(main, m), _rows_width(diff, d, gap_nm))
+    tall = max(cap_nm[1], count * row_nm) if stacked or not diff else cap_nm[1] + count * row_nm
+    return width * tall, stacked and bool(diff) and len(d) < min(2, len(diff)), count
 
 
 def _grid_rows(count: int, unit_nm: tuple[int, int]) -> int:
@@ -455,6 +469,7 @@ def netlist(params: Params) -> h.Module:
         main, main_drive = _driven(Capdac, f"main_{stage}", state[stage], _drive(*main_key, difference))
         diff, diff_drive = None, None
         if diff_key is not None:
+            assert far is not None  # a difference key only where the array has difference capacitors
             diff, diff_drive = _driven(Capdac, f"diff_{stage}", far[stage], _drive(*diff_key, difference))
         placed = _Stage(main_drive, diff_drive, [])
         for index, piece in enumerate(pieces[stage]):
