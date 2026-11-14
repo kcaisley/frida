@@ -314,6 +314,11 @@ def _place(
     inner: list[c.Constraint] = list(arrange)
     if gap_nm:
         inner += [c.Spread(tuple(r), c.Axis.HORIZONTAL, gap_nm) for r in band if len(r) > 1]
+    if any(stage.diff is not None for stage in stages):
+        # a row of main and difference drivers on one line: else ALIGN stands a difference driver
+        # on the free line between two rows (rows stand a line apart where the capacitors stack
+        # over them), its corners on the rows' cells across the rails, their implants unmatched
+        inner += [c.Align(tuple(r), c.Line.H_BOTTOM) for r in band if len(r) > 1]
     room = (c.Boundary(halo_horizontal_um=room_nm / 1000, halo_vertical_um=far_nm / 1000),) if room_nm or far_nm else ()
     if slice_ is not None:
         shield, top = slice_
