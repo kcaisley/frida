@@ -106,6 +106,11 @@ def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
         x_drawn = x_drawn[np.isfinite(x_drawn) & ((x_drawn > 0) if plot.x_log else True)]
         x_extent = (float(x_drawn.min()), float(x_drawn.max())) if x_drawn.size else (math.nan, math.nan)
         _guides(ax, plot, x_factor, y_factor, x_extent)
+        # the axis spans every x the spec lists, a failed point's (NaN) among them: a curve with gaps
+        # at its ends shares its x range with its neighbours over the same condition
+        if x_drawn.size and plot.x_labels is None:
+            ax.dataLim.update_from_data_x(x_drawn, ignore=False)
+            ax.autoscale_view()
         ax.set_xscale("log" if plot.x_log else "linear")
         ax.set_yscale("log" if plot.y_log else "linear")
         if plot.y_range is not None:

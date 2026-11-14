@@ -285,3 +285,19 @@ def test_the_viewer_maps_in_the_renderers_colours() -> None:
     for position in np.linspace(0, 1, 101):
         between = [np.interp(position, positions, colours[:, channel]) for channel in range(3)]
         assert np.abs(np.array(DENSITY_COLOR_MAP(position)[:3]) - between).max() < 2 / 255
+
+
+def test_an_axis_spans_every_listed_x_a_failed_points_among_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A series failed (NaN) at both ends of x, 0 V and 1.2 V: the x axis still spans 0 to 1.2 V
+    (matplotlib's own autoscale reaches only the finite points, 0.3 to 0.9 V), so plots over one
+    condition share their x range."""
+    plot = Plot(
+        name="gaps",
+        title="gaps",
+        x_label="Input level (V)",
+        y_label="PSRR (dB)",
+        x=[0.0, 0.3, 0.6, 0.9, 1.2],
+        series={"PSRR": [math.nan, 18.0, 19.0, 20.0, math.nan]},
+    )
+    low, high = drawn(plot, monkeypatch).axes[0].get_xlim()
+    assert low <= 0.0 and high >= 1.2
