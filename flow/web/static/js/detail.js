@@ -430,8 +430,9 @@ class PlotsPanel {
         for (const shape of shapes) if (this.hidden.has(shape.name)) shape.visible = false;
         if (shapes.length) traces.push(guideTrace(shapes));
         const legendEntries = traces.filter((trace) => trace.showlegend !== false).length;
-        // the axes ticked for what they hold: the detail's hints (whole codes, steps) where it has them
-        const layout = paperLayout(title ?? first.title, x.label, y.label, first.x_log, first.y_log, legendEntries > 1 ? legendEntries : 0, theme, { traces, x: first.x_ticks ?? null, y: first.y_ticks ?? null, xLabels: categories, yLabels: rows });
+        // the axes ticked for what they hold: the detail's hints (whole codes, steps) where it has them,
+        // y spanning at least the detail's range where it gives one
+        const layout = paperLayout(title ?? first.title, x.label, y.label, first.x_log, first.y_log, legendEntries > 1 ? legendEntries : 0, theme, { traces, x: first.x_ticks ?? null, y: first.y_ticks ?? null, xLabels: categories, yLabels: rows, yRange: first.y_range ? first.y_range.map((value) => value * y.factor) : null });
         layout.title.font.size = 13;
         if (color) layout.title.font.color = color;
         layout.margin = { l: 64, r: 12, t: 34, b: 46 };

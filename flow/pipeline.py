@@ -980,6 +980,9 @@ class Plot:
     series: dict[str, list[float]]  # label -> y at each x (NaN where the point failed)
     x_log: bool = False
     y_log: bool = False
+    # an extent the y axis spans at least, low and high in the series' own unit, padded as the data
+    # are (a share: 0 to 1, though every point lies near 1); None: the data's alone
+    y_range: tuple[float, float] | None = None
     figure: str | None = None  # an SVG under build/ the viewer shows in place of the plot (x, series empty)
     # step lines over x, each {"y": [...], "count": n}: how many records took it (the ADC's decision
     # paths), drawn weighted by their counts beside or instead of the series
@@ -1014,23 +1017,25 @@ class Plot:
 
     def to_json(self) -> dict[str, Any]:
         """The spec as a record keeps it and the viewer reads it (``dataclasses.asdict``, NaN as it
-        is: the writers make it null), its y categories, markers, bands and heatmap only where it has
-        any."""
+        is: the writers make it null), its y range, y categories, markers, bands and heatmap only
+        where it has any."""
         spec = asdict(self)
-        for name in ("y_labels", "x_markers", "y_markers", "x_bands", "heatmap"):
+        for name in ("y_range", "y_labels", "x_markers", "y_markers", "x_bands", "heatmap"):
             if not spec[name]:
                 del spec[name]
         return spec
 
     @classmethod
     def from_json(cls, spec: Mapping[str, Any]) -> Plot:
-        """A spec from its JSON (``to_json``: a record's detail), its markers, bands and heatmap
-        their types again (a null, where a point failed or a cell is empty, stays None; a missing
+        """A spec from its JSON (``to_json``: a record's detail), its y range, markers, bands and
+        heatmap their types again (a null, where a point failed or a cell is empty, stays None; a missing
         key its default)."""
         given = dict(spec)
         heatmap = given.pop("heatmap", None)
+        y_range = given.pop("y_range", None)
         return cls(
             **{name: value for name, value in given.items() if name not in ("x_markers", "y_markers", "x_bands")},
+            y_range=(float(y_range[0]), float(y_range[1])) if y_range else None,
             x_markers=[Marker(**marker) for marker in given.get("x_markers", ())],
             y_markers=[Marker(**marker) for marker in given.get("y_markers", ())],
             x_bands=[Band(**band) for band in given.get("x_bands", ())],

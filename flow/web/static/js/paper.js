@@ -14,6 +14,8 @@
 //     xLabels, yLabels: the axis's categories by name (a Detail's x_labels, y_labels), its values
 //       their indices 0, 1, 2, ...: then it is ticked at each by its name (labelTicks), its kind
 //       unused
+//     xRange, yRange: [low, high] the axis spans at least (a Detail's y_range, scaled to its unit),
+//       beside the traces' values, padded 5 % either way (in decades on a log axis)
 //   returns the Plotly layout.
 // keepTicks(element): call once after Plotly.newPlot or Plotly.react; refits the ticks paperLayout
 //   fitted when the plot is zoomed or panned, and restores them when it is reset.
@@ -250,6 +252,14 @@ function fitFromValues(kind, values, minor) {
     return fitAxis(kind, low, high, minor, values);
 }
 
+// an axis's extent over `values`, 5 % of it beyond either end, as Plotly gives it (log10 on a log
+// axis, its padding in decades)
+function paddedRange(values, log) {
+    const [low, high] = extent(log ? values.filter((value) => value > 0).map(Math.log10) : values);
+    const pad = 0.05 * (high - low || Math.abs(high) || 1);
+    return [low - pad, high + pad];
+}
+
 // mode: "dark" or "light" on screen, "paper" for a saved SVG; the legend, where there is one, under
 // the plot (plots.py's "outside lower center"), its entries a row that wraps: never over the curves
 export function paperLayout(title, xTitle, yTitle, logX, logY, legendCount, mode = currentTheme(), axes = {}) {
@@ -285,7 +295,7 @@ export function paperLayout(title, xTitle, yTitle, logX, logY, legendCount, mode
         dragmode: "zoom",
     };
     const traces = axes?.traces;
-    if (!traces && !axes?.x && !axes?.y && !axes?.xLabels?.length && !axes?.yLabels?.length) return layout;
+    if (!traces && !axes?.x && !axes?.y && !axes?.xLabels?.length && !axes?.yLabels?.length && !axes?.xRange && !axes?.yRange) return layout;
     const fitted = {};
     for (const [key, title, log] of [
         ["x", xTitle, logX],
@@ -300,7 +310,11 @@ export function paperLayout(title, xTitle, yTitle, logX, logY, legendCount, mode
         }
         const values = traceValues(traces, key);
         const kind = axisKind(axes[key], title, log, values);
-        Object.assign(axis, fitFromValues(kind, values, axis.minor));
+        const range = axes[`${key}Range`];
+        // the range's ends among the values the ticks and the axis's extent are fitted to
+        const spanned = Array.isArray(range) ? [...values, ...range.filter((value) => Number.isFinite(value) && (!log || value > 0))] : values;
+        Object.assign(axis, fitFromValues(kind, spanned, axis.minor));
+        if (Array.isArray(range) && spanned.length) axis.range = paddedRange(spanned, log);
         fitted[key] = { kind, ticks: { ...axis } };
     }
     FITTED.set(layout, fitted);

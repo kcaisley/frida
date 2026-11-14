@@ -166,7 +166,7 @@ def test_a_heatmap_holds_a_row_of_values_for_each_row_of_cells() -> None:
 def test_a_spec_reads_back_from_its_json() -> None:
     # without y categories, markers, bands or a map: its JSON is its fields as they were, none of theirs
     bare = Plot("noise", "Noise", "Input (V)", "Noise (V)", [0.1, 0.2], {"Noise": [1e-4, 2e-4]})
-    overlays = {"y_labels", "x_markers", "y_markers", "x_bands", "heatmap"}
+    overlays = {"y_range", "y_labels", "x_markers", "y_markers", "x_bands", "heatmap"}
     assert set(bare.to_json()) == {field.name for field in fields(Plot)} - overlays
     assert Plot.from_json(json.loads(json.dumps(bare.to_json()))) == bare
     full = Plot(
@@ -184,6 +184,26 @@ def test_a_spec_reads_back_from_its_json() -> None:
     spec = json.loads(json.dumps(full.to_json()))
     assert spec["heatmap"]["z"] == [[3.0], [4.0]] and spec["y_markers"] == [{"at": 1.0, "label": ""}]
     assert Plot.from_json(spec) == full
+    # a y range reads back a pair of numbers, as the spec held it
+    share = Plot("share", "Share", "Offset (s)", "Fraction captured", [0.0, 1e-11], {"c": [0.5, 1.0]}, y_range=(0, 1))
+    spec = json.loads(json.dumps(share.to_json()))
+    assert spec["y_range"] == [0, 1] and Plot.from_json(spec) == share
+
+
+def test_a_y_range_widens_the_axis_to_it_padded_as_the_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Shares between 0.5 and 1 over (0, 1): the axis spans 0 to 1 with the data's margin either side
+    (matplotlib's 5 %: -0.05 to 1.05); without the range it spans 0.475 to 1.025, the data's
+    alone; data past the range widen it further (1.5: -0.075 to 1.575)."""
+
+    def share(y: list[float], **overlays) -> Plot:
+        return Plot("s", "", "Data offset (s)", "Fraction captured", [0.0, 1e-11, 2e-11], {"c": y}, **overlays)
+
+    assert drawn(share([0.5, 0.75, 1.0], y_range=(0, 1)), monkeypatch).axes[0].get_ylim() == pytest.approx(
+        (-0.05, 1.05)
+    )
+    assert drawn(share([0.5, 0.75, 1.0]), monkeypatch).axes[0].get_ylim() == pytest.approx((0.475, 1.025))
+    wide = drawn(share([0.5, 1.0, 1.5], y_range=(0, 1)), monkeypatch).axes[0].get_ylim()
+    assert wide == pytest.approx((-0.075, 1.575))
 
 
 def test_categories_on_both_axes_tick_a_maps_cells_by_name(monkeypatch: pytest.MonkeyPatch) -> None:

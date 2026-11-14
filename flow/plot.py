@@ -56,9 +56,9 @@ def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
     long series (over 100 points: a spectrum, a code axis, a waveform) a plain line, as the viewer
     draws them, the histogram's as step outlines, the decision paths as step lines weighted by how
     many records took each; its bands shaded behind the curves and its markers dashed over them, in
-    the spine's grey, each labelled at the plot's edge; log axes ticked as the viewer ticks them,
-    categories on either axis (each ticked by its name, nothing between) and whole-number ticks
-    where the spec asks."""
+    the spine's grey, each labelled at the plot's edge; y spanning at least the spec's range, where
+    it gives one; log axes ticked as the viewer ticks them, categories on either axis (each ticked
+    by its name, nothing between) and whole-number ticks where the spec asks."""
 
     if plot.figure is not None:
         raise ValueError(f"{plot.name} is a drawn figure ({plot.figure}), not a spec to render")
@@ -102,6 +102,11 @@ def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
         _guides(ax, plot, x_factor, y_factor, x_extent)
         ax.set_xscale("log" if plot.x_log else "linear")
         ax.set_yscale("log" if plot.y_log else "linear")
+        if plot.y_range is not None:
+            # the range's ends among the data the view is fitted to, padded as they are
+            ends = np.asarray(plot.y_range, dtype=np.float64) * y_factor
+            ax.update_datalim(np.column_stack([np.zeros(2), ends]), updatex=False)
+            ax.autoscale_view(scalex=False)
         for axis, log, names in ((ax.xaxis, plot.x_log, plot.x_labels), (ax.yaxis, plot.y_log, plot.y_labels)):
             if log and names is None:
                 _log_ticks(axis)
