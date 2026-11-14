@@ -4,10 +4,10 @@ same ``Params`` in the PDK (``flow.follower.runs``, looked up by ``flow.sweep.lo
     model = follower.model.Model.of("tsmc65", follower.Params())
     vout_v = model.output(vin_v)
 
-The characterization's output level over the input level (the operating point at each twelfth of
-the supply) is the model's static transfer, interpolated between its points; its small-signal
-gain, bandwidth and output impedance at the nominal input are kept beside it for a higher level's
-own dynamics.
+The characterization's output level over the input level (the input's DC sweep from ground to the
+supply, ``plots.plot_vout_vin``) is the model's static transfer, interpolated between its points;
+its small-signal gain, bandwidth and output resistance at the nominal input are kept beside it for
+a higher level's own dynamics.
 """
 
 from __future__ import annotations
@@ -29,9 +29,9 @@ class Model:
     params: Params
     vin_v: tuple[float, ...]  # input levels of the output-level curve
     vout_v: tuple[float, ...]
-    gain_dc: float  # at the nominal input, as the bandwidth and the output impedance
+    gain_dc: float  # at the nominal input, as the bandwidth and the output resistance
     bandwidth_hz: float
-    zout_dc_ohm: float
+    rout_ohm: float
 
     @classmethod
     def of(cls, pdk: str, params: Params, *, simulate: bool = True) -> Model:
@@ -46,7 +46,7 @@ class Model:
             vout_v=tuple(y for _, y in pairs),
             gain_dc=metrics["gain_dc"],
             bandwidth_hz=metrics["bandwidth_hz"],
-            zout_dc_ohm=metrics["zout_dc_ohm"],
+            rout_ohm=metrics["rout_ohm"],
         )
 
     def output(self, vin_v: np.ndarray) -> np.ndarray:

@@ -15,7 +15,7 @@ from .plots import (
     plot_psrr_vin,
     plot_vout_vin,
     plot_zout_frequency,
-    plot_zout_vin,
+    plot_rout_vin,
 )
 from .sim import simulate, testbench
 from .subckt import Nets, netlist
@@ -48,9 +48,9 @@ __all__ = [
     "plot_gain_vin",
     "plot_psrr_supply",
     "plot_psrr_vin",
+    "plot_rout_vin",
     "plot_vout_vin",
     "plot_zout_frequency",
-    "plot_zout_vin",
     "plots",
     "results",
     "runs",

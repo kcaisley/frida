@@ -15,7 +15,7 @@ def test_the_output_level_follows_the_measured_curve() -> None:
         vout_v=(0.0, 0.05, 0.4, 0.75),
         gain_dc=0.85,
         bandwidth_hz=1e9,
-        zout_dc_ohm=2e3,
+        rout_ohm=2e3,
     )
     # between its points, and held flat past its ends
     assert model.output(np.asarray([0.6, 1.0])) == pytest.approx([0.225, 0.575])
