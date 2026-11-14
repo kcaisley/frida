@@ -30,6 +30,16 @@ class Control(Enum):
     TAIL = auto()  # every NMOS source on one shared tail, an NMOS gated by vctrl
 
 
+class Oscillation(Enum):
+    """What a ring's output did after its enable (``analysis.analyze_oscillation``): it crossed
+    mid-supply until the run's end and made two whole cycles or more (timed), crossed it until the
+    run's end too slowly for two whole cycles (not timed), or came to rest (stopped)."""
+
+    TIMED = auto()  # three rising crossings or more, the last within two periods of the run's end
+    SLOW = auto()  # fewer rises, two crossings or more, the last within two crossing gaps of the end
+    STOPPED = auto()  # neither: no crossing near the run's end, or under two crossings after the enable
+
+
 @h.paramclass
 class Params:
     """The delay line or ring oscillator: its topology and its devices' sizes as positive multiples
@@ -38,8 +48,9 @@ class Params:
     defaults are a five-stage inverter delay line.
 
     A coupled stage and an injection device need both chains; a ring needs an inversion around the
-    loop, so a single-ended ring has an odd number of stages (a differential one crosses its chains
-    at the end) and at least two; an injection device belongs to a ring."""
+    loop, so a single-ended ring has an odd number of stages and a differential one coupled stages
+    (it crosses its chains at the end; uncoupled, the two chains make one loop of 2N inverters), and
+    at least two; an injection device belongs to a ring."""
 
     # Topology parameters
     stage = h.Param(dtype=Stage, desc="Stage type", default=Stage.INVERTER)
@@ -71,6 +82,10 @@ class Params:
             raise ValueError("an injection device belongs to a ring")
         if self.ring and not self.differential and self.stages % 2 == 0:
             raise ValueError("a single-ended ring needs an odd number of stages: an inversion around the loop")
+        # [Razavi-PLL] Sec. 4.9.3, Fig. 4.36, p. 130: a loop of an even number of inverters latches up; two
+        # uncoupled chains crossed at the loop make one loop through 2N inverters
+        if self.ring and self.differential and self.stage is not Stage.COUPLED:
+            raise ValueError("a differential ring needs coupled stages: its uncoupled chains make one even loop")
         if self.ring and self.stages < 2:
             raise ValueError("a ring needs at least two stages")
 
@@ -90,21 +105,34 @@ GAIN_POINTS = (7 / 12, 9 / 12)
 @dataclass(frozen=True, kw_only=True)
 class TbParams(pipeline.TbParams):
     """One run of the chain's testbench (flow.delay.sim.testbench): the chain ``params`` in ``pdk``
-    at supply ``vdd`` with ``cload_f`` on each output. ``vcont_v`` sets every analog control at
-    once: ``vbn`` and ``vctrl`` to it and ``vbp`` to the supply minus it. A ring's enable rises
-    after ``enable_delay_s`` and a kick-start then holds the outputs apart for ``kick_time_s``; a
-    delay line's complementary input clock has the period ``clock_period_s``; both edge in
-    ``transition_time_s``. ``vinj_v`` is the injection input's level. The transient runs
-    ``stop_time_s``; Spectre writes its output every ``waveform_sample_interval_s`` and steps no
-    further."""
+    at supply ``vdd``, at the typical process corner and 25 C (``flow.circuit.spectre``'s defaults),
+    each output loaded by two more of its stages, the first one's output loaded by the second: a
+    fan-out of one at a line's output, of two at a ring's, which also drives the ring's first stage.
+
+    ``vcont_v`` sets every analog control the chain has: a starved chain's ``vbn`` to it and its
+    ``vbp`` to the gate of a PMOS diode carrying the current an NMOS at ``vbn`` draws (so that a
+    stage's foot and head carry one current); a tail chain's ``vctrl`` to it. A ring's enable rises
+    ``enable_delay_s`` into the run, in ``transition_time_s``; nothing else starts it. An injecting
+    ring's ``inj`` is tied to ground (no run drives it: its device only loads the first stage's
+    outputs). A delay line's input clock, of period ``clock_period_s`` and its first edge a quarter
+    period in, reaches the line through two of its own stages: one rail-to-rail clock for a
+    single-ended line, complementary clocks for a differential one; each of the clock's
+    edges is a ramp of ``transition_time_s`` from one rail to the other (0 to 100 %: 0.8 of it from
+    10 to 90 %). The transient runs ``stop_time_s``: a delay line needs 3.5 periods (its second
+    rising input edge a period and a quarter in, then the two periods its current is averaged over,
+    and a quarter period for its driving stages). Spectre writes its output every
+    ``waveform_sample_interval_s`` (a time point forced there: ``strobeperiod``); Spectre X's error
+    control (``+preset=mx``) sets its steps between them.
+
+    The supply source ``vvdd`` feeds the chain alone: its current is the chain's, without the
+    driving stages, the load stages or the starving bias (each on a bench supply of its own), so a
+    delay line's leaves out its first stage's input charge (drawn from the driving stages) and the
+    bias's power is not counted."""
 
     pdk: str = "tsmc65"
     params: Params = field(default_factory=Params)
     vdd: float = 1.2
     vcont_v: float = 0.8
-    cload_f: float = 2e-15
-    kick_time_s: float = 1e-9
-    vinj_v: float = 0.0
     clock_period_s: float = 4e-9
     transition_time_s: float = 50e-12
     enable_delay_s: float = 1e-9
@@ -116,9 +144,6 @@ class TbParams(pipeline.TbParams):
             self.waveform_sample_interval_s,
             self.vdd,
             self.vcont_v,
-            self.cload_f,
-            self.kick_time_s,
-            self.vinj_v,
             self.clock_period_s,
             self.transition_time_s,
             self.enable_delay_s,
@@ -126,11 +151,13 @@ class TbParams(pipeline.TbParams):
         )
         if not all(math.isfinite(float(value)) for value in values):
             raise ValueError("delay testbench values must be finite")
-        if min(float(self.vdd), float(self.cload_f), float(self.kick_time_s), self.waveform_sample_interval_s) <= 0:
-            raise ValueError("delay supply, loads, and sample interval must be positive")
+        if min(float(self.vdd), self.waveform_sample_interval_s) <= 0:
+            raise ValueError("delay supply and sample interval must be positive")
         if not 0 <= float(self.vcont_v) <= float(self.vdd):
             raise ValueError("delay control voltage must lie between the rails")
         if float(self.clock_period_s) <= 2 * float(self.transition_time_s) or float(self.transition_time_s) <= 0:
             raise ValueError("delay input period must exceed both transitions, which must be positive")
         if not 0 <= float(self.enable_delay_s) < float(self.stop_time_s):
             raise ValueError("delay enable must rise within the transient")
+        if not self.params.ring and float(self.stop_time_s) < 3.5 * float(self.clock_period_s):
+            raise ValueError("a delay line's transient must last 3.5 input periods: its second edges and its current")

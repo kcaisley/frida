@@ -4,7 +4,7 @@ re-exported here (``from flow import delay`` then ``delay.Params``, ``delay.anal
 
 from . import params, subckt, sim, types, analysis, plots, runs  # noqa: I001 - the pipeline's order
 from .analysis import analyze_oscillation, analyze_propagation, metrics
-from .params import Control, Params, Stage, TbParams
+from .params import Control, Oscillation, Params, Stage, TbParams
 from .plots import (
     plot_delay_fall_control,
     plot_delay_fall_supply,
@@ -41,6 +41,7 @@ __all__ = [
     "Control",
     "Metrics",
     "Nets",
+    "Oscillation",
     "Params",
     "Stage",
     "TbParams",

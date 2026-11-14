@@ -3,11 +3,11 @@
 characterize one instance (``testbenches``) and the record they make (``results``).
 
 Each instance at the PDK's supply and the nominal control (8/12 of it): a ring's frequency, swing,
-power and energy per cycle, a delay line's delays and output transitions and its energy per input
-cycle (4 ns period), either one's delay per stage; over the supply (90 and 110 % of its own besides
-nominal) the same. A chain with a control (starved or on a shared tail) also over the control, 5/12
-of the supply to all of it, and its gain about the nominal control. Three to ten Spectre runs of
-40 ns.
+duty cycle, power and energy per cycle, a delay line's delays and output transitions and its energy
+per input cycle (4 ns period), either one's delay per stage; over the supply (90 and 110 % of its
+own besides nominal) the same. A chain with a control (starved or on a shared tail) also over the control, 5/12
+of the supply to all of it, and its gain about the nominal control. Three to ten Spectre runs, of
+40 ns for a ring and 16 ns for a delay line.
 """
 
 from __future__ import annotations
@@ -28,6 +28,8 @@ from .plots import (
     plot_delay_fall_supply,
     plot_delay_rise_control,
     plot_delay_rise_supply,
+    plot_duty_cycle_control,
+    plot_duty_cycle_supply,
     plot_energy_control,
     plot_energy_supply,
     plot_fall_time_control,
@@ -53,7 +55,8 @@ def ring5_starved() -> Params:
 
 @single
 def ring4_coupled() -> Params:
-    """Four-stage pseudo-differential coupled ring, with its injection device."""
+    """Four-stage pseudo-differential coupled ring, with its injection device (held off: no run drives
+    inj, so the device only loads the first stage's outputs)."""
     return Params(stages=4, ring=True, differential=True, stage=Stage.COUPLED, inject=True)
 
 
@@ -123,7 +126,12 @@ def testbenches(pdk: str, params: Params) -> dict[str, TbParams]:
     PDK's supply at each other control (``control_<twelfths>``; the nominal one is ``supply_100``)."""
 
     supply = importlib.import_module(f"pdk.{pdk}.hdl21.site").install.supply_voltage(h.pdk.Corner.TYP)
-    nominal = TbParams(pdk=pdk, params=params, vdd=round(supply, 4), vcont_v=round(NOMINAL_CONTROL * supply, 4))
+    # a ring runs the bench's 40 ns (two whole cycles to time at periods up to about 13 ns); a delay
+    # line four input periods, the 3.5 its analysis reads and half a period's margin
+    length = {} if params.ring else {"stop_time_s": 4 * TbParams.clock_period_s}
+    nominal = TbParams(
+        pdk=pdk, params=params, vdd=round(supply, 4), vcont_v=round(NOMINAL_CONTROL * supply, 4), **length
+    )
     benches = {
         f"supply_{round(factor * 100)}": replace(nominal, vdd=round(factor * supply, 4)) for factor in SUPPLY_SWEEP
     }
@@ -152,12 +160,14 @@ def results(measurements: dict[str, Meas]) -> Results:
             plot_oscillation_frequency_supply(supply),
             plot_stage_delay_supply(supply),
             plot_energy_supply(supply),
+            plot_duty_cycle_supply(supply),
         ]
         if control is not None:
             details += [
                 plot_oscillation_frequency_control(control),
                 plot_kvco_control(control),
                 plot_energy_control(control),
+                plot_duty_cycle_control(control),
             ]
         values = metrics(supply=supply, control=control)
     else:
