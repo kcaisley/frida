@@ -1,6 +1,6 @@
 """What the analysis studies of the blocks not on the pipeline share: explicit, manually invoked
 measurement -> analysis -> plot pipelines, the ``*_study`` targets in each such block's
-``targets.py`` (``python -m flow delay.characterization_study``). A block on the pipeline has no
+``targets.py`` (``python -m flow idac.characterization_study``). A block on the pipeline has no
 studies: its figures of captures are ``python -m flow.plot <block> <captures>``.
 
 Each study pins its accepted input files or measurement directories under ``BASE_PATH``. Small

@@ -32,17 +32,12 @@ BLOCKS: tuple[str, ...] = ()
 # text netlist writer went (flow.circuit.devices.write_netlist), so they are out of the contract until
 # ported; a ported one moves to flow/test_pipeline.py's MIGRATED, never back here
 WAITING = (
-    "delay",
-    "latch",
-    "ota",
-    "follower",
     "idac",
     "cml",
     "pi",
     "clkgen",
     "lvshift",
     "ringamp",
-    "csa",
     "disc",
     "schmitt",
     "bias",

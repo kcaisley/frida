@@ -110,6 +110,11 @@ include = [
     "flow/comp/**",
     "flow/samp/**",
     "flow/capdac/**",
+    "flow/ota/**",
+    "flow/latch/**",
+    "flow/follower/**",
+    "flow/delay/**",
+    "flow/csa/**",
     "flow/layout/devices/**",
     "flow/layout/hdl21align/**",
     "flow/layout/test_hdl21align.py",
@@ -155,6 +160,46 @@ banned-from = [
     "flow.capdac.analysis",
     "flow.capdac.plots",
     "flow.capdac.sweep",
+    "flow.ota",
+    "flow.ota.params",
+    "flow.ota.subckt",
+    "flow.ota.sim",
+    "flow.ota.types",
+    "flow.ota.analysis",
+    "flow.ota.plots",
+    "flow.ota.runs",
+    "flow.latch",
+    "flow.latch.params",
+    "flow.latch.subckt",
+    "flow.latch.sim",
+    "flow.latch.types",
+    "flow.latch.analysis",
+    "flow.latch.plots",
+    "flow.latch.runs",
+    "flow.follower",
+    "flow.follower.params",
+    "flow.follower.subckt",
+    "flow.follower.sim",
+    "flow.follower.types",
+    "flow.follower.analysis",
+    "flow.follower.plots",
+    "flow.follower.runs",
+    "flow.delay",
+    "flow.delay.params",
+    "flow.delay.subckt",
+    "flow.delay.sim",
+    "flow.delay.types",
+    "flow.delay.analysis",
+    "flow.delay.plots",
+    "flow.delay.runs",
+    "flow.csa",
+    "flow.csa.params",
+    "flow.csa.subckt",
+    "flow.csa.sim",
+    "flow.csa.types",
+    "flow.csa.analysis",
+    "flow.csa.plots",
+    "flow.csa.runs",
 ]
 
 [tool.ruff.lint.isort]
@@ -177,14 +222,25 @@ exclude_type_checking_imports = true
 # another, and none imported by a stage
 name = "each block's stages import only the stages below them"
 type = "layers"
-containers = ["flow.adc", "flow.capdac", "flow.comp", "flow.samp"]
+containers = ["flow.adc", "flow.capdac", "flow.comp", "flow.csa", "flow.delay", "flow.follower", "flow.latch", "flow.ota", "flow.samp"]
 layers = ["model | (layout)", "runs", "plots", "analysis", "types", "sim", "subckt", "params"]
 
 [[tool.importlinter.contracts]]
 name = "the pipeline's base knows no block"
 type = "forbidden"
 source_modules = ["flow.pipeline"]
-forbidden_modules = ["flow.comp", "flow.samp", "flow.adc", "flow.capdac", "flow.sweep"]
+forbidden_modules = [
+    "flow.comp",
+    "flow.samp",
+    "flow.adc",
+    "flow.capdac",
+    "flow.csa",
+    "flow.delay",
+    "flow.follower",
+    "flow.latch",
+    "flow.ota",
+    "flow.sweep",
+]
 
 [[tool.importlinter.contracts]]
 # the circuit helpers every block's sim uses, and the measurement files' reader and writer: the ADC's
@@ -215,7 +271,7 @@ markers = [
 ruff = "ruff>=0.16.6"
 import-linter = "import-linter>=2.15"
 rumdl = "rumdl>=0.2.55"
-python-files = '^(flow/((analysis|scans|adc|capdac|comp|samp|seqgen|circuit|sweep|web|layout)/.*|[^/]+)|tools/[^/]+)\.py$'
+python-files = '^(flow/((analysis|scans|adc|capdac|comp|csa|delay|follower|latch|ota|samp|seqgen|circuit|sweep|web|layout)/.*|[^/]+)|tools/[^/]+)\.py$'
 # ty: these and every migrated block's stages (flow.test_pipeline.typed), the files that pass
 ty-paths = [
     "flow/opt/runner.py",
@@ -277,6 +333,33 @@ pytest = [
     "flow/samp/test_analysis.py",
     "flow/samp/test_plots.py",
     "flow/samp/test_model.py",
+    "flow/ota/test_subckt.py",
+    "flow/ota/test_sim.py",
+    "flow/ota/test_analysis.py",
+    "flow/ota/test_plots.py",
+    "flow/ota/test_model.py",
+    "flow/latch/test_subckt.py",
+    "flow/latch/test_sim.py",
+    "flow/latch/test_analysis.py",
+    "flow/latch/test_plots.py",
+    "flow/latch/test_model.py",
+    "flow/latch/test_runs.py",
+    "flow/follower/test_subckt.py",
+    "flow/follower/test_sim.py",
+    "flow/follower/test_analysis.py",
+    "flow/follower/test_plots.py",
+    "flow/follower/test_model.py",
+    "flow/delay/test_subckt.py",
+    "flow/delay/test_sim.py",
+    "flow/delay/test_analysis.py",
+    "flow/delay/test_plots.py",
+    "flow/delay/test_model.py",
+    "flow/delay/test_runs.py",
+    "flow/csa/test_subckt.py",
+    "flow/csa/test_sim.py",
+    "flow/csa/test_analysis.py",
+    "flow/csa/test_plots.py",
+    "flow/csa/test_model.py",
     "flow/seqgen/test_analysis.py",
     "flow/seqgen/test_plots.py",
     "flow/circuit/test_sim.py",
