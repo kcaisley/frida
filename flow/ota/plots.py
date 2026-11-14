@@ -1,256 +1,205 @@
-"""OTA architecture comparisons: one panel per named case, shared axes."""
+"""The amplifier's figures as ``Plot`` specs (``flow.pipeline.Plot``), each from analysis results
+alone: the open-loop response, rejections and noise over frequency at one point (a result's
+first), the condition sweeps over the input common mode and over the supply, and a single-ended
+amplifier's unity-gain step response and output spectrum (a record's plots). The viewer draws a
+record's from its JSON, ``flow.plot.render`` any with matplotlib (the CLI's figures step)."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from pathlib import Path
+from flow.pipeline import Plot, plot
 
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-import numpy as np
-
-from flow.analysis.plots import NORD_BLUE, NORD_DARK, NORD_RED, PLOT_STYLE, save_figure, style_grid
-from flow.ota.analysis import AnalysisOtaAc, AnalysisOtaDistortion, AnalysisOtaNoise, AnalysisOtaSlew, MeasOtaTran
+from .params import SUPPLY_SWEEP
+from .types import AnalysisAc, AnalysisDistortion, AnalysisNoise, AnalysisSlew
 
 
-@mpl.rc_context(PLOT_STYLE)
-def plot_ota_bode(
-    responses: Sequence[AnalysisOtaAc],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare the amplifiers' open-loop gain and phase at one point each (their first)."""
-
-    if not responses or len(responses) != len(labels):
-        raise ValueError("Bode comparison requires one AC result and label per amplifier")
-    columns = min(3, len(responses))
-    rows = (len(responses) + columns - 1) // columns
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (response, label) in enumerate(zip(responses, labels, strict=True)):
-        ax = axes.flat[index]
-        ax.semilogx(response.frequency_hz, response.gain_db[0], "-", color=NORD_BLUE)
-        ax.axhline(0.0, color=NORD_DARK, linewidth=0.8)
-        ax.tick_params(axis="y", colors=NORD_BLUE)
-        phase_ax = ax.twinx()
-        phase_ax.semilogx(response.frequency_hz, response.phase_deg[0] - response.phase_deg[0][0], "--", color=NORD_RED)
-        phase_ax.set_ylim(-360.0, 30.0)
-        phase_ax.set_yticks(np.arange(-360, 1, 90))
-        phase_ax.tick_params(axis="y", colors=NORD_RED)
-        if index % columns == columns - 1 or index == len(responses) - 1:
-            phase_ax.set_ylabel("Phase (°)", color=NORD_RED)
-        margin = f", GM {response.gain_margin_db[0]:.0f} dB" if np.isfinite(response.gain_margin_db[0]) else ""
-        ax.set_title(
-            f"{label}\n{response.dc_gain_db[0]:.1f} dB, {response.ugbw_hz[0] * 1e-9:.2g} GHz, "
-            f"PM {response.phase_margin_deg[0]:.0f}°{margin}"
-        )
-        style_grid(ax)
-    for ax in axes.flat[len(responses) :]:
-        ax.set_visible(False)
-    fig.supxlabel("Frequency (Hz)")
-    fig.supylabel("Differential gain (dB)", color=NORD_BLUE)
-    fig.suptitle(f"Open-loop response at {responses[0].vdd_v[0]:g} V, input common mode {responses[0].vcm_v[0]:g} V")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_ota_common_mode(
-    responses: Sequence[AnalysisOtaAc],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare the input common-mode ranges: DC gain and unity-gain bandwidth versus input common mode."""
-
-    if not responses or len(responses) != len(labels):
-        raise ValueError("common-mode comparison requires one AC result and label per amplifier")
-    columns = min(3, len(responses))
-    rows = (len(responses) + columns - 1) // columns
-    ugbw_limit_ghz = 1.1 * max(np.nanmax(item.ugbw_hz, initial=0.0) * 1e-9 for item in responses)
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (response, label) in enumerate(zip(responses, labels, strict=True)):
-        ax = axes.flat[index]
-        ax.plot(response.vcm_v, response.dc_gain_db, "o-", color=NORD_BLUE)
-        ax.tick_params(axis="y", colors=NORD_BLUE)
-        ugbw_ax = ax.twinx()
-        ugbw_ax.plot(response.vcm_v, response.ugbw_hz * 1e-9, "s-", color=NORD_RED)
-        ugbw_ax.set_ylim(0.0, ugbw_limit_ghz)
-        ugbw_ax.tick_params(axis="y", colors=NORD_RED)
-        if index % columns == columns - 1 or index == len(responses) - 1:
-            ugbw_ax.set_ylabel("Unity-gain bandwidth (GHz)", color=NORD_RED)
-        ax.set_title(label)
-        style_grid(ax)
-    for ax in axes.flat[len(responses) :]:
-        ax.set_visible(False)
-    fig.supxlabel("Input common mode (V)")
-    fig.supylabel("DC gain (dB)", color=NORD_BLUE)
-    fig.suptitle(f"Gain and bandwidth versus input common mode at {responses[0].vdd_v[0]:g} V")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_ota_supply(
-    responses: Sequence[AnalysisOtaAc],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare the amplifiers over the supply: unity-gain bandwidth and power, phase margin in the title."""
-
-    if not responses or len(responses) != len(labels):
-        raise ValueError("supply comparison requires one AC result and label per amplifier")
-    columns = min(3, len(responses))
-    rows = (len(responses) + columns - 1) // columns
-    power_limit_uw = 1.1 * max(np.nanmax(item.power_w, initial=0.0) * 1e6 for item in responses)
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (response, label) in enumerate(zip(responses, labels, strict=True)):
-        ax = axes.flat[index]
-        ax.plot(response.vdd_v, response.ugbw_hz * 1e-9, "o-", color=NORD_BLUE)
-        ax.tick_params(axis="y", colors=NORD_BLUE)
-        power_ax = ax.twinx()
-        power_ax.plot(response.vdd_v, response.power_w * 1e6, "s-", color=NORD_RED)
-        power_ax.set_ylim(0.0, power_limit_uw)
-        power_ax.tick_params(axis="y", colors=NORD_RED)
-        if index % columns == columns - 1 or index == len(responses) - 1:
-            power_ax.set_ylabel("Power (µW)", color=NORD_RED)
-        margins = response.phase_margin_deg[np.isfinite(response.phase_margin_deg)]
-        ax.set_title(f"{label}\nPM {np.min(margins):.0f}–{np.max(margins):.0f}°" if len(margins) else label)
-        style_grid(ax)
-    # the shared limit, once every panel has drawn: one panel's would cut the others' data
-    axes.flat[0].set_ylim(bottom=0.0)
-    for ax in axes.flat[len(responses) :]:
-        ax.set_visible(False)
-    fig.supxlabel("Supply (V)")
-    fig.supylabel("Unity-gain bandwidth (GHz)", color=NORD_BLUE)
-    fig.suptitle("Bandwidth and power versus supply, common modes at mid-supply")
-    return save_figure(fig, output_path)
-
-
-@mpl.rc_context(PLOT_STYLE)
-def plot_ota_rejection(
-    responses: Sequence[AnalysisOtaAc],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare the amplifiers' supply and common-mode rejection at outp over frequency, at one point each (their first)."""
-
-    if not responses or len(responses) != len(labels):
-        raise ValueError("rejection comparison requires one AC result and label per amplifier")
-    columns = min(3, len(responses))
-    rows = (len(responses) + columns - 1) // columns
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (response, label) in enumerate(zip(responses, labels, strict=True)):
-        ax = axes.flat[index]
-        ax.semilogx(response.frequency_hz, response.psrr_db[0], "-", color=NORD_BLUE, label="PSRR")
-        ax.semilogx(response.frequency_hz, response.cmrr_db[0], "--", color=NORD_RED, label="CMRR")
-        ax.axhline(0.0, color=NORD_DARK, linewidth=0.8)
-        ax.set_title(f"{label}\nPSRR {response.low_psrr_db[0]:.0f} dB, CMRR {response.low_cmrr_db[0]:.0f} dB")
-        style_grid(ax)
-    axes.flat[0].legend(loc="lower left")
-    for ax in axes.flat[len(responses) :]:
-        ax.set_visible(False)
-    fig.supxlabel("Frequency (Hz)")
-    fig.supylabel("Rejection at outp (dB)")
-    fig.suptitle(
-        f"Supply and common-mode rejection at {responses[0].vdd_v[0]:g} V, input common mode {responses[0].vcm_v[0]:g} V"
+@plot
+def plot_gain(ac: AnalysisAc) -> Plot:
+    """The open-loop differential gain over frequency, at the result's first point."""
+    return Plot(
+        name="gain",
+        title="Gain over frequency (mid-supply input)",
+        x_label="Frequency (Hz)",
+        y_label="Gain (dB)",
+        x=[float(value) for value in ac.frequency_hz],
+        series={"gain": [float(value) for value in ac.gain_db[0]]},
+        x_log=True,
     )
-    return save_figure(fig, output_path)
 
 
-@mpl.rc_context(PLOT_STYLE)
-def plot_ota_noise(
-    noises: Sequence[AnalysisOtaNoise],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare the amplifiers' input-referred noise over the input common mode: the spot density, and its RMS to the unity-gain bandwidth."""
-
-    if not noises or len(noises) != len(labels):
-        raise ValueError("noise comparison requires one noise result and label per amplifier")
-    columns = min(3, len(noises))
-    rows = (len(noises) + columns - 1) // columns
-    integrated_limit_uv = 1.1 * max(np.nanmax(item.integrated_noise_v, initial=0.0) * 1e6 for item in noises)
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (noise, label) in enumerate(zip(noises, labels, strict=True)):
-        ax = axes.flat[index]
-        ax.semilogy(noise.vcm_v, noise.spot_noise_v_rthz * 1e9, "o-", color=NORD_BLUE)
-        ax.tick_params(axis="y", colors=NORD_BLUE)
-        integrated_ax = ax.twinx()
-        integrated_ax.plot(noise.vcm_v, noise.integrated_noise_v * 1e6, "s-", color=NORD_RED)
-        integrated_ax.set_ylim(0.0, integrated_limit_uv)
-        integrated_ax.tick_params(axis="y", colors=NORD_RED)
-        if index % columns == columns - 1 or index == len(noises) - 1:
-            integrated_ax.set_ylabel("RMS to the unity-gain bandwidth (µV)", color=NORD_RED)
-        ax.set_title(label)
-        style_grid(ax)
-    for ax in axes.flat[len(noises) :]:
-        ax.set_visible(False)
-    fig.supxlabel("Input common mode (V)")
-    fig.supylabel(f"Input noise at {noises[0].spot_frequency_hz * 1e-6:.3g} MHz (nV/√Hz)", color=NORD_BLUE)
-    fig.suptitle(f"Input-referred noise versus input common mode at {noises[0].vdd_v[0]:g} V")
-    return save_figure(fig, output_path)
+@plot
+def plot_phase(ac: AnalysisAc) -> Plot:
+    """The open-loop response's phase over frequency, at the result's first point."""
+    return Plot(
+        name="phase",
+        title="Phase over frequency (mid-supply input)",
+        x_label="Frequency (Hz)",
+        y_label="Phase (deg)",
+        x=[float(value) for value in ac.frequency_hz],
+        series={"phase": [float(value) for value in ac.phase_deg[0]]},
+        x_log=True,
+    )
 
 
-@mpl.rc_context(PLOT_STYLE)
-def plot_ota_slew(
-    measurements: Sequence[MeasOtaTran],
-    slews: Sequence[AnalysisOtaSlew],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare the OTAs' unity-gain step responses: input and output, slew rates in each title."""
-
-    if not measurements or not len(measurements) == len(slews) == len(labels):
-        raise ValueError("slew comparison requires one step record, slew result, and label per OTA")
-    columns = min(2, len(measurements))
-    rows = (len(measurements) + columns - 1) // columns
-    fig, axes = plt.subplots(rows, columns, sharex=True, squeeze=False)
-    for index, (measurement, slew, label) in enumerate(zip(measurements, slews, labels, strict=True)):
-        ax = axes.flat[index]
-        wave = measurement.wave
-        if wave is None:
-            raise ValueError("slew comparison requires waveform records")
-        ax.plot(wave.time_s * 1e9, wave.v["inp"][0], ":", color=NORD_DARK, label="Input")
-        ax.plot(wave.time_s * 1e9, wave.v["outp"][0], "-", color=NORD_BLUE, label="Output")
-        ax.set_title(
-            f"{label}\nslew +{slew.rise_slew_v_per_s[0] * 1e-9:.2g} / {slew.fall_slew_v_per_s[0] * 1e-9:.2g} V/ns"
-        )
-        style_grid(ax)
-    for ax in axes.flat[len(measurements) :]:
-        ax.set_visible(False)
-    axes.flat[0].legend(loc="upper right", fontsize="small")
-    fig.supxlabel("Time (ns)")
-    fig.supylabel("Voltage (V)")
-    fig.suptitle("OTA unity-gain step response at mid-supply")
-    return save_figure(fig, output_path)
+@plot
+def plot_psrr(ac: AnalysisAc) -> Plot:
+    """The supply rejection at ``outp`` over frequency, at the result's first point."""
+    return Plot(
+        name="psrr",
+        title="Supply rejection at outp (mid-supply input)",
+        x_label="Frequency (Hz)",
+        y_label="PSRR (dB)",
+        x=[float(value) for value in ac.frequency_hz],
+        series={"PSRR": [float(value) for value in ac.psrr_db[0]]},
+        x_log=True,
+    )
 
 
-@mpl.rc_context(PLOT_STYLE)
-def plot_ota_distortion(
-    distortions: Sequence[AnalysisOtaDistortion],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare the OTAs' unity-gain output spectra on a sine, THD and SNDR in each title."""
+@plot
+def plot_cmrr(ac: AnalysisAc) -> Plot:
+    """The common-mode rejection at ``outp`` over frequency, at the result's first point."""
+    return Plot(
+        name="cmrr",
+        title="Common-mode rejection at outp (mid-supply input)",
+        x_label="Frequency (Hz)",
+        y_label="CMRR (dB)",
+        x=[float(value) for value in ac.frequency_hz],
+        series={"CMRR": [float(value) for value in ac.cmrr_db[0]]},
+        x_log=True,
+    )
 
-    if not distortions or len(distortions) != len(labels):
-        raise ValueError("distortion comparison requires one distortion result and label per OTA")
-    columns = min(2, len(distortions))
-    rows = (len(distortions) + columns - 1) // columns
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (distortion, label) in enumerate(zip(distortions, labels, strict=True)):
-        ax = axes.flat[index]
-        ax.semilogx(distortion.frequency_hz[1:], distortion.spectrum_dbfs[0][1:], "-", color=NORD_BLUE)
-        ax.set_ylim(-140.0, 10.0)
-        ax.set_title(f"{label}\nTHD {distortion.thd_db[0]:.1f} dB, SNDR {distortion.sndr_db[0]:.1f} dB")
-        style_grid(ax)
-    for ax in axes.flat[len(distortions) :]:
-        ax.set_visible(False)
-    fig.supxlabel("Frequency (Hz)")
-    fig.supylabel("Output relative to the input amplitude (dB)")
-    fig.suptitle(f"OTA unity-gain output spectrum, {distortions[0].sine_hz[0] * 1e-6:g} MHz sine")
-    return save_figure(fig, output_path)
+
+@plot
+def plot_noise_density(noise: AnalysisNoise) -> Plot:
+    """The input-referred noise density over frequency, at the result's first point."""
+    return Plot(
+        name="noise_density",
+        title="Input-referred noise density (mid-supply input)",
+        x_label="Frequency (Hz)",
+        y_label="Input-referred noise (V/sqrt(Hz))",
+        x=[float(value) for value in noise.frequency_hz],
+        series={"input-referred noise": [float(value) for value in noise.noise_in_v_per_rthz[0]]},
+        x_log=True,
+        y_log=True,
+    )
+
+
+@plot
+def plot_gain_cm(ac: AnalysisAc) -> Plot:
+    """The low-frequency gain over the input common mode."""
+    return Plot(
+        name="gain_cm",
+        title="Low-frequency gain over the input common mode",
+        x_label="Input common mode (V)",
+        y_label="Low-frequency gain (dB)",
+        x=[float(value) for value in ac.vin_cm_v],
+        series={"low-frequency gain": [float(value) for value in ac.gain_dc_db]},
+    )
+
+
+@plot
+def plot_unity_gain_bandwidth_cm(ac: AnalysisAc) -> Plot:
+    """The unity-gain bandwidth over the input common mode."""
+    return Plot(
+        name="unity_gain_bandwidth_cm",
+        title="Unity-gain bandwidth over the input common mode",
+        x_label="Input common mode (V)",
+        y_label="Unity-gain bandwidth (Hz)",
+        x=[float(value) for value in ac.vin_cm_v],
+        series={"unity-gain bandwidth": [float(value) for value in ac.unity_gain_bandwidth_hz]},
+        y_log=True,
+    )
+
+
+@plot
+def plot_noise_in_1mhz_cm(noise: AnalysisNoise) -> Plot:
+    """The input-referred noise density at 1 MHz over the input common mode."""
+    return Plot(
+        name="noise_in_1mhz_cm",
+        title="Input-referred noise at 1 MHz over the input common mode",
+        x_label="Input common mode (V)",
+        y_label="Input-referred noise (V/sqrt(Hz))",
+        x=[float(value) for value in noise.vin_cm_v],
+        series={"input-referred noise": [float(value) for value in noise.noise_in_1mhz_v_per_rthz]},
+        y_log=True,
+    )
+
+
+@plot
+def plot_noise_in_cm(noise: AnalysisNoise) -> Plot:
+    """The input-referred noise, RMS to the unity-gain bandwidth, over the input common mode."""
+    return Plot(
+        name="noise_in_cm",
+        title="Input-referred noise to the unity-gain bandwidth over the input common mode",
+        x_label="Input common mode (V)",
+        y_label="Input-referred noise (V)",
+        x=[float(value) for value in noise.vin_cm_v],
+        series={"input-referred noise": [float(value) for value in noise.noise_in_v]},
+    )
+
+
+@plot
+def plot_gain_supply(supply: AnalysisAc) -> Plot:
+    """The low-frequency gain over the supply (``SUPPLY_SWEEP``), the common modes at mid-supply."""
+    return Plot(
+        name="gain_supply",
+        title="Low-frequency gain over the supply",
+        x_label="Supply over nominal",
+        y_label="Low-frequency gain (dB)",
+        x=list(SUPPLY_SWEEP),
+        series={"low-frequency gain": [float(value) for value in supply.gain_dc_db]},
+    )
+
+
+@plot
+def plot_unity_gain_bandwidth_supply(supply: AnalysisAc) -> Plot:
+    """The unity-gain bandwidth over the supply (``SUPPLY_SWEEP``), the common modes at mid-supply."""
+    return Plot(
+        name="unity_gain_bandwidth_supply",
+        title="Unity-gain bandwidth over the supply",
+        x_label="Supply over nominal",
+        y_label="Unity-gain bandwidth (Hz)",
+        x=list(SUPPLY_SWEEP),
+        series={"unity-gain bandwidth": [float(value) for value in supply.unity_gain_bandwidth_hz]},
+        y_log=True,
+    )
+
+
+@plot
+def plot_power_supply(supply: AnalysisAc) -> Plot:
+    """The supply power over the supply (``SUPPLY_SWEEP``), the common modes at mid-supply."""
+    return Plot(
+        name="power_supply",
+        title="Power over the supply",
+        x_label="Supply over nominal",
+        y_label="Power (W)",
+        x=list(SUPPLY_SWEEP),
+        series={"power": [float(value) for value in supply.power_w]},
+    )
+
+
+@plot
+def plot_step_response(slew: AnalysisSlew) -> Plot:
+    """The unity-gain step response: ``outp`` over time, at the result's first point."""
+    return Plot(
+        name="step_response",
+        title="Unity-gain step response (mid-supply input)",
+        x_label="Time (s)",
+        y_label="Output (V)",
+        x=[float(value) for value in slew.time_s],
+        series={"output": [float(value) for value in slew.vout_v[0]]},
+    )
+
+
+@plot
+def plot_spectrum(distortion: AnalysisDistortion) -> Plot:
+    """The unity-gain output spectrum on the input sine, relative to the input's amplitude, at
+    the result's first point (the bins above DC)."""
+    return Plot(
+        name="spectrum",
+        title="Unity-gain output spectrum on the input sine",
+        x_label="Frequency (Hz)",
+        y_label="Output over the input amplitude (dB)",
+        x=[float(value) for value in distortion.frequency_hz[1:]],
+        series={"output": [float(value) for value in distortion.spectrum_db[0][1:]]},
+        x_log=True,
+    )
