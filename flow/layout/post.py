@@ -16,7 +16,8 @@
   an M2 bar joins it again over the cut (``_rail_bridge``). Where ALIGN routes M1 past the
   cells' outline (its routing room), the row ends move out past it (``_row_ends``).
 * Supplies: each supply's rail lines joined by M3 trunks at the block's ends (``supply_straps``);
-  where capacitors take the block's M3 across its height, trunks outside the rows
+  where the rows stand apart from capacitors (between or beside them, ``_rows_apart``), whose
+  M3 they take, trunks outside the rows
   (``outside_trunk``) and one in each group of rows (``group_trunks``); a MOM shield tied to
   VSS from a rail under it, else from a VSS trunk's pad (``shield_ties``). In a PDK whose M1
   keeps a wider space beside a wide wire, a rail shaved back from ALIGN's M1 (``clear_rails``).
@@ -484,14 +485,16 @@ def supply_straps(
     outer: tuple[int, int] | None = None,
     trunks: list[tuple[str, int, list[kdb.Box]]] | None = None,
     wires: kdb.Region | None = None,
+    apart: bool | None = None,
 ) -> int:
     """Join each supply's rail lines: at both block ends an M3 trunk with, on every rail line of
     the supply, EDGE_CUTS VIA1 (two where the rail is wide), an M2 pad and a VIA2.
     Positions on the M3 grid, the nearest to each end, where the pads and the trunk keep the M2
     space from other metal and the cuts land on the rails. VSS lines are the even ones. Labels
     vdd/vss go on the trunks (M3 pin text); a supply of one rail line no strap fits gets its label
-    on that rail. In a block whose rows stand in groups (capacitors between them, their M3 taken
-    across the block's height), a supply of several lines gets a trunk outside the rows (``outer``,
+    on that rail. In a block whose rows stand apart from its capacitors (``apart``, ``_rows_apart``;
+    None: rows in more than one group), their M3 taken across their part of the block, a supply
+    of several lines gets a trunk outside the rows (``outer``,
     their ends' x) at an end no trunk inside the block came near (``outside_trunk``), and then a
     trunk in each group of rows (``group_trunks``; ``wires``: ALIGN's M2). ``trunks`` gets each trunk's net, x and pads."""
     li = lambda ld: layout.layer(*ld)
@@ -518,7 +521,9 @@ def supply_straps(
 
     # a VIA1's M1 enclosure: its line-end one on two opposite sides, its side one on the others
     enclosure = tuple(_tech.RULES.get("V1", {}).get("enclosure", (0, 0))[:2])
-    grouped = outer is not None and len(_row_groups(layout, top)) > 1  # capacitors between rows
+    if apart is None:
+        apart = len(_row_groups(layout, top)) > 1
+    grouped = outer is not None and apart  # capacitors between or beside the rows
     labelled = set()
     outside = False  # a trunk outside the rows drawn
     covered: set[tuple[str, int]] = set()  # (supply, the block's half its inside trunk stands in)
@@ -585,8 +590,8 @@ def supply_straps(
                 if trunks is not None:
                     trunks.append((net, x, pads))
                 break
-    # rows in groups (capacitors between them): an end no trunk inside the block came near (both
-    # found from one end, or none) gets a trunk outside
+    # rows apart from capacitors: an end no trunk inside the block came near (both found from one
+    # end, or none) gets a trunk outside
     for net, (rail_ys, _ys) in supplies.items():
         if grouped and len(rail_ys) > 1:
             for side, x in ((-1, outer[0]), (+1, outer[1])):
@@ -597,9 +602,9 @@ def supply_straps(
                     labelled.add(net)
                     outside = True
     if outside:
-        # the block's M3 taken across its height: a line's rail meets the trunks at the ends only
-        # where it runs on to them, so each group of rows (the rows between capacitors) gets a
-        # trunk of each supply of its own
+        # the block's M3 taken across the capacitors: a line's rail meets the trunks at the ends
+        # only where it runs on to them, so each group of rows (the rows between or beside
+        # capacitors) gets a trunk of each supply of its own
         for net, (rail_ys, _ys) in supplies.items():
             placed += group_trunks(layout, top, net, rail_ys, (m1, m2, m3), enclosure, wires or kdb.Region())
     for net, (rail_ys, _ys) in supplies.items():
@@ -632,6 +637,14 @@ def _row_groups(layout: kdb.Layout, top: kdb.Cell) -> list[list[int]]:
         else:
             groups.append([k])
     return groups
+
+
+def _rows_apart(layout: kdb.Layout, top: kdb.Cell, shields: list[tuple[int, kdb.Region]]) -> bool:
+    """Whether the block's rows stand apart from its capacitors (``shields``, ``mom_shields``, each
+    on the metal below its plates): in groups with capacitors between them, or beside capacitors
+    whose plates take M3, the supply trunks' metal, which then cannot stand over the rows. ALIGN's
+    routing room lies past the rows' ends, and the trunks keep to the rows' part of the block."""
+    return len(_row_groups(layout, top)) > 1 or any(metal + 1 <= 3 for metal, _region in shields)
 
 
 def group_trunks(
@@ -689,9 +702,13 @@ def group_trunks(
                 continue
             top.shapes(li(LAYERS["M3"])).insert(trunk)
             m3.insert(trunk)
+            rail = (m2 & own) - wires
             for pad, y in zip(pads, ys, strict=True):
                 top.shapes(li(LAYERS["M2"])).insert(pad)
                 m2.insert(pad)
+                for gap in _pad_gaps(pad, rail):
+                    top.shapes(li(LAYERS["M2"])).insert(gap)
+                    m2.insert(gap)
                 top.shapes(li(LAYERS["V2"])).insert(kdb.Box(x - V2 // 2, y - V2 // 2, x + V2 // 2, y + V2 // 2))
             for cut in cuts:
                 top.shapes(li(LAYERS["V1"])).insert(cut)
@@ -699,6 +716,23 @@ def group_trunks(
             drawn += 1
             break
     return drawn
+
+
+def _pad_gaps(pad: kdb.Box, rail: kdb.Region) -> list[kdb.Box]:
+    """The gaps narrower than M2's space between a trunk's ``pad`` and its rail's own M2 on its line
+    (``rail``: the rows' M2 rail, a bridge's bar), which the pad may come nearer than the space
+    (one net): each filled, as tall as both."""
+    gaps = []
+    for piece in rail.interacting(kdb.Region(pad.enlarged(M2_SPACE - 1, 0))).each():
+        r = piece.bbox()
+        y0, y1 = max(r.bottom, pad.bottom), min(r.top, pad.top)
+        if y0 >= y1:
+            continue
+        if 0 < pad.left - r.right < M2_SPACE:
+            gaps.append(kdb.Box(r.right, y0, pad.left, y1))
+        elif 0 < r.left - pad.right < M2_SPACE:
+            gaps.append(kdb.Box(pad.right, y0, r.left, y1))
+    return gaps
 
 
 def outside_trunk(
@@ -1078,6 +1112,17 @@ def clear_rails(layout: kdb.Layout, top: kdb.Cell, routes: kdb.Region) -> int:
     cut = near.sized(space) & rails
     if cut.is_empty():
         return 0
+    # a cut ending nearer a rail's end than M1's width takes the rest of the rail to that end,
+    # which would be left a sliver
+    ends = kdb.Region()
+    for piece in cut.each():
+        c = piece.bbox()
+        for rail in rails.interacting(kdb.Region(c)).each():
+            r = rail.bbox()
+            left = r.left if c.left - r.left < _tech.M1W else c.left
+            right = r.right if r.right - c.right < _tech.M1W else c.right
+            ends.insert(kdb.Box(left, c.bottom, right, c.top))
+    cut = (cut + ends) & rails
     kept = kdb.Region(shapes) - cut
     for shape in [s for s in shapes.each() if not s.is_text()]:
         shapes.erase(shape)
@@ -1159,8 +1204,9 @@ def post(
         ]
     )
     across = routes.not_inside(bands)
-    # a block of row groups (capacitors between them) has ALIGN's routing room past its rows' ends
-    grouped = ends and len(_row_groups(layout, top)) > 1
+    # a block whose rows stand apart from capacitors has ALIGN's routing room past its rows' ends
+    apart = _rows_apart(layout, top, shields)
+    grouped = ends and apart
     rows = _row_ends(block, across, wires) if grouped else block
     on_m2 = kdb.Region()
     for metal, region in shields:
@@ -1178,7 +1224,7 @@ def post(
         bridge(layout, top, g, block)
     outer = (rows.left - netcells.EDGE_W, rows.right + netcells.EDGE_W) if ends else (rows.left, rows.right)
     trunks: list[tuple[str, int, list[kdb.Box]]] = []
-    n_straps = supply_straps(layout, top, outer, trunks, wires)
+    n_straps = supply_straps(layout, top, outer, trunks, wires, apart)
     n_shield = shield_ties(layout, top, shields, routes=routes, trunks=trunks)
     ring_info = ""
     if ring:
