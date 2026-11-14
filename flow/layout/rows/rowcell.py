@@ -142,6 +142,11 @@ STD_SPLIT = getattr(_tech, "STD_SPLIT", (_tech.STD_NW, _tech.STD_NW))
 # minimum is below the analog cells' gate bar spacing (their gate head to their diffusion's
 # furthest edge), the default
 PO_OD = getattr(_tech, "PO_OD", GATE_TRACK["n"] - PO_HEAD - OD_LIMIT["n"][1])
+# a complementary inverter without a poly bar (PO_BAR False): the M1 space between its gate bar
+# and a drain bar side by side, and from a strip's end to a bar's side, where the kit's are
+# below M1_SPACE and the line-end space
+M1_BAR_SPACE = getattr(_tech, "M1_BAR_SPACE", M1_SPACE)
+M1_END_SPACE = getattr(_tech, "M1_END_SPACE", max(M1_SPACE, getattr(_tech, "LINE_END", 0)))
 
 GLAYERS = LAYERS
 M1_HW, M2_HW, M3_HW = M1W // 2, M2W // 2, M3W // 2  # half widths: M1 strips and pads, M2 and M3 bars
@@ -938,22 +943,65 @@ def _gate_pad(name: str, l: int) -> tuple[int, int, int, tuple[int, int], int]:
     return p, gc, ya, pad, pad_hw
 
 
-def _inverter_widths(pad: tuple[int, int]) -> tuple[int, int]:
-    """The narrowest NMOS and PMOS fingers (nm) whose every strip holds a contact beside a gate pad
-    whose M1 spans ``pad`` (bottom, top): a drain's within its diffusion's enclosure, a source's
-    an M1 space (or line-end space) short of the pad, as ``inverter`` draws them."""
+def _gate_bars(gc: int, ya: int) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+    """An inverter's M1 bars where no poly bar joins its gates (PO_BAR False), each (bottom, top):
+    the gate bar through its gates' contacts at ``gc`` and the input's VIA1 at ``ya``, its sides
+    flush with them (the bar runs past them along its length), and below and above it the bars
+    joining the NMOS and the PMOS drains, an M1 bar space away, as the library's cells join them."""
+    g0, g1 = min(gc - CO // 2, ya - V1_H), max(gc + CO // 2, ya + V1_H)
+    if g1 - g0 < M1W:
+        g0 = _on_grid((g0 + g1 - M1W) // 2)
+        g1 = g0 + M1W
+    n1, p0 = g0 - M1_BAR_SPACE, g1 + M1_BAR_SPACE
+    return (g0, g1), (n1 - M1W, n1), (p0, p0 + M1W)
+
+
+def _source_reach(name: str, l: int) -> tuple[int, int]:
+    """How far (nm) an inverter's source strips reach towards the gate contacts in M1, the NMOS's
+    top and the PMOS's bottom: a line-end space short of the gate pad (beside a poly bar), else of
+    the drain bar crossing them (the sources past the first drain; the first stops short of the
+    gate bar alone)."""
+    _, gc, ya, pad, _ = _gate_pad(name, l)
+    if PO_BAR:
+        gap = max(M1_SPACE, getattr(_tech, "LINE_END", 0))
+        return pad[0] - gap, pad[1] + gap
+    _, nbar, pbar = _gate_bars(gc, ya)
+    return nbar[0] - M1_END_SPACE, pbar[1] + M1_END_SPACE
+
+
+def _inverter_widths(n_reach: int, p_reach: int) -> tuple[int, int]:
+    """The narrowest NMOS and PMOS fingers (nm) whose every strip holds a contact where its source
+    strips' M1 reaches no further than ``n_reach`` (the NMOS's top) and ``p_reach`` (the PMOS's
+    bottom): a drain's within its diffusion's enclosure, a source's short of that, as ``inverter``
+    draws them."""
     (_, ny1), (py0, _) = _tech.LOGIC_OD["n"], _tech.LOGIC_OD["p"]
-    gap = max(M1_SPACE, getattr(_tech, "LINE_END", 0))
-    top = min(ny1 - CO_OD_SIDE, pad[0] - gap - M1_CO_END)  # a source contact's highest edge
-    bot = max(py0 + CO_OD_SIDE, pad[1] + gap + M1_CO_END)  # and lowest
+    top = min(ny1 - CO_OD_SIDE, n_reach - M1_CO_END)  # a source contact's highest edge
+    bot = max(py0 + CO_OD_SIDE, p_reach + M1_CO_END)  # and lowest
     return ny1 - top + CO + CO_OD_END, bot - py0 + CO + CO_OD_END
+
+
+def _output_track(ya: int) -> int:
+    """An inverter's output M2 track, below its input's (``ya``), across the drain strips: the next
+    track down, or the one below it where ALIGN's VIA1 space (V1_PAIR's, make_pdk) keeps cuts on
+    neighbouring tracks apart (a chain's link jogs between an output's track and the next input's
+    on M1, a cut at each)."""
+    pitch = getattr(_tech, "PITCH", 200)
+    return ya - (pitch if pitch - V1 >= getattr(_tech, "V1_PAIR", 2 * V1) - V1 else 2 * pitch)
+
+
+def inverter_tracks(l: int) -> tuple[int, int, int, int]:
+    """An inverter's output and input M2 tracks (y, nm; ``inverter``'s for gate length ``l``) and
+    the band its rails' M1 leaves between them (bottom, top): where a chain's link jogs from one
+    cell's output to the next one's input on M1."""
+    ya = _gate_pad("INV", l)[2]
+    return _output_track(ya), ya, RAIL, H - RAIL
 
 
 def inverter_min_widths(l: int) -> tuple[int, int]:
     """The narrowest NMOS and PMOS fingers (nm) an inverter of gate length ``l`` draws
-    (``inverter``): every strip's contacts fit beside its gate pad. A driver's inverters are sized
-    no narrower (``flow.layout.devices.mosfet.netlist``)."""
-    return _inverter_widths(_gate_pad("INV", l)[3])
+    (``inverter``): every strip's contacts fit beside its gate pad (or below the drain bars). A
+    driver's inverters are sized no narrower (``flow.layout.devices.mosfet.netlist``)."""
+    return _inverter_widths(*_source_reach("INV", l))
 
 
 def inverter(
@@ -981,7 +1029,17 @@ def inverter(
     a drain strip in M1 from the NMOS contacts up to the PMOS contacts across the gap. Pins on M2:
     ``a`` on the track nearest the gate contact, ``y`` on the track below, across the drain strips.
     The gate contacts are joined by ``a``'s bar, so no stretch of poly between contacts grows with
-    the fingers. ``wide_input``: ``a``'s bar across the whole cell (its M2 edge space kept), so a
+    the fingers.
+
+    Where no poly bar may join the gates (``PO_BAR`` False, gridded poly), each gate is contacted
+    on its own line in the gap and an M1 bar joins the contacts (``_gate_bars``), with ``a``'s
+    VIA1 on each; a drain strip then cannot cross the gap beside the gate contacts, so, as the
+    library's cells do, the NMOS drains join on an M1 bar below the gate bar, the PMOS drains on
+    one above, and the two bars meet on an M1 wrap past the gate bar's right end. The sources
+    under the drain bars (past the first drain) stop short of them, so the fingers are wider
+    (``inverter_min_widths``); the cell's width is as with a poly bar.
+
+    ``wide_input``: ``a``'s bar across the whole cell (its M2 edge space kept), so a
     router reaches the input from more tracks above, the cell's width as without. ``outline``: the
     cell's width and its gate pads' M1 alone, as planned (what a chain needs to know of it, without
     drawing its contacts)."""
@@ -996,35 +1054,50 @@ def inverter(
     (n_lo, ny1), (py0, p_hi) = _tech.LOGIC_OD["n"], _tech.LOGIC_OD["p"]
     ny0, py1 = ny1 - wn, py0 + wp
     assert ny0 >= n_lo and py1 <= p_hi, f"{name}: fingers of {wn}/{wp} nm exceed the logic diffusion bands"
-    # the output's M2 track, below the input's, across the drain strips: the next track down, or
-    # the one below it where ALIGN's VIA1 space (V1_PAIR's, make_pdk) keeps cuts on neighbouring
-    # tracks apart (a chain's link jogs between an output's track and the next input's on M1, a
-    # cut at each)
-    pitch = getattr(_tech, "PITCH", 200)
-    yy = ya - (pitch if pitch - V1 >= getattr(_tech, "V1_PAIR", 2 * V1) - V1 else 2 * pitch)
+    yy = _output_track(ya)
     gap = max(M1_SPACE, getattr(_tech, "LINE_END", 0))
-    least = _inverter_widths(pad)
+    least = inverter_min_widths(l)
     assert wn >= least[0] and wp >= least[1], f"{name}: no room for the S/D contacts of {wn}/{wp} nm fingers"
+    drains = [x for x, pin in zip(strips, seq) if pin == "D"]
+    if not PO_BAR:
+        gbar, nbar, pbar = _gate_bars(gc, ya)
+        n_reach, p_reach = _source_reach(name, l)
+        # the gate bar past its outer cuts, long enough for the M1 area, grown leftwards (the
+        # drains' wrap stands past its right end)
+        gb = (_on_grid(gates[0]) - BAR_END, _on_grid(gates[-1]) + BAR_END)
+        need = _up(max(M1_MIN_LEN, -(-M1_AREA // (gbar[1] - gbar[0]))), 2 * MFG_GRID)
+        gb = (min(gb[0], gb[1] - need), gb[1])
+        wrap = _on_grid(gb[1] + M1_SPACE + M1_HW)
 
-    def contacts(pol: str, net: str) -> list[int]:
-        """A strip's contact centres on its diffusion; a source strip's away from the gate pad."""
+    def contacts(pol: str, net: str, x: int) -> list[int]:
+        """A strip's contact centres on its diffusion; a source strip's away from the gate pad, or
+        without a poly bar from the gate bar (the first strip) and the drain bar (the others), and a
+        drain strip's inside its drain bar."""
+        if PO_BAR:
+            n_top, p_bot = (pad[0] - gap, pad[1] + gap) if net in (vss, vdd) else (None, None)
+        elif net in (vss, vdd):
+            n_top, p_bot = (gbar[0] - gap, gbar[1] + gap) if x < min(drains) else (n_reach, p_reach)
+        else:
+            n_top, p_bot = nbar[1], pbar[0]
+        # without a poly bar, a drain's M1 keeps the space from the rails (a source's runs into its own)
+        rail = 0 if PO_BAR or net in (vss, vdd) else RAIL + M1_END_SPACE + M1_CO_END
         if pol == "n":
             top = ny1 - CO_OD_SIDE
-            if net == vss:
-                top = min(top, pad[0] - gap - M1_CO_END)
-            return list(range(ny0 + CO_OD_END + CO // 2, top - CO // 2 + 1, CO_PITCH))
+            if n_top is not None:
+                top = min(top, n_top - M1_CO_END)
+            return list(range(max(ny0 + CO_OD_END, rail) + CO // 2, top - CO // 2 + 1, CO_PITCH))
         bot = py0 + CO_OD_SIDE
-        if net == vdd:
-            bot = max(bot, pad[1] + gap + M1_CO_END)
-        return list(range(py1 - CO_OD_END - CO // 2, bot + CO // 2 - 1, -CO_PITCH))
+        if p_bot is not None:
+            bot = max(bot, p_bot + M1_CO_END)
+        return list(range(min(py1 - CO_OD_END, H - rail) - CO // 2, bot + CO // 2 - 1, -CO_PITCH))
 
     # the outline: the diffusions keep EDGE to the sides, the M2 bars M2_EDGE; dummy poly PO_EDGE
     od_x = (strips[0] - _od_ext(l), strips[-1] + _od_ext(l))
-    drains = [x for x, pin in zip(strips, seq) if pin == "D"]
     # the gate contacted over every source strip the poly bar crosses (all but a closing one): no
-    # stretch of poly between contacts longer than two strips, however many fingers
-    taps = [x for x, pin in zip(strips[:-1], seq) if pin == "S"]
-    bar_a = (strips[0] - BAR_END, max(taps[-1] + BAR_END, strips[0] - BAR_END + M2_MIN_LEN))
+    # stretch of poly between contacts longer than two strips, however many fingers; without a
+    # poly bar on every gate, ``a``'s VIA1 on each
+    taps = [x for x, pin in zip(strips[:-1], seq) if pin == "S"] if PO_BAR else [_on_grid(g) for g in gates]
+    bar_a = (taps[0] - BAR_END, max(taps[-1] + BAR_END, taps[0] - BAR_END + M2_MIN_LEN))
     lo_y = min(drains) - BAR_END
     bar_y = (lo_y, max(max(drains) + BAR_END, lo_y + M2_MIN_LEN))
     dummies = []
@@ -1036,16 +1109,37 @@ def inverter(
                 x0, x1 = min(x0, x0 + out * w), max(x0, x0 + out * w)
                 pos = x0 if out < 0 else x1
                 dummies.append((x0, x1))
-    lo = min(od_x[0] - EDGE, bar_a[0] - M2_EDGE, bar_y[0] - M2_EDGE, *(d[0] - PO_EDGE for d in dummies))
-    hi = max(od_x[1] + EDGE, bar_a[1] + M2_EDGE, bar_y[1] + M2_EDGE, *(d[1] + PO_EDGE for d in dummies))
+    m1 = [] if PO_BAR else [gb, (wrap - M1_HW, wrap + M1_HW)]  # the gate bar and the drains' wrap
+    lo = min(
+        od_x[0] - EDGE,
+        bar_a[0] - M2_EDGE,
+        bar_y[0] - M2_EDGE,
+        *(d[0] - PO_EDGE for d in dummies),
+        *(b[0] - M1_EDGE for b in m1),
+    )
+    hi = max(
+        od_x[1] + EDGE,
+        bar_a[1] + M2_EDGE,
+        bar_y[1] + M2_EDGE,
+        *(d[1] + PO_EDGE for d in dummies),
+        *(b[1] + M1_EDGE for b in m1),
+    )
     width = _up(hi - lo, grid)
     sh = _on_grid((width - (hi - lo)) // 2) - lo
     if wide_input:
         bar_a = (M2_EDGE - sh, width - M2_EDGE - sh)
     c = Cell(name, width)
+
+    def gate_m1() -> None:
+        """The M1 joined to the gate contacts: a pad over each, or the gate bar."""
+        if PO_BAR:
+            for tx in taps:
+                c.add("M1", tx + sh - pad_hw, pad[0], tx + sh + pad_hw, pad[1], a)
+        else:
+            c.add("M1", gb[0] + sh, gbar[0], gb[1] + sh, gbar[1], a)
+
     if outline:
-        for tx in taps:
-            c.add("M1", tx + sh - pad_hw, pad[0], tx + sh + pad_hw, pad[1], a)
+        gate_m1()
         return c
 
     # rails, taps and the standard cells' profile across the whole cell
@@ -1086,8 +1180,8 @@ def inverter(
     c.add("OD", od_x[0] + sh, ny0, od_x[1] + sh, ny1)
     c.add("OD", od_x[0] + sh, py0, od_x[1] + sh, py1)
     for x, pin in zip(strips, seq):
+        cn, cp = contacts("n", vss if pin == "S" else y, x), contacts("p", vdd if pin == "S" else y, x)
         x += sh
-        cn, cp = contacts("n", vss if pin == "S" else y), contacts("p", vdd if pin == "S" else y)
         assert cn and cp, f"{name}: no room for the S/D contacts"
         for cys, net in ((cn, vss if pin == "S" else y), (cp, vdd if pin == "S" else y)):
             for cy in cys:
@@ -1095,20 +1189,37 @@ def inverter(
         if pin == "S":  # each source in M1 to its own rail
             c.add("M1", x - M1_HW, 0, x + M1_HW, max(cn) + CO // 2 + M1_CO_END, vss)
             c.add("M1", x - M1_HW, min(cp) - CO // 2 - M1_CO_END, x + M1_HW, H, vdd)
-        else:  # a drain across the gap, from the NMOS contacts to the PMOS contacts
-            c.add("M1", x - M1_HW, min(cn) - CO // 2 - M1_CO_END, x + M1_HW, max(cp) + CO // 2 + M1_CO_END, y)
-            c.add("V1", x - V1_H, yy - V1_H, x + V1_H, yy + V1_H, y)
+            continue
+        # a drain from the NMOS contacts to the PMOS contacts across the gap; without a poly bar
+        # from past the output's VIA1 (its end enclosure) up to the NMOS drain bar, and down from
+        # the PMOS one, the rails' space kept
+        y0, y1 = min(cn) - CO // 2 - M1_CO_END, max(cp) + CO // 2 + M1_CO_END
+        if PO_BAR:
+            c.add("M1", x - M1_HW, y0, x + M1_HW, y1, y)
+        else:
+            y0 = min(y0, yy - M1_VIA_END)
+            assert y0 >= RAIL + M1_END_SPACE and y1 <= H - RAIL - M1_END_SPACE, f"{name}: a drain strip crowds a rail"
+            c.add("M1", x - M1_HW, y0, x + M1_HW, nbar[1], y)
+            c.add("M1", x - M1_HW, pbar[0], x + M1_HW, y1, y)
+        c.add("V1", x - V1_H, yy - V1_H, x + V1_H, yy + V1_H, y)
+    if not PO_BAR:  # the drain bars and their wrap past the gate bar's end
+        x0 = min(drains) + sh - M1_HW
+        c.add("M1", x0, nbar[0], wrap + sh + M1_HW, nbar[1], y)
+        c.add("M1", x0, pbar[0], wrap + sh + M1_HW, pbar[1], y)
+        c.add("M1", wrap + sh - M1_HW, nbar[0], wrap + sh + M1_HW, pbar[1], y)
 
-    # gates: poly across both diffusions, the bar in the gap out to the contact over the first strip
+    # gates: poly across both diffusions, the bar in the gap out to the contact over the first
+    # strip; without a poly bar, each line contacted on its own
     cx = strips[0] + sh
     for gx in gates:
         c.add("PO", gx + sh - l // 2, ny0 - PO_ENDCAP, gx + sh + l // 2, py1 + PO_ENDCAP)
-    c.add("PO", cx - PO_BAR_END, gc - PO_HEAD, max(gates) + sh + l // 2, gc + PO_HEAD)
+    if PO_BAR:
+        c.add("PO", cx - PO_BAR_END, gc - PO_HEAD, max(gates) + sh + l // 2, gc + PO_HEAD)
     for tx in taps:
         tx += sh
         c.add("CO", tx - CO // 2, gc - CO // 2, tx + CO // 2, gc + CO // 2, a)
-        c.add("M1", tx - pad_hw, pad[0], tx + pad_hw, pad[1], a)
         c.add("V1", tx - V1_H, ya - V1_H, tx + V1_H, ya + V1_H, a)
+    gate_m1()
     if GATE_CONTACT_MARK:
         _gate_mark(c, [tx + sh for tx in taps], gc, width)
     # the dummies as tall as the gates, but where one comes within the poly space (PO_SPACE) of the
@@ -1117,7 +1228,7 @@ def inverter(
     po_space = getattr(_tech, "PO_SPACE", 0)
     for x0, x1 in dummies:
         y0, y1 = ny0 - PO_ENDCAP, py1 + PO_ENDCAP
-        if x1 + po_space > cx - PO_BAR_END - sh and x0 - po_space < max(gates) + l // 2:
+        if PO_BAR and x1 + po_space > cx - PO_BAR_END - sh and x0 - po_space < max(gates) + l // 2:
             cut = (gc - PO_HEAD - po_space, gc + PO_HEAD + po_space)
             c.add(PO_DUMMY_LAYER, x0 + sh, y0, x1 + sh, cut[0])
             c.add(PO_DUMMY_LAYER, x0 + sh, cut[1], x1 + sh, y1)

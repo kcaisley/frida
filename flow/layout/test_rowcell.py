@@ -121,3 +121,51 @@ def test_a_common_centroid_array_over_two_rows_is_connected() -> None:
     rows = [[(0, 1), (1, 2), (0, 1)], [(1, 1), (0, 2), (1, 1)]]
     _, split = in_pdk("tsmc28", "flow.layout.test_rowcell", "pattern_cell", rows, ccp)
     assert split == 0
+
+
+def inverter_gates(nf: int) -> tuple[int, list[int], set[int], int]:
+    """Run bound to a PDK: draw a complementary inverter of ``nf`` fingers at the kit's narrowest;
+    the most gates one poly shape spans, the gates' centres, the input's gate contacts' centres,
+    and how many of its signal nets are not one connected piece (M1 to M2)."""
+
+    import rowcell
+
+    l = 30
+    wn, wp = rowcell.inverter_min_widths(l)
+    cell = rowcell.inverter("INV", l, wn, wp, nf)
+    od = [r for r in cell.rects if r.layer == "OD" and r.y0 > rowcell.RAIL]  # the devices' (not the rails')
+    gates = sorted(
+        {(r.x0 + r.x1) // 2 for r in cell.rects if r.layer == "PO" and any(o.x0 < r.x0 and r.x1 < o.x1 for o in od)}
+    )
+    po = [r for r in cell.rects if r.layer in ("PO", rowcell.PO_DUMMY_LAYER)]
+    spans = max(sum(r.x0 <= g <= r.x1 for g in gates) for r in po)
+    contacts = {(r.x0 + r.x1) // 2 for r in cell.rects if r.layer == "CO" and r.net == "A"}
+    order = {"M1": 0, "V1": 1, "M2": 2}
+    split = 0
+    for net in ("A", "Y"):
+        rs = [r for r in cell.rects if r.net == net and r.layer in order]
+        parent = list(range(len(rs)))
+
+        def find(i: int, parent: list[int] = parent) -> int:
+            while parent[i] != i:
+                i = parent[i]
+            return i
+
+        for i, a in enumerate(rs):
+            for j, b in enumerate(rs[:i]):
+                near = abs(order[a.layer] - order[b.layer]) <= 1
+                if near and a.x0 <= b.x1 and b.x0 <= a.x1 and a.y0 <= b.y1 and b.y0 <= a.y1:
+                    parent[find(i)] = find(j)
+        split += len({find(i) for i in range(len(rs))}) > 1
+    return spans, gates, contacts, split
+
+
+@needs_tsmc28
+@pytest.mark.parametrize("nf", [1, 2, 3, 6])
+def test_an_inverter_without_poly_bars_contacts_each_gate_on_its_own(nf: int) -> None:
+    # tsmc28's gridded poly (PO_BAR False): no poly shape across two gates, a contact on every
+    # gate, the drains joined in M1 around the gate bar, the input and the output one piece each
+    spans, gates, contacts, split = in_pdk("tsmc28", "flow.layout.test_rowcell", "inverter_gates", nf)
+    assert len(gates) == nf and spans == 1
+    assert contacts == set(gates)
+    assert split == 0

@@ -12,6 +12,7 @@ none drives more than four times its own input (FO4), the first loading the flip
 between the drivers on its net).
 """
 
+import json
 import math
 from dataclasses import dataclass
 from functools import cache
@@ -23,7 +24,7 @@ from pydantic import PositiveFloat
 from flow.circuit.devices import core_unit, fingers, logic_pair
 from flow.layout.hdl21align import constraints as c
 from flow.layout.hdl21align import place, row, rows
-from flow.layout.package import metal_tracks
+from flow.layout.package import metal_tracks, pdk_dir
 from flow.layout.pdkproc import in_pdk, pdk_value
 
 from ..device import active_pdk, mark
@@ -269,11 +270,28 @@ def _gaps(pdk: str, stages: list[tuple[int, int]], wide_input: bool = False) -> 
     beside the bar's end, the link would run past the chain's outline. Otherwise none."""
     pitch, width = metal_tracks(pdk, "M1")
     clear = pitch - width + width // 2  # ALIGN's space beside the edge wire, and the wire's half
-    pads = [pad for _, pad in _outlines(pdk, _cases(stages))]
+    cases = _cases(stages)
+    pads = [pad for _, pad in _outlines(pdk, cases)]
     gaps = [pitch if 0 < k < len(stages) - 1 and pads[k] < clear else 0 for k in range(len(stages))]
     if wide_input and len(stages) > 1 and pads[1] >= clear:
         gaps[0] = 2 * pitch
+    if len(stages) > 1 and not _jogs_between_rails(pdk, cases[0][0]):
+        # no link jogs at a shared edge, where the rails run on: each one in a gap of two pitches,
+        # on the track between the two cells' rail ends
+        gaps = [max(g, 2 * pitch) if k < len(stages) - 1 else g for k, g in enumerate(gaps)]
     return gaps
+
+
+def _jogs_between_rails(pdk: str, length: int) -> bool:
+    """Whether ALIGN's M1 jog of a chain's link, from an inverter's output track to the next one's
+    input track (``rowcell.inverter_tracks``), at least ALIGN's shortest M1 wire (its ``MinL``,
+    centred on the two tracks), keeps ALIGN's M1 space from the cells' rails between them."""
+    yy, ya, lo, hi = in_pdk(pdk, "rowcell", "inverter_tracks", length)
+    pitch, width = metal_tracks(pdk, "M1")
+    layers = json.loads((pdk_dir(pdk) / "layers.json").read_text())["Abstraction"]
+    least = int(next(entry for entry in layers if entry.get("Layer") == "M1").get("MinL") or 0)
+    middle, reach, space = (yy + ya) / 2, max(least, abs(ya - yy) + width) / 2, pitch - width
+    return middle - reach >= lo + space and middle + reach <= hi - space
 
 
 def driver_widths_nm(pdk: str, requests: list[DriverRequest]) -> list[int]:
