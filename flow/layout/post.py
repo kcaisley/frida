@@ -138,6 +138,7 @@ def fill_rows(
     routes: kdb.Region | None = None,
     shield: kdb.Region | None = None,
     wires: kdb.Region | None = None,
+    capacitors: kdb.Region | None = None,
 ) -> int:
     """Rails, taps and well band across the placement gaps of every row; library fillers in
     standard-cell rows (their implant bands differ from the analog rows'). ``filled`` collects the
@@ -147,7 +148,8 @@ def fill_rows(
     keep M1's space from it (``_clear_of``), and from the M1 no row cell draws (``routes``: ALIGN's,
     the MOM units' landings) ending in the next row within that space of the rail they share.
     ``shield``: the MOM shields on M2 (VSS), which a VSS rail's bridge may meet; ``wires``: ALIGN's
-    M2 (``_rail_bridge``)."""
+    M2 (``_rail_bridge``). A row no cell stands in under MOM units beside the rows (``capacitors``:
+    their shields on M2) is no row: left to the capacitors."""
     bnd = kdb.Region(top.begin_shapes_rec(layout.layer(*BND))).merged()
     box = box or bnd.bbox()
     m1 = kdb.Region(top.begin_shapes_rec(layout.layer(*rowcell.GLAYERS["M1"])))
@@ -162,6 +164,8 @@ def fill_rows(
     for k in range(box.bottom // rowcell.H, -(-box.top // rowcell.H)):
         y0 = k * rowcell.H
         band = kdb.Region(kdb.Box(box.left, y0, box.right, y0 + rowcell.H))
+        if capacitors is not None and (band & bnd).is_empty() and not (band & capacitors).is_empty():
+            continue
         gaps = (band - bnd).merged()
         for gap in gaps.each():
             g = gap.bbox()
@@ -1112,17 +1116,45 @@ def clear_rails(layout: kdb.Layout, top: kdb.Cell, routes: kdb.Region) -> int:
     cut = near.sized(space) & rails
     if cut.is_empty():
         return 0
-    # a cut ending nearer a rail's end than M1's width takes the rest of the rail to that end,
-    # which would be left a sliver
-    ends = kdb.Region()
+    # each cut as long along its rail as M1's shortest piece (its notch no step), out to the rail's
+    # end where it would end nearer than M1's width (a sliver), and two cuts nearer each other than
+    # that joined (the rail between them a sliver)
+    least = getattr(_tech, "M1_MIN_LEN", _tech.M1W)
+    # the strips the rails' cells run off them (a source's into its rail): a cut stops at one, or
+    # takes the rail up to one nearer than M1's width, so that it leaves no step beside it
+    strips = [s.bbox() for s in (m1 - lines).interacting(rails).each()]
+    boxes = []
     for piece in cut.each():
         c = piece.bbox()
         for rail in rails.interacting(kdb.Region(c)).each():
             r = rail.bbox()
-            left = r.left if c.left - r.left < _tech.M1W else c.left
-            right = r.right if r.right - c.right < _tech.M1W else c.right
-            ends.insert(kdb.Box(left, c.bottom, right, c.top))
-    cut = (cut + ends) & rails
+            grow = max(0, least - c.width()) // 2
+            left, right = max(r.left, c.left - grow), min(r.right, c.right + grow)
+            beside = [s for s in strips if s.top >= c.bottom - 1 and s.bottom <= c.top + 1]
+            for s in beside:
+                if s.left < c.left + c.width() // 2 <= s.right:  # a strip at the cut's own place: leave it
+                    continue
+                if s.right <= c.left + c.width() // 2 and s.right > left:
+                    left = s.right
+                if s.left >= c.left + c.width() // 2 and s.left < right:
+                    right = s.left
+            for s in beside:
+                if 0 < left - s.right < _tech.M1W:
+                    left = s.right
+                if 0 < s.left - right < _tech.M1W:
+                    right = s.left
+            left = r.left if left - r.left < _tech.M1W else left
+            right = r.right if r.right - right < _tech.M1W else right
+            boxes.append(kdb.Box(left, c.bottom, right, c.top))
+    boxes.sort(key=lambda b: (b.bottom, b.top, b.left))
+    joined: list[kdb.Box] = []
+    for box in boxes:
+        last = joined[-1] if joined else None
+        if last and (last.bottom, last.top) == (box.bottom, box.top) and box.left - last.right < _tech.M1W:
+            joined[-1] = kdb.Box(last.left, last.bottom, max(last.right, box.right), last.top)
+        else:
+            joined.append(box)
+    cut = (cut + kdb.Region(joined)).merged() & rails
     kept = kdb.Region(shapes) - cut
     for shape in [s for s in shapes.each() if not s.is_text()]:
         shapes.erase(shape)
@@ -1215,7 +1247,8 @@ def post(
     # the M1 no row cell draws: ALIGN's, and the MOM units' landings (no outline marks a MOM unit)
     cells = kdb.Region(top.begin_shapes_rec(layout.layer(*BND))).merged()
     foreign = across + kdb.Region(top.begin_shapes_rec(layout.layer(*LAYERS["M1"]))).not_interacting(cells)
-    n_fill = fill_rows(layout, top, std_rows, fills, filled, rows, ends, foreign, on_m2, wires)
+    # capacitors beside the rows (their shields on M2, under the rows' routing): no rows under them
+    n_fill = fill_rows(layout, top, std_rows, fills, filled, rows, ends, foreign, on_m2, wires, on_m2)
     std_lib = kdb.Layout()
     std_lib.read(lib)
     n_ties = edge_ties(layout, top, std_rows, std_lib, rows)
