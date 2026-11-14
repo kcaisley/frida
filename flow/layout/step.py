@@ -61,11 +61,12 @@ def cell_um(gds: Path) -> list[float]:
 
 def free_rows(gds: Path, pdk: str) -> dict[str, Any] | None:
     """The rows a block leaves free under its capacitors, where they stack over the rows
-    (``stacked_over_rows``): above its highest cell under them, up to their top, whole rows of the
-    PDK's row cells, across the capacitors' width, where the converter places its other circuits.
-    Their extent (um, the GDS's coordinates: ALIGN's GDS ``<NAME>_0.gds`` beside ``gds``, its
-    placed instances) and their count; None where the block has no such capacitors or no row is
-    free. The capacitors' own routes (their plates' runs to their channels) may cross them."""
+    (``stacked_over_rows``): the widest stretch of whole rows of the PDK's row cells under them
+    that no cell stands in (between a band of cells at their bottom and one at their top, say),
+    across the capacitors' width, where the converter places its other circuits. Its extent (um,
+    the GDS's coordinates: ALIGN's GDS ``<NAME>_0.gds`` beside ``gds``, its placed instances) and
+    its row count; None where the block has no such capacitors or no row is free. The capacitors'
+    own routes (their plates' runs from their drivers to their channels) may cross it."""
     from flow.layout.build import _mom_units
     from flow.layout.devices.momcap.table import stacked_over_rows
     from flow.layout.devices.mosfet.netlist import row_height_nm
@@ -87,9 +88,20 @@ def free_rows(gds: Path, pdk: str) -> dict[str, Any] | None:
     if caps.empty():
         return None
     h = round(row_height_nm(pdk) / 1000 / layout.dbu)
-    under = [b for b in cells if b.left < caps.right and b.right > caps.left]
-    y0 = (max((b.top for b in under), default=caps.bottom) // h) * h  # the highest cell's top rail line
-    y1 = caps.top // h * h
+    # the cells under the capacitors, their rows' rail lines (a cell's outline past its rails by less
+    # than a row), and the stretches between them
+    under = sorted(
+        (-(-b.bottom // h) * h, b.top // h * h)
+        for b in cells
+        if b.left < caps.right and b.right > caps.left and b.top > caps.bottom and b.bottom < caps.top
+    )
+    edges, reach = [], -(-caps.bottom // h) * h
+    for lo, hi in under:
+        if lo > reach:
+            edges.append((reach, lo))
+        reach = max(reach, hi)
+    edges.append((reach, caps.top // h * h))
+    y0, y1 = max(edges, key=lambda e: e[1] - e[0])
     if y1 <= y0:
         return None
     um = layout.dbu
