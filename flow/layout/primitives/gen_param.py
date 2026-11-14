@@ -20,7 +20,7 @@ _SPEC.loader.exec_module(_ALIGN)
 
 # the PDK's own generators a netlist names (``Generator(name=...)``): ALIGN's generic primitives, each
 # drawn by its class's ``generate(ports, netlist_parameters)`` from its subcircuit's parameters
-_generic = ("MomUnit", "CmosInverter")
+_generic = ("MomUnit", "CmosInverter", "CmosChain")
 
 
 def _inverter_values(subckt):
@@ -47,6 +47,11 @@ def gen_param(subckt, primitives, pdk_dir):
         if kind == "CmosInverter":
             values = _inverter_values(subckt)
             for c in subckt.constraints:  # the annotation's own parameters (Generator(parameters=...))
+                if type(c).__name__ == "Generator":
+                    values.update({k.lower(): v for k, v in (c.parameters or {}).items()})
+        elif kind == "CmosChain":  # its inverters from the annotation's own parameters
+            values = {}
+            for c in subckt.constraints:
                 if type(c).__name__ == "Generator":
                     values.update({k.lower(): v for k, v in (c.parameters or {}).items()})
         else:

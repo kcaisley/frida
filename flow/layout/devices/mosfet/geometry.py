@@ -47,3 +47,25 @@ class InverterGeometry:
 
     def align_parameters(self) -> dict[str, int]:
         return {"wide_input": 1} if self.wide_input else {}
+
+
+@dataclass(frozen=True)
+class ChainGeometry:
+    """A chain of complementary inverters drawn in one row cell, each output linked to the next
+    input inside it (``rowcell.inverter_chain``, ALIGN's ``CmosChain``): ``cases`` its inverters,
+    input first, each (gate length, NMOS and PMOS finger widths, fingers) in nm. Its netlist keeps
+    every inverter's two transistors (``netlist_devices``). ``wide_input``: its first input bar
+    across its cell; ``fixed``: never mirrored."""
+
+    cases: tuple[tuple[int, int, int, int], ...]
+    wide_input: bool = False
+    fixed: bool = False
+    netlist_devices = True
+
+    @property
+    def align_generator(self) -> str:
+        return "CmosChain"
+
+    def align_parameters(self) -> dict[str, int | str]:
+        stages = ";".join(":".join(str(v) for v in case) for case in self.cases)
+        return {"stages": stages, "wide_input": int(self.wide_input), "fixed": int(self.fixed)}

@@ -15,7 +15,7 @@ from .momcap.geometry import MomcapGeometry, MomStyle
 from .momcap.netlist import StripParams, UnitParams, strip, unit
 from .momcap.table import MomcapTable
 from .moscap.table import MosCapTable
-from .mosfet.geometry import InverterGeometry
+from .mosfet.geometry import ChainGeometry, InverterGeometry
 from .mosfet.netlist import DriverParams, DriverRequest, _input, driver, shared_fanin
 from .mosfet.table import MosfetTable
 from .polyres.table import PolyResTable
@@ -135,12 +135,15 @@ def test_a_driver_request_resolves_to_the_pdks_own_inverters(pdk: str) -> None:
     assert resolve(top, pdk) == []
     assert request_of(top.drive.of) is None
     h.pdk.compile(top)  # the view is the PDK's devices
-    cells = list(top.drive.of.instances.values())
-    assert len(cells) % 2 == 1  # an odd number of inverters
-    for cell in cells:  # each its NMOS and PMOS in one complementary row cell
+    view = top.drive.of
+    if isinstance(geometry_of(view), ChainGeometry):  # a chain drawn as one row cell: its own pairs
+        assert len(view.instances) % 4 == 2  # an odd number of inverters, an NMOS and a PMOS each
+        assert len(geometry_of(view).cases) == len(view.instances) // 2
+    else:  # one inverter, its NMOS and PMOS in one complementary row cell
+        (cell,) = view.instances.values()
         assert len(cell.of.instances) == 2
         assert isinstance(geometry_of(cell.of), InverterGeometry)
-    assert geometry_of(top.drive.of) is None
+        assert geometry_of(view) is None
     assert import_module(f"pdk.{pdk}.hdl21")
 
 

@@ -345,3 +345,41 @@ class CmosInverter(RowCanvas):
         )
         self.draw(cell.rects)
         self.bbox = transformation.Rect(0, 0, cell.width, rowcell.H)
+
+
+class CmosChain(RowCanvas):
+    """A chain of complementary inverters in one row cell (``rowcell.inverter_chain``), each output
+    linked to the next input inside the cell, a generic primitive: its subcircuit holds every
+    inverter's NMOS and PMOS (the netlist's own devices, so LVS sees them) under a ``Generator``
+    annotation whose parameters give the inverters (``stages``: ``l:wn:wp:nf`` each, nm, input first,
+    ``;`` between), ``wide_input`` (the first input bar across its cell) and ``fixed`` (never
+    mirrored: its output at its right end wherever it stands). Pins A, Y, VDD, VSS."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(Pdk().load(DATA / "layers.json"))
+
+    def generate(self, ports, netlist_parameters, netlistdir=None):
+        p = netlist_parameters
+        names = {str(port).upper(): port for port in ports}
+        cases = [tuple(int(v) for v in stage.split(":")) for stage in str(p["stages"]).split(";")]
+        cell = rowcell.inverter_chain(
+            "CHAIN",
+            cases,
+            a=names["A"],
+            y=names["Y"],
+            vss=names["VSS"],
+            vdd=names["VDD"],
+            wide_input=bool(int(p.get("wide_input", 0))),
+        )
+        self.draw(cell.rects)
+        self.bbox = transformation.Rect(0, 0, cell.width, rowcell.H)
+        if int(p.get("fixed", 0)) and not os.environ.get("ROWS_NO_GRID"):
+            # never mirrored: placed on the M1 tracks unflipped
+            self.metadata["constraints"].append(
+                {
+                    "constraint": "PlaceOnGrid",
+                    "direction": "V",
+                    "pitch": self.pdk["M1"]["Pitch"],
+                    "ored_terms": [{"offsets": [0], "scalings": [1]}],
+                }
+            )

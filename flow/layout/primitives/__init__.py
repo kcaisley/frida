@@ -5,6 +5,6 @@ from .cap import CapGenerator
 from .mom import MomUnit
 from .models import pdk_models
 from .wiring import Wiring
-from .mos import CmosInverter, MOSGenerator
+from .mos import CmosChain, CmosInverter, MOSGenerator
 from .res import ResGenerator, ResUnit
 from .stdcell import RingGenerator, generator_class

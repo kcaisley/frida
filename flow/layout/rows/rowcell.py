@@ -924,6 +924,139 @@ def inverter_outlines(cases: list[tuple[int, int, int, int]]) -> list[tuple[int,
     return out
 
 
+def inverter_chain(
+    name: str,
+    cases: list[tuple[int, int, int, int]],
+    a: str = "A",
+    y: str = "Y",
+    vss: str = "vss",
+    vdd: str = "vdd",
+    wide_input: bool = False,
+    grid: int = XPITCH,
+) -> Cell:
+    """A chain of complementary inverters (``inverter``, each case (l, wn, wp, nf), input first) in
+    one row cell, side by side, each output linked to the next input inside the cell: ``a`` in,
+    ``y`` out, the links' nets ``<name>_n<k>``. A link runs on its output's M2 track to an M1 jog,
+    a VIA1 at each end, and on the next input's track to its bar: the jog as short as the two tracks
+    and the cuts' M1 ends make it (as wide as M1's area asks), so it keeps clear of the rails, at the
+    shared edge where it clears both cells' metal and cuts by their spaces, else in room the cell
+    before it leaves on its right (``inverter``'s ``room``), a grid step at a time. The first
+    inverter's input bar across its cell where ``wide_input``."""
+    nets = [a, *(f"{name}_n{k}" for k in range(len(cases) - 1)), y]
+    out = Cell(name, 0)
+    x = 0
+    for k, (l, wn, wp, nf) in enumerate(cases):
+        wide = wide_input and k == 0
+        last = k == len(cases) - 1
+        args = (f"{name}_{k}", l, wn, wp, nf, nets[k], nets[k + 1])
+        cell = inverter(*args, grid=grid, vss=vss, vdd=vdd, wide_input=wide)
+        if not last:
+            l1, wn1, wp1, nf1 = cases[k + 1]
+            nxt = inverter(f"{name}_{k + 1}", l1, wn1, wp1, nf1, nets[k + 1], nets[k + 2], grid=grid, vss=vss, vdd=vdd)
+            for room in range(0, 4 * grid, grid):
+                if room:
+                    cell = inverter(*args, grid=grid, vss=vss, vdd=vdd, wide_input=wide, room=room)
+                link = _link(cell.rects, [_moved(r, cell.width) for r in nxt.rects], nets[k + 1], cell.width - room)
+                if link is not None:
+                    break
+            else:
+                raise AssertionError(f"{name}: no room for the link out of inverter {k}")
+        for r in cell.rects:
+            kind = "drawing" if r.kind == "pin" and r.net not in (a, y, vss, vdd) else r.kind
+            out.add(r.layer, r.x0 + x, r.y0, r.x1 + x, r.y1, r.net, kind, r.term, pad=False)
+        if not last:
+            for layer, box in link:
+                out.add(layer, box[0] + x, box[1], box[2] + x, box[3], nets[k + 1])
+        x += cell.width
+    out.width = x
+    return out
+
+
+def inverter_chain_widths(chains: list[tuple[tuple[tuple[int, int, int, int], ...], bool]]) -> list[int]:
+    """Each chain's cell width (nm), ``inverter_chain``'s for its cases and ``wide_input``."""
+    return [inverter_chain("CHAIN", list(cases), wide_input=wide).width for cases, wide in chains]
+
+
+def _moved(r: Rect, dx: int) -> Rect:
+    return Rect(r.layer, r.x0 + dx, r.y0, r.x1 + dx, r.y1, r.net, r.kind, r.term)
+
+
+def _link(left: list[Rect], right: list[Rect], net: str, edge: int) -> list[tuple[str, tuple]] | None:
+    """A chain's link of ``net`` from the left cell's output bar (``left``) to the right one's input
+    bar (``right``, already in place): its shapes (layer, box), the jog as near the cells' shared
+    side as clears every other shape (``edge``: where the left cell's own parts end), or None."""
+    m2_out = [r for r in left if r.layer == "M2" and r.net == net and r.kind != "pad"]
+    m2_in = [r for r in right if r.layer == "M2" and r.net == net and r.kind != "pad"]
+    if not m2_out or not m2_in:
+        return None
+    bar_y = max(m2_out, key=lambda r: r.x1)
+    bar_a = min(m2_in, key=lambda r: r.x0)
+    yy, ya = (bar_y.y0 + bar_y.y1) // 2, (bar_a.y0 + bar_a.y1) // 2
+    end = min(M1_VIA_END, _tech.RULES.get("V1", {}).get("enclosure", (M1_VIA_END,))[0])  # M1 past a cut's end
+    lo, hi = min(yy, ya) - V1_H - end, max(yy, ya) + V1_H + end
+    hw = max(M1_HW, _up(-(-M1_AREA // (hi - lo)), 2 * MFG_GRID) // 2)
+    pad_x, pad_y = M2_VIA_PAD.get("V1", (V1_H + BAR_END, M2_HW))
+    shapes = left + right
+    others = {layer: [r for r in shapes if r.layer == layer and r.net != net] for layer in ("M1", "M2")}
+    # the link's own net's metal: the link meets it or keeps the metal's space from it
+    own = {
+        layer: [r for r in shapes if r.layer == layer and r.net == net and r.kind != "pad"] for layer in ("M1", "M2")
+    }
+    cuts = [r for r in shapes if r.layer == "V1"]
+    m2_end = getattr(_tech, "M2_LINE_END", 2 * M2_SPACE)
+    v1_space = max(getattr(_tech, "V1_PAIR", 2 * V1) - V1, VIA_SPACE)
+
+    def clear(boxes, rects, space) -> bool:
+        return all(_gap(b, (r.x0, r.y0, r.x1, r.y1)) >= space for b in boxes for r in rects)
+
+    def meets(boxes, rects, space) -> bool:
+        """Every rect of the link's net touches the boxes or keeps ``space`` from each."""
+        return all(
+            _gap(b, (r.x0, r.y0, r.x1, r.y1)) == 0
+            or min(_gap(o, (r.x0, r.y0, r.x1, r.y1)) for o in boxes) == 0
+            or _gap(b, (r.x0, r.y0, r.x1, r.y1)) >= space
+            for b in boxes
+            for r in rects
+        )
+
+    def jog_clear(jog) -> bool:
+        """The jog's ends keep the line-end space from what lies above and below them, its sides
+        M1's space from the rest."""
+        for r in others["M1"]:
+            box = (r.x0, r.y0, r.x1, r.y1)
+            beside = box[0] < jog[2] and jog[0] < box[2]
+            if _gap(jog, box) < (M1_END_SPACE if beside else M1_SPACE):
+                return False
+        return True
+
+    best = None
+    start, stop = bar_y.x1 - BAR_END, bar_a.x0 + BAR_END
+    for xj in range(_up(start, MFG_GRID), stop + 1, MFG_GRID):
+        jog = (xj - hw, lo, xj + hw, hi)
+        vias = [(xj - V1_H, v - V1_H, xj + V1_H, v + V1_H) for v in (yy, ya)]
+        m2 = [
+            (min(bar_y.x1, xj - pad_x), yy - max(M2_HW, pad_y), max(bar_y.x1, xj + pad_x), yy + max(M2_HW, pad_y)),
+            (min(xj - pad_x, bar_a.x0), ya - max(M2_HW, pad_y), max(xj + pad_x, bar_a.x0), ya + max(M2_HW, pad_y)),
+        ]
+        if not (jog_clear(jog) and clear(m2, others["M2"], min(M2_SPACE, m2_end))):
+            continue
+        if not (meets([jog], own["M1"], M1_SPACE) and meets(m2, own["M2"], M2_SPACE)):
+            continue
+        if not clear(vias, cuts, v1_space):
+            continue
+        if any(
+            _gap(m, (r.x0, r.y0, r.x1, r.y1)) < m2_end
+            for m in m2
+            for r in others["M2"]
+            if abs((r.y0 + r.y1) // 2 - (m[1] + m[3]) // 2) < M2W
+        ):
+            continue
+        score = abs(xj - edge)
+        if best is None or score < best[0]:
+            best = (score, [("M1", jog), *(("V1", v) for v in vias), *(("M2", m) for m in m2)])
+    return best[1] if best else None
+
+
 def _gate_pad(name: str, l: int) -> tuple[int, int, int, tuple[int, int], int]:
     """An inverter's gate pad, the same for every size of gate length ``l``: the strip pitch, the
     gate contacts' height, the input's M2 track, the pad's M1 (bottom, top) and half width. The
@@ -988,17 +1121,9 @@ def _output_track(ya: int) -> int:
     """An inverter's output M2 track, below its input's (``ya``), across the drain strips: the next
     track down, or the one below it where ALIGN's VIA1 space (V1_PAIR's, make_pdk) keeps cuts on
     neighbouring tracks apart (a chain's link jogs between an output's track and the next input's
-    on M1, a cut at each)."""
+    on M1, a cut at each, ``inverter_chain``)."""
     pitch = getattr(_tech, "PITCH", 200)
     return ya - (pitch if pitch - V1 >= getattr(_tech, "V1_PAIR", 2 * V1) - V1 else 2 * pitch)
-
-
-def inverter_tracks(l: int) -> tuple[int, int, int, int]:
-    """An inverter's output and input M2 tracks (y, nm; ``inverter``'s for gate length ``l``) and
-    the band its rails' M1 leaves between them (bottom, top): where a chain's link jogs from one
-    cell's output to the next one's input on M1."""
-    ya = _gate_pad("INV", l)[2]
-    return _output_track(ya), ya, RAIL, H - RAIL
 
 
 def inverter_min_widths(l: int) -> tuple[int, int]:
@@ -1021,6 +1146,7 @@ def inverter(
     vdd: str = "vdd",
     outline: bool = False,
     wide_input: bool = False,
+    room: int = 0,
 ) -> Cell:
     """A complementary inverter in one row cell, as a library cell has it: the NMOS hugging the VSS
     rail, the PMOS the VDD rail, on the standard cells' implant, well and VT profile (``std_pad``'s,
@@ -1046,9 +1172,12 @@ def inverter(
     ``wide_input``: ``a``'s bar across the whole cell (its M2 edge space kept), so a
     router reaches the input from more tracks above, the cell's width as without. ``outline``: the
     cell's width and its gate pads' M1 alone, as planned (what a chain needs to know of it, without
-    drawing its contacts)."""
+    drawing its contacts). ``room``: the cell that much wider on its right (a multiple of ``grid``),
+    its rails and profile across, nothing else there (where a chain links it to the next inverter,
+    ``inverter_chain``)."""
 
     assert nf >= 1, f"{name}: no fingers"
+    assert room % grid == 0, f"{name}: a room of {room} nm is off the {grid} nm cell grid"
     p, gc, ya, pad, pad_hw = _gate_pad(name, l)
     strips = [i * p for i in range(nf + 1)]
     seq = _pins(nf, "S")
@@ -1148,6 +1277,7 @@ def inverter(
         sh += shift
     if wide_input:
         bar_a = (M2_EDGE - sh, width - M2_EDGE - sh)
+    width += room
     c = Cell(name, width)
 
     def gate_m1() -> None:

@@ -12,7 +12,6 @@ none drives more than four times its own input (FO4), the first loading the flip
 between the drivers on its net).
 """
 
-import json
 import math
 from dataclasses import dataclass
 from functools import cache
@@ -24,12 +23,11 @@ from pydantic import PositiveFloat
 from flow.circuit.devices import core_unit, fingers, logic_pair
 from flow.layout.hdl21align import constraints as c
 from flow.layout.hdl21align import place, row, rows
-from flow.layout.package import metal_tracks, pdk_dir
 from flow.layout.pdkproc import in_pdk, pdk_value
 
 from ..device import active_pdk, mark
 from ..device import place as drawn
-from .geometry import InverterGeometry
+from .geometry import ChainGeometry, InverterGeometry
 from .table import mosfet_table
 
 # The PDK whose unit sizes analog devices keep physically in another PDK; None keeps them
@@ -137,39 +135,37 @@ class DriverRequest:
         raise ValueError(f"no chain of fewer than 16 inverters tapers to {self} at FO4")
 
     def resolve(self, pdk: str) -> h.Module:
-        """The chain of inverters in ``pdk``, input first, each a complementary row cell
-        (``inverter``), side by side in one row."""
+        """The chain of inverters in ``pdk``, input first: one inverter a row cell of its own
+        (``inverter``); more, one row cell drawing them all side by side, each output linked to the
+        next input inside it (``ChainGeometry``, ``rowcell.inverter_chain``), so no router joins
+        them. Its transistors are the module's own, every inverter's NMOS ``mn<k>`` and PMOS
+        ``mp<k>``, the links ``n<k>``."""
         stages = self.stages(pdk)
         fixed = not self.mirror and len(stages) > 1
         # named by its cells as drawn: requests whose inverters round alike share one chain
         cells_named = "_".join("{}n{}p{}f".format(*_inverter_sizes(n, p)) for n, p in stages)
         drawn_as = ("_w" if self.wide_input else "") + ("_r0" if fixed else "")
         module = _module(f"driver_{'inv' if self.invert else 'buf'}_{cells_named}{drawn_as}")
+        if len(stages) == 1:
+            n, p = stages[0]
+            cell = inverter(pdk, n, p, wide_input=self.wide_input)
+            module.Xinv0 = cell(A=module.A, Y=module.Y, VDD=module.VDD, VSS=module.VSS)
+            place(module, rows(row(module.Xinv0)), symmetric=False, constraints=(c.Route(min_layer=1, max_layer=2),))
+            return module
         node = module.A
-        cells = []
         for index, (n, p) in enumerate(stages):
             out = module.Y if index == len(stages) - 1 else module.add(h.Signal(), name=f"n{index}")
-            wide = self.wide_input and index == 0
-            cell = inverter(pdk, n, p, wide_input=wide)(A=node, Y=out, VDD=module.VDD, VSS=module.VSS)
-            cells.append(module.add(cell, name=f"Xinv{index}"))  # a subcircuit's instance is X...
+            n_w, p_w, nf = _inverter_sizes(n, p)
+            module.add(
+                h.Mos(tp=MosType.NMOS, vth=MosVth.LOW, w=n_w, l=1, nf=nf)(d=out, g=node, s=module.VSS, b=module.VSS),
+                name=f"mn{index}",
+            )
+            module.add(
+                h.Mos(tp=MosType.PMOS, vth=MosVth.LOW, w=p_w, l=1, nf=nf)(d=out, g=node, s=module.VDD, b=module.VDD),
+                name=f"mp{index}",
+            )
             node = out
-        # the stages' links jog between the M2 tracks of an output and the next input on M1 at the
-        # cells' shared edge, where M1 is free: M3 stays the parent's, which runs its links up there.
-        # Where an inner stage's gate pad crowds that edge, its link lands inside it instead, and
-        # the next one needs room: a gap after it (``_gaps``). A PDK whose row cells cannot draw
-        # the chain's inverters gets no gaps: the view still simulates, and a layout of it stops
-        # where ALIGN's generator draws the same cell
-        try:
-            gaps = _gaps(pdk, stages, self.wide_input)
-        except AssertionError:
-            gaps = [0] * len(stages)
-        spread = tuple(c.Spread((cells[k], cells[k + 1]), c.Axis.HORIZONTAL, gap) for k, gap in enumerate(gaps) if gap)
-        # a chain not mirrored (``mirror`` False): its output at its right end, wherever it stands,
-        # so two chains side by side never turn their outputs towards each other
-        unmirrored = (c.PlaceOnGrid(c.Axis.VERTICAL, metal_tracks(pdk, "M1")[0]),) if fixed else ()
-        constraints = (c.Route(min_layer=1, max_layer=2), *spread, *unmirrored)
-        place(module, rows(row(*cells)), symmetric=False, constraints=constraints)
-        return module
+        return drawn(module, ChainGeometry(tuple(_cases(stages)), self.wide_input, fixed))
 
 
 _INVERTERS: dict[tuple[str, int, int, int, bool], h.Module] = {}
@@ -260,48 +256,16 @@ def _outlines(pdk: str, cases: list[tuple[int, int, int, int]]) -> list[tuple[in
     return [_OUTLINES[pdk, case] for case in cases]
 
 
-def _gaps(pdk: str, stages: list[tuple[int, int]], wide_input: bool = False) -> list[int]:
-    """The gap (nm) a chain leaves after each of its inverters: one M1 pitch after an inner one
-    whose gate pad keeps less than ALIGN's M1 space from the wire on its left edge's track. The
-    link into it cannot jog there and lands on a track inside it, stretching its input bar towards
-    the next cell, where the next link jogs: one pitch further on, the two bars keep their M2
-    end-to-end space. After a first inverter whose input bar spans its cell (``wide_input``), two
-    pitches where the link out of it jogs at the shared edge (the next cell's pad clear of it):
-    beside the bar's end, the link would run past the chain's outline. Otherwise none."""
-    pitch, width = metal_tracks(pdk, "M1")
-    clear = pitch - width + width // 2  # ALIGN's space beside the edge wire, and the wire's half
-    cases = _cases(stages)
-    pads = [pad for _, pad in _outlines(pdk, cases)]
-    gaps = [pitch if 0 < k < len(stages) - 1 and pads[k] < clear else 0 for k in range(len(stages))]
-    if wide_input and len(stages) > 1 and pads[1] >= clear:
-        gaps[0] = 2 * pitch
-    if len(stages) > 1 and not _jogs_between_rails(pdk, cases[0][0]):
-        # no link jogs at a shared edge, where the rails run on: each one in a gap of two pitches,
-        # on the track between the two cells' rail ends
-        gaps = [max(g, 2 * pitch) if k < len(stages) - 1 else g for k, g in enumerate(gaps)]
-    return gaps
-
-
-def _jogs_between_rails(pdk: str, length: int) -> bool:
-    """Whether ALIGN's M1 jog of a chain's link, from an inverter's output track to the next one's
-    input track (``rowcell.inverter_tracks``), at least ALIGN's shortest M1 wire (its ``MinL``,
-    centred on the two tracks), keeps ALIGN's M1 space from the cells' rails between them."""
-    yy, ya, lo, hi = in_pdk(pdk, "rowcell", "inverter_tracks", length)
-    pitch, width = metal_tracks(pdk, "M1")
-    layers = json.loads((pdk_dir(pdk) / "layers.json").read_text())["Abstraction"]
-    least = int(next(entry for entry in layers if entry.get("Layer") == "M1").get("MinL") or 0)
-    middle, reach, space = (yy + ya) / 2, max(least, abs(ya - yy) + width) / 2, pitch - width
-    return middle - reach >= lo + space and middle + reach <= hi - space
-
-
 def driver_widths_nm(pdk: str, requests: list[DriverRequest]) -> list[int]:
-    """Each driver's width (nm) as ``DriverRequest.resolve`` draws it, its chain's inverter cells
-    side by side and the gaps between them (``_gaps``): for planning the rows they stand in. One
-    process bound to ``pdk`` draws them."""
+    """Each driver's width (nm) as ``DriverRequest.resolve`` draws it: its one inverter's cell, or
+    its chain's (``rowcell.inverter_chain``): for planning the rows they stand in. One process
+    bound to ``pdk`` draws them."""
     chains = [r.stages(pdk) for r in requests]
-    _outlines(pdk, [case for stages in chains for case in _cases(stages)])  # every case at once
+    _outlines(pdk, [_cases(stages)[0] for stages in chains if len(stages) == 1])  # every case at once
+    many = sorted({(tuple(_cases(s)), r.wide_input) for r, s in zip(requests, chains, strict=True) if len(s) > 1})
+    widths = dict(zip(many, in_pdk(pdk, "rowcell", "inverter_chain_widths", many), strict=True)) if many else {}
     return [
-        sum(w for w, _ in _outlines(pdk, _cases(stages))) + sum(_gaps(pdk, stages, r.wide_input))
+        _outlines(pdk, _cases(stages))[0][0] if len(stages) == 1 else int(widths[tuple(_cases(stages)), r.wide_input])
         for r, stages in zip(requests, chains, strict=True)
     ]
 
