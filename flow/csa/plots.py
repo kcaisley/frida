@@ -1,122 +1,147 @@
-"""Charge-sensitive amplifier comparisons: one panel per named case, shared axes."""
+"""The charge-sensitive amplifier's figures as ``Plot`` specs (``flow.pipeline.Plot``), each from
+analysis results alone: its responses to each charge, its amplitude, gain and time over threshold
+over the charge, its output noise density, and its gain, peaking time, ENC and power over the
+supply (the record's plots). The viewer draws a record's from its JSON, ``flow.plot.render`` any
+with matplotlib (the CLI's figures step)."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from pathlib import Path
-
-import matplotlib as mpl
-import matplotlib.pyplot as plt
 import numpy as np
 
-from flow.analysis.plots import (
-    NORD_BLUE,
-    NORD_CYAN,
-    NORD_DARK,
-    NORD_GREEN,
-    NORD_ORANGE,
-    NORD_RED,
-    PLOT_STYLE,
-    save_figure,
-    style_grid,
-)
-from flow.csa.analysis import AnalysisCsaNoise, AnalysisCsaPulse
+from flow.pipeline import Plot, plot
 
-CHARGE_COLORS = (NORD_CYAN, NORD_BLUE, NORD_GREEN, NORD_ORANGE, NORD_RED)
+from .params import PULSE_STEP_S, SUPPLY_SWEEP
+from .types import AnalysisNoise, AnalysisPulse, AnalysisSupply
 
 
-@mpl.rc_context(PLOT_STYLE)
-def plot_csa_pulse(
-    pulses: Sequence[AnalysisCsaPulse],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare the amplifiers' responses to each injected charge: the output's excursion from its
-    baseline from the injection on, the time-over-threshold level dotted; the smallest charge's
-    gain and 10–90 % rise time in each title."""
-
-    if not pulses or len(pulses) != len(labels):
-        raise ValueError("pulse comparison requires one pulse result and label per amplifier")
-    columns = min(2, len(pulses))
-    rows = (len(pulses) + columns - 1) // columns
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (pulse, label) in enumerate(zip(pulses, labels, strict=True)):
-        ax = axes.flat[index]
-        for row, charge in enumerate(pulse.charge_c):
-            color = CHARGE_COLORS[row % len(CHARGE_COLORS)]
-            ax.plot(pulse.time_s * 1e9, pulse.pulse_v[row] * 1e3, "-", color=color, label=f"{charge * 1e15:g} fC")
-        ax.axhline(pulse.threshold_v[0] * 1e3, color=NORD_DARK, linestyle=":", linewidth=0.8)
-        ax.set_title(f"{label}\n{pulse.gain_v_per_c[0] * 1e-12:.0f} mV/fC, rise {pulse.rise_time_s[0] * 1e9:.2g} ns")
-        style_grid(ax)
-    for ax in axes.flat[len(pulses) :]:
-        ax.set_visible(False)
-    axes.flat[0].legend(loc="upper right", fontsize="small")
-    fig.supxlabel("Time from injection (ns)")
-    fig.supylabel("Output excursion from baseline (mV)")
-    fig.suptitle("Amplifier response to an injected charge")
-    return save_figure(fig, output_path)
+def _stride(time_s: np.ndarray) -> int:
+    """Every how many samples of a response the figure keeps one: about every ``PULSE_STEP_S``."""
+    step = float(np.median(np.diff(time_s))) if len(time_s) > 1 else PULSE_STEP_S
+    return max(1, round(PULSE_STEP_S / step))
 
 
-@mpl.rc_context(PLOT_STYLE)
-def plot_csa_charge(
-    pulses: Sequence[AnalysisCsaPulse],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare the amplifiers' amplitude and time over threshold over the injected charge (none for
-    an amplifier that holds it)."""
-
-    if not pulses or len(pulses) != len(labels):
-        raise ValueError("charge comparison requires one pulse result and label per amplifier")
-    columns = min(2, len(pulses))
-    rows = (len(pulses) + columns - 1) // columns
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (pulse, label) in enumerate(zip(pulses, labels, strict=True)):
-        ax = axes.flat[index]
-        charge_fc = pulse.charge_c * 1e15
-        ax.plot(charge_fc, pulse.amplitude_v * 1e3, "o-", color=NORD_BLUE, markersize=3)
-        ax.tick_params(axis="y", colors=NORD_BLUE)
-        tot_ax = ax.twinx()
-        tot_ax.plot(charge_fc, pulse.tot_s * 1e9, "s-", color=NORD_RED, markersize=3)
-        tot_ax.tick_params(axis="y", colors=NORD_RED)
-        # an amplifier that holds the charge has no time over threshold
-        tot_ax.set_visible(bool(np.any(np.isfinite(pulse.tot_s))))
-        if index % columns == columns - 1 or index == len(pulses) - 1:
-            tot_ax.set_ylabel("Time over threshold (ns)", color=NORD_RED)
-        ax.set_title(label)
-        style_grid(ax)
-    for ax in axes.flat[len(pulses) :]:
-        ax.set_visible(False)
-    fig.supxlabel("Injected charge (fC)")
-    fig.supylabel("Amplitude (mV)", color=NORD_BLUE)
-    fig.suptitle("Amplifier amplitude and time over threshold versus charge")
-    return save_figure(fig, output_path)
+@plot
+def plot_pulse(pulse: AnalysisPulse) -> Plot:
+    """Each charge's response: the output's excursion from its baseline, from the injection on."""
+    stride = _stride(pulse.time_s)
+    return Plot(
+        name="pulse",
+        title="Response to each charge, from the injection",
+        x_label="Time from the injection (s)",
+        y_label="Output excursion (V)",
+        x=[float(value) for value in pulse.time_s[::stride]],
+        series={
+            f"{charge * 1e15:g} fC": [float(value) for value in row[::stride]]
+            for charge, row in zip(pulse.charge_c, pulse.pulse_v, strict=True)
+        },
+    )
 
 
-@mpl.rc_context(PLOT_STYLE)
-def plot_csa_noise(
-    noises: Sequence[AnalysisCsaNoise],
-    *,
-    labels: Sequence[str],
-    output_path: Path,
-) -> tuple[Path, ...]:
-    """Compare the amplifiers' output noise density, the rms noise and ENC in each title."""
+@plot
+def plot_amplitude_charge(pulse: AnalysisPulse) -> Plot:
+    """The response's amplitude over the injected charge."""
+    return Plot(
+        name="amplitude_charge",
+        title="Amplitude over the injected charge",
+        x_label="Injected charge (C)",
+        y_label="Amplitude (V)",
+        x=[float(value) for value in pulse.charge_c],
+        series={"amplitude": [float(value) for value in pulse.amplitude_v]},
+        x_log=True,
+        y_log=True,
+    )
 
-    if not noises or len(noises) != len(labels):
-        raise ValueError("noise comparison requires one noise result and label per amplifier")
-    columns = min(2, len(noises))
-    rows = (len(noises) + columns - 1) // columns
-    fig, axes = plt.subplots(rows, columns, sharex=True, sharey=True, squeeze=False)
-    for index, (noise, label) in enumerate(zip(noises, labels, strict=True)):
-        ax = axes.flat[index]
-        ax.loglog(noise.frequency_hz, noise.output_noise_v_rthz[0], "-", color=NORD_BLUE)
-        ax.set_title(f"{label}\n{noise.noise_rms_v[0] * 1e3:.2g} mV rms, ENC {noise.enc_electrons[0]:.0f} e⁻")
-        style_grid(ax)
-    for ax in axes.flat[len(noises) :]:
-        ax.set_visible(False)
-    fig.supxlabel("Frequency (Hz)")
-    fig.supylabel("Output noise (V/√Hz)")
-    fig.suptitle("Amplifier output noise without charge")
-    return save_figure(fig, output_path)
+
+@plot
+def plot_gain_charge(pulse: AnalysisPulse) -> Plot:
+    """The charge gain over the injected charge."""
+    return Plot(
+        name="gain_charge",
+        title="Charge gain over the injected charge",
+        x_label="Injected charge (C)",
+        y_label="Charge gain (V/C)",
+        x=[float(value) for value in pulse.charge_c],
+        series={"charge gain": [float(value) for value in pulse.charge_gain_v_per_c]},
+        x_log=True,
+    )
+
+
+@plot
+def plot_tot_charge(pulse: AnalysisPulse) -> Plot:
+    """The time over threshold (half the smallest charge's amplitude) over the injected charge."""
+    return Plot(
+        name="tot_charge",
+        title="Time over threshold (half the smallest charge's amplitude) over the charge",
+        x_label="Injected charge (C)",
+        y_label="Time over threshold (s)",
+        x=[float(value) for value in pulse.charge_c],
+        series={"time over threshold": [float(value) for value in pulse.tot_s]},
+        x_log=True,
+    )
+
+
+@plot
+def plot_noise_density(noise: AnalysisNoise) -> Plot:
+    """The output noise density without charge, over frequency."""
+    return Plot(
+        name="noise_density",
+        title="Output noise density without charge",
+        x_label="Frequency (Hz)",
+        y_label="Output noise (V/sqrt(Hz))",
+        x=[float(value) for value in noise.frequency_hz],
+        series={"output noise": [float(value) for value in noise.noise_out_v_per_rthz[0]]},
+        x_log=True,
+        y_log=True,
+    )
+
+
+@plot
+def plot_gain_supply(supply: AnalysisSupply) -> Plot:
+    """The smallest charge's gain over the supply (``SUPPLY_SWEEP``)."""
+    return Plot(
+        name="gain_supply",
+        title="Charge gain over the supply (0.25 fC)",
+        x_label="Supply over nominal",
+        y_label="Charge gain (V/C)",
+        x=list(SUPPLY_SWEEP),
+        series={"charge gain": [float(value) for value in supply.charge_gain_v_per_c]},
+    )
+
+
+@plot
+def plot_peaking_supply(supply: AnalysisSupply) -> Plot:
+    """The smallest charge's peaking time over the supply (``SUPPLY_SWEEP``)."""
+    return Plot(
+        name="peaking_supply",
+        title="Peaking time over the supply (0.25 fC)",
+        x_label="Supply over nominal",
+        y_label="Peaking time (s)",
+        x=list(SUPPLY_SWEEP),
+        series={"peaking time": [float(value) for value in supply.peaking_time_s]},
+    )
+
+
+@plot
+def plot_enc_supply(supply: AnalysisSupply) -> Plot:
+    """The equivalent noise charge over the supply (``SUPPLY_SWEEP``)."""
+    return Plot(
+        name="enc_supply",
+        title="Equivalent noise charge over the supply",
+        x_label="Supply over nominal",
+        y_label="ENC (electrons)",
+        x=list(SUPPLY_SWEEP),
+        series={"ENC": [float(value) for value in supply.enc_electrons]},
+    )
+
+
+@plot
+def plot_power_supply(supply: AnalysisSupply) -> Plot:
+    """The power the supply delivers before the charge, over the supply (``SUPPLY_SWEEP``)."""
+    return Plot(
+        name="power_supply",
+        title="Power over the supply",
+        x_label="Supply over nominal",
+        y_label="Power (W)",
+        x=list(SUPPLY_SWEEP),
+        series={"power": [float(value) for value in supply.power_w]},
+    )
