@@ -52,10 +52,14 @@ const labelOf = (index) => page.labels[index]?.short || `instance ${index + 1}`;
 
 // ---- the detail plots, each on its own data -----------------------------------------------------
 
-function unitScale(label, values) {
+// an axis's label with the SI prefix its values take, and their factor (flow/plot.py's scaled); a
+// log axis whose values span more than three decades stays in its base unit
+function unitScale(label, values, log = false) {
     const match = label.match(/\(([^)]+)\)$/);
     const unit = match?.[1];
     if (!unit || !SCALABLE.has(unit)) return { label, factor: 1 };
+    const sizes = values.filter((value) => Number.isFinite(value) && value !== 0).map(Math.abs);
+    if (log && sizes.length && Math.max(...sizes) > 1e3 * Math.min(...sizes)) return { label, factor: 1 };
     const exponent = siExponent(values.filter((value) => Number.isFinite(value)));
     return { label: label.replace(/\(([^)]+)\)$/, `(${PREFIXES[exponent]}${unit})`), factor: 10 ** -exponent };
 }
@@ -372,8 +376,8 @@ class PlotsPanel {
         // hovered by name, never scaled
         const categories = first.x_labels?.length ? first.x_labels : null;
         const rows = first.y_labels?.length ? first.y_labels : null;
-        const x = categories ? { label: first.x_label, factor: 1 } : unitScale(first.x_label, xs);
-        const y = rows ? { label: first.y_label, factor: 1 } : unitScale(first.y_label, ys);
+        const x = categories ? { label: first.x_label, factor: 1 } : unitScale(first.x_label, xs, first.x_log);
+        const y = rows ? { label: first.y_label, factor: 1 } : unitScale(first.y_label, ys, first.y_log);
         // a condition sweep's few points marked; a long series (a code axis, a spectrum) a thin line;
         // a histogram (one bin a code) its outline, steps centred on the bins, so compared ones overlay
         const dense = entries.some(({ detail }) => detail.x.length > 100);

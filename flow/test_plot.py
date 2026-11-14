@@ -59,6 +59,9 @@ def test_an_axis_takes_the_viewers_si_prefix() -> None:
     assert scaled("Clock-to-decision delay (s)", [5e-10, math.nan, None]) == ("Clock-to-decision delay (ps)", 1e12)
     assert scaled("Supply over nominal", [0.9, 1.2]) == ("Supply over nominal", 1.0)
     assert scaled("Energy (J)", [math.nan]) == ("Energy (J)", 1.0)
+    # a log axis over more than three decades stays in its base unit; over fewer it is scaled
+    assert scaled("Frequency (Hz)", [1e3, 1e7, 1e11], log=True) == ("Frequency (Hz)", 1.0)
+    assert scaled("-3 dB bandwidth (Hz)", [6e8, 4e9], log=True) == ("-3 dB bandwidth (GHz)", 1e-9)
 
 
 def test_a_spec_renders_with_gaps_where_a_point_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -129,8 +132,9 @@ def test_markers_and_bands_on_a_log_axis(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_a_log_axis_ticks_as_the_viewer_and_a_band_at_the_end_labels_inside(monkeypatch: pytest.MonkeyPatch) -> None:
     """Log ticks by paper.js fitAxis's rules: within a decade linear steps labelled in full, to 2.5
     decades 1, 2 and 5 of each, beyond them the decades, plainly from 0.001 to 10000 and as powers of
-    ten past it (every second past 7); a band in the last fifth of the data's x labelled at its outer
-    edge, inside the plot (detail.js bandSide)."""
+    ten past it (every second past 7); a log axis over more than three decades in its base unit
+    (``scaled``); a band in the last fifth of the data's x labelled at its outer edge, inside the
+    plot (detail.js bandSide)."""
 
     def ticks(axis) -> list[str]:
         return [label.get_text() for label in axis.get_ticklabels()]
@@ -148,14 +152,16 @@ def test_a_log_axis_ticks_as_the_viewer_and_a_band_at_the_end_labels_inside(monk
         x_bands=[Band(4e6, 5e6, "Last")],
     )
     ax = drawn(narrow, monkeypatch).axes[0]
-    assert (ticks(ax.xaxis), ticks(ax.yaxis)) == (["0.001", "0.01", "0.1", "1"], ["100", "120", "140", "160"])
+    # 1 kHz to 5 MHz, 3.7 decades: in Hz, ticked as powers of ten (past 10000)
+    decades = [f"$10^{{{e}}}$" for e in (3, 4, 5, 6)]
+    assert (ticks(ax.xaxis), ticks(ax.yaxis)) == (decades, ["100", "120", "140", "160"])
     (label,) = ax.texts
-    assert (label.get_position()[0], label.get_horizontalalignment()) == (pytest.approx(5.0), "right")
+    assert (label.get_position()[0], label.get_horizontalalignment()) == (pytest.approx(5e6), "right")
     two = drawn(spec([1, 2, 3], [1e-9, 1e-8, 1e-7], y_log=True), monkeypatch).axes[0]
     assert ticks(two.yaxis) == ["1", "2", "5", "10", "20", "50", "100"]
     wide = drawn(spec([1, 2, 3], [1e-21, 1e-15, 1e-10], y_log=True), monkeypatch).axes[0]
-    # 1e-9 to 100 pV/√Hz: past 0.001 to 10000, so powers of ten, 1 and 10 plainly as the viewer has them
-    assert ticks(wide.yaxis) == [*(f"$10^{{{e}}}$" for e in (-8, -6, -4, -2)), "1", "$10^{2}$"]
+    # 1e-21 to 1e-10 V/√Hz, eleven decades: in its base unit, every second power of ten
+    assert ticks(wide.yaxis) == [f"$10^{{{e}}}$" for e in (-20, -18, -16, -14, -12, -10)]
 
 
 def test_a_heatmap_holds_a_row_of_values_for_each_row_of_cells() -> None:

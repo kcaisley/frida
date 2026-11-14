@@ -38,12 +38,14 @@ SCALABLE = ("s", "V", "A", "J", "W", "F", "Hz", "Ω", "C", "V/C", "V/√Hz")
 PREFIXES = {-18: "a", -15: "f", -12: "p", -9: "n", -6: "µ", -3: "m", 0: "", 3: "k", 6: "M", 9: "G", 12: "T"}
 
 
-def scaled(label: str, values: Sequence[float]) -> tuple[str, float]:
+def scaled(label: str, values: Sequence[float], *, log: bool = False) -> tuple[str, float]:
     """An axis's label with the SI prefix that brings its largest finite magnitude into [1, 1000),
-    and the factor its values take (the viewer's ``unitScale``)."""
+    and the factor its values take (the viewer's ``unitScale``); a log axis whose values span
+    more than three decades stays in its base unit (1 kHz to 100 GHz ticked 10^3 to 10^11 Hz, not
+    10^-6 to 10^2 GHz)."""
     unit = label[label.rfind("(") + 1 : -1] if label.endswith(")") and "(" in label else ""
     finite = [abs(value) for value in values if value is not None and math.isfinite(value) and value]
-    if unit not in SCALABLE or not finite:
+    if unit not in SCALABLE or not finite or log and max(finite) > 1e3 * min(finite):
         return label, 1.0
     exponent = max(-18, min(12, math.floor(math.log10(max(finite)) / 3) * 3))
     return f"{label[: label.rfind('(')]}({PREFIXES[exponent]}{unit})", 10.0**-exponent
@@ -73,8 +75,12 @@ def render(plot: Plot, output_path: Path) -> tuple[Path, ...]:
         # the SI prefixes from the values drawn (a map's cell edges among them), not the markers
         x_values = [*plot.x, *(heatmap.x if heatmap else ())]
         y_values = [*(v for y in (*series.values(), *paths) for v in y.tolist()), *(heatmap.y if heatmap else ())]
-        x_label, x_factor = (plot.x_label, 1.0) if plot.x_labels is not None else scaled(plot.x_label, x_values)
-        y_label, y_factor = (plot.y_label, 1.0) if plot.y_labels is not None else scaled(plot.y_label, y_values)
+        x_label, x_factor = (
+            (plot.x_label, 1.0) if plot.x_labels is not None else scaled(plot.x_label, x_values, log=plot.x_log)
+        )
+        y_label, y_factor = (
+            (plot.y_label, 1.0) if plot.y_labels is not None else scaled(plot.y_label, y_values, log=plot.y_log)
+        )
         x = np.asarray(plot.x, dtype=np.float64) * x_factor
         if heatmap is not None:
             _heatmap(fig, ax, heatmap, x_factor, y_factor)
