@@ -41,7 +41,7 @@ import json
 import math
 from dataclasses import dataclass, replace
 from importlib import import_module
-from itertools import pairwise
+from itertools import combinations, pairwise
 from math import log
 
 import hdl21 as h
@@ -155,6 +155,38 @@ def _packed(widths: list[int], capacity: int, gap_nm: int = 0) -> list[list[int]
     return [sorted(r) for r in rows]
 
 
+def _balanced(widths: list[int], rows: int, gap_nm: int = 0) -> list[list[int]]:
+    """Stages ``widths`` wide (nm) in ``rows`` rows, neighbours in a row ``gap_nm`` apart, the
+    widest row as narrow as it goes: the widest first, each into the row narrowest so far, then a
+    stage moved out of the widest row, or one or two swapped for another row's one, while that
+    narrows it; each row in the stages' order."""
+    out: list[list[int]] = [[] for _ in range(rows)]
+    wide = lambda r: sum(widths[j] for j in r) + gap_nm * (len(r) - 1)
+    for i in sorted(range(len(widths)), key=lambda i: (-widths[i], i)):
+        min(out, key=wide).append(i)
+    improved = True
+    while improved:
+        improved = False
+        top = max(out, key=wide)
+        for other in (r for r in out if r is not top):
+            moves = [([i], []) for i in top] + [([i], [j]) for i in top for j in other]
+            moves += [([i, k], [j]) for i, k in combinations(top, 2) for j in other]
+            for give, take in moves:
+                a = [i for i in top if i not in give] + take
+                b = [j for j in other if j not in take] + give
+                if max(wide(a), wide(b)) < wide(top):
+                    top[:], other[:] = a, b
+                    improved = True
+                    break
+            if improved:
+                break
+    return [sorted(r) for r in out if r]
+
+
+# a band's rows at most (the owner's, 2026-11-16): the main drivers' and the difference drivers'
+MAIN_ROWS, DIFF_ROWS = 3, 2
+
+
 def _driver_rows(
     main: list[int], diff: list[int], cap_nm: tuple[int, int], row_nm: int, stacked: bool, gap_nm: int = 0
 ) -> tuple[list[list[int]], list[list[int]]]:
@@ -163,19 +195,28 @@ def _driver_rows(
     end last: the main band at the side's bottom edge, the difference band at its top, beyond the
     capacitors' ends or, where they stack (``stacked``), under them.
 
-    Each band's rows every so many stages in their order, the difference drivers ``gap_nm`` apart
-    in a row; a main band may pack its stages instead, into rows as wide as the widest of the
-    capacitors and the drivers (``_packed``), and never stands more than one row of a single driver
-    (a main driver wider than the strips, which every other stage's would only widen), where
-    ALIGN's placement cannot solve the many rows. Of the outlines the capacitors (``cap_nm``, wide,
-    tall) and the rows (each ``row_nm`` tall) take together, the least; of those, where the
-    capacitors stack, two difference rows or more (the stages alternating between them, a
-    difference driver's output with more exits up to its strip); of those, the fewest rows."""
-    mains = [_strided(len(main), k) for k in range(1, len(main) + 1)]
+    The main band takes ``MAIN_ROWS`` rows at most, the difference band ``DIFF_ROWS``, each its
+    rows every so many stages in their order or balanced (``_balanced``: the widest rows as narrow
+    as it goes), the difference drivers ``gap_nm`` apart in a row; a main band may pack its stages
+    instead, into rows as wide as the widest of the capacitors and the drivers (``_packed``), where
+    that takes no more rows, and never stands more than one row of a single driver (a main driver
+    wider than the strips, which every other stage's would only widen). Where the drivers do not
+    fit that many rows across the capacitors' width, the rows reach past it. Of the outlines the
+    capacitors (``cap_nm``, wide, tall) and the rows (each ``row_nm`` tall) take together, the
+    least; of those, where the capacitors stack, two difference rows (the stages alternating
+    between them, a difference driver's output with more exits up to its strip); of those, the
+    fewest rows."""
+    mains = [_strided(len(main), k) for k in range(1, min(MAIN_ROWS, len(main)) + 1)]
+    mains += [_balanced(main, k) for k in range(2, min(MAIN_ROWS, len(main)) + 1)]
     if diff:
-        mains = [r for r in mains if sum(len(row) == 1 for row in r) <= 1]
-        mains.append(_packed(main, max(cap_nm[0], *main)))
-    diffs = [_strided(len(diff), k) for k in range(1, len(diff) + 1)] if diff else [[]]
+        mains = [r for r in mains if sum(len(row) == 1 for row in r) <= 1] or mains[:1]
+        packed = _packed(main, max(cap_nm[0], *main))
+        if len(packed) <= MAIN_ROWS:
+            mains.append(packed)
+    diffs = [[]]
+    if diff:
+        diffs = [_strided(len(diff), k) for k in range(1, min(DIFF_ROWS, len(diff)) + 1)]
+        diffs += [_balanced(diff, k, gap_nm) for k in range(2, min(DIFF_ROWS, len(diff)) + 1)]
     return min(
         ((m, d) for m in mains for d in diffs),
         key=lambda pair: _bands_outline(pair, main, diff, cap_nm, row_nm, stacked, gap_nm),
