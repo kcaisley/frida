@@ -106,15 +106,16 @@ main section:first-of-type > h1 { margin-top: 0; }
 p { margin: 0 0 0.9rem; }
 a { color: var(--link); text-underline-offset: 0.15em; text-decoration-thickness: 1px; }
 a:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
-a.xref, .citation a { text-decoration: none; }
-a.xref:hover, .citation a:hover { text-decoration: underline; }
+/* cross-references (pandoc-crossref's links to #fig:, #eq:, #tbl:, #sec:) and citations */
+main a[href^="#fig:"], main a[href^="#eq:"], main a[href^="#tbl:"], main a[href^="#sec:"], .citation a { text-decoration: none; }
+main a[href^="#fig:"]:hover, main a[href^="#eq:"]:hover, main a[href^="#tbl:"]:hover, main a[href^="#sec:"]:hover, .citation a:hover { text-decoration: underline; }
 code { font-size: 0.9em; background: var(--tint); padding: 0 0.2em; }
 mjx-container[display="true"] { overflow-x: auto; overflow-y: hidden; padding: 0.2rem 0; }
 
 /* figures: the plot on white, the caption small, set like LaTeX's */
 .figure { margin: 1.8rem 0 2rem; clear: both; }
 .figure .plot { width: 100%; min-height: 320px; }
-.figure > p { font-size: 0.86rem; line-height: 1.38; margin: 0.4rem 0 0; }
+.figure > figcaption, .figure > figcaption p { font-size: 0.86rem; line-height: 1.38; margin: 0.4rem 0 0; text-align: justify; }
 .figlabel { margin-right: 0.15em; }
 /* Inkscape drawings, inline so that their labels take Noto Sans Mono as in Inkscape */
 .panels { display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); gap: 0.8rem 1.2rem; align-items: end; }

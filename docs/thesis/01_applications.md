@@ -1,4 +1,4 @@
-# Applications {#sec-applications}
+# Applications {#sec:applications}
 
 CMOS sensors have fundamentally changed scientific imaging since their introduction in the early 1990s.
 Detector dynamic range has substantially improved over this period, spanning single-electron signals and incident fluence rates above 10^12^ primary electrons/cm²/s [@philipp2022].
@@ -10,7 +10,7 @@ However, as increasingly sophisticated imaging modalities have been introduced, 
 - Paragraph outlining the chapter: from the physics to the resolution and frame rate, from the packaging to the area and power per converter.
 :::
 
-## Frame rate is time resolution {#sec-frame-rate}
+## Frame rate is time resolution {#sec:frame-rate}
 
 What chips built for electron microscopy haven't focused on, though, is frame rate.
 Frame rate is time resolution.
@@ -23,7 +23,7 @@ In X-ray imaging under the high photon fluence of continuous-wave free-electron 
 Stroboscopic electron microscopy collects images at successive pump–probe delays to reconstruct a time-resolved sequence, effectively making a movie of repeatable dynamics.
 Faster detector readout supports efficient collection of these image series [@lau2020].
 
-::: {#fig-applications image="app_tem app_4dstem app_xray app_stroboscopic" cols="2"}
+::: {#fig:applications image="app_tem app_4dstem app_xray app_stroboscopic" cols="2"}
 Imaging applications: (a) transmission electron microscopy; (b) 4D-STEM; (c) X-ray diffraction at a synchrotron or free-electron laser; (d) in-situ and stroboscopic electron microscopy.
 :::
 
@@ -32,7 +32,7 @@ Imaging applications: (a) transmission electron microscopy; (b) 4D-STEM; (c) X-r
 - Section explaining each imaging mode and the frame rate, dose rate and pixel pitch it asks of the detector.
 :::
 
-## Counting and integrating pixels {#sec-counting}
+## Counting and integrating pixels {#sec:counting}
 
 A unifying factor of detectors of high-energy particles is that they have a high spectral SNR, and very often have little information of interest encoded in that domain.
 And so we are typically more concerned with just counting accurately (good DQE and good linearity).
@@ -41,7 +41,7 @@ Higher speed in-pixel counting, or column adjacent electron counting readout, ha
 These are especially beneficial in instances where particle hit rate should be read out with high resolution requirement (small and many pixels), with very sparse hit rates.
 This is similar to how multi-bit quantization in wired and wireless data links offers a data rate improvement over single-bit, at the expense of increased design complexity, due to the need to satisfy BER requirements by considering signal to noise and distortion in both temporal and amplitude domains.
 
-::: {#fig-hit-rate plot="hit_rate_vs_fluence"}
+::: {#fig:hit-rate plot="hit_rate_vs_fluence"}
 Per-pixel hit rate against incident particle fluence for pixel pitches from 100 µm to 10 µm, with the fluence of photon sources (squares) and electron microscopes (circles).
 :::
 
@@ -49,19 +49,19 @@ We model particle arrivals as a Poisson process with average rate $\mu$, each hi
 The probability that a hit overlaps with a previous one is $1 - e^{-\mu t_\mathrm{d}}$, and for an allowed overlap fraction $f$
 $$
 \mu_\mathrm{max} = \frac{-\ln(1-f)}{t_\mathrm{d}}.
-$$ {#eq-pileup}
+$$ {#eq:pileup}
 An integrating pixel with an $N$-bit conversion per frame time $T_\mathrm{frame}$ can count up to
 $$
 \mu_\mathrm{max} = \frac{2^N - 1}{T_\mathrm{frame}}.
-$$ {#eq-integrating}
+$$ {#eq:integrating}
 
-::: {#fig-counting-rate plot="counting_rate_limits"}
-Maximum hit rate per pixel. Left: integrating, @eq-integrating. Right: discriminating, @eq-pileup at 10 % pile-up, with SPHIRD [@grybos2023], KITE [@zambon2023], Medipix4 [@sriskaran2024], Timepix4 [@llopart2022], IBEX [@bochenek2018], PILATUS3 [@loeliger2012], EIGER [@dinapoli2010] and Medipix3 [@ballabriga2011].
+::: {#fig:counting-rate plot="counting_rate_limits"}
+Maximum hit rate per pixel. Left: integrating, @eq:integrating. Right: discriminating, @eq:pileup at 10 % pile-up, with SPHIRD [@grybos2023], KITE [@zambon2023], Medipix4 [@sriskaran2024], Timepix4 [@llopart2022], IBEX [@bochenek2018], PILATUS3 [@loeliger2012], EIGER [@dinapoli2010] and Medipix3 [@ballabriga2011].
 :::
 
 ::: todo
 
-- Paragraph reading @fig-hit-rate and @fig-counting-rate against each other.
+- Paragraph reading @fig:hit-rate and @fig:counting-rate against each other.
 :::
 
 These problems are best solved by integrating mode sensors, where multiple particles are measured per frame, but still with single electron resolution.
@@ -72,7 +72,7 @@ Sub-electron energy resolution is still useful for position localization.
 
 Frame-based radiation detectors with integrating front-ends are especially well-suited for applications like electron microscopy and X-ray imaging, where hit rates are high and spatial resolution should be maximized with simple pixels.
 
-## Sensor and readout arrangements {#sec-arrangements}
+## Sensor and readout arrangements {#sec:arrangements}
 
 ::: todo
 
@@ -82,11 +82,11 @@ Frame-based radiation detectors with integrating front-ends are especially well-
 Monolithic sensors are often very thin and so can't typically absorb 100 % of incident electron energy; therefore there is some variation in the proportion of energy left between particles, even with the same energy.
 This is called Landau noise and follows a Landau distribution.
 
-::: {#fig-monolithic image="chip_monolithic"}
+::: {#fig:monolithic image="chip_monolithic"}
 A monolithic imager.
 :::
 
-::: {#fig-side-by-side image="chip_side_by_side"}
+::: {#fig:side-by-side image="chip_side_by_side"}
 Sensor and readout chips side by side on one package.
 :::
 
@@ -96,7 +96,7 @@ Instead, pile-up (i.e. coincidence) is limited by a single pixel's dead time, wi
 Event-based readout is possible in both hybrid and monolithic architectures, and is exclusively used with counting detection.
 The difference is that hit counts aren't digitally buffered for the subsequent frame, but instead are sparsely transmitted out as they occur.
 
-::: {#fig-hybrid image="chip_hybrid"}
+::: {#fig:hybrid image="chip_hybrid"}
 A hybrid stack.
 :::
 
@@ -112,11 +112,11 @@ Redistribution layers are a post-metallization layer which can be used to remap 
 In bump bonding, chip and sensor are typically 300 µm and 150 µm thick respectively; with wafer bonding and TSVs, the chip and sensor can be thinned to 20 µm and 100 µm.
 Sensors can be made very large, but chips are often limited in size; therefore we have concepts like quad modules.
 
-## Where the converters go {#sec-placement}
+## Where the converters go {#sec:placement}
 
 ADCs can be placed in-pixel, under-pixel (SOI), under-pixel (hybrid), at the periphery matched to the columns, or at the periphery and redistributed (often off chip).
 
-::: {#fig-column-parallel image="chip_column_parallel"}
+::: {#fig:column-parallel image="chip_column_parallel"}
 A monolithic imager with column-parallel ADCs and serializers.
 :::
 
@@ -130,7 +130,7 @@ Just reading multiple rows at once, with extra ADCs, is a workaround for this sp
 - Section on pixel-parallel against column-parallel conversion and multiplexing.
 :::
 
-## Budgets {#sec-budgets}
+## Budgets {#sec:budgets}
 
 The next frontier of high-performance imaging involves systems pushing above the boundary of 100,000 frames per second.
 Achieving this requires overcoming a bottleneck: the analog-to-digital converters (ADCs) must digitize large pixel arrays within the limitations of power dissipation and silicon area.

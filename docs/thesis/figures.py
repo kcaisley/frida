@@ -2,7 +2,7 @@
 ticks), then drawn twice from that description: by matplotlib into ``figures/<name>.pdf`` for the
 printed thesis (the analysis plots' style, ``flow.analysis.plots``, in the thesis's Latin Modern),
 and as the Plotly JSON the web edition draws (``figures/<name>.json``, embedded by the
-``thesis.lua`` filter for a ``::: {#fig-... plot="<name>"}`` div), with the same colours,
+``thesis.lua`` filter for a ``::: {#fig:... plot="<name>"}`` div), with the same colours,
 markers, ticks and labels, plus hover text and links.
 
     uv run python docs/thesis/figures.py      # build.py runs this first
@@ -1151,7 +1151,7 @@ SWITCHING_SCHEMES = (
 
 def _switch(cap: np.ndarray, vb: np.ndarray, vt: float, new: np.ndarray, rail: float) -> tuple[float, float]:
     """One switching event of an ideal array with a floating top plate: the top plate's new
-    voltage (charge conservation, @eq-switching) and the charge the rail at `rail` delivers to the
+    voltage (charge conservation, @eq:switching) and the charge the rail at `rail` delivers to the
     plates the event connects to it."""
     vt_new = vt + float(np.sum(cap * (new - vb)) / np.sum(cap))
     on = new == rail
@@ -1258,8 +1258,8 @@ def switching_energy_bits() -> Figure:
 
 
 def cdac_limits() -> Figure:
-    """The least capacitance per side for noise (2kT/C = LSB²/12, @eq-cmin-noise) and for matching
-    (the mid-code transition at a quarter LSB, @eq-cmin-matching), over the resolution, for a
+    """The least capacitance per side for noise (2kT/C = LSB²/12, @eq:cmin-noise) and for matching
+    (the mid-code transition at a quarter LSB, @eq:cmin-matching), over the resolution, for a
     top-plate-sampled array of N - 1 bits per side, at published single-capacitor coefficients."""
     k_t = 1.380649e-23 * 300.0
     full_scale = 1.2

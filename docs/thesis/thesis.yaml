@@ -10,3 +10,27 @@ documentclass: scrbook
 classoption: [PhD, UKenglish, oneside]
 colorlinks: true
 toc-depth: 2
+# pandoc-crossref (build.py runs it after thesis.lua): items numbered per chapter, sections to
+# level 3, worded as before ("Figure 3.2", "Section 3.2", "(3.11)"; thesis.lua adds "Chapter 4");
+# the HTML numbers and labels keep their CSS classes (.num, .figlabel). LaTeX numbers everything
+# itself, with \ref commands thesis.lua writes.
+chapters: true
+chaptersDepth: 1
+sectionsDepth: 3
+linkReferences: true
+nameInLink: true
+figureTitle: Figure
+tableTitle: Table
+figureTemplate: "[$$figureTitle$$ $$i$$$$titleDelim$$]{.figlabel} $$t$$"
+tableTemplate: "[$$tableTitle$$ $$i$$$$titleDelim$$]{.figlabel} $$t$$"
+secHeaderTemplate: "[$$i$$]{.num} $$t$$"
+figPrefix: [Figure, Figures]
+tblPrefix: [Table, Tables]
+secPrefix: [Section, Sections]
+eqnPrefix: ""
+eqnPrefixTemplate: "$$i$$"
+refIndexTemplate:
+  eq: "($$i$$)$$suf$$"
+  default: "$$i$$$$suf$$"
+eqnIndexTemplate: "$$i$$"
+equationNumberTeX: '\\tag'  # metadata is read as Markdown: the backslash escaped

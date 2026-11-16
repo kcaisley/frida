@@ -5,9 +5,12 @@ figures and MathJax) and a PDF (LuaLaTeX, the ubonn-thesis package), into docs/t
     uv run python docs/thesis/build.py html         # the web edition only
     uv run python docs/thesis/build.py html --embed # with the fonts inside the page, to share it
 
-The chapters (CHAPTERS, in order) number their sections, figures and equations through the
-thesis.lua filter; figures.py draws each plot for both editions first, and each Inkscape drawing
-in drawings/ goes into the page as SVG and into the PDF through rsvg-convert (or Inkscape).
+The chapters (CHAPTERS, in order) are pandoc Markdown with pandoc-crossref's labels ({#fig:x},
+@eq:x, ...): the thesis.lua filter turns the thesis's own figure kinds into figures, pandoc-crossref
+numbers sections, figures, tables and equations (thesis.yaml configures it), and citeproc the
+citations. pandoc and pandoc-crossref are the versions pinned in pyproject.toml, fetched on first
+use by tools/check.py. figures.py draws each plot for both editions first, and each Inkscape
+drawing in drawings/ goes into the page as SVG and into the PDF through rsvg-convert (or Inkscape).
 """
 
 from __future__ import annotations
@@ -25,6 +28,9 @@ from pathlib import Path
 
 import figures
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+import check  # the repo's one fetcher of pinned binaries: pandoc, pandoc-crossref
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 BUILD = HERE / "_build"
@@ -41,7 +47,8 @@ COMMON = [
     "--from=markdown+fenced_divs+bracketed_spans+raw_attribute+superscript",
     "--metadata-file=thesis.yaml",
     f"--metadata=date:{datetime.date.today():%-d %B %Y}",
-    "--lua-filter=thesis.lua",
+    "--lua-filter=thesis.lua",  # the thesis's figure kinds, before pandoc-crossref numbers them
+    "--filter=pandoc-crossref",  # numbering and cross-references (thesis.yaml configures it)
     "--citeproc",
     "--lua-filter=section-refs.lua",
     "--bibliography=references.bib",
@@ -50,7 +57,10 @@ COMMON = [
 
 
 def pandoc(*args: str) -> None:
-    subprocess.run(["pandoc", *COMMON, *args, *CHAPTERS], cwd=HERE, check=True)
+    """The pinned pandoc (pyproject.toml's [tool.pandoc.install]), with pandoc-crossref beside it on
+    PATH, both installed on first use."""
+    env = check.tool_path("pandoc", "pandoc-crossref")
+    subprocess.run(["pandoc", *COMMON, *args, *CHAPTERS], cwd=HERE, check=True, env=env)
 
 
 def drawing_pdfs() -> None:
@@ -207,7 +217,15 @@ def web_image(path: Path, embed: bool) -> str:
 
 def html(embed: bool) -> Path:
     out = BUILD / "thesis.html"
-    pandoc("--to=html5", "--template=template.html", "--mathjax", "--toc", "--section-divs", f"--output={out}")
+    pandoc(
+        "--to=html5",
+        "--template=template.html",
+        "--math-method=mathjax",
+        "--metadata=numberSections:true",  # pandoc-crossref numbers the headings in HTML
+        "--toc",
+        "--section-divs",
+        f"--output={out}",
+    )
     page = re.sub(
         r'<div class="drawing" data-src="drawings/([\w-]+)\.svg"></div>',
         lambda m: f'<div class="drawing">{inline_svg(m.group(1))}</div>',
@@ -243,6 +261,7 @@ def pdf() -> Path:
         "--to=latex",
         "--standalone",
         "--top-level-division=chapter",
+        "--number-sections",  # LaTeX numbers the headings (pandoc-crossref's labels need it)
         "--include-in-header=ubonn.tex",
         "--toc",
         f"--output={tex}",

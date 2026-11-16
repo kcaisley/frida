@@ -4,16 +4,19 @@
     uv run --no-project --python 3.12 python tools/check.py ruff --fix   # one check, fixing
     uv run --no-project --python 3.12 python tools/check.py ruff FILE... # a per-file check, its files
     uv run --no-project --python 3.12 python tools/check.py --staged     # the git hook
-    uv run --no-project --python 3.12 python tools/check.py install      # the pinned native tools
+    uv run --no-project --python 3.12 python tools/check.py install      # the checks' native tools
+    uv run --no-project --python 3.12 python tools/check.py install pandoc  # one pinned tool
     uv run --no-project --python 3.12 python tools/check.py install-hook # .git/hooks/pre-commit
     uv run --no-project --python 3.12 python tools/check.py editor       # LSP configs (gitignored)
 
 Settings live in pyproject.toml: the checks' versions, files and arguments (``[tool.check]``,
 ``[tool.hdl]``, ``[tool.<check>]``) and the native tools' pins (``[tool.<tool>.install]``).
-Python tools run through uv; the native ones (Verible, OSS CAD Suite, tex-fmt) are pinned
-prebuilt Linux x86_64 releases, checksum-verified and unpacked into ``FRIDA_TOOLS`` (default
-``build/tools``; a persistent directory on a self-hosted runner), each version in its own
-directory, installed on first use. ``FRIDA_TOOLS=path`` uses the tools already on PATH instead.
+Python tools run through uv; the native ones (Verible, OSS CAD Suite, tex-fmt, and the thesis
+build's pandoc and pandoc-crossref) are pinned prebuilt Linux x86_64 releases, checksum-verified and unpacked into ``FRIDA_TOOLS`` (default
+the main checkout's ``build/tools``, shared by its worktrees; a persistent directory on a
+self-hosted runner), each version in its own directory, installed on first use. Every pinned tool
+is fetched this one way: ``install NAME`` here, ``tool_path(NAME, ...)`` from Python.
+``FRIDA_TOOLS=path`` uses the tools already on PATH instead.
 Needs bash, git, curl, tar and uv; no system packages.
 """
 
@@ -36,8 +39,22 @@ ROOT = Path(__file__).resolve().parents[1]
 PROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text())
 CHECK = PROJECT["tool"]["check"]
 HDL = PROJECT["tool"]["hdl"]
-NATIVE = ("verible", "oss-cad-suite", "tex-fmt")
-TOOLS = os.environ.get("FRIDA_TOOLS", str(ROOT / "build" / "tools"))
+NATIVE = ("verible", "oss-cad-suite", "tex-fmt")  # the checks' own tools (and the CI cache's key)
+PINNED = tuple(name for name, table in PROJECT["tool"].items() if isinstance(table, dict) and "install" in table)
+
+
+def _shared_tools() -> str:
+    """The main checkout's build/tools (a worktree's git common directory is the main checkout's
+    .git), so that every worktree shares one copy of each pinned tool."""
+
+    common = subprocess.run(
+        ["git", "rev-parse", "--git-common-dir"], cwd=ROOT, capture_output=True, text=True, check=False
+    )
+    main = (ROOT / common.stdout.strip()).resolve().parent if common.returncode == 0 else ROOT
+    return str(main / "build" / "tools")
+
+
+TOOLS = os.environ.get("FRIDA_TOOLS") or _shared_tools()
 
 
 # ------------------------------------------------------------------------- native tools
@@ -66,7 +83,7 @@ def install(tool: str) -> Path:
     spec = pin(tool)
     url = spec["url"].format(version=spec["version"], date=spec["version"].replace("-", ""))
     target.parent.mkdir(parents=True, exist_ok=True)
-    archive = target.with_name(target.name + ".tar.gz")
+    archive = target.with_name(target.name + (".tar.xz" if url.endswith(".tar.xz") else ".tar.gz"))
     print(f"Installing {tool} {spec['version']} into {target}", flush=True)
     subprocess.run(
         ["curl", "--fail", "--location", "--retry", "3", "--silent", "--show-error", url, "-o", archive], check=True
@@ -82,7 +99,7 @@ def install(tool: str) -> Path:
     shutil.rmtree(partial, ignore_errors=True)
     partial.mkdir()
     strip = str(spec.get("strip", 1))
-    subprocess.run(["tar", "-xzf", archive, "-C", partial, f"--strip-components={strip}"], check=True)
+    subprocess.run(["tar", "-xf", archive, "-C", partial, f"--strip-components={strip}"], check=True)
     archive.unlink()
     if tool == "oss-cad-suite":
         _patch_vvp(partial / "bin" / "vvp")
@@ -115,7 +132,8 @@ def tool_path(*tools: str) -> dict[str, str]:
     bins = []
     for tool in tools:
         root = install(tool)
-        bins.append(str(root if tool == "tex-fmt" else root / "bin"))
+        # a tool unpacked whole (strip 0) has its binary at the archive's root, the others in bin/
+        bins.append(str(root if pin(tool).get("strip", 1) == 0 else root / "bin"))
     env["PATH"] = os.pathsep.join([*bins, env.get("PATH", "")])
     return env
 
@@ -445,7 +463,7 @@ def main() -> int:
         "command", nargs="?", choices=[*CHECKS, "all", "install", "install-hook", "editor", "cache-key"]
     )
     parser.add_argument(
-        "names", nargs="*", help="install: the tools (default: every pinned one); a per-file check: its files"
+        "names", nargs="*", help="install: the pinned tools (default: the checks'); a per-file check: its files"
     )
     parser.add_argument("--fix", action="store_true", help="apply the fixes a check can make")
     parser.add_argument("--staged", action="store_true", help="the checks the staged files touch (the git hook)")
@@ -457,8 +475,8 @@ def main() -> int:
     match options.command:
         case "install":
             for tool in options.names or NATIVE:
-                if tool not in NATIVE:
-                    parser.error(f"install: {tool} is not one of {', '.join(NATIVE)}")
+                if tool not in PINNED:
+                    parser.error(f"install: {tool} is not one of {', '.join(PINNED)}")
                 install(tool)
             return 0
         case "install-hook":

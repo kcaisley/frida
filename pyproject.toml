@@ -379,6 +379,21 @@ sha256 = "d0e30b9b811fdc1e66a9328d5c95e9d8e585019288ca39c07f643e0796bcc4a3"
 url = "https://github.com/WGUNDERWOOD/tex-fmt/releases/download/{version}/tex-fmt-x86_64-linux.tar.gz"
 strip = 0  # the binary at the archive's root
 
+# ---------------------------------------------------------------------------- thesis build
+# docs/thesis/build.py installs these on first use: pandoc and the pandoc-crossref filter built
+# against exactly that pandoc (its release notes name the version).
+
+[tool.pandoc.install]
+version = "3.13"
+sha256 = "38aa33b325a2bc96a4c39409631212db55702f564250bcdbead180b3bf646389"
+url = "https://github.com/jgm/pandoc/releases/download/{version}/pandoc-{version}-linux-amd64.tar.gz"
+
+[tool.pandoc-crossref.install]
+version = "v0.3.26a"
+sha256 = "e61fc62485bd432c0662c2508eb40a9e501d0f47a90736995793ad73e3c0c017"
+url = "https://github.com/lierdakil/pandoc-crossref/releases/download/{version}/pandoc-crossref-Linux-X64.tar.xz"
+strip = 0  # the binary at the archive's root
+
 # ---------------------------------------------------------------------------- HDL checks
 # The four HDL checks (verible-format, verible-lint, verilator-lint, slang-lint) and their
 # tools' pins, as in Basil's hdl-fmt-and-lint.
