@@ -6,7 +6,11 @@
   (dense wrapper, standard-cell rows). The library's own text labels are dropped (pin names
   would merge nets after flattening), and so are the router's M2 keep-outs the abstract carried;
   the via pads it left out go in (netcells.align_access).
-* Rows: ALIGN places cells on the rows but not always abutted. In every gap inside the block
+* Rows: ALIGN places cells on the rows but not always abutted. Like a digital flow's filler and
+  decap insertion after routing (no cell added to ALIGN's placement), every gap inside the block
+  takes decaps first (``_decaps``, ``fillcell``: the PDK's MOS capacitors as row cells, the widest
+  that fit where ALIGN's M1 leaves room, each a device the LVS source gets in ``out.gds.extra.sp``,
+  each recorded in ``out.gds.post.json``'s fill, ``Fill``), and in what is left plain filler:
   the rails, taps, tap implant bands and the N-tap well band are drawn as in a row cell
   (rowcell.rails without the device parts), so supplies run through every row; the cells' N-wells
   run across a gap where both neighbours have them, and in a gap narrower than the placement grid
@@ -14,7 +18,11 @@
   closed (netcells.close_wells). A gap's rails keep their space from the M1 no row cell draws
   (``_clear_of``); where that cuts a rail between two cells in a PDK whose rails carry no taps,
   an M2 bar joins it again over the cut (``_rail_bridge``). Where ALIGN routes M1 past the
-  cells' outline (its routing room), the row ends move out past it (``_row_ends``).
+  cells' outline (its routing room), the row ends move out past it (``_row_ends``). A row no
+  cell stands in under capacitors is left empty, no rail, tap, row end or supply pad in it: the
+  capacitors' own place beside the rows, or, where they stack over the rows, the place the
+  converter keeps for its other circuits (``flow.layout.step.free_rows``); the supply trunks join
+  the rows above and below it.
 * Supplies: each supply's rail lines joined by M3 trunks at the block's ends (``supply_straps``);
   where the rows stand apart from capacitors (between or beside them, ``_rows_apart``), whose
   M3 they take, trunks outside the rows
@@ -42,8 +50,10 @@ from __future__ import annotations
 import json
 import os
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
+import fillcell
 import klayout.db as kdb
 import netcells
 import rowcell
@@ -127,6 +137,88 @@ def _lib_cell(lib_path: str, name: str) -> kdb.Cell:
     return c
 
 
+@dataclass
+class Fill:
+    """What ``fill_rows`` put in the rows' empty sites: the decaps (``fillcell.Placed``), each
+    stretch of plain filler (its width, nm), the rows left empty (no cell in them, under MOM
+    units: the capacitors' own, or where they stack over the rows the converter's other
+    circuits'), and the gaps not a whole row tall (each its box), left as they are."""
+
+    decaps: list = field(default_factory=list)
+    plain: list[int] = field(default_factory=list)
+    reserved: set[int] = field(default_factory=set)
+    short: list[tuple[int, int, int, int]] = field(default_factory=list)
+
+    def record(self) -> dict:
+        """The fill as post.json records it: counts, gate area (um^2) and capacitance (fF) of the
+        decaps, the filler's sites (``XPITCH``) and width, the rows left empty."""
+        return {
+            "decaps": len(self.decaps),
+            "decap fingers": sum(d.nf for d in self.decaps),
+            "decap gate um2": round(sum(fillcell.gate_um2(d.pol, d.nf) for d in self.decaps), 3),
+            "decap ff": round(sum(fillcell.capacitance_ff(d.pol, d.nf) for d in self.decaps), 2),
+            "decap nmos": sum(d.pol == "n" for d in self.decaps),
+            "decap pmos": sum(d.pol == "p" for d in self.decaps),
+            "filler stretches": len(self.plain),
+            "filler sites": sum(self.plain) // XPITCH,
+            "filler um": round(sum(self.plain) / 1000, 3),
+            "rows left empty": sorted(self.reserved),
+            "gaps under a row's height": len(self.short),
+        }
+
+
+def _decaps(
+    layout: kdb.Layout,
+    top: kdb.Cell,
+    g: kdb.Box,
+    k: int,
+    routed: kdb.Region,
+    pp: kdb.Region,
+    box: kdb.Box,
+    cells: dict[tuple[str, int], kdb.Cell],
+    fill: Fill,
+) -> list[kdb.Box]:
+    """Decaps (``fillcell``) in the gap ``g`` of row ``k``: in each stretch of it ALIGN's M1
+    (``routed``: another net's) keeps clear of by M1's space beside a rail (a decap's rails and
+    strips span the row), on the cell grid, the widest that fit side by side from its left end
+    (``fillcell.pack``), of the type of the cell beside the gap (its P+ implant, ``pp``, over a
+    PMOS cell's device band, a PMOS; else an NMOS; the cell on its left, or at the rows' left end ``box`` the one on its right),
+    so the row's bands run on. Returns what is left of the gap (each a box):
+    plain filler's."""
+    space = _rail_space()
+    blocked = kdb.Region(
+        [kdb.Box(b.left - space, g.bottom, b.right + space, g.top) for b in (p.bbox() for p in routed.each())]
+    )
+    free = (kdb.Region(g) - blocked).merged()
+    # a PMOS cell's device implant's middle in the row's frame (R0 on even rows, mirrored on odd ones)
+    lo, hi = rowcell.DEV_IMP["p"]
+    mid = (lo + hi) // 2
+    y_p = g.bottom + mid if k % 2 == 0 else g.top - mid
+
+    def pmos_at(x: int) -> bool:
+        return not (pp & kdb.Region(kdb.Box(x - 1, y_p - 1, x + 1, y_p + 1))).is_empty()
+
+    # the cell on the left, else (the rows' end there) the one on the right
+    beside = g.right + 1 if g.left <= box.left else g.left - 1
+    pol = "p" if pmos_at(beside) else "n"
+    drawn: list[kdb.Box] = []
+    for piece in free.each():
+        b = piece.bbox()
+        x0 = -(-b.left // XPITCH) * XPITCH
+        x1 = b.right // XPITCH * XPITCH
+        x = x0
+        for nf in fillcell.pack(pol, x1 - x0):
+            if (pol, nf) not in cells:
+                cells[pol, nf] = netcells.draw(layout, kdb, fillcell.decap(pol, nf))
+            w = fillcell.width(pol, nf)
+            t = kdb.Trans(x, g.bottom) if k % 2 == 0 else kdb.Trans(kdb.Trans.M0, x, g.top)
+            top.insert(kdb.CellInstArray(cells[pol, nf].cell_index(), t))
+            fill.decaps.append(fillcell.Placed(pol, nf, x, g.bottom, k))
+            drawn.append(kdb.Box(x, g.bottom, x + w, g.top))
+            x += w
+    return [p.bbox() for p in (kdb.Region(g) - kdb.Region(drawn)).merged().each()]
+
+
 def fill_rows(
     layout: kdb.Layout,
     top: kdb.Cell,
@@ -139,20 +231,26 @@ def fill_rows(
     shield: kdb.Region | None = None,
     wires: kdb.Region | None = None,
     capacitors: kdb.Region | None = None,
+    fill: Fill | None = None,
 ) -> int:
-    """Rails, taps and well band across the placement gaps of every row; library fillers in
-    standard-cell rows (their implant bands differ from the analog rows'). ``filled`` collects the
-    analog rows' gaps (``bridge``). ``box``: the rows' extent (the cells' outline unless given:
+    """Decaps where they fit (``_decaps``), rails, taps and well band across the rest of the
+    placement gaps of every row; library fillers in standard-cell rows (their implant bands differ
+    from the analog rows'). ``filled`` collects the analog rows' plain stretches (``bridge``);
+    ``fill``, where given, gets what was drawn, and only then are decaps drawn. ``box``: the rows'
+    extent (the cells' outline unless given:
     ``_row_ends``); ``ends``: row-end cells will stand at its sides (``edge_ties``). Where ALIGN
     routed M1 through a gap (no cell is there, so it is another net's), the fill's M1 and contacts
     keep M1's space from it (``_clear_of``), and from the M1 no row cell draws (``routes``: ALIGN's,
     the MOM units' landings) ending in the next row within that space of the rail they share.
     ``shield``: the MOM shields on M2 (VSS), which a VSS rail's bridge may meet; ``wires``: ALIGN's
-    M2 (``_rail_bridge``). A row no cell stands in under MOM units beside the rows (``capacitors``:
-    their shields on M2) is no row: left to the capacitors."""
+    M2 (``_rail_bridge``). A row no cell stands in under MOM units (``capacitors``: their shields)
+    is no row: left to the capacitors beside the rows, or, where they stack over the rows, to the
+    converter's other circuits (``flow.layout.step.free_rows``), no rail across it."""
     bnd = kdb.Region(top.begin_shapes_rec(layout.layer(*BND))).merged()
     box = box or bnd.bbox()
     m1 = kdb.Region(top.begin_shapes_rec(layout.layer(*rowcell.GLAYERS["M1"])))
+    pp = kdb.Region(top.begin_shapes_rec(layout.layer(*rowcell.GLAYERS["PP"]))).merged()
+    decaps: dict[tuple[str, int], kdb.Cell] = {}
     # a rail ALIGN's M1 cuts in two between cells is joined again over it (``_rail_bridge``) where
     # the rails carry no taps: no well or substrate tie joins its pieces either
     jumps = None
@@ -165,19 +263,17 @@ def fill_rows(
         y0 = k * rowcell.H
         band = kdb.Region(kdb.Box(box.left, y0, box.right, y0 + rowcell.H))
         if capacitors is not None and (band & bnd).is_empty() and not (band & capacitors).is_empty():
+            if fill is not None:
+                fill.reserved.add(k)
             continue
         gaps = (band - bnd).merged()
         for gap in gaps.each():
             g = gap.bbox()
             if g.height() < rowcell.H:
+                if fill is not None:
+                    fill.short.append((g.left, g.bottom, g.right, g.top))
                 continue
-            # ALIGN's M1 through the gap: what reaches inside it past the rails (the rows beside it
-            # reach into it with their rails' halves alone)
-            inside = kdb.Region(kdb.Box(g.left, g.bottom + rowcell.RAIL + 1, g.right, g.top - rowcell.RAIL - 1))
-            routed = m1.interacting(inside)
-            if routes is not None:
-                reach = _rail_space() + rowcell.RAIL
-                routed = (routed + (routes & kdb.Region(g.enlarged(0, reach)))).merged()
+            routed = _routed(m1, routes, g)
             if k in std_rows:
                 x = g.left
                 try:
@@ -200,33 +296,65 @@ def fill_rows(
                     x += w
                 n += 1
                 continue
-            # orientation: VSS on even rail lines (cells placed R0 on even rows, MX on odd ones)
-            t = kdb.Trans(g.left, y0) if k % 2 == 0 else kdb.Trans(kdb.Trans.M0, g.left, y0 + rowcell.H)
-            cell = rowcell.Cell("fill", g.width())
-            rowcell.rails(cell, g.width(), "n", m2=False)
-            boxes = []
-            for r in cell.rects:
-                if (
-                    r.layer in ("BND", *rowcell.VT["n"], *rowcell.VT["p"])
-                    or r.kind == "stub"
-                    or not rowcell.GLAYERS.get(r.layer)
-                ):
-                    continue
-                if r.layer in ("NP", "PP") and (r.y0, r.y1) == rowcell.DEV_IMP["n"]:
-                    continue  # no device implant in a gap
-                boxes.append((r.layer, kdb.Box(r.x0, r.y0, r.x1, r.y1).transformed(t)))
-            kept = _clear_of(boxes, routed, g, _bare(g, box, ends))
-            for layer, b in kept:
-                top.shapes(layout.layer(*rowcell.GLAYERS[layer])).insert(b)
-            joined = (ends or box.left < g.left) and (ends or g.right < box.right)  # a rail at both sides
-            if jumps is not None and not routed.is_empty() and joined:
-                pieces = kdb.Region([b for layer, b in kept if layer == "M1"])
-                for y in (g.bottom, g.top):
-                    _rail_bridge(layout, top, pieces, g, y, jumps)
-            if filled is not None:
-                filled.append(g)
+            pieces = _decaps(layout, top, g, k, routed, pp, box, decaps, fill) if fill is not None else [g]
+            for piece in pieces:
+                _plain(layout, top, piece, k, _routed(m1, routes, piece), box, ends, jumps)
+                if fill is not None:
+                    fill.plain.append(piece.width())
+                if filled is not None:
+                    filled.append(piece)
             n += 1
     return n
+
+
+def _routed(m1: kdb.Region, routes: kdb.Region | None, g: kdb.Box) -> kdb.Region:
+    """ALIGN's M1 through the gap ``g``: what reaches inside it past the rails (the rows beside it
+    reach into it with their rails' halves alone), and the M1 no row cell draws (``routes``)
+    within M1's space beside a rail of the rails it shares with the rows next to it."""
+    inside = kdb.Region(kdb.Box(g.left, g.bottom + rowcell.RAIL + 1, g.right, g.top - rowcell.RAIL - 1))
+    routed = m1.interacting(inside)
+    if routes is not None:
+        reach = _rail_space() + rowcell.RAIL
+        routed = (routed + (routes & kdb.Region(g.enlarged(0, reach)))).merged()
+    return routed
+
+
+def _plain(
+    layout: kdb.Layout,
+    top: kdb.Cell,
+    g: kdb.Box,
+    k: int,
+    routed: kdb.Region,
+    box: kdb.Box,
+    ends: bool,
+    jumps: dict[str, kdb.Region] | None,
+) -> None:
+    """Plain filler across the stretch ``g`` of row ``k``: the rails, taps, tap implant bands and
+    N-tap well band (``rowcell.rails`` without the device parts), clear of ALIGN's M1 (``routed``,
+    ``_clear_of``), a rail it cuts joined over it in M2 (``_rail_bridge``, ``jumps``)."""
+    # orientation: VSS on even rail lines (cells placed R0 on even rows, MX on odd ones)
+    t = kdb.Trans(g.left, g.bottom) if k % 2 == 0 else kdb.Trans(kdb.Trans.M0, g.left, g.bottom + rowcell.H)
+    cell = rowcell.Cell("fill", g.width())
+    rowcell.rails(cell, g.width(), "n", m2=False)
+    boxes = []
+    for r in cell.rects:
+        if (
+            r.layer in ("BND", *rowcell.VT["n"], *rowcell.VT["p"])
+            or r.kind == "stub"
+            or not rowcell.GLAYERS.get(r.layer)
+        ):
+            continue
+        if r.layer in ("NP", "PP") and (r.y0, r.y1) == rowcell.DEV_IMP["n"]:
+            continue  # no device implant in a gap
+        boxes.append((r.layer, kdb.Box(r.x0, r.y0, r.x1, r.y1).transformed(t)))
+    kept = _clear_of(boxes, routed, g, _bare(g, box, ends))
+    for layer, b in kept:
+        top.shapes(layout.layer(*rowcell.GLAYERS[layer])).insert(b)
+    joined = (ends or box.left < g.left) and (ends or g.right < box.right)  # a rail at both sides
+    if jumps is not None and not routed.is_empty() and joined:
+        pieces = kdb.Region([b for layer, b in kept if layer == "M1"])
+        for y in (g.bottom, g.top):
+            _rail_bridge(layout, top, pieces, g, y, jumps)
 
 
 def _rail_bridge(
@@ -453,13 +581,21 @@ def _row_ends(block: kdb.Box, routes: kdb.Region, wires: kdb.Region | None = Non
     return kdb.Box(left, block.bottom, right, block.top)
 
 
-def edge_ties(layout: kdb.Layout, top: kdb.Cell, std_rows: set[int], std_lib, box: kdb.Box | None = None) -> int:
+def edge_ties(
+    layout: kdb.Layout,
+    top: kdb.Cell,
+    std_rows: set[int],
+    std_lib,
+    box: kdb.Box | None = None,
+    empty: set[int] | None = None,
+) -> int:
     """For a PDK whose rails carry no taps (netcells.EDGE_TIE): its row-end cells (the library tie
     cell, then library fillers or a pad with the standard cells' profile) at both ends of every
     row, outside the rows' extent ``box`` (the block's outline unless given, ``_row_ends``),
     mirrored like the row (VSS on even rail lines). A PDK with ALIGN_ROW_ENDS (where a generated
     P-well past a PMOS cell at the block side would be too narrow) gets row fillers there instead
-    (netcells.filler, library fillers on standard-cell rows)."""
+    (netcells.filler, library fillers on standard-cell rows). The rows left empty (``empty``,
+    ``Fill.reserved``) get none."""
     ends = getattr(netcells._tech, "ALIGN_ROW_ENDS", False)
     if not (netcells.EDGE_TIE or ends):
         return 0
@@ -473,6 +609,8 @@ def edge_ties(layout: kdb.Layout, top: kdb.Cell, std_rows: set[int], std_lib, bo
     cells = {std: netcells.draw(layout, kdb, make(std), std_lib=std_lib) for std in (False, True)}
     n = 0
     for k in range(b.bottom // rowcell.H, -(-b.top // rowcell.H)):
+        if empty and k in empty:
+            continue
         cell = cells[k in std_rows]
         y0 = k * rowcell.H
         for x, mirror in ((b.left - w, False), (b.right + w, True)):  # the tie at the block's outer side
@@ -490,8 +628,9 @@ def supply_straps(
     trunks: list[tuple[str, int, list[kdb.Box]]] | None = None,
     wires: kdb.Region | None = None,
     apart: bool | None = None,
+    empty: set[int] | None = None,
 ) -> int:
-    """Join each supply's rail lines: at both block ends an M3 trunk with, on every rail line of
+    """Join each supply's rail lines (none on a line between two rows left empty, ``empty``): at both block ends an M3 trunk with, on every rail line of
     the supply, EDGE_CUTS VIA1 (two where the rail is wide), an M2 pad and a VIA2.
     Positions on the M3 grid, the nearest to each end, where the pads and the trunk keep the M2
     space from other metal and the cuts land on the rails. VSS lines are the even ones. Labels
@@ -507,7 +646,8 @@ def supply_straps(
     m2 = kdb.Region(top.begin_shapes_rec(li(LAYERS["M2"]))).merged()
     m3 = kdb.Region(top.begin_shapes_rec(li(LAYERS["M3"]))).merged()
     b = kdb.Region(top.begin_shapes_rec(li(BND))).merged().bbox()
-    lines = range(b.bottom // rowcell.H, b.top // rowcell.H + 1)
+    rows = set(range(b.bottom // rowcell.H, -(-b.top // rowcell.H))) - (empty or set())
+    lines = [k for k in range(b.bottom // rowcell.H, b.top // rowcell.H + 1) if {k - 1, k} & rows]
     placed = 0
     supplies = {}  # net -> (its rail lines, its pads' y)
     for net, parity in (("vss", 0), ("vdd", 1)):
@@ -851,7 +991,8 @@ def shield_ties(
     a shield, from its lower left. ``routes``: ALIGN's own M1, which crosses a rail's line in a row
     gap and is no rail. A shield on M2 over no rail a stack reaches (ALIGN's M1 cuts the rails
     under it) runs on along a VSS line to an M2 pad of a VSS trunk outside the rows (``trunks``,
-    ``outside_trunk``) where M2 is free. Returns the ties drawn."""
+    ``outside_trunk``) where M2 is free. No stack reaches past the layout's extent. Returns the
+    ties drawn."""
     import tech as _tech
 
     if not shields:  # a design without MOM arrays
@@ -861,6 +1002,7 @@ def shield_ties(
     metals = {k: kdb.Region(top.begin_shapes_rec(li(f"M{k}"))).merged() for k in range(1, top_metal + 1)}
     cuts = {k: kdb.Region(top.begin_shapes_rec(li(f"V{k}"))).merged() for k in range(1, top_metal)}
     b = kdb.Region(top.begin_shapes_rec(li("BND"))).merged().bbox()
+    outline = _extent(layout, top)  # a stack keeps inside the layout as it stands: no tie grows it
     rails = kdb.Region()
     for k in range(b.bottom // rowcell.H, b.top // rowcell.H + 1):
         if k % 2 == 0:  # VSS lines are the even ones
@@ -916,6 +1058,8 @@ def shield_ties(
             if not (metals[k] & kdb.Region(box).sized(_tech.RULES[f"M{k}"]["space"])).is_empty():
                 return None
             shapes.append((f"M{k}", box))
+        if not all(outline.contains(box.p1) and outline.contains(box.p2) for _, box in shapes):
+            return None
         return shapes
 
     drawn = 0
@@ -943,6 +1087,18 @@ def shield_ties(
                 placed = _trunk_tie(layout, top, region, trunks or [], metals[2])
             drawn += placed
     return drawn
+
+
+def _extent(layout: kdb.Layout, top: kdb.Cell) -> kdb.Box:
+    """The layout's extent on the PDK's own layers (its drawing, not ALIGN's abstract and
+    boundary layers, which ``post`` clears)."""
+    drawn = set(LAYERS.values()) - {(235, 5)}
+    box = kdb.Box()
+    for li in layout.layer_indexes():
+        info = layout.get_info(li)
+        if (info.layer, info.datatype) in drawn and info.datatype not in (251, 253):
+            box += top.bbox(li)
+    return box
 
 
 def _trunk_tie(
@@ -1247,17 +1403,21 @@ def post(
     # the M1 no row cell draws: ALIGN's, and the MOM units' landings (no outline marks a MOM unit)
     cells = kdb.Region(top.begin_shapes_rec(layout.layer(*BND))).merged()
     foreign = across + kdb.Region(top.begin_shapes_rec(layout.layer(*LAYERS["M1"]))).not_interacting(cells)
-    # capacitors beside the rows (their shields on M2, under the rows' routing): no rows under them
-    n_fill = fill_rows(layout, top, std_rows, fills, filled, rows, ends, foreign, on_m2, wires, on_m2)
+    # a row no cell stands in under capacitors (their shields): no row, nothing drawn in it
+    under = kdb.Region()
+    for _metal, region in shields:
+        under += region
+    fill = Fill()
+    n_fill = fill_rows(layout, top, std_rows, fills, filled, rows, ends, foreign, on_m2, wires, under.merged(), fill)
     std_lib = kdb.Layout()
     std_lib.read(lib)
-    n_ties = edge_ties(layout, top, std_rows, std_lib, rows)
+    n_ties = edge_ties(layout, top, std_rows, std_lib, rows, fill.reserved)
     layout.flatten(top.cell_index(), -1, True)
     for g in filled:
         bridge(layout, top, g, block)
     outer = (rows.left - netcells.EDGE_W, rows.right + netcells.EDGE_W) if ends else (rows.left, rows.right)
     trunks: list[tuple[str, int, list[kdb.Box]]] = []
-    n_straps = supply_straps(layout, top, outer, trunks, wires, apart)
+    n_straps = supply_straps(layout, top, outer, trunks, wires, apart, fill.reserved)
     n_shield = shield_ties(layout, top, shields, routes=routes, trunks=trunks)
     ring_info = ""
     if ring:
@@ -1266,11 +1426,13 @@ def post(
         rows, sites = ringcell.wrap(layout, top, kdb, ring_net, sub_net)
         layout.flatten(top.cell_index(), -1, True)
         ring_info = f", guard ring ({rows} rows, {sites} sites)"
-    extra = [f"* added by align/post.py{' (ring)' if ring else ''}"]
+    extra = [f"* added by align/post.py{' (ring)' if ring else ''}{' (decaps)' if fill.decaps else ''}"]
     if ring:
         extra.append("*.DNW")  # NMOS in the deep N-well: extracted as the _dnw models
     if ring and sub_net not in ("vss", "vdd"):
         extra.append(f"*.PORTS {sub_net}")
+    # the decaps: MOS devices between the supplies, as the PDK's deck reads them (fillcell.lvs_line)
+    extra += [fillcell.lvs_line(f"Mdecap_{i}", d.pol, d.nf) for i, d in enumerate(fill.decaps)]
     Path(dst + ".extra.sp").write_text("\n".join(extra) + "\n")
 
     for info in list(layout.layer_infos()):
@@ -1301,6 +1463,7 @@ def post(
     done = {
         "standard cells": n_std,
         "row gaps filled": n_fill,
+        "fill": fill.record(),
         "supply straps": n_straps,
         "row-end ties": n_ties,
         **({"shield ties": n_shield} if shields else {}),

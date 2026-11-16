@@ -112,6 +112,15 @@ def free_rows(gds: Path, pdk: str) -> dict[str, Any] | None:
     }
 
 
+def row_fill(gds: Path) -> dict[str, Any] | None:
+    """What the post step put in the rows' empty sites (``flow.layout.post.Fill``, its record in
+    ``<gds>.post.json``): the decaps (count, fingers, gate area um^2, capacitance fF from the PDK's
+    moscap table, NMOS and PMOS), the plain filler (stretches, sites, um), the rows left empty and
+    the gaps under a row's height; None where the post step recorded none."""
+    done = Path(f"{gds}.post.json")
+    return json.loads(done.read_text()).get("fill") if done.exists() else None
+
+
 def net_texts(gds: Path) -> list[tuple[str, int, int, str]]:
     """Every net ALIGN routed in the layout ``gds`` (its placed-and-routed ``3_pnr/<NAME>_0.json``
     beside it: each wire's net, a child module's by its path, ``XDRIVE_MAIN_0/N0``), as a label for
@@ -336,6 +345,13 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
         "parts": parts,
         "tool": {"name": "align", "version": tools.align()},
     }
+    fill = row_fill(Path(gds))
+    if fill:
+        laid["fill"] = fill
+        LOG.info(
+            f"layout: row fill {fill['decaps']} decaps ({fill['decap ff']:g} fF, {fill['decap gate um2']:g} um2 of"
+            f" gate), {fill['filler sites']} filler sites, {len(fill['rows left empty'])} rows left empty"
+        )
     free = free_rows(Path(gds), pdk)
     if free:
         laid["free_rows"] = free
