@@ -58,7 +58,7 @@ local function drawings(div)
     local width = string.format("%.3f", 0.98 / cols - 0.01)
     local parts = {} -- pandoc's figure environment centres its contents
     for i, name in ipairs(names) do
-      parts[#parts + 1] = "\\begin{minipage}[b]{" .. width .. "\\linewidth}\\centering\n\\includegraphics[width=\\linewidth]{figures/" .. name .. ".pdf}"
+      parts[#parts + 1] = "\\begin{minipage}[b]{" .. width .. "\\linewidth}\\centering\n\\adjustbox{max width=\\linewidth}{\\includegraphics{figures/" .. name .. ".pdf}}"
         .. (#names > 1 and ("\\\\[0.3ex]{\\small " .. letter(i) .. "}") or "") .. "\n\\end{minipage}"
       parts[#parts + 1] = (i % cols == 0 and i < #names) and "\\\\[1.5ex]" or (i < #names and "\\hfill" or "")
     end
@@ -71,6 +71,13 @@ local function drawings(div)
   end
   html_parts[#html_parts + 1] = "</div>"
   return pandoc.RawBlock("html", table.concat(html_parts, "\n"))
+end
+
+-- plain text made safe inside LaTeX: its special characters escaped
+local function latex_text(text)
+  local escapes = { ["\\"] = "\\textbackslash{}", ["%"] = "\\%", ["&"] = "\\&", ["#"] = "\\#", ["_"] = "\\_",
+    ["{"] = "\\{", ["}"] = "\\}", ["$"] = "\\$", ["^"] = "\\^{}", ["~"] = "\\~{}" }
+  return (text:gsub("[\\%%&#_{}%$^~]", escapes))
 end
 
 -- a figure div's body: what the figure shows, in the output's own terms
@@ -96,7 +103,7 @@ local function body(div)
   end
   if attrs.placeholder then
     if latex then
-      return pandoc.RawBlock("latex", "\\fbox{\\parbox{0.92\\linewidth}{\\centering\\small\\itshape [Figure: " .. attrs.placeholder .. "]}}")
+      return pandoc.RawBlock("latex", "\\fbox{\\parbox{0.92\\linewidth}{\\centering\\small\\itshape [Figure: " .. latex_text(attrs.placeholder) .. "]}}")
     end
     return pandoc.RawBlock("html", '<div class="placeholder">[Figure: ' .. attrs.placeholder .. "]</div>")
   end

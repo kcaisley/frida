@@ -395,6 +395,21 @@ sha256 = "e61fc62485bd432c0662c2508eb40a9e501d0f47a90736995793ad73e3c0c017"
 url = "https://github.com/lierdakil/pandoc-crossref/releases/download/{version}/pandoc-crossref-Linux-X64.tar.xz"
 strip = 0  # the binary at the archive's root
 
+# TikZ and CircuiTikZ for the thesis's drawings, newer than an installed TeX Live may have: TeX
+# directory trees (tex/...) that build.py puts first on TEXINPUTS.
+
+[tool.pgf.install]
+version = "3.1.12"
+sha256 = "d243b67705ab4f0e4fe91c4b26ed9da67cd7b0643fc38f158e91b600df9ba15e"
+url = "https://github.com/pgf-tikz/pgf/releases/download/{version}/pgf_{version}.tds.zip"
+strip = 0
+
+[tool.circuitikz.install]
+version = "v1.8.7"
+sha256 = "385d7c8998bd2d30f16e9e48312839fbb3ac991f6ab7eeece8d3be960f7906bf"
+url = "https://github.com/circuitikz/circuitikz/releases/download/{version}/circuitikz_{underscored}.tds.zip"
+strip = 0
+
 # ---------------------------------------------------------------------------- HDL checks
 # The four HDL checks (verible-format, verible-lint, verilator-lint, slang-lint) and their
 # tools' pins, as in Basil's hdl-fmt-and-lint.

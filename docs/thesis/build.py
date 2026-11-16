@@ -128,12 +128,24 @@ def layout_renders() -> None:
                 print(f"build: {gds.name}'s renders need the kit's layer map (and Chromium); left out")
 
 
+def tex_env(*trees: Path) -> dict[str, str]:
+    """The environment LuaLaTeX runs in: a TeX Live's bin directory first on PATH where
+    TEXLIVE_BIN names one (a recent one, which ubonn-thesis needs, e.g. a user install under
+    tools/), and on TEXINPUTS the given trees, then the pinned pgf and CircuiTikZ (pyproject.toml,
+    fetched by tools/check.py), then the TeX Live's own."""
+    texlive = Path(os.environ.get("TEXLIVE_BIN", "/usr/local/texlive/2026/bin/x86_64-linux"))
+    path = f"{texlive}:{os.environ['PATH']}" if texlive.is_dir() else os.environ["PATH"]
+    pinned = [check.install(tool) / "tex" for tool in ("pgf", "circuitikz")]
+    inputs = ":".join(f"{tree}//" for tree in (*trees, *pinned))
+    return dict(os.environ, PATH=path, TEXINPUTS=f".:{inputs}:")
+
+
 def tikz_drawings() -> None:
     """Each TikZ drawing (drawings/*.tex, built from thesis-drawings.sty) as figures/<name>.pdf
     for the PDF and figures/<name>.svg for the page."""
     work = BUILD / "tikz"
     work.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, TEXINPUTS=f".:{HERE / 'drawings'}//:")
+    env = tex_env(HERE / "drawings")
     for tex in sorted((HERE / "drawings").glob("*.tex")):
         if tex.stem == "drawing-preamble":
             continue
@@ -177,8 +189,13 @@ def inline_svg(name: str) -> str:
     svg = re.sub(r"url\(#([^)]+)\)", rf"url(#{name}-\1)", svg)
     svg = re.sub(r'((?:xlink:)?href)="#([^"]+)"', rf'\1="#{name}-\2"', svg)
     head_end = svg.index(">", svg.index("<svg")) + 1
-    head = re.sub(r'\s(width|height)="[^"]*"', "", svg[svg.index("<svg") : head_end])
-    head = head.replace("<svg", '<svg class="drawing-svg" role="img"', 1)
+    head = svg[svg.index("<svg") : head_end]
+    # a TikZ drawing (figures/, its width in pt) at its own size, so that every drawing's lines are
+    # equally thick, narrowed only to fit; an Inkscape drawing as wide as the page
+    width = re.search(r'\swidth="([\d.]+)pt"', head)
+    style = f' style="max-width:{width.group(1)}pt"' if width and not source.exists() else ""
+    head = re.sub(r'\s(width|height)="[^"]*"', "", head)
+    head = head.replace("<svg", f'<svg class="drawing-svg" role="img"{style}', 1)
     return head + svg[head_end:]
 
 
@@ -262,14 +279,19 @@ def pdf() -> Path:
         "--standalone",
         "--top-level-division=chapter",
         "--number-sections",  # LaTeX numbers the headings (pandoc-crossref's labels need it)
+        "--variable=secnumdepth:2",  # to subsections, as the web edition
         "--include-in-header=ubonn.tex",
         "--toc",
         f"--output={tex}",
     )
-    # the TeX Live docs/makefile uses (ubonn-thesis needs a recent one), where installed
-    texlive = Path(os.environ.get("TEXLIVE_BIN", "/usr/local/texlive/2026/bin/x86_64-linux"))
-    path = f"{texlive}:{os.environ['PATH']}" if texlive.is_dir() else os.environ["PATH"]
-    env = dict(os.environ, PATH=path, TEXINPUTS=f".:{HERE}//:{ROOT / 'libs' / 'ubonn-thesis'}//:")
+    # ubonn-thesis loads unicode-math itself, with its own options and fonts; pandoc's template
+    # loading it first breaks the class (its font set-up then typesets in the preamble)
+    template_line = "\\usepackage{unicode-math} % this also loads fontspec"
+    text = tex.read_text()
+    if template_line not in text:
+        raise SystemExit("build: pandoc's LaTeX template changed; unicode-math is not where expected")
+    tex.write_text(text.replace(template_line, "\\usepackage{fontspec} % unicode-math: ubonn-thesis loads it"))
+    env = tex_env(HERE, ROOT / "libs" / "ubonn-thesis")
     for _ in range(2):  # the second pass resolves the references
         subprocess.run(
             ["lualatex", "-interaction=nonstopmode", "-halt-on-error", tex.name],

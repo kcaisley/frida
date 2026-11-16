@@ -1,0 +1,32 @@
+% The transmission-gate sampling switch (flow/samp/subckt.py, SwitchType.TGATE, FRIDA-1's): an NMOS
+% and a PMOS of equal size in parallel, clocked oppositely, with their optional half-width dummies.
+\input{drawing-preamble}
+\usepackage{thesis-circuits}
+\begin{document}
+\begin{drawing}
+  \begin{tikzpicture}[circuit]
+    % the gate: NMOS above (gate on phi), PMOS below (gate on phi-bar)
+    \draw (1.8,0.75) node[nmos, rotate=-90](mn){};
+    \draw (1.8,-0.75) node[pmos, rotate=90](mp){};
+    \draw (mn.G) node[above, sig]{$\phi$};
+    \draw (mp.G) node[below, sig]{$\overline{\phi}$};
+    \draw (mn.S) -| (0.8,0) coordinate(l) |- (mp.S);
+    \draw (mn.D) -| (2.8,0) coordinate(r) |- (mp.D);
+    \fill (l) circle (1.6pt) (r) circle (1.6pt);
+    \draw (0,0) node[left, sig]{$v_\mathrm{in}$} to[short, o-] (l);
+    \draw (r) -- (3.6,0) coordinate(out) -- (6.4,0) node[right, sig]{$v_\mathrm{out}$};
+    \draw (out) to[C, l_=$C$, *-] ++(0,-1.5) node[ground]{};
+    % the optional dummies, half width, on the held node, each clocked opposite its switch
+    \begin{scope}[densely dashed]
+      \draw (5.0,1.0) node[nmos, rotate=-90](dn){};
+      \draw (dn.S) -- (dn.S |- out) (dn.D) -- (dn.D |- out);
+      \draw (5.0,-1.0) node[pmos, rotate=90](dp){};
+      \draw (dp.S) -- (dp.S |- out) (dp.D) -- (dp.D |- out);
+    \end{scope}
+    \fill (dn.S |- out) circle (1.6pt) (dn.D |- out) circle (1.6pt);
+    \draw (dn.G) node[above, sig]{$\overline{\phi}$};
+    \draw (dp.G) node[below, sig]{$\phi$};
+    \draw (dn.D) ++(0.15,0.25) node[right, note]{dummies\\$W/2$};
+  \end{tikzpicture}
+\end{drawing}
+\end{document}

@@ -1,0 +1,44 @@
+% The differential capacitive DAC with top-plate sampling, as flow/adc composes it from
+% flow/capdac (one side, mirrored): each side's sampler is the switch onto its top plate; each stage
+% k is a capacitor of weight w_k whose bottom plate a driver swings between V_ref (the DAC supply)
+% and ground, following the SAR logic's state for that side; the comparator compares the two top
+% plates. Only a few of the M stages are drawn.
+\input{drawing-preamble}
+\usepackage{thesis-circuits}
+\begin{document}
+\begin{drawing}
+  \begin{tikzpicture}[circuit]
+    % the two top plates, each sampled through its switch
+    \draw (-0.6,3.4) node[left, sig]{$v_\mathrm{in+}$} to[short, o-] (0,3.4) to[nos, l=$\phi$] (1.4,3.4) -- (8.6,3.4) coordinate(tp);
+    \draw (-0.6,-3.4) node[left, sig]{$v_\mathrm{in-}$} to[short, o-] (0,-3.4) to[nos, l_=$\phi$] (1.4,-3.4) -- (8.6,-3.4) coordinate(tn);
+    % the SAR logic's state buses
+    \draw (-0.6,-0.7) rectangle (0.9,0.7);
+    \node[note] at (0.15,0) {SAR\\logic};
+    \draw (0.9,0.3) -- (6.9,0.3);
+    \draw (0.9,-0.3) -- (6.9,-0.3);
+    \node[note, above right] at (0.95,0.3) {state$_+$};
+    \node[note, below right] at (0.95,-0.3) {state$_-$};
+    % stages 0, 1 and M-1 on each side: a driver from the bus, a capacitor to the top plate
+    \foreach \x/\w in {2.6/0, 4.1/1, 6.9/{M-1}} {
+      \draw (\x,1.3) node[buffer port, rotate=90, scale=0.6](dp){};
+      \draw (dp.in) -- (\x,0.3);
+      \fill (\x,0.3) circle (1.6pt);
+      \draw (dp.out) to[C, l_=$w_{\w}$] (\x,3.4);
+      \fill (\x,3.4) circle (1.6pt);
+      \draw (\x,-1.3) node[buffer port, rotate=-90, scale=0.6](dn){};
+      \draw (dn.in) -- (\x,-0.3);
+      \fill (\x,-0.3) circle (1.6pt);
+      \draw (dn.out) to[C, l=$w_{\w}$] (\x,-3.4);
+      \fill (\x,-3.4) circle (1.6pt);
+    }
+    \node[sig] at (5.5,2.6) {$\cdots$};
+    \node[sig] at (5.5,-2.6) {$\cdots$};
+    \node[note, right] at (7.35,1.3) {$V_\mathrm{ref}$ or 0};
+    % the comparator on the two top plates
+    \draw (9.8,0) node[op amp, yscale=-1, scale=0.7](cmp){};
+    \draw (tp) |- (cmp.+);
+    \draw (tn) |- (cmp.-);
+    \draw (cmp.out) -- ++(0.4,0) node[right, note]{decision};
+  \end{tikzpicture}
+\end{drawing}
+\end{document}

@@ -114,7 +114,7 @@ Energy per decision against input-referred noise for every comparator in six pro
 
 The characterization confirms @eq:comp-scaling: every width times $k$ divides the noise by about $\sqrt{k}$ (toward a floor) and multiplies the energy by $k$, keeping the delay.
 In TSMC65 the energy times noise power of the dynamic bias is 3.9 to 4.3 fJ·mV², of the base StrongARM 5.8 to 7.5.
-The dynamic bias's input pair integrates in weak inversion and spends only the charge C_TAIL sets, which is why it sits on a lower line.
+The dynamic bias's input pair integrates in weak inversion and spends only the charge $C_\mathrm{TAIL}$ sets, which is why it sits on a lower line.
 
 ::: todo
 

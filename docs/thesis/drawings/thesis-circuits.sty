@@ -1,0 +1,70 @@
+% The thesis's schematics (CircuiTikZ, the version pinned in pyproject.toml): one line width for
+% wires and devices (\lwmain, as the isometric drawings' outlines), MOS symbols as in the
+% textbooks the thesis cites (no arrows, a bubble on a PMOS gate), labels in math or small sans.
+%   \cvdd{at}{label}  a supply rail stub;   \cgnd{at}  ground
+%   styles: sig (a signal label), cap (a capacitor between two points)
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{thesis-circuits}[2026/11/16]
+\RequirePackage{thesis-drawings}
+\RequirePackage{circuitikz}
+\usetikzlibrary{calc, arrows.meta}
+
+\ctikzset{
+  bipoles/thickness=1,
+  tripoles/thickness=1,
+  tripoles/mos style/no arrows,
+  tripoles/pmos style/emptycircle,
+  monopoles/vcc/arrow={Bar[width=8pt]},
+  resistors/scale=0.8,
+  capacitors/scale=0.8,
+  tripoles/nmos/width=0.85,
+  tripoles/pmos/width=0.85,
+}
+\tikzset{
+  circuit/.style={line width=\lwmain, line cap=round, line join=round, font=\small},
+  sig/.style={font=\small, inner sep=1.5pt},
+  note/.style={font=\sffamily\footnotesize, inner sep=1pt, align=center},
+}
+
+\newcommand\cvdd[2]{\draw (#1) node[vcc]{#2};}
+\newcommand\cgnd[1]{\draw (#1) node[ground]{};}
+
+% A comparator's first stage as flow/comp/subckt.py builds it (NMOS input, switched tail): the
+% input pair on a clocked tail with the tail's precharge PMOS, and PMOS resets on its drains, named
+% P (under v_in+) and Q. Draws at the origin (the tail's gate) inside a circuitikz picture.
+\newcommand\comppreamp{%
+  \draw (0,0) node[nmos](mt){};
+  \draw (mt.S) node[ground]{};
+  \draw (mt.G) node[left, sig]{CLK};
+  \draw (mt.D) -- (0,1.2) coordinate(tail);
+  \draw (-1.6,1.2) -- (5.2,1.2);
+  \fill (tail) circle (1.6pt);
+  \draw (5.2,1.97) node[pmos, xscale=-1](mtr){};
+  \draw (mtr.D) -- (5.2,1.2);
+  \draw (mtr.S) node[vcc]{};
+  \draw (mtr.G) node[right, sig]{CLK};
+  \draw (-1.6,1.97) node[nmos](m1){};
+  \draw (1.6,1.97) node[nmos, xscale=-1](m2){};
+  \draw (m1.G) node[left, sig]{$v_\mathrm{in+}$};
+  \draw (m2.G) node[right, sig]{$v_\mathrm{in-}$};
+  \fill (m2.S) circle (1.6pt);
+  \coordinate (P) at (m1.D); \coordinate (Q) at (m2.D);
+  \draw (-3.4,3.51) node[pmos](mrp){};
+  \draw (mrp.D) |- (P);
+  \draw (mrp.S) node[vcc]{};
+  \draw (mrp.G) node[left, sig]{CLK};
+  \draw (3.4,3.51) node[pmos, xscale=-1](mrq){};
+  \draw (mrq.D) |- (Q);
+  \draw (mrq.S) node[vcc]{};
+  \draw (mrq.G) node[right, sig]{CLK};
+  \fill (P) circle (1.6pt) (Q) circle (1.6pt);
+  \draw (P) node[below left, sig]{$P$};
+  \draw (Q) node[below right, sig]{$Q$};
+  \node[right, note] at ($(mt.S)!0.5!(mt.D) + (0.12,0)$) {tail};
+  \node[right, note] at ($(m1.S)!0.5!(m1.D) + (0.12,0)$) {in};
+  \foreach \m/\t in {mrp/rst, mrq/rst, mtr/tail} {\node[below, note] at ($(\m.G) - (0,0.1)$) {\t};}
+}
+% a label beside a vertical device's channel (its sizing parameter): \noteR{node}{text} to the
+% right of its drain-source line, \noteL to the left
+\newcommand\noteR[2]{\node[right, note] at ($(#1.S)!0.5!(#1.D) + (0.12,0)$) {#2};}
+\newcommand\noteL[2]{\node[left, note] at ($(#1.S)!0.5!(#1.D) - (0.12,0)$) {#2};}

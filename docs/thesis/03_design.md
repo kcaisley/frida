@@ -16,8 +16,8 @@ Second, since the on-resistance of the transistor is determined by its gate–so
 And third, the switch itself injects charge onto the held node when it opens.
 The proper design of sampling switches is heavily predicated on how fast the switch needs to operate.
 
-::: {#fig:samp-topologies placeholder="Circuit diagrams (circuitikz): NMOS, transmission-gate and bootstrapped switches onto the sampling capacitor, with half-size dummies."}
-The sampling switches studied: NMOS, transmission gate, and bootstrapped NMOS.
+::: {#fig:samp-topologies image="samp_nmos samp_tgate" cols="2"}
+The sampling switches studied, onto the sampling capacitor $C$ and clocked by $\phi$ (tracking while high): the NMOS switch and the transmission gate, each with its optional half-width dummies (dashed), clocked opposite their switch. The bootstrapped switch is @fig:samp-bootstrap.
 :::
 
 ### On-resistance {#sec:samp-ron}
@@ -25,7 +25,10 @@ The sampling switches studied: NMOS, transmission gate, and bootstrapped NMOS.
 In triode, each device of the switch conducts in proportion to its width over its length and to its gate overdrive.
 A transmission gate's two devices conduct in parallel, the NMOS (gate at $V_\mathrm{DD}$) strongest at a low input and the PMOS (gate at ground) at a high one [@razavi2025, p. 32; @pelgrom2022, p. 390]:
 $$
-G(v) = \mu_\mathrm{n} C_\mathrm{ox} \left(\frac{W}{L}\right)_\mathrm{n} \max\!\left(V_\mathrm{DD} - v - V_\mathrm{TH,n}, 0\right) + \mu_\mathrm{p} C_\mathrm{ox} \left(\frac{W}{L}\right)_\mathrm{p} \max\!\left(v - |V_\mathrm{TH,p}|, 0\right), \qquad R_\mathrm{on}(v) = \frac{1}{G(v)}.
+\begin{aligned}
+G(v) &= \mu_\mathrm{n} C_\mathrm{ox} \left(\frac{W}{L}\right)_\mathrm{n} \max\!\left(V_\mathrm{DD} - v - V_\mathrm{TH,n}, 0\right) + \mu_\mathrm{p} C_\mathrm{ox} \left(\frac{W}{L}\right)_\mathrm{p} \max\!\left(v - |V_\mathrm{TH,p}|, 0\right), \\
+R_\mathrm{on}(v) &= \frac{1}{G(v)}.
+\end{aligned}
 $$ {#eq:ron}
 With equal device strengths, $\mu_\mathrm{n}(W/L)_\mathrm{n} = \mu_\mathrm{p}(W/L)_\mathrm{p}$, the conductance is constant where both devices conduct; body effect and short-channel effects leave its resistance highest near mid-supply [@razavi2025, p. 32], and it falls as $1/W$.
 A bootstrapped switch holds its gate a fixed voltage above the input, so its overdrive, and with it $R_\mathrm{on}$, no longer depends on the input [@razavi2025, p. 45]; with a bootstrap capacitor $C_\mathrm{b}$ shared with the gate's capacitances $C_\mathrm{G}$ and a parasitic $C_\mathrm{p}$ [@razavi2025, p. 50],
@@ -33,6 +36,10 @@ $$
 R_\mathrm{on} = \frac{1}{\mu_\mathrm{n} C_\mathrm{ox} (W/L)\left(V_\mathrm{b} - V_\mathrm{TH}\right)}, \qquad V_\mathrm{b} = \frac{C_\mathrm{b}}{C_\mathrm{b} + C_\mathrm{G} + C_\mathrm{p}}\,V_\mathrm{DD},
 $$ {#eq:ron-boot}
 left input-dependent only through the threshold's body effect [@pelgrom2022, p. 399].
+
+::: {#fig:samp-bootstrap image="samp_bootstrap"}
+The bootstrapped switch as the sampler's netlist builds it: during hold ($\overline{\phi}$ high) the bottom plate of $C_\mathrm{b}$ is grounded, its top plate charged to $V_\mathrm{DD}$, and the switch's gate $G$ pulled low through two NMOS in series; while sampling, a transmission gate puts the bottom plate on the input and a PMOS the top plate on $G$, which then stays about $V_\mathrm{DD}$ above the input. $C_\mathrm{b}$ is a MOS capacitor; every helper device has one width.
+:::
 
 ### Tracking error and distortion {#sec:samp-distortion}
 
@@ -106,20 +113,41 @@ The capacitance itself is the DAC's to choose, in @sec:cdac-noise.
 
 Six latches are studied, each on an NMOS or PMOS input pair, with a switched tail or a dynamic bias: the StrongARM, the double tail [@schinkel2007] and its self-timed form, the modified double tail [@elzakker2010] and its self-timed form, and the triple tail.
 Every one of the 24 combinations is built.
-With a dynamic bias [@bindra2018], a capacitor C_P loads the input pair's drains and a capacitor C_TAIL sits under its tail switch.
+With a dynamic bias [@bindra2018], a capacitor $C_\mathrm{P}$ loads the input pair's drains and a capacitor $C_\mathrm{TAIL}$ sits under its tail switch.
 
-::: {#fig:comp-topologies placeholder="Circuit diagrams (circuitikz): StrongARM, double tail, modified double tail, and the dynamic bias's C_P and C_TAIL."}
-The comparator latches studied.
+::: {#fig:comp-strongarm image="comp_strongarm"}
+The StrongARM latch as the comparator's netlist builds it, with an NMOS input pair and a switched tail; the drains $P$ and $Q$ and the latch nodes $X$ and $Y$ are reset high while CLK is low. Labels name the parameter that sizes each device: in (the input pair), tail, rst (the resets), on (the latch devices that conduct while deciding) and init (those that hold the reset state).
+:::
+
+::: {#fig:comp-doubletail image="comp_doubletail"}
+The double-tail latch [@schinkel2007]: the first stage of @fig:comp-strongarm, its drains $P$ and $Q$ holding the latch nodes low until they fall; the latch has its own clocked PMOS tail. In the self-timed form the latch tail is split per side and driven by $P$ and $Q$ instead of $\overline{\mathrm{CLK}}$.
+:::
+
+::: {#fig:comp-mdt image="comp_mdt"}
+The modified double-tail latch [@elzakker2010]: no latch tail; each latch node is pulled up through a cross-coupled PMOS in series with a PMOS driven by the first stage, and reset low on $\overline{\mathrm{CLK}}$. In the self-timed form the reset NMOS are driven by $P$ and $Q$ instead.
+:::
+
+::: {#fig:comp-tripletail image="comp_tripletail"}
+The triple-tail latch: the first stage with NMOS cascodes (their gates tied high), a second stage of cross-coupled PMOS on a clocked tail pulled down by $P$ and $Q$, and a third of cross-coupled inverters on a clocked tail held high by the second stage's nodes.
+:::
+
+::: todo
+
+- The PMOS-input variants: each latch's exact dual (NMOS and PMOS, supply and ground, CLK and $\overline{\mathrm{CLK}}$ exchanged); and the inverters and SR latch every latch ends in, which hold the decision.
 :::
 
 A StrongARM integrates until its drains, P and Q, have fallen by the threshold $V_\mathrm{THN}$ of the cross-coupled NMOS that then turns on; with a tail current $I_\mathrm{SS}$ and a capacitance $C_\mathrm{P}$ at each drain this takes, and gains the input by [@razavi2025, p. 116]
 $$
 t_\mathrm{int} = \frac{2C_\mathrm{P}V_\mathrm{THN}}{I_\mathrm{SS}}, \qquad A_0 = \frac{2g_\mathrm{m}V_\mathrm{THN}}{I_\mathrm{SS}}.
 $$ {#eq:strongarm-integration}
-A dynamic bias stops the input pair once the charge shared with C_TAIL has lowered the drains' common mode by at most [@bindra2018, p. 1906]
+A dynamic bias stops the input pair once the charge shared with $C_\mathrm{TAIL}$ has lowered the drains' common mode by at most [@bindra2018, p. 1906]
 $$
 \Delta V_\mathrm{CM} = \frac{C_\mathrm{TAIL}}{C_\mathrm{TAIL} + 2C_\mathrm{P}}\,V_\mathrm{DD}.
 $$ {#eq:dynamic-bias}
+
+::: {#fig:comp-dynamic-bias image="comp_dynamic_bias"}
+The first stage with a dynamic bias [@bindra2018], as the netlist builds it: the tail's source $S$ is held low during reset and loaded by $C_\mathrm{TAIL}$ to the supply, so the input pair stops once it has shared its charge (@eq:dynamic-bias); $C_\mathrm{P}$ loads each drain. Both are MOS capacitors; the tail's precharge PMOS of @fig:comp-strongarm is left out.
+:::
 
 ::: todo
 
@@ -204,6 +232,10 @@ In most SAR implementations the CDAC switches are connected to the capacitor bot
 Top-plate sampling allows a comparator decision to be taken without first switching the CDAC, so an $N$-bit ADC needs only an $(N-1)$-bit CDAC, $N_\mathrm{DAC} = N - 1$, halving its area [@liu2010]; it also simplifies the switch layout and logic for the bottom plates, as fewer voltages need to be distributed across the array.
 Bottom-plate sampling can in some configurations improve linearity, as all charge summing happens on the same end of each capacitor.
 
+::: {#fig:cdac-array image="cdac_array"}
+The differential capacitive DAC with top-plate sampling, three of its $M$ stages drawn on each side: each sampler is the switch onto its side's top plate, each stage's bottom plate is driven to $V_\mathrm{ref}$ or ground by the SAR logic's state for that side, and the comparator decides between the two top plates.
+:::
+
 ### The noise limit: minimum capacitance {#sec:cdac-noise}
 
 The differential sampling noise on a capacitance $C$ per side is @eq:ktc-samp $\sqrt{2kT/C}$, and the quantization noise of an ideal $N$-bit converter is $\sigma_\mathrm{q} = \mathrm{LSB}/\sqrt{12}$ @eq:quantization, with $\mathrm{LSB} = V_\mathrm{FS}/2^N$ for a differential full-scale span $V_\mathrm{FS}$, $2V_\mathrm{ref}$ for an ideal array switched between ground and $V_\mathrm{ref}$ [@razavi2025, p. 346].
@@ -266,6 +298,10 @@ To break the direct relation between the total capacitance and the mismatch of t
 The CDAC uses fringe metal–oxide–metal capacitors with capacitance determined by finger length, drawing on the unit-length capacitor approach [@harpe2019].
 Small effective weights are formed from the difference between two capacitors switched in opposite directions: $C_\mathrm{eff} = C_\mathrm{main} - C_\mathrm{diff}$ [@harpe2019, p. 638].
 This avoids relying on an individually fabricated capacitor of the same small value, while retaining a compact array without a bridge-capacitor divider or additional scaled reference voltages.
+
+::: {#fig:cdac-difference image="cdac_difference"}
+One stage built from a difference pair: the main capacitor driven by the stage's state, the difference capacitor by its complement, so that a step moves the top plate by their difference.
+:::
 The benefit comes with sensitivity to matching between the paired elements, which must be assessed through extraction, modeling, and calibration.
 
 ::: {#fig:capacitor-views src="../images/report/capacitor_views"}
@@ -347,7 +383,11 @@ $$
 $$ {#eq:switching}
 Averaged over equally likely codes, with $C$ the unit capacitor, conventional switching [@ginsburg2005], monotonic switching [@liu2010] and Vcm-based switching [@zhu2010] draw [@lin2015, p. 71]
 $$
-E_\mathrm{conv} = \sum_{i=1}^{N} 2^{N+1-2i}\left(2^i - 1\right) C V_\mathrm{ref}^2, \qquad E_\mathrm{mono} = \sum_{i=1}^{N-1} 2^{N-2-i}\, C V_\mathrm{ref}^2, \qquad E_\mathrm{Vcm} = \sum_{i=1}^{N-1} 2^{N-2-2i}\left(2^i - 1\right) C V_\mathrm{ref}^2.
+\begin{aligned}
+E_\mathrm{conv} &= \sum_{i=1}^{N} 2^{N+1-2i}\left(2^i - 1\right) C V_\mathrm{ref}^2, \\
+E_\mathrm{mono} &= \sum_{i=1}^{N-1} 2^{N-2-i}\, C V_\mathrm{ref}^2, \\
+E_\mathrm{Vcm} &= \sum_{i=1}^{N-1} 2^{N-2-2i}\left(2^i - 1\right) C V_\mathrm{ref}^2.
+\end{aligned}
 $$ {#eq:switching-energy}
 
 ::: {#fig:switching-energy-code plot="switching_energy_code"}

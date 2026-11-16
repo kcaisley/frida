@@ -1,0 +1,21 @@
+% One stage of a capacitive DAC built from difference capacitors (flow/capdac, DIFFERENCE_CAPS): the
+% main capacitor follows the stage's state, the difference capacitor its complement, so that a
+% switching step moves the top plate by the difference of the two.
+\input{drawing-preamble}
+\usepackage{thesis-circuits}
+\begin{document}
+\begin{drawing}
+  \begin{tikzpicture}[circuit]
+    \draw (-0.4,3.4) node[left, sig]{$v_\mathrm{top}$} -- (4.0,3.4);
+    \draw (1.0,1.3) node[buffer port, rotate=90, scale=0.6](dm){};
+    \draw (2.8,1.3) node[not port, rotate=90, scale=0.6](dd){};
+    \draw (dm.out) to[C, l=$C_\mathrm{main}$] (1.0,3.4);
+    \draw (dd.out) to[C, l_=$C_\mathrm{diff}$] (2.8,3.4);
+    \fill (1.0,3.4) circle (1.6pt) (2.8,3.4) circle (1.6pt);
+    \draw (dm.in) -- (1.0,0.3) -- (2.8,0.3) -- (dd.in);
+    \fill (1.9,0.3) circle (1.6pt);
+    \draw (1.9,0.3) -- (1.9,-0.2) node[below, sig]{state$_k$};
+    \node[note, right] at (4.1,2.35) {$w_k = C_\mathrm{main} - C_\mathrm{diff}$};
+  \end{tikzpicture}
+\end{drawing}
+\end{document}

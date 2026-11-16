@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
+import zipfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -81,9 +82,11 @@ def install(tool: str) -> Path:
     if (target / ".installed").is_file():
         return target
     spec = pin(tool)
-    url = spec["url"].format(version=spec["version"], date=spec["version"].replace("-", ""))
+    version = spec["version"]
+    url = spec["url"].format(version=version, date=version.replace("-", ""), underscored=version.replace(".", "_"))
     target.parent.mkdir(parents=True, exist_ok=True)
-    archive = target.with_name(target.name + (".tar.xz" if url.endswith(".tar.xz") else ".tar.gz"))
+    suffix = next((s for s in (".tar.xz", ".zip") if url.endswith(s)), ".tar.gz")
+    archive = target.with_name(target.name + suffix)
     print(f"Installing {tool} {spec['version']} into {target}", flush=True)
     subprocess.run(
         ["curl", "--fail", "--location", "--retry", "3", "--silent", "--show-error", url, "-o", archive], check=True
@@ -98,8 +101,18 @@ def install(tool: str) -> Path:
     partial = target.with_name(target.name + ".partial")
     shutil.rmtree(partial, ignore_errors=True)
     partial.mkdir()
-    strip = str(spec.get("strip", 1))
-    subprocess.run(["tar", "-xf", archive, "-C", partial, f"--strip-components={strip}"], check=True)
+    strip = int(spec.get("strip", 1))
+    if suffix == ".zip":  # tar cannot read a zip; its members' first `strip` path parts dropped
+        with zipfile.ZipFile(archive) as zipped:
+            for member in zipped.infolist():
+                parts = Path(member.filename).parts[strip:]
+                if not parts or member.is_dir():
+                    continue
+                path = partial.joinpath(*parts)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(zipped.read(member))
+    else:
+        subprocess.run(["tar", "-xf", archive, "-C", partial, f"--strip-components={strip}"], check=True)
     archive.unlink()
     if tool == "oss-cad-suite":
         _patch_vvp(partial / "bin" / "vvp")

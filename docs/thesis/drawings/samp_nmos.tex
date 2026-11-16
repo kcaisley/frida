@@ -1,0 +1,25 @@
+% The NMOS sampling switch (flow/samp/subckt.py, SwitchType.NMOS) onto the load capacitor, with
+% its optional half-width dummy (dummy=True), clocked opposite, on the held node.
+\input{drawing-preamble}
+\usepackage{thesis-circuits}
+\begin{document}
+\begin{drawing}
+  \begin{tikzpicture}[circuit]
+    % the switch: source at the input, drain at the held node, gate on the sampling clock
+    \draw (1.6,0) node[nmos, rotate=-90](mn){};
+    \draw (0,0) node[left, sig]{$v_\mathrm{in}$} to[short, o-] (mn.S);
+    \draw (mn.G) node[above, sig]{$\phi$};
+    \draw (mn.D) -- (3.2,0) coordinate(out) -- (6.0,0) node[right, sig]{$v_\mathrm{out}$};
+    \draw (out) to[C, l_=$C$, *-] ++(0,-1.5) node[ground]{};
+    % the optional dummy, half width, its drain and source both on the held node
+    \begin{scope}[densely dashed]
+      \draw (4.6,1.0) node[nmos, rotate=-90](md){};
+      \draw (md.S) -- (md.S |- out);
+      \draw (md.D) -- (md.D |- out);
+    \end{scope}
+    \fill (md.S |- out) circle (1.6pt) (md.D |- out) circle (1.6pt);
+    \draw (md.G) node[above, sig]{$\overline{\phi}$};
+    \draw (md.D) ++(0.15,0.25) node[right, note]{dummy\\$W/2$};
+  \end{tikzpicture}
+\end{drawing}
+\end{document}

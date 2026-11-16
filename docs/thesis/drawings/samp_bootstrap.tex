@@ -1,0 +1,58 @@
+% The bootstrapped sampling switch as flow/samp/subckt.py builds it (SwitchType.BOOTSTRAP): the
+% bootstrap capacitor C_b (a MOS capacitor) charged to VDD during hold, its bottom plate then put on
+% the input through a transmission gate and its top plate on the switch's gate, so that the gate
+% stays VDD above the input while sampling. Every helper is boot_w wide.
+\input{drawing-preamble}
+\usepackage{thesis-circuits}
+\begin{document}
+\begin{drawing}
+  \begin{tikzpicture}[circuit]
+    % the main switch on the bottom row
+    \draw (3.6,-1.2) node[nmos, rotate=-90](mn){};
+    \draw (-2.8,-1.2) node[left, sig]{$v_\mathrm{in}$} to[short, o-] (-2.2,-1.2) coordinate(vin) -- (mn.S);
+    \fill (vin) circle (1.6pt);
+    \draw (mn.D) -- (5.6,-1.2) coordinate(out) -- (6.6,-1.2) node[right, sig]{$v_\mathrm{out}$};
+    \draw (out) to[C, l_=$C$, *-] ++(0,-1.5) node[ground]{};
+    % the gate net G, from the main switch's gate up to the bootstrap circuit
+    \draw (mn.G) -- (3.6,5.5) coordinate(gtop);
+    \draw (mn.G) ++(0,0.35) node[right, sig]{$G$};
+    % the bottom plate B: on the input through a transmission gate while sampling (phi),
+    % on ground through Mbot during hold
+    \draw (-0.4,2.55) node[nmos, rotate=-90](tn){};
+    \draw (-0.4,1.05) node[pmos, rotate=90](tp){};
+    \draw (tn.G) node[above, sig]{$\phi$};
+    \draw (tp.G) node[below, sig]{$\overline{\phi}$};
+    \draw (tn.S) -| (-1.4,1.8) coordinate(tl) |- (tp.S);
+    \draw (tn.D) -| (0.6,1.8) coordinate(tr) |- (tp.D);
+    \fill (tl) circle (1.6pt) (tr) circle (1.6pt);
+    \draw (vin) |- (tl);
+    \draw (tr) -- (1.2,1.8) coordinate(bot);
+    \draw (1.2,1.03) node[nmos, xscale=-1](mbot){};
+    \draw (mbot.D) -- (bot);
+    \draw (mbot.S) node[ground]{};
+    \draw (mbot.G) node[right, sig]{$\overline{\phi}$};
+    % the bootstrap capacitor, bottom plate B, top plate T
+    \draw (bot) to[C, l_=$C_\mathrm{b}$, *-*] (1.2,3.2) coordinate(top);
+    % T to G while sampling (Mgate), T precharged to VDD while G is low (Mpre)
+    \draw (2.4,3.2) node[pmos, rotate=-90](mg){};
+    \draw (top) -- (mg.D);
+    \draw (mg.S) -- (3.6,3.2);
+    \fill (3.6,3.2) circle (1.6pt);
+    \draw (mg.G) node[above, sig]{$\overline{\phi}$};
+    \draw (1.2,5.5) node[pmos, xscale=-1](mpre){};
+    \draw (mpre.D) -- (top);
+    \draw (mpre.S) node[vcc]{$V_\mathrm{DD}$};
+    \draw (mpre.G) -- (gtop);
+    % G pulled to ground during hold through two stacked NMOS
+    \draw (3.6,3.9) -- (5.0,3.9);
+    \fill (3.6,3.9) circle (1.6pt);
+    \draw (5.0,3.13) node[nmos, xscale=-1](mcas){};
+    \draw (5.0,1.59) node[nmos, xscale=-1](moff){};
+    \draw (mcas.D) -- (5.0,3.9);
+    \draw (mcas.S) -- (moff.D);
+    \draw (moff.S) node[ground]{};
+    \draw (mcas.G) node[right, sig]{$\overline{\phi}$};
+    \draw (moff.G) node[right, sig]{$\overline{\phi}$};
+  \end{tikzpicture}
+\end{drawing}
+\end{document}

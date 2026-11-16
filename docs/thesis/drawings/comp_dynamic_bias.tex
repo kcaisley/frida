@@ -1,0 +1,50 @@
+% A comparator's first stage with the dynamic bias (Bindra; flow/comp/subckt.py, Bias.DYNAMIC): the
+% clocked tail's source on a node S held low during reset (an NMOS on the inverted clock, the tail's
+% size) and loaded by C_TAIL to the supply, which stops the input pair once it has shared its charge;
+% C_P loads each drain (P, Q) to ground. Both are MOS capacitors (bias_c, preamp_c). There is no
+% tail precharge in this variant.
+\input{drawing-preamble}
+\usepackage{thesis-circuits}
+\begin{document}
+\begin{drawing}
+  \begin{tikzpicture}[circuit]
+    \draw (0,0) node[nmos](mb){};
+    \draw (mb.S) node[ground]{};
+    \draw (mb.G) node[left, sig]{$\overline{\mathrm{CLK}}$};
+    \draw (0,1.77) node[nmos](mt){};
+    \draw (mt.G) node[left, sig]{CLK};
+    \draw (mb.D) -- (mt.S);
+    \coordinate (S) at ($(mb.D)!0.5!(mt.S)$);
+    \draw (S) -- (2.4,0.885) to[C, l_=$C_\mathrm{TAIL}$] (2.4,2.6) node[vcc]{};
+    \fill (S) circle (1.6pt);
+    \draw (S) node[left, sig]{$S$};
+    \draw (mt.D) -- (0,2.9) coordinate(tail);
+    \draw (-1.6,2.9) -- (1.6,2.9);
+    \fill (tail) circle (1.6pt);
+    \draw (-1.6,3.67) node[nmos](m1){};
+    \draw (1.6,3.67) node[nmos, xscale=-1](m2){};
+    \draw (m1.G) node[left, sig]{$v_\mathrm{in+}$};
+    \draw (m2.G) node[right, sig]{$v_\mathrm{in-}$};
+    \coordinate (P) at (m1.D); \coordinate (Q) at (m2.D);
+    % the drains' load capacitors and resets
+    \draw (P) -- (-3.9,4.44) to[C, l_=$C_\mathrm{P}$, *-] (-3.9,2.9) node[ground]{};
+    \draw (Q) -- (3.9,4.44) to[C, l=$C_\mathrm{P}$, *-] (3.9,2.9) node[ground]{};
+    \draw (-5.1,5.21) node[pmos](mrp){};
+    \draw (mrp.D) |- (-3.9,4.44);
+    \draw (mrp.S) node[vcc]{};
+    \draw (mrp.G) node[left, sig]{CLK};
+    \draw (5.1,5.21) node[pmos, xscale=-1](mrq){};
+    \draw (mrq.D) |- (3.9,4.44);
+    \draw (mrq.S) node[vcc]{};
+    \draw (mrq.G) node[right, sig]{CLK};
+    \draw (P) -- ++(0,0.9) node[above, sig]{$P$};
+    \draw (Q) -- ++(0,0.9) node[above, sig]{$Q$};
+    \fill (P) circle (1.6pt) (Q) circle (1.6pt);
+    \noteR{mb}{tail}
+    \noteR{mt}{tail}
+    \noteR{m1}{in}
+    \foreach \m/\t in {mrp/rst, mrq/rst} {\node[below, note] at ($(\m.G) - (0,0.1)$) {\t};}
+    \draw (0,5.5) node[note]{to the latch};
+  \end{tikzpicture}
+\end{drawing}
+\end{document}
