@@ -161,6 +161,28 @@ def test_a_strip_view_carries_its_geometry(monkeypatch: pytest.MonkeyPatch) -> N
     assert {inst.of.name if hasattr(inst.of, "name") else "" for inst in top.cap.of.instances.values()}
 
 
+def test_a_strip_shorter_than_its_row_takes_the_rows_ring(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("flow.layout.devices.momcap.netlist.momcap_table", lambda pdk: _strips())
+    monkeypatch.setattr("flow.layout.devices.device.import_module", lambda name: type("m", (), {"pdk_logic": None}))
+    monkeypatch.setattr("flow.layout.devices.device.h.pdk.set_default", lambda logic: None)
+    top = h.Module(name="top")
+    top.m, top.d, top.t, top.b = h.Signal(), h.Signal(), h.Signal(), h.Signal()
+    top.short = strip(StripParams(net_f=10e-15, whole_f=16e-15, frame_f=32e-15))(
+        MAIN=top.m, DIFF=top.d, TOP=top.t, SHIELD=top.b
+    )
+    top.whole = strip(StripParams(net_f=32e-15, whole_f=32e-15, frame_f=32e-15))(
+        MAIN=top.m, DIFF=top.d, TOP=top.t, SHIELD=top.b
+    )
+    assert resolve(top, "synthetic") == []
+    short, whole = geometry_of(top.short.of), geometry_of(top.whole.of)
+    assert isinstance(short, MomcapGeometry) and isinstance(whole, MomcapGeometry)
+    # the short strip's fingers its own (its plates' capacitance), its ring the whole strip's
+    assert short.frame_nm == whole.length_nm + whole.diff_length_nm > short.length_nm + short.diff_length_nm
+    assert whole.frame_nm == 0  # a strip as long as its row draws its own ring
+    c = _strips().capacitances(short)
+    assert c[("MAIN", "TOP")] - c[("DIFF", "TOP")] == pytest.approx(10e-15, abs=0.5 * 5e-3 * 1e-15)
+
+
 def test_the_compile_returns_a_floor_error_for_each_undersized_request(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("flow.layout.devices.momcap.netlist.momcap_table", lambda pdk: _strips())
     monkeypatch.setattr("flow.layout.devices.device.import_module", lambda name: type("m", (), {"pdk_logic": None}))

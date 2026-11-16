@@ -76,7 +76,9 @@ class MomcapGeometry:
     right: Neighbour = Neighbour.EDGE
     above: Neighbour = Neighbour.EDGE
     below: Neighbour = Neighbour.EDGE
-    frame_nm: int = 0  # a column array's ring length inside (every row one height); 0: the finger's
+    # the ring's length inside, every row of an array one height: a column unit's, or a strip's
+    # fingers' together (its own shorter, a gap between them); 0: its fingers'
+    frame_nm: int = 0
     array: ArrayKind = ArrayKind.CHANNELS
     # a column unit's pins along its strip only this high from its bottom (the drivers' rows under
     # the array); 0: along the whole strip

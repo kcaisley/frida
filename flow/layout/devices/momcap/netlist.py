@@ -130,10 +130,17 @@ def mom_cap(c_f, *, varies=False, x_um=0.0, y_um=0.0):
 @h.paramclass
 class StripParams:
     net_f = h.Param(dtype=NonNegativeFloat, desc="Its main less its difference capacitance (F): its weight")
-    whole_f = h.Param(dtype=PositiveFloat, desc="A whole strip's net capacitance (F), which sets every strip's length")
+    whole_f = h.Param(
+        dtype=PositiveFloat, desc="Its main and difference capacitance together (F), a whole strip's net, its length"
+    )
     layers = h.Param(dtype=PositiveInt, desc="How many of the PDK's MOM metals it stacks", default=3)
     left = h.Param(dtype=Neighbour, desc="What its left side meets in an array", default=Neighbour.EDGE)
     right = h.Param(dtype=Neighbour, desc="What its right side meets in an array", default=Neighbour.EDGE)
+    frame_f = h.Param(
+        dtype=NonNegativeFloat,
+        desc="The whole strip's net capacitance (F) whose fingers set the ring, where longer than its own; 0: its own",
+        default=0.0,
+    )
 
 
 @h.paramclass
@@ -160,13 +167,20 @@ def array_outline_nm(pdk: str, geometry: MomcapGeometry) -> tuple[int, int]:
     """An abutting array unit of ``geometry`` in ``pdk``: its outline (nm, wide, tall), from wall
     centre to wall centre and bar centre to bar centre (``MomUnit``), a band under a column array's
     bottom row aside."""
-    g = in_pdk(pdk, "capcell", "mom_geometry", geometry.layers)
-    w, s, e = g["width"], g["space"], g["end_gap"]
+    w, s, e = _ring_nm(pdk, geometry.layers)
     if geometry.style is MomStyle.DIFFERENCE:
-        tall = geometry.length_nm + geometry.diff_length_nm + 3 * e + w
+        tall = max(geometry.length_nm + geometry.diff_length_nm, geometry.frame_nm) + 3 * e + w
     else:
         tall = max(geometry.length_nm, geometry.frame_nm) + 2 * e + w
     return 2 * w + 2 * s, tall
+
+
+@cache
+def _ring_nm(pdk: str, layers: int) -> tuple[int, int, int]:
+    """A unit's fingers' width, their spacing and their line-end gap (nm) on ``pdk``'s top ``layers``
+    MOM metals (``capcell.mom_geometry``, read in a process bound to the PDK once)."""
+    g = in_pdk(pdk, "capcell", "mom_geometry", layers)
+    return g["width"], g["space"], g["end_gap"]
 
 
 def _module(name: str, ports: tuple[str, ...]) -> h.Module:
@@ -210,12 +224,18 @@ class StripRequest:
     layers: int
     left: Neighbour = Neighbour.EDGE
     right: Neighbour = Neighbour.EDGE
+    frame_f: float = 0.0
 
     def resolve(self, pdk: str) -> h.Module:
-        geometry, floor = momcap_table(pdk).strip(self.layers, self.net_f, self.whole_f)
-        geometry = replace(geometry, left=self.left, right=self.right)
+        table = momcap_table(pdk)
+        geometry, floor = table.strip(self.layers, self.net_f, self.whole_f)
+        # a strip in a row of longer ones: its ring theirs, its fingers its own, a gap between them
+        frame = table.strip(self.layers, self.frame_f, self.frame_f)[0] if self.frame_f else geometry
+        fingers = geometry.length_nm + geometry.diff_length_nm
+        frame_nm = frame.length_nm + frame.diff_length_nm if frame.length_nm + frame.diff_length_nm > fingers else 0
+        geometry = replace(geometry, left=self.left, right=self.right, frame_nm=frame_nm)
         name = f"strip_{geometry.layers}m_{geometry.length_nm}_{geometry.diff_length_nm}_{geometry.sides}"
-        return _view(name, PINS[MomStyle.DIFFERENCE], pdk, geometry, floor)
+        return _view(name + (f"_f{frame_nm}" if frame_nm else ""), PINS[MomStyle.DIFFERENCE], pdk, geometry, floor)
 
 
 @dataclass(frozen=True)
@@ -257,7 +277,9 @@ def strip(params: StripParams) -> h.Module:
     module.cmain = C(c=(params.whole_f + params.net_f) / 2)(p=module.MAIN, n=module.TOP)
     if params.whole_f > params.net_f:
         module.cdiff = C(c=(params.whole_f - params.net_f) / 2)(p=module.DIFF, n=module.TOP)
-    return mark(module, StripRequest(params.net_f, params.whole_f, params.layers, params.left, params.right))
+    return mark(
+        module, StripRequest(params.net_f, params.whole_f, params.layers, params.left, params.right, params.frame_f)
+    )
 
 
 @h.generator

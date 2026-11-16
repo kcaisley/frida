@@ -142,7 +142,8 @@ class MomUnit(_Fabric):
         column, joined to the units above and below of its stage (``above``, ``below``), its ring
         ``frame`` long inside (every row one height), the array's bottom row a band with the bars
         joining a stage's columns, its strip's pins ``pin_band`` from its bottom at most (0: along
-        the whole strip)."""
+        the whole strip). A difference strip's ring holds ``frame`` of fingers where longer than its
+        own two (a strip in a row of longer ones), the gap between their tips the rest."""
 
         g = capcell.mom_geometry(layers, space)
         w, s, e, hold = g["width"], g["space"], g["end_gap"], g["min_length"]
@@ -158,7 +159,9 @@ class MomUnit(_Fabric):
             height, outer = length, 2 * w + s
         elif style in ("ring", "difference"):
             height = (
-                length + diff_length + 3 * e + 2 * w if style == "difference" else max(length, frame) + 2 * e + 2 * w
+                max(length + diff_length, frame) + 3 * e + 2 * w
+                if style == "difference"
+                else max(length, frame) + 2 * e + 2 * w
             )
             if abut and array_kind == "columns":  # rows abut at their bars' centres: a whole number of M2 pitches apart
                 height += -(height - w) % self.pdk["M2"]["Pitch"]
