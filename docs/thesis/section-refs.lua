@@ -1,7 +1,6 @@
---[[ Runs after --citeproc: the reference list split by section. Each section (each ## heading, and a
-chapter's text before its first section) ends with the references it cites, numbered as citeproc
-numbered them for the whole thesis; its citations link to that list. The thesis-wide list is
-dropped. ]]
+--[[ Runs after --citeproc: the reference list split by chapter. Each chapter (each # heading, and
+any text before the first) ends with the references it cites, numbered as citeproc numbered them for
+the whole thesis; its citations link to that list. The thesis-wide list is dropped. ]]
 
 local function entries(refs)
   local by_id = {}
@@ -88,7 +87,7 @@ local function split(doc)
   end
 
   for _, block in ipairs(body) do
-    if block.t == "Header" and block.level <= 2 then
+    if block.t == "Header" and block.level == 1 then
       close()
     end
     section:insert(block)

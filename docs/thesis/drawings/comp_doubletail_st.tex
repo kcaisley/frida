@@ -1,0 +1,50 @@
+% The self-timed double-tail latch as flow/comp/subckt.py builds it: the double tail's latch with
+% its clocked tail split per side, each side's PMOS (latch_on) and NMOS (rst) driven by the first
+% stage's drain on that side, so the latch needs no clock.
+\input{drawing-preamble}
+\usepackage{thesis-circuits}
+\begin{document}
+\begin{drawing}
+\begin{tikzpicture}[circuit]
+  % each side's own tail node, driven from the first stage's drain
+  \draw (-1.6,4.6) node[pmos](ul){};
+  \draw (1.6,4.6) node[pmos, xscale=-1](ur){};
+  \draw (ul.S) node[vcc]{} (ur.S) node[vcc]{};
+  \draw (ul.G) node[left, sig]{$P$};
+  \draw (ur.G) node[right, sig]{$Q$};
+  \draw (-4.3,3.06) node[nmos](dl){};
+  \draw (4.3,3.06) node[nmos, xscale=-1](dr){};
+  \draw (dl.S) node[ground]{} (dr.S) node[ground]{};
+  \draw (dl.G) node[left, sig]{$P$};
+  \draw (dr.G) node[right, sig]{$Q$};
+  \draw (dl.D) -- (ul.D) (dr.D) -- (ur.D);
+  \fill (ul.D) circle (1.6pt) (ur.D) circle (1.6pt);
+  % the latch, as the double tail's
+  \draw (-1.6,3.06) node[pmos, xscale=-1](ml){};
+  \draw (1.6,3.06) node[pmos](mr){};
+  \draw (-1.6,0.96) node[nmos, xscale=-1](nl){};
+  \draw (1.6,0.96) node[nmos](nr){};
+  \draw (nl.S) node[ground]{} (nr.S) node[ground]{};
+  \draw (ml.D) -- (nl.D) (mr.D) -- (nr.D);
+  \draw (ml.G) -- (nl.G) (mr.G) -- (nr.G);
+  \coordinate (X) at ($(nl.D)!0.7!(ml.D)$);
+  \coordinate (Y) at ($(nr.D)!0.3!(mr.D)$);
+  \draw (X) -- (X -| nl.G) node[jump crossing]{} -- (X -| nr.G);
+  \draw (Y) -- (Y -| nr.G) node[jump crossing]{} -- (Y -| nl.G);
+  \fill (X) circle (1.6pt) (Y) circle (1.6pt) (X -| nr.G) circle (1.6pt) (Y -| nl.G) circle (1.6pt);
+  \draw ($(X) - (1.4,0.77)$) node[nmos](il){};
+  \draw ($(Y) + (1.4,-0.77)$) node[nmos, xscale=-1](ir){};
+  \draw (il.S) node[ground]{} (ir.S) node[ground]{};
+  \draw (il.D) -- (X) (ir.D) -- (Y);
+  \draw (il.G) node[left, sig]{$P$};
+  \draw (ir.G) node[right, sig]{$Q$};
+  \noteR{ul}{on}
+  \noteR{dl}{rst}
+  \noteL{ml}{on}
+  \noteL{nl}{init}
+  \noteR{il}{rst}
+  \draw (X) node[above left, sig]{$X$};
+  \draw (Y) node[below right, sig]{$Y$};
+\end{tikzpicture}
+\end{drawing}
+\end{document}

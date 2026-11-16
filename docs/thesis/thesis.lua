@@ -44,26 +44,89 @@ local function caption_of(div)
   return caption
 end
 
--- several items side by side in rows of `cols`, lettered (a), (b), ... when there are several:
--- each item given as its LaTeX (inside a minipage) and its HTML (inside a panel)
-local function panels(items, cols, item_latex, item_html)
+-- the PDF edition's text block (ubonn-thesis on A4 scrbook, as measured with \the\linewidth and
+-- \the\textheight), in pt: a figure's panels are scaled to fit it
+local LINE, TEXT = 448.13, 609.40
+
+-- a drawing's natural size in pt, from its SVG's width and height (figures/ for TikZ drawings,
+-- drawings/ for Inkscape ones), or nil
+local function drawing_size(name)
+  local units = { pt = 1, mm = 72 / 25.4, cm = 72 / 2.54, ["in"] = 72, px = 0.75, [""] = 0.75 }
+  for _, path in ipairs({ "figures/" .. name .. ".svg", "drawings/" .. name .. ".svg" }) do
+    local file = io.open(path, "r")
+    if file then
+      local head = (file:read(4096) or ""):match("<svg[^>]*>") or ""
+      file:close()
+      local w, wu = head:match('%swidth="([%d.]+)(%a*)"')
+      local h, hu = head:match('%sheight="([%d.]+)(%a*)"')
+      if w and h then
+        return tonumber(w) * (units[wu] or 1), tonumber(h) * (units[hu] or 1)
+      end
+    end
+  end
+  return nil
+end
+
+-- an image's height over its width, from a PNG's header (other formats: 0.7)
+local function aspect(path)
+  local file = io.open(path, "rb")
+  if file then
+    local head = file:read(24) or ""
+    file:close()
+    if #head == 24 and head:sub(2, 4) == "PNG" then
+      local w, h = string.unpack(">I4I4", head, 17)
+      return h / w
+    end
+  end
+  return 0.7
+end
+
+-- several items side by side in rows of `cols`, lettered (a), (b), ... when there are several,
+-- each given as its LaTeX (inside a minipage) and its HTML (inside a panel). Every panel is drawn
+-- at one scale, so that lines are equally thick across them: the largest at which the widest row
+-- fits the line and the rows fit most of the page, and, for drawings (`natural`), no larger than
+-- their own size. `sizes` gives each item's natural width and height.
+local gap = 0.02 -- of the line, between panels
+local function panels(items, cols, sizes, natural, item_latex, item_html)
   local letter = function(i)
     return #items > 1 and ("(" .. string.char(96 + i) .. ")") or ""
   end
+  local usable = 0.995 - gap * (cols - 1) -- slack, as TeX rounds each width to its own unit
+  local widest, heights, rows = 0, 0, 0
+  for first = 1, #items, cols do
+    local sum, tallest = 0, 0
+    for i = first, math.min(first + cols - 1, #items) do
+      sum = sum + sizes[i][1]
+      tallest = math.max(tallest, sizes[i][2])
+    end
+    widest, heights, rows = math.max(widest, sum), heights + tallest, rows + 1
+  end
+  local label = #items > 1 and 22 or 8 -- pt per row: its letter and the gap after it
+  local scale = math.min(usable * LINE / widest, (0.72 * TEXT - rows * label) / heights)
+  if natural then
+    scale = math.min(scale, 1)
+  end
+  local frac = function(i) -- rounded down, so that a row's panels never overflow the line
+    return math.floor(1000 * sizes[i][1] * scale / LINE) / 1000
+  end
   if latex then
-    local width = string.format("%.3f", 0.98 / cols - 0.01)
     local parts = {} -- pandoc's figure environment centres its contents
     for i, item in ipairs(items) do
-      parts[#parts + 1] = "\\begin{minipage}[b]{" .. width .. "\\linewidth}\\centering\n" .. item_latex(item)
+      parts[#parts + 1] = "\\begin{minipage}[b]{" .. string.format("%.3f", frac(i)) .. "\\linewidth}\\centering\n" .. item_latex(item)
         .. (#items > 1 and ("\\\\[0.3ex]{\\small " .. letter(i) .. "}") or "") .. "\n\\end{minipage}"
-      parts[#parts + 1] = (i % cols == 0 and i < #items) and "\\\\[1.5ex]" or (i < #items and "\\hfill" or "")
+      if i < #items then
+        parts[#parts + 1] = (i % cols == 0) and "\\\\[1.5ex]" or string.format("\\hspace{%.2f\\linewidth}", gap)
+      end
     end
-    return pandoc.RawBlock("latex", table.concat(parts, "\n"))
+    return pandoc.RawBlock("latex", table.concat(parts, "%\n")) -- no spaces between the panels
   end
-  local html_parts = { '<div class="panels" style="--cols:' .. cols .. '">' }
+  local html_parts = { '<div class="panels">' }
   for i, item in ipairs(items) do
-    html_parts[#html_parts + 1] = '<div class="panel">' .. item_html(item)
-      .. (#items > 1 and ('<p class="panel-label">' .. letter(i) .. "</p>") or "") .. "</div>"
+    html_parts[#html_parts + 1] = '<div class="panel" style="flex-basis:' .. string.format("%.2f", 100 * frac(i)) .. '%">'
+      .. item_html(item) .. (#items > 1 and ('<p class="panel-label">' .. letter(i) .. "</p>") or "") .. "</div>"
+    if i % cols == 0 and i < #items then
+      html_parts[#html_parts + 1] = '<div class="panel-break"></div>'
+    end
   end
   html_parts[#html_parts + 1] = "</div>"
   return pandoc.RawBlock("html", table.concat(html_parts, "\n"))
@@ -78,13 +141,21 @@ local function words(text)
 end
 
 -- drawings (image="a b c", cols="2"): drawings/<name>.svg inline in HTML (build.py fills the
--- placeholders), figures/<name>.pdf in LaTeX at their own size, narrowed only to fit
+-- placeholders), figures/<name>.pdf in LaTeX, at one scale no larger than their own size
 local function drawings(div)
+  local names = words(div.attributes.image)
+  local sizes = {}
+  for i, name in ipairs(names) do
+    local w, h = drawing_size(name)
+    sizes[i] = { w or LINE, h or 0.7 * LINE }
+  end
   return panels(
-    words(div.attributes.image),
+    names,
     tonumber(div.attributes.cols or "1"),
+    sizes,
+    true,
     function(name)
-      return "\\adjustbox{max width=\\linewidth}{\\includegraphics{figures/" .. name .. ".pdf}}"
+      return "\\includegraphics[width=\\linewidth]{figures/" .. name .. ".pdf}"
     end,
     function(name)
       return '<div class="drawing" data-src="drawings/' .. name .. '.svg"></div>'
@@ -92,22 +163,32 @@ local function drawings(div)
   )
 end
 
--- existing images (src="a b", cols="2"): each a PDF (or, without an extension, the PDF or PNG
--- beside the path) in LaTeX, a PNG in HTML (build.py links or embeds it)
+-- an image's file as LaTeX includes it: a PDF, or, without an extension, the PDF or PNG beside it
+local function image_file(src)
+  if src:match("%.%w+$") then
+    return src
+  end
+  local pdf = io.open(src .. ".pdf", "r")
+  if pdf then
+    pdf:close()
+  end
+  return src .. (pdf and ".pdf" or ".png")
+end
+
+-- existing images (src="a b", cols="2"): equally wide panels unless the page's height limits them
 local function images(div)
+  local srcs = words(div.attributes.src)
+  local sizes = {}
+  for i, src in ipairs(srcs) do
+    sizes[i] = { 1000, 1000 * aspect(image_file(src)) }
+  end
   return panels(
-    words(div.attributes.src),
+    srcs,
     tonumber(div.attributes.cols or "1"),
+    sizes,
+    false,
     function(src)
-      local file = src
-      if not src:match("%.%w+$") then
-        local pdf = io.open(src .. ".pdf", "r")
-        if pdf then
-          pdf:close()
-        end
-        file = src .. (pdf and ".pdf" or ".png")
-      end
-      return "\\includegraphics[width=\\linewidth]{../" .. file .. "}"
+      return "\\includegraphics[width=\\linewidth]{../" .. image_file(src) .. "}"
     end,
     function(src)
       return '<img class="photo" alt="" data-src="' .. (src:match("%.%w+$") and src or src .. ".png") .. '">'

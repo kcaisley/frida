@@ -1,43 +1,36 @@
-% The modified double-tail latch (van Elzakker) as flow/comp/subckt.py builds it (NMOS input,
-% switched tail): no latch tail; each latch node is pulled up through a cross-coupled PMOS
-% (latch_on) in series with a PMOS driven by the first stage's drain (latch_on), pulled down by a
-% cross-coupled NMOS (latch_init), and reset low by an NMOS on the inverted clock (rst).
+% The modified double-tail latch (van Elzakker) as flow/comp/subckt.py builds it: no latch tail;
+% each latch node pulled up through a cross-coupled PMOS (latch_on) in series with a PMOS on the
+% first stage's drain (latch_on), pulled down by a cross-coupled NMOS (latch_init), and reset low
+% on the inverted clock (rst).
 \input{drawing-preamble}
 \usepackage{thesis-circuits}
 \begin{document}
 \begin{drawing}
   \begin{tikzpicture}[circuit]
-    \comppreamp
-    % each side: cross PMOS, the first stage's PMOS, the latch node, cross NMOS
-    \draw (-1.6,9.6) node[pmos, xscale=-1](cl){};
-    \draw (1.6,9.6) node[pmos](cr){};
-    \draw (-1.6,8.06) node[pmos](ol){};
-    \draw (1.6,8.06) node[pmos, xscale=-1](or){};
-    \draw (-1.6,6.0) node[nmos, xscale=-1](nl){};
-    \draw (1.6,6.0) node[nmos](nr){};
+    \draw (-1.6,4.6) node[pmos, xscale=-1](cl){};
+    \draw (1.6,4.6) node[pmos](cr){};
+    \draw (-1.6,3.06) node[pmos](ol){};
+    \draw (1.6,3.06) node[pmos, xscale=-1](or){};
+    \draw (-1.6,0.96) node[nmos, xscale=-1](nl){};
+    \draw (1.6,0.96) node[nmos](nr){};
     \draw (cl.S) node[vcc]{} (cr.S) node[vcc]{};
     \draw (nl.S) node[ground]{} (nr.S) node[ground]{};
     \draw (cl.D) -- (ol.S) (cr.D) -- (or.S);
     \draw (ol.D) -- (nl.D) (or.D) -- (nr.D);
-    % the cross-coupling: each side's cross PMOS and NMOS gated by the other latch node
+    \draw (ol.G) node[left, sig]{$P$};
+    \draw (or.G) node[right, sig]{$Q$};
     \draw (cl.G) -- (nl.G) (cr.G) -- (nr.G);
     \coordinate (X) at ($(nl.D)!0.65!(ol.D)$);
     \coordinate (Y) at ($(nr.D)!0.35!(or.D)$);
     \draw (X) -- (X -| nl.G) node[jump crossing]{} -- (X -| nr.G);
     \draw (Y) -- (Y -| nr.G) node[jump crossing]{} -- (Y -| nl.G);
     \fill (X) circle (1.6pt) (Y) circle (1.6pt) (X -| nr.G) circle (1.6pt) (Y -| nl.G) circle (1.6pt);
-    % the first stage's drains on the series PMOS
-    \draw (ol.G) -- (ol.G |- P);
-    \draw (or.G) -- (or.G |- Q);
-    \fill (ol.G |- P) circle (1.6pt) (or.G |- Q) circle (1.6pt);
-    % each latch node reset low on the inverted clock
-    \draw (-3.6,6.34) node[nmos](rl){};
-    \draw (3.6,6.34) node[nmos, xscale=-1](rr){};
+    \draw ($(X) - (1.5,0.77)$) node[nmos](rl){};
+    \draw ($(Y) + (1.5,-0.77)$) node[nmos, xscale=-1](rr){};
     \draw (rl.S) node[ground]{} (rr.S) node[ground]{};
+    \draw (rl.D) -- (X) (rr.D) -- (Y);
     \draw (rl.G) node[left, sig]{$\overline{\mathrm{CLK}}$};
     \draw (rr.G) node[right, sig]{$\overline{\mathrm{CLK}}$};
-    \draw (rl.D) |- (X -| ol.G) node[jump crossing]{} -- (X);
-    \draw (rr.D) |- (Y -| or.G) node[jump crossing]{} -- (Y);
     \noteL{cl}{on}
     \noteR{ol}{on}
     \noteL{nl}{init}

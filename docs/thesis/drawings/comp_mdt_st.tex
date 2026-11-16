@@ -1,0 +1,41 @@
+% The self-timed modified double-tail latch as flow/comp/subckt.py builds it: the modified double
+% tail's latch (cross-coupled PMOS in series with PMOS on the first stage's drains, cross-coupled
+% NMOS) with its reset NMOS (rst) driven by the first stage's drains instead of the clock.
+\input{drawing-preamble}
+\usepackage{thesis-circuits}
+\begin{document}
+\begin{drawing}
+\begin{tikzpicture}[circuit]
+  \draw (-1.6,4.6) node[pmos, xscale=-1](cl){};
+  \draw (1.6,4.6) node[pmos](cr){};
+  \draw (-1.6,3.06) node[pmos](ol){};
+  \draw (1.6,3.06) node[pmos, xscale=-1](or){};
+  \draw (-1.6,0.96) node[nmos, xscale=-1](nl){};
+  \draw (1.6,0.96) node[nmos](nr){};
+  \draw (cl.S) node[vcc]{} (cr.S) node[vcc]{};
+  \draw (nl.S) node[ground]{} (nr.S) node[ground]{};
+  \draw (cl.D) -- (ol.S) (cr.D) -- (or.S);
+  \draw (ol.D) -- (nl.D) (or.D) -- (nr.D);
+  \draw (ol.G) node[left, sig]{$P$};
+  \draw (or.G) node[right, sig]{$Q$};
+  \draw (cl.G) -- (nl.G) (cr.G) -- (nr.G);
+  \coordinate (X) at ($(nl.D)!0.65!(ol.D)$);
+  \coordinate (Y) at ($(nr.D)!0.35!(or.D)$);
+  \draw (X) -- (X -| nl.G) node[jump crossing]{} -- (X -| nr.G);
+  \draw (Y) -- (Y -| nr.G) node[jump crossing]{} -- (Y -| nl.G);
+  \fill (X) circle (1.6pt) (Y) circle (1.6pt) (X -| nr.G) circle (1.6pt) (Y -| nl.G) circle (1.6pt);
+  \draw ($(X) - (1.5,0.77)$) node[nmos](rl){};
+  \draw ($(Y) + (1.5,-0.77)$) node[nmos, xscale=-1](rr){};
+  \draw (rl.S) node[ground]{} (rr.S) node[ground]{};
+  \draw (rl.D) -- (X) (rr.D) -- (Y);
+  \draw (rl.G) node[left, sig]{$P$};
+  \draw (rr.G) node[right, sig]{$Q$};
+  \noteL{cl}{on}
+  \noteR{ol}{on}
+  \noteL{nl}{init}
+  \noteR{rl}{rst}
+  \draw (X) node[above left, sig]{$X$};
+  \draw (Y) node[below right, sig]{$Y$};
+\end{tikzpicture}
+\end{drawing}
+\end{document}

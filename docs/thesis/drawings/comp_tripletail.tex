@@ -1,83 +1,46 @@
-% The triple-tail latch as flow/comp/subckt.py builds it (NMOS input, switched tail): the first
-% stage's input pair under NMOS cascodes (gates held at VDD by a tie cell) into P and Q; a second
-% stage of cross-coupled PMOS on a clocked PMOS tail (twice latch_on), pulled down by NMOS on P and
-% Q (rst); and a third, cross-coupled inverters on a clocked NMOS tail (latch_on), held high by
-% PMOS on the second stage's nodes (four times rst).
+% The triple-tail latch's second and third stages as flow/comp/subckt.py builds them (its first
+% stage is the double tail's with NMOS cascodes): cross-coupled PMOS on a clocked PMOS tail (twice
+% latch_on), pulled down by NMOS on the first stage's drains P and Q (rst); then cross-coupled
+% inverters on a clocked NMOS tail (latch_on), held high by PMOS on the second stage's nodes (four
+% times rst).
 \input{drawing-preamble}
 \usepackage{thesis-circuits}
 \begin{document}
 \begin{drawing}
   \begin{tikzpicture}[circuit]
-    % stage 1: tail, input pair, cascodes, resets on P and Q
-    \draw (0,0) node[nmos](mt){};
-    \draw (mt.S) node[ground]{};
-    \draw (mt.G) node[left, sig]{CLK};
-    \draw (mt.D) -- (0,1.2) coordinate(tail);
-    \draw (-1.6,1.2) -- (5.6,1.2);
-    \fill (tail) circle (1.6pt);
-    \draw (5.6,1.97) node[pmos, xscale=-1](mtr){};
-    \draw (mtr.D) -- (5.6,1.2);
-    \draw (mtr.S) node[vcc]{};
-    \draw (mtr.G) node[right, sig]{CLK};
-    \draw (-1.6,1.97) node[nmos](m1){};
-    \draw (1.6,1.97) node[nmos, xscale=-1](m2){};
-    \draw (m1.G) node[left, sig]{$v_\mathrm{in+}$};
-    \draw (m2.G) node[right, sig]{$v_\mathrm{in-}$};
-    \fill (m2.S) circle (1.6pt);
-    \draw (-1.6,3.51) node[nmos, xscale=-1](c1){};
-    \draw (1.6,3.51) node[nmos](c2){};
-    \draw (m1.D) -- (c1.S) (m2.D) -- (c2.S);
-    \draw (c1.G) -- (c2.G);
-    \draw ($(c1.G)!0.5!(c2.G)$) node[above, sig]{$V_\mathrm{DD}$} node[below, note]{tie};
-    \coordinate (P) at (c1.D); \coordinate (Q) at (c2.D);
-    \draw (-3.9,5.05) node[pmos](mrp){};
-    \draw (mrp.D) |- (P);
-    \draw (mrp.S) node[vcc]{};
-    \draw (mrp.G) node[left, sig]{CLK};
-    \draw (3.9,5.05) node[pmos, xscale=-1](mrq){};
-    \draw (mrq.D) |- (Q);
-    \draw (mrq.S) node[vcc]{};
-    \draw (mrq.G) node[right, sig]{CLK};
-    \fill (P) circle (1.6pt) (Q) circle (1.6pt);
-    \draw (P) node[below left, sig]{$P$};
-    \draw (Q) node[below right, sig]{$Q$};
-    \noteR{mt}{tail}
-    \noteR{m1}{in}
-    \noteL{c1}{in}
-    \foreach \m/\t in {mrp/rst, mrq/rst, mtr/tail} {\node[below, note] at ($(\m.G) - (0,0.1)$) {\t};}
     % stage 2: pull-downs on P and Q, cross-coupled PMOS, clocked PMOS tail
-    \draw (-1.6,6.6) node[nmos](d1){};
-    \draw (1.6,6.6) node[nmos, xscale=-1](d2){};
+    \draw (-1.6,1.60) node[nmos](d1){};
+    \draw (1.6,1.60) node[nmos, xscale=-1](d2){};
     \draw (d1.S) node[ground]{} (d2.S) node[ground]{};
-    \draw (d1.G) -| ($(d1.G) - (0.3,0)$) |- (P);
-    \draw (d2.G) -| ($(d2.G) + (0.3,0)$) |- (Q);
-    \draw (-1.6,8.5) node[pmos, xscale=-1](u1){};
-    \draw (1.6,8.5) node[pmos](u2){};
+    \draw (d1.G) node[left, sig]{$P$};
+    \draw (d2.G) node[right, sig]{$Q$};
+    \draw (-1.6,3.50) node[pmos, xscale=-1](u1){};
+    \draw (1.6,3.50) node[pmos](u2){};
     \draw (d1.D) -- (u1.D) (d2.D) -- (u2.D);
     \coordinate (Mp) at ($(d1.D)!0.5!(u1.D)$); \coordinate (Mn) at ($(d2.D)!0.5!(u2.D)$);
     \draw (u1.G) -- (Mn) (u2.G) -- (Mp);
     \fill (Mp) circle (1.6pt) (Mn) circle (1.6pt);
-    \draw (-1.6,9.27) -- (1.6,9.27);
-    \draw (0,10.04) node[pmos](mt2){};
-    \draw (mt2.D) -- (0,9.27);
-    \fill (0,9.27) circle (1.6pt);
+    \draw (-1.6,4.27) -- (1.6,4.27);
+    \draw (0,5.04) node[pmos](mt2){};
+    \draw (mt2.D) -- (0,4.27);
+    \fill (0,4.27) circle (1.6pt);
     \draw (mt2.S) node[vcc]{};
     \draw (mt2.G) node[left, sig]{$\overline{\mathrm{CLK}}$};
     \noteR{mt2}{$2\times$on}
     \noteR{d1}{rst}
     \noteL{u1}{on}
     % stage 3: clocked NMOS tail, cross-coupled inverters, held high by PMOS on the second stage
-    \draw (0,13.10) node[nmos](mt3){};
+    \draw (0,8.10) node[nmos](mt3){};
     \draw (mt3.S) node[ground]{};
     \draw (mt3.G) node[left, sig]{CLK};
     \noteR{mt3}{on}
-    \draw (mt3.D) -- (0,13.87);
-    \draw (-1.6,13.87) -- (1.6,13.87);
-    \fill (0,13.87) circle (1.6pt);
-    \draw (-1.6,14.64) node[nmos, xscale=-1](n1){};
-    \draw (1.6,14.64) node[nmos](n2){};
-    \draw (-1.6,16.70) node[pmos, xscale=-1](p1){};
-    \draw (1.6,16.70) node[pmos](p2){};
+    \draw (mt3.D) -- (0,8.87);
+    \draw (-1.6,8.87) -- (1.6,8.87);
+    \fill (0,8.87) circle (1.6pt);
+    \draw (-1.6,9.64) node[nmos, xscale=-1](n1){};
+    \draw (1.6,9.64) node[nmos](n2){};
+    \draw (-1.6,11.70) node[pmos, xscale=-1](p1){};
+    \draw (1.6,11.70) node[pmos](p2){};
     \draw (p1.S) node[vcc]{} (p2.S) node[vcc]{};
     \draw (n1.D) -- (p1.D) (n2.D) -- (p2.D);
     \draw (n1.G) -- (p1.G) (n2.G) -- (p2.G);
@@ -88,8 +51,8 @@
     \fill (X) circle (1.6pt) (Y) circle (1.6pt) (X -| n2.G) circle (1.6pt) (Y -| n1.G) circle (1.6pt);
     \noteL{n1}{on}
     \noteL{p1}{init}
-    \draw (-3.4,16.30) node[pmos](h1){};
-    \draw (3.4,16.30) node[pmos, xscale=-1](h2){};
+    \draw (-3.4,11.30) node[pmos](h1){};
+    \draw (3.4,11.30) node[pmos, xscale=-1](h2){};
     \draw (h1.S) node[vcc]{} (h2.S) node[vcc]{};
     \draw (h1.D) |- (X) (h2.D) |- (Y);
     \draw (h1.G) -| ($(h1.G) - (0.4,0)$) |- (Mp);

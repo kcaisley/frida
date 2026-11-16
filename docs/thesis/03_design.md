@@ -16,8 +16,8 @@ Second, since the on-resistance of the transistor is determined by its gate–so
 And third, the switch itself injects charge onto the held node when it opens.
 The proper design of sampling switches is heavily predicated on how fast the switch needs to operate.
 
-::: {#fig:samp-topologies image="samp_nmos samp_tgate" cols="2"}
-The sampling switches studied, onto the sampling capacitor $C$ and clocked by $\phi$ (tracking while high): the NMOS switch and the transmission gate, each with its optional half-width dummies (dashed), clocked opposite their switch. The bootstrapped switch is @fig:samp-bootstrap.
+::: {#fig:samp-topologies image="samp_nmos samp_tgate samp_bootstrap" cols="2"}
+The sampling switches studied, onto the sampling capacitor $C$ and clocked by $\phi$ (tracking while high): the NMOS switch (a) and the transmission gate (b), each with its optional half-width dummies (dashed), clocked opposite their switch; and the bootstrapped switch (c), whose capacitor $C_\mathrm{b}$, during hold, has its bottom plate grounded and its top plate charged to $V_\mathrm{DD}$ while the switch's gate $G$ is pulled low through two NMOS in series, and, while sampling, has its bottom plate on the input and its top plate on $G$, which then stays about $V_\mathrm{DD}$ above the input. $C_\mathrm{b}$ is a MOS capacitor; every helper device has one width.
 :::
 
 ### On-resistance {#sec:samp-ron}
@@ -36,10 +36,6 @@ $$
 R_\mathrm{on} = \frac{1}{\mu_\mathrm{n} C_\mathrm{ox} (W/L)\left(V_\mathrm{b} - V_\mathrm{TH}\right)}, \qquad V_\mathrm{b} = \frac{C_\mathrm{b}}{C_\mathrm{b} + C_\mathrm{G} + C_\mathrm{p}}\,V_\mathrm{DD},
 $$ {#eq:ron-boot}
 left input-dependent only through the threshold's body effect [@pelgrom2022, p. 399].
-
-::: {#fig:samp-bootstrap image="samp_bootstrap"}
-The bootstrapped switch as the sampler's netlist builds it: during hold ($\overline{\phi}$ high) the bottom plate of $C_\mathrm{b}$ is grounded, its top plate charged to $V_\mathrm{DD}$, and the switch's gate $G$ pulled low through two NMOS in series; while sampling, a transmission gate puts the bottom plate on the input and a PMOS the top plate on $G$, which then stays about $V_\mathrm{DD}$ above the input. $C_\mathrm{b}$ is a MOS capacitor; every helper device has one width.
-:::
 
 ### Tracking error and distortion {#sec:samp-distortion}
 
@@ -115,20 +111,8 @@ Six latches are studied, each on an NMOS or PMOS input pair, with a switched tai
 Every one of the 24 combinations is built.
 With a dynamic bias [@bindra2018], a capacitor $C_\mathrm{P}$ loads the input pair's drains and a capacitor $C_\mathrm{TAIL}$ sits under its tail switch.
 
-::: {#fig:comp-strongarm image="comp_strongarm"}
-The StrongARM latch as the comparator's netlist builds it, with an NMOS input pair and a switched tail; the drains $P$ and $Q$ and the latch nodes $X$ and $Y$ are reset high while CLK is low. Labels name the parameter that sizes each device: in (the input pair), tail, rst (the resets), on (the latch devices that conduct while deciding) and init (those that hold the reset state).
-:::
-
-::: {#fig:comp-doubletail image="comp_doubletail"}
-The double-tail latch [@schinkel2007]: the first stage of @fig:comp-strongarm, its drains $P$ and $Q$ holding the latch nodes low until they fall; the latch has its own clocked PMOS tail. In the self-timed form the latch tail is split per side and driven by $P$ and $Q$ instead of $\overline{\mathrm{CLK}}$.
-:::
-
-::: {#fig:comp-mdt image="comp_mdt"}
-The modified double-tail latch [@elzakker2010]: no latch tail; each latch node is pulled up through a cross-coupled PMOS in series with a PMOS driven by the first stage, and reset low on $\overline{\mathrm{CLK}}$. In the self-timed form the reset NMOS are driven by $P$ and $Q$ instead.
-:::
-
-::: {#fig:comp-tripletail image="comp_tripletail"}
-The triple-tail latch: the first stage with NMOS cascodes (their gates tied high), a second stage of cross-coupled PMOS on a clocked tail pulled down by $P$ and $Q$, and a third of cross-coupled inverters on a clocked tail held high by the second stage's nodes.
+::: {#fig:comp-topologies image="comp_strongarm comp_firststage comp_doubletail comp_doubletail_st comp_mdt comp_mdt_st comp_tripletail comp_dynamic_bias" cols="3"}
+The comparator latches as the comparator's netlist builds them, with an NMOS input pair and a switched tail: the StrongARM (a), its drains $P$, $Q$ and latch nodes $X$, $Y$ reset high while CLK is low; the first stage of the double-tail family (b), whose drains $P$ and $Q$ drive the latches of (c) to (g); the double tail [@schinkel2007] (c) and its self-timed form (d), its latch tail split per side and driven by $P$ and $Q$; the modified double tail [@elzakker2010] (e) and its self-timed form (f), its reset NMOS driven by $P$ and $Q$ instead of $\overline{\mathrm{CLK}}$; the triple tail's second and third stages (g), its first stage that of (b) with NMOS cascodes, their gates tied high; and the first stage with a dynamic bias [@bindra2018] (h), its tail's source $S$ held low during reset and loaded by $C_\mathrm{TAIL}$, so that the input pair stops once it has shared its charge as in @eq:dynamic-bias, with $C_\mathrm{P}$ on each drain (both MOS capacitors) and no tail precharge. Labels name the parameter that sizes each device: in (the input pair), tail, rst (the resets), on (the latch devices that conduct while deciding) and init (those that hold the reset state).
 :::
 
 ::: todo
@@ -144,10 +128,6 @@ A dynamic bias stops the input pair once the charge shared with $C_\mathrm{TAIL}
 $$
 \Delta V_\mathrm{CM} = \frac{C_\mathrm{TAIL}}{C_\mathrm{TAIL} + 2C_\mathrm{P}}\,V_\mathrm{DD}.
 $$ {#eq:dynamic-bias}
-
-::: {#fig:comp-dynamic-bias image="comp_dynamic_bias"}
-The first stage with a dynamic bias [@bindra2018], as the netlist builds it: the tail's source $S$ is held low during reset and loaded by $C_\mathrm{TAIL}$ to the supply, so the input pair stops once it has shared its charge (@eq:dynamic-bias); $C_\mathrm{P}$ loads each drain. Both are MOS capacitors; the tail's precharge PMOS of @fig:comp-strongarm is left out.
-:::
 
 ::: todo
 
@@ -232,8 +212,8 @@ In most SAR implementations the CDAC switches are connected to the capacitor bot
 Top-plate sampling allows a comparator decision to be taken without first switching the CDAC, so an $N$-bit ADC needs only an $(N-1)$-bit CDAC, $N_\mathrm{DAC} = N - 1$, halving its area [@liu2010]; it also simplifies the switch layout and logic for the bottom plates, as fewer voltages need to be distributed across the array.
 Bottom-plate sampling can in some configurations improve linearity, as all charge summing happens on the same end of each capacitor.
 
-::: {#fig:cdac-array image="cdac_array"}
-The differential capacitive DAC with top-plate sampling, three of its $M$ stages drawn on each side: each sampler is the switch onto its side's top plate, each stage's bottom plate is driven to $V_\mathrm{ref}$ or ground by the SAR logic's state for that side, and the comparator decides between the two top plates.
+::: {#fig:cdac-array image="cdac_array cdac_difference" cols="1"}
+The differential capacitive DAC with top-plate sampling, three of its $M$ stages drawn on each side (a): each sampler is the switch onto its side's top plate, each stage's bottom plate is driven to $V_\mathrm{ref}$ or ground by the SAR logic's state for that side, and the comparator decides between the two top plates; and one stage built from a difference pair (b), its main capacitor driven by the stage's state and its difference capacitor by the complement, so that a step moves the top plate by their difference.
 :::
 
 ### The noise limit: minimum capacitance {#sec:cdac-noise}
@@ -299,9 +279,6 @@ The CDAC uses fringe metal–oxide–metal capacitors with capacitance determine
 Small effective weights are formed from the difference between two capacitors switched in opposite directions: $C_\mathrm{eff} = C_\mathrm{main} - C_\mathrm{diff}$ [@harpe2019, p. 638].
 This avoids relying on an individually fabricated capacitor of the same small value, while retaining a compact array without a bridge-capacitor divider or additional scaled reference voltages.
 
-::: {#fig:cdac-difference image="cdac_difference"}
-One stage built from a difference pair: the main capacitor driven by the stage's state, the difference capacitor by its complement, so that a step moves the top plate by their difference.
-:::
 The benefit comes with sensitivity to matching between the paired elements, which must be assessed through extraction, modeling, and calibration.
 
 ::: {#fig:capacitor-views src="../images/report/capacitor_views"}

@@ -69,7 +69,7 @@ Every block's designs across processes and topologies.
 
 - The sampler: sized against the converter's tracking-error budget @eq:tracking, not alone; the bootstrap where the transmission gate costs bits.
 - The comparator: optimized per resolution (@sec:comp-optimization), the dynamic bias where it lowers $E\sigma^2$.
-- The array: sized from both limits (@eq:cmin-noise, @eq:cmin-matching) with the redundancy that keeps it calibratable @eq:calibratable.
+- The array: sized from both limits, @eq:cmin-noise and @eq:cmin-matching, with the redundancy that keeps it calibratable, @eq:calibratable.
 - The sequencer and logic: from the measured timing limits (@sec:meas-sequence).
 :::
 

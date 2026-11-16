@@ -1,26 +1,21 @@
-% The double-tail latch (Schinkel) as flow/comp/subckt.py builds it (NMOS input, switched tail): the
-% first stage's drains P and Q drive NMOS (rst) that hold the latch nodes low during reset; the latch
-% is cross-coupled PMOS (latch_on) on a clocked PMOS tail (twice latch_on) and cross-coupled NMOS
-% (latch_init) to ground.
+% The double-tail latch (Schinkel) as flow/comp/subckt.py builds it: cross-coupled PMOS (latch_on)
+% on a clocked PMOS tail (twice latch_on), cross-coupled NMOS (latch_init) to ground, and NMOS
+% (rst) on the first stage's drains P and Q that hold the latch nodes low during reset.
 \input{drawing-preamble}
 \usepackage{thesis-circuits}
 \begin{document}
 \begin{drawing}
   \begin{tikzpicture}[circuit]
-    \comppreamp
-    % the latch's tail, on the inverted clock
-    \draw (0,9.84) node[pmos](mo){};
+    \draw (0,4.6) node[pmos](mo){};
     \draw (mo.S) node[vcc]{};
     \draw (mo.G) node[left, sig]{$\overline{\mathrm{CLK}}$};
     \noteR{mo}{$2\times$on}
-    \draw (mo.D) -- (0,9.07) coordinate(outer);
-    \draw (-1.6,9.07) -- (1.6,9.07);
-    \fill (outer) circle (1.6pt);
-    % cross-coupled PMOS from the tail, cross-coupled NMOS to ground
-    \draw (-1.6,8.3) node[pmos, xscale=-1](ml){};
-    \draw (1.6,8.3) node[pmos](mr){};
-    \draw (-1.6,6.2) node[nmos, xscale=-1](nl){};
-    \draw (1.6,6.2) node[nmos](nr){};
+    \draw (-1.6,3.83) -- (1.6,3.83);
+    \fill (mo.D) circle (1.6pt);
+    \draw (-1.6,3.06) node[pmos, xscale=-1](ml){};
+    \draw (1.6,3.06) node[pmos](mr){};
+    \draw (-1.6,0.96) node[nmos, xscale=-1](nl){};
+    \draw (1.6,0.96) node[nmos](nr){};
     \draw (nl.S) node[ground]{} (nr.S) node[ground]{};
     \draw (ml.D) -- (nl.D) (mr.D) -- (nr.D);
     \draw (ml.G) -- (nl.G) (mr.G) -- (nr.G);
@@ -29,17 +24,15 @@
     \draw (X) -- (X -| nl.G) node[jump crossing]{} -- (X -| nr.G);
     \draw (Y) -- (Y -| nr.G) node[jump crossing]{} -- (Y -| nl.G);
     \fill (X) circle (1.6pt) (Y) circle (1.6pt) (X -| nr.G) circle (1.6pt) (Y -| nl.G) circle (1.6pt);
+    \draw ($(X) - (1.4,0.77)$) node[nmos](il){};
+    \draw ($(Y) + (1.4,-0.77)$) node[nmos, xscale=-1](ir){};
+    \draw (il.S) node[ground]{} (ir.S) node[ground]{};
+    \draw (il.D) -- (X) (ir.D) -- (Y);
+    \draw (il.G) node[left, sig]{$P$};
+    \draw (ir.G) node[right, sig]{$Q$};
     \noteL{ml}{on}
     \noteL{nl}{init}
-    % the first stage's drains hold the latch nodes low during reset
-    \draw (-3.7,6.59) node[nmos, xscale=-1](il){};
-    \draw (3.7,6.59) node[nmos](ir){};
-    \draw (il.S) node[ground]{} (ir.S) node[ground]{};
-    \draw (il.D) |- (X) (ir.D) |- (Y);
-    \draw (il.G) -- (il.G |- P);
-    \draw (ir.G) -- (ir.G |- Q);
-    \fill (il.G |- P) circle (1.6pt) (ir.G |- Q) circle (1.6pt);
-    \noteL{il}{rst}
+    \noteR{il}{rst}
     \draw (X) node[above left, sig]{$X$};
     \draw (Y) node[below right, sig]{$Y$};
   \end{tikzpicture}

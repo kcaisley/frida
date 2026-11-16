@@ -1,0 +1,17 @@
+% The first stage of the double-tail family (flow/comp/subckt.py, NMOS input, switched tail): the
+% input pair on a clocked tail with its precharge PMOS, PMOS resets on the drains P and Q, which
+% drive the latch stages drawn beside it. The triple tail adds NMOS cascodes between the input pair
+% and P, Q (their gates tied high).
+\input{drawing-preamble}
+\usepackage{thesis-circuits}
+\begin{document}
+\begin{drawing}
+\begin{tikzpicture}[circuit]
+  \comppreamp
+  \draw (P) -- ++(0,0.9) coordinate(pt) (Q) -- ++(0,0.9) coordinate(qt);
+  \draw[-{Latex[length=4pt]}] (pt) -- ++(0,0.3);
+  \draw[-{Latex[length=4pt]}] (qt) -- ++(0,0.3);
+  \node[note] at ($(pt)!0.5!(qt) + (0,0.3)$) {to the latch};
+\end{tikzpicture}
+\end{drawing}
+\end{document}
