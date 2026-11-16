@@ -51,6 +51,7 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 
 import fillcell
@@ -177,6 +178,7 @@ def _decaps(
     box: kdb.Box,
     cells: dict[tuple[str, int], kdb.Cell],
     fill: Fill,
+    near: kdb.Region | None = None,
 ) -> list[kdb.Box]:
     """Decaps (``fillcell``) in the gap ``g`` of row ``k``: in each stretch of it ALIGN's M1
     (``routed``: another net's) keeps clear of by M1's space beside a rail (a decap's rails and
@@ -184,12 +186,15 @@ def _decaps(
     (``fillcell.pack``), of the type of the cell beside the gap (its P+ implant, ``pp``, over a
     PMOS cell's device band, a PMOS; else an NMOS; the cell on its left, or at the rows' left end ``box`` the one on its right),
     so the row's bands run on. Returns what is left of the gap (each a box):
-    plain filler's."""
+    plain filler's. ``near``: where the kit's rails carry no taps, the stretch of the row within its
+    tie cells' reach (``_tied``), the only place a decap's devices may stand."""
     space = _rail_space()
     blocked = kdb.Region(
         [kdb.Box(b.left - space, g.bottom, b.right + space, g.top) for b in (p.bbox() for p in routed.each())]
     )
     free = (kdb.Region(g) - blocked).merged()
+    if near is not None:
+        free = (free & near).merged()
     # a PMOS cell's device implant's middle in the row's frame (R0 on even rows, mirrored on odd ones)
     lo, hi = rowcell.DEV_IMP["p"]
     mid = (lo + hi) // 2
@@ -219,6 +224,17 @@ def _decaps(
     return [p.bbox() for p in (kdb.Region(g) - kdb.Region(drawn)).merged().each()]
 
 
+def _tied(ties: list[kdb.Box], box: kdb.Box, k: int) -> kdb.Region:
+    """Row ``k``'s stretch within its tie cells' reach (``TIE_REACH``, a PDK whose rails carry no
+    taps): of the ties ALIGN placed in it (``ties``) and of those at its ends (``edge_ties``, just
+    past the rows' extent ``box``)."""
+    reach = getattr(netcells._tech, "TIE_REACH", 0)
+    y0, y1 = k * rowcell.H, (k + 1) * rowcell.H
+    spans = [(box.left, box.left), (box.right, box.right)]
+    spans += [(t.left, t.right) for t in ties if t.bottom < y1 and t.top > y0]
+    return kdb.Region([kdb.Box(lo - reach, y0, hi + reach, y1) for lo, hi in spans]).merged()
+
+
 def fill_rows(
     layout: kdb.Layout,
     top: kdb.Cell,
@@ -232,6 +248,7 @@ def fill_rows(
     wires: kdb.Region | None = None,
     capacitors: kdb.Region | None = None,
     fill: Fill | None = None,
+    ties: list[kdb.Box] | None = None,
 ) -> int:
     """Decaps where they fit (``_decaps``), rails, taps and well band across the rest of the
     placement gaps of every row; library fillers in standard-cell rows (their implant bands differ
@@ -296,7 +313,8 @@ def fill_rows(
                     x += w
                 n += 1
                 continue
-            pieces = _decaps(layout, top, g, k, routed, pp, box, decaps, fill) if fill is not None else [g]
+            near = _tied(ties, box, k) if ties is not None else None
+            pieces = _decaps(layout, top, g, k, routed, pp, box, decaps, fill, near) if fill is not None else [g]
             for piece in pieces:
                 _plain(layout, top, piece, k, _routed(m1, routes, piece), box, ends, jumps)
                 if fill is not None:
@@ -579,6 +597,33 @@ def _row_ends(block: kdb.Box, routes: kdb.Region, wires: kdb.Region | None = Non
             break
         right = max(right + XPITCH, -(-(hit.bbox().right + space) // XPITCH) * XPITCH)
     return kdb.Box(left, block.bottom, right, block.top)
+
+
+def cut_poly_bridges(layout: kdb.Layout, top: kdb.Cell) -> int:
+    """Where the kit's rails carry a cut poly (``RAIL_POLY_CUT``, the library's over each rail), the
+    gaps along a rail narrower than the cut's spacing (its ``space``) closed: a row cell's cut and a
+    library cell's beside it (a tie cell ALIGN abutted to a driver) meet as two library cells'
+    do. Returns how many."""
+    cut = rowcell.RAIL_POLY_CUT
+    if not cut or not cut.get("space") or "CPO" not in LAYERS:
+        return 0
+    layer = layout.layer(*LAYERS["CPO"])
+    region = kdb.Region(top.shapes(layer)).merged()
+    if region.is_empty():
+        return 0
+    box, n = region.bbox(), 0
+    for k in range(box.bottom // rowcell.H, box.top // rowcell.H + 1):
+        y0, y1 = k * rowcell.H - cut["half"], k * rowcell.H + cut["half"]
+        line = sorted(
+            (b.left, b.right)
+            for b in (p.bbox() for p in (region & kdb.Region(kdb.Box(box.left, y0, box.right, y1))).each())
+            if b.bottom <= y0 and b.top >= y1
+        )
+        for (_, right), (left, _) in pairwise(line):
+            if 0 < left - right < cut["space"]:
+                top.shapes(layer).insert(kdb.Box(right, y0, left, y1))
+                n += 1
+    return n
 
 
 def edge_ties(
@@ -1371,6 +1416,12 @@ def post(
         m = STD.match(inst.cell.name)
         if m and os.environ.get("ROWS_STD_DENSE"):  # dense wrappers only
             std_rows.add(round(inst.bbox().center().y / rowcell.H - 0.5))
+    # the kit's tie cells ALIGN placed in the rows (a PDK whose rails carry no taps): decaps stand
+    # within their reach alone (``_tied``)
+    ties = None
+    if netcells.EDGE_TIE and not rowcell.RAIL_TAPS and getattr(netcells._tech, "TIE_REACH", 0):
+        tie = netcells.EDGE_TIE[0].upper()
+        ties = [inst.bbox() for inst in top.each_inst() if inst.cell.name.upper().startswith(tie)]
     fills = {}
     for name, _ in netcells.STD_FILLS:
         fills[name] = layout.create_cell(name + "_fill")
@@ -1408,11 +1459,14 @@ def post(
     for _metal, region in shields:
         under += region
     fill = Fill()
-    n_fill = fill_rows(layout, top, std_rows, fills, filled, rows, ends, foreign, on_m2, wires, under.merged(), fill)
+    n_fill = fill_rows(
+        layout, top, std_rows, fills, filled, rows, ends, foreign, on_m2, wires, under.merged(), fill, ties
+    )
     std_lib = kdb.Layout()
     std_lib.read(lib)
     n_ties = edge_ties(layout, top, std_rows, std_lib, rows, fill.reserved)
     layout.flatten(top.cell_index(), -1, True)
+    cut_poly_bridges(layout, top)
     for g in filled:
         bridge(layout, top, g, block)
     outer = (rows.left - netcells.EDGE_W, rows.right + netcells.EDGE_W) if ends else (rows.left, rows.right)

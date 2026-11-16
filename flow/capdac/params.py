@@ -44,6 +44,15 @@ class WeightImpl(Enum):
     UNIT_CAPS = auto()
 
 
+class WellTies(Enum):
+    """Whether the side's band rows hold the kit's well-tie cells among their drivers."""
+
+    NONE = auto()  # the simulations' side: its drivers and capacitors alone
+    # the layout's: where the kit's rails carry no taps and the side is wider than twice its tie
+    # cells' reach, a tie cell abutting each band-row driver (the row ends' alone leave some beyond it)
+    ROWS = auto()
+
+
 @h.paramclass
 class Params:
     """An array: its converter's resolution and extra cycles, its capacitance, how its weights
@@ -83,6 +92,11 @@ class Params:
         desc="How much faster than settle_ps the drivers are sized, for the corners the typical tables leave out",
         default=2.0,
     )
+    well_ties = h.Param(
+        dtype=WellTies,
+        desc="The kit's well-tie cells among the band rows' drivers (the layout's)",
+        default=WellTies.NONE,
+    )
 
     def __post_init__(self) -> None:
         # the extra cycles each scheme can spend, as building every array finds (subckt.py): binary
@@ -102,6 +116,12 @@ class Params:
             )
         if self.weights is not None:
             _weights(self)  # an array's own weights checked as it is made
+
+
+def layout_view(params: Params) -> Params:
+    """The side as laid out: its band rows with the kit's well-tie cells where it needs them
+    (``WellTies.ROWS``; the simulations draw none)."""
+    return Params(**{**params.__dict__, "well_ties": WellTies.ROWS})
 
 
 pipeline.Params.register(Params)

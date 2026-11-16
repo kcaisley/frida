@@ -17,9 +17,15 @@ quantization noise (``params._switched_f``), at a full scale of the DAC's refere
 supply; a unit of weight is its share of it.
 
 A stage's weight is built in pieces (``params._pieces``), whole increments of ``coarse_weight`` and the
-remainder below it. Each piece is a request for a capacitor (``flow.layout.devices.momcap``): a
-difference strip of its weight in a strip as long as a whole one (DIFFERENCE_CAPS), or a unit
-capacitor of its weight (UNIT_CAPS). A stage's main bottom plates follow its state and its
+remainder below it, each a main and a difference plate (DIFFERENCE_CAPS: a whole piece's plates a
+coarse weight together) or a unit capacitor (UNIT_CAPS). The pieces are drawn as requests for
+capacitors (``flow.layout.devices.momcap``) arranged so that the side's outline, its capacitors and
+both bands of drivers, comes nearest two to one tall to wide (``_two_to_one``: the converter's two
+sides side by side about square) without more area: difference strips all of one length, a stage's
+pieces end to end cut into the fewest strips of one load that hold it (``_strips``: a piece in
+several strips where short, several pieces in one where long; the stage's plates the same), a
+stage's last strip in the row's ring where it holds less; unit capacitors each in one unit or
+several, in a column array of so many rows. A stage's main bottom plates follow its state and its
 difference plates the complement, each through a request for a driver
 (``flow.layout.devices.mosfet``) of the resistance that settles the stage's step to half an LSB
 within ``settle_ps`` over ``settle_margin``. A minimum-strength flip-flop drives each state at FO4:
@@ -34,7 +40,10 @@ tables: a strip's or a unit's finger lengths, a driver's inverters' widths.
 
 The generator states its layout as it builds (``_place``, ``flow.layout.hdl21align``, after
 Fritchman's AlignHdl21): rows of its own instances, which ALIGN places as stated, each driver a cell
-of its own rows (a chain of inverters one cell, its links its own, ``rowcell.inverter_chain``).
+of its own rows (a chain of inverters one cell, its links its own, ``rowcell.inverter_chain``). In
+a kit whose rails carry no taps (its row ends' tie cells alone tie the wells), the layout's band
+rows of a side wider than twice the ties' reach (the kit's ``TIE_REACH``) take its tie cells among
+their drivers too (``params.WellTies``, ``_tied_row``).
 """
 
 import json
@@ -46,9 +55,10 @@ from math import log
 
 import hdl21 as h
 
+from flow.circuit.cells import library_module
 from flow.circuit.ports import module_from_ports
-from flow.layout.devices.device import active_pdk
-from flow.layout.devices.momcap.geometry import ArrayKind, Neighbour
+from flow.layout.devices.device import FloorError, active_pdk
+from flow.layout.devices.momcap.geometry import ArrayKind, MomcapGeometry, Neighbour
 from flow.layout.devices.momcap.netlist import StripParams, UnitParams, array_outline_nm, strip, unit
 from flow.layout.devices.momcap.table import momcap_table, stacked_over_rows
 from flow.layout.devices.mosfet.netlist import (
@@ -63,7 +73,7 @@ from flow.layout.hdl21align import constraints as c
 from flow.layout.hdl21align import place, row, rows
 from flow.layout.package import metal_tracks, pdk_dir
 
-from .params import Params, WeightImpl, _pieces, _plates, _switched_f, _weights
+from .params import Params, WeightImpl, WellTies, _pieces, _plates, _switched_f, _weights
 
 
 @h.bundle
@@ -236,10 +246,149 @@ def _bands_outline(
     they and the capacitors take, then (where the capacitors stack) fewer than two difference rows
     last, then the row count."""
     m, d = pair
+    width, tall = _extent(pair, main, diff, cap_nm, row_nm, stacked, gap_nm)
+    return width * tall, stacked and bool(diff) and len(d) < min(2, len(diff)), len(m) + len(d)
+
+
+def _extent(
+    pair: tuple[list[list[int]], list[list[int]]],
+    main: list[int],
+    diff: list[int],
+    cap_nm: tuple[int, int],
+    row_nm: int,
+    stacked: bool,
+    gap_nm: int,
+) -> tuple[int, int]:
+    """The side's outline (nm, wide, tall) of the capacitors (``cap_nm``) and the driver bands'
+    rows (``pair``), each ``row_nm`` tall: under the capacitors where they stack (``stacked``), else
+    beyond their ends."""
+    m, d = pair
     count = len(m) + len(d)
     width = max(cap_nm[0], _rows_width(main, m), _rows_width(diff, d, gap_nm))
     tall = max(cap_nm[1], count * row_nm) if stacked or not diff else cap_nm[1] + count * row_nm
-    return width * tall, stacked and bool(diff) and len(d) < min(2, len(diff)), count
+    return width, tall
+
+
+def _miss(outline: tuple[int, int], aspect: tuple[float, float]) -> float:
+    """How far (in ratio) an outline (wide, tall) is tall to wide from ``aspect``."""
+    ratio = outline[1] / outline[0]
+    return max(0.0, math.log(aspect[0] / ratio), math.log(ratio / aspect[1]))
+
+
+def _two_to_one[K](
+    outlines: dict[K, tuple[int, int]], plain: K, aspect: tuple[float, float] = (1.6, 2.5), growth: float = 1.05
+) -> K:
+    """Of the side's arrangements' outlines (nm, wide, tall) by their key, the one tall to wide in
+    ``aspect`` (the owner's, 2026-11-16: about two to one, one side of the converter's DAC, its
+    mirror image beside it, the pair about square), or nearest it, at ``growth`` times the plain
+    arrangement's area (``plain``) at most: the least of how far it is from ``aspect`` and how much
+    more area than the plain one it takes (both in ratio, to a percent); of those, the least area,
+    the plain one first."""
+    area = math.prod(outlines[plain])
+    held = [key for key, outline in outlines.items() if math.prod(outline) <= growth * area]
+    return min(held, key=lambda key: (_cost(outlines[key], area, aspect), math.prod(outlines[key]), key != plain))
+
+
+def _cost(outline: tuple[int, int], area: int, aspect: tuple[float, float]) -> float:
+    """An outline's distance from ``aspect`` and its area over ``area`` (both in ratio, to a percent)."""
+    return round(_miss(outline, aspect) + max(0.0, math.log(math.prod(outline) / area)), 2)
+
+
+def _side_nm(cap_nm: tuple[int, int], bands: tuple[list[int], list[int], int, bool, int]) -> tuple[int, int]:
+    """The side's outline (nm, wide, tall): the capacitors ``cap_nm`` (wide, tall) and the driver
+    bands ``_driver_rows`` stands them in, ``bands`` its main and difference drivers' widths, its
+    rows' height, whether the capacitors stack over them and the difference drivers' gap."""
+    main, diff, row_nm, stacked, gap_nm = bands
+    pair = _driver_rows(main, diff, cap_nm, row_nm, stacked, gap_nm)
+    return _extent(pair, main, diff, cap_nm, row_nm, stacked, gap_nm)
+
+
+def _drawn(found: tuple[MomcapGeometry, FloorError | None], layers: int) -> bool:
+    """Whether a capacitor's lookup draws it on ``layers`` metals, at no PDK's floor."""
+    return found[0].layers == layers and found[1] is None
+
+
+def _strip_length(
+    pdk: str,
+    layers: int,
+    plates: list[list[tuple[float, float]]],
+    unit_f: float,
+    coarse: int,
+    bands: tuple[list[int], list[int], int, bool, int],
+) -> float:
+    """The difference strips' length, as the load a strip holds in coarse weights (``coarse`` units
+    of ``unit_f``), whose side comes nearest two to one (``_two_to_one``): a coarse weight (the
+    plain arrangement: a strip a piece); shorter, a piece in two to four strips; longer, two to eight
+    pieces end to end; and every eighth of an octave between a quarter and eight; each where every
+    strip (``_strips``) draws on ``layers`` metals."""
+    table = momcap_table(pdk)
+    scales = sorted({*(1 / k for k in range(1, 5)), *range(2, 9), *(2 ** (i / 8) for i in range(-16, 25))})
+    outlines = {}
+    for scale in scales:
+        length_f = coarse * scale * unit_f
+        strips = _strips(plates, coarse * scale)
+        drawn = {((m - d) * unit_f, (m + d) * unit_f) for stage in strips for m, d in stage} | {(length_f, length_f)}
+        if scale != 1 and not all(_drawn(table.strip(layers, *f), layers) for f in drawn):
+            continue
+        wide, tall = array_outline_nm(pdk, table.strip(layers, length_f, length_f)[0])
+        outlines[scale] = _side_nm((sum(map(len, strips)) * wide, tall), bands)
+    return _two_to_one(outlines, 1.0)
+
+
+def _unit_array(
+    pdk: str,
+    layers: int,
+    pieces: list[tuple[int, ...]],
+    unit_f: float,
+    whole_f: float,
+    bands: tuple[list[int], list[int], int, bool, int],
+    folds: int = 4,
+) -> tuple[int, int]:
+    """The unit capacitors' arrangement whose side comes nearest two to one (``_two_to_one``): each
+    piece in so many units (1 to ``folds``, each its share: shorter units, where every one draws on
+    ``layers`` metals), in a column array (``_columns``) of so many rows; the plain one a unit a
+    piece in the rows nearest two to one alone (``_grid_rows``)."""
+    table = momcap_table(pdk)
+    outlines, shaped, unit_nm = {}, {}, {}  # each column array once, by the fewest rows that make it
+    for fold in range(1, folds + 1):
+        folded = [tuple(p / fold for p in stage for _ in range(fold)) for stage in pieces]
+        if fold > 1 and not all(
+            _drawn(table.unit(layers, p * unit_f, exact=True), layers) for p in set(sum(folded, ()))
+        ):
+            continue
+        unit_nm[fold] = array_outline_nm(pdk, table.unit(layers, whole_f / fold, exact=True)[0])
+        for count in range(1, sum(map(len, folded)) + 1):
+            shape = tuple(map(len, _columns(folded, count)))
+            if (fold, shape) not in shaped:
+                shaped[fold, shape] = (fold, count)
+                outlines[fold, count] = _side_nm((len(shape) * unit_nm[fold][0], max(shape) * unit_nm[fold][1]), bands)
+    whole = [tuple(map(float, stage)) for stage in pieces]
+    plain = tuple(map(len, _columns(whole, _grid_rows(sum(map(len, pieces)), unit_nm[1]))))
+    return _two_to_one(outlines, shaped[1, plain])
+
+
+def _segments(plates: list[tuple[float, float]], count: int) -> list[tuple[float, float]]:
+    """A stage's pieces' plates (main, difference, in units), end to end in their order, cut into
+    ``count`` strips of one load (main and difference together): each strip's plates the shares of
+    the pieces it spans. As many strips as pieces, the pieces themselves."""
+    load = sum(main + diff for main, diff in plates) / count
+    out = []
+    for j in range(count):
+        low, high, start = j * load, (j + 1) * load, 0.0
+        main_u = diff_u = 0.0
+        for main, diff in plates:
+            end = start + main + diff
+            share = max(0.0, min(high, end) - max(low, start)) / (main + diff)
+            main_u, diff_u, start = main_u + share * main, diff_u + share * diff, end
+        out.append((main_u, diff_u))
+    return out
+
+
+def _strips(plates: list[list[tuple[float, float]]], length: float) -> list[list[tuple[float, float]]]:
+    """Each stage's strips (their plates, main and difference, in units), no strip holding more
+    than ``length`` units: the stage's pieces end to end in the fewest strips of one load
+    (``_segments``)."""
+    return [_segments(stage, math.ceil(sum(m + d for m, d in stage) / length - 1e-9)) for stage in plates]
 
 
 def _grid_rows(count: int, unit_nm: tuple[int, int]) -> int:
@@ -249,7 +398,7 @@ def _grid_rows(count: int, unit_nm: tuple[int, int]) -> int:
     return min(range(1, count + 1), key=lambda rows: abs(math.log(rows * tall / (-(-count // rows) * wide) / 2)))
 
 
-def _columns(pieces: list[tuple[int, ...]], rows: int) -> list[list[tuple[int, int]]]:
+def _columns(pieces: list[tuple[float, ...]], rows: int) -> list[list[tuple[int, int]]]:
     """A unit-capacitor array's columns left to right, each its units bottom up as (stage, piece):
     a stage of a column's worth or more fills whole columns, MSB first; what is left of it, and
     every smaller stage, stacks bottom up in a shared column in order, a stage never split there."""
@@ -303,6 +452,26 @@ def _beside(columns: list[list[tuple[int, int]]], stage: int, row: int, c: int) 
     return Neighbour.JOINED if columns[c][0][0] == stage else Neighbour.APART
 
 
+def _tied_row(
+    side: h.Module, cell: h.ExternalModule, drivers: tuple[h.Instance, ...], wide: set[str], name: str
+) -> tuple[tuple[h.Instance, ...], list[c.Constraint]]:
+    """A band row's drivers with the kit's well-tie cell ``cell`` abutting each on its left, and on
+    its right too where the driver is wider than the ties' reach (its name in ``wide``): wherever
+    ALIGN stands the row's drivers, none farther from a tie than the reach. The row's entries left
+    to right and the abutments."""
+    entries: list[h.Instance] = []
+    abut: list[c.Constraint] = []
+    for k, drv in enumerate(drivers):
+        ties = [side.add(cell()(VDD=side.vdd, VSS=side.vss), name=f"Xtie_{name}_{k}")]
+        group = [ties[0], drv]
+        if drv.name in wide:
+            ties.append(side.add(cell()(VDD=side.vdd, VSS=side.vss), name=f"Xtie_{name}_{k}r"))
+            group.append(ties[1])
+        entries += group
+        abut.append(c.Order(tuple(group), c.OrderDirection.LEFT_TO_RIGHT, abut=True))
+    return tuple(entries), abut
+
+
 def _ordered(stages: list[_Stage], pick) -> tuple[h.Instance, ...]:
     """The instances ``pick`` gives of each stage, in the stages' order: the MSB's first, on the left,
     outside (the converter's other side is this one's mirror image)."""
@@ -318,6 +487,7 @@ def _place(
     gap_nm: int,
     room_nm: int = 0,
     apart_nm: int = 0,
+    ties: tuple[h.ExternalModule, set[str]] | None = None,
 ) -> None:
     """The side's layout (``side``): its rows top first, its difference drivers, its capacitors, its
     main drivers, every stage's pieces together, its MSB on the left, outside.
@@ -339,7 +509,8 @@ def _place(
     at the side's left and right edges, ``room_nm``, kept clear of every instance inside the outline
     the routers keep to (its right edge is the seam with the converter's other side). Where the
     bands stand beyond the capacitors' ends, each band's row beside them ``apart_nm`` from them: a
-    row's rail beside the capacitors' shield keeps its metals' space from it."""
+    row's rail beside the capacitors' shield keeps its metals' space from it. ``ties``: the kit's
+    well-tie cell, abutting each driver (``_tied_row``), and the drivers wider than its reach."""
 
     pdk = active_pdk()
     slice_ = stacked_over_rows(pdk, _array_layers(pdk)) if pdk else None
@@ -348,6 +519,16 @@ def _place(
     # each band's rows from the side's edge in: the main band's bottom up, the difference band's top down
     mains = [_ordered([stages[i] for i in r], lambda stage: [stage.main]) for r in main_rows]
     diffs = [_ordered([stages[i] for i in r], lambda stage: [stage.diff]) for r in diff_rows]
+    plain_diffs = [r for r in diffs if r]  # the difference drivers alone, spread apart
+    tie_abut: list[c.Constraint] = []
+    if ties is not None:
+        cell, wide = ties
+        for band, band_rows in (("main", mains), ("diff", diffs)):
+            for k, r in enumerate(band_rows):
+                entries, abut = _tied_row(side, cell, r, wide, f"{band}{k}")
+                band_rows[k] = entries
+                tie_abut += abut
+                drivers += tuple(x for x in entries if all(x is not y for y in r))
     mains = [r for r in reversed(mains) if r]  # top first
     diffs = [r for r in diffs if r]
     if grid:  # the column array's rows, top first, and its columns
@@ -376,7 +557,8 @@ def _place(
         arrange = [c.Order(caps, c.OrderDirection.LEFT_TO_RIGHT, abut=True), c.Align(caps, c.Line.H_BOTTOM)]
     inner: list[c.Constraint] = list(arrange)
     if gap_nm:
-        inner += [c.Spread(tuple(r), c.Axis.HORIZONTAL, gap_nm) for r in diffs if len(r) > 1]
+        inner += [c.Spread(tuple(r), c.Axis.HORIZONTAL, gap_nm) for r in plain_diffs if len(r) > 1]
+    inner += tie_abut
     # each row's drivers on one line (else ALIGN stands a driver on a free line between two rows,
     # its corners on the rows' cells across the rails, their implants unmatched), each band's rows
     # abutting: under the capacitors nothing else holds them together
@@ -452,15 +634,7 @@ def netlist(params: Params) -> h.Module:
         raise RuntimeError(
             "the CDAC's layout plan takes its units' and drivers' sizes from the active PDK: none is set"
         )
-    # the capacitors' unit as drawn (a whole piece's), its outline; unit capacitors in a column
-    # array (``_columns``) of the rows nearest two to one: each piece's column, row and neighbours
     table, layers = momcap_table(pdk), _array_layers(pdk)
-    drawn = table.strip(layers, whole_f, whole_f)[0] if difference else table.unit(layers, whole_f, exact=True)[0]
-    outline = array_outline_nm(pdk, drawn)
-    columns = []
-    if not difference:
-        columns = _columns([tuple(stage) for stage in pieces], _grid_rows(sum(map(len, pieces)), outline))
-    at = {piece: (col, row) for col, column in enumerate(columns) for row, piece in enumerate(column)}
     # each stage's drivers: the main plates' of its input, the difference plates' of its complement,
     # both on the state's flip-flop: the difference driver first, the main chain on what is left of
     # the flip-flop's FO4
@@ -481,7 +655,6 @@ def netlist(params: Params) -> h.Module:
         for d in (_drive(*key, difference) for key in drives)
     ]
     widths = dict(zip(drives, driver_widths_nm(pdk, requests), strict=True))
-    wide, tall = (len(columns), max(map(len, columns))) if columns else (sum(map(len, pieces)), 1)
     row_nm = row_height_nm(pdk)
     # a routing track between neighbouring difference drivers, on the metal the drivers rise on to
     # the capacitors standing over them: a difference driver's output's few exits up to them are
@@ -490,6 +663,40 @@ def netlist(params: Params) -> h.Module:
     gap_nm = metal_tracks(pdk, f"M{slice_[0] - 1}")[0] if difference and slice_ is not None else 0
     main_widths = [widths[main] for main, _ in keys]
     diff_widths = [widths[diff] for _, diff in keys if diff is not None]
+
+    # the capacitors' arrangement whose side, with its driver bands, comes nearest two to one tall
+    # to wide: difference strips of a length (``_strip_length``, ``_strips``; the array the same,
+    # its plates' sums), unit pieces each in so many units in a column array of so many rows
+    # (``_unit_array``, ``_columns``); each piece's column, row and neighbours
+    bands = (main_widths, diff_widths, row_nm, slice_ is not None, gap_nm)
+    if difference:
+        scale = _strip_length(pdk, layers, plates, unit_f, params.coarse_weight, bands)
+        frame_f = params.coarse_weight * scale * unit_f
+        strips = _strips(plates, params.coarse_weight * scale)
+        outline = array_outline_nm(pdk, table.strip(layers, frame_f, frame_f)[0])
+        columns: list[list[tuple[int, int]]] = []
+    else:
+        fold, count = _unit_array(pdk, layers, [tuple(stage) for stage in pieces], unit_f, whole_f, bands)
+        frame_f = whole_f / fold
+        outline = array_outline_nm(pdk, table.unit(layers, frame_f, exact=True)[0])
+        strips = [[(p / fold, 0.0) for p in stage for _ in range(fold)] for stage in pieces]
+        columns = _columns([tuple(m for m, _ in stage) for stage in strips], count)
+    at = {piece: (col, row) for col, column in enumerate(columns) for row, piece in enumerate(column)}
+    wide, tall = (len(columns), max(map(len, columns))) if columns else (sum(map(len, strips)), 1)
+    # where the kit's rails carry no taps (its row ends' tie cells alone tie the wells), a side wider
+    # than twice the ties' reach has a tie cell abut each driver in its bands, two a driver wider than
+    # the reach (the layout's, ``_tied_row``)
+    tech = import_module(f"pdk.{pdk}.layout.tech")
+    reach_nm, tie = getattr(tech, "TIE_REACH", 0), getattr(tech, "EDGE_TIE", None)
+    tied = (
+        params.well_ties is WellTies.ROWS
+        and reach_nm
+        and tie
+        and _side_nm((wide * outline[0], tall * outline[1]), bands)[0] > 2 * reach_nm
+    )
+    if tied:
+        main_widths = [w + tie[1] * (1 + (w > reach_nm)) for w in main_widths]
+        diff_widths = [w + tie[1] * (1 + (w > reach_nm)) for w in diff_widths]
     main_rows, diff_rows = _driver_rows(
         main_widths, diff_widths, (wide * outline[0], tall * outline[1]), row_nm, slice_ is not None, gap_nm
     )
@@ -513,29 +720,38 @@ def netlist(params: Params) -> h.Module:
             assert far is not None  # a difference key only where the array has difference capacitors
             diff, diff_drive = _driven(Capdac, f"diff_{stage}", far[stage], _drive(*diff_key, difference))
         placed = _Stage(main_drive, diff_drive, [])
-        for index, piece in enumerate(pieces[stage]):
+        for index, (main_u, diff_u) in enumerate(strips[stage]):
             name = f"Xc_{stage}_{index}"  # an instance of a subcircuit (the PDK's view) is X...
             # its neighbours in the row of capacitors (``_place``): its stage's pieces together, the
             # stages in order; a stage's bottom plates joined in the capacitors' channels
             left = Neighbour.JOINED if index else Neighbour.EDGE if stage == 0 else Neighbour.APART
-            last = index == len(pieces[stage]) - 1
+            last = index == len(strips[stage]) - 1
             right = Neighbour.JOINED if not last else Neighbour.EDGE if stage == len(weights) - 1 else Neighbour.APART
             if diff is not None:
+                # a strip shorter than the row's (a stage's last, of less load) in the row's ring
+                load_f = (main_u + diff_u) * unit_f
                 request = strip(
-                    StripParams(net_f=piece * unit_f, whole_f=whole_f, layers=layers, left=left, right=right)
+                    StripParams(
+                        net_f=(main_u - diff_u) * unit_f,
+                        whole_f=load_f,
+                        layers=layers,
+                        left=left,
+                        right=right,
+                        frame_f=frame_f if load_f < frame_f * (1 - 1e-9) else 0.0,
+                    )
                 )
                 placed.pieces.append(Capdac.add(request(MAIN=main, DIFF=diff, TOP=top, SHIELD=Capdac.vss), name=name))
             else:
                 left, right, above, below = _column_sides(columns, *at[(stage, index)])
                 request = unit(
                     UnitParams(
-                        c_f=piece * unit_f,
+                        c_f=main_u * unit_f,
                         layers=layers,
                         left=left,
                         right=right,
                         above=above,
                         below=below,
-                        frame_f=whole_f,  # every row the height of a whole piece's
+                        frame_f=frame_f,  # every row the height of a whole piece's
                         array=ArrayKind.COLUMNS,
                         pin_band_nm=band_nm,
                     )
@@ -546,5 +762,14 @@ def netlist(params: Params) -> h.Module:
     # beyond the capacitors' ends, a rail beside their shield (its M2 over its M1, where the rails carry
     # no taps) an M2 pitch from it
     apart_nm = metal_tracks(pdk, "M2")[0] if slice_ is None and difference else 0
-    _place(Capdac, stages, grid, main_rows, diff_rows, gap_nm, room_nm, apart_nm)
+    ties = None
+    if tied:
+        wide_drivers = {
+            d.name
+            for stage, (main_key, diff_key) in zip(stages, keys, strict=True)
+            for d, key in ((stage.main, main_key), (stage.diff, diff_key))
+            if d is not None and key is not None and widths[key] > reach_nm
+        }
+        ties = (library_module(import_module(f"pdk.{pdk}.hdl21.cells"), tie[0]), wide_drivers)
+    _place(Capdac, stages, grid, main_rows, diff_rows, gap_nm, room_nm, apart_nm, ties)
     return Capdac

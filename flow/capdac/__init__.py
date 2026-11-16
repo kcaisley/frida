@@ -12,7 +12,7 @@ from .analysis import (
     metrics,
 )
 from .model import Model
-from .params import Params, Redundancy, TbParams, WeightImpl
+from .params import Params, Redundancy, TbParams, WeightImpl, WellTies, layout_view
 from .plots import (
     plot_asymmetry_stage,
     plot_bias_stage,
@@ -51,6 +51,7 @@ __all__ = [
     "Redundancy",
     "TbParams",
     "WeightImpl",
+    "WellTies",
     "analysis",
     "analyze_cap_mismatch",
     "analyze_decisions",
@@ -59,6 +60,7 @@ __all__ = [
     "analyze_transition",
     "arrays",
     "frida1",
+    "layout_view",
     "metrics",
     "model",
     "netlist",
