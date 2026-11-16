@@ -8,7 +8,8 @@ This filter turns the thesis's own figure kinds into pandoc figures for pandoc-c
   ::: {#fig:name image="a b" cols="2"} drawings/<name>.svg (Inkscape) inline in HTML, their PDFs
   Caption text.                        in LaTeX, lettered (a), (b), ... when there are several
   :::
-  ::: {#fig:name src="path"}           an existing image (a PDF or PNG beside it for LaTeX)
+  ::: {#fig:name src="path"}           an existing image (a PDF or PNG beside it for LaTeX);
+                                       several (src="a b" cols="2") side by side, lettered
   ::: {#fig:name placeholder="text"}   a figure still to be made
 
 and checks that every reference (@sec:, @fig:, @eq:, @tbl:) has a target. References to a
@@ -43,34 +44,75 @@ local function caption_of(div)
   return caption
 end
 
--- drawings (image="a b c", cols="2"): drawings/<name>.svg inline in HTML (build.py fills the
--- placeholders), figures/<name>.pdf in LaTeX; several are lettered (a), (b), ...
-local function drawings(div)
-  local names = pandoc.List()
-  for name in div.attributes.image:gmatch("%S+") do
-    names:insert(name)
-  end
-  local cols = tonumber(div.attributes.cols or "1")
+-- several items side by side in rows of `cols`, lettered (a), (b), ... when there are several:
+-- each item given as its LaTeX (inside a minipage) and its HTML (inside a panel)
+local function panels(items, cols, item_latex, item_html)
   local letter = function(i)
-    return #names > 1 and ("(" .. string.char(96 + i) .. ")") or ""
+    return #items > 1 and ("(" .. string.char(96 + i) .. ")") or ""
   end
   if latex then
     local width = string.format("%.3f", 0.98 / cols - 0.01)
     local parts = {} -- pandoc's figure environment centres its contents
-    for i, name in ipairs(names) do
-      parts[#parts + 1] = "\\begin{minipage}[b]{" .. width .. "\\linewidth}\\centering\n\\adjustbox{max width=\\linewidth}{\\includegraphics{figures/" .. name .. ".pdf}}"
-        .. (#names > 1 and ("\\\\[0.3ex]{\\small " .. letter(i) .. "}") or "") .. "\n\\end{minipage}"
-      parts[#parts + 1] = (i % cols == 0 and i < #names) and "\\\\[1.5ex]" or (i < #names and "\\hfill" or "")
+    for i, item in ipairs(items) do
+      parts[#parts + 1] = "\\begin{minipage}[b]{" .. width .. "\\linewidth}\\centering\n" .. item_latex(item)
+        .. (#items > 1 and ("\\\\[0.3ex]{\\small " .. letter(i) .. "}") or "") .. "\n\\end{minipage}"
+      parts[#parts + 1] = (i % cols == 0 and i < #items) and "\\\\[1.5ex]" or (i < #items and "\\hfill" or "")
     end
     return pandoc.RawBlock("latex", table.concat(parts, "\n"))
   end
   local html_parts = { '<div class="panels" style="--cols:' .. cols .. '">' }
-  for i, name in ipairs(names) do
-    html_parts[#html_parts + 1] = '<div class="panel"><div class="drawing" data-src="drawings/' .. name .. '.svg"></div>'
-      .. (#names > 1 and ('<p class="panel-label">' .. letter(i) .. "</p>") or "") .. "</div>"
+  for i, item in ipairs(items) do
+    html_parts[#html_parts + 1] = '<div class="panel">' .. item_html(item)
+      .. (#items > 1 and ('<p class="panel-label">' .. letter(i) .. "</p>") or "") .. "</div>"
   end
   html_parts[#html_parts + 1] = "</div>"
   return pandoc.RawBlock("html", table.concat(html_parts, "\n"))
+end
+
+local function words(text)
+  local list = pandoc.List()
+  for word in text:gmatch("%S+") do
+    list:insert(word)
+  end
+  return list
+end
+
+-- drawings (image="a b c", cols="2"): drawings/<name>.svg inline in HTML (build.py fills the
+-- placeholders), figures/<name>.pdf in LaTeX at their own size, narrowed only to fit
+local function drawings(div)
+  return panels(
+    words(div.attributes.image),
+    tonumber(div.attributes.cols or "1"),
+    function(name)
+      return "\\adjustbox{max width=\\linewidth}{\\includegraphics{figures/" .. name .. ".pdf}}"
+    end,
+    function(name)
+      return '<div class="drawing" data-src="drawings/' .. name .. '.svg"></div>'
+    end
+  )
+end
+
+-- existing images (src="a b", cols="2"): each a PDF (or, without an extension, the PDF or PNG
+-- beside the path) in LaTeX, a PNG in HTML (build.py links or embeds it)
+local function images(div)
+  return panels(
+    words(div.attributes.src),
+    tonumber(div.attributes.cols or "1"),
+    function(src)
+      local file = src
+      if not src:match("%.%w+$") then
+        local pdf = io.open(src .. ".pdf", "r")
+        if pdf then
+          pdf:close()
+        end
+        file = src .. (pdf and ".pdf" or ".png")
+      end
+      return "\\includegraphics[width=\\linewidth]{../" .. file .. "}"
+    end,
+    function(src)
+      return '<img class="photo" alt="" data-src="' .. (src:match("%.%w+$") and src or src .. ".png") .. '">'
+    end
+  )
 end
 
 -- plain text made safe inside LaTeX: its special characters escaped
@@ -87,19 +129,7 @@ local function body(div)
     return drawings(div)
   end
   if attrs.src then
-    local src = attrs.src
-    if latex then
-      local file = src
-      if not src:match("%.%w+$") then
-        local pdf = io.open(src .. ".pdf", "r")
-        if pdf then
-          pdf:close()
-        end
-        file = src .. (pdf and ".pdf" or ".png")
-      end
-      return pandoc.RawBlock("latex", "\\includegraphics[width=\\linewidth]{../" .. file .. "}")
-    end
-    return pandoc.RawBlock("html", '<img class="photo" alt="" data-src="' .. (src:match("%.%w+$") and src or src .. ".png") .. '">')
+    return images(div)
   end
   if attrs.placeholder then
     if latex then

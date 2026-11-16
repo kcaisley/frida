@@ -207,20 +207,12 @@ The assembled 12-bit converter (behavioral): ENOB lost to the reference's noise,
 The sampling switch and comparator layouts were manually laid out using a traditional analog-on-top flow.
 We used these designs because their architectures and device sizes were already close to the optima found in the preceding optimization steps (@sec:frida1-samp, @sec:frida1-comp).
 
-::: {#fig:frida1-comp src="figures/layout_frida1_comp.png"}
-FRIDA-1's comparator layout.
+::: {#fig:frida1-comp src="figures/layout_frida1_comp.png figures/layout3d_frida1_comp.png" cols="2"}
+FRIDA-1's comparator layout, flat (a) and in an isometric view of its layers (b).
 :::
 
-::: {#fig:frida1-comp-iso src="figures/layout3d_frida1_comp.png"}
-FRIDA-1's comparator in an isometric view of its layers.
-:::
-
-::: {#fig:frida1-samp src="figures/layout_frida1_samp.png"}
-FRIDA-1's sampling switch layout.
-:::
-
-::: {#fig:frida1-samp-iso src="figures/layout3d_frida1_samp.png"}
-FRIDA-1's sampling switch in an isometric view of its layers.
+::: {#fig:frida1-samp src="figures/layout_frida1_samp.png figures/layout3d_frida1_samp.png" cols="2"}
+FRIDA-1's sampling switch layout, flat (a) and in an isometric view of its layers (b).
 :::
 
 ### Capacitor drivers and array {#sec:frida1-cdac-impl}
@@ -228,20 +220,12 @@ FRIDA-1's sampling switch in an isometric view of its layers.
 The drivers were sized from standard cells.
 The capacitor array was generated directly from its specification to GDS using a Python script and the KLayout Python API.
 
-::: {#fig:frida1-capdriver src="figures/layout_frida1_capdriver.png"}
-FRIDA-1's capacitor drivers.
+::: {#fig:frida1-capdriver src="figures/layout_frida1_capdriver.png figures/layout3d_frida1_capdriver.png" cols="2"}
+FRIDA-1's capacitor drivers, flat (a) and in an isometric view of their layers (b).
 :::
 
-::: {#fig:frida1-capdriver-iso src="figures/layout3d_frida1_capdriver.png"}
-FRIDA-1's capacitor drivers in an isometric view of their layers.
-:::
-
-::: {#fig:frida1-caparray src="figures/layout_frida1_caparray.png"}
-FRIDA-1's capacitor array, metals M2 to M7.
-:::
-
-::: {#fig:frida1-caparray-iso src="figures/layout3d_frida1_caparray.png"}
-FRIDA-1's capacitor array in an isometric view of its layers.
+::: {#fig:frida1-caparray src="figures/layout_frida1_caparray.png figures/layout3d_frida1_caparray.png" cols="2"}
+FRIDA-1's capacitor array: metals M2 to M7 flat (a), and an isometric view of its layers (b).
 :::
 
 : Held sampling noise against the extracted load per side for FRIDA-1's four array flavors, 100 conversions each at 50 mV input. {#tbl:held-noise}
@@ -285,12 +269,8 @@ Within this channel footprint, the capacitor structures occupy upper metal layer
 This overlap reduces the footprint that would otherwise be required by separate capacitor and circuit regions.
 The prototype channel layout measures 60.5 × 63.5 µm, or approximately 3,800 µm², satisfying the intended compact form factor.
 
-::: {#fig:frida1-adc src="figures/layout_frida1_channel.png"}
-One FRIDA-1 ADC channel, the devices and metals up to M4: the building blocks' placement under the capacitor array.
-:::
-
-::: {#fig:frida1-adc-3d src="figures/layout3d_frida1_channel.png"}
-One FRIDA-1 ADC channel in an isometric view of its layers: the capacitor array above the drivers, the logic and the analog blocks.
+::: {#fig:frida1-adc src="figures/layout_frida1_channel.png figures/layout3d_frida1_channel.png" cols="2"}
+One FRIDA-1 ADC channel: the devices and metals up to M4, the building blocks' placement under the capacitor array (a); and an isometric view of its layers, the capacitor array above the drivers, the logic and the analog blocks (b).
 :::
 
 ::: todo
@@ -322,10 +302,6 @@ The SAR logic is still on-chip, but the external DAQ system must acquire each co
 ### Top-level power grids, pad ring, and assembly
 
 The top level was assembled hierarchically with OpenROAD, using the ADC block as a hardened macro with a LEF view.
-
-::: {#fig:frida1-padring src="figures/layout_frida1_padring.png"}
-FRIDA-1's pad ring: the top level without its core.
-:::
 
 ::: todo
 

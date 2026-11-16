@@ -93,7 +93,7 @@ FRIDA1_RENDERS_3D = (
     "layout3d_frida1_capdriver=capdriver",
     "layout3d_frida1_caparray=caparray_1layer_radix17",
 )
-FRIDA1_CHIP_RENDERS = ("layout_frida1_top=frida_top", "layout_frida1_padring=frida_top!frida_core")
+FRIDA1_CHIP_RENDERS = ("layout_frida1_top=frida_top",)
 
 
 def layout_sources() -> list[tuple[Path, tuple[str, ...], tuple[str, ...]]]:

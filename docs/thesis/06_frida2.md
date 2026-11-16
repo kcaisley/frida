@@ -216,36 +216,20 @@ The block pipeline.
 - The generated design: 2760 µm² of layout, 540 µm² of devices.
 :::
 
-::: {#fig:gen-samp src="figures/layout_gen_samp.png"}
-FRIDA-1's sampler (a transmission gate of 32 units) as the pipeline lays it out in TSMC65.
+::: {#fig:gen-samp src="figures/layout_gen_samp.png figures/layout3d_gen_samp.png" cols="2"}
+FRIDA-1's sampler, a transmission gate of 32 units, as the pipeline lays it out in TSMC65: flat (a) and in an isometric view of its layers (b).
 :::
 
-::: {#fig:gen-samp-iso src="figures/layout3d_gen_samp.png"}
-FRIDA-1's sampler (a transmission gate of 32 units) in an isometric view of its layers.
+::: {#fig:gen-comp src="figures/layout_gen_comp.png figures/layout3d_gen_comp.png" cols="2"}
+FRIDA-1's comparator as the pipeline lays it out in TSMC65: flat (a) and in an isometric view of its layers (b).
 :::
 
-::: {#fig:gen-comp src="figures/layout_gen_comp.png"}
-FRIDA-1's comparator as the pipeline lays it out in TSMC65.
+::: {#fig:gen-capdac src="figures/layout_gen_capdac.png figures/layout3d_gen_capdac.png" cols="2"}
+FRIDA-1's array, one side, with its drivers, as the pipeline lays it out in TSMC65: flat (a) and in an isometric view of its layers (b).
 :::
 
-::: {#fig:gen-comp-iso src="figures/layout3d_gen_comp.png"}
-FRIDA-1's comparator in an isometric view of its layers.
-:::
-
-::: {#fig:gen-capdac src="figures/layout_gen_capdac.png"}
-FRIDA-1's array, one side, with its drivers, as the pipeline lays it out in TSMC65.
-:::
-
-::: {#fig:gen-capdac-iso src="figures/layout3d_gen_capdac.png"}
-FRIDA-1's array, one side, with its drivers, in an isometric view of its layers.
-:::
-
-::: {#fig:gen-adc src="figures/layout_gen_adc.png"}
-The FRIDA converter's blocks side by side as the pipeline lays it out in TSMC65.
-:::
-
-::: {#fig:gen-adc-iso src="figures/layout3d_gen_adc.png"}
-The FRIDA converter's blocks side by side in an isometric view of its layers.
+::: {#fig:gen-adc src="figures/layout_gen_adc.png figures/layout3d_gen_adc.png" cols="2"}
+The FRIDA converter's blocks side by side as the pipeline lays it out in TSMC65: flat (a) and in an isometric view of their layers (b).
 :::
 
 ## Generated converters {#sec:frida2-generated}
