@@ -19,8 +19,8 @@ One progressive characterization chain is followed:
 The measurement system: FRIDA-1's chip-on-board card and the FPGA carrier, with the sequencer, the serializer and the capture of each comparator output.
 :::
 
-::: {#fig:meas-pcb src="../images/pcb.png"}
-The FRIDA-1 test board.
+::: {#fig:meas-pcb src="figures/stack_board.png figures/stack_board_die.png" cols="2"}
+The FRIDA-1 test board (a) and the chip on it with its 28 wedge bonds (b), drawn from the board's design and the chip's layout.
 :::
 
 The analog input path translates a single-ended laboratory stimulus into the differential signal presented to the converter.

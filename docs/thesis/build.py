@@ -128,6 +128,22 @@ def layout_renders() -> None:
                 print(f"build: {gds.name}'s renders need the kit's layer map (and Chromium); left out")
 
 
+def stackup_renders() -> None:
+    """The 3-D scenes (drawings/render_stackup.py: chapter 1's arrangements, the test board),
+    where their layout pieces and kits are present (the main checkout, build/stackups); kept once
+    made."""
+    root = figures.build_dir().parent
+    sys.path.insert(0, str(HERE / "drawings"))
+    import render_stackup
+
+    for name in render_stackup.THESIS:
+        if (figures.OUT / f"stack_{name}.png").exists():
+            continue
+        command = [sys.executable, str(HERE / "drawings" / "render_stackup.py"), name]
+        if subprocess.run(command, cwd=root, check=False).returncode:
+            print(f"build: the {name} scene needs its layout pieces and kits; left out")
+
+
 def tex_env(*trees: Path) -> dict[str, str]:
     """The environment LuaLaTeX runs in: a TeX Live's bin directory first on PATH where
     TEXLIVE_BIN names one (a recent one, which ubonn-thesis needs, e.g. a user install under
@@ -311,6 +327,7 @@ def main() -> None:
     BUILD.mkdir(exist_ok=True)
     figures.main()
     layout_renders()
+    stackup_renders()
     drawing_pdfs()
     tikz_drawings()
     if "html" in args.targets:

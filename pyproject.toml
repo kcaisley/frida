@@ -410,6 +410,28 @@ sha256 = "385d7c8998bd2d30f16e9e48312839fbb3ac991f6ab7eeece8d3be960f7906bf"
 url = "https://github.com/circuitikz/circuitikz/releases/download/{version}/circuitikz_{underscored}.tds.zip"
 strip = 0
 
+# The thesis's 3-D scenes (chip stack-ups, the test board) are built and rendered by Blender, run
+# headless, with the BlenderGDS add-on's GDS importer (its own stacks are the open PDKs').
+
+[tool.blender.install]
+version = "5.3.0"
+sha256 = "dacb8264197a3f7fda6001285a5a506fc97ee943881261c2c3bd63c882f22e05"
+url = "https://download.blender.org/release/Blender5.3/blender-{version}-linux-x64.tar.xz"
+bin = "."
+
+[tool.blendergds.install]
+version = "f997c53220d0c03c366abd2f2392c1bff0680ae9"
+sha256 = "27c5c9516aaa1376c7a05ee6e8ad5ace73bf7813f63048f56d14a33d6e92326b"
+url = "https://github.com/aesc-silicon/BlenderGDS/archive/{version}.tar.gz"
+
+# The test board's 3-D model: kicad-cli exports design/pcb's board for Blender (an AppImage, unpacked
+# on first use so it runs without FUSE).
+[tool.kicad.install]
+version = "10.0.8"
+sha256 = "27e4b4baa85c2181be6b219c22667ce138c20c0148dd2e047ba84dbda480dbb4"
+url = "https://kicad-downloads.s3.cern.ch/appimage/stable/kicad-{version}-x86_64.AppImage.tar"
+strip = 0
+
 # ---------------------------------------------------------------------------- HDL checks
 # The four HDL checks (verible-format, verible-lint, verilator-lint, slang-lint) and their
 # tools' pins, as in Basil's hdl-fmt-and-lint.

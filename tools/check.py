@@ -145,8 +145,10 @@ def tool_path(*tools: str) -> dict[str, str]:
     bins = []
     for tool in tools:
         root = install(tool)
-        # a tool unpacked whole (strip 0) has its binary at the archive's root, the others in bin/
-        bins.append(str(root if pin(tool).get("strip", 1) == 0 else root / "bin"))
+        # a tool unpacked whole (strip 0) has its binary at the archive's root, the others in bin/,
+        # unless its pin names the folder (bin = "." for a binary at the root of a stripped archive)
+        default = "." if pin(tool).get("strip", 1) == 0 else "bin"
+        bins.append(str(root / pin(tool).get("bin", default)))
     env["PATH"] = os.pathsep.join([*bins, env.get("PATH", "")])
     return env
 

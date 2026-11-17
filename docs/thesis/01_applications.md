@@ -76,29 +76,21 @@ Frame-based radiation detectors with integrating front-ends are especially well-
 
 ::: todo
 
-- Section introducing the arrangements of sensor and readout: monolithic, sensor and readout chips side by side on one package, and hybrid stacks.
+- Section introducing the arrangements of sensor and readout (@fig:arrangements): monolithic or hybrid, with the readout in each pixel or grouped at the edge of the pixels it serves.
+:::
+
+::: {#fig:arrangements src="figures/stack_mono_pixel.png figures/stack_mono_edge.png figures/stack_hybrid_pixel.png figures/stack_hybrid_super.png" cols="2"}
+Sensor and readout arrangements, each a section through the middle of pixels from real layouts: monolithic with the readout in each pixel, two of TJ-Monopix2's 33 µm pixels through their collection electrodes, the electronics' wells over the deep p-well and the low-dose n-layer with its gaps at the pixel edges, inside the 30 µm epitaxial layer (a); monolithic with the readout at the edge of the matrix, a 3T test matrix's column cut down its middle, two pixels, each collecting in a very deep n-well around its electronics, and the column readout at the matrix's edge (b); hybrid with the readout in each pixel, two of ITkPix-V1's 50 µm pixels under a passive CMOS sensor, joined by 30 µm solder bumps through the passivation's openings (c); and hybrid with the readout grouped, a sketch after CoRDIA's superpixel [@cordia2024], its passivations left out: sixteen sensor pixels' bumps brought together on the top metal to a cluster of front ends (blue), their correlated double sampling (yellow) and one shared ADC (FRIDA-1's), beside the readout lines (violet) and a through-silicon via (d). n-type silicon is red and p-type blue (low-dose silicon light), gates green, metals grey in a cream dielectric under a green passivation; the metal stack drawn some 14 µm tall under 8 µm of passivation, the chips thinned to 50 µm and the sensor 100 µm thick.
 :::
 
 Monolithic sensors are often very thin and so can't typically absorb 100 % of incident electron energy; therefore there is some variation in the proportion of energy left between particles, even with the same energy.
 This is called Landau noise and follows a Landau distribution.
-
-::: {#fig:monolithic image="chip_monolithic"}
-A monolithic imager.
-:::
-
-::: {#fig:side-by-side image="chip_side_by_side"}
-Sensor and readout chips side by side on one package.
-:::
 
 We can get higher rate electron counting if we use a hybrid readout configuration to allow in-pixel digital storage.
 This can typically operate at a much higher effective hit rate, as the frame versus beam current trade-off is relaxed.
 Instead, pile-up (i.e. coincidence) is limited by a single pixel's dead time, with multiple hits able to be read out digitally per frame.
 Event-based readout is possible in both hybrid and monolithic architectures, and is exclusively used with counting detection.
 The difference is that hit counts aren't digitally buffered for the subsequent frame, but instead are sparsely transmitted out as they occur.
-
-::: {#fig:hybrid image="chip_hybrid"}
-A hybrid stack.
-:::
 
 Thinner sensors (below 150 µm) will reduce the multiple scattering of keV electrons, so this is often targeted by commercial sensors.
 MeV electrons have less multiple scattering, and as they deposit about five times less energy per unit length, a thicker sensor (about 500 µm) is more desirable.
