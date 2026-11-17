@@ -6,12 +6,12 @@
 \usepackage{thesis-circuits}
 \begin{document}
 \begin{drawing}
-\begin{tikzpicture}[circuit]
-  \comppreamp
-  \draw (P) -- ++(0,0.9) coordinate(pt) (Q) -- ++(0,0.9) coordinate(qt);
-  \draw[-{Latex[length=4pt]}] (pt) -- ++(0,0.3);
-  \draw[-{Latex[length=4pt]}] (qt) -- ++(0,0.3);
-  \node[note] at ($(pt)!0.5!(qt) + (0,0.3)$) {to the latch};
-\end{tikzpicture}
+  \begin{tikzpicture}[circuit]
+    \comppreamp
+    \draw (P) -- ++(0,0.9) coordinate(pt) (Q) -- ++(0,0.9) coordinate(qt);
+    \draw[-{Latex[length=4pt]}] (pt) -- ++(0,0.3);
+    \draw[-{Latex[length=4pt]}] (qt) -- ++(0,0.3);
+    \node[note] at ($(pt)!0.5!(qt) + (0,0.3)$) {to the latch};
+  \end{tikzpicture}
 \end{drawing}
 \end{document}
