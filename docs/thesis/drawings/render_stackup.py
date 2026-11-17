@@ -171,19 +171,21 @@ PASSIVATION = {"color": "#CFEBCF", "roughness": 0.8}
 UBM = {"color": "#5E636B", "roughness": 0.6}  # the metal under a bump, lining its opening
 ETCH_STOP = {"color": "#DCD1A8", "roughness": 0.8}  # the thin layers between the dielectric's levels
 DRAWN = {"matte": True, "outline": 1.2}  # a section's look: flat colours, every structure edged
+LF150_TOP = 2.4  # LFoundry LF150's top metal against its others (the ratio of their published pitches)
 BEOL = 14.0  # µm from the silicon to the top metal's top, whatever the metal count (some 10 µm, drawn taller)
 PASSIVATION_THICKNESS = 8.0
 BUMP = 30.0  # µm across
 
 
-def section_stack(roles: list[str], depths: dict[str, tuple[float, float]]) -> list[dict]:
+def section_stack(roles: list[str], depths: dict[str, tuple[float, float]], top_ratio: float = 1.8) -> list[dict]:
     """The roles' heights (µm): the silicon's from ``depths`` (top, bottom; below the surface at
     0), the gates and contacts on it, the metals evenly up to BEOL (the top metal thicker, each via
-    above its metal), a pad (PAD) on the top metal; each with its look and its priority."""
+    above its metal), a pad (PAD) on the top metal; each with its look and its priority. The top
+    metal is ``top_ratio`` times as thick as the others."""
 
     metals = [int(role[1:]) for role in roles if role[0] == "M" and role[1:].isdigit()]
     top = max(metals, default=1)
-    pitch = (BEOL - 1.0) / (top - 0.2)
+    pitch = (BEOL - 1.0) / (top - 1 + 0.45 * top_ratio)
 
     def metal_z(n: int) -> float:
         return 1.0 + (n - 1) * pitch
@@ -192,7 +194,7 @@ def section_stack(roles: list[str], depths: dict[str, tuple[float, float]]) -> l
     for role in roles:
         if role[0] == "M" and role[1:].isdigit():
             n = int(role[1:])
-            z, height, look = metal_z(n), (0.8 if n == top else 0.45) * pitch, (METAL_LOOK, 0.06)
+            z, height, look = metal_z(n), 0.45 * (top_ratio if n == top else 1.0) * pitch, (METAL_LOOK, 0.06)
         elif role[0] == "V" and role[1:].isdigit():
             n = int(role[1:])
             z, height, look = metal_z(n) + 0.45 * pitch, 0.55 * pitch, (VIA_LOOK, 0.07)
@@ -293,6 +295,38 @@ def slabs(
         {"kind": "box", "name": f"{name}{n}", "min": [x[0], y[0], z0], "max": [x[1], y[1], z1], "material": look}
         for n, (z0, z1, look) in enumerate(spans)
     ]
+
+
+def busiest_cut(
+    gds: str,
+    layers: dict[str, list[int]],
+    roles: tuple[str, ...],
+    axis: str,
+    candidates: list[float],
+    span: tuple[float, float],
+) -> float:
+    """Of the candidate lines (x = c for axis "x", y = c for "y") over ``span``, the one crossing
+    the most of the given roles (their lengths along it summed): a section's most telling cut."""
+
+    import klayout.db as kdb
+
+    layout = kdb.Layout()
+    layout.read(gds)
+    top = layout.top_cells()[0]
+    regions = [
+        kdb.Region(top.begin_shapes_rec(layout.find_layer(*layers[role]))).merged() for role in roles if role in layers
+    ]
+
+    def score(c: float) -> float:
+        line = (
+            kdb.DBox(c - 0.01, span[0], c + 0.01, span[1])
+            if axis == "x"
+            else kdb.DBox(span[0], c - 0.01, span[1], c + 0.01)
+        )
+        probe = kdb.Region(line.to_itype(layout.dbu))
+        return sum((region & probe).area() for region in regions)
+
+    return max(candidates, key=score)
 
 
 def etch_stops(
@@ -403,13 +437,19 @@ def mono_edge() -> dict:
 
     sources = ("NW", "PW", "DNW", "OD", "NP", "PP", "PO", "CO", "M1", "V1", "M2", "V2", "M3", "V3", "M4", "MIM")
     pitch, x0, row = 76.04, 848.18, 1774.9  # the matrix's pitch, first column and bottom row
-    cut, depth = x0 + pitch / 2, 12.0
-    crop = [cut - depth, 1680.0, cut, row + 2 * pitch]
+    depth = 12.0
     keep = ("NPLUS", "PPLUS", "NW", "PW", "DPW", "DNW", "PO", "CO", "M1", "V1", "M2", "V2", "M3", "V3", "M4", "MIM")
     derived = {"NPLUS": "OD & NP", "PPLUS": "OD & PP", "DPW": "PW & DNW"}
-    roles_gds, layers = role_piece(
-        "lf3t_edge", None, sources, derived, [crop[0] - 1, crop[1] - 1, crop[2] + 1, crop[3] + 1], keep
-    )
+    column = [x0 - depth - 1, 1679.0, x0 + pitch + 1, row + 2 * pitch + 1]
+    roles_gds, layers = role_piece("lf3t_edge", None, sources, derived, column, keep)
+    # the cut down the column where it crosses the most metal, still through both pixels'
+    # collection wells (the very deep n-well, most of each pixel's width)
+    wells = [box for box in shapes(roles_gds, layers["DNW"]) if box[1] >= row - 1 and box[2] - box[0] > pitch / 2]
+    left, right = max(box[0] for box in wells) + 2.0, min(box[2] for box in wells) - 2.0
+    candidates = [left + 0.5 * k for k in range(int((right - left) / 0.5) + 1)]
+    busy = ("M1", "V1", "M2", "V2", "M3", "V3", "M4", "CO", "PO", "MIM")
+    cut = busiest_cut(roles_gds, layers, busy, "x", candidates, (1680.0, row + 2 * pitch))
+    crop = [cut - depth, 1680.0, cut, row + 2 * pitch]
     depths = {
         "NPLUS": (0, -0.3),
         "PPLUS": (0, -0.3),
@@ -418,7 +458,7 @@ def mono_edge() -> dict:
         "DPW": (-1.5, -3.0),
         "DNW": (-1.5, -7.0),
     }
-    stack = section_stack(list(keep), depths)
+    stack = section_stack(list(keep), depths, top_ratio=LF150_TOP)
     beol = max(layer["z"] + layer["height"] for layer in stack)
     x, y = (-depth, 0.0), (0.0, crop[3] - crop[1])
     return {
@@ -436,7 +476,7 @@ def hybrid_pixel() -> dict:
     """Hybrid, readout in each pixel: two of ITkPix-V1's 50 µm pixels cut through their bump
     pads, a passive CMOS sensor's pixels flipped onto them through 30 µm solder bumps, each in
     tapered openings of the two passivations lined with the metal under the bump (the chip
-    thinned to 50 µm, the sensor 100 µm)."""
+    and the sensor thinned to 50 µm)."""
 
     chip_sources = (
         "NW",
@@ -501,7 +541,7 @@ def hybrid_pixel() -> dict:
         s_keep,
     )
     sensor_stack = section_stack(
-        list(s_keep), {"NPLUS": (0, -0.3), "PPLUS": (0, -0.3), "NW": (0, -2.5), "PW": (0, -1.5)}
+        list(s_keep), {"NPLUS": (0, -0.3), "PPLUS": (0, -0.3), "NW": (0, -2.5), "PW": (0, -1.5)}, top_ratio=LF150_TOP
     )
     s_beol = max(layer["z"] + layer["height"] for layer in sensor_stack)
     surface = sensor_face + s_beol  # the sensor's silicon surface, its bulk above
@@ -532,7 +572,7 @@ def hybrid_pixel() -> dict:
             z=surface,
             flip=True,
         ),
-        *slabs(x, y, [(sensor_face, surface, OXIDE), (surface, surface + 100.0, LOW_P)], "sensor"),
+        *slabs(x, y, [(sensor_face, surface, OXIDE), (surface, surface + 50.0, LOW_P)], "sensor"),
         {
             "kind": "box",
             "name": "sensor_passivation",
@@ -607,7 +647,7 @@ def hybrid_super() -> dict:
     metal, where redistribution lines bring the sixteen inputs together to a compact cluster of
     front ends, their correlated double sampling and one shared ADC (FRIDA-1's, from its
     layout), beside the readout lines and a through-silicon via; cut through a row of bumps, the
-    passivations left out so the redistribution shows."""
+    chip's passivation drawn see-through so the redistribution under it shows."""
 
     pitch = 50.0
     columns = [25.0 + pitch * i for i in range(4)]
@@ -624,13 +664,22 @@ def hybrid_super() -> dict:
     )
     adc_stack = section_stack(list(adc_keep), {"NPLUS": (0, -0.25), "PPLUS": (0, -0.25), "NW": (0, -1.2)})
     beol = BEOL
-    rdl = beol + 1.0  # the redistribution over the top metal
+    rdl = beol  # the redistribution on the top metal's level
     gap = 12.0
     face = beol + PASSIVATION_THICKNESS + gap + PASSIVATION_THICKNESS
     fe_top = 0.6 * beol
     section = {"axis": "y", "at": 0.08}
     parts = [
         {"kind": "box", "name": "substrate", "min": [0, low, -50.0], "max": [width, 0, -0.01], "material": P_SUBSTRATE},
+        {"kind": "box", "name": "oxide", "min": [0, low, 0.0], "max": [width, 0, beol], "material": OXIDE},
+        {
+            "kind": "box",
+            "name": "passivation",
+            "min": [0, low, beol],
+            "max": [width, -0.03, beol + PASSIVATION_THICKNESS],
+            "material": {**PASSIVATION, "alpha": 0.35},
+            "holes": [{"centre": [bx, by], "radius": 12.0} for bx in columns for by in rows],
+        },
         section_part(
             "adc", adc_gds, adc_layers, adc_stack, adc_box, [adc_box[0], adc_box[3]], ("y1",), z=0.0, at=[124.0, 0.0]
         ),
@@ -638,7 +687,7 @@ def hybrid_super() -> dict:
             "kind": "box",
             "name": "cds",
             "min": [102.0, -96.0, 0],
-            "max": [120.0, 0, fe_top],
+            "max": [120.0, 0.05, fe_top],
             "material": {"color": "#EBCB8B", "roughness": 0.5},
         },
         {
@@ -668,13 +717,13 @@ def hybrid_super() -> dict:
     inputs = {}
     for i in range(4):  # the front ends: 4 x 4 blocks, their inputs at their tops
         for j in range(4):
-            x0, y0 = 10.0 + 22.0 * i, -96.0 + 24.0 * j
+            x0, y0 = 10.0 + 22.0 * i, -94.0 + 24.0 * j  # the front row reaching the cut
             parts.append(
                 {
                     "kind": "box",
                     "name": f"fe{i}{j}",
                     "min": [x0, y0, 0],
-                    "max": [x0 + 20.0, min(y0 + 22.0, -0.01), fe_top],
+                    "max": [x0 + 20.0, y0 + 22.0 + (0.05 if j == 3 else 0.0), fe_top],
                     "material": {"color": "#5E81AC", "roughness": 0.5},
                 }
             )
@@ -775,7 +824,7 @@ def hybrid_super() -> dict:
         s_keep,
     )
     sensor_stack = section_stack(
-        list(s_keep), {"NPLUS": (0, -0.3), "PPLUS": (0, -0.3), "NW": (0, -2.5), "PW": (0, -1.5)}
+        list(s_keep), {"NPLUS": (0, -0.3), "PPLUS": (0, -0.3), "NW": (0, -2.5), "PW": (0, -1.5)}, top_ratio=LF150_TOP
     )
     s_beol = max(layer["z"] + layer["height"] for layer in sensor_stack)
     surface = face + s_beol
@@ -792,7 +841,15 @@ def hybrid_super() -> dict:
             flip=True,
             at=[25.0, 0.0],
         ),
-        *slabs((0.0, width), (low, back), [(face, surface, OXIDE), (surface, surface + 40.0, LOW_P)], "sensor"),
+        *slabs((0.0, width), (low, back), [(face, surface, OXIDE), (surface, surface + 50.0, LOW_P)], "sensor"),
+        {
+            "kind": "box",
+            "name": "sensor_passivation",
+            "min": [0.0, low, face - PASSIVATION_THICKNESS],
+            "max": [width, back, face],
+            "material": PASSIVATION,
+            "holes": [{"centre": [bx, by], "radius": 12.0} for bx in columns for by in rows if by <= back],
+        },
     ]
     return {"camera": {"azimuth": 60, "elevation": 48, "fov": 24}, **DRAWN, "parts": parts}
 
