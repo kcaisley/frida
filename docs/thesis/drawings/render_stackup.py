@@ -430,8 +430,8 @@ def mono_pixel() -> dict:
 
 
 def mono_edge() -> dict:
-    """Monolithic, readout at the matrix edge: a 3T test matrix's first column cut down its
-    middle, two pixels and the column readout at the matrix's edge: each pixel's electronics in
+    """Monolithic, readout at the matrix edge: a 3T test matrix's first column cut along its
+    length, its last pixel and the column readout at the matrix's edge: each pixel's electronics in
     p-wells and n-wells over a deep p-well, inside the very deep n-well that collects the charge,
     in the high-resistivity substrate (the chip thinned to 50 µm)."""
 
@@ -440,7 +440,7 @@ def mono_edge() -> dict:
     depth = 12.0
     keep = ("NPLUS", "PPLUS", "NW", "PW", "DPW", "DNW", "PO", "CO", "M1", "V1", "M2", "V2", "M3", "V3", "M4", "MIM")
     derived = {"NPLUS": "OD & NP", "PPLUS": "OD & PP", "DPW": "PW & DNW"}
-    column = [x0 - depth - 1, 1679.0, x0 + pitch + 1, row + 2 * pitch + 1]
+    column = [x0 - depth - 1, 1679.0, x0 + pitch + 1, row + pitch + 1]
     roles_gds, layers = role_piece("lf3t_edge", None, sources, derived, column, keep)
     # the cut down the column where it crosses the most metal, still through both pixels'
     # collection wells (the very deep n-well, most of each pixel's width)
@@ -448,8 +448,8 @@ def mono_edge() -> dict:
     left, right = max(box[0] for box in wells) + 2.0, min(box[2] for box in wells) - 2.0
     candidates = [left + 0.5 * k for k in range(int((right - left) / 0.5) + 1)]
     busy = ("M1", "V1", "M2", "V2", "M3", "V3", "M4", "CO", "PO", "MIM")
-    cut = busiest_cut(roles_gds, layers, busy, "x", candidates, (1680.0, row + 2 * pitch))
-    crop = [cut - depth, 1680.0, cut, row + 2 * pitch]
+    cut = busiest_cut(roles_gds, layers, busy, "x", candidates, (1680.0, row + pitch))
+    crop = [cut - depth, 1680.0, cut, row + pitch]
     depths = {
         "NPLUS": (0, -0.3),
         "PPLUS": (0, -0.3),
@@ -642,20 +642,19 @@ def hybrid_pixel() -> dict:
 
 
 def hybrid_super() -> dict:
-    """Hybrid, readout grouped (a sketch after CoRDIA's superpixel, Marras et al. 2024): sixteen
-    sensor pixels (4 x 4 of the passive sensor's, flipped) bumped onto the readout chip's top
-    metal, where redistribution lines bring the sixteen inputs together to a compact cluster of
-    front ends, their correlated double sampling and one shared ADC (FRIDA-1's, from its
-    layout), beside the readout lines and a through-silicon via; cut through a row of bumps, the
-    chip's passivation drawn see-through so the redistribution under it shows."""
+    """Hybrid, readout grouped (a sketch after CoRDIA's superpixel, Marras et al. 2024): a section
+    along one row of four sensor pixels (the passive sensor's, flipped) and their bumps, each
+    bump's signal carried sideways in the readout chip's metal stack, on a level of its own, to
+    the row's front ends packed beside one shared ADC (FRIDA-1's, from its layout, cut through
+    its middle) and a through-silicon via (both chips thinned to 50 µm)."""
 
-    pitch = 50.0
-    columns = [25.0 + pitch * i for i in range(4)]
-    rows = [0.0 - pitch * j for j in range(4)]  # the first row cut through its bumps' centres
-    width, low = 200.0, -175.0
+    pitch, depth, width = 50.0, 16.0, 200.0
+    bumps = [25.0 + pitch * k for k in range(4)]
+    x, y = (0.0, width), (-depth, 0.0)
     adc_box = [419.91, 443.53, 480.41, 478.0]  # half of an ADC of FRIDA-1's, cut through its middle
     adc_sources = ("OD", "NP", "PP", "NW", "PO", "CO", *(f"M{n}" for n in range(1, 8)), *(f"V{n}" for n in range(1, 7)))
     adc_keep = ("NPLUS", "PPLUS", "NW", "PO", "CO", *(f"M{n}" for n in range(1, 8)), *(f"V{n}" for n in range(1, 7)))
+    adc_crop = [adc_box[0], adc_box[3] - depth, adc_box[2], adc_box[3]]
     adc_gds, adc_layers = role_piece_die(
         adc_sources,
         {"NPLUS": "OD & NP", "PPLUS": "OD & PP"},
@@ -663,158 +662,78 @@ def hybrid_super() -> dict:
         adc_keep,
     )
     adc_stack = section_stack(list(adc_keep), {"NPLUS": (0, -0.25), "PPLUS": (0, -0.25), "NW": (0, -1.2)})
+    adc_top = max(layer["z"] + layer["height"] for layer in adc_stack)
     beol = BEOL
-    rdl = beol  # the redistribution on the top metal's level
+    chip_face = beol + PASSIVATION_THICKNESS
+    pad_top = beol + 1.5
     gap = 12.0
-    face = beol + PASSIVATION_THICKNESS + gap + PASSIVATION_THICKNESS
-    fe_top = 0.6 * beol
-    section = {"axis": "y", "at": 0.08}
+    sensor_face = chip_face + gap + PASSIVATION_THICKNESS
+    proud = 0.06  # the drawn blocks' sections a hair in front of the oxide's
+
+    def block(name: str, x0: float, x1: float, z0: float, z1: float, look: dict, ahead: float = 0.0) -> dict:
+        return {
+            "kind": "box",
+            "name": name,
+            "min": [x0, -depth + 0.5, z0],
+            "max": [x1, proud + ahead, z1],
+            "material": look,
+        }
+
+    fe_top = 0.45 * adc_top
+    front_ends = [(110.0 + 21.0 * k, 110.0 + 21.0 * k + 18.0) for k in range(4)]  # the row's four, packed
+    narrow, wide = 9.0, 13.0
     parts = [
-        {"kind": "box", "name": "substrate", "min": [0, low, -50.0], "max": [width, 0, -0.01], "material": P_SUBSTRATE},
-        {"kind": "box", "name": "oxide", "min": [0, low, 0.0], "max": [width, 0, beol], "material": OXIDE},
         {
             "kind": "box",
-            "name": "passivation",
-            "min": [0, low, beol],
-            "max": [width, -0.03, beol + PASSIVATION_THICKNESS],
-            "material": {**PASSIVATION, "alpha": 0.35},
-            "holes": [{"centre": [bx, by], "radius": 12.0} for bx in columns for by in rows],
+            "name": "substrate",
+            "min": [x[0], y[0], -50.0],
+            "max": [x[1], y[1], 0.0],
+            "material": P_SUBSTRATE,
+        },
+        {"kind": "box", "name": "oxide", "min": [x[0], y[0], 0.0], "max": [x[1], y[1], beol], "material": OXIDE},
+        {
+            "kind": "box",
+            "name": "chip_passivation",
+            "min": [x[0], y[0], beol],
+            "max": [x[1], y[1], chip_face],
+            "material": PASSIVATION,
+            "holes": [{"centre": [bx, 0.0], "radius": narrow, "top_radius": wide} for bx in bumps],
         },
         section_part(
-            "adc", adc_gds, adc_layers, adc_stack, adc_box, [adc_box[0], adc_box[3]], ("y1",), z=0.0, at=[124.0, 0.0]
+            "adc", adc_gds, adc_layers, adc_stack, adc_crop, [adc_box[0], adc_box[3]], ("y1",), z=0.0, at=[12.0, 0.0]
         ),
-        {
-            "kind": "box",
-            "name": "cds",
-            "min": [102.0, -96.0, 0],
-            "max": [120.0, 0.05, fe_top],
-            "material": {"color": "#EBCB8B", "roughness": 0.5},
-        },
-        {
-            "kind": "box",
-            "name": "readout",
-            "min": [8.0, -132.0, 0],
-            "max": [192.0, -112.0, fe_top],
-            "material": {"color": "#B48EAD", "roughness": 0.5},
-        },
+        block("cds", 80.0, 100.0, 0.0, fe_top, {"color": "#EBCB8B", "roughness": 0.8}),
+        *(
+            block(f"fe{k}", x0, x1, 0.0, fe_top, {"color": "#5E81AC", "roughness": 0.8})
+            for k, (x0, x1) in enumerate(front_ends)
+        ),
         {
             "kind": "cylinder",
             "name": "tsv",
-            "centre": [193.0, -22.0],
-            "z": [-50.5, 0.3 * beol],
-            "radius": 6.0,
-            "material": COPPER,
+            "centre": [195.5, 0.0],
+            "z": [-50.0, fe_top],
+            "radius": 3.0,
+            "material": METAL_LOOK,
+            "cut": {"axis": "y", "at": 0.07},
         },
-        {
-            "kind": "cylinder",
-            "name": "tsv_liner",
-            "centre": [193.0, -22.0],
-            "z": [-50.5, 0.3 * beol],
-            "radius": 7.0,
-            "material": {"color": "#A3BE8C", "roughness": 0.5, "alpha": 0.45},
-        },
+        *etch_stops(section_stack([f"M{n}" for n in range(1, 8)], {}), x, y),
     ]
-    inputs = {}
-    for i in range(4):  # the front ends: 4 x 4 blocks, their inputs at their tops
-        for j in range(4):
-            x0, y0 = 10.0 + 22.0 * i, -94.0 + 24.0 * j  # the front row reaching the cut
-            parts.append(
-                {
-                    "kind": "box",
-                    "name": f"fe{i}{j}",
-                    "min": [x0, y0, 0],
-                    "max": [x0 + 20.0, y0 + 22.0 + (0.05 if j == 3 else 0.0), fe_top],
-                    "material": {"color": "#5E81AC", "roughness": 0.5},
-                }
-            )
-            inputs[i, j] = (x0 + 10.0, y0 + 11.0)
-    # two redistribution layers: runs along y on the lower, along x on the upper, each line on its
-    # own track (bump column c and row r give the offsets), vias where a line changes layer
-    low_z, high_z, thick, line = rdl, rdl + 1.8, 0.8, 1.6
-    pad_z = high_z + thick + 0.6
-    for c, bx in enumerate(columns):
-        for r, by in enumerate(rows):
-            fx, fy = inputs[c, 3 - r]  # the front row of bumps to the front row of front ends
-            x_run, y_run = bx + (r - 1.5) * 3.2, fy + 6.0 + (c - 1.5) * 3.2
-            n = 4 * c + r
-            parts += [
-                {
-                    "kind": "trace",
-                    "name": f"rdl{n}a",
-                    "points": [(bx, by), (x_run, by), (x_run, y_run)],
-                    "z": low_z,
-                    "width": line,
-                    "height": thick,
-                    "material": METAL_LOOK,
-                },
-                {
-                    "kind": "trace",
-                    "name": f"rdl{n}b",
-                    "points": [(x_run, y_run), (fx, y_run)],
-                    "z": high_z,
-                    "width": line,
-                    "height": thick,
-                    "material": METAL_LOOK,
-                },
-                {
-                    "kind": "trace",
-                    "name": f"rdl{n}c",
-                    "points": [(fx, y_run), (fx, fy)],
-                    "z": low_z,
-                    "width": line,
-                    "height": thick,
-                    "material": METAL_LOOK,
-                },
-                {
-                    "kind": "cylinder",
-                    "name": f"in{n}",
-                    "centre": [fx, fy],
-                    "z": [fe_top, low_z],
-                    "radius": 1.2,
-                    "material": METAL_LOOK,
-                },
-            ]
-            for k, (vx, vy, z0, z1) in enumerate(
-                [(bx, by, low_z, pad_z), (x_run, y_run, low_z, high_z + thick), (fx, y_run, low_z, high_z + thick)]
-            ):
-                parts.append(
-                    {
-                        "kind": "cylinder",
-                        "name": f"via{n}{k}",
-                        "centre": [vx, vy],
-                        "z": [z0, z1],
-                        "radius": 0.9,
-                        "material": METAL_LOOK,
-                    }
-                )
-            cutting = {"cut": section} if by == 0.0 else {}
-            parts.append(
-                {
-                    "kind": "cylinder",
-                    "name": f"pad{n}",
-                    "centre": [bx, by],
-                    "z": [pad_z, pad_z + 0.8],
-                    "radius": 11.5,
-                    "material": UBM,
-                    **cutting,
-                }
-            )
-            parts.append(
-                {
-                    "kind": "bump",
-                    "name": f"bump{n}",
-                    "centre": [bx, by, (pad_z + 0.8 + face) / 2],
-                    "radius": BUMP / 2,
-                    "height": face - pad_z - 0.8,
-                    "material": SOLDER,
-                    **cutting,
-                }
-            )
+    # each bump's line: down from its pad to a level of its own, sideways, down to its front end
+    # the farthest bump's line the lowest, so no line's drop or rise crosses another's run
+    levels = [beol - 1.2 - 1.9 * (3 - k) for k in range(4)]
+    for k, (bx, (f0, f1)) in enumerate(zip(bumps, front_ends)):
+        fx, z = (f0 + f1) / 2, levels[k]
+        x0, x1 = min(bx, fx) - 1.0, max(bx, fx) + 1.0
+        parts += [
+            block(f"pad{k}", bx - narrow, bx + narrow, beol - 0.6, pad_top, METAL_LOOK, 0.02),
+            block(f"drop{k}", bx - 1.0, bx + 1.0, z, beol - 0.6, VIA_LOOK, 0.01),
+            block(f"run{k}", x0, x1, z, z + 1.0, METAL_LOOK),
+            block(f"rise{k}", fx - 1.0, fx + 1.0, fe_top, z, VIA_LOOK, 0.01),
+        ]
     sensor_sources = ("NW", "PW", "OD", "NP", "PP", "PO", "CO", "M1", "V1", "M2", "V2", "M3")
     s_keep = ("NPLUS", "PPLUS", "NW", "PW", "PO", "CO", "M1", "V1", "M2", "V2", "M3")
-    # the sensor cut back to the second row of bumps, so the redistribution under it shows
-    centre_s, back = (1600.0, 1600.0), -pitch
-    s_crop = [centre_s[0] - 25.0, centre_s[1] - back, centre_s[0] + 175.0, centre_s[1] - low]
+    s_centre = (1600.0, 1600.0)  # a sensor pixel's centre over the first bump
+    s_crop = [s_centre[0] - 25.0, s_centre[1], s_centre[0] + 175.0, s_centre[1] + depth]  # flipped: y turns over
     sensor_gds, sensor_layers = role_piece(
         "lf_sensor_array",
         None,
@@ -827,7 +746,7 @@ def hybrid_super() -> dict:
         list(s_keep), {"NPLUS": (0, -0.3), "PPLUS": (0, -0.3), "NW": (0, -2.5), "PW": (0, -1.5)}, top_ratio=LF150_TOP
     )
     s_beol = max(layer["z"] + layer["height"] for layer in sensor_stack)
-    surface = face + s_beol
+    surface = sensor_face + s_beol
     parts += [
         section_part(
             "sensor",
@@ -835,23 +754,77 @@ def hybrid_super() -> dict:
             sensor_layers,
             sensor_stack,
             s_crop,
-            list(centre_s),
-            ("y0", "x0", "x1"),
+            list(s_centre),
+            ("y0", "x1"),
             z=surface,
             flip=True,
             at=[25.0, 0.0],
         ),
-        *slabs((0.0, width), (low, back), [(face, surface, OXIDE), (surface, surface + 50.0, LOW_P)], "sensor"),
+        *slabs(x, y, [(sensor_face, surface, OXIDE), (surface, surface + 50.0, LOW_P)], "sensor"),
         {
             "kind": "box",
             "name": "sensor_passivation",
-            "min": [0.0, low, face - PASSIVATION_THICKNESS],
-            "max": [width, back, face],
+            "min": [x[0], y[0], sensor_face - PASSIVATION_THICKNESS],
+            "max": [x[1], y[1], sensor_face],
             "material": PASSIVATION,
-            "holes": [{"centre": [bx, by], "radius": 12.0} for bx in columns for by in rows if by <= back],
+            "holes": [{"centre": [bx, 0.0], "radius": wide, "top_radius": narrow} for bx in bumps],
         },
+        *etch_stops(sensor_stack, x, y, z=surface, flip=True),
     ]
-    return {"camera": {"azimuth": 60, "elevation": 48, "fov": 24}, **DRAWN, "parts": parts}
+    section = {"axis": "y", "at": 0.08}
+    neck = {"axis": "y", "at": 0.07}
+    liner = {"axis": "y", "at": 0.09}
+    for n, bx in enumerate(bumps):
+        parts += [
+            {
+                "kind": "frustum",
+                "name": f"liner_chip{n}",
+                "centre": [bx, 0.0],
+                "z": [pad_top - 0.6, chip_face],
+                "radius": [narrow, wide],
+                "shell": 0.7,
+                "material": UBM,
+                "cut": liner,
+            },
+            {
+                "kind": "frustum",
+                "name": f"liner_sensor{n}",
+                "centre": [bx, 0.0],
+                "z": [sensor_face - PASSIVATION_THICKNESS, sensor_face + 0.6],
+                "radius": [wide, narrow],
+                "shell": 0.7,
+                "material": UBM,
+                "cut": liner,
+            },
+            {
+                "kind": "frustum",
+                "name": f"neck_chip{n}",
+                "centre": [bx, 0.0],
+                "z": [pad_top, chip_face + 0.5],
+                "radius": [narrow - 0.7, wide - 0.6],
+                "material": SOLDER,
+                "cut": neck,
+            },
+            {
+                "kind": "frustum",
+                "name": f"neck_sensor{n}",
+                "centre": [bx, 0.0],
+                "z": [sensor_face - PASSIVATION_THICKNESS - 0.5, sensor_face],
+                "radius": [wide - 0.6, narrow - 0.7],
+                "material": SOLDER,
+                "cut": neck,
+            },
+            {
+                "kind": "bump",
+                "name": f"bump{n}",
+                "centre": [bx, 0.0, (chip_face + sensor_face - PASSIVATION_THICKNESS) / 2],
+                "radius": BUMP / 2,
+                "height": gap + 6.0,
+                "material": SOLDER,
+                "cut": section,
+            },
+        ]
+    return {"camera": {"azimuth": 78, **SECTION_CAMERA}, **DRAWN, "parts": parts}
 
 
 def role_piece_die(
