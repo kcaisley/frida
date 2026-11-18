@@ -49,6 +49,7 @@ from klayout import db
 
 from flow.layout.gdsdiff import gds_diff
 from flow.layout.signoff import SignoffParams, write_plan
+from flow.layout.step import free_rows
 from flow.logs import run_logged
 from flow.sweep.lookup import laid_out
 from flow.sweep.runner import ROOT
@@ -220,16 +221,15 @@ def _fabricated(member: Fabricated, pdk: str, run_dir: Path) -> Path:
     )
 
 
-# left to right: (instance, block, mirrored); each side's DAC, then its sampler, the comparator
-# between them; the N side's DAC the P side's mirror image about the vertical axis, each side's
-# seam (its last stage) toward the comparator
-_ORDER = (
-    ("xdac_p", "cap", False),
-    ("xsamp_p", "samp", False),
-    ("xcomp", "comp", False),
-    ("xsamp_n", "samp", False),
-    ("xdac_n", "cap", True),
-)
+# the blocks: each instance of the netlist and the block it is
+_ORDER = (("xdac_p", "cap"), ("xdac_n", "cap"), ("xcomp", "comp"), ("xsamp_p", "samp"), ("xsamp_n", "samp"))
+# the rails outside the DAC's sides (um): each rail's width and the space between a pair, about
+# (``_straps`` fits them to the layer's tracks)
+_RAIL_UM, _RAIL_SPACE_UM = 1.0, 0.5
+# the share of the free rows the cells fill
+_UTILIZATION = 0.6
+# no cell within this much (um, whole sites) beside a block: its implants and wells reach past it
+_HALO_UM = 1.0
 
 
 def _path(path: Path) -> str:
@@ -297,6 +297,52 @@ def _rails(stdcell_lef: Path, metals: set[str]) -> tuple[str, float]:
     raise ValueError(f"{stdcell_lef}: no power pin's rail")
 
 
+def _straps(tech_lef: Path, layer: str) -> tuple[float, float]:
+    """The outside rails on ``layer`` (um): a rail's width and the space between a pair, near
+    ``_RAIL_UM`` and ``_RAIL_SPACE_UM``. pdngen puts a rail's middle on a track; this width leaves
+    the next track free, a wire there the layer's spacing from the rail (its spacing table's longest
+    run, for the rail's width), and this space puts the pair's second rail on a track too."""
+    text = tech_lef.read_text()
+    match = re.search(rf"(?ms)^LAYER\s+{re.escape(layer)}\s*\n(.*?)^END\s+{re.escape(layer)}", text)
+    if match is None:
+        raise ValueError(f"{tech_lef} defines no layer {layer}")
+    block = match[1]
+
+    def number(key: str, where: str) -> float:
+        found = re.search(rf"(?m)^\s*{key}\s+([\d.]+)", where)
+        if found is None:
+            raise ValueError(f"{tech_lef}: no {key} for {layer}")
+        return float(found[1])
+
+    pitch, wire, grid = number("PITCH", block), number("WIDTH", block), number("MANUFACTURINGGRID", text)
+    table = re.search(r"SPACINGTABLE\s+PARALLELRUNLENGTH([^;]*);", block)
+    # the spacing table's rows: from each width on, the space for the longest run
+    rows = [tuple(map(float, row.split())) for row in re.findall(r"WIDTH\s+([\d.\s]+)", table[1])] if table else []
+    bands = [(row[0], row[-1]) for row in rows] or [(0.0, number("SPACING", block))]
+
+    def spacing(width: float) -> float:
+        """The space a wire keeps from a rail ``width`` wide alongside it."""
+        return ([space for start, space in bands if start <= width] or [bands[0][1]])[-1]
+
+    def widest(tracks: int) -> float:
+        """The widest rail whose next free track is ``tracks`` from its middle."""
+        best = 0.0
+        for index, (start, space) in enumerate(bands):
+            limit = bands[index + 1][0] - 2 * grid if index + 1 < len(bands) else math.inf
+            width = min(2 * (tracks * pitch - wire / 2 - space), limit)
+            width = math.floor(round(width / (2 * grid), 6)) * 2 * grid
+            if width >= max(start, wire):
+                best = max(best, width)
+        return best
+
+    widths = [width for width in map(widest, range(1, 64)) if width > 0]
+    if not widths:
+        raise ValueError(f"{tech_lef}: no rail width fits {layer}'s tracks")
+    best = min(widths, key=lambda width: abs(width - _RAIL_UM))
+    pair = math.ceil(round((best + max(_RAIL_SPACE_UM, spacing(best))) / pitch, 6)) * pitch
+    return round(best, 4), round(pair - best, 4)
+
+
 def _fillers(pdk: str, stdcell_lef: Path) -> list[str]:
     """The cells that fill the rows' gaps: the library's spacers (its decaps and fillers), else
     the kit's fillers (``STD_FILLS``, or its one-site ``STD_FILL``)."""
@@ -333,20 +379,27 @@ def _boxes(region: db.Region, dbu: float, origin: db.Point) -> list[str]:
     return lines
 
 
-def _abstract(gds: Path, pdk: str, macro: str, site: tuple[str, float, float]) -> tuple[str, dict[str, Any]]:
-    """A block's LEF abstract from its layout, and what the floorplan needs of it: its outline
-    (the boundary layer's, else its shapes'), grown on the sites' grid it was laid out on past its
-    every shape (its wells and rails past the outline) and a micrometre more (a well's space from
-    its neighbour's), by whole sites left and right and whole rows, one at least, below and above;
-    a pin for each label on a metal's pin or text layer, the metal's shapes under it; its every
-    metal and cut as an obstruction but its pins. Pins carry their labels' names; directions and
-    uses are left to the netlist (signals all, the supplies routed as signals for now)."""
+def _abstract(gds: Path, pdk: str, macro: str, free: dict[str, Any] | None = None) -> tuple[list[str], dict[str, Any]]:
+    """A block's LEF abstracts from its layout, and what the floorplan needs of it. Its outline is
+    its boundary layer's (else its shapes'): its rows are the standard cells' rows, so it stands in
+    them like a cell, its rails meeting theirs. A pin for each label on a metal's pin or text layer,
+    the metal's shapes under it, its supplies' (``vdd``, ``vss``) of their use; its every metal and
+    cut an obstruction but its pins. Geometry in the outline's frame, its lower left corner at the
+    origin (the layout's own origin at ``offset_um``).
+
+    A block with rows left free under its capacitors (``free``, ``flow.layout.step.free_rows``:
+    capdac's side where its capacitors stack over the rows) is two blocks, its bands of drivers
+    below and above those rows (``parts``: ``<macro>_lo``, the layout's whole cell, and
+    ``<macro>_hi``, an empty one), each with the pins and obstructions within it; what it has over
+    the free rows from the second metal up is given as routing obstructions (``obstructions``: the
+    LEF layer and box), so the cells stand there and route below the capacitors."""
     tech = import_module(f"pdk.{pdk}.layout.tech")
     names = _lef_layers(_technology(pdk)[1][0])
     layout = db.Layout()
     layout.read(str(gds))
     top = max(layout.top_cells(), key=lambda cell: cell.bbox().area())
     dbu = layout.dbu
+    um = lambda value: value * dbu
 
     def region(spec) -> db.Region:
         index = layout.find_layer(*spec) if spec else None
@@ -354,16 +407,7 @@ def _abstract(gds: Path, pdk: str, macro: str, site: tuple[str, float, float]) -
 
     outline = region(tech.LAYERS["BND"]).bbox()
     outline = top.bbox() if outline.empty() else outline
-    shapes, margin = top.bbox(), round(1.0 / dbu)
-    width, height = round(site[1] / dbu), round(site[2] / dbu)
-    steps = lambda reach, step, least: max(least, -(-max(reach + margin, 0) // step)) * step
-    grown = db.Box(
-        outline.left - steps(outline.left - shapes.left, width, 1),
-        outline.bottom - steps(outline.bottom - shapes.bottom, height, 1),
-        outline.right + steps(shapes.right - outline.right, width, 1),
-        outline.top + steps(shapes.top - outline.top, height, 1),
-    )
-    origin = grown.p1
+    origin = outline.p1
     metals = [name for name in names if name.startswith("M")]
     text_layers = {}
     for metal in metals:
@@ -385,49 +429,138 @@ def _abstract(gds: Path, pdk: str, macro: str, site: tuple[str, float, float]) -
             if not under.is_empty():
                 pins.setdefault(shape.text.string.lower(), {}).setdefault(metal, db.Region())
                 pins[shape.text.string.lower()][metal] += under
-    lines = [
-        f"MACRO {macro}",
-        "  CLASS BLOCK ;",
-        f"  FOREIGN {top.name} {origin.x * dbu:.4f} {origin.y * dbu:.4f} ;",  # the layout at -pt
-        "  ORIGIN 0 0 ;",
-        f"  SIZE {grown.width() * dbu:.4f} BY {grown.height() * dbu:.4f} ;",
-        "  SYMMETRY X Y ;",
-    ]
-    for pin, by_layer in sorted(pins.items()):
-        lines += [f"  PIN {pin}", "    DIRECTION INOUT ;", "    USE SIGNAL ;", "    PORT"]
-        for metal, shapes in by_layer.items():
-            lines.append(f"      LAYER {names[metal][0]} ;")
-            lines += [f"        {box}" for box in _boxes(shapes.merged(), dbu, origin)]
-        lines += ["    END", f"  END {pin}"]
-    lines.append("  OBS")
-    for name, (lef_name, _direction) in names.items():
-        shapes = region(tech.LAYERS.get(name))
-        for by_layer in pins.values():
-            shapes -= by_layer.get(name, db.Region())
-        if not shapes.is_empty():
-            lines.append(f"    LAYER {lef_name} ;")
-            lines += [f"      {box}" for box in _boxes(shapes, dbu, origin)]
-    lines += ["  END", f"END {macro}", ""]
-    info = {
+    layer_shapes = {name: region(tech.LAYERS.get(name)) for name in names}
+    use = {"vdd": "POWER", "vss": "GROUND"}
+
+    def part(
+        name: str,
+        box: db.Box,
+        foreign: str,
+        at: db.Point,
+        beyond: tuple[bool, bool, bool] = (True, True, True),
+        hidden: frozenset[str] = frozenset(),
+    ) -> tuple[str, list[str]]:
+        """The abstract of the block within ``box``: its pins and obstructions there (a ``hidden``
+        pin's metal an obstruction), and its shapes past ``box``'s sides where ``beyond`` says (left
+        and right, below, above: its rails' and wells' overhang, which its neighbours must keep
+        clear of), its frame's origin ``at`` (the outline's lower left corner), its layout
+        ``foreign`` at ``origin``."""
+        reach = round(10.0 / dbu)
+        side, below, above = beyond
+        clip = db.Region(
+            db.Box(
+                box.left - (reach if side else 0),
+                box.bottom - (reach if below else 0),
+                box.right + (reach if side else 0),
+                box.top + (reach if above else 0),
+            )
+        )
+        lines = [
+            f"MACRO {name}",
+            "  CLASS BLOCK ;",
+            f"  FOREIGN {foreign} {um(at.x):.4f} {um(at.y):.4f} ;",  # the layout at -pt
+            "  ORIGIN 0 0 ;",
+            f"  SIZE {um(box.width()):.4f} BY {um(box.height()):.4f} ;",
+            "  SYMMETRY X Y ;",
+        ]
+        named = []
+        for pin, by_layer in sorted(pins.items()):
+            if pin in hidden:
+                continue
+            inside = {metal: shapes & db.Region(box) for metal, shapes in by_layer.items()}
+            inside = {metal: shapes for metal, shapes in inside.items() if not shapes.is_empty()}
+            if not inside:
+                continue
+            named.append(pin)
+            lines += [f"  PIN {pin}", "    DIRECTION INOUT ;", f"    USE {use.get(pin, 'SIGNAL')} ;", "    PORT"]
+            for metal, shapes in inside.items():
+                lines.append(f"      LAYER {names[metal][0]} ;")
+                lines += [f"        {rect}" for rect in _boxes(shapes.merged(), dbu, at)]
+            lines += ["    END", f"  END {pin}"]
+        lines.append("  OBS")
+        for layer, (lef_name, _direction) in names.items():
+            shapes = layer_shapes[layer] & clip
+            for pin, by_layer in pins.items():
+                if pin not in hidden:
+                    shapes -= by_layer.get(layer, db.Region())
+            if not shapes.is_empty():
+                lines.append(f"    LAYER {lef_name} ;")
+                lines += [f"      {rect}" for rect in _boxes(shapes, dbu, at)]
+        lines += ["  END", f"END {name}", ""]
+        return "\n".join(lines), named
+
+    info: dict[str, Any] = {
         "gds": gds,
         "cell": top.name,
-        "w_um": grown.width() * dbu,
-        "h_um": grown.height() * dbu,
-        "offset_um": (-origin.x * dbu, -origin.y * dbu),  # the layout's origin within the abstract
-        "pins": sorted(pins),
+        "w_um": um(outline.width()),
+        "h_um": um(outline.height()),
+        "offset_um": (-um(origin.x), -um(origin.y)),
         "layers": sorted({metal for by_layer in pins.values() for metal in by_layer}),
+        "free": bool(free),
     }
-    return "\n".join(lines), info
+    if not free:
+        text, named = part(macro, outline, top.name, origin)
+        info["parts"] = [("", macro, 0.0, [pin for pin in named if pin not in use])]
+        return [text], info
+    y0, y1 = (round(value / dbu) for value in free["y_um"])
+    lo = db.Box(outline.left, outline.bottom, outline.right, y0)
+    hi = db.Box(outline.left, y1, outline.right, outline.top)
+    # a signal both bands have is one net inside the side (its top plate, across the free rows):
+    # the upper band's pin alone, the comparator's side, so that no route joins the two
+    both = frozenset(
+        pin
+        for pin, by_layer in pins.items()
+        if pin not in use
+        and all(any(not (shapes & db.Region(band)).is_empty() for shapes in by_layer.values()) for band in (lo, hi))
+    )
+    lo_text, lo_pins = part(f"{macro}_lo", lo, top.name, origin, beyond=(True, True, False), hidden=both)
+    hi_text, hi_pins = part(f"{macro}_hi", hi, f"{macro}_empty", hi.p1, beyond=(True, False, True))
+    info["parts"] = [
+        ("_lo", f"{macro}_lo", 0.0, [pin for pin in lo_pins if pin not in use]),
+        ("_hi", f"{macro}_hi", um(y1 - origin.y), [pin for pin in hi_pins if pin not in use]),
+    ]
+    info["empty"] = f"{macro}_empty"
+    info["free_um"] = (um(y0 - origin.y), um(y1 - origin.y))
+    # over the free rows: every metal from the second up and every cut above it, as routing
+    # obstructions (the first metal there is the bands' rails, the cells' own)
+    middle = db.Region(db.Box(outline.left, y0, outline.right, y1))
+    obstructions = []
+    for layer, (lef_name, _direction) in names.items():
+        if layer in ("M1", "CO", "V1"):
+            continue
+        for polygon in (layer_shapes[layer] & middle).decompose_trapezoids_to_region(db.Polygon.TD_htrapezoids).each():
+            box = polygon.bbox()
+            obstructions.append(
+                (
+                    lef_name,
+                    um(box.left - origin.x),
+                    um(box.bottom - origin.y),
+                    um(box.right - origin.x),
+                    um(box.top - origin.y),
+                )
+            )
+    info["obstructions"] = obstructions
+    # the walls: the third metal's runs across the free rows (the side's supply at its ends), which
+    # a cell's route along that metal cannot cross; no cell stands under them
+    across = (
+        [box for box in (layer_shapes["M3"] & middle).merged().each() if box.bbox().height() >= 0.9 * (y1 - y0)]
+        if "M3" in layer_shapes
+        else []
+    )
+    info["walls"] = sorted((um(box.bbox().left - origin.x), um(box.bbox().right - origin.x)) for box in across)
+    return [lo_text, hi_text], info
 
 
-def _verilog_view(adc: h.Module, pdk: str, blocks: dict[str, tuple[str, list[str]]]) -> h.Module:
+def _verilog_view(adc: h.Module, pdk: str, blocks: dict[str, list[tuple[str, str, list[str]]]]) -> h.Module:
     """The converter as OpenROAD reads it (hdl21's Verilog of it): its blocks (``blocks``: instance
-    name -> macro and its abstract's pins) as their abstracts, scalar pins each bound to its port's
+    name -> each of its abstracts, its instance's suffix, its macro and its pins) as their
+    abstracts (capdac's side its two bands, ``xdac_p_lo``, ``xdac_p_hi``), scalar pins each bound to its port's
     bit (``dac_state_3`` to ``dac_state[3]``); its generic cells as the kit's library cells, their
     signal pins alone (an input the generic cell lacks on the library's tie cell, an output it lacks
-    open); no supply pin on any instance (OpenROAD connects the cells' supplies,
-    ``add_global_connection``, and routes the blocks' as signals). Its modules keep their hierarchy,
-    which OpenROAD flattens."""
+    open); no supply pin on any instance (OpenROAD connects the cells' and the blocks' supplies,
+    ``add_global_connection``); its supplies one, ``vdd`` and ``vss`` (the analog, digital and DAC
+    supplies merged, so one set of rails feeds them all). Its modules keep their hierarchy, which
+    OpenROAD flattens."""
     library = import_module(f"pdk.{pdk}.hdl21.cells")
     cells: dict[str, h.ExternalModule] = {}
     copies: dict[int, h.Module] = {}
@@ -444,19 +577,38 @@ def _verilog_view(adc: h.Module, pdk: str, blocks: dict[str, tuple[str, list[str
             )
         return cells[name]
 
-    top = _copy(adc, library, blocks, lib_cell, copies)
+    supplies = {
+        name: "vdd" if signal.usage == h.Usage.POWER else "vss"
+        for name, signal in adc.ports.items()
+        if signal.usage in (h.Usage.POWER, h.Usage.GROUND)
+    }
+    top = _copy(adc, library, blocks, lib_cell, copies, supplies)
     top.name = "adc"  # the top as the scripts name it
     return top
 
 
-def _copy(module: h.Module, library: Any, blocks: Any, lib_cell: Any, copies: dict[Any, Any]) -> h.Module:
-    """``module`` for ``_verilog_view``: its nets copied, its instances' targets swapped."""
+def _copy(
+    module: h.Module,
+    library: Any,
+    blocks: Any,
+    lib_cell: Any,
+    copies: dict[Any, Any],
+    supplies: dict[str, str] | None = None,
+) -> h.Module:
+    """``module`` for ``_verilog_view``: its nets copied (``supplies``, the top's supply ports,
+    each merged into the one it names), its instances' targets swapped."""
     if id(module) in copies:
         return copies[id(module)]
     copy = h.Module(name=module.name)
     nets = {}
     for name, signal in (*module.ports.items(), *module.signals.items()):
-        nets[name] = copy.add(replace(signal, name=name, props=deepcopy(signal.props)))
+        merged = (supplies or {}).get(name)
+        if merged is None:
+            nets[name] = copy.add(replace(signal, name=name, props=deepcopy(signal.props)))
+        else:
+            if merged not in copy.ports:
+                copy.add(replace(signal, name=merged, props=deepcopy(signal.props)))
+            nets[name] = copy.ports[merged]
 
     def net(target):
         if isinstance(target, h.Slice):
@@ -467,22 +619,25 @@ def _copy(module: h.Module, library: Any, blocks: Any, lib_cell: Any, copies: di
     for name, instance in module.instances.items():
         target = instance.of
         if name in blocks:
-            macro, pins = blocks[name]
-            ports = {}
-            for pin in pins:
-                port, bit = pin, None
-                if pin not in instance.conns and (found := re.fullmatch(r"(.+)_(\d+)", pin)):
-                    port, bit = found[1], int(found[2])
-                if port not in instance.conns:
-                    raise ValueError(f"{name}'s abstract has a pin {pin} its netlist has no port for")
-                bound = net(instance.conns[port])
-                ports[pin] = bound if bit is None else bound[bit]
-            key = f"macro:{macro}"
-            if key not in copies:
-                copies[key] = h.ExternalModule(
-                    domain="macro", name=macro, port_list=[h.Inout(name=pin) for pin in pins], paramtype=h.HasNoParams
-                )
-            copy.add(copies[key]()(**ports), name=name)
+            for suffix, macro, pins in blocks[name]:  # a block's abstracts, one or more
+                ports = {}
+                for pin in pins:
+                    port, bit = pin, None
+                    if pin not in instance.conns and (found := re.fullmatch(r"(.+)_(\d+)", pin)):
+                        port, bit = found[1], int(found[2])
+                    if port not in instance.conns:
+                        raise ValueError(f"{name}'s abstract has a pin {pin} its netlist has no port for")
+                    bound = net(instance.conns[port])
+                    ports[pin] = bound if bit is None else bound[bit]
+                key = f"macro:{macro}"
+                if key not in copies:
+                    copies[key] = h.ExternalModule(
+                        domain="macro",
+                        name=macro,
+                        port_list=[h.Inout(name=pin) for pin in pins],
+                        paramtype=h.HasNoParams,
+                    )
+                copy.add(copies[key]()(**ports), name=f"{name}{suffix}")
         elif isinstance(target, h.ExternalModuleCall) and target.module.domain == "generic":
             cell, mapping, high, low = library.GENERIC[target.module.name]
             ports = {}
@@ -523,148 +678,310 @@ def _cells_area(module: h.Module, widths: dict[str, float]) -> float:
 
 def _floorplan(
     blocks: dict[str, dict[str, Any]],
-    order: tuple[tuple[str, str, bool], ...],
-    cells_um: float,
+    cells_um2: float,
     site: tuple[str, float, float],
+    straps: tuple[float, float] = (_RAIL_UM, _RAIL_SPACE_UM),
 ) -> dict[str, Any]:
-    """Where everything goes, on the sites' grid: the blocks in a row (``order``: instance, block,
-    mirrored about the vertical axis), each on a whole number of sites and rows, the standard
-    cells' rows below them across the row's width, enough for the cells to fill about a third of
-    them, a row's margin around (``cells``; the core holds the blocks too)."""
-    _name, width, height = site
-    snap = lambda value, step: math.ceil(round(value / step, 6)) * step
-    x, placed = width * 4, {}
-    for instance, block, mirrored in order:
-        placed[instance] = {"block": block, "x": x, "mirrored": mirrored}
-        x += snap(blocks[block]["w_um"], width)
-    die_w = x + width * 4
-    core_w = die_w - 8 * width
-    rows = max(2, math.ceil(cells_um / 0.35 / core_w))
-    core = (width * 4, height, width * 4 + core_w, height + rows * height)
-    y = core[3] + height
-    for entry in placed.values():
-        entry["y"] = y
-    die_h = y + snap(max(block["h_um"] for block in blocks.values()), height) + height
-    # the core holds the blocks too (OpenROAD places them inside it); its rows above the cells'
-    # removed, so the cells and their rails stay below the blocks
-    cells = core
-    core = (core[0], core[1], core[2], die_h - height)
-    return {"die": (0.0, 0.0, die_w, die_h), "core": core, "cells": cells, "blocks": placed, "rows": rows}
+    """Where everything goes, FRIDA-1's floorplan on the sites' and rows' grid: the DAC's two sides
+    form the outline, the P side as drawn on the left and the N side mirrored on the right (each
+    side's drivers in its corners, its MSB outside), a narrow column between them; the comparator
+    at the top of that column, a sampler beside it on each side; the supply rails (``straps``: a
+    rail's width, the space in a pair) outside the sides on the left and right. The die is the
+    DAC's height: the pins are on its edges, the inputs at the top of the column, the outputs and
+    controls at its bottom, each side's preset values beside its free rows (``pins``).
+
+    Every block stands in the cells' rows, its rails on theirs (its bottom on a row whose rail is
+    its own bottom rail's), the comparator and its samplers abutting, so that no stretch of a row
+    between them is cut off from the rails. The cells fill the rows the blocks leave: where a side's
+    capacitors stack over its rows (``_abstract``), its free rows too, between its two bands of
+    drivers (``obstructions``: what the side has over them, translated and mirrored with it);
+    elsewhere the middle column alone. The column is as narrow as the comparator and its samplers
+    and the cells at ``_UTILIZATION`` of their rows allow."""
+    _name, site_w, row_h = site
+    cap, comp, samp = blocks["cap"], blocks["comp"], blocks["samp"]
+    up = lambda value, step: math.ceil(round(value / step, 6)) * step
+    down = lambda value, step: math.floor(round(value / step, 6)) * step
+    rail_w, rail_space = straps
+    pair = 2 * rail_w + rail_space
+    rail = up(pair + 6 * site_w, site_w)  # the column of a pair of rails, three sites either side
+    stacked = cap["free"]
+    halo = up(_HALO_UM, site_w)  # cell-free beside a block, its implants and wells past its outline
+    narrowest = comp["w_um"] + 2 * samp["w_um"] + 2 * site_w + 2 * halo + 2 * site_w
+    blocked = comp["w_um"] * comp["h_um"] + 2 * samp["w_um"] * samp["h_um"]
+    if stacked:
+        blocked += 2 * cap["w_um"] * (cap["free_um"][0] + cap["h_um"] - cap["free_um"][1])
+    else:
+        blocked += 2 * cap["w_um"] * cap["h_um"]
+    gap = up(narrowest, 2 * site_w)
+    while (2 * rail + 2 * cap["w_um"] + gap) * cap["h_um"] - blocked < cells_um2 / _UTILIZATION:
+        gap += 2 * site_w
+    die_w = 2 * rail + 2 * cap["w_um"] + gap
+    y0 = 0.0  # the core's bottom: the sides' bottom, row 0
+    die_h = cap["h_um"]
+    x_p, x_n = rail, rail + cap["w_um"] + gap
+    even = lambda y: y0 + down(y - y0, 2 * row_h)
+    top = y0 + (cap["free_um"][1] - row_h if stacked else cap["h_um"])
+    comp_x = down(die_w / 2 - comp["w_um"] / 2, site_w)  # the column's middle
+    comp_y = even(top - comp["h_um"])
+    samp_y = even(comp_y + comp["h_um"] - samp["h_um"])
+    samp_p_x = comp_x - site_w - samp["w_um"]  # a site from the comparator
+    samp_n_x = comp_x + comp["w_um"] + site_w
+    placed = {}
+    for side, x, orient in (("p", x_p, "R0"), ("n", x_n, "MY")):
+        for suffix, _macro, y, _pins in cap["parts"]:
+            placed[f"xdac_{side}{suffix}"] = (x, y0 + y, orient)
+    placed |= {
+        "xcomp": (comp_x, comp_y, "R0"),
+        "xsamp_p": (samp_p_x, samp_y, "R0"),
+        "xsamp_n": (samp_n_x, samp_y, "MY"),
+    }
+    obstructions = []
+    width = cap["w_um"]
+    for layer, a, b, c, d in cap.get("obstructions", []):
+        obstructions.append((layer, x_p + a, y0 + b, x_p + c, y0 + d))
+        obstructions.append((layer, x_n + width - c, y0 + b, x_n + width - a, y0 + d))  # mirrored
+    halos = []
+    for name, (x, y, _orient) in placed.items():
+        block = cap if name.startswith("xdac") else comp if name == "xcomp" else samp
+        height = block["h_um"]
+        if name.startswith("xdac") and block["free"]:  # a band of the side's drivers
+            height = block["free_um"][0] if name.endswith("_lo") else block["h_um"] - block["free_um"][1]
+        halos += [(x - halo, y, x, y + height), (x + block["w_um"], y, x + block["w_um"] + halo, y + height)]
+    if stacked:  # no cell under a side's walls across its free rows (``_abstract``), a site either side
+        lo, hi = y0 + cap["free_um"][0], y0 + cap["free_um"][1]
+        for a, c in cap.get("walls", []):
+            a, c = down(a - site_w, site_w), up(c + site_w, site_w)
+            halos += [(x_p + a, lo, x_p + c, hi), (x_n + width - c, lo, x_n + width - a, hi)]
+    # no cell in the rails' columns: between the rails and the die's edge a cell reaches nothing
+    halos += [(0.0, y0, x_p, die_h), (x_n + cap["w_um"], y0, die_w, die_h)]
+    return {
+        "die": (0.0, 0.0, die_w, die_h),
+        "core": (0.0, y0, die_w, y0 + cap["h_um"]),
+        "blocks": placed,
+        "halos": halos,
+        "obstructions": obstructions,
+        # each pair of rails three sites in from the die's edge: its first rail's middle (pdngen's
+        # offset, from the core's left edge; it snaps a rail to its layer's tracks)
+        "rails": (3 * site_w + rail_w / 2, die_w - 3 * site_w - pair + rail_w / 2),
+        # where the pins go: along the column's edges, clear of the sides' halos; beside the
+        # sides' free rows (stacked kits; elsewhere the sides reach no cell)
+        "pins": {
+            "x": (x_p + cap["w_um"] + halo, x_n - halo),
+            "y": (y0 + cap["free_um"][0], y0 + cap["free_um"][1]) if stacked else (),
+        },
+        "gap_um": gap,
+        "stacked": stacked,
+    }
 
 
-def _script(
-    plan: dict[str, Any],
-    blocks: dict[str, dict[str, Any]],
-    layers: dict[str, tuple[str, str]],
-    site: str,
-    rails: tuple[str, float],
-    fillers: list[str],
-) -> str:
-    """The OpenROAD script: the kit's setup, the blocks' abstracts, the converter's netlist; the
-    floorplan (``_floorplan``: the die, the core's rows, each block fixed where it goes, the N side
-    mirrored), the cells' supply (their rails on the first metal, run to the die's edges, the
-    digital supply's pins there), the pins on the die's edge,
-    the cells placed and legalized in the core, the gaps filled, and every signal routed (the
-    blocks' supplies too, as signals, for now) up to the highest metal a block's pin is on."""
-    die, core = plan["die"], plan["core"]
-    first, rail = rails
-    top = max(int(metal[1:]) for block in blocks.values() for metal in block["layers"])
-    top = max(top, 4)
-    lines = [
-        "source init.tcl",
-        "read_lef macros.lef",
-        "read_verilog adc.v",
-        "link_design adc",
-        (
-            f"initialize_floorplan -die_area {{{' '.join(f'{v:.4f}' for v in die)}}} "
-            f"-core_area {{{' '.join(f'{v:.4f}' for v in core)}}} -site {site}"
-        ),
-        "make_tracks",
-    ]
-    # each block fixed where it goes, its lower left corner there (a mirrored one turned about its
-    # own vertical axis); the rows above the cells' removed
-    for instance, entry in plan["blocks"].items():
-        lines.append(
-            f"place_macro -macro_name {instance} -location {{{entry['x']:.4f} {entry['y']:.4f}}} "
-            f"-orientation {'MY' if entry['mirrored'] else 'R0'} -exact"
-        )
-    lines += [
-        "set block [ord::get_db_block]",
-        f"set top [ord::microns_to_dbu {plan['cells'][3]:.4f}]",
-        "foreach row [$block getRows] { if {[lindex [$row getOrigin] 1] >= $top} { odb::dbRow_destroy $row } }",
-    ]
-    lines += [
-        "add_global_connection -net vdd_d -pin_pattern {^VDD$} -power",
-        "add_global_connection -net vss_d -pin_pattern {^VSS$} -ground",
-        "global_connect",
-        "set_voltage_domain -name CORE -power vdd_d -ground vss_d",
-        f"define_pdn_grid -name core -voltage_domains CORE -pins {{{first}}}",
-        f"add_pdn_stripe -grid core -layer {first} -width {rail} -followpins -extend_to_boundary",
-        "pdngen",
-        f"place_pins -hor_layers {layers['M3'][0]} -ver_layers {layers['M2'][0]}",
-        "global_placement -density 0.6",
-        "detailed_placement",
-        "check_placement -verbose",
-        f"filler_placement {{{' '.join(fillers)}}}",
-        f"set_routing_layers -signal {layers['M2'][0]}-{layers[f'M{top}'][0]}",
-        "global_route -allow_congestion",
-        "detailed_route -output_drc route_drc.rpt",
-        'puts "drc violations: [detailed_route_num_drvs]"',
-        "write_def adc.def",
-        "write_db adc.odb",
-        "write_verilog adc_routed.v",
-    ]
-    return "\n".join(line for line in lines if line) + "\n"
+def _tcl(value: Any) -> str:
+    """A Python value as a Tcl word: a number to four decimals, a sequence a braced list."""
+    if isinstance(value, (list, tuple)):
+        return "{" + " ".join(_tcl(item) for item in value) + "}"
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    return str(value)
+
+
+# The OpenROAD flow, one script top to bottom (its variables set above it by ``_openroad``)
+_FLOW = r"""
+###########################################################################
+# 1. The technology, the standard cells, the blocks' abstracts and the netlist
+
+source $init
+read_lef macros.lef
+read_verilog adc.v
+link_design adc
+set block [ord::get_db_block]
+proc dbu {value} { return [ord::microns_to_dbu $value] }
+
+###########################################################################
+# 2. The floorplan: the die, the cells' rows, the routing tracks
+
+initialize_floorplan -die_area $die -core_area $core -site $site
+make_tracks
+
+###########################################################################
+# 3. The blocks, fixed on the rows: the DAC's sides as the outline, the comparator and its
+#    samplers at the top of the column between them; no cell within a few sites beside a block;
+#    over a side's free rows, its capacitors as routing obstructions
+
+foreach entry $blocks {
+  lassign $entry name x y orient
+  set inst [$block findInst $name]
+  $inst setOrient $orient
+  # a mirrored block turns about its own vertical axis: its lower left corner stays put
+  $inst setLocation [dbu $x] [dbu $y]
+  $inst setPlacementStatus FIRM
+}
+foreach box $halos {
+  lassign $box x0 y0 x1 y1
+  odb::dbBlockage_create $block [dbu $x0] [dbu $y0] [dbu $x1] [dbu $y1]
+}
+foreach box $obstructions {
+  lassign $box layer x0 y0 x1 y1
+  odb::dbObstruction_create $block [[ord::get_db_tech] findLayer $layer] [dbu $x0] [dbu $y0] [dbu $x1] [dbu $y1]
+}
+
+###########################################################################
+# 4. The supply: one vdd and one vss for the cells and every block, the cells' rails on the
+#    first metal, a pair of rails outside each side, the pins where they leave the die
+
+add_global_connection -net vdd -pin_pattern $vdd_pins -power
+add_global_connection -net vss -pin_pattern $vss_pins -ground
+global_connect
+set_voltage_domain -name CORE -power vdd -ground vss
+define_pdn_grid -name core -voltage_domains CORE -pins [list $rail_layer]
+add_pdn_stripe -grid core -layer $cell_rail_layer -width $cell_rail_width -followpins
+foreach offset $rails {
+  add_pdn_stripe -grid core -layer $rail_layer -width $rail_width -spacing $rail_space \
+    -pitch [expr {2 * ($rail_width + $rail_space)}] -offset $offset -number_of_straps 1 -extend_to_boundary
+}
+add_pdn_connect -grid core -layers [list $cell_rail_layer $rail_layer]
+# a rail between two blocks reaches no strap: the blocks' own rails, which it meets, carry it
+pdn::allow_repair_channels 1
+pdngen
+
+###########################################################################
+# 5. The pins on the DAC's outline: the converter's inputs at the top of the column, each side's
+#    preset values beside its free rows, the rest (its outputs and controls) at the column's bottom
+
+set edges [dict create top {} left {} right {} bottom {}]
+foreach bterm [$block getBTerms] {
+  if {[$bterm getSigType] in {POWER GROUND}} { continue }
+  set name [$bterm getName]
+  set bus [regsub {\[.*} $name {}]
+  set edge [expr {$bus in $top_pins ? "top" : $bus in $left_pins ? "left" : $bus in $right_pins ? "right" : "bottom"}]
+  dict lappend edges $edge $name
+}
+lassign $pin_x x0 x1
+lassign $pin_y y0 y1
+foreach {edge range} [list top $x0-$x1 bottom $x0-$x1 left $y0-$y1 right $y0-$y1] {
+  if {[llength [dict get $edges $edge]]} {
+    set_io_pin_constraint -pin_names [dict get $edges $edge] -region $edge:$range
+  }
+}
+place_pins -hor_layers $pin_hor -ver_layers $pin_ver
+
+###########################################################################
+# 6. The cells: placed in the rows the blocks leave, legalized, the gaps filled
+
+global_placement -density $density
+detailed_placement
+filler_placement $fillers
+check_placement -verbose
+
+###########################################################################
+# 7. The routes
+
+set_routing_layers -signal $routing
+global_route -allow_congestion
+detailed_route -output_drc route_drc.rpt
+puts "drc violations: [detailed_route_num_drvs]"
+
+###########################################################################
+# 8. The results
+
+write_def adc.def
+write_db adc.odb
+write_verilog adc_routed.v
+"""
 
 
 def _openroad(params: Params, pdk: str, run_dir: Path) -> Path:
-    """A generated converter laid out by OpenROAD into ``run_dir`` (``adc.gds``): each block as its
-    own layout laid it out (``flow.sweep.lookup.laid_out``) given as an abstract (``_abstract``),
-    the control logic's cells from its netlist (``_verilog_view``), placed and routed
-    (``_floorplan``, ``_script``), then the blocks' and the cells' layouts put in (``_merge``)."""
+    """A generated converter laid out by OpenROAD into ``run_dir`` (``adc.gds``). Python reads what
+    the flow needs and decides the floorplan; one Tcl flow (``_FLOW``) runs it top to bottom, its
+    variables set above it (``adc.tcl``):
+
+    1. the kit: its OpenROAD setup, its layers, its cells' site, rails and fillers;
+    2. the blocks: each as its own layout laid it out (``flow.sweep.lookup.laid_out``), an abstract
+       made from it (``_abstract``; capdac's side its two bands where its capacitors leave rows
+       free, its capacitors there routing obstructions);
+    3. the netlist: hdl21's Verilog of the converter with the kit's cells and the abstracts, its
+       supplies one (``_verilog_view``);
+    4. the floorplan (``_floorplan``), then the flow; KLayout puts the blocks' and the cells'
+       layouts into the routed DEF (``_merge``); the plan and the abstracts beside it."""
     run_dir.mkdir(parents=True, exist_ok=True)
+    # 1. the kit
+    tech = import_module(f"pdk.{pdk}.layout.tech")
     init, lefs = _technology(pdk)
     tech_lef, stdcell_lef = lefs[0], lefs[1]
     site = _site(stdcell_lef)
     layers = _lef_layers(tech_lef)
-    sources = {
-        block: ROOT / laid_out(name, pdk, part)["gds"]
-        for block, name, part in (
-            ("comp", "comp", params.comp),
-            ("samp", "samp", params.samp),
-            ("cap", "capdac", params.cdac),
-        )
-    }
+    lef = {name: layer for name, (layer, _direction) in layers.items()}
+    # 2. the blocks
     blocks, abstracts = {}, []
-    for block, gds in sources.items():
-        text, info = _abstract(gds, pdk, f"adc_{block}", site)
+    for block, name, part in (
+        ("comp", "comp", params.comp),
+        ("samp", "samp", params.samp),
+        ("cap", "capdac", params.cdac),
+    ):
+        gds = ROOT / laid_out(name, pdk, part)["gds"]
+        free = free_rows(gds, pdk) if block == "cap" else None
+        texts, info = _abstract(gds, pdk, f"adc_{block}", free)
         blocks[block] = info
-        abstracts.append(text)
+        abstracts += texts
     header = 'VERSION 5.8 ;\nBUSBITCHARS "[]" ;\nDIVIDERCHAR "/" ;\n\n'
     (run_dir / "macros.lef").write_text(header + "\n".join(abstracts) + "\nEND LIBRARY\n")
-
-    logic = import_module(f"pdk.{pdk}.hdl21").pdk_logic
-    h.pdk.set_default(logic)
-    adc = netlist(params)
-    order = _ORDER
-    view = _verilog_view(adc, pdk, {name: (f"adc_{block}", blocks[block]["pins"]) for name, block, _ in order})
+    # 3. the netlist
+    h.pdk.set_default(import_module(f"pdk.{pdk}.hdl21").pdk_logic)
+    instances = {name: f"adc_{block}" for name, block in _ORDER}
+    view = _verilog_view(
+        netlist(params),
+        pdk,
+        {
+            name: [(suffix, macro, pins) for suffix, macro, _y, pins in blocks[block[4:]]["parts"]]
+            for name, block in instances.items()
+        },
+    )
     text = io.StringIO()
     h.netlist(view, text, fmt="verilog")
     (run_dir / "adc.v").write_text(text.getvalue())
-    plan = _floorplan(blocks, order, _cells_area(view, _cell_widths(stdcell_lef)), site)
-    (run_dir / "init.tcl").write_text(f"source {init}\n")
-    rails = _rails(stdcell_lef, {name for name, _ in layers.values()})
-    (run_dir / "adc.tcl").write_text(_script(plan, blocks, layers, site[0], rails, _fillers(pdk, stdcell_lef)))
+    # 4. the floorplan and the flow
+    vertical = next(
+        layer
+        for name, (layer, direction) in layers.items()
+        if name[0] == "M" and name != "M1" and direction == "VERTICAL"
+    )
+    straps = _straps(tech_lef, vertical)
+    plan = _floorplan(blocks, _cells_area(view, _cell_widths(stdcell_lef)) * site[2], site, straps)
+    top_metal = max(int(metal[1:]) for block in blocks.values() for metal in block["layers"])
+    rail_layer, rail_width = _rails(stdcell_lef, set(lef.values()))
+    power, ground = tech.STD_SUPPLY
+    variables = {
+        "init": init,
+        "die": plan["die"],
+        "core": plan["core"],
+        "site": site[0],
+        "blocks": [(name, *where) for name, where in plan["blocks"].items()],
+        "halos": plan["halos"],
+        "obstructions": plan["obstructions"],
+        "vdd_pins": f"^({power}|vdd)$",
+        "vss_pins": f"^({ground}|vss)$",
+        "cell_rail_layer": rail_layer,
+        "cell_rail_width": rail_width,
+        "rail_layer": vertical,
+        "rail_width": straps[0],
+        "rail_space": straps[1],
+        "rails": plan["rails"],
+        "top_pins": ("vin_p", "vin_n"),
+        # each side's preset values beside it (none where the sides leave no free rows)
+        "left_pins": ("dac_astate_p", "dac_bstate_p") if plan["pins"]["y"] else (),
+        "right_pins": ("dac_astate_n", "dac_bstate_n") if plan["pins"]["y"] else (),
+        "pin_x": plan["pins"]["x"],
+        "pin_y": plan["pins"]["y"],
+        "pin_hor": lef["M3"],
+        "pin_ver": vertical,
+        "density": min(0.9, _UTILIZATION + 0.1),
+        "fillers": _fillers(pdk, stdcell_lef),
+        "routing": f"{lef['M2']}-{lef[f'M{max(top_metal, 3)}']}",
+    }
+    script = "".join(f"set {name} {_tcl(value)}\n" for name, value in variables.items()) + _FLOW
+    (run_dir / "adc.tcl").write_text(script)
     run_logged(["openroad", "-no_init", "-exit", "adc.tcl"], cwd=run_dir, log=run_dir / "openroad.log", name="openroad")
     gds = _merge(run_dir, pdk, lefs, blocks, layers)
-    (run_dir / "blocks.json").write_text(
-        json.dumps(
-            {"plan": plan, "blocks": {k: {**v, "gds": _path(v["gds"])} for k, v in blocks.items()}},
-            indent=1,
-            default=str,
-        )
-        + "\n"
-    )
+    record = {"plan": plan, "blocks": {key: {**value, "gds": _path(value["gds"])} for key, value in blocks.items()}}
+    (run_dir / "blocks.json").write_text(json.dumps(record, indent=1, default=str) + "\n")
     return gds
 
 
@@ -701,6 +1018,11 @@ def _merge(
         layout = db.Layout()
         layout.read(str(source))
         macro_layouts.append(layout)
+    empty = db.Layout()  # the cells of the abstracts that carry no layout of their own
+    for block in blocks.values():
+        if block.get("empty"):
+            empty.create_cell(block["empty"])
+    macro_layouts.append(empty)
     config.macro_layouts = macro_layouts
     layout = db.Layout()
     layout.read(str(run_dir / "adc.def"), options)
