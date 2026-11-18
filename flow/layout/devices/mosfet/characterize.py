@@ -9,7 +9,12 @@ Each flavor (NMOS and PMOS, standard and low threshold where the PDK has them) i
 - its triode resistance: V/I at 50 mV, the one that sets the last of a settling;
 - its drain current and transconductance against the gate voltage at half the supply across it.
 
-Every number is per unit width, so a width of k units is a k-th of the resistance.
+Every number is per unit width, so a width of k units is a k-th of the resistance. Beside them, at
+each threshold, an inverter's delay at a fan-out of four (``fo4_delay_s``, a transient run): a chain
+of inverters each four times the one before it (NMOS two unit widths, PMOS as many more as its
+switching resistance asks), the delay of one inside it from its input's mid-supply crossing to its
+output's, the mean of its rising and falling output: what each inner inverter of a driver's chain
+adds (``flow.layout.devices.mosfet.netlist``: a chain tapers at FO4).
 
     python -m flow.layout.devices.mosfet.characterize tsmc65 [tsmc28 ...]
 """
@@ -23,7 +28,7 @@ from pathlib import Path
 import hdl21 as h
 import hdl21.sim as hs
 import numpy as np
-from hdl21.primitives import MosType, MosVth, Vdc
+from hdl21.primitives import MosType, MosVth, Vdc, Vpulse
 from vlsirtools.spice import ResultFormat, SimOptions, SupportedSimulators
 
 from flow.circuit.devices import core_unit, fingers
@@ -61,6 +66,77 @@ def _bench(vdd: float, flavors: list[tuple[MosType, MosVth]]) -> h.Module:
         for index, vgs in enumerate(np.linspace(0, vdd, _VGS_POINTS)):
             device(f"{key}_vgs{index}", tp, vth, float(vgs), vdd / 2)
     return bench
+
+
+# the FO4 chain: its first inverter's NMOS in unit widths, its inverters (the one measured the second,
+# loaded by the third, as large as a driver chain's inner inverters) and the input's edge (s)
+_FO4_UNITS = 2
+_FO4_STAGES = 5
+_FO4_MEASURED = 1
+_FO4_EDGE_S = 50e-12
+
+
+def _fo4_bench(vdd: float, ratio: dict[MosVth, float], period_s: float) -> h.Module:
+    """At each threshold a chain of ``_FO4_STAGES`` inverters, each four times the one before it,
+    from one pulse: its PMOS ``ratio`` times its NMOS."""
+
+    bench = h.Module(name="fo4_characterization")
+    bench.VSS = h.Port()
+    bench.vdd, bench.vin = h.Signal(), h.Signal()
+    bench.vsupply = Vdc(dc=vdd)(p=bench.vdd, n=bench.VSS)
+    pulse = {"delay": period_s / 4, "rise": _FO4_EDGE_S, "fall": _FO4_EDGE_S, "width": period_s / 2, "period": period_s}
+    bench.vpulse = Vpulse(v1=0.0, v2=vdd, **pulse)(p=bench.vin, n=bench.VSS)
+    for vth, p_over_n in ratio.items():
+        node = bench.vin
+        for stage in range(_FO4_STAGES):
+            out = bench.add(h.Signal(), name=f"n_{vth.name}_{stage}")
+            n = _FO4_UNITS * 4**stage
+            bench.add(
+                mos(tp=MosType.NMOS, vth=vth, w=n, l=1)(d=out, g=node, s=bench.VSS, b=bench.VSS),
+                name=f"mn_{vth.name}_{stage}",
+            )
+            bench.add(
+                mos(tp=MosType.PMOS, vth=vth, w=max(1, round(n * p_over_n)), l=1)(
+                    d=out, g=node, s=bench.vdd, b=bench.vdd
+                ),
+                name=f"mp_{vth.name}_{stage}",
+            )
+            node = out
+    return bench
+
+
+def _crossings(time_s: np.ndarray, v: np.ndarray, level: float) -> np.ndarray:
+    """Each time ``v`` crosses ``level``, interpolated."""
+    above = v > level
+    index = np.nonzero(above[1:] != above[:-1])[0]
+    return time_s[index] + (level - v[index]) * (time_s[index + 1] - time_s[index]) / (v[index + 1] - v[index])
+
+
+def _fo4_delay(attrs: list, vdd: float, ratio: dict[MosVth, float], run_dir: Path) -> dict[str, float]:
+    """Each threshold's FO4 inverter delay (s, ``_fo4_bench``): the measured inverter's from its
+    input's mid-supply crossing to its output's, the mean over its rising and falling outputs."""
+
+    # not in the reference texts: an inverter's delay at a fan-out of four, the logic designers' unit
+    # of gate delay; a propagation delay is [Baker] Fig. 10.9, p. 333, the mid-supply to mid-supply
+    period = 4e-9
+    bench = _fo4_bench(vdd, ratio, period)
+    h.pdk.compile(bench)
+    result = hs.Sim(tb=bench, attrs=[*attrs, hs.Tran(tstop=period, tstep=1e-12, name="tran")]).run(
+        SimOptions(
+            simulator=SupportedSimulators.SPECTRE,
+            fmt=ResultFormat.SIM_DATA,
+            rundir=run_dir,
+            simulator_args=("+lqtimeout", "600"),
+        )
+    )
+    data = result.an[0].data
+    time_s = np.asarray(data["time"])
+    found = {}
+    for vth in ratio:
+        into = _crossings(time_s, np.asarray(data[f"xtop.n_{vth.name}_{_FO4_MEASURED - 1}"]), vdd / 2)
+        out = _crossings(time_s, np.asarray(data[f"xtop.n_{vth.name}_{_FO4_MEASURED}"]), vdd / 2)
+        found[vth.name] = float(np.mean([min(o for o in out if o > i) - i for i in into]))
+    return found
 
 
 def _flavors(pdk_logic) -> list[tuple[MosType, MosVth]]:
@@ -124,11 +200,18 @@ def characterize(pdk: str) -> Path:
             "id_a": id_a,
             "gm_s": [float(g) for g in np.gradient(id_a, vgs)],
         }
+    # each threshold's inverter at its own switching resistances' ratio, as a driver's chain draws it
+    ratio = {
+        vth: devices[flavor(MosType.PMOS, vth)]["switching_ohm"] / devices[flavor(MosType.NMOS, vth)]["switching_ohm"]
+        for vth in (MosVth.STD, MosVth.LOW)
+        if (MosType.NMOS, vth) in flavors and (MosType.PMOS, vth) in flavors
+    }
+    fo4 = _fo4_delay([a for a in attrs if not isinstance(a, hs.Op)], vdd, ratio, run_dir / "fo4")
     return write_table(
         "mosfet",
         pdk,
-        {"vdd_v": vdd, "unit": {"w_m": w_unit, "l_m": l_min}, "devices": devices},
-        method="Spectre operating point",
+        {"vdd_v": vdd, "unit": {"w_m": w_unit, "l_m": l_min}, "devices": devices, "fo4_delay_s": fo4},
+        method="Spectre operating point; FO4 inverter chain transient",
     )
 
 

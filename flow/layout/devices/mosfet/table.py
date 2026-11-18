@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 
 from hdl21.primitives import MosType, MosVth
@@ -20,16 +20,21 @@ class MosfetTable:
     vdd_v: float
     switching_ohm: dict[str, float]
     triode_ohm: dict[str, float]
+    fo4_delay_s: dict[str, float] = field(default_factory=dict)
 
-    def width(self, tp: MosType, vth: MosVth, r_ohm: float) -> MosGeometry:
-        """The narrowest device of a whole number of unit widths whose switching resistance is at
-        most ``r_ohm``."""
-        units = max(1, math.ceil(self.switching_ohm[flavor(tp, vth)] / r_ohm))
-        return MosGeometry(tp, vth, units)
+    def width(self, tp: MosType, vth: MosVth, r_ohm: float, *, on: bool = False) -> MosGeometry:
+        """The narrowest device of a whole number of unit widths whose switching resistance (``on``:
+        its on-resistance, the triode resistance) is at most ``r_ohm``."""
+        per_unit = (self.triode_ohm if on else self.switching_ohm)[flavor(tp, vth)]
+        return MosGeometry(tp, vth, max(1, math.ceil(per_unit / r_ohm)))
 
-    def resistance(self, geometry: MosGeometry) -> float:
-        """A device's switching resistance."""
-        return self.switching_ohm[geometry.key] / geometry.units
+    def resistance(self, geometry: MosGeometry, *, on: bool = False) -> float:
+        """A device's switching resistance (``on``: its on-resistance)."""
+        return (self.triode_ohm if on else self.switching_ohm)[geometry.key] / geometry.units
+
+    def fo4(self, vth: MosVth) -> float:
+        """An inverter's delay at a fan-out of four (s) at threshold ``vth``."""
+        return self.fo4_delay_s[vth.name]
 
 
 @cache
@@ -42,4 +47,5 @@ def mosfet_table(pdk: str) -> MosfetTable:
         vdd_v=data["vdd_v"],
         switching_ohm={key: value["switching_ohm"] for key, value in devices.items()},
         triode_ohm={key: value["triode_ohm"] for key, value in devices.items()},
+        fo4_delay_s=data.get("fo4_delay_s", {}),
     )
