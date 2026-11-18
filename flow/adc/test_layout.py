@@ -1,25 +1,23 @@
 """The ADC's own layout flow (``flow.adc.layout.lay_out``): the FRIDA-1 layouts' netlist preparation
 (each flavor's source netlist with its capacitor array's frozen LVS source swapped in, and without
-it) and each fabricated converter's cells; and any other converter's blocks side by side, from the
-blocks' own layouts (the DAC's one side twice, the second mirrored): one top cell, each block
-labelled where the viewer's export finds it, nothing connected (skipped where the blocks are not
-laid out)."""
+it) and each fabricated converter's cells; and a generated converter's OpenROAD flow: its blocks'
+abstracts, the kit's layers, the netlist OpenROAD reads, and the whole flow in IHP130 (skipped
+without OpenROAD or the blocks' layouts)."""
 
+import io
 import json
-from itertools import pairwise
+import shutil
 from pathlib import Path
 
+import hdl21 as h
 import pytest
 from klayout import db
 
-from flow import capdac
-from flow.sweep.runner import ROOT
 from flow.util.netlist import omit_subcircuit, replace_subcircuit
-from flow.web.export import export_layout
 
-from . import layout, runs
+from . import layout
 from .layout import lay_out
-from .params import Fabricated
+from .params import Fabricated, Params
 
 # the FRIDA-1 layouts' netlists
 
@@ -115,61 +113,125 @@ def test_a_fabricated_converter_is_laid_out_from_its_tape_outs_cells(monkeypatch
     }
 
 
-# any other converter's blocks side by side
+# a generated converter: OpenROAD places and routes its blocks' abstracts and its logic's cells
 
 
-def test_the_blocks_sit_side_by_side_in_one_labelled_cell(tmp_path: Path) -> None:
-    tech = pytest.importorskip("pdk.tsmc65.layout.tech")  # the kit's layers and standard cells
-    # the first converter of the sweep with MSB redistribution of 4 extra cycles and the second
-    # comparator of the grid (200 uV, 1 ns)
-    params = next(
-        p
-        for label, p in runs.converters.instances("tsmc65")
-        if p.cdac.extra == 4 and p.cdac.redundancy is capdac.Redundancy.MSB_REDIST and "comp=200uV_1ns" in label
-    )
-    try:
-        gds = lay_out(params, "tsmc65", tmp_path)
-    except (FileNotFoundError, LookupError) as error:
-        pytest.skip(f"the blocks are not laid out: {error}")
-
-    # nothing connected: no LVS source, so the drc step checks it alone
-    assert gds == tmp_path / "adc_blocks.gds" and not (tmp_path / "source.cdl").exists()
-    blocks = json.loads((tmp_path / "blocks.json").read_text())
-    names = [block["name"] for block in blocks]
-    assert names == ["cap_p", "samp_p", "comp", "samp_n", "cap_n"]
-    assert all((ROOT / block["source"]).exists() for block in blocks)
-    # each side of the DAC capdac's layout of the converter's array, its drivers with it, the N side
-    # the P side's mirror image
-    cap_p, cap_n = blocks[0], blocks[-1]
-    assert cap_p["source"] == cap_n["source"] and "/capdac/" in cap_p["source"]
-    assert (cap_p["mirrored"], cap_n["mirrored"]) == (False, True)
-    assert (cap_p["w_um"], cap_p["h_um"]) == (cap_n["w_um"], cap_n["h_um"])
-    # in a row, apart, inside the cell's extent
-    lefts = [block["x_um"] for block in blocks]
-    assert lefts == sorted(lefts)
-    for left, right in pairwise(blocks):
-        assert left["x_um"] + left["w_um"] < right["x_um"]
+def _block_gds(path: Path) -> Path:
+    """A block's layout as ALIGN's step leaves one, in IHP130's layers: its boundary (four sites by
+    two rows), a pin label on an M2 bar, its supply's label on an M3 rail, an inner M2 wire and a
+    via, and a well past the boundary."""
+    tech = pytest.importorskip("pdk.ihp130.layout.tech")
     layout = db.Layout()
-    layout.read(str(gds))
-    assert [cell.name for cell in layout.top_cells()] == ["adc_blocks"]
-    # as written: the DAC's two sides one cell, the P side as drawn and the N side mirrored about the
-    # vertical axis (x to -x, not about the horizontal), each of its shapes the P side's reflected
-    (top,) = layout.top_cells()
-    box = top.dbbox()
-    assert box.width() > sum(block["w_um"] for block in blocks)
-    assert box.height() >= max(block["h_um"] for block in blocks)
-    sides = sorted(
-        (inst for inst in top.each_inst() if inst.cell.name == Path(cap_p["source"]).stem),
-        key=lambda inst: inst.bbox().left,
-    )
-    assert [inst.trans.rot for inst in sides] == [db.Trans.R0.rot, db.Trans.M90.rot]
-    p_box, n_box = (inst.bbox() for inst in sides)
-    metal = db.Region(top.begin_shapes_rec(layout.find_layer(*tech.LAYERS["M2"])))
-    p_side, n_side = metal & db.Region(p_box), metal & db.Region(n_box)
-    assert not p_side.is_empty()
-    assert (p_side.transformed(db.Trans(db.Trans.M90, n_box.left + p_box.right, 0)) ^ n_side).is_empty()
-    # the viewer's export: the labels on the boundary layer, which it shows
-    exported = export_layout(str(gds), "tsmc65", str(tmp_path / "adc_blocks.layout.json"))
-    assert {"M1", "OD", "PO", "BND"} <= set(exported["layers"])
-    labels = json.loads((tmp_path / "adc_blocks.layout.json").read_text())["labels"]
-    assert {label["text"] for label in labels if label["layer"] == "BND"} == set(names)
+    layout.dbu = 0.001
+    top = layout.create_cell("BLOCK_0")
+    shapes = lambda name: top.shapes(layout.layer(*tech.LAYERS[name]))
+    shapes("BND").insert(db.Box(0, 0, 1920, 7560))
+    shapes("M2").insert(db.Box(200, 3000, 900, 3200))  # the pin's bar
+    top.shapes(layout.layer(*tech.PIN_TEXT["M2"])).insert(db.Text("clk", db.Trans(500, 3100)))
+    shapes("M3").insert(db.Box(0, 7340, 1920, 7780))  # the supply's rail
+    top.shapes(layout.layer(*tech.PIN_TEXT["M3"])).insert(db.Text("vdd", db.Trans(960, 7560)))
+    shapes("M2").insert(db.Box(1200, 1000, 1400, 6000))  # an inner wire
+    shapes("V1").insert(db.Box(1210, 1010, 1390, 1190))
+    shapes("NW").insert(db.Box(-310, 3780, 2230, 7870))  # the well past the boundary
+    gds = path / "BLOCK_0.gds"
+    layout.write(str(gds))
+    return gds
+
+
+def test_a_blocks_abstract_is_its_layout_on_the_sites_grid(tmp_path: Path) -> None:
+    """A block's abstract: its boundary grown past its every shape and a micrometre more by whole
+    sites (left, right) and whole rows (below, above, one at least); a pin for each label, the
+    metal under it in the abstract's coordinates; the rest of its metals and cuts obstructions;
+    its layout placed where the abstract's origin puts it (FOREIGN)."""
+    gds = _block_gds(tmp_path)
+    text, info = layout._abstract(gds, "ihp130", "adc_block", ("CoreSite", 0.48, 3.78))
+    # left: the well 0.31 past it, + 1 um: three sites; right likewise; one row below and above
+    assert info["offset_um"] == pytest.approx((1.44, 3.78))
+    assert (info["w_um"], info["h_um"]) == pytest.approx((1.92 + 2 * 1.44, 7.56 + 2 * 3.78))
+    assert info["pins"] == ["clk", "vdd"] and info["layers"] == ["M2", "M3"]
+    assert "FOREIGN BLOCK_0 -1.4400 -3.7800 ;" in text
+    pin = text[text.index("PIN clk") : text.index("END clk")]
+    assert "LAYER Metal2 ;" in pin and "RECT 1.6400 6.7800 2.3400 6.9800 ;" in pin
+    obstructions = text[text.index("  OBS") :]
+    assert "LAYER Metal2 ;" in obstructions and "RECT 2.6400 4.7800 2.8400 9.7800 ;" in obstructions
+    assert "LAYER Via1 ;" in obstructions
+    assert "1.6400 6.7800 2.3400 6.9800" not in obstructions  # the pin is no obstruction
+
+
+def test_the_technology_layers_follow_the_kits_metals() -> None:
+    """frida's metals and cuts are the technology LEF's routing and cut layers in order."""
+    pytest.importorskip("pdk.ihp130.layout.tech")
+    _init, lefs = layout._technology("ihp130")
+    layers = layout._lef_layers(lefs[0])
+    assert {name: layers[name][0] for name in ("CO", "M1", "V1", "M2", "M5", "V5", "M7")} == {
+        "CO": "Cont",
+        "M1": "Metal1",
+        "V1": "Via1",
+        "M2": "Metal2",
+        "M5": "Metal5",
+        "V5": "TopVia1",
+        "M7": "TopMetal2",
+    }
+    assert layers["M2"][1] == "VERTICAL"
+    assert layout._rails(lefs[1], {name for name, _ in layers.values()}) == ("Metal1", 0.44)
+    assert layout._site(lefs[1]) == ("CoreSite", 0.48, 3.78)
+
+
+def test_openroads_netlist_holds_the_kits_cells_and_the_blocks_abstracts() -> None:
+    """The converter as OpenROAD reads it: its generic cells the kit's library cells, their signal
+    pins alone (an input the generic cell lacks on the library's tie cell); a block its abstract,
+    a scalar pin for each bus bit; no supply pin on an instance; the hierarchy kept."""
+    library = pytest.importorskip("pdk.ihp130.hdl21.cells")
+    from flow.circuit.cells import cell
+
+    Inner = h.Module(name="Inner")
+    Inner.a, Inner.y = h.Input(), h.Output()
+    Inner.vdd_d, Inner.vss_d = h.Inout(), h.Inout()
+    Inner.Xinv = cell("inv", 1)(A=Inner.a, Y=Inner.y, VDD=Inner.vdd_d, VSS=Inner.vss_d)
+    Top = h.Module(name="Top")
+    Top.state = h.Signal(width=2)
+    Top.vdd_d, Top.vss_d, Top.a = h.Inout(), h.Inout(), h.Input()
+    Top.xinner = Inner(a=Top.a, y=Top.state[1], vdd_d=Top.vdd_d, vss_d=Top.vss_d)
+    Block = h.ExternalModule(name="Block", port_list=[h.Input(name="dac_state", width=2), h.Inout(name="vdd")])
+    Top.xblock = Block()(dac_state=Top.state, vdd=Top.vdd_d)
+    view = layout._verilog_view(Top, "ihp130", {"xblock": ("adc_block", ["dac_state_0", "dac_state_1", "vdd"])})
+    assert view.name == "adc"
+    block = view.instances["xblock"]
+    assert block.of.module.name == "adc_block"
+    assert [port.name for port in block.of.module.port_list] == ["dac_state_0", "dac_state_1", "vdd"]
+    assert block.conns["dac_state_1"].index == 1 and block.conns["vdd"] is view.vdd_d
+    inverter = view.instances["xinner"].of.instances["Xinv"]
+    target, _pins, _high, _low = library.GENERIC["inv_x1"]
+    assert inverter.of.module.name == target and set(inverter.conns) == {"A", "Y"}
+    text = io.StringIO()
+    h.netlist(view, text, fmt="verilog")
+    assert "VDD" not in text.getvalue() and "module adc" in text.getvalue()
+
+
+def test_a_generated_converter_is_placed_and_routed_by_openroad(tmp_path: Path) -> None:
+    """FRIDA-1's converter in IHP130 (its blocks as laid out): its blocks in a row on the sites'
+    grid above its cells' rows, the N side's DAC mirrored, routed without a violation of the
+    abstracts, its layout its blocks', its cells' and its routes', DRC clean (skipped without
+    OpenROAD or the blocks' layouts)."""
+    pytest.importorskip("pdk.ihp130.hdl21")
+    if shutil.which("openroad") is None:
+        pytest.skip("OpenROAD is not on the PATH")
+    try:
+        gds = lay_out(Params(), "ihp130", tmp_path)
+    except LookupError as error:
+        pytest.skip(f"the blocks are not laid out: {error}")
+    log = (tmp_path / "openroad.log").read_text()
+    assert "drc violations: 0" in log
+    record = json.loads((tmp_path / "blocks.json").read_text())
+    plan = record["plan"]
+    site_w, row_h = 0.48, 3.78
+    for entry in plan["blocks"].values():
+        assert entry["x"] / site_w == pytest.approx(round(entry["x"] / site_w))
+        assert entry["y"] / row_h == pytest.approx(round(entry["y"] / row_h))
+        assert entry["y"] > plan["cells"][3]
+    assert [entry["mirrored"] for entry in plan["blocks"].values()] == [False, False, False, False, True]
+    built = db.Layout()
+    built.read(str(gds))
+    names = {cell.name for cell in built.each_cell()}
+    assert {record["blocks"][block]["cell"] for block in ("comp", "samp", "cap")} <= names
+    assert any(name.startswith("sg13g2_dfrbp") for name in names)
