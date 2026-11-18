@@ -33,6 +33,11 @@ from flow.sweep.lookup import characterized, detail
 from .params import L_MIN_UM, NMOS_K_A_PER_V2, PMOS_K_A_PER_V2, W_MIN_UM, Params, SwitchType
 
 
+def _finite(value: float | None) -> float:
+    """``value`` as a float, zero where it is missing or not finite."""
+    return float(value) if value is not None and math.isfinite(float(value)) else 0.0
+
+
 @dataclass(frozen=True)
 class Model:
     """A sampling switch as its characterization measured it."""
@@ -119,8 +124,9 @@ class Model:
             bandwidth_hz=values["bandwidth_hz"],
             pedestal_vin_v=tuple(x for x, _ in found),
             pedestal_v=tuple(y for _, y in found),
-            aperture_s=float(values.get("aperture_s") or 0.0),
-            aperture_s_per_v=float(values.get("aperture_s_per_v") or 0.0),
+            # no aperture where the sines' samples inside the settled levels were too few to fit one
+            aperture_s=_finite(values.get("aperture_s")),
+            aperture_s_per_v=_finite(values.get("aperture_s_per_v")),
             evidence=record.get("evidence"),
         )
 
@@ -171,7 +177,10 @@ class Model:
         """Return the sampler on-resistance at each input voltage; zero for an ideal switch, inf for
         an open one. A measured curve (``ron_table_v``, ``ron_table_ohm``) is interpolated, in its
         conductance next to an open level (which conducts nothing); an input outside its levels is
-        refused."""
+        refused. The characterization's levels reach the supply less half the level runs' step
+        (``params.VIN_TOP``, 1.195 V of 1.2 V): an ADC whose swing a side passes it (FRIDA's 12-bit
+        sawtooth reaches 1.1935 V; one above about 0.95 V differential full scale at 1.05 times it,
+        about the 0.7 V common mode) is refused."""
 
         if behavioral.ron_table_v is not None:
             levels = np.asarray(behavioral.ron_table_v, dtype=np.float64)
@@ -217,6 +226,9 @@ class Model:
         (``track_s``) each sample settles from the previous one's held value, the residue
         exp(-T / RC) of their difference left; without one, nothing is left, but a switch
         that is open (infinite resistance) holds the previous sample (the first: its input).
+        The residue starts from the previous held value, not from where the converter left the
+        top plate (its conversion's end and the INIT reload's step), which this call is not given:
+        the error is exp(-T / RC) times the distance between the two.
         """
 
         count = len(vin["p"])

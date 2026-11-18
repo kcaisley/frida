@@ -41,8 +41,8 @@ SAVES = tuple(
         else ()
     )
 ) + tuple(f"xtop.v{net.name}:p" for net in Nets.signals.values() if net.usage in (h.Usage.POWER, h.Usage.CLOCK))
-# a bootstrapped switch's boosted gate and its boost capacitor's plates
-BOOST_SAVES = ("xtop.dut.gate", "xtop.dut.boot_top", "xtop.dut.boot_bot")
+# a bootstrapped switch's boosted gate, its boost capacitor's plates and its helpers' nodes
+BOOST_SAVES = tuple(f"xtop.dut.{net}" for net in ("gate", "boot_top", "boot_bot", "gate_ctl", "gate_mid", "gate_off"))
 
 
 def testbench(tb: TbParams) -> h.Module:
@@ -114,8 +114,8 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
     """Run ``testbench(tb)`` in classic Spectre in ``run_dir``, marked for the accuracy its figures
     need (a sine's harmonics, else small differences of large signals), its raw transient on disk:
     the output strobed every ``tb.waveform_sample_interval_s``, the step bounded to it, at the
-    conservative error preset; at ``tb.corner`` and ``tb.temperature_c``; with ``tb.oppoint`` every
-    transistor's operating values beside the signals."""
+    conservative error preset; at ``tb.corner`` and ``tb.temperature_c``, at ``tb.gmin_s`` where
+    given; with ``tb.oppoint`` every transistor's operating values beside the signals."""
 
     pdk = importlib.import_module(f"pdk.{tb.pdk}")
     install = importlib.import_module(f"pdk.{tb.pdk}.hdl21.site").install
@@ -130,6 +130,7 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
     attrs = [
         *includes,
         *spectre.options(tb.temperature_c),
+        *([] if tb.gmin_s is None else [hs.Options(name="gmin", value=tb.gmin_s)]),
         hs.Save([*SAVES, *boost, *(oppoint.saves(devices, bench, includes) if devices else ())]),
         hs.Tran(
             tstop=tb.stop_s,

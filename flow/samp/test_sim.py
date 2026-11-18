@@ -88,6 +88,7 @@ def test_every_run_needs_classic_spectre(stimulus: Stimulus, tmp_path) -> None:
         {"clock_delay_s": -1e-9},
         {"clock_high_time_s": 20e-9},
         {"periods": 0},
+        {"gmin_s": 0.0},
     ),
 )
 def test_a_run_rejects_impossible_values(change: dict[str, Any]) -> None:

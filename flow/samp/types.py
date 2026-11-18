@@ -1,7 +1,7 @@
 """The sampler's analysis results (``flow.samp.analysis``), pure data: at each measured point (a run
 over the input level, the supply or the corners), its tracking, its holding, its boost, its
-devices' stress, its acquisition of a full-scale step, its held sine, its hold under the DAC's step
-and its energy."""
+devices' stress, its acquisition of a full-scale step, its held sine, its droop over the ADC's hold
+(with the DAC's step or without) and its energy."""
 
 from __future__ import annotations
 
@@ -131,26 +131,29 @@ class AnalysisSine(Analysis):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class AnalysisDac(Analysis):
-    """The hold while the DAC's first step moves the held output, at each measured point:
-    ``step_v`` the held output's step, ``droop_v_per_s`` its slope while stepped (the off switch's
-    leakage across that drain-source voltage)."""
+class AnalysisDroop(Analysis):
+    """The held output's droop over the middle half of each hold, at each measured point:
+    ``temperature_c`` the run's, ``step_v`` the step the DAC's first decision moves the held output
+    by meanwhile (0: none), ``droop_v_per_s`` its slope (the off switch's and its junctions' leakage
+    over the load), the median over the holds after the first."""
 
-    # [Razavi-ADC] Fig. 14.11, p. 291: top-plate sampling, the top plate moved by the DAC while held
     # [Pelgrom] Eq. (8.3), p. 387: V_droop = -I_leak T_hold / C_hold
+    # [Razavi-ADC] Sec. 16.2.1, p. 346: monotonic switching moves one side's top plate while it is held
     vdd_v: np.ndarray
     vin_v: np.ndarray
+    temperature_c: np.ndarray
     step_v: np.ndarray
     droop_v_per_s: np.ndarray
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class AnalysisEnergy(Analysis):
-    """The energy a clock period takes at each measured point: ``energy_per_cycle_j`` the supply's
-    and both clocks' sources' energy over a whole period, the median over the periods after the
-    first."""
+    """The energy a clock period takes at each measured point: ``energy_per_cycle_j`` the supply
+    voltage times the charge the supply's and both clocks' sources deliver over a whole period (the
+    charge a driver of each would draw from its supply; a clock source's return of the gate charge
+    on its falling edge is not counted), the median over the periods after the first."""
 
-    # [Baker] Eq. (11.15), p. 355: the average power; over a clock period, its energy
+    # [Baker] Eq. (11.15), p. 355: P_avg = V_DD I_avg, the current drawn from V_DD; over a clock period, its energy
     vdd_v: np.ndarray
     vin_v: np.ndarray
     energy_per_cycle_j: np.ndarray

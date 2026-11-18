@@ -202,10 +202,10 @@ def test_every_component_is_its_block_sweeps_instance() -> None:
     samplers = set(design_space("samp", "tsmc65"))
     assert [digest(samp) for samp in _values("tsmc65", "samp")] == [
         "2e79aff2a06f",  # FRIDA-1's transmission gate
-        "2f8305483f2b",  # bootstrapped, 32 minimum widths, the boost capacitor 32 times its gate area
-        "7070f0770b03",  # 64, boosted alike
-        "f63177cff1db",  # 112
-        "ed25b6248286",  # 160
+        "10b469733d26",  # bootstrapped, 32 minimum widths, boost capacitor 32 gate areas and 16 helper widths
+        "f1166f039c59",  # 64, boosted alike
+        "ab61939a6e88",  # 112
+        "35668779898d",  # 160
     ]
     assert all(digest(samp) in samplers and not samp.dummy for samp in _values("tsmc65", "samp"))
 

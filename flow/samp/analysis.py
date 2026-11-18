@@ -9,10 +9,11 @@ time constant, the switch's effective resistance into the load, and what is left
 (``analyze_track``); a bootstrap's boosted gate (``analyze_boost``); a full-scale step's
 acquisition time (``analyze_acquisition``). A hold phase shows the pedestal the opening switch
 leaves, the droop before the input steps, and how much of that step feeds through
-(``analyze_hold``); the droop while the DAC's first step moves the held output (``analyze_dac``).
-A sine's held samples show the switch's distortion and how far the behavioral model's held value
-is from them (``analyze_sine``). Every run that saved its devices' values shows their largest
-voltages (``analyze_stress``); a clock period's energy (``analyze_energy``).
+(``analyze_hold``); over the ADC's long hold, the droop, with the DAC's first step moving the held
+output or without (``analyze_droop``). A sine's held samples show the switch's distortion and how
+far the behavioral model's held value is from them (``analyze_sine``). Every run that saved its
+devices' values shows their largest voltages (``analyze_stress``); a clock period's energy
+(``analyze_energy``).
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from .subckt import Nets, netlist
 from .types import (
     AnalysisAcquisition,
     AnalysisBoost,
-    AnalysisDac,
+    AnalysisDroop,
     AnalysisEnergy,
     AnalysisHold,
     AnalysisSine,
@@ -92,7 +93,7 @@ def analyze_track(measurements: Sequence[Meas]) -> AnalysisTrack:
             # not in the reference texts: tau as the time between the track error's 1/e and 1/e^2
             # of its largest value from the clock's mid-supply crossing on (its value there, unless
             # the closing switch's own charge first kicks the output further away): the exponential
-            # alone, its turn-on (some 40 ps, which reads as 40 ohm into 1 pF) excluded
+            # alone, its turn-on delay (which would read as resistance) excluded
             peak = int(np.argmax(error))
             error, error_s = error[peak:], error_s[peak:]
             first = calc.cross(error, error_s, float(error[0]) / math.e, edge="falling")
@@ -218,11 +219,13 @@ def analyze_boost(measurements: Sequence[Meas]) -> AnalysisBoost:
 
 
 @analysis
-def analyze_stress(measurements: Sequence[Meas]) -> AnalysisStress:
+def analyze_stress(measurements: Sequence[Meas], *, track: AnalysisTrack) -> AnalysisStress:
     """Measure the largest terminal voltages and junction forward bias of the switch's transistors
-    over each run's operating point and transient (NaN for a run that did not save them)."""
+    over each run's operating point and transient (NaN for a run that did not save them), against
+    the nominal supply, the level runs' (``track``): a supply corner's own is not the limit's base."""
 
     identity = measurement_identity(measurements)
+    nominal_v = float(np.median(track.vdd_v))
     oxide = (oppoint.Terminals.GS, oppoint.Terminals.GD, oppoint.Terminals.DS)
     rows = []
     for measurement in measurements:
@@ -231,7 +234,7 @@ def analyze_stress(measurements: Sequence[Meas]) -> AnalysisStress:
         if any(name.endswith(":vgs") for name in measurement.v):
             devices = oppoint.mos_devices(netlist(tb.params))
             points = [measurement, *(measurement.sweeps[name] for name in ("opdc",) if name in measurement.sweeps)]
-            stress = oppoint.stress(points, devices, nominal_v=float(tb.vdd))
+            stress = oppoint.stress(points, devices, nominal_v=nominal_v)
             pairs = stress.terminal_v.values()
             found = (
                 max(float(np.max(pair[kind])) for pair in pairs for kind in oxide),
@@ -336,10 +339,13 @@ def analyze_sine(measurements: Sequence[Meas], *, track: AnalysisTrack, hold: An
 
     identity = measurement_identity(measurements)
     settled = np.isfinite(track.ron_ohm)
+    low, high = _settled_span(track)
     rows = []
     for measurement in measurements:
         tb = measurement.param
         vin, rate, held, load = _held(measurement)
+        # the model's error and the aperture over the samples inside the range the level runs settle over
+        inside = (vin >= low) & (vin <= high)
         period = float(tb.clock_period_s)
         cycles = round(float(tb.sine_frequency_hz) * period * len(held))
         # [Razavi-ADC] Eq. (3.85), p. 55: the held samples' harmonics over their fundamental
@@ -348,18 +354,19 @@ def analyze_sine(measurements: Sequence[Meas], *, track: AnalysisTrack, hold: An
         # is V_in - R(V_in) C dV_in/dt (flow.samp.model.Model.sample); plus the pedestal at V_in
         resistance = np.interp(vin, track.vin_v[settled], track.ron_ohm[settled]) if settled.any() else np.nan
         pedestal = np.interp(vin, hold.vin_v[settled], hold.pedestal_v[settled]) if settled.any() else np.nan
-        rest = held - (vin - resistance * load * rate + pedestal)
+        rest = (held - (vin - resistance * load * rate + pedestal))[inside]
         # [Razavi-ADC] Eq. (3.86), p. 55: an instant later by dT moves the held value by dT dV_in/dt;
         # the rest fitted as (a + b V_in) dV_in/dt (least squares)
-        basis = np.stack([rate, rate * vin], axis=1)
-        fit = np.linalg.lstsq(basis, rest, rcond=None)[0] if np.all(np.isfinite(rest)) else (math.nan, math.nan)
+        basis = np.stack([rate[inside], rate[inside] * vin[inside]], axis=1)
+        fitted = rest.size >= 3 and bool(np.all(np.isfinite(rest)))
+        fit = np.linalg.lstsq(basis, rest, rcond=None)[0] if fitted else (math.nan, math.nan)
         rows.append(
             (
                 float(tb.vdd),
                 float(tb.input_voltage),
                 float(tb.sine_frequency_hz),
                 thd_db,
-                float(np.max(np.abs(rest))),
+                float(np.max(np.abs(rest))) if fitted else math.nan,
                 float(fit[0]),
                 float(fit[1]),
             )
@@ -382,8 +389,9 @@ def analyze_sine(measurements: Sequence[Meas], *, track: AnalysisTrack, hold: An
 
 
 @analysis
-def analyze_dac(measurements: Sequence[Meas]) -> AnalysisDac:
-    """Measure the held output's slope while the DAC's step holds it moved, at each point."""
+def analyze_droop(measurements: Sequence[Meas]) -> AnalysisDroop:
+    """Measure the held output's slope over the middle half of each hold (where a DAC step holds
+    it moved, over that step), at each point."""
 
     identity = measurement_identity(measurements)
     rows = []
@@ -395,23 +403,29 @@ def analyze_dac(measurements: Sequence[Meas]) -> AnalysisDac:
         hold = period - high - 2 * edge
         droops = []
         for fall in calc.cross(clock, time_s, vdd / 2, edge="falling")[1:]:
-            # the stepped hold: from a step's edge after it rose (a quarter into the hold, an edge
-            # later) to the same before it falls back (a quarter before the hold's end)
+            # a quarter into the hold (and an edge after the DAC's step there) to a quarter before its end
             first, last = float(fall) + edge / 2 + hold / 4 + 2 * edge, float(fall) + edge / 2 + 3 * hold / 4 - edge
             if last >= float(time_s[-1]):
                 continue
             # [Pelgrom] Eq. (8.3), p. 387: the held output's slope, its leakage over C
             droops.append((calc.value(output, time_s, last) - calc.value(output, time_s, first)) / (last - first))
         rows.append(
-            (vdd, float(tb.input_voltage), float(tb.dac_step_v), float(np.median(droops)) if droops else math.nan)
+            (
+                vdd,
+                float(tb.input_voltage),
+                float(tb.temperature_c),
+                float(tb.dac_step_v),
+                float(np.median(droops)) if droops else math.nan,
+            )
         )
-    vdd_v, vin_v, step_v, droop = (np.asarray(column, dtype=np.float64) for column in zip(*rows))
-    return AnalysisDac(
+    vdd_v, vin_v, temperature_c, step_v, droop = (np.asarray(column, dtype=np.float64) for column in zip(*rows))
+    return AnalysisDroop(
         group=identity.group,
         index=identity.index,
         dut=identity.dut,
         vdd_v=vdd_v,
         vin_v=vin_v,
+        temperature_c=temperature_c,
         step_v=step_v,
         droop_v_per_s=droop,
     )
@@ -419,25 +433,24 @@ def analyze_dac(measurements: Sequence[Meas]) -> AnalysisDac:
 
 @analysis
 def analyze_energy(measurements: Sequence[Meas]) -> AnalysisEnergy:
-    """Measure the energy the supply and both clocks' sources deliver over each whole period after
-    the first, at each point."""
+    """Measure the energy the supply and both clocks draw over each whole period after the first:
+    the supply voltage times the charge each source delivers, at each point."""
 
     identity = measurement_identity(measurements)
     rows = []
     for measurement in measurements:
         tb = measurement.param
-        period, time_s = float(tb.clock_period_s), measurement.time_s
-        # [Baker] Eq. (11.15), p. 355: the average power V_DD I_avg; over a period, its energy, each
-        # source's voltage times the current drawn from it
-        power = np.zeros_like(time_s)
-        for net, current in measurement.i.items():
-            power = power + measurement.v.get(net, np.full_like(time_s, float(tb.vdd))) * current
+        vdd, period, time_s = float(tb.vdd), float(tb.clock_period_s), measurement.time_s
+        # [Baker] Eq. (11.15), p. 355: P_avg = V_DD I_avg, the current drawn from V_DD: over a period,
+        # V_DD times the charge each source delivers (a source's current out of the circuit,
+        # positive; a clock's driver draws its edge's charge from V_DD and returns none of it)
+        delivered = sum(np.maximum(current, 0.0) for current in measurement.i.values())
         energies = [
-            calc.integ(*calc.clip(power, time_s, start, start + period))
+            vdd * calc.integ(*calc.clip(np.asarray(delivered, dtype=np.float64), time_s, start, start + period))
             for start in np.arange(1, int(tb.periods)) * period + float(tb.clock_delay_s)
             if start + period <= float(time_s[-1])
         ]
-        rows.append((float(tb.vdd), float(tb.input_voltage), float(np.median(energies)) if energies else math.nan))
+        rows.append((vdd, float(tb.input_voltage), float(np.median(energies)) if energies else math.nan))
     vdd_v, vin_v, energy = (np.asarray(column, dtype=np.float64) for column in zip(*rows))
     return AnalysisEnergy(
         group=identity.group,
@@ -447,6 +460,25 @@ def analyze_energy(measurements: Sequence[Meas]) -> AnalysisEnergy:
         vin_v=vin_v,
         energy_per_cycle_j=energy,
     )
+
+
+def _settled_span(track: AnalysisTrack) -> tuple[float, float]:
+    """The lowest and highest input level of the contiguous levels whose track phase settles to
+    1/e^2 within the track window: those around the nominal one where it settles, else the widest
+    such run; NaN for both where none settles."""
+    nominal = int(np.argmin(np.abs(track.vin_v - NOMINAL_VIN * track.vdd_v)))
+    runs, first = [], None
+    for index, value in enumerate([*np.isfinite(track.ron_ohm), False]):
+        if value and first is None:
+            first = index
+        elif not value and first is not None:
+            runs.append((first, index - 1))
+            first = None
+    held = [run for run in runs if run[0] <= nominal <= run[1]]
+    widest = held or sorted(runs, key=lambda run: (run[0] - run[1], run[0]))
+    if not widest:
+        return math.nan, math.nan
+    return float(track.vin_v[widest[0][0]]), float(track.vin_v[widest[0][1]])
 
 
 def _largest(values: np.ndarray, mask: np.ndarray | None = None) -> float:
@@ -463,41 +495,36 @@ def metrics(
     supply_hold: AnalysisHold | None = None,
     corners: AnalysisTrack | None = None,
     corners_hold: AnalysisHold | None = None,
-    hot: AnalysisHold | None = None,
+    droop: AnalysisDroop | None = None,
     skew: AnalysisHold | None = None,
     boost: AnalysisBoost | None = None,
     stress: AnalysisStress | None = None,
+    dac_stress: AnalysisStress | None = None,
     acquisition: AnalysisAcquisition | None = None,
     sine: AnalysisSine | None = None,
-    dac: AnalysisDac | None = None,
+    dac: AnalysisDroop | None = None,
     energy: AnalysisEnergy | None = None,
 ) -> dict[str, float]:
     """The record's numbers: from the input level's runs (``track``, ``hold``) the on-resistance,
     bandwidth, track error, pedestal, droop and feedthrough at the nominal input, the largest
     on-resistance and pedestal where a point settled, the input range over which it settles; from
     the supply's (``supply``, ``supply_hold``) the largest on-resistance and pedestal; and where
-    given, the corners' (``corners``, ``corners_hold``, the ``hot`` droop), the pedestal with a
+    given, the corners' (``corners``, ``corners_hold``), the droop over the ADC's hold at 25 C and
+    hot (``droop``, in that order: the droop in place of the level run's), the pedestal with a
     late complementary clock (``skew``), the boost's V_GS over the input and the gate's peak
-    (``boost``), the devices' largest voltages (``stress``), the acquisition times and the
-    full-scale track error (``acquisition``), the sines' distortion, their distance from the model
-    and the aperture (``sine``, low tone first), the droop under the DAC's step (``dac``) and the
-    energy a cycle (``energy``)."""
+    (``boost``), the devices' largest voltages in the level runs (``stress``) and under the DAC's
+    step (``dac_stress``), the acquisition times and the full-scale track error
+    (``acquisition``), the sines' distortion, their distance from the model and the aperture
+    (``sine``, low tone first), the droop under the DAC's step (``dac``) and the energy a cycle
+    (``energy``)."""
 
     nominal = int(np.argmin(np.abs(track.vin_v - NOMINAL_VIN * track.vdd_v)))
     settled = np.isfinite(track.ron_ohm)
     # not in the reference texts: the input range, the span of the contiguous input levels whose
     # track phase settles to 1/e^2 within the track window: those around the nominal one where it
     # settles, else the widest such run
-    runs, first = [], None
-    for index, value in enumerate([*settled, False]):
-        if value and first is None:
-            first = index
-        elif not value and first is not None:
-            runs.append((first, index - 1))
-            first = None
-    held = [run for run in runs if run[0] <= nominal <= run[1]]
-    widest = held or sorted(runs, key=lambda run: (run[0] - run[1], run[0]))
-    span = float(track.vin_v[widest[0][1]] - track.vin_v[widest[0][0]]) if widest else 0.0
+    low, high = _settled_span(track)
+    span = high - low if math.isfinite(low) else 0.0
     # [Pelgrom] Sec. 8.2.3, p. 387: hold-mode feedthrough in dB
     feedthrough_db = 20 * np.log10(np.abs(hold.feedthrough))
     found = {
@@ -513,8 +540,8 @@ def metrics(
         # [Razavi-Analog] Eq. (13.26), p. 550: the pedestal; and its largest where a point settled
         "pedestal_v": float(hold.pedestal_v[nominal]),
         "pedestal_max_v": _largest(hold.pedestal_v, settled),
-        # [Pelgrom] Eq. (8.3), p. 387: the droop
-        "droop_v_per_s": float(hold.droop_v_per_s[nominal]),
+        # [Pelgrom] Eq. (8.3), p. 387: the droop, over the ADC's hold where its run is given
+        "droop_v_per_s": float(hold.droop_v_per_s[nominal] if droop is None else droop.droop_v_per_s[0]),
         "feedthrough_db": float(feedthrough_db[nominal]),
         # not in the reference texts: the largest R_on over the 90/100/110 % supply runs at the nominal input
         "ron_max_supply_ohm": _largest(supply.ron_ohm),
@@ -526,9 +553,9 @@ def metrics(
         # not in the reference texts: the largest R_on and |pedestal| over the slow, fast and hot runs
         found["ron_max_corner_ohm"] = _largest(corners.ron_ohm)
         found["pedestal_max_corner_v"] = _largest(corners_hold.pedestal_v)
-    if hot is not None:
-        # [Pelgrom] Eq. (8.3), p. 387: the droop, at the hot corner
-        found["droop_hot_v_per_s"] = float(hot.droop_v_per_s[0])
+    if droop is not None:
+        # [Pelgrom] Eq. (8.3), p. 387: the droop over the ADC's hold, hot
+        found["droop_hot_v_per_s"] = float(droop.droop_v_per_s[-1])
     if skew is not None:
         # [Razavi-Analog] Eq. (13.26), p. 550: the pedestal, the complementary clock an edge late
         found["pedestal_skew_v"] = float(skew.pedestal_v[0])
@@ -539,13 +566,15 @@ def metrics(
         found["vgs_max_v"] = float(boost.vgs_v[boosted].max()) if boosted.any() else math.nan
         # [Razavi-ADC] Sec. 3.8.1, p. 43: the gate's peak, V_CM + V_b about the supply
         found["gate_max_v"] = _largest(boost.gate_max_v)
-    if stress is not None:
+    for suffix, given in (("", stress), ("_dac", dac_stress)):
+        if given is None:
+            continue
         # [Razavi-ADC] Sec. 3.8.2, p. 48: the largest terminal voltages, against the technology's
-        found["terminal_max_v"] = _largest(stress.terminal_v)
-        found["gate_bulk_max_v"] = _largest(stress.gate_bulk_v)
+        found[f"terminal_max{suffix}_v"] = _largest(given.terminal_v)
+        found[f"gate_bulk_max{suffix}_v"] = _largest(given.gate_bulk_v)
         # [Razavi-Analog] Sec. 2.1, p. 9: the largest forward bias of a source or drain junction
-        forward = stress.junction_v[np.isfinite(stress.junction_v)]
-        found["junction_forward_max_v"] = float(forward.max()) if forward.size else math.nan
+        forward = given.junction_v[np.isfinite(given.junction_v)]
+        found[f"junction_forward_max{suffix}_v"] = float(forward.max()) if forward.size else math.nan
     if acquisition is not None:
         # [Razavi-ADC] Eq. (3.82), p. 54: t_acq to half an LSB at each resolution
         for index, bits in enumerate(acquisition.bits):
@@ -560,9 +589,9 @@ def metrics(
         # [Pelgrom] Sec. 8.3.2, p. 390: the signal-dependent aperture delay, from the high tone
         found["aperture_s"], found["aperture_s_per_v"] = float(sine.aperture_s[-1]), float(sine.aperture_s_per_v[-1])
     if dac is not None:
-        # [Pelgrom] Eq. (8.3), p. 387: the largest |droop| while the DAC's step holds the output moved
+        # [Pelgrom] Eq. (8.3), p. 387: the largest |droop| while the DAC's first step holds the output raised
         found["droop_conversion_v_per_s"] = _largest(dac.droop_v_per_s)
     if energy is not None:
-        # [Baker] Eq. (11.15), p. 355: the energy a clock period takes
+        # [Baker] Eq. (11.15), p. 355: V_DD times the charge drawn over a clock period
         found["energy_per_cycle_j"] = float(energy.energy_per_cycle_j[0])
     return found

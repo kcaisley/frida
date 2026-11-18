@@ -7,10 +7,12 @@ input stepping by ``SMALL_STEP`` of the supply once a period, ``PERIODS`` period
 every ``STROBE_S``; over the input level (``VIN_SWEEP``, fractions of the supply, and the supply
 less half the step, ``VIN_TOP``, the top of the ADC's swing) and over the supply (``SUPPLY_SWEEP``,
 fractions of its own) at the nominal input (``NOMINAL_VIN`` of the nominal supply); at the process
-corners and the hot temperature (``HOT_C``); its acquisition of a full-scale step in the ADC's
-track window (``ADC_TRACK_S``, ``ADC_PERIOD_S``); a sine of the ADC's swing (``SINE_CENTRE``,
-``SINE_AMPLITUDE``, ``SINE_SAMPLES`` samples, tones ``SINE_CYCLES``); its held output stepped as
-the DAC's first step steps it; its complementary clock an edge late.
+corners and the hot temperature (``HOT_C``); at the ADC's timing (``ADC_TRACK_S``,
+``ADC_PERIOD_S``, ``ADC_PERIODS`` periods, its output every ``ADC_STROBE_S``): its acquisition of a
+full-scale step, its droop over the hold, a sine of the ADC's swing (``ADC_CM``,
+``SINE_AMPLITUDE``, ``SINE_SAMPLES`` samples, tones ``SINE_CYCLES``) and its held output stepped as
+the ADC's first decision steps it, at the lowest level a side reaches (``VIN_BOTTOM``) and at the
+common mode; its complementary clock an edge late.
 
 The behavioral model (``flow.samp.model``) derives the switch's triode conductances from its sizing
 with the rough device constants here (``W_MIN_UM`` to ``PMOS_K_A_PER_V2``).
@@ -88,26 +90,34 @@ WAVE_VIN = (VIN_SWEEP[0], NOMINAL_VIN, VIN_SWEEP[-1])
 # over the input, so that each level's resistance is the resistance at that level
 SMALL_STEP = 1 / 120
 # the supply less half the step, the highest level: the ADC's swing reaches 1.19 V of 1.2 V a side
-# (flow.adc: 0.7 V common mode, its sawtooth 1.05 times the full scale)
+# (flow.adc: 0.7 V common mode, its sawtooth 1.05 times the full scale); its lowest, as far below
+# the ADC's common mode (0.7 V of 1.2 V) as the highest is above it
 VIN_TOP = 1 - SMALL_STEP / 2
+ADC_CM = 7 / 12
+VIN_BOTTOM = 2 * ADC_CM - VIN_TOP
 # the supply at 90 and 110 % of its own besides nominal, the input at its nominal level: never past
 # the models' limits (TSMC28's core devices warn above 110 %: CMI-2753, Vgb over vgb_max)
 SUPPLY_SWEEP = (0.9, 1.0, 1.1)
 # the hot corner (the models' usual junction limit), where leakage and the on-resistance are largest
 HOT_C = 125.0
-# the ADC's sampling: 20 symbols tracking of a 160-symbol conversion at 1.6 GHz (flow.adc.params)
+# the ADC's sampling: 20 symbols tracking of a 160-symbol conversion at 1.6 GHz (flow.adc.params);
+# its runs three conversions long (the first starts from the operating point), their output every
+# 50 ps
 ADC_TRACK_S = 12.5e-9
 ADC_PERIOD_S = 100e-9
+ADC_PERIODS = 3
+ADC_STROBE_S = 50e-12
+# Spectre's gmin for the runs that read a hold's leakage (the droop): its default, 1e-12 S across
+# every junction and channel, would draw 0.6 pA from a held 0.6 V, as much as the leakage itself
+LEAKAGE_GMIN_S = 1e-18
 # acquisition to half an LSB of the supply, at these resolutions (bits)
 ACQUISITION_BITS = (10, 12, 14)
-# a sine of the ADC's swing a side, fractions of the supply: about its 0.7 V common mode and 0.44 V
-# (its 12-bit full scale, 0.94 V differential, 0.5 dB below), SINE_SAMPLES samples at the ADC's
-# timing, SINE_CYCLES cycles in them (a low tone and one near Nyquist)
-SINE_CENTRE = 7 / 12
+# a sine of the ADC's swing a side, fractions of the supply: about its common mode, 0.44 V (its
+# 12-bit full scale, 0.94 V differential, 0.5 dB below), SINE_SAMPLES samples at the ADC's timing,
+# SINE_CYCLES cycles in them (a low tone and one near Nyquist)
 SINE_AMPLITUDE = 0.37
 SINE_SAMPLES = 32
 SINE_CYCLES = (1, 15)
-SINE_STROBE_S = 50e-12
 # Rough 65-nm device constants, for the behavioral model's triode conductances from the switch's
 # sizing where none is given (flow.samp.model.Model.conductances): the width and the length one size
 # unit stands for, and each device type's k'
@@ -128,7 +138,8 @@ class TbParams(pipeline.TbParams):
     driven so that the held output steps by it a quarter into each hold and back before the next
     track (the DAC's first step); ``periods`` periods; on the bench every switch is characterized
     on unless given. Spectre writes its output every ``waveform_sample_interval_s`` and steps no
-    further; with ``oppoint`` it also saves every transistor's operating values (PSF ASCII)."""
+    further, at its own gmin or ``gmin_s``; with ``oppoint`` it also saves every transistor's
+    operating values (PSF ASCII)."""
 
     pdk: str = "tsmc65"
     params: Params = field(default_factory=Params)
@@ -150,6 +161,7 @@ class TbParams(pipeline.TbParams):
     periods: int = PERIODS
     waveform_sample_interval_s: float = STROBE_S
     oppoint: bool = False
+    gmin_s: float | None = None
 
     def __post_init__(self) -> None:
         values = (
@@ -182,6 +194,8 @@ class TbParams(pipeline.TbParams):
             raise ValueError("sampler input step must be non-negative and the periods positive")
         if self.stimulus is Stimulus.SINE and (self.sine_amplitude_v <= 0 or self.sine_frequency_hz <= 0):
             raise ValueError("a sine's amplitude and frequency must be positive")
+        if self.gmin_s is not None and not 0.0 < float(self.gmin_s) < 1e-9:
+            raise ValueError("sampler gmin must be positive and below 1 nS")
 
     @property
     def stop_s(self) -> float:

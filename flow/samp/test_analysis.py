@@ -11,11 +11,24 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from flow import capdac
 from flow.pipeline import Meas, MeasInfo, Plot
 
 from . import runs
-from .analysis import analyze_hold, analyze_track, metrics
-from .params import NOMINAL_VIN, SUPPLY_SWEEP, VIN_SWEEP, Params, Stimulus, TbParams
+from .analysis import analyze_droop, analyze_energy, analyze_hold, analyze_sine, analyze_track, metrics
+from .params import (
+    ADC_CM,
+    ADC_PERIOD_S,
+    ADC_TRACK_S,
+    LEAKAGE_GMIN_S,
+    NOMINAL_VIN,
+    SUPPLY_SWEEP,
+    VIN_BOTTOM,
+    VIN_SWEEP,
+    Params,
+    Stimulus,
+    TbParams,
+)
 from .runs import results
 from .types import AnalysisHold, AnalysisTrack
 
@@ -85,10 +98,16 @@ def test_a_run_that_never_settles_has_no_resistance() -> None:
     assert math.isnan(track.ron_ohm[0]) and math.isnan(track.tau_s[0])
 
 
-def ideal_run(tb: TbParams, *, tau_s: float = 0.2e-9, pedestal_v: float = -2e-3) -> Meas:
+# the gate capacitance each ideal clock source charges and discharges
+CLOCK_LOAD_F = 10e-15
+
+
+def ideal_run(tb: TbParams, *, tau_s: float = 0.2e-9, pedestal_v: float = -2e-3, droop_v_per_s: float = 0.0) -> Meas:
     """A run of any of ``tb``'s stimuli (a level, a step, a sine; a DAC step ignored) into an ideal
     RC sampler: closed while the clock is above mid-supply, relaxing to the input with ``tau_s``,
-    leaving ``pedestal_v`` as it opens; a sample every ``waveform_sample_interval_s``."""
+    leaving ``pedestal_v`` as it opens and drifting at ``droop_v_per_s`` while open; a sample every
+    ``waveform_sample_interval_s``. The supply delivers 1 uA; each clock source charges
+    ``CLOCK_LOAD_F`` on its rising edge and takes the charge back on its falling one."""
 
     period, high, edge = tb.clock_period_s, tb.clock_high_time_s, tb.clock_transition_time_s
     dt = tb.waveform_sample_interval_s
@@ -112,6 +131,8 @@ def ideal_run(tb: TbParams, *, tau_s: float = 0.2e-9, pedestal_v: float = -2e-3)
             value += pedestal_v
         if now:
             value = level + (value - level) * decay
+        else:
+            value += droop_v_per_s * dt
         closed = now
         output[index] = value
     return Meas(
@@ -122,7 +143,11 @@ def ideal_run(tb: TbParams, *, tau_s: float = 0.2e-9, pedestal_v: float = -2e-3)
         param=tb,
         time_s=time_s,
         v={"clk": clock, "clk_b": tb.vdd - clock, "vin": data, "vout": output},
-        i={"vdd": np.full_like(time_s, 1e-6), "clk": np.zeros_like(time_s), "clk_b": np.zeros_like(time_s)},
+        i={
+            "vdd": np.full_like(time_s, 1e-6),
+            "clk": CLOCK_LOAD_F * np.gradient(clock, time_s),
+            "clk_b": -CLOCK_LOAD_F * np.gradient(clock, time_s),
+        },
     )
 
 
@@ -163,8 +188,8 @@ def test_the_record_reads_every_run_and_names_its_waves(monkeypatch: pytest.Monk
     assert result.metrics["model_error_v"] < 1e-4
     # no device values saved by the synthetic runs: no stress figures
     assert math.isnan(result.metrics["terminal_max_v"])
-    # 1 uA from 1.2 V over a 10 ns period
-    assert result.metrics["energy_per_cycle_j"] == pytest.approx(1.2e-6 * 10e-9, rel=1e-6)
+    # 1 uA from 1.2 V over a 10 ns period, and each clock's 10 fF charged from 1.2 V once
+    assert result.metrics["energy_per_cycle_j"] == pytest.approx(1.2 * (1e-6 * 10e-9 + 2 * 10e-15 * 1.2), rel=1e-3)
     assert [plot.name for plot in result.details] == [
         "ron_vin",
         "track_error_vin",
@@ -215,3 +240,75 @@ def test_the_metrics_take_the_nominal_point_and_the_largest_settled() -> None:
     # the largest pedestal where a point settled: the highest two never did
     assert values["pedestal_max_v"] == pytest.approx(hold.pedestal_v[-3])
     assert values["input_range_v"] == pytest.approx(vin[-3] - vin[0])
+
+
+def test_the_energy_counts_each_clocks_charge_once_though_its_source_takes_it_back() -> None:
+    """[Baker] Eq. (11.15), p. 355: V_DD I_avg, the current drawn from V_DD. A clock source that
+    charges 10 fF and takes it back nets nothing, but its driver draws C V_DD from V_DD each
+    period: 1.2 V x (1 uA x 10 ns + 2 x 10 fF x 1.2 V)."""
+    energy = analyze_energy([ideal_run(TbParams(input_step_v=0.0))])
+    assert energy.energy_per_cycle_j[0] == pytest.approx(1.2 * (1e-6 * 10e-9 + 2 * 10e-15 * 1.2), rel=1e-3)
+
+
+def test_the_droop_is_the_slope_over_the_adcs_hold() -> None:
+    """A held output falling 1e3 V/s over the ADC's 87.5 ns hold reads -1e3 V/s, with a DAC step
+    or without (its step recorded), at the run's temperature."""
+    tb = TbParams(input_step_v=0.0, clock_period_s=ADC_PERIOD_S, clock_high_time_s=ADC_TRACK_S, periods=3)
+    droop = analyze_droop(
+        [
+            ideal_run(tb, droop_v_per_s=-1e3),
+            ideal_run(replace(tb, temperature_c=125.0, dac_step_v=0.35), droop_v_per_s=-1e3),
+        ]
+    )
+    assert droop.droop_v_per_s == pytest.approx([-1e3, -1e3], rel=1e-3)
+    assert list(droop.temperature_c) == [25.0, 125.0] and list(droop.step_v) == [0.0, 0.35]
+
+
+def test_the_metrics_take_the_droop_over_the_adcs_hold_where_it_was_run() -> None:
+    track, hold = analyze_track([rc_run(TB)]), analyze_hold([rc_run(TB)])
+    tb = TbParams(input_step_v=0.0, clock_period_s=ADC_PERIOD_S, clock_high_time_s=ADC_TRACK_S, periods=3)
+    droop = analyze_droop(
+        [ideal_run(tb, droop_v_per_s=-1.0), ideal_run(replace(tb, temperature_c=125.0), droop_v_per_s=-50.0)]
+    )
+    values = metrics(track=track, hold=hold, supply=track, droop=droop)
+    assert values["droop_v_per_s"] == pytest.approx(-1.0, rel=1e-3)
+    assert values["droop_hot_v_per_s"] == pytest.approx(-50.0, rel=1e-3)
+
+
+def test_the_dac_runs_raise_the_lower_side_by_the_adcs_first_step(monkeypatch: pytest.MonkeyPatch) -> None:
+    """flow.adc's first decision raises the side below the reference by a_0 = V c_0 / C_p of its
+    default array: the DAC runs step the held output up by it from the lowest level a side reaches
+    and from the common mode, never past the supply."""
+    monkeypatch.setattr(runs.importlib, "import_module", lambda name: SimpleNamespace(install=_Install()))
+    benches = runs.testbenches("tsmc65", Params())
+    main_f, diff_f = capdac.Model.plates_f(capdac.Model.Behavioral(), "p", capdac.Params(), 1.2)
+    step = 1.2 * (main_f[0] - diff_f[0]) / (main_f.sum() + diff_f.sum())
+    assert benches["dac_low"].input_voltage == pytest.approx(VIN_BOTTOM * 1.2, abs=1e-4)
+    assert benches["dac_cm"].input_voltage == pytest.approx(ADC_CM * 1.2, abs=1e-4)
+    for name in ("dac_low", "dac_cm"):
+        assert benches[name].dac_step_v == pytest.approx(step, abs=1e-4)
+        assert benches[name].input_voltage + benches[name].dac_step_v < 1.2
+    # the runs that read a hold's leakage at a gmin below it, the others at Spectre's own
+    leaky = {"droop", "droop_hot", "dac_low", "dac_cm"}
+    assert {name for name, tb in benches.items() if tb.gmin_s == LEAKAGE_GMIN_S} == leaky
+    assert all(tb.gmin_s is None for name, tb in benches.items() if name not in leaky)
+
+
+def test_a_sine_outside_the_settled_levels_fits_no_aperture() -> None:
+    """Where no level settles, no held sample lies inside the settled range: no model error and no
+    aperture (NaN), and the model takes none."""
+    tb = TbParams(
+        stimulus=Stimulus.SINE,
+        input_voltage=0.7,
+        input_step_v=0.0,
+        sine_amplitude_v=0.44,
+        sine_frequency_hz=1 / (32 * ADC_PERIOD_S),
+        clock_period_s=ADC_PERIOD_S,
+        clock_high_time_s=ADC_TRACK_S,
+        periods=34,
+        waveform_sample_interval_s=50e-12,
+    )
+    track = analyze_track([rc_run(TB, tau_s=50e-9)])
+    hold = analyze_hold([rc_run(TB, tau_s=50e-9)])
+    sine = analyze_sine([ideal_run(tb)], track=track, hold=hold)
+    assert math.isnan(sine.aperture_s[0]) and math.isnan(sine.model_error_v[0])

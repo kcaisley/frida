@@ -34,7 +34,9 @@ def test_bootstrap_boosts_the_nmos_gate() -> None:
     """[Razavi-ADC] Fig. 3.41(b), p. 48: M5 (Mpre) and M3 (Mgate) PMOS, their n-wells on P
     (Sec. 3.8.2, p. 48); M2 (Mbot_in) an NMOS gated by the boosted node; the gate's pull-down M6
     under the cascode M7 gated by vdd (a second cascode, gated by P, above it); M3's gate at the
-    bottom plate while tracking and at vdd while holding."""
+    bottom plate while tracking (started by a PMOS on the complementary clock) and at vdd while
+    holding; M5 eight helpers wide, M2 two; dummies against the edges' kicks on Q, on M3's gate
+    and on M6's drain."""
     m = netlist(Params(switch_type=SwitchType.BOOTSTRAP))
     assert m.MN.conns["g"] is m.gate and not hasattr(m, "MP") and not hasattr(m, "Mtg_p")
     assert m.Mgate.conns == {"d": m.gate, "g": m.gate_ctl, "s": m.boot_top, "b": m.boot_top}
@@ -47,14 +49,18 @@ def test_bootstrap_boosts_the_nmos_gate() -> None:
     assert m.Mgate_off.conns == {"d": m.gate_off, "g": m.clk_b, "s": m.vss, "b": m.vss}
     assert m.Mctl_p.conns == {"d": m.gate_ctl, "g": m.clk, "s": m.vdd, "b": m.vdd}
     assert m.Mctl_n.conns == {"d": m.gate_ctl, "g": m.gate, "s": m.boot_bot, "b": m.vss}
-    assert m.Mctl_on.conns == {"d": m.gate_ctl, "g": m.clk, "s": m.boot_bot, "b": m.vss}
+    assert m.Mctl_on.conns == {"d": m.boot_bot, "g": m.clk_b, "s": m.gate_ctl, "b": m.vdd}
+    assert m.Mpre.of.params.w == 8 * 4 and m.Mbot_in.of.params.w == 2 * 4
+    assert m.Mbot_dummy.conns == {"d": m.boot_bot, "g": m.clk_b, "s": m.boot_bot, "b": m.vss}
+    assert m.Mctl_dummy.conns == {"d": m.gate_ctl, "g": m.clk_b, "s": m.gate_ctl, "b": m.vdd}
+    assert m.Mgate_off_dummy.conns == {"d": m.gate_off, "g": m.clk, "s": m.gate_off, "b": m.vss}
 
 
 def test_every_bootstrap_of_the_space_boosts_its_gate_by_at_least_0_9_vdd_by_area() -> None:
     """[Razavi-ADC] Eq. (3.70), p. 50: V_b' = C_b / (C_b + C_G1 + C_G2 + C_p) V_DD, at least
     0.9 V_DD: every bootstrap the runs name has a boost capacitor of 32 times its switch's gate
-    area (C_b over C_G1 alone 32, so C_G1 takes 3 % and leaves the helpers' and the top plate's
-    parasitics 7 %)."""
+    area and 128 times its helpers' width more (C_p grows with the precharge device, eight helpers
+    wide)."""
     found = [
         params
         for run in (runs.scaled, runs.long_channel, runs.boost_ladder)
@@ -64,7 +70,7 @@ def test_every_bootstrap_of_the_space_boosts_its_gate_by_at_least_0_9_vdd_by_are
     ] + [runs.bootstrap.build()]
     assert found
     for params in found:
-        assert params.cap_w * params.cap_l == 32 * params.mos_w * params.mos_l
+        assert params.cap_w * params.cap_l == 32 * params.mos_w * params.mos_l + 128 * params.boot_w
 
 
 def test_the_parameters_refuse_what_does_not_build() -> None:
@@ -98,9 +104,9 @@ def test_the_named_structures_rows() -> None:
         "tgate_dummy": [["Mp", "Mp_dummy"], ["Mn", "Mn_dummy"]],
         "nmos": [["Mn_a"], ["Mn_b"]],
         "bootstrap": [
-            ["Mpre", "Mgate", "Mctl_p"],
+            ["Mpre", "Mgate", "Mctl_p", "Mctl_on", "Mctl_dummy"],
             ["Mcap"],
-            ["Mgate_top", "Mgate_cas", "Mgate_off", "Mbot", "Mctl_n", "Mctl_on"],
+            ["Mgate_top", "Mgate_cas", "Mgate_off", "Mgate_off_dummy", "Mbot", "Mbot_dummy", "Mctl_n"],
             ["Mn", "Mbot_in"],
         ],
     }
