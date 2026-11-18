@@ -112,6 +112,145 @@ def free_rows(gds: Path, pdk: str) -> dict[str, Any] | None:
     }
 
 
+def supply_lines(gds: Path, pdk: str) -> list[dict[str, Any]] | None:
+    """The block's supply rail lines as the layout ``gds`` draws them, apart (each a pin the
+    converter's power grid joins, ``flow.layout.post.rail_pins``): for each line its supply (by its
+    labels), its y and each piece's x extent (um), and whether it runs from the outline's left edge
+    to its right (the layout's extent), where the top level's row rails abut it. None where the
+    layout has no rail labels."""
+    tech = import_module(f"pdk.{pdk}.layout.tech")
+    layout = db.Layout()
+    layout.read(str(gds))
+    top = max(layout.top_cells(), key=lambda cell: cell.bbox().area())
+    m1 = db.Region(top.begin_shapes_rec(layout.layer(*tech.LAYERS["M1"]))).merged()
+    texts = top.shapes(layout.layer(*tech.PIN_TEXT["M1"]))
+    edge = top.bbox()
+    um, rail = layout.dbu, tech.RAIL
+    lines: dict[int, dict[str, Any]] = {}
+    for shape in texts.each():
+        if not shape.is_text() or shape.text.string.lower() not in ("vdd", "vss"):
+            continue
+        y = shape.text.y
+        line = lines.setdefault(y, {"net": shape.text.string.lower(), "y_um": round(y * um, 3), "pieces_um": []})
+        band = db.Region(db.Box(edge.left, y - rail, edge.right, y + rail))
+        for piece in (
+            (m1 & band).interacting(db.Region(db.Box(shape.text.x - 1, y - 1, shape.text.x + 1, y + 1))).each()
+        ):
+            x = [round(piece.bbox().left * um, 3), round(piece.bbox().right * um, 3)]
+            if x not in line["pieces_um"]:
+                line["pieces_um"].append(x)
+    if not lines:
+        return None
+    left, right = round(edge.left * um, 3), round(edge.right * um, 3)
+    found = []
+    for y in sorted(lines):
+        line = lines[y]
+        line["pieces_um"].sort()
+        line["x_um"] = [line["pieces_um"][0][0], line["pieces_um"][-1][1]]
+        line["edges"] = len(line["pieces_um"]) == 1 and line["x_um"] == [left, right]
+        found.append(line)
+    return found
+
+
+def under_array(gds: Path, pdk: str) -> dict[str, Any] | None:
+    """The region under a block's capacitor array that its layout leaves free below the shield, for
+    the converter's own rows of standard cells and decaps (its abstract leaves it unobstructed): the
+    array's footprint (its MOM units as ALIGN placed them, ``<NAME>_0.gds`` beside ``gds``) less its
+    plates' landings at its top and bottom edges (the metal below the shield its units draw) and,
+    where the array stands over the rows, less the rows of drivers under it (``free_rows``). Its
+    extent (um), the layers below the shield it leaves free and those something occupies there
+    (area, um^2); the landings the post step left and those the units drew (their stubs below the
+    shield at the array's edges, ``flow.layout.post.idle_landings``);
+    ALIGN's routes below the shield inside it (none: every plate's route reaches its landing from
+    outside the array). None where the block has no capacitor array."""
+    from flow.layout.build import _mom_units
+
+    units = _mom_units(gds.parent)
+    placed = gds.parent / f"{gds.stem.upper()}_0.gds"
+    if not units or not placed.exists():
+        return None
+    tech = import_module(f"pdk.{pdk}.layout.tech")
+    shield = min(tech.MOM_LAYERS[-n] for n in units.values()) - 1
+    raw = db.Layout()
+    raw.read(str(placed))
+    top = max(raw.top_cells(), key=lambda cell: cell.bbox().area())
+    caps, ids = db.Box(), set()
+    for inst in top.each_inst():
+        if any(inst.cell.name.upper().startswith(unit) for unit in units):
+            caps += inst.bbox()
+            ids.add(inst.cell_index)
+    if caps.empty():
+        return None
+    below = [f"M{k}" for k in range(1, shield)]
+
+    def cells_layer(name: str) -> db.Region:
+        index = raw.find_layer(*tech.LAYERS[name])
+        if index is None:
+            return db.Region()
+        it = top.begin_shapes_rec(index)
+        it.unselect_all_cells()
+        it.select_cells(list(ids))  # the units and what they hold
+        return db.Region(it).merged()
+
+    stubs = db.Region()
+    for name in below:
+        stubs += cells_layer(name)
+    stubs.merge()
+    middle = caps.center().y
+    low = max((p.bbox().top for p in stubs.each() if p.bbox().center().y < middle), default=caps.bottom)
+    high = min((p.bbox().bottom for p in stubs.each() if p.bbox().center().y >= middle), default=caps.top)
+    y0, y1 = low, high
+    free = free_rows(gds, pdk)
+    if free:  # over the rows: the rows of drivers under the array's edges are not the region
+        y0, y1 = max(y0, round(free["y_um"][0] / raw.dbu)), min(y1, round(free["y_um"][1] / raw.dbu))
+    region = db.Region(db.Box(caps.left, y0, caps.right, y1))
+    row = round(tech.H * 0.001 / raw.dbu)  # the kit's row height (nm in its tech)
+    edges = db.Region(db.Box(caps.left, y0, caps.right, y0 + 1)) + db.Region(db.Box(caps.left, y1 - 1, caps.right, y1))
+    # ALIGN's routes: the top cell's own shapes
+    routes = {}
+    for name in [*below, *(f"V{k}" for k in range(1, shield))]:
+        index = raw.find_layer(*tech.LAYERS[name]) if name in tech.LAYERS else None
+        if index is not None:
+            inside = db.Region(top.shapes(index)) & region
+            if not inside.is_empty():
+                routes[name] = inside.count()
+    layout = db.Layout()
+    layout.read(str(gds))
+    final = max(layout.top_cells(), key=lambda cell: cell.bbox().area())
+    skip = re.compile(r"^(M|V)(\d+)$")
+    occupied, empty = {}, []
+    for name, pair in sorted(tech.LAYERS.items()):
+        level = skip.match(name)
+        if pair is None or "." in name or name in ("BND", "TEXT") or "MOM" in name:
+            continue
+        if level and int(level.group(2)) >= shield:
+            continue
+        index = layout.find_layer(*pair)
+        # what lies within it, not the rows' rails, wells and taps reaching in across its edges
+        shapes = db.Region(final.begin_shapes_rec(index)).merged() if index is not None else db.Region()
+        cut = shapes & region
+        spill = [p for p in cut.interacting(edges).each() if p.bbox().height() < row // 2]
+        inside = cut - db.Region(spill)
+        if inside.is_empty():
+            empty.append(name)
+        else:
+            occupied[name] = round(inside.area() * layout.dbu**2, 3)
+    um = raw.dbu
+    done = Path(f"{gds}.post.json")
+    post = json.loads(done.read_text()).get("landings", {}) if done.exists() else {}
+    return {
+        "x_um": [round(caps.left * um, 3), round(caps.right * um, 3)],
+        "y_um": [round(y0 * um, 3), round(y1 * um, 3)],
+        "below": f"M{shield}",
+        "free": empty,
+        "occupied": occupied,
+        # the landings the post step left (one a plate, where its route came: ``post.idle_landings``)
+        "landings": post.get("kept", stubs.count()),
+        "landings_drawn": post.get("drawn", stubs.count()),
+        "routes_inside": routes,
+    }
+
+
 def row_fill(gds: Path) -> dict[str, Any] | None:
     """What the post step put in the rows' empty sites (``flow.layout.post.Fill``, its record in
     ``<gds>.post.json``): the decaps (count, fingers, gate area um^2, capacitance fF from the PDK's
@@ -375,6 +514,21 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
     if free:
         laid["free_rows"] = free
         LOG.info(f"layout: {free['rows']} rows free under the capacitors, x {free['x_um']} y {free['y_um']} um")
+    under = under_array(Path(gds), pdk)
+    if under:
+        laid["under_array"] = under
+        LOG.info(
+            f"layout: under the array x {under['x_um']} y {under['y_um']} um, free below {under['below']}:"
+            f" {', '.join(under['free'])}; occupied: {under['occupied'] or 'none'}; {under['landings']} landings"
+        )
+        if under["routes_inside"]:
+            LOG.warning(f"layout: ALIGN routes under the array below its shield: {under['routes_inside']}")
+    lines = supply_lines(Path(gds), pdk)
+    if lines:
+        laid["supply_lines"] = lines
+        short = [f"{line['net']} {line['y_um']}" for line in lines if not line["edges"]]
+        if short:
+            LOG.warning(f"layout: supply lines that do not run edge to edge (um): {', '.join(short)}")
     return {**laid, "stats": layout_stats(work, design, Path(gds), pdk, laid)}
 
 

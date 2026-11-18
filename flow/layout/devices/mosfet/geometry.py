@@ -33,12 +33,14 @@ class InverterGeometry:
     ``CmosInverter``): its NMOS and PMOS ``n_units`` and ``p_units`` of the PDK's unit width in
     total over ``nf`` shared fingers, at the minimum length. Its netlist keeps its two transistors
     (``netlist_devices``), so a simulation and LVS see them; the generator reads them back.
-    ``wide_input``: its input bar across the whole cell (``rowcell.inverter``)."""
+    ``wide_input``: its input bar across the whole cell (``rowcell.inverter``); ``port_input``: its
+    input a port of the block, reached from the top level (``rowcell.inverter``'s ``port``)."""
 
     n_units: int
     p_units: int
     nf: int
     wide_input: bool = False
+    port_input: bool = False
     netlist_devices = True
 
     @property
@@ -46,7 +48,7 @@ class InverterGeometry:
         return "CmosInverter"
 
     def align_parameters(self) -> dict[str, int]:
-        return {"wide_input": 1} if self.wide_input else {}
+        return {key: 1 for key, on in (("wide_input", self.wide_input), ("port_input", self.port_input)) if on}
 
 
 @dataclass(frozen=True)
@@ -55,11 +57,12 @@ class ChainGeometry:
     input inside it (``rowcell.inverter_chain``, ALIGN's ``CmosChain``): ``cases`` its inverters,
     input first, each (gate length, NMOS and PMOS finger widths, fingers) in nm. Its netlist keeps
     every inverter's two transistors (``netlist_devices``). ``wide_input``: its first input bar
-    across its cell; ``fixed``: never mirrored."""
+    across its cell; ``fixed``: never mirrored; ``port_input``: its input a port of the block."""
 
     cases: tuple[tuple[int, int, int, int], ...]
     wide_input: bool = False
     fixed: bool = False
+    port_input: bool = False
     netlist_devices = True
 
     @property
@@ -68,4 +71,9 @@ class ChainGeometry:
 
     def align_parameters(self) -> dict[str, int | str]:
         stages = ";".join(":".join(str(v) for v in case) for case in self.cases)
-        return {"stages": stages, "wide_input": int(self.wide_input), "fixed": int(self.fixed)}
+        return {
+            "stages": stages,
+            "wide_input": int(self.wide_input),
+            "fixed": int(self.fixed),
+            "port_input": int(self.port_input),
+        }

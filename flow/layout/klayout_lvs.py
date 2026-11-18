@@ -12,7 +12,9 @@ silicide over both, outside a silicide block. The source's MOS models are classe
 polarity (``flow.util.mos_models.polarity``, else the model name's first letter): the flavours (threshold, oxide) are not told apart,
 and other devices (resistors, capacitors) are not extracted. So it checks the connectivity and the
 transistors' sizes, which is what the post-layout simulation's net mapping needs
-(``flow.layout.annotate``), not a foundry's LVS.
+(``flow.layout.annotate``), not a foundry's LVS. A supply's pieces that carry its label are one net
+(``SUPPLIES``, joined by name): a block's rail lines are apart, each a pin, until the converter's
+power grid joins them.
 
     from flow.layout.klayout_lvs import lvs
     lvs(gds, top, source, source_top, tech)  # True where the netlists match; <gds>.lvsdb beside it
@@ -27,6 +29,7 @@ from typing import Any
 
 import klayout.db as kdb
 
+from flow.layout.lint import SUPPLIES
 from flow.util.mos_models import polarity
 
 LOG = logging.getLogger("klayout.lvs")
@@ -177,6 +180,8 @@ def lvs(gds: str, top: str, source: str, source_top: str, tech: Any) -> bool:
     for strip, sd, tap in ((butt_n, nsd, ptap), (butt_p, psd, ntap)):
         lvs.connect(strip, sd)
         lvs.connect(strip, tap)
+    for supply in SUPPLIES:  # each rail line a pin of its own: a supply's pieces joined by name
+        lvs.join_net_names(supply)
     lvs.extract_netlist()
     lvs.netlist().flatten()  # the source is flat
     _unused(lvs.netlist())
@@ -212,3 +217,23 @@ def lvs(gds: str, top: str, source: str, source_top: str, tech: Any) -> bool:
             missing.append(name)
             LOG.warning(f"port {name}: connected in the source, no label on its net in the layout")
     return ok and not missing
+
+
+def joined_deck(deck: Path, out: Path) -> Path:
+    """A copy ``out`` of a kit's KLayout LVS deck (its top file ``deck``, a DSL script) that joins
+    each supply's labelled pieces by name before it aligns the netlists (``connect_implicit`` of
+    ``SUPPLIES`` at its ``align``): a block's rail lines are pins of their own, which the
+    converter's power grid joins. Its includes name the deck's own files (``# %include`` relative
+    to it), so the copy names them absolutely; the files they include in turn resolve beside them."""
+    text = re.sub(
+        r"(?m)^(#\s*%include\s+)(?!/)(\S+)",
+        lambda m: m.group(1) + str(deck.parent.resolve() / m.group(2)),
+        deck.read_text(),
+    )
+    lines = text.splitlines()
+    at = next((k for k, line in enumerate(lines) if line.strip() == "align"), None)
+    if at is None:
+        raise ValueError(f"{deck}: no 'align' statement to join the supplies before")
+    lines[at:at] = [f'connect_implicit("{supply}")' for supply in SUPPLIES]
+    out.write_text("\n".join(lines) + "\n")
+    return out

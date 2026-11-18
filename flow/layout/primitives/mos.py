@@ -322,7 +322,7 @@ class CmosInverter(RowCanvas):
     """A complementary inverter in one row cell (``rowcell.inverter``), a generic primitive: its
     subcircuit holds its NMOS and PMOS (the netlist's own devices, so LVS sees them) under a
     ``Generator`` annotation; ``gen_param.py`` reads its fingers from them (``wn``, ``wp`` per
-    finger, ``nf``, ``l``, in nm), and the annotation's parameters (``wide_input``). Pins A, Y,
+    finger, ``nf``, ``l``, in nm), and the annotation's parameters (``wide_input``, ``port_input``). Pins A, Y,
     VDD, VSS."""
 
     def __init__(self, *args, **kwargs):
@@ -342,6 +342,7 @@ class CmosInverter(RowCanvas):
             vss=names["VSS"],
             vdd=names["VDD"],
             wide_input=bool(int(p.get("wide_input", 0))),
+            port=bool(int(p.get("port_input", 0))),
         )
         self.draw(cell.rects)
         self.bbox = transformation.Rect(0, 0, cell.width, rowcell.H)
@@ -352,7 +353,8 @@ class CmosChain(RowCanvas):
     linked to the next input inside the cell, a generic primitive: its subcircuit holds every
     inverter's NMOS and PMOS (the netlist's own devices, so LVS sees them) under a ``Generator``
     annotation whose parameters give the inverters (``stages``: ``l:wn:wp:nf`` each, nm, input first,
-    ``;`` between), ``wide_input`` (the first input bar across its cell) and ``fixed`` (never
+    ``;`` between), ``wide_input`` (the first input bar across its cell), ``port_input`` (its input a
+    port of the block, ``rowcell.inverter``'s ``port``) and ``fixed`` (never
     mirrored: its output at its right end wherever it stands). Pins A, Y, VDD, VSS."""
 
     def __init__(self, *args, **kwargs):
@@ -370,6 +372,7 @@ class CmosChain(RowCanvas):
             vss=names["VSS"],
             vdd=names["VDD"],
             wide_input=bool(int(p.get("wide_input", 0))),
+            port=bool(int(p.get("port_input", 0))),
         )
         self.draw(cell.rects)
         self.bbox = transformation.Rect(0, 0, cell.width, rowcell.H)

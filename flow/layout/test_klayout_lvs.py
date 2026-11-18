@@ -57,3 +57,17 @@ def test_a_transistor_and_its_tap_match_their_source(tmp_path: Path) -> None:
     # the drain's label on the gate instead: the nets differ
     _layout(gds, {**pins, "d": (500, 625)})
     assert not lvs(str(gds), "TOP", str(source), "toy", TECH)
+
+
+def test_a_kits_deck_copy_joins_the_supplies_by_name_before_it_aligns(tmp_path: Path) -> None:
+    """``joined_deck``: the deck's own includes named absolutely, each supply joined by name
+    (``connect_implicit``) just before its ``align``."""
+    from flow.layout.klayout_lvs import SUPPLIES, joined_deck
+
+    deck = tmp_path / "kit" / "kit.lvs"
+    deck.parent.mkdir()
+    deck.write_text("# %include rule_decks/layers.lvs\nconnect(m1, v1)\nalign\nnetlist.simplify\n")
+    lines = joined_deck(deck, tmp_path / "copy.lvs").read_text().splitlines()
+    assert lines[0] == f"# %include {deck.parent.resolve() / 'rule_decks/layers.lvs'}"
+    at = lines.index("align")
+    assert lines[at - len(SUPPLIES) : at] == [f'connect_implicit("{supply}")' for supply in SUPPLIES]

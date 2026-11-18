@@ -192,8 +192,11 @@ def _drive(r_ohm: float, invert: bool, fanin: float, difference: bool) -> Driver
     """A driver's request as the side draws it: in a strip side (DIFFERENCE_CAPS) its input bar
     spans its first cell, where a router reaches it from above on M3 among the other stages' runs;
     in a column side its chain never mirrored, where two chains side by side would turn their
-    outputs towards each other closer than a route can leave them."""
-    return DriverParams(r_ohm=r_ohm, invert=invert, wide_input=difference, mirror=difference, fanin=fanin)
+    outputs towards each other closer than a route can leave them. Every driver's input is a port of
+    the side, reached from the converter's top level (``port_input``)."""
+    return DriverParams(
+        r_ohm=r_ohm, invert=invert, wide_input=difference, mirror=difference, fanin=fanin, port_input=True
+    )
 
 
 def _driven(module: h.Module, name: str, state: h.Signal, params: DriverParams) -> tuple[h.Signal, h.Instance]:
@@ -669,6 +672,32 @@ def _place(
     place(side, rows(*(row(*region) for region in regions)), symmetric=False, constraints=tuple(inner))
 
 
+def _landing_gap_nm(pdk: str) -> int:
+    """Where the capacitors stand beside the rows (their shield on M2, their landings on M1 under
+    their channels' bars at the array's top and bottom edges), the least distance from the array's
+    edge to the line of a band's row beside it that holds two free M2 tracks between them: a route
+    from a landing runs up or down it on M1 out of the array, under the shield's edge, and turns onto
+    M2 there, its cut's M1 pad M1's space from the rail and its wire M2's space from the shield's bar
+    at the array's edge and from the rail's own M2 (a kit whose rails carry no taps draws one). Whole
+    M2 tracks, as ALIGN places the rows and the capacitors on them. A band nearer than this leaves
+    each plate there only the shield's metal to reach its driver on, which ALIGN's router cannot
+    (``Router-Error: fail to find dest vertices on grids``); with one track, neighbouring stages'
+    routes block each other there."""
+    tech = import_module(f"pdk.{pdk}.layout.tech")
+    pitch, width = metal_tracks(pdk, "M2")
+    rules = tech.RULES
+    pad = rules["V1"]["cut"] // 2 + rules["V1"]["enclosure"][0]  # the cut's M1 pad along the M1 wire
+    clear = tech.RAIL + tech.M1_SPACE + pad
+    if not getattr(tech, "RAIL_TAPS", True):  # the rail's M2 over its M1
+        rail_m2 = max(width // 2, getattr(tech, "M2_VIA_PAD", {}).get("V1", (0, 0))[1])
+        clear = max(clear, rail_m2 + tech.M2_SPACE + width // 2)
+    track = -(-clear // pitch) * pitch  # the track nearest the rail its route may take
+    # and one more: a route turns onto M2 under its landing, on a wire of M2's minimum length, longer
+    # than a unit is wide, so neighbouring stages' turns take a track each
+    track += pitch
+    return -(-(track + width // 2 + tech.M2_SPACE) // pitch) * pitch
+
+
 def _array_layers(pdk: str, most: int = 3) -> int:
     """How many of ``pdk``'s MOM metals the side's capacitors stack: the most, up to ``most``, whose
     shield, the metal below them, is a horizontal metal on M2's tracks in ALIGN's grid, where an
@@ -856,9 +885,9 @@ def netlist(params: Params) -> h.Module:
                 placed.pieces.append(Capdac.add(request(INNER=main, TOP=top, SHIELD=Capdac.vss), name=name))
         stages.append(placed)
     grid = [[stages[stage].pieces[index] for stage, index in column] for column in columns] if columns else None
-    # beyond the capacitors' ends, a rail beside their shield (its M2 over its M1, where the rails carry
-    # no taps) an M2 pitch from it
-    apart_nm = metal_tracks(pdk, "M2")[0] if slice_ is None and difference else 0
+    # beyond the capacitors' ends, each band's rail beside their shield far enough from it that a
+    # plate's route from its landing reaches the band (``_landing_gap_nm``)
+    apart_nm = _landing_gap_nm(pdk) if slice_ is None and difference else 0
     ties = None
     if tied:
         wide_drivers = {

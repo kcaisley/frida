@@ -26,6 +26,8 @@ from typing import Any
 
 from klayout import db
 
+from flow.layout.lint import SUPPLIES
+
 
 @dataclass(frozen=True)
 class Annotation:
@@ -91,6 +93,13 @@ def _probed(lvs: db.LayoutVsSchematic, layers: dict[tuple[int, int], db.Region],
     return other.expanded_name().lower() if other is not None else None
 
 
+def supply_piece(name: str) -> str | None:
+    """The supply a layout net is a piece of, where it is one: a block's rail lines are pins of
+    their own, joined by name (KLayout numbers a label's repeats, ``vss$2``); else None."""
+    base = name.lower().split("$")[0]
+    return base if base in SUPPLIES and re.fullmatch(r"[A-Za-z]\w*\$\d+", name) else None
+
+
 def schematic_nets(lvsdb: Path, probes: dict[str, list[list[int]]], gds: Path | None = None) -> dict[str, str | None]:
     """Each extracted net's schematic net (``_probed``, its first probe that finds one), by its
     layout name; None for one that has none. A probe's GDS layer is the database's layer of that
@@ -114,7 +123,7 @@ def schematic_nets(lvsdb: Path, probes: dict[str, list[list[int]]], gds: Path | 
         # name: a net LVS kept no trace of for want of a device on it (a capacitor's plate where
         # the deck extracts no capacitor), its opens LVS's to find (``flow.layout.build.route_opens``)
         # and a name the DUT lacks the runner's to count; else floating where a probe finds it so
-        labelled = name.lower() if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name) else None
+        labelled = name.lower() if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name) else supply_piece(name)
         found[name] = next(
             (n for n in nets if n not in (None, FLOATING)), labelled or (FLOATING if FLOATING in nets else None)
         )
@@ -161,7 +170,7 @@ def annotation(netlist: Path, probes: Path, lvsdb: Path, limit: float = 0.05, gd
     total = mapped = floated = 0.0
     for a, b, c in capacitors(netlist):
         total += c
-        first, second = found.get(a), found.get(b)
+        first, second = found.get(a) or supply_piece(a), found.get(b) or supply_piece(b)
         if first is None or second is None:
             for net, end in ((a, first), (b, second)):
                 if end is None:

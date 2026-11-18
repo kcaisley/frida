@@ -933,6 +933,7 @@ def inverter_chain(
     vdd: str = "vdd",
     wide_input: bool = False,
     grid: int = XPITCH,
+    port: bool = False,
 ) -> Cell:
     """A chain of complementary inverters (``inverter``, each case (l, wn, wp, nf), input first) in
     one row cell, side by side, each output linked to the next input inside the cell: ``a`` in,
@@ -941,7 +942,8 @@ def inverter_chain(
     and the cuts' M1 ends make it (as wide as M1's area asks), so it keeps clear of the rails, at the
     shared edge where it clears both cells' metal and cuts by their spaces, else in room the cell
     before it leaves on its right (``inverter``'s ``room``), a grid step at a time. The first
-    inverter's input bar across its cell where ``wide_input``."""
+    inverter's input bar across its cell where ``wide_input``, a port of the block (``inverter``'s
+    ``port``) where ``port``."""
     nets = [a, *(f"{name}_n{k}" for k in range(len(cases) - 1)), y]
     out = Cell(name, 0)
     x = 0
@@ -949,13 +951,14 @@ def inverter_chain(
         wide = wide_input and k == 0
         last = k == len(cases) - 1
         args = (f"{name}_{k}", l, wn, wp, nf, nets[k], nets[k + 1])
-        cell = inverter(*args, grid=grid, vss=vss, vdd=vdd, wide_input=wide)
+        own = port and k == 0
+        cell = inverter(*args, grid=grid, vss=vss, vdd=vdd, wide_input=wide, port=own)
         if not last:
             l1, wn1, wp1, nf1 = cases[k + 1]
             nxt = inverter(f"{name}_{k + 1}", l1, wn1, wp1, nf1, nets[k + 1], nets[k + 2], grid=grid, vss=vss, vdd=vdd)
             for room in range(0, 4 * grid, grid):
                 if room:
-                    cell = inverter(*args, grid=grid, vss=vss, vdd=vdd, wide_input=wide, room=room)
+                    cell = inverter(*args, grid=grid, vss=vss, vdd=vdd, wide_input=wide, room=room, port=own)
                 link = _link(cell.rects, [_moved(r, cell.width) for r in nxt.rects], nets[k + 1], cell.width - room)
                 if link is not None:
                     break
@@ -1147,6 +1150,7 @@ def inverter(
     outline: bool = False,
     wide_input: bool = False,
     room: int = 0,
+    port: bool = False,
 ) -> Cell:
     """A complementary inverter in one row cell, as a library cell has it: the NMOS hugging the VSS
     rail, the PMOS the VDD rail, on the standard cells' implant, well and VT profile (``std_pad``'s,
@@ -1174,7 +1178,9 @@ def inverter(
     cell's width and its gate pads' M1 alone, as planned (what a chain needs to know of it, without
     drawing its contacts). ``room``: the cell that much wider on its right (a multiple of ``grid``),
     its rails and profile across, nothing else there (where a chain links it to the next inverter,
-    ``inverter_chain``)."""
+    ``inverter_chain``). ``port``: ``a`` a port of the block the cell stands in, reached from the
+    top level (``_port_bar``): its bar centred on an M3 track, the M2 track above it kept free of
+    the block's routes."""
 
     assert nf >= 1, f"{name}: no fingers"
     assert room % grid == 0, f"{name}: a room of {room} nm is off the {grid} nm cell grid"
@@ -1277,6 +1283,9 @@ def inverter(
         sh += shift
     if wide_input:
         bar_a = (M2_EDGE - sh, width - M2_EDGE - sh)
+    if port:
+        lo_a, hi_a = _port_bar(name, bar_a[0] + sh, bar_a[1] + sh, width, (taps[0] + sh, taps[-1] + sh))
+        bar_a = (lo_a - sh, hi_a - sh)
     width += room
     c = Cell(name, width)
 
@@ -1402,7 +1411,32 @@ def inverter(
     # the pins: the input bar through the gate pad, the output bar across the drain strips
     c.add("M2", bar_a[0] + sh, ya - M2_HW, bar_a[1] + sh, ya + M2_HW, a, "pin")
     c.add("M2", bar_y[0] + sh, yy - M2_HW, bar_y[1] + sh, yy + M2_HW, y, "pin")
+    if port:  # the track above the input kept free along it: the top level's route reaches it there
+        above = ya + getattr(_tech, "PITCH", 200)
+        c.add("M2", bar_a[0] + sh - M2_SPACE, above - M2_HW, bar_a[1] + sh + M2_SPACE, above + M2_HW, None, "blockage")
     return c
+
+
+def _port_bar(name: str, lo: int, hi: int, width: int, taps: tuple[int, int]) -> tuple[int, int]:
+    """An input bar (``lo``, ``hi`` in its cell, nm) that is a port of its block, centred on an M3
+    track wherever the cell stands (its width and place on the grid, mirrored or not: XPITCH, the M3
+    pitch): one end moved by the least that does it, out to the cell's M2 edge space (M2_EDGE) at
+    most, in to the gate taps' cuts (``taps``: the first and last, BAR_END past them) and the M2
+    minimum length at least, so a top-level router lands a cut on it at its middle."""
+    period = 2 * XPITCH  # the bar's ends' sum, twice its centre, on a multiple of it
+    off = (lo + hi) % period
+    if not off:
+        return lo, hi
+    for new in ((lo - off, hi), (lo, hi + period - off), (lo, hi - off), (lo + period - off, hi)):
+        if (
+            new[0] >= M2_EDGE
+            and new[1] <= width - M2_EDGE
+            and new[1] - new[0] >= M2_MIN_LEN
+            and new[0] <= taps[0] - BAR_END
+            and new[1] >= taps[1] + BAR_END
+        ):
+            return new
+    raise AssertionError(f"{name}: no input bar centred on an M3 track fits the cell")
 
 
 def _crossing_tracks(pol: str, used: set[int], drains: set[int], gt: int) -> list[int]:

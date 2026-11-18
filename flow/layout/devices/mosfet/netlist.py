@@ -66,6 +66,11 @@ class DriverParams:
         default=False,
     )
     mirror = h.Param(dtype=bool, desc="Whether ALIGN may mirror its chain in its row", default=True)
+    port_input = h.Param(
+        dtype=bool,
+        desc="Whether its input is a port of its block, reached from the top level (its bar on an M3 track)",
+        default=False,
+    )
     fanin = h.Param(
         dtype=PositiveFloat,
         desc="The most its input loads its source, a minimum-strength flip-flop, in minimum inverters (FO4: four)",
@@ -93,13 +98,15 @@ class DriverRequest:
     """A driver of at most ``r_ohm``, of its input or (``invert``) its complement, its input loading
     its source, a minimum-strength flip-flop, at most ``fanin`` minimum inverters; as drawn, its
     first inverter's input bar across its cell (``wide_input``: a parent's router reaches it from
-    more tracks), its chain mirrored by ALIGN or not (``mirror``)."""
+    more tracks), its chain mirrored by ALIGN or not (``mirror``), its input a port of its block
+    (``port_input``: ``rowcell.inverter``'s ``port``)."""
 
     r_ohm: float
     invert: bool
     wide_input: bool = False
     mirror: bool = True
     fanin: float = float(_TAPER)
+    port_input: bool = False
 
     def stages(self, pdk: str) -> list[tuple[int, int]]:
         """The chain's inverters, input first: each one's NMOS and PMOS widths in unit widths.
@@ -145,11 +152,11 @@ class DriverRequest:
         fixed = not self.mirror and len(stages) > 1
         # named by its cells as drawn: requests whose inverters round alike share one chain
         cells_named = "_".join("{}n{}p{}f".format(*_inverter_sizes(n, p)) for n, p in stages)
-        drawn_as = ("_w" if self.wide_input else "") + ("_r0" if fixed else "")
+        drawn_as = ("_w" if self.wide_input else "") + ("_r0" if fixed else "") + ("_p" if self.port_input else "")
         module = _module(f"driver_{'inv' if self.invert else 'buf'}_{cells_named}{drawn_as}")
         if len(stages) == 1:
             n, p = stages[0]
-            cell = inverter(pdk, n, p, wide_input=self.wide_input)
+            cell = inverter(pdk, n, p, wide_input=self.wide_input, port_input=self.port_input)
             module.Xinv0 = cell(A=module.A, Y=module.Y, VDD=module.VDD, VSS=module.VSS)
             place(module, rows(row(module.Xinv0)), symmetric=False, constraints=(c.Route(min_layer=1, max_layer=2),))
             return module
@@ -166,10 +173,10 @@ class DriverRequest:
                 name=f"mp{index}",
             )
             node = out
-        return drawn(module, ChainGeometry(tuple(_cases(stages)), self.wide_input, fixed))
+        return drawn(module, ChainGeometry(tuple(_cases(stages)), self.wide_input, fixed, self.port_input))
 
 
-_INVERTERS: dict[tuple[str, int, int, int, bool], h.Module] = {}
+_INVERTERS: dict[tuple[str, int, int, int, bool, bool], h.Module] = {}
 
 
 def _input(n_units: int, p_units: int) -> int:
@@ -271,23 +278,23 @@ def driver_widths_nm(pdk: str, requests: list[DriverRequest]) -> list[int]:
     ]
 
 
-def inverter(pdk: str, n_units: int, p_units: int, wide_input: bool = False) -> h.Module:
+def inverter(pdk: str, n_units: int, p_units: int, wide_input: bool = False, port_input: bool = False) -> h.Module:
     """A complementary inverter of the PDK's core low-threshold transistors at their minimum length,
     ``n_units`` and ``p_units`` of its unit width, in one row cell (``InverterGeometry``): their
     fingers shared (``logic_pair``, the logic cells' finger widths), each at least the narrowest
     finger the PDK contacts; its input bar across the cell where ``wide_input``. One module a PDK,
-    size and input bar."""
+    size and input bar (``port_input``: a port of its block, ``rowcell.inverter``'s ``port``)."""
     n_w, p_w, nf = _inverter_sizes(n_units, p_units)
-    key = (pdk, n_w, p_w, nf, wide_input)  # by its sizes: requests that round alike share one module
+    key = (pdk, n_w, p_w, nf, wide_input, port_input)  # by its sizes: requests that round alike share one module
     if key not in _INVERTERS:
-        module = _module(f"inv_{n_w}n{p_w}p{nf}f" + ("_w" if wide_input else ""))
+        module = _module(f"inv_{n_w}n{p_w}p{nf}f" + ("_w" if wide_input else "") + ("_p" if port_input else ""))
         module.mn0 = h.Mos(tp=MosType.NMOS, vth=MosVth.LOW, w=n_w, l=1, nf=nf)(
             d=module.Y, g=module.A, s=module.VSS, b=module.VSS
         )
         module.mp0 = h.Mos(tp=MosType.PMOS, vth=MosVth.LOW, w=p_w, l=1, nf=nf)(
             d=module.Y, g=module.A, s=module.VDD, b=module.VDD
         )
-        _INVERTERS[key] = drawn(module, InverterGeometry(n_w, p_w, nf, wide_input))
+        _INVERTERS[key] = drawn(module, InverterGeometry(n_w, p_w, nf, wide_input, port_input))
     return _INVERTERS[key]
 
 
@@ -301,4 +308,7 @@ def driver(params: DriverParams) -> h.Module:
     else:
         module.e = Vcvs(gain=1)(p=module.drive, n=module.VSS, cp=module.A, cn=module.VSS)
     module.r = R(r=params.r_ohm)(p=module.drive, n=module.Y)
-    return mark(module, DriverRequest(params.r_ohm, params.invert, params.wide_input, params.mirror, params.fanin))
+    return mark(
+        module,
+        DriverRequest(params.r_ohm, params.invert, params.wide_input, params.mirror, params.fanin, params.port_input),
+    )

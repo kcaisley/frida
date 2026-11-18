@@ -407,19 +407,103 @@ class Checker(Enum):
     CALIBRE = auto()
 
 
+# the overlay ``supplies_joined`` draws, on GDS layers no kit uses (below gdscheck's own virtual
+# layers, numbered from 30000): a tap on each labelled supply piece, and each supply's wire
+JOIN_TAP, JOIN_WIRE = (29998, 0), (29999, 0)
+
+
+def _embedded_process(process: str) -> Path | None:
+    """gdscheck's embedded process ``process`` as its crate's sources hold it (its ``pdk.yml``, decks
+    and suites), where cargo installed it; None elsewhere."""
+    import re
+    import subprocess
+
+    version = re.findall(
+        r"\d+\.\d+\.\d+", subprocess.run(["gdscheck", "-V"], capture_output=True, text=True, check=False).stdout
+    )
+    found = sorted(Path.home().glob(f".cargo/registry/src/*/gdscheck-{version[0]}/pdks/{process}")) if version else []
+    return found[0] if found else None
+
+
+def supplies_joined(pdk: str, gds: Path, top: str, process: str, run_dir: Path) -> tuple[Path, list[str]]:
+    """A block's supplies connected by name for a DRC's net-aware rules, as LVS joins them (its rail
+    lines are pins of their own, ``flow.layout.post.rail_pins``, which the converter's power grid
+    joins; Calibre's VIRTUAL CONNECT NAME): where the process ``process`` extracts nets
+    (``connectivity``) and a supply carries its label on more than one piece, a copy of ``gds`` with
+    an overlay on layers no rule checks (``JOIN_TAP`` on each label's M1, ``JOIN_WIRE`` joining a
+    supply's taps along its rail lines from a spine outside the layout, VDD's left and VSS's right)
+    and a copy of the process that connects them (its ``connectivity``: the tap joins M1 and the
+    wire). The delivered layout is unchanged. Returns the layout and the arguments naming the
+    process to check it by (``gds`` and ``-p process`` where nothing needs joining)."""
+    tech = import_module(f"pdk.{pdk}.layout.tech")
+    source = Path(process) if Path(process).is_file() else _embedded_process(process)
+    if source is None:
+        return gds, ["-p", process]
+    pdk_yml = source if source.is_file() else source / "pdk.yml"
+    spec = yaml.safe_load(pdk_yml.read_text())
+    metal1 = next(
+        (
+            layer["name"]
+            for layer in spec.get("layers", [])
+            if (layer["gds_layer"], layer["gds_datatype"]) == tuple(tech.LAYERS["M1"])
+        ),
+        None,
+    )
+    if not spec.get("connectivity") or metal1 is None:  # no net-aware rule
+        return gds, ["-p", process]
+    layout = db.Layout()
+    layout.read(str(gds))
+    cell = layout.cell(top)
+    labels: dict[str, list[db.Point]] = {}
+    for shape in cell.shapes(layout.layer(*tech.PIN_TEXT["M1"])).each():
+        if shape.is_text() and shape.text.string.lower() in ("vdd", "vss"):
+            labels.setdefault(shape.text.string.lower(), []).append(db.Point(shape.text.x, shape.text.y))
+    if all(len(points) < 2 for points in labels.values()):
+        return gds, ["-p", process]
+    extent, half = cell.bbox(), 5
+    tap, wire = layout.layer(*JOIN_TAP), layout.layer(*JOIN_WIRE)
+    for net, points in labels.items():
+        spine = extent.left - 1000 if net == "vdd" else extent.right + 1000
+        ys = sorted({p.y for p in points})
+        cell.shapes(wire).insert(db.Box(spine - half, ys[0] - half, spine + half, ys[-1] + half))
+        for p in points:
+            cell.shapes(tap).insert(db.Box(p.x - half, p.y - half, p.x + half, p.y + half))
+            cell.shapes(wire).insert(db.Box(min(spine, p.x) - half, p.y - half, max(spine, p.x) + half, p.y + half))
+    joined = run_dir / f"{Path(gds).stem}.joined.gds"
+    layout.write(str(joined))
+    spec["layers"] += [
+        {"name": "SupplyJoinTap", "gds_layer": JOIN_TAP[0], "gds_datatype": JOIN_TAP[1]},
+        {"name": "SupplyJoinWire", "gds_layer": JOIN_WIRE[0], "gds_datatype": JOIN_WIRE[1]},
+    ]
+    spec["connectivity"].append({"connector": "SupplyJoinTap", "layers": [metal1, "SupplyJoinWire"]})
+    if source.is_file():  # a kit's DRC file, in one
+        copy = run_dir / "drc.joined.yaml"
+        copy.write_text(yaml.safe_dump(spec, sort_keys=False))
+        return joined, ["-p", str(copy)]
+    root = run_dir / "pdks"
+    shutil.rmtree(root / process, ignore_errors=True)
+    shutil.copytree(source, root / process)
+    (root / process / "pdk.yml").write_text(yaml.safe_dump(spec, sort_keys=False))
+    return joined, ["--pdk-path", str(root), "-p", process]
+
+
 def open_drc(pdk: str, gds: Path, top: str, run_dir: Path) -> tuple[dict[str, int], str]:
     """gdscheck on ``gds``: its own full deck of an open PDK, else the kit's full deck or precheck
     (``flow.layout.compile._gdscheck_runs``), its output streamed to the log; the violations by
-    rule, and which deck ran."""
+    rule, and which deck ran. A block's supplies are joined by name for the net-aware rules
+    (``supplies_joined``)."""
     from flow.logs import run_logged
 
     runs = _gdscheck_runs(pdk)
     if not runs:
         raise RuntimeError(f"no gdscheck deck for {pdk} (or gdscheck is not installed)")
     violations: dict[str, int] = {}
+    joined = False
     for process, suite in runs:
         report = run_dir / f"gdscheck.{suite}.lyrdb"
-        command = ["gdscheck", "run", "-i", str(gds), "-p", process, "-t", top, "-s", suite, "-r", str(report)]
+        checked, named = supplies_joined(pdk, gds, top, process, run_dir)
+        joined |= checked != gds
+        command = ["gdscheck", "run", "-i", str(checked), *named, "-t", top, "-s", suite, "-r", str(report)]
         run_logged(
             command, cwd=run_dir, log=run_dir / f"gdscheck.{suite}.log", name="gdscheck", allowed=tuple(range(256))
         )
@@ -427,7 +511,7 @@ def open_drc(pdk: str, gds: Path, top: str, run_dir: Path) -> tuple[dict[str, in
             raise RuntimeError(f"gdscheck ({suite}) wrote no report; see {run_dir / f'gdscheck.{suite}.log'}")
         for rule, entry in _markers(report, top).items():
             violations[rule] = violations.get(rule, 0) + entry["count"]
-    return violations, gdscheck_label(pdk)
+    return violations, gdscheck_label(pdk) + (" (supplies joined by name)" if joined else "")
 
 
 def gdscheck_label(pdk: str) -> str:

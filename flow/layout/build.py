@@ -104,11 +104,14 @@ def route_opens(gds: Path, pdk: str) -> dict[str, int]:
     each such net and the count of the layout's nets its shapes lie on (its conductors joined
     through their vias, as the extraction joins them: ``flow.layout.kpex.technology``). It is the
     open a kit's LVS deck cannot see where a net carries no device it extracts (a MOM capacitor's
-    plate between its driver and its fingers, a capacitor array's shield). Empty where none is, or
-    where ALIGN wrote no such file."""
+    plate between its driver and its fingers, a capacitor array's shield). A supply's pieces that
+    carry its label are one net, joined by name as LVS joins them (``SUPPLIES``: each rail line a
+    pin of its own, the converter's power grid joins them): a supply's piece without one (an untied
+    shield) is an open still. Empty where none is, or where ALIGN wrote no such file."""
     from klayout import db
 
     from flow.layout.kpex import technology
+    from flow.layout.lint import SUPPLIES
 
     found = sorted(gds.parent.rglob(f"3_pnr/{gds.stem.upper()}_0.json"))
     if not found:
@@ -126,6 +129,13 @@ def route_opens(gds: Path, pdk: str) -> dict[str, int]:
     for below, via, above in joins["vias"]:
         nets.connect(regions[below], regions[via])
         nets.connect(regions[via], regions[above])
+    for name, pairs in joins["labels"].items():
+        for pair in {tuple(pair) for pair in pairs}:  # a kit's pin text may be its pin layer
+            index = layout.find_layer(*pair)
+            if name in regions and index is not None:
+                nets.connect(regions[name], nets.make_text_layer(index, f"{name}_{pair[0]}_{pair[1]}_text"))
+    for supply in SUPPLIES:
+        nets.join_net_names(supply)
     nets.extract_netlist()
     pieces: dict[str, set[int]] = {}
     for terminal in json.loads(found[0].read_text()).get("terminals", []):

@@ -136,6 +136,34 @@ def test_route_opens_finds_a_net_in_pieces(tmp_path: Path, monkeypatch) -> None:
     assert build.route_opens(gds, "toykit") == {}
 
 
+def test_route_opens_joins_a_supplys_labelled_pieces_by_name(tmp_path: Path, monkeypatch) -> None:
+    """A supply's rail lines apart, each labelled with its name, are one net (as LVS joins them,
+    the converter's power grid at its top level); its piece without a label (an untied shield) is
+    an open still."""
+    import json
+
+    from flow.layout import build, kpex
+
+    layout_ = db.Layout()
+    layout_.dbu = 0.001
+    top = layout_.create_cell("TOP")
+    rails = ((0, 0, 3000, 100), (0, 1000, 3000, 1100), (0, 2000, 3000, 2100))
+    for box in rails:
+        top.shapes(layout_.layer(1, 0)).insert(db.Box(*box))
+    for y in (50, 1050):  # two lines labelled, the third not
+        top.shapes(layout_.layer(1, 25)).insert(db.Text("vss", db.Trans(1500, y)))
+    gds = tmp_path / "inv.gds"
+    layout_.write(str(gds))
+    (tmp_path / "3_pnr").mkdir()
+    terminals = [{"netName": "VSS", "layer": "M1", "rect": list(box)} for box in rails]
+    (tmp_path / "3_pnr" / "INV_0.json").write_text(json.dumps({"terminals": terminals[:2]}))
+    joins = {"layers": {"M1": [[1, 0]]}, "labels": {"M1": [[1, 25]]}, "vias": []}
+    monkeypatch.setattr(kpex, "technology", lambda pdk: ({}, joins))
+    assert build.route_opens(gds, "toykit") == {}
+    (tmp_path / "3_pnr" / "INV_0.json").write_text(json.dumps({"terminals": terminals}))
+    assert build.route_opens(gds, "toykit") == {"VSS": 2}
+
+
 def test_a_route_joining_two_nets_is_routed_again_with_another_seed(tmp_path: Path, monkeypatch, aligned) -> None:
     """ALIGN's route joining two nets, where its placer annealed: placed and routed again, its
     placer's seed the next, three times at most; the joins of the last route kept."""

@@ -20,10 +20,19 @@ class _Lvs:
 
 def test_a_net_the_database_drops_is_found_by_its_label(monkeypatch) -> None:
     """A net LVS kept no trace of (no device on it: a MOM capacitor's plate where the deck extracts
-    no capacitor) is the schematic net its label names; one KLayout numbered, a disjoint piece of a
-    labelled net and a cell's inner net have none, the first floating where a probe found it so."""
+    no capacitor) is the schematic net its label names, a supply's pieces (each a pin of its own,
+    joined by name) the supply; one KLayout numbered, a disjoint piece of another labelled net and a
+    cell's inner net have none, the first floating where a probe found it so."""
     monkeypatch.setattr(annotate.db, "LayoutVsSchematic", _Lvs)
-    probed = {"vdac": None, "MAIN_2": None, "$96": annotate.FLOATING, "vss$1": None, "x1/n0": None, "vdd": "vdd"}
+    probed = {
+        "vdac": None,
+        "MAIN_2": None,
+        "$96": annotate.FLOATING,
+        "vss$1": None,
+        "main_2$1": None,
+        "x1/n0": None,
+        "vdd": "vdd",
+    }
     monkeypatch.setattr(annotate, "_probed", lambda lvs, layers, probe: probed[probe[0]])
     probes = {name: [[name, 0, 0, 0]] for name in probed}
     found = annotate.schematic_nets(Path("none.lvsdb"), probes)
@@ -31,7 +40,8 @@ def test_a_net_the_database_drops_is_found_by_its_label(monkeypatch) -> None:
         "vdac": "vdac",
         "MAIN_2": "main_2",
         "$96": annotate.FLOATING,
-        "vss$1": None,
+        "vss$1": "vss",
+        "main_2$1": None,
         "x1/n0": None,
         "vdd": "vdd",
     }

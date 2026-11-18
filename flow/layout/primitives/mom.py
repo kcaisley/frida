@@ -290,7 +290,9 @@ class MomUnit(_Fabric):
         terminal's pin, and its strip too: pins along it, two tracks apart, where ALIGN's router
         lands its via from below (within ``pin_band`` of the unit's bottom, where the drivers'
         rows stand under the array: a pin higher up only gives each net's router more points to
-        try), and a stub on the metal below at its middle, a landing no other net takes."""
+        try), and, in the array's bottom row, a landing on the metal below at the bar (``_landing``),
+        at the array's edge over its drivers (the post step removes those no route reached,
+        ``flow.layout.post.idle_landings``)."""
         c = capcell.mom_channel(layers, space)
         w, sp, layer = g["width"], g["space"], f"M{c['metal']}"
         pitch, offset = self._tracks(c["metal"])
@@ -371,13 +373,15 @@ class MomUnit(_Fabric):
         # the shield's pin on the left wall's inner half, at a track
         mid = offset + round(((height // 2) - offset) / pitch) * pitch
         self.rect(layer, "SHIELD", w // 2, mid - w // 2, w, mid + w // 2, "pin")
-        # a landing reserved at the strip's middle, a stub on the metal below: a column's units of
-        # several stages share their strips' track, each unit keeps its own place on it
-        self._landing(c["metal"] - 1, terminal, inner_x + w // 2, mid)
+        if below == "edge":  # a landing under its bar, at the array's edge
+            self._landing(c["metal"] - 1, terminal, inner_x + w // 2, track)
 
     def _landing(self, metal, terminal, x, y):
-        """A stub on ``metal`` (vertical) centred on (``x``, ``y``), its metal's minimum length and
-        area, joined by a cut up to the bar above, the terminal's pin."""
+        """A stub on ``metal`` centred on (``x``, ``y``), its metal's minimum length and area, joined
+        by a cut up to the bar above, the terminal's pin, where ALIGN's router lands from its
+        metal's grid. Along a vertical metal's tracks where ``x`` lies on one wherever ALIGN places
+        the unit (its placement pitch a whole number of the metal's, its outline from ``abut_x``);
+        else across them, a track pitch and a wire long, so one of them crosses it whole."""
         m, v = self.pdk[f"M{metal}"], self.pdk[f"V{metal}"]
         hw, grid = m["Width"] // 2, capcell.tech.MFG_GRID
         area = capcell.tech.RULES.get(f"M{metal}", {}).get("area", 0)
@@ -388,8 +392,14 @@ class MomUnit(_Fabric):
             Via(name, f"V{metal}", h_clg=self.nm, v_clg=self.nm, WidthX=v["WidthX"], WidthY=v["WidthY"])
         )
         self.addVia(via, terminal, x, y)
-        self.rect(f"M{metal}", terminal, x - hw, y - half, x + hw, y + half)
-        self.rect(f"M{metal}", terminal, x - hw, y - half, x + hw, y + half, "pin")
+        box = (x - hw, y - half, x + hw, y + half)
+        x0, x1 = self.abut_x or (0, 0)
+        on_tracks = (x1 - x0) % m["Pitch"] == 0 and (x - x0 - m.get("Offset", 0)) % m["Pitch"] == 0
+        if m["Direction"].lower() == "v" and not on_tracks:
+            across = max(half, capcell._snap((m["Pitch"] + m["Width"] + 1) // 2, grid))
+            box = (x - across, y - hw, x + across, y + hw)
+        self.rect(f"M{metal}", terminal, *box)
+        self.rect(f"M{metal}", terminal, *box, "pin")
 
     def _tracks(self, metal):
         """ALIGN's routing tracks on a horizontal ``metal`` in this unit (pitch, offset): its outline
@@ -462,7 +472,8 @@ class MomUnit(_Fabric):
             self.addVia(cut, terminal, inner_x + w // 2, track)
             # its landing reserved: a cut down from the bar at its track and a stub there on the
             # metal below, the terminal's pin, so that no other net's route takes the one track a
-            # lone piece's bar has (ALIGN routes one net after another, never ripping one up)
+            # lone piece's bar has (ALIGN routes one net after another, never ripping one up); the
+            # post step removes those no route reached (``flow.layout.post.idle_landings``)
             self._landing(c["metal"] - 1, terminal, inner_x + w // 2, track)
             self.rect(layer, "SHIELD", 0, ground - w // 2, outer, ground + w // 2)
             for side, x in ((left, 0), (right, outer - w)):  # the frame through the channel
