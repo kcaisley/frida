@@ -126,3 +126,20 @@ def test_the_extraction_runs_the_engine_it_is_given(kit: Path, tmp_path: Path, m
     assert (
         json.loads((tmp_path / "rcx25" / "kpex" / "tech.pb.json").read_text())["process_parasitics"]["side_halo"] == 8.0
     )
+
+
+def test_the_2_5d_fit_recovers_its_forms() -> None:
+    """The coefficients' fit (``flow.layout.kpex_coefficients``): an area capacitance is its slabs'
+    in series, and the sidewall fit recovers K and o of c = K / (s + o), with no offset where the
+    fit's pole would fall among the spaces."""
+    import numpy as np
+
+    from flow.layout import kpex_coefficients as fit
+
+    stack = [(0.0, 1.0, 4.0), (1.0, 2.0, 2.0)]
+    assert fit.area_f(stack, 0.0, 2.0) == pytest.approx(fit.EPS0 / (1 / 4 + 1 / 2))
+    assert fit.area_f(stack, 0.5, 1.0) == pytest.approx(fit.EPS0 * 4 / 0.5)
+    spaces = np.array([0.1, 0.14, 0.2, 0.3, 0.5])
+    assert fit.sidewall_fit(spaces, 20.0 / (spaces + 0.05), 0.1) == pytest.approx((20.0, 0.05))
+    k, o = fit.sidewall_fit(spaces, np.array([1.0, 50.0, 30.0, 20.0, 10.0]), 0.1)
+    assert o == 0.0 and k > 0
