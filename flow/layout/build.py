@@ -98,6 +98,47 @@ def route_shorts(work: Path, name: str) -> dict[tuple[str, str], int]:
     return shorts
 
 
+def route_opens(gds: Path, pdk: str) -> dict[str, int]:
+    """Where the layout ``gds`` leaves one of ALIGN's nets in pieces (its placed-and-routed
+    ``3_pnr/<NAME>_0.json`` beside it: each net's shapes, its cells' pins and its route's wires):
+    each such net and the count of the layout's nets its shapes lie on (its conductors joined
+    through their vias, as the extraction joins them: ``flow.layout.kpex.technology``). It is the
+    open a kit's LVS deck cannot see where a net carries no device it extracts (a MOM capacitor's
+    plate between its driver and its fingers, a capacitor array's shield). Empty where none is, or
+    where ALIGN wrote no such file."""
+    from klayout import db
+
+    from flow.layout.kpex import technology
+
+    found = sorted(gds.parent.rglob(f"3_pnr/{gds.stem.upper()}_0.json"))
+    if not found:
+        return {}
+    joins = technology(pdk)[1]
+    layout = db.Layout()
+    layout.read(str(gds))
+    top = max(layout.top_cells(), key=lambda cell: cell.bbox().area())
+    nets = db.LayoutToNetlist(db.RecursiveShapeIterator(layout, top, []))
+    regions = {}
+    for name, pairs in joins["layers"].items():
+        indexes = [index for pair in pairs if (index := layout.find_layer(*pair)) is not None]
+        regions[name] = nets.make_layer(indexes[0], name) if indexes else nets.make_layer(name)
+        nets.connect(regions[name])
+    for below, via, above in joins["vias"]:
+        nets.connect(regions[below], regions[via])
+        nets.connect(regions[via], regions[above])
+    nets.extract_netlist()
+    pieces: dict[str, set[int]] = {}
+    for terminal in json.loads(found[0].read_text()).get("terminals", []):
+        net, layer = terminal.get("netName"), terminal.get("layer", "")
+        if not net or layer not in regions:
+            continue
+        x0, y0, x1, y1 = terminal["rect"]
+        piece = nets.probe_net(regions[layer], db.Point((x0 + x1) // 2, (y0 + y1) // 2))
+        if piece is not None:
+            pieces.setdefault(net, set()).add(piece.cluster_id)
+    return {net: len(ids) for net, ids in sorted(pieces.items()) if len(ids) > 1}
+
+
 def annealed(work: Path) -> bool:
     """Whether ALIGN's placer searched by annealing anywhere in the runs under ``work`` (their
     ``LOG/align.log``): a module whose placement leaves one sequence pair is enumerated instead, and

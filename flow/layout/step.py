@@ -30,7 +30,7 @@ from typing import Any
 from klayout import db
 
 from flow import tools
-from flow.layout.build import annealed, build_design, other_router, pdk_router, route_shorts
+from flow.layout.build import annealed, build_design, other_router, pdk_router, route_opens, route_shorts
 from flow.layout.hdl21align import pnr_input
 from flow.layout.kpex import Engine
 from flow.layout.signoff import Checker
@@ -326,6 +326,24 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
             break
         LOG.info(f"ALIGN's route joins {len(shorts)} pairs of nets: routed again, placer seed {seed + 1}")
     assert gds is not None
+    # nets the route leaves in pieces (an open LVS's deck may not see: ``route_opens``): laid out
+    # again by the other router, the layout with fewer kept
+    opens = route_opens(Path(gds), pdk)
+    if opens and work == out / "align":
+        again = other_router(router)
+        LOG.warning(
+            f"ALIGN's {router} route leaves {len(opens)} nets in pieces ({', '.join(opens)}): by its {again} router"
+        )
+        try:
+            other = build_design(pdk, input_dir, cells, out / f"align_{again}", placed=placed, router=again)
+        except Exception as error:  # noqa: BLE001 - the first router's layout stands
+            LOG.warning(f"ALIGN with the {again} router failed ({error!r}): the {router} router's layout kept")
+        else:
+            fewer = route_opens(Path(other), pdk)
+            if len(fewer) < len(opens):
+                work = out / f"align_{again}"
+                gds, router, opens, shorts = other, again, fewer, route_shorts(work, design)
+            LOG.info(f"the {router} router's layout kept: {len(opens)} nets in pieces")
     logging.getLogger("align").removeHandler(timed)
     # the time after ALIGN's last part: its last records, the GDS written and finished (post.py)
     ended = time.time()
@@ -342,6 +360,7 @@ def lay_out_align(block: str, pdk: str, params, out: Path, design: str | None = 
         "router": router,
         "placed": placed,
         "route_shorts": {"/".join(pair): n for pair, n in shorts.items()} or None,
+        "route_opens": opens or None,
         "parts": parts,
         "tool": {"name": "align", "version": tools.align()},
     }

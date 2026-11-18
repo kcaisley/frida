@@ -6,7 +6,8 @@ KLayout's number (``$6``: a gate's poly, which its extraction joins to no metal;
 net). ``schematic_nets`` finds each in the LVS database by its probes (points on its shapes, by
 their GDS layer, ``<stem>.probes.json``): the layout net there under the point, climbed from a
 cell's net to its parent's through the cell's pins, and the schematic net LVS paired it with at the
-top. ``annotation`` reads the extraction's capacitors onto those nets: a capacitor with an end on a
+top; a net LVS keeps no trace of (no device the deck extracts on it: a MOM capacitor's plates where
+the deck has no MOM device, which it drops) by the label that names it. ``annotation`` reads the extraction's capacitors onto those nets: a capacitor with an end on a
 net that has none (a cell's inner net, one LVS paired with nothing) is left out and counted
 unmapped, one whose ends are one schematic net is shorted out, and those between the same two nets
 are summed; ground (``0``) stays ground. A cell's inner net is named by its path only where LVS is
@@ -108,8 +109,15 @@ def schematic_nets(lvsdb: Path, probes: dict[str, list[list[int]]], gds: Path | 
     found = {}
     for name, points in probes.items():
         nets = [_probed(lvs, layers, probe) for probe in points]
-        # a schematic net where any probe finds one, else floating where one finds it so
-        found[name] = next((n for n in nets if n not in (None, FLOATING)), FLOATING if FLOATING in nets else None)
+        # a schematic net where any probe finds one; else, for a net the layout names by a label
+        # (its own or ALIGN's route's, not KLayout's ``$<n>`` nor a cell's path), the net of that
+        # name: a net LVS kept no trace of for want of a device on it (a capacitor's plate where
+        # the deck extracts no capacitor), its opens LVS's to find (``flow.layout.build.route_opens``)
+        # and a name the DUT lacks the runner's to count; else floating where a probe finds it so
+        labelled = name.lower() if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name) else None
+        found[name] = next(
+            (n for n in nets if n not in (None, FLOATING)), labelled or (FLOATING if FLOATING in nets else None)
+        )
     return found
 
 

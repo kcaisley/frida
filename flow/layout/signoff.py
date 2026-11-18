@@ -33,6 +33,7 @@ import yaml
 from klayout import db
 
 from flow.layout import kpex
+from flow.layout.build import route_opens
 from flow.layout.kpex import Engine, Extractor
 from flow.layout.pdkproc import pdk_value
 
@@ -613,6 +614,13 @@ def lvs(pdk: str, gds: Path, lvs_source: Path, run_dir: Path, checker: Checker =
         )
         correct, report = run_lvs(params, run_dir)
         deck = "calibre"
+    # ALIGN's nets the layout leaves in pieces: an open no deck sees on a net without a device it
+    # extracts (a MOM plate between its driver and its fingers, a capacitor array's shield)
+    opens = route_opens(Path(gds), pdk) if correct else {}
+    if opens:
+        names = ", ".join(f"{net} ({count} pieces)" for net, count in opens.items())
+        log.warning(f"LVS: the layout leaves {len(opens)} of ALIGN's nets in pieces, deviceless to the deck: {names}")
+        correct = False
     log.info(f"LVS: {'not run' if correct is None else 'correct' if correct else 'not correct'} ({deck or '-'})")
     result = {
         "lvs_correct": correct,
@@ -621,6 +629,7 @@ def lvs(pdk: str, gds: Path, lvs_source: Path, run_dir: Path, checker: Checker =
         "source": str(source),
         "source_top": source_top,
         "layout_top": layout_top,
+        **({"route_opens": opens} if opens else {}),
     }
     (run_dir / "lvs.json").write_text(json.dumps(result, indent=1) + "\n")
     return result

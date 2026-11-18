@@ -116,3 +116,23 @@ def test_provider_without_extraction_still_signs_off_drc_and_lvs(tmp_path, monke
     assert signoff.run_lvs(params, tmp_path / "run") == (True, report)
     with pytest.raises(TypeError, match="has no extraction"):
         signoff.run_pex(params, tmp_path / "run")
+
+
+def test_lvs_fails_where_the_layout_leaves_a_net_in_pieces(tmp_path: Path, monkeypatch) -> None:
+    """A deck that finds the netlists matching cannot see an open on a net without a device it
+    extracts (a MOM plate): where the layout leaves one of ALIGN's nets in pieces
+    (``route_opens``), LVS is not correct, the nets recorded."""
+    from klayout import db
+
+    layout = db.Layout()
+    layout.create_cell("TOP").shapes(layout.layer(1, 0)).insert(db.Box(0, 0, 100, 100))
+    gds = tmp_path / "top.gds"
+    layout.write(str(gds))
+    source = tmp_path / "source.cdl"
+    source.write_text(".SUBCKT top a\n.ENDS\n")
+    monkeypatch.setattr(signoff, "open_lvs", lambda *args: (True, tmp_path / "top.lvsdb", "KLayout"))
+    monkeypatch.setattr(signoff, "route_opens", lambda gds, pdk: {})
+    assert signoff.lvs("toykit", gds, source, tmp_path / "whole")["lvs_correct"] is True
+    monkeypatch.setattr(signoff, "route_opens", lambda gds, pdk: {"MAIN_2": 2})
+    result = signoff.lvs("toykit", gds, source, tmp_path / "open")
+    assert result["lvs_correct"] is False and result["route_opens"] == {"MAIN_2": 2}

@@ -34,6 +34,7 @@ def aligned(monkeypatch):
     monkeypatch.setattr(step, "inputs", inputs)
     monkeypatch.setattr(step, "pdk_router", lambda pdk, block=None: "astar")
     monkeypatch.setattr(step, "route_shorts", lambda work, name: shorts.pop(0) if shorts else {})
+    monkeypatch.setattr(step, "route_opens", lambda gds, pdk: {"MAIN_2": 2} if "open" in str(gds) else {})
     monkeypatch.setattr(step, "annealed", lambda work: True)
     return shorts
 
@@ -53,6 +54,7 @@ def test_align_lays_out_the_design_and_gives_what_the_signoff_takes(tmp_path: Pa
         "router": "astar",
         "placed": True,
         "route_shorts": None,
+        "route_opens": None,
     }
     # its parts under the names every layout flow shares, in order; ALIGN has no clock tree
     assert list(parts) == list(step.PARTS) and parts["cts"] is None and tool["name"] == "align"
@@ -80,6 +82,58 @@ def test_a_layout_the_first_router_cannot_draw_is_drawn_by_the_other(tmp_path: P
     monkeypatch.setattr(step, "build_design", neither)
     with pytest.raises(RuntimeError, match="astar gave up"):
         step.lay_out_align("inv", "tsmc65", None, tmp_path / "none")
+
+
+def test_a_route_leaving_a_net_in_pieces_is_drawn_by_the_other_router(tmp_path: Path, monkeypatch, aligned) -> None:
+    """Where the PDK's router leaves one of ALIGN's nets in pieces (``route_opens``), the other
+    router lays the design out too, and the layout with fewer such nets is kept."""
+
+    def build(pdk, design, cells, out, placed, seed=0, router=None):
+        return _gds(out / ("open" if router == "astar" else "whole") / "inv.gds")
+
+    monkeypatch.setattr(step, "build_design", build)
+    laid = step.lay_out_align("inv", "tsmc65", None, tmp_path / "run")
+    assert laid["router"] == "hanan" and laid["route_opens"] is None
+    assert laid["gds"] == str(tmp_path / "run" / "align_hanan" / "whole" / "inv.gds")
+    monkeypatch.setattr(
+        step,
+        "build_design",
+        lambda pdk, design, cells, out, placed, seed=0, router=None: build(
+            pdk, design, cells, out, placed, router="astar"
+        ),
+    )
+    laid = step.lay_out_align("inv", "tsmc65", None, tmp_path / "both")
+    assert laid["router"] == "astar" and laid["route_opens"] == {"MAIN_2": 2}
+
+
+def test_route_opens_finds_a_net_in_pieces(tmp_path: Path, monkeypatch) -> None:
+    """A net of ALIGN's whose shapes lie on two of the layout's nets (its conductors joined through
+    its vias) is in pieces; one whose shapes a via joins is not."""
+    import json
+
+    from flow.layout import build, kpex
+
+    layout_ = db.Layout()
+    layout_.dbu = 0.001
+    top = layout_.create_cell("TOP")
+    for layer, box in (((1, 0), (0, 0, 1000, 100)), ((1, 0), (2000, 0, 3000, 100)), ((3, 0), (0, 0, 3000, 600))):
+        top.shapes(layout_.layer(*layer)).insert(db.Box(*box))
+    top.shapes(layout_.layer(2, 0)).insert(db.Box(2400, 0, 2500, 100))  # a via from the second M1 to M2
+    gds = tmp_path / "inv.gds"
+    layout_.write(str(gds))
+    terminals = [
+        {"netName": "A", "layer": "M1", "rect": [0, 0, 1000, 100]},
+        {"netName": "A", "layer": "M1", "rect": [2000, 0, 3000, 100]},
+        {"netName": "B", "layer": "M1", "rect": [2000, 0, 3000, 100]},
+        {"netName": "B", "layer": "M2", "rect": [0, 500, 3000, 600]},
+    ]
+    (tmp_path / "3_pnr").mkdir()
+    (tmp_path / "3_pnr" / "INV_0.json").write_text(json.dumps({"terminals": terminals}))
+    joins = {"layers": {"M1": [[1, 0]], "V1": [[2, 0]], "M2": [[3, 0]]}, "labels": {}, "vias": [["M1", "V1", "M2"]]}
+    monkeypatch.setattr(kpex, "technology", lambda pdk: ({}, joins))
+    assert build.route_opens(gds, "toykit") == {"A": 2}
+    (tmp_path / "3_pnr" / "INV_0.json").unlink()
+    assert build.route_opens(gds, "toykit") == {}
 
 
 def test_a_route_joining_two_nets_is_routed_again_with_another_seed(tmp_path: Path, monkeypatch, aligned) -> None:
