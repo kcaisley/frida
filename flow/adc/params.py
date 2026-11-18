@@ -94,6 +94,37 @@ def _fabricated_parts(member: Fabricated) -> dict[str, Any]:
     }
 
 
+class Control(Enum):
+    """Who times a generated converter's conversion (``flow.adc.subckt``'s control logic, gate
+    level, of the PDK's standard cells).
+
+    ``SYNC``: the sequencer's four lines from outside (INIT, SAMP, COMP and LOGIC, each gated by its
+    enable), a stage switched at each LOGIC edge: FRIDA-1's logic, cell for cell in function.
+"""
+
+    SYNC = auto()
+
+
+class Sequencer(Enum):
+    """Where a synchronous converter's stage selector is (its one-hot register, a flip-flop a
+    stage): in the converter, or outside it, one for every converter running in lockstep on the
+    same lines, the converter taking its lines (``dac_cycle``). A stage's decision is stored in the
+    converter either way."""
+
+    LOCAL = auto()
+    SHARED = auto()
+
+
+class Presets(Enum):
+    """How a generated converter's DAC states start a conversion: from its pins (``dac_astate``
+    while INIT is high, and ``dac_mode`` low switching the stages to ``dac_bstate`` instead of the
+    comparator: FRIDA-1's), or tied in its netlist to capdac's A state (alternating from 0, the
+    state the array is designed to start from), with no such pins."""
+
+    PINS = auto()
+    TIED = auto()
+
+
 @h.paramclass
 class Params:
     """ADC parameters."""
@@ -107,6 +138,10 @@ class Params:
     fabricated = h.Param(
         dtype=Fabricated | None, desc="FRIDA-1's fabricated converter this design is; None if generated", default=None
     )
+    # its control logic (a generated converter's)
+    control = h.Param(dtype=Control, desc="Who times a conversion", default=Control.SYNC)
+    sequencer = h.Param(dtype=Sequencer, desc="Where a synchronous converter's stage selector is", default=Sequencer.LOCAL)
+    presets = h.Param(dtype=Presets, desc="How the DAC states start a conversion", default=Presets.PINS)
 
     def __post_init__(self) -> None:
         # the converter resolves what its array is sized and weighted for; any array of capdac's is
@@ -119,6 +154,8 @@ class Params:
             parts = _fabricated_parts(self.fabricated)
             if any(getattr(self, name) != value for name, value in parts.items()):
                 raise ValueError(f"{self.fabricated.name} is FRIDA-1's converter: its parts are {parts}")
+            if (self.control, self.sequencer, self.presets) != (Control.SYNC, Sequencer.LOCAL, Presets.PINS):
+                raise ValueError(f"{self.fabricated.name}'s logic is FRIDA-1's: synchronous, local, preset by pins")
 
 
 pipeline.Params.register(Params)

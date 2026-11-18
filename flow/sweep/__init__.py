@@ -50,6 +50,9 @@ import hdl21 as h
 ADDED_DEFAULTS: dict[tuple[str, str], object] = {
     ("flow.capdac.params.Params", "weights"): None,  # an array's own weights (a fabricated one's)
     ("flow.samp.params.Params", "bot_l"): 1,  # a bootstrap's bottom-plate switch's length
+    ("flow.adc.params.Params", "control"): "SYNC",  # the converter's control logic (flow.adc.subckt)
+    ("flow.adc.params.Params", "sequencer"): "LOCAL",
+    ("flow.adc.params.Params", "presets"): "PINS",
 }
 
 
@@ -61,7 +64,9 @@ def flat_params(params, prefix: str = "") -> dict[str, float | int | str | bool 
     flat = {}
     owner = f"{type(params).__module__}.{type(params).__qualname__}"
     for name, value in vars(params).items():
-        if (owner, name) in ADDED_DEFAULTS and value == ADDED_DEFAULTS[owner, name]:
+        # an enumeration's default by its member's name (the class need not be imported here)
+        held = value.name if isinstance(value, Enum) else value
+        if (owner, name) in ADDED_DEFAULTS and held == ADDED_DEFAULTS[owner, name]:
             continue
         key = f"{prefix}{name}"
         if dataclasses.is_dataclass(value) and not isinstance(value, type):

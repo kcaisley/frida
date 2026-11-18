@@ -470,7 +470,7 @@ def test_single_executor_modes(view, threads, check, captured_executor, pex_inpu
     assert len(driver_includes) == (1 if view == "hdl21gen" else 0)
     assert "/cells/driver.spi" not in literals
     assert ("/cells/regular.spi" in literals) == (view == "hdl21gen")
-    assert ("adc_digital.sp" in literals) == (view == "hdl21gen")
+    assert "adc_digital" not in literals  # the control logic is the generated netlist's own cells
     assert "models" in literals and "pre" in literals
     assert "converted" not in captured and "hdf5" not in captured
     metadata = json.loads((root / "input.json").read_text())

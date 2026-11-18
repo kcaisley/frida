@@ -101,18 +101,19 @@ from flow.adc.params import (
     Probes,
     Quiet,
     Recipe,
+    Sequencer,
     Simulator,
     TbParams,
 )
 from flow.adc.subckt import (
     Nets,
-    _digital_netlist,
     _fabricated,
     _frida1_ports,
     _frida1_terminals,
     _generated_aliases,
     _nets,
     _pex,
+    _ports,
     netlist,
 )
 from flow.analysis import calc
@@ -212,8 +213,10 @@ def testbench(tb: TbParams) -> h.Module:
         aliases = _frida1_ports()
         selected = {net.parent if isinstance(net, h.Slice) else net for net in aliases}
         ports = {name: net for name, net in nets.signals.items() if net in selected}
-    else:
-        ports = {name: net for name, net in nets.signals.items() if net.vis == h.Visibility.PORT}
+    else:  # its variant's ports (``subckt._ports``)
+        if tb.params.sequencer is Sequencer.SHARED:
+            raise ValueError("a converter whose stage selector is shared runs beside it: no testbench takes it yet")
+        ports = {name: net for name, net in _ports(tb.params, nets).items() if net.vis == h.Visibility.PORT}
     bench, connections = testbench_from_ports(f"AdcTb_{'frida1' if fabricated else 'hdl21gen'}", ports)
     bench.vin_cm, bench.vin_diff = h.Signals(2)
     pattern_period_s = len(tb.seq_init.data) / float(tb.symbol_rate)
@@ -283,13 +286,18 @@ def testbench(tb: TbParams) -> h.Module:
     bench.evin_n = h.Vcvs(gain=-0.5)(p=bench.vin_n, n=bench.vin_cm, cp=bench.vin_diff, cn=bench.vss)
 
     for canonical in nets.signals.values():
-        if canonical.vis != h.Visibility.PORT or canonical.usage != h.Usage.CLOCK:
+        if canonical.vis != h.Visibility.PORT or canonical.usage != h.Usage.CLOCK or canonical.name not in connections:
             continue
         net = connections[canonical.name]
         # the run's line as it is: its row, a symbol a period, between ground and the digital supply
         setattr(bench, f"v{net.name}", h.Vbit(getattr(tb, canonical.name))(p=net, n=bench.vss))
     for net in nets.signals.values():
-        if net.direction != h.PortDir.INPUT or net.usage != h.Usage.SIGNAL or net in (nets.vin_p, nets.vin_n):
+        if (
+            net.direction != h.PortDir.INPUT
+            or net.usage != h.Usage.SIGNAL
+            or net in (nets.vin_p, nets.vin_n)
+            or net.name not in connections
+        ):
             continue
         value = getattr(tb, net.name)
         if net.width == 1:
@@ -438,14 +446,11 @@ def simulate(tb: TbParams, run_dir: Path) -> Path:
     if pex_netlist is not None:
         attrs.append(hs.Include(path=pex_netlist))
     else:
-        # the digital block's standard cells (the generated ADC's only ones: its DAC's drivers are
+        # the control logic's standard cells (the generated ADC's only ones: its DAC's drivers are
         # the PDK's transistors), the library the site includes and the regular-Vth one, each once
         library_cells = site.install.include_stdcell()
         attrs.append(library_cells)
-        standard_cells = (
-            *(path for path in site.STANDARD_CELL_SPICE_NETLISTS if path != library_cells.path),
-            _digital_netlist(tb.stages)[0],
-        )
+        standard_cells = tuple(path for path in site.STANDARD_CELL_SPICE_NETLISTS if path != library_cells.path)
         attrs.append(
             h.Literal(
                 "\n".join(

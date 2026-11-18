@@ -2,9 +2,11 @@
 PDK's devices, so a test that builds the ADC binds TSMC65 (``tsmc65``, ``flow/conftest.py``) and a
 PDK-free checkout (CI) skips it."""
 
-import importlib.util
 import io
+import random
+import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import hdl21 as h
@@ -12,10 +14,11 @@ import pytest
 from pydantic import ValidationError
 
 from flow import capdac
+from flow.circuit.cells import DEFINITIONS, DRIVES, FUNCTIONS, generic_name
 from flow.util.netlist import subcircuit_ports
 
-from .params import Fabricated, Params
-from .subckt import Nets, _digital, _digital_aliases, _frida1_ports, _generated_aliases, netlist
+from .params import Fabricated, Params, Presets, Sequencer
+from .subckt import Nets, _control, _frida1_ports, _generated_aliases, _nets, _ports, _stage_selector, netlist
 
 
 def _loads(module: h.Module, signal: h.Signal) -> set[str]:
@@ -103,31 +106,6 @@ def test_adc_takes_a_sixteen_stage_array_of_another_resolution(tsmc65):
     assert netlist(params).dac_state_p.width == 16
 
 
-def _tsmc65_cells() -> bool:
-    try:
-        return importlib.util.find_spec("pdk.tsmc65.hdl21.cells") is not None
-    except ModuleNotFoundError:
-        return False
-
-
-@pytest.mark.skipif(
-    shutil.which("yosys") is None or not _tsmc65_cells(), reason="synthesizing the digital block needs yosys and TSMC65"
-)
-@pytest.mark.parametrize(("bits", "extra"), ((12, 0), (10, 2), (12, 6)))
-def test_adc_at_any_stage_count_binds_a_synthesized_digital_block_c0_first(tsmc65, bits, extra):
-    """Any array: the digital block synthesized for its stage count, register 0 on C0."""
-    stages = bits - 1 + extra
-    redundancy = capdac.Redundancy.MSB_REDIST if extra else capdac.Redundancy.BINARY
-    module = netlist(Params(adc_bits=bits, cdac=capdac.Params(bits=bits, redundancy=redundancy, extra=extra)))
-    assert module.dac_state_p.width == stages
-    assert module.xdigital.of.module.name == f"adc_digital_n{stages}"
-    for stage in range(stages):
-        for port, signal in (("dac_astate_p", module.dac_astate_p), ("dac_state_n_main", module.dac_state_n)):
-            connection = module.xdigital.conns[f"{port}[{stage}]"]
-            assert connection.index == stage and connection.parent is signal
-    assert sum(name.startswith("xdac_") for name in module.instances) == 2
-
-
 def test_adc_hierarchy_exports_without_duplicate_cell_names(tsmc65):
     """Both sides share one array definition, fresh for each top-level build."""
     module = netlist(Params())
@@ -138,72 +116,222 @@ def test_adc_hierarchy_exports_without_duplicate_cell_names(tsmc65):
     assert len(names) == len(set(names))
 
 
-def test_adc_digital_port_order_matches_spice_subckt():
-    """Keep the HDL21 declaration positionally identical to the synthesized block."""
-    spice = Path(__file__).resolve().parents[2] / "design/spice/adc_digital.sp"
-    declaration = next(line for line in spice.read_text().splitlines() if line.startswith(".SUBCKT adc_digital "))
-    spice_ports = declaration.split()[2:]
+def _cells_verilog() -> str:
+    """Every generic cell (``flow.circuit.cells``) as a behavioral Verilog module, its ports the
+    generic ones in order."""
+    modules = []
+    for function, (inputs, outputs) in FUNCTIONS.items():
+        sequential = function in ("dff", "dffr", "latch")
+        if function in DEFINITIONS:
+            body = f"  assign Y = {DEFINITIONS[function].replace('!', '~')};"
+        else:
+            body = {
+                "dff": "  always @(posedge CLK) Q <= D;",
+                "dffr": "  always @(posedge CLK or negedge RN) if (!RN) Q <= 1'b0; else Q <= D;",
+                "latch": "  always_latch if (EN) Q = D;",
+                "tiehi": "  assign Y = 1'b1;",
+                "tielo": "  assign Y = 1'b0;",
+            }[function]
+        for drive in DRIVES[function]:
+            modules.append(
+                "\n".join(
+                    (
+                        f"module {generic_name(function, drive)} ({', '.join((*inputs, *outputs, 'VDD', 'VSS'))});",
+                        *(f"  input {pin};" for pin in inputs),
+                        *(f"  output {'reg ' if sequential else ''}{pin};" for pin in outputs),
+                        "  inout VDD, VSS;",
+                        body,
+                        "endmodule",
+                    )
+                )
+            )
+    return "\n".join(modules) + "\n"
 
-    hdl21_ports = [port.name for port in _digital(16).port_list]
 
-    assert hdl21_ports == spice_ports
-
-
-@pytest.mark.parametrize("pin", ("seq_typo", "dac_state_p_main[16]", "dac_state_p_main"))
-def test_digital_binding_rejects_unknown_pins_and_incompatible_widths(pin):
-    module = h.ExternalModule(name="bad_digital", port_list=[h.Inout(name=pin)])
-    with pytest.raises((KeyError, ValueError)):
-        _digital_aliases(module)
+_LINES = ("seq_init", "seq_samp", "seq_comp", "seq_logic", "en_init", "en_samp_p", "en_samp_n", "en_comp", "en_update")
+_PRESETS = ("dac_mode", "dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n")
+_CLOCKS = ("clk_samp_p", "clk_samp_p_b", "clk_samp_n", "clk_samp_n_b", "clk_comp")
 
 
-def test_adc_uses_comparator_clock_complement_and_separate_dac_supply(tsmc65):
-    """Connect comparator and CDAC power domains without borrowing sampler timing: the DAC's
-    sides, their drivers and their capacitors' shields, on the DAC's own supply."""
+def _control_alone(param: Params, stages: int) -> h.Module:
+    """The converter's control logic alone (``subckt._control``), the nets it reads and drives its
+    ports; a shared stage selector (``Sequencer.SHARED``) beside it on the lines themselves."""
+    Digital = h.Module(name="AdcDigital")
+    ports = _ports(param, _nets(stages))
+    for name in (*_LINES, *_PRESETS):
+        if name in ports:
+            Digital.add(h.Input(width=ports[name].width), name=name)
+    Digital.comp_out_p, Digital.comp_out_n = h.Input(), h.Input()
+    for name in (*_CLOCKS, "clk_comp_b", "comp_out"):
+        Digital.add(h.Output(), name=name)
+    Digital.dac_state_p, Digital.dac_state_n = h.Output(width=stages), h.Output(width=stages)
+    Digital.vdd_d, Digital.vss_d = h.Inout(), h.Inout()
+    if param.sequencer is Sequencer.SHARED:
+        Digital.dac_cycle = h.Signal(width=stages)
+        Digital.xselector = _stage_selector(stages)(
+            clk_init=Digital.seq_init,
+            clk_update=Digital.seq_logic,
+            dac_cycle=Digital.dac_cycle,
+            vdd_d=Digital.vdd_d,
+            vss_d=Digital.vss_d,
+        )
+    _control(Digital, param, stages)
+    return Digital
+
+
+def _equivalence_bench(param: Params, stages: int, conversions: int, seed: int) -> str:
+    """A testbench of FRIDA-1's RTL (design/hdl/adc_digital.v) beside the gate-level logic
+    (``_control_alone``), both on the same lines: conversions of INIT (eight symbols, a LOGIC pulse
+    in them), SAMP (sixteen) and a COMP and a LOGIC pulse for each decision, each conversion's
+    enables, mode and preset states drawn at random (the enables of INIT and LOGIC held where the
+    stage selector is shared: it runs on the lines themselves), each decision too, the
+    comparator's outputs reset high between decisions; both compared twice a symbol."""
+    rng = random.Random(seed)
+    pins = param.presets is Presets.PINS
+    shared = param.sequencer is Sequencer.SHARED
+    tied = "".join(str(stage % 2) for stage in reversed(range(stages)))
+    rtl_presets = {
+        "dac_mode": "dac_mode" if pins else "1'b1",
+        "dac_astate_p": "dac_astate_p" if pins else f"{stages}'b{tied}",
+        "dac_astate_n": "dac_astate_n" if pins else f"{stages}'b{tied}",
+        "dac_bstate_p": "dac_bstate_p",
+        "dac_bstate_n": "dac_bstate_n",
+    }
+
+    def connect(names: tuple[str, ...], prefix: str = "") -> str:
+        return ", ".join(f".{name}({prefix}{name})" for name in names)
+
+    lines = [
+        "module tb;",
+        f"  reg {', '.join(f'{name} = 0' for name in _LINES)}, dac_mode = 1, comp_out_p = 0, comp_out_n = 1;",
+        f"  reg [{stages - 1}:0] dac_astate_p = 0, dac_bstate_p = 0, dac_astate_n = 0, dac_bstate_n = 0;",
+        "  supply1 vdd_d;",
+        "  supply0 vss_d;",
+        f"  wire {', '.join(f'r_{name}, g_{name}' for name in (*_CLOCKS, 'comp_out'))}, g_clk_comp_b;",
+        f"  wire [{stages - 1}:0] r_p, r_n, g_p, g_n;",
+        f"  adc_digital #(.N_STAGES({stages})) rtl ({connect(_LINES[:3])}, .seq_update(seq_logic),",
+        f"    {connect(_LINES[4:])}, .dac_diffcaps(1'b1),",
+        "    " + ", ".join(f".{name}({value})" for name, value in rtl_presets.items()) + ",",
+        f"    .comp_out_p(comp_out_p), .comp_out_n(comp_out_n), {connect((*_CLOCKS, 'comp_out'), 'r_')},",
+        "    .dac_state_p_main(r_p), .dac_state_n_main(r_n), .dac_state_p_diff(), .dac_state_n_diff(),",
+        "    .dac_invert_p_main(), .dac_invert_p_diff(), .dac_invert_n_main(), .dac_invert_n_diff());",
+        f"  AdcDigital dut ({connect(_LINES)}, {connect(_PRESETS) + ',' if pins else ''}",
+        f"    .comp_out_p(comp_out_p), .comp_out_n(comp_out_n), {connect((*_CLOCKS, 'comp_out', 'clk_comp_b'), 'g_')},",
+        "    .dac_state_p(g_p), .dac_state_n(g_n), .vdd_d(vdd_d), .vss_d(vss_d));",
+        "  integer errors = 0, checks = 0;",
+        "  task check; begin",
+        "    checks = checks + 1;",
+        "    if (" + " || ".join(f"r_{name} !== g_{name}" for name in (*_CLOCKS, "comp_out")),
+        "        || g_clk_comp_b !== ~g_clk_comp || r_p !== g_p || r_n !== g_n) errors = errors + 1;",
+        "  end endtask",
+        "  initial begin",
+    ]
+    for _ in range(conversions):
+        enables = [int(rng.random() < 0.85) for _ in range(5)]
+        if shared:
+            enables[0] = enables[4] = 1
+        lines.append("    " + " ".join(f"{name} = {value};" for name, value in zip(_LINES[4:], enables, strict=True)))
+        if pins:
+            lines.append(f"    dac_mode = {int(rng.random() < 0.8)};")
+            lines += [f"    {name} = {stages}'d{rng.getrandbits(stages)};" for name in _PRESETS[1:]]
+        # each symbol: (INIT, SAMP, COMP, LOGIC) and the decision set or reset before it
+        symbols = [((0, 0, 0, 0), None)]
+        symbols += [((1, 0, 0, int(k in (4, 5))), None) for k in range(8)]
+        symbols += [((0, int(k < 14), 0, 0), None) for k in range(16)]
+        for _decision in range(stages + 1):
+            decision = int(rng.random() < 0.5)
+            symbols += [((0, 0, int(k < 4), int(k >= 4)), {1: decision, 5: 2}.get(k)) for k in range(8)]
+        for (init, samp, comp_, logic), decided in symbols:
+            if decided is not None:
+                p, n = (1, 1) if decided == 2 else (decided, 1 - decided)
+                lines.append(f"    comp_out_p = {p}; comp_out_n = {n};")
+            lines.append(
+                f"    seq_init = {init}; seq_samp = {samp}; seq_comp = {comp_}; seq_logic = {logic}; #1 check; #1 check;"
+            )
+    lines += ['    $display("CHECKS %0d ERRORS %0d", checks, errors);', "    $finish;", "  end", "endmodule"]
+    return "\n".join(lines) + "\n"
+
+
+@pytest.mark.skipif(shutil.which("iverilog") is None, reason="the equivalence check runs Icarus Verilog")
+@pytest.mark.parametrize("stages", (16, 9))
+@pytest.mark.parametrize(
+    "param",
+    (Params(), Params(presets=Presets.TIED), Params(sequencer=Sequencer.SHARED)),
+    ids=("pins", "tied", "shared"),
+)
+def test_the_synchronous_logic_is_frida1s_rtl(tmp_path: Path, param: Params, stages: int) -> None:
+    """The gate-level synchronous logic (hdl21's Verilog of its generic cells, each a behavioral
+    model) does what FRIDA-1's RTL does (design/hdl/adc_digital.v and its modules, with their
+    behavioral cells), output for output, twice a symbol over conversions of random enables, modes,
+    preset states and decisions; tied presets against the RTL at capdac's A state and the
+    comparator's mode; a shared selector beside it on the lines."""
+    hdl = Path(__file__).resolve().parents[2] / "design/hdl"
+    text = io.StringIO()
+    h.netlist(_control_alone(param, stages), text, fmt="verilog")
+    files = {"dut.v": text.getvalue(), "cells.v": _cells_verilog(), "tb.v": _equivalence_bench(param, stages, 10, 7)}
+    for name, content in files.items():
+        (tmp_path / name).write_text(content)
+    rtl = [hdl / f"{name}.v" for name in ("cells_behavioral", "clkgate", "sampdriver", "salogic", "adc_digital")]
+    subprocess.run(
+        ["iverilog", "-g2012", "-o", str(tmp_path / "sim"), *(str(tmp_path / name) for name in files), *map(str, rtl)],
+        check=True,
+    )
+    result = subprocess.run(["vvp", "-n", str(tmp_path / "sim")], check=True, capture_output=True, text=True)
+    checks, errors = map(int, re.search(r"CHECKS (\d+) ERRORS (\d+)", result.stdout).groups())
+    assert checks == 2 * 10 * (1 + 8 + 16 + 8 * (stages + 1)) and errors == 0
+
+
+def test_adc_clocks_its_comparator_and_keeps_the_dac_on_its_own_supply(tsmc65):
+    """The comparator's clock and its complement from the logic's cells, its output buffered out;
+    the DAC's sides, their drivers and their capacitors' shields on the DAC's own supply."""
     module = netlist(Params())
-
-    assert module.xdigital.conns["comp_out"] is module.comp_out
+    assert module.xcomp.conns["clk"] is module.clk_comp
     assert module.xcomp.conns["clkb"] is module.clk_comp_b
-    assert module.MP_clk_comp_b.conns["g"] is module.clk_comp
-    assert module.MN_clk_comp_b.conns["g"] is module.clk_comp
+    assert module.Xcomp_clk_inv.conns["A"] is module.clk_comp
+    assert module.Xcomp_clk_inv.conns["Y"] is module.clk_comp_b
+    assert module.Xcomp_out_buf.conns["A"] is module.comp_out_p
+    assert module.Xcomp_out_buf.conns["Y"] is module.comp_out
     for side in ("p", "n"):
         dac = module.instances[f"xdac_{side}"]
         assert dac.conns["vdd"] is module.vdd_dac
         assert dac.conns["vss"] is module.vss_dac
 
 
-def test_adc_translates_the_legacy_digital_bus_only_at_its_boundary(tsmc65):
-    """Connect legacy physical bit 15 to canonical stage C0."""
-
+def test_each_side_of_the_dac_takes_the_logics_states_of_its_side(tsmc65):
+    """Each side's stages switch on the SAR logic's states of that side, C0 on its C0; the
+    comparator's N output decides the P side (crossed) and its P output the N side."""
     module = netlist(Params())
-
-    for port, signal in (
-        ("dac_astate_p", module.dac_astate_p),
-        ("dac_bstate_p", module.dac_bstate_p),
-        ("dac_astate_n", module.dac_astate_n),
-        ("dac_bstate_n", module.dac_bstate_n),
-        ("dac_state_p_main", module.dac_state_p),
-        ("dac_state_n_main", module.dac_state_n),
-    ):
-        for stage in range(16):
-            connection = module.xdigital.conns[f"{port}[{15 - stage}]"]
-            assert connection.index == stage
-            assert connection.parent is signal
-
-
-def test_each_side_of_the_dac_takes_the_digital_blocks_states_of_its_side(tsmc65):
-    """Each side's stages switch on the digital block's states of that side, C0 on its C0; its
-    difference states and inversion controls drive nothing (the polarity is wired in)."""
-    module = netlist(Params())
+    assert module.xsalogic.conns["comp_p"] is module.comp_out_n
+    assert module.xsalogic.conns["comp_n"] is module.comp_out_p
     for side in ("p", "n"):
         states = module.namespace[f"dac_state_{side}"]
         assert module.instances[f"xdac_{side}"].conns["dac_state"] is states
-        assert _loads(module, states) == {"xdigital", f"xdac_{side}"}
-        for stage in range(16):
-            connection = module.xdigital.conns[f"dac_state_{side}_main[{15 - stage}]"]
-            assert connection.parent is states and connection.index == stage
-        for unused in (f"dac_state_{side}_diff", f"dac_invert_{side}_main", f"dac_invert_{side}_diff"):
-            assert _loads(module, module.namespace[unused]) == {"xdigital"}
-    assert _loads(module, module.dac_diffcaps) == {"xdigital"}
+        assert module.xsalogic.conns[f"dac_state_{side}"] is states
+        assert _loads(module, states) == {"xsalogic", f"xdac_{side}"}
+    for unused in ("dac_diffcaps", "dac_state_p_diff", "dac_invert_p_main", "dac_cycle"):
+        assert unused not in module.namespace
+
+
+@pytest.mark.parametrize(
+    ("param", "absent", "present"),
+    (
+        (Params(), {"dac_cycle"}, {"dac_mode", "dac_astate_p", "dac_bstate_n"}),
+        (Params(presets=Presets.TIED), {"dac_mode", "dac_astate_p", "dac_bstate_n", "dac_cycle"}, set()),
+        (Params(sequencer=Sequencer.SHARED), set(), {"dac_cycle", "dac_mode"}),
+    ),
+    ids=("pins", "tied", "shared"),
+)
+def test_each_variant_has_its_own_pins(tsmc65, param: Params, absent: set, present: set) -> None:
+    """Tied presets take no preset pins; a shared stage selector's lines are the converter's inputs
+    and its SAR logic holds no selector; a local one is inside the SAR logic. The logic is generic
+    cells alone."""
+    module = netlist(param)
+    assert not absent & set(module.ports) and present <= set(module.ports)
+    logic = module.xsalogic.of
+    assert ("xselector" in logic.instances) == (param.sequencer is Sequencer.LOCAL)
+    calls = [instance.of for instance in logic.instances.values() if isinstance(instance.of, h.ExternalModuleCall)]
+    generic = {generic_name(function, drive) for function in FUNCTIONS for drive in DRIVES[function]}
+    assert {call.module.name for call in calls} <= generic
 
 
 def test_the_comparator_and_samplers_sit_on_their_sides_top_plates(tsmc65):
@@ -305,10 +433,11 @@ def test_a_fabricated_converter_is_its_extractions_black_box(fabricated):
             assert bound.parent is module.namespace[net.parent.name] and bound.index == net.index
         else:
             assert bound is module.namespace[net.name]
-    # the canonical ports it brings out: every one but the DAC states
+    # the canonical ports it brings out: every one but the DAC states and a shared selector's lines
     assert set(module.ports) == {name for name, net in Nets.signals.items() if net.vis == h.Visibility.PORT} - {
         "dac_state_p",
         "dac_state_n",
+        "dac_cycle",
     }
     # the same black box for every flavor, one declaration
     assert netlist(Fabricated.FRIDA1_2LAYER_RADIX20.params).instances["xadc"].of.module is box.of.module
