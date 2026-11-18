@@ -186,8 +186,10 @@ def run(command: list[str], env: dict | None = None) -> int:
         return 127
 
 
-def uvx(package: str, *args: str) -> list[str]:
-    return ["uvx", "--from", package, *args]
+def uvx(package: str, *args: str, refresh: bool = False) -> list[str]:
+    """``refresh``: the newest release the minimum admits, not the one uv has cached."""
+    name = package.split(">=")[0]
+    return ["uvx", *(["--refresh-package", name] if refresh else []), "--from", package, *args]
 
 
 # ------------------------------------------------------------------------------ checks
@@ -223,11 +225,11 @@ def check_pytest(fix: bool, files: list[str] | None) -> int:
     return run(["uv", "run", "pytest", "-q", "-p", "no:cacheprovider", *CHECK["pytest"]], env=env)
 
 
-def check_markdown(fix: bool, files: list[str] | None) -> int:
+def check_markdown(fix: bool, files: list[str] | None, refresh: bool = False) -> int:
     files = files if files is not None else tracked(suffixes=(".md",))
     if not files:
         return 0
-    return run(uvx(CHECK["rumdl"], "rumdl", "check", *(["--fix"] if fix else []), *files))
+    return run(uvx(CHECK["rumdl"], "rumdl", "check", *(["--fix"] if fix else []), *files, refresh=refresh))
 
 
 def check_tex_fmt(fix: bool, files: list[str] | None) -> int:
@@ -411,6 +413,13 @@ def staged() -> int:
     before = subprocess.check_output(["git", "diff", "--stat"], cwd=ROOT, text=True)
     status = 0
     for name, (function, touches) in CHECKS.items():
+        if name == "markdown":
+            # rumdl's version is a minimum, so a new release can add a rule that fails files no
+            # commit touches (MD076, 2026-11-18): every commit checks all the Markdown with the
+            # newest release, as CI will (a second's lookup; the whole check takes milliseconds)
+            print(f"=== {name} (every file, the newest rumdl)", flush=True)
+            status |= check_markdown(True, None, refresh=True)
+            continue
         hit = [n for n in names if touches(n)]
         if hit:
             print(f"=== {name}", flush=True)
