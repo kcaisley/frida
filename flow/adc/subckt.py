@@ -49,18 +49,18 @@ plates inside its DAC's sides (``_generated_aliases``), and FRIDA-1's extraction
 instance; these bindings never rename the IP itself.
 """
 
-import re
 from functools import cache
 from pathlib import Path
 
 import hdl21 as h
 
 from flow import capdac, comp, samp
-from flow.adc.params import Params, Presets, Sequencer
+from flow.adc.params import Control, Params, Presets, Sequencer
 from flow.circuit.cells import cell
 from flow.circuit.ports import module_from_ports, port_connections
 from flow.layout.devices.device import active_pdk, resolve
 from flow.util.netlist import normalize_bus_pin, subcircuit_ports
+
 
 @cache
 def _nets(stages: int):
@@ -75,6 +75,8 @@ def _nets(stages: int):
         dac_mode, dac_diffcaps = h.Input(), h.Input()
         dac_astate_p, dac_bstate_p, dac_astate_n, dac_bstate_n = (h.Input(width=stages) for _ in range(4))
         dac_cycle = h.Input(width=stages)  # the stage selector's lines, where it is shared (Sequencer.SHARED)
+        dly_trim = h.Input(width=2)  # a self-timed converter's settling tap
+        eoc = h.Output()  # and the end of its conversion
         dac_state_p, dac_state_n = (h.Output(width=stages, props=h.Properties(inner={"save": True})) for _ in range(2))
         comp_out = h.Output(props=h.Properties(inner={"save": True}))
         vdd_a = h.Power(direction=h.PortDir.INOUT)
@@ -87,6 +89,7 @@ def _nets(stages: int):
             h.Signal(usage=h.Usage.CLOCK, props=h.Properties(inner={"save": True})) for _ in range(5)
         )
         clk_comp_b = h.Signal(usage=h.Usage.CLOCK)
+        comp_rdy = h.Signal()  # the comparator's ready (self-timed)
         comp_out_p, comp_out_n, vdac_p, vdac_n = (h.Signal(props=h.Properties(inner={"save": True})) for _ in range(4))
         dac_state_p_diff, dac_state_n_diff = (
             h.Signal(width=stages, props=h.Properties(inner={"save": True})) for _ in range(2)
@@ -157,6 +160,14 @@ def netlist(param: Params) -> h.Module:
 
     # Instantiate comparator
     comparator = comp.netlist(param.comp)
+    ready = {}
+    if param.control is not Control.SYNC:
+        if "rdy" not in comparator.ports:
+            raise ValueError(
+                f"a self-timed converter ({param.control.name}) runs on its comparator's ready, and this "
+                "comparator brings out none (flow.comp: no rdy port)"
+            )
+        ready = {"rdy": Adc.comp_rdy}
     Adc.xcomp = comparator(
         **port_connections(
             comparator.ports,
@@ -169,6 +180,7 @@ def netlist(param: Params) -> h.Module:
             clkb=Adc.clk_comp_b,
             vdd=Adc.vdd_a,
             vss=Adc.vss_a,
+            **ready,
         )
     )
 
@@ -237,11 +249,18 @@ def _pex(netlist_path: Path, cell: str) -> h.ExternalModule:
 def _frida1_ports() -> dict[h.Signal | h.Slice, str]:
     """FRIDA-1's extraction's scalar pins of the canonical ports (``Nets``), C0 first in Python: the
     fabricated macro's buses are C15 first, its LOGIC line ``seq_update``; it brings out no DAC
-    state and has no shared stage selector's lines."""
+    state and has none of a generated converter's variants' pins (a shared stage selector's lines,
+    a self-timed converter's settling tap and end of conversion)."""
     renamed = {Nets.seq_logic: "seq_update"}
     aliases = {}
     for net in Nets.signals.values():
-        if net.vis != h.Visibility.PORT or net in (Nets.dac_state_p, Nets.dac_state_n, Nets.dac_cycle):
+        if net.vis != h.Visibility.PORT or net in (
+            Nets.dac_state_p,
+            Nets.dac_state_n,
+            Nets.dac_cycle,
+            Nets.dly_trim,
+            Nets.eoc,
+        ):
             continue
         if net.width == 1:
             aliases[net] = renamed.get(net, net.name)
@@ -258,7 +277,8 @@ def _frida1_ports() -> dict[h.Signal | h.Slice, str]:
 def _ports(param: Params, nets=Nets) -> dict[str, h.Signal]:
     """The generated converter's own nets (``nets``: ``_nets`` of its stage count): its ports, its
     variant's (``Presets.TIED`` has no preset pins, ``Sequencer.SHARED`` takes the stage selector's
-    lines), and the inner nets it holds itself; not its bottom plates (its DAC's sides'), the
+    lines, a self-timed one takes SAMP alone of the sequencer's lines, its settling tap and gives the
+    end of its conversion), and the inner nets it holds itself; not its bottom plates (its DAC's sides'), the
     difference states (its sides' own inputs of the states) or FRIDA-1's inversion controls and
     ``dac_diffcaps`` (its polarity is fixed)."""
     skip = {
@@ -278,6 +298,10 @@ def _ports(param: Params, nets=Nets) -> dict[str, h.Signal]:
         skip |= {nets.dac_astate_p, nets.dac_bstate_p, nets.dac_astate_n, nets.dac_bstate_n, nets.dac_mode}
     if param.sequencer is Sequencer.LOCAL:
         skip.add(nets.dac_cycle)
+    if param.control is Control.SYNC:
+        skip |= {nets.dly_trim, nets.eoc, nets.comp_rdy}
+    else:  # self-timed: SAMP alone from the sequencer
+        skip |= {nets.seq_init, nets.seq_comp, nets.seq_logic, nets.en_init, nets.en_update}
     return {name: net for name, net in nets.signals.items() if net not in skip}
 
 
@@ -290,7 +314,9 @@ def _net(module: h.Module, name: str) -> h.Signal:
     return module.add(h.Signal(), name=name)
 
 
-def _fanout(module: h.Module, name: str, source: h.Signal | h.Slice, loads: int, group: int = 8) -> list:
+def _fanout(
+    module: h.Module, name: str, source: h.Signal | h.Slice, loads: int, group: int = 8
+) -> list[h.Signal | h.Slice]:
     """The net each of ``loads`` loads of ``source`` takes: ``source`` itself where ``group`` loads
     or fewer share it, else a buffer (x4) for each ``group`` of them, the loads in order."""
     if loads <= group:
@@ -386,7 +412,9 @@ def _sar_logic(param: Params, stages: int) -> h.Module:
         enable = _net(Logic, f"en_{stage}")
         if pins:
             # every stage while INIT is high or the B state is chosen, else the selected one
-            _cell(Logic, f"Xen_{stage}", "or3", 1, A=init[per_stage * stage], B=modes_b[stage], C=cycle[stage], Y=enable)
+            _cell(
+                Logic, f"Xen_{stage}", "or3", 1, A=init[per_stage * stage], B=modes_b[stage], C=cycle[stage], Y=enable
+            )
         else:
             _cell(Logic, f"Xen_{stage}", "or2", 1, A=init[per_stage * stage], B=cycle[stage], Y=enable)
         for k, side in enumerate("pn"):
@@ -425,20 +453,279 @@ def _sar_logic(param: Params, stages: int) -> h.Module:
     return Logic
 
 
+# the self-timed logic's delays, buffers (x2) a chain: the DAC's settling, each tap of four
+# (``dly_trim``), and the bundling of the comparator's held decision before its ready clocks it in
+_SETTLE_TAPS = (4, 8, 12, 16)
+_BUNDLE = 6
+_PRESET_LEAD = 4
+
+
+def _chain(
+    module: h.Module, name: str, source: h.Signal, length: int, *, held: h.Signal | None = None
+) -> list[h.Signal]:
+    """A chain of ``length`` buffers (x2) from ``source``, every stage's output in order; with
+    ``held``, AND gates instead, each of its stage before it and ``held``, so that the chain's
+    output rises ``length`` gates after ``held`` and ``source`` both rose and falls one gate after
+    ``held`` falls (a delay that keeps no memory of an earlier pulse)."""
+    outputs, node = [], source
+    for k in range(length):
+        out = _net(module, f"{name}_{k}")
+        if held is None:
+            _cell(module, f"X{name}_{k}", "buf", 2, A=node, Y=out)
+        else:
+            _cell(module, f"X{name}_{k}", "and2", 1, A=node, B=held, Y=out)
+        outputs.append(out)
+        node = out
+    return outputs
+
+
+def _tap(module: h.Module, name: str, chain: list[h.Signal], select: h.Signal) -> h.Signal:
+    """The chain's output at the tap ``select`` (two bits) picks of ``_SETTLE_TAPS``."""
+    taps = [chain[k - 1] for k in _SETTLE_TAPS]
+    low, high, out = _net(module, f"{name}_lo"), _net(module, f"{name}_hi"), _net(module, name)
+    _cell(module, f"X{name}_lo", "mux2", 1, A=taps[0], B=taps[1], S=select[0], Y=low)
+    _cell(module, f"X{name}_hi", "mux2", 1, A=taps[2], B=taps[3], S=select[0], Y=high)
+    _cell(module, f"X{name}", "mux2", 1, A=low, B=high, S=select[1], Y=out)
+    return out
+
+
+def _self_timed_ports(param: Params, name: str, stages: int) -> h.Module:
+    """A self-timed SAR logic's module and its ports: SAMP (the conversion's start as it falls,
+    the presets loaded while it is high), the comparator's held decisions and its ready, the
+    settling tap; the DAC states, the comparator's clock request and the end of the conversion."""
+    Logic = h.Module(name=name)
+    Logic.samp, Logic.comp_p, Logic.comp_n, Logic.rdy = h.Input(), h.Input(), h.Input(), h.Input()
+    Logic.dly_trim = h.Input(width=2)
+    if param.presets is Presets.PINS:
+        Logic.dac_mode = h.Input()
+        for port in ("dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n"):
+            Logic.add(h.Input(width=stages), name=port)
+    Logic.dac_state_p, Logic.dac_state_n = h.Output(width=stages), h.Output(width=stages)
+    Logic.clk_req, Logic.eoc = h.Output(), h.Output()
+    Logic.vdd_d = h.Power(direction=h.PortDir.INOUT)
+    Logic.vss_d = h.Ground(direction=h.PortDir.INOUT)
+    return Logic
+
+
+def _start(Logic: h.Module) -> tuple[h.Signal, h.Signal, h.Signal, h.Signal]:
+    """SAMP's derived nets: its complement (the resets, active low while it is high), SAMP
+    delayed (``_PRESET_LEAD`` buffers: in the loop the clock that loads the presets, after their
+    select; in the chain the select, after the latches' enable) and the start (``go``: low with
+    SAMP, high once its delayed copy has fallen too), and the comparator's ready delayed
+    (``_BUNDLE`` buffers: its held decisions settle first)."""
+    samp_b = _net(Logic, "samp_b")
+    _cell(Logic, "Xsamp_inv", "inv", 2, A=Logic.samp, Y=samp_b)
+    samp_d = _chain(Logic, "samp_d", Logic.samp, _PRESET_LEAD)[-1]
+    late_b, go = _net(Logic, "samp_d_b"), _net(Logic, "go")
+    _cell(Logic, "Xgo_inv", "inv", 1, A=samp_d, Y=late_b)
+    # the start: low at once when SAMP rises (no request while the resets clear), high only once
+    # SAMP and its delayed copy have both fallen
+    _cell(Logic, "Xgo", "nor2", 2, A=Logic.samp, B=samp_d, Y=go)
+    rdy_d = _chain(Logic, "rdy_d", Logic.rdy, _BUNDLE)[-1]
+    return samp_b, samp_d, go, rdy_d
+
+
+def _preset_data(Logic: h.Module, param: Params, stage: int, side: str, comp_, select, select_b) -> h.Signal:
+    """A stage's next state: its A state while ``select`` is high (the presets), else its
+    decision, or (``dac_mode`` low) its B state; tied presets in its gates."""
+    data = _net(Logic, f"d_{side}_{stage}")
+    if param.presets is Presets.PINS:
+        decided = _net(Logic, f"m_{side}_{stage}")
+        bstate, astate = (getattr(Logic, f"dac_{kind}state_{side}")[stage] for kind in "ba")
+        _cell(Logic, f"Xmode_{side}_{stage}", "mux2", 1, A=bstate, B=comp_, S=Logic.dac_mode, Y=decided)
+        _cell(Logic, f"Xpreset_{side}_{stage}", "mux2", 1, A=decided, B=astate, S=select, Y=data)
+    elif stage % 2:
+        _cell(Logic, f"Xpreset_{side}_{stage}", "or2", 1, A=select, B=comp_, Y=data)
+    else:
+        _cell(Logic, f"Xpreset_{side}_{stage}", "and2", 1, A=select_b, B=comp_, Y=data)
+    return data
+
+
+def _sar_loop(param: Params, stages: int) -> h.Module:
+    """The self-timed loop (``Control.ASYNC_LOOP``). The comparator's clock is a flip-flop
+    (``Xreq``, its output ``clk_req``): ready clears it (its reset) and its clock sets it again
+    once the DAC has settled, a toggle that ready flips (``Xphase``) delayed down a chain of
+    buffers (``_SETTLE_TAPS``, ``dly_trim``) and compared with itself (``settled`` is low for the
+    chain's delay after each flip). Ready delayed (``rdy_d``) clocks the stage selector (a one-hot
+    register, reset to stage 0 while SAMP is high) and the stages' flip-flops (the synchronous
+    logic's, each a multiplexer before it), which take their presets at SAMP's rise. After the
+    last stage's decision and the one after it the selector's last flip-flop (``eoc``) clears the
+    clock flip-flop's input: the comparator stays in reset and holds the last decision.
+    The two timing assumptions: the comparator resets before ``settled`` rises again, and the
+    chain's delay covers the DAC's drivers and settling."""
+    Logic = _self_timed_ports(param, "SarLoop", stages)
+    samp_b, samp_d, go, rdy_d = _start(Logic)
+    ones = _net(Logic, "one")
+    _cell(Logic, "Xone", "tiehi", 1, Y=ones)
+    # the loop: a phase that ready toggles, delayed, the comparator's clock set where it has settled
+    phase, phase_b = _net(Logic, "phase"), _net(Logic, "phase_b")
+    _cell(Logic, "Xphase_inv", "inv", 1, A=phase, Y=phase_b)
+    delayed = _tap(Logic, "phase_d", _chain(Logic, "settle", phase, _SETTLE_TAPS[-1]), Logic.dly_trim)
+    settled, set_, clear = _net(Logic, "settled"), _net(Logic, "req_set"), _net(Logic, "req_rn")
+    _cell(Logic, "Xsettled", "xnor2", 1, A=phase, B=delayed, Y=settled)
+    _cell(Logic, "Xreq_set", "and2", 1, A=settled, B=go, Y=set_)
+    _cell(Logic, "Xreq_rn", "nor2", 1, A=Logic.rdy, B=Logic.samp, Y=clear)
+    done_b = _net(Logic, "eoc_b")
+    _cell(Logic, "Xreq", "dffr", 1, D=done_b, CLK=set_, RN=clear, Q=Logic.clk_req)
+    # every flip-flop on ready delayed or SAMP's rise, one clock net: the selector, the phase and
+    # the end held in reset while SAMP is high, the stages loading their presets
+    data_clock = _net(Logic, "clk_data")
+    _cell(Logic, "Xclk_data", "or2", 2, A=rdy_d, B=samp_d, Y=data_clock)
+    clocks = _fanout(Logic, "clk_data", data_clock, 2 * stages + stages + 3)
+    resets = _fanout(Logic, "rn", samp_b, stages + 3)
+    # the stage selector: one-hot, stage 0 (its flip-flop inverted: the reset clears) until the
+    # first decision, the extra position the last decision's, then the end
+    first, select = _net(Logic, "sel_0_b"), Logic.add(h.Signal(width=stages + 1), name="sel")
+    _cell(Logic, "Xsel_0", "dffr", 1, D=ones, CLK=clocks[0], RN=resets[0], Q=first)
+    _cell(Logic, "Xsel_0_inv", "inv", 1, A=first, Y=select[0])
+    for position in range(1, stages + 1):
+        _cell(
+            Logic,
+            f"Xsel_{position}",
+            "dffr",
+            1,
+            D=select[position - 1],
+            CLK=clocks[position],
+            RN=resets[position],
+            Q=select[position],
+        )
+    _cell(Logic, "Xeoc", "dffr", 1, D=select[stages], CLK=clocks[stages + 1], RN=resets[stages + 1], Q=Logic.eoc)
+    _cell(Logic, "Xeoc_inv", "inv", 1, A=Logic.eoc, Y=done_b)
+    _cell(Logic, "Xphase", "dffr", 1, D=phase_b, CLK=clocks[stages + 2], RN=resets[stages + 2], Q=phase)
+    # the stages: the synchronous logic's flip-flops
+    data_clocks = clocks[stages + 3 :]
+    pins = param.presets is Presets.PINS
+    # the presets selected while SAMP is high, ahead of the clock that loads them (SAMP delayed)
+    selects = _fanout(Logic, "samp", Logic.samp, (3 if pins else 1) * stages)
+    selects_b = _fanout(Logic, "samp_b", samp_b, stages)
+    comps = {side: _fanout(Logic, f"comp_{side}", getattr(Logic, f"comp_{side}"), stages) for side in "pn"}
+    if pins:
+        mode_b = _net(Logic, "mode_b")
+        _cell(Logic, "Xmode_inv", "inv", 1, A=Logic.dac_mode, Y=mode_b)
+    for stage in range(stages):
+        enable = _net(Logic, f"en_{stage}")
+        if pins:
+            _cell(Logic, f"Xen_{stage}", "or3", 1, A=selects[3 * stage], B=mode_b, C=select[stage], Y=enable)
+        else:
+            _cell(Logic, f"Xen_{stage}", "or2", 1, A=selects[stage], B=select[stage], Y=enable)
+        for k, side in enumerate("pn"):
+            state = getattr(Logic, f"dac_state_{side}")[stage]
+            at = selects[3 * stage + 1 + k] if pins else selects[stage]
+            data = _preset_data(Logic, param, stage, side, comps[side][stage], at, selects_b[stage])
+            loaded = _net(Logic, f"q_{side}_{stage}")
+            _cell(Logic, f"Xhold_{side}_{stage}", "mux2", 1, A=state, B=data, S=enable, Y=loaded)
+            _cell(Logic, f"Xstate_{side}_{stage}", "dff", 1, D=loaded, CLK=data_clocks[2 * stage + k], Q=state)
+    return Logic
+
+
+def _sar_chain(param: Params, stages: int) -> h.Module:
+    """The token chain (``Control.ASYNC_CHAIN``): no stage selector and no common clock. Each
+    position (a stage, and the last decision's) holds two flip-flops reset while SAMP is high,
+    ``cap`` (its decision captured) and ``done`` (its token passed on), each set once a
+    conversion. A position holding the token (the one before it done; the first's SAMP's fall)
+    and not yet captured asks for a decision (``act``); the comparator is clocked while one
+    asks, its rise delayed (``_SETTLE_TAPS``, ``dly_trim``) by a chain of AND gates that clears at
+    once when the request falls. Ready delayed opens the position's window (``g``: it holds the
+    token, has not passed it, ready is high): its latches take the decision (the DAC switches) and
+    ``cap`` sets, so the request falls and the comparator resets; ready falling closes the window
+    and sets ``done``, which hands the token on. Every control net but ready changes once a
+    conversion. The presets enter the latches while SAMP is high; SAMP's rise masks the request at
+    once (``go``), before its resets clear the positions. The last position's ``done`` is the end
+    of the conversion; the comparator holds the last decision."""
+    Logic = _self_timed_ports(param, "SarChain", stages)
+    samp_b, samp_d, go, rdy_d = _start(Logic)
+    ones, rdy_db = _net(Logic, "one"), _net(Logic, "rdy_d_b")
+    _cell(Logic, "Xone", "tiehi", 1, Y=ones)
+    _cell(Logic, "Xrdy_d_inv", "inv", 2, A=rdy_d, Y=rdy_db)
+    resets = _fanout(Logic, "samp_b", samp_b, 2 * (stages + 1))
+    windows_b = _fanout(Logic, "rdy_d_b", rdy_db, 2 * (stages + 1))
+    selects = _fanout(Logic, "samp_d", samp_d, 2 * stages)
+    selects_b = _fanout(Logic, "samp_d_b", Logic.samp_d_b, stages)
+    opens = _fanout(Logic, "samp", Logic.samp, stages)
+    comps = {side: _fanout(Logic, f"comp_{side}", getattr(Logic, f"comp_{side}"), stages) for side in "pn"}
+    asks, token = [], go
+    for position in range(stages + 1):
+        token_b, ask, window = (
+            _net(Logic, f"token_b_{position}"),
+            _net(Logic, f"act_{position}"),
+            _net(Logic, f"g_{position}"),
+        )
+        captured, passing = _net(Logic, f"cap_{position}"), _net(Logic, f"pass_{position}")
+        done = Logic.eoc if position == stages else _net(Logic, f"done_{position}")
+        _cell(Logic, f"Xtoken_inv_{position}", "inv", 1, A=token, Y=token_b)
+        _cell(Logic, f"Xact_{position}", "nor2", 1, A=token_b, B=captured, Y=ask)
+        _cell(Logic, f"Xg_{position}", "nor3", 1, A=token_b, B=done, C=windows_b[2 * position], Y=window)
+        _cell(Logic, f"Xcap_{position}", "dffr", 1, D=ones, CLK=window, RN=resets[2 * position], Q=captured)
+        _cell(Logic, f"Xpass_{position}", "and2", 1, A=captured, B=windows_b[2 * position + 1], Y=passing)
+        _cell(Logic, f"Xdone_{position}", "dffr", 1, D=ones, CLK=passing, RN=resets[2 * position + 1], Q=done)
+        asks.append(ask)
+        token = done
+        if position == stages:
+            continue
+        stage = position
+        enable = _net(Logic, f"le_{stage}")
+        _cell(Logic, f"Xle_{stage}", "or2", 1, A=opens[stage], B=window, Y=enable)
+        for k, side in enumerate("pn"):
+            at = selects[2 * stage + k]
+            data = _preset_data(Logic, param, stage, side, comps[side][stage], at, selects_b[stage])
+            _cell(
+                Logic,
+                f"Xstate_{side}_{stage}",
+                "latch",
+                1,
+                D=data,
+                EN=enable,
+                Q=getattr(Logic, f"dac_state_{side}")[stage],
+            )
+    # the request: any position asking, an OR tree of NOR and NAND gates
+    level, depth = asks, 0
+    while len(level) > 1:
+        gate = "nor" if depth % 2 == 0 else "nand"
+        merged = []
+        for k in range(0, len(level), 3):
+            group = level[k : k + 3]
+            out = _net(Logic, f"req_{depth}_{k // 3}")
+            # the levels alternate, a NAND level's inputs the NOR level's complements; a lone input
+            # inverted, a gate of one input
+            pins_ = dict(zip("ABC", group, strict=False))
+            function = "inv" if len(group) == 1 else f"{gate}{len(group)}"
+            _cell(Logic, f"Xreq_{depth}_{k // 3}", function, 1, **pins_, Y=out)
+            merged.append(out)
+        level, depth = merged, depth + 1
+    request = level[0]
+    if depth % 2:  # a NOR level last: its output is the request's complement
+        inverted = _net(Logic, "req")
+        _cell(Logic, "Xreq_inv", "inv", 1, A=request, Y=inverted)
+        request = inverted
+    # the request where the conversion runs: SAMP's rise masks it before its resets clear the
+    # positions (a position's token and its capture cleared in either order would ask briefly)
+    running = _net(Logic, "req_run")
+    _cell(Logic, "Xreq_run", "and2", 1, A=request, B=go, Y=running)
+    delayed = _tap(Logic, "req_d", _chain(Logic, "settle", running, _SETTLE_TAPS[-1], held=running), Logic.dly_trim)
+    _cell(Logic, "Xclk_req", "buf", 2, A=delayed, Y=Logic.clk_req)
+    return Logic
+
+
 def _control(Adc: h.Module, param: Params, stages: int) -> None:
     """The converter's control logic into ``Adc`` (its variant's, ``Params.control``): the
     sequencer's lines gated by their enables (``_clock_gate``), the samplers' clocks and their
     complements, the comparator's clock and its complement, the comparator's output buffered out,
-    and the SAR logic (``xsalogic``: ``_sar_logic``). Every cell on the digital supply."""
+    and the SAR logic (``xsalogic``: ``_sar_logic``, or a self-timed one, ``_sar_loop`` or
+    ``_sar_chain``, whose request clocks the comparator where ``en_comp`` enables it). Every cell on
+    the digital supply."""
     raw = {line: _net(Adc, f"clk_{line}_g") for line in ("samp_p", "samp_n", "comp")}
-    clk_init, clk_update = _net(Adc, "clk_init"), _net(Adc, "clk_update")
-    for name, line, enable, gated in (
-        ("gate_init", Adc.seq_init, Adc.en_init, clk_init),
+    gates = [
         ("gate_samp_p", Adc.seq_samp, Adc.en_samp_p, raw["samp_p"]),
         ("gate_samp_n", Adc.seq_samp, Adc.en_samp_n, raw["samp_n"]),
-        ("gate_comp", Adc.seq_comp, Adc.en_comp, raw["comp"]),
-        ("gate_update", Adc.seq_logic, Adc.en_update, clk_update),
-    ):
+    ]
+    if param.control is Control.SYNC:
+        clk_init, clk_update = _net(Adc, "clk_init"), _net(Adc, "clk_update")
+        gates += [
+            ("gate_init", Adc.seq_init, Adc.en_init, clk_init),
+            ("gate_comp", Adc.seq_comp, Adc.en_comp, raw["comp"]),
+            ("gate_update", Adc.seq_logic, Adc.en_update, clk_update),
+        ]
+    for name, line, enable, gated in gates:
         _clock_gate(Adc, name, line, enable, gated)
     for side in "pn":
         _cell(Adc, f"Xsamp_{side}_buf", "buf", 4, A=raw[f"samp_{side}"], Y=getattr(Adc, f"clk_samp_{side}"))
@@ -446,23 +733,32 @@ def _control(Adc: h.Module, param: Params, stages: int) -> None:
     _cell(Adc, "Xcomp_clk_buf", "buf", 4, A=raw["comp"], Y=Adc.clk_comp)
     _cell(Adc, "Xcomp_clk_inv", "inv", 4, A=Adc.clk_comp, Y=Adc.clk_comp_b)
     _cell(Adc, "Xcomp_out_buf", "buf", 2, A=Adc.comp_out_p, Y=Adc.comp_out)
-    logic = _sar_logic(param, stages)
-    connections = {
-        name: getattr(Adc, name)
-        for name in ("dac_mode", "dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n", "dac_cycle")
-        if name in logic.ports
+    presets = ("dac_mode", "dac_astate_p", "dac_bstate_p", "dac_astate_n", "dac_bstate_n", "dac_cycle")
+    common = {
+        "comp_p": Adc.comp_out_n,
+        "comp_n": Adc.comp_out_p,
+        "dac_state_p": Adc.dac_state_p,
+        "dac_state_n": Adc.dac_state_n,
+        "vdd_d": Adc.vdd_d,
+        "vss_d": Adc.vss_d,
     }
-    Adc.xsalogic = logic(
-        clk_init=clk_init,
-        clk_update=clk_update,
-        comp_p=Adc.comp_out_n,
-        comp_n=Adc.comp_out_p,
-        dac_state_p=Adc.dac_state_p,
-        dac_state_n=Adc.dac_state_n,
-        vdd_d=Adc.vdd_d,
-        vss_d=Adc.vss_d,
-        **connections,
-    )
+    if param.control is Control.SYNC:
+        logic = _sar_logic(param, stages)
+        timing = {"clk_init": clk_init, "clk_update": clk_update}
+    else:
+        # the comparator clocked while the logic asks, where it is enabled
+        logic = (_sar_loop if param.control is Control.ASYNC_LOOP else _sar_chain)(param, stages)
+        request = _net(Adc, "clk_req")
+        _cell(Adc, "Xgate_comp", "and2", 2, A=request, B=Adc.en_comp, Y=raw["comp"])
+        timing = {
+            "samp": Adc.seq_samp,
+            "rdy": Adc.comp_rdy,
+            "dly_trim": Adc.dly_trim,
+            "clk_req": request,
+            "eoc": Adc.eoc,
+        }
+    connections = {name: getattr(Adc, name) for name in presets if name in logic.ports}
+    Adc.xsalogic = logic(**common, **timing, **connections)
 
 
 def _frida1_terminals() -> dict[h.Signal | h.Slice, str]:

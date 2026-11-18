@@ -100,9 +100,22 @@ class Control(Enum):
 
     ``SYNC``: the sequencer's four lines from outside (INIT, SAMP, COMP and LOGIC, each gated by its
     enable), a stage switched at each LOGIC edge: FRIDA-1's logic, cell for cell in function.
-"""
+
+    The self-timed ones take SAMP alone: the conversion starts when it falls and each decision
+    starts the next, on the comparator's ready (its port ``rdy``: high once it has decided, low
+    while it resets), the DAC's settling a delay line of buffers (its tap ``dly_trim``), the end
+    of the conversion ``eoc``. ``ASYNC_LOOP``: one loop timing every decision, the comparator's
+    clock a flip-flop that ready clears and the settled DAC sets again, the stage held in a one-hot
+    register clocked by ready, the SAR logic otherwise the synchronous one (Chen and Brodersen
+    2006, Fig. 5; Liu et al. 2010, Fig. 9). ``ASYNC_CHAIN``: no register and no common clock, a
+    token passed down the stages, each capturing its decision in a latch when it holds the token
+    and passing it on once the comparator has reset, the comparator clocked while some stage
+    waits for its decision (Harpe et al. 2011, Figs. 8 to 10 and Eq. (13); Wulff and Ytterdal
+    2017, Figs. 2 and 4)."""
 
     SYNC = auto()
+    ASYNC_LOOP = auto()
+    ASYNC_CHAIN = auto()
 
 
 class Sequencer(Enum):
@@ -140,7 +153,9 @@ class Params:
     )
     # its control logic (a generated converter's)
     control = h.Param(dtype=Control, desc="Who times a conversion", default=Control.SYNC)
-    sequencer = h.Param(dtype=Sequencer, desc="Where a synchronous converter's stage selector is", default=Sequencer.LOCAL)
+    sequencer = h.Param(
+        dtype=Sequencer, desc="Where a synchronous converter's stage selector is", default=Sequencer.LOCAL
+    )
     presets = h.Param(dtype=Presets, desc="How the DAC states start a conversion", default=Presets.PINS)
 
     def __post_init__(self) -> None:
@@ -156,6 +171,9 @@ class Params:
                 raise ValueError(f"{self.fabricated.name} is FRIDA-1's converter: its parts are {parts}")
             if (self.control, self.sequencer, self.presets) != (Control.SYNC, Sequencer.LOCAL, Presets.PINS):
                 raise ValueError(f"{self.fabricated.name}'s logic is FRIDA-1's: synchronous, local, preset by pins")
+        # a self-timed converter times itself: no other converter can share its stage selector
+        if self.control is not Control.SYNC and self.sequencer is Sequencer.SHARED:
+            raise ValueError("a self-timed converter's stages are its own: no shared stage selector")
 
 
 pipeline.Params.register(Params)

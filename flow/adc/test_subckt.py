@@ -17,7 +17,7 @@ from flow import capdac
 from flow.circuit.cells import DEFINITIONS, DRIVES, FUNCTIONS, generic_name
 from flow.util.netlist import subcircuit_ports
 
-from .params import Fabricated, Params, Presets, Sequencer
+from .params import Control, Fabricated, Params, Presets, Sequencer
 from .subckt import Nets, _control, _frida1_ports, _generated_aliases, _nets, _ports, _stage_selector, netlist
 
 
@@ -281,6 +281,169 @@ def test_the_synchronous_logic_is_frida1s_rtl(tmp_path: Path, param: Params, sta
     assert checks == 2 * 10 * (1 + 8 + 16 + 8 * (stages + 1)) and errors == 0
 
 
+def _timed_cells_verilog() -> str:
+    """The generic cells (``_cells_verilog``) with delays, each instance its own drawn from 10 to
+    50 ps (the simulator's own random sequence, the same every run): a self-timed loop of
+    zero-delay cells races in delta cycles."""
+    modules = []
+    for function, (inputs, outputs) in FUNCTIONS.items():
+        # evaluated at time zero too, then at each change of an input (``always @*`` alone would
+        # miss an input set before it started)
+        changes = " or ".join(inputs)
+        if function in DEFINITIONS:
+            body = f"  always begin Y <= #d ({DEFINITIONS[function].replace('!', '~')}); @({changes}); end"
+        else:
+            body = {
+                "dff": "  always @(posedge CLK) Q <= #d D;",
+                "dffr": "  always @(posedge CLK or negedge RN) if (!RN) Q <= #d 1'b0; else Q <= #d D;",
+                "latch": "  always begin if (EN) Q <= #d D; @(D or EN); end",
+                "tiehi": "  initial Y = 1'b1;",
+                "tielo": "  initial Y = 1'b0;",
+            }[function]
+        for drive in DRIVES[function]:
+            modules.append(
+                "\n".join(
+                    (
+                        f"module {generic_name(function, drive)} ({', '.join((*inputs, *outputs, 'VDD', 'VSS'))});",
+                        *(f"  input {pin};" for pin in inputs),
+                        *(f"  output reg {pin};" for pin in outputs),
+                        "  inout VDD, VSS;",
+                        "  real d;",
+                        "  initial d = 0.01 + 0.04 * ($urandom % 1000) / 1000.0;",
+                        body,
+                        "endmodule",
+                    )
+                )
+            )
+    return "`timescale 1ns/1ps\n" + "\n".join(modules) + "\n"
+
+
+def _self_timed_alone(param: Params, stages: int) -> h.Module:
+    """A self-timed converter's control logic alone (``subckt._control``): SAMP, the enables, the
+    presets and the settling tap, the comparator's held decisions and its ready its ports."""
+    Digital = h.Module(name="AdcDigital")
+    ports = _ports(param, _nets(stages))
+    for name in ("seq_samp", "en_samp_p", "en_samp_n", "en_comp", *_PRESETS, "dly_trim"):
+        if name in ports:
+            Digital.add(h.Input(width=ports[name].width), name=name)
+    Digital.comp_out_p, Digital.comp_out_n, Digital.comp_rdy = h.Input(), h.Input(), h.Input()
+    for name in (*_CLOCKS, "clk_comp_b", "comp_out", "eoc"):
+        Digital.add(h.Output(), name=name)
+    Digital.dac_state_p, Digital.dac_state_n = h.Output(width=stages), h.Output(width=stages)
+    Digital.vdd_d, Digital.vss_d = h.Inout(), h.Inout()
+    _control(Digital, param, stages)
+    return Digital
+
+
+def _self_timed_bench(param: Params, stages: int, trim: int, seed: int) -> str:
+    """A behavioral comparator (its decision 100 to 400 ps after its clock rises, held through its
+    reset, its ready 20 ps after it and low 80 ps after the clock falls; a decision's value drawn
+    at random) clocked by the self-timed logic, over conversions of random presets: every
+    comparison sees the stages not yet decided at their presets; a conversion ends (``eoc``) after
+    a decision a stage and the last, each stage at its decision (the P side the comparator's N
+    output), the last on ``comp_out``; a comparator that never decides stalls its conversion and
+    the next one converts again."""
+    rng = random.Random(seed)
+    pins = param.presets is Presets.PINS
+    tied = "".join(str(stage % 2) for stage in reversed(range(stages)))
+    preset_ports = ", ".join(f".{name}({name})" for name in _PRESETS) + "," if pins else ""
+    lines = [
+        "`timescale 1ns/1ps",
+        "module comparator(input clk, output reg outp = 0, output reg outn = 1, output reg rdy = 0);",
+        "  reg [255:0] decisions; reg stall = 0; integer k = 0;",
+        "  always @(posedge clk) if (!stall) begin",
+        "    #(0.1 + 0.3 * ($urandom % 1000) / 1000.0) outp = decisions[k]; outn = ~decisions[k];",
+        "    k = k + 1; #0.02 rdy = 1;",
+        "  end",
+        "  always @(negedge clk) #0.08 rdy = 0;",
+        "endmodule",
+        "module tb;",
+        "  reg seq_samp = 0, en_samp_p = 1, en_samp_n = 1, en_comp = 1, dac_mode = 1;",
+        f"  reg [{stages - 1}:0] dac_astate_p = 0, dac_bstate_p = 0, dac_astate_n = 0, dac_bstate_n = 0, ap, an;",
+        f"  reg [1:0] dly_trim = {trim};",
+        "  supply1 vdd_d;",
+        "  supply0 vss_d;",
+        f"  wire outp, outn, rdy, comp_out, eoc, {', '.join(_CLOCKS)}, clk_comp_b;",
+        f"  wire [{stages - 1}:0] sp, sn;",
+        "  comparator cmp (.clk(clk_comp), .outp(outp), .outn(outn), .rdy(rdy));",
+        "  AdcDigital dut (.seq_samp(seq_samp), .en_samp_p(en_samp_p), .en_samp_n(en_samp_n), .en_comp(en_comp),",
+        f"    {preset_ports} .dly_trim(dly_trim), .comp_out_p(outp), .comp_out_n(outn), .comp_rdy(rdy),",
+        "    " + ", ".join(f".{name}({name})" for name in (*_CLOCKS, "clk_comp_b", "comp_out", "eoc")) + ",",
+        "    .dac_state_p(sp), .dac_state_n(sn), .vdd_d(vdd_d), .vss_d(vss_d));",
+        "  integer errors = 0, conversions = 0, j;",
+        "  always @(posedge clk_comp) if (!seq_samp) for (j = cmp.k; j < " + str(stages) + "; j = j + 1)",
+        "    if (sp[j] !== ap[j] || sn[j] !== an[j]) errors = errors + 1;",
+        "  initial begin",
+    ]
+    for conversion in range(4):
+        if pins:
+            a_p, a_n = rng.getrandbits(stages), rng.getrandbits(stages)
+            lines.append(f"    dac_astate_p = {a_p}; dac_astate_n = {a_n}; ap = {a_p}; an = {a_n};")
+        else:
+            lines.append(f"    ap = {stages}'b{tied}; an = {stages}'b{tied};")
+        lines += [
+            f"    cmp.decisions = {{8{{32'h{rng.getrandbits(32):08x}}}}}; cmp.k = 0; cmp.stall = 0;",
+            "    seq_samp = 1; #5;",
+            "    if (sp !== ap || sn !== an || clk_comp !== 0 || eoc !== 0) errors = errors + 1;",
+            "    seq_samp = 0;",
+        ]
+        if conversion == 1:  # a comparator that never decides: the conversion stalls
+            lines += [
+                "    wait (cmp.k == 6); cmp.stall = 1; #50;",
+                "    if (eoc !== 0 || cmp.k !== 6) errors = errors + 1;",
+            ]
+            continue
+        lines += [
+            f"    fork : converting_{conversion}",
+            f"      begin wait (eoc === 1); disable converting_{conversion}; end",
+            f"      begin #200; disable converting_{conversion}; end",
+            "    join",
+            "    #3;",
+            f"    if (eoc !== 1 || cmp.k !== {stages + 1} || comp_out !== cmp.decisions[{stages}]) errors = errors + 1;",
+            f"    for (j = 0; j < {stages}; j = j + 1)",
+            "      if (sp[j] !== ~cmp.decisions[j] || sn[j] !== cmp.decisions[j]) errors = errors + 1;",
+            "    conversions = conversions + 1;",
+        ]
+    lines += ['    $display("CONVERSIONS %0d ERRORS %0d", conversions, errors);', "    $finish;", "  end", "endmodule"]
+    return "\n".join(lines) + "\n"
+
+
+@pytest.mark.skipif(shutil.which("iverilog") is None, reason="the check runs Icarus Verilog")
+@pytest.mark.parametrize("trim", (0, 3))
+@pytest.mark.parametrize("presets", list(Presets), ids=lambda member: member.name.lower())
+@pytest.mark.parametrize("control", (Control.ASYNC_LOOP, Control.ASYNC_CHAIN), ids=lambda member: member.name.lower())
+def test_the_self_timed_logic_converts(tmp_path: Path, control: Control, presets: Presets, trim: int) -> None:
+    """Each self-timed logic (hdl21's Verilog, its cells of random delays) converts with a
+    behavioral comparator (``_self_timed_bench``): every decision in its stage, the stages not
+    yet decided at their presets, the end of the conversion after the last decision, at the
+    shortest and the longest settling tap; a stalled comparator stalls its conversion alone."""
+    text = io.StringIO()
+    h.netlist(_self_timed_alone(Params(control=control, presets=presets), 16), text, fmt="verilog")
+    files = {
+        "dut.v": "`timescale 1ns/1ps\n" + text.getvalue(),
+        "cells.v": _timed_cells_verilog(),
+        "tb.v": _self_timed_bench(Params(control=control, presets=presets), 16, trim, 5),
+    }
+    for name, content in files.items():
+        (tmp_path / name).write_text(content)
+    subprocess.run(
+        ["iverilog", "-g2012", "-o", str(tmp_path / "sim"), *(str(tmp_path / name) for name in files)], check=True
+    )
+    result = subprocess.run(
+        ["vvp", "-n", str(tmp_path / "sim")], check=True, capture_output=True, text=True, timeout=300
+    )
+    assert re.search(r"CONVERSIONS (\d+) ERRORS (\d+)", result.stdout).groups() == ("3", "0")
+
+
+def test_a_self_timed_converter_needs_its_comparators_ready(tsmc65):
+    """A self-timed converter's logic runs on its comparator's ready: a comparator without one
+    (no ``rdy`` port) refuses it; a self-timed converter shares no stage selector."""
+    with pytest.raises(ValueError, match="ready"):
+        netlist(Params(control=Control.ASYNC_LOOP))
+    with pytest.raises(ValidationError):
+        Params(control=Control.ASYNC_CHAIN, sequencer=Sequencer.SHARED)
+
+
 def test_adc_clocks_its_comparator_and_keeps_the_dac_on_its_own_supply(tsmc65):
     """The comparator's clock and its complement from the logic's cells, its output buffered out;
     the DAC's sides, their drivers and their capacitors' shields on the DAC's own supply."""
@@ -433,11 +596,13 @@ def test_a_fabricated_converter_is_its_extractions_black_box(fabricated):
             assert bound.parent is module.namespace[net.parent.name] and bound.index == net.index
         else:
             assert bound is module.namespace[net.name]
-    # the canonical ports it brings out: every one but the DAC states and a shared selector's lines
+    # the canonical ports it brings out: every one but the DAC states and the generated variants'
     assert set(module.ports) == {name for name, net in Nets.signals.items() if net.vis == h.Visibility.PORT} - {
         "dac_state_p",
         "dac_state_n",
         "dac_cycle",
+        "dly_trim",
+        "eoc",
     }
     # the same black box for every flavor, one declaration
     assert netlist(Fabricated.FRIDA1_2LAYER_RADIX20.params).instances["xadc"].of.module is box.of.module

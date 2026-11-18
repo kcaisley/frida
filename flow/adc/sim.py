@@ -95,6 +95,7 @@ from flow.adc.params import (
     REFERENCE_R_OUT_OHM,
     SINE_CONVERSIONS,
     VIN_CM_FRACTION,
+    Control,
     Extraction,
     Fabricated,
     Params,
@@ -214,8 +215,10 @@ def testbench(tb: TbParams) -> h.Module:
         selected = {net.parent if isinstance(net, h.Slice) else net for net in aliases}
         ports = {name: net for name, net in nets.signals.items() if net in selected}
     else:  # its variant's ports (``subckt._ports``)
-        if tb.params.sequencer is Sequencer.SHARED:
-            raise ValueError("a converter whose stage selector is shared runs beside it: no testbench takes it yet")
+        if tb.params.sequencer is Sequencer.SHARED or tb.params.control is not Control.SYNC:
+            raise ValueError(
+                "a shared stage selector or a self-timed converter: no testbench of the generated converter takes it yet"
+            )
         ports = {name: net for name, net in _ports(tb.params, nets).items() if net.vis == h.Visibility.PORT}
     bench, connections = testbench_from_ports(f"AdcTb_{'frida1' if fabricated else 'hdl21gen'}", ports)
     bench.vin_cm, bench.vin_diff = h.Signals(2)
