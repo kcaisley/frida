@@ -273,7 +273,7 @@ def test_the_technology_layers_follow_the_kits_metals() -> None:
     }
     assert layers["M2"][1] == "VERTICAL"
     assert layout._rails(lefs[1], {name for name, _ in layers.values()}) == ("Metal1", 0.44)
-    assert layout._site(lefs[1]) == ("CoreSite", 0.48, 3.78)
+    assert layout._site(lefs) == ("CoreSite", 0.48, 3.78)
 
 
 def test_openroads_netlist_holds_the_kits_cells_and_the_blocks_abstracts() -> None:

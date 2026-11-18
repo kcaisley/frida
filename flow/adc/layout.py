@@ -266,16 +266,19 @@ def _lef_layers(tech_lef: Path) -> dict[str, tuple[str, str]]:
     return layers
 
 
-def _site(stdcell_lef: Path) -> tuple[str, float, float]:
-    """The standard cells' core site: its name, width and height (um)."""
-    match = re.search(r"(?ms)^SITE\s+(\S+)\s*\n(.*?)^END\s+\1", stdcell_lef.read_text())
-    if match is None:
-        raise ValueError(f"{stdcell_lef} defines no site")
-    size = re.search(r"SIZE\s+([\d.]+)\s+BY\s+([\d.]+)", match[2])
-    if size is None:
-        raise ValueError(f"{stdcell_lef}: site {match[1]} has no size")
-    width, height = size.groups()
-    return match[1], float(width), float(height)
+def _site(lefs: list[Path]) -> tuple[str, float, float]:
+    """The standard cells' core site: its name (the one the cells of the kit's cell LEF, ``lefs[1]``,
+    stand on most), width and height (um), from whichever of the kit's LEFs defines it."""
+    used = re.findall(r"(?m)^\s+SITE\s+(\S+)\s*;", lefs[1].read_text())
+    if not used:
+        raise ValueError(f"{lefs[1]}: no cell names its site")
+    name = max(set(used), key=used.count)
+    for lef in lefs:
+        match = re.search(rf"(?ms)^SITE\s+{re.escape(name)}\s*\n(.*?)^END\s+{re.escape(name)}", lef.read_text())
+        size = re.search(r"SIZE\s+([\d.]+)\s+BY\s+([\d.]+)", match[1]) if match else None
+        if size:
+            return name, float(size[1]), float(size[2])
+    raise ValueError(f"no LEF of {lefs[0].parent} defines site {name}")
 
 
 def _rails(stdcell_lef: Path, metals: set[str]) -> tuple[str, float]:
@@ -906,7 +909,7 @@ def _openroad(params: Params, pdk: str, run_dir: Path) -> Path:
     tech = import_module(f"pdk.{pdk}.layout.tech")
     init, lefs = _technology(pdk)
     tech_lef, stdcell_lef = lefs[0], lefs[1]
-    site = _site(stdcell_lef)
+    site = _site(lefs)
     layers = _lef_layers(tech_lef)
     lef = {name: layer for name, (layer, _direction) in layers.items()}
     # 2. the blocks
