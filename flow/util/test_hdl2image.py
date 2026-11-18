@@ -75,3 +75,41 @@ def test_custom_skin_places_single_gate_inputs_straight(tmp_path: Path) -> None:
         or (float(line.get("x2")), float(line.get("y2"))) == clock_xy
         for line in clock_lines
     )
+
+
+def test_an_hdl21_gate_netlist_is_drawn_as_its_cells() -> None:
+    """An hdl21 module of generic cells as netlistsvg's JSON, no synthesis: each cell its function's
+    symbol in the digital skin (a latch, which the skin lacks, a box of its name), a bus bit a slice
+    of its signal's bits, an instance of another module a box with its ports' directions, supplies
+    left out."""
+    import hdl21 as h
+
+    from flow.circuit.cells import cell
+    from flow.util.hdl2image import hdl21_to_json
+
+    Inner = h.Module(name="Inner")
+    Inner.a, Inner.y = h.Input(), h.Output()
+    Top = h.Module(name="Top")
+    Top.clk, Top.d = h.Input(), h.Input()
+    Top.q = h.Output(width=2)
+    Top.vdd, Top.vss = h.Inout(), h.Inout()
+    Top.n = h.Signal()
+    Top.Xinv = cell("inv", 2)(A=Top.d, Y=Top.n, VDD=Top.vdd, VSS=Top.vss)
+    Top.Xff = cell("dff", 1)(D=Top.n, CLK=Top.clk, Q=Top.q[0], VDD=Top.vdd, VSS=Top.vss)
+    Top.Xlatch = cell("latch", 1)(D=Top.n, EN=Top.clk, Q=Top.q[1], VDD=Top.vdd, VSS=Top.vss)
+    Top.xinner = Inner(a=Top.n, y=Top.q[1])
+    module = hdl21_to_json(Top)["modules"]["Top"]
+    assert set(module["ports"]) == {"clk", "d", "q"}  # no supply
+    q = module["ports"]["q"]["bits"]
+    cells = module["cells"]
+    assert [cells[name]["type"] for name in ("Xinv", "Xff", "Xlatch", "xinner")] == ["$_NOT_", "$dff", "latch", "Inner"]
+    assert cells["Xff"]["connections"] == {
+        "D": cells["Xinv"]["connections"]["Y"],
+        "CLK": module["ports"]["clk"]["bits"],
+        "Q": [q[0]],
+    }
+    assert cells["Xlatch"]["port_directions"] == {"D": "input", "EN": "input", "Q": "output"}
+    assert cells["xinner"]["port_directions"] == {"a": "input", "y": "output"} and cells["xinner"]["connections"][
+        "y"
+    ] == [q[1]]
+    assert "n" in module["netnames"] and "vdd" not in module["netnames"]

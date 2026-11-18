@@ -180,6 +180,98 @@ def tcl_to_digital_svg(script: Path, netlist_path: Path, svg_path: Path, skin: P
     return json_to_digital_svg(netlist_path, svg_path, skin)
 
 
+# ==== hdl21: gate-level modules as drawn, without synthesis ====
+
+# the generic cells' functions (flow.circuit.cells) as the digital skin's symbols; any other (the
+# latch, a block, a module of the design) a box of its name
+_SYMBOLS = {
+    "inv": "$_NOT_",
+    "buf": "$_BUF_",
+    "and2": "$and",
+    "nand2": "$nand",
+    "or2": "$or",
+    "nor2": "$nor",
+    "xor2": "$xor",
+    "xnor2": "$xnor",
+    "mux2": "$mux",
+    "dff": "$dff",
+} | {name: name for name in ("and3", "nand3", "nand4", "or3", "nor3", "nor4", "aoi21", "aoi22", "oai21")}
+# a supply: left out of the drawing, its pins and its ports
+_SUPPLY = re.compile(r"(?i)^v(dd|ss)")
+
+
+def hdl21_to_json(module) -> dict:
+    """``module`` as a Yosys JSON netlist for netlistsvg, its instances as they are (no synthesis):
+    a generic cell (``flow.circuit.cells``) its function's symbol, any other instance a box of its
+    module's name with its ports' directions; its signals' bits on numbered nets, a slice or a
+    concatenation the bits it takes; its supplies (``vdd*``, ``vss*``) left out."""
+    import hdl21 as h
+
+    from flow.circuit.cells import FUNCTIONS
+
+    bits: dict[int, list[int]] = {}
+
+    def of(signal: h.Signal) -> list[int]:
+        if id(signal) not in bits:
+            start = 2 + sum(map(len, bits.values()))
+            bits[id(signal)] = list(range(start, start + signal.width))
+        return bits[id(signal)]
+
+    def resolve(connection) -> list[int]:
+        if isinstance(connection, h.Signal):
+            return of(connection)
+        if isinstance(connection, h.Slice):
+            taken = resolve(connection.parent)[connection.index]
+            return taken if isinstance(taken, list) else [taken]
+        if isinstance(connection, h.Concat):
+            return [bit for part in connection.parts for bit in resolve(part)]
+        raise TypeError(f"{module.name}: cannot draw a connection to {connection!r}")
+
+    direction = {h.PortDir.INPUT: "input", h.PortDir.OUTPUT: "output", h.PortDir.INOUT: "inout"}
+    ports = {
+        name: {"direction": direction[port.direction], "bits": of(port)}
+        for name, port in module.ports.items()
+        if not _SUPPLY.match(name)
+    }
+    cells = {}
+    for name, instance in module.instances.items():
+        target = instance.of.module if isinstance(instance.of, h.ExternalModuleCall) else instance.of
+        function = re.sub(r"_x\d+$", "", target.name)
+        if getattr(target, "domain", None) == "generic" and function in FUNCTIONS:
+            inputs, outputs = FUNCTIONS[function]
+            directions = {pin: "input" for pin in inputs} | {pin: "output" for pin in outputs}
+            kind = _SYMBOLS.get(function, function)
+        else:
+            listed = target.port_list if isinstance(target, h.ExternalModule) else list(target.ports.values())
+            directions = {port.name: direction[port.direction] for port in listed}
+            kind = target.name
+        connections = {
+            pin: resolve(connection)
+            for pin, connection in instance.conns.items()
+            if pin in directions and not _SUPPLY.match(pin)
+        }
+        cells[name] = {
+            "type": kind,
+            "port_directions": {pin: directions[pin] for pin in connections},
+            "connections": connections,
+        }
+    netnames = {
+        name: {"hide_name": 0, "bits": of(signal)}
+        for name, signal in (module.ports | module.signals).items()
+        if not _SUPPLY.match(name) and id(signal) in bits
+    }
+    top = {"attributes": {"top": 1}, "ports": ports, "cells": cells, "netnames": netnames}
+    return {"creator": "flow.util.hdl2image.hdl21_to_json", "modules": {module.name: top}}
+
+
+def hdl21_to_svg(module, svg_path: Path, skin: Path = DIGITAL_SKIN) -> Path:
+    """Draw the hdl21 ``module`` (``hdl21_to_json``) with the digital skin into ``svg_path``, its
+    JSON beside it."""
+    netlist = svg_path.with_suffix(".json")
+    netlist.write_text(json.dumps(hdl21_to_json(module), indent=1) + "\n")
+    return json_to_digital_svg(netlist, svg_path, skin)
+
+
 # ==== Analog: transistor symbols from MOS cells ====
 
 
