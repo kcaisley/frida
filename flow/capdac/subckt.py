@@ -175,7 +175,7 @@ def _plate_load(stage: list[dict[frozenset[str], float]], plate: str, other: str
     fixed = sum(piece.get(frozenset((plate, ground)), 0.0) for piece in stage for ground in ("SHIELD", "GROUND"))
     apart = sum(piece.get(frozenset((plate, other)), 0.0) for piece in stage) if other else 0.0
     # not in the reference texts: capacitors in series, and a coupling to a node swinging the
-    # other way counted twice (Miller)
+    # other way charged through twice the swing
     return to_top * (top_f - to_top) / top_f + fixed + 2 * apart
 
 
