@@ -110,7 +110,7 @@ def test_a_metric_is_shown_in_its_unit() -> None:
     assert dashboard.value("delay_0p5mv_s", 2.1e-9) == "2.1 ns"
     assert dashboard.value("energy_j", 6.2e-13) == "620 fJ"
     assert dashboard.value("layout_area_um2", 277.0) == "277 µm²"
-    assert dashboard.value("droop_v_s", -0.5) == "-500 mV/s" and dashboard.value("delay_s", 2e-9) == "2 ns"
+    assert dashboard.value("droop_v_per_s", -0.5) == "-500 mV/s" and dashboard.value("delay_s", 2e-9) == "2 ns"
     assert dashboard.value("decides_in_time", True) == "yes" and dashboard.value("x", None) == "–"
 
 

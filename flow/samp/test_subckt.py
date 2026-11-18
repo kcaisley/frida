@@ -31,13 +31,40 @@ def test_dummies_clock_opposite_their_switch() -> None:
 
 
 def test_bootstrap_boosts_the_nmos_gate() -> None:
+    """[Razavi-ADC] Fig. 3.41(b), p. 48: M5 (Mpre) and M3 (Mgate) PMOS, their n-wells on P
+    (Sec. 3.8.2, p. 48); M2 (Mbot_in) an NMOS gated by the boosted node; the gate's pull-down M6
+    under the cascode M7 gated by vdd (a second cascode, gated by P, above it); M3's gate at the
+    bottom plate while tracking and at vdd while holding."""
     m = netlist(Params(switch_type=SwitchType.BOOTSTRAP))
-    assert m.MN.conns["g"] is m.gate and not hasattr(m, "MP")
-    assert m.Mgate.conns == {"d": m.boot_top, "g": m.clk_b, "s": m.gate, "b": m.vdd}
-    assert m.Mpre.conns == {"d": m.vdd, "g": m.gate, "s": m.boot_top, "b": m.vdd}
+    assert m.MN.conns["g"] is m.gate and not hasattr(m, "MP") and not hasattr(m, "Mtg_p")
+    assert m.Mgate.conns == {"d": m.gate, "g": m.gate_ctl, "s": m.boot_top, "b": m.boot_top}
+    assert m.Mpre.conns == {"d": m.vdd, "g": m.gate, "s": m.boot_top, "b": m.boot_top}
     assert m.Mcap.conns == {"d": m.boot_bot, "g": m.boot_top, "s": m.boot_bot, "b": m.vss}
-    assert m.Mtg_n.conns["s"] is m.vin and m.Mbot.conns["d"] is m.boot_bot
-    assert m.Mgate_cas.conns["d"] is m.gate and m.Mgate_off.conns["s"] is m.vss
+    assert m.Mbot_in.conns == {"d": m.boot_bot, "g": m.gate, "s": m.vin, "b": m.vss}
+    assert m.Mbot.conns["d"] is m.boot_bot and m.Mbot.conns["g"] is m.clk_b
+    assert m.Mgate_top.conns == {"d": m.gate, "g": m.boot_top, "s": m.gate_mid, "b": m.vss}
+    assert m.Mgate_cas.conns == {"d": m.gate_mid, "g": m.vdd, "s": m.gate_off, "b": m.vss}
+    assert m.Mgate_off.conns == {"d": m.gate_off, "g": m.clk_b, "s": m.vss, "b": m.vss}
+    assert m.Mctl_p.conns == {"d": m.gate_ctl, "g": m.clk, "s": m.vdd, "b": m.vdd}
+    assert m.Mctl_n.conns == {"d": m.gate_ctl, "g": m.gate, "s": m.boot_bot, "b": m.vss}
+    assert m.Mctl_on.conns == {"d": m.gate_ctl, "g": m.clk, "s": m.boot_bot, "b": m.vss}
+
+
+def test_every_bootstrap_of_the_space_boosts_its_gate_by_at_least_0_9_vdd_by_area() -> None:
+    """[Razavi-ADC] Eq. (3.70), p. 50: V_b' = C_b / (C_b + C_G1 + C_G2 + C_p) V_DD, at least
+    0.9 V_DD: every bootstrap the runs name has a boost capacitor of 32 times its switch's gate
+    area (C_b over C_G1 alone 32, so C_G1 takes 3 % and leaves the helpers' and the top plate's
+    parasitics 7 %)."""
+    found = [
+        params
+        for run in (runs.scaled, runs.long_channel, runs.boost_ladder)
+        for space in run.spaces("tsmc65").values()
+        for params in [space.base]
+        if params.switch_type is SwitchType.BOOTSTRAP
+    ] + [runs.bootstrap.build()]
+    assert found
+    for params in found:
+        assert params.cap_w * params.cap_l == 32 * params.mos_w * params.mos_l
 
 
 def test_the_parameters_refuse_what_does_not_build() -> None:
@@ -70,5 +97,10 @@ def test_the_named_structures_rows() -> None:
         "frida1": [["Mp"], ["Mn"]],
         "tgate_dummy": [["Mp", "Mp_dummy"], ["Mn", "Mn_dummy"]],
         "nmos": [["Mn_a"], ["Mn_b"]],
-        "bootstrap": [["Mpre", "Mgate", "Mtg_p"], ["Mcap"], ["Mgate_cas", "Mgate_off", "Mbot"], ["Mn", "Mtg_n"]],
+        "bootstrap": [
+            ["Mpre", "Mgate", "Mctl_p"],
+            ["Mcap"],
+            ["Mgate_top", "Mgate_cas", "Mgate_off", "Mbot", "Mctl_n", "Mctl_on"],
+            ["Mn", "Mbot_in"],
+        ],
     }

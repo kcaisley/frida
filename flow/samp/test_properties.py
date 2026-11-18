@@ -98,9 +98,6 @@ def test_scaling_every_voltage_scales_the_levels_and_keeps_the_times_and_ratios(
 
 @RUNS
 @given(periods=st.integers(4, 9), tau_s=st.floats(0.3e-9, 1e-9))
-@pytest.mark.xfail(
-    strict=True, reason="samp-1: the track error is a median over alternating step signs: zero for an even count"
-)
 def test_the_track_errors_magnitude_does_not_depend_on_the_number_of_periods(periods: int, tau_s: float) -> None:
     """The residue s exp(-T / tau) / (1 + exp(-(T + t_r) / tau)) is the same on every track phase
     (up steps below the input, down steps above it, to the first phase's a < 0.7 %): its magnitude
@@ -113,9 +110,6 @@ def test_the_track_errors_magnitude_does_not_depend_on_the_number_of_periods(per
 
 @RUNS
 @given(periods=st.integers(4, 9), tau_s=st.floats(100e-12, 300e-12))
-@pytest.mark.xfail(
-    strict=True, reason="samp-2: tau is a median over up and down steps: which one it reports depends on the count"
-)
 def test_the_time_constant_does_not_depend_on_the_number_of_periods(periods: int, tau_s: float) -> None:
     """A switch twice as slow on a falling step as on a rising one: one switch, one input level, one
     time constant, the same for any number of periods as for the bench's six."""
@@ -156,7 +150,6 @@ def test_a_linear_droop_is_recovered(droop_v_per_s: float) -> None:
 
 @RUNS
 @given(pedestal_v=st.floats(-5e-3, 5e-3), droop_v_per_s=st.floats(1e4, 1e6), sign=st.sampled_from((-1.0, 1.0)))
-@pytest.mark.xfail(strict=True, reason="samp-7: the pedestal counts the droop of the 1.2 ns before its held point")
 def test_the_pedestal_does_not_depend_on_the_droop(pedestal_v: float, droop_v_per_s: float, sign: float) -> None:
     """The step the opening switch leaves, whatever the held output does after it: to 1 uV."""
     hold = analyze_hold([sampler_run(TB, tau_s=100e-12, pedestal_v=pedestal_v, droop_v_per_s=sign * droop_v_per_s)])
@@ -170,7 +163,6 @@ def test_the_pedestal_does_not_depend_on_the_droop(pedestal_v: float, droop_v_pe
     droop_v_per_s=st.floats(1e3, 1e4),
     sign=st.sampled_from((-1.0, 1.0)),
 )
-@pytest.mark.xfail(strict=True, reason="samp-8: the feedthrough counts the droop: cancelled only by an even count")
 def test_the_feedthrough_does_not_depend_on_the_droop(
     periods: int, feedthrough: float, droop_v_per_s: float, sign: float
 ) -> None:

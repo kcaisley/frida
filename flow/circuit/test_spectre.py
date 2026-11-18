@@ -96,7 +96,7 @@ def test_samp_pipeline_diagnostic(diagnostic_root):
     meas = pipeline.read(samp.simulate(tb, run_dir), tb)
     assert list(run_dir.rglob("netlist.scs")) and list(run_dir.rglob("spectre.log"))
     assert {"vin", "vout", "clk", "clk_b"} <= set(meas.v) and "vdd" in meas.i
-    assert 50 < samp.analyze_track([meas]).on_resistance_ohm[0] < 2000
+    assert 50 < samp.analyze_track([meas]).ron_ohm[0] < 2000
 
 
 @pytest.mark.spectre

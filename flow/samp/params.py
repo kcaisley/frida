@@ -1,11 +1,16 @@
 """The sampling switch's parameters: its design (``Params``), one run of its testbench (``TbParams``),
-and the bench every switch is characterized on.
+and the benches every switch is characterized on.
 
 Every switch is characterized the same way, so that switches compare: into ``LOAD_F`` (about the
 CDAC it samples onto) at a ``PERIOD_S`` clock (``TRACK_S`` tracking, ``TRANSITION_S`` edges), its
-input stepping a twelfth of the supply once a period, ``PERIODS`` periods, Spectre's output every
-``STROBE_S``; over the input level (``VIN_SWEEP``, fractions of the supply) and over the supply
-(``SUPPLY_SWEEP``, fractions of its own) at mid-supply input (``NOMINAL_VIN``).
+input stepping by ``SMALL_STEP`` of the supply once a period, ``PERIODS`` periods, Spectre's output
+every ``STROBE_S``; over the input level (``VIN_SWEEP``, fractions of the supply, and the supply
+less half the step, ``VIN_TOP``, the top of the ADC's swing) and over the supply (``SUPPLY_SWEEP``,
+fractions of its own) at the nominal input (``NOMINAL_VIN`` of the nominal supply); at the process
+corners and the hot temperature (``HOT_C``); its acquisition of a full-scale step in the ADC's
+track window (``ADC_TRACK_S``, ``ADC_PERIOD_S``); a sine of the ADC's swing (``SINE_CENTRE``,
+``SINE_AMPLITUDE``, ``SINE_SAMPLES`` samples, tones ``SINE_CYCLES``); its held output stepped as
+the DAC's first step steps it; its complementary clock an edge late.
 
 The behavioral model (``flow.samp.model``) derives the switch's triode conductances from its sizing
 with the rough device constants here (``W_MIN_UM`` to ``PMOS_K_A_PER_V2``).
@@ -29,6 +34,14 @@ class SwitchType(Enum):
     PMOS = auto()
     TGATE = auto()
     BOOTSTRAP = auto()  # the NMOS switch, its gate boosted one supply above the input while tracking
+
+
+class Stimulus(Enum):
+    """What the testbench's input does: a level stepping once a period (``STEP``), or a sine
+    (``SINE``)."""
+
+    STEP = auto()
+    SINE = auto()
 
 
 @h.paramclass
@@ -71,9 +84,30 @@ STROBE_S = 5e-12
 VIN_SWEEP = tuple(step / 12 for step in range(1, 12))
 NOMINAL_VIN = 0.5
 WAVE_VIN = (VIN_SWEEP[0], NOMINAL_VIN, VIN_SWEEP[-1])
-# the supply at 90 and 110 % of its own besides nominal, at mid-supply input: never past the
-# models' limits (TSMC28's core devices warn above 110 %: CMI-2753, Vgb over vgb_max)
+# the level runs' input step, a fraction of the supply: small against the on-resistance's change
+# over the input, so that each level's resistance is the resistance at that level
+SMALL_STEP = 1 / 120
+# the supply less half the step, the highest level: the ADC's swing reaches 1.19 V of 1.2 V a side
+# (flow.adc: 0.7 V common mode, its sawtooth 1.05 times the full scale)
+VIN_TOP = 1 - SMALL_STEP / 2
+# the supply at 90 and 110 % of its own besides nominal, the input at its nominal level: never past
+# the models' limits (TSMC28's core devices warn above 110 %: CMI-2753, Vgb over vgb_max)
 SUPPLY_SWEEP = (0.9, 1.0, 1.1)
+# the hot corner (the models' usual junction limit), where leakage and the on-resistance are largest
+HOT_C = 125.0
+# the ADC's sampling: 20 symbols tracking of a 160-symbol conversion at 1.6 GHz (flow.adc.params)
+ADC_TRACK_S = 12.5e-9
+ADC_PERIOD_S = 100e-9
+# acquisition to half an LSB of the supply, at these resolutions (bits)
+ACQUISITION_BITS = (10, 12, 14)
+# a sine of the ADC's swing a side, fractions of the supply: about its 0.7 V common mode and 0.44 V
+# (its 12-bit full scale, 0.94 V differential, 0.5 dB below), SINE_SAMPLES samples at the ADC's
+# timing, SINE_CYCLES cycles in them (a low tone and one near Nyquist)
+SINE_CENTRE = 7 / 12
+SINE_AMPLITUDE = 0.37
+SINE_SAMPLES = 32
+SINE_CYCLES = (1, 15)
+SINE_STROBE_S = 50e-12
 # Rough 65-nm device constants, for the behavioral model's triode conductances from the switch's
 # sizing where none is given (flow.samp.model.Model.conductances): the width and the length one size
 # unit stands for, and each device type's k'
@@ -86,35 +120,52 @@ PMOS_K_A_PER_V2 = 100e-6
 @dataclass(frozen=True, kw_only=True)
 class TbParams(pipeline.TbParams):
     """One run of the sampler's testbench (flow.samp.sim.testbench): the switch ``params`` in ``pdk``
-    at supply ``vdd`` into ``cload``, its input at ``input_voltage`` or, with an ``input_step_v``,
-    stepping by it once a period in the middle of each hold phase, its clock tracking while high
-    (``clock_high_time_s`` of each ``clock_period_s``), ``periods`` periods; on the bench every
-    switch is characterized on unless given. Spectre writes its output every
-    ``waveform_sample_interval_s`` and steps no further."""
+    at supply ``vdd``, process ``corner`` and ``temperature_c`` into ``cload``; its input at
+    ``input_voltage`` or, with an ``input_step_v``, stepping by it once a period in the middle of
+    each hold phase, or (``stimulus`` SINE) a sine about ``input_voltage`` of ``sine_amplitude_v``
+    at ``sine_frequency_hz``; its clock tracking while high (``clock_high_time_s`` of each
+    ``clock_period_s``), the complement ``clock_skew_s`` later; with a ``dac_step_v``, half the load
+    driven so that the held output steps by it a quarter into each hold and back before the next
+    track (the DAC's first step); ``periods`` periods; on the bench every switch is characterized
+    on unless given. Spectre writes its output every ``waveform_sample_interval_s`` and steps no
+    further; with ``oppoint`` it also saves every transistor's operating values (PSF ASCII)."""
 
     pdk: str = "tsmc65"
     params: Params = field(default_factory=Params)
     vdd: float = 1.2
+    corner: h.pdk.Corner = h.pdk.Corner.TYP
+    temperature_c: float = 25.0
     cload: float = LOAD_F
+    stimulus: Stimulus = Stimulus.STEP
     input_voltage: float = 0.6
     input_step_v: float = 0.1
+    sine_amplitude_v: float = 0.0
+    sine_frequency_hz: float = 0.0
     clock_period_s: float = PERIOD_S
     clock_high_time_s: float = TRACK_S
     clock_transition_time_s: float = TRANSITION_S
     clock_delay_s: float = 0.0
+    clock_skew_s: float = 0.0
+    dac_step_v: float = 0.0
     periods: int = PERIODS
     waveform_sample_interval_s: float = STROBE_S
+    oppoint: bool = False
 
     def __post_init__(self) -> None:
         values = (
             self.vdd,
+            self.temperature_c,
             self.cload,
             self.input_voltage,
             self.input_step_v,
+            self.sine_amplitude_v,
+            self.sine_frequency_hz,
             self.clock_period_s,
             self.clock_high_time_s,
             self.clock_transition_time_s,
             self.clock_delay_s,
+            self.clock_skew_s,
+            self.dac_step_v,
             self.waveform_sample_interval_s,
         )
         if not all(math.isfinite(float(value)) for value in values):
@@ -123,10 +174,14 @@ class TbParams(pipeline.TbParams):
             raise ValueError("sampler clock high time must lie inside one period")
         if float(self.clock_transition_time_s) <= 0.0 or float(self.clock_delay_s) < 0.0:
             raise ValueError("sampler clock transition must be positive and delay non-negative")
+        if float(self.clock_skew_s) < 0.0:
+            raise ValueError("sampler clock skew must be non-negative")
         if float(self.vdd) <= 0 or float(self.cload) <= 0 or float(self.waveform_sample_interval_s) <= 0:
             raise ValueError("sampler supply, load and waveform spacing must be positive")
         if float(self.input_step_v) < 0 or self.periods <= 0:
             raise ValueError("sampler input step must be non-negative and the periods positive")
+        if self.stimulus is Stimulus.SINE and (self.sine_amplitude_v <= 0 or self.sine_frequency_hz <= 0):
+            raise ValueError("a sine's amplitude and frequency must be positive")
 
     @property
     def stop_s(self) -> float:

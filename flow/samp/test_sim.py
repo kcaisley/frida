@@ -5,8 +5,10 @@ from typing import Any
 import hdl21 as h
 import pytest
 
+from flow.circuit import spectre
+
 from . import params, sim
-from .params import TbParams
+from .params import Stimulus, TbParams
 
 
 def test_a_run_defaults_to_the_bench_every_switch_is_characterized_on() -> None:
@@ -32,8 +34,49 @@ def test_the_testbench_clocks_steps_and_loads_the_switch() -> None:
     assert float(stepped.delay) == pytest.approx(7.5e-9) and float(stepped.period) == pytest.approx(20e-9)
 
 
-def test_a_run_saves_the_ports_and_the_supply_current() -> None:
-    assert set(sim.SAVES) == {"xtop.vin", "xtop.vout", "xtop.clk", "xtop.clk_b", "xtop.vvdd:p"}
+def test_a_run_saves_the_ports_and_the_supply_and_clock_currents() -> None:
+    """The ports, and the current of the supply's and each clock's source (``xtop.v<net>:p``, which
+    flow.pipeline.read names ``i[<net>]``)."""
+    assert set(sim.SAVES) == {
+        "xtop.vin",
+        "xtop.vout",
+        "xtop.clk",
+        "xtop.clk_b",
+        "xtop.vvdd:p",
+        "xtop.vclk:p",
+        "xtop.vclk_b:p",
+    }
+
+
+def test_the_complement_runs_late_by_the_skew() -> None:
+    bench = sim.testbench(TbParams(clock_skew_s=50e-12))
+    assert float(bench.vclk_b.of.params.delay) == pytest.approx(50e-12)
+    assert float(bench.vclk.of.params.delay) == pytest.approx(0.0)
+
+
+def test_a_sine_drives_the_input() -> None:
+    tb = TbParams(stimulus=Stimulus.SINE, input_voltage=0.7, sine_amplitude_v=0.44, sine_frequency_hz=1e6)
+    source = sim.testbench(tb).vvin.of.params
+    assert (float(source.voff), float(source.vamp), float(source.freq)) == pytest.approx((0.7, 0.44, 1e6))
+
+
+def test_the_dac_step_drives_half_the_load_by_twice_the_step() -> None:
+    """Half the load on a source stepping by 2 s moves the held output by s: -0.6 V from a 1.2 V
+    step down, a quarter into the hold (5 ns after the 5 ns track and the two 50 ps edges)."""
+    bench = sim.testbench(TbParams(input_step_v=0.0, dac_step_v=-0.6))
+    assert float(bench.cload.of.params.c) == float(bench.cdac.of.params.c) == pytest.approx(0.5e-12)
+    step = bench.vvdac.of.params
+    assert float(step.v2) == pytest.approx(-1.2)
+    assert float(step.delay) == pytest.approx(5e-9 + 100e-12 + (10e-9 - 5e-9 - 100e-12) / 4)
+
+
+@pytest.mark.parametrize("stimulus", list(Stimulus))
+def test_every_run_needs_classic_spectre(stimulus: Stimulus, tmp_path) -> None:
+    """A run's pedestals, residues and harmonics are small differences or distortion: Spectre X is
+    refused for the mark simulate gives (flow.circuit.spectre.refusal)."""
+    mark = spectre.Accuracy.DISTORTION if stimulus is Stimulus.SINE else spectre.Accuracy.SMALL_DIFFERENCE
+    assert spectre.refusal([], tmp_path, fast=True, args=(), accuracy=mark)
+    assert spectre.refusal([], tmp_path, fast=False, args=(), accuracy=mark) is None
 
 
 @pytest.mark.parametrize(

@@ -1019,13 +1019,16 @@ class _Converter:
         # the plates the DAC switches, the array as drawn about them, at the parasitic of its drawn
         # gain, its delays and time constants
         dac = self.cdac.behavioral(sides)
+        # the sampler tracks for the SAMP row's high symbols, from the previous conversion's held value
         samp = self.samp.behavioral(load_f=self.load_f)
+        samp = type(samp)(**{**samp.__dict__, "track_s": tb.rows_from_init[1].count("1") / float(tb.symbol_rate)})
         comp = self.comp.behavioral(vin_cm_v=float(tb.vin_cm.dc))
         if Quiet.SAMPLING in quiet:
             samp = type(samp)(**{**samp.__dict__, "noise_v": 0.0, "jitter_s": 0.0})
         if Quiet.SAMPLER in quiet:
             # a perfect track-and-hold: the held value is the input at the sampling instant (the
-            # switch's on-resistance, which lags the input by R(v) C dv/dt, gone)
+            # switch's on-resistance, which lags the input by R(v) C dv/dt, its pedestal and its
+            # aperture gone)
             samp = type(samp)(
                 **{
                     **samp.__dict__,
@@ -1033,6 +1036,10 @@ class _Converter:
                     "ron_table_ohm": None,
                     "n_conductance_s_per_v": 0.0,
                     "p_conductance_s_per_v": 0.0,
+                    "pedestal_table_vin_v": None,
+                    "pedestal_table_v": None,
+                    "aperture_s": 0.0,
+                    "aperture_s_per_v": 0.0,
                 }
             )
         if Quiet.COMPARATOR in quiet:

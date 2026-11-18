@@ -166,9 +166,6 @@ def test_the_track_error_is_the_residue_left_at_the_end_of_tracking() -> None:
     assert abs(track.track_error_v[0]) == pytest.approx(expected, rel=1e-3)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="samp-1: the track error is a median over alternating step signs: zero for an even count"
-)
 def test_the_track_error_does_not_vanish_with_an_even_number_of_track_phases() -> None:
     """Five periods (four measured track phases, two up and two down): the residue is still
     s exp(-T / tau) / (1 + a) = 0.6695 mV in magnitude on every phase."""
@@ -218,7 +215,6 @@ def test_a_linear_droop_is_its_slope() -> None:
     assert hold.droop_v_per_s[0] == pytest.approx(-1e4, rel=1e-6)
 
 
-@pytest.mark.xfail(strict=True, reason="samp-7: the pedestal counts the droop of the 1.2 ns before its held point")
 def test_the_pedestal_is_the_step_at_the_opening_whatever_the_droop() -> None:
     """-2 mV left at the opening and a droop of -1e5 V/s: the pedestal is the -2 mV step; read
     1.225 to 1.25 ns into the hold (halfway to the input's step) without the droop taken back, it
@@ -227,7 +223,6 @@ def test_the_pedestal_is_the_step_at_the_opening_whatever_the_droop() -> None:
     assert hold.pedestal_v[0] == pytest.approx(-2e-3, abs=1e-6)
 
 
-@pytest.mark.xfail(strict=True, reason="samp-8: the feedthrough counts the droop: cancelled only by an even count")
 def test_the_feedthrough_is_the_inputs_share_whatever_the_droop() -> None:
     """Feedthrough 1e-3 and a droop of 1e4 V/s over seven periods (five measured holds): the
     feedthrough is 1e-3; the droop's 25 uV over the 2.5 ns between the two readings, over the
@@ -308,7 +303,6 @@ def test_no_settled_point_has_no_range_and_no_resistance() -> None:
     assert math.isnan(values["ron_max_ohm"]) and math.isnan(values["ron_ohm"])
 
 
-@pytest.mark.xfail(strict=True, reason="samp-3: input_range_v spans a dead zone (np.ptp of every settled point)")
 def test_the_input_range_stops_at_a_point_that_never_settles() -> None:
     """Settled at 1/12 and 2/12 of the supply, not at 3/12, settled again from 4/12 to 11/12: the
     range the switch settles over is 4/12 to 11/12 of 1.2 V, 0.7 V (it holds mid-supply); not the
@@ -319,7 +313,6 @@ def test_the_input_range_stops_at_a_point_that_never_settles() -> None:
     assert metrics(track=track, hold=hold, supply=track)["input_range_v"] == pytest.approx(0.7)
 
 
-@pytest.mark.xfail(strict=True, reason="samp-4: pedestal_max_v takes points that never settled, against its docstring")
 def test_the_largest_pedestal_is_over_settled_points_only() -> None:
     """metrics' docstring: the largest pedestal "where a point settled". The top two inputs never
     settle (an NMOS switch off there) and hold a 50 mV step that is no pedestal; every settled
@@ -332,7 +325,6 @@ def test_the_largest_pedestal_is_over_settled_points_only() -> None:
     assert metrics(track=track, hold=hold, supply=track)["pedestal_max_v"] == pytest.approx(1e-3)
 
 
-@pytest.mark.xfail(strict=True, reason="samp-5: the droop's metric key is droop_v_s, notation's droop_v_per_s")
 def test_the_droop_metric_is_named_as_the_notation_names_it() -> None:
     """docs/references.md, Sampling and clocks: droop is ``droop_v_per_s`` (a quotient is
     ``_<u>_per_<u>``); ``droop_v_s`` reads as volt-seconds."""
@@ -342,7 +334,6 @@ def test_the_droop_metric_is_named_as_the_notation_names_it() -> None:
     assert values["droop_v_per_s"] == pytest.approx(-50.0)
 
 
-@pytest.mark.xfail(strict=True, reason="samp-6: AnalysisTrack spells tau and R_on time_constant_s, on_resistance_ohm")
 def test_the_track_fields_are_named_as_the_notation_names_them() -> None:
     """docs/references.md: tau is ``tau_s`` and R_on ``ron_ohm`` (the metrics already say ``ron_ohm``)."""
     names = {field.name for field in fields(AnalysisTrack)}
@@ -414,7 +405,6 @@ def test_a_transmission_gates_resistance_from_its_triode_conductances() -> None:
     np.testing.assert_allclose(resistance, [200.0, 1 / 6.5e-3], rtol=1e-12)
 
 
-@pytest.mark.xfail(strict=True, reason="samp-9: Model.resistance treats the bootstrapped switch as a plain NMOS")
 def test_a_bootstrapped_switch_keeps_its_resistance_over_the_input() -> None:
     """SwitchType.BOOTSTRAP boosts the gate one supply above the input while tracking: V_GS =
     V_DD = 1.2 V at every input, so n = 10 mS/V gives 1 / (10 m (1.2 - 0.35)) = 117.6 ohm at 0.1,
@@ -447,9 +437,6 @@ def characterized_model(
     return Model.of("tsmc65", Params() if params is None else params, simulate=False)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="samp-10: past the settled inputs the model holds R flat: an open switch conducts"
-)
 def test_the_model_does_not_track_where_the_characterization_never_settled(monkeypatch: pytest.MonkeyPatch) -> None:
     """An NMOS switch measured 150 to 400 ohm up to 0.7 V and never settling above (tau past half the
     5.05 ns it is closed: R past 2.525 ns / 1 pF = 2525 ohm): at 1.0 V the model's on-resistance
@@ -460,9 +447,6 @@ def test_the_model_does_not_track_where_the_characterization_never_settled(monke
     assert resistance[0] >= 2525.0
 
 
-@pytest.mark.xfail(
-    strict=True, reason="samp-11: the behavioral model leaves out the pedestal it was characterized with"
-)
 def test_the_model_holds_the_characterized_pedestal(monkeypatch: pytest.MonkeyPatch) -> None:
     """A switch characterized to leave -2 mV at every input holds 0.6 V as 0.598 V on each side
     (the mean of 200 000 samples; their kT/C spread 64 uV, so the mean to 0.2 uV)."""
@@ -479,7 +463,6 @@ def test_the_model_holds_the_characterized_pedestal(monkeypatch: pytest.MonkeyPa
     assert float(np.mean(held["n"])) == pytest.approx(0.598, abs=2e-6)
 
 
-@pytest.mark.xfail(strict=True, reason="samp-12: Model.hold gives both sides the kT/C of their mean load")
 def test_each_side_holds_the_kt_over_c_of_its_own_load(monkeypatch: pytest.MonkeyPatch) -> None:
     """Plates of 1 pF and 4 pF: sqrt(kT/C) = 64.4 uV on the first, 32.2 uV on the second (to 1 %),
     not 40.7 uV each (the kT/C of their 2.5 pF mean)."""

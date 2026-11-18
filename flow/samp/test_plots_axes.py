@@ -104,7 +104,6 @@ def test_each_supply_figure_draws_its_results_over_the_supply_over_nominal(figur
     np.testing.assert_allclose(series, values, rtol=1e-12)
 
 
-@pytest.mark.xfail(strict=True, reason="samp-13: the supply figures take x from SUPPLY_SWEEP, not from their results")
 @pytest.mark.parametrize("figure", [plots.plot_ron_supply, plots.plot_pedestal_supply])
 def test_a_supply_figure_has_one_x_per_point_of_its_results(figure) -> None:
     """A supply analysis of two runs (90 and 110 %): two points drawn, x as long as the series."""

@@ -3,8 +3,18 @@ testbench, analyses, plots and design space, each in its own stage module, their
 here (``from flow import samp`` then ``samp.Params``, ``samp.analyze_track``)."""
 
 from . import params, subckt, sim, types, analysis, plots, runs  # noqa: I001 - the pipeline's order
-from .analysis import analyze_hold, analyze_track, metrics
-from .params import FRIDA1, Params, SwitchType, TbParams
+from .analysis import (
+    analyze_acquisition,
+    analyze_boost,
+    analyze_dac,
+    analyze_energy,
+    analyze_hold,
+    analyze_sine,
+    analyze_stress,
+    analyze_track,
+    metrics,
+)
+from .params import FRIDA1, Params, Stimulus, SwitchType, TbParams
 from .plots import (
     plot_feedthrough_vin,
     plot_pedestal_supply,
@@ -12,22 +22,45 @@ from .plots import (
     plot_ron_supply,
     plot_ron_vin,
     plot_track_error_vin,
+    plot_vgs_vin,
 )
 from .sim import simulate, testbench
 from .subckt import Nets, netlist
 from .runs import boost_ladder, bootstrap, frida1, long_channel, nmos, results, testbenches, scaled, tgate_dummy
-from .types import AnalysisHold, AnalysisTrack
+from .types import (
+    AnalysisAcquisition,
+    AnalysisBoost,
+    AnalysisDac,
+    AnalysisEnergy,
+    AnalysisHold,
+    AnalysisSine,
+    AnalysisStress,
+    AnalysisTrack,
+)
 
 __all__ = [
     "FRIDA1",
+    "AnalysisAcquisition",
+    "AnalysisBoost",
+    "AnalysisDac",
+    "AnalysisEnergy",
     "AnalysisHold",
+    "AnalysisSine",
+    "AnalysisStress",
     "AnalysisTrack",
     "Nets",
     "Params",
+    "Stimulus",
     "SwitchType",
     "TbParams",
     "analysis",
+    "analyze_acquisition",
+    "analyze_boost",
+    "analyze_dac",
+    "analyze_energy",
     "analyze_hold",
+    "analyze_sine",
+    "analyze_stress",
     "analyze_track",
     "boost_ladder",
     "bootstrap",
@@ -43,6 +76,7 @@ __all__ = [
     "plot_ron_supply",
     "plot_ron_vin",
     "plot_track_error_vin",
+    "plot_vgs_vin",
     "plots",
     "results",
     "runs",

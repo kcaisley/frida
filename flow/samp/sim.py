@@ -1,12 +1,18 @@
 """The sampler's testbench (``testbench``) and the one Spectre run of it (``simulate``).
 
-The testbench drives complementary clocks (tracking while ``clk`` is high), an input level and a
-load capacitor. With an input step the input toggles by that step once per period, in the middle
-of each hold phase, so every track phase settles from a known step (its time constant and the
-switch's resistance) and every hold phase shows the charge the switch dumps on opening (the
-pedestal), the droop, and the input's feedthrough to the held output. ``simulate`` runs it in
-Spectre (``+preset=mx``, one thread) and leaves Spectre's raw output on disk: the signals in
-``SAVES``, every ``TbParams.waveform_sample_interval_s`` (Spectre's step bounded to it).
+The testbench drives complementary clocks (tracking while ``clk`` is high, the complement
+``clock_skew_s`` later), an input and a load capacitor. With an input step the input toggles by
+that step once per period, in the middle of each hold phase, so every track phase settles from a
+known step (its time constant and the switch's resistance) and every hold phase shows the charge
+the switch dumps on opening (the pedestal), the droop, and the input's feedthrough to the held
+output. With a sine the held samples carry the switch's distortion. With a DAC step half the load
+is driven so that the held output steps as the DAC's first step steps it. ``simulate`` runs it in
+classic Spectre: its pedestals, residues and droops are small differences of large signals and its
+sine's harmonics distortion, which Spectre X's error control sets wrong (``spectre.Accuracy``); its
+transient at the conservative error preset, Spectre's raw output left on disk: the signals in
+``SAVES`` (and a bootstrap's boosted nodes, ``BOOST_SAVES``) every
+``TbParams.waveform_sample_interval_s``, Spectre's step bounded to it; where the run asks
+(``TbParams.oppoint``), every transistor's operating values.
 """
 
 import importlib
@@ -14,16 +20,16 @@ from pathlib import Path
 
 import hdl21 as h
 import hdl21.sim as hs
-from hdl21.primitives import C, Vdc, Vpulse
+from hdl21.primitives import C, Vdc, Vpulse, Vsin
 
-from flow.circuit import spectre
+from flow.circuit import oppoint, spectre
 from flow.circuit.ports import testbench_from_ports
 
-from .params import TbParams
+from .params import Stimulus, SwitchType, TbParams
 from .subckt import Nets, netlist
 
 # what each run saves: every port but the supplies, the nets marked to save inside the switch, and
-# each supply source's current (flow.pipeline.read names them)
+# each supply's and each clock's source current (flow.pipeline.read names them)
 SAVES = tuple(
     name
     for net in Nets.signals.values()
@@ -34,17 +40,20 @@ SAVES = tuple(
         if net.props.get("save")
         else ()
     )
-) + tuple(f"xtop.v{net.name}:p" for net in Nets.signals.values() if net.usage == h.Usage.POWER)
+) + tuple(f"xtop.v{net.name}:p" for net in Nets.signals.values() if net.usage in (h.Usage.POWER, h.Usage.CLOCK))
+# a bootstrapped switch's boosted gate and its boost capacitor's plates
+BOOST_SAVES = ("xtop.dut.gate", "xtop.dut.boot_top", "xtop.dut.boot_bot")
 
 
 def testbench(tb: TbParams) -> h.Module:
     """The sampler testbench of one run: the switch ``tb.params`` at supply ``tb.vdd`` into
-    ``tb.cload``, its complementary clocks, its input level or stepped input."""
+    ``tb.cload``, its complementary clocks, its input level, stepped input or sine."""
 
     bench, connections = testbench_from_ports(
         "SampTb", {net.name: net for net in Nets.signals.values() if net.vis == h.Visibility.PORT}
     )
     bench.vvdd = Vdc(dc=tb.vdd)(p=bench.vdd, n=bench.vss)
+    period, high, edge = float(tb.clock_period_s), float(tb.clock_high_time_s), float(tb.clock_transition_time_s)
     for port in Nets.signals.values():
         if port.usage != h.Usage.CLOCK:
             continue
@@ -58,15 +67,18 @@ def testbench(tb: TbParams) -> h.Module:
                 width=tb.clock_high_time_s,
                 rise=tb.clock_transition_time_s,
                 fall=tb.clock_transition_time_s,
-                delay=tb.clock_delay_s,
+                delay=float(tb.clock_delay_s) + (float(tb.clock_skew_s) if complement else 0.0),
             )(p=net, n=bench.vss),
             name=f"v{net.name}",
         )
-    if float(tb.input_step_v) == 0.0:
+    if tb.stimulus is Stimulus.SINE:
+        bench.vvin = Vsin(
+            voff=tb.input_voltage, vamp=tb.sine_amplitude_v, freq=tb.sine_frequency_hz, td=0.0, phase=0.0
+        )(p=bench.vin, n=bench.vss)
+    elif float(tb.input_step_v) == 0.0:
         bench.vvin = Vdc(dc=tb.input_voltage)(p=bench.vin, n=bench.vss)
     else:
         # low for one period, high for the next, each change in the middle of a hold phase
-        period, high = float(tb.clock_period_s), float(tb.clock_high_time_s)
         bench.vvin = Vpulse(
             v1=float(tb.input_voltage) - float(tb.input_step_v) / 2,
             v2=float(tb.input_voltage) + float(tb.input_step_v) / 2,
@@ -76,32 +88,60 @@ def testbench(tb: TbParams) -> h.Module:
             fall=tb.clock_transition_time_s,
             delay=float(tb.clock_delay_s) + high + (period - high) / 2,
         )(p=bench.vin, n=bench.vss)
-    bench.cload = C(c=tb.cload)(p=bench.vout, n=bench.vss)
+    if float(tb.dac_step_v) == 0.0:
+        bench.cload = C(c=tb.cload)(p=bench.vout, n=bench.vss)
+    else:
+        # half the load on a source stepping by twice the step, so the held output steps by
+        # dac_step_v: a quarter into each hold phase, and back a quarter before the next track phase
+        bench.vdac = h.Signal()
+        hold = period - high - 2 * edge
+        bench.cload = C(c=float(tb.cload) / 2)(p=bench.vout, n=bench.vss)
+        bench.cdac = C(c=float(tb.cload) / 2)(p=bench.vout, n=bench.vdac)
+        bench.vvdac = Vpulse(
+            v1=0.0,
+            v2=2 * float(tb.dac_step_v),
+            period=period,
+            width=hold / 2 - edge,
+            rise=edge,
+            fall=edge,
+            delay=float(tb.clock_delay_s) + high + 2 * edge + hold / 4,
+        )(p=bench.vdac, n=bench.vss)
     bench.dut = netlist(tb.params)(**connections)
     return bench
 
 
 def simulate(tb: TbParams, run_dir: Path) -> Path:
-    """Run ``testbench(tb)`` in Spectre in ``run_dir``: its raw transient, in nutbin, on disk; the
-    output strobed every ``tb.waveform_sample_interval_s``, the step bounded to it. One Spectre
-    thread: a campaign runs one process per run."""
+    """Run ``testbench(tb)`` in classic Spectre in ``run_dir``, marked for the accuracy its figures
+    need (a sine's harmonics, else small differences of large signals), its raw transient on disk:
+    the output strobed every ``tb.waveform_sample_interval_s``, the step bounded to it, at the
+    conservative error preset; at ``tb.corner`` and ``tb.temperature_c``; with ``tb.oppoint`` every
+    transistor's operating values beside the signals."""
 
     pdk = importlib.import_module(f"pdk.{tb.pdk}")
     install = importlib.import_module(f"pdk.{tb.pdk}.hdl21.site").install
     run_dir.mkdir(parents=True, exist_ok=True)
     h.pdk.set_default(pdk.pdk_logic)
+    devices = oppoint.mos_devices(netlist(tb.params)) if tb.oppoint else {}
     bench = testbench(tb)
     h.pdk.compile(bench)
+    includes = spectre.includes(install, tb.corner)
+    boost = BOOST_SAVES if tb.params.switch_type is SwitchType.BOOTSTRAP else ()
     interval = tb.waveform_sample_interval_s
     attrs = [
-        *spectre.includes(install),
-        *spectre.options(),
-        hs.Save(list(SAVES)),
+        *includes,
+        *spectre.options(tb.temperature_c),
+        hs.Save([*SAVES, *boost, *(oppoint.saves(devices, bench, includes) if devices else ())]),
         hs.Tran(
             tstop=tb.stop_s,
             name="tran",
-            options={"strobeperiod": interval, "maxstep": interval, "strobeoutput": "strobeonly"},
+            options={
+                "strobeperiod": interval,
+                "maxstep": interval,
+                "strobeoutput": "strobeonly",
+                "errpreset": "conservative",
+            },
         ),
     ]
-    spectre.run(bench, attrs, run_dir)
+    mark = spectre.Accuracy.DISTORTION if tb.stimulus is Stimulus.SINE else spectre.Accuracy.SMALL_DIFFERENCE
+    spectre.run(bench, attrs, run_dir, fast=False, accuracy=mark)
     return run_dir / "netlist.raw"

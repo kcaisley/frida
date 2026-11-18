@@ -267,8 +267,8 @@ def _seconds(seconds: float) -> str:
 
 # a metric's unit by its name's last word, and its SI prefixes
 _UNITS = {"s": "s", "j": "J", "v": "V", "w": "W", "hz": "Hz", "ohm": "Ω", "f": "F", "a": "A"}
-# a rate's unit, its name's last two words (``droop_v_s``: volts a second)
-_RATES = {"v_s": "V/s", "a_s": "A/s"}
+# a quotient's unit, its name's last three words (``droop_v_per_s``: volts a second)
+_RATES = {"v_per_s": "V/s", "a_per_s": "A/s", "s_per_v": "s/V"}
 _PREFIXES = (
     (1e9, "G"),
     (1e6, "M"),
@@ -285,8 +285,8 @@ _PREFIXES = (
 
 def value(name: str, number: Any) -> str:
     """A metric's value as the dashboard shows it: a flag yes or no, a number in its unit (its name's
-    last word: ``_s``, ``_j``, ``_v``, ``_hz``, ``_ohm``, ``_um2`` ...; a rate's its last two,
-    ``_v_s``) with an SI prefix, three
+    last word: ``_s``, ``_j``, ``_v``, ``_hz``, ``_ohm``, ``_um2`` ...; a quotient's its last three,
+    ``_v_per_s``) with an SI prefix, three
     significant digits; not measured, a dash."""
     if number is None:
         return "–"
@@ -294,8 +294,8 @@ def value(name: str, number: Any) -> str:
         return "yes" if number else "no"
     if not isinstance(number, (int, float)):
         return str(number)
-    rate = "_".join(name.split("_")[-2:])
-    if rate in _RATES and name.count("_") >= 2:
+    rate = "_".join(name.split("_")[-3:])
+    if rate in _RATES and name.count("_") >= 3:
         scale, prefix = next(((s, p) for s, p in _PREFIXES if abs(number) >= s), _PREFIXES[-1])
         return f"{number / scale:.3g} {prefix}{_RATES[rate]}" if number else f"0 {_RATES[rate]}"
     unit = name.rsplit("_", 1)[-1] if "_" in name else ""
