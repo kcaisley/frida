@@ -1,8 +1,12 @@
 """The capacitive DAC's driver bands (``subckt._driver_rows``): rows at most, balance, outline."""
 
+from types import SimpleNamespace
+
 import hdl21 as h
+import pytest
 
 from . import subckt
+from .params import Params
 
 
 def test_balanced_rows_split_the_widths_as_evenly_as_it_goes() -> None:
@@ -69,3 +73,50 @@ def test_a_tie_cell_abuts_each_driver_and_both_sides_of_a_wide_one() -> None:
     entries, abut = subckt._tied_row(side, cell, (narrow, broad), {"broad"}, "main0")
     assert [e.name for e in entries] == ["Xtie_main0_0", "narrow", "Xtie_main0_1", "broad", "Xtie_main0_1r"]
     assert len(abut) == 2 and all(a.abut for a in abut)
+
+
+def test_a_driver_settles_its_stage_within_its_budget_past_its_chain(monkeypatch) -> None:
+    """``_drive_r_ohm``: the chain's inner inverters (each an FO4 delay), the plate's swing to
+    mid-supply at the switching resistance and the rest of its k time constants at the
+    on-resistance come to the budget, ``settle_ps`` over ``settle_margin``, at the kit's scale."""
+    import math
+
+    from flow.layout.devices.mosfet.table import MosfetTable
+
+    table = MosfetTable(
+        pdk="synthetic",
+        vdd_v=1.0,
+        switching_ohm={"NMOS/LOW": 10e3, "PMOS/LOW": 25e3},
+        triode_ohm={"NMOS/LOW": 4e3, "PMOS/LOW": 10e3},
+        fo4_delay_s={"LOW": 20e-12},
+    )
+    monkeypatch.setattr(subckt, "mosfet_table", lambda pdk: table)
+    monkeypatch.setattr("flow.layout.devices.mosfet.netlist.mosfet_table", lambda pdk: table)
+    params, load_f, share = Params(), 100e-15, 0.375
+    for scale in (1.0, 0.5):
+        monkeypatch.setattr(subckt, "import_module", lambda name, scale=scale: SimpleNamespace(DRIVER_TAU_SCALE=scale))
+        r_ohm = subckt._drive_r_ohm(params, share, load_f, "synthetic", False, 4.0)
+        chain = len(subckt.DriverRequest(r_ohm, False, fanin=4.0).stages("synthetic"))
+        k = math.log(2 ** (params.bits + 1) * share)
+        settle = (chain - 1) * 20e-12 + scale * load_f * r_ohm * (k - math.log(2) + math.log(2) * 2.5)
+        assert settle == pytest.approx(params.settle_ps * 1e-12 / params.settle_margin)
+
+
+def test_a_plates_load_is_its_drawn_capacitances(monkeypatch) -> None:
+    """``_plate_loads``: a plate's capacitance to the top plate in series with the rest of it, with
+    its capacitance to the shield and the substrate, and twice its coupling to the other plate."""
+    pairs = {
+        ("MAIN", "TOP"): 10e-15,
+        ("DIFF", "TOP"): 1e-15,
+        ("MAIN", "SHIELD"): 2e-15,
+        ("DIFF", "GROUND"): 0.5e-15,
+        ("DIFF", "MAIN"): 0.25e-15,
+        ("SHIELD", "TOP"): 3e-15,
+    }
+    table = SimpleNamespace(strip=lambda layers, net_f, whole_f: (None, None), capacitances=lambda geometry: pairs)
+    monkeypatch.setattr(subckt, "momcap_table", lambda pdk: table)
+    (main, diff), (other, _) = subckt._plate_loads("synthetic", 3, [[(1.0, 0.0)], [(1.0, 0.0)]], 1e-15, True)
+    top = 2 * 14e-15
+    assert main == pytest.approx(10e-15 * (top - 10e-15) / top + 2e-15 + 0.5e-15)
+    assert diff == pytest.approx(1e-15 * (top - 1e-15) / top + 0.5e-15 + 0.5e-15)
+    assert other == pytest.approx(main)

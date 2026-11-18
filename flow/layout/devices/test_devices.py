@@ -41,7 +41,12 @@ def test_every_pdk_has_every_table(kind: str, pdk: str) -> None:
 
 
 def _mosfets() -> MosfetTable:
-    return MosfetTable(pdk="synthetic", vdd_v=1.0, switching_ohm={"NMOS/LOW": 10e3, "PMOS/LOW": 25e3}, triode_ohm={})
+    return MosfetTable(
+        pdk="synthetic",
+        vdd_v=1.0,
+        switching_ohm={"NMOS/LOW": 10e3, "PMOS/LOW": 25e3},
+        triode_ohm={"NMOS/LOW": 4e3, "PMOS/LOW": 10e3},
+    )
 
 
 def test_a_width_is_the_narrowest_whole_number_of_units_that_reaches_the_resistance() -> None:
@@ -51,6 +56,9 @@ def test_a_width_is_the_narrowest_whole_number_of_units_that_reaches_the_resista
     assert table.width(MosType.PMOS, MosVth.LOW, 1e3).units == 25
     assert table.width(MosType.NMOS, MosVth.LOW, 1e9).units == 1
     assert table.resistance(table.width(MosType.NMOS, MosVth.LOW, 0.9e3)) <= 0.9e3
+    # by its on-resistance (the triode resistance a step's last time constants settle by)
+    assert table.width(MosType.PMOS, MosVth.LOW, 1e3, on=True).units == 10
+    assert table.resistance(table.width(MosType.NMOS, MosVth.LOW, 0.9e3, on=True), on=True) <= 0.9e3
 
 
 def test_a_driver_chain_tapers_at_fo4_from_its_flip_flop_and_keeps_its_polarity(
@@ -61,7 +69,7 @@ def test_a_driver_chain_tapers_at_fo4_from_its_flip_flop_and_keeps_its_polarity(
     for invert in (False, True):
         for fanin in (4.0, 2.5, 1.0):
             stages = DriverRequest(100.0, invert, fanin=fanin).stages("synthetic")
-            assert stages[-1] == (100, 250)  # each type from its own column
+            assert stages[-1] == (40, 100)  # each type from its own column, by its on-resistance
             assert len(stages) % 2 == (1 if invert else 0)
             loads = [_input(n, p) for n, p in stages]
             # the flip-flop drives it within its share of FO4, or the smallest inverter of its kind

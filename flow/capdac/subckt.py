@@ -27,8 +27,9 @@ several strips where short, several pieces in one where long; the stage's plates
 stage's last strip in the row's ring where it holds less; unit capacitors each in one unit or
 several, in a column array of so many rows. A stage's main bottom plates follow its state and its
 difference plates the complement, each through a request for a driver
-(``flow.layout.devices.mosfet``) of the resistance that settles the stage's step to half an LSB
-within ``settle_ps`` over ``settle_margin``. A minimum-strength flip-flop drives each state at FO4:
+(``flow.layout.devices.mosfet``) of the on-resistance that settles the stage's step to half an LSB
+within ``settle_ps`` over ``settle_margin`` (``_drive_r_ohm``: past its chain of FO4 delays, for its
+plate's load as the table draws it, ``_plate_loads``). A minimum-strength flip-flop drives each state at FO4:
 the difference driver one inverter (the complement), the main driver's chain loading it with what
 is left of four minimum inverters (``shared_fanin``); the difference drivers take the states on
 an input of their own (``dac_state_diff``), the same flip-flops' outputs brought from outside the
@@ -48,12 +49,14 @@ their drivers too (``params.WellTies``, ``_tied_row``).
 
 import json
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from importlib import import_module
 from itertools import combinations, pairwise
 from math import log
 
 import hdl21 as h
+from hdl21.primitives import MosType, MosVth
 
 from flow.circuit.cells import library_module
 from flow.circuit.ports import module_from_ports
@@ -61,6 +64,7 @@ from flow.layout.devices.device import FloorError, active_pdk
 from flow.layout.devices.momcap.geometry import ArrayKind, MomcapGeometry, Neighbour
 from flow.layout.devices.momcap.netlist import StripParams, UnitParams, array_outline_nm, strip, unit
 from flow.layout.devices.momcap.table import momcap_table, stacked_over_rows
+from flow.layout.devices.mosfet.geometry import flavor
 from flow.layout.devices.mosfet.netlist import (
     DriverParams,
     DriverRequest,
@@ -69,6 +73,7 @@ from flow.layout.devices.mosfet.netlist import (
     row_height_nm,
     shared_fanin,
 )
+from flow.layout.devices.mosfet.table import mosfet_table
 from flow.layout.hdl21align import constraints as c
 from flow.layout.hdl21align import place, row, rows
 from flow.layout.package import metal_tracks, pdk_dir
@@ -90,18 +95,88 @@ class Nets:
     vss = h.Ground(direction=h.PortDir.INOUT, desc="The DAC's ground, the capacitors' shield")
 
 
-def _drive_r_ohm(params: Params, share: float, plate_f: float, top_f: float) -> float:
-    """The resistance at most of a driver of a plate of ``plate_f`` in a stage of ``share`` of the
-    array's weight, which settles the stage's step to half an LSB within ``settle_ps`` over
-    ``settle_margin`` (the tables are the typical corner's). The step at the top plates, both
-    sides', is 2 V w C_unit / C_top; half an LSB is FS / 2^N, FS = V W C_unit / C_top for the
-    array's total weight W, so it takes ln(2^(N+1) w / W) time constants, about ln 4w: N ln 2 for
-    the binary MSB, ln 4 for a unit. The plate sees the rest of the top plate in series. A main and
-    a difference driver at one time constant settle together, their residues cancelling as their
-    steps do."""
+def _drive_r_ohm(params: Params, share: float, load_f: float, pdk: str, invert: bool, fanin: float) -> float:
+    """The on-resistance at most of a driver whose plate, of drawn load ``load_f`` (``_plate_loads``),
+    is in a stage of ``share`` of the array's weight, so that the stage's step settles to half an
+    LSB within ``settle_ps`` over ``settle_margin`` of its state's edge (the tables are the typical
+    corner's). The step at the top plates, both sides', is 2 V w C_unit / C_top; half an LSB is
+    FS / 2^N, FS = V W C_unit / C_top for the array's total weight W, so it takes k = ln(2^(N+1) w /
+    W) time constants, about ln 4w: N ln 2 for the binary MSB, ln 4 for a unit. The edge passes the
+    driver's chain first, each inner inverter one FO4 delay (it tapers at FO4; ``DriverRequest``);
+    its last inverter swings the plate to mid-supply in ln 2 time constants of its switching
+    resistance and settles the rest, k - ln 2 of them, at its on-resistance (in triode by then). A
+    main and a difference driver at one time constant settle together, their residues cancelling as
+    their steps do."""
+    table = mosfet_table(pdk)
+    # [Razavi-ADC] Sec. 8.2.2, p. 150: the DAC's settling time, here its budget
+    budget_s = params.settle_ps * 1e-12 / params.settle_margin
+    # [Razavi-Analog] Eq. (13.31), p. 552: a step settling as exp(-t / tau), k time constants to
+    # come from the step to half an LSB
     constants = log(2 ** (params.bits + 1) * share)
-    load_f = plate_f * (top_f - plate_f) / top_f
-    return params.settle_ps * 1e-12 / params.settle_margin / constants / load_f
+    # not in the reference texts: a step through a switch is half done after ln 2 time constants;
+    # the switch's resistance there its switching resistance, the kit's ``rho`` times its
+    # on-resistance ([Razavi-Analog] Eq. (2.11), p. 15), the slower type's
+    rho = max(
+        table.switching_ohm[flavor(tp, MosVth.LOW)] / table.triode_ohm[flavor(tp, MosVth.LOW)]
+        for tp in (MosType.NMOS, MosType.PMOS)
+    )
+    # the kit's own scale of the time constants, where the model misses its devices (its tech's
+    # ``DRIVER_TAU_SCALE``, measured over modelled; 1 where it gives none)
+    scale = getattr(import_module(f"pdk.{pdk}.layout.tech"), "DRIVER_TAU_SCALE", 1.0)
+    per_ohm = load_f * (constants - log(2) + log(2) * rho) * scale
+    # [Razavi-PLL] Sec. 1.4.1, p. 12: each inner inverter's gate delay, the kit's FO4 delay
+    gate_s = table.fo4(MosVth.LOW)
+    r_ohm, chain = budget_s / per_ohm, 0
+    while (count := len(DriverRequest(r_ohm, invert, fanin=fanin).stages(pdk))) != chain:
+        chain = count
+        if budget_s <= (chain - 1) * gate_s:
+            raise ValueError(
+                f"a chain of {chain} inverters takes {chain - 1} FO4 delays, the whole {budget_s:g} s budget"
+            )
+        r_ohm = (budget_s - (chain - 1) * gate_s) / per_ohm
+    return r_ohm
+
+
+def _plate_loads(
+    pdk: str, layers: int, strips: list[list[tuple[float, float]]], unit_f: float, difference: bool
+) -> list[tuple[float, float | None]]:
+    """Each stage's plates' loads as the PDK's momcap table draws them (its strips', or its units'):
+    the main (or a unit's inner) plate's and the difference plate's capacitance to the top plate in
+    series with the rest of the top plate, with their capacitances to the shield and the substrate,
+    and twice their capacitance to each other (they swing apart). A difference plate is a strip's
+    stub at the least where its piece is whole, the plates' share of the table's, not the design's."""
+    table = momcap_table(pdk)
+    drawn = [
+        [
+            {
+                frozenset(pair): c_f
+                for pair, c_f in table.capacitances(
+                    table.strip(layers, (main_u - diff_u) * unit_f, (main_u + diff_u) * unit_f)[0]
+                    if difference
+                    else table.unit(layers, main_u * unit_f, exact=True)[0]
+                ).items()
+            }
+            for main_u, diff_u in stage
+        ]
+        for stage in strips
+    ]
+    top_f = sum(c_f for stage in drawn for piece in stage for pair, c_f in piece.items() if "TOP" in pair)
+
+    if not difference:
+        return [(_plate_load(stage, "INNER", None, top_f), None) for stage in drawn]
+    return [(_plate_load(stage, "MAIN", "DIFF", top_f), _plate_load(stage, "DIFF", "MAIN", top_f)) for stage in drawn]
+
+
+def _plate_load(stage: list[dict[frozenset[str], float]], plate: str, other: str | None, top_f: float) -> float:
+    """One plate's load over a stage's pieces (``_plate_loads``): its capacitance to the top plate
+    in series with the rest of the top plate's (``top_f``, all of it), its capacitances to the
+    shield and the substrate, and twice its coupling to the ``other`` plate."""
+    to_top = sum(piece.get(frozenset((plate, "TOP")), 0.0) for piece in stage)
+    fixed = sum(piece.get(frozenset((plate, ground)), 0.0) for piece in stage for ground in ("SHIELD", "GROUND"))
+    apart = sum(piece.get(frozenset((plate, other)), 0.0) for piece in stage) if other else 0.0
+    # not in the reference texts: capacitors in series, and a coupling to a node swinging the
+    # other way counted twice (Miller)
+    return to_top * (top_f - to_top) / top_f + fixed + 2 * apart
 
 
 def _reference_v() -> float:
@@ -608,6 +683,25 @@ def _array_layers(pdk: str, most: int = 3) -> int:
     raise ValueError(f"{pdk}: no MOM metals over a horizontal metal on M2's tracks, where an array's channels run")
 
 
+def _keys(
+    params: Params, pdk: str, weights: Sequence[float], loads: list[tuple[float, float | None]], difference: bool
+) -> list[tuple[tuple[float, bool, float], tuple[float, bool, float] | None]]:
+    """Each stage's drivers (on-resistance, inversion, fan-in), for its plates' ``loads``: the main
+    plates' of its input, the difference plates' of its complement, both on the state's flip-flop:
+    the difference driver first, the main chain on what is left of the flip-flop's FO4."""
+    keys = []
+    for weight, (main_f, diff_f) in zip(weights, loads, strict=True):
+        share = weight / sum(weights)
+        diff_key = None
+        if difference and diff_f is not None:
+            fanin = shared_fanin(pdk, [])
+            diff_key = (_drive_r_ohm(params, share, diff_f, pdk, True, fanin), True, fanin)
+        beside = [DriverRequest(diff_key[0], True, fanin=diff_key[2])] if diff_key else []
+        fanin = shared_fanin(pdk, beside)
+        keys.append(((_drive_r_ohm(params, share, main_f, pdk, False, fanin), False, fanin), diff_key))
+    return keys
+
+
 # a fresh module every call: resolving the requests in a PDK swaps them in place
 @h.generator(enable_cache=False)
 def netlist(params: Params) -> h.Module:
@@ -635,52 +729,55 @@ def netlist(params: Params) -> h.Module:
             "the CDAC's layout plan takes its units' and drivers' sizes from the active PDK: none is set"
         )
     table, layers = momcap_table(pdk), _array_layers(pdk)
-    # each stage's drivers: the main plates' of its input, the difference plates' of its complement,
-    # both on the state's flip-flop: the difference driver first, the main chain on what is left of
-    # the flip-flop's FO4
-    keys: list[tuple[tuple[float, bool, float], tuple[float, bool, float] | None]] = []
-    for stage, weight in enumerate(weights):
-        share = weight / sum(weights)
-        main_f, diff_f = (max(unit_f, unit_f * sum(plate)) for plate in zip(*plates[stage], strict=True))
-        diff_key = (_drive_r_ohm(params, share, diff_f, top_f), True, shared_fanin(pdk, [])) if difference else None
-        beside = [DriverRequest(diff_key[0], True, fanin=diff_key[2])] if diff_key else []
-        keys.append(((_drive_r_ohm(params, share, main_f, top_f), False, shared_fanin(pdk, beside)), diff_key))
-    drives = sorted({key for pair in keys for key in pair if key is not None})
-
-    # the drivers' widths as drawn and the rows they stand in, of the outline the capacitors and the
-    # rows take together the least; a column unit's strip has its pins in the
-    # rows' band and a row above it, where the drivers reach it from below
-    requests = [
-        DriverRequest(d.r_ohm, d.invert, d.wide_input, d.mirror, d.fanin)
-        for d in (_drive(*key, difference) for key in drives)
+    # each stage's drivers sized for its plates' loads: first the design's (each plate in series
+    # with the rest of the top plate), then those the drawn arrangement gives (``_plate_loads``: its
+    # stubs and parasitics), until the arrangement, which the drivers' widths choose, stands still
+    designed = [[max(unit_f, unit_f * sum(plate)) for plate in zip(*stage, strict=True)] for stage in plates]
+    loads: list[tuple[float, float | None]] = [
+        (main_f * (top_f - main_f) / top_f, diff_f * (top_f - diff_f) / top_f) for main_f, diff_f in designed
     ]
-    widths = dict(zip(drives, driver_widths_nm(pdk, requests), strict=True))
-    row_nm = row_height_nm(pdk)
-    # a routing track between neighbouring difference drivers, on the metal the drivers rise on to
-    # the capacitors standing over them: a difference driver's output's few exits up to them are
-    # taken by its own state's drop and the strips' landing stubs unless its neighbour stands a track off
-    slice_ = stacked_over_rows(pdk, layers)
-    gap_nm = metal_tracks(pdk, f"M{slice_[0] - 1}")[0] if difference and slice_ is not None else 0
-    main_widths = [widths[main] for main, _ in keys]
-    diff_widths = [widths[diff] for _, diff in keys if diff is not None]
+    for _attempt in range(3):
+        keys = _keys(params, pdk, weights, loads, difference)
+        drives = sorted({key for pair in keys for key in pair if key is not None})
 
-    # the capacitors' arrangement whose side, with its driver bands, comes nearest two to one tall
-    # to wide: difference strips of a length (``_strip_length``, ``_strips``; the array the same,
-    # its plates' sums), unit pieces each in so many units in a column array of so many rows
-    # (``_unit_array``, ``_columns``); each piece's column, row and neighbours
-    bands = (main_widths, diff_widths, row_nm, slice_ is not None, gap_nm)
-    if difference:
-        scale = _strip_length(pdk, layers, plates, unit_f, params.coarse_weight, bands)
-        frame_f = params.coarse_weight * scale * unit_f
-        strips = _strips(plates, params.coarse_weight * scale)
-        outline = array_outline_nm(pdk, table.strip(layers, frame_f, frame_f)[0])
-        columns: list[list[tuple[int, int]]] = []
-    else:
-        fold, count = _unit_array(pdk, layers, [tuple(stage) for stage in pieces], unit_f, whole_f, bands)
-        frame_f = whole_f / fold
-        outline = array_outline_nm(pdk, table.unit(layers, frame_f, exact=True)[0])
-        strips = [[(p / fold, 0.0) for p in stage for _ in range(fold)] for stage in pieces]
-        columns = _columns([tuple(m for m, _ in stage) for stage in strips], count)
+        # the drivers' widths as drawn and the rows they stand in, of the outline the capacitors and the
+        # rows take together the least; a column unit's strip has its pins in the
+        # rows' band and a row above it, where the drivers reach it from below
+        requests = [
+            DriverRequest(d.r_ohm, d.invert, d.wide_input, d.mirror, d.fanin)
+            for d in (_drive(*key, difference) for key in drives)
+        ]
+        widths = dict(zip(drives, driver_widths_nm(pdk, requests), strict=True))
+        row_nm = row_height_nm(pdk)
+        # a routing track between neighbouring difference drivers, on the metal the drivers rise on to
+        # the capacitors standing over them: a difference driver's output's few exits up to them are
+        # taken by its own state's drop and the strips' landing stubs unless its neighbour stands a track off
+        slice_ = stacked_over_rows(pdk, layers)
+        gap_nm = metal_tracks(pdk, f"M{slice_[0] - 1}")[0] if difference and slice_ is not None else 0
+        main_widths = [widths[main] for main, _ in keys]
+        diff_widths = [widths[diff] for _, diff in keys if diff is not None]
+
+        # the capacitors' arrangement whose side, with its driver bands, comes nearest two to one tall
+        # to wide: difference strips of a length (``_strip_length``, ``_strips``; the array the same,
+        # its plates' sums), unit pieces each in so many units in a column array of so many rows
+        # (``_unit_array``, ``_columns``); each piece's column, row and neighbours
+        bands = (main_widths, diff_widths, row_nm, slice_ is not None, gap_nm)
+        if difference:
+            scale = _strip_length(pdk, layers, plates, unit_f, params.coarse_weight, bands)
+            frame_f = params.coarse_weight * scale * unit_f
+            strips = _strips(plates, params.coarse_weight * scale)
+            outline = array_outline_nm(pdk, table.strip(layers, frame_f, frame_f)[0])
+            columns: list[list[tuple[int, int]]] = []
+        else:
+            fold, count = _unit_array(pdk, layers, [tuple(stage) for stage in pieces], unit_f, whole_f, bands)
+            frame_f = whole_f / fold
+            outline = array_outline_nm(pdk, table.unit(layers, frame_f, exact=True)[0])
+            strips = [[(p / fold, 0.0) for p in stage for _ in range(fold)] for stage in pieces]
+            columns = _columns([tuple(m for m, _ in stage) for stage in strips], count)
+        drawn = _plate_loads(pdk, layers, strips, unit_f, difference)
+        if _keys(params, pdk, weights, drawn, difference) == keys:
+            break
+        loads = drawn
     at = {piece: (col, row) for col, column in enumerate(columns) for row, piece in enumerate(column)}
     wide, tall = (len(columns), max(map(len, columns))) if columns else (sum(map(len, strips)), 1)
     # where the kit's rails carry no taps (its row ends' tie cells alone tie the wells), a side wider

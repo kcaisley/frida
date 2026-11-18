@@ -4,7 +4,7 @@
 copies its input (or its complement, ``invert``) between the rails behind ``r_ohm``, so a netlist
 simulates before any PDK. Its view in a PDK (``DriverRequest.resolve``) is a chain of inverters of
 the PDK's core transistors at their minimum length, low threshold (the flavor the row cells draw): the last one's NMOS and PMOS each the narrowest
-whose switching resistance is at most ``r_ohm`` (``MosfetTable.width``: each type from its own
+whose on-resistance (its triode resistance) is at most ``r_ohm`` (``MosfetTable.width``: each type from its own
 column, so every PDK gets its own PMOS-to-NMOS ratio), the ones before it tapering evenly down to
 its source, a minimum-strength flip-flop: the fewest inverters of the request's polarity in which
 none drives more than four times its own input (FO4), the first loading the flip-flop at most
@@ -58,7 +58,7 @@ _TAPER = 4
 
 @h.paramclass
 class DriverParams:
-    r_ohm = h.Param(dtype=PositiveFloat, desc="Its output resistance at most (ohm)")
+    r_ohm = h.Param(dtype=PositiveFloat, desc="Its output's on-resistance at most (ohm)")
     invert = h.Param(dtype=bool, desc="Whether it drives its input's complement", default=False)
     wide_input = h.Param(
         dtype=bool,
@@ -104,15 +104,16 @@ class DriverRequest:
     def stages(self, pdk: str) -> list[tuple[int, int]]:
         """The chain's inverters, input first: each one's NMOS and PMOS widths in unit widths.
 
-        The last is the narrowest at ``r_ohm``. The ones before it taper evenly from the source, a
-        minimum-strength flip-flop (it drives as the minimum inverter does), counted as the stage
-        before the first at a quarter of ``fanin`` minimum inverters, so that the first loads it at
-        most ``fanin`` of them: the fewest inverters of the request's polarity (an odd count
-        inverts) in which none drives more than four times its own input (FO4), each inner one the
-        inverter whose input is nearest its step of the taper (``_pick``)."""
+        The last is the narrowest whose on-resistance (each type's triode resistance, the one a
+        step's last time constants settle by) is at most ``r_ohm``. The ones before it taper evenly
+        from the source, a minimum-strength flip-flop (it drives as the minimum inverter does),
+        counted as the stage before the first at a quarter of ``fanin`` minimum inverters, so that
+        the first loads it at most ``fanin`` of them: the fewest inverters of the request's polarity
+        (an odd count inverts) in which none drives more than four times its own input (FO4), each
+        inner one the inverter whose input is nearest its step of the taper (``_pick``)."""
         table = mosfet_table(pdk)
-        n = table.width(MosType.NMOS, MosVth.LOW, self.r_ohm).units
-        p = table.width(MosType.PMOS, MosVth.LOW, self.r_ohm).units
+        n = table.width(MosType.NMOS, MosVth.LOW, self.r_ohm, on=True).units
+        p = table.width(MosType.PMOS, MosVth.LOW, self.r_ohm, on=True).units
         ratio, last = p / n, _input(n, p)
         source = _input(1, 1) * self.fanin / _TAPER
         smallest = _input(1, max(1, round(ratio)))  # the least a stage can be, whatever its budget
